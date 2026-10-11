@@ -171,7 +171,12 @@ fn exchange(
     sent: &mut dyn FnMut(),
 ) -> Result<net::Reply, Error> {
     let mut wire = net::connect(peer.ip, peer.port, peer.https, &peer.fingerprint, timeout)
-        .map_err(|e| peer_io(&peer.alias, &e, |peer, detail| Error::PeerUnreachable { peer, detail }))?;
+        .map_err(|e| {
+            peer_io(&peer.alias, &e, |peer, detail| Error::PeerUnreachable {
+                peer,
+                detail,
+            })
+        })?;
     register(wire.tcp().try_clone().ok());
     let payload = json.unwrap_or(&[]);
     let host = format!("{}:{}", peer.ip, peer.port);
@@ -191,7 +196,12 @@ fn exchange(
     );
     wire.finish();
     register(None);
-    result.map_err(|e| peer_io(&peer.alias, &e, |peer, detail| Error::PeerLost { peer, detail }))
+    result.map_err(|e| {
+        peer_io(&peer.alias, &e, |peer, detail| Error::PeerLost {
+            peer,
+            detail,
+        })
+    })
 }
 
 fn query(session: &str, file: &str, token: &str) -> String {
@@ -371,7 +381,12 @@ fn upload_one(
         &peer.fingerprint,
         Duration::from_secs(120),
     )
-    .map_err(|e| peer_io(&peer.alias, &e, |peer, detail| Error::PeerUnreachable { peer, detail }))?;
+    .map_err(|e| {
+        peer_io(&peer.alias, &e, |peer, detail| Error::PeerUnreachable {
+            peer,
+            detail,
+        })
+    })?;
     register(wire.tcp().try_clone().ok());
     let host = format!("{}:{}", peer.ip, peer.port);
     let result = net::call(
@@ -507,12 +522,7 @@ mod tests {
         let entries = expand(&[SendItem::Text("hi".into())]).unwrap();
         let cancel = AtomicBool::new(false);
         let result = deliver(&me(), &peer, &entries, false, &cancel, &|_| {}, &mut |_| {});
-        assert_eq!(
-            result,
-            Err(Error::InvalidIdentity {
-                peer: "Odd".into()
-            })
-        );
+        assert_eq!(result, Err(Error::InvalidIdentity { peer: "Odd".into() }));
     }
 
     #[test]

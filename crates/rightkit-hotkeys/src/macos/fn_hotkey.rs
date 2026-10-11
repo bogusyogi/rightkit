@@ -38,12 +38,14 @@ pub enum PttKey {
 }
 
 impl PttKey {
+    /// Parse through the crate-wide macOS alias table ([`crate::PttAlias`]): `ctrl` (also
+    /// `control`, `lctrl`, `rctrl`), `lalt`, `ralt` (also `loption`, `roption`).
     pub fn parse(name: &str) -> Option<PttKey> {
-        match name.trim().to_ascii_lowercase().as_str() {
-            "ctrl" | "control" | "lctrl" | "rctrl" => Some(PttKey::Control),
-            "lalt" | "loption" => Some(PttKey::LeftOption),
-            "ralt" | "roption" => Some(PttKey::RightOption),
-            _ => None,
+        use crate::chord::{Platform, PttAlias};
+        match PttAlias::parse(name, Platform::Mac).ok()? {
+            PttAlias::Ctrl | PttAlias::RightCtrl => Some(PttKey::Control),
+            PttAlias::LeftAlt => Some(PttKey::LeftOption),
+            PttAlias::RightAlt => Some(PttKey::RightOption),
         }
     }
 

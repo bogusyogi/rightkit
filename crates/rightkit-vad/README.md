@@ -56,3 +56,10 @@ if let Some(reason) = &report.fallback_reason {
 }
 let spans = scorer.detect(&samples_16k_mono, &VadConfig::default())?;
 ```
+
+## Suites that need local assets (skipped on hosted CI)
+
+A hosted runner has none of these assets, so each test prints `SKIP <test>: ...` and passes. Set `RIGHTKIT_REQUIRE_ASSETS=1` on a host that must have them, and the test fails instead.
+
+- `tests/e2e_silero.rs` (all tests that load a model): the Silero model `silero_vad_16k_op15.onnx`, enabled by `RIGHTKIT_VAD_MODEL=<path>`.
+- `tests/e2e_silero.rs` (all tests that load a model, and `corrupt_model_bytes_fall_back_to_energy_with_reason`) on macOS: the ONNX Runtime 1.24.4 dylib, enabled by `RIGHTKIT_ORT_TEST_DYLIB=<path>` or a `genright/.cache/...` download.

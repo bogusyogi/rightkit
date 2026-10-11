@@ -61,3 +61,9 @@ Illustrative; not compiled as a doctest. For compiled usage, see `tests/e2e.rs`.
 ## Verification
 
 Run through the RightKit wrapper: `rightkit cargo test -p rightkit-tts`. Add `--features engine` to cover the QTS worker.
+
+## Suites that need local assets (skipped on hosted CI)
+
+A hosted runner has none of these assets, so each test prints `SKIP <test>: ...` and passes. Set `RIGHTKIT_REQUIRE_ASSETS=1` on a host that must have them, and the test fails instead.
+
+- `tests/e2e.rs`, `qts_real_synthesis_writes_non_silent_audio_and_transcript` (run with `--features engine`): needs the QTS model directory `/private/tmp/gre2e-qts/models/qts` and ONNX Runtime `/private/tmp/gre2e-qts/runtime/qts/libonnxruntime.dylib`. Enabled by staging both there.

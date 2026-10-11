@@ -440,7 +440,7 @@ impl Runner {
             let (recovery, gen) = self.store.run_class(&id)?;
             if recovery == Recovery::Never && gen > 0 {
                 if let Some(job) = self.interrupt(&id)? {
-                    out.push(Scanned::Interrupted(job));
+                    out.push(Scanned::Interrupted(Box::new(job)));
                 }
             } else {
                 out.push(Scanned::Resume(id));
@@ -646,7 +646,7 @@ impl Runner {
         for scanned in self.scan_recoverable()? {
             out.push(match scanned {
                 Scanned::Resume(id) => self.run(&id)?,
-                Scanned::Interrupted(job) => RunOutcome::Finished(job),
+                Scanned::Interrupted(job) => RunOutcome::Finished(*job),
             });
         }
         Ok(out)
@@ -655,7 +655,7 @@ impl Runner {
 
 enum Scanned {
     Resume(String),
-    Interrupted(Job),
+    Interrupted(Box<Job>),
 }
 
 /// Drops the job's cancel flag from the store registry when its run ends, however it ends.

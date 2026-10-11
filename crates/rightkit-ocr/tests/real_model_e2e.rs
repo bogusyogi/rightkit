@@ -1,9 +1,12 @@
 //! Real-model end-to-end gate (platform bundled-dylib parity). Opt-in: set
 //! `RIGHTKIT_OCR_MODEL_DIR` (absolute dir holding det.onnx/rec.onnx/en_dict.txt)
 //! and `RIGHTKIT_OCR_ORT_RUNTIME` (absolute path to the platform ONNX Runtime
-//! library). Without both the test reports SKIPPED and passes, so the default
-//! suite stays model-free; the gate evidence run must set them.
+//! library). Without both the test prints a SKIP line and passes (it panics under
+//! `RIGHTKIT_REQUIRE_ASSETS=1`), so the default suite stays model-free; the gate evidence run must
+//! set them.
 #![cfg(feature = "onnx")]
+
+mod common;
 
 use base64::Engine;
 use rightkit_ocr::{OcrArtifactManifest, OcrEngine};
@@ -14,16 +17,19 @@ fn bundled_runtime_reproduces_the_characterized_fixture_output() {
     let (Some(models), Some(runtime)) = (
         locate(
             "RIGHTKIT_OCR_MODEL_DIR",
-            "../../../../scraperight/models/ocr/det.onnx",
+            "scraperight/models/ocr/det.onnx",
             true,
         ),
         locate(
             "RIGHTKIT_OCR_ORT_RUNTIME",
-            "../../../bin/libonnxruntime.dylib",
+            "bin/libonnxruntime.dylib",
             false,
         ),
     ) else {
-        eprintln!("SKIPPED: models/runtime not found (set RIGHTKIT_OCR_MODEL_DIR / RIGHTKIT_OCR_ORT_RUNTIME)");
+        common::skip_missing(
+            "PP-OCR ONNX models and ONNX Runtime",
+            "RIGHTKIT_OCR_MODEL_DIR and RIGHTKIT_OCR_ORT_RUNTIME, or scraperight/models/ocr and bin/libonnxruntime.dylib found by walking up from this crate",
+        );
         return;
     };
     configure_runtime([RuntimeCandidate::new(runtime, CandidateSource::Explicit)]).unwrap();
@@ -50,10 +56,7 @@ fn bundled_runtime_reproduces_the_characterized_fixture_output() {
 fn locate(var: &str, relative: &str, parent: bool) -> Option<std::path::PathBuf> {
     let found = std::env::var_os(var)
         .map(std::path::PathBuf::from)
-        .or_else(|| {
-            let p = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(relative);
-            p.exists().then(|| p.canonicalize().ok()).flatten()
-        })?;
+        .or_else(|| common::workspace_asset(relative).and_then(|p| p.canonicalize().ok()))?;
     if parent {
         if found.is_dir() {
             Some(found)

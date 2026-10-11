@@ -1233,6 +1233,9 @@ fn run_owned_process(
 }
 
 #[cfg(test)]
+mod test_support;
+
+#[cfg(test)]
 mod tests {
     use std::{
         ffi::OsString,
@@ -2059,7 +2062,10 @@ mod tests {
             .map(|up| manifest.join(up).join("ffmpeg-lgpl/ffmpeg-win-x64.exe"))
             .find(|path| path.is_file())
         else {
-            eprintln!("SKIPPED: vendor/ffmpeg-lgpl/ffmpeg-win-x64.exe is not on this host");
+            crate::test_support::skip_missing(
+                "approved vendor/ffmpeg-lgpl/ffmpeg-win-x64.exe",
+                "vendor/ffmpeg-lgpl under ../../../ or ../../../../ from crates/rightkit-media",
+            );
             return;
         };
         // The embedded row: its contentSha256 is the Authenticode hash, not the file hash.

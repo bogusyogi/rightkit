@@ -18,6 +18,11 @@ pub enum Error {
     Denied,
     #[error("credential store operation {op} timed out after {secs}s")]
     Timeout { op: &'static str, secs: u64 },
+    /// An earlier mutation of the same credential timed out and is still running inside the
+    /// OS credential store. Starting another one now could be overwritten by it, so the new
+    /// call is refused; retry once the earlier call has finished.
+    #[error("credential store operation {op} refused: an earlier change to this credential is still in progress")]
+    InProgress { op: &'static str },
     #[error("invalid {what}: {reason}")]
     Invalid { what: &'static str, reason: String },
     /// Any other OS failure: operation name and OS status code only.
@@ -42,6 +47,7 @@ impl Error {
                 | Error::InteractionRequired
                 | Error::Denied
                 | Error::Timeout { .. }
+                | Error::InProgress { .. }
         )
     }
 }

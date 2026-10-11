@@ -11,7 +11,12 @@
 //! HeardRight's engine. The API is a superset of `orthic-speech-client` 0.1, so
 //! HeardRight/CutRight swap the dependency only. See `API.md`.
 
+mod cues;
+mod preflight;
 mod protocol;
+
+pub use cues::{parse_srt_cues, Cue};
+pub use preflight::preflight_file;
 
 use std::fmt;
 use std::io::{BufReader, Write};
@@ -59,13 +64,18 @@ pub enum ClientError {
     /// No frame (result or progress) arrived within the stall timeout.
     Timeout,
     Io(String),
-    /// The caller's [`CancelToken`] fired; the connection was closed so the host cancels the job.
+    /// The caller's [`CancelToken`] fired and the connection was closed. The service may
+    /// still finish the job: the wire has no cancel message. [`cancel_request`] reports
+    /// what the service did.
     Cancelled,
     /// The host's protocol minor cannot honour the request (for example Whisper on a v1.0 host).
     Unsupported(String),
     /// Minor-3 host lost: connection closed, pid dead, or `service.json` withdrawn or
     /// replaced. Re-discover and resubmit with the same request id (idempotent).
     HostGone,
+    /// [`Launch::Never`] found no live service host. Nothing was launched and no takeover
+    /// was requested.
+    NoLiveHost,
 }
 
 impl fmt::Display for ClientError {
@@ -82,6 +92,7 @@ impl fmt::Display for ClientError {
             Self::Cancelled => write!(f, "speech request cancelled"),
             Self::Unsupported(m) => write!(f, "speech service cannot serve this request: {m}"),
             Self::HostGone => write!(f, "speech service host went away; resubmit"),
+            Self::NoLiveHost => write!(f, "no speech service is live and launching is disabled"),
         }
     }
 }
@@ -294,13 +305,57 @@ pub fn start_installed_heardright(
 }
 
 // ---------------------------------------------------------------------------
+// Launch policy
+// ---------------------------------------------------------------------------
+
+/// Whether a transcription call may start a speech host when none is live.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum Launch {
+    /// Start an installed HeardRight host when no service is live, as
+    /// [`transcribe_via_service_with`] always has. The default.
+    #[default]
+    Auto,
+    /// Use a live host as found, whatever its role. Never launch and never request a
+    /// takeover. With no live host the call returns [`ClientError::NoLiveHost`] and does
+    /// nothing else.
+    Never,
+}
+
+/// Starts an installed speech host when a call finds none live. Implement it to observe
+/// or replace the launch. [`HeardRightLauncher`] is the default.
+pub trait HostLauncher {
+    /// Start `engine_path` as a speech host and return once a live `service.json` appears.
+    /// Any error makes the call return [`ClientError::NoService`].
+    fn launch(&self, suite_root: &Path, engine_path: &Path) -> Result<(), ClientError>;
+}
+
+/// The default [`HostLauncher`]: starts the installed HeardRight engine detached with
+/// [`EngineLaunch::heardright`] and waits up to 60 s for a live record. Errors: `Timeout`
+/// or `Io` from [`start_installed_engine`].
+#[derive(Debug, Clone, Copy, Default)]
+pub struct HeardRightLauncher;
+
+impl HostLauncher for HeardRightLauncher {
+    fn launch(&self, suite_root: &Path, engine_path: &Path) -> Result<(), ClientError> {
+        start_installed_engine(
+            suite_root,
+            engine_path,
+            &EngineLaunch::heardright(),
+            Duration::from_secs(60),
+        )
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Progress, cancel, options
 // ---------------------------------------------------------------------------
 
 /// Cooperative cancel. Clone it into the thread that may cancel; the request
-/// returns [`ClientError::Cancelled`] within ~100 ms and the connection is
-/// closed, which makes the host cancel the file job (HeardRight's host cancels
-/// on disconnect).
+/// returns [`ClientError::Cancelled`] within ~100 ms and its connection is closed.
+/// Closing the connection is not a cancel on the wire. HeardRight's queue host does
+/// not stop a job when its client disconnects (its dispatcher passes a cancel flag
+/// that nothing sets), so the job runs to completion and its result is kept for
+/// re-attach. [`cancel_request`] reports what the service did.
 #[derive(Debug, Clone, Default)]
 pub struct CancelToken(Arc<AtomicBool>);
 
@@ -626,9 +681,9 @@ impl SpeechClient {
         }
     }
 
-    fn handshake(&mut self) -> Result<(), ClientError> {
+    fn handshake(&mut self, timeout: Duration) -> Result<(), ClientError> {
         let frame = ServiceEnvelope::health(&next_request_id(), TRACE_ID);
-        let response = self.call_raw(&frame, HANDSHAKE_TIMEOUT, None, None)?;
+        let response = self.call_raw(&frame, timeout, None, None)?;
         if let Some(error) = &response.error {
             return Err(map_error(error));
         }
@@ -677,25 +732,30 @@ impl SpeechClient {
 
     /// Minor 3: one-shot state of `job_id` (a request id this or an earlier client submitted).
     pub fn job_status(&mut self, job_id: &str) -> Result<JobStatus, ClientError> {
-        if !self.supports_queue()? {
-            return Err(ClientError::Unsupported(
-                "host does not advertise the job-queue contract".into(),
-            ));
+        match self.status_within(job_id, HANDSHAKE_TIMEOUT)? {
+            RawStatus::Active(p) => Ok(JobStatus::Active(p)),
+            RawStatus::Done(r) => Ok(JobStatus::Done(r)),
+            RawStatus::Unknown => Ok(JobStatus::Unknown),
+            RawStatus::Failed(e) => Err(map_error(&e)),
+        }
+    }
+
+    /// The status of `job_id`. Each wire reply is bounded by `timeout`, and the capabilities
+    /// call (made once per connection) is too.
+    fn status_within(&mut self, job_id: &str, timeout: Duration) -> Result<RawStatus, ClientError> {
+        if !self.supports_engine_selection() {
+            return Err(unqueued());
+        }
+        let caps = match &self.caps {
+            Some(c) => c.clone(),
+            None => self.capabilities(timeout)?,
+        };
+        if !caps.supports_queue() {
+            return Err(unqueued());
         }
         let frame = ServiceEnvelope::status_request(&next_request_id(), TRACE_ID, job_id);
-        let response = self.call_raw(&frame, HANDSHAKE_TIMEOUT, None, None)?;
-        match &response.error {
-            Some(e) if e.code == ERROR_JOB_UNKNOWN => return Ok(JobStatus::Unknown),
-            Some(e) => return Err(map_error(e)),
-            None => {}
-        }
-        if let Some(p) = response.host_progress() {
-            return Ok(JobStatus::Active(p));
-        }
-        response
-            .transcript_result()
-            .map(JobStatus::Done)
-            .ok_or_else(|| ClientError::Io("unexpected status response".into()))
+        let response = self.call_raw(&frame, timeout, None, None)?;
+        parse_status(&response)
     }
 
     /// Transcribe with the host's default engine (parity with `orthic-speech-client`).
@@ -771,8 +831,41 @@ impl SpeechClient {
     }
 }
 
+/// One status reply, before the caller decides what it means.
+enum RawStatus {
+    Active(HostProgress),
+    Done(FileTranscriptResult),
+    /// The job finished with this error, which the service stored for it.
+    Failed(ServiceErrorPayload),
+    Unknown,
+}
+
+fn unqueued() -> ClientError {
+    ClientError::Unsupported("host does not advertise the job-queue contract".into())
+}
+
+fn parse_status(response: &ServiceEnvelope) -> Result<RawStatus, ClientError> {
+    match &response.error {
+        Some(e) if e.code == ERROR_JOB_UNKNOWN => return Ok(RawStatus::Unknown),
+        Some(e) => return Ok(RawStatus::Failed(e.clone())),
+        None => {}
+    }
+    if let Some(p) = response.host_progress() {
+        return Ok(RawStatus::Active(p));
+    }
+    response
+        .transcript_result()
+        .map(RawStatus::Done)
+        .ok_or_else(|| ClientError::Io("unexpected status response".into()))
+}
+
 /// Connect to the running service and complete the health handshake.
 pub fn connect(suite_root: &Path) -> Result<SpeechClient, ClientError> {
+    connect_within(suite_root, HANDSHAKE_TIMEOUT)
+}
+
+/// [`connect`] with the handshake bounded by `timeout`.
+fn connect_within(suite_root: &Path, timeout: Duration) -> Result<SpeechClient, ClientError> {
     let record = read_live_record(suite_root).ok_or(ClientError::NoService)?;
     if record.protocol_major != SERVICE_PROTOCOL_MAJOR {
         return Err(ClientError::ProtocolMismatch {
@@ -816,7 +909,7 @@ pub fn connect(suite_root: &Path) -> Result<SpeechClient, ClientError> {
         caps: None,
         dead: false,
     };
-    client.handshake()?;
+    client.handshake(timeout)?;
     Ok(client)
 }
 
@@ -851,6 +944,28 @@ pub fn transcribe_via_service_with(
     path: &Path,
     opts: &mut TranscribeOptions,
 ) -> Result<FileTranscriptResult, ClientError> {
+    transcribe_via_service_policy(
+        suite_root,
+        my_role,
+        path,
+        opts,
+        Launch::Auto,
+        &HeardRightLauncher,
+    )
+}
+
+/// [`transcribe_via_service_with`] with the launch decided by `launch` and performed by
+/// `launcher`. With [`Launch::Never`] the launcher is never called and no takeover is
+/// requested: a live record is used as found, or the call returns
+/// [`ClientError::NoLiveHost`]. On a handoff retry the live-host check runs again.
+pub fn transcribe_via_service_policy(
+    suite_root: &Path,
+    my_role: HostRole,
+    path: &Path,
+    opts: &mut TranscribeOptions,
+    launch: Launch,
+    launcher: &dyn HostLauncher,
+) -> Result<FileTranscriptResult, ClientError> {
     // One idempotency key for every attempt: a minor-3 host attaches a resubmit to the same job.
     if opts.request_id.is_none() {
         opts.request_id = Some(next_request_id());
@@ -860,22 +975,24 @@ pub fn transcribe_via_service_with(
         if opts.cancelled() {
             return Err(ClientError::Cancelled);
         }
-        match plan_host(suite_root, my_role) {
-            HostPlan::UseRunning => {}
-            HostPlan::StartInstalledHeardRight(engine) => {
-                opts.report(Progress::StartingHost);
-                if start_installed_engine(
-                    suite_root,
-                    &engine,
-                    &EngineLaunch::heardright(),
-                    Duration::from_secs(60),
-                )
-                .is_err()
-                {
-                    return Err(ClientError::NoService);
+        match launch {
+            Launch::Never => {
+                if read_live_record(suite_root).is_none() {
+                    return Err(ClientError::NoLiveHost);
                 }
             }
-            HostPlan::HostMyself | HostPlan::TakeOver { .. } => return Err(ClientError::NoService),
+            Launch::Auto => match plan_host(suite_root, my_role) {
+                HostPlan::UseRunning => {}
+                HostPlan::StartInstalledHeardRight(engine) => {
+                    opts.report(Progress::StartingHost);
+                    if launcher.launch(suite_root, &engine).is_err() {
+                        return Err(ClientError::NoService);
+                    }
+                }
+                HostPlan::HostMyself | HostPlan::TakeOver { .. } => {
+                    return Err(ClientError::NoService)
+                }
+            },
         }
         opts.report(Progress::Connecting {
             attempt: attempt + 1,
@@ -917,6 +1034,76 @@ pub fn transcribe_via_service(
         &mut TranscribeOptions::new(timeout),
     )
     .map(|r| r.transcript)
+}
+
+// ---------------------------------------------------------------------------
+// Cancel outcome
+// ---------------------------------------------------------------------------
+
+/// What [`cancel_request`] learned about a request. The protocol has no cancel
+/// acknowledgement, so no variant reports that the service stopped the job.
+#[derive(Debug, Clone, PartialEq)]
+pub enum CancelOutcome {
+    /// The service reports the job had finished before the cancel. `Ok` is its stored
+    /// transcript. `Err` is the failure the service stored; `HandoffRetry` means the job
+    /// ended in a host handoff, so resubmit with the same request id.
+    Finished(Result<FileTranscriptResult, ClientError>),
+    /// The service still holds the job queued or running. The cancel did not stop it: the
+    /// wire has no cancel message, and closing the connection does not stop a job on
+    /// HeardRight's queue host.
+    StillActive(HostProgress),
+    /// The service holds no queued, running or retained job under the id, so nothing is
+    /// running for it on that service. This is absence, not an acknowledgement: the result
+    /// may have expired (retained 10 minutes), the host may have restarted, or the request
+    /// may never have reached it.
+    NoLongerActive,
+    /// The outcome cannot be learned: no live service (`NoService`), the connection failed
+    /// or closed (`Io`), no reply within the bound (`Timeout`), or an empty request id or a
+    /// host below protocol minor 3 (`Unsupported`).
+    Unknown(ClientError),
+}
+
+/// Cancel the request that `cancel` belongs to, then ask the live service what became of
+/// `request_id`: the id the request was sent with (set it with
+/// [`TranscribeOptions::request_id`]). `cancel` fires at once. Each wire step gets only the
+/// time left of `bound`, so the call returns within about `bound`.
+pub fn cancel_request(
+    suite_root: &Path,
+    cancel: &CancelToken,
+    request_id: &str,
+    bound: Duration,
+) -> CancelOutcome {
+    cancel.cancel();
+    if request_id.is_empty() {
+        return CancelOutcome::Unknown(ClientError::Unsupported(
+            "a request id is required to learn a cancel outcome".into(),
+        ));
+    }
+    let deadline = Instant::now() + bound;
+    let Some(left) = time_left(deadline) else {
+        return CancelOutcome::Unknown(ClientError::Timeout);
+    };
+    let mut client = match connect_within(suite_root, left) {
+        Ok(client) => client,
+        Err(error) => return CancelOutcome::Unknown(error),
+    };
+    let Some(left) = time_left(deadline) else {
+        return CancelOutcome::Unknown(ClientError::Timeout);
+    };
+    match client.status_within(request_id, left) {
+        Ok(RawStatus::Active(progress)) => CancelOutcome::StillActive(progress),
+        Ok(RawStatus::Done(result)) => CancelOutcome::Finished(Ok(result)),
+        Ok(RawStatus::Failed(error)) => CancelOutcome::Finished(Err(map_error(&error))),
+        Ok(RawStatus::Unknown) => CancelOutcome::NoLongerActive,
+        Err(error) => CancelOutcome::Unknown(error),
+    }
+}
+
+/// The time left before `deadline`, or `None` once it has passed.
+fn time_left(deadline: Instant) -> Option<Duration> {
+    deadline
+        .checked_duration_since(Instant::now())
+        .filter(|left| !left.is_zero())
 }
 
 /// Map a host progress frame to the typed client event. Minor-3 hosts get

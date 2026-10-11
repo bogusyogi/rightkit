@@ -196,8 +196,9 @@ fn stdio_contract_streams_events_and_resyncs() {
     assert_eq!(resp(5)["ok"], true);
 }
 
+#[cfg(feature = "supervisor")]
 #[test]
-fn client_cli_roundtrip_over_pipes() {
+fn client_roundtrip_over_pipes() {
     let e = env();
     let d = Arc::new(
         Dispatcher::new("test-engine", "1.0.0").with(Arc::new(JobCommands::new(e.runner.clone()))),
@@ -234,8 +235,15 @@ fn client_cli_roundtrip_over_pipes() {
     );
     client.shutdown(std::time::Duration::from_secs(1));
     server.join().unwrap();
+}
 
-    // CLI: same dispatcher, request-id dedup, error envelope, stdin untouched.
+/// CLI: same dispatcher, request-id dedup, error envelope, stdin untouched.
+#[test]
+fn cli_roundtrip_dedups_and_wraps_errors() {
+    let e = env();
+    let d = Arc::new(
+        Dispatcher::new("test-engine", "1.0.0").with(Arc::new(JobCommands::new(e.runner.clone()))),
+    );
     let run = |args: &[&str]| {
         let (mut out, mut err) = (Vec::new(), Vec::new());
         let code = run_cli(
@@ -286,6 +294,7 @@ impl std::io::Write for SharedBuf {
 
 /// An event callback may call back into the client: callbacks run on the
 /// caller's thread, not under the pending-map lock or on the reader.
+#[cfg(feature = "supervisor")]
 #[test]
 fn event_callback_can_reenter_the_client() {
     let e = env();
@@ -332,7 +341,7 @@ fn event_callback_can_reenter_the_client() {
 }
 
 /// A real child that says hello, then never answers and ignores SIGTERM.
-#[cfg(unix)]
+#[cfg(all(unix, feature = "supervisor"))]
 #[test]
 fn shutdown_of_a_hung_engine_is_bounded_and_kills_the_child() {
     use rightkit_process::OwnedCommand;
@@ -389,7 +398,7 @@ fn shutdown_of_a_hung_engine_is_bounded_and_kills_the_child() {
     assert!(gone, "hung engine pid {pid} still alive after shutdown");
 }
 
-#[cfg(unix)]
+#[cfg(all(unix, feature = "supervisor"))]
 fn alive(pid: i32) -> bool {
     std::process::Command::new("kill")
         .args(["-0", &pid.to_string()])
@@ -400,7 +409,7 @@ fn alive(pid: i32) -> bool {
 }
 
 /// Real child that never sends hello: spawn gives up, kills it, typed error.
-#[cfg(unix)]
+#[cfg(all(unix, feature = "supervisor"))]
 #[test]
 fn spawn_bounds_the_hello_wait_and_kills_a_silent_child() {
     use rightkit_process::OwnedCommand;
@@ -435,7 +444,7 @@ fn spawn_bounds_the_hello_wait_and_kills_a_silent_child() {
 
 /// Real child that says hello but never reads stdin: a request bigger than the
 /// pipe buffer blocks the write; call_timeout must fail and kill the child.
-#[cfg(unix)]
+#[cfg(all(unix, feature = "supervisor"))]
 #[test]
 fn call_timeout_covers_a_write_blocked_on_a_full_pipe() {
     use rightkit_process::OwnedCommand;
@@ -481,6 +490,7 @@ fn call_timeout_covers_a_write_blocked_on_a_full_pipe() {
 
 /// Frame callbacks receive the request id each event was tagged with, so two
 /// calls on one connection stay apart.
+#[cfg(feature = "supervisor")]
 #[test]
 fn call_with_frames_delivers_each_requests_id() {
     let e = env();
@@ -511,8 +521,14 @@ fn call_with_frames_delivers_each_requests_id() {
     };
     let first = call(&client);
     let second = call(&client);
-    assert!(first.len() >= 2 && first.iter().all(|id| *id == first[0]), "{first:?}");
-    assert!(second.len() >= 2 && second.iter().all(|id| *id == second[0]), "{second:?}");
+    assert!(
+        first.len() >= 2 && first.iter().all(|id| *id == first[0]),
+        "{first:?}"
+    );
+    assert!(
+        second.len() >= 2 && second.iter().all(|id| *id == second[0]),
+        "{second:?}"
+    );
     assert_ne!(first[0], second[0]);
     client.shutdown(std::time::Duration::from_secs(1));
     server.join().unwrap();
@@ -520,9 +536,11 @@ fn call_with_frames_delivers_each_requests_id() {
 
 /// The hello gate runs before any call: a mismatch is a typed error; an
 /// integer or its text matches; a hello without the field cannot satisfy it.
+#[cfg(feature = "supervisor")]
 #[test]
 fn hello_gate_refuses_a_mismatched_contract_version() {
-    let hello = b"{\"type\":\"hello\",\"engine\":\"fixture\",\"version\":\"1.0\",\"contract_version\":1}\n";
+    let hello =
+        b"{\"type\":\"hello\",\"engine\":\"fixture\",\"version\":\"1.0\",\"contract_version\":1}\n";
     let connect = |opts: ClientOptions| {
         EngineClient::connect_opts(Cursor::new(hello.to_vec()), Vec::<u8>::new(), opts)
     };
@@ -549,6 +567,7 @@ fn hello_gate_refuses_a_mismatched_contract_version() {
 
 /// A malformed stdout line reaches the sink on the reader thread; the
 /// connection keeps going.
+#[cfg(feature = "supervisor")]
 #[test]
 fn malformed_stdout_lines_reach_the_protocol_sink() {
     let (tx, rx) = std::sync::mpsc::channel();

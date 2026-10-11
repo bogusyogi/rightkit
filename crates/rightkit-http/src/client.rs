@@ -370,6 +370,22 @@ impl ClientConfig {
         Self::default().address_policy(AddressPolicy::first_party(hosts))
     }
 
+    /// Settings that match a plain `ureq` agent, for callers moving off direct ureq: environment
+    /// proxy variables honoured ([`ProxyMode::Environment`]), Mozilla roots ([`TrustRoots::Bundled`]),
+    /// 10 redirects, no retries ([`RetryPolicy::none`]) and the given user agent. Every other field
+    /// keeps its [`Default`] value. It does NOT enable private-address resolution: the address policy
+    /// stays public-web unless set explicitly.
+    pub fn legacy_ureq_parity(user_agent: impl Into<String>) -> Self {
+        Self {
+            user_agent: user_agent.into(),
+            proxy: ProxyMode::Environment,
+            trust: TrustRoots::Bundled,
+            max_redirects: 10,
+            retry: RetryPolicy::none(),
+            ..Self::default()
+        }
+    }
+
     /// Replace the outbound address policy.
     pub fn address_policy(mut self, policy: AddressPolicy) -> Self {
         self.address_policy = policy;
@@ -681,10 +697,7 @@ impl fmt::Debug for Response {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Response")
             .field("status", &self.status)
-            .field(
-                "headers",
-                &redact_headers_with(&self.headers, &self.redact),
-            )
+            .field("headers", &redact_headers_with(&self.headers, &self.redact))
             .field("body_len", &self.body.len())
             .field("attempts", &self.attempts)
             .finish()
@@ -719,10 +732,7 @@ impl fmt::Debug for ResponseHead {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("ResponseHead")
             .field("status", &self.status)
-            .field(
-                "headers",
-                &redact_headers_with(&self.headers, &self.redact),
-            )
+            .field("headers", &redact_headers_with(&self.headers, &self.redact))
             .field(
                 "final_url",
                 &redact_str(&redact_url(&self.final_url), &self.redact),
@@ -780,9 +790,9 @@ pub(crate) struct Raw {
     pub(crate) final_url: String,
     /// Redirects followed.
     pub(crate) hops: u32,
-    /// `Content-Encoding` the server really sent, read off the wire before ureq could
-    /// decode and strip it (see `wire.rs`).
-    pub(crate) wire_content_encoding: Option<String>,
+    /// The response head as read off the wire before ureq could decode the body and strip
+    /// `Content-Encoding` (see `wire.rs`). `Unobserved` is not the same as "no encoding".
+    pub(crate) wire_head: crate::wire::WireHead,
 }
 
 impl Client {
@@ -1110,6 +1120,12 @@ impl Client {
                     delay,
                 });
             }
+            // Never sleep past the whole-request deadline: the drain above can have used it up.
+            // The next loop pass then reports the elapsed deadline instead of a late retry.
+            let delay = match deadline {
+                Some(dl) => delay.min(dl.saturating_duration_since(Instant::now())),
+                None => delay,
+            };
             if !sleep_cancellable(delay, cancel) {
                 return Err(HttpError::Cancelled);
             }
@@ -1191,6 +1207,9 @@ impl Client {
                 redirect::scheme_of(&next_url),
                 redirect::host_of(&next_url),
             ) {
+                // `https_only` first: its error names the rule the caller set, where the
+                // address policy's downgrade refusal (always on) would hide it.
+                redirect::require_https(self.config.https_only, &to, &host, true)?;
                 self.config
                     .address_policy
                     .check_redirect_scheme(&from, &to, &host)
@@ -1249,7 +1268,7 @@ impl Client {
             .build();
         crate::wire::clear();
         let response = self.agent.run(configured).map_err(map_ureq_error)?;
-        let wire_content_encoding = crate::wire::take_content_encoding();
+        let wire_head = crate::wire::take_head();
         let status = response.status().as_u16();
         let headers = response
             .headers()
@@ -1268,7 +1287,7 @@ impl Client {
             attempts: 1,
             final_url: String::new(),
             hops: 0,
-            wire_content_encoding,
+            wire_head,
         })
     }
 }
@@ -1569,6 +1588,34 @@ pub(crate) fn map_ureq_error_in(err: ureq::Error, default: Phase) -> HttpError {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn legacy_ureq_parity_sets_only_the_ureq_fields() {
+        let cfg = ClientConfig::legacy_ureq_parity("heardright/1.0");
+        let base = ClientConfig::default();
+        assert_eq!(cfg.user_agent, "heardright/1.0");
+        assert!(matches!(cfg.proxy, ProxyMode::Environment));
+        assert_eq!(cfg.trust, TrustRoots::Bundled);
+        assert_eq!(cfg.max_redirects, 10);
+        assert_eq!(cfg.retry, RetryPolicy::none());
+        // Private-address resolution stays off: the policy is the public-web default.
+        assert_eq!(
+            format!("{:?}", cfg.address_policy),
+            format!("{:?}", base.address_policy)
+        );
+        // Every other field keeps its default.
+        assert_eq!(cfg.connect_timeout, base.connect_timeout);
+        assert_eq!(cfg.request_timeout, base.request_timeout);
+        assert_eq!(cfg.response_timeout, base.response_timeout);
+        assert_eq!(cfg.recv_body_timeout, base.recv_body_timeout);
+        assert_eq!(cfg.stream_timeout, base.stream_timeout);
+        assert_eq!(cfg.max_redirects_will_error, base.max_redirects_will_error);
+        assert_eq!(cfg.max_response_bytes, base.max_response_bytes);
+        assert!(cfg.on_retry.is_none());
+        assert!(cfg.redact_values.is_empty());
+        assert_eq!(cfg.proxy_bypass_first_party, base.proxy_bypass_first_party);
+        assert_eq!(cfg.https_only, base.https_only);
+    }
 
     #[test]
     fn put_and_delete_set_their_methods() {

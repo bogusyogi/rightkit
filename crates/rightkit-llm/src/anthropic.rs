@@ -24,6 +24,7 @@ pub struct AnthropicProvider {
     client: Client,
     credentials: Arc<dyn CredentialSource>,
     extra_headers: Vec<(String, String)>,
+    observer: Option<CallObserver>,
 }
 
 /// Default client config for Anthropic: also retries 529 (overloaded).
@@ -44,6 +45,7 @@ impl AnthropicProvider {
             client,
             credentials,
             extra_headers: Vec::new(),
+            observer: None,
         }
     }
     pub fn with_id(mut self, id: &str) -> Self {
@@ -55,30 +57,44 @@ impl AnthropicProvider {
         self.extra_headers.push((name.into(), value.into()));
         self
     }
+    /// Report every call that reaches the network to `f`. See [`CallRecord`].
+    pub fn with_observer(mut self, f: impl Fn(&CallRecord<'_>) + Send + Sync + 'static) -> Self {
+        self.observer = Some(Arc::new(f));
+        self
+    }
 
-    /// The HTTP request, plus the credential text so provider error text can have it removed.
-    fn request(&self, req: &ChatRequest, stream: bool) -> Result<(Request, Option<String>), LlmError> {
+    /// The HTTP request, the credential text so provider error text can have it removed, and
+    /// the body that was built.
+    fn request(
+        &self,
+        req: &ChatRequest,
+        stream: bool,
+    ) -> Result<(Request, Option<String>, Value), LlmError> {
         let credential = self
             .credentials
             .credential(&self.id)?
             .ok_or_else(|| LlmError::MissingCredential(self.id.clone()))?;
         let secret = credential.expose().to_string();
-        let body = build_body(req, stream);
+        let mut body = build_body(req, stream);
+        req.extra_body.merge_into(&mut body)?;
         // Replay after 429/5xx/529 is safe: a rejected or failed Messages call is not billed
-        // or applied server-side, and Anthropic documents these statuses as retryable.
-        let mut http = Request::post(format!("{}/v1/messages", self.base_url))
-            .retry_unsafe_statuses(true)
-            .secret_header("x-api-key", credential.expose())
-            .header("anthropic-version", ANTHROPIC_VERSION)
-            .header(
-                "Accept",
-                if stream {
-                    "text/event-stream"
-                } else {
-                    "application/json"
-                },
-            )
-            .json(&body)?;
+        // or applied server-side, and Anthropic documents these statuses as retryable. The
+        // per-call `CallRetry` may narrow or replace the client's attempt policy.
+        let http = req.retry.apply(
+            Request::post(format!("{}/v1/messages", self.base_url))
+                .retry_unsafe_statuses(true)
+                .secret_header("x-api-key", credential.expose())
+                .header("anthropic-version", ANTHROPIC_VERSION)
+                .header(
+                    "Accept",
+                    if stream {
+                        "text/event-stream"
+                    } else {
+                        "application/json"
+                    },
+                ),
+        );
+        let mut http = http.json(&body)?;
         for (k, v) in &self.extra_headers {
             http = http.header(k.as_str(), v.as_str());
         }
@@ -86,7 +102,7 @@ impl AnthropicProvider {
             // Per-call total budget; `deadline` also bounds retry attempts and sleeps.
             http = http.timeout(limit).deadline(limit);
         }
-        Ok((http, Some(secret)))
+        Ok((http, Some(secret), body))
     }
 }
 
@@ -262,15 +278,20 @@ impl Provider for AnthropicProvider {
     }
 
     fn complete(&self, req: &ChatRequest) -> Result<ChatResponse, LlmError> {
-        let (http, secret) = self.request(req, false)?;
-        let resp = self
+        let (http, secret, body) = self.request(req, false)?;
+        let result = self
             .client
             .send(&http)
-            .map_err(|e| LlmError::from_http(e, secret.as_deref()))?;
-        let v: Value = resp
-            .json()
-            .map_err(|e| LlmError::Malformed(e.to_string()))?;
-        parse_response(&v)
+            .map_err(|e| LlmError::from_http(e, secret.as_deref()))
+            .and_then(|resp| {
+                let v: Value = resp
+                    .json()
+                    .map_err(|e| LlmError::Malformed(e.to_string()))?;
+                parse_response(&v)
+            })
+            .and_then(|r| check_output(r, req));
+        self.observe(false, &body, &result);
+        result
     }
 
     fn stream(
@@ -278,11 +299,35 @@ impl Provider for AnthropicProvider {
         req: &ChatRequest,
         on_event: &mut dyn FnMut(StreamEvent) -> ControlFlow<()>,
     ) -> Result<ChatResponse, LlmError> {
-        let (http, secret) = self.request(req, true)?;
-        let key = secret.as_deref();
+        let (http, secret, body) = self.request(req, true)?;
+        let result = self.stream_call(req, &http, secret.as_deref(), on_event);
+        self.observe(true, &body, &result);
+        result
+    }
+}
+
+impl AnthropicProvider {
+    fn observe(&self, stream: bool, body: &Value, result: &Result<ChatResponse, LlmError>) {
+        if let Some(observer) = &self.observer {
+            observer(&CallRecord {
+                provider: &self.id,
+                stream,
+                request_body: body,
+                result: result.as_ref(),
+            });
+        }
+    }
+
+    fn stream_call(
+        &self,
+        req: &ChatRequest,
+        http: &Request,
+        key: Option<&str>,
+        on_event: &mut dyn FnMut(StreamEvent) -> ControlFlow<()>,
+    ) -> Result<ChatResponse, LlmError> {
         let response = self
             .client
-            .stream(&http)
+            .stream(http)
             .map_err(|e| LlmError::from_http(e, key))?;
         let mut asm = Assembler::default();
         let mut delivered = false;
@@ -317,7 +362,7 @@ impl Provider for AnthropicProvider {
                         }
                     });
                 }
-                "message_stop" => return asm.finish(),
+                "message_stop" => return asm.finish().and_then(|r| check_output(r, req)),
                 _ => {
                     for out in asm.apply(&kind, &data) {
                         delivered = true;

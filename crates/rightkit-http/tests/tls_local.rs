@@ -10,8 +10,8 @@ use std::thread::{self, JoinHandle};
 use std::time::Duration;
 
 use rcgen::{
-    date_time_ymd, BasicConstraints, Certificate, CertificateParams, DnType, ExtendedKeyUsagePurpose,
-    IsCa, KeyPair, SanType,
+    date_time_ymd, BasicConstraints, Certificate, CertificateParams, DnType,
+    ExtendedKeyUsagePurpose, IsCa, KeyPair, SanType,
 };
 use rightkit_http::testing::{add_bundled_test_root, loopback_config};
 use rightkit_http::*;
@@ -124,11 +124,7 @@ impl TlsServer {
                         .unwrap()
                         .push(tls.conn.alpn_protocol().map(<[u8]>::to_vec));
                     let text = String::from_utf8_lossy(&head).into_owned();
-                    let path = text
-                        .split_whitespace()
-                        .nth(1)
-                        .unwrap_or("/")
-                        .to_string();
+                    let path = text.split_whitespace().nth(1).unwrap_or("/").to_string();
                     let _ = tls.write_all(&respond(&path));
                     let _ = tls.flush();
                     tls.conn.send_close_notify();
@@ -192,6 +188,23 @@ fn blocking_bundled_accepts_a_valid_chain_from_the_injected_root() {
     assert_eq!(c.send(&Request::get(server.url("/"))).unwrap().text(), "ok");
 }
 
+/// A download over TLS. The wire sniffer reads the response head from the decrypted input
+/// buffer, and a download refuses a head it never saw, so this fails if TLS ever hides the
+/// head from the sniffer: every HTTPS download would be refused.
+#[test]
+fn blocking_download_over_tls_observes_the_head_and_completes() {
+    let server = TlsServer::ok(loopback_leaf(trusted_ca()));
+    let dir = std::path::PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("tls-download");
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let dest = dir.join("out.bin");
+    let report = Client::new(cfg(TrustRoots::Bundled))
+        .download_to_path(&server.url("/f"), &dest, DownloadOptions::default())
+        .unwrap();
+    assert_eq!(report.bytes, 2);
+    assert_eq!(std::fs::read(&dest).unwrap(), b"ok");
+}
+
 #[test]
 fn blocking_platform_rejects_a_root_that_is_not_in_the_os_store() {
     let server = TlsServer::ok(loopback_leaf(trusted_ca()));
@@ -214,7 +227,12 @@ fn blocking_bundled_rejects_an_untrusted_root() {
 #[test]
 fn blocking_bundled_rejects_the_wrong_host() {
     let ca = trusted_ca();
-    let wrong = leaf(ca, SanType::DnsName("other.example".try_into().unwrap()), (2020, 1, 1), (2999, 1, 1));
+    let wrong = leaf(
+        ca,
+        SanType::DnsName("other.example".try_into().unwrap()),
+        (2020, 1, 1),
+        (2999, 1, 1),
+    );
     let server = TlsServer::ok(wrong);
     let err = Client::new(cfg(TrustRoots::Bundled))
         .send(&Request::get(server.url("/")))

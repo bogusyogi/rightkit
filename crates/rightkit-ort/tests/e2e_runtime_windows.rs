@@ -3,6 +3,8 @@
 //! a tiny ONNX model on DirectML and CPU. Content is validated, not just "no error".
 #![cfg(all(target_os = "windows", feature = "session"))]
 
+mod common;
+
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 
@@ -17,17 +19,6 @@ use rightkit_ort::{
 const APPROVED_WIN32_SHA256: &str =
     "0a49bb13573807ad309aa9967a46471c07d6495bab5b279d1fad474aefd8ef4b";
 
-/// The approved runtime directory, holding `onnxruntime.dll` and `DirectML.dll`.
-fn real_runtime_dir() -> PathBuf {
-    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../..");
-    std::env::var_os("RIGHTKIT_ORT_TEST_DLL_DIR")
-        .map(PathBuf::from)
-        .into_iter()
-        .chain([root.join("heardright/tauri-app-next/src-tauri/resources/runtime")])
-        .find(|dir| dir.join("onnxruntime.dll").is_file() && dir.join("DirectML.dll").is_file())
-        .expect("no approved onnxruntime.dll + DirectML.dll; set RIGHTKIT_ORT_TEST_DLL_DIR")
-}
-
 fn sha256_hex(path: &Path) -> String {
     use sha2::{Digest, Sha256};
     format!("{:x}", Sha256::digest(std::fs::read(path).unwrap()))
@@ -41,7 +32,7 @@ fn staged_app() -> &'static (PathBuf, PathBuf) {
         let _ = std::fs::remove_dir_all(&app);
         let runtime_dir = app.join("runtime");
         std::fs::create_dir_all(&runtime_dir).unwrap();
-        let source = real_runtime_dir();
+        let source = common::real_runtime_dir();
         let staged = runtime_dir.join(runtime_filename());
         std::fs::copy(source.join("onnxruntime.dll"), &staged).unwrap();
         std::fs::copy(
@@ -140,6 +131,9 @@ fn setup() -> rightkit_ort::EnvironmentReport {
 
 #[test]
 fn approved_runtime_loads_from_the_installed_layout() {
+    if !common::runtime_dir_or_skip() {
+        return;
+    }
     let (_, staged) = staged_app();
     assert_eq!(sha256_hex(staged), APPROVED_WIN32_SHA256);
     let report = setup();
@@ -153,6 +147,9 @@ fn approved_runtime_loads_from_the_installed_layout() {
 
 #[test]
 fn directml_is_probed_available_and_coreml_is_not() {
+    if !common::runtime_dir_or_skip() {
+        return;
+    }
     setup();
     let probes = probe_providers();
     let get = |k| probes.iter().find(|p| p.provider == k).unwrap();
@@ -167,6 +164,9 @@ fn directml_is_probed_available_and_coreml_is_not() {
 
 #[test]
 fn tiny_model_runs_on_directml_and_cpu() {
+    if !common::runtime_dir_or_skip() {
+        return;
+    }
     setup();
     assert_eq!(
         ExecutionProvider::platform_accelerator(),

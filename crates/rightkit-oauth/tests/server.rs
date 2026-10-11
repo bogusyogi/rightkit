@@ -1,6 +1,6 @@
 #![cfg(feature = "server")]
 use base64::Engine as _;
-use rightkit_http::testing::{MockResponse, MockServer};
+use rightkit_http::testing::{loopback_config, MockResponse, MockServer};
 use rightkit_http::{Client, ClientConfig, Secret};
 use rightkit_oauth::server::*;
 use rightkit_oauth::{OAuthConfig, TokenSet};
@@ -30,8 +30,9 @@ fn flow(
     pending: Arc<dyn PendingStateStore>,
     clock: Arc<Clock>,
 ) -> ServerAuthFlow {
+    // The default address policy refuses the `127.0.0.1` mock server.
     ServerAuthFlow::new(
-        Client::new(ClientConfig::default()),
+        Client::new(loopback_config()),
         [p],
         pending,
         Duration::from_secs(300),
@@ -1042,7 +1043,7 @@ fn slow_exchange_times_out_without_retry_and_consumes_state() {
     let f = ServerAuthFlow::new(
         Client::new(ClientConfig {
             request_timeout: Duration::from_millis(50),
-            ..ClientConfig::default()
+            ..loopback_config()
         }),
         [provider(&server)],
         Arc::new(MemoryPendingStateStore::default()),

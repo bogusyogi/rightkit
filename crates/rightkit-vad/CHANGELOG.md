@@ -14,6 +14,9 @@ version is `0.x`, a minor bump may carry breaking changes.
   silence threshold through. A silence threshold above the calibrated speech threshold then returns
   `Error::Input` from `resolve`, rather than being capped. Struct-literal construction needs
   `..SpanOptions::default()`.
+- Behaviour change for generic `FrameScorer` implementations. A non-finite frame score is `Error::Model` on
+  the span path (`detect`), and on `FrameStream::push` it is a scorer failure: `None`, stream failed until
+  `reset`. Before, a NaN score counted as silence and an infinite one as speech, with no error.
 
 ## 0.1.0
 

@@ -221,9 +221,12 @@ pub fn linux_desktop_entry_for(
     args: &[String],
     wm_class: Option<&str>,
 ) -> String {
+    // Control characters are refused on the raw value: trimming first would silently drop a
+    // trailing CR or LF and write a key the caller did not validate.
     let class = wm_class
+        .filter(|c| !c.chars().any(char::is_control))
         .map(str::trim)
-        .filter(|c| !c.is_empty() && !c.chars().any(char::is_control))
+        .filter(|c| !c.is_empty())
         .map(|c| format!("StartupWMClass={c}\n"))
         .unwrap_or_default();
     let mut exec = desktop_exec_quote(&exe.to_string_lossy());
@@ -617,7 +620,8 @@ fn remove_legacy(
     #[cfg(windows)]
     {
         if legacy_name == spec.app_id
-            || !legacy_present(keys, legacy_name, spec.options.config_home.as_deref()) {
+            || !legacy_present(keys, legacy_name, spec.options.config_home.as_deref())
+        {
             return Ok(false);
         }
         let out = reg(&["DELETE", &keys.run, "/v", legacy_name, "/f"])?;
@@ -630,8 +634,7 @@ fn remove_legacy(
     }
     #[cfg(not(windows))]
     {
-        let Some(legacy) =
-            legacy_login_item_path(legacy_name, spec.options.config_home.as_deref())
+        let Some(legacy) = legacy_login_item_path(legacy_name, spec.options.config_home.as_deref())
         else {
             return Ok(false);
         };

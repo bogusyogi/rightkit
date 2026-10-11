@@ -1,12 +1,15 @@
 //! Replace mode / durability, overwrite-on-corrupt, quarantine naming, trailing newline, and the
 //! flat migration hook.
+#[cfg(not(windows))]
+use rightkit_fs::atomic::testing::fail_dir_sync;
 use rightkit_fs::atomic::testing::on_replace;
 use rightkit_fs::atomic::{
     ReplaceApi, ReplaceCall, MOVEFILE_REPLACE_EXISTING, MOVEFILE_WRITE_THROUGH,
     REPLACEFILE_WRITE_THROUGH,
 };
 use rightkit_settings::{
-    Error, FileFormat, OnCorrupt, QuarantineName, ReplaceMode, Schema, Store, StoreOptions,
+    Error, FileFormat, OnCorrupt, PublicationDurability, QuarantineName, ReplaceMode, Schema,
+    Store, StoreOptions,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -73,11 +76,13 @@ fn configured_replace_mode_and_flags_reach_the_replace_call() {
     // (mode, durable) -> (first creation, replacing an existing file), as the platform does it.
     let table: [(ReplaceMode, bool, Call, Call); 5] = [
         (ReplaceMode::Rename, true, (Rename, 0), (Rename, 0)),
+        // Over an existing file ReplaceFileW gets flag word 0: Windows does not support
+        // REPLACEFILE_WRITE_THROUGH, so the swap is file-flushed-only (see achieved_durability).
         (
             ReplaceMode::ReplaceFile,
             true,
             (MoveFileEx, both),
-            (ReplaceFile, REPLACEFILE_WRITE_THROUGH),
+            (ReplaceFile, 0),
         ),
         (
             ReplaceMode::ReplaceFile,
@@ -126,6 +131,10 @@ fn configured_replace_mode_and_flags_reach_the_replace_call() {
             "{mode:?} durable={durable} replace"
         );
         assert_eq!(calls[1].target, p);
+        // No call the crate makes ever carries the unsupported flag.
+        assert!(calls
+            .iter()
+            .all(|c| c.flags & REPLACEFILE_WRITE_THROUGH == 0));
         println!(
             "ok  {mode:?} durable={durable}: {:?} / {:?}",
             (calls[0].api, calls[0].flags),
@@ -147,6 +156,99 @@ fn default_store_options_keep_rename_and_durable() {
     for c in calls.borrow().iter() {
         assert_eq!((c.api, c.flags), (ReplaceApi::Rename, 0));
     }
+}
+
+#[test]
+fn achieved_durability_states_what_the_platform_gives_per_mode() {
+    let opts = |mode: ReplaceMode, durable: bool| {
+        StoreOptions::new(schema())
+            .replace_mode(mode)
+            .durable(durable)
+    };
+    // durable(false) flushes nothing, on any platform and in any mode.
+    for mode in [
+        ReplaceMode::Rename,
+        ReplaceMode::ReplaceFile,
+        ReplaceMode::MoveWriteThrough,
+    ] {
+        for exists in [false, true] {
+            assert_eq!(
+                opts(mode, false).achieved_durability(exists),
+                PublicationDurability::None,
+                "{mode:?} exists={exists}"
+            );
+        }
+    }
+    if cfg!(windows) {
+        use PublicationDurability::{FileFlushedOnly, WriteThroughMove};
+        assert_eq!(
+            opts(ReplaceMode::Rename, true).achieved_durability(true),
+            FileFlushedOnly
+        );
+        assert_eq!(
+            opts(ReplaceMode::Rename, true).achieved_durability(false),
+            FileFlushedOnly
+        );
+        assert_eq!(
+            opts(ReplaceMode::ReplaceFile, true).achieved_durability(true),
+            FileFlushedOnly,
+            "ReplaceFileW has no write-through flag"
+        );
+        assert_eq!(
+            opts(ReplaceMode::ReplaceFile, true).achieved_durability(false),
+            WriteThroughMove
+        );
+        assert_eq!(
+            opts(ReplaceMode::MoveWriteThrough, true).achieved_durability(true),
+            WriteThroughMove
+        );
+        assert_eq!(
+            opts(ReplaceMode::MoveWriteThrough, true).achieved_durability(false),
+            WriteThroughMove
+        );
+    } else {
+        // Unix and macOS: the directory is flushed after the rename whatever the mode.
+        for mode in [
+            ReplaceMode::Rename,
+            ReplaceMode::ReplaceFile,
+            ReplaceMode::MoveWriteThrough,
+        ] {
+            for exists in [false, true] {
+                assert_eq!(
+                    opts(mode, true).achieved_durability(exists),
+                    PublicationDurability::DirectoryFlushed,
+                    "{mode:?} exists={exists}"
+                );
+            }
+        }
+    }
+}
+
+#[cfg(not(windows))]
+#[test]
+fn a_failed_directory_sync_after_the_replace_is_replaced_not_io() {
+    let d = tempfile::tempdir().unwrap();
+    let p = d.path().join("s.json");
+    let s = Store::<Cfg>::open_path(&p, StoreOptions::new(schema()).sidecars(false)).unwrap();
+    s.update(|v| {
+        v.n = 1;
+        Ok(())
+    })
+    .unwrap();
+    let guard = fail_dir_sync(std::io::ErrorKind::Other);
+    let r = s.update(|v| {
+        v.n = 9;
+        Ok(())
+    });
+    drop(guard);
+    match r {
+        Err(Error::Replaced { path, .. }) => assert_eq!(path, p),
+        other => panic!("expected Error::Replaced, got {other:?}"),
+    }
+    // The new file is in place; the write was not undone.
+    let fresh = Store::<Cfg>::open_path(&p, StoreOptions::new(schema()).sidecars(false)).unwrap();
+    assert_eq!(fresh.get().n, 9);
+    assert_eq!(listing(d.path()), vec!["s.json".to_string()]);
 }
 
 #[test]

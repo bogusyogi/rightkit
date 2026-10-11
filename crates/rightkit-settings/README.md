@@ -7,12 +7,12 @@ Versioned settings persistence for Right Suite apps. It owns one JSON document p
 Behavior:
 
 - **Migrations**: ordered `Migration { to, apply }` transforms over the raw JSON object; a legacy flat file with no envelope is adopted as version 0 (envelope mode).
-- **Atomic writes**: a temp file in the destination directory is fsynced, renamed over the settings file (`rename(2)`, or `MoveFileEx` with replace on Windows), and the directory is fsynced. This is `rightkit_fs::atomic_write` with its default `ReplaceMode::Rename`. The previous good file is kept as `settings.json.bak`.
+- **Atomic writes**: a temp file in the destination directory is flushed, renamed over the settings file (`rename(2)`, or `std::fs::rename` on Windows), and on Unix and macOS the directory is flushed. This is `rightkit_fs::atomic_write_with_options` with its default `ReplaceMode::Rename`. Windows has no directory flush. The previous good file is kept as `settings.json.bak`.
 - **Cross-process transactions**: writes take an advisory lock on `settings.json.lock`, reload the committed value, apply the edit, and save. Concurrent updates to different keys from other stores or processes are not lost. `update_at` / `revision` give compare-and-swap.
 - **Corruption recovery**: a main file that is present but does not parse is quarantined as `settings.json.corrupt-<unix>`, then `.bak` is tried, then defaults. Single invalid fields are dropped back to their defaults rather than resetting all. A file that exists but cannot be read (permission denied, I/O error) is an `Error::Io`: nothing is quarantined or overwritten.
 - **Cached reads**: `get()` compares the backend's stamp (for files: inode, mtime, ctime, length) with the one the cache was read under, and re-parses only when it changed.
 - **Newer file** (downgrade): opening fails with `Error::NewerSchema`; nothing is overwritten.
-- **Change events**: `subscribe` callbacks receive the changed top-level keys after a successful save. Failed saves leave the in-memory value unchanged.
+- **Change events**: `subscribe` callbacks receive the changed top-level keys after a successful save. Failed saves leave the in-memory value unchanged. The one exception is `Error::Replaced`: the new file is already in place, so do not retry the write; `get()` reads it and no event fires for that write.
 - **Secrets by reference only**: `SecretRef` (service + account) may live in settings; `SecretProbe` reports presence. Values are never stored here.
 
 ## Opening a store
@@ -79,13 +79,19 @@ let preview = store.patch_dry_run(&serde_json::json!({ "theme": "dark" }), None)
 
 ### Durability, damaged files, formatting, flat migration
 
-- **Replace mode** (`replace_mode`, `durable`, `retry_sharing_violation`). Default `Rename` with `durable(true)`: on Unix and macOS the temp file is flushed, renamed, and the directory flushed (power-loss safe). On Windows the rename is not write-through, so a power loss can bring back the previous (complete) file. Apps that need Windows write-through choose `ReplaceMode::ReplaceFile` (or `MoveWriteThrough`) and a retry, because those modes can hit a sharing violation when another process holds the file open:
+- **Replace mode** (`replace_mode`, `durable`, `retry_sharing_violation`). Default `Rename` with `durable(true)`: on Unix and macOS the temp file is flushed, renamed, and the directory flushed. On Windows the rename is not write-through, so a power loss can bring back the previous (complete) file. `ReplaceMode::ReplaceFile` over an existing file is not write-through on Windows either: Windows documents `REPLACEFILE_WRITE_THROUGH` as unsupported, so that flag is no longer passed. Only `ReplaceMode::MoveWriteThrough` (and `ReplaceFile`'s first creation) is write-through on Windows. Those modes can hit a sharing violation when another process holds the file open, so pair them with a retry:
 
   ```rust,ignore
   let opts = StoreOptions::new(schema)
-      .replace_mode(ReplaceMode::ReplaceFile)
+      .replace_mode(ReplaceMode::MoveWriteThrough)
       .retry_sharing_violation(5, std::time::Duration::from_millis(50));
+
+  // What a write with these options gets on this platform, given whether the file exists:
+  let guarantee = opts.achieved_durability(path.exists()); // PublicationDurability
   ```
+
+  No power-loss test has been run for any Windows mode.
+- **Post-publication failures**: `Error::Replaced { path, source }` means the new file is in place and a later step failed (on Unix and macOS, the directory flush). The write is not undone. Do not repeat it as if it had failed; an `update` re-run applies its edit twice.
 - **Damaged files**: `OnCorrupt::Quarantine` (default) renames it aside; `Refuse` errors; `Overwrite` leaves it in place until the atomic replace succeeds (add `keep_corrupt_copy(true)` for a copy made before the replace). Name the quarantine file with `quarantine_name(QuarantineName::Fixed(".corrupt".into()))` to overwrite one fixed file, or keep the timestamped default.
 - **Formatting**: `trailing_newline(true)` ends every write with a newline without sorting keys or rewriting unchanged values.
 - **Flat migration**: `flat_migration(|map| ...)` returns `(migrated, changed)`; it runs once on open, before defaults and repair, never read-only.

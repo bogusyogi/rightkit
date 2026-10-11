@@ -9,7 +9,10 @@
 //!   that outranks the incumbent (lower rank wins) writes `takeover.json`; the
 //!   incumbent stops admitting work, finishes or hands off in-flight requests
 //!   with the retryable [`ERROR_HOST_HANDOFF`] at their next boundary, and
-//!   releases. Clients re-read discovery and resubmit.
+//!   releases. Clients re-read discovery and resubmit. The incumbent looks for a
+//!   request from another process once a second (a stat of `takeover.json`, no
+//!   thread polls faster), so a takeover starts up to about a second after the
+//!   request is written.
 //! * **Authentication** - no TCP and no bearer tokens. Unix: a socket in a 0700
 //!   directory, mode 0600, and the kernel-reported peer uid (`getpeereid` on macOS
 //!   and the BSDs, `SO_PEERCRED` on Linux) checked on every accept and by every
@@ -39,6 +42,7 @@ mod peer;
 mod record;
 mod server;
 mod suite;
+mod takeover_watch;
 mod transport;
 
 pub use client::{Client, RetryPolicy, DEFAULT_DEADLINE};

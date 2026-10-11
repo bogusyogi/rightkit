@@ -6,7 +6,7 @@ rust-version = "1.98.0"
 description = "RightKit ownership scanner, verdict and admission: the single Rust implementation the RustRight broker links."
 license = "MIT OR Apache-2.0"
 readme = "README.md"
-repository = "https://github.com/bogusyogi/rightkit"
+repository = "https://github.com/Orthic-Labs/rightkit"
 publish = true
 include = ["src/**", "tests/**", "README.md", "rightkit-ownership.json", "catalog/**"]
 

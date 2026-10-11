@@ -9,7 +9,9 @@ use std::path::Path;
 use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant};
 
-use rightkit_fs::{probe_owner, FileLock, LockKind, LockOptions};
+#[cfg(feature = "json")]
+use rightkit_fs::probe_owner;
+use rightkit_fs::{FileLock, LockKind, LockOptions};
 
 const HOLDER_ENV: &str = "RIGHTKIT_FS_TEST_LOCK_HOLDER";
 
@@ -201,6 +203,8 @@ fn fcntl_exclusive_holder_in_another_process_blocks_explicit_fcntl_callers() {
         .expect("free after the fcntl holder exits");
 }
 
+// Owner records are JSON: without the `json` feature `probe_owner` always returns `None`.
+#[cfg(feature = "json")]
 #[test]
 fn probe_owner_reads_a_live_holder_in_another_process() {
     let dir = tempfile::tempdir().unwrap();

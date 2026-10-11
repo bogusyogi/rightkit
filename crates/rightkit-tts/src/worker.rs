@@ -119,7 +119,8 @@ fn load_engine(cfg: &WorkerConfig, mode: Mode) -> Result<Qwen3TtsEngine, String>
         }
         Mode::CustomVoice | Mode::VoiceDesign => {
             let qmode = qts_mode(mode);
-            let paths = ModeModelPaths::from_model_dir(&model_dir, qmode).with_vocoder(vocoder.clone());
+            let paths =
+                ModeModelPaths::from_model_dir(&model_dir, qmode).with_vocoder(vocoder.clone());
             let missing: Vec<PathBuf> = [
                 paths.talker_gguf.clone(),
                 paths.code_predictor_gguf.clone(),
@@ -133,7 +134,7 @@ fn load_engine(cfg: &WorkerConfig, mode: Mode) -> Result<Qwen3TtsEngine, String>
                 return Err(model_missing(mode, &missing));
             }
             Qwen3TtsEngine::from_model_dir_for_mode_with_vocoder(&model_dir, &vocoder, qmode)
-            .map_err(|e| format!("engine load failed: {e}"))
+                .map_err(|e| format!("engine load failed: {e}"))
         }
     }
 }
@@ -215,10 +216,12 @@ pub fn run(cfg: &WorkerConfig) -> ! {
                 out,
             } => {
                 // Cloning needs the Base speaker encoder, whichever mode the worker started for.
-                reply(&match engines.get_or_load(Mode::Base, || load_engine(cfg, Mode::Base)) {
-                    Ok(engine) => clone(engine, id, &wav_path, &out),
-                    Err(message) => err(id, message),
-                });
+                reply(
+                    &match engines.get_or_load(Mode::Base, || load_engine(cfg, Mode::Base)) {
+                        Ok(engine) => clone(engine, id, &wav_path, &out),
+                        Err(message) => err(id, message),
+                    },
+                );
             }
             Request::Synth {
                 id,
@@ -392,7 +395,11 @@ mod tests {
                 paths.code_predictor_gguf.clone(),
                 paths.tokenizer_gguf.clone(),
             ];
-            assert_eq!(models::mode_model_files(&dir, mode), want, "{mode:?} empty folder");
+            assert_eq!(
+                models::mode_model_files(&dir, mode),
+                want,
+                "{mode:?} empty folder"
+            );
         }
         // A q8_0 export, then a bundled one, resolve the way the engine resolves them.
         let stem = "qwen3-tts-1.7b-voicedesign";
@@ -403,11 +410,18 @@ mod tests {
         let paths = ModeModelPaths::from_model_dir(&dir, QtsMode::VoiceDesign);
         assert_eq!(
             models::mode_model_files(&dir, Mode::VoiceDesign),
-            vec![paths.talker_gguf, paths.code_predictor_gguf, paths.tokenizer_gguf]
+            vec![
+                paths.talker_gguf,
+                paths.code_predictor_gguf,
+                paths.tokenizer_gguf
+            ]
         );
         std::fs::write(dir.join(format!("{stem}-q4_k.gguf")), b"x").unwrap();
         let paths = ModeModelPaths::from_model_dir(&dir, QtsMode::VoiceDesign);
-        assert_eq!(models::mode_model_files(&dir, Mode::VoiceDesign), vec![paths.talker_gguf]);
+        assert_eq!(
+            models::mode_model_files(&dir, Mode::VoiceDesign),
+            vec![paths.talker_gguf]
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -429,11 +443,22 @@ mod tests {
         let cfg = config()
             .with_mode_location(ModeLocation::new(Mode::Base, "/old"))
             .with_mode_location(ModeLocation::new(Mode::Base, "/b6").with_vocoder("/b6/v.onnx"))
-            .with_mode_location(ModeLocation::new(Mode::CustomVoice, "/cv").with_vocoder("/cv/v.onnx"));
+            .with_mode_location(
+                ModeLocation::new(Mode::CustomVoice, "/cv").with_vocoder("/cv/v.onnx"),
+            );
         assert_eq!(cfg.mode_locations.len(), 2);
-        assert_eq!(cfg.location(Mode::Base), ("/b6".into(), "/b6/v.onnx".into()));
-        assert_eq!(cfg.location(Mode::CustomVoice), ("/cv".into(), "/cv/v.onnx".into()));
+        assert_eq!(
+            cfg.location(Mode::Base),
+            ("/b6".into(), "/b6/v.onnx".into())
+        );
+        assert_eq!(
+            cfg.location(Mode::CustomVoice),
+            ("/cv".into(), "/cv/v.onnx".into())
+        );
         // The started mode, with no entry of its own, keeps the config folder and vocoder.
-        assert_eq!(cfg.location(Mode::VoiceDesign), ("/base".into(), "/base/v.onnx".into()));
+        assert_eq!(
+            cfg.location(Mode::VoiceDesign),
+            ("/base".into(), "/base/v.onnx".into())
+        );
     }
 }

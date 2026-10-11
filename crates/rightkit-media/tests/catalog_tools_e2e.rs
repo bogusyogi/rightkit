@@ -3,10 +3,9 @@
 //! Artifacts live in the workspace `vendor/ffmpeg-lgpl/`; a missing artifact is
 //! reported as SKIP on stderr rather than silently passing.
 
-use std::{
-    path::{Path, PathBuf},
-    time::Duration,
-};
+mod common;
+
+use std::{path::PathBuf, time::Duration};
 
 use rightkit_media::{
     resolve_ffmpeg, resolve_ffmpeg_or_unverified, resolve_unverified, sha256_file,
@@ -18,9 +17,7 @@ use rightkit_media::{
 const T: Duration = Duration::from_secs(20);
 
 fn vendor(name: &str) -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../../../../vendor/ffmpeg-lgpl")
-        .join(name)
+    common::vendor_dir().join(name)
 }
 
 fn host() -> (&'static str, &'static str) {
@@ -64,7 +61,10 @@ fn every_approved_macos_artifact_present_in_vendor_matches_its_catalog_digest() 
                 .unwrap();
             let path = vendor_file(tool, "macos", arch);
             if !path.is_file() {
-                eprintln!("SKIP {} not present at {}", artifact.id, path.display());
+                common::skip_missing(
+                    &format!("approved artifact {}", artifact.id),
+                    &path.display().to_string(),
+                );
                 continue;
             }
             assert_eq!(
@@ -93,7 +93,7 @@ fn host_ffmpeg_and_ffprobe_verify_and_stage_as_tauri_external_bins() {
         };
         let path = vendor_file(tool, os, arch);
         if !path.is_file() {
-            eprintln!("SKIP {tool}: {} not present", path.display());
+            common::skip_missing(&format!("{tool} artifact"), &path.display().to_string());
             continue;
         }
         let resolved = resolve_ffmpeg(artifact, &request(path.clone())).unwrap();
@@ -159,7 +159,7 @@ fn host_path_ffmpeg() -> Option<PathBuf> {
 #[test]
 fn unverified_path_ffmpeg_is_labelled_probed_and_refused_in_release() {
     let Some(expected) = host_path_ffmpeg() else {
-        eprintln!("SKIP: no ffmpeg on PATH");
+        common::skip_missing("FFmpeg on PATH", "PATH");
         return;
     };
     let mut request = UnverifiedRequest::new(Tool::Ffmpeg);
@@ -198,7 +198,7 @@ fn unverified_path_ffmpeg_is_labelled_probed_and_refused_in_release() {
 #[test]
 fn catalog_first_resolution_falls_back_only_in_development() {
     let Some(host_ffmpeg) = host_path_ffmpeg() else {
-        eprintln!("SKIP: no ffmpeg on PATH");
+        common::skip_missing("FFmpeg on PATH", "PATH");
         return;
     };
     let (os, arch) = host();

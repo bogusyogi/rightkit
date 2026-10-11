@@ -275,6 +275,19 @@ impl ClockStore for CountingStore {
         *self.inner.borrow_mut() = Some(value.clone());
         Ok(())
     }
+    // `compare_and_save` is required (no default): single-threaded, so check-then-save is atomic.
+    fn compare_and_save(
+        &self,
+        expected: Option<&ClockState>,
+        new: &ClockState,
+    ) -> Result<bool, Self::Error> {
+        let unchanged = self.inner.borrow().as_ref() == expected;
+        if !unchanged {
+            return Ok(false);
+        }
+        self.save(new)?;
+        Ok(true)
+    }
 }
 
 #[test]

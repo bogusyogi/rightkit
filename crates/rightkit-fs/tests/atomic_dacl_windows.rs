@@ -48,7 +48,7 @@ const SE_FILE_OBJECT: u32 = 1;
 const DACL_SECURITY_INFORMATION: u32 = 0x4;
 const SDDL_REVISION_1: u32 = 1;
 
-/// The DACL of `path` as an SDDL string, e.g. `D:PAI(A;;FA;;;S-1-5-21-...)`.
+/// The DACL of `path` as an SDDL string, e.g. `D:P(A;;FA;;;S-1-5-21-...)` (see below for `AI`).
 fn dacl_sddl(path: &Path) -> String {
     let wide: Vec<u16> = path.as_os_str().encode_wide().chain(Some(0)).collect();
     unsafe {
@@ -82,7 +82,10 @@ fn dacl_sddl(path: &Path) -> String {
         let sddl = String::from_utf16_lossy(std::slice::from_raw_parts(text, len));
         LocalFree(text.cast());
         LocalFree(descriptor);
-        sddl
+        // A private temp is created with `D:P(...)` and a destination narrowed afterwards by
+        // `SetNamedSecurityInfoW` shows `D:PAI(...)`: the `AI` flag is inheritance bookkeeping, not
+        // a different access control list, so both compare as `D:P(...)`.
+        sddl.replacen("D:PAI(", "D:P(", 1)
     }
 }
 

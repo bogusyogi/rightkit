@@ -109,7 +109,9 @@ impl fmt::Display for Error {
                 write!(f, "{peer}: certificate does not match its fingerprint")
             }
             Error::PeerUnreachable { peer, detail } => write!(f, "cannot reach {peer}: {detail}"),
-            Error::PeerLost { peer, detail } => write!(f, "lost the connection to {peer}: {detail}"),
+            Error::PeerLost { peer, detail } => {
+                write!(f, "lost the connection to {peer}: {detail}")
+            }
             Error::PeerAnswer { peer, status } => write!(f, "{peer} answered {status}"),
             Error::PeerReply { peer } => write!(f, "{peer} sent an answer that cannot be read"),
             Error::PeerNeedsPin { peer } => write!(f, "{peer} requires a PIN"),
@@ -126,12 +128,17 @@ impl fmt::Display for Error {
             Error::NotFileOrFolder { path } => write!(f, "{path} is not a file or folder"),
             Error::Unreadable { path, detail } => write!(f, "cannot read {path}: {detail}"),
             Error::SenderStopped => write!(f, "the sender stopped responding"),
-            Error::Unverified { max_files, max_bytes } => write!(
+            Error::Unverified {
+                max_files,
+                max_bytes,
+            } => write!(
                 f,
                 "a sender that cannot prove its identity may send at most {max_files} files and {max_bytes} bytes at once"
             ),
             Error::SaveFailed { file, detail } => write!(f, "cannot save {file}: {detail}"),
-            Error::Interrupted { file, detail } => write!(f, "transfer of {file} interrupted: {detail}"),
+            Error::Interrupted { file, detail } => {
+                write!(f, "transfer of {file} interrupted: {detail}")
+            }
             Error::Mark { file, detail } => write!(f, "cannot mark {file} as downloaded: {detail}"),
             Error::Damaged { file } => write!(f, "{file} arrived damaged"),
             Error::Internal { detail } => write!(f, "internal error: {detail}"),

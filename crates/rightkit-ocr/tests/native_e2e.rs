@@ -8,6 +8,8 @@
 //! Layout of tests/fixtures/layout.png (1000x600): "Quarterly Report 2026"
 //! top-left, "Total due: 1234 USD" mid-left, "Page 7 of 12" bottom-centre.
 
+mod common;
+
 use std::path::{Path, PathBuf};
 
 use rightkit_ocr::{
@@ -43,20 +45,24 @@ fn real_worker() -> WorkerCommand {
     )
 }
 
+/// Where the ONNX models and runtime are looked for, for the SKIP line.
+const ONNX_LOOKED_AT: &str = "RIGHTKIT_OCR_MODEL_DIR and RIGHTKIT_OCR_ORT_RUNTIME, or scraperight/models/ocr and bin/libonnxruntime.dylib found by walking up from this crate";
+
+/// The ONNX models and runtime: the env overrides, else the monorepo copies found by walking up
+/// from this crate. `None` when either is absent.
 fn onnx_config() -> Option<OnnxConfig> {
-    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
     let models = std::env::var_os("RIGHTKIT_OCR_MODEL_DIR")
         .map(PathBuf::from)
-        .unwrap_or_else(|| root.join("../../../../scraperight/models/ocr"));
+        .or_else(|| common::workspace_asset("scraperight/models/ocr"))?;
     let runtime = std::env::var_os("RIGHTKIT_OCR_ORT_RUNTIME")
         .map(PathBuf::from)
-        .unwrap_or_else(|| {
-            root.join(if cfg!(windows) {
-                "../../../bin/onnxruntime.dll"
+        .or_else(|| {
+            common::workspace_asset(if cfg!(windows) {
+                "bin/onnxruntime.dll"
             } else {
-                "../../../bin/libonnxruntime.dylib"
+                "bin/libonnxruntime.dylib"
             })
-        });
+        })?;
     let (models, runtime) = (models.canonicalize().ok()?, runtime.canonicalize().ok()?);
     if !models.join("det.onnx").exists() {
         return None;
@@ -122,6 +128,9 @@ fn native_backend_reads_layout_with_geometry_in_process() {
         eprintln!("SKIPPED: no native backend on this OS");
         return;
     }
+    if !common::native_ready_or_skip() {
+        return;
+    }
     // Exactly one in-process request: Vision may reject repeated accurate
     // requests in one process (the reason the worker exists).
     let mut ocr = Ocr::new(OcrOptions::new(BackendPreference::Native));
@@ -144,7 +153,7 @@ fn native_backend_reads_layout_with_geometry_in_process() {
 
 #[test]
 fn isolated_workers_serve_repeated_requests_png_and_jpeg() {
-    if rightkit_ocr::native_backend().is_none() {
+    if rightkit_ocr::native_backend().is_none() || !common::native_ready_or_skip() {
         return;
     }
     let mut ocr = Ocr::new(
@@ -165,7 +174,7 @@ fn isolated_workers_serve_repeated_requests_png_and_jpeg() {
 
 #[test]
 fn isolated_blank_page_is_empty_not_unavailable_and_garbage_is_a_plain_error() {
-    if rightkit_ocr::native_backend().is_none() {
+    if rightkit_ocr::native_backend().is_none() || !common::native_ready_or_skip() {
         return;
     }
     let mut ocr = Ocr::new(
@@ -210,7 +219,7 @@ fn worker_rejects_oversized_and_malformed_child_output() {
 #[test]
 fn onnx_backend_returns_lines_with_geometry_and_confidence() {
     let Some(cfg) = onnx_config() else {
-        eprintln!("SKIPPED: ONNX models/runtime not found");
+        common::skip_missing("PP-OCR ONNX models and ONNX Runtime", ONNX_LOOKED_AT);
         return;
     };
     let mut ocr = Ocr::new(OcrOptions::new(BackendPreference::Onnx).with_onnx(cfg));
@@ -232,7 +241,7 @@ fn onnx_backend_returns_lines_with_geometry_and_confidence() {
 #[test]
 fn auto_falls_back_to_onnx_only_when_native_is_unavailable() {
     let Some(cfg) = onnx_config() else {
-        eprintln!("SKIPPED: ONNX models/runtime not found");
+        common::skip_missing("PP-OCR ONNX models and ONNX Runtime", ONNX_LOOKED_AT);
         return;
     };
     // A real child process that reports the native backend unavailable.
@@ -293,6 +302,9 @@ fn auto_prefers_native_and_native_and_onnx_agree_on_content() {
     let Some(native) = rightkit_ocr::native_backend() else {
         return;
     };
+    if !common::native_ready_or_skip() {
+        return;
+    }
     let mut auto = Ocr::new(
         OcrOptions::new(BackendPreference::Auto).with_isolation(Isolation::Worker(real_worker())),
     );
@@ -301,7 +313,10 @@ fn auto_prefers_native_and_native_and_onnx_agree_on_content() {
     assert!(n.fallback_reason.is_none());
 
     let Some(cfg) = onnx_config() else {
-        eprintln!("SKIPPED agreement: ONNX models/runtime not found");
+        common::skip_missing(
+            "PP-OCR ONNX models and ONNX Runtime for the agreement check",
+            ONNX_LOOKED_AT,
+        );
         return;
     };
     let mut onnx = Ocr::new(OcrOptions::new(BackendPreference::Onnx).with_onnx(cfg));

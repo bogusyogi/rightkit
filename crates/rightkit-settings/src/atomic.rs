@@ -4,14 +4,17 @@ use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use crate::options::{ReplaceMode, SharingRetry};
+use crate::store::Error;
 
 static NEXT_TEMP: AtomicU64 = AtomicU64::new(0);
 
 /// Write `bytes` so readers see the old or the new file, never a mix. Creates missing parent
-/// directories, then replaces through `rightkit_fs::atomic_write` (temp file, `fsync`, rename,
-/// directory `fsync`).
+/// directories, then replaces through `rightkit_fs::atomic_write_with_options` (temp file, flush,
+/// replace, and on Unix and macOS a directory sync). On Windows no directory flush is made. A
+/// failure after the file was replaced is returned as an error whose message says so; see
+/// [`crate::Error::Replaced`] for the typed form used by [`crate::Store`].
 pub fn atomic_write(dest: &Path, bytes: &[u8]) -> io::Result<()> {
-    atomic_write_mode(dest, bytes, &WriteMode::default())
+    atomic_write_mode(dest, bytes, &WriteMode::default()).map_err(into_io)
 }
 
 /// How the settings file is published. The default is today's behaviour.
@@ -32,11 +35,10 @@ impl Default for WriteMode {
     }
 }
 
-/// [`atomic_write`] with an explicit replace mode, durability flag, and sharing-violation retry.
-pub(crate) fn atomic_write_mode(dest: &Path, bytes: &[u8], mode: &WriteMode) -> io::Result<()> {
-    let parent = parent_of(dest)?;
-    fs::create_dir_all(parent)?;
-    let options = rightkit_fs::AtomicWriteOptions {
+/// The `rightkit_fs` options a [`WriteMode`] stands for. Shared by the write and by
+/// [`crate::StoreOptions::achieved_durability`], so the two cannot disagree.
+pub(crate) fn fs_options(mode: &WriteMode) -> rightkit_fs::AtomicWriteOptions {
+    rightkit_fs::AtomicWriteOptions {
         durable: mode.durable,
         replace: match mode.replace {
             ReplaceMode::Rename => rightkit_fs::ReplaceMode::Rename,
@@ -47,8 +49,16 @@ pub(crate) fn atomic_write_mode(dest: &Path, bytes: &[u8], mode: &WriteMode) -> 
             .retry
             .map(|r| rightkit_fs::RetryPolicy::new(r.attempts, r.delay)),
         ..Default::default()
-    };
-    rightkit_fs::atomic_write_with_options(dest, options, |f| f.write_all(bytes)).map_err(into_io)
+    }
+}
+
+/// [`atomic_write`] with an explicit replace mode, durability flag, and sharing-violation retry.
+/// `Error::Io` means nothing was published; `Error::Replaced` means the new file is in place.
+pub(crate) fn atomic_write_mode(dest: &Path, bytes: &[u8], mode: &WriteMode) -> Result<(), Error> {
+    let parent = parent_of(dest)?;
+    fs::create_dir_all(parent)?;
+    rightkit_fs::atomic_write_with_options(dest, fs_options(mode), |f| f.write_all(bytes))
+        .map_err(|e| publish_error(dest, e))
 }
 
 /// As [`atomic_write`] with an injectable replace step (used to prove the old file survives a
@@ -95,9 +105,23 @@ fn parent_of(dest: &Path) -> io::Result<&Path> {
         .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "path has no parent"))
 }
 
-fn into_io(e: rightkit_fs::FsError) -> io::Error {
+/// Sorts a publish failure. The two post-publication variants mean the destination already holds
+/// the new bytes, so they must not be reported as a plain I/O failure (a caller would retry).
+fn publish_error(dest: &Path, e: rightkit_fs::FsError) -> Error {
     match e {
-        rightkit_fs::FsError::Io { source, .. } => source,
+        rightkit_fs::FsError::ReplacedButDirSyncFailed { source, .. }
+        | rightkit_fs::FsError::ReplacedButPostStepFailed { source, .. } => Error::Replaced {
+            path: dest.to_path_buf(),
+            source,
+        },
+        rightkit_fs::FsError::Io { source, .. } => Error::Io(source),
+        other => Error::Io(io::Error::other(other)),
+    }
+}
+
+fn into_io(e: Error) -> io::Error {
+    match e {
+        Error::Io(source) => source,
         other => io::Error::other(other),
     }
 }

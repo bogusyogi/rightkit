@@ -62,7 +62,9 @@ pub enum Easing {
     /// with `zeta = 1 - bounce` and `omega = 6.9 / zeta`, and it overshoots by
     /// up to `e^(-pi zeta / sqrt(1 - zeta^2))`. The endpoint is pinned to
     /// exactly 1 at `u >= 1`, as the source does. Span-independent.
-    CameraSpring { bounce: f64 },
+    CameraSpring {
+        bounce: f64,
+    },
 }
 
 impl Easing {

@@ -3,11 +3,42 @@
 //! Gate: needs `silero_vad_16k_op15.onnx` (2 MB, MIT). Set `RIGHTKIT_VAD_MODEL`
 //! to its path. When the variable is unset each test prints a SKIP line and
 //! returns; when it names a missing file the test panics. The macOS tests also
-//! need an ONNX Runtime 1.24.4 dylib, named by `RIGHTKIT_ORT_TEST_DYLIB`.
+//! need an ONNX Runtime 1.24.4 dylib, named by `RIGHTKIT_ORT_TEST_DYLIB` or found
+//! in the genright download cache. A missing dylib is a SKIP too. Under
+//! `RIGHTKIT_REQUIRE_ASSETS=1` every missing asset panics instead.
+mod common;
+
 use rightkit_vad::*;
 use std::path::{Path, PathBuf};
 #[cfg(target_os = "macos")]
 use std::sync::OnceLock;
+
+/// The approved ONNX Runtime 1.24.4 dylib on macOS: `RIGHTKIT_ORT_TEST_DYLIB` when set (even
+/// when it names a missing file, which then fails loudly), else the genright download cache. The
+/// cache's place relative to this crate differs between the main checkout and the build mirrors,
+/// so search the ancestors for `genright/...` and `claude/genright/...`.
+#[cfg(target_os = "macos")]
+fn ort_runtime_path() -> Option<PathBuf> {
+    if let Some(explicit) = std::env::var_os("RIGHTKIT_ORT_TEST_DYLIB") {
+        return Some(PathBuf::from(explicit));
+    }
+    let cached = "genright/.cache/devin-completion-20261006/batch5/voice/dl/onnxruntime-osx-arm64-1.24.4/lib/libonnxruntime.1.24.4.dylib";
+    Path::new(env!("CARGO_MANIFEST_DIR"))
+        .ancestors()
+        .flat_map(|a| [a.join(cached), a.join("claude").join(cached)])
+        .find(|p| p.is_file())
+}
+
+/// True when the ONNX Runtime dylib is absent on macOS. Other hosts are not checked here.
+#[cfg(target_os = "macos")]
+fn ort_runtime_missing() -> bool {
+    ort_runtime_path().is_none()
+}
+
+#[cfg(not(target_os = "macos"))]
+fn ort_runtime_missing() -> bool {
+    false
+}
 
 fn init_ort_runtime() {
     #[cfg(target_os = "macos")]
@@ -16,25 +47,20 @@ fn init_ort_runtime() {
         READY.get_or_init(|| {
             use rightkit_media::native::{NativeCatalog, NativeLibrary};
             use rightkit_ort::{
-                init_environment, resolve_runtime, CandidateSource, EnvironmentOptions, GlobalPool,
-                RuntimeCandidate, runtime_filename,
+                init_environment, resolve_runtime, runtime_filename, CandidateSource,
+                EnvironmentOptions, GlobalPool, RuntimeCandidate,
             };
 
-            // Default: the genright download cache. Its place relative to this crate differs
-            // between the main checkout and the build mirrors, so search the ancestors for
-            // `genright/...` and `claude/genright/...` instead of counting `..`.
-            let cached = "genright/.cache/devin-completion-20261006/batch5/voice/dl/onnxruntime-osx-arm64-1.24.4/lib/libonnxruntime.1.24.4.dylib";
-            let runtime = std::env::var_os("RIGHTKIT_ORT_TEST_DYLIB")
-                .map(PathBuf::from)
-                .or_else(|| {
-                    Path::new(env!("CARGO_MANIFEST_DIR"))
-                        .ancestors()
-                        .flat_map(|a| [a.join(cached), a.join("claude").join(cached)])
-                        .find(|p| p.is_file())
-                })
-                .unwrap_or_else(|| PathBuf::from(cached));
-            assert!(runtime.is_file(), "no approved ONNX Runtime 1.24.4 dylib at {}; set RIGHTKIT_ORT_TEST_DYLIB", runtime.display());
-            let staged_dir = std::env::temp_dir().join(format!("rightkit-vad-ort-e2e-{}", std::process::id()));
+            // Every test calls `need_ort!()` first, so the dylib is present here.
+            let runtime =
+                ort_runtime_path().expect("tests check the ONNX Runtime before loading it");
+            assert!(
+                runtime.is_file(),
+                "no approved ONNX Runtime 1.24.4 dylib at {}; set RIGHTKIT_ORT_TEST_DYLIB",
+                runtime.display()
+            );
+            let staged_dir =
+                std::env::temp_dir().join(format!("rightkit-vad-ort-e2e-{}", std::process::id()));
             let _ = std::fs::remove_dir_all(&staged_dir);
             std::fs::create_dir_all(&staged_dir).unwrap();
             let staged = staged_dir.join(runtime_filename());
@@ -44,12 +70,17 @@ fn init_ort_runtime() {
                 .approved(NativeLibrary::Onnxruntime, "macos", "aarch64")
                 .unwrap();
             assert_eq!(record.version, "1.24.4");
-            record.verify_file(&staged).expect("ORT dylib must match approved catalog");
-            let selection = resolve_runtime([RuntimeCandidate::new(&staged, CandidateSource::Explicit)])
-                .expect("approved ORT dylib must resolve before initialization");
+            record
+                .verify_file(&staged)
+                .expect("ORT dylib must match approved catalog");
+            let selection =
+                resolve_runtime([RuntimeCandidate::new(&staged, CandidateSource::Explicit)])
+                    .expect("approved ORT dylib must resolve before initialization");
             init_environment(
                 &selection,
-                &EnvironmentOptions { global_pool: Some(GlobalPool::from_budget()) },
+                &EnvironmentOptions {
+                    global_pool: Some(GlobalPool::from_budget()),
+                },
             )
             .expect("approved ORT dylib must initialize before any session");
         });
@@ -80,16 +111,34 @@ fn load_wav() -> Vec<f32> {
         .collect()
 }
 
-macro_rules! need_model {
+/// Skips the test (or panics under `RIGHTKIT_REQUIRE_ASSETS=1`) when the ONNX Runtime is absent.
+macro_rules! need_ort {
     () => {
+        if ort_runtime_missing() {
+            common::skip_missing(
+                "approved ONNX Runtime 1.24.4 macOS dylib",
+                "RIGHTKIT_ORT_TEST_DYLIB or genright/.cache/devin-completion-20261006/batch5/voice/dl/onnxruntime-osx-arm64-1.24.4/lib/libonnxruntime.1.24.4.dylib",
+            );
+            return;
+        }
+    };
+}
+
+/// The Silero model path. Skips the test when the model or the ONNX Runtime is absent.
+macro_rules! need_model {
+    () => {{
+        need_ort!();
         match model() {
             Some(m) => m,
             None => {
-                eprintln!("SKIP: set RIGHTKIT_VAD_MODEL to run this Silero test");
+                common::skip_missing(
+                    "Silero VAD model silero_vad_16k_op15.onnx",
+                    "RIGHTKIT_VAD_MODEL",
+                );
                 return;
             }
         }
-    };
+    }};
 }
 
 fn with_silence(speech: &[f32], lead_ms: usize, tail_ms: usize) -> Vec<f32> {
@@ -278,6 +327,7 @@ fn coreml_scorer_loads_and_tracks_cpu_scores() {
 
 #[test]
 fn corrupt_model_bytes_fall_back_to_energy_with_reason() {
+    need_ort!();
     init_ort_runtime();
     let junk = b"not an onnx model";
     assert!(SpeechScorer::from_bytes(junk, SileroOptions::default()).is_err());

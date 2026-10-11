@@ -6,7 +6,7 @@ rust-version = "1.98.0"
 publish = false
 license = "MIT OR Apache-2.0"
 description = "Platform-neutral core of the RightKit recorder (RK3): record lifecycle, quarantine and recovery, session bundle writer, per-field redaction, bundle verification and frame reader. OS capture lives in per-platform helpers behind the Backend trait."
-repository = "https://github.com/bogusyogi/rightkit"
+repository = "https://github.com/Orthic-Labs/rightkit"
 include = ["src/**", "tests/**", "Cargo.toml", "rightkit-ownership.json"]
 
 [lib]

@@ -11,6 +11,8 @@
 //! report to `RIGHTKIT_ASR_CERTIFY_REPORT` when set.
 #![cfg(target_os = "macos")]
 
+mod common;
+
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
@@ -45,13 +47,21 @@ fn wav(p: &Path) -> Vec<f32> {
 #[test]
 fn rightkit_asr_matches_installed_heardright() {
     if std::env::var_os("RIGHTKIT_ASR_CERTIFY").is_none() {
-        eprintln!("SKIP: set RIGHTKIT_ASR_CERTIFY=1 with HeardRight running");
+        common::skip_missing(
+            "HeardRight's live speech service (certification is opt-in)",
+            "RIGHTKIT_ASR_CERTIFY=1, with HeardRight running",
+        );
         return;
     }
     let root = sc::default_suite_root().expect("suite root");
     let mut hr = sc::connect(&root).expect("installed HeardRight speech service");
     let host = hr.engine_version().to_string();
-    let engine = CoreMlParakeet::load(&bundle(), CoreMlParakeetOptions::default()).expect("load bundle");
+    let model = bundle();
+    if !model.is_dir() {
+        common::skip_missing("HeardRight's Parakeet CoreML bundle", &model.display().to_string());
+        return;
+    }
+    let engine = CoreMlParakeet::load(&model, CoreMlParakeetOptions::default()).expect("load bundle");
     let mut report = Vec::new();
     let mut failures = Vec::new();
     for f in fixtures() {

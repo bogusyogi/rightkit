@@ -28,7 +28,10 @@ fn an_explicit_runtime_binds_and_its_directory_leads_path_in_every_case() {
     // Whatever the environment already named, the explicit runtime wins and is searched first.
     std::env::set_var("ORT_DYLIB_PATH", &other_file);
     bind_ort_runtime(Some(&file));
-    assert_eq!(std::env::var_os("ORT_DYLIB_PATH"), Some(file.clone().into_os_string()));
+    assert_eq!(
+        std::env::var_os("ORT_DYLIB_PATH"),
+        Some(file.clone().into_os_string())
+    );
     assert_eq!(entries().first(), Some(&dir));
     // The exported-runtime search that follows in the worker keeps that order.
     let got = rightkit_ort::export_discovered_runtime([other_dir.clone()]);
@@ -48,7 +51,10 @@ fn without_an_explicit_runtime_only_debug_builds_keep_the_inherited_variable() {
     std::env::set_var("ORT_DYLIB_PATH", &file);
     bind_ort_runtime(None);
     if cfg!(debug_assertions) {
-        assert_eq!(std::env::var_os("ORT_DYLIB_PATH"), Some(file.into_os_string()));
+        assert_eq!(
+            std::env::var_os("ORT_DYLIB_PATH"),
+            Some(file.into_os_string())
+        );
     } else {
         assert_eq!(std::env::var_os("ORT_DYLIB_PATH"), None);
     }

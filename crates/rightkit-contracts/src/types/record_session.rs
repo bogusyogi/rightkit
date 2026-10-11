@@ -12,7 +12,7 @@ pub struct RecordSession {
     pub bundle_id: String,
     pub created_at: String,
     pub status: BundleStatus,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub reason: Option<String>,
     pub recorder: Recorder,
     pub scenario: ScenarioRef,
@@ -83,11 +83,11 @@ pub struct Target {
 pub struct Surface {
     pub surface_id: String,
     pub kind: SurfaceKind,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub parent_surface_id: Option<String>,
     pub native_id: String,
     pub supported: bool,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub unsupported_reason: Option<String>,
 }
 
@@ -151,11 +151,11 @@ pub enum VisibilityState {
 pub struct GeometryEpoch {
     pub epoch: u32,
     pub start_ms: u64,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub end_ms: Option<u64>,
     pub bounds_pt: Rect,
     pub scale: f64,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub dpi: Option<u32>,
 }
 
@@ -221,9 +221,9 @@ pub struct Files {
     pub clock_json: FileEntry,
     #[serde(rename = "capture.json")]
     pub capture_json: FileEntry,
-    #[serde(rename = "clean.mp4", default)]
+    #[serde(rename = "clean.mp4", default, skip_serializing_if = "Option::is_none")]
     pub clean_mp4: Option<FileEntry>,
-    #[serde(rename = "clean.mov", default)]
+    #[serde(rename = "clean.mov", default, skip_serializing_if = "Option::is_none")]
     pub clean_mov: Option<FileEntry>,
 }
 
@@ -263,9 +263,9 @@ pub struct Dependency {
     pub id: String,
     pub version: String,
     pub blake3: String,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub bytes: Option<u64>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub hotspot: Option<Hotspot>,
 }
 

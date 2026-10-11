@@ -69,11 +69,7 @@ impl Identity {
     /// a stranger.
     pub fn generate(alias: &str) -> io::Result<Identity> {
         let key_pair = rcgen::KeyPair::generate().map_err(other)?;
-        let common_name: String = alias
-            .chars()
-            .filter(|c| !c.is_control())
-            .take(64)
-            .collect();
+        let common_name: String = alias.chars().filter(|c| !c.is_control()).take(64).collect();
         let mut params =
             rcgen::CertificateParams::new(vec!["localsend".to_string()]).map_err(other)?;
         params.distinguished_name.push(
@@ -130,7 +126,6 @@ pub(crate) fn is_identity_mismatch(error: &io::Error) -> bool {
         .and_then(|inner| inner.downcast_ref::<rustls::Error>())
         .is_some_and(|tls| matches!(tls, rustls::Error::General(text) if text == MISMATCH_MESSAGE))
 }
-
 
 /// Asks a connecting device for its certificate without requiring one. Other
 /// LocalSend apps send none; Pulse sends its own. Any self-signed certificate
@@ -775,10 +770,10 @@ mod tests {
         };
         let cert = CertificateDer::from(server.cert_der.clone());
         let name = ServerName::IpAddress("127.0.0.1".parse::<IpAddr>().unwrap().into());
-        let error = verifier
-            .verify_server_cert(&cert, &[], &name, &[], UnixTime::now())
-            .err()
-            .expect("a different certificate is refused");
+        let Err(error) = verifier.verify_server_cert(&cert, &[], &name, &[], UnixTime::now())
+        else {
+            panic!("a different certificate is refused");
+        };
         assert!(matches!(&error, rustls::Error::General(text) if text == MISMATCH_MESSAGE));
     }
 

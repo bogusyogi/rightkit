@@ -109,7 +109,7 @@ function killTree(child) {
 }
 
 /** Run one command, teeing output to the job log and to the unit's evidence log. */
-function run(unit, command, args, { cwd = ROOT, env = {}, timeoutMinutes = 45 } = {}) {
+function run(unit, command, args, { cwd = ROOT, env = {}, timeoutMinutes = 25, discardStdout = false } = {}) {
   const label = `${unit}: ${command} ${args.join(" ")}`;
   return new Promise((resolve) => {
     const started = Date.now();
@@ -118,7 +118,8 @@ function run(unit, command, args, { cwd = ROOT, env = {}, timeoutMinutes = 45 } 
     const log = fs.createWriteStream(logFile, { flags: "a" });
     log.write(`\n$ ${command} ${args.join(" ")}\n`);
     console.log(`::group::${label}`);
-    let timedOut = false; let settled = false;
+    let timedOut = false; let settled = false; let skipped = 0;
+    const countSkips = (chunk) => { skipped += (String(chunk).match(/^(SKIP |# skipped [1-9]|.*\u2193 .*\[skipped\])/gm) ?? []).length; };
     const finish = (code, note) => {
       if (settled) return; settled = true;
       clearTimeout(timer);
@@ -128,13 +129,16 @@ function run(unit, command, args, { cwd = ROOT, env = {}, timeoutMinutes = 45 } 
       log.end();
       console.log("::endgroup::");
       console.log(`${ok ? "PASS" : "FAIL"} ${label} (${seconds}s${timedOut ? ", timed out" : ""})`);
-      results.push({ unit, command: `${command} ${args.join(" ")}`, ok, code, timedOut, seconds });
+      results.push({ unit, command: `${command} ${args.join(" ")}`, ok, code, timedOut, seconds, skipped });
+      // Written after every step: a job that is cancelled at its time limit still uploads what ran.
+      fs.writeFileSync(path.join(EVIDENCE, "progress.json"), JSON.stringify(results, null, 1));
       resolve(ok);
     };
     // pnpm is a .cmd shim on Windows and needs a shell there; the arguments here never contain spaces.
     const child = spawn(command, args, { cwd, env: { ...process.env, CARGO_TERM_COLOR: "always", ...env }, stdio: ["ignore", "pipe", "pipe"], shell: WIN && command === "pnpm", detached: !WIN });
     const timer = setTimeout(() => { timedOut = true; killTree(child); }, timeoutMinutes * MINUTE);
-    for (const stream of [child.stdout, child.stderr]) stream.on("data", (chunk) => { process.stdout.write(chunk); log.write(chunk); });
+    child.stdout.on("data", (chunk) => { if (!discardStdout) { countSkips(chunk); process.stdout.write(chunk); log.write(chunk); } });
+    child.stderr.on("data", (chunk) => { countSkips(chunk); process.stdout.write(chunk); log.write(chunk); });
     child.on("error", (error) => finish(1, `could not start: ${error.message}`));
     child.on("close", (code) => finish(code ?? 1, timedOut ? `timed out after ${timeoutMinutes} minutes` : ""));
   });
@@ -155,11 +159,14 @@ async function rustGate(selection, config) {
   const { rust } = selection;
   if (!rust.test.length && !rust.check.length) return;
   const applies = (name) => !(config.rust?.[name]?.os) || config.rust[name].os.includes(HOST);
-  // Refresh the lock first: a manifest edited without a build leaves it stale, and the patch that
-  // fixes it is evidence, not a reason to skip every other unit.
-  await run("lock", "cargo", ["metadata", "--format-version", "1", "--quiet"], { timeoutMinutes: 15, env: { CARGO_TERM_COLOR: "never" } });
-  results.at(-1).command = "cargo metadata (lock refresh)";
-  if (savePatch("Cargo.lock.patch", ["Cargo.lock"])) results.push({ unit: "lock", command: "Cargo.lock matches the manifests", ok: false, code: 1, seconds: 0 });
+  // Check the lock first: a manifest edited without a build leaves it stale. The repair is
+  // `cargo update --workspace`, and the patch it produces is evidence, not a reason to skip the
+  // other units.
+  const locked = await run("lock", "cargo", ["metadata", "--locked", "--format-version", "1"], { timeoutMinutes: 15, discardStdout: true });
+  if (!locked) {
+    await run("lock", "cargo", ["update", "--workspace"], { timeoutMinutes: 15 });
+    savePatch("Cargo.lock.patch", ["Cargo.lock"]);
+  }
 
   const formatted = rust.test.filter(applies);
   if (formatted.length) {
@@ -175,7 +182,7 @@ async function rustGate(selection, config) {
     if (!applies(name)) continue;
     const entry = config.rust?.[name] ?? {};
     const featureSets = entry.featureSets ?? [[]];
-    const timeoutMinutes = entry.timeoutMinutes ?? 45;
+    const timeoutMinutes = entry.timeoutMinutes ?? 25;
     for (const features of featureSets) {
       await run(`rust:${name}`, "cargo", ["test", "-p", name, ...features, "--no-fail-fast"], { timeoutMinutes });
       if (entry.alsoSerial) await run(`rust:${name}`, "cargo", ["test", "-p", name, ...features, "--no-fail-fast", "--", "--test-threads=1"], { timeoutMinutes });
@@ -218,8 +225,8 @@ function report(selection) {
   const knownRed = readJson("ci/known-red.json", {})[HOST] ?? {};
   const units = new Map();
   for (const result of results) {
-    const unit = units.get(result.unit) ?? { ok: true, seconds: 0, failed: [] };
-    unit.ok &&= result.ok; unit.seconds += result.seconds;
+    const unit = units.get(result.unit) ?? { ok: true, seconds: 0, failed: [], skipped: 0 };
+    unit.ok &&= result.ok; unit.seconds += result.seconds; unit.skipped += result.skipped ?? 0;
     if (!result.ok) unit.failed.push(result.command + (result.timedOut ? " (timed out)" : ""));
     units.set(result.unit, unit);
   }
@@ -235,6 +242,7 @@ function report(selection) {
     "|---|---|---|---|",
     ...rows.map((r) => `| ${r.id} | ${r.ok ? "pass" : r.known ? "known red" : "**FAIL**"} | ${r.seconds} | ${r.failed.join("; ").replaceAll("|", "\\|")} |`),
     "",
+    rows.some((r) => r.skipped) ? `Unproven on this runner (tests skipped for a missing asset or precondition; skipped is not passed): ${rows.filter((r) => r.skipped).map((r) => `${r.id} (${r.skipped})`).join(", ")}` : "",
     nowGreen.length ? `Now green, remove from ci/known-red.json (${HOST}): ${nowGreen.map((r) => r.id).join(", ")}` : "",
     "Not covered by this gate: desktop-app-template, swift/ios-app-template, spikes.",
   ].join("\n");

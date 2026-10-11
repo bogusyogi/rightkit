@@ -15,7 +15,7 @@ use std::{
         mpsc::{self, RecvTimeoutError},
         Arc, Mutex,
     },
-    thread,
+    thread::{self, JoinHandle},
     time::{Duration, Instant},
 };
 
@@ -30,6 +30,10 @@ const STDERR_TAIL_BYTES: usize = 8 * 1024;
 const CAPTURE_LIMIT: u64 = 4 << 20;
 /// Grace between the polite stop signal and the forced tree kill, unless a caller sets its own.
 const DEFAULT_KILL_GRACE: Duration = Duration::from_secs(2);
+/// How long the pipe readers get to reach end of stream after a deadline or a cancel has
+/// stopped the tree. With the tree dead they finish at once; this only bounds the wait for a
+/// holder that escaped the process group, whose reader is then left to end on its own.
+const POST_KILL_DRAIN: Duration = Duration::from_secs(2);
 
 /// One `progress=` block from `-progress pipe:1`.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -257,10 +261,9 @@ enum Abort {
 /// bounds cancel latency; it adds nothing to a run that simply finishes.
 const CANCEL_CHECK: Duration = Duration::from_millis(25);
 
-/// Block a helper thread on the child's exit and hand the status to `deliver`. The wait is
-/// the OS's own (`waitid` with `WNOWAIT` on Unix, `WaitForSingleObject` on Windows), so the
-/// caller learns of an exit the moment it happens instead of on the next poll tick. The
-/// thread ends when the child does, including when the caller kills it.
+/// Block a helper thread on the child's exit and hand the status to `deliver`. It **reaps**
+/// the leader as soon as it exits, which on Unix ends the owner's ability to kill descendants
+/// that outlive it. Use [`watch_exited`] where the owner must finish tree cleanup first.
 pub(crate) fn watch_exit(
     child: &OwnedChild,
     deliver: impl FnOnce(io::Result<ExitStatus>) + Send + 'static,
@@ -269,6 +272,23 @@ pub(crate) fn watch_exit(
     thread::Builder::new()
         .name("rightkit-media-exit".into())
         .spawn(move || deliver(handle.wait()))?;
+    Ok(())
+}
+
+/// Like [`watch_exit`], but **does not reap**: `deliver` is called once the leader is no longer
+/// running (exited and still unreaped, or already reaped by the owner). The status is not
+/// delivered; the owner reads it with `wait` after it has drained the pipes and, if a deadline
+/// or cancel fired, killed the group. Until then an exited leader stays a zombie that pins the
+/// process-group id, so a TERM-resistant descendant that holds the pipes can still be killed
+/// with the group. A reaping watcher would end that ability the moment the leader exited.
+pub(crate) fn watch_exited(
+    child: &OwnedChild,
+    deliver: impl FnOnce(io::Result<()>) + Send + 'static,
+) -> io::Result<()> {
+    let handle = child.process_handle()?;
+    thread::Builder::new()
+        .name("rightkit-media-exit".into())
+        .spawn(move || deliver(handle.wait_exited()))?;
     Ok(())
 }
 
@@ -329,10 +349,52 @@ fn find_on_path(name: &Path) -> Option<PathBuf> {
         .find(|candidate| candidate.is_file())
 }
 
-/// What the run loop wakes for: a progress block from stdout, or the child's exit.
+/// What the run loop wakes for.
 enum Event {
+    /// A progress block from stdout.
     Progress(ProgressEvent),
-    Exit(io::Result<ExitStatus>),
+    /// The leader is no longer running (exited and unreaped, or reaped by the owner).
+    Exit(io::Result<()>),
+    /// The stdout reader reached end of stream.
+    StdoutDone,
+    /// The stderr reader reached end of stream.
+    StderrDone,
+}
+
+/// Where a run stands while it waits for the leader and for both pipes. A run is over when the
+/// leader has exited and both streams have ended; until then the deadline and cancel stay live,
+/// because a descendant can hold a pipe open long after the leader is gone.
+#[derive(Default)]
+struct RunState {
+    exited: bool,
+    stdout_done: bool,
+    stderr_done: bool,
+}
+
+impl RunState {
+    fn complete(&self) -> bool {
+        self.exited && self.stdout_done && self.stderr_done
+    }
+
+    /// Record a lifecycle event; progress blocks and exit failures are the caller's.
+    fn note(&mut self, event: &Event) {
+        match event {
+            Event::Exit(Ok(())) => self.exited = true,
+            Event::StdoutDone => self.stdout_done = true,
+            Event::StderrDone => self.stderr_done = true,
+            Event::Progress(_) | Event::Exit(Err(_)) => {}
+        }
+    }
+}
+
+/// Join a reader that has finished; a reader still blocked (a holder outside the killed
+/// process group) is detached instead, so a stuck pipe cannot hold the caller past its deadline.
+fn join_if_done<T>(done: bool, thread: JoinHandle<T>) -> Option<T> {
+    if done {
+        thread.join().ok()
+    } else {
+        None
+    }
 }
 
 /// Run FFmpeg, parsing `-progress pipe:1` from stdout (the command must request it,
@@ -413,13 +475,14 @@ where
 
     let (tx, rx) = mpsc::channel::<Event>();
     let exit_tx = tx.clone();
-    if let Err(e) = watch_exit(&child, move |status| {
-        let _ = exit_tx.send(Event::Exit(status));
+    if let Err(e) = watch_exited(&child, move |result| {
+        let _ = exit_tx.send(Event::Exit(result));
     }) {
         let _ = child.terminate_tree();
         return Err(RunError::Io(e));
     }
     let stdout = child.take_stdout().expect("stdout piped");
+    let stderr_tx = tx.clone();
     let out_thread = thread::spawn(move || {
         let mut parser = ProgressParser::default();
         read_lines(stdout, |line| {
@@ -427,6 +490,7 @@ where
                 let _ = tx.send(Event::Progress(ev));
             }
         });
+        let _ = tx.send(Event::StdoutDone);
     });
     let tail = Arc::new(Mutex::new(Tail::default()));
     let stderr = child.take_stderr().expect("stderr piped");
@@ -437,6 +501,7 @@ where
                 t.push(line);
             }
         });
+        let _ = stderr_tx.send(Event::StderrDone);
     });
 
     // The writer runs on a scoped thread so a blocked write can never stall the
@@ -454,7 +519,14 @@ where
         };
         let mut events = 0u64;
         let mut abort: Option<Abort> = None;
-        let status = loop {
+        let mut run = RunState::default();
+        // Set once an abort has stopped the tree: the readers get until then to end.
+        let mut drain_until: Option<Instant> = None;
+        // The run is over when the leader has exited and both streams have ended. The leader
+        // is only observed to exit, never reaped, until then: a descendant that holds a pipe
+        // (and ignores TERM) is killed with the group, which only the unreaped leader pins.
+        // The deadline and cancel stay live the whole time, including while the pipes drain.
+        loop {
             if abort.is_none() {
                 if opts.cancel.is_cancelled() {
                     abort = Some(Abort::Cancelled);
@@ -462,11 +534,13 @@ where
                     abort = Some(Abort::TimedOut);
                 }
                 if abort.is_some() {
+                    // TERM to the group, the grace, then KILL to the group while the leader is
+                    // still unreaped (an exited leader is not reaped first), then the reap.
                     if let Err(e) = child.wait_or_kill(opts.kill_grace) {
                         let _ = child.terminate_tree();
                         // The deadline or the cancel caused this stop, so that is what the
                         // caller gets, whatever the kill reported (the child may already be
-                        // gone, or reaped by the exit watcher while the kill ran).
+                        // gone, or reaped while the kill ran).
                         return Err(match &abort {
                             Some(Abort::Cancelled) => RunError::Cancelled,
                             Some(Abort::TimedOut) => {
@@ -475,9 +549,18 @@ where
                             None => RunError::Io(e),
                         });
                     }
+                    run.exited = true;
+                    drain_until = Instant::now().checked_add(POST_KILL_DRAIN);
                 }
             }
-            match rx.recv_timeout(next_wake(deadline.filter(|_| abort.is_none()))) {
+            if run.complete() || drain_until.is_some_and(|at| Instant::now() >= at) {
+                break;
+            }
+            let mut wake = next_wake(deadline.filter(|_| abort.is_none()));
+            if let Some(at) = drain_until {
+                wake = wake.min(at.saturating_duration_since(Instant::now()));
+            }
+            match rx.recv_timeout(wake) {
                 Ok(Event::Progress(ev)) => {
                     events += 1;
                     if let Some(cb) = opts.on_progress.as_deref_mut() {
@@ -485,20 +568,29 @@ where
                     }
                     last = ev;
                 }
-                Ok(Event::Exit(Ok(status))) => break status,
                 Ok(Event::Exit(Err(e))) => {
                     let _ = child.terminate_tree();
                     return Err(RunError::Io(e));
                 }
+                Ok(event) => run.note(&event),
                 Err(RecvTimeoutError::Timeout) => {}
                 Err(RecvTimeoutError::Disconnected) => {
                     let _ = child.terminate_tree();
-                    return Err(RunError::Io(io::Error::other("exit watcher stopped")));
+                    return Err(RunError::Io(io::Error::other("child event channel closed")));
                 }
             }
+        }
+        // Reap. When the run ended on its own the leader is still an unreaped zombie, kept so
+        // the tree stayed killable until now; after an abort `wait_or_kill` already did it.
+        let status = match child.wait() {
+            Ok(status) => status,
+            Err(e) => {
+                let _ = child.terminate_tree();
+                return Err(RunError::Io(e));
+            }
         };
-        let _ = out_thread.join();
-        let _ = err_thread.join();
+        let _ = join_if_done(run.stdout_done, out_thread);
+        let _ = join_if_done(run.stderr_done, err_thread);
         let writer_result = match writer {
             Some(writer) => writer
                 .join()
@@ -603,30 +695,40 @@ fn run_capture_inner(
     let mut child = command.spawn().map_err(RunError::Spawn)?;
     let mut stdout = child.take_stdout().expect("stdout piped");
     let mut stderr = child.take_stderr().expect("stderr piped");
+    let (tx, rx) = mpsc::channel::<Event>();
+    let out_tx = tx.clone();
     let out_t = thread::spawn(move || {
         let mut b = Vec::new();
         let _ = stdout.read_to_end(&mut b);
+        let _ = out_tx.send(Event::StdoutDone);
         b
     });
+    let err_tx = tx.clone();
     let err_t = thread::spawn(move || {
         let mut b = Vec::new();
         let _ = (&mut stderr).take(CAPTURE_LIMIT).read_to_end(&mut b);
         // Keep draining so FFmpeg never blocks on a full pipe.
         let _ = io::copy(&mut stderr, &mut io::sink());
+        let _ = err_tx.send(Event::StderrDone);
         b
     });
     // `None` when there is no deadline or when `now + timeout` overflows: such a deadline
     // never fires.
     let deadline = timeout.and_then(|timeout| Instant::now().checked_add(timeout));
-    let (exit_tx, exit_rx) = mpsc::channel::<io::Result<ExitStatus>>();
-    if let Err(e) = watch_exit(&child, move |status| {
-        let _ = exit_tx.send(status);
+    if let Err(e) = watch_exited(&child, move |result| {
+        let _ = tx.send(Event::Exit(result));
     }) {
         let _ = child.terminate_tree();
         return Err(RunError::Io(e));
     }
     let mut abort = None;
-    let status = loop {
+    let mut run = RunState::default();
+    // Set once an abort has stopped the tree: the readers get until then to end.
+    let mut drain_until: Option<Instant> = None;
+    // Same shape as `run_inner`: the leader is observed, not reaped, until both streams have
+    // ended, so a TERM-resistant descendant holding a pipe is killed with the group, and the
+    // deadline and cancel stay live while the pipes drain.
+    loop {
         if abort.is_none() {
             if cancel.is_cancelled() {
                 abort = Some(Abort::Cancelled);
@@ -634,24 +736,48 @@ fn run_capture_inner(
                 abort = Some(Abort::TimedOut);
             }
             if abort.is_some() {
-                let _ = child.wait_or_kill(kill_grace);
+                if let Err(e) = child.wait_or_kill(kill_grace) {
+                    let _ = child.terminate_tree();
+                    return Err(match &abort {
+                        Some(Abort::Cancelled) => RunError::Cancelled,
+                        Some(Abort::TimedOut) => RunError::TimedOut(timeout.unwrap_or_default()),
+                        None => RunError::Io(e),
+                    });
+                }
+                run.exited = true;
+                drain_until = Instant::now().checked_add(POST_KILL_DRAIN);
             }
         }
-        match exit_rx.recv_timeout(next_wake(deadline.filter(|_| abort.is_none()))) {
-            Ok(Ok(status)) => break status,
-            Ok(Err(e)) => {
+        if run.complete() || drain_until.is_some_and(|at| Instant::now() >= at) {
+            break;
+        }
+        let mut wake = next_wake(deadline.filter(|_| abort.is_none()));
+        if let Some(at) = drain_until {
+            wake = wake.min(at.saturating_duration_since(Instant::now()));
+        }
+        match rx.recv_timeout(wake) {
+            Ok(Event::Exit(Err(e))) => {
                 let _ = child.terminate_tree();
                 return Err(RunError::Io(e));
             }
+            Ok(event) => run.note(&event),
             Err(RecvTimeoutError::Timeout) => {}
             Err(RecvTimeoutError::Disconnected) => {
                 let _ = child.terminate_tree();
-                return Err(RunError::Io(io::Error::other("exit watcher stopped")));
+                return Err(RunError::Io(io::Error::other("child event channel closed")));
             }
         }
+    }
+    let status = match child.wait() {
+        Ok(status) => status,
+        Err(e) => {
+            let _ = child.terminate_tree();
+            return Err(RunError::Io(e));
+        }
     };
-    let stdout = out_t.join().unwrap_or_default();
-    let stderr = String::from_utf8_lossy(&err_t.join().unwrap_or_default()).into_owned();
+    let stdout = join_if_done(run.stdout_done, out_t).unwrap_or_default();
+    let stderr = String::from_utf8_lossy(&join_if_done(run.stderr_done, err_t).unwrap_or_default())
+        .into_owned();
     match abort {
         Some(Abort::Cancelled) => Err(RunError::Cancelled),
         Some(Abort::TimedOut) => Err(RunError::TimedOut(timeout.unwrap_or_default())),
@@ -796,9 +922,148 @@ mod tests {
                 .with_kill_grace(Duration::ZERO);
             match run_with_progress(&bin, &FfmpegCommand::base("error"), opts) {
                 Ok(_) | Err(RunError::TimedOut(_)) => {}
-                other => panic!("round {round}: expected TimedOut or a finished run, got {other:?}"),
+                other => {
+                    panic!("round {round}: expected TimedOut or a finished run, got {other:?}")
+                }
             }
         }
+    }
+
+    fn read_pid_file(path: &Path) -> i32 {
+        let deadline = Instant::now() + Duration::from_secs(10);
+        loop {
+            if let Some(pid) = std::fs::read_to_string(path)
+                .ok()
+                .and_then(|text| text.trim().parse().ok())
+            {
+                return pid;
+            }
+            assert!(Instant::now() < deadline, "pid file was not written");
+            thread::sleep(Duration::from_millis(2));
+        }
+    }
+
+    /// Running, and not a zombie that only waits for a reaper.
+    fn process_running(pid: i32) -> bool {
+        let state = std::process::Command::new("ps")
+            .args(["-o", "stat=", "-p", &pid.to_string()])
+            .output()
+            .map(|output| String::from_utf8_lossy(&output.stdout).trim().to_owned())
+            .unwrap_or_default();
+        !state.is_empty() && !state.starts_with('Z')
+    }
+
+    fn assert_dies_soon(pid: i32, what: &str) {
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while process_running(pid) {
+            assert!(Instant::now() < deadline, "{what}: process {pid} survived");
+            thread::sleep(Duration::from_millis(5));
+        }
+    }
+
+    /// A leader that leaves on TERM, and a straggler in its group that ignores TERM and holds
+    /// both output pipes. The straggler publishes its pid only after it set its trap, so a
+    /// cancel issued once the pid is known cannot race the trap.
+    fn term_resistant_straggler(dir: &Path) -> (DevFfmpeg, PathBuf) {
+        let pid_file = dir.join("straggler.pid");
+        let body = format!(
+            "sh -c 'trap \"\" TERM; echo $$ > \"$0\"; exec sleep 30' '{}' &\n\
+             trap 'exit 0' TERM\n\
+             while :; do sleep 0.05; done",
+            pid_file.display()
+        );
+        (fake_ffmpeg(dir, &body), pid_file)
+    }
+
+    /// The leader has already exited on its own and a straggler still holds both pipes.
+    fn straggler_after_the_leader_left(dir: &Path) -> (DevFfmpeg, PathBuf) {
+        let pid_file = dir.join("straggler.pid");
+        let body = format!("sleep 30 &\necho $! > '{}'\nexit 0", pid_file.display());
+        (fake_ffmpeg(dir, &body), pid_file)
+    }
+
+    /// Cancels the run once the straggler has said it ignores TERM. Before the fix the exit
+    /// watcher reaped the leader as soon as TERM ended it, so the owner never escalated, the
+    /// straggler kept the pipes, and the run blocked joining its readers until the straggler
+    /// (30 s here) ended on its own.
+    fn cancelled_run_kills_a_term_resistant_straggler(
+        run: impl FnOnce(&DevFfmpeg, CancellationToken) -> RunError,
+    ) {
+        let dir = tempfile::tempdir().unwrap();
+        let (bin, pid_file) = term_resistant_straggler(dir.path());
+        let token = CancellationToken::new();
+        let canceller = token.clone();
+        let (pid_tx, pid_rx) = mpsc::channel();
+        let trigger = thread::spawn(move || {
+            let pid = read_pid_file(&pid_file);
+            pid_tx.send(pid).unwrap();
+            canceller.cancel();
+        });
+        let started = Instant::now();
+        let error = run(&bin, token);
+        let elapsed = started.elapsed();
+        trigger.join().unwrap();
+        let straggler = pid_rx.recv().unwrap();
+        assert!(matches!(error, RunError::Cancelled), "{error:?}");
+        assert!(
+            elapsed < Duration::from_secs(20),
+            "the run waited {elapsed:?} for a straggler that ignores TERM"
+        );
+        assert_dies_soon(straggler, "cancelled run");
+    }
+
+    #[test]
+    fn a_cancelled_progress_run_kills_a_term_resistant_straggler_instead_of_waiting_for_it() {
+        cancelled_run_kills_a_term_resistant_straggler(|bin, token| {
+            let opts = RunOptions::unbounded(token).with_kill_grace(Duration::from_secs(5));
+            run_with_progress(bin, &FfmpegCommand::base("error"), opts).unwrap_err()
+        });
+    }
+
+    #[test]
+    fn a_cancelled_capture_run_kills_a_term_resistant_straggler_instead_of_waiting_for_it() {
+        cancelled_run_kills_a_term_resistant_straggler(|bin, token| {
+            let opts = RunOptions::unbounded(token).with_kill_grace(Duration::from_secs(5));
+            run_capture_with(bin, &FfmpegCommand::base("error"), opts).unwrap_err()
+        });
+    }
+
+    /// The deadline must stay live while the pipes drain: the leader is gone at once, a
+    /// straggler keeps both pipes open, and the run still ends at its deadline with the
+    /// straggler dead. Before the fix the deadline was dropped once the leader exited, and the
+    /// reader joins ran unbounded.
+    fn deadline_applies_while_a_straggler_holds_the_pipes(
+        run: impl FnOnce(&DevFfmpeg, Duration) -> RunError,
+    ) {
+        let dir = tempfile::tempdir().unwrap();
+        let (bin, pid_file) = straggler_after_the_leader_left(dir.path());
+        let started = Instant::now();
+        let error = run(&bin, Duration::from_millis(400));
+        let elapsed = started.elapsed();
+        assert!(matches!(error, RunError::TimedOut(_)), "{error:?}");
+        assert!(
+            elapsed < Duration::from_secs(20),
+            "the deadline was ignored for {elapsed:?} while a straggler held the pipes"
+        );
+        assert_dies_soon(read_pid_file(&pid_file), "timed out run");
+    }
+
+    #[test]
+    fn a_progress_run_still_times_out_while_a_straggler_holds_the_pipes_after_the_leader_exited() {
+        deadline_applies_while_a_straggler_holds_the_pipes(|bin, timeout| {
+            let opts = RunOptions::new(timeout, CancellationToken::new())
+                .with_kill_grace(Duration::from_secs(5));
+            run_with_progress(bin, &FfmpegCommand::base("error"), opts).unwrap_err()
+        });
+    }
+
+    #[test]
+    fn a_capture_run_still_times_out_while_a_straggler_holds_the_pipes_after_the_leader_exited() {
+        deadline_applies_while_a_straggler_holds_the_pipes(|bin, timeout| {
+            let opts = RunOptions::new(timeout, CancellationToken::new())
+                .with_kill_grace(Duration::from_secs(5));
+            run_capture_with(bin, &FfmpegCommand::base("error"), opts).unwrap_err()
+        });
     }
 
     #[test]

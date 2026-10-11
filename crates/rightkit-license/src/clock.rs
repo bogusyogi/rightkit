@@ -278,7 +278,30 @@ pub fn system_now_unix() -> Result<i64, String> {
 }
 
 /// Where the ledger is persisted. Implement this over the keychain/credential store the
-/// app already uses for the license record.
+/// app already uses for the license record, or use [`crate::FileClockStore`].
+///
+/// `compare_and_save` has **no default**. A load followed by a save is not atomic against
+/// another process: process A checks a ledger of `900`, process B saves `1100`, and A then
+/// saves `1000`, so trusted time moves backwards and a restart can accept tokens that were
+/// already seen to expire. An implementation therefore has to provide a real atomic
+/// compare-and-swap, or hold an OS-level lock shared by every process that uses the ledger
+/// (see [`crate::CrossProcessLock`]) around its read, compare and write.
+///
+/// ```compile_fail,E0046
+/// use rightkit_license::{ClockState, ClockStore};
+///
+/// // A store that only has `load` and `save` no longer compiles.
+/// struct LoadSaveOnly;
+/// impl ClockStore for LoadSaveOnly {
+///     type Error = std::convert::Infallible;
+///     fn load(&self) -> Result<Option<ClockState>, Self::Error> {
+///         Ok(None)
+///     }
+///     fn save(&self, _: &ClockState) -> Result<(), Self::Error> {
+///         Ok(())
+///     }
+/// }
+/// ```
 pub trait ClockStore {
     type Error;
     /// `Ok(None)` means no ledger exists; any read failure must be `Err` (never `None`),
@@ -291,23 +314,15 @@ pub trait ClockStore {
     /// primitive [`AntiRollbackClock`] uses, so a writer that read the ledger earlier can
     /// never overwrite a newer one.
     ///
-    /// The default is a plain load, compare, save: correct against every other user of
-    /// the store inside this process (the clock serialises them), but **not atomic against
-    /// another process**. A store shared between processes (for example one app's helper
-    /// and main process using the same keychain item) should override this with a real
-    /// atomic compare-and-swap or an OS-level lock, or accept the small window between
-    /// the load and the save.
+    /// The comparison and the write must be **one atomic step with respect to every other
+    /// writer of the same ledger, in this process and in any other process** (for example
+    /// an app's helper and its main process on the same keychain item). The clock
+    /// serialises its own callers inside one process; it cannot serialise other processes.
     fn compare_and_save(
         &self,
         expected: Option<&ClockState>,
         new: &ClockState,
-    ) -> Result<bool, Self::Error> {
-        if self.load()?.as_ref() != expected {
-            return Ok(false);
-        }
-        self.save(new)?;
-        Ok(true)
-    }
+    ) -> Result<bool, Self::Error>;
 }
 
 impl<T: ClockStore + ?Sized> ClockStore for &T {
@@ -445,7 +460,9 @@ pub struct Reanchored {
 /// * a [`reanchor`](Self::reanchor) is checked for replay against the current
 ///   `last_server_iat`, so it cannot overwrite a newer one.
 ///
-/// Across processes the same holds as far as the store's `compare_and_save` is atomic.
+/// Across processes the same holds because [`ClockStore::compare_and_save`] is a required,
+/// atomic operation (see [`crate::FileClockStore`] and [`crate::CrossProcessLock`]); the
+/// in-process lock above does not, and cannot, cover another process.
 ///
 /// ## Trusted time held in memory
 /// Every trusted observation is remembered for the life of this clock, whether or not it

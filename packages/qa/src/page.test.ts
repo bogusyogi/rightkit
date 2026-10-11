@@ -960,3 +960,133 @@ describe('0.4.6: failure artifacts with extra state, page text, active element a
     }
   });
 });
+
+describe('0.4.8: page.send child sessions, labelled evaluate & waits, animation frames, returnPath screenshots, page sockets', () => {
+  const callsOf = (server: { messages: any[] }, method: string) => server.messages.filter((message) => message.method === method);
+
+  it('page.send with { sessionId, timeout } addresses a child session; the two-argument and numeric forms keep the page session', async () => {
+    const { page, server } = await fixture();
+    await page.send('Runtime.evaluate', { expression: '1' }, { sessionId: 'child-1', timeout: 400 });
+    await page.send('Runtime.evaluate', { expression: '2' });
+    await page.send('Runtime.evaluate', { expression: '3' }, 400);
+    expect(callsOf(server, 'Runtime.evaluate').map((message) => [message.params.expression, message.sessionId])).toEqual([['1', 'child-1'], ['2', 'session'], ['3', 'session']]);
+    await expect(page.send('Runtime.evaluate', {}, { sessionId: '' })).rejects.toThrow('sessionId must be a non-empty string');
+  });
+
+  it('page.send { timeout } bounds only that command', async () => {
+    const { page } = await fixture((message, send) => { if (message.method !== 'Hang.never') pageResponder(message, send); });
+    await expect(page.send('Hang.never', {}, { timeout: 30 })).rejects.toThrow('Hang.never timed out after 30ms');
+    expect(await page.send('Runtime.evaluate', { expression: '1' }, { timeout: 400 })).toEqual({ result: { value: true } });
+  });
+
+  it('evaluate(expression, { label }) prefixes its error as "<label>: <description>"; without a label the error is unchanged', async () => {
+    const { page } = await fixture((message, send) => {
+      if (message.method === 'Runtime.evaluate') send({ id: message.id, result: { exceptionDetails: { exception: { description: 'ReferenceError: nope is not defined' } } } });
+      else pageResponder(message, send);
+    });
+    await expect(page.evaluate('nope', { label: 'read flag' })).rejects.toThrow(/^read flag: ReferenceError: nope is not defined$/);
+    await expect(page.evaluate('nope')).rejects.toThrow(/^ReferenceError: nope is not defined$/);
+    await expect(page.evaluate('nope', { label: '' })).rejects.toThrow('evaluate label must be a non-empty string');
+  });
+
+  it('a labelled waitForFunction times out with exactly "Timed out waiting for <label>" and wraps the predicate in Boolean()', async () => {
+    const { page, server } = await fixture((message, send) => {
+      if (message.method === 'Runtime.callFunctionOn') send({ id: message.id, result: { result: { value: false } } });
+      else pageResponder(message, send);
+    });
+    const error = await page.waitForFunction('window.appReady', { label: 'app ready', timeout: 40 }).catch((caught) => caught);
+    expect(error).toBeInstanceOf(TimeoutError);
+    expect(error.message).toBe('Timed out waiting for app ready');
+    const predicate = callsOf(server, 'Runtime.callFunctionOn').at(-1).params;
+    expect(predicate.functionDeclaration).toContain('return Boolean(await (');
+    expect(predicate.functionDeclaration).toContain('window.appReady');
+    // Labelled waits poll on pollMs (default 250 ms), never through the raf fallback.
+    expect(callsOf(server, 'Runtime.callFunctionOn').some((message) => String(message.params.functionDeclaration).includes('requestAnimationFrame'))).toBe(false);
+  });
+
+  it('a labelled wait keeps polling through "navigated or closed" and resolves once the predicate holds', async () => {
+    let attempts = 0;
+    const { page } = await fixture((message, send) => {
+      if (message.method !== 'Runtime.callFunctionOn') return pageResponder(message, send);
+      attempts++;
+      if (attempts === 1) send({ id: message.id, error: { message: 'Inspected target navigated or closed' } });
+      else send({ id: message.id, result: { result: { value: true } } });
+    });
+    await page.waitForFunction('window.ready', { label: 'after reload' });
+    expect(attempts).toBe(2);
+  });
+
+  it('an unlabelled wait still rethrows "navigated or closed"; pollMs and label mistakes are refused before any CDP work', async () => {
+    const { page, server } = await fixture((message, send) => {
+      if (message.method === 'Runtime.callFunctionOn') send({ id: message.id, error: { message: 'Inspected target navigated or closed' } });
+      else pageResponder(message, send);
+    });
+    await expect(page.waitForFunction('window.ready', { timeout: 200 })).rejects.toThrow('navigated or closed');
+    expect(callsOf(server, 'Runtime.callFunctionOn')).toHaveLength(1);
+    const sent = server.messages.length;
+    await expect(page.waitForFunction('window.ready', { pollMs: 10 })).rejects.toThrow('pollMs requires label');
+    await expect(page.waitForFunction('window.ready', { label: 'a', polling: 10 })).rejects.toThrow('not both');
+    await expect(page.waitForFunction('window.ready', { label: '' })).rejects.toThrow('label must be a non-empty string');
+    expect(server.messages.length).toBe(sent);
+  });
+
+  it('waitForAnimationFrames(frames) makes one callFunctionOn with the frame count; the default is two and zero is refused', async () => {
+    const { page, server } = await fixture();
+    await page.waitForAnimationFrames(3);
+    await page.waitForAnimationFrames();
+    const calls = callsOf(server, 'Runtime.callFunctionOn');
+    expect(calls.map((message) => message.params.arguments)).toEqual([[{ value: 3 }], [{ value: 2 }]]);
+    expect(calls[0].params.functionDeclaration).toContain('requestAnimationFrame');
+    const sent = server.messages.length;
+    await expect(page.waitForAnimationFrames(0)).rejects.toThrow('frames must be a positive integer');
+    expect(server.messages.length).toBe(sent);
+  });
+
+  it('screenshot keeps the Buffer contract with fromSurface forced; returnPath writes the file and resolves with its path', async () => {
+    const dir = await mkdtemp(path.join(tmpdir(), 'rk-qa-shot-'));
+    cleanup.push(() => rm(dir, { recursive: true, force: true }));
+    const { page, server } = await fixture((message, send) => {
+      if (message.method === 'Page.captureScreenshot') send({ id: message.id, result: { data: Buffer.from('png-bytes').toString('base64') } });
+      else pageResponder(message, send);
+    });
+    const buffer = await page.screenshot();
+    expect(buffer.toString()).toBe('png-bytes');
+    expect(callsOf(server, 'Page.captureScreenshot').at(-1).params).toEqual({ format: 'png', captureBeyondViewport: false, fromSurface: true });
+    const plain = path.join(dir, 'plain.png');
+    expect(await page.screenshot({ path: plain })).toBeInstanceOf(Buffer);
+    expect(await readFile(plain, 'utf8')).toBe('png-bytes');
+    const file = path.join(dir, 'returned.png');
+    expect(await page.screenshot({ path: file, returnPath: true })).toBe(file);
+    expect(await readFile(file, 'utf8')).toBe('png-bytes');
+    expect(callsOf(server, 'Page.captureScreenshot').at(-1).params).toEqual({ format: 'png', captureBeyondViewport: false });
+    const sent = server.messages.length;
+    await expect(page.screenshot({ returnPath: true })).rejects.toThrow('returnPath requires a non-empty path');
+    expect(server.messages.length).toBe(sent);
+  });
+
+  /** A page-level socket answers as the page itself: no sessions, so its events and replies carry no sessionId. */
+  function directPageResponder(message: any, send: (message: any) => void) {
+    if (message.method === 'Runtime.enable') send({ method: 'Runtime.executionContextCreated', params: { context: { id: 13, auxData: { frameId: 'main', isDefault: true } } } });
+    const result = message.method === 'Page.getFrameTree' ? { frameTree: { frame: { id: 'main' } } }
+      : message.method.startsWith('Runtime.call') || message.method === 'Runtime.evaluate' ? { result: { value: true } } : {};
+    send({ id: message.id, result });
+  }
+
+  it('connectPage(pageSocket) sends no Target command, runs page commands on the root, and close() closes only the socket', async () => {
+    const server = await mockCdp(directPageResponder); cleanup.push(server.close);
+    const page = await QaBrowserSession.connectPage(`${server.endpoint}/devtools/page/PAGE-1`, { timeout: 500 });
+    expect(page.targetId).toBe('PAGE-1');
+    expect(await page.evaluate(() => 4)).toBe(true);
+    expect(server.messages.map((message) => message.method)).toEqual(['Page.enable', 'Page.getFrameTree', 'Runtime.enable', 'Network.enable', 'Page.setLifecycleEventsEnabled', 'Runtime.callFunctionOn']);
+    expect(server.messages.some((message) => 'sessionId' in message)).toBe(false);
+    await page.close(); await page.close();
+    expect(server.messages.some((message) => message.method.startsWith('Target.'))).toBe(false);
+    await expect(page.evaluate('1')).rejects.toThrow('Page closed');
+  });
+
+  it('connectPage refuses a non-loopback socket and a malformed or non-ws URL before connecting', async () => {
+    await expect(QaBrowserSession.connectPage('ws://192.168.1.20:9222/devtools/page/X')).rejects.toThrow('non-loopback');
+    await expect(QaBrowserSession.connectPage('http://127.0.0.1:9222/devtools/page/X')).rejects.toThrow('must be a ws or wss URL');
+    await expect(QaBrowserSession.connectPage('not a url')).rejects.toThrow('is not a valid URL');
+  });
+});

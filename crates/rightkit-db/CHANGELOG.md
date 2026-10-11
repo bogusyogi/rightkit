@@ -3,6 +3,7 @@
 ## 0.4.0 — 2026-10-11
 
 Breaking:
+- `DbError` is `#[non_exhaustive]`. Exhaustive matches need a wildcard arm. Variants added later are not breaking.
 - `DbOptions` gained `pub integrity: IntegrityCheck`. Struct literals without `..` no longer compile; use `DbOptions::new(path)` or `..Default::default()`.
 - `MigrateOptions` gained `pub legacy_versions: Option<LegacyVersionTable>`. Struct literals without `..` no longer compile.
 - `RecoveryPolicy` gained `pub quarantine_stamp: QuarantineStamp` and `pub sidecars: SidecarPolicy`. Struct literals without `..` no longer compile.
@@ -16,10 +17,19 @@ Added:
 - `IntegrityCheck { Off, Quick, Full }` and `DbOptions::integrity`, default `Off`. `Quick` runs `PRAGMA quick_check`. `Full` runs `integrity_check`, or `cipher_integrity_check` when keyed. `integrity_check_on_open` alone still means `Full`, and `integrity` takes precedence when it is not `Off`.
 - `QuarantineStamp` (`Millis` default, `Seconds`, `Custom(fn(SystemTime) -> String)`) and `SidecarPolicy` (`RenameSidecars` default, `DeleteSidecars`). `RecoveryPolicy` gained `quarantine_stamp` and `sidecars`. `quarantine_database_with` takes both.
 - `DbError::InvalidQuarantineSuffix`, for an empty custom suffix or one containing a path separator or NUL.
+- `ReadPoolOptions` with `new()`, `with_read_only(on)` and `with_reader_cache_kib(kib)`, and `DbOptions::open_read_pool_with(cap, options)`. `open_read_pool(cap)` is unchanged and uses `ReadPoolOptions::new()`.
+- `with_read_only(true)`: pooled readers open with `SQLITE_OPEN_READ_ONLY`, so writes fail even if `query_only` is turned off. The database must already exist. The pool never creates it, changes its journal mode, narrows its permissions, or runs `optimize` or `init`. Default off.
+- `with_reader_cache_kib(kib)`: each pooled reader gets `PRAGMA cache_size = -kib` (KiB, 1 to 2147483647, checked when the pool opens). It overrides `CacheProfile::LargeWorkingSet` on readers only; writers and `open_reader()` keep the profile size.
+- `ReadPool::close()` stops checkout and drops idle readers. A checked-out reader closes when it is returned. A second call does nothing.
+- `ReadPool::close_and_wait(timeout)` closes the pool, then waits until every reader is returned, so the database files are released. It returns `DbError::ReadPoolCloseTimeout { outstanding, timeout }` if any are still out.
+- `DbError` gained `InvalidReaderCacheSize(u32)`, `ReadPoolClosed`, `ReadPoolCloseTimeout { outstanding, timeout }` and `ReadOnlyNotEffective(String)`.
 
 Changed:
 - `DbError::Integrity` is recoverable. `open_writer_recovering` quarantines and recreates for a failed `Quick` or `Full` check, under the same keyed/plain policy as a corrupt file. Callers that set `integrity_check_on_open` with a recovery policy now get quarantine instead of an error.
 - Quarantine refuses to overwrite an existing destination. Sidecar move or delete failures are returned instead of ignored, so a stale `-wal` cannot be replayed into the replacement database.
+- Every reader verifies `PRAGMA query_only` after setting it and fails to open if it did not stay on. This includes readers from `open_reader()`. Default readers still open read-write at the file level.
+- Readers no longer run `PRAGMA optimize`. It can write statistics, and the writer runs it when it opens (`optimize_boundary` remains for apps). `query_only` is set after every other reader setup statement.
+- `get()` on a closed pool returns `DbError::ReadPoolClosed`, including a `get` that was waiting for capacity when the pool closed.
 
 - `statement-cache` feature (default on): enables rusqlite's `cache`, so `prepare_cached` works through the re-export. Without it `prepare_cached` did not compile.
 - `QuarantineOptions { name, sidecars, move_mode, marker }` and `quarantine_database_opts`. `marker` writes an owner-only JSON recovery marker (`{"schema","original","quarantined","unixMs"}`) before any file moves, and the marker stays after success. `move_mode: MoveMode::{Rename, HardLinkThenRemove}` selects the move; `HardLinkThenRemove` links the destination before removing the original. `quarantine_database` and `quarantine_database_with` are unchanged and use the defaults.

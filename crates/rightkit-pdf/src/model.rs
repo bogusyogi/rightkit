@@ -287,6 +287,9 @@ pub(crate) struct RunItem {
     /// For a gap: the pen distance across it beyond what `Tc` already adds (device points) - the
     /// number [`PdfTextGap::width_pt`] reports. `0.0` for a glyph.
     pub beyond_tc: f64,
+    /// True for a glyph that word spacing (`Tw`) applies to: the single-byte character code 32,
+    /// whatever it decodes to. Never true for a gap or a multi-byte (CID) code.
+    pub word_space: bool,
 }
 
 /// One numeric `TJ` item that contributes to a word gap.

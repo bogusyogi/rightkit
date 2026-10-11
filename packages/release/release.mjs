@@ -21,6 +21,7 @@ import { packageCommandOptional, resolveProjectType, targetUsesMsix } from "./pr
 import { MSIX_SIGNING_CONTRACT, assertValidMsixTarget } from "./msix-config.mjs";
 import { buildMsix } from "./msix-build.mjs";
 import { msixBuildOptions } from "./msix-target.mjs";
+import { rightKitVersionAllowed } from "./rightkit-version-policy.mjs";
 import { collectPreflight, formatPreflight, preflightFailures } from "./preflight.mjs";
 import { patchTauriBundleType } from "./tauri-bundle-marker.mjs";
 import { verifyNsisEmbeddedBinary } from "./nsis-payload.mjs";
@@ -52,12 +53,42 @@ const RIGHTKIT_ALLOWED = buildAllowedVersions(
   RIGHTKIT_VERSIONS.npm,
   RIGHTKIT_VERSIONS.stagedNpm,
   RIGHTKIT_VERSIONS.legacyNpm,
+  RIGHTKIT_VERSIONS.registry?.npm,
 );
 const RIGHTKIT_CARGO_ALLOWED = buildAllowedVersions(RIGHTKIT_VERSIONS.cargo, RIGHTKIT_VERSIONS.stagedCargo, RIGHTKIT_VERSIONS.legacyCargo);
 const FORBIDDEN_RIGHTKIT_SPEC = /^(?:git|file|link|workspace):|github|github\.com/i;
 const WINDOWS_NSIS_SIGNING_CONTRACT = "windows-raw-exe-authenticode-before-nsis-v1";
 const WINDOWS_PORTABLE_SIGNING_CONTRACT = "windows-raw-exe-authenticode-before-portable-v1";
 const DEFAULT_NOTARIZATION_TIMEOUT_MS = 30 * 60 * 1000;
+
+// Apple Developer ID and notary secrets: the only secrets the signing jobs of the managed release chain
+// (macos-sign, and dev-mac-sign when devArtifact.mac is "notarize") may reference.
+const APPLE_RELEASE_SECRETS = ["APPLE_CERTIFICATE_BASE64", "APPLE_CERTIFICATE_PASSWORD", "APPLE_KEYCHAIN_PASSWORD", "APPLE_API_KEY_BASE64", "APPLE_API_KEY", "APPLE_API_ISSUER"];
+// Package-manager publication tokens of the managed publish-package-managers lane.
+const PACKAGE_MANAGER_PUBLISH_SECRETS = ["HOMEBREW_TAP_TOKEN", "WINGET_CREATE_GITHUB_TOKEN"];
+
+// @rightkit/git `swift.privatePackages` (0.2.41) renders one configure step and one cleanup step, with the
+// token passed through step `env` as `RIGHT_GIT_PRIVATE_TOKEN_<n>: ${{ secrets.<NAME> }}`, into exactly these
+// workflow/job pairs. Nothing else may reference the declared secret: not another job of these workflows, not
+// package-smoke, publish-npm or publish-package-managers, and not a signing, qualification or publish job.
+const SWIFT_PRIVATE_STEP_NAMES = new Set(["Configure private Swift package access", "Remove private Swift package access"]);
+const SWIFT_PRIVATE_ANY_PROFILE = { only: "any profile", allows: () => true };
+const SWIFT_PRIVATE_NODE_PROFILE = { only: "the node profile", allows: (manifest) => (manifest?.profile ?? "node") === "node" };
+const SWIFT_PRIVATE_PARALLEL_DEV_MAC = {
+  only: "profile rust-hybrid with devArtifact.parallel and a devArtifact.mac of sign, notarize or unsigned",
+  allows: (manifest) => manifest?.profile === "rust-hybrid"
+    && manifest?.devArtifact?.parallel === true
+    && ["sign", "notarize", "unsigned"].includes(manifest.devArtifact.mac),
+};
+const SWIFT_PRIVATE_JOBS = new Map([
+  ["ci.yml", new Map([["ci", SWIFT_PRIVATE_ANY_PROFILE], ["dev-artifact-mac", SWIFT_PRIVATE_PARALLEL_DEV_MAC], ["test", SWIFT_PRIVATE_NODE_PROFILE]])],
+  ["qualification.yml", new Map([["qualification", SWIFT_PRIVATE_ANY_PROFILE]])],
+  ["release-candidate.yml", new Map([["candidate", SWIFT_PRIVATE_ANY_PROFILE]])],
+  ["regenerate.yml", new Map([["regenerate", SWIFT_PRIVATE_ANY_PROFILE]])],
+]);
+// release-candidate.yml and regenerate.yml are dispatch lanes by design. In ci.yml and qualification.yml a
+// workflow_dispatch trigger would let a manual run of any ref reach the credential.
+const SWIFT_PRIVATE_DISPATCH_WORKFLOWS = new Set(["release-candidate.yml", "regenerate.yml"]);
 
 const args = process.argv.slice(2);
 const opts = {
@@ -734,14 +765,103 @@ async function validateRightKitPackageContract(root, appName, hostedWorkflows) {
       fail(`${appName ?? pkg.name ?? "app"} ${name} must come from the published npm package, not ${specifier}`);
     }
     const allowed = RIGHTKIT_ALLOWED.get(name);
-    if (allowed && !allowed.has(specifier)) {
+    if (allowed && !rightKitVersionAllowed(allowed, specifier)) {
       fail(`${appName ?? pkg.name ?? "app"} ${name} must be one of ${[...allowed].join(", ")}, got ${specifier}`);
     }
   }
   const releaseAllowed = RIGHTKIT_ALLOWED.get("@rightkit/release");
-  if (!releaseAllowed?.has(pkg.devDependencies?.["@rightkit/release"])) {
+  if (!releaseAllowed || !rightKitVersionAllowed(releaseAllowed, pkg.devDependencies?.["@rightkit/release"])) {
     fail(`${appName ?? pkg.name ?? "app"} must depend on a supported @rightkit/release version in devDependencies`);
   }
+}
+
+// The top-level `on:` block(s) of a workflow: the `on` line and every indented, blank or comment line after it.
+function workflowTriggerBlocks(source) {
+  const lines = source.split("\n");
+  const blocks = [];
+  for (let index = 0; index < lines.length; index += 1) {
+    if (!/^(?:on|"on"|'on')[ \t]*:/.test(lines[index])) continue;
+    let end = index + 1;
+    while (end < lines.length && (lines[end] === "" || /^[\s#]/.test(lines[end]))) end += 1;
+    blocks.push(lines.slice(index, end).join("\n"));
+  }
+  return blocks;
+}
+
+// The job of a managed workflow that holds `index` ({ name, start }), or null when the offset sits outside every job.
+function workflowJobAt(source, index) {
+  const marker = "\njobs:\n";
+  const jobsAt = source.indexOf(marker);
+  if (jobsAt < 0) return null;
+  const bodyStart = jobsAt + marker.length;
+  const unindented = /^[^\s#]/m.exec(source.slice(bodyStart));
+  const bodyEnd = unindented ? bodyStart + unindented.index : source.length;
+  if (index < bodyStart || index >= bodyEnd) return null;
+  let job = null;
+  for (const header of source.slice(bodyStart, bodyEnd).matchAll(/^ {2}(?![\s#])([^\n]*)$/gm)) {
+    const start = bodyStart + header.index;
+    if (start > index) break;
+    const key = /^(?:"([^"\n]*)"|'([^'\n]*)'|([^\s:"'][^\s:]*))[ \t]*:/.exec(header[1]);
+    job = { name: key ? (key[1] ?? key[2] ?? key[3]) : header[1], start };
+  }
+  return job;
+}
+
+// Why a `secrets.<name>` reference at `index` is not the declared swift.privatePackages credential in its
+// exact rendered place, or null when it is. Callers handle the signing and publish allowances first.
+function swiftPrivateSecretRefusal({ source, workflow, manifest, lanes, name, index }) {
+  const refuse = (reason) => `secrets.${name}: ${reason}`;
+  const entries = manifest?.swift?.privatePackages;
+  const declared = Array.isArray(entries)
+    && entries.length > 0
+    && entries.every((entry) => typeof entry?.secret === "string" && /^[A-Za-z_][A-Za-z0-9_]{0,99}$/.test(entry.secret) && !/^github_/i.test(entry.secret));
+  if (!declared || !entries.some((entry) => entry.secret === name)) {
+    return refuse(Array.isArray(entries) && entries.length > 0
+      ? "not an allowed release secret and not declared in .rightgit.json swift.privatePackages"
+      : "not an allowed release secret for this workflow");
+  }
+  const publishSecrets = manifest?.candidate?.releaseChain?.publishSecrets;
+  const reserved = new Set([...APPLE_RELEASE_SECRETS, ...PACKAGE_MANAGER_PUBLISH_SECRETS, ...(Array.isArray(publishSecrets) ? publishSecrets : [])]);
+  const collisions = entries.map((entry) => entry.secret).filter((secret) => reserved.has(secret));
+  if (collisions.length > 0) {
+    return refuse(`.rightgit.json swift.privatePackages declares a signing or publishing secret name (${collisions.join(", ")})`);
+  }
+  const jobs = SWIFT_PRIVATE_JOBS.get(workflow);
+  if (!jobs) return refuse(`swift.privatePackages credentials are never rendered into ${workflow}`);
+  const lane = workflow.replace(/\.yml$/, "");
+  if (!lanes.includes(lane)) return refuse(`lane ${lane} is not listed in .rightgit.json`);
+  if (manifest?.devArtifact?.dispatch === true) return refuse("devArtifact.dispatch is true");
+  const triggerBlocks = workflowTriggerBlocks(source);
+  if (triggerBlocks.length === 0) return refuse(`${workflow} has no on: block to check its triggers`);
+  const untrusted = /\b(pull_request_target|workflow_run)\b/.exec(triggerBlocks.join("\n"));
+  if (untrusted) return refuse(`${workflow} is triggered by ${untrusted[1]}`);
+  if (!SWIFT_PRIVATE_DISPATCH_WORKFLOWS.has(workflow) && /workflow_dispatch/.test(source)) {
+    return refuse(`${workflow} has a workflow_dispatch trigger`);
+  }
+  const job = workflowJobAt(source, index);
+  if (!job) return refuse(`reference sits outside every job of ${workflow}`);
+  const rule = jobs.get(job.name);
+  if (!rule) return refuse(`job '${job.name}' of ${workflow} may not hold the swift.privatePackages credential (allowed: ${[...jobs.keys()].join(", ")})`);
+  if (!rule.allows(manifest)) return refuse(`job '${job.name}' of ${workflow} is rendered only for ${rule.only}`);
+  const lineStart = source.lastIndexOf("\n", index) + 1;
+  const lineEnd = source.indexOf("\n", index);
+  const line = source.slice(lineStart, lineEnd < 0 ? source.length : lineEnd);
+  const envLine = /^ {10}RIGHT_GIT_PRIVATE_TOKEN_(0|[1-9]\d*): \$\{\{ secrets\.([A-Za-z0-9_]+) \}\}$/.exec(line);
+  if (!envLine || envLine[2] !== name || entries[Number(envLine[1])]?.secret !== name) {
+    return refuse("not a RIGHT_GIT_PRIVATE_TOKEN_<n> env line naming entry <n> of swift.privatePackages");
+  }
+  // The owning step is the nearest preceding step line (`      - ...`) of the same job, and the line must
+  // sit in that step's own `env:` block.
+  const beforeLine = source.slice(job.start, lineStart);
+  const owner = [...beforeLine.matchAll(/^ {6}- [^\n]*$/gm)].at(-1);
+  const ownerName = /^ {6}- name: (.+)$/.exec(owner?.[0] ?? "")?.[1];
+  const sinceOwner = owner ? beforeLine.slice(owner.index).split("\n") : [];
+  let header = sinceOwner.length - 1;
+  while (header >= 0 && (sinceOwner[header] === "" || /^ {10}/.test(sinceOwner[header]))) header -= 1;
+  if (!SWIFT_PRIVATE_STEP_NAMES.has(ownerName) || sinceOwner[header] !== "        env:") {
+    return refuse('not in the env of the "Configure private Swift package access" or "Remove private Swift package access" step');
+  }
+  return null;
 }
 
 async function validateHostedWorkflows(root, appName, workflows, policy) {
@@ -786,7 +906,7 @@ async function validateHostedWorkflows(root, appName, workflows, policy) {
     };
     const inside = (index, span) => span && index >= span.start && index < span.end;
     const requestedSecrets = [...source.matchAll(/\bsecrets\.([A-Z0-9_]+)/gi)].map((match) => ({ name: match[1], index: match.index }));
-    const allowedMacosSecrets = new Set(["APPLE_CERTIFICATE_BASE64", "APPLE_CERTIFICATE_PASSWORD", "APPLE_KEYCHAIN_PASSWORD", "APPLE_API_KEY_BASE64", "APPLE_API_KEY", "APPLE_API_ISSUER"]);
+    const allowedMacosSecrets = new Set(APPLE_RELEASE_SECRETS);
     const windowsSpan = jobSpan("windows-sign");
     const macosSpan = jobSpan("macos-sign");
     const publishSpan = jobSpan("publish");
@@ -842,33 +962,8 @@ async function validateHostedWorkflows(root, appName, workflows, policy) {
     const protectedDevMacSigning = workflow === "ci.yml"
       && (manifest?.devArtifact?.mac === "sign" || manifest?.devArtifact?.mac === "notarize")
       && /dev-mac-sign:\n(?:    #[^\n]*\n)*    needs: \[ci\]\n    if: \$\{\{ github\.event_name == 'push' && github\.ref_name == github\.event\.repository\.default_branch \}\}\n    environment: /.test(devMacSource);
-    // @rightkit/git `swift.privatePackages` renders a configure step and a cleanup
-    // step into the ci job of ci.yml; both pass the declared secret through step
-    // `env` as `RIGHT_GIT_PRIVATE_TOKEN_<n>`. Exactly the secret names the manifest
-    // declares are allowed, only on those env lines (entry <n> names that secret),
-    // only inside those two named steps of the `ci` job, and never when ci.yml can
-    // be dispatched (a manual run of any ref would reach the secret).
-    const swiftPrivateEntries = manifest?.swift?.privatePackages;
-    const swiftPrivateStepNames = new Set(["Configure private Swift package access", "Remove private Swift package access"]);
-    const ciSpan = workflow === "ci.yml" ? jobSpan("ci") : null;
-    const protectedSwiftPrivate = workflow === "ci.yml"
-      && Array.isArray(swiftPrivateEntries)
-      && swiftPrivateEntries.length > 0
-      && swiftPrivateEntries.every((entry) => typeof entry?.secret === "string" && /^[A-Za-z_][A-Za-z0-9_]{0,99}$/.test(entry.secret) && !/^github_/i.test(entry.secret))
-      && lanes.includes("ci")
-      && manifest?.devArtifact?.dispatch !== true
-      && !/workflow_dispatch/.test(source);
-    const swiftPrivateSecretAllowed = (name, index) => {
-      if (!protectedSwiftPrivate || !inside(index, ciSpan)) return false;
-      const lineStart = source.lastIndexOf("\n", index) + 1;
-      const lineEnd = source.indexOf("\n", index);
-      const line = source.slice(lineStart, lineEnd < 0 ? source.length : lineEnd);
-      const envLine = /^ {10}RIGHT_GIT_PRIVATE_TOKEN_(\d+): \$\{\{ secrets\.([A-Za-z0-9_]+) \}\}$/.exec(line);
-      if (!envLine || envLine[2] !== name || swiftPrivateEntries[Number(envLine[1])]?.secret !== name) return false;
-      // The owning step is the nearest preceding step line (`      - ...`).
-      const owner = [...source.slice(0, lineStart).matchAll(/^ {6}- [^\n]*$/gm)].at(-1)?.[0];
-      return swiftPrivateStepNames.has(/^ {6}- name: (.+)$/.exec(owner ?? "")?.[1]);
-    };
+    // @rightkit/git `swift.privatePackages` credential: allowed only in the workflow/job pairs and on the
+    // env lines listed with SWIFT_PRIVATE_JOBS; swiftPrivateSecretRefusal explains every other reference.
     const releaseChain = workflow === "release-candidate.yml" ? manifest?.candidate?.releaseChain : undefined;
     const allowedReleaseSecrets = new Set(releaseChain?.publishSecrets ?? []);
     const writePermissions = [...source.matchAll(/^\s*(actions|attestations|checks|contents|deployments|discussions|id-token|issues|models|packages|pages|pull-requests|security-events|statuses):\s*write\s*$/gmi)].map((match) => ({ name: match[1].toLowerCase(), index: match.index }));
@@ -885,6 +980,14 @@ async function validateHostedWorkflows(root, appName, workflows, policy) {
     const protectedReleasePublish = releaseChain
       && (legacyReleasePublishGate || admittedReleasePublishGate)
       && /\n    permissions:\n      contents: write\n/.test(publishSource);
+    // A secret reference is refused unless a signing or publish allowance above covers it or it is the
+    // declared swift.privatePackages credential in its exact rendered place.
+    const refusedSecrets = requestedSecrets
+      .filter(({ name, index }) => !(protectedMacosSigning && inside(index, macosSpan) && allowedMacosSecrets.has(name))
+        && !(protectedDevMacSigning && inside(index, devMacSpan) && allowedDevMacSecrets.has(name))
+        && !(protectedReleasePublish && inside(index, publishSpan) && allowedReleaseSecrets.has(name)))
+      .map(({ name, index }) => swiftPrivateSecretRefusal({ source, workflow, manifest, lanes, name, index }))
+      .filter((reason) => reason !== null);
     if (/^\s*permissions:\s*write-all\s*$/mi.test(source)
       || writePermissions.some(({ name, index }) => {
         if (protectedRegenerate && inside(index, regenerateSpan) && allowedRegeneratePermissions.has(name)) return false;
@@ -894,21 +997,21 @@ async function validateHostedWorkflows(root, appName, workflows, policy) {
       })
       || /pull_request_target\s*:/i.test(source)
       || /\bsecrets\s*\[/i.test(source)
-      || requestedSecrets.some(({ name, index }) => !(protectedMacosSigning && inside(index, macosSpan) && allowedMacosSecrets.has(name))
-        && !(protectedDevMacSigning && inside(index, devMacSpan) && allowedDevMacSecrets.has(name))
-        && !(protectedReleasePublish && inside(index, publishSpan) && allowedReleaseSecrets.has(name))
-        && !swiftPrivateSecretAllowed(name, index))) {
-      fail(`${appName} right-git managed ${workflow} requests release-capable permissions or secrets`);
+      || refusedSecrets.length > 0) {
+      const reasons = [...new Set(refusedSecrets)];
+      const detail = reasons.length > 10 ? [...reasons.slice(0, 10), `${reasons.length - 10} more`] : reasons;
+      fail(`${appName} right-git managed ${workflow} requests release-capable permissions or secrets${detail.length > 0 ? `: ${detail.join("; ")}` : ""}`);
     }
   }
 }
 
-function buildAllowedVersions(published = {}, staged = {}, legacy = {}) {
+function buildAllowedVersions(published = {}, staged = {}, legacy = {}, registry = {}) {
   const allowed = new Map();
   for (const [name, value] of [
     ...Object.entries(published),
     ...Object.entries(staged),
     ...Object.entries(legacy),
+    ...Object.entries(registry),
   ]) {
     const versions = allowed.get(name) ?? new Set();
     for (const version of Array.isArray(value) ? value : [value]) versions.add(version);

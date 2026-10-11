@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-contracts"
-version = "0.1.4"
+version = "0.1.5"
 edition = "2021"
 rust-version = "1.98.0"
 description = "Versioned content-pipeline contracts for the Right Suite: content brief, delivery envelope, record session and event, demo plan and daemon API. JSON Schema validation, serde types, and major-version negotiation."
@@ -30,3 +30,7 @@ serde_json = "1.0.150"
 # and reference only themselves, so the crate never resolves a remote URI or
 # pulls the HTTP or TLS stack.
 jsonschema = { version = "0.58.6", default-features = false, optional = true }
+
+[package.metadata.rightkit]
+continuous = false
+continuous_reason = "versioned content-pipeline contracts: serde types and JSON Schema validators initialised once, per-call checks; no thread-spawn, task-spawn, sleep, timer, listener or watcher in non-test src (checked by runtime-budgets.mjs)"

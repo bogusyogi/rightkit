@@ -351,8 +351,9 @@ impl OwnedCommand {
         #[cfg(unix)]
         let child = {
             let spawned = self.command.spawn();
-            // Settle the parent-death helper whatever the outcome: kept on success, killed
-            // and reaped on failure, so a failed spawn leaves nothing running untied.
+            // Settle the parent-death helper whatever the outcome: kept on success, released
+            // (told to stand down, never signalled) and collected on failure, so a failed
+            // spawn leaves nothing running untied.
             let helper = parent_tie.and_then(|tie| tie.settle(spawned.is_ok()));
             crate::unix_child::UnixChild::new(spawned?, helper)
         };
@@ -523,6 +524,9 @@ impl OwnedChild {
     pub fn job_assignment_failures(&self) -> &[JobAssignmentFailure] {
         &self.assignment_failures
     }
+    /// An independent exit reader. A monitor thread that only needs to learn that the leader
+    /// exited should call [`ProcessHandle::wait_exited`], which does not reap; `wait` reaps, and
+    /// on Unix that ends the owner's ability to signal descendants that outlive the leader.
     pub fn process_handle(&self) -> io::Result<ProcessHandle> {
         self.handle.try_clone()
     }

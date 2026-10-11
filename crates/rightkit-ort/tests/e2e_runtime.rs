@@ -3,7 +3,9 @@
 //! ONNX model on CPU and CoreML. Content is validated, not just "no error".
 #![cfg(all(target_os = "macos", feature = "session"))]
 
-use std::path::{Path, PathBuf};
+mod common;
+
+use std::path::PathBuf;
 use std::sync::OnceLock;
 
 use rightkit_media::native::{NativeCatalog, NativeLibrary};
@@ -13,29 +15,6 @@ use rightkit_ort::{
     resolve_runtime, runtime_filename, CandidateSource, EnvironmentOptions, ExecutionProvider,
     GlobalPool, ProviderKind, RuntimeCandidate, RuntimeError, SessionError, SessionOptions,
 };
-
-fn workspace_root() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../../../..")
-        .canonicalize()
-        .unwrap()
-}
-
-/// The approved 1.24.4 file, searched in known real locations.
-fn real_runtime_file() -> PathBuf {
-    let root = workspace_root();
-    let mut candidates: Vec<PathBuf> = std::env::var_os("RIGHTKIT_ORT_TEST_DYLIB")
-        .map(PathBuf::from)
-        .into_iter()
-        .collect();
-    candidates.push(root.join(
-        "genright/.cache/devin-completion-20261006/batch5/voice/dl/onnxruntime-osx-arm64-1.24.4/lib/libonnxruntime.1.24.4.dylib",
-    ));
-    candidates
-        .into_iter()
-        .find(|p| p.is_file())
-        .expect("no real ONNX Runtime 1.24.4 macOS dylib found; set RIGHTKIT_ORT_TEST_DYLIB")
-}
 
 /// Stage the real file as an installed bundle would: <App>/Contents/Resources/runtime/libonnxruntime.dylib
 fn staged_app() -> &'static (PathBuf, PathBuf) {
@@ -47,7 +26,7 @@ fn staged_app() -> &'static (PathBuf, PathBuf) {
         std::fs::create_dir_all(&runtime_dir).unwrap();
         std::fs::create_dir_all(app.join("Contents/MacOS")).unwrap();
         let staged = runtime_dir.join(runtime_filename());
-        std::fs::copy(real_runtime_file(), &staged).unwrap();
+        std::fs::copy(common::real_runtime_file(), &staged).unwrap();
         (app.clone(), staged)
     })
 }
@@ -157,6 +136,9 @@ fn setup() -> rightkit_ort::EnvironmentReport {
 
 #[test]
 fn real_dylib_matches_approved_catalog_and_loads_with_expected_version() {
+    if !common::runtime_or_skip() {
+        return;
+    }
     let catalog = NativeCatalog::embedded().unwrap();
     let record = catalog
         .approved(NativeLibrary::Onnxruntime, "macos", "aarch64")
@@ -179,6 +161,9 @@ fn real_dylib_matches_approved_catalog_and_loads_with_expected_version() {
 
 #[test]
 fn providers_are_probed_from_the_loaded_runtime() {
+    if !common::runtime_or_skip() {
+        return;
+    }
     setup();
     let probes = probe_providers();
     let get = |k| probes.iter().find(|p| p.provider == k).unwrap();
@@ -194,6 +179,9 @@ fn providers_are_probed_from_the_loaded_runtime() {
 
 #[test]
 fn tiny_model_runs_on_cpu_with_shared_and_private_pools() {
+    if !common::runtime_or_skip() {
+        return;
+    }
     setup();
     assert_eq!(
         run_add(&SessionOptions::new(ExecutionProvider::Cpu)),
@@ -206,6 +194,9 @@ fn tiny_model_runs_on_cpu_with_shared_and_private_pools() {
 
 #[test]
 fn tiny_model_runs_on_coreml_and_directml_is_refused_on_macos() {
+    if !common::runtime_or_skip() {
+        return;
+    }
     setup();
     assert_eq!(
         run_add(&SessionOptions::new(ExecutionProvider::CoreMl)),
@@ -221,6 +212,9 @@ fn tiny_model_runs_on_coreml_and_directml_is_refused_on_macos() {
 
 #[test]
 fn platform_accelerator_is_coreml_and_cpu_fallback_is_reported() {
+    if !common::runtime_or_skip() {
+        return;
+    }
     setup();
     assert_eq!(
         ExecutionProvider::platform_accelerator(),
@@ -256,6 +250,9 @@ fn platform_accelerator_is_coreml_and_cpu_fallback_is_reported() {
 
 #[test]
 fn model_file_path_and_missing_file_are_distinguished() {
+    if !common::runtime_or_skip() {
+        return;
+    }
     setup();
     let path = std::env::temp_dir().join(format!("rightkit-ort-add-{}.onnx", std::process::id()));
     std::fs::write(&path, add_model()).unwrap();
@@ -292,6 +289,9 @@ fn system_runtime_copy_is_rejected_before_any_load() {
 
 #[test]
 fn reexported_ort_builds_and_runs_a_session_without_a_direct_dependency() {
+    if !common::runtime_or_skip() {
+        return;
+    }
     setup();
     assert_eq!(run_add_via_reexport(), vec![6.0, 8.0, 10.0, 12.0]);
 }
@@ -301,6 +301,9 @@ fn reexported_ort_builds_and_runs_a_session_without_a_direct_dependency() {
 #[cfg(feature = "half")]
 #[test]
 fn f16_tensor_through_reexports() {
+    if !common::runtime_or_skip() {
+        return;
+    }
     setup();
     use rightkit_ort::half::f16;
     let data = vec![f16::from_f32(1.5), f16::from_f32(-2.0)];

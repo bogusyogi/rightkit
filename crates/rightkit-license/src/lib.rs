@@ -37,6 +37,7 @@
 //!   rejecting a lower generation than the one stored) is the caller's job.
 
 mod clock;
+mod file_store;
 mod lease;
 mod lifecycle;
 mod refresh;
@@ -47,6 +48,7 @@ pub use clock::{
     ClockRefusal, ClockState, ClockStore, MemoryClockStore, ProcessAnchor, Reanchored, SystemClock,
     TrustedClock, CLOCK_ROLLBACK_TOLERANCE_SECS, CLOCK_WRITE_ATTEMPTS, CLOCK_WRITE_INTERVAL_SECS,
 };
+pub use file_store::{CrossProcessLock, FileClockStore, FileClockStoreError};
 pub use lease::{
     canonical_lease_envelope, verify_lease_envelope, verify_lease_envelope_fields, LeaseEnvelope,
     LeaseError,

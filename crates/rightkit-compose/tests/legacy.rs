@@ -62,7 +62,9 @@ fn legacy_document_converts_timing_fields_exactly() {
         other => panic!("video expected, got {other:?}"),
     }
     match &c.layers[1].content {
-        Content::ClickEffect { onset, duration, .. } => {
+        Content::ClickEffect {
+            onset, duration, ..
+        } => {
             assert_eq!(*onset, Ticks::from_ms(500));
             assert_eq!(*duration, Ticks::from_ms(1000));
         }

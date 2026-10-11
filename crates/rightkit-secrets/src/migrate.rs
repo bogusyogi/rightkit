@@ -1,5 +1,6 @@
 //! Migration and source resolution. Every report carries account names and counts only.
 
+use crate::backend::ConditionalDelete;
 use crate::error::{Error, Result};
 use crate::secret::Secret;
 use crate::store::Store;
@@ -8,7 +9,14 @@ use std::path::Path;
 
 #[derive(Debug, Default, Clone, PartialEq, Eq, Serialize)]
 pub struct MigrationReport {
+    /// Copied, verified, and the source removed because it still held exactly the copied value.
     pub moved: Vec<String>,
+    /// Copied and verified, but the source was KEPT: its backend cannot delete conditionally
+    /// ([`ConditionalDelete::Unsupported`], for example the macOS keychain), or a writer replaced
+    /// the source after it was read ([`ConditionalDelete::Changed`]), so deleting it would have
+    /// destroyed that newer value. The destination holds the copied value. Remove the source
+    /// yourself, once nothing else writes it, if you want it gone.
+    pub retained: Vec<String>,
     /// Destination already had a value: never overwritten, source left alone.
     pub skipped_present: Vec<String>,
     pub missing: Vec<String>,
@@ -17,7 +25,11 @@ pub struct MigrationReport {
 }
 
 /// Copy each account from `from` to `to` when `to` has none, verify the copy reads back
-/// byte-identical, then delete the original. One account's failure never aborts the rest.
+/// byte-identical, then delete the original **only if it still holds the value that was
+/// copied** ([`Store::delete_if_equals`]). Where the source backend cannot do that atomically the
+/// source is retained (`retained` in the report) rather than deleted unconditionally, because a
+/// writer that replaced the source between the read and the delete would lose its value. One
+/// account's failure never aborts the rest.
 pub fn migrate_between(from: &Store, to: &Store, accounts: &[&str]) -> MigrationReport {
     let mut r = MigrationReport::default();
     for &acct in accounts {
@@ -46,10 +58,16 @@ pub fn migrate_between(from: &Store, to: &Store, accounts: &[&str]) -> Migration
         // add_if_absent: a concurrent writer to the new namespace wins and is never clobbered.
         let stored = matches!(to.add_if_absent(acct, &value), Ok(true))
             && matches!(to.get(acct), Ok(Some(ref back)) if back.ct_eq(&value));
-        if stored && from.delete(acct).is_ok() {
-            r.moved.push(acct.into());
-        } else {
+        if !stored {
             r.failed.push(acct.into());
+            continue;
+        }
+        match from.delete_if_equals(acct, &value) {
+            Ok(ConditionalDelete::Deleted | ConditionalDelete::Absent) => r.moved.push(acct.into()),
+            Ok(ConditionalDelete::Changed | ConditionalDelete::Unsupported) => {
+                r.retained.push(acct.into())
+            }
+            Err(_) => r.failed.push(acct.into()),
         }
     }
     r
@@ -72,6 +90,7 @@ impl Store {
         for ns in legacy {
             let r = migrate_between(&self.with_namespace(ns.clone()), self, accounts);
             total.moved.extend(r.moved);
+            total.retained.extend(r.retained);
             total.skipped_present.extend(r.skipped_present);
             total.missing.extend(r.missing);
             total.failed.extend(r.failed);

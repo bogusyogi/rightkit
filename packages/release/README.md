@@ -48,23 +48,17 @@ Development builds (from `@rightkit/git` `devArtifact`, Developer ID-signed but 
 
 ## Runtime budget gate (crates)
 
-Long-running shared crates must prove a runtime budget before `publish cargo` uploads them (`docs/RUNTIME-BUDGETS.md`). The gate lives in `runtime-budgets.mjs`, and `publish-cargo.mjs` runs it as the `runtime budget` step, right after the secret scan.
+`publish cargo` runs the `runtime budget` step (`runtime-budgets.mjs`) right after the secret scan. Full contract, schema and refusal table: `docs/RUNTIME-BUDGETS.md`.
 
-- **Class.** A crate is in the class when it is listed in `RUNTIME_BUDGET_CRATES` (`rightkit-fsindex`, `rightkit-watch`, `rightkit-jobs`, `rightkit-service`, `rightkit-daemon`, `rightkit-cache`, `rightkit-sync`, `rightkit-logs`, `rightkit-shell`, `rightkit-qa`, `rightkit-send`), or when its `Cargo.toml` opts in:
+What the gate enforces, exactly:
+- **Three classes, fail-closed.** always-on (measured budget at publish), `continuous = "held-resource"` with a `resources` table (structural check at publish, installed-app measurement at adoption via `appRuntimeBudgetAdoptionCheck`, wired into `collectPreflight`), and `continuous = false` (bounded per call).
+- **Membership is fail-closed.** `Cargo.toml` `[package].name` must equal `--crate`. Every crate needs `runtime-budget.json` or `[package.metadata.rightkit] continuous = false` with a `continuous_reason`; neither is a refusal. The 11 crates in `RUNTIME_BUDGET_CRATES` cannot declare `continuous = false`. A `continuous = false` crate is refused when its non-test `src` matches `thread-spawn`, `task-spawn`, `sleep`, `timer`, `listener` or `watcher` and the reason does not contain that id.
+- **A continuous crate needs a measured budget.** Declared ceilings and `requiredScale`; a status pointer to a `pub` item exposing resident memory; per-host measurements of the published version, each backed by committed raw bench output (`runtime-budgets.mjs record`) whose sha256 and `RESULT budget` line the gate re-checks; every observed value within its ceiling and non-zero resident memory; a fresh, in-ceiling, at-scale measurement on each required host (macOS and Windows, or macOS alone only when the release evidence records `hostPolicy: "darwin-only"` with a reason, which the budget file may not contradict); a README section equal to the one generated from the JSON.
+- **Freshness** covers the crate's `src`, `benches`, `Cargo.toml`, `build.rs`, the same paths of every workspace `path` dependency, new untracked files there, and the crate's `Cargo.lock` dependency closure, against the measured commit (which must be in the checkout and an ancestor of HEAD).
 
-  ```toml
-  [package.metadata.rightkit]
-  runtime_budget = true
-  ```
+What it does not do: run the bench, prove the bench ran, detect `[profile]`, `[patch]` or toolchain changes, or find continuous work outside the scanned patterns. `runtimeBudgetAdoptionCheck` adds the need for a fresh `installed` measurement naming the app; crates with `publish = false` never reach `publish cargo`, so their adoption must call it.
 
-  `runtime_budget = false` does not remove a listed crate. A non-boolean value fails the check. Other crates get no check.
-- **README contract.** The crate `README.md` must contain a level-2 `## Runtime budget` section, ending at the next `#` or `##` heading. Headings inside fenced code blocks do not count. The section needs:
-  - a resident-memory line (the words "resident memory" with a figure),
-  - a CPU line (the word "CPU" with a figure),
-  - a `Measured` line that names the machine, the data set, and the command in backticks, for example ``- Measured: Mac mini M2, 16 GB; 400,000 synthetic files; `cargo bench -p rightkit-fsindex --bench budget` ``.
-
-  The gate checks that these lines exist, not that the figures are true. The bench that produces them is the crate author's job.
-- **Result.** A real `publish cargo --crate <name>` refuses the crate with `RUNTIME_BUDGET_MISSING`. The message names each missing line and the README path. `publish cargo --dry-run` prints the result as a preflight line (`[ok  ] runtime-budget: ...` or `[FAIL] runtime-budget: ...`) and continues. `right-release doctor` is app-scoped and has no crate target, so the crate-level check surfaces through `publish cargo`, not `doctor`.
+A real `publish cargo --crate <name>` refuses with `RUNTIME_BUDGET_MISSING` listing every problem; `--dry-run` prints `[FAIL] runtime-budget: ...` and continues.
 
 ## Entry points
 

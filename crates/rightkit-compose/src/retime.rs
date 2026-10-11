@@ -121,9 +121,9 @@ pub fn source_time_at(segments: &[RetimeSegment], output: Ticks) -> Option<Ticks
 
 /// Total output duration of the segments, saturating at `Ticks::MAX`.
 pub fn output_span(segments: &[RetimeSegment]) -> Ticks {
-    segments
-        .iter()
-        .fold(Ticks::ZERO, |total, s| total.saturating_add(s.output_duration()))
+    segments.iter().fold(Ticks::ZERO, |total, s| {
+        total.saturating_add(s.output_duration())
+    })
 }
 
 /// Structural checks for a retime list against a layer of `layer_span`.

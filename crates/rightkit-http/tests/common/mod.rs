@@ -145,9 +145,7 @@ pub struct RawServer {
 }
 
 impl RawServer {
-    pub fn start(
-        handler: impl Fn(&mut TcpStream, &str, usize) + Send + Sync + 'static,
-    ) -> Self {
+    pub fn start(handler: impl Fn(&mut TcpStream, &str, usize) + Send + Sync + 'static) -> Self {
         let listener = TcpListener::bind("127.0.0.1:0").expect("bind raw server");
         let port = listener.local_addr().unwrap().port();
         let stop = Arc::new(AtomicBool::new(false));

@@ -44,12 +44,7 @@ fn document() -> Value {
 }
 
 fn key_set(value: &Value) -> BTreeSet<String> {
-    value
-        .as_object()
-        .expect("object")
-        .keys()
-        .cloned()
-        .collect()
+    value.as_object().expect("object").keys().cloned().collect()
 }
 
 fn schema_set(schema: &Value, field: &str) -> BTreeSet<String> {
@@ -80,7 +75,8 @@ fn assert_matches(name: &str, schema: &Value, instance: &Value) {
 }
 
 fn schema() -> Value {
-    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../contracts/alignment.v1.schema.json");
+    let path =
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../contracts/alignment.v1.schema.json");
     let text = std::fs::read_to_string(&path)
         .unwrap_or_else(|error| panic!("cannot read {}: {error}", path.display()));
     serde_json::from_str(&text).expect("schema is JSON")
@@ -166,7 +162,10 @@ fn the_schema_file_names_this_version_and_matches_the_serialised_shape() {
         .unwrap()
         .contains("1"));
     assert_eq!(schema["properties"]["route"]["$ref"], "#/$defs/route");
-    assert_eq!(schema["$defs"]["route"]["enum"], serde_json::json!(["local"]));
+    assert_eq!(
+        schema["$defs"]["route"]["enum"],
+        serde_json::json!(["local"])
+    );
 
     let value = document();
     let defs = &schema["$defs"];
@@ -199,11 +198,6 @@ fn the_schema_file_names_this_version_and_matches_the_serialised_shape() {
         .collect();
     assert_eq!(
         reasons,
-        BTreeSet::from([
-            "no_spoken_form",
-            "unaligned",
-            "ambiguous",
-            "word_differs"
-        ])
+        BTreeSet::from(["no_spoken_form", "unaligned", "ambiguous", "word_differs"])
     );
 }

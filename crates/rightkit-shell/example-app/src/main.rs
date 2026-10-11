@@ -9,14 +9,21 @@ use std::time::Duration;
 use rightkit_control::embedded::Control;
 use rightkit_process::OwnedCommand;
 use rightkit_shell::engine::EngineSpec;
-use rightkit_shell::{ExternalOpener, MenuEntry, MenuGroup, MenuSpec, RecoverySpec, Shell, StreamPolicy, TraySpec, WatchdogConfig};
+use rightkit_shell::{
+    ExternalOpener, MenuEntry, MenuGroup, MenuSpec, RecoverySpec, Shell, StreamPolicy, TraySpec,
+    WatchdogConfig,
+};
 use serde_json::json;
 
 /// Records the link instead of launching a browser (tests must not open real applications).
 struct LogOpener(PathBuf);
 impl ExternalOpener for LogOpener {
     fn open(&self, target: &str) -> Result<(), String> {
-        let mut f = std::fs::OpenOptions::new().create(true).append(true).open(&self.0).map_err(|e| e.to_string())?;
+        let mut f = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&self.0)
+            .map_err(|e| e.to_string())?;
         writeln!(f, "{target}").map_err(|e| e.to_string())
     }
 }
@@ -39,12 +46,27 @@ fn engine_main() {
             }
             "stream" => {
                 for n in 0..3 {
-                    write_json_line(&mut out, &json!({"type": "event", "id": id, "event": {"tick": n}}), limit).ok();
+                    write_json_line(
+                        &mut out,
+                        &json!({"type": "event", "id": id, "event": {"tick": n}}),
+                        limit,
+                    )
+                    .ok();
                 }
-                write_json_line(&mut out, &json!({"type": "response", "id": id, "ok": true, "result": {"ticks": 3}}), limit).ok();
+                write_json_line(
+                    &mut out,
+                    &json!({"type": "response", "id": id, "ok": true, "result": {"ticks": 3}}),
+                    limit,
+                )
+                .ok();
             }
             "shutdown" => {
-                write_json_line(&mut out, &json!({"type": "response", "id": id, "ok": true, "result": {}}), limit).ok();
+                write_json_line(
+                    &mut out,
+                    &json!({"type": "response", "id": id, "ok": true, "result": {}}),
+                    limit,
+                )
+                .ok();
                 return;
             }
             other => {
@@ -62,18 +84,31 @@ fn main() {
         .app_name("RkShellExample")
         .deep_link_scheme("rkshell-example")
         .menu(MenuSpec {
-            groups: vec![MenuGroup { label: "Demo".into(), entries: vec![MenuEntry::accel("demo.ping", "Ping", "CmdOrCtrl+Shift+P")] }],
+            groups: vec![MenuGroup {
+                label: "Demo".into(),
+                entries: vec![MenuEntry::accel("demo.ping", "Ping", "CmdOrCtrl+Shift+P")],
+            }],
             help: vec![MenuEntry::item("help.docs", "Documentation")],
             settings: Some(("app.settings".into(), "CmdOrCtrl+,".into())),
             ..Default::default()
         })
-        .tray(TraySpec { tooltip: "RkShellExample".into(), items: vec![MenuEntry::item("tray.status", "Status")], ..Default::default() })
+        .tray(TraySpec {
+            tooltip: "RkShellExample".into(),
+            items: vec![MenuEntry::item("tray.status", "Status")],
+            ..Default::default()
+        })
         .watchdog(Some(WatchdogConfig {
             threshold: Duration::from_millis(900),
             heartbeat_interval: Duration::from_millis(150),
             on_stall: Some(std::sync::Arc::new(|r| {
                 if let Some(p) = std::env::var_os("RIGHTKIT_EXAMPLE_STALL_LOG") {
-                    let _ = std::fs::write(p, format!("stalled_ms={} threshold_ms={}\n", r.stalled_ms, r.threshold_ms));
+                    let _ = std::fs::write(
+                        p,
+                        format!(
+                            "stalled_ms={} threshold_ms={}\n",
+                            r.stalled_ms, r.threshold_ms
+                        ),
+                    );
                 }
             })),
             ..Default::default()
@@ -114,7 +149,9 @@ fn main() {
     builder = builder.setup(|app| {
         use tauri::Manager;
         if let Some(path) = std::env::var_os("RIGHTKIT_EXAMPLE_GRANT_FILE") {
-            app.state::<rightkit_shell::ShellState>().broker.grant_file(path)?;
+            app.state::<rightkit_shell::ShellState>()
+                .broker
+                .grant_file(path)?;
         }
         Ok(())
     });

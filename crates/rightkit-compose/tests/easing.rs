@@ -26,7 +26,10 @@ fn cosine_is_a_half_cosine_ease_with_exact_endpoints() {
     assert!((e.apply(0.25) - quarter).abs() < 1e-12);
     // Symmetric about the midpoint and monotone.
     for u in grid() {
-        assert!((e.apply(u) + e.apply(1.0 - u) - 1.0).abs() < 1e-12, "symmetry at {u}");
+        assert!(
+            (e.apply(u) + e.apply(1.0 - u) - 1.0).abs() < 1e-12,
+            "symmetry at {u}"
+        );
     }
     let mut previous = 0.0;
     for u in grid() {
@@ -89,7 +92,10 @@ fn camera_spring_underdamped_endpoints_hold_and_overshoot_is_bounded() {
         let zeta = 1.0 - bounce;
         let envelope = (-std::f64::consts::PI * zeta / (1.0 - zeta * zeta).sqrt()).exp();
         let observed = peak(e);
-        assert!(observed > 1.0 + 1e-3, "bounce {bounce} should overshoot, peak {observed}");
+        assert!(
+            observed > 1.0 + 1e-3,
+            "bounce {bounce} should overshoot, peak {observed}"
+        );
         assert!(
             observed <= 1.0 + envelope + NO_OVERSHOOT,
             "bounce {bounce} peak {observed} exceeds envelope {}",
@@ -176,7 +182,10 @@ fn camera_spring_bounce_must_be_finite_to_validate() {
 
 #[test]
 fn easing_serialises_with_kind_tags() {
-    assert_eq!(serde_json::to_string(&Easing::Cosine).unwrap(), r#"{"kind":"cosine"}"#);
+    assert_eq!(
+        serde_json::to_string(&Easing::Cosine).unwrap(),
+        r#"{"kind":"cosine"}"#
+    );
     assert_eq!(
         serde_json::to_string(&Easing::CameraSpring { bounce: 0.15 }).unwrap(),
         r#"{"kind":"camera_spring","bounce":0.15}"#

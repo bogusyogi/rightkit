@@ -4,8 +4,8 @@
 //!   [`openai::OpenAiCompatProvider`] (chat completions: OpenAI, OpenRouter, Groq,
 //!   DeepSeek, Together, Mistral, xAI, Gemini endpoint, Ollama, LM Studio).
 //! - Streaming with cancellation, tool use, forced-tool structured output.
-//! - [`failover::FailoverChain`]: retryable-only route failover, first-token
-//!   timeout, circuit breaker.
+//! - [`failover::FailoverChain`]: retryable-only route failover by default (configurable
+//!   with [`failover::FailoverOn`]), first-token timeout, circuit breaker.
 //! - [`pricing::PriceTable`] and [`cache`] (prompt-cache breakpoints + ledger).
 //! - `cli` feature: [`provider::cli::CliProvider`] drives an installed, signed-in
 //!   assistant CLI (Claude Code, Codex) as a bounded child process; no API key.
@@ -25,7 +25,7 @@ pub mod types;
 
 pub use credentials::{CredentialSource, SecretStoreCredentials, StaticCredentials};
 pub use error::{Attempt, LlmError};
-pub use failover::{FailoverChain, FailoverEvent, FailoverPolicy, Route};
+pub use failover::{FailoverChain, FailoverEvent, FailoverOn, FailoverPolicy, Route};
 pub use pricing::{ModelPrice, PriceTable};
 pub use provider::Provider;
 /// The HTTP client this crate's providers are built on, re-exported so a host can build a

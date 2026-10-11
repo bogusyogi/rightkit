@@ -12,6 +12,7 @@ pub use options::{
     DefaultsProvider, FileFormat, FlatMigration, KeyValidator, NullMeans, OnCorrupt,
     QuarantineName, ReadOptions, ReplaceMode, SharingRetry, StoreOptions, Validator,
 };
+pub use rightkit_fs::PublicationDurability;
 pub use secret::{Presence, SecretProbe, SecretRef};
 pub use store::{
     read_with_defaults, read_with_options, Change, Error, Migration, PatchPreview, Schema, Store,

@@ -322,7 +322,10 @@ where
     fn record_pass(&mut self, rep: &PassReport, elapsed: Duration) {
         let c = &mut self.counters;
         c.passes += 1;
-        if matches!(rep.outcome, PassOutcome::Failed(_) | PassOutcome::Unavailable(_)) {
+        if matches!(
+            rep.outcome,
+            PassOutcome::Failed(_) | PassOutcome::Unavailable(_)
+        ) {
             c.failed_passes += 1;
         }
         c.last_pass_ms = elapsed.as_millis() as u64;
@@ -335,7 +338,10 @@ where
     /// Pass counters, ledger queue sizes and process resource usage, read now. No polling thread
     /// runs for this.
     pub fn status(&self) -> SyncStatus {
-        SyncStatus { metrics: self.metrics(), process: rightkit_process::process_usage().ok() }
+        SyncStatus {
+            metrics: self.metrics(),
+            process: rightkit_process::process_usage().ok(),
+        }
     }
 
     /// Cumulative pass counters and current ledger queue sizes.

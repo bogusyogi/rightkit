@@ -131,7 +131,9 @@ fn higher_rank_takes_over_with_a_retryable_handoff() {
     let mut a = Host::start(suite.root(), "headless", 2, d.path());
     assert!(a.line(20).starts_with("READY"));
 
-    // An in-flight job on the incumbent, retried transparently across the handoff.
+    // An in-flight job on the incumbent, retried transparently across the handoff. The incumbent
+    // looks for a takeover request from another process once a second, so the job must outlast
+    // that look (and the second host's start-up) with room to spare: it ends only at the handoff.
     let s2 = suite.clone();
     let job = std::thread::spawn(move || {
         let mut events = 0;
@@ -140,7 +142,7 @@ fn higher_rank_takes_over_with_a_retryable_handoff() {
             "demo",
             "alpha",
             "slow",
-            json!({"ms": 1500}),
+            json!({"ms": 5000}),
             RetryPolicy::default(),
             &mut |_| events += 1,
         );

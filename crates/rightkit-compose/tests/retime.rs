@@ -60,7 +60,10 @@ fn play_rounds_output_offsets_down_to_source_ticks() {
     // Output tick 1 reads floor(1 * 3) = 3 source ticks.
     assert_eq!(source_time_at(&[segment], Ticks(1)), Some(Ticks(3)));
     // Output tick 235,199 reads floor(235,199 * 3) = 705,597, still below source_out.
-    assert_eq!(source_time_at(&[segment], Ticks(235_199)), Some(Ticks(705_597)));
+    assert_eq!(
+        source_time_at(&[segment], Ticks(235_199)),
+        Some(Ticks(705_597))
+    );
 }
 
 #[test]
@@ -98,7 +101,10 @@ fn segments_chain_end_to_end_and_each_boundary_belongs_to_the_next() {
     assert_eq!(source_time_at(&segments, ms(1499)), Some(ms(1000)));
     assert_eq!(source_time_at(&segments, ms(1500)), Some(ms(4000)));
     // Reverse ends at output 2500 ms, exclusive.
-    assert_eq!(source_time_at(&segments, ms(2499)).map(|t| t.0 >= ms(2000).0), Some(true));
+    assert_eq!(
+        source_time_at(&segments, ms(2499)).map(|t| t.0 >= ms(2000).0),
+        Some(true)
+    );
     assert_eq!(source_time_at(&segments, ms(2500)), None);
 }
 

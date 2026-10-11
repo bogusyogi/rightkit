@@ -1,10 +1,19 @@
 use crate::decoder::{TimedPiece, TranscriptionResult};
-use crate::error::Result;
+use crate::error::{Error, Result};
 use crate::parakeet_core::detok::{assemble_pieces, is_skippable_special, kept_after_filler_strip, DetokPolicy};
 use crate::vocab::Vocabulary;
 
 /// TDT encoder subsampling: encoder frames per mel hop (8x).
 pub(crate) const ENCODER_STRIDE: usize = 8;
+
+/// Width, in milliseconds, given to a last token whose predicted duration is zero.
+///
+/// A zero-length span (start == end) cannot be shown as a subtitle cue or
+/// highlighted, so the decoder widens such a last token to this width. The value
+/// is the 10 ms minimum the legacy decoder gave every token. Only the last token
+/// is widened: an earlier token ends at the next token's start, and is zero-length
+/// only when the next token starts on the same frame.
+pub const LAST_TOKEN_MIN_DURATION_MS: u64 = 10;
 
 /// Seconds at encoder frame `frame`: `frame * ENCODER_STRIDE * hop / sample_rate`
 /// (0.08 s for a 10 ms hop at 16 kHz). Integer product, then one division, so
@@ -16,8 +25,8 @@ fn frame_seconds(frame: usize, hop_length: usize, sample_rate: usize) -> f32 {
 /// `(start, end)` seconds of a TDT token emitted at encoder `frame` with the
 /// predicted `duration` in frames. The end is `frame + duration`, clamped to the
 /// next token's start only when the duration would overlap it. The last token
-/// has no next start, so it keeps its duration; a zero-length last token gets
-/// the 10 ms minimum the legacy decoder gave every token.
+/// has no next start, so it keeps its duration; a zero-length last token is
+/// widened to [`LAST_TOKEN_MIN_DURATION_MS`].
 pub(crate) fn token_span(
     frame: usize,
     duration: usize,
@@ -36,7 +45,7 @@ pub(crate) fn token_span(
         }
         None => {
             if end <= start {
-                end = start + 0.01;
+                end = start + LAST_TOKEN_MIN_DURATION_MS as f32 / 1000.0;
             }
         }
     }
@@ -44,12 +53,12 @@ pub(crate) fn token_span(
 }
 
 /// Legacy span for models without a duration head (RNN-T): the end is the next
-/// token's start, or 10 ms after the last token's start.
+/// token's start, or [`LAST_TOKEN_MIN_DURATION_MS`] after the last token's start.
 fn legacy_span(frame: usize, next_frame: Option<usize>, hop_length: usize, sample_rate: usize) -> (f32, f32) {
     let start = frame_seconds(frame, hop_length, sample_rate);
     let end = next_frame
         .map(|n| frame_seconds(n, hop_length, sample_rate))
-        .unwrap_or(start + 0.01);
+        .unwrap_or(start + LAST_TOKEN_MIN_DURATION_MS as f32 / 1000.0);
     (start, end)
 }
 
@@ -99,7 +108,9 @@ pub(crate) enum DurationMode {
 /// Integer sample span `(start_sample, end_sample)` of a token at `frame` with
 /// `duration` frames. Same rule as [`token_span`], in exact integers: the end is
 /// `(frame + duration) * 8 * hop` samples, clamped to the next token's start only
-/// when it would overlap. A zero-length last token gets 10 ms (`sample_rate / 100`).
+/// when it would overlap. A zero-length last token is widened to
+/// `LAST_TOKEN_MIN_DURATION_MS` (`sample_rate * LAST_TOKEN_MIN_DURATION_MS / 1000`
+/// samples, which is `sample_rate / 100` at that value).
 pub(crate) fn sample_span(
     frame: usize,
     duration: usize,
@@ -119,7 +130,7 @@ pub(crate) fn sample_span(
         }
         None => {
             if end <= start {
-                end = start + (sample_rate as u64 / 100);
+                end = start + sample_rate as u64 * LAST_TOKEN_MIN_DURATION_MS / 1000;
             }
         }
     }
@@ -217,6 +228,45 @@ pub(crate) const GREEDY_POLICY: DetokPolicy = DetokPolicy {
     strip_fillers: false,
 };
 
+/// Shape and rate checks for [`ParakeetTDTDecoder::decode_with_timestamps`], run
+/// before any indexing. The decode reads `frame_indices[i]` for every token `i`
+/// and the next token's frame as `frame_indices[i + 1]`, so the lattice must satisfy:
+///
+/// - `frames == tokens`: exactly one encoder frame per token;
+/// - `durations` is empty (a model without a duration head, RNN-T: each token ends
+///   at the next token's start) or `durations == tokens` (one predicted duration per
+///   token). Any other length is an error, never treated as absent;
+/// - `hop_length > 0` and `sample_rate > 0`, so the frame step (`ENCODER_STRIDE *
+///   hop_length` samples) and the seconds per sample are non-zero.
+///
+/// The lattice is model output, so a shape fault is `Error::Model`. A zero hop or
+/// sample rate comes from the preprocessor config, so it is `Error::Config`.
+fn validate_lattice(
+    tokens: usize,
+    frames: usize,
+    durations: usize,
+    hop_length: usize,
+    sample_rate: usize,
+) -> Result<()> {
+    if frames != tokens {
+        return Err(Error::Model(format!(
+            "TDT lattice has {frames} frame indices for {tokens} tokens; expected one per token"
+        )));
+    }
+    if durations != 0 && durations != tokens {
+        return Err(Error::Model(format!(
+            "TDT lattice has {durations} durations for {tokens} tokens; expected none or one per token"
+        )));
+    }
+    if hop_length == 0 {
+        return Err(Error::Config("TDT hop_length must be non-zero".into()));
+    }
+    if sample_rate == 0 {
+        return Err(Error::Config("TDT sample_rate must be non-zero".into()));
+    }
+    Ok(())
+}
+
 /// TDT greedy decoder for Parakeet TDT models
 #[derive(Debug)]
 pub struct ParakeetTDTDecoder {
@@ -232,6 +282,8 @@ impl ParakeetTDTDecoder {
     /// Sample-exact pieces for the greedy output, computed from the frame indices
     /// before detokenisation. `durations` follows [`decode_with_timestamps`]: empty
     /// (RNN-T) gives next-start ends. The `TimedToken` output is unchanged.
+    /// Indexes `frame_indices[i]` for every token, so the lattice must already pass
+    /// the checks in `validate_lattice`; `decode_with_timestamps` runs them first.
     pub(crate) fn timed_pieces(
         &self,
         tokens: &[usize],
@@ -261,12 +313,17 @@ impl ParakeetTDTDecoder {
     /// Decode tokens with timestamps. For TDT models, greedy decoding is done in
     /// the model; here we convert ids to text and assign spans.
     ///
-    /// `durations` holds the predicted TDT duration (frames) per token. A token
-    /// ends at `(frame + duration)` frames, clamped to the next token's start only
-    /// when it would overlap (see [`token_span`]). Pass an EMPTY `durations` slice
-    /// for models without a duration head (RNN-T): each token then ends at the next
-    /// token's start (the 0.1.0 behaviour). A slice whose length differs from
-    /// `tokens` is treated as absent.
+    /// `frame_indices` holds one encoder frame per token. `durations` holds the
+    /// predicted TDT duration (frames) per token. A token ends at `(frame + duration)`
+    /// frames, clamped to the next token's start only when it would overlap (see
+    /// [`token_span`]). Pass an EMPTY `durations` slice for models without a duration
+    /// head (RNN-T): each token then ends at the next token's start (the 0.1.0
+    /// behaviour).
+    ///
+    /// Returns `Error::Model` unless `frame_indices.len() == tokens.len()` and
+    /// `durations` is empty or has `tokens.len()` entries. Returns `Error::Config`
+    /// when `hop_length` or `sample_rate` is zero. Nothing is indexed before these
+    /// checks pass.
     pub fn decode_with_timestamps(
         &self,
         tokens: &[usize],
@@ -275,6 +332,7 @@ impl ParakeetTDTDecoder {
         hop_length: usize,
         sample_rate: usize,
     ) -> Result<TranscriptionResult> {
+        validate_lattice(tokens.len(), frame_indices.len(), durations.len(), hop_length, sample_rate)?;
         let mut result_tokens = Vec::new();
         let mut full_text = String::new();
         let have_durations = durations.len() == tokens.len();
@@ -495,12 +553,62 @@ mod tests {
         close(r.tokens[2].end, 0.41);
     }
 
+    /// Pins that a zero-duration last token is widened to the 10 ms constant, so
+    /// its end is later than its start (start == end is never returned for it).
     #[test]
-    fn zero_length_last_token_gets_the_minimum_width() {
+    fn zero_length_last_token_is_widened_to_ten_ms_so_start_differs_from_end() {
+        assert_eq!(LAST_TOKEN_MIN_DURATION_MS, 10, "the pinned minimum width");
         let d = ParakeetTDTDecoder::from_vocab(make_vocab(&["▁a"]));
         let r = d.decode_with_timestamps(&[0], &[0], &[0], HOP, SR).unwrap();
         close(r.tokens[0].start, 0.0);
-        close(r.tokens[0].end, 0.01);
+        close(r.tokens[0].end, LAST_TOKEN_MIN_DURATION_MS as f32 / 1000.0);
+        assert!(r.tokens[0].end > r.tokens[0].start);
+    }
+
+    #[test]
+    fn frames_shorter_than_tokens_is_an_error_not_a_panic() {
+        let d = ParakeetTDTDecoder::from_vocab(make_vocab(&["▁a", "▁b", "▁c"]));
+        // Three tokens, two frames: the third token has no frame index.
+        let timed = d.decode_with_timestamps(&[0, 1, 2], &[0, 2], &[1, 1, 1], HOP, SR);
+        assert!(matches!(timed, Err(Error::Model(_))), "with durations");
+        let rnnt = d.decode_with_timestamps(&[0, 1, 2], &[0, 2], &[], HOP, SR);
+        assert!(matches!(rnnt, Err(Error::Model(_))), "without durations");
+    }
+
+    #[test]
+    fn mismatched_durations_are_an_error_not_silently_ignored() {
+        let d = ParakeetTDTDecoder::from_vocab(make_vocab(&["▁a", "▁b", "▁c"]));
+        let short = d.decode_with_timestamps(&[0, 1, 2], &[0, 2, 5], &[2, 3], HOP, SR);
+        let long = d.decode_with_timestamps(&[0, 1, 2], &[0, 2, 5], &[2, 3, 1, 1], HOP, SR);
+        assert!(matches!(short, Err(Error::Model(_))), "too few durations");
+        assert!(matches!(long, Err(Error::Model(_))), "too many durations");
+    }
+
+    #[test]
+    fn zero_sample_rate_or_hop_length_is_a_config_error() {
+        let d = ParakeetTDTDecoder::from_vocab(make_vocab(&["▁a"]));
+        let no_rate = d.decode_with_timestamps(&[0], &[0], &[1], HOP, 0);
+        assert!(matches!(no_rate, Err(Error::Config(_))), "sample rate 0");
+        let no_hop = d.decode_with_timestamps(&[0], &[0], &[1], 0, SR);
+        assert!(matches!(no_hop, Err(Error::Config(_))), "hop length 0");
+    }
+
+    #[test]
+    fn well_formed_lattice_is_accepted_with_or_without_durations() {
+        let d = ParakeetTDTDecoder::from_vocab(make_vocab(&["▁a", "▁b", "▁c"]));
+        // One duration per token: the predicted ends of the synthetic lattice.
+        let timed = d.decode_with_timestamps(&[0, 1, 2], &[0, 2, 5], &[2, 3, 1], HOP, SR).unwrap();
+        close(timed.tokens[0].end, 0.16);
+        close(timed.tokens[1].end, 0.40);
+        close(timed.tokens[2].end, 0.48);
+        // No durations (RNN-T): each token ends at the next token's start.
+        let rnnt = d.decode_with_timestamps(&[0, 1, 2], &[0, 2, 5], &[], HOP, SR).unwrap();
+        close(rnnt.tokens[0].end, 0.16);
+        close(rnnt.tokens[1].end, 0.40);
+        close(rnnt.tokens[2].end, 0.41);
+        // An empty lattice is a valid, empty result.
+        let empty = d.decode_with_timestamps(&[], &[], &[], HOP, SR).unwrap();
+        assert!(empty.tokens.is_empty());
     }
 
     /// The beam path (width 1) reports the same lattice as hits with starts at

@@ -8,8 +8,12 @@ use std::sync::Mutex;
 
 static LOCK: Mutex<()> = Mutex::new(());
 
+/// The `PATH` entries. An unset or empty `PATH` has none: `split_paths("")` on Unix yields one
+/// empty entry, which would read as a real one.
 fn path_entries() -> Vec<PathBuf> {
-    std::env::split_paths(&std::env::var_os("PATH").unwrap_or_default()).collect()
+    std::env::split_paths(&std::env::var_os("PATH").unwrap_or_default())
+        .filter(|entry| !entry.as_os_str().is_empty())
+        .collect()
 }
 
 fn fixture(name: &str) -> (PathBuf, PathBuf) {
@@ -51,7 +55,9 @@ fn prepend_helper_creates_path_when_unset_and_ignores_a_bare_file_name() {
     assert_eq!(path_entries(), vec![dir.clone()]);
     // A path with no parent directory names nothing to search.
     std::env::remove_var("PATH");
-    rightkit_ort::prepend_runtime_dir_to_path(std::path::Path::new(rightkit_ort::runtime_filename()));
+    rightkit_ort::prepend_runtime_dir_to_path(std::path::Path::new(
+        rightkit_ort::runtime_filename(),
+    ));
     assert!(path_entries().is_empty());
     let _ = std::fs::remove_dir_all(dir);
 }

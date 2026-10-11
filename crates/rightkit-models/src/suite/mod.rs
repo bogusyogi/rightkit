@@ -51,7 +51,8 @@ pub use catalog::{
 pub use grant::{acquire_grant, acquire_model_grant};
 pub use grant::{
     acquire_grant_pinned, acquire_grant_with_client, acquire_model_grant_pinned, grant_client,
-    grant_policy, ModelGrant, ModelGrantRequest,
+    grant_policy, parse_retry_after_header, try_acquire_grant_pinned,
+    try_acquire_grant_with_client, GrantError, ModelGrant, ModelGrantRequest,
 };
 pub use handle::{ModelStore, ResolvedModel};
 pub use install::{

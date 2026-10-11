@@ -246,7 +246,10 @@ mod s16_tests {
             .output()
             .is_ok_and(|o| o.status.success());
         if !present {
-            eprintln!("SKIP: no ffmpeg on PATH; s16 round-trip not run");
+            crate::test_support::skip_missing(
+                "FFmpeg on PATH for the s16 round-trip",
+                "PATH (ffmpeg -version)",
+            );
             return;
         }
         let dir = tempfile::tempdir().unwrap();

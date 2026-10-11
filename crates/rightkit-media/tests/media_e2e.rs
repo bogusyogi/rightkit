@@ -2,6 +2,8 @@
 //! FFmpeg is resolved through the catalog path first; a host FFmpeg that is not the
 //! approved artifact runs as `DevUnverified` and the test says so on stderr.
 
+mod common;
+
 use std::{
     path::{Path, PathBuf},
     sync::{
@@ -26,8 +28,12 @@ use rightkit_media::{
 
 const T: Duration = Duration::from_secs(120);
 
-fn ffmpeg() -> DevResolved {
-    let (bin, kind) = resolve_for_development().expect("an FFmpeg must exist on this host");
+/// The development FFmpeg, or `None` after a SKIP line (a panic under `RIGHTKIT_REQUIRE_ASSETS=1`).
+fn ffmpeg() -> Option<DevResolved> {
+    let Some((bin, kind)) = resolve_for_development() else {
+        common::skip_missing("FFmpeg", &common::ffmpeg_looked_at());
+        return None;
+    };
     match &kind {
         ResolutionKind::CatalogVerified { artifact_id } => {
             eprintln!("ffmpeg: catalog-verified {artifact_id}")
@@ -36,7 +42,7 @@ fn ffmpeg() -> DevResolved {
             eprintln!("ffmpeg: DEV-UNVERIFIED {} ({reason})", path.display())
         }
     }
-    bin
+    Some(bin)
 }
 
 fn run(bin: &dyn FfmpegBinary, args: &[&str]) {
@@ -69,7 +75,9 @@ fn noise_wav(bin: &dyn FfmpegBinary, path: &Path, seconds: u32, amplitude: &str)
 
 #[test]
 fn probe_reports_streams_duration_and_rotation_and_matches_pure_rust_probe() {
-    let bin = ffmpeg();
+    let Some(bin) = ffmpeg() else {
+        return;
+    };
     let dir = tempfile::tempdir().unwrap();
 
     // Audio-only WAV: 3 s stereo 44.1 kHz.
@@ -162,7 +170,9 @@ fn probe_reports_streams_duration_and_rotation_and_matches_pure_rust_probe() {
 
 #[test]
 fn transcode_reports_progress_and_produces_the_requested_format() {
-    let bin = ffmpeg();
+    let Some(bin) = ffmpeg() else {
+        return;
+    };
     let dir = tempfile::tempdir().unwrap();
     let src = p(dir.path(), "src.wav");
     noise_wav(&bin, &src, 30, "0.1");
@@ -231,7 +241,9 @@ fn process_alive_with_arg(needle: &str) -> bool {
 
 #[test]
 fn cancel_mid_run_stops_ffmpeg_promptly_and_reaps_the_process() {
-    let bin = ffmpeg();
+    let Some(bin) = ffmpeg() else {
+        return;
+    };
     let dir = tempfile::tempdir().unwrap();
     let src = p(dir.path(), "long.wav");
     noise_wav(&bin, &src, 600, "0.1");
@@ -339,7 +351,9 @@ fn normalize(
 
 #[test]
 fn normalize_converges_within_half_an_lu_keeps_a_measured_render_and_is_confirmed_by_ebur128() {
-    let bin = ffmpeg();
+    let Some(bin) = ffmpeg() else {
+        return;
+    };
     let dir = tempfile::tempdir().unwrap();
     let target = LoudnessTarget::SPEECH_EXPORT;
 
@@ -460,12 +474,15 @@ fn aac_m4a_export_normalizes_through_the_built_in_encoder() {
     let mut request = UnverifiedRequest::new(Tool::Ffmpeg);
     request.allow_path_lookup = true;
     let Ok(tool) = resolve_unverified(&request, BuildMode::Development) else {
-        eprintln!("SKIP aac export: no ffmpeg on PATH");
+        common::skip_missing(
+            "FFmpeg on PATH for the aac export",
+            "PATH (allow_path_lookup)",
+        );
         return;
     };
     let caps = tool.probe_capabilities(T).unwrap();
     if !caps.has_encoder("aac") {
-        eprintln!("SKIP aac export: {} has no aac encoder", tool.label());
+        common::skip_missing("FFmpeg with the built-in aac encoder", &tool.label());
         return;
     }
     eprintln!("aac export via {}", tool.label());

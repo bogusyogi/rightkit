@@ -367,7 +367,10 @@ fn designated_control_names_must_all_be_accepted_and_rows_echo_target_ids() {
     assert!(ok.coverage.meets_floor());
     assert_eq!(ok.coverage.designated, 3);
     assert_eq!(ok.coverage.accepted, 3);
-    assert_eq!(ok.anchor("w1").unwrap().target_id.as_deref(), Some("t-export"));
+    assert_eq!(
+        ok.anchor("w1").unwrap().target_id.as_deref(),
+        Some("t-export")
+    );
     assert_eq!(ok.anchor("w2").unwrap().target_id, None);
     assert_eq!(ok.anchor("w2").unwrap().step_id, "step-1");
 
@@ -544,11 +547,7 @@ fn a_newline_ends_a_clause() {
 
 #[test]
 fn a_clause_is_dropped_when_its_last_spoken_token_is_not_accepted() {
-    let alignment = run(
-        "Save now.",
-        &asr(&[("save", 0, 300)]),
-        &[],
-    );
+    let alignment = run("Save now.", &asr(&[("save", 0, 300)]), &[]);
     assert!(alignment.clauses.is_empty());
     assert!(matches!(
         alignment.anchor("w1").unwrap().outcome,
@@ -575,7 +574,13 @@ fn a_rejected_word_inside_a_clause_keeps_the_clause_when_its_endpoints_pass() {
 fn duplicate_word_ids_are_refused_rather_than_aligned() {
     let mut script = ScriptSpec::from_text("s", "go the");
     script.tokens[1].word_id = "w0".into();
-    align(&script, &asr(&[("go", 0, 300)]), RATE, &[], &AlignOptions::default());
+    align(
+        &script,
+        &asr(&[("go", 0, 300)]),
+        RATE,
+        &[],
+        &AlignOptions::default(),
+    );
 }
 
 #[test]

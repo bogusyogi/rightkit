@@ -537,7 +537,9 @@ impl StoreConfig {
         }
         check_ident(&self.artifacts.table)?;
         check_ident(&self.artifacts.id_column)?;
-        if ["jobs", "job_events", "rk_job_submissions", "rk_job_meta"].contains(&self.artifacts.table.as_str()) {
+        if ["jobs", "job_events", "rk_job_submissions", "rk_job_meta"]
+            .contains(&self.artifacts.table.as_str())
+        {
             return Err(JobError::new("config", "artifact table name is reserved"));
         }
         if self.artifacts.wire_id.is_empty() {

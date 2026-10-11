@@ -26,14 +26,20 @@
 //!   creation); the change is in place but may not survive power loss. On Apple targets the flush
 //!   is `F_FULLFSYNC`, falling back to `F_BARRIERFSYNC` then `fsync` unless
 //!   [`StateOptions::sync`] is [`SyncPolicy::Strict`]; the `*_reporting` writes return the
-//!   [`SyncLevel`] reached.
+//!   [`SyncLevel`] reached. [`StateDir::create`] publishes every directory it makes the same way:
+//!   it flushes the *parent* of each newly created directory before descending into it, so a
+//!   later durable write into the leaf cannot lose the ancestor links, and a failed flush stops
+//!   the walk with [`FsError::DirSyncFailed`] (the directory exists; a retry that finds it present
+//!   does not flush again).
 //! - Windows: there is no directory flush. `FlushFileBuffers` needs `GENERIC_WRITE`, and on a
 //!   directory handle opened for listing (the pinned handle) it fails with
 //!   `ERROR_ACCESS_DENIED` (Pulse measured this on NTFS), so the crate does not call it. The
-//!   file is flushed before publication, and directory creation, the publishing rename and the
-//!   removing delete run on handles opened `FILE_WRITE_THROUGH`, the mechanism
-//!   `MOVEFILE_WRITE_THROUGH` uses. A power-loss test of that claim has not been run. Missing
-//!   ancestors that [`StateDir::create`] makes are not write-through on either platform.
+//!   file is flushed before publication, and directory creation (including every missing
+//!   ancestor [`StateDir::create`] makes), the publishing rename and the removing delete run on
+//!   handles opened `FILE_WRITE_THROUGH`, which asks the filesystem to commit the operation
+//!   before the call returns. That is the strongest equivalent available without a directory
+//!   flush; Microsoft does not document a guarantee for directory-entry metadata, and a
+//!   power-loss test of the claim has not been run.
 
 use crate::atomic::{durable_sync_with, Privacy, SyncLevel, SyncPolicy, TEMP_MARKER};
 use crate::error::{FsError, Result};
@@ -162,10 +168,12 @@ fn check_name(name: &str, limit: usize) -> Result<()> {
     Ok(())
 }
 
-/// Entry names are single path components: no separators, no NUL, not `.`/`..`, and within the
-/// default write cap ([`DEFAULT_WRITE_NAME_LEN`]).
+/// Entry names are single path components: no separators, no NUL, not `.`/`..`, within the
+/// default write cap ([`DEFAULT_WRITE_NAME_LEN`]), and not shaped like a temp name this crate
+/// generates (`.<name>.rktmp-<pid>-<n>-<attempt>`), which a sweep would delete.
 pub fn validate_name(name: &str) -> Result<()> {
-    check_name(name, DEFAULT_WRITE_NAME_LEN)
+    check_name(name, DEFAULT_WRITE_NAME_LEN)?;
+    crate::atomic::reject_reserved_name(name)
 }
 
 /// The prefix of `name` used in a temp name: at most 64 bytes, cut at a character boundary, so a
@@ -314,9 +322,11 @@ impl StateDir {
                 limit: max_bytes,
             });
         }
-        let mut out = Vec::with_capacity(meta.len() as usize);
+        let mut out = Vec::with_capacity(usize::try_from(meta.len()).unwrap_or(0));
+        // One byte past the limit proves the file outgrew it. `u64::MAX` means "no limit", so
+        // the sum saturates instead of wrapping to a zero-byte read.
         (&mut file)
-            .take(max_bytes + 1)
+            .take(max_bytes.saturating_add(1))
             .read_to_end(&mut out)
             .map_err(|e| FsError::io(&path, e))?;
         if out.len() as u64 > max_bytes {
@@ -364,6 +374,8 @@ impl StateDir {
 
     fn publish(&self, name: &str, bytes: &[u8], replace: bool) -> Result<SyncLevel> {
         check_name(name, self.options.write_cap())?;
+        // A name shaped like one of our temp names would be deleted by `sweep_temps`.
+        crate::atomic::reject_reserved_name(name)?;
         let final_path = self.path.join(name);
         let (temp, mut file) = self.create_temp(name)?;
         let result = (|| -> Result<SyncLevel> {
@@ -405,7 +417,7 @@ impl StateDir {
 
     fn create_temp(&self, name: &str) -> Result<(String, File)> {
         let prefix = temp_prefix(name);
-        for attempt in 0..32u32 {
+        for attempt in 0..crate::atomic::TEMP_ATTEMPTS {
             let n = COUNTER.fetch_add(1, Ordering::Relaxed);
             let temp = format!(".{prefix}{TEMP_MARKER}{}-{n}-{attempt}", std::process::id());
             match self.dir.create_new(&temp) {
@@ -456,18 +468,17 @@ impl StateDir {
     }
 
     /// Remove temp files left by writers that were killed mid-write (pid gone, or older than
-    /// `max_age`). Returns how many were removed.
+    /// `max_age`). Only complete generated temp names (`.<name>.rktmp-<pid>-<n>-<attempt>`, or
+    /// the longer form `atomic_write` makes) are considered, and `write`/`write_new` refuse such
+    /// names as targets, so a committed record is never swept. Returns how many were removed.
     pub fn sweep_temps(&self, max_age: std::time::Duration) -> Result<usize> {
         let mut removed = 0;
         for DirEntry { name, .. } in self.dir.entries(usize::MAX)? {
-            let Some(idx) = name.find(TEMP_MARKER) else {
+            // Only a complete generated temp name is ever reclaimed; a committed record that
+            // merely contains the marker (`invoice.rktmp-1-final`) is left alone.
+            let Some(pid) = crate::atomic::generated_temp_pid(&name) else {
                 continue;
             };
-            let pid: Option<u32> = name[idx + TEMP_MARKER.len()..]
-                .split('-')
-                .next()
-                .and_then(|p| p.parse().ok());
-            let Some(pid) = pid else { continue };
             let Some(stat) = self.dir.stat(&name)? else {
                 continue;
             };
@@ -493,8 +504,20 @@ pub mod testing {
     use std::cell::{Cell, RefCell};
     use std::io;
 
+    /// One directory-level step of a `StateDir` operation, in the order it happened. Recorded on
+    /// Unix only (Windows makes no directory sync call).
+    #[derive(Clone, Debug, PartialEq, Eq)]
+    pub enum DirEvent {
+        /// `mkdirat` created a directory with this single-component name.
+        Created(String),
+        /// A directory sync was attempted on the directory whose inode number is this (whether or
+        /// not [`fail_dir_sync`] made it fail).
+        Synced(u64),
+    }
+
     thread_local! {
         static DIR_SYNC_FAILURE: RefCell<Option<io::ErrorKind>> = const { RefCell::new(None) };
+        static DIR_EVENTS: RefCell<Vec<DirEvent>> = const { RefCell::new(Vec::new()) };
         static DIR_SYNCS: Cell<usize> = const { Cell::new(0) };
         static FULL_SYNC_UNAVAILABLE: Cell<bool> = const { Cell::new(false) };
         static FALLBACK_STATS: Cell<usize> = const { Cell::new(0) };
@@ -529,6 +552,13 @@ pub mod testing {
         DIR_SYNCS.with(Cell::get)
     }
 
+    /// The directory creations and directory syncs this thread's `StateDir` operations made, in
+    /// order, since the last call. Empties the log. Tests assert the order to prove a directory
+    /// is published (its parent synced) before the walk descends into it.
+    pub fn take_dir_events() -> Vec<DirEvent> {
+        DIR_EVENTS.with(|events| std::mem::take(&mut *events.borrow_mut()))
+    }
+
     /// Per-entry `fstatat` fallbacks made by listings on this thread (entries whose filesystem
     /// reported no type). Zero on filesystems that report `d_type`.
     pub fn fallback_stat_count() -> usize {
@@ -536,8 +566,21 @@ pub mod testing {
     }
 
     #[cfg(unix)]
-    pub(super) fn before_dir_sync() -> Option<io::Error> {
+    pub(super) fn record_created(name: &str) {
+        DIR_EVENTS.with(|events| {
+            events
+                .borrow_mut()
+                .push(DirEvent::Created(name.to_string()))
+        });
+    }
+
+    #[cfg(unix)]
+    pub(super) fn before_dir_sync(dir: &std::fs::File) -> Option<io::Error> {
+        use std::os::unix::fs::MetadataExt;
         DIR_SYNCS.with(|c| c.set(c.get() + 1));
+        if let Ok(meta) = dir.metadata() {
+            DIR_EVENTS.with(|events| events.borrow_mut().push(DirEvent::Synced(meta.ino())));
+        }
         DIR_SYNC_FAILURE.with(|f| {
             f.borrow()
                 .map(|kind| io::Error::new(kind, "injected directory sync failure"))
@@ -678,7 +721,19 @@ mod sys {
             }
             return Ok(false);
         }
+        #[cfg(feature = "testing")]
+        super::testing::record_created(&name.to_string_lossy());
         Ok(true)
+    }
+
+    /// Flush a directory descriptor, reporting failure. The one place a directory is synced, so
+    /// the `testing` seam sees every sync in order.
+    fn sync_dir_file(dir: &File, policy: SyncPolicy) -> io::Result<Option<SyncLevel>> {
+        #[cfg(feature = "testing")]
+        if let Some(error) = super::testing::before_dir_sync(dir) {
+            return Err(error);
+        }
+        super::flush(dir, policy).map(Some)
     }
 
     fn verify(file: &File, shown: &Path) -> Result<libc::stat> {
@@ -701,7 +756,7 @@ mod sys {
             self.0.as_raw_fd()
         }
 
-        pub fn pin(path: &Path, create: bool, _options: &StateOptions) -> Result<Dir> {
+        pub fn pin(path: &Path, create: bool, options: &StateOptions) -> Result<Dir> {
             use std::path::Component;
             let root = CString::new("/").unwrap();
             let dot = CString::new(".").unwrap();
@@ -731,8 +786,20 @@ mod sys {
                     Err(FsError::Io { source, .. })
                         if create && errno_is(&source, libc::ENOENT) =>
                     {
-                        mkdir_at(current.as_raw_fd(), &c, &walked)?;
-                        open_dir_at(current.as_raw_fd(), &c, &walked)?
+                        let created = mkdir_at(current.as_raw_fd(), &c, &walked)?;
+                        let next = open_dir_at(current.as_raw_fd(), &c, &walked)?;
+                        if created {
+                            // The new directory's entry lives in `current`. Publish it before
+                            // descending, so a later durable write below cannot lose the link
+                            // to the directory it went into. A failed flush stops here.
+                            sync_dir_file(&current, options.sync).map_err(|source| {
+                                FsError::DirSyncFailed {
+                                    path: walked.clone(),
+                                    source,
+                                }
+                            })?;
+                        }
+                        next
                     }
                     Err(e) => return Err(e),
                 };
@@ -878,25 +945,22 @@ mod sys {
 
         /// Flush this directory's entries. Unlike a file `fsync`, a failure is returned.
         pub fn sync(&self, policy: SyncPolicy) -> io::Result<Option<SyncLevel>> {
-            #[cfg(feature = "testing")]
-            if let Some(error) = super::testing::before_dir_sync() {
-                return Err(error);
-            }
-            super::flush(&self.0, policy).map(Some)
+            sync_dir_file(&self.0, policy)
         }
 
         pub fn entries(&self, limit: usize) -> Result<Vec<DirEntry>> {
-            let dup = self
-                .0
-                .try_clone()
-                .map_err(|e| FsError::io(".", e))?
-                .into_raw_fd();
-            // SAFETY: dup is a fresh owned fd; on success fdopendir takes ownership of it.
-            let raw = unsafe { libc::fdopendir(dup) };
+            // A fresh open file description of the pinned directory (`openat(dirfd, ".")`), not
+            // a `dup`/`try_clone` of its descriptor: duplicated descriptors share one file
+            // offset, so concurrent listings would consume each other's `getdents` position and
+            // return partial results.
+            let dot = CString::new(".").expect("no NUL in the string");
+            let listing = open_dir_at(self.fd(), &dot, Path::new("."))?.into_raw_fd();
+            // SAFETY: `listing` is a fresh owned fd; on success fdopendir takes ownership of it.
+            let raw = unsafe { libc::fdopendir(listing) };
             if raw.is_null() {
                 let e = io::Error::last_os_error();
-                // SAFETY: fdopendir failed, so dup is still ours to close.
-                unsafe { libc::close(dup) };
+                // SAFETY: fdopendir failed, so `listing` is still ours to close.
+                unsafe { libc::close(listing) };
                 return Err(FsError::io(".", e));
             }
             struct DirGuard(*mut libc::DIR);
@@ -906,10 +970,8 @@ mod sys {
                     unsafe { libc::closedir(self.0) };
                 }
             }
+            // A new open file description starts at offset 0 and nothing else shares it.
             let guard = DirGuard(raw);
-            // The dup shares the file offset with the pinned fd; start from the beginning.
-            // SAFETY: valid DIR*.
-            unsafe { libc::rewinddir(guard.0) };
             let mut out = Vec::new();
             loop {
                 // SAFETY: readdir signals end vs error through errno, which we clear first.

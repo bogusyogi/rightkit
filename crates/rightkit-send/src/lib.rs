@@ -9,17 +9,18 @@
 //! `Service::snapshot`. Errors are typed (`Error`); no user-facing English is
 //! produced here.
 
+#[cfg(all(feature = "bonjour", target_os = "macos"))]
+mod bonjour;
 #[cfg(all(feature = "multicast", not(target_os = "ios")))]
 pub mod discovery;
+mod error;
 pub mod net;
+mod policy;
 pub mod proto;
 mod receive;
 pub mod send;
 pub mod trust;
-mod error;
-mod policy;
-#[cfg(all(feature = "bonjour", target_os = "macos"))]
-mod bonjour;
+mod workers;
 
 pub use error::Error;
 pub use net::Identity;
@@ -27,6 +28,7 @@ pub use policy::Policy;
 pub use send::{Entry, Peer, SendItem};
 use trust::normalize;
 pub use trust::{TrustEntry, TrustState};
+use workers::{Stopper, Worker};
 
 use proto::DeviceInfo;
 use serde::{Deserialize, Serialize};
@@ -306,11 +308,17 @@ mod write_atomic_tests {
         let d = dir("mode");
         let target = d.join("store.json");
         write_atomic(&target, b"x").unwrap();
-        assert_eq!(std::fs::metadata(&target).unwrap().permissions().mode() & 0o777, 0o600);
+        assert_eq!(
+            std::fs::metadata(&target).unwrap().permissions().mode() & 0o777,
+            0o600
+        );
         // Replacing a broader file narrows it: the new inode is 0600.
         std::fs::set_permissions(&target, std::fs::Permissions::from_mode(0o644)).unwrap();
         write_atomic(&target, b"y").unwrap();
-        assert_eq!(std::fs::metadata(&target).unwrap().permissions().mode() & 0o777, 0o600);
+        assert_eq!(
+            std::fs::metadata(&target).unwrap().permissions().mode() & 0o777,
+            0o600
+        );
         let _ = std::fs::remove_dir_all(&d);
     }
 
@@ -335,7 +343,11 @@ mod write_atomic_tests {
             .unwrap()
             .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
             .collect();
-        assert_eq!(names, vec!["store.json".to_string()], "no stray temp: {names:?}");
+        assert_eq!(
+            names,
+            vec!["store.json".to_string()],
+            "no stray temp: {names:?}"
+        );
         let _ = std::fs::remove_dir_all(&d);
     }
 
@@ -350,7 +362,12 @@ mod write_atomic_tests {
         write_atomic(&target, b"x").unwrap();
         assert_eq!(std::fs::read(&outside).unwrap(), b"precious");
         assert_eq!(std::fs::read(&target).unwrap(), b"x");
-        assert!(!std::fs::symlink_metadata(&target).unwrap().file_type().is_symlink());
+        assert!(
+            !std::fs::symlink_metadata(&target)
+                .unwrap()
+                .file_type()
+                .is_symlink()
+        );
         let _ = std::fs::remove_dir_all(&d);
     }
 }
@@ -397,6 +414,8 @@ pub(crate) struct Inner {
     pub me: DeviceInfo,
     pub tls: Arc<rustls::ServerConfig>,
     pub stop: AtomicBool,
+    /// Wakes the threads that wait with a timeout (liveness, accept retry) when the service stops.
+    pub park: Stopper,
     pub devices: Mutex<Vec<Seen>>,
     pub transfers: Mutex<Vec<Transfer>>,
     pub pending: Mutex<HashMap<String, Arc<Pending>>>,
@@ -540,7 +559,7 @@ impl Inner {
             .iter()
             .map(|s| s.device.clone())
             .collect();
-        list.sort_by(|a, b| a.alias.to_lowercase().cmp(&b.alias.to_lowercase()));
+        list.sort_by_key(|d| d.alias.to_lowercase());
         list
     }
 
@@ -646,6 +665,8 @@ pub struct SendStatus {
 /// A running sharing service. Dropping it stops it.
 pub struct Service {
     inner: Arc<Inner>,
+    /// The acceptor and liveness threads, ended and joined by [`Service::stop`].
+    workers: Mutex<Vec<Worker>>,
     #[cfg(all(feature = "bonjour", target_os = "macos"))]
     bonjour: Mutex<Option<(bonjour::Advertiser, bonjour::Browser)>>,
 }
@@ -693,10 +714,6 @@ impl Service {
                 port: config.port,
                 detail: e.to_string(),
             })?;
-        listener.set_nonblocking(true).map_err(|e| Error::Listen {
-            port,
-            detail: e.to_string(),
-        })?;
         let mut config = config;
         config.port = port;
 
@@ -719,6 +736,7 @@ impl Service {
             me,
             tls,
             stop: AtomicBool::new(false),
+            park: Stopper::new(),
             devices: Mutex::new(Vec::new()),
             transfers: Mutex::new(Vec::new()),
             pending: Mutex::new(HashMap::new()),
@@ -738,7 +756,13 @@ impl Service {
             bonjour_names: Mutex::new(HashMap::new()),
         });
 
-        spawn_acceptor(inner.clone(), listener);
+        // The listener stays blocking: the acceptor sleeps in `accept` until a peer arrives or
+        // `stop` connects to it.
+        let acceptor =
+            spawn_acceptor(inner.clone(), listener, port).map_err(|e| Error::Listen {
+                port,
+                detail: e.to_string(),
+            })?;
         #[cfg(all(feature = "multicast", not(target_os = "ios")))]
         {
             match discovery::listen(port) {
@@ -752,12 +776,23 @@ impl Service {
         }
         #[cfg(all(feature = "bonjour", target_os = "macos"))]
         let bonjour = start_bonjour(&inner, &config, &identity.fingerprint);
-        spawn_liveness(inner.clone());
-        Ok(Service {
-            inner,
+        let service = Service {
+            inner: inner.clone(),
+            workers: Mutex::new(vec![acceptor]),
             #[cfg(all(feature = "bonjour", target_os = "macos"))]
             bonjour: Mutex::new(bonjour),
-        })
+        };
+        match spawn_liveness(inner) {
+            Ok(liveness) => lock(&service.workers).push(liveness),
+            // Dropping `service` on the way out stops what has started.
+            Err(e) => {
+                return Err(Error::Listen {
+                    port,
+                    detail: e.to_string(),
+                });
+            }
+        }
+        Ok(service)
     }
 
     /// The port the service listens on (the chosen one when `Config::port` was 0).
@@ -972,9 +1007,7 @@ impl Service {
         items: Vec<SendItem>,
         clipboard: bool,
     ) -> Result<String, Error> {
-        let device = self
-            .find_device(target)
-            .ok_or(Error::DeviceNotNearby)?;
+        let device = self.find_device(target).ok_or(Error::DeviceNotNearby)?;
         if self.inner.trust_state(&device.fingerprint) == TrustState::Deny {
             return Err(Error::DeviceBlocked);
         }
@@ -988,10 +1021,7 @@ impl Service {
                 peer: device.alias.clone(),
             });
         }
-        let ip: IpAddr = device
-            .ip
-            .parse()
-            .map_err(|_| Error::NoUsableAddress)?;
+        let ip: IpAddr = device.ip.parse().map_err(|_| Error::NoUsableAddress)?;
         let peer = Peer {
             ip,
             port: device.port,
@@ -1058,8 +1088,20 @@ impl Service {
         self.inner.emit(Event::Changed);
     }
 
+    /// Stop sharing. Pending requests are declined, transfers in flight are cancelled, and the
+    /// acceptor and liveness threads are ended and joined: when this returns the listening socket
+    /// is closed and its port can be bound again, and no thread of the service's own is left
+    /// running. It returns promptly (a few milliseconds), never waiting on a peer. Connection
+    /// handlers and liveness probes already running are not joined; they finish on their own
+    /// within their socket timeouts. Calling it again, or dropping the `Service`, does nothing more.
     pub fn stop(&self) {
+        self.shutdown();
+    }
+
+    /// [`Service::stop`], reporting whether every worker thread was joined.
+    fn shutdown(&self) -> bool {
         self.inner.stop.store(true, Ordering::Relaxed);
+        self.inner.park.stop();
         #[cfg(all(feature = "bonjour", target_os = "macos"))]
         {
             let handles = lock(&self.bonjour).take();
@@ -1080,6 +1122,13 @@ impl Service {
         for session in lock(&self.inner.sessions).values() {
             session.cancel.store(true, Ordering::Relaxed);
         }
+        // No lock is held here: the threads being joined never take one that this thread holds.
+        let workers = std::mem::take(&mut *lock(&self.workers));
+        let mut all_ended = true;
+        for worker in workers {
+            all_ended &= worker.stop();
+        }
+        all_ended
     }
 }
 
@@ -1099,30 +1148,60 @@ impl Drop for ConnectionGuard {
     }
 }
 
-fn spawn_acceptor(inner: Arc<Inner>, listener: TcpListener) {
-    thread::spawn(move || {
-        while !inner.stop.load(Ordering::Relaxed) {
-            match listener.accept() {
-                Ok((socket, address)) => {
-                    let _ = socket.set_nonblocking(false);
-                    if inner.connections.load(Ordering::Relaxed) >= 64 {
-                        continue;
-                    }
-                    inner.connections.fetch_add(1, Ordering::Relaxed);
-                    // Counted down however the handler ends, panics included.
-                    let guard = ConnectionGuard(inner.clone());
-                    thread::spawn(move || {
-                        let guard = guard;
-                        receive::handle_connection(&guard.0, socket, address);
-                    });
+/// Start the acceptor on a thread of its own. `port` is where `stop` connects to wake it.
+fn spawn_acceptor(inner: Arc<Inner>, listener: TcpListener, port: u16) -> std::io::Result<Worker> {
+    Worker::spawn(
+        "rk-send-accept",
+        move || wake_listener(port),
+        move || accept_loop(&inner, listener),
+    )
+}
+
+/// End a blocked `accept` by connecting to the listener from this process (see `workers.rs` for
+/// why this and not `shutdown` or `close`). The connection is dropped at once; the acceptor sees
+/// the stop flag and drops it too. A failed connect is harmless: `Worker::stop` tries again.
+fn wake_listener(port: u16) {
+    let address = std::net::SocketAddr::from((Ipv4Addr::LOCALHOST, port));
+    let _ = TcpStream::connect_timeout(&address, Duration::from_millis(250));
+}
+
+/// Connections this service serves at once; the next one is closed unread.
+const MAX_CONNECTIONS: usize = 64;
+
+/// The acceptor: blocks in `accept` and hands each connection to a handler thread of its own.
+/// Owns the listener, so the port is released when this returns.
+fn accept_loop(inner: &Arc<Inner>, listener: TcpListener) {
+    while !inner.stop.load(Ordering::Relaxed) {
+        let accepted = listener.accept();
+        #[cfg(test)]
+        inner.park.note_wake();
+        match accepted {
+            Ok((socket, address)) => {
+                // `Service::stop` ends the blocking accept with a connection of its own.
+                if inner.stop.load(Ordering::Relaxed) {
+                    break;
                 }
-                Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
-                    thread::sleep(Duration::from_millis(50));
+                let _ = socket.set_nonblocking(false);
+                if inner.connections.load(Ordering::Relaxed) >= MAX_CONNECTIONS {
+                    continue;
                 }
-                Err(_) => thread::sleep(Duration::from_millis(250)),
+                inner.connections.fetch_add(1, Ordering::Relaxed);
+                // Counted down however the handler ends, panics included.
+                let guard = ConnectionGuard(inner.clone());
+                thread::spawn(move || {
+                    let guard = guard;
+                    receive::handle_connection(&guard.0, socket, address);
+                });
+            }
+            // A failed accept (descriptor exhaustion, a peer that reset before it was taken):
+            // back off so a persistent fault cannot spin, and let a stop end the wait.
+            Err(_) => {
+                if inner.park.wait(Duration::from_millis(250)) {
+                    break;
+                }
             }
         }
-    });
+    }
 }
 
 #[cfg(all(feature = "multicast", not(target_os = "ios")))]
@@ -1230,67 +1309,68 @@ fn spawn_scanner(inner: Arc<Inner>) {
     });
 }
 
+/// How often devices not heard from are probed.
+const LIVENESS_PERIOD: Duration = Duration::from_secs(20);
+
 /// Drop devices that stop answering `GET /info`.
-fn spawn_liveness(inner: Arc<Inner>) {
-    thread::spawn(move || {
-        while !inner.stop.load(Ordering::Relaxed) {
-            for _ in 0..200 {
-                if inner.stop.load(Ordering::Relaxed) {
-                    return;
-                }
-                thread::sleep(Duration::from_millis(100));
-            }
-            let stale: Vec<Device> = lock(&inner.devices)
-                .iter()
-                .filter(|s| s.last_seen.elapsed() > Duration::from_secs(20))
-                .map(|s| s.device.clone())
-                .collect();
-            for device in stale {
-                let inner = inner.clone();
-                thread::spawn(move || {
-                    let alive = device.ip.parse::<IpAddr>().ok().is_some_and(|ip| {
-                        net::request_json(
-                            ip,
-                            device.port,
-                            device.protocol == "https",
-                            &device.fingerprint,
-                            "GET",
-                            &format!("{}/info", proto::API),
-                            None,
-                            Duration::from_secs(2),
-                        )
-                        .is_ok_and(|reply| reply.status == 200)
-                    });
-                    let removed = {
-                        let mut devices = lock(&inner.devices);
-                        match devices
-                            .iter()
-                            .position(|s| s.device.fingerprint == device.fingerprint)
-                        {
-                            Some(index) if alive => {
-                                devices[index].last_seen = Instant::now();
-                                devices[index].misses = 0;
+fn spawn_liveness(inner: Arc<Inner>) -> std::io::Result<Worker> {
+    // The wait is on `park`, which `Service::stop` has already stopped: nothing more to wake.
+    Worker::spawn("rk-send-liveness", || {}, move || liveness_loop(&inner))
+}
+
+/// One timed wait per period, ended at once by a stop.
+fn liveness_loop(inner: &Arc<Inner>) {
+    while !inner.park.wait(LIVENESS_PERIOD) {
+        let stale: Vec<Device> = lock(&inner.devices)
+            .iter()
+            .filter(|s| s.last_seen.elapsed() > Duration::from_secs(20))
+            .map(|s| s.device.clone())
+            .collect();
+        for device in stale {
+            let inner = inner.clone();
+            thread::spawn(move || {
+                let alive = device.ip.parse::<IpAddr>().ok().is_some_and(|ip| {
+                    net::request_json(
+                        ip,
+                        device.port,
+                        device.protocol == "https",
+                        &device.fingerprint,
+                        "GET",
+                        &format!("{}/info", proto::API),
+                        None,
+                        Duration::from_secs(2),
+                    )
+                    .is_ok_and(|reply| reply.status == 200)
+                });
+                let removed = {
+                    let mut devices = lock(&inner.devices);
+                    match devices
+                        .iter()
+                        .position(|s| s.device.fingerprint == device.fingerprint)
+                    {
+                        Some(index) if alive => {
+                            devices[index].last_seen = Instant::now();
+                            devices[index].misses = 0;
+                            false
+                        }
+                        Some(index) => {
+                            devices[index].misses += 1;
+                            if devices[index].misses >= 2 {
+                                devices.remove(index);
+                                true
+                            } else {
                                 false
                             }
-                            Some(index) => {
-                                devices[index].misses += 1;
-                                if devices[index].misses >= 2 {
-                                    devices.remove(index);
-                                    true
-                                } else {
-                                    false
-                                }
-                            }
-                            None => false,
                         }
-                    };
-                    if removed {
-                        inner.emit(Event::Devices);
+                        None => false,
                     }
-                });
-            }
+                };
+                if removed {
+                    inner.emit(Event::Devices);
+                }
+            });
         }
-    });
+    }
 }
 
 fn run_send(
@@ -1366,7 +1446,12 @@ fn txt_value(txt: &[(String, String)], key: &str) -> Option<String> {
 
 /// A resolved device as an announcement would describe it. An empty alias
 /// falls back to the start of the fingerprint.
-fn resolved_info(fingerprint: &str, alias: &str, port: u16, txt: &[(String, String)]) -> DeviceInfo {
+fn resolved_info(
+    fingerprint: &str,
+    alias: &str,
+    port: u16,
+    txt: &[(String, String)],
+) -> DeviceInfo {
     let alias = if alias.is_empty() {
         fingerprint.chars().take(8).collect()
     } else {
@@ -1495,5 +1580,133 @@ fn start_bonjour(
             });
             None
         }
+    }
+}
+
+#[cfg(test)]
+mod lifecycle_tests {
+    use super::*;
+    use std::io::{ErrorKind, Read};
+    use std::net::SocketAddr;
+
+    /// `Service::start` sets the client identity and User-Agent for the whole process, so these
+    /// tests run one at a time.
+    static SERIAL: Mutex<()> = Mutex::new(());
+
+    fn serial() -> MutexGuard<'static, ()> {
+        lock(&SERIAL)
+    }
+
+    fn config(port: u16) -> Config {
+        let root = std::env::temp_dir().join(format!("rk-send-life-{}", proto::random_hex(4)));
+        Config {
+            product_name: "Test".into(),
+            alias: "Lifecycle".into(),
+            port,
+            device_type: "desktop".into(),
+            device_model: "Test".into(),
+            save_dir: root.join("save"),
+            trust_path: root.join("nearby_devices.json"),
+            user_agent: "LifecycleTest/1".into(),
+            quarantine_agent: "LifecycleTest".into(),
+            temp_suffix: ".test-part".into(),
+            log_prefix: "test sharing:".into(),
+            policy: Policy::default(),
+        }
+    }
+
+    fn start_on(port: u16) -> Result<Service, Error> {
+        let identity = Identity::generate("Lifecycle").expect("identity");
+        Service::start(config(port), identity, Arc::new(|_: Event| {}))
+    }
+
+    #[test]
+    fn an_idle_service_wakes_its_threads_about_once_a_second_at_most() {
+        let _serial = serial();
+        let service = start_on(0).expect("service starts");
+        let (began, woke_before) = (Instant::now(), service.inner.park.wakes());
+        thread::sleep(Duration::from_secs(2));
+        let (secs, woke) = (
+            began.elapsed().as_secs_f64(),
+            service.inner.park.wakes() - woke_before,
+        );
+        // The window can stretch on a loaded machine and the allowance stretches with it. The 50 ms
+        // accept poll and 100 ms liveness tick this replaces woke about 60 times in two seconds.
+        let allowed = 3u64.max(secs.ceil() as u64 + 1);
+        assert!(
+            woke <= allowed,
+            "the service woke {woke} times in {secs:.1} s"
+        );
+        assert!(service.shutdown());
+    }
+
+    #[test]
+    fn stop_returns_promptly_having_joined_every_service_thread() {
+        let _serial = serial();
+        let service = start_on(0).expect("service starts");
+        // Let both threads reach their waits; stopping before they do ends them at once too.
+        thread::sleep(Duration::from_millis(100));
+        assert_eq!(lock(&service.workers).len(), 2, "acceptor and liveness");
+        let began = Instant::now();
+        assert!(service.shutdown(), "a service thread did not end");
+        assert!(
+            began.elapsed() < Duration::from_secs(1),
+            "stop took {:?}",
+            began.elapsed()
+        );
+        assert!(lock(&service.workers).is_empty());
+        // Stopping again, and the drop that follows, change nothing.
+        assert!(service.shutdown());
+        service.stop();
+    }
+
+    #[test]
+    fn a_second_start_on_the_same_port_succeeds_after_stop() {
+        let _serial = serial();
+        let first = start_on(0).expect("service starts");
+        let port = first.bound_port();
+        assert!(first.shutdown());
+        for round in 0..3 {
+            let again = start_on(port)
+                .unwrap_or_else(|e| panic!("restart {round} on port {port} failed: {e:?}"));
+            assert_eq!(again.bound_port(), port);
+            assert!(again.shutdown());
+        }
+    }
+
+    #[test]
+    fn the_64_connection_cap_still_closes_the_next_connection_unread() {
+        let _serial = serial();
+        let service = start_on(0).expect("service starts");
+        let address = SocketAddr::from((Ipv4Addr::LOCALHOST, service.bound_port()));
+        let mut byte = [0u8; 1];
+
+        // At the cap the connection is closed without a byte exchanged: end of stream or a reset,
+        // never a timeout.
+        service
+            .inner
+            .connections
+            .store(MAX_CONNECTIONS, Ordering::Relaxed);
+        let mut full = TcpStream::connect(address).expect("connect");
+        full.set_read_timeout(Some(Duration::from_secs(10)))
+            .unwrap();
+        match full.read(&mut byte) {
+            Ok(0) => {}
+            Err(e) if !matches!(e.kind(), ErrorKind::WouldBlock | ErrorKind::TimedOut) => {}
+            other => panic!("a connection over the cap must be closed, got {other:?}"),
+        }
+
+        // Below the cap it is kept: the handler waits for a TLS hello (30 s timeout), so a short
+        // read here times out.
+        service.inner.connections.store(0, Ordering::Relaxed);
+        let mut open = TcpStream::connect(address).expect("connect");
+        open.set_read_timeout(Some(Duration::from_millis(300)))
+            .unwrap();
+        match open.read(&mut byte) {
+            Err(e) if matches!(e.kind(), ErrorKind::WouldBlock | ErrorKind::TimedOut) => {}
+            other => panic!("a connection under the cap must be kept open, got {other:?}"),
+        }
+        drop(open);
+        assert!(service.shutdown());
     }
 }

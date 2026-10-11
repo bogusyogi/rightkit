@@ -6,7 +6,7 @@ rust-version = "1.98.0"
 description = "Brand-neutral desktop/mobile cloud sync engine: change tokens, tombstones, last-writer-wins conflicts, resumable batches, offline queue, retry/backoff."
 license = "MIT OR Apache-2.0"
 readme = "README.md"
-repository = "https://github.com/bogusyogi/rightkit"
+repository = "https://github.com/Orthic-Labs/rightkit"
 keywords = ["sync", "cloudkit", "tombstone", "offline"]
 categories = ["data-structures"]
 # The protocol fake and its process-level E2E test are repository-only fixtures.

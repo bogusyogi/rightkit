@@ -43,7 +43,12 @@ fn is_denied(e: &HttpError) -> bool {
 fn wildcard_no_proxy_hosts_go_direct_and_are_vetted_in_both_clients_and_after_redirects() {
     let proxy = TestProxy::start();
     for name in [
-        "ALL_PROXY", "all_proxy", "HTTPS_PROXY", "https_proxy", "HTTP_PROXY", "http_proxy",
+        "ALL_PROXY",
+        "all_proxy",
+        "HTTPS_PROXY",
+        "https_proxy",
+        "HTTP_PROXY",
+        "http_proxy",
         "no_proxy",
     ] {
         std::env::remove_var(name);
@@ -62,7 +67,9 @@ fn wildcard_no_proxy_hosts_go_direct_and_are_vetted_in_both_clients_and_after_re
     let redirector = MockServer::start(|_, _| {
         MockResponse::new(302).header("Location", "http://api.example.com:8080/")
     });
-    let err = blocking.send(&Request::get(redirector.url("/"))).unwrap_err();
+    let err = blocking
+        .send(&Request::get(redirector.url("/")))
+        .unwrap_err();
     assert!(is_denied(&err), "blocking redirect: {err:?}");
     assert_eq!(proxy.total(), 0, "blocking redirect reached the proxy");
 
@@ -80,7 +87,10 @@ fn wildcard_no_proxy_hosts_go_direct_and_are_vetted_in_both_clients_and_after_re
                 .unwrap_err();
             assert!(is_denied(&err), "async: {err:?}");
             assert_eq!(proxy.total(), 0, "async client reached the proxy");
-            let err = c.send(&Request::get(redirector.url("/"))).await.unwrap_err();
+            let err = c
+                .send(&Request::get(redirector.url("/")))
+                .await
+                .unwrap_err();
             assert!(is_denied(&err), "async redirect: {err:?}");
             assert_eq!(proxy.total(), 0, "async redirect reached the proxy");
         });

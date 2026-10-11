@@ -203,7 +203,11 @@ mod mac {
 
     /// Ground truth: a plain walk of the disk. Records every file path and every directory's
     /// logical byte sum (what `folder_size().logical` must equal for a tree without links).
-    fn walk_disk(dir: &Path, files: &mut BTreeSet<PathBuf>, sums: &mut HashMap<PathBuf, u64>) -> u64 {
+    fn walk_disk(
+        dir: &Path,
+        files: &mut BTreeSet<PathBuf>,
+        sums: &mut HashMap<PathBuf, u64>,
+    ) -> u64 {
         let mut sum = 0;
         for e in fs::read_dir(dir).unwrap().flatten() {
             let p = e.path();
@@ -263,7 +267,10 @@ mod mac {
             sums.len(),
         );
         if let Some((dir, want, got)) = worst {
-            println!("audit first mismatch: {} disk {want} index {got}", dir.display());
+            println!(
+                "audit first mismatch: {} disk {want} index {got}",
+                dir.display()
+            );
         }
     }
 

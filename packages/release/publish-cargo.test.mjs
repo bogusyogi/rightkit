@@ -67,7 +67,7 @@ function fixture(t) {
   const name = "rightkit-fixture", version = "1.0.0", bytes = Buffer.from("fixture crate archive");
   const crateDir = path.join(root, "crates", name), target = path.join(root, "generated-target");
   mkdirSync(crateDir, { recursive: true });
-  writeFileSync(path.join(crateDir, "Cargo.toml"), `[package]\nname = "${name}"\nversion = "${version}"\n`);
+  writeFileSync(path.join(crateDir, "Cargo.toml"), `[package]\nname = "${name}"\nversion = "${version}"\n[package.metadata.rightkit]\ncontinuous = false\ncontinuous_reason = "fixture library with no continuous work"\n`);
   mkdirSync(path.join(target, "package"), { recursive: true });
   const crateFile = path.join(target, "package", `${name}-${version}.crate`);
   writeFileSync(crateFile, bytes);
@@ -102,7 +102,7 @@ test("Cargo publisher packages, checks evidence hash, publishes through same run
   assert.deepEqual(result, { name: fx.name, version: fx.version, sha256: fx.evidence.artifactSha256 });
 });
 
-test("runtime-budget crate without a budget section is refused before packaging or upload", async (t) => {
+test("runtime-budget crate without a measured runtime-budget.json is refused before packaging or upload", async (t) => {
   const fx = fixture(t);
   const crateDir = path.join(fx.root, "crates", fx.name);
   writeFileSync(path.join(crateDir, "Cargo.toml"), `[package]\nname = "${fx.name}"\nversion = "${fx.version}"\n[package.metadata.rightkit]\nruntime_budget = true\n`);
@@ -110,8 +110,7 @@ test("runtime-budget crate without a budget section is refused before packaging 
   await assert.rejects(runCargoPublish(fx.options, fx.execute, fx.deps), (error) => {
     assert.equal(error.code, "RUNTIME_BUDGET_MISSING");
     assert.match(error.message, /runtime budget refused/);
-    assert.match(error.message, /has no CPU line/);
-    assert.match(error.message, /has no "Measured" line/);
+    assert.match(error.message, /runtime-budget\.json is missing/);
     return true;
   });
   assert.deepEqual(fx.events, []);
@@ -132,7 +131,7 @@ test("runtime-budget crate dry-run reports the failing check and still validates
     process.stdout.write = write;
   }
   assert.deepEqual(result, { name: fx.name, version: fx.version, dryRun: true });
-  assert.match(lines.join(""), /\[FAIL\] runtime-budget: rightkit-fixture: .*"## Runtime budget"/);
+  assert.match(lines.join(""), /\[FAIL\] runtime-budget: rightkit-fixture: runtime-budget\.json is missing/);
   assert.deepEqual(fx.events, []);
 });
 
@@ -183,7 +182,7 @@ test("publication gate compares actual artifact buffer to evidence", () => {
   const options = { kind: "cargo", name, version, packagePath: "/fixture", evidencePath: "/evidence", artifactBytes: bytes,
     git: (args) => args[0] === "rev-parse" ? commit : "",
     readFile: () => JSON.stringify({ schema: 1, kind: "cargo", name, version, commit, artifactSha256: digestBytes(bytes),
-      runs: ["darwin", "win32"].map((os) => ({ host: { os }, commit, command: "node --test", passed: 1, failed: 0, operator: "test", timestamp: "2026-10-08" })) }),
+      runs: ["darwin", "win32"].map((os) => ({ host: { os, arch: "arm64" }, commit, features: ["default"], artifactSha256: digestBytes(bytes), command: "node --test", passed: 1, failed: 0, operator: "test", timestamp: "2026-10-08" })) }),
   };
   assert.equal(checkPublicationGate(options).ok, true);
   assert.equal(checkPublicationGate({ ...options, artifactBytes: Buffer.from("changed") }).ok, false);
@@ -202,4 +201,42 @@ test("release source never accesses Cargo credential files or registry token env
     }
   };
   inspect(root);
+});
+
+test("publish refuses a Cargo.toml whose [package].name is not the requested crate", async (t) => {
+  const fx = fixture(t);
+  const crateDir = path.join(fx.root, "crates", fx.name);
+  writeFileSync(path.join(crateDir, "Cargo.toml"), '[package]\nname = "rightkit-renamed"\nversion = "1.0.0"\n');
+  await assert.rejects(runCargoPublish(fx.options, fx.execute, fx.deps), /\[package\]\.name "rightkit-renamed" differs from --crate rightkit-fixture/);
+  assert.deepEqual(fx.events, []);
+});
+
+test("publish refuses an undeclared crate: neither runtime-budget.json nor continuous = false", async (t) => {
+  const fx = fixture(t);
+  const crateDir = path.join(fx.root, "crates", fx.name);
+  writeFileSync(path.join(crateDir, "Cargo.toml"), '[package]\nname = "rightkit-fixture"\nversion = "1.0.0"\n');
+  await assert.rejects(runCargoPublish(fx.options, fx.execute, fx.deps), (error) => {
+    assert.equal(error.code, "RUNTIME_BUDGET_MISSING");
+    assert.match(error.message, /undeclared/);
+    return true;
+  });
+  assert.deepEqual(fx.events, []);
+});
+
+test("publish refuses continuous = false when src spawns a thread and the reason does not name it", async (t) => {
+  const fx = fixture(t);
+  const crateDir = path.join(fx.root, "crates", fx.name);
+  mkdirSync(path.join(crateDir, "src"), { recursive: true });
+  writeFileSync(path.join(crateDir, "src", "lib.rs"), "pub fn go() { std::thread::spawn(|| {}); }\n");
+  await assert.rejects(runCargoPublish(fx.options, fx.execute, fx.deps), /thread-spawn \(src\/lib\.rs\)/);
+  assert.deepEqual(fx.events, []);
+});
+
+test("version.workspace = true resolves through the workspace root instead of a regex miss", async (t) => {
+  const fx = fixture(t);
+  const crateDir = path.join(fx.root, "crates", fx.name);
+  writeFileSync(path.join(fx.root, "Cargo.toml"), '[workspace]\nmembers = ["crates/*"]\n[workspace.package]\nversion = "1.0.0"\n');
+  writeFileSync(path.join(crateDir, "Cargo.toml"), '[package]\nname = "rightkit-fixture"\nversion.workspace = true\n[package.metadata.rightkit]\ncontinuous = false\ncontinuous_reason = "fixture library"\n');
+  const result = await runCargoPublish(fx.options, fx.execute, fx.deps);
+  assert.equal(result.version, "1.0.0");
 });

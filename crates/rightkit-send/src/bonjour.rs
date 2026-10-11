@@ -141,7 +141,11 @@ fn dns_err(what: &str, code: i32) -> io::Error {
 }
 
 fn check(what: &str, code: i32) -> io::Result<()> {
-    if code == 0 { Ok(()) } else { Err(dns_err(what, code)) }
+    if code == 0 {
+        Ok(())
+    } else {
+        Err(dns_err(what, code))
+    }
 }
 
 fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
@@ -257,7 +261,9 @@ fn pump(
     // SAFETY: `sd` is a live ref owned by the calling thread.
     let fd = unsafe { DNSServiceRefSockFD(sd) };
     if fd < 0 {
-        return Err(io::Error::other("DNSServiceRefSockFD returned an invalid descriptor"));
+        return Err(io::Error::other(
+            "DNSServiceRefSockFD returned an invalid descriptor",
+        ));
     }
     loop {
         if stop.load(Ordering::Acquire) || finished() {
@@ -265,10 +271,17 @@ fn pump(
         }
         if let Some(d) = deadline {
             if Instant::now() >= d {
-                return Err(io::Error::new(io::ErrorKind::TimedOut, "DNS-SD reply timed out"));
+                return Err(io::Error::new(
+                    io::ErrorKind::TimedOut,
+                    "DNS-SD reply timed out",
+                ));
             }
         }
-        let mut pfd = libc::pollfd { fd, events: libc::POLLIN, revents: 0 };
+        let mut pfd = libc::pollfd {
+            fd,
+            events: libc::POLLIN,
+            revents: 0,
+        };
         // SAFETY: `pfd` is a valid single-element pollfd array.
         let n = unsafe { libc::poll(&mut pfd, 1, POLL_MS) };
         if n < 0 {
@@ -283,7 +296,9 @@ fn pump(
         }
         if pfd.revents & libc::POLLIN != 0 {
             // SAFETY: `sd` is live; callbacks run on this thread with live contexts.
-            check("DNSServiceProcessResult", unsafe { DNSServiceProcessResult(sd) })?;
+            check("DNSServiceProcessResult", unsafe {
+                DNSServiceProcessResult(sd)
+            })?;
         } else if pfd.revents & (libc::POLLERR | libc::POLLHUP | libc::POLLNVAL) != 0 {
             return Err(io::Error::other("DNS-SD socket closed"));
         }
@@ -311,7 +326,9 @@ impl Drop for Runner {
 fn await_start(rx: &Receiver<io::Result<()>>) -> io::Result<()> {
     match rx.recv_timeout(START_TIMEOUT) {
         Ok(r) => r,
-        Err(_) => Err(io::Error::other("DNS-SD start timed out waiting for first reply")),
+        Err(_) => Err(io::Error::other(
+            "DNS-SD start timed out waiting for first reply",
+        )),
     }
 }
 
@@ -354,10 +371,17 @@ fn advertise_thread(
     OWN_THREAD.with(|c| c.set(true));
     let ctx = Box::new(RegisterCtx { tx: tx.clone() });
     let Ok(txt_len) = u16::try_from(txt.len()) else {
-        let _ = tx.send(Err(io::Error::new(io::ErrorKind::InvalidInput, "TXT record too long")));
+        let _ = tx.send(Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "TXT record too long",
+        )));
         return;
     };
-    let txt_ptr: *const c_void = if txt.is_empty() { ptr::null() } else { txt.as_ptr().cast() };
+    let txt_ptr: *const c_void = if txt.is_empty() {
+        ptr::null()
+    } else {
+        txt.as_ptr().cast()
+    };
     let mut sd: DNSServiceRef = ptr::null_mut();
     // SAFETY: all pointers are valid for the call; `ctx` outlives the ref (the guard
     // below is declared later and therefore dropped first).
@@ -392,8 +416,9 @@ impl Advertiser {
     /// (host byte order) with the given TXT bytes. Fails if the register call or its
     /// first reply reports an error, or no reply arrives within 5 s.
     pub fn start(instance: &str, port: u16, txt: &[u8]) -> io::Result<Advertiser> {
-        let name = CString::new(truncate_label(instance))
-            .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "instance name contains NUL"))?;
+        let name = CString::new(truncate_label(instance)).map_err(|_| {
+            io::Error::new(io::ErrorKind::InvalidInput, "instance name contains NUL")
+        })?;
         let txt = txt.to_vec();
         let stop = Arc::new(AtomicBool::new(false));
         let (tx, rx) = mpsc::channel();
@@ -401,7 +426,10 @@ impl Advertiser {
         let handle = thread::Builder::new()
             .name("pulse-send-advertise".into())
             .spawn(move || advertise_thread(name, port, txt, tx, thread_stop))?;
-        let runner = Runner { stop, handle: Some(handle) };
+        let runner = Runner {
+            stop,
+            handle: Some(handle),
+        };
         await_start(&rx)?;
         Ok(Advertiser { _runner: runner })
     }
@@ -536,7 +564,10 @@ fn handle_add(
         stop: Arc::clone(&ctx.stop),
         on_found: Arc::clone(&ctx.on_found),
     };
-    match thread::Builder::new().name("pulse-send-resolve".into()).spawn(move || run_worker(job)) {
+    match thread::Builder::new()
+        .name("pulse-send-resolve".into())
+        .spawn(move || run_worker(job))
+    {
         Ok(h) => {
             let mut workers = lock(&ctx.workers);
             workers.retain(|w| !w.is_finished());
@@ -580,11 +611,16 @@ fn await_slot<T>(
     timeout: Duration,
     what: &str,
 ) -> io::Result<T> {
-    pump(sd, stop, Some(Instant::now() + timeout), &|| lock(slot).is_some())?;
+    pump(sd, stop, Some(Instant::now() + timeout), &|| {
+        lock(slot).is_some()
+    })?;
     match lock(slot).take() {
         Some(Ok(v)) => Ok(v),
         Some(Err(code)) => Err(dns_err(what, code)),
-        None => Err(io::Error::new(io::ErrorKind::Interrupted, "DNS-SD query stopped")),
+        None => Err(io::Error::new(
+            io::ErrorKind::Interrupted,
+            "DNS-SD query stopped",
+        )),
     }
 }
 
@@ -623,7 +659,14 @@ extern "C" fn resolve_reply(
         };
         // SAFETY: `host` is a non-null NUL-terminated string.
         let host = unsafe { CStr::from_ptr(host) }.to_owned();
-        fill(slot, Ok(Resolved { host, port: u16::from_be(port), txt }));
+        fill(
+            slot,
+            Ok(Resolved {
+                host,
+                port: u16::from_be(port),
+                txt,
+            }),
+        );
     }));
 }
 
@@ -791,7 +834,10 @@ impl Browser {
         let handle = thread::Builder::new()
             .name("pulse-send-browse".into())
             .spawn(move || browse_thread(own_instance, on_found, on_lost, tx, thread_stop))?;
-        let runner = Runner { stop, handle: Some(handle) };
+        let runner = Runner {
+            stop,
+            handle: Some(handle),
+        };
         await_start(&rx)?;
         Ok(Browser { _runner: runner })
     }

@@ -1,7 +1,10 @@
 //! End-to-end checks for the stdin runner, ffprobe JSON, and loudness acceptance against a
 //! real FFmpeg. Each test resolves the binary through the same gate `media_e2e.rs` uses
-//! (`dev_resolve::resolve_for_development`) and returns early, with a note on stderr, when
-//! the host has no FFmpeg. The ffprobe test also needs an `ffprobe` beside that binary.
+//! (`dev_resolve::resolve_for_development`) and returns early after a SKIP line when the host
+//! has no FFmpeg (a panic under `RIGHTKIT_REQUIRE_ASSETS=1`). The ffprobe test also needs an
+//! `ffprobe` beside that binary.
+
+mod common;
 
 use std::{
     io::Write,
@@ -20,11 +23,12 @@ use rightkit_media::{
 
 const T: Duration = Duration::from_secs(120);
 
-fn host_ffmpeg(test: &str) -> Option<DevResolved> {
+/// The development FFmpeg, or `None` after a SKIP line.
+fn host_ffmpeg() -> Option<DevResolved> {
     match resolve_for_development() {
         Some((bin, _)) => Some(bin),
         None => {
-            eprintln!("{test}: skipped, no FFmpeg on this host");
+            common::skip_missing("FFmpeg", &common::ffmpeg_looked_at());
             None
         }
     }
@@ -47,7 +51,7 @@ fn sine_wav(bin: &dyn FfmpegBinary, out: &Path) {
 
 #[test]
 fn piped_pcm_reaches_ffmpeg_and_encodes_the_expected_duration() {
-    let Some(bin) = host_ffmpeg("piped_pcm_reaches_ffmpeg") else {
+    let Some(bin) = host_ffmpeg() else {
         return;
     };
     let dir = tempfile::tempdir().unwrap();
@@ -87,12 +91,15 @@ fn piped_pcm_reaches_ffmpeg_and_encodes_the_expected_duration() {
 
 #[test]
 fn ffprobe_json_of_a_generated_wav_reports_its_audio_stream() {
-    let Some(bin) = host_ffmpeg("ffprobe_json_of_a_generated_wav") else {
+    let Some(bin) = host_ffmpeg() else {
         return;
     };
     let ffprobe_path = bin.ffmpeg_path().with_file_name("ffprobe");
     if !ffprobe_path.is_file() {
-        eprintln!("ffprobe_json_of_a_generated_wav: skipped, no ffprobe beside ffmpeg");
+        common::skip_missing(
+            "ffprobe beside the FFmpeg binary",
+            &ffprobe_path.display().to_string(),
+        );
         return;
     }
     let dir = tempfile::tempdir().unwrap();
@@ -118,7 +125,7 @@ fn ffprobe_json_of_a_generated_wav_reports_its_audio_stream() {
 
 #[test]
 fn acceptance_rejects_a_level_far_from_target_and_accepts_it_when_widened() {
-    let Some(bin) = host_ffmpeg("acceptance_rejects_a_level_far_from_target") else {
+    let Some(bin) = host_ffmpeg() else {
         return;
     };
     let dir = tempfile::tempdir().unwrap();

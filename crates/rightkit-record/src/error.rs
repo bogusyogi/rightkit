@@ -118,7 +118,10 @@ mod tests {
             Some(Code::CodecUnavailable)
         );
         assert_eq!(Code::parse("bundle_not_complete"), Some(Code::NotComplete));
-        assert_eq!(Code::parse("bundle_verify_failed"), Some(Code::VerifyFailed));
+        assert_eq!(
+            Code::parse("bundle_verify_failed"),
+            Some(Code::VerifyFailed)
+        );
         assert_eq!(Code::parse("no_such_code"), None);
     }
 }

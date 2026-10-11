@@ -13,7 +13,7 @@ Shared browser and QA primitives for Right Suite apps: run storage and evidence 
 
 | Import | Contents |
 |---|---|
-| `@rightkit/qa` | `export *` from evidence, frames, guard, loopback, ownership, paint, panes, process, workspace, storage, page and chrome modules. Includes `QaBrowserSession`, `QaPage`, `QaElement`, `QaKeyboard`, `QaMouse`, `TimeoutError`, `ElementOccludedError`, `FillMismatchError`, `freePort`. |
+| `@rightkit/qa` | `export *` from evidence, frames, guard, loopback, ownership, paint, panes, process, workspace, storage, page and chrome modules. Includes `QaBrowserSession`, `QaPage`, `QaElement`, `QaKeyboard`, `QaMouse`, `TimeoutError`, `ElementOccludedError`, `FillMismatchError`, `freePort`. From 0.4.8 also `CdpClient`, `connectCdp`, `freePortSync`, `waitForHttp`, `stopDevServer`, `readDetachedRecord`, `DevServerIdentityError`. |
 | `@rightkit/qa/chrome` | Re-export of `@rightkit/qa-chrome` |
 
 Dependency: `@rightkit/qa-chrome` (exact `0.1.3`).
@@ -127,6 +127,41 @@ const dev = await startDevServer({
 // ... run the tests against dev.url ...
 await dev.stop();
 ```
+
+## Detached dev servers (0.4.8)
+
+By default a dev server stops with the process that started it. `startDevServer({ ..., detached: true, recordPath })` starts one that outlives the caller, so a "start, return, stop later" pair of scripts works.
+
+- The server gets its own process group (POSIX), or a detached process (Windows). Its stdio is the log file `${recordPath}.log`, not this process's pipes, and the child is unreferenced, so the caller can exit.
+- Once the server is ready, a JSON record is written to `recordPath`: `{ format, pid, startTime, command, url, port, logPath, recordedAt }`. `startTime` and `command` are read from the OS process table, and a record is never replaced. A call whose `recordPath` already exists refuses before it spawns anything.
+- The handle exposes `pid`, `url`, `port`, `recordPath`, `logPath`, `startTime`, `command`, and `output()` (the tail of the log).
+- `stopDevServer({ recordPath })` reads the record and stops the server's whole process tree, but only when the live process still has the recorded start time and command. `stopDevServer({ pid })` does the same for a server this process started. Any other process is refused with `DevServerIdentityError`, and nothing is signalled. It returns `true` when a running server was stopped, and `false` when nothing was running (a missing record is a no-op). A record is removed once its server is gone.
+
+```ts
+const dev = await startDevServer({
+  command: process.execPath, args: [viteBin, "--port", "{port}", "--strictPort"], portFloor: 5173,
+  detached: true, recordPath: "/abs/qa/dev.json",
+  readiness: { urls: (port) => [`http://127.0.0.1:${port}/`], attemptTimeoutMs: 2500, totalTimeoutMs: 20_000, intervalMs: 300 },
+});
+// later, in another process:
+await stopDevServer({ recordPath: "/abs/qa/dev.json" });
+```
+
+The package has no CLI entry, so there are no `devserver start` or `devserver stop` commands; call these functions from a script.
+
+## Raw CDP, page sockets and labelled waits (0.4.8)
+
+- `connectCdp(endpoint, { timeout? })` returns a `CdpClient` on a browser endpoint or on a page-level `webSocketDebuggerUrl`. `send(method, params?, sessionId?, timeoutMs?)` sends one command. `on(method, listener, sessionId?)` subscribes to one session's events, and `onAny(method, listener)` subscribes to every session's, with the listener getting `(params, sessionId)`. Both return an unsubscribe function. `close()` is synchronous, so it needs no await.
+- `QaBrowserSession.connectPage(wsUrl, { timeout?, allowRemoteHost? })` returns a `QaPage` on one page's socket, with no browser session. Its commands are the root session's. `close()` closes that socket and sends no `Target` command. Loopback only unless `allowRemoteHost: true`.
+- `page.send(method, params, { timeout?, sessionId? })` addresses a flattened child session. A number as the third argument still sets the timeout.
+- `evaluate("expr", { label: "name" })` prefixes a thrown error as `name: <message>`. The label applies to string expressions only.
+- `waitForFunction(expr, { label, timeout?, pollMs? })`: a labelled wait times out with exactly `Timed out waiting for <label>`. Its defaults are 45 s and 250 ms, and the predicate is coerced with `Boolean()`. Without `label`, `waitForFunction` is unchanged.
+- `page.waitForAnimationFrames(frames = 2)` resolves after that many animation frames.
+- `page.screenshot({ path, returnPath: true })` writes the file and resolves with its path. Without `returnPath` it resolves with the Buffer, as before.
+- `keyboard.tap({ key, code?, windowsVirtualKeyCode?, modifiers? })` sends keyDown and then keyUp, with no text and no modifier presses.
+- `mouse.click(x, y, { button?, clickCount? })` presses and releases without a preceding `mouseMoved`. `mouse.doubleClick(x, y)` is a click, then a press and release with clickCount 2. `mouse.drag(points, { moveDelayMs? })` presses the left button at the first point, moves with it held, and releases at the last point. It needs at least two points, and it releases the button if a move fails. These three refuse while a button is held.
+- `freePortSync()` is `freePort` for module scope. It runs a tiny inline `node -e` child through `spawnSync`, and that child only binds and releases a port.
+- `waitForHttp(url, { timeoutMs?, intervalMs? })` polls with GET until the URL answers 2xx, and throws `Timed out waiting for <url>` on timeout.
 
 ## Keyboard keys
 

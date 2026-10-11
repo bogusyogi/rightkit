@@ -1,7 +1,11 @@
+use std::sync::Arc;
 use std::time::Duration;
 
+use rightkit_http::{Request, RetryPolicy};
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
+use serde_json::{Map, Value};
+
+use crate::error::LlmError;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -134,6 +138,14 @@ pub struct ChatRequest {
     /// For a stream it caps the whole stream body. The client's `response_timeout` still
     /// bounds the wait for response headers. `None` keeps the client's settings.
     pub timeout: Option<Duration>,
+    /// Retry behaviour for this call. [`CallRetry::Client`] (the default) keeps the client's
+    /// policy and the provider's replay rule. See [`CallRetry`].
+    pub retry: CallRetry,
+    /// Extra top-level fields merged into the built request body. See [`ExtraBody`].
+    pub extra_body: ExtraBody,
+    /// Return [`LlmError::Truncated`] instead of a normal response when the provider stopped
+    /// at its output limit. Default `false`. See [`ChatRequest::reject_truncated_output`].
+    pub reject_truncated: bool,
 }
 
 impl ChatRequest {
@@ -150,6 +162,9 @@ impl ChatRequest {
             cache: CacheMode::Off,
             omit_max_tokens: false,
             timeout: None,
+            retry: CallRetry::Client,
+            extra_body: ExtraBody::default(),
+            reject_truncated: false,
         }
     }
     /// One system prompt plus one user turn.
@@ -182,6 +197,131 @@ impl ChatRequest {
         self.timeout = Some(timeout);
         self
     }
+    /// Set the retry behaviour for this call. See [`CallRetry`].
+    pub fn with_retry(mut self, retry: CallRetry) -> Self {
+        self.retry = retry;
+        self
+    }
+    /// Make exactly one attempt: no status replay and no transport retry for this call.
+    pub fn without_retries(self) -> Self {
+        self.with_retry(CallRetry::Disabled)
+    }
+    /// Add a top-level body field. A key the crate already sets for this request (for example
+    /// `model`, `messages`, `max_tokens`, `tools`, `stream`) is an error at send time, not a
+    /// silent replacement; use [`ChatRequest::with_extra_override`] to replace one on purpose.
+    /// Replaces an earlier value for the same key, and clears an earlier override for it.
+    pub fn with_extra(mut self, key: impl Into<String>, value: Value) -> Self {
+        let key = key.into();
+        self.extra_body.overrides.retain(|k| k != &key);
+        self.extra_body.fields.insert(key, value);
+        self
+    }
+    /// Add a top-level body field that replaces a field the crate sets for this request.
+    /// Use only when the replacement is deliberate.
+    pub fn with_extra_override(mut self, key: impl Into<String>, value: Value) -> Self {
+        let key = key.into();
+        if !self.extra_body.overrides.contains(&key) {
+            self.extra_body.overrides.push(key.clone());
+        }
+        self.extra_body.fields.insert(key, value);
+        self
+    }
+    /// Treat a provider stop at the output limit as [`LlmError::Truncated`]. By default the
+    /// truncated text is returned with [`StopReason::MaxTokens`]. Applies to streams too.
+    pub fn reject_truncated_output(mut self) -> Self {
+        self.reject_truncated = true;
+        self
+    }
+}
+
+/// Per-call retry behaviour, honoured by both HTTP providers.
+///
+/// Providers always allow status replay for chat calls (a chat completion has no
+/// server-side effect), so the replay rule is unchanged; this enum only selects the attempt
+/// policy:
+///
+/// - [`CallRetry::Client`] (default): the client's `ClientConfig::retry`, unchanged.
+/// - [`CallRetry::Disabled`]: one attempt, no retry for any status or transport error.
+/// - [`CallRetry::Policy`]: this policy replaces the client's for this call. Its
+///   `retry_statuses` decide what is retried, so include `529` yourself for Anthropic.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub enum CallRetry {
+    #[default]
+    Client,
+    Disabled,
+    Policy(RetryPolicy),
+}
+
+impl CallRetry {
+    pub(crate) fn apply(&self, request: Request) -> Request {
+        match self {
+            CallRetry::Client => request,
+            CallRetry::Disabled => request.retry(RetryPolicy::none()),
+            CallRetry::Policy(policy) => request.retry(policy.clone()),
+        }
+    }
+}
+
+/// Caller-supplied top-level JSON fields, merged into the body the crate builds (for example
+/// `reasoning_effort`, `include_reasoning`, or OpenRouter's `provider`).
+///
+/// Rule: a key the crate did not set is added. A key the crate did set for this request
+/// makes the call fail with [`LlmError::InvalidRequest`] before anything is sent, unless the
+/// key was added with [`ChatRequest::with_extra_override`], which replaces it. Nothing is
+/// merged into nested objects.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct ExtraBody {
+    /// Fields to merge into the top level of the body.
+    pub fields: Map<String, Value>,
+    /// Keys in `fields` allowed to replace a field the crate sets.
+    pub overrides: Vec<String>,
+}
+
+impl ExtraBody {
+    pub(crate) fn merge_into(&self, body: &mut Value) -> Result<(), LlmError> {
+        let Some(object) = body.as_object_mut() else {
+            return Ok(());
+        };
+        for (key, value) in &self.fields {
+            if object.contains_key(key) && !self.overrides.contains(key) {
+                return Err(LlmError::InvalidRequest(format!(
+                    "extra body field '{key}' is already set by the request; use with_extra_override to replace it"
+                )));
+            }
+            object.insert(key.clone(), value.clone());
+        }
+        Ok(())
+    }
+}
+
+/// What a provider reports to a [`CallObserver`] once per call that reaches the network.
+pub struct CallRecord<'a> {
+    /// Provider id (for example `openai` or the preset name).
+    pub provider: &'a str,
+    /// True for a streamed call.
+    pub stream: bool,
+    /// The exact JSON body sent, after extra fields were merged. The credential and auth
+    /// headers are never part of it.
+    pub request_body: &'a Value,
+    /// The parsed response, with its usage, or the error the call ended with. Error text has
+    /// the credential removed.
+    pub result: Result<&'a ChatResponse, &'a LlmError>,
+}
+
+/// Callback for an on-device payload ledger. Called synchronously on the calling thread, so
+/// it should be quick. A panic propagates to the caller.
+pub type CallObserver = Arc<dyn Fn(&CallRecord<'_>) + Send + Sync>;
+
+/// Shared post-response check for `ChatRequest::reject_truncated`.
+pub(crate) fn check_output(
+    response: ChatResponse,
+    req: &ChatRequest,
+) -> Result<ChatResponse, LlmError> {
+    if req.reject_truncated && response.stop_reason == StopReason::MaxTokens {
+        let output_tokens = response.usage_known.then_some(response.usage.output_tokens);
+        return Err(LlmError::Truncated { output_tokens });
+    }
+    Ok(response)
 }
 
 /// Token usage. `input_tokens` EXCLUDES cache reads/writes on every provider

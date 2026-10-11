@@ -93,9 +93,8 @@ impl WorkerArgs {
 
 fn mode_value(args: &mut impl Iterator<Item = String>, flag: &str) -> Result<Mode, String> {
     let name = value(args, flag)?;
-    Mode::parse(&name).ok_or_else(|| {
-        format!("unknown mode {name}; expected base, custom_voice or voice_design")
-    })
+    Mode::parse(&name)
+        .ok_or_else(|| format!("unknown mode {name}; expected base, custom_voice or voice_design"))
 }
 
 fn value(args: &mut impl Iterator<Item = String>, flag: &str) -> Result<String, String> {
@@ -147,12 +146,7 @@ pub fn parse<I: IntoIterator<Item = String>>(args: I) -> Result<WorkerArgs, Stri
             .iter_mut()
             .rev()
             .find(|e| e.mode == mode)
-            .ok_or_else(|| {
-                format!(
-                    "--mode-vocoder {} has no --mode-model-dir",
-                    mode.as_str()
-                )
-            })?;
+            .ok_or_else(|| format!("--mode-vocoder {} has no --mode-model-dir", mode.as_str()))?;
         entry.vocoder = Some(vocoder);
     }
     Ok(out)
@@ -275,12 +269,20 @@ mod tests {
 
     #[test]
     fn idle_secs_parses_and_rejects_non_numbers() {
-        assert_eq!(parse(args(&["--idle-secs", "45"])).unwrap().idle_secs, Some(45));
-        assert_eq!(parse(args(&["--idle-secs", "0"])).unwrap().idle_secs, Some(0));
+        assert_eq!(
+            parse(args(&["--idle-secs", "45"])).unwrap().idle_secs,
+            Some(45)
+        );
+        assert_eq!(
+            parse(args(&["--idle-secs", "0"])).unwrap().idle_secs,
+            Some(0)
+        );
         assert!(parse(args(&["--idle-secs", "soon"]))
             .unwrap_err()
             .contains("whole number"));
-        assert!(parse(args(&["--idle-secs"])).unwrap_err().contains("needs a value"));
+        assert!(parse(args(&["--idle-secs"]))
+            .unwrap_err()
+            .contains("needs a value"));
     }
 
     #[test]

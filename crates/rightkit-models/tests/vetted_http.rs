@@ -272,6 +272,16 @@ fn download_with_a_wrong_pin_fails_integrity_and_leaves_no_file() {
     .unwrap_err();
     assert_eq!(err.code, ErrorCode::HashMismatch, "{err}");
     assert!(!dest.exists() && !part.exists());
+    // Nothing is left in the destination directory: no `*.part`, no `*.part.meta`
+    // resume record, and no other temporary file.
+    let leftovers: Vec<String> = fs::read_dir(tmp.path())
+        .unwrap()
+        .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
+        .collect();
+    assert!(
+        leftovers.is_empty(),
+        "failed download left files behind: {leftovers:?}"
+    );
 }
 
 #[test]

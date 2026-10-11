@@ -13,6 +13,9 @@ use rightkit_ort::{
 
 #[test]
 fn versioned_runtime_binds_loads_and_runs() {
+    if !common::runtime_or_skip() {
+        return;
+    }
     let (dir, versioned) = common::staged_runtime("versioned", "libonnxruntime.1.24.4.dylib");
     assert!(matches!(
         resolve_runtime([RuntimeCandidate::new(&versioned, CandidateSource::Explicit)]),

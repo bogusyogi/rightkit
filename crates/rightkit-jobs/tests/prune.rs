@@ -75,7 +75,10 @@ fn older_than_removes_terminal_jobs_with_events_and_artifact_rows_but_not_files(
     assert_eq!(report.events, 1);
     assert_eq!(report.artifacts.len(), 1);
     let path = std::path::Path::new(&report.artifacts[0].path);
-    assert!(path.exists(), "the caller owns artifact files; they are returned, not deleted");
+    assert!(
+        path.exists(),
+        "the caller owns artifact files; they are returned, not deleted"
+    );
     assert!(store.get(&old).is_err());
     assert!(store.get(&fresh).is_ok());
     assert!(

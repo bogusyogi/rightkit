@@ -34,17 +34,17 @@ fn default_patterns_exclude_build_output_and_keep_the_rest() {
     let idx = Index::open(static_config(&t.root)).unwrap();
 
     let root_kids = kids(&idx, &t.root);
-    assert_eq!(root_kids["target"], true);
-    assert_eq!(root_kids["node_modules"], true);
-    assert_eq!(root_kids["app"], false);
-    assert_eq!(root_kids["src"], false);
-    assert_eq!(kids(&idx, &t.root.join("app"))[".build"], true);
+    assert!(root_kids["target"]);
+    assert!(root_kids["node_modules"]);
+    assert!(!root_kids["app"]);
+    assert!(!root_kids["src"]);
+    assert!(kids(&idx, &t.root.join("app"))[".build"]);
     let git = kids(&idx, &t.root.join("repo/.git"));
-    assert_eq!(git["objects"], true, ".git/objects is excluded");
-    assert_eq!(git["config"], false, "the rest of .git is kept");
+    assert!(git["objects"], ".git/objects is excluded");
+    assert!(!git["config"], "the rest of .git is kept");
     let lib = kids(&idx, &t.root.join("home/Library"));
-    assert_eq!(lib["Caches"], true);
-    assert_eq!(lib["Prefs"], false);
+    assert!(lib["Caches"]);
+    assert!(!lib["Prefs"]);
 
     assert!(
         idx.search("huge").unwrap().is_empty(),
@@ -60,7 +60,7 @@ fn include_build_output_drops_the_defaults() {
     let mut cfg = static_config(&t.root);
     cfg.include_build_output = true;
     let idx = Index::open(cfg).unwrap();
-    assert_eq!(kids(&idx, &t.root)["target"], false);
+    assert!(!kids(&idx, &t.root)["target"]);
     assert_eq!(idx.search("huge").unwrap().len(), 1);
 }
 
@@ -72,8 +72,8 @@ fn caller_patterns_apply_in_addition_to_the_defaults() {
     let mut cfg = static_config(&t.root);
     cfg.exclude_patterns = vec!["secret*".to_string()];
     let idx = Index::open(cfg).unwrap();
-    assert_eq!(kids(&idx, &t.root)["secret_vault"], true);
-    assert_eq!(kids(&idx, &t.root)["target"], true, "defaults still apply");
+    assert!(kids(&idx, &t.root)["secret_vault"]);
+    assert!(kids(&idx, &t.root)["target"], "defaults still apply");
 }
 
 #[test]
@@ -83,7 +83,7 @@ fn exact_path_excludes_still_apply() {
     let mut cfg = static_config(&t.root);
     cfg.exclude = vec![t.root.join("src")];
     let idx = Index::open(cfg).unwrap();
-    assert_eq!(kids(&idx, &t.root)["src"], true);
+    assert!(kids(&idx, &t.root)["src"]);
     assert!(idx.search("keep_me").unwrap().is_empty());
 }
 

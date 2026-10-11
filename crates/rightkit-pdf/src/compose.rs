@@ -166,6 +166,8 @@ pub fn compose_candidate_on_base(
         return Err(PdfEditError::EncryptedDocument);
     }
 
+    // What every page can name before any edit; checked again below.
+    let resources_before = inspect::resource_fingerprint(&doc);
     let mut affected_pages: Vec<u32> = Vec::new();
 
     for command in effective_pdf_edit_commands(commands) {
@@ -219,6 +221,13 @@ pub fn compose_candidate_on_base(
         if !affected_pages.contains(&page) {
             affected_pages.push(page);
         }
+    }
+
+    // Never trust the composer blindly: an edit may add a resource, but a page must still resolve
+    // every font, XObject and graphics state it resolved in the source. (Adding a font to a page
+    // whose `/Resources` lived on an ancestor `/Pages` node once hid all of them.)
+    if !inspect::resources_preserved(&resources_before, &inspect::resource_fingerprint(&doc)) {
+        return Err(PdfEditError::VerificationFailed);
     }
 
     doc.compress();
@@ -648,38 +657,49 @@ fn apply_exact_operand_patch(
         piece.advance(size, layout.char_spacing, layout.word_spacing, th)
     };
     let mut new_region_text: f64 = middle.pieces.iter().map(advance).sum();
-    for value in &gap_values {
+    // Between two words the pen also moves by the last glyph's own `Tc` (and `Tw`, when that glyph
+    // is single-byte code 32 - a font without a space glyph can still map code 32 to a letter).
+    for (piece, value) in middle.pieces.iter().zip(&gap_values) {
         new_region_text += layout.char_spacing * th + gap_text(*value);
+        if piece.ends_with_word_space() {
+            new_region_text += layout.word_spacing * th;
+        }
     }
     let island_len = island.run.last().map_or(0.0, |i| i.end) - island.run[0].start;
     let old_region = region[region.len() - 1].end - region[0].start;
     let region_reaches_island_end = plan.end == island.run.len();
     let new_len_text = if positional {
         // Pen end is unchanged by the in-place write except for the glyph widths themselves and
-        // for `Tw`: a space glyph advances the pen by `Tw` more than any other glyph, so turning a
-        // letter into a space (or back) moves everything after it. The island's very last glyph
+        // for `Tw`: the single-byte code 32 advances the pen by `Tw` more than any other code, so
+        // writing it over another code (or another over it) moves everything after it. This is
+        // decided by the *code*, never by the character: code 32 mapped to a letter still takes
+        // `Tw`, and a space reached through another code does not. The island's very last glyph
         // has no trailing advance inside the island, so it contributes no `Tw`.
         let old_widths: f64 = region.iter().map(|i| i.end - i.start).sum();
         let new_widths = middle.pieces[0].advance(size, 0.0, 0.0, th);
-        let new_chars: Vec<char> = plan.middle.chars().collect();
         let mut tw_delta = 0.0;
         for (k, item) in region_glyphs.iter().enumerate() {
             if region_reaches_island_end && k + 1 == region_glyphs.len() {
                 continue;
             }
-            let was_space = item.text == " ";
-            let is_space = new_chars.get(k) == Some(&' ');
+            let was_space = item.word_space;
+            let is_space = middle.pieces[0].word_space_at(k);
             tw_delta += layout.word_spacing * th * (f64::from(is_space) - f64::from(was_space));
         }
         island_len / scale + new_widths - old_widths / scale + tw_delta
     } else {
-        // The region's last glyph is followed by its own `Tc`/`Tw`: a space there carries `Tw`
-        // across to whatever follows, and the new last glyph may or may not.
+        // The region's last glyph is followed by its own `Tc`/`Tw`: single-byte code 32 there
+        // carries `Tw` across to whatever follows, and the new last code may or may not be it.
         let trailing_tw = if region_reaches_island_end {
             0.0
         } else {
-            let was_space = region.last().is_some_and(|i| i.glyph.is_some() && i.text == " ");
-            let is_space = plan.middle.chars().last() == Some(' ');
+            let was_space = region
+                .last()
+                .is_some_and(|i| i.glyph.is_some() && i.word_space);
+            let is_space = middle
+                .pieces
+                .last()
+                .is_some_and(|piece| piece.ends_with_word_space());
             layout.word_spacing * th * (f64::from(is_space) - f64::from(was_space))
         };
         (island_len - old_region) / scale + new_region_text + trailing_tw
@@ -816,8 +836,7 @@ fn verify_written(
         .spans
         .first()
         .ok_or(PdfEditError::VerificationFailed)?;
-    let graph =
-        walk_page_graph(doc, "", page).map_err(|_| PdfEditError::VerificationFailed)?;
+    let graph = walk_page_graph(doc, "", page).map_err(|_| PdfEditError::VerificationFailed)?;
     let written = graph
         .islands
         .iter()
@@ -1325,24 +1344,52 @@ fn embed_type0_font(
     Ok((type0_id, cid_codes))
 }
 
+/// Deepest `/Parent` chain followed when looking for the `/Resources` a page inherits. Real page
+/// trees are a handful of levels; the same bound as inspection's inherited-attribute lookup.
+const MAX_RESOURCE_INHERIT_DEPTH: usize = 64;
+
+/// The page's *effective* `/Resources`, cloned: the nearest `/Resources` entry on the page itself
+/// or, when it has none, on the closest ancestor `/Pages` node that does (a page attribute is
+/// inherited from there, ISO 32000-1 7.7.3.4). The nearest one is used whole, never merged with
+/// a farther one - exactly what a viewer reads. An empty dictionary means nothing is inherited.
+/// A `/Parent` cycle or a chain deeper than [`MAX_RESOURCE_INHERIT_DEPTH`] is refused: the
+/// resources it hides cannot be preserved, so nothing may be written over them.
+fn effective_resources(doc: &Document, page_id: ObjectId) -> Result<Dictionary, PdfEditError> {
+    let mut seen = std::collections::HashSet::new();
+    let mut id = page_id;
+    for _ in 0..=MAX_RESOURCE_INHERIT_DEPTH {
+        if !seen.insert(id) {
+            return Err(PdfEditError::MalformedContent); // a /Parent cycle
+        }
+        let node = doc
+            .get_object(id)
+            .map_err(|_| PdfEditError::MalformedContent)?
+            .as_dict()
+            .map_err(|_| PdfEditError::MalformedContent)?;
+        if node.has(b"Resources") {
+            return Ok(dict_entry_clone(doc, node, b"Resources"));
+        }
+        match node.get(b"Parent") {
+            Ok(Object::Reference(parent)) => id = *parent,
+            _ => return Ok(dictionary! {}), // the chain ends: nothing to inherit
+        }
+    }
+    Err(PdfEditError::MalformedContent) // longer than any real page tree
+}
+
 /// Adds `font_obj_id` to page `page_id`'s own `/Resources/Font` dictionary under a fresh,
 /// collision-free name (§9.3: "Add resource under collision-free generated name"). Always writes a
 /// page-owned copy of `/Resources` (and of `/Resources/Font`) rather than mutating whatever
 /// dictionary object the page's `/Resources` currently points to, so a `/Resources` dictionary
-/// shared with another page is never silently changed for both.
+/// shared with another page is never silently changed for both. The copy starts from the page's
+/// effective resources ([`effective_resources`]), so a page that inherits `/Resources` from an
+/// ancestor keeps every font, XObject and graphics state it already resolved.
 fn add_font_resource(
     doc: &mut Document,
     page_id: ObjectId,
     font_obj_id: ObjectId,
 ) -> Result<Vec<u8>, PdfEditError> {
-    let page_obj = doc
-        .get_object(page_id)
-        .map_err(|_| PdfEditError::MalformedContent)?;
-    let page_dict = page_obj
-        .as_dict()
-        .map_err(|_| PdfEditError::MalformedContent)?;
-
-    let existing_resources = dict_entry_clone(doc, page_dict, b"Resources");
+    let existing_resources = effective_resources(doc, page_id)?;
     let mut fonts_dict = dict_entry_clone(doc, &existing_resources, b"Font");
 
     let mut counter = 1u32;
@@ -1501,9 +1548,15 @@ fn matrix_operation(matrix: Matrix) -> Operation {
     )
 }
 
-/// One isolated `q / BT / Tf / rg / Tm / Tj / ET / Q` block showing `cid_codes` (Identity-H,
-/// 2-byte-per-code) through `resource_name` at `anchor`, in `appearance.color`/`appearance.size_pt`
-/// — the shared building block for both §9.2's appended local rewrite and §9.3's Add Text stream.
+/// One isolated `q / BT / Tf / Tr Tc Tw Tz Ts / rg / Tm / Tj / ET / Q` block showing `cid_codes`
+/// (Identity-H, 2-byte-per-code) through `resource_name` at `anchor`, in
+/// `appearance.color`/`appearance.size_pt` - the shared building block for both §9.2's appended
+/// local rewrite and §9.3's Add Text stream.
+///
+/// The `q`/`Q` pair keeps this block's state from leaking out, but it cannot keep the page's
+/// state from leaking in: the text state parameters a page's last text object left behind (`3 Tr`
+/// is invisible text, a stray `Tc`/`Tw`/`Tz`/`Ts` moves or scales it) carry into a stream
+/// appended after it. So every parameter that changes how the string is drawn is set explicitly.
 fn build_text_object_operations(
     resource_name: &[u8],
     appearance: &PdfTextAppearance,
@@ -1529,6 +1582,12 @@ fn build_text_object_operations(
                 Object::Real(appearance.size_pt as f32),
             ],
         ),
+        // Fill, no extra character or word spacing, 100 % width, no rise.
+        Operation::new("Tr", vec![Object::Integer(0)]),
+        Operation::new("Tc", vec![Object::Integer(0)]),
+        Operation::new("Tw", vec![Object::Integer(0)]),
+        Operation::new("Tz", vec![Object::Integer(100)]),
+        Operation::new("Ts", vec![Object::Integer(0)]),
         Operation::new(
             "rg",
             vec![
@@ -3042,7 +3101,10 @@ mod tests {
     }
 
     /// The island whose text is `text` in the candidate's page 1, with its box width.
-    fn island_after(candidate: &ComposedCandidate, text: &str) -> (crate::model::PdfTextIsland, f64) {
+    fn island_after(
+        candidate: &ComposedCandidate,
+        text: &str,
+    ) -> (crate::model::PdfTextIsland, f64) {
         let (_, graph) = reinspect(candidate, 1);
         let island = graph
             .islands
@@ -3140,8 +3202,8 @@ mod tests {
             island.appearance.clone(),
             rect(28.33),
         );
-        let candidate = compose_candidate(&source, &[command], &FailingFontResolver)
-            .expect("composes");
+        let candidate =
+            compose_candidate(&source, &[command], &FailingFontResolver).expect("composes");
         let (_, width) = island_after(&candidate, "aa big");
         assert!((width - 28.33).abs() < 0.01, "{width}");
     }
@@ -3178,8 +3240,8 @@ mod tests {
         let island = locate_island(&doc, &sha, 1, "a b");
         assert!((island_box(&island).width - 22.5).abs() < 0.01);
         let command = replace_cmd("tw", &island, "axb", island.appearance.clone(), rect(15.0));
-        let candidate = compose_candidate(&source, &[command], &FailingFontResolver)
-            .expect("narrower fits");
+        let candidate =
+            compose_candidate(&source, &[command], &FailingFontResolver).expect("narrower fits");
         let (_, width) = island_after(&candidate, "axb");
         assert!((width - 15.0).abs() < 0.01, "{width}");
     }
@@ -3270,7 +3332,9 @@ mod tests {
         };
         // The resolver really would have produced a candidate for this text and appearance.
         assert!(resolver.resolve("F1").is_ok());
-        assert!(resolver.glyphs_for_text(&resolver.resolve("F1").unwrap(), "AC").is_ok());
+        assert!(resolver
+            .glyphs_for_text(&resolver.resolve("F1").unwrap(), "AC")
+            .is_ok());
 
         let command = replace_cmd("ac", &island, "AC", island.appearance.clone(), PAGE_WIDE);
         let outcome = compose_candidate(&source, &[command], &resolver);
@@ -3376,5 +3440,322 @@ mod tests {
         let outcome = verify_written(&doc, 1, &island, "zz", PAGE_WIDE);
         assert!(matches!(outcome, Err(PdfEditError::VerificationFailed)));
         verify_written(&doc, 1, &island, "ab", PAGE_WIDE).expect("matches what is there");
+    }
+    // -----------------------------------------------------------------------------------
+    // Second Astra read, 2026-10-11: findings 2, 4 and 7 (composition side)
+    // -----------------------------------------------------------------------------------
+
+    use crate::test_fixtures::{code_32_letter_font, code_5_space_font, inherited_resources_pdf};
+
+    fn add_hi(id: &str) -> PdfEditCommand {
+        PdfEditCommand::AddText {
+            id: id.to_string(),
+            page: 1,
+            anchor: PdfPoint { x: 100.0, y: 100.0 },
+            text: "Hi".to_string(),
+            appearance: appearance("test-font", 18.0),
+        }
+    }
+
+    /// The operations of the last content stream of `page` (the one `AddText` appends).
+    fn appended_operations(doc: &Document, page: u32) -> Vec<Operation> {
+        let page_id = doc.get_pages()[&page];
+        let contents = doc
+            .get_object(page_id)
+            .expect("page")
+            .as_dict()
+            .expect("dict")
+            .get(b"Contents")
+            .expect("contents");
+        let ids = content_stream_ids(doc, contents).expect("ids");
+        decode_stream_content(doc, *ids.last().expect("a stream"))
+            .expect("content")
+            .operations
+    }
+
+    #[test]
+    fn finding2_adding_a_font_to_a_page_that_inherits_its_resources_keeps_what_it_inherited() {
+        // /Resources (F1 and Im1) live on the /Pages node only. The old composer gave the page a
+        // /Resources holding just the new font, so F1 and Im1 stopped resolving.
+        let doc = inherited_resources_pdf(b"BT /F1 12 Tf 72 700 Td (Existing) Tj ET /Im1 Do");
+        let source = doc_bytes(&doc);
+        let candidate = compose_candidate(&source, &[add_hi("a")], &test_resolver())
+            .expect("add text composes");
+        let (out, graph) = reinspect(&candidate, 1);
+
+        let existing = graph
+            .islands
+            .iter()
+            .find(|island| island.text == "Existing")
+            .expect("the inherited font still decodes the existing line");
+        assert!(existing.editable, "{:?}", existing.edit_blocker);
+        assert!(graph.islands.iter().any(|island| island.text == "Hi"));
+
+        let fingerprint = inspect::resource_fingerprint(&out);
+        let names: Vec<String> = fingerprint[&1]
+            .keys()
+            .map(|(category, name)| {
+                format!(
+                    "{}/{}",
+                    String::from_utf8_lossy(category),
+                    String::from_utf8_lossy(name)
+                )
+            })
+            .collect();
+        assert_eq!(names, ["Font/F1", "Font/VREdit1", "XObject/Im1"]);
+
+        // The ancestor's own resources are untouched: a sibling page would still see only F1.
+        let page_id = out.get_pages()[&1];
+        let parent = out
+            .get_object(page_id)
+            .expect("page")
+            .as_dict()
+            .expect("dict")
+            .get(b"Parent")
+            .expect("parent")
+            .as_reference()
+            .expect("reference");
+        let inherited_fonts = out
+            .get_object(parent)
+            .expect("pages")
+            .as_dict()
+            .expect("dict")
+            .get(b"Resources")
+            .expect("resources")
+            .as_dict()
+            .expect("dict")
+            .get(b"Font")
+            .expect("fonts")
+            .as_dict()
+            .expect("dict");
+        assert_eq!(inherited_fonts.len(), 1);
+        assert!(inherited_fonts.has(b"F1"));
+    }
+
+    #[test]
+    fn finding2_a_second_added_text_extends_the_page_local_copy() {
+        let doc = inherited_resources_pdf(b"BT /F1 12 Tf 72 700 Td (Existing) Tj ET");
+        let source = doc_bytes(&doc);
+        let candidate = compose_candidate(&source, &[add_hi("a"), add_hi("b")], &test_resolver())
+            .expect("two adds compose");
+        let (out, graph) = reinspect(&candidate, 1);
+        assert!(graph.islands.iter().any(|island| island.text == "Existing"));
+        let fingerprint = inspect::resource_fingerprint(&out);
+        let fonts: Vec<&[u8]> = fingerprint[&1]
+            .keys()
+            .filter(|(category, _)| category.as_slice() == b"Font")
+            .map(|(_, name)| name.as_slice())
+            .collect();
+        assert_eq!(fonts, [&b"F1"[..], &b"VREdit1"[..], &b"VREdit2"[..]]);
+    }
+
+    #[test]
+    fn finding2_an_unresolvable_resource_chain_is_refused_not_overwritten() {
+        // /Pages -> page -> /Pages: the inherited /Resources cannot be found, so nothing may be
+        // written over whatever they hold.
+        let mut doc = inherited_resources_pdf(b"BT /F1 12 Tf 72 700 Td (Existing) Tj ET");
+        let page_id = doc.get_pages()[&1];
+        let pages_id = doc
+            .get_object(page_id)
+            .expect("page")
+            .as_dict()
+            .expect("dict")
+            .get(b"Parent")
+            .expect("parent")
+            .as_reference()
+            .expect("reference");
+        if let Ok(Object::Dictionary(pages)) = doc.get_object_mut(pages_id) {
+            pages.remove(b"Resources");
+            pages.set("Parent", Object::Reference(page_id));
+        }
+        let outcome = compose_candidate(&doc_bytes(&doc), &[add_hi("a")], &test_resolver());
+        assert!(
+            matches!(outcome, Err(PdfEditError::MalformedContent)),
+            "{:?}",
+            outcome.map(|c| c.bytes.len())
+        );
+    }
+
+    #[test]
+    fn finding7_added_text_does_not_inherit_the_pages_trailing_text_state() {
+        // The page's last text object leaves invisible (3 Tr), spaced, narrowed and raised text
+        // state behind; the appended stream used to inherit all of it.
+        let doc = build_pdf(b"BT /F1 10 Tf 3 Tr 5 Tc 7 Tw 50 Tz 4 Ts (hidden) Tj ET");
+        let source = doc_bytes(&doc);
+        let candidate = compose_candidate(&source, &[add_hi("a")], &test_resolver())
+            .expect("add text composes");
+        let (out, graph) = reinspect(&candidate, 1);
+
+        // What the walker measures for the added line: no extra spacing, full width, no rise.
+        let added = graph
+            .islands
+            .iter()
+            .find(|island| island.text == "Hi")
+            .expect("added island");
+        let layout = added.layout.expect("layout");
+        assert_eq!(
+            (
+                layout.char_spacing,
+                layout.word_spacing,
+                layout.horizontal_scale
+            ),
+            (0.0, 0.0, 1.0)
+        );
+        assert!(
+            (added.quads[0][1] - (100.0 - 0.25 * 18.0)).abs() < 1e-9,
+            "no inherited text rise: {}",
+            added.quads[0][1]
+        );
+
+        // What the page will draw: every parameter set explicitly inside an isolating q/Q.
+        let ops = appended_operations(&out, 1);
+        let names: Vec<&str> = ops.iter().map(|op| op.operator.as_str()).collect();
+        assert_eq!(
+            names,
+            ["q", "BT", "Tf", "Tr", "Tc", "Tw", "Tz", "Ts", "rg", "Tm", "Tj", "ET", "Q"]
+        );
+        let operand = |name: &str| {
+            ops.iter()
+                .find(|op| op.operator == name)
+                .map(|op| op.operands.clone())
+        };
+        assert_eq!(operand("Tr"), Some(vec![Object::Integer(0)]));
+        assert_eq!(operand("Tc"), Some(vec![Object::Integer(0)]));
+        assert_eq!(operand("Tw"), Some(vec![Object::Integer(0)]));
+        assert_eq!(operand("Tz"), Some(vec![Object::Integer(100)]));
+        assert_eq!(operand("Ts"), Some(vec![Object::Integer(0)]));
+    }
+
+    #[test]
+    fn finding7_the_ocr_correction_text_block_resets_the_same_state() {
+        let doc = build_pdf(b"BT /F1 10 Tf 3 Tr 5 Tc (hidden) Tj ET");
+        let source = doc_bytes(&doc);
+        let command = ocr_command(
+            "ocr",
+            "line-1",
+            "Hi",
+            PdfRect {
+                x: 100.0,
+                y: 100.0,
+                width: 100.0,
+                height: 30.0,
+            },
+        );
+        let candidate = compose_candidate(&source, &[command], &test_resolver()).expect("composes");
+        let (out, _) = reinspect(&candidate, 1);
+        let ops = appended_operations(&out, 1);
+        let names: Vec<&str> = ops.iter().map(|op| op.operator.as_str()).collect();
+        assert_eq!(
+            names,
+            [
+                "q", "rg", "re", "f", "Q", // cover
+                "q", "BT", "Tf", "Tr", "Tc", "Tw", "Tz", "Ts", "rg", "Tm", "Tj", "ET", "Q"
+            ]
+        );
+    }
+
+    #[test]
+    fn finding4_replacing_with_code_32_pays_the_word_spacing_the_page_will_draw() {
+        // /Differences [32 /x 97 /a /b]: writing x writes byte 32, and byte 32 takes Tw.
+        let doc = custom_page_pdf(
+            |d| vec![("F1", code_32_letter_font(d))],
+            &[b"BT /F1 10 Tf 10 Tw 72 700 Td (aab) Tj ET"],
+            false,
+        );
+        let source = doc_bytes(&doc);
+        let sha = document_sha256(&source);
+        let island = locate_island(&doc, &sha, 1, "aab");
+        assert!(island.editable, "{:?}", island.edit_blocker);
+        let own = island_box(&island);
+        assert!((own.width - 15.0).abs() < 0.01, "{}", own.width);
+
+        // In its own 15 pt the edit would draw 5 + (5 + 10) + 5 = 25 pt: refused before writing.
+        let command = replace_cmd("tw", &island, "axb", island.appearance.clone(), own);
+        assert!(matches!(
+            compose_candidate(&source, &[command], &FailingFontResolver),
+            Err(PdfEditError::TextOverflow)
+        ));
+
+        // Given 25 pt it is written, and the page reads back exactly that wide.
+        let command = replace_cmd("tw", &island, "axb", island.appearance.clone(), rect(25.0));
+        let candidate = compose_candidate(&source, &[command], &FailingFontResolver)
+            .expect("fits the width it needs");
+        let (written, width) = island_after(&candidate, "axb");
+        assert!((width - 25.0).abs() < 0.01, "{width}");
+        assert!(
+            written.gaps.is_empty(),
+            "the Tw jump is not read back as a gap"
+        );
+    }
+
+    #[test]
+    fn finding4_removing_code_32_gives_back_its_word_spacing() {
+        let doc = custom_page_pdf(
+            |d| vec![("F1", code_32_letter_font(d))],
+            &[b"BT /F1 10 Tf 10 Tw 72 700 Td (a b) Tj ET"],
+            false,
+        );
+        let source = doc_bytes(&doc);
+        let sha = document_sha256(&source);
+        let island = locate_island(&doc, &sha, 1, "axb");
+        assert!((island_box(&island).width - 25.0).abs() < 0.01);
+        let command = replace_cmd("tw", &island, "aab", island.appearance.clone(), rect(15.0));
+        let candidate = compose_candidate(&source, &[command], &FailingFontResolver)
+            .expect("15 pt is enough once the code-32 glyph is gone");
+        let (_, width) = island_after(&candidate, "aab");
+        assert!((width - 15.0).abs() < 0.01, "{width}");
+    }
+
+    #[test]
+    fn finding4_a_space_through_another_code_is_not_charged_word_spacing_in_the_fit() {
+        // The space is code 5, so Tw never applies to it: "a b" is 12.5 pt and "aab" is 15 pt.
+        let doc = custom_page_pdf(
+            |d| vec![("F1", code_5_space_font(d))],
+            &[b"BT /F1 10 Tf 10 Tw 72 700 Td <610562> Tj ET"],
+            false,
+        );
+        let source = doc_bytes(&doc);
+        let sha = document_sha256(&source);
+        let island = locate_island(&doc, &sha, 1, "a b");
+        let own = island_box(&island);
+        assert!((own.width - 12.5).abs() < 0.01, "{}", own.width);
+
+        let command = replace_cmd("tw", &island, "aab", island.appearance.clone(), own);
+        assert!(
+            matches!(
+                compose_candidate(&source, &[command], &FailingFontResolver),
+                Err(PdfEditError::TextOverflow)
+            ),
+            "the letter is 2.5 pt wider than the space it replaces, with no Tw to give back"
+        );
+        let command = replace_cmd("tw", &island, "aab", island.appearance.clone(), rect(15.0));
+        let candidate =
+            compose_candidate(&source, &[command], &FailingFontResolver).expect("fits 15 pt");
+        let (_, width) = island_after(&candidate, "aab");
+        assert!((width - 15.0).abs() < 0.01, "{width}");
+    }
+    #[test]
+    fn finding2_a_composed_add_text_passes_staging_against_its_inheriting_base() {
+        // The save-side check agrees with the composer: Add Text keeps F1 and Im1 and adds a font.
+        let source = doc_bytes(&inherited_resources_pdf(
+            b"BT /F1 12 Tf 72 700 Td (Existing) Tj ET /Im1 Do",
+        ));
+        let sha = document_sha256(&source);
+        let command = add_hi("a");
+        let candidate =
+            compose_candidate(&source, std::slice::from_ref(&command), &test_resolver())
+                .expect("composes");
+        let store = crate::save::PdfSaveTokenStore::default();
+        crate::save::stage_prepared_save_against_base(
+            &store,
+            "/doc.pdf",
+            &sha,
+            &sha,
+            &source,
+            candidate.bytes,
+            candidate.affected_pages,
+            crate::save::expected_text_checks(std::slice::from_ref(&command)),
+        )
+        .expect("an Add Text hides nothing the page resolved");
     }
 }

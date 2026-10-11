@@ -58,6 +58,24 @@ Word gaps. TeX-class producers write no space glyphs: a word gap is a `TJ` adjus
 
 A replacement is measured with the source font's own widths and the walker's pen rules (`Tc`, `Tw`, `Tz`, text-matrix and CTM scale), the same quantities the island box is built from. It must fit the available bounds within 0.05 pt, so a replacement no wider than the original never overflows its own box.
 
+Word spacing follows the **encoded byte**, not the character: `Tw` applies to the single-byte character code 32 and to nothing else (ISO 32000-1 9.3.3). A font whose `/Differences` map code 32 to a letter still pays `Tw` for that letter; a space reached through any other code, and every multi-byte (`Identity-H`) code, pays none. Decoding, the replacement measure and the read-back all use that rule, and the pen jump `Tw` causes is not read back as a word gap.
+
+## Graphics state
+
+`q`/`Q` save and restore the text state parameters with the graphics state, as the specification defines: font and size (`Tf`), `Tc`, `Tw`, `Tz`, `TL`, `Ts`, `Tr`. The text matrix and text line matrix are not part of it and are left alone. `q` nesting is bounded at 65 536; a page that nests deeper is `malformed_content`.
+
+## Resources
+
+`AddText`, `CorrectOcrLine` and a catalog-font rewrite add a font to the page. When the page has no `/Resources` of its own the nearest ancestor `/Pages` node's `/Resources` is inherited, so the new page-local `/Resources` starts as a copy of that dictionary (never a merge of levels) and the page keeps every font, XObject and graphics state it resolved. `compose_candidate` compares what each page can resolve before and after and returns `verification_failed` if anything was hidden; `save::stage_prepared_save_against_base` makes the same comparison against the bytes a candidate was composed from. A `/Parent` cycle, or a chain deeper than 64, makes the add refuse with `malformed_content` rather than write over resources it cannot see.
+
+Text appended by `AddText` and `CorrectOcrLine` is drawn in an isolated `q`/`Q` block that sets `Tr`, `Tc`, `Tw`, `Tz` and `Ts` explicitly, so it cannot inherit invisible (`3 Tr`), spaced, scaled or raised text state from the page's last text object.
+
+## Saving
+
+`save::stage_prepared_save` checks a candidate's structure and expected text but sees only digests, not the bytes it was composed from. Use `save::stage_prepared_save_against_base` (the same arguments plus those bytes) to also refuse a candidate in which a page lost a resource.
+
+`commit::commit_pdf_save` decides "is the target the source?" by filesystem identity, not by comparing path strings: `dir/./memo.pdf`, a hard link, a symlink and (on a case-insensitive volume) `MEMO.PDF` are the source, and the source SHA recheck runs for all of them. On Unix identity is the device and file id; elsewhere the canonical path; a destination that does not exist yet is its canonical directory plus its name. The check, the replacement and the invalidation of other tokens staged against the written file run under a per-destination lock, so two candidates staged against the same source cannot both commit: the second fails with `write_conflict`. The lock is in-process; another program replacing the file between the recheck and the rename is narrowed by the recheck, not excluded. `save::resolve_commit` keeps string-equality semantics; `save::resolve_commit_with` takes the comparison.
+
 ## Page content
 
 `/Contents` may be a stream, an array, or an indirect reference to an array of streams. Text state flows from one stream into the next. Composition re-parses a stream strictly and refuses (`malformed_content`) one the parser cannot read to the end, rather than rewriting it with the tail dropped.
@@ -68,7 +86,7 @@ A replacement is measured with the source font's own widths and the walker's pen
 - `ToUnicode` cannot say which of two CIDs is the glyph variant the author sees, so an `Identity-H` character mapped by more than one CID is left unencodable (`missing_glyph`).
 - Layout is measured, not reflowed: text after an edited run on the same line keeps its position.
 - A `ToUnicode` CMap is read for its `bfchar` and `bfrange` forms (scalar and array destinations). Any other form, an unbalanced entry, `usecmap`, or a CMap that exhausts the reader's work budget makes the font non-editable rather than partly decoded.
-- Hostile files: CID widths and `ToUnicode` codes are limited to the two-byte code space, `/Widths` is bounded by its own length, `/Parent` chains stop at a cycle or depth 64, and streams decode under 256 MiB. This bounds the crate's own loops and allocations; it does not audit `lopdf` or the font libraries it calls.
+- Hostile files: CID widths and `ToUnicode` codes are limited to the two-byte code space, `/Widths` is bounded by its own length, `/Parent` chains stop at a cycle or depth 64, and streams decode under 256 MiB. Work is also bounded across entries, not only within one: a `ToUnicode` CMap and a `/W` array each have a total assignment budget (2^20); a font whose `/W` ran out of budget is displayed but `editable: false` (`missing_metrics`) and rejects a code it has no width for. `TJ` gap provenance moves its numbers (never copies them per operand) and has a per-page budget of 2^20 numbers, past which a gap has no provenance and its island is `positioned_text_run`. This bounds the crate's own loops and allocations; it does not audit `lopdf` or the font libraries it calls.
 - An edit is read back before it is returned: the island at the same position must read as exactly the requested text and fit the bounds as the walker now measures it. Read-back uses the same decoder as inspection, so it proves structure and geometry, not that a code is the glyph the author sees.
 - `compose_candidate` redraws in a catalog font only when the appearance changes; a non-editable island with unchanged appearance is refused. An island whose source spans live in several content streams cannot be redrawn at all (`substitutionEditable: false`).
 

@@ -40,7 +40,7 @@
 //! editable and fails at compose time with `PdfEditError::MissingGlyphs` naming the characters.
 #![cfg_attr(not(feature = "edit"), allow(dead_code))]
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::rc::Rc;
 
 use lopdf::content::Content;
@@ -142,7 +142,7 @@ pub fn walk_page_graph(
             &mut painted_bounds,
             &mut rejections,
             &mut spacing,
-        );
+        )?;
     }
 
     let mut islands = group_islands(
@@ -192,6 +192,88 @@ fn page_ext_gstates(doc: &Document, page_dict: &Dictionary) -> HashMap<Vec<u8>, 
         out.insert(name.clone(), sets_font);
     }
     out
+}
+
+/// The resource categories a content stream names (`Tf`, `Do`, `gs`, `cs`/`scn`, `sh`, `BDC`).
+const RESOURCE_CATEGORIES: [&[u8]; 7] = [
+    b"Font",
+    b"XObject",
+    b"ExtGState",
+    b"ColorSpace",
+    b"Pattern",
+    b"Shading",
+    b"Properties",
+];
+
+/// What one resource name resolves to on a page.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum ResourceTarget {
+    /// An indirect object that exists in the document.
+    Reference(ObjectId),
+    /// An inline object.
+    Direct,
+}
+
+/// Every `(category, name)` a page's content can resolve, keyed by page number.
+pub(crate) type ResourceFingerprint = BTreeMap<u32, BTreeMap<(Vec<u8>, Vec<u8>), ResourceTarget>>;
+
+/// What each page's *effective* resources resolve to: the nearest `/Resources` on the page or its
+/// `/Parent` chain (bounded, see [`resolve_inherited`]), which is the dictionary a viewer uses,
+/// never a merge of levels. A name whose indirect target does not exist is not recorded: it
+/// resolved to nothing before and cannot be lost.
+pub(crate) fn resource_fingerprint(doc: &Document) -> ResourceFingerprint {
+    let mut out = ResourceFingerprint::new();
+    for (number, page_id) in doc.get_pages() {
+        let mut names = BTreeMap::new();
+        let resources = doc
+            .get_object(page_id)
+            .ok()
+            .and_then(|o| o.as_dict().ok())
+            .and_then(|page| resolve_inherited(doc, page, b"Resources"))
+            .and_then(|o| deref_obj(doc, o))
+            .and_then(|o| o.as_dict().ok());
+        if let Some(resources) = resources {
+            for category in RESOURCE_CATEGORIES {
+                let Some(group) = resources
+                    .get(category)
+                    .ok()
+                    .and_then(|o| deref_obj(doc, o))
+                    .and_then(|o| o.as_dict().ok())
+                else {
+                    continue;
+                };
+                for (name, entry) in group.iter() {
+                    let target = match entry {
+                        Object::Reference(id) => {
+                            if doc.get_object(*id).is_err() {
+                                continue;
+                            }
+                            ResourceTarget::Reference(*id)
+                        }
+                        _ => ResourceTarget::Direct,
+                    };
+                    names.insert((category.to_vec(), name.clone()), target);
+                }
+            }
+        }
+        out.insert(number, names);
+    }
+    out
+}
+
+/// True when every page in `before` still resolves every resource name it resolved, to the same
+/// target. An edit may add resources (a new font); it must never hide one the page already used.
+pub(crate) fn resources_preserved(
+    before: &ResourceFingerprint,
+    after: &ResourceFingerprint,
+) -> bool {
+    before.iter().all(|(page, names)| {
+        after.get(page).is_some_and(|now| {
+            names
+                .iter()
+                .all(|(key, target)| now.get(key) == Some(target))
+        })
+    })
 }
 
 /// One page `/Contents` entry, kept separate rather than concatenated (per §5.2: "Do not use
@@ -458,6 +540,19 @@ pub(crate) struct ReverseTable {
     by_char: HashMap<char, (u32, f64)>,
 }
 
+/// Whether word spacing (`Tw`) applies to a glyph: only to the **single-byte character code 32**
+/// (ISO 32000-1 9.3.3), whatever that code decodes to, and never to a multi-byte (CID) code, even
+/// one whose value is 32. A Unicode space reached through any other code gets no `Tw`; code 32
+/// mapped to another character (a `/Differences` entry, a subset font) still does.
+fn takes_word_spacing(code: u32, code_width: u32) -> bool {
+    code_width == 1 && code == 32
+}
+
+/// [`takes_word_spacing`] for a glyph whose source byte range is known.
+fn glyph_takes_word_spacing(code: u32, source_range: (u32, u32)) -> bool {
+    takes_word_spacing(code, source_range.1.saturating_sub(source_range.0))
+}
+
 /// Replacement text encoded through a font's [`ReverseTable`].
 #[derive(Clone, Debug)]
 pub(crate) struct EncodedRun {
@@ -465,6 +560,9 @@ pub(crate) struct EncodedRun {
     pub bytes: Vec<u8>,
     chars: Vec<char>,
     widths_1000: Vec<f64>,
+    /// The code written for each character, in order (`bytes` split every `code_width` bytes).
+    codes: Vec<u32>,
+    code_width: u8,
 }
 
 impl EncodedRun {
@@ -473,10 +571,25 @@ impl EncodedRun {
         self.chars.len()
     }
 
+    /// True when the code written at `index` is one `Tw` applies to (single-byte code 32).
+    pub(crate) fn word_space_at(&self, index: usize) -> bool {
+        self.codes
+            .get(index)
+            .is_some_and(|&code| takes_word_spacing(code, u32::from(self.code_width)))
+    }
+
+    /// True when the run's last code is one `Tw` applies to.
+    pub(crate) fn ends_with_word_space(&self) -> bool {
+        self.codes
+            .len()
+            .checked_sub(1)
+            .is_some_and(|last| self.word_space_at(last))
+    }
+
     /// Text-space length of the run along the baseline, mirroring `visit_text_show`'s pen
-    /// advance exactly: each glyph advances `w/1000 * size + Tc (+ Tw for a space)`, scaled by
-    /// `Tz`; the last glyph contributes only its own width (the island box ends at its right edge,
-    /// before any trailing `Tc`/`Tw`).
+    /// advance exactly: each glyph advances `w/1000 * size + Tc (+ Tw for single-byte code 32)`,
+    /// scaled by `Tz`; the last glyph contributes only its own width (the island box ends at its
+    /// right edge, before any trailing `Tc`/`Tw`).
     pub(crate) fn advance(
         &self,
         font_size: f64,
@@ -484,13 +597,13 @@ impl EncodedRun {
         word_spacing: f64,
         horizontal_scale: f64,
     ) -> f64 {
-        let count = self.chars.len();
+        let count = self.codes.len();
         let mut total = 0.0;
-        for (index, (&ch, &width)) in self.chars.iter().zip(&self.widths_1000).enumerate() {
+        for (index, &width) in self.widths_1000.iter().enumerate() {
             total += width / 1000.0 * font_size;
             if index + 1 < count {
                 total += char_spacing;
-                if ch == ' ' {
+                if self.word_space_at(index) {
                     total += word_spacing;
                 }
             }
@@ -574,6 +687,7 @@ impl ReverseTable {
         let mut bytes = Vec::with_capacity(text.len() * usize::from(self.code_width));
         let mut chars = Vec::new();
         let mut widths_1000 = Vec::new();
+        let mut codes = Vec::new();
         let mut missing: Vec<char> = Vec::new();
         for ch in text.chars() {
             match self.by_char.get(&ch) {
@@ -585,6 +699,7 @@ impl ReverseTable {
                     }
                     chars.push(ch);
                     widths_1000.push(width);
+                    codes.push(code);
                 }
                 None => {
                     if !missing.contains(&ch) {
@@ -598,6 +713,8 @@ impl ReverseTable {
                 bytes,
                 chars,
                 widths_1000,
+                codes,
+                code_width: self.code_width,
             })
         } else {
             Err(missing)
@@ -966,21 +1083,27 @@ fn resolve_page_fonts(doc: &Document, page_id: ObjectId) -> HashMap<Vec<u8>, Rc<
             }
         } else {
             let (unicode, cmap_complete) = parse_to_unicode(doc, font_dict);
-            let (default_width_1000, widths_1000) = parse_cid_widths(doc, font_dict);
+            let (default_width_1000, widths_1000, widths_complete) =
+                parse_cid_widths(doc, font_dict);
             // Identity-H: the 2-byte code is the CID, `ToUnicode` is the only character table.
             // A CMap with any entry or form this reader does not understand is not an exact
             // table: the font is not reversibly encoded, whatever the entries it did read say.
-            let reverse = if cmap_complete {
-                ReverseTable::build(2, &unicode, &widths_1000, &CodePolicy::Any)
-            } else {
+            // The same holds for a `/W` array that exhausted its work budget: the widths the
+            // reader kept are not the widths the file gives, so no fit check can be trusted, and
+            // a code with no kept width is rejected rather than measured with a guessed one.
+            let reverse = if !cmap_complete {
                 Err(PdfEditBlocker::NoReversibleEncoding)
+            } else if !widths_complete {
+                Err(PdfEditBlocker::MissingMetrics)
+            } else {
+                ReverseTable::build(2, &unicode, &widths_1000, &CodePolicy::Any)
             };
             BuiltFont {
                 id: font_id,
                 code_width: 2,
                 default_width_1000,
                 widths_1000,
-                reject_missing_metrics: default_width_1000 <= 0.0,
+                reject_missing_metrics: default_width_1000 <= 0.0 || !widths_complete,
                 unicode,
                 reverse,
             }
@@ -1176,34 +1299,46 @@ fn cid_operand(obj: &Object) -> Option<u32> {
     (n.is_finite() && (0.0..=f64::from(MAX_CID)).contains(&n)).then_some(n as u32)
 }
 
-fn parse_cid_widths(doc: &Document, font_dict: &Dictionary) -> (f64, HashMap<u32, f64>) {
+/// Total work a single font's `/W` array may cost: each CID width assigned counts one. A real
+/// `/W` assigns at most 65 536 CIDs; this allows several full passes and stops an array of
+/// thousands of overlapping full-width ranges (`0 65535 500` repeated), which clamping each
+/// range alone does not: 40 000 repetitions are still 2.6 billion insertions.
+const MAX_CID_WIDTH_ASSIGNMENTS: usize = 1 << 20;
+
+/// Reads `/DW` and `/W` of the first descendant font. The third value is `false` when the width
+/// table is not exact: the work budget ran out, so CIDs that the file gives a width may be missing
+/// from the map. Such a font is displayed (missing codes are rejected, never guessed) but is not
+/// reversibly encoded, because a fit check needs every width.
+fn parse_cid_widths(doc: &Document, font_dict: &Dictionary) -> (f64, HashMap<u32, f64>, bool) {
     let mut dw = 1000.0;
     let mut map = HashMap::new();
+    let mut complete = true;
 
     let Ok(desc_obj) = font_dict.get(b"DescendantFonts") else {
-        return (dw, map);
+        return (dw, map, complete);
     };
     let Some(Object::Array(desc_arr)) = deref_obj(doc, desc_obj) else {
-        return (dw, map);
+        return (dw, map, complete);
     };
     let Some(first) = desc_arr.first() else {
-        return (dw, map);
+        return (dw, map, complete);
     };
     let Some(cid_obj) = deref_obj(doc, first) else {
-        return (dw, map);
+        return (dw, map, complete);
     };
     let Ok(cid_dict) = cid_obj.as_dict() else {
-        return (dw, map);
+        return (dw, map, complete);
     };
 
     if let Some(v) = cid_dict.get(b"DW").ok().and_then(object_number) {
         dw = v;
     }
 
+    let mut budget = MAX_CID_WIDTH_ASSIGNMENTS;
     if let Ok(w_obj) = cid_dict.get(b"W") {
         if let Some(Object::Array(items)) = deref_obj(doc, w_obj) {
             let mut i = 0usize;
-            while i < items.len() {
+            'entries: while i < items.len() {
                 if object_number(&items[i]).is_none() {
                     break;
                 }
@@ -1212,7 +1347,8 @@ fn parse_cid_widths(doc: &Document, font_dict: &Dictionary) -> (f64, HashMap<u32
                 }
                 match deref_obj(doc, &items[i + 1]) {
                     Some(Object::Array(widths)) => {
-                        // `c_first [w0 w1 ...]`: bounded by the array, and by the CID space.
+                        // `c_first [w0 w1 ...]`: bounded by the array, by the CID space and by the
+                        // work budget.
                         if let Some(start) = cid_operand(&items[i]) {
                             for (offset, w) in widths.iter().enumerate() {
                                 let Some(cid) = start.checked_add(offset as u32) else {
@@ -1221,6 +1357,11 @@ fn parse_cid_widths(doc: &Document, font_dict: &Dictionary) -> (f64, HashMap<u32
                                 if cid > MAX_CID {
                                     break;
                                 }
+                                if budget == 0 {
+                                    complete = false;
+                                    break 'entries;
+                                }
+                                budget -= 1;
                                 if let Some(wv) = object_number(w) {
                                     map.insert(cid, wv);
                                 }
@@ -1239,10 +1380,17 @@ fn parse_cid_widths(doc: &Document, font_dict: &Dictionary) -> (f64, HashMap<u32
                             break;
                         };
                         // `c_first c_last w`: clamp the range to the CID space (at most 65 536
-                        // entries however the file words it), skip a range that starts outside it.
+                        // entries however the file words it), skip a range that starts outside
+                        // it, and charge the whole range to the work budget.
                         if let Some(start) = cid_operand(&items[i]) {
                             if c_last.is_finite() && c_last >= f64::from(start) {
                                 let end = c_last.min(f64::from(MAX_CID)) as u32;
+                                let count = (end - start) as usize + 1;
+                                if count > budget {
+                                    complete = false;
+                                    break 'entries;
+                                }
+                                budget -= count;
                                 for cid in start..=end {
                                     map.insert(cid, wv);
                                 }
@@ -1255,7 +1403,7 @@ fn parse_cid_widths(doc: &Document, font_dict: &Dictionary) -> (f64, HashMap<u32
         }
     }
 
-    (dw, map)
+    (dw, map, complete)
 }
 
 /// Total work a single `ToUnicode` CMap may cost: each (range) code assigned counts one. A real
@@ -1313,7 +1461,7 @@ fn range_destination_units(tok: &str) -> Option<Vec<u16>> {
     }
     let padded = if tok.len() <= 4 {
         format!("{tok:0>4}")
-    } else if tok.len() % 4 == 0 {
+    } else if tok.len().is_multiple_of(4) {
         tok.to_string()
     } else {
         return None;
@@ -1425,9 +1573,8 @@ fn parse_to_unicode(doc: &Document, font_dict: &Dictionary) -> (HashMap<u32, Str
                     budget -= count;
                     let (last, head) = units.split_last().expect("non-empty by construction");
                     for offset in 0..=(hi_code - lo_code) {
-                        let Some(unit) = u16::try_from(offset)
-                            .ok()
-                            .and_then(|o| last.checked_add(o))
+                        let Some(unit) =
+                            u16::try_from(offset).ok().and_then(|o| last.checked_add(o))
                         else {
                             exact = false; // destination would run past U+FFFF
                             break;
@@ -1543,19 +1690,131 @@ struct PaintedBoundsEntry {
     bounds: PdfRect,
 }
 
+/// Deepest `q` nesting the walker follows. Real producers stay in the tens (viewers document 28);
+/// a content stream of millions of unbalanced `q` would otherwise grow the stack without bound.
+/// A page that nests deeper is refused as malformed content.
+const MAX_GRAPHICS_STATE_DEPTH: usize = 1 << 16;
+
+/// The graphics state `q` saves and `Q` restores. ISO 32000-1 8.4.2 and 9.3.1 put the text state
+/// parameters - font and size (`Tf`), `Tc`, `Tw`, `Tz`, `TL`, `Ts`, `Tr` - in the graphics state,
+/// so `Q` brings them back together with the CTM and the paint; the text matrix and text line
+/// matrix are not part of it and `Q` leaves them alone.
+struct SavedGraphicsState {
+    ctm: Matrix,
+    paint: PaintState,
+    font: Option<Rc<dyn TextStateFont>>,
+    font_size: f64,
+    char_spacing: f64,
+    word_spacing: f64,
+    horizontal_scale: f64,
+    leading: f64,
+    text_rise: f64,
+    render_mode: TextRenderMode,
+}
+
+impl SavedGraphicsState {
+    fn capture(ctm: Matrix, paint: &PaintState, text: &TextState) -> SavedGraphicsState {
+        SavedGraphicsState {
+            ctm,
+            paint: paint.clone(),
+            font: text.font.clone(),
+            font_size: text.font_size,
+            char_spacing: text.char_spacing,
+            word_spacing: text.word_spacing,
+            horizontal_scale: text.horizontal_scale,
+            leading: text.leading,
+            text_rise: text.text_rise,
+            render_mode: text.render_mode,
+        }
+    }
+
+    /// Writes the saved state back. The text matrices are deliberately not touched.
+    fn restore(self, ctm: &mut Matrix, paint: &mut PaintState, text: &mut TextState) {
+        *ctm = self.ctm;
+        *paint = self.paint;
+        text.font = self.font;
+        text.font_size = self.font_size;
+        text.char_spacing = self.char_spacing;
+        text.word_spacing = self.word_spacing;
+        text.horizontal_scale = self.horizontal_scale;
+        text.leading = self.leading;
+        text.text_rise = self.text_rise;
+        text.render_mode = self.render_mode;
+    }
+}
+
+/// Most numeric `TJ` items one page may push into gap provenance, however they are grouped. Each
+/// item is moved into the gap in front of the next real string, never copied, so retained state is
+/// linear in the items; this bound turns "linear in a 256 MiB stream of `0 0 0 ...`" into a fixed
+/// few megabytes. Past it a gap simply has no provenance, which only makes its island
+/// `positioned_text_run` (not editable).
+const MAX_GAP_NUMBERS_PER_PAGE: usize = 1 << 20;
+
+/// Numeric `TJ` items seen since the last non-empty string was shown, with no positioning/state
+/// operator in between: the adjustments that act before the next string, across empty strings and
+/// across show operators (`[(a) -333] TJ (b) Tj`).
+#[derive(Debug)]
+struct TrailingGaps {
+    numbers: Vec<GapNumber>,
+    /// Items were dropped (the page budget ran out) since the gap began, so `numbers` is not the
+    /// whole gap.
+    truncated: bool,
+    /// Items this page may still record.
+    budget: usize,
+}
+
+impl TrailingGaps {
+    fn new() -> TrailingGaps {
+        TrailingGaps::with_budget(MAX_GAP_NUMBERS_PER_PAGE)
+    }
+
+    fn with_budget(budget: usize) -> TrailingGaps {
+        TrailingGaps {
+            numbers: Vec::new(),
+            truncated: false,
+            budget,
+        }
+    }
+
+    /// A positioning/state operator ends the gap: its numbers explain nothing after it.
+    fn clear(&mut self) {
+        self.numbers.clear();
+        self.truncated = false;
+    }
+
+    fn push(&mut self, number: GapNumber) {
+        if self.budget == 0 {
+            self.truncated = true;
+            return;
+        }
+        self.budget -= 1;
+        self.numbers.push(number);
+    }
+
+    /// Moves the accumulated numbers out for the next *real* glyph-bearing string and starts a new
+    /// gap. An empty string must never call this (it shows nothing, so the numbers still belong
+    /// to the next real string): cloning here once per empty operand retained a copy of the whole
+    /// gap per operand, which is quadratic. A gap that lost items to the budget is reported empty
+    /// rather than partial, because a partial list would pass for the whole gap.
+    fn take(&mut self) -> Vec<GapNumber> {
+        let numbers = std::mem::take(&mut self.numbers);
+        if std::mem::take(&mut self.truncated) {
+            return Vec::new();
+        }
+        numbers
+    }
+}
+
 /// Walker state that survives from one `/Contents` stream into the next.
 struct WalkState {
-    gs_stack: Vec<(Matrix, PaintState)>,
+    gs_stack: Vec<SavedGraphicsState>,
     ctm: Matrix,
     paint: PaintState,
     text_state: TextState,
     path_points: Vec<(f64, f64)>,
     /// Set by any text-positioning/state operator, consumed by the next show operator.
     break_pending: bool,
-    /// Numeric `TJ` items seen since the last non-empty string was shown, with no
-    /// positioning/state operator in between: the adjustments that act before the next string,
-    /// across empty strings and across show operators (`[(a) -333] TJ (b) Tj`).
-    trailing: Vec<GapNumber>,
+    trailing: TrailingGaps,
 }
 
 impl WalkState {
@@ -1571,7 +1830,7 @@ impl WalkState {
             text_state: TextState::new(),
             path_points: Vec::new(),
             break_pending: true,
-            trailing: Vec::new(),
+            trailing: TrailingGaps::new(),
         }
     }
 }
@@ -1623,7 +1882,7 @@ fn walk_stream(
     painted_bounds: &mut Vec<PaintedBoundsEntry>,
     rejections: &mut Vec<PdfTextIsland>,
     spacing: &mut HashMap<SpacingKey, GlyphSpacing>,
-) -> WalkState {
+) -> Result<WalkState, PdfEditError> {
     let WalkState {
         mut gs_stack,
         mut ctm,
@@ -1682,11 +1941,15 @@ fn walk_stream(
                     trailing.clear();
                 }
             }
-            "q" => gs_stack.push((ctm, paint.clone())),
+            "q" => {
+                if gs_stack.len() >= MAX_GRAPHICS_STATE_DEPTH {
+                    return Err(PdfEditError::MalformedContent);
+                }
+                gs_stack.push(SavedGraphicsState::capture(ctm, &paint, &text_state));
+            }
             "Q" => {
-                if let Some((saved_ctm, saved_paint)) = gs_stack.pop() {
-                    ctm = saved_ctm;
-                    paint = saved_paint;
+                if let Some(saved) = gs_stack.pop() {
+                    saved.restore(&mut ctm, &mut paint, &mut text_state);
                 }
             }
             "cm" => {
@@ -1783,6 +2046,14 @@ fn walk_stream(
             "Tj" => {
                 text_state.ctm = ctm;
                 if let Some(operand) = op.operands.first() {
+                    // An empty string shows nothing: the adjustments before it still belong to
+                    // the gap in front of the next real string, so they are neither copied nor
+                    // taken here.
+                    let preceding = if is_empty_string(operand) {
+                        Vec::new()
+                    } else {
+                        trailing.take()
+                    };
                     show_operand(
                         &mut text_state,
                         &source,
@@ -1794,12 +2065,9 @@ fn walk_stream(
                         glyphs,
                         rejections,
                         spacing,
-                        trailing.clone(),
+                        preceding,
                         &mut break_pending,
                     );
-                    if !is_empty_string(operand) {
-                        trailing.clear();
-                    }
                 }
             }
             "'" => {
@@ -1853,6 +2121,15 @@ fn walk_stream(
                     for (item_idx, item) in items.iter().enumerate() {
                         match item {
                             Object::String(..) => {
+                                // An empty string shows nothing: the adjustments around it still
+                                // belong to the gap before the next real string, so they stay in
+                                // `trailing` (cloning them here per empty operand is quadratic
+                                // in an array of empty strings). Only a real string takes them.
+                                let preceding = if is_empty_string(item) {
+                                    Vec::new()
+                                } else {
+                                    trailing.take()
+                                };
                                 show_operand(
                                     &mut text_state,
                                     &source,
@@ -1864,14 +2141,9 @@ fn walk_stream(
                                     glyphs,
                                     rejections,
                                     spacing,
-                                    trailing.clone(),
+                                    preceding,
                                     &mut break_pending,
                                 );
-                                // An empty string shows nothing: the adjustments around it still
-                                // belong to the gap before the next real string.
-                                if !is_empty_string(item) {
-                                    trailing.clear();
-                                }
                             }
                             Object::Integer(_) | Object::Real(_) => {
                                 let value = object_number(item).unwrap_or(0.0);
@@ -1938,7 +2210,7 @@ fn walk_stream(
         }
     }
 
-    WalkState {
+    Ok(WalkState {
         gs_stack,
         ctm,
         paint,
@@ -1946,7 +2218,7 @@ fn walk_stream(
         path_points,
         break_pending,
         trailing,
-    }
+    })
 }
 
 fn is_empty_string(obj: &Object) -> bool {
@@ -1995,16 +2267,20 @@ fn show_operand(
         return;
     }
 
-    spacing.insert(
-        spacing_key(&source_op),
-        GlyphSpacing {
-            char_spacing: text_state.char_spacing,
-            word_spacing: text_state.word_spacing,
-            horizontal_scale: text_state.horizontal_scale,
-            preceding,
-            break_before: false,
-        },
-    );
+    // An empty string produces no glyph, so nothing ever looks its spacing up; recording one per
+    // empty operand would only grow the map.
+    if !is_empty_string(operand) {
+        spacing.insert(
+            spacing_key(&source_op),
+            GlyphSpacing {
+                char_spacing: text_state.char_spacing,
+                word_spacing: text_state.word_spacing,
+                horizontal_scale: text_state.horizontal_scale,
+                preceding,
+                break_before: false,
+            },
+        );
+    }
 
     let before = glyphs.len();
     let shown = visit_text_show(text_state, &source_op, operand, page, paint, glyphs);
@@ -2051,9 +2327,11 @@ fn visit_text_show(
         let text_matrix = state.text_matrix;
         let quad = state.glyph_quad(&glyph, text_matrix)?;
         let origin = state.origin();
+        // `Tw` follows the encoded byte, not the character: single-byte code 32 only (see
+        // `takes_word_spacing`).
         let advance = font.advance(glyph.cid, state.font_size)
             + state.char_spacing
-            + if glyph.unicode == " " {
+            + if glyph_takes_word_spacing(glyph.cid, glyph.source_range) {
                 state.word_spacing
             } else {
                 0.0
@@ -2423,7 +2701,19 @@ fn build_run(run: &[PositionedGlyph], spacing: &HashMap<SpacingKey, GlyphSpacing
             let tc_dev = prev_spacing
                 .map(|s| s.char_spacing * s.horizontal_scale * prev_scale)
                 .unwrap_or(0.0);
-            let excess = start - prev_end - tc_dev;
+            // A glyph that takes `Tw` (single-byte code 32) advances the pen by `Tw` as well, and
+            // that jump is explained by the text state exactly as `Tc` is: it is not a gap.
+            let tw_dev = if glyph_takes_word_spacing(
+                prev.cid,
+                (prev.source.glyph_start, prev.source.glyph_end),
+            ) {
+                prev_spacing
+                    .map(|s| s.word_spacing * s.horizontal_scale * prev_scale)
+                    .unwrap_or(0.0)
+            } else {
+                0.0
+            };
+            let excess = start - prev_end - tc_dev - tw_dev;
             let em_dev = prev.font_size * prev_scale;
             let adjacent_space = prev.unicode.ends_with(' ') || glyph.unicode.starts_with(' ');
             if excess > GAP_SPACE_EM * em_dev && !adjacent_space {
@@ -2447,6 +2737,7 @@ fn build_run(run: &[PositionedGlyph], spacing: &HashMap<SpacingKey, GlyphSpacing
                     end: start,
                     gap_numbers,
                     beyond_tc: excess,
+                    word_space: false,
                 });
             }
         }
@@ -2457,6 +2748,10 @@ fn build_run(run: &[PositionedGlyph], spacing: &HashMap<SpacingKey, GlyphSpacing
             end,
             gap_numbers: None,
             beyond_tc: 0.0,
+            word_space: glyph_takes_word_spacing(
+                glyph.cid,
+                (glyph.source.glyph_start, glyph.source.glyph_end),
+            ),
         });
     }
     items
@@ -3468,8 +3763,14 @@ mod tests {
     #[test]
     fn finding10_tj_gap_survives_an_empty_string_and_a_show_operator_boundary() {
         for (label, content) in [
-            ("empty string", &b"BT /F1 10 Tf 72 700 Td [(hello) -333 () (big)] TJ ET"[..]),
-            ("across Tj", &b"BT /F1 10 Tf 72 700 Td [(hello) -333] TJ (big) Tj ET"[..]),
+            (
+                "empty string",
+                &b"BT /F1 10 Tf 72 700 Td [(hello) -333 () (big)] TJ ET"[..],
+            ),
+            (
+                "across Tj",
+                &b"BT /F1 10 Tf 72 700 Td [(hello) -333] TJ (big) Tj ET"[..],
+            ),
             (
                 "across two empty strings",
                 &b"BT /F1 10 Tf 72 700 Td [(hello) -200 () -133 () (big)] TJ ET"[..],
@@ -3486,13 +3787,36 @@ mod tests {
 
     #[test]
     fn finding10_a_real_positioning_move_still_makes_the_gap_a_positioned_run() {
+        // `Td` is relative to the start of the *line*, not to the pen: the move lands "big" where
+        // the TJ adjustment would have (25 pt of "hello" + 3.33 pt = 28.33 pt from the line
+        // start), so the 3.33 pt gap exists - but a positioning operator ran between the show
+        // operators, so the -333 is no longer its provenance.
+        let doc = crate::test_fixtures::tex_style_pdf(
+            false,
+            b"BT /F1 10 Tf 72 700 Td [(hello) -333] TJ 28.33 0 Td (big) Tj ET",
+        );
+        let island = &inspect(&doc).islands[0];
+        assert_eq!(island.text, "hello big");
+        assert_eq!(island.gaps.len(), 1);
+        assert!(!island.editable);
+        assert_eq!(island.edit_blocker, Some(PdfEditBlocker::PositionedTextRun));
+        assert!(
+            island.run.iter().all(|item| item.gap_numbers.is_none()),
+            "the gap came from a move, not from the TJ number before it"
+        );
+    }
+
+    #[test]
+    fn td_moves_from_the_line_start_not_from_the_pen() {
+        // The old form of the test above, `0 0 Td`, returns to the line start: "big" is drawn on
+        // top of "hello", which is two islands, not one run with a gap.
         let doc = crate::test_fixtures::tex_style_pdf(
             false,
             b"BT /F1 10 Tf 72 700 Td [(hello) -333] TJ 0 0 Td (big) Tj ET",
         );
-        let island = &inspect(&doc).islands[0];
-        assert!(!island.editable);
-        assert_eq!(island.edit_blocker, Some(PdfEditBlocker::PositionedTextRun));
+        let graph = inspect(&doc);
+        let texts: Vec<&str> = graph.islands.iter().map(|i| i.text.as_str()).collect();
+        assert_eq!(texts, vec!["hello", "big"]);
     }
 
     #[test]
@@ -3555,9 +3879,379 @@ mod tests {
             ],
         };
         font.set("DescendantFonts", vec![Object::Dictionary(descendant)]);
-        let (_, widths) = parse_cid_widths(&doc, &font);
+        let (_, widths, complete) = parse_cid_widths(&doc, &font);
         assert!(widths.len() <= 65_536);
         assert_eq!(widths.get(&1), Some(&400.0));
         assert_eq!(widths.get(&0xFFFF), Some(&400.0));
+        assert!(complete, "two ranges are far inside the work budget");
+    }
+
+    /// A font dictionary whose descendant `/W` is `entries` (flattened operands).
+    fn cid_font_with_w(entries: Vec<Object>) -> Dictionary {
+        let mut font = Dictionary::new();
+        font.set(
+            "DescendantFonts",
+            vec![Object::Dictionary(dictionary! { "W" => entries })],
+        );
+        font
+    }
+
+    #[test]
+    fn finding8_repeated_full_width_w_ranges_hit_the_work_budget_not_billions_of_insertions() {
+        // 40 000 x `0 65535 500` is 2.6 billion insertions if each range is only clamped.
+        let doc = Document::with_version("1.7");
+        let mut entries = Vec::with_capacity(120_000);
+        for _ in 0..40_000 {
+            entries.push(Object::Integer(0));
+            entries.push(Object::Integer(65535));
+            entries.push(Object::Integer(500));
+        }
+        let (dw, widths, complete) = parse_cid_widths(&doc, &cid_font_with_w(entries));
+        assert_eq!(dw, 1000.0);
+        assert!(!complete, "the budget ran out, so the table is not exact");
+        assert_eq!(widths.len(), 65_536, "what was read is still a valid table");
+        assert!(widths.values().all(|w| *w == 500.0));
+    }
+
+    #[test]
+    fn finding8_array_form_w_repetitions_are_charged_too() {
+        // `0 [500 x 60000]` repeated: each entry is under the clamp, the total is not.
+        let doc = Document::with_version("1.7");
+        let mut entries = Vec::new();
+        for _ in 0..40 {
+            entries.push(Object::Integer(0));
+            entries.push(Object::Array(vec![Object::Integer(500); 60_000]));
+        }
+        let (_, widths, complete) = parse_cid_widths(&doc, &cid_font_with_w(entries));
+        assert!(!complete);
+        assert_eq!(widths.len(), 60_000);
+    }
+
+    #[test]
+    fn finding8_a_font_whose_w_array_ran_out_of_budget_is_not_editable() {
+        let body: Vec<(u32, i64)> = vec![(1, 600)];
+        let mut w: Vec<Object> = Vec::with_capacity(120_000);
+        for _ in 0..40_000 {
+            w.push(Object::Integer(0));
+            w.push(Object::Integer(65535));
+            w.push(Object::Integer(500));
+        }
+        let doc = custom_page_pdf(
+            |d| {
+                let font = identity_h_font(d, &body, &[(1, 'H')]);
+                // Replace the descendant's `/W` with the hostile one.
+                let descendant = d
+                    .get_object(font)
+                    .expect("type0")
+                    .as_dict()
+                    .expect("dict")
+                    .get(b"DescendantFonts")
+                    .expect("descendants")
+                    .as_array()
+                    .expect("array")[0]
+                    .as_reference()
+                    .expect("reference");
+                if let Ok(Object::Dictionary(descendant)) = d.get_object_mut(descendant) {
+                    descendant.set("W", Object::Array(w));
+                }
+                vec![("F1", font)]
+            },
+            &[b"BT /F1 12 Tf 72 700 Td <0001> Tj ET"],
+            false,
+        );
+        let island = &inspect(&doc).islands[0];
+        assert_eq!(island.text, "H");
+        assert!(!island.editable);
+        assert_eq!(island.edit_blocker, Some(PdfEditBlocker::MissingMetrics));
+    }
+    // -------------------------------------------------------------------------------------
+    // Second Astra read, 2026-10-11: findings 1, 3, 4 and 2 (inspection side)
+    // -------------------------------------------------------------------------------------
+
+    /// Left-to-right extent of an island's glyph quads in device points.
+    fn extent(island: &PdfTextIsland) -> f64 {
+        let xs = island
+            .quads
+            .iter()
+            .flat_map(|quad| [quad[0], quad[2], quad[4], quad[6]]);
+        let (lo, hi) = xs.fold((f64::MAX, f64::MIN), |(lo, hi), x| (lo.min(x), hi.max(x)));
+        hi - lo
+    }
+
+    #[test]
+    fn finding1_trailing_gaps_move_numbers_out_once_and_respect_the_page_budget() {
+        let number = |item: u32| GapNumber {
+            operator_index: 0,
+            item_index: item,
+            value: -100.0,
+        };
+        let mut gaps = TrailingGaps::with_budget(3);
+        gaps.push(number(1));
+        gaps.push(number(3));
+        assert_eq!(gaps.take().len(), 2);
+        assert!(gaps.take().is_empty(), "taking moves the numbers out");
+
+        // The budget is per page, not per gap: one slot was left, the next push is dropped.
+        gaps.push(number(5));
+        gaps.push(number(7));
+        assert!(
+            gaps.take().is_empty(),
+            "a gap that lost items is reported empty, never partial"
+        );
+        gaps.push(number(9));
+        assert!(gaps.take().is_empty(), "the page budget is spent");
+
+        // A positioning operator clears a pending truncation as well.
+        let mut gaps = TrailingGaps::with_budget(1);
+        gaps.push(number(1));
+        gaps.push(number(2));
+        gaps.clear();
+        assert!(gaps.numbers.is_empty() && !gaps.truncated);
+    }
+
+    #[test]
+    fn finding1_empty_strings_leave_every_gap_number_for_the_next_real_string() {
+        let doc = crate::test_fixtures::tex_style_pdf(
+            false,
+            b"BT /F1 10 Tf 72 700 Td [(hello) -100 () -100 () -133 () (big)] TJ ET",
+        );
+        let island = &inspect(&doc).islands[0];
+        assert_eq!(island.text, "hello big");
+        assert!(island.editable, "{:?}", island.edit_blocker);
+        let numbers = island
+            .run
+            .iter()
+            .find_map(|item| item.gap_numbers.as_ref())
+            .expect("the gap keeps its provenance");
+        let values: Vec<f64> = numbers.iter().map(|n| n.value).collect();
+        assert_eq!(values, vec![-100.0, -100.0, -133.0]);
+    }
+
+    #[test]
+    fn finding3_q_restores_the_text_state_parameters_but_not_the_text_matrix() {
+        // Before the q: F1 at 10 pt, Tc 2, Tw 3, Tz 50, TL 14, Ts 5. Inside it F2 at 20 pt and
+        // other values. The reviewer's case: F1 maps 67 -> C, F2 maps 67 -> Z.
+        let doc = gs_font_doc(
+            b"BT /F1 10 Tf 2 Tc 3 Tw 50 Tz 14 TL 5 Ts 1 Tr ET \
+              q BT /F2 20 Tf 9 Tc 8 Tw 100 Tz 7 TL 1 Ts 0 Tr ET Q \
+              BT 72 700 Td T* (C) Tj ET",
+        );
+        let graph = inspect(&doc);
+        let island = graph
+            .islands
+            .iter()
+            .find(|island| !island.text.is_empty())
+            .expect("a decoded island");
+        assert_eq!(island.appearance.font_id, "F1", "Q restores Tf's font");
+        assert_eq!(island.text, "C", "decoded through F1, not F2 (67 -> Z)");
+        let layout = island.layout.expect("layout");
+        assert_eq!(layout.font_size, 10.0);
+        assert_eq!(layout.char_spacing, 2.0);
+        assert_eq!(layout.word_spacing, 3.0);
+        assert_eq!(layout.horizontal_scale, 0.5);
+        // T* moves down by the restored TL (14), not the inner one (7).
+        assert_eq!(island.baseline[1], 686.0);
+        // Ts 5 lifts the glyph box: bottom edge = 686 - 0.25 * 10 + 5.
+        assert!((island.quads[0][1] - (686.0 - 2.5 + 5.0)).abs() < 1e-9);
+
+        // The text matrix is not part of the graphics state: the pen carries on past the Q.
+        let doc = gs_font_doc(b"BT /F1 10 Tf 72 700 Td (A) Tj q (B) Tj Q (C) Tj ET");
+        let island = &inspect(&doc).islands[0];
+        assert_eq!(island.text, "ABC");
+        let lefts: Vec<f64> = island.quads.iter().map(|quad| quad[0]).collect();
+        assert_eq!(lefts, vec![72.0, 77.0, 82.0]);
+    }
+
+    #[test]
+    fn finding3_an_unmatched_q_is_ignored_and_a_font_set_inside_q_does_not_leak() {
+        // Code 67 is C in F1 and Z in F2. The Q at the very start has nothing to restore.
+        let doc = gs_font_doc(
+            b"Q BT /F1 10 Tf 72 700 Td (A) Tj ET q BT /F2 10 Tf ET Q BT 82 700 Td (C) Tj ET",
+        );
+        let graph = inspect(&doc);
+        assert!(graph.islands.iter().any(|island| island.text.contains('C')));
+        assert!(graph
+            .islands
+            .iter()
+            .all(|island| !island.text.contains('Z')));
+    }
+
+    #[test]
+    fn graphics_state_nesting_beyond_the_cap_is_malformed_content_not_an_unbounded_stack() {
+        let deep = "q ".repeat(MAX_GRAPHICS_STATE_DEPTH + 1);
+        let doc = build_pdf(deep.as_bytes());
+        assert!(matches!(
+            walk_page_graph(&doc, "test-sha", 1),
+            Err(PdfEditError::MalformedContent)
+        ));
+
+        // Balanced, and well past anything a producer writes, still walks.
+        let mut content = "q ".repeat(1_000).into_bytes();
+        content.extend_from_slice(b"BT /F1 12 Tf 72 700 Td (Hi) Tj ET ");
+        content.extend_from_slice("Q ".repeat(1_000).as_bytes());
+        let graph = inspect(&build_pdf(&content));
+        assert_eq!(graph.islands[0].text, "Hi");
+    }
+
+    #[test]
+    fn finding4_word_spacing_applies_to_code_32_whatever_it_decodes_to() {
+        // Code 32 is the letter x here. Tw 10 moves the pen 10 pt past it, so the island is
+        // 5 + (5 + 10) + 5 = 25 pt wide (the old reader said 15), and the jump is not a gap.
+        let doc = custom_page_pdf(
+            |d| vec![("F1", crate::test_fixtures::code_32_letter_font(d))],
+            &[b"BT /F1 10 Tf 10 Tw 72 700 Td (a b) Tj ET"],
+            false,
+        );
+        let island = &inspect(&doc).islands[0];
+        assert_eq!(island.text, "axb");
+        assert!((extent(island) - 25.0).abs() < 1e-9, "{}", extent(island));
+        assert!(island.gaps.is_empty(), "the Tw jump is not a word gap");
+        assert!(island.editable, "{:?}", island.edit_blocker);
+        let flags: Vec<bool> = island.run.iter().map(|item| item.word_space).collect();
+        assert_eq!(flags, vec![false, true, false]);
+    }
+
+    #[test]
+    fn finding4_a_space_reached_through_another_code_takes_no_word_spacing() {
+        // The space is code 5. Tw applies to code 32 only, so the island is 5 + 2.5 + 5 = 12.5 pt
+        // (the old reader added Tw because the character was a space).
+        let doc = custom_page_pdf(
+            |d| vec![("F1", crate::test_fixtures::code_5_space_font(d))],
+            &[b"BT /F1 10 Tf 10 Tw 72 700 Td <610562> Tj ET"],
+            false,
+        );
+        let island = &inspect(&doc).islands[0];
+        assert_eq!(island.text, "a b");
+        assert!((extent(island) - 12.5).abs() < 1e-9, "{}", extent(island));
+        assert!(island.run.iter().all(|item| !item.word_space));
+    }
+
+    #[test]
+    fn finding4_multi_byte_codes_never_take_word_spacing() {
+        // CID 32 maps to a space in an Identity-H font; Tw is for single-byte code 32 only.
+        let doc = custom_page_pdf(
+            |d| {
+                vec![(
+                    "F1",
+                    identity_h_font(
+                        d,
+                        &[(1, 500), (32, 250), (2, 500)],
+                        &[(1, 'A'), (32, ' '), (2, 'B')],
+                    ),
+                )]
+            },
+            &[b"BT /F1 10 Tf 10 Tw 72 700 Td <000100200002> Tj ET"],
+            false,
+        );
+        let island = &inspect(&doc).islands[0];
+        assert_eq!(island.text, "A B");
+        assert!((extent(island) - 12.5).abs() < 1e-9, "{}", extent(island));
+    }
+
+    #[test]
+    fn finding4_single_byte_code_32_still_takes_word_spacing_when_it_is_a_space() {
+        let graph = inspect(&build_pdf(b"BT /F1 10 Tf 10 Tw 72 700 Td (a b) Tj ET"));
+        let island = &graph.islands[0];
+        assert_eq!(island.text, "a b");
+        // a 5.56 + space 2.78 + Tw 10 + b 5.56 (Helvetica: 556, 278, 556).
+        assert!((extent(island) - (5.56 + 2.78 + 10.0 + 5.56)).abs() < 1e-9);
+        assert!(island.run[1].word_space);
+    }
+
+    #[cfg(feature = "edit")]
+    #[test]
+    fn finding4_encoded_runs_charge_word_spacing_by_code() {
+        let doc = custom_page_pdf(
+            |d| vec![("F1", crate::test_fixtures::code_32_letter_font(d))],
+            &[b"BT /F1 10 Tf 72 700 Td (aab) Tj ET"],
+            false,
+        );
+        let page_id = *doc.get_pages().get(&1).expect("page");
+        let run = encode_for_font(&doc, page_id, "F1", "axb")
+            .ok()
+            .expect("encodes");
+        assert_eq!(run.bytes, vec![97, 32, 98]);
+        assert!(!run.word_space_at(0) && run.word_space_at(1) && !run.word_space_at(2));
+        assert!(!run.ends_with_word_space());
+        // widths 15 + Tc 0 + Tw 10 after the middle code; nothing after the last glyph.
+        assert!((run.advance(10.0, 0.0, 10.0, 1.0) - 25.0).abs() < 1e-9);
+        let lone = encode_for_font(&doc, page_id, "F1", "x")
+            .ok()
+            .expect("encodes");
+        assert!(lone.ends_with_word_space());
+    }
+
+    #[test]
+    fn finding2_the_resource_fingerprint_reads_inherited_resources_and_notices_a_hidden_font() {
+        let doc = crate::test_fixtures::inherited_resources_pdf(
+            b"BT /F1 12 Tf 72 700 Td (Existing) Tj ET",
+        );
+        let before = resource_fingerprint(&doc);
+        let names: Vec<(&[u8], &[u8])> = before[&1]
+            .keys()
+            .map(|(category, name)| (category.as_slice(), name.as_slice()))
+            .collect();
+        assert_eq!(
+            names,
+            vec![(&b"Font"[..], &b"F1"[..]), (&b"XObject"[..], &b"Im1"[..])]
+        );
+        assert!(resources_preserved(&before, &before));
+
+        // What the old composer wrote: page-local resources holding only the new font.
+        let mut hidden = doc.clone();
+        let page_id = *hidden.get_pages().get(&1).expect("page");
+        let font = *hidden
+            .objects
+            .keys()
+            .next()
+            .expect("an object to point the new font at");
+        if let Ok(Object::Dictionary(page)) = hidden.get_object_mut(page_id) {
+            page.set(
+                "Resources",
+                dictionary! { "Font" => dictionary! { "VREdit1" => font } },
+            );
+        }
+        assert!(!resources_preserved(
+            &before,
+            &resource_fingerprint(&hidden)
+        ));
+
+        // Adding a font next to the inherited ones is fine.
+        let mut added = doc.clone();
+        let page_id = *added.get_pages().get(&1).expect("page");
+        let pages_resources = {
+            let parent = added
+                .get_object(page_id)
+                .expect("page")
+                .as_dict()
+                .expect("dict")
+                .get(b"Parent")
+                .expect("parent")
+                .as_reference()
+                .expect("reference");
+            added
+                .get_object(parent)
+                .expect("pages")
+                .as_dict()
+                .expect("dict")
+                .get(b"Resources")
+                .expect("resources")
+                .as_dict()
+                .expect("dict")
+                .clone()
+        };
+        let mut resources = pages_resources;
+        let mut fonts = resources
+            .get(b"Font")
+            .expect("fonts")
+            .as_dict()
+            .expect("dict")
+            .clone();
+        fonts.set("VREdit1", font);
+        resources.set("Font", Object::Dictionary(fonts));
+        if let Ok(Object::Dictionary(page)) = added.get_object_mut(page_id) {
+            page.set("Resources", Object::Dictionary(resources));
+        }
+        assert!(resources_preserved(&before, &resource_fingerprint(&added)));
     }
 }

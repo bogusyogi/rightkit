@@ -13,6 +13,9 @@ use rightkit_ort::{
 
 #[test]
 fn default_loader_initialises_once_then_serves_sessions() {
+    if !common::runtime_or_skip() {
+        return;
+    }
     let (dir, runtime) = common::staged_runtime("default-loader", "libonnxruntime.1.24.4.dylib");
     // Before any thread uses ORT or the environment.
     std::env::set_var("ORT_DYLIB_PATH", &runtime);

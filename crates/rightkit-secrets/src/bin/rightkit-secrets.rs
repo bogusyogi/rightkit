@@ -2,7 +2,7 @@
 //! random key exists. It has NO command that prints a secret.
 //!
 //!   rightkit-secrets <status|set|delete|ensure-key> --namespace N --account A
-//!       [--isolated-keychain PATH --keychain-password PW]   (macOS test keychain; never the login keychain)
+//!       [--isolated-keychain PATH --keychain-password PW]   (macOS test keychain under the temp directory; never the login keychain)
 
 use rightkit_secrets::{Config, Namespace, Secret, Store};
 use std::io::Read;
@@ -46,7 +46,7 @@ fn run(args: &[String]) -> rightkit_secrets::Result<serde_json::Value> {
         #[cfg(target_os = "macos")]
         {
             let pw = arg(args, "--keychain-password");
-            let kc = rightkit_secrets::macos::KeychainBackend::open_file(
+            let kc = rightkit_secrets::macos::KeychainBackend::open_isolated_file(
                 std::path::Path::new(&path),
                 pw.as_deref(),
             )?;

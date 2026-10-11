@@ -14,7 +14,7 @@ None. The crate has no Cargo features. Dependencies: `rightkit-service`, `rightk
 
 `src/lib.rs` has no `cfg` gates. `endpoint_for` in `src/protocol.rs:182-190` picks a named pipe on Windows (`cfg!(windows)`) and a Unix socket elsewhere; the `cfg(windows)` and `cfg(unix)` transport gates are in `rightkit-service` (`src/transport.rs`). Transport details are defined by `rightkit-service`.
 
-Published version: see `INDEX.md` at the repository root. Release notes: [CHANGELOG.md](CHANGELOG.md).
+Published version: see the generated `INDEX.md` at the repository root. Reference: [API.md](API.md) (every public item, its errors, and the host's input contract); file map: [INDEX.md](INDEX.md). Release notes: [CHANGELOG.md](CHANGELOG.md).
 
 ## Example
 

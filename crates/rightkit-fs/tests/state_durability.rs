@@ -316,3 +316,85 @@ fn the_privacy_option_leaves_unix_directories_owner_only() {
         }
     }
 }
+
+// ------------------------------------------------------------ 6: read limits
+
+#[test]
+fn read_with_no_limit_returns_the_content_instead_of_overflowing() {
+    let (_g, dir) = tmp();
+    let state = StateDir::create(&dir.join("s")).unwrap();
+    state.write("record", b"unlimited").unwrap();
+    // `u64::MAX` is "no limit": the one-byte-over probe must saturate, not wrap to a zero-byte
+    // read (release) or panic (debug).
+    assert_eq!(state.read("record", u64::MAX).unwrap(), b"unlimited");
+    assert_eq!(
+        state.read_opt("record", u64::MAX).unwrap().unwrap(),
+        b"unlimited"
+    );
+    state.write("empty", b"").unwrap();
+    assert_eq!(state.read("empty", u64::MAX).unwrap(), b"");
+}
+
+#[test]
+fn read_limits_are_exact_at_the_boundary() {
+    let (_g, dir) = tmp();
+    let state = StateDir::create(&dir.join("s")).unwrap();
+    state.write("record", b"12345").unwrap();
+    assert_eq!(
+        state.read("record", 5).unwrap(),
+        b"12345",
+        "exactly at the limit"
+    );
+    assert_eq!(state.read("record", u64::MAX - 1).unwrap(), b"12345");
+    for limit in [0, 4] {
+        assert!(
+            matches!(
+                state.read("record", limit),
+                Err(FsError::TooLarge { size: 5, limit: l, .. }) if l == limit
+            ),
+            "limit {limit}"
+        );
+    }
+}
+
+// ------------------------------------------------------------ 7: concurrent listings
+
+#[test]
+fn concurrent_listings_each_see_every_entry() {
+    // Enough names that one `getdents` buffer cannot hold them all, so a listing needs several
+    // reads of its directory stream. Listings that shared a file offset (duplicated descriptors)
+    // would consume each other's position and come back short.
+    const ENTRIES: usize = 4000;
+    let (_g, dir) = tmp();
+    let state = StateDir::create(&dir.join("s")).unwrap();
+    for i in 0..ENTRIES {
+        std::fs::write(
+            dir.join("s")
+                .join(format!("entry-{i:06}-padding-to-lengthen-names")),
+            b"",
+        )
+        .unwrap();
+    }
+    std::thread::scope(|scope| {
+        let workers: Vec<_> = (0..4)
+            .map(|worker| {
+                let state = &state;
+                scope.spawn(move || {
+                    for round in 0..25 {
+                        let names = state.list(usize::MAX).unwrap();
+                        assert_eq!(
+                            names.len(),
+                            ENTRIES,
+                            "worker {worker} round {round}: a concurrent listing came back partial"
+                        );
+                        let entries = state.list_entries(usize::MAX).unwrap();
+                        assert_eq!(entries.len(), ENTRIES, "worker {worker} round {round}");
+                    }
+                })
+            })
+            .collect();
+        for worker in workers {
+            worker.join().unwrap();
+        }
+    });
+}

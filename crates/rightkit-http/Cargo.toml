@@ -6,7 +6,7 @@ rust-version = "1.98.0"
 description = "Brand-neutral blocking HTTP client for Right Suite apps: timeouts, retry/backoff with Retry-After, SSE streaming, resumable downloads, multipart bodies, redacted secrets, and untrusted web-text wrapping."
 license = "MIT OR Apache-2.0"
 readme = "README.md"
-repository = "https://github.com/bogusyogi/rightkit"
+repository = "https://github.com/Orthic-Labs/rightkit"
 keywords = ["http", "retry", "sse", "streaming"]
 categories = ["web-programming::http-client"]
 include = ["src/**", "tests/**", "README.md", "CHANGELOG.md", "API.md", "LICENSE-MIT", "LICENSE-APACHE"]
@@ -55,4 +55,4 @@ rightkit-http = { path = ".", default-features = false, features = ["testing"] }
 
 [package.metadata.rightkit]
 continuous = false
-continuous_reason = "sleep: cancellation-poll and retry waits inside one request (async_client.rs, cancel.rs), bounded by the request deadline; thread-spawn: one DNS-lookup thread per resolve with a timeout (netpolicy.rs), ends when getaddrinfo returns; listener: the loopback mock server in the opt-in testing feature, stopped and joined on drop; no timer, watcher or long-lived memory (reviewed 2026-10-11)"
+continuous_reason = "sleep: cancellation-poll and retry waits inside one request (async_client.rs, cancel.rs), bounded by the request deadline; timer: a 25 ms tokio Sleep re-armed only while a cancellable async BodyStream is polled and pending (async_client.rs), gone when the stream is dropped; flock: a per-destination advisory lock held for one download and released on drop (download.rs); thread-spawn: one DNS-lookup thread per resolve with a timeout (netpolicy.rs), ends when getaddrinfo returns; listener: the loopback mock server in the opt-in testing feature, stopped and joined on drop; no free-running timer, watcher or long-lived memory (reviewed 2026-10-11)"

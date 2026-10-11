@@ -61,7 +61,8 @@ let migrations = MigrateOptions {
 ## Other APIs
 
 - `open_read_only(path)` opens with `SQLITE_OPEN_READ_ONLY`. `open_existing_writer(path)` opens read-write without CREATE. Both accept paths or `file:` URIs with query parameters, and refuse missing files. The matching `DbOptions` methods use the path, key, timeout and optional integrity check. They skip journal selection, per-host routing, permission changes, `init`, optimization and migrations. Read-only main databases still allow SQLite TEMP tables unless callers set `query_only`.
-- `open_reader()` is unchanged: read-write or create bootstrap, then `query_only`.
+- `open_reader()` is read-write or create bootstrap, then `query_only` as the last setup statement, read back and required to be on. It does not run `PRAGMA optimize`; the writer runs it when it opens.
+- `open_read_pool(cap)` and `open_read_pool_with(cap, ReadPoolOptions)` return a `ReadPool`. Every reader has `query_only` set and read back as on, or its open fails. The default pool (`ReadPoolOptions::new()`) keeps read-write file handles. `ReadPoolOptions::with_read_only(true)` opens readers with `SQLITE_OPEN_READ_ONLY`, so writes fail even after `query_only` is turned off. A read-only pool needs an existing database: it never creates the file, changes the journal mode, narrows permissions, or runs `optimize` or `init`. A rollback journal left by a crash must be recovered by a writer first. `ReadPoolOptions::with_reader_cache_kib(kib)` sets each reader's `cache_size` to `-kib` (KiB, 1 to 2147483647, checked when the pool opens). It overrides `CacheProfile::LargeWorkingSet` on readers only. `ReadPool::close()` stops checkout and drops idle readers; a checked-out reader closes when it is returned. `ReadPool::close_and_wait(timeout)` closes, then waits until every reader is returned, so the database files are released (needed on Windows). If readers are still out at the timeout, it returns `DbError::ReadPoolCloseTimeout { outstanding, timeout }`. After close, `get()` returns `DbError::ReadPoolClosed`.
 - `DbOptions::busy_timeout: Duration` defaults to five seconds. It is installed before any bootstrap SQL, including key verification and `init`.
 - `open_in_memory()` returns a private ephemeral connection. The matching `DbOptions::open_in_memory()` keeps key, timeout, initializer, cache, foreign-key, durability, optimization and integrity options. Path, filesystem permissions, journal selection and mmap do not apply. The journal mode stays `memory`, including with `WalStrict`. Run `migrate` with `db_path: None` to skip filesystem backup and marker handling.
 - `MigrateOptions::version_storage` defaults to `VersionStorage::UserVersion`. `VersionStorage::Table { table, key }` uses `key` and `value` columns compatible with Blueprint's `meta` table. Values are decimal text. Identifiers accept ASCII letters, digits and underscores. Keys are bound parameters. A missing table or key reads as zero. Table creation and version writes share each migration transaction. `migration_version` reads the chosen storage, and `rollback_to_with_storage` reverses it. `user_version` and `rollback_to` keep the default storage.
@@ -75,7 +76,7 @@ let migrations = MigrateOptions {
 
 ## Verification
 
-Tests: `tests/contract.rs`, `tests/e2e.rs`, `tests/journal_fallback.rs`, `tests/membrane.rs`.
+Tests: `tests/contract.rs`, `tests/e2e.rs`, `tests/journal_fallback.rs`, `tests/membrane.rs`, `tests/read_pool.rs`.
 
 ## Version and changes
 

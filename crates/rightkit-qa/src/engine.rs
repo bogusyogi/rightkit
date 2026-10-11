@@ -17,6 +17,10 @@ pub const FRAME_LIMIT: usize = 16 * 1024 * 1024;
 
 /// Start of the error a `Sidecar` request returns when no frame arrives in time.
 const TIMEOUT_PREFIX: &str = "sidecar timeout after";
+/// Frames [`Sidecar::events`] keeps unless [`Sidecar::set_event_limit`] changes it.
+const DEFAULT_EVENT_LIMIT: usize = 2_048;
+/// Bytes of engine stderr kept unless [`Sidecar::set_stderr_limit`] changes it.
+const DEFAULT_STDERR_LIMIT: usize = 256 * 1024;
 
 #[derive(Debug, Clone)]
 pub struct EngineTarget {
@@ -151,9 +155,17 @@ pub struct Sidecar {
     seq: u64,
     pub hello: Value,
     pub pid: u32,
-    stderr: Arc<Mutex<String>>,
-    /// Frames that were neither hello nor the awaited response (events).
+    stderr: Arc<Mutex<StderrBuf>>,
+    /// Frames that were neither hello nor the awaited response (events), oldest first. Once the
+    /// list reaches twice the event limit (default 2,048, see [`Sidecar::set_event_limit`]) the
+    /// oldest are trimmed back to the limit; [`SidecarStatus::events_dropped`] counts them.
     pub events: Vec<Value>,
+    /// Frames trimmed from `events` since the sidecar started.
+    events_dropped: u64,
+    event_limit: usize,
+    /// Id of the request being awaited, and whether a frame carrying that id has arrived. Set only
+    /// while `request` waits; `push_event` updates it as each frame comes in.
+    watch: Option<(u64, bool)>,
     /// Forces the old GenRight `status` frames for every command when true. `false` does not
     /// force jobs frames: the shape then comes from the hello (see [`Sidecar::set_frame_shape`]
     /// to pin the jobs contract against a legacy hello).
@@ -171,11 +183,15 @@ pub struct SidecarStatus {
     pub pid: u32,
     /// Requests sent so far (the frame sequence).
     pub requests_sent: u64,
-    /// Frames buffered in [`Sidecar::events`] (neither hello nor an awaited response). Nothing
-    /// bounds this: a long run with a chatty engine grows it.
+    /// Frames held in [`Sidecar::events`] (neither hello nor an awaited response). Bounded: at most
+    /// twice the event limit, default 2,048 frames.
     pub events_buffered: usize,
-    /// Bytes of engine stderr kept in memory (all of it, until the sidecar is dropped).
+    /// Frames trimmed from [`Sidecar::events`] since the sidecar started.
+    pub events_dropped: u64,
+    /// Bytes of engine stderr kept in memory: the last stderr limit's worth (default 256 KiB).
     pub stderr_bytes: usize,
+    /// Bytes of engine stderr trimmed from memory since the sidecar started.
+    pub stderr_dropped_bytes: u64,
     /// Resident memory, CPU time and I/O counters of the harness process (the sidecar's reader
     /// threads run in it; the engine child is a separate process), or `None` when the host cannot
     /// report them. See `rightkit_process::ProcessUsage`.
@@ -238,6 +254,80 @@ struct Exchange {
     answered: bool,
 }
 
+/// Engine stderr, kept to its last `limit` bytes. Bytes before `start` were dropped; they stay in
+/// `text` until that dead prefix reaches the limit, so each byte moves O(1) times on average and
+/// `text` never holds more than about twice the limit.
+struct StderrBuf {
+    text: String,
+    start: usize,
+    limit: usize,
+    /// Bytes dropped from the front since the sidecar started.
+    dropped: u64,
+}
+
+impl StderrBuf {
+    fn new(limit: usize) -> Self {
+        Self {
+            text: String::new(),
+            start: 0,
+            limit,
+            dropped: 0,
+        }
+    }
+
+    fn push(&mut self, chunk: &str) {
+        self.text.push_str(chunk);
+        self.trim();
+    }
+
+    fn set_limit(&mut self, limit: usize) {
+        self.limit = limit;
+        self.trim();
+    }
+
+    /// Drops the oldest bytes beyond the limit. The cut moves forward to just after a newline when
+    /// one sits within an eighth of the limit, so a kept line is whole where possible.
+    fn trim(&mut self) {
+        if self.text.len() - self.start > self.limit {
+            let mut cut = self.text.len() - self.limit;
+            while !self.text.is_char_boundary(cut) {
+                cut += 1;
+            }
+            let window_end = (cut + self.limit / 8).min(self.text.len());
+            if let Some(p) = self.text.as_bytes()[cut..window_end]
+                .iter()
+                .position(|&b| b == b'\n')
+            {
+                cut += p + 1;
+            }
+            self.dropped += (cut - self.start) as u64;
+            self.start = cut;
+        }
+        if self.start >= self.limit {
+            self.text.drain(..self.start);
+            self.start = 0;
+        }
+    }
+
+    fn retained(&self) -> &str {
+        &self.text[self.start..]
+    }
+
+    fn bytes(&self) -> usize {
+        self.text.len() - self.start
+    }
+
+    /// The last `max` retained bytes, preceded by a marker when earlier output was dropped.
+    fn tail(&self, max: usize) -> String {
+        let tail = crate::util::tail(self.retained(), max);
+        if self.dropped == 0 {
+            tail
+        } else {
+            format!("[{} bytes of earlier stderr dropped]\n{tail}", self.dropped)
+        }
+    }
+}
+
 impl Sidecar {
     fn start(engine: &EngineTarget, opts: &CliOptions, tracker: &Tracker) -> Result<Self> {
         let mut cmd = Command::new(&engine.binary);
@@ -263,7 +353,7 @@ impl Sidecar {
             .take_stdout()
             .ok_or_else(|| Error("sidecar stdout unavailable".into()))?;
         let mut stderr_pipe = child.take_stderr();
-        let stderr = Arc::new(Mutex::new(String::new()));
+        let stderr = Arc::new(Mutex::new(StderrBuf::new(DEFAULT_STDERR_LIMIT)));
         let sink = stderr.clone();
         std::thread::spawn(move || {
             use std::io::Read;
@@ -275,7 +365,7 @@ impl Sidecar {
                     }
                     sink.lock()
                         .unwrap()
-                        .push_str(&String::from_utf8_lossy(&buf[..n]));
+                        .push(&String::from_utf8_lossy(&buf[..n]));
                 }
             }
         });
@@ -305,6 +395,9 @@ impl Sidecar {
             pid,
             stderr,
             events: vec![],
+            events_dropped: 0,
+            event_limit: DEFAULT_EVENT_LIMIT,
+            watch: None,
             legacy_status_frames: false,
             detected_legacy: None,
             frame_shape: None,
@@ -330,7 +423,7 @@ impl Sidecar {
             let left = deadline.saturating_duration_since(Instant::now());
             match self.rx.recv_timeout(left.max(Duration::from_millis(1))) {
                 Ok(f) if want(&f) => return Ok(f),
-                Ok(f) => self.events.push(f),
+                Ok(f) => self.push_event(f),
                 Err(RecvTimeoutError::Timeout) => {
                     return err(format!(
                         "{} {}ms; stderr tail: {}",
@@ -349,19 +442,62 @@ impl Sidecar {
         }
     }
 
-    /// Buffers and process resource usage, read now. No polling thread runs for this.
+    /// Buffer counts and process resource usage, read now. No polling thread runs for this.
     pub fn status(&self) -> SidecarStatus {
+        let (stderr_bytes, stderr_dropped_bytes) = self
+            .stderr
+            .lock()
+            .map_or((0, 0), |s| (s.bytes(), s.dropped));
         SidecarStatus {
             pid: self.pid,
             requests_sent: self.seq,
             events_buffered: self.events.len(),
-            stderr_bytes: self.stderr.lock().map(|s| s.len()).unwrap_or(0),
+            events_dropped: self.events_dropped,
+            stderr_bytes,
+            stderr_dropped_bytes,
             process: rightkit_process::process_usage().ok(),
         }
     }
 
+    /// Keeps the most recent `limit` frames in [`Sidecar::events`] (default 2,048). Frames beyond
+    /// the new limit are trimmed now, and the list is trimmed again once it reaches twice the limit.
+    pub fn set_event_limit(&mut self, limit: usize) {
+        self.event_limit = limit;
+        self.drop_oldest_events(limit);
+    }
+
+    /// Keeps the last `bytes` of engine stderr in memory (default 256 KiB).
+    pub fn set_stderr_limit(&mut self, bytes: usize) {
+        if let Ok(mut buf) = self.stderr.lock() {
+            buf.set_limit(bytes);
+        }
+    }
+
     pub fn stderr_tail(&self) -> String {
-        crate::util::tail(&self.stderr.lock().unwrap(), 1500)
+        self.stderr.lock().unwrap().tail(1500)
+    }
+
+    /// Buffers a frame that is neither the hello nor an awaited response. A request waiting on
+    /// its id is told about the frame here, as it arrives, so trimming never hides it.
+    fn push_event(&mut self, frame: Value) {
+        if let Some((id, seen)) = self.watch.as_mut() {
+            if frame["id"] == json!(*id) {
+                *seen = true;
+            }
+        }
+        self.events.push(frame);
+        if self.events.len() >= self.event_limit.saturating_mul(2).max(1) {
+            self.drop_oldest_events(self.event_limit);
+        }
+    }
+
+    /// Trims `events` to its most recent `keep` frames, counting what was removed.
+    fn drop_oldest_events(&mut self, keep: usize) {
+        if self.events.len() > keep {
+            let excess = self.events.len() - keep;
+            self.events.drain(..excess);
+            self.events_dropped += excess as u64;
+        }
     }
 
     /// Send an arbitrary frame and return the response with the same id.
@@ -379,7 +515,6 @@ impl Sidecar {
         self.seq += 1;
         let id = self.seq;
         frame["id"] = json!(id);
-        let before = self.events.len();
         let written = match self.stdin.as_mut() {
             Some(stdin) => write_json_line(stdin, &frame, FRAME_LIMIT)
                 .map_err(|e| Error(e.to_string()))
@@ -393,15 +528,14 @@ impl Sidecar {
                 answered: false,
             });
         }
-        self.await_frame(timeout, |f| f["type"] == "response" && f["id"] == json!(id))
-            .map_err(|error| {
-                let answered = self.events[before..].iter().any(|f| f["id"] == json!(id));
-                Exchange {
-                    error,
-                    id,
-                    answered,
-                }
-            })
+        self.watch = Some((id, false));
+        let waited = self.await_frame(timeout, |f| f["type"] == "response" && f["id"] == json!(id));
+        let answered = self.watch.take().is_some_and(|(_, seen)| seen);
+        waited.map_err(|error| Exchange {
+            error,
+            id,
+            answered,
+        })
     }
 
     /// The shape a command is sent in: a per-command `Option`, then the sidecar pin, then the
@@ -633,8 +767,11 @@ mod frame_shape_tests {
             seq: 0,
             hello: Value::Null,
             pid: 0,
-            stderr: Arc::default(),
+            stderr: Arc::new(Mutex::new(StderrBuf::new(DEFAULT_STDERR_LIMIT))),
             events: vec![],
+            events_dropped: 0,
+            event_limit: DEFAULT_EVENT_LIMIT,
+            watch: None,
             legacy_status_frames: false,
             detected_legacy: None,
             frame_shape: None,
@@ -760,5 +897,97 @@ mod frame_shape_tests {
             .0;
         assert!(e.starts_with("sidecar timeout"), "{e}");
         assert!(!e.contains("did not answer"), "{e}");
+    }
+
+    /// `count` event frames; none answers request 1.
+    fn events(count: usize) -> Vec<Value> {
+        (0..count)
+            .map(|n| json!({"type": "event", "id": 0, "n": n}))
+            .collect()
+    }
+
+    #[test]
+    fn a_full_ring_keeps_the_newest_events_and_the_waiter_still_gets_its_answer() {
+        let mut frames = vec![bare_hello()];
+        frames.extend(events(10_000));
+        frames.push(jobs_ok(1));
+        let (mut s, _wire, _tx) = sidecar(frames);
+        let result = s.command("scan", input(), WAIT).unwrap();
+        assert_eq!(result, json!({"n": 2}));
+        let status = s.status();
+        // Every event is either held or counted as dropped.
+        assert_eq!(s.events.len() as u64 + status.events_dropped, 10_000);
+        assert!(
+            (DEFAULT_EVENT_LIMIT..2 * DEFAULT_EVENT_LIMIT).contains(&s.events.len()),
+            "held {}",
+            s.events.len()
+        );
+        assert_eq!(s.events.last().unwrap()["n"], json!(9_999));
+        assert_eq!(status.events_buffered, s.events.len());
+    }
+
+    #[test]
+    fn the_event_limit_is_configurable_and_trims_at_once() {
+        let mut frames = vec![bare_hello()];
+        frames.extend(events(50));
+        let (mut s, _wire, _tx) = sidecar(frames);
+        assert!(s.command("scan", input(), SILENT).is_err());
+        assert_eq!(s.events.len(), 50);
+        s.set_event_limit(5);
+        assert_eq!(s.events.len(), 5);
+        assert_eq!(s.events[0]["n"], json!(45));
+        assert_eq!(s.status().events_dropped, 45);
+    }
+
+    #[test]
+    fn an_answer_seen_before_the_ring_trimmed_it_is_still_reported_as_answered() {
+        let early = json!({"type": "event", "id": 1, "event": "progress"});
+        let mut frames = vec![bare_hello(), early];
+        frames.extend(events(3 * DEFAULT_EVENT_LIMIT));
+        let (mut s, _wire, _tx) = sidecar(frames);
+        let brief = Duration::from_millis(500);
+        let e = s.command("scan", input(), brief).unwrap_err().0;
+        assert!(e.starts_with("sidecar timeout"), "{e}");
+        assert!(!e.contains("did not answer"), "{e}");
+        assert!(s.status().events_dropped > 0);
+        assert!(s.events.iter().all(|f| f["id"] != json!(1)));
+    }
+
+    #[test]
+    fn stderr_keeps_its_last_bytes_on_a_line_boundary_and_says_what_it_dropped() {
+        let mut buf = StderrBuf::new(21);
+        buf.push(&format!("{}\n{}", "a".repeat(10), "b".repeat(20)));
+        // The cut lands inside the first line; the newline just after it moves the cut past that line.
+        assert_eq!(buf.retained(), "b".repeat(20));
+        assert_eq!(buf.dropped, 11);
+        assert_eq!(buf.bytes(), 20);
+        assert!(buf
+            .tail(1500)
+            .starts_with("[11 bytes of earlier stderr dropped]\n"));
+    }
+
+    #[test]
+    fn stderr_stays_within_its_limit_however_much_is_written() {
+        const LIMIT: usize = 4096;
+        let mut buf = StderrBuf::new(LIMIT);
+        let mut written = 0u64;
+        for n in 0..20_000 {
+            let line = format!("progress {n:08}\n");
+            written += line.len() as u64;
+            buf.push(&line);
+            assert!(buf.bytes() <= LIMIT);
+            assert!(buf.text.len() < 2 * LIMIT, "dead prefix was not compacted");
+        }
+        assert_eq!(buf.dropped + buf.bytes() as u64, written);
+        assert!(buf.retained().starts_with("progress "));
+        assert!(buf.retained().ends_with("progress 00019999\n"));
+    }
+
+    #[test]
+    fn stderr_cuts_never_split_a_character() {
+        let mut buf = StderrBuf::new(7);
+        buf.push(&"é".repeat(40));
+        assert!(buf.retained().chars().all(|c| c == 'é'));
+        assert!(buf.bytes() <= 7);
     }
 }

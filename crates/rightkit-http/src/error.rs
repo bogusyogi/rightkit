@@ -105,7 +105,7 @@ pub enum ErrorClass {
     Server,
     /// Any other status: 4xx not listed above, or an unfollowed 3xx.
     Client,
-    /// A configured timeout elapsed.
+    /// A configured timeout elapsed, or the server answered HTTP 408 Request Timeout.
     Timeout,
     /// Connection, TLS or socket failure, or an exhausted redirect limit.
     Transport,
@@ -173,6 +173,7 @@ impl HttpError {
                 ..
             } => match *status {
                 401 | 403 | 407 => ErrorClass::Auth,
+                408 => ErrorClass::Timeout,
                 429 => ErrorClass::RateLimit {
                     retry_after: *retry_after,
                 },
@@ -252,9 +253,15 @@ mod tests {
         for code in [500, 502, 503, 504, 599] {
             assert_eq!(status(code, None).class(), ErrorClass::Server, "{code}");
         }
-        for code in [400, 402, 404, 408, 409, 410, 422, 451, 499, 301, 302] {
+        for code in [400, 402, 404, 409, 410, 422, 451, 499, 301, 302] {
             assert_eq!(status(code, None).class(), ErrorClass::Client, "{code}");
         }
+    }
+
+    #[test]
+    fn http_408_is_a_timeout_not_a_client_error() {
+        assert_eq!(status(408, None).class(), ErrorClass::Timeout);
+        assert_eq!(status(408, None).status(), Some(408));
     }
 
     #[test]

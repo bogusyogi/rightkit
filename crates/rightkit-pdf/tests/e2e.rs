@@ -270,6 +270,196 @@ fn same_path_commit_refuses_when_source_changed_after_staging() {
     );
 }
 
+/// An Add Text edit of `memo.pdf`: the command and the composed candidate bytes.
+fn memo_edit(text: &str) -> (PdfEditCommand, Vec<u8>) {
+    let command = PdfEditCommand::AddText {
+        id: format!("add-{text}"),
+        page: 1,
+        anchor: PdfPoint { x: 72.0, y: 300.0 },
+        text: text.into(),
+        appearance: appearance_for("source-serif-4"),
+    };
+    let composed = compose_candidate(
+        &fixture("memo.pdf"),
+        std::slice::from_ref(&command),
+        FontCatalog::shared(),
+    )
+    .unwrap();
+    (command, composed.bytes)
+}
+
+/// Stages `memo_edit(text)` against `path` (which must hold the original `memo.pdf`); returns the
+/// token and the candidate bytes it will write.
+fn stage_memo(store: &PdfSaveTokenStore, path: &Path, text: &str) -> (String, Vec<u8>) {
+    let sha = document_sha256(&fixture("memo.pdf"));
+    let (command, bytes) = memo_edit(text);
+    let meta = stage_prepared_save(
+        store,
+        path.to_str().unwrap(),
+        &sha,
+        &sha,
+        bytes.clone(),
+        vec![1],
+        expected_text_checks(&[command]),
+    )
+    .unwrap();
+    (meta.token, bytes)
+}
+
+fn assert_write_conflict(result: Result<rightkit_pdf::save::PdfCommitResult, CommitError>) {
+    assert!(
+        matches!(result, Err(CommitError::Edit(PdfEditError::WriteConflict))),
+        "{result:?}"
+    );
+}
+
+#[test]
+fn commit_to_a_dot_segment_alias_of_the_source_still_rechecks_the_source() {
+    // `dir/./memo.pdf` is `dir/memo.pdf`: string inequality used to skip the SHA recheck and
+    // overwrite the newer bytes.
+    let dir = scratch("alias");
+    let source = dir.join("memo.pdf");
+    std::fs::write(&source, fixture("memo.pdf")).unwrap();
+    let store = PdfSaveTokenStore::default();
+    let (token, _) = stage_memo(&store, &source, "Alias");
+
+    let theirs = fixture("report.pdf");
+    std::fs::write(&source, &theirs).unwrap();
+    let alias = dir.join(".").join("memo.pdf");
+    assert_write_conflict(commit_pdf_save(&store, &token, Some(alias.as_path())));
+    assert_eq!(
+        std::fs::read(&source).unwrap(),
+        theirs,
+        "their file survives"
+    );
+}
+
+#[test]
+fn commit_to_a_parent_segment_alias_of_the_source_still_rechecks_the_source() {
+    let dir = scratch("alias-parent");
+    std::fs::create_dir_all(dir.join("sub")).unwrap();
+    let source = dir.join("memo.pdf");
+    std::fs::write(&source, fixture("memo.pdf")).unwrap();
+    let store = PdfSaveTokenStore::default();
+    let (token, _) = stage_memo(&store, &source, "Parent");
+
+    let theirs = fixture("report.pdf");
+    std::fs::write(&source, &theirs).unwrap();
+    let alias = dir.join("sub").join("..").join("memo.pdf");
+    assert_write_conflict(commit_pdf_save(&store, &token, Some(alias.as_path())));
+    assert_eq!(std::fs::read(&source).unwrap(), theirs);
+}
+
+#[cfg(unix)]
+#[test]
+fn commit_to_a_hard_link_of_the_source_still_rechecks_the_source() {
+    let dir = scratch("hardlink");
+    let source = dir.join("memo.pdf");
+    std::fs::write(&source, fixture("memo.pdf")).unwrap();
+    let link = dir.join("linked.pdf");
+    std::fs::hard_link(&source, &link).unwrap();
+    let store = PdfSaveTokenStore::default();
+    let (token, _) = stage_memo(&store, &source, "Link");
+
+    // Rewritten in place, so the link sees the other writer's bytes too.
+    let theirs = fixture("report.pdf");
+    std::fs::write(&source, &theirs).unwrap();
+    assert_write_conflict(commit_pdf_save(&store, &token, Some(link.as_path())));
+    assert_eq!(std::fs::read(&link).unwrap(), theirs);
+}
+
+#[test]
+fn commit_to_a_case_variant_of_the_source_still_rechecks_the_source() {
+    let dir = scratch("case");
+    let source = dir.join("memo.pdf");
+    std::fs::write(&source, fixture("memo.pdf")).unwrap();
+    let variant = dir.join("MEMO.PDF");
+    if !variant.exists() {
+        return; // a case-sensitive volume: the variant names a different (absent) file
+    }
+    let store = PdfSaveTokenStore::default();
+    let (token, _) = stage_memo(&store, &source, "Case");
+
+    let theirs = fixture("report.pdf");
+    std::fs::write(&source, &theirs).unwrap();
+    assert_write_conflict(commit_pdf_save(&store, &token, Some(variant.as_path())));
+    assert_eq!(std::fs::read(&source).unwrap(), theirs);
+}
+
+#[test]
+fn save_as_to_a_different_file_is_still_not_rechecked() {
+    let dir = scratch("save-as");
+    let source = dir.join("memo.pdf");
+    std::fs::write(&source, fixture("memo.pdf")).unwrap();
+    let store = PdfSaveTokenStore::default();
+    let (token, bytes) = stage_memo(&store, &source, "Copy");
+
+    // The source changed, but a copy elsewhere never depended on it.
+    std::fs::write(&source, fixture("report.pdf")).unwrap();
+    let copy = dir.join("copy.pdf");
+    commit_pdf_save(&store, &token, Some(copy.as_path())).unwrap();
+    assert_eq!(std::fs::read(&copy).unwrap(), bytes);
+}
+
+#[test]
+fn two_commits_staged_against_one_source_cannot_both_succeed() {
+    // Two candidates staged against the same bytes, committed from two threads: whichever lands
+    // first wins, the other gets the conflict error, and the file is exactly the winner's. The
+    // deterministic interleaving is `commit::tests`; this is the public-API version.
+    for round in 0..5 {
+        let dir = scratch(&format!("race-{round}"));
+        let source = dir.join("memo.pdf");
+        std::fs::write(&source, fixture("memo.pdf")).unwrap();
+        let store = PdfSaveTokenStore::default();
+        let staged = [
+            stage_memo(&store, &source, "First"),
+            stage_memo(&store, &source, "Second"),
+        ];
+        let start = std::sync::Barrier::new(2);
+        let results: Vec<_> = std::thread::scope(|scope| {
+            let mut handles = Vec::new();
+            for (token, _) in &staged {
+                let (store, start) = (&store, &start);
+                handles.push(scope.spawn(move || {
+                    start.wait();
+                    commit_pdf_save(store, token, None)
+                }));
+            }
+            let mut finished = Vec::new();
+            for handle in handles {
+                finished.push(handle.join().unwrap());
+            }
+            finished
+        });
+        let winners: Vec<usize> = (0..2).filter(|i| results[*i].is_ok()).collect();
+        assert_eq!(winners.len(), 1, "round {round}: {results:?}");
+        assert_eq!(
+            std::fs::read(&source).unwrap(),
+            staged[winners[0]].1,
+            "round {round}: the file is the winner's candidate"
+        );
+        let loser = results.into_iter().nth(1 - winners[0]).unwrap();
+        assert_write_conflict(loser);
+    }
+}
+
+#[test]
+fn a_successful_commit_invalidates_the_sibling_token_for_that_file() {
+    let dir = scratch("sibling");
+    let source = dir.join("memo.pdf");
+    std::fs::write(&source, fixture("memo.pdf")).unwrap();
+    let store = PdfSaveTokenStore::default();
+    let (first, first_bytes) = stage_memo(&store, &source, "One");
+    let (second, _) = stage_memo(&store, &source, "Two");
+
+    commit_pdf_save(&store, &first, None).unwrap();
+    // Even saved to a different path (so no source recheck could object), the sibling is gone.
+    let elsewhere = dir.join("elsewhere.pdf");
+    assert_write_conflict(commit_pdf_save(&store, &second, Some(elsewhere.as_path())));
+    assert!(!elsewhere.exists());
+    assert_eq!(std::fs::read(&source).unwrap(), first_bytes);
+}
+
 #[test]
 fn staging_rejects_candidate_missing_expected_text() {
     let original = fixture("memo.pdf");

@@ -424,9 +424,14 @@ pub fn verify_base(dir: &Path, vocoder: &Path, full: bool) -> Result<(), String>
         }],
         full,
     )?;
-    let (Some(parent), Some(name)) = (vocoder.parent(), vocoder.file_name().and_then(|n| n.to_str()))
-    else {
-        return Err(format!("vocoder path {} has no file name", vocoder.display()));
+    let (Some(parent), Some(name)) = (
+        vocoder.parent(),
+        vocoder.file_name().and_then(|n| n.to_str()),
+    ) else {
+        return Err(format!(
+            "vocoder path {} has no file name",
+            vocoder.display()
+        ));
     };
     verify_files(
         parent,

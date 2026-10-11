@@ -6,8 +6,10 @@
 //! depends on the contract crate.
 //!
 //! Gate: the CoreML Parakeet bundle (`RIGHTKIT_PARAKEET_COREML_DIR`, or the
-//! shared-store / HeardRight default). Missing gate FAILS unless
-//! `RIGHTKIT_ALLOW_MISSING_MODELS` is set (then SKIP is printed).
+//! shared-store / HeardRight default). A missing bundle prints a SKIP line and the
+//! test passes; under `RIGHTKIT_REQUIRE_ASSETS=1` it fails.
+mod common;
+
 use rightkit_transcript::*;
 
 #[cfg(target_os = "macos")]
@@ -49,11 +51,11 @@ mod asr {
     #[test]
     fn real_asr_output_round_trips_through_srt_vtt_and_json() {
         let Some(dir) = bundle() else {
-            if std::env::var_os("RIGHTKIT_ALLOW_MISSING_MODELS").is_some() {
-                eprintln!("SKIP: CoreML Parakeet bundle");
-                return;
-            }
-            panic!("gate missing: CoreML Parakeet bundle (RIGHTKIT_PARAKEET_COREML_DIR)");
+            crate::common::skip_missing(
+                "CoreML Parakeet bundle",
+                "RIGHTKIT_PARAKEET_COREML_DIR, or the HeardRightNext or Orthic Labs shared model folder under ~/Library/Application Support",
+            );
+            return;
         };
         let engine =
             CoreMlParakeet::load(&dir, CoreMlParakeetOptions::default()).expect("load Parakeet");

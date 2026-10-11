@@ -16,7 +16,7 @@
 //! Run: `rightkit cargo bench -p rightkit-sync --bench budget`
 //! Optional: `-- <records> <passes> <edits_per_side_per_pass>` (defaults 100000, 100, 100); a fourth argument sets the idle seconds (default 30).
 
-use rightkit_process::{observe_idle, BudgetLabels, process_usage, ProcessUsage};
+use rightkit_process::{observe_idle, process_usage, BudgetLabels, ProcessUsage};
 use rightkit_sync::*;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
@@ -31,7 +31,11 @@ fn usage() -> ProcessUsage {
 }
 
 fn report(label: &str, p: ProcessUsage) {
-    println!("{label}: resident {:7.1} MB  footprint {:7.1} MB", mb(p.resident_bytes), mb(p.footprint_bytes));
+    println!(
+        "{label}: resident {:7.1} MB  footprint {:7.1} MB",
+        mb(p.resident_bytes),
+        mb(p.footprint_bytes)
+    );
 }
 
 #[derive(Clone, Debug)]
@@ -106,7 +110,10 @@ fn now_ms() -> i64 {
 }
 
 fn main() {
-    let args: Vec<String> = std::env::args().skip(1).filter(|a| a != "--bench").collect();
+    let args: Vec<String> = std::env::args()
+        .skip(1)
+        .filter(|a| a != "--bench")
+        .collect();
     let n: u64 = args.first().and_then(|v| v.parse().ok()).unwrap_or(100_000);
     let passes: u64 = args.get(1).and_then(|v| v.parse().ok()).unwrap_or(100);
     let edits: u64 = args.get(2).and_then(|v| v.parse().ok()).unwrap_or(100);
@@ -117,10 +124,19 @@ fn main() {
     let t = Instant::now();
     for i in 0..n {
         let id = format!("n{i:06}");
-        let r = remote_record(&id, &format!("seed {i}"), 1_000 + i as i64, 1_000 + i as i64);
+        let r = remote_record(
+            &id,
+            &format!("seed {i}"),
+            1_000 + i as i64,
+            1_000 + i as i64,
+        );
         backend.put_record(r);
     }
-    println!("seeded {} remote records in {:.1?}", backend.record_count(), t.elapsed());
+    println!(
+        "seeded {} remote records in {:.1?}",
+        backend.record_count(),
+        t.elapsed()
+    );
 
     let local = Local::default();
     let mut engine = SyncEngineBuilder::new(
@@ -137,9 +153,20 @@ fn main() {
     let t = Instant::now();
     let first = engine.run_pass();
     let initial_pull_s = t.elapsed().as_secs_f64();
-    assert_eq!(first.outcome, PassOutcome::Synced, "initial pull: {:?}", first.outcome);
-    assert_eq!(first.downloaded as u64, n, "initial pull must download every record");
-    println!("initial pull: {} records in {initial_pull_s:.2} s", first.downloaded);
+    assert_eq!(
+        first.outcome,
+        PassOutcome::Synced,
+        "initial pull: {:?}",
+        first.outcome
+    );
+    assert_eq!(
+        first.downloaded as u64, n,
+        "initial pull must download every record"
+    );
+    println!(
+        "initial pull: {} records in {initial_pull_s:.2} s",
+        first.downloaded
+    );
     report("after initial pull", usage());
 
     let u0 = usage();
@@ -152,7 +179,12 @@ fn main() {
         for k in 0..edits {
             let i = (p * edits + k) % half;
             let id = format!("n{i:06}");
-            backend.put_record(remote_record(&id, &format!("remote {p}"), 1_000 + i as i64, now_ms()));
+            backend.put_record(remote_record(
+                &id,
+                &format!("remote {p}"),
+                1_000 + i as i64,
+                now_ms(),
+            ));
         }
         for k in 0..edits {
             let i = half + (p * edits + k) % half;
@@ -198,6 +230,23 @@ fn main() {
     let warm = end;
     let idle = observe_idle(Duration::from_secs(idle_s)).expect("idle window");
     let status = engine.status();
-        println!("RESULT pending_uploads_after_idle={} records", status.metrics.pending_uploads);
-    print!("{}", idle.result_lines(&warm, &BudgetLabels { krate: "rightkit-sync", version: env!("CARGO_PKG_VERSION"), scale_unit: "records", scale: n, what: "records in the ledger after bidirectional passes, engine idle between passes", scope: "synthetic" }));
+    println!(
+        "RESULT pending_uploads_after_idle={} records",
+        status.metrics.pending_uploads
+    );
+    print!(
+        "{}",
+        idle.result_lines(
+            &warm,
+            &BudgetLabels {
+                krate: "rightkit-sync",
+                version: env!("CARGO_PKG_VERSION"),
+                scale_unit: "records",
+                scale: n,
+                what:
+                    "records in the ledger after bidirectional passes, engine idle between passes",
+                scope: "synthetic"
+            }
+        )
+    );
 }

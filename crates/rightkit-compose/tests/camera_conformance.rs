@@ -23,7 +23,10 @@ struct Vector {
 }
 
 fn load_vectors() -> Vec<Vector> {
-    let path = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/camera_conformance.json");
+    let path = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/tests/fixtures/camera_conformance.json"
+    );
     let text = std::fs::read_to_string(path)
         .unwrap_or_else(|e| panic!("camera conformance fixture {path}: {e}"));
     let doc: serde_json::Value = serde_json::from_str(&text).expect("fixture is JSON");
@@ -45,7 +48,10 @@ fn fixture_has_the_full_101_sample_grid() {
     let vectors = load_vectors();
     assert_eq!(vectors.len(), 101);
     for (index, row) in vectors.iter().enumerate() {
-        assert!((row.u - index as f64 / 100.0).abs() < 1e-12, "u at row {index}");
+        assert!(
+            (row.u - index as f64 / 100.0).abs() < 1e-12,
+            "u at row {index}"
+        );
     }
 }
 

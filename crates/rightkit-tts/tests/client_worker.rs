@@ -56,10 +56,14 @@ impl Env {
         ] {
             std::env::remove_var(var);
         }
-        let root = std::env::temp_dir().join(format!("rk-tts-client-{name}-{}", std::process::id()));
+        let root =
+            std::env::temp_dir().join(format!("rk-tts-client-{name}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&root);
         std::fs::create_dir_all(&root).unwrap();
-        Self { root, _guard: guard }
+        Self {
+            root,
+            _guard: guard,
+        }
     }
 
     fn dir(&self, name: &str) -> PathBuf {
@@ -197,9 +201,15 @@ fn absent_explicit_worker_exe_never_falls_back_to_discovery() {
     let status = client.worker_exe().unwrap_err();
     assert_eq!(status.code, "worker_missing");
     assert!(status.message.contains("not-there"), "{}", status.message);
-    let launch = client.synthesize("hello there", &voice_design()).unwrap_err();
+    let launch = client
+        .synthesize("hello there", &voice_design())
+        .unwrap_err();
     assert_eq!(launch, status);
-    assert_eq!(starts(&ambient), 0, "no fall back to the environment worker");
+    assert_eq!(
+        starts(&ambient),
+        0,
+        "no fall back to the environment worker"
+    );
 }
 
 #[test]
@@ -230,12 +240,19 @@ fn per_mode_locations_reach_the_worker_before_ready_and_modes_share_one_worker()
             .clone()
     };
     assert_eq!(at(Mode::VoiceDesign).model_dir, vd);
-    assert_eq!(at(Mode::VoiceDesign).vocoder, Some(vd.join("qwen3-tts-vocoder.onnx")));
+    assert_eq!(
+        at(Mode::VoiceDesign).vocoder,
+        Some(vd.join("qwen3-tts-vocoder.onnx"))
+    );
     assert_eq!(at(Mode::CustomVoice).model_dir, cv);
     assert_eq!(at(Mode::CustomVoice).vocoder, Some(shared_vocoder));
     // Base is forwarded though the worker started for VoiceDesign: Clone needs it.
     assert_eq!(at(Mode::Base).model_dir, base);
-    assert_eq!(args.model_dir, Some(vd.clone()), "--model-dir is the starting mode's folder");
+    assert_eq!(
+        args.model_dir,
+        Some(vd.clone()),
+        "--model-dir is the starting mode's folder"
+    );
 
     // Another mode, and cloning, reuse the same worker process.
     client.synthesize("hello there", &custom_voice()).unwrap();
@@ -265,7 +282,11 @@ fn clone_checks_the_base_location_even_when_the_worker_started_for_voice_design(
         .clone_from_wav(&wav, &env.dir("out").join("v.pb"))
         .unwrap_err();
     assert_eq!(err.code, "models_missing");
-    assert!(err.message.contains(&empty_base.display().to_string()), "{}", err.message);
+    assert!(
+        err.message.contains(&empty_base.display().to_string()),
+        "{}",
+        err.message
+    );
 }
 
 #[test]
@@ -280,7 +301,10 @@ fn engine_info_runs_on_the_clients_own_configuration() {
         .with_worker_exe(worker.clone())
         .with_model_dir(base.clone())
         .with_ort_runtime(runtime.clone());
-    assert_eq!(client.engine_info(Some("cpu")).unwrap(), ("cpu".into(), "cpu".into()));
+    assert_eq!(
+        client.engine_info(Some("cpu")).unwrap(),
+        ("cpu".into(), "cpu".into())
+    );
     let args = args_of(&worker);
     assert_eq!(args.mode, Mode::Base);
     assert_eq!(args.model_dir, Some(base));
@@ -303,7 +327,11 @@ fn engine_info_without_models_names_the_clients_folder_not_the_default() {
         .with_model_dir(base.clone());
     let err = client.engine_info(None).unwrap_err();
     assert_eq!(err.code, "models_missing");
-    assert!(err.message.contains(&base.display().to_string()), "{}", err.message);
+    assert!(
+        err.message.contains(&base.display().to_string()),
+        "{}",
+        err.message
+    );
 }
 
 #[test]
@@ -316,8 +344,14 @@ fn idle_window_is_forwarded_only_when_set_explicitly() {
             .with_worker_exe(worker.clone())
             .with_mode_model_dir(Mode::VoiceDesign, vd.clone())
     };
-    base_client().synthesize("hello there", &voice_design()).unwrap();
-    assert_eq!(args_of(&worker).idle_secs, None, "nothing explicit: the environment decides");
+    base_client()
+        .synthesize("hello there", &voice_design())
+        .unwrap();
+    assert_eq!(
+        args_of(&worker).idle_secs,
+        None,
+        "nothing explicit: the environment decides"
+    );
     let client = base_client().with_idle_secs(77);
     assert_eq!(client.idle_secs(), 77);
     client.synthesize("hello there", &voice_design()).unwrap();
@@ -343,10 +377,18 @@ fn a_different_client_configuration_respawns_the_shared_worker_and_the_same_one_
     a.synthesize("hello there", &voice_design()).unwrap();
     let first = a.worker_pid().unwrap();
     c.synthesize("hello there", &voice_design()).unwrap();
-    assert_eq!(c.worker_pid(), Some(first), "equal configuration reuses the worker");
+    assert_eq!(
+        c.worker_pid(),
+        Some(first),
+        "equal configuration reuses the worker"
+    );
     assert_eq!(starts(&worker), 1);
     b.synthesize("hello there", &voice_design()).unwrap();
-    assert_ne!(b.worker_pid(), Some(first), "a different idle window respawns");
+    assert_ne!(
+        b.worker_pid(),
+        Some(first),
+        "a different idle window respawns"
+    );
     assert_eq!(starts(&worker), 2);
     assert_eq!(args_of(&worker).idle_secs, Some(5));
 }
@@ -361,9 +403,15 @@ fn a_model_missing_reply_surfaces_as_models_missing() {
         .client()
         .with_worker_exe(worker)
         .with_mode_model_dir(Mode::VoiceDesign, vd);
-    let err = client.synthesize("hello there", &voice_design()).unwrap_err();
+    let err = client
+        .synthesize("hello there", &voice_design())
+        .unwrap_err();
     assert_eq!(err.code, "models_missing", "{err}");
-    assert!(err.message.starts_with("model_missing: voice_design"), "{}", err.message);
+    assert!(
+        err.message.starts_with("model_missing: voice_design"),
+        "{}",
+        err.message
+    );
 }
 
 #[test]
@@ -375,10 +423,16 @@ fn missing_mode_files_fail_before_any_worker_starts() {
         .client()
         .with_worker_exe(worker.clone())
         .with_mode_model_dir(Mode::CustomVoice, empty.clone());
-    let err = client.synthesize("hello there", &custom_voice()).unwrap_err();
+    let err = client
+        .synthesize("hello there", &custom_voice())
+        .unwrap_err();
     assert_eq!(err.code, "models_missing");
     assert!(err.message.contains("custom_voice"), "{}", err.message);
     assert!(err.message.contains("talker"), "{}", err.message);
-    assert!(err.message.contains(&empty.display().to_string()), "{}", err.message);
+    assert!(
+        err.message.contains(&empty.display().to_string()),
+        "{}",
+        err.message
+    );
     assert_eq!(starts(&worker), 0, "no worker was started");
 }

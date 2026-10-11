@@ -169,3 +169,26 @@ test("unmanaged missing-sccache warning describes only the shell PATH probe", ()
   assert.match(cache.detail, /availability is not determined/);
   assert.equal(cache.fix, null);
 });
+
+const diskBase = { platform: "mac", appRoot: process.cwd(), repoRoot: null, app: "a", version: "1.0.0", isBrokerManagedHost: () => true, versionProbe: () => "x", ownership: false, projectType: "tauri", runtimeBudgetAdoption: () => null };
+const diskCheck = (checks) => checks.find((c) => c.name === "disk");
+
+test("the disk floor measures the volume builds write to: the cargo target directory when the layout names one", () => {
+  const seen = [];
+  const checks = collectPreflight({ ...diskBase, nativeLayout: { targetDir: path.join(process.cwd(), "no-such-target-dir", "deeper") }, freeDisk: (p) => { seen.push(p); return 500; } });
+  assert.equal(diskCheck(checks).status, "ok");
+  // A target that does not exist yet is measured at its nearest existing ancestor.
+  assert.deepEqual(seen, [process.cwd()]);
+  const noLayout = [];
+  collectPreflight({ ...diskBase, freeDisk: (p) => { noLayout.push(p); return 500; } });
+  assert.deepEqual(noLayout, [process.cwd()]);
+});
+
+test("the disk floor is 25 GB by default and RIGHT_RELEASE_MIN_FREE_GB overrides it for the doctor check only", () => {
+  const free = () => 17;
+  assert.equal(diskCheck(collectPreflight({ ...diskBase, env: {}, freeDisk: free })).status, "fail");
+  assert.match(diskCheck(collectPreflight({ ...diskBase, env: {}, freeDisk: free })).detail, /17\.0GB free on the build drive, below the 25GB floor/);
+  assert.equal(diskCheck(collectPreflight({ ...diskBase, env: { RIGHT_RELEASE_MIN_FREE_GB: "10" }, freeDisk: free })).status, "ok");
+  assert.equal(diskCheck(collectPreflight({ ...diskBase, env: { RIGHT_RELEASE_MIN_FREE_GB: "30" }, freeDisk: () => 17 })).status, "fail");
+  assert.equal(diskCheck(collectPreflight({ ...diskBase, env: { RIGHT_RELEASE_MIN_FREE_GB: "banana" }, freeDisk: free })).status, "fail");
+});

@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import test from "node:test";
@@ -7,8 +8,12 @@ import { fileURLToPath } from "node:url";
 import { characterizeMedia } from "./characterize.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
+// heardright and scraperight are sibling checkouts of the owner's workspace, and this suite characterizes their source.
+// A hosted CI checkout holds rightkit alone, so the suite skips with that reason; RIGHTKIT_REQUIRE_ASSETS=1 runs it so the missing source fails.
+const siblingSources = ["heardright/tauri-app-next/heardright-inference/src/file_transcribe.rs", "scraperight/crates/audio/src/args.rs"].map((file) => path.resolve(here, "../../..", file));
+const siblingSkip = siblingSources.every((file) => existsSync(file)) || process.env.RIGHTKIT_REQUIRE_ASSETS === "1" ? false : "heardright and scraperight are not checked out beside rightkit";
 
-test("records the approved Windows artifact and both staged copies", async () => {
+test("records the approved Windows artifact and both staged copies", { skip: siblingSkip }, async () => {
   const result = await characterizeMedia();
   const windows = result.artifacts.find((artifact) => artifact.id === "ffmpeg-7.1.5-windows-x64");
 
@@ -30,7 +35,7 @@ test("records the approved Windows artifact and both staged copies", async () =>
   }
 });
 
-test("the approved Mac artifacts are 7.1.5 and hash as recorded", async () => {
+test("the approved Mac artifacts are 7.1.5 and hash as recorded", { skip: siblingSkip }, async () => {
   const result = await characterizeMedia();
   const mac = result.artifacts.filter((artifact) => artifact.os === "macos");
 
@@ -47,7 +52,7 @@ test("the approved Mac artifacts are 7.1.5 and hash as recorded", async () => {
   }
 });
 
-test("captures matching PCM output but divergent argument and lifecycle behavior", async () => {
+test("captures matching PCM output but divergent argument and lifecycle behavior", { skip: siblingSkip }, async () => {
   const result = await characterizeMedia();
   const { heardright, scraperight } = result.apps;
 
@@ -81,7 +86,7 @@ test("captures matching PCM output but divergent argument and lifecycle behavior
   });
 });
 
-test("records resolution, checksum, nonfree rejection, and attribution gaps from source", async () => {
+test("records resolution, checksum, nonfree rejection, and attribution gaps from source", { skip: siblingSkip }, async () => {
   const result = await characterizeMedia();
 
   assert.deepEqual(result.apps.heardright.resolution, [
@@ -107,7 +112,7 @@ test("records resolution, checksum, nonfree rejection, and attribution gaps from
   ]);
 });
 
-test("the extraction contract requires every identified gap to close before publication", async () => {
+test("the extraction contract requires every identified gap to close before publication", { skip: siblingSkip }, async () => {
   const contract = JSON.parse(await readFile(path.join(here, "contract.json"), "utf8"));
   const result = await characterizeMedia();
   const required = new Set(contract.publicationGate.requiredGapClosures);

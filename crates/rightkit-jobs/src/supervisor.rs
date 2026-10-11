@@ -49,8 +49,8 @@ use serde::Serialize;
 use serde_json::{json, Value};
 
 use crate::client::{
-    merge_event_callbacks, ClientOptions, ContractRequirement, EngineClient, EventFrame,
-    OnEventFrame, ProtocolErrorSink, DEFAULT_HELLO_TIMEOUT,
+    merge_event_callbacks, ClientOptions, ContractRequirement, EngineClient, OnEventFrame,
+    ProtocolErrorSink, DEFAULT_HELLO_TIMEOUT,
 };
 use crate::contract::DEFAULT_FRAME_LIMIT;
 use crate::error::{JobError, JobResult, CONTRACT_VERSION_MISMATCH};
@@ -458,10 +458,16 @@ impl EngineSupervisor {
 
     /// As [`Self::start`], but returns at once. The lifecycle is already
     /// `Booting` when this returns; the boot runs on a background thread and the
-    /// [`Readiness`] handle reports how it ended.
+    /// [`Readiness`] handle reports how it ended. When the engine is already
+    /// `Ready` there is nothing to boot and the handle is resolved before this returns.
     pub fn start_background(&self) -> Readiness {
         let plan = begin_start(&self.sh);
         let readiness = Readiness::default();
+        if plan == StartPlan::Ready {
+            // No work to hand to a thread; a spawned no-op would leave `try_ready()` racing it.
+            readiness.finish(Ok(()));
+            return readiness;
+        }
         let (sh, slot) = (Arc::clone(&self.sh), readiness.clone());
         let spawned = thread::Builder::new()
             .name(format!("{}-start", self.sh.cfg.name))
@@ -572,8 +578,18 @@ impl EngineSupervisor {
             terminal: g.terminal.clone(),
             last_exit_code: g.last_exit.as_ref().and_then(|l| l.code),
             last_exit_reason: g.last_exit.as_ref().map(|l| l.reason.clone()),
-            lifecycle_subscribers: self.sh.lifecycle_subs.lock().unwrap_or_else(|e| e.into_inner()).len(),
-            event_subscribers: self.sh.event_subs.lock().unwrap_or_else(|e| e.into_inner()).len(),
+            lifecycle_subscribers: self
+                .sh
+                .lifecycle_subs
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .len(),
+            event_subscribers: self
+                .sh
+                .event_subs
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .len(),
             process: rightkit_process::process_usage().ok(),
         }
     }
@@ -974,7 +990,10 @@ fn boot(sh: &Arc<Shared>, initial: bool) -> JobResult<()> {
     if g.generation != generation || g.shutting_down {
         drop(g);
         client.kill(sh.cfg.shutdown_grace);
-        return Err(JobError::supervisor("down", "engine was shut down while starting"));
+        return Err(JobError::supervisor(
+            "down",
+            "engine was shut down while starting",
+        ));
     }
     g.hello = Some(client.hello().clone());
     g.client = Some(Arc::clone(&client));

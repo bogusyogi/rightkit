@@ -351,6 +351,98 @@ pub(crate) fn tex_style_font(doc: &mut Document, space_glyph: bool) -> lopdf::Ob
     subset_type1_font(doc, 32, &widths, Some(encoding), None)
 }
 
+/// A subset font whose `/Differences` make **code 32 the letter `x`** (97 and 98 are `a` and `b`),
+/// every listed code 500 wide. Word spacing follows the code, so `Tw` applies to this "letter".
+pub(crate) fn code_32_letter_font(doc: &mut Document) -> lopdf::ObjectId {
+    let encoding = differences_encoding(
+        None,
+        true,
+        vec![
+            Object::Integer(32),
+            Object::Name(b"x".to_vec()),
+            Object::Integer(97),
+            Object::Name(b"a".to_vec()),
+            Object::Name(b"b".to_vec()),
+        ],
+    );
+    let widths: Vec<i64> = (32i64..=98)
+        .map(|code| if matches!(code, 32 | 97 | 98) { 500 } else { 0 })
+        .collect();
+    subset_type1_font(doc, 32, &widths, Some(encoding), None)
+}
+
+/// A subset font with its **space at code 5** (250 wide), `a` and `b` at 97 and 98 (500 wide).
+/// Code 32 is not in the font, so `Tw` applies to no glyph of it.
+pub(crate) fn code_5_space_font(doc: &mut Document) -> lopdf::ObjectId {
+    let encoding = differences_encoding(
+        None,
+        true,
+        vec![
+            Object::Integer(5),
+            Object::Name(b"space".to_vec()),
+            Object::Integer(97),
+            Object::Name(b"a".to_vec()),
+            Object::Name(b"b".to_vec()),
+        ],
+    );
+    let widths: Vec<i64> = (5i64..=98)
+        .map(|code| match code {
+            5 => 250,
+            97 | 98 => 500,
+            _ => 0,
+        })
+        .collect();
+    subset_type1_font(doc, 5, &widths, Some(encoding), None)
+}
+
+/// A one-page document whose page has **no `/Resources`**: the `/Pages` node carries them
+/// (`/Font /F1` Helvetica and `/XObject /Im1`), and the page inherits them.
+pub(crate) fn inherited_resources_pdf(content: &[u8]) -> Document {
+    let mut doc = Document::with_version("1.7");
+    let pages_id = doc.new_object_id();
+    let font = helvetica_font(&mut doc);
+    let form = doc.add_object(Stream::new(
+        dictionary! {
+            "Type" => "XObject",
+            "Subtype" => "Form",
+            "BBox" => Object::Array(vec![
+                Object::Integer(0),
+                Object::Integer(0),
+                Object::Integer(10),
+                Object::Integer(10),
+            ]),
+        },
+        Vec::new(),
+    ));
+    let content_id = doc.add_object(Stream::new(dictionary! {}, content.to_vec()));
+    let page_id = doc.add_object(dictionary! {
+        "Type" => "Page",
+        "Parent" => pages_id,
+        "Contents" => content_id,
+        "MediaBox" => Object::Array(vec![
+            Object::Integer(0),
+            Object::Integer(0),
+            Object::Integer(612),
+            Object::Integer(792),
+        ]),
+    });
+    doc.objects.insert(
+        pages_id,
+        Object::Dictionary(dictionary! {
+            "Type" => "Pages",
+            "Kids" => Object::Array(vec![Object::Reference(page_id)]),
+            "Count" => 1,
+            "Resources" => dictionary! {
+                "Font" => dictionary! { "F1" => font },
+                "XObject" => dictionary! { "Im1" => form },
+            },
+        }),
+    );
+    let catalog_id = doc.add_object(dictionary! { "Type" => "Catalog", "Pages" => pages_id });
+    doc.trailer.set("Root", catalog_id);
+    doc
+}
+
 /// One page set in the TeX-style font `/F1`; `content` is the raw content stream.
 pub(crate) fn tex_style_pdf(space_glyph: bool, content: &[u8]) -> Document {
     custom_page_pdf(

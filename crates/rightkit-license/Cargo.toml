@@ -6,7 +6,7 @@ rust-version = "1.98.0"
 description = "Right Suite license enforcement primitive — offline verification of server-signed Ed25519 entitlement tokens. The Rust (security) half of @rightkit/license."
 license = "MIT OR Apache-2.0"
 readme = "README.md"
-repository = "https://github.com/bogusyogi/rightkit"
+repository = "https://github.com/Orthic-Labs/rightkit"
 keywords = ["license", "ed25519", "offline", "entitlement"]
 categories = ["authentication", "cryptography"]
 include = ["src/**", "tests/**", "test-vectors/**", "README.md", "CHANGELOG.md", "LICENSE-MIT", "LICENSE-APACHE"]
@@ -19,4 +19,4 @@ serde_json = "1"
 
 [package.metadata.rightkit]
 continuous = false
-continuous_reason = "offline Ed25519 entitlement-token verification per call; no refresh loop or background task in this crate; no thread-spawn, task-spawn, sleep, timer, listener or watcher in non-test src (checked by runtime-budgets.mjs)"
+continuous_reason = "offline Ed25519 entitlement-token verification per call; no refresh loop or background task in this crate; resident-static: one empty process-wide Mutex serialises ledger access and holds no data; the file-backed clock store takes an OS file lock for the length of one read-compare-write and keeps nothing resident; no thread-spawn, task-spawn, sleep, timer, listener or watcher in non-test src (checked by runtime-budgets.mjs)"

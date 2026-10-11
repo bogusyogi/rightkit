@@ -632,12 +632,7 @@ impl JobStore {
     ///   returns is discarded (the job is already terminal). Nothing waits for it to stop: take
     ///   the job's [`crate::JobLocks`] lock to know its runner has gone. The new job is returned
     ///   at once and may be run immediately.
-    pub fn submit_with(
-        &self,
-        n: &NewJob,
-        ext: &Ext,
-        opts: &SubmitOptions,
-    ) -> JobResult<Submitted> {
+    pub fn submit_with(&self, n: &NewJob, ext: &Ext, opts: &SubmitOptions) -> JobResult<Submitted> {
         let mut names = Vec::new();
         let mut vals: Vec<rusqlite::types::Value> = Vec::new();
         for (k, v) in ext {
@@ -735,7 +730,15 @@ impl JobStore {
                 let t = Transition::to(CANCELLED)
                     .error(Some(err.to_json_with(self.cfg.includes_retryable())));
                 self.exec(&tx, &before, &t)?;
-                add_event_on(&tx, &old_id, None, "superseded", None, None, Some(&err.message))?;
+                add_event_on(
+                    &tx,
+                    &old_id,
+                    None,
+                    "superseded",
+                    None,
+                    None,
+                    Some(&err.message),
+                )?;
                 superseded.push(old_id);
             }
         }
@@ -770,7 +773,10 @@ impl JobStore {
                 |r| {
                     let gen: i64 = r.get(0)?;
                     let rec: Option<String> = r.get(1)?;
-                    Ok((rec.as_deref().map_or(Recovery::Resume, Recovery::parse), gen))
+                    Ok((
+                        rec.as_deref().map_or(Recovery::Resume, Recovery::parse),
+                        gen,
+                    ))
                 },
             )
             .optional()?
@@ -788,10 +794,17 @@ impl JobStore {
             return Ok(None);
         }
         let err = JobError::interrupted(job_id);
-        let t =
-            Transition::to(FAILED).error(Some(err.to_json_with(self.cfg.includes_retryable())));
+        let t = Transition::to(FAILED).error(Some(err.to_json_with(self.cfg.includes_retryable())));
         let after = self.exec(&tx, &before, &t)?;
-        let ev = add_event_on(&tx, job_id, None, "interrupted", None, None, Some(&err.message))?;
+        let ev = add_event_on(
+            &tx,
+            job_id,
+            None,
+            "interrupted",
+            None,
+            None,
+            Some(&err.message),
+        )?;
         tx.commit()?;
         drop(conn);
         self.settle(job_id, false);
@@ -1705,7 +1718,15 @@ impl JobStore {
         if current != Some(p.generation) {
             return Ok(());
         }
-        add_event_on(conn, job_id, None, &p.stage, None, p.progress, p.message.as_deref())?;
+        add_event_on(
+            conn,
+            job_id,
+            None,
+            &p.stage,
+            None,
+            p.progress,
+            p.message.as_deref(),
+        )?;
         self.st_written.fetch_add(1, Ordering::Relaxed);
         if let Some(s) = self
             .prog

@@ -1,5 +1,7 @@
 #![cfg(all(target_os = "macos", feature = "system"))]
 
+mod common;
+
 use rightkit_tts::{SystemTts, SystemTtsOptions};
 
 #[cfg(target_os = "macos")]
@@ -40,6 +42,16 @@ fn qts_real_synthesis_writes_non_silent_audio_and_transcript() {
     let root = std::path::Path::new("/private/tmp/gre2e-qts");
     let model_dir = root.join("models/qts");
     let runtime = root.join("runtime/qts/libonnxruntime.dylib");
+    if !model_dir.is_dir() || !runtime.is_file() {
+        common::skip_missing(
+            "QTS model directory and ONNX Runtime dylib",
+            &format!(
+                "{} (models/qts, runtime/qts/libonnxruntime.dylib)",
+                root.display()
+            ),
+        );
+        return;
+    }
     // Cargo's binary path proves this test drives the extracted RightKit worker. The
     // prebuilt donor worker remains a manual fallback only, never this acceptance path.
     let worker = std::path::PathBuf::from(env!("CARGO_BIN_EXE_rightkit-tts-worker"));

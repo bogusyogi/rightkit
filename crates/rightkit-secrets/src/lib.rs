@@ -12,6 +12,8 @@ mod backend;
 mod error;
 #[cfg_attr(not(windows), allow(dead_code))]
 mod keyring_compat;
+#[cfg_attr(not(windows), allow(dead_code))]
+mod locked;
 mod migrate;
 mod namespace;
 mod secret;
@@ -23,7 +25,9 @@ pub mod macos;
 #[cfg(windows)]
 mod windows;
 
-pub use backend::{system_backend, Backend, Interaction, MemoryBackend, UnavailableBackend};
+pub use backend::{
+    system_backend, Backend, ConditionalDelete, Interaction, MemoryBackend, UnavailableBackend,
+};
 pub use error::{Error, Result};
 pub use migrate::{
     migrate_between, migrate_plaintext_file, EnvImport, EnvMap, EnvReader, FileMigration,

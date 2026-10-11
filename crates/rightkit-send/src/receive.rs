@@ -11,8 +11,8 @@
 //! adopted, truncated nor removed. Mode `0600` while partial, `0644` when whole,
 //! then the quarantine / Zone.Identifier mark (see `finish_received`).
 
-use super::net::{self, Request, Wire};
 use super::error::Error;
+use super::net::{self, Request, Wire};
 use super::proto::{self, DeviceInfo, FileMeta, PrepareUploadRequest, PrepareUploadResponse};
 use super::trust::{PROOF_CERTIFICATE, normalize};
 use super::{
@@ -201,11 +201,7 @@ fn prepare_upload(
         for id in stale {
             if let Some(session) = sessions.remove(&id) {
                 session.cancel.store(true, Ordering::Relaxed);
-                inner.end_transfer(
-                    &session.transfer_id,
-                    "failed",
-                    Some(Error::SenderStopped),
-                );
+                inner.end_transfer(&session.transfer_id, "failed", Some(Error::SenderStopped));
             }
         }
         if !sessions.is_empty() || !lock(&inner.pending).is_empty() {
@@ -575,9 +571,9 @@ fn upload(
             &claimed.transfer_id,
             "failed",
             Some(Error::SaveFailed {
-                    file: parts.join("/"),
-                    detail: e.to_string(),
-                }),
+                file: parts.join("/"),
+                detail: e.to_string(),
+            }),
         );
         return message(500, "Unknown error by receiver");
     }

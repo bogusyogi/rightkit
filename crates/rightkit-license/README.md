@@ -16,6 +16,7 @@ Catalog capability: `licensing`. Published to crates.io (see [INDEX.md](../../IN
 - `authenticate_token(...)`: the signature, app and device checks of `verify_token` without any time check, for reading the authenticated claims of an expired token. It never grants access by itself.
 - `Lifecycle`, `Entitlement::lifecycle`, `evaluate_lifecycle`: the license state the UI keys on (`Trial`, `ExpiredTrial`, `Active`, `Grace`, `Expired`, `LifetimeProvisional`, `VerificationRequired`, `Lifetime`, `ClockRepairRequired`, `MigrationRequired`, `Revoked`, `Unlicensed`, `Invalid`), computed from an authenticated entitlement and a trusted clock.
 - `AntiRollbackClock`, `ClockStore`, `reconcile_clock`, `TrustedClock`: a persisted high-water mark of trusted time that refuses to extend validity on a rolled-back clock.
+- `FileClockStore`, `CrossProcessLock`: a file-backed `ClockStore` that is atomic across processes, and the OS lock it uses, for hosts that keep the ledger elsewhere.
 - `refresh_and_reanchor`, `RefreshTransport`, `RefreshOutcome`: online refresh that re-anchors the clock on the server-signed issue time.
 - `verify_lease_envelope`: device-lease envelope signature verification.
 
@@ -80,7 +81,8 @@ if report.grants_access() { /* unlock */ }
 - Inside one process, a wall clock that falls behind keeps advancing on the monotonic offset instead.
 - A ledger missing on an install whose record says it was initialised is an error (`ClockError::Missing`), not a fresh start.
 - `reanchor` accepts a server `iat` only if it is strictly newer than the last anchor, checked against the ledger at write time. It may lower the mark (`Reanchored::lowered`), which repairs a ledger inflated by a clock once set far ahead, and it also re-bases the clock's monotonic reference on the new mark so the old, too-far-ahead process anchor cannot pull time back up. It is never called on unauthenticated time: the caller passes the `iat` of a token it has already verified (`refresh_and_reanchor` does).
-- Every observation is kept in memory for the life of the clock; only the durable write is throttled (`CLOCK_WRITE_INTERVAL_SECS`). Writes are serialised across all clocks in the process and go through `ClockStore::compare_and_save`, so a stale writer can only move the mark forward and cannot overwrite a newer `last_server_iat`. A store shared between processes should override `compare_and_save` with an atomic implementation.
+- Every observation is kept in memory for the life of the clock; only the durable write is throttled (`CLOCK_WRITE_INTERVAL_SECS`). Writes are serialised across all clocks in the process and go through `ClockStore::compare_and_save`, so a stale writer can only move the mark forward and cannot overwrite a newer `last_server_iat`.
+- `ClockStore::compare_and_save` is a **required** method with no default. A load followed by a save is not atomic against another process (A checks 900, B saves 1100, A saves 1000, and trusted time has moved backwards), and the in-process lock cannot cover another process. An implementation must make the comparison and the write one atomic step against every writer in any process: a real compare-and-swap, or an OS lock around read, compare and write. `FileClockStore` does this for a ledger kept in a file (OS file lock on `<ledger>.lock`, flushed temporary file, atomic rename). A host that keeps the ledger in a keychain or credential entry implements `ClockStore` over it and takes a `CrossProcessLock` on a lock file shared by all its processes inside `compare_and_save`. `MemoryClockStore` is atomic but process-local, for tests only.
 
 **Residual risk.** The replay guard is the last anchored `iat` only. A user who can intercept TLS on their own device could withhold a genuine refresh response, wind the clock back, and later deliver that older response to lower the mark. Closing it needs a freshness nonce in the signed token (a signer change). Until then re-anchoring is a convenience for honest clock errors, not a defence against a determined local attacker, as with any offline licence check.
 
@@ -125,11 +127,11 @@ The canonical payload is compact JSON in this field order: `v`, `id`, `app`, `ti
 
 ## Platform support
 
-Pure Rust. No platform-specific code.
+Pure Rust, standard library only. `FileClockStore` and `CrossProcessLock` use `std::fs::File::lock` (an OS advisory lock: `flock` on Unix, `LockFileEx` on Windows) and, on Unix, flush the parent directory after a rename.
 
 ## Tests
 
-`tests/policy_contract.rs` (requirement rules), `tests/public_vectors.rs` (checks against `test-vectors/license-v2.json`), `tests/lifecycle.rs` (classification table, `evaluate_lifecycle`), `tests/clock.rs` (rollback, anchors, persistence, the `TrustedClock` hook), `tests/refresh.rs` (refresh outcomes against a fake server) `tests/lease.rs` (lease envelope, with the Node-signed vector `test-vectors/lease-envelope-v1.json`) and `tests/dalek_parity.rs` (111 token and lease-envelope cases whose outcomes were recorded on ed25519-dalek 2.2.0 / base64 0.22.1 and are asserted on the current dependencies).
+`tests/policy_contract.rs` (requirement rules), `tests/public_vectors.rs` (checks against `test-vectors/license-v2.json`), `tests/lifecycle.rs` (classification table, `evaluate_lifecycle`), `tests/clock.rs` (rollback, anchors, persistence, the `TrustedClock` hook), `tests/file_store.rs` (the cross-process file ledger and lock), `tests/refresh.rs` (refresh outcomes against a fake server) `tests/lease.rs` (lease envelope, with the Node-signed vector `test-vectors/lease-envelope-v1.json`) and `tests/dalek_parity.rs` (111 token and lease-envelope cases whose outcomes were recorded on ed25519-dalek 2.2.0 / base64 0.22.1 and are asserted on the current dependencies).
 
 ## Version and changes
 

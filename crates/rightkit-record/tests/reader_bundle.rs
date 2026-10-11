@@ -305,13 +305,20 @@ fn clock_map_maps_host_time_to_sample_and_encoded_pts() {
     let out = sealed_complete(&scratch, "take", 4);
     let map = BundleReader::open(&out).unwrap().clock_map();
     assert_eq!(map.host_to_sample_pts_offset_ns, -(FIRST_HOST as i64));
-    assert_eq!(map.sample_to_encoded_pts_offset_ns, 0, "encoded offset is 0 today");
+    assert_eq!(
+        map.sample_to_encoded_pts_offset_ns, 0,
+        "encoded offset is 0 today"
+    );
     assert_eq!(map.host_to_sample_pts(FIRST_HOST), 0);
     assert_eq!(
         map.host_to_sample_pts(FIRST_HOST + 3 * FRAME_NS),
         3 * FRAME_NS
     );
-    assert_eq!(map.host_to_sample_pts(0), 0, "before the first frame clamps to zero");
+    assert_eq!(
+        map.host_to_sample_pts(0),
+        0,
+        "before the first frame clamps to zero"
+    );
     assert_eq!(map.sample_to_encoded_pts(3 * FRAME_NS), 3 * FRAME_NS);
 }
 
@@ -331,7 +338,10 @@ fn a_clock_map_without_an_encoded_offset_reads_as_zero() {
     let scratch = Scratch::new("clock-legacy");
     let out = sealed_complete(&scratch, "take", 2);
     rewrite_json(&out, "clock.json", |doc| {
-        doc["mapping"].as_object_mut().unwrap().remove("samplePtsToEncodedPtsOffsetNs");
+        doc["mapping"]
+            .as_object_mut()
+            .unwrap()
+            .remove("samplePtsToEncodedPtsOffsetNs");
     });
     let map = BundleReader::open(&out).unwrap().clock_map();
     assert_eq!(map.sample_to_encoded_pts_offset_ns, 0);
@@ -346,7 +356,10 @@ fn frame_at_target_resolves_by_target_id_to_the_earliest_observation() {
     let out = bundle_with_targets(&scratch);
     let reader = BundleReader::open(&out).unwrap();
     assert_eq!(
-        reader.frame_at_target("step-1", "export-button").unwrap().index,
+        reader
+            .frame_at_target("step-1", "export-button")
+            .unwrap()
+            .index,
         6
     );
 }
@@ -357,7 +370,10 @@ fn frame_at_target_ignores_unobserved_postconditions() {
     let out = bundle_with_targets(&scratch);
     let reader = BundleReader::open(&out).unwrap();
     assert_eq!(
-        reader.frame_at_target("step-2", "save-button").unwrap().index,
+        reader
+            .frame_at_target("step-2", "save-button")
+            .unwrap()
+            .index,
         9
     );
 }
@@ -367,7 +383,10 @@ fn frame_at_target_matches_frame_at_for_the_same_observation() {
     let scratch = Scratch::new("target-agrees");
     let out = bundle_with_targets(&scratch);
     let reader = BundleReader::open(&out).unwrap();
-    let by_target = reader.frame_at_target("step-2", "save-button").unwrap().clone();
+    let by_target = reader
+        .frame_at_target("step-2", "save-button")
+        .unwrap()
+        .clone();
     let by_description = reader.frame_at("step-2", "saved").unwrap();
     assert_eq!(&by_target, by_description);
 }
@@ -467,7 +486,10 @@ fn cursor_assets_refuse_paths_outside_the_bundle_and_hotspots_outside_the_image(
         cursor_doc("cursors/arrow.png", 40, 32),
     ] {
         write_cursor_manifest(&out, &doc);
-        let err = BundleReader::open(&out).unwrap().cursor_assets().unwrap_err();
+        let err = BundleReader::open(&out)
+            .unwrap()
+            .cursor_assets()
+            .unwrap_err();
         assert_eq!(err.code, Code::NotBundle, "{doc}: {err}");
     }
 }
@@ -479,7 +501,10 @@ fn cursor_assets_refuse_an_unknown_schema() {
     let mut doc = cursor_doc("cursors/arrow.png", 4, 32);
     doc["schema"] = json!("rightkit.record.cursor-assets.v9");
     write_cursor_manifest(&out, &doc);
-    let err = BundleReader::open(&out).unwrap().cursor_assets().unwrap_err();
+    let err = BundleReader::open(&out)
+        .unwrap()
+        .cursor_assets()
+        .unwrap_err();
     assert_eq!(err.code, Code::NotBundle, "{err}");
 }
 

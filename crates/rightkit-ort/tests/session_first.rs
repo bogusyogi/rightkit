@@ -11,6 +11,9 @@ use rightkit_ort::{
 
 #[test]
 fn first_session_commits_telemetry_off_and_blocks_a_later_selection() {
+    if !common::runtime_or_skip() {
+        return;
+    }
     let (dir, runtime) = common::staged_runtime("session-first", "libonnxruntime.1.24.4.dylib");
     std::env::set_var("ORT_DYLIB_PATH", &runtime);
 

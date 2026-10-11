@@ -21,9 +21,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use tauri::{AppHandle, Emitter, Manager, RunEvent, WindowEvent, Wry};
 
 use crate::quit::QuitStep;
-use crate::{
-    ShellState, EVENT_DEEP_LINK, EVENT_MENU, EVENT_QUIT_REQUESTED, EVENT_SECOND_INSTANCE,
-};
+use crate::{ShellState, EVENT_DEEP_LINK, EVENT_MENU, EVENT_QUIT_REQUESTED, EVENT_SECOND_INSTANCE};
 
 /// True when this launch asked to stay in the tray (`--background`).
 pub fn launched_in_background() -> bool {
@@ -122,8 +120,9 @@ impl ActivationTracker {
     /// The change to apply for `want`, or `None` when it is no change.
     pub fn transition(&self, want: Option<Activation>) -> Option<Activation> {
         match want? {
-            Activation::Accessory => (!self.accessory.swap(true, Ordering::SeqCst))
-                .then_some(Activation::Accessory),
+            Activation::Accessory => {
+                (!self.accessory.swap(true, Ordering::SeqCst)).then_some(Activation::Accessory)
+            }
             Activation::Regular => self
                 .accessory
                 .swap(false, Ordering::SeqCst)

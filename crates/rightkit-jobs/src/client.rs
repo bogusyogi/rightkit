@@ -272,10 +272,9 @@ impl EngineClient {
                 read_json_line_or_oversized::<_, Value>(&mut reader, &mut buf, frame_limit, limits);
             let hello = match first {
                 Ok(Some(Incoming::Frame(h))) if h["type"] == "hello" => match &required {
-                    Some(req) if !req.accepts(&h) => Err(JobError::contract_mismatch(
-                        &h["contract_version"],
-                        &req.0,
-                    )),
+                    Some(req) if !req.accepts(&h) => {
+                        Err(JobError::contract_mismatch(&h["contract_version"], &req.0))
+                    }
                     _ => Ok(h),
                 },
                 Ok(Some(Incoming::Frame(_))) => Err(JobError::supervisor(
@@ -286,7 +285,10 @@ impl EngineClient {
                     "engine_protocol",
                     "hello frame exceeded the frame limit",
                 )),
-                Ok(None) => Err(JobError::supervisor("engine_exited", "engine closed before hello")),
+                Ok(None) => Err(JobError::supervisor(
+                    "engine_exited",
+                    "engine closed before hello",
+                )),
                 Err(e) => {
                     report_protocol(&sink, &buf, &e);
                     Err(JobError::supervisor("engine_protocol", e.to_string()))
@@ -492,7 +494,8 @@ impl EngineClient {
         params: Value,
         on_event: Option<OnEvent>,
     ) -> JobResult<Value> {
-        self.core.call(method, params, frame_callback(on_event), None)
+        self.core
+            .call(method, params, frame_callback(on_event), None)
     }
 
     /// As [`Self::call_with_events`], with each event's request id.

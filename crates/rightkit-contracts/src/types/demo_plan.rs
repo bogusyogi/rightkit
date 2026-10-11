@@ -22,7 +22,7 @@ pub struct DemoPlan {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub struct Narration {
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub voice_id: Option<String>,
     pub script_hash: String,
     pub duration_ms: u64,
@@ -63,7 +63,7 @@ pub enum Segment {
         source_at_ms: u64,
         output_start_ms: u64,
         output_end_ms: u64,
-        #[serde(default)]
+        #[serde(default, skip_serializing_if = "Option::is_none")]
         step_id: Option<String>,
     },
 }
@@ -114,13 +114,13 @@ pub struct Action {
     pub action_id: String,
     pub primitive: Primitive,
     pub start: TimeRef,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub end: Option<TimeRef>,
     #[serde(default)]
     pub keyframes: Vec<Keyframe>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub params: Option<Value>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub safe_region: Option<SafeRegion>,
     pub provenance: Provenance,
 }
@@ -147,7 +147,7 @@ pub enum SafeRegion {
 pub struct Provenance {
     pub source: Source,
     pub locked: bool,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub generator_revision: Option<String>,
 }
 

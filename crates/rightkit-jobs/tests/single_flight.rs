@@ -63,9 +63,7 @@ fn queued_predecessor_is_superseded_and_never_handed_to_a_handler() {
         JobLocks::new(dir.path().join("locks")),
         counter.clone(),
     );
-    assert!(
-        matches!(runner.run(&a_id).unwrap(), RunOutcome::Finished(j) if j.status == CANCELLED)
-    );
+    assert!(matches!(runner.run(&a_id).unwrap(), RunOutcome::Finished(j) if j.status == CANCELLED));
     assert_eq!(counter.0.load(Ordering::SeqCst), 0);
     assert!(matches!(runner.run(&b_id).unwrap(), RunOutcome::Finished(j) if j.status == COMPLETE));
 }

@@ -1,6 +1,6 @@
 //! OpenAI-compatible chat client (`POST {base}/chat/completions`). Serves OpenAI,
 //! OpenRouter, Groq, DeepSeek, Together, Mistral, xAI, Gemini's OpenAI endpoint,
-//! and local runtimes (Ollama, LM Studio, llama.cpp server).
+//! NVIDIA NIM, and local runtimes (Ollama, LM Studio, llama.cpp server).
 
 use std::collections::BTreeMap;
 use std::ops::ControlFlow;
@@ -31,6 +31,7 @@ pub struct OpenAiCompatProvider {
     requires_credential: bool,
     extra_headers: Vec<(String, String)>,
     max_tokens_field: MaxTokensField,
+    observer: Option<CallObserver>,
 }
 
 impl OpenAiCompatProvider {
@@ -48,6 +49,7 @@ impl OpenAiCompatProvider {
             requires_credential: true,
             extra_headers: Vec::new(),
             max_tokens_field: MaxTokensField::MaxTokens,
+            observer: None,
         }
     }
     pub fn without_credential(mut self) -> Self {
@@ -62,27 +64,48 @@ impl OpenAiCompatProvider {
         self.max_tokens_field = f;
         self
     }
+    /// Report every call that reaches the network to `f`: the exact body sent and the parsed
+    /// response (with usage) or the error. The credential and auth header are never passed.
+    /// See [`CallRecord`].
+    pub fn with_observer(mut self, f: impl Fn(&CallRecord<'_>) + Send + Sync + 'static) -> Self {
+        self.observer = Some(Arc::new(f));
+        self
+    }
 
-    /// The HTTP request, plus the credential text (when one was sent) so that error text
-    /// from the provider can have it removed.
+    /// The HTTP request, the credential text (when one was sent) so that error text from the
+    /// provider can have it removed, and the body that was built.
     fn request(
         &self,
         req: &ChatRequest,
         stream: bool,
-    ) -> Result<(Request, Option<String>), LlmError> {
-        let body = build_body(req, stream, self.max_tokens_field);
+    ) -> Result<(Request, Option<String>, Value), LlmError> {
+        let mut body = build_body(req, stream, self.max_tokens_field);
+        req.extra_body.merge_into(&mut body)?;
         // Replay after 429/5xx is safe: a chat completion has no server-side effect and
-        // OpenAI-compatible providers document 429 and 5xx as retryable.
-        let mut http = Request::post(format!("{}/chat/completions", self.base_url))
-            .retry_unsafe_statuses(true)
-            .header(
-                "Accept",
-                if stream {
-                    "text/event-stream"
-                } else {
-                    "application/json"
-                },
-            );
+        // OpenAI-compatible providers document 429 and 5xx as retryable. The per-call
+        // `CallRetry` may narrow or replace the client's attempt policy.
+        let http = req.retry.apply(
+            Request::post(format!("{}/chat/completions", self.base_url))
+                .retry_unsafe_statuses(true)
+                .header(
+                    "Accept",
+                    if stream {
+                        "text/event-stream"
+                    } else {
+                        "application/json"
+                    },
+                ),
+        );
+        let (mut http, secret) = self.authorize(http)?;
+        if let Some(limit) = req.timeout {
+            // Per-call total budget; `deadline` also bounds retry attempts and sleeps.
+            http = http.timeout(limit).deadline(limit);
+        }
+        Ok((http.json(&body)?, secret, body))
+    }
+
+    /// Adds the bearer credential (when this provider needs one) and the configured headers.
+    fn authorize(&self, mut http: Request) -> Result<(Request, Option<String>), LlmError> {
         let mut secret = None;
         match self.credentials.credential(&self.id)? {
             Some(c) => {
@@ -97,11 +120,45 @@ impl OpenAiCompatProvider {
         for (k, v) in &self.extra_headers {
             http = http.header(k.as_str(), v.as_str());
         }
-        if let Some(limit) = req.timeout {
-            // Per-call total budget; `deadline` also bounds retry attempts and sleeps.
-            http = http.timeout(limit).deadline(limit);
+        Ok((http, secret))
+    }
+
+    fn observe(&self, stream: bool, body: &Value, result: &Result<ChatResponse, LlmError>) {
+        if let Some(observer) = &self.observer {
+            observer(&CallRecord {
+                provider: &self.id,
+                stream,
+                request_body: body,
+                result: result.as_ref(),
+            });
         }
-        Ok((http.json(&body)?, secret))
+    }
+
+    /// `GET {base}/models`: the model ids the endpoint lists. Doubles as a key check: a
+    /// rejected credential (401 or 403) returns [`LlmError::Auth`]. Ids come back in the
+    /// order the server listed them.
+    pub fn list_models(&self) -> Result<Vec<String>, LlmError> {
+        let http =
+            Request::get(format!("{}/models", self.base_url)).header("Accept", "application/json");
+        let (http, secret) = self.authorize(http)?;
+        let resp = self.client.send(&http).map_err(|e| {
+            match LlmError::from_http(e, secret.as_deref()) {
+                LlmError::Status { status, message } if matches!(status, 401 | 403) => {
+                    LlmError::Auth { status, message }
+                }
+                other => other,
+            }
+        })?;
+        let v: Value = resp
+            .json()
+            .map_err(|e| LlmError::Malformed(e.to_string()))?;
+        parse_model_ids(&v)
+    }
+
+    /// `Ok(())` when the endpoint accepts the credential. Same call as
+    /// [`OpenAiCompatProvider::list_models`], without the list.
+    pub fn validate_credential(&self) -> Result<(), LlmError> {
+        self.list_models().map(|_| ())
     }
 }
 
@@ -270,21 +327,40 @@ pub fn parse_response(v: &Value) -> Result<ChatResponse, LlmError> {
     })
 }
 
+/// Model ids from a `GET /models` answer (`{"data": [{"id": ...}]}`). Entries without a
+/// non-empty `id` are skipped; a missing `data` array is [`LlmError::Malformed`].
+pub fn parse_model_ids(v: &Value) -> Result<Vec<String>, LlmError> {
+    let data = v
+        .get("data")
+        .and_then(Value::as_array)
+        .ok_or_else(|| LlmError::Malformed("missing data array".into()))?;
+    Ok(data
+        .iter()
+        .filter_map(|m| m["id"].as_str().filter(|s| !s.is_empty()))
+        .map(str::to_owned)
+        .collect())
+}
+
 impl Provider for OpenAiCompatProvider {
     fn id(&self) -> &str {
         &self.id
     }
 
     fn complete(&self, req: &ChatRequest) -> Result<ChatResponse, LlmError> {
-        let (http, secret) = self.request(req, false)?;
-        let resp = self
+        let (http, secret, body) = self.request(req, false)?;
+        let result = self
             .client
             .send(&http)
-            .map_err(|e| LlmError::from_http(e, secret.as_deref()))?;
-        let v: Value = resp
-            .json()
-            .map_err(|e| LlmError::Malformed(e.to_string()))?;
-        parse_response(&v)
+            .map_err(|e| LlmError::from_http(e, secret.as_deref()))
+            .and_then(|resp| {
+                let v: Value = resp
+                    .json()
+                    .map_err(|e| LlmError::Malformed(e.to_string()))?;
+                parse_response(&v)
+            })
+            .and_then(|r| check_output(r, req));
+        self.observe(false, &body, &result);
+        result
     }
 
     fn stream(
@@ -292,11 +368,24 @@ impl Provider for OpenAiCompatProvider {
         req: &ChatRequest,
         on_event: &mut dyn FnMut(StreamEvent) -> ControlFlow<()>,
     ) -> Result<ChatResponse, LlmError> {
-        let (http, secret) = self.request(req, true)?;
-        let key = secret.as_deref();
+        let (http, secret, body) = self.request(req, true)?;
+        let result = self.stream_call(req, &http, secret.as_deref(), on_event);
+        self.observe(true, &body, &result);
+        result
+    }
+}
+
+impl OpenAiCompatProvider {
+    fn stream_call(
+        &self,
+        req: &ChatRequest,
+        http: &Request,
+        key: Option<&str>,
+        on_event: &mut dyn FnMut(StreamEvent) -> ControlFlow<()>,
+    ) -> Result<ChatResponse, LlmError> {
         let response = self
             .client
-            .stream(&http)
+            .stream(http)
             .map_err(|e| LlmError::from_http(e, key))?;
         let mut id = String::new();
         let mut model = String::new();
@@ -335,10 +424,8 @@ impl Provider for OpenAiCompatProvider {
                     err["message"].as_str().unwrap_or("provider error"),
                     key,
                 );
-                let kind = crate::error::redact_secret(
-                    err["type"].as_str().unwrap_or("error"),
-                    key,
-                );
+                let kind =
+                    crate::error::redact_secret(err["type"].as_str().unwrap_or("error"), key);
                 return Err(if delivered {
                     LlmError::MidStream(format!("{kind}: {message}"))
                 } else {
@@ -416,14 +503,17 @@ impl Provider for OpenAiCompatProvider {
                 input: tool_input(&args)?,
             });
         }
-        Ok(ChatResponse {
-            id,
-            model,
-            content,
-            stop_reason: parse_finish(finish.as_deref()),
-            usage,
-            usage_known: usage != Usage::default(),
-            metering: Metering::PerToken,
-        })
+        check_output(
+            ChatResponse {
+                id,
+                model,
+                content,
+                stop_reason: parse_finish(finish.as_deref()),
+                usage,
+                usage_known: usage != Usage::default(),
+                metering: Metering::PerToken,
+            },
+            req,
+        )
     }
 }

@@ -1,0 +1,4 @@
+# Shell scripts run under bash on every runner, including Windows: always LF.
+*.sh text eol=lf
+# Vendored sources are hashed byte for byte: never convert their line endings.
+crates/rightkit-qts-ggml-sys/vendor/** -text

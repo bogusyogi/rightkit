@@ -61,3 +61,12 @@ summary names it under "Now green" and the entry is removed in the next commit.
 3. Push to `main` in batches. A push that arrives while a run is in progress waits; of several
    waiting pushes only the newest runs, and it covers everything since the last green commit.
 4. Apply `fmt.patch` and `Cargo.lock.patch` from the evidence with `git apply`, then commit.
+
+## Two hosts, one owner
+
+- One integration owner (the Mac lead) commits to `main` and merges pull requests. Nobody else pushes to `main`.
+- The Windows side works on `win/<topic>` branches, one small pull request per change, and reports "PR N green, merge it" with the order when pull requests depend on each other. The owner squash-merges.
+- A pull request run builds the branch merged with `main`'s tip on both runners, so a red `main` fails every pull request. Whoever breaks `main` fixes `main` first.
+- The owner states `main`'s condition in plain words after each run: "main is green at <sha>" or "main is red at <sha>, cause, fix pushed". Branches merge `main` in only after "green".
+- Docs-only commits carry `[skip ci]`.
+- Green CI is not "seen working": a report of behaviour on an installed build is separate and names the commit.

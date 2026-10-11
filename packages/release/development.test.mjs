@@ -89,7 +89,15 @@ test("install command failure is surfaced after successful dev build", () => {
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
-test("pnpm subprocess preserves JSON arguments and dev environment without compiling", () => {
+// The subprocess resolves pnpm to its JavaScript entry (PATH, a global install, or npm_execpath). A hosted runner
+// exposes pnpm as a shim with no reachable JavaScript entry, so the suite passes the pnpm that runs it (set by
+// `pnpm run`). With no resolvable entry the test skips with that reason; RIGHTKIT_REQUIRE_ASSETS=1 runs it so it fails.
+const suitePnpm = process.env.npm_execpath ? { npm_execpath: process.env.npm_execpath } : {};
+const pnpmResolvable = (() => {
+  try { resolvePnpmCli({ root: os.tmpdir(), env: { PATH: process.env.PATH ?? "", ...suitePnpm } }); return true; } catch { return false; }
+})();
+const pnpmSkip = pnpmResolvable || process.env.RIGHTKIT_REQUIRE_ASSETS === "1" ? false : "no JavaScript pnpm entry is reachable from PATH or npm_execpath (run the suite through pnpm)";
+test("pnpm subprocess preserves JSON arguments and dev environment without compiling", { skip: pnpmSkip }, () => {
   const root = temp();
   try {
     git(root, ["init", "-b", "main"]);
@@ -100,7 +108,7 @@ test("pnpm subprocess preserves JSON arguments and dev environment without compi
     runDevelopment({
       root, platform: nativePlatform, buildOnly: true,
       config: { development: { targets: { [nativePlatform]: { build: [{ cmd: "pnpm", args: ["exec", "node", "-e", code, "a \"quoted\" value"] }] } } } },
-      env: { PATH: process.env.PATH ?? "", CARGO_INCREMENTAL: "1" },
+      env: { PATH: process.env.PATH ?? "", CARGO_INCREMENTAL: "1", ...suitePnpm },
       run: (command, args, options) => {
         const result = spawnSync(command, args, { ...options, stdio: "pipe", encoding: "utf8" });
         output = result.stdout;

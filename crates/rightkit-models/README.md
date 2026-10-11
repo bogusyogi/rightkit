@@ -33,6 +33,21 @@ let store = Store::new("/application-data/models", "my-app");
 // are delivered to a callback supplied by the app.
 ```
 
+### Building a `ModelSpec`
+
+`ModelSpec` is `#[non_exhaustive]` from 0.3.0, so build it with the constructor rather than a struct literal:
+
+```rust,ignore
+use rightkit_models::{ModelSpec, RevisionSpec};
+
+let spec = ModelSpec::new("whisper-tiny", vec![RevisionSpec { /* revision, files, ... */ ..Default::default() }])
+    .with_label("Whisper tiny");
+```
+
+### Grant rate limits
+
+`suite::grant::try_acquire_grant_pinned` and `try_acquire_grant_with_client` return `GrantError`. `GrantError::RateLimited { retry_after, message }` is an HTTP 429 from the model worker, with the parsed `Retry-After` (delay-seconds or an IMF-fixdate, converted to a delay from now). `GrantError::retry_after()` returns it. `GrantError::Failed` covers everything else. The grant POST is never replayed, so the caller decides when to retry. The `String`-returning functions (`acquire_grant_pinned`, `acquire_grant_with_client`) keep their signatures and messages.
+
 ## Additional capabilities
 
 Added in 0.2.0:

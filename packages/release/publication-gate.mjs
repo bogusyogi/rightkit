@@ -17,6 +17,9 @@ export const REQUIRED_HOSTS = Object.freeze(["darwin", "win32"]);
 // Swift packages (RightKitSwift) are Apple-only; Windows cannot run them.
 export const requiredHosts = (kind) => (kind === "swift" ? Object.freeze(["darwin"]) : REQUIRED_HOSTS);
 const SHA = /^[0-9a-f]{40}$/;
+// The one definition of a recorded darwin-only host policy (release evidence and the runtime budget gate share it).
+export const isDarwinOnlyPolicy = (source) => source?.hostPolicy === "darwin-only"
+  && typeof source.hostPolicyReason === "string" && source.hostPolicyReason.trim() !== "";
 
 export function defaultEvidencePath(workspaceRoot, kind, name) {
   return path.join(workspaceRoot, "release-evidence", "gate", `${kind}-${name.replace(/^@/, "").replace("/", "-")}.json`);
@@ -26,6 +29,40 @@ function defaultGit(args, cwd) {
   const result = spawnSync("git", args, { cwd, encoding: "utf8", windowsHide: true });
   if (result.error || result.status !== 0) return null;
   return (result.stdout ?? "").trim();
+}
+
+// Explains a receipt commit that is not the publishing HEAD. The gate still refuses it (exact-commit rule,
+// docs/RIGHTKIT-SHARED-PACKAGES.md "Publication gate" rule 1); this only says whether the receipt is an
+// ancestor with an unchanged unit path (re-qualify by re-running on HEAD) or unrelated/changed.
+function describeCommitMismatch(evidenceCommit, head, packagePath, git) {
+  const known = git(["cat-file", "-t", evidenceCommit], packagePath);
+  if (known !== "commit") return "receipt commit is not a commit object in this repository";
+  // `merge-base --is-ancestor` prints nothing: "" means ancestor, null (non-zero exit) means not.
+  const ancestor = git(["merge-base", "--is-ancestor", evidenceCommit, head], packagePath) !== null;
+  const relation = ancestor ? git(["rev-list", "--count", `${evidenceCommit}..${head}`], packagePath) : null;
+  const changed = git(["diff", "--name-only", evidenceCommit, head, "--", "."], packagePath);
+  const parts = [];
+  parts.push(ancestor ? `receipt commit is an ancestor, ${relation ?? "?"} commit(s) behind HEAD` : "receipt commit is not an ancestor of HEAD");
+  if (changed === null) parts.push("cannot diff the unit path");
+  else parts.push(changed === "" ? "unit path unchanged since the receipt (re-run the host runs on HEAD to re-qualify)" : `unit path changed since the receipt: ${changed.split("\n").slice(0, 5).join(", ")}`);
+  return parts.join("; ");
+}
+
+// Names of the fields of one host run that do not qualify (empty when the run qualifies). Every run binds to
+// the same unit, commit and artifact: commit, host arch, feature set and artifactSha256 equal to the evidence.
+function invalidRunFields(run, evidence) {
+  const bad = [];
+  const text = (value) => typeof value === "string" && value.trim() !== "";
+  if (run.commit !== evidence.commit) bad.push(`commit (must equal ${evidence.commit})`);
+  if (!text(run.host?.arch)) bad.push("host.arch");
+  if (!(Array.isArray(run.features) && run.features.length > 0 && run.features.every(text))) bad.push("features");
+  if (run.artifactSha256 !== evidence.artifactSha256) bad.push("artifactSha256 (must equal the evidence hash)");
+  if (!text(run.command)) bad.push("command");
+  if (!text(run.operator)) bad.push("operator");
+  if (!text(run.timestamp)) bad.push("timestamp");
+  if (!(Number.isInteger(run.passed) && run.passed > 0)) bad.push("passed (must be > 0)");
+  if (run.failed !== 0) bad.push("failed (must be 0)");
+  return bad;
 }
 
 // Returns { ok, missing[] }. Pure apart from the injected git/readFile.
@@ -43,25 +80,27 @@ export function checkPublicationGate({ kind, name, version, packagePath, evidenc
   if (evidence) {
     if (evidence.schema !== GATE_SCHEMA) missing.push(`evidence schema must be ${GATE_SCHEMA}`);
     if (evidence.kind !== kind || evidence.name !== name) missing.push(`evidence is for ${evidence.kind}:${evidence.name}, expected ${kind}:${name}`);
-    if (version && evidence.version !== version) missing.push(`evidence version ${evidence.version} != ${version}`);
+    // A missing publishing version must refuse: a skipped comparison would qualify any evidence version.
+    if (typeof version !== "string" || version.trim() === "") missing.push("publishing version is unknown (manifest has no literal version), cannot bind the receipt to it");
+    else if (evidence.version !== version) missing.push(`evidence version ${evidence.version} != ${version}`);
     if (!SHA.test(String(evidence.commit ?? ""))) missing.push("evidence commit is not a full 40-character SHA");
-    else if (head && evidence.commit !== head) missing.push(`evidence commit ${evidence.commit} != current HEAD ${head}`);
+    else if (head && evidence.commit !== head) {
+      missing.push(`evidence commit ${evidence.commit} != current HEAD ${head} (${describeCommitMismatch(evidence.commit, head, packagePath, git)})`);
+    }
     const runs = Array.isArray(evidence.runs) ? evidence.runs : [];
     // npm packages and crates may ship on macOS evidence first when Adrian decides so; the decision must be
     // recorded in the evidence (hostPolicy "darwin-only" + a non-empty hostPolicyReason).
     // Crates may ship Mac-first too (Adrian 2026-10-07): the Windows run follows; the reason is recorded.
-    const darwinOnly = (kind === "npm" || kind === "cargo") && evidence.hostPolicy === "darwin-only"
-      && typeof evidence.hostPolicyReason === "string" && evidence.hostPolicyReason.trim() !== "";
+    const darwinOnly = (kind === "npm" || kind === "cargo") && isDarwinOnlyPolicy(evidence);
     for (const host of darwinOnly ? ["darwin"] : requiredHosts(kind)) {
       const label = host === "darwin" ? "macOS" : "Windows";
       const matching = runs.filter((run) => run?.host?.os === host);
       if (!matching.length) { missing.push(`no ${label} host run receipt`); continue; }
-      const good = matching.some((run) => run.commit === evidence.commit
-        && Number.isInteger(run.passed) && run.passed > 0 && run.failed === 0
-        && typeof run.command === "string" && run.command.trim()
-        && typeof run.operator === "string" && run.operator.trim()
-        && typeof run.timestamp === "string" && run.timestamp.trim());
-      if (!good) missing.push(`${label} run receipt must name commit ${evidence.commit}, command, operator, timestamp, passed>0 and failed=0`);
+      // Every run on the host must qualify: a failing run is not masked by a passing run beside it.
+      matching.forEach((run, index) => {
+        const fields = invalidRunFields(run, evidence);
+        if (fields.length) missing.push(`${label} run receipt ${index} invalid: ${fields.join(", ")}`);
+      });
     }
     if (!/^[0-9a-f]{64}$/.test(String(evidence.artifactSha256 ?? ""))) missing.push("evidence artifactSha256 must be a 64-hex hash");
   }

@@ -67,7 +67,11 @@ fn coalescing_keeps_the_latest_progress_per_interval_and_flushes_it() {
             .unwrap();
     }
     let evs = store.events_after(&id, 0).unwrap();
-    assert_eq!(evs.len(), 1, "only the first tick is written inside the interval");
+    assert_eq!(
+        evs.len(),
+        1,
+        "only the first tick is written inside the interval"
+    );
     assert_eq!(evs[0].progress, Some(0.0));
     assert_eq!(store.progress_stats().coalesced, 99);
 
@@ -93,7 +97,11 @@ fn a_transition_flushes_pending_progress_before_it_commits() {
     store.complete_fenced(&id, gen, &json!({})).unwrap();
     let evs = store.events_after(&id, 0).unwrap();
     assert_eq!(evs.last().unwrap().progress, Some(0.4));
-    assert_eq!(evs.last().unwrap().status, "running", "flushed before the status change");
+    assert_eq!(
+        evs.last().unwrap().status,
+        "running",
+        "flushed before the status change"
+    );
 }
 
 #[test]
@@ -104,8 +112,12 @@ fn due_progress_is_visible_to_a_polling_reader() {
         ProgressPolicy::default().coalesce(Duration::from_millis(50)),
     );
     let (id, gen) = started(&store);
-    store.progress_fenced(&id, gen, "work", Some(0.1), None).unwrap();
-    store.progress_fenced(&id, gen, "work", Some(0.2), None).unwrap();
+    store
+        .progress_fenced(&id, gen, "work", Some(0.1), None)
+        .unwrap();
+    store
+        .progress_fenced(&id, gen, "work", Some(0.2), None)
+        .unwrap();
     assert_eq!(store.events_after(&id, 0).unwrap().len(), 1);
     std::thread::sleep(Duration::from_millis(120));
     let evs = store.events_after(&id, 0).unwrap();
@@ -136,17 +148,28 @@ fn pending_progress_of_a_superseded_attempt_is_dropped() {
         ProgressPolicy::default().coalesce(Duration::from_secs(60)),
     );
     let (id, gen) = started(&store);
-    store.progress_fenced(&id, gen, "work", Some(0.1), None).unwrap();
-    store.progress_fenced(&id, gen, "work", Some(0.9), None).unwrap();
+    store
+        .progress_fenced(&id, gen, "work", Some(0.1), None)
+        .unwrap();
+    store
+        .progress_fenced(&id, gen, "work", Some(0.9), None)
+        .unwrap();
     store.fence(&id, gen).unwrap();
     store.flush_progress(&id).unwrap();
-    assert_eq!(store.events_after(&id, 0).unwrap().len(), 1, "stale tick never lands");
+    assert_eq!(
+        store.events_after(&id, 0).unwrap().len(),
+        1,
+        "stale tick never lands"
+    );
 }
 
 #[test]
 fn relaxed_durability_applies_to_progress_only_and_restores_full() {
     let dir = tempfile::tempdir().unwrap();
-    let store = open(dir.path(), ProgressPolicy::default().relaxed_durability(true));
+    let store = open(
+        dir.path(),
+        ProgressPolicy::default().relaxed_durability(true),
+    );
     let (id, gen) = started(&store);
     for i in 0..4 {
         store
@@ -155,7 +178,11 @@ fn relaxed_durability_applies_to_progress_only_and_restores_full() {
     }
     assert_eq!(store.events_after(&id, 0).unwrap().len(), 4);
     assert_eq!(store.progress_stats().relaxed_writes, 4);
-    assert_eq!(synchronous(&store), FULL, "the connection is back to full durability");
+    assert_eq!(
+        synchronous(&store),
+        FULL,
+        "the connection is back to full durability"
+    );
     let before = store.progress_stats().relaxed_writes;
     store.complete_fenced(&id, gen, &json!({})).unwrap();
     store.add_event(&id, "marker", None, None).unwrap();
@@ -203,6 +230,9 @@ fn runner_lifecycle_events_stay_durable_under_coalescing() {
     assert_eq!(stages.first().map(String::as_str), Some("started"));
     assert_eq!(stages.last().map(String::as_str), Some("complete"));
     let work = stages.iter().filter(|s| *s == "work").count();
-    assert!((1..=3).contains(&work), "coalesced to the first and latest tick, got {work}");
+    assert!(
+        (1..=3).contains(&work),
+        "coalesced to the first and latest tick, got {work}"
+    );
     assert_eq!(synchronous(&store), FULL);
 }

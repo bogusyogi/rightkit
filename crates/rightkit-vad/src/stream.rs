@@ -1,3 +1,4 @@
+use crate::spans::ensure_finite_score;
 use crate::{FrameScorer, FRAME_SAMPLES};
 
 /// Cap on buffered-but-unscored samples (30 s), matching HeardRight.
@@ -80,7 +81,8 @@ impl<S: FrameScorer> FrameStream<S> {
             speech: Vec::new(),
         };
         for frame in frames.as_chunks::<FRAME_SAMPLES>().0 {
-            match self.scorer.score(frame) {
+            // A non-finite score is a scorer failure (`Error::Model`), never silence.
+            match self.scorer.score(frame).and_then(ensure_finite_score) {
                 Ok(score) => {
                     self.observed += 1;
                     let is_speech = score >= self.threshold;
@@ -96,5 +98,68 @@ impl<S: FrameScorer> FrameStream<S> {
             }
         }
         Some(out)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A mock scorer that returns a fixed script, one score per frame.
+    struct Scripted {
+        scores: Vec<f32>,
+        next: usize,
+    }
+
+    impl FrameScorer for Scripted {
+        fn reset(&mut self) {
+            self.next = 0;
+        }
+        fn score(&mut self, _frame: &[f32; FRAME_SAMPLES]) -> crate::Result<f32> {
+            let score = self.scores[self.next];
+            self.next += 1;
+            Ok(score)
+        }
+    }
+
+    #[test]
+    fn non_finite_score_fails_the_stream_instead_of_counting_as_silence() {
+        for bad in [f32::NAN, f32::INFINITY, f32::NEG_INFINITY] {
+            // Three frames; the second score is not finite.
+            let mut stream = FrameStream::new(
+                Scripted {
+                    scores: vec![0.9, bad, 0.9],
+                    next: 0,
+                },
+                0.5,
+            );
+            let verdicts = stream.push(&vec![0.0f32; 3 * FRAME_SAMPLES]);
+            assert!(verdicts.is_none(), "{bad}: an unknown, not a verdict");
+            assert!(stream.is_failed(), "{bad}");
+            // Only the first frame was judged. The bad frame is neither speech nor silence.
+            assert_eq!(stream.aggregate(), Some((1, 1)), "{bad}");
+            // The stream stays failed until reset.
+            assert!(stream.push(&vec![0.0f32; FRAME_SAMPLES]).is_none(), "{bad}");
+        }
+    }
+
+    #[test]
+    fn finite_scores_still_yield_verdicts() {
+        let mut stream = FrameStream::new(
+            Scripted {
+                scores: vec![0.9, 0.1],
+                next: 0,
+            },
+            0.5,
+        );
+        let verdicts = stream.push(&vec![0.0f32; 2 * FRAME_SAMPLES]).unwrap();
+        assert_eq!(
+            verdicts,
+            FrameVerdicts {
+                scores: vec![0.9, 0.1],
+                speech: vec![true, false],
+            }
+        );
+        assert!(!stream.is_failed());
     }
 }

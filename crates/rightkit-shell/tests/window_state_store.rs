@@ -87,7 +87,17 @@ fn restore_can_show_unminimize_and_focus_in_that_safe_order() {
         ..Default::default()
     };
     apply_restore(&mut w, RECT, &saved(false), &opts);
-    assert_eq!(w.0, ["unmaximize", "size", "position", "unminimize", "show", "focus"]);
+    assert_eq!(
+        w.0,
+        [
+            "unmaximize",
+            "size",
+            "position",
+            "unminimize",
+            "show",
+            "focus"
+        ]
+    );
 }
 
 #[test]

@@ -45,7 +45,9 @@ impl fmt::Debug for StaticCredentials {
         // Provider ids only: the values are secrets.
         let mut ids: Vec<&String> = self.0.keys().collect();
         ids.sort();
-        f.debug_struct("StaticCredentials").field("providers", &ids).finish()
+        f.debug_struct("StaticCredentials")
+            .field("providers", &ids)
+            .finish()
     }
 }
 

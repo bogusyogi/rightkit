@@ -28,9 +28,9 @@ mod redirect;
 pub mod retry;
 pub mod secret;
 pub mod sse;
+mod trust;
 #[cfg(feature = "untrusted")]
 pub mod untrusted;
-mod trust;
 mod urlredact;
 mod wire;
 

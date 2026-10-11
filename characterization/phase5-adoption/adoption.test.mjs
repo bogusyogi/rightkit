@@ -1,11 +1,18 @@
 import assert from "node:assert/strict";
+import { existsSync } from "node:fs";
+import path from "node:path";
 import test from "node:test";
+import { fileURLToPath } from "node:url";
 
-import { inspectPhase5Adoption } from "./adoption.mjs";
+import { inspectMedia, inspectPhase5Adoption } from "./adoption.mjs";
 
+// coderight, scraperight and heardright are sibling checkouts of the owner's workspace. Only the premature-dependency
+// scan reads them, so only the crate gate skips without them; a hosted CI checkout holds rightkit alone.
+// RIGHTKIT_REQUIRE_ASSETS=1 runs the gate anyway, so a missing checkout fails it.
+const consumerRepos = ["coderight", "scraperight", "heardright"].map((repo) => path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..", repo));
+const consumersSkip = consumerRepos.every((dir) => existsSync(dir)) || process.env.RIGHTKIT_REQUIRE_ASSETS === "1" ? false : "coderight, scraperight and heardright are not checked out beside rightkit";
 
-
-test("Mac gates keep all Phase 5 crates internal", async () => {
+test("Mac gates keep all Phase 5 crates internal", { skip: consumersSkip }, async () => {
   const report = await inspectPhase5Adoption();
 
   assert.equal(report.readyToPublish, false);
@@ -17,10 +24,11 @@ test("Mac gates keep all Phase 5 crates internal", async () => {
   assert.deepEqual(report.prematureDependencies, []);
 });
 
+// The media parity checks read only rightkit's contract and vendored artifacts, so they run without the consumer checkouts.
 test("Windows media parity is frozen while Mac artifact rows remain unapproved", async () => {
-  const report = await inspectPhase5Adoption();
+  const media = await inspectMedia();
 
-  const { missingCopies, ...windows } = report.media.windows;
+  const { missingCopies, ...windows } = media.windows;
   assert.deepEqual(windows, {
     id: "ffmpeg-7.1.5-windows-x64",
     status: "approved",
@@ -34,7 +42,7 @@ test("Windows media parity is frozen while Mac artifact rows remain unapproved",
   // Rebuilt as 7.1.5 on 2026-07-15 (LGPL, decode-only) and approved. The status is only half the
   // claim; the hash check below is what makes it evidence.
   assert.deepEqual(
-    report.media.macos.map(({ arch, status }) => ({ arch, status })),
+    media.macos.map(({ arch, status }) => ({ arch, status })),
     [
       { arch: "arm64", status: "approved" },
       { arch: "x86_64", status: "approved" },
@@ -43,8 +51,8 @@ test("Windows media parity is frozen while Mac artifact rows remain unapproved",
 });
 
 test("the Mac FFmpeg binaries on disk are the ones the contract pins", async (t) => {
-  const report = await inspectPhase5Adoption();
-  const onDisk = report.media.macos.filter(({ present }) => present);
+  const media = await inspectMedia();
+  const onDisk = media.macos.filter(({ present }) => present);
   if (onDisk.length === 0) t.skip("no Mac FFmpeg artifacts staged on this machine");
 
   for (const artifact of onDisk) {

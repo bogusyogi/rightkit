@@ -21,7 +21,7 @@
 mod common;
 
 use common::Harness;
-use rightkit_process::{observe_idle, BudgetLabels, process_usage, ProcessUsage};
+use rightkit_process::{observe_idle, process_usage, BudgetLabels, ProcessUsage};
 use serde_json::json;
 use std::time::{Duration, Instant};
 
@@ -34,11 +34,18 @@ fn usage() -> ProcessUsage {
 }
 
 fn report(label: &str, p: ProcessUsage) {
-    println!("{label}: resident {:7.1} MB  footprint {:7.1} MB", mb(p.resident_bytes), mb(p.footprint_bytes));
+    println!(
+        "{label}: resident {:7.1} MB  footprint {:7.1} MB",
+        mb(p.resident_bytes),
+        mb(p.footprint_bytes)
+    );
 }
 
 fn main() {
-    let nums: Vec<u64> = std::env::args().skip(1).filter_map(|a| a.parse().ok()).collect();
+    let nums: Vec<u64> = std::env::args()
+        .skip(1)
+        .filter_map(|a| a.parse().ok())
+        .collect();
     let n: u64 = nums.first().copied().unwrap_or(10_000);
     let idle_s: u64 = nums.get(1).copied().unwrap_or(30);
 
@@ -103,6 +110,19 @@ fn main() {
     );
     let idle = observe_idle(Duration::from_secs(idle_s)).expect("idle window");
     let status = h.daemon.status();
-        println!("RESULT jobs_retained={} jobs", status.metrics.jobs);
-    print!("{}", idle.result_lines(&p_after, &BudgetLabels { krate: "rightkit-daemon", version: env!("CARGO_PKG_VERSION"), scale_unit: "submissions", scale: n, what: "signed job submissions retained in daemon state, daemon idle (no listener)", scope: "synthetic" }));
+    println!("RESULT jobs_retained={} jobs", status.metrics.jobs);
+    print!(
+        "{}",
+        idle.result_lines(
+            &p_after,
+            &BudgetLabels {
+                krate: "rightkit-daemon",
+                version: env!("CARGO_PKG_VERSION"),
+                scale_unit: "submissions",
+                scale: n,
+                what: "signed job submissions retained in daemon state, daemon idle (no listener)",
+                scope: "synthetic"
+            }
+        )
+    );
 }

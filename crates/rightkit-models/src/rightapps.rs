@@ -371,10 +371,9 @@ impl RuntimeArtifactClient {
                 .map_err(|_| RuntimeArtifactError::InvalidManifest)?,
         )?;
         let m = &verified.manifest;
-        let spec = ModelSpec {
-            id: model_id.into(),
-            label: String::new(),
-            revisions: vec![RevisionSpec {
+        let spec = ModelSpec::new(
+            model_id,
+            vec![RevisionSpec {
                 revision: m.object.sha256.clone(),
                 files: vec![FileSpec {
                     path: m.object.filename.clone(),
@@ -385,7 +384,7 @@ impl RuntimeArtifactClient {
                 }],
                 ..Default::default()
             }],
-        };
+        );
         let mut options = options.clone();
         options.revision = Some(m.object.sha256.clone());
         options.quant = None;

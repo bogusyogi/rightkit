@@ -63,6 +63,9 @@ function splitChord(chord: string): string[] {
   return chord.split('+');
 }
 
+/** A raw key for `tap`. `modifiers` is the mask modifierBits uses: Alt 1, Control 2, Meta 4, Shift 8. */
+export interface KeyTapOptions { key: string; code?: string; windowsVirtualKeyCode?: number; modifiers?: number }
+
 export class QaKeyboard {
   constructor(private send: (method: string, params: CdpParams) => Promise<CdpParams>) {}
   /**
@@ -92,5 +95,20 @@ export class QaKeyboard {
       }
     }
     if (failure) throw failure;
+  }
+  /**
+   * One key press with no text: keyDown, then keyUp, both with the same key, code, Windows virtual key and
+   * modifier mask. Unlike press, it sends no rawKeyDown, no text, and no key-down or key-up for a modifier.
+   */
+  async tap(options: KeyTapOptions): Promise<void> {
+    const { key, code, windowsVirtualKeyCode, modifiers = 0 } = options;
+    if (typeof key !== 'string' || !key) throw new Error('tap key must be a non-empty string');
+    if (!Number.isInteger(modifiers) || modifiers < 0 || modifiers > 15) throw new Error('tap modifiers must be a bit mask from 0 to 15');
+    if (windowsVirtualKeyCode !== undefined && !Number.isInteger(windowsVirtualKeyCode)) throw new Error('tap windowsVirtualKeyCode must be an integer');
+    const event: CdpParams = { key, modifiers };
+    if (code !== undefined) event.code = code;
+    if (windowsVirtualKeyCode !== undefined) event.windowsVirtualKeyCode = windowsVirtualKeyCode;
+    await this.send('Input.dispatchKeyEvent', { type: 'keyDown', ...event });
+    await this.send('Input.dispatchKeyEvent', { type: 'keyUp', ...event });
   }
 }

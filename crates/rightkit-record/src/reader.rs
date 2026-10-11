@@ -18,9 +18,7 @@ use rightkit_contracts::types::record_event::RecordEvent;
 use rightkit_contracts::types::record_session::BundleStatus;
 use serde_json::Value;
 
-use crate::bundle::{
-    read_json, read_lines, CLOCK_FILE, EVENTS_FILE, MANIFEST_FILE, SCENARIO_FILE,
-};
+use crate::bundle::{read_json, read_lines, CLOCK_FILE, EVENTS_FILE, MANIFEST_FILE, SCENARIO_FILE};
 use crate::error::{Code, RecordError, Result};
 use crate::plan::{valid_id, ScenarioSpec, ScenarioStep};
 use crate::verify::{bundle_verify, VerifyOptions};
@@ -293,10 +291,7 @@ impl BundleReader {
         if !report.ok() {
             return Err(RecordError::new(
                 Code::VerifyFailed,
-                format!(
-                    "bundle fails verification: {}",
-                    report.problems.join("; ")
-                ),
+                format!("bundle fails verification: {}", report.problems.join("; ")),
             ));
         }
         BundleReader::open(dir)
@@ -327,9 +322,8 @@ impl BundleReader {
     /// The scenario the take was recorded under: its id, and each step's id,
     /// label and optional `say`, in declaration order. Reads `scenario.json`.
     pub fn scenario(&self) -> Result<ScenarioSpec> {
-        let malformed = |detail: &str| {
-            RecordError::new(Code::NotBundle, format!("scenario.json {detail}"))
-        };
+        let malformed =
+            |detail: &str| RecordError::new(Code::NotBundle, format!("scenario.json {detail}"));
         let value = read_json(&self.dir.join(SCENARIO_FILE))
             .map_err(|e| malformed(&format!("unreadable: {e}")))?;
         let scenario_id = value
@@ -405,7 +399,9 @@ impl BundleReader {
             .ok_or_else(|| {
                 RecordError::new(
                     Code::NotFound,
-                    format!("no observed postcondition for target '{target_id}' in step '{step_id}'"),
+                    format!(
+                        "no observed postcondition for target '{target_id}' in step '{step_id}'"
+                    ),
                 )
             })?;
         self.first_frame_from(step_id, observed)

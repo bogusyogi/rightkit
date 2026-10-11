@@ -16,7 +16,9 @@ use std::time::{Duration, Instant};
 static SERIAL: Mutex<()> = Mutex::new(());
 
 fn serial() -> MutexGuard<'static, ()> {
-    SERIAL.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+    SERIAL
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
 fn temp(name: &str) -> PathBuf {
@@ -102,7 +104,11 @@ fn one_file(name: &str, size: u64) -> Value {
 }
 
 fn prepare(port: u16, file_name: &str, size: u64) -> net::Reply {
-    post(port, &prepare_target(), &offer("phone-1", one_file(file_name, size)))
+    post(
+        port,
+        &prepare_target(),
+        &offer("phone-1", one_file(file_name, size)),
+    )
 }
 
 fn upload(port: u16, session: &PrepareUploadResponse, token: &str, bytes: &[u8]) -> u16 {
@@ -162,7 +168,13 @@ fn accepted_files_are_saved_inside_the_save_folder_and_never_overwrite() {
         assert_eq!(std::fs::read(&saved).unwrap(), b"hello");
     }
     assert!(!save.parent().unwrap().join("evil").exists());
-    assert!(service.snapshot().transfers.iter().all(|t| t.state == "done"));
+    assert!(
+        service
+            .snapshot()
+            .transfers
+            .iter()
+            .all(|t| t.state == "done")
+    );
     let _ = std::fs::remove_dir_all(&save);
     let _ = std::fs::remove_dir_all(&state);
 }
@@ -230,6 +242,60 @@ fn stored_identity_keeps_its_fingerprint_across_restarts() {
 }
 
 #[test]
+fn stop_returns_promptly_and_the_same_port_starts_again() {
+    let _guard = serial();
+    let identity = Identity::generate("Test Mac").unwrap();
+    let (first, _save, state) = start(&identity, Policy::default());
+    let port = first.bound_port();
+    let info = format!("{}/info", proto::API);
+    let ask = |port: u16| {
+        net::request_json(
+            loopback(),
+            port,
+            true,
+            "",
+            "GET",
+            &info,
+            None,
+            Duration::from_secs(10),
+        )
+    };
+    assert_eq!(ask(port).expect("the first service answers").status, 200);
+
+    // `stop` ends the blocked acceptor and joins it: it returns at once and the port is free.
+    let began = Instant::now();
+    first.stop();
+    assert!(
+        began.elapsed() < Duration::from_secs(1),
+        "stop took {:?}",
+        began.elapsed()
+    );
+
+    // Starting on that very port works, repeatedly, and the new service answers.
+    for round in 0..3 {
+        let (save, state2) = (temp("save-again"), temp("state-again"));
+        let mut again = config(
+            &save,
+            &state2.join("nearby_devices.json"),
+            Policy::default(),
+        );
+        again.port = port;
+        let second = Service::start(again, identity.clone(), Arc::new(|_: Event| {}))
+            .unwrap_or_else(|e| panic!("round {round}: the port is not free after stop: {e:?}"));
+        assert_eq!(second.bound_port(), port);
+        assert_eq!(
+            ask(port).expect("the restarted service answers").status,
+            200
+        );
+        let began = Instant::now();
+        second.stop();
+        assert!(began.elapsed() < Duration::from_secs(1));
+        let _ = std::fs::remove_dir_all(&state2);
+    }
+    let _ = std::fs::remove_dir_all(&state);
+}
+
+#[test]
 fn a_request_pending_when_its_sender_is_denied_is_declined() {
     let _guard = serial();
     let identity = Identity::generate("Test Mac").unwrap();
@@ -240,9 +306,15 @@ fn a_request_pending_when_its_sender_is_denied_is_declined() {
     let deny = std::thread::spawn(move || {
         let incoming = wait_for_incoming(&denier).expect("a request arrives");
         assert_eq!(incoming.fingerprint, "a".repeat(64));
-        denier.set_trust(&incoming.fingerprint, TrustState::Deny).unwrap();
+        denier
+            .set_trust(&incoming.fingerprint, TrustState::Deny)
+            .unwrap();
     });
-    let reply = post(port, &prepare_target(), &offer(&fingerprint, one_file("x.txt", 1)));
+    let reply = post(
+        port,
+        &prepare_target(),
+        &offer(&fingerprint, one_file("x.txt", 1)),
+    );
     deny.join().unwrap();
     assert_eq!(reply.status, 403);
     assert!(!save.join("x.txt").exists());
@@ -357,15 +429,23 @@ fn a_certificate_proven_allowed_device_is_auto_accepted_with_clipboard() {
     let phone = Identity::generate("Phone").unwrap();
     // The client presents its certificate, so the sender proves its key.
     net::set_client_identity(&phone);
-    service.set_trust(&phone.fingerprint, TrustState::Allow).unwrap();
+    service
+        .set_trust(&phone.fingerprint, TrustState::Allow)
+        .unwrap();
     let mut body = offer(&phone.fingerprint, one_file("pasted.txt", 5));
     body["pulse"] = json!({"clipboard": true});
     let reply = post(service.bound_port(), &prepare_target(), &body);
     assert_eq!(reply.status, 200);
-    assert!(service.snapshot().incoming.is_empty(), "no card for an auto-accept");
+    assert!(
+        service.snapshot().incoming.is_empty(),
+        "no card for an auto-accept"
+    );
     let session: PrepareUploadResponse = serde_json::from_slice(&reply.body).unwrap();
     let token = session.files["f1"].clone();
-    assert_eq!(upload(service.bound_port(), &session, &token, b"hello"), 200);
+    assert_eq!(
+        upload(service.bound_port(), &session, &token, b"hello"),
+        200
+    );
     // Proven files are kept with the owner's own, not in the unverified folder.
     assert_eq!(std::fs::read(save.join("pasted.txt")).unwrap(), b"hello");
     let transfer = service.snapshot().transfers.into_iter().next().unwrap();
@@ -406,7 +486,11 @@ fn a_port_held_by_another_listener_is_a_typed_error() {
     let (service, _save, state) = start(&identity, Policy::default());
     let (save2, state2) = (temp("save2"), temp("state2"));
     let port = service.bound_port();
-    let mut taken = config(&save2, &state2.join("nearby_devices.json"), Policy::default());
+    let mut taken = config(
+        &save2,
+        &state2.join("nearby_devices.json"),
+        Policy::default(),
+    );
     taken.port = port;
     let second = Service::start(taken, identity.clone(), Arc::new(|_: Event| {}));
     assert!(matches!(second, Err(Error::PortInUse { port: p }) if p == port));
@@ -418,9 +502,12 @@ fn a_port_held_by_another_listener_is_a_typed_error() {
 
 /// Run one accepted single-file transfer to the point of having an upload
 /// session, returning it and its token.
-fn accepted_session(service: &Arc<Service>, port: u16, name: &str, size: u64)
-    -> (PrepareUploadResponse, String)
-{
+fn accepted_session(
+    service: &Arc<Service>,
+    port: u16,
+    name: &str,
+    size: u64,
+) -> (PrepareUploadResponse, String) {
     accepted_session_from(service, port, "phone-1", name, size)
 }
 
@@ -433,7 +520,11 @@ fn accepted_session_from(
     size: u64,
 ) -> (PrepareUploadResponse, String) {
     let helper = answer(service.clone(), true);
-    let reply = post(port, &prepare_target(), &offer(sender, one_file(name, size)));
+    let reply = post(
+        port,
+        &prepare_target(),
+        &offer(sender, one_file(name, size)),
+    );
     helper.join().unwrap();
     assert_eq!(reply.status, 200);
     let session: PrepareUploadResponse = serde_json::from_slice(&reply.body).unwrap();
@@ -462,7 +553,10 @@ fn a_preexisting_partial_is_preserved_and_not_adopted() {
     let (session, token) = accepted_session(&service, port, "hello.txt", 5);
     assert_eq!(upload(port, &session, &token, b"hello"), 200);
 
-    assert_eq!(std::fs::read(&leftover).unwrap(), b"OLD LEFTOVER BYTES THAT MUST SURVIVE");
+    assert_eq!(
+        std::fs::read(&leftover).unwrap(),
+        b"OLD LEFTOVER BYTES THAT MUST SURVIVE"
+    );
     assert_eq!(std::fs::read(&second).unwrap(), b"USER FILE");
     // The received file holds only what was sent, not the leftover's bytes.
     assert_eq!(std::fs::read(dir.join("hello.txt")).unwrap(), b"hello");
@@ -524,7 +618,11 @@ fn concurrent_transfers_of_the_same_name_each_keep_their_own_bytes() {
         std::fs::read(dir.join("same (1).bin")).unwrap(),
     ];
     got.sort();
-    assert_eq!(got, vec![a, b], "each transfer's bytes land intact in its own file");
+    assert_eq!(
+        got,
+        vec![a, b],
+        "each transfer's bytes land intact in its own file"
+    );
     let stray: Vec<_> = std::fs::read_dir(&dir)
         .unwrap()
         .filter_map(|e| e.ok())
@@ -571,9 +669,8 @@ fn cancelling_a_receive_removes_only_its_own_partial() {
             let deadline = Instant::now() + Duration::from_secs(10);
             while Instant::now() < deadline
                 && std::fs::read_dir(&dir).map_or(true, |d| {
-                    !d.filter_map(|e| e.ok()).any(|e| {
-                        e.file_name().to_string_lossy() == ".big.bin.1.test-part"
-                    })
+                    !d.filter_map(|e| e.ok())
+                        .any(|e| e.file_name().to_string_lossy() == ".big.bin.1.test-part")
                 })
             {
                 std::thread::sleep(Duration::from_millis(10));
@@ -595,7 +692,10 @@ fn cancelling_a_receive_removes_only_its_own_partial() {
         std::thread::sleep(Duration::from_millis(20));
     }
     assert_eq!(std::fs::read(&leftover).unwrap(), b"LEFTOVER");
-    assert!(!dir.join(".big.bin.1.test-part").exists(), "our partial is removed");
+    assert!(
+        !dir.join(".big.bin.1.test-part").exists(),
+        "our partial is removed"
+    );
     assert!(!dir.join("big.bin").exists(), "our reservation is removed");
     let _ = std::fs::remove_dir_all(&save);
     let _ = std::fs::remove_dir_all(&state);

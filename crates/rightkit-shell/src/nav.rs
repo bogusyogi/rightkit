@@ -81,9 +81,8 @@ pub fn validate_internal_scheme(scheme: &str) -> Result<String, String> {
     let lower = scheme.to_ascii_lowercase();
     let mut chars = lower.chars();
     let well_formed = chars.next().is_some_and(|c| c.is_ascii_lowercase())
-        && chars.all(|c| {
-            c.is_ascii_lowercase() || c.is_ascii_digit() || matches!(c, '+' | '-' | '.')
-        });
+        && chars
+            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || matches!(c, '+' | '-' | '.'));
     if !well_formed {
         return Err(format!("{scheme:?} is not a URL scheme"));
     }
@@ -150,9 +149,7 @@ impl NavPolicy {
 
     fn serves_in_place(&self, url: &Url) -> bool {
         let scheme = url.scheme();
-        if INTERNAL_SCHEMES.contains(&scheme)
-            || self.internal_schemes.iter().any(|s| s == scheme)
-        {
+        if INTERNAL_SCHEMES.contains(&scheme) || self.internal_schemes.iter().any(|s| s == scheme) {
             return true;
         }
         let Some(host) = url.host_str() else {

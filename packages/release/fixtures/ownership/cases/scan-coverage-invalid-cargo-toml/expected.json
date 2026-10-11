@@ -93,7 +93,7 @@
           "path": "Cargo.lock",
           "status": "unscanned",
           "reason": "lockfile-parse-failed",
-          "detail": "Invalid TOML document: incomplete key-value: cannot find end of key\n\n1:  [package\n     ^\n2:  name =\n"
+          "detail": "Invalid TOML document: illegal character in key\n\n1:  [package\n            ^\n2:  name =\n"
         }
       ],
       "metadata": {
@@ -130,7 +130,7 @@
             "path": "Cargo.lock",
             "status": "unscanned",
             "reason": "lockfile-parse-failed",
-            "detail": "Invalid TOML document: incomplete key-value: cannot find end of key\n\n1:  [package\n     ^\n2:  name =\n"
+            "detail": "Invalid TOML document: illegal character in key\n\n1:  [package\n            ^\n2:  name =\n"
           }
         ],
         "pathBase": "repository",
@@ -176,7 +176,7 @@
                   "path": "Cargo.lock",
                   "status": "unscanned",
                   "reason": "lockfile-parse-failed",
-                  "detail": "Invalid TOML document: incomplete key-value: cannot find end of key\n\n1:  [package\n     ^\n2:  name =\n"
+                  "detail": "Invalid TOML document: illegal character in key\n\n1:  [package\n            ^\n2:  name =\n"
                 }
               ],
               "pathBase": "repository",

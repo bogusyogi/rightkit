@@ -272,7 +272,9 @@ fn yes() -> bool {
 #[serde(tag = "shape", rename_all = "snake_case")]
 pub enum Clip {
     /// `radius` is a fraction of the shorter canvas side.
-    RoundedRect { radius: f64 },
+    RoundedRect {
+        radius: f64,
+    },
     Circle,
 }
 

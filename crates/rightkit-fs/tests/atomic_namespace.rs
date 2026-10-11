@@ -1,0 +1,132 @@
+//! The temporary-file namespace is reserved. A sweep only ever deletes a *complete generated temp
+//! name*, and a public write refuses to create a record with one, so a committed record can never
+//! be mistaken for a crash orphan.
+
+use std::time::Duration;
+
+use rightkit_fs::{
+    atomic_write, atomic_write_private, rename_exclusive, sweep_stale_temps, FsError, StateDir,
+};
+
+#[test]
+fn a_record_that_merely_contains_the_marker_survives_a_zero_age_sweep() {
+    let dir = tempfile::tempdir().unwrap();
+    for name in [
+        "invoice.rktmp-1-final",
+        "invoice.rktmp-1",
+        "a.rktmp-123-456-789",
+        ".hidden.rktmp-1-final",
+        "report.rktmp-",
+    ] {
+        atomic_write(&dir.path().join(name), b"committed").unwrap();
+    }
+    let removed = sweep_stale_temps(dir.path(), Duration::ZERO).unwrap();
+    assert_eq!(removed, 0, "no committed record is a temp file");
+    for name in [
+        "invoice.rktmp-1-final",
+        "invoice.rktmp-1",
+        "a.rktmp-123-456-789",
+        ".hidden.rktmp-1-final",
+        "report.rktmp-",
+    ] {
+        assert_eq!(
+            std::fs::read(dir.path().join(name)).unwrap(),
+            b"committed",
+            "{name} was deleted by a sweep"
+        );
+    }
+}
+
+#[test]
+fn a_public_write_cannot_target_a_generated_temp_name() {
+    let dir = tempfile::tempdir().unwrap();
+    for name in [
+        ".state.json.rktmp-4242-7-0",
+        ".state.json.rktmp-4242-7-1f4a-3",
+        ".x.rktmp-1-2-31",
+    ] {
+        let target = dir.path().join(name);
+        let error = atomic_write(&target, b"x").expect_err("a temp-shaped target is refused");
+        assert!(matches!(error, FsError::BadName(_)), "{name}: {error:?}");
+        let error = atomic_write_private(&target, b"x").expect_err("refused (private)");
+        assert!(matches!(error, FsError::BadName(_)), "{name}: {error:?}");
+        assert!(!target.exists());
+
+        let from = dir.path().join("src.bin");
+        std::fs::write(&from, b"x").unwrap();
+        let error = rename_exclusive(&from, &target).expect_err("refused (exclusive rename)");
+        assert!(matches!(error, FsError::BadName(_)), "{name}: {error:?}");
+        assert!(from.exists(), "the source is untouched");
+    }
+    // Nothing was created by the refused writes (not even a temp).
+    let names: Vec<_> = std::fs::read_dir(dir.path()).unwrap().flatten().collect();
+    assert_eq!(names.len(), 1, "only src.bin: {names:?}");
+}
+
+#[test]
+fn a_refused_write_creates_no_parent_directories() {
+    let dir = tempfile::tempdir().unwrap();
+    let target = dir.path().join("new/deep/.x.rktmp-1-2-0");
+    let options = rightkit_fs::AtomicWriteOptions {
+        create_parents: true,
+        ..rightkit_fs::AtomicWriteOptions::default()
+    };
+    let error = rightkit_fs::atomic_write_with_options(&target, options, |f| {
+        std::io::Write::write_all(f, b"x")
+    })
+    .expect_err("refused");
+    assert!(matches!(error, FsError::BadName(_)), "{error:?}");
+    assert!(!dir.path().join("new").exists());
+}
+
+#[test]
+fn a_genuine_orphan_is_still_swept() {
+    let dir = tempfile::tempdir().unwrap();
+    let pid = std::process::id();
+    // Both generated forms: atomic writes (with the nanosecond field) and `StateDir`.
+    let atomic_form = dir.path().join(format!(".state.json.rktmp-{pid}-7-1f4a-0"));
+    let state_form = dir.path().join(format!(".state.json.rktmp-{pid}-8-1"));
+    std::fs::write(&atomic_form, b"orphan").unwrap();
+    std::fs::write(&state_form, b"orphan").unwrap();
+    let keeper = dir.path().join("state.json");
+    std::fs::write(&keeper, b"committed").unwrap();
+    let removed = sweep_stale_temps(dir.path(), Duration::ZERO).unwrap();
+    assert_eq!(removed, 2);
+    assert!(!atomic_form.exists() && !state_form.exists());
+    assert_eq!(std::fs::read(&keeper).unwrap(), b"committed");
+}
+
+#[test]
+fn state_dir_refuses_and_never_sweeps_the_reserved_namespace() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().canonicalize().unwrap();
+    let state = StateDir::create(&root.join("s")).unwrap();
+    state.write("invoice.rktmp-1-final", b"committed").unwrap();
+    state.write_new("report.rktmp-9-9", b"committed").unwrap();
+    assert!(matches!(
+        state.write(".x.rktmp-1-2-0", b"x"),
+        Err(FsError::BadName(_))
+    ));
+    assert!(matches!(
+        state.write_new(".x.rktmp-1-2-0", b"x"),
+        Err(FsError::BadName(_))
+    ));
+    assert!(matches!(
+        rightkit_fs::state::validate_name(".x.rktmp-1-2-0"),
+        Err(FsError::BadName(_))
+    ));
+    rightkit_fs::state::validate_name("invoice.rktmp-1-final").unwrap();
+
+    assert_eq!(state.sweep_temps(Duration::ZERO).unwrap(), 0);
+    assert_eq!(
+        state.read("invoice.rktmp-1-final", 100).unwrap(),
+        b"committed"
+    );
+    assert_eq!(state.read("report.rktmp-9-9", 100).unwrap(), b"committed");
+
+    // A real orphan (a `StateDir` temp name from this process) is still reclaimed.
+    let orphan = format!(".state.rktmp-{}-5-0", std::process::id());
+    std::fs::write(root.join("s").join(&orphan), b"orphan").unwrap();
+    assert_eq!(state.sweep_temps(Duration::ZERO).unwrap(), 1);
+    assert!(!state.exists(&orphan).unwrap());
+}

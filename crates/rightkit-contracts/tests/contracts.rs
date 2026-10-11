@@ -3,7 +3,9 @@
 
 #![cfg(feature = "schema")]
 
-use rightkit_contracts::{check_typed, validate, Contract, ContractError, Version};
+use rightkit_contracts::types::content_brief::{FactStatus, StageId};
+use rightkit_contracts::types::{ContentBrief, DeliveryEnvelope};
+use rightkit_contracts::{check_typed, parse, validate, Contract, ContractError, Version};
 use serde_json::Value;
 
 #[test]
@@ -111,4 +113,50 @@ fn schema_errors_name_the_failing_path() {
         ),
         other => panic!("expected schema error, got {other:?}"),
     }
+}
+
+#[test]
+fn contract_1_1_fields_reach_the_typed_views() {
+    let brief: ContentBrief = parse(
+        Contract::ContentBrief,
+        &std::fs::read_to_string(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../contracts/fixtures/content-brief/valid/fact-superseded.json"
+        ))
+        .expect("fixture"),
+    )
+    .expect("typed brief");
+    assert_eq!(brief.rule_revision, Some(4));
+    assert_eq!(brief.facts[0].status, FactStatus::Superseded);
+    assert_eq!(
+        brief.facts[0].superseded_by.as_deref(),
+        Some("fact.export-price-2")
+    );
+
+    let stage: StageId = serde_json::from_str("\"labelling\"").expect("stage id");
+    assert_eq!(stage, StageId::Labelling);
+    assert!(serde_json::from_str::<StageId>("\"scrape\"").is_err());
+
+    let envelope: DeliveryEnvelope = parse(
+        Contract::DeliveryEnvelope,
+        &std::fs::read_to_string(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../contracts/fixtures/delivery-envelope/valid/rule-revision.json"
+        ))
+        .expect("fixture"),
+    )
+    .expect("typed envelope");
+    assert_eq!(envelope.rule_revision, Some(4));
+    assert_eq!(envelope.policy_revision, 1);
+}
+
+#[test]
+fn contract_1_0_documents_have_no_rule_revision() {
+    let text = std::fs::read_to_string(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../contracts/fixtures/delivery-envelope/valid/text.json"
+    ))
+    .expect("fixture");
+    let envelope: DeliveryEnvelope = parse(Contract::DeliveryEnvelope, &text).expect("typed");
+    assert_eq!(envelope.rule_revision, None);
 }

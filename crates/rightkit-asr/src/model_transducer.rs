@@ -49,17 +49,9 @@ impl TransducerModel {
         self.config.has_duration
     }
 
-    pub fn from_pretrained<P: AsRef<Path>>(
-        model_dir: P,
-        exec_config: ExecutionConfig,
-        config: TransducerConfig,
-    ) -> Result<Self> {
-        Self::from_pretrained_with(model_dir, exec_config, config, true)
-    }
-
-    /// As [`from_pretrained`](Self::from_pretrained). With `allow_int8 = false`
-    /// the int8 encoder and decoder variants are never selected (strict layout:
-    /// no silent preference); a directory holding only int8 files is an error.
+    /// Loads a model directory. With `allow_int8 = false` the int8 encoder and
+    /// decoder variants are never selected (strict layout: no silent
+    /// preference); a directory holding only int8 files is an error.
     pub(crate) fn from_pretrained_with<P: AsRef<Path>>(
         model_dir: P,
         exec_config: ExecutionConfig,

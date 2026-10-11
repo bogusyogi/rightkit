@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.1.6 — 2026-10-11
+
+- Found by HeardRight: Windows close reported `step: sigkill, exited: false, leftoverPids: [], observedExitingPids: []`, with the profile scan empty. Two code paths in `closeChromeGracefully` produce that shape, and the report alone does not show which fired. (a) A failed or timed-out profile scan (PowerShell non-zero exit, or the 15 s `spawnSync` timeout) returned `[]`, the same as an empty profile. (b) The launcher's exit is recorded only on an event-loop turn, and the close took no turn after a blocking `taskkill` or scan, so a read could be stale.
+- `exited` is now true only when the launcher's exit is observed after a fresh turn (or the OS probe reports it gone) and the profile scan positively lists nothing. A stale read is refreshed before any verdict.
+- A failed or timed-out profile scan or liveness probe is retried inside the bound. If it never answers, the report sets `livenessUnknown: true` (new, optional, present only when true) and `exited` is false. It is never read as clean or as alive.
+- Once the launcher has exited and the profile scan is empty, close returns without waiting for the kill bound.
+- A real leftover is unchanged: `exited: false` with its pid in `leftoverPids`.
+- Windows: the profile scan script now stops on error and prints a completion marker. Output without the marker counts as a failed scan.
+- `closeChromeGracefully({ seams })` accepts injected platform, launcher probe, signal, kill, scan and clock, for tests. `settleProfileProcesses` accepts a lister that returns `null` and reports `unknown` on a scan that never answers.
+
 ## 0.1.5 — 2026-10-11
 
 - Close report built after the forced phase no longer treats processes that are still exiting as leftovers. A bounded settle (`settleMs`, default 4 s) rescans the profile's processes, waits between scans, and reports only what is still listed after the bound as `leftoverPids`. Pids listed at the last forced round and gone by the settle are reported as `observedExitingPids`, so slow exit can be told from a leak. `exited` is now `tree gone and leftoverPids empty` on every platform; a real leftover never reads as a pass.

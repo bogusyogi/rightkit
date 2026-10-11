@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Eviction no longer sorts the whole index on every over-cap write: the index keeps the eviction order (last use, then base name) and the pinned total current as entries change, so a put costs the entries it evicts plus a logarithmic step. The evicted set is unchanged; `recency_snapshot` reads the same order without a sort.
+
 ## 0.2.0 - 2026-10-11
 
 Additive release for file producers and multi-root apps. The 0.1.0 byte API is unchanged.

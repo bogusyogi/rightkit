@@ -13,6 +13,9 @@ use rightkit_ort::{
 
 #[test]
 fn versioned_dll_binds_loads_and_runs() {
+    if !common::runtime_dir_or_skip() {
+        return;
+    }
     let (dir, versioned) = common::staged_runtime("win-versioned", common::WINDOWS_VERSIONED_NAME);
     assert!(matches!(
         resolve_runtime([RuntimeCandidate::new(&versioned, CandidateSource::Explicit)]),

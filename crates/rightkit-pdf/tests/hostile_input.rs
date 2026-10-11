@@ -1,4 +1,5 @@
-//! Hostile-input corpus for inspection (findings 1 and 9 of the 2026-10-11 Astra read).
+//! Hostile-input corpus for inspection (findings 1 and 9 of the 2026-10-11 Astra read; findings 1
+//! and 8 of its second read, and the graphics-state stack bound that came with finding 3).
 //!
 //! Every case is a tiny PDF built in memory whose numbers lie about the file (CID widths up to
 //! `u32::MAX`, `/LastChar` of `i64::MAX`, a page tree that loops, a `bfrange` that overflows).
@@ -14,6 +15,7 @@ use std::time::Duration;
 
 use lopdf::{dictionary, Dictionary, Document, Object, ObjectId, Stream};
 use rightkit_pdf::inspect::page_graph_from_bytes;
+use rightkit_pdf::model::PdfEditBlocker;
 
 /// Wall-clock guard for one case. Healthy cases finish in milliseconds.
 const GUARD: Duration = Duration::from_secs(20);
@@ -35,7 +37,9 @@ fn guarded<T: Send + 'static>(label: &str, work: impl FnOnce() -> T + Send + 'st
             value
         }
         Err(mpsc::RecvTimeoutError::Disconnected) => {
-            let panic = handle.join().expect_err("worker dropped its channel by panicking");
+            let panic = handle
+                .join()
+                .expect_err("worker dropped its channel by panicking");
             let message = panic
                 .downcast_ref::<String>()
                 .cloned()
@@ -393,7 +397,8 @@ fn very_deep_parent_chain_is_cut_off_by_the_depth_cap() {
     .expect("fixture reloads");
     let page_id = *doc.get_pages().get(&1).expect("page 1");
     // A 20 000-deep straight chain of /Pages nodes above the page.
-    let mut parent = doc.add_object(dictionary! { "Type" => "Pages", "Kids" => Vec::<Object>::new() });
+    let mut parent =
+        doc.add_object(dictionary! { "Type" => "Pages", "Kids" => Vec::<Object>::new() });
     let top = parent;
     for _ in 0..20_000 {
         parent = doc.add_object(dictionary! { "Type" => "Pages", "Parent" => parent });
@@ -403,6 +408,143 @@ fn very_deep_parent_chain_is_cut_off_by_the_depth_cap() {
     }
     let _ = top;
     inspect_guarded("deep_parent_chain", save(doc));
+}
+
+// -------------------------------------------------------------------------------------------
+// Second read, finding 1: TJ gap provenance
+// -------------------------------------------------------------------------------------------
+
+#[test]
+fn tj_array_of_50_000_empty_strings_between_numbers_retains_linear_state() {
+    // `[(A) 0 () 0 () ... (B)] TJ`: every empty operand used to clone the numbers accumulated so
+    // far into the spacing map - about 1.25 billion entries (20 GB) for 50 000 of them.
+    let mut content = String::from("BT /F1 12 Tf 72 700 Td [(A)");
+    for _ in 0..50_000 {
+        content.push_str(" 0 ()");
+    }
+    content.push_str(" (B)] TJ ET");
+    let pdf = one_page(
+        |d| simple_font(d, 32, 126, vec![500.into(); 95]),
+        content.as_bytes(),
+        false,
+        |_, _, _| {},
+    );
+    let texts = guarded("tj_empty_strings", move || {
+        page_graph_from_bytes(&pdf, 1)
+            .map(|graph| {
+                graph
+                    .islands
+                    .into_iter()
+                    .map(|island| island.text)
+                    .collect::<Vec<_>>()
+            })
+            .map_err(|error| error.to_string())
+    })
+    .expect("a valid page inspects");
+    assert!(texts.iter().any(|text| text == "AB"), "{texts:?}");
+}
+
+#[test]
+fn tj_array_of_empty_strings_with_real_adjustments_is_linear_too() {
+    // Non-zero adjustments are the gap provenance the composer rewrites; they must survive the
+    // empty operands (one gap, many numbers) without being copied once per operand.
+    let mut content = String::from("BT /F1 12 Tf 72 700 Td [(A)");
+    for _ in 0..50_000 {
+        content.push_str(" -1 ()");
+    }
+    content.push_str(" (B)] TJ ET");
+    let pdf = one_page(
+        |d| simple_font(d, 32, 126, vec![500.into(); 95]),
+        content.as_bytes(),
+        false,
+        |_, _, _| {},
+    );
+    inspect_guarded("tj_empty_strings_adjusted", pdf);
+}
+
+// -------------------------------------------------------------------------------------------
+// Second read, finding 8: total /W work across ranges
+// -------------------------------------------------------------------------------------------
+
+#[test]
+fn many_repetitions_of_a_full_width_w_range_hit_a_total_work_budget() {
+    // `0 65535 500` x 40 000 is 2.6 billion insertions if each range is only clamped. The font
+    // is still read (what fit the budget is a valid table) but is not editable.
+    let mut w: Vec<Object> = Vec::with_capacity(120_000);
+    for _ in 0..40_000 {
+        w.push(0.into());
+        w.push(65535.into());
+        w.push(500.into());
+    }
+    let pdf = one_page(
+        |d| {
+            identity_h(
+                d,
+                w,
+                &cmap("2 beginbfchar\n<0001> <0041>\n<0002> <0042>\nendbfchar"),
+            )
+        },
+        CID_TEXT,
+        false,
+        |_, _, _| {},
+    );
+    let islands = guarded("w_range_repetition", move || {
+        page_graph_from_bytes(&pdf, 1)
+            .map(|graph| {
+                graph
+                    .islands
+                    .into_iter()
+                    .map(|island| (island.text, island.editable, island.edit_blocker))
+                    .collect::<Vec<_>>()
+            })
+            .map_err(|error| error.to_string())
+    })
+    .expect("a valid page inspects");
+    assert_eq!(
+        islands,
+        vec![(
+            "AB".to_string(),
+            false,
+            Some(PdfEditBlocker::MissingMetrics)
+        )]
+    );
+}
+
+#[test]
+fn many_repetitions_of_a_full_width_w_array_hit_the_same_budget() {
+    let mut w: Vec<Object> = Vec::with_capacity(80);
+    for _ in 0..40 {
+        w.push(0.into());
+        w.push(Object::Array(vec![500.into(); 60_000]));
+    }
+    let pdf = one_page(
+        |d| identity_h(d, w, &cmap("1 beginbfchar\n<0001> <0041>\nendbfchar")),
+        CID_TEXT,
+        false,
+        |_, _, _| {},
+    );
+    inspect_guarded("w_array_repetition", pdf);
+}
+
+// -------------------------------------------------------------------------------------------
+// Graphics-state stack bound (the `q` stack now carries the whole text state)
+// -------------------------------------------------------------------------------------------
+
+#[test]
+fn hundreds_of_thousands_of_unbalanced_q_operators_are_refused_not_stacked() {
+    let content = "q ".repeat(300_000);
+    let pdf = one_page(
+        |d| simple_font(d, 32, 126, vec![500.into(); 95]),
+        content.as_bytes(),
+        false,
+        |_, _, _| {},
+    );
+    let outcome = guarded("q_flood", move || {
+        page_graph_from_bytes(&pdf, 1)
+            .map(|graph| graph.islands.len())
+            .map_err(|error| error.to_string())
+    });
+    assert!(outcome.is_err(), "{outcome:?}");
 }
 
 // -------------------------------------------------------------------------------------------

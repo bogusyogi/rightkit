@@ -5,9 +5,12 @@ export interface MouseMoveOptions { /** Intermediate moves, linear from the curr
 export interface MouseButtonOptions { button?: MouseButton; clickCount?: number }
 export interface MousePosition { x: number; y: number }
 export interface MouseWheelOptions { /** Horizontal scroll delta in CSS pixels; default 0. */ deltaX?: number; /** Vertical scroll delta in CSS pixels; positive scrolls down. Default 0. */ deltaY?: number }
+/** Options for drag. `moveDelayMs` is the pause before each move; default 20. */
+export interface MouseDragOptions { moveDelayMs?: number }
 
 /** CDP `buttons` bit per button. */
 const buttonBits: Record<MouseButton, number> = { left: 1, right: 2, middle: 4 };
+const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
 function checkButton(button: string): MouseButton {
   if (!(button in buttonBits)) throw new Error(`Unsupported button: ${button}`);
@@ -52,9 +55,7 @@ export class QaMouse {
     const clickCount = options.clickCount ?? 1;
     if (!Number.isInteger(clickCount) || clickCount < 1) throw new Error('Mouse clickCount must be a positive integer');
     if (this.held.has(button)) throw new Error(`Mouse ${button} button already pressed`);
-    const buttons = this.mask() | buttonBits[button];
-    await this.send('Input.dispatchMouseEvent', { type: 'mousePressed', x: this.x, y: this.y, button, buttons, clickCount });
-    this.held.set(button, clickCount);
+    await this.pressAt(this.x, this.y, button, clickCount);
   }
 
   /** Release a held button at the current position. */
@@ -62,9 +63,59 @@ export class QaMouse {
     const button = checkButton(options.button ?? 'left');
     const clickCount = this.held.get(button);
     if (clickCount === undefined) throw new Error(`Mouse ${button} button not pressed`);
-    const buttons = this.mask() & ~buttonBits[button];
-    await this.send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: this.x, y: this.y, button, buttons, clickCount });
-    this.held.delete(button);
+    await this.releaseAt(this.x, this.y, button, clickCount);
+  }
+
+  /**
+   * Press and release at (x, y) with no preceding mouseMoved; the pointer is tracked there. With clickCount n,
+   * n press/release pairs are sent, the k-th with clickCount k, as page.click does.
+   */
+  async click(x: number, y: number, options: MouseButtonOptions = {}): Promise<void> {
+    const button = checkButton(options.button ?? 'left');
+    const clickCount = options.clickCount ?? 1;
+    if (!Number.isInteger(clickCount) || clickCount < 1) throw new Error('Mouse clickCount must be a positive integer');
+    checkCoordinates(x, y);
+    this.assertIdle();
+    for (let count = 1; count <= clickCount; count++) {
+      await this.pressAt(x, y, button, count);
+      await this.releaseAt(x, y, button, count);
+    }
+  }
+
+  /** A double click at (x, y): a click, then a press and release with clickCount 2. */
+  async doubleClick(x: number, y: number, options: { button?: MouseButton } = {}): Promise<void> {
+    const button = checkButton(options.button ?? 'left');
+    await this.click(x, y, { button });
+    await this.pressAt(x, y, button, 2);
+    await this.releaseAt(x, y, button, 2);
+  }
+
+  /**
+   * Drag through `points`: press the left button at the first point, move to each later point after
+   * `moveDelayMs` (default 20) with the button held, then release at the last point. At least two points are
+   * needed, and nothing is sent otherwise. If a move fails, the button is released where the pointer last
+   * arrived, and the move error is rethrown.
+   */
+  async drag(points: MousePosition[], options: MouseDragOptions = {}): Promise<void> {
+    if (!Array.isArray(points) || points.length < 2) throw new Error('mouse.drag needs at least two points');
+    const delay = options.moveDelayMs ?? 20;
+    if (!Number.isFinite(delay) || delay < 0) throw new Error('moveDelayMs must be a non-negative finite number');
+    for (const point of points) checkCoordinates(point.x, point.y);
+    this.assertIdle();
+    const [start, ...rest] = points;
+    await this.pressAt(start.x, start.y, 'left', 1);
+    try {
+      for (const point of rest) {
+        await sleep(delay);
+        await this.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: point.x, y: point.y, button: 'left', buttons: this.mask() });
+        this.x = point.x; this.y = point.y;
+      }
+    } catch (error) {
+      await this.releaseAt(this.x, this.y, 'left', 1).catch(() => {});
+      throw error;
+    }
+    const end = points[points.length - 1];
+    await this.releaseAt(end.x, end.y, 'left', 1);
   }
 
   /**
@@ -86,6 +137,24 @@ export class QaMouse {
     if (this.held.size) throw new Error('Release page.mouse buttons before page click or hover');
   }
 
+  /** Presses `button` at (x, y), tracks the position, and records the button as held. */
+  private async pressAt(x: number, y: number, button: MouseButton, clickCount: number): Promise<void> {
+    const buttons = this.mask() | buttonBits[button];
+    await this.send('Input.dispatchMouseEvent', { type: 'mousePressed', x, y, button, buttons, clickCount });
+    this.x = x; this.y = y;
+    this.held.set(button, clickCount);
+  }
+  /** Releases `button` at (x, y), tracks the position, and clears the held record. */
+  private async releaseAt(x: number, y: number, button: MouseButton, clickCount: number): Promise<void> {
+    const buttons = this.mask() & ~buttonBits[button];
+    await this.send('Input.dispatchMouseEvent', { type: 'mouseReleased', x, y, button, buttons, clickCount });
+    this.x = x; this.y = y;
+    this.held.delete(button);
+  }
+  /** Refuses a click, doubleClick or drag while a button is held: its own press would carry the wrong mask. */
+  private assertIdle() {
+    if (this.held.size) throw new Error('Release mouse buttons before mouse click, doubleClick or drag');
+  }
   private mask(): number {
     let buttons = 0;
     for (const button of this.held.keys()) buttons |= buttonBits[button];

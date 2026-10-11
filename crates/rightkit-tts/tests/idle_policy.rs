@@ -46,15 +46,27 @@ fn nothing_explicit_keeps_todays_environment_behaviour() {
         assert_eq!(env_idle_timeout(), Duration::from_secs(600));
     });
     with_env(Some("5"), Some("9"), || {
-        assert_eq!(none.idle_timeout(), Duration::from_secs(5), "RIGHTKIT first");
+        assert_eq!(
+            none.idle_timeout(),
+            Duration::from_secs(5),
+            "RIGHTKIT first"
+        );
     });
     with_env(None, Some("9"), || {
-        assert_eq!(none.idle_timeout(), Duration::from_secs(9), "legacy name still read");
+        assert_eq!(
+            none.idle_timeout(),
+            Duration::from_secs(9),
+            "legacy name still read"
+        );
     });
     with_env(Some("0"), None, || {
         assert_eq!(none.idle_timeout(), Duration::ZERO, "0 stays a zero window");
     });
     with_env(Some("soon"), None, || {
-        assert_eq!(none.idle_timeout(), Duration::from_secs(600), "unparsable counts as unset");
+        assert_eq!(
+            none.idle_timeout(),
+            Duration::from_secs(600),
+            "unparsable counts as unset"
+        );
     });
 }

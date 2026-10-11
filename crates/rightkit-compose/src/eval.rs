@@ -124,7 +124,10 @@ pub enum Payload {
 /// Evaluates the composition at a millisecond time. A thin wrapper over
 /// [`evaluate`] that converts exactly, 705,600 ticks per millisecond. A value
 /// past the composition's duration returns `OutOfRange`.
-pub fn evaluate_ms(composition: &Composition, t_ms: u64) -> Result<FrameDescription, CompositionError> {
+pub fn evaluate_ms(
+    composition: &Composition,
+    t_ms: u64,
+) -> Result<FrameDescription, CompositionError> {
     evaluate(composition, Ticks::from_ms(t_ms))
 }
 
@@ -286,7 +289,12 @@ fn payload_at(composition: &Composition, layer: &Layer, t: Ticks, canvas: (f64, 
 /// Animation progress of a click effect at a layer-local time. Returns
 /// `None` before onset; `Some((eased, linear))` while running and `None`
 /// once the animation has completed.
-fn click_progress(onset: Ticks, duration: Ticks, easing: Easing, local: Ticks) -> Option<(f64, f64)> {
+fn click_progress(
+    onset: Ticks,
+    duration: Ticks,
+    easing: Easing,
+    local: Ticks,
+) -> Option<(f64, f64)> {
     if local < onset {
         return None;
     }

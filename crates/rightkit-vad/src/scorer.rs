@@ -45,6 +45,9 @@ pub struct ScorerBackend {
 /// batch-only: its noise floor is taken over the whole signal, so it cannot
 /// score frames one at a time. Use [`SpeechScorer::scores`] or
 /// [`SpeechScorer::detect`] for it.
+// `Silero` stays inline: one scorer lives per session, and boxing the variant would change the
+// public `SpeechScorer::Silero(Silero)` shape, a public boundary this crate does not change.
+#[allow(clippy::large_enum_variant)]
 pub enum SpeechScorer {
     Silero(Silero),
     Energy,

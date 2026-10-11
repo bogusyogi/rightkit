@@ -609,7 +609,13 @@ mod tests {
     fn timeout_converts_to_f32_seconds_without_overflow() {
         assert_eq!(timeout_secs(Duration::from_millis(150)), 0.15_f32);
         assert_eq!(timeout_secs(Duration::ZERO), 0.0);
-        assert_eq!(timeout_secs(Duration::MAX), f32::MAX);
+        // Duration::MAX is u64::MAX seconds (about 1.8e19), which is inside f32 range, so it is
+        // not clamped: it converts to the nearest f32 and stays finite.
+        assert!(timeout_secs(Duration::MAX).is_finite());
+        assert_eq!(
+            timeout_secs(Duration::MAX),
+            Duration::MAX.as_secs_f64() as f32
+        );
         assert_eq!(
             AxOptions::with_timeout(Duration::from_secs(3)).timeout,
             Duration::from_secs(3)

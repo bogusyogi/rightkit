@@ -118,8 +118,16 @@ mod tests {
             ModeLocation::new(Mode::VoiceDesign, "/old").with_vocoder("/old/v.onnx"),
             ModeLocation::new(Mode::VoiceDesign, "/new").with_vocoder("/new/v.onnx"),
         ];
-        let (d, v) = resolve_location(Path::new("/m"), Path::new("/v"), &entries, Mode::VoiceDesign);
-        assert_eq!((d, v), (PathBuf::from("/new"), PathBuf::from("/new/v.onnx")));
+        let (d, v) = resolve_location(
+            Path::new("/m"),
+            Path::new("/v"),
+            &entries,
+            Mode::VoiceDesign,
+        );
+        assert_eq!(
+            (d, v),
+            (PathBuf::from("/new"), PathBuf::from("/new/v.onnx"))
+        );
         let (d, _) = resolve_location(Path::new("/m"), Path::new("/v"), &entries, Mode::Base);
         assert_eq!(d, PathBuf::from("/m"));
     }

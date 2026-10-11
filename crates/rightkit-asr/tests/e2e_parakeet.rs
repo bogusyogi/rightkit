@@ -1,7 +1,7 @@
 //! End-to-end Parakeet decoding with real audio and real models.
 //!
-//! Gates (a missing gate FAILS, never silently passes; set
-//! `RIGHTKIT_ALLOW_MISSING_MODELS=1` to downgrade to a printed SKIP). Exact
+//! Gates (a missing asset prints a SKIP line and the test passes; set
+//! `RIGHTKIT_REQUIRE_ASSETS=1` to make a missing asset fail). Exact
 //! files each gate needs:
 //!
 //! CoreML (macOS), `RIGHTKIT_PARAKEET_COREML_DIR` or a local registry dir that
@@ -20,6 +20,9 @@
 //!
 //! The model-free tests exercise the shared decode contract against the real
 //! audio fixtures and the real detokenizer fixture file.
+#[macro_use]
+mod common;
+
 mod coreml_cache;
 
 use rightkit_asr::longform::{self, LongFormOptions};
@@ -59,20 +62,6 @@ fn first_existing(env: &str, defaults: &[&str]) -> Option<PathBuf> {
         .into_iter()
         .chain(defaults.iter().map(PathBuf::from))
         .find(|p| p.exists())
-}
-
-#[allow(unused_macros)]
-macro_rules! gate {
-    ($opt:expr, $what:expr) => {
-        match $opt {
-            Some(v) => v,
-            None if std::env::var_os("RIGHTKIT_ALLOW_MISSING_MODELS").is_some() => {
-                eprintln!("SKIP: {}", $what);
-                return;
-            }
-            None => panic!("gate missing: {}", $what),
-        }
-    };
 }
 
 // ---------------------------------------------------------------------------
@@ -234,6 +223,8 @@ fn subtitle_exports_follow_the_cue_rules() {
 
 #[cfg(target_os = "macos")]
 mod coreml {
+    const COREML_LOOKED_AT: &str = "RIGHTKIT_PARAKEET_COREML_DIR, or the HeardRightNext or Orthic Labs shared model folder under ~/Library/Application Support";
+    const PKG_LOOKED_AT: &str = "RIGHTKIT_PARAKEET_COREML_PKG_DIR, or ~/Library/Application Support/ScrapeRight/models/asr/tdt_w15_p6";
     use super::*;
     use rightkit_asr::{ComputeUnits, CoreMlParakeet, CoreMlParakeetOptions, Transcriber};
     use std::sync::atomic::{AtomicBool, Ordering};
@@ -275,14 +266,7 @@ mod coreml {
 
     macro_rules! engine {
         ($f:expr) => {
-            match with_engine($f) {
-                Some(v) => v,
-                None if std::env::var_os("RIGHTKIT_ALLOW_MISSING_MODELS").is_some() => {
-                    eprintln!("SKIP: CoreML Parakeet bundle (RIGHTKIT_PARAKEET_COREML_DIR)");
-                    return;
-                }
-                None => panic!("gate missing: CoreML Parakeet bundle (RIGHTKIT_PARAKEET_COREML_DIR)"),
-            }
+            gate!(with_engine($f), "CoreML Parakeet bundle", COREML_LOOKED_AT)
         };
     }
 
@@ -348,7 +332,7 @@ mod coreml {
     fn exact_seam_policy_decodes_the_long_clip_with_monotonic_timing() {
         let mut opts = CoreMlParakeetOptions::default().verbatim();
         opts.seam = rightkit_asr::SeamPolicy::Exact;
-        let e = gate!(load(opts), "CoreML Parakeet bundle");
+        let e = gate!(load(opts), "CoreML Parakeet bundle", COREML_LOOKED_AT);
         let t = e.transcribe_long(&wav("long_38s.wav"), None, &|_| {}).unwrap();
         assert_keywords(&t.result.text, LONG);
         assert!(t.result.tokens.windows(2).all(|p| p[1].start >= p[0].start));
@@ -380,7 +364,8 @@ mod coreml {
         let audio = wav("short_9s.wav");
         let mut greedy = gate!(
             load(CoreMlParakeetOptions::default().greedy()),
-            "CoreML Parakeet bundle (RIGHTKIT_PARAKEET_COREML_DIR)"
+            "CoreML Parakeet bundle",
+            COREML_LOOKED_AT
         );
         let a = greedy.transcribe(&audio).unwrap();
         let b = greedy.transcribe(&audio).unwrap();
@@ -402,7 +387,7 @@ mod coreml {
             (t.result.text, t.stats)
         });
         let opts = CoreMlParakeetOptions { predictor_cache: false, ..Default::default() };
-        let uncached_engine = gate!(load(opts), "CoreML Parakeet bundle");
+        let uncached_engine = gate!(load(opts), "CoreML Parakeet bundle", COREML_LOOKED_AT);
         let t = uncached_engine.transcribe_long(&audio, None, &|_| {}).unwrap();
         assert_eq!(t.result.text, cached_text, "cache is an optimization, not a semantic");
         assert!(cached.predictor_cache_hits > 0, "{cached:?}");
@@ -421,7 +406,7 @@ mod coreml {
             pruning: rightkit_asr::parakeet_core::PruningMode::TimeSynchronous,
             ..Default::default()
         };
-        let e = gate!(load(opts), "CoreML Parakeet bundle");
+        let e = gate!(load(opts), "CoreML Parakeet bundle", COREML_LOOKED_AT);
         let r = e.transcribe(&wav("short_9s.wav")).unwrap();
         assert_keywords(&r.text, SHORT);
     }
@@ -476,7 +461,8 @@ mod coreml {
             });
             let verbatim = gate!(
                 load(CoreMlParakeetOptions::default().verbatim()),
-                "CoreML Parakeet bundle"
+                "CoreML Parakeet bundle",
+                COREML_LOOKED_AT
             );
             let hits: Vec<_> = ids.iter().enumerate().map(|(i, &t)| (t, i as f32 * 0.4, 1usize)).collect();
             (n0, verbatim.assemble(&hits))
@@ -504,7 +490,7 @@ mod coreml {
 
     #[test]
     fn mlpackage_stages_compile_once_into_the_supplied_cache_and_decode() {
-        let dir = gate!(package_bundle(), "ScrapeRight tdt_w15_p6 .mlpackage bundle (RIGHTKIT_PARAKEET_COREML_PKG_DIR)");
+        let dir = gate!(package_bundle(), "ScrapeRight tdt_w15_p6 .mlpackage bundle", PKG_LOOKED_AT);
         let cache = std::env::temp_dir().join(format!("rightkit-asr-pkg-cache-{}", std::process::id()));
         let opts = CoreMlParakeetOptions {
             compile_cache_dir: Some(cache.clone()),
@@ -582,7 +568,8 @@ fn onnx_transducer_decodes_the_fixtures_when_the_export_is_present() {
     use rightkit_asr::{ExecutionConfig, ExecutionProvider, Transducer, TransducerOptions};
     let dir = gate!(
         first_existing("RIGHTKIT_PARAKEET_ONNX_DIR", &[]),
-        "ONNX Parakeet TDT export dir (RIGHTKIT_PARAKEET_ONNX_DIR): encoder-model.onnx[+.data], decoder_joint-model.onnx, nemo128.onnx, vocab.txt, config.json; plus ORT dylib (ORT_DYLIB_PATH)"
+        "ONNX Parakeet TDT export",
+        "RIGHTKIT_PARAKEET_ONNX_DIR (encoder-model.onnx[+.data], decoder_joint-model.onnx, nemo128.onnx, vocab.txt, config.json; plus the ORT dylib named by ORT_DYLIB_PATH)"
     );
     let mut t = Transducer::load_with_options(
         &dir,

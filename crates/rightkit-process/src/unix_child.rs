@@ -19,11 +19,29 @@
 //!
 //! The state is one lock-guarded enum, never separate atomics, so no thread can observe a
 //! half-published transition.
+//!
+//! * No wait-class system call names the pid while the lock is released. A blocked
+//!   `waitpid(pid)`/`waitid(P_PID, pid)` outside the lock could be entered after another reader
+//!   reaped the leader and the kernel recycled the number, and would then wait on an unrelated
+//!   child. Waiters instead look under the lock, release it, sleep, and look again.
+//! * Seeing that the leader exited does not require reaping it (`UnixChild::leader_state`), so
+//!   an exit monitor can observe the exit and leave the reap, and with it the group's identity,
+//!   to the owner.
 
+use crate::process_unix::Helper;
 use std::{
     io,
     process::{Child, ChildStderr, ChildStdin, ChildStdout, ExitStatus},
 };
+
+/// Whether this host can see that the leader exited without reaping it (`probe_exit` is real).
+/// Where it cannot, `ProcessHandle::wait_exited` falls back to a reaping wait.
+pub(crate) const CAN_OBSERVE_WITHOUT_REAPING: bool = cfg!(any(
+    target_os = "linux",
+    target_os = "android",
+    target_os = "macos",
+    target_os = "ios"
+));
 
 /// What this process knows about the leader. Only [`UnixChild`] changes it, under the lock.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -79,15 +97,16 @@ pub struct UnixChild {
     child: Child,
     pid: u32,
     leader: Leader,
-    /// macOS parent-death helper: our own child, killed and reaped when this value drops.
-    helper: Option<libc::pid_t>,
+    /// macOS parent-death helper. Never signalled by pid: this value tells it to stand down
+    /// over a private channel when it drops, and only collects its zombie by `waitpid`.
+    helper: Option<Helper>,
     /// Test only: the id used as the signal target, to stand in for a recycled id.
     #[cfg(test)]
     recycled_id: Option<u32>,
 }
 
 impl UnixChild {
-    pub(crate) fn new(mut child: Child, helper: Option<libc::pid_t>) -> Self {
+    pub(crate) fn new(mut child: Child, helper: Option<Helper>) -> Self {
         Self {
             stdin: child.stdin.take(),
             stdout: child.stdout.take(),
@@ -113,6 +132,8 @@ impl UnixChild {
             Leader::Lost => return Err(io::Error::from_raw_os_error(libc::ECHILD)),
             Leader::Unreaped => {}
         }
+        #[cfg(test)]
+        trace::record(trace::Event::Wait { leader: self.pid });
         match self.child.try_wait() {
             Ok(Some(status)) => {
                 self.note_reaped(status);
@@ -143,6 +164,8 @@ impl UnixChild {
             Leader::Lost => return Err(io::Error::from_raw_os_error(libc::ECHILD)),
             Leader::Unreaped => {}
         }
+        #[cfg(test)]
+        trace::record(trace::Event::Wait { leader: self.pid });
         match self.child.wait() {
             Ok(status) => {
                 self.note_reaped(status);
@@ -220,7 +243,11 @@ impl UnixChild {
         if self.leader_state()? == LeaderState::Reaped {
             return Ok(false);
         }
-        group_members_besides(self.pid, self.signal_id(), self.helper)
+        group_members_besides(
+            self.pid,
+            self.signal_id(),
+            self.helper.as_ref().map(Helper::pid),
+        )
     }
 
     fn signal_id(&self) -> u32 {
@@ -252,14 +279,11 @@ impl UnixChild {
         error
     }
 
-    /// Collects the helper's zombie when a group kill has already ended it. The helper is our
-    /// own unreaped child until this runs, so its pid is stable until then.
+    /// Lets go of the helper once it is gone: reaped here, or reaped by another reaper in this
+    /// process (`ECHILD`). Either way its pid is no longer ours, so nothing may ever be done to
+    /// it again. The helper is our own child until then, so its pid is stable until then.
     fn reap_helper_if_exited(&mut self) {
-        let Some(helper) = self.helper else { return };
-        let mut status = 0;
-        // SAFETY: waitpid on our own child with WNOHANG.
-        let reaped = unsafe { libc::waitpid(helper, &mut status, libc::WNOHANG) };
-        if reaped == helper {
+        if self.helper.as_ref().is_some_and(Helper::has_gone) {
             self.helper = None;
         }
     }
@@ -268,16 +292,9 @@ impl UnixChild {
 impl Drop for UnixChild {
     fn drop(&mut self) {
         if let Some(helper) = self.helper.take() {
-            // SAFETY: the helper is our own child and has not been reaped (the field is
-            // cleared on reap), so its pid cannot name any other process.
-            unsafe {
-                libc::kill(helper, libc::SIGKILL);
-                let mut status = 0;
-                while libc::waitpid(helper, &mut status, 0) < 0
-                    && io::Error::last_os_error().raw_os_error() == Some(libc::EINTR)
-                {
-                }
-            }
+            // No signal is sent to the helper's pid: it may have been reaped elsewhere and the
+            // number recycled. It is told to stand down over its private channel instead.
+            helper.retire();
         }
     }
 }
@@ -292,6 +309,8 @@ impl Drop for UnixChild {
 ))]
 fn probe_exit(pid: u32) -> io::Result<bool> {
     loop {
+        #[cfg(test)]
+        trace::record(trace::Event::Wait { leader: pid });
         // SAFETY: an all-zero siginfo_t is valid, and waitid fills it.
         let mut info: libc::siginfo_t = unsafe { std::mem::zeroed() };
         // SAFETY: valid out pointer; WNOWAIT leaves the zombie in place.
@@ -430,8 +449,9 @@ fn group_members_besides(
     Ok(true)
 }
 
-/// Test instrumentation: every signal, and every reap, in the order they happened. Both are
-/// recorded under the child's lock, so the order is the real order.
+/// Test instrumentation: every signal, every reap and every wait-class system call that names
+/// the leader's pid, in the order they happened. All are recorded under the child's lock, so the
+/// order is the real order.
 #[cfg(test)]
 pub(crate) mod trace {
     use std::sync::Mutex;
@@ -446,6 +466,11 @@ pub(crate) mod trace {
         Reaped {
             leader: u32,
         },
+        /// A `waitpid`/`waitid` (probe or reap) was issued naming this pid. After `Reaped` the
+        /// number may belong to someone else, so none may follow.
+        Wait {
+            leader: u32,
+        },
     }
 
     static EVENTS: Mutex<Vec<Event>> = Mutex::new(Vec::new());
@@ -458,14 +483,63 @@ pub(crate) mod trace {
         EVENTS.lock().unwrap_or_else(|p| p.into_inner()).len()
     }
 
-    /// Events about `leader` recorded since `mark`.
+    /// Signals and reaps about `leader` recorded since `mark` (wait calls are left out; see
+    /// [`since_with_waits`]).
     pub(crate) fn since(mark: usize, leader: u32) -> Vec<Event> {
+        since_with_waits(mark, leader)
+            .into_iter()
+            .filter(|event| !matches!(event, Event::Wait { .. }))
+            .collect()
+    }
+
+    /// Every event about `leader` recorded since `mark`, wait calls included.
+    pub(crate) fn since_with_waits(mark: usize, leader: u32) -> Vec<Event> {
         EVENTS.lock().unwrap_or_else(|p| p.into_inner())[mark..]
             .iter()
             .copied()
             .filter(|event| match event {
-                Event::Signal { leader: l, .. } | Event::Reaped { leader: l } => *l == leader,
+                Event::Signal { leader: l, .. }
+                | Event::Reaped { leader: l }
+                | Event::Wait { leader: l } => *l == leader,
             })
             .collect()
+    }
+}
+
+/// Test seam for waiters: a pause point a test can use to hold a waiter at the exact moment
+/// the old blocking wait had checked the shared state and was about to name the pid.
+#[cfg(test)]
+pub(crate) mod gate {
+    use std::sync::{Arc, Mutex};
+
+    type Hook = Arc<dyn Fn() + Send + Sync>;
+
+    static HOOKS: Mutex<Vec<(u32, Hook)>> = Mutex::new(Vec::new());
+
+    /// Runs `hook` each time a waiter on `pid` reaches its pause point.
+    pub(crate) fn install(pid: u32, hook: impl Fn() + Send + Sync + 'static) {
+        let mut hooks = HOOKS.lock().unwrap_or_else(|p| p.into_inner());
+        hooks.retain(|(id, _)| *id != pid);
+        hooks.push((pid, Arc::new(hook)));
+    }
+
+    pub(crate) fn remove(pid: u32) {
+        HOOKS
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .retain(|(id, _)| *id != pid);
+    }
+
+    /// Called by a waiter after it released the child lock and before it sleeps.
+    pub(crate) fn pause(pid: u32) {
+        let hook = HOOKS
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .iter()
+            .find(|(id, _)| *id == pid)
+            .map(|(_, hook)| Arc::clone(hook));
+        if let Some(hook) = hook {
+            hook();
+        }
     }
 }

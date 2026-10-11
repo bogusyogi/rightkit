@@ -91,14 +91,28 @@ test("generation validates owner metadata, code scope & qualified block tier", (
 });
 
 test("availability distinguishes registry, staging & Swift owner alias", () => {
-  const availability = ownershipAvailability({ package: "rightkit-qa" }, versions);
-  // 0.2.14 is published on crates.io and recorded by the release feed (7dd4610df), so no staged-unverified row remains.
-  assert.deepEqual(availability.map(({ version, state }) => [version, state]), [["0.2.14", "registry-recorded"]]);
-  // rightkit-swift 0.4.0 is tagged and recorded by the release feed (1f4b6e04); staged equals the pin, so no staged-unverified row.
-  assert.deepEqual(ownershipAvailability({ package: "RightKitSwift" }, versions).map(({ version, state }) => [version, state]), [["0.4.0", "registry-pinned"]]);
-  // rightkit-asr 0.0.2 is published and recorded by the release feed (9ec3bc6df); an unlisted package has no rows.
-  assert.deepEqual(ownershipAvailability({ package: "rightkit-asr" }, versions).map(({ version, state }) => [version, state]), [["0.0.2", "registry-recorded"]]);
-  assert.deepEqual(ownershipAvailability({ package: "rightkit-not-a-crate" }, versions), []);
+  // Synthetic versions: the live rightkit-versions.json moves with every publish, so asserting its numbers here
+  // went stale each time (qa 0.2.15 and asr 0.1.0 are staged beyond their registry rows).
+  const fixture = {
+    cargo: { "rightkit-pinned": "0.1.0" },
+    stagedCargo: { "rightkit-recorded": "0.3.0", "rightkit-same": "0.2.0", "rightkit-pinned": "0.1.0" },
+    registry: { cargo: { "rightkit-recorded": "0.2.0", "rightkit-same": "0.2.0" }, npm: { "@rightkit/x": "1.0.0" } },
+    stagedNpm: { "@rightkit/x": "1.1.0" },
+    stagedSwift: { "rightkit-swift": { url: "https://example.test/rightkit-swift.git", version: "0.4.0" } },
+    swift: { "rightkit-swift": { url: "https://example.test/rightkit-swift.git", version: "0.4.0" } },
+  };
+  const rows = (pkg) => ownershipAvailability({ package: pkg }, fixture).map(({ version, state }) => [version, state]);
+  assert.deepEqual(rows("rightkit-recorded"), [["0.2.0", "registry-recorded"], ["0.3.0", "staged-unverified"]]);
+  assert.deepEqual(rows("rightkit-same"), [["0.2.0", "registry-recorded"]], "staged equal to the recorded version adds no row");
+  assert.deepEqual(rows("rightkit-pinned"), [["0.1.0", "registry-pinned"]], "no registry record: the pin stands, staged equal to it adds no row");
+  assert.deepEqual(rows("@rightkit/x"), [["1.0.0", "registry-recorded"], ["1.1.0", "staged-unverified"]]);
+  assert.deepEqual(rows("RightKitSwift"), [["0.4.0", "registry-pinned"]]);
+  assert.deepEqual(rows("rightkit-swift"), rows("RightKitSwift"), "both Swift names resolve to one owner");
+  assert.deepEqual(rows("rightkit-not-a-crate"), []);
+  // The live file: a recorded row first whenever the registry block names the package.
+  const live = ownershipAvailability({ package: "rightkit-qa" }, versions);
+  assert.equal(live[0].state, versions.registry.cargo["rightkit-qa"] ? "registry-recorded" : "registry-pinned");
+  assert.ok(live.slice(1).every(({ state }) => state === "staged-unverified"));
 });
 
 test("catalog never treats broad URL literals, API declarations or common infrastructure as implementations", (context) => {

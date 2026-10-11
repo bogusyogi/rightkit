@@ -2,6 +2,7 @@
 use super::{DirEntry, EntryKind, EntryStat, StateOptions};
 use crate::atomic::{SyncLevel, SyncPolicy};
 use crate::error::{FsError, Result};
+use crate::private::SecurityDescriptor;
 use std::ffi::{c_void, OsStr};
 use std::fs::File;
 use std::io;
@@ -144,49 +145,9 @@ unsafe extern "system" {
     ) -> Handle;
     fn GetFileInformationByHandleEx(file: Handle, class: i32, info: *mut c_void, size: u32) -> i32;
     fn SetFileInformationByHandle(file: Handle, class: i32, info: *const c_void, size: u32) -> i32;
+    // Only the tests read security descriptors back and free them.
+    #[cfg_attr(not(test), allow(dead_code))]
     fn LocalFree(memory: *mut c_void) -> *mut c_void;
-}
-
-#[link(name = "advapi32")]
-unsafe extern "system" {
-    fn ConvertStringSecurityDescriptorToSecurityDescriptorW(
-        string: *const u16,
-        revision: u32,
-        descriptor: *mut *mut c_void,
-        size: *mut u32,
-    ) -> i32;
-}
-
-struct SecurityDescriptor(*mut c_void);
-impl SecurityDescriptor {
-    fn owner_only(shown: &Path, directory: bool) -> Result<Self> {
-        let sid = crate::private::current_process_sid_string(shown)?;
-        let inherit = if directory { "OICI" } else { "" };
-        let sddl: Vec<u16> = format!("D:P(A;{inherit};FA;;;{sid})")
-            .encode_utf16()
-            .chain(Some(0))
-            .collect();
-        let mut raw = null_mut();
-        // SAFETY: NUL-terminated SDDL; API allocates the returned descriptor.
-        if unsafe {
-            ConvertStringSecurityDescriptorToSecurityDescriptorW(
-                sddl.as_ptr(),
-                1,
-                &mut raw,
-                null_mut(),
-            )
-        } == 0
-        {
-            return Err(FsError::io(shown, io::Error::last_os_error()));
-        }
-        Ok(Self(raw))
-    }
-}
-impl Drop for SecurityDescriptor {
-    fn drop(&mut self) {
-        // SAFETY: allocation returned by ConvertStringSecurityDescriptorToSecurityDescriptorW.
-        unsafe { LocalFree(self.0) };
-    }
 }
 
 /// What a pinned directory remembers from its [`StateOptions`], inherited by children.
@@ -430,11 +391,19 @@ impl Dir {
                 Component::CurDir => continue,
                 Component::Normal(name) => {
                     root.push(name);
+                    // A directory this walk creates is opened write-through, like `child`: the
+                    // creation is committed before the walk descends into it. Windows has no
+                    // directory flush to add (see `Dir::sync`), so this is the strongest
+                    // equivalent of publishing each new ancestor.
                     let file = current.open_at(
                         name,
                         1,
                         if create { FILE_OPEN_IF } else { FILE_OPEN },
-                        DIRECTORY_FILE,
+                        if create {
+                            DIRECTORY_FILE | FILE_WRITE_THROUGH
+                        } else {
+                            DIRECTORY_FILE
+                        },
                     )?;
                     current = Self::verified(file, &root, config)?;
                 }

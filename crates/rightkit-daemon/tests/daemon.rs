@@ -416,8 +416,8 @@ fn oauth_class_refuses_other_credentials() {
 mod real_flow {
     use super::*;
     use rightkit_daemon::oauth::FlowOAuthHandler;
-    use rightkit_http::testing::{MockResponse, MockServer};
-    use rightkit_http::{Client, ClientConfig};
+    use rightkit_http::testing::{loopback_config, MockResponse, MockServer};
+    use rightkit_http::Client;
     use rightkit_oauth::server::{
         MemoryPendingStateStore, SealedFileTokenStore, ServerAuthFlow, ServerProvider, TokenStore,
     };
@@ -440,7 +440,9 @@ mod real_flow {
         );
         let flow = Arc::new(
             ServerAuthFlow::new(
-                Client::new(ClientConfig::default()),
+                // The mock token endpoint is on 127.0.0.1; the default public-web policy would
+                // deny the exchange (502) before the route check that must answer 400.
+                Client::new(loopback_config()),
                 [provider],
                 Arc::new(MemoryPendingStateStore::default()),
                 Duration::from_secs(300),
@@ -843,6 +845,40 @@ fn restart_preserves_revocation() {
     h.daemon.revoke_device(&dev.id).unwrap();
     h.restart();
     assert_eq!(dev.call(&h, "GET", "/v1/uploads/up_x", b"").status, 401);
+}
+
+#[test]
+fn a_job_submission_is_one_state_write_and_survives_a_crash() {
+    let mut h = Harness::new();
+    let dev = h.enrol();
+    let body = serde_json::to_vec(&json!({ "caption": "a" })).unwrap();
+    let signed = dev.request_at(
+        "PATCH",
+        "/v1/publish-jobs/job-1",
+        &body,
+        h.now(),
+        "submission-nonce",
+        &[("if-match", "0"), ("idempotency-key", "k1")],
+    );
+
+    // The replay nonce and the job change share one state.json write (the old code wrote twice).
+    let before = h.daemon.metrics().state_saves;
+    assert_eq!(h.call(signed.clone()).status, 200);
+    assert_eq!(h.daemon.metrics().state_saves - before, 1);
+    let before = h.daemon.metrics().state_saves;
+    assert_eq!(
+        dev.patch_job(&h, "job-1", 1, "k2", &json!({ "caption": "b" }))
+            .status,
+        200
+    );
+    assert_eq!(h.daemon.metrics().state_saves - before, 1);
+
+    // Reopen without any shutdown step: both acknowledged submissions are already on disk.
+    h.restart();
+    assert_eq!(h.daemon.job_revision("job-1"), 2);
+    // The first submission's nonce is durable too, so its signed request is refused as a replay.
+    assert_eq!(h.call(signed).status, 401);
+    assert_eq!(h.rejections().last().unwrap(), "replayed_nonce");
 }
 
 #[test]

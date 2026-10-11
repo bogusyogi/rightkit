@@ -83,14 +83,16 @@ fn the_flags_each_mode_hands_the_os() {
                 "MoveWriteThrough, durable={durable}"
             );
             assert_eq!(on_existing.api, ReplaceApi::ReplaceFile);
+            // `ReplaceFileW` has no supported write-through: Microsoft documents
+            // REPLACEFILE_WRITE_THROUGH as "not supported", so no mode ever passes it.
             assert_eq!(
-                on_existing.flags,
-                if durable {
-                    REPLACEFILE_WRITE_THROUGH
-                } else {
-                    0
-                },
+                on_existing.flags, 0,
                 "ReplaceFile over an existing file, durable={durable}"
+            );
+            assert_eq!(
+                on_existing.flags & REPLACEFILE_WRITE_THROUGH,
+                0,
+                "the unsupported flag must never be passed"
             );
             assert_eq!(on_missing.api, ReplaceApi::MoveFileEx);
             assert_eq!(

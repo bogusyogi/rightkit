@@ -107,6 +107,9 @@ pub struct DaemonStatus {
 struct Inner {
     state: State,
     uploads: BTreeMap<String, Upload>,
+    /// `state` holds changes that `state.json` does not yet. Set under the lock and cleared by a
+    /// successful write, so one request's changes reach disk in a single write before it answers.
+    dirty: bool,
 }
 
 /// Figures from [`Daemon::metrics`]. Byte counts are for `state.json`, which is rewritten in
@@ -187,7 +190,11 @@ impl Daemon {
             clock,
             events,
             oauth,
-            inner: Mutex::new(Inner { state, uploads }),
+            inner: Mutex::new(Inner {
+                state,
+                uploads,
+                dirty: false,
+            }),
             counters: Counters::default(),
         };
         d.recover()?;
@@ -266,7 +273,7 @@ impl Daemon {
                 expires_at: self.clock.now_secs() + ttl_secs,
             },
         );
-        self.save(&g)?;
+        self.save(&mut g)?;
         Ok(code)
     }
 
@@ -276,7 +283,7 @@ impl Daemon {
             return Ok(false);
         };
         d.revoked = true;
-        self.save(&g)?;
+        self.save(&mut g)?;
         drop(g);
         self.emit("DEVICE_REVOKED", json!({ "deviceId": device_id }));
         Ok(true)
@@ -290,7 +297,7 @@ impl Daemon {
     pub fn drain_webhooks(&self) -> std::io::Result<Vec<(String, String, Vec<u8>)>> {
         let mut g = self.lock();
         let items: Vec<InboxItem> = std::mem::take(&mut g.state.webhook_inbox);
-        self.save(&g)?;
+        self.save(&mut g)?;
         Ok(items
             .into_iter()
             .map(|i| {
@@ -310,21 +317,45 @@ impl Daemon {
 
     // ---- persistence -------------------------------------------------------
 
-    fn save(&self, g: &Inner) -> std::io::Result<()> {
+    /// Rewrite `state.json` from memory and fsync it. A successful write leaves nothing dirty.
+    fn save(&self, g: &mut Inner) -> std::io::Result<()> {
         let bytes = serde_json::to_vec(&g.state)
             .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
         atomic_write(&self.cfg.state_dir.join("state.json"), &bytes)?;
+        g.dirty = false;
         let n = bytes.len() as u64;
         self.counters.state_saves.fetch_add(1, Ordering::Relaxed);
         self.counters.last_state_bytes.store(n, Ordering::Relaxed);
-        self.counters.max_state_bytes.fetch_max(n, Ordering::Relaxed);
+        self.counters
+            .max_state_bytes
+            .fetch_max(n, Ordering::Relaxed);
         Ok(())
+    }
+
+    /// Write `state.json` only when a change has not reached it yet.
+    fn flush(&self, g: &mut Inner) -> std::io::Result<()> {
+        if g.dirty {
+            self.save(g)?;
+        }
+        Ok(())
+    }
+
+    /// Make the request's changes durable, then answer with `resp`. A failed write answers 500
+    /// instead, so no acknowledged change is missing from disk.
+    fn finish(&self, g: &mut Inner, resp: Response) -> Response {
+        match self.flush(g) {
+            Ok(()) => resp,
+            Err(e) => self.storage_error(e),
+        }
     }
 
     /// Request, write and retained-state figures plus process resource usage, read now. No polling
     /// thread runs for this.
     pub fn status(&self) -> DaemonStatus {
-        DaemonStatus { metrics: self.metrics(), process: rightkit_process::process_usage().ok() }
+        DaemonStatus {
+            metrics: self.metrics(),
+            process: rightkit_process::process_usage().ok(),
+        }
     }
 
     /// Request, write and retained-state figures for this daemon instance.
@@ -421,12 +452,38 @@ impl Daemon {
             Err(r) => return r,
         };
         match route.id {
-            "upload.init" => self.upload_init(&mut g, &device, req, now),
-            "upload.chunk" => self.upload_chunk(&mut g, &device, &params, req, now),
-            "upload.status" => self.upload_status(&mut g, &device, &params, now),
-            "upload.complete" => self.upload_complete(g, &device, &params, req, now),
-            "job.update" => self.job_update(&mut g, &device, &params, req, now),
-            _ => Response::err(404, "not_found"),
+            // Hashing runs outside the lock, so the nonce must be on disk before the lock is given up.
+            "upload.complete" => match self.flush(&mut g) {
+                Ok(()) => self.upload_complete(g, &device, &params, req, now),
+                Err(e) => self.storage_error(e),
+            },
+            "job.update" => {
+                let mut applied = None;
+                let resp = self.job_update(&mut g, &device, &params, req, now, &mut applied);
+                let resp = self.finish(&mut g, resp);
+                // Counted and announced only when the change is on disk.
+                if let (Some(revision), 200) = (applied, resp.status) {
+                    self.counters.job_updates.fetch_add(1, Ordering::Relaxed);
+                    self.emit(
+                        "JOB_UPDATED",
+                        json!({ "jobId": &params[0], "revision": revision, "deviceId": device }),
+                    );
+                }
+                resp
+            }
+            "upload.init" => {
+                let resp = self.upload_init(&mut g, &device, req, now);
+                self.finish(&mut g, resp)
+            }
+            "upload.chunk" => {
+                let resp = self.upload_chunk(&mut g, &device, &params, req, now);
+                self.finish(&mut g, resp)
+            }
+            "upload.status" => {
+                let resp = self.upload_status(&mut g, &device, &params, now);
+                self.finish(&mut g, resp)
+            }
+            _ => self.finish(&mut g, Response::err(404, "not_found")),
         }
     }
 
@@ -531,7 +588,9 @@ impl Daemon {
         }
         seen.retain(|_, t| *t + window >= now);
         seen.insert(nonce.to_string(), ts);
-        self.save(g).map_err(|e| self.storage_error(e))?;
+        // Not written here: the request's `finish` (or `job_update`) writes it once, with the
+        // handler's own change, before the answer leaves.
+        g.dirty = true;
         Ok(device_id)
     }
 
@@ -912,6 +971,8 @@ impl Daemon {
 
     // ---- compare-and-swap job mutation ------------------------------------
 
+    /// Apply a compare-and-swap job patch. Leaves the write to `handle_device`; a fresh update sets
+    /// `applied` to its revision, a replay or a refusal leaves it `None`.
     fn job_update(
         &self,
         g: &mut Inner,
@@ -919,6 +980,7 @@ impl Daemon {
         params: &[String],
         req: &Request,
         now: u64,
+        applied: &mut Option<u64>,
     ) -> Response {
         let job_id = &params[0];
         if job_id.len() > MAX_ID || job_id.chars().any(char::is_control) {
@@ -980,14 +1042,8 @@ impl Daemon {
                 at: now,
             },
         );
-        if let Err(e) = self.save(g) {
-            return self.storage_error(e);
-        }
-        self.counters.job_updates.fetch_add(1, Ordering::Relaxed);
-        self.emit(
-            "JOB_UPDATED",
-            json!({ "jobId": job_id, "revision": revision, "deviceId": device }),
-        );
+        g.dirty = true;
+        *applied = Some(revision);
         Response::new(200, body).header("ETag", format!("\"{revision}\""))
     }
 
@@ -1088,7 +1144,7 @@ impl Daemon {
             body_b64: STANDARD.encode(&req.body),
         });
         // Durable before the 202: a delivery acknowledged to the provider survives a crash.
-        if let Err(e) = self.save(&g) {
+        if let Err(e) = self.save(&mut g) {
             g.state.webhook_seen.remove(&dedupe);
             g.state.webhook_inbox.pop();
             return self.storage_error(e);

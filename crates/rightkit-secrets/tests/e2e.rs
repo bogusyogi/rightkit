@@ -33,10 +33,17 @@ fn isolated_keychain_migration_locked_presence_and_cli_redaction() {
     from.set_str("migrated", "isolated-migration-fixture")
         .unwrap();
     let report = migrate_between(&from, &to, &["migrated"]);
-    assert_eq!(report.moved, vec!["migrated"]);
+    // The keychain cannot delete conditionally, so the source is kept (copy only).
+    assert!(report.moved.is_empty(), "{report:?}");
+    assert_eq!(report.retained, vec!["migrated"]);
     assert_eq!(
         to.get("migrated").unwrap().unwrap().expose_str().unwrap(),
         "isolated-migration-fixture"
+    );
+    assert_eq!(
+        from.get("migrated").unwrap().unwrap().expose_str().unwrap(),
+        "isolated-migration-fixture",
+        "the source is retained"
     );
 
     let marker = tempfile::tempdir().unwrap().path().join("migration.json");
@@ -51,7 +58,8 @@ fn isolated_keychain_migration_locked_presence_and_cli_redaction() {
         )
         .unwrap()
         .unwrap();
-    assert_eq!(marker_report.moved, vec!["marker"]);
+    assert!(marker_report.moved.is_empty(), "{marker_report:?}");
+    assert_eq!(marker_report.retained, vec!["marker"]);
     assert!(marker.exists());
 
     let path = tempfile::NamedTempFile::new().unwrap().into_temp_path();
@@ -174,7 +182,8 @@ fn child_ensure_key() {
     };
     let path = std::path::PathBuf::from(path);
     let password = password.to_string_lossy().into_owned();
-    let kc = rightkit_secrets::macos::KeychainBackend::open_file(&path, Some(&password)).unwrap();
+    let kc = rightkit_secrets::macos::KeychainBackend::open_isolated_file(&path, Some(&password))
+        .unwrap();
     let store = Store::open(
         Config::new(Namespace::new("rightkit.test.concurrent").unwrap()).backend(Arc::new(kc)),
     );

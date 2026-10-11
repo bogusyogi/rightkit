@@ -3,14 +3,16 @@ use std::net::TcpStream;
 use std::sync::Arc;
 use std::time::Duration;
 
-use rightkit_http::testing::{MockResponse, MockServer};
+use rightkit_http::testing::{loopback_config, MockResponse, MockServer};
 use rightkit_http::{Client, ClientConfig, RetryPolicy};
 use rightkit_oauth::{OAuthClient, OAuthConfig, OAuthError};
 
+/// The default address policy refuses the `127.0.0.1` mock servers below, so every client in
+/// this file starts from the crate's loopback test configuration.
 fn client() -> Client {
     Client::new(ClientConfig {
         retry: RetryPolicy::none(),
-        ..ClientConfig::default()
+        ..loopback_config()
     })
 }
 
@@ -278,7 +280,7 @@ fn retrying_client() -> Client {
             jitter: 0.0,
             ..RetryPolicy::default()
         },
-        ..ClientConfig::default()
+        ..loopback_config()
     })
 }
 
@@ -300,6 +302,12 @@ fn token_post_is_not_replayed_after_a_5xx() {
         scope: None,
         obtained_at: std::time::SystemTime::now(),
     };
-    assert!(oauth.refresh(&current).is_err());
+    // The mock must actually be reached (a denied destination would also be an error, with
+    // zero requests): the 503 comes back as the provider status, and was sent exactly once.
+    let err = oauth.refresh(&current).unwrap_err();
+    assert!(
+        matches!(&err, OAuthError::Provider { status: 503, .. }),
+        "{err:?}"
+    );
     assert_eq!(token_server.request_count(), 1);
 }

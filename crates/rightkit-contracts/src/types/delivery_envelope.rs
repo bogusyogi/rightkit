@@ -11,9 +11,12 @@ pub struct DeliveryEnvelope {
     pub brief_revision: u64,
     pub content_revision: u64,
     pub policy_revision: u64,
+    /// Platform rule revision the artifact was validated against (contract 1.1.0).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rule_revision: Option<u64>,
     pub producer: Producer,
     pub platforms: Vec<String>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub copy: Option<EnvelopeCopy>,
     pub payload: Payload,
 }
@@ -36,11 +39,11 @@ pub enum Engine {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub struct EnvelopeCopy {
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub caption: Option<String>,
     #[serde(default)]
     pub hashtags: Vec<String>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub link_placement: Option<LinkPlacement>,
 }
 
@@ -60,9 +63,9 @@ pub enum LinkPlacement {
 pub enum Payload {
     Video {
         media: VideoMedia,
-        #[serde(default)]
+        #[serde(default, skip_serializing_if = "Option::is_none")]
         captions: Option<CaptionTrack>,
-        #[serde(default)]
+        #[serde(default, skip_serializing_if = "Option::is_none")]
         thumbnail: Option<Still>,
     },
     Stills {
@@ -73,7 +76,7 @@ pub enum Payload {
     },
     Text {
         body: String,
-        #[serde(default)]
+        #[serde(default, skip_serializing_if = "Option::is_none")]
         locale: Option<String>,
     },
 }
@@ -89,7 +92,7 @@ pub struct VideoMedia {
     pub fps: u32,
     pub duration_ms: u64,
     pub aspect: Aspect,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub audio: Option<Audio>,
 }
 
@@ -126,7 +129,7 @@ pub struct Audio {
     pub codec: String,
     pub channels: u8,
     pub sample_rate: u32,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub loudness_lufs: Option<f64>,
 }
 
@@ -161,7 +164,7 @@ pub struct Still {
 pub struct Slide {
     pub index: u32,
     pub still: Still,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub slide_copy: Option<String>,
     #[serde(default)]
     pub step_ids: Vec<String>,

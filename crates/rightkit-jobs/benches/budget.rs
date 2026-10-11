@@ -11,7 +11,7 @@
 //! Optional: `-- <calls> <idle_seconds>` (defaults 10000 and 30).
 
 use rightkit_jobs::{EngineSupervisor, HealthCheck, SupervisorConfig};
-use rightkit_process::{observe_idle, BudgetLabels, process_usage, OwnedCommand};
+use rightkit_process::{observe_idle, process_usage, BudgetLabels, OwnedCommand};
 use serde_json::{json, Value};
 use std::io::{BufRead, Write};
 use std::sync::Arc;
@@ -26,7 +26,9 @@ fn engine() {
     };
     put(json!({"type":"hello","engine":"budget","version":"1.0","contract_version":1}));
     for line in std::io::stdin().lock().lines().map_while(Result::ok) {
-        let Ok(req) = serde_json::from_str::<Value>(&line) else { continue };
+        let Ok(req) = serde_json::from_str::<Value>(&line) else {
+            continue;
+        };
         let id = req["id"].clone();
         let result = match req["method"].as_str().unwrap_or("") {
             "ping" => json!({"pong": true}),
@@ -41,7 +43,10 @@ fn main() {
         engine();
         return;
     }
-    let args: Vec<String> = std::env::args().skip(1).filter(|a| a != "--bench").collect();
+    let args: Vec<String> = std::env::args()
+        .skip(1)
+        .filter(|a| a != "--bench")
+        .collect();
     let calls: usize = args.first().and_then(|v| v.parse().ok()).unwrap_or(10_000);
     let idle_s: u64 = args.get(1).and_then(|v| v.parse().ok()).unwrap_or(30);
 
@@ -84,7 +89,10 @@ fn main() {
     );
     let idle = observe_idle(Duration::from_secs(idle_s)).expect("idle window");
     let end = sup.status();
-        println!("RESULT restarts={} restarts", end.restarts);
-    println!("RESULT event_subscribers={} subscribers", end.event_subscribers);
+    println!("RESULT restarts={} restarts", end.restarts);
+    println!(
+        "RESULT event_subscribers={} subscribers",
+        end.event_subscribers
+    );
     print!("{}", idle.result_lines(&warm, &BudgetLabels { krate: "rightkit-jobs", version: env!("CARGO_PKG_VERSION"), scale_unit: "calls", scale: sent as u64, what: "echo calls to a live engine with 100 event subscribers and a 2 s health ping, then idle", scope: "synthetic" }));
 }

@@ -18,7 +18,10 @@ pub enum LlmError {
     /// The provider answered with a non-2xx status. `message` is the provider's error text,
     /// bounded to [`MAX_PROVIDER_MESSAGE_BYTES`] and with the request's credential removed.
     /// Apps can match on `status` and keep their own wording.
-    Status { status: u16, message: String },
+    Status {
+        status: u16,
+        message: String,
+    },
     /// No credential available for the provider.
     MissingCredential(String),
     /// Provider answered 2xx with a body we cannot interpret.
@@ -32,6 +35,22 @@ pub enum LlmError {
     },
     /// The caller's callback requested cancellation.
     Cancelled,
+    /// The provider rejected the credential (HTTP 401 or 403) on a key-validation call
+    /// (`OpenAiCompatProvider::list_models` / `validate_credential`). `message` is bounded and
+    /// redacted, as for [`LlmError::Status`].
+    Auth {
+        status: u16,
+        message: String,
+    },
+    /// The request was rejected before it was sent (for example an extra body field that
+    /// collides with a field the crate sets). Nothing reached the network.
+    InvalidRequest(String),
+    /// The provider stopped at its output limit and the request asked for that to be an
+    /// error ([`crate::ChatRequest::reject_truncated_output`]). `output_tokens` is the count
+    /// the route reported, or `None` when it reported none.
+    Truncated {
+        output_tokens: Option<u64>,
+    },
     /// A command-line assistant route failed (feature `cli`).
     #[cfg(feature = "cli")]
     Cli(crate::provider::cli::CliError),
@@ -57,6 +76,7 @@ impl LlmError {
         match self {
             LlmError::Status { status, .. } => Some(*status),
             LlmError::Http(e) => e.status(),
+            LlmError::Auth { status, .. } => Some(*status),
             _ => None,
         }
     }
@@ -104,7 +124,10 @@ pub(crate) fn provider_message(body: &str, secret: Option<&str>) -> String {
                 .map(str::to_owned)
         });
     let text = parsed.unwrap_or_else(|| body.to_owned());
-    truncate_utf8(redact_secret(&text, secret).trim(), MAX_PROVIDER_MESSAGE_BYTES)
+    truncate_utf8(
+        redact_secret(&text, secret).trim(),
+        MAX_PROVIDER_MESSAGE_BYTES,
+    )
 }
 
 /// Remove the request's credential from text that came from the provider.
@@ -146,6 +169,21 @@ impl fmt::Display for LlmError {
             LlmError::MidStream(m) => write!(f, "stream failed after first token: {m}"),
             LlmError::Provider { kind, message } => write!(f, "provider error {kind}: {message}"),
             LlmError::Cancelled => write!(f, "cancelled"),
+            LlmError::Auth { status, message } if message.is_empty() => {
+                write!(f, "credential rejected: HTTP {status}")
+            }
+            LlmError::Auth { status, message } => {
+                write!(f, "credential rejected: HTTP {status}: {message}")
+            }
+            LlmError::InvalidRequest(m) => write!(f, "invalid request: {m}"),
+            LlmError::Truncated {
+                output_tokens: Some(n),
+            } => write!(f, "output truncated at the output limit after {n} tokens"),
+            LlmError::Truncated {
+                output_tokens: None,
+            } => {
+                write!(f, "output truncated at the output limit")
+            }
             #[cfg(feature = "cli")]
             LlmError::Cli(e) => write!(f, "{e}"),
             LlmError::AllRoutesFailed(a) => {

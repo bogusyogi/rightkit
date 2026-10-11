@@ -101,3 +101,10 @@ Recorded blockers as of 2026-10-06. Check `INDEX.md` for the current state.
 
 Licensed under MIT OR Apache-2.0. Models and ONNX Runtime retain independent
 licenses and attribution obligations.
+
+## Suites that need local assets (skipped on hosted CI)
+
+A hosted runner has none of these assets, so each test prints `SKIP <test>: ...` and passes. Set `RIGHTKIT_REQUIRE_ASSETS=1` on a host that must have them, and the test fails instead.
+
+- `tests/native_e2e.rs` and `tests/worker_events.rs` (`health_hook_records_a_fresh_canary_verdict`), and the native-backend tests in `tests/native_e2e.rs`: a native OS text recognizer that reads the embedded canary (Apple Vision on macOS, `Windows.Media.Ocr` on Windows). A hosted macOS runner's Vision service fails on every image, so these skip there. The check is the isolated canary, not the platform name.
+- `tests/native_e2e.rs` (the ONNX tests and the agreement check) and `tests/real_model_e2e.rs`: the PP-OCRv6 ONNX models and ONNX Runtime, enabled by `RIGHTKIT_OCR_MODEL_DIR=<dir with det.onnx, rec.onnx, en_dict.txt>` and `RIGHTKIT_OCR_ORT_RUNTIME=<path to the runtime library>`. Without the variables the suites look for `scraperight/models/ocr` and `bin/libonnxruntime.dylib` (or `onnxruntime.dll`) by walking up from the crate.

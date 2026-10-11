@@ -14,6 +14,8 @@ Catalog capability: `global-hotkeys`. Release versions are tracked in [INDEX.md]
 |---|---|
 | `chord` | Parsing and formatting of chords, and single-key push-to-talk aliases (`parse_chord`, `Chord`, `Key`, `Modifier`, `Side`). Display is per platform. |
 | `conflict` | Conflict reports for registration failures (`HotkeyConflict`) and an in-process `ChordRegistry`. |
+| `hold` | Pure press/release pairing (`HoldTracker`, `KeyStateSource`, `HotkeyState`) for APIs that only report a press. |
+| `register_status` | Typed classification of OS registration failures (`RegisterFailure`). |
 | `ptt` | Pure push-to-talk policy and the start and end handoff state machine (`PttPhase`, `PttHandoff`, `PttEnd`). |
 | `decision` | Pure predicates shared by the platform hooks: the fn-chord gate and the middle-button check. |
 | `macos` | `CGEventTap` primitive, fn-chord tap (`FnHotkeyTap`), middle-mouse tap (`MiddleMouseTap`), and Carbon global hotkeys (`GlobalHotkeys`). |
@@ -61,8 +63,10 @@ Version: see [INDEX.md](../../INDEX.md). Changes are recorded in `CHANGELOG.md`.
 ## Windows
 
 - Two mechanisms, both in `src/windows/mod.rs` and compiled only under `cfg(windows)`:
-  - `GlobalHotkeys` runs a thread with a message loop and calls `RegisterHotKey(NULL, id, mods | MOD_NOREPEAT, vk)`. `WM_HOTKEY` is handled on that thread. Ctrl, Alt and Shift map directly, and Meta, Super and Win all map to `MOD_WIN`. Error 1409 becomes `RegisterError::Conflict`. Dropping unregisters every id and joins the thread.
+  - `GlobalHotkeys` runs a thread with a message loop and calls `RegisterHotKey(NULL, id, mods | MOD_NOREPEAT, vk)`. `WM_HOTKEY` is handled on that thread. Ctrl, Alt and Shift map directly, and Meta, Super and Win all map to `MOD_WIN`. Registration errors are typed: 1409 `Conflict`, 87 and 1004 `Unsupported`, 5 `PermissionDenied`, 8, 14 and 1450 `ResourceExhausted`, anything else `Os`. `unregister(&Chord)` removes one chord; dropping unregisters every id and joins the thread.
+  - Hold-to-talk: `GlobalHotkeys::with_state` delivers `Pressed` and `Released`. `RegisterHotKey` has no release event, so after `WM_HOTKEY` the loop thread starts a roughly 15 ms thread timer that polls `GetAsyncKeyState` for the chord's key and modifiers, and kills it when nothing is held. No global hook is installed. Exactly one `Released` per `Pressed`, also on unregister and drop. Limits: release latency is 15 to 30 ms; a released modifier ends the hold; a focus change alone does not; a lock screen or UAC desktop switch makes Windows report all keys up, so the hold ends at the next poll.
   - `LowLevelKeyboardHook` installs one process-wide `WH_KEYBOARD_LL` hook on its own thread. A second install returns `HookError::AlreadyInstalled`. The handler runs inside the hook procedure and returns `Pass` or `Swallow` (LRESULT 1). `KeyEvent.injected` reports `LLKHF_INJECTED`. The module comment says the handler must stay fast and hand real work to another thread.
+- Push-to-talk aliases come from one table, `PttAlias`: Windows `lalt`, `ralt`, `rctrl`; macOS `ctrl` (also `lctrl`, `rctrl`, `control`), `lalt`, `ralt`. Canonical and display spellings parse back to the same alias.
 - There are no Windows `FnHotkeyTap` or `MiddleMouseTap` types. Those live in `src/macos/` only, so fn, push-to-talk and middle-button support is macOS-only at HEAD.
 - Dependency: `windows-sys` 0.61.2 under `cfg(windows)` (`Cargo.toml:17`), with features `Win32_Foundation`, `Win32_System_LibraryLoader`, `Win32_System_Threading`, `Win32_UI_Input_KeyboardAndMouse` and `Win32_UI_WindowsAndMessaging`. Consumers enable no Windows features.
 - Not verified: the module header says it has not been built on the macOS host and must be checked on Windows before an app adopts it. Nothing here was compiled for Windows.

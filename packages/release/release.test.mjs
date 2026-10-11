@@ -6,7 +6,8 @@ import { execFileSync, spawnSync } from "./background-process.mjs";
 import { brokerManagedHost } from "./cargo-contract.mjs";
 import { fileURLToPath } from "node:url";
 import { signingReceiptPath } from "./signing-receipts.mjs";
-import { swiftPrivatePackagesCleanupStep, swiftPrivatePackagesConfigureStep } from "../git/manifest.mjs";
+import { swiftPrivatePackagesCleanupStep, swiftPrivatePackagesConfigureStep, validateManifest } from "../git/manifest.mjs";
+import { renderLanes } from "../git/sync.mjs";
 import test from "node:test";
 
 const release = fileURLToPath(new URL("./release.mjs", import.meta.url));
@@ -146,7 +147,8 @@ function lockFixture() {
 }
 
 function managedEnv() {
-  return { ...process.env };
+  // The doctor's free-space floor is about the machine running the tests, not the code under test.
+  return { ...process.env, RIGHT_RELEASE_MIN_FREE_GB: "1" };
 }
 
 function run(config, ...args) {
@@ -174,10 +176,16 @@ function runDoctor(config, ...args) {
 // closed; every other doctor check must still pass.
 function assertDoctorFailsClosedOnlyOnOwnership(result) {
   const output = `${result.stdout}\n${result.stderr}`;
-  assert.notEqual(result.status, 0, output);
-  assert.match(output, /^\s*\[FAIL\] ownership: /m);
   const otherFailures = output.split(/\r?\n/).filter((line) => /^\s*\[(?:FAIL|ERROR)\] /.test(line) && !/^\s*\[FAIL\] ownership: /.test(line));
   assert.deepEqual(otherFailures, [], output);
+  // Without a protected ownership enrollment on this host (a clean CI runner), ownership is an advisory WARN that does
+  // not block, so the doctor exits 0. An enrolled host reports the blocking ownership FAIL and a non-zero exit instead.
+  if (/^\s*\[WARN\] ownership: WARNING: ownership approval enrollment is pending/m.test(output)) {
+    assert.equal(result.status, 0, output);
+    return;
+  }
+  assert.notEqual(result.status, 0, output);
+  assert.match(output, /^\s*\[FAIL\] ownership: /m);
 }
 
 test("accepts a tier-neutral internal build", () => {
@@ -464,6 +472,24 @@ test("rejects an unlisted future @rightkit/git release-chain consumer", () => {
   }));
   assert.notEqual(result.status, 0);
   assert.match(result.stderr, new RegExp(`@rightkit/git must be one of[\\s\\S]*got ${future.replaceAll(".", "\\.")}`, "i"));
+});
+
+test("accepts an unlisted @rightkit/git patch inside the recorded range, rejects one below the minimum", () => {
+  const recorded = new Set([versions.npm["@rightkit/git"], versions.stagedNpm["@rightkit/git"], ...(versions.legacyNpm["@rightkit/git"] ?? []), versions.registry?.npm?.["@rightkit/git"]].filter(Boolean));
+  const triples = [...recorded].map((v) => v.split(".").map(Number)).sort((a, b) => a[0] - b[0] || a[1] - b[1] || a[2] - b[2]);
+  const [lo, hi] = [triples[0], triples.at(-1)];
+  // An unlisted version strictly between the lowest and highest recorded version.
+  let gap = null;
+  for (let patch = lo[2] + 1; patch < hi[2] && !gap; patch += 1) if (!recorded.has(`${lo[0]}.${lo[1]}.${patch}`)) gap = `${lo[0]}.${lo[1]}.${patch}`;
+  assert.ok(gap, "the versions file records a gap for @rightkit/git; update this test if it ever becomes contiguous");
+  const pkg = (version) => ({ packageJson: { name: "fixture", packageManager: versions.packageManager,
+    scripts: { "release:patch:win": "right-release --platform win --tier patch" },
+    dependencies: { "@rightkit/git": version }, devDependencies: { "@rightkit/release": versions.stagedNpm["@rightkit/release"] } } });
+  const accepted = run(fixture(pkg(gap)));
+  assert.equal(accepted.status, 0, accepted.stderr);
+  const below = run(fixture(pkg("0.0.1")));
+  assert.notEqual(below.status, 0);
+  assert.match(below.stderr, /@rightkit\/git must be one of[\s\S]*got 0\.0\.1/);
 });
 
 test("rejects hosted workflow files before release work starts", () => {
@@ -772,6 +798,291 @@ test("rejects swift.privatePackages secrets when ci.yml is dispatchable", () => 
   const triggered = releaseWithSwiftPrivate({ manifest: plain, ci: swiftPrivateCi(plain, { dispatch: true }) });
   assert.notEqual(triggered.status, 0);
   assert.match(triggered.stderr, /release-capable permissions or secrets/i);
+});
+
+// swift.privatePackages in every lane @rightkit/git 0.2.41 renders it into. These tests render real
+// workflows with the sibling @rightkit/git renderer, so the policy is pinned to what right-git writes;
+// each refusal starts from the same renders and changes one thing.
+const SWIFT_LANE_CANDIDATE = { buildScript: "ci:candidate", checkScript: "ci:candidate-check", admissionScript: "release:admit", stageSummaryScript: "release:stage-summary", artifactRoot: "widgets-unsigned" };
+const SWIFT_NODE_LANES = {
+  schemaVersion: 1,
+  compile: "github-actions-only",
+  lanes: ["ci", "qualification", "package-smoke", "release-candidate", "regenerate"],
+  matrix: { os: ["ubuntu-latest", "macos-latest"], node: ["24"] },
+  packageManager: "pnpm@11.24.0",
+  regenerate: { script: "regenerate" },
+  templateVersion: "1.0.0",
+  swift: { privatePackages: SWIFT_PRIVATE },
+};
+const SWIFT_PUBLISH_LANES = {
+  ...SWIFT_NODE_LANES,
+  lanes: ["ci", "publish-npm", "publish-package-managers"],
+  regenerate: undefined,
+  publish: { npm: { oidc: true, provenance: true }, homebrew: { tap: "acme/homebrew-tap", formulaName: "widgets" }, winget: { packageIdentifier: "Acme.Widgets" } },
+};
+const SWIFT_RUST_LANES = {
+  schemaVersion: 1,
+  compile: "github-actions-only",
+  profile: "rust-hybrid",
+  lanes: ["ci", "release-candidate", "regenerate"],
+  gate: { path: "scripts/gate.sh" },
+  matrix: { os: ["xcode-27", "windows-2025"], node: ["26.8.1"] },
+  packageManager: "pnpm@11.24.0",
+  regenerate: { script: "regenerate" },
+  candidate: { ...SWIFT_LANE_CANDIDATE, os: ["xcode-27", "windows-2025"] },
+  devArtifact: { mac: "unsigned", windows: "unsigned", parallel: true, buildScript: "build:dev", macAppPath: "target/release/bundle/macos/Widgets.app", windowsGlob: "target/release/*.exe" },
+  templateVersion: "1.2.0",
+  swift: { privatePackages: SWIFT_PRIVATE },
+};
+// Every signing, qualification and publish job the release chain can render, plus the in-gate dev-mac-sign job.
+const SWIFT_RUST_CHAIN = {
+  ...SWIFT_RUST_LANES,
+  lanes: ["ci", "release-candidate"],
+  regenerate: undefined,
+  matrix: { os: ["ubuntu-24.04", "windows-2025", "macos-15"], node: ["22.23.2"] },
+  // In-gate dev artifact: the parallel layout renders dev-mac-sign with `needs: [ci, dev-artifact-mac]`, which the
+  // dev-mac-sign allowance does not match today (see the report), so this fixture keeps the `needs: [ci]` shape.
+  devArtifact: { mac: "notarize", macAppPath: SWIFT_RUST_LANES.devArtifact.macAppPath },
+  candidate: {
+    ...SWIFT_LANE_CANDIDATE,
+    admissionScript: "release:admission",
+    os: ["windows-2025", "macos-15"],
+    signWindows: true,
+    signMacos: true,
+    releaseChain: {
+      evidenceVerificationScript: "release:verify:evidence",
+      windowsFinalizeScript: "release:finalize:win",
+      macosFinalizeScript: "release:finalize:mac",
+      installedQualificationScript: "release:qualify:installed",
+      publishScript: "release:publish:qualified",
+      qualificationRunnerVariable: "QUALIFICATION_RUNNER_LABEL",
+      publishSecrets: ["CLOUDFLARE_API_TOKEN"],
+    },
+  },
+};
+
+const renderedWorkflows = (manifest) => Object.fromEntries(renderLanes(manifest, "/repos/widgets").map(({ filename, content }) => [filename, content]));
+
+function releaseWithManagedWorkflows(manifest, workflows) {
+  const config = fixture({ hostedWorkflows: "right-git-ci-only", includeCargoSources: false });
+  const root = path.dirname(config);
+  const workflowDir = path.join(root, ".github", "workflows");
+  mkdirSync(workflowDir, { recursive: true });
+  writeFileSync(path.join(root, ".rightgit.json"), JSON.stringify(manifest));
+  for (const [name, text] of Object.entries(workflows)) writeFileSync(path.join(workflowDir, name), text);
+  git(root, "add", ".");
+  git(root, "commit", "-m", "managed right-git workflows");
+  return run(config, "--tier=patch");
+}
+
+// Ids of the jobs whose text names the declared secret.
+function jobsNamingSwiftSecret(workflow, secret = "SWIFT_PRIVATE_TOKEN") {
+  const body = workflow.slice(workflow.indexOf("\njobs:\n") + "\njobs:\n".length);
+  const parts = body.split(/^  ([A-Za-z0-9_-]+):$/m);
+  const ids = [];
+  for (let i = 1; i < parts.length; i += 2) if (parts[i + 1].includes(`secrets.${secret}`)) ids.push(parts[i]);
+  return ids;
+}
+
+// Applies `edit` to the text of one job (its header line through the line before the next job) and asserts it changed.
+function editJob(workflow, job, edit) {
+  const header = `\n  ${job}:\n`;
+  const start = workflow.indexOf(header);
+  assert.ok(start >= 0, `fixture renders job ${job}`);
+  const next = /\n  [A-Za-z0-9_-]+:\n/.exec(workflow.slice(start + header.length));
+  const end = next ? start + header.length + next.index : workflow.length;
+  const edited = edit(workflow.slice(start, end));
+  assert.notEqual(edited, workflow.slice(start, end), `edit changed job ${job}`);
+  return workflow.slice(0, start) + edited + workflow.slice(end);
+}
+
+function editText(text, pattern, replacement) {
+  const edited = text.replace(pattern, () => replacement);
+  assert.notEqual(edited, text, `edit changed the workflow: ${String(pattern)}`);
+  return edited;
+}
+
+// The real rendered configure and cleanup steps, as the first two steps of `job`.
+function withSwiftSteps(workflow, job, manifest) {
+  const steps = `${swiftPrivatePackagesConfigureStep(manifest).slice(1)}\n${swiftPrivatePackagesCleanupStep(manifest).slice(1)}\n`;
+  return editJob(workflow, job, (text) => editText(text, "\n    steps:\n", `\n    steps:\n${steps}`));
+}
+
+const SWIFT_ON_BLOCK = /^on:\n(?:(?:[ \t#][^\n]*)?\n)*/m;
+const SWIFT_ENV_STEPS = /not in the env of the "Configure private Swift package access" or "Remove private Swift package access" step/;
+const SWIFT_ENV_LINE = /not a RIGHT_GIT_PRIVATE_TOKEN_<n> env line naming entry <n> of swift\.privatePackages/;
+
+function assertRefused(manifest, workflows, detail, label) {
+  const result = releaseWithManagedWorkflows(manifest, workflows);
+  assert.notEqual(result.status, 0, label);
+  assert.match(result.stderr, /release-capable permissions or secrets/i, label);
+  assert.match(result.stderr, detail, label);
+}
+
+test("accepts the swift.privatePackages credential in every workflow and job @rightkit/git 0.2.41 renders it into", () => {
+  const expected = [
+    [SWIFT_NODE_LANES, { "ci.yml": ["test"], "qualification.yml": ["qualification"], "package-smoke.yml": [], "release-candidate.yml": ["candidate"], "regenerate.yml": ["regenerate"] }],
+    [SWIFT_RUST_LANES, { "ci.yml": ["ci", "dev-artifact-mac"], "release-candidate.yml": ["candidate"], "regenerate.yml": ["regenerate"] }],
+  ];
+  for (const [manifest, jobsByWorkflow] of expected) {
+    const profile = manifest.profile ?? "node";
+    assert.deepEqual(validateManifest(manifest).errors, [], profile);
+    const workflows = renderedWorkflows(manifest);
+    // The renders really carry the credential where this policy must accept it, and nowhere else.
+    assert.deepEqual(Object.fromEntries(Object.entries(workflows).map(([name, text]) => [name, jobsNamingSwiftSecret(text)])), jobsByWorkflow, profile);
+    // Dispatch lanes by design versus lanes that must never be dispatchable.
+    for (const name of ["release-candidate.yml", "regenerate.yml"]) assert.match(workflows[name], /^on:\n(?:.*\n)*?  workflow_dispatch:/m, `${profile}/${name} is a dispatch lane`);
+    for (const name of ["ci.yml", "qualification.yml"]) assert.doesNotMatch(workflows[name] ?? "", /workflow_dispatch/, `${profile}/${name} is not dispatchable`);
+    const result = releaseWithManagedWorkflows(manifest, workflows);
+    assert.equal(result.status, 0, `${profile}: ${result.stderr}`);
+  }
+  // The node release candidate also runs on pushed v* tags.
+  assert.match(renderedWorkflows(SWIFT_NODE_LANES)["release-candidate.yml"], /^  push:\n    tags: \['v\*'\]/m);
+});
+
+test("refuses the swift.privatePackages credential where a manual run of any ref would reach it (ci.yml and qualification.yml)", () => {
+  const cases = [
+    [SWIFT_NODE_LANES, "ci.yml"],
+    [SWIFT_NODE_LANES, "qualification.yml"],
+    [SWIFT_RUST_LANES, "ci.yml"],
+  ];
+  for (const [manifest, name] of cases) {
+    const workflows = renderedWorkflows(manifest);
+    workflows[name] = editText(workflows[name], /^on:\n/m, "on:\n  workflow_dispatch:\n");
+    assertRefused(manifest, workflows, new RegExp(`secrets\\.SWIFT_PRIVATE_TOKEN: ${name.replace(".", "\\.")} has a workflow_dispatch trigger`), `${manifest.profile ?? "node"}/${name}`);
+  }
+  // devArtifact.dispatch in the manifest refuses the credential in every lane, not only ci.yml.
+  const rust = { ...SWIFT_RUST_LANES, devArtifact: { ...SWIFT_RUST_LANES.devArtifact, dispatch: true } };
+  assertRefused(rust, renderedWorkflows(SWIFT_RUST_LANES), /secrets\.SWIFT_PRIVATE_TOKEN: devArtifact\.dispatch is true/, "devArtifact.dispatch");
+});
+
+test("refuses the swift.privatePackages credential in a workflow triggered by pull_request_target or workflow_run, in any trigger form", () => {
+  const forms = [
+    ["pull_request_target block", "on:\n  pull_request_target:\n", /^on:\n/m, "pull_request_target"],
+    ["workflow_run block", "on:\n  workflow_run:\n    workflows: [ci]\n    types: [completed]\n", /^on:\n/m, "workflow_run"],
+    ["workflow_run flow list", "on: [push, workflow_run]\n", SWIFT_ON_BLOCK, "workflow_run"],
+    ["pull_request_target scalar", "on: pull_request_target\n", SWIFT_ON_BLOCK, "pull_request_target"],
+    ["workflow_run flow map", "on: { workflow_run: { workflows: [ci] } }\n", SWIFT_ON_BLOCK, "workflow_run"],
+  ];
+  const targets = [
+    [SWIFT_NODE_LANES, "ci.yml"],
+    [SWIFT_NODE_LANES, "qualification.yml"],
+    [SWIFT_NODE_LANES, "release-candidate.yml"],
+    [SWIFT_NODE_LANES, "regenerate.yml"],
+    [SWIFT_RUST_LANES, "ci.yml"],
+    [SWIFT_RUST_LANES, "release-candidate.yml"],
+  ];
+  for (const [manifest, name] of targets) {
+    for (const [form, replacement, pattern, trigger] of forms) {
+      const workflows = renderedWorkflows(manifest);
+      // Block forms keep the original triggers beside the added one; flow and scalar forms replace the whole on: block.
+      workflows[name] = editText(workflows[name], pattern, replacement);
+      assertRefused(manifest, workflows, new RegExp(`secrets\\.SWIFT_PRIVATE_TOKEN: ${name.replace(".", "\\.")} is triggered by ${trigger}`), `${manifest.profile ?? "node"}/${name} ${form}`);
+    }
+  }
+});
+
+test("refuses the swift.privatePackages credential in signing, qualification and publishing jobs and in the lanes that never render it", () => {
+  const jobs = [
+    [SWIFT_RUST_CHAIN, "release-candidate.yml", "private-repo-guard"],
+    [SWIFT_RUST_CHAIN, "release-candidate.yml", "admission"],
+    [SWIFT_RUST_CHAIN, "release-candidate.yml", "windows-sign"],
+    [SWIFT_RUST_CHAIN, "release-candidate.yml", "macos-sign"],
+    [SWIFT_RUST_CHAIN, "release-candidate.yml", "installed-qualification"],
+    [SWIFT_RUST_CHAIN, "release-candidate.yml", "publish"],
+    [SWIFT_RUST_CHAIN, "ci.yml", "private-repo-guard"],
+    [SWIFT_RUST_CHAIN, "ci.yml", "dev-mac-sign"],
+    [SWIFT_RUST_LANES, "ci.yml", "dev-artifact-windows"],
+    [SWIFT_NODE_LANES, "ci.yml", "private-repo-guard"],
+    [SWIFT_NODE_LANES, "qualification.yml", "private-repo-guard"],
+    [SWIFT_NODE_LANES, "qualification.yml", "schema"],
+    [SWIFT_NODE_LANES, "qualification.yml", "security"],
+    [SWIFT_NODE_LANES, "qualification.yml", "hardening"],
+    [SWIFT_NODE_LANES, "qualification.yml", "conformance"],
+    [SWIFT_NODE_LANES, "release-candidate.yml", "private-repo-guard"],
+    [SWIFT_NODE_LANES, "regenerate.yml", "private-repo-guard"],
+  ];
+  for (const [manifest, name, job] of jobs) {
+    const workflows = renderedWorkflows(manifest);
+    workflows[name] = withSwiftSteps(workflows[name], job, manifest);
+    assertRefused(manifest, workflows, new RegExp(`secrets\\.SWIFT_PRIVATE_TOKEN: job '${job}' of ${name.replace(".", "\\.")} may not hold the swift\\.privatePackages credential`), `${name}/${job}`);
+  }
+  // One lane per repository, so the lanes that are refused for their own publishing credentials cannot hide each other.
+  const lanes = [
+    [{ ...SWIFT_NODE_LANES, lanes: ["ci", "package-smoke"] }, "package-smoke.yml", "clean-tarball"],
+    [{ ...SWIFT_PUBLISH_LANES, lanes: ["ci", "publish-npm"] }, "publish-npm.yml", "publish-npm"],
+    [{ ...SWIFT_PUBLISH_LANES, lanes: ["ci", "publish-package-managers"] }, "publish-package-managers.yml", "homebrew"],
+    [{ ...SWIFT_PUBLISH_LANES, lanes: ["ci", "publish-package-managers"] }, "publish-package-managers.yml", "winget"],
+  ];
+  for (const [manifest, name, job] of lanes) {
+    const workflows = renderedWorkflows(manifest);
+    workflows[name] = withSwiftSteps(workflows[name], job, manifest);
+    assertRefused(manifest, workflows, new RegExp(`secrets\\.SWIFT_PRIVATE_TOKEN: swift\\.privatePackages credentials are never rendered into ${name.replace(".", "\\.")}`), `${name}/${job}`);
+  }
+});
+
+const SWIFT_ALLOWED_JOBS = [
+  [SWIFT_NODE_LANES, "ci.yml", "test"],
+  [SWIFT_NODE_LANES, "qualification.yml", "qualification"],
+  [SWIFT_NODE_LANES, "release-candidate.yml", "candidate"],
+  [SWIFT_NODE_LANES, "regenerate.yml", "regenerate"],
+  [SWIFT_RUST_LANES, "ci.yml", "ci"],
+  [SWIFT_RUST_LANES, "ci.yml", "dev-artifact-mac"],
+  [SWIFT_RUST_LANES, "release-candidate.yml", "candidate"],
+  [SWIFT_RUST_LANES, "regenerate.yml", "regenerate"],
+];
+
+test("refuses the swift.privatePackages secret in an allowed job anywhere but the env of the two rendered steps", () => {
+  const mutations = [
+    ["an extra step that echoes it", (text) => editText(text, "\n    steps:\n", "\n    steps:\n      - run: echo \"${{ secrets.SWIFT_PRIVATE_TOKEN }}\"\n"), SWIFT_ENV_LINE],
+    ["job-level env", (text) => editText(text, "\n    steps:\n", "\n    env:\n      TOKEN: ${{ secrets.SWIFT_PRIVATE_TOKEN }}\n    steps:\n"), SWIFT_ENV_LINE],
+    ["the env line under an unrelated step", (text) => editText(text, "\n    steps:\n", "\n    steps:\n      - name: Gate\n        env:\n          RIGHT_GIT_PRIVATE_TOKEN_0: ${{ secrets.SWIFT_PRIVATE_TOKEN }}\n        run: bash ./gate.sh\n"), SWIFT_ENV_STEPS],
+    ["the configure step renamed", (text) => editText(text, "- name: Configure private Swift package access", "- name: Configure something else"), SWIFT_ENV_STEPS],
+    ["the env line moved under with:", (text) => editText(text, "        env:\n          RIGHT_GIT_PRIVATE_TOKEN_0", "        with:\n          RIGHT_GIT_PRIVATE_TOKEN_0"), SWIFT_ENV_STEPS],
+    ["an env index that names no declared entry", (text) => editText(text, "RIGHT_GIT_PRIVATE_TOKEN_0: ${{ secrets.SWIFT_PRIVATE_TOKEN }}", "RIGHT_GIT_PRIVATE_TOKEN_1: ${{ secrets.SWIFT_PRIVATE_TOKEN }}"), SWIFT_ENV_LINE],
+    ["a secret the manifest does not declare", (text) => editText(text, /secrets\.SWIFT_PRIVATE_TOKEN/g, "secrets.UNDECLARED_TOKEN"), /secrets\.UNDECLARED_TOKEN: not an allowed release secret and not declared in \.rightgit\.json swift\.privatePackages/],
+    ["a second secret beside the declared one", (text) => editText(text, "        run: |\n          set -euo pipefail", "          EXTRA: ${{ secrets.UNDECLARED_TOKEN }}\n        run: |\n          set -euo pipefail"), /secrets\.UNDECLARED_TOKEN: not an allowed release secret/],
+  ];
+  for (const [manifest, name, job] of SWIFT_ALLOWED_JOBS) {
+    for (const [label, edit, detail] of mutations) {
+      const workflows = renderedWorkflows(manifest);
+      workflows[name] = editJob(workflows[name], job, edit);
+      assertRefused(manifest, workflows, detail, `${manifest.profile ?? "node"}/${name}/${job}: ${label}`);
+    }
+  }
+  // The same reference at workflow level, outside every job.
+  for (const [manifest, name] of [[SWIFT_NODE_LANES, "qualification.yml"], [SWIFT_NODE_LANES, "release-candidate.yml"], [SWIFT_NODE_LANES, "regenerate.yml"], [SWIFT_RUST_LANES, "ci.yml"]]) {
+    const workflows = renderedWorkflows(manifest);
+    workflows[name] = editText(workflows[name], "\njobs:\n", "\nenv:\n  TOKEN: ${{ secrets.SWIFT_PRIVATE_TOKEN }}\njobs:\n");
+    assertRefused(manifest, workflows, new RegExp(`secrets\\.SWIFT_PRIVATE_TOKEN: reference sits outside every job of ${name.replace(".", "\\.")}`), `${name}: workflow-level env`);
+  }
+});
+
+test("attributes a swift.privatePackages env line to a step of its own job, never to the last step of the job before", () => {
+  const workflows = renderedWorkflows(SWIFT_NODE_LANES);
+  // The guard job's last step takes the cleanup step's name; the qualification job then holds a services env
+  // line of the exact rendered shape before any step of its own.
+  workflows["qualification.yml"] = editText(workflows["qualification.yml"], "- name: Refuse private repository", "- name: Remove private Swift package access");
+  workflows["qualification.yml"] = editJob(workflows["qualification.yml"], "qualification", (text) => editText(text, "\n    steps:\n", "\n    services:\n      db:\n        env:\n          RIGHT_GIT_PRIVATE_TOKEN_0: ${{ secrets.SWIFT_PRIVATE_TOKEN }}\n    steps:\n"));
+  assertRefused(SWIFT_NODE_LANES, workflows, SWIFT_ENV_STEPS, "services env line");
+});
+
+test("binds ci.yml jobs to the profile that renders them and refuses a secret named like a signing or publishing secret", () => {
+  const nodeAsDevArtifact = renderedWorkflows(SWIFT_NODE_LANES);
+  nodeAsDevArtifact["ci.yml"] = editText(nodeAsDevArtifact["ci.yml"], "\n  test:\n", "\n  dev-artifact-mac:\n");
+  assertRefused(SWIFT_NODE_LANES, nodeAsDevArtifact, /secrets\.SWIFT_PRIVATE_TOKEN: job 'dev-artifact-mac' of ci\.yml is rendered only for profile rust-hybrid with devArtifact\.parallel/, "node profile, dev-artifact-mac");
+
+  const rustAsTest = renderedWorkflows(SWIFT_RUST_LANES);
+  rustAsTest["ci.yml"] = editText(rustAsTest["ci.yml"], "\n  ci:\n", "\n  test:\n");
+  assertRefused(SWIFT_RUST_LANES, rustAsTest, /secrets\.SWIFT_PRIVATE_TOKEN: job 'test' of ci\.yml is rendered only for the node profile/, "rust-hybrid profile, test");
+
+  const noParallel = { ...SWIFT_RUST_LANES, devArtifact: { ...SWIFT_RUST_LANES.devArtifact, parallel: undefined, buildScript: undefined } };
+  assertRefused(noParallel, renderedWorkflows(SWIFT_RUST_LANES), /secrets\.SWIFT_PRIVATE_TOKEN: job 'dev-artifact-mac' of ci\.yml is rendered only for profile rust-hybrid with devArtifact\.parallel/, "manifest without devArtifact.parallel");
+
+  for (const [manifest, secret] of [[SWIFT_NODE_LANES, "APPLE_CERTIFICATE_BASE64"], [SWIFT_RUST_CHAIN, "CLOUDFLARE_API_TOKEN"], [SWIFT_PUBLISH_LANES, "HOMEBREW_TAP_TOKEN"]]) {
+    const colliding = { ...manifest, swift: { privatePackages: [{ host: "github.com", secret }] } };
+    assertRefused(colliding, renderedWorkflows(colliding), new RegExp(`secrets\\.${secret}: \\.rightgit\\.json swift\\.privatePackages declares a signing or publishing secret name`), `colliding ${secret}`);
+  }
 });
 
 test("accepts every right-git lane the manifest schema allows", () => {

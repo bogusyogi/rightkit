@@ -384,6 +384,13 @@ mod imp {
 mod tests {
     use super::*;
 
+    /// Sampling exists where an implementation does: macOS, Linux, Android and Windows.
+    #[cfg(any(
+        target_os = "macos",
+        target_os = "linux",
+        target_os = "android",
+        windows
+    ))]
     #[test]
     fn sample_reports_resident_memory_and_cpu() {
         let first = process_usage().unwrap();
@@ -398,6 +405,20 @@ mod tests {
         assert!(second.cpu_seconds >= first.cpu_seconds);
         let rates = second.rates_since(&first, Duration::from_secs(1));
         assert!(rates.cpu_percent >= 0.0);
+    }
+
+    /// Every other Unix target compiles and reports `Unsupported`, never a made-up sample.
+    #[cfg(all(
+        unix,
+        not(target_os = "macos"),
+        not(any(target_os = "linux", target_os = "android"))
+    ))]
+    #[test]
+    fn unsupported_unix_targets_report_unsupported_not_a_sample() {
+        let error = process_usage().expect_err("no sampler exists for this target");
+        assert_eq!(error.kind(), io::ErrorKind::Unsupported);
+        let error = observe_idle(Duration::from_millis(1)).expect_err("idle needs sampling");
+        assert_eq!(error.kind(), io::ErrorKind::Unsupported);
     }
 
     #[test]

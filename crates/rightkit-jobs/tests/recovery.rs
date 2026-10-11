@@ -122,7 +122,12 @@ fn never_job_is_not_rerun_after_a_real_process_crash() {
     drop(store);
 
     let status = Command::new(std::env::current_exe().unwrap())
-        .args(["--exact", "crash_child_entry", "--nocapture", "--test-threads=1"])
+        .args([
+            "--exact",
+            "crash_child_entry",
+            "--nocapture",
+            "--test-threads=1",
+        ])
         .env(CHILD_DIR, dir.path())
         .env(CHILD_ID, &id)
         .stdout(Stdio::null())
@@ -135,12 +140,20 @@ fn never_job_is_not_rerun_after_a_real_process_crash() {
 
     // New process: reopen, resume.
     let store = Arc::new(JobStore::open(dir.path().join("jobs.db")).unwrap());
-    assert_eq!(store.recovery(&id).unwrap(), Recovery::Never, "class is persisted");
+    assert_eq!(
+        store.recovery(&id).unwrap(),
+        Recovery::Never,
+        "class is persisted"
+    );
     let counter = Counter::new();
     let runner = Runner::new(store.clone(), locks, counter.clone());
     let outcomes = runner.resume_recoverable().unwrap();
 
-    assert_eq!(counter.calls(), 0, "a Never job is never handed to a handler again");
+    assert_eq!(
+        counter.calls(),
+        0,
+        "a Never job is never handed to a handler again"
+    );
     assert_eq!(outcomes.len(), 1);
     let RunOutcome::Finished(job) = &outcomes[0] else {
         panic!("expected a terminal outcome, got {:?}", outcomes[0]);
@@ -266,9 +279,17 @@ INSERT INTO jobs (job_id, kind, request_json, status, attempts, created_at, upda
     );
     assert_eq!(store.recovery("old-1").unwrap(), Recovery::Resume);
     let counter = Counter::new();
-    let runner = Runner::new(store, JobLocks::new(dir.path().join("locks")), counter.clone());
+    let runner = Runner::new(
+        store,
+        JobLocks::new(dir.path().join("locks")),
+        counter.clone(),
+    );
     runner.resume_recoverable().unwrap();
-    assert_eq!(counter.calls(), 1, "an old started row is resumed, as in 0.2.7");
+    assert_eq!(
+        counter.calls(),
+        1,
+        "an old started row is resumed, as in 0.2.7"
+    );
 }
 
 #[test]
@@ -281,12 +302,19 @@ fn deduplicated_submit_keeps_the_original_class() {
         request: json!({}),
     };
     let a = store
-        .submit_with(&n, &Default::default(), &SubmitOptions::new().recovery(Recovery::Never))
+        .submit_with(
+            &n,
+            &Default::default(),
+            &SubmitOptions::new().recovery(Recovery::Never),
+        )
         .unwrap();
     let b = store
         .submit_with(&n, &Default::default(), &SubmitOptions::new())
         .unwrap();
     assert!(b.deduplicated);
     assert_eq!(a.record.job.job_id, b.record.job.job_id);
-    assert_eq!(store.recovery(&a.record.job.job_id).unwrap(), Recovery::Never);
+    assert_eq!(
+        store.recovery(&a.record.job.job_id).unwrap(),
+        Recovery::Never
+    );
 }

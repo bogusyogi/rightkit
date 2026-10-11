@@ -8,6 +8,8 @@
 
 #![cfg(unix)]
 
+mod common;
+
 use std::{
     fs,
     io::Write,
@@ -24,7 +26,6 @@ use rightkit_media::{
 };
 
 const T: Duration = Duration::from_secs(120);
-const VENDOR: &str = "/Volumes/D/claude/vendor/ffmpeg-lgpl";
 
 /// The verify cache and its counters are process-wide: these tests run one at a time.
 static SERIAL: Mutex<()> = Mutex::new(());
@@ -329,20 +330,23 @@ fn the_export_ass_zimg_binary_verifies_in_one_call_and_converts_hdr_to_sdr() {
         eprintln!("SKIP: export-ass-zimg is approved for macOS aarch64 only");
         return;
     }
-    let ffmpeg_path = Path::new(VENDOR).join("ffmpeg-export-ass-zimg-macos-arm64");
-    let ffprobe_path = Path::new(VENDOR).join("ffprobe-decode-macos-arm64");
+    let vendor = common::vendor_dir();
+    let ffmpeg_path = vendor.join("ffmpeg-export-ass-zimg-macos-arm64");
+    let ffprobe_path = vendor.join("ffprobe-decode-macos-arm64");
     if !ffmpeg_path.is_file() || !ffprobe_path.is_file() {
-        eprintln!(
-            "SKIP: {} or {} not present",
-            ffmpeg_path.display(),
-            ffprobe_path.display()
+        common::skip_missing(
+            "export-ass-zimg ffmpeg and ffprobe binaries",
+            &format!("{} and {}", ffmpeg_path.display(), ffprobe_path.display()),
         );
         return;
     }
     let ffmpeg = match verify_bundled_ffmpeg(&ffmpeg_path, EXPORT_ASS_ZIMG_VARIANT, T) {
         Ok(handle) => handle,
         Err(MediaError::ArtifactPending { id }) => {
-            eprintln!("SKIP: catalog row {id} is still pending");
+            common::skip_missing(
+                &format!("approved catalog row {id}, still pending"),
+                "the embedded artifact catalog",
+            );
             return;
         }
         Err(error) => panic!("catalog digest, LGPL banner and configure flags: {error}"),

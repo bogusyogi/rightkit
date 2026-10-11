@@ -18,7 +18,7 @@
 //! Run: `rightkit cargo bench -p rightkit-watch --bench budget`
 //! Optional: `-- <static_files> <churn_seconds> <idle_seconds>` (defaults 50000, 60 and 30).
 
-use rightkit_process::{observe_idle, BudgetLabels, process_usage, ProcessUsage};
+use rightkit_process::{observe_idle, process_usage, BudgetLabels, ProcessUsage};
 use rightkit_watch::{TypedWatcher, WatchEvent};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -77,7 +77,10 @@ fn drain(watch: &TypedWatcher, seen: &mut u64) {
 }
 
 fn main() {
-    let args: Vec<String> = std::env::args().skip(1).filter(|a| a != "--bench").collect();
+    let args: Vec<String> = std::env::args()
+        .skip(1)
+        .filter(|a| a != "--bench")
+        .collect();
     let static_files: u64 = args.first().and_then(|v| v.parse().ok()).unwrap_or(50_000);
     let secs: u64 = args.get(1).and_then(|v| v.parse().ok()).unwrap_or(60);
     let idle_s: u64 = args.get(2).and_then(|v| v.parse().ok()).unwrap_or(30);
@@ -89,7 +92,11 @@ fn main() {
     let t = Instant::now();
     let pool = build_tree(&root, static_files);
     let total = static_files / 50 * 50 + pool.len() as u64;
-    println!("built {total} files ({} churned) in {:.1?}", pool.len(), t.elapsed());
+    println!(
+        "built {total} files ({} churned) in {:.1?}",
+        pool.len(),
+        t.elapsed()
+    );
     let before = usage();
     report("before watch", before);
 
@@ -153,15 +160,38 @@ fn main() {
         end.overflow_total,
         end.error_total,
     );
-    println!("churn window rates (include the bench's own file writes): {}", churn_rates_line(&churn_rates));
+    println!(
+        "churn window rates (include the bench's own file writes): {}",
+        churn_rates_line(&churn_rates)
+    );
 
     let idle = observe_idle(Duration::from_secs(idle_s)).expect("idle window");
     let status = watch.status();
-        println!("RESULT queue_depth_after_idle={} records", status.metrics.queue_depth);
-    print!("{}", idle.result_lines(&warm, &BudgetLabels { krate: "rightkit-watch", version: env!("CARGO_PKG_VERSION"), scale_unit: "files", scale: total, what: "files watched recursively after 400 modify ops/s churn, then idle", scope: "synthetic" }));
+    println!(
+        "RESULT queue_depth_after_idle={} records",
+        status.metrics.queue_depth
+    );
+    print!(
+        "{}",
+        idle.result_lines(
+            &warm,
+            &BudgetLabels {
+                krate: "rightkit-watch",
+                version: env!("CARGO_PKG_VERSION"),
+                scale_unit: "files",
+                scale: total,
+                what: "files watched recursively after 400 modify ops/s churn, then idle",
+                scope: "synthetic"
+            }
+        )
+    );
 }
 
 fn churn_rates_line(r: &rightkit_process::UsageRates) -> String {
     let f = |v: Option<f64>| v.map_or("n/a".to_string(), |v| format!("{v:.1}"));
-    format!("wakeups_per_s={} disk_ops_per_s={}", f(r.wakeups_per_second), f(r.disk_ops_per_second))
+    format!(
+        "wakeups_per_s={} disk_ops_per_s={}",
+        f(r.wakeups_per_second),
+        f(r.disk_ops_per_second)
+    )
 }

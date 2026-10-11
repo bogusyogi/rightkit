@@ -62,8 +62,21 @@ in which that could happen. The rule that replaces it:
   that zombie pins the id, and only then reap it.
 - A handle clone that waits on another thread reaps as soon as the leader exits, and so
   retires group signalling for the owner too. A program that needs both a monitor thread and
-  tree termination must terminate the tree before the monitor's wait can reap the leader; a
-  plain `ProcessHandle::wait` on another thread races that.
+  tree termination must not let the monitor reap: **a monitor calls `ProcessHandle::wait_exited`
+  (or `wait_exited_timeout(timeout) -> bool` when it enforces a deadline), which returns once
+  the leader has exited and leaves it an unreaped zombie.** The owner then kills the group with
+  `wait_or_kill` or `terminate_tree*` and reaps afterwards. A caller that drains the leader's
+  pipes (a run loop, `rightkit-sandbox`'s `wait_with_output`) keeps the leader unreaped until
+  the drain is over, so a descendant that outlives the leader and holds the pipes is still
+  killed with the group at the deadline. A plain `ProcessHandle::wait` on another thread
+  reaps and ends that. On Unix hosts other than Linux, Android, macOS and iOS there is no
+  non-reaping probe, so `wait_exited` reaps like `wait` there.
+- **Waits poll.** `ProcessHandle::wait` and `wait_exited` look at the shared state under its
+  lock, release it, sleep and look again (0.25 ms for the first 20 ms, then 2 ms to 1 s, 10 ms
+  to 30 s, 50 ms after). No wait system call names the pid outside the lock: a blocking
+  `waitid(pid)` entered after another reader reaped the leader and the kernel recycled the
+  number would wait on an unrelated child. The cost is that an exit is noticed up to one poll
+  interval late.
 - `OwnedChild::child()` no longer exposes the std `Child` on Unix. It returns `UnixChild`
   (stdio fields, `id`, `try_wait`, `wait`, `kill`), so a reap through it is recorded.
 - `UnixChild::kill`, and every direct-pid signal for detached children, follow the same rule.
@@ -89,6 +102,8 @@ in which that could happen. The rule that replaces it:
   `creation_time_ticks()`; `creation_time()` reports native time on Windows/macOS,
   spawn observation time on other Unix hosts. Unix readers share the owner's cached reap
   state, and a reap by a reader ends group signalling for the owner (identity rule above).
+  `wait_exited()` / `wait_exited_timeout(timeout)` wait for the exit without reaping (Unix) and
+  so leave the group killable; use them for a monitor.
   Release `child()` guards before calling another accessor or reader.
 - `partial_spawn_cleanup_timeout(Duration::from_secs(5))` bounds failed-spawn
   cleanup; default remains unbounded. Timed-out children go to a background reaper.
@@ -107,13 +122,23 @@ in which that could happen. The rule that replaces it:
     which would re-run `pthread_atfork` handlers there), joins the child's process group and waits on
     `EVFILT_PROC`/`NOTE_EXIT` for the supervisor. The engine blocks in `pre_exec`, before `exec`, until the
     helper confirms its watch. When the supervisor dies, the helper sends `SIGTERM` to the group, waits 2 s, then
-    sends `SIGKILL` to the group. It ignores `SIGTERM` itself, closes every inherited descriptor except its two
-    pipe ends (found by asking the kernel, not guessed), and stays in the group so the group id cannot be
+    sends `SIGKILL` to the group. It ignores `SIGTERM` itself, closes every inherited descriptor except its three
+    pipe ends (found by asking the kernel, not guessed; if it cannot, the spawn fails), and stays in the group so the group id cannot be
     recycled under its signal.
   - **How long the macOS tie lasts:** the helper outlives the engine. It lives as long as the `OwnedChild`
     (and any `ProcessHandle` clone) does, so a supervisor that dies while the `OwnedChild` still exists also
-    kills descendants that outlived the engine. When the last owner is dropped the helper is killed and reaped,
-    and nothing is protected afterwards. Cost: one extra process per opted-in child while its owner lives.
+    kills descendants that outlived the engine. When the last owner is dropped the helper is told to stand
+    down and collected, and nothing is protected afterwards. Cost: one extra process per opted-in child while
+    its owner lives.
+  - **The helper's pid is never signalled.** It is released over a private pipe (one byte; it then exits by
+    itself with status 0), because an embedding's `waitpid(-1)` can reap it behind our back and the pid can
+    be recycled for an unrelated process. The pid is forgotten once `waitpid(pid, WNOHANG)` says it is gone
+    or `ECHILD`. End of file on that pipe is not a release (the supervisor's death closes it too); the
+    helper then keeps waiting for the supervisor's exit and still kills the group.
+  - **Descriptor closure fails closed.** The helper lists its descriptor table with the kernel after the fork
+    and closes everything but its three pipe ends. If it cannot list the table it cannot prove it holds no
+    pipe writer a reader of the supervisor waits on, so the spawn fails (`EIO`, or `EPIPE` if the engine
+    wrote after the helper exited) instead of walking up to a number taken before the fork.
   - macOS with `UnixContainment::Session` fails with `Unsupported`: `setsid` puts the engine in another session,
     and the helper can only join a group inside its own session.
   - Other Unix hosts: the spawn fails with `Unsupported`.
@@ -145,6 +170,12 @@ match child.wait_or_kill(Duration::from_secs(2))? {
 }
 # Ok::<(), std::io::Error>(())
 ```
+
+`StderrTail::capture(stderr, max_bytes, map, on_line)` keeps at most `max_bytes` bytes of the most recent
+lines (a single longer line is cut to its last bytes) and shows `map`, the redactor, only whole lines. A
+line longer than four times `max_bytes` is discarded up to its newline and replaced by one marker line
+(`[stderr line over N bytes dropped]`), because handing a line-based redactor the pieces of a cut line
+would let a secret that spans the cut through.
 
 `RestartTracker` is a pure rolling-window/backoff state machine. Restart
 permits are single-use scheduling authorities: issuing a replacement permit,

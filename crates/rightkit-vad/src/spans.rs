@@ -65,7 +65,8 @@ pub fn detect(scorer: &mut dyn FrameScorer, samples: &[f32], cfg: &VadConfig) ->
 }
 
 /// Reset `scorer`, then score every frame of `samples` (final partial frame
-/// zero-padded). Rejects non-finite samples before touching the scorer.
+/// zero-padded). Rejects non-finite samples before touching the scorer, and a
+/// non-finite score with `Error::Model`, as `Silero::score` does for its own output.
 pub(crate) fn score_samples(scorer: &mut dyn FrameScorer, samples: &[f32]) -> Result<Vec<f32>> {
     ensure_finite(samples)?;
     scorer.reset();
@@ -74,9 +75,20 @@ pub(crate) fn score_samples(scorer: &mut dyn FrameScorer, samples: &[f32]) -> Re
     for chunk in samples.chunks(FRAME_SAMPLES) {
         frame.fill(0.0);
         frame[..chunk.len()].copy_from_slice(chunk);
-        scores.push(scorer.score(&frame)?);
+        scores.push(ensure_finite_score(scorer.score(&frame)?)?);
     }
     Ok(scores)
+}
+
+/// `Err(Model)` when a frame score is NaN or infinite. Shared by `score_samples`
+/// and `FrameStream::push`, so both paths reject the same scores.
+pub(crate) fn ensure_finite_score(score: f32) -> Result<f32> {
+    if !score.is_finite() {
+        return Err(crate::Error::Model(format!(
+            "non-finite frame score {score}"
+        )));
+    }
+    Ok(score)
 }
 
 /// `Err(Input)` when any sample is NaN or infinite.
@@ -485,5 +497,79 @@ mod span_options_tests {
         };
         let resolved = capped.resolve(base(), Some(&ambient)).unwrap();
         assert!((resolved.config.neg_threshold - 0.20).abs() < 1e-6);
+    }
+}
+
+#[cfg(test)]
+mod score_samples_tests {
+    use super::*;
+
+    /// A mock scorer that returns a fixed script, one score per frame.
+    struct Scripted {
+        scores: Vec<f32>,
+        next: usize,
+    }
+
+    impl Scripted {
+        fn new(scores: &[f32]) -> Self {
+            Self {
+                scores: scores.to_vec(),
+                next: 0,
+            }
+        }
+    }
+
+    impl FrameScorer for Scripted {
+        fn reset(&mut self) {
+            self.next = 0;
+        }
+        fn score(&mut self, _frame: &[f32; FRAME_SAMPLES]) -> Result<f32> {
+            let score = self.scores[self.next];
+            self.next += 1;
+            Ok(score)
+        }
+    }
+
+    #[test]
+    fn non_finite_generic_score_is_a_model_error() {
+        let samples = vec![0.0f32; 3 * FRAME_SAMPLES];
+        for bad in [f32::NAN, f32::INFINITY, f32::NEG_INFINITY] {
+            let mut scorer = Scripted::new(&[0.9, bad, 0.9]);
+            let err = score_samples(&mut scorer, &samples).unwrap_err();
+            assert!(matches!(err, crate::Error::Model(_)), "{bad}: {err}");
+            // The same rejection reaches `detect`, the public path.
+            let mut scorer = Scripted::new(&[0.9, bad, 0.9]);
+            assert!(
+                detect(&mut scorer, &samples, &VadConfig::default()).is_err(),
+                "{bad}"
+            );
+        }
+    }
+
+    /// The last span ends at the audio length, never beyond: the 30 ms pad would
+    /// otherwise carry it past the final, partial frame.
+    #[test]
+    fn last_span_is_clamped_to_the_audio_length() {
+        // 9 full frames and a 300-sample tail: 10 frames over 4908 samples (306 ms).
+        let samples = vec![0.1f32; 9 * FRAME_SAMPLES + 300];
+        // Silence for frames 0 and 1, speech from frame 2 through the partial last frame.
+        let mut scores = vec![0.0f32, 0.0];
+        scores.extend_from_slice(&[0.9; 8]);
+        let mut scorer = Scripted::new(&scores);
+        let cfg = VadConfig {
+            min_speech_ms: 0,
+            ..VadConfig::default()
+        };
+        let spans = detect(&mut scorer, &samples, &cfg).unwrap();
+        // Start: frame 2 begins at 64 ms, less the 30 ms pad, so 34 ms. End: frame 10
+        // ends at 320 ms, plus the pad is 350 ms, clamped to the 306 ms audio length.
+        assert_eq!(
+            spans,
+            vec![Span {
+                start_ms: 34,
+                end_ms: 306
+            }]
+        );
+        assert_eq!(spans[0].end_ms, duration_ms(samples.len()));
     }
 }

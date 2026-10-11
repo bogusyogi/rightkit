@@ -32,8 +32,8 @@ pub use eval::{
 };
 pub use model::{
     AssetRef, Canvas, ClickShape, Clip, Composition, Content, CursorSample, CursorSprite, Layer,
-    MotionBlur, Pattern, Point, Rect, Rgba, Shadow, Stop, Style, Timing, Transform, LEGACY_SCHEMA_V1,
-    SCHEMA,
+    MotionBlur, Pattern, Point, Rect, Rgba, Shadow, Stop, Style, Timing, Transform,
+    LEGACY_SCHEMA_V1, SCHEMA,
 };
 pub use retime::{output_span, source_time_at, RetimeSegment};
 pub use ticks::{Rational, Ticks, TICKS_PER_MS, TICKS_PER_SECOND};

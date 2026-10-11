@@ -298,4 +298,7 @@ pub struct ClientExtensions {
     /// None retains existing version pin; Some advertises & negotiates highest common.
     pub protocol_versions: Option<Vec<String>>,
     pub response_limits: ResponseLimits,
+    /// Test-only: replaces the HTTP client's address policy (default: public-web).
+    #[cfg(feature = "testing")]
+    pub address_policy: Option<rightkit_http::AddressPolicy>,
 }

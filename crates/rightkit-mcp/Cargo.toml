@@ -6,7 +6,7 @@ rust-version = "1.98.0"
 description = "Shared MCP client (stdio + streamable HTTP, trust gate, pool, OAuth hook) and server host (stdio + loopback HTTP, per-tool admission) for Right Suite apps."
 license = "MIT OR Apache-2.0"
 readme = "README.md"
-repository = "https://github.com/bogusyogi/rightkit"
+repository = "https://github.com/Orthic-Labs/rightkit"
 keywords = ["mcp", "agent", "tools", "json-rpc"]
 categories = ["development-tools"]
 include = ["src/**", "tests/**", "examples/**", "README.md", "CHANGELOG.md", "LICENSE-MIT", "LICENSE-APACHE"]
@@ -34,9 +34,13 @@ advanced-http = ["dep:tokio", "dep:http", "dep:futures-util", "rightkit-http/asy
 # Off by default: serde_json arbitrary_precision is unified across the whole
 # dependency graph and changes number round-tripping for every crate.
 exact-json-ids = ["serde_json/arbitrary_precision"]
+# Test-only seam: `ClientExtensions::address_policy` overrides the HTTP client's address
+# policy. Absent from the default build; enabled for this crate's own tests only.
+testing = []
 
 [dev-dependencies]
 tempfile = "3"
+rightkit-mcp = { path = ".", features = ["testing"] }
 tokio = { version = "1", features = ["rt-multi-thread", "time", "sync", "macros"] }
 
 [[example]]

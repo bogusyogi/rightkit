@@ -13,7 +13,10 @@ export interface QaConnectOptions {
 }
 
 export type CdpParams = Record<string, any>;
-type Listener = (params: CdpParams) => void;
+/** Receives one event's params, from the session it subscribed to. */
+export type CdpListener = (params: CdpParams) => void;
+/** Receives one event from any session. `sessionId` is the session it arrived on; undefined for the root. */
+export type CdpAnyListener = (params: CdpParams, sessionId: string | undefined) => void;
 
 /** @internal All operations use finite deadlines. */
 export function validateTimeout(timeout: number): number {
@@ -24,7 +27,8 @@ export function validateTimeout(timeout: number): number {
 export class CdpClient {
   private nextId = 0;
   private pending = new Map<number, { resolve: (value: CdpParams) => void; reject: (error: Error) => void; timer: ReturnType<typeof setTimeout>; session?: string }>();
-  private listeners = new Map<string, Set<Listener>>();
+  private listeners = new Map<string, Set<CdpListener>>();
+  private anyListeners = new Map<string, Set<CdpAnyListener>>();
   private closed?: Error;
   private constructor(private socket: WebSocket, readonly timeout: number, private debug?: QaConnectOptions['debug']) {
     socket.addEventListener('message', (event) => {
@@ -77,20 +81,36 @@ export class CdpClient {
       catch (error) { clearTimeout(timer); this.pending.delete(id); reject(error); }
     });
   }
-  on(method: string, listener: Listener, session?: string): () => void {
+  /** Subscribes to one event method on one session (the root when `session` is omitted). Returns the unsubscribe function. */
+  on(method: string, listener: CdpListener, session?: string): () => void {
     const key = `${session ?? ''}:${method}`;
-    let listeners = this.listeners.get(key);
-    if (!listeners) this.listeners.set(key, listeners = new Set());
+    const listeners = this.listeners.get(key) ?? new Set<CdpListener>();
+    this.listeners.set(key, listeners);
     listeners.add(listener);
-    return () => { listeners.delete(listener); if (!listeners.size) this.listeners.delete(key); };
+    return () => { listeners.delete(listener); if (!listeners.size && this.listeners.get(key) === listeners) this.listeners.delete(key); };
+  }
+  /**
+   * Subscribes to one event method on every session: the root and each flattened child session.
+   * The listener gets the params and the sessionId the event arrived on (undefined for the root).
+   * Returns the unsubscribe function.
+   */
+  onAny(method: string, listener: CdpAnyListener): () => void {
+    const listeners = this.anyListeners.get(method) ?? new Set<CdpAnyListener>();
+    this.anyListeners.set(method, listeners);
+    listeners.add(listener);
+    return () => { listeners.delete(listener); if (!listeners.size && this.anyListeners.get(method) === listeners) this.anyListeners.delete(method); };
   }
   private emit(method: string, params: CdpParams, session?: string) {
     for (const listener of [...(this.listeners.get(`${session ?? ''}:${method}`) ?? [])]) {
       // A user subscription cannot corrupt transport state or suppress internal listeners.
       try { listener(params); } catch { this.debug?.(`CDP listener failed: ${method}`); }
     }
+    for (const listener of [...(this.anyListeners.get(method) ?? [])]) {
+      try { listener(params, session); } catch { this.debug?.(`CDP listener failed: ${method}`); }
+    }
   }
-  rejectSession(session: string, error: Error) {
+  /** Rejects pending commands sent on `session`; undefined selects the commands of the root session. */
+  rejectSession(session: string | undefined, error: Error) {
     for (const [id, pending] of this.pending) if (pending.session === session) {
       clearTimeout(pending.timer); this.pending.delete(id); pending.reject(error);
     }
@@ -99,7 +119,17 @@ export class CdpClient {
     if (this.closed) return;
     this.closed = error;
     for (const pending of this.pending.values()) { clearTimeout(pending.timer); pending.reject(error); }
-    this.pending.clear(); this.emit('Disconnected', { error }); this.listeners.clear();
+    this.pending.clear(); this.emit('Disconnected', { error }); this.listeners.clear(); this.anyListeners.clear();
   }
+  /** Synchronous and idempotent: rejects pending commands and closes the socket. There is nothing to await. */
   close() { this.fail(new Error('CDP socket closed')); this.socket.close(); }
+}
+
+/**
+ * Connects a CDP client to a WebSocket endpoint: a browser socket, or a page-level `webSocketDebuggerUrl`
+ * whose commands run on the root session. It uses the same transport as QaBrowserSession. Close it with
+ * `close()`, which needs no await.
+ */
+export function connectCdp(endpoint: string, options: QaConnectOptions = {}): Promise<CdpClient> {
+  return CdpClient.connect(endpoint, options);
 }

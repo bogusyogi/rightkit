@@ -49,10 +49,9 @@ fn pause_resume_drop_then_no_range_restart_yields_exact_bytes() {
     let store = Store::new(tmp.path().join("models"), "e2e")
         .with_url_rewrite(&mock.base)
         .unwrap();
-    let spec = ModelSpec {
-        id: "demo".into(),
-        label: String::new(),
-        revisions: vec![RevisionSpec {
+    let spec = ModelSpec::new(
+        "demo",
+        vec![RevisionSpec {
             revision: "1".into(),
             files: vec![FileSpec {
                 path: "model.bin".into(),
@@ -63,7 +62,7 @@ fn pause_resume_drop_then_no_range_restart_yields_exact_bytes() {
             }],
             ..Default::default()
         }],
-    };
+    );
     let part = store
         .model_dir("demo")
         .unwrap()

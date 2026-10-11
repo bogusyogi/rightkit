@@ -25,7 +25,11 @@ fn metrics_count_queued_received_and_backlog() {
     let _ = watch.recv_record_timeout(Duration::from_secs(20));
     while watch.try_recv_record().is_ok() {}
     let after = watch.metrics();
-    assert!(after.received_total >= m.received_total + 1, "{after:?}");
-    assert_eq!(after.queue_depth, after.queued_total - after.received_total, "{after:?}");
+    assert!(after.received_total > m.received_total, "{after:?}");
+    assert_eq!(
+        after.queue_depth,
+        after.queued_total - after.received_total,
+        "{after:?}"
+    );
     assert_eq!(after.overflow_total, 0, "{after:?}");
 }

@@ -1,17 +1,29 @@
 #![cfg(all(unix, any(target_os = "linux", target_os = "macos")))]
 
-//! A descriptor another thread duplicates far above the others must not outlive the spawn in
-//! the parent-death helper. The helper never execs, so close-on-exec does not release what it
+//! A pipe writer held at a very high descriptor number must not outlive the spawn in the
+//! parent-death helper. The helper never execs, so close-on-exec does not release what it
 //! inherited: a pipe writer held there keeps the reader from ever seeing end of file.
+//!
+//! The writer is duplicated **before** `spawn`, in this process, so it exists when the macOS
+//! helper is forked (inside `spawn`) and is far above any highest-descriptor-plus-slack bound
+//! computed earlier. The previous version of this test duplicated it in the engine's
+//! `pre_exec`, which runs after the helper was forked, so the helper never held it and the test
+//! could not fail.
+//!
+//! What this file cannot do is make the kernel refuse to list the descriptor table: that needs
+//! a crate-private seam. The fail-closed case, with the writer injected after the helper's
+//! pipes exist and immediately before its fork and the listing forced to fail, is
+//! `an_unlistable_descriptor_table_fails_the_spawn_and_frees_a_writer_above_any_bound` in
+//! `src/process_unix.rs`.
 
-use std::{os::unix::process::CommandExt, process::Stdio, time::Duration};
+use std::{process::Stdio, time::Duration};
 
 use rightkit_process::OwnedCommand;
 
 const HIGH: libc::c_int = 3000;
 
 #[test]
-fn a_writer_duplicated_to_a_very_high_descriptor_does_not_hold_the_pipe_open() {
+fn a_writer_held_at_a_very_high_descriptor_before_the_spawn_does_not_hold_the_pipe_open() {
     // SAFETY: plain syscalls on descriptors this test owns.
     unsafe {
         let mut limit = libc::rlimit {
@@ -27,9 +39,13 @@ fn a_writer_duplicated_to_a_very_high_descriptor_does_not_hold_the_pipe_open() {
         let mut ends = [0 as libc::c_int; 2];
         assert_eq!(libc::pipe(ends.as_mut_ptr()), 0);
         let [reader, writer] = ends;
-        for fd in ends {
-            libc::fcntl(fd, libc::F_SETFD, libc::FD_CLOEXEC);
-        }
+        libc::fcntl(reader, libc::F_SETFD, libc::FD_CLOEXEC);
+        // The writer lands far above anything a bound taken from the lowest descriptors
+        // would cover, and exists before the helper is forked. Close-on-exec, like a
+        // descriptor another thread opened properly: only the never-exec helper can keep it.
+        let high = libc::fcntl(writer, libc::F_DUPFD_CLOEXEC, HIGH);
+        assert!(high >= HIGH, "the duplicate must land above {HIGH}");
+        libc::close(writer);
 
         let mut command = OwnedCommand::new("/bin/sleep");
         command
@@ -38,18 +54,10 @@ fn a_writer_duplicated_to_a_very_high_descriptor_does_not_hold_the_pipe_open() {
             .stdin(Stdio::null())
             .stdout(Stdio::null())
             .stderr(Stdio::null());
-        // Runs in the new process before the library's own hook, like another thread's dup2
-        // landing above any bound computed earlier. Close-on-exec is set on the duplicate.
-        command.command_mut().pre_exec(move || {
-            if libc::dup2(writer, HIGH) < 0 {
-                return Err(std::io::Error::last_os_error());
-            }
-            libc::fcntl(HIGH, libc::F_SETFD, libc::FD_CLOEXEC);
-            Ok(())
-        });
         command.kill_on_parent_exit(true);
         let mut child = command.spawn().expect("spawn");
-        libc::close(writer);
+        // The only copies left are the ones the helper inherited at its fork.
+        libc::close(high);
 
         let mut pending = libc::pollfd {
             fd: reader,

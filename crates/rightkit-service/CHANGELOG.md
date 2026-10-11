@@ -37,6 +37,24 @@ Peer authentication hardening (gap ledger #59). Public API is additive, with two
   `InstalledApp::completeness` is `Complete` for everything the old functions returned.
   Windows discovery reports only complete installs by default.
 - `discover_windows_with(entries, apps, engine_exists, dir_exists, &DiscoverOptions)`: `include_incomplete` now applies on Windows too. An entry whose install directory exists but whose engine is missing is returned as `Completeness::EngineMissing` when requested; a complete install of the same app always wins. `discover_windows` is unchanged. `discover_apps_in_with` passes the options through on Windows. The Windows branch is `cfg(windows)` and is unverified on this host; the `discover_windows_with` logic is covered by a platform-neutral unit test.
+- **Idle wake-ups (runtime budget).** The host's takeover monitor no longer sleeps 25 ms and reads
+  `takeover.json` on every pass (7.4 to 11.3 wake-ups per second measured while idle). It blocks on a
+  condition variable with a one-second timeout and wakes early on three signals: the host releasing
+  (shutdown, drop or a completed handoff stops the monitor at once, with no sleep left to outlive it),
+  `write_takeover` / `publish_takeover` or a would-be host writing a takeover request in the same
+  process (looks immediately), and the timeout (stats `takeover.json`: modification time and length;
+  the file is read only when that changed, and a request already judged not to oblige is not judged
+  again until it changes). **Behaviour change:** a takeover requested by a different process is now
+  noticed up to about one second later than before (it was noticed within about 25 ms); the requester's
+  `takeover_timeout` (default 60 s) is unaffected. A host also looks once as soon as its monitor starts.
+  In-flight requests are handed off exactly as before, and the handoff grace wait now ends early if the
+  host is released meanwhile. Public API unchanged. Tests: the monitor stops from a 10-minute wait on
+  release, finds a request written without notification by its file check, finds an in-process one
+  without waiting for its interval, does not re-read an unchanged file, and wakes at most three times in
+  a quiet two seconds; the decision (`obliging_rank`) is tested for rank, own process, dead requester,
+  staleness and role-only peers. The `higher_rank_takes_over_with_a_retryable_handoff` end-to-end test
+  now runs a 5 s in-flight job so the handoff still lands inside it. Not yet re-measured: the recorded
+  budget evidence predates this change.
 
 ## 0.1.4
 

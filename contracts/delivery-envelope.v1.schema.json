@@ -153,7 +153,7 @@
   "examples": [
     {
       "contract": "delivery-envelope",
-      "contractVersion": "1.0.0",
+      "contractVersion": "1.1.0",
       "envelopeId": "env.export-2026-10-08-a",
       "briefId": "brief.demo-export-2026-10",
       "briefRevision": 2,

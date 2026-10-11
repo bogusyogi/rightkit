@@ -6,7 +6,7 @@ rust-version = "1.98.0"
 publish = false
 license = "MIT OR Apache-2.0"
 description = "Product-neutral script-to-ASR word alignment: pronunciation normalisation, edit-distance alignment with lexical and timing confidence, ambiguity and mismatch rejection, and control-name coverage"
-repository = "https://github.com/bogusyogi/rightkit"
+repository = "https://github.com/Orthic-Labs/rightkit"
 include = ["src/**", "tests/**", "Cargo.toml", "README.md", "CHANGELOG.md", "LICENSE-MIT", "LICENSE-APACHE"]
 
 [lib]

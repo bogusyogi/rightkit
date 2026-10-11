@@ -65,23 +65,128 @@ pub fn parse_modifier_token(token: &str) -> Option<ParsedModifier> {
     Some(ParsedModifier { modifier, side })
 }
 
-/// Second-line validator for single-key push-to-talk aliases: only `lalt`, `ralt`, or `rctrl`.
+/// A single-key push-to-talk alias. This is the one source of truth for which aliases exist per
+/// platform; [`parse_ptt_key_name`] and the macOS `PttKey` both go through it.
+///
+/// | Platform | Supported aliases |
+/// |---|---|
+/// | Windows | `lalt`, `ralt`, `rctrl` |
+/// | macOS | `ctrl`, `lalt`, `ralt` |
+/// | Other (portable validation) | all of the above |
+///
+/// On macOS `lctrl`, `rctrl` and `control` are accepted spellings of the side-agnostic `ctrl`
+/// (the tap watches both Control keys). Spellings are case-insensitive and ignore spaces, `_` and
+/// `-`, so display names such as `Left Alt` parse back to the same alias.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum PttAlias {
+    /// Either Control key (macOS).
+    Ctrl,
+    /// Right Control only (Windows).
+    RightCtrl,
+    LeftAlt,
+    RightAlt,
+}
+
+impl PttAlias {
+    /// Aliases supported on `platform`, in display order.
+    pub fn supported(platform: Platform) -> &'static [PttAlias] {
+        match platform {
+            Platform::Mac => &[PttAlias::Ctrl, PttAlias::LeftAlt, PttAlias::RightAlt],
+            Platform::Windows => &[PttAlias::LeftAlt, PttAlias::RightAlt, PttAlias::RightCtrl],
+            Platform::Other => &[
+                PttAlias::Ctrl,
+                PttAlias::LeftAlt,
+                PttAlias::RightAlt,
+                PttAlias::RightCtrl,
+            ],
+        }
+    }
+
+    /// Parse `name` for `platform`. Errors list the allowed aliases for that platform.
+    pub fn parse(name: &str, platform: Platform) -> Result<PttAlias, String> {
+        let norm: String = name
+            .trim()
+            .chars()
+            .filter(|c| !matches!(c, ' ' | '_' | '-'))
+            .collect::<String>()
+            .to_ascii_lowercase();
+        let alias = match norm.as_str() {
+            "ctrl" | "control" | "lctrl" | "lcontrol" | "leftctrl" | "leftcontrol" => {
+                // lctrl is only a Control spelling where Control is side-agnostic.
+                if platform == Platform::Windows {
+                    None
+                } else if norm.starts_with('l') && platform == Platform::Other {
+                    None
+                } else {
+                    Some(PttAlias::Ctrl)
+                }
+            }
+            "rctrl" | "rcontrol" | "rightctrl" | "rightcontrol" => {
+                Some(if platform == Platform::Mac {
+                    PttAlias::Ctrl
+                } else {
+                    PttAlias::RightCtrl
+                })
+            }
+            "lalt" | "loption" | "leftalt" | "leftoption" => Some(PttAlias::LeftAlt),
+            "ralt" | "roption" | "rightalt" | "rightoption" => Some(PttAlias::RightAlt),
+            _ => None,
+        };
+        match alias {
+            Some(a) if Self::supported(platform).contains(&a) => Ok(a),
+            _ => Err(format!(
+                "push_to_talk_key '{name}' is not a supported push-to-talk alias (allowed: {})",
+                Self::allowed_list(platform)
+            )),
+        }
+    }
+
+    /// Canonical spelling; `parse(canonical, platform)` returns `self` for every supported alias.
+    pub fn canonical(self) -> &'static str {
+        match self {
+            PttAlias::Ctrl => "ctrl",
+            PttAlias::RightCtrl => "rctrl",
+            PttAlias::LeftAlt => "lalt",
+            PttAlias::RightAlt => "ralt",
+        }
+    }
+
+    /// Human-readable name for `platform`; also accepted by [`PttAlias::parse`].
+    pub fn display(self, platform: Platform) -> &'static str {
+        match (self, platform) {
+            (PttAlias::Ctrl, _) => "Control",
+            (PttAlias::RightCtrl, _) => "Right Control",
+            (PttAlias::LeftAlt, Platform::Mac) => "Left Option",
+            (PttAlias::RightAlt, Platform::Mac) => "Right Option",
+            (PttAlias::LeftAlt, _) => "Left Alt",
+            (PttAlias::RightAlt, _) => "Right Alt",
+        }
+    }
+
+    /// The modifier and side this alias watches.
+    pub fn modifier(self) -> ParsedModifier {
+        let (modifier, side) = match self {
+            PttAlias::Ctrl => (Modifier::Ctrl, Side::Any),
+            PttAlias::RightCtrl => (Modifier::Ctrl, Side::Right),
+            PttAlias::LeftAlt => (Modifier::Alt, Side::Left),
+            PttAlias::RightAlt => (Modifier::Alt, Side::Right),
+        };
+        ParsedModifier { modifier, side }
+    }
+
+    fn allowed_list(platform: Platform) -> String {
+        Self::supported(platform)
+            .iter()
+            .map(|a| format!("'{}'", a.canonical()))
+            .collect::<Vec<_>>()
+            .join(", ")
+    }
+}
+
+/// Validator for single-key push-to-talk aliases on the current platform (see [`PttAlias`]).
 /// Chord syntax such as `Ctrl+Space` is rejected; use [`parse_chord`] for full chords.
 pub fn parse_ptt_key_name(name: &str) -> Result<ParsedModifier, String> {
-    let parsed = parse_modifier_token(name).ok_or_else(|| {
-        format!("push_to_talk_key '{name}' is not a recognized single-key PTT alias (allowed: 'lalt', 'ralt', 'rctrl')")
-    })?;
-    let allowed = matches!(
-        (parsed.modifier, parsed.side),
-        (Modifier::Alt, Side::Left) | (Modifier::Alt, Side::Right) | (Modifier::Ctrl, Side::Right)
-    );
-    if allowed {
-        Ok(parsed)
-    } else {
-        Err(format!(
-            "push_to_talk_key '{name}' must be Left Alt, Right Alt or Right Ctrl (allowed: 'lalt', 'ralt', 'rctrl')"
-        ))
-    }
+    PttAlias::parse(name, Platform::current()).map(PttAlias::modifier)
 }
 
 /// Non-modifier key, identified by canonical name.
@@ -477,11 +582,68 @@ mod tests {
     }
 
     #[test]
-    fn ptt_alias_allows_only_lalt_ralt_rctrl() {
-        for ok in ["lalt", "RAlt", "rctrl"] {
-            assert!(parse_ptt_key_name(ok).is_ok(), "{ok}");
+    fn ptt_alias_sets_per_platform() {
+        let names = |p| {
+            PttAlias::supported(p)
+                .iter()
+                .map(|a| a.canonical())
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(names(Platform::Windows), ["lalt", "ralt", "rctrl"]);
+        assert_eq!(names(Platform::Mac), ["ctrl", "lalt", "ralt"]);
+        for (p, bad) in [
+            (
+                Platform::Windows,
+                ["ctrl", "lctrl", "shift", "Ctrl+Space", "f5"],
+            ),
+            (
+                Platform::Mac,
+                ["shift", "Ctrl+Space", "f5", "lshift", "win"],
+            ),
+        ] {
+            for b in bad {
+                assert!(PttAlias::parse(b, p).is_err(), "{p:?} {b}");
+            }
         }
-        for bad in ["lctrl", "shift", "Ctrl+Space", "f5"] {
+        // macOS Control spellings fold to the side-agnostic alias.
+        for ok in ["ctrl", "Control", "lctrl", "RCtrl"] {
+            assert_eq!(
+                PttAlias::parse(ok, Platform::Mac),
+                Ok(PttAlias::Ctrl),
+                "{ok}"
+            );
+        }
+        assert_eq!(
+            PttAlias::parse("rctrl", Platform::Windows),
+            Ok(PttAlias::RightCtrl)
+        );
+        assert!(PttAlias::parse("rctrl", Platform::Other).is_ok());
+    }
+
+    #[test]
+    fn ptt_alias_parse_and_display_round_trip_per_platform() {
+        for platform in [Platform::Windows, Platform::Mac, Platform::Other] {
+            for alias in PttAlias::supported(platform) {
+                assert_eq!(PttAlias::parse(alias.canonical(), platform), Ok(*alias));
+                assert_eq!(
+                    PttAlias::parse(alias.display(platform), platform),
+                    Ok(*alias)
+                );
+                assert_eq!(
+                    PttAlias::parse(&alias.canonical().to_ascii_uppercase(), platform),
+                    Ok(*alias)
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn parse_ptt_key_name_uses_the_current_platform_table() {
+        let current = Platform::current();
+        for alias in PttAlias::supported(current) {
+            assert_eq!(parse_ptt_key_name(alias.canonical()), Ok(alias.modifier()));
+        }
+        for bad in ["shift", "Ctrl+Space", "f5"] {
             assert!(parse_ptt_key_name(bad).is_err(), "{bad}");
         }
     }

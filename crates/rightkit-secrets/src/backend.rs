@@ -15,6 +15,21 @@ pub enum Interaction {
     Interactive,
 }
 
+/// Outcome of [`Backend::delete_if_equals`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ConditionalDelete {
+    /// The item still held the expected value and was removed.
+    Deleted,
+    /// There was no item (already removed).
+    Absent,
+    /// The item exists but no longer holds the expected value (another writer replaced it);
+    /// nothing was removed.
+    Changed,
+    /// This backend cannot make "compare, then delete" atomic against its writers, so it removed
+    /// nothing. Callers must treat the item as still present.
+    Unsupported,
+}
+
 /// One OS credential store. Implementations must never return an error that embeds a value.
 pub trait Backend: Send + Sync + 'static {
     fn name(&self) -> &'static str;
@@ -34,6 +49,22 @@ pub trait Backend: Send + Sync + 'static {
     ) -> Result<bool>;
     /// `Ok(true)` if an item was removed, `Ok(false)` if there was none.
     fn delete(&self, ns: &Namespace, account: &str, mode: Interaction) -> Result<bool>;
+    /// Remove the item only if it still holds `expected`, as one step that no writer of this
+    /// store can interleave with. The default is [`ConditionalDelete::Unsupported`]: it removes
+    /// nothing, which is the safe answer for a store that cannot compare and delete atomically
+    /// (a plain read followed by a delete would remove a value written in between). Migration
+    /// uses this to delete a source it has copied, and keeps the source when it is unsupported.
+    fn delete_if_equals(
+        &self,
+        ns: &Namespace,
+        account: &str,
+        expected: &Secret,
+        mode: Interaction,
+    ) -> Result<ConditionalDelete> {
+        let _ = (expected, mode);
+        check_target(ns, account)?;
+        Ok(ConditionalDelete::Unsupported)
+    }
 }
 
 /// In-process store (guard mode, tests). Never touches the OS.
@@ -112,6 +143,27 @@ impl Backend for MemoryBackend {
             .remove(&Self::key(ns, account))
             .is_some())
     }
+    fn delete_if_equals(
+        &self,
+        ns: &Namespace,
+        account: &str,
+        expected: &Secret,
+        _: Interaction,
+    ) -> Result<ConditionalDelete> {
+        check_target(ns, account)?;
+        // Compare and remove under the one map lock every writer of this store takes.
+        let mut m = self.map.lock().unwrap();
+        let k = Self::key(ns, account);
+        let outcome = match m.get(&k) {
+            None => ConditionalDelete::Absent,
+            Some(current) if current.ct_eq(expected) => ConditionalDelete::Deleted,
+            Some(_) => ConditionalDelete::Changed,
+        };
+        if outcome == ConditionalDelete::Deleted {
+            m.remove(&k);
+        }
+        Ok(outcome)
+    }
 }
 
 /// Platforms without a wired OS store (Linux today): every call fails closed.
@@ -144,6 +196,16 @@ impl Backend for UnavailableBackend {
         Err(Error::Unavailable(self.0.into()))
     }
     fn delete(&self, ns: &Namespace, account: &str, _: Interaction) -> Result<bool> {
+        check_target(ns, account)?;
+        Err(Error::Unavailable(self.0.into()))
+    }
+    fn delete_if_equals(
+        &self,
+        ns: &Namespace,
+        account: &str,
+        _: &Secret,
+        _: Interaction,
+    ) -> Result<ConditionalDelete> {
         check_target(ns, account)?;
         Err(Error::Unavailable(self.0.into()))
     }

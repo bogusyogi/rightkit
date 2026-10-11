@@ -27,7 +27,9 @@
 
 use crate::key::{group_id, Key};
 use crate::reservation::CacheReservation;
-use std::collections::{HashMap, HashSet};
+#[cfg(test)]
+use std::cell::Cell;
+use std::collections::{BTreeSet, HashMap, HashSet};
 use std::fmt;
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, Read, Write};
@@ -293,13 +295,136 @@ struct Meta {
 
 /// Bytes held by pinned entries.
 fn pinned_total(st: &State) -> u64 {
-    st.index.values().filter(|m| m.pinned).map(|m| m.len).sum()
+    st.index.pinned_bytes()
+}
+
+/// The in-memory index: every stored entry by base name, plus the eviction order and the pinned
+/// total. The methods that change an entry also change `recency` and `pinned_bytes`, so size
+/// pressure reads the front of `recency` and never sorts or walks the entries.
+#[derive(Default)]
+struct Index {
+    entries: HashMap<String, Meta>,
+    /// `(last use, base name)` of every unpinned entry, least recently used first. This is the
+    /// eviction order: entries that share a last-use time break ties by base name.
+    recency: BTreeSet<(u128, String)>,
+    /// Bytes held by pinned entries.
+    pinned_bytes: u64,
+    /// Whole-index walks ([`Index::iter`], [`Index::keys`], [`Index::values`]), counted by the unit
+    /// test that asserts the write path walks none.
+    #[cfg(test)]
+    walks: Cell<u64>,
+}
+
+impl Index {
+    fn walked(&self) {
+        #[cfg(test)]
+        {
+            self.walks.set(self.walks.get() + 1);
+        }
+    }
+
+    fn len(&self) -> usize {
+        self.entries.len()
+    }
+
+    fn get(&self, name: &str) -> Option<&Meta> {
+        self.entries.get(name)
+    }
+
+    fn contains_key(&self, name: &str) -> bool {
+        self.entries.contains_key(name)
+    }
+
+    /// Every entry. A whole-index walk: not for the write path.
+    fn values(&self) -> impl Iterator<Item = &Meta> {
+        self.walked();
+        self.entries.values()
+    }
+
+    /// Every entry. A whole-index walk: not for the write path.
+    fn iter(&self) -> impl Iterator<Item = (&String, &Meta)> {
+        self.walked();
+        self.entries.iter()
+    }
+
+    /// Every base name. A whole-index walk: not for the write path.
+    fn keys(&self) -> impl Iterator<Item = &String> {
+        self.walked();
+        self.entries.keys()
+    }
+
+    fn pinned_bytes(&self) -> u64 {
+        self.pinned_bytes
+    }
+
+    /// Base name of the least recently used unpinned entry.
+    fn least_recent(&self) -> Option<&str> {
+        self.recency.first().map(|(_, name)| name.as_str())
+    }
+
+    /// Unpinned entries as `(last use, base name)`, least recently used first.
+    fn recency_order(&self) -> impl Iterator<Item = &(u128, String)> {
+        self.recency.iter()
+    }
+
+    /// Insert or replace `name`, returning the entry it replaced.
+    fn insert(&mut self, name: String, meta: Meta) -> Option<Meta> {
+        let prev = self.remove(&name);
+        if meta.pinned {
+            self.pinned_bytes += meta.len;
+        } else {
+            self.recency.insert((meta.used, name.clone()));
+        }
+        self.entries.insert(name, meta);
+        prev
+    }
+
+    fn remove(&mut self, name: &str) -> Option<Meta> {
+        let meta = self.entries.remove(name)?;
+        if meta.pinned {
+            self.pinned_bytes = self.pinned_bytes.saturating_sub(meta.len);
+        } else {
+            self.recency.remove(&(meta.used, name.to_owned()));
+        }
+        Some(meta)
+    }
+
+    /// Set the last-use time of `name`, moving it within the eviction order when it is unpinned.
+    fn touch(&mut self, name: &str, used: u128) {
+        let Some(meta) = self.entries.get_mut(name) else {
+            return;
+        };
+        if !meta.pinned {
+            self.recency.remove(&(meta.used, name.to_owned()));
+            self.recency.insert((used, name.to_owned()));
+        }
+        meta.used = used;
+    }
+
+    /// Pin or unpin `name`. Returns `false` when it is absent.
+    fn set_pinned(&mut self, name: &str, pinned: bool) -> bool {
+        let Some(meta) = self.entries.get_mut(name) else {
+            return false;
+        };
+        if meta.pinned == pinned {
+            return true;
+        }
+        if pinned {
+            self.recency.remove(&(meta.used, name.to_owned()));
+            self.pinned_bytes += meta.len;
+        } else {
+            self.recency.insert((meta.used, name.to_owned()));
+            self.pinned_bytes = self.pinned_bytes.saturating_sub(meta.len);
+        }
+        meta.pinned = pinned;
+        true
+    }
 }
 
 #[derive(Default)]
 pub(crate) struct State {
     /// Keyed by base name `<hash>-<group>`; one slot per key whatever its extension.
-    index: HashMap<String, Meta>,
+    index: Index,
     bytes: u64,
     clock: u128,
     hits: u64,
@@ -631,9 +756,7 @@ impl DiskCache {
                 cache.index_insert(&mut st, &base, len, used, ext.as_deref());
             }
             for base in pins {
-                if let Some(meta) = st.index.get_mut(&base) {
-                    meta.pinned = true;
-                }
+                st.index.set_pinned(&base, true);
             }
         }
         Ok(cache)
@@ -750,9 +873,7 @@ impl DiskCache {
         match read {
             Ok(bytes) => {
                 let used = st.tick();
-                if let Some(m) = st.index.get_mut(&name) {
-                    m.used = used;
-                }
+                st.index.touch(&name, used);
                 st.hits += 1;
                 Some(bytes)
             }
@@ -786,9 +907,7 @@ impl DiskCache {
             return None;
         }
         let used = st.tick();
-        if let Some(m) = st.index.get_mut(&name) {
-            m.used = used;
-        }
+        st.index.touch(&name, used);
         st.hits += 1;
         drop(st);
         if self.inner.writable {
@@ -841,11 +960,9 @@ impl DiskCache {
         let max = self.inner.cfg.max_bytes;
         let pinned = {
             let st = self.lock();
-            st.index
-                .iter()
-                .filter(|(n, m)| m.pinned && n.as_str() != name)
-                .map(|(_, m)| m.len)
-                .sum::<u64>()
+            // The entry being replaced does not count against its own write.
+            let own = st.index.get(name).filter(|m| m.pinned).map_or(0, |m| m.len);
+            st.index.pinned_bytes().saturating_sub(own)
         };
         if pinned.saturating_add(len) > max {
             return Err(pinned_error(pinned, len, max));
@@ -881,9 +998,7 @@ impl DiskCache {
         let used = st.tick();
         self.index_insert(&mut st, name, len, used, ext);
         let persisted = if pin {
-            if let Some(meta) = st.index.get_mut(name) {
-                meta.pinned = true;
-            }
+            st.index.set_pinned(name, true);
             self.persist_pins(&st)
         } else {
             Ok(())
@@ -970,13 +1085,9 @@ impl DiskCache {
                 return Err(pinned_error(others, len, max));
             }
         }
-        if let Some(meta) = st.index.get_mut(&name) {
-            meta.pinned = pinned;
-        }
+        st.index.set_pinned(&name, pinned);
         if let Err(e) = self.persist_pins(&st) {
-            if let Some(meta) = st.index.get_mut(&name) {
-                meta.pinned = already;
-            }
+            st.index.set_pinned(&name, already);
             return Err(e);
         }
         Ok(true)
@@ -1187,23 +1298,14 @@ impl DiskCache {
         Some(m.len)
     }
 
-    /// Evict LRU entries until `bytes + reserve <= max_bytes`.
+    /// Evict LRU entries until `bytes + reserve <= max_bytes`. Each step takes the front of the
+    /// index's eviction order, so the cost is the entries evicted, not the size of the index.
     fn evict_locked(&self, st: &mut State, reserve: u64) {
         let cap = self.inner.cfg.max_bytes;
-        if st.bytes + reserve <= cap {
-            return;
-        }
-        let mut order: Vec<(u128, String)> = st
-            .index
-            .iter()
-            .filter(|(_, m)| !m.pinned)
-            .map(|(n, m)| (m.used, n.clone()))
-            .collect();
-        order.sort();
-        for (_, name) in order {
-            if st.bytes + reserve <= cap {
+        while st.bytes + reserve > cap {
+            let Some(name) = st.index.least_recent().map(str::to_owned) else {
                 break;
-            }
+            };
             if self.remove_entry(st, &name).is_some() {
                 st.evictions += 1;
             }
@@ -1228,14 +1330,7 @@ impl DiskCache {
     /// Snapshot of `(last use, base name)` for every unpinned entry, least recently used first.
     pub(crate) fn recency_snapshot(&self) -> Vec<(u128, String)> {
         let st = self.lock();
-        let mut order: Vec<(u128, String)> = st
-            .index
-            .iter()
-            .filter(|(_, m)| !m.pinned)
-            .map(|(n, m)| (m.used, n.clone()))
-            .collect();
-        order.sort();
-        order
+        st.index.recency_order().cloned().collect()
     }
 }
 
@@ -1310,6 +1405,102 @@ impl Drop for PutWriter {
     fn drop(&mut self) {
         if self.armed {
             remove_tmp(&self.tmp);
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn key(i: usize) -> Key {
+        let id = i.to_string();
+        Key::new(&["entry", id.as_str()])
+    }
+
+    /// The maintained eviction order and pinned total must equal what a full scan of the entries
+    /// gives. The old code computed both by sorting or summing the whole index on every write.
+    fn assert_consistent(index: &Index) {
+        let mut expected: Vec<(u128, String)> = index
+            .entries
+            .iter()
+            .filter(|(_, m)| !m.pinned)
+            .map(|(n, m)| (m.used, n.clone()))
+            .collect();
+        expected.sort();
+        let actual: Vec<(u128, String)> = index.recency.iter().cloned().collect();
+        assert_eq!(actual, expected, "eviction order drifted from a full sort");
+        let pinned: u64 = index
+            .entries
+            .values()
+            .filter(|m| m.pinned)
+            .map(|m| m.len)
+            .sum();
+        assert_eq!(index.pinned_bytes, pinned, "pinned total drifted");
+    }
+
+    #[test]
+    fn index_order_matches_a_full_sort_under_random_operations() {
+        let mut index = Index::default();
+        // Fixed-seed LCG: deterministic and dependency-free. Small `used` and name ranges force
+        // many ties, so the base-name tie-break is exercised.
+        let mut seed: u64 = 0x9E37_79B9_7F4A_7C15;
+        let mut next = move |bound: u64| {
+            seed = seed
+                .wrapping_mul(6_364_136_223_846_793_005)
+                .wrapping_add(1_442_695_040_888_963_407);
+            (seed >> 33) % bound
+        };
+        for _ in 0..5_000 {
+            let name = format!("n{:02}", next(24));
+            match next(4) {
+                0 => {
+                    let meta = Meta {
+                        len: next(100) + 1,
+                        used: u128::from(next(8)),
+                        ext: None,
+                        pinned: next(5) == 0,
+                    };
+                    index.insert(name, meta);
+                }
+                1 => {
+                    index.remove(&name);
+                }
+                2 => index.touch(&name, u128::from(next(8))),
+                _ => {
+                    let pinned = next(2) == 0;
+                    index.set_pinned(&name, pinned);
+                }
+            }
+            assert_consistent(&index);
+        }
+    }
+
+    #[test]
+    fn over_cap_puts_walk_no_index_and_evict_in_write_order() {
+        let root = tempfile::tempdir().unwrap();
+        // Room for eight 8-byte entries; every later put evicts exactly one.
+        let cache = DiskCache::open(root.path(), Config::new(64)).unwrap();
+        for i in 0..8 {
+            cache.put(&key(i), &[1; 8]).unwrap();
+        }
+        // `stats` itself walks the index, so read the counters before the measured window.
+        let evicted_before = cache.stats().evictions;
+        let walks_before = cache.lock().index.walks.get();
+        const PUTS: usize = 1_000;
+        for i in 8..8 + PUTS {
+            cache.put(&key(i), &[1; 8]).unwrap();
+        }
+        let walks = cache.lock().index.walks.get() - walks_before;
+        let stats = cache.stats();
+        assert_eq!(walks, 0, "over-cap puts walked the whole index");
+        assert_eq!(stats.evictions - evicted_before, PUTS as u64);
+        assert_eq!((stats.entries, stats.bytes), (8, 64));
+        for i in 0..PUTS {
+            assert!(!cache.contains(&key(i)), "key {i} should be evicted");
+        }
+        for i in PUTS..8 + PUTS {
+            assert!(cache.contains(&key(i)), "key {i} should be resident");
         }
     }
 }

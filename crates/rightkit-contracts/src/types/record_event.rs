@@ -11,44 +11,44 @@ pub struct RecordEvent {
     pub session_id: String,
     pub seq: u64,
     pub kind: EventKind,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub input_kind: Option<InputKind>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub phase: Option<Phase>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub effect_id: Option<String>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub sub_event_id: Option<String>,
     pub step_index: u32,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub step_id: Option<String>,
     pub host_ns: u64,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub timing: Option<Timing>,
     pub geometry_epoch: u32,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub dispatch: Option<Dispatch>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pointer: Option<Pointer>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub target: Option<Target>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub text: Option<Redacted>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub key: Option<String>,
     #[serde(default)]
     pub modifiers: Vec<Modifier>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub delta: Option<Delta>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub admitted: Option<bool>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub denied: Option<Denied>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub postcondition: Option<Postcondition>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub frame: Option<Frame>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub frame_dropped: Option<FrameDropped>,
     #[serde(default)]
     pub intruders: Vec<Intruder>,
@@ -110,11 +110,11 @@ pub enum Modifier {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub struct Timing {
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub admission_ns: Option<u64>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub dispatch_ns: Option<u64>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub completion_ns: Option<u64>,
 }
 
@@ -143,12 +143,12 @@ pub struct Pointer {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub struct Target {
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub target_id: Option<String>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub identity: Option<Redacted>,
     pub role: String,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub label: Option<Redacted>,
     pub rect_pt: Rect,
 }
@@ -231,7 +231,7 @@ pub enum DropReason {
 #[serde(deny_unknown_fields)]
 pub struct Intruder {
     pub owner: String,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub title: Option<String>,
     pub bounds: Rect,
 }

@@ -2,6 +2,7 @@ use crate::discovery::{record_process_matches, try_lock_exclusive};
 use crate::error::{ServiceError, ERROR_NOT_ALLOWED};
 use crate::record::*;
 use crate::suite::{make_private_dir, valid_service_name, Suite, SuiteError};
+use crate::takeover_watch::{self, Bell, Wake, TAKEOVER_CHECK_INTERVAL};
 use crate::transport::{
     self, endpoint_for, pid_alive, probe_endpoint, Accepted, Conn, Listener,
     DEFAULT_MAX_PIPE_INSTANCES,
@@ -12,7 +13,7 @@ use std::collections::HashMap;
 use std::io::{BufReader, Write};
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime};
 
 pub const DEFAULT_FRAME_LIMIT: usize = 16 * 1024 * 1024;
 
@@ -233,6 +234,26 @@ struct Shared {
     inflight: AtomicUsize,
     next_conn: AtomicU64,
     conns: Mutex<HashMap<u64, Arc<dyn Fn() + Send + Sync>>>,
+    /// What the takeover monitor blocks on; `release` stops it.
+    bell: Arc<Bell>,
+    watch: WatchTuning,
+}
+
+/// How the takeover monitor waits and how it tells that a requester is alive. Production uses
+/// [`WatchTuning::PRODUCTION`]; the tests lengthen or shorten the interval and fake the probe.
+#[derive(Clone, Copy)]
+struct WatchTuning {
+    /// How often a request written by another process is looked for.
+    interval: Duration,
+    /// Is the process that wrote a takeover request still running?
+    alive: fn(u32) -> bool,
+}
+
+impl WatchTuning {
+    const PRODUCTION: WatchTuning = WatchTuning {
+        interval: TAKEOVER_CHECK_INTERVAL,
+        alive: pid_alive,
+    };
 }
 
 impl Shared {
@@ -251,6 +272,8 @@ impl Shared {
             *r = true;
         }
         self.stop.store(true, Ordering::SeqCst);
+        // The takeover monitor is blocked on its bell, not sleeping: wake it so it leaves now.
+        self.bell.stop();
         // Remove the record first so clients stop discovering this host, but only if it is ours.
         if read_record(&self.suite, &self.cfg.service).is_some_and(|r| r.pid == self.record.pid) {
             let _ = std::fs::remove_file(record_path(&self.suite, &self.cfg.service));
@@ -366,6 +389,17 @@ pub fn host_with_options(
     handler: Arc<dyn Handler>,
     options: HostOptions,
 ) -> Result<Hosted, HostError> {
+    start_host(suite, cfg, handler, options, WatchTuning::PRODUCTION)
+}
+
+#[allow(clippy::result_large_err)]
+fn start_host(
+    suite: &Suite,
+    cfg: ServiceConfig,
+    handler: Arc<dyn Handler>,
+    options: HostOptions,
+    watch: WatchTuning,
+) -> Result<Hosted, HostError> {
     if !valid_service_name(&cfg.service) {
         return Err(HostError::InvalidName(cfg.service.clone()));
     }
@@ -398,10 +432,10 @@ pub fn host_with_options(
                         pid: me,
                         requested_at_ms: now_ms(),
                     };
-                    write_atomic(
-                        &takeover_path(suite, &cfg.service),
-                        &serde_json::to_vec(&t).unwrap_or_default(),
-                    )?;
+                    let request_path = takeover_path(suite, &cfg.service);
+                    write_atomic(&request_path, &serde_json::to_vec(&t).unwrap_or_default())?;
+                    // A monitor in this process (another host of this service) looks now.
+                    takeover_watch::poke(&request_path);
                     requested = true;
                 }
             }
@@ -465,7 +499,13 @@ pub fn host_with_options(
         inflight: AtomicUsize::new(0),
         next_conn: AtomicU64::new(1),
         conns: Mutex::new(HashMap::new()),
+        bell: Arc::new(Bell::new()),
+        watch,
     });
+    takeover_watch::register(
+        takeover_path(&shared.suite, &shared.cfg.service),
+        &shared.bell,
+    );
     shared.event(ServiceEvent::Started {
         service: shared.cfg.service.clone(),
         endpoint,
@@ -527,37 +567,105 @@ fn accept_loop(s: Arc<Shared>) {
     }
 }
 
-/// Watch for a takeover request from a higher-ranked live host.
-fn takeover_monitor(s: Arc<Shared>) {
-    let max_age = s.cfg.takeover_timeout.as_millis() as u64;
-    while !s.stop.load(Ordering::SeqCst) {
-        std::thread::sleep(Duration::from_millis(25));
-        let Some(t) = read_takeover(&s.suite, &s.cfg.service) else {
-            continue;
-        };
-        let fresh = now_ms().saturating_sub(t.requested_at_ms) <= max_age + 5_000;
-        let their = resolve_rank(&s.cfg, &t.role, t.rank);
-        if their == RANK_UNKNOWN
-            || their >= s.cfg.rank
-            || t.pid == s.record.pid
-            || !pid_alive(t.pid)
-            || !fresh
-        {
-            continue;
-        }
-        s.handoff.store(true, Ordering::SeqCst);
-        s.event(ServiceEvent::HandoffRequested {
-            by_role: t.role,
-            by_rank: their,
-        });
-        s.handler.on_handoff();
-        let until = Instant::now() + s.cfg.handoff_grace;
-        while s.inflight.load(Ordering::SeqCst) > 0 && Instant::now() < until {
-            std::thread::sleep(Duration::from_millis(10));
-        }
-        s.release();
-        return;
+/// What `takeover.json` looked like when it was last judged: modification time and length.
+type FileStamp = (Option<SystemTime>, u64);
+
+fn file_stamp(path: &std::path::Path) -> Option<FileStamp> {
+    let md = std::fs::metadata(path).ok()?;
+    Some((md.modified().ok(), md.len()))
+}
+
+/// The requester's rank when `t` obliges a host of `cfg.rank` (running as `own_pid`) to hand
+/// off: a known rank that beats ours, from another live process, and fresh. `None` otherwise.
+fn obliging_rank(
+    cfg: &ServiceConfig,
+    own_pid: u32,
+    alive: fn(u32) -> bool,
+    t: &TakeoverRequest,
+    now: u64,
+) -> Option<u8> {
+    let max_age = cfg.takeover_timeout.as_millis() as u64;
+    let fresh = now.saturating_sub(t.requested_at_ms) <= max_age + 5_000;
+    let their = resolve_rank(cfg, &t.role, t.rank);
+    let obliges =
+        their != RANK_UNKNOWN && their < cfg.rank && t.pid != own_pid && alive(t.pid) && fresh;
+    obliges.then_some(their)
+}
+
+#[cfg(test)]
+struct ExitMark<'a>(&'a Bell);
+
+#[cfg(test)]
+impl Drop for ExitMark<'_> {
+    fn drop(&mut self) {
+        self.0.mark_exited();
     }
+}
+
+/// Watch for a takeover request from a higher-ranked live host.
+///
+/// The thread blocks on `s.bell`: it wakes when the host releases (leave), when this process wrote
+/// a takeover request for the service (look now), and otherwise once per `s.watch.interval` to
+/// stat `takeover.json`, which is how a request written by another process is found. The file is
+/// read only when its modification time or length differs from the one already judged (or on an
+/// in-process poke), and a request that was judged not to oblige is not judged again until the
+/// file changes. That is sound because the verdict can only turn from "obliges" to "does not" with
+/// time (a request goes stale, a requester exits), never the other way.
+fn takeover_monitor(s: Arc<Shared>) {
+    #[cfg(test)]
+    let _exit = ExitMark(&s.bell);
+    let path = takeover_path(&s.suite, &s.cfg.service);
+    let mut judged: Option<FileStamp> = None;
+    let mut look_now = false;
+    loop {
+        if s.stop.load(Ordering::SeqCst) {
+            return;
+        }
+        let force = std::mem::take(&mut look_now);
+        match file_stamp(&path) {
+            None => judged = None,
+            Some(stamp) if force || judged != Some(stamp) => {
+                judged = Some(stamp);
+                #[cfg(test)]
+                s.bell.note_read();
+                if let Some(t) = read_takeover(&s.suite, &s.cfg.service) {
+                    let now = now_ms();
+                    let obliging = obliging_rank(&s.cfg, s.record.pid, s.watch.alive, &t, now);
+                    if let Some(their) = obliging {
+                        hand_off(&s, t, their);
+                        return;
+                    }
+                }
+            }
+            Some(_) => {}
+        }
+        #[cfg(test)]
+        s.bell.note_pass();
+        match s.bell.wait(s.watch.interval) {
+            Wake::Stop => return,
+            Wake::Poke => look_now = true,
+            Wake::Timeout => {}
+        }
+    }
+}
+
+/// Accept a takeover: stop admitting work, let in-flight requests reach a boundary (up to
+/// `handoff_grace`), then release.
+fn hand_off(s: &Shared, t: TakeoverRequest, their: u8) {
+    s.handoff.store(true, Ordering::SeqCst);
+    s.event(ServiceEvent::HandoffRequested {
+        by_role: t.role,
+        by_rank: their,
+    });
+    s.handler.on_handoff();
+    let until = Instant::now() + s.cfg.handoff_grace;
+    while s.inflight.load(Ordering::SeqCst) > 0
+        && Instant::now() < until
+        && !s.stop.load(Ordering::SeqCst)
+    {
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    s.release();
 }
 
 fn frame_err(e: &FrameError) -> ServiceError {
@@ -775,6 +883,217 @@ mod options_tests {
                 .max_pipe_instances(u32::MAX)
                 .get_max_pipe_instances(),
             254
+        );
+    }
+}
+
+#[cfg(test)]
+mod monitor_tests {
+    use super::*;
+    use std::sync::atomic::AtomicUsize;
+
+    /// Longer than any test: a wake-up that arrives is a signal, never the interval running out.
+    const LONG: Duration = Duration::from_secs(600);
+
+    struct Quiet {
+        handoffs: AtomicUsize,
+    }
+
+    impl Handler for Quiet {
+        fn call(
+            &self,
+            _cx: &CallContext,
+            _method: &str,
+            _params: &Value,
+            _emit: &Emit,
+        ) -> Result<Value, ServiceError> {
+            Ok(json!({}))
+        }
+        fn on_handoff(&self) {
+            self.handoffs.fetch_add(1, Ordering::SeqCst);
+        }
+    }
+
+    fn wait_for(what: &str, mut ok: impl FnMut() -> bool) {
+        let deadline = Instant::now() + Duration::from_secs(20);
+        while !ok() {
+            assert!(Instant::now() < deadline, "timed out waiting for {what}");
+            std::thread::sleep(Duration::from_millis(5));
+        }
+    }
+
+    /// A host of rank 5 on a fresh suite, in this process.
+    fn host_in(
+        dir: &tempfile::TempDir,
+        interval: Duration,
+        alive: fn(u32) -> bool,
+    ) -> (Suite, Hosted, Arc<Quiet>) {
+        let suite = Suite::at(dir.path().join("suite")).unwrap();
+        let mut cfg = ServiceConfig::new(
+            "watch",
+            "incumbent",
+            5,
+            "test",
+            Allowlist::new().allow("*", ["echo"]),
+        );
+        cfg.takeover_timeout = Duration::from_secs(20);
+        cfg.handoff_grace = Duration::from_secs(1);
+        let handler = Arc::new(Quiet {
+            handoffs: AtomicUsize::new(0),
+        });
+        let hosted = start_host(
+            &suite,
+            cfg,
+            handler.clone(),
+            HostOptions::default(),
+            WatchTuning { interval, alive },
+        )
+        .expect("host starts");
+        (suite, hosted, handler)
+    }
+
+    fn request(role: &str, rank: u8, pid: u32) -> TakeoverRequest {
+        TakeoverRequest {
+            role: role.into(),
+            rank,
+            pid,
+            requested_at_ms: now_ms(),
+        }
+    }
+
+    /// A pid that is not this process's: the monitor ignores requests from its own process.
+    fn other_pid() -> u32 {
+        std::process::id().wrapping_add(1)
+    }
+
+    #[test]
+    fn a_request_from_another_process_is_found_by_the_file_check() {
+        let dir = tempfile::tempdir().unwrap();
+        let (suite, hosted, handler) = host_in(&dir, Duration::from_millis(50), |_| true);
+        // Written the way another process writes it: nothing in this process is told.
+        let body = serde_json::to_vec(&request("shell", 0, other_pid())).unwrap();
+        write_atomic(&takeover_path(&suite, "watch"), &body).unwrap();
+        assert!(
+            hosted.wait_released(Duration::from_secs(20)),
+            "the incumbent must hand off"
+        );
+        assert!(hosted.handoff_requested());
+        assert_eq!(handler.handoffs.load(Ordering::SeqCst), 1);
+    }
+
+    #[test]
+    fn a_request_written_in_this_process_wakes_the_monitor_without_the_interval() {
+        let dir = tempfile::tempdir().unwrap();
+        let (suite, hosted, handler) = host_in(&dir, LONG, |_| true);
+        let bell = hosted.shared.bell.clone();
+        wait_for("the first pass", || bell.passes() >= 1);
+        write_takeover(&suite, "watch", &request("shell", 0, other_pid())).unwrap();
+        assert!(
+            hosted.wait_released(Duration::from_secs(20)),
+            "a 10-minute interval must not delay a request raised in this process"
+        );
+        assert_eq!(handler.handoffs.load(Ordering::SeqCst), 1);
+    }
+
+    #[test]
+    fn releasing_the_host_ends_the_monitor_at_once() {
+        let dir = tempfile::tempdir().unwrap();
+        let (_suite, hosted, _handler) = host_in(&dir, LONG, pid_alive);
+        let bell = hosted.shared.bell.clone();
+        wait_for("the first pass", || bell.passes() >= 1);
+        assert!(!bell.exited());
+        hosted.shutdown();
+        wait_for("the monitor thread to return", || bell.exited());
+    }
+
+    #[test]
+    fn an_unchanged_request_that_does_not_oblige_is_stat_ed_not_read_again() {
+        let dir = tempfile::tempdir().unwrap();
+        let (suite, hosted, handler) = host_in(&dir, Duration::from_millis(20), |_| true);
+        let bell = hosted.shared.bell.clone();
+        // Equal rank: never obliges.
+        let body = serde_json::to_vec(&request("peer", 5, other_pid())).unwrap();
+        write_atomic(&takeover_path(&suite, "watch"), &body).unwrap();
+        wait_for("the request to be judged", || bell.reads() >= 1);
+        let before = bell.wakes();
+        wait_for("five more checks", || bell.wakes() >= before + 5);
+        assert_eq!(bell.reads(), 1, "an unchanged file must not be read again");
+        assert!(!hosted.handoff_requested());
+
+        // Replacing it is noticed, and a better-ranked request is then accepted.
+        let body = serde_json::to_vec(&request("shell", 0, other_pid())).unwrap();
+        write_atomic(&takeover_path(&suite, "watch"), &body).unwrap();
+        assert!(hosted.wait_released(Duration::from_secs(20)));
+        assert_eq!(handler.handoffs.load(Ordering::SeqCst), 1);
+    }
+
+    #[test]
+    fn a_quiet_host_wakes_its_monitor_about_once_a_second() {
+        let dir = tempfile::tempdir().unwrap();
+        let (_suite, hosted, _handler) = host_in(&dir, TAKEOVER_CHECK_INTERVAL, pid_alive);
+        let bell = hosted.shared.bell.clone();
+        let (start, woke_before) = (Instant::now(), bell.wakes());
+        std::thread::sleep(Duration::from_secs(2));
+        let (secs, woke) = (start.elapsed().as_secs_f64(), bell.wakes() - woke_before);
+        // The window can stretch on a loaded machine; the allowance stretches with it. The
+        // 25 ms poll this replaces woke about 80 times in two seconds.
+        let allowed = 3u64.max(secs.ceil() as u64 + 1);
+        assert!(
+            woke <= allowed,
+            "the monitor woke {woke} times in {secs:.1} s"
+        );
+        drop(hosted);
+    }
+
+    #[test]
+    fn only_a_fresh_live_better_ranked_request_from_another_process_obliges() {
+        let mut cfg = ServiceConfig::new("watch", "incumbent", 5, "test", Allowlist::new());
+        cfg.takeover_timeout = Duration::from_secs(10);
+        cfg.known_roles.insert("legacy".into(), 1);
+        let now = 1_000_000_000_000u64;
+        let live: fn(u32) -> bool = |_| true;
+        let dead: fn(u32) -> bool = |_| false;
+        let at = |role: &str, rank: u8, pid: u32, requested_at_ms: u64| TakeoverRequest {
+            role: role.into(),
+            rank,
+            pid,
+            requested_at_ms,
+        };
+
+        assert_eq!(
+            obliging_rank(&cfg, 7, live, &at("shell", 0, 9, now), now),
+            Some(0)
+        );
+        // Equal or worse rank never obliges.
+        assert_eq!(obliging_rank(&cfg, 7, live, &at("x", 5, 9, now), now), None);
+        assert_eq!(obliging_rank(&cfg, 7, live, &at("x", 6, 9, now), now), None);
+        // Our own process never does.
+        assert_eq!(
+            obliging_rank(&cfg, 9, live, &at("shell", 0, 9, now), now),
+            None
+        );
+        // A requester that has exited abandoned its request.
+        assert_eq!(
+            obliging_rank(&cfg, 7, dead, &at("shell", 0, 9, now), now),
+            None
+        );
+        // Fresh means younger than the takeover timeout plus five seconds.
+        assert_eq!(
+            obliging_rank(&cfg, 7, live, &at("shell", 0, 9, now - 15_000), now),
+            Some(0)
+        );
+        assert_eq!(
+            obliging_rank(&cfg, 7, live, &at("shell", 0, 9, now - 15_001), now),
+            None
+        );
+        // A peer that names only a role is ranked through `known_roles`; an unknown one never wins.
+        assert_eq!(
+            obliging_rank(&cfg, 7, live, &at("legacy", RANK_UNKNOWN, 9, now), now),
+            Some(1)
+        );
+        assert_eq!(
+            obliging_rank(&cfg, 7, live, &at("stranger", RANK_UNKNOWN, 9, now), now),
+            None
         );
     }
 }

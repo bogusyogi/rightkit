@@ -173,7 +173,7 @@
   "examples": [
     {
       "contract": "content-brief",
-      "contractVersion": "1.0.0",
+      "contractVersion": "1.1.0",
       "briefId": "brief.demo-export-2026-10",
       "revision": 2,
       "supersedes": 1,

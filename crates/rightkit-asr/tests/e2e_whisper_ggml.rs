@@ -2,31 +2,21 @@
 //! the language table against the library, word timing shape, text-only decode
 //! and the auto-detect option. Uses the crate's existing fixture audio.
 //!
-//! Gates (a missing gate FAILS, never silently passes; set
-//! `RIGHTKIT_ALLOW_MISSING_MODELS=1` to downgrade to a printed SKIP):
+//! Gates (a missing asset prints a SKIP line and the test passes; set
+//! `RIGHTKIT_REQUIRE_ASSETS=1` to make a missing asset fail):
 //! - `RIGHTKIT_WHISPER_LIB`: libwhisper built from v1.9.3 (`libwhisper.dylib`,
 //!   `whisper.dll`, `libwhisper.so`).
 //! - `RIGHTKIT_WHISPER_GGML`: a multilingual ggml model (detection needs one;
 //!   an English-only model fails the detection test by design).
+
+#[macro_use]
+mod common;
 
 use libloading::Library;
 use rightkit_asr::{
     AudioSource, DecodeMode, Language, Whisper, WhisperModel, WhisperOptions, WHISPER_LANGUAGES,
 };
 use std::path::{Path, PathBuf};
-
-macro_rules! gate {
-    ($opt:expr, $what:expr) => {
-        match $opt {
-            Some(v) => v,
-            None if std::env::var_os("RIGHTKIT_ALLOW_MISSING_MODELS").is_some() => {
-                eprintln!("SKIP: {}", $what);
-                return;
-            }
-            None => panic!("gate missing: {}", $what),
-        }
-    };
-}
 
 fn env_file(name: &str) -> Option<PathBuf> {
     std::env::var_os(name).map(PathBuf::from).filter(|p| p.exists())
@@ -52,7 +42,7 @@ const SHORT_KEYWORDS: &[&str] = &["timer", "minutes", "remind"];
 
 #[test]
 fn language_table_matches_the_pinned_library() {
-    let library = gate!(env_file("RIGHTKIT_WHISPER_LIB"), "RIGHTKIT_WHISPER_LIB (libwhisper 1.9.3)");
+    let library = gate!(env_file("RIGHTKIT_WHISPER_LIB"), "libwhisper 1.9.3", "RIGHTKIT_WHISPER_LIB");
     // SAFETY: loading the pinned library runs its initialisers, as the crate does at load time.
     let lib = unsafe { Library::new(&library) }.expect("open whisper library");
     type FnMaxId = unsafe extern "C" fn() -> std::ffi::c_int;
@@ -73,7 +63,7 @@ fn language_table_matches_the_pinned_library() {
 
 #[test]
 fn detect_language_identifies_english_fixture() {
-    let mut w = gate!(load(WhisperOptions::default()), "RIGHTKIT_WHISPER_LIB + RIGHTKIT_WHISPER_GGML");
+    let w = gate!(load(WhisperOptions::default()), "whisper.cpp library and ggml model", "RIGHTKIT_WHISPER_LIB and RIGHTKIT_WHISPER_GGML");
     let det = w.detect_language(&wav("short_9s.wav")).expect("detect language");
     assert_eq!(det.lang, "en");
     assert!(det.probability > 0.5, "probability {}", det.probability);
@@ -87,7 +77,7 @@ fn detect_language_identifies_english_fixture() {
 #[test]
 fn word_timings_have_the_documented_shape() {
     let options = WhisperOptions { language: Language::Code("en".into()), token_timestamps: true, ..Default::default() };
-    let mut w = gate!(load(options), "RIGHTKIT_WHISPER_LIB + RIGHTKIT_WHISPER_GGML");
+    let mut w = gate!(load(options), "whisper.cpp library and ggml model", "RIGHTKIT_WHISPER_LIB and RIGHTKIT_WHISPER_GGML");
     let t = w.transcribe_detailed(AudioSource::Pcm16k(wav("short_9s.wav"))).expect("decode");
     assert!(!t.segments.is_empty());
     assert!(!t.words.is_empty(), "token timestamps must yield words");
@@ -114,7 +104,7 @@ fn word_timings_have_the_documented_shape() {
 #[test]
 fn text_only_mode_has_text_and_no_word_timings() {
     let options = WhisperOptions { language: Language::Code("en".into()), mode: DecodeMode::TextOnly, ..Default::default() };
-    let mut w = gate!(load(options), "RIGHTKIT_WHISPER_LIB + RIGHTKIT_WHISPER_GGML");
+    let mut w = gate!(load(options), "whisper.cpp library and ggml model", "RIGHTKIT_WHISPER_LIB and RIGHTKIT_WHISPER_GGML");
     let t = w.transcribe_detailed(AudioSource::Pcm16k(wav("short_9s.wav"))).expect("decode");
     assert!(t.words.is_empty());
     let lower = t.text.to_lowercase();
@@ -126,7 +116,7 @@ fn text_only_mode_has_text_and_no_word_timings() {
 #[test]
 fn text_only_with_token_timestamps_is_rejected() {
     let options = WhisperOptions { mode: DecodeMode::TextOnly, token_timestamps: true, ..Default::default() };
-    let mut w = gate!(load(options), "RIGHTKIT_WHISPER_LIB + RIGHTKIT_WHISPER_GGML");
+    let mut w = gate!(load(options), "whisper.cpp library and ggml model", "RIGHTKIT_WHISPER_LIB and RIGHTKIT_WHISPER_GGML");
     let err = w.transcribe_detailed(AudioSource::Pcm16k(wav("short_9s.wav"))).unwrap_err();
     assert!(matches!(err, rightkit_asr::Error::Config(_)), "{err:?}");
 }
@@ -134,7 +124,7 @@ fn text_only_with_token_timestamps_is_rejected() {
 #[test]
 fn auto_detect_option_locks_and_reports_the_language() {
     let options = WhisperOptions { detect_language: true, ..Default::default() };
-    let mut w = gate!(load(options), "RIGHTKIT_WHISPER_LIB + RIGHTKIT_WHISPER_GGML");
+    let mut w = gate!(load(options), "whisper.cpp library and ggml model", "RIGHTKIT_WHISPER_LIB and RIGHTKIT_WHISPER_GGML");
     let t = w.transcribe_detailed(AudioSource::Pcm16k(wav("short_9s.wav"))).expect("decode");
     let det = t.detection.expect("detection reported");
     assert_eq!(det.lang, "en");
@@ -148,7 +138,7 @@ fn detect_option_with_fixed_language_is_rejected() {
         detect_language: true,
         ..Default::default()
     };
-    let mut w = gate!(load(options), "RIGHTKIT_WHISPER_LIB + RIGHTKIT_WHISPER_GGML");
+    let mut w = gate!(load(options), "whisper.cpp library and ggml model", "RIGHTKIT_WHISPER_LIB and RIGHTKIT_WHISPER_GGML");
     let err = w.transcribe_detailed(AudioSource::Pcm16k(wav("short_9s.wav"))).unwrap_err();
     assert!(matches!(err, rightkit_asr::Error::Config(_)), "{err:?}");
 }

@@ -333,7 +333,13 @@ impl WindowStateStore {
             ))
         };
         let mut store = load_store(&self.dir);
-        let state = next_state(store.states.get(label), monitor, maximized, minimized, geometry);
+        let state = next_state(
+            store.states.get(label),
+            monitor,
+            maximized,
+            minimized,
+            geometry,
+        );
         store.states.insert(label.to_owned(), state);
         save_store(&self.dir, &store)
     }
@@ -407,10 +413,14 @@ impl<R: Runtime> RestoreTarget for WindowTarget<'_, R> {
         let _ = self.0.unmaximize();
     }
     fn set_size(&mut self, width: f64, height: f64) {
-        let _ = self.0.set_size(Size::Logical(LogicalSize { width, height }));
+        let _ = self
+            .0
+            .set_size(Size::Logical(LogicalSize { width, height }));
     }
     fn set_position(&mut self, x: f64, y: f64) {
-        let _ = self.0.set_position(Position::Logical(LogicalPosition { x, y }));
+        let _ = self
+            .0
+            .set_position(Position::Logical(LogicalPosition { x, y }));
     }
     fn maximize(&mut self) {
         let _ = self.0.maximize();

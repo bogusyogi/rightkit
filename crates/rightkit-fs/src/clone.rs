@@ -1,10 +1,18 @@
-//! Copy-on-write file clones that never fall back to a byte copy.
+//! Copy-on-write file clones, with an explicit copy ladder for callers that can accept less.
 //!
-//! On macOS this calls `clonefile(2)` with `CLONE_NOFOLLOW`. The kernel either creates a
-//! clone on the same APFS volume or fails with a typed error; there is no `read`/`write`
-//! fallback, so a caller that asked for a clone can never silently receive a copy.
-//! Other platforms always return [`CloneError::Unsupported`].
+//! [`clone_file_nofollow`] never falls back to a byte copy. On macOS it calls `clonefile(2)` with
+//! `CLONE_NOFOLLOW`; the kernel either creates a clone on the same APFS volume or fails with a
+//! typed error, so a caller that asked for a clone can never silently receive a copy. Other
+//! platforms always return [`CloneError::Unsupported`].
+//!
+//! [`clone_or_link_or_copy_nofollow`] is the ladder: a copy-on-write clone where the platform has
+//! one (macOS `clonefile`, Linux `FICLONE`), then a hard link, then a plain copy through the
+//! crate's durable atomic-write path, and it reports which step produced the destination
+//! ([`CloneOutcome`]). It never follows a symlink at either end and never overwrites.
 
+use crate::atomic::{atomic_write_with_options, AtomicWriteOptions, ReplaceMode};
+use crate::error::{FsError, Result as FsResult};
+use std::fs::{File, OpenOptions};
 use std::io;
 use std::path::{Path, PathBuf};
 
@@ -125,4 +133,390 @@ pub fn clone_file_nofollow(src: &Path, dst: &Path) -> Result<(), CloneError> {
             format!("clonefile is macOS-only (source {})", src.display()),
         ),
     })
+}
+
+/// Which step of [`clone_or_link_or_copy_nofollow`] produced the destination.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum CloneOutcome {
+    /// A copy-on-write clone: its own inode, sharing storage blocks with the source until either
+    /// side is written. An in-place write to one never reaches the other.
+    Cloned,
+    /// A hard link: the destination is a second name for the **same inode** as the source. The two
+    /// share content, so an in-place write through either name changes both, and the data lives
+    /// until the last name is deleted. A caller that tracks the copies should treat linked
+    /// copies as one item on delete (removing the destination removes only a name). Callers that
+    /// will modify the copy in place should disallow this step ([`CloneOptions::allow_hard_link`]).
+    HardLinked,
+    /// A byte copy made through the crate's atomic-write path: its own inode and its own storage.
+    /// Permission bits are copied on Unix; ownership, extended attributes and timestamps are not.
+    Copied,
+}
+
+/// How [`clone_or_link_or_copy_nofollow_with`] behaves.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct CloneOptions {
+    /// Allow the hard-link step. Default `true`. A hard link shares content with the source (see
+    /// [`CloneOutcome::HardLinked`]), so set this to `false` when the copy will be modified in
+    /// place: a failed clone then goes straight to a byte copy.
+    pub allow_hard_link: bool,
+    /// Make the result durable: the copy step flushes the file and the directory (the crate's
+    /// durable atomic-write path), and a clone or link syncs the destination's directory on Unix.
+    /// Default `true`. See [`crate::publication_durability`] for what Windows can promise.
+    pub durable: bool,
+}
+
+impl Default for CloneOptions {
+    fn default() -> Self {
+        Self {
+            allow_hard_link: true,
+            durable: true,
+        }
+    }
+}
+
+impl CloneOptions {
+    /// These options with the hard-link step disallowed.
+    pub fn without_hard_link(self) -> Self {
+        Self {
+            allow_hard_link: false,
+            ..self
+        }
+    }
+}
+
+/// Creates `dst` from `src` by the cheapest way available: a copy-on-write clone, else a hard link
+/// when both are on one volume, else a byte copy. [`CloneOptions::default`] applies; see
+/// [`clone_or_link_or_copy_nofollow_with`].
+pub fn clone_or_link_or_copy_nofollow(src: &Path, dst: &Path) -> FsResult<CloneOutcome> {
+    clone_or_link_or_copy_nofollow_with(src, dst, &CloneOptions::default())
+}
+
+/// [`clone_or_link_or_copy_nofollow`] with explicit [`CloneOptions`].
+///
+/// - `src` must be a regular file. A symbolic link (or, on Windows, any reparse point) at `src` is
+///   [`FsError::Symlink`], a non-file is [`FsError::NotAFile`]; it is never followed.
+/// - `dst` must not exist. Anything at its name is refused without being touched: a symlink
+///   (even a dangling one) is [`FsError::Symlink`], anything else [`FsError::AlreadyExists`]. Each
+///   step also creates exclusively, so a destination that appears first still loses nothing.
+/// - The first step that works wins, in this order, and the outcome says which: a clone
+///   ([`CloneOutcome::Cloned`]), a hard link ([`CloneOutcome::HardLinked`], unless disallowed), a
+///   copy ([`CloneOutcome::Copied`]). A step that is unavailable (another volume, a filesystem
+///   without clones or links, Windows for clones) falls through to the next; a destination that
+///   already exists or an error after the destination was published does not.
+/// - The copy is made through [`crate::atomic_write_with_options`] with
+///   [`ReplaceMode::NoReplace`]: a temp file, flushed, then published exclusively. Nothing is
+///   visible at `dst` until the content is complete, and a failure leaves no partial `dst`.
+pub fn clone_or_link_or_copy_nofollow_with(
+    src: &Path,
+    dst: &Path,
+    options: &CloneOptions,
+) -> FsResult<CloneOutcome> {
+    let source = check_source(src)?;
+    check_destination(dst)?;
+
+    match run_step(Step::Clone, src, dst, options) {
+        StepResult::Done => return finish(dst, options, CloneOutcome::Cloned),
+        StepResult::Exists => return Err(FsError::AlreadyExists(dst.to_path_buf())),
+        StepResult::Failed(error) => return Err(error),
+        StepResult::Unavailable => {}
+    }
+    if options.allow_hard_link {
+        match run_step(Step::Link, src, dst, options) {
+            StepResult::Done => return finish(dst, options, CloneOutcome::HardLinked),
+            StepResult::Exists => return Err(FsError::AlreadyExists(dst.to_path_buf())),
+            StepResult::Failed(error) => return Err(error),
+            StepResult::Unavailable => {}
+        }
+    }
+    copy_step(src, dst, source, options)?;
+    Ok(CloneOutcome::Copied)
+}
+
+/// The two steps that can be unavailable. The copy is the floor and has no fallback.
+#[derive(Clone, Copy)]
+enum Step {
+    Clone,
+    Link,
+}
+
+enum StepResult {
+    /// `dst` now exists, made by this step.
+    Done,
+    /// `dst` appeared first; nothing was overwritten.
+    Exists,
+    /// This step cannot be used here; try the next.
+    Unavailable,
+    /// The step failed after `dst` may have been published; do not try another. Only the Linux
+    /// clone step can produce it.
+    #[allow(dead_code)]
+    Failed(FsError),
+}
+
+fn run_step(step: Step, src: &Path, dst: &Path, options: &CloneOptions) -> StepResult {
+    #[cfg(feature = "testing")]
+    if let Some(result) = testing::overridden(step, src, dst) {
+        return match result {
+            Ok(()) => StepResult::Done,
+            Err(e) if e.kind() == io::ErrorKind::AlreadyExists => StepResult::Exists,
+            Err(_) => StepResult::Unavailable,
+        };
+    }
+    match step {
+        Step::Clone => clone_step(src, dst, options),
+        Step::Link => match std::fs::hard_link(src, dst) {
+            Ok(()) => StepResult::Done,
+            Err(e) if e.kind() == io::ErrorKind::AlreadyExists => StepResult::Exists,
+            // EXDEV (another volume), EPERM / ENOTSUP (no links on this filesystem or by policy),
+            // EMLINK: a copy can still succeed.
+            Err(_) => StepResult::Unavailable,
+        },
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn clone_step(src: &Path, dst: &Path, _options: &CloneOptions) -> StepResult {
+    match clone_file_nofollow(src, dst) {
+        Ok(()) => StepResult::Done,
+        Err(CloneError::Io { source, .. }) if source.kind() == io::ErrorKind::AlreadyExists => {
+            StepResult::Exists
+        }
+        // Not APFS, another volume, or any other refusal: the next step decides.
+        Err(_) => StepResult::Unavailable,
+    }
+}
+
+/// Linux `FICLONE` (Btrfs, XFS with reflinks, bcachefs, ...). The ioctl needs the destination to
+/// exist, so it runs on the temp file of the atomic-write path and is published exclusively, never
+/// visible half-made. Only architectures whose `_IOW` encoding the constant below matches.
+#[cfg(all(
+    target_os = "linux",
+    any(
+        target_arch = "x86",
+        target_arch = "x86_64",
+        target_arch = "arm",
+        target_arch = "aarch64",
+        target_arch = "riscv64",
+        target_arch = "loongarch64",
+        target_arch = "s390x"
+    )
+))]
+fn clone_step(src: &Path, dst: &Path, options: &CloneOptions) -> StepResult {
+    use crate::atomic::AtomicWriter;
+    use std::os::fd::AsRawFd;
+    /// `FICLONE` = `_IOW(0x94, 9, int)`.
+    const FICLONE: libc::c_ulong = 0x4004_9409;
+
+    let Ok(input) = open_source(src) else {
+        return StepResult::Unavailable;
+    };
+    let write_options = AtomicWriteOptions {
+        replace: ReplaceMode::NoReplace,
+        durable: options.durable,
+        ..AtomicWriteOptions::default()
+    };
+    let mut writer = match AtomicWriter::create_with(dst, write_options) {
+        Ok(writer) => writer,
+        Err(_) => return StepResult::Unavailable,
+    };
+    // SAFETY: both descriptors are open for the call; FICLONE takes the source descriptor as its
+    // argument and reads no memory.
+    let rc = unsafe {
+        libc::ioctl(
+            writer.file_mut().as_raw_fd(),
+            FICLONE as _,
+            input.as_raw_fd(),
+        )
+    };
+    if rc != 0 {
+        // EOPNOTSUPP, EXDEV, EINVAL, ENOTTY...: no clone here. Dropping the writer removes the temp.
+        return StepResult::Unavailable;
+    }
+    match writer.commit() {
+        Ok(()) => StepResult::Done,
+        Err(FsError::AlreadyExists(_)) => StepResult::Exists,
+        // Published, then a later step failed: report it, do not try another way to make `dst`.
+        Err(e) if e.target_replaced() => StepResult::Failed(e),
+        Err(_) => StepResult::Unavailable,
+    }
+}
+
+/// Windows and every other target: no copy-on-write clone step; go on to the hard link.
+#[cfg(not(any(
+    target_os = "macos",
+    all(
+        target_os = "linux",
+        any(
+            target_arch = "x86",
+            target_arch = "x86_64",
+            target_arch = "arm",
+            target_arch = "aarch64",
+            target_arch = "riscv64",
+            target_arch = "loongarch64",
+            target_arch = "s390x"
+        )
+    )
+)))]
+fn clone_step(_src: &Path, _dst: &Path, _options: &CloneOptions) -> StepResult {
+    StepResult::Unavailable
+}
+
+/// A clone or link is a new directory entry: sync the directory it lives in so the entry survives
+/// a power loss (Unix; Windows has no directory flush, see [`crate::publication_durability`]).
+fn finish(dst: &Path, options: &CloneOptions, outcome: CloneOutcome) -> FsResult<CloneOutcome> {
+    if options.durable {
+        crate::atomic::sync_parent_dir(dst).map_err(|source| FsError::DirSyncFailed {
+            path: dst.to_path_buf(),
+            source,
+        })?;
+    }
+    Ok(outcome)
+}
+
+/// The byte-copy floor: read `src` (opened without following a link), write it through the
+/// atomic-write path, publish exclusively.
+fn copy_step(
+    src: &Path,
+    dst: &Path,
+    source: std::fs::Metadata,
+    options: &CloneOptions,
+) -> FsResult<()> {
+    let mut input = open_source(src).map_err(|e| match e.raw_os_error() {
+        #[cfg(unix)]
+        Some(libc::ELOOP) => FsError::Symlink(src.to_path_buf()),
+        _ => FsError::io(src, e),
+    })?;
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::MetadataExt;
+        let opened = input.metadata().map_err(|e| FsError::io(src, e))?;
+        if opened.file_attributes() & REPARSE_POINT != 0 {
+            return Err(FsError::Symlink(src.to_path_buf()));
+        }
+    }
+    if !input.metadata().map_err(|e| FsError::io(src, e))?.is_file() {
+        return Err(FsError::NotAFile(src.to_path_buf()));
+    }
+    let write_options = AtomicWriteOptions {
+        replace: ReplaceMode::NoReplace,
+        durable: options.durable,
+        ..AtomicWriteOptions::default()
+    };
+    atomic_write_with_options(dst, write_options, |out| {
+        io::copy(&mut input, out)?;
+        // The copy keeps the source's permission bits (the atomic write made the temp with the
+        // default mode).
+        #[cfg(unix)]
+        out.set_permissions(source.permissions())?;
+        #[cfg(not(unix))]
+        let _ = &source;
+        Ok(())
+    })
+}
+
+#[cfg(windows)]
+const REPARSE_POINT: u32 = 0x400;
+
+/// Opens `src` for reading without following a link at its name: `O_NOFOLLOW` on Unix, an
+/// open-the-reparse-point-itself flag on Windows (the caller checks the attribute).
+fn open_source(src: &Path) -> io::Result<File> {
+    let mut open = OpenOptions::new();
+    open.read(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        open.custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC);
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::OpenOptionsExt;
+        const FILE_FLAG_OPEN_REPARSE_POINT: u32 = 0x0020_0000;
+        open.custom_flags(FILE_FLAG_OPEN_REPARSE_POINT);
+    }
+    open.open(src)
+}
+
+/// The source must be a regular file, not a link to one. Returns its metadata (not followed).
+fn check_source(src: &Path) -> FsResult<std::fs::Metadata> {
+    let meta = std::fs::symlink_metadata(src).map_err(|e| FsError::io(src, e))?;
+    if is_link(&meta) {
+        return Err(FsError::Symlink(src.to_path_buf()));
+    }
+    if !meta.is_file() {
+        return Err(FsError::NotAFile(src.to_path_buf()));
+    }
+    Ok(meta)
+}
+
+/// The destination name must be free. A link there (even dangling) is refused as a link, anything
+/// else as already existing; neither is touched.
+fn check_destination(dst: &Path) -> FsResult<()> {
+    match std::fs::symlink_metadata(dst) {
+        Ok(meta) if is_link(&meta) => Err(FsError::Symlink(dst.to_path_buf())),
+        Ok(_) => Err(FsError::AlreadyExists(dst.to_path_buf())),
+        Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(()),
+        Err(e) => Err(FsError::io(dst, e)),
+    }
+}
+
+fn is_link(meta: &std::fs::Metadata) -> bool {
+    if meta.file_type().is_symlink() {
+        return true;
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::MetadataExt;
+        if meta.file_attributes() & REPARSE_POINT != 0 {
+            return true;
+        }
+    }
+    false
+}
+
+/// Step seam for tests (feature `testing`, off by default; debug builds only). Replaces the clone
+/// or the hard-link primitive on the calling thread, so each [`CloneOutcome`] can be produced
+/// deterministically on any filesystem.
+#[cfg(feature = "testing")]
+pub mod testing {
+    use super::Step;
+    use std::cell::RefCell;
+    use std::io;
+    use std::path::Path;
+
+    type StepFn = Box<dyn Fn(&Path, &Path) -> io::Result<()>>;
+
+    thread_local! {
+        static CLONE: RefCell<Option<StepFn>> = const { RefCell::new(None) };
+        static LINK: RefCell<Option<StepFn>> = const { RefCell::new(None) };
+    }
+
+    /// Removes the override when dropped.
+    pub struct HookGuard(fn());
+
+    impl Drop for HookGuard {
+        fn drop(&mut self) {
+            (self.0)();
+        }
+    }
+
+    /// Stand in for the clone step on this thread until the guard drops. `Ok(())` means the
+    /// closure created the destination itself (it is a clone); `Err` of kind `AlreadyExists` is a
+    /// destination that appeared first; any other `Err` is "this step is unavailable here".
+    pub fn override_clone(step: impl Fn(&Path, &Path) -> io::Result<()> + 'static) -> HookGuard {
+        CLONE.with(|slot| *slot.borrow_mut() = Some(Box::new(step)));
+        HookGuard(|| CLONE.with(|slot| *slot.borrow_mut() = None))
+    }
+
+    /// Stand in for the hard-link step, with the same meaning of the closure's result.
+    pub fn override_link(step: impl Fn(&Path, &Path) -> io::Result<()> + 'static) -> HookGuard {
+        LINK.with(|slot| *slot.borrow_mut() = Some(Box::new(step)));
+        HookGuard(|| LINK.with(|slot| *slot.borrow_mut() = None))
+    }
+
+    pub(super) fn overridden(step: Step, src: &Path, dst: &Path) -> Option<io::Result<()>> {
+        let slot = match step {
+            Step::Clone => &CLONE,
+            Step::Link => &LINK,
+        };
+        slot.with(|slot| slot.borrow().as_ref().map(|step| step(src, dst)))
+    }
 }

@@ -12,6 +12,9 @@ use rightkit_ort::{
 
 #[test]
 fn default_loader_accepts_an_absolute_runtime_path() {
+    if !common::runtime_dir_or_skip() {
+        return;
+    }
     let (dir, runtime) =
         common::staged_runtime("win-default-loader", common::WINDOWS_VERSIONED_NAME);
     std::env::set_var("ORT_DYLIB_PATH", &runtime);

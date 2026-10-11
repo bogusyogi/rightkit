@@ -23,6 +23,7 @@ import path from "node:path";
 import { spawnSync } from "./background-process.mjs";
 import { brokerManagedHost } from "./cargo-contract.mjs";
 import { createOwnershipEvidence } from "./ownership-evidence.mjs";
+import { appRuntimeBudgetAdoptionCheck } from "./runtime-budgets.mjs";
 import { isSwiftProject } from "./project-type.mjs";
 
 export const PREFLIGHT_OK = "ok";
@@ -137,6 +138,17 @@ export function nextFreeVersion(sealedDir, app, currentVersion, { readdir = read
   return { taken: [...taken], collision: true, suggestion };
 }
 
+/** The path itself, or its nearest existing ancestor (df cannot measure a directory that does not exist yet). */
+export function nearestExisting(target) {
+  let current = path.resolve(target);
+  for (;;) {
+    if (existsSync(current)) return current;
+    const parent = path.dirname(current);
+    if (parent === current) return null;
+    current = parent;
+  }
+}
+
 function freeDiskGb(targetPath) {
   if (process.platform === "win32") {
     const drive = path.parse(path.resolve(targetPath)).root.replace(/\\$/, "");
@@ -168,18 +180,20 @@ export function collectPreflight({
   platform,
   appRoot,
   repoRoot,
+  env = process.env,
   app,
   version,
   configPath,
   cargoLockPaths = [],
   nativeLayout,
   targetLink,
-  minFreeGb = 25,
-  env = process.env,
+  minFreeGb = Number.isFinite(Number(env.RIGHT_RELEASE_MIN_FREE_GB)) && Number(env.RIGHT_RELEASE_MIN_FREE_GB) > 0 ? Number(env.RIGHT_RELEASE_MIN_FREE_GB) : 25,
   versionProbe = commandVersion,
   isBrokerManagedHost = brokerManagedHost,
   ownership = true,
   ownershipEvidenceFactory = createOwnershipEvidence,
+  runtimeBudgetAdoption = appRuntimeBudgetAdoptionCheck,
+  freeDisk = freeDiskGb,
   projectType,
   msix = false,
   findSdkTool = findWindowsSdkTool,
@@ -288,7 +302,9 @@ export function collectPreflight({
   }
 
   if (appRoot) {
-    const free = freeDiskGb(appRoot);
+    // The floor protects the volume builds write to: the cargo target directory when the layout names one
+    // (builds go there, often on a different drive from the app), else the app root.
+    const free = freeDisk(nearestExisting(nativeLayout?.targetDir ?? appRoot) ?? appRoot);
     if (free === null) {
       checks.push(warn("disk", "could not determine free disk space", null));
     } else {
@@ -302,6 +318,12 @@ export function collectPreflight({
           : ok("disk", `${free.toFixed(1)}GB free`),
       );
     }
+  }
+
+  // Held-resource crates are proven at adoption: an app that links one needs its own installed measurement.
+  if (appRoot && !swift) {
+    const adoption = runtimeBudgetAdoption({ appRoot, app, version, cargoLockPaths });
+    if (adoption) checks.push(adoption);
   }
 
   if (repoRoot && ownership) {

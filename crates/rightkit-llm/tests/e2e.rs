@@ -171,9 +171,10 @@ fn failover_retries_retryable_route_but_surfaces_auth_and_midstream_errors() {
     let auth = MockServer::start(|_, _| MockResponse::text(401, "bad key"));
     let auth_provider =
         OpenAiCompatProvider::new("auth", &auth.base_url(), client(), creds("auth"));
-    assert!(
-        matches!(auth_provider.complete(&ChatRequest::new("g", vec![Message::user("x")])), Err(LlmError::Status { status: 401, .. }))
-    );
+    assert!(matches!(
+        auth_provider.complete(&ChatRequest::new("g", vec![Message::user("x")])),
+        Err(LlmError::Status { status: 401, .. })
+    ));
 
     let mid = MockServer::start(|_, _| {
         MockResponse::sse(&[
@@ -278,7 +279,8 @@ fn anthropic_post_retries_429_then_succeeds() {
             )
         }
     });
-    let provider = AnthropicProvider::new(&server.base_url(), retrying_client(), creds("anthropic"));
+    let provider =
+        AnthropicProvider::new(&server.base_url(), retrying_client(), creds("anthropic"));
     let answer = provider
         .complete(&ChatRequest::simple("claude-test", "s", "hi"))
         .unwrap();

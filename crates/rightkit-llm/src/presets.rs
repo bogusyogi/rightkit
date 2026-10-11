@@ -87,6 +87,14 @@ pub const PRESETS: &[Preset] = &[
         "https://generativelanguage.googleapis.com/v1beta/openai",
         true,
     ),
+    // NVIDIA NIM (hosted OpenAI-compatible API). Base URL taken from NVIDIA's public API
+    // documentation (vendor docs); this crate has not checked it against a live endpoint.
+    p(
+        "nvidia",
+        Wire::OpenAiCompat,
+        "https://integrate.api.nvidia.com/v1",
+        true,
+    ),
     p(
         "ollama",
         Wire::OpenAiCompat,

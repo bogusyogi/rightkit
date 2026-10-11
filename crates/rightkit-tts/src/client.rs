@@ -9,8 +9,8 @@ use crate::chunk::{self, Chunk};
 use crate::mode_location::{resolve_location, ModeLocation, VOCODER_FILE};
 use crate::models;
 use crate::protocol::{Mode, Reply, Request, REPLY_PREFIX};
-use crate::worker_args::WorkerArgs;
 use crate::wav;
+use crate::worker_args::WorkerArgs;
 use crate::SAMPLE_RATE_HZ;
 use rightkit_process::{OwnedChild, OwnedCommand};
 use std::io::{BufRead, BufReader, Write};
@@ -969,10 +969,9 @@ fn clone_from_wav_at(loc: &Locations, wav_path: &Path, out: &Path) -> Result<Pat
         .map_err(|e| QtsError::new("worker_died", e.to_string()))?;
         match wait_reply(w, Duration::from_secs(120))? {
             Reply::Done { .. } => Ok(()),
-            Reply::Error { message, .. } => Err(QtsError::new(
-                reply_error_code(&message, "clone"),
-                message,
-            )),
+            Reply::Error { message, .. } => {
+                Err(QtsError::new(reply_error_code(&message, "clone"), message))
+            }
             other => Err(QtsError::new(
                 "protocol",
                 format!("unexpected reply {other:?}"),

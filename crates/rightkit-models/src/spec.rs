@@ -5,7 +5,11 @@ use crate::hardware::{Measurement, Requirements};
 use crate::platform::Platform;
 use serde::{Deserialize, Serialize};
 
+/// A declarative model manifest. `#[non_exhaustive]` (0.3.0): build it with
+/// [`ModelSpec::new`] and the `with_*` setters, so new fields can be added without
+/// breaking downstream struct literals.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct ModelSpec {
     pub id: String,
     #[serde(default)]
@@ -103,6 +107,22 @@ impl RevisionSpec {
 }
 
 impl ModelSpec {
+    /// A spec with the required fields. `label` defaults to empty; set it with
+    /// [`ModelSpec::with_label`].
+    pub fn new(id: impl Into<String>, revisions: Vec<RevisionSpec>) -> Self {
+        Self {
+            id: id.into(),
+            label: String::new(),
+            revisions,
+        }
+    }
+
+    /// Set the human-readable label.
+    pub fn with_label(mut self, label: impl Into<String>) -> Self {
+        self.label = label.into();
+        self
+    }
+
     /// Pick a revision. `revision = None` means newest; `quant = None` means
     /// any quantization (newest match).
     pub fn select(&self, revision: Option<&str>, quant: Option<&str>) -> Option<&RevisionSpec> {

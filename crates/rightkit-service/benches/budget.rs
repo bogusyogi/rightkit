@@ -2,13 +2,14 @@
 //!
 //! Load: host an echo service on a temp suite root (current-user-only socket on macOS, named pipe on
 //! Windows), open 64 client connections, send 20,000 `echo` requests spread over them from 8
-//! threads, keep all 64 connections open, then idle for the idle window. The host's 25 ms
-//! takeover monitor runs the whole time; its cost is what the idle figures show.
+//! threads, keep all 64 connections open, then idle for the idle window. The host's takeover
+//! monitor (blocked on a one-second timed wait, one stat of `takeover.json` per wake) runs the
+//! whole time; its cost is what the idle figures show.
 //!
 //! Run: `rightkit cargo bench -p rightkit-service --bench budget`
 //! Optional: `-- <connections> <requests> <idle_seconds>` (defaults 64, 20000 and 30).
 
-use rightkit_process::{observe_idle, BudgetLabels, process_usage};
+use rightkit_process::{observe_idle, process_usage, BudgetLabels};
 use rightkit_service::*;
 use serde_json::{json, Value};
 use std::sync::Arc;
@@ -84,7 +85,17 @@ fn main() {
     println!("RESULT open_connections={} connections", end.connections);
     print!(
         "{}",
-        idle.result_lines(&warm, &BudgetLabels { krate: "rightkit-service", version: env!("CARGO_PKG_VERSION"), scale_unit: "connections", scale: conns as u64, what: "open connections after echo requests, then idle", scope: "synthetic" })
+        idle.result_lines(
+            &warm,
+            &BudgetLabels {
+                krate: "rightkit-service",
+                version: env!("CARGO_PKG_VERSION"),
+                scale_unit: "connections",
+                scale: conns as u64,
+                what: "open connections after echo requests, then idle",
+                scope: "synthetic"
+            }
+        )
     );
     drop(clients);
     drop(hosted);

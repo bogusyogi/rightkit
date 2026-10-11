@@ -4,6 +4,8 @@
 //! The binary lives in the workspace `vendor/ffmpeg-lgpl/`; when it is absent for this host
 //! the test reports SKIP on stderr rather than silently passing.
 
+mod common;
+
 use std::{
     path::{Path, PathBuf},
     process::Command,
@@ -29,18 +31,19 @@ fn export_ffmpeg() -> Option<VerifiedFfmpeg> {
     }
     let arch = std::env::consts::ARCH;
     let file = if arch == "aarch64" { "arm64" } else { arch };
-    let path = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../../../../vendor/ffmpeg-lgpl")
-        .join(format!("ffmpeg-export-ass-macos-{file}"));
+    let path = common::vendor_dir().join(format!("ffmpeg-export-ass-macos-{file}"));
     if !path.is_file() {
-        eprintln!("SKIP: {} not present", path.display());
+        common::skip_missing("export-ass FFmpeg", &path.display().to_string());
         return None;
     }
     let catalog = ArtifactCatalog::embedded().unwrap();
     let artifact = match catalog.approved_for(Tool::Ffmpeg, EXPORT_ASS_VARIANT, "macos", arch) {
         Ok(artifact) => artifact,
         Err(error) => {
-            eprintln!("SKIP: no approved export-ass artifact for macos/{arch}: {error}");
+            common::skip_missing(
+                &format!("approved export-ass artifact for macos/{arch}"),
+                &error.to_string(),
+            );
             return None;
         }
     };

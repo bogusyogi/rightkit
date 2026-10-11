@@ -2,6 +2,8 @@
 //! outputs live outside the repository; each test skips (loudly) when its input is absent.
 //! Only ad-hoc signing is used (`codesign --sign -`): no signing identity, no notarisation.
 
+mod common;
+
 use std::path::{Path, PathBuf};
 
 use rightkit_media::{
@@ -16,7 +18,10 @@ fn retained(relative: &str) -> Option<PathBuf> {
     if path.is_file() {
         Some(path)
     } else {
-        eprintln!("SKIPPED: {} is not retained on this host", path.display());
+        common::skip_missing(
+            &format!("retained build output {relative}"),
+            &path.display().to_string(),
+        );
         None
     }
 }
@@ -187,9 +192,12 @@ fn embedded_rows_match_the_retained_bytes_they_were_taken_from() {
         ("ffprobe-7.1.5-macos-arm64", "ffprobe-decode-macos-arm64"),
         ("ffprobe-7.1.5-macos-x86_64", "ffprobe-decode-macos-x86_64"),
     ] {
-        let path = Path::new("/Volumes/D/claude/vendor/ffmpeg-lgpl").join(relative);
+        let path = common::vendor_dir().join(relative);
         if !path.is_file() {
-            eprintln!("SKIPPED: {}", path.display());
+            common::skip_missing(
+                &format!("vendor artifact {relative}"),
+                &path.display().to_string(),
+            );
             continue;
         }
         let row = catalog.by_id(id).unwrap();

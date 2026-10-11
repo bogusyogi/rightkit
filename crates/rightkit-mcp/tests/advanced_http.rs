@@ -1,4 +1,5 @@
 #![cfg(feature = "advanced-http")]
+use rightkit_http::AddressPolicy;
 use rightkit_mcp::*;
 use serde_json::{json, Value};
 use std::collections::{BTreeMap, HashMap};
@@ -140,6 +141,13 @@ impl Drop for Fixture {
         }
     }
 }
+/// Fixtures listen on loopback, which the default public-web address policy refuses.
+fn loopback_extensions() -> ClientExtensions {
+    ClientExtensions {
+        address_policy: Some(AddressPolicy::default().allow_if(vec!["127.0.0.1".into()], |_| true)),
+        ..Default::default()
+    }
+}
 fn client(url: &str, extensions: ClientExtensions) -> McpClient {
     McpClient::connect_with_extensions(
         "fixture",
@@ -206,7 +214,7 @@ fn strict_responses_cover_plain_http_advanced_http_and_http_sse() {
                 "fixture",
                 spec,
                 ClientOptions::default(),
-                ClientExtensions::default(),
+                loopback_extensions(),
             )
             .unwrap()
         };
@@ -261,7 +269,7 @@ fn strict_responses_cover_persistent_legacy_sse() {
         &fixture.url,
         ClientExtensions {
             legacy_sse: true,
-            ..Default::default()
+            ..loopback_extensions()
         },
     );
     for invalid in [
@@ -322,7 +330,7 @@ fn insecure_origin_constructor_enables_cross_origin_legacy_posts() {
         ClientExtensions {
             legacy_sse: true,
             endpoint_origin_policy: EndpointOriginPolicy::allow_any_origin_insecure(),
-            ..Default::default()
+            ..loopback_extensions()
         },
     );
     client.ping().unwrap();
@@ -376,7 +384,7 @@ fn cold_http_cancel_covers_endpoint_discovery_initialize_and_initialized() {
                 ClientOptions::default().connect_timeout(Duration::from_secs(5)),
                 ClientExtensions {
                     legacy_sse: phase == "legacy-endpoint",
-                    ..Default::default()
+                    ..loopback_extensions()
                 },
                 &cancelled,
             )
@@ -422,13 +430,8 @@ fn http_connect_timeout_does_not_replace_request_timeout() {
             url: fixture.url.clone(),
         };
         let client = if advanced {
-            McpClient::connect_with_extensions(
-                "fixture",
-                spec,
-                options,
-                ClientExtensions::default(),
-            )
-            .unwrap()
+            McpClient::connect_with_extensions("fixture", spec, options, loopback_extensions())
+                .unwrap()
         } else {
             McpClient::connect("fixture", spec, options).unwrap()
         };
@@ -472,7 +475,7 @@ fn http_elicitation_context_exposes_numeric_id_and_call_cancellation() {
                 observed_tx.send(cancellation.is_cancelled()).unwrap();
                 Ok(json!({"action":"cancel"}))
             })),
-            ..Default::default()
+            ..loopback_extensions()
         },
     ));
     let token = CancellationToken::new();
@@ -507,7 +510,7 @@ fn per_call_session_and_case_insensitive_header_overrides_reach_wire_without_ado
             Some("do-not-adopt"),
         );
     });
-    let client = client(&fixture.url, ClientExtensions::default());
+    let client = client(&fixture.url, loopback_extensions());
     let options = CallOptions {
         session_id: Some("explicit".into()),
         headers: BTreeMap::from([("X-Call".into(), "custom".into())]),
@@ -564,7 +567,7 @@ fn cancel_slow_call(after_headers: bool) {
             panic!("unexpected request: {:?}", request.body);
         }
     });
-    let client = client(&fixture.url, ClientExtensions::default());
+    let client = client(&fixture.url, loopback_extensions());
     let token = CancellationToken::new();
     let options = CallOptions {
         session_id: Some("isolated".into()),
@@ -628,7 +631,7 @@ fn oversized_json_and_sse_frame_are_typed_errors() {
                 max_response_bytes: 512,
                 max_frame_bytes: 4096,
             },
-            ..Default::default()
+            ..loopback_extensions()
         },
     );
     assert!(matches!(
@@ -642,7 +645,7 @@ fn oversized_json_and_sse_frame_are_typed_errors() {
                 max_response_bytes: 4096,
                 max_frame_bytes: 256,
             },
-            ..Default::default()
+            ..loopback_extensions()
         },
     );
     assert!(matches!(
@@ -681,7 +684,7 @@ fn configured_client_and_server_negotiate_highest_common_version() {
                 "2025-06-18".into(),
                 "2026-01-01".into(),
             ]),
-            ..Default::default()
+            ..loopback_extensions()
         },
     );
     assert_eq!(client.protocol_version(), "2025-06-18");
@@ -712,7 +715,7 @@ fn configured_client_and_server_negotiate_highest_common_version() {
         ClientOptions::default(),
         ClientExtensions {
             protocol_versions: Some(vec!["2030-01-01".into()]),
-            ..Default::default()
+            ..loopback_extensions()
         },
     );
     assert!(matches!(result, Err(McpError::Rpc { code: -32602, .. })));
@@ -768,7 +771,7 @@ fn legacy_sse_discovers_endpoint_and_keeps_response_stream_across_calls() {
             &fixture.url.replace("/mcp", "/sse"),
             ClientExtensions {
                 legacy_sse: true,
-                ..Default::default()
+                ..loopback_extensions()
             },
         );
         for value in ["first", "second"] {
@@ -812,7 +815,7 @@ fn legacy_sse_rejects_cross_origin_announcement_before_any_post() {
         ClientOptions::default(),
         ClientExtensions {
             legacy_sse: true,
-            ..Default::default()
+            ..loopback_extensions()
         },
     );
     assert!(matches!(result, Err(McpError::CrossOriginEndpoint { .. })));
@@ -856,7 +859,7 @@ fn live_http_elicitation_is_bound_to_each_receiving_session() {
             accepted(&mut stream);
         }
     });
-    let client = Arc::new(client(&fixture.url, ClientExtensions::default()));
+    let client = Arc::new(client(&fixture.url, loopback_extensions()));
     for session in ["one", "two"] {
         client
             .set_elicitation_handler(

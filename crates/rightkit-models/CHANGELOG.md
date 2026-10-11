@@ -1,7 +1,15 @@
 # Changelog
 
-## 0.2.9
+## 0.3.0
 
+- **Breaking: `ModelSpec` is `#[non_exhaustive]`.** Struct literals of `rightkit_models::ModelSpec` outside
+  this crate no longer compile; build it with `ModelSpec::new(id, revisions)` and `with_label(...)`. New
+  fields can now be added without breaking callers. In-crate literals and tests were updated.
+- **Grant errors are typed (additive).** `suite::grant::try_acquire_grant_pinned` and
+  `try_acquire_grant_with_client` return `GrantError`: `RateLimited { retry_after, message }` for HTTP 429,
+  with `Retry-After` parsed as delay-seconds or an IMF-fixdate (`GrantError::retry_after()`), and `Failed`
+  for everything else. `parse_retry_after_header` is public. The `String`-returning grant functions are
+  unchanged in signature and message text.
 - Outbound requests are vetted. Model downloads and grant requests go through
   `rightkit-http` (new `http` module) instead of a direct ureq agent that followed
   ten redirects with no address checks. Destinations that resolve to loopback,

@@ -4,8 +4,8 @@ import { CdpClient, TimeoutError, validateTimeout, type CdpParams, type QaConnec
 import { QaKeyboard } from './keyboard.js';
 import { QaMouse } from './mouse.js';
 export { TimeoutError, type QaConnectOptions } from './cdp.js';
-export { QaKeyboard } from './keyboard.js';
-export { QaMouse, type MouseButton, type MouseButtonOptions, type MouseMoveOptions, type MousePosition, type MouseWheelOptions } from './mouse.js';
+export { QaKeyboard, type KeyTapOptions } from './keyboard.js';
+export { QaMouse, type MouseButton, type MouseButtonOptions, type MouseDragOptions, type MouseMoveOptions, type MousePosition, type MouseWheelOptions } from './mouse.js';
 
 export interface NavigationOptions { waitUntil?: 'load' | 'domcontentloaded' | 'networkidle0'; timeout?: number }
 export interface ViewportOptions { width: number; height: number; deviceScaleFactor?: number; mobile?: boolean }
@@ -32,7 +32,17 @@ export interface FailureArtifactOptions {
 }
 /** Called once per poll, before the predicate. A throw rejects the wait with that error. */
 export type PollHook = () => void | Promise<void>;
-export interface WaitOptions { timeout?: number; polling?: 'raf' | number; failureArtifacts?: FailureArtifactOptions; onPoll?: PollHook }
+export interface WaitOptions {
+  timeout?: number; polling?: 'raf' | number; failureArtifacts?: FailureArtifactOptions; onPoll?: PollHook;
+  /**
+   * Labelled wait (0.4.8). Names the wait in its timeout error, `Timed out waiting for <label>`, and sets the
+   * defaults: timeout 45 s and pollMs 250. The predicate's result is coerced with Boolean(), and an error
+   * containing "navigated or closed" is retried as not ready. Without a label none of this applies.
+   */
+  label?: string;
+  /** Poll interval in ms for a labelled wait. Default 250. Requires label; not combined with polling. */
+  pollMs?: number;
+}
 export interface SelectorWaitOptions { visible?: boolean; hidden?: boolean; timeout?: number; failureArtifacts?: FailureArtifactOptions; onPoll?: PollHook }
 /** How the target is brought into view before the pointer moves. Vertical alignment is always centre. */
 export interface ScrollOptions {
@@ -60,7 +70,15 @@ export interface FillOptions {
 export interface ConsoleEntry { type: string; text: string; url?: string; line?: number; timestamp: number }
 export interface UserAgentOptions { platform?: string; acceptLanguage?: string }
 export interface TypeOptions { delay?: number }
-export interface ScreenshotOptions { path?: string; type?: 'png'; captureBeyondViewport?: false; fullPage?: false }
+export interface ScreenshotOptions {
+  path?: string; type?: 'png'; captureBeyondViewport?: false; fullPage?: false;
+  /**
+   * Default false: resolves with the PNG Buffer, as before, and fromSurface stays forced to true. True (0.4.8):
+   * writes to `path` and resolves with that path. The capture then leaves fromSurface unset, so Chrome's default
+   * applies. Requires path.
+   */
+  returnPath?: boolean;
+}
 export interface BoundingBox { x: number; y: number; width: number; height: number }
 /** One page target listed by the browser. */
 export interface QaPageInfo { targetId: string; url: string; title: string }
@@ -74,9 +92,23 @@ export interface QaAttachOptions extends QaConnectOptions {
   /** Default false. A debugging port is full control of the app; allow a non-loopback host only for a machine you control. */
   allowRemoteHost?: boolean;
 }
+/** Options for connectPage: the connect options, plus the loopback opt-out. */
+export interface QaPageConnectOptions extends QaConnectOptions {
+  /** Default false: a page socket on a non-loopback host is refused, as with attach. */
+  allowRemoteHost?: boolean;
+}
+/** Options for evaluate of a string expression. `label` prefixes any error it throws: "<label>: <message>". */
+export interface EvaluateOptions { label?: string }
+/** Options for page.send: `sessionId` addresses a flattened child session of this page; `timeout` bounds the command. */
+export interface PageSendOptions { timeout?: number; sessionId?: string }
 type PageFunction<Args extends unknown[], Result> = (...args: Args) => Result;
 /** Newest console entries kept per page. */
 const CONSOLE_LIMIT = 200;
+/** Labelled waits: default timeout and poll interval. */
+const LABELLED_WAIT_TIMEOUT_MS = 45_000;
+const LABELLED_POLL_MS = 250;
+/** Errors a labelled wait retries as not ready, on top of the context errors every wait retries. */
+const NAVIGATED_AWAY = /navigated or closed|context was destroyed/i;
 /** Thrown by click({ checkOccluded: true }) when another element is on top of the target at the click point. */
 export class ElementOccludedError extends Error {
   readonly point: { x: number; y: number };
@@ -205,6 +237,22 @@ function functionSource(fn: Function): string {
   }
   return source;
 }
+/** The label of a string-expression evaluate, from its trailing `{ label }` argument; undefined when absent. */
+function expressionLabel(fn: unknown, args: unknown[]): string | undefined {
+  if (typeof fn !== 'string' || args.length !== 1) return undefined;
+  const options = args[0];
+  if (!options || typeof options !== 'object' || !('label' in options)) return undefined;
+  const { label } = options as EvaluateOptions;
+  if (label === undefined) return undefined;
+  if (typeof label !== 'string' || !label) throw new Error('evaluate label must be a non-empty string');
+  return label;
+}
+/** Source of a labelled wait's predicate: async, so a returned promise is awaited, and the result is a boolean. */
+function booleanSource(fn: Function | string): string {
+  return typeof fn === 'string'
+    ? `async function() { return Boolean(await (\n${fn}\n)); }`
+    : `async function(...args) { return Boolean(await (${functionSource(fn)})(...args)); }`;
+}
 function argument(value: unknown): CdpParams {
   if (value === undefined) return {};
   if (typeof value === 'number' && (!Number.isFinite(value) || Object.is(value, -0))) return { unserializableValue: Object.is(value, -0) ? '-0' : String(value) };
@@ -285,6 +333,29 @@ export class QaBrowserSession {
     if (socket.protocol !== 'ws:' && socket.protocol !== 'wss:') throw new Error('webSocketDebuggerUrl must be a ws or wss URL');
     assertDebugHost(socket.hostname, options.allowRemoteHost, 'browser socket host');
     return new QaBrowserSession(await CdpClient.connect(socketUrl, { timeout, debug: options.debug }));
+  }
+  /**
+   * Connects straight to one page's `webSocketDebuggerUrl` (ws://…/devtools/page/<id>), with no browser session.
+   * The page's commands run on the socket's root session. The returned QaPage owns the socket: close() closes the
+   * connection and sends no Target command, so the app's page stays open. Loopback only unless allowRemoteHost:
+   * a debugging port controls the whole app.
+   */
+  static async connectPage(wsUrl: string, options: QaPageConnectOptions = {}): Promise<QaPage> {
+    const timeout = validateTimeout(options.timeout ?? 30_000);
+    let socket: URL;
+    try { socket = new URL(wsUrl); } catch { throw new Error('page socket URL is not a valid URL'); }
+    if (socket.protocol !== 'ws:' && socket.protocol !== 'wss:') throw new Error('webSocketDebuggerUrl must be a ws or wss URL');
+    assertDebugHost(socket.hostname, options.allowRemoteHost, 'page socket host');
+    const client = await CdpClient.connect(wsUrl, { timeout, debug: options.debug });
+    const targetId = /\/devtools\/page\/([^/]+)$/.exec(socket.pathname)?.[1] ?? '';
+    const page = new QaPage(client, targetId, undefined, () => {}, false, true);
+    try {
+      await page.initialize();
+      return page;
+    } catch (error) {
+      await page.close().catch(() => {});
+      throw error;
+    }
   }
   /** Page targets (type "page") the browser lists now. Read only. */
   async pages(): Promise<QaPageInfo[]> {
@@ -421,8 +492,12 @@ export class QaPage {
   private userAgentBaseline?: string;
   private userAgentOverridden = false;
   private get objectGroup() { return `qa-elements-${this.generation}`; }
-  /** @internal Use QaBrowserSession.newPage() or attachPage(). `owned` pages are closed on close(); attached ones only detach. */
-  constructor(private client: CdpClient, readonly targetId: string, private sessionId: string, private onClosed: () => void, private owned = true) {
+  /**
+   * @internal Use QaBrowserSession.newPage(), attachPage() or connectPage(). `owned` pages are closed on close(); attached
+   * ones only detach. `ownsSocket` (connectPage) means the client is this page's own, and close() closes it. A page on
+   * its own socket has no session id: its commands are the root session's.
+   */
+  constructor(private client: CdpClient, readonly targetId: string, private sessionId: string | undefined, private onClosed: () => void, private owned = true, private ownsSocket = false) {
     this.keyboard = new QaKeyboard((method, params) => this.send(method, params));
     this.mouse = new QaMouse((method, params) => this.send(method, params));
     this.unsubs.push(
@@ -455,7 +530,7 @@ export class QaPage {
       this.on('Network.loadingFinished', ({ requestId }) => { this.requests.delete(requestId); this.lastNetworkActivity = Date.now(); }),
       this.on('Network.loadingFailed', ({ requestId }) => { this.requests.delete(requestId); this.lastNetworkActivity = Date.now(); }),
       client.on('Disconnected', ({ error }) => this.markClosed(error)),
-      client.on('Target.detachedFromTarget', ({ sessionId }) => { if (sessionId === this.sessionId) this.markClosed(); }),
+      client.on('Target.detachedFromTarget', ({ sessionId }) => { if (this.sessionId !== undefined && sessionId === this.sessionId) this.markClosed(); }),
       this.on('Inspector.detached', () => this.markClosed()),
     );
   }
@@ -484,10 +559,13 @@ export class QaPage {
    * with its raw result. Method names, params and results follow Chrome's protocol, not this package,
    * and may change with the browser version. Prefer the typed QaPage methods where they exist.
    */
-  send(method: string, params: CdpParams = {}, timeout?: number): Promise<CdpParams> {
+  send(method: string, params: CdpParams = {}, options?: number | PageSendOptions): Promise<CdpParams> {
     if (this.closed) return Promise.reject(this.closed);
     if (typeof method !== 'string' || !method) return Promise.reject(new Error('CDP method must be a non-empty string'));
-    return this.client.send(method, params, this.sessionId, timeout);
+    // A number is the timeout, as before 0.4.8. An object adds sessionId, to address a flattened child session of this page.
+    const opts: PageSendOptions = typeof options === 'number' ? { timeout: options } : (options ?? {});
+    if (opts.sessionId !== undefined && (typeof opts.sessionId !== 'string' || !opts.sessionId)) return Promise.reject(new Error('sessionId must be a non-empty string'));
+    return this.client.send(method, params, opts.sessionId ?? this.sessionId, opts.timeout);
   }
   /**
    * Emulation.setFocusEmulationEnabled: the page behaves as focused while its window is not
@@ -518,6 +596,13 @@ export class QaPage {
   /** Owned pages (newPage) close their target. Attached pages (attachPage) only detach; the app's page stays open. */
   close(): Promise<void> {
     if (this.closing) return this.closing;
+    if (this.ownsSocket) {
+      // connectPage: the socket is this page's own, so closing it is the whole close, even after a detach.
+      this.markClosed();
+      this.client.close();
+      this.closing = Promise.resolve();
+      return this.closing;
+    }
     if (this.closed) return Promise.resolve();
     this.closing = (async () => {
       if (this.owned) {
@@ -531,7 +616,7 @@ export class QaPage {
     })();
     return this.closing;
   }
-  private bounded<T>(label: string, timeout: number, work: (remaining: () => number, stopped: () => boolean) => Promise<T>): Promise<T> {
+  private bounded<T>(label: string, timeout: number, work: (remaining: () => number, stopped: () => boolean) => Promise<T>, timeoutMessage = `${label} timed out after ${timeout}ms`): Promise<T> {
     if (this.closed) return Promise.reject(this.closed);
     validateTimeout(timeout);
     const deadline = Date.now() + timeout;
@@ -544,7 +629,7 @@ export class QaPage {
       };
       const onClose = (error: Error) => finish(error);
       this.closedListeners.add(onClose);
-      const timer = setTimeout(() => finish(new TimeoutError(`${label} timed out after ${timeout}ms`)), timeout);
+      const timer = setTimeout(() => finish(new TimeoutError(timeoutMessage)), timeout);
       work(() => Math.max(1, deadline - Date.now()), () => stopped).then((value) => finish(undefined, value), (error) => finish(error));
     });
   }
@@ -624,8 +709,18 @@ export class QaPage {
       resultValue(result); return result;
     }
   }
+  /**
+   * Runs a function or an expression in the main frame and returns its value. For a string expression, a trailing
+   * `{ label }` (EvaluateOptions) prefixes any error it throws as "<label>: <message>".
+   */
   async evaluate<Args extends unknown[], Result>(fn: PageFunction<Args, Result> | string, ...args: Args): Promise<Awaited<Result>> {
-    return resultValue(await this.run(fn, args, true));
+    const label = expressionLabel(fn, args);
+    try {
+      return resultValue(await this.run(fn, args, true));
+    } catch (error) {
+      if (label !== undefined && error instanceof Error) error.message = `${label}: ${error.message}`;
+      throw error;
+    }
   }
   /** @internal */
   async callElement<Args extends unknown[], Result>(handle: QaElement, fn: (element: HTMLElement, ...args: Args) => Result, args: Args): Promise<Awaited<Result>> {
@@ -675,11 +770,15 @@ export class QaPage {
     resultValue(result); return result;
   }
   async waitForFunction<Args extends unknown[]>(fn: PageFunction<Args, unknown> | string, options: WaitOptions = {}, ...args: Args): Promise<void> {
-    const polling = options.polling ?? 'raf';
+    const labelled = options.label !== undefined;
+    if (labelled && (typeof options.label !== 'string' || !options.label)) throw new Error('waitForFunction label must be a non-empty string');
+    if (!labelled && options.pollMs !== undefined) throw new Error('waitForFunction pollMs requires label');
+    if (labelled && options.polling !== undefined) throw new Error('waitForFunction takes polling or pollMs with label, not both');
+    const polling = labelled ? (options.pollMs ?? LABELLED_POLL_MS) : (options.polling ?? 'raf');
     if (typeof polling === 'number' && (!(polling > 0) || !Number.isFinite(polling))) throw new Error('Polling interval must be positive');
-    const source = typeof fn === 'string' ? `function() { return (${fn}); }` : functionSource(fn);
+    const source = labelled ? booleanSource(fn) : typeof fn === 'string' ? `function() { return (${fn}); }` : functionSource(fn);
     const artifacts = failureTarget(options.failureArtifacts);
-    const timeout = options.timeout ?? this.client.timeout;
+    const timeout = options.timeout ?? (labelled ? LABELLED_WAIT_TIMEOUT_MS : this.client.timeout);
     const pollState = { failed: false, error: undefined as unknown };
     const poll = pollHook(options.onPoll, pollState);
     try {
@@ -694,11 +793,12 @@ export class QaPage {
             } else await sleep(Math.min(polling, remaining()));
           } catch (error) {
             if (error instanceof TimeoutError) { await sleep(remaining()); continue; }
-            if (!/context.*(destroyed|not found)|Cannot find context/i.test(String(error))) throw error;
+            const message = String(error);
+            if (!/context.*(destroyed|not found)|Cannot find context/i.test(message) && !(labelled && NAVIGATED_AWAY.test(message))) throw error;
             await sleep(Math.min(10, remaining()));
           }
         }
-      });
+      }, labelled ? `Timed out waiting for ${options.label}` : undefined);
     } catch (error) {
       if (artifacts && (error instanceof TimeoutError || (pollState.failed && pollState.error === error))) {
         await this.attachFailureArtifacts(error, artifacts, source, timeout);
@@ -734,6 +834,21 @@ export class QaPage {
       }
       throw error;
     }
+  }
+  /**
+   * Resolves after `frames` animation frames of this page (default 2). Each frame also resolves after 100 ms, as the
+   * raf polling of waitForFunction does, so a background page cannot hang the call.
+   */
+  async waitForAnimationFrames(frames = 2): Promise<void> {
+    if (!Number.isInteger(frames) || frames < 1) throw new Error('frames must be a positive integer');
+    await this.evaluate(async (count: number) => {
+      for (let frame = 0; frame < count; frame++) {
+        await new Promise<void>((resolve) => {
+          const timer = setTimeout(resolve, 100);
+          requestAnimationFrame(() => { clearTimeout(timer); resolve(); });
+        });
+      }
+    }, frames);
   }
   private async requireElement(selector: string): Promise<QaElement> {
     const handle = await this.$(selector);
@@ -963,12 +1078,20 @@ export class QaPage {
       return selected;
     }, values);
   }
-  async screenshot(options: ScreenshotOptions = {}): Promise<Buffer> {
+  screenshot(options: ScreenshotOptions & { returnPath: true }): Promise<string>;
+  screenshot(options?: ScreenshotOptions): Promise<Buffer>;
+  async screenshot(options: ScreenshotOptions = {}): Promise<Buffer | string> {
     if (options.type && options.type !== 'png' || options.fullPage || options.captureBeyondViewport) throw new Error('Only viewport PNG screenshots are supported');
-    const { data } = await this.send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: false, fromSurface: true });
+    const target = options.path;
+    if (options.returnPath && (typeof target !== 'string' || !target)) throw new Error('screenshot returnPath requires a non-empty path');
+    // Default: fromSurface stays forced to true, as before. returnPath leaves it unset so Chrome's own default applies.
+    const params: CdpParams = options.returnPath
+      ? { format: 'png', captureBeyondViewport: false }
+      : { format: 'png', captureBeyondViewport: false, fromSurface: true };
+    const { data } = await this.send('Page.captureScreenshot', params);
     const buffer = Buffer.from(data, 'base64');
-    if (options.path) await writeFile(options.path, buffer);
-    return buffer;
+    if (target) await writeFile(target, buffer);
+    return options.returnPath && target ? target : buffer;
   }
 }
 

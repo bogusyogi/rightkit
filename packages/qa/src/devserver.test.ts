@@ -3,7 +3,9 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { DevServerError, startDevServer } from './devserver.js';
+import { createServer as createHttpServer } from 'node:http';
+import { TimeoutError } from './cdp.js';
+import { DevServerError, startDevServer, waitForHttp } from './devserver.js';
 import { freePort, isProcessAlive } from './process.js';
 
 /**
@@ -218,5 +220,49 @@ describe('startDevServer', () => {
     await expect(startDevServer({ command: process.execPath, readiness: { attemptTimeoutMs: 100, totalTimeoutMs: 100, intervalMs: 10 } })).rejects.toThrow('urls or check');
     await expect(startDevServer({ command: process.execPath, readiness: { urls: [], attemptTimeoutMs: 0, totalTimeoutMs: 100, intervalMs: 10 } })).rejects.toThrow('Timeout');
     await expect(startDevServer({ command: '', readiness: readiness() })).rejects.toThrow('command');
+  });
+});
+
+describe('waitForHttp (0.4.8)', () => {
+  /** A local HTTP server that answers 503 to its first `failures` requests, then 200. */
+  async function flakyServer(failures: number) {
+    let seen = 0;
+    const server = createHttpServer((_request, response) => {
+      seen++;
+      response.writeHead(seen <= failures ? 503 : 200);
+      response.end('');
+    });
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+    const { port } = server.address() as { port: number };
+    return {
+      url: `http://127.0.0.1:${port}/ready`,
+      requests: () => seen,
+      // Drop keep-alive sockets from fetch first, or close() waits for them to time out.
+      close: () => new Promise<void>((resolve) => { server.closeAllConnections(); server.close(() => resolve()); }),
+    };
+  }
+
+  it('polls past non-2xx answers until the URL answers 2xx, then resolves', async () => {
+    const server = await flakyServer(2);
+    try {
+      await waitForHttp(server.url, { timeoutMs: 5_000, intervalMs: 20 });
+      expect(server.requests()).toBe(3);
+    } finally {
+      await server.close();
+    }
+  });
+
+  it('throws a TimeoutError with exactly "Timed out waiting for <url>" once the budget passes', async () => {
+    const port = await freePort();
+    const url = `http://127.0.0.1:${port}/never`;
+    const error = await waitForHttp(url, { timeoutMs: 1_200, intervalMs: 50 }).catch((caught) => caught);
+    expect(error).toBeInstanceOf(TimeoutError);
+    expect(error.message).toBe(`Timed out waiting for ${url}`);
+  }, 10_000);
+
+  it('refuses a non-http URL and a non-positive interval before any request', async () => {
+    await expect(waitForHttp('ftp://127.0.0.1/x')).rejects.toThrow('http or https URL');
+    await expect(waitForHttp('not a url')).rejects.toThrow('http or https URL');
+    await expect(waitForHttp('http://127.0.0.1:1/', { intervalMs: 0 })).rejects.toThrow('intervalMs must be a positive number');
   });
 });

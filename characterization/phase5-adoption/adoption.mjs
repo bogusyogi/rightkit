@@ -65,7 +65,8 @@ async function crateStates() {
   return states;
 }
 
-async function inspectMedia() {
+// Reads only rightkit's own media contract and the vendored artifacts; it needs no consumer checkout.
+export async function inspectMedia() {
   const contract = JSON.parse(
     await readFile(path.join(WORKSPACE, "rightkit/characterization/media/contract.json"), "utf8"),
   );

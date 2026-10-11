@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+Durability claims corrected for the rightkit-fs change that stopped passing `REPLACEFILE_WRITE_THROUGH` on Windows. Nothing here was compiled or run locally; verification is the CI run.
+
+- **Behaviour: Windows `ReplaceMode::ReplaceFile` over an existing file** calls `ReplaceFileW` with flag word 0 (it was `REPLACEFILE_WRITE_THROUGH`). That swap is not flushed; `MoveWriteThrough` is the write-through mode, and `ReplaceFile`'s first creation still is.
+- **New: `Error::Replaced { path, source }`.** Returned when the settings file was replaced and a later step failed (Unix and macOS directory flush). It was an `Error::Io` wrapping an opaque error; it now says the new file is in place, so callers do not retry the write. **Breaking for exhaustive matches on `Error`**, and `atomic_write` (public) now reports it as an `io::Error` whose message says so. Published 0.2.0 is affected: a version bump is needed on release.
+- **New: `StoreOptions::achieved_durability(destination_exists) -> PublicationDurability`** (re-exported from rightkit-fs). States what a write with the options gets on this platform: `None`, `FileFlushedOnly`, `DirectoryFlushed`, or `WriteThroughMove`.
+- `tests/writer.rs`: the Windows replace-call table expects `(ReplaceFile, 0)` over an existing file; new tests for `achieved_durability` and for `Error::Replaced` (Unix, injected directory-sync failure).
+- Docs (README, rustdoc on `ReplaceMode`, `durable`, `atomic_write`): the durability statements now give the per-platform, per-mode answer.
+
 ## 0.2.0
 
 Existing callers keep today's behavior: `Store::open(root, schema)` still writes the namespaced envelope at `<root>/<namespace>/settings.json`. Changes:

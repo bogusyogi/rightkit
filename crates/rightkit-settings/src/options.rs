@@ -1,4 +1,5 @@
 use crate::store::{Error, Schema};
+use rightkit_fs::PublicationDurability;
 use serde_json::{Map, Value};
 use std::sync::Arc;
 use std::time::Duration;
@@ -77,13 +78,14 @@ pub type FlatMigration =
 /// is [`ReplaceMode::Rename`], what every earlier version did.
 ///
 /// What each gives, with `durable` left at its default `true` (the temp file is always flushed
-/// before the replace; with `durable(false)` nothing is flushed on any platform):
+/// before the replace; with `durable(false)` nothing is flushed on any platform). Ask
+/// [`StoreOptions::achieved_durability`] for the answer that applies to a given call:
 ///
 /// | mode | Unix / macOS | Windows |
 /// |---|---|---|
-/// | `Rename` | `rename(2)`; the directory is `fsync`ed after it, so name and content survive power loss | `std::fs::rename` (POSIX replace semantics: an open reader never blocks the writer). The rename is **not** write-through and there is no directory flush, so after a power loss the previous content may reappear (never a torn file) |
-/// | `ReplaceFile` | same as `Rename` | `ReplaceFileW` with `REPLACEFILE_WRITE_THROUGH` when the file exists, and `MoveFileExW` with `MOVEFILE_WRITE_THROUGH` for the first creation: on stable storage when the call returns. Not POSIX: a reader holding the file open without share-delete can make it fail with a sharing violation (see [`StoreOptions::retry_sharing_violation`]) |
-/// | `MoveWriteThrough` | same as `Rename` | `MoveFileExW` with `MOVEFILE_REPLACE_EXISTING \| MOVEFILE_WRITE_THROUGH`, existing or not. Same sharing caveat as `ReplaceFile` |
+/// | `Rename` | `rename(2)`, then the directory is flushed (`DirectoryFlushed`); a failed directory flush is [`crate::Error::Replaced`] | `std::fs::rename` (POSIX replace semantics: an open reader never blocks the writer). Not write-through and no directory flush (`FileFlushedOnly`): after a power loss the previous content may reappear (never a torn file) |
+/// | `ReplaceFile` | same as `Rename` | Over an existing file: `ReplaceFileW` with flag word 0. Windows documents `REPLACEFILE_WRITE_THROUGH` as unsupported, so the swap is **not** flushed (`FileFlushedOnly`). First creation: `MoveFileExW` with `MOVEFILE_WRITE_THROUGH` (`WriteThroughMove`). Not POSIX: a reader holding the file open without share-delete can make it fail with a sharing violation (see [`StoreOptions::retry_sharing_violation`]) |
+/// | `MoveWriteThrough` | same as `Rename` | `MoveFileExW` with `MOVEFILE_REPLACE_EXISTING \| MOVEFILE_WRITE_THROUGH`, existing or not (`WriteThroughMove`). Same sharing caveat as `ReplaceFile`. Use this mode where the replacement must be on stable storage; no power-loss test has been run |
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum ReplaceMode {
     #[default]
@@ -181,12 +183,28 @@ impl StoreOptions {
         self
     }
 
-    /// `true` (default): the temp file is flushed before the replace (and, on Unix, the directory
-    /// after it; with `ReplaceFile` / `MoveWriteThrough` on Windows the replace is write-through).
-    /// `false`: no flush on any platform; only for rebuildable data.
+    /// `true` (default): the temp file is flushed before the replace; on Unix and macOS the
+    /// directory is flushed after it. On Windows only `MoveWriteThrough` (and `ReplaceFile`'s first
+    /// creation) is write-through; `Rename` and `ReplaceFile` over an existing file are not, and
+    /// this flag cannot change that. `false`: no flush on any platform; only for rebuildable data.
+    /// [`StoreOptions::achieved_durability`] states the result for a given call.
     pub fn durable(mut self, yes: bool) -> Self {
         self.durable = yes;
         self
+    }
+
+    /// What a successful write with these options publishes with on this platform, given whether
+    /// the settings file already exists. Use it before relying on power-loss durability: on
+    /// Windows, `ReplaceMode::Rename` and `ReplaceMode::ReplaceFile` over an existing file return
+    /// [`PublicationDurability::FileFlushedOnly`], so the new content is flushed but the replace
+    /// itself is not. Answers the same as `rightkit_fs::publication_durability` for the write.
+    pub fn achieved_durability(&self, destination_exists: bool) -> PublicationDurability {
+        let mode = crate::atomic::WriteMode {
+            replace: self.replace,
+            durable: self.durable,
+            retry: self.sharing_retry,
+        };
+        rightkit_fs::publication_durability(&crate::atomic::fs_options(&mode), destination_exists)
     }
 
     /// Retry the replace up to `attempts` more times, pausing `delay` before each, when Windows

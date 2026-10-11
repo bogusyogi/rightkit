@@ -295,12 +295,17 @@ impl AdvancedHttp {
             .resolve_endpoint(url, url)?;
         // One attempt, no redirects, no phase deadlines other than connect: the
         // MCP layer owns retry (auth refresh), timeout and cancellation itself.
+        #[cfg(feature = "testing")]
+        let address_policy = extensions.address_policy.clone().unwrap_or_default();
+        #[cfg(not(feature = "testing"))]
+        let address_policy = rightkit_http::AddressPolicy::default();
         let client = AsyncClient::new(ClientConfig {
             user_agent: concat!("rightkit-mcp/", env!("CARGO_PKG_VERSION")).into(),
             connect_timeout: Some(options.connect_timeout.unwrap_or(options.request_timeout)),
             response_timeout: None,
             max_redirects: 0,
             retry: RetryPolicy::none(),
+            address_policy,
             ..ClientConfig::default()
         })
         .map_err(transport_error)?;

@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- A device-authenticated request writes `state.json` at most once: `authenticate` marks the replay nonce dirty instead of writing it, and the request's own change (the job patch and its idempotency record, for `job.update`) is written with it before the answer. A submission drops from two writes (two fsync pairs) to one. The file format, metrics and events are unchanged. A failed write still answers 500; on the upload routes the handler now runs before that write, so its in-memory effect can precede the 500.
+
 ## 0.1.3
 
 - New `Daemon::metrics()` returning `DaemonMetrics`: requests handled, `job.update` successes, `state.json` writes and their sizes, and device, job, idempotency, nonce and in-memory event counts. Counters only; request handling and persisted state are unchanged. `DaemonMetrics` is re-exported.

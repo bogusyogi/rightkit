@@ -1,4 +1,4 @@
-import { spawnSync } from 'node:child_process';
+import { spawnSync, type ChildProcess } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -8,6 +8,7 @@ import {
   ChromeForTestingNotFoundError,
   chromeForTestingCandidates,
   chromeProcessesForProfile,
+  closeChromeGracefully,
   codeSignCloneEntries,
   findChromeForTesting,
   launchChromeForTesting,
@@ -195,5 +196,228 @@ describe('settleProfileProcesses (bounded settle, injected lister and clock)', (
     const result = await settleProfileProcesses({ list: lister.list, boundMs: 0, now: clock.now, sleep: clock.sleep });
     expect(result.leftoverPids).toEqual([5]);
     expect(clock.now()).toBe(0);
+  });
+
+  it('a scan that never answers is reported unknown, not as an empty profile', async () => {
+    const clock = fakeClock();
+    const result = await settleProfileProcesses({ list: () => null, boundMs: 1_000, pollMs: 250, now: clock.now, sleep: clock.sleep });
+    expect(result).toMatchObject({ leftoverPids: [], unknown: true });
+    expect(clock.now()).toBe(1_000);
+  });
+
+  it('a scan that fails once and then answers is retried inside the bound and is not unknown', async () => {
+    const clock = fakeClock();
+    const result = await settleProfileProcesses({ list: sequence<number[] | null>(null, []), boundMs: 4_000, pollMs: 250, now: clock.now, sleep: clock.sleep });
+    expect(result).toEqual({ leftoverPids: [], observedExitingPids: [], scans: 2 });
+  });
+});
+
+/** A reply source: returns the scripted values in order, then repeats the last one. */
+function sequence<T>(...values: T[]): () => T {
+  let call = 0;
+  return () => values[Math.min(call++, values.length - 1)];
+}
+
+/** A stand-in for the launcher's ChildProcess: only the fields the close path reads. */
+function fakeLauncher(pid: number, exitCode: number | null = null): ChildProcess {
+  return { pid, exitCode, signalCode: null } as unknown as ChildProcess;
+}
+
+describe('closeChromeGracefully (injected launcher probe, profile scan and clock; no real process)', () => {
+  /** A real, empty temp profile. The close removes it, and each test checks that it did. */
+  const profile = () => mkdtempSync(path.join(scratch, 'profile-'));
+
+  it('the reported shape: launcher exited, probe still says alive, profile scan empty → exited at once, no wait', async () => {
+    const clock = fakeClock();
+    const signals: string[] = [];
+    const report = await closeChromeGracefully({
+      child: fakeLauncher(4242, 1),
+      profileDir: profile(),
+      seams: {
+        platform: 'win32',
+        launcherLiveness: () => 'alive',
+        signalTree: (_child, signal) => { signals.push(signal); },
+        killPid: () => {},
+        scanProfile: () => [],
+        now: clock.now,
+        sleep: clock.sleep,
+      },
+    });
+    expect(report).toMatchObject({ step: 'already-exited', exited: true, profileRemoved: true, leftoverPids: [], observedExitingPids: [] });
+    expect(report.livenessUnknown).toBeUndefined();
+    expect(signals).toEqual([]);
+    expect(report.durationMs).toBe(0);
+  });
+
+  it('a kill that uses up the whole bound, with the exit recorded on the next loop turn, reads as exited', async () => {
+    let t = 0;
+    let exitPending = false;
+    const child = fakeLauncher(4242);
+    const signals: string[] = [];
+    const report = await closeChromeGracefully({
+      child,
+      profileDir: profile(),
+      killTimeoutMs: 15_000,
+      seams: {
+        platform: 'win32',
+        launcherLiveness: () => 'alive',
+        // A blocking kill that outlasts the whole bound. Node records the exit only on the next loop turn,
+        // so the first read after the kill is stale; the close must take a fresh read before concluding.
+        signalTree: (_child, signal) => { signals.push(signal); t += 20_000; exitPending = true; },
+        killPid: () => {},
+        scanProfile: () => [],
+        now: () => t,
+        sleep: async (ms) => { if (exitPending) child.exitCode = 1; t += ms; },
+      },
+    });
+    expect(report).toMatchObject({ step: 'sigkill', exited: true, leftoverPids: [] });
+    expect(report.livenessUnknown).toBeUndefined();
+    expect(signals).toEqual(['SIGKILL']);
+    expect(report.durationMs).toBe(20_000);
+  });
+
+  it('a liveness probe that throws is unknown, never alive or gone: exited false, livenessUnknown set, no pid claimed', async () => {
+    const clock = fakeClock();
+    const report = await closeChromeGracefully({
+      child: fakeLauncher(4242),
+      profileDir: profile(),
+      graceMs: 5_000,
+      killTimeoutMs: 15_000,
+      seams: {
+        platform: 'linux',
+        launcherLiveness: () => { throw new Error('kill(-pid, 0) failed'); },
+        signalTree: () => {},
+        killPid: () => {},
+        scanProfile: () => [],
+        now: clock.now,
+        sleep: clock.sleep,
+      },
+    });
+    expect(report).toMatchObject({ exited: false, leftoverPids: [], livenessUnknown: true });
+    // The unknown answer is retried through the grace and the kill bound, then reported; nothing is waited beyond them.
+    expect(report.durationMs).toBe(20_000);
+  });
+
+  it('a liveness probe that gives unknown twice and then answers is retried inside the bound: exited', async () => {
+    const clock = fakeClock();
+    const signals: string[] = [];
+    const report = await closeChromeGracefully({
+      child: fakeLauncher(4242),
+      profileDir: profile(),
+      seams: {
+        platform: 'linux',
+        launcherLiveness: sequence<'alive' | 'gone' | 'unknown'>('unknown', 'unknown', 'gone'),
+        signalTree: (_child, signal) => { signals.push(signal); },
+        killPid: () => {},
+        scanProfile: () => [],
+        now: clock.now,
+        sleep: clock.sleep,
+      },
+    });
+    expect(report).toMatchObject({ step: 'sigterm', exited: true, leftoverPids: [] });
+    expect(report.livenessUnknown).toBeUndefined();
+    expect(signals).toEqual(['SIGTERM']);
+  });
+
+  it('a profile scan that fails once and then answers is retried inside the bound: exited, not unknown', async () => {
+    const clock = fakeClock();
+    const signals: string[] = [];
+    const report = await closeChromeGracefully({
+      child: fakeLauncher(4242, 0),
+      profileDir: profile(),
+      seams: {
+        platform: 'linux',
+        launcherLiveness: () => 'gone',
+        signalTree: (_child, signal) => { signals.push(signal); },
+        killPid: () => {},
+        scanProfile: sequence<number[] | null>(null, null, []),
+        now: clock.now,
+        sleep: clock.sleep,
+      },
+    });
+    expect(report).toMatchObject({ step: 'sigterm', exited: true, leftoverPids: [] });
+    expect(report.livenessUnknown).toBeUndefined();
+    expect(signals).toEqual(['SIGTERM']);
+  });
+
+  it('a profile scan that never answers is unknown, not clean: exited false, livenessUnknown set', async () => {
+    const clock = fakeClock();
+    const report = await closeChromeGracefully({
+      child: fakeLauncher(4242, 0),
+      profileDir: profile(),
+      seams: {
+        platform: 'linux',
+        launcherLiveness: () => 'gone',
+        signalTree: () => {},
+        killPid: () => {},
+        scanProfile: () => null,
+        now: clock.now,
+        sleep: clock.sleep,
+      },
+    });
+    expect(report).toMatchObject({ exited: false, leftoverPids: [], livenessUnknown: true });
+  });
+
+  it('a real leftover pid is still reported: exited false, the pid named, and forced on Windows', async () => {
+    const clock = fakeClock();
+    const signals: string[] = [];
+    const killed: number[] = [];
+    const report = await closeChromeGracefully({
+      child: fakeLauncher(4242, 1),
+      profileDir: profile(),
+      seams: {
+        platform: 'win32',
+        launcherLiveness: () => 'gone',
+        signalTree: (_child, signal) => { signals.push(signal); },
+        killPid: (pid) => { killed.push(pid); },
+        scanProfile: () => [4343],
+        now: clock.now,
+        sleep: clock.sleep,
+      },
+    });
+    expect(report).toMatchObject({ step: 'sigkill', exited: false, leftoverPids: [4343] });
+    expect(report.livenessUnknown).toBeUndefined();
+    expect(killed).toContain(4343);
+    expect(signals).toContain('SIGKILL');
+  });
+
+  it('on POSIX a real leftover pid is named and the process group is signalled, never the pid alone', async () => {
+    const clock = fakeClock();
+    const signals: string[] = [];
+    const killed: number[] = [];
+    const report = await closeChromeGracefully({
+      child: fakeLauncher(4242, 1),
+      profileDir: profile(),
+      seams: {
+        platform: 'linux',
+        launcherLiveness: () => 'gone',
+        signalTree: (_child, signal) => { signals.push(signal); },
+        killPid: (pid) => { killed.push(pid); },
+        scanProfile: () => [4343],
+        now: clock.now,
+        sleep: clock.sleep,
+      },
+    });
+    expect(report).toMatchObject({ exited: false, leftoverPids: [4343] });
+    expect(signals).toContain('SIGKILL');
+    expect(killed).toEqual([]);
+  });
+
+  it('a launcher never seen to exit while the profile scan lists nothing: exited false, livenessUnknown set, no pid claimed', async () => {
+    const clock = fakeClock();
+    const report = await closeChromeGracefully({
+      child: fakeLauncher(4242),
+      profileDir: profile(),
+      seams: {
+        platform: 'win32',
+        launcherLiveness: () => 'alive',
+        signalTree: () => {},
+        killPid: () => {},
+        scanProfile: () => [],
+        now: clock.now,
+        sleep: clock.sleep,
+      },
+    });
+    expect(report).toMatchObject({ exited: false, leftoverPids: [], livenessUnknown: true });
   });
 });

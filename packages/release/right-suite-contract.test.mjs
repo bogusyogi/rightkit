@@ -18,6 +18,7 @@ import {
 import { assertAsrAdapterPair } from "./asr-artifact-adoption.mjs";
 import { resolveConfiguredBuildInputs } from "./release-invocation.mjs";
 import { compareVersions } from "./rightkit-sync.mjs";
+import { rightKitVersionAllowed } from "./rightkit-version-policy.mjs";
 
 const workspace = path.resolve(
   process.env.RIGHT_SUITE_CONTRACT_WORKSPACE
@@ -27,6 +28,12 @@ const workspace = path.resolve(
 // a not-yet-renamed checkout may still have `rightapps`. Resolve whichever exists so the contract
 // passes on both. (The runtime service namespace stays `rightapps` — that is deliberately untouched.)
 const siteRepoDir = existsSync(path.join(workspace, "rightsites")) ? "rightsites" : "rightapps";
+// Product checkouts sit beside rightkit in the owner's workspace; a hosted CI checkout holds rightkit alone. Missing
+// checkouts skip their tests with the reason. RIGHTKIT_REQUIRE_ASSETS=1 runs them anyway, so the missing path fails them.
+const checkoutSkip = (paths, what) => {
+  const missing = paths.filter((file) => !existsSync(file)).map((file) => path.relative(workspace, file));
+  return missing.length === 0 || process.env.RIGHTKIT_REQUIRE_ASSETS === "1" ? false : `${what} not checked out beside rightkit (missing ${missing.join(", ")})`;
+};
 const versionsPath = path.join(path.dirname(fileURLToPath(import.meta.url)), "rightkit-versions.json");
 const versions = JSON.parse(readFileSync(versionsPath, "utf8"));
 const isolatedCargoHome = mkdtempSync(path.join(tmpdir(), "rightkit-cargo-home-"));
@@ -115,7 +122,8 @@ function resolveCargoVersionContract(versionManifest, canonicalVersions) {
   for (const [crate, version] of staged) {
     if (!canonicalVersions.has(crate)) throw new Error(`unknown staged Cargo crate: ${crate}`);
     const actual = canonicalVersions.get(crate);
-    if (actual !== version) {
+    // The tree may run ahead of staged between a bump and its publish; it may never be behind.
+    if (compareVersions(actual, version) < 0) {
       throw new Error(`${crate} canonical manifest is ${actual}, expected staged version ${version}`);
     }
     canonical.set(crate, version);
@@ -125,7 +133,7 @@ function resolveCargoVersionContract(versionManifest, canonicalVersions) {
     if (!canonicalVersions.has(crate)) throw new Error(`unknown published Cargo crate: ${crate}`);
     const expected = staged.get(crate) ?? version;
     const actual = canonicalVersions.get(crate);
-    if (actual !== expected) {
+    if (compareVersions(actual, expected) < 0) {
       const source = staged.has(crate) ? "staged" : "published";
       throw new Error(`${crate} canonical manifest is ${actual}, expected ${source} version ${expected}`);
     }
@@ -400,6 +408,16 @@ test("Cargo version contract rejects unknown staged crates", () => {
   );
 });
 
+test("Cargo version contract accepts a tree that is ahead of staged and published, and keeps consumers on the recorded version", () => {
+  const resolved = resolveCargoVersionContract(
+    { cargo: { "rightkit-license": "0.1.1", "rightkit-logs": "0.1.0" }, stagedCargo: { "rightkit-license": "0.1.2" } },
+    new Map([["rightkit-license", "0.1.3"], ["rightkit-logs", "0.2.0"]]),
+  );
+  assert.equal(resolved.canonical.get("rightkit-license"), "0.1.2");
+  assert.equal(resolved.canonical.get("rightkit-logs"), "0.1.0");
+  assert.equal(resolved.consumer.get("rightkit-license"), "0.1.1");
+});
+
 test("Cargo version contract rejects staged versions that mismatch canonical manifests", () => {
   assert.throws(
     () => resolveCargoVersionContract(
@@ -497,7 +515,9 @@ test("RightKit exposes one current version manifest", () => {
       "utf8",
     ));
     assert.equal(manifest.name, name);
-    assert.equal(manifest.version, version, `${name} package version must equal stagedNpm`);
+    // The tree runs ahead of staged between a version bump and its publish (recordPublished advances staged on
+    // publish); what must never happen is staged naming a version the tree does not have yet reached.
+    assert.ok(compareVersions(manifest.version, version) >= 0, `${name} package version ${manifest.version} must not be behind stagedNpm ${version}`);
   }
   assert.equal(versions.cargo["rightkit-license"], "0.1.2");
   assert.equal(versions.cargo["rightkit-logs"], "0.1.0");
@@ -581,7 +601,12 @@ test("Cargo metadata respects PATH precedence when unmanaged Cargo resolves firs
   });
 });
 
-test("license v2 public vector is identical at every portable consumer boundary", () => {
+test("license v2 public vector is identical at every portable consumer boundary", { skip: checkoutSkip([
+  path.join(workspace, "rightkit/crates/rightkit-license/test-vectors/license-v2.json"),
+  path.join(workspace, "rightkit/packages/license/test-vectors/license-v2.json"),
+  path.join(workspace, siteRepoDir, "packages/api/src/licensing/test-vectors/license-v2.json"),
+  path.join(workspace, "scraperight/tests/fixtures/license-v2.json"),
+], "license v2 consumer boundaries") }, () => {
   const canonical = readFileSync(
     path.join(workspace, "rightkit/crates/rightkit-license/test-vectors/license-v2.json"),
     "utf8",
@@ -600,7 +625,7 @@ test("license v2 public vector is identical at every portable consumer boundary"
 });
 
 for (const app of apps) {
-  test(`${app.key} follows the signed tiered Right Release contract`, async () => {
+  test(`${app.key} follows the signed tiered Right Release contract`, { skip: checkoutSkip([path.join(workspace, app.root, "package.json")], `${app.key} product checkout`) }, async () => {
     const root = path.join(workspace, app.root);
     const pkg = JSON.parse(readFileSync(path.join(root, "package.json"), "utf8"));
     const rightKitDeps = { ...pkg.dependencies, ...pkg.devDependencies };
@@ -611,9 +636,11 @@ for (const app of apps) {
           versions.npm[name],
           versions.stagedNpm?.[name],
           ...(versions.legacyNpm?.[name] ?? []),
+          versions.registry?.npm?.[name],
         ].filter(Boolean),
       );
-      if (allowed.size) assert.ok(allowed.has(specifier), `${app.key} ${name} must match a published rollout version`);
+      // Same rule as the doctor: a recorded version, or an exact version inside the recorded range.
+      if (allowed.size) assert.ok(rightKitVersionAllowed(allowed, specifier), `${app.key} ${name} must match a published rollout version (got ${specifier})`);
     }
     const releaseVersion = pkg.devDependencies?.["@rightkit/release"];
     const acceptedPackageManagers = releaseVersion === versions.stagedNpm?.["@rightkit/release"]
@@ -778,7 +805,10 @@ for (const app of macOnlyApps) {
   });
 }
 
-test("HeardRight and ScrapeRight expose one locked ASR promotion adapter contract", async () => {
+test("HeardRight and ScrapeRight expose one locked ASR promotion adapter contract", { skip: checkoutSkip([
+  path.join(workspace, "heardright/tauri-app-next/right-release.config.mjs"),
+  path.join(workspace, "scraperight/right-release.config.mjs"),
+], "HeardRight and ScrapeRight checkouts") }, async () => {
   const heard = (await import(`${pathToFileURL(path.join(workspace, "heardright/tauri-app-next/right-release.config.mjs"))}?asr=${Date.now()}`)).default;
   const scrape = (await import(`${pathToFileURL(path.join(workspace, "scraperight/right-release.config.mjs"))}?asr=${Date.now()}`)).default;
   assert.equal(assertAsrAdapterPair(heard.runtimeArtifacts?.asr, scrape.runtimeArtifacts?.asr), true);
@@ -1003,15 +1033,43 @@ test("product scripts never override or destroy RightKit-owned Cargo cache state
   }
 });
 
-test("Right Suite has no hosted workflow files", () => {
+// rightkit hosts exactly two GitHub Actions workflows: the right-git managed verification gate (ci.yml), and the
+// reviewed, manual-dispatch Windows FFmpeg build (ffmpeg-windows.yml), named here as an exception and held to its safety
+// properties. Any other workflow file fails. No workflow may publish or read secrets. Product repositories host none.
+const RIGHTKIT_VERIFICATION_WORKFLOWS = ["ci.yml"];
+const RIGHTKIT_EXCEPTION_WORKFLOWS = ["ffmpeg-windows.yml"];
+const PUBLISHING_WORKFLOW = /secrets\.|right-release\s+(?:build|upload|publish)|gh\s+release|action-gh-release/;
+function assertManualBuildWorkflow(text, name) {
+  assert.match(text, /^on:\n  workflow_dispatch:/m, `${name} must be triggered by workflow_dispatch`);
+  assert.doesNotMatch(text, /^  (?:push|pull_request|pull_request_target|schedule|workflow_run|release):/m, `${name} must have no automatic trigger`);
+  assert.match(text, /^permissions:\n  contents: read\s*$/m, `${name} top-level permissions must be contents: read`);
+  assert.doesNotMatch(text, /secrets\./, `${name} must not reference secrets`);
+  assert.doesNotMatch(text, /pull_request_target/, `${name} must not use pull_request_target`);
+  const usesLines = text.split("\n").filter((line) => /^\s*(?:- )?uses:/.test(line));
+  assert.ok(usesLines.length > 0, `${name} must use at least one pinned action`);
+  for (const line of usesLines) assert.match(line, /@[0-9a-f]{40}(?:\s|$)/, `${name} action must be pinned to a 40-hex commit SHA: ${line.trim()}`);
+  const checkouts = usesLines.filter((line) => /actions\/checkout@/.test(line)).length;
+  assert.equal((text.match(/persist-credentials:\s*false/g) ?? []).length, checkouts, `${name} every checkout must set persist-credentials: false`);
+}
+test("Right Suite hosts no hosted workflow except rightkit's two reviewed workflows", () => {
   for (const root of ["viewright", "scraperight", "heardright", "mailright", "coderight", "genright", "voiceright", "rightkit"]) {
     const workflowDir = path.join(workspace, root, ".github", "workflows");
     const workflows = existsSync(workflowDir) ? readdirSync(workflowDir) : [];
-    assert.deepEqual(workflows, [], `${root} must not contain hosted workflow files`);
+    if (root !== "rightkit") {
+      assert.deepEqual(workflows, [], `${root} must not contain hosted workflow files`);
+      continue;
+    }
+    const allowed = [...RIGHTKIT_VERIFICATION_WORKFLOWS, ...RIGHTKIT_EXCEPTION_WORKFLOWS];
+    assert.deepEqual(workflows.filter((name) => !allowed.includes(name)), [], `rightkit may host only ${allowed.join(" and ")}; any other hosted workflow needs an explicit decision`);
+    for (const name of workflows) {
+      const text = readFileSync(path.join(workflowDir, name), "utf8").replace(/\r\n/g, "\n");
+      assert.doesNotMatch(text, PUBLISHING_WORKFLOW, `${name} must not publish or read secrets`);
+      if (RIGHTKIT_EXCEPTION_WORKFLOWS.includes(name)) assertManualBuildWorkflow(text, name);
+    }
   }
 });
 
-test("RightApps brand hosts expose app-keyed update manifest proxies", () => {
+test("RightApps brand hosts expose app-keyed update manifest proxies", { skip: checkoutSkip([path.join(workspace, siteRepoDir)], "RightApps/RightSites checkout") }, () => {
   for (const app of apps) {
     const siteRoot = path.join(workspace, siteRepoDir, app.key);
     for (const route of ["patches", "latest"]) {

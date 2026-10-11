@@ -9,6 +9,8 @@ type PlatformChild = crate::unix_child::UnixChild;
 #[cfg(windows)]
 type PlatformChild = crate::spawn_windows::WindowsChild;
 #[cfg(unix)]
+use crate::unix_child::LeaderState;
+#[cfg(unix)]
 use std::{thread, time::Instant};
 
 /// An independent exit reader. On Unix it shares the owner's cached reap state;
@@ -18,15 +20,17 @@ use std::{thread, time::Instant};
 /// Unix: `wait`, `try_wait` and `wait_timeout` reap the leader when it has exited. The first
 /// reap by any path, this reader or the owner, permanently ends process-group signalling for
 /// the `OwnedChild` and every clone: the group id may be recycled from then on, so nothing is
-/// sent to it again. A reader that exists to observe exit therefore also means the owner can
-/// no longer kill descendants that outlive the leader; terminate the tree through the owner
-/// before the leader is reaped if that matters.
+/// sent to it again. A reader that reaps therefore also means the owner can no longer kill
+/// descendants that outlive the leader.
+///
+/// [`wait_exited`](Self::wait_exited) is the monitor's call: it returns once the leader has
+/// exited **without reaping it**, so the owner can still terminate the group (the leader's
+/// zombie pins the group id) and then reap. A monitor thread that only needs to learn of the
+/// exit, to wake a run loop for instance, should use it, and leave the reap to the owner.
 #[derive(Debug)]
 pub struct ProcessHandle {
     #[cfg(unix)]
     child: Arc<Mutex<PlatformChild>>,
-    #[cfg(unix)]
-    pid: u32,
     #[cfg(windows)]
     handle: std::os::windows::io::OwnedHandle,
     creation_time: Option<SystemTime>,
@@ -52,7 +56,6 @@ impl ProcessHandle {
             let _ = spawned_at;
             Ok(Self {
                 child: Arc::clone(child),
-                pid: lock_child(child).id(),
                 creation_time,
             })
         }
@@ -82,8 +85,6 @@ impl ProcessHandle {
         Ok(Self {
             #[cfg(unix)]
             child: Arc::clone(&self.child),
-            #[cfg(unix)]
-            pid: self.pid,
             #[cfg(windows)]
             handle: self.handle.try_clone()?,
             creation_time: self.creation_time,
@@ -114,78 +115,113 @@ impl ProcessHandle {
         }
     }
 
+    /// Blocks until the leader exits and reaps it (Unix) or until the process exits (Windows).
+    ///
+    /// Unix: polls. Each look is a non-blocking reap attempt made under the lock that guards
+    /// the shared child state, then the lock is released and the thread sleeps. No wait system
+    /// call names the pid while the lock is released: a blocked `waitid(pid)` entered after
+    /// another reader reaped the leader and the kernel recycled the number would wait on an
+    /// unrelated child. The poll interval is 0.25 ms for the first 20 ms, 2 ms until 1 s, 10 ms
+    /// until 30 s and 50 ms after that.
     pub fn wait(&self) -> io::Result<ExitStatus> {
         #[cfg(unix)]
         {
-            #[cfg(any(
-                target_os = "linux",
-                target_os = "android",
-                target_os = "macos",
-                target_os = "ios",
-                target_os = "freebsd",
-                target_os = "openbsd",
-                target_os = "netbsd",
-                target_os = "dragonfly",
-                target_os = "solaris",
-                target_os = "illumos"
-            ))]
-            {
-                if let Some(status) = self.try_wait()? {
+            let started = Instant::now();
+            loop {
+                // The guard is gone at the end of this statement: it either reaps or reads the
+                // cached result.
+                let outcome = lock_child(&self.child).try_wait();
+                if let Some(status) = outcome? {
                     return Ok(status);
                 }
-                loop {
-                    let mut info = std::mem::MaybeUninit::<libc::siginfo_t>::uninit();
-                    // Block without reaping or holding the child lock; the try_wait
-                    // below is the reap, under the lock, and records it. This lets
-                    // concurrent timeouts & detached-drop stdio cleanup proceed.
-                    if unsafe {
-                        libc::waitid(
-                            libc::P_PID,
-                            self.pid as libc::id_t,
-                            info.as_mut_ptr(),
-                            libc::WEXITED | libc::WNOWAIT,
-                        )
-                    } == 0
-                    {
-                        return self.try_wait()?.ok_or_else(|| {
-                            io::Error::other("completed process wait had no exit status")
-                        });
-                    }
-                    let error = io::Error::last_os_error();
-                    if error.raw_os_error() == Some(libc::EINTR) {
-                        continue;
-                    }
-                    // Another reader may have reaped & cached status while waitid
-                    // was waking, causing ECHILD despite a valid cached result.
-                    if let Some(status) = self.try_wait()? {
-                        return Ok(status);
-                    }
-                    return Err(error);
+                #[cfg(test)]
+                {
+                    // The id is read first: the hook may block, and must not hold the lock.
+                    let pid = lock_child(&self.child).id();
+                    crate::unix_child::gate::pause(pid);
                 }
-            }
-            #[cfg(not(any(
-                target_os = "linux",
-                target_os = "android",
-                target_os = "macos",
-                target_os = "ios",
-                target_os = "freebsd",
-                target_os = "openbsd",
-                target_os = "netbsd",
-                target_os = "dragonfly",
-                target_os = "solaris",
-                target_os = "illumos"
-            )))]
-            {
-                // Other Unix hosts use std's blocking waitpid & shared cache. An independent
-                // reader must not close owner stdin; OwnedChild::wait closes it explicitly,
-                // matching std Child::wait.
-                lock_child(&self.child).wait_reaping()
+                thread::sleep(poll_interval(started.elapsed()));
             }
         }
         #[cfg(windows)]
         {
             self.windows_wait(u32::MAX)?
                 .ok_or_else(|| io::Error::other("infinite process wait unexpectedly timed out"))
+        }
+    }
+
+    /// Blocks until the leader has exited, and does not reap it.
+    ///
+    /// Unix: returns when the leader is a zombie (or was already reaped by someone). The zombie
+    /// still pins the pid and the process-group id, so the owner can keep signalling the group
+    /// (`OwnedChild::wait_or_kill`, `terminate_tree*`) and then reap. This is the call for an
+    /// exit monitor that must not end the owner's ability to kill descendants that outlive the
+    /// leader; `wait` and `try_wait` reap and do end it. Polls like [`wait`](Self::wait). Hosts
+    /// with no verified non-reaping probe (Unix other than Linux, Android, macOS and iOS) have
+    /// nothing to observe with, so there this reaps exactly like `wait`.
+    ///
+    /// Windows: returns once the process has exited; nothing there is reaped.
+    pub fn wait_exited(&self) -> io::Result<()> {
+        #[cfg(unix)]
+        {
+            if !crate::unix_child::CAN_OBSERVE_WITHOUT_REAPING {
+                return self.wait().map(|_| ());
+            }
+            self.observe_exit(None).map(|_| ())
+        }
+        #[cfg(windows)]
+        {
+            self.windows_wait(u32::MAX)?
+                .map(|_| ())
+                .ok_or_else(|| io::Error::other("infinite process wait unexpectedly timed out"))
+        }
+    }
+
+    /// [`wait_exited`](Self::wait_exited) with a limit: `true` once the leader has exited
+    /// (without reaping it on Linux, Android, macOS and iOS), `false` if `timeout` passed first.
+    /// For a caller that must enforce a deadline and still keep the group killable while it
+    /// drains the leader's pipes; it reaps afterwards with `wait`. Hosts with no non-reaping
+    /// probe behave like [`wait_timeout`](Self::wait_timeout).
+    pub fn wait_exited_timeout(&self, timeout: Duration) -> io::Result<bool> {
+        #[cfg(unix)]
+        {
+            if !crate::unix_child::CAN_OBSERVE_WITHOUT_REAPING {
+                return self.wait_timeout(timeout).map(|status| status.is_some());
+            }
+            self.observe_exit(Some(timeout))
+        }
+        #[cfg(windows)]
+        {
+            self.wait_timeout(timeout).map(|status| status.is_some())
+        }
+    }
+
+    /// Looks under the lock, releases it, sleeps, and looks again, until the leader is no
+    /// longer running or `limit` has passed. Never reaps.
+    #[cfg(unix)]
+    fn observe_exit(&self, limit: Option<Duration>) -> io::Result<bool> {
+        let started = Instant::now();
+        loop {
+            let state = lock_child(&self.child).leader_state();
+            match state? {
+                LeaderState::Running => {}
+                LeaderState::Exited | LeaderState::Reaped => return Ok(true),
+            }
+            #[cfg(test)]
+            {
+                // The id is read first: the hook may block, and must not hold the lock.
+                let pid = lock_child(&self.child).id();
+                crate::unix_child::gate::pause(pid);
+            }
+            let elapsed = started.elapsed();
+            let mut nap = poll_interval(elapsed);
+            if let Some(limit) = limit {
+                if elapsed >= limit {
+                    return Ok(false);
+                }
+                nap = nap.min(limit - elapsed);
+            }
+            thread::sleep(nap);
         }
     }
 
@@ -242,6 +278,22 @@ impl ProcessHandle {
             }
             _ => Err(io::Error::last_os_error()),
         }
+    }
+}
+
+/// How long a Unix waiter sleeps between looks: short while a child is young (most children
+/// that matter here live for milliseconds), longer for long-lived ones so an idle waiter costs
+/// almost nothing.
+#[cfg(unix)]
+fn poll_interval(elapsed: Duration) -> Duration {
+    if elapsed < Duration::from_millis(20) {
+        Duration::from_micros(250)
+    } else if elapsed < Duration::from_secs(1) {
+        Duration::from_millis(2)
+    } else if elapsed < Duration::from_secs(30) {
+        Duration::from_millis(10)
+    } else {
+        Duration::from_millis(50)
     }
 }
 

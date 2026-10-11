@@ -4,6 +4,8 @@
 //! kind mapping are exercised without an OS OCR backend. The native-only tests run only where
 //! a backend exists and skip elsewhere.
 
+mod common;
+
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
@@ -406,8 +408,9 @@ impl NativeHealthHook for Hook {
     }
 }
 
+/// A cached verdict answers without spawning, so this needs no OCR asset.
 #[test]
-fn health_hook_short_circuits_the_probe_and_records_definite_verdicts() {
+fn health_hook_short_circuits_the_probe_when_a_verdict_is_cached() {
     if rightkit_ocr::native_backend().is_none() {
         return;
     }
@@ -421,8 +424,15 @@ fn health_hook_short_circuits_the_probe_and_records_definite_verdicts() {
     assert_eq!(ocr.probe_native(), Ok(true));
     assert_eq!(cached.reads.load(Ordering::SeqCst), 1);
     assert!(cached.recorded.lock().unwrap().is_empty());
+}
 
-    // Without a cached verdict, the real canary runs once and its result is recorded.
+/// Without a cached verdict the real canary runs once and its result is recorded. This needs the
+/// native OCR canary to read text on this host.
+#[test]
+fn health_hook_records_a_fresh_canary_verdict() {
+    if rightkit_ocr::native_backend().is_none() || !common::native_ready_or_skip() {
+        return;
+    }
     let fresh = Hook::new(None);
     let ocr = Ocr::new(OcrOptions::new(BackendPreference::Native).with_isolation(
         rightkit_ocr::Isolation::Worker(WorkerCommand::new(

@@ -7,6 +7,7 @@ import { runCargoSync } from "./managed-cargo.mjs";
 import { readVerifiedArtifact, assertArtifactUnchanged } from "./publication-artifacts.mjs";
 import { verifyCargoRegistry } from "./cargo-registry-readback.mjs";
 import { recordPublished } from "./rightkit-sync.mjs";
+import { readCargoPackage } from "./crate-graph.mjs";
 import { runtimeBudgetCheck, RUNTIME_BUDGET_CODE } from "./runtime-budgets.mjs";
 import { formatPreflight, PREFLIGHT_FAIL } from "./preflight.mjs";
 
@@ -48,8 +49,8 @@ export function buildCargoPublishPlan({ crate, crateDir, dryRun, allowDirty = fa
   if (allowDirty) packageArgs.push("--allow-dirty");
   const plan = [
     { label: "secret scan", internal: "secret-scan", crateDir },
-    // Runtime-budget crates (runtime-budgets.mjs) must declare their budget in README.md. Dry-run
-    // reports the check; a real publish refuses it.
+    // Runtime-budget crates (runtime-budgets.mjs) must carry a measured runtime-budget.json for this
+    // version on every required host. Dry-run reports the check; a real publish refuses it.
     { label: "runtime budget", internal: "runtime-budget", crate, crateDir },
     { label: "format", command: "cargo", args: ["fmt", "-p", crate, "--check"] },
     { label: "tests", command: "cargo", args: ["test", "-p", crate, "--", "--test-threads=1"] },
@@ -96,7 +97,11 @@ export async function runCargoPublish(options, execute = (_command, args, settin
   const crateDir = path.join(options.workspaceRoot, "crates", options.crate);
   const manifest = path.join(crateDir, "Cargo.toml");
   if (!fs.existsSync(manifest)) throw new Error(`crate manifest not found: ${manifest}`);
-  const cargoVersion = fs.readFileSync(manifest, "utf8").match(/^version\s*=\s*"([^"]+)"/m)?.[1];
+  // Parsed, not pattern-matched: `version.workspace = true` resolves through the workspace root, and a
+  // manifest whose [package].name is not the requested crate is refused before anything else runs.
+  const pkg = readCargoPackage(crateDir);
+  if (pkg.name !== options.crate) throw new Error(`Cargo.toml [package].name ${JSON.stringify(pkg.name)} differs from --crate ${options.crate}`);
+  const cargoVersion = pkg.version ?? undefined;
   const gateOptions = {
     kind: "cargo", name: options.crate, version: cargoVersion, packagePath: crateDir,
     evidencePath: path.resolve(options.evidence ?? defaultEvidencePath(options.workspaceRoot, "cargo", options.crate)),
@@ -116,7 +121,7 @@ export async function runCargoPublish(options, execute = (_command, args, settin
       continue;
     }
     if (step.internal === "runtime-budget") {
-      const check = runtimeBudgetCheck({ crate: options.crate, crateDir });
+      const check = runtimeBudgetCheck({ crate: options.crate, crateDir, version: cargoVersion, evidence: gate.evidence ?? undefined });
       if (check) process.stdout.write(`${formatPreflight([check])}\n`);
       if (check?.status === PREFLIGHT_FAIL && !options.dryRun) {
         const error = new Error(`runtime budget refused: ${check.detail}. Fix: ${check.fix}`);

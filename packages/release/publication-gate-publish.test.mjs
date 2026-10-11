@@ -7,7 +7,7 @@ import test from 'node:test';
 import { checkPublicationGate, publishGatedTarball, prepareNpmPublication, verifyNpmRegistryBytes } from './publication-gate.mjs';
 
 const SHA = 'a'.repeat(40);
-const run = (host) => ({ host: { os: host, arch: 'arm64' }, commit: SHA, command: 'pnpm exec vitest run', passed: 12, failed: 0, operator: 'adrdsouza', timestamp: '2026-10-07T00:00:00Z' });
+const run = (host) => ({ host: { os: host, arch: 'arm64' }, commit: SHA, command: 'pnpm exec vitest run', features: ['default'], artifactSha256: 'b'.repeat(64), passed: 12, failed: 0, operator: 'adrdsouza', timestamp: '2026-10-07T00:00:00Z' });
 const gate = (kind, ev) => checkPublicationGate({
   kind, name: '@rightkit/x', version: '1.0.0', packagePath: '/p', evidencePath: '/e.json',
   git: (args) => (args[0] === 'rev-parse' ? SHA : ''),

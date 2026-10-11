@@ -20,3 +20,4 @@ allowBuilds:
 
 minimumReleaseAgeExclude:
   - '@rightkit/updates@0.2.2 || 0.2.3'
+  - '@rightkit/git@0.2.37'

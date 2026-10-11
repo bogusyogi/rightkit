@@ -59,6 +59,25 @@ Additive except where marked **Breaking**. Each item has a test in `tests/`.
 - **Watchdog.** A failed `rightkit-shell://stall` emit no longer ends the loop: it is counted
   (`WatchdogStatus::emit_failures`) and the watchdog keeps re-arming. `WatchdogConfig::emit_event = false`
   is a callback-only mode in which the poll thread is never given an `AppHandle`.
+- **Watchdog idle wake-ups (runtime budget).** The watchdog no longer polls. It used to wake every
+  `poll_interval` (250 ms) and sleep a fixed heartbeat period on a second thread, 9 to 13 wake-ups a
+  second measured on an idle event loop. Now the heartbeat thread sleeps one `heartbeat_interval` on a
+  condition variable and pings, and the watchdog thread sleeps until the last beat plus the threshold
+  (about every 4 to 5 s with the defaults), looks at the beat then, and sleeps to the next such moment:
+  about 1.2 wake-ups a second from the two threads. After a report the watchdog thread waits for the
+  next beat, which wakes it, or for the stop, which also does; a healthy watchdog is never woken by a
+  beat. Hang detection is not later: a stall is reported at the last beat plus the threshold (one
+  millisecond past it), and never more than `poll_interval` after that. `WatchdogConfig::poll_interval`
+  keeps its field, default and 10 ms floor, now meaning that lateness bound instead of a polling
+  period; `heartbeat_interval` gains the same 10 ms floor (zero used to spin). A beat newer than the
+  one a stall was reported against now re-arms the detector even if it has already gone stale
+  again (the 250 ms poll could miss that). The two threads stay separate: the heartbeat thread holds
+  the `AppHandle`, the watchdog thread still never does in callback-only mode. Public API unchanged
+  (`install`, `status`, `WatchdogConfig`, `StallDetector`, `should_fire`, `DEFAULT_POLL_INTERVAL`).
+  Tests in `src/watchdog.rs`: stop ends both threads out of hour-long waits, a beat wakes a stalled
+  watchdog and does not wake a healthy one, a silent beat is reported within the threshold plus the
+  poll period, a failed emit still re-arms, and at most three wake-ups in a quiet two seconds.
+  Not yet re-measured: the recorded budget evidence predates this change.
 - **Autostart migration carries `StartupApproved`.** On Windows the plugin's Task Manager flag is read; a
   disabled flag is copied to the shell's value name (the user stays off), and the legacy flag is removed
   with the legacy command. `autostart::migrate_plugin_entry_in(&RegistryKeys, ..)` runs it against

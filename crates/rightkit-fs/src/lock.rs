@@ -10,7 +10,9 @@
 //!
 //! - [`LockKind::Fcntl`] (the default) is a POSIX record lock (`fcntl` `F_SETLK`). It belongs
 //!   to the process, is not inherited across `fork`, and is dropped when the process closes
-//!   *any* descriptor for the file, so the crate keeps one descriptor per lock file per process.
+//!   *any* descriptor for the file, so the crate keeps one lock-holding descriptor per lock file
+//!   per process and identifies the file by `(dev, ino)`, not by path: a hard link or a case alias
+//!   of a held lock file is the same lock, not a second one.
 //! - [`LockKind::Flock`] is a `flock(2)` lock, the primitive `std::fs::File::try_lock` uses on
 //!   Unix. It belongs to the open file description, which a child forked before its `exec`
 //!   inherits. The crate unlocks explicitly on drop, so an inherited descriptor cannot keep a
@@ -171,8 +173,8 @@ impl LockOptions {
 /// the kind and takes `LockFileEx` for both.
 ///
 /// - `Fcntl`: POSIX record lock. Per process, not inherited across `fork`. Closing any
-///   descriptor for the file in this process releases it, so the crate shares one descriptor
-///   per lock file within a process.
+///   descriptor for the file in this process releases it, so the crate shares one lock-holding
+///   descriptor per lock file (by inode, however many names reach it) within a process.
 /// - `Flock`: `flock(2)`. Per open file description. A child forked before its `exec` inherits
 ///   the description, so an unlock must be explicit (the crate does this on drop). Two
 ///   descriptors in one process exclude each other, which `Fcntl` does not do.
@@ -423,29 +425,65 @@ impl Drop for FileLock {
 /// lock alive until it execs. Record locks belong to the process and are not inherited across
 /// `fork`.
 ///
-/// Closing any descriptor for a file releases every record lock this process holds on it.
-/// So a process keeps one descriptor per lock file: shared holders share it, and a registry
-/// under one mutex records what this process holds. Acquire and release both run under that
-/// mutex, and a descriptor closes only under it.
+/// Closing any descriptor for a file releases every record lock this process holds on it, and a
+/// process's own record locks never conflict with each other (a second `F_SETLK` from the same
+/// process replaces the first, so a shared request would silently downgrade an exclusive hold).
+/// So a registry under one mutex records what this process holds, keyed by the file's identity
+/// (`dev`, `ino`) and never by a spelling of its path: a hard link, a case alias on a
+/// case-insensitive volume and a symlinked directory all reach the same entry. Acquire and
+/// release both run under that mutex.
+///
+/// A descriptor that turns out to name an already-held file (an alias that the pre-open `lstat`
+/// did not catch, which needs the file to be replaced in between) is parked in the entry and
+/// closed only when the entry's last holder releases: closing it earlier, even when the
+/// acquisition is refused, would drop the lock the real holder still needs.
 #[cfg(unix)]
 mod posix {
     use super::{open_lock_file, Mode};
     use crate::error::{FsError, Result};
     use std::collections::BTreeMap;
-    use std::fs::File;
-    use std::path::{Path, PathBuf};
-    use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
+    use std::fs::{File, Metadata};
+    use std::os::unix::fs::MetadataExt;
+    use std::path::Path;
+    use std::sync::{Mutex, MutexGuard, OnceLock};
+
+    /// One lock file, named by the inode it is rather than by any path that reaches it.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+    struct FileId {
+        dev: u64,
+        ino: u64,
+    }
+
+    impl FileId {
+        fn of(meta: &Metadata) -> Self {
+            Self {
+                dev: meta.dev(),
+                ino: meta.ino(),
+            }
+        }
+    }
 
     struct Entry {
         mode: Mode,
         holders: usize,
-        file: Arc<File>,
+        /// Every descriptor this process holds open on the file. The first took the lock; the
+        /// rest are alias descriptors kept open so that closing them cannot release it.
+        files: Vec<File>,
     }
 
-    fn registry() -> MutexGuard<'static, BTreeMap<PathBuf, Entry>> {
-        static REGISTRY: OnceLock<Mutex<BTreeMap<PathBuf, Entry>>> = OnceLock::new();
+    #[derive(Default)]
+    struct Registry {
+        entries: BTreeMap<FileId, Entry>,
+        /// Identity a path's `lstat` reported -> identity of the held file, for the rare
+        /// filesystem whose `stat` and `fstat` disagree, so polling an alias parks one
+        /// descriptor, not one per poll.
+        aliases: BTreeMap<FileId, FileId>,
+    }
+
+    fn registry() -> MutexGuard<'static, Registry> {
+        static REGISTRY: OnceLock<Mutex<Registry>> = OnceLock::new();
         REGISTRY
-            .get_or_init(|| Mutex::new(BTreeMap::new()))
+            .get_or_init(|| Mutex::new(Registry::default()))
             .lock()
             .unwrap_or_else(|p| p.into_inner())
     }
@@ -453,57 +491,82 @@ mod posix {
     /// A record lock this process holds on one lock file. Released on drop.
     #[derive(Debug)]
     pub struct Handle {
-        key: PathBuf,
-        /// Taken on drop under the registry mutex, so the last descriptor closes before any
-        /// other acquire in this process can open the file again.
-        file: Option<Arc<File>>,
+        id: FileId,
+    }
+
+    /// Shared holders join a shared entry; anything else is busy. Decided here because this
+    /// process's own record locks never conflict with each other.
+    fn join(entry: &mut Entry, id: FileId, mode: Mode) -> Option<Handle> {
+        if entry.mode == Mode::Shared && mode == Mode::Shared {
+            entry.holders += 1;
+            Some(Handle { id })
+        } else {
+            None
+        }
     }
 
     /// Tries `mode` on the lock file at `path`. `Ok(None)` when busy, in this process or another.
     pub fn try_lock(path: &Path, mode: Mode) -> Result<Option<Handle>> {
-        let key = registry_key(path);
         let mut registry = registry();
-        if let Some(entry) = registry.get_mut(&key) {
-            // This process's own record locks never conflict with each other, so contention
-            // inside the process is decided here: shared holders join, anything else waits.
-            if entry.mode == Mode::Shared && mode == Mode::Shared {
-                entry.holders += 1;
-                return Ok(Some(Handle {
-                    key,
-                    file: Some(entry.file.clone()),
-                }));
+
+        // Identity first, without opening: an alias of a held file is answered with no new
+        // descriptor. `lstat`, so a symlink at the name is never taken for the file it points to
+        // (the open below refuses it).
+        let seen = std::fs::symlink_metadata(path)
+            .ok()
+            .map(|meta| FileId::of(&meta));
+        if let Some(seen) = seen {
+            let id = registry.aliases.get(&seen).copied().unwrap_or(seen);
+            if let Some(entry) = registry.entries.get_mut(&id) {
+                return Ok(join(entry, id, mode));
             }
-            return Ok(None);
         }
-        let file = Arc::new(open_lock_file(path)?);
+
+        let file = open_lock_file(path)?;
+        let id = FileId::of(&file.metadata().map_err(|e| FsError::io(path, e))?);
+        if let Some(entry) = registry.entries.get_mut(&id) {
+            // Held already, reached through a name the `lstat` did not recognise. This
+            // descriptor must outlive the acquisition whatever the answer: closing it would
+            // release the lock that `entry` holds.
+            entry.files.push(file);
+            let granted = join(entry, id, mode);
+            if let Some(seen) = seen.filter(|seen| *seen != id) {
+                registry.aliases.insert(seen, id);
+            }
+            return Ok(granted);
+        }
         if !set_lock(&file, mode, path)? {
-            // This process holds no record lock on the file (its own locks never make F_SETLK
-            // fail), so closing this descriptor releases nothing.
+            // No entry names this file, so this process holds no record lock on it (its own
+            // locks never make F_SETLK fail): closing this descriptor releases nothing.
             return Ok(None);
         }
-        registry.insert(
-            key.clone(),
+        registry.entries.insert(
+            id,
             Entry {
                 mode,
                 holders: 1,
-                file: file.clone(),
+                files: vec![file],
             },
         );
-        Ok(Some(Handle {
-            key,
-            file: Some(file),
-        }))
+        Ok(Some(Handle { id }))
     }
 
     /// `Ok(true)` when granted; `Ok(false)` when another process holds a conflicting lock.
     fn set_lock(file: &File, mode: Mode, path: &Path) -> Result<bool> {
-        let kind = match mode {
-            Mode::Exclusive => libc::F_WRLCK,
-            Mode::Shared => libc::F_RDLCK,
-        };
-        match set_record_lock(file, kind) {
+        match set_record_lock(file, lock_type(mode)) {
             Ok(granted) => Ok(granted),
             Err(error) => Err(FsError::io(path, error)),
+        }
+    }
+
+    /// `F_WRLCK` / `F_RDLCK` as the `c_short` that `flock.l_type` holds. libc declares the two
+    /// constants `c_short` on Apple targets and `c_int` on Linux, so the cast is a no-op on one
+    /// and required on the other.
+    #[allow(clippy::unnecessary_cast)]
+    pub(super) fn lock_type(mode: Mode) -> libc::c_short {
+        match mode {
+            Mode::Exclusive => libc::F_WRLCK as libc::c_short,
+            Mode::Shared => libc::F_RDLCK as libc::c_short,
         }
     }
 
@@ -512,7 +575,7 @@ mod posix {
     fn set_record_lock(file: &File, kind: libc::c_short) -> std::io::Result<bool> {
         use std::os::fd::AsRawFd;
         let request = libc::flock {
-            l_type: kind as _,
+            l_type: kind,
             l_whence: libc::SEEK_SET as _,
             l_start: 0,
             l_len: 0,
@@ -541,23 +604,10 @@ mod posix {
         }
     }
 
-    /// Canonical parent plus file name, so one file reached through two spellings of its
-    /// directory shares one registry entry.
-    fn registry_key(path: &Path) -> PathBuf {
-        let parent = path
-            .parent()
-            .filter(|p| !p.as_os_str().is_empty())
-            .unwrap_or(Path::new("."));
-        match (parent.canonicalize(), path.file_name()) {
-            (Ok(dir), Some(name)) => dir.join(name),
-            _ => path.to_path_buf(),
-        }
-    }
-
     impl Drop for Handle {
         fn drop(&mut self) {
             let mut registry = registry();
-            let last = match registry.get_mut(&self.key) {
+            let last = match registry.entries.get_mut(&self.id) {
                 Some(entry) => {
                     entry.holders -= 1;
                     entry.holders == 0
@@ -565,9 +615,12 @@ mod posix {
                 None => false,
             };
             if last {
-                registry.remove(&self.key);
+                registry.aliases.retain(|_, held| *held != self.id);
+                // Closing the descriptors releases the lock. They close here, under the
+                // mutex, so no acquire in this process can open the file before the lock is
+                // gone.
+                drop(registry.entries.remove(&self.id));
             }
-            drop(self.file.take());
         }
     }
 }
@@ -821,6 +874,23 @@ pub fn hostname() -> String {
         }
     }
     "unknown".into()
+}
+
+#[cfg(all(test, unix))]
+mod lock_type_tests {
+    use super::{posix::lock_type, Mode};
+
+    #[test]
+    fn record_lock_types_survive_the_c_short_cast_and_stay_distinct() {
+        // libc types the constants `c_short` (Apple) or `c_int` (Linux); `flock.l_type` is
+        // `c_short` on both, so the cast must not change either value.
+        assert_eq!(
+            i64::from(lock_type(Mode::Exclusive)),
+            i64::from(libc::F_WRLCK)
+        );
+        assert_eq!(i64::from(lock_type(Mode::Shared)), i64::from(libc::F_RDLCK));
+        assert_ne!(lock_type(Mode::Exclusive), lock_type(Mode::Shared));
+    }
 }
 
 #[cfg(all(test, feature = "json"))]

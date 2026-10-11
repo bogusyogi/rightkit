@@ -60,7 +60,8 @@ fn ok_anthropic() -> MockResponse {
 #[test]
 fn default_request_still_sends_max_tokens_1024() {
     let server = MockServer::start(|_, _| ok_openai());
-    let provider = OpenAiCompatProvider::new("openai", &server.base_url(), client(), creds("openai", "k"));
+    let provider =
+        OpenAiCompatProvider::new("openai", &server.base_url(), client(), creds("openai", "k"));
     provider
         .complete(&ChatRequest::simple("m", "s", "u"))
         .unwrap();
@@ -71,7 +72,8 @@ fn default_request_still_sends_max_tokens_1024() {
 #[test]
 fn openai_omits_max_tokens_field_when_requested() {
     let server = MockServer::start(|_, _| ok_openai());
-    let provider = OpenAiCompatProvider::new("openai", &server.base_url(), client(), creds("openai", "k"));
+    let provider =
+        OpenAiCompatProvider::new("openai", &server.base_url(), client(), creds("openai", "k"));
     let req = ChatRequest::simple("m", "s", "u").without_max_tokens();
     provider.complete(&req).unwrap();
     let body = server.requests()[0].body_json();
@@ -84,19 +86,27 @@ fn openai_omits_max_tokens_field_when_requested() {
 fn openai_omits_max_completion_tokens_field_when_requested() {
     use rightkit_llm::openai::MaxTokensField;
     let server = MockServer::start(|_, _| ok_openai());
-    let provider = OpenAiCompatProvider::new("openai", &server.base_url(), client(), creds("openai", "k"))
-        .with_max_tokens_field(MaxTokensField::MaxCompletionTokens);
+    let provider =
+        OpenAiCompatProvider::new("openai", &server.base_url(), client(), creds("openai", "k"))
+            .with_max_tokens_field(MaxTokensField::MaxCompletionTokens);
     provider
         .complete(&ChatRequest::simple("m", "s", "u").without_max_tokens())
         .unwrap();
     let body = server.requests()[0].body_json();
-    assert!(!body.as_object().unwrap().contains_key("max_completion_tokens"), "body: {body}");
+    assert!(
+        !body
+            .as_object()
+            .unwrap()
+            .contains_key("max_completion_tokens"),
+        "body: {body}"
+    );
 }
 
 #[test]
 fn with_max_tokens_restores_an_explicit_value_after_omission() {
     let server = MockServer::start(|_, _| ok_openai());
-    let provider = OpenAiCompatProvider::new("openai", &server.base_url(), client(), creds("openai", "k"));
+    let provider =
+        OpenAiCompatProvider::new("openai", &server.base_url(), client(), creds("openai", "k"));
     let req = ChatRequest::simple("m", "s", "u")
         .without_max_tokens()
         .with_max_tokens(77);
@@ -121,11 +131,14 @@ fn anthropic_keeps_sending_max_tokens_when_omitted() {
 #[test]
 fn temperature_is_settable_on_a_simple_request() {
     let server = MockServer::start(|_, _| ok_openai());
-    let provider = OpenAiCompatProvider::new("openai", &server.base_url(), client(), creds("openai", "k"));
+    let provider =
+        OpenAiCompatProvider::new("openai", &server.base_url(), client(), creds("openai", "k"));
     provider
         .complete(&ChatRequest::simple("m", "s", "u").with_temperature(0.3))
         .unwrap();
-    let t = server.requests()[0].body_json()["temperature"].as_f64().unwrap();
+    let t = server.requests()[0].body_json()["temperature"]
+        .as_f64()
+        .unwrap();
     assert!((t - 0.3).abs() < 1e-6, "temperature was {t}");
 }
 
@@ -133,8 +146,14 @@ fn temperature_is_settable_on_a_simple_request() {
 fn temperature_is_omitted_by_default() {
     let server = MockServer::start(|_, _| ok_anthropic());
     let provider = AnthropicProvider::new(&server.base_url(), client(), creds("anthropic", "k"));
-    provider.complete(&ChatRequest::simple("m", "s", "u")).unwrap();
-    assert!(!server.requests()[0].body_json().as_object().unwrap().contains_key("temperature"));
+    provider
+        .complete(&ChatRequest::simple("m", "s", "u"))
+        .unwrap();
+    assert!(!server.requests()[0]
+        .body_json()
+        .as_object()
+        .unwrap()
+        .contains_key("temperature"));
 }
 
 // ---- 3. per-call timeout -------------------------------------------------------------
@@ -142,7 +161,8 @@ fn temperature_is_omitted_by_default() {
 #[test]
 fn per_call_timeout_fails_a_slow_server_with_the_timeout_error() {
     let server = MockServer::start(|_, _| ok_openai().delay(Duration::from_millis(1500)));
-    let provider = OpenAiCompatProvider::new("local", &server.base_url(), client(), creds("local", "k"));
+    let provider =
+        OpenAiCompatProvider::new("local", &server.base_url(), client(), creds("local", "k"));
     let started = Instant::now();
     let err = provider
         .complete(&ChatRequest::simple("m", "s", "u").with_timeout(Duration::from_millis(200)))
@@ -151,13 +171,18 @@ fn per_call_timeout_fails_a_slow_server_with_the_timeout_error() {
         matches!(err, LlmError::Http(HttpError::Timeout { .. })),
         "got {err:?}"
     );
-    assert!(started.elapsed() < Duration::from_millis(1200), "took {:?}", started.elapsed());
+    assert!(
+        started.elapsed() < Duration::from_millis(1200),
+        "took {:?}",
+        started.elapsed()
+    );
 }
 
 #[test]
 fn per_call_timeout_lets_a_slow_server_succeed_within_budget() {
     let server = MockServer::start(|_, _| ok_openai().delay(Duration::from_millis(300)));
-    let provider = OpenAiCompatProvider::new("local", &server.base_url(), client(), creds("local", "k"));
+    let provider =
+        OpenAiCompatProvider::new("local", &server.base_url(), client(), creds("local", "k"));
     let answer = provider
         .complete(&ChatRequest::simple("m", "s", "u").with_timeout(Duration::from_secs(5)))
         .unwrap();
@@ -178,7 +203,10 @@ fn per_call_timeout_is_capped_by_client_response_timeout() {
     let err = provider
         .complete(&ChatRequest::simple("m", "s", "u").with_timeout(Duration::from_secs(10)))
         .unwrap_err();
-    assert!(matches!(err, LlmError::Http(HttpError::Timeout { .. })), "got {err:?}");
+    assert!(
+        matches!(err, LlmError::Http(HttpError::Timeout { .. })),
+        "got {err:?}"
+    );
 }
 
 #[test]
@@ -186,14 +214,18 @@ fn per_call_timeout_on_stream_bounds_the_stream_open() {
     let server = MockServer::start(|_, _| {
         MockResponse::sse(&["data: [DONE]\n\n"]).delay(Duration::from_millis(1500))
     });
-    let provider = OpenAiCompatProvider::new("local", &server.base_url(), client(), creds("local", "k"));
+    let provider =
+        OpenAiCompatProvider::new("local", &server.base_url(), client(), creds("local", "k"));
     let err = provider
         .stream(
             &ChatRequest::simple("m", "s", "u").with_timeout(Duration::from_millis(200)),
             &mut |_: StreamEvent| std::ops::ControlFlow::Continue(()),
         )
         .unwrap_err();
-    assert!(matches!(err, LlmError::Http(HttpError::Timeout { .. })), "got {err:?}");
+    assert!(
+        matches!(err, LlmError::Http(HttpError::Timeout { .. })),
+        "got {err:?}"
+    );
 }
 
 // ---- 4. typed HTTP status with bounded provider text --------------------------------
@@ -206,8 +238,11 @@ fn a_429_is_a_typed_status_error_carrying_the_provider_message() {
             &serde_json::json!({"error": {"type": "rate_limit_error", "message": "Rate limit reached for m"}}),
         )
     });
-    let provider = OpenAiCompatProvider::new("openai", &server.base_url(), client(), creds("openai", "k"));
-    let err = provider.complete(&ChatRequest::simple("m", "s", "u")).unwrap_err();
+    let provider =
+        OpenAiCompatProvider::new("openai", &server.base_url(), client(), creds("openai", "k"));
+    let err = provider
+        .complete(&ChatRequest::simple("m", "s", "u"))
+        .unwrap_err();
     match &err {
         LlmError::Status { status, message } => {
             assert_eq!(*status, 429);
@@ -225,7 +260,9 @@ fn a_status_error_message_is_bounded_and_falls_back_to_raw_body() {
     let long = "x".repeat(5000);
     let server = MockServer::start(move |_, _| MockResponse::text(502, &long));
     let provider = AnthropicProvider::new(&server.base_url(), client(), creds("anthropic", "k"));
-    let err = provider.complete(&ChatRequest::simple("m", "s", "u")).unwrap_err();
+    let err = provider
+        .complete(&ChatRequest::simple("m", "s", "u"))
+        .unwrap_err();
     match err {
         LlmError::Status { status, message } => {
             assert_eq!(status, 502);
@@ -239,14 +276,18 @@ fn a_status_error_message_is_bounded_and_falls_back_to_raw_body() {
 #[test]
 fn a_streamed_non_2xx_is_a_typed_status_error() {
     let server = MockServer::start(|_, _| MockResponse::text(429, "slow down"));
-    let provider = OpenAiCompatProvider::new("openai", &server.base_url(), client(), creds("openai", "k"));
+    let provider =
+        OpenAiCompatProvider::new("openai", &server.base_url(), client(), creds("openai", "k"));
     let err = provider
         .stream(
             &ChatRequest::simple("m", "s", "u"),
             &mut |_: StreamEvent| std::ops::ControlFlow::Continue(()),
         )
         .unwrap_err();
-    assert!(matches!(err, LlmError::Status { status: 429, .. }), "got {err:?}");
+    assert!(
+        matches!(err, LlmError::Status { status: 429, .. }),
+        "got {err:?}"
+    );
 }
 
 // ---- 5. credentials never appear in formatted output ---------------------------------
@@ -267,9 +308,15 @@ fn a_caller_credential_source_is_usable_and_its_key_is_redacted_from_errors() {
             &serde_json::json!({"error": {"message": format!("Incorrect API key provided: {SENTINEL}")}}),
         )
     });
-    let provider = OpenAiCompatProvider::new("openai", &server.base_url(), client(), Arc::new(AppStore));
-    let err = provider.complete(&ChatRequest::simple("m", "s", "u")).unwrap_err();
-    assert_eq!(server.requests()[0].header("authorization"), Some(format!("Bearer {SENTINEL}").as_str()));
+    let provider =
+        OpenAiCompatProvider::new("openai", &server.base_url(), client(), Arc::new(AppStore));
+    let err = provider
+        .complete(&ChatRequest::simple("m", "s", "u"))
+        .unwrap_err();
+    assert_eq!(
+        server.requests()[0].header("authorization"),
+        Some(format!("Bearer {SENTINEL}").as_str())
+    );
     assert!(!format!("{err}").contains(SENTINEL), "display: {err}");
     assert!(!format!("{err:?}").contains(SENTINEL), "debug: {err:?}");
 }
@@ -282,8 +329,11 @@ fn anthropic_key_is_redacted_when_the_provider_echoes_it() {
             &serde_json::json!({"type": "error", "error": {"type": "authentication_error", "message": format!("invalid x-api-key {SENTINEL}")}}),
         )
     });
-    let provider = AnthropicProvider::new(&server.base_url(), client(), creds("anthropic", SENTINEL));
-    let err = provider.complete(&ChatRequest::simple("m", "s", "u")).unwrap_err();
+    let provider =
+        AnthropicProvider::new(&server.base_url(), client(), creds("anthropic", SENTINEL));
+    let err = provider
+        .complete(&ChatRequest::simple("m", "s", "u"))
+        .unwrap_err();
     assert!(!format!("{err}").contains(SENTINEL), "display: {err}");
     assert!(!format!("{err:?}").contains(SENTINEL), "debug: {err:?}");
 }
@@ -294,7 +344,12 @@ fn stream_error_event_echoing_the_key_is_redacted() {
         "data: {{\"error\":{{\"type\":\"invalid_request_error\",\"message\":\"bad key {SENTINEL}\"}}}}\n\n"
     );
     let server = MockServer::start(move |_, _| MockResponse::sse(&[frame.as_str()]));
-    let provider = OpenAiCompatProvider::new("openai", &server.base_url(), client(), creds("openai", SENTINEL));
+    let provider = OpenAiCompatProvider::new(
+        "openai",
+        &server.base_url(),
+        client(),
+        creds("openai", SENTINEL),
+    );
     let err = provider
         .stream(
             &ChatRequest::simple("m", "s", "u"),
@@ -309,25 +364,57 @@ fn stream_error_event_echoing_the_key_is_redacted() {
 #[test]
 fn every_error_variant_and_provider_and_credential_debug_omit_the_sentinel() {
     let server = MockServer::start(|_, _| {
-        MockResponse::json(401, &serde_json::json!({"error": {"message": format!("bad {SENTINEL}")}}))
+        MockResponse::json(
+            401,
+            &serde_json::json!({"error": {"message": format!("bad {SENTINEL}")}}),
+        )
     });
-    let provider = OpenAiCompatProvider::new("openai", &server.base_url(), client(), creds("openai", SENTINEL));
-    let real = provider.complete(&ChatRequest::simple("m", "s", "u")).unwrap_err();
-    let anthropic = AnthropicProvider::new(&server.base_url(), client(), creds("anthropic", SENTINEL));
+    let provider = OpenAiCompatProvider::new(
+        "openai",
+        &server.base_url(),
+        client(),
+        creds("openai", SENTINEL),
+    );
+    let real = provider
+        .complete(&ChatRequest::simple("m", "s", "u"))
+        .unwrap_err();
+    let anthropic =
+        AnthropicProvider::new(&server.base_url(), client(), creds("anthropic", SENTINEL));
 
     let variants: Vec<LlmError> = vec![
         real,
-        LlmError::Status { status: 429, message: "slow".into() },
-        LlmError::Http(HttpError::Status { status: 500, body: "x".into(), retry_after: None, attempts: 1 }),
-        LlmError::Http(HttpError::Timeout { message: "t".into(), phase: rightkit_http::Phase::Headers }),
-        LlmError::Http(HttpError::Transport { message: "t".into(), connect_phase: true, phase: rightkit_http::Phase::Connect }),
+        LlmError::Status {
+            status: 429,
+            message: "slow".into(),
+        },
+        LlmError::Http(HttpError::Status {
+            status: 500,
+            body: "x".into(),
+            retry_after: None,
+            attempts: 1,
+        }),
+        LlmError::Http(HttpError::Timeout {
+            message: "t".into(),
+            phase: rightkit_http::Phase::Headers,
+        }),
+        LlmError::Http(HttpError::Transport {
+            message: "t".into(),
+            connect_phase: true,
+            phase: rightkit_http::Phase::Connect,
+        }),
         LlmError::Http(HttpError::Stream("s".into())),
         LlmError::MissingCredential("openai".into()),
         LlmError::Malformed("m".into()),
         LlmError::MidStream("m".into()),
-        LlmError::Provider { kind: "k".into(), message: "m".into() },
+        LlmError::Provider {
+            kind: "k".into(),
+            message: "m".into(),
+        },
         LlmError::Cancelled,
-        LlmError::AllRoutesFailed(vec![Attempt { route: "openai".into(), reason: "HTTP 429".into() }]),
+        LlmError::AllRoutesFailed(vec![Attempt {
+            route: "openai".into(),
+            reason: "HTTP 429".into(),
+        }]),
     ];
     for e in &variants {
         assert!(!format!("{e}").contains(SENTINEL), "display: {e}");

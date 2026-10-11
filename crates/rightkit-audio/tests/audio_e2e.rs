@@ -3,6 +3,8 @@
 
 #![cfg(feature = "capture")]
 
+mod common;
+
 use std::{
     path::{Path, PathBuf},
     time::Duration,
@@ -23,13 +25,17 @@ use rightkit_media::{
 
 const TIMEOUT: Duration = Duration::from_secs(120);
 
-fn ffmpeg() -> DevResolved {
-    let (bin, kind) = resolve_for_development().expect("FFmpeg must be available for audio E2E");
+/// The development FFmpeg, or `None` after a SKIP line (a panic under `RIGHTKIT_REQUIRE_ASSETS=1`).
+fn ffmpeg() -> Option<DevResolved> {
+    let Some((bin, kind)) = resolve_for_development() else {
+        common::skip_missing("FFmpeg for audio E2E", &common::ffmpeg_looked_at());
+        return None;
+    };
     eprintln!(
         "audio E2E FFmpeg: {kind:?} ({})",
         bin.ffmpeg_path().display()
     );
-    bin
+    Some(bin)
 }
 
 fn path(dir: &Path, name: &str) -> PathBuf {
@@ -61,7 +67,9 @@ fn source_wav(bin: &dyn FfmpegBinary, output: &Path, duration: u32, frequency: u
 
 #[test]
 fn filter_graph_render_is_measurable_and_wav_round_trips() {
-    let bin = ffmpeg();
+    let Some(bin) = ffmpeg() else {
+        return;
+    };
     let dir = tempfile::tempdir().unwrap();
     let source = path(dir.path(), "source.wav");
     let filtered = path(dir.path(), "filtered.wav");
@@ -104,7 +112,9 @@ fn filter_graph_render_is_measurable_and_wav_round_trips() {
 
 #[test]
 fn ducking_and_room_tone_render_have_content_changes() {
-    let bin = ffmpeg();
+    let Some(bin) = ffmpeg() else {
+        return;
+    };
     let dir = tempfile::tempdir().unwrap();
     let music = path(dir.path(), "music.wav");
     let dialogue = path(dir.path(), "dialogue.wav");
@@ -219,7 +229,10 @@ fn resampler_and_capture_gate_are_explicit() {
         let name = device.name.to_ascii_lowercase();
         name.contains("blackhole") || name.contains("loopback") || name.contains("soundflower")
     }) else {
-        eprintln!("capture gate: no BlackHole/Loopback/Soundflower input device present; no microphone opened");
+        common::skip_missing(
+            "BlackHole, Loopback or Soundflower loopback input device (no microphone is opened)",
+            "the cpal input device list",
+        );
         return;
     };
     let mut session = CaptureSession::start(SessionConfig {

@@ -9,26 +9,32 @@ pub struct ContentBrief {
     pub contract_version: String,
     pub brief_id: String,
     pub revision: u64,
-    #[serde(default)]
+    /// Absent on revision 1, which the schema forbids from carrying this key, so `None` is omitted
+    /// rather than written as `null`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub supersedes: Option<u64>,
-    #[serde(default)]
+    /// Platform rule revision the brief was validated against (contract 1.1.0).
+    /// Separate from `review.policy_revision`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rule_revision: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub created_at: Option<String>,
     pub brief_type: BriefType,
     pub channel: Channel,
     pub platforms: Vec<String>,
     pub deliverables: Vec<Deliverable>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub hook: Option<String>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub script: Option<String>,
     #[serde(default)]
     pub references: Vec<String>,
     #[serde(default)]
     pub facts: Vec<Fact>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub review: Option<Review>,
     pub stages: Vec<Stage>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub scenario: Option<Scenario>,
 }
 
@@ -67,6 +73,10 @@ pub enum StageId {
     Manifest,
     Upload,
     Publish,
+    Acquisition,
+    Transcription,
+    Labelling,
+    Playbook,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -94,8 +104,11 @@ pub struct Fact {
     pub fact_id: String,
     pub text: String,
     pub status: FactStatus,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub proof_id: Option<String>,
+    /// The fact that replaces this one. Required when `status` is `superseded` (contract 1.1.0).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub superseded_by: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -103,6 +116,8 @@ pub struct Fact {
 pub enum FactStatus {
     Unresolved,
     Proven,
+    Withdrawn,
+    Superseded,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -117,7 +132,7 @@ pub enum ReviewMode {
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub struct Review {
     pub mode: ReviewMode,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub policy_revision: Option<u64>,
 }
 
@@ -137,7 +152,7 @@ pub struct Scenario {
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub struct ScenarioApp {
     pub app_id: String,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub bundle_id: Option<String>,
 }
 
@@ -171,7 +186,7 @@ pub struct Step {
     pub label: String,
     pub action: Action,
     pub expect: Expect,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub say: Option<String>,
 }
 
@@ -194,9 +209,9 @@ pub enum ActionKind {
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub struct Action {
     pub kind: ActionKind,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub target_id: Option<String>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub params: Option<Value>,
 }
 
@@ -206,6 +221,6 @@ pub struct Action {
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub struct Expect {
     pub postcondition: String,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub timeout_ms: Option<u32>,
 }

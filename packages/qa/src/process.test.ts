@@ -1,7 +1,7 @@
 import { spawn } from 'node:child_process';
 import { createServer } from 'node:net';
 import { describe, expect, it } from 'vitest';
-import { freePort, isProcessAlive, killProcessTree, ownedProcessReceipt, runOwnedProcess, spawnOwnedProcess, stopOwnedProcess } from './process.js';
+import { freePort, freePortSync, isProcessAlive, killProcessTree, ownedProcessReceipt, runOwnedProcess, spawnOwnedProcess, stopOwnedProcess } from './process.js';
 
 async function waitUntilDead(pid: number, timeoutMs = 5_000): Promise<void> {
   const deadline = Date.now() + timeoutMs;
@@ -88,5 +88,20 @@ describe.skipIf(process.platform === 'win32')('spawnOwnedProcess registry (POSIX
     } finally {
       await stopOwnedProcess(held);
     }
+  });
+});
+
+describe('freePortSync (0.4.8)', () => {
+  it('returns a port from 1 to 65535 that a 127.0.0.1 listener can bind', async () => {
+    const port = freePortSync();
+    expect(Number.isInteger(port)).toBe(true);
+    expect(port).toBeGreaterThanOrEqual(1);
+    expect(port).toBeLessThanOrEqual(65_535);
+    const server = createServer();
+    await new Promise<void>((resolve, reject) => {
+      server.once('error', reject);
+      server.listen(port, '127.0.0.1', () => resolve());
+    });
+    await new Promise<void>((resolve) => server.close(() => resolve()));
   });
 });

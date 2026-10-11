@@ -1,6 +1,6 @@
 // Pins 0.5.1 default output in a real browser: DOM of the portal components that cannot render on the
-// server (context menu, toast rows), plus a hash of every element's computed style and box in each
-// overlay state. A new option or a stylesheet restructure must leave these snapshots untouched.
+// server (context menu, toast rows), plus a hash of every element's computed style in each overlay state.
+// A new option or a stylesheet restructure must leave these snapshots untouched.
 import { execFileSync } from "node:child_process";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import type { Server } from "node:http";
@@ -26,26 +26,39 @@ const open = async (query: string) => {
   await page.waitFor("window.__rkReady === true");
 };
 
+// Computed properties the host decides, not the package. Each one resolves against an element's box, a font or the
+// scrollbar, so the same CSS computes other values on another machine. Their values are not pinned. Listed here:
+// width, height, min/max sizes, logical sizes, insets, gaps, grid tracks, flex-basis, the transform family and its
+// origins, background and object positions and sizes, and outline offset. Spacing (margin, padding) and typography stay
+// pinned, since they are declared in absolute units.
+const HOST_DECIDED = /^(?:(?:min-|max-)?(?:width|height|inline-size|block-size)|top|right|bottom|left|inset(?:-(?:block|inline)(?:-(?:start|end))?)?|(?:row-|column-)?gap|grid-(?:template|auto)-(?:columns|rows|areas)|flex-basis|transform|transform-origin|translate|scale|rotate|perspective-origin|background-position(?:-[xy])?|background-size|object-position|outline-offset)$/;
+
 /**
- * Hash of computed style + rounded box for every element under body, keyed by structural path. 0.6.1 moved the
- * toast stack's centring from `transform` to `translate`, so those two properties are left out of the stack's own
- * hash; its box (which includes the centring) is still hashed, and the "toast stack" tests below pin the position.
+ * Hash of the computed style of every element under body, keyed by structural path.
+ *
+ * Pinned: the computed value of each property that the page's own stylesheets or inline styles declare, read from the
+ * CSSOM, minus HOST_DECIDED. The set therefore follows the CSS and not the browser build.
+ * Not pinned: the browser's full property list (it changes with the Chrome build); element boxes (x, y, width, height),
+ * which move with fonts, the scrollbar (the launch flags keep scrollbars visible) and the device pixel ratio; and the
+ * HOST_DECIDED properties. The toast stack's position is pinned by the "toast stack centring" tests below. Transition
+ * and animation values are skipped because they are timing.
  */
 const styleHashes = () =>
   page.eval<Record<string, string>>(`(() => {
     const hash = (s) => { let h = 2166136261; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); } return (h >>> 0).toString(16); };
+    const host = new RegExp(${JSON.stringify(HOST_DECIDED.source)});
+    const declared = new Set();
+    const collect = (rules) => { for (const rule of rules) { if (rule.style) for (let i = 0; i < rule.style.length; i++) declared.add(rule.style[i]); if (rule.cssRules) collect(rule.cssRules); } };
+    for (const sheet of document.styleSheets) { try { collect(sheet.cssRules); } catch { /* not a same-origin sheet */ } }
+    for (const el of document.querySelectorAll('*')) for (let i = 0; i < el.style.length; i++) declared.add(el.style[i]);
     const out = {};
     const walk = (el, path) => {
       if (el.id === 'log' || el.tagName === 'SCRIPT') return;
       const cs = getComputedStyle(el);
       const props = [];
-      const stack = el.classList.contains('rk-toasts');
-      for (let i = 0; i < cs.length; i++) { const p = cs[i]; if (p === 'transition' || p.startsWith('animation')) continue; if (stack && (p === 'transform' || p === 'translate')) continue; props.push(p + ':' + cs.getPropertyValue(p)); }
-      let s = props.sort().join(';');
-      const r = el.getBoundingClientRect();
-      s += [r.x, r.y, r.width, r.height].map((n) => Math.round(n * 10) / 10).join(',');
+      for (let i = 0; i < cs.length; i++) { const p = cs[i]; if (!declared.has(p) || host.test(p) || p === 'transition' || p.startsWith('animation')) continue; props.push(p + ':' + cs.getPropertyValue(p)); }
       const key = path + '/' + el.tagName.toLowerCase() + (el.className && typeof el.className === 'string' ? '.' + el.className.split(/\\s+/).join('.') : '');
-      out[key] = hash(s);
+      out[key] = hash(props.sort().join(';'));
       let i = 0;
       for (const c of el.children) walk(c, key + '[' + (i++) + ']');
     };

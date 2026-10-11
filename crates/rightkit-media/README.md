@@ -97,3 +97,17 @@ only in a development build. Everything else is `false` and must be shown, not w
 `ArtifactPending`, `AmbiguousArtifact`, `MalformedBinary`, probe failures and catalog errors are
 defects a fallback would hide. A release build must not fall back silently; it reports the error
 (`UnverifiedRefusedInRelease` is the crate's own refusal).
+
+## Suites that need local assets (skipped on hosted CI)
+
+A hosted runner has none of these assets, so each test prints `SKIP <test>: ...` and passes. Set `RIGHTKIT_REQUIRE_ASSETS=1` on a host that must have them, and the test fails instead.
+
+- `tests/media_e2e.rs` (probe, transcode, cancel and loudness tests) and `tests/stdin_probe_e2e.rs`: a development FFmpeg, enabled by `RIGHTKIT_FFMPEG=<path>` or one of the candidate paths listed by `rightkit_media::dev_resolve::development_candidates`. `stdin_probe_e2e.rs` also needs an `ffprobe` beside that binary.
+- `tests/media_e2e.rs`, `aac_m4a_export_normalizes_through_the_built_in_encoder`: an FFmpeg on `PATH` with the built-in `aac` encoder.
+- `tests/catalog_tools_e2e.rs` and `tests/export_ass_e2e.rs`: approved FFmpeg and ffprobe artifacts in `vendor/ffmpeg-lgpl` at the workspace root (found by walking up from the crate). Enabled by placing the artifacts there. `catalog_tools_e2e.rs` also needs an FFmpeg on `PATH`.
+- `tests/bundled_handle_e2e.rs`, `the_export_ass_zimg_binary_verifies_in_one_call_and_converts_hdr_to_sdr` (macOS aarch64): `ffmpeg-export-ass-zimg-macos-arm64` and `ffprobe-decode-macos-arm64` in `vendor/ffmpeg-lgpl`.
+- `tests/content_identity_e2e.rs`: retained build outputs under `/Volumes/D/rightkit-publish/artifacts` and the vendor artifacts above.
+- `tests/native_catalog_e2e.rs`, `whisper_and_ggml_dylibs_are_catalogued_by_file_and_verify_by_content`: retained whisper.cpp and ggml dylibs under `/Volumes/D/rightkit-publish/artifacts/whisper-cpp-1.9.3/macos-arm64`.
+- `tests/native_catalog_e2e.rs`, `real_local_artifacts_and_locks_match_their_catalog_records` (ignored; run with `--ignored`): binaries and lock files in sibling app checkouts under the workspace root.
+- `src/decode.rs`, `s16_decode_round_trips_pcm_when_an_ffmpeg_is_on_the_path` (unit test): an FFmpeg on `PATH`.
+- `src/lib.rs`, `approved_windows_binary_resolves_and_passes_the_real_build_probe` (unit test, Windows): `vendor/ffmpeg-lgpl/ffmpeg-win-x64.exe` in the workspace.

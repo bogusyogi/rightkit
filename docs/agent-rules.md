@@ -11,11 +11,11 @@ RightKit owns shared packages, crates, QA, licensing, logging, & release tooling
 - Read signing, distribution, & licensing runbooks before publication.
 
 ## Commands
-- Run `pnpm --dir rightkit test:release` for release package changes.
-- Run `pnpm --dir rightkit doctor:release` for broad diagnostics.
-- Run `pnpm --dir rightkit test:qa` for QA package changes.
-- Run `node --test rightkit/packages/release/right-suite-contract.test.mjs` for app parity.
-- Run the focused package build before publishing any package.
+- Compile and test nothing locally: RightKit is public and every build and test runs in GitHub Actions; see `docs/CI.md`.
+- Run `node scripts/ci/gate.mjs --plan --base <sha>` to preview what a push will verify.
+- Push to `main` in batches & read the `ci` run; apply its `fmt.patch` or `Cargo.lock.patch`, never hand-format.
+- Run `rustfmt --edition <edition> --check <file>` on each changed Rust file before pushing.
+- Record a red unit in `ci/known-red.json` with its reason; never publish a unit listed there.
 
 ## Locked invariants
 - Keep shared source only under `rightkit/`.

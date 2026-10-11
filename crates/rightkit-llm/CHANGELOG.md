@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased
+
+- `ChatRequest` gains `retry: CallRetry`, `extra_body: ExtraBody` and `reject_truncated: bool`. Defaults keep the previous behaviour. Code that builds `ChatRequest` with a struct literal must switch to `ChatRequest::new` or `simple` (the struct is not `#[non_exhaustive]`).
+- `ChatRequest::with_extra`, `with_extra_override`, `with_retry`, `without_retries`, `reject_truncated_output`. Extra top-level body fields are merged for both HTTP providers; a key the crate sets is rejected with `LlmError::InvalidRequest` unless it was added with `with_extra_override`.
+- `CallRetry` (`Client` default, `Disabled`, `Policy(RetryPolicy)`) selects the attempt policy per call on both providers. `OpenAiCompatProvider` and `AnthropicProvider` previously had no per-call override.
+- `LlmError` gains `Auth { status, message }` (rejected key on `list_models`), `InvalidRequest(String)` and `Truncated { output_tokens }`. Exhaustive matches on `LlmError` need the new arms. `is_failover_trigger` is unchanged for every existing variant.
+- `FailoverOn` (`Retryable` default, `AnyError`, `custom`) with `FailoverChain::fail_over_on`. Under every policy a route that already delivered output is not failed over.
+- `OpenAiCompatProvider::list_models` (`GET {base}/models`) and `validate_credential`, plus `openai::parse_model_ids`.
+- NVIDIA NIM preset `nvidia` (`https://integrate.api.nvidia.com/v1`, from NVIDIA's public API documentation).
+- `with_observer` on both HTTP providers: a `CallRecord` with the sent body and the response or error, never the credential or auth header.
+
 ## 0.2.0
 
 - New `cli` feature (default off) and `provider::cli`: `CliProvider` runs an already-installed, already-signed-in assistant CLI (Claude Code `claude -p`, Codex `codex exec`) as a bounded child process through `rightkit-process`, so a daemon can draft text with no API key stored by the app. `CliSpec` describes the tool as data (absolute program path, fixed argument template, stdin or `--`-terminated prompt, text or JSON output with JSON-pointer usage extraction, environment allow-list, not-signed-in patterns); `CliSpec::claude_code` and `CliSpec::codex_exec` are presets. Bounded by wall-clock timeout, idle timeout and stdout/stderr byte caps; any bound kills the process tree. Typed `CliError` surfaces as `LlmError::Cli`.

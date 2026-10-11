@@ -5,24 +5,63 @@
 #[allow(unused_imports)]
 use std::path::{Path, PathBuf};
 
-/// The approved 1.24.4 file; `RIGHTKIT_ORT_TEST_DYLIB` overrides the search.
+/// Reports an asset that this host does not have, then returns so the caller returns from the
+/// test. Prints one `SKIP <test>: <what> (looked at <where>)` line to stderr. With
+/// `RIGHTKIT_REQUIRE_ASSETS=1` it panics with that same text instead, so a host that is meant to
+/// have the asset cannot pass by skipping. The test name is the name of the test thread.
+pub fn skip_missing(what: &str, looked_at: &str) {
+    let test = std::thread::current()
+        .name()
+        .unwrap_or("unnamed")
+        .to_owned();
+    let message = format!("SKIP {test}: {what} (looked at {looked_at})");
+    if std::env::var("RIGHTKIT_REQUIRE_ASSETS").is_ok_and(|value| value == "1") {
+        panic!("{message}");
+    }
+    eprintln!("{message}");
+}
+
+/// `rel` found by walking up from this crate: `<ancestor>/<rel>`, then `<ancestor>/claude/<rel>`.
+/// A fixed `../..` depth breaks when the checkout moves, so workspace assets are searched for.
+pub fn workspace_asset(rel: &str) -> Option<PathBuf> {
+    Path::new(env!("CARGO_MANIFEST_DIR"))
+        .ancestors()
+        .flat_map(|dir| [dir.join(rel), dir.join("claude").join(rel)])
+        .find(|path| path.exists())
+}
+
+/// The approved 1.24.4 dylib in the genright download cache, found by walking up from this crate.
+#[cfg(target_os = "macos")]
+const MACOS_RUNTIME: &str = "genright/.cache/devin-completion-20261006/batch5/voice/dl/onnxruntime-osx-arm64-1.24.4/lib/libonnxruntime.1.24.4.dylib";
+
+/// The approved 1.24.4 file: `RIGHTKIT_ORT_TEST_DYLIB` when it names a file, else the cache.
+#[cfg(target_os = "macos")]
+fn find_real_runtime() -> Option<PathBuf> {
+    std::env::var_os("RIGHTKIT_ORT_TEST_DYLIB")
+        .map(PathBuf::from)
+        .filter(|p| p.is_file())
+        .or_else(|| workspace_asset(MACOS_RUNTIME).filter(|p| p.is_file()))
+}
+
+/// The approved 1.24.4 file. Tests call [`runtime_or_skip`] first.
 #[cfg(target_os = "macos")]
 pub fn real_runtime_file() -> PathBuf {
-    let root = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../../../..")
-        .canonicalize()
-        .unwrap();
-    let mut candidates: Vec<PathBuf> = std::env::var_os("RIGHTKIT_ORT_TEST_DYLIB")
-        .map(PathBuf::from)
-        .into_iter()
-        .collect();
-    candidates.push(root.join(
-        "genright/.cache/devin-completion-20261006/batch5/voice/dl/onnxruntime-osx-arm64-1.24.4/lib/libonnxruntime.1.24.4.dylib",
-    ));
-    candidates
-        .into_iter()
-        .find(|p| p.is_file())
+    find_real_runtime()
         .expect("no real ONNX Runtime 1.24.4 macOS dylib found; set RIGHTKIT_ORT_TEST_DYLIB")
+}
+
+/// Asset gate for the macOS real-runtime tests: `true` when the approved dylib is present.
+/// Otherwise it reports a SKIP (or panics under `RIGHTKIT_REQUIRE_ASSETS=1`) and returns `false`.
+#[cfg(target_os = "macos")]
+pub fn runtime_or_skip() -> bool {
+    if find_real_runtime().is_some() {
+        return true;
+    }
+    skip_missing(
+        "approved ONNX Runtime 1.24.4 macOS dylib",
+        &format!("RIGHTKIT_ORT_TEST_DYLIB or {MACOS_RUNTIME} found by walking up from crates/rightkit-ort"),
+    );
+    false
 }
 
 /// A fresh temp directory holding a copy of the real runtime under `name`.
@@ -93,18 +132,39 @@ pub fn add_model() -> Vec<u8> {
 #[cfg(windows)]
 pub const WINDOWS_VERSIONED_NAME: &str = "onnxruntime-1.24.4.dll";
 
-/// The approved runtime directory holding `onnxruntime.dll` and `DirectML.dll`, found the same
-/// way as `e2e_runtime_windows.rs`: `RIGHTKIT_ORT_TEST_DLL_DIR`, else the HeardRight staging
-/// path relative to the workspace root (the broker does not forward the variable).
+/// The HeardRight staging folder, relative to the workspace root (found by walking up).
 #[cfg(windows)]
-pub fn real_runtime_dir() -> PathBuf {
-    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../..");
+const WINDOWS_RUNTIME_DIR: &str = "heardright/tauri-app-next/src-tauri/resources/runtime";
+
+/// The runtime directory holding `onnxruntime.dll` and `DirectML.dll`: `RIGHTKIT_ORT_TEST_DLL_DIR`
+/// first, else the HeardRight staging folder (the broker does not forward the variable).
+#[cfg(windows)]
+fn find_real_runtime_dir() -> Option<PathBuf> {
     std::env::var_os("RIGHTKIT_ORT_TEST_DLL_DIR")
         .map(PathBuf::from)
         .into_iter()
-        .chain([root.join("heardright/tauri-app-next/src-tauri/resources/runtime")])
+        .chain(workspace_asset(WINDOWS_RUNTIME_DIR))
         .find(|dir| dir.join("onnxruntime.dll").is_file() && dir.join("DirectML.dll").is_file())
+}
+
+/// The approved runtime directory. Tests call [`runtime_dir_or_skip`] first.
+#[cfg(windows)]
+pub fn real_runtime_dir() -> PathBuf {
+    find_real_runtime_dir()
         .expect("no approved onnxruntime.dll + DirectML.dll; set RIGHTKIT_ORT_TEST_DLL_DIR")
+}
+
+/// Asset gate for the Windows real-runtime tests; see [`runtime_or_skip`].
+#[cfg(windows)]
+pub fn runtime_dir_or_skip() -> bool {
+    if find_real_runtime_dir().is_some() {
+        return true;
+    }
+    skip_missing(
+        "approved onnxruntime.dll and DirectML.dll (ONNX Runtime 1.24.4)",
+        &format!("RIGHTKIT_ORT_TEST_DLL_DIR or {WINDOWS_RUNTIME_DIR} found by walking up from crates/rightkit-ort"),
+    );
+    false
 }
 
 /// A fresh temp directory with the real `onnxruntime.dll` copied under `name`, next to its

@@ -213,7 +213,7 @@ impl Transducer {
             window_overlap_mel: options.window_overlap_mel,
             debug_diagnostics: options.debug_diagnostics,
         };
-        let allow_int8 = strict.map_or(true, |s| s.allow_int8);
+        let allow_int8 = strict.is_none_or(|s| s.allow_int8);
         let model =
             TransducerModel::from_pretrained_with(path, config.unwrap_or_default(), tcfg, allow_int8)?;
         if let Some(layout) = strict {

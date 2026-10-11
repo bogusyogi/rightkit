@@ -46,7 +46,7 @@ fn next_match(
 #[test]
 fn create_then_modify_are_reported_as_item_events() {
     let (_d, root) = tree();
-    let (_w, rx) = FsEventsWatcher::start(&[root.clone()], file_events(50)).unwrap();
+    let (_w, rx) = FsEventsWatcher::start(std::slice::from_ref(&root), file_events(50)).unwrap();
     std::thread::sleep(Duration::from_millis(300));
 
     let file = root.join("a.txt");
@@ -82,7 +82,7 @@ fn since_replays_changes_made_after_the_recorded_id() {
     std::thread::sleep(Duration::from_millis(500));
 
     let (w, rx) = FsEventsWatcher::start(
-        &[root.clone()],
+        std::slice::from_ref(&root),
         WatchOptions {
             since_event_id: Some(before),
             ..file_events(50)
@@ -119,7 +119,7 @@ fn resuming_from_the_current_id_replays_nothing_older() {
     let now = FsEventsWatcher::current_event_id();
 
     let (_w, rx) = FsEventsWatcher::start(
-        &[root.clone()],
+        std::slice::from_ref(&root),
         WatchOptions {
             since_event_id: Some(now),
             ..file_events(50)
@@ -137,7 +137,11 @@ fn resuming_from_the_current_id_replays_nothing_older() {
 #[test]
 fn latency_defers_delivery_until_the_window_passes() {
     let (_d, root) = tree();
-    let (_w, rx) = FsEventsWatcher::start(&[root.clone()], file_events(1500)).unwrap();
+    // Deferral is opt-in: `WatchFlags::default()` sets `no_defer`, which delivers the leading
+    // edge at once. This test asserts the deferred window, so it clears that flag.
+    let mut options = file_events(1500);
+    options.flags.no_defer = false;
+    let (_w, rx) = FsEventsWatcher::start(std::slice::from_ref(&root), options).unwrap();
     std::thread::sleep(Duration::from_millis(200));
 
     let file = root.join("slow.txt");
@@ -161,7 +165,7 @@ fn latency_defers_delivery_until_the_window_passes() {
 #[test]
 fn last_event_id_advances_with_delivered_events() {
     let (_d, root) = tree();
-    let (w, rx) = FsEventsWatcher::start(&[root.clone()], file_events(50)).unwrap();
+    let (w, rx) = FsEventsWatcher::start(std::slice::from_ref(&root), file_events(50)).unwrap();
     let start = w.last_event_id();
     std::thread::sleep(Duration::from_millis(300));
     let file = root.join("tick.txt");
@@ -181,7 +185,8 @@ fn removing_a_watched_root_reports_root_changed() {
     let (_d, base) = tree();
     let root = base.join("watched");
     fs::create_dir(&root).unwrap();
-    let (_w, rx) = FsEventsWatcher::start(&[root.clone()], WatchOptions::default()).unwrap();
+    let (_w, rx) =
+        FsEventsWatcher::start(std::slice::from_ref(&root), WatchOptions::default()).unwrap();
     std::thread::sleep(Duration::from_millis(300));
     fs::remove_dir_all(&root).unwrap();
     let ev = next_match(&rx, Duration::from_secs(15), |e| {

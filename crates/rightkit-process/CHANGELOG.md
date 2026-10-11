@@ -26,15 +26,19 @@ Fixed (Unix):
   grandchildren that outlive a plainly waited leader are no longer killed. Use `terminate_tree`,
   `terminate_tree_with_options`, `terminate_tree_bounded` or `wait_or_kill` before the leader is reaped. A
   `ProcessHandle` clone that waits on another thread reaps as soon as the leader exits and retires signalling for
-  the owner as well. `wait_or_kill` whose leader exits inside the grace now kills descendants that are still
+  the owner as well (a monitor that must not do that uses `wait_exited`). `wait_or_kill` whose leader exits inside the grace now kills descendants that are still
   running (before it reaps the leader) instead of leaving them for `Drop`.
 - `kill_on_parent_exit` on macOS: the helper is forked by the supervisor, not by a second `fork` inside the new
   process. The nested fork re-ran registered `pthread_atfork` handlers in the new process and could deadlock
   before any timeout started. The engine now blocks in `pre_exec`, before `exec`, until the helper has armed.
-- `kill_on_parent_exit` on macOS: the helper closes every inherited descriptor except its two pipe ends by
+- `kill_on_parent_exit` on macOS: the helper closes every inherited descriptor except its three pipe ends by
   listing them with the kernel (`proc_pidinfo(PROC_PIDLISTFDS)`), instead of closing up to the highest known
   descriptor plus 1024. A pipe writer another thread duplicated higher than that bound stayed open in the helper
-  (which never execs, so close-on-exec does not help) and kept readers from ever seeing end of file.
+  (which never execs, so close-on-exec does not help) and kept readers from ever seeing end of file. If the
+  kernel will not list the table, the helper no longer falls back to a walk bounded by a number taken before
+  the fork (a writer duplicated above that number, after it was taken, stayed open): it cannot prove it closed
+  everything, so it fails the spawn closed (`EIO`, or `EPIPE` if the engine wrote after the helper exited) and
+  exits, which releases whatever it held.
 - `kill_on_parent_exit` on macOS: the tie no longer ends when the engine exits. The helper lives as long as the
   `OwnedChild` (and its handle clones), so a supervisor that dies while the `OwnedChild` exists still takes down
   descendants that outlived the engine. After the last owner is dropped nothing is protected.
@@ -44,6 +48,42 @@ Fixed (Unix):
   `OwnedCommand::new` supplies the default. (An unreleased intermediate had widened this.)
 - `process_usage` on Unix targets other than Linux/Android/macOS returns `ErrorKind::Unsupported` (chosen at
   compile time) instead of reading a procfs that may not exist; Linux counters use checked arithmetic.
+
+Fixed (Unix), second independent read of 0.3.4 (`docs/audits/2026-10-11-astra-rightkit-process-second-read.md`):
+- **An exit monitor no longer defeats tree termination.** `ProcessHandle::wait` (and `try_wait`,
+  `wait_timeout`) reap the leader, which retires group signalling, so a monitor thread that learned of the exit
+  that way left a TERM-resistant grandchild that held the leader's pipes alive: the owner never escalated to
+  KILL and a reader join blocked until the grandchild ended on its own. The new `ProcessHandle::wait_exited`
+  and `wait_exited_timeout` observe the exit **without reaping**; the exited leader stays a zombie that pins the
+  group id, the owner kills the group (`wait_or_kill`, `terminate_tree*`), and only then reaps. On hosts with
+  no non-reaping probe (Unix other than Linux, Android, macOS and iOS) they reap exactly like `wait` and
+  `wait_timeout`, so the gap stays open there. `rightkit-media`'s runners use them and keep the deadline and
+  cancel live while the pipes drain (a pipe that stays held past the stop is abandoned after 2 s, not joined
+  forever); `rightkit-sandbox::wait_with_output` reaps only after the drain.
+- **macOS helper: no pid is signalled.** After `ECHILD` (another reaper in the process took the helper) the
+  `UnixChild` kept the pid and a later drop sent `SIGKILL` to it, by then possibly an unrelated process. The
+  helper is now told to stand down over a private pipe (one byte; the helper exits by itself with status 0),
+  its pid is forgotten as soon as `waitpid` says it is gone or `ECHILD`, and `waitpid(pid, WNOHANG)` is the
+  only call that names it. End of file on that pipe is not a release: the supervisor's own death closes it
+  too, so the helper keeps waiting for `NOTE_EXIT` and still kills the group.
+- **Waits cannot follow a recycled pid.** `ProcessHandle::wait` (and `wait_exited`) used to read the shared
+  state, release the lock and then block in `waitid(pid)`; a pause between the two let another reader reap, the
+  kernel recycle the number, and the waiter block on an unrelated child. Waiters now look under the lock,
+  release it, sleep and look again, so no wait system call names the pid outside the lock. **Behaviour
+  change:** `wait` polls (0.25 ms for the first 20 ms, 2 ms to 1 s, 10 ms to 30 s, 50 ms after that) instead
+  of blocking in the kernel, so an exit is noticed up to that long after it happens. Other Unix hosts no
+  longer hold the child lock for the whole wait either.
+- **`StderrTail` redaction and byte cap.** A line longer than four times `max_bytes` was cut and each piece
+  handed to the line-based `map` as if it were a line, so a secret spanning the cut passed through unredacted,
+  and a single retained line could exceed `max_bytes`. Such a line now never reaches `map`: it is read to its
+  newline and discarded, and one marker line, `[stderr line over N bytes dropped]`, is forwarded and retained
+  in its place. A retained line longer than the budget is cut to its last bytes (at a character boundary), so
+  `snapshot()` is never longer than `max_bytes`; `max_bytes == 0` retains nothing.
+- Test only: the sampling test no longer runs on Unix targets where sampling returns `Unsupported`, and a
+  test asserts that error there. `tests/high_descriptor.rs` now duplicates the writer before the helper is
+  forked (it used to do so after, in the engine, so the helper never held it); the fail-closed case with the
+  listing forced to fail is `an_unlistable_descriptor_table_fails_the_spawn_and_frees_a_writer_above_any_bound`
+  in `src/process_unix.rs`.
 
 Breaking (Unix, public items):
 - `OwnedChild::child()` returns `MutexGuard<UnixChild>` instead of `MutexGuard<std::process::Child>`. The new
@@ -64,6 +104,9 @@ whenever the deadline or cancel caused the stop, whatever the kill returned. Rep
 rounds) cover both crates.
 
 Added:
+- `ProcessHandle::wait_exited()` and `ProcessHandle::wait_exited_timeout(Duration) -> io::Result<bool>`: block until
+  the leader has exited without reaping it (see "Fixed", second read). Windows: they wait on the process
+  handle; nothing is reaped there. Additive.
 - Windows: `OwnedCommand::spawn_detached_tolerating_denied_breakaway()` returns `(OwnedChild, DetachedBreakaway)`.
   It tries `CREATE_BREAKAWAY_FROM_JOB`; on `ERROR_ACCESS_DENIED` it retries once with `DETACHED_PROCESS |
   CREATE_NO_WINDOW` inside the parent job and reports `DetachedBreakaway::StayedInJob` (else `BrokeAway`). The
@@ -77,7 +120,7 @@ Added:
     `NOTE_EXIT`; on the supervisor's death it sends `SIGTERM` to the group, waits 2 s, then `SIGKILL`. The helper
     confirms over a pipe once its watch is armed and the engine waits up to 5 s for that. The spawn fails (`ESRCH`
     if the supervisor is already gone or was replaced, `ETIMEDOUT`, `ECONNRESET`, or the registration `errno`) and
-    the helper is killed and reaped, so a child is never left running untied. The helper lives as long as the
+    the helper is released and collected, so a child is never left running untied. The helper lives as long as the
     owner (see "Fixed").
   - Other Unix hosts fail the spawn with `ErrorKind::Unsupported` rather than run untied.
   - Windows is unchanged and the option is a no-op there, because kill-on-close job objects already cover parent death.

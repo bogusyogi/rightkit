@@ -68,7 +68,9 @@ pub(crate) struct BuiltTls {
     pub(crate) config: rustls::ClientConfig,
     /// The verifier actually installed: `"platform"` or `"bundled"`.
     pub(crate) kind: &'static str,
-    /// Number of trust anchors in the root store (`Bundled`); 0 for the OS verifier.
+    /// Number of trust anchors in the root store (`Bundled`); 0 for the OS verifier. Read by
+    /// the unit tests only.
+    #[cfg_attr(not(test), allow(dead_code))]
     pub(crate) anchors: usize,
 }
 
@@ -125,10 +127,7 @@ impl AsyncClient {
         self.verifier
     }
 
-    fn reqwest_builder(
-        config: &ClientConfig,
-        tls: BuiltTls,
-    ) -> reqwest::ClientBuilder {
+    fn reqwest_builder(config: &ClientConfig, tls: BuiltTls) -> reqwest::ClientBuilder {
         // `no_proxy()` also turns off reqwest's own environment proxy detection and its
         // own NO_PROXY matching: this crate makes the one routing decision per hop
         // (`AsyncClient::precheck`) and picks the client that does it.
@@ -511,6 +510,14 @@ impl AsyncClient {
                 .ok()
                 .filter(|u| matches!(u.scheme(), "http" | "https"))
                 .ok_or_else(unusable)?;
+            // `https_only` first: its error names the rule the caller set, where the address
+            // policy's downgrade refusal (always on) would hide it.
+            redirect::require_https(
+                self.config.https_only,
+                next.scheme(),
+                next.host_str().unwrap_or(""),
+                true,
+            )?;
             self.config
                 .address_policy
                 .check_redirect_scheme(url.scheme(), next.scheme(), next.host_str().unwrap_or(""))
@@ -719,11 +726,19 @@ impl AsyncStreamResponse {
     }
 }
 
+/// How often a pending [`BodyStream`] with a cancel token wakes itself to look at the token.
+const CANCEL_POLL: Duration = Duration::from_millis(25);
+
 /// Body chunks with the stream/body deadline applied and errors typed.
 pub struct BodyStream {
     inner: ByteStream,
     deadline: Option<Pin<Box<Sleep>>>,
     cancel: Option<CancelToken>,
+    /// Present exactly when `cancel` is. [`CancelToken::cancel`] only sets an atomic flag and
+    /// wakes no task, so a read that is pending on a server that sends nothing would never
+    /// observe it. This timer is re-armed every [`CANCEL_POLL`] while the stream is polled and
+    /// pending, which wakes the task to re-check the flag.
+    cancel_tick: Option<Pin<Box<Sleep>>>,
     done: bool,
 }
 
@@ -734,10 +749,14 @@ impl BodyStream {
                 d.saturating_duration_since(Instant::now()),
             ))
         });
+        let cancel_tick = cancel
+            .as_ref()
+            .map(|_| Box::pin(tokio::time::sleep(CANCEL_POLL)));
         Self {
             inner,
             deadline,
             cancel,
+            cancel_tick,
             done: false,
         }
     }
@@ -753,6 +772,19 @@ impl Stream for BodyStream {
         if self.cancel.as_ref().is_some_and(CancelToken::is_cancelled) {
             self.done = true;
             return Poll::Ready(Some(Err(HttpError::Cancelled)));
+        }
+        // Make sure this task is woken within `CANCEL_POLL` even when the body is silent.
+        if let Some(tick) = self.cancel_tick.as_mut() {
+            if tick.as_mut().poll(cx).is_ready() {
+                // Fired: arm the next interval (polling registers the waker), then re-check.
+                tick.as_mut()
+                    .reset(tokio::time::Instant::now() + CANCEL_POLL);
+                let _ = tick.as_mut().poll(cx);
+                if self.cancel.as_ref().is_some_and(CancelToken::is_cancelled) {
+                    self.done = true;
+                    return Poll::Ready(Some(Err(HttpError::Cancelled)));
+                }
+            }
         }
         if let Some(sleep) = self.deadline.as_mut() {
             if sleep.as_mut().poll(cx).is_ready() {

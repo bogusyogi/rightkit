@@ -12,7 +12,8 @@
 //! - [`state`]: [`StateDir`], a descriptor-pinned state directory (`O_NOFOLLOW`, fd-relative
 //!   `*at` operations) that a swapped or symlinked path cannot redirect.
 //! - [`identity`] (feature `json`): stable file identity across renames and atomic replacement.
-//! - [`clone`]: macOS `clonefile(2)` with `CLONE_NOFOLLOW`; never falls back to a byte copy.
+//! - [`clone`]: macOS `clonefile(2)` with `CLONE_NOFOLLOW`; [`clone_file_nofollow`] never falls
+//!   back to a byte copy, [`clone_or_link_or_copy_nofollow`] tries clone, hard link, then copy.
 //! - [`swap`]: macOS `renamex_np(RENAME_SWAP)`; atomically exchanges two paths ([`swap_paths`]).
 
 #[cfg(all(feature = "testing", not(debug_assertions)))]
@@ -47,13 +48,16 @@ pub use atomic::atomic_write_with_digest;
 #[cfg(feature = "fs")]
 pub use atomic::{
     atomic_write, atomic_write_private, atomic_write_with, atomic_write_with_options, durable_sync,
-    durable_sync_with, rename_exclusive, sweep_stale_temps, AtomicOptions, AtomicWriteOptions,
-    AtomicWriter, Privacy, ReplaceMode, RetryPolicy, SyncLevel, SyncPolicy,
+    durable_sync_with, publication_durability, rename_exclusive, sweep_stale_temps, AtomicOptions,
+    AtomicWriteOptions, AtomicWriter, Privacy, PublicationDurability, ReplaceMode, RetryPolicy,
+    SyncLevel, SyncPolicy,
 };
 #[cfg(feature = "fs")]
-pub use clone::{clone_file_nofollow, CloneError};
+pub use clone::{
+    clone_file_nofollow, clone_or_link_or_copy_nofollow, CloneError, CloneOptions, CloneOutcome,
+};
 #[cfg(feature = "fs")]
-pub use error::{FsError, Result};
+pub use error::{FsError, PostPublishStep, Result};
 #[cfg(feature = "json")]
 pub use identity::{FileKey, IdentityStore, Resolution, StableId, Tracked};
 #[cfg(feature = "lock")]

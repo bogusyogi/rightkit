@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+- **HTTP 408 is now `ErrorClass::Timeout` (behaviour change).** `HttpError::Status { status: 408 }` previously
+  classified as `ErrorClass::Client`; it now classifies as `ErrorClass::Timeout`, matching its meaning (the
+  server timed out waiting for the request). HTTP 407 remains `ErrorClass::Auth`. Callers that map
+  `ErrorClass::Client` to a non-retryable error, or that match 408 explicitly, must review their mapping.
+- **`ClientConfig::legacy_ureq_parity(user_agent)`** (additive) returns the settings of a plain `ureq`
+  agent: environment proxies, `TrustRoots::Bundled`, 10 redirects, `RetryPolicy::none()` and the given user
+  agent. All other fields keep their defaults, and private-address resolution stays off.
+
 ## 0.3.0
 
 This is the 0.2.6 work renumbered: it carries source-visible breaks (`HttpError` variants and shapes, new
@@ -44,6 +54,44 @@ need updating. Fixes from the adversarial read (docs/audits/2026-10-11-astra-rig
   - `Debug` of `Response` and `ResponseHead` scrubs configured and per-request secrets.
   - `testing::add_bundled_test_root` (feature `testing`) lets a test trust a throwaway CA under
     `TrustRoots::Bundled`; new dev-dependencies `rcgen` and `rustls` (both already in the lock).
+- **Third independent read** (docs/audits/2026-10-11-astra-rightkit-http-second-read.md; fixes on
+  the 0.3.0 source, which that review ruled not publishable until these landed):
+  - Downloads, Windows: `.part` is opened with `FILE_FLAG_OPEN_REPARSE_POINT` and the opened handle
+    is refused if it is a symlink, junction or other reparse point, before any write or truncate,
+    so a link swapped in between the path check and the open is never followed. The path-versus-handle
+    check before the rename now compares volume serial and file index on Windows (it compared nothing
+    there before). The destination lock file is opened the same way.
+  - Downloads, concurrency (behaviour change): each download takes an exclusive OS lock (`flock` /
+    `LockFileEx`, through `std::fs::File::try_lock`; no new dependency) on `<dest>.lock` before it
+    opens `.part` and holds it until the rename or cleanup. A call that finds the lock held fails
+    at once with `DownloadError::Io` and sends no request; it does not wait. `<dest>.lock` is a
+    zero-byte file that stays beside `dest` after the download (deleting it would let two holders lock
+    different files). A filesystem that cannot lock now fails the download instead of running
+    unlocked. Completion also compares the byte count with the real length of the file, so a writer
+    that ignored the lock cannot make a 200-byte file pass `expected_bytes = 100`: that is
+    `DownloadError::LengthMismatch` and the `.part` is deleted.
+  - Downloads, wire sniffer (behaviour change): "head not observed" is no longer read as "no
+    `Content-Encoding`". A download whose response head was not observed is refused with
+    `HttpError::Stream`. The sniffer accepts the head syntax `ureq` accepts: blank lines before the
+    status line, bare `\n` line endings, several `Content-Encoding` lines (any non-`identity` coding
+    refuses the download), and a final head already buffered behind a 1xx head.
+  - Async: a `BodyStream` (and `SseStream`) whose request has a `CancelToken` re-arms a 25 ms timer
+    while it is pending, so `cancel()` now ends a stream that is waiting on a server that sent
+    headers and then nothing. Before, only socket activity polled it again.
+  - Blocking client: the retry sleep is clamped to what `Request::deadline` has left after the failed
+    response was drained, as the async client already did, so a stalled error body no longer adds a
+    full backoff past the deadline. `RetryEvent::delay` still reports the unclamped delay.
+  - Redirects: with `https_only` set, a redirect to `http` is now reported as `HttpsRequired { redirect:
+    true }` in both clients. The address policy's always-on HTTPS-to-HTTP refusal used to run first
+    and report `AddressDenied`, which hid the rule the caller had set and contradicted the
+    documented behaviour (CI: `tls_local` `*_https_only_refuses_an_https_to_http_redirect`). The
+    redirect is refused either way and nothing is sent to the `http` URL.
+  - Tests: `tests/second_read.rs`, `tests/second_read_async.rs`, unit tests in `src/download.rs` and
+    `src/wire.rs`, and a TLS download in `tests/tls_local.rs`. `rightkit-oauth`'s
+    `token_post_is_not_replayed_after_a_5xx` now uses `testing::loopback_config()` (the default
+    policy refused its mock, so it never reached the retry path) and asserts the 503 and one request.
+  - API: no public signature changed. `DownloadError` gains no variant, so the busy-destination
+    refusal is a `DownloadError::Io` whose text says a download is in progress.
 - **Not done:** `ProxyMode::System` (OS proxy settings, gap ledger row 110 item 3) is not in this release: it needs per-scheme proxy selection per request, which the single-proxy client does not have.
 
 - **Security.** `Retry-After` values too large for a `Duration` no longer panic either client (also

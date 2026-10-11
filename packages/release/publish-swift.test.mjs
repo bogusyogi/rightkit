@@ -61,7 +61,7 @@ for (const mode of ["unsealed", "mismatch", "swap", "happy", "mutated snapshot",
     const tree = git(['rev-parse', 'HEAD^{tree}']), commit = git(['rev-parse', 'HEAD']);
     const archive = spawnSync('git', ['archive', '--format=tar', '--mtime=1970-01-01T00:00:00Z', tree], { cwd: source }).stdout;
     const evidence = path.join(root, 'evidence.json');
-    if (mode !== 'unsealed') fs.writeFileSync(evidence, JSON.stringify({ schema: 1, kind: 'swift', name: 'RightKitSwift', version: '1.0.0', commit, artifactSha256: mode === 'mismatch' ? 'f'.repeat(64) : digestBytes(archive), runs: [{ host: { os: 'darwin' }, commit, command: 'swift test', passed: 1, failed: 0, operator: 'fixture', timestamp: '2026-10-08T00:00:00Z' }] }));
+    if (mode !== 'unsealed') fs.writeFileSync(evidence, JSON.stringify({ schema: 1, kind: 'swift', name: 'RightKitSwift', version: '1.0.0', commit, artifactSha256: mode === 'mismatch' ? 'f'.repeat(64) : digestBytes(archive), runs: [{ host: { os: 'darwin', arch: 'arm64' }, commit, features: ['default'], artifactSha256: mode === 'mismatch' ? 'f'.repeat(64) : digestBytes(archive), command: 'swift test', passed: 1, failed: 0, operator: 'fixture', timestamp: '2026-10-08T00:00:00Z' }] }));
     const pushes = [], calls = [];
     let mirror;
     const execute = (command, args, options = {}) => {

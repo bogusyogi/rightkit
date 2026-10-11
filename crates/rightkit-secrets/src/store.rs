@@ -1,9 +1,11 @@
-use crate::backend::{system_backend, Backend, Interaction, MemoryBackend};
+use crate::backend::{system_backend, Backend, ConditionalDelete, Interaction, MemoryBackend};
 use crate::error::{Error, Result};
-use crate::namespace::{check_account, Namespace};
+use crate::namespace::{check_target, normalize_target_name, Namespace};
 use crate::secret::Secret;
-use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::collections::BTreeMap;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, Condvar, Mutex, MutexGuard, PoisonError};
+use std::time::{Duration, Instant};
 
 /// Standard padded base64 (RFC 4648) of `bytes`. The only encoder this crate needs, for minted keys.
 fn base64_standard(bytes: &[u8]) -> String {
@@ -119,6 +121,17 @@ pub struct Diagnostics {
     pub guard: Option<String>,
 }
 
+/// A handle on one namespace of one credential store.
+///
+/// ## Timeouts and retries
+/// Every call runs on a worker thread so it can time out. A timed-out OS call cannot be
+/// cancelled and keeps running. Mutations (`set`, `delete`, `add_if_absent`, `delete_if_equals`,
+/// and so `get_or_create_key`) of one native credential are therefore serialised, and the
+/// target stays claimed until the OS call actually returns: a call that is still within its
+/// caller's deadline is waited for, and a retry that arrives while a timed-out call is still
+/// running gets [`Error::InProgress`] instead of racing it (the stalled call could otherwise
+/// finish later and overwrite the retry). Retry after a short delay. Reads are never refused for
+/// this reason.
 #[derive(Clone)]
 pub struct Store {
     ns: Namespace,
@@ -159,10 +172,109 @@ impl Backend for Denied {
             guard: self.0.clone(),
         })
     }
+    fn delete_if_equals(
+        &self,
+        _: &Namespace,
+        _: &str,
+        _: &Secret,
+        _: Interaction,
+    ) -> Result<ConditionalDelete> {
+        Err(Error::Guarded {
+            guard: self.0.clone(),
+        })
+    }
 }
 
 /// Serializes read→mint→persist inside this process; `add_if_absent` covers other processes.
 static MINT_LOCK: Mutex<()> = Mutex::new(());
+
+/// Where a mutation of one credential target stands.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Slot {
+    /// The OS call is running and its caller is still waiting for it.
+    Running,
+    /// The OS call is still running but its caller gave up (timed out).
+    Abandoned,
+}
+
+/// Identity of a credential target: the backend instance and the normalised native target name.
+/// Stores that share a backend and a Windows prefix share a native target, so they share a key.
+type TargetKey = (usize, String);
+
+/// Mutations in flight, one per target. A timed-out OS call cannot be cancelled and keeps
+/// running on its worker thread; its entry stays here until that call returns, so a retry can
+/// neither start beside it nor be overwritten by it.
+static IN_FLIGHT: Mutex<BTreeMap<TargetKey, (u64, Slot)>> = Mutex::new(BTreeMap::new());
+static IN_FLIGHT_CHANGED: Condvar = Condvar::new();
+static NEXT_PERMIT: AtomicU64 = AtomicU64::new(1);
+
+fn in_flight() -> MutexGuard<'static, BTreeMap<TargetKey, (u64, Slot)>> {
+    IN_FLIGHT.lock().unwrap_or_else(PoisonError::into_inner)
+}
+
+/// The exclusive right to mutate one credential target. It lives on the worker thread and is
+/// released when the OS call returns, not when the caller stops waiting.
+struct TargetPermit {
+    key: TargetKey,
+    id: u64,
+}
+
+impl TargetPermit {
+    /// Take the target. Another mutation of it that is still within its caller's deadline is
+    /// waited for (until `deadline`); one whose caller already timed out is not waited for.
+    /// Either way, a target that is still busy is `Error::InProgress`, never a second writer.
+    fn acquire(key: TargetKey, op: &'static str, deadline: Instant) -> Result<Self> {
+        let mut map = in_flight();
+        loop {
+            match map.get(&key).map(|(_, slot)| *slot) {
+                None => {
+                    let id = NEXT_PERMIT.fetch_add(1, Ordering::Relaxed);
+                    map.insert(key.clone(), (id, Slot::Running));
+                    return Ok(Self { key, id });
+                }
+                Some(Slot::Abandoned) => return Err(Error::InProgress { op }),
+                Some(Slot::Running) => {
+                    let now = Instant::now();
+                    if now >= deadline {
+                        return Err(Error::InProgress { op });
+                    }
+                    map = IN_FLIGHT_CHANGED
+                        .wait_timeout(map, deadline - now)
+                        .unwrap_or_else(PoisonError::into_inner)
+                        .0;
+                }
+            }
+        }
+    }
+
+    /// Handle the waiting caller keeps so it can mark this call abandoned when it times out.
+    fn ticket(&self) -> (TargetKey, u64) {
+        (self.key.clone(), self.id)
+    }
+}
+
+impl Drop for TargetPermit {
+    fn drop(&mut self) {
+        let mut map = in_flight();
+        if map.get(&self.key).is_some_and(|(id, _)| *id == self.id) {
+            map.remove(&self.key);
+        }
+        drop(map);
+        IN_FLIGHT_CHANGED.notify_all();
+    }
+}
+
+/// The caller stopped waiting for the call that holds `ticket`; it is still running.
+fn abandon(ticket: &(TargetKey, u64)) {
+    let mut map = in_flight();
+    if let Some(entry) = map.get_mut(&ticket.0) {
+        if entry.0 == ticket.1 {
+            entry.1 = Slot::Abandoned;
+        }
+    }
+    drop(map);
+    IN_FLIGHT_CHANGED.notify_all();
+}
 
 impl Store {
     /// Resolve guards and the backend. Infallible: a tripped guard yields a memory or denying
@@ -242,9 +354,27 @@ impl Store {
         &self,
         op: &'static str,
         account: &str,
+        mutation: bool,
         f: impl FnOnce(Arc<dyn Backend>, Namespace, String, Interaction) -> Result<T> + Send + 'static,
     ) -> Result<T> {
-        check_account(account)?;
+        check_target(&self.ns, account)?;
+        let started = Instant::now();
+        // A timeout too large to add to the clock is treated as "a year".
+        let deadline = started
+            .checked_add(self.timeout)
+            .unwrap_or_else(|| started + Duration::from_secs(365 * 24 * 60 * 60));
+        // Mutations of one native target run one at a time, and a call that timed out keeps its
+        // place until the OS returns: a retry is refused rather than raced.
+        let permit = if mutation {
+            let key = (
+                Arc::as_ptr(&self.backend) as *const () as usize,
+                normalize_target_name(&self.ns.windows_target_name(account)),
+            );
+            Some(TargetPermit::acquire(key, op, deadline)?)
+        } else {
+            None
+        };
+        let ticket = permit.as_ref().map(TargetPermit::ticket);
         let (backend, ns, acct, mode) = (
             self.backend.clone(),
             self.ns.clone(),
@@ -253,22 +383,35 @@ impl Store {
         );
         let (tx, rx) = std::sync::mpsc::channel();
         std::thread::spawn(move || {
-            let _ = tx.send(f(backend, ns, acct, mode));
+            let result = f(backend, ns, acct, mode);
+            // Released before the result is sent, so a caller that has its answer can retry at once.
+            drop(permit);
+            let _ = tx.send(result);
         });
         // An abandoned thread stays blocked in the OS call until a prompt is dismissed, then exits.
-        rx.recv_timeout(self.timeout).unwrap_or(Err(Error::Timeout {
-            op,
-            secs: self.timeout.as_secs(),
-        }))
+        match rx.recv_timeout(deadline.saturating_duration_since(Instant::now())) {
+            Ok(result) => result,
+            Err(_) => {
+                if let Some(ticket) = &ticket {
+                    abandon(ticket);
+                }
+                Err(Error::Timeout {
+                    op,
+                    secs: self.timeout.as_secs(),
+                })
+            }
+        }
     }
 
     /// `Ok(None)` only when the store authoritatively reports the item absent.
     pub fn get(&self, account: &str) -> Result<Option<Secret>> {
-        self.run("get", account, |b, ns, a, m| b.get(&ns, &a, m))
+        self.run("get", account, false, |b, ns, a, m| b.get(&ns, &a, m))
     }
     /// Passive presence. Never requests secret bytes and never prompts.
     pub fn exists(&self, account: &str) -> Result<bool> {
-        self.run("presence", account, |b, ns, a, m| b.exists(&ns, &a, m))
+        self.run("presence", account, false, |b, ns, a, m| {
+            b.exists(&ns, &a, m)
+        })
     }
     /// Create or replace. An empty secret is rejected; use [`Store::delete`].
     pub fn set(&self, account: &str, secret: &Secret) -> Result<()> {
@@ -279,18 +422,29 @@ impl Store {
             });
         }
         let s = secret.clone();
-        self.run("set", account, move |b, ns, a, m| b.set(&ns, &a, &s, m))
+        self.run("set", account, true, move |b, ns, a, m| {
+            b.set(&ns, &a, &s, m)
+        })
     }
     pub fn set_str(&self, account: &str, value: &str) -> Result<()> {
         self.set(account, &Secret::from_string(value))
     }
     /// `Ok(true)` if an item was removed.
     pub fn delete(&self, account: &str) -> Result<bool> {
-        self.run("delete", account, |b, ns, a, m| b.delete(&ns, &a, m))
+        self.run("delete", account, true, |b, ns, a, m| b.delete(&ns, &a, m))
+    }
+    /// Remove the item only if it still holds `expected`, as one step the store's writers cannot
+    /// interleave with (see [`Backend::delete_if_equals`]). [`ConditionalDelete::Unsupported`]
+    /// means nothing was removed.
+    pub fn delete_if_equals(&self, account: &str, expected: &Secret) -> Result<ConditionalDelete> {
+        let e = expected.clone();
+        self.run("delete", account, true, move |b, ns, a, m| {
+            b.delete_if_equals(&ns, &a, &e, m)
+        })
     }
     pub fn add_if_absent(&self, account: &str, secret: &Secret) -> Result<bool> {
         let s = secret.clone();
-        self.run("add", account, move |b, ns, a, m| {
+        self.run("add", account, true, move |b, ns, a, m| {
             b.add_if_absent(&ns, &a, &s, m)
         })
     }

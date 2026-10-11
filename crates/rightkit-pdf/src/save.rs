@@ -35,6 +35,12 @@
 //!   for it**, success or failure — a token that fails to commit (e.g. a same-path SHA race) is
 //!   dead, not retryable; the caller must re-run `prepare_pdf_save` against fresh source bytes.
 //!   This matches §10.3's "single-use" wording literally rather than only-consume-on-success.
+//! - **"Same path" is a caller-supplied comparison.** [`resolve_commit_with`] takes the decision as
+//!   a closure; [`resolve_commit`] compares the strings. A path alias (`dir/./memo.pdf`, a hard
+//!   link, a case variant) defeats the strings, so [`crate::commit::commit_pdf_save`] passes a
+//!   filesystem-identity comparison, and holds a per-destination lock across recheck, replacement
+//!   and sibling invalidation. [`stage_prepared_save_against_base`] additionally refuses a
+//!   candidate in which a page lost a resource it resolved in the bytes it was composed from.
 //! - **Structural recheck (§10.1 step 7: "lopdf reopens candidate, checks page count/resources/
 //!   content streams, & re-inspects expected text")** is implemented as: candidate parses via
 //!   `lopdf::Document::load_mem`, has at least one page, every page's `/Contents` (when present)
@@ -206,6 +212,28 @@ impl PdfSaveTokenStore {
         Ok(record)
     }
 
+    /// The source path `token` was staged against, or `None` for an unknown or already-consumed
+    /// token. An expired token still reports it (consuming it is `consume`'s job): the commit
+    /// needs the destination to serialise on before it touches the token.
+    pub(crate) fn source_path_of(&self, token: &str) -> Option<String> {
+        let inner = self.inner.lock().expect("token store mutex poisoned");
+        inner
+            .tokens
+            .get(token)
+            .map(|record| record.source_path.clone())
+    }
+
+    /// Every source path that has a live token, each once.
+    pub(crate) fn source_paths(&self) -> Vec<String> {
+        let inner = self.inner.lock().expect("token store mutex poisoned");
+        inner
+            .by_source
+            .iter()
+            .filter(|(_, queue)| !queue.is_empty())
+            .map(|(path, _)| path.clone())
+            .collect()
+    }
+
     /// §10.3 "invalidated after any source revision" (scoped to `source_path` — see module doc
     /// comment): drops every remaining token for `source_path`, e.g. after a successful commit
     /// changes that path's on-disk bytes out from under any other outstanding token.
@@ -255,6 +283,10 @@ fn random_save_token() -> String {
 /// `actual_source_sha256` is the freshly read source bytes' digest; `expected_source_sha256` is
 /// what the frontend's session believed it was editing. A mismatch means the backing file changed
 /// since the edit session started (§10.1 step 2) — rejected before composition is even trusted.
+///
+/// This entry point sees only digests, so it cannot compare the candidate with the bytes it was
+/// composed from. Prefer [`stage_prepared_save_against_base`], which also refuses a candidate in
+/// which a page no longer resolves a font, XObject or graphics state it resolved before.
 pub fn stage_prepared_save(
     store: &PdfSaveTokenStore,
     source_path: &str,
@@ -264,11 +296,64 @@ pub fn stage_prepared_save(
     affected_pages: Vec<u32>,
     expected_text: Vec<ExpectedTextCheck>,
 ) -> Result<PreparedPdfSaveMeta, PdfEditError> {
+    stage_checked(
+        store,
+        source_path,
+        expected_source_sha256,
+        actual_source_sha256,
+        None,
+        candidate_bytes,
+        affected_pages,
+        expected_text,
+    )
+}
+
+/// [`stage_prepared_save`] plus a comparison with the bytes the candidate was composed from
+/// (`base_bytes`: the source, or the annotation-extended source `select_compose_base` picked).
+/// Besides the structural recheck, every page of the candidate must still resolve every font,
+/// XObject, graphics state, colour space, pattern, shading and property list name that page
+/// resolved in `base_bytes`, to the same object: an edit may add a resource, never hide one
+/// (adding a font to a page whose `/Resources` sat on an ancestor `/Pages` node once did). A
+/// `base_bytes` that does not parse is `VerificationFailed`.
+#[allow(clippy::too_many_arguments)]
+pub fn stage_prepared_save_against_base(
+    store: &PdfSaveTokenStore,
+    source_path: &str,
+    expected_source_sha256: &str,
+    actual_source_sha256: &str,
+    base_bytes: &[u8],
+    candidate_bytes: Vec<u8>,
+    affected_pages: Vec<u32>,
+    expected_text: Vec<ExpectedTextCheck>,
+) -> Result<PreparedPdfSaveMeta, PdfEditError> {
+    stage_checked(
+        store,
+        source_path,
+        expected_source_sha256,
+        actual_source_sha256,
+        Some(base_bytes),
+        candidate_bytes,
+        affected_pages,
+        expected_text,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn stage_checked(
+    store: &PdfSaveTokenStore,
+    source_path: &str,
+    expected_source_sha256: &str,
+    actual_source_sha256: &str,
+    base_bytes: Option<&[u8]>,
+    candidate_bytes: Vec<u8>,
+    affected_pages: Vec<u32>,
+    expected_text: Vec<ExpectedTextCheck>,
+) -> Result<PreparedPdfSaveMeta, PdfEditError> {
     if expected_source_sha256 != actual_source_sha256 {
         return Err(PdfEditError::StaleSource);
     }
 
-    structurally_verify_candidate(&candidate_bytes, &expected_text)?;
+    structurally_verify_candidate_against(&candidate_bytes, &expected_text, base_bytes)?;
 
     let candidate_sha256 = sha256_hex(&candidate_bytes);
     let returned_candidate_bytes = candidate_bytes.clone();
@@ -286,9 +371,20 @@ pub fn stage_prepared_save(
 /// §10.1 step 7: reopen the candidate independently of whatever composed it, and refuse to hand
 /// out a token for anything that doesn't survive a fresh parse — "never trust your own composer
 /// blindly." See module doc comment for exactly what this checks.
+#[cfg(test)]
 fn structurally_verify_candidate(
     candidate_bytes: &[u8],
     expected_text: &[ExpectedTextCheck],
+) -> Result<(), PdfEditError> {
+    structurally_verify_candidate_against(candidate_bytes, expected_text, None)
+}
+
+/// The structural recheck and - when the bytes the candidate was composed from are given - the
+/// check that no page lost a resource name it resolved there.
+fn structurally_verify_candidate_against(
+    candidate_bytes: &[u8],
+    expected_text: &[ExpectedTextCheck],
+    base_bytes: Option<&[u8]>,
 ) -> Result<(), PdfEditError> {
     let doc =
         crate::inspect::load_pdf(candidate_bytes).map_err(|_| PdfEditError::VerificationFailed)?;
@@ -326,6 +422,17 @@ fn structurally_verify_candidate(
                 obj.as_stream()
                     .map_err(|_| PdfEditError::VerificationFailed)?;
             }
+        }
+    }
+
+    if let Some(base_bytes) = base_bytes {
+        let base =
+            crate::inspect::load_pdf(base_bytes).map_err(|_| PdfEditError::VerificationFailed)?;
+        if !crate::inspect::resources_preserved(
+            &crate::inspect::resource_fingerprint(&base),
+            &crate::inspect::resource_fingerprint(&doc),
+        ) {
+            return Err(PdfEditError::VerificationFailed);
         }
     }
 
@@ -397,6 +504,11 @@ pub fn expected_text_checks(commands: &[PdfEditCommand]) -> Vec<ExpectedTextChec
 /// on-disk bytes at `source_path`, compared against the SHA-256 recorded when the token's
 /// candidate was staged ([`SaveTokenRecord::source_sha256`]). Kept filesystem-free otherwise so
 /// token lifecycle (expiry/replay/conflict) is directly unit-testable.
+///
+/// "Same path" here is string equality, which a path alias (`/tmp/./memo.pdf`, a hard link, a case
+/// variant on a case-insensitive volume) defeats. A host that touches the filesystem should call
+/// [`resolve_commit_with`] with a real file-identity comparison; [`crate::commit::commit_pdf_save`]
+/// does.
 pub fn resolve_commit<F>(
     store: &PdfSaveTokenStore,
     token: &str,
@@ -406,10 +518,35 @@ pub fn resolve_commit<F>(
 where
     F: FnOnce(&str) -> Result<Vec<u8>, PdfEditError>,
 {
+    resolve_commit_with(
+        store,
+        token,
+        target_path,
+        |source, target| source == target,
+        read_current_source_for_recheck,
+    )
+}
+
+/// [`resolve_commit`] with the "is the target the source file?" decision supplied by the caller:
+/// `same_file(source_path, target_path)` is called once, after the token is consumed, and the
+/// source recheck runs exactly when it returns `true`. Passing a comparison of filesystem
+/// identities (device and file id, canonical path as the fallback) closes the alias bypass that
+/// plain string equality leaves open.
+pub fn resolve_commit_with<F, S>(
+    store: &PdfSaveTokenStore,
+    token: &str,
+    target_path: Option<String>,
+    same_file: S,
+    read_current_source_for_recheck: F,
+) -> Result<(String, Vec<u8>, PdfCommitResult), PdfEditError>
+where
+    F: FnOnce(&str) -> Result<Vec<u8>, PdfEditError>,
+    S: FnOnce(&str, &str) -> bool,
+{
     let record = store.consume(token)?;
     let target = target_path.unwrap_or_else(|| record.source_path.clone());
 
-    if target == record.source_path {
+    if same_file(&record.source_path, &target) {
         let current_bytes = read_current_source_for_recheck(&record.source_path)?;
         let current_sha256 = document_sha256(&current_bytes);
         if current_sha256 != record.source_sha256 {
@@ -795,5 +932,145 @@ mod tests {
                 text: "new".to_string()
             }]
         );
+    }
+    // -----------------------------------------------------------------------------------
+    // Second Astra read, 2026-10-11: findings 2, 5, 6 (save side)
+    // -----------------------------------------------------------------------------------
+
+    /// The source: `/Resources` (F1, Im1) on the `/Pages` node only.
+    fn inherited_source() -> Vec<u8> {
+        crate::test_fixtures::pdf_bytes(&crate::test_fixtures::inherited_resources_pdf(
+            b"BT /F1 12 Tf 72 700 Td (Existing) Tj ET /Im1 Do",
+        ))
+    }
+
+    /// What the old composer wrote for that page: page-local resources holding only a new font.
+    fn candidate_that_hides_the_inherited_resources(source: &[u8]) -> Vec<u8> {
+        let mut doc = lopdf::Document::load_mem(source).expect("source loads");
+        let page_id = doc.get_pages()[&1];
+        let some_object = *doc.objects.keys().next().expect("an object");
+        if let Ok(lopdf::Object::Dictionary(page)) = doc.get_object_mut(page_id) {
+            page.set(
+                "Resources",
+                lopdf::dictionary! { "Font" => lopdf::dictionary! { "VREdit1" => some_object } },
+            );
+        }
+        crate::test_fixtures::pdf_bytes(&doc)
+    }
+
+    #[test]
+    fn finding2_staging_against_the_base_refuses_a_page_that_lost_its_inherited_resources() {
+        let source = inherited_source();
+        let sha = document_sha256(&source);
+        let hidden = candidate_that_hides_the_inherited_resources(&source);
+        let store = PdfSaveTokenStore::default();
+
+        let err = stage_prepared_save_against_base(
+            &store,
+            "/doc.pdf",
+            &sha,
+            &sha,
+            &source,
+            hidden.clone(),
+            vec![1],
+            vec![],
+        )
+        .unwrap_err();
+        assert!(matches!(err, PdfEditError::VerificationFailed));
+        assert_eq!(store.live_token_count("/doc.pdf"), 0, "no token for it");
+
+        // The digest-only entry point cannot see the source, so it cannot tell: that is why the
+        // composer checks too, and why the against-base entry point exists.
+        stage_prepared_save(&store, "/doc.pdf", &sha, &sha, hidden, vec![1], vec![])
+            .expect("structurally fine, which is all the digest-only path can check");
+    }
+
+    #[test]
+    fn finding2_staging_against_the_base_accepts_a_candidate_that_changes_no_resource() {
+        let source = inherited_source();
+        let sha = document_sha256(&source);
+        let store = PdfSaveTokenStore::default();
+        stage_prepared_save_against_base(
+            &store,
+            "/doc.pdf",
+            &sha,
+            &sha,
+            &source,
+            source.clone(),
+            vec![],
+            vec![],
+        )
+        .expect("a candidate identical to its base");
+    }
+
+    #[test]
+    fn finding2_an_unparseable_base_is_a_verification_failure() {
+        let store = PdfSaveTokenStore::default();
+        let err = stage_prepared_save_against_base(
+            &store,
+            "/doc.pdf",
+            "sha",
+            "sha",
+            b"not a pdf",
+            hello_pdf(),
+            vec![],
+            vec![],
+        )
+        .unwrap_err();
+        assert!(matches!(err, PdfEditError::VerificationFailed));
+    }
+
+    #[test]
+    fn finding6_the_recheck_runs_when_the_comparison_says_the_target_is_the_source() {
+        let store = PdfSaveTokenStore::default();
+        let sha = document_sha256(&hello_pdf());
+        let changed = build_pdf(b"BT /F1 12 Tf 72 700 Td (Changed) Tj ET");
+
+        // Plain string equality is fooled by an alias: no recheck, so a newer file is replaced.
+        let token = store.insert("/tmp/doc.pdf", &sha, hello_pdf());
+        resolve_commit(&store, &token, Some("/tmp/./doc.pdf".to_string()), |_| {
+            panic!("string comparison skips the recheck for an alias")
+        })
+        .expect("the alias gets past string equality");
+
+        // The same alias with a file-identity comparison is rechecked and refused.
+        let token = store.insert("/tmp/doc.pdf", &sha, hello_pdf());
+        let err = resolve_commit_with(
+            &store,
+            &token,
+            Some("/tmp/./doc.pdf".to_string()),
+            |source, target| {
+                assert_eq!((source, target), ("/tmp/doc.pdf", "/tmp/./doc.pdf"));
+                true
+            },
+            |_| Ok(changed.clone()),
+        )
+        .unwrap_err();
+        assert!(matches!(err, PdfEditError::WriteConflict));
+
+        // A comparison that says "different file" skips it, as Save As always has.
+        let token = store.insert("/tmp/doc.pdf", &sha, hello_pdf());
+        resolve_commit_with(
+            &store,
+            &token,
+            Some("/tmp/other.pdf".to_string()),
+            |_, _| false,
+            |_| panic!("a different file is not rechecked"),
+        )
+        .expect("Save As");
+    }
+
+    #[test]
+    fn finding5_the_store_reports_a_tokens_source_and_every_live_source() {
+        let store = PdfSaveTokenStore::default();
+        let t1 = store.insert("/a.pdf", "sha", hello_pdf());
+        store.insert("/b.pdf", "sha", hello_pdf());
+        assert_eq!(store.source_path_of(&t1).as_deref(), Some("/a.pdf"));
+        assert_eq!(store.source_path_of("unknown"), None);
+        let mut sources = store.source_paths();
+        sources.sort();
+        assert_eq!(sources, vec!["/a.pdf".to_string(), "/b.pdf".to_string()]);
+        resolve_commit(&store, &t1, Some("/c.pdf".to_string()), |_| Ok(vec![])).expect("save as");
+        assert_eq!(store.source_path_of(&t1), None, "consumed");
     }
 }

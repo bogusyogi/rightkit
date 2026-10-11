@@ -103,7 +103,7 @@ fn word_floor_wins_over_an_earlier_next_word_start() {
     let pieces = vec![tok(" a", 1.0, 1.0), tok(" b", 1.04, 1.1)];
     let words = longform::timed_pieces_to_words_with(&pieces, Some(80));
     assert_eq!(words[0].end_ms, 1080);
-    // Without the floor the end is the next start's clamp instead.
+    // Without the floor the model's own end (1.00 s) is kept: the next start only clamps it down.
     let none = longform::timed_pieces_to_words_with(&pieces, None);
-    assert_eq!(none[0].end_ms, 1040);
+    assert_eq!(none[0].end_ms, 1000);
 }

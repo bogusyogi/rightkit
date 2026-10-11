@@ -1,7 +1,7 @@
 //! End-to-end Whisper decoding with real audio and real models.
 //!
-//! Gates (a missing gate FAILS, never silently passes; set
-//! `RIGHTKIT_ALLOW_MISSING_MODELS=1` to downgrade to a printed SKIP):
+//! Gates (a missing asset prints a SKIP line and the test passes; set
+//! `RIGHTKIT_REQUIRE_ASSETS=1` to make a missing asset fail):
 //! - CoreML (macOS): WhisperKit `.mlmodelc` dir (~600 MB; AudioEncoder,
 //!   TextDecoder, tokenizer.json). `RIGHTKIT_WHISPER_COREML_DIR` or the local
 //!   HeardRight/ScrapeRight registry.
@@ -9,6 +9,9 @@
 //!   `cmake -DBUILD_SHARED_LIBS=ON -DGGML_METAL=ON`, `whisper.dll` on Windows)
 //!   plus `RIGHTKIT_WHISPER_GGML` (ggml model, e.g. turbo q5_k ~574 MB).
 //! - VAD: `RIGHTKIT_VAD_MODEL` (Silero op15 ONNX, 2 MB).
+#[macro_use]
+mod common;
+
 mod coreml_cache;
 
 use rightkit_asr::{
@@ -20,6 +23,15 @@ use std::sync::OnceLock;
 #[cfg(target_os = "macos")]
 use rightkit_asr::transcribe_spans;
 
+/// The approved ONNX Runtime 1.24.4 dylib: `RIGHTKIT_ORT_TEST_DYLIB` when set (a missing file
+/// then fails loudly), else the genright download cache found by walking up from this crate.
+#[cfg(target_os = "macos")]
+fn ort_runtime_file() -> Option<PathBuf> {
+    std::env::var_os("RIGHTKIT_ORT_TEST_DYLIB")
+        .map(PathBuf::from)
+        .or_else(|| common::workspace_asset("genright/.cache/devin-completion-20261006/batch5/voice/dl/onnxruntime-osx-arm64-1.24.4/lib/libonnxruntime.1.24.4.dylib"))
+}
+
 #[cfg(target_os = "macos")]
 fn init_ort_runtime() {
     static READY: OnceLock<()> = OnceLock::new();
@@ -30,14 +42,8 @@ fn init_ort_runtime() {
             RuntimeCandidate, runtime_filename,
         };
 
-        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../..").canonicalize().unwrap();
-        let runtime = std::env::var_os("RIGHTKIT_ORT_TEST_DYLIB")
-            .map(PathBuf::from)
-            .unwrap_or_else(|| {
-                root.join(
-                    "genright/.cache/devin-completion-20261006/batch5/voice/dl/onnxruntime-osx-arm64-1.24.4/lib/libonnxruntime.1.24.4.dylib",
-                )
-            });
+        // The VAD test checks `ort_runtime_file()` before it gets here.
+        let runtime = ort_runtime_file().expect("the VAD test checks ort_runtime_file() first");
         assert!(runtime.is_file(), "no approved ONNX Runtime 1.24.4 dylib at {}; set RIGHTKIT_ORT_TEST_DYLIB", runtime.display());
         let staged_dir = std::env::temp_dir().join(format!("rightkit-asr-ort-e2e-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&staged_dir);
@@ -84,20 +90,10 @@ fn first_existing(env: &str, defaults: &[&str]) -> Option<PathBuf> {
         .find(|p| p.exists())
 }
 
-macro_rules! gate {
-    ($opt:expr, $what:expr) => {
-        match $opt {
-            Some(v) => v,
-            None if std::env::var_os("RIGHTKIT_ALLOW_MISSING_MODELS").is_some() => {
-                eprintln!("SKIP: {}", $what);
-                return;
-            }
-            None => panic!("gate missing: {}", $what),
-        }
-    };
-}
+// Only the macOS Core ML tests use these.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+const COREML_LOOKED_AT: &str = "RIGHTKIT_WHISPER_COREML_DIR or /Volumes/D/claude/heardright/model_registry/coreml/whisper-multi";
 
-// Only the macOS Core ML tests use it.
 #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 fn coreml_dir() -> Option<PathBuf> {
     first_existing(
@@ -141,7 +137,7 @@ mod coreml {
 
     #[test]
     fn short_clip_auto_language_detects_english_and_keeps_all_keywords() {
-        let mut w = gate!(load(Language::Auto), "CoreML whisper dir (RIGHTKIT_WHISPER_COREML_DIR)");
+        let mut w = gate!(load(Language::Auto), "CoreML whisper dir", COREML_LOOKED_AT);
         let r = w.transcribe_samples(wav(SHORT.0), 16_000, 1, None).unwrap();
         assert_keywords(&r.text, SHORT.1);
         assert_eq!(w.detected_language(), Some("en"));
@@ -151,7 +147,7 @@ mod coreml {
 
     #[test]
     fn long_clip_crosses_the_30s_window_without_losing_words() {
-        let mut w = gate!(load(Language::Code("en".into())), "CoreML whisper dir");
+        let mut w = gate!(load(Language::Code("en".into())), "CoreML whisper dir", COREML_LOOKED_AT);
         let r = w.transcribe_samples(wav(LONG.0), 16_000, 1, None).unwrap();
         assert_keywords(&r.text, LONG.1);
         assert!(r.tokens.windows(2).all(|p| p[1].start >= p[0].start), "timeline must be monotonic");
@@ -160,7 +156,7 @@ mod coreml {
 
     #[test]
     fn unknown_language_is_rejected_not_silently_english() {
-        let mut w = gate!(load(Language::Code("zz".into())), "CoreML whisper dir");
+        let mut w = gate!(load(Language::Code("zz".into())), "CoreML whisper dir", COREML_LOOKED_AT);
         assert!(w.transcribe_samples(wav(SHORT.0), 16_000, 1, None).is_err());
     }
 
@@ -171,12 +167,14 @@ mod coreml {
                 "RIGHTKIT_VAD_MODEL",
                 &["/Volumes/D/claude/heardright/tauri-app-next/src-tauri/resources/vad/silero_vad_16k_op15.onnx"],
             ),
-            "Silero VAD model"
+            "Silero VAD model",
+            "RIGHTKIT_VAD_MODEL or /Volumes/D/claude/heardright/tauri-app-next/src-tauri/resources/vad/silero_vad_16k_op15.onnx",
         );
-        let mut w = gate!(load(Language::Auto), "CoreML whisper dir");
+        let mut w = gate!(load(Language::Auto), "CoreML whisper dir", COREML_LOOKED_AT);
         let mut audio = vec![0.0f32; 16_000 * 3];
         audio.extend(wav(SHORT.0));
         audio.extend(vec![0.0f32; 16_000 * 3]);
+        let _runtime = gate!(ort_runtime_file(), "approved ONNX Runtime 1.24.4 macOS dylib", "RIGHTKIT_ORT_TEST_DYLIB or genright/.cache/devin-completion-20261006/batch5/voice/dl/onnxruntime-osx-arm64-1.24.4/lib/libonnxruntime.1.24.4.dylib");
         init_ort_runtime();
         let mut silero = rightkit_vad::Silero::load(vad_model).unwrap();
         let spans = rightkit_vad::detect(&mut silero, &audio, &rightkit_vad::VadConfig::default()).unwrap();
@@ -192,6 +190,8 @@ mod coreml {
         }
     }
 }
+
+const CPP_LOOKED_AT: &str = "RIGHTKIT_WHISPER_LIB and RIGHTKIT_WHISPER_GGML, or the /Volumes/D/claude/genright and /Volumes/D/claude/scraperight defaults";
 
 mod cpp {
     use super::*;
@@ -216,7 +216,7 @@ mod cpp {
 
     #[test]
     fn short_clip_whispercpp_keeps_all_keywords_with_segment_timing() {
-        let mut w = gate!(load(Language::Auto), "RIGHTKIT_WHISPER_LIB (+ ggml model)");
+        let mut w = gate!(load(Language::Auto), "whisper.cpp library and ggml model", CPP_LOOKED_AT);
         let r = w.transcribe_samples(wav(SHORT.0), 16_000, 1, None).unwrap();
         assert_keywords(&r.text, SHORT.1);
         assert_eq!(w.detected_language(), Some("en"));
@@ -225,7 +225,7 @@ mod cpp {
 
     #[test]
     fn long_clip_whispercpp_crosses_the_window() {
-        let mut w = gate!(load(Language::Code("en".into())), "RIGHTKIT_WHISPER_LIB (+ ggml model)");
+        let mut w = gate!(load(Language::Code("en".into())), "whisper.cpp library and ggml model", CPP_LOOKED_AT);
         let r = w.transcribe_samples(wav(LONG.0), 16_000, 1, None).unwrap();
         assert_keywords(&r.text, LONG.1);
         assert!(r.tokens.last().unwrap().end > 30.0);

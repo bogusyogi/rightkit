@@ -31,8 +31,12 @@ pub(crate) fn migrate_v1(doc: &mut Value) -> Result<(), String> {
         .get_mut("canvas")
         .and_then(Value::as_object_mut)
         .ok_or("canvas must be an object")?;
-    let num = canvas.remove("frame_rate_num").ok_or("missing frame_rate_num")?;
-    let den = canvas.remove("frame_rate_den").ok_or("missing frame_rate_den")?;
+    let num = canvas
+        .remove("frame_rate_num")
+        .ok_or("missing frame_rate_num")?;
+    let den = canvas
+        .remove("frame_rate_den")
+        .ok_or("missing frame_rate_den")?;
     root.insert("fps".into(), json!({ "num": num, "den": den }));
 
     let layers = root
@@ -165,7 +169,9 @@ fn migrate_asset(asset: Option<&mut Value>) -> Result<(), String> {
 fn migrate_track(track: &mut Value) -> Result<(), String> {
     let keyframes = track.as_array_mut().ok_or("track must be an array")?;
     for keyframe in keyframes {
-        let obj = keyframe.as_object_mut().ok_or("keyframe must be an object")?;
+        let obj = keyframe
+            .as_object_mut()
+            .ok_or("keyframe must be an object")?;
         convert_key(obj, "at_ms", "at_ticks")?;
     }
     Ok(())

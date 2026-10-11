@@ -1,4 +1,4 @@
-import { spawn, type ChildProcess } from 'node:child_process';
+import { spawn, spawnSync, type ChildProcess } from 'node:child_process';
 import { createServer } from 'node:net';
 
 export interface OwnedProcessResult {
@@ -91,6 +91,27 @@ export function freePort(): Promise<number> {
       server.close((error) => (error ? reject(error) : resolve(port)));
     });
   });
+}
+
+/**
+ * Inline program for freePortSync. It is this package's own code, not project code: it binds 127.0.0.1:0,
+ * prints the port it was given, and exits once the server has closed.
+ */
+const FREE_PORT_PROGRAM = "const s = require('node:net').createServer(); s.listen(0, '127.0.0.1', () => { const port = s.address().port; s.close(() => process.stdout.write(String(port))); });";
+
+/**
+ * freePort for module scope, where no promise can be awaited. It runs a tiny inline `node -e` child with
+ * spawnSync (the child runs only FREE_PORT_PROGRAM), reads the port the child bound and released, and waits
+ * at most 10 s. It has the same race as freePort: another process can take the port before it is bound.
+ * Throws if the child fails or prints no valid port.
+ */
+export function freePortSync(): number {
+  const result = spawnSync(process.execPath, ['-e', FREE_PORT_PROGRAM], { encoding: 'utf8', timeout: 10_000, windowsHide: true });
+  const port = Number(result.stdout.trim());
+  if (result.error || result.status !== 0 || !Number.isInteger(port) || port < 1 || port > 65_535) {
+    throw new Error(`freePortSync: child did not report a port (${result.error?.message ?? (result.stderr.trim() || `exit ${result.status}`)})`);
+  }
+  return port;
 }
 
 export function isProcessAlive(pid: number): boolean {

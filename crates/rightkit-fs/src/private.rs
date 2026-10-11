@@ -382,3 +382,121 @@ fn native_restrict_owner_only(path: &Path) -> crate::error::Result<()> {
         }
     }
 }
+
+/// A security descriptor built from SDDL: one protected ACE giving the current user full control,
+/// freed on drop. A directory's ACE also inherits to what is created inside it. Used to create
+/// files and directories owner-only from the start, with no window in which a wider inherited ACL
+/// applies.
+#[cfg(windows)]
+pub(crate) struct SecurityDescriptor(pub(crate) *mut std::ffi::c_void);
+
+#[cfg(windows)]
+impl SecurityDescriptor {
+    pub(crate) fn owner_only(shown: &Path, directory: bool) -> crate::error::Result<Self> {
+        use std::ffi::c_void;
+        #[link(name = "advapi32")]
+        unsafe extern "system" {
+            fn ConvertStringSecurityDescriptorToSecurityDescriptorW(
+                string: *const u16,
+                revision: u32,
+                descriptor: *mut *mut c_void,
+                size: *mut u32,
+            ) -> i32;
+        }
+        let sid = current_process_sid_string(shown)?;
+        let inherit = if directory { "OICI" } else { "" };
+        let sddl: Vec<u16> = format!("D:P(A;{inherit};FA;;;{sid})")
+            .encode_utf16()
+            .chain(Some(0))
+            .collect();
+        let mut raw = std::ptr::null_mut();
+        // SAFETY: NUL-terminated SDDL; the API allocates the returned descriptor.
+        if unsafe {
+            ConvertStringSecurityDescriptorToSecurityDescriptorW(
+                sddl.as_ptr(),
+                1,
+                &mut raw,
+                std::ptr::null_mut(),
+            )
+        } == 0
+        {
+            return Err(FsError::io(shown, std::io::Error::last_os_error()));
+        }
+        Ok(Self(raw))
+    }
+}
+
+#[cfg(windows)]
+impl Drop for SecurityDescriptor {
+    fn drop(&mut self) {
+        #[link(name = "kernel32")]
+        unsafe extern "system" {
+            fn LocalFree(memory: *mut std::ffi::c_void) -> *mut std::ffi::c_void;
+        }
+        // SAFETY: allocation returned by ConvertStringSecurityDescriptorToSecurityDescriptorW.
+        unsafe { LocalFree(self.0) };
+    }
+}
+
+/// Exclusively creates `path` for writing with the owner-only security descriptor passed to
+/// `CreateFileW`, so the file never exists with the parent's inherited ACL (no principal that ACL
+/// admits can open it before it is restricted). Fails if the descriptor cannot be built, or if
+/// `path` exists (a link at the name is never followed: `CREATE_NEW` refuses an existing name).
+#[cfg(windows)]
+pub(crate) fn create_new_owner_only(path: &Path) -> std::io::Result<std::fs::File> {
+    use std::ffi::c_void;
+    use std::os::windows::ffi::OsStrExt;
+    use std::os::windows::io::FromRawHandle;
+
+    #[repr(C)]
+    struct SecurityAttributes {
+        length: u32,
+        descriptor: *mut c_void,
+        inherit_handle: i32,
+    }
+    #[link(name = "kernel32")]
+    unsafe extern "system" {
+        fn CreateFileW(
+            name: *const u16,
+            access: u32,
+            share: u32,
+            security: *const c_void,
+            disposition: u32,
+            flags: u32,
+            template: *mut c_void,
+        ) -> *mut c_void;
+    }
+    const GENERIC_WRITE: u32 = 0x4000_0000;
+    const FILE_SHARE_READ_WRITE_DELETE: u32 = 0x7;
+    const CREATE_NEW: u32 = 1;
+    const FILE_ATTRIBUTE_NORMAL: u32 = 0x80;
+
+    let descriptor = SecurityDescriptor::owner_only(path, false).map_err(std::io::Error::other)?;
+    let attributes = SecurityAttributes {
+        length: std::mem::size_of::<SecurityAttributes>() as u32,
+        descriptor: descriptor.0,
+        inherit_handle: 0,
+    };
+    let wide: Vec<u16> = path.as_os_str().encode_wide().chain(Some(0)).collect();
+    if wide[..wide.len() - 1].contains(&0) {
+        return Err(std::io::Error::from(std::io::ErrorKind::InvalidInput));
+    }
+    // SAFETY: `wide` is NUL-terminated and `attributes` (with the descriptor it points to) outlives
+    // the call; the handle is owned by the returned `File` on success.
+    let handle = unsafe {
+        CreateFileW(
+            wide.as_ptr(),
+            GENERIC_WRITE,
+            FILE_SHARE_READ_WRITE_DELETE,
+            (&attributes as *const SecurityAttributes).cast(),
+            CREATE_NEW,
+            FILE_ATTRIBUTE_NORMAL,
+            std::ptr::null_mut(),
+        )
+    };
+    if handle as isize == -1 {
+        return Err(std::io::Error::last_os_error());
+    }
+    // SAFETY: CreateFileW returned a fresh handle that nothing else owns.
+    Ok(unsafe { std::fs::File::from_raw_handle(handle) })
+}

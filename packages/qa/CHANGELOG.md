@@ -1,5 +1,27 @@
 # Changelog
 
+## 0.4.8 — 2026-10-11
+
+Additive. Existing methods and defaults are unchanged. Where a name already existed with other behaviour, the new behaviour sits behind a new option.
+
+- Add `connectCdp(endpoint, { timeout?, debug? })`: a `CdpClient` on a browser endpoint or on a page-level `webSocketDebuggerUrl`, on the same transport as `QaBrowserSession`. `CdpClient`, `CdpParams`, `CdpListener` and `CdpAnyListener` are exported. `connectCdp` is a thin alias of the existing `CdpClient.connect`, which still works. `send(method, params, sessionId?, timeoutMs?)` and `on(method, listener, sessionId?)` already had these shapes.
+- Add `CdpClient.onAny(method, listener)`: one subscription that fires for the root and every flattened child session. The listener gets `(params, sessionId)`, with `sessionId` undefined for the root. It returns an unsubscribe function.
+- `close()` on `CdpClient` is synchronous and idempotent, so it needs no await.
+- Add `QaBrowserSession.connectPage(wsUrl, { timeout?, debug?, allowRemoteHost? })`: a `QaPage` on one page's socket, with no browser session. Its commands are the root session's, and `close()` closes that socket and sends no `Target` command. Loopback only unless `allowRemoteHost: true`. `QaPageInfo` is unchanged, because `Target.getTargets` does not return a page socket URL.
+- `page.send(method, params, { timeout?, sessionId? })` addresses a flattened child session. A number as the third argument still means the timeout.
+- `evaluate(expression, { label })`: for a string expression, an error is prefixed `"<label>: <message>"`. A function evaluate has no options argument.
+- `waitForFunction(expr, { label, timeout?, pollMs? })` is a labelled wait. Its timeout error is exactly `Timed out waiting for <label>`. Defaults become 45 s for `timeout` and 250 ms for `pollMs`. The predicate is wrapped in `Boolean()`, and "navigated or closed" is retried as not ready. Without `label` the method behaves as before. `pollMs` requires `label` and is refused together with `polling`.
+- Add `page.waitForAnimationFrames(frames = 2)`: resolves after that many animation frames, with a 100 ms fallback per frame so a background page cannot hang it.
+- `page.screenshot({ path, returnPath: true })` writes to `path` and resolves with that path, and leaves `fromSurface` unset so Chrome's default applies. Without `returnPath` it still resolves with the Buffer and sends `fromSurface: true`.
+- Add `keyboard.tap({ key, code?, windowsVirtualKeyCode?, modifiers? })`: keyDown, then keyUp, with no text, no rawKeyDown and no modifier presses.
+- Add `mouse.click(x, y, { button?, clickCount? })` (press and release with no preceding mouseMoved), `mouse.doubleClick(x, y, { button? })` (a click, then a press and release with clickCount 2), and `mouse.drag(points, { moveDelayMs? })`. Drag presses the left button at the first point, moves with it held, and releases at the last point. It needs at least two points, and it releases the button if a move fails. Click, doubleClick and drag refuse while a button is held. `down` and `up` are unchanged.
+- Add `freePortSync()`: `freePort` for module scope. It runs a tiny inline `node -e` child through `spawnSync`, and that child only binds and releases a port.
+- Add `waitForHttp(url, { timeoutMs?, intervalMs? })`: polls with GET until the URL answers 2xx. Each attempt is capped at min(30 s, remaining time), with a 1 s floor. On timeout it throws a `TimeoutError` with the message `Timed out waiting for <url>`.
+- Fix: a subscription's unsubscribe no longer removes a listener set that was created again after the first unsubscribe.
+- Add `startDevServer({ detached: true, recordPath })`: the server outlives the caller. On POSIX it gets its own process group; on Windows it is a detached process. Its stdio is the log file `<recordPath>.log`, never the caller's pipes, and the child is unreferenced. Once ready, a JSON record `{ format, pid, startTime, command, url, port, logPath, recordedAt }` is written with the `wx` flag, so an existing record is never replaced: the call refuses one before spawning. The handle gains `recordPath`, `logPath`, `startTime` and `command`; `output()` reads the log tail. `detached` needs an absolute `recordPath`, and `recordPath` needs `detached`. Without `detached` nothing changes.
+- Add `stopDevServer({ pid } | { recordPath })`. It returns true when a running server was stopped and false when nothing was running; a missing record is a no-op. It signals only a process whose start time and command match the record. With `{ pid }` it checks against the identity this process recorded when it started the server. Any other process is refused with `DevServerIdentityError`, and nothing is signalled. The record is removed once its server is gone. A server that survives the stop throws and keeps its record.
+- The package has no CLI entry (no `bin` in `package.json`), so there are no `devserver` subcommands.
+
 ## 0.4.7 — 2026-10-11
 
 Additive.

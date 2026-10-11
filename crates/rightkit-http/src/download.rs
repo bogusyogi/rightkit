@@ -2,12 +2,13 @@
 //!
 //! Bytes go to `<dest>.part`, created without following links. On success the file is
 //! fsynced, hashed through the same open handle and renamed to `dest`. The URL policy runs
-//! before the filesystem is touched.
+//! before the filesystem is touched, and one download at a time holds `dest` (an exclusive
+//! OS lock on `<dest>.lock`) from before `.part` is opened until the rename or cleanup.
 //! Every request goes through the same policy layer as [`Client::send`]: timeouts,
 //! retry/backoff, redirect and size settings.
 
 use std::fmt;
-use std::fs::{self, File, OpenOptions};
+use std::fs::{self, File, OpenOptions, TryLockError};
 use std::io::{self, Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::AtomicBool;
@@ -21,6 +22,7 @@ use crate::client::{
 };
 use crate::error::{HttpError, Phase, MAX_ERROR_BODY_BYTES};
 use crate::urlredact::redact_urls_in_text;
+use crate::wire::WireHead;
 
 const CHUNK: usize = 64 * 1024;
 
@@ -145,13 +147,23 @@ impl Client {
     /// that supplied them: a reconnect that lands on another resource restarts from zero.
     ///
     /// Safety rules: the URL is checked against the address policy before any file is
-    /// opened. `.part` is never opened through a symbolic link: an existing link is removed
-    /// (never followed) and the file is created exclusively, or on resume opened with
-    /// `O_NOFOLLOW`. The bytes are hashed through the same handle that wrote them, after an
-    /// fsync, and the path is compared with the handle just before the rename. A body that
-    /// runs past `expected_bytes` (or the declared range or length) stops the download and
-    /// deletes `.part`. A response whose framing shows transparent content decoding is
-    /// refused, because byte offsets would then describe decoded data.
+    /// opened. The destination is then locked: an exclusive OS lock on `<dest>.lock` (created
+    /// beside `dest`, never deleted) is taken before `.part` is opened and held until the
+    /// download has been verified, cleaned up or renamed, so two calls (threads or processes)
+    /// can never append to one `.part`. A call that finds the lock held fails at once with
+    /// [`DownloadError::Io`] and sends no request. `.part` is never opened through a symbolic
+    /// link: an existing link is removed (never followed) and the file is created
+    /// exclusively, or on resume opened with `O_NOFOLLOW` (Unix) or
+    /// `FILE_FLAG_OPEN_REPARSE_POINT` plus a reparse-point check on the opened handle
+    /// (Windows), so a link swapped in after the check is refused before anything is written.
+    /// The bytes are hashed through the same handle that wrote them, after an fsync, and the
+    /// path is compared with the handle (device and inode, or volume and file index) just
+    /// before the rename. Completion is checked against the real length of the file, not only
+    /// the count of bytes this call received. A body that runs past `expected_bytes` (or the
+    /// declared range or length) stops the download and deletes `.part`. A response whose
+    /// framing shows transparent content decoding is refused, because byte offsets would then
+    /// describe decoded data; so is one whose head was not observed on the wire, because then
+    /// an encoding cannot be ruled out.
     ///
     /// Note: `If-Range` is only sent once this call has seen an ETag. Resuming a `.part`
     /// left by an earlier call is protected only by `expected_sha256`.
@@ -184,6 +196,9 @@ impl Client {
         }
         // Policy first: a denied URL must not touch the filesystem.
         self.preflight_url(url)?;
+        // One writer per destination, from before `.part` is opened until after the rename.
+        // Declared before `file`, so it is released after the handle is closed.
+        let _dest_lock = DestLock::acquire(dest)?;
         let part = part_path(dest);
         let mut file = open_part(&part, opts.resume)?;
         let mut st = FetchState::default();
@@ -202,6 +217,22 @@ impl Client {
                 return Err(e);
             }
             other => other?,
+        }
+
+        // The count above is what this call received; the file is what gets published. They
+        // differ when something else wrote through its own handle (an older crate version
+        // that took no lock, another tool), and then neither length nor hash can be trusted.
+        let on_disk = file
+            .metadata()
+            .map_err(io_error("stat partial file"))?
+            .len();
+        if on_disk != st.written {
+            drop(file);
+            remove_part(&part)?;
+            return Err(DownloadError::LengthMismatch {
+                expected: st.written,
+                actual: on_disk,
+            });
         }
 
         // Whole-resource completion: the advertised total when there is one. `limit` is only
@@ -281,23 +312,12 @@ impl Client {
                 body,
                 attempts,
                 final_url,
-                wire_content_encoding,
+                wire_head,
                 ..
             } = raw;
             st.attempts += attempts;
             let source = resource_key(&final_url);
-            // What the server really sent: ureq strips the header when it decodes, so the
-            // wire value is the one to trust.
-            let encoding = wire_content_encoding
-                .as_deref()
-                .or_else(|| header_of(&headers, "content-encoding"));
-            if let Some(encoding) = encoding {
-                if !encoding.trim().eq_ignore_ascii_case("identity") {
-                    return Err(stream_error(format!(
-                        "unexpected Content-Encoding {encoding} for a download"
-                    )));
-                }
-            }
+            check_wire_encoding(&wire_head, &headers)?;
             if matches!(status, 200 | 206) && frames_like_decoding(&headers, &body) {
                 return Err(stream_error(
                     "response is neither length-delimited nor chunked, which is how a transparently \
@@ -462,6 +482,36 @@ fn resource_key(final_url: &str) -> String {
         .to_string()
 }
 
+/// Refuse a response whose body ureq may have decoded. What the server really sent is the
+/// value read off the wire, because ureq strips `Content-Encoding` when it decodes. A head
+/// that was not observed proves nothing about the encoding, so it is refused as well: it
+/// must never be read as "no encoding".
+fn check_wire_encoding(wire: &WireHead, headers: &[(String, String)]) -> Result<(), DownloadError> {
+    let WireHead::Observed { content_encoding } = wire else {
+        return Err(stream_error(
+            "the response head was not observed on the wire, so a transparent Content-Encoding \
+             cannot be ruled out; refusing it for a download"
+                .into(),
+        ));
+    };
+    let encoding = content_encoding
+        .as_deref()
+        .or_else(|| header_of(headers, "content-encoding"));
+    match encoding {
+        Some(encoding) if !is_identity(encoding) => Err(stream_error(format!(
+            "unexpected Content-Encoding {encoding} for a download"
+        ))),
+        _ => Ok(()),
+    }
+}
+
+/// True when every coding listed is `identity` (the only one that leaves bytes untouched).
+fn is_identity(value: &str) -> bool {
+    value
+        .split(',')
+        .all(|coding| coding.trim().eq_ignore_ascii_case("identity"))
+}
+
 /// A `200` or `206` with neither a `Content-Length` nor chunked framing. `ureq` removes
 /// `Content-Encoding` and `Content-Length` when it decodes gzip transparently, so this is how
 /// that case (and an unframed, close-delimited body) shows up.
@@ -473,6 +523,17 @@ fn frames_like_decoding(headers: &[(String, String)], body: &ureq::Body) -> bool
 
 /// Open `.part` without following a link at that path.
 fn open_part(part: &Path, resume: bool) -> Result<File, DownloadError> {
+    open_part_with(part, resume, &|| {})
+}
+
+/// [`open_part`] with a hook that runs after the path was inspected and before it is
+/// opened: the window in which a racing process can swap in a link. Production passes a
+/// no-op; a test swaps a link in there to prove the open itself refuses to follow it.
+fn open_part_with(
+    part: &Path,
+    resume: bool,
+    between_check_and_open: &dyn Fn(),
+) -> Result<File, DownloadError> {
     match fs::symlink_metadata(part) {
         Ok(meta) if meta.file_type().is_symlink() => {
             // Remove the link itself; its target is never touched.
@@ -488,11 +549,11 @@ fn open_part(part: &Path, resume: bool) -> Result<File, DownloadError> {
         }
         _ => {}
     }
+    between_check_and_open();
     let file = if resume {
         let mut existing = OpenOptions::new();
         existing.read(true).append(true);
-        no_follow(&mut existing);
-        match existing.open(part) {
+        match open_nofollow(&mut existing, part) {
             Ok(f) => f,
             Err(e) if e.kind() == io::ErrorKind::NotFound => create_new(part)?,
             Err(e) => return Err(io_error("open partial file")(e)),
@@ -512,18 +573,139 @@ fn open_part(part: &Path, resume: bool) -> Result<File, DownloadError> {
 fn create_new(part: &Path) -> Result<File, DownloadError> {
     let mut options = OpenOptions::new();
     options.read(true).append(true).create_new(true);
-    no_follow(&mut options);
-    options.open(part).map_err(io_error("create partial file"))
+    open_nofollow(&mut options, part).map_err(io_error("create partial file"))
 }
 
+/// Exclusive cross-process lock on one destination, held from before `.part` is opened until
+/// the download is verified, cleaned up or renamed.
+///
+/// It is an OS advisory lock on `<dest>.lock` (`flock` on Unix, `LockFileEx` on Windows, both
+/// through `File::try_lock`), so the OS drops it when the holder exits or is killed: there is
+/// no stale lock to clean up. Separate handles exclude each other, inside one process as well
+/// as between processes. The lock file is never deleted: removing it after unlock would let
+/// one process lock the old file while another creates and locks a new one at the same path.
+/// A holder is not waited for; a call that finds the lock held fails at once.
+#[derive(Debug)]
+struct DestLock {
+    file: File,
+}
+
+impl DestLock {
+    fn acquire(dest: &Path) -> Result<Self, DownloadError> {
+        let mut options = OpenOptions::new();
+        options.read(true).write(true).create(true).truncate(false);
+        let file = open_nofollow(&mut options, &lock_path(dest))
+            .map_err(io_error("open destination lock"))?;
+        match file.try_lock() {
+            Ok(()) => Ok(Self { file }),
+            Err(TryLockError::WouldBlock) => Err(DownloadError::Io(
+                "another download of this destination is in progress (its lock is held)".into(),
+            )),
+            Err(TryLockError::Error(e)) => Err(io_error("lock destination")(e)),
+        }
+    }
+}
+
+impl Drop for DestLock {
+    fn drop(&mut self) {
+        // Explicit, so a descriptor inherited by a forked child cannot keep the lock busy.
+        let _ = self.file.unlock();
+    }
+}
+
+fn lock_path(dest: &Path) -> PathBuf {
+    let mut name = dest.as_os_str().to_owned();
+    name.push(".lock");
+    PathBuf::from(name)
+}
+
+/// Open `path` with `options`, never following a link at the final component. A link there
+/// is an error, and no data has been written or truncated through it: none of the callers
+/// truncates, and `create_new` fails on any existing entry.
 #[cfg(unix)]
-fn no_follow(options: &mut OpenOptions) {
+fn open_nofollow(options: &mut OpenOptions, path: &Path) -> io::Result<File> {
     use std::os::unix::fs::OpenOptionsExt;
     options.custom_flags(libc::O_NOFOLLOW);
+    options.open(path)
 }
 
-#[cfg(not(unix))]
-fn no_follow(_options: &mut OpenOptions) {}
+/// Windows has no `O_NOFOLLOW`: without `FILE_FLAG_OPEN_REPARSE_POINT` the open follows a
+/// symlink or junction. With it the open lands on the link itself, which is then refused by
+/// its attributes before the handle is returned or used.
+#[cfg(windows)]
+fn open_nofollow(options: &mut OpenOptions, path: &Path) -> io::Result<File> {
+    use std::os::windows::fs::OpenOptionsExt;
+    options.custom_flags(FILE_FLAG_OPEN_REPARSE_POINT);
+    let file = options.open(path)?;
+    if is_reparse_point(&file)? {
+        return Err(io::Error::other(
+            "path is a symbolic link or other reparse point",
+        ));
+    }
+    Ok(file)
+}
+
+#[cfg(not(any(unix, windows)))]
+fn open_nofollow(options: &mut OpenOptions, path: &Path) -> io::Result<File> {
+    options.open(path)
+}
+
+#[cfg(windows)]
+const FILE_FLAG_OPEN_REPARSE_POINT: u32 = 0x0020_0000;
+#[cfg(windows)]
+const FILE_ATTRIBUTE_REPARSE_POINT: u32 = 0x0400;
+
+/// Whether the open handle is a symlink, junction or other reparse point rather than the
+/// file it would point to.
+#[cfg(windows)]
+fn is_reparse_point(file: &File) -> io::Result<bool> {
+    use std::os::windows::fs::MetadataExt;
+    Ok(file.metadata()?.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0)
+}
+
+/// Volume serial number and file index of an open handle: the identity of the file itself,
+/// whatever path names it.
+#[cfg(windows)]
+fn file_key(file: &File) -> io::Result<(u32, u64)> {
+    use std::os::windows::io::AsRawHandle;
+    #[repr(C)]
+    struct FileTime {
+        low: u32,
+        high: u32,
+    }
+    #[repr(C)]
+    struct ByHandleFileInformation {
+        attributes: u32,
+        creation: FileTime,
+        access: FileTime,
+        write: FileTime,
+        volume_serial: u32,
+        size_high: u32,
+        size_low: u32,
+        links: u32,
+        index_high: u32,
+        index_low: u32,
+    }
+    #[link(name = "kernel32")]
+    unsafe extern "system" {
+        fn GetFileInformationByHandle(
+            handle: *mut std::ffi::c_void,
+            info: *mut ByHandleFileInformation,
+        ) -> i32;
+    }
+    let mut info = std::mem::MaybeUninit::<ByHandleFileInformation>::zeroed();
+    // SAFETY: the handle is a live file handle and `info` is a valid out-parameter.
+    let ok = unsafe { GetFileInformationByHandle(file.as_raw_handle().cast(), info.as_mut_ptr()) };
+    if ok == 0 {
+        return Err(io::Error::last_os_error());
+    }
+    // SAFETY: the call succeeded and filled the struct.
+    let info = unsafe { info.assume_init() };
+    Ok((
+        info.volume_serial,
+        (u64::from(info.index_high) << 32) | u64::from(info.index_low),
+    ))
+}
 
 /// Fail when `path` no longer names the file `file` is open on.
 fn ensure_same_file(file: &File, path: &Path) -> io::Result<()> {
@@ -539,7 +721,18 @@ fn ensure_same_file(file: &File, path: &Path) -> io::Result<()> {
             return Err(io::Error::other("partial path was replaced"));
         }
     }
-    #[cfg(not(unix))]
+    #[cfg(windows)]
+    {
+        // A second handle on the path, itself refused if the path is now a link. It is
+        // closed again before the caller renames.
+        let mut options = OpenOptions::new();
+        options.read(true);
+        let current = open_nofollow(&mut options, path)?;
+        if file_key(file)? != file_key(&current)? {
+            return Err(io::Error::other("partial path was replaced"));
+        }
+    }
+    #[cfg(not(any(unix, windows)))]
     let _ = file;
     Ok(())
 }
@@ -685,5 +878,155 @@ mod tests {
             resource_key("https://h.example/a/b?sig=1#x"),
             "https://h.example/a/b"
         );
+    }
+
+    /// Fresh scratch directory for one unit test.
+    fn scratch(name: &str) -> PathBuf {
+        let dir =
+            std::env::temp_dir().join(format!("rightkit-http-unit-{}-{name}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    // ------------------------------------------------------------------ wire head
+    fn observed(encoding: Option<&str>) -> WireHead {
+        WireHead::Observed {
+            content_encoding: encoding.map(str::to_string),
+        }
+    }
+
+    #[test]
+    fn an_unobserved_head_is_refused_not_read_as_no_encoding() {
+        let err = check_wire_encoding(&WireHead::Unobserved, &[]).unwrap_err();
+        assert!(
+            matches!(&err, DownloadError::Http(HttpError::Stream(m)) if m.contains("not observed")),
+            "{err:?}"
+        );
+        // Observed with no encoding is the only state that passes without a value.
+        assert!(check_wire_encoding(&observed(None), &[]).is_ok());
+    }
+
+    #[test]
+    fn only_identity_codings_pass() {
+        assert!(check_wire_encoding(&observed(Some("identity")), &[]).is_ok());
+        assert!(check_wire_encoding(&observed(Some(" Identity ")), &[]).is_ok());
+        assert!(check_wire_encoding(&observed(Some("identity, identity")), &[]).is_ok());
+        for bad in ["gzip", "identity, gzip", "br", "", "x-gzip"] {
+            assert!(
+                check_wire_encoding(&observed(Some(bad)), &[]).is_err(),
+                "{bad:?} must be refused"
+            );
+        }
+        // A header that survived (ureq did not decode) is checked when the wire gave none.
+        let headers = vec![("content-encoding".to_string(), "gzip".to_string())];
+        assert!(check_wire_encoding(&observed(None), &headers).is_err());
+    }
+
+    // ------------------------------------------------------------------ destination lock
+    #[test]
+    fn the_destination_lock_excludes_a_second_holder_until_released() {
+        let dir = scratch("dest-lock");
+        let dest = dir.join("out.bin");
+        let first = DestLock::acquire(&dest).unwrap();
+        // A second handle in the same process is as much a second writer as another process.
+        let err = DestLock::acquire(&dest).expect_err("lock must be held");
+        assert!(
+            matches!(&err, DownloadError::Io(m) if m.contains("in progress")),
+            "{err:?}"
+        );
+        // A different destination is independent.
+        assert!(DestLock::acquire(&dir.join("other.bin")).is_ok());
+        drop(first);
+        assert!(DestLock::acquire(&dest).is_ok(), "released on drop");
+        // The lock file stays: deleting it would let two holders lock different files.
+        assert!(lock_path(&dest).exists());
+        assert_eq!(lock_path(&dest), dir.join("out.bin.lock"));
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    // ------------------------------------------------------------------ link swap
+    fn link_file(target: &Path, link: &Path) -> io::Result<()> {
+        #[cfg(unix)]
+        {
+            std::os::unix::fs::symlink(target, link)
+        }
+        #[cfg(windows)]
+        {
+            std::os::windows::fs::symlink_file(target, link)
+        }
+        #[cfg(not(any(unix, windows)))]
+        {
+            let _ = (target, link);
+            Err(io::Error::other("links are not supported on this platform"))
+        }
+    }
+
+    /// The finding: `.part` is a regular file when inspected and a link to another file by
+    /// the time it is opened. On Windows the open used to follow it, and a later `200`
+    /// truncated the target. The open itself must refuse the link, before any write.
+    #[test]
+    fn a_part_swapped_for_a_link_after_the_check_is_never_followed() {
+        let dir = scratch("swap-link");
+        let victim = dir.join("victim.txt");
+        fs::write(&victim, b"precious").unwrap();
+        let part = dir.join("out.bin.part");
+        fs::write(&part, b"partial").unwrap();
+
+        let link_error = std::cell::RefCell::new(None::<String>);
+        let result = open_part_with(&part, true, &|| {
+            fs::remove_file(&part).unwrap();
+            if let Err(e) = link_file(&victim, &part) {
+                *link_error.borrow_mut() = Some(e.to_string());
+            }
+        });
+        if let Some(reason) = link_error.into_inner() {
+            // Windows needs Developer Mode or an elevated token to create a symlink. Say so
+            // loudly: the swap was not exercised, so this run proves nothing about it.
+            eprintln!(
+                "SKIPPED a_part_swapped_for_a_link_after_the_check_is_never_followed: \
+                 cannot create a symbolic link here ({reason})"
+            );
+            let _ = fs::remove_dir_all(&dir);
+            return;
+        }
+        let err = result.expect_err("a link swapped in after the check must be refused");
+        assert!(matches!(err, DownloadError::Io(_)), "{err:?}");
+        assert_eq!(fs::read(&victim).unwrap(), b"precious");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_regular_part_is_opened_for_append_on_resume() {
+        let dir = scratch("resume-open");
+        let part = dir.join("out.bin.part");
+        fs::write(&part, b"abc").unwrap();
+        let mut file = open_part(&part, true).unwrap();
+        file.write_all(b"def").unwrap();
+        drop(file);
+        assert_eq!(fs::read(&part).unwrap(), b"abcdef");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn the_same_file_check_notices_a_replaced_part() {
+        let dir = scratch("same-file");
+        let part = dir.join("out.bin.part");
+        fs::write(&part, b"one").unwrap();
+        let file = open_part(&part, true).unwrap();
+        assert!(ensure_same_file(&file, &part).is_ok());
+        // Replace the path with a different file while the first handle stays open. A
+        // rename over an open file is allowed on Unix and, with the default share mode, on
+        // Windows.
+        let other = dir.join("other.bin");
+        fs::write(&other, b"two").unwrap();
+        if fs::rename(&other, &part).is_err() {
+            eprintln!("SKIPPED the_same_file_check_notices_a_replaced_part: cannot replace an open file here");
+            let _ = fs::remove_dir_all(&dir);
+            return;
+        }
+        assert!(ensure_same_file(&file, &part).is_err());
+        drop(file);
+        let _ = fs::remove_dir_all(&dir);
     }
 }

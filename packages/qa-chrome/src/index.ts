@@ -187,6 +187,12 @@ export interface ChromeCloseReport {
    */
   observedExitingPids: number[];
   durationMs: number;
+  /**
+   * Optional, present only when true. The close could not establish that the browser is gone: a liveness
+   * query or the final profile scan failed or timed out, or the launcher's exit was never seen while the
+   * profile scan listed nothing. `exited` is false whenever this is set.
+   */
+  livenessUnknown?: boolean;
 }
 
 export interface CloseChromeOptions {
@@ -291,35 +297,36 @@ export async function launchChromeForTesting(options: LaunchChromeOptions = {}):
   };
 }
 
-function treeAlive(child: ChildProcess): boolean {
+/** Liveness of the launched process from one OS query. `unknown` means the query failed or timed out. */
+export type LauncherLiveness = 'alive' | 'gone' | 'unknown';
+
+/**
+ * OS probe for the launcher. POSIX: `kill(-pid, 0)` on its process group; ESRCH is gone, EPERM means the
+ * group exists, any other error is unknown. Windows has no separate query: Node's exit bookkeeping decides
+ * (see `observeLauncher`), so this reports `alive` until that records an exit.
+ */
+function launcherLiveness(child: ChildProcess): LauncherLiveness {
   const pid = child.pid;
-  if (!pid) return false;
-  if (process.platform === 'win32') return child.exitCode === null && child.signalCode === null;
+  if (!pid) return 'gone';
+  if (process.platform === 'win32') return 'alive';
   try {
     process.kill(-pid, 0);
-    return true;
+    return 'alive';
   } catch (error) {
-    return (error as NodeJS.ErrnoException).code === 'EPERM';
+    const code = (error as NodeJS.ErrnoException).code;
+    if (code === 'ESRCH') return 'gone';
+    if (code === 'EPERM') return 'alive';
+    return 'unknown';
   }
 }
 
-async function waitGone(child: ChildProcess, timeoutMs: number): Promise<boolean> {
-  const deadline = Date.now() + timeoutMs;
-  while (treeAlive(child)) {
-    if (Date.now() >= deadline) return false;
-    await new Promise((resolve) => setTimeout(resolve, 25));
-  }
-  return true;
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-/** SIGKILL the tree, re-issuing the kill every 2 s until it is gone or `timeoutMs` passes. */
-async function forceTreeGone(child: ChildProcess, timeoutMs: number): Promise<boolean> {
-  const deadline = Date.now() + timeoutMs;
-  for (;;) {
-    signalTree(child, 'SIGKILL');
-    if (await waitGone(child, Math.min(2_000, Math.max(0, deadline - Date.now())))) return true;
-    if (Date.now() >= deadline) return false;
-  }
+/** Windows: force one profile leftover pid and its children. */
+function killPidForced(pid: number): void {
+  spawnSync('taskkill.exe', ['/PID', String(pid), '/T', '/F'], { stdio: 'ignore', windowsHide: true });
 }
 
 function signalTree(child: ChildProcess, signal: 'SIGTERM' | 'SIGKILL'): void {
@@ -336,37 +343,48 @@ function signalTree(child: ChildProcess, signal: 'SIGTERM' | 'SIGKILL'): void {
   }
 }
 
+/** Last line of a Windows profile scan that ran to completion. Without it the output is a failed query. */
+const SCAN_COMPLETE = 'RK_QA_SCAN_COMPLETE';
+
 /**
- * Windows only: pids of every process whose command line carries `profileDir` (the Chrome
- * browser process and all its descendants, including orphans of an exited launcher). `[]` on
- * other platforms. The profile directory is unique per launch, so the match cannot hit
- * unrelated browsers.
+ * Pids of every process whose command line carries `profileDir`: the Chrome browser process and all its
+ * descendants, including orphans of an exited launcher. The profile directory is unique per launch, so the
+ * match cannot hit unrelated browsers. Windows scans with PowerShell; macOS and Linux with `ps`.
+ *
+ * A scan that fails or times out returns `[]`, which means "unknown", not "none". `closeChromeGracefully`
+ * never reads that as clean; it reports `livenessUnknown` instead.
  */
 export function chromeProcessesForProfile(profileDir: string): number[] {
+  return probeProfileProcesses(profileDir) ?? [];
+}
+
+/** The same scan with failure kept distinct: `null` when the query failed, exited non-zero, or timed out. */
+function probeProfileProcesses(profileDir: string): number[] | null {
+  if (!profileDir) return [];
   if (process.platform !== 'win32') return posixProcessesForProfile(profileDir);
-  const script = '$p = $env:RK_QA_PROFILE; Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -and $_.ProcessId -ne $PID -and $_.CommandLine.IndexOf($p, [StringComparison]::OrdinalIgnoreCase) -ge 0 } | ForEach-Object { $_.ProcessId }';
+  const script = `$ErrorActionPreference = 'Stop'; $p = $env:RK_QA_PROFILE; Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -and $_.ProcessId -ne $PID -and $_.CommandLine.IndexOf($p, [StringComparison]::OrdinalIgnoreCase) -ge 0 } | ForEach-Object { $_.ProcessId }; '${SCAN_COMPLETE}'`;
   const result = spawnSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', script], {
     encoding: 'utf8',
     windowsHide: true,
     timeout: 15_000,
     env: { ...process.env, RK_QA_PROFILE: profileDir },
   });
-  if (result.status !== 0) return [];
-  return result.stdout
-    .split(/\r?\n/)
-    .map((line) => Number.parseInt(line.trim(), 10))
+  if (result.status !== 0 || typeof result.stdout !== 'string') return null;
+  const lines = result.stdout.split(/\r?\n/).map((line) => line.trim());
+  if (!lines.includes(SCAN_COMPLETE)) return null;
+  return lines
+    .map((line) => Number.parseInt(line, 10))
     .filter((pid) => Number.isInteger(pid) && pid > 0 && pid !== process.pid);
 }
 
 /**
- * POSIX scan: every process whose argv carries `--user-data-dir=<profileDir>` as a whole argument
- * (a sibling profile `<profileDir>2` does not match). `ps -o args=` works on macOS and Linux.
+ * POSIX scan: every process whose argv carries `--user-data-dir=<profileDir>` as a whole argument (a sibling
+ * profile `<profileDir>2` does not match). `ps -o args=` works on macOS and Linux. `null` when `ps` failed.
  */
-function posixProcessesForProfile(profileDir: string): number[] {
-  if (!profileDir) return [];
+function posixProcessesForProfile(profileDir: string): number[] | null {
   const flag = `--user-data-dir=${profileDir}`;
   const result = spawnSync('ps', ['-axww', '-o', 'pid=', '-o', 'args='], { encoding: 'utf8', timeout: 15_000 });
-  if (result.status !== 0 || typeof result.stdout !== 'string') return [];
+  if (result.status !== 0 || typeof result.stdout !== 'string') return null;
   const pids: number[] = [];
   for (const line of result.stdout.split('\n')) {
     const match = /^\s*(\d+)\s+(.*)$/.exec(line);
@@ -380,15 +398,6 @@ function posixProcessesForProfile(profileDir: string): number[] {
     }
   }
   return pids;
-}
-
-async function waitProfileProcessesGone(profileDir: string, timeoutMs: number): Promise<number[]> {
-  const deadline = Date.now() + timeoutMs;
-  for (;;) {
-    const left = chromeProcessesForProfile(profileDir);
-    if (left.length === 0 || Date.now() >= deadline) return left;
-    await new Promise((resolve) => setTimeout(resolve, 250));
-  }
 }
 
 async function sendBrowserClose(wsEndpoint: string, timeoutMs: number): Promise<void> {
@@ -415,8 +424,116 @@ async function sendBrowserClose(wsEndpoint: string, timeoutMs: number): Promise<
 }
 
 /**
- * Close a Chrome process tree gracefully: CDP `Browser.close`, wait; SIGTERM the process
- * group, wait; SIGKILL only last. Then remove the harness-owned profile directory.
+ * Test seams for {@link closeChromeGracefully}. Every field defaults to the real implementation, so
+ * production callers never set this.
+ */
+export interface CloseSeams {
+  /** Platform. Default `process.platform`. */
+  platform?: NodeJS.Platform;
+  /** OS probe for the launcher. Asked only while Node has not recorded the launcher's exit. */
+  launcherLiveness?: (child: ChildProcess) => LauncherLiveness;
+  /** Signals the browser tree: `taskkill /T` on Windows, the process group on POSIX. */
+  signalTree?: (child: ChildProcess, signal: 'SIGTERM' | 'SIGKILL') => void;
+  /** Force-kills one profile leftover pid (Windows). */
+  killPid?: (pid: number) => void;
+  /** Profile scan. `null` when the query failed or timed out. */
+  scanProfile?: (profileDir: string) => number[] | null;
+  /** Clock. Default `Date.now`. */
+  now?: () => number;
+  /** Delay. Default `setTimeout`. */
+  sleep?: (ms: number) => Promise<void>;
+}
+
+interface CloseDriver {
+  platform: NodeJS.Platform;
+  now: () => number;
+  sleep: (ms: number) => Promise<void>;
+  launcher: (child: ChildProcess) => LauncherLiveness;
+  signal: (child: ChildProcess, signal: 'SIGTERM' | 'SIGKILL') => void;
+  killPid: (pid: number) => void;
+  scan: (profileDir: string) => number[] | null;
+}
+
+function closeDriver(seams: CloseSeams = {}): CloseDriver {
+  return {
+    platform: seams.platform ?? process.platform,
+    now: seams.now ?? Date.now,
+    sleep: seams.sleep ?? delay,
+    launcher: seams.launcherLiveness ?? launcherLiveness,
+    signal: seams.signalTree ?? signalTree,
+    killPid: seams.killPid ?? killPidForced,
+    scan: seams.scanProfile ?? probeProfileProcesses,
+  };
+}
+
+/** A scan that throws is a failed query. */
+function scanOf(d: CloseDriver, profileDir: string): number[] | null {
+  try {
+    return d.scan(profileDir);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * One fresh observation of the launcher. The loop turn comes first: Node records a child's exit only when
+ * the event loop delivers it, so a read made before a turn can be stale after a blocking `spawnSync` kill.
+ * Node's exit bookkeeping decides when it has recorded an exit; otherwise the OS probe is asked, and a probe
+ * that throws is `unknown`.
+ */
+async function observeLauncher(d: CloseDriver, child: ChildProcess): Promise<LauncherLiveness> {
+  await d.sleep(0);
+  if (typeof child.exitCode === 'number' || typeof child.signalCode === 'string') return 'gone';
+  try {
+    return d.launcher(child);
+  } catch {
+    return 'unknown';
+  }
+}
+
+/** The launcher is gone and the profile scan is known to list nothing. */
+async function isSettled(d: CloseDriver, child: ChildProcess, profileDir: string | undefined): Promise<boolean> {
+  if ((await observeLauncher(d, child)) !== 'gone') return false;
+  if (!profileDir) return true;
+  return scanOf(d, profileDir)?.length === 0;
+}
+
+/** Waits up to `ms` for {@link isSettled}. The first check is already fresh, so `ms = 0` still observes once. */
+async function waitSettled(d: CloseDriver, child: ChildProcess, profileDir: string | undefined, ms: number): Promise<boolean> {
+  const deadline = d.now() + ms;
+  for (;;) {
+    if (await isSettled(d, child, profileDir)) return true;
+    const left = deadline - d.now();
+    if (left <= 0) return false;
+    await d.sleep(Math.min(100, left));
+  }
+}
+
+/**
+ * SIGKILL the tree, and on Windows each listed profile pid, re-issuing every 2 s until settled or `killBound`
+ * passes. Returns at once when the launcher is gone and the profile scan is clean.
+ */
+async function forceSettled(d: CloseDriver, child: ChildProcess, profileDir: string | undefined, killBound: number): Promise<boolean> {
+  const deadline = d.now() + killBound;
+  for (;;) {
+    const launcher = await observeLauncher(d, child);
+    const scan = profileDir ? scanOf(d, profileDir) : [];
+    if (launcher === 'gone' && scan?.length === 0) return true;
+    d.signal(child, 'SIGKILL');
+    if (d.platform === 'win32') for (const pid of scan ?? []) d.killPid(pid);
+    const left = Math.min(2_000, Math.max(0, deadline - d.now()));
+    if (await waitSettled(d, child, profileDir, left)) return true;
+    if (d.now() >= deadline) return false;
+  }
+}
+
+/**
+ * Close a Chrome process tree gracefully: CDP `Browser.close`, wait; SIGTERM the process group, wait; SIGKILL
+ * only last. Then remove the harness-owned profile directory and settle the profile's process list.
+ *
+ * `exited` is true only when Node has observed the launcher's exit (or the OS probe reports it gone) and the
+ * profile scan lists nothing. A failed scan or probe is retried inside the bound and otherwise reported as
+ * `livenessUnknown`; it is never read as clean or as alive.
  */
 export async function closeChromeGracefully(options: {
   child: ChildProcess;
@@ -427,68 +544,70 @@ export async function closeChromeGracefully(options: {
   killTimeoutMs?: number;
   /** Upper bound for the post-force settle. Default 4 s. */
   settleMs?: number;
+  /** Test seams. Every field defaults to the real implementation. */
+  seams?: CloseSeams;
 }): Promise<ChromeCloseReport> {
-  const started = Date.now();
+  const d = closeDriver(options.seams);
+  const { child, profileDir } = options;
+  const started = d.now();
   const grace = options.graceMs ?? 5_000;
   const killBound = options.killTimeoutMs ?? 15_000;
   let step: ChromeCloseStep = 'already-exited';
-  let exited = !treeAlive(options.child);
-  if (!exited && options.wsEndpoint) {
+  let settled = await isSettled(d, child, profileDir);
+  if (!settled && options.wsEndpoint) {
     step = 'cdp';
     await sendBrowserClose(options.wsEndpoint, Math.min(grace, 2_000));
-    exited = await waitGone(options.child, grace);
+    settled = await waitSettled(d, child, profileDir, grace);
   }
   // Windows has no graceful signal for a windowless headless browser (`taskkill /T` without
   // `/F` is a no-op there), so that step is skipped rather than burning a grace period.
-  if (!exited && process.platform !== 'win32') {
+  if (!settled && d.platform !== 'win32') {
     step = 'sigterm';
-    signalTree(options.child, 'SIGTERM');
-    exited = await waitGone(options.child, grace);
+    d.signal(child, 'SIGTERM');
+    settled = await waitSettled(d, child, profileDir, grace);
   }
-  if (!exited) {
+  if (!settled) {
     step = 'sigkill';
-    exited = await forceTreeGone(options.child, killBound);
-  }
-  // Windows: Chrome's children outlive a dead launcher and `taskkill /T` can no longer find
-  // them, but they still hold the profile directory. Give them a short grace, then force them.
-  if (process.platform === 'win32' && options.profileDir) {
-    let left = await waitProfileProcessesGone(options.profileDir, 1_500);
-    // Keep forcing until the profile's processes are gone: under load a single
-    // `taskkill /F` round can leave a hung renderer behind for several seconds.
-    const deadline = Date.now() + killBound;
-    while (left.length > 0 && Date.now() < deadline) {
-      for (const pid of left) spawnSync('taskkill.exe', ['/PID', String(pid), '/T', '/F'], { stdio: 'ignore', windowsHide: true });
-      if (step !== 'sigkill') step = 'sigkill';
-      left = await waitProfileProcessesGone(options.profileDir, Math.min(2_000, Math.max(0, deadline - Date.now())));
-    }
-    // The forced loop only decides when to stop forcing; whether the profile is clean is decided by the settle below.
+    // Windows: Chrome's children outlive a dead launcher and `taskkill /T` cannot find them, so each listed
+    // profile pid is forced too. Under load one round can leave a hung renderer, so this keeps re-issuing.
+    await forceSettled(d, child, profileDir, killBound);
   }
   let profileRemoved = true;
-  if (options.profileDir) {
+  if (profileDir) {
     try {
-      rmSync(options.profileDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+      rmSync(profileDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
     } catch {
       // A held profile is reported through `profileRemoved`, never thrown from close().
     }
-    profileRemoved = !existsSync(options.profileDir);
+    profileRemoved = !existsSync(profileDir);
   }
-  // Settle: processes that were still exiting at the last forced round get a bounded wait, then one
-  // final scan decides. A pid still listed after the bound is a leftover; it never turns into a pass.
+  // Settle: pids still exiting get a bounded wait, then the last scan decides. A pid still listed after the
+  // bound is a leftover. A scan that never answers is unknown, not an empty profile.
   let leftoverPids: number[] = [];
   let observedExitingPids: number[] = [];
-  if (options.profileDir) {
-    const profileDir = options.profileDir;
-    const settled = await settleProfileProcesses({ list: () => chromeProcessesForProfile(profileDir), boundMs: options.settleMs ?? 4_000 });
-    leftoverPids = settled.leftoverPids;
-    observedExitingPids = settled.observedExitingPids;
+  let scanUnknown = false;
+  if (profileDir) {
+    const settle = await settleProfileProcesses({
+      list: () => scanOf(d, profileDir),
+      boundMs: options.settleMs ?? 4_000,
+      now: d.now,
+      sleep: d.sleep,
+    });
+    leftoverPids = settle.leftoverPids;
+    observedExitingPids = settle.observedExitingPids;
+    scanUnknown = settle.unknown === true;
   }
-  exited = exited && leftoverPids.length === 0;
-  return { step, exited, profileRemoved, leftoverPids, observedExitingPids, durationMs: Date.now() - started };
+  // One more fresh look at the launcher decides the verdict.
+  const launcher = await observeLauncher(d, child);
+  const exited = launcher === 'gone' && leftoverPids.length === 0 && !scanUnknown;
+  const report: ChromeCloseReport = { step, exited, profileRemoved, leftoverPids, observedExitingPids, durationMs: d.now() - started };
+  if (!exited && (leftoverPids.length === 0 || scanUnknown)) report.livenessUnknown = true;
+  return report;
 }
 
 export interface ProfileSettleOptions {
-  /** Lists the pids of the profile's processes now. */
-  list: () => number[];
+  /** Lists the pids of the profile's processes now. `null` when the query failed or timed out. */
+  list: () => number[] | null;
   /** Upper bound on waiting for listed pids to exit. Default 4 s. */
   boundMs?: number;
   /** Delay between scans. Default 250 ms. */
@@ -505,13 +624,15 @@ export interface ProfileSettleResult {
   observedExitingPids: number[];
   /** Scans performed, including the first. */
   scans: number;
+  /** Present only when true: the last scan failed, so the profile may still hold processes unseen. */
+  unknown?: boolean;
 }
 
 /**
- * Bounded settle for a profile's process list: scan, and while anything is listed and the bound has
- * not passed, wait and scan again. Reports what is still listed (leftovers) apart from what was seen
- * exiting, so slow exit and a real leak are distinguishable. Pure apart from the injected list, clock
- * and delay.
+ * Bounded settle for a profile's process list: scan, and while anything is listed (or a scan failed) and the
+ * bound has not passed, wait and scan again. Reports what is still listed (leftovers) apart from what was seen
+ * exiting, so slow exit and a real leak are distinguishable. A failed scan is retried inside the bound; if the
+ * last one still fails, the result is `unknown`. Pure apart from the injected list, clock and delay.
  */
 export async function settleProfileProcesses(options: ProfileSettleOptions): Promise<ProfileSettleResult> {
   const boundMs = options.boundMs ?? 4_000;
@@ -519,17 +640,22 @@ export async function settleProfileProcesses(options: ProfileSettleOptions): Pro
   const now = options.now ?? Date.now;
   const sleep = options.sleep ?? ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
   const deadline = now() + boundMs;
-  let current = options.list();
+  let current: number[] | null = options.list();
+  let lastKnown: number[] = current ?? [];
   let scans = 1;
-  const first = [...current];
+  const first = [...lastKnown];
   const exiting = new Set<number>();
-  while (current.length > 0 && now() < deadline) {
+  while ((current === null || current.length > 0) && now() < deadline) {
     await sleep(Math.min(pollMs, Math.max(1, deadline - now())));
     current = options.list();
     scans++;
+    if (current === null) continue;
     for (const pid of first) if (!current.includes(pid)) exiting.add(pid);
+    lastKnown = current;
   }
-  return { leftoverPids: current, observedExitingPids: [...exiting], scans };
+  const result: ProfileSettleResult = { leftoverPids: lastKnown, observedExitingPids: [...exiting], scans };
+  if (current === null) result.unknown = true;
+  return result;
 }
 
 /** macOS per-user `X` directories that hold browser code-sign clones (deduplicated). */

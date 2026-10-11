@@ -65,7 +65,10 @@ fn f4_short_resumed_range_is_not_a_complete_download() {
         ),
         "{err:?}"
     );
-    assert!(!dest.exists(), "a truncated file must not be renamed into place");
+    assert!(
+        !dest.exists(),
+        "a truncated file must not be renamed into place"
+    );
 }
 
 #[test]
@@ -97,11 +100,8 @@ fn f6_chunked_gzip_is_refused_by_a_download() {
     });
     let dir = scratch("f6");
     let dest = dir.join("out.bin");
-    let result = Client::new(cfg()).download_to_path(
-        &server.url("/f"),
-        &dest,
-        DownloadOptions::default(),
-    );
+    let result =
+        Client::new(cfg()).download_to_path(&server.url("/f"), &dest, DownloadOptions::default());
     assert!(result.is_err(), "decoded bytes were accepted: {result:?}");
     assert!(!dest.exists());
 }
@@ -148,7 +148,8 @@ fn f7_content_range_ending_at_u64_max_is_rejected_not_wrapped() {
 #[test]
 fn f8_response_debug_hides_configured_and_request_secrets() {
     let server = MockServer::start(|_, _| {
-        MockResponse::text(200, "body").header("X-Echo", "hunter2-config")
+        MockResponse::text(200, "body")
+            .header("X-Echo", "hunter2-config")
             .header("X-Echo2", "hunter2-request")
     });
     let c = Client::new(ClientConfig {

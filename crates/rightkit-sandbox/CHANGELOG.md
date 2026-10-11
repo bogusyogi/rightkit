@@ -7,7 +7,12 @@
 - New default-on `pty` feature gates `Sandbox::spawn_pty`, `PtySession`, `PtySize`, `PtyError`,
   `PtyLeaseSnapshot`, `UnacknowledgedInputDecision` and the `portable-pty` dependency. Default
   builds are unchanged; `default-features = false` drops `portable-pty`.
-- Requires `rightkit-process` 0.3.3. No source change.
+- `wait_with_output` no longer reaps the child before its pipes are drained. It observes the exit with
+  `ProcessHandle::wait_exited_timeout` and reaps after the drain. An unreaped leader keeps pinning its
+  process-group id, so a descendant that outlives it and holds stdout or stderr is still killed with the
+  group at the deadline and the capture is complete. Before, `rightkit-process` 0.3.4 (which stops signalling
+  a group once its leader is reaped) left such a descendant running and `truncated` was set. Requires
+  `rightkit-process` 0.3.4 (the manifest requirement is still `0.3.3` and must be raised at release).
 
 ## 0.3.0 — staged, unpublished
 

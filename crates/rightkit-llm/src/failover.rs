@@ -12,6 +12,7 @@
 //!    `breaker_window`, the route is skipped for `breaker_cool_down`.
 
 use std::collections::HashMap;
+use std::fmt;
 use std::ops::ControlFlow;
 use std::sync::mpsc::{self, RecvTimeoutError};
 use std::sync::{Arc, Mutex};
@@ -74,11 +75,58 @@ struct Breaker {
 
 type Observer = Box<dyn Fn(&FailoverEvent) + Send + Sync>;
 
+/// Which errors move a call to the next route. Applies only before the first token: a
+/// route that already delivered output is never failed over, whatever this policy says.
+#[derive(Clone, Default)]
+pub enum FailoverOn {
+    /// Retryable errors only: [`LlmError::is_failover_trigger`]. The default.
+    #[default]
+    Retryable,
+    /// Every error except [`LlmError::Cancelled`] (the caller stopped the call),
+    /// [`LlmError::MidStream`] (output already reached the caller), and
+    /// [`LlmError::InvalidRequest`] (a caller-side request problem that every route would
+    /// repeat). Auth errors and rejected output (`Malformed`, `Truncated`, `Provider`, ...)
+    /// do fail over.
+    AnyError,
+    /// A predicate chosen by the caller. It is consulted only before the first token.
+    Custom(Arc<dyn Fn(&LlmError) -> bool + Send + Sync>),
+}
+
+impl FailoverOn {
+    /// [`FailoverOn::Custom`] from a closure.
+    pub fn custom(f: impl Fn(&LlmError) -> bool + Send + Sync + 'static) -> Self {
+        FailoverOn::Custom(Arc::new(f))
+    }
+
+    /// Whether `error` moves the call to the next route under this policy.
+    pub fn matches(&self, error: &LlmError) -> bool {
+        match self {
+            FailoverOn::Retryable => error.is_failover_trigger(),
+            FailoverOn::AnyError => !matches!(
+                error,
+                LlmError::Cancelled | LlmError::MidStream(_) | LlmError::InvalidRequest(_)
+            ),
+            FailoverOn::Custom(f) => f(error),
+        }
+    }
+}
+
+impl fmt::Debug for FailoverOn {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            FailoverOn::Retryable => f.write_str("Retryable"),
+            FailoverOn::AnyError => f.write_str("AnyError"),
+            FailoverOn::Custom(_) => f.write_str("Custom(..)"),
+        }
+    }
+}
+
 pub struct FailoverChain {
     routes: Vec<Route>,
     policy: FailoverPolicy,
     breakers: Mutex<HashMap<String, Breaker>>,
     observer: Option<Observer>,
+    on: FailoverOn,
 }
 
 impl FailoverChain {
@@ -88,10 +136,16 @@ impl FailoverChain {
             policy,
             breakers: Mutex::new(HashMap::new()),
             observer: None,
+            on: FailoverOn::default(),
         }
     }
     pub fn on_failover(mut self, f: impl Fn(&FailoverEvent) + Send + Sync + 'static) -> Self {
         self.observer = Some(Box::new(f));
+        self
+    }
+    /// Choose which errors fail over. The default is [`FailoverOn::Retryable`].
+    pub fn fail_over_on(mut self, on: FailoverOn) -> Self {
+        self.on = on;
         self
     }
 
@@ -146,10 +200,12 @@ impl FailoverChain {
         }
     }
 
+    /// `attempt_route` sets its `sent` flag once the route delivered output; from then on the
+    /// call is never failed over.
     fn run<T>(
         &self,
         req: &ChatRequest,
-        mut attempt_route: impl FnMut(&Route, &ChatRequest) -> Result<T, LlmError>,
+        mut attempt_route: impl FnMut(&Route, &ChatRequest, &mut bool) -> Result<T, LlmError>,
     ) -> Result<T, LlmError> {
         let order = self.order();
         let mut attempts: Vec<Attempt> = Vec::new();
@@ -157,12 +213,13 @@ impl FailoverChain {
             let route = &self.routes[i];
             let mut r = req.clone();
             r.model = route.model.clone();
-            match attempt_route(route, &r) {
+            let mut sent = false;
+            match attempt_route(route, &r, &mut sent) {
                 Ok(v) => {
                     self.record_success(&route.name);
                     return Ok(v);
                 }
-                Err(e) if e.is_failover_trigger() => {
+                Err(e) if !sent && self.on.matches(&e) => {
                     let reason = e.to_string();
                     self.record_away(&route.name);
                     let next = order.get(pos + 1).map(|&n| self.routes[n].name.as_str());
@@ -190,7 +247,7 @@ impl Provider for FailoverChain {
     }
 
     fn complete(&self, req: &ChatRequest) -> Result<ChatResponse, LlmError> {
-        self.run(req, |route, r| route.provider.complete(r))
+        self.run(req, |route, r, _| route.provider.complete(r))
     }
 
     fn stream(
@@ -198,7 +255,7 @@ impl Provider for FailoverChain {
         req: &ChatRequest,
         on_event: &mut dyn FnMut(StreamEvent) -> ControlFlow<()>,
     ) -> Result<ChatResponse, LlmError> {
-        self.run(req, |route, r| {
+        self.run(req, |route, r, sent| {
             let (tx, rx) = mpsc::channel::<Msg>();
             let provider = route.provider.clone();
             let request = r.clone();
@@ -220,16 +277,15 @@ impl Provider for FailoverChain {
 
             // Phase 1: wait for the first event within the first-token deadline.
             let deadline = Instant::now() + self.policy.first_token_timeout;
-            let mut delivered = false;
             loop {
-                let msg = if delivered {
+                let msg = if *sent {
                     rx.recv().map_err(|_| RecvTimeoutError::Disconnected)
                 } else {
                     rx.recv_timeout(deadline.saturating_duration_since(Instant::now()))
                 };
                 match msg {
                     Ok(Msg::Event(ev)) => {
-                        delivered = true;
+                        *sent = true;
                         if on_event(ev).is_break() {
                             cancel.store(true, std::sync::atomic::Ordering::SeqCst);
                             return Err(LlmError::Cancelled);

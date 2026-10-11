@@ -312,11 +312,21 @@ fn finish(
 }
 
 impl Inner {
-    fn wait_timeout(&mut self, timeout: Duration) -> std::io::Result<Option<ExitStatus>> {
+    /// Waits up to `timeout` for the child to exit and says whether it did.
+    ///
+    /// Unix: the exit is only observed, never reaped. An unreaped leader keeps pinning its
+    /// process-group id, so the group can still be killed while descendants hold the pipes; a
+    /// reaped one cannot be signalled any more (the id may be recycled). The caller reaps
+    /// with `wait` once the pipes are drained. The status comes back only where the host
+    /// reaps as part of the wait (the Windows confined child).
+    fn wait_exited(&mut self, timeout: Duration) -> std::io::Result<(bool, Option<ExitStatus>)> {
         match self {
-            Self::Owned(c) => c.wait_timeout(timeout),
+            Self::Owned(c) => Ok((c.process_handle()?.wait_exited_timeout(timeout)?, None)),
             #[cfg(windows)]
-            Self::Confined(c) => c.wait_timeout(timeout),
+            Self::Confined(c) => {
+                let status = c.wait_timeout(timeout)?;
+                Ok((status.is_some(), status))
+            }
         }
     }
 }
@@ -389,10 +399,14 @@ impl SandboxedChild {
         );
         drop(tx);
 
-        let (status, mut timed_out) = match self.inner.wait_timeout(timeout)? {
-            Some(s) => (Some(s), false),
-            None => (Some(self.terminate_tree()?), true),
-        };
+        // The leader is observed, not reaped: if it exited while a descendant still holds a
+        // pipe, the group must stay killable (an unreaped leader pins its group id) until the
+        // pipes are drained or the deadline passes. It is reaped below, after the drain.
+        let (exited, mut status) = self.inner.wait_exited(timeout)?;
+        let mut timed_out = !exited;
+        if !exited {
+            status = Some(self.terminate_tree()?);
+        }
 
         let mut out: Option<Captured> = None;
         let mut err: Option<Captured> = None;
@@ -414,7 +428,10 @@ impl SandboxedChild {
             // A descendant holds a pipe past the deadline: kill what is left of
             // the tree, then give the readers a short bounded grace to finish.
             timed_out = true;
-            let _ = self.terminate_tree();
+            // Kills the group while the leader is still unreaped, then reaps it.
+            if let Ok(killed) = self.terminate_tree() {
+                status = status.or(Some(killed));
+            }
             let grace_end = Instant::now() + KILL_DRAIN_GRACE;
             while pending > 0 {
                 match rx.recv_timeout(grace_end.saturating_duration_since(Instant::now())) {
@@ -426,6 +443,13 @@ impl SandboxedChild {
                 }
             }
         }
+
+        // Reap now if nothing has: the pipes are drained, so there is nothing left to kill
+        // through the leader's group id.
+        let status = match status {
+            Some(status) => Some(status),
+            None => Some(self.wait()?),
+        };
 
         let finish = |c: Option<Captured>| {
             c.unwrap_or(Captured {

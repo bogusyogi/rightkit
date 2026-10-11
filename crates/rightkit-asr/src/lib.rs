@@ -121,6 +121,7 @@ pub use longform::{
 pub use config::{ModelConfig as ModelConfigJson, PreprocessorConfig};
 
 pub use decoder::{TimedPiece, TimedToken, TranscriptionResult};
+pub use decoder_tdt::LAST_TOKEN_MIN_DURATION_MS;
 #[cfg(feature = "whisper-tokenizers")]
 pub use decoder_ctc::ParakeetDecoder;
 pub use model::ParakeetModel;

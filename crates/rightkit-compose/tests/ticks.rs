@@ -2,9 +2,18 @@
 
 use rightkit_compose::*;
 
-const NTSC_30: Rational = Rational { num: 30000, den: 1001 };
-const NTSC_24: Rational = Rational { num: 24000, den: 1001 };
-const NTSC_60: Rational = Rational { num: 60000, den: 1001 };
+const NTSC_30: Rational = Rational {
+    num: 30000,
+    den: 1001,
+};
+const NTSC_24: Rational = Rational {
+    num: 24000,
+    den: 1001,
+};
+const NTSC_60: Rational = Rational {
+    num: 60000,
+    den: 1001,
+};
 
 #[test]
 fn clock_constants_match_cutright() {
@@ -26,7 +35,10 @@ fn milliseconds_convert_exactly() {
 
 #[test]
 fn seconds_as_rationals_are_floored_and_exact_when_whole() {
-    assert_eq!(Ticks::from_seconds_rational(3, 2), Some(Ticks(1_058_400_000)));
+    assert_eq!(
+        Ticks::from_seconds_rational(3, 2),
+        Some(Ticks(1_058_400_000))
+    );
     assert_eq!(Ticks::from_seconds_rational(1, 3), Some(Ticks(235_200_000)));
     // 1/7 s is exactly 100,800,000 ticks; 1/11 s is 64,145,454.5 and floors.
     assert_eq!(Ticks::from_seconds_rational(1, 7), Some(Ticks(100_800_000)));

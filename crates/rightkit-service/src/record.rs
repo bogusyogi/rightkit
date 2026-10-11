@@ -103,12 +103,15 @@ pub fn read_live_record(suite: &Suite, service: &str) -> Option<ServiceRecord> {
 }
 
 /// Publish a takeover request (atomic, owner-only).
+///
+/// A host in another process finds the request on its next check of `takeover.json`, at most
+/// about a second later. A host in this process is woken at once.
 pub fn write_takeover(suite: &Suite, service: &str, req: &TakeoverRequest) -> std::io::Result<()> {
     crate::suite::make_private_dir(&suite.service_dir(service)).map_err(std::io::Error::other)?;
-    write_atomic(
-        &takeover_path(suite, service),
-        &serde_json::to_vec_pretty(req).unwrap_or_default(),
-    )
+    let path = takeover_path(suite, service);
+    write_atomic(&path, &serde_json::to_vec_pretty(req).unwrap_or_default())?;
+    crate::takeover_watch::poke(&path);
+    Ok(())
 }
 
 /// Remove `takeover.json` only if `pid` wrote it.

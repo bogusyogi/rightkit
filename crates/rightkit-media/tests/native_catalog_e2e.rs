@@ -2,13 +2,16 @@
 //! (binaries and lock files) wherever they exist on this machine, and checks
 //! suite invariants of the embedded catalog.
 
+mod common;
+
 use std::path::{Path, PathBuf};
 
 use rightkit_media::native::*;
 
+/// The claude workspace root: three levels above `crates/<crate>` in this checkout layout.
 fn root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../../../..")
+        .join("../../..")
         .canonicalize()
         .unwrap()
 }
@@ -141,7 +144,7 @@ fn real_local_artifacts_and_locks_match_their_catalog_records() {
     for (lib, os, arch, rel) in files {
         let path = root.join(rel);
         if !path.is_file() {
-            eprintln!("SKIP {lib:?}: {rel} not present");
+            common::skip_missing(&format!("{lib:?} artifact"), rel);
             continue;
         }
         catalog
@@ -169,7 +172,7 @@ fn real_local_artifacts_and_locks_match_their_catalog_records() {
     ] {
         let path = root.join(lock);
         if !path.is_file() {
-            eprintln!("SKIP {lib:?}: {lock} not present");
+            common::skip_missing(&format!("{lib:?} lock file"), lock);
             continue;
         }
         let text = std::fs::read_to_string(path).unwrap();
@@ -181,6 +184,10 @@ fn real_local_artifacts_and_locks_match_their_catalog_records() {
         verified.push(format!("{lib:?}"));
     }
 
+    if verified.is_empty() {
+        // Every artifact was reported as skipped above; nothing on this host to check.
+        return;
+    }
     eprintln!("verified against real artifacts: {verified:?}");
     // The approved artifacts are macOS builds; elsewhere only the platform-neutral Cargo.lock
     // pins (sqlite-vec, libgit2) are guaranteed to be checkable.
@@ -229,7 +236,7 @@ fn whisper_and_ggml_dylibs_are_catalogued_by_file_and_verify_by_content() {
         );
         let path = dir.join(file);
         if !path.is_file() {
-            eprintln!("SKIPPED: {} not retained", path.display());
+            common::skip_missing(&format!("retained {file}"), &path.display().to_string());
             continue;
         }
         record.verify_file(&path).unwrap();

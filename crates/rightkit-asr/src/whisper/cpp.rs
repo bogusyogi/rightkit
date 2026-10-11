@@ -588,12 +588,18 @@ mod tests {
     use super::*;
 
     /// Resolves every 0.2.0 symbol in the pinned library and checks the
-    /// language table length against it. Skips (printing SKIP) when
-    /// `RIGHTKIT_WHISPER_LIB` is unset; the e2e suite is the hard gate.
+    /// language table length against it. Skips when `RIGHTKIT_WHISPER_LIB` is
+    /// unset, and panics instead under `RIGHTKIT_REQUIRE_ASSETS=1`. The same
+    /// policy as the integration suites, repeated here because a unit test
+    /// cannot reach `tests/common`.
     #[test]
     fn new_symbols_resolve_in_pinned_library() {
         let Some(lib_path) = std::env::var_os("RIGHTKIT_WHISPER_LIB") else {
-            eprintln!("SKIP: RIGHTKIT_WHISPER_LIB not set");
+            let message = "SKIP new_symbols_resolve_in_pinned_library: whisper.cpp 1.9.3 library (looked at RIGHTKIT_WHISPER_LIB)";
+            if std::env::var("RIGHTKIT_REQUIRE_ASSETS").is_ok_and(|value| value == "1") {
+                panic!("{message}");
+            }
+            eprintln!("{message}");
             return;
         };
         let lib = open_library(Path::new(&lib_path)).expect("open whisper library");

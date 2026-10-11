@@ -5,7 +5,7 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime};
 
-use rightkit_http::testing::{MockResponse, MockServer};
+use rightkit_http::testing::{loopback_config, MockResponse, MockServer};
 use rightkit_http::{Client, ClientConfig, RetryPolicy, Secret};
 use rightkit_oauth::credentials::{Resolution, Resolver, SecretTokenStore, Source};
 use rightkit_oauth::{
@@ -13,10 +13,12 @@ use rightkit_oauth::{
 };
 use serde_json::json;
 
+/// The default address policy refuses the `127.0.0.1` mock server, so the client starts from the
+/// crate's loopback test configuration.
 fn http() -> Client {
     Client::new(ClientConfig {
         retry: RetryPolicy::none(),
-        ..ClientConfig::default()
+        ..loopback_config()
     })
 }
 

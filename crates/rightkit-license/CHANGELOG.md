@@ -41,12 +41,28 @@ verification is added for the Pro bridge (ledger #54).
     readings. A missing ledger on an initialised install is `ClockError::Missing`, never a silent reset.
   - Ledger safety (Astra read 2026-10-11): every observation is kept in memory for the life of the
     clock and only the durable write is throttled; load/decide/write is serialised across all clocks in
-    the process and every write goes through the new `ClockStore::compare_and_save` (default
-    load-compare-save; `MemoryClockStore` overrides it atomically), so a commit only moves the mark
+    the process and every write goes through the new `ClockStore::compare_and_save` (a **required**
+    method with no default, see "Cross-process atomicity" below; `MemoryClockStore` implements it
+    atomically), so a commit only moves the mark
     forward and is dropped if a newer server anchor landed, and `reanchor` cannot overwrite a newer
     `last_server_iat`. A successful `reanchor` also re-bases the clock's monotonic reference
     (`AntiRollbackClock::monotonic_now`) and replaces its memory. New: `ClockError::Contended`,
     `CLOCK_WRITE_ATTEMPTS`.
+  - Cross-process atomicity (second Astra read 2026-10-11, finding 1). The first 0.2.0 draft gave
+    `ClockStore::compare_and_save` a default (load, compare, save). That is not atomic against another
+    process: A checks a ledger of 900, B saves 1100, A saves 1000, and a restart at 1001 accepts tokens
+    that were already seen to expire. The default is removed; `compare_and_save` is now a required
+    trait method. **This is the one source-level break against the unpublished draft**: a `ClockStore`
+    that only has `load` and `save` no longer compiles (pinned by a `compile_fail` doctest on the
+    trait). It is acceptable because 0.2.0 is unpublished; nothing published implements the trait.
+    An implementation must make the comparison and the write one atomic step against every other
+    writer in any process: a real compare-and-swap, or an OS lock held around read, compare and write.
+  - `FileClockStore` (new, additive): a file-backed `ClockStore` that serialises every operation on an
+    OS advisory lock of a sidecar `<ledger>.lock` file (`std::fs::File::lock`, shared for `load`,
+    exclusive for writes) and writes through a flushed temporary file and an atomic rename, so it is
+    atomic across processes. A damaged ledger file is `FileClockStoreError::Corrupt`, never "no ledger".
+    `CrossProcessLock` (new, additive) is the same lock as a guard for hosts that keep the ledger in a
+    keychain or credential entry and want to serialise their own `compare_and_save` with it.
   - `ClockStore` trait (apps persist the ledger where they already do), `MemoryClockStore` (tests and
     ephemeral QA builds only), `ProcessAnchor` (process id plus monotonic offset).
   - `ClockState::encode()` / `decode()` read and write the exact JSON record the apps already store
@@ -136,7 +152,9 @@ With the default `SystemClock` nothing changes for existing callers.
 
 ### Not in this release
 
-- No HTTP client, no keychain code (hosts supply `RefreshTransport` and `ClockStore`).
+- No HTTP client, no keychain code (hosts supply `RefreshTransport` and, for a keychain-held ledger,
+  a `ClockStore` whose `compare_and_save` they serialise across processes, for example with
+  `CrossProcessLock`).
 - No change to the token wire format or the signer.
 
 ## 0.1.3

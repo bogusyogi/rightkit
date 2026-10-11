@@ -141,6 +141,18 @@ Additive on the 0.1.0 surface, with two behaviour notes below. Whisper's
   `default-features = false`. `decoder.rs` keeps `TimedToken` and `TranscriptionResult`.
   Verify the no-feature build on the target before relying on it.
 
+### TDT decoder input checks and the last-token minimum
+
+- Behaviour change, input checks. The TDT decoder (`ParakeetTDT` and the `Transducer` TDT path) now
+  returns an error instead of panicking or guessing. `Error::Model` when `frame_indices` does not have one
+  entry per token (it panicked with index out of bounds), or when `durations` is neither empty (RNN-T) nor
+  one entry per token (it was silently treated as absent). `Error::Config` when `hop_length` or
+  `sample_rate` is zero. Well-formed lattices decode as before. No internal caller passes a mismatched lattice.
+- New public constant `rightkit_asr::LAST_TOKEN_MIN_DURATION_MS` (`10`). A zero-length last token is widened
+  to this many milliseconds, so it is never a zero-length span that cannot be shown as a cue or highlighted.
+  The value is the one already in use, now named and documented. A consumer that kept `start == end` for a
+  zero-length last token will see this width instead.
+
 ### Not in 0.2.0
 
 - Sample-exact fields on `TimedToken` itself. `TimedToken` is unchanged; see `TimedPiece` above for the

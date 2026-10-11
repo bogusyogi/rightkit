@@ -14,6 +14,18 @@ use std::sync::{Arc, Mutex, MutexGuard};
 pub enum Error {
     #[error("settings io: {0}")]
     Io(#[from] io::Error),
+    /// The new settings file IS in place at `path`, but a step after the replace failed: on Unix
+    /// and macOS the directory sync, on Windows nothing (there is no directory flush). The write is
+    /// not undone and must not be repeated as if it had failed: an `update` re-run would apply its
+    /// edit a second time. [`Store::get`] reads the new file, and no change event is emitted for
+    /// this write. `source` says which step failed. What the new file is guaranteed to survive is
+    /// given by [`StoreOptions::achieved_durability`].
+    #[error("settings file {} was replaced, but a later step failed: {source}", path.display())]
+    Replaced {
+        path: PathBuf,
+        #[source]
+        source: io::Error,
+    },
     #[error("settings serialization: {0}")]
     Json(#[from] serde_json::Error),
     #[error("settings file is schema v{found}, this build supports up to v{supported}")]

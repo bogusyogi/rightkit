@@ -145,7 +145,10 @@ fn the_linux_entry_gains_startup_wm_class_only_when_asked() {
     let plain = linux_desktop_entry_for("CodeRight", exe, &args, None);
     assert!(!plain.contains("StartupWMClass"));
     // Byte-identical to the entry written before the option existed.
-    assert_eq!(plain, autostart::linux_desktop_entry_with("CodeRight", exe, &args));
+    assert_eq!(
+        plain,
+        autostart::linux_desktop_entry_with("CodeRight", exe, &args)
+    );
 
     let with = linux_desktop_entry_for("CodeRight", exe, &args, Some("coderight"));
     assert!(with.contains("\nStartupWMClass=coderight\n"));

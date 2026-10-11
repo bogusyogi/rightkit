@@ -186,3 +186,10 @@ alone records nothing; this diagnostic does not validate or load a library.
 - Added in 0.2.3: `SessionOptions::directml_sequential` & `directml_memory_pattern` (with their `with_*` builders) disable parallel execution & the memory-pattern optimisation when the DirectML provider is selected; both default to off.
 - Added in 0.2.3: `explicit_file_candidate` accepts an absolute override with a versioned or renamed file name (relative paths stay refused); `init_environment_default_loader` initialises the environment with telemetry off when no `RuntimeSelection` exists; session builds through `SessionOptions` commit telemetry-off defaults before ort creates the environment. First initialiser wins; see the `environment` module docs for the ordering rules.
 - Added in 0.2.3: `verify_runtime_manifest` verifies a runtime bundle; see "Runtime bundle manifest" below.
+
+## Suites that need local assets (skipped on hosted CI)
+
+A hosted runner has none of these assets, so each test prints `SKIP <test>: ...` and passes. Set `RIGHTKIT_REQUIRE_ASSETS=1` on a host that must have them, and the test fails instead.
+
+- macOS, `tests/e2e_runtime.rs`, `tests/default_loader.rs`, `tests/session_first.rs`, `tests/explicit_runtime_versioned.rs`: the approved ONNX Runtime 1.24.4 dylib, enabled by `RIGHTKIT_ORT_TEST_DYLIB=<path>` or the `genright/.cache/.../libonnxruntime.1.24.4.dylib` download, found by walking up from the crate.
+- Windows, `tests/e2e_runtime_windows.rs`, `tests/default_loader_windows.rs`, `tests/session_first_windows.rs`, `tests/explicit_runtime_versioned_windows.rs`: the approved `onnxruntime.dll` and `DirectML.dll`, enabled by `RIGHTKIT_ORT_TEST_DLL_DIR=<dir>` or the HeardRight staging folder `heardright/tauri-app-next/src-tauri/resources/runtime`.

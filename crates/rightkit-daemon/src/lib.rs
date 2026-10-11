@@ -19,7 +19,9 @@ mod state;
 mod util;
 
 pub use config::{DaemonConfig, UploadLimits};
-pub use daemon::{Daemon, DaemonMetrics, DaemonStatus, OAuthCallbackHandler, OAuthOutcome, Request, Response};
+pub use daemon::{
+    Daemon, DaemonMetrics, DaemonStatus, OAuthCallbackHandler, OAuthOutcome, Request, Response,
+};
 pub use events::{Event, EventLog};
 pub use http::{load_tls, router, serve};
 pub use util::{hex, sha256_hex, unhex, Clock, SystemClock};

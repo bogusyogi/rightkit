@@ -15,17 +15,15 @@ use std::sync::atomic::{AtomicU32, Ordering};
 
 use super::ffi::*;
 use crate::chord::{Chord, Modifier};
+use crate::register_status::RegisterFailure;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct HotkeyId(pub u32);
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum HotkeyState {
-    Pressed,
-    Released,
-}
+pub use crate::hold::HotkeyState;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum RegisterError {
     /// The chord is already registered (by this process or another app).
     Conflict {
@@ -34,6 +32,11 @@ pub enum RegisterError {
     },
     /// The chord cannot be expressed as a Carbon hotkey (for example it needs fn).
     Unsupported(String),
+    /// The OS reported it is out of memory or resources (`memFullErr`).
+    ResourceExhausted {
+        chord: String,
+        os_status: i32,
+    },
     Os {
         chord: String,
         os_status: i32,
@@ -52,6 +55,9 @@ impl RegisterError {
             RegisterError::Unsupported(chord) => {
                 format!("register {chord} failed: chord not expressible as a system hotkey")
             }
+            RegisterError::ResourceExhausted { chord, os_status } => {
+                format!("register {chord} failed: out of system resources (OSStatus {os_status})")
+            }
             RegisterError::Os { chord, os_status } => {
                 format!("register {chord} failed: OSStatus {os_status}")
             }
@@ -66,6 +72,63 @@ impl std::fmt::Display for RegisterError {
 }
 
 impl std::error::Error for RegisterError {}
+
+/// Map a failed `RegisterEventHotKey` status to a typed error. A zero status with a null reference
+/// is reported as an `Os` error rather than treated as success.
+pub(crate) fn register_error_from_status(chord: String, status: i32) -> RegisterError {
+    match RegisterFailure::from_osstatus(status) {
+        RegisterFailure::Conflict => RegisterError::Conflict {
+            chord,
+            os_status: status,
+        },
+        RegisterFailure::Unsupported => RegisterError::Unsupported(chord),
+        RegisterFailure::ResourceExhausted => RegisterError::ResourceExhausted {
+            chord,
+            os_status: status,
+        },
+        _ => RegisterError::Os {
+            chord,
+            os_status: status,
+        },
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn statuses_map_to_typed_errors() {
+        let c = || "Ctrl+Space".to_string();
+        assert!(matches!(
+            register_error_from_status(c(), -9878),
+            RegisterError::Conflict {
+                os_status: -9878,
+                ..
+            }
+        ));
+        assert!(matches!(
+            register_error_from_status(c(), -9879),
+            RegisterError::Unsupported(_)
+        ));
+        assert!(matches!(
+            register_error_from_status(c(), -50),
+            RegisterError::Unsupported(_)
+        ));
+        assert!(matches!(
+            register_error_from_status(c(), -108),
+            RegisterError::ResourceExhausted { .. }
+        ));
+        assert!(matches!(
+            register_error_from_status(c(), 0),
+            RegisterError::Os { os_status: 0, .. }
+        ));
+        assert!(matches!(
+            register_error_from_status(c(), -1),
+            RegisterError::Os { os_status: -1, .. }
+        ));
+    }
+}
 
 type Callback = Box<dyn Fn(HotkeyId, HotkeyState)>;
 
@@ -176,22 +239,14 @@ impl GlobalHotkeys {
                 &mut out,
             )
         };
-        match status {
-            0 => {
-                self.next_id += 1;
-                self.refs.insert(id, out);
-                Ok(id)
-            }
-            EVENT_HOTKEY_EXISTS_ERR => Err(RegisterError::Conflict {
-                chord: name,
-                os_status: status,
-            }),
-            EVENT_HOTKEY_INVALID_ERR => Err(RegisterError::Unsupported(name)),
-            other => Err(RegisterError::Os {
-                chord: name,
-                os_status: other,
-            }),
+        // The OSStatus is always checked: a non-zero status leaves `out` unset, so nothing is
+        // stored and the failure is returned typed.
+        if status == 0 && !out.is_null() {
+            self.next_id += 1;
+            self.refs.insert(id, out);
+            return Ok(id);
         }
+        Err(register_error_from_status(name, status))
     }
 
     pub fn unregister(&mut self, id: HotkeyId) -> bool {

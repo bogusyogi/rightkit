@@ -7,8 +7,8 @@ Catalog capability: `llm-providers`. Release versions are tracked in [INDEX.md](
 ## What it owns
 
 - `anthropic::AnthropicProvider`: the Anthropic Messages API.
-- `openai::OpenAiCompatProvider`: chat completions for OpenAI and compatible endpoints (OpenRouter, Groq, DeepSeek, Together, Mistral, xAI, the Gemini endpoint, Ollama, LM Studio). `presets` lists the known endpoints.
-- `failover::FailoverChain`, `Route`, `FailoverPolicy`: retryable-only route failover, a first-token timeout, and a circuit breaker. `FailoverEvent` reports each switch.
+- `openai::OpenAiCompatProvider`: chat completions for OpenAI and compatible endpoints (OpenRouter, Groq, DeepSeek, Together, Mistral, xAI, the Gemini endpoint, NVIDIA NIM, Ollama, LM Studio). `presets` lists the known endpoints. It also lists models (`list_models`) and checks a key (`validate_credential`).
+- `failover::FailoverChain`, `Route`, `FailoverPolicy`, `FailoverOn`: route failover, a first-token timeout, and a circuit breaker. `FailoverEvent` reports each switch. The default trigger is retryable errors only; `FailoverOn::AnyError` and `FailoverOn::custom` widen it.
 - `pricing::PriceTable`: per-model prices.
 - `cache`: prompt-cache breakpoint planning (`plan_breakpoints`, `CacheBreakpointPlanner`) and a `CacheLedger`.
 - `credentials`: `CredentialSource`, with `StaticCredentials` and `SecretStoreCredentials`. Production wiring uses `rightkit-secrets` through the `SecretStore` trait.
@@ -82,6 +82,40 @@ let reply = provider.complete(&request)?; // reply.usage_known == false unless t
 - Not-signed-in detection runs only on a failed run (non-zero exit or the tool's JSON error flag), so an answer that mentions "not logged in" is never misread.
 - Windows: the code paths compile for Windows, but the tests use a `/bin/sh` fake CLI and run on Unix only.
 
+## Pass-through body fields
+
+`ChatRequest::with_extra(key, value)` adds a top-level field to the body the crate builds, for provider-specific switches such as `reasoning_effort`, `include_reasoning`, or OpenRouter's `provider` object. It applies to both HTTP providers.
+
+The rule:
+
+- A key the crate does not set for the request is added.
+- A key the crate sets (for example `model`, `messages`, `max_tokens`, `tools`, `stream`) makes the call fail with `LlmError::InvalidRequest` before anything is sent. Nothing is silently replaced.
+- `ChatRequest::with_extra_override(key, value)` replaces such a field on purpose. Use it only when the replacement is intended.
+- Merging touches only the top level; nested objects are not merged.
+
+## Retry, truncation and cancellation controls
+
+- `ChatRequest::with_retry(CallRetry)` sets the attempt policy for one call. `CallRetry::Client` (default) keeps the client's `ClientConfig::retry`. `CallRetry::Disabled` (also `without_retries()`) makes one attempt. `CallRetry::Policy(p)` replaces the client's policy for that call. The providers still allow replay after 429 and 5xx, as before. For Anthropic, a `Policy` must list `529` in its `retry_statuses` itself.
+- `ChatRequest::reject_truncated_output()` returns `LlmError::Truncated { output_tokens }` when the provider stops at its output limit, instead of a normal answer with `StopReason::MaxTokens`. It applies to streams too. The default is unchanged.
+
+## Key validation and model list
+
+`OpenAiCompatProvider::list_models()` calls `GET {base}/models` and returns the model ids in server order. `validate_credential()` makes the same call and returns `Ok(())`. A rejected key (HTTP 401 or 403) returns `LlmError::Auth { status, message }`; the credential is removed from `message`. The NVIDIA NIM preset (`nvidia`) uses `https://integrate.api.nvidia.com/v1`, taken from NVIDIA's public API documentation.
+
+## Failover trigger
+
+`FailoverChain::fail_over_on(FailoverOn)` chooses which errors move a call to the next route:
+
+- `FailoverOn::Retryable` (default): `LlmError::is_failover_trigger`, as before.
+- `FailoverOn::AnyError`: every error except `Cancelled`, `MidStream` and `InvalidRequest`. Auth errors and rejected output fail over. The three excluded errors are never worth a second route: the caller stopped the call, output already reached the caller, or the request itself is wrong.
+- `FailoverOn::custom(f)`: your predicate.
+
+Under every policy, a route that has already delivered a token is never failed over.
+
+## Request and response observer
+
+`with_observer(f)` on `OpenAiCompatProvider` or `AnthropicProvider` calls `f` with a `CallRecord` once for each call that reaches the network. The record holds the provider id, whether the call streamed, the exact JSON body sent (after extra fields are merged), and either the parsed `ChatResponse` (with usage) or the `LlmError`. The credential and auth headers are never part of it, and error text has the credential removed. The callback runs on the calling thread, so keep it quick. A call rejected before sending (a missing credential or a body collision) is not reported. Use it for an on-device payload ledger; the body contains the prompt, so store it accordingly.
+
 ## Per-call options, errors and network
 
 Request options on `ChatRequest` (all optional; the defaults are unchanged):
@@ -107,6 +141,8 @@ Pure Rust over `rightkit-http` (`ureq` with `rustls`). No platform-specific code
 ## Tests
 
 `tests/e2e.rs` runs both provider clients against a local mock server. It checks exact headers, body and parsed tool calls.
+
+`tests/call_controls.rs` covers the extra body fields and their collision rule, per-call retry (including a call that makes one attempt), truncation as an error for both wires and for streams, the failover trigger, the NVIDIA preset, `GET /models` key checks, and the observer, all against the same mock server.
 
 `tests/call_options.rs` covers the per-call options above against the same mock server: an omitted `max_tokens` field, `temperature` 0.3, a slow server that times out at a short per-call budget and succeeds within it, a 429 that yields `LlmError::Status`, a streamed non-2xx, and the sentinel-key redaction checks.
 

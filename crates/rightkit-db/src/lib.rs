@@ -9,7 +9,7 @@ use std::ffi::OsString;
 use std::ops::Deref;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Condvar, Mutex, MutexGuard, Weak};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use zeroize::Zeroizing;
 
 mod backup;
@@ -42,6 +42,7 @@ const JOURNAL_SIZE_LIMIT: i64 = 67_108_864;
 pub type Result<T> = std::result::Result<T, DbError>;
 
 #[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
 pub enum DbError {
     #[error("SQLite error: {0}")]
     Sqlite(#[from] rusqlite::Error),
@@ -57,6 +58,22 @@ pub enum DbError {
     InvalidQuarantineSuffix(String),
     #[error("read-pool capacity must be greater than zero")]
     InvalidPoolCapacity,
+    #[error("reader cache size must be between 1 and 2147483647 KiB, got {0}")]
+    InvalidReaderCacheSize(u32),
+    /// Checkout after [`ReadPool::close`] or [`ReadPool::close_and_wait`].
+    #[error("read pool is closed")]
+    ReadPoolClosed,
+    /// [`ReadPool::close_and_wait`] timed out. `outstanding` counts readers still checked out or
+    /// opening.
+    #[error("read pool close timed out after {timeout:?} with {outstanding} reader(s) still out")]
+    ReadPoolCloseTimeout {
+        outstanding: usize,
+        timeout: Duration,
+    },
+    /// A reader did not come up read-only: `PRAGMA query_only` did not stay on, or a read-only
+    /// handle reported a writable main database.
+    #[error("reader connection is not read-only: {0}")]
+    ReadOnlyNotEffective(String),
     #[error("database path has no file name")]
     InvalidDatabasePath,
     #[error("database is at schema v{current}, newer than this build understands (v{max}) and not forward compatible")]
@@ -239,7 +256,7 @@ impl DbOptions {
     }
 
     pub fn open_reader(&self) -> Result<Connection> {
-        self.open(ConnectionKind::Reader)
+        self.open(ConnectionKind::Reader { cache_kib: None })
     }
 
     /// Open exactly `path` read-only, without creating it or running mutating bootstrap.
@@ -289,8 +306,53 @@ impl DbOptions {
         Ok(())
     }
 
+    /// A read pool with [`ReadPoolOptions::new`]: read-write file handles, with `query_only` set
+    /// and verified on every reader. Same as `open_read_pool_with(cap, ReadPoolOptions::new())`.
     pub fn open_read_pool(&self, cap: usize) -> Result<ReadPool> {
-        ReadPool::open(self.clone(), cap)
+        ReadPool::open(self.clone(), cap, ReadPoolOptions::new())
+    }
+
+    /// A read pool configured by [`ReadPoolOptions`]. A read-only pool needs the database to exist.
+    pub fn open_read_pool_with(&self, cap: usize, pool: ReadPoolOptions) -> Result<ReadPool> {
+        ReadPool::open(self.clone(), cap, pool)
+    }
+
+    fn open_pool_reader(&self, pool: ReadPoolOptions) -> Result<Connection> {
+        if pool.read_only {
+            self.open_pool_read_only(pool.cache_kib)
+        } else {
+            self.open(ConnectionKind::Reader {
+                cache_kib: pool.cache_kib,
+            })
+        }
+    }
+
+    /// A pool reader opened with `SQLITE_OPEN_READ_ONLY`, so the file refuses writes even after
+    /// `query_only` is turned off. It never creates the file, changes the journal mode, narrows
+    /// permissions, or runs `optimize` or `init`; the writer owns those.
+    fn open_pool_read_only(&self, cache_kib: Option<u32>) -> Result<Connection> {
+        let path = self.effective_path();
+        let key = self.key_pragma_value()?;
+        let conn = Connection::open_with_flags(
+            &path,
+            OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX,
+        )?;
+        conn.busy_timeout(self.busy_timeout)?;
+        apply_key_first(&conn, key.as_ref().map(|k| k.as_str()))?;
+        verify_key(&conn)?;
+        conn.pragma_update(None, "temp_store", "MEMORY")?;
+        if self.foreign_keys {
+            conn.pragma_update(None, "foreign_keys", true)?;
+        }
+        apply_cache_settings(&conn, self, ConnectionKind::Reader { cache_kib })?;
+        enforce_query_only(&conn)?;
+        if !conn.is_readonly("main")? {
+            return Err(DbError::ReadOnlyNotEffective(
+                "SQLITE_OPEN_READ_ONLY handle reports a writable main database".into(),
+            ));
+        }
+        self.check_on_open(&conn)?;
+        Ok(conn)
     }
 
     fn open(&self, kind: ConnectionKind) -> Result<Connection> {
@@ -411,8 +473,20 @@ fn harden_sidecars(db: &Path) -> Result<()> {
 #[derive(Clone, Copy)]
 enum ConnectionKind {
     Writer,
-    Reader,
+    /// `cache_kib` overrides the reader cache size; see [`ReadPoolOptions::with_reader_cache_kib`].
+    Reader {
+        cache_kib: Option<u32>,
+    },
     Memory,
+}
+
+impl ConnectionKind {
+    fn reader_cache_kib(self) -> Option<u32> {
+        match self {
+            ConnectionKind::Reader { cache_kib } => cache_kib,
+            ConnectionKind::Writer | ConnectionKind::Memory => None,
+        }
+    }
 }
 
 /// What journal setup did.
@@ -444,17 +518,47 @@ fn configure_connection(
     if options.foreign_keys {
         conn.pragma_update(None, "foreign_keys", true)?;
     }
+    apply_cache_settings(conn, options, kind)?;
+    if matches!(kind, ConnectionKind::Reader { .. }) {
+        // Readers never run `PRAGMA optimize`: it can write statistics, and the writer runs it
+        // when it opens. `query_only` is set after every other reader setup statement.
+        enforce_query_only(conn)?;
+    } else {
+        optimize_on_open(conn)?;
+    }
+    Ok(opened)
+}
+
+/// Profile cache and mmap sizes, then the reader override, which wins over the profile on readers
+/// only. Writers and in-memory connections keep the profile size.
+fn apply_cache_settings(
+    conn: &Connection,
+    options: &DbOptions,
+    kind: ConnectionKind,
+) -> Result<()> {
     if options.profile == CacheProfile::LargeWorkingSet {
         conn.pragma_update(None, "cache_size", -65_536_i64)?;
         if !matches!(kind, ConnectionKind::Memory) {
             conn.pragma_update(None, "mmap_size", 268_435_456_i64)?;
         }
     }
-    optimize_on_open(conn)?;
-    if matches!(kind, ConnectionKind::Reader) {
-        conn.pragma_update(None, "query_only", true)?;
+    if let Some(kib) = kind.reader_cache_kib() {
+        conn.pragma_update(None, "cache_size", -i64::from(kib))?;
     }
-    Ok(opened)
+    Ok(())
+}
+
+/// Sets `PRAGMA query_only = ON` on a reader and reads it back, so a reader that did not come up
+/// query-only is never handed out.
+fn enforce_query_only(conn: &Connection) -> Result<()> {
+    conn.pragma_update(None, "query_only", true)?;
+    let on: i64 = conn.query_row("PRAGMA query_only", [], |row| row.get(0))?;
+    if on != 1 {
+        return Err(DbError::ReadOnlyNotEffective(
+            "PRAGMA query_only did not stay ON".into(),
+        ));
+    }
+    Ok(())
 }
 
 fn set_rollback(conn: &Connection, mode: JournalSelect) -> Result<()> {
@@ -486,7 +590,7 @@ fn configure_journal(
         .unwrap_or(false)
         // `journal_mode=WAL` can report success before the -shm/-wal sidecars are usable;
         // one empty write transaction proves the sidecars work before anything depends on them.
-        && (matches!(kind, ConnectionKind::Reader)
+        && (matches!(kind, ConnectionKind::Reader { .. })
             || conn.execute_batch("BEGIN IMMEDIATE; ROLLBACK;").is_ok());
     if honored {
         return Ok(Opened::AsRequested);
@@ -615,6 +719,41 @@ fn run_integrity_pragma(conn: &Connection, pragma: &str) -> Result<()> {
     Err(DbError::Integrity(messages.join("; ")))
 }
 
+/// Options for a [`ReadPool`]. The default ([`ReadPoolOptions::new`]) matches
+/// [`DbOptions::open_read_pool`]: read-write file handles, with `query_only` set and verified on
+/// every reader. Build with the `with_*` methods; the fields are private.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct ReadPoolOptions {
+    read_only: bool,
+    cache_kib: Option<u32>,
+}
+
+impl ReadPoolOptions {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Opens each reader with `SQLITE_OPEN_READ_ONLY`, so writes fail even if `query_only` is later
+    /// turned off. The database must already exist: the pool never creates it, changes its journal
+    /// mode, narrows its permissions, or runs `optimize` or `init`. A rollback journal left by a
+    /// crash is recovered by a writer, not by a read-only reader. Default off.
+    pub fn with_read_only(mut self, on: bool) -> Self {
+        self.read_only = on;
+        self
+    }
+
+    /// Page cache size for each reader connection, in KiB. It is applied as `PRAGMA cache_size`
+    /// set to `-kib`, so the size does not depend on the page size. Valid values are 1 to
+    /// 2147483647; the pool checks this when it opens. It overrides
+    /// [`CacheProfile::LargeWorkingSet`] on readers only. Writers and [`DbOptions::open_reader`]
+    /// keep the profile size. Default: the profile's size.
+    pub fn with_reader_cache_kib(mut self, kib: u32) -> Self {
+        self.cache_kib = Some(kib);
+        self
+    }
+}
+
+/// A bounded pool of reader connections. Clones share one pool.
 #[derive(Clone)]
 pub struct ReadPool {
     inner: Arc<ReadPoolInner>,
@@ -622,15 +761,27 @@ pub struct ReadPool {
 
 struct ReadPoolInner {
     options: DbOptions,
+    pool_options: ReadPoolOptions,
     cap: usize,
     state: Mutex<ReadPoolState>,
+    /// Wakes a `get` waiting for capacity, and every waiter when the pool closes.
     available: Condvar,
+    /// Wakes `close_and_wait` when a connection is released after the pool closed.
+    drained: Condvar,
 }
 
 #[derive(Default)]
 struct ReadPoolState {
     idle: Vec<Connection>,
+    /// Idle, checked-out, and still-opening connections.
     total: usize,
+    closed: bool,
+}
+
+impl ReadPoolInner {
+    fn open_reader(&self) -> Result<Connection> {
+        self.options.open_pool_reader(self.pool_options)
+    }
 }
 
 pub struct PooledReadConnection {
@@ -655,25 +806,41 @@ impl Drop for PooledReadConnection {
             return;
         };
         let mut state = lock_recover(&pool.state);
-        state.idle.push(conn);
-        pool.available.notify_one();
+        if state.closed {
+            // Close the file before the count drops, so `close_and_wait` returns only once it is
+            // released. Checked under the same lock as `close`, so no connection is parked idle
+            // after the pool has closed.
+            drop(conn);
+            state.total -= 1;
+            pool.drained.notify_all();
+        } else {
+            state.idle.push(conn);
+            pool.available.notify_one();
+        }
     }
 }
 
 impl ReadPool {
-    fn open(options: DbOptions, cap: usize) -> Result<Self> {
+    fn open(options: DbOptions, cap: usize, pool_options: ReadPoolOptions) -> Result<Self> {
         if cap == 0 {
             return Err(DbError::InvalidPoolCapacity);
+        }
+        if let Some(kib) = pool_options.cache_kib {
+            if kib == 0 || kib > i32::MAX.unsigned_abs() {
+                return Err(DbError::InvalidReaderCacheSize(kib));
+            }
         }
         let pool = Self {
             inner: Arc::new(ReadPoolInner {
                 options,
+                pool_options,
                 cap,
                 state: Mutex::new(ReadPoolState::default()),
                 available: Condvar::new(),
+                drained: Condvar::new(),
             }),
         };
-        let conn = pool.inner.options.open_reader()?;
+        let conn = pool.inner.open_reader()?;
         let mut state = lock_recover(&pool.inner.state);
         state.total = 1;
         state.idle.push(conn);
@@ -681,9 +848,14 @@ impl ReadPool {
         Ok(pool)
     }
 
+    /// Checks out an idle reader, opens a new one while under the cap, or waits for a return.
+    /// Fails with [`DbError::ReadPoolClosed`] once the pool is closed, including while waiting.
     pub fn get(&self) -> Result<PooledReadConnection> {
         let mut state = lock_recover(&self.inner.state);
         loop {
+            if state.closed {
+                return Err(DbError::ReadPoolClosed);
+            }
             if let Some(conn) = state.idle.pop() {
                 return Ok(PooledReadConnection {
                     conn: Some(conn),
@@ -693,23 +865,90 @@ impl ReadPool {
             if state.total < self.inner.cap {
                 state.total += 1;
                 drop(state);
-                return match self.inner.options.open_reader() {
-                    Ok(conn) => Ok(PooledReadConnection {
-                        conn: Some(conn),
-                        pool: Arc::downgrade(&self.inner),
-                    }),
-                    Err(error) => {
-                        let mut state = lock_recover(&self.inner.state);
-                        state.total -= 1;
-                        self.inner.available.notify_one();
-                        Err(error)
-                    }
-                };
+                return self.open_checked_out();
             }
             state = match self.inner.available.wait(state) {
                 Ok(state) => state,
                 Err(poisoned) => poisoned.into_inner(),
             };
+        }
+    }
+
+    /// Opens a reader for a `get` that reserved a slot. If the pool closed meanwhile, the new
+    /// reader is dropped and the caller gets [`DbError::ReadPoolClosed`].
+    fn open_checked_out(&self) -> Result<PooledReadConnection> {
+        match self.inner.open_reader() {
+            Ok(conn) => {
+                let mut state = lock_recover(&self.inner.state);
+                if state.closed {
+                    drop(conn);
+                    state.total -= 1;
+                    self.inner.drained.notify_all();
+                    return Err(DbError::ReadPoolClosed);
+                }
+                Ok(PooledReadConnection {
+                    conn: Some(conn),
+                    pool: Arc::downgrade(&self.inner),
+                })
+            }
+            Err(error) => {
+                let mut state = lock_recover(&self.inner.state);
+                state.total -= 1;
+                self.inner.available.notify_one();
+                self.inner.drained.notify_all();
+                Err(error)
+            }
+        }
+    }
+
+    /// Stops handing out readers and drops the idle ones now. A reader still checked out closes
+    /// when it is returned. Calling it again does nothing.
+    pub fn close(&self) {
+        let idle = {
+            let mut state = lock_recover(&self.inner.state);
+            if state.closed {
+                return;
+            }
+            state.closed = true;
+            self.inner.available.notify_all();
+            std::mem::take(&mut state.idle)
+        };
+        let closed = idle.len();
+        // Files close before the count drops, so `close_and_wait` sees them released.
+        drop(idle);
+        let mut state = lock_recover(&self.inner.state);
+        state.total -= closed;
+        self.inner.drained.notify_all();
+    }
+
+    /// [`Self::close`], then waits up to `timeout` for every checked-out reader to be returned.
+    /// `Ok(())` means every connection is closed and its database file released. Otherwise it
+    /// returns [`DbError::ReadPoolCloseTimeout`] with the number still out. Do not call it while
+    /// holding a reader from this pool: that reader cannot come back, so the call times out. A
+    /// timeout too large for the clock waits in bounded slices until the readers return.
+    pub fn close_and_wait(&self, timeout: Duration) -> Result<()> {
+        self.close();
+        let deadline = Instant::now().checked_add(timeout);
+        let mut state = lock_recover(&self.inner.state);
+        loop {
+            if state.total == 0 {
+                return Ok(());
+            }
+            let remaining = match deadline {
+                Some(at) => at.saturating_duration_since(Instant::now()),
+                None => Duration::from_secs(60),
+            };
+            if remaining.is_zero() {
+                return Err(DbError::ReadPoolCloseTimeout {
+                    outstanding: state.total,
+                    timeout,
+                });
+            }
+            let (next, _) = match self.inner.drained.wait_timeout(state, remaining) {
+                Ok(pair) => pair,
+                Err(poisoned) => poisoned.into_inner(),
+            };
+            state = next;
         }
     }
 
