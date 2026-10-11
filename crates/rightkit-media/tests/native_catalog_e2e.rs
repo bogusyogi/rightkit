@@ -134,6 +134,46 @@ fn mixed_versions_gpl_and_unverifiable_approvals_fail_closed() {
     assert!(NativeCatalog::parse_native_only(&value.to_string()).is_err());
 }
 
+/// DirectML's Microsoft licence is admitted for the DirectML library on Windows and nowhere else.
+#[test]
+fn the_directml_licence_is_scoped_to_directml_on_windows() {
+    let catalog = NativeCatalog::embedded().unwrap();
+    assert_eq!(
+        catalog.suite_version(NativeLibrary::Directml),
+        Some("1.15.4")
+    );
+    // Pinned, so it does not resolve as approved yet.
+    assert!(matches!(
+        catalog.approved(NativeLibrary::Directml, "windows", "x86_64"),
+        Err(NativeCatalogError::NoApproved { .. })
+    ));
+
+    let refused = |id: &str, field: &str, value: &str| {
+        let mut catalog: serde_json::Value = serde_json::from_str(NATIVE_CATALOG_JSON).unwrap();
+        let record = catalog["libraries"]
+            .as_array_mut()
+            .unwrap()
+            .iter_mut()
+            .find(|r| r["id"] == id)
+            .unwrap_or_else(|| panic!("{id} is in the catalog"));
+        record[field] = value.into();
+        let parsed = NativeCatalog::parse_native_only(&catalog.to_string()).unwrap();
+        assert!(
+            matches!(parsed.validate(), Err(NativeCatalogError::Invalid { .. })),
+            "{id} with {field} = {value} must be refused"
+        );
+    };
+    // Another library may not carry the licence.
+    refused(
+        "onnxruntime-1.24.4-windows-x64-directml",
+        "licenseSpdx",
+        DIRECTML_LICENSE,
+    );
+    // DirectML is not admitted on another OS, nor under another licence.
+    refused("directml-1.15.4-windows-x64", "os", "macos");
+    refused("directml-1.15.4-windows-x64", "licenseSpdx", "MIT");
+}
+
 #[test]
 fn planned_and_pinned_records_never_resolve_as_approved() {
     let catalog = NativeCatalog::embedded().unwrap();

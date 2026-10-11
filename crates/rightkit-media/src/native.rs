@@ -32,6 +32,13 @@ pub const ALLOWED_LICENSES: &[&str] = &[
     "GPL-2.0-only WITH GCC-exception-2.0",
 ];
 
+/// The licence of Microsoft's DirectML redistributable: the "Microsoft Software License Terms"
+/// text shipped in the `Microsoft.AI.DirectML` package. It is not an SPDX licence and not open
+/// source, so it is not in [`ALLOWED_LICENSES`]. Approved by Adrian 2026-10-11 for the
+/// [`NativeLibrary::Directml`] records only, on Windows only: no other library and no other OS
+/// may carry it.
+pub const DIRECTML_LICENSE: &str = "LicenseRef-Microsoft-DirectML";
+
 #[non_exhaustive]
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize)]
 #[serde(rename_all = "kebab-case")]
@@ -44,6 +51,8 @@ pub enum NativeLibrary {
     Ggml,
     WhisperCpp,
     SherpaOnnx,
+    /// `DirectML.dll`, which ONNX Runtime's DirectML execution provider loads on Windows.
+    Directml,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -249,7 +258,20 @@ impl NativeRecord {
         }
         let ffmpeg_with_runtime =
             self.library == NativeLibrary::Ffmpeg && is_ffmpeg_license(&self.license_spdx);
-        if !ffmpeg_with_runtime && !ALLOWED_LICENSES.contains(&self.license_spdx.as_str()) {
+        let directml = self.library == NativeLibrary::Directml;
+        if directml != (self.license_spdx == DIRECTML_LICENSE) {
+            return Err(invalid(
+                &self.id,
+                "the DirectML licence and the DirectML library go together only",
+            ));
+        }
+        if directml && self.os != "windows" {
+            return Err(invalid(&self.id, "DirectML is approved on Windows only"));
+        }
+        if !ffmpeg_with_runtime
+            && !directml
+            && !ALLOWED_LICENSES.contains(&self.license_spdx.as_str())
+        {
             return Err(invalid(
                 &self.id,
                 format!("unapproved licence {}", self.license_spdx),

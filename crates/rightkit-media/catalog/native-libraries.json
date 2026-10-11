@@ -58,7 +58,32 @@
       ],
       "verification": {
         "method": "file-sha256",
-        "evidence": "Microsoft.ML.OnnxRuntime.DirectML 1.24.4 from nuget.org: the nupkg (12458649 bytes) hashes to the SHA-512 nuget.org publishes (ZjOyv495vhfVXoTJp2utRyn8ir1TFIvCj0B9JP8QZGBXS0oFx+lY7ZCZqSdnVShQX6EtxYi2T3VOtYXcmBTV4A==); sha256 is runtimes/win-x64/native/onnxruntime.dll (17328152 bytes) extracted from it. Not loaded or run by rightkit-ort here yet, so it stays pinned. The DirectML execution provider also needs DirectML.dll from Microsoft.AI.DirectML (the package declares >= 1.15.4); that file is under Microsoft's DirectML licence terms, which the suite has not approved, so it has no record."
+        "evidence": "Microsoft.ML.OnnxRuntime.DirectML 1.24.4 from nuget.org: the nupkg (12458649 bytes) hashes to the SHA-512 nuget.org publishes (ZjOyv495vhfVXoTJp2utRyn8ir1TFIvCj0B9JP8QZGBXS0oFx+lY7ZCZqSdnVShQX6EtxYi2T3VOtYXcmBTV4A==); sha256 is runtimes/win-x64/native/onnxruntime.dll (17328152 bytes) extracted from it. Not loaded or run by rightkit-ort here yet, so it stays pinned. The DirectML execution provider also needs DirectML.dll from Microsoft.AI.DirectML (the package declares >= 1.15.4); that file is the separate record directml-1.15.4-windows-x64, under Microsoft's DirectML licence terms."
+      }
+    },
+    {
+      "id": "directml-1.15.4-windows-x64",
+      "library": "directml",
+      "version": "1.15.4",
+      "os": "windows",
+      "arch": "x86_64",
+      "status": "pinned",
+      "linkage": "dynamic-library",
+      "artifactFileName": "DirectML.dll",
+      "sha256": "9c9e6d822561c6c41b90e6994b3e8857cf1d66dbfb1e0c4c799c7c89b4e92da1",
+      "archive": {
+        "url": "https://api.nuget.org/v3-flatcontainer/microsoft.ai.directml/1.15.4/microsoft.ai.directml.1.15.4.nupkg",
+        "sha256": "4e7cb7ddce8cf837a7a75dc029209b520ca0101470fcdf275c1f49736a3615b9"
+      },
+      "sourceUrl": "https://www.nuget.org/packages/Microsoft.AI.DirectML/1.15.4",
+      "licenseSpdx": "LicenseRef-Microsoft-DirectML",
+      "noticeFiles": [
+        "third-party/DirectML-1.15.4-LICENSE.txt",
+        "third-party/DirectML-1.15.4-ThirdPartyNotices.txt"
+      ],
+      "verification": {
+        "method": "file-sha256",
+        "evidence": "Microsoft.AI.DirectML 1.15.4 from nuget.org, the version Microsoft.ML.OnnxRuntime.DirectML 1.24.4 declares as its minimum: the nupkg (202292617 bytes) hashes to the SHA-512 nuget.org publishes (/edn9WkEq8kP1T9l2HKckYq39uPF4ezdR5kI/AK0U1zysIYPerKsubcx1suAm3LD1dTQKFP7j16gIqR7xE7yhQ==); sha256 is bin/x64-win/DirectML.dll (18527776 bytes) extracted from it. Redistributable only with an application under the package's Microsoft Software License Terms, shipped as the first notice file. Not loaded through rightkit-ort here yet, so it stays pinned."
       }
     },
     {
