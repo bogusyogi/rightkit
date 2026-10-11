@@ -6,6 +6,16 @@ Client and protocol contract for the Orthic Labs shared speech service, which ru
 
 **Do not use it** to run the speech engine. Hosting remains in the speech engine application; this crate provides the client contract.
 
+## Input contract
+
+The speech host opens the input path itself, so a path the client can read may still be denied
+to the host (on macOS, a file on an external volume). By default the client copies such a file
+into a client-owned staging directory under the per-user temporary directory and submits the
+copy. A path under the user's home or temporary directory, on the same volume, is submitted
+unchanged. The copy is removed when the request ends. Files over 4 GiB (configurable) are
+refused with `StageLimitExceeded`. A host read denial returns `InputUnreadable` with the caller's
+path. `API.md`, "Staging" and "Input contract", has the rule and the host's own checks.
+
 ## Features
 
 None. The crate has no Cargo features. Dependencies: `rightkit-service`, `rightkit-framed-sidecar`, `rightkit-transcript`, `serde`, `serde_json` (`Cargo.toml:13-17`).

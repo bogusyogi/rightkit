@@ -14,9 +14,13 @@
 mod cues;
 mod preflight;
 mod protocol;
+mod stage;
 
 pub use cues::{parse_srt_cues, Cue};
 pub use preflight::preflight_file;
+pub use stage::{StageInput, DEFAULT_STAGE_LIMIT_BYTES};
+
+use stage::{host_could_not_read, prepare, StageRoots, Staged};
 
 use std::fmt;
 use std::io::{BufReader, Write};
@@ -81,6 +85,20 @@ pub enum ClientError {
     Refused {
         reason: String,
     },
+    /// The host could not read the input file: its own read check or FFmpeg was denied.
+    /// Carries the path the caller passed, not a staged copy. Returned in place of the generic
+    /// `Engine` error for that text. Added in 0.3.4; `ClientError` is not `#[non_exhaustive]`,
+    /// so exhaustive matches need an arm.
+    InputUnreadable {
+        path: PathBuf,
+        message: String,
+    },
+    /// The input file is larger than the staging limit. Nothing was staged or submitted.
+    StageLimitExceeded {
+        path: PathBuf,
+        bytes: u64,
+        limit: u64,
+    },
 }
 
 impl fmt::Display for ClientError {
@@ -99,6 +117,16 @@ impl fmt::Display for ClientError {
             Self::HostGone => write!(f, "speech service host went away; resubmit"),
             Self::NoLiveHost => write!(f, "no speech service is live and launching is disabled"),
             Self::Refused { reason } => write!(f, "speech request refused: {reason}"),
+            Self::InputUnreadable { path, message } => write!(
+                f,
+                "speech host could not read {}: {message}",
+                path.display()
+            ),
+            Self::StageLimitExceeded { path, bytes, limit } => write!(
+                f,
+                "{} is {bytes} bytes, over the {limit}-byte staging limit",
+                path.display()
+            ),
         }
     }
 }
@@ -452,6 +480,10 @@ pub struct TranscribeOptions {
     pub(crate) submit_gate: Option<SubmitGate>,
     /// See [`TranscribeOptions::running_host_only`].
     pub(crate) running_host_only: bool,
+    /// See [`TranscribeOptions::stage`].
+    pub(crate) stage: StageInput,
+    /// See [`TranscribeOptions::stage_limit`].
+    pub(crate) stage_limit: u64,
 }
 
 impl TranscribeOptions {
@@ -466,7 +498,22 @@ impl TranscribeOptions {
             verbatim: false,
             submit_gate: None,
             running_host_only: false,
+            stage: StageInput::Auto,
+            stage_limit: DEFAULT_STAGE_LIMIT_BYTES,
         }
+    }
+    /// Choose when the input file is copied to a staging file before submit. The default
+    /// [`StageInput::Auto`] stages a path the host cannot be expected to read. [`StageInput::Never`]
+    /// submits the path as given. See `API.md`, "Input contract".
+    pub fn stage(mut self, mode: StageInput) -> Self {
+        self.stage = mode;
+        self
+    }
+    /// The largest file, in bytes, that may be staged (default [`DEFAULT_STAGE_LIMIT_BYTES`]).
+    /// A larger file returns [`ClientError::StageLimitExceeded`] and nothing is staged.
+    pub fn stage_limit(mut self, bytes: u64) -> Self {
+        self.stage_limit = bytes;
+        self
     }
     /// Run `gate` on the connected host before the request is submitted. It sees the host's role,
     /// engine version, protocol minor and (from minor 1) its capabilities. A refusal returns
@@ -545,6 +592,27 @@ fn encode_frame(frame: &ServiceEnvelope) -> Result<String, ClientError> {
     let mut line = serde_json::to_string(frame).map_err(io_err)?;
     line.push('\n');
     Ok(line)
+}
+
+/// The error a transcription reply carries. A host read denial becomes [`ClientError::InputUnreadable`]
+/// with the caller's path; everything else maps as [`map_error`] does.
+fn input_error(error: &ServiceErrorPayload, path: &Path) -> ClientError {
+    if host_could_not_read(error) {
+        ClientError::InputUnreadable {
+            path: path.to_path_buf(),
+            message: error.message.clone(),
+        }
+    } else {
+        map_error(error)
+    }
+}
+
+/// The path to put on the wire: the staged copy when there is one, else the caller's path.
+fn submit_path<'a>(staged: &'a Option<Staged>, path: &'a Path) -> &'a Path {
+    match staged {
+        Some(copy) => copy.path(),
+        None => path,
+    }
 }
 
 fn map_error(error: &ServiceErrorPayload) -> ClientError {
@@ -821,6 +889,30 @@ impl SpeechClient {
         path: &Path,
         opts: &mut TranscribeOptions,
     ) -> Result<FileTranscriptResult, ClientError> {
+        self.transcribe_staged(path, opts, &StageRoots::system())
+    }
+
+    /// [`transcribe`](Self::transcribe) with the staging roots given. The staged copy, if any,
+    /// lives until this call returns.
+    fn transcribe_staged(
+        &mut self,
+        path: &Path,
+        opts: &mut TranscribeOptions,
+        roots: &StageRoots,
+    ) -> Result<FileTranscriptResult, ClientError> {
+        let staged = prepare(path, opts.stage, opts.stage_limit, roots)?;
+        let submit = submit_path(&staged, path);
+        self.submit_file(submit, path, opts)
+    }
+
+    /// Submit `submit` (the staged copy or `original`) and map the reply. `original` is the
+    /// caller's path, which errors name.
+    fn submit_file(
+        &mut self,
+        submit: &Path,
+        original: &Path,
+        opts: &mut TranscribeOptions,
+    ) -> Result<FileTranscriptResult, ClientError> {
         let mut wire = self.wire_options(opts)?;
         let queue = self.supports_queue()?;
         if opts.verbatim {
@@ -851,7 +943,7 @@ impl SpeechClient {
         let frame = ServiceEnvelope::file_request_with(
             &request_id,
             TRACE_ID,
-            path.to_string_lossy().into_owned(),
+            submit.to_string_lossy().into_owned(),
             &wire,
         );
         let wait = if queue {
@@ -863,7 +955,7 @@ impl SpeechClient {
         let mut report = |p: &Progress| opts.report(p.clone());
         let response = self.call_inner(&frame, wait, cancel.as_ref(), Some(&mut report))?;
         if let Some(error) = &response.error {
-            return Err(map_error(error));
+            return Err(input_error(error, original));
         }
         response
             .transcript_result()
@@ -1031,6 +1123,9 @@ pub fn transcribe_via_service_policy(
         opts.request_id = Some(next_request_id());
     }
     let mut last = ClientError::NoService;
+    // Staged once, before the first submit, and kept across attempts: a resubmit names the same file.
+    let mut staged: Option<Staged> = None;
+    let mut prepared = false;
     for attempt in 0..MAX_ATTEMPTS {
         if opts.cancelled() {
             return Err(ClientError::Cancelled);
@@ -1058,7 +1153,12 @@ pub fn transcribe_via_service_policy(
             attempt: attempt + 1,
         });
         let host_pid = read_live_record(suite_root).map(|r| r.pid).unwrap_or(0);
-        match connect(suite_root).and_then(|mut c| c.transcribe(path, opts)) {
+        if !prepared {
+            staged = prepare(path, opts.stage, opts.stage_limit, &StageRoots::system())?;
+            prepared = true;
+        }
+        let submit = submit_path(&staged, path);
+        match connect(suite_root).and_then(|mut c| c.submit_file(submit, path, opts)) {
             Err(ClientError::HandoffRetry) if opts.running_host_only => {
                 return Err(ClientError::HandoffRetry);
             }

@@ -59,6 +59,9 @@ Contents: [Discovery](#discovery-and-roles) · [Connecting and transcribing](#co
 | `TranscribeOptions` | Public fields: `engine`, `language`, `stall_timeout`, `cancel`, `on_progress`, `request_id`, `verbatim`. `Default` uses a 120 s stall timeout. | — |
 | `TranscribeOptions::new(stall)` | Options with the given stall timeout. | — |
 | `TranscribeOptions::request_id`, `verbatim`, `engine`, `language`, `cancel_token`, `on_progress` | Builder methods. `request_id` is the idempotency key and the job id on a queue host. | — |
+| `TranscribeOptions::stage(StageInput)`, `stage_limit(bytes)` | New in 0.3.4. Staging mode (default `Auto`) and the largest file that may be staged (default `DEFAULT_STAGE_LIMIT_BYTES`). See [Staging](#staging). | `InputUnreadable`, `StageLimitExceeded`. |
+| `StageInput` | New in 0.3.4. `Auto` (default): stage a path the host cannot be expected to read. `Always`: stage every regular file. `Never`: submit the path as given. | — |
+| `DEFAULT_STAGE_LIMIT_BYTES` | New in 0.3.4. 4 GiB, the default staging limit. | — |
 | `ProgressFn` | `Box<dyn FnMut(&Progress) + Send>`, the progress callback type. | — |
 | `Progress` | Events: `StartingHost`, `Connecting { attempt }`, `Submitted`, `Waiting { elapsed, idle }`, `Host(HostProgress)` (minor 1 and 2 hosts), `Queued { job_id, position, reason }`, `Running { job_id, fraction }`, `Reconnecting { attempt }`, `HandoffRetry { attempt }`. | — |
 | `JobStatus` | `Active(HostProgress)`, `Done(FileTranscriptResult)`, `Unknown`. | — |
@@ -136,7 +139,7 @@ with `E_ENGINE` on Unix, and Windows may report `E_PERMISSION`.
 ## Errors
 
 `ClientError` is not `#[non_exhaustive]`. Matches on it need a wildcard arm to survive
-`NoLiveHost`, which 0.3.4 added.
+`NoLiveHost`, `Refused`, `InputUnreadable` and `StageLimitExceeded`, which 0.3.4 added.
 
 | Variant | Meaning | Retry? |
 |---|---|---|
@@ -150,6 +153,8 @@ with `E_ENGINE` on Unix, and Windows may report `E_PERMISSION`.
 | `Io(String)` | Socket or protocol failure: closed connection on a non-queue host, bad frame, write failure. | Depends on cause. |
 | `Cancelled` | The caller's `CancelToken` fired. The service may still finish the job; see [Cancel](#cancel). | — |
 | `Unsupported(String)` | The host cannot serve the request as asked: no verbatim, no queue contract, a named engine on a minor-0 host, or a path the wire cannot carry. | No; change the request. |
+| `InputUnreadable { path, message }` | New in 0.3.4. The host could not read the input: `E_PERMISSION`, or an `E_ENGINE` whose message is the host's FFmpeg or open-failure denial. `path` is the caller's path, not a staged copy. Returned for `Never` too: the mapping is the error contract, not staging. | No; grant the host read access to the path, or use the default staging. |
+| `StageLimitExceeded { path, bytes, limit }` | New in 0.3.4. The file is larger than `stage_limit`. Nothing was staged or submitted. | No; raise `stage_limit` or change the file. |
 
 ## Wire constants and frames
 
@@ -259,7 +264,8 @@ that is unavailable (`model_lease_unavailable`).
   directory allowlist in the host. On macOS, paths under `/Volumes` need Files & Folders →
   Removable Volumes (or Full Disk Access); other paths need Full Disk Access. Other
   platforms need ordinary read access for the host's user. The client does not need access
-  to the file.
+  to the file. Since 0.3.4 the client stages a file the host cannot be expected to read by
+  default; see [Staging](#staging).
 - **Paths.** Send absolute paths. A relative path resolves in the host's working directory,
   not yours. A path that is not valid UTF-8 cannot be sent; `transcribe` sends its lossy form
   silently, so run `preflight_file` first.
@@ -267,6 +273,38 @@ that is unavailable (`model_lease_unavailable`).
   (`QUEUE_RESULT_RETENTION_MS`).
 - **Verbatim.** Skips filler removal and text polish. The engine echo gains a `+verbatim`
   suffix.
+
+### Staging
+
+New in 0.3.4. `TranscribeOptions::stage` decides whether the client copies the input before
+submit. It applies to `transcribe`, `transcribe_file` and `transcribe_via_service*`.
+
+- **Host-readable by default.** A path is host-readable by default when it is absolute, lies
+  under the user's home directory or the per-user temporary directory (`std::env::temp_dir()`),
+  and is on the same volume as that directory. On macOS nothing under `/Volumes/` qualifies. On
+  Windows the drive must match the home or temporary directory's drive. Paths are compared after
+  resolving symbolic links when they exist.
+- **`Auto` (default).** A path that is not host-readable by default is staged. A host-readable
+  path is submitted unchanged. A relative path is not host-readable by this rule, so it is
+  staged; the copy is read in this process's working directory.
+- **`Always`** stages every regular file. **`Never`** submits the path as given, exactly as
+  0.3.3 did (the typed host-read error still applies to it).
+- **Where.** A new file, uniquely named and keeping the original extension, in
+  `<temp dir>/rightkit-speech-client-staging/`. On Unix the file is created 0600 and the
+  directory is 0700. The file is removed when the request returns: on success, on error and on
+  cancel. A job the host still runs after a cancel may fail when it opens the removed file; the
+  wire has no cancel (see [Cancel](#cancel)).
+- **Size.** A file larger than `stage_limit` (default 4 GiB) returns `StageLimitExceeded`
+  before anything is created. The client has no free-space check: a full volume surfaces as
+  `Io`.
+- **Missing source.** Nothing is staged. The path is submitted and the host reports
+  `file not found` as before.
+- **Client cannot read the source.** `InputUnreadable`, with the caller's path.
+- **Host read denial.** `InputUnreadable`, with the caller's path, for `E_PERMISSION`, and for
+  `E_ENGINE` whose message starts `ffmpeg could not read this file` or `could not read ` and
+  contains `Operation not permitted` or `Permission denied`. Other `E_ENGINE` texts (a corrupt
+  file, for example) stay `Engine`.
+- **Staged path.** Must be valid UTF-8 to travel on the wire, else `Unsupported`.
 
 ### Output
 
