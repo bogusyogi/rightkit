@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.2.4
+
+Two optional edge cases for ViewRight parity. Defaults equal 0.2.3.
+
+Added:
+- `useListNavigation` with `emptyIndex: "preserve"`: on an empty list the stored index is what the clamp rule computes instead of a forced -1. ArrowDown and End store -1, ArrowUp and Home store 0 (so the first row is selected when results arrive), a wrapping list stores -1. `moveIndex` takes a sixth argument `preserveEmpty` for this. `"clamp"` (default) still stores -1.
+- `useExitTransition` `onSyncThrow: "close" | "propagate"` (default `"close"`, as before): `"propagate"` rethrows a synchronous throw from the action to the caller of `close()`, starts nothing and leaves state unchanged, for both `closeAfter` values (the action then runs before `onExitStart`). Asynchronous rejections behave as before in both modes.
+
+Changed internally: `createExitTransition().close` is no longer an `async` function (it still returns a promise); with the default option a synchronous throw is still returned as a rejected promise.
+
 ## 0.2.3
 
 Optional parity options for ViewRight's three families. Every default equals 0.2.2 except the one fix below.

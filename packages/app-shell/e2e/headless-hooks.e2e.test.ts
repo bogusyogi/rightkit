@@ -136,6 +136,28 @@ describe.skipIf(!chrome)("platform-ui headless hooks in real headless Chrome", (
       expect((await logLines()).filter((l) => l === "menu:run Copy")).toHaveLength(2);
     });
 
+    it("onSyncThrow: close (default) closes the menu on a throwing action; propagate rethrows to the caller and leaves it open", async () => {
+      for (const after of ["immediately", "settled"]) {
+        await openMenu(`after=${after}&throws=1`);
+        await page.click("[role=menu] button:nth-child(2)");
+        await page.waitFor("!document.querySelector('[role=menu]')");
+        const lines = await logLines();
+        expect(lines, after).toContain("menu:rejected");
+        expect(lines, after).not.toContain("menu:threw");
+      }
+      await openMenu("after=settled&throws=1&syncThrow=propagate");
+      await page.click("[role=menu] button:nth-child(2)");
+      await page.sleep(300);
+      expect(await exists("[role=menu]")).toBe(true);
+      expect(await attr("[role=menu]", "data-pending")).toBe("false");
+      expect(await attr("[role=menu]", "data-closing")).toBe("false");
+      const lines = await logLines();
+      expect(lines).toContain("menu:threw");
+      expect(lines).not.toContain("menu:exit-start");
+      await page.press("Escape"); // the menu is still alive and dismissable
+      await page.waitFor("!document.querySelector('[role=menu]')");
+    });
+
     it("settled: the menu stays open, pending, until the action's promise settles; then it exits", async () => {
       await openMenu("after=settled");
       await page.click("[role=menu] button:nth-child(2)");
@@ -443,6 +465,27 @@ describe.skipIf(!chrome)("platform-ui headless hooks in real headless Chrome", (
       for (let i = 0; i < 3; i++) await page.press("Backspace");
       await page.press("ArrowUp");
       expect(await activeIdx()).toBe(0);
+    });
+
+    it("emptyIndex preserve: ArrowUp on an empty list stores 0, so the first row is selected when results arrive; ArrowDown still selects nothing", async () => {
+      await openPalette("emptyIndex=preserve");
+      await page.type("zzz");
+      await page.press("ArrowUp");
+      for (let i = 0; i < 3; i++) await page.press("Backspace");
+      expect(await activeIdx()).toBe(0);
+      expect(await descendant()).toBe("vr-palette-option-0");
+      await openPalette("emptyIndex=preserve");
+      await page.type("zzz");
+      await page.press("ArrowDown");
+      await page.press("ArrowUp"); // from the stored -1: 0
+      for (let i = 0; i < 3; i++) await page.press("Backspace");
+      expect(await activeIdx()).toBe(0);
+      await openPalette("emptyIndex=preserve");
+      await page.type("zzz");
+      await page.press("ArrowUp");
+      await page.press("ArrowDown"); // from 0 on an empty list: -1
+      for (let i = 0; i < 3; i++) await page.press("Backspace");
+      expect(await activeIdx()).toBe(-1);
     });
 
     it("imeGuard: keys during a composition are ignored by default and handled with imeGuard false", async () => {

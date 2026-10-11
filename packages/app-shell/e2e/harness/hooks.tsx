@@ -67,6 +67,7 @@ function MenuLayer({ x, y, onGone }: { x: number; y: number; onGone: () => void 
     onClosed: onGone,
     onExitStart: () => log("menu:exit-start"),
     onActionWhileClosing: (q.get("whileClosing") as "drop" | "run" | null) ?? undefined,
+    onSyncThrow: (q.get("syncThrow") as "close" | "propagate" | null) ?? undefined,
   });
   (window as unknown as { __exit: typeof exit }).__exit = exit;
   const outside = (q.get("dismiss") ?? "mousedown") as OutsidePress;
@@ -87,6 +88,7 @@ function MenuLayer({ x, y, onGone }: { x: number; y: number; onGone: () => void 
   const items = ["Cut", "Copy", "Paste"];
   const run = (label: string) => () => {
     log(`menu:run ${label}`);
+    if (flag("throws")) throw new Error("sync boom");
     if (q.get("after") === "settled") return new Promise<void>((r) => { (window as unknown as { __release: () => void }).__release = r; });
     return undefined;
   };
@@ -103,7 +105,13 @@ function MenuLayer({ x, y, onGone }: { x: number; y: number; onGone: () => void 
         style={{ position: "fixed", zIndex: 61, background: "#fff", border: "1px solid #999", boxSizing: "border-box", left: pos.left, top: pos.top, width: pos.width, maxHeight: pos.maxHeight, opacity: exit.closing ? 0.4 : 1 }}
       >
         {items.map((label) => (
-          <button key={label} type="button" role="menuitem" style={{ display: "block", width: "100%", height: 28 }} onClick={() => void exit.close(run(label)).catch(() => undefined)}>{label}</button>
+          <button key={label} type="button" role="menuitem" style={{ display: "block", width: "100%", height: 28 }} onClick={() => {
+            try {
+              void exit.close(run(label)).catch(() => log("menu:rejected"));
+            } catch {
+              log("menu:threw");
+            }
+          }}>{label}</button>
         ))}
       </div>
     </>

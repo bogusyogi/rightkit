@@ -195,4 +195,53 @@ describe("createExitTransition", () => {
     await a.core.close(fn);
     expect(fn).not.toHaveBeenCalled();
   });
+
+  describe("onSyncThrow", () => {
+    const boom = () => {
+      throw new Error("sync");
+    };
+    for (const closeAfter of ["immediately", "settled"] as const) {
+      it(`close (default), closeAfter ${closeAfter}: a synchronous throw becomes a rejected promise and the exit still starts`, async () => {
+        const { core, onExitStart } = make({ closeAfter });
+        let p!: Promise<void>;
+        expect(() => (p = core.close(boom))).not.toThrow();
+        await expect(p).rejects.toThrow("sync");
+        expect(core.getState()).toEqual({ phase: "closing", pending: false });
+        expect(onExitStart).toHaveBeenCalledTimes(1);
+      });
+
+      it(`propagate, closeAfter ${closeAfter}: the throw reaches the caller of close(), nothing starts and state is unchanged`, () => {
+        const { core, onExitStart } = make({ closeAfter, onSyncThrow: "propagate" });
+        const seen: string[] = [];
+        core.subscribe(() => seen.push(core.getState().phase));
+        expect(() => core.close(boom)).toThrow("sync");
+        expect(core.getState()).toEqual({ phase: "open", pending: false });
+        expect(onExitStart).not.toHaveBeenCalled();
+        expect(seen).toEqual([]);
+        expect(vi.getTimerCount()).toBe(0);
+        // still usable afterwards
+        void core.close(() => undefined);
+        expect(core.getState().phase === "closing" || core.getState().pending).toBe(true);
+      });
+
+      it(`propagate, closeAfter ${closeAfter}: an asynchronous rejection behaves as in close mode`, async () => {
+        const { core } = make({ closeAfter, onSyncThrow: "propagate" });
+        await expect(core.close(() => Promise.reject(new Error("async")))).rejects.toThrow("async");
+        expect(core.getState().phase).toBe("closing");
+      });
+
+      it(`propagate, closeAfter ${closeAfter}: a normal action still closes and resolves`, async () => {
+        const { core, onExitStart } = make({ closeAfter, onSyncThrow: "propagate" });
+        await core.close(() => undefined);
+        expect(core.getState().phase).toBe("closing");
+        expect(onExitStart).toHaveBeenCalledTimes(1);
+      });
+    }
+
+    it("propagate: with the action-while-closing run option, a synchronous throw also reaches the caller", () => {
+      const { core } = make({ onSyncThrow: "propagate", onActionWhileClosing: "run" });
+      void core.close();
+      expect(() => core.close(boom)).toThrow("sync");
+    });
+  });
 });

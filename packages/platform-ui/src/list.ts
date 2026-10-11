@@ -31,8 +31,13 @@ export function readIndex(index: number, count: number, mode: "clamp" | "preserv
  * The index a move lands on, from the clamped `current`. `wrap` cycles past the ends, otherwise the move clamps.
  * Disabled items are skipped; when every item is disabled the index is unchanged. An empty list gives -1.
  */
-export function moveIndex(current: number, count: number, move: ListMove, wrap: boolean, isDisabled?: (index: number) => boolean): number {
-  if (count <= 0) return -1;
+export function moveIndex(current: number, count: number, move: ListMove, wrap: boolean, isDisabled?: (index: number) => boolean, preserveEmpty = false): number {
+  if (count <= 0) {
+    // Empty list. Default: -1. With `preserveEmpty` (emptyIndex "preserve") the clamp rule is applied to the
+    // empty range [0, -1]: next and last cap at the last index (-1), prev and first floor at 0, and a wrapping
+    // list has no direction (-1). The result does not depend on `current`.
+    return preserveEmpty && !wrap && (move === "prev" || move === "first") ? 0 : -1;
+  }
   if (current < 0 && move === "prev") move = wrap ? "last" : "first";
   const ok = (i: number) => !isDisabled?.(i);
   if (move === "first" || move === "last") {
@@ -125,7 +130,9 @@ export interface ListNavigationOptions {
    * `"clamp"` (default): the exposed index is always inside the list, so ArrowDown on an empty list and then
    * results arriving selects the first item. `"preserve"`: the stored -1 ("nothing selected") survives, nothing is
    * selected when results arrive, and ArrowDown or ArrowUp then select the first item (the last, when wrapping,
-   * for ArrowUp). Read the stored value from `rawIndex`.
+   * for ArrowUp). Read the stored value from `rawIndex`. On an empty list `"preserve"` stores what the clamp rule
+   * gives (see `moveIndex`): ArrowDown and End store -1, ArrowUp and Home store 0, so results arriving afterwards
+   * select the first row after ArrowUp and nothing after ArrowDown. A wrapping list stores -1 for every key.
    */
   emptyIndex?: "clamp" | "preserve";
 }
@@ -195,7 +202,7 @@ export function useListNavigation(options: ListNavigationOptions): ListNavigatio
 
   const go = (move: ListMove) => {
     const { active: current, count: n } = latest.current;
-    const next = moveIndex(current, n, move, wrap, isDisabled);
+    const next = moveIndex(current, n, move, wrap, isDisabled, emptyIndex === "preserve");
     setState((s) => ({ ...s, index: next, keyboardDriving: true }));
   };
 

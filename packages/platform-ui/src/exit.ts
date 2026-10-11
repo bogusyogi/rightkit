@@ -20,6 +20,14 @@ export interface ExitTransitionOptions {
    * with such wrappers, not as a recommendation. A finished (`closed`) transition always drops.
    */
   onActionWhileClosing?: "drop" | "run";
+  /**
+   * An `action` that throws synchronously. `"close"` (default): the throw becomes a rejected promise from `close()`
+   * and the close still happens. `"propagate"`: the throw is rethrown synchronously to the caller of `close()`, the
+   * transition does not start and state is unchanged (the menu stays open), as for a wrapper that calls its action
+   * before wrapping it in a promise. In this mode the action runs before `onExitStart`, also for `"immediately"`.
+   * Asynchronous rejections behave the same in both modes: the close happens and the promise rejects.
+   */
+  onSyncThrow?: "close" | "propagate";
   /** Start in `open` (default) or `closed`. Read once, when the hook mounts. */
   initialOpen?: boolean;
   /** Called once when the exit starts (phase becomes `closing`, or `closed` when `exitMs` <= 0). */
@@ -50,6 +58,16 @@ export interface ExitTransition {
    */
   close(action?: () => unknown): Promise<void>;
 }
+
+type Outcome = { ok: true; value: unknown } | { ok: false; error: unknown };
+const noop = () => undefined;
+const call = (action: () => unknown): Outcome => {
+  try {
+    return { ok: true, value: action() };
+  } catch (error) {
+    return { ok: false, error };
+  }
+};
 
 type Core = {
   getState(): ExitState;
@@ -104,27 +122,46 @@ export function createExitTransition(options: () => ExitTransitionOptions): Core
       clear();
       set({ phase: "open", pending: false });
     },
-    async close(action) {
+    close(action) {
+      const propagate = options().onSyncThrow === "propagate";
+      const done = (r: Outcome): Promise<void> => (r.ok ? Promise.resolve(r.value).then(noop) : Promise.reject(r.error));
       if (state.phase !== "open" || state.pending) {
-        if (action && state.phase !== "closed" && options().onActionWhileClosing === "run") await action();
-        return;
+        if (!action || state.phase === "closed" || options().onActionWhileClosing !== "run") return Promise.resolve();
+        const r = call(action);
+        if (!r.ok && propagate) throw r.error;
+        return done(r);
       }
       const gen = generation;
-      if (action && (options().closeAfter ?? "immediately") === "settled") {
-        set({ phase: "open", pending: true });
-        try {
-          await action();
-        } finally {
-          // A newer open() or an unmount orphaned this close: it must not touch the new instance.
+      if (!action) {
+        startExit(gen);
+        return Promise.resolve();
+      }
+      if (options().closeAfter === "settled") {
+        let r: Outcome;
+        if (propagate) {
+          r = call(action);
+          if (!r.ok) throw r.error;
+          set({ phase: "open", pending: true });
+        } else {
+          set({ phase: "open", pending: true });
+          r = call(action);
+        }
+        // A newer open() or an unmount orphaned this close: it must not touch the new instance.
+        return done(r).finally(() => {
           if (gen === generation) {
             set({ phase: "open", pending: false });
             startExit(gen);
           }
-        }
-        return;
+        });
+      }
+      if (propagate) {
+        const r = call(action);
+        if (!r.ok) throw r.error;
+        startExit(gen);
+        return done(r);
       }
       startExit(gen);
-      if (action) await action();
+      return done(call(action));
     },
     dispose() {
       generation++;

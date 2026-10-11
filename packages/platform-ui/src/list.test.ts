@@ -96,3 +96,25 @@ describe("readIndex", () => {
     expect(readIndex(0, 0, "preserve")).toBe(-1);
   });
 });
+
+describe("moveIndex on an empty list (count 0)", () => {
+  it("default (clamp): every move gives -1", () => {
+    for (const start of [-1, 0]) for (const move of ["next", "prev", "first", "last"] as const) expect(moveIndex(start, 0, move, false)).toBe(-1);
+  });
+  it("preserve, no wrap: next and last give -1; prev and first give 0 (the clamp rule), from either start index", () => {
+    const table: Array<[number, "next" | "prev" | "first" | "last", number]> = [
+      [-1, "next", -1], [0, "next", -1],
+      [-1, "prev", 0], [0, "prev", 0],
+      [-1, "first", 0], [0, "first", 0],
+      [-1, "last", -1], [0, "last", -1],
+    ];
+    for (const [start, move, want] of table) expect(moveIndex(start, 0, move, false, undefined, true), `${start} ${move}`).toBe(want);
+  });
+  it("preserve with wrap has no direction on an empty list: -1", () => {
+    for (const start of [-1, 0]) for (const move of ["next", "prev", "first", "last"] as const) expect(moveIndex(start, 0, move, true, undefined, true)).toBe(-1);
+  });
+  it("preserve changes nothing for a non-empty list", () => {
+    expect(moveIndex(1, 3, "next", false, undefined, true)).toBe(2);
+    expect(moveIndex(-1, 3, "prev", false, undefined, true)).toBe(0);
+  });
+});
