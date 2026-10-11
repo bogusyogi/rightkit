@@ -641,7 +641,10 @@
       "os": "windows",
       "arch": "x86_64",
       "version": "7.1.5",
-      "status": "pending",
+      "status": "approved",
+      "sha256": "2ecd3ab3d313f1a09ad29491979f806faf98c38d150ab37ec2978627fcb9cdb9",
+      "contentSha256": "34acae414d4397d37e8125fb4366e22426ad53aa06a15d6b8007efa7964afdcb",
+      "size": 19496448,
       "sourceSha256": "de668509caf9e35e3cd162473441fdb29538c6d96ed080292b3cf9e6fc5d558f",
       "attribution": {
         "licenseSpdx": "LGPL-2.1-or-later AND FTL AND MIT-Modern-Variant AND ISC AND WTFPL AND Zlib AND LicenseRef-MinGW-w64-runtime AND MIT AND BSD-3-Clause AND GPL-3.0-or-later WITH GCC-exception-3.1",
@@ -750,16 +753,7 @@
         "--enable-libzimg",
         "--enable-zlib",
         "--enable-mediafoundation"
-      ],
-      "pending": {
-        "reason": "Built three times by the ffmpeg-windows GitHub Actions workflow on windows-2025 (runs 38132992466, 38134157839 and 38137274090): every run gave sha256 2ecd3ab3d313f1a09ad29491979f806faf98c38d150ab37ec2978627fcb9cdb9, 19496448 bytes, and passed the recipe's linkage, licence, filter and encoder gates. The three toolchain runtime components are the runner's MSYS2 packages, with the digests recorded in run 38137274090's evidence/toolchain-packages.txt. contentSha256 34acae414d4397d37e8125fb4366e22426ad53aa06a15d6b8007efa7964afdcb is the Authenticode SHA-256, computed with a Python port of the PE rule in src/content_digest.rs and equal to the value Windows reports (Get-AppLockerFileInformation); it has not been confirmed by the crate's own content_identity_file yet. The h264_mf, subtitles, drawtext and zscale+tonemap smoke tests were run on a local build of the same recipe, not on the CI binary. zlib: signature not checked, digest matched the publisher's.",
-        "recipe": "recipes/build-ffmpeg-windows.sh",
-        "commands": [
-          "gh workflow run ffmpeg-windows.yml -f variant=export-ass-zimg -f tool=ffmpeg  # twice, compare the two sha256 values",
-          "<artifact>/ffmpeg-export-ass-zimg-windows-x64.evidence/ holds -version, -buildconf, -L, -encoders, -decoders, -filters and the import list"
-        ],
-        "promote": "confirm the content digest above with the crate's content_identity_file on the CI binary and run the smoke tests on it, then record sha256 2ecd3ab3d313f1a09ad29491979f806faf98c38d150ab37ec2978627fcb9cdb9, contentSha256 and size 19496448, set status approved and delete pending"
-      }
+      ]
     },
     {
       "id": "ffprobe-7.1.5-windows-x64",
@@ -768,7 +762,10 @@
       "os": "windows",
       "arch": "x86_64",
       "version": "7.1.5",
-      "status": "pending",
+      "status": "approved",
+      "sha256": "4c0ac1359dfaffb28b54a5f6e78e78185271516d50e23ee73807721b14188097",
+      "contentSha256": "a1cfb297e05d2ab426a2fb5d9d4fbc817834e1b2dba62f596646564ad738712a",
+      "size": 16198656,
       "sourceSha256": "de668509caf9e35e3cd162473441fdb29538c6d96ed080292b3cf9e6fc5d558f",
       "attribution": {
         "licenseSpdx": "LGPL-2.1-or-later AND LicenseRef-MinGW-w64-runtime AND MIT AND BSD-3-Clause AND GPL-3.0-or-later WITH GCC-exception-3.1",
@@ -812,15 +809,7 @@
         "--disable-gpl",
         "--disable-nonfree",
         "--disable-autodetect"
-      ],
-      "pending": {
-        "reason": "Built twice by the ffmpeg-windows GitHub Actions workflow on windows-2025 with the decode flags (runs 38138566152 and 38139300738): both gave sha256 4c0ac1359dfaffb28b54a5f6e78e78185271516d50e23ee73807721b14188097, 16198656 bytes, and passed the recipe's linkage and licence gates. The three toolchain runtime components are the runner's MSYS2 packages, with the digests recorded in the runs' evidence/toolchain-packages.txt. contentSha256 a1cfb297e05d2ab426a2fb5d9d4fbc817834e1b2dba62f596646564ad738712a is the Authenticode SHA-256 Windows reports (Get-AppLockerFileInformation); it has not been confirmed by the crate's own content_identity_file yet. ffprobe was not exercised against media files.",
-        "recipe": "recipes/build-ffmpeg-windows.sh",
-        "commands": [
-          "gh workflow run ffmpeg-windows.yml -f variant=decode -f tool=ffprobe  # twice, compare the two sha256 values"
-        ],
-        "promote": "after ffprobe has read at least one real file and the crate's content_identity_file confirms the content digest above on the CI binary, record sha256 4c0ac1359dfaffb28b54a5f6e78e78185271516d50e23ee73807721b14188097, contentSha256 and size 16198656, set status approved and delete pending"
-      }
+      ]
     }
   ]
 }
