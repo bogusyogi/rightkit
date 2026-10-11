@@ -10,6 +10,7 @@ use crate::cache::{estimate_tokens, plan_breakpoints, CacheableBlock, MAX_BREAKP
 use crate::credentials::CredentialSource;
 use crate::error::LlmError;
 use crate::provider::Provider;
+use crate::raw::RawHandle;
 use crate::types::*;
 
 pub const ANTHROPIC_BASE_URL: &str = "https://api.anthropic.com";
@@ -25,6 +26,7 @@ pub struct AnthropicProvider {
     credentials: Arc<dyn CredentialSource>,
     extra_headers: Vec<(String, String)>,
     observer: Option<CallObserver>,
+    raw_capture: Option<usize>,
 }
 
 /// Default client config for Anthropic: also retries 529 (overloaded).
@@ -46,6 +48,7 @@ impl AnthropicProvider {
             credentials,
             extra_headers: Vec::new(),
             observer: None,
+            raw_capture: None,
         }
     }
     pub fn with_id(mut self, id: &str) -> Self {
@@ -60,6 +63,16 @@ impl AnthropicProvider {
     /// Report every call that reaches the network to `f`. See [`CallRecord`].
     pub fn with_observer(mut self, f: impl Fn(&CallRecord<'_>) + Send + Sync + 'static) -> Self {
         self.observer = Some(Arc::new(f));
+        self
+    }
+    /// Keep the provider's raw response for non-streaming calls: status, request id (the
+    /// `request-id` header) and up to `max_body_bytes` of the body (0 keeps status and request
+    /// id only). The observer gets it in [`CallRecord::raw`], and a `Truncated` or `Malformed`
+    /// error carries it ([`LlmError::raw`]). Off by default, and streams are not captured. The
+    /// body is the provider's answer to the prompt; see [`crate::raw`] for what it holds and who
+    /// owns it.
+    pub fn with_raw_capture(mut self, max_body_bytes: usize) -> Self {
+        self.raw_capture = Some(max_body_bytes);
         self
     }
 
@@ -300,18 +313,15 @@ impl Provider for AnthropicProvider {
 
     fn complete(&self, req: &ChatRequest) -> Result<ChatResponse, LlmError> {
         let (http, secret, body) = self.request(req, false)?;
-        let result = self
-            .client
-            .send(&http)
-            .map_err(|e| LlmError::from_http(e, secret.as_deref()))
-            .and_then(|resp| {
-                let v: Value = resp
-                    .json()
-                    .map_err(|e| LlmError::Malformed(e.to_string()))?;
-                parse_response(&v)
-            })
-            .and_then(|r| check_output(r, req));
-        self.observe(false, &body, &result);
+        let (result, raw) = crate::raw::exchange(
+            &self.client,
+            &http,
+            secret.as_deref(),
+            self.raw_capture,
+            req,
+            parse_response,
+        );
+        self.observe(false, &body, &result, raw.as_ref());
         result
     }
 
@@ -322,19 +332,26 @@ impl Provider for AnthropicProvider {
     ) -> Result<ChatResponse, LlmError> {
         let (http, secret, body) = self.request(req, true)?;
         let result = self.stream_call(req, &http, secret.as_deref(), on_event);
-        self.observe(true, &body, &result);
+        self.observe(true, &body, &result, None);
         result
     }
 }
 
 impl AnthropicProvider {
-    fn observe(&self, stream: bool, body: &Value, result: &Result<ChatResponse, LlmError>) {
+    fn observe(
+        &self,
+        stream: bool,
+        body: &Value,
+        result: &Result<ChatResponse, LlmError>,
+        raw: Option<&RawHandle>,
+    ) {
         if let Some(observer) = &self.observer {
             observer(&CallRecord {
                 provider: &self.id,
                 stream,
                 request_body: body,
                 result: result.as_ref(),
+                raw,
             });
         }
     }

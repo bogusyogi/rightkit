@@ -206,7 +206,9 @@ fn ensure_with_grant_inner(
         (true, Some(config)) => {
             let session = GrantSession::for_spec(config, spec)?;
             Some(match custom {
-                Some(client) => session.with_client(client.client().clone()),
+                // `client_for` picks the development loopback client when the worker is the
+                // one allowed host and port (feature `dev-worker-override`).
+                Some(client) => session.with_client(client.client_for(&config.worker_base).clone()),
                 None => session,
             })
         }

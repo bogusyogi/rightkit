@@ -11,6 +11,7 @@ Shared local-model manifest and installer for Right Suite apps. It owns model re
 | Feature | Default | Pulls in | Effect |
 |---|---|---|---|
 | `rightapps` | off | `ed25519-dalek`, `base64`, `url`, `chrono` | Enables `RuntimeArtifactClient`, which resolves and installs RightApps promoted private artifacts with signed-manifest verification. Without it, only the app-supplied manifest path compiles. |
+| `dev-worker-override` | off | nothing | **Development only. Never enable it in a release build.** Makes `ModelHttpOptions::allow_loopback_host(host, port)` take effect, so one named loopback host and port can be reached for a local debug worker. Without the feature the call is accepted and does nothing, and loopback stays refused. |
 
 The default feature set is empty.
 
@@ -47,6 +48,33 @@ let spec = ModelSpec::new("whisper-tiny", vec![RevisionSpec { /* revision, files
 ### Grant rate limits
 
 `suite::grant::try_acquire_grant_pinned` and `try_acquire_grant_with_client` return `GrantError`. `GrantError::RateLimited { retry_after, message }` is an HTTP 429 from the model worker, with the parsed `Retry-After` (delay-seconds or an IMF-fixdate, converted to a delay from now). `GrantError::retry_after()` returns it. `GrantError::Failed` covers everything else. The grant POST is never replayed, so the caller decides when to retry. The `String`-returning functions (`acquire_grant_pinned`, `acquire_grant_with_client`) keep their signatures and messages.
+
+### Download HTTP options
+
+`http::ModelHttpOptions` configures the transport for downloads (`http_client_with_options`, `ModelHttp::new`, `Store::with_http_options`, `ensure_with_grant_via`). Every default is the previous behaviour.
+
+| Option | Default | Meaning |
+|---|---|---|
+| `trust` | `TrustRoots::Platform` | Which roots verify servers. `Platform` is the operating system's trust store. `Bundled` is the Mozilla root set compiled into `rightkit-http`, ignoring the machine's store. `rightkit-http` offers no other source, so an app cannot supply its own roots. Verification cannot be turned off. |
+| `user_agent`, `app` | `rightkit-models/<version>` | Full value, or `<app>/<version> rightkit-models/<version>`. The value is validated as a header value (printable ASCII, not empty, no edge whitespace): `ModelHttp::try_new` and `ModelHttpOptions::validate` report a bad one; `ModelHttp::new` falls back to the default instead of failing. |
+| `connect_timeout` | 30 s | Connection phase limit. |
+| `header_timeout` | 60 s | Longest wait for the response headers. |
+| `read_timeout` | 120 s | Longest wait for the next body bytes (idle limit). |
+| `body_timeout` | none | Total time for one body, from the headers. |
+| `total_timeout` | none | One budget for a whole download call: every attempt, the pauses between them and the body. Bytes arriving does not extend it. When it runs out the download fails with "download exceeded the total time budget of ..." and nothing is retried; the `.part` file is kept for a later resume. |
+| `retries` | 2 | Automatic retries after the first attempt, so three attempts by default (`DEFAULT_RETRIES`). `0` makes one attempt. Retried: transport failures, stalled bodies, 408, 429 and 5xx; the pause grows from 250 ms to 1 s and never passes `total_timeout`. |
+| `max_redirects`, `proxy`, `address_policy` | 10, environment, public-web | As before. |
+
+A single-budget download, like the 3600 s one HeardRight used, is `ModelHttpOptions { total_timeout: Some(Duration::from_secs(3600)), retries: 0, ..Default::default() }`.
+
+#### Debug worker override (feature `dev-worker-override`, development only)
+
+`ModelHttpOptions::allow_loopback_host("127.0.0.1", 8787)` lets a development build reach one named loopback host on one port, for example a local worker, which the public-web address policy otherwise refuses. It is narrow by construction and compiled out of effect in a release build:
+
+- It is honoured only when `rightkit-models` is built with the non-default feature `dev-worker-override` (`http::DEV_WORKER_OVERRIDE_ENABLED`). Without the feature the call is accepted and ignored, so configuration cannot enable it in a release build.
+- A request whose URL names exactly that host and port is sent by a separate client with no proxy and no redirects, and that client may reach loopback for that host only. Every other URL, including the same host on another port, goes through the normal client, where loopback stays refused. `ModelHttp::client_for(url)` makes that choice; downloads and `ensure_with_grant_via` use it, and `ModelHttp::client()` is always the normal client.
+- Redirects never ride on it. The normal client carries no allowance, so a redirect to that host and port from any other server is refused like any loopback redirect, and a redirect answered by the allowed host is not followed (the 3xx fails the download).
+- `host` is a name or IP literal (`localhost`, `127.0.0.1`, `[::1]`); the allowance applies to loopback addresses only, so a name that resolves elsewhere gains nothing.
 
 ## Additional capabilities
 
@@ -93,6 +121,9 @@ Added in 0.2.2:
 See `tests/install.rs`, `tests/adoption.rs`, `tests/partial_alias_rewrite.rs`,
 `tests/e2e_resume.rs`, and `tests/shared_runtime_gc.rs` for end-to-end usage. The tests use the
 `rightkit-qa` `MockServer` (Range, dropped connections, servers without resume) as a dev-dependency.
+`tests/http_options.rs` covers the HTTP options above (trust roots, user agent validation, timeouts,
+retries, the total budget) against in-process listeners; its `dev-worker-override` tests run when the
+feature is enabled, and one test checks that the allowance is ignored when it is not.
 
 ## Shared Whisper model (added in 0.2.9)
 

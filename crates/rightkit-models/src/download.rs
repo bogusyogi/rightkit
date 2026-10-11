@@ -13,7 +13,7 @@ use std::fs::{self, File, OpenOptions};
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use crate::error::{Error, ErrorCode};
 use crate::hash::sha256_file;
@@ -21,8 +21,43 @@ use crate::http::{AsHttpClient, IdleReader, ModelHttp};
 use rightkit_http::{HttpError, Request};
 
 const CANCELLED: &str = "download cancelled";
-const MAX_ATTEMPTS: usize = 3;
 const BASE_BACKOFF_MS: u64 = 250;
+
+/// The total time budget of one download call ([`crate::http::ModelHttpOptions::total_timeout`]),
+/// started when the first request is about to be made.
+struct Budget {
+    total: Duration,
+    deadline: Instant,
+}
+
+impl Budget {
+    /// `None` when no budget is set (or it is too large to represent as an instant).
+    fn start(total: Option<Duration>) -> Option<Self> {
+        let total = total?;
+        Some(Self {
+            total,
+            deadline: Instant::now().checked_add(total)?,
+        })
+    }
+
+    fn left(&self) -> Duration {
+        self.deadline.saturating_duration_since(Instant::now())
+    }
+
+    fn spent(&self) -> bool {
+        self.left().is_zero()
+    }
+
+    /// The failure message, also recorded as the transport failure that ended the call.
+    fn exceeded(&self, slot: &FailureSlot) -> String {
+        let message = format!(
+            "download exceeded the total time budget of {:?}",
+            self.total
+        );
+        *slot.borrow_mut() = Some(LastFailure::Transport(message.clone()));
+        message
+    }
+}
 
 /// The HTTP-level failure that ended a download attempt, for typed callers
 /// (`ModelStore::try_ensure_entitled`). Cleared when an attempt's response is accepted, so it
@@ -124,6 +159,8 @@ fn plan_response(
 enum TransferError {
     Transient(String),
     Fatal(String),
+    /// The call's total time budget ran out while the body was streaming.
+    BudgetSpent,
 }
 
 fn write_response_body_with_progress(
@@ -132,6 +169,7 @@ fn write_response_body_with_progress(
     reader: &mut dyn Read,
     progress: &mut dyn FnMut(u64, u64),
     cancelled: &dyn Fn() -> bool,
+    deadline: Option<Instant>,
 ) -> Result<u64, TransferError> {
     let (mut file, mut received, total) = match plan {
         ResponsePlan::Append { offset, total } => {
@@ -168,6 +206,10 @@ fn write_response_body_with_progress(
         if cancelled() {
             let _ = file.sync_all();
             return Err(TransferError::Fatal(CANCELLED.to_string()));
+        }
+        if deadline.is_some_and(|limit| Instant::now() >= limit) {
+            let _ = file.sync_all();
+            return Err(TransferError::BudgetSpent);
         }
         let count = match reader.read(&mut buffer) {
             Ok(0) => break,
@@ -292,8 +334,15 @@ fn download_inner(
         cleanup_poisoned(request.part_path, &metadata_path);
     }
 
+    let attempts = (http.retries() as usize).saturating_add(1);
+    let budget = Budget::start(http.total_timeout());
     let mut last_transient = None;
-    for attempt in 0..MAX_ATTEMPTS {
+    for attempt in 0..attempts {
+        if let Some(budget) = &budget {
+            if budget.spent() {
+                return Err(budget.exceeded(slot));
+            }
+        }
         let (offset, stored_etag) =
             resume_state(request.part_path, &metadata_path, resume_url, &expected)?;
         // Byte ranges and the final file hash must describe the same wire
@@ -308,7 +357,12 @@ fn download_inner(
                 .header("If-Range", stored_etag.as_deref().unwrap_or_default());
         }
 
-        let response = match http.client().stream_any(&req) {
+        if let Some(budget) = &budget {
+            // The rest of the budget bounds this attempt, headers and body.
+            req = req.timeout(budget.left());
+        }
+
+        let response = match http.client_for(request.url).stream_any(&req) {
             Ok(response) if response.status >= 300 => {
                 let status = response.status;
                 let retry_after = response
@@ -333,7 +387,7 @@ fn download_inner(
                         last_transient = Some(
                             "server rejected the saved range; restarting from zero".to_string(),
                         );
-                        backoff(attempt);
+                        backoff(attempt, attempts, budget.as_ref());
                         continue;
                     }
                     _ => {
@@ -342,7 +396,7 @@ fn download_inner(
                             return Err(message);
                         }
                         last_transient = Some(message);
-                        backoff(attempt);
+                        backoff(attempt, attempts, budget.as_ref());
                         continue;
                     }
                 }
@@ -368,7 +422,7 @@ fn download_inner(
                     return Err(message);
                 }
                 last_transient = Some(message);
-                backoff(attempt);
+                backoff(attempt, attempts, budget.as_ref());
                 continue;
             }
         };
@@ -392,7 +446,7 @@ fn download_inner(
         if plan == ResponsePlan::RetryFromZero {
             cleanup_poisoned(request.part_path, &metadata_path);
             last_transient = Some("server response could not prove partial continuity".to_string());
-            backoff(attempt);
+            backoff(attempt, attempts, budget.as_ref());
             continue;
         }
 
@@ -420,6 +474,7 @@ fn download_inner(
             &mut *reader,
             &mut progress,
             request.cancelled,
+            budget.as_ref().map(|budget| budget.deadline),
         ) {
             Ok(received) => {
                 let got = sha256_file(request.part_path)?;
@@ -440,10 +495,21 @@ fn download_inner(
                 });
             }
             Err(TransferError::Fatal(message)) => return Err(message),
+            Err(TransferError::BudgetSpent) => {
+                return Err(budget
+                    .as_ref()
+                    .map(|budget| budget.exceeded(slot))
+                    .unwrap_or_else(|| "download exceeded its time budget".to_string()));
+            }
             Err(TransferError::Transient(message)) => {
                 last_transient = Some(message);
-                backoff(attempt);
+                backoff(attempt, attempts, budget.as_ref());
             }
+        }
+    }
+    if let Some(budget) = &budget {
+        if budget.spent() {
+            return Err(budget.exceeded(slot));
         }
     }
     Err(last_transient.unwrap_or_else(|| "download failed after bounded retries".to_string()))
@@ -592,9 +658,14 @@ pub fn is_connectivity_error(message: &str) -> bool {
         || message.contains("not available"))
 }
 
-fn backoff(attempt: usize) {
-    if attempt + 1 < MAX_ATTEMPTS {
-        thread::sleep(Duration::from_millis(BASE_BACKOFF_MS << attempt.min(2)));
+/// Pause before the next attempt (250 ms, 500 ms, then 1 s), never past the total budget.
+fn backoff(attempt: usize, attempts: usize, budget: Option<&Budget>) {
+    if attempt + 1 < attempts {
+        let mut pause = Duration::from_millis(BASE_BACKOFF_MS << attempt.min(2));
+        if let Some(budget) = budget {
+            pause = pause.min(budget.left());
+        }
+        thread::sleep(pause);
     }
 }
 

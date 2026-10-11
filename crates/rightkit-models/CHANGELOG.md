@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+- `http::ModelHttpOptions` gains, all additive with the previous behaviour as the default (`ModelHttpOptions` is built with `..Default::default()` in every caller in this repository; a struct literal without it needs the new fields):
+  - `trust: TrustRoots` (default `Platform`, the operating system's store; `Bundled` is `rightkit-http`'s Mozilla set). `TrustRoots`, `HttpError` and `DEFAULT_RETRIES` are exported from `http`. `rightkit-http` has no caller-supplied-roots option, so an app's own roots are not possible here.
+  - `header_timeout: Option<Duration>` (default 60 s, which `rightkit-http` already applied; it is now settable). The existing `connect_timeout` (30 s) and `read_timeout` (the idle limit, 120 s) are unchanged.
+  - `total_timeout: Option<Duration>` (default none): one budget for a whole download call, covering every attempt, the pauses between them and the body, and bounding each attempt through the request timeout. When it runs out the download fails with "download exceeded the total time budget of ..." (recorded as a transport failure for `EntitlementError::Transport`) and nothing is retried; the `.part` file is kept. `ModelHttp::total_timeout()` reads it back.
+  - `retries: u32` (default `DEFAULT_RETRIES` = 2). The download loop made three attempts in all (`MAX_ATTEMPTS = 3`, now removed), that is two retries after the first attempt, so the default is unchanged. `0` makes one attempt and no pause. `ModelHttp::retries()` reads it back.
+  - `loopback_host: Option<LoopbackHost>` and `ModelHttpOptions::allow_loopback_host(host, port)`, honoured only with the new non-default cargo feature `dev-worker-override` (development only; see the README). Without the feature the call is accepted and ignored. New: `DEV_WORKER_OVERRIDE_ENABLED`, `ModelHttp::client_for(url)` (downloads and `ensure_with_grant_via` use it), `ModelHttp::dev_loopback_host()`. `ModelHttp::client()` is still the normal, loopback-refusing client.
+  - The user agent was already settable (`user_agent`, `app`). It is now validated as a header value: `ModelHttpOptions::validate()` and the new `ModelHttp::try_new(options) -> Result<ModelHttp, HttpError>` report an invalid one (and an invalid loopback host); `ModelHttp::new` still never fails and falls back to the default user agent / drops the allowance. The default stays `rightkit-models/<version>`.
+  - `From<Client> for ModelHttp` uses the default retries and no total budget, as before for the idle limit.
+- `Cargo.toml`: new feature `dev-worker-override` (empty, off by default). The `continuous_reason` text now names `ModelHttpOptions::retries` and `total_timeout` as the bound on the retry pause.
+- Tests: `tests/http_options.rs`.
+
 - Crate root re-exports `ModelStore` and `EntitlementError` (`pub use suite::{...}`), so a wrapping
   app imports them from one path. The README has a "Wrapping this crate" section.
 - Additive, no existing signature changed:
