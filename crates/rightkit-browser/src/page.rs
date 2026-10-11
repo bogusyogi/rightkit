@@ -120,6 +120,37 @@ struct ObsState {
     previous: HashMap<String, String>,
 }
 
+/// What the request-interception pump has done on one page. Reported when a navigation
+/// fails, so a timeout says how far the navigation got: no request paused (it never reached
+/// the network stage), paused but not answered (the policy check did not return), or
+/// continued (the request left the browser and the proxy or the server did not finish it).
+#[derive(Default)]
+struct InterceptStats {
+    paused: std::sync::atomic::AtomicUsize,
+    continued: std::sync::atomic::AtomicUsize,
+    refused: std::sync::atomic::AtomicUsize,
+    errors: std::sync::atomic::AtomicUsize,
+    last_error: StdMutex<Option<String>>,
+}
+
+impl InterceptStats {
+    fn summary(&self) -> String {
+        use std::sync::atomic::Ordering::Relaxed;
+        let mut text = format!(
+            "requests paused {}, continued {}, refused {}",
+            self.paused.load(Relaxed),
+            self.continued.load(Relaxed),
+            self.refused.load(Relaxed)
+        );
+        let errors = self.errors.load(Relaxed);
+        if errors > 0 {
+            let last = self.last_error.lock().unwrap().clone().unwrap_or_default();
+            text.push_str(&format!(", {errors} not answered: {last}"));
+        }
+        text
+    }
+}
+
 pub struct BrowserPage {
     id: String,
     inner: Page,
@@ -133,6 +164,7 @@ pub struct BrowserPage {
     pumps: StdMutex<Vec<JoinHandle<()>>>,
     guard: Arc<Guard>,
     blocked: Arc<StdMutex<Vec<BlockedRequest>>>,
+    intercept: Arc<InterceptStats>,
 }
 
 impl BrowserPage {
@@ -213,6 +245,7 @@ impl BrowserPage {
             .await
             .map_err(cdp)?;
         let blocked = Arc::new(StdMutex::new(Vec::new()));
+        let intercept = Arc::new(InterceptStats::default());
         if !guard.network.unrestricted {
             // Pause every request (document, redirect hops, subresources) and
             // decide before it leaves the browser. Enabled before any navigation.
@@ -224,8 +257,12 @@ impl BrowserPage {
             let g = guard.clone();
             let sink = blocked.clone();
             let page_id = id.clone();
+            let stats = intercept.clone();
             pumps.push(tokio::spawn(async move {
+                use std::sync::atomic::Ordering::Relaxed;
                 while let Some(e) = paused.next().await {
+                    let stats = stats.clone();
+                    stats.paused.fetch_add(1, Relaxed);
                     let page = page.clone();
                     let g = g.clone();
                     let sink = sink.clone();
@@ -234,9 +271,18 @@ impl BrowserPage {
                         let kind = format!("{:?}", e.resource_type);
                         match g.network.check(&e.request.url, &kind).await {
                             Ok(()) => {
-                                let _ = page
+                                match page
                                     .execute(ContinueRequestParams::new(e.request_id.clone()))
-                                    .await;
+                                    .await
+                                {
+                                    Ok(_) => {
+                                        stats.continued.fetch_add(1, Relaxed);
+                                    }
+                                    Err(error) => {
+                                        stats.errors.fetch_add(1, Relaxed);
+                                        *stats.last_error.lock().unwrap() = Some(error.to_string());
+                                    }
+                                }
                             }
                             Err(reason) => {
                                 let _ = page
@@ -245,6 +291,7 @@ impl BrowserPage {
                                         ErrorReason::BlockedByClient,
                                     ))
                                     .await;
+                                stats.refused.fetch_add(1, Relaxed);
                                 g.denied_network(Some(&pid), &kind, &reason);
                                 let mut b = sink.lock().unwrap();
                                 if b.len() < 500 {
@@ -280,6 +327,7 @@ impl BrowserPage {
             pumps: StdMutex::new(pumps),
             guard,
             blocked,
+            intercept,
         })
     }
 
@@ -402,10 +450,12 @@ impl BrowserPage {
         self.admit(ActionKind::Navigate, Some(url.to_string()), None, None)
             .await?;
         let _l = self.lane.lock().await;
-        self.inner
-            .goto(url)
-            .await
-            .map_err(|e| BrowserError::Cdp(format!("navigate '{url}': {e}")))?;
+        self.inner.goto(url).await.map_err(|e| {
+            BrowserError::Cdp(format!(
+                "navigate '{url}': {e} ({})",
+                self.intercept.summary()
+            ))
+        })?;
         self.inner.wait_for_navigation().await.map_err(cdp)?;
         self.invalidate();
         Ok(())
