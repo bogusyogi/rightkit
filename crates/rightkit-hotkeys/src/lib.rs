@@ -18,6 +18,7 @@ pub mod hold;
 pub mod hook_chord;
 pub mod ptt;
 pub mod register_status;
+pub mod registration;
 
 #[cfg(target_os = "macos")]
 pub mod macos;
@@ -33,3 +34,4 @@ pub use conflict::{ChordRegistry, HotkeyConflict, RegistryConflict};
 pub use hold::{HoldKeys, HoldTracker, HotkeyState, KeyStateSource};
 pub use hook_chord::{AlreadyBound, HookChords, HookOutcome};
 pub use register_status::RegisterFailure;
+pub use registration::{HotkeyApi, Registrations, UnregisterFailure};
