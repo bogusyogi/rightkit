@@ -888,16 +888,36 @@ fn reg(name: &str, value: &str) -> RegValue {
 }
 
 #[test]
-fn a_policy_value_applies_unless_it_names_another_programs_executable() {
+fn a_policy_value_applies_only_under_the_wildcard_or_this_programs_executable_name() {
     use rightkit_shell::devtools::policy_value_applies as applies;
     assert!(applies("*", "MailRight.exe"));
     assert!(applies("mailright.EXE", "MailRight.exe"));
     assert!(applies(" MailRight.exe ", "MailRight.exe"));
     assert!(!applies("Teams.exe", "MailRight.exe"));
-    // Not an executable name: it may be an application user model id.
-    assert!(applies("Orthic.MailRight", "MailRight.exe"));
+    assert!(!applies("Orthic.MailRight", "MailRight.exe"));
+    assert!(!applies("MailRight", "MailRight.exe"));
     // This program's own name is unknown: nothing can be ruled out.
     assert!(applies("Teams.exe", ""));
+}
+
+#[test]
+fn the_runtime_folder_environment_variable_is_refused_when_it_is_set() {
+    use rightkit_shell::devtools::{runtime_folder_env_name, runtime_folder_env_violation};
+    let name = runtime_folder_env_name();
+    assert!(
+        name.starts_with("WEBVIEW2_") && name.ends_with("_FOLDER"),
+        "{name}"
+    );
+    assert_eq!(runtime_folder_env_violation(None), None);
+    assert_eq!(runtime_folder_env_violation(Some("")), None);
+    assert_eq!(runtime_folder_env_violation(Some("   ")), None);
+    let refused = runtime_folder_env_violation(Some(r"C:\Planted\Runtime")).expect("refused");
+    assert_eq!(refused.code(), "browser_runtime_redirected");
+    let text = refused.to_string();
+    assert!(
+        text.contains(&name) && text.contains(r"C:\Planted\Runtime"),
+        "{text}"
+    );
 }
 
 #[test]

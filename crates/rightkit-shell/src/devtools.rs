@@ -394,17 +394,32 @@ pub fn policy_violations(values: &[RegValue], source: &str) -> Vec<DevToolsError
         .collect()
 }
 
-/// Whether a WebView2 policy value named `name` can apply to the program whose executable file
-/// is `exe_name`. WebView2 names a value by the executable file name, by an application user
-/// model id, or `*` for every application. Only a value named for another program's `.exe` is
-/// ruled out; a name that may be an application user model id is taken to apply, and so is
-/// everything when this program's own file name is unknown.
+/// Whether a WebView2 policy value named `name` applies to the program whose executable file is
+/// `exe_name`: the name is `*` (every application) or this program's executable file name,
+/// compared without regard to case. Every other name belongs to another program. When this
+/// program's own file name is unknown, every value is taken to apply.
 pub fn policy_value_applies(name: &str, exe_name: &str) -> bool {
     let name = name.trim();
-    if exe_name.is_empty() || name == "*" || name.eq_ignore_ascii_case(exe_name) {
-        return true;
+    exe_name.is_empty() || name == "*" || name.eq_ignore_ascii_case(exe_name)
+}
+
+/// The name of the environment variable that makes WebView2 start a browser from another folder.
+pub fn runtime_folder_env_name() -> String {
+    unrev("REDLOF_ELBATUCEXE_RESWORB_2WEIVBEW")
+}
+
+/// The refusal for that variable's `value` in the process environment at start, if it is set to
+/// anything. A launcher controls the environment as it controls policy, so it is refused the
+/// same way.
+pub fn runtime_folder_env_violation(value: Option<&str>) -> Option<DevToolsError> {
+    let folder = value?.trim();
+    if folder.is_empty() {
+        return None;
     }
-    !name.to_ascii_lowercase().ends_with(".exe")
+    Some(DevToolsError::BrowserRuntimeRedirected {
+        source: format!("the environment variable {}", runtime_folder_env_name()),
+        folder: folder.to_owned(),
+    })
 }
 
 /// Errors for every value of the WebView2 `BrowserExecutableFolder` policy that applies to this
@@ -505,8 +520,9 @@ static PROCESS_START: OnceLock<SystemTime> = OnceLock::new();
 /// 3. Refuses to continue when the WebView2 `AdditionalBrowserArguments` policy (HKLM, HKCU,
 ///    WOW6432Node) injects a debugging switch. WebView2 appends policy arguments to whatever the
 ///    application passes, so the application cannot override them (Windows).
-/// 4. Refuses to continue when the WebView2 `BrowserExecutableFolder` policy makes WebView2 start
-///    a browser from another folder for this program (Windows).
+/// 4. Refuses to continue when the WebView2 `BrowserExecutableFolder` policy, or the environment
+///    variable of the same purpose, makes WebView2 start a browser from another folder for this
+///    program (Windows).
 /// 5. Records the folders the `UserDataFolder` policy and the WebView2 user-data environment
 ///    variable name, so the port-file tripwire looks there too (Windows).
 ///
@@ -538,6 +554,11 @@ fn run_guard() -> Result<GuardReport, DevToolsError> {
     #[cfg(windows)]
     {
         if let Some(err) = registry_policy_violations()?.into_iter().next() {
+            return Err(err);
+        }
+        let folder = std::env::var_os(runtime_folder_env_name());
+        let folder = folder.as_ref().map(|value| value.to_string_lossy());
+        if let Some(err) = runtime_folder_env_violation(folder.as_deref()) {
             return Err(err);
         }
         let exe = current_exe_name();
