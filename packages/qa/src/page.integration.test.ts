@@ -160,6 +160,34 @@ describe('QaPage with real Chrome for Testing', () => {
     await text.dispose(); await hover.dispose();
   });
 
+  it('attaches to the running page by target id, moves & holds the mouse, and detaches without closing it', async () => {
+    const attached = await QaBrowserSession.attach({ port: chrome.port, timeout: 5000 });
+    try {
+      expect((await attached.pages()).map(info => info.targetId)).toContain(page.targetId);
+      const view = await attached.attachPage(page.targetId);
+      expect(await view.evaluate('location.href')).toContain(url);
+      await page.evaluate(() => {
+        const log: string[] = [];
+        (window as any).pointer = log;
+        for (const type of ['mousedown', 'mousemove', 'mouseup']) document.addEventListener(type, (event: MouseEvent) => log.push(`${type}:${event.buttons}`));
+      });
+      const centre = await page.$eval('#hover', element => {
+        const { x, y, width, height } = element.getBoundingClientRect(); return { x: x + width / 2, y: y + height / 2 };
+      });
+      await view.mouse.move(centre.x, centre.y, { steps: 3 });
+      expect(await page.$eval('#hover', element => element.textContent)).toBe('Hovered');
+      await view.mouse.down();
+      await view.mouse.move(centre.x + 4, centre.y);
+      await view.mouse.up();
+      const log = (await page.evaluate('window.pointer')) as string[];
+      expect(log.filter(entry => entry !== 'mousemove:0')).toEqual(['mousedown:1', 'mousemove:1', 'mouseup:0']);
+      await view.close();
+      expect(await page.evaluate('document.title')).toBe('QaPage fixture');
+      expect((await attached.pages()).map(info => info.targetId)).toContain(page.targetId);
+    } finally { await attached.close(); }
+    expect(await page.evaluate('1 + 1')).toBe(2);
+  });
+
   it('selects single/multiple values & dispatches input/change with empty selection support', async () => {
     expect(await page.select('#select', 'two', 'one')).toEqual(['one']);
     expect(await page.select('#select', 'two')).toEqual(['two']);

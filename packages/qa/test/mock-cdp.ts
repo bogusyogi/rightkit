@@ -3,11 +3,21 @@ import { createHash } from 'node:crypto';
 import type { Duplex } from 'node:stream';
 
 /** Tiny RFC6455 fixture server; production transport uses built-in WebSocket. */
-export async function mockCdp(handler: (message: any, send: (message: any) => void) => void) {
+export async function mockCdp(
+  handler: (message: any, send: (message: any) => void) => void,
+  options: { http?: (path: string) => unknown } = {},
+) {
   const sockets = new Set<Duplex>();
   const messages: any[] = [];
+  const httpRequests: string[] = [];
   const senders = new Set<(message: any) => void>();
-  const server = createServer();
+  // Plain HTTP for /json/version & /json discovery on the same port; unknown paths are 404.
+  const server = createServer((request, response) => {
+    httpRequests.push(request.url ?? '');
+    const body = options.http?.(request.url ?? '');
+    response.writeHead(body === undefined ? 404 : 200, { 'Content-Type': 'application/json' });
+    response.end(body === undefined ? '' : JSON.stringify(body));
+  });
   server.on('upgrade', (request, socket) => {
     sockets.add(socket); socket.on('close', () => sockets.delete(socket));
     const accept = createHash('sha1').update(request.headers['sec-websocket-key'] + '258EAFA5-E914-47DA-95CA-C5AB0DC85B11').digest('base64');
@@ -43,6 +53,7 @@ export async function mockCdp(handler: (message: any, send: (message: any) => vo
   return {
     endpoint: `ws://127.0.0.1:${(server.address() as { port: number }).port}`,
     messages,
+    httpRequests,
     emit: (message: any) => { for (const send of senders) send(message); },
     disconnect: () => { for (const socket of sockets) socket.destroy(); },
     close: async () => { for (const socket of sockets) socket.destroy(); await new Promise<void>((resolve) => server.close(() => resolve())); },

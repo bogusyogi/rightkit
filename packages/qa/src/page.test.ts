@@ -264,3 +264,167 @@ describe('raw CDP', () => {
     expect(calls.at(-1)).toMatchObject({ type: 'keyUp', key: 'Control', modifiers: 0 });
   });
 });
+
+describe('attach to an existing page & page.mouse', () => {
+  const pageTargets = [
+    { targetId: 'app-page', type: 'page', url: 'app://main/', title: 'Pulse' },
+    { targetId: 'app-worker', type: 'service_worker', url: 'app://sw.js', title: '' },
+  ];
+  /** A debugging endpoint: /json/version points at the same port's browser socket. */
+  async function appFixture(options: { targets?: unknown[]; webSocketDebuggerUrl?: string; handler?: typeof pageResponder } = {}) {
+    let base = '';
+    const targets = options.targets ?? pageTargets;
+    const server = await mockCdp((message, send) => {
+      if (message.method === 'Target.getTargets') send({ id: message.id, result: { targetInfos: targets } });
+      else (options.handler ?? pageResponder)(message, send);
+    }, {
+      http: (path) => path === '/json/version'
+        ? { Browser: 'fixture', webSocketDebuggerUrl: options.webSocketDebuggerUrl ?? `${base}/devtools/browser/app` }
+        : undefined,
+    });
+    base = server.endpoint; cleanup.push(server.close);
+    return { server, port: Number(new URL(server.endpoint).port) };
+  }
+  const methods = (server: { messages: any[] }) => server.messages.map((message) => message.method);
+  const mouseEvents = (server: { messages: any[] }, from = 0) => server.messages.slice(from).filter((message) => message.method === 'Input.dispatchMouseEvent').map((message) => message.params);
+
+  it('attaches via /json/version without creating a target & lists page targets only', async () => {
+    const { server, port } = await appFixture();
+    const browser = await QaBrowserSession.attach({ port, timeout: 500 }); cleanup.push(() => browser.close().catch(() => {}));
+    expect(await browser.pages()).toEqual([{ targetId: 'app-page', url: 'app://main/', title: 'Pulse' }]);
+    expect(server.httpRequests).toEqual(['/json/version']);
+    expect(methods(server)).toEqual(['Target.getTargets']);
+  });
+
+  it('attachPage(targetId) attaches flattened without creating a target & runs page commands', async () => {
+    const { server, port } = await appFixture();
+    const browser = await QaBrowserSession.attach({ port, timeout: 500 }); cleanup.push(() => browser.close().catch(() => {}));
+    const page = await browser.attachPage('app-page');
+    expect(page.targetId).toBe('app-page');
+    expect(await page.evaluate((n: number) => n, 4)).toBe(true);
+    expect(methods(server)).not.toContain('Target.createTarget');
+    expect(server.messages.find((message) => message.method === 'Target.attachToTarget').params).toEqual({ targetId: 'app-page', flatten: true });
+  });
+
+  it('attachPage(predicate) must match exactly one page; unknown ids attach nothing', async () => {
+    const { server, port } = await appFixture({ targets: [...pageTargets, { targetId: 'other', type: 'page', url: 'app://other/', title: 'Other' }] });
+    const browser = await QaBrowserSession.attach({ port, timeout: 500 }); cleanup.push(() => browser.close().catch(() => {}));
+    await expect(browser.attachPage((info) => info.url.startsWith('app://'))).rejects.toThrow('matched 2 pages');
+    await expect(browser.attachPage((info) => info.title === 'Missing')).rejects.toThrow('matched 0 pages');
+    await expect(browser.attachPage('missing')).rejects.toThrow('No page target');
+    expect(await browser.attachPage((info) => info.title === 'Other')).toMatchObject({ targetId: 'other' });
+    expect(methods(server)).not.toContain('Target.createTarget');
+    expect(server.messages.filter((message) => message.method === 'Target.attachToTarget')).toHaveLength(1);
+  });
+
+  it('closing an attached page detaches only & never closes the app page', async () => {
+    const { server, port } = await appFixture();
+    const browser = await QaBrowserSession.attach({ port, timeout: 500 }); cleanup.push(() => browser.close().catch(() => {}));
+    const page = await browser.attachPage('app-page');
+    await page.close(); await page.close();
+    expect(server.messages.filter((message) => message.method.startsWith('Target.')).map((message) => message.method))
+      .toEqual(['Target.getTargets', 'Target.attachToTarget', 'Target.detachFromTarget']);
+    expect(server.messages.find((message) => message.method === 'Target.detachFromTarget').params).toEqual({ sessionId: 'session' });
+    expect(methods(server)).not.toContain('Target.closeTarget');
+    await expect(page.evaluate('1')).rejects.toThrow('Page closed');
+  });
+
+  it('closing the browser session detaches attached pages & never closes app targets', async () => {
+    const { server, port } = await appFixture();
+    const browser = await QaBrowserSession.attach({ port, timeout: 500 });
+    await browser.attachPage('app-page');
+    await browser.close();
+    expect(methods(server)).toContain('Target.detachFromTarget');
+    expect(methods(server)).not.toContain('Target.closeTarget');
+    await expect(browser.attachPage('app-page')).rejects.toThrow('session closed');
+  });
+
+  it('refuses non-loopback hosts & endpoints unless allowRemoteHost, before any request', async () => {
+    await expect(QaBrowserSession.attach({ port: 9333, host: '192.168.1.20' })).rejects.toThrow('non-loopback');
+    await expect(QaBrowserSession.attach({ httpEndpoint: 'http://example.com:9333' })).rejects.toThrow('non-loopback');
+    const { port } = await appFixture({ webSocketDebuggerUrl: 'ws://192.168.1.20:9222/devtools/browser/x' });
+    await expect(QaBrowserSession.attach({ port, timeout: 500 })).rejects.toThrow('non-loopback');
+  });
+
+  it('validates the port, endpoint shape & discovery payload', async () => {
+    await expect(QaBrowserSession.attach({ port: 0 })).rejects.toThrow('Port');
+    await expect(QaBrowserSession.attach({ port: 70000 })).rejects.toThrow('Port');
+    await expect(QaBrowserSession.attach({})).rejects.toThrow('port or httpEndpoint');
+    await expect(QaBrowserSession.attach({ port: 9333, httpEndpoint: 'http://127.0.0.1:9333' })).rejects.toThrow('port or httpEndpoint');
+    await expect(QaBrowserSession.attach({ httpEndpoint: 'ws://127.0.0.1:9333' })).rejects.toThrow('http');
+    const { port } = await appFixture({ webSocketDebuggerUrl: '' });
+    await expect(QaBrowserSession.attach({ port, timeout: 500 })).rejects.toThrow('webSocketDebuggerUrl');
+  });
+
+  it('page.mouse: move, down, move while held (buttons mask) & up send exact CDP params', async () => {
+    const { page, server } = await fixture();
+    const start = server.messages.length;
+    await page.mouse.move(10, 20);
+    await page.mouse.down();
+    await page.mouse.move(30, 40);
+    await page.mouse.up();
+    expect(mouseEvents(server, start)).toEqual([
+      { type: 'mouseMoved', x: 10, y: 20, button: 'none', buttons: 0 },
+      { type: 'mousePressed', x: 10, y: 20, button: 'left', buttons: 1, clickCount: 1 },
+      { type: 'mouseMoved', x: 30, y: 40, button: 'left', buttons: 1 },
+      { type: 'mouseReleased', x: 30, y: 40, button: 'left', buttons: 0, clickCount: 1 },
+    ]);
+    expect(page.mouse.position()).toEqual({ x: 30, y: 40 });
+  });
+
+  it('page.mouse.move steps interpolate intermediate moves & end on the target', async () => {
+    const { page, server } = await fixture();
+    await page.mouse.move(0, 0);
+    const start = server.messages.length;
+    await page.mouse.move(10, 0, { steps: 2 });
+    expect(mouseEvents(server, start).map((event) => [event.x, event.y])).toEqual([[5, 0], [10, 0]]);
+  });
+
+  it('page.mouse right & middle buttons use their own mask bits & clickCount', async () => {
+    const { page, server } = await fixture();
+    const start = server.messages.length;
+    await page.mouse.down({ button: 'right', clickCount: 2 });
+    await page.mouse.up({ button: 'right' });
+    await page.mouse.down({ button: 'middle' });
+    await page.mouse.up({ button: 'middle' });
+    expect(mouseEvents(server, start).map((event) => [event.type, event.button, event.buttons, event.clickCount])).toEqual([
+      ['mousePressed', 'right', 2, 2], ['mouseReleased', 'right', 0, 2],
+      ['mousePressed', 'middle', 4, 1], ['mouseReleased', 'middle', 0, 1],
+    ]);
+  });
+
+  it('page.mouse rejects double press, release without press, bad steps, bad coordinates & buttons without sending', async () => {
+    const { page, server } = await fixture();
+    await page.mouse.down();
+    const start = server.messages.length;
+    await expect(page.mouse.down()).rejects.toThrow('already pressed');
+    await page.mouse.up();
+    await expect(page.mouse.up()).rejects.toThrow('not pressed');
+    await expect(page.mouse.move(1, 1, { steps: 0 })).rejects.toThrow('steps');
+    await expect(page.mouse.move(Number.NaN, 0)).rejects.toThrow('finite');
+    await expect(page.mouse.down({ button: 'back' as any })).rejects.toThrow('Unsupported button');
+    expect(mouseEvents(server, start).map((event) => event.type)).toEqual(['mouseReleased']);
+  });
+
+  it('click & hover keep their exact event sequence and update the tracked mouse position', async () => {
+    const { page, server } = await fixture((message, send) => {
+      const declaration = String(message.params?.functionDeclaration ?? '');
+      if (message.method === 'Runtime.callFunctionOn' && message.params?.objectId === 'el') {
+        send({ id: message.id, result: { result: declaration.includes('getClientRects') ? { value: { x: 10, y: 20, width: 40, height: 20 } } : { value: undefined } } });
+      } else if (message.method === 'Runtime.callFunctionOn' && declaration.includes('querySelector')) {
+        send({ id: message.id, result: { result: { objectId: 'el' } } });
+      } else pageResponder(message, send);
+    });
+    const start = server.messages.length;
+    await page.click('#button');
+    expect(mouseEvents(server, start)).toEqual([
+      { type: 'mouseMoved', x: 30, y: 30 },
+      { type: 'mousePressed', x: 30, y: 30, button: 'left', buttons: 1, clickCount: 1 },
+      { type: 'mouseReleased', x: 30, y: 30, button: 'left', buttons: 0, clickCount: 1 },
+    ]);
+    expect(page.mouse.position()).toEqual({ x: 30, y: 30 });
+    const hoverStart = server.messages.length;
+    await page.hover('#button');
+    expect(mouseEvents(server, hoverStart)).toEqual([{ type: 'mouseMoved', x: 30, y: 30 }]);
+  });
+});

@@ -1,8 +1,10 @@
 import { writeFile } from 'node:fs/promises';
 import { CdpClient, TimeoutError, validateTimeout, type CdpParams, type QaConnectOptions } from './cdp.js';
 import { QaKeyboard } from './keyboard.js';
+import { QaMouse } from './mouse.js';
 export { TimeoutError, type QaConnectOptions } from './cdp.js';
 export { QaKeyboard } from './keyboard.js';
+export { QaMouse, type MouseButton, type MouseButtonOptions, type MouseMoveOptions, type MousePosition } from './mouse.js';
 
 export interface NavigationOptions { waitUntil?: 'load' | 'domcontentloaded' | 'networkidle0'; timeout?: number }
 export interface ViewportOptions { width: number; height: number; deviceScaleFactor?: number; mobile?: boolean }
@@ -12,6 +14,18 @@ export interface ClickOptions { button?: 'left' | 'right' | 'middle'; clickCount
 export interface TypeOptions { delay?: number }
 export interface ScreenshotOptions { path?: string; type?: 'png'; captureBeyondViewport?: false; fullPage?: false }
 export interface BoundingBox { x: number; y: number; width: number; height: number }
+/** One page target listed by the browser. */
+export interface QaPageInfo { targetId: string; url: string; title: string }
+export interface QaAttachOptions extends QaConnectOptions {
+  /** Debugging port on `host`; the browser socket is read from http://<host>:<port>/json/version. Give this or httpEndpoint. */
+  port?: number;
+  /** Full http or https origin of the debugging endpoint, e.g. http://127.0.0.1:9333. Give this or port. */
+  httpEndpoint?: string;
+  /** Default 127.0.0.1. */
+  host?: string;
+  /** Default false. A debugging port is full control of the app; allow a non-loopback host only for a machine you control. */
+  allowRemoteHost?: boolean;
+}
 type PageFunction<Args extends unknown[], Result> = (...args: Args) => Result;
 const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 function functionSource(fn: Function): string {
@@ -39,15 +53,115 @@ function resultValue(result: CdpParams): any {
   return result.result?.value;
 }
 
+const LOOPBACK_NAMES = new Set(['localhost', '::1']);
+/** Bare host name (IPv6 without brackets) for a URL hostname or a host option. */
+function bareHost(host: string): string { return host.replace(/^\[(.*)\]$/, '$1'); }
+function isLoopback(host: string): boolean {
+  const bare = bareHost(host);
+  return LOOPBACK_NAMES.has(bare) || /^127\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(bare);
+}
+function assertDebugHost(host: string, allowRemoteHost: boolean | undefined, what: string) {
+  if (allowRemoteHost || isLoopback(host)) return;
+  throw new Error(`Refusing non-loopback ${what} ${host}: a debugging port controls the whole app. Pass allowRemoteHost: true only for a machine you control.`);
+}
+function debugOrigin(options: QaAttachOptions): URL {
+  const given = [options.port !== undefined, options.httpEndpoint !== undefined].filter(Boolean).length;
+  if (given !== 1) throw new Error('Pass exactly one of port or httpEndpoint');
+  if (options.httpEndpoint !== undefined) {
+    let url: URL;
+    try { url = new URL(options.httpEndpoint); } catch { throw new Error('httpEndpoint must be an http or https URL'); }
+    if (url.protocol !== 'http:' && url.protocol !== 'https:') throw new Error('httpEndpoint must be an http or https URL');
+    return url;
+  }
+  const port = options.port!;
+  if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error('Port must be an integer from 1 to 65535');
+  const host = options.host ?? '127.0.0.1';
+  const authority = host.includes(':') ? `[${bareHost(host)}]` : host;
+  try { return new URL(`http://${authority}:${port}`); } catch { throw new Error('Debugging host is not a valid host name'); }
+}
+async function readVersion(origin: URL, timeout: number): Promise<CdpParams> {
+  const url = new URL('/json/version', origin);
+  let response: Response;
+  try {
+    // Redirects are refused so the request cannot be bounced to another host.
+    response = await fetch(url, { redirect: 'error', signal: AbortSignal.timeout(timeout) });
+  } catch (error) {
+    if (error instanceof Error && (error.name === 'TimeoutError' || error.name === 'AbortError')) throw new TimeoutError(`Debugging endpoint ${origin.origin} timed out after ${timeout}ms`);
+    throw new Error(`Could not reach debugging endpoint ${origin.origin}`);
+  }
+  if (!response.ok) throw new Error(`Debugging endpoint ${url.pathname} answered ${response.status}`);
+  try { return await response.json() as CdpParams; } catch { throw new Error(`Debugging endpoint ${url.pathname} did not return JSON`); }
+}
+
 /** Owns only targets it creates; launcher owns browser process & profile cleanup. */
 export class QaBrowserSession {
-  private pages = new Set<QaPage>();
+  private openPages = new Set<QaPage>();
   private closed = false;
   private closing?: Promise<void>;
   private opening = new Set<Promise<QaPage>>();
   private constructor(private client: CdpClient) {}
   static async connect(wsEndpoint: string, options: QaConnectOptions = {}): Promise<QaBrowserSession> {
     return new QaBrowserSession(await CdpClient.connect(wsEndpoint, options));
+  }
+  /**
+   * Attach to a browser that is already running with a debugging port (for example an installed
+   * WebView2 app). Reads the browser socket from /json/version. Never creates or closes targets:
+   * use pages() and attachPage() to reach the app's own pages.
+   */
+  static async attach(options: QaAttachOptions = {}): Promise<QaBrowserSession> {
+    const timeout = validateTimeout(options.timeout ?? 30_000);
+    const origin = debugOrigin(options);
+    assertDebugHost(origin.hostname, options.allowRemoteHost, 'debugging host');
+    const version = await readVersion(origin, timeout);
+    const socketUrl = version.webSocketDebuggerUrl;
+    if (typeof socketUrl !== 'string' || !socketUrl) throw new Error('/json/version has no webSocketDebuggerUrl');
+    let socket: URL;
+    try { socket = new URL(socketUrl); } catch { throw new Error('webSocketDebuggerUrl is not a valid URL'); }
+    if (socket.protocol !== 'ws:' && socket.protocol !== 'wss:') throw new Error('webSocketDebuggerUrl must be a ws or wss URL');
+    assertDebugHost(socket.hostname, options.allowRemoteHost, 'browser socket host');
+    return new QaBrowserSession(await CdpClient.connect(socketUrl, { timeout, debug: options.debug }));
+  }
+  /** Page targets (type "page") the browser lists now. Read only. */
+  async pages(): Promise<QaPageInfo[]> {
+    if (this.closed) throw new Error('Browser session closed');
+    const { targetInfos } = await this.client.send('Target.getTargets');
+    return (targetInfos as CdpParams[])
+      .filter((info) => info.type === 'page')
+      .map((info) => ({ targetId: info.targetId, url: info.url, title: info.title }));
+  }
+  /**
+   * Attach to an existing page by target id, or by a predicate that must match exactly one page.
+   * The returned QaPage detaches on close; it never closes the app's target.
+   */
+  attachPage(target: string | ((info: QaPageInfo) => boolean)): Promise<QaPage> {
+    if (this.closed) return Promise.reject(new Error('Browser session closed'));
+    const pending = this.attachExisting(target);
+    this.opening.add(pending);
+    void pending.then(() => this.opening.delete(pending), () => this.opening.delete(pending));
+    return pending;
+  }
+  private async attachExisting(target: string | ((info: QaPageInfo) => boolean)): Promise<QaPage> {
+    const pages = await this.pages();
+    let info: QaPageInfo | undefined;
+    if (typeof target === 'string') {
+      info = pages.find((page) => page.targetId === target);
+      if (!info) throw new Error(`No page target with id ${target}`);
+    } else {
+      const matches = pages.filter(target);
+      if (matches.length !== 1) throw new Error(`Predicate matched ${matches.length} pages; it must match exactly one`);
+      info = matches[0];
+    }
+    const { sessionId } = await this.client.send('Target.attachToTarget', { targetId: info.targetId, flatten: true });
+    const page = new QaPage(this.client, info.targetId, sessionId, () => this.openPages.delete(page), false);
+    this.openPages.add(page);
+    try {
+      await page.initialize();
+      if (this.closed) throw new Error('Browser session closed');
+      return page;
+    } catch (error) {
+      await page.close().catch(() => {}); // detach only
+      throw error;
+    }
   }
   newPage(): Promise<QaPage> {
     if (this.closed) return Promise.reject(new Error('Browser session closed'));
@@ -60,14 +174,14 @@ export class QaBrowserSession {
     const { targetId } = await this.client.send('Target.createTarget', { url: 'about:blank' });
     try {
       const { sessionId } = await this.client.send('Target.attachToTarget', { targetId, flatten: true });
-      const page = new QaPage(this.client, targetId, sessionId, () => this.pages.delete(page));
-      this.pages.add(page);
+      const page = new QaPage(this.client, targetId, sessionId, () => this.openPages.delete(page));
+      this.openPages.add(page);
       await page.initialize();
       if (this.closed) throw new Error('Browser session closed');
       return page;
     } catch (error) {
       await this.client.send('Target.closeTarget', { targetId }).catch(() => {});
-      for (const page of this.pages) if (page.targetId === targetId) page.markClosed();
+      for (const page of this.openPages) if (page.targetId === targetId) page.markClosed();
       throw error;
     }
   }
@@ -77,7 +191,7 @@ export class QaBrowserSession {
     this.closing = (async () => {
       try {
         await Promise.allSettled([...this.opening]);
-        const results = await Promise.allSettled([...this.pages].map((page) => page.close()));
+        const results = await Promise.allSettled([...this.openPages].map((page) => page.close()));
         const failed = results.find((result) => result.status === 'rejected');
         if (failed?.status === 'rejected') throw failed.reason;
       } finally { this.client.close(); }
@@ -88,6 +202,7 @@ export class QaBrowserSession {
 
 export class QaPage {
   readonly keyboard: QaKeyboard;
+  readonly mouse: QaMouse;
   private frameId?: string;
   private contexts = new Map<number, CdpParams>();
   private contextId?: number;
@@ -103,9 +218,10 @@ export class QaPage {
   private generation = 0;
   private navigating = false;
   private get objectGroup() { return `qa-elements-${this.generation}`; }
-  /** @internal Use QaBrowserSession.newPage(). */
-  constructor(private client: CdpClient, readonly targetId: string, private sessionId: string, private onClosed: () => void) {
+  /** @internal Use QaBrowserSession.newPage() or attachPage(). `owned` pages are closed on close(); attached ones only detach. */
+  constructor(private client: CdpClient, readonly targetId: string, private sessionId: string, private onClosed: () => void, private owned = true) {
     this.keyboard = new QaKeyboard((method, params) => this.send(method, params));
+    this.mouse = new QaMouse((method, params) => this.send(method, params));
     this.unsubs.push(
       this.on('Runtime.executionContextCreated', ({ context }) => { this.contexts.set(context.id, context); this.chooseContext(); }),
       this.on('Runtime.executionContextDestroyed', ({ executionContextId }) => {
@@ -181,11 +297,18 @@ export class QaPage {
     for (const listener of this.closedListeners) listener(error);
     this.closedListeners.clear(); this.onClosed();
   }
+  /** Owned pages (newPage) close their target. Attached pages (attachPage) only detach; the app's page stays open. */
   close(): Promise<void> {
     if (this.closing) return this.closing;
     if (this.closed) return Promise.resolve();
     this.closing = (async () => {
-      try { await this.client.send('Target.closeTarget', { targetId: this.targetId }); }
+      if (this.owned) {
+        try { await this.client.send('Target.closeTarget', { targetId: this.targetId }); }
+        finally { this.markClosed(); }
+        return;
+      }
+      try { await this.client.send('Target.detachFromTarget', { sessionId: this.sessionId }); }
+      catch { /* already detached: the local page is closed either way */ }
       finally { this.markClosed(); }
     })();
     return this.closing;
@@ -371,9 +494,11 @@ export class QaPage {
     return { x: box.x + box.width / 2, y: box.y + box.height / 2 };
   }
   async click(target: string | QaElement, options: ClickOptions = {}): Promise<void> {
+    this.mouse.assertReleased();
     await this.withElement(target, async (handle) => {
       const point = await this.point(handle), button = options.button ?? 'left', count = options.clickCount ?? 1;
       await this.send('Input.dispatchMouseEvent', { type: 'mouseMoved', ...point });
+      this.mouse.track(point.x, point.y);
       for (let clickCount = 1; clickCount <= count; clickCount++) {
         await this.send('Input.dispatchMouseEvent', { type: 'mousePressed', ...point, button, buttons: button === 'left' ? 1 : button === 'right' ? 2 : 4, clickCount });
         if (options.delay) await sleep(options.delay);
@@ -391,7 +516,12 @@ export class QaPage {
     for (const char of text) { await this.send('Input.insertText', { text: char }); await sleep(options.delay); }
   }
   async hover(target: string | QaElement): Promise<void> {
-    await this.withElement(target, async (handle) => { await this.send('Input.dispatchMouseEvent', { type: 'mouseMoved', ...await this.point(handle) }); });
+    this.mouse.assertReleased();
+    await this.withElement(target, async (handle) => {
+      const point = await this.point(handle);
+      await this.send('Input.dispatchMouseEvent', { type: 'mouseMoved', ...point });
+      this.mouse.track(point.x, point.y);
+    });
   }
   async focus(target: string | QaElement): Promise<void> { await this.withElement(target, (handle) => handle.focus()); }
   async select(selector: string, ...values: string[]): Promise<string[]> {
