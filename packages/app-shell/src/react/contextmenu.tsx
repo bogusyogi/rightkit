@@ -29,8 +29,38 @@ export interface ContextMenuProps {
   width?: number;
   /** Extra class on the menu element. */
   className?: string;
-  /** Extra classes per region: `root` (menu), `item`, `separator`, `label`. */
-  slots?: SlotClasses<"root" | "item" | "separator" | "label">;
+  /** Extra classes per region: `root` (menu), `item`, `separator`, `label`, `lead`, `scrim`. */
+  slots?: SlotClasses<"root" | "item" | "separator" | "label" | "lead" | "scrim">;
+  /** Extra class on the click-away scrim (same as `slots.scrim`). */
+  scrimClassName?: string;
+  /**
+   * Element used for each row. Default `"div"` (aria-disabled for disabled rows). `"button"` renders
+   * `button[type=button][role=menuitem|menuitemcheckbox]` with a native `disabled` attribute; rows
+   * stay out of the Tab order because the menu itself holds focus (aria-activedescendant).
+   */
+  itemAs?: "div" | "button";
+  /** Replaces the row's content (lead, label, shortcut). The row element, role and state classes stay. */
+  renderItem?: (item: MenuItem, state: { index: number; active: boolean }) => ReactNode;
+  /** Render the fixed-width lead column (check mark or icon). Default true. */
+  showLead?: boolean;
+  /**
+   * Focus the menu on open. Default true. When false the menu does not take focus (the document keeps
+   * its selection and caret), and arrows/Home/End/Enter/Space/Escape/Tab are handled from the window
+   * while the menu is open, so it stays keyboard operable. Chords with Ctrl/Cmd/Alt pass through.
+   */
+  autoFocus?: boolean;
+  /** Row highlighted on open: `"first"` (default, first enabled row) or `"none"` (ArrowDown/Up start from the ends). */
+  initialHighlight?: "first" | "none";
+  /**
+   * Exit animation length in ms. Default 0: unmount immediately. When above 0, closing first adds
+   * `exitClassName` to the menu and scrim and calls `onExitStart`, then calls `onClose` after `exitMs`.
+   * A chosen item's `run` fires at once, not after the animation. Input is ignored while exiting.
+   */
+  exitMs?: number;
+  /** Class added to the menu and scrim while exiting. Default `is-closing`. */
+  exitClassName?: string;
+  /** Called once when an exit animation starts (only when `exitMs` > 0). */
+  onExitStart?: () => void;
 }
 
 const enabled = (items: readonly MenuItem[]) => items.map((item, i) => (item.disabled ? -1 : i)).filter((i) => i >= 0);
@@ -40,11 +70,32 @@ const enabled = (items: readonly MenuItem[]) => items.map((item, i) => (item.dis
  * menu exists and what is in it. Keyboard: arrows/Home/End move, Enter/Space activate, Escape
  * closes and restores focus. Mouse-down never steals the document selection (Copy/Cut still work).
  */
-export function ContextMenu({ x, y, items, onClose, label, width = 200, className, slots }: ContextMenuProps) {
+export function ContextMenu({
+  x,
+  y,
+  items,
+  onClose,
+  label,
+  width = 200,
+  className,
+  slots,
+  scrimClassName,
+  itemAs = "div",
+  renderItem,
+  showLead = true,
+  autoFocus = true,
+  initialHighlight = "first",
+  exitMs = 0,
+  exitClassName = "is-closing",
+  onExitStart,
+}: ContextMenuProps) {
   const ref = useRef<HTMLDivElement>(null);
   const menuId = useRef(`rk-menu-${Math.random().toString(36).slice(2, 8)}`);
   const opener = useRef<HTMLElement | null>(typeof document !== "undefined" ? (document.activeElement as HTMLElement | null) : null);
-  const [active, setActive] = useState(() => enabled(items)[0] ?? -1);
+  const [active, setActive] = useState(() => (initialHighlight === "none" ? -1 : enabled(items)[0] ?? -1));
+  const [closing, setClosing] = useState(false);
+  const closingRef = useRef(false);
+  const exitTimer = useRef<number | null>(null);
   const [pos, setPos] = useState(() =>
     floatingPanelStyle({ x, y, width, estimatedHeight: items.length * 28 + 12, viewportWidth: window.innerWidth, viewportHeight: window.innerHeight }),
   );
@@ -55,13 +106,39 @@ export function ContextMenu({ x, y, items, onClose, label, width = 200, classNam
     if (h) setPos(floatingPanelStyle({ x, y, width, estimatedHeight: h, viewportWidth: window.innerWidth, viewportHeight: window.innerHeight }));
   }, [x, y, width, items]);
 
-  const close = useCallback(() => {
-    onClose();
-    opener.current?.focus?.();
-  }, [onClose]);
+  /**
+   * Single exit path. Without `exitMs` it is the 0.5.x sequence: onClose, restore focus, then `then`.
+   * With `exitMs` the menu plays its exit first and only unmounts (onClose) afterwards; focus is
+   * restored and `then` runs immediately so the chosen action never waits for an animation.
+   */
+  const dismiss = useCallback(
+    (options?: { restoreFocus?: boolean; then?: () => void }) => {
+      if (closingRef.current) return;
+      if (!(exitMs > 0)) {
+        onClose();
+        if (options?.restoreFocus) opener.current?.focus?.();
+        options?.then?.();
+        return;
+      }
+      closingRef.current = true;
+      setClosing(true);
+      onExitStart?.();
+      if (options?.restoreFocus) opener.current?.focus?.();
+      options?.then?.();
+      exitTimer.current = window.setTimeout(onClose, exitMs);
+    },
+    [exitMs, onClose, onExitStart],
+  );
+
+  useEffect(
+    () => () => {
+      if (exitTimer.current != null) window.clearTimeout(exitTimer.current);
+    },
+    [],
+  );
 
   useEffect(() => {
-    ref.current?.focus({ preventScroll: true });
+    if (autoFocus) ref.current?.focus({ preventScroll: true });
     const onResize = () => onClose();
     window.addEventListener("resize", onResize);
     window.addEventListener("blur", onResize);
@@ -69,7 +146,7 @@ export function ContextMenu({ x, y, items, onClose, label, width = 200, classNam
       window.removeEventListener("resize", onResize);
       window.removeEventListener("blur", onResize);
     };
-  }, [onClose]);
+  }, [onClose, autoFocus]);
 
   useEffect(() => {
     document.getElementById(`${menuId.current}-${active}`)?.scrollIntoView?.({ block: "nearest" });
@@ -77,24 +154,23 @@ export function ContextMenu({ x, y, items, onClose, label, width = 200, classNam
 
   const run = (item: MenuItem) => {
     if (item.disabled) return;
-    onClose();
-    opener.current?.focus?.();
-    item.run?.();
+    dismiss({ restoreFocus: true, then: () => item.run?.() });
   };
 
-  const onKeyDown = (e: React.KeyboardEvent) => {
+  const handleKey = (e: { key: string; preventDefault: () => void; stopPropagation: () => void }) => {
+    if (closingRef.current) return;
     const idx = enabled(items);
     const at = idx.indexOf(active);
     if (e.key === "Escape") {
       e.preventDefault();
       e.stopPropagation();
-      close();
+      dismiss({ restoreFocus: true });
     } else if (e.key === "ArrowDown") {
       e.preventDefault();
       setActive(idx[(at + 1) % idx.length] ?? -1);
     } else if (e.key === "ArrowUp") {
       e.preventDefault();
-      setActive(idx[(at - 1 + idx.length) % idx.length] ?? -1);
+      setActive(at < 0 ? idx[idx.length - 1] ?? -1 : idx[(at - 1 + idx.length) % idx.length] ?? -1);
     } else if (e.key === "Home") {
       e.preventDefault();
       setActive(idx[0] ?? -1);
@@ -106,40 +182,69 @@ export function ContextMenu({ x, y, items, onClose, label, width = 200, classNam
       if (active >= 0) run(items[active]);
     } else if (e.key === "Tab") {
       e.preventDefault();
-      close();
+      dismiss({ restoreFocus: true });
     }
   };
 
+  // Without autoFocus the menu never holds focus, so the same keys are read from the window while it is open.
+  const keyHandler = useRef(handleKey);
+  keyHandler.current = handleKey;
+  useEffect(() => {
+    if (autoFocus) return;
+    const onWindowKey = (e: KeyboardEvent) => {
+      if (e.ctrlKey || e.metaKey || e.altKey || e.defaultPrevented) return;
+      if (ref.current?.contains(e.target as Node | null)) return; // the menu's own onKeyDown already handled it
+      keyHandler.current(e);
+    };
+    window.addEventListener("keydown", onWindowKey, true);
+    return () => window.removeEventListener("keydown", onWindowKey, true);
+  }, [autoFocus]);
+
+  const onKeyDown = (e: React.KeyboardEvent) => handleKey(e);
+  const exitStyle = exitMs > 0 ? ({ "--rk-menu-exit-ms": `${exitMs}ms` } as React.CSSProperties) : undefined;
+  const Row = itemAs;
+
   return createPortal(
     <>
-      <div className="rk-menu-scrim" onMouseDown={onClose} onContextMenu={(e) => { e.preventDefault(); onClose(); }} />
+      <div
+        className={cx("rk-menu-scrim", scrimClassName, slots?.scrim, closing && exitClassName)}
+        onMouseDown={() => dismiss()}
+        onContextMenu={(e) => { e.preventDefault(); dismiss(); }}
+      />
       <div
         ref={ref}
         role="menu"
         aria-label={label}
         aria-activedescendant={active >= 0 ? `${menuId.current}-${active}` : undefined}
         tabIndex={-1}
-        className={cx("rk-menu", className, slots?.root)}
-        style={pos}
+        className={cx("rk-menu", className, slots?.root, closing && exitClassName)}
+        style={exitStyle ? { ...pos, ...exitStyle } : pos}
         onMouseDown={(e) => e.preventDefault()}
         onKeyDown={onKeyDown}
       >
         {items.map((item, i) => (
           <div key={item.id}>
             {item.separatorBefore ? <div className={cx("rk-menu__sep", slots?.separator)} role="separator" /> : null}
-            <div
+            <Row
+              {...(itemAs === "button" ? { type: "button" as const, disabled: item.disabled, tabIndex: -1 } : {})}
               id={`${menuId.current}-${i}`}
               role={item.checked === undefined ? "menuitem" : "menuitemcheckbox"}
               aria-checked={item.checked}
-              aria-disabled={item.disabled || undefined}
+              aria-disabled={itemAs === "div" ? item.disabled || undefined : undefined}
               className={cx("rk-menu__item", i === active && "is-active", item.danger && "is-danger", item.disabled && "is-disabled", slots?.item)}
               onMouseMove={() => !item.disabled && setActive(i)}
               onClick={() => run(item)}
             >
-              <span className="rk-menu__lead" aria-hidden="true">{item.checked ? "✓" : item.icon}</span>
-              <span className={cx("rk-menu__label", slots?.label)}>{item.label}</span>
-              {item.shortcut ? <Kbd chord={item.shortcut} gap={1} /> : null}
-            </div>
+              {renderItem ? (
+                renderItem(item, { index: i, active: i === active })
+              ) : (
+                <>
+                  {showLead ? <span className={cx("rk-menu__lead", slots?.lead)} aria-hidden="true">{item.checked ? "✓" : item.icon}</span> : null}
+                  <span className={cx("rk-menu__label", slots?.label)}>{item.label}</span>
+                  {item.shortcut ? <Kbd chord={item.shortcut} gap={1} /> : null}
+                </>
+              )}
+            </Row>
           </div>
         ))}
       </div>
@@ -158,7 +263,12 @@ export interface OpenMenu<T> {
  * `const cm = useContextMenu<Row>((row) => items, "Row actions")`, then
  * `<div onContextMenu={(e) => cm.open(e, row)} />` and render `{cm.element}` once.
  */
-export function useContextMenu<T = undefined>(buildItems: (context: T) => readonly MenuItem[], label: string) {
+export function useContextMenu<T = undefined>(
+  buildItems: (context: T) => readonly MenuItem[],
+  label: string,
+  /** Extra `ContextMenu` options (itemAs, autoFocus, exitMs, slots ...). */
+  menuProps?: Omit<ContextMenuProps, "x" | "y" | "items" | "label" | "onClose">,
+) {
   const [menu, setMenu] = useState<OpenMenu<T> | null>(null);
   const close = useCallback(() => setMenu(null), []);
   const open = useCallback((event: ReactMouseEvent | MouseEvent, context?: T) => {
@@ -167,6 +277,6 @@ export function useContextMenu<T = undefined>(buildItems: (context: T) => readon
     setMenu({ x: event.clientX, y: event.clientY, context: context as T });
   }, []);
   const items = useMemo(() => (menu ? buildItems(menu.context) : []), [menu, buildItems]);
-  const element = menu && items.length ? <ContextMenu x={menu.x} y={menu.y} items={items} label={label} onClose={close} /> : null;
+  const element = menu && items.length ? <ContextMenu {...menuProps} x={menu.x} y={menu.y} items={items} label={label} onClose={close} /> : null;
   return { open, close, isOpen: menu !== null, element };
 }

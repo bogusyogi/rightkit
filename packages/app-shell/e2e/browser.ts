@@ -42,6 +42,8 @@ export interface Page {
   type(text: string): Promise<void>;
   click(selector: string, button?: "left" | "right"): Promise<void>;
   clickAt(x: number, y: number, button?: "left" | "right"): Promise<void>;
+  /** Moves the pointer without pressing, e.g. to park it where it triggers no hover style. */
+  moveTo(x: number, y: number): Promise<void>;
   rect(selector: string): Promise<{ x: number; y: number; width: number; height: number }>;
   setViewport(width: number, height: number): Promise<void>;
   setColorScheme(scheme: "light" | "dark"): Promise<void>;
@@ -148,6 +150,10 @@ async function attach(browser: Awaited<ReturnType<typeof launchChromeForTesting>
       await send("Input.dispatchMouseEvent", { type: "mousePressed", x, y, button, clickCount: 1, buttons: button === "left" ? 1 : 2 });
       await send("Input.dispatchMouseEvent", { type: "mouseReleased", x, y, button, clickCount: 1 });
       await sleep(60);
+    },
+    async moveTo(x, y) {
+      await send("Input.dispatchMouseEvent", { type: "mouseMoved", x, y });
+      await sleep(30);
     },
     async click(selector, button = "left") {
       const r = await page.rect(selector);

@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.6.0
+
+Everything new is optional. With no new prop or import, DOM, attributes, classes, computed styles and timing match 0.5.1; this is pinned by `src/react/default-overlays.test.tsx`, `src/react/default-markup.test.tsx` and `e2e/default-output.e2e.test.ts` (computed style and box of every element in the shell, palette, confirm dialog, menu and toast states, light and dark).
+
+Added:
+- Stylesheets: `shell.layered.css` (the whole stylesheet inside `@layer rk`; the host declares the layer order, for Tailwind 4 `@layer theme, base, rk, components, utilities;`), `shell.structure.css` (position, z-index, layout, overflow, pointer-events, layout variables) and `shell.visual.css` (colour, type, radius, spacing, shadows, motion). `shell.css` stays unlayered and self-contained; it is now generated from the two (`pnpm run build:css`, `pnpm run check:css`).
+- `ContextMenu`: `itemAs` (`"button"` renders `button[role=menuitem][disabled]`), `renderItem`, `showLead`, `scrimClassName`, `slots.scrim` and `slots.lead`, `autoFocus` (false keeps focus and selection in the page and drives the menu from the window), `initialHighlight` (`"none"`), `exitMs`, `exitClassName`, `onExitStart`. `useContextMenu` takes these as a third argument.
+- `ModalShell` and `Dialog`: `overlayClassName`, `overlayStyle`, `slots.overlay`, `dismissOn` (`"click"`), `ariaLabel` (replaces `aria-labelledby`).
+- `ActionDialog` and `DialogAction`: a titled dialog with any number of actions (label, `onClick`, `variant`, `className`, `autoFocus`, `disabled`) and an explicit `role`. `ConfirmDialog` is built on it and takes `role`.
+- `CommandPalette`: `labels.inputAriaLabel`, `enterDelayMs`, `rank` and the exported `rankCommands`, `searchIcon`, `renderIcon`, `slots.icon`.
+- `ToastViewport`: `renderGlyph`, `renderRow` (`ToastRowContext`), `rowClassName`, `exitClassName`, `exitMs`, `roles` (`ToastRoles`), `slots.glyph`; CSS variable `--rk-toast-width`.
+- CSS: `.rk-menu.is-closing` and `.rk-menu-scrim.is-closing` (used only when `exitMs > 0`).
+
+Changed:
+- The toast stack width rule reads `min(var(--rk-toast-width, 26rem), calc(100vw - 2rem))`; the default width is unchanged.
+- The overlay button reset `:where(.rk-overlay, .rk-menu, .rk-toasts) button { font: inherit; color: inherit }` now lives in `shell.visual.css`, so it is inside the `rk` layer when the layered entry is used. In `shell.css` it behaves as before.
+- Browser tests: `e2e/default-output.e2e.test.ts`, `e2e/options.e2e.test.ts` and `e2e/cascade.e2e.test.ts`; `src/css.test.ts` proves the split is lossless.
+
 ## 0.5.1
 
 Added:

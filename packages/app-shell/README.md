@@ -15,7 +15,10 @@ Brand-neutral React frame for Right Suite desktop apps: fused sidebar and titleb
 |---|---|
 | `@rightkit/app-shell` | Navigation, theme, match, geometry, toast, shortcut, bridge and command modules (`dist/index.js`) |
 | `@rightkit/app-shell/react` | `ShellProvider`, `AppShell`, `AppFrame`, `Titlebar`, `Plane`, `NavList`, `PageShell`, palette, toasts, overlays, context menu, hooks (`useShell`, `useCommands`, `useShortcuts`, `useToast`, `useTheme`) and UI primitives |
-| `@rightkit/app-shell/shell.css` | Stylesheet. Tokens are `--rk-*`. |
+| `@rightkit/app-shell/shell.css` | Stylesheet, unlayered (the 0.5.x behaviour). Tokens are `--rk-*`. |
+| `@rightkit/app-shell/shell.layered.css` | The same rules inside the cascade layer `rk`, so host utilities and unlayered host CSS override them. See [Adopting with a locked UI](#adopting-with-a-locked-ui). |
+| `@rightkit/app-shell/shell.structure.css` | Only the rules the frame, overlays, menu and toasts need to function: position, z-index, layout, overflow, pointer-events. No colour, type, radius or decoration. |
+| `@rightkit/app-shell/shell.visual.css` | Colour, type, radius, spacing, shadows and motion. Pairs with the structure file. |
 | `@rightkit/app-shell/suite-aliases.css` | Optional unprefixed token aliases for apps that need the old names |
 
 ## Peer dependencies
@@ -67,11 +70,12 @@ Visual components take `className` for their root and `slots` for named regions.
 
 | Component | `slots` regions |
 |---|---|
-| `ModalShell`, `ConfirmDialog`, `PromptDialog` | `root` (surface) |
-| `Dialog` | `root`, `header`, `body` (wrapper rendered only when set), `footer` |
-| `ContextMenu` | `root`, `item`, `separator`, `label` |
-| `CommandPalette` | `root`, `field`, `input`, `list`, `group`, `option`, `empty` |
-| `ToastViewport` | `root`, `toast`, `message`, `action`, `dismiss` |
+| `ModalShell` | `root` (surface), `overlay` (backdrop) |
+| `ConfirmDialog`, `PromptDialog`, `ActionDialog` | `root` (surface), `header`, `body`, `footer`, `overlay` |
+| `Dialog` | `root`, `header`, `body` (wrapper rendered only when set), `footer`, `overlay` |
+| `ContextMenu` | `root`, `item`, `separator`, `label`, `lead`, `scrim` |
+| `CommandPalette` | `root`, `field`, `input`, `list`, `group`, `option`, `empty`, `icon` |
+| `ToastViewport` | `root`, `toast`, `message`, `action`, `dismiss`, `glyph` |
 | `Titlebar` | `root`, `side`, `lights`, `title`, `drag`, `end` (wraps the end content), `caption` |
 | `AppShell` | `root`, `titlebar`, `sidebar`, `sidebarFoot`, `body`, `plane` |
 
@@ -147,7 +151,76 @@ Check the result against the old app in light and dark. Each value that differs 
 
 ### Palette and toast tokens
 
-`--rk-palette-width` (640px), `--rk-toast-offset` (16px) and `--rk-plane-radius` (20px) size the palette, the toast stack and the content corner.
+`--rk-palette-width` (640px), `--rk-toast-offset` (16px) and `--rk-plane-radius` (20px) size the palette, the toast stack and the content corner. `--rk-toast-width` (default `26rem`) sets the toast stack width; it is still capped at `100vw - 2rem`. `--rk-menu-exit-ms` is set by `ContextMenu` itself while `exitMs` is above 0.
+
+## Adopting with a locked UI
+
+0.6.0 lets an app that already has a finished design (its own menu, modal, palette and toast look) use the shell's behaviour, focus handling and accessibility without inheriting its look. Every option below is optional and its default reproduces 0.5.1 exactly (DOM, attributes, classes and timing), pinned by snapshot tests.
+
+### 1. Put the stylesheet in a cascade layer
+
+`shell.css` is unlayered. Unlayered rules beat every layered rule, so Tailwind utilities (which sit in `@layer utilities`) cannot override a shell rule that targets the same element, and `:where(.rk-overlay, .rk-menu, .rk-toasts) button { font: inherit; color: inherit }` overrides a host's button typography. Import `shell.layered.css` instead and declare the layer order first. With Tailwind 4:
+
+```css
+@layer theme, base, rk, components, utilities;
+@import "tailwindcss/theme.css" layer(theme);
+@import "tailwindcss/preflight.css" layer(base);
+@import "@rightkit/app-shell/shell.layered.css";
+@import "tailwindcss/utilities.css" layer(utilities);
+```
+
+Or, with the all-in-one entry, put the order line first and keep the rest:
+
+```css
+@layer theme, base, rk, components, utilities;
+@import "tailwindcss";
+@import "@rightkit/app-shell/shell.layered.css";
+```
+
+Rules:
+
+- The `@layer ... rk ...` order line must come before the first import of any of those layers. Without it `rk` is created where it is first seen: after `utilities` if the shell is imported after Tailwind (so the shell beats utilities again), or before `base` if imported first (so preflight's button reset beats the shell).
+- Unlayered host CSS always beats `rk`. A host reset like `button { background: none }` outside any layer now overrides shell buttons; keep resets in `base`.
+- Define brand tokens (`--rk-brand`, `--rk-brand-dark`, `--rk-wordmark-font`) in unlayered CSS or in a layer after `rk` (for example `components`). A `:root` rule inside `base` loses to the layered defaults.
+- Apps that keep importing `shell.css` change nothing.
+
+To take structure only, import `shell.structure.css` (optionally `layer(rk)`), skip the visual file and style the `rk-*` classes yourself. Structure holds position, z-index, display/flex/grid, overflow, pointer-events, the sidebar/titlebar box sizes and the layout variables. Colour variables, radii, type, spacing, shadows and animation are in `shell.visual.css`. `shell.css` is generated from the two (`pnpm run build:css`; `pnpm run check:css` fails when it is stale).
+
+### 2. Options
+
+| Component | Option | Default | Effect |
+|---|---|---|---|
+| `ContextMenu` | `itemAs` | `"div"` | `"button"` renders `button[type=button][role=menuitem\|menuitemcheckbox]` with a native `disabled` (no `aria-disabled`). Rows stay out of the Tab order; the menu keeps `aria-activedescendant`. |
+| | `renderItem(item, {index, active})` | none | Replaces row content (lead, label, shortcut). Role, id and state classes stay. |
+| | `showLead` | `true` | `false` drops the lead column (`span.rk-menu__lead`). |
+| | `scrimClassName`, `slots.scrim` | none | Class on the click-away scrim. |
+| | `autoFocus` | `true` | `false` leaves focus and the document selection where they are. Arrows, Home, End, Enter, Space, Escape and Tab are read from the window while the menu is open; chords with Ctrl, Cmd or Alt pass through. |
+| | `initialHighlight` | `"first"` | `"none"` opens with no row highlighted; ArrowDown goes to the first row, ArrowUp to the last. |
+| | `exitMs`, `exitClassName`, `onExitStart` | `0`, `"is-closing"`, none | With `exitMs > 0` closing adds the class to the menu and scrim, sets `--rk-menu-exit-ms`, calls `onExitStart`, and calls `onClose` after `exitMs`. The chosen item's `run` fires immediately. Input is ignored while exiting. |
+| `useContextMenu` | third argument | none | Any of the above options for the menu it renders. |
+| `ModalShell`, `Dialog` | `overlayClassName`, `overlayStyle`, `slots.overlay` | none | Class and inline style on the backdrop. |
+| | `dismissOn` | `"mousedown"` | `"click"` closes on release and only when the press also started on the backdrop (a selection drag that ends outside does not close). |
+| | `ariaLabel` | none | Sets `aria-label` and removes `aria-labelledby`, even when a title is rendered. |
+| `ActionDialog` (new) | `actions: DialogAction[]` | required | Any number of footer buttons: `label`, `onClick`, `variant`, `className`, `autoFocus`, `disabled`, `id`. |
+| | `role` | `"dialog"` | `"alertdialog"` for interruptions. |
+| `ConfirmDialog` | `role` | `alertdialog` if `danger`, else `dialog` | Explicit role. Now built on `ActionDialog`; output unchanged. |
+| `CommandPalette` | `labels.inputAriaLabel` | same string as `labels.placeholder` | Accessible name of the input, independent of the placeholder. |
+| | `enterDelayMs` | `90` | Delay between choosing a command and running it. |
+| | `rank(commands, query, limit)` | `rankCommands` | Replaces ranking and filtering. Results are still grouped by `command.group`, first-seen order. `rankCommands` is exported. |
+| | `searchIcon` | magnifier | Node replacing the magnifier; `null` for none. |
+| | `renderIcon(command, {active})` | `command.icon` | Content of the row icon box; `null` for no box. `slots.icon` styles it. |
+| `ToastViewport` | `renderGlyph(toast)` | built-in glyph span | Replaces the glyph element (`null` for none). |
+| | `renderRow({toast, leaving, dismiss, role, className})` | none | Replaces the whole row. Put `role` and `className` on your element. |
+| | `rowClassName` | none | String, or `(toast, {leaving}) => string`. |
+| | `exitClassName`, `exitMs` | none, `150` | Class added next to `is-leaving`; exit length before removal. |
+| | `roles` | error `alert`, others `status` | Per kind; `null` omits the role. |
+| | `--rk-toast-width` | `26rem` | CSS variable for the stack width. |
+
+Keyboard and focus: every option combination keeps Escape, the focus trap and focus return (modals), arrow/Home/End/Enter navigation (menu, palette) and `aria-activedescendant`. `e2e/options.e2e.test.ts` drives these with real key events.
+
+### 3. Checking a layered adoption
+
+Compare the app before and after in light and dark. Typical differences after moving to `shell.layered.css`: any host rule outside a layer that targets `.rk-*` elements now wins (it used to win or lose by specificity and order), and any `base`-layer reset now loses to the shell (it always lost to unlayered `shell.css`).
 
 ## Known issues
 

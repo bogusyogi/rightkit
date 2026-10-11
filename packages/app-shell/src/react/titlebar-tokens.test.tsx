@@ -7,11 +7,14 @@ import { Titlebar } from "./layout.js";
 const adapter: WindowControlAdapter = { minimize: async () => {}, toggleMaximize: async () => {}, close: async () => {} };
 const shellCss = readFileSync(new URL("../../shell.css", import.meta.url), "utf8");
 
-/** The declaration block of the first rule whose selector is exactly `selector`. */
+/** The declaration blocks of every rule whose selector is exactly `selector` (structure and visual halves), joined. */
 const ruleOf = (selector: string) => {
-  const start = shellCss.indexOf(`\n${selector} {`);
-  if (start === -1) throw new Error(`no rule for ${selector}`);
-  return shellCss.slice(start, shellCss.indexOf("}", start));
+  const blocks: string[] = [];
+  for (let start = shellCss.indexOf(`\n${selector} {`); start !== -1; start = shellCss.indexOf(`\n${selector} {`, start + 1)) {
+    blocks.push(shellCss.slice(start, shellCss.indexOf("}", start)));
+  }
+  if (!blocks.length) throw new Error(`no rule for ${selector}`);
+  return blocks.join("\n");
 };
 
 describe("Titlebar token defaults", () => {
@@ -24,7 +27,7 @@ describe("Titlebar token defaults", () => {
     expect(ruleOf(".rk-caption__btn:hover")).toContain("background: var(--rk-caption-hover-bg, var(--rk-fill-2))");
   });
   it("does not define the derived tokens on :root, which would freeze them to the light values", () => {
-    const root = shellCss.slice(shellCss.indexOf(":root {"), shellCss.indexOf("}", shellCss.indexOf(":root {")));
+    const root = ruleOf(":root");
     for (const token of ["--rk-top-bg", "--rk-caption-hover-bg", "--rk-caption-margin-start", "--rk-caption-margin-end", "--rk-top-end-gap"]) {
       expect(root).not.toContain(token);
     }

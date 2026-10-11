@@ -1,6 +1,6 @@
 {
   "name": "@rightkit/app-shell",
-  "version": "0.5.1",
+  "version": "0.6.0",
   "description": "Brand-neutral React frame for Right Suite desktop apps: optional fused sidebar+titlebar layout with slots, command palette, shortcut registry/help, toasts, modals, context menus, ui kit, theme hooks.",
   "license": "MIT OR Apache-2.0",
   "type": "module",
@@ -16,11 +16,17 @@
       "import": "./dist/react.js"
     },
     "./shell.css": "./shell.css",
+    "./shell.layered.css": "./shell.layered.css",
+    "./shell.structure.css": "./shell.structure.css",
+    "./shell.visual.css": "./shell.visual.css",
     "./suite-aliases.css": "./suite-aliases.css"
   },
   "files": [
     "dist",
     "shell.css",
+    "shell.layered.css",
+    "shell.structure.css",
+    "shell.visual.css",
     "suite-aliases.css",
     "README.md",
     "LICENSE-MIT",
@@ -48,11 +54,13 @@
     "vitest": "^2.1.8"
   },
   "scripts": {
-    "build": "tsc -p tsconfig.json",
+    "build": "tsc -p tsconfig.json && node scripts/build-shell-css.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "pretest": "pnpm --filter \"@rightkit/app-shell^...\" run build",
     "test": "vitest run",
-    "prepack": "pnpm run build"
+    "prepack": "pnpm run build",
+    "build:css": "node scripts/build-shell-css.mjs",
+    "check:css": "node scripts/build-shell-css.mjs --check"
   },
   "publishConfig": {
     "registry": "https://registry.npmjs.org",

@@ -1,0 +1,114 @@
+// The stylesheet split: shell.css (0.5.x behaviour, unlayered) is structure + visual, nothing lost,
+// nothing duplicated, and the layered entry wraps the same two files.
+import { readFileSync } from "node:fs";
+import { describe, expect, it } from "vitest";
+// @ts-expect-error plain ESM script without types
+import { combined } from "../scripts/build-shell-css.mjs";
+
+const read = (name: string) => readFileSync(new URL(`../${name}`, import.meta.url), "utf8");
+const pkg = JSON.parse(read("package.json")) as { version: string; exports: Record<string, unknown>; files: string[] };
+
+/** Every declaration as "context | selector | property: value", comments and whitespace ignored. */
+function declarations(css: string, context = ""): string[] {
+  const out: string[] = [];
+  const text = css.replace(/\/\*[\s\S]*?\*\//g, "");
+  let i = 0;
+  while (i < text.length) {
+    const open = text.indexOf("{", i);
+    if (open === -1) break;
+    const head = text.slice(i, open).trim();
+    let depth = 1;
+    let k = open + 1;
+    while (k < text.length && depth) {
+      if (text[k] === "{") depth++;
+      else if (text[k] === "}") depth--;
+      k++;
+    }
+    const body = text.slice(open + 1, k - 1);
+    i = k;
+    if (head.startsWith("@media")) out.push(...declarations(body, `${context}${head} `));
+    else if (head.startsWith("@keyframes")) out.push(`${context}${head} | ${body.replace(/\s+/g, " ").trim()}`);
+    else {
+      let cur = "";
+      let paren = 0;
+      const flush = () => { if (cur.trim()) out.push(`${context}| ${head.replace(/\s+/g, " ")} | ${cur.trim().replace(/\s+/g, " ")}`); cur = ""; };
+      for (const ch of body) {
+        if (ch === "(") paren++;
+        if (ch === ")") paren--;
+        if (ch === ";" && paren === 0) flush();
+        else cur += ch;
+      }
+      flush();
+    }
+  }
+  return out;
+}
+
+const sorted = (list: string[]) => [...list].sort();
+
+describe("shell.css split", () => {
+  it("shell.css is generated from shell.structure.css + shell.visual.css and is not stale", () => {
+    expect(read("shell.css")).toBe(combined());
+  });
+
+  it("is unlayered and self-contained, so existing adopters resolve nothing new", () => {
+    const css = read("shell.css");
+    expect(css).not.toMatch(/@layer/);
+    expect(css).not.toMatch(/@import/);
+  });
+
+  it("keeps every 0.5.1 declaration; the only changes are the toast width variable and the menu exit rules", () => {
+    const before = declarations(read("test-fixtures/shell-0.5.1.css"));
+    const after = declarations(read("shell.css"));
+    const removed = before.filter((d) => !after.includes(d));
+    const added = after.filter((d) => !before.includes(d));
+    expect(removed).toEqual(["| .rk-toasts | width: min(26rem, calc(100vw - 2rem))"]);
+    expect(sorted(added)).toEqual(
+      sorted([
+        "| .rk-toasts | width: min(var(--rk-toast-width, 26rem), calc(100vw - 2rem))",
+        "| .rk-menu-scrim.is-closing, .rk-menu.is-closing | pointer-events: none",
+        "| .rk-menu.is-closing | animation: rk-pop-out var(--rk-menu-exit-ms, 80ms) ease-in forwards",
+      ]),
+    );
+    // Same count of declarations apart from those: nothing duplicated or dropped.
+    expect(after.length - before.length).toBe(2);
+  });
+
+  it("no (selector, property) pair appears in both halves, so cascade order inside a selector is unchanged", () => {
+    const key = (d: string) => {
+      const at = d.lastIndexOf(" | ");
+      return `${d.slice(0, at)} | ${d.slice(at + 3).split(":")[0]}`;
+    };
+    const structure = new Set(declarations(read("shell.structure.css")).map(key));
+    const visual = declarations(read("shell.visual.css")).map(key);
+    expect(visual.filter((k) => structure.has(k))).toEqual([]);
+  });
+
+  it("structure carries no colour, type, radius, shadow or motion", () => {
+    const visualProps = /\|\s(color|background(-[a-z]+)?|border(-[a-z-]+)?|font(-[a-z]+)?|line-height|letter-spacing|box-shadow|opacity|animation|transition|fill|outline(-[a-z]+)?|text-[a-z-]+|cursor|user-select|padding(-[a-z]+)?|margin(-[a-z]+)?|gap):/;
+    const offenders = declarations(read("shell.structure.css")).filter((d) => visualProps.test(d.replace(/^.*?\| .*? \| /, "| ")));
+    expect(offenders).toEqual([]);
+    // Colour variables live in the visual half; only layout variables are in structure.
+    const rootVars = declarations(read("shell.structure.css")).filter((d) => d.startsWith("| :root |"));
+    expect(rootVars.every((d) => /--rk-(sidebar-width|titlebar-[a-z-]+|lights-width|caption-width|toast-offset|palette-width):/.test(d))).toBe(true);
+  });
+
+  it("G2: the overlay button font/colour reset is a visual rule, not structural", () => {
+    const rule = "| :where(.rk-overlay, .rk-menu, .rk-toasts) button | font: inherit";
+    expect(declarations(read("shell.visual.css"))).toContain(rule);
+    expect(declarations(read("shell.structure.css"))).not.toContain(rule);
+  });
+
+  it("shell.layered.css imports both halves into the rk layer and nothing else", () => {
+    const css = read("shell.layered.css").replace(/\/\*[\s\S]*?\*\//g, "");
+    expect(css.trim().split("\n").map((l) => l.trim())).toEqual(['@import "./shell.structure.css" layer(rk);', '@import "./shell.visual.css" layer(rk);']);
+  });
+
+  it("package version, exports and files list the new stylesheets", () => {
+    expect(pkg.version).toBe("0.6.0");
+    for (const name of ["shell.css", "shell.layered.css", "shell.structure.css", "shell.visual.css", "suite-aliases.css"]) {
+      expect(pkg.exports[`./${name}`]).toBe(`./${name}`);
+      expect(pkg.files).toContain(name);
+    }
+  });
+});

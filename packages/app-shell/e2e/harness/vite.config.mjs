@@ -6,6 +6,6 @@ export default {
   root: here,
   base: "./",
   esbuild: { jsx: "automatic" },
-  build: { outDir: process.env.RK_HARNESS_OUT ?? join(here, "dist"), emptyOutDir: true, minify: false },
+  build: { rollupOptions: { input: { index: join(here, "index.html"), variants: join(here, "variants.html") } }, outDir: process.env.RK_HARNESS_OUT ?? join(here, "dist"), emptyOutDir: true, minify: false },
   resolve: { dedupe: ["react", "react-dom"] },
 };
