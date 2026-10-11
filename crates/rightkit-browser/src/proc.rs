@@ -90,10 +90,22 @@ pub(crate) fn spawn_chrome(
         .take_stderr()
         .ok_or_else(|| BrowserError::Launch("no stderr".into()))?;
     let (tx, rx) = std::sync::mpsc::channel::<String>();
-    // Keeps draining stderr after the URL line so Chrome never blocks on a full pipe.
+    // Keeps draining stderr after the URL line so Chrome never blocks on a full pipe. The
+    // drain reads bytes, not text: a line that is not UTF-8 (Windows writes some messages in
+    // the system code page) must not end it, or the pipe fills and Chrome stalls on its next
+    // write.
     std::thread::spawn(move || {
-        for line in BufReader::new(stderr).lines().map_while(|l| l.ok()) {
-            if let Some(u) = line.split("DevTools listening on ").nth(1) {
+        let mut reader = BufReader::new(stderr);
+        let mut line = Vec::new();
+        loop {
+            line.clear();
+            match reader.read_until(b'
+', &mut line) {
+                Ok(0) | Err(_) => break,
+                Ok(_) => {}
+            }
+            let text = String::from_utf8_lossy(&line);
+            if let Some(u) = text.split("DevTools listening on ").nth(1) {
                 let _ = tx.send(u.trim().to_string());
             }
         }
