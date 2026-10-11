@@ -41,7 +41,7 @@
     "vitest": "^2.1.8"
   },
   "scripts": {
-    "build": "tsc -p tsconfig.json && cp src/styles.css styles.css && mkdir -p dist && cp src/styles.css dist/styles.css",
+    "build": "tsc -p tsconfig.json && node scripts/copy-styles.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
     "test:browser": "pnpm --filter @rightkit/qa-chrome run build && node test/browser-e2e.mjs",
