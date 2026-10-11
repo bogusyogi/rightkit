@@ -42,7 +42,11 @@ console.log('hello-console');console.error('boom-console');
 
 /// Loopback fixtures are blocked by default; this suite opts in explicitly.
 fn fixture_opts() -> LaunchOptions {
-    LaunchOptions::default().network(NetworkPolicy::default().allow_host("127.0.0.1"))
+    let mut opts =
+        LaunchOptions::default().network(NetworkPolicy::default().allow_host("127.0.0.1"));
+    // Chrome logs to stderr, so a failed navigation's error carries Chrome's own words.
+    opts.extra_args.push("enable-logging=stderr".into());
+    opts
 }
 
 fn serve() -> String {

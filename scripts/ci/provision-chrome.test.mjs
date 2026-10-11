@@ -4,7 +4,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { executable, needsChrome, provision, provisionForTests } from "./provision-chrome.mjs";
+import { executable, grantSandboxRead, needsChrome, provision, provisionForTests } from "./provision-chrome.mjs";
 
 const KEY = "mac-arm64";
 const PINS = (sha256) => ({ version: "1.2.3.4", platforms: { [KEY]: { sha256 } } });
@@ -55,4 +55,15 @@ test("an install with a different recorded hash is not trusted: the pin is downl
 
 test("an unpinned platform is never provisioned by the gate", async () => {
   await assert.rejects(provision({ root: tmp(), pins: PINS(""), key: KEY, fetchImpl: noFetch, log: () => {} }), /no pinned sha256/);
+});
+
+test("on Windows the install is granted to Chrome's sandbox, and a failed grant fails the provision", () => {
+  const calls = [];
+  const ok = (file, args) => { calls.push([file, args]); return { status: 0 }; };
+  assert.equal(grantSandboxRead("C:\\tools\\chrome\\1.2.3.4", { platform: "win32", run: ok }), true);
+  assert.match(calls[0][0], /icacls\.exe$/);
+  assert.deepEqual(calls[0][1], ["C:\\tools\\chrome\\1.2.3.4", "/grant", "*S-1-15-2-1:(OI)(CI)(RX)", "*S-1-15-2-2:(OI)(CI)(RX)", "/T", "/C", "/Q"]);
+  assert.throws(() => grantSandboxRead("C:\\x", { platform: "win32", run: () => ({ status: 5 }) }), /icacls exit 5/);
+  // Other systems have no AppContainer: nothing runs.
+  assert.equal(grantSandboxRead("/x", { platform: "darwin", run: () => { throw new Error("must not run"); } }), false);
 });
