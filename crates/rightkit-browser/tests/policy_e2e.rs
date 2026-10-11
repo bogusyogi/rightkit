@@ -1,6 +1,10 @@
 //! Admission, SSRF policy, profile isolation, and process ownership against
 //! real headless Chrome and local fixture servers (offline). Fixtures count
 //! requests that actually reach them, so "blocked" means the server never saw it.
+//!
+//! The browser is the installed Chrome for Testing (a tool installation, not user data). Each
+//! session runs on a temporary profile directory that is removed when the session closes; no
+//! test opens a real browser profile.
 use rightkit_browser::{
     ActionKind, AddressClass, AdmissionHook, BlockReason, BrowserError, BrowserSession, Decision,
     LaunchOptions, LifecycleKind, NetworkPolicy, Target,
