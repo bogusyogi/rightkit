@@ -130,3 +130,19 @@ fn state_dir_refuses_and_never_sweeps_the_reserved_namespace() {
     assert_eq!(state.sweep_temps(Duration::ZERO).unwrap(), 1);
     assert!(!state.exists(&orphan).unwrap());
 }
+
+#[test]
+fn create_private_new_refuses_a_generated_temp_name() {
+    let dir = tempfile::tempdir().unwrap();
+    let target = dir.path().join(".record.rktmp-123-1-0");
+    let error = rightkit_fs::private::create_private_new(&target)
+        .map(|_| ())
+        .expect_err("a temp-shaped name is refused");
+    assert!(matches!(error, FsError::BadName(_)), "{error:?}");
+    assert!(!target.exists());
+    // An ordinary name still works, and a zero-age sweep leaves it alone.
+    let kept = dir.path().join("record.log");
+    drop(rightkit_fs::private::create_private_new(&kept).unwrap());
+    assert_eq!(sweep_stale_temps(dir.path(), Duration::ZERO).unwrap(), 0);
+    assert!(kept.exists());
+}

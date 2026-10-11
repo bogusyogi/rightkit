@@ -12,9 +12,9 @@ pub enum PostPublishStep {
     /// unlink (the fallback where the kernel has no exclusive rename). The content is published and
     /// complete; a leftover temp name remains, which [`crate::sweep_stale_temps`] reclaims.
     TempCleanup,
-    /// Making the published file owner-only on Windows (`ReplaceFileW` keeps the destination's
-    /// ACL, so a private write re-applies the owner-only ACL after the replace). When this fails
-    /// the published file may be readable by more principals than the caller asked for.
+    /// Making the published file owner-only on Windows. No longer reported: a private write is
+    /// published by a move that carries the temp file's owner-only ACL, so there is no step after
+    /// publication. The variant stays for existing matches.
     OwnerOnlyAcl,
 }
 
@@ -83,8 +83,9 @@ pub enum FsError {
         source: io::Error,
     },
     /// A `StateDir` removal or directory creation took effect, but syncing the containing
-    /// directory failed, so it may not survive a power loss. Repeating the call is safe, but a
-    /// retry that finds the directory already present does not sync again.
+    /// directory failed, so it may not survive a power loss. Repeating the call is safe: a retry
+    /// that finds a directory this process made and has not yet published syncs it again, and
+    /// fails again if the sync still fails (a directory made by another process is not tracked).
     #[error("{} was changed, but syncing its directory failed: {source}", path.display())]
     DirSyncFailed {
         path: PathBuf,
@@ -103,6 +104,30 @@ pub enum FsError {
         #[source]
         source: io::Error,
     },
+    /// Windows `ReplaceFileW` failed after it had begun swapping names, so the destination is not
+    /// in a known state: it may be missing. Nothing was deleted by this crate. `new_content` is
+    /// the file that still holds the new bytes (the temp file) and `previous_content` the one that
+    /// holds the old bytes (the backup file, or the destination itself); each is `None` when no
+    /// such file exists. Both are left in place for recovery. [`FsError::target_replaced`] is
+    /// false: the new content is not at the destination.
+    #[error(
+        "replacing {} was interrupted; new content: {}, previous content: {}: {source}",
+        path.display(),
+        show_path(new_content),
+        show_path(previous_content)
+    )]
+    ReplaceInterrupted {
+        path: PathBuf,
+        new_content: Option<PathBuf>,
+        previous_content: Option<PathBuf>,
+        #[source]
+        source: io::Error,
+    },
+}
+
+fn show_path(path: &Option<PathBuf>) -> String {
+    path.as_ref()
+        .map_or_else(|| "gone".to_string(), |p| p.display().to_string())
 }
 
 impl FsError {
@@ -119,6 +144,7 @@ impl FsError {
             Self::Io { source, .. }
             | Self::ReplacedButDirSyncFailed { source, .. }
             | Self::ReplacedButPostStepFailed { source, .. }
+            | Self::ReplaceInterrupted { source, .. }
             | Self::DirSyncFailed { source, .. } => Some(source.kind()),
             Self::AlreadyExists(_) => Some(io::ErrorKind::AlreadyExists),
             _ => None,
@@ -145,6 +171,7 @@ impl FsError {
             Self::Io { source, .. }
             | Self::ReplacedButDirSyncFailed { source, .. }
             | Self::ReplacedButPostStepFailed { source, .. }
+            | Self::ReplaceInterrupted { source, .. }
             | Self::DirSyncFailed { source, .. } => source.kind(),
             Self::Symlink(_) | Self::NotAFile(_) | Self::BadName(_) => K::InvalidInput,
             Self::NotADirectory(_) => K::NotADirectory,
@@ -282,6 +309,15 @@ mod tests {
         assert_mapped(
             FsError::DirSyncFailed {
                 path: p.clone(),
+                source: source(),
+            },
+            io::ErrorKind::StorageFull,
+        );
+        assert_mapped(
+            FsError::ReplaceInterrupted {
+                path: p.clone(),
+                new_content: Some(PathBuf::from("/x.tmp")),
+                previous_content: None,
                 source: source(),
             },
             io::ErrorKind::StorageFull,

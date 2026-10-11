@@ -10,7 +10,7 @@
 //! crate's durable atomic-write path, and it reports which step produced the destination
 //! ([`CloneOutcome`]). It never follows a symlink at either end and never overwrites.
 
-use crate::atomic::{atomic_write_with_options, AtomicWriteOptions, ReplaceMode};
+use crate::atomic::{atomic_write_with_options, AtomicWriteOptions, Privacy, ReplaceMode};
 use crate::error::{FsError, Result as FsResult};
 use std::fs::{File, OpenOptions};
 use std::io;
@@ -93,6 +93,13 @@ pub fn clone_file_nofollow(src: &Path, dst: &Path) -> Result<(), CloneError> {
     /// `CLONE_NOFOLLOW` from `<sys/clonefile.h>`: do not follow a symlink at the final `src` component.
     const CLONE_NOFOLLOW: u32 = 0x0001;
 
+    if dst
+        .file_name()
+        .is_some_and(|n| crate::atomic::reject_reserved_name(&n.to_string_lossy()).is_err())
+    {
+        // A name a temp-file sweep would delete as an orphan.
+        return Err(CloneError::InvalidPath(dst.to_path_buf()));
+    }
     let meta = std::fs::symlink_metadata(src).map_err(|source| CloneError::io(src, source))?;
     if meta.file_type().is_symlink() {
         return Err(CloneError::Symlink(src.to_path_buf()));
@@ -223,6 +230,8 @@ pub fn clone_or_link_or_copy_nofollow(src: &Path, dst: &Path) -> FsResult<CloneO
 ///   copy ([`CloneOutcome::Copied`]). A step that is unavailable (another volume, a filesystem
 ///   without clones or links, Windows for clones) falls through to the next; a destination that
 ///   already exists or an error after the destination was published does not.
+/// - `dst`'s file name must not be shaped like a temp name this crate generates
+///   ([`FsError::BadName`]): a sweep would delete it.
 /// - The copy is made through [`crate::atomic_write_with_options`] with
 ///   [`ReplaceMode::NoReplace`]: a temp file, flushed, then published exclusively. Nothing is
 ///   visible at `dst` until the content is complete, and a failure leaves no partial `dst`.
@@ -231,6 +240,11 @@ pub fn clone_or_link_or_copy_nofollow_with(
     dst: &Path,
     options: &CloneOptions,
 ) -> FsResult<CloneOutcome> {
+    if let Some(name) = dst.file_name() {
+        // Every step below publishes `dst`; a name shaped like a generated temp name would be
+        // reclaimed by a sweep.
+        crate::atomic::reject_reserved_name(&name.to_string_lossy())?;
+    }
     let source = check_source(src)?;
     check_destination(dst)?;
 
@@ -336,9 +350,13 @@ fn clone_step(src: &Path, dst: &Path, options: &CloneOptions) -> StepResult {
     let Ok(input) = open_source(src) else {
         return StepResult::Unavailable;
     };
+    // The temp is created `0600`: the ioctl makes the source's bytes readable through it at once,
+    // so it must not start wider than a private source. It gets the source's mode before it is
+    // published, as a macOS clone has it.
     let write_options = AtomicWriteOptions {
         replace: ReplaceMode::NoReplace,
         durable: options.durable,
+        privacy: Privacy::OwnerOnlyUnixInheritWindows,
         ..AtomicWriteOptions::default()
     };
     let mut writer = match AtomicWriter::create_with(dst, write_options) {
@@ -356,6 +374,12 @@ fn clone_step(src: &Path, dst: &Path, options: &CloneOptions) -> StepResult {
     };
     if rc != 0 {
         // EOPNOTSUPP, EXDEV, EINVAL, ENOTTY...: no clone here. Dropping the writer removes the temp.
+        return StepResult::Unavailable;
+    }
+    let moded = input
+        .metadata()
+        .and_then(|meta| writer.file_mut().set_permissions(meta.permissions()));
+    if moded.is_err() {
         return StepResult::Unavailable;
     }
     match writer.commit() {
@@ -423,15 +447,24 @@ fn copy_step(
     if !input.metadata().map_err(|e| FsError::io(src, e))?.is_file() {
         return Err(FsError::NotAFile(src.to_path_buf()));
     }
+    // Unless the caller asked for a fresh file the copy ends with the source's permission bits.
+    // The temp must not start wider than that: a `0600` source copied under umask `022` would
+    // otherwise sit in a `0644` temp while its bytes are written, readable by anyone who can
+    // traverse the directory and open it in that window. So on Unix the temp is created `0600`
+    // and given the source's bits at the end, before it is published. A fresh file ends with the
+    // default mode anyway, so it is created the ordinary way. Windows keeps the parent's ACL.
     let write_options = AtomicWriteOptions {
         replace: ReplaceMode::NoReplace,
         durable: options.durable,
+        privacy: if options.fresh_metadata {
+            Privacy::Inherit
+        } else {
+            Privacy::OwnerOnlyUnixInheritWindows
+        },
         ..AtomicWriteOptions::default()
     };
     atomic_write_with_options(dst, write_options, |out| {
         io::copy(&mut input, out)?;
-        // The copy keeps the source's permission bits (the atomic write made the temp with the
-        // default mode), unless the caller asked for a fresh file.
         #[cfg(unix)]
         if !options.fresh_metadata {
             out.set_permissions(source.permissions())?;

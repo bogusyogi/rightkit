@@ -5,8 +5,8 @@
 //!
 //! A write has two phases. Until the replace call succeeds nothing is published: any failure
 //! leaves the destination as it was and removes the temp file. After it succeeds the new content
-//! is in place, and every later failure (the directory sync, removing a leftover temp name,
-//! re-applying an owner-only ACL) is a typed post-publication error whose
+//! is in place, and every later failure (the directory sync, removing a leftover temp name or
+//! backup file) is a typed post-publication error whose
 //! [`FsError::target_replaced`] is true, reported only after the required directory sync ran.
 //!
 //! Consolidates CutRight `fsutil::atomic_write` (project and qa copies), CodeRight
@@ -64,7 +64,7 @@ impl AtomicOptions {
 /// | | Unix | Windows |
 /// |---|---|---|
 /// | [`Privacy::Inherit`] | mode from the existing file, else `0666 & ~umask` | the parent's inherited ACL |
-/// | [`Privacy::OwnerOnly`] | `0600` from creation (parents `0700`) | one protected ACE for the current user (`D:P(A;;FA;;;<user>)`) passed to `CreateFileW` when the temp file is created, so it never exists with a broader ACL; the destination is narrowed before a `ReplaceFile` replace (an error if that fails, nothing is published) and re-checked after it |
+/// | [`Privacy::OwnerOnly`] | `0600` from creation (parents `0700`) | one protected ACE for the current user (`D:P(A;;FA;;;<user>)`) passed to `CreateFileW` when the temp file is created, so it never exists with a broader ACL; a `ReplaceFile`-mode write over an existing destination is published by `MoveFileExW` (the temp's DACL travels with it) instead of `ReplaceFileW`, which would keep the destination's |
 /// | [`Privacy::OwnerOnlyUnixInheritWindows`] | as `OwnerOnly` | as `Inherit`: no ACL step, so the file carries the parent's ACL |
 ///
 /// Windows measurements (build 10.0.26300.9550, `tests/atomic_dacl_windows.rs`): a fresh file in a
@@ -117,17 +117,25 @@ pub enum ReplaceMode {
     /// [`ReplaceMode::MoveWriteThrough`] when the replacement must be on stable storage;
     /// [`publication_durability`] states what each mode gives.
     ///
+    /// **Backup and partial failure.** `ReplaceFileW` is given a unique backup file
+    /// (`.<name>.rktbak-<pid>-<n>` beside the destination, never swept) because without one a
+    /// failure after the original was removed (`ERROR_UNABLE_TO_MOVE_REPLACEMENT`, 1176) leaves
+    /// neither version at the destination. The backup is deleted after a successful replace
+    /// (a failure to delete it is [`FsError::ReplacedButPostStepFailed`] with
+    /// [`crate::PostPublishStep::TempCleanup`]). When the call fails with 1176 or 1177 and the
+    /// destination is not intact, the result is [`FsError::ReplaceInterrupted`] and the temp and
+    /// backup files are left in place for recovery.
+    ///
     /// DACL, verified on Windows build 10.0.26300.9550 by `tests/atomic_dacl_windows.rs`
     /// (reads the DACL back with `GetNamedSecurityInfoW`): `ReplaceFileW` keeps the DESTINATION's
-    /// DACL, not the temp file's. A private write over a missing or already-private destination ends
-    /// owner-only (`D:PAI(A;;FA;;;<user SID>)`), but over a broader destination
-    /// (`D:AI(A;;FR;;;WD)(A;ID;FA;;;<user SID>)`) it stayed broad. A `private` write therefore
-    /// narrows the destination to owner-only before the replace (an error if that fails: nothing
-    /// is published, the temp file is removed) and checks it again after (a failure there is
-    /// [`FsError::ReplacedButPostStepFailed`] with [`crate::PostPublishStep::OwnerOnlyAcl`]), so
-    /// the result is owner-only in every case. A non-private write
-    /// over a private destination keeps the destination's DACL. [`ReplaceMode::Rename`] needs no
-    /// such step: the moved file carries the temp file's owner-only DACL.
+    /// DACL, not the temp file's. A **private** write therefore does not use it: over an existing
+    /// destination it is published by `MoveFileExW` with `MOVEFILE_REPLACE_EXISTING` (plus
+    /// `MOVEFILE_WRITE_THROUGH` when `durable`), which carries the temp file's owner-only DACL
+    /// with it. There is no step that narrows the destination, so no moment at which a broader
+    /// file at the destination name lends its ACL to the new secret. A reader holding the old file
+    /// open without share-delete can make that move fail like [`ReplaceMode::MoveWriteThrough`].
+    /// A non-private write over a private destination keeps the destination's DACL.
+    /// [`ReplaceMode::Rename`] likewise moves the temp file's owner-only DACL.
     ReplaceFile,
     /// Windows: `MoveFileExW` with `MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH`, so the
     /// move is on stable storage when the call returns, whether or not the destination exists
@@ -424,6 +432,11 @@ impl AtomicWriter {
             } else {
                 options.unix_owner_only()
             };
+            if options.durable {
+                // Publish every directory this creates (and any left unpublished by an earlier
+                // or concurrent attempt) before the file is written below it.
+                create_dirs_durable(&parent, private_dirs)?;
+            }
             if private_dirs {
                 crate::private::ensure_private_dir(&parent)?;
             } else {
@@ -505,10 +518,12 @@ impl AtomicWriter {
     fn commit_inner(mut self, want_digest: bool) -> Result<Option<String>> {
         let file = self.file.take().expect("writer is open until commit");
         let result = self.finish(file, want_digest);
-        if result.is_err() {
-            // Unpublished: the temp is all there is to clean. Published with a later error: the
-            // temp name is already gone (rename), or it is a leftover second name for the
-            // published inode (link fallback), and removing it again is correct and harmless.
+        // Unpublished: the temp is all there is to clean. Published with a later error: the
+        // temp name is already gone (rename), or it is a leftover second name for the
+        // published inode (link fallback), and removing it again is correct and harmless.
+        // An interrupted replace is the exception: the temp may hold the only copy of the new
+        // content, so it stays for the caller (the error names it).
+        if matches!(&result, Err(e) if !matches!(e, FsError::ReplaceInterrupted { .. })) {
             let _ = fs::remove_file(&self.temp);
         }
         // Either published or cleaned up: nothing left for Drop.
@@ -546,14 +561,7 @@ impl AtomicWriter {
         } else {
             None
         };
-        // The most serious failure is the one reported: ACL, then directory sync, then cleanup.
-        if let Some(source) = published.harden {
-            return Err(FsError::ReplacedButPostStepFailed {
-                path: self.target.clone(),
-                step: crate::PostPublishStep::OwnerOnlyAcl,
-                source,
-            });
-        }
+        // The most serious failure is the one reported: directory sync, then cleanup.
         if let Some(source) = dir_sync {
             return Err(FsError::ReplacedButDirSyncFailed {
                 path: self.target.clone(),
@@ -726,28 +734,120 @@ pub(crate) fn sync_parent_dir(path: &Path) -> std::io::Result<()> {
     try_sync_dir(&parent_of(path))
 }
 
-/// What happened after a replace call succeeded. Both fields are failures of steps that follow
-/// publication; the content is in place either way.
+/// Directories whose creation was made but whose publishing directory sync has not (yet)
+/// succeeded, by `(dev, ino)`. A creator records a directory here when it makes it and clears it
+/// after the sync of its parent succeeds, so a retry after a failed sync, or a concurrent
+/// creator that merely finds the directory, still owes (and runs) that sync instead of
+/// building a durable write on an unflushed link. In-process only.
+#[cfg(unix)]
+pub(crate) mod unpublished {
+    use std::collections::HashSet;
+    use std::sync::{Mutex, MutexGuard, OnceLock};
+
+    fn set() -> MutexGuard<'static, HashSet<(u64, u64)>> {
+        static SET: OnceLock<Mutex<HashSet<(u64, u64)>>> = OnceLock::new();
+        SET.get_or_init(|| Mutex::new(HashSet::new()))
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+    }
+
+    pub(crate) fn insert(key: (u64, u64)) {
+        set().insert(key);
+    }
+
+    pub(crate) fn contains(key: (u64, u64)) -> bool {
+        let set = set();
+        !set.is_empty() && set.contains(&key)
+    }
+
+    pub(crate) fn remove(key: (u64, u64)) {
+        set().remove(&key);
+    }
+}
+
+/// Creates `dir` and its missing ancestors one component at a time, top down, publishing each
+/// new directory by syncing its parent before going on (Unix). An ancestor that already exists
+/// but is recorded as unpublished (see [`unpublished`]) gets its parent synced now. A failed
+/// sync is [`FsError::DirSyncFailed`]; the directories already made stay, and a retry completes
+/// the sync. New directories are `0700` when `owner_only`. Elsewhere there is no directory flush,
+/// so nothing is done here and the caller's ordinary creation runs.
+#[cfg(unix)]
+fn create_dirs_durable(dir: &Path, owner_only: bool) -> Result<()> {
+    use std::os::unix::fs::{DirBuilderExt, MetadataExt};
+    if dir.as_os_str().is_empty() {
+        return Ok(());
+    }
+    let mut chain: Vec<&Path> = dir
+        .ancestors()
+        .filter(|p| !p.as_os_str().is_empty())
+        .collect();
+    chain.reverse();
+    for path in chain {
+        let mut created = false;
+        match fs::symlink_metadata(path) {
+            Ok(_) => {}
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                let mut builder = fs::DirBuilder::new();
+                if owner_only {
+                    builder.mode(0o700);
+                }
+                match builder.create(path) {
+                    Ok(()) => created = true,
+                    Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {}
+                    Err(e) => return Err(FsError::io(path, e)),
+                }
+            }
+            Err(e) => return Err(FsError::io(path, e)),
+        }
+        // Only a real directory (not a link to one) can be an entry this call or an earlier one
+        // created, so only that is keyed.
+        let key = fs::symlink_metadata(path)
+            .ok()
+            .filter(|m| m.is_dir())
+            .map(|m| (m.dev(), m.ino()));
+        let mut needed = created;
+        if let Some(key) = key {
+            if created {
+                unpublished::insert(key);
+            } else if unpublished::contains(key) {
+                needed = true;
+            }
+        }
+        if !needed || path.parent().is_none() {
+            continue;
+        }
+        sync_parent_dir(path).map_err(|source| FsError::DirSyncFailed {
+            path: path.to_path_buf(),
+            source,
+        })?;
+        if let Some(key) = key {
+            unpublished::remove(key);
+        }
+    }
+    Ok(())
+}
+
+#[cfg(not(unix))]
+fn create_dirs_durable(_dir: &Path, _owner_only: bool) -> Result<()> {
+    Ok(())
+}
+
+/// What happened after a replace call succeeded: the failure, if any, of removing a leftover
+/// second name for the published file (the `link` fallback, or the `ReplaceFileW` backup). The
+/// content is in place either way.
 struct Published {
-    /// Removing a leftover second name for the published file (the `link` fallback).
     cleanup: Option<std::io::Error>,
-    /// Re-applying the owner-only ACL after a Windows `ReplaceFile` replace.
-    harden: Option<std::io::Error>,
 }
 
 /// Replaces `target` with `temp` under the requested mode, retrying sharing violations when the
-/// options ask for it. `Err` means nothing was published; `Ok` means the new content is in place
-/// and carries the failures of any step after that.
+/// options ask for it. `Err` means nothing was published, except [`FsError::ReplaceInterrupted`],
+/// which says exactly which of the old and new content survive where; `Ok` means the new content
+/// is in place and carries the failure of any step after that.
+///
+/// A private write needs no step on the destination: Windows `ReplaceFile` mode plans a
+/// `MoveFileExW` replace for it (see [`plan_replace_on`]), which keeps the temp file's owner-only
+/// DACL, so the published file is owner-only from the instant it has its name.
 fn publish(temp: &Path, target: &Path, options: AtomicWriteOptions) -> Result<Published> {
-    // `ReplaceFileW` keeps the DESTINATION's DACL (measured, see `ReplaceMode::ReplaceFile`), so a
-    // private write over a broader destination would otherwise stay broad, and the new secret
-    // would be readable by everyone who could read the old file. Narrow the destination first and
-    // fail closed: if it cannot be narrowed nothing is published.
-    let harden =
-        options.windows_acl() && options.replace == ReplaceMode::ReplaceFile && cfg!(windows);
-    if harden {
-        harden_destination(target, HardenStage::DestinationBeforeReplace)?;
-    }
     let cleanup = retry_with(
         options.retry_sharing_violation,
         is_sharing_violation,
@@ -757,22 +857,111 @@ fn publish(temp: &Path, target: &Path, options: AtomicWriteOptions) -> Result<Pu
         if options.replace == ReplaceMode::NoReplace
             && e.kind() == std::io::ErrorKind::AlreadyExists
         {
-            FsError::AlreadyExists(target.to_path_buf())
-        } else {
-            FsError::io(target, e)
+            return FsError::AlreadyExists(target.to_path_buf());
+        }
+        match PartialReplace::take(e) {
+            Ok(partial) => FsError::ReplaceInterrupted {
+                path: target.to_path_buf(),
+                new_content: partial.new_content,
+                previous_content: partial.previous_content,
+                source: partial.source,
+            },
+            Err(e) => FsError::io(target, e),
         }
     })?;
-    let mut published = Published {
-        cleanup,
-        harden: None,
-    };
-    if harden {
-        // Published already: a failure here cannot undo it, so it is reported after the sync.
-        published.harden = harden_destination(target, HardenStage::DestinationAfterReplace)
-            .err()
-            .map(std::io::Error::other);
+    Ok(Published { cleanup })
+}
+
+/// `ReplaceFileW` failed after it had already changed names (`ERROR_UNABLE_TO_MOVE_REPLACEMENT`
+/// 1176, `ERROR_UNABLE_TO_MOVE_REPLACEMENT_2` 1177): Microsoft documents that without a backup
+/// file the replaced file is already gone, and with one it may have been renamed to the backup
+/// name. Carried inside an `io::Error` from [`replace_step`] to [`publish`], which turns it into
+/// [`FsError::ReplaceInterrupted`].
+#[derive(Debug)]
+struct PartialReplace {
+    /// Where the new content still is (the temp file), if it exists.
+    new_content: Option<PathBuf>,
+    /// Where the previous content is: the backup file, else the destination, if it exists.
+    previous_content: Option<PathBuf>,
+    source: std::io::Error,
+}
+
+impl std::fmt::Display for PartialReplace {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "replace interrupted midway: {}", self.source)
     }
-    Ok(published)
+}
+
+impl std::error::Error for PartialReplace {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        Some(&self.source)
+    }
+}
+
+impl PartialReplace {
+    /// The partial state inside `error`, or `error` back when it is an ordinary failure.
+    fn take(error: std::io::Error) -> std::result::Result<Self, std::io::Error> {
+        if !error.get_ref().is_some_and(|inner| inner.is::<Self>()) {
+            return Err(error);
+        }
+        match error.into_inner().map(|inner| inner.downcast::<Self>()) {
+            Some(Ok(partial)) => Ok(*partial),
+            Some(Err(inner)) => Err(std::io::Error::other(inner)),
+            None => unreachable!("an inner error was present"),
+        }
+    }
+}
+
+/// `ERROR_UNABLE_TO_MOVE_REPLACEMENT`.
+const ERROR_UNABLE_TO_MOVE_REPLACEMENT: i32 = 1176;
+/// `ERROR_UNABLE_TO_MOVE_REPLACEMENT_2`.
+const ERROR_UNABLE_TO_MOVE_REPLACEMENT_2: i32 = 1177;
+
+/// Decides from the files that exist after a failed replace call whether it left the old and new
+/// content as they were. Only the two `ReplaceFileW` codes that can leave a half-done swap are
+/// looked at; every other error is returned unchanged, as is one that left the destination in
+/// place with no backup beside it. Otherwise the error becomes a [`PartialReplace`] naming where
+/// each version now is, and the caller keeps the temp file.
+fn classify_partial(
+    error: std::io::Error,
+    temp: &Path,
+    target: &Path,
+    backup: Option<&Path>,
+) -> std::io::Error {
+    if !matches!(
+        error.raw_os_error(),
+        Some(ERROR_UNABLE_TO_MOVE_REPLACEMENT | ERROR_UNABLE_TO_MOVE_REPLACEMENT_2)
+    ) {
+        return error;
+    }
+    let present = |p: &Path| fs::symlink_metadata(p).is_ok();
+    let backup_present = backup.filter(|b| present(b));
+    if present(target) && backup_present.is_none() {
+        return error;
+    }
+    let kind = error.kind();
+    std::io::Error::new(
+        kind,
+        PartialReplace {
+            new_content: present(temp).then(|| temp.to_path_buf()),
+            previous_content: backup_present
+                .map(Path::to_path_buf)
+                .or_else(|| present(target).then(|| target.to_path_buf())),
+            source: error,
+        },
+    )
+}
+
+/// A unique sibling name for the backup `ReplaceFileW` is given. It is not a `.rktmp-` name, so
+/// [`sweep_stale_temps`] never reclaims it: should a replace be interrupted, the previous content
+/// sits there until someone decides what to do with it.
+fn backup_path(target: &Path) -> PathBuf {
+    let name = target
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    let n = COUNTER.fetch_add(1, Ordering::Relaxed);
+    parent_of(target).join(format!(".{name}.rktbak-{}-{n}", std::process::id()))
 }
 
 /// Where in an atomic write an owner-only security step runs. Reported to the `testing` hook
@@ -781,9 +970,11 @@ fn publish(temp: &Path, target: &Path, options: AtomicWriteOptions) -> Result<Pu
 pub enum HardenStage {
     /// The temp file is created with its owner-only security descriptor (no later restriction).
     TempCreate,
-    /// An existing destination is narrowed before `ReplaceFileW`, which keeps its ACL.
+    /// No longer taken: a private write is published by a move that keeps the temp file's DACL,
+    /// so the destination is not narrowed. Kept so existing matches keep compiling.
     DestinationBeforeReplace,
-    /// The destination's ACL is re-checked after the replace.
+    /// No longer taken: nothing re-checks the destination after the replace. Kept so existing
+    /// matches keep compiling.
     DestinationAfterReplace,
 }
 
@@ -792,17 +983,6 @@ pub enum HardenStage {
 pub struct HardenCall {
     pub stage: HardenStage,
     pub path: PathBuf,
-}
-
-/// Narrows an existing destination to owner-only.
-fn harden_destination(target: &Path, stage: HardenStage) -> Result<()> {
-    #[cfg(feature = "testing")]
-    if let Some(error) = testing::before_harden(stage, target) {
-        return Err(FsError::io(target, error));
-    }
-    #[cfg(not(feature = "testing"))]
-    let _ = stage;
-    crate::private::restrict_owner_only(target)
 }
 
 /// Runs `op`, and while `classify` says its error is transient and retries remain, pauses and
@@ -910,6 +1090,18 @@ fn plan_replace_on(
             ReplaceApi::MoveFileEx,
             MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH,
         ),
+        // A private write must not go through ReplaceFileW: it keeps the DESTINATION's DACL, so a
+        // concurrent writer that put a broadly readable file there would hand its ACL to the
+        // new secret. A move keeps the temp file's owner-only DACL. It is also write-through.
+        (ReplaceMode::ReplaceFile, true) if options.windows_acl() => (
+            ReplaceApi::MoveFileEx,
+            MOVEFILE_REPLACE_EXISTING
+                | if options.durable {
+                    MOVEFILE_WRITE_THROUGH
+                } else {
+                    0
+                },
+        ),
         // No supported write-through exists for ReplaceFileW: flag word 0 whatever `durable` says.
         (ReplaceMode::ReplaceFile, true) => (ReplaceApi::ReplaceFile, 0),
         // ReplaceFile mode, first creation: no reader can hold a missing file open.
@@ -976,7 +1168,8 @@ fn publication_durability_on(
 }
 
 /// One replace call. `Ok(None)`: published cleanly. `Ok(Some(error))`: published, but removing a
-/// leftover second name failed (the `link` fallback). `Err`: nothing was published.
+/// leftover second name failed (the `link` fallback, or the `ReplaceFileW` backup). `Err`: nothing
+/// was published, unless the error carries a [`PartialReplace`].
 fn replace_step(
     temp: &Path,
     target: &Path,
@@ -985,24 +1178,38 @@ fn replace_step(
     let exists =
         options.replace == ReplaceMode::ReplaceFile && fs::symlink_metadata(target).is_ok();
     let (api, flags) = plan_replace(options, exists);
-    #[cfg(feature = "testing")]
-    {
-        testing::record(testing::Step::Replace);
-        if let Some(error) = testing::before_replace(&ReplaceCall {
-            api,
-            flags,
-            temp: temp.to_path_buf(),
-            target: target.to_path_buf(),
-        }) {
-            return Err(error);
+    // `ReplaceFileW` without a backup deletes the destination before it moves the replacement
+    // in, and some failures happen in between. A unique backup keeps the old content reachable.
+    let backup = (api == ReplaceApi::ReplaceFile).then(|| backup_path(target));
+    let outcome = (|| -> std::io::Result<Option<std::io::Error>> {
+        #[cfg(feature = "testing")]
+        {
+            testing::record(testing::Step::Replace);
+            if let Some(error) = testing::before_replace(&ReplaceCall {
+                api,
+                flags,
+                temp: temp.to_path_buf(),
+                target: target.to_path_buf(),
+            }) {
+                return Err(error);
+            }
         }
-    }
-    match api {
-        ReplaceApi::Rename => fs::rename(temp, target).map(|()| None),
-        ReplaceApi::RenameExclusive => rename_exclusive_io(temp, target),
-        ReplaceApi::MoveFileEx => move_file_ex(temp, target, flags).map(|()| None),
-        ReplaceApi::ReplaceFile => replace_file_w(temp, target, flags).map(|()| None),
-    }
+        match api {
+            ReplaceApi::Rename => fs::rename(temp, target).map(|()| None),
+            ReplaceApi::RenameExclusive => rename_exclusive_io(temp, target),
+            ReplaceApi::MoveFileEx => move_file_ex(temp, target, flags).map(|()| None),
+            ReplaceApi::ReplaceFile => {
+                let backup = backup.as_deref().expect("planned with a backup");
+                replace_file_w(temp, target, backup, flags)?;
+                // Published. The old content sat at the backup name; drop it.
+                Ok(match fs::remove_file(backup) {
+                    Err(e) if e.kind() != std::io::ErrorKind::NotFound => Some(e),
+                    _ => None,
+                })
+            }
+        }
+    })();
+    outcome.map_err(|error| classify_partial(error, temp, target, backup.as_deref()))
 }
 
 #[cfg(windows)]
@@ -1028,7 +1235,7 @@ fn move_file_ex(temp: &Path, target: &Path, _flags: u32) -> std::io::Result<()> 
 }
 
 #[cfg(windows)]
-fn replace_file_w(temp: &Path, target: &Path, flags: u32) -> std::io::Result<()> {
+fn replace_file_w(temp: &Path, target: &Path, backup: &Path, flags: u32) -> std::io::Result<()> {
     use std::os::windows::ffi::OsStrExt;
     #[link(name = "kernel32")]
     unsafe extern "system" {
@@ -1043,13 +1250,14 @@ fn replace_file_w(temp: &Path, target: &Path, flags: u32) -> std::io::Result<()>
     }
     let replaced: Vec<u16> = target.as_os_str().encode_wide().chain(Some(0)).collect();
     let replacement: Vec<u16> = temp.as_os_str().encode_wide().chain(Some(0)).collect();
-    // SAFETY: both buffers are NUL-terminated and outlive the call. The backup, exclude and
+    let backup: Vec<u16> = backup.as_os_str().encode_wide().chain(Some(0)).collect();
+    // SAFETY: all three name buffers are NUL-terminated and outlive the call. The exclude and
     // reserved arguments are null, which the API documents as "not used".
     let ok = unsafe {
         ReplaceFileW(
             replaced.as_ptr(),
             replacement.as_ptr(),
-            std::ptr::null(),
+            backup.as_ptr(),
             flags,
             std::ptr::null_mut(),
             std::ptr::null_mut(),
@@ -1063,7 +1271,7 @@ fn replace_file_w(temp: &Path, target: &Path, flags: u32) -> std::io::Result<()>
 }
 
 #[cfg(not(windows))]
-fn replace_file_w(temp: &Path, target: &Path, _flags: u32) -> std::io::Result<()> {
+fn replace_file_w(temp: &Path, target: &Path, _backup: &Path, _flags: u32) -> std::io::Result<()> {
     fs::rename(temp, target)
 }
 
@@ -1432,6 +1640,51 @@ mod plan_tests {
         );
     }
 
+    /// `ReplaceFileW` keeps the destination's DACL, so a private write over an existing
+    /// destination is planned as a move, which carries the temp file's owner-only DACL.
+    #[test]
+    fn a_private_windows_replace_file_over_an_existing_destination_is_a_move() {
+        let private = |privacy, durable| AtomicWriteOptions {
+            privacy,
+            durable,
+            replace: ReplaceMode::ReplaceFile,
+            ..AtomicWriteOptions::default()
+        };
+        assert_eq!(
+            plan_replace_on(true, private(Privacy::OwnerOnly, true), true),
+            (
+                ReplaceApi::MoveFileEx,
+                MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH
+            )
+        );
+        assert_eq!(
+            plan_replace_on(true, private(Privacy::OwnerOnly, false), true),
+            (ReplaceApi::MoveFileEx, MOVEFILE_REPLACE_EXISTING)
+        );
+        let by_flag = AtomicWriteOptions {
+            private: true,
+            replace: ReplaceMode::ReplaceFile,
+            ..AtomicWriteOptions::default()
+        };
+        assert_eq!(
+            plan_replace_on(true, by_flag, true).0,
+            ReplaceApi::MoveFileEx
+        );
+        // No ACL step is wanted for this privacy on Windows, so the destination's ACL is kept.
+        assert_eq!(
+            plan_replace_on(
+                true,
+                private(Privacy::OwnerOnlyUnixInheritWindows, true),
+                true
+            ),
+            (ReplaceApi::ReplaceFile, 0)
+        );
+        assert_eq!(
+            publication_durability_on(true, &by_flag, true),
+            PublicationDurability::WriteThroughMove
+        );
+    }
+
     #[test]
     fn windows_write_through_is_only_ever_movefileex() {
         let both = MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH;
@@ -1501,6 +1754,79 @@ mod plan_tests {
                 PublicationDurability::None
             );
         }
+    }
+}
+
+#[cfg(test)]
+mod partial_replace_tests {
+    use super::*;
+    use std::io::Error;
+
+    fn code(code: i32) -> Error {
+        Error::from_raw_os_error(code)
+    }
+
+    fn setup(
+        target: bool,
+        temp: bool,
+        backup: bool,
+    ) -> (tempfile::TempDir, PathBuf, PathBuf, PathBuf) {
+        let dir = tempfile::tempdir().unwrap();
+        let (t, tmp, b) = (
+            dir.path().join("t"),
+            dir.path().join("tmp"),
+            dir.path().join("bak"),
+        );
+        for (present, path) in [(target, &t), (temp, &tmp), (backup, &b)] {
+            if present {
+                fs::write(path, b"x").unwrap();
+            }
+        }
+        (dir, t, tmp, b)
+    }
+
+    #[test]
+    fn other_errors_and_an_intact_destination_are_ordinary() {
+        let (_d, target, temp, backup) = setup(true, true, false);
+        let kept = classify_partial(code(1176), &temp, &target, Some(&backup));
+        assert!(
+            PartialReplace::take(kept).is_err(),
+            "destination intact, no backup"
+        );
+        let (_d, target, temp, backup) = setup(false, true, true);
+        let other = classify_partial(code(5), &temp, &target, Some(&backup));
+        assert!(
+            PartialReplace::take(other).is_err(),
+            "only 1176 and 1177 qualify"
+        );
+    }
+
+    #[test]
+    fn a_missing_destination_or_a_backup_beside_it_is_a_partial_state() {
+        // Destination gone, old content in the backup, new content still in the temp.
+        let (_d, target, temp, backup) = setup(false, true, true);
+        let partial =
+            PartialReplace::take(classify_partial(code(1177), &temp, &target, Some(&backup)))
+                .expect("partial");
+        assert_eq!(partial.new_content, Some(temp.clone()));
+        assert_eq!(partial.previous_content, Some(backup.clone()));
+        // Destination gone and no backup (1176 without one): the old content is lost, the new
+        // content is the temp.
+        let (_d, target, temp, _backup) = setup(false, true, false);
+        let partial = PartialReplace::take(classify_partial(code(1176), &temp, &target, None))
+            .expect("partial");
+        assert_eq!(partial.new_content, Some(temp));
+        assert_eq!(partial.previous_content, None);
+    }
+
+    #[test]
+    fn backup_names_are_unique_and_never_swept() {
+        let target = Path::new("/d/state.json");
+        let (a, b) = (backup_path(target), backup_path(target));
+        assert_ne!(a, b);
+        let name = a.file_name().unwrap().to_string_lossy().into_owned();
+        assert!(name.starts_with(".state.json.rktbak-"), "{name}");
+        assert_eq!(generated_temp_pid(&name), None);
     }
 }
 

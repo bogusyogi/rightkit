@@ -279,6 +279,150 @@ mod post_publication {
     }
 }
 
+// ------------------------------------------- an interrupted replace keeps both versions reachable
+
+/// `ERROR_UNABLE_TO_MOVE_REPLACEMENT`: `ReplaceFileW` removed the destination (no backup) or
+/// renamed it away, then could not move the replacement in.
+const UNABLE_TO_MOVE_REPLACEMENT: i32 = 1176;
+
+#[test]
+fn a_replace_that_lost_the_destination_keeps_the_temp_and_says_where_the_content_is() {
+    let dir = tempfile::tempdir().unwrap();
+    let target = dir.path().join("state.json");
+    std::fs::write(&target, b"old").unwrap();
+    let temp_seen: Rc<RefCell<Option<std::path::PathBuf>>> = Rc::default();
+    let sink = temp_seen.clone();
+    let result = {
+        let _guard = on_replace(move |call| {
+            // The state ReplaceFileW leaves after error 1176 without a backup: the destination
+            // is gone and the replacement is still under its temp name.
+            std::fs::remove_file(&call.target).unwrap();
+            *sink.borrow_mut() = Some(call.temp.clone());
+            Some(std::io::Error::from_raw_os_error(
+                UNABLE_TO_MOVE_REPLACEMENT,
+            ))
+        });
+        write(&target, AtomicWriteOptions::default(), b"new")
+    };
+    let error = result.expect_err("the replace was interrupted");
+    let temp = temp_seen.borrow().clone().expect("the hook ran");
+    match &error {
+        FsError::ReplaceInterrupted {
+            path,
+            new_content,
+            previous_content,
+            ..
+        } => {
+            assert_eq!(path, &target);
+            assert_eq!(new_content.as_ref(), Some(&temp));
+            assert_eq!(previous_content, &None, "the old file is gone");
+        }
+        other => panic!("expected ReplaceInterrupted, got {other:?}"),
+    }
+    assert!(!error.target_replaced());
+    assert_eq!(
+        std::fs::read(&temp).expect("the temp holds the only copy of the new content"),
+        b"new",
+        "the writer must not delete it"
+    );
+}
+
+#[test]
+fn error_1176_with_the_destination_intact_is_an_ordinary_failure_and_cleans_up() {
+    let dir = tempfile::tempdir().unwrap();
+    let target = dir.path().join("state.json");
+    std::fs::write(&target, b"old").unwrap();
+    let result = {
+        let _guard = on_replace(|_| {
+            Some(std::io::Error::from_raw_os_error(
+                UNABLE_TO_MOVE_REPLACEMENT,
+            ))
+        });
+        write(&target, AtomicWriteOptions::default(), b"new")
+    };
+    let error = result.expect_err("the replace failed");
+    assert!(matches!(error, FsError::Io { .. }), "{error:?}");
+    assert_eq!(std::fs::read(&target).unwrap(), b"old");
+    assert_eq!(names(dir.path()), vec!["state.json".to_string()]);
+}
+
+// ------------------------------------------------- parent directories are published (Unix)
+
+#[cfg(unix)]
+mod parents {
+    use super::*;
+    use rightkit_fs::atomic::testing::fail_dir_sync;
+
+    fn with_parents() -> AtomicWriteOptions {
+        AtomicWriteOptions {
+            create_parents: true,
+            ..AtomicWriteOptions::default()
+        }
+    }
+
+    #[test]
+    fn every_created_ancestor_is_published_before_the_file_is_written() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().to_path_buf();
+        let target = root.join("new/deep/settings.json");
+        let _ = take_steps();
+        write(&target, with_parents(), b"x").unwrap();
+        assert_eq!(
+            take_steps(),
+            vec![
+                Step::DirSynced(root.clone()),
+                Step::DirSynced(root.join("new")),
+                Step::TempFlushed,
+                Step::Replace,
+                Step::DirSynced(root.join("new/deep")),
+            ],
+            "each new directory's link is flushed, top down, before the file below it"
+        );
+    }
+
+    #[test]
+    fn a_failed_ancestor_sync_stops_the_write_and_the_retry_completes_it() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().to_path_buf();
+        let target = root.join("first/second/settings.json");
+        let guard = fail_dir_sync(std::io::ErrorKind::Other);
+        let error = write(&target, with_parents(), b"x").expect_err("the sync failed");
+        drop(guard);
+        assert!(
+            matches!(&error, FsError::DirSyncFailed { path, .. } if path == &root.join("first")),
+            "{error:?}"
+        );
+        assert!(!target.exists());
+        let _ = take_steps();
+        // `first` exists now but its link was never flushed: the retry flushes it before it
+        // creates anything below it.
+        write(&target, with_parents(), b"x").unwrap();
+        let steps = take_steps();
+        assert_eq!(
+            &steps[..2],
+            [
+                Step::DirSynced(root.clone()),
+                Step::DirSynced(root.join("first"))
+            ],
+            "{steps:?}"
+        );
+        assert_eq!(std::fs::read(&target).unwrap(), b"x");
+    }
+
+    #[test]
+    fn a_non_durable_write_makes_parents_without_syncing() {
+        let dir = tempfile::tempdir().unwrap();
+        let target = dir.path().join("a/b/cache.bin");
+        let options = AtomicWriteOptions {
+            durable: false,
+            ..with_parents()
+        };
+        let _ = take_steps();
+        write(&target, options, b"x").unwrap();
+        assert_eq!(take_steps(), vec![Step::Replace]);
+    }
+}
+
 // ------------------------------------ Windows: creation-time descriptor and fail-closed hardening
 
 #[cfg(windows)]
@@ -286,7 +430,7 @@ mod windows {
     use super::*;
     use rightkit_fs::atomic::testing::on_harden;
     use rightkit_fs::atomic::HardenStage;
-    use rightkit_fs::{PostPublishStep, Privacy, ReplaceMode};
+    use rightkit_fs::{Privacy, ReplaceMode};
     use std::ffi::c_void;
     use std::os::windows::ffi::OsStrExt;
 
@@ -413,23 +557,8 @@ mod windows {
                     1,
                     "{mode:?}: and the temp is never restricted again"
                 );
-                if mode == ReplaceMode::ReplaceFile {
-                    // ReplaceFileW keeps the destination's ACL, so the destination is narrowed
-                    // before the replace and checked after it, in that order around it.
-                    let order: Vec<&str> =
-                        log.iter().map(|e| e.split(' ').next().unwrap()).collect();
-                    assert_eq!(
-                        order,
-                        [
-                            "TempCreate",
-                            "DestinationBeforeReplace",
-                            "Replace",
-                            "DestinationAfterReplace"
-                        ]
-                    );
-                } else {
-                    assert_eq!(log.len(), 2, "{mode:?}: creation, then the replace only");
-                }
+                // No step touches the destination: the temp's descriptor travels with it.
+                assert_eq!(log.len(), 2, "{mode:?}: creation, then the replace only");
                 assert_owner_only(&dacl_sddl(&target), "the published file");
                 assert_eq!(std::fs::read(&target).unwrap(), b"secret");
             }
@@ -463,60 +592,24 @@ mod windows {
         );
     }
 
+    /// A private `ReplaceFile` write over a broad destination is published by a move, so the new
+    /// secret never takes the destination's ACL, at any instant.
     #[test]
-    fn a_failed_destination_narrowing_publishes_nothing_and_removes_the_temp() {
+    fn a_private_replace_file_write_over_a_broad_destination_is_a_move_and_ends_owner_only() {
+        use rightkit_fs::atomic::ReplaceApi;
         let dir = tempfile::tempdir().unwrap();
         let target = dir.path().join("secret.json");
         std::fs::write(&target, b"old").unwrap();
-        let _ = take_steps();
-        let result = {
-            let _harden = on_harden(|call| {
-                (call.stage == HardenStage::DestinationBeforeReplace)
-                    .then(|| std::io::Error::other("injected ACL failure"))
-            });
-            write(&target, private(ReplaceMode::ReplaceFile), b"secret")
-        };
-        let error = result.expect_err("a private ReplaceFile write must fail closed");
-        assert!(!error.target_replaced(), "{error:?}");
-        assert_eq!(
-            std::fs::read(&target).unwrap(),
-            b"old",
-            "the old content stays; the new secret never replaced a file that could not be narrowed"
-        );
-        assert_eq!(names(dir.path()), vec!["secret.json".to_string()]);
-        assert!(!take_steps().contains(&Step::Replace));
-    }
-
-    #[test]
-    fn a_failed_acl_check_after_the_replace_is_a_typed_post_publication_error() {
-        let dir = tempfile::tempdir().unwrap();
-        let target = dir.path().join("secret.json");
-        std::fs::write(&target, b"old").unwrap();
-        let _ = take_steps();
-        let result = {
-            let _harden = on_harden(|call| {
-                (call.stage == HardenStage::DestinationAfterReplace)
-                    .then(|| std::io::Error::other("injected ACL failure"))
-            });
-            write(&target, private(ReplaceMode::ReplaceFile), b"secret")
-        };
-        let error = result.expect_err("the post-replace ACL check failed");
-        assert!(
-            matches!(
-                &error,
-                FsError::ReplacedButPostStepFailed {
-                    step: PostPublishStep::OwnerOnlyAcl,
-                    ..
-                }
-            ),
-            "{error:?}"
-        );
-        assert!(error.target_replaced());
+        let seen: Rc<RefCell<Vec<ReplaceApi>>> = Rc::default();
+        let sink = seen.clone();
+        let _replace = on_replace(move |call| {
+            sink.borrow_mut().push(call.api);
+            None
+        });
+        write(&target, private(ReplaceMode::ReplaceFile), b"secret").unwrap();
+        assert_eq!(*seen.borrow(), vec![ReplaceApi::MoveFileEx]);
+        assert_owner_only(&dacl_sddl(&target), "the published file");
         assert_eq!(std::fs::read(&target).unwrap(), b"secret");
-        assert_owner_only(
-            &dacl_sddl(&target),
-            "the destination was narrowed before the replace",
-        );
         assert_eq!(names(dir.path()), vec!["secret.json".to_string()]);
     }
 

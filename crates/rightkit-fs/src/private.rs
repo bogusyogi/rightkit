@@ -2,7 +2,8 @@
 //!
 //! Donor: CodeRight `private_fs` (perm/atomic/sweep). Unix uses mode bits applied at
 //! creation time (never chmod-after-create for new files); Windows applies one protected
-//! owner-only DACL through native security APIs with a bounded `icacls` fallback.
+//! owner-only DACL through native security APIs. There is no weaker fallback: a failed native
+//! step is an error, never a partial hardening reported as success.
 
 use crate::atomic::{atomic_write_with, AtomicOptions};
 use crate::error::{FsError, Result};
@@ -125,7 +126,26 @@ pub fn write_private_text(path: &Path, text: &str) -> Result<()> {
 
 /// Exclusively create an owner-only file, never following a symlink at `path`.
 /// For files that are appended to or locked rather than replaced (logs, lock files).
+///
+/// The file is owner-only from the instant it exists: Unix creates it `0600`, Windows creates it
+/// with an owner-only security descriptor passed to `CreateFileW`, so no principal the parent's
+/// inherited ACL admits can open it before it is restricted and keep a readable handle. A name
+/// shaped like a temp name this crate generates is refused ([`FsError::BadName`]); a sweep would
+/// delete such a file.
 pub fn create_private_new(path: &Path) -> Result<std::fs::File> {
+    if let Some(name) = path.file_name() {
+        crate::atomic::reject_reserved_name(&name.to_string_lossy())?;
+    }
+    create_private_new_impl(path)
+}
+
+#[cfg(windows)]
+fn create_private_new_impl(path: &Path) -> Result<std::fs::File> {
+    create_new_owner_only(path).map_err(|e| FsError::io(path, e))
+}
+
+#[cfg(not(windows))]
+fn create_private_new_impl(path: &Path) -> Result<std::fs::File> {
     let mut options = std::fs::OpenOptions::new();
     options.write(true).create_new(true);
     #[cfg(unix)]
@@ -169,26 +189,12 @@ fn restrict_owner_only_impl(path: &Path) -> crate::error::Result<()> {
     if !path.exists() {
         return Ok(());
     }
-    native_restrict_owner_only(path).or_else(|native_error| {
-        let win_path = path.to_string_lossy().replace('/', "\\");
-        let sid = match current_process_sid_string(path) {
-            Ok(sid) => sid,
-            Err(_) => return Err(native_error),
-        };
-        let grant = format!("*{sid}:(F)");
-        use std::os::windows::process::CommandExt;
-        let status = std::process::Command::new("icacls")
-            .args([&win_path, "/inheritance:r", "/grant:r", &grant])
-            .stdin(std::process::Stdio::null())
-            .creation_flags(0x0800_0000) // CREATE_NO_WINDOW: never flash a console
-            .status()
-            .map_err(|source| crate::error::FsError::io(path, source))?;
-        if status.success() {
-            Ok(())
-        } else {
-            Err(native_error)
-        }
-    })
+    // Fail closed. The native call replaces the whole DACL (one protected ACE for the current
+    // user, nothing inherited). An `icacls /inheritance:r /grant:r` fallback is not equivalent: it
+    // only replaces the grants for the one SID, so an explicit ACE for another principal (an
+    // Everyone read ACE on the destination, say) would survive and the result would be reported
+    // as owner-only.
+    native_restrict_owner_only(path)
 }
 
 #[cfg(windows)]

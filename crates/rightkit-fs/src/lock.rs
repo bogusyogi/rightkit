@@ -230,6 +230,10 @@ pub fn owner_path_for(lock_path: &Path) -> PathBuf {
 /// [`FsError::Symlink`]. Only the final component is checked; a symlinked parent directory is
 /// followed, as for any path.
 fn open_lock_file(path: &Path) -> Result<File> {
+    if let Some(name) = path.file_name() {
+        // A lock file named like a generated temp file would be deleted by a temp sweep.
+        crate::atomic::reject_reserved_name(&name.to_string_lossy())?;
+    }
     let mut options = OpenOptions::new();
     options.read(true).write(true).create(true).truncate(false);
     #[cfg(unix)]
@@ -471,13 +475,14 @@ mod posix {
         files: Vec<File>,
     }
 
+    /// Held locks by file identity. There is deliberately no map from "the identity a path's
+    /// `lstat` reported" to "the identity of the file that was opened": the two can differ
+    /// because the name was swapped between the calls, and remembering that pairing would later
+    /// answer a lock request on the unrelated, unchanged inode by granting the other file's
+    /// guard without taking any lock on it.
     #[derive(Default)]
     struct Registry {
         entries: BTreeMap<FileId, Entry>,
-        /// Identity a path's `lstat` reported -> identity of the held file, for the rare
-        /// filesystem whose `stat` and `fstat` disagree, so polling an alias parks one
-        /// descriptor, not one per poll.
-        aliases: BTreeMap<FileId, FileId>,
     }
 
     fn registry() -> MutexGuard<'static, Registry> {
@@ -516,9 +521,8 @@ mod posix {
             .ok()
             .map(|meta| FileId::of(&meta));
         if let Some(seen) = seen {
-            let id = registry.aliases.get(&seen).copied().unwrap_or(seen);
-            if let Some(entry) = registry.entries.get_mut(&id) {
-                return Ok(join(entry, id, mode));
+            if let Some(entry) = registry.entries.get_mut(&seen) {
+                return Ok(join(entry, seen, mode));
             }
         }
 
@@ -529,11 +533,7 @@ mod posix {
             // descriptor must outlive the acquisition whatever the answer: closing it would
             // release the lock that `entry` holds.
             entry.files.push(file);
-            let granted = join(entry, id, mode);
-            if let Some(seen) = seen.filter(|seen| *seen != id) {
-                registry.aliases.insert(seen, id);
-            }
-            return Ok(granted);
+            return Ok(join(entry, id, mode));
         }
         if !set_lock(&file, mode, path)? {
             // No entry names this file, so this process holds no record lock on it (its own
@@ -615,7 +615,6 @@ mod posix {
                 None => false,
             };
             if last {
-                registry.aliases.retain(|_, held| *held != self.id);
                 // Closing the descriptors releases the lock. They close here, under the
                 // mutex, so no acquire in this process can open the file before the lock is
                 // gone.

@@ -214,3 +214,12 @@ fn flock_kind_is_unaffected_by_aliases() {
     drop(held);
     FileLock::try_lock_with(&second, LockKind::Flock, Duration::ZERO).unwrap();
 }
+
+#[test]
+fn a_lock_file_named_like_a_generated_temp_file_is_refused() {
+    let (_g, dir) = tmp();
+    let path = dir.join(".x.lock.rktmp-1-2-0");
+    let error = FileLock::try_acquire(&path).expect_err("reserved name");
+    assert!(matches!(error, FsError::BadName(_)), "{error:?}");
+    assert!(!path.exists());
+}

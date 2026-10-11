@@ -66,7 +66,7 @@ mod dir_sync {
     }
 
     #[test]
-    fn creating_a_child_reports_a_failed_directory_sync_but_opening_one_does_not() {
+    fn creating_a_child_reports_a_failed_directory_sync_and_a_retry_publishes_it() {
         let (_g, dir) = tmp();
         let state = StateDir::create(&dir.join("s")).unwrap();
         let guard = fail_dir_sync(ErrorKind::Other);
@@ -75,11 +75,19 @@ mod dir_sync {
             .map(|_| ())
             .expect_err("directory sync failed");
         assert!(matches!(err, FsError::DirSyncFailed { .. }), "{err:?}");
-        // The directory exists now, so opening it again syncs nothing and succeeds.
-        state
+        // The directory exists now, but its link was never published: a retry must not accept
+        // it as if it were, so with the sync still failing it fails again.
+        let again = state
             .child("kid")
-            .expect("existing child opens without a sync");
+            .map(|_| ())
+            .expect_err("the unpublished link is synced on retry, and that still fails");
+        assert!(matches!(again, FsError::DirSyncFailed { .. }), "{again:?}");
         drop(guard);
+        // Once the sync works the retry succeeds, and opening it again syncs nothing.
+        state.child("kid").expect("retry publishes the link");
+        let before = dir_sync_count();
+        state.child("kid").expect("a published child opens plainly");
+        assert_eq!(dir_sync_count(), before, "no sync for a published child");
     }
 
     #[test]
