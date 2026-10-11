@@ -35,9 +35,14 @@ fn ort_runtime_missing() -> bool {
     ort_runtime_path().is_none()
 }
 
+/// Off macOS there is no approved runtime to resolve, so the tests run only against the file
+/// an absolute `ORT_DYLIB_PATH` names. Without it the system loader would pick whatever
+/// `onnxruntime` the OS ships (Windows has an old one in System32), which is not a test input.
 #[cfg(not(target_os = "macos"))]
 fn ort_runtime_missing() -> bool {
-    false
+    !std::env::var_os("ORT_DYLIB_PATH")
+        .map(PathBuf::from)
+        .is_some_and(|path| path.is_absolute() && path.is_file())
 }
 
 fn init_ort_runtime() {
@@ -116,7 +121,7 @@ macro_rules! need_ort {
     () => {
         if ort_runtime_missing() {
             common::skip_missing(
-                "approved ONNX Runtime 1.24.4 macOS dylib",
+                "approved ONNX Runtime 1.24.4 (macOS dylib, or the file ORT_DYLIB_PATH names elsewhere)",
                 "RIGHTKIT_ORT_TEST_DYLIB or genright/.cache/devin-completion-20261006/batch5/voice/dl/onnxruntime-osx-arm64-1.24.4/lib/libonnxruntime.1.24.4.dylib",
             );
             return;
