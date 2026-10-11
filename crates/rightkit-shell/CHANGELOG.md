@@ -5,6 +5,17 @@ version is `0.x`, a minor bump may carry breaking changes.
 
 ## Unreleased
 
+- **DevTools policy (owner's fixed design).** Every Right app has no access to DevTools; ViewRight alone may
+  inspect the HTML content it opens, never its own UI or shell. New `devtools` module: `DevToolsPolicy`
+  (`Denied` default, `ContentOnly`), `ContentWebview`, `DevToolsGate`, `DevToolsError`, `guard_process_start`,
+  `open_content_devtools`, plus `ShellBuilder::devtools_policy` / `content_webview`. Every webview is made
+  non-inspectable (macOS `isInspectable` and `developerExtrasEnabled` false; Windows `AreDevToolsEnabled`
+  false, accelerator keys off, Inspect removed from context menus) whatever modules are installed; the process
+  refuses a remote-debugging launch argument, removes the WebView2 override environment variables and refuses a
+  debugging `AdditionalBrowserArguments` policy. The hardening script now also cancels Ctrl+Shift+J/C,
+  Cmd+Opt+C/J/U (by key code). **Breaking:** the `Devtools` enum and `Hardening::devtools` are removed (no
+  "on", no "debug builds"); the `devtools` cargo feature is now `content-devtools`. Written, unverified (not
+  compiled, tests not run; Objective-C and WebView2 calls are the uncertain part).
 - **Per-hide idle delay provider.** `IdleOptions::default().suspend_after_with(|| Some(d))` (or on a
   literal, chained) reads the suspend delay at each hide transition instead of fixing it at build time.
   The provider runs once per hide (a window hide, or the start of a minimise with `start_on_minimize`),

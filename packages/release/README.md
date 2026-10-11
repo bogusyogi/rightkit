@@ -22,6 +22,10 @@ Release and update builds (`right-release build`, `publish-update`) must not con
 
 Not coverable after packing: an NSIS exe (LZMA payload) and a compressed DMG. They are covered only by layer 2, so the release fails when no pre-pack scan saw a native binary, and the log names each unreadable installer. Not coverable at all: assets embedded compressed in the app, resources an NSIS installer packs that were never in the scanned set (list them in `target.qaControlScan`), and any surface without a rule in `QA_RULES`. The `wdio-webdriver` rule is weaker than the marker rule (signatures chosen without the plugin source). Full list: `crates/rightkit-control/README.md`, "QA control never ships".
 
+### DevTools policy (owner's fixed design)
+
+Every Right app has absolutely NO access to DevTools; the single exception is ViewRight, which may inspect the HTML content it opens, never its own UI or shell. The rules above therefore refuse `devtools` (and rightkit-shell's `content-devtools`) for every app, with one narrow allowance (`devtools-policy.mjs`): an app whose right-release config declares `devtools: "content-only"`, **and** that is listed in `devtools-policy.json` (`contentOnlyApps`, today only `viewright`), **and** whose Cargo manifest depends on `rightkit-shell` with `content-devtools`, **and** whose `build.rs` declares an application ACL manifest. Then the source layer accepts `devtools` / `content-devtools`, and the binary layer accepts the `tauri-devtools` signatures only in a binary that also carries `RIGHTKIT-SHELL-DEVTOOLS-CONTENT-ONLY-COMPILED` (written by rightkit-shell when `content-devtools` is compiled). `--all-features`, `qa-native`, `qa-control`, `dev-native` and every other rule stay refused. The allowance is recorded in the sealed manifest (`devtools`) and re-checked against the allow-list when a sealed file is verified. Any other app declaring it is refused (`devtools-policy.test.mjs`).
+
 ## Commands
 
 `right-release` maps these subcommands to the modules in this package:

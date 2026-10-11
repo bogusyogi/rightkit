@@ -20,8 +20,11 @@ wv2-0_39 = ["dep:windows_062", "dep:webview2_com_039"]
 # Engine sidecar wiring over rightkit-jobs EngineClient + rightkit-process. Off by default: it pulls
 # rightkit-jobs (db, time, uuid); apps that run an engine sidecar opt in.
 engine = ["dep:rightkit-jobs"]
-# Lets `Devtools::On` / `DebugBuilds` open the inspector in release builds. Off in production.
-devtools = ["tauri/devtools"]
+# Required by `DevToolsPolicy::ContentOnly`: compiles Tauri's devtools in so a registered content
+# webview can be inspected. Every other webview stays non-inspectable. Only an app on the
+# `right-release` allow-list (`packages/release/devtools-policy.json`, today only ViewRight) may
+# ship a build with it; every other app must leave it off. Never a default feature.
+content-devtools = ["tauri/devtools"]
 
 [dependencies]
 tauri = { version = "2", features = ["tray-icon", "image-png"] }

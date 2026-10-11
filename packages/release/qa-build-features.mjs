@@ -5,12 +5,16 @@
 //     features, directly (`--features`, `-F`, `-f`, `--features=`, `--all-features`) or through a package.json
 //     script it runs (`pnpm run <script>`, followed up to three levels);
 //   - an app Cargo.toml whose DEFAULT feature closure reaches one of them, or that lists `devtools` on `tauri`,
+//     (`devtools` and rightkit-shell's `content-devtools` are accepted only for an allow-listed app, see devtools-policy.mjs)
 //     `qa-control` on `rightkit-control`, or `tauri-plugin-wdio-webdriver` as a non-optional dependency.
 // Dev builds are unaffected: `development.mjs` never calls this.
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 
-export const FORBIDDEN_FEATURES = Object.freeze(["devtools", "qa-native", "qa-control", "dev-native"]);
+export const FORBIDDEN_FEATURES = Object.freeze(["devtools", "content-devtools", "qa-native", "qa-control", "dev-native"]);
+// The only forbidden features an allow-listed app may enable: rightkit-shell's `content-devtools` (and the Tauri
+// `devtools` it switches on). See devtools-policy.mjs; every other app is refused them.
+const DEVTOOLS_FEATURES = Object.freeze(["devtools", "content-devtools"]);
 const FORBIDDEN_DEPENDENCY = "tauri-plugin-wdio-webdriver";
 const MANAGERS = new Set(["pnpm", "npm", "yarn", "bun", "npx"]);
 
@@ -19,9 +23,11 @@ function featureName(item) {
   const bare = String(item).trim().replace(/^dep:/, "");
   return bare.includes("/") ? bare.slice(bare.lastIndexOf("/") + 1) : bare;
 }
-export function isForbiddenFeature(item) {
+export function isForbiddenFeature(item, { allowDevtools = false } = {}) {
   const text = String(item).trim();
-  return text === `dep:${FORBIDDEN_DEPENDENCY}` || FORBIDDEN_FEATURES.includes(featureName(text));
+  const name = featureName(text);
+  if (allowDevtools && DEVTOOLS_FEATURES.includes(name)) return false;
+  return text === `dep:${FORBIDDEN_DEPENDENCY}` || FORBIDDEN_FEATURES.includes(name);
 }
 
 export function tokenize(text) {
@@ -52,7 +58,7 @@ function scriptTarget(tokens) {
 }
 
 // Issues (strings) for one command object { cmd, args, env? } or a shell string.
-export function commandFeatureIssues(command, { label = "command", scripts = {}, depth = 0, seen = new Set() } = {}) {
+export function commandFeatureIssues(command, { label = "command", scripts = {}, depth = 0, seen = new Set(), allowDevtools = false } = {}) {
   const parts = typeof command === "string" ? [command] : [command?.cmd, ...(command?.args ?? [])].filter((v) => v !== undefined).map(String);
   // Two views: every argument whole (`--features` followed by "a b qa-native"), and every argument re-tokenised as
   // shell text (`sh -c "cargo build --features qa-native"`).
@@ -61,16 +67,16 @@ export function commandFeatureIssues(command, { label = "command", scripts = {},
   for (const tokens of views) {
     const { enabled, allFeatures } = featuresInTokens(tokens);
     if (allFeatures) issues.add(`${label}: --all-features enables every feature including ${FORBIDDEN_FEATURES.join(", ")}`);
-    for (const feature of enabled) if (isForbiddenFeature(feature)) issues.add(`${label}: enables feature \`${feature}\``);
+    for (const feature of enabled) if (isForbiddenFeature(feature, { allowDevtools })) issues.add(`${label}: enables feature \`${feature}\``);
   }
   if (command && typeof command === "object") {
     for (const [key, value] of Object.entries(command.env ?? {})) {
-      if (/FEATURES$/i.test(key)) for (const feature of String(value).split(/[,\s]+/)) if (feature && isForbiddenFeature(feature)) issues.add(`${label}: env ${key} enables feature \`${feature}\``);
+      if (/FEATURES$/i.test(key)) for (const feature of String(value).split(/[,\s]+/)) if (feature && isForbiddenFeature(feature, { allowDevtools })) issues.add(`${label}: env ${key} enables feature \`${feature}\``);
     }
   }
   const script = views.map(scriptTarget).find(Boolean);
   if (script && depth < 3 && Object.hasOwn(scripts, script) && !seen.has(script)) {
-    for (const issue of commandFeatureIssues(String(scripts[script]), { label: `${label} -> package script \`${script}\``, scripts, depth: depth + 1, seen: new Set([...seen, script]) })) issues.add(issue);
+    for (const issue of commandFeatureIssues(String(scripts[script]), { label: `${label} -> package script \`${script}\``, scripts, depth: depth + 1, seen: new Set([...seen, script]), allowDevtools })) issues.add(issue);
   }
   return [...issues];
 }
@@ -143,11 +149,11 @@ function dependencyInfo(spec) {
   };
 }
 
-export function cargoManifestIssues(manifestText, label = "Cargo.toml") {
+export function cargoManifestIssues(manifestText, label = "Cargo.toml", { allowDevtools = false } = {}) {
   const { features, dependencies } = parseCargoFeaturesAndDependencies(manifestText);
   const issues = [];
   const tauri = dependencies.get("tauri");
-  if (tauri?.features.includes("devtools")) issues.push(`${label}: dependency \`tauri\` lists feature \`devtools\` unconditionally (inspector ships in release builds)`);
+  if (!allowDevtools && tauri?.features.includes("devtools")) issues.push(`${label}: dependency \`tauri\` lists feature \`devtools\` unconditionally (inspector ships in release builds)`);
   const control = dependencies.get("rightkit-control");
   if (control && !control.optional && control.features.includes("qa-control")) issues.push(`${label}: dependency \`rightkit-control\` lists \`qa-control\` unconditionally`);
   const wdio = dependencies.get(FORBIDDEN_DEPENDENCY);
@@ -157,30 +163,33 @@ export function cargoManifestIssues(manifestText, label = "Cargo.toml") {
     const item = stack.pop();
     if (reached.has(item)) continue;
     reached.add(item);
-    if (isForbiddenFeature(item)) issues.push(`${label}: default feature set reaches \`${item}\``);
+    if (isForbiddenFeature(item, { allowDevtools })) issues.push(`${label}: default feature set reaches \`${item}\``);
     if (features.has(item)) stack.push(...features.get(item));
   }
   return issues;
 }
 
 // commands: [{ label, command }]. Reads package.json scripts and the app Cargo manifests under `root`.
-export function buildFeatureIssues({ root, commands }) {
+// `devtools`: the allowance resolved by devtools-policy.mjs (mode "content-only") for an allow-listed app, else undefined.
+export function buildFeatureIssues({ root, commands, devtools }) {
+  const allowDevtools = devtools?.mode === "content-only";
   let scripts = {};
   try { scripts = JSON.parse(readFileSync(path.join(root, "package.json"), "utf8")).scripts ?? {}; } catch { /* no package.json */ }
   const issues = [];
-  for (const { label, command } of commands) if (command) issues.push(...commandFeatureIssues(command, { label, scripts }));
+  for (const { label, command } of commands) if (command) issues.push(...commandFeatureIssues(command, { label, scripts, allowDevtools }));
   for (const rel of [path.join("src-tauri", "Cargo.toml"), "Cargo.toml"]) {
     const manifest = path.join(root, rel);
-    if (existsSync(manifest)) issues.push(...cargoManifestIssues(readFileSync(manifest, "utf8"), rel));
+    if (existsSync(manifest)) issues.push(...cargoManifestIssues(readFileSync(manifest, "utf8"), rel, { allowDevtools }));
   }
   return issues;
 }
 
-export function assertNoForbiddenBuildFeatures({ root, commands, tier = "release" }) {
-  const issues = buildFeatureIssues({ root, commands });
+export function assertNoForbiddenBuildFeatures({ root, commands, tier = "release", devtools }) {
+  const issues = buildFeatureIssues({ root, commands, devtools });
   if (issues.length === 0) return;
   throw new Error(
     `${tier} build refused: it enables a test-automation or debugging feature (${FORBIDDEN_FEATURES.join(", ")}); none may ship:\n- ${issues.join("\n- ")}\n`
-    + "Remove the feature from the release build command, the app's default features and its tauri dependency; dev builds (`right-release dev`) may keep it.",
+    + "Remove the feature from the release build command, the app's default features and its tauri dependency; dev builds (`right-release dev`) may keep it. "
+    + "No app may ship devtools unless it is on the allow-list in devtools-policy.json and declares `devtools: \"content-only\"` (rightkit-shell DevToolsPolicy::ContentOnly).",
   );
 }

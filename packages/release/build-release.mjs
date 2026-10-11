@@ -25,6 +25,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { assertPrimaryReleaseCheckout, dirtyBuildInputs, resolveReleaseBuildInputs } from "./release-invocation.mjs";
 import { resolveNativeCargoLayout } from "./native-cargo-layout.mjs";
 import { admitSourceQa } from "./release-qa-audit.mjs";
+import { devtoolsEvidence, resolveDevtoolsAllowance } from "./devtools-policy.mjs";
 import { commandOutputPortable, releaseEnvironment, resolveReleaseLayout, runBuildStateMachine, verifySealedRelease, watchProgress } from "./release-state.mjs";
 import { acquireCacheLease, acquireSuiteBuildSlot, applyCachePrune, assertWriteVolumeFloors, inspectCache, inspectWriteVolumes, markCacheEntrySuccessful, planCachePrune, readCachePolicy, resolveCacheLayout, resolveSharedCacheIdentity, resolveSharedCacheRoot } from "./cache-policy.mjs";
 import { createTargetBridge } from "./target-bridge.mjs";
@@ -522,6 +523,8 @@ function sealRelease({ configRoot, managedCargoTarget, nativeLayout, sealedDir, 
     commit,
     ownershipEvidence,
     qa: qaAdmission,
+    // DevTools allowance (owner's fixed design): { mode: "denied" } for every app; content-only only for an allow-listed app.
+    devtools: devtoolsEvidence(resolveDevtoolsAllowance({ config, root: configRoot })),
     platform,
     cacheKey,
     // Portable contracts sign only raw executables — installer/embedding
