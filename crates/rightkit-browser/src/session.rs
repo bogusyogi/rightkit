@@ -122,6 +122,21 @@ impl BrowserSession {
     ) -> Result<Self> {
         validate_extra_args(&opts.extra_args)?;
         let exe = resolve_executable(&opts)?;
+        // A sandbox that cannot read its own browser crashes the network service at startup;
+        // refuse that launch with the directory and the fix instead of a browser that hangs.
+        let sandboxed = !opts
+            .extra_args
+            .iter()
+            .any(|arg| arg.trim_start_matches('-') == "no-sandbox");
+        if sandboxed {
+            if let Some(missing) = crate::sandbox_access::missing_access(&exe) {
+                return Err(BrowserError::ChromeSandboxAccess {
+                    fix: crate::sandbox_access::grant_command(&missing.directory),
+                    directory: missing.directory,
+                    principals: missing.principals,
+                });
+            }
+        }
         let (profile_guard, profile_dir, default_dl) = prepare_profile(&opts.profile)?;
         let download_dir = opts.download_dir.clone().unwrap_or(default_dl);
         std::fs::create_dir_all(&download_dir)?;
