@@ -1966,7 +1966,7 @@ mod tests {
                     auto_detect: true,
                     ..SystemProxySettings::default()
                 },
-                "automatic proxy detection is on",
+                "\"Automatically detect settings\" (proxy auto-detect) is on",
             ),
         ];
         for (settings, expected) in rows {

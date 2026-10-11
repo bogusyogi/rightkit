@@ -140,7 +140,9 @@ pub(crate) fn bypass_hosts(bypass: &str) -> Result<Vec<String>, String> {
 /// What `settings` mean for a client with one proxy for every request.
 pub(crate) fn proxy_choice(settings: &SystemProxySettings) -> SystemProxyChoice {
     if settings.auto_detect {
-        return SystemProxyChoice::Unsupported("automatic proxy detection is on".into());
+        return SystemProxyChoice::Unsupported(
+            "\"Automatically detect settings\" (proxy auto-detect) is on".into(),
+        );
     }
     if settings.auto_config {
         return SystemProxyChoice::Unsupported("a proxy auto-config script is set".into());
@@ -454,7 +456,7 @@ mod tests {
             };
             assert_eq!(
                 proxy_choice(&detect),
-                unsupported("automatic proxy detection is on"),
+                unsupported("\"Automatically detect settings\" (proxy auto-detect) is on"),
                 "{proxy:?}"
             );
             let pac = SystemProxySettings {
