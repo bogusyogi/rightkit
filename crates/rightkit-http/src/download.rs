@@ -445,8 +445,7 @@ impl Client {
                                 });
                             }
                         }
-                        file.write_all(&buf[..n])
-                            .map_err(io_error("write partial file"))?;
+                        append_part(file, &buf[..n]).map_err(io_error("write partial file"))?;
                         st.written = st.written.saturating_add(n as u64);
                         if let Some(cb) = opts.on_progress.as_deref_mut() {
                             cb(&DownloadProgress {
@@ -552,8 +551,7 @@ fn open_part_with(
     }
     between_check_and_open();
     let file = if resume {
-        let mut existing = OpenOptions::new();
-        existing.read(true).append(true);
+        let mut existing = part_options();
         match open_nofollow(&mut existing, part) {
             Ok(f) => f,
             Err(e) if e.kind() == io::ErrorKind::NotFound => create_new(part)?,
@@ -568,12 +566,41 @@ fn open_part_with(
             "partial path is not a regular file".into(),
         ));
     }
+    #[cfg(windows)]
+    let file = {
+        let mut file = file;
+        file.seek(SeekFrom::End(0))
+            .map_err(io_error("seek partial file"))?;
+        file
+    };
     Ok(file)
 }
 
-fn create_new(part: &Path) -> Result<File, DownloadError> {
+/// How `.part` is opened: for reading and for writes that land at its end.
+///
+/// Unix uses append mode. On Windows an append-only handle may not truncate the file (it lacks
+/// `FILE_WRITE_DATA`, so `set_len` is refused with access denied), and a restart has to
+/// truncate; the handle is opened for plain writing there and `append_part` seeks to the end
+/// before each write.
+fn part_options() -> OpenOptions {
     let mut options = OpenOptions::new();
-    options.read(true).append(true).create_new(true);
+    #[cfg(not(windows))]
+    options.read(true).append(true);
+    #[cfg(windows)]
+    options.read(true).write(true);
+    options
+}
+
+/// Write `bytes` at the end of `.part`, wherever the handle was last read from.
+fn append_part(file: &mut File, bytes: &[u8]) -> io::Result<()> {
+    #[cfg(windows)]
+    file.seek(SeekFrom::End(0))?;
+    file.write_all(bytes)
+}
+
+fn create_new(part: &Path) -> Result<File, DownloadError> {
+    let mut options = part_options();
+    options.create_new(true);
     open_nofollow(&mut options, part).map_err(io_error("create partial file"))
 }
 
