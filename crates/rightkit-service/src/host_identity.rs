@@ -1321,7 +1321,7 @@ mod tests {
         assert_eq!(up_and_join(engine, 1, Path::new("/etc/passwd")), None);
         // Windows: a rooted path without a drive, and a drive-relative one, are not relative.
         #[cfg(windows)]
-        for escape in ["\Windows\System32\cmd.exe", "C:cmd.exe", "C:\cmd.exe"] {
+        for escape in [r"\Windows\System32\cmd.exe", "C:cmd.exe", r"C:\cmd.exe"] {
             assert_eq!(up_and_join(engine, 1, Path::new(escape)), None, "{escape}");
         }
         assert_eq!(up_and_join(Path::new("engine"), 5, Path::new("x")), None);
