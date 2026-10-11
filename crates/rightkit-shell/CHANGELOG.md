@@ -5,6 +5,17 @@ version is `0.x`, a minor bump may carry breaking changes.
 
 ## Unreleased
 
+- **Per-hide idle delay provider.** `IdleOptions::default().suspend_after_with(|| Some(d))` (or on a
+  literal, chained) reads the suspend delay at each hide transition instead of fixing it at build time.
+  The provider runs once per hide (a window hide, or the start of a minimise with `start_on_minimize`),
+  on both platforms (the timer code is shared). `None` uses the fixed `suspend_after`; a panic in the
+  provider is caught and also uses it; an explicit per-hide delay (`note_hidden_after`, `note_minimized_after`,
+  `rk_shell_idle_note`) still wins. Values are clamped to `MAX_SUSPEND_AFTER`.
+  **Breaking for struct literals and copies:** `IdleOptions` is no longer `Copy` (it may hold the provider),
+  and its new private field means a literal outside the crate needs `..IdleOptions::default()`. The one
+  literal in this repository is `lib.rs`, updated to set `suspend_after` on the options. `IdleStatus.suspend_after_ms`
+  still reports the fixed value.
+
 Single-instance naming defect (found by MailRight): `instance::arbitrate("app.mailright", ..)` returned
 `Unavailable("invalid service name ..")` because `rightkit-service` names allow only `[a-z0-9-]`, so a
 dotted bundle identifier ran with single-instance protection off.

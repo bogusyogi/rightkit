@@ -58,6 +58,7 @@ Illustrative; not compiled as a doctest. The compiled references are `tests/poli
   `idle::note_minimized_after` takes a per-minimise delay.
 - `.webview_idle_options(IdleOptions { start_on_minimize: true, controller_hide: ControllerHide::OnTimer,
   events: IdleEvents::NativeSuspendOnly, ..Default::default() })`. Defaults match `webview_idle(30 s)`.
+- `IdleOptions::default().suspend_after_with(|| Some(read_delay()))` reads the suspend delay at each hide (`None` or a panic uses the fixed `suspend_after`).
 - `lifecycle_only` leaves `ShowOnReady` and the cache repair off unless the host calls `show_on_ready(true)` /
   `repair_cache(true)`.
 
