@@ -592,6 +592,9 @@ fn shutdown_joins_and_leaves_buffered_jobs_recoverable() {
     expect_all(&ch.ev, &[(true, ids[0].as_str()), (false, ids[2].as_str())]);
     // Shutdown waits for the compute in flight, so open the gate once it has begun.
     let t = thread::spawn(move || pool.shutdown());
+    // Let shutdown raise `stopping` before the compute ends: otherwise the lane may take the
+    // buffered job, which would then wait on a gate nobody opens and fail.
+    silent_for(&ch.ev, Duration::from_millis(500));
     release(&ch.gate, 1);
     t.join().unwrap();
     assert_eq!(outs.finished(&ids[0]).status, COMPLETE);

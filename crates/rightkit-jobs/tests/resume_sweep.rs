@@ -4,8 +4,8 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
 use rightkit_jobs::{
-    Job, JobControl, JobError, JobHandler, JobLocks, JobResult, JobStore, NewJob, RunOutcome,
-    Runner, StatusModel, StoreConfig, CANCELLED, FAILED,
+    ExtColumn, Job, JobControl, JobError, JobHandler, JobLocks, JobResult, JobStore, NewJob,
+    RunOutcome, Runner, StatusModel, StoreConfig, CANCELLED, FAILED,
 };
 use serde_json::{json, Value};
 
@@ -135,12 +135,15 @@ fn sweep_never_follows_a_symlink_out_of_root() {
 }
 
 fn held_config() -> StoreConfig {
-    StoreConfig::new().statuses(
-        StatusModel::new("queued", ["queued", "running", "held"])
-            .allow("queued", "running")
-            .hold("held")
-            .run_status(Some("running")),
-    )
+    StoreConfig::new()
+        .column(ExtColumn::text("provider_job_id"))
+        .external_id("provider_job_id")
+        .statuses(
+            StatusModel::new("queued", ["queued", "running", "held"])
+                .allow("queued", "running")
+                .hold("held")
+                .run_status(Some("running")),
+        )
 }
 
 #[test]

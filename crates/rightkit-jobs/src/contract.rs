@@ -358,6 +358,10 @@ where
             Err(FrameError::TimedOut { .. }) => break,
             // Only produced when a reader opts out of skipping empty lines; this loop does not.
             Err(FrameError::EmptyLine) => emit(err(0, "bad_request", "bad frame: empty line")),
+            // Write-side errors; the reader never produces them, but a frame error is a bad frame.
+            Err(e @ (FrameError::EmbeddedNewline | FrameError::MissingTerminator)) => {
+                emit(err(0, "bad_request", &format!("bad frame: {e}")))
+            }
         }
     }
     // The client is gone (EOF) or asked to shut down: cancel jobs tied to this connection first.
