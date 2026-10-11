@@ -8,13 +8,14 @@
 //! - A negated term must appear in no haystack.
 //! - `%` and `_` are ordinary characters. Nothing here compiles to SQL `LIKE`.
 //!
-//! Both needles and haystacks are folded with [`crate::fold::fold`]; see that module for
-//! the folding limits (no normalisation, length can change).
+//! Both needles and haystacks are folded with [`crate::fold::fold_with`] (default:
+//! [`crate::fold::fold`]); see that module for coverage and limits (no normalisation, length
+//! can change).
 //!
 //! Operator terms (`from:x`) are not evaluated here; the caller applies them with a
 //! schema over [`Query::filters_only`].
 
-use crate::fold::fold;
+use crate::fold::{fold_with, folded_len, FoldOptions};
 use crate::snippet::Span;
 use crate::terms::Query;
 use std::fmt;
@@ -63,24 +64,20 @@ pub struct TextMatcher {
     any: Vec<Vec<String>>,
     /// Folded negated terms; none may appear.
     none: Vec<String>,
+    /// Folding applied to needles (at build) and haystacks (at match).
+    opts: FoldOptions,
 }
 
-fn needles(items: &[String]) -> Vec<String> {
+fn needles(items: &[String], opts: FoldOptions) -> Vec<String> {
     items
         .iter()
-        .map(|s| fold(s))
+        .map(|s| fold_with(s, opts))
         .filter(|s| !s.is_empty())
         .collect()
 }
 
 fn contains_any(haystacks: &[String], needle: &str) -> bool {
     haystacks.iter().any(|h| h.contains(needle))
-}
-
-/// Byte length of `c` after folding. Folding never changes a character's UTF-8 length
-/// except through multi-character lowercase mappings, which this sums.
-fn folded_len(c: char) -> usize {
-    c.to_lowercase().map(char::len_utf8).sum()
 }
 
 impl TextMatcher {
@@ -90,24 +87,34 @@ impl TextMatcher {
     /// [`MatchError::MixedOrGroup`] when an OR group holds a bare-text term alongside
     /// operators, or only negated bare text.
     pub fn new(q: &Query) -> Result<Self, MatchError> {
+        Self::with_options(q, FoldOptions::default())
+    }
+
+    /// As [`TextMatcher::new`], folding needles and haystacks with `opts` (for example
+    /// Turkish/Azeri folding).
+    ///
+    /// # Errors
+    /// As [`TextMatcher::new`].
+    pub fn with_options(q: &Query, opts: FoldOptions) -> Result<Self, MatchError> {
         if q.op_or_groups.iter().flatten().any(|t| t.op.is_empty()) {
             return Err(MatchError::MixedOrGroup);
         }
-        let all = needles(&q.text)
+        let all = needles(&q.text, opts)
             .into_iter()
-            .chain(needles(&q.phrases))
+            .chain(needles(&q.phrases, opts))
             .collect();
         let any = q
             .or_groups
             .iter()
-            .map(|g| needles(g))
+            .map(|g| needles(g, opts))
             .filter(|g| !g.is_empty())
             .collect();
         Ok(Self {
             nothing: q.matches_nothing(),
             all,
             any,
-            none: needles(&q.negated_text),
+            none: needles(&q.negated_text, opts),
+            opts,
         })
     }
 
@@ -129,7 +136,7 @@ impl TextMatcher {
         if self.is_empty() {
             return true;
         }
-        let mut haystacks: Vec<String> = eager.iter().map(|s| fold(s)).collect();
+        let mut haystacks: Vec<String> = eager.iter().map(|s| fold_with(s, self.opts)).collect();
         if self.none.iter().any(|n| contains_any(&haystacks, n)) {
             return false;
         }
@@ -143,7 +150,7 @@ impl TextMatcher {
         if self.none.is_empty() && positives_met(&haystacks[..]) {
             return true;
         }
-        haystacks.extend(lazy().iter().map(|s| fold(s)));
+        haystacks.extend(lazy().iter().map(|s| fold_with(s, self.opts)));
         if self.none.iter().any(|n| contains_any(&haystacks, n)) {
             return false;
         }
@@ -173,11 +180,11 @@ impl TextMatcher {
         }
 
         // First hit in the whole text, as a folded byte offset, then as a source char.
-        let folded = fold(text);
+        let folded = fold_with(text, self.opts);
         let first = positives.iter().filter_map(|n| folded.find(*n)).min()?;
         let mut acc = 0;
         let (hit_char, hit_byte) = text.char_indices().enumerate().find_map(|(ci, (bi, c))| {
-            let len = folded_len(c);
+            let len = folded_len(c, self.opts);
             if acc + len > first {
                 return Some((ci, bi));
             }
@@ -202,12 +209,12 @@ impl TextMatcher {
 
         // Folded positions inside the window, mapped back to source byte offsets. Each
         // entry is (folded start, source start) at the start of a source character.
-        let win_folded = fold(window);
+        let win_folded = fold_with(window, self.opts);
         let mut starts: Vec<(usize, usize)> = Vec::new();
         let mut fold_at = 0;
         for (bi, c) in window.char_indices() {
             starts.push((fold_at, bi));
-            fold_at += folded_len(c);
+            fold_at += folded_len(c, self.opts);
         }
         starts.push((win_folded.len(), window.len()));
 

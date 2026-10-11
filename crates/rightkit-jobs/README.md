@@ -103,7 +103,7 @@ pool.shutdown();
 
 ## Delete, keep-total, rejected submissions and recovering open
 
-- `JobStore::delete(job_id) -> PruneReport`. A non-terminal job is cancelled first (the hook sees `cancelled`), then its rows are removed in one transaction and its cancel token is set. It does not wait for the handler to stop: a running handler sees the cancel at its next check, and a late write it makes is refused. Artifact files are never deleted; the caller removes `report.artifacts[..].path` if it wants them gone.
+- `JobStore::delete(job_id) -> PruneReport`. A non-terminal job is cancelled first (the hook sees `cancelled`), then its rows are removed in one transaction and its cancel token is set. It does not wait for the handler to stop: a running handler sees the cancel at its next check, and a late write it makes is refused. With `StoreConfig::artifact_root` / `scratch_root` configured, the job's artifact files and `<scratch_root>/<job_id>` are removed too (inside those roots only, symlinks never followed, a path outside the roots fails with `path_outside_root`); `delete_with(id, &DeleteOptions { keep_files: true })` keeps them and returns a `DeleteReport`. The order is crash-safe (mark in `rk_job_deleting`, files, rows); call `finish_deletions()` at startup to finish an interrupted delete. With no root configured, files are left and the caller removes `report.artifacts[..].path`.
 - `PrunePolicy::keep_total(n)` bounds the whole table to `n` rows. It keeps `n` minus the non-terminal count of the newest terminal rows, so active jobs are never dropped. Inside `SubmitOptions::prune` the incoming row counts.
 - `JobStore::submit_rejected(&NewJob, &Ext, &JobError) -> JobRecord`. The job is inserted, `on_create` runs, and the job moves to `failed` with the error and a `rejected` event, all in one transaction. It never runs, and a crash cannot leave it runnable. The app's entitlement check stays in the app; call this when the app refuses.
 - `JobStore::open_recovering(&DbOptions, StoreConfig, RecoveryPolicy) -> (JobStore, Option<PathBuf>)`. If the database file is unreadable and the policy allows it, the file is moved aside and a fresh store is created. The second value is where the old file went; the original bytes are kept under the `.corrupt-` name.
@@ -158,7 +158,7 @@ Apps that already have a stdio or CLI protocol can adopt `JobStore` with `StoreC
 
 ## Tests
 
-`tests/dispatcher.rs`, `tests/e2e.rs`, `tests/engine_contract.rs`, `tests/fencing.rs`, `tests/genright.rs`, `tests/job_lock.rs`, `tests/supervisor.rs`, `tests/v021.rs`, `tests/prune.rs`, `tests/delete_reject.rs`, `tests/held.rs`, `tests/resume_sweep.rs`, `tests/pool.rs`. The `examples/` directory has `job_engine.rs` (the test engine) and `engine_fixture.rs`.
+`tests/dispatcher.rs`, `tests/e2e.rs`, `tests/engine_contract.rs`, `tests/fencing.rs`, `tests/genright.rs`, `tests/job_lock.rs`, `tests/supervisor.rs`, `tests/v021.rs`, `tests/prune.rs`, `tests/delete_reject.rs`, `tests/delete_files.rs`, `tests/held.rs`, `tests/resume_sweep.rs`, `tests/pool.rs`. The `examples/` directory has `job_engine.rs` (the test engine) and `engine_fixture.rs`.
 
 ## Platform support
 

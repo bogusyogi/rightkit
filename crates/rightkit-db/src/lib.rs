@@ -22,6 +22,7 @@ pub use host::per_host_path;
 pub use rusqlite;
 mod migrate;
 mod recover;
+mod unreadable;
 
 pub use backup::{online_backup_to, restore_from, BackupProgress};
 pub use migrate::{
@@ -34,6 +35,11 @@ pub use recover::rekey;
 pub use recover::{
     quarantine_database, quarantine_database_opts, quarantine_database_with, MoveMode, OpenOutcome,
     QuarantineOptions, QuarantineStamp, RecoveryPolicy, SidecarPolicy,
+};
+
+pub use unreadable::{
+    classify_open_failure, unreadable_counter_path, RecoveryAction, StorageProblem,
+    UnreadableCause, UnreadablePolicy, UnreadableRecovery,
 };
 
 const BUSY_TIMEOUT_MS: u64 = 5_000;
@@ -95,6 +101,25 @@ pub enum DbError {
     NoKeyOpened,
     #[error(transparent)]
     Fs(#[from] rightkit_fs::FsError),
+    /// The database file could not be read (permission or I/O failure) or its storage is
+    /// unavailable. Not corruption: the file was not touched unless `quarantine_after` was
+    /// reached, in which case recovery succeeds instead of returning this. See
+    /// [`UnreadablePolicy`].
+    #[error(
+        "database {} cannot be read: {cause} ({consecutive_failures} consecutive failed open(s)): {source}",
+        .path.display()
+    )]
+    Unreadable {
+        path: PathBuf,
+        cause: UnreadableCause,
+        /// Consecutive failed opens recorded so far (0 under [`UnreadablePolicy::Fail`] and for
+        /// storage problems, which are never counted).
+        consecutive_failures: u32,
+        /// The count at which [`UnreadablePolicy::QuarantineAfter`] would set the file aside.
+        quarantine_after: Option<u32>,
+        #[source]
+        source: Box<DbError>,
+    },
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
