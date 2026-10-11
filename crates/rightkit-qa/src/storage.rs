@@ -993,6 +993,25 @@ mod tests {
     use super::*;
     use std::io::Write;
 
+    /// Set the modification time of a file or directory. Windows opens a directory only with
+    /// backup semantics, and changing the time needs write-attributes access.
+    fn set_modified(path: &Path, time: std::time::SystemTime) {
+        #[cfg(windows)]
+        let handle = {
+            use std::os::windows::fs::OpenOptionsExt;
+            const FILE_WRITE_ATTRIBUTES: u32 = 0x0100;
+            const FILE_FLAG_BACKUP_SEMANTICS: u32 = 0x0200_0000;
+            fs::OpenOptions::new()
+                .access_mode(FILE_WRITE_ATTRIBUTES)
+                .custom_flags(FILE_FLAG_BACKUP_SEMANTICS)
+                .open(path)
+                .unwrap()
+        };
+        #[cfg(not(windows))]
+        let handle = File::open(path).unwrap();
+        handle.set_modified(time).unwrap();
+    }
+
     fn temp_root(label: &str) -> PathBuf {
         // `app_temp_dir`, not `std::env::temp_dir`: managed paths refuse symlinks, and the managed
         // build's TMPDIR (`/tmp`) is one on macOS.
@@ -1291,7 +1310,7 @@ mod tests {
             "fresh: owner may be mid-write"
         );
         let old = std::time::SystemTime::now() - Duration::from_secs(120);
-        File::open(&lock).unwrap().set_modified(old).unwrap();
+        set_modified(&lock, old);
         assert!(try_lock(&app_root, Duration::ZERO).unwrap().is_some());
         let _ = fs::remove_dir_all(&root);
     }
@@ -1366,7 +1385,7 @@ mod tests {
 
     fn make_old(path: &Path) {
         let old = std::time::SystemTime::now() - Duration::from_secs(3 * 24 * 3600);
-        File::open(path).unwrap().set_modified(old).unwrap();
+        set_modified(path, old);
     }
 
     #[test]
@@ -1467,9 +1486,15 @@ mod tests {
     #[test]
     fn home_root_override_must_be_absolute() {
         use std::ffi::OsStr;
+        // A rooted path without a drive is not absolute on Windows.
+        let absolute = if cfg!(windows) {
+            r"D:\qa-homes"
+        } else {
+            "/Volumes/D/qa-homes"
+        };
         assert_eq!(
-            home_base_from(Some(OsStr::new("/Volumes/D/qa-homes"))),
-            PathBuf::from("/Volumes/D/qa-homes")
+            home_base_from(Some(OsStr::new(absolute))),
+            PathBuf::from(absolute)
         );
         assert_eq!(
             home_base_from(Some(OsStr::new("relative/dir"))),

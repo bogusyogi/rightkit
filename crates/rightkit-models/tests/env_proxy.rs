@@ -54,8 +54,9 @@ fn proxy() -> (String, Arc<Mutex<Vec<String>>>) {
 #[test]
 fn environment_proxy_variable_is_honoured_by_default() {
     let (base, seen) = proxy();
-    // The default transport reads the environment when it is built, so set it first.
-    std::env::set_var("HTTP_PROXY", &base);
+    // The default transport reads the environment when it is built, so set it first. The other
+    // names are cleared before that: Windows variable names ignore case, so clearing
+    // `http_proxy` afterwards would clear `HTTP_PROXY` too.
     for name in [
         "http_proxy",
         "ALL_PROXY",
@@ -65,6 +66,7 @@ fn environment_proxy_variable_is_honoured_by_default() {
     ] {
         std::env::remove_var(name);
     }
+    std::env::set_var("HTTP_PROXY", &base);
     let client = ModelHttp::default();
     std::env::remove_var("HTTP_PROXY");
 

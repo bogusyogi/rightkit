@@ -321,9 +321,10 @@ mod tests {
         assert!(ws.env.contains_key("GENRIGHT_DATA_DIR"));
         assert!(ws.data_dir.exists());
         assert!(!ws.root.join("data").exists());
-        assert!(ws
-            .home
-            .starts_with(storage::app_temp_dir().join("rightkit-qa")));
+        // The home is created under the canonical temp directory, which on Windows differs in
+        // form from the one the environment names (short names, no extended-length prefix).
+        let temp = fs::canonicalize(storage::app_temp_dir()).unwrap();
+        assert!(ws.home.starts_with(temp.join("rightkit-qa")));
         assert!(!ws.home.starts_with(&ws.root));
         assert!(ws.evidence_dir.starts_with(&ws.root));
         assert!(ws.capture_dir.starts_with(&ws.root));
@@ -401,7 +402,11 @@ mod tests {
 
     #[test]
     fn orphan_sweep_removes_registered_temp_home_but_spares_active_runs() {
-        let root = storage::app_temp_dir().join(format!("rkqa-orphan-{}", new_id()));
+        // Canonical from the start, so the paths the sweep reports and the workspace's own
+        // root have the same form on Windows.
+        let root = fs::canonicalize(storage::app_temp_dir())
+            .unwrap()
+            .join(format!("rkqa-orphan-{}", new_id()));
         let ws = create(&root, Some("orphan"), "app").unwrap();
         assert!(prune_abandoned(&root, Duration::ZERO, &[])
             .removed
