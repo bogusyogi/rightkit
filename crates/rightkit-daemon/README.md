@@ -30,6 +30,12 @@ Feature `testing` (implies `client`; pulls in `rcgen` and `tempfile`) adds `righ
 
 `tests/conformance.rs` pins the route table, fixtures, error codes and lifecycle events to the schema. The schema example, the valid fixture and `routes.rs` must list the same routes and statuses. Error codes the daemon cannot return are listed under `x-reservedErrors`, and lifecycle events it cannot emit under `x-reservedEvents`.
 
+## State files: known limits
+
+- **Upload records at start.** `Daemon::open` loads every `uploads/<id>.json`. A record that does not parse is renamed to `<id>.json.bad`; a record that cannot be read is left in place and read again at the next start. Either way the daemon opens, the session is unknown to it for this run, and the event `UPLOAD_RECORD_SKIPPED` (`file`, `reason`, `detail`) is logged. `state.json` is different: missing means defaults, any other error fails `open`.
+- **The crate's own atomic write (`util::atomic_write`), not `rightkit-fs`.** It writes to a fixed temp name, `<name>.tmp` beside the target, so two writers of the same file at once would share one temp file; the daemon writes its state under its own mutex and is the only writer of its state directory. A temp file left by a crash is overwritten by the next write of that file.
+- **The directory flush after the rename is best effort.** Its failure is ignored, so after a power loss a write that returned `Ok` can show the previous version of the file. On Windows there is no directory flush at all.
+
 ## Runtime budget
 
 Generated from `runtime-budget.json`; edit that file, then run `node packages/release/runtime-budgets.mjs sync <crate-dir>`.

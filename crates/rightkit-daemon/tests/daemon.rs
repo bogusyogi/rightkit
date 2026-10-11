@@ -891,6 +891,43 @@ fn a_job_submission_is_one_state_write_and_survives_a_crash() {
 }
 
 #[test]
+fn a_bad_upload_record_is_skipped_and_reported_and_the_daemon_opens() {
+    let mut h = Harness::new();
+    let uploads = h.cfg.state_dir.join("uploads");
+    std::fs::write(uploads.join("damaged.json"), b"{ damaged").unwrap();
+    // A directory with a record's name: it exists and cannot be read as a file.
+    std::fs::create_dir(uploads.join("unreadable.json")).unwrap();
+
+    h.restart();
+
+    let skipped = h.events("UPLOAD_RECORD_SKIPPED");
+    assert_eq!(skipped.len(), 2, "{skipped:?}");
+    let reason_of = |file: &str| {
+        skipped
+            .iter()
+            .find(|event| event["file"] == file)
+            .map(|event| event["reason"].as_str().unwrap().to_string())
+    };
+    assert_eq!(reason_of("damaged.json").as_deref(), Some("unparsable"));
+    assert_eq!(reason_of("unreadable.json").as_deref(), Some("unreadable"));
+    // The unparsable record is set aside with its bytes; the unreadable one is not moved.
+    assert!(!uploads.join("damaged.json").exists());
+    assert_eq!(
+        std::fs::read(uploads.join("damaged.json.bad")).unwrap(),
+        b"{ damaged"
+    );
+    assert!(uploads.join("unreadable.json").is_dir());
+    assert!(!skipped
+        .iter()
+        .any(|event| event.to_string().contains("damaged\"")));
+
+    // The daemon works: a device can still enrol.
+    let code = h.daemon.issue_enrolment_code(ALL_SCOPES, 600).unwrap();
+    let (_, resp) = h.try_enrol(&code);
+    assert_eq!(resp.status, 201);
+}
+
+#[test]
 fn interrupted_upload_resumes_after_restart_and_verifies() {
     let mut h = Harness::new();
     let dev = h.enrol();

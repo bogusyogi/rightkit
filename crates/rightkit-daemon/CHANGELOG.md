@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+- **Fixed: one bad upload record no longer stops `Daemon::open`.** A record under `uploads/` that could not be read or
+  did not parse made `open` return the error, so the daemon did not start and every other session was unavailable.
+  Now the record is skipped and the event `UPLOAD_RECORD_SKIPPED` is logged with `file`, `reason` (`unreadable` or
+  `unparsable`) and `detail`; the parser's message is not logged because it can quote the record. An unparsable record
+  is renamed to `<id>.json.bad`. An unreadable record is left in place and loaded again at the next start, because a
+  refused read is no proof the file is bad (on Windows an open can be refused for a moment during a replace). Until
+  then its session is unknown to the daemon, and its `.part` file stays. `state.json` is unchanged: missing is the
+  default, any other error still fails `open`. `util::atomic_write` stays the crate's own (not moved to
+  `rightkit-fs`): that would add a dependency and change behaviour (a fixed `<name>.tmp` temp name becomes a generated
+  one, and a failed directory flush, ignored today, would become an error). Not built or run locally.
 - New `client` feature (off by default; no new dependencies): a blocking device client in `rightkit_daemon::client`. `Client::new(ClientConfig)` trusts only the root certificates the caller supplies (`root_pem` / `root_der`; no system roots, `Error::NoRoots` without one). `Client::enrol(code, key, label)` returns a `DeviceSession` that signs every request; `DeviceSession::send` (generic signed request), `update_job`, and the resumable upload calls `upload_init` / `upload_status` / `upload_chunk` / `upload_complete` / `upload_reader` / `upload_bytes` / `upload` (resume skips the chunks `upload.status` reports and re-acknowledges a committed upload). `DeviceKey` wraps an Ed25519 key built from caller-stored PKCS#8 bytes or a seed. Every daemon refusal is `Error::Refused(Refusal { status, code: ErrorCode, body })`; TLS failures are `Error::Tls`. One connection per request over std sockets and rustls, no runtime.
 - Shared with the server so client and daemon cannot drift: `signing::sign_request` / `signing::verify_request` (the daemon's signature check now calls `verify_request`), `signing::chunk_digest`, `signing::object_hasher` / `object_digest` and `signing::parse_digest_key` (the upload routes now call them). Behaviour of the server is unchanged.
 - New `testing` feature (implies `client`; adds optional `rcgen` and `tempfile`, both already dev-dependencies): `testing::TestCertificate::generate()` makes a self-signed `localhost`/`127.0.0.1` certificate at run time, and `testing::TestDaemon::start()` runs a daemon with `serve_blocking` on `127.0.0.1:0`, exposing `addr`, `root_pem`, a single-use all-scope `enrolment_code`, `daemon`, `stop_handle()`, and stop-on-drop. `tests/client.rs` runs it in CI through a self dev-dependency that enables `testing`.

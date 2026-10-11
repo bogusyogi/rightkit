@@ -174,15 +174,39 @@ impl Daemon {
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => State::default(),
             Err(e) => return Err(e),
         };
+        // One bad upload record must not stop the daemon: it is skipped and reported, and every
+        // other session is loaded. A record that does not parse is set aside as `.json.bad`. A
+        // record that cannot be read is left where it is: a refused read (on Windows an open can
+        // be refused for a moment while a file is being replaced) is no proof the file is bad.
         let mut uploads = BTreeMap::new();
+        let mut skipped: Vec<(String, &'static str, String)> = Vec::new();
         for entry in fs::read_dir(cfg.state_dir.join("uploads"))? {
             let path = entry?.path();
             if path.extension().and_then(|e| e.to_str()) != Some("json") {
                 continue;
             }
-            let up: Upload = serde_json::from_slice(&fs::read(&path)?)
-                .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
-            uploads.insert(up.id.clone(), up);
+            let file = path
+                .file_name()
+                .map(|name| name.to_string_lossy().into_owned())
+                .unwrap_or_default();
+            let bytes = match fs::read(&path) {
+                Ok(bytes) => bytes,
+                Err(error) => {
+                    skipped.push((file, "unreadable", error.kind().to_string()));
+                    continue;
+                }
+            };
+            match serde_json::from_slice::<Upload>(&bytes) {
+                Ok(up) => {
+                    uploads.insert(up.id.clone(), up);
+                }
+                Err(_) => {
+                    // The parser's message can quote the record, so it is not logged.
+                    let moved = fs::rename(&path, path.with_extension("json.bad")).is_ok();
+                    let detail = if moved { "set aside" } else { "left in place" };
+                    skipped.push((file, "unparsable", detail.to_string()));
+                }
+            }
         }
         let d = Self {
             cfg,
@@ -196,6 +220,12 @@ impl Daemon {
             }),
             counters: Counters::default(),
         };
+        for (file, reason, detail) in skipped {
+            d.emit(
+                "UPLOAD_RECORD_SKIPPED",
+                json!({ "file": file, "reason": reason, "detail": detail }),
+            );
+        }
         d.recover()?;
         Ok(d)
     }
