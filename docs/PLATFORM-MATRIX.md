@@ -208,7 +208,7 @@ Crates and products whose Windows or macOS backend is a stub, absent, untested, 
 
 | Item | State | Evidence | Ledger / audit |
 |---|---|---|---|
-| `rightkit-overlay` | **Partial**: only the portable state, hit-test and placement code; `make_noactivate`, `reassert_topmost` and the rest of `windows::*` return `false`. No macOS backend exists | `src/lib.rs:285-298` | #23 (0.2.0 plans a macOS backend) |
+| `rightkit-overlay` | **Partial**: the portable state, hit-test, placement, `OverlayStyle`, `FullScreenPolicy` and `MonitorPlacement` code works everywhere. The native operations are Windows-only (`windows::make_noactivate`, `reassert_topmost`, `apply_style`, `set_click_through`, `show_noactivate`, `hide`, `monitor_at`, `foreground_fills_monitor`); on other systems they return `false` or `None`. No macOS backend exists | `src/lib.rs:285-298` | #23 (0.2.0 plans a macOS backend) |
 | `rightkit-audio` | **Partial**: endpoint and power lifecycle is Windows-only; registration returns `None` on macOS | `src/lifecycle.rs:146-149` | none |
 | `rightkit-record` | **Partial**: macOS helper rejects audio, declared masks and hidden/minimized visibility | `helpers/macos/Sources/rightkit-record-macos-helper/CaptureSession.swift:87,91,97` | none |
 | `rightkit-shell` | **Partial**: idle suspend and resume are a designed no-op (the shell emits an event instead) | `src/idle.rs:366`, `:10-12` | #62 |
