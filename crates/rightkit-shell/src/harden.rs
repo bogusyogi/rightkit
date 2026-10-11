@@ -142,7 +142,7 @@ mod windows_impl {
     use super::*;
     use crate::winapi::webview2_com::ContextMenuRequestedEventHandler;
     use crate::winapi::webview2_com::Microsoft::Web::WebView2::Win32::{
-        ICoreWebView2Settings3, ICoreWebView2Settings5, ICoreWebView2Settings6, ICoreWebView2_11,
+        ICoreWebView2Settings5, ICoreWebView2Settings6, ICoreWebView2_11,
     };
     use crate::winapi::windows::core::Interface;
     use crate::winapi::windows::core::BOOL;
@@ -152,6 +152,15 @@ mod windows_impl {
     pub fn apply<R: Runtime>(webview: &Webview<R>, h: &Hardening, decision: WebviewDecision) {
         let h = h.clone();
         let content = decision != WebviewDecision::Deny;
+        // F5, Ctrl+R, Alt+Left and the zoom keys are stopped one by one by the shell's single key
+        // handler (the DevTools layer adds it); browser keys are never turned off as a whole, so
+        // print and find keep working.
+        crate::devtools::set_hardening_keys(
+            webview.label(),
+            h.block_reload,
+            h.block_history_nav,
+            h.block_zoom,
+        );
         let _ = webview.with_webview(move |platform| unsafe {
             let Ok(core) = platform.controller().CoreWebView2() else {
                 return;
@@ -169,12 +178,6 @@ mod windows_impl {
             if h.block_history_nav {
                 if let Ok(s6) = settings.cast::<ICoreWebView2Settings6>() {
                     let _ = s6.SetIsSwipeNavigationEnabled(false);
-                }
-            }
-            if h.block_reload || h.block_history_nav {
-                // F5, Ctrl+R, Alt+Left and friends are WebView2 "browser accelerator keys".
-                if let Ok(s3) = settings.cast::<ICoreWebView2Settings3>() {
-                    let _ = s3.SetAreBrowserAcceleratorKeysEnabled(false);
                 }
             }
             if h.block_context_menu && !content {
