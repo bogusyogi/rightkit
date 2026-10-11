@@ -9,6 +9,15 @@
 //! one (macOS `clonefile`, Linux `FICLONE`), then a hard link, then a plain copy through the
 //! crate's durable atomic-write path, and it reports which step produced the destination
 //! ([`CloneOutcome`]). It never follows a symlink at either end and never overwrites.
+//!
+//! **Owner-only sources are not cloned natively on macOS.** `clonefile` creates the destination
+//! itself, with the source's mode and with whatever ACL the destination's directory hands out, so
+//! an owner-only destination cannot be established: a `0600` secret cloned into a directory with an
+//! inheritable `allow` ACL entry would be readable the moment it exists. The macOS clone step therefore
+//! declines a source whose mode has no group or other permission bit set, and the ladder goes on
+//! to the hard link, then to the copy, which creates its destination `0600` first (and refuses a
+//! parent whose ACL would change that). A source readable by others is cloned as before. The Linux `FICLONE` step already clones into a `0600` temp. The standalone
+//! [`clone_file_nofollow`] is unchanged and is not an owner-only creation.
 
 use crate::atomic::{atomic_write_with_options, AtomicWriteOptions, Privacy, ReplaceMode};
 use crate::error::{FsError, Result as FsResult};
@@ -85,6 +94,10 @@ impl CloneError {
 ///
 /// `dst` must not exist. The clone is created atomically by the kernel; on any failure no
 /// partial destination is left behind and no bytes are copied.
+///
+/// This is **not an owner-only creation**: the clone has the source's mode and receives the ACL
+/// entries `dst`'s directory hands out. Do not use it for a private source into a directory you
+/// do not control; [`clone_or_link_or_copy_nofollow`] declines to clone such a source.
 #[cfg(target_os = "macos")]
 pub fn clone_file_nofollow(src: &Path, dst: &Path) -> Result<(), CloneError> {
     use std::ffi::CString;
@@ -228,7 +241,8 @@ pub fn clone_or_link_or_copy_nofollow(src: &Path, dst: &Path) -> FsResult<CloneO
 /// - The first step that works wins, in this order, and the outcome says which: a clone
 ///   ([`CloneOutcome::Cloned`]), a hard link ([`CloneOutcome::HardLinked`], unless disallowed), a
 ///   copy ([`CloneOutcome::Copied`]). A step that is unavailable (another volume, a filesystem
-///   without clones or links, Windows for clones) falls through to the next; a destination that
+///   without clones or links, Windows for clones, and on macOS an owner-only source, see the
+///   module docs) falls through to the next; a destination that
 ///   already exists or an error after the destination was published does not.
 /// - `dst`'s file name must not be shaped like a temp name this crate generates
 ///   ([`FsError::BadName`]): a sweep would delete it.
@@ -314,8 +328,24 @@ fn run_step(step: Step, src: &Path, dst: &Path, options: &CloneOptions) -> StepR
     }
 }
 
+/// Whether a native clone of `src` must not be made: the source has no group or other permission
+/// bit, so its clone would be a private file whose creation this crate cannot make owner-only
+/// (`clonefile` takes the source's mode and the destination directory's inheritable ACL). A source
+/// whose mode cannot be read counts as private: when the answer is unknown, the copy path decides.
+#[cfg(target_os = "macos")]
+fn source_must_not_be_cloned(src: &Path) -> bool {
+    use std::os::unix::fs::PermissionsExt;
+    match std::fs::symlink_metadata(src) {
+        Ok(meta) => meta.permissions().mode() & 0o077 == 0,
+        Err(_) => true,
+    }
+}
+
 #[cfg(target_os = "macos")]
 fn clone_step(src: &Path, dst: &Path, _options: &CloneOptions) -> StepResult {
+    if source_must_not_be_cloned(src) {
+        return StepResult::Unavailable;
+    }
     match clone_file_nofollow(src, dst) {
         Ok(()) => StepResult::Done,
         Err(CloneError::Io { source, .. }) if source.kind() == io::ErrorKind::AlreadyExists => {

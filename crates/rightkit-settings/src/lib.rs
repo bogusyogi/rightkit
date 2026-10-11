@@ -15,6 +15,6 @@ pub use options::{
 pub use rightkit_fs::PublicationDurability;
 pub use secret::{Presence, SecretProbe, SecretRef};
 pub use store::{
-    read_with_defaults, read_with_options, Change, Error, InterruptedReplace, Migration,
-    PatchPreview, PreserveStep, Schema, Store, Subscription,
+    read_with_defaults, read_with_options, Change, Error, Migration, PatchPreview, PreserveStep,
+    Schema, Store, Subscription,
 };

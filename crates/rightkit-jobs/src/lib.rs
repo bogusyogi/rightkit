@@ -30,8 +30,9 @@ pub use contract::{
     PayloadMapper, Sink, CONTRACT_VERSION, DEFAULT_FRAME_LIMIT, JOB_METHODS,
 };
 pub use error::{
-    ErrorOrigin, JobError, JobResult, CONTRACT_VERSION_MISMATCH, CURSOR_MISMATCH, DB_UNREADABLE,
-    HOST_HANDOFF, INTERRUPTED, INVALID_CURSOR, JOB_EXISTS, STALE_ATTEMPT, STALLED, SUPERSEDED,
+    ErrorOrigin, JobError, JobResult, OpenFailure, CONTRACT_VERSION_MISMATCH, CURSOR_MISMATCH,
+    DB_UNREADABLE, HANDLER_UNSETTLED, HOST_HANDOFF, INTERRUPTED, INVALID_CURSOR, JOB_EXISTS,
+    STALE_ATTEMPT, STALLED, SUPERSEDED,
 };
 pub use pool::{OutcomeFn, PoolConfig, Staged, StagedHandler, StagedPool};
 /// The `rusqlite` this crate links (via `rightkit-db`); hooks receive its `Connection`.
@@ -40,18 +41,20 @@ pub use rightkit_db::rusqlite;
 /// [`db`]).
 pub use rightkit_db::RecoveryPolicy;
 pub use runner::{
-    AttemptPolicy, EventSink, JobControl, JobHandler, JobLock, JobLocks, RunOutcome, Runner,
-    DEFAULT_MAX_ATTEMPTS,
+    AttemptPolicy, EventSink, HandlerOutcome, JobControl, JobHandler, JobLock, JobLocks,
+    RunOutcome, Runner, UnsettledRecovery, DEFAULT_MAX_ATTEMPTS,
 };
 pub use sched::{Gate, InteractiveGuard, Priority};
 #[cfg(feature = "service")]
 pub use service::DispatcherHandler;
 pub use store::{
-    Adoption, Artifact, CancelToken, Cursor, DeleteOptions, DeleteReport, Event, ImportOptions,
-    ImportRecord, Imported, Job, JobRecord, JobStore, ListFilter, ListPage, NewJob, OpenRecovery,
-    ProgressStats, PrunePolicy, PruneReport, Recovery, Resolution, Submission, SubmissionRecord,
-    SubmitOptions, Submitted, Transition, CANCELLED, COMPLETE, DELETING_TABLE, FAILED, MAX_EVENTS,
-    MAX_IMPORT_BATCH, META_TABLE, PATH_OUTSIDE_ROOT, QUEUED, RUNNING, SUBMISSIONS_TABLE,
+    Adoption, Artifact, CancelToken, ClaimScope, Cursor, DeleteOptions, DeleteReport, Event,
+    FlushReport, ImportOptions, ImportRecord, Imported, Job, JobRecord, JobStore, ListFilter,
+    ListPage, NewJob, OpenRecovery, ProgressStats, PrunePolicy, PruneReport, Recovery, Resolution,
+    Settlement, SettlementShutdown, Submission, SubmissionRecord, SubmitOptions, Submitted,
+    Transition, UnsettledJob, CANCELLED, COMPLETE, DELETING_TABLE, FAILED, MAX_EVENTS,
+    MAX_IMPORT_BATCH, MAX_PENDING_SETTLEMENTS, MAX_PENDING_SETTLEMENT_BYTES, META_TABLE,
+    PATH_OUTSIDE_ROOT, QUEUED, RUNNING, SUBMISSIONS_TABLE,
 };
 #[cfg(feature = "supervisor")]
 pub use supervisor::{

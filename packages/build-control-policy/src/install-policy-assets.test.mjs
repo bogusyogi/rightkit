@@ -10,7 +10,7 @@ import { installPolicyAssets } from './install-policy-assets.mjs';
 const here = path.dirname(fileURLToPath(import.meta.url));
 
 async function withTemp(run) {
-  const base = realpathSync(mkdtempSync(path.join(tmpdir(), 'rk-policy-pointer-')));
+  const base = realpathSync.native(mkdtempSync(path.join(tmpdir(), 'rk-policy-pointer-')));
   try { return await run(base); } finally { rmSync(base, { recursive: true, force: true }); }
 }
 

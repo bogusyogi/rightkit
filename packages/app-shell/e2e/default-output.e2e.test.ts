@@ -146,6 +146,20 @@ describe.skipIf(!chrome)("default output is pinned in a real browser", () => {
     });
   }
 
+  // The shell's platform comes from the provider, not from the browser that happens to run the page:
+  // each runner renders one of these two against its own host.
+  it("a context menu's shortcut label follows the provider's platform, whatever the host", async () => {
+    for (const [platform, label] of [["macos", "\u2318"], ["windows", "Ctrl"]] as const) {
+      await open(`p=${platform}&t=light`);
+      await page.click("#row-a", "right");
+      await page.waitFor("document.querySelector('[role=menu]')");
+      const keys = await page.eval<string[]>("[...document.querySelectorAll('.rk-menu kbd')].map((k) => k.textContent)");
+      expect(keys.length, platform).toBeGreaterThan(0);
+      expect(keys[0], platform).toBe(label);
+      await page.press("Escape");
+    }
+  });
+
   it("context menu and toast rows render the same DOM", async () => {
     await open("p=macos&t=light");
     await page.click("#row-a", "right");

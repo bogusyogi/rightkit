@@ -79,7 +79,7 @@ let preview = store.patch_dry_run(&serde_json::json!({ "theme": "dark" }), None)
 
 ### Durability, damaged files, formatting, flat migration
 
-- **Replace mode** (`replace_mode`, `durable`, `retry_sharing_violation`). Default `Rename` with `durable(true)`: on Unix and macOS the temp file is flushed, renamed, and the directory flushed. On Windows the rename is not write-through, so a power loss can bring back the previous (complete) file. `ReplaceMode::ReplaceFile` over an existing file is not write-through on Windows either: Windows documents `REPLACEFILE_WRITE_THROUGH` as unsupported, so that flag is no longer passed. Only `ReplaceMode::MoveWriteThrough` (and `ReplaceFile`'s first creation) is write-through on Windows. Those modes can hit a sharing violation when another process holds the file open, so pair them with a retry:
+- **Replace mode** (`replace_mode`, `durable`, `retry_sharing_violation`). Default `Rename` with `durable(true)`: on Unix and macOS the temp file is flushed, renamed, and the directory flushed. On Windows the rename is not write-through, so a power loss can bring back the previous (complete) file. Only `ReplaceMode::MoveWriteThrough` is write-through on Windows. It can hit a sharing violation when another process holds the file open, so pair it with a retry:
 
   ```rust,ignore
   let opts = StoreOptions::new(schema)

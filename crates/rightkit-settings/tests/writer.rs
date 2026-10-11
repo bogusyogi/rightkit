@@ -5,7 +5,6 @@ use rightkit_fs::atomic::testing::fail_dir_sync;
 use rightkit_fs::atomic::testing::on_replace;
 use rightkit_fs::atomic::{
     ReplaceApi, ReplaceCall, MOVEFILE_REPLACE_EXISTING, MOVEFILE_WRITE_THROUGH,
-    REPLACEFILE_WRITE_THROUGH,
 };
 use rightkit_settings::{
     Error, FileFormat, OnCorrupt, PublicationDurability, QuarantineName, ReplaceMode, Schema,
@@ -71,25 +70,11 @@ fn recorder() -> (
 
 #[test]
 fn configured_replace_mode_and_flags_reach_the_replace_call() {
-    use ReplaceApi::{MoveFileEx, Rename, ReplaceFile};
+    use ReplaceApi::{MoveFileEx, Rename};
     let both = MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH;
     // (mode, durable) -> (first creation, replacing an existing file), as the platform does it.
-    let table: [(ReplaceMode, bool, Call, Call); 5] = [
+    let table: [(ReplaceMode, bool, Call, Call); 3] = [
         (ReplaceMode::Rename, true, (Rename, 0), (Rename, 0)),
-        // Over an existing file ReplaceFileW gets flag word 0: Windows does not support
-        // REPLACEFILE_WRITE_THROUGH, so the swap is file-flushed-only (see achieved_durability).
-        (
-            ReplaceMode::ReplaceFile,
-            true,
-            (MoveFileEx, both),
-            (ReplaceFile, 0),
-        ),
-        (
-            ReplaceMode::ReplaceFile,
-            false,
-            (MoveFileEx, MOVEFILE_REPLACE_EXISTING),
-            (ReplaceFile, 0),
-        ),
         (
             ReplaceMode::MoveWriteThrough,
             true,
@@ -131,13 +116,6 @@ fn configured_replace_mode_and_flags_reach_the_replace_call() {
             "{mode:?} durable={durable} replace"
         );
         assert_eq!(calls[1].target, p);
-        // No ReplaceFileW call the crate makes ever carries the unsupported flag. Only those
-        // calls are checked: the bit has another meaning in MoveFileExW's flag word
-        // (MOVEFILE_REPLACE_EXISTING has the same value).
-        assert!(calls
-            .iter()
-            .filter(|c| c.api == ReplaceFile)
-            .all(|c| c.flags & REPLACEFILE_WRITE_THROUGH == 0));
         println!(
             "ok  {mode:?} durable={durable}: {:?} / {:?}",
             (calls[0].api, calls[0].flags),
@@ -169,11 +147,7 @@ fn achieved_durability_states_what_the_platform_gives_per_mode() {
             .durable(durable)
     };
     // durable(false) flushes nothing, on any platform and in any mode.
-    for mode in [
-        ReplaceMode::Rename,
-        ReplaceMode::ReplaceFile,
-        ReplaceMode::MoveWriteThrough,
-    ] {
+    for mode in [ReplaceMode::Rename, ReplaceMode::MoveWriteThrough] {
         for exists in [false, true] {
             assert_eq!(
                 opts(mode, false).achieved_durability(exists),
@@ -193,15 +167,6 @@ fn achieved_durability_states_what_the_platform_gives_per_mode() {
             FileFlushedOnly
         );
         assert_eq!(
-            opts(ReplaceMode::ReplaceFile, true).achieved_durability(true),
-            FileFlushedOnly,
-            "ReplaceFileW has no write-through flag"
-        );
-        assert_eq!(
-            opts(ReplaceMode::ReplaceFile, true).achieved_durability(false),
-            WriteThroughMove
-        );
-        assert_eq!(
             opts(ReplaceMode::MoveWriteThrough, true).achieved_durability(true),
             WriteThroughMove
         );
@@ -211,11 +176,7 @@ fn achieved_durability_states_what_the_platform_gives_per_mode() {
         );
     } else {
         // Unix and macOS: the directory is flushed after the rename whatever the mode.
-        for mode in [
-            ReplaceMode::Rename,
-            ReplaceMode::ReplaceFile,
-            ReplaceMode::MoveWriteThrough,
-        ] {
+        for mode in [ReplaceMode::Rename, ReplaceMode::MoveWriteThrough] {
             for exists in [false, true] {
                 assert_eq!(
                     opts(mode, true).achieved_durability(exists),

@@ -409,6 +409,41 @@ fn a_private_source_is_copied_through_an_owner_only_temp_and_ends_private() {
     );
 }
 
+/// A source with no group or other permission bit is never given to the native macOS clone:
+/// `clonefile` creates the destination itself, with the source's mode and whatever ACL the
+/// destination directory hands out, so owner-only cannot be established. No seam is installed, so
+/// the real clone step runs (on APFS it would clone a source readable by others). With the hard
+/// link disallowed the ladder lands on the copy, which creates its destination `0600` first.
+#[cfg(target_os = "macos")]
+#[test]
+fn a_private_source_is_never_cloned_natively_on_macos() {
+    use std::os::unix::fs::PermissionsExt;
+    let (_g, dir) = tmp();
+    let (src, dst) = (source(&dir), dir.join("copy.bin"));
+    std::fs::set_permissions(&src, std::fs::Permissions::from_mode(0o600)).unwrap();
+    let outcome = clone_or_link_or_copy_nofollow_with(
+        &src,
+        &dst,
+        &CloneOptions::default().without_hard_link(),
+    )
+    .unwrap();
+    assert_eq!(
+        outcome,
+        CloneOutcome::Copied,
+        "a private source is copied, not cloned"
+    );
+    assert_eq!(std::fs::read(&dst).unwrap(), b"source content");
+    assert_eq!(
+        std::fs::metadata(&dst).unwrap().permissions().mode() & 0o7777,
+        0o600
+    );
+    // The default ladder may still hard-link it (the same inode, with its own mode and ACL, so
+    // nothing new is exposed), but it never clones it.
+    let linked = dir.join("linked.bin");
+    let outcome = clone_or_link_or_copy_nofollow(&src, &linked).unwrap();
+    assert_ne!(outcome, CloneOutcome::Cloned);
+}
+
 /// The permissions a copy ends with come from the file it actually read. The clone step runs
 /// after the source was checked by path and before the copy opens it; here it replaces the source
 /// in that gap (a `0644` file by a `0600` secret, and the reverse). The copy must carry the mode

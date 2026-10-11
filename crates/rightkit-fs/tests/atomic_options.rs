@@ -43,11 +43,11 @@ fn create_parents_creates_missing_directories_only_when_asked() {
 }
 
 #[test]
-fn replace_file_mode_replaces_existing_and_creates_missing_targets() {
+fn move_write_through_mode_replaces_existing_and_creates_missing_targets() {
     let dir = tempfile::tempdir().unwrap();
     let target = dir.path().join("settings.json");
     let options = AtomicWriteOptions {
-        replace: ReplaceMode::ReplaceFile,
+        replace: ReplaceMode::MoveWriteThrough,
         ..AtomicWriteOptions::default()
     };
 

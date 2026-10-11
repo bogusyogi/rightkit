@@ -88,7 +88,8 @@ pub enum MockBody {
     Full(Vec<u8>),
     /// Sent with chunked transfer-encoding; sleeps `delay` before each chunk.
     Chunks(Vec<(Duration, Vec<u8>)>),
-    /// Headers are sent (announcing a longer body) and the connection is cut.
+    /// Headers are sent announcing a body 1000 bytes longer than the bytes given (so
+    /// `Content-Length` is `len + 1000`), then those bytes are sent and the connection is cut.
     TruncatedAfter(Vec<u8>),
 }
 
