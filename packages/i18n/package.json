@@ -26,5 +26,6 @@
     "test": "vitest run"
   },
   "publishConfig": { "registry": "https://registry.npmjs.org", "access": "public" },
+  "repository": { "type": "git", "url": "git+https://github.com/Orthic-Labs/rightkit.git", "directory": "packages/i18n" },
   "packageManager": "pnpm@11.24.0"
 }

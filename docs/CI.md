@@ -76,7 +76,7 @@ summary names it under "Now green" and the entry is removed in the next commit.
 ## Publishing
 
 RightKit cannot publish from a local machine. `publish.yml` is the only route: manual dispatch, from
-`main` of the public repository, one registry per run.
+`main` of the public repository, one registry per run. Bytes are built once, then only moved.
 
 ```bash
 gh workflow run publish.yml -f registry=npm -f units="@rightkit/logs @rightkit/qa" -f dry_run=true
@@ -84,34 +84,67 @@ gh workflow run publish.yml -f registry=crates -f units="rightkit-fs rightkit-pr
 ```
 
 `units` is a space-separated list of package or crate names. Do a `dry_run=true` run first; the real
-run is the same dispatch with `dry_run=false`. Both stop at the `release` environment for approval.
+run is the same dispatch with `dry_run=false`. **Nothing waits for approval**: the `release`
+environment has no required reviewers, so a real run uploads as soon as its checks pass (see "What
+protects a publication" below).
 
-| Job | Runs on | Proves | Secrets |
+Two optional inputs make a skip explicit instead of silent: `allow_host_exclusion` names crates that
+`ci/gate.config.json` keeps off one verify host, and `allow_no_test` names npm packages without a `test`
+script. A unit that a host would skip, or a package with nothing to run, fails the plan unless it is named.
+
+| Job | Runs on | Proves | Secrets / id-token |
 |---|---|---|---|
 | `guard` | ubuntu | The ref is `refs/heads/main` and the repository is public | none |
-| `plan` | ubuntu | Every name matches a strict pattern and exists in the workspace; none is private, `publish = false`, or in `ci/known-red.json`; versions already on the registry are skipped; each workspace dependency is on the registry at a version meeting its requirement or earlier in the request; the order is dependencies first | none |
-| `verify` | `xcode-27`, `windows-2025` | `gate.mjs --registry <r> --units "<names>"` builds and tests exactly the planned units on both hosts (a unit's `os` limit in `ci/gate.config.json` applies); a red unit fails, known-red is no waiver | none |
-| `publish` | ubuntu (npm), `xcode-27` (crates) | The tarballs or crates published are the ones packed from this commit, and the registry serves the same bytes | only in the two real-publish steps |
+| `plan` | ubuntu | The publish contract (`scripts/ci/workflow-contract.mjs`, parsed structure plus mutation proofs) and the publish unit tests pass; every name matches a strict pattern and exists in the workspace (crates from `cargo metadata`, so quoted keys, inherited and renamed dependencies are resolved by Cargo); none is private, `publish = false` or in `ci/known-red.json`; versions already on the registry are skipped; each workspace dependency is on the registry at a version meeting its requirement (Cargo semantics: caret default, `~`, `1.2.*` = `>=1.2.0, <1.3.0`, comparison operators, comma lists) or earlier in the request; order is dependencies first | none |
+| `pack` | ubuntu (npm), `xcode-27` (crates) | Builds the artifacts once: `pnpm pack` tarballs, or `cargo package --locked` (which compiles and verifies each crate without any token). Seals them in `manifest.json` (name, version, size, sha256; npm also sha1 and integrity; crates also the upload metadata read from the packaged `Cargo.toml`) and uploads the artifact `publish-packed`. A packed `package.json` must name the unit, hold no `workspace:` specifier and carry the npm provenance `repository` | none |
+| `verify` | `xcode-27` **and** `windows-2025` | Downloads `publish-packed` and re-hashes it. `gate.mjs --registry <r> --units "<names>"` builds and tests exactly the planned units; every unit must end `pass`: a skipped test, a unit with no test step, a host exclusion or a missing test script not named in the allow inputs, and a red unit all fail. Then `publish.mjs verify` checks the sealed bytes (npm: name, version, entry points exist in the tarball, provenance `repository`; crates: every file equals the commit's blob and `Cargo.toml.orig` equals the crate's own manifest) and writes this host's receipt, bound to the manifest hash. | none |
+| `seal-check` | ubuntu | `upload.mjs run --dry-run`: re-hashes the sealed bytes, requires both hosts' receipts to name the same manifest, commit and run, re-checks provenance preconditions, and builds the exact publish commands and request bodies without sending them. Runs for dry and real dispatches | none |
+| `upload` | ubuntu, `environment: release`, only when `dry_run=false` | Fresh runner; checks out only `scripts/ci/upload.mjs`; installs and builds nothing; repeats the hash and receipt checks; uploads the sealed bytes; compares the registry's bytes with them | `NPM_TOKEN` or `CARGO_REGISTRY_TOKEN`, and `id-token: write`: this job only |
 
-- **npm.** Frozen install, workspace build, `pnpm pack` per unit in order (the packed `package.json`
-  must name the unit and hold no `workspace:` specifier), then `npm publish <tgz> --access public
-  --provenance`. `verifyNpmRegistryBytes` from `packages/release/publication-gate.mjs` then requires the
-  registry `dist.shasum` to equal the packed tarball's sha1.
-- **Crates.** `cargo publish -p <crate> --locked`, one crate per call, dependencies first. Cargo (1.66
-  and later) waits after each upload until the crate is in the index, so the next crate resolves it.
-  The `.crate` sha256 must equal the `cksum` the crates.io sparse index serves. A dry run is one
-  `cargo publish --dry-run --locked -p a -p b ...` call, which relies on the multi-package publish of
-  Cargo 1.90 and later to resolve crates that are not on crates.io yet.
-- **Dry run.** Runs `npm publish --dry-run` or `cargo publish --dry-run` in a step that references no
-  secret; `publish.mjs` refuses to continue if a registry token is present in that step.
+- **npm.** `npm publish <sealed .tgz> --ignore-scripts --access public --provenance --registry
+  https://registry.npmjs.org/`. Afterwards the registry's `dist.shasum` and `dist.integrity` must equal
+  the sealed tarball's. Provenance needs each package's `repository` to name
+  `https://github.com/Orthic-Labs/rightkit` with its own `directory`; the pack, verify and upload steps
+  check that in the packed manifest, in dry and real runs alike.
+- **Crates.** `cargo publish` cannot take a prebuilt `.crate`, and it would compile with the token in the
+  environment, so `upload.mjs` PUTs the sealed `.crate` to `https://crates.io/api/v1/crates/new` with the
+  token on that one request (`redirect: "error"`). The body is the registry web API's: a 32-bit
+  little-endian length, the JSON metadata, a 32-bit little-endian length, the `.crate` bytes. The JSON
+  comes from `cargo metadata` of the packaged manifest. The `.crate` sha256 must then equal the `cksum`
+  the sparse index serves. crates.io's publish rate limits apply to a large first publication; a refusal
+  stops the run with its status.
+- **Child processes.** Every child gets an allow-listed environment (runner basics, `GITHUB_*`, `RUNNER_*`,
+  `ACTIONS_ID_TOKEN_*`), never `process.env`; only the `npm publish` child receives `NODE_AUTH_TOKEN`.
+  `pack`, `verify`, `seal-check` and the dry run refuse to start if a registry token or an OIDC request
+  token is present.
+- **Dry run.** `pack`, `verify` and `seal-check` run in full. No step references a secret, and no job in
+  the dry run requests `id-token`. `seal-check` uploads `publication-receipt-dry-run`.
 
-Required on GitHub: environment `release` (required reviewers; deployment branches limited to `main`) holding the
-secrets `NPM_TOKEN` and `CARGO_REGISTRY_TOKEN`. npm provenance needs each package's `repository` field to name
-`Orthic-Labs/rightkit`.
+### What protects a publication
+
+Stated as configured, not as hoped:
+
+- **No approval gate.** The `release` environment has no required reviewers. A run proceeds to `upload`
+  automatically once `guard`, `plan`, `pack`, both `verify` hosts and `seal-check` are green.
+- **Who can dispatch.** Anyone with write access to the repository can run `workflow_dispatch`, and the
+  workflow runs from `main`'s workflow file only (`guard`). That is the whole gate; a collaborator with
+  write access can publish.
+- **Secrets.** The workflow reads `NPM_TOKEN` and `CARGO_REGISTRY_TOKEN` as secrets of `release`, in the
+  `upload` job only. The owner is moving `NPM_TOKEN` into `release` (confirm it is gone from repository secrets). **`CARGO_REGISTRY_TOKEN` is still a
+  repository secret**, readable by any workflow job on a same-repository branch, with or without the
+  environment, until it is moved into `release`. Until then a collaborator who can push a branch can write
+  a workflow that reads it. Moving it needs no workflow change. Limit `release` deployment branches to
+  `main` in the environment settings (not verifiable from this repository).
+- **What the checks do stop.** A red or missing verification on either host, bytes that differ from what
+  was verified, a dependency installed or built in the privileged job, a token reaching a build step, a
+  dry run touching a credential, and a workflow edit that weakens any of this on `main` (the contract
+  fails in `plan` and in `packages/release`'s contract test). They do not stop an authorized collaborator
+  dispatching a legitimate-looking real run, or a malicious change to `main` that also changes the
+  contract.
 
 ### Ledger
 
-Each run uploads the artifact `publication-receipt` (`publication-receipt.json`): per unit the version,
+A real run uploads the artifact `publication-receipt` (`publication-receipt.json`): per unit the version,
 registry, commit SHA, tarball or crate sha256, timestamp, and whether it was published and
 byte-verified against the registry. After a real run:
 

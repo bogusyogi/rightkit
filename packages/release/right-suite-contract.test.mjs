@@ -19,6 +19,8 @@ import { assertAsrAdapterPair } from "./asr-artifact-adoption.mjs";
 import { resolveConfiguredBuildInputs } from "./release-invocation.mjs";
 import { compareVersions } from "./rightkit-sync.mjs";
 import { rightKitVersionAllowed } from "./rightkit-version-policy.mjs";
+import { assertPublishDoc, assertPublishWorkflow as assertPublishWorkflowContract, MUTATIONS, proveMutations, VERIFY_HOSTS } from "../../scripts/ci/workflow-contract.mjs";
+import { parseYaml } from "../../scripts/ci/workflow-yaml.mjs";
 
 const workspace = path.resolve(
   process.env.RIGHT_SUITE_CONTRACT_WORKSPACE
@@ -1056,66 +1058,13 @@ function assertManualBuildWorkflow(text, name) {
   assert.doesNotMatch(text, /pull_request_target/, `${name} must not use pull_request_target`);
   pinnedActionLines(text, name);
 }
-// The bodies of every `run:` key (inline or block scalar), so input expressions can be searched for in script text only.
-function workflowRunBlocks(text) {
-  const lines = text.split("\n");
-  const blocks = [];
-  for (let i = 0; i < lines.length; i += 1) {
-    const match = /^(\s*(?:- )?)run:\s*(.*)$/.exec(lines[i]);
-    if (!match) continue;
-    const column = match[1].length;
-    if (!/^[|>][+-]?\d*\s*$/.test(match[2])) { blocks.push(match[2]); continue; }
-    const body = [];
-    for (let j = i + 1; j < lines.length; j += 1) {
-      const indent = /^(\s*)/.exec(lines[j])[1].length;
-      if (lines[j].trim() !== "" && indent < column) break;
-      body.push(lines[j]);
-    }
-    blocks.push(body.join("\n"));
-  }
-  return blocks;
-}
-// Top-level jobs by name: the text of each `  name:` block under `jobs:`.
-function workflowJobs(text) {
-  const [, jobsText = ""] = text.split(/^jobs:\s*$/m);
-  const jobs = {};
-  let current = null;
-  for (const line of jobsText.split("\n")) {
-    const header = /^  ([A-Za-z][\w-]*):\s*$/.exec(line);
-    if (header) { current = header[1]; jobs[current] = []; continue; }
-    if (current) jobs[current].push(line);
-  }
-  return Object.fromEntries(Object.entries(jobs).map(([job, body]) => [job, body.join("\n")]));
-}
+// publish.yml is held to its contract on the PARSED workflow (scripts/ci/workflow-contract.mjs), not on text
+// patterns, and the contract is proven by mutation: each edit below breaks one property and must be rejected.
 function assertPublishWorkflow(text, name) {
   assert.match(text, /^on:\n  workflow_dispatch:/m, `${name} must be triggered by workflow_dispatch`);
-  assert.doesNotMatch(text, /^  (?:push|pull_request|pull_request_target|schedule|workflow_run|release|workflow_call):/m, `${name} must be workflow_dispatch only`);
-  assert.doesNotMatch(text, /pull_request_target/, `${name} must not use pull_request_target`);
-  assert.match(text, /^permissions:\n  contents: read\s*$/m, `${name} top-level permissions must be contents: read`);
-  pinnedActionLines(text, name);
-  const jobs = workflowJobs(text);
-  for (const required of ["guard", "plan", "verify", "publish"]) assert.ok(jobs[required], `${name} must define the ${required} job`);
-  const header = text.split(/^jobs:\s*$/m)[0];
-  assert.doesNotMatch(header, /secrets\./, `${name} must not reference secrets outside the publish job`);
-  for (const [job, body] of Object.entries(jobs)) {
-    if (job !== "publish") assert.doesNotMatch(body, /secrets\./, `${name} job ${job} must not reference secrets; only publish may`);
-    if (job !== "publish") assert.doesNotMatch(body, /id-token:\s*write/, `${name} job ${job} must not request id-token: write`);
-  }
-  assert.match(jobs.publish, /^    environment: release\s*$/m, `${name} publish job must use environment: release`);
-  assert.match(jobs.publish, /^      id-token: write\s*$/m, `${name} publish job needs id-token: write for npm provenance`);
-  assert.match(jobs.publish, /^    needs: \[[^\]]*\bplan\b[^\]]*\bverify\b[^\]]*\]\s*$/m, `${name} publish job must need plan and verify`);
-  // Secrets only in real-publish steps: each such step is gated on dry_run == 'false'; no dry-run step reads one.
-  const steps = jobs.publish.split(/^      - /m).slice(1);
-  for (const step of steps) {
-    if (!/secrets\./.test(step)) continue;
-    assert.match(step, /dry_run == 'false'/, `${name} a step that reads a secret must run only when dry_run is false`);
-    assert.doesNotMatch(step, /dry_run == 'true'/, `${name} a dry-run step must not read a secret`);
-  }
-  assert.ok(steps.some((step) => /secrets\.NPM_TOKEN/.test(step)) && steps.some((step) => /secrets\.CARGO_REGISTRY_TOKEN/.test(step)), `${name} must publish with NPM_TOKEN and CARGO_REGISTRY_TOKEN`);
-  for (const block of workflowRunBlocks(text)) {
-    assert.doesNotMatch(block, /\$\{\{\s*inputs\./, `${name} must not interpolate inputs inside a run script; pass them through env`);
-    assert.doesNotMatch(block, /\$\{\{\s*github\.event\.inputs\./, `${name} must not interpolate github.event.inputs inside a run script; pass them through env`);
-  }
+  assertPublishWorkflowContract(text, name);
+  const survivors = proveMutations(parseYaml(text));
+  assert.deepEqual(survivors, [], `${name}: the contract accepts these violations`);
 }
 test("Right Suite hosts no hosted workflow except rightkit's three reviewed workflows", () => {
   for (const root of ["viewright", "scraperight", "heardright", "mailright", "coderight", "genright", "voiceright", "rightkit"]) {
@@ -1133,6 +1082,44 @@ test("Right Suite hosts no hosted workflow except rightkit's three reviewed work
       assert.doesNotMatch(text, PUBLISHING_WORKFLOW, `${name} must not publish or read secrets`);
       if (RIGHTKIT_EXCEPTION_WORKFLOWS.includes(name)) assertManualBuildWorkflow(text, name);
     }
+  }
+});
+
+const publishWorkflowText = () => readFileSync(new URL("../../.github/workflows/publish.yml", import.meta.url), "utf8").replace(/\r\n/g, "\n");
+
+test("publish.yml: every security property is asserted on the parsed workflow and each violation is rejected", () => {
+  const doc = parseYaml(publishWorkflowText());
+  assertPublishWorkflowContract(publishWorkflowText(), "publish.yml");
+  assert.deepEqual(VERIFY_HOSTS, ["windows-2025", "xcode-27"]);
+  assert.deepEqual([...doc.jobs.verify.strategy.matrix.os].sort(), VERIFY_HOSTS);
+  assert.ok(doc.jobs.upload.needs.includes("verify"), "upload must need verify, and with it both verify hosts");
+  assert.equal(doc.jobs.upload.environment, "release");
+  assert.ok(MUTATIONS.length >= 30, "the mutation set must stay broad");
+  assert.deepEqual(proveMutations(doc), []);
+});
+
+test("publish.yml: named violations fail the contract with the property they break", () => {
+  const expectations = [
+    ["drop the Windows verify host", /verify must run on exactly/],
+    ["upload no longer needs verify", /upload must need verify/],
+    ["continue-on-error on a step", /continue-on-error is forbidden/],
+    ["guard allows another branch", /refs\/heads\/main/],
+    ["verify requests id-token", /verify must not request id-token/],
+    ["pack reads a secret", /pack must not reference a secret/],
+    ["upload installs dependencies", /upload may run only/],
+    ["upload adds pnpm", /upload may not use pnpm/],
+    ["upload loses its environment", /environment: release/],
+    ["upload runs even after failures", /override the needs result/],
+    ["upload no longer needs main", /real publish from main/],
+    ["seal-check reads a secret", /seal-check must not reference a secret/],
+  ];
+  const doc = parseYaml(publishWorkflowText());
+  for (const [name, pattern] of expectations) {
+    const mutation = MUTATIONS.find(([label]) => label === name);
+    assert.ok(mutation, `mutation ${name} must exist`);
+    const copy = structuredClone(doc);
+    mutation[1](copy);
+    assert.throws(() => assertPublishDoc(copy, "publish.yml"), pattern, name);
   }
 });
 

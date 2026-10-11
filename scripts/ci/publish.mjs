@@ -3,21 +3,25 @@
 // repository: this runs in GitHub Actions only, never on a developer host.
 //
 //   publish.mjs plan     validate the request, skip versions already published, order the rest
-//   publish.mjs pack     npm: `pnpm pack` every planned package, in order, and record hashes
-//   publish.mjs publish  npm publish / cargo publish the planned units (real or dry run)
+//   publish.mjs pack     unprivileged: build the exact artifacts once (npm tarballs, .crate files)
+//                        and seal them with a manifest of name, version, size and hashes
+//   publish.mjs verify   unprivileged, once per host: re-hash the sealed bytes, check those bytes,
+//                        require the gate's per-unit pass evidence, write this host's receipt
 //   publish.mjs ledger <receipt.json...>   record receipts in packages/release/rightkit-versions.json
 //
-// Inputs arrive only through the environment (PUBLISH_REGISTRY, PUBLISH_UNITS, PUBLISH_DRY_RUN),
-// never through the command line and never through shell interpolation. Every unit name is
-// matched against a strict pattern and against the workspace before any process starts.
-// Secrets (NODE_AUTH_TOKEN, CARGO_REGISTRY_TOKEN) are read only by `publish`, and `publish`
-// refuses to run a dry run while one of them is present.
-import crypto from "node:crypto";
+// Uploading is NOT here: scripts/ci/upload.mjs is the only code that sees a registry token. This file
+// holds no secret, refuses to run with one in its environment, and never publishes.
+//
+// Inputs arrive only through the environment (PUBLISH_REGISTRY, PUBLISH_UNITS, PUBLISH_DRY_RUN,
+// PUBLISH_ALLOW_HOST_EXCLUSION, PUBLISH_ALLOW_NO_TEST), never through the command line and never
+// through shell interpolation. Every unit name is matched against a strict pattern and against the
+// workspace before any process starts.
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { checkNpmTarball, childEnv, integrity, loadSealed, PASS_STATUSES, sha, TOKEN_VARS } from "./upload.mjs";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
 
@@ -25,6 +29,7 @@ export const NPM_NAME = /^(?:@[a-z0-9][a-z0-9._-]{0,63}\/)?[a-z0-9][a-z0-9._-]{0
 export const CRATE_NAME = /^[a-z][a-z0-9_-]{0,63}$/;
 export const PLAIN_VERSION = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/;
 export const MAX_UNITS = 60;
+export const HOSTS = ["macos", "windows"];
 
 // ---- version requirements ---------------------------------------------------------------------
 
@@ -40,15 +45,21 @@ function comparator(token, bare) {
   if (token === "*" || token === "x" || token === "X" || token === "") return () => true;
   const m = /^(\^|~|>=|<=|>|<|=)?(\d+|[xX*])(?:\.(\d+|[xX*]))?(?:\.(\d+|[xX*]))?$/.exec(token);
   if (!m) throw new Error(`unsupported version requirement "${token}"`);
-  const nums = [];
-  for (const part of m.slice(2)) { if (part === undefined || /^[xX*]$/.test(part)) break; nums.push(Number(part)); }
+  const nums = []; let wild = false;
+  for (const part of m.slice(2)) {
+    if (part === undefined) break;
+    if (/^[xX*]$/.test(part)) { wild = true; continue; }
+    if (wild) throw new Error(`unsupported version requirement "${token}": a number follows a wildcard`);
+    nums.push(Number(part));
+  }
   if (nums.length === 0) return () => true;
   const n = nums.length;
   const lo = [nums[0], nums[1] ?? 0, nums[2] ?? 0];
   const bump = (index) => { const hi = [...lo]; hi[index] += 1; for (let i = index + 1; i < 3; i += 1) hi[i] = 0; return hi; };
   const range = (hi) => (v) => cmp(v, lo) >= 0 && cmp(v, hi) < 0;
   let op = m[1];
-  if (!op) op = bare === "caret" ? "^" : n === 3 ? "=" : "x";
+  // "1.2.*" and "1.x" are ranges of their own (Cargo: >=1.2.0, <1.3.0), not the caret of "1.2".
+  if (!op) op = wild ? "x" : bare === "caret" ? "^" : n === 3 ? "=" : "x";
   switch (op) {
     case "=": return n === 3 ? (v) => cmp(v, lo) === 0 : range(bump(n - 1));
     case "x": return range(bump(n - 1));
@@ -93,72 +104,46 @@ export function readNpmWorkspace(root = ROOT) {
     for (const kind of ["dependencies", "optionalDependencies", "peerDependencies"]) {
       for (const [name, spec] of Object.entries(manifest[kind] ?? {})) deps.push({ name, spec: String(spec), kind, dev: false });
     }
-    units.set(manifest.name, { name: manifest.name, version: manifest.version ?? "", dir: `packages/${entry.name}`, private: manifest.private === true, deps });
+    units.set(manifest.name, { name: manifest.name, version: manifest.version ?? "", dir: `packages/${entry.name}`, private: manifest.private === true, hasTest: Boolean(manifest.scripts?.test), deps });
   }
   return units;
 }
 
 /**
- * Minimal Cargo.toml reader for the facts publication needs: package name, version, `publish`, and
- * dependency requirements. Single-line dependency entries only; a multi-line inline table for a
- * workspace crate is refused rather than guessed at.
+ * The publishable facts of a Cargo workspace, taken from `cargo metadata --format-version 1 --no-deps`
+ * output. Cargo itself resolves quoted keys, `dependency.workspace = true` inheritance, renamed
+ * dependencies, multi-line tables and `[target.*]` sections, so nothing is parsed by hand and nothing
+ * is silently dropped. A dependency with a path and no version requirement reports req "*" and no
+ * registry source; it becomes spec null (the registry rejects it).
  */
-export function parseCargoManifest(text, label = "Cargo.toml") {
-  const sections = [];
-  let current = null;
-  for (const line of String(text).replace(/\r\n/g, "\n").split("\n")) {
-    const header = /^\[([^\[\]]+)\]\s*(?:#.*)?$/.exec(line);
-    if (header) { current = { name: header[1].trim().replace(/\s+/g, ""), lines: [] }; sections.push(current); continue; }
-    if (/^\[\[/.test(line)) { current = { name: "[[array]]", lines: [] }; sections.push(current); continue; }
-    current?.lines.push(line);
-  }
-  const pkg = sections.find((s) => s.name === "package");
-  if (!pkg) return null;
-  const field = (key) => {
-    const hit = pkg.lines.map((l) => new RegExp(`^${key}\\s*=\\s*(.+?)\\s*(?:#.*)?$`).exec(l)).find(Boolean);
-    return hit?.[1];
-  };
-  const str = (raw) => /^"([^"]*)"$/.exec(raw ?? "")?.[1];
-  const name = str(field("name"));
-  const version = str(field("version"));
-  if (!name) throw new Error(`${label}: package name is not a literal string`);
-  const publishRaw = field("publish");
-  const publishable = !(publishRaw === "false" || publishRaw === "[]");
-  const deps = [];
-  const add = (key, body, dev) => {
-    const real = /\bpackage\s*=\s*"([^"]+)"/.exec(body)?.[1] ?? key;
-    const spec = /^\s*"([^"]*)"\s*$/.exec(body)?.[1] ?? /\bversion\s*=\s*"([^"]*)"/.exec(body)?.[1] ?? null;
-    deps.push({ name: real, spec, dev, path: /\bpath\s*=/.test(body), optional: /\boptional\s*=\s*true/.test(body) });
-  };
-  for (const section of sections) {
-    const m = /^(?:target\..+\.)?(dependencies|dev-dependencies|build-dependencies)(?:\.([A-Za-z0-9_-]+))?$/.exec(section.name);
-    if (!m) continue;
-    const dev = m[1] === "dev-dependencies";
-    if (m[2]) { add(m[2], section.lines.join(" "), dev); continue; }
-    for (const line of section.lines) {
-      const entry = /^([A-Za-z0-9_-]+)\s*=\s*(.+?)\s*$/.exec(line);
-      if (!entry) continue; // blank, comment, or `name.workspace = true` (never a rightkit crate)
-      const body = entry[2].replace(/\s+#.*$/, "");
-      if (body.startsWith("{") && !body.includes("}")) {
-        if (entry[1].startsWith("rightkit-")) throw new Error(`${label}: multi-line dependency table for ${entry[1]} is not supported; put it on one line`);
-        continue;
-      }
-      add(entry[1], body.replace(/^\{|\}.*$/g, ""), dev);
-    }
-  }
-  return { name, version: version ?? "", publishable, deps };
-}
-
-export function readCrateWorkspace(root = ROOT) {
+export function crateWorkspaceFromMetadata(meta) {
+  if (!meta || !Array.isArray(meta.packages) || typeof meta.workspace_root !== "string") throw new Error("cargo metadata output has no packages/workspace_root");
+  const members = new Set(meta.workspace_members ?? []);
+  const root = meta.workspace_root.replace(/\\/g, "/").replace(/\/$/, "");
   const units = new Map();
-  for (const entry of fs.readdirSync(path.join(root, "crates"), { withFileTypes: true })) {
-    if (!entry.isDirectory()) continue;
-    let text;
-    try { text = fs.readFileSync(path.join(root, "crates", entry.name, "Cargo.toml"), "utf8"); } catch { continue; }
-    const manifest = parseCargoManifest(text, `crates/${entry.name}/Cargo.toml`);
-    if (manifest) units.set(manifest.name, { name: manifest.name, version: manifest.version, dir: `crates/${entry.name}`, private: !manifest.publishable, deps: manifest.deps });
+  for (const pkg of meta.packages) {
+    if (members.size && !members.has(pkg.id)) continue;
+    const manifest = String(pkg.manifest_path).replace(/\\/g, "/");
+    const dir = path.posix.dirname(manifest).startsWith(`${root}/`) ? path.posix.dirname(manifest).slice(root.length + 1) : path.posix.dirname(manifest);
+    const deps = (pkg.dependencies ?? []).map((d) => {
+      if (typeof d.name !== "string" || typeof d.req !== "string") throw new Error(`${pkg.name}: cargo metadata dependency without a name or requirement`);
+      const pathOnly = (d.source ?? null) === null;
+      return { name: d.name, rename: d.rename ?? null, spec: pathOnly && d.req === "*" ? null : d.req, dev: d.kind === "dev", path: pathOnly, optional: d.optional === true, source: d.source ?? null };
+    });
+    const publish = pkg.publish;
+    units.set(pkg.name, { name: pkg.name, version: pkg.version ?? "", dir, private: Array.isArray(publish) && !publish.includes("crates-io"), deps, metadata: pkg });
   }
   return units;
+}
+
+export function readCargoMetadata(root = ROOT, spawn = spawnSync, args = []) {
+  const result = spawn("cargo", ["metadata", "--format-version", "1", "--no-deps", ...args], { cwd: root, encoding: "utf8", maxBuffer: 512 * 1024 * 1024 });
+  if (result.error || result.status !== 0) throw new Error(`cargo metadata failed: ${String(result.stderr ?? result.error?.message ?? "").slice(0, 400)}`);
+  return JSON.parse(result.stdout);
+}
+
+export function readCrateWorkspace(root = ROOT, spawn = spawnSync) {
+  return crateWorkspaceFromMetadata(readCargoMetadata(root, spawn));
 }
 
 // ---- registries (anonymous HTTPS reads, no token) ---------------------------------------------
@@ -223,14 +208,27 @@ export function parseUnitNames(text, registry) {
   return [...new Set(tokens)];
 }
 
+/** An optional space-separated allow list: valid names only, each one of the requested units. */
+export function parseAllowList(text, registry, units, label) {
+  const tokens = String(text ?? "").split(/\s+/).filter(Boolean);
+  if (tokens.length === 0) return [];
+  const pattern = registry === "npm" ? NPM_NAME : CRATE_NAME;
+  const bad = tokens.filter((t) => !pattern.test(t) || !units.includes(t));
+  if (bad.length) throw new Error(`${label} names ${bad.map((t) => JSON.stringify(t.slice(0, 80))).join(", ")}, which are not units of this request`);
+  return [...new Set(tokens)];
+}
+
 /**
  * Validate a publish request against the workspace and the registry. Returns
- * { registry, dryRun, units: [{ name, version, dir }] (publish order), skipped: [{ name, version }] }
+ * { registry, dryRun, units: [{ name, version, dir }] (publish order), skipped: [{ name, version }],
+ *   allowHostExclusion, allowNoTest }
  * or throws one Error listing every refusal.
  */
-export async function planPublication({ registry, unitsText, dryRun, root = ROOT, fetchImpl = fetch, workspace }) {
+export async function planPublication({ registry, unitsText, dryRun, allowHostExclusionText = "", allowNoTestText = "", root = ROOT, fetchImpl = fetch, workspace }) {
   if (registry !== "npm" && registry !== "crates") throw new Error(`registry must be npm or crates, got ${JSON.stringify(registry)}`);
   const names = parseUnitNames(unitsText, registry);
+  const allowHostExclusion = parseAllowList(allowHostExclusionText, registry, names, "allow_host_exclusion");
+  const allowNoTest = parseAllowList(allowNoTestText, registry, names, "allow_no_test");
   const style = registry === "npm" ? "npm" : "cargo";
   const members = workspace ?? (registry === "npm" ? readNpmWorkspace(root) : readCrateWorkspace(root));
   const lookup = registry === "npm" ? npmRegistryVersions : crateRegistryVersions;
@@ -240,20 +238,30 @@ export async function planPublication({ registry, unitsText, dryRun, root = ROOT
   const errors = [];
   const where = registry === "npm" ? "npm" : "crates.io";
 
+  const needed = { exclusion: new Set(), noTest: new Set() };
   const requested = [];
   for (const name of names) {
     const unit = members.get(name);
-    if (!unit) { errors.push(`${name}: not a ${registry === "npm" ? "package under packages/" : "crate under crates/"} of this workspace`); continue; }
+    if (!unit) { errors.push(`${name}: not a ${registry === "npm" ? "package under packages/" : "crate of this workspace"}`); continue; }
     if (unit.private) { errors.push(`${name}: ${registry === "npm" ? "private package" : "publish = false"}; it is never published`); continue; }
     if (!PLAIN_VERSION.test(unit.version)) { errors.push(`${name}: version ${JSON.stringify(unit.version)} is not a plain x.y.z release version`); continue; }
     const red = [name, `rust:${name}`, unit.dir, `npm:${unit.dir}`].find((key) => redKeys.has(key));
     if (red) { errors.push(`${name}: listed in ci/known-red.json (${red}); a known-red unit is not published`); continue; }
     if (registry === "crates") {
-      const os = gateConfig.rust?.[name]?.os;
-      if (os && !os.includes("macos")) errors.push(`${name}: ci/gate.config.json restricts it to ${os.join(", ")}; crates publish from the macOS runner`);
+      const hosts = gateConfig.rust?.[name]?.os;
+      if (hosts && !hosts.includes("macos")) errors.push(`${name}: ci/gate.config.json restricts it to ${hosts.join(", ")}; crates are packed on the macOS runner`);
+      else if (hosts && !hosts.includes("windows")) {
+        needed.exclusion.add(name);
+        if (!allowHostExclusion.includes(name)) errors.push(`${name}: ci/gate.config.json restricts it to ${hosts.join(", ")}, so Windows verification would skip it; name it in allow_host_exclusion or lift the restriction`);
+      }
+    } else if (!unit.hasTest) {
+      needed.noTest.add(name);
+      if (!allowNoTest.includes(name)) errors.push(`${name}: package.json has no test script, so nothing would verify it; name it in allow_no_test to publish it untested`);
     }
     requested.push(unit);
   }
+  for (const name of allowHostExclusion) if (!needed.exclusion.has(name)) errors.push(`allow_host_exclusion names ${name}, which no host excludes`);
+  for (const name of allowNoTest) if (!needed.noTest.has(name)) errors.push(`allow_no_test names ${name}, which has a test script or is not an npm package of this request`);
 
   const registryCache = new Map();
   const published = async (name) => {
@@ -279,6 +287,9 @@ export async function planPublication({ registry, unitsText, dryRun, root = ROOT
       if (dep.dev && !dep.spec) continue; // path-only dev-dependency: cargo strips it on publish
       if (registry === "npm" && dep.spec.startsWith("workspace:") === false && /^(file|link|git|github|https?):/.test(dep.spec)) {
         errors.push(`${unit.name}: dependency ${dep.name} uses a non-registry specifier ${dep.spec}`); continue;
+      }
+      if (registry === "crates" && typeof dep.source === "string" && dep.source.startsWith("git+")) {
+        errors.push(`${unit.name}: dependency ${dep.name} is a git dependency; the registry rejects it`); continue;
       }
       if (target.private) { errors.push(`${unit.name}: depends on ${registry === "npm" ? "private package" : "publish = false crate"} ${dep.name}`); continue; }
       if (!dep.spec) { errors.push(`${unit.name}: dependency ${dep.name} has no version requirement; the registry rejects a path-only dependency`); continue; }
@@ -319,39 +330,42 @@ export async function planPublication({ registry, unitsText, dryRun, root = ROOT
     registry, dryRun,
     units: order.map((name) => ({ name, version: planned.get(name).version, dir: planned.get(name).dir })),
     skipped,
+    allowHostExclusion: allowHostExclusion.filter((n) => planned.has(n)),
+    allowNoTest: allowNoTest.filter((n) => planned.has(n)),
   };
 }
 
 // ---- command line -----------------------------------------------------------------------------
 
-const env = (key) => process.env[key] ?? "";
 const log = (line) => process.stdout.write(`${line}\n`);
+const hostName = () => (process.platform === "win32" ? "windows" : process.platform === "darwin" ? "macos" : "linux");
 
-function setOutputs(values) {
+function setOutputs(values, env = process.env) {
   const lines = Object.entries(values).map(([key, value]) => {
     const text = String(value);
     if (!/^[A-Za-z0-9@/._ :,\-[\]{}"]*$/.test(text) || /[\r\n]/.test(text)) throw new Error(`unsafe job output for ${key}`);
     return `${key}=${text}`;
   });
-  if (process.env.GITHUB_OUTPUT) fs.appendFileSync(process.env.GITHUB_OUTPUT, `${lines.join("\n")}\n`);
+  if (env.GITHUB_OUTPUT) fs.appendFileSync(env.GITHUB_OUTPUT, `${lines.join("\n")}\n`);
   else log(lines.join("\n"));
 }
 
-function dryRunInput() {
-  const raw = env("PUBLISH_DRY_RUN");
+function dryRunInput(env) {
+  const raw = env.PUBLISH_DRY_RUN ?? "";
   if (raw !== "true" && raw !== "false") throw new Error(`PUBLISH_DRY_RUN must be true or false, got ${JSON.stringify(raw)}`);
   return raw === "true";
 }
 
-async function commandPlan() {
-  const plan = await planPublication({ registry: env("PUBLISH_REGISTRY"), unitsText: env("PUBLISH_UNITS"), dryRun: dryRunInput() });
+async function commandPlan(env = process.env) {
+  const plan = await planPublication({ registry: env.PUBLISH_REGISTRY ?? "", unitsText: env.PUBLISH_UNITS ?? "", dryRun: dryRunInput(env), allowHostExclusionText: env.PUBLISH_ALLOW_HOST_EXCLUSION ?? "", allowNoTestText: env.PUBLISH_ALLOW_NO_TEST ?? "" });
+  const names = new Set(plan.units.map((u) => u.name));
   const rows = [
     `## Publish plan (${plan.registry}, ${plan.dryRun ? "dry run" : "real publish"})`, "",
     "| Order | Unit | Version |", "|---|---|---|",
     ...plan.units.map((u, i) => `| ${i + 1} | ${u.name} | ${u.version} |`),
     "", plan.skipped.length ? `Already on the registry, skipped: ${plan.skipped.map((u) => `${u.name}@${u.version}`).join(", ")}` : "Nothing skipped.",
   ].join("\n");
-  if (process.env.GITHUB_STEP_SUMMARY) fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, `${rows}\n`);
+  if (env.GITHUB_STEP_SUMMARY) fs.appendFileSync(env.GITHUB_STEP_SUMMARY, `${rows}\n`);
   log(rows);
   setOutputs({
     registry: plan.registry,
@@ -359,17 +373,32 @@ async function commandPlan() {
     count: plan.units.length,
     units: plan.units.map((u) => u.name).join(" "),
     skipped: plan.skipped.map((u) => u.name).join(" "),
-  });
+    allow_host_exclusion: plan.allowHostExclusion.filter((n) => names.has(n)).join(" "),
+    allow_no_test: plan.allowNoTest.filter((n) => names.has(n)).join(" "),
+  }, env);
 }
 
-const sha = (algorithm, bytes) => crypto.createHash(algorithm).update(bytes).digest("hex");
-const git = (...args) => spawnSync("git", args, { cwd: ROOT, encoding: "utf8" });
+const packDir = (env = process.env) => env.PUBLISH_PACK_DIR || path.join(env.RUNNER_TEMP || os.tmpdir(), "rk-pack");
+const tarballName = (name, version) => `${name.replace(/^@/, "").replace("/", "-")}-${version}.tgz`;
+
+/** The pack and verify jobs hold no secret. Refuse to run if one is present. */
+export function requireNoTokens(env) {
+  for (const variable of TOKEN_VARS) if (env[variable]) throw new Error(`${variable} is present in an unprivileged step; pack and verify must not receive secrets`);
+  if (env.ACTIONS_ID_TOKEN_REQUEST_URL || env.ACTIONS_ID_TOKEN_REQUEST_TOKEN) throw new Error("an OIDC token is present in an unprivileged step; pack and verify must not request id-token");
+}
+
+export function requireActionsOnMain(env, spawn = spawnSync) {
+  if (env.GITHUB_ACTIONS !== "true") throw new Error("publication runs in GitHub Actions only");
+  if (env.GITHUB_REF !== "refs/heads/main") throw new Error(`publication runs from refs/heads/main only, not ${env.GITHUB_REF}`);
+  const head = String(spawn("git", ["rev-parse", "HEAD"], { cwd: ROOT, encoding: "utf8" }).stdout ?? "").trim();
+  if (!/^[0-9a-f]{40}$/.test(head) || head !== env.GITHUB_SHA) throw new Error(`checkout ${head} is not the dispatched commit ${env.GITHUB_SHA}`);
+  return head;
+}
 
 /** Re-derive the ordered, validated unit list inside the job that acts on it: the plan output is not trusted blindly. */
-function plannedUnits() {
-  const registry = env("PUBLISH_REGISTRY");
-  const names = parseUnitNames(env("PUBLISH_UNITS"), registry);
-  const members = registry === "npm" ? readNpmWorkspace() : readCrateWorkspace();
+function plannedUnits(env, members) {
+  const registry = env.PUBLISH_REGISTRY;
+  const names = parseUnitNames(env.PUBLISH_UNITS, registry);
   return names.map((name) => {
     const unit = members.get(name);
     if (!unit || unit.private) throw new Error(`${name}: not a publishable ${registry} unit`);
@@ -377,160 +406,191 @@ function plannedUnits() {
   });
 }
 
-function requireActionsOnMain() {
-  if (env("GITHUB_ACTIONS") !== "true") throw new Error("publication runs in GitHub Actions only");
-  if (env("GITHUB_REF") !== "refs/heads/main") throw new Error(`publication runs from refs/heads/main only, not ${env("GITHUB_REF")}`);
-  const head = git("rev-parse", "HEAD").stdout.trim();
-  if (!/^[0-9a-f]{40}$/.test(head) || head !== env("GITHUB_SHA")) throw new Error(`checkout ${head} is not the dispatched commit ${env("GITHUB_SHA")}`);
-  return head;
+/**
+ * The crates.io publish metadata (the JSON half of the publish request) for one packaged crate,
+ * from `cargo metadata --no-deps` of the PACKAGED Cargo.toml, where Cargo has already resolved
+ * workspace inheritance and removed path keys. Field names follow the `NewCrate` struct of Cargo's
+ * `crates-io` crate and the registry web API "publish" endpoint.
+ */
+export function buildCrateUploadMetadata(pkg, readmeText = null) {
+  const deps = (pkg.dependencies ?? []).map((d) => ({
+    optional: d.optional === true,
+    default_features: d.uses_default_features !== false,
+    name: d.name,
+    features: d.features ?? [],
+    version_req: d.req,
+    target: d.target ?? null,
+    kind: d.kind ?? "normal",
+    registry: d.registry ?? null,
+    explicit_name_in_toml: d.rename ?? null,
+  }));
+  return {
+    name: pkg.name,
+    vers: pkg.version,
+    deps,
+    features: pkg.features ?? {},
+    authors: pkg.authors ?? [],
+    description: pkg.description ?? null,
+    documentation: pkg.documentation ?? null,
+    homepage: pkg.homepage ?? null,
+    readme: readmeText,
+    readme_file: pkg.readme ?? null,
+    keywords: pkg.keywords ?? [],
+    categories: pkg.categories ?? [],
+    license: pkg.license ?? null,
+    license_file: pkg.license_file ?? null,
+    repository: pkg.repository ?? null,
+    badges: {},
+    links: pkg.links ?? null,
+    rust_version: pkg.rust_version ?? null,
+  };
 }
 
-const packDir = () => path.join(env("RUNNER_TEMP") || os.tmpdir(), "rk-pack");
-const receiptDir = () => path.join(env("RUNNER_TEMP") || os.tmpdir(), "publication-receipt");
-const tarballName = (name, version) => `${name.replace(/^@/, "").replace("/", "-")}-${version}.tgz`;
-
-function commandPack() {
-  if (env("PUBLISH_REGISTRY") !== "npm") throw new Error("pack is for the npm registry");
-  requireActionsOnMain();
-  const units = plannedUnits();
-  fs.rmSync(packDir(), { recursive: true, force: true });
-  fs.mkdirSync(packDir(), { recursive: true });
-  const packed = [];
+function packNpm({ units, root, outDir, env, spawn }) {
+  const entries = [];
   for (const unit of units) {
-    const result = spawnSync("pnpm", ["--dir", unit.dir, "pack", "--pack-destination", packDir()], { cwd: ROOT, stdio: "inherit" });
-    if (result.status !== 0) throw new Error(`pnpm pack failed for ${unit.name}`);
-    const file = path.join(packDir(), tarballName(unit.name, unit.version));
+    const result = spawn("pnpm", ["--dir", unit.dir, "pack", "--pack-destination", outDir], { cwd: root, stdio: "inherit", env });
+    if (result.error || result.status !== 0) throw new Error(`pnpm pack failed for ${unit.name}`);
+    const file = path.join(outDir, tarballName(unit.name, unit.version));
     if (!fs.existsSync(file)) throw new Error(`pnpm pack did not produce ${path.basename(file)}`);
-    const manifest = spawnSync("tar", ["-xOzf", file, "package/package.json"], { encoding: "utf8", maxBuffer: 16 * 1024 * 1024 });
-    if (manifest.status !== 0) throw new Error(`cannot read package.json from ${path.basename(file)}`);
-    const inner = JSON.parse(manifest.stdout);
-    if (inner.name !== unit.name || inner.version !== unit.version) throw new Error(`${path.basename(file)} holds ${inner.name}@${inner.version}, expected ${unit.name}@${unit.version}`);
-    if (/"workspace:/.test(manifest.stdout)) throw new Error(`${unit.name}: packed package.json still holds a workspace: specifier`);
+    const checked = checkNpmTarball({ file, name: unit.name, version: unit.version, dir: unit.dir, spawn });
+    if (checked.problems.length) throw new Error(`${unit.name}: packed tarball refused:\n  - ${checked.problems.join("\n  - ")}`);
     const bytes = fs.readFileSync(file);
-    packed.push({ name: unit.name, version: unit.version, file: path.basename(file), sha256: sha("sha256", bytes), sha1: sha("sha1", bytes) });
-    log(`packed ${unit.name}@${unit.version} sha256 ${packed.at(-1).sha256}`);
+    entries.push({ name: unit.name, version: unit.version, dir: unit.dir, file: path.basename(file), size: bytes.length, sha256: sha("sha256", bytes), sha1: sha("sha1", bytes), integrity: integrity(bytes) });
+    log(`packed ${unit.name}@${unit.version} sha256 ${entries.at(-1).sha256}`);
   }
-  fs.writeFileSync(path.join(packDir(), "pack.json"), JSON.stringify(packed, null, 2));
+  return entries;
 }
 
-class Receipt {
-  constructor(registry, commit, dryRun) {
-    this.file = path.join(receiptDir(), "publication-receipt.json");
-    fs.mkdirSync(receiptDir(), { recursive: true });
-    this.doc = {
-      schema: 1, registry, dryRun, commit,
-      repository: env("GITHUB_REPOSITORY"), runId: env("GITHUB_RUN_ID"), runAttempt: env("GITHUB_RUN_ATTEMPT"),
-      receipts: [],
-    };
-    this.flush();
-  }
-  record(entry) {
-    const existing = this.doc.receipts.findIndex((r) => r.unit === entry.unit);
-    const full = { ...entry, registry: this.doc.registry, commit: this.doc.commit, dryRun: this.doc.dryRun, timestamp: new Date().toISOString() };
-    if (existing >= 0) this.doc.receipts[existing] = full; else this.doc.receipts.push(full);
-    this.flush();
-  }
-  flush() { fs.writeFileSync(this.file, `${JSON.stringify(this.doc, null, 2)}\n`); }
-}
-
-/** Fail closed if the secret for this registry is present in a dry run, or absent in a real publish. */
-function requireTokenState(variable, dryRun) {
-  const present = Boolean(process.env[variable]);
-  if (dryRun && present) throw new Error(`${variable} is present in a dry run; the dry-run step must not receive secrets`);
-  if (!dryRun && !present) throw new Error(`${variable} is not set for a real publish`);
-}
-
-async function commandPublish() {
-  const registry = env("PUBLISH_REGISTRY");
-  const dryRun = dryRunInput();
-  const commit = requireActionsOnMain();
-  const units = plannedUnits();
-  const receipt = new Receipt(registry, commit, dryRun);
-  if (registry === "npm") await publishNpm(units, dryRun, receipt);
-  else if (registry === "crates") await publishCrates(units, dryRun, receipt);
-  else throw new Error(`registry must be npm or crates, got ${JSON.stringify(registry)}`);
-}
-
-async function publishNpm(units, dryRun, receipt) {
-  requireTokenState("NODE_AUTH_TOKEN", dryRun);
-  const packed = JSON.parse(fs.readFileSync(path.join(packDir(), "pack.json"), "utf8"));
-  const tmp = fs.mkdtempSync(path.join(env("RUNNER_TEMP") || os.tmpdir(), "rk-npmrc-"));
-  const userconfig = path.join(tmp, "npmrc");
-  // npm substitutes ${NODE_AUTH_TOKEN} itself; the file holds no secret. A dry run has no token to
-  // substitute, so it gets no auth line at all.
-  fs.writeFileSync(userconfig, dryRun ? "" : "//registry.npmjs.org/:_authToken=${NODE_AUTH_TOKEN}\n", { mode: 0o600 });
-  const redact = (text) => (process.env.NODE_AUTH_TOKEN ? String(text ?? "").split(process.env.NODE_AUTH_TOKEN).join("<redacted>") : String(text ?? ""));
+function packCrates({ units, root, outDir, env, spawn, metadata }) {
+  const packed = spawn("cargo", ["package", "--locked", ...units.flatMap((u) => ["-p", u.name])], { cwd: root, stdio: "inherit", env });
+  if (packed.error || packed.status !== 0) throw new Error("cargo package failed; it compiles and verifies each crate without any token");
+  const scratch = fs.mkdtempSync(path.join(env.RUNNER_TEMP || os.tmpdir(), "rk-crate-"));
+  const entries = [];
   try {
     for (const unit of units) {
-      const entry = packed.find((p) => p.name === unit.name && p.version === unit.version);
-      if (!entry) throw new Error(`${unit.name}@${unit.version} was not packed`);
-      const file = path.join(packDir(), entry.file);
+      const crate = `${unit.name}-${unit.version}.crate`;
+      const source = path.join(metadata.target_directory, "package", crate);
+      if (!fs.existsSync(source)) throw new Error(`cargo package did not produce ${crate} under ${metadata.target_directory}/package`);
+      const file = path.join(outDir, crate);
+      fs.copyFileSync(source, file);
+      const unpack = spawn("tar", ["-xzf", crate, "-C", scratch], { cwd: outDir, encoding: "utf8", env: childEnv(env) });
+      if (unpack.error || unpack.status !== 0) throw new Error(`cannot unpack ${crate}`);
+      const inner = path.join(scratch, `${unit.name}-${unit.version}`);
+      const meta = readCargoMetadata(inner, spawn, ["--manifest-path", path.join(inner, "Cargo.toml")]);
+      const pkg = meta.packages.find((p) => p.name === unit.name && p.version === unit.version);
+      if (!pkg) throw new Error(`${crate}: packaged Cargo.toml does not describe ${unit.name}@${unit.version}`);
+      const readme = pkg.readme ? fs.readFileSync(path.join(inner, pkg.readme), "utf8") : null;
+      const metaFile = `${unit.name}-${unit.version}.upload.json`;
+      const metaText = `${JSON.stringify(buildCrateUploadMetadata(pkg, readme))}\n`;
+      fs.writeFileSync(path.join(outDir, metaFile), metaText);
       const bytes = fs.readFileSync(file);
-      if (sha("sha256", bytes) !== entry.sha256) throw new Error(`${entry.file} changed after packing`);
-      const args = ["publish", file, "--access", "public", "--registry", "https://registry.npmjs.org/", "--userconfig", userconfig];
-      if (dryRun) args.push("--dry-run"); else args.push("--provenance");
-      const result = spawnSync("npm", args, { encoding: "utf8", env: process.env });
-      const out = redact(`${result.stdout ?? ""}${result.stderr ?? ""}`).trim();
-      if (out) log(out);
-      if (result.error || result.status !== 0) throw new Error(`npm publish ${dryRun ? "--dry-run " : ""}failed for ${unit.name}@${unit.version}`);
-      const base = { unit: unit.name, version: unit.version, artifact: entry.file, sha256: entry.sha256, sha1: entry.sha1 };
-      if (dryRun) { receipt.record({ ...base, published: false, registryVerified: false }); continue; }
-      receipt.record({ ...base, published: true, registryVerified: false });
-      // Reused: packages/release/publication-gate.mjs. Polls `npm view <name>@<version> dist.shasum` until it
-      // equals the packed tarball's sha1; a different value throws.
-      const { verifyNpmRegistryBytes } = await import(pathToFileURL(path.join(ROOT, "packages", "release", "publication-gate.mjs")).href);
-      verifyNpmRegistryBytes({ name: unit.name, version: unit.version, sha1: entry.sha1 });
-      receipt.record({ ...base, published: true, registryVerified: true });
+      entries.push({ name: unit.name, version: unit.version, dir: unit.dir, file: crate, size: bytes.length, sha256: sha("sha256", bytes), metaFile, metaSha256: sha("sha256", Buffer.from(metaText)) });
+      log(`packed ${crate} sha256 ${entries.at(-1).sha256}`);
     }
-  } finally { fs.rmSync(tmp, { recursive: true, force: true }); }
+  } finally { fs.rmSync(scratch, { recursive: true, force: true }); }
+  return entries;
 }
 
-function crateFile(name, version) {
-  return path.join(env("CARGO_TARGET_DIR") || path.join(ROOT, "target"), "package", `${name}-${version}.crate`);
+/** Build the exact artifacts once, without any secret, and seal them with manifest.json. */
+export function commandPack({ env = process.env, spawn = spawnSync, root = ROOT } = {}) {
+  requireNoTokens(env);
+  const registry = env.PUBLISH_REGISTRY;
+  const commit = requireActionsOnMain(env, spawn);
+  const outDir = packDir(env);
+  fs.rmSync(outDir, { recursive: true, force: true });
+  fs.mkdirSync(outDir, { recursive: true });
+  let entries;
+  if (registry === "npm") entries = packNpm({ units: plannedUnits(env, readNpmWorkspace(root)), root, outDir, env, spawn });
+  else if (registry === "crates") {
+    const metadata = readCargoMetadata(root, spawn);
+    entries = packCrates({ units: plannedUnits(env, crateWorkspaceFromMetadata(metadata)), root, outDir, env, spawn, metadata });
+  } else throw new Error(`registry must be npm or crates, got ${JSON.stringify(registry)}`);
+  const manifest = { schema: 1, registry, commit, repository: env.GITHUB_REPOSITORY ?? "", runId: env.GITHUB_RUN_ID ?? "", runAttempt: env.GITHUB_RUN_ATTEMPT ?? "", units: entries };
+  fs.writeFileSync(path.join(outDir, "manifest.json"), `${JSON.stringify(manifest, null, 2)}\n`);
+  return manifest;
 }
 
-async function verifyCrateOnIndex(unit, cksum) {
-  const deadline = Date.now() + 10 * 60 * 1000;
-  for (;;) {
-    const hit = (await crateRegistryVersions(unit.name)).get(unit.version);
-    if (hit) {
-      if (hit.cksum !== cksum) throw new Error(`crates.io checksum ${hit.cksum} != published .crate ${cksum} for ${unit.name}@${unit.version}; inspect the registry`);
-      return;
+const GENERATED_IN_CRATE = new Set(["Cargo.toml", ".cargo_vcs_info.json", "Cargo.lock"]);
+
+/**
+ * The sealed .crate must be this commit's source: every packaged file equals the blob at `commit`
+ * (read with `git cat-file`, so a CRLF checkout cannot disturb it), and Cargo.toml.orig equals the
+ * crate's own Cargo.toml. Cargo.toml, Cargo.lock and .cargo_vcs_info.json are generated by packaging.
+ */
+export function crateSourceProblems({ file, unit, commit, scratchRoot, spawn = spawnSync }) {
+  const problems = [];
+  const scratch = fs.mkdtempSync(path.join(scratchRoot, "rk-verify-crate-"));
+  try {
+    const unpack = spawn("tar", ["-xzf", path.basename(file), "-C", scratch], { cwd: path.dirname(file), encoding: "utf8", env: childEnv(process.env) });
+    if (unpack.error || unpack.status !== 0) return [`${unit.name}: cannot unpack ${path.basename(file)}`];
+    const inner = path.join(scratch, `${unit.name}-${unit.version}`);
+    if (!fs.existsSync(inner)) return [`${unit.name}: ${path.basename(file)} has no ${unit.name}-${unit.version}/ root`];
+    const blob = (candidate) => {
+      const r = spawn("git", ["cat-file", "blob", `${commit}:${candidate}`], { cwd: ROOT, encoding: "buffer", maxBuffer: 256 * 1024 * 1024 });
+      return r.status === 0 ? Buffer.from(r.stdout) : null;
+    };
+    const walk = (dir) => fs.readdirSync(dir, { withFileTypes: true }).flatMap((e) => (e.isDirectory() ? walk(path.join(dir, e.name)) : [path.join(dir, e.name)]));
+    for (const full of walk(inner)) {
+      const rel = path.relative(inner, full).split(path.sep).join("/");
+      if (GENERATED_IN_CRATE.has(rel)) continue;
+      const candidates = rel === "Cargo.toml.orig" ? [`${unit.dir}/Cargo.toml`] : [`${unit.dir}/${rel}`, rel];
+      const bytes = fs.readFileSync(full);
+      const match = candidates.map(blob).find((b) => b && b.equals(bytes));
+      if (!match) problems.push(`${unit.name}: ${rel} in the sealed crate does not match ${candidates.join(" or ")} at ${commit.slice(0, 12)}`);
     }
-    if (Date.now() > deadline) throw new Error(`${unit.name}@${unit.version} is not in the crates.io index 10 minutes after publish`);
-    await new Promise((resolve) => setTimeout(resolve, 15_000));
-  }
+  } finally { fs.rmSync(scratch, { recursive: true, force: true }); }
+  return problems;
 }
 
-async function publishCrates(units, dryRun, receipt) {
-  requireTokenState("CARGO_REGISTRY_TOKEN", dryRun);
-  const cargo = (args) => {
-    const result = spawnSync("cargo", args, { cwd: ROOT, stdio: "inherit", env: process.env });
-    if (result.error || result.status !== 0) throw new Error(`cargo ${args.slice(0, 2).join(" ")} failed`);
-  };
-  if (dryRun) {
-    // One invocation so cargo (>= 1.90, multi-package publish) resolves a crate's unpublished sibling from the
-    // packages it is packaging together instead of from crates.io.
-    cargo(["publish", "--dry-run", "--locked", ...units.flatMap((u) => ["-p", u.name])]);
-    for (const unit of units) {
-      const file = crateFile(unit.name, unit.version);
-      receipt.record({ unit: unit.name, version: unit.version, artifact: path.basename(file), sha256: fs.existsSync(file) ? sha("sha256", fs.readFileSync(file)) : null, published: false, registryVerified: false });
-    }
-    return;
+/** Evidence the gate wrote for this host: one row per requested unit. */
+function gateEvidence(env) {
+  const file = path.join(env.RUNNER_TEMP || os.tmpdir(), "rightkit-ci", "unit-evidence.json");
+  const doc = readJson(file, null);
+  if (!doc) throw new Error(`no gate evidence at ${file}; the gate must run before verify`);
+  return doc;
+}
+
+/**
+ * Verify the SEALED bytes on this host and write this host's receipt. Re-hashes every sealed file,
+ * checks the npm tarballs (name, version, entry points, provenance repository) or the crate sources,
+ * requires the gate's explicit per-unit evidence, and binds all of it to the manifest hash.
+ */
+export function commandVerify({ env = process.env, spawn = spawnSync, host = hostName() } = {}) {
+  requireNoTokens(env);
+  const registry = env.PUBLISH_REGISTRY;
+  const commit = requireActionsOnMain(env, spawn);
+  const dir = packDir(env);
+  const { manifest, manifestSha256, problems } = loadSealed({ packDir: dir, registry, unitsText: env.PUBLISH_UNITS });
+  if (manifest && manifest.commit !== commit) problems.push(`sealed commit ${manifest.commit} is not the dispatched commit ${commit}`);
+  const hostId = host;
+  if (!HOSTS.includes(hostId)) problems.push(`verify runs on macOS or Windows, not ${hostId}`);
+  const allowHostExclusion = String(env.PUBLISH_ALLOW_HOST_EXCLUSION ?? "").split(/\s+/).filter(Boolean);
+  const allowNoTest = String(env.PUBLISH_ALLOW_NO_TEST ?? "").split(/\s+/).filter(Boolean);
+  const evidence = gateEvidence(env);
+  if (evidence.host !== hostId || evidence.registry !== registry || evidence.sha !== commit) problems.push(`gate evidence is for ${evidence.registry} on ${evidence.host} at ${evidence.sha}, not ${registry} on ${hostId} at ${commit}`);
+  const rows = [];
+  for (const unit of manifest?.units ?? []) {
+    const file = path.join(dir, unit.file);
+    let unitProblems;
+    try {
+      unitProblems = registry === "npm"
+        ? checkNpmTarball({ file, name: unit.name, version: unit.version, dir: unit.dir, spawn }).problems
+        : crateSourceProblems({ file, unit, commit, scratchRoot: env.RUNNER_TEMP || os.tmpdir(), spawn });
+    } catch (error) { unitProblems = [`${unit.name}: ${error.message}`]; }
+    problems.push(...unitProblems);
+    const row = (evidence.units ?? []).find((u) => u.name === unit.name);
+    if (!row) problems.push(`${unit.name}: the gate left no evidence for it on ${hostId}`);
+    else if (!PASS_STATUSES.includes(row.status)) problems.push(`${unit.name}: gate status ${JSON.stringify(row.status)} on ${hostId} is not a pass`);
+    rows.push({ name: unit.name, version: unit.version, file: unit.file, sha256: unit.sha256, bytesVerified: unitProblems.length === 0, status: row?.status ?? "missing", steps: row?.steps ?? [] });
   }
-  for (const unit of units) {
-    // One crate per invocation, dependencies first. Since cargo 1.66 `cargo publish` waits after the upload until
-    // the crate is visible in the registry index, so the next crate (which depends on this one) can resolve it.
-    cargo(["publish", "-p", unit.name, "--locked"]);
-    const file = crateFile(unit.name, unit.version);
-    const base = { unit: unit.name, version: unit.version, artifact: path.basename(file), sha256: null };
-    receipt.record({ ...base, published: true, registryVerified: false });
-    if (!fs.existsSync(file)) throw new Error(`${path.basename(file)} not found after publishing ${unit.name}; cannot compare it with the index`);
-    const cksum = sha("sha256", fs.readFileSync(file));
-    receipt.record({ ...base, sha256: cksum, published: true, registryVerified: false });
-    await verifyCrateOnIndex(unit, cksum);
-    receipt.record({ ...base, sha256: cksum, published: true, registryVerified: true });
-  }
+  if (problems.length) throw new Error(`verification of the sealed artifacts failed on ${hostId}:\n  - ${problems.join("\n  - ")}`);
+  const receipt = { schema: 1, kind: "verify", host: hostId, registry, commit, manifestSha256, repository: env.GITHUB_REPOSITORY ?? "", runId: env.GITHUB_RUN_ID ?? "", runAttempt: env.GITHUB_RUN_ATTEMPT ?? "", allowHostExclusion, allowNoTest, units: rows };
+  const out = path.join(env.RUNNER_TEMP || os.tmpdir(), "verify-receipt");
+  fs.mkdirSync(out, { recursive: true });
+  fs.writeFileSync(path.join(out, `verify-${hostId}.json`), `${JSON.stringify(receipt, null, 2)}\n`);
+  log(`verified ${rows.length} sealed ${registry} unit(s) on ${hostId}`);
+  return receipt;
 }
 
 /** Record verified, real publications in the version ledger (the registry feed `rightkit-versions.json`). */
@@ -550,7 +610,7 @@ async function commandLedger(files) {
 
 if (process.argv[1] && fs.realpathSync(process.argv[1]) === fs.realpathSync(fileURLToPath(import.meta.url))) {
   const [command, ...rest] = process.argv.slice(2);
-  const run = { plan: commandPlan, pack: commandPack, publish: commandPublish, ledger: () => commandLedger(rest) }[command];
-  if (!run) { process.stderr.write("usage: publish.mjs plan|pack|publish|ledger\n"); process.exit(2); }
+  const run = { plan: commandPlan, pack: () => commandPack(), verify: () => commandVerify(), ledger: () => commandLedger(rest) }[command];
+  if (!run) { process.stderr.write("usage: publish.mjs plan|pack|verify|ledger\n"); process.exit(2); }
   try { await run(); } catch (error) { process.stderr.write(`publish: ${error.message}\n`); process.exit(1); }
 }

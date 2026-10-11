@@ -90,8 +90,8 @@ test("npm selection follows dependents; path suites match by directory", () => {
 test("explicit unit selection names exactly the requested units, in order, with no dependents", () => {
   assert.deepEqual(selectUnits({ registry: "crates", units: ["rightkit-b", "rightkit-a", "rightkit-b"], members }).rust, { all: false, test: ["rightkit-b", "rightkit-a"], check: [] });
   const packages = [
-    { name: "@rightkit/ui", dir: "packages/ui", deps: [] },
-    { name: "@rightkit/shell", dir: "packages/shell", deps: ["@rightkit/ui"] },
+    { name: "@rightkit/ui", dir: "packages/ui", scripts: { test: "vitest" }, deps: [] },
+    { name: "@rightkit/shell", dir: "packages/shell", scripts: { test: "vitest" }, deps: ["@rightkit/ui"] },
   ];
   assert.deepEqual(selectUnits({ registry: "npm", units: ["@rightkit/ui"], packages }).npm, { all: false, test: ["packages/ui"] });
   assert.deepEqual(selectUnits({ registry: "npm", units: ["@rightkit/ui"], packages }).rust.test, []);
@@ -99,4 +99,29 @@ test("explicit unit selection names exactly the requested units, in order, with 
   assert.throws(() => selectUnits({ registry: "npm", units: ["@rightkit/nope"], packages }), /unknown npm package/);
   assert.throws(() => selectUnits({ registry: "crates", units: [], members }), /no units/);
   assert.throws(() => selectUnits({ registry: "pip", units: ["x"] }), /npm or crates/);
+});
+
+test("a unit that a host would skip fails the selection unless the request names it", () => {
+  const config = { rust: { "rightkit-a": { os: ["macos"] }, "rightkit-b": {} } };
+  const base = { registry: "crates", units: ["rightkit-a", "rightkit-b"], members, config };
+  assert.throws(() => selectUnits({ ...base, host: "windows" }), /rightkit-a \(restricted to macos\) would be skipped on windows/);
+  const allowed = selectUnits({ ...base, host: "windows", allowHostExclusion: ["rightkit-a"] });
+  assert.deepEqual(allowed.excluded, ["rightkit-a"]);
+  assert.deepEqual(allowed.rust.test, ["rightkit-b"]);
+  assert.deepEqual(selectUnits({ ...base, host: "macos" }).rust.test, ["rightkit-a", "rightkit-b"]);
+  assert.throws(() => selectUnits({ ...base, host: "macos", allowHostExclusion: ["rightkit-zzz"] }), /not units of this request/);
+  assert.throws(() => selectUnits({ ...base, host: "macos", allowNoTest: ["rightkit-a"] }), /npm packages only/);
+});
+
+test("an npm package without a test script fails the selection unless allow_no_test names it", () => {
+  const packages = [
+    { name: "@rightkit/ax", dir: "packages/ax", scripts: {}, deps: [] },
+    { name: "@rightkit/ui", dir: "packages/ui", scripts: { test: "vitest" }, deps: [] },
+  ];
+  assert.throws(() => selectUnits({ registry: "npm", units: ["@rightkit/ax", "@rightkit/ui"], packages }), /@rightkit\/ax has no test script/);
+  const ok = selectUnits({ registry: "npm", units: ["@rightkit/ax", "@rightkit/ui"], packages, allowNoTest: ["@rightkit/ax"] });
+  assert.deepEqual(ok.noTest, ["@rightkit/ax"]);
+  assert.deepEqual(ok.npm.test, ["packages/ui"]);
+  assert.throws(() => selectUnits({ registry: "npm", units: ["@rightkit/ui"], packages, allowNoTest: ["@rightkit/ui"] }), /not units|has a test script/);
+  assert.throws(() => selectUnits({ registry: "npm", units: ["@rightkit/ui"], packages, allowHostExclusion: ["@rightkit/ui"] }), /crates only/);
 });

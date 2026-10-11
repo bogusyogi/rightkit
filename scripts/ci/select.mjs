@@ -122,22 +122,46 @@ export function changedConfigCrates(previous, next) {
  * Explicit unit selection for a publish verification run: exactly the named units, in the order
  * given, with nothing derived from a diff and no dependents added. `registry` is "crates" (units
  * are crate names, `members` as for selectRust) or "npm" (units are package names, `packages` as
- * for selectNpm). Returns the shapes selectRust and selectNpm return, so the gate runs them unchanged.
+ * for selectNpm, each with `scripts`). Returns the shapes selectRust and selectNpm return, so the
+ * gate runs them unchanged, plus `excluded` and `noTest`: the units the gate will NOT run on `host`
+ * and has been explicitly allowed not to.
+ *
+ * Nothing is skipped silently. A crate whose `config.rust[name].os` omits `host` throws unless
+ * `allowHostExclusion` names it; an npm package without a `test` script throws unless `allowNoTest`
+ * names it; an allow entry naming a unit that is not in `units` throws.
  */
-export function selectUnits({ registry, units, members = [], packages = [] }) {
+export function selectUnits({ registry, units, members = [], packages = [], host = null, config = {}, allowHostExclusion = [], allowNoTest = [] }) {
   if (!Array.isArray(units) || units.length === 0) throw new Error("no units named");
   const unique = [...new Set(units)];
+  for (const [label, list] of [["allow_host_exclusion", allowHostExclusion], ["allow_no_test", allowNoTest]]) {
+    const stray = list.filter((name) => !unique.includes(name));
+    if (stray.length) throw new Error(`${label} names ${stray.join(", ")}, which are not units of this request`);
+  }
   if (registry === "crates") {
     const known = new Set(members.map((m) => m.name));
     const unknown = unique.filter((name) => !known.has(name));
     if (unknown.length) throw new Error(`unknown crate(s): ${unknown.join(", ")}`);
-    return { rust: { all: false, test: unique, check: [] }, npm: { all: false, test: [] } };
+    if (allowNoTest.length) throw new Error("allow_no_test applies to npm packages only");
+    const excluded = []; const refused = [];
+    for (const name of unique) {
+      const os = config.rust?.[name]?.os;
+      if (!host || !os || os.includes(host)) continue;
+      if (allowHostExclusion.includes(name)) excluded.push(name); else refused.push(`${name} (restricted to ${os.join(", ")})`);
+    }
+    if (refused.length) throw new Error(`${refused.join(", ")} would be skipped on ${host}; name each in allow_host_exclusion or lift the restriction`);
+    return { rust: { all: false, test: unique.filter((n) => !excluded.includes(n)), check: [] }, npm: { all: false, test: [] }, excluded, noTest: [] };
   }
   if (registry === "npm") {
-    const dirs = new Map(packages.map((p) => [p.name, p.dir]));
-    const unknown = unique.filter((name) => !dirs.has(name));
+    const byName = new Map(packages.map((p) => [p.name, p]));
+    const unknown = unique.filter((name) => !byName.has(name));
     if (unknown.length) throw new Error(`unknown npm package(s): ${unknown.join(", ")}`);
-    return { rust: { all: false, test: [], check: [] }, npm: { all: false, test: unique.map((name) => dirs.get(name)) } };
+    if (allowHostExclusion.length) throw new Error("allow_host_exclusion applies to crates only");
+    const noTest = unique.filter((name) => !byName.get(name).scripts?.test);
+    const refused = noTest.filter((name) => !allowNoTest.includes(name));
+    if (refused.length) throw new Error(`${refused.join(", ")} has no test script, so nothing would verify it; name each in allow_no_test`);
+    const unused = allowNoTest.filter((name) => !noTest.includes(name));
+    if (unused.length) throw new Error(`allow_no_test names ${unused.join(", ")}, which has a test script`);
+    return { rust: { all: false, test: [], check: [] }, npm: { all: false, test: unique.filter((n) => !noTest.includes(n)).map((name) => byName.get(name).dir) }, excluded: [], noTest };
   }
   throw new Error(`registry must be npm or crates, got ${JSON.stringify(registry)}`);
 }

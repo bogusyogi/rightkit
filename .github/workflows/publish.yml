@@ -1,10 +1,17 @@
 # Publishes selected @rightkit npm packages or rightkit crates. Manual dispatch from main only.
 # docs/CI.md ("Publishing") explains dispatch, what each job proves and how the ledger is updated.
 #
-# Trust boundary: the registry tokens are read only by the two real-publish steps of the `publish`
-# job, which sits behind the `release` environment. plan and verify hold no secret. A dry run
-# executes no step that references one, and scripts/ci/publish.mjs refuses a dry run that finds a
-# token in its environment. Request inputs reach scripts only through env, never through run text.
+# Trust boundary. Bytes are built once, then only moved:
+#   pack        no secret, no id-token: builds the npm tarballs / .crate files, seals them with a manifest
+#   verify      no secret, no id-token: on macOS AND Windows re-hashes the sealed bytes, checks them, runs
+#               the unit gate, and writes a per-host receipt bound to the manifest hash
+#   seal-check  no secret, no id-token: the upload script in dry-run mode (hash, receipt and provenance
+#               checks, the exact commands and request bodies, nothing sent)
+#   upload      the ONLY job with a registry token or id-token (environment: release). Fresh runner, checks
+#               out one dependency-free script, installs and builds nothing, re-checks the hashes and both
+#               receipts, then uploads the sealed bytes. It runs only when dry_run is false.
+# Request inputs reach scripts only through env, never through run text. scripts/ci/workflow-contract.mjs
+# asserts all of the above on this file's parsed structure; plan runs it before anything else.
 name: publish
 
 on:
@@ -20,9 +27,17 @@ on:
         type: string
         required: true
       dry_run:
-        description: Verify and package only; publish nothing
+        description: Pack, verify and check the upload; publish nothing
         type: boolean
         default: true
+      allow_host_exclusion:
+        description: Crates that ci/gate.config.json keeps off one verify host; each must be named to publish
+        type: string
+        default: ""
+      allow_no_test:
+        description: npm packages with no test script; each must be named to publish untested
+        type: string
+        default: ""
 
 permissions:
   contents: read
@@ -60,6 +75,8 @@ jobs:
       dry_run: ${{ steps.plan.outputs.dry_run }}
       count: ${{ steps.plan.outputs.count }}
       units: ${{ steps.plan.outputs.units }}
+      allow_host_exclusion: ${{ steps.plan.outputs.allow_host_exclusion }}
+      allow_no_test: ${{ steps.plan.outputs.allow_no_test }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -68,76 +85,29 @@ jobs:
         with:
           node-version: "26.8.1"
           package-manager-cache: false
+      - name: Check the publish route's own contract
+        run: |
+          node scripts/ci/workflow-contract.mjs .github/workflows/publish.yml
+          node --test scripts/ci/publish.test.mjs scripts/ci/select.test.mjs
+      - uses: dtolnay/rust-toolchain@f8be11a05b1d4f3fcebe6410cc16743212b999b0
+        if: ${{ inputs.registry == 'crates' }}
       - name: Validate the request and order the units
         id: plan
         env:
           PUBLISH_REGISTRY: ${{ inputs.registry }}
           PUBLISH_UNITS: ${{ inputs.units }}
           PUBLISH_DRY_RUN: ${{ inputs.dry_run }}
+          PUBLISH_ALLOW_HOST_EXCLUSION: ${{ inputs.allow_host_exclusion }}
+          PUBLISH_ALLOW_NO_TEST: ${{ inputs.allow_no_test }}
         run: node scripts/ci/publish.mjs plan
 
-  verify:
+  pack:
     needs: [guard, plan]
     if: ${{ needs.plan.outputs.count != '0' }}
-    strategy:
-      fail-fast: false
-      matrix:
-        os: ["xcode-27", "windows-2025"]
-        node: ["26.8.1"]
-    runs-on: ${{ matrix.os }}
-    timeout-minutes: 120
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
-        with:
-          node-version: ${{ matrix.node }}
-          package-manager-cache: false
-      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
-        with:
-          version: 11.24.0
-      - run: pnpm install --frozen-lockfile
-      - uses: dtolnay/rust-toolchain@f8be11a05b1d4f3fcebe6410cc16743212b999b0
-        if: ${{ needs.plan.outputs.registry == 'crates' }}
-        with:
-          components: rustfmt, clippy
-      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
-        if: ${{ needs.plan.outputs.registry == 'crates' }}
-        with:
-          workspaces: |
-            . -> target
-          shared-key: rightkit-shared-rust
-          add-job-id-key: false
-          cache-workspace-crates: true
-          save-if: false
-      - name: Build and test exactly the planned units
-        shell: bash
-        env:
-          PUBLISH_REGISTRY: ${{ needs.plan.outputs.registry }}
-          PUBLISH_UNITS: ${{ needs.plan.outputs.units }}
-          CARGO_INCREMENTAL: "1"
-          CARGO_PROFILE_DEV_DEBUG: "0"
-          CARGO_PROFILE_TEST_DEBUG: "0"
-        run: node scripts/ci/gate.mjs --registry "$PUBLISH_REGISTRY" --units "$PUBLISH_UNITS"
-      - name: Upload QA evidence
-        if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
-        with:
-          name: publish-verify-${{ matrix.os }}-${{ github.run_attempt }}
-          path: ${{ runner.temp }}/rightkit-ci
-          retention-days: 7
-          if-no-files-found: ignore
-
-  publish:
-    needs: [guard, plan, verify]
-    if: ${{ needs.plan.outputs.count != '0' && github.ref == 'refs/heads/main' }}
-    environment: release
     runs-on: ${{ needs.plan.outputs.registry == 'crates' && 'xcode-27' || 'ubuntu-24.04' }}
     timeout-minutes: 120
     permissions:
       contents: read
-      id-token: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -155,43 +125,196 @@ jobs:
         run: |
           pnpm install --frozen-lockfile
           pnpm -r --workspace-concurrency=1 run build
-      - name: Pack the planned packages, in order
-        if: ${{ needs.plan.outputs.registry == 'npm' }}
+      - uses: dtolnay/rust-toolchain@f8be11a05b1d4f3fcebe6410cc16743212b999b0
+        if: ${{ needs.plan.outputs.registry == 'crates' }}
+      - name: Pack the planned units once and seal them
         env:
           PUBLISH_REGISTRY: ${{ needs.plan.outputs.registry }}
           PUBLISH_UNITS: ${{ needs.plan.outputs.units }}
         run: node scripts/ci/publish.mjs pack
+      - name: Keep the sealed artifacts
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: publish-packed
+          path: ${{ runner.temp }}/rk-pack
+          retention-days: 7
+          overwrite: true
+          if-no-files-found: error
+
+  verify:
+    needs: [guard, plan, pack]
+    if: ${{ needs.plan.outputs.count != '0' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: ["xcode-27", "windows-2025"]
+        node: ["26.8.1"]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 120
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: ${{ matrix.node }}
+          package-manager-cache: false
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
+        if: ${{ needs.plan.outputs.registry == 'npm' }}
+        with:
+          version: 11.24.0
+      - name: Install the workspace
+        if: ${{ needs.plan.outputs.registry == 'npm' }}
+        run: pnpm install --frozen-lockfile
       - uses: dtolnay/rust-toolchain@f8be11a05b1d4f3fcebe6410cc16743212b999b0
         if: ${{ needs.plan.outputs.registry == 'crates' }}
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        if: ${{ needs.plan.outputs.registry == 'crates' }}
+        with:
+          workspaces: |
+            . -> target
+          shared-key: rightkit-shared-rust
+          add-job-id-key: false
+          cache-workspace-crates: true
+          save-if: false
+      - name: Fetch the sealed artifacts
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: publish-packed
+          path: ${{ runner.temp }}/rk-pack
+      - name: Build and test exactly the planned units
+        shell: bash
+        env:
+          PUBLISH_REGISTRY: ${{ needs.plan.outputs.registry }}
+          PUBLISH_UNITS: ${{ needs.plan.outputs.units }}
+          PUBLISH_ALLOW_HOST_EXCLUSION: ${{ needs.plan.outputs.allow_host_exclusion }}
+          PUBLISH_ALLOW_NO_TEST: ${{ needs.plan.outputs.allow_no_test }}
+          CARGO_INCREMENTAL: "1"
+          CARGO_PROFILE_DEV_DEBUG: "0"
+          CARGO_PROFILE_TEST_DEBUG: "0"
+        run: node scripts/ci/gate.mjs --registry "$PUBLISH_REGISTRY" --units "$PUBLISH_UNITS" --allow-host-exclusion "$PUBLISH_ALLOW_HOST_EXCLUSION" --allow-no-test "$PUBLISH_ALLOW_NO_TEST"
+      - name: Verify the sealed bytes and write this host's receipt
+        shell: bash
+        env:
+          PUBLISH_REGISTRY: ${{ needs.plan.outputs.registry }}
+          PUBLISH_UNITS: ${{ needs.plan.outputs.units }}
+          PUBLISH_ALLOW_HOST_EXCLUSION: ${{ needs.plan.outputs.allow_host_exclusion }}
+          PUBLISH_ALLOW_NO_TEST: ${{ needs.plan.outputs.allow_no_test }}
+        run: node scripts/ci/publish.mjs verify
+      - name: Keep this host's receipt
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: publish-receipt-verify-${{ matrix.os }}
+          path: ${{ runner.temp }}/verify-receipt
+          retention-days: 7
+          overwrite: true
+          if-no-files-found: error
+      - name: Upload QA evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: publish-verify-${{ matrix.os }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/rightkit-ci
+          retention-days: 7
+          overwrite: true
+          if-no-files-found: ignore
 
-      # Dry run: this step runs when dry_run is true and references no secret.
-      - name: Dry-run publish (no secret)
+  seal-check:
+    needs: [guard, plan, pack, verify]
+    if: ${{ needs.plan.outputs.count != '0' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          sparse-checkout: scripts/ci/upload.mjs
+          sparse-checkout-cone-mode: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "26.8.1"
+          package-manager-cache: false
+      - name: Fetch the sealed artifacts
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: publish-packed
+          path: ${{ runner.temp }}/sealed/packed
+      - name: Fetch both hosts' receipts
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          pattern: publish-receipt-verify-*
+          path: ${{ runner.temp }}/sealed/receipts
+      - name: Dry-run the upload with no credentials
+        env:
+          PUBLISH_REGISTRY: ${{ needs.plan.outputs.registry }}
+          PUBLISH_UNITS: ${{ needs.plan.outputs.units }}
+          PUBLISH_ALLOW_HOST_EXCLUSION: ${{ needs.plan.outputs.allow_host_exclusion }}
+          PUBLISH_ALLOW_NO_TEST: ${{ needs.plan.outputs.allow_no_test }}
+        run: node scripts/ci/upload.mjs run --dry-run
+      - name: Keep the dry-run receipt
         if: ${{ needs.plan.outputs.dry_run == 'true' }}
-        env:
-          PUBLISH_REGISTRY: ${{ needs.plan.outputs.registry }}
-          PUBLISH_UNITS: ${{ needs.plan.outputs.units }}
-          PUBLISH_DRY_RUN: "true"
-        run: node scripts/ci/publish.mjs publish
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: publication-receipt-dry-run
+          path: ${{ runner.temp }}/publication-receipt
+          retention-days: 7
+          overwrite: true
+          if-no-files-found: ignore
 
-      # Real publish: the only steps that read a registry token.
-      - name: Publish to npm
-        if: ${{ needs.plan.outputs.dry_run == 'false' && needs.plan.outputs.registry == 'npm' }}
+  upload:
+    needs: [guard, plan, pack, verify, seal-check]
+    if: ${{ needs.plan.outputs.count != '0' && needs.plan.outputs.dry_run == 'false' && github.ref == 'refs/heads/main' }}
+    environment: release
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          sparse-checkout: scripts/ci/upload.mjs
+          sparse-checkout-cone-mode: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "26.8.1"
+          package-manager-cache: false
+      - name: Fetch the sealed artifacts
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: publish-packed
+          path: ${{ runner.temp }}/sealed/packed
+      - name: Fetch both hosts' receipts
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          pattern: publish-receipt-verify-*
+          path: ${{ runner.temp }}/sealed/receipts
+      - name: Upload to npm
+        if: ${{ needs.plan.outputs.registry == 'npm' }}
         env:
           PUBLISH_REGISTRY: ${{ needs.plan.outputs.registry }}
           PUBLISH_UNITS: ${{ needs.plan.outputs.units }}
-          PUBLISH_DRY_RUN: "false"
+          PUBLISH_ALLOW_HOST_EXCLUSION: ${{ needs.plan.outputs.allow_host_exclusion }}
+          PUBLISH_ALLOW_NO_TEST: ${{ needs.plan.outputs.allow_no_test }}
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-        run: node scripts/ci/publish.mjs publish
-      - name: Publish to crates.io
-        if: ${{ needs.plan.outputs.dry_run == 'false' && needs.plan.outputs.registry == 'crates' }}
+        run: node scripts/ci/upload.mjs run
+      - name: Upload to crates.io
+        if: ${{ needs.plan.outputs.registry == 'crates' }}
         env:
           PUBLISH_REGISTRY: ${{ needs.plan.outputs.registry }}
           PUBLISH_UNITS: ${{ needs.plan.outputs.units }}
-          PUBLISH_DRY_RUN: "false"
+          PUBLISH_ALLOW_HOST_EXCLUSION: ${{ needs.plan.outputs.allow_host_exclusion }}
+          PUBLISH_ALLOW_NO_TEST: ${{ needs.plan.outputs.allow_no_test }}
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
-        run: node scripts/ci/publish.mjs publish
-
-      - name: Upload publication receipt
+        run: node scripts/ci/upload.mjs run
+      - name: Keep the publication receipt
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
