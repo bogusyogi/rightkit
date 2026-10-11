@@ -1861,7 +1861,7 @@ mod tests {
         assert!(e.largest.iter().any(|(p, _)| p == &small));
         let text = crate::util::Error::from(e).to_string();
         assert!(
-            text.contains("big") && text.contains(ROOT_CAP_ENV),
+            text.contains(&big.display().to_string()) && text.contains(ROOT_CAP_ENV),
             "{text}"
         );
         let _ = fs::remove_dir_all(&root);

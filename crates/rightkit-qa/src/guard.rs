@@ -182,7 +182,7 @@ fn is_code_at(src: &str, at: usize) -> bool {
 fn is_gated(src: &str, at: usize) -> bool {
     let mut end = at;
     for _ in 0..8 {
-        let found = src[..end].rfind(|c: char| matches!(c, ';' | '{' | '}'));
+        let found = src[..end].rfind([';', '{', '}']);
         let head_start = found.map_or(0, |p| p + 1);
         let head = compact(&src[head_start..end]);
         if QA_NATIVE_GATES.iter().any(|gate| head.contains(*gate)) {

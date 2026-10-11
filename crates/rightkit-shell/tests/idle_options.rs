@@ -37,10 +37,9 @@ fn the_timeout_is_per_host_with_a_per_hide_override_and_a_clamp() {
         effective_delay(host, Some(Duration::from_secs(10 * 24 * 3600))),
         MAX_SUSPEND_AFTER
     );
-    let configured = IdleHost::new(DEFAULT_SUSPEND_AFTER).with_options(IdleOptions {
-        suspend_after: Duration::from_secs(120),
-        ..IdleOptions::default()
-    });
+    let mut options = IdleOptions::default();
+    options.suspend_after = Duration::from_secs(120);
+    let configured = IdleHost::new(DEFAULT_SUSPEND_AFTER).with_options(options);
     assert_eq!(configured.suspend_after, Duration::from_secs(120));
     assert_eq!(configured.options.suspend_after, Duration::from_secs(120));
 }
@@ -184,11 +183,9 @@ fn the_provider_is_read_at_each_hide_and_again_at_the_next_hide() {
 
 #[test]
 fn a_provider_returning_none_falls_back_to_the_fixed_suspend_after() {
-    let options = IdleOptions {
-        suspend_after: Duration::from_secs(120),
-        ..IdleOptions::default()
-    }
-    .suspend_after_with(|| None);
+    let mut options = IdleOptions::default();
+    options.suspend_after = Duration::from_secs(120);
+    let options = options.suspend_after_with(|| None);
     assert_eq!(
         options.hide_delay(Duration::from_secs(120), None),
         Duration::from_secs(120)
