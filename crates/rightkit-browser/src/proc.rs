@@ -99,8 +99,7 @@ pub(crate) fn spawn_chrome(
         let mut line = Vec::new();
         loop {
             line.clear();
-            match reader.read_until(b'
-', &mut line) {
+            match reader.read_until(b'\n', &mut line) {
                 Ok(0) | Err(_) => break,
                 Ok(_) => {}
             }
