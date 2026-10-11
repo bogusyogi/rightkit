@@ -660,15 +660,20 @@ mod tests {
         dir.path().join("t.sock").to_string_lossy().into_owned()
     }
     #[cfg(windows)]
-    fn endpoint(_: &()) -> String {
+    fn endpoint(_: &NoDir) -> String {
         format!(r"\\.\pipe\rightkit-transport-test-{}", unique("p"))
     }
     #[cfg(unix)]
     fn tmp() -> tempfile::TempDir {
         tempfile::Builder::new().prefix("rk").tempdir().unwrap()
     }
+    /// Named pipes need no directory; this stands in for the Unix temporary directory.
     #[cfg(windows)]
-    fn tmp() {}
+    struct NoDir;
+    #[cfg(windows)]
+    fn tmp() -> NoDir {
+        NoDir
+    }
 
     /// A same-user client and host round-trip over the real transport, with the peer
     /// check running on both ends (accept and connect).

@@ -6,10 +6,11 @@ mod common;
 
 use std::path::{Path, PathBuf};
 
+#[cfg(target_os = "macos")]
 use rightkit_media::{
-    content_identity_file, resolve_ffmpeg, sha256_file, verify_cache_clear, verify_content,
-    ArtifactCatalog, ContentFormat, MediaError, ResolutionRequest, Tool,
+    content_identity_file, resolve_ffmpeg, verify_cache_clear, ContentFormat, ResolutionRequest,
 };
+use rightkit_media::{sha256_file, verify_content, ArtifactCatalog, MediaError, Tool};
 
 const PUBLISH: &str = "/Volumes/D/rightkit-publish/artifacts";
 
@@ -26,6 +27,7 @@ fn retained(relative: &str) -> Option<PathBuf> {
     }
 }
 
+#[cfg(target_os = "macos")]
 fn request(path: &Path) -> ResolutionRequest {
     ResolutionRequest {
         override_path: Some(path.to_owned()),

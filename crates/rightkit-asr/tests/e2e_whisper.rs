@@ -12,6 +12,7 @@
 #[macro_use]
 mod common;
 
+#[cfg(target_os = "macos")]
 mod coreml_cache;
 
 use rightkit_asr::{
