@@ -148,7 +148,9 @@ pub enum CloneOutcome {
     /// will modify the copy in place should disallow this step ([`CloneOptions::allow_hard_link`]).
     HardLinked,
     /// A byte copy made through the crate's atomic-write path: its own inode and its own storage.
-    /// Permission bits are copied on Unix; ownership, extended attributes and timestamps are not.
+    /// Permission bits are copied on Unix (unless [`CloneOptions::fresh_metadata`] is set, which
+    /// gives the platform's default mode for a new file); ownership, extended attributes and
+    /// timestamps are not.
     Copied,
 }
 
@@ -163,6 +165,15 @@ pub struct CloneOptions {
     /// durable atomic-write path), and a clone or link syncs the destination's directory on Unix.
     /// Default `true`. See [`crate::publication_durability`] for what Windows can promise.
     pub durable: bool,
+    /// The destination is a fresh file, not a metadata copy of the source. Default `false`.
+    ///
+    /// When `true`, the clone and hard-link steps are skipped (a clone copies the source's mode
+    /// and extended attributes; a hard link is the source's inode and shares its metadata), so the
+    /// result is always [`CloneOutcome::Copied`]. The byte copy gets the platform's default mode
+    /// for a new file (`0666 & !umask` on Unix, honouring the umask), and no extended attributes
+    /// or source permission bits are carried over. Use it when a read-only source must not yield
+    /// a read-only export.
+    pub fresh_metadata: bool,
 }
 
 impl Default for CloneOptions {
@@ -170,6 +181,7 @@ impl Default for CloneOptions {
         Self {
             allow_hard_link: true,
             durable: true,
+            fresh_metadata: false,
         }
     }
 }
@@ -179,6 +191,14 @@ impl CloneOptions {
     pub fn without_hard_link(self) -> Self {
         Self {
             allow_hard_link: false,
+            ..self
+        }
+    }
+
+    /// These options with [`CloneOptions::fresh_metadata`] set to `fresh`.
+    pub fn fresh_metadata(self, fresh: bool) -> Self {
+        Self {
+            fresh_metadata: fresh,
             ..self
         }
     }
@@ -213,6 +233,13 @@ pub fn clone_or_link_or_copy_nofollow_with(
 ) -> FsResult<CloneOutcome> {
     let source = check_source(src)?;
     check_destination(dst)?;
+
+    if options.fresh_metadata {
+        // A clone copies the source's mode and extended attributes, and a hard link is the
+        // source's inode; neither step can give a fresh file, so only the byte copy runs.
+        copy_step(src, dst, source, options)?;
+        return Ok(CloneOutcome::Copied);
+    }
 
     match run_step(Step::Clone, src, dst, options) {
         StepResult::Done => return finish(dst, options, CloneOutcome::Cloned),
@@ -404,11 +431,13 @@ fn copy_step(
     atomic_write_with_options(dst, write_options, |out| {
         io::copy(&mut input, out)?;
         // The copy keeps the source's permission bits (the atomic write made the temp with the
-        // default mode).
+        // default mode), unless the caller asked for a fresh file.
         #[cfg(unix)]
-        out.set_permissions(source.permissions())?;
+        if !options.fresh_metadata {
+            out.set_permissions(source.permissions())?;
+        }
         #[cfg(not(unix))]
-        let _ = &source;
+        let _ = (&source, options.fresh_metadata);
         Ok(())
     })
 }

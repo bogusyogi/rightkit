@@ -8,6 +8,7 @@ Catalog capability: `framed-sidecar`. Published to crates.io (see [INDEX.md](../
 
 - `read_json_line`, `read_json_line_with` (with `ReadLimits`): read one frame and deserialize it. Leading blank lines, including `\r\n`-only lines, are skipped. An oversized frame is discarded as it streams in, never buffered beyond `limit + 1` bytes, and `FrameError::TooLarge` is returned. The next call resumes on a clean boundary. A peer that never sends a newline is cut off after a bounded discard.
 - `write_json_line`: encodes first and measures the payload. If it exceeds the limit, nothing is written and `FrameError::TooLarge` is returned.
+- `encode_json_line`: the same encoding as a `Vec<u8>` (the wire bytes, newline included), refused at encode time if over the limit or if it contains a newline before its terminator. `write_encoded_line` and `write_encoded_line_flush` write those bytes with the same checks; they refuse input that does not end in exactly one newline.
 - `read_json_line_or_oversized`: returns an over-limit frame as a value (`Incoming::Oversized`, with its head and `Oversized::id`). A supervisor can answer that one call and keep the child running.
 - `length_prefixed`: binary-safe alternative framing, a 4-byte big-endian length followed by a JSON body (`write_frame`, `read_frame`, and the `_bytes` variants).
 - `wire`: one typed envelope as `wire::Frame`, with the variants `Hello`, `Ready`, `Request`, `Event`, `Response` and `Bye`.
@@ -48,7 +49,7 @@ The blocking JSON-lines and `length_prefixed` APIs are pure Rust over `std::io`.
 
 ## Tests
 
-`tests/json_lines.rs` (line framing) and `tests/wire_and_prefixed.rs` (wire envelope and length-prefixed frames). `tests/deadline.rs` covers the deadline functions over socketpairs and pipes on Unix, and `tests/deadline_windows.rs` covers them over a named pipe on Windows.
+`tests/json_lines.rs` (line framing), `tests/encoded_lines.rs` (`encode_json_line` and the encoded writers: limit, embedded newline, terminator, flush) and `tests/wire_and_prefixed.rs` (wire envelope and length-prefixed frames). `tests/deadline.rs` covers the deadline functions over socketpairs and pipes on Unix, and `tests/deadline_windows.rs` covers them over a named pipe on Windows.
 
 ## Version and changes
 

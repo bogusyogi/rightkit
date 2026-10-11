@@ -764,12 +764,27 @@ extern "system" {
     ) -> i32;
 }
 
+/// The page's CSS viewport right now, for the settle loop in `viewport.rs`.
+pub fn read_viewport<R: Runtime>(
+    win: &WebviewWindow<R>,
+    _: Duration,
+) -> Result<(f64, f64), String> {
+    let s = eval(win, "innerWidth + ',' + innerHeight")?;
+    let (w, h) = s.split_once(',').ok_or("CSS viewport measurement failed")?;
+    Ok((
+        w.trim().parse().map_err(|_| "invalid CSS width")?,
+        h.trim().parse().map_err(|_| "invalid CSS height")?,
+    ))
+}
+
 /// SetWindowPos has no work-area clamp. Preserve visibility, z-order and focus.
-pub fn set_viewport<R: Runtime>(
+/// Converges on the target when it can; a size the system will not give is not an
+/// error here: the caller reads back and reports what the page actually has.
+pub fn apply_viewport<R: Runtime>(
     win: &WebviewWindow<R>,
     width: u32,
     height: u32,
-) -> Result<(u32, u32), String> {
+) -> Result<(), String> {
     let hwnd = win.hwnd().map_err(|e| e.to_string())?.0 as usize;
     let target = (width as f64, height as f64);
     let measure = || -> Result<(f64, f64), String> {
@@ -818,15 +833,12 @@ pub fn set_viewport<R: Runtime>(
         for _ in 0..10 {
             viewport = measure()?;
             if viewport == target {
-                return Ok((width, height));
+                return Ok(());
             }
             std::thread::sleep(Duration::from_millis(20));
         }
     }
-    Err(format!(
-        "viewport mismatch: requested {width}x{height}, measured {}x{}",
-        viewport.0, viewport.1
-    ))
+    Ok(())
 }
 
 pub fn screenshot<R: Runtime>(win: &WebviewWindow<R>) -> Result<Vec<u8>, String> {

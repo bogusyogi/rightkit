@@ -367,13 +367,23 @@ impl Drop for UnconstrainedWindow {
     }
 }
 
-/// Set native content size without visible-screen clamping, then measure CSS.
+/// The page's CSS viewport right now, for the settle loop in `viewport.rs`.
+pub fn read_viewport<R: Runtime>(
+    win: &WebviewWindow<R>,
+    timeout: Duration,
+) -> Result<(f64, f64), String> {
+    parse_css_viewport(&eval_with_timeout(win, CSS_VIEWPORT, timeout)?)
+}
+
+/// Set native content size without visible-screen clamping. Does not wait for or
+/// report the resulting size: the caller reads it back. `setFrame:display:NO` never
+/// shows, orders or focuses the window, so this is safe for hidden windows.
 /// Layout/zoom/titlebar insets are measured rather than assuming frame == viewport.
-pub fn set_viewport<R: Runtime>(
+pub fn apply_viewport<R: Runtime>(
     win: &WebviewWindow<R>,
     width: u32,
     height: u32,
-) -> Result<(u32, u32), String> {
+) -> Result<(), String> {
     let target = (width as f64, height as f64);
     let viewport = wait_css_viewport(win, None)?;
     on_view(win, move |wk| unsafe {
@@ -413,10 +423,9 @@ pub fn set_viewport<R: Runtime>(
         msg!((); wk, "layoutSubtreeIfNeeded");
         Ok::<(), String>(())
     })??;
-    // Return from the AppKit block before scheduling/waiting on WebKit's JS.
-    // Hidden pages throttle rAF; poll real page dimensions on the service thread.
-    let measured = wait_css_viewport(win, Some(target))?;
-    Ok((measured.0 as u32, measured.1 as u32))
+    // Return from the AppKit block before WebKit's JS is read back (hidden pages
+    // throttle rAF; the caller polls real page dimensions on the service thread).
+    Ok(())
 }
 
 /// CSS viewport (x, y) -> window coordinates. The CSS viewport is the bottom of the

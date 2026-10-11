@@ -14,6 +14,7 @@ Catalog capability: `persistent-jobs`. Published to crates.io (see [INDEX.md](..
 - `Dispatcher`, `CommandSet`, `JobCommands`, `PayloadMapper`: the stdio and CLI contract, with the built-in `job.*` methods.
 - `EngineClient`: client for a running engine.
 - `DispatcherHandler` and `Gate`: serve a `Dispatcher` on `rightkit-service`, and hand off to a new host.
+- `StagedPool`, `PoolConfig`, `StagedHandler`: admission-limited parallel prepare with one thread-affine compute lane (see below).
 
 ## When to use it
 
@@ -30,7 +31,7 @@ Default features are `service` and `supervisor`. `default-features = false` buil
 - `supervisor` (implies `contract`): `EngineSupervisor`, `EngineClient` and the `rightkit-process` re-exports; pulls `rightkit-process`.
 - `service` (implies `contract`): `DispatcherHandler` over `rightkit-service`.
 
-Per-job `Recovery::Never` (destructive jobs are failed as `interrupted` after a crash, never re-run), `JobStore::prune`, `ProgressPolicy`, `CancelToken` and single-flight submit (`SubmitOptions::single_flight`) are documented on their types and in the changelog.
+Per-job `Recovery::Never` (destructive jobs are failed as `interrupted` after a crash, never re-run), `JobStore::prune`, `JobStore::delete`, `JobStore::submit_rejected`, `ProgressPolicy`, `CancelToken`, single-flight submit (`SubmitOptions::single_flight`), the staged pool and held jobs are documented on their types and in the changelog. The staged pool (`pool` module) and held state are ungated and build with `default-features = false`.
 
 ## Usage
 
@@ -74,6 +75,63 @@ Modelled on HeardRight's speech service (`src/sched.rs`, `src/runner.rs`):
 - **Stall timeout, no fixed total.** `Runner::with_stall_timeout(d)` abandons an attempt that shows no sign of life (`progress`, `step_boundary`, `heartbeat`) for `d`, and pauses the job as retryable `stalled`. A long job that keeps making progress is never cut off.
 - **Dispatcher over the service convention.** `DispatcherHandler` serves a `Dispatcher` on `rightkit-service` (service.json, a user-only socket or pipe, a per-app allowlist, and ranking).
 
+## Staged pool
+
+`pool::StagedPool` runs jobs in two stages. `StagedHandler::prepare` runs on parallel threads, up to a limit; `StagedHandler::compute` runs on one lane thread that built its lane value with `new_lane` and uses it for its whole life. Use it when the first stage is I/O or CPU work that can overlap, and the second needs one thread-affine resource (a model, a device, a native handle).
+
+```rust
+let pool = StagedPool::start(
+    store.clone(),
+    JobLocks::new(lock_dir),
+    handler.clone(),          // Arc<impl StagedHandler>
+    PoolConfig::new(|| max_parallel())   // read on every admission
+        .handoff(2)           // buffered items; a full buffer blocks prepare
+        .idle_after(Duration::from_secs(45)),
+    |runner| runner.with_stall_timeout(Duration::from_secs(600)),
+)?;
+pool.enqueue(&job_id)?;       // FIFO admission; ids already queued are ignored
+pool.resume_recoverable()?;   // enqueue every recoverable job, oldest first
+pool.shutdown();
+```
+
+- Admission is FIFO and bounded by the limit closure. A raised limit is seen within 50 ms.
+- Each admitted job still runs through `Runner::run`, so the per-job lock, fencing, attempt accounting and lifecycle events are unchanged.
+- `prepare` returns `Staged::Done(value)` to finish without the lane, or `Staged::Compute(work)` to queue for it.
+- `compute` and `idle` are called only on the lane thread. The lane claims each item before it computes, so an item whose waiter already withdrew (cancel, stall, shutdown) is skipped.
+- `shutdown` stops admission and withdraws buffered or waiting work with the retryable host-handoff error. Those jobs stay recoverable. A `prepare` or `compute` call already running is not interrupted; shutdown waits for it, so a call that never returns blocks shutdown.
+- The pool adds a continuous thread (dispatcher and lane, plus one thread per admitted job). Its resource budget is not yet measured; see `runtime-budget.json`.
+
+## Delete, keep-total, rejected submissions and recovering open
+
+- `JobStore::delete(job_id) -> PruneReport`. A non-terminal job is cancelled first (the hook sees `cancelled`), then its rows are removed in one transaction and its cancel token is set. It does not wait for the handler to stop: a running handler sees the cancel at its next check, and a late write it makes is refused. Artifact files are never deleted; the caller removes `report.artifacts[..].path` if it wants them gone.
+- `PrunePolicy::keep_total(n)` bounds the whole table to `n` rows. It keeps `n` minus the non-terminal count of the newest terminal rows, so active jobs are never dropped. Inside `SubmitOptions::prune` the incoming row counts.
+- `JobStore::submit_rejected(&NewJob, &Ext, &JobError) -> JobRecord`. The job is inserted, `on_create` runs, and the job moves to `failed` with the error and a `rejected` event, all in one transaction. It never runs, and a crash cannot leave it runnable. The app's entitlement check stays in the app; call this when the app refuses.
+- `JobStore::open_recovering(&DbOptions, StoreConfig, RecoveryPolicy) -> (JobStore, Option<PathBuf>)`. If the database file is unreadable and the policy allows it, the file is moved aside and a fresh store is created. The second value is where the old file went; the original bytes are kept under the `.corrupt-` name.
+
+## Per-job resume and sweep
+
+- `Runner::resume_recoverable_each() -> Vec<(String, JobResult<RunOutcome>)>` attempts every recoverable job, oldest first. Each keeps its own result: one failing job does not stop the rest, and a job that cannot be examined is reported by id. `Runner::resume_recoverable` is unchanged and stops at the first error.
+- `Runner::sweep_unclaimed(root) -> Vec<PathBuf>` removes child directories of `root` that contain no path claimed by a non-terminal job (`JobStore::claimed_paths`). Plain files are left alone and a symlink is never followed out of `root`. Call it only when this process is the sole engine for `root`. Not calling it is the off switch.
+
+## Held jobs
+
+A held status is a non-terminal status that waits for a person or an outside check. Declare it on the status model and enter it from a submission:
+
+```rust
+let model = StatusModel::new("submitted", ["submitted", "running", "needs_auth"])
+    .allow("running", "submitted")
+    .hold("needs_auth");
+// later, on the submission's failure path:
+store.hold_submission(&job_id, &JobError::new("needs_auth", "sign in again"), "needs_auth")?;
+// once an operator or outside check decides:
+store.resolve(&job_id, &Resolution::Resubmit, Some("submitted"))?;
+```
+
+- **A held job leaves only through `JobStore::resolve`.** Every other status move returns `illegal_transition`.
+- `Resolution::Resubmit` marks the submission failed, clears its external id and moves the job to `to`; the next `begin_submission` counts one new attempt. `Resolution::Abandon(error)` ends the job `failed`. `Resolution::Adopt(value)` ends it `complete`.
+- `resolve` runs in one transaction with `StoreHook::on_transition` and `StoreHook::on_resolve`, so a ledger keeps or releases its reservation atomically. A hook error rolls the resolution back and the job stays held.
+- The runner neither lists nor runs a held job: `Runner::run` returns `RunOutcome::Paused`, and recovery skips it. `cancel`, `delete` and single-flight supersede skip or refuse it.
+
 ## Extension points
 
 `JobStore::open` opens the base store. `JobStore::open_configured(path, StoreConfig)` adapts it to an app, including an existing database. Changes are additive only.
@@ -100,7 +158,7 @@ Apps that already have a stdio or CLI protocol can adopt `JobStore` with `StoreC
 
 ## Tests
 
-`tests/dispatcher.rs`, `tests/e2e.rs`, `tests/engine_contract.rs`, `tests/fencing.rs`, `tests/genright.rs`, `tests/job_lock.rs`, `tests/supervisor.rs`, `tests/v021.rs`. The `examples/` directory has `job_engine.rs` (the test engine) and `engine_fixture.rs`.
+`tests/dispatcher.rs`, `tests/e2e.rs`, `tests/engine_contract.rs`, `tests/fencing.rs`, `tests/genright.rs`, `tests/job_lock.rs`, `tests/supervisor.rs`, `tests/v021.rs`, `tests/prune.rs`, `tests/delete_reject.rs`, `tests/held.rs`, `tests/resume_sweep.rs`, `tests/pool.rs`. The `examples/` directory has `job_engine.rs` (the test engine) and `engine_fixture.rs`.
 
 ## Platform support
 

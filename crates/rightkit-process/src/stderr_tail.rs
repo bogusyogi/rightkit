@@ -4,7 +4,7 @@
 //! child from blocking on a full pipe.
 
 use std::collections::VecDeque;
-use std::io::{BufRead, BufReader, Read};
+use std::io::{self, BufRead, BufReader, Read};
 use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
 
@@ -32,17 +32,53 @@ impl StderrTail {
     /// reaches `map`. Its bytes are read and discarded up to its newline, and one marker line,
     /// `[stderr line over N bytes dropped]`, takes its place (forwarded to `on_line`, and
     /// retained, without passing through `map`: it holds nothing from the child).
+    ///
+    /// Best effort: if the drain thread cannot be spawned, this returns a tail that retains
+    /// nothing (the error is discarded, and `stderr` is dropped undrained). Use
+    /// [`try_capture`](Self::try_capture) to learn that the drain never started.
     pub fn capture<R: Read + Send + 'static>(
         stderr: R,
         max_bytes: usize,
         map: impl Fn(&str) -> Option<String> + Send + 'static,
         on_line: impl Fn(&str) + Send + 'static,
     ) -> Self {
+        Self::try_capture(stderr, max_bytes, map, on_line).unwrap_or_else(|_| Self {
+            lines: Arc::default(),
+            handle: None,
+        })
+    }
+
+    /// Like [`capture`](Self::capture), but returns the operating-system error when the drain
+    /// thread cannot be spawned, so the caller can fail, retry, or log that stderr is not being
+    /// captured. On success the behaviour is identical to `capture`.
+    pub fn try_capture<R: Read + Send + 'static>(
+        stderr: R,
+        max_bytes: usize,
+        map: impl Fn(&str) -> Option<String> + Send + 'static,
+        on_line: impl Fn(&str) + Send + 'static,
+    ) -> io::Result<Self> {
+        Self::try_capture_with(
+            |name, body| thread::Builder::new().name(name).spawn(body),
+            stderr,
+            max_bytes,
+            map,
+            on_line,
+        )
+    }
+
+    /// `try_capture` with the thread spawner injected, so a test can make the spawn fail.
+    fn try_capture_with<R: Read + Send + 'static>(
+        spawn: impl FnOnce(String, Box<dyn FnOnce() + Send + 'static>) -> io::Result<JoinHandle<()>>,
+        stderr: R,
+        max_bytes: usize,
+        map: impl Fn(&str) -> Option<String> + Send + 'static,
+        on_line: impl Fn(&str) + Send + 'static,
+    ) -> io::Result<Self> {
         let lines: Arc<Mutex<Retained>> = Arc::default();
         let shared = Arc::clone(&lines);
-        let handle = thread::Builder::new()
-            .name("rightkit-stderr-tail".into())
-            .spawn(move || {
+        let handle = spawn(
+            "rightkit-stderr-tail".into(),
+            Box::new(move || {
                 let line_cap = max_bytes.max(1).saturating_mul(4);
                 let mut reader = BufReader::new(stderr);
                 let mut raw = Vec::new();
@@ -78,11 +114,12 @@ impl StderrTail {
                         return;
                     }
                 }
-            });
-        Self {
+            }),
+        )?;
+        Ok(Self {
             lines,
-            handle: handle.ok(),
-        }
+            handle: Some(handle),
+        })
     }
 
     /// Capture with no redaction and no forwarding.
@@ -205,6 +242,28 @@ mod tests {
         let seen = seen.lock().unwrap().clone();
         let forwarded = forwarded.lock().unwrap().clone();
         (snapshot, seen, forwarded)
+    }
+
+    #[test]
+    fn try_capture_surfaces_a_spawn_failure_and_capture_degrades_to_an_empty_tail() {
+        let failed = StderrTail::try_capture_with(
+            |_, _| Err(io::Error::new(io::ErrorKind::WouldBlock, "no threads")),
+            Cursor::new(b"lost\n".to_vec()),
+            64,
+            |l| Some(l.to_string()),
+            |_| {},
+        );
+        let error = failed.err().expect("the spawn error must reach the caller");
+        assert_eq!(error.kind(), io::ErrorKind::WouldBlock);
+        // The public constructor reports success as an `io::Result` and still captures.
+        let mut tail = StderrTail::try_capture(
+            Cursor::new(b"one\ntwo\n".to_vec()),
+            64,
+            |l| Some(l.to_string()),
+            |_| {},
+        )
+        .expect("spawn succeeds");
+        assert_eq!(tail.finish(), "one\ntwo");
     }
 
     /// `max_bytes = 8` gives a 32-byte line cap. The secret line is 64 bytes, so the old code

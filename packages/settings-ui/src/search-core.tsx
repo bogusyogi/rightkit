@@ -73,12 +73,16 @@ interface Store {
   all(): Stored[];
 }
 
+/** Test counter (0.4.4): every store change, a registration or an unregistration. Not part of any entry's documented surface. */
+export const searchStoreStats = { updates: 0 };
+
 function createStore(): Store {
   const entries = new Map<number, Stored>();
   const listeners = new Set<() => void>();
   let n = 0;
   let version = 0;
   const bump = () => {
+    searchStoreStats.updates += 1;
     version += 1;
     for (const l of [...listeners]) l();
   };
@@ -157,6 +161,11 @@ export interface SettingsSearchProviderProps {
   /** The current query (trimmed or not; split on whitespace, every term must match). Empty means no search. */
   query: string;
   /**
+   * Default true. `false` makes the provider inert: rows, groups, sections, items and hits below it do not register, do not
+   * subscribe to the store and render as if no provider were there (nothing hidden, no `data-hit`). Use it when search is off.
+   */
+  enabled?: boolean;
+  /**
    * Hide registered rows and items that do not match (default true). With `false` the query still drives highlight and `results`
    * but nothing is hidden (the panel's "navigate" mode).
    */
@@ -174,12 +183,12 @@ export interface SettingsSearchProviderProps {
 }
 
 /** Provides the query to every row, group and item below it and collects their registrations. Renders no DOM. */
-export function SettingsSearchProvider({ query, filter = true, highlight = false, wrapHighlight = true, children }: SettingsSearchProviderProps) {
+export function SettingsSearchProvider({ query, enabled = true, filter = true, highlight = false, wrapHighlight = true, children }: SettingsSearchProviderProps) {
   const store = useRef<Store | null>(null);
   store.current ??= createStore();
   const terms = useMemo(() => parseSearchTerms(query), [query]);
-  const value = useMemo<Config>(() => ({ store: store.current!, query, terms, filter, highlight, wrapHighlight }), [query, terms, filter, highlight, wrapHighlight]);
-  return <ConfigContext.Provider value={value}>{children}</ConfigContext.Provider>;
+  const live = useMemo<Config | null>(() => (enabled ? { store: store.current!, query, terms, filter, highlight, wrapHighlight } : null), [enabled, query, terms, filter, highlight, wrapHighlight]);
+  return <ConfigContext.Provider value={live}>{children}</ConfigContext.Provider>;
 }
 
 export interface SettingsSearchState {
@@ -236,14 +245,28 @@ export function HighlightedText({ text }: { text: string }) {
   return <>{cfg ? highlightText(text, cfg.terms, cfg.highlight, cfg.wrapHighlight) : text}</>;
 }
 
-/** Counts the registered, visible entries (rows and items) that `pred` selects. Subscribes to registrations. */
-export function useVisibleCount(pred: (e: Stored) => boolean): number {
-  const cfg = useContext(ConfigContext);
+/** Counts the registered, visible entries (rows and items) that `pred` selects under `cfg`. Subscribes to registrations. */
+function useVisibleCountIn(cfg: Config | null, pred: (e: Stored) => boolean): number {
   const store = cfg?.store ?? NULL_STORE;
   useSyncExternalStore(store.subscribe, store.version, store.version);
   if (!cfg) return 0;
   return store.all().filter((e) => e.kind !== "group" && pred(e) && isVisible(cfg, e)).length;
 }
+
+/** Counts the registered, visible entries (rows and items) that `pred` selects. Subscribes to registrations. */
+export function useVisibleCount(pred: (e: Stored) => boolean): number {
+  return useVisibleCountIn(useContext(ConfigContext), pred);
+}
+
+/** `enabled: false` on a hook makes it inert, as if no provider were above it. */
+const gateConfig = (cfg: Config | null, enabled: boolean | undefined): Config | null => (enabled === false ? null : cfg);
+
+let warnedNonStringLabel = false;
+/** Development builds only (a `process.env.NODE_ENV` other than "production" that is defined), once per page load. */
+const isDevelopmentBuild = () => {
+  const env = (globalThis as { process?: { env?: { NODE_ENV?: string } } }).process?.env?.NODE_ENV;
+  return env !== undefined && env !== "production";
+};
 
 export interface EntryInput {
   kind: SettingsSearchKind;
@@ -252,13 +275,20 @@ export interface EntryInput {
   keywords?: readonly string[];
   searchText?: string;
   id?: string;
+  /** `false`: inert, no registration (0.4.4). */
+  enabled?: boolean;
 }
 
 /** Registers one entry for its mount and reports whether it matches the query and whether it is a visible result. */
 export function useSearchEntry(p: EntryInput) {
-  const cfg = useContext(ConfigContext);
+  const cfg = gateConfig(useContext(ConfigContext), p.enabled);
   const section = useContext(SectionContext);
   const group = useContext(GroupContext);
+  // A row whose label is not text cannot be searched; say so once in development instead of failing silently (0.4.4).
+  if (cfg && p.kind === "row" && p.searchText === undefined && typeof p.label !== "string" && typeof p.label !== "number" && !warnedNonStringLabel && isDevelopmentBuild()) {
+    warnedNonStringLabel = true;
+    console.warn("[@rightkit/settings-ui] A row's label is not a string, so search does not match it. Pass searchText (and keywords) to make it searchable. This warning is shown once.");
+  }
   const label = p.searchText ?? textOf(p.label);
   const description = textOf(p.description);
   const kw = p.keywords?.join("\u0001") ?? "";
@@ -316,7 +346,7 @@ export function GroupScope({ groupKey, title, children }: { groupKey: string; ti
 }
 
 /** Row hook used by `SettingRow`. */
-export function useRowSearch(p: { label: ReactNode; description?: ReactNode; keywords?: readonly string[]; searchText?: string; id?: string }) {
+export function useRowSearch(p: { label: ReactNode; description?: ReactNode; keywords?: readonly string[]; searchText?: string; id?: string; enabled?: boolean }) {
   return useSearchEntry({ kind: "row", ...p });
 }
 
@@ -329,8 +359,10 @@ export interface SettingsRowOptions {
   description?: ReactNode;
   /** Extra terms that match the row. */
   keywords?: readonly string[];
-  /** The text to match when `label` is not a string. */
+  /** The text to match when `label` is not a string. Without it a non-string label is not searchable (a development warning says so once). */
   searchText?: string;
+  /** `false`: inert, as if no provider were above (no registration, nothing hidden, no `data-hit`). Default true. */
+  enabled?: boolean;
 }
 
 export interface SettingsRowState {
@@ -349,7 +381,7 @@ export interface SettingsRowState {
  * the component that renders the row, under a provider and (for group counts) under a `SettingsGroupScope`.
  */
 export function useSettingsRow(p: SettingsRowOptions): SettingsRowState {
-  const cfg = useContext(ConfigContext);
+  const cfg = gateConfig(useContext(ConfigContext), p.enabled);
   const { visible, matches, mark } = useRowSearch(p);
   return rowState(cfg, p.id, visible, matches, mark);
 }
@@ -361,6 +393,8 @@ export interface SettingsItemOptions {
   keywords?: readonly string[];
   /** `data-setting-id` for `props`. */
   id?: string;
+  /** `false`: inert (0.4.4). */
+  enabled?: boolean;
 }
 
 /**
@@ -368,8 +402,8 @@ export interface SettingsItemOptions {
  * text you give it, and reports its match state like `useSettingsRow`. It counts as a result for its group and section.
  */
 export function useSettingsItem(p: SettingsItemOptions): SettingsRowState {
-  const cfg = useContext(ConfigContext);
-  const { visible, matches, mark } = useSearchEntry({ kind: "item", label: p.text, description: p.description, keywords: p.keywords, id: p.id });
+  const cfg = gateConfig(useContext(ConfigContext), p.enabled);
+  const { visible, matches, mark } = useSearchEntry({ kind: "item", label: p.text, description: p.description, keywords: p.keywords, id: p.id, enabled: p.enabled });
   return rowState(cfg, p.id, visible, matches, mark);
 }
 
@@ -411,15 +445,29 @@ export interface SettingsGroupState {
   mark(text: ReactNode): ReactNode;
 }
 
+export interface SettingsGroupOptions {
+  /** `false`: inert. Never empty, never hidden, no subscription (0.4.4). Default true. */
+  enabled?: boolean;
+  /**
+   * Default false: a group with no registered rows is empty even with no query (today's behaviour). `true`: it is empty only
+   * while a query is active and none of its rows match, so a group holding plain content with no rows stays visible when not
+   * searching (0.4.4).
+   */
+  hideOnlyWhileSearching?: boolean;
+}
+
+/** Empty under `cfg` with `count` visible rows; `onlySearching` limits emptiness to an active query. */
+const isEmpty = (cfg: Config | null, count: number, onlySearching: boolean) => !!cfg && count === 0 && (!onlySearching || cfg.terms.length > 0);
+
 /**
  * Per-group state for a host-rendered group. The rows must stay mounted while the group is empty (rows report nothing while they
  * do not match), so render the children in every case and omit only your own wrapper when `empty`.
  */
-export function useSettingsGroup(): SettingsGroupState {
-  const cfg = useContext(ConfigContext);
+export function useSettingsGroup(options: SettingsGroupOptions = {}): SettingsGroupState {
+  const cfg = gateConfig(useContext(ConfigContext), options.enabled);
   const key = useId();
-  const visibleRowCount = useVisibleCount((e) => e.groupKey === key);
-  const empty = !!cfg && visibleRowCount === 0;
+  const visibleRowCount = useVisibleCountIn(cfg, (e) => e.groupKey === key);
+  const empty = isEmpty(cfg, visibleRowCount, options.hideOnlyWhileSearching === true);
   return { key, visibleRowCount, empty, hidden: empty, props: hiddenProps(empty), mark: markFor(cfg) };
 }
 
@@ -442,11 +490,11 @@ export interface SettingsSectionState {
 }
 
 /** Per-section state for a host-rendered section (the rows of a section are searched together). */
-export function useSettingsSection(): SettingsSectionState {
-  const cfg = useContext(ConfigContext);
+export function useSettingsSection(options: SettingsGroupOptions = {}): SettingsSectionState {
+  const cfg = gateConfig(useContext(ConfigContext), options.enabled);
   const key = useId();
-  const visibleRowCount = useVisibleCount((e) => e.scopeKey === key);
-  const empty = !!cfg && visibleRowCount === 0;
+  const visibleRowCount = useVisibleCountIn(cfg, (e) => e.scopeKey === key);
+  const empty = isEmpty(cfg, visibleRowCount, options.hideOnlyWhileSearching === true);
   return { key, visibleRowCount, empty, hidden: empty, props: hiddenProps(empty), mark: markFor(cfg) };
 }
 
@@ -455,6 +503,8 @@ export interface SettingsHitOptions {
   text: string;
   /** Extra terms that match. */
   keywords?: readonly string[];
+  /** `false`: inert (0.4.4). */
+  enabled?: boolean;
 }
 
 export interface SettingsHitState {
@@ -470,7 +520,7 @@ export interface SettingsHitState {
  * visible count of the group or section it sits in. Renders nothing; the host decides what a match looks like.
  */
 export function useSettingsHit(p: SettingsHitOptions): SettingsHitState {
-  const { matches, mark } = useSearchEntry({ kind: "hit", label: p.text, keywords: p.keywords });
+  const { matches, mark } = useSearchEntry({ kind: "hit", label: p.text, keywords: p.keywords, enabled: p.enabled });
   return { matches, mark };
 }
 

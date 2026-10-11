@@ -1,5 +1,49 @@
 # Changelog
 
+## 0.2.9 (staged pool, delete and rejection, held jobs, per-job resume and sweep)
+
+Additive only. No existing signature, wire frame, `JOB_METHODS` entry or schema column changed;
+the new state uses the existing `jobs`, `rk_job_submissions` and events tables (UPDATE and INSERT
+only, no `ALTER` or `CREATE`). A 0.2.8 database opens unchanged.
+
+- **Staged pool (`pool` module).** `pool::StagedPool`, `pool::PoolConfig` (`new(limit)`,
+  `handoff(n)`, `idle_after(d)`, `on_outcome(f)`), `pool::StagedHandler` (`new_lane`, `prepare`,
+  `compute`, `idle`) and `pool::Staged` (`Done(Value)` or `Compute(P)`). Admission is FIFO and
+  bounded by a limit closure read on every admission. Prepare runs on parallel threads; compute
+  runs on one thread-affine lane through a bounded hand-off. Each job still runs through
+  `Runner::run`, so locks, fencing and lifecycle are unchanged. Shutdown withdraws buffered work,
+  which stays recoverable. Also exported at the root as `OutcomeFn`, `PoolConfig`, `Staged`,
+  `StagedHandler`, `StagedPool`.
+- **`JobHandler::run_shared(&self, job, ctl: &Arc<JobControl>)`** (provided method). `Runner`
+  calls it; the default calls `run`, so existing handlers are unchanged. A handler that hands the
+  control to another thread overrides it.
+- **Delete and rejection.** `JobStore::delete(job_id) -> JobResult<PruneReport>`: a non-terminal
+  job is cancelled first (hook sees `cancelled`), then its rows are removed in one transaction and
+  its cancel token is set. Artifact files are not deleted. `JobStore::submit_rejected(&NewJob,
+  &Ext, &JobError) -> JobResult<JobRecord>`: insert, `on_create`, move to `failed` with the error
+  and a `rejected` event, in one transaction, so the job never runs.
+- **Bounded total.** `PrunePolicy::keep_total(n)`: bounds the whole table to `n` rows, keeping
+  active jobs; inside `SubmitOptions::prune` the incoming row counts.
+- **Recovering open.** `JobStore::open_recovering(&DbOptions, StoreConfig, RecoveryPolicy) ->
+  JobResult<(JobStore, Option<PathBuf>)>`: an unreadable database is moved aside and a fresh store
+  is created; the second value is where the old file went. `RecoveryPolicy` is re-exported from
+  `rightkit-db` at the root.
+- **Per-job resume and sweep.** `Runner::resume_recoverable_each() -> JobResult<Vec<(String,
+  JobResult<RunOutcome>)>>`: every recoverable job is attempted, oldest first, and each keeps its
+  own result, so one failure does not stop the rest. `Runner::sweep_unclaimed(root) ->
+  JobResult<Vec<PathBuf>>` removes child directories of `root` that hold no path claimed by a
+  non-terminal job; `JobStore::claimed_paths() -> JobResult<Vec<PathBuf>>` lists those paths.
+  `resume_recoverable` and `sweep_orphan_scratch` are unchanged.
+- **Held state.** `StatusModel::hold(status)` and `StatusModel::is_held(&str)`: a held status is
+  non-terminal and leaves only through `JobStore::resolve(job_id, &Resolution, to:
+  Option<&str>) -> JobResult<JobRecord>`; any other move returns `illegal_transition`. Entered
+  with `JobStore::hold_submission(job_id, &JobError, to)` and
+  `hold_submission_fenced(job_id, generation, &JobError, to)`. The runner neither lists nor runs
+  a held job (`run` returns `RunOutcome::Paused`). `cancel`, `delete` and single-flight supersede
+  skip or refuse it. `Resolution` (`#[non_exhaustive]`): `Resubmit`, `Abandon(JobError)`,
+  `Adopt(Value)`. `StoreHook::on_resolve` (provided) runs in the same transaction as the move; an
+  error rolls the resolution back and the job stays held.
+
 ## 0.2.8 (additions for long-running desktop jobs)
 
 - **`EngineSupervisor::shutdown()` never leaves an unreaped engine behind `Down`.** It now

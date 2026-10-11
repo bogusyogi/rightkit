@@ -88,6 +88,13 @@ pub trait JobHandler: Send + Sync {
     /// artifacts through `ctl`; poll `ctl.is_cancelled()` between steps.
     /// A `retryable` error pauses the job (still recoverable); any other error fails it.
     fn run(&self, job: &Job, ctl: &JobControl) -> JobResult<Value>;
+
+    /// What [`Runner`] calls: the same attempt with the shared control handle, for handlers
+    /// that hand the control to another thread. The default calls [`JobHandler::run`], so
+    /// existing handlers are unchanged.
+    fn run_shared(&self, job: &Job, ctl: &Arc<JobControl>) -> JobResult<Value> {
+        self.run(job, ctl)
+    }
 }
 
 /// Handler-facing view of one running job.
@@ -434,19 +441,34 @@ impl Runner {
     fn scan_recoverable(&self) -> JobResult<Vec<Scanned>> {
         let mut out = Vec::new();
         for id in self.store.non_terminal_ids()? {
-            let Some(_lock) = self.locks.try_lock(&id)? else {
-                continue;
-            };
-            let (recovery, gen) = self.store.run_class(&id)?;
-            if recovery == Recovery::Never && gen > 0 {
-                if let Some(job) = self.interrupt(&id)? {
-                    out.push(Scanned::Interrupted(Box::new(job)));
-                }
-            } else {
-                out.push(Scanned::Resume(id));
+            if let Some(s) = self.scan_one(id)? {
+                out.push(s);
             }
         }
         Ok(out)
+    }
+
+    /// One job's recovery decision. `None`: held, or another runner has it.
+    fn scan_one(&self, id: String) -> JobResult<Option<Scanned>> {
+        // A held job leaves only through `resolve`; the runner never lists it.
+        if self.is_held(&self.store.get(&id)?.status) {
+            return Ok(None);
+        }
+        let Some(_lock) = self.locks.try_lock(&id)? else {
+            return Ok(None);
+        };
+        let (recovery, gen) = self.store.run_class(&id)?;
+        if recovery == Recovery::Never && gen > 0 {
+            Ok(self
+                .interrupt(&id)?
+                .map(|job| Scanned::Interrupted(Box::new(job))))
+        } else {
+            Ok(Some(Scanned::Resume(id)))
+        }
+    }
+
+    fn is_held(&self, status: &str) -> bool {
+        self.store.config().status_model().is_held(status)
     }
 
     /// Fail a started `Never` job (its lock is held by the caller) and publish the event.
@@ -475,6 +497,10 @@ impl Runner {
         let job = self.store.get(job_id)?;
         if job.is_terminal() {
             return Ok(RunOutcome::Finished(job));
+        }
+        // Held: waiting for an operator's `resolve`. Nothing runs, nothing is counted.
+        if self.is_held(&job.status) {
+            return Ok(RunOutcome::Paused(job));
         }
         let (recovery, started) = self.store.run_class(job_id)?;
         let never = recovery == Recovery::Never;
@@ -586,7 +612,7 @@ impl Runner {
     /// stop (`abort_reason`), its result is discarded, and the job pauses.
     fn run_handler(&self, job: &Job, ctl: &Arc<JobControl>) -> JobResult<Value> {
         let Some(limit) = self.stall_timeout else {
-            return catch_unwind(AssertUnwindSafe(|| self.handler.run(job, ctl)))
+            return catch_unwind(AssertUnwindSafe(|| self.handler.run_shared(job, ctl)))
                 .unwrap_or_else(|_| Err(JobError::new("panic", "job handler panicked")));
         };
         let (tx, rx) = std::sync::mpsc::channel();
@@ -594,7 +620,7 @@ impl Runner {
         std::thread::Builder::new()
             .name(format!("rk-job-{}", job.job_id))
             .spawn(move || {
-                let r = catch_unwind(AssertUnwindSafe(|| handler.run(&job2, &ctl2)))
+                let r = catch_unwind(AssertUnwindSafe(|| handler.run_shared(&job2, &ctl2)))
                     .unwrap_or_else(|_| Err(JobError::new("panic", "job handler panicked")));
                 let _ = tx.send(r);
             })
@@ -639,6 +665,64 @@ impl Runner {
         Ok(removed)
     }
 
+    /// Remove child directories of `root` that contain no path claimed by a non-terminal job's
+    /// artifacts (see [`JobStore::claimed_paths`]). Plain files and symlinks under `root` are
+    /// left alone, and a symlink is never followed out of `root`. Returns the removed
+    /// directories. Pass `root` only when this process is the sole engine for it.
+    pub fn sweep_unclaimed(&self, root: &Path) -> JobResult<Vec<PathBuf>> {
+        let mut claimed: Vec<PathBuf> = Vec::new();
+        for p in self.store.claimed_paths()? {
+            if let Some(c) = canonical_or_none(&p) {
+                claimed.push(c);
+            }
+            claimed.push(p);
+        }
+        let mut removed = Vec::new();
+        let Ok(rd) = std::fs::read_dir(root) else {
+            return Ok(removed);
+        };
+        for entry in rd.flatten() {
+            let path = entry.path();
+            // `file_type` does not follow symlinks: a link to a directory is not a directory.
+            let is_dir = entry.file_type().map(|t| t.is_dir()).unwrap_or(false);
+            if !is_dir {
+                continue;
+            }
+            let canon = std::fs::canonicalize(&path).ok();
+            let owned = claimed
+                .iter()
+                .any(|c| c.starts_with(&path) || canon.as_ref().is_some_and(|d| c.starts_with(d)));
+            if owned {
+                continue;
+            }
+            std::fs::remove_dir_all(&path)?;
+            removed.push(path);
+        }
+        Ok(removed)
+    }
+
+    /// Like [`Runner::resume_recoverable`], but one failing job never stops the rest: every
+    /// recoverable job is attempted, oldest first, and its id is returned with its own result.
+    /// A job that cannot even be examined is reported by id too. `Err` only when the job list
+    /// itself cannot be read.
+    pub fn resume_recoverable_each(&self) -> JobResult<Vec<(String, JobResult<RunOutcome>)>> {
+        let mut out = Vec::new();
+        for id in self.store.non_terminal_ids()? {
+            match self.scan_one(id.clone()) {
+                Ok(None) => {}
+                Ok(Some(Scanned::Resume(id))) => {
+                    let r = self.run(&id);
+                    out.push((id, r));
+                }
+                Ok(Some(Scanned::Interrupted(job))) => {
+                    out.push((job.job_id.clone(), Ok(RunOutcome::Finished(*job))));
+                }
+                Err(e) => out.push((id, Err(e))),
+            }
+        }
+        Ok(out)
+    }
+
     /// Explicitly resume every recoverable job, oldest first. Never called by
     /// passive reads.
     pub fn resume_recoverable(&self) -> JobResult<Vec<RunOutcome>> {
@@ -651,6 +735,15 @@ impl Runner {
         }
         Ok(out)
     }
+}
+
+/// Canonical form of `p`, or of its nearest existing parent joined with the rest.
+fn canonical_or_none(p: &Path) -> Option<PathBuf> {
+    if let Ok(c) = std::fs::canonicalize(p) {
+        return Some(c);
+    }
+    let parent = std::fs::canonicalize(p.parent()?).ok()?;
+    Some(parent.join(p.file_name()?))
 }
 
 enum Scanned {

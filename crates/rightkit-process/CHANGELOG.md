@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- `StderrTail::try_capture` returns `io::Result<StderrTail>` and surfaces a drain-thread spawn failure. `capture` keeps its signature and is documented as best effort: on a spawn failure it returns a tail that retains nothing.
+
 ## 0.3.4
 
 Safety release. Read "Fixed" first: 0.3.3 can signal an unrelated process group.

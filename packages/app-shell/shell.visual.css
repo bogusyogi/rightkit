@@ -108,13 +108,13 @@
 .rk-input:focus { background: var(--rk-elevated); box-shadow: 0 0 0 2px var(--rk-focus); }
 .rk-input[aria-invalid="true"] { box-shadow: 0 0 0 2px var(--rk-bad-soft), inset 0 0 0 1px var(--rk-bad); }
 .rk-input::placeholder { color: var(--rk-ink-3); }
-.rk-toggle { width: 36px; height: 22px; border: 0; border-radius: 99px; background: var(--rk-fill-3); padding: 0; transition: background-color .15s; }
+.rk-toggle { width: var(--rk-toggle-width, 36px); height: var(--rk-toggle-height, 22px); border: 0; border-radius: 99px; background: var(--rk-fill-3); padding: 0; transition: background-color .15s; }
 .rk-toggle[aria-checked="true"] { background: var(--rk-accent); }
-.rk-toggle__knob { width: 18px; height: 18px; border-radius: 50%; background: #fff; box-shadow: var(--rk-knob); transition: transform .15s; }
-.rk-toggle[aria-checked="true"] .rk-toggle__knob { transform: translateX(14px); }
+.rk-toggle__knob { width: var(--rk-toggle-knob, 18px); height: var(--rk-toggle-knob, 18px); border-radius: 50%; background: #fff; box-shadow: var(--rk-knob); transition: transform .15s; }
+.rk-toggle[aria-checked="true"] .rk-toggle__knob { transform: translateX(var(--rk-toggle-travel, 14px)); }
 .rk-toggle:focus-visible { outline: 2px solid var(--rk-focus); outline-offset: 2px; }
 .rk-toggle:disabled { opacity: .5; }
-.rk-seg { padding: 2px; gap: 2px; border-radius: 9px; background: var(--rk-fill-2); }
+.rk-seg { padding: 2px; gap: var(--rk-seg-gap, 2px); border-radius: 9px; background: var(--rk-fill-2); }
 .rk-seg__item { border: 0; background: none; padding: 4px 11px; border-radius: 7px; color: var(--rk-ink-2); font-size: 12.5px; font-weight: 550; }
 .rk-seg__item.is-on { background: var(--rk-seg-on); color: var(--rk-ink); box-shadow: var(--rk-knob); }
 .rk-seg__item:focus-visible { outline: 2px solid var(--rk-focus); outline-offset: 0; }

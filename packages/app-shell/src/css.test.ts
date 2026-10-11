@@ -57,7 +57,7 @@ describe("shell.css split", () => {
     expect(css).not.toMatch(/@import/);
   });
 
-  it("keeps every 0.5.1 declaration; the only changes are the toast width variable, the toast centring, the menu exit rules and the reduced-motion opt-out selectors", () => {
+  it("keeps every 0.5.1 declaration; the only changes are the toast width variable, the toast centring, the menu exit rules, the reduced-motion opt-out selectors and (0.6.4) the toggle and segmented size variables, each defaulting to the 0.5.1 value", () => {
     const motionSelectors = ["modal", "palette", "menu", "toast", "overlay"].map((c) => `.rk-${c}:where(:not([data-rk-motion="full"], [data-rk-motion="full"] *))`).join(", ");
     const before = declarations(read("test-fixtures/shell-0.5.1.css"));
     const after = declarations(read("shell.css"));
@@ -67,6 +67,12 @@ describe("shell.css split", () => {
       sorted([
         "| .rk-toasts | width: min(26rem, calc(100vw - 2rem))",
         "| .rk-toasts | transform: translateX(-50%)",
+        "| .rk-toggle | width: 36px",
+        "| .rk-toggle | height: 22px",
+        "| .rk-toggle__knob | width: 18px",
+        "| .rk-toggle__knob | height: 18px",
+        "| .rk-toggle[aria-checked=\"true\"] .rk-toggle__knob | transform: translateX(14px)",
+        "| .rk-seg | gap: 2px",
         "@media (prefers-reduced-motion: reduce) | .rk-modal, .rk-palette, .rk-menu, .rk-toast, .rk-overlay | animation: none !important",
         "@media (prefers-reduced-motion: reduce) | .rk-modal, .rk-palette, .rk-menu, .rk-toast, .rk-overlay | transition: none !important",
       ]),
@@ -75,6 +81,12 @@ describe("shell.css split", () => {
       sorted([
         "| .rk-toasts | width: min(var(--rk-toast-width, 26rem), calc(100vw - 2rem))",
         "| .rk-toasts | translate: var(--rk-toast-translate, -50% 0)",
+        "| .rk-toggle | width: var(--rk-toggle-width, 36px)",
+        "| .rk-toggle | height: var(--rk-toggle-height, 22px)",
+        "| .rk-toggle__knob | width: var(--rk-toggle-knob, 18px)",
+        "| .rk-toggle__knob | height: var(--rk-toggle-knob, 18px)",
+        "| .rk-toggle[aria-checked=\"true\"] .rk-toggle__knob | transform: translateX(var(--rk-toggle-travel, 14px))",
+        "| .rk-seg | gap: var(--rk-seg-gap, 2px)",
         "| .rk-menu-scrim.is-closing, .rk-menu.is-closing | pointer-events: none",
         "| .rk-menu.is-closing | animation: rk-pop-out var(--rk-menu-exit-ms, 80ms) ease-in forwards",
         `@media (prefers-reduced-motion: reduce) | ${motionSelectors} | animation: none !important`,
@@ -156,7 +168,7 @@ describe("shell.css split", () => {
   });
 
   it("package version, exports and files list the new stylesheets", () => {
-    expect(pkg.version).toBe("0.6.2");
+    expect(pkg.version).toBe("0.6.4");
     for (const name of ["shell.css", "shell.layered.css", "shell.structure.css", "shell.visual.css", "suite-aliases.css"]) {
       expect(pkg.exports[`./${name}`]).toBe(`./${name}`);
       expect(pkg.files).toContain(name);

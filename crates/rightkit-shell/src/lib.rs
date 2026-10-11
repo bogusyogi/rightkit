@@ -682,11 +682,13 @@ pub(crate) fn install(cfg: ShellBuilder) -> TauriPlugin<Wry> {
             let app = webview.app_handle().clone();
             let label = webview.label().to_owned();
             lifecycle::enforce_never_show(&app, &ready_policy);
-            if restore_windows {
-                if let Some(state) = app.try_state::<ShellState>() {
-                    let _ = state.windows.restore(&app, &label);
+            windows::with_placement_announced(&app, &label, || {
+                if restore_windows {
+                    if let Some(state) = app.try_state::<ShellState>() {
+                        let _ = state.windows.restore(&app, &label);
+                    }
                 }
-            }
+            });
             if label == main_label
                 && lifecycle::show_on_ready_decision(
                     show_on_ready_explicit,

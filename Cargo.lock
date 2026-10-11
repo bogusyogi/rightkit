@@ -5412,7 +5412,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-jobs"
-version = "0.2.8"
+version = "0.2.9"
 dependencies = [
  "rightkit-db",
  "rightkit-framed-sidecar",

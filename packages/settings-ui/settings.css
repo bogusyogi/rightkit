@@ -25,13 +25,19 @@
 .rk-settings__loading { color: var(--rk-ink-2); }
 .rk-settings__error { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 14px; padding: 9px 12px; border-radius: 10px; background: var(--rk-bad-soft); color: var(--rk-bad); }
 .rk-settings__saving { position: absolute; top: 10px; right: 16px; font-size: 12px; color: var(--rk-ink-2); }
-.rk-sg { margin-bottom: 22px; }
+/* 0.4.4: the group and row values below are custom properties; each defaults to the value it had before. */
+.rk-sg { margin-bottom: var(--rk-sg-margin, 22px); }
 .rk-sg__title { margin: 0 0 6px; font-size: 12.5px; font-weight: 650; color: var(--rk-ink-2); }
 .rk-sg__desc { margin: 0 0 10px; color: var(--rk-ink-2); font-size: 12.5px; max-width: 62ch; text-wrap: pretty; }
-.rk-sg__rows { background: var(--rk-panel); border-radius: var(--rk-radius); box-shadow: var(--rk-card); }
-.rk-sr { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 16px; padding: 12px 16px; border-bottom: .5px solid var(--rk-hairline); transition: background-color .3s; }
+.rk-sg__rows { background: var(--rk-sg-background, var(--rk-panel)); border-radius: var(--rk-sg-border-radius, var(--rk-radius)); box-shadow: var(--rk-sg-shadow, var(--rk-card)); }
+.rk-sr { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: var(--rk-sr-gap, 16px); padding: var(--rk-sr-padding, 12px 16px); border-bottom: var(--rk-sr-border, .5px solid var(--rk-hairline)); transition: background-color .3s; }
 .rk-sr:last-child { border-bottom: 0; }
 .rk-sr--stacked { grid-template-columns: minmax(0, 1fr); }
+/* A lead (icon or badge) takes its own column; a stacked control drops to the text column on the second line. */
+.rk-sr--lead { grid-template-columns: auto minmax(0, 1fr) auto; }
+.rk-sr--lead.rk-sr--stacked { grid-template-columns: auto minmax(0, 1fr); }
+.rk-sr--lead.rk-sr--stacked > :not(.rk-sr__lead, .rk-sr__text) { grid-column: 2; }
+.rk-sr__lead { display: flex; align-items: center; min-width: 0; }
 .rk-sr__label { font-weight: 600; }
 .rk-sr__desc { margin-top: 2px; color: var(--rk-ink-2); font-size: 12.5px; text-wrap: pretty; }
 .rk-sr__err { color: var(--rk-bad); }

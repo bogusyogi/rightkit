@@ -7,6 +7,7 @@ mod config;
 #[cfg(feature = "contract")]
 mod contract;
 mod error;
+pub mod pool;
 mod runner;
 mod sched;
 #[cfg(feature = "service")]
@@ -32,8 +33,11 @@ pub use error::{
     ErrorOrigin, JobError, JobResult, CONTRACT_VERSION_MISMATCH, HOST_HANDOFF, INTERRUPTED,
     STALE_ATTEMPT, STALLED, SUPERSEDED,
 };
+pub use pool::{OutcomeFn, PoolConfig, Staged, StagedHandler, StagedPool};
 /// The `rusqlite` this crate links (via `rightkit-db`); hooks receive its `Connection`.
 pub use rightkit_db::rusqlite;
+/// Recovery policy for [`JobStore::open_recovering`] (re-exported from `rightkit-db`).
+pub use rightkit_db::RecoveryPolicy;
 pub use runner::{
     AttemptPolicy, EventSink, JobControl, JobHandler, JobLock, JobLocks, RunOutcome, Runner,
     DEFAULT_MAX_ATTEMPTS,
@@ -43,9 +47,9 @@ pub use sched::{Gate, InteractiveGuard, Priority};
 pub use service::DispatcherHandler;
 pub use store::{
     Adoption, Artifact, CancelToken, Event, Job, JobRecord, JobStore, ListFilter, NewJob,
-    ProgressStats, PrunePolicy, PruneReport, Recovery, Submission, SubmissionRecord, SubmitOptions,
-    Submitted, Transition, CANCELLED, COMPLETE, FAILED, MAX_EVENTS, META_TABLE, QUEUED, RUNNING,
-    SUBMISSIONS_TABLE,
+    ProgressStats, PrunePolicy, PruneReport, Recovery, Resolution, Submission, SubmissionRecord,
+    SubmitOptions, Submitted, Transition, CANCELLED, COMPLETE, FAILED, MAX_EVENTS, META_TABLE,
+    QUEUED, RUNNING, SUBMISSIONS_TABLE,
 };
 #[cfg(feature = "supervisor")]
 pub use supervisor::{

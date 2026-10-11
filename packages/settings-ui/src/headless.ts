@@ -29,6 +29,7 @@ export type {
   SettingsSearchKind,
   SettingsHighlight,
   SettingsRowOptions,
+  SettingsGroupOptions,
   SettingsItemOptions,
   SettingsHitOptions,
   SettingsHitState,

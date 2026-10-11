@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { spawnSync } from "./background-process.mjs";
 import { test } from "node:test";
-import { assertInstalledExecutableMatches, assertNativeDevelopmentHost, developmentEnvironment, resolveCommand, resolvePnpmCli, resolveTauriArtifact, runDevelopment as runDevelopmentActual, validateDevelopmentConfig } from "./development.mjs";
+import { assertInstalledExecutableMatches, assertNativeDevelopmentHost, developmentEnvironment, resolveCommand, resolvePnpmCli, resolveTauriArtifact, runDevelopment as runDevelopmentActual, swapInstalledMacosBundle, validateDevelopmentConfig } from "./development.mjs";
 import { assertReleaseExecutionAllowed } from "./execution-policy.mjs";
 
 const nativePlatform = process.platform === "win32" ? "win" : "mac";
@@ -216,4 +216,57 @@ test("Windows dev install relaunches the app only when it was running", async ()
   assert.equal(isWindowsProcessRunning("HeardRight.exe", { run: listing('"heardright.exe","4242","Console","1","120,000 K"\r\n') }), true);
   assert.equal(isWindowsProcessRunning("HeardRight.exe", { run: listing("INFO: No tasks are running which match the specified criteria.\r\n") }), false);
   assert.equal(isWindowsProcessRunning("HeardRight.exe", { run: listing("", 1) }), false);
+});
+
+// In-memory file-system seam: files are path -> string; a directory move relocates every path under it.
+function memoryFs(files) {
+  const under = (dir) => [...files.keys()].filter((file) => file === dir || file.startsWith(`${dir}/`));
+  return {
+    files,
+    existsSync: (target) => under(target).length > 0,
+    readFileSync: (file) => { if (!files.has(file)) throw Object.assign(new Error(`ENOENT ${file}`), { code: "ENOENT" }); return Buffer.from(files.get(file)); },
+    renameSync: (from, to) => { for (const file of under(from)) { files.set(to + file.slice(from.length), files.get(file)); files.delete(file); } },
+    rmSync: (target) => { for (const file of under(target)) files.delete(file); },
+  };
+}
+const INFO = '<plist><dict><key>CFBundleExecutable</key><string>Fixture</string></dict></plist>';
+function swapFixture({ installedExecutable = "signed-binary" } = {}) {
+  const files = new Map([
+    ["/Apps/Fixture.app.stage/Contents/Info.plist", INFO],
+    ["/Apps/Fixture.app.stage/Contents/MacOS/Fixture", "signed-binary"],
+    ["/Apps/Fixture.app/Contents/Info.plist", INFO],
+    ["/Apps/Fixture.app/Contents/MacOS/Fixture", "previous-binary"],
+  ]);
+  const fs = memoryFs(files);
+  // The install lands as staged, then the test decides what the installed copy looks like.
+  const rename = fs.renameSync;
+  fs.renameSync = (from, to) => {
+    rename(from, to);
+    if (from === "/Apps/Fixture.app.stage") {
+      if (installedExecutable === null) files.delete("/Apps/Fixture.app/Contents/MacOS/Fixture");
+      else files.set("/Apps/Fixture.app/Contents/MacOS/Fixture", installedExecutable);
+    }
+  };
+  return { files, fs, args: { staging: "/Apps/Fixture.app.stage", destination: "/Apps/Fixture.app", backup: "/Apps/Fixture.app.backup" } };
+}
+
+test("macOS dev install removes the backup when the installed executable hash matches the staged one", () => {
+  const { files, fs, args } = swapFixture();
+  swapInstalledMacosBundle({ ...args, fs });
+  assert.equal(files.get("/Apps/Fixture.app/Contents/MacOS/Fixture"), "signed-binary");
+  assert.deepEqual([...files.keys()].filter((file) => file.startsWith(args.backup)), []);
+});
+
+test("macOS dev install restores the previous app and throws a typed error on a hash mismatch", () => {
+  const { files, fs, args } = swapFixture({ installedExecutable: "corrupted" });
+  assert.throws(() => swapInstalledMacosBundle({ ...args, fs }), (error) => error.code === "DEV_INSTALL_EXECUTABLE_MISMATCH" && /does not match/.test(error.message));
+  assert.equal(files.get("/Apps/Fixture.app/Contents/MacOS/Fixture"), "previous-binary");
+  assert.deepEqual([...files.keys()].filter((file) => file.startsWith(args.backup) || file.startsWith(args.staging)), []);
+});
+
+test("macOS dev install restores the previous app and throws a typed error when the installed executable is missing", () => {
+  const { files, fs, args } = swapFixture({ installedExecutable: null });
+  assert.throws(() => swapInstalledMacosBundle({ ...args, fs }), (error) => error.code === "DEV_INSTALL_EXECUTABLE_MISSING" && /missing/.test(error.message));
+  assert.equal(files.get("/Apps/Fixture.app/Contents/MacOS/Fixture"), "previous-binary");
+  assert.equal(files.get("/Apps/Fixture.app/Contents/Info.plist"), INFO);
 });

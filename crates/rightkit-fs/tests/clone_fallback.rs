@@ -295,3 +295,85 @@ fn a_directory_source_and_a_missing_source_are_typed_errors() {
     assert!(error.is_not_found(), "{error:?}");
     assert!(!dir.join("x").exists() && !dir.join("y").exists());
 }
+
+// ------------------------------------------------------------------ fresh metadata
+
+#[cfg(unix)]
+#[test]
+fn without_fresh_metadata_a_read_only_source_gives_a_read_only_copy() {
+    use std::os::unix::fs::PermissionsExt;
+    let (_g, dir) = tmp();
+    let (src, dst) = (source(&dir), dir.join("copy.bin"));
+    std::fs::set_permissions(&src, std::fs::Permissions::from_mode(0o444)).unwrap();
+    let _clone = override_clone(unavailable);
+    let _link = override_link(unavailable);
+    assert_eq!(
+        clone_or_link_or_copy_nofollow(&src, &dst).unwrap(),
+        CloneOutcome::Copied
+    );
+    assert_eq!(
+        std::fs::metadata(&dst).unwrap().permissions().mode() & 0o7777,
+        0o444,
+        "default options keep the source's mode"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn fresh_metadata_gives_a_writable_copy_of_a_read_only_source() {
+    use std::os::unix::fs::PermissionsExt;
+    let (_g, dir) = tmp();
+    let (src, dst) = (source(&dir), dir.join("copy.bin"));
+    std::fs::set_permissions(&src, std::fs::Permissions::from_mode(0o444)).unwrap();
+    let _clone = override_clone(unavailable);
+    let _link = override_link(unavailable);
+    let options = CloneOptions::default().fresh_metadata(true);
+    assert_eq!(
+        clone_or_link_or_copy_nofollow_with(&src, &dst, &options).unwrap(),
+        CloneOutcome::Copied
+    );
+    let mode = std::fs::metadata(&dst).unwrap().permissions().mode() & 0o7777;
+    assert_ne!(
+        mode & 0o200,
+        0,
+        "the export is writable by its owner, mode {mode:o}"
+    );
+    assert_ne!(
+        mode, 0o444,
+        "the source's read-only mode is not carried over"
+    );
+    std::fs::write(&dst, b"edited export").unwrap();
+    assert_eq!(std::fs::read(&src).unwrap(), b"source content");
+}
+
+#[cfg(unix)]
+#[test]
+fn fresh_metadata_skips_the_clone_and_link_steps_and_makes_a_new_inode() {
+    use std::os::unix::fs::MetadataExt;
+    let (_g, dir) = tmp();
+    let (src, dst) = (source(&dir), dir.join("copy.bin"));
+    let clone_calls = Rc::new(Cell::new(0usize));
+    let link_calls = Rc::new(Cell::new(0usize));
+    let (c, l) = (clone_calls.clone(), link_calls.clone());
+    let _clone = override_clone(move |a, b| {
+        c.set(c.get() + 1);
+        must_not_run(a, b)
+    });
+    let _link = override_link(move |a, b| {
+        l.set(l.get() + 1);
+        must_not_run(a, b)
+    });
+    let options = CloneOptions::default().fresh_metadata(true);
+    assert!(options.fresh_metadata);
+    assert_eq!(
+        clone_or_link_or_copy_nofollow_with(&src, &dst, &options).unwrap(),
+        CloneOutcome::Copied
+    );
+    assert_eq!(clone_calls.get(), 0, "the clone step is not attempted");
+    assert_eq!(link_calls.get(), 0, "the hard-link step is never used");
+    assert_ne!(
+        std::fs::metadata(&src).unwrap().ino(),
+        std::fs::metadata(&dst).unwrap().ino(),
+        "the export is not the source's inode"
+    );
+}

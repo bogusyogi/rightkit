@@ -7,6 +7,7 @@ version is `0.x`, a minor bump may carry breaking changes.
 
 Additive. The one behaviour change is `lifecycle_only` only, and is called out below.
 
+- **Placement announced.** When a webview becomes ready the shell emits the app event `rk-shell:placement` `{label, phase:"begin"}`, runs window-state restore, then emits `{label, phase:"done"}` queued on the main thread behind the restore's size and position calls (`windows::with_placement_announced`, `windows::EVENT_PLACEMENT`). `rightkit-control` holds `set_viewport` until `done`, which fixes the first viewport request after a hidden launch being overridden by the late restore (1440x900 requested, 1440x789 settled). Announcing never shows, orders or focuses a window and runs under never-show too.
 - **One visibility guard.** Every path that shows, unminimises or focuses a window asks
   `lifecycle::reveal_mode(app, RevealSource)` (decision: `ShowPolicy::mode`): Dock reopen, opened URL,
   second instance, show-on-ready, tray Show and toggle, the `rk_shell_window` `show` command,

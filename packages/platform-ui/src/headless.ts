@@ -2,7 +2,13 @@
  * Headless entry: pure helpers and React hooks with no native detection. Nothing here imports
  * `@tauri-apps/plugin-os`, so apps without the plugin (or with no Tauri at all) can use it freely.
  */
-export { formatChord, normalizePlatform, type FormatChordOptions, type Platform } from "./format.js";
+export {
+  formatChord,
+  normalizePlatform,
+  platformInitializationScript,
+  type FormatChordOptions,
+  type Platform,
+} from "./format.js";
 export {
   floatingPanelStyle,
   fitToViewport,

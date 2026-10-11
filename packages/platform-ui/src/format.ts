@@ -1,8 +1,13 @@
 /** Pure platform naming and chord display. Imports nothing native: safe for the headless entry. */
 export type Platform = "macos" | "ios" | "windows" | "linux" | "unknown";
 
+/**
+ * Canonical platform for a raw name. Accepts the Tauri names, the aliases `mac` and `darwin` (macOS),
+ * `win` and `win32` / `Win32` (Windows); anything else is `unknown`.
+ */
 export function normalizePlatform(value: string): Platform {
-  if (value === "Win32" || value === "win32") return "windows";
+  if (value === "Win32" || value === "win32" || value === "win") return "windows";
+  if (value === "mac" || value === "darwin") return "macos";
   if (value === "macos" || value === "ios" || value === "windows" || value === "linux") {
     return value;
   }
@@ -25,6 +30,7 @@ const MAC_KEYS: Readonly<Record<string, string>> = {
   space: "Space",
   enter: "↩",
   esc: "Esc",
+  ctrlormeta: "⌘/⌃",
 };
 
 const WINDOWS_KEYS: Readonly<Record<string, string>> = {
@@ -43,6 +49,7 @@ const WINDOWS_KEYS: Readonly<Record<string, string>> = {
   space: "Space",
   enter: "Enter",
   esc: "Esc",
+  ctrlormeta: "Ctrl/Win",
 };
 
 const IOS_KEYS: Readonly<Record<string, string>> = {
@@ -58,6 +65,7 @@ const IOS_KEYS: Readonly<Record<string, string>> = {
   record: "Record",
   send: "Send",
   cancel: "Cancel",
+  ctrlormeta: "Touch",
 };
 
 const GENERIC_KEYS: Readonly<Record<string, string>> = {
@@ -76,6 +84,7 @@ const GENERIC_KEYS: Readonly<Record<string, string>> = {
   space: "Space",
   enter: "Enter",
   esc: "Esc",
+  ctrlormeta: "Ctrl/Meta",
 };
 
 export interface FormatChordOptions {
@@ -86,6 +95,8 @@ export interface FormatChordOptions {
 /**
  * Display tokens for a canonical chord on `platform` (default `unknown`: generic labels). Side-specific
  * modifiers (`lctrl`, `rctrl`, `lalt`, `ralt`, `lshift`, `rshift`) are spelled out on every platform.
+ * `ctrlormeta` ("Ctrl or Meta", the shortcut modifier that is Ctrl or Cmd/Win) renders as "⌘/⌃" on macOS,
+ * "Ctrl/Win" on Windows and Linux, "Touch" on iOS, "Ctrl/Meta" when the platform is unknown.
  */
 export function formatChord(chord: string, platform: Platform = "unknown", options: FormatChordOptions = {}): string[] {
   const keys =
@@ -105,4 +116,14 @@ export function formatChord(chord: string, platform: Platform = "unknown", optio
       keys[token] ??
       (token.length === 1 ? token.toUpperCase() : token.replace(/^\w/, (letter) => letter.toUpperCase())),
     );
+}
+
+/**
+ * Source text for a host's initialization script (Tauri `initialization_script`, or any script that runs before
+ * the app bundle) so `getPlatform()` is correct on the first synchronous read. The value goes through
+ * `normalizePlatform`, so `"mac"` becomes `"macos"` and an unsupported name becomes `"unknown"`; the output
+ * contains only a JSON string literal from that closed set. Pure: no DOM, no native import.
+ */
+export function platformInitializationScript(platform: string): string {
+  return `window.__RIGHTKIT_PLATFORM__ = ${JSON.stringify(normalizePlatform(platform))};`;
 }

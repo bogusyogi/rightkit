@@ -46,6 +46,40 @@ impl Query {
         })
     }
 
+    /// Literal query: the whole trimmed input is one phrase. Operators, quotes, `OR` and
+    /// negation are not interpreted. Blank input yields an empty query.
+    pub fn literal(input: &str) -> Query {
+        let text = input.trim();
+        let mut q = Query::default();
+        if !text.is_empty() {
+            q.phrases.push(text.to_string());
+        }
+        q
+    }
+
+    /// Copy of this query with free text removed: operator terms and operator-only OR
+    /// groups are kept.
+    ///
+    /// **Order matters.** Build the [`TextMatcher`](crate::matcher::TextMatcher) from the
+    /// full query first, then call this. A mixed OR group (an operator alongside free
+    /// text, or negated free text) has no free-text meaning, so `TextMatcher::new` refuses
+    /// it with [`MatchError::MixedOrGroup`](crate::matcher::MatchError::MixedOrGroup).
+    /// This method drops exactly those groups, so a caller that skipped the matcher would
+    /// silently search without them. A malformed lenient query stays malformed.
+    pub fn filters_only(&self) -> Query {
+        Query {
+            ops: self.ops.clone(),
+            op_or_groups: self
+                .op_or_groups
+                .iter()
+                .filter(|group| group.iter().all(|t| !t.op.is_empty()))
+                .cloned()
+                .collect(),
+            matches_nothing: self.matches_nothing,
+            ..Query::default()
+        }
+    }
+
     /// True for a malformed lenient query. Such a query is not [`Query::is_empty`]: it
     /// restricts to zero rows rather than matching all of them.
     pub fn matches_nothing(&self) -> bool {

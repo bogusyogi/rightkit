@@ -1,11 +1,11 @@
 use std::collections::HashMap;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::{Duration, Instant};
 
 use rightkit_db::rusqlite::{self, params, params_from_iter, Connection, OptionalExtension, Row};
-use rightkit_db::{column_exists, write_txn, DbOptions, DurabilityProfile};
+use rightkit_db::{column_exists, write_txn, DbOptions, DurabilityProfile, RecoveryPolicy};
 use serde_json::{json, Value};
 
 use crate::config::{Ext, StatusModel, StoreConfig};
@@ -102,6 +102,7 @@ impl Recovery {
 pub struct PrunePolicy {
     older_than: Option<Duration>,
     keep_latest: Option<usize>,
+    keep_total: Option<usize>,
 }
 
 impl PrunePolicy {
@@ -118,6 +119,27 @@ impl PrunePolicy {
         self.keep_latest = Some(n);
         self
     }
+    /// Bound the whole table to `n` rows: keep `n` minus the number of non-terminal jobs of the
+    /// newest terminal rows, so active jobs are never dropped and never crowd the total past
+    /// `n`. Inside [`SubmitOptions::prune`] the incoming row counts as a non-terminal job. A
+    /// table already holding `n` or more non-terminal jobs keeps no terminal row.
+    pub fn keep_total(mut self, n: usize) -> Self {
+        self.keep_total = Some(n);
+        self
+    }
+}
+
+/// How an operator or an outside check settles a held job (see [`JobStore::resolve`]).
+#[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
+pub enum Resolution {
+    /// The outcome is known to be "not submitted": mark the submission failed, clear the
+    /// external id and move the job to the given status so a new attempt can be counted.
+    Resubmit,
+    /// Give up: the job ends `failed` with this error.
+    Abandon(JobError),
+    /// The outside system did the work: the job ends `complete` with this result.
+    Adopt(Value),
 }
 
 /// What a prune removed. Artifact files are never touched: the crate indexes files the handler
@@ -516,7 +538,27 @@ impl JobStore {
     /// added, nothing is dropped, rewritten, or renamed.
     pub fn open_with_config(options: &DbOptions, cfg: StoreConfig) -> JobResult<Self> {
         cfg.validate()?;
-        let mut conn = retry_busy_db(|| options.open_writer())?;
+        let conn = retry_busy_db(|| options.open_writer())?;
+        Self::finish_open(options, cfg, conn)
+    }
+
+    /// [`JobStore::open_with_config`] that survives an unreadable database file: with a
+    /// `policy` that allows it, the file is moved aside (see `DbOptions::open_writer_recovering`)
+    /// and a fresh store is created at the same path. Returns the store and where the old file
+    /// went (`None` when the database opened normally).
+    pub fn open_recovering(
+        options: &DbOptions,
+        cfg: StoreConfig,
+        policy: RecoveryPolicy,
+    ) -> JobResult<(Self, Option<PathBuf>)> {
+        cfg.validate()?;
+        let outcome = retry_busy_db(|| options.open_writer_recovering(policy))?;
+        let quarantined = outcome.quarantined;
+        let store = Self::finish_open(options, cfg, outcome.conn)?;
+        Ok((store, quarantined))
+    }
+
+    fn finish_open(options: &DbOptions, cfg: StoreConfig, mut conn: Connection) -> JobResult<Self> {
         let adoption = retry_busy(|| init_schema(&conn, &cfg))??;
         for sql in &cfg.app_schema {
             retry_busy(|| conn.execute_batch(sql))?;
@@ -633,24 +675,7 @@ impl JobStore {
     ///   the job's [`crate::JobLocks`] lock to know its runner has gone. The new job is returned
     ///   at once and may be run immediately.
     pub fn submit_with(&self, n: &NewJob, ext: &Ext, opts: &SubmitOptions) -> JobResult<Submitted> {
-        let mut names = Vec::new();
-        let mut vals: Vec<rusqlite::types::Value> = Vec::new();
-        for (k, v) in ext {
-            let c = self
-                .cfg
-                .column_named(k)
-                .ok_or_else(|| JobError::bad_input(format!("unknown ext column: {k}")))?;
-            names.push(c.name.clone());
-            vals.push(c.encode(v)?);
-        }
-        if let Some(c) = self
-            .cfg
-            .columns
-            .iter()
-            .find(|c| c.required() && !ext.contains_key(&c.name))
-        {
-            return Err(JobError::bad_input(format!("ext.{} required", c.name)));
-        }
+        let (names, vals) = self.encode_new_ext(ext)?;
         if opts.single_flight.as_deref() == Some("") {
             return Err(JobError::bad_input("single-flight key is empty"));
         }
@@ -674,36 +699,10 @@ impl JobStore {
             }
         }
         let pruned = match &opts.prune {
-            Some(p) => self.prune_in(&tx, p)?,
+            Some(p) => self.prune_in(&tx, p, 1)?,
             None => PruneReport::default(),
         };
-        let id = uuid::Uuid::new_v4().to_string();
-        let t = now();
-        let mut cols =
-            "job_id, request_id, kind, request_json, status, attempts, created_at, updated_at"
-                .to_string();
-        let mut ph = "?1,?2,?3,?4,?5,0,?6,?6".to_string();
-        for (i, name) in names.iter().enumerate() {
-            cols.push_str(&format!(", {name}"));
-            ph.push_str(&format!(",?{}", 7 + i));
-        }
-        let mut all: Vec<rusqlite::types::Value> = vec![
-            id.clone().into(),
-            n.request_id.clone().into(),
-            n.kind.clone().into(),
-            n.request.to_string().into(),
-            self.cfg.statuses.initial().to_string().into(),
-            t.into(),
-        ];
-        all.extend(vals);
-        tx.execute(
-            &format!("INSERT INTO jobs ({cols}) VALUES ({ph})"),
-            params_from_iter(all),
-        )?;
-        let rec = self.load(&tx, &id)?;
-        if let Some(h) = &self.cfg.hook {
-            h.on_create(&tx, &rec)?;
-        }
+        let (id, rec) = self.insert_new(&tx, n, &names, vals)?;
         if opts.recovery != Recovery::default() || opts.single_flight.is_some() {
             tx.execute(
                 "INSERT INTO rk_job_meta (job_id, recovery, flight_key) VALUES (?1,?2,?3)",
@@ -717,7 +716,8 @@ impl JobStore {
                     "SELECT j.job_id FROM rk_job_meta m JOIN jobs j ON j.job_id=m.job_id \
                      WHERE m.flight_key=?1 AND m.job_id<>?2 AND j.status IN {} \
                      ORDER BY j.created_at, j.rowid",
-                    self.cfg.statuses.sql_set()
+                    // A held job waits for a person: a newer submit never replaces it.
+                    self.cfg.statuses.sql_set_unheld()
                 ))?;
                 let rows = st
                     .query_map(params![key, id], |r| r.get::<_, String>(0))?
@@ -758,6 +758,100 @@ impl JobStore {
         })
     }
 
+    /// Validate and encode the ext values of a new job: `(column names, encoded values)`.
+    fn encode_new_ext(&self, ext: &Ext) -> JobResult<(Vec<String>, Vec<rusqlite::types::Value>)> {
+        let mut names = Vec::new();
+        let mut vals: Vec<rusqlite::types::Value> = Vec::new();
+        for (k, v) in ext {
+            let c = self
+                .cfg
+                .column_named(k)
+                .ok_or_else(|| JobError::bad_input(format!("unknown ext column: {k}")))?;
+            names.push(c.name.clone());
+            vals.push(c.encode(v)?);
+        }
+        if let Some(c) = self
+            .cfg
+            .columns
+            .iter()
+            .find(|c| c.required() && !ext.contains_key(&c.name))
+        {
+            return Err(JobError::bad_input(format!("ext.{} required", c.name)));
+        }
+        Ok((names, vals))
+    }
+
+    /// Insert a job in the initial status on `tx` and run `StoreHook::on_create`.
+    fn insert_new(
+        &self,
+        tx: &Connection,
+        n: &NewJob,
+        names: &[String],
+        vals: Vec<rusqlite::types::Value>,
+    ) -> JobResult<(String, JobRecord)> {
+        let id = uuid::Uuid::new_v4().to_string();
+        let t = now();
+        let mut cols =
+            "job_id, request_id, kind, request_json, status, attempts, created_at, updated_at"
+                .to_string();
+        let mut ph = "?1,?2,?3,?4,?5,0,?6,?6".to_string();
+        for (i, name) in names.iter().enumerate() {
+            cols.push_str(&format!(", {name}"));
+            ph.push_str(&format!(",?{}", 7 + i));
+        }
+        let mut all: Vec<rusqlite::types::Value> = vec![
+            id.clone().into(),
+            n.request_id.clone().into(),
+            n.kind.clone().into(),
+            n.request.to_string().into(),
+            self.cfg.statuses.initial().to_string().into(),
+            t.into(),
+        ];
+        all.extend(vals);
+        tx.execute(
+            &format!("INSERT INTO jobs ({cols}) VALUES ({ph})"),
+            params_from_iter(all),
+        )?;
+        let rec = self.load(tx, &id)?;
+        if let Some(h) = &self.cfg.hook {
+            h.on_create(tx, &rec)?;
+        }
+        Ok((id, rec))
+    }
+
+    /// Record a submission that was refused before it could run (for example an entitlement
+    /// check the app made first) as a `failed` job carrying `error`, so it shows in the job list
+    /// with its reason. The insert, `StoreHook::on_create`, the move to `failed`
+    /// (`StoreHook::on_transition`) and a `rejected` event commit in one transaction: a crash
+    /// never leaves a runnable job behind. A repeated `request_id` returns the existing job
+    /// unchanged. Nothing is ever handed to a handler.
+    pub fn submit_rejected(&self, n: &NewJob, ext: &Ext, error: &JobError) -> JobResult<JobRecord> {
+        let (names, vals) = self.encode_new_ext(ext)?;
+        let mut conn = self.c();
+        let tx = write_txn(&mut conn)?;
+        if let Some(rid) = &n.request_id {
+            let found = tx
+                .query_row(
+                    &format!("SELECT {} FROM jobs WHERE request_id=?1", self.select),
+                    [rid],
+                    |r| self.record_row(r),
+                )
+                .optional()?;
+            if let Some(j) = found {
+                return Ok(j);
+            }
+        }
+        let (id, rec) = self.insert_new(&tx, n, &names, vals)?;
+        let t =
+            Transition::to(FAILED).error(Some(error.to_json_with(self.cfg.includes_retryable())));
+        let after = self.exec(&tx, &rec, &t)?;
+        add_event_on(&tx, &id, None, "rejected", None, None, Some(&error.message))?;
+        tx.commit()?;
+        drop(conn);
+        self.settle(&id, false);
+        Ok(after)
+    }
+
     /// The recovery class stored with the job (`Resume` for any job without one).
     pub fn recovery(&self, job_id: &str) -> JobResult<Recovery> {
         Ok(self.run_class(job_id)?.0)
@@ -790,7 +884,7 @@ impl JobStore {
         let mut conn = self.c();
         let tx = write_txn(&mut conn)?;
         let before = self.load(&tx, job_id)?;
-        if before.job.is_terminal() {
+        if before.job.is_terminal() || self.cfg.statuses.is_held(&before.job.status) {
             return Ok(None);
         }
         let err = JobError::interrupted(job_id);
@@ -857,7 +951,7 @@ impl JobStore {
     pub fn prune(&self, policy: &PrunePolicy) -> JobResult<PruneReport> {
         let mut conn = self.c();
         let tx = write_txn(&mut conn)?;
-        let report = self.prune_in(&tx, policy)?;
+        let report = self.prune_in(&tx, policy, 0)?;
         tx.commit()?;
         drop(conn);
         for id in &report.jobs {
@@ -866,12 +960,33 @@ impl JobStore {
         Ok(report)
     }
 
-    fn prune_in(&self, conn: &Connection, policy: &PrunePolicy) -> JobResult<PruneReport> {
-        if policy.older_than.is_none() && policy.keep_latest.is_none() {
+    /// `incoming` is the number of rows the caller is about to insert as non-terminal jobs
+    /// (they count toward `keep_total`).
+    fn prune_in(
+        &self,
+        conn: &Connection,
+        policy: &PrunePolicy,
+        incoming: usize,
+    ) -> JobResult<PruneReport> {
+        if policy.older_than.is_none()
+            && policy.keep_latest.is_none()
+            && policy.keep_total.is_none()
+        {
             return Err(JobError::bad_input(
-                "prune policy needs older_than and/or keep_latest",
+                "prune policy needs older_than, keep_latest and/or keep_total",
             ));
         }
+        let total_room = match policy.keep_total {
+            Some(n) => {
+                let active: i64 = conn.query_row(
+                    "SELECT COUNT(*) FROM jobs WHERE status NOT IN ('complete','failed','cancelled')",
+                    [],
+                    |r| r.get(0),
+                )?;
+                Some(n.saturating_sub((active.max(0) as usize).saturating_add(incoming)))
+            }
+            None => None,
+        };
         let cutoff = policy.older_than.map(|d| {
             let secs = std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
@@ -891,11 +1006,18 @@ impl JobStore {
                 .enumerate()
                 .filter(|(rank, (_, updated))| {
                     policy.keep_latest.is_some_and(|k| *rank >= k)
+                        || total_room.is_some_and(|k| *rank >= k)
                         || cutoff.as_deref().is_some_and(|c| updated.as_str() < c)
                 })
                 .map(|(_, (id, _))| id)
                 .collect()
         };
+        self.remove_jobs(conn, doomed)
+    }
+
+    /// Delete `doomed` jobs with their events, artifact rows, submission rows and recovery
+    /// metadata on `conn`, reporting what went; the job rows go last.
+    fn remove_jobs(&self, conn: &Connection, doomed: Vec<String>) -> JobResult<PruneReport> {
         let mut report = PruneReport::default();
         for id in &doomed {
             let mut st =
@@ -922,6 +1044,58 @@ impl JobStore {
         }
         report.jobs = doomed;
         Ok(report)
+    }
+
+    /// Remove one job with its events, artifact rows, submission rows and recovery metadata, in
+    /// one transaction; artifact files are left for the caller (see [`PruneReport`]). A
+    /// non-terminal job is first moved to `cancelled` (`StoreHook::on_transition` fires) and its
+    /// in-process [`CancelToken`] is set after the commit; a running handler is not waited for,
+    /// and its later fenced writes fail with `job_not_found`. A held job is refused
+    /// (`illegal_transition`): resolve it first. `job_not_found` when there is no such job.
+    pub fn delete(&self, job_id: &str) -> JobResult<PruneReport> {
+        let mut conn = self.c();
+        let tx = write_txn(&mut conn)?;
+        let before = self.load(&tx, job_id)?;
+        let mut was_live = false;
+        if !before.job.is_terminal() {
+            if self.cfg.statuses.is_held(&before.job.status) {
+                return Err(JobError::new(
+                    "illegal_transition",
+                    format!(
+                        "job {job_id} is held in {}; resolve it before deleting",
+                        before.job.status
+                    ),
+                ));
+            }
+            self.exec(&tx, &before, &Transition::to(CANCELLED))?;
+            was_live = true;
+        }
+        let report = self.remove_jobs(&tx, vec![job_id.to_string()])?;
+        tx.commit()?;
+        drop(conn);
+        self.settle(job_id, was_live);
+        Ok(report)
+    }
+
+    /// Paths of the artifacts of every non-terminal job (held ones included), oldest first and
+    /// without repeats: files that must not be swept as orphans.
+    pub fn claimed_paths(&self) -> JobResult<Vec<PathBuf>> {
+        let conn = self.c();
+        let mut st = conn.prepare(&format!(
+            "SELECT a.path FROM {} a JOIN jobs j ON j.job_id=a.job_id WHERE j.status IN {} \
+             ORDER BY j.created_at, j.rowid, a.created_at, a.rowid",
+            self.cfg.artifacts.table,
+            self.cfg.statuses.sql_set()
+        ))?;
+        let all = st
+            .query_map([], |r| r.get::<_, String>(0))?
+            .collect::<Result<Vec<_>, _>>()?;
+        let mut seen = std::collections::HashSet::new();
+        Ok(all
+            .into_iter()
+            .filter(|p| seen.insert(p.clone()))
+            .map(PathBuf::from)
+            .collect())
     }
 
     pub fn get(&self, job_id: &str) -> JobResult<Job> {
@@ -995,9 +1169,21 @@ impl JobStore {
     /// Apply `t` to `before` on `conn` (inside the caller's transaction) and
     /// fire hooks. `before` must be non-terminal.
     fn exec(&self, conn: &Connection, before: &JobRecord, t: &Transition) -> JobResult<JobRecord> {
+        self.exec_in(conn, before, t, false)
+    }
+
+    /// [`JobStore::exec`]; `force` skips the status model's move check (hold and resolve, which
+    /// check their own preconditions).
+    fn exec_in(
+        &self,
+        conn: &Connection,
+        before: &JobRecord,
+        t: &Transition,
+        force: bool,
+    ) -> JobResult<JobRecord> {
         let model = &self.cfg.statuses;
         if let Some(to) = &t.to {
-            if !model.can_move(&before.job.status, to) {
+            if !force && !model.can_move(&before.job.status, to) {
                 return Err(JobError::new(
                     "illegal_transition",
                     format!(
@@ -1185,6 +1371,7 @@ impl JobStore {
         if before.job.is_terminal() {
             return Ok(None);
         }
+        self.refuse_held(&before)?;
         let after = self.exec(&tx, &before, &t)?;
         tx.execute(
             "UPDATE jobs SET attempt_gen=attempt_gen+1 WHERE job_id=?1",
@@ -1307,9 +1494,21 @@ impl JobStore {
             .is_some())
     }
 
+    /// Cancel a job. A terminal job and a held job (see [`StatusModel::hold`]) are returned
+    /// unchanged: a held job waits for [`JobStore::resolve`].
     pub fn cancel(&self, job_id: &str) -> JobResult<Job> {
-        self.transition(job_id, &Transition::to(CANCELLED))?;
-        self.get(job_id)
+        let mut conn = self.c();
+        let tx = write_txn(&mut conn)?;
+        let before = self.load(&tx, job_id)?;
+        if before.job.is_terminal() || self.cfg.statuses.is_held(&before.job.status) {
+            return Ok(before.job);
+        }
+        self.flush_pending_in(&tx, job_id)?;
+        let after = self.exec(&tx, &before, &Transition::to(CANCELLED))?;
+        tx.commit()?;
+        drop(conn);
+        self.settle(job_id, true);
+        Ok(after.job)
     }
 
     pub fn is_cancelled(&self, job_id: &str) -> JobResult<bool> {
@@ -1371,6 +1570,8 @@ impl JobStore {
         if before.job.is_terminal() {
             return Ok(None);
         }
+        // Counting an attempt on a held job would reserve spend for a submission nobody may make.
+        self.refuse_held(&before)?;
         if let Some(x) = before.ext_str(&col) {
             return Ok(Some(Submission::Resume {
                 external_id: x.to_string(),
@@ -1514,6 +1715,158 @@ impl JobStore {
         )?;
         tx.commit()?;
         Ok(Some(after))
+    }
+
+    fn refuse_held(&self, rec: &JobRecord) -> JobResult<()> {
+        if self.cfg.statuses.is_held(&rec.job.status) {
+            return Err(JobError::new(
+                "illegal_transition",
+                format!(
+                    "job {} is held in {}; only resolve can move it",
+                    rec.job.job_id, rec.job.status
+                ),
+            ));
+        }
+        Ok(())
+    }
+
+    /// The outcome of the current submission attempt is unknown (the request may or may not
+    /// have reached the outside system): record `error` and park the job in the held status
+    /// `to` (declared with [`StatusModel::hold`]), in one transaction with
+    /// `StoreHook::on_transition` and a `held` event. The submission row stays `pending` (with
+    /// the error stored on it), so the attempt and anything the hook reserved for it stay
+    /// counted. The status model's `allow` table is not consulted: any non-held, non-terminal
+    /// job may be held. From here only [`JobStore::resolve`] moves the job. `Ok(None)` when the
+    /// job is terminal; `illegal_transition` when it is already held.
+    pub fn hold_submission(
+        &self,
+        job_id: &str,
+        error: &JobError,
+        to: &str,
+    ) -> JobResult<Option<JobRecord>> {
+        self.hold_submission_in(job_id, None, error, to)
+    }
+
+    /// [`JobStore::hold_submission`] for the attempt holding `generation` (fenced).
+    pub fn hold_submission_fenced(
+        &self,
+        job_id: &str,
+        generation: i64,
+        error: &JobError,
+        to: &str,
+    ) -> JobResult<Option<JobRecord>> {
+        self.hold_submission_in(job_id, Some(generation), error, to)
+    }
+
+    fn hold_submission_in(
+        &self,
+        job_id: &str,
+        fence: Option<i64>,
+        error: &JobError,
+        to: &str,
+    ) -> JobResult<Option<JobRecord>> {
+        self.external_col()?;
+        if !self.cfg.statuses.is_held(to) {
+            return Err(JobError::bad_input(format!("{to} is not a held status")));
+        }
+        let mut conn = self.c();
+        let tx = write_txn(&mut conn)?;
+        check_fence(&tx, job_id, fence)?;
+        let before = self.load(&tx, job_id)?;
+        if before.job.is_terminal() {
+            return Ok(None);
+        }
+        self.refuse_held(&before)?;
+        self.flush_pending_in(&tx, job_id)?;
+        let ej = error.to_json_with(self.cfg.includes_retryable());
+        let t = Transition::to(to).error(Some(ej.clone()));
+        let after = self.exec_in(&tx, &before, &t, true)?;
+        tx.execute(
+            "UPDATE rk_job_submissions SET error_json=?3, updated_at=?4 WHERE job_id=?1 AND attempt=?2",
+            params![job_id, before.job.attempts, ej.to_string(), now()],
+        )?;
+        add_event_on(&tx, job_id, None, "held", None, None, Some(&error.message))?;
+        tx.commit()?;
+        Ok(Some(after))
+    }
+
+    /// Settle a held job, in one transaction with `StoreHook::on_transition` and
+    /// `StoreHook::on_resolve` (so an app ledger keeps or releases its reservation atomically)
+    /// and a `resolved` event. `illegal_transition` unless the job is in a held status.
+    ///
+    /// - [`Resolution::Resubmit`]: the current submission row becomes `failed`, the external id
+    ///   is cleared and the job moves to `to`, which is required (`bad_input` without it) and
+    ///   must be a known, non-terminal, non-held status; the next
+    ///   [`JobStore::begin_submission`] counts one new attempt.
+    /// - [`Resolution::Abandon`]: the job ends `failed` with that error; the submission row
+    ///   becomes `failed`.
+    /// - [`Resolution::Adopt`]: the job ends `complete` with that result and no error; the
+    ///   submission row becomes `accepted`.
+    ///
+    /// `to` is ignored by the last two. A hook error rolls everything back and the job stays held.
+    pub fn resolve(&self, job_id: &str, r: &Resolution, to: Option<&str>) -> JobResult<JobRecord> {
+        let model = &self.cfg.statuses;
+        if matches!(r, Resolution::Resubmit) {
+            match to {
+                Some(t)
+                    if model.is_known(t) && !StatusModel::is_terminal(t) && !model.is_held(t) => {}
+                _ => {
+                    return Err(JobError::bad_input(
+                        "resubmit needs a known, non-terminal, non-held target status",
+                    ))
+                }
+            }
+        }
+        let mut conn = self.c();
+        let tx = write_txn(&mut conn)?;
+        let before = self.load(&tx, job_id)?;
+        if !model.is_held(&before.job.status) {
+            return Err(JobError::new(
+                "illegal_transition",
+                format!(
+                    "job {job_id} is {}, not held; only a held job can be resolved",
+                    before.job.status
+                ),
+            ));
+        }
+        self.flush_pending_in(&tx, job_id)?;
+        let includes = self.cfg.includes_retryable();
+        let (t, sub_state, label) = match r {
+            Resolution::Resubmit => {
+                let mut t = Transition::to(to.unwrap_or_default());
+                if let Some(col) = self.cfg.external_id.as_deref() {
+                    t = t.set(col, Value::Null);
+                }
+                (t, "failed", "resubmit")
+            }
+            Resolution::Abandon(e) => (
+                Transition::to(FAILED).error(Some(e.to_json_with(includes))),
+                "failed",
+                "abandon",
+            ),
+            Resolution::Adopt(v) => (
+                Transition::to(COMPLETE).result(v.clone()).error(None),
+                "accepted",
+                "adopt",
+            ),
+        };
+        let after = self.exec_in(&tx, &before, &t, true)?;
+        if self.cfg.external_id.is_some() {
+            tx.execute(
+                "UPDATE rk_job_submissions SET state=?3, updated_at=?4 WHERE job_id=?1 AND attempt=?2",
+                params![job_id, before.job.attempts, sub_state, now()],
+            )?;
+        }
+        add_event_on(&tx, job_id, None, "resolved", None, None, Some(label))?;
+        if let Some(h) = &self.cfg.hook {
+            h.on_resolve(&tx, &after, after.job.attempts, r)?;
+        }
+        tx.commit()?;
+        drop(conn);
+        if after.job.is_terminal() {
+            self.settle(job_id, false);
+        }
+        Ok(after)
     }
 
     /// Submission attempts recorded for a job, oldest first.

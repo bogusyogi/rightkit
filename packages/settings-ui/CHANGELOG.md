@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.4.4
+
+Additive. Defaults equal 0.4.3; the default DOM, classes and search results are unchanged, pinned by the existing snapshot tests and by `src/primitives-hooks.test.tsx`.
+
+Added:
+- `SettingRow`: `lead` (rendered before the text, in its own column, adds `rk-sr--lead`), `titleClassName`, `hintClassName`, `bareControl` (render the control without the `rk-sr__control` wrapper).
+- `SettingsGroup`: `titleClassName`, `hintClassName` (the description), `rowsClassName` (the rows container).
+- Custom properties, each defaulting to the 0.4.3 value: `--rk-sg-margin`, `--rk-sg-background`, `--rk-sg-border-radius`, `--rk-sg-shadow`, `--rk-sr-gap`, `--rk-sr-padding`, `--rk-sr-border`.
+- `enabled` (default `true`) on `SettingsSearchProvider` and on `useSettingsRow`, `useSettingsItem`, `useSettingsHit`, `useSettingsGroup` and `useSettingsSection`. `false` makes the subtree inert: no registration, no store update, no subscriber render.
+- `useSettingsGroup({ hideOnlyWhileSearching })` and `useSettingsSection({ hideOnlyWhileSearching })`, default `false`. `true` hides an empty group or section only while a query is active.
+- A development-build console warning, once per page, for a row whose `label` is not a string and has no `searchText`.
+- Type `SettingsGroupOptions` on the headless entry.
+
+Changed:
+- `SettingsPanel` skips search registration while search is off: no built-in field and no controlled `query`. Nothing it renders changes.
+
+Headless check: the existing hooks already let a host render its own `<b>` for a row title and `<small>` for a hint (`mark()` adds no element), so no headless hook was added for that.
+
 ## 0.4.3
 
 Headless follow-up from Pulse's port of its hub onto the headless hooks. Additive: the styled parts, every default and the 0.4.1 default markup (pinned by `src/default-markup-0.4.1.test.tsx`) are unchanged.

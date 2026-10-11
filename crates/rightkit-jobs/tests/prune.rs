@@ -220,3 +220,76 @@ fn prune_removes_submission_rows_and_extension_data_with_the_job() {
     assert_eq!(report.submissions, 1);
     assert_eq!(count(&store, "rk_job_submissions"), 0);
 }
+
+#[test]
+fn keep_total_never_drops_active() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = open(dir.path());
+    let mut terminal = Vec::new();
+    for i in 0..201 {
+        let id = store.submit(&new_job(&format!("t{i}"))).unwrap().0.job_id;
+        store.complete(&id, &json!({})).unwrap();
+        set_updated(
+            &store,
+            &id,
+            &format!("2024-01-01T00:{:02}:{:02}Z", i / 60, i % 60),
+        );
+        terminal.push(id);
+    }
+    let active: Vec<String> = (0..3)
+        .map(|i| {
+            let id = store.submit(&new_job(&format!("a{i}"))).unwrap().0.job_id;
+            set_updated(&store, &id, "2000-01-01T00:00:00Z");
+            id
+        })
+        .collect();
+
+    let report = store.prune(&PrunePolicy::new().keep_total(200)).unwrap();
+    assert_eq!(
+        count(&store, "jobs"),
+        200,
+        "the bound is on the whole table"
+    );
+    assert_eq!(report.jobs.len(), 4);
+    for id in &active {
+        assert!(store.get(id).is_ok(), "an active job is never dropped");
+    }
+    // The four oldest terminal rows went, the newest stayed.
+    for id in &terminal[..4] {
+        assert_eq!(store.get(id).unwrap_err().code, "job_not_found");
+    }
+    assert!(store.get(&terminal[200]).is_ok());
+
+    // More active jobs than the bound: no terminal row survives, no active job is touched.
+    let report = store.prune(&PrunePolicy::new().keep_total(2)).unwrap();
+    assert_eq!(report.jobs.len(), 197);
+    assert_eq!(count(&store, "jobs"), 3);
+    for id in &active {
+        assert!(store.get(id).is_ok());
+    }
+}
+
+#[test]
+fn keep_total_in_a_submit_counts_the_incoming_row() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = open(dir.path());
+    for i in 0..5 {
+        let id = store.submit(&new_job(&format!("t{i}"))).unwrap().0.job_id;
+        store.complete(&id, &json!({})).unwrap();
+        set_updated(&store, &id, &format!("2024-01-0{}T00:00:00Z", i + 1));
+    }
+    let s = store
+        .submit_with(
+            &new_job("new"),
+            &Default::default(),
+            &SubmitOptions::new().prune(PrunePolicy::new().keep_total(3)),
+        )
+        .unwrap();
+    assert_eq!(s.pruned.jobs.len(), 3);
+    assert_eq!(
+        count(&store, "jobs"),
+        3,
+        "two kept terminal rows plus the new job"
+    );
+    assert!(!store.get(&s.record.job.job_id).unwrap().is_terminal());
+}

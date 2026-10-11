@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.2.8
+
+Additive. Defaults equal 0.2.7; nothing changes for an app that calls none of the new options.
+
+- Host-injected platform: `getPlatform()` reads `window.__RIGHTKIT_PLATFORM__` (normalised) before the native load. `loadPlatform()` resolves the native value; when it disagrees with the injected one the native value wins and a warning is logged.
+- `platformInitializationScript(platform)` (root, `./headless`): returns the exact initialization-script snippet, built from the normalised platform only.
+- `configurePlatform(options)` with `PlatformOptions`: `qaQueryParam` (default `"qaPlatform"`), `qaRequireQaFlag` (default `true`), `nativeWinsOverQa` (default `false`), `fallbackPlatform` (default none, used only when the result would be `unknown`).
+- `normalizePlatform` accepts the aliases `mac` and `darwin` (macOS) and `win` (Windows).
+- `formatChord` renders the chord token `ctrlormeta` (Ctrl or Meta): `⌘/⌃` on macOS, `Ctrl/Win` on Windows and Linux, `Touch` on iOS, `Ctrl/Meta` when unknown.
+
 ## 0.2.7
 
 - `formatChord`: side-specific modifier tokens `lctrl`, `rctrl`, `lalt`, `ralt`, `lshift`, `rshift` are spelled out on every platform (macOS "Left Option", "Right Control"; elsewhere "Left Alt", "Right Ctrl"). Before, a token missing from a platform's table was only capitalised (`lalt` → "Lalt"; on macOS `ralt` → "Ralt"). Display change for any app that already passed those tokens.

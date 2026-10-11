@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSyn
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { macCodesignArgs, parseSignManifest, signMacosEntries } from "./mac-sign-core.mjs";
+import { macCodesignArgs, parseSignManifest, signMacosEntries, validateCodesignIdentifier } from "./mac-sign-core.mjs";
 import { hasNonDefaultSettings, matrixReceiptProblems, planMacSigning, validateMacSigningConfig } from "./mac-signing-matrix.mjs";
 
 const PLIST = '<?xml version="1.0" encoding="UTF-8"?>\n<plist version="1.0"><dict/></plist>\n';
@@ -189,6 +189,51 @@ test("codesign argv: defaults are the historical form; options extend runtime", 
   assert.deepEqual(macCodesignArgs({ file: "/x", identity: "id" }), ["--force", "--options", "runtime", "--timestamp", "--sign", "id", "/x"]);
   assert.deepEqual(macCodesignArgs({ file: "/x", identity: "id", options: ["library", "runtime"], entitlements: "/e.plist" }),
     ["--force", "--options", "runtime,library", "--timestamp", "--sign", "id", "--entitlements", "/e.plist", "/x"]);
+});
+
+test("codesign argv: an identifier adds --identifier between --timestamp and --sign; absent changes nothing", () => {
+  assert.deepEqual(macCodesignArgs({ file: "/x", identity: "id", identifier: "app.example.engine" }),
+    ["--force", "--options", "runtime", "--timestamp", "--identifier", "app.example.engine", "--sign", "id", "/x"]);
+  assert.deepEqual(macCodesignArgs({ file: "/x", identity: "id", identifier: "app.example", entitlements: "/e.plist", options: ["library"] }),
+    ["--force", "--options", "runtime,library", "--timestamp", "--identifier", "app.example", "--sign", "id", "--entitlements", "/e.plist", "/x"]);
+  assert.deepEqual(macCodesignArgs({ file: "/x", identity: "id", identifier: undefined }), macCodesignArgs({ file: "/x", identity: "id" }));
+});
+
+test("codesign identifier validation refuses spaces, a leading dash and other characters", () => {
+  assert.equal(validateCodesignIdentifier("app.example.runtime.Contents.Resources-x"), "app.example.runtime.Contents.Resources-x");
+  for (const bad of ["", "-flag", "has space", "a/b", "a_b", "--sign", "é.app", 7, null]) {
+    assert.throws(() => validateCodesignIdentifier(bad), (error) => error.code === "MAC_SIGN_IDENTIFIER_INVALID", String(bad));
+    if (typeof bad === "string") assert.throws(() => macCodesignArgs({ file: "/x", identity: "id", identifier: bad }), /codesign identifier/);
+  }
+  assert.throws(() => parseSignManifest(JSON.stringify({ schema: 1, entries: [{ file: "/a", identifier: "bad id" }] })), /identifier must be/);
+  assert.equal(parseSignManifest(JSON.stringify({ schema: 1, entries: [{ file: "/a", identifier: "app.a" }] }))[0].identifier, "app.a");
+});
+
+test("signMacosEntries applies a bundle-relative identifier map or matcher, and refuses an invalid one before signing", () => {
+  const identity = "Developer ID Application: Fake (TEAM123456)";
+  const entries = [{ file: "/b/App.app/Contents/MacOS/engine", options: [] }, { file: "/b/App.app/Contents/MacOS/other", options: [] }, { file: "/b/App.app", options: [] }];
+  const run = (extra) => {
+    const calls = [];
+    const inspect = (cmd, args) => (args[0] === "--verify" ? "valid on disk\nsatisfies its designated requirement"
+      : `Authority=${identity}\nIdentifier=${calls.find((c) => c.at(-1) === args[1])?.[calls.find((c) => c.at(-1) === args[1]).indexOf("--identifier") + 1]}\nTimestamp=now`);
+    const records = signMacosEntries(entries, { identity, signOne: (args) => { calls.push(args); return { status: 0 }; }, inspect, evidence: () => ({}), ...extra });
+    return { calls, records };
+  };
+  const mapped = run({ bundle: "/b/App.app", identifiers: { "Contents/MacOS/engine": "app.example.engine", ".": "app.example" } });
+  assert.deepEqual(mapped.calls[0], ["--force", "--options", "runtime", "--timestamp", "--identifier", "app.example.engine", "--sign", identity, entries[0].file]);
+  assert.deepEqual(mapped.calls[1], ["--force", "--options", "runtime", "--timestamp", "--sign", identity, entries[1].file]);
+  assert.deepEqual(mapped.calls[2], ["--force", "--options", "runtime", "--timestamp", "--identifier", "app.example", "--sign", identity, "/b/App.app"]);
+  assert.equal(mapped.records[0].identifier, "app.example.engine");
+  assert.equal("identifier" in mapped.records[1], false);
+  const matched = run({ bundle: "/b/App.app", identifiers: (relative) => (relative.endsWith("/engine") ? "app.example.engine" : undefined) });
+  assert.deepEqual(matched.calls[0].slice(4, 6), ["--identifier", "app.example.engine"]);
+  assert.equal(matched.calls.filter((call) => call.includes("--identifier")).length, 1);
+  const signed = [];
+  assert.throws(() => signMacosEntries(entries, { identity, signOne: (args) => { signed.push(args); return { status: 0 }; }, inspect: () => "", evidence: () => ({}),
+    bundle: "/b/App.app", identifiers: { "Contents/MacOS/other": "bad id" } }), /identifier for Contents\/MacOS\/other/);
+  assert.deepEqual(signed, [], "nothing is signed when an identifier is invalid");
+  const noMap = run({});
+  assert.ok(noMap.calls.every((call) => !call.includes("--identifier")));
 });
 
 test("manifest parsing validates entries", () => {

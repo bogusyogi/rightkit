@@ -138,6 +138,24 @@ The query is split on whitespace and every term must appear (case-insensitive) i
 | `SettingsGroup` | `hideWhenEmpty` | `false` | Under a provider, hide the group while none of its registered rows or items is visible; re-evaluated on every registration change, so late rows reveal it. Wrap non-row content in `SettingsItem` to count. `"unmount"` (0.4.2) removes the section and its heading instead of hiding them; the rows stay mounted. |
 | `SettingsGroup` | `className`, `headingLevel` | none, `3` | (0.4.2) `className` is added after `rk-sg`; `headingLevel` sets the title's heading level. |
 | `SettingRow` | `keywords`, `searchText`, `className` | none | Extra terms; text to match when `label` is not a string. `className` (0.4.2) is added after the row's own classes. |
+| `SettingRow` | `lead`, `titleClassName`, `hintClassName`, `bareControl` | none, none, none, `false` | (0.4.4) `lead` renders before the text (an icon or badge) in its own column and adds `rk-sr--lead`. `titleClassName` goes on the label and `hintClassName` on the description. `bareControl` renders the control without its `rk-sr__control` wrapper. |
+| `SettingsGroup` | `titleClassName`, `hintClassName`, `rowsClassName` | none | (0.4.4) Added after `rk-sg__title`, `rk-sg__desc` (the group's hint) and `rk-sg__rows`. |
+| `SettingsSearchProvider` (and the headless hooks) | `enabled` | `true` | (0.4.4) `false` makes search inert: rows, groups, sections, items and hits do not register, do not subscribe to the store, and render as if no provider were there. `SettingsPanel` sets it from its search field: with `search={false}` (or `hideSearch`) and no controlled `query`, registrations are skipped. |
+
+### Custom properties (0.4.4)
+
+Each defaults to the value shown, so nothing changes unless it is set.
+
+| Property | Default | Applies to |
+|---|---|---|
+| `--rk-sg-margin` | `22px` | bottom margin of a group |
+| `--rk-sg-background` | `var(--rk-panel)` | rows container background |
+| `--rk-sg-border-radius` | `var(--rk-radius)` | rows container corner radius |
+| `--rk-sg-shadow` | `var(--rk-card)` | rows container shadow |
+| `--rk-sr-gap` | `16px` | gap inside a row |
+| `--rk-sr-padding` | `12px 16px` | row padding |
+| `--rk-sr-border` | `.5px solid var(--rk-hairline)` | row bottom rule |
+
 | `SettingsSearchSection` | `passthroughWhenInactive` | `false` | (0.4.2) With no search active, render the children untouched: no section, heading or action. |
 
 Focus is never moved by search: typing, changing results and opening results leave focus where it was (only the find shortcut and an explicit "Open section" click act on focus).
@@ -176,11 +194,11 @@ From 0.4.2, `@rightkit/settings-ui/headless` gives the search state the styled p
 | Hook or component | Returns or does | Use it for |
 |---|---|---|
 | `SettingsSearchProvider` | `query`, `filter`, `highlight` (a function for your own `<mark>`), `wrapHighlight` | Wraps the search. Renders no DOM. |
-| `useSettingsRow({ id, label, description, keywords, searchText })` | `{ matches, hidden, props, mark }`. `props` carries `data-setting-id` and `data-hit=""` for a matching row during a search | A row. Spread `props`; wrap label and description in `mark()`; hide it with `hidden`. |
+| `useSettingsRow({ id, label, description, keywords, searchText, enabled })` | `{ matches, hidden, props, mark }`. `props` carries `data-setting-id` and `data-hit=""` for a matching row during a search | A row. Spread `props`; wrap label and description in `mark()`; hide it with `hidden`. |
 | `useSettingsItem({ id, text, description, keywords })` | The same as `useSettingsRow` | Content that is not a row (an account list, a permission row). It is a result for its group. |
 | `useSettingsHit({ text, keywords })` | `{ matches, mark }` | A match that is neither a row nor an item (a command, a help topic). It counts in `count`, `results` and the status sentence, and toward the group or section it sits in. Renders nothing. |
-| `useSettingsGroup()` + `SettingsGroupScope` | `{ key, visibleRowCount, empty, hidden, props, mark }` | A group. Pass `key` to the scope around its rows; spread `props` on the group's element; `mark` the title. |
-| `useSettingsSection()` + `SettingsSectionScope` | `{ key, visibleRowCount, empty, hidden, props, mark }`; the scope takes `scopeKey={key}` | A section, the same way as a group. |
+| `useSettingsGroup({ enabled, hideOnlyWhileSearching })` + `SettingsGroupScope` | `{ key, visibleRowCount, empty, hidden, props, mark }` | A group. Pass `key` to the scope around its rows; spread `props` on the group's element; `mark` the title. |
+| `useSettingsSection({ enabled, hideOnlyWhileSearching })` + `SettingsSectionScope` | `{ key, visibleRowCount, empty, hidden, props, mark }`; the scope takes `scopeKey={key}` | A section, the same way as a group. |
 | `useSettingsSearchField({ query, setQuery })` | `{ value, onChange, clear, active, count, status }` | The search input and its `role="status"` text. Put it under the provider. |
 | `useSearchKeys({ inputRef, query, setQuery, findShortcut, escapeClears })` | Cmd/Ctrl+F and Escape policy | Keyboard handling for a host-owned field. |
 | `useSettingsSearch()` | `{ query, terms, active, results, count, highlight }` | Anything else that needs the results. |
@@ -284,6 +302,14 @@ The `.ck-set[hidden]` rule and the `ck-search-section` class are the host's own 
 With a function `highlight`, each matched piece is wrapped in `<span style="display: contents">` and your function's output sits inside it. The span exists so each piece is a keyed element of its own; it has no box and no layout effect, and the text keeps its place. Pass `wrapHighlight={false}` on the provider to render your output as it is, with no span. Either way, text content and accessible names are the same. Use `false` when your CSS targets the direct children of the matched text, or when the output must be the element that the text was.
 
 ### Other rules
+
+`hideOnlyWhileSearching` (0.4.4, default `false`): by default a group or section with no registered rows is empty even when no query is active, which is today's behaviour. With `true` it is empty only while a query is active and no row matches, so a group that holds plain content stays visible when you are not searching.
+
+The headless hooks put no element around a label or hint: `mark(label)` returns the text (or the highlighted pieces), so render your own `<b>` for the title and `<small>` for the hint.
+
+A row whose `label` is not a string is not searchable unless you pass `searchText`. In a development build (where `process.env.NODE_ENV` is defined and not `"production"`) the first such row logs one console warning saying so.
+
+Under `search={false}` the hooks are inert: `SettingsPanel` with `search={false}` (or `hideSearch`) and no controlled `query` does not register anything, so the hooks render as if there were no search at all.
 
 Outside a provider every hook is inert: rows render, nothing is hidden, groups and sections are not empty, hits do not match and the status is empty. The hooks set no `id`s, no `role`s other than what you ask for, and no `data-` attributes beyond `data-setting-id`, `data-hit`, `data-empty` and `hidden`.
 

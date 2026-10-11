@@ -33,12 +33,14 @@ export interface ToggleProps {
   onChange: (checked: boolean) => void;
   label: string;
   disabled?: boolean;
+  /** Added after `rk-toggle` on the root (0.6.4). */
+  className?: string;
 }
 
-/** Switch (role="switch"); the label is the accessible name. */
-export function Toggle({ checked, onChange, label, disabled }: ToggleProps) {
+/** Switch (role="switch"); the label is the accessible name. Track and knob sizes are `--rk-toggle-*` custom properties. */
+export function Toggle({ checked, onChange, label, disabled, className }: ToggleProps) {
   return (
-    <button type="button" role="switch" aria-checked={checked} aria-label={label} disabled={disabled} className="rk-toggle" onClick={() => onChange(!checked)}>
+    <button type="button" role="switch" aria-checked={checked} aria-label={label} disabled={disabled} className={cx("rk-toggle", className)} onClick={() => onChange(!checked)}>
       <span className="rk-toggle__knob" />
     </button>
   );
@@ -50,9 +52,9 @@ export interface SegmentedOption<T extends string> {
   title?: string;
 }
 
-export function SegmentedControl<T extends string>({ value, options, onChange, label, disabled }: { value: T; options: readonly SegmentedOption<T>[]; onChange: (value: T) => void; label: string; disabled?: boolean }) {
+export function SegmentedControl<T extends string>({ value, options, onChange, label, disabled, className }: { value: T; options: readonly SegmentedOption<T>[]; onChange: (value: T) => void; label: string; disabled?: boolean; /** Added after `rk-seg` on the root (0.6.4). */ className?: string }) {
   return (
-    <div className="rk-seg" role="radiogroup" aria-label={label}>
+    <div className={cx("rk-seg", className)} role="radiogroup" aria-label={label}>
       {options.map((option) => (
         <button
           key={option.value}

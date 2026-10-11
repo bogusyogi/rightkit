@@ -21,17 +21,23 @@ export interface SettingsGroupProps {
   className?: string;
   /** Level of the title heading (0.4.2). Default 3. */
   headingLevel?: 2 | 3 | 4 | 5 | 6;
+  /** Added after `rk-sg__title` on the heading (0.4.4). */
+  titleClassName?: string;
+  /** Added after `rk-sg__desc` on the description, the group's hint (0.4.4). */
+  hintClassName?: string;
+  /** Added after `rk-sg__rows` on the rows container (0.4.4). */
+  rowsClassName?: string;
 }
 
 /** Titled group of rows inside a section. */
-export function SettingsGroup({ title, description, children, hideWhenEmpty = false, className, headingLevel = 3 }: SettingsGroupProps) {
+export function SettingsGroup({ title, description, children, hideWhenEmpty = false, className, headingLevel = 3, titleClassName, hintClassName, rowsClassName }: SettingsGroupProps) {
   const g = useGroupScope(title, description, hideWhenEmpty);
   if (g.unmounted) return <GroupScope groupKey={g.key} title={g.titleText}>{children}</GroupScope>;
   return (
     <section className={cx("rk-sg", className)} style={g.hidden ? { display: "none" } : undefined}>
-      {title ? createElement(`h${headingLevel}`, { className: "rk-sg__title" }, typeof title === "string" ? g.mark(title) : title) : null}
-      {description ? <p className="rk-sg__desc">{typeof description === "string" ? g.mark(description) : description}</p> : null}
-      <div className="rk-sg__rows"><GroupScope groupKey={g.key} title={g.titleText}>{children}</GroupScope></div>
+      {title ? createElement(`h${headingLevel}`, { className: cx("rk-sg__title", titleClassName) }, typeof title === "string" ? g.mark(title) : title) : null}
+      {description ? <p className={cx("rk-sg__desc", hintClassName)}>{typeof description === "string" ? g.mark(description) : description}</p> : null}
+      <div className={cx("rk-sg__rows", rowsClassName)}><GroupScope groupKey={g.key} title={g.titleText}>{children}</GroupScope></div>
     </section>
   );
 }
@@ -51,18 +57,31 @@ export interface SettingRowProps {
   searchText?: string;
   /** Added after the row's own classes (0.4.2). */
   className?: string;
+  /** Rendered before the text, for an icon or badge (0.4.4). Adds `rk-sr--lead` and the `rk-sr__lead` wrapper. */
+  lead?: ReactNode;
+  /** Added after `rk-sr__label` on the title (0.4.4). */
+  titleClassName?: string;
+  /** Added after `rk-sr__desc` on the hint (0.4.4). */
+  hintClassName?: string;
+  /**
+   * Render `children` directly, without the `rk-sr__control` wrapper (0.4.4). Each child becomes a grid item of the row, so pass
+   * one element. Default false.
+   */
+  bareControl?: boolean;
 }
 
-export function SettingRow({ id, label, description, children, stacked, keywords, searchText, className }: SettingRowProps) {
+export function SettingRow({ id, label, description, children, stacked, keywords, searchText, className, lead, titleClassName, hintClassName, bareControl = false }: SettingRowProps) {
   const { visible, mark } = useRowSearch({ id, label, description, keywords, searchText });
   if (!visible) return null;
+  const hasLead = lead !== undefined && lead !== null && lead !== false;
   return (
-    <div className={cx("rk-sr", stacked && "rk-sr--stacked", className)} data-setting-id={id}>
+    <div className={cx("rk-sr", stacked && "rk-sr--stacked", hasLead && "rk-sr--lead", className)} data-setting-id={id}>
+      {hasLead ? <div className="rk-sr__lead">{lead}</div> : null}
       <div className="rk-sr__text">
-        <div className="rk-sr__label">{mark(label)}</div>
-        {description ? <div className="rk-sr__desc">{mark(description)}</div> : null}
+        <div className={cx("rk-sr__label", titleClassName)}>{mark(label)}</div>
+        {description ? <div className={cx("rk-sr__desc", hintClassName)}>{mark(description)}</div> : null}
       </div>
-      {children ? <div className="rk-sr__control">{children}</div> : null}
+      {children ? (bareControl ? children : <div className="rk-sr__control">{children}</div>) : null}
     </div>
   );
 }

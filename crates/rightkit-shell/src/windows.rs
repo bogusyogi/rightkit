@@ -15,6 +15,34 @@ use crate::nav::WindowOpenDecision;
 use crate::opener::open_checked;
 use crate::{ShellState, EVENT_WINDOW};
 
+/// App event announcing initial window placement (`phase` `"begin"` / `"done"`), so a
+/// control server can hold viewport requests until placement and state restore have
+/// landed instead of racing them. Same name `rightkit-control` listens on. Announcing
+/// never shows, orders or focuses a window.
+pub const EVENT_PLACEMENT: &str = "rk-shell:placement";
+
+fn announce_placement(app: &AppHandle<Wry>, label: &str, phase: &str) {
+    let _ = app.emit(
+        EVENT_PLACEMENT,
+        serde_json::json!({"label": label, "phase": phase}),
+    );
+}
+
+/// Run `place` (window-state restore and any other initial placement) between the
+/// `begin` and `done` announcements. `done` is queued on the main thread behind the
+/// size and position calls `place` made, so it is not announced before they apply.
+pub fn with_placement_announced(app: &AppHandle<Wry>, label: &str, place: impl FnOnce()) {
+    announce_placement(app, label, "begin");
+    place();
+    let (a, l) = (app.clone(), label.to_owned());
+    if app
+        .run_on_main_thread(move || announce_placement(&a, &l, "done"))
+        .is_err()
+    {
+        announce_placement(app, label, "done");
+    }
+}
+
 const MIN_WIDTH: f64 = 320.0;
 const MIN_HEIGHT: f64 = 240.0;
 

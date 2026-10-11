@@ -6,6 +6,7 @@
  * Chord vocabulary (authored once, rendered per OS by `@rightkit/platform-ui`):
  *   "mod+k"        mod = Cmd on macOS, Ctrl elsewhere
  *   "mod+shift+p"  modifiers: mod ctrl meta alt shift
+ *   "ctrlormeta+k" exactly one of Ctrl or Meta (Cmd/Win) on every platform, whichever the OS uses
  *   "?"            bare key (never fires while typing in a field)
  *   "g i"          sequence: press g, then i within the timeout (never fires while typing)
  */
@@ -31,6 +32,15 @@ export interface ShortcutDef {
   hidden?: boolean;
   /** Default true. */
   preventDefault?: boolean;
+  /** Fire when the event is already `defaultPrevented` (another handler claimed it). Default false. */
+  allowDefaultPrevented?: boolean;
+  /** Fire during IME composition (`isComposing`). Default false. */
+  allowComposing?: boolean;
+  /**
+   * Match when modifiers the chord does not name are also held (AltGr reports Ctrl+Alt; `esc` with any
+   * modifier). Named modifiers must still be held. Default false: modifiers match exactly.
+   */
+  ignoreExtraModifiers?: boolean;
 }
 
 export interface ShortcutInfo {
@@ -49,6 +59,8 @@ interface Step {
   mod: boolean;
   ctrl: boolean;
   meta: boolean;
+  /** Exactly one of Ctrl or Meta (either, with `ignoreExtraModifiers`). */
+  ctrlOrMeta: boolean;
   alt: boolean;
   shift: boolean;
   key: string;
@@ -66,13 +78,14 @@ interface Snapshot {
 const KEY_ALIASES: Record<string, string> = { esc: "escape", plus: "+", return: "enter", del: "delete", up: "arrowup", down: "arrowdown", left: "arrowleft", right: "arrowright" };
 
 function parseStep(raw: string): Step {
-  const step: Step = { mod: false, ctrl: false, meta: false, alt: false, shift: false, key: "" };
+  const step: Step = { mod: false, ctrl: false, meta: false, ctrlOrMeta: false, alt: false, shift: false, key: "" };
   // "mod++" style: a literal "+" key is written as "plus".
   for (const token of raw.split("+").map((t) => t.trim().toLowerCase()).filter(Boolean)) {
     if (token === "mod") step.mod = true;
     else if (token === "ctrl" || token === "control") step.ctrl = true;
     else if (token === "meta" || token === "cmd" || token === "command") step.meta = true;
     else if (token === "alt" || token === "option") step.alt = true;
+    else if (token === "ctrlormeta") step.ctrlOrMeta = true;
     else if (token === "shift") step.shift = true;
     else step.key = KEY_ALIASES[token] ?? token;
   }
@@ -86,7 +99,7 @@ function parseChord(chord: string): Step[] {
 /** Canonical text for conflict detection: sorted modifiers, aliases resolved. */
 export function canonicalChord(chord: string): string {
   return parseChord(chord)
-    .map((s) => [s.mod && "mod", s.ctrl && "ctrl", s.meta && "meta", s.alt && "alt", s.shift && "shift", s.key].filter(Boolean).join("+"))
+    .map((s) => [s.mod && "mod", s.ctrl && "ctrl", s.meta && "meta", s.ctrlOrMeta && "ctrlormeta", s.alt && "alt", s.shift && "shift", s.key].filter(Boolean).join("+"))
     .join(" ");
 }
 
@@ -108,11 +121,19 @@ function snapshot(event: KeyboardEvent): Snapshot {
 
 const MODIFIER_KEYS = new Set(["shift", "control", "alt", "meta", "altgraph", "capslock"]);
 
-function matchStep(step: Step, snap: Snapshot, platform: Platform): boolean {
+/** Exact by default; with `ignore`, a modifier the step requires must be held and any other may be. */
+function modifierMatches(wanted: boolean, held: boolean, ignore: boolean): boolean {
+  return ignore ? !wanted || held : wanted === held;
+}
+
+function matchStep(step: Step, snap: Snapshot, platform: Platform, ignoreExtra = false): boolean {
   const mac = platform === "macos" || platform === "ios";
   const wantMeta = step.meta || (step.mod && mac);
   const wantCtrl = step.ctrl || (step.mod && !mac);
-  if (snap.meta !== wantMeta || snap.ctrl !== wantCtrl || snap.alt !== step.alt) return false;
+  const primaryOk = step.ctrlOrMeta
+    ? ignoreExtra ? snap.ctrl || snap.meta : snap.ctrl !== snap.meta
+    : modifierMatches(wantMeta, snap.meta, ignoreExtra) && modifierMatches(wantCtrl, snap.ctrl, ignoreExtra);
+  if (!primaryOk || !modifierMatches(step.alt, snap.alt, ignoreExtra)) return false;
   const key = KEY_ALIASES[snap.key] ?? snap.key;
   let keyOk = key === step.key;
   // macOS Option rewrites the produced character (Alt+Z -> Omega): fall back to the physical key.
@@ -122,7 +143,7 @@ function matchStep(step: Step, snap: Snapshot, platform: Platform): boolean {
   if (!keyOk) return false;
   // Symbols like "?" or "#" already encode Shift in the produced character.
   const symbol = step.key.length === 1 && !/[a-z0-9]/.test(step.key);
-  return symbol || snap.shift === step.shift;
+  return symbol || modifierMatches(step.shift, snap.shift, ignoreExtra);
 }
 
 /** True when focus is in a text-entry surface that owns bare keys. */
@@ -183,11 +204,16 @@ export function createShortcutRegistry(options: ShortcutRegistryOptions = {}) {
     const steps = parseChord(chord);
     if (steps.length !== 1) return false;
     const s = steps[0];
-    return s.mod || s.ctrl || s.meta || s.alt;
+    return s.mod || s.ctrl || s.meta || s.ctrlOrMeta || s.alt;
   };
 
+  /** Per-shortcut opt-ins for composing or already-prevented events. */
+  const admits = (entry: Entry, event: KeyboardEvent): boolean =>
+    (!event.isComposing || entry.def.allowComposing === true) && (!event.defaultPrevented || entry.def.allowDefaultPrevented === true);
+
   function handle(event: KeyboardEvent): boolean {
-    if (event.isComposing || event.defaultPrevented) return false;
+    // Nothing fires while composing or after another handler prevented the event, unless a shortcut opts in.
+    if ((event.isComposing || event.defaultPrevented) && ![...entries.values()].some((entry) => admits(entry, event))) return false;
     const snap = snapshot(event);
     if (MODIFIER_KEYS.has(snap.key)) return false;
     const typing = isTypingTarget(event.target);
@@ -202,7 +228,9 @@ export function createShortcutRegistry(options: ShortcutRegistryOptions = {}) {
         for (const chord of effective(entry)) {
           const steps = parseChord(chord);
           if (steps.length < seq.length) continue;
-          if (!seq.every((s, i) => matchStep(steps[i], s, platform))) continue;
+          if (!admits(entry, event)) continue;
+          const ignoreExtra = entry.def.ignoreExtraModifiers === true;
+          if (!seq.every((s, i) => matchStep(steps[i], s, platform, ignoreExtra))) continue;
           if (!eligible(entry, typing, chord)) continue;
           if (steps.length === seq.length) exact ??= entry;
           else prefix = true;

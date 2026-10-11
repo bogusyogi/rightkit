@@ -14,6 +14,7 @@ Brand-neutral React frame for Right Suite desktop apps: fused sidebar and titleb
 | Import | Contents |
 |---|---|
 | `@rightkit/app-shell` | Navigation, theme, match, geometry, toast, shortcut, bridge and command modules (`dist/index.js`) |
+| `@rightkit/app-shell/headless` | `useToggle` and `useSegmentedControl`: switch and segmented-control behaviour and ARIA as props for your own markup. Imports only `react`. See [Headless toggle and segmented control](#headless-toggle-and-segmented-control). |
 | `@rightkit/app-shell/react` | `ShellProvider`, `AppShell`, `AppFrame`, `Titlebar`, `Plane`, `NavList`, `PageShell`, palette, toasts, overlays, context menu, hooks (`useShell`, `useCommands`, `useShortcuts`, `useToast`, `useTheme`) and UI primitives |
 | `@rightkit/app-shell/shell.css` | Stylesheet, unlayered (the 0.5.x behaviour). Tokens are `--rk-*`. |
 | `@rightkit/app-shell/shell.layered.css` | The same rules inside the cascade layer `rk`, so host utilities and unlayered host CSS override them. See [Adopting with a locked UI](#adopting-with-a-locked-ui). |
@@ -26,7 +27,7 @@ Brand-neutral React frame for Right Suite desktop apps: fused sidebar and titleb
 | Peer | Range |
 |---|---|
 | `react` | `>=18 <21` |
-| `@rightkit/platform-ui` | `>=0.2.2 <1` |
+| `@rightkit/platform-ui` | `>=0.2.8 <1` (0.6.4 raised the minimum from `>=0.2.2`: the `ctrlormeta` chord is formatted by 0.2.8) |
 | `@tauri-apps/plugin-os` | `>=2 <3`, optional. Native platform detection loads it lazily; without it the browser's platform report is used. |
 
 ## Example
@@ -63,6 +64,18 @@ Built-in chords can be moved or disabled through `keybindings` (the same object 
 | `sidebar` | `mod+\` | Sidebar toggle |
 
 `keybindings` wins over the legacy `paletteChord` and `helpChord` props. An app whose editor owns `mod+k` (for example an "add link" action) sets `palette: false` and opens the palette from a button with `PaletteTrigger` or `shell.palette.show()`. `paletteWidth` (default 640) sets the palette width in px.
+
+### Shortcut registry chords and per-shortcut options
+
+`createShortcutRegistry` takes chords as strings: `mod` (Cmd on macOS, Ctrl elsewhere), `ctrl`, `meta` (`cmd`), `alt` (`option`), `shift`, and `ctrlormeta` (exactly one of Ctrl or Meta, on every platform; `CtrlOrMeta` is the same token). `mod` is the platform primary, so `ctrlormeta` is the chord for "Ctrl or Cmd/Win" when a shortcut must not depend on the OS. Each `ShortcutDef` accepts three opt-ins, all defaulting to the previous behaviour:
+
+| Option | Default | Effect |
+|---|---|---|
+| `allowComposing` | `false` | Fire during IME composition. Without it, composing events never fire this shortcut. |
+| `allowDefaultPrevented` | `false` | Fire when another handler already called `preventDefault()`. |
+| `ignoreExtraModifiers` | `false` | Match when modifiers the chord does not name are also held (AltGr reports Ctrl+Alt; `esc` with any modifier). Named modifiers must still be held. |
+
+Chord display for `ctrlormeta` comes from `@rightkit/platform-ui` `formatChord` 0.2.8 or later.
 
 ### Class names and slots
 
@@ -148,6 +161,46 @@ Check the result against the old app in light and dark. Each value that differs 
 
 - `AppShell`'s built-in titlebar does not take `captionGlyphs` or `maximized`. Use the `titlebar` prop with a `Titlebar` for those.
 - Tokens size the bar. They do not move the titlebar's title, the sidebar's nav, or the content plane. Use `slots` or a custom titlebar for those.
+
+### Headless toggle and segmented control
+
+`@rightkit/app-shell/headless` gives the behaviour of `Toggle` and `SegmentedControl` for a host whose markup, classes and styles are fixed. The hooks render nothing and return props for an element you render.
+
+```tsx
+import { useToggle, useSegmentedControl } from "@rightkit/app-shell/headless";
+
+function Wifi({ on, setOn }: { on: boolean; setOn: (v: boolean) => void }) {
+  const p = useToggle({ checked: on, onChange: setOn, label: "Wi-Fi" });
+  return <span className="my-switch" {...p} />; // role="switch", aria-checked, aria-disabled, tabIndex, onClick, onKeyDown
+}
+
+function Mode({ value, setValue }: { value: "a" | "b" | "c"; setValue: (v: "a" | "b" | "c") => void }) {
+  const { groupProps, getOptionProps } = useSegmentedControl({ value, onChange: setValue, label: "Mode", options: [{ value: "a" }, { value: "b" }, { value: "c", disabled: true }] });
+  return (
+    <div className="my-seg" {...groupProps}>
+      <button type="button" className="my-seg__item" {...getOptionProps("a")}>A</button>
+      <button type="button" className="my-seg__item" {...getOptionProps("b")}>B</button>
+      <button type="button" className="my-seg__item" {...getOptionProps("c")}>C</button>
+    </div>
+  );
+}
+```
+
+- `useToggle({ checked, onChange, label, disabled })`: Space and Enter flip the value and prevent the default. Disabled means no change, `tabIndex` -1 and `aria-disabled`. On a native `<button>` the keys are handled by the hook, so do not add a second key handler.
+- `useSegmentedControl({ value, options, onChange, label?, disabled?, mode? })`. `mode: "radio"` (the default) gives `role="radiogroup"` and a roving tab stop on the selected option; Arrow keys, Home and End select and move focus, wrapping and skipping disabled options. Spread the `ref` from `getOptionProps` so focus can move; without it keys still select but focus stays put. `mode: "toggle"` gives a group of buttons with `aria-pressed`, each enabled button a tab stop; put it in a `<fieldset>` with a legend.
+- Per-option `disabled` works in both modes. The styled `Toggle` and `SegmentedControl` stay as they are for hosts that take the shell's look.
+
+### Sizing and class hooks on Toggle and SegmentedControl
+
+Both accept `className`, added after the built-in class. Their sizes are custom properties, each defaulting to today's value:
+
+| Property | Default | Applies to |
+|---|---|---|
+| `--rk-toggle-width` | `36px` | track width |
+| `--rk-toggle-height` | `22px` | track height |
+| `--rk-toggle-knob` | `18px` | knob width and height |
+| `--rk-toggle-travel` | `14px` | knob offset when on |
+| `--rk-seg-gap` | `2px` | gap between segments |
 
 ### Reduced motion
 

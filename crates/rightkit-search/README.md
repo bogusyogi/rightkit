@@ -19,7 +19,7 @@ Disable `sqlite` (`default-features = false`) to use the parser and data model w
 
 No `cfg(target_os)` gates in `src/`. `rusqlite` is a dependency with default features off, so the library build does not bundle SQLite; the `bundled` feature is enabled only for dev-dependencies, i.e. the tests (`Cargo.toml:20`, `:23`). Platform support follows `rusqlite` and the consumer's SQLite selection.
 
-Published version: see `INDEX.md` at the repository root. This crate has no `CHANGELOG.md`.
+Published version: see `INDEX.md` at the repository root. Release notes are in `CHANGELOG.md`.
 
 ## Example
 
@@ -29,3 +29,51 @@ Illustrative; not compiled as a doctest. For compiled usage against a real SQLit
 // Parse a user query into a Query, then compile it with a Schema
 // that maps the app's searchable fields to columns or an FTS5 table.
 ```
+
+## Paging, substring matching and bounded scans
+
+Three additions for paging and free-text search, all in 0.2.1. Each is purely additive. Shared pieces are the query syntax (`Query`), operator filters (`Schema`), `Keyset`/`Cursor`, and `Span`. What differs by backend is how free text is evaluated.
+
+**Index strategy (free text in FTS5).** Use this when the table has an FTS5 index. Free text becomes an uncorrelated `IN (SELECT rowid ... MATCH ?)` predicate, so the hit set is evaluated once per statement.
+
+```rust,ignore
+let schema = Schema::new()
+    .fts("messages_fts", "messages.rowid")
+    .bind("from", Binding::Eq("sender"));
+let q = schema.parse(input)?;
+let compiled = schema.compile(&q)?;
+let keyset = Keyset::new().desc("received_at").desc("id"); // the last column is unique
+let page = compiled.page(
+    "SELECT id, received_at, subject FROM messages",
+    &keyset,
+    cursor.as_ref(), // None for the first page
+    50,
+)?;
+// Run page.sql with page.params. Keep the first 50 rows. A 51st row means more pages:
+// its cursor is built from the last kept row, and Cursor::encode gives the transport form.
+```
+
+**Scan strategy (free text in Rust).** Use this when the text lives outside SQL, for example transcript bodies on disk. SQL applies only the operator filters, and `TextMatcher` checks the free text. Build the matcher from the full query first: it refuses a mixed OR group, and `filters_only` silently drops that group.
+
+```rust,ignore
+let matcher = TextMatcher::new(&q)?;               // refuses mixed OR groups first
+let filters = schema.compile(&q.filters_only())?;  // operator side only
+let page = scan_page(
+    cursor,                          // Option<Cursor> from the previous page
+    50,
+    ScanBudget::new(2_000, 200),     // at most 2,000 rows examined per call
+    |after, n| {
+        // Run filters.page("SELECT id, created_at, title, path FROM history", &keyset, after, n)
+        // and return up to n rows.
+        fetch_rows(after, n)
+    },
+    |row| Cursor::new(vec![Param::Int(row.created_at), Param::Int(row.id)]),
+    |row| matcher.matches_with(&[&row.title], || vec![read_body(&row.path)]),
+)?;
+// page.next is Some while more rows may exist. Resume by passing it back as `cursor`.
+// A snippet for a body hit: matcher.snippet(&body, 160).
+```
+
+**Folding limit (std-only).** Matching uses `str::to_lowercase` and no Unicode normalisation. A decomposed accent (`e` + U+0301) does not match the precomposed `é`. `İ` folds to two characters, so `İSTANBUL` and `istanbul` do not match. A word-final `Σ` folds to `ς`. Text must use the same normalisation form on both sides. A NFKC dependency would fix this, and it was declined for 0.2.1.
+
+**Body-cap boundary.** `read_text_prefix(path, max_bytes)` reads at most `max_bytes`. The 4 MiB cap in the design is the caller's choice. A needle that straddles the cap is missed, because the bytes after it are never read. The crate does not detect this.

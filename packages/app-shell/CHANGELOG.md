@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.6.4
+
+Additive. Defaults equal 0.6.3; nothing changes for an app that sets none of the new options. Peer range raised (see below).
+
+- New entry `@rightkit/app-shell/headless` (imports only `react`): `useToggle({ checked, onChange, label, disabled })` returns switch props (`role`, `aria-checked`, `aria-label`, `aria-disabled`, `tabIndex`, `onClick`, `onKeyDown` for Space and Enter). `useSegmentedControl({ value, options, onChange, label?, disabled?, mode? })` returns `groupProps` and `getOptionProps(value)`. `mode: "radio"` (default) is a radiogroup with roving tabindex, Arrow, Home and End keys and per-option `disabled`; `mode: "toggle"` is a set of `aria-pressed` buttons with Tab between them. No DOM, class or style.
+- `Toggle` and `SegmentedControl`: optional `className` merged after the built-in class.
+- `shell.css` / `shell.visual.css`: custom properties `--rk-toggle-width` (36px), `--rk-toggle-height` (22px), `--rk-toggle-knob` (18px), `--rk-toggle-travel` (14px) and `--rk-seg-gap` (2px), each defaulting to the previous fixed value. `shell.css` is regenerated-identical with the two source files.
+- Peer `@rightkit/platform-ui` raised from `>=0.2.2 <1` to `>=0.2.8 <1`: the `ctrlormeta` chord (added in 0.6.3) is formatted by platform-ui 0.2.8. This supersedes the 0.6.3 note that the peer range was unchanged.
+
+## 0.6.3
+
+Additive. Defaults equal 0.6.2; a shortcut that sets none of the new options behaves as before.
+
+- `createShortcutRegistry` / `ShortcutDef`: `allowComposing` and `allowDefaultPrevented` (both default `false`) let one shortcut fire during IME composition or after another handler prevented the event. Without an opt-in, nothing changes; the composing and prevented early return is kept for registries where no shortcut opts in.
+- `ignoreExtraModifiers` (default `false`): the shortcut matches when modifiers its chord does not name are held. Named modifiers must still be held.
+- Chord modifier `ctrlormeta` (also `CtrlOrMeta`): exactly one of Ctrl or Meta, on every platform (`ignoreExtraModifiers` also accepts both). It is distinct from `mod` in conflict detection. Display needs `@rightkit/platform-ui` 0.2.8 or later; the peer range is unchanged.
+
 ## 0.6.2
 
 Added:

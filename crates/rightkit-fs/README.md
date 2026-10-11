@@ -64,7 +64,7 @@ What a durable write (`durable: true`, the default) guarantees when it returns `
 
 ## Clone, link, copy
 
-`clone_or_link_or_copy_nofollow(src, dst)` (and `_with(src, dst, &CloneOptions)`) creates `dst` from the regular file `src` by the first step that works and returns which one: `CloneOutcome::Cloned` (macOS `clonefile`, Linux `FICLONE` where the filesystem has reflinks; Windows has no clone step), `HardLinked` (same volume), or `Copied` (a durable `NoReplace` atomic write; Unix permission bits are copied). A link at `src` or `dst` is refused (`FsError::Symlink`), never followed; an existing `dst` is `FsError::AlreadyExists` and never overwritten. **A hard link shares content with the source**: an in-place write through either name changes both, and deleting the destination removes only a name, so a caller that tracks copies should treat `HardLinked` ones as one item. Set `CloneOptions::allow_hard_link = false` (or `.without_hard_link()`) when the copy will be modified in place.
+`clone_or_link_or_copy_nofollow(src, dst)` (and `_with(src, dst, &CloneOptions)`) creates `dst` from the regular file `src` by the first step that works and returns which one: `CloneOutcome::Cloned` (macOS `clonefile`, Linux `FICLONE` where the filesystem has reflinks; Windows has no clone step), `HardLinked` (same volume), or `Copied` (a durable `NoReplace` atomic write; Unix permission bits are copied). A link at `src` or `dst` is refused (`FsError::Symlink`), never followed; an existing `dst` is `FsError::AlreadyExists` and never overwritten. **A hard link shares content with the source**: an in-place write through either name changes both, and deleting the destination removes only a name, so a caller that tracks copies should treat `HardLinked` ones as one item. Set `CloneOptions::allow_hard_link = false` (or `.without_hard_link()`) when the copy will be modified in place. Set `CloneOptions::fresh_metadata` (or `.fresh_metadata(true)`) to make an export that does not inherit the source's mode or extended attributes: the clone and link steps are skipped and the result is always `Copied`, with the default mode for a new file (honouring the umask).
 
 ## Locks
 
@@ -98,7 +98,7 @@ What a durable write (`durable: true`, the default) guarantees when it returns `
 - `tests/atomic_namespace.rs`: the temp namespace is reserved; a sweep never deletes a committed record.
 - `tests/lock_alias.rs`: hard links, case aliases and symlinked directories are one lock.
 - `tests/lock_reparse.rs`: a link at the lock file's name is refused.
-- `tests/clone_fallback.rs`: clone, link and copy outcomes through the step seam; refusals.
+- `tests/clone_fallback.rs`: clone, link and copy outcomes through the step seam; refusals; `fresh_metadata` gives a writable copy of a read-only source and never runs the clone or link step.
 - `tests/clone.rs`: `clonefile` behaviour.
 - `tests/swap.rs`: `RENAME_SWAP` exchange, missing-path error, and the `rightkit-swap` binary.
 

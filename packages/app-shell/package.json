@@ -1,6 +1,6 @@
 {
   "name": "@rightkit/app-shell",
-  "version": "0.6.2",
+  "version": "0.6.4",
   "description": "Brand-neutral React frame for Right Suite desktop apps: optional fused sidebar+titlebar layout with slots, command palette, shortcut registry/help, toasts, modals, context menus, ui kit, theme hooks.",
   "license": "MIT OR Apache-2.0",
   "type": "module",
@@ -14,6 +14,10 @@
     "./react": {
       "types": "./dist/react.d.ts",
       "import": "./dist/react.js"
+    },
+    "./headless": {
+      "types": "./dist/headless.d.ts",
+      "import": "./dist/headless.js"
     },
     "./shell.css": "./shell.css",
     "./shell.layered.css": "./shell.layered.css",
@@ -37,7 +41,7 @@
     "*.css"
   ],
   "peerDependencies": {
-    "@rightkit/platform-ui": ">=0.2.2 <1",
+    "@rightkit/platform-ui": ">=0.2.8 <1",
     "@tauri-apps/plugin-os": ">=2 <3",
     "react": ">=18 <21",
     "react-dom": ">=18 <21"

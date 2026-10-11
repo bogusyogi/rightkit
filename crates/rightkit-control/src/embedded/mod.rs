@@ -21,7 +21,17 @@
 //!   drag{x1,y1,x2,y2,steps?,button?,modifiers?}
 //!   pointer{phase:"down"|"drag"|"up"|"move",x,y,button?,modifiers?}
 //!   wheel{x,y,dx,dy}  key{key:"cmd+k"}  type{text}  eval{js}  dom{selector}
-//!   set_viewport{width,height} -> {innerWidth,innerHeight} (CSS pixels; no activation)
+//!   set_viewport{width,height,settleMs?} -> {innerWidth,innerHeight,requestedWidth,requestedHeight,
+//!   settled,clamped,placementTimedOut,reason?} (CSS pixels; no activation). innerWidth/innerHeight
+//!   are READ BACK from the page after the request, once two consecutive readings agree (bound
+//!   `settleMs`, default 2000 or `Control::viewport_settle`); never the request echoed. `clamped`:
+//!   settled at a size other than the request. `settled:false` (`reason:"unsettled"`): the size
+//!   was still changing at the bound and the last observed size is returned. It first waits
+//!   (bounded) for the shell's initial window placement, see `viewport.rs`.
+//!   A visible window is clamped by the OS to the display's work area (menu bar/Dock excluded):
+//!   a viewport taller than that comes back smaller with `clamped:true`. macOS control sizes the
+//!   frame without the visible-screen constraint (`UnconstrainedWindow`), so a window that stays
+//!   hidden usually reaches the request; do not rely on it, read `clamped`.
 //!   ax  screenshot{mask?:[selector]} -> {path,bytes,masked} (PNG in `<service dir>/shots/`,
 //!   owner-only; password/one-time-code/data-rk-secret elements and `mask` selectors are
 //!   hidden during capture so secrets never reach the file)
@@ -51,7 +61,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 use tauri::plugin::TauriPlugin;
-use tauri::{AppHandle, Manager, Runtime, WebviewWindow};
+use tauri::{AppHandle, Listener, Manager, Runtime, WebviewWindow};
 
 #[cfg(target_os = "macos")]
 #[path = "mac_view.rs"]
@@ -59,6 +69,9 @@ mod native;
 #[cfg(windows)]
 #[path = "win_view.rs"]
 mod native;
+mod viewport;
+pub use viewport::{PlacementGate, ViewportCfg, ViewportOutcome, ViewportWindow, PLACEMENT_EVENT};
+
 #[cfg(not(any(target_os = "macos", windows)))]
 mod native {
     use super::{Button, Mouse};
@@ -99,11 +112,13 @@ mod native {
     pub fn screenshot<R: Runtime>(_: &WebviewWindow<R>) -> Result<Vec<u8>, String> {
         Err(NO.into())
     }
-    pub fn set_viewport<R: Runtime>(
+    pub fn apply_viewport<R: Runtime>(_: &WebviewWindow<R>, _: u32, _: u32) -> Result<(), String> {
+        Err(NO.into())
+    }
+    pub fn read_viewport<R: Runtime>(
         _: &WebviewWindow<R>,
-        _: u32,
-        _: u32,
-    ) -> Result<(u32, u32), String> {
+        _: std::time::Duration,
+    ) -> Result<(f64, f64), String> {
         Err(NO.into())
     }
 }
@@ -139,7 +154,25 @@ fn type_char<R: Runtime>(win: &WebviewWindow<R>, c: char) -> Result<(), String> 
     key(win, true, code, &s, fl)?;
     key(win, false, code, &s, fl)
 }
-use native::{eval, key, mouse, screenshot, set_viewport, wheel};
+use native::{apply_viewport, eval, key, mouse, read_viewport, screenshot, wheel};
+
+/// The real window behind the viewport core.
+struct NativeWindow<'a, R: Runtime>(&'a WebviewWindow<R>);
+impl<R: Runtime> ViewportWindow for NativeWindow<'_, R> {
+    fn apply(&self, width: u32, height: u32) -> Result<(), String> {
+        apply_viewport(self.0, width, height)
+    }
+    fn read(&self, timeout: Duration) -> Result<(f64, f64), String> {
+        read_viewport(self.0, timeout)
+    }
+}
+
+/// What `set_viewport` needs besides the window.
+#[derive(Clone)]
+struct ViewportCtx {
+    placement: Arc<PlacementGate>,
+    cfg: ViewportCfg,
+}
 
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub enum Mouse {
@@ -206,6 +239,7 @@ pub struct Control<R: Runtime> {
     allow: Allowlist,
     gate: Arc<EffectGate>,
     lease: Option<Arc<InputLease>>,
+    viewport: ViewportCfg,
 }
 
 impl<R: Runtime> Default for Control<R> {
@@ -227,7 +261,20 @@ impl<R: Runtime> Control<R> {
             allow,
             gate: Arc::new(EffectGate::allow_all()),
             lease: None,
+            viewport: ViewportCfg::default(),
         }
+    }
+    /// Default bound (2 s) for `set_viewport` to read back a settled size; a request can
+    /// override it with `settleMs`.
+    pub fn viewport_settle(mut self, bound: Duration) -> Self {
+        self.viewport.settle = bound;
+        self
+    }
+    /// Bound (default 5 s) for `set_viewport` to wait for the shell's initial window
+    /// placement before it applies the request.
+    pub fn viewport_placement_wait(mut self, bound: Duration) -> Self {
+        self.viewport.placement_wait = bound;
+        self
     }
     /// EFF-001 admission authority for every effectful method (default
     /// [`EffectGate::allow_all`]). Install hook and event sink on the gate.
@@ -276,8 +323,16 @@ impl<R: Runtime> Control<R> {
             allow,
             gate,
             lease,
+            viewport,
         } = self;
         let commands = Arc::new(commands);
+        // Listen from plugin setup: the shell announces placement when the webview is
+        // ready, which is after every plugin's setup.
+        let placement = Arc::new(PlacementGate::default());
+        let vp = ViewportCtx {
+            placement: placement.clone(),
+            cfg: viewport,
+        };
         let builder = tauri::plugin::Builder::new("rightkit-control");
         // RIGHTKIT_CONTROL_TRACE: log WebView2 events from webview creation on (Windows only).
         #[cfg(windows)]
@@ -285,6 +340,10 @@ impl<R: Runtime> Control<R> {
         builder
             .setup(move |app, _| {
                 if let Some(service) = service_from_env() {
+                    let gate_events = placement.clone();
+                    app.listen(PLACEMENT_EVENT, move |event| {
+                        gate_events.on_event(event.payload());
+                    });
                     serve(
                         app.clone(),
                         label.clone(),
@@ -295,6 +354,7 @@ impl<R: Runtime> Control<R> {
                             gate: gate.clone(),
                             lease: lease.clone(),
                         },
+                        vp.clone(),
                     )?;
                 }
                 Ok(())
@@ -316,6 +376,7 @@ struct ControlHandler<R: Runtime> {
     shots: std::path::PathBuf,
     shot_seq: AtomicU64,
     guards: Guards,
+    viewport: ViewportCtx,
 }
 
 #[derive(Clone)]
@@ -331,6 +392,7 @@ fn serve<R: Runtime>(
     commands: Arc<HashMap<String, CommandFn<R>>>,
     allow: Allowlist,
     guards: Guards,
+    viewport: ViewportCtx,
 ) -> Result<(), Box<dyn std::error::Error>> {
     // Fail closed: no absolute suite root means no server, never a cwd-relative one.
     let suite = Suite::resolve()?;
@@ -349,6 +411,7 @@ fn serve<R: Runtime>(
         shots,
         shot_seq: AtomicU64::new(0),
         guards,
+        viewport,
     });
     let hosted = host(&suite, cfg, handler)?;
     // Hosted releases on drop; the plugin keeps it for the life of the process.
@@ -536,7 +599,15 @@ impl<R: Runtime> ControlHandler<R> {
                 "webview window not created yet",
             ));
         };
-        match route(method, params, &win, &self.app, &self.commands) {
+        match route(
+            method,
+            params,
+            &win,
+            &self.app,
+            &self.commands,
+            &self.label,
+            &self.viewport,
+        ) {
             Ok(Out::Json(j)) => Ok(serde_json::from_str(&j).unwrap_or(Value::Null)),
             Ok(Out::Png(p)) => {
                 let n = self.shot_seq.fetch_add(1, Ordering::SeqCst);
@@ -621,6 +692,8 @@ fn route<R: Runtime>(
     win: &WebviewWindow<R>,
     app: &AppHandle<R>,
     commands: &HashMap<String, CommandFn<R>>,
+    label: &str,
+    vp: &ViewportCtx,
 ) -> Result<Out, String> {
     // Typed field access on the parsed params: text containing `"x":` or quotes can
     // never be mistaken for another field (the old flat string scan could).
@@ -631,11 +704,23 @@ fn route<R: Runtime>(
     match method {
         "set_viewport" => {
             let (width, height) = viewport_size(params)?;
-            let (inner_width, inner_height) = set_viewport(win, width, height)?;
-            Ok(Out::Json(
-                json!({"ok": true, "innerWidth": inner_width, "innerHeight": inner_height})
-                    .to_string(),
-            ))
+            let mut cfg = vp.cfg;
+            if let Some(ms) = params.get("settleMs") {
+                let ms = ms
+                    .as_u64()
+                    .filter(|n| (1..=viewport::MAX_SETTLE.as_millis() as u64).contains(n))
+                    .ok_or("'settleMs' must be an integer in 1..=10000")?;
+                cfg.settle = Duration::from_millis(ms);
+            }
+            let outcome = viewport::set_viewport(
+                &NativeWindow(win),
+                &vp.placement,
+                label,
+                width,
+                height,
+                &cfg,
+            )?;
+            Ok(Out::Json(outcome.to_json().to_string()))
         }
         "move" => {
             mouse(

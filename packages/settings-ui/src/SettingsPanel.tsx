@@ -196,6 +196,8 @@ export function SettingsPanel(props: SettingsPanelProps) {
   const searchInput = useRef<HTMLInputElement>(null);
   const pendingReveal = useRef<string | null>(null);
   const showSearch = !hideSearch && (hideNav ? search === true : search !== false);
+  // Registrations are skipped while search is off: no field is shown and no query is in effect (a controlled `query` keeps it on). 0.4.4.
+  const searchEnabled = showSearch || props.query !== undefined || innerQuery !== "";
 
   const select = (id: string, reveal?: string) => {
     pendingReveal.current = reveal ?? null;
@@ -262,7 +264,7 @@ export function SettingsPanel(props: SettingsPanelProps) {
   let lastGroup: string | undefined;
   const navCount = matches.reduce((n, m) => n + (m.entryIds.length || 1), 0);
   return (
-    <SettingsSearchProvider query={query} filter={searching} highlight={highlight}>
+    <SettingsSearchProvider query={query} enabled={searchEnabled} filter={searching} highlight={highlight}>
     <div className={cx("rk-settings", hideNav && "rk-settings--no-nav", className)} data-testid="settings-panel">
       {hideNav ? null : <nav className="rk-settings__nav" aria-label={typeof heading === "string" ? heading : typeof title === "string" ? title : "Settings"} onKeyDown={onNavKey}>
         {heading === false || heading === null ? null : <h2 className="rk-settings__title">{heading}</h2>}

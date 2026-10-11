@@ -81,6 +81,14 @@ pub enum FrameError {
         /// Bytes of the current frame transferred before the deadline.
         partial_bytes: usize,
     },
+    /// The encoded frame contains a newline before its terminator. A JSON line
+    /// must hold exactly one newline, at its end. Compact `serde_json` output
+    /// never contains one, so this is raised only by a value that embeds raw
+    /// JSON with whitespace (`serde_json::value::RawValue`) or by pre-encoded
+    /// bytes passed to [`write_encoded_line`].
+    EmbeddedNewline,
+    /// Pre-encoded bytes passed to [`write_encoded_line`] do not end in `\n`.
+    MissingTerminator,
 }
 
 impl std::fmt::Display for FrameError {
@@ -99,6 +107,12 @@ impl std::fmt::Display for FrameError {
                 f,
                 "json frame deadline exceeded after {partial_bytes} bytes of the frame"
             ),
+            FrameError::EmbeddedNewline => {
+                write!(f, "json frame contains a newline before its terminator")
+            }
+            FrameError::MissingTerminator => {
+                write!(f, "json frame does not end in a newline")
+            }
         }
     }
 }
@@ -109,7 +123,9 @@ impl std::error::Error for FrameError {
             FrameError::TooLarge { .. }
             | FrameError::InvalidUtf8 { .. }
             | FrameError::EmptyLine
-            | FrameError::TimedOut { .. } => None,
+            | FrameError::TimedOut { .. }
+            | FrameError::EmbeddedNewline
+            | FrameError::MissingTerminator => None,
             FrameError::Json(err) => Some(err),
             FrameError::Io(err) => Some(err),
         }
@@ -702,22 +718,91 @@ fn next_line_inner<R: BufRead>(
     }
 }
 
+/// Serialize `value` as a compact single-line JSON frame and return the bytes
+/// that go on the wire: the encoded payload followed by one `\n`.
+///
+/// This is the one encoding every writer in this crate uses. If the payload
+/// (excluding the trailing newline) exceeds `limit` bytes,
+/// [`FrameError::TooLarge`] is returned. If the payload contains a newline,
+/// [`FrameError::EmbeddedNewline`] is returned. Either way nothing is produced,
+/// so a supervisor that queues encoded frames learns of the failure at enqueue
+/// time. Send the result with [`write_encoded_line`] or
+/// [`write_encoded_line_flush`].
+pub fn encode_json_line<T>(value: &T, limit: usize) -> Result<Vec<u8>, FrameError>
+where
+    T: Serialize + ?Sized,
+{
+    let mut encoded = serde_json::to_vec(value)?;
+    if encoded.len() > limit {
+        return Err(FrameError::TooLarge { limit });
+    }
+    if encoded.contains(&b'\n') {
+        return Err(FrameError::EmbeddedNewline);
+    }
+    encoded.push(b'\n');
+    Ok(encoded)
+}
+
+/// Write bytes produced by [`encode_json_line`] to `writer`, without flushing.
+///
+/// `bytes` must be exactly one frame: a payload with no newline followed by a
+/// single trailing `\n`. Otherwise nothing is written and the error is
+/// [`FrameError::MissingTerminator`] (no trailing `\n`) or
+/// [`FrameError::EmbeddedNewline`] (a newline before the end, including a
+/// doubled terminator). The payload (excluding the newline) must not exceed
+/// `limit`, else [`FrameError::TooLarge`] and nothing is written.
+pub fn write_encoded_line<W>(writer: &mut W, bytes: &[u8], limit: usize) -> Result<(), FrameError>
+where
+    W: Write,
+{
+    check_encoded_line(bytes, limit)?;
+    writer.write_all(bytes)?;
+    Ok(())
+}
+
+/// [`write_encoded_line`] followed by a flush, as [`write_json_line_flush`] is
+/// to [`write_json_line`].
+pub fn write_encoded_line_flush<W>(
+    writer: &mut W,
+    bytes: &[u8],
+    limit: usize,
+) -> Result<(), FrameError>
+where
+    W: Write,
+{
+    write_encoded_line(writer, bytes, limit)?;
+    writer.flush()?;
+    Ok(())
+}
+
+/// Validate pre-encoded frame bytes and return the payload without its newline.
+fn check_encoded_line(bytes: &[u8], limit: usize) -> Result<&[u8], FrameError> {
+    let Some((&last, payload)) = bytes.split_last() else {
+        return Err(FrameError::MissingTerminator);
+    };
+    if last != b'\n' {
+        return Err(FrameError::MissingTerminator);
+    }
+    if payload.contains(&b'\n') {
+        return Err(FrameError::EmbeddedNewline);
+    }
+    if payload.len() > limit {
+        return Err(FrameError::TooLarge { limit });
+    }
+    Ok(payload)
+}
+
 /// Serialize `value` as a compact single-line JSON frame terminated by `\n`
 /// and write it to `writer`. If the encoded payload (excluding the trailing
 /// newline) exceeds `limit` bytes, no bytes are written and
-/// [`FrameError::TooLarge`] is returned.
+/// [`FrameError::TooLarge`] is returned. Encoding is [`encode_json_line`].
 pub fn write_json_line<W, T>(writer: &mut W, value: &T, limit: usize) -> Result<(), FrameError>
 where
     W: Write,
     T: Serialize,
 {
-    let encoded = serde_json::to_vec(value)?;
-    if encoded.len() > limit {
-        return Err(FrameError::TooLarge { limit });
-    }
-
+    let encoded = encode_json_line(value, limit)?;
     writer.write_all(&encoded)?;
-    writer.write_all(b"\n")?;
     Ok(())
 }
 

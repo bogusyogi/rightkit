@@ -11,7 +11,7 @@ use rightkit_db::rusqlite::{self, Connection};
 use serde_json::{Map, Value};
 
 use crate::error::{JobError, JobResult};
-use crate::store::{JobRecord, CANCELLED, COMPLETE, FAILED, QUEUED, RUNNING};
+use crate::store::{JobRecord, Resolution, CANCELLED, COMPLETE, FAILED, QUEUED, RUNNING};
 
 /// Extension values of one job, keyed by declared column name.
 pub type Ext = Map<String, Value>;
@@ -203,6 +203,7 @@ pub struct StatusModel {
     non_terminal: Vec<String>,
     run_status: Option<String>,
     transitions: BTreeSet<(String, String)>,
+    held: BTreeSet<String>,
 }
 
 impl Default for StatusModel {
@@ -227,6 +228,7 @@ impl StatusModel {
             non_terminal: non_terminal.into_iter().map(Into::into).collect(),
             run_status: None,
             transitions: BTreeSet::new(),
+            held: BTreeSet::new(),
         }
     }
     /// Permit `from -> to` between non-terminal statuses.
@@ -238,6 +240,20 @@ impl StatusModel {
     pub fn run_status(mut self, s: Option<&str>) -> Self {
         self.run_status = s.map(Into::into);
         self
+    }
+    /// Declare `status` (one of the non-terminal statuses) a held status. A held job is
+    /// non-terminal but waits for a person or an outside check: it leaves its status only
+    /// through [`crate::JobStore::resolve`] (every other move is refused with
+    /// `illegal_transition`), the runner neither lists nor runs it, and `cancel`, `delete` and
+    /// single-flight supersede skip or refuse it. A job enters one through
+    /// [`crate::JobStore::hold_submission`].
+    pub fn hold(mut self, status: impl Into<String>) -> Self {
+        self.held.insert(status.into());
+        self
+    }
+    /// Whether `s` is a held status (see [`StatusModel::hold`]).
+    pub fn is_held(&self, s: &str) -> bool {
+        self.held.contains(s)
     }
     pub fn initial(&self) -> &str {
         &self.initial
@@ -258,6 +274,10 @@ impl StatusModel {
     /// for non-terminal jobs.
     pub fn can_move(&self, from: &str, to: &str) -> bool {
         if Self::is_terminal(from) || !self.is_known(from) || !self.is_known(to) {
+            return false;
+        }
+        // A held status is left only through `JobStore::resolve`.
+        if from != to && self.is_held(from) {
             return false;
         }
         from == to
@@ -287,12 +307,30 @@ impl StatusModel {
                 return bad(format!("run status {r:?} is not non-terminal"));
             }
         }
+        for h in &self.held {
+            if !self.non_terminal.contains(h) {
+                return bad(format!("held status {h:?} is not non-terminal"));
+            }
+            if *h == self.initial || self.run_status.as_deref() == Some(h.as_str()) {
+                return bad(format!("held status {h:?} is the initial or run status"));
+            }
+        }
         for (a, b) in &self.transitions {
             if !self.non_terminal.contains(a) || !self.non_terminal.contains(b) {
                 return bad(format!("transition {a} -> {b} names an undeclared status"));
             }
         }
         Ok(())
+    }
+    /// Like [`StatusModel::sql_set`] without the held statuses (the jobs a runner may run).
+    pub(crate) fn sql_set_unheld(&self) -> String {
+        let items: Vec<String> = self
+            .non_terminal
+            .iter()
+            .filter(|s| !self.held.contains(*s))
+            .map(|s| format!("'{s}'"))
+            .collect();
+        format!("({})", items.join(","))
     }
     /// `('a','b')` for SQL `IN` (statuses are validated to contain no quote).
     pub(crate) fn sql_set(&self) -> String {
@@ -353,6 +391,19 @@ pub trait StoreHook: Send + Sync {
         _conn: &Connection,
         _before: &JobRecord,
         _after: &JobRecord,
+    ) -> JobResult<()> {
+        Ok(())
+    }
+    /// A held job was resolved by [`crate::JobStore::resolve`], in the same transaction as the
+    /// move itself. Called after `on_transition`, with `job` as it is after the resolution and
+    /// `attempt` the submission attempt being resolved (`job.job.attempts`). An error rolls the
+    /// whole resolution back and the job stays held.
+    fn on_resolve(
+        &self,
+        _conn: &Connection,
+        _job: &JobRecord,
+        _attempt: i64,
+        _r: &Resolution,
     ) -> JobResult<()> {
         Ok(())
     }

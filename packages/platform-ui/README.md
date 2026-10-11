@@ -13,9 +13,9 @@ Brand-neutral platform primitives for Right Suite desktop apps: Tauri-backed pla
 
 | Import | Contents |
 |---|---|
-| `@rightkit/platform-ui` | `getPlatform`, `normalizePlatform`, `formatChord`, `platformCapabilities`, `createWindowControls`, `createFullscreenControls`, `createWindowControlLabels`, `DEFAULT_WINDOW_CONTROL_LABELS`, `WINDOW_CONTROL_LABELS`, `bootstrapQaPlatform`, `resolveQaPlatform`; types `Platform`, `WindowControlAdapter`, `FullscreenControlAdapter`, `WindowControlLabels`, `QaPlatformBootstrapInput` |
+| `@rightkit/platform-ui` | `getPlatform`, `normalizePlatform`, `formatChord`, `platformCapabilities`, `createWindowControls`, `createFullscreenControls`, `createWindowControlLabels`, `DEFAULT_WINDOW_CONTROL_LABELS`, `WINDOW_CONTROL_LABELS`, `bootstrapQaPlatform`, `resolveQaPlatform`, `configurePlatform`, `platformInitializationScript`; types `Platform`, `PlatformOptions`, `WindowControlAdapter`, `FullscreenControlAdapter`, `WindowControlLabels`, `QaPlatformBootstrapInput` |
 | `@rightkit/platform-ui/react` | `usePlatform`, `Kbd`, `KbdProps` |
-| `@rightkit/platform-ui/headless` | No native detection and no `@tauri-apps/plugin-os` import, so it works in any app. `formatChord` (explicit platform, default `unknown`), `normalizePlatform`, `floatingPanelStyle`, `fitToViewport`, `createToastBus`, `defaultToastBus`, `toast`, `useFocusTrap`, `useModalDismiss`, `useLatest`, `useDismiss`, `useExitTransition`, `useListNavigation`, `rankCommands`, `rankItems`, `matchScore`, and the framework-free cores `attachFocusTrap`, `attachDismiss`, `createExitTransition`. See [Headless behaviour hooks](#headless-behaviour-hooks). |
+| `@rightkit/platform-ui/headless` | No native detection and no `@tauri-apps/plugin-os` import, so it works in any app. `formatChord` (explicit platform, default `unknown`), `normalizePlatform`, `platformInitializationScript`, `floatingPanelStyle`, `fitToViewport`, `createToastBus`, `defaultToastBus`, `toast`, `useFocusTrap`, `useModalDismiss`, `useLatest`, `useDismiss`, `useExitTransition`, `useListNavigation`, `rankCommands`, `rankItems`, `matchScore`, and the framework-free cores `attachFocusTrap`, `attachDismiss`, `createExitTransition`. See [Headless behaviour hooks](#headless-behaviour-hooks). |
 
 ## Peer dependencies
 
@@ -41,7 +41,45 @@ const controls = createWindowControls(nativeWindowAdapter); // your Tauri window
 
 ## Native platform loading
 
-`getPlatform()` is synchronous. It returns the QA override if set, then the native platform once it has loaded, and before that the browser's report. Every supported desktop webview reports the right OS there, so the first render is correct. `loadPlatform()` loads `@tauri-apps/plugin-os` with a dynamic import and resolves the native value, which is cached. `usePlatform()` calls it for you.
+`getPlatform()` is synchronous. It returns the QA override if set, then the native platform once it has loaded, and before that the host-injected platform if one was set, else the browser's report. Every supported desktop webview reports the right OS there, so the first render is correct. `loadPlatform()` loads `@tauri-apps/plugin-os` with a dynamic import and resolves the native value, which is cached. `usePlatform()` calls it for you.
+
+### Host-injected platform (synchronous, before any script)
+
+Code that runs at module load, or the first render of a host that cannot wait, can read the native platform synchronously if the host injects it before the app bundle runs. `getPlatform()` reads `window.__RIGHTKIT_PLATFORM__` (a string, normalised by `normalizePlatform`) when it is present. A Tauri host sets it from an initialization script:
+
+```ts
+import { platformInitializationScript } from "@rightkit/platform-ui/headless";
+
+// Put this text in the window's initialization script (for example Tauri's `initialization_script`),
+// generated at build or startup time from the native platform name.
+const script = platformInitializationScript("macos");
+// => window.__RIGHTKIT_PLATFORM__ = "macos";
+```
+
+`platformInitializationScript` returns the exact snippet; an unsupported name yields `"unknown"`. Once `loadPlatform()` resolves, the async native value takes over. If the two disagree, the native value wins and a warning is logged. If plugin-os is absent, the injected value is what `loadPlatform()` resolves to.
+
+### Configuring the platform (`configurePlatform`)
+
+`configurePlatform(options)` merges options into the module configuration. Call it before the first platform read. Defaults equal the previous behaviour.
+
+| Option | Default | Effect |
+|---|---|---|
+| `qaQueryParam` | `"qaPlatform"` | Query parameter that carries the QA platform for `resolveQaPlatform` and `bootstrapQaPlatform`. |
+| `qaRequireQaFlag` | `true` | When `false`, the query parameter alone enables the override (no `qa=1`). |
+| `nativeWinsOverQa` | `false` | When `true`, inside a native host (injected value, plugin-os answered, or `__TAURI_INTERNALS__`) the QA override is ignored and the native platform is reported. |
+| `fallbackPlatform` | none | Used only when the resolved platform would be `unknown`. Normalised like any name. |
+
+```ts
+import { configurePlatform } from "@rightkit/platform-ui";
+
+configurePlatform({ qaQueryParam: "qaPlatform", qaRequireQaFlag: false, nativeWinsOverQa: true, fallbackPlatform: "windows" });
+```
+
+Platform names accept the aliases `mac` and `darwin` (macOS) and `win` and `win32` (Windows) in addition to the canonical `macos`, `ios`, `windows` and `linux`.
+
+### Chord modifier `ctrlormeta`
+
+The display grammar has no modifier for "Ctrl or Meta" on every platform. `formatChord` renders the token `ctrlormeta` as `⌘/⌃` on macOS, `Ctrl/Win` on Windows and Linux, `Touch` on iOS and `Ctrl/Meta` when unknown. Matching is in `@rightkit/app-shell`.
 
 Bundling note: the root and `./react` entries contain a dynamic `import("@tauri-apps/plugin-os")`. Apps that bundle those entries must install the plugin, which every Tauri app already does. An app without the plugin should import `./headless` only.
 
