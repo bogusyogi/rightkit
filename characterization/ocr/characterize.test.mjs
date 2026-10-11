@@ -4,6 +4,7 @@ import { test } from "node:test";
 
 import {
   expectedRuntimeDigest,
+  loadNativeCatalog,
   extractOcrOutput,
   loadContract,
   verifyArtifactSet,
@@ -57,13 +58,19 @@ test("verifyArtifactSet rejects a digest mismatch with the artifact name", async
 });
 
 test("the contract rejects an uncharacterized platform runtime", async () => {
-  const contract = await loadContract(new URL("contract.json", here));
-  assert.equal(
-    expectedRuntimeDigest(contract, "win32"),
-    "0a49bb13573807ad309aa9967a46471c07d6495bab5b279d1fad474aefd8ef4b",
+  const catalog = await loadNativeCatalog();
+  const pinned = catalog.libraries.filter((r) => r.library === "onnxruntime" && r.os === "windows" && r.arch === "x86_64" && r.status !== "stale-unverified" && r.status !== "planned");
+  assert.equal(pinned.length, 1);
+  assert.equal(expectedRuntimeDigest(catalog, "win32"), pinned[0].sha256);
+  assert.match(expectedRuntimeDigest(catalog, "win32"), /^[0-9a-f]{64}$/);
+  // The contract carries no runtime digest of its own.
+  assert.equal((await loadContract(new URL("contract.json", here))).ortRuntime, undefined);
+  assert.throws(
+    () => expectedRuntimeDigest({ libraries: [...catalog.libraries, { ...pinned[0], id: "second" }] }, "win32"),
+    /No characterized ORT runtime digest for win32/,
   );
   assert.throws(
-    () => expectedRuntimeDigest(contract, "darwin"),
+    () => expectedRuntimeDigest(catalog, "darwin"),
     /No characterized ORT runtime digest for darwin/,
   );
 });

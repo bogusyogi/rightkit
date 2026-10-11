@@ -60,4 +60,5 @@ evidence = "scraperight/scripts/fetch-ocr-assets.mjs pins these repos + digests 
 
 [runtime.windows]
 file = "onnxruntime.dll"
-sha256 = "0a49bb13573807ad309aa9967a46471c07d6495bab5b279d1fad474aefd8ef4b"
+# The digest lives in one place: this record of crates/rightkit-media/catalog/native-libraries.json.
+catalog_record = "onnxruntime-1.24.4-windows-x64-directml"

@@ -36,12 +36,25 @@ export async function loadContract(contractUrl = new URL("contract.json", import
   return JSON.parse(await readFile(contractUrl, "utf8"));
 }
 
-export function expectedRuntimeDigest(contract, platform = os.platform()) {
-  const digest = contract.ortRuntime?.[platform];
-  if (!digest) {
+/** The native-library catalog: the single source of the ONNX Runtime digest. */
+export const NATIVE_CATALOG_URL = new URL("../../crates/rightkit-media/catalog/native-libraries.json", import.meta.url);
+
+export async function loadNativeCatalog(catalogUrl = NATIVE_CATALOG_URL) {
+  return JSON.parse(await readFile(catalogUrl, "utf8"));
+}
+
+/**
+ * The SHA-256 of the ONNX Runtime file for `platform`, from the catalog's one approved or pinned
+ * `onnxruntime` record for that platform. Only Windows x64 is characterized.
+ */
+export function expectedRuntimeDigest(catalog, platform = os.platform()) {
+  const records = platform === "win32"
+    ? (catalog.libraries ?? []).filter((r) => r.library === "onnxruntime" && r.os === "windows" && r.arch === "x86_64" && (r.status === "approved" || r.status === "pinned") && r.sha256)
+    : [];
+  if (records.length !== 1) {
     throw new Error(`No characterized ORT runtime digest for ${platform}`);
   }
-  return digest.toLowerCase();
+  return records[0].sha256.toLowerCase();
 }
 
 async function artifactBytes(value) {
@@ -189,7 +202,7 @@ export async function characterize(args = process.argv.slice(2)) {
       `ORT runtime digest mismatch: CodeRight ${runtimeHashes.coderight}, ScrapeRight ${runtimeHashes.scraperight}`,
     );
   }
-  const expectedOrt = expectedRuntimeDigest(contract);
+  const expectedOrt = expectedRuntimeDigest(await loadNativeCatalog());
   if (runtimeHashes.coderight !== expectedOrt) {
     throw new Error(
       `ORT runtime digest changed: expected ${expectedOrt}, got ${runtimeHashes.coderight}`,

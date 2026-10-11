@@ -5,7 +5,7 @@
 
 mod common;
 
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::OnceLock;
 
 use rightkit_ort::ort::value::Tensor;
@@ -14,15 +14,6 @@ use rightkit_ort::{
     resolve_runtime, runtime_filename, CandidateSource, EnvironmentOptions, ExecutionProvider,
     GlobalPool, ProviderKind, RuntimeCandidate, RuntimeError, SessionOptions,
 };
-
-/// SHA-256 of the approved Windows x64 1.24.4 runtime (characterization/ocr/contract.json).
-const APPROVED_WIN32_SHA256: &str =
-    "0a49bb13573807ad309aa9967a46471c07d6495bab5b279d1fad474aefd8ef4b";
-
-fn sha256_hex(path: &Path) -> String {
-    use sha2::{Digest, Sha256};
-    format!("{:x}", Sha256::digest(std::fs::read(path).unwrap()))
-}
 
 /// `<app>\example.exe` with `<app>\runtime\{onnxruntime,DirectML}.dll`, as an installer lays it out.
 fn staged_app() -> &'static (PathBuf, PathBuf) {
@@ -135,7 +126,11 @@ fn approved_runtime_loads_from_the_installed_layout() {
         return;
     }
     let (_, staged) = staged_app();
-    assert_eq!(sha256_hex(staged), APPROVED_WIN32_SHA256);
+    let record = common::windows_runtime_record();
+    assert_eq!(record.version, "1.24.4");
+    record
+        .verify_file(staged)
+        .expect("staged runtime must match the catalog digest");
     let report = setup();
     assert_eq!(report.runtime_path, staged.canonicalize().unwrap());
     assert!(

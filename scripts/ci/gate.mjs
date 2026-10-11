@@ -194,6 +194,24 @@ function savePatch(name, pathspec) {
 /** Unit mode is strict (a missing asset fails) unless the request names the unit in allow_missing_assets. */
 const assetEnv = (selection, name) => (UNIT_MODE && selection.unitRequest?.allowMissingAssets?.includes(name) ? { RIGHTKIT_REQUIRE_ASSETS: "0" } : {});
 
+// ORT-PROVISION (the single call site): the catalog-pinned Windows ONNX Runtime for the real-runtime
+// tests, provisioned once and only when a unit that uses it is tested. A failed provision is a red row.
+const ORT_UNITS = new Set(["rightkit-ort"]);
+let ortEnv;
+async function ortEnvFor(name) {
+  if (!ORT_UNITS.has(name)) return {};
+  if (ortEnv === undefined) {
+    const started = Date.now();
+    try { ortEnv = await (await import("./provision-ort.mjs")).ortRuntimeEnv(); }
+    catch (error) {
+      console.error(`provision-ort: ${error.message}`);
+      results.push({ unit: "ort-runtime", command: "node scripts/ci/provision-ort.mjs", ok: false, code: 1, seconds: Math.round((Date.now() - started) / 1000) });
+      ortEnv = {};
+    }
+  }
+  return ortEnv;
+}
+
 async function rustGate(selection, config) {
   const { rust } = selection;
   if (!rust.test.length && !rust.check.length) return;
@@ -222,7 +240,7 @@ async function rustGate(selection, config) {
     const entry = config.rust?.[name] ?? {};
     const featureSets = entry.featureSets ?? [[]];
     const timeoutMinutes = entry.timeoutMinutes ?? 25;
-    const env = assetEnv(selection, name);
+    const env = { ...assetEnv(selection, name), ...(await ortEnvFor(name)) };
     for (const features of featureSets) {
       await run(`rust:${name}`, "cargo", ["test", "-p", name, ...features, "--no-fail-fast", "--", "--show-output"], { timeoutMinutes, env });
       if (entry.alsoSerial) await run(`rust:${name}`, "cargo", ["test", "-p", name, ...features, "--no-fail-fast", "--", "--test-threads=1", "--show-output"], { timeoutMinutes, env });
