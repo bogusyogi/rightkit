@@ -229,13 +229,19 @@ done
 # licence requires its notices with binaries; they come from the toolchain's own licence files.
 licenses=/mingw64/share/licenses
 toolchain_notice() {
-  local found; found="$(ls $1 2>/dev/null | awk 'NR==1')"
-  test -n "$found" || { echo "toolchain licence file not found: $1" >&2; exit 1; }
+  # Package directory names vary between MSYS2 snapshots (crt or crt-git, winpthreads or
+  # libwinpthread, gcc or gcc-libs), so each file is found by pattern.
+  local found; found="$(ls $1 2>/dev/null | awk 'NR==1' || true)"
+  if [ -z "$found" ]; then
+    echo "toolchain licence file not found: $1; $licenses holds: $(ls "$licenses" 2>/dev/null | tr '
+' ' ')" >&2
+    exit 1
+  fi
   cp "$found" "$out/$build_tag.notices/$2"
 }
-toolchain_notice "$licenses/crt/COPYING.MinGW-w64-runtime.txt" MinGW-w64-runtime-COPYING.txt
+toolchain_notice "$licenses/*crt*/COPYING.MinGW-w64-runtime.txt $licenses/*headers*/COPYING.MinGW-w64-runtime.txt" MinGW-w64-runtime-COPYING.txt
 toolchain_notice "$licenses/*winpthread*/COPYING" winpthreads-COPYING.txt
-toolchain_notice "$licenses/gcc-libs/COPYING.RUNTIME" GCC-RUNTIME-LIBRARY-EXCEPTION.txt
+toolchain_notice "$licenses/gcc*/COPYING.RUNTIME" GCC-RUNTIME-LIBRARY-EXCEPTION.txt
 
 # Linkage gate: every imported DLL must be a Windows system DLL.
 imports="$(objdump -p "$artifact" | sed -n 's/^[[:space:]]*DLL Name: //p' | tr -d '\r' | sort -f)"
