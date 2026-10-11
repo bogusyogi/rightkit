@@ -4,9 +4,10 @@
 use std::time::Duration;
 
 use rightkit_fs::{
-    atomic_write_with_options, AtomicOptions, AtomicWriteOptions, AtomicWriter, FsError,
-    ReplaceMode, RetryPolicy,
+    atomic_write_with_options, AtomicOptions, AtomicWriteOptions, ReplaceMode, RetryPolicy,
 };
+#[cfg(unix)]
+use rightkit_fs::{AtomicWriter, FsError};
 
 #[test]
 fn defaults_match_the_original_rename_behaviour() {

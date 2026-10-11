@@ -65,9 +65,16 @@ impl std::error::Error for EntitlementError {}
 fn normalise_raw_token(token: &str) -> Result<&str, EntitlementError> {
     let invalid = |why: &str| EntitlementError::InvalidRequest(format!("entitlement token {why}"));
     let trimmed = token.trim();
-    let bare = match trimmed.as_bytes().get(..7) {
-        Some(prefix) if prefix.eq_ignore_ascii_case(b"Bearer ") => trimmed[7..].trim(),
-        _ => trimmed,
+    // Split off the first word, so a value that trims down to just the scheme (`Bearer `) is
+    // seen as the scheme with nothing after it, not as a token called `Bearer`.
+    let (first, rest) = match trimmed.find(char::is_whitespace) {
+        Some(at) => (&trimmed[..at], trimmed[at..].trim()),
+        None => (trimmed, ""),
+    };
+    let bare = if first.eq_ignore_ascii_case("bearer") {
+        rest
+    } else {
+        trimmed
     };
     if bare.is_empty() {
         return Err(invalid("is empty"));

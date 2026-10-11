@@ -430,7 +430,10 @@ fn identity_of(pid: libc::pid_t) -> Option<Identity> {
         libc::proc_pidinfo(
             pid,
             libc::PROC_PIDTBSDINFO,
-            0,
+            // xnu reads `arg` as "zombies are allowed" for this flavor: with 0 an exited but
+            // unreaped child is invisible (`ESRCH`), which is exactly the state `waitpid` has to
+            // collect. With 1 the kernel describes it from the zombie list.
+            1,
             (&mut info as *mut libc::proc_bsdinfo).cast(),
             size,
         )
@@ -508,7 +511,10 @@ impl Helper {
 #[cfg(target_os = "macos")]
 fn child_gone(pid: libc::pid_t, identity: Option<Identity>) -> bool {
     if let Some(expected) = identity {
-        if identity_of(pid) != Some(expected) {
+        // A different description means the pid changed hands. No description at all means no
+        // such process exists (zombies are described), so `waitpid` below answers `ECHILD` or
+        // collects our own exited helper; it never reaches an unrelated child.
+        if matches!(identity_of(pid), Some(found) if found != expected) {
             return true;
         }
     }
