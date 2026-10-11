@@ -9,6 +9,7 @@ use crate::process::{sweep_registries, Tracker};
 use crate::scenario::{
     discover, run_step, tier_selected, unmet_requirement, Ctx, Scenario, StepRecord,
 };
+use crate::storage;
 use crate::util::{err, now_iso, platform, Result};
 use crate::workspace;
 use serde_json::{json, Value};
@@ -454,7 +455,12 @@ fn run_suite_at(
         )?,
     );
     ws.finish()?;
-    if !opts.keep_data {
+    if !opts.keep_data && failed > 0 && storage::keep_failed_home_requested() {
+        println!(
+            "[qa] kept QA home of the failed run: {}",
+            storage::describe_kept_home(&ws.home)
+        );
+    } else if !opts.keep_data {
         let report = workspace::dispose(&ws, true, 5, 200);
         for (p, why) in report.retained {
             println!("[qa] WARN could not remove {}: {why}", p.display());

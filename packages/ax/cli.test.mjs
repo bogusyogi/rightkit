@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { cpSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
@@ -75,14 +75,13 @@ test("ax static exits non-zero when .rightax.json is missing", () => {
   assert.match(result.stderr, /invalid or missing \.rightax\.json/);
 });
 
-test("plugin init rejects a missing repo path with one controlled error", () => {
+test("plugin init creates a missing target directory instead of failing", () => {
   const parent = mkdtempSync(path.join(os.tmpdir(), "right-ax-cli-"));
-  const missing = path.join(parent, "missing-repo");
+  const missing = path.join(parent, "missing", "nested-repo");
   const result = run(["plugin", "init", missing]);
-  assert.equal(result.status, 1);
-  assert.equal(result.stdout, "");
-  assert.equal(result.stderr, `right-ax plugin init: repo path does not exist: ${missing}\n`);
-  assert.doesNotMatch(result.stderr, /\bat\s+.*\.mjs/);
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, /right-ax plugin init: wrote \d+ file/);
+  assert.equal(existsSync(path.join(missing, "plugin.json")), true);
 });
 
 test("ax report --format sarif against the fixture server emits SARIF on stdout", () => {

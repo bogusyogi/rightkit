@@ -196,6 +196,40 @@ fn sweep(a: &Args) -> Result<i32> {
     Ok(0)
 }
 
+/// `rightkit-qa clean [--dry-run] [--dir <.../rightkit-qa>] [--max-age-hours N]`: remove the QA
+/// homes of dead runs (owner process gone, older than the window; default 2 h or
+/// `RIGHTKIT_QA_HOME_MAX_AGE_SECS`). A home whose owner is alive is never touched.
+fn clean(a: &Args) -> Result<i32> {
+    use rightkit_qa::storage::{clean_homes, home_max_age, qa_root};
+    let dir = a
+        .value("--dir")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(qa_root);
+    let max_age = a
+        .value("--max-age-hours")
+        .and_then(|v| v.parse::<f64>().ok())
+        .map(|h| std::time::Duration::from_secs_f64(h * 3600.0))
+        .unwrap_or_else(home_max_age);
+    let dry = a.has("--dry-run");
+    let r = clean_homes(&dir, max_age, dry);
+    for (path, bytes, why) in &r.removed {
+        println!(
+            "{} {} ({bytes} bytes): {why}",
+            if dry { "would remove" } else { "removed" },
+            path.display()
+        );
+    }
+    println!(
+        "{} {} home(s), {} bytes of {} bytes found; {} retained",
+        if dry { "would remove" } else { "removed" },
+        r.removed.len(),
+        r.removed_bytes,
+        r.total_bytes,
+        r.retained.len()
+    );
+    Ok(0)
+}
+
 /// `rightkit-qa homes [--apply] [--dir <.../rightkit-qa>] [--max-gb N] [--young-hours N]`:
 /// report (default) or remove (`--apply`) app homes the retention rule no longer protects.
 fn homes(a: &Args) -> Result<i32> {
@@ -273,9 +307,10 @@ fn run() -> Result<i32> {
         Some("guard") => guard(&a),
         Some("sweep") => sweep(&a),
         Some("homes") => homes(&a),
+        Some("clean") => clean(&a),
         Some("verify") => verify(&a),
         _ => {
-            eprintln!("usage: rightkit-qa <doctor|list|run|guard|sweep|homes|verify> [--config rightkit-qa.toml] ...");
+            eprintln!("usage: rightkit-qa <doctor|list|run|guard|sweep|homes|clean|verify> [--config rightkit-qa.toml] ...");
             Ok(2)
         }
     }

@@ -413,6 +413,7 @@ export class QaBrowserSession {
       const page = new QaPage(this.client, targetId, sessionId, () => this.openPages.delete(page));
       this.openPages.add(page);
       await page.initialize();
+      await page.settleInitialDocument();
       if (this.closed) throw new Error('Browser session closed');
       return page;
     } catch (error) {
@@ -488,6 +489,8 @@ export class QaPage {
   private lastNetworkActivity = 0;
   private generation = 0;
   private navigating = false;
+  /** Set once a navigation requested through this page has completed. */
+  private navigated = false;
   private consoleBuffer: ConsoleEntry[] = [];
   private userAgentBaseline?: string;
   private userAgentOverridden = false;
@@ -553,6 +556,32 @@ export class QaPage {
     await this.send('Runtime.enable');
     await this.send('Network.enable');
     await this.send('Page.setLifecycleEventsEnabled', { enabled: true });
+  }
+  /**
+   * @internal Resolves once the new tab's own first navigation (to about:blank) has committed. Until it
+   * has, its commit discards a navigation sent to the tab, and Chrome reports that navigation as
+   * ERR_ABORTED. Before that commit the tab's committed history entry has an empty URL. A committed entry
+   * counts as settled when the main frame's loader is the same on two consecutive polls. Bounded by
+   * `budget`: a browser that never commits, or does not answer, is not waited on, and the bounded repeat in
+   * `navigate` remains as the second line.
+   */
+  async settleInitialDocument(budget = 2000): Promise<void> {
+    const deadline = Date.now() + budget;
+    let seen: string | undefined;
+    while (!this.closed && Date.now() < deadline) {
+      let url: unknown;
+      let loader: string;
+      try {
+        const history = await this.send('Page.getNavigationHistory', {}, Math.max(1, deadline - Date.now()));
+        url = history.entries?.[history.currentIndex]?.url;
+        loader = String((await this.send('Page.getFrameTree', {}, Math.max(1, deadline - Date.now()))).frameTree?.frame?.loaderId);
+      } catch { return; }
+      // Only an explicitly empty URL means nothing has committed yet.
+      if (url === '') seen = undefined;
+      else if (seen === loader) return;
+      else seen = loader;
+      await sleep(10);
+    }
   }
   /**
    * UNSUPPORTED escape hatch: sends one page-scoped CDP command on this page's session and resolves
@@ -656,15 +685,19 @@ export class QaPage {
     try {
       await this.bounded(`Navigation (${waitUntil})`, timeout, async (remaining, stopped) => {
         let response = await this.send(method, params, remaining());
-        if (method === 'Page.navigate' && response.errorText === 'net::ERR_ABORTED') {
-          // A document committing in this frame discards a navigation that is still in flight, and Chrome
-          // answers ERR_ABORTED for it. The usual case is a new tab's own about:blank committing late on a
-          // cold browser. The request itself was sound, so it is sent once more. The commit event and the
-          // answer come from different processes, so the event is given a short time to arrive. An abort
-          // with no such commit (a download, a 204) is thrown as it is.
-          const until = Date.now() + 250;
+        // A document committing in this frame discards a navigation that is still in flight, and Chrome
+        // answers ERR_ABORTED for it. The usual case is a new tab's own about:blank committing late on a
+        // cold browser; `settleInitialDocument` waits that out, and this is the second line. The request
+        // itself was sound, so it is sent again, at most four times, while either holds: a main-frame
+        // document committed while it was pending (the commit event comes from another process, so it is
+        // given a short time to arrive), or this page has not completed a navigation yet. Any other abort
+        // (a download, a 204 on a page that has already navigated) is thrown as it is.
+        for (let repeats = 0; method === 'Page.navigate' && response.errorText === 'net::ERR_ABORTED' && repeats < 4 && !stopped(); repeats += 1) {
+          const until = Date.now() + 100;
           while (!displaced && Date.now() < until && !stopped()) await sleep(Math.min(10, remaining()));
-          if (displaced) { events.length = 0; response = await this.send(method, params, remaining()); }
+          if (!displaced && this.navigated) break;
+          displaced = false; events.length = 0;
+          response = await this.send(method, params, remaining());
         }
         if (response.errorText) throw new Error(`Navigation failed: ${response.errorText}${typeof params.url === 'string' ? ` (${params.url})` : ''}`);
         loaderId = response.loaderId;
@@ -684,6 +717,7 @@ export class QaPage {
           await sleep(Math.min(20, remaining()));
         }
       });
+      this.navigated = true;
     } finally { off(); offSame(); offDisplaced(); this.navigating = false; }
   }
   goto(url: string, options: NavigationOptions = {}): Promise<void> { return this.navigate('Page.navigate', { url }, options); }

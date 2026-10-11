@@ -23,6 +23,16 @@
     (120 seconds) with no cancel hook. The struct default is unchanged: `wait: None`
     is unlimited, and `LeaseOptions::within(d)` still sets a bound.
 
+- EmbeddingGemma 2 Q4 catalog entry (ledger row 166): `catalog::embedding_gemma_q4_spec()`, store id
+  `embeddinggemma2-q4`, revision `b64acc4`, six files with per-file size and SHA-256 pins, total
+  187,632,172 bytes. Not in `base_catalog()`, `add_ons()` or `all_models()`. **Route not yet served:**
+  every file has `url: None`, so the entry is adopt-only (files placed in the entry dir and verified) and makes no download.
+  `EMBEDDINGGEMMA2_Q4_INTENDED_ROUTE` names the route the worker would need. Licence: to be confirmed.
+  Test: `tests/embedding_gemma_spec.rs`.
+- Corrected the grant contract: `docs/model-grants-contract.md` no longer says no worker implements
+  `/v1/model-grants`. The worker source exists (`rightsites/workers/heardright-models`), serves two
+  Parakeet routes, and its deployment is unverified.
+
 ## 0.3.0
 
 - **Breaking: `ModelSpec` is `#[non_exhaustive]`.** Struct literals of `rightkit_models::ModelSpec` outside

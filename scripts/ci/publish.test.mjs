@@ -6,7 +6,7 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
-import { buildCrateUploadMetadata, commandPack, commandVerify, crateIndexPath, crateSourceProblems, crateWorkspaceFromMetadata, parseAllowList, parseUnitNames, planPublication, readNpmWorkspace, satisfies } from "./publish.mjs";
+import { buildCrateUploadMetadata, commandLedger, commandPack, commandVerify, crateIndexPath, crateSourceProblems, crateWorkspaceFromMetadata, ledgerEntries, parseAllowList, parseUnitNames, planPublication, readNpmWorkspace, satisfies } from "./publish.mjs";
 import { buildCratePublishBody, checkNpmTarball, CRATES_PUBLISH_URL, childEnv, executeUpload, loadSealed, NPM_REGISTRY_URL, parseCratesResponse, repositoryProblems } from "./upload.mjs";
 import { consumeCrates, consumeNpm, declaredEntries, npmCliCommand, skipImportList } from "./consume.mjs";
 import { assertPublishDoc, MUTATIONS, proveMutations } from "./workflow-contract.mjs";
@@ -275,12 +275,12 @@ function makeTgz(out, rootName, files) {
 
 const npmPackageJson = (name, dir, extra = {}) => ({ name, version: "0.1.0", main: "dist/index.js", exports: { ".": { import: "./dist/index.js" } }, repository: { type: "git", url: "git+https://github.com/Orthic-Labs/rightkit.git", directory: dir }, ...extra });
 
-function sealNpm({ units = [["@rightkit/a", "packages/a"]], packageJson = npmPackageJson } = {}) {
+function sealNpm({ units = [["@rightkit/a", "packages/a"]], packageJson = npmPackageJson, extraFiles = {} } = {}) {
   const dir = tmp("sealed");
   const manifest = { schema: 1, registry: "npm", commit: SHA, runId: "77", runAttempt: "1", units: [] };
   for (const [name, unitDir] of units) {
     const file = `${name.replace(/^@/, "").replace("/", "-")}-0.1.0.tgz`;
-    makeTgz(path.join(dir, file), "package", { "package.json": JSON.stringify(packageJson(name, unitDir)), "dist/index.js": "export {};\n" });
+    makeTgz(path.join(dir, file), "package", { "package.json": JSON.stringify(packageJson(name, unitDir)), "dist/index.js": "export {};\n", ...extraFiles });
     const bytes = fs.readFileSync(path.join(dir, file));
     manifest.units.push({ name, version: "0.1.0", dir: unitDir, file, size: bytes.length, sha256: sha256(bytes), sha1: crypto.createHash("sha1").update(bytes).digest("hex"), integrity: `sha512-${crypto.createHash("sha512").update(bytes).digest("base64")}` });
   }
@@ -335,11 +335,37 @@ function spy(fake = {}) {
 
 const actionsEnv = (extra = {}) => ({ GITHUB_ACTIONS: "true", GITHUB_REF: "refs/heads/main", GITHUB_REPOSITORY: "Orthic-Labs/rightkit", GITHUB_SHA: SHA, GITHUB_RUN_ID: "77", GITHUB_RUN_ATTEMPT: "1", PATH: process.env.PATH ?? "", RUNNER_TEMP: os.tmpdir(), PUBLISH_REGISTRY: "npm", PUBLISH_UNITS: "@rightkit/a", ...extra });
 const oidc = { ACTIONS_ID_TOKEN_REQUEST_URL: "https://oidc.invalid/x", ACTIONS_ID_TOKEN_REQUEST_TOKEN: "oidc-secret" };
-const npmFetch = (sealed) => async (url) => {
-  const unit = sealed.manifest.units.find((u) => String(url).includes(u.name.replace("/", "%2F")));
-  if (!unit) return { status: 404, ok: false, text: async () => "" };
-  return { status: 200, ok: true, text: async () => JSON.stringify({ dist: { shasum: unit.sha1, integrity: unit.integrity } }) };
+// A registry that does not hold a unit until it is asked a second time (the first request is upload.mjs's pre-publish
+// reconciliation); `already` names units that are on the registry from the start.
+const npmFetch = (sealed, { already = [] } = {}) => {
+  const asked = new Set();
+  return async (url) => {
+    const unit = sealed.manifest.units.find((u) => String(url).includes(u.name.replace("/", "%2F")));
+    if (!unit) return { status: 404, ok: false, text: async () => "" };
+    if (!already.includes(unit.name) && !asked.has(unit.name)) { asked.add(unit.name); return { status: 404, ok: false, text: async () => "" }; }
+    return { status: 200, ok: true, text: async () => JSON.stringify({ dist: { shasum: unit.sha1, integrity: unit.integrity } }) };
+  };
 };
+/** A stateful fake npm: `npm publish` adds the tarball's unit (unless `failing` names it), the registry API serves what was added. */
+function fakeNpm(sealed, { failing = [], present = {} } = {}) {
+  const held = new Map(Object.entries(present));
+  const publishes = [];
+  const unitOf = (text) => sealed.manifest.units.find((u) => text.includes(u.file) || text.includes(u.name.replace("/", "%2F")));
+  const { spawn } = spy({ npm: (args) => {
+    const unit = unitOf(path.basename(args[1]));
+    publishes.push(unit.name);
+    if (failing.includes(unit.name)) return { status: 1, stdout: "", stderr: "E500" };
+    held.set(unit.name, { shasum: unit.sha1, integrity: unit.integrity });
+    return { status: 0, stdout: "", stderr: "" };
+  } });
+  const fetchImpl = async (url) => {
+    const unit = unitOf(String(url));
+    const dist = unit && held.get(unit.name);
+    if (!dist) return { status: 404, ok: false, text: async () => "" };
+    return { status: 200, ok: true, text: async () => JSON.stringify({ dist }) };
+  };
+  return { spawn, fetchImpl, publishes, held };
+}
 
 // ---- the upload job: seal, receipts, dry run, command and environment construction ------------
 
@@ -381,19 +407,19 @@ test("upload (real npm) builds the publish command from the sealed tarball and i
   assert.deepEqual(doc.receipts[0], { ...doc.receipts[0], unit: "@rightkit/a", published: true, registryVerified: true, sha256: sealed.manifest.units[0].sha256, commit: SHA, registry: "npm", dryRun: false });
   // credentials missing or crossed
   await assert.rejects(executeUpload({ env: actionsEnv({ ...oidc }), packDir: sealed.dir, receiptsDir, outDir, dryRun: false, spawn, fetchImpl: npmFetch(sealed) }), /NODE_AUTH_TOKEN is not set/);
-  await assert.rejects(executeUpload({ env: actionsEnv({ NODE_AUTH_TOKEN: "t", CARGO_REGISTRY_TOKEN: "c", ...oidc }), packDir: sealed.dir, receiptsDir, outDir, dryRun: false, spawn, fetchImpl: npmFetch(sealed) }), /CARGO_REGISTRY_TOKEN must not be present/);
-  await assert.rejects(executeUpload({ env: actionsEnv({ NODE_AUTH_TOKEN: "t" }), packDir: sealed.dir, receiptsDir, outDir, dryRun: false, spawn, fetchImpl: npmFetch(sealed) }), /needs id-token: write/);
+  await assert.rejects(executeUpload({ env: actionsEnv({ NODE_AUTH_TOKEN: "npm-secret-token", CARGO_REGISTRY_TOKEN: "crate-secret-token", ...oidc }), packDir: sealed.dir, receiptsDir, outDir, dryRun: false, spawn, fetchImpl: npmFetch(sealed) }), /CARGO_REGISTRY_TOKEN must not be present/);
+  await assert.rejects(executeUpload({ env: actionsEnv({ NODE_AUTH_TOKEN: "npm-secret-token" }), packDir: sealed.dir, receiptsDir, outDir, dryRun: false, spawn, fetchImpl: npmFetch(sealed) }), /needs id-token: write/);
 });
 
 test("upload refuses a registry that serves different bytes than the sealed tarball", async () => {
   const sealed = sealNpm();
   const { spawn } = spy({ npm: () => ({ status: 0, stdout: "", stderr: "" }) });
   const fetchImpl = async () => ({ status: 200, ok: true, text: async () => JSON.stringify({ dist: { shasum: "0".repeat(40), integrity: "sha512-x" } }) });
-  await assert.rejects(executeUpload({ env: actionsEnv({ NODE_AUTH_TOKEN: "t", ...oidc }), packDir: sealed.dir, receiptsDir: receipts(sealed.dir, sealed.manifest), outDir: tmp("out"), dryRun: false, spawn, fetchImpl, pause: 1 }), /serves different bytes/);
+  await assert.rejects(executeUpload({ env: actionsEnv({ NODE_AUTH_TOKEN: "npm-secret-token", ...oidc }), packDir: sealed.dir, receiptsDir: receipts(sealed.dir, sealed.manifest), outDir: tmp("out"), dryRun: false, spawn, fetchImpl, pause: 1 }), /serves different bytes/);
 });
 
 test("upload refuses when the sealed bytes, the commit or the receipts do not bind", async () => {
-  const run = (sealed, receiptsDir, env = actionsEnv({ NODE_AUTH_TOKEN: "t", ...oidc })) => executeUpload({ env, packDir: sealed.dir, receiptsDir, outDir: tmp("out"), dryRun: false, spawn: spy({ npm: () => ({ status: 0, stdout: "", stderr: "" }) }).spawn, fetchImpl: npmFetch(sealed), pause: 1 });
+  const run = (sealed, receiptsDir, env = actionsEnv({ NODE_AUTH_TOKEN: "npm-secret-token", ...oidc })) => executeUpload({ env, packDir: sealed.dir, receiptsDir, outDir: tmp("out"), dryRun: false, spawn: spy({ npm: () => ({ status: 0, stdout: "", stderr: "" }) }).spawn, fetchImpl: npmFetch(sealed), pause: 1 });
   // a tarball changed after packing
   let sealed = sealNpm();
   const receiptsDir = receipts(sealed.dir, sealed.manifest);
@@ -439,17 +465,17 @@ test("upload refuses when the sealed bytes, the commit or the receipts do not bi
   await assert.rejects(run(sealed, receipts(sealed.dir, sealed.manifest, { override: { runAttempt: "x" } })), /not a positive integer/);
   await assert.rejects(run(sealed, receipts(sealed.dir, sealed.manifest, { override: { manifestRunAttempt: "9" } })), /it verified manifest run 77\/9/);
   const rerun = rewrite({ runAttempt: "1" });
-  await run(rerun, receipts(rerun.dir, rerun.manifest, { override: { runAttempt: "2" } }), actionsEnv({ GITHUB_RUN_ATTEMPT: "2", NODE_AUTH_TOKEN: "t", ...oidc })); // a re-run may reuse attempt 1's bytes
-  await assert.rejects(run(sealed, receipts(sealed.dir, sealed.manifest), actionsEnv({ GITHUB_RUN_ID: "", NODE_AUTH_TOKEN: "t", ...oidc })), /GITHUB_RUN_ID and GITHUB_RUN_ATTEMPT must be set/);
+  await run(rerun, receipts(rerun.dir, rerun.manifest, { override: { runAttempt: "2" } }), actionsEnv({ GITHUB_RUN_ATTEMPT: "2", NODE_AUTH_TOKEN: "npm-secret-token", ...oidc })); // a re-run may reuse attempt 1's bytes
+  await assert.rejects(run(sealed, receipts(sealed.dir, sealed.manifest), actionsEnv({ GITHUB_RUN_ID: "", NODE_AUTH_TOKEN: "npm-secret-token", ...oidc })), /GITHUB_RUN_ID and GITHUB_RUN_ATTEMPT must be set/);
   const rerunReceipts = receipts(rerun.dir, rerun.manifest, { override: { runAttempt: "1" } });
-  await run(rerun, rerunReceipts, actionsEnv({ GITHUB_RUN_ATTEMPT: "2", NODE_AUTH_TOKEN: "t", ...oidc }));
+  await run(rerun, rerunReceipts, actionsEnv({ GITHUB_RUN_ATTEMPT: "2", NODE_AUTH_TOKEN: "npm-secret-token", ...oidc }));
   assert.deepEqual(loadSealed({ packDir: rerun.dir, registry: "npm", unitsText: "@rightkit/a", run: { runId: "77", runAttempt: "2" } }).problems, []);
   // wrong commit, branch, repository, unit list
   const ok = receipts(sealed.dir, sealed.manifest);
-  await assert.rejects(run(sealed, ok, actionsEnv({ GITHUB_SHA: "c".repeat(40), NODE_AUTH_TOKEN: "t", ...oidc })), /not the dispatched commit/);
-  await assert.rejects(run(sealed, ok, actionsEnv({ GITHUB_REF: "refs/heads/dev", NODE_AUTH_TOKEN: "t", ...oidc })), /refs\/heads\/main only/);
-  await assert.rejects(run(sealed, ok, actionsEnv({ GITHUB_REPOSITORY: "someone/rightkit", NODE_AUTH_TOKEN: "t", ...oidc })), /in Orthic-Labs\/rightkit only/);
-  await assert.rejects(run(sealed, ok, actionsEnv({ PUBLISH_UNITS: "@rightkit/a @rightkit/z", NODE_AUTH_TOKEN: "t", ...oidc })), /differ from the planned units/);
+  await assert.rejects(run(sealed, ok, actionsEnv({ GITHUB_SHA: "c".repeat(40), NODE_AUTH_TOKEN: "npm-secret-token", ...oidc })), /not the dispatched commit/);
+  await assert.rejects(run(sealed, ok, actionsEnv({ GITHUB_REF: "refs/heads/dev", NODE_AUTH_TOKEN: "npm-secret-token", ...oidc })), /refs\/heads\/main only/);
+  await assert.rejects(run(sealed, ok, actionsEnv({ GITHUB_REPOSITORY: "someone/rightkit", NODE_AUTH_TOKEN: "npm-secret-token", ...oidc })), /in Orthic-Labs\/rightkit only/);
+  await assert.rejects(run(sealed, ok, actionsEnv({ PUBLISH_UNITS: "@rightkit/a @rightkit/z", NODE_AUTH_TOKEN: "npm-secret-token", ...oidc })), /differ from the planned units/);
 });
 
 test("upload re-checks provenance preconditions in the sealed tarball in both modes", async () => {
@@ -459,7 +485,7 @@ test("upload re-checks provenance preconditions in the sealed tarball in both mo
   const noEntry = sealNpm({ packageJson: (name, dir) => npmPackageJson(name, dir, { main: "dist/missing.js" }) });
   for (const [sealed, pattern] of [[wrong, /must name https:\/\/github\.com\/Orthic-Labs\/rightkit/], [missing, /repository must be an object/], [workspaceDep, /workspace:/], [noEntry, /dist\/missing\.js, which is not in the tarball/]]) {
     for (const dryRun of [true, false]) {
-      const env = dryRun ? actionsEnv() : actionsEnv({ NODE_AUTH_TOKEN: "t", ...oidc });
+      const env = dryRun ? actionsEnv() : actionsEnv({ NODE_AUTH_TOKEN: "npm-secret-token", ...oidc });
       await assert.rejects(executeUpload({ env, packDir: sealed.dir, receiptsDir: receipts(sealed.dir, sealed.manifest), outDir: tmp("out"), dryRun, spawn: spy().spawn, fetchImpl: async () => { throw new Error("no network"); } }), pattern);
     }
   }
@@ -469,13 +495,19 @@ test("upload (crates) PUTs the sealed bytes to the publish API with the token on
   const sealed = sealCrates(["rightkit-a", "rightkit-b"]);
   const receiptsDir = receipts(sealed.dir, sealed.manifest);
   const requests = [];
-  const fetchImpl = async (url, options = {}) => {
-    requests.push({ url: String(url), options });
-    if (String(url) === CRATES_PUBLISH_URL) return { status: 200, ok: true, text: async () => JSON.stringify({ warnings: {} }) };
-    const name = String(url).split("/").pop();
-    const unit = sealed.manifest.units.find((u) => u.name === name);
-    return { status: 200, ok: true, text: async () => JSON.stringify({ vers: "0.1.0", cksum: unit.sha256 }) };
+  // A fresh registry view per upload: the first index read of a crate (upload.mjs's reconciliation) finds nothing; later reads find it.
+  const makeFetch = () => {
+    const asked = new Set();
+    return async (url, options = {}) => {
+      requests.push({ url: String(url), options });
+      if (String(url) === CRATES_PUBLISH_URL) return { status: 200, ok: true, text: async () => JSON.stringify({ warnings: {} }) };
+      const name = String(url).split("/").pop();
+      const unit = sealed.manifest.units.find((u) => u.name === name);
+      if (!asked.has(name)) { asked.add(name); return { status: 404, ok: false, text: async () => "" }; }
+      return { status: 200, ok: true, text: async () => JSON.stringify({ vers: "0.1.0", cksum: unit.sha256 }) };
+    };
   };
+  const fetchImpl = makeFetch();
   const { spawn, calls } = spy();
   const env = actionsEnv({ PUBLISH_REGISTRY: "crates", PUBLISH_UNITS: "rightkit-a rightkit-b", CARGO_REGISTRY_TOKEN: "crate-secret-token" });
   const doc = await executeUpload({ env, packDir: sealed.dir, receiptsDir, outDir: tmp("out"), dryRun: false, spawn, fetchImpl, pause: 1 });
@@ -493,13 +525,14 @@ test("upload (crates) PUTs the sealed bytes to the publish API with the token on
   assert.deepEqual(doc.receipts.map((r) => [r.unit, r.published, r.registryVerified]), [["rightkit-a", true, true], ["rightkit-b", true, true]]);
   assert.equal(puts[0].options.headers.accept, "application/json", "the documented Accept header is sent");
   // HTTP 200 with an errors array is a failure, recorded as not published; warnings are surfaced; a non-JSON body is refused
-  const answering = (body, status = 200) => async (url, options = {}) => (String(url) === CRATES_PUBLISH_URL ? { status, ok: status < 400, text: async () => body } : fetchImpl(url, options));
+  const answering = (body, status = 200, inner = null) => async (url, options = {}) => (String(url) === CRATES_PUBLISH_URL ? { status, ok: status < 400, text: async () => body } : (inner ??= makeFetch())(url, options));
   const published = [];
   const one = { env: actionsEnv({ PUBLISH_REGISTRY: "crates", PUBLISH_UNITS: "rightkit-a rightkit-b", CARGO_REGISTRY_TOKEN: "crate-secret-token" }), packDir: sealed.dir, receiptsDir, dryRun: false, spawn, pause: 1 };
   await assert.rejects(executeUpload({ ...one, outDir: tmp("out"), fetchImpl: answering(JSON.stringify({ errors: [{ detail: "crate version `0.1.0` is already uploaded crate-secret-token" }] })) }), (error) => /with errors for rightkit-a@0\.1\.0; not recorded as published: crate version `0\.1\.0` is already uploaded/.test(error.message) && !error.message.includes("crate-secret-token"));
   const outErr = tmp("out");
   await assert.rejects(executeUpload({ ...one, outDir: outErr, fetchImpl: answering(JSON.stringify({ errors: [{ detail: "nope" }] })) }), /with errors/);
-  assert.deepEqual(JSON.parse(fs.readFileSync(path.join(outErr, "publication-receipt.json"), "utf8")).receipts, [], "an errors body records no publication");
+  const errRows = JSON.parse(fs.readFileSync(path.join(outErr, "publication-receipt.json"), "utf8")).receipts;
+  assert.deepEqual(errRows.map((r) => [r.unit, r.published, r.registryVerified, r.outcome]), [["rightkit-a", false, false, "failed"]], "an errors body records a failed attempt, never a publication");
   await assert.rejects(executeUpload({ ...one, outDir: tmp("out"), fetchImpl: answering("<html>ok</html>") }), /not the documented JSON/);
   const warned = await executeUpload({ ...one, outDir: tmp("out"), log: (l) => published.push(l), fetchImpl: answering(JSON.stringify({ warnings: { invalid_categories: ["bogus"], invalid_badges: [], other: ["readme is empty"] } })) });
   assert.match(published.join("\n"), /warnings for rightkit-a@0\.1\.0: invalid_categories: bogus; other: readme is empty/);
@@ -508,17 +541,148 @@ test("upload (crates) PUTs the sealed bytes to the publish API with the token on
   assert.deepEqual(parseCratesResponse('{"errors":["plain"]}').errors, ["plain"]);
   assert.equal(parseCratesResponse("[]").unreadable, true);
   // a refusal carries the status and never the token; a dry run sends nothing
-  const refused = async () => ({ status: 403, ok: false, text: async () => "forbidden crate-secret-token" });
+  const refused = answering("forbidden crate-secret-token", 403);
   await assert.rejects(executeUpload({ env, packDir: sealed.dir, receiptsDir, outDir: tmp("out"), dryRun: false, spawn, fetchImpl: refused }), (error) => /HTTP 403/.test(error.message) && !error.message.includes("crate-secret-token"));
   const dry = await executeUpload({ env: actionsEnv({ PUBLISH_REGISTRY: "crates", PUBLISH_UNITS: "rightkit-a rightkit-b" }), packDir: sealed.dir, receiptsDir, outDir: tmp("out"), dryRun: true, spawn, fetchImpl: async () => { throw new Error("no network"); }, log: () => {} });
   assert.equal(dry.receipts.length, 2);
-  await assert.rejects(executeUpload({ env: actionsEnv({ PUBLISH_REGISTRY: "crates", PUBLISH_UNITS: "rightkit-a rightkit-b", NODE_AUTH_TOKEN: "n", CARGO_REGISTRY_TOKEN: "c" }), packDir: sealed.dir, receiptsDir, outDir: tmp("out"), dryRun: false, spawn, fetchImpl }), /NODE_AUTH_TOKEN must not be present/);
+  await assert.rejects(executeUpload({ env: actionsEnv({ PUBLISH_REGISTRY: "crates", PUBLISH_UNITS: "rightkit-a rightkit-b", NODE_AUTH_TOKEN: "npm-secret-token", CARGO_REGISTRY_TOKEN: "crate-secret-token" }), packDir: sealed.dir, receiptsDir, outDir: tmp("out"), dryRun: false, spawn, fetchImpl }), /NODE_AUTH_TOKEN must not be present/);
+});
+
+// ---- a retry of failed jobs: partial publication is reconciled, never erased, never republished --
+
+test("upload retry: the second unit failed, the retry starts from the earlier receipt and publishes only the rest", async () => {
+  const sealed = sealNpm({ units: [["@rightkit/a", "packages/a"], ["@rightkit/b", "packages/b"]] });
+  const receiptsDir = receipts(sealed.dir, sealed.manifest);
+  const env1 = actionsEnv({ PUBLISH_UNITS: "@rightkit/a @rightkit/b", NODE_AUTH_TOKEN: "npm-secret-token", ...oidc });
+  const out1 = tmp("out1");
+  const first = fakeNpm(sealed, { failing: ["@rightkit/b"] });
+  await assert.rejects(executeUpload({ env: env1, packDir: sealed.dir, receiptsDir, previousDir: tmp("none"), outDir: out1, dryRun: false, spawn: first.spawn, fetchImpl: first.fetchImpl, pause: 1, log: () => {} }), /npm publish failed for @rightkit\/b@0\.1\.0/);
+  const after1 = JSON.parse(fs.readFileSync(path.join(out1, "publication-receipt.json"), "utf8"));
+  assert.deepEqual(after1.receipts.map((r) => [r.unit, r.published, r.registryVerified, r.outcome, r.attempt]), [["@rightkit/a", true, true, "published", "1"], ["@rightkit/b", false, false, "failed", "1"]], "the failed attempt records the success AND the failure");
+  // Attempt 2 of the same run: a is on the registry (held), b is not. The earlier receipt is the starting point.
+  const out2 = tmp("out2");
+  const second = fakeNpm(sealed, { present: Object.fromEntries([...first.held]) });
+  const lines = [];
+  const doc = await executeUpload({ env: { ...env1, GITHUB_RUN_ATTEMPT: "2" }, packDir: sealed.dir, receiptsDir, previousDir: out1, outDir: out2, dryRun: false, spawn: second.spawn, fetchImpl: second.fetchImpl, pause: 1, log: (l) => lines.push(l) });
+  assert.deepEqual(second.publishes, ["@rightkit/b"], "only the unit not on the registry is published");
+  assert.deepEqual(doc.receipts.map((r) => [r.unit, r.published, r.registryVerified, r.outcome, r.attempt]), [["@rightkit/a", true, true, "published-by-earlier-attempt", "2"], ["@rightkit/b", true, true, "published", "2"]]);
+  assert.equal(doc.receipts[0].publishedBy, "earlier-attempt");
+  assert.equal(doc.receipts[0].earlierAttempt, "1");
+  assert.equal(doc.receipts[0].earlierOutcome, "published");
+  assert.deepEqual(doc.priorAttempts, ["1"]);
+  assert.ok(doc.history.some((r) => r.unit === "@rightkit/a" && r.attempt === "1" && r.outcome === "published"), "attempt 1's row is kept as history, not overwritten");
+  assert.ok(doc.history.some((r) => r.unit === "@rightkit/b" && r.outcome === "failed"), "attempt 1's failure is kept");
+  assert.match(lines.join("\n"), /@rightkit\/a@0\.1\.0 is already on npm with the sealed hash: published by an earlier attempt/);
+  assert.deepEqual(JSON.parse(fs.readFileSync(path.join(out2, "publication-receipt.json"), "utf8")), doc, "the receipt on disk is the one returned");
+  // The ledger accepts what the retried receipt says.
+  const ledger = ledgerEntries(doc);
+  assert.deepEqual(ledger.entries.map((e) => e.name), ["@rightkit/a", "@rightkit/b"]);
+});
+
+test("upload retry: a version already on the registry with different bytes is refused before anything is sent", async () => {
+  const sealed = sealNpm({ units: [["@rightkit/a", "packages/a"], ["@rightkit/b", "packages/b"]] });
+  const receiptsDir = receipts(sealed.dir, sealed.manifest);
+  const env = actionsEnv({ PUBLISH_UNITS: "@rightkit/a @rightkit/b", NODE_AUTH_TOKEN: "npm-secret-token", ...oidc });
+  const [a] = sealed.manifest.units;
+  // b is first in nothing: a is absent, b has other bytes. Nothing may be published, not even a.
+  const fake = fakeNpm(sealed, { present: { "@rightkit/b": { shasum: "0".repeat(40), integrity: "sha512-other" } } });
+  const out = tmp("out");
+  await assert.rejects(executeUpload({ env, packDir: sealed.dir, receiptsDir, previousDir: tmp("none"), outDir: out, dryRun: false, spawn: fake.spawn, fetchImpl: fake.fetchImpl, pause: 1, log: () => {} }), /npm already serves different bytes for @rightkit\/b@0\.1\.0/);
+  assert.deepEqual(fake.publishes, [], "no publish ran");
+  const rows = JSON.parse(fs.readFileSync(path.join(out, "publication-receipt.json"), "utf8")).receipts;
+  assert.deepEqual(rows.map((r) => [r.unit, r.outcome]), [["@rightkit/b", "refused"]]);
+  assert.equal(a.name, "@rightkit/a");
+  // An unreadable registry answer is not permission to publish either.
+  const down = { ...fake, fetchImpl: async () => ({ status: 503, ok: false, text: async () => "" }) };
+  await assert.rejects(executeUpload({ env, packDir: sealed.dir, receiptsDir, previousDir: tmp("none"), outDir: tmp("out"), dryRun: false, spawn: down.spawn, fetchImpl: down.fetchImpl, pause: 1, log: () => {} }), /cannot reconcile @rightkit\/a@0\.1\.0 with the npm registry: HTTP 503/);
+  assert.deepEqual(fake.publishes, []);
+});
+
+test("upload retry: refuses a previous receipt that is not this run's, or that says verified what the registry no longer serves", async () => {
+  const sealed = sealNpm();
+  const receiptsDir = receipts(sealed.dir, sealed.manifest);
+  const env = { ...actionsEnv({ NODE_AUTH_TOKEN: "npm-secret-token", ...oidc }), GITHUB_RUN_ATTEMPT: "2" };
+  const unit = sealed.manifest.units[0];
+  const prior = (patch = {}, rows) => {
+    const dir = tmp("prior");
+    fs.writeFileSync(path.join(dir, "publication-receipt.json"), JSON.stringify({ schema: 1, registry: "npm", dryRun: false, commit: SHA, runId: "77", runAttempt: "1", priorAttempts: [], history: [], receipts: rows ?? [{ unit: unit.name, version: unit.version, published: true, registryVerified: true, outcome: "published", attempt: "1" }], ...patch }));
+    return dir;
+  };
+  const go = (previousDir) => { const fake = fakeNpm(sealed); return executeUpload({ env, packDir: sealed.dir, receiptsDir, previousDir, outDir: tmp("out"), dryRun: false, spawn: fake.spawn, fetchImpl: fake.fetchImpl, pause: 1, log: () => {} }); };
+  await assert.rejects(go(prior({ runId: "78" })), /previous attempt receipt refused: run 78 is not this run 77/);
+  await assert.rejects(go(prior({ commit: "b".repeat(40) })), /previous attempt receipt refused: commit/);
+  await assert.rejects(go(prior({ dryRun: true })), /not a real publication receipt/);
+  await assert.rejects(go(prior({ registry: "crates" })), /registry crates is not npm/);
+  await assert.rejects(go(prior({ runAttempt: "2" })), /attempt 2 is not earlier than this attempt 2/);
+  await assert.rejects(go(prior({}, [{ unit: unit.name, version: unit.version, published: true, registryVerified: true, outcome: "published", attempt: "1" }])), /was recorded as published and verified by attempt 1, but the npm registry no longer serves it/);
+  const garbage = tmp("prior"); fs.writeFileSync(path.join(garbage, "publication-receipt.json"), "not json");
+  await assert.rejects(go(garbage), /previous attempt receipt is unreadable/);
+  // No earlier receipt at all is a first attempt.
+  const fresh = await go(tmp("none"));
+  assert.equal(fresh.receipts[0].outcome, "published");
+});
+
+test("upload retry (crates): a crate already indexed with the sealed checksum is not PUT again; another checksum is refused", async () => {
+  const sealed = sealCrates(["rightkit-a", "rightkit-b"]);
+  const receiptsDir = receipts(sealed.dir, sealed.manifest);
+  const env = actionsEnv({ PUBLISH_REGISTRY: "crates", PUBLISH_UNITS: "rightkit-a rightkit-b", CARGO_REGISTRY_TOKEN: "crate-secret-token", GITHUB_RUN_ATTEMPT: "2" });
+  const held = new Map([["rightkit-a", sealed.manifest.units[0].sha256]]);
+  const puts = [];
+  const fetchImpl = async (url, options = {}) => {
+    if (String(url) === CRATES_PUBLISH_URL) { puts.push(options.body.length); held.set("rightkit-b", sealed.manifest.units[1].sha256); return { status: 200, ok: true, text: async () => JSON.stringify({ warnings: {} }) }; }
+    const name = String(url).split("/").pop();
+    return held.has(name) ? { status: 200, ok: true, text: async () => JSON.stringify({ vers: "0.1.0", cksum: held.get(name) }) } : { status: 404, ok: false, text: async () => "" };
+  };
+  const doc = await executeUpload({ env, packDir: sealed.dir, receiptsDir, previousDir: tmp("none"), outDir: tmp("out"), dryRun: false, spawn: spy().spawn, fetchImpl, pause: 1, log: () => {} });
+  assert.equal(puts.length, 1, "only rightkit-b is sent");
+  assert.deepEqual(doc.receipts.map((r) => [r.unit, r.outcome]), [["rightkit-a", "published-by-earlier-attempt"], ["rightkit-b", "published"]]);
+  held.set("rightkit-a", "f".repeat(64)); puts.length = 0;
+  await assert.rejects(executeUpload({ env, packDir: sealed.dir, receiptsDir, previousDir: tmp("none"), outDir: tmp("out"), dryRun: false, spawn: spy().spawn, fetchImpl, pause: 1, log: () => {} }), /crates\.io already serves different bytes for rightkit-a@0\.1\.0/);
+  assert.equal(puts.length, 0);
+});
+
+// ---- the ledger command is strict -------------------------------------------------------------
+
+test("ledger records each verified publication, reads the ledger back, and fails on any incomplete recording", async () => {
+  const root = tmp("ledger-root");
+  const versionsFile = path.join(root, "packages", "release", "rightkit-versions.json");
+  const copyFile = path.join(root, "packages", "build-control-policy", "src", "ownership-session-versions.json");
+  fs.mkdirSync(path.dirname(versionsFile), { recursive: true }); fs.mkdirSync(path.dirname(copyFile), { recursive: true });
+  fs.writeFileSync(versionsFile, "{}\n"); fs.writeFileSync(copyFile, "{}\n");
+  const receiptFile = path.join(tmp("ledger-receipt"), "publication-receipt.json");
+  const rows = [{ unit: "@rightkit/a", version: "0.1.0", published: true, registryVerified: true }, { unit: "@rightkit/b", version: "0.1.0", published: true, registryVerified: false }];
+  fs.writeFileSync(receiptFile, JSON.stringify({ schema: 1, registry: "npm", dryRun: false, receipts: rows }));
+  const compareVersions = (a, b) => (a === b ? 0 : a < b ? -1 : 1);
+  const writer = ({ strictSeen = [], breakCopy = false, skipWrite = false, fail = false } = {}) => ({
+    compareVersions,
+    recordPublished: (entry, options) => {
+      strictSeen.push(options.strict);
+      if (fail) { if (options.strict) throw new Error("write failed"); return; }
+      if (skipWrite) return;
+      const doc = JSON.parse(fs.readFileSync(options.file, "utf8")); (doc.registry ??= {})[entry.registry] ??= {}; doc.registry[entry.registry][entry.name] = entry.version;
+      const text = `${JSON.stringify(doc)}\n`; fs.writeFileSync(options.file, text); if (!breakCopy) fs.writeFileSync(copyFile, text);
+    },
+  });
+  const seen = [];
+  await commandLedger([receiptFile], { root, sync: writer({ strictSeen: seen }) });
+  assert.deepEqual(seen, [true], "the unverified unit is skipped and the strict option is always on");
+  assert.equal(JSON.parse(fs.readFileSync(versionsFile, "utf8")).registry.npm["@rightkit/a"], "0.1.0");
+  await assert.rejects(commandLedger([receiptFile], { root, sync: writer({ fail: true }) }), /write failed/);
+  fs.writeFileSync(versionsFile, "{}\n"); fs.writeFileSync(copyFile, "{}\n");
+  await assert.rejects(commandLedger([receiptFile], { root, sync: writer({ skipWrite: true }) }), /ledger is incomplete[\s\S]*npm @rightkit\/a@0\.1\.0 is not in the ledger/);
+  fs.writeFileSync(versionsFile, "{}\n");
+  await assert.rejects(commandLedger([receiptFile], { root, sync: writer({ breakCopy: true }) }), /ownership-session-versions\.json differs from rightkit-versions\.json/);
+  fs.writeFileSync(receiptFile, JSON.stringify({ schema: 1, registry: "npm", dryRun: false, receipts: [rows[1]] }));
+  await assert.rejects(commandLedger([receiptFile], { root, sync: writer() }), /nothing to record/);
+  fs.writeFileSync(receiptFile, JSON.stringify({ schema: 1, registry: "npm", dryRun: true, receipts: rows }));
+  await assert.rejects(commandLedger([receiptFile], { root, sync: writer() }), /dry-run receipt is not a publication/);
+  await assert.rejects(commandLedger([], { root, sync: writer() }), /usage/);
 });
 
 test("child environments are an allow-list, never process.env wholesale", () => {
-  const source = { PATH: "/bin", HOME: "/h", GITHUB_SHA: "s", RUNNER_TEMP: "/t", ACTIONS_ID_TOKEN_REQUEST_URL: "u", NODE_AUTH_TOKEN: "n", CARGO_REGISTRY_TOKEN: "c", GITHUB_TOKEN: "g", AWS_SECRET_ACCESS_KEY: "k", INPUT_UNITS: "x", npm_config_registry: "evil" };
+  const source = { PATH: "/bin", HOME: "/h", GITHUB_SHA: "s", RUNNER_TEMP: "/t", ACTIONS_ID_TOKEN_REQUEST_URL: "u", NODE_AUTH_TOKEN: "npm-secret-token", CARGO_REGISTRY_TOKEN: "crate-secret-token", GITHUB_TOKEN: "g", AWS_SECRET_ACCESS_KEY: "k", INPUT_UNITS: "x", npm_config_registry: "evil" };
   assert.deepEqual(Object.keys(childEnv(source)).sort(), ["ACTIONS_ID_TOKEN_REQUEST_URL", "GITHUB_SHA", "HOME", "PATH", "RUNNER_TEMP"]);
-  assert.equal(childEnv(source, { NODE_AUTH_TOKEN: "n" }).NODE_AUTH_TOKEN, "n");
+  assert.equal(childEnv(source, { NODE_AUTH_TOKEN: "npm-secret-token" }).NODE_AUTH_TOKEN, "npm-secret-token");
 });
 
 test("the crates.io publish body is length-prefixed metadata then the crate", () => {
@@ -574,7 +738,7 @@ test("pack (npm) runs pnpm pack per unit with no credential, seals the bytes, an
   assert.equal(manifest.commit, SHA);
   const onDisk = JSON.parse(fs.readFileSync(path.join(outRoot, "rk-pack", "manifest.json"), "utf8"));
   assert.equal(onDisk.units[0].sha256, sha256(fs.readFileSync(path.join(outRoot, "rk-pack", onDisk.units[0].file))));
-  assert.throws(() => commandPack({ env: { ...env, NODE_AUTH_TOKEN: "t" }, spawn, root }), /pack and verify must not receive secrets/);
+  assert.throws(() => commandPack({ env: { ...env, NODE_AUTH_TOKEN: "npm-secret-token" }, spawn, root }), /pack and verify must not receive secrets/);
   assert.throws(() => commandPack({ env: { ...env, ...oidc }, spawn, root }), /must not request id-token/);
   assert.throws(() => commandPack({ env: { ...env, GITHUB_REF: "refs/heads/x" }, spawn, root }), /refs\/heads\/main only/);
   badRepo = true;
@@ -615,7 +779,7 @@ test("pack (crates) runs one cargo package, reads the packaged manifest, and sea
   assert.equal(upload.readme, "# rightkit-b\n");
   assert.deepEqual(upload.deps.map((d) => [d.name, d.version_req, d.kind]), [["rightkit-a", "^0.1", "normal"]]);
   assert.equal(manifest.units[1].metaSha256, sha256(fs.readFileSync(path.join(outRoot, "rk-pack", manifest.units[1].metaFile))));
-  assert.throws(() => commandPack({ env: { ...env, CARGO_REGISTRY_TOKEN: "c" }, spawn, root }), /must not receive secrets/);
+  assert.throws(() => commandPack({ env: { ...env, CARGO_REGISTRY_TOKEN: "crate-secret-token" }, spawn, root }), /must not receive secrets/);
 });
 
 test("verify re-hashes the sealed bytes, requires gate evidence, and binds the receipt to the manifest", () => {
@@ -643,7 +807,7 @@ test("verify re-hashes the sealed bytes, requires gate evidence, and binds the r
   assert.equal(receipt.manifestSha256, sha256(fs.readFileSync(path.join(sealed.dir, "manifest.json"))));
   assert.deepEqual(receipt.units.map((u) => [u.name, u.status, u.bytesVerified]), [["@rightkit/a", "pass", true]]);
   assert.ok(fs.existsSync(path.join(runTemp, "verify-receipt", "verify-windows.json")));
-  assert.throws(() => run({ NODE_AUTH_TOKEN: "t" }), /must not receive secrets/);
+  assert.throws(() => run({ NODE_AUTH_TOKEN: "npm-secret-token" }), /must not receive secrets/);
   assert.throws(() => run({}, "linux"), /macOS or Windows/);
   writeEvidence({ host: "macos" });
   assert.throws(() => run(), /gate evidence is for npm on macos/);
@@ -762,6 +926,22 @@ test("the contract compares conditions exactly and finds every secret expression
   assert.throws(broken((d) => { d.jobs.verify.secrets = "inherit"; }), /secrets/);
 });
 
+test("the privileged upload job is closed: env, shell, working directory, step list, with keys and job keys", () => {
+  const broken = (edit) => { const doc = structuredClone(realDoc()); edit(doc.jobs.upload); return () => assertPublishDoc(doc); };
+  const npm = 5; const crates = 6;
+  for (const key of ["NODE_OPTIONS", "NPM_CONFIG_SCRIPT_SHELL", "npm_config_registry", "JAVA_TOOL_OPTIONS", "PATH", "BASH_ENV", "LD_PRELOAD"]) {
+    assert.throws(broken((u) => { u.steps[npm].env[key] = "x"; }), /never allowed|exactly the env keys/, `${key} on the npm step`);
+    assert.throws(broken((u) => { u.steps[crates].env[key] = "x"; }), /exactly the env keys/, `${key} on the crates step`);
+  }
+  assert.throws(broken((u) => { u.steps[npm].shell = "bash"; }), /may carry only the keys/);
+  assert.throws(broken((u) => { u.steps[npm]["working-directory"] = "/tmp"; }), /may carry only the keys/);
+  assert.throws(broken((u) => { u.steps.push({ name: "x", run: "node scripts/ci/upload.mjs run" }); }), /must have exactly 8 steps/);
+  assert.throws(broken((u) => { u.steps[1].with.cache = "npm"; }), /exactly the with keys/);
+  assert.throws(broken((u) => { u.steps[2].with["run-id"] = "1"; }), /exactly the with keys/);
+  for (const key of ["container", "services", "defaults", "env", "strategy", "outputs", "concurrency"]) assert.throws(broken((u) => { u[key] = {}; }), /upload may carry only the keys|no job-level env/, key);
+  assert.doesNotThrow(broken(() => {}));
+});
+
 test("the YAML parser reads the real workflow's run blocks as the spec does", () => {
   const doc = realDoc();
   const upload = doc.jobs.upload.steps.find((s) => s.name === "Upload to npm");
@@ -789,6 +969,34 @@ test("package.json entry points are enumerated from exports, main, types and bin
   assert.deepEqual(skipImportList({ name: "p" }, declared), { list: [], problems: [] });
 });
 
+test("consumeNpm runs each installed bin's declared safe command and requires its exit code", () => {
+  const withBin = (smoke, extra = {}) => sealNpm({ extraFiles: { "bin/tool.mjs": "console.log(1);\n" }, packageJson: (name, dir) => npmPackageJson(name, dir, { bin: { tool: "./bin/tool.mjs" }, ...(smoke ? { rightkit: { publishCheck: { binSmoke: smoke } } } : {}), ...extra }) });
+  const run = (sealed, spawnFake) => consumeNpm({ units: sealed.manifest.units, packDir: sealed.dir, scratchRoot: tmp("scratch"), spawn: spawnFake.spawn, env: {}, npm: { command: "fake-npm", prefix: [], shell: false }, node: "fake-node" }).get("@rightkit/a");
+  // declared and passing: the bin runs from the installed copy, with node, no shell, the declared arguments
+  const good = consumerSpawn();
+  const ok = run(withBin({ tool: ["--version"] }), good);
+  assert.deepEqual(ok.problems, []);
+  const call = good.calls.find((c) => c.bin);
+  assert.deepEqual(call.args.slice(1), ["--version"]);
+  assert.ok(call.args[0].includes(`node_modules${path.sep}@rightkit${path.sep}a${path.sep}bin${path.sep}tool.mjs`), "the INSTALLED copy runs");
+  assert.notEqual(call.options.shell, true);
+  assert.deepEqual(ok.report.binSmoke, [{ bin: "tool", args: ["--version"], status: 0 }]);
+  // a bin that exits non-zero fails the unit, with its output
+  const broken = run(withBin({ tool: ["--version"] }), consumerSpawn({ bin: () => ({ status: 1, stdout: "", stderr: "Error: Cannot find module 'x'" }) }));
+  assert.match(broken.problems.join(), /installed bin tool --version exited 1 \(expected 0\): Error: Cannot find module 'x'/);
+  // a bin with no declaration, a declaration for a bin that does not exist, and a malformed one all fail
+  assert.match(run(withBin(null), consumerSpawn()).problems.join(), /declares bin tool but no rightkit\.publishCheck\.binSmoke/);
+  assert.match(run(withBin({ tool: ["--version"], ghost: ["--help"] }), consumerSpawn()).problems.join(), /names ghost, which package\.json does not declare as a bin/);
+  assert.match(run(withBin({ tool: "--version" }), consumerSpawn()).problems.join(), /no argument array for bin tool/);
+  // a CLI whose only safe call is its usage message declares the exit code and the text it must print
+  const usage = { tool: { args: [], exitCode: 64, output: "usage: tool" } };
+  assert.deepEqual(run(withBin(usage), consumerSpawn({ bin: () => ({ status: 64, stdout: "", stderr: "usage: tool <x>\n" }) })).problems, []);
+  assert.match(run(withBin(usage), consumerSpawn({ bin: () => ({ status: 0, stdout: "", stderr: "" }) })).problems.join(), /exited 0 \(expected 64\)/);
+  assert.match(run(withBin(usage), consumerSpawn({ bin: () => ({ status: 64, stdout: "", stderr: "something else" }) })).problems.join(), /did not print "usage: tool"/);
+  // a string-form bin is named after the package
+  assert.deepEqual(declaredEntries({ name: "@rightkit/a", bin: "./bin/tool.mjs" }).binMap, { a: "bin/tool.mjs" });
+});
+
 test("npm CLI is run through node when it ships beside it, else through the shim", () => {
   assert.deepEqual(npmCliCommand({ execPath: "/n/bin/node", platform: "linux", exists: (p) => p.replaceAll("\\", "/") === "/n/lib/node_modules/npm/bin/npm-cli.js" }).prefix.length, 1);
   assert.deepEqual(npmCliCommand({ execPath: "C:\\n\\node.exe", platform: "win32", exists: () => false }), { command: "npm.cmd", prefix: [], shell: true });
@@ -796,7 +1004,7 @@ test("npm CLI is run through node when it ships beside it, else through the shim
 });
 
 /** A fake npm + node: `install` unpacks each tarball into node_modules/<name>; the check script answers from `answer`. */
-function consumerSpawn({ installStatus = 0, answer = (plan) => plan.items.map((i) => ({ spec: i.spec, ok: true, imported: i.import })) } = {}) {
+function consumerSpawn({ installStatus = 0, answer = (plan) => plan.items.map((i) => ({ spec: i.spec, ok: true, imported: i.import })), bin = () => ({ status: 0, stdout: "1.0.0\n", stderr: "" }) } = {}) {
   const calls = [];
   const spawn = (command, args, options = {}) => {
     calls.push({ command, args: [...args], options });
@@ -809,6 +1017,11 @@ function consumerSpawn({ installStatus = 0, answer = (plan) => plan.items.map((i
         assert.equal(spawnSync("tar", ["-xzf", path.basename(tgz), "--strip-components=1", "-C", dest], { cwd: path.dirname(tgz) }).status, 0);
       }
       return { status: 0, stdout: "", stderr: "" };
+    }
+    if (command === "fake-node" && !path.basename(args[0]).startsWith("check-")) {
+      // an installed bin run for its smoke command
+      calls.at(-1).bin = true;
+      return bin(path.basename(args[0]), args.slice(1));
     }
     if (command === "fake-node") {
       const plan = JSON.parse(fs.readFileSync(args[1], "utf8"));

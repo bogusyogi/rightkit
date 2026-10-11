@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.3.2
+
+Additive. Existing source lists, commands and exports behave as before, except that `hosts.<host>.local` is now accepted for Claude too.
+
+- `marketplace build`: `hosts.<host>.local: "./plugins/<name>"` lists a plugin vendored inside the marketplace repository, for either host. Claude gets the relative-path source string (`"source": "./plugins/<name>"`, as in Pulse's and Legion's own marketplace files), Codex keeps `{ "source": "local", "path": ... }`. A repository that vendors its plugins (the new `Orthic-Labs/right-plugins`) can now generate both manifests instead of hand-editing the Claude one, so `marketplace validate` passes with drift checking.
+- `local` is refused unless it is a `./` relative path inside the marketplace repository: no absolute path, no drive letter, no `..`, no backslashes, no empty segment. `url` and `ref` are required only for an entry that has a host without `local`; `path` is optional on a `local` host. `sha` never applies to a local source.
+- `marketplace validate` resolves a `local` host inside the marketplace repository (`--workspace` when that is the repository, else `--out`), refuses a symlink that leaves it, and runs `plugin validate` and the name/version identity checks on it like any other listed plugin. Because it is a vendored copy, validation no longer needs a checkout of another repository for it.
+- `--workspace` accepts the marketplace repository root itself (the directory the source list lives under). Remote entries are then looked up in the root when it is that repository, then beside it (`<root>/../<repo>`), as well as under the root. A directory of checkouts works as before.
+- New exports: `workspaceIsMarketplaceRoot`. Tests in `marketplace.test.mjs`.
+
+## 0.3.1
+
+Fixes to argument parsing across the CLI. No new commands; exports unchanged.
+
+- `--help` or `-h` anywhere after a command prints that command's usage and exits 0 without touching the filesystem. Previously `plugin init --help` treated `--help` as the target directory and wrote `plugin.json` and `skills/rightkit-shared/SKILL.md` into the current directory.
+- Every subcommand now declares its options. An unknown flag, a stray positional, or a target starting with `-` exits 2 before any write.
+- `plugin init` requires an explicit target directory; it no longer defaults to the current directory. It creates a missing target (recursively), removing the directory again if scaffolding then fails. It refuses to write into a directory that already has `plugin.json` unless `--force` is given.
+- `adopt <repo-path>` now uses the positional target. Previously the target was ignored and the current directory was adopted. `adopt --dry-run` as the last argument no longer writes `.rightax.json`.
+- `plugin init` on a missing directory now succeeds instead of exiting 1 with "repo path does not exist".
+- New tests in `plugin-init-args.test.mjs`; `cli.test.mjs` replaces the missing-path test.
+
 ## 0.3.0
 
 Additive. Existing commands, exports and the `ax static` gates behave as before.

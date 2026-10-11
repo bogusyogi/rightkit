@@ -50,6 +50,8 @@ fn create_impl(
     app_key: &str,
 ) -> Result<QaWorkspace> {
     let app_key = require_text(app_key, "app")?;
+    // Sweep dead homes and refuse to start over the QA root's size cap, before a run exists.
+    storage::preflight_home_root()?;
     let mut managed =
         storage::create(cache_root, &app_key, run_id, Duration::from_secs(24 * 3600))?;
     let home = storage::create_app_root(&mut managed)?;
@@ -249,6 +251,14 @@ pub fn dispose(
             report.removed.push(target);
             continue;
         }
+        // Deletion happens only inside the QA root this runner owns, never by a caller's path.
+        if target == ws.home && !storage::is_owned_home(&target) {
+            report.retained.push((
+                target,
+                "not a QA home created by rightkit-qa; not deleted".into(),
+            ));
+            continue;
+        }
         let mut last = String::new();
         for attempt in 1..=attempts.max(1) {
             match fs::remove_dir_all(&target) {
@@ -431,6 +441,27 @@ mod tests {
         let r = prune_abandoned(&root, Duration::ZERO, &["b".into()]);
         assert_eq!(r.removed.len(), 1);
         assert!(root.join("runs/x/b").exists() && !root.join("runs/x/a").exists());
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn dispose_deletes_only_a_home_the_runner_created() {
+        let root = storage::app_temp_dir().join(format!("rkqa-ws-own-{}", new_id()));
+        let mut ws = create(&root, Some("own1"), "ownapp").unwrap();
+        // A caller-supplied path that is not a QA home is never deleted.
+        let foreign = root.join("precious");
+        fs::create_dir_all(&foreign).unwrap();
+        fs::write(foreign.join("keep"), b"keep").unwrap();
+        let real_home = ws.home.clone();
+        ws.home = foreign.clone();
+        let report = dispose(&ws, true, 1, 0);
+        assert!(foreign.join("keep").exists(), "{report:?}");
+        assert!(report.retained.iter().any(|(p, _)| p == &foreign));
+        // The genuine home is removed.
+        ws.home = real_home.clone();
+        let report = dispose(&ws, false, 1, 0);
+        assert!(report.retained.is_empty(), "{report:?}");
+        assert!(!real_home.exists());
         let _ = fs::remove_dir_all(root);
     }
 }

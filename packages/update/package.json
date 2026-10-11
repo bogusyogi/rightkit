@@ -11,6 +11,15 @@
   "bin": {
     "right-update": "dist/bin.js"
   },
+  "rightkit": {
+    "publishCheck": {
+      "binSmoke": {
+        "right-update": [
+          "--version"
+        ]
+      }
+    }
+  },
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",

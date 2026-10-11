@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased (after 0.4.8)
+
+Additive except where noted. Nothing here was built or run.
+
+- QA runs never touch real user data. New `userdata` exports: `assertQaLaunchSafe`, `spawnQaApp`, `QaLaunchGuard`, `UserDataViolation` (`path`, `rule`, `detail`), `seedFrom` with `ScrubDeclaration`, `permissionDialogIn`, `assertNoPermissionDialog` (the live check is a documented no-op). A launch whose home is not a created QA root under a system temp root, or whose working directory or environment paths resolve outside it or into Documents, Desktop, Downloads, iCloud/OneDrive/Dropbox/Google Drive, the app's real data directory, `/Volumes/*` or a UNC path, is refused before anything is spawned. This package spawned no native app before; `spawnQaApp` is the guarded path.
+- QA home hygiene. Homes record their owner in `.rightkit-home.json`. `createQaWorkspace` first removes homes whose owner is dead and older than 2 h and throws `QaRootOverCapError` (largest homes named) above 4 GB; both are skipped under vitest unless `preflight.enabled`. New `withQaWorkspace`, `cleanQaHomes`, `checkQaRootCap`, `disposeQaWorkspace` options `failed` / `keepFailedHome` and `DisposeReport.kept`. Behaviour change: `disposeQaWorkspace` now refuses to delete a `home` that is not a runner-created QA home.
+## Unreleased
+
+- Docs only: state that native QA drives only `qa-control` builds of an app and that this package never attaches to a shipped app.
+
 ## 0.4.8 — 2026-10-11
 
 Additive. Existing methods and defaults are unchanged. Where a name already existed with other behaviour, the new behaviour sits behind a new option.

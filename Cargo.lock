@@ -5273,7 +5273,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-control"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "rightkit-service",
  "serde_json",
@@ -5308,6 +5308,7 @@ dependencies = [
  "hyper-util",
  "rcgen",
  "rightkit-contracts",
+ "rightkit-daemon",
  "rightkit-http",
  "rightkit-oauth",
  "rightkit-process",

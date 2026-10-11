@@ -1,4 +1,9 @@
-//! In-app control server (Tauri plugin, feature `tauri-plugin`).
+//! In-app control server (Tauri plugin, feature `qa-control`).
+//!
+//! QA ONLY, NEVER SHIPPED. This module is compiled only with the explicit `qa-control` cargo feature.
+//! A binary that contains it carries [`QA_CONTROL_MARKER`] and `right-release` refuses to seal or upload
+//! a release or update build that does; a compiled-in server still serves nothing unless the launcher
+//! sets `RIGHTKIT_CONTROL_SERVICE`, and then logs one loud line to stderr.
 //!
 //! Started only when the launcher sets `RIGHTKIT_CONTROL_SERVICE=<name>`
 //! (a lowercase service name such as `control-genright`); normal user launches
@@ -194,6 +199,35 @@ type CommandFn<R> = Box<dyn Fn(&AppHandle<R>, &str) -> Result<String, String> + 
 pub const SECRET_SELECTORS: &str = "input[type=password],input[autocomplete*=password],input[autocomplete=one-time-code],[data-rk-secret]";
 static MASKED_LAST: AtomicU64 = AtomicU64::new(0);
 
+/// Bytes that appear in every binary that compiles this module. `right-release` scans Mach-O and PE files
+/// for exactly this string and refuses to seal or upload a release or update tier build that has it.
+/// Keep it identical to `QA_CONTROL_MARKER` in `packages/release/qa-control-scan.mjs`.
+pub const QA_CONTROL_MARKER: &str = "RIGHTKIT-QA-CONTROL-SERVER-PRESENT";
+
+/// The marker as a retained static. `#[used]` keeps the object in the compiler output and (via
+/// `llvm.used`) out of ld64 `-dead_strip` and link.exe `/OPT:REF`; `keep_marker()` below also READS it from
+/// `Control::build`, so the linker, LTO and the optimiser must keep it for as long as the server code that
+/// could serve a request is kept. No `link_section` is used: it would only add platform-specific naming.
+#[used]
+static QA_CONTROL_MARKER_BYTES: [u8; QA_CONTROL_MARKER.len()] = {
+    let src = QA_CONTROL_MARKER.as_bytes();
+    let mut out = [0u8; QA_CONTROL_MARKER.len()];
+    let mut i = 0;
+    while i < src.len() {
+        out[i] = src[i];
+        i += 1;
+    }
+    out
+};
+
+/// A volatile read of the marker's first byte: makes the static reachable from live server code so that
+/// no optimisation level or LTO pass can treat it as dead.
+#[inline(never)]
+fn keep_marker() -> u8 {
+    // SAFETY: the pointer is the start of a live, initialised static array of non-zero length.
+    unsafe { std::ptr::read_volatile(QA_CONTROL_MARKER_BYTES.as_ptr()) }
+}
+
 /// Launcher-set environment variable that names the service and enables control.
 pub const ENV_SERVICE: &str = "RIGHTKIT_CONTROL_SERVICE";
 
@@ -317,6 +351,8 @@ impl<R: Runtime> Control<R> {
         Self::enabled().then(|| self.build())
     }
     pub fn build(self) -> TauriPlugin<R> {
+        // Retain the marker with the server: see `keep_marker`.
+        std::hint::black_box(keep_marker());
         let Control {
             label,
             commands,
@@ -340,6 +376,12 @@ impl<R: Runtime> Control<R> {
         builder
             .setup(move |app, _| {
                 if let Some(service) = service_from_env() {
+                    // One loud line, always, before the socket exists: a QA control server must never
+                    // run unnoticed. stderr, not the app log, so it cannot be filtered or redirected away.
+                    eprintln!(
+                        "RIGHTKIT QA CONTROL SERVER ACTIVE: service={service} (qa-control build, {ENV_SERVICE} set); \
+                         this process accepts same-user input, DOM/eval and screenshot control. Never ship this build."
+                    );
                     let gate_events = placement.clone();
                     app.listen(PLACEMENT_EVENT, move |event| {
                         gate_events.on_event(event.payload());
@@ -926,6 +968,13 @@ fn key_char(name: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn qa_marker_is_the_fixed_scanned_string() {
+        // `packages/release/qa-control-scan.mjs` scans for exactly these bytes.
+        assert_eq!(QA_CONTROL_MARKER, "RIGHTKIT-QA-CONTROL-SERVER-PRESENT");
+        assert_eq!(&QA_CONTROL_MARKER_BYTES[..], QA_CONTROL_MARKER.as_bytes());
+        assert_eq!(keep_marker(), b'R');
+    }
     #[test]
     fn key_char_names() {
         assert_eq!(key_char("Enter"), "\r");

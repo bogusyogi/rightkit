@@ -7,6 +7,15 @@
   "bin": {
     "right-git": "cli/right-git.mjs"
   },
+  "rightkit": {
+    "publishCheck": {
+      "binSmoke": {
+        "right-git": [
+          "--version"
+        ]
+      }
+    }
+  },
   "files": [
     "cli",
     "policy",

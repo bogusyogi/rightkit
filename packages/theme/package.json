@@ -9,6 +9,17 @@
   "bin": {
     "rightkit-theme": "bin/rightkit-theme.mjs"
   },
+  "rightkit": {
+    "publishCheck": {
+      "binSmoke": {
+        "rightkit-theme": {
+          "args": [],
+          "exitCode": 1,
+          "output": "rightkit-theme generate|contrast|tokens"
+        }
+      }
+    }
+  },
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",

@@ -36,7 +36,7 @@ Status values compare each pin with the latest published version (registry-recor
 | `rightkit-channel-memory` | private | 0.1.0 | none recorded | 1 | postright | 1 vendored copy |
 | `rightkit-compose` | private | 0.1.0 | none recorded | 1 | cutright | 1 vendored copy |
 | `rightkit-contracts` | private | 0.1.5 | none recorded | 2 | cutright, postright | 2 vendored copies |
-| `rightkit-control` | crates.io | 0.2.0 | 0.1.11 | 4 | cutright, genright, postright, viewright | 2 vendored copies; 1 ahead of published |
+| `rightkit-control` | crates.io | 0.3.0 | 0.1.11 | 4 | cutright, genright, postright, viewright | 2 vendored copies; 1 ahead of published |
 | `rightkit-crash` | crates.io | 0.2.1 | 0.2.1 | 2 | heardright, postright | 1 vendored copy; 1 stale |
 | `rightkit-daemon` | private | 0.1.3 | none recorded | 1 | postright | 1 vendored copy |
 | `rightkit-db` | crates.io | 0.4.0 | 0.3.2 | 8 | coderight, cutright, genright, heardright, mailright, postright, scraperight, viewright | 4 vendored copies; 1 stale; 8 ahead of published |
@@ -84,7 +84,7 @@ Status values compare each pin with the latest published version (registry-recor
 | `rightkit-watch` | crates.io | 0.4.0 | 0.3.1 | 2 | coderight, viewright | 1 vendored copy |
 | `@rightkit/agent-room-mcp` | private | 0.1.0 | none recorded | 0 | none | - |
 | `@rightkit/app-shell` | npm | 0.6.4 | 0.6.2 | 7 | coderight, cutright, genright, heardright, postright, scraperight, viewright | 5 stale |
-| `@rightkit/ax` | npm | 0.3.0 | 0.2.4 | 2 | coderight, legion | - |
+| `@rightkit/ax` | npm | 0.3.2 | 0.2.4 | 2 | coderight, legion | - |
 | `@rightkit/build-control-policy` | private | 0.1.1-phase1 | none recorded | 0 | none | - |
 | `@rightkit/doc-render` | npm | 0.1.6 | 0.1.6 | 1 | viewright | - |
 | `@rightkit/git` | npm | 0.2.42 | 0.2.42 | 2 | coderight, legion | 2 stale |

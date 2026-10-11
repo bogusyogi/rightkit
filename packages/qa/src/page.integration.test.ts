@@ -63,6 +63,18 @@ describe('QaPage with real Chrome for Testing', () => {
     expect(events).toContain('DOMContentLoaded'); expect(events).toContain('load'); off();
   });
 
+  it('a fresh page can navigate at once: 30 in a row & 10 at the same time are never aborted', async () => {
+    const visit = async (name: string) => {
+      const fresh = await browser.newPage();
+      try {
+        await fresh.goto(`${url}/${name}`, { waitUntil: 'domcontentloaded' });
+        expect(await fresh.evaluate('location.pathname')).toBe(`/${name}`);
+      } finally { await fresh.close(); }
+    };
+    for (let i = 0; i < 30; i++) await visit(`fresh-${i}`);
+    await Promise.all(Array.from({ length: 10 }, (_, i) => visit(`together-${i}`)));
+  }, 120_000);
+
   it('sets viewport, DPR & mobile metrics; init scripts precede page scripts', async () => {
     expect(await page.evaluate(() => [innerWidth, innerHeight, devicePixelRatio, (window as any).initSeen])).toEqual([640, 480, 2, 'initialized']);
     await page.evaluateOnNewDocument('window.fromSource = 42');

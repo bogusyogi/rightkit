@@ -185,6 +185,22 @@ These methods expose Chrome's own DevTools protocol. Their names, params and res
 
 `createQaWorkspace` sets `RIGHTKIT_RUN_ROOT` to the workspace `home`. `disposeQaWorkspace` deletes that home, and deletes the workspace root too unless `keepEvidence` is set. A host must never map a directory that holds artifacts it wants to keep onto `RIGHTKIT_RUN_ROOT`, or onto the workspace root or home. Copy artifacts out before disposal, or use `keepEvidence: true` and keep anything written under `evidence` or `captures`.
 
+## QA runs never touch real user data
+
+A test run may never start an app on the user's real data or on a location that can raise a system dialog. `spawnQaApp(workspace, command, args, options)` calls `assertQaLaunchSafe` before it spawns anything; call `assertQaLaunchSafe(workspace, { cwd, env, dirs })` yourself when you launch by other means. There is no opt-out.
+
+- The workspace home must be a QA root this package created: directly under a `rightkit-qa` directory inside a system temp root on the internal disk, with the `.rightkit-app.json` binding. The working directory and every absolute path in the environment (and any `dirs`) must resolve, symlinks followed, inside it.
+- Refused anywhere: Documents, Desktop, Downloads, Pictures, Music, Movies; iCloud Drive (`~/Library/Mobile Documents`, `~/Library/CloudStorage`), OneDrive, Dropbox, Google Drive; the user's real application-support / AppData / `.config` directory of the app under test; any `/Volumes/*` volume; any UNC path.
+- A violation throws `UserDataViolation` with `path`, `rule` and `detail`. Nothing is launched.
+
+Seed state with generated fixtures; that is the default. `seedFrom(workspace, source, { destRel, transform, scrub })` copies through your `transform(source, dest)` into `<dataDir>/<destRel>` and refuses a `source` that is the real per-user data of the app unless `scrub` is `{ declaredScrubbed: true, verify }` and `verify(dest)` returns true before launch ("zero user rows, else no launch"). A false result deletes the copy and throws.
+
+`assertNoPermissionDialog(pid, frontmostNames)` fails on a macOS dialog agent among sampled foreground names. The live check is a no-op: this package has no window-by-owner enumeration (TODO in `livePermissionDialogCheck`).
+
+### QA home hygiene
+
+Each home carries `.rightkit-home.json` (owner pid, start time). `withQaWorkspace(options, body)` removes the home when `body` ends, pass or fail; `disposeQaWorkspace(ws, { failed, keepFailedHome })` or `RIGHTKIT_QA_KEEP_FAILED_HOME=1` keeps only a failed run's home and prints its path and size. `createQaWorkspace` first removes homes whose owner is dead and that are older than 2 hours (`RIGHTKIT_QA_HOME_MAX_AGE_SECS`; a live pid is never touched), then throws `QaRootOverCapError` naming the largest homes if the root still holds more than 4 GB (`RIGHTKIT_QA_ROOT_CAP_BYTES`, `0` disables; `RIGHTKIT_QA_HOME_SWEEP=0` skips the sweep). Both are off under vitest unless `preflight: { enabled: true }`. `cleanQaHomes({ dryRun })` runs the sweep by hand. Deletion happens only inside the `rightkit-qa` root, never by a caller's path, and never follows a symlink out of it. `disposeQaWorkspace` refuses a home that is not runner-created.
+
 ## Ownership: this package versus the Rust `rightkit-qa` crate
 
 Both runners stay. Pick by what the test drives.
@@ -198,6 +214,8 @@ Both runners stay. Pick by what the test drives.
 | Engine (CLI words, framed stdio sidecar) | Rust `rightkit-qa` (`engine::EngineTarget`) | `crates/rightkit-qa/src/engine.rs` |
 
 This package launches no native app and no WebView2 window; it never replaces the Rust crate for them.
+
+**QA is a development tool, not a user automation surface.** The native rows drive only builds compiled with `rightkit-control`'s `qa-control` feature (the app's `qa-native` build). A shipped app contains no such server and `right-release` refuses to seal or upload one that does; this package attaches only to browsers and dev servers that you launch with a debugging port, never to an installed app. The only supported automation surface for users is an app's own command line or plugin. See `crates/rightkit-control/README.md`, "QA control never ships".
 
 ## Known issues
 

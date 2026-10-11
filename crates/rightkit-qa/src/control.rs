@@ -76,6 +76,14 @@ pub struct StopReport {
     pub owned_frontmost_pids: Vec<u32>,
 }
 
+impl StopReport {
+    /// The first sampled foreground name that belongs to a system permission-dialog agent.
+    /// Positive evidence only: `None` does not prove no dialog appeared.
+    pub fn permission_dialog(&self) -> Option<String> {
+        crate::userdata::permission_dialog_in(&self.frontmost_states)
+    }
+}
+
 pub struct Control {
     pub pid: u32,
     /// `rightkit-service` name the app serves (`control-xxxxxxxx`).
@@ -654,6 +662,9 @@ pub fn launch(spec: &LaunchSpec, ws: &QaWorkspace, tracker: &Tracker) -> Result<
             spec.binary.display()
         ));
     }
+    // Before anything is created or started: the QA home must be a QA root this runner made, on the
+    // internal disk, and clear of every user-data location (see `userdata`). No opt-out.
+    let guard = crate::userdata::Guard::for_workspace(ws)?;
     let id = new_id().replace('-', "");
     let service = format!("control-{}", &id[..8]);
     // Isolated per-run suite root: the app's service.json never collides with an installed app's.
@@ -669,6 +680,8 @@ pub fn launch(spec: &LaunchSpec, ws: &QaWorkspace, tracker: &Tracker) -> Result<
     fs::create_dir_all(&log_dir)?;
     let raw_log = log_dir.join(format!("app-{}.log", &id[..8]));
     let env = launch_env(spec, ws, &suite, &service)?;
+    guard.check_dir(&ws.home)?;
+    guard.check_env(&env)?;
     let frontmost_before = frontmost();
     let focus = FocusMonitor::start(spec.mode != Mode::Visible);
     let deadline = Instant::now() + spec.startup_timeout;
@@ -885,6 +898,20 @@ fn start_process(
 }
 
 impl Control {
+    /// Fail when a system permission dialog is known to be showing for this app. TODO: the
+    /// automation layer cannot enumerate windows by owner (`UserNotificationCenter`,
+    /// `CoreServicesUIAgent`), so this is a no-op that returns `Ok` today; see
+    /// [`crate::userdata::live_permission_dialog_check`]. Use
+    /// [`StopReport::permission_dialog`] for the evidence that does exist.
+    pub fn assert_no_permission_dialog(&self) -> Result<()> {
+        match crate::userdata::live_permission_dialog_check(self.pid) {
+            crate::userdata::DialogCheck::Dialog(owner) => err(format!(
+                "a system permission dialog ({owner}) appeared for the app under test"
+            )),
+            _ => Ok(()),
+        }
+    }
+
     pub fn set_request_timeout(&mut self, t: Duration) {
         self.request_timeout = t;
     }

@@ -23,12 +23,15 @@
 //!   atomic file store), execution identity and `Running | Exited | Unknown`.
 //!
 //! Every effectful entry point routes through the gate: `webdriver::Server`,
-//! the `tauri-plugin` server, `mac::Gated` and the `rightkit-control` CLI
+//! the `qa-control` server, `mac::Gated` and the `rightkit-control` CLI
 //! ([`cli`]). The raw macOS primitives are reachable only through the
 //! explicitly named `mac::unsafe_ungated` opt-in.
 pub mod admission;
 pub mod cli;
-#[cfg(feature = "tauri-plugin")]
+/// QA-only in-app control server. Compiled only with the explicit `qa-control` feature, which no shipped
+/// build may enable (see the README section "QA control never ships"). `tauri-plugin` alone does not
+/// expose it.
+#[cfg(feature = "qa-control")]
 pub mod embedded;
 pub mod events;
 pub mod json;

@@ -584,6 +584,121 @@ pub const WHISPER_IOS_ARCHIVE: WhisperArchivePin = WhisperArchivePin {
     ],
 };
 
+// ---------------------------------------------------------------------------
+// EmbeddingGemma 2 Q4 (b64acc4) — local embedding bundle loaded by rightkit-embed.
+// NOT SERVED: no download route exists for this bundle. Install is adopt-only:
+// place the six files byte-identical in `<models-root>/embeddinggemma2-q4/`, and
+// the store's verify-before-adopt step checks them against the pins below. No
+// network request is made. See README "EmbeddingGemma 2 Q4".
+// ---------------------------------------------------------------------------
+
+/// Store id and entry dir name. Equal to `rightkit_embed::EMBEDDINGGEMMA2_MODEL_ID`;
+/// rightkit-models does not depend on rightkit-embed, so the literal is repeated here.
+pub const EMBEDDINGGEMMA2_Q4_ID: &str = "embeddinggemma2-q4";
+
+/// Intended grant route, following the Parakeet route shape. NOT SERVED: the model
+/// worker (`rightsites/workers/heardright-models/src/index.ts`, `MODEL_SPECS`) has no
+/// entry for it, and a grant needs one whole-object SHA-256 that this bundle lacks
+/// (only per-file digests are pinned here). Not referenced by any download path.
+pub const EMBEDDINGGEMMA2_Q4_INTENDED_ROUTE: &str = "/embeddinggemma2-q4/embeddinggemma2-q4.tar.gz";
+
+/// EmbeddingGemma 2 Q4 file set, revision b64acc4 (flat layout, as rightkit-embed loads it).
+/// Total 187,632,172 bytes.
+const EMBEDDINGGEMMA2_Q4_FILES: &[SpecFile] = &[
+    SpecFile {
+        path: "model_q4.onnx",
+        sha256: Some("8c7c392bc8a6989a0dbfb524d819a635de088812691acc61e898e13597e36336"),
+        size: Some(475_574),
+    },
+    SpecFile {
+        path: "model_q4.onnx_data",
+        sha256: Some("e976952e890a9c515e62ecf67a4129aecbe92c7994f7cc7b9f6d33a5fb33c04e"),
+        size: Some(154_979_328),
+    },
+    SpecFile {
+        path: "tokenizer.json",
+        sha256: Some("4d777ef5bdc1aa36227abdfb77c3e49e7b9c892d16e1b6bda41c393504828be4"),
+        size: Some(32_170_510),
+    },
+    SpecFile {
+        path: "tokenizer_config.json",
+        sha256: Some("17bd5d6e9364ca49a534e1502076593317c298d4a663623091ed45388f004874"),
+        size: Some(1_599),
+    },
+    SpecFile {
+        path: "config.json",
+        sha256: Some("8d011bfe08b5e345bbe0b81e5c6fd02c381920b345b986047bc2a33ce7b90d1d"),
+        size: Some(5_031),
+    },
+    SpecFile {
+        path: "special_tokens_map.json",
+        sha256: Some("61f5ea3e7ed0547b2d45ef93c1321de2b9e3429463041dc97d26057db11382d0"),
+        size: Some(130),
+    },
+];
+
+/// The same six files as `RemoteFile`s with no `url`. `can_download()` is therefore false,
+/// so `ensure` never reaches the download path for this spec. Its only route to `Ready` is the
+/// verify-before-adopt step on files already in the entry dir.
+const EMBEDDINGGEMMA2_Q4_REMOTE_FILES: &[RemoteFile] = &[
+    RemoteFile {
+        path: "model_q4.onnx",
+        url: None,
+        sha256: Some("8c7c392bc8a6989a0dbfb524d819a635de088812691acc61e898e13597e36336"),
+        size: Some(475_574),
+    },
+    RemoteFile {
+        path: "model_q4.onnx_data",
+        url: None,
+        sha256: Some("e976952e890a9c515e62ecf67a4129aecbe92c7994f7cc7b9f6d33a5fb33c04e"),
+        size: Some(154_979_328),
+    },
+    RemoteFile {
+        path: "tokenizer.json",
+        url: None,
+        sha256: Some("4d777ef5bdc1aa36227abdfb77c3e49e7b9c892d16e1b6bda41c393504828be4"),
+        size: Some(32_170_510),
+    },
+    RemoteFile {
+        path: "tokenizer_config.json",
+        url: None,
+        sha256: Some("17bd5d6e9364ca49a534e1502076593317c298d4a663623091ed45388f004874"),
+        size: Some(1_599),
+    },
+    RemoteFile {
+        path: "config.json",
+        url: None,
+        sha256: Some("8d011bfe08b5e345bbe0b81e5c6fd02c381920b345b986047bc2a33ce7b90d1d"),
+        size: Some(5_031),
+    },
+    RemoteFile {
+        path: "special_tokens_map.json",
+        url: None,
+        sha256: Some("61f5ea3e7ed0547b2d45ef93c1321de2b9e3429463041dc97d26057db11382d0"),
+        size: Some(130),
+    },
+];
+
+/// EmbeddingGemma 2 Q4 shared-store spec (MailRight's local embedder).
+///
+/// Not in [`base_catalog`] (not every install needs it) and not in [`add_ons`] (that list
+/// asserts entitlement gating, and this bundle has none). Reach it with this function.
+pub fn embedding_gemma_q4_spec() -> ModelSpec {
+    ModelSpec {
+        id: EMBEDDINGGEMMA2_Q4_ID,
+        label: "EmbeddingGemma 2 Q4 embedding model",
+        tier: ModelTier::AddOn,
+        entitlement: false,
+        version: "b64acc4",
+        size_hint_bytes: 187_632_172,
+        files: EMBEDDINGGEMMA2_Q4_FILES,
+        source: SpecSource::Files(EMBEDDINGGEMMA2_Q4_REMOTE_FILES),
+        legacy_dirs: &[],
+        retired_legacy_paths: &[],
+        retired_store_ids: &[],
+    }
+}
+
 /// What every install needs on this platform: the base set, in dependency-free order.
 /// Onboarding, setup-complete checks and size estimates iterate this. Every entry carries
 /// per-file size and SHA-256 pins (the `builtin_catalog_pins_every_file` test enforces it).

@@ -2,10 +2,18 @@
 
 Status of each statement is marked: **[existing]** is what `rightkit-models` does today
 (`src/suite/grant.rs`, `src/suite/install.rs`, `src/download.rs`); **[proposal]** is what the
-worker should do and the crate does not yet depend on. No worker source implements this endpoint
-today; HeardRight builds it from this document. The machine-readable vectors are
-`tests/vectors/model-grants.json`; the crate's tests (`tests/grant_contract.rs`) consume them, and
-the worker's tests should load the same file.
+worker should do and the crate does not yet depend on.
+
+**Worker status [existing source, deployment unverified].** The worker source exists at
+`rightsites/workers/heardright-models/src/index.ts`. `issueModelGrant` (line 258) implements
+`POST /v1/model-grants`, routed at line 545. It serves two Parakeet routes only (`MODEL_SPECS`,
+lines 60-74: `/parakeet/windows/tdt.tar.gz` and `/parakeet/macos/tdt.tar.gz`), and its `model` type
+is `parakeet-unified | parakeet-tdt | parakeet-realtime-eou`. Whether that build is deployed to the
+live worker has not been verified. Any new route or model name needs a change to that source, and
+an upload and deploy that are Adrian's to authorise.
+
+The machine-readable vectors are `tests/vectors/model-grants.json`; the crate's tests
+(`tests/grant_contract.rs`) consume them, and the worker's tests should load the same file.
 
 ## Purpose
 
