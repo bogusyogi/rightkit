@@ -109,8 +109,11 @@ impl Journal {
 
         let file = OpenOptions::new().create(true).append(true).open(path)?;
         if (keep as u64) < file.metadata()?.len() {
-            file.set_len(keep as u64)?;
-            file.sync_all()?;
+            // Truncated through a plain write handle: an append-only handle may not change the
+            // length on Windows (it lacks FILE_WRITE_DATA and the call is refused).
+            let torn = OpenOptions::new().write(true).open(path)?;
+            torn.set_len(keep as u64)?;
+            torn.sync_all()?;
         }
         if !existed {
             sync_parent(path)?;
