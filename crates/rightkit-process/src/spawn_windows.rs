@@ -964,6 +964,13 @@ mod tests {
         let allowlisted = std::thread::spawn(move || {
             let mut command = quick();
             command.inherit_handles_only([handle as crate::RawHandleOrFd]);
+            command.windows_spawn_config(WindowsSpawnConfig {
+                stdin: WindowsStdio::Null,
+                stdout: WindowsStdio::Null,
+                stderr: WindowsStdio::Null,
+                inherit_environment: true,
+                raw_arguments: Vec::new(),
+            });
             let mut child = command.spawn().expect("allowlisted spawn");
             child.wait_timeout(Duration::from_secs(30)).unwrap();
         });
