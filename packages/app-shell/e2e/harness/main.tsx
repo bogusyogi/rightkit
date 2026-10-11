@@ -31,6 +31,8 @@ import "../../shell.css";
 
 const q = new URLSearchParams(location.search);
 const platform = (q.get("p") ?? "macos") as "macos" | "windows";
+// Shortcut glyphs are drawn per OS and detected from the host browser; pin them so the page renders the same on every runner.
+(globalThis as { __RIGHTKIT_QA_PLATFORM__?: string }).__RIGHTKIT_QA_PLATFORM__ = platform;
 const layout = q.get("layout") ?? "default";
 const themeStore = createThemeStore({ storageKey: "harness.theme", storage: null, qaOverride: (q.get("t") as "light" | "dark" | null) ?? undefined });
 themeStore.apply(themeStore.read());

@@ -24,7 +24,7 @@ function listTree(root) {
   const walk = (dir) => {
     for (const entry of readdirSync(dir, { withFileTypes: true })) {
       const full = path.join(dir, entry.name);
-      entries.push(path.relative(root, full));
+      entries.push(path.relative(root, full).split(path.sep).join("/"));
       if (entry.isDirectory()) walk(full);
     }
   };
