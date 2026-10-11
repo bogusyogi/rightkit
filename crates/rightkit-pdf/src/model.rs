@@ -294,6 +294,11 @@ pub(crate) struct RunItem {
     /// from a string leaves the pen where it was). `None` for a gap, and for a glyph whose
     /// advance cannot be expressed that way (a zero or non-finite font size).
     pub pen_adjust: Option<f64>,
+    /// For a glyph: `(text matrix x CTM, Tf size)` at this glyph, the same pair
+    /// [`IslandLayout::placement`] and [`IslandLayout::font_size`] hold for the island's first
+    /// glyph. `None` for a gap. Lets the composer's read-back look at one glyph of an island, not
+    /// only at the island's first.
+    pub placement: Option<(Matrix, f64)>,
 }
 
 /// One numeric `TJ` item that contributes to a word gap.

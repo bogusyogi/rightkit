@@ -96,9 +96,9 @@ use crate::inspect::{
 };
 use crate::model::{
     document_sha256, effective_pdf_edit_commands, ComposedCandidate, GapNumber, GlyphSourceAddress,
-    IslandLayout, Matrix, PdfColor, PdfEditCommand, PdfEditError, PdfFontResolver,
-    PdfOcrBackgroundProof, PdfPageGraph, PdfPoint, PdfRect, PdfSourceLocator, PdfSourceSpan,
-    PdfTextAppearance, PdfTextEditState, PdfTextIsland, ResolvedPdfFont, RunItem,
+    Matrix, PdfColor, PdfEditCommand, PdfEditError, PdfFontResolver, PdfOcrBackgroundProof,
+    PdfPageGraph, PdfPoint, PdfRect, PdfSourceLocator, PdfSourceSpan, PdfTextAppearance,
+    PdfTextEditState, PdfTextIsland, ResolvedPdfFont, RunItem,
 };
 
 /// Slack, in device-space points, when a replacement's measured width is compared with the
@@ -185,7 +185,7 @@ pub fn compose_candidate_on_base(
     // isolation wrapper and new stream waits until the last command has been applied.
     let effective = effective_pdf_edit_commands(commands);
     let mut isolated: Vec<(usize, Isolated)> = Vec::new();
-    let mut appended: Vec<AppendedRun> = Vec::new();
+    let mut appended: Vec<(usize, AppendedRun)> = Vec::new();
     for slot in back_to_front_order(&effective) {
         let command = effective[slot];
         let (page, block) = match command {
@@ -208,7 +208,7 @@ pub fn compose_candidate_on_base(
                     *available_bounds,
                     fonts,
                 )?;
-                appended.extend(run);
+                appended.extend(run.map(|run| (slot, run)));
                 (page, block)
             }
             PdfEditCommand::AddText {
@@ -244,9 +244,13 @@ pub fn compose_candidate_on_base(
             affected_pages.push(page);
         }
     }
-    install_isolated_content(&mut doc, isolated)?;
+    let streams = install_isolated_content(&mut doc, isolated)?;
     // The structural checks below, and the save-side recheck, only ask whether the text reads back.
     // A replacement drawn somewhere else, at another size, reads back just as well.
+    for (slot, run) in &mut appended {
+        run.stream = streams.get(slot).copied();
+    }
+    let appended: Vec<AppendedRun> = appended.into_iter().map(|(_, run)| run).collect();
     verify_appended_runs(&doc, &appended)?;
 
     // Never trust the composer blindly: an edit may add a resource, but a page must still resolve
@@ -1089,7 +1093,7 @@ fn apply_local_text_object_rewrite(
     // A run with no text shows no glyph, so there is no first glyph to find on read-back.
     let run = (!after.text.is_empty()).then(|| AppendedRun {
         page,
-        font_resource: String::from_utf8_lossy(&resource_name).into_owned(),
+        stream: None,
         placement,
         size: after.appearance.size_pt,
     });
@@ -1101,8 +1105,11 @@ fn apply_local_text_object_rewrite(
 /// is caught.
 struct AppendedRun {
     page: u32,
-    /// The `/Font` resource name the block draws in. Unique to the block on its page.
-    font_resource: String,
+    /// The content stream the block was installed as; set once the batch's streams exist. The
+    /// run's glyphs are the ones the walker attributes to this stream: an island they were grouped
+    /// into may also hold a neighbour's glyphs (the join rule does not compare fonts), so the
+    /// island is not the unit to check.
+    stream: Option<ObjectId>,
     /// `text matrix x CTM` of the source run's first glyph: where the block's first glyph must be.
     placement: Matrix,
     /// The `Tf` size the block uses, in the text-space units of `placement`.
@@ -1122,11 +1129,17 @@ const APPENDED_SIZE_TOLERANCE: f64 = 0.02;
 /// compared here (the save-side recheck and the structural walk already do that); this is the
 /// geometry, which a structural read-back cannot see: a run drawn at the page origin, ten times
 /// too large, reads back as exactly the requested text.
+///
+/// The run is found by its own content stream, not by the island it was grouped into: the join
+/// rule does not compare fonts, so a run that starts within the join window of a preceding
+/// same-colour run on the same baseline is part of that run's island, whose first glyph is not
+/// the replacement's. The first glyph the walker attributes to the run's stream is compared.
 fn verify_appended_runs(doc: &Document, runs: &[AppendedRun]) -> Result<(), PdfEditError> {
     use std::collections::btree_map::Entry;
     let mut graphs: std::collections::BTreeMap<u32, PdfPageGraph> =
         std::collections::BTreeMap::new();
     for run in runs {
+        let stream = run.stream.ok_or(PdfEditError::VerificationFailed)?;
         let graph = match graphs.entry(run.page) {
             Entry::Occupied(entry) => entry.into_mut(),
             Entry::Vacant(entry) => entry.insert(
@@ -1136,21 +1149,27 @@ fn verify_appended_runs(doc: &Document, runs: &[AppendedRun]) -> Result<(), PdfE
         let written = graph
             .islands
             .iter()
-            .find(|island| island.appearance.font_id == run.font_resource)
+            .flat_map(|island| island.run.iter())
+            .find(|item| {
+                item.glyph
+                    .is_some_and(|glyph| glyph.stream_ref == (stream.0, stream.1))
+            })
+            .and_then(|item| item.placement)
             .ok_or(PdfEditError::VerificationFailed)?;
-        let layout = written.layout.ok_or(PdfEditError::VerificationFailed)?;
-        if !appended_run_placed(run, &layout) {
+        if !appended_run_placed(run, written) {
             return Err(PdfEditError::VerificationFailed);
         }
     }
     Ok(())
 }
 
-/// Whether the first glyph the walker now sees is where `run` says it must be: origin within
-/// [`APPENDED_ORIGIN_TOLERANCE_PT`], and the device-space vectors of one `Tf` size along text x and
-/// along text y each within [`APPENDED_SIZE_TOLERANCE`] of the expected ones.
-fn appended_run_placed(run: &AppendedRun, written: &IslandLayout) -> bool {
-    let (want, have) = (run.placement, written.placement);
+/// Whether the first glyph the walker now sees for the run (`written`: its text matrix x CTM and
+/// `Tf` size) is where `run` says it must be: origin within [`APPENDED_ORIGIN_TOLERANCE_PT`], and
+/// the device-space vectors of one `Tf` size along text x and along text y each within
+/// [`APPENDED_SIZE_TOLERANCE`] of the expected ones. Text rise is not part of either matrix, so it
+/// is compared on neither side.
+fn appended_run_placed(run: &AppendedRun, written: (Matrix, f64)) -> bool {
+    let (want, (have, have_size)) = (run.placement, written);
     let origin = (have.e - want.e).hypot(have.f - want.f);
     let em_x = |m: Matrix, size: f64| (m.a * size, m.b * size);
     let em_y = |m: Matrix, size: f64| (m.c * size, m.d * size);
@@ -1158,8 +1177,8 @@ fn appended_run_placed(run: &AppendedRun, written: &IslandLayout) -> bool {
         (have.0 - want.0).hypot(have.1 - want.1) <= APPENDED_SIZE_TOLERANCE * want.0.hypot(want.1)
     };
     origin <= APPENDED_ORIGIN_TOLERANCE_PT
-        && near(em_x(want, run.size), em_x(have, written.font_size))
-        && near(em_y(want, run.size), em_y(have, written.font_size))
+        && near(em_x(want, run.size), em_x(have, have_size))
+        && near(em_y(want, run.size), em_y(have, have_size))
 }
 
 /// One glyph an edit removes from a string operand, with the `TJ` number that keeps the pen where
@@ -1534,27 +1553,30 @@ const MAX_STRAY_RESTORES: i64 = 1 << 16;
 /// charged to a [`ContentBudget`] before anything is decoded or allocated. A stream that merely
 /// ends in the operands of an operator that opens the next stream is not malformed (ISO 32000-1
 /// 7.8.2 cuts at token boundaries, not operation boundaries) and is counted as it stands.
+///
+/// Returns the content stream each block became, by the block's command slot.
 fn install_isolated_content(
     doc: &mut Document,
     mut blocks: Vec<(usize, Isolated)>,
-) -> Result<(), PdfEditError> {
+) -> Result<std::collections::BTreeMap<usize, ObjectId>, PdfEditError> {
     blocks.sort_by_key(|(slot, _)| *slot);
-    let mut by_page: std::collections::BTreeMap<ObjectId, Vec<Vec<Operation>>> =
+    let mut by_page: std::collections::BTreeMap<ObjectId, Vec<(usize, Vec<Operation>)>> =
         std::collections::BTreeMap::new();
-    for (_, (page_id, operations)) in blocks {
-        by_page.entry(page_id).or_default().push(operations);
+    for (slot, (page_id, operations)) in blocks {
+        by_page.entry(page_id).or_default().push((slot, operations));
     }
+    let mut streams = std::collections::BTreeMap::new();
     for (page_id, operations) in by_page {
-        isolate_page_content(doc, page_id, operations)?;
+        streams.extend(isolate_page_content(doc, page_id, operations)?);
     }
-    Ok(())
+    Ok(streams)
 }
 
 fn isolate_page_content(
     doc: &mut Document,
     page_id: ObjectId,
-    blocks: Vec<Vec<Operation>>,
-) -> Result<(), PdfEditError> {
+    blocks: Vec<(usize, Vec<Operation>)>,
+) -> Result<Vec<(usize, ObjectId)>, PdfEditError> {
     let page_obj = doc
         .get_object(page_id)
         .map_err(|_| PdfEditError::MalformedContent)?;
@@ -1613,9 +1635,12 @@ fn isolate_page_content(
     let prefix_id = add_stream(repeated("q", opening))?;
     let suffix_id = add_stream(repeated("Q", closing))?;
     let mut added = Vec::with_capacity(blocks.len());
-    for operations in blocks {
+    let mut slots = Vec::with_capacity(blocks.len());
+    for (slot, operations) in blocks {
         added.push(add_stream(operations)?);
+        slots.push(slot);
     }
+    let installed: Vec<(usize, ObjectId)> = slots.into_iter().zip(added.iter().copied()).collect();
 
     let mut all: Vec<ObjectId> = Vec::with_capacity(ids.len() + 2 + added.len());
     all.push(prefix_id);
@@ -1626,7 +1651,7 @@ fn isolate_page_content(
     if let Ok(Object::Dictionary(dict)) = doc.get_object_mut(page_id) {
         dict.set("Contents", array);
     }
-    Ok(())
+    Ok(installed)
 }
 
 // -------------------------------------------------------------------------------------------
@@ -4959,9 +4984,11 @@ mod tests {
             .layout
             .expect("layout")
             .placement;
+        let mut doc = Document::load_mem(&run.bytes).expect("reopen");
+        let stream = last_content_stream(&doc, 1);
         let expected = |placement: Matrix, size: f64| AppendedRun {
             page: 1,
-            font_resource: "VREdit1".to_string(),
+            stream: Some(stream),
             placement,
             size,
         };
@@ -4970,7 +4997,6 @@ mod tests {
             f: placement.f + dy,
             ..placement
         };
-        let mut doc = Document::load_mem(&run.bytes).expect("reopen");
 
         verify_appended_runs(&doc, &[expected(placement, 100.0)])
             .expect("where the source run was");
@@ -5039,5 +5065,112 @@ mod tests {
             .expect("ids")
             .last()
             .expect("a stream")
+    }
+
+    // -----------------------------------------------------------------------------------
+    // The appended run is found by its own stream, not by the island it was grouped into
+    // -----------------------------------------------------------------------------------
+
+    #[test]
+    fn a_replacement_that_joins_a_preceding_same_colour_run_is_still_read_back() {
+        // "42.00" is shown first, then "Total:" ends about 10 pt before where the replacement
+        // starts. The join rule does not compare fonts, so the appended "Hi" (same colour, same
+        // baseline, inside the join window) is grouped into "Total:"'s island and is not its
+        // first glyph.
+        let source = doc_bytes(&build_pdf(
+            b"BT /F1 12 Tf 0 g 120 700 Td (42.00) Tj 1 0 0 1 80 700 Tm (Total:) Tj ET",
+        ));
+        let before = page_islands(&source);
+        let target = island_named(&before, "42.00");
+        let command = replace_cmd(
+            "price",
+            target,
+            "Hi",
+            appearance("test-font", 12.0),
+            PdfRect {
+                x: 120.0,
+                y: 690.0,
+                width: 100.0,
+                height: 30.0,
+            },
+        );
+        let candidate = compose_candidate(&source, &[command], &test_resolver())
+            .expect("a correct edit is not refused because it was grouped with its neighbour");
+        let after = page_islands(&candidate.bytes);
+        assert!(
+            after
+                .iter()
+                .any(|island| island.text.contains("Total:") && island.text.contains("Hi")),
+            "the fixture must put the replacement in the neighbour's island: {:?}",
+            after.iter().map(|i| i.text.as_str()).collect::<Vec<_>>()
+        );
+        let hi = after
+            .iter()
+            .flat_map(|island| island.run.iter())
+            .filter_map(|item| item.glyph.zip(item.placement))
+            .find(|(glyph, _)| glyph.stream_ref == last_stream_ref(&candidate.bytes))
+            .map(|(_, placement)| placement)
+            .expect("the appended run's first glyph");
+        assert_numbers(
+            "origin of the replacement",
+            &[hi.0.e, hi.0.f],
+            &[120.0, 700.0],
+        );
+    }
+
+    #[test]
+    fn two_adjacent_replacements_in_one_batch_are_both_read_back() {
+        // "AB" and "CA" are separate islands at 12 pt (34 pt apart, join window 18). Replaced at
+        // 24 pt, "Hi" is 28.8 pt wide, so the second appended run starts about 21 pt after the
+        // first ends, inside the 36 pt window: both land in one island, the second mid-island.
+        let source = doc_bytes(&build_pdf(
+            b"BT /F1 12 Tf 0 g 100 700 Td (AB) Tj 1 0 0 1 150 700 Tm (CA) Tj ET",
+        ));
+        let before = page_islands(&source);
+        assert_eq!(
+            before.len(),
+            2,
+            "{:?}",
+            before.iter().map(|i| &i.text).collect::<Vec<_>>()
+        );
+        let bounds = PdfRect {
+            x: 100.0,
+            y: 690.0,
+            width: 100.0,
+            height: 40.0,
+        };
+        let commands = [
+            replace_cmd(
+                "first",
+                island_named(&before, "AB"),
+                "Hi",
+                appearance("test-font", 24.0),
+                bounds,
+            ),
+            replace_cmd(
+                "second",
+                island_named(&before, "CA"),
+                "Hi",
+                appearance("test-font", 24.0),
+                bounds,
+            ),
+        ];
+        let candidate = compose_candidate(&source, &commands, &test_resolver())
+            .expect("both replacements read back");
+        let after = page_islands(&candidate.bytes);
+        assert!(
+            after
+                .iter()
+                .any(|island| island.text.matches("Hi").count() == 2),
+            "the fixture must group the two replacements: {:?}",
+            after.iter().map(|i| i.text.as_str()).collect::<Vec<_>>()
+        );
+    }
+
+    /// The object of the last `/Contents` stream of page 1 of `bytes`, as the walker names it.
+    fn last_stream_ref(bytes: &[u8]) -> (u32, u16) {
+        let doc = Document::load_mem(bytes).expect("reopen");
+        let id = last_content_stream(&doc, 1);
+        (id.0, id.1)
     }
 }
