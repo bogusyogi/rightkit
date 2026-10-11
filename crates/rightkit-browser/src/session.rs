@@ -159,6 +159,11 @@ impl BrowserSession {
             "--no-first-run",
             "--no-default-browser-check",
             "--disable-background-networking",
+            // Chrome's own traffic: the component updater (clients2.google.com) still runs
+            // with background networking off, and a session must see only its pages' requests.
+            "--disable-component-update",
+            "--disable-domain-reliability",
+            "--no-pings",
             "--disable-background-timer-throttling",
             "--disable-backgrounding-occluded-windows",
             "--disable-breakpad",

@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Launch passes `--disable-component-update`, `--disable-domain-reliability` and `--no-pings`. With `--disable-background-networking` alone Chrome still asked for `clients2.google.com` (the component updater), which reached a session's resolver and network policy as if a page had asked. A session now sees only its pages' requests.
 - Windows: `BrowserSession::launch` checks that Chrome's sandbox can read the browser before starting it and returns the new `BrowserError::ChromeSandboxAccess { directory, principals, fix }` when it cannot. A Chrome unpacked from an archive outside `Program Files` has no read and execute grant for `ALL APPLICATION PACKAGES` (`S-1-15-2-1`) and `ALL RESTRICTED APPLICATION PACKAGES` (`S-1-15-2-2`); Chrome then logs "Sandbox cannot access executable", its network service crashes at startup, and a first navigation hangs or aborts. This was the cause of the Windows navigation timeouts on CI. The error names the directory and the `icacls` command that grants the access. A launch with `no-sandbox` in `extra_args` is not checked, and an access list that cannot be read does not stop a launch. `BrowserError` gains a variant: an exhaustive `match` on it needs a new arm.
 
 ## 0.2.4
