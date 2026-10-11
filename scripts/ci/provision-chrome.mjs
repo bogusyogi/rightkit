@@ -67,6 +67,22 @@ export function needsChrome(selection) {
 }
 
 /**
+ * Windows only: let Chrome's sandbox read the install. Chrome starts its network service and renderers in an
+ * AppContainer, which may read and execute only what "ALL APPLICATION PACKAGES" (S-1-15-2-1) and "ALL RESTRICTED
+ * APPLICATION PACKAGES" (S-1-15-2-2) are granted. Program Files carries that grant; a directory under the runner's
+ * tool cache does not, so Chrome logs "Sandbox cannot access executable ... Access is denied", its network service
+ * crashes at startup and a navigation issued meanwhile hangs or aborts. Granting again is harmless, so this runs on
+ * every provision, including one that finds the pin already installed.
+ */
+export function grantSandboxRead(versionDir, { platform = process.platform, run = spawnSync } = {}) {
+  if (platform !== "win32") return false;
+  const icacls = path.join(process.env.SystemRoot || "C:\\Windows", "System32", "icacls.exe");
+  const done = run(icacls, [versionDir, "/grant", "*S-1-15-2-1:(OI)(CI)(RX)", "*S-1-15-2-2:(OI)(CI)(RX)", "/T", "/C", "/Q"], { stdio: ["ignore", "ignore", "inherit"], windowsHide: true });
+  if (done.status !== 0) throw new Error(`granting Chrome's sandbox read access to ${versionDir} failed (icacls exit ${done.status})`);
+  return true;
+}
+
+/**
  * Install the pinned build under <root>/<version> unless that directory already holds this exact pin (install.json
  * carries the verified sha256), so a second call in the same job, or a persistent runner, downloads nothing.
  * Returns { exe, downloaded }. An empty sha256 is a record request and is refused here (see main).
@@ -80,6 +96,7 @@ export async function provision({ root, pins, key = platformKey(), fetchImpl = f
   let recorded = null;
   try { recorded = JSON.parse(fs.readFileSync(marker, "utf8")).sha256; } catch { /* not installed */ }
   if (fs.existsSync(exe) && recorded === entry.sha256) {
+    grantSandboxRead(versionDir);
     log(`Chrome for Testing ${pins.version} (${key}) already provisioned: ${exe}`);
     return { exe, downloaded: false };
   }
@@ -102,6 +119,7 @@ export async function provision({ root, pins, key = platformKey(), fetchImpl = f
     fs.writeFileSync(path.join(out, "install.json"), `${JSON.stringify({ version: pins.version, platform: key, url: entry.url, sha256: digest })}\n`);
     fs.rmSync(versionDir, { recursive: true, force: true });
     fs.renameSync(out, versionDir);
+    grantSandboxRead(versionDir);
     log(`provisioned Chrome for Testing ${pins.version} (${key}), sha256 ${digest}: ${exe}`);
     return { exe, downloaded: true };
   } finally { fs.rmSync(staging, { recursive: true, force: true }); }
