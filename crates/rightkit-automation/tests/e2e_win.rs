@@ -67,7 +67,9 @@ fn run() {
         assert_eq!(
             f.as_ref().map(|f| (f.pid, f.window_id)),
             front0.as_ref().map(|f| (f.pid, f.window_id)),
-            "foreground changed: {what}"
+            "foreground changed: {what} (was {:?}, now {:?})",
+            front0.as_ref().map(|f| f.app_id.as_str()),
+            f.as_ref().map(|f| f.app_id.as_str())
         );
     };
 
