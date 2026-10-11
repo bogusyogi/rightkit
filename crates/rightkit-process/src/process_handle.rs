@@ -9,8 +9,6 @@ type PlatformChild = crate::unix_child::UnixChild;
 #[cfg(windows)]
 type PlatformChild = crate::spawn_windows::WindowsChild;
 #[cfg(unix)]
-use crate::unix_child::LeaderState;
-#[cfg(unix)]
 use std::time::Instant;
 
 /// An independent exit reader. On Unix it shares the owner's cached reap state;
@@ -117,15 +115,13 @@ impl ProcessHandle {
 
     /// Blocks until the leader exits and reaps it (Unix) or until the process exits (Windows).
     ///
-    /// Unix: event-driven. The thread takes the shared lock only to look and to reap; between
-    /// the two it sleeps in `poll(2)` on the child's exit watch (a kqueue `NOTE_EXIT` knote on
-    /// macOS, a pidfd on Linux), with the lock released, so `kill`, `terminate_tree` and other
-    /// waiters run meanwhile and the wait costs one wake-up however long the child lives. No
-    /// wait system call names the pid while the lock is released: a blocked `waitid(pid)`
-    /// entered after another reader reaped the leader and the kernel recycled the number would
-    /// wait on an unrelated child. After the exit event the pid is proven and reaped under the
-    /// lock. A host with no event source (see `exit_watch`) reaps with a blocking call that
-    /// holds the lock.
+    /// Unix: a loop of non-blocking `try_wait` looks. Each look takes the shared lock and
+    /// releases it at once; between looks the thread sleeps, ending early at the child's exit
+    /// where the kernel offers an event (a hint, see `exit_watch`) and otherwise after 5 ms. The
+    /// lock is never held while the thread sleeps, so `kill`, `terminate_tree` and other
+    /// waiters run meanwhile, and no wait system call names the pid outside the lock: a blocked
+    /// `waitid(pid)` entered after another reader reaped the leader and the kernel recycled
+    /// the number would wait on an unrelated child.
     pub fn wait(&self) -> io::Result<ExitStatus> {
         #[cfg(unix)]
         {
@@ -139,36 +135,10 @@ impl ProcessHandle {
         }
     }
 
-    /// The event-driven wait shared by `wait` and `wait_timeout`: `Ok(None)` when `deadline`
-    /// passed first.
+    /// The wait shared by `wait` and `wait_timeout`: `Ok(None)` when `deadline` passed first.
     #[cfg(unix)]
     fn wait_until(&self, deadline: Option<Instant>) -> io::Result<Option<ExitStatus>> {
-        let watch = {
-            let mut child = lock_child(&self.child);
-            if let Some(status) = child.try_wait()? {
-                return Ok(Some(status));
-            }
-            #[cfg(test)]
-            let pid = child.id();
-            let watch = child.exit_watch();
-            // The lock is released at the end of this block, before the thread sleeps.
-            #[cfg(test)]
-            {
-                drop(child);
-                crate::unix_child::gate::pause(pid);
-            }
-            watch
-        };
-        let remaining = deadline.map(|at| at.saturating_duration_since(Instant::now()));
-        match watch.wait(remaining) {
-            Ok(true) => {}
-            Ok(false) => return Ok(None),
-            // No event source: an unbounded wait is a blocking reap; a bounded one cannot be
-            // honoured without polling, so it says so.
-            Err(error) if error.kind() == io::ErrorKind::Unsupported && deadline.is_none() => {}
-            Err(error) => return Err(error),
-        }
-        lock_child(&self.child).reap_exited().map(Some)
+        crate::unix_child::wait_shared(&self.child, deadline)
     }
 
     /// Blocks until the leader has exited, and does not reap it.
@@ -177,11 +147,12 @@ impl ProcessHandle {
     /// still pins the pid and the process-group id, so the owner can keep signalling the group
     /// (`OwnedChild::wait_or_kill`, `terminate_tree*`) and then reap. This is the call for an
     /// exit monitor that must not end the owner's ability to kill descendants that outlive the
-    /// leader; `wait` and `try_wait` reap and do end it. Event-driven like [`wait`](Self::wait). Hosts
-    /// with no verified non-reaping probe (Unix other than Linux, Android, macOS and iOS) have
-    /// nothing to observe with, so there this reaps exactly like `wait`.
+    /// leader; `wait` and `try_wait` reap and do end it. Waits like [`wait`](Self::wait), with
+    /// the non-reaping `waitid(WNOHANG | WNOWAIT)` probe as its look. Hosts with no verified
+    /// non-reaping probe (Unix other than Linux, Android, macOS and iOS) have nothing to
+    /// observe with, so there this reaps exactly like `wait`.
     ///
-    /// Windows: returns once the process has exited; nothing there is reaped.
+    /// Windows: returns once the process has exited; nothing is reaped there.
     pub fn wait_exited(&self) -> io::Result<()> {
         #[cfg(unix)]
         {
@@ -217,29 +188,11 @@ impl ProcessHandle {
         }
     }
 
-    /// Looks under the lock, releases it, then sleeps in `poll(2)` on the exit watch until the
-    /// leader has exited or `limit` has passed. Never reaps.
+    /// Looks at the leader without reaping it until it has exited or `limit` has passed.
     #[cfg(unix)]
     fn observe_exit(&self, limit: Option<Duration>) -> io::Result<bool> {
         let deadline = limit.and_then(|limit| Instant::now().checked_add(limit));
-        let watch = {
-            let mut child = lock_child(&self.child);
-            match child.leader_state()? {
-                LeaderState::Running => {}
-                LeaderState::Exited | LeaderState::Reaped => return Ok(true),
-            }
-            #[cfg(test)]
-            let pid = child.id();
-            let watch = child.exit_watch();
-            #[cfg(test)]
-            {
-                drop(child);
-                crate::unix_child::gate::pause(pid);
-            }
-            watch
-        };
-        let remaining = deadline.map(|at| at.saturating_duration_since(Instant::now()));
-        watch.wait(remaining)
+        crate::unix_child::observe_shared(&self.child, deadline)
     }
 
     pub fn wait_timeout(&self, timeout: Duration) -> io::Result<Option<ExitStatus>> {

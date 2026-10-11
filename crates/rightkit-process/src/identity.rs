@@ -25,20 +25,29 @@
 //! on Darwin 27: a zombie child returns its parent and start time, `arg = 0` returns nothing)
 //! and on Linux (`/proc/<pid>/stat`), so the proof also holds at the moment of the reap.
 //!
-//! On Linux with a pidfd (`exit_watch`) the proof is exact instead: a signal-0 probe through the
-//! pidfd answers for the original process whatever its number now names, and a leader signal
-//! (`SignalTarget::Leader`) is sent through `pidfd_send_signal`, so it has no window at all. A
-//! group signal still needs `kill(-pgid)` (the pidfd group flag needs Linux 6.9 and signals the
-//! target's *current* group, which a child can change itself), so it keeps the residual below.
+//! # Known limit (not closed in this release)
 //!
-//! # The residual
+//! Proof and act are two separate system calls: [`Origin::check`], then the `kill`, `waitid`
+//! or `waitpid` that names the pid. Foreign code that reaps our child inside that gap, and a
+//! replacement process that then takes the same pid, defeat the proof for that one call. The
+//! window is microseconds wide and needs the pid space to wrap, but it is not zero, and no
+//! user-space API available here closes it (macOS has no `kill` or `waitpid` conditional on a
+//! start time; this crate does not use pidfds for signalling or for proof).
 //!
-//! Proof and act are two system calls. Foreign code that reaps our child between them, and a
-//! replacement child that then takes the same number, wins that race; no user-space API closes
-//! it (there is no `waitpid`/`kill` conditional on a start time on macOS, and no pidfd).
-//! The window is a few microseconds, needs a full pid-space wrap, and is the only one left:
-//! no path acts on a remembered pid without the proof above, and none blocks on a pid with the
-//! lock released.
+//! Two related gaps have the same cause:
+//!
+//! * The identity is read right after the child is spawned, not by the spawn itself. Foreign
+//!   code that reaps the child before that read, and a replacement that takes the pid first,
+//!   would hand the replacement's description over as the baseline.
+//! * `OwnedChild::while_unreaped` proves the leader and then runs a caller's closure that
+//!   signals by pid (a descendant sweep). The closure runs under the child lock, so this
+//!   crate cannot reap meanwhile, but foreign code still can.
+//!
+//! What the rule does guarantee: no path acts on a remembered pid without the proof above,
+//! none blocks on a pid with the lock released, and a group signal is never sent after this
+//! crate has itself reaped the leader. An application that embeds a foreign reaper
+//! (`waitpid(-1)` loops) in the same process needs that reaper isolated from the children
+//! this crate owns; another identity check cannot close it.
 
 use std::io;
 

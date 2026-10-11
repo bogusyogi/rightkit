@@ -1340,7 +1340,8 @@ test("swift.privatePackages configure and cleanup scripts write, refuse and remo
     const configured = run(configure, "placeholder-value");
     assert.equal(configured.status, 0, configured.stderr);
     assert.equal(fs.readFileSync(netrc, "utf8"), "machine github.com\nlogin x-access-token\npassword placeholder-value\n");
-    assert.equal(fs.statSync(netrc).mode & 0o777, 0o600);
+    // NTFS has no permission bits for chmod to set; the mode is checked where the workflow runs.
+    if (process.platform !== "win32") assert.equal(fs.statSync(netrc).mode & 0o777, 0o600);
     assert.match(fs.readFileSync(gitconfig, "utf8"), /\[url "https:\/\/x-access-token:placeholder-value@github\.com\/"\]\n\tinsteadOf = https:\/\/github\.com\//);
 
     // A second configure refuses to replace the file it already owns.

@@ -128,15 +128,6 @@ pub struct PtySession {
     writer: Mutex<Box<dyn Write + Send>>,
     child: Mutex<Box<dyn Child + Send + Sync>>,
     pid: u32,
-    /// Who the child was at spawn, and the kernel's report of its exit (Unix). Every signal and
-    /// reap that names `pid` is preceded by a proof that it still names that process; `None`
-    /// only when the PTY library reported no pid.
-    #[cfg(unix)]
-    proof: Option<rightkit_process::PidProof>,
-    /// The status once this session reaped the child, so later calls return it without naming
-    /// the pid again.
-    #[cfg(unix)]
-    reaped: Mutex<Option<portable_pty::ExitStatus>>,
     lease: Mutex<Lease>,
     output: Arc<(Mutex<Output>, Condvar)>,
     _reservation: Reservation,
@@ -194,21 +185,6 @@ impl PtySession {
         // Holding the slave open would keep the master from ever seeing EOF.
         drop(pair.slave);
         let pid = child.process_id().unwrap_or(0);
-        #[cfg(unix)]
-        let proof = if pid != 0 {
-            match rightkit_process::PidProof::capture(pid) {
-                Ok(proof) => Some(proof),
-                Err(error) => {
-                    // The child is still ours and unreaped here: stop it before failing.
-                    let mut child = child;
-                    let _ = child.kill();
-                    let _ = child.wait();
-                    return Err(PtyError::Io(error));
-                }
-            }
-        } else {
-            None
-        };
         let output: Arc<(Mutex<Output>, Condvar)> = Arc::default();
         let out2 = output.clone();
         std::thread::spawn(move || {
@@ -238,10 +214,6 @@ impl PtySession {
             writer: Mutex::new(writer),
             child: Mutex::new(child),
             pid,
-            #[cfg(unix)]
-            proof,
-            #[cfg(unix)]
-            reaped: Mutex::new(None),
             lease: Mutex::new(Lease {
                 epoch: 1,
                 next: 0,
@@ -390,28 +362,10 @@ impl PtySession {
     }
 
     /// Wait for the child to exit; `None` on timeout.
-    ///
-    /// Unix: sleeps in `poll(2)` until the kernel reports the exit (no timer), then proves the
-    /// pid still names the child and reaps it. A pid that changed hands answers `ECHILD`.
     pub fn wait_exit(
         &self,
         timeout: Duration,
     ) -> std::io::Result<Option<portable_pty::ExitStatus>> {
-        #[cfg(unix)]
-        if let Some(proof) = &self.proof {
-            if let Some(status) = self
-                .reaped
-                .lock()
-                .unwrap_or_else(|e| e.into_inner())
-                .clone()
-            {
-                return Ok(Some(status));
-            }
-            if !proof.wait_exit(Some(timeout))? {
-                return Ok(None);
-            }
-            return self.reap_proven().map(Some);
-        }
         let deadline = Instant::now() + timeout;
         loop {
             if let Some(s) = self
@@ -429,46 +383,8 @@ impl PtySession {
         }
     }
 
-    /// Reaps a child that has exited, once the pid is proven to still be it. The first reap is
-    /// remembered; nothing names the pid after it.
-    #[cfg(unix)]
-    fn reap_proven(&self) -> std::io::Result<portable_pty::ExitStatus> {
-        let mut reaped = self.reaped.lock().unwrap_or_else(|e| e.into_inner());
-        if let Some(status) = reaped.clone() {
-            return Ok(status);
-        }
-        let proof = self.proof.as_ref().expect("reap_proven needs a proof");
-        if !proof.is_same()? {
-            return Err(std::io::Error::from_raw_os_error(libc::ECHILD));
-        }
-        // The process has exited, so this returns at once.
-        let status = self
-            .child
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .wait()?;
-        *reaped = Some(status.clone());
-        Ok(status)
-    }
-
     /// Kill the child and all descendants (session group plus ppid enumeration).
-    ///
-    /// Unix: the descendant sweep and the kill run only while the pid is proven to still name
-    /// the child, and the reap sleeps until the kernel reports the death.
     pub fn kill_tree(&self) -> std::io::Result<()> {
-        #[cfg(unix)]
-        if let Some(proof) = &self.proof {
-            let _ = proof.while_same(|pid| {
-                let _ = process_tree::kill_tree(pid, Duration::from_millis(200));
-            });
-            let _ = proof.while_same(|_| {
-                let _ = self.child.lock().unwrap_or_else(|e| e.into_inner()).kill();
-            });
-            if matches!(proof.is_same(), Ok(true)) && matches!(proof.wait_exit(None), Ok(true)) {
-                let _ = self.reap_proven();
-            }
-            return Ok(());
-        }
         if self.pid != 0 {
             let _ = process_tree::kill_tree(self.pid, Duration::from_millis(200));
         }

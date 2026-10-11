@@ -108,11 +108,14 @@ function isLoopbackHttp(url: URL): boolean {
 /** Pick the extractor command for an archive, or null when the format is unsupported. */
 export function extractCommand(archive: string, dir: string, member: string, platform: NodeJS.Platform = process.platform): string[] | null {
   const lower = archive.toLowerCase();
+  // Windows: the system's own bsdtar by full path. `tar` on PATH may be Git's GNU tar, which reads
+  // "C:" in an archive path as a remote host and a backslash as an escape, and cannot read zip.
+  const tar = platform === "win32" ? path.win32.join(process.env.SystemRoot || "C:\\Windows", "System32", "tar.exe") : "tar";
   if (lower.endsWith(".zip")) {
     // bsdtar (macOS, Windows) reads zip; on Linux use unzip.
-    return platform === "linux" ? ["unzip", "-o", "-q", archive, member, "-d", dir] : ["tar", "-xf", archive, "-C", dir, "--", member];
+    return platform === "linux" ? ["unzip", "-o", "-q", archive, member, "-d", dir] : [tar, "-xf", archive, "-C", dir, "--", member];
   }
-  if (/\.(tar|tar\.gz|tgz|tar\.xz|txz|tar\.bz2|tbz2)$/.test(lower)) return ["tar", "-xf", archive, "-C", dir, "--", member];
+  if (/\.(tar|tar\.gz|tgz|tar\.xz|txz|tar\.bz2|tbz2)$/.test(lower)) return [tar, "-xf", archive, "-C", dir, "--", member];
   return null;
 }
 

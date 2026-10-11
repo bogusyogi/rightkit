@@ -310,6 +310,34 @@ fn a_leader_reaped_behind_our_back_is_never_signalled() {
     assert_eq!(signals(&trace::since(mark, pid)), vec![]);
 }
 
+/// `while_unreaped` runs the caller's pid-based action while the leader is unreaped (running or
+/// an exited zombie, which still pins the pid) and never once it is reaped.
+#[test]
+fn while_unreaped_runs_the_action_only_until_the_leader_is_reaped() {
+    let mut running = sh("exec sleep 600").spawn().expect("spawn");
+    let pid = running.id();
+    assert_eq!(running.while_unreaped(|id| id).expect("running"), Some(pid));
+    running.terminate_tree().expect("terminate");
+    let mut ran = false;
+    let after = running
+        .while_unreaped(|_| ran = true)
+        .expect("after the reap");
+    assert_eq!(after, None);
+    assert!(!ran, "the action ran after the leader was reaped");
+
+    // Exited but not reaped: the zombie still pins the number, so the action still runs.
+    let exited = exits_at_once();
+    exited
+        .process_handle()
+        .expect("handle")
+        .wait_exited()
+        .expect("observe the exit");
+    assert_eq!(
+        exited.while_unreaped(|id| id).expect("zombie"),
+        Some(exited.id())
+    );
+}
+
 /// One thread reaps through a clone while the owner terminates, released together by a
 /// barrier. Whatever the interleaving: at most one KILL, and never a signal after the reap.
 fn interleave(script: &str, rounds: usize) {
@@ -757,45 +785,95 @@ fn an_exited_unreaped_leader_is_still_described_as_the_same_process() {
     child.wait().expect("reap");
 }
 
-// ---- Waiting is event-driven (no timers) -------------------------------------------------------
+// ---- Waits are loops of non-blocking looks: bounded, cancellable, never holding the lock ---------
 
 #[cfg(any(target_os = "linux", target_os = "android", target_os = "macos"))]
-mod event_driven_wait {
+mod bounded_waits {
     use super::*;
     use std::os::unix::process::ExitStatusExt;
 
-    /// A wait on a child that runs for 300 ms returns from the kernel once: the old loop woke
-    /// 150 times or more over the same time.
+    /// An unbounded wait on a child that runs for 300 ms returns its status after the child
+    /// exits, not before and not never.
     #[test]
-    fn a_wait_on_a_child_that_runs_300_ms_wakes_exactly_once() {
+    fn an_unbounded_wait_returns_the_status_of_a_child_that_runs_300_ms() {
         let mut child = sh("exec sleep 0.3").spawn().expect("spawn");
         let handle = child.process_handle().expect("handle");
-        let watch = child.child().exit_watch();
         let started = Instant::now();
         let status = handle.wait().expect("wait");
         assert!(status.success());
         assert!(started.elapsed() >= Duration::from_millis(250));
-        assert_eq!(watch.wakeups(), 1, "the wait woke more than once");
+        assert!(started.elapsed() < Duration::from_secs(20));
         let _ = child.wait();
     }
 
+    /// Blockers 9 and 10: a bounded wait returns by its deadline while the child is still
+    /// running, whatever the exit event did, and reaps nothing.
     #[test]
-    fn a_bounded_wait_that_times_out_wakes_once_and_a_later_one_wakes_once_more() {
+    fn a_bounded_wait_returns_by_its_deadline_while_the_child_is_still_running() {
         let mut child = sh("exec sleep 600").spawn().expect("spawn");
         let handle = child.process_handle().expect("handle");
-        let watch = child.child().exit_watch();
+
+        let started = Instant::now();
         assert_eq!(
             handle
                 .wait_timeout(Duration::from_millis(300))
                 .expect("wait_timeout"),
             None
         );
-        assert_eq!(watch.wakeups(), 1, "a timed-out wait woke more than once");
+        let elapsed = started.elapsed();
+        assert!(
+            elapsed >= Duration::from_millis(300) && elapsed < Duration::from_secs(10),
+            "wait_timeout(300 ms) took {elapsed:?}"
+        );
+
+        let started = Instant::now();
         assert!(!handle
             .wait_exited_timeout(Duration::from_millis(200))
             .expect("wait_exited_timeout"));
-        assert_eq!(watch.wakeups(), 2);
+        let elapsed = started.elapsed();
+        assert!(
+            elapsed >= Duration::from_millis(200) && elapsed < Duration::from_secs(10),
+            "wait_exited_timeout(200 ms) took {elapsed:?}"
+        );
+
+        // A zero timeout looks once and returns.
+        let started = Instant::now();
+        assert_eq!(handle.wait_timeout(Duration::ZERO).expect("zero"), None);
+        assert!(started.elapsed() < Duration::from_secs(2));
+
+        // Nothing was reaped by any of them: the child is still ours and running.
+        assert_eq!(child.try_wait().expect("try_wait"), None);
         child.terminate_tree().expect("cleanup");
+    }
+
+    /// Blocker 10: a wait in progress holds no lock, so a cancellation (here `terminate_tree`)
+    /// from another thread is not queued behind it, and the wait returns with the status.
+    #[test]
+    fn a_cancelled_bounded_wait_returns_and_the_cancel_is_not_blocked() {
+        let mut child = sh("exec sleep 600").spawn().expect("spawn");
+        let handle = child.process_handle().expect("handle");
+        let (done_tx, done_rx) = mpsc::channel();
+        let waiter = thread::spawn(move || {
+            let _ = done_tx.send(handle.wait_timeout(Duration::from_secs(120)));
+        });
+        // Let the waiter get into its wait.
+        thread::sleep(Duration::from_millis(200));
+        assert!(done_rx.try_recv().is_err(), "the wait returned early");
+        let cancelled = Instant::now();
+        let killed = child.terminate_tree().expect("terminate during a wait");
+        assert!(
+            cancelled.elapsed() < Duration::from_secs(10),
+            "the cancel waited behind the wait: {:?}",
+            cancelled.elapsed()
+        );
+        let waited = done_rx
+            .recv_timeout(Duration::from_secs(10))
+            .expect("the cancelled wait returned")
+            .expect("wait_timeout")
+            .expect("the wait saw the exit");
+        waiter.join().expect("waiter");
+        assert_eq!(waited.signal(), Some(libc::SIGKILL));
+        assert_eq!(killed.signal(), Some(libc::SIGKILL));
     }
 
     /// The waiter holds no lock while it sleeps, so another thread can kill the child and the
@@ -817,7 +895,7 @@ mod event_driven_wait {
         arrived_rx
             .recv_timeout(Duration::from_secs(10))
             .expect("the waiter reached its sleep");
-        // Let it enter poll(2).
+        // Let it enter its sleep.
         thread::sleep(Duration::from_millis(100));
         assert!(done_rx.try_recv().is_err(), "the wait returned early");
         let killed = child
@@ -832,12 +910,12 @@ mod event_driven_wait {
         assert_eq!(killed.signal(), Some(libc::SIGKILL));
     }
 
-    /// Same, through `kill` on the shared child instead of `terminate_tree`.
+    /// Same, through `kill` on the shared child instead of `terminate_tree`: taking the lock
+    /// while another thread waits is not blocked.
     #[test]
     fn a_blocked_wait_is_released_by_a_plain_kill_from_another_thread() {
         let mut child = sh("exec sleep 600").spawn().expect("spawn");
         let handle = child.process_handle().expect("handle");
-        let watch = child.child().exit_watch();
         let waiter = thread::spawn(move || handle.wait());
         thread::sleep(Duration::from_millis(200));
         child
@@ -846,14 +924,30 @@ mod event_driven_wait {
             .expect("kill while another thread waits");
         let status = waiter.join().expect("waiter").expect("status");
         assert_eq!(status.signal(), Some(libc::SIGKILL));
-        assert_eq!(watch.wakeups(), 1, "the waiter woke more than once");
+    }
+
+    /// An exit monitor (`wait_exited`) in progress does not block the owner either.
+    #[test]
+    fn an_exit_monitor_in_progress_does_not_block_termination() {
+        let mut child = sh("exec sleep 600").spawn().expect("spawn");
+        let monitor = child.process_handle().expect("handle");
+        let waiter = thread::spawn(move || monitor.wait_exited());
+        thread::sleep(Duration::from_millis(200));
+        let started = Instant::now();
+        child
+            .terminate_tree()
+            .expect("terminate during the monitor");
+        assert!(started.elapsed() < Duration::from_secs(10));
+        waiter
+            .join()
+            .expect("monitor")
+            .expect("the monitor saw the exit");
     }
 
     /// `wait_or_kill` returns when the leader exits, not when the grace ends.
     #[test]
     fn wait_or_kill_returns_at_the_exit_not_at_the_end_of_the_grace() {
         let mut child = sh("exec sleep 0.2").spawn().expect("spawn");
-        let watch = child.child().exit_watch();
         let started = Instant::now();
         let outcome = child
             .wait_or_kill(Duration::from_secs(60))
@@ -864,12 +958,11 @@ mod event_driven_wait {
             outcome,
             WaitOutcome::Exited(_) | WaitOutcome::Terminated(_)
         ));
-        assert!(watch.wakeups() <= 3, "{} wake-ups", watch.wakeups());
     }
 
-    /// The tree-wide grace is bounded by its length and event-driven: a member that ignores
-    /// TERM keeps the group alive for the whole grace and is then killed; one that exits on
-    /// TERM does not hold the call up.
+    /// The tree-wide grace is bounded by its length: a member that ignores TERM keeps the group
+    /// alive for the whole grace and is then killed; one that exits on TERM does not hold the
+    /// call up.
     #[test]
     fn the_tree_grace_waits_for_a_term_resistant_member_and_no_longer() {
         let dir = std::env::temp_dir().join(format!("rk-grace-{}", std::process::id()));
