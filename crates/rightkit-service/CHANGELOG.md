@@ -2,6 +2,35 @@
 
 ## Unreleased
 
+- Additive: verify the HOST from the client. `Client::connect_expecting(&ClientConfig, &HostExpectation)
+  -> Result<Client, ConnectError>` asks the kernel who is on the listening end of the connected socket
+  and refuses any program that is not an expected executable, before the `hello` or any request is
+  written (the only thing the other side sees of a refusal is a connection that closes without a
+  byte). The host must run as the client's uid and its executable (macOS `proc_pidpath`, Linux
+  `/proc/<pid>/exe`) must equal, after canonicalisation, or be the same file (device and inode) as,
+  one of the paths named. The pid is proven stable across the read (start time, plus the audit
+  token on macOS, before and after; the pid re-read from the socket). Windows and other Unix
+  refuse with `HostIdentityReason::Unverified` (a documented fail-closed stub) rather than connect
+  unverified. `Client::connect` and `connect_with` are unchanged and documented as
+  unauthenticated-host.
+- New types: `HostExpectation` (`executable`, `any_of`, `or_executable`, `sibling_executable`,
+  `bundle_executable`, `relative_to_current_exe`, `with_verifier`), `HostProcess`,
+  `HostIdentityError { expected, found_pid, found_executable, reason }`, `HostIdentityReason`,
+  `ConnectError { Service, HostIdentity }`, `ClientConfig`. New `Client::verified_host`,
+  `Client::connect_config`, `Client::call_retrying_expecting`, `open_stream_expecting`, and the
+  error codes `ERROR_HOST_IDENTITY` ("host_identity", not retryable) and `ERROR_SUITE_UNRESOLVED`.
+  The macOS code-signature team identifier check is a documented hook (`with_verifier` receives the
+  host's audit token); this crate links no Security.framework.
+- Additive: environment hardening. `ClientConfig::ignore_env_overrides(true)` takes the suite root
+  only from the new `Suite::per_user_default()` (the home directory from `getpwuid_r`, never `HOME`,
+  `XDG_DATA_HOME`, `LOCALAPPDATA`, `RIGHTKIT_SUITE_ROOT`, `RIGHT_SUITE_DIR` or `ORTHIC_SHARED_DIR`),
+  and refuses an explicit suite that came from `Suite::resolve()` (`Suite::env_derived()`). Hosts
+  read no variable themselves; `Suite::resolve_ignoring_env_overrides(bool)` is the same switch for
+  them. Release builds of an app and of its engine set it; QA builds do not. Windows fails closed
+  until `SHGetKnownFolderPath` is wired in. `Suite::resolve()` is unchanged.
+- Additive example helpers `examples/svc_fakehost.rs` (an impostor that counts the bytes it
+  receives) and `examples/svc_verify_client.rs`; tests in `tests/verify_host.rs`.
+
 - Fix: a handler result larger than the host's `frame_limit` was dropped without a word, so the
   client waited for its whole deadline (120 s by default). The client now receives the typed,
   non-retryable error `ERROR_RESPONSE_TOO_LARGE` ("response_too_large") straight away and the

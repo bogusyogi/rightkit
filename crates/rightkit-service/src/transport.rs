@@ -2,6 +2,7 @@
 //! pipe (Windows). One request is in flight per connection (lock-step), so a
 //! connection never needs concurrent reads and writes on one handle.
 
+use crate::host_identity::{HostConnectError, HostExpectation, HostProcess};
 use crate::suite::Suite;
 use std::io::{self, Read, Write};
 use std::sync::Arc;
@@ -340,6 +341,21 @@ mod imp {
         verify_peer_is_current_user(&s).map_err(io::Error::from)?;
         wrap(s)
     }
+
+    /// Connect, then verify WHO the host is before any byte is exchanged: the same-user check
+    /// (reported as a typed identity refusal here) and the host's executable against `expect`.
+    /// The only thing that has happened on the wire when this returns an error is the kernel-level
+    /// `connect`: the host sees a connection that closes without a byte, and the stream is dropped
+    /// (closed) on every error path.
+    pub fn connect_expecting(
+        endpoint: &str,
+        expect: &HostExpectation,
+    ) -> Result<(Conn, HostProcess), HostConnectError> {
+        let s = UnixStream::connect(endpoint).map_err(HostConnectError::Io)?;
+        let host = crate::host_identity::verify_unix_host(&s, expect)?;
+        let conn = wrap(s).map_err(HostConnectError::Io)?;
+        Ok((conn, host))
+    }
 }
 
 #[cfg(windows)]
@@ -675,6 +691,29 @@ mod imp {
         Ok(wrap(pipe))
     }
 
+    /// Connect, verify the server is the current user, then verify WHICH program it is before any
+    /// byte is exchanged. The second step is a stub that fails closed with
+    /// `HostIdentityReason::Unverified` (see `host_identity::verify_pipe_host` for what the
+    /// Windows implementation must do); the pipe is cancelled (closed) on every error path.
+    pub fn connect_expecting(
+        endpoint: &str,
+        expect: &HostExpectation,
+    ) -> Result<(Conn, HostProcess), HostConnectError> {
+        let pipe = open_overlapped(endpoint).map_err(HostConnectError::Io)?;
+        let raw = pipe.0.raw.load(Ordering::SeqCst) as RawHandle;
+        if let Err(e) = verify_pipe_server_is_current_user(raw) {
+            pipe.cancel();
+            return Err(HostConnectError::Io(e.into()));
+        }
+        match crate::host_identity::verify_pipe_host(raw, expect) {
+            Ok(host) => Ok((wrap(pipe), host)),
+            Err(e) => {
+                pipe.cancel();
+                Err(e)
+            }
+        }
+    }
+
     fn open_overlapped(endpoint: &str) -> io::Result<Pipe> {
         use std::os::windows::fs::OpenOptionsExt;
         use std::os::windows::io::IntoRawHandle;
@@ -706,7 +745,7 @@ mod imp {
     }
 }
 
-pub(crate) use imp::{connect, current_uid, Listener};
+pub(crate) use imp::{connect, connect_expecting, current_uid, Listener};
 
 /// Is process `pid` alive? A dead pid marks a discovery record stale and a
 /// takeover request abandoned. Hardened from HeardRight's version: pid 0 and
@@ -768,6 +807,10 @@ impl Stream {
 
 /// Connect to `endpoint`. On Windows a busy pipe is retried up to 3 s and a
 /// not-yet-created one up to 1 s (HeardRight's behaviour).
+///
+/// The host is checked to be the current user and nothing more: whichever same-user program
+/// answers at `endpoint` receives whatever you write. Use [`open_stream_expecting`] to name the
+/// program you mean to talk to.
 pub fn open_stream(endpoint: &str) -> io::Result<Stream> {
     let c = connect(endpoint)?;
     Ok(Stream {
@@ -775,6 +818,32 @@ pub fn open_stream(endpoint: &str) -> io::Result<Stream> {
         writer: c.writer,
         shutdown: c.shutdown,
     })
+}
+
+/// [`open_stream`] that first verifies the host is the program `expect` names, before a byte is
+/// written (see [`Client::connect_expecting`](crate::Client::connect_expecting) for the checks and
+/// what each platform verifies). A host that is not the expected one is
+/// [`ConnectError::HostIdentity`](crate::ConnectError::HostIdentity); a host that cannot be
+/// reached is [`ConnectError::Service`](crate::ConnectError::Service) with the retryable
+/// `service_unavailable`.
+pub fn open_stream_expecting(
+    endpoint: &str,
+    expect: &HostExpectation,
+) -> Result<Stream, crate::ConnectError> {
+    match connect_expecting(endpoint, expect) {
+        Ok((c, _host)) => Ok(Stream {
+            reader: c.reader,
+            writer: c.writer,
+            shutdown: c.shutdown,
+        }),
+        Err(HostConnectError::Io(e)) => Err(crate::ConnectError::Service(
+            crate::ServiceError::retryable(
+                crate::ERROR_UNAVAILABLE,
+                format!("host unreachable: {e}"),
+            ),
+        )),
+        Err(HostConnectError::Identity(e)) => Err(crate::ConnectError::HostIdentity(e)),
+    }
 }
 
 #[cfg(test)]
