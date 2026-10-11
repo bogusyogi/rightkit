@@ -650,10 +650,23 @@ export class QaPage {
     let loaderId: string | undefined;
     const off = this.on('Page.lifecycleEvent', (event) => events.push(event));
     const offSame = this.on('Page.navigatedWithinDocument', ({ frameId }) => { if (frameId === this.frameId) sameDocument = true; });
+    // Set when a main-frame document commits while this navigation is pending.
+    let displaced = false;
+    const offDisplaced = this.on('Page.frameNavigated', ({ frame }) => { if (!frame.parentId) displaced = true; });
     try {
       await this.bounded(`Navigation (${waitUntil})`, timeout, async (remaining, stopped) => {
-        const response = await this.send(method, params, remaining());
-        if (response.errorText) throw new Error(`Navigation failed: ${response.errorText}`);
+        let response = await this.send(method, params, remaining());
+        if (method === 'Page.navigate' && response.errorText === 'net::ERR_ABORTED') {
+          // A document committing in this frame discards a navigation that is still in flight, and Chrome
+          // answers ERR_ABORTED for it. The usual case is a new tab's own about:blank committing late on a
+          // cold browser. The request itself was sound, so it is sent once more. The commit event and the
+          // answer come from different processes, so the event is given a short time to arrive. An abort
+          // with no such commit (a download, a 204) is thrown as it is.
+          const until = Date.now() + 250;
+          while (!displaced && Date.now() < until && !stopped()) await sleep(Math.min(10, remaining()));
+          if (displaced) { events.length = 0; response = await this.send(method, params, remaining()); }
+        }
+        if (response.errorText) throw new Error(`Navigation failed: ${response.errorText}${typeof params.url === 'string' ? ` (${params.url})` : ''}`);
         loaderId = response.loaderId;
         if (method === 'Page.navigate' && !loaderId) sameDocument = true;
         let idleSince: number | undefined;
@@ -671,7 +684,7 @@ export class QaPage {
           await sleep(Math.min(20, remaining()));
         }
       });
-    } finally { off(); offSame(); this.navigating = false; }
+    } finally { off(); offSame(); offDisplaced(); this.navigating = false; }
   }
   goto(url: string, options: NavigationOptions = {}): Promise<void> { return this.navigate('Page.navigate', { url }, options); }
   reload(options: NavigationOptions = {}): Promise<void> { return this.navigate('Page.reload', {}, options); }
