@@ -597,10 +597,14 @@ function validateRegenerate(manifest, lanes, errors) {
   }
 }
 
-// swift.privatePackages (ci lane only): read access to private Swift package
+// swift.privatePackages (ci, qualification, release-candidate and regenerate lanes;
+// the parallel dev-artifact-mac job): read access to private Swift package
 // mirrors from a public repository's CI. The secret is a GitHub Actions secret
 // name; the token value never appears in the rendered workflow.
 const SWIFT_PRIVATE_MAX_ENTRIES = 4;
+// Lanes whose workflows carry the configure and cleanup steps. package-smoke,
+// publish-npm and publish-package-managers never do (clean-room or credentialed jobs).
+const SWIFT_PRIVATE_LANES = ["ci", "qualification", "release-candidate", "regenerate"];
 const SWIFT_PRIVATE_HOST_RE = /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,62})(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]{0,62}))*$/;
 
 function isSwiftPrivateSecretName(value) {
@@ -638,8 +642,8 @@ function validateSwift(manifest, lanes, errors) {
       errors.push(`swift.privatePackages[${index}].secret must be a GitHub Actions secret name (letters, digits, '_'; not starting with a digit or GITHUB_)`);
     }
   });
-  if (!Array.isArray(lanes) || !lanes.includes("ci")) {
-    errors.push("swift.privatePackages requires lane 'ci' (the steps render into the ci workflow)");
+  if (!Array.isArray(lanes) || !lanes.some((lane) => SWIFT_PRIVATE_LANES.includes(lane))) {
+    errors.push(`swift.privatePackages requires one of the lanes ${SWIFT_PRIVATE_LANES.map((lane) => `'${lane}'`).join(", ")} (the steps render into those workflows)`);
   }
   // Dispatched runs of ci.yml can come from any ref; the private-package secret must never reach one.
   if (manifest.devArtifact?.dispatch === true) {
@@ -919,6 +923,7 @@ function devMacArtifactJob({ manifest, lane, artifactPrefix, retention }) {
     lane,
     artifactPrefix,
     stage,
+    swift: true,
   });
 }
 
@@ -948,8 +953,14 @@ function devWindowsArtifactJob({ manifest, lane, artifactPrefix, retention }) {
 // One platform job: toolchain + dependency install + dev build, then the
 // platform staging steps. Mirrors the ci job's setup without the gate, the
 // ownership scan, or any secret.
-function devPlatformJob({ manifest, id, label, runner, condition, lane, artifactPrefix, stage }) {
+// swift: true renders the shared private Swift package steps around the build
+// (macOS job only; the Windows job never gets them). The credential exists only
+// between those two steps, so the staging and upload steps run without it.
+function devPlatformJob({ manifest, id, label, runner, condition, lane, artifactPrefix, stage, swift = false }) {
   const dev = manifest.devArtifact;
+  const swiftLines = (step) => (swift && step ? step.slice(1).split("\n") : []);
+  const swiftConfigure = swiftLines(swiftPrivatePackagesConfigureStep(manifest));
+  const swiftCleanup = swiftLines(swiftPrivatePackagesCleanupStep(manifest));
   const pm = parsePackageManager(manifest.packageManager);
   const workspaces = (manifest.rustCache?.workspaces ?? ["engine"]).map((workspace) => `            ${workspace} -> target`).join("\n");
   const cacheKey = rustCacheKeyLine(manifest, `${lane}-${id}`);
@@ -957,7 +968,9 @@ function devPlatformJob({ manifest, id, label, runner, condition, lane, artifact
     "",
     `  ${id}:`,
     `    # ${label} dev app: builds devArtifact.buildScript and stages it. Runs beside the`,
-    "    # QA gate job, not after it, and never reaches a secret.",
+    swiftConfigure.length > 0
+      ? "    # QA gate job, not after it, and reaches only the private Swift package secret."
+      : "    # QA gate job, not after it, and never reaches a secret.",
     "    needs: [private-repo-guard]",
     `    if: \${{ ${condition} }}`,
     `    runs-on: ${runner}`,
@@ -984,8 +997,10 @@ function devPlatformJob({ manifest, id, label, runner, condition, lane, artifact
     `          cache-workspace-crates: ${manifest.ciIncremental === true ? "true" : "false"}`,
     "          cache-on-failure: true",
     "          save-if: true",
+    ...swiftConfigure,
     "      - name: Build dev app",
     `        run: ${pm.runPrefix} ${dev.buildScript}`,
+    ...swiftCleanup,
     ...stage,
     "",
   ].join("\n");
@@ -1633,7 +1648,9 @@ export function lockfilePatchStep(manifest) {
 
 /**
  * swift.privatePackages: configure step, placed directly before the first step
- * in the ci job that builds or tests project code. It refuses to overwrite an
+ * in each opted-in job that builds or tests project code (the ci job, the
+ * qualification job, the release-candidate candidate job, the regenerate job and
+ * the parallel dev-artifact-mac job). It refuses to overwrite an
  * existing ~/.netrc, writes one machine entry per private host with mode 600,
  * and adds a job-scoped git insteadOf rewrite. The token reaches the step only
  * through env, never through the run script text. Returns "" when unset; the
@@ -1667,10 +1684,11 @@ export function swiftPrivatePackagesConfigureStep(manifest) {
 }
 
 /**
- * swift.privatePackages: cleanup step, rendered at the end of the ci job and
- * run even after a failed build. It only removes what the configure step
- * created (the marker file), so a cancelled run never deletes a pre-existing
- * ~/.netrc. Returns "" when unset; same newline convention as the configure step.
+ * swift.privatePackages: cleanup step, rendered after the last step that builds
+ * or tests project code in the same job (the end of the ci job; before any
+ * push or upload elsewhere) and run even after a failed build. It only removes
+ * what the configure step created (the marker file), so a cancelled run never
+ * deletes a pre-existing ~/.netrc. Returns "" when unset; same newline convention as the configure step.
  */
 export function swiftPrivatePackagesCleanupStep(manifest) {
   const entries = manifest.swift?.privatePackages;

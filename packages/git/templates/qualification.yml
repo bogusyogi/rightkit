@@ -29,8 +29,8 @@ jobs:
           package-manager-cache: false
 ${PACKAGE_MANAGER_SETUP}
       - run: ${INSTALL_COMMAND}
-${OWNERSHIP_STEP}
-      - run: ${PM_RUN} test:all
+${OWNERSHIP_STEP}${SWIFT_PRIVATE_CONFIGURE_STEP}
+      - run: ${PM_RUN} test:all${SWIFT_PRIVATE_CLEANUP_STEP}
   schema:
     needs: [qualification]
     runs-on: ubuntu-latest

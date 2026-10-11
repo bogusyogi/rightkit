@@ -52,7 +52,7 @@ ${RUST_CACHE_WORKSPACES}
           add-job-id-key: false
 ${RUST_CACHE_KEY}          cache-workspace-crates: ${CI_CACHE_WORKSPACE_CRATES}
           cache-on-failure: true
-          save-if: false
+          save-if: false${SWIFT_PRIVATE_CONFIGURE_STEP}
       - name: Regenerate derived artifacts
         run: ${PM_RUN} ${REGENERATE_SCRIPT}
       - name: Detect regenerated files
@@ -74,7 +74,7 @@ ${RUST_CACHE_KEY}          cache-workspace-crates: ${CI_CACHE_WORKSPACE_CRATES}
           RIGHT_GIT_RUST_REQUIRED: "true"
           CARGO_INCREMENTAL: "0"
           CARGO_PROFILE_DEV_DEBUG: "0"
-          CARGO_PROFILE_TEST_DEBUG: "0"
+          CARGO_PROFILE_TEST_DEBUG: "0"${SWIFT_PRIVATE_CLEANUP_STEP}
       - name: Open a pull request with the regenerated files
         if: steps.changes.outputs.changed == 'true'
         shell: bash

@@ -142,7 +142,7 @@ ${RUST_CACHE_KEY}          cache-workspace-crates: false
           RIGHT_GIT_RELEASE_PLATFORM: ${{ matrix.platform }}
           RIGHT_GIT_RELEASE_ARCHITECTURE: ${{ matrix.architecture }}
           RIGHT_GIT_RUN_ID: ${{ github.run_id }}
-          RIGHT_GIT_RUN_ATTEMPT: ${{ github.run_attempt }}
+          RIGHT_GIT_RUN_ATTEMPT: ${{ github.run_attempt }}${SWIFT_PRIVATE_CONFIGURE_STEP}
       - name: Build unsigned release candidate
         run: ${PM_RUN} ${CANDIDATE_BUILD_SCRIPT}
         env:
@@ -156,7 +156,7 @@ ${RUST_CACHE_KEY}          cache-workspace-crates: false
           RIGHT_GIT_ARTIFACT_ROOT: ${{ runner.temp }}/${CANDIDATE_ARTIFACT_ROOT}
           RIGHT_GIT_RELEASE_PLATFORM: ${{ matrix.platform }}
           RIGHT_GIT_RELEASE_ARCHITECTURE: ${{ matrix.architecture }}
-          RIGHT_GIT_SOURCE_REVISION: ${{ needs.admission.outputs.source_revision }}
+          RIGHT_GIT_SOURCE_REVISION: ${{ needs.admission.outputs.source_revision }}${SWIFT_PRIVATE_CLEANUP_STEP}
       - name: Finalize candidate stage summary
         if: ${{ always() }}
         run: ${PM_RUN} ${RELEASE_STAGE_SUMMARY_SCRIPT}

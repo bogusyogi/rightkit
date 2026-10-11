@@ -4,6 +4,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
+import crypto from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { renderTemplate, MANAGED_MARKER } from "./render.mjs";
 import { buildRenderContext, LANE_FILENAMES, KNOWN_LANES, validateManifest, swiftPrivatePackagesConfigureStep, swiftPrivatePackagesCleanupStep } from "./manifest.mjs";
@@ -1310,7 +1311,7 @@ test("swift.privatePackages validation refuses unsafe names, hosts and duplicate
   assert.ok(withSwift({ privatePackages: Array.from({ length: 5 }, (_, i) => ({ host: `h${i}.example`, secret: `S${i}` })) }).some((e) => /1 to 4/.test(e)));
   assert.ok(withSwift({ privatePackages: [{ host: "github.com", secret: "A", extra: 1 }] }).some((e) => /only host and secret/.test(e)));
   assert.ok(withSwift({ privatePackages: SWIFT_ONE, other: 1 }).some((e) => /unknown swift field: other/.test(e)));
-  assert.ok(validateManifest({ ...NODE_CI_BASE, lanes: ["publish-npm"], publish: { npm: { oidc: true, provenance: true } }, swift: { privatePackages: SWIFT_ONE } }).errors.some((e) => /requires lane 'ci'/.test(e)));
+  assert.ok(validateManifest({ ...NODE_CI_BASE, lanes: ["publish-npm"], publish: { npm: { oidc: true, provenance: true } }, swift: { privatePackages: SWIFT_ONE } }).errors.some((e) => /requires one of the lanes 'ci', 'qualification', 'release-candidate', 'regenerate'/.test(e)));
   assert.ok(validateManifest({ ...VALID_RUST_HYBRID, devArtifact: { mac: "unsigned", dispatch: true, macAppPath: "a/B.app" }, swift: { privatePackages: SWIFT_ONE } }).errors.some((e) => /cannot be combined with devArtifact\.dispatch/.test(e)));
 });
 
@@ -1376,6 +1377,298 @@ test("rendered swift.privatePackages workflows pass actionlint", (t) => {
       return file;
     });
     const result = spawnSync("actionlint", ["-shellcheck=", "-pyflakes=", "-config-file", path.join(dir, ".github", "actionlint.yaml"), ...files], { encoding: "utf8" });
+    assert.equal(result.status, 0, result.stdout + result.stderr);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+// Lane fixtures for the swift.privatePackages tests: one manifest per profile/shape and the
+// template each lane renders from. SW_BASELINE pins the unset output to the 0.2.40 renders.
+const SW_NODE = {
+  schemaVersion: 1,
+  compile: "github-actions-only",
+  lanes: ["ci", "qualification", "package-smoke", "release-candidate", "regenerate", "publish-npm", "publish-package-managers"],
+  matrix: { os: ["ubuntu-latest", "macos-latest"], node: ["24"] },
+  packageManager: "pnpm@11.24.0",
+  publish: {
+    npm: { oidc: true, provenance: true },
+    homebrew: { tap: "acme/homebrew-tap", formulaName: "widgets" },
+    winget: { packageIdentifier: "Acme.Widgets" },
+  },
+  regenerate: { script: "regenerate" },
+  templateVersion: "1.0.0",
+};
+const SW_RUST = {
+  schemaVersion: 1,
+  compile: "github-actions-only",
+  profile: "rust-hybrid",
+  lanes: ["ci", "release-candidate", "regenerate"],
+  gate: { path: "scripts/gate.sh" },
+  matrix: { os: ["xcode-27", "windows-2025"], node: ["26.8.1"] },
+  packageManager: "pnpm@11.24.0",
+  regenerate: { script: "regenerate" },
+  candidate: {
+    buildScript: "ci:candidate",
+    checkScript: "ci:candidate-check",
+    admissionScript: "release:admit",
+    stageSummaryScript: "release:stage-summary",
+    artifactRoot: "widgets-unsigned",
+    os: ["xcode-27", "windows-2025"],
+  },
+  devArtifact: {
+    mac: "sign",
+    windows: "unsigned",
+    parallel: true,
+    buildScript: "build:dev",
+    macAppPath: "target/release/bundle/macos/Pulse.app",
+    windowsGlob: "target/release/*.exe",
+  },
+  templateVersion: "1.2.0",
+};
+// Every signing, qualification and publish job the release chain can render.
+const SW_RUST_CHAIN = {
+  ...SW_RUST,
+  lanes: ["ci", "release-candidate"],
+  regenerate: undefined,
+  devArtifact: { ...SW_RUST.devArtifact, mac: "notarize" },
+  matrix: { os: ["ubuntu-24.04", "windows-2025", "macos-15"], node: ["22.23.2"] },
+  candidate: {
+    buildScript: "ci:candidate",
+    checkScript: "ci:candidate-check",
+    admissionScript: "release:admission",
+    stageSummaryScript: "release:stage-summary",
+    artifactRoot: "widgets-unsigned",
+    os: ["windows-2025", "macos-15"],
+    signWindows: true,
+    signMacos: true,
+    releaseChain: {
+      evidenceVerificationScript: "release:verify:evidence",
+      windowsFinalizeScript: "release:finalize:win",
+      macosFinalizeScript: "release:finalize:mac",
+      installedQualificationScript: "release:qualify:installed",
+      publishScript: "release:publish:qualified",
+      qualificationRunnerVariable: "QUALIFICATION_RUNNER_LABEL",
+      publishSecrets: ["CLOUDFLARE_API_TOKEN"],
+    },
+  },
+};
+const SW_CASES = [
+  ["node/ci", SW_NODE, "ci"],
+  ["node/qualification", SW_NODE, "qualification"],
+  ["node/package-smoke", SW_NODE, "package-smoke"],
+  ["node/release-candidate", SW_NODE, "release-candidate"],
+  ["node/regenerate", SW_NODE, "regenerate"],
+  ["node/publish-npm", SW_NODE, "publish-npm"],
+  ["node/publish-package-managers", SW_NODE, "publish-package-managers"],
+  ["rust-hybrid/ci", SW_RUST, "ci"],
+  ["rust-hybrid/release-candidate", SW_RUST, "release-candidate"],
+  ["rust-hybrid/regenerate", SW_RUST, "regenerate"],
+  ["rust-hybrid-chain/ci", SW_RUST_CHAIN, "ci"],
+  ["rust-hybrid-chain/release-candidate", SW_RUST_CHAIN, "release-candidate"],
+];
+const swRender = (manifest, lane, swift) => {
+  const clone = structuredClone(manifest);
+  if (swift !== undefined) clone.swift = swift;
+  const dir = clone.profile === "rust-hybrid" ? path.join(templatesDir, "profiles", "rust-hybrid") : templatesDir;
+  return renderTemplate(fs.readFileSync(path.join(dir, LANE_FILENAMES[lane]), "utf8"), buildRenderContext(clone, "/repos/widgets", lane));
+};
+
+const SW_BASELINE = {
+  "node/ci": "4eee8dbd414921ac4bb34488c251c3b9641db2805d02989276218d4d1b73b7ad",
+  "node/qualification": "730cc94fde3400079c2a4e66effed0e8957de2b75576d13f02b9398059ccc921",
+  "node/package-smoke": "bc981ccb7248cc022cb8157c1fbdb7895c48f6a3fe4eeaf5a76eb5bba4206517",
+  "node/release-candidate": "193cf0e62505e6aefc0887f145c17cb443d409418829d3f39fc6f11ce21b4c31",
+  "node/regenerate": "82bfa3063ae0bc04ba52fecc14d562b418037716283648a887c206683a4e1c14",
+  "node/publish-npm": "50882207659dfb6e0207fc0d9b33d86b7c10a2d2e3e6c65b2db05d5261982834",
+  "node/publish-package-managers": "106b8d28ed76d916afe68808388cd5dc0de0ddd719b566832a6e8280410f9d7f",
+  "rust-hybrid/ci": "9652939dae20655f893694e6ef59b521c1c8805817a9048f1347e128ffa5cefb",
+  "rust-hybrid/release-candidate": "a0405dd2d6df8cfe2909fe8b371a068838617174e0d591b367b9dc5866400348",
+  "rust-hybrid/regenerate": "14b7adfb5839df53f53bfe9599ef1358ff51d160a21b9ce1ca5d843a87156b36",
+  "rust-hybrid-chain/ci": "413071a268dfa3b72a5b483173551f5e56818ed60f0cd6b15cd5a730584d8a6e",
+  "rust-hybrid-chain/release-candidate": "0dc667ce2c399f87b962d31752980b87eb83b3becc9c05ca076ecdf6a0fc7b02",
+};
+
+// Each lane that builds Swift renders the shared configure and cleanup steps into exactly these jobs.
+const SW_EXPECTED_JOBS = {
+  "node/ci": ["test"],
+  "node/qualification": ["qualification"],
+  "node/package-smoke": [],
+  "node/release-candidate": ["candidate"],
+  "node/regenerate": ["regenerate"],
+  "node/publish-npm": [],
+  "node/publish-package-managers": [],
+  "rust-hybrid/ci": ["ci", "dev-artifact-mac"],
+  "rust-hybrid/release-candidate": ["candidate"],
+  "rust-hybrid/regenerate": ["regenerate"],
+  "rust-hybrid-chain/ci": ["ci", "dev-artifact-mac"],
+  "rust-hybrid-chain/release-candidate": ["candidate"],
+};
+const SW_SECRET_ENV_LINE = /^ {10}RIGHT_GIT_PRIVATE_TOKEN_0: \$\{\{ secrets\.RIGHTKIT_SWIFT_TOKEN \}\}$/;
+
+// jobs: { id -> text } for a rendered workflow.
+const swJobs = (workflow) => {
+  const body = workflow.slice(workflow.indexOf("\njobs:\n") + "\njobs:\n".length);
+  const parts = body.split(/^  ([A-Za-z0-9_-]+):$/m);
+  const jobs = {};
+  for (let i = 1; i < parts.length; i += 2) jobs[parts[i]] = parts[i + 1];
+  return jobs;
+};
+const swStepNames = (job) => [...job.matchAll(/^ {6}- (?:name: (.+)|(uses|run): (.+))$/gm)].map((m) => m[1] ?? `${m[2]}: ${m[3]}`);
+const swSwiftJobs = (workflow) => Object.entries(swJobs(workflow)).filter(([, job]) => job.includes(CONFIGURE_HEAD)).map(([id]) => id);
+const SW_SET = { privatePackages: SWIFT_ONE };
+
+test("swift.privatePackages unset: every lane's output is byte-identical to 0.2.40", () => {
+  for (const [name, manifest, lane] of SW_CASES) {
+    const unset = swRender(manifest, lane);
+    assert.equal(crypto.createHash("sha256").update(unset).digest("hex"), SW_BASELINE[name], `${name} differs from the 0.2.40 render`);
+    assert.equal(swRender({ ...manifest, swift: undefined }, lane), unset, `${name}: swift: undefined`);
+    assert.doesNotMatch(unset, /private Swift package|\.netrc|insteadOf|RIGHT_GIT_PRIVATE_TOKEN/);
+  }
+  for (const manifest of [SW_NODE, SW_RUST, SW_RUST_CHAIN]) assert.deepEqual(validateManifest(manifest).errors, []);
+});
+
+test("swift.privatePackages renders only into the jobs that build Swift; refused lanes and jobs stay byte-identical", () => {
+  for (const [name, manifest, lane] of SW_CASES) {
+    const out = swRender(manifest, lane, SW_SET);
+    assert.deepEqual(swSwiftJobs(out), SW_EXPECTED_JOBS[name], `${name}: jobs carrying the steps`);
+    if (SW_EXPECTED_JOBS[name].length === 0) {
+      assert.equal(out, swRender(manifest, lane), `${name}: no placeholder, so no change`);
+    }
+    // The secret is named only by the two env lines per carrying job, never anywhere else.
+    const refs = out.split("\n").filter((line) => line.includes("secrets.RIGHTKIT_SWIFT_TOKEN"));
+    assert.equal(refs.length, SW_EXPECTED_JOBS[name].length * 2, `${name}: two env references per carrying job`);
+    for (const line of refs) assert.match(line, SW_SECRET_ENV_LINE, `${name}: secret outside an env line: ${line}`);
+    // Signing, qualification and publish jobs and the Windows dev job never see it.
+    for (const [id, job] of Object.entries(swJobs(out))) {
+      if (SW_EXPECTED_JOBS[name].includes(id)) continue;
+      assert.doesNotMatch(job, /RIGHTKIT_SWIFT_TOKEN|RIGHT_GIT_PRIVATE_TOKEN|Swift package access/, `${name}/${id} must stay secret-free`);
+    }
+  }
+  // The release chain really renders the jobs the argument above excludes.
+  const chain = swJobs(swRender(SW_RUST_CHAIN, "release-candidate", SW_SET));
+  for (const id of ["admission", "windows-sign", "macos-sign", "installed-qualification", "publish"]) assert.ok(id in chain, `fixture renders ${id}`);
+  const chainCi = swJobs(swRender(SW_RUST_CHAIN, "ci", SW_SET));
+  for (const id of ["dev-artifact-windows", "dev-mac-sign"]) assert.ok(id in chainCi, `fixture renders ${id}`);
+});
+
+test("swift.privatePackages steps: position, always-run cleanup, and the secret only in env, per lane", () => {
+  const stepOrder = (out, jobId) => swStepNames(swJobs(out)[jobId]);
+  const ORDER = [
+    // [case, job, steps in required order]
+    ["node/ci", "test", ["Configure private Swift package access", "run: pnpm run test", "run: node scripts/ci/check-network-boundary.mjs", "Remove private Swift package access"]],
+    ["node/qualification", "qualification", ["RightKit ownership (protected registry roots)", "Configure private Swift package access", "run: pnpm run test:all", "Remove private Swift package access"]],
+    ["node/release-candidate", "candidate", ["RightKit ownership (protected registry roots)", "Configure private Swift package access", "run: node --test tests/release-candidate.test.mjs", "run: node scripts/release/build-candidate.mjs --platform current --out \"${{ runner.temp }}/widgets-rc\"", "run: node scripts/release/check-release.mjs \"${{ runner.temp }}/widgets-rc\"", "Remove private Swift package access", "uses: actions/upload-artifact@v4"]],
+    ["node/regenerate", "regenerate", ["RightKit ownership (protected registry roots)", "Configure private Swift package access", "Regenerate derived artifacts", "Test the regenerated tree", "Remove private Swift package access", "Open a pull request with the regenerated files"]],
+    ["rust-hybrid/ci", "ci", ["uses: Mozilla-Actions/sccache-action@fc920bf0ec8de6ee65d409111f7ec508035751ba # v0.0.11", "Configure private Swift package access", "run: bash ./scripts/gate.sh", "Remove private Swift package access", "Record last green commit marker"]],
+    ["rust-hybrid/ci", "dev-artifact-mac", ["uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2", "Configure private Swift package access", "Build dev app", "Remove private Swift package access", "Package unsigned dev app (macOS)", "Upload unsigned dev app for signing (macOS)"]],
+    ["rust-hybrid/release-candidate", "candidate", ["Initialize candidate stage summary", "Configure private Swift package access", "Build unsigned release candidate", "Check unsigned release candidate", "Remove private Swift package access", "Finalize candidate stage summary", "Upload unsigned candidate handoff"]],
+    ["rust-hybrid/regenerate", "regenerate", ["uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2", "Configure private Swift package access", "Regenerate derived artifacts", "Gate the regenerated tree", "Remove private Swift package access", "Open a pull request with the regenerated files"]],
+  ];
+  for (const [name, jobId, expected] of ORDER) {
+    const [, manifest, lane] = SW_CASES.find(([n]) => n === name);
+    const out = swRender(manifest, lane, SW_SET);
+    const actual = stepOrder(out, jobId);
+    let cursor = -1;
+    for (const step of expected) {
+      const at = actual.findIndex((candidate, index) => index > cursor && (candidate === step || candidate.startsWith(step)));
+      assert.ok(at > cursor, `${name}/${jobId}: expected "${step}" after position ${cursor} in ${JSON.stringify(actual)}`);
+      cursor = at;
+    }
+    const job = swJobs(out)[jobId];
+    const configure = job.slice(job.indexOf(CONFIGURE_HEAD), job.indexOf(CLEANUP_HEAD));
+    const cleanup = job.slice(job.indexOf(CLEANUP_HEAD)).split(/^ {6}- /m)[1];
+    assert.match(`      - ${cleanup}`, /^ {6}- name: Remove private Swift package access\n        if: \$\{\{ always\(\) \}\}\n/, `${name}/${jobId}: cleanup always runs`);
+    assert.doesNotMatch(configure.split(/^ {6}- /m)[1].split("        run: |\n")[1], /secrets\./, `${name}/${jobId}: no secret expression in the configure run script`);
+    // Nothing before the configure step touches the credential.
+    assert.equal(job.slice(0, job.indexOf(CONFIGURE_HEAD)).includes("RIGHT_GIT_PRIVATE_TOKEN"), false);
+    // Every secret expression in the job is an env value; no run script line contains one.
+    let inRun = false;
+    for (const line of job.split("\n")) {
+      if (/^ {8}run: \|$/.test(line)) { inRun = true; continue; }
+      if (inRun && /^ {0,8}\S/.test(line)) inRun = false;
+      if (inRun) assert.doesNotMatch(line, /secrets\./, `${name}/${jobId}: secret in a run script`);
+      if (line.includes("secrets.")) assert.match(line, SW_SECRET_ENV_LINE);
+    }
+  }
+});
+
+test("regenerate lanes remove the credential before the branch is pushed", () => {
+  for (const name of ["node/regenerate", "rust-hybrid/regenerate"]) {
+    const [, manifest, lane] = SW_CASES.find(([n]) => n === name);
+    const out = swRender(manifest, lane, SW_SET);
+    assert.ok(out.indexOf(CLEANUP_HEAD) < out.indexOf("git push origin"), `${name}: cleanup precedes the push`);
+    assert.ok(out.indexOf(CONFIGURE_HEAD) < out.indexOf("Regenerate derived artifacts"), `${name}: configure precedes the regenerate script`);
+    assert.match(out, /^on:\n  workflow_dispatch:\npermissions:/m);
+  }
+});
+
+test("rust-hybrid dev-artifact: the Windows job never gets the steps; a Windows-only devArtifact renders nothing new", () => {
+  const out = swRender(SW_RUST, "ci", SW_SET);
+  const jobs = swJobs(out);
+  assert.match(jobs["dev-artifact-mac"], /# QA gate job, not after it, and reaches only the private Swift package secret\./);
+  assert.match(jobs["dev-artifact-windows"], /# QA gate job, not after it, and never reaches a secret\./);
+  assert.doesNotMatch(jobs["dev-artifact-windows"], /Swift package|RIGHT_GIT_PRIVATE_TOKEN/);
+  assert.match(jobs["dev-artifact-mac"], /persist-credentials: false/);
+  assert.match(jobs["dev-artifact-mac"], /if: \$\{\{ github\.event_name == 'push' && github\.ref_name == github\.event\.repository\.default_branch \}\}/);
+  const windowsOnly = { ...SW_RUST, devArtifact: { windows: "unsigned", parallel: true, buildScript: "build:dev", windowsGlob: "target/release/*.exe" } };
+  assert.equal(
+    swRender(windowsOnly, "ci", SW_SET).slice(swRender(windowsOnly, "ci", SW_SET).indexOf("\n  dev-artifact-windows:")),
+    swRender(windowsOnly, "ci").slice(swRender(windowsOnly, "ci").indexOf("\n  dev-artifact-windows:")),
+  );
+});
+
+test("every template's triggers are safe for the swift credential: none is pull_request_target or workflow_run", () => {
+  const templates = [
+    ...fs.readdirSync(templatesDir).filter((f) => f.endsWith(".yml")).map((f) => path.join(templatesDir, f)),
+    ...fs.readdirSync(path.join(templatesDir, "profiles", "rust-hybrid")).filter((f) => f.endsWith(".yml")).map((f) => path.join(templatesDir, "profiles", "rust-hybrid", f)),
+  ];
+  assert.equal(templates.length, 10);
+  for (const file of templates) {
+    const onBlock = fs.readFileSync(file, "utf8").split("\njobs:")[0].split(/^on:/m)[1] ?? "";
+    assert.doesNotMatch(onBlock.split(/^permissions:/m)[0], /pull_request_target|workflow_run/, path.relative(templatesDir, file));
+  }
+});
+
+test("rendering the credential steps under pull_request_target or workflow_run is refused", () => {
+  const step = swiftPrivatePackagesConfigureStep({ swift: SW_SET });
+  for (const trigger of ["pull_request_target:", "workflow_run:\n    workflows: [ci]\n    types: [completed]"]) {
+    const template = `name: x\non:\n  ${trigger}\njobs:\n  a:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo hi\${SWIFT_PRIVATE_CONFIGURE_STEP}\n`;
+    assert.throws(() => renderTemplate(template, { SWIFT_PRIVATE_CONFIGURE_STEP: step }), /refusing to render the private Swift package credential steps/);
+    // The same trigger without the credential step is not this guard's business.
+    assert.doesNotThrow(() => renderTemplate(template, { SWIFT_PRIVATE_CONFIGURE_STEP: "" }));
+  }
+  const flow = "name: x\non: [pull_request_target]\njobs:\n  a:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo hi${SWIFT_PRIVATE_CONFIGURE_STEP}\n";
+  assert.throws(() => renderTemplate(flow, { SWIFT_PRIVATE_CONFIGURE_STEP: step }), /refusing/);
+  const safe = "name: x\non:\n  pull_request:\n  workflow_dispatch:\njobs:\n  a:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo hi${SWIFT_PRIVATE_CONFIGURE_STEP}\n";
+  assert.doesNotThrow(() => renderTemplate(safe, { SWIFT_PRIVATE_CONFIGURE_STEP: step }));
+});
+
+test("swift.privatePackages lane validation: needs ci, qualification, release-candidate or regenerate; refuses lanes that never render it", () => {
+  const errorsFor = (lanes) => validateManifest({ ...SW_NODE, lanes, regenerate: lanes.includes("regenerate") ? SW_NODE.regenerate : undefined, swift: SW_SET }).errors;
+  for (const lane of ["ci", "qualification", "release-candidate", "regenerate"]) {
+    assert.deepEqual(errorsFor([lane]), [], lane);
+  }
+  for (const lanes of [["package-smoke"], ["publish-npm"], ["publish-package-managers"]]) {
+    assert.ok(errorsFor(lanes).some((e) => /requires one of the lanes/.test(e)), lanes.join());
+  }
+});
+
+test("rendered swift.privatePackages workflows for every lane pass actionlint", (t) => {
+  const bin = spawnSync("actionlint", ["-version"], { encoding: "utf8" });
+  if (bin.error) return t.skip("actionlint not installed");
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "right-git-swift-lanes-"));
+  try {
+    fs.mkdirSync(path.join(dir, ".github", "workflows"), { recursive: true });
+    fs.writeFileSync(path.join(dir, ".github", "actionlint.yaml"), "self-hosted-runner:\n  labels:\n    - xcode-*\n");
+    const files = SW_CASES.flatMap(([name, manifest, lane]) => {
+      const file = path.join(dir, ".github", "workflows", `${name.replace("/", "-")}.yml`);
+      fs.writeFileSync(file, swRender(manifest, lane, { privatePackages: [...SWIFT_ONE, { host: "git.example.com", secret: "SECOND_SWIFT_TOKEN" }] }));
+      return [file];
+    });
+    // The node release-candidate template's ownership step reads inputs.source_revision, which its
+    // workflow_dispatch does not declare (true of the 0.2.40 render too, and unrelated to these steps).
+    const result = spawnSync("actionlint", ["-shellcheck=", "-pyflakes=", "-ignore", 'property "source_revision" is not defined', "-config-file", path.join(dir, ".github", "actionlint.yaml"), ...files], { encoding: "utf8" });
     assert.equal(result.status, 0, result.stdout + result.stderr);
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });

@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.2.41
+
+- `swift.privatePackages` now renders its configure and cleanup steps into every lane that builds Swift, not only `ci`. Same steps as `ci` (one implementation): the token reaches the step through `env`, `~/.netrc` is mode 600 and never overwritten, the `insteadOf` rewrite is job-scoped, and the cleanup step runs with `if: always()`. Jobs that now carry them, when the manifest sets `swift.privatePackages` and declares the lane:
+  - `release-candidate` (both profiles): the `candidate` job. rust-hybrid: configure before "Build unsigned release candidate", cleanup right after "Check unsigned release candidate", so the stage-summary and upload steps run without the credential. node: configure after the ownership step, cleanup after `check-release.mjs`.
+  - `qualification` (node): the `qualification` job (`test:all`). The `schema`, `security`, `hardening` and `conformance` jobs stay secret-free.
+  - `regenerate` (both profiles): the `regenerate` job. Configure before the regenerate script; cleanup after the test or gate step and before the pull-request step, so the `git push` never runs under the rewrite.
+  - rust-hybrid `devArtifact.parallel`: the `dev-artifact-mac` job (around "Build dev app"). `dev-artifact-windows` and `dev-mac-sign` stay secret-free.
+- Never rendered: `package-smoke` (clean-room tarball check), `publish-npm`, `publish-package-managers`, and the signing, installed-qualification and publish jobs of the release chain. Their output is byte-identical with and without `swift.privatePackages`.
+- Rendering the configure step into a workflow whose `on:` block lists `pull_request_target` or `workflow_run` now throws. No shipped template has either trigger.
+- Validation: `swift.privatePackages` needs one of the lanes `ci`, `qualification`, `release-candidate` or `regenerate` (it previously needed `ci`).
+- Unset, every lane renders byte-identical to 0.2.40 (pinned by hash in `render.test.mjs`).
+- `@rightkit/release` `right-git-ci-only` still allows the secret only in the `ci` job of `ci.yml` and refuses it when the workflow has a `workflow_dispatch` trigger, so a repository using the new lanes fails its release check until that policy is extended (see the README).
+
 ## 0.2.40
 
 - `profile: rust-hybrid` ci: the "Detect Rust-affecting changes" step no longer diffs a push against the previous push (`github.event.before`). A failed run followed by a commit with no Rust changes produced a green run that never ran the Rust checks for the earlier commits. Each matrix job now records the commit it last passed on (a small `actions/cache` entry written as the job's final steps) and a push or manual run is diffed against that commit. No marker, an evicted marker, or a marker that is not an ancestor of the pushed commit means `changed=true`. Pull requests still diff against the PR base. The first run after `right-git sync` has no marker and runs the full Rust checks once.

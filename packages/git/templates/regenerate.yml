@@ -42,7 +42,7 @@ jobs:
           package-manager-cache: false
 ${PACKAGE_MANAGER_SETUP}
       - run: ${INSTALL_COMMAND}
-${OWNERSHIP_STEP}
+${OWNERSHIP_STEP}${SWIFT_PRIVATE_CONFIGURE_STEP}
       - name: Regenerate derived artifacts
         run: ${PM_RUN} ${REGENERATE_SCRIPT}
       - name: Detect regenerated files
@@ -58,7 +58,7 @@ ${OWNERSHIP_STEP}
           fi
       - name: Test the regenerated tree
         if: steps.changes.outputs.changed == 'true'
-        run: ${PM_RUN} test
+        run: ${PM_RUN} test${SWIFT_PRIVATE_CLEANUP_STEP}
       - name: Open a pull request with the regenerated files
         if: steps.changes.outputs.changed == 'true'
         shell: bash

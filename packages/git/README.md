@@ -106,9 +106,9 @@ Both keys are opt-in; unset, the rendered workflows are byte-identical.
 }
 ```
 
-## Private Swift packages (ci lanes)
+## Private Swift packages (ci, qualification, release-candidate, regenerate lanes)
 
-Set `swift.privatePackages` to let a public repository's `ci` job fetch a private Swift package mirror, for example `bogusyogi/rightkit-swift`:
+Set `swift.privatePackages` to let a public repository's workflows fetch a private Swift package mirror, for example `bogusyogi/rightkit-swift`:
 
 ```json
 {
@@ -117,15 +117,28 @@ Set `swift.privatePackages` to let a public repository's `ci` job fetch a privat
 }
 ```
 
-- `host` is a bare host name, unique within the list (at most four entries). `secret` is a GitHub Actions secret name (letters, digits, `_`; not starting with a digit or `GITHUB_`).
-- The secret must be a fine-grained token with `contents: read` on the mirror. The repository owner provisions it; the workflow never prints it.
-- The configure step runs right before the first build or test step: the rust-hybrid gate, or the node test steps. It writes `~/.netrc` (`machine <host> login x-access-token password <token>`, mode 600) and a job-scoped `git config --global url."https://x-access-token:<token>@<host>/".insteadOf "https://<host>/"`. The token reaches the step through `env`, not the run script.
-- It refuses to run when `~/.netrc` already exists, so a persistent self-hosted runner's own file is never overwritten. The cleanup step runs with `if: always()` at the end of the ci job, removes the `~/.netrc` and the git rewrite it created, and leaves a pre-existing file alone.
-- Any code that runs after the configure step in that job can read the token. Keep the mirror token read-only.
-- Only the `ci` workflow renders these steps. `release-candidate`, the publish lanes and the `devArtifact` jobs do not get them. `devArtifact` jobs stay secret-free by design.
-- Refused with `devArtifact.dispatch: true`: a manual dispatch of any ref would reach the secret.
-- A run from a fork gets no secrets, so the configure step fails with a message that names the secret.
+- `host` is a bare host name, unique within the list (at most four entries). `secret` is a GitHub Actions secret name (letters, digits, `_`; not starting with a digit or `GITHUB_`). The manifest needs at least one of the lanes `ci`, `qualification`, `release-candidate`, `regenerate`.
+- The secret must be a fine-grained token with `contents: read` on the mirror repository only, and nothing else. The repository owner provisions it; the workflow never prints it.
+- One implementation renders everywhere. The configure step runs right before the first build or test step of the job. It writes `~/.netrc` (`machine <host> login x-access-token password <token>`, mode 600) and a job-scoped `git config --global url."https://x-access-token:<token>@<host>/".insteadOf "https://<host>/"`. The token reaches the step through `env` (`${{ secrets.<NAME> }}` in an `env:` block), never the run script.
+- It refuses to run when `~/.netrc` already exists, so a persistent self-hosted runner's own file is never overwritten. The cleanup step runs with `if: always()` after the last build or test step of the job, removes the `~/.netrc` and the git rewrite it created, and leaves a pre-existing file alone.
+- Any code that runs between the configure and cleanup steps in that job can read the token. Keep the mirror token read-only.
 - Unset, the rendered workflows are byte-identical to earlier versions.
+- A run from a fork gets no secrets, so the configure step fails with a message that names the secret.
+- Refused with `devArtifact.dispatch: true`: a manual dispatch of any ref would reach the secret. Rendering the steps into a workflow triggered by `pull_request_target` or `workflow_run` throws; no shipped template has either trigger.
+
+Which jobs get the steps, and why each is safe:
+
+| Lane (workflow) | Job | Position | Triggers and why it is safe |
+| --- | --- | --- | --- |
+| `ci` (both profiles) | `ci` (rust-hybrid), `test` (node) | rust-hybrid: before the gate, cleanup after it. node: after install, cleanup is the last step | `pull_request` and `push` to `main`. Fork pull requests get no secrets, so the job fails closed |
+| `ci`, rust-hybrid with `devArtifact.parallel` | `dev-artifact-mac` | before "Build dev app", cleanup before the staging and upload steps | Push to the default branch only (dispatch is refused). `dev-artifact-windows` and `dev-mac-sign` never get the steps |
+| `qualification` (node) | `qualification` (runs `test:all`) | after the ownership step, cleanup right after `test:all` | `pull_request` and `push` to `main`, as ci. `schema`, `security`, `hardening` and `conformance` stay secret-free; `security` is a secret-egress suite |
+| `release-candidate` (both profiles) | `candidate` | rust-hybrid: before "Build unsigned release candidate", cleanup right after "Check unsigned release candidate". node: after the ownership step, cleanup after `check-release.mjs` | rust-hybrid: `workflow_dispatch` only. node: `workflow_dispatch` and `v*` tag pushes. Dispatch needs write access, and this job holds no signing credential. The admission, signing, installed-qualification and publish jobs never get the steps |
+| `regenerate` (both profiles) | `regenerate` | before the regenerate script, cleanup after the test or gate step and before the pull-request step | `workflow_dispatch` only. The cleanup runs before `git push`, so the push never runs under the `insteadOf` rewrite |
+
+Never rendered: `package-smoke` (a clean-room tarball check), `publish-npm` and `publish-package-managers` (publishing credentials), and the release chain's `windows-sign`, `macos-sign`, `installed-qualification` and `publish` jobs (signing and publish credentials). Their output is the same with and without `swift.privatePackages`.
+
+Release policy. `@rightkit/release` enforces the `right-git-ci-only` policy over the rendered workflows (`validateHostedWorkflows` in `release.mjs`). It refuses a managed workflow that references any secret outside an allowlist, and today that allowlist accepts the `swift.privatePackages` secret only when all of these hold: the workflow is `ci.yml`, the reference sits inside the job named `ci`, on a `RIGHT_GIT_PRIVATE_TOKEN_<n>: ${{ secrets.<NAME> }}` env line of the "Configure private Swift package access" or "Remove private Swift package access" step where entry `<n>` of `swift.privatePackages` names `<NAME>`, the manifest lists the `ci` lane, `devArtifact.dispatch` is not true, and the file contains no `workflow_dispatch` at all. So until the allowlist is extended, the other lanes above fail a release check, and so does the node profile's ci (its job is named `test`, not `ci`). The extension must add, with the same env-line and step-name checks: `qualification.yml` job `qualification`; `release-candidate.yml` job `candidate`; `regenerate.yml` job `regenerate`; `ci.yml` jobs `dev-artifact-mac` and (node) `test`. The no-`workflow_dispatch` rule needs a per-lane form, because `release-candidate.yml` and `regenerate.yml` are dispatch lanes by design. The secret must still never appear in the signing, qualification, publish or other jobs.
 
 ## Entry points
 
@@ -147,4 +160,4 @@ pnpm exec right-git drift --all
 
 - The optional `publish-package-managers` lane needs two long-lived tokens in GitHub Actions secrets. Their names and scope are in the package templates, and they are not zero-exposure. Read `docs/rules/github-access.md` in the workspace before enabling it.
 - Manifest fields are charset-checked before they reach workflow YAML.
-- `swift.privatePackages` renders a secret reference into ci.yml. The `right-git-ci-only` policy in `@rightkit/release` refuses managed workflows that reference secrets outside its allowlist, so a release check fails until that allowlist names the private-package secret.
+- `swift.privatePackages` renders a secret reference into the workflows listed in its section. The `right-git-ci-only` policy in `@rightkit/release` refuses managed workflows that reference secrets outside its allowlist, and that allowlist covers only the `ci` job of `ci.yml`, so a release check fails for the other lanes until it is extended.

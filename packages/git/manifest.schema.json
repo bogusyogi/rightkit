@@ -102,7 +102,7 @@
       "type": "object",
       "additionalProperties": false,
       "required": ["privatePackages"],
-      "description": "Opt-in read access to private Swift package mirrors from the ci lane. Renders a configure step before the first build or test step and an always-run cleanup step at the end of the ci job. Unset renders nothing.",
+      "description": "Opt-in read access to private Swift package mirrors. Renders a configure step before the first build or test step and an always-run cleanup step after the last one, in the ci job, the qualification job, the release-candidate candidate job, the regenerate job and the parallel dev-artifact-mac job. Needs at least one of the lanes ci, qualification, release-candidate or regenerate. Unset renders nothing.",
       "properties": {
         "privatePackages": {
           "type": "array",

@@ -35,10 +35,10 @@ jobs:
           package-manager-cache: false
 ${PACKAGE_MANAGER_SETUP}
       - run: ${INSTALL_COMMAND}
-${OWNERSHIP_STEP}
+${OWNERSHIP_STEP}${SWIFT_PRIVATE_CONFIGURE_STEP}
       - run: node --test tests/release-candidate.test.mjs
       - run: node scripts/release/build-candidate.mjs --platform current --out "${{ runner.temp }}/${ARTIFACT_PREFIX}-rc"
-      - run: node scripts/release/check-release.mjs "${{ runner.temp }}/${ARTIFACT_PREFIX}-rc"
+      - run: node scripts/release/check-release.mjs "${{ runner.temp }}/${ARTIFACT_PREFIX}-rc"${SWIFT_PRIVATE_CLEANUP_STEP}
       - uses: actions/upload-artifact@v4
         with:
           name: ${ARTIFACT_PREFIX}-rc-${{ matrix.os }}
