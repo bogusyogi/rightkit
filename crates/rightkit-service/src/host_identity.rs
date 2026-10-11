@@ -231,9 +231,15 @@ fn is_single_component(name: &OsStr) -> bool {
 }
 
 /// `<ancestor of exe, levels_up levels above it>/<relative>`. `levels_up` 1 is the directory that
-/// holds `exe`. `None` for 0 levels, a path with no such ancestor, or an absolute `relative`.
+/// holds `exe`. `None` for 0 levels, a path with no such ancestor, or a `relative` that is not
+/// relative: absolute, or (Windows) rooted without a drive (`\x`, `/x`) or carrying a drive
+/// (`C:x`), each of which `join` would let replace the base.
 fn up_and_join(exe: &Path, levels_up: usize, relative: &Path) -> Option<PathBuf> {
-    if levels_up == 0 || relative.is_absolute() {
+    use std::path::Component;
+    let leaves_base = relative
+        .components()
+        .any(|part| matches!(part, Component::Prefix(_) | Component::RootDir));
+    if levels_up == 0 || relative.is_absolute() || leaves_base {
         return None;
     }
     exe.ancestors()
@@ -1313,6 +1319,11 @@ mod tests {
         );
         assert_eq!(up_and_join(engine, 0, Path::new("x")), None);
         assert_eq!(up_and_join(engine, 1, Path::new("/etc/passwd")), None);
+        // Windows: a rooted path without a drive, and a drive-relative one, are not relative.
+        #[cfg(windows)]
+        for escape in ["\Windows\System32\cmd.exe", "C:cmd.exe", "C:\cmd.exe"] {
+            assert_eq!(up_and_join(engine, 1, Path::new(escape)), None, "{escape}");
+        }
         assert_eq!(up_and_join(Path::new("engine"), 5, Path::new("x")), None);
     }
 
