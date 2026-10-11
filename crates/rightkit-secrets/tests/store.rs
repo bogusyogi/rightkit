@@ -1421,15 +1421,27 @@ fn put_create_only_never_replaces_and_replace_always_does() {
     }
 }
 
+/// `src/migrate.rs` without its test module, for the two source guards below. Line endings are
+/// normalised first: a Windows checkout has CRLF, and the test-module marker would then not be
+/// found, so the guards would read the tests as production code. The marker must be there.
+fn migrate_production_source() -> String {
+    const TESTS: &str = "#[cfg(test)]\nmod tests";
+    let src = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/src/migrate.rs"))
+        .unwrap()
+        .replace("\r\n", "\n");
+    let (production, _tests) = src
+        .split_once(TESTS)
+        .expect("migrate.rs ends with its test module");
+    production.to_string()
+}
+
 /// Guard for `migrate.rs` ONLY, not for the crate: the migration module reaches the store's
 /// writers only through the guarded primitives. A new `.set(`, `.delete(` or bare
 /// `.add_if_absent(` there fails this test. (`apple_helper::AppleHelper` is a separate client of
 /// the Swift helper and is outside `Store`.)
 #[test]
 fn migration_code_reaches_the_store_only_through_the_guarded_primitives() {
-    let src =
-        std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/src/migrate.rs")).unwrap();
-    let production = src.split("#[cfg(test)]\nmod tests").next().unwrap();
+    let production = migrate_production_source();
     for banned in [".set(", ".set_str(", ".delete(", ".add_if_absent("] {
         assert!(
             !production.contains(banned),
@@ -1449,9 +1461,7 @@ fn migration_code_reaches_the_store_only_through_the_guarded_primitives() {
 /// file-mutating call reappearing in `migrate.rs` fails this test.
 #[test]
 fn the_plaintext_migration_has_no_code_that_modifies_or_removes_a_file() {
-    let src =
-        std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/src/migrate.rs")).unwrap();
-    let production = src.split("#[cfg(test)]\nmod tests").next().unwrap();
+    let production = migrate_production_source();
     for banned in [
         "remove_file",
         "OpenOptions",

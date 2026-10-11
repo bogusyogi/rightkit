@@ -2,6 +2,8 @@
 export class TimeoutError extends Error {
   /** Set when the wait was given failureArtifacts and the artifacts were written. */
   artifacts?: { json: string; screenshot?: string };
+  /** Set on a navigation timeout: what the page reported while the navigation was pending. */
+  navigation?: { method: string; waitUntil: string; loaderId: string | null; sameDocument: boolean; documentCommitted: boolean; lifecycle: string[] };
   constructor(message: string) { super(message); this.name = 'TimeoutError'; }
 }
 
