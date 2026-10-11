@@ -2,6 +2,8 @@
 //! nothing else here can race the variables it sets.
 
 mod common;
+#[path = "common/refused.rs"]
+mod refused;
 
 use std::net::IpAddr;
 use std::time::Duration;
@@ -152,10 +154,8 @@ fn environment_proxy_is_used_trusted_and_honours_no_proxy() {
 
     // Credentials in an environment proxy never reach an error or the diagnostic, and the
     // proxy's private address is accepted because the environment configured it.
-    let dead = {
-        let l = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
-        l.local_addr().unwrap().port()
-    };
+    let refused = refused::RefusedPort::hold();
+    let dead = refused.port();
     std::env::set_var(
         "ALL_PROXY",
         format!("http://svc-user:svc-pass-4@127.0.0.1:{dead}"),

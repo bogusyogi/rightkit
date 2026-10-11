@@ -11,6 +11,9 @@ use std::time::Duration;
 use rightkit_http::testing::{loopback_policy, MockResponse, MockServer};
 use rightkit_http::*;
 
+#[path = "common/refused.rs"]
+mod refused;
+
 fn ip(s: &str) -> IpAddr {
     s.parse().unwrap()
 }
@@ -699,10 +702,8 @@ fn errors_events_and_debug_never_echo_a_url_query_or_userinfo() {
     assert!(format!("{req:?}").contains("?[redacted]"));
 
     // Connection failure: nothing listens on the port; ureq's text must not echo the URL.
-    let closed = {
-        let l = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
-        l.local_addr().unwrap().port()
-    };
+    let refused = refused::RefusedPort::hold();
+    let closed = refused.port();
     let c = client(loopback_policy(), 0);
     let err = c
         .send(&Request::get(format!(

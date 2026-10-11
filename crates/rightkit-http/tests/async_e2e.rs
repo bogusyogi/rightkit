@@ -8,6 +8,9 @@ use futures_util::StreamExt;
 use rightkit_http::testing::{MockResponse, MockServer};
 use rightkit_http::*;
 
+#[path = "common/refused.rs"]
+mod refused;
+
 fn fast_retry(max: u32) -> RetryPolicy {
     RetryPolicy {
         max_attempts: max,
@@ -134,10 +137,8 @@ async fn exhausted_retries_surface_status_and_non_idempotent_rules() {
 
 #[tokio::test]
 async fn connection_refused_is_connect_phase_and_retried() {
-    let port = {
-        let l = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
-        l.local_addr().unwrap().port()
-    };
+    let refused = refused::RefusedPort::hold();
+    let port = refused.port();
     let retries = Arc::new(Mutex::new(0u32));
     let sink = retries.clone();
     let c = client(ClientConfig {
