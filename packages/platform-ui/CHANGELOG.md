@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.2.3
+
+Optional parity options for ViewRight's three families. Every default equals 0.2.2 except the one fix below.
+
+Fixed:
+- `useFocusTrap` with `captureOpener: "effect"`: under React StrictMode the second effect run recorded the trap's own first control as the opener, so closing in development sent focus to a node about to be removed. The opener is now recorded once per open (never from inside the container, never over an existing value) and cleared when the trap really closes. `"render"` capture is unchanged.
+
+Added:
+- `useFocusTrap` `restoreWhen: "inactive" | "always"` (default `"inactive"`): `"always"` restores focus on every effect cleanup.
+- `useListNavigation` `imeGuard` (default true), `emptyIndex: "clamp" | "preserve"` (default `"clamp"`; `"preserve"` keeps the -1 that ArrowDown leaves on an empty list, so nothing is selected when results arrive), `scrollOn: "active" | "active-or-length"`, and `rawIndex` in the result. Exported `readIndex`. ArrowUp with nothing selected now goes to the first item (the last when wrapping); this can only be reached with `emptyIndex: "preserve"`.
+- `useExitTransition` `onActionWhileClosing: "drop" | "run"` (default `"drop"`): `"run"` runs an action passed to `close` while closing or pending. A double activation then executes it twice; for parity only.
+
 ## 0.2.2
 
 Headless behaviour hooks for apps whose markup is fixed. Everything is added to `@rightkit/platform-ui/headless`; nothing is imported from `@tauri-apps/plugin-os`. See the README section "Headless behaviour hooks" for the API table and a worked menu, modal and palette example.

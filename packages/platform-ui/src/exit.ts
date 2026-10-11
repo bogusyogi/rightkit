@@ -13,6 +13,13 @@ export interface ExitTransitionOptions {
    * or rejected), the phase staying `open` with `pending` true meanwhile.
    */
   closeAfter?: "immediately" | "settled";
+  /**
+   * `close(action)` called while the exit is running or a `"settled"` action is pending. `"drop"` (default): the
+   * action is ignored. `"run"`: the action still runs (the close itself is never repeated), as a wrapper that always
+   * calls its action would. A double Enter or double click then executes the action twice; this exists for parity
+   * with such wrappers, not as a recommendation. A finished (`closed`) transition always drops.
+   */
+  onActionWhileClosing?: "drop" | "run";
   /** Start in `open` (default) or `closed`. Read once, when the hook mounts. */
   initialOpen?: boolean;
   /** Called once when the exit starts (phase becomes `closing`, or `closed` when `exitMs` <= 0). */
@@ -37,7 +44,7 @@ export interface ExitTransition {
   /** Start (or restart) an open instance. Any exit or action in flight belongs to the old instance and is ignored. */
   open(): void;
   /**
-   * Close, optionally running `action` (the chosen command). Ignored unless `open` and not `pending`. Always
+   * Close, optionally running `action` (the chosen command). Ignored unless `open` and not `pending` (see `onActionWhileClosing` for the action). Always
    * returns a promise: it resolves once the exit has started (`"settled"`: after `action` settled) and rejects
    * with `action`'s error, but the close still happens.
    */
@@ -98,7 +105,10 @@ export function createExitTransition(options: () => ExitTransitionOptions): Core
       set({ phase: "open", pending: false });
     },
     async close(action) {
-      if (state.phase !== "open" || state.pending) return;
+      if (state.phase !== "open" || state.pending) {
+        if (action && state.phase !== "closed" && options().onActionWhileClosing === "run") await action();
+        return;
+      }
       const gen = generation;
       if (action && (options().closeAfter ?? "immediately") === "settled") {
         set({ phase: "open", pending: true });

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { clampIndex, moveIndex, selectByPointer, typeaheadMatch, type ListNavState } from "./list.js";
+import { clampIndex, readIndex, moveIndex, selectByPointer, typeaheadMatch, type ListNavState } from "./list.js";
 
 describe("clampIndex", () => {
   it("clamps to the item range and gives -1 for an empty list", () => {
@@ -30,6 +30,11 @@ describe("moveIndex", () => {
     expect(moveIndex(2, 4, "next", false, dis)).toBe(2);
     expect(moveIndex(2, 4, "last", true, dis)).toBe(2);
     expect(moveIndex(2, 4, "first", true, dis)).toBe(0);
+  });
+  it("prev from -1 (nothing selected) goes to the first item, or the last when wrapping; next goes to the first", () => {
+    expect(moveIndex(-1, 5, "prev", false)).toBe(0);
+    expect(moveIndex(-1, 5, "prev", true)).toBe(4);
+    expect(moveIndex(-1, 5, "next", false)).toBe(0);
   });
   it("leaves the index when every item is disabled and returns -1 for an empty list", () => {
     expect(moveIndex(1, 3, "next", true, () => true)).toBe(1);
@@ -75,5 +80,19 @@ describe("typeaheadMatch", () => {
     expect(typeaheadMatch(labels, "c", 0, (i) => i === 1)).toBe(3);
     expect(typeaheadMatch(labels, "z", 0)).toBe(-1);
     expect(typeaheadMatch([], "a", 0)).toBe(-1);
+  });
+});
+
+describe("readIndex", () => {
+  it("clamp mode floors at 0 for a non-empty list and gives -1 for an empty one", () => {
+    expect(readIndex(-1, 3, "clamp")).toBe(0);
+    expect(readIndex(7, 3, "clamp")).toBe(2);
+    expect(readIndex(0, 0, "clamp")).toBe(-1);
+  });
+  it("preserve mode keeps -1 (nothing selected) and still caps at the last item", () => {
+    expect(readIndex(-1, 3, "preserve")).toBe(-1);
+    expect(readIndex(-5, 3, "preserve")).toBe(-1);
+    expect(readIndex(7, 3, "preserve")).toBe(2);
+    expect(readIndex(0, 0, "preserve")).toBe(-1);
   });
 });

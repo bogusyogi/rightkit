@@ -37,6 +37,12 @@ export interface FocusTrapOptions {
    * `"none"` wraps neither. Tab on the last control and Shift+Tab on the first always wrap.
    */
   fromOutside?: "both" | "backward" | "none";
+  /**
+   * When a cleanup restores focus. `"inactive"` (default): only when the container is gone or `active` is false
+   * (so React StrictMode's simulated unmount leaves focus alone). `"always"`: on every effect cleanup, as a plain
+   * `useEffect(() => () => opener.focus())` would.
+   */
+  restoreWhen?: "inactive" | "always";
   /** Ignore `[hidden]` controls when finding the first and last. Default true. */
   skipHidden?: boolean;
   /** Tab with no focusable control: `"prevent"` (default) swallows it, `"pass"` leaves it native. */
@@ -45,12 +51,22 @@ export interface FocusTrapOptions {
   focusFallback?: "container" | "none";
 }
 
-/** Framework-free core of {@link useFocusTrap}: attach to `el`, return the detach (and restore) function. */
+/**
+ * Framework-free core of {@link useFocusTrap}: attach to `el`, return the detach (and restore) function.
+ * `opener` is a ref the caller keeps across effect runs. With `captureOpener: "effect"` the core fills it once per
+ * open (never from a node inside `el`, never over a value already there) and clears it when the trap really closes,
+ * so StrictMode's cleanup-then-re-run cannot replace the real opener with the trap's own first control.
+ */
 export function attachFocusTrap(
   el: HTMLElement,
-  config: Required<Omit<FocusTrapOptions, "captureOpener">> & { opener: HTMLElement | null; isActive: () => boolean },
+  config: Required<FocusTrapOptions> & { opener: { current: HTMLElement | null }; isActive: () => boolean },
 ): () => void {
-  const { autoFocus, trap, restore, restoreTiming, fromOutside, skipHidden, emptyList, focusFallback, opener, isActive } = config;
+  const { autoFocus, trap, restore, restoreTiming, restoreWhen, captureOpener, fromOutside, skipHidden, emptyList, focusFallback, opener, isActive } = config;
+  if (captureOpener === "effect" && !opener.current) {
+    const candidate = el.ownerDocument.activeElement as HTMLElement | null;
+    if (candidate && candidate !== el && !el.contains(candidate)) opener.current = candidate;
+  }
+  const target = opener.current;
   const items = () => {
     const all = Array.from(el.querySelectorAll<HTMLElement>(FOCUSABLE));
     return skipHidden ? all.filter((n) => !n.hasAttribute("hidden")) : all;
@@ -78,15 +94,16 @@ export function attachFocusTrap(
   if (trap) el.addEventListener("keydown", onKeyDown);
   return () => {
     if (trap) el.removeEventListener("keydown", onKeyDown);
-    if (!restore) return;
-    // Restore only on a real close. React StrictMode runs this cleanup against a still-mounted
+    // By default restore only on a real close. React StrictMode runs this cleanup against a still-mounted
     // dialog and would otherwise yank focus back to the opener.
-    const restoreFocus = () => {
-      if (!el.isConnected || !isActive()) opener?.focus?.();
+    const settle = () => {
+      const closed = !el.isConnected || !isActive();
+      if (restore && (closed || restoreWhen === "always")) target?.focus?.();
+      if (closed && captureOpener === "effect") opener.current = null;
     };
-    if (restoreTiming === "sync") restoreFocus();
-    else if (typeof restoreTiming === "number") setTimeout(restoreFocus, restoreTiming);
-    else queueMicrotask(restoreFocus);
+    if (restoreTiming === "sync") settle();
+    else if (typeof restoreTiming === "number" && restore) setTimeout(settle, restoreTiming);
+    else queueMicrotask(settle);
   };
 }
 
@@ -101,16 +118,17 @@ export function useFocusTrap(ref: RefObject<HTMLElement | null>, active = true, 
     trap = true,
     restore = true,
     restoreTiming = "microtask",
+    restoreWhen = "inactive",
     captureOpener = "render",
     fromOutside = "both",
     skipHidden = true,
     emptyList = "prevent",
     focusFallback = "container",
   } = opts;
-  // Captured during the first render: React's `autoFocus` attribute moves focus at commit, before
-  // any effect runs, so reading activeElement inside the effect would find the dialog's own button.
+  // "render": captured during the first render, since React's `autoFocus` attribute moves focus at commit, before
+  // any effect runs. "effect": filled by the core on the first effect run of an open (see attachFocusTrap).
   const activeRef = useLatest(active);
-  const opener = useRef<HTMLElement | null>(typeof document === "undefined" ? null : (document.activeElement as HTMLElement | null));
+  const opener = useRef<HTMLElement | null>(captureOpener === "render" && typeof document !== "undefined" ? (document.activeElement as HTMLElement | null) : null);
   useEffect(() => {
     const el = ref.current;
     if (!active || !el) return;
@@ -119,14 +137,16 @@ export function useFocusTrap(ref: RefObject<HTMLElement | null>, active = true, 
       trap,
       restore,
       restoreTiming,
+      restoreWhen,
+      captureOpener,
       fromOutside,
       skipHidden,
       emptyList,
       focusFallback,
-      opener: captureOpener === "effect" ? (document.activeElement as HTMLElement | null) : opener.current,
+      opener,
       isActive: () => activeRef.current,
     });
-  }, [ref, active, autoFocus, trap, restore, restoreTiming, captureOpener, fromOutside, skipHidden, emptyList, focusFallback, activeRef]);
+  }, [ref, active, autoFocus, trap, restore, restoreTiming, restoreWhen, captureOpener, fromOutside, skipHidden, emptyList, focusFallback, activeRef]);
 }
 
 /**

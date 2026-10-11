@@ -51,20 +51,20 @@ For an app whose markup and look are fixed (ViewRight): keep your JSX and classe
 
 | Hook / function | Options (default) | Returns |
 |---|---|---|
-| `useFocusTrap(ref, active = true, opts)` | `autoFocus` (true), `trap` (true), `restore` (true), `restoreTiming` (`"microtask"` \| `"sync"` \| ms), `captureOpener` (`"render"` \| `"effect"`), `fromOutside` (`"both"` \| `"backward"` \| `"none"`), `skipHidden` (true), `emptyList` (`"prevent"` \| `"pass"`), `focusFallback` (`"container"` \| `"none"`) | nothing |
+| `useFocusTrap(ref, active = true, opts)` | `autoFocus` (true), `trap` (true), `restore` (true), `restoreTiming` (`"microtask"` \| `"sync"` \| ms), `restoreWhen` (`"inactive"` \| `"always"`), `captureOpener` (`"render"` \| `"effect"`), `fromOutside` (`"both"` \| `"backward"` \| `"none"`), `skipHidden` (true), `emptyList` (`"prevent"` \| `"pass"`), `focusFallback` (`"container"` \| `"none"`) | nothing |
 | `useModalDismiss(onClose, opts)` | `escape` (false), `exitMs` (80), `preventDefault` (true), `stopPropagation` (true) | `{ closing, close }` |
 | `useDismiss(onDismiss, opts)` | `enabled` (true), `escape` (true), `escapeTarget` (`"window"` capture, or a ref: bubble on that element), `preventDefault` (true), `stopPropagation` (true), `imeGuard` (true), `outside` (`"mousedown"` \| `"click"` \| `"click-target"` \| `false`; default `"mousedown"`), `container`, `backdrop`, `ignore`, `outsideContextMenu` (false), `onWindowBlur` (false), `onResize` (false), `onScroll` (false) | nothing; calls `onDismiss(reason, event)`, reason is `escape` \| `outside` \| `blur` \| `resize` \| `scroll` |
-| `useExitTransition(opts)` | `exitMs` (80), `closeAfter` (`"immediately"` \| `"settled"`), `initialOpen` (true), `onExitStart`, `onClosed` | `{ phase: "open" \| "closing" \| "closed", closing, isOpen, pending, open(), close(action?) }` |
-| `useListNavigation(opts)` | `count`, `initialIndex` (0), `wrap` (true), `homeEnd` (true), `keepIndexOnItemsChange` (false), `resetKey`, `hoverSelects` (`"always"` \| `"after-pointer-move"`), `typeahead` (off), `isDisabled`, `onActivate`, `activateKeys` (`["Enter"]`), `idPrefix`, `listId`, `optionId`, `role` (`"listbox"` \| `"menu"`), `focusOwner` (`"input"` \| `"list"`), `scrollIntoView` (false) | `{ activeIndex, activeId, setActiveIndex, getInputProps(), getListProps(), getOptionProps(i) }` |
+| `useExitTransition(opts)` | `exitMs` (80), `closeAfter` (`"immediately"` \| `"settled"`), `onActionWhileClosing` (`"drop"` \| `"run"`), `initialOpen` (true), `onExitStart`, `onClosed` | `{ phase: "open" \| "closing" \| "closed", closing, isOpen, pending, open(), close(action?) }` |
+| `useListNavigation(opts)` | `count`, `initialIndex` (0), `wrap` (true), `homeEnd` (true), `keepIndexOnItemsChange` (false), `resetKey`, `hoverSelects` (`"always"` \| `"after-pointer-move"`), `typeahead` (off), `isDisabled`, `onActivate`, `activateKeys` (`["Enter"]`), `idPrefix`, `listId`, `optionId`, `role` (`"listbox"` \| `"menu"`), `focusOwner` (`"input"` \| `"list"`), `scrollIntoView` (false), `scrollOn` (`"active"` \| `"active-or-length"`), `imeGuard` (true), `emptyIndex` (`"clamp"` \| `"preserve"`) | `{ activeIndex, rawIndex, activeId, setActiveIndex, getInputProps(), getListProps(), getOptionProps(i) }` |
 | `fitToViewport({ x, y, size \| estimatedSize, viewport, margin = 8 })` | pure; `size` (measured) wins over `estimatedSize` | `{ left, top, width, height, maxWidth, maxHeight }` |
 | `rankCommands(items, query, limit = 50)` | pure; also `rankItems`, `matchScore` | ranked copy; empty query keeps input order |
 
 Notes that matter when you configure them:
 
-- **Focus trap.** `captureOpener: "render"` reads the opener during the first render, before React's own `autoFocus` attribute moves focus at commit; `"effect"` reads it when the trap activates. `restoreTiming` never restores while the container is still mounted and `active` (StrictMode's simulated cleanup), whatever the timing.
+- **Focus trap.** `captureOpener: "render"` reads the opener during the first render, before React's own `autoFocus` attribute moves focus at commit; `"effect"` reads it when the trap activates. By default (`restoreWhen: "inactive"`) a cleanup restores only when the container is gone or `active` is false, whatever the timing, so StrictMode's simulated cleanup leaves focus alone; `"always"` restores on every cleanup (use it with `restoreTiming: "sync"`; with a microtask the restore would land after StrictMode's re-run and take focus from the first control). With `captureOpener: "effect"` the opener is recorded once per open: never from a node inside the container, never over a value already recorded, and cleared when the trap really closes (0.2.3; before, StrictMode's second effect run recorded the trap's own first control). A React `autoFocus` attribute inside the container has already moved focus when effects run, so use `"render"` with it.
 - **`useDismiss` outside press.** It needs `container` (the panel) or `backdrop`. With `backdrop`, only a target that is the backdrop element counts as outside, like `e.target === e.currentTarget`; otherwise outside means not inside `container` and not inside an `ignore` element. `"click"` needs both the press and the release outside (a drag that starts or ends inside never dismisses); `"click-target"` dismisses on any click whose target is outside, which for a panel nested in its backdrop includes a drag from the panel to the backdrop, and for a sibling backdrop does not (the click lands on the common ancestor), exactly as a plain `onClick` on the backdrop would. Listeners are removed when `enabled` turns false and on unmount; pass `enabled: exit.isOpen` so a closing layer stops listening.
-- **`useExitTransition`.** `close(action)` with `closeAfter: "immediately"` starts the exit, then calls `action` synchronously. With `"settled"` it calls `action` first, keeps `phase: "open"` with `pending: true` until the returned value settles (fulfilled or rejected), then starts the exit. `open()` while closing starts a fresh instance; the old timer and any unsettled action cannot close it. A second `close()` while closing or pending is ignored (ViewRight's `run` would run a double-clicked action twice). `close` returns a promise that rejects with the action's error, after the close has still happened. Timers are cleared on unmount.
-- **`useListNavigation`.** The index is clamped on read, so a shrinking list never leaves a dangling `aria-activedescendant`; an empty list gives `-1`. `keepIndexOnItemsChange: true` keeps the stored index when `count` changes (it comes back if the list grows again); `resetKey` (the query) resets it regardless. Keys during an IME composition are ignored. `hoverSelects: "after-pointer-move"` never lets a resting pointer take the selection back from the keyboard.
+- **`useExitTransition`.** `close(action)` with `closeAfter: "immediately"` starts the exit, then calls `action` synchronously. With `"settled"` it calls `action` first, keeps `phase: "open"` with `pending: true` until the returned value settles (fulfilled or rejected), then starts the exit. `open()` while closing starts a fresh instance; the old timer and any unsettled action cannot close it. A `close(action)` while closing or pending drops its action (`onActionWhileClosing: "drop"`, default). `"run"` still runs it, so a double Enter or click executes the action twice; it exists only for parity with wrappers that always call their action. `close` returns a promise that rejects with the action's error, after the close has still happened. Timers are cleared on unmount.
+- **`useListNavigation`.** The index is clamped on read, so a shrinking list never leaves a dangling `aria-activedescendant`; an empty list gives `-1`. `keepIndexOnItemsChange: true` keeps the stored index when `count` changes (it comes back if the list grows again); `resetKey` (the query) resets it regardless. Keys during an IME composition are ignored unless `imeGuard: false`. With `emptyIndex: "preserve"` the stored -1 that ArrowDown leaves on an empty list survives (`rawIndex`), so results arriving later select nothing until a key moves; the default clamps it to the first item. `scrollOn: "active-or-length"` also scrolls to the active option when the list length changes. `hoverSelects: "after-pointer-move"` never lets a resting pointer take the selection back from the keyboard.
 - **`fitToViewport`** is the same clamp as `floatingPanelStyle` and equals it for `{ width, height: estimatedHeight }`. Measuring (`getBoundingClientRect` in a layout effect, then calling it again with `size`) stays in your component.
 
 ### Menu (replaces a local scrim + Escape listener + exit timer)
@@ -74,12 +74,13 @@ ViewRight's `DocumentContextMenu`: a full-screen scrim closes on mousedown and o
 ```tsx
 const panel = useRef<HTMLDivElement>(null);
 const scrim = useRef<HTMLDivElement>(null);
-const exit = useExitTransition({ exitMs: 80, closeAfter: "settled", onClosed: onClose }); // document menu: exitMs 0 (it unmounts at once)
+const exit = useExitTransition({ exitMs: 80, closeAfter: "settled", onActionWhileClosing: "run", onClosed: onClose }); // document menu: exitMs 0 (it unmounts at once)
 useDismiss(() => void exit.close(), {
   enabled: exit.isOpen, container: panel, backdrop: scrim,
   outside: "mousedown",            // sidebar menus: "click-target"
   outsideContextMenu: true,        // scrim onContextMenu -> preventDefault + close
   preventDefault: false, stopPropagation: false, imeGuard: false, // what the local Escape listener did
+// and on the transition: onActionWhileClosing: "run" (ViewRight's wrapper runs the action on every click, even during the exit)
 });
 const pos = fitToViewport({ x, y, estimatedSize: { width: 176, height: 260 }, viewport: { width: innerWidth, height: innerHeight } });
 // JSX unchanged: scrim div ref={scrim}, menu div ref={panel} style={pos} className={exit.closing ? "vr-pop-exit" : ""}
@@ -99,7 +100,7 @@ const panel = useRef<HTMLDivElement>(null);
 const exit = useExitTransition({ exitMs: 80, onClosed: onClose });
 useFocusTrap(panel, true, {
   autoFocus,                       // the shell's own prop
-  captureOpener: "effect", restoreTiming: "sync", fromOutside: "backward",
+  captureOpener: "effect", restoreTiming: "sync", restoreWhen: "always", fromOutside: "backward",
   skipHidden: false, emptyList: "pass", focusFallback: "none",
 });
 useDismiss(() => void exit.close(), {
@@ -116,11 +117,12 @@ For `alertdialog` surfaces that must not dismiss on the backdrop, pass `outside:
 ViewRight's `CommandPalette`: ArrowDown/Up clamp, no Home/End, a stored index that is only clamped on read, every mouse move selects, option ids `vr-palette-option-<i>`, the list id `vr-palette-results`, Enter runs the item and starts the exit in the same tick, Escape closes from anywhere inside the dialog.
 
 ```tsx
-const exit = useExitTransition({ exitMs: 80, onClosed: onClose });
+const exit = useExitTransition({ exitMs: 80, onActionWhileClosing: "run", onClosed: onClose });
 const items = rankCommands(allItems, q, 50);          // or your own scorer
 const nav = useListNavigation({
   count: items.length, wrap: false, homeEnd: false, keepIndexOnItemsChange: true,
-  hoverSelects: "always", scrollIntoView: true,
+  hoverSelects: "always", scrollIntoView: true, scrollOn: "active-or-length",
+  imeGuard: false, emptyIndex: "preserve",
   idPrefix: "vr-palette", listId: "vr-palette-results", optionId: (i) => `vr-palette-option-${i}`,
   onActivate: (i) => void exit.close(items[i].run),
 });

@@ -123,6 +123,19 @@ describe.skipIf(!chrome)("platform-ui headless hooks in real headless Chrome", (
       expect(await logLines()).toEqual(["menu:exit-start", "menu:run Copy", "menu:gone"]);
     });
 
+    it("onActionWhileClosing: a second click during the exit is dropped by default and runs with run", async () => {
+      await openMenu("exit=500");
+      await page.click("[role=menu] button:nth-child(2)");
+      await page.click("[role=menu] button:nth-child(2)");
+      await page.waitFor("!document.querySelector('[role=menu]')");
+      expect((await logLines()).filter((l) => l === "menu:run Copy")).toHaveLength(1);
+      await openMenu("exit=500&whileClosing=run");
+      await page.click("[role=menu] button:nth-child(2)");
+      await page.click("[role=menu] button:nth-child(2)");
+      await page.waitFor("!document.querySelector('[role=menu]')");
+      expect((await logLines()).filter((l) => l === "menu:run Copy")).toHaveLength(2);
+    });
+
     it("settled: the menu stays open, pending, until the action's promise settles; then it exits", async () => {
       await openMenu("after=settled");
       await page.click("[role=menu] button:nth-child(2)");
@@ -404,6 +417,57 @@ describe.skipIf(!chrome)("platform-ui headless hooks in real headless Chrome", (
       expect(await activeIdx()).toBe(3);
     });
 
+    it("emptyIndex: ArrowDown on an empty list then results arriving: clamp selects the first item, preserve selects nothing", async () => {
+      await openPalette();
+      await page.type("zzz");
+      await page.press("ArrowDown");
+      for (let i = 0; i < 3; i++) await page.press("Backspace");
+      expect(await activeIdx()).toBe(0);
+
+      await openPalette("emptyIndex=preserve");
+      await page.type("zzz");
+      await page.press("ArrowDown");
+      for (let i = 0; i < 3; i++) await page.press("Backspace");
+      expect(await activeIdx()).toBe(-1);
+      expect(await descendant()).toBe(null);
+      await page.press("ArrowDown");
+      expect(await activeIdx()).toBe(0);
+      await page.press("ArrowUp"); // at the first item, clamped
+      expect(await activeIdx()).toBe(0);
+    });
+
+    it("emptyIndex preserve: ArrowUp from nothing selected goes to the first item", async () => {
+      await openPalette("emptyIndex=preserve");
+      await page.type("zzz");
+      await page.press("ArrowDown");
+      for (let i = 0; i < 3; i++) await page.press("Backspace");
+      await page.press("ArrowUp");
+      expect(await activeIdx()).toBe(0);
+    });
+
+    it("imeGuard: keys during a composition are ignored by default and handled with imeGuard false", async () => {
+      const compose = `(() => { const q = document.getElementById('q'); q.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', isComposing: true, bubbles: true, cancelable: true })); })()`;
+      await openPalette();
+      await page.eval(compose);
+      expect(await activeIdx()).toBe(0);
+      await openPalette("ime=0");
+      await page.eval(compose);
+      expect(await activeIdx()).toBe(1);
+    });
+
+    it("scrollOn: a list length change re-scrolls to the active option only with active-or-length", async () => {
+      const run = async (query: string) => {
+        await openPalette(query);
+        for (let i = 0; i < 10; i++) await page.press("ArrowDown");
+        await page.eval("document.querySelector('[role=listbox]').scrollTop = 0");
+        await page.type("Command 1"); // 24 -> 11 items, the stored index 10 is still valid: same option id
+        await page.sleep(100);
+        return page.eval<boolean>(`(() => { const l = document.querySelector('[role=listbox]').getBoundingClientRect(); const o = document.querySelector('[aria-selected=true]').getBoundingClientRect(); return o.top >= l.top - 1 && o.bottom <= l.bottom + 1; })()`);
+      };
+      expect(await run("")).toBe(false);
+      expect(await run("scrollOn=active-or-length")).toBe(true);
+    });
+
     it("scrollIntoView keeps the active option visible while arrowing past the fold", async () => {
       await openPalette();
       for (let i = 0; i < 18; i++) await page.press("ArrowDown");
@@ -448,6 +512,33 @@ describe.skipIf(!chrome)("platform-ui headless hooks in real headless Chrome", (
       expect(await activeId()).toBe("first");
       await page.press("Tab");
       expect(await activeId()).toBe("mid");
+      await page.press("Escape");
+      await page.waitFor("!document.querySelector('[role=dialog]')");
+      await page.sleep(50);
+      expect(await activeId()).toBe("opener");
+    });
+
+    it("effect capture: closing returns focus to the real opener, not to the first control the simulated remount recorded", async () => {
+      for (const query of ["demo=modal&strict=1&capture=effect", "demo=modal&strict=1&capture=effect&when=always&restore=sync"]) {
+        await open(query);
+        await page.click("#opener");
+        await page.waitFor("document.querySelector('[role=dialog]')");
+        await page.sleep(100);
+        expect(await page.eval<number>("window.__observerMounts"), query).toBe(2);
+        expect(await activeId(), query).toBe("first");
+        await page.press("Escape");
+        await page.waitFor("!document.querySelector('[role=dialog]')");
+        await page.sleep(50);
+        expect(await activeId(), query).toBe("opener");
+      }
+    });
+
+    it("render capture with restoreWhen always and sync timing also returns to the opener", async () => {
+      await open("demo=modal&strict=1&when=always&restore=sync");
+      await page.click("#opener");
+      await page.waitFor("document.querySelector('[role=dialog]')");
+      await page.sleep(100);
+      expect(await activeId()).toBe("first");
       await page.press("Escape");
       await page.waitFor("!document.querySelector('[role=dialog]')");
       await page.sleep(50);

@@ -153,4 +153,46 @@ describe("createExitTransition", () => {
     vi.advanceTimersByTime(1);
     expect(core.getState().phase).toBe("closed");
   });
+
+  it("drop (default): an action passed while closing or pending is not run", async () => {
+    const a = make();
+    void a.core.close();
+    const fn = vi.fn();
+    await a.core.close(fn);
+    expect(fn).not.toHaveBeenCalled();
+
+    const b = make({ closeAfter: "settled" });
+    let resolve!: () => void;
+    const first = b.core.close(() => new Promise<void>((r) => (resolve = r)));
+    await b.core.close(fn);
+    expect(fn).not.toHaveBeenCalled();
+    resolve();
+    await first;
+  });
+
+  it("run: the action runs while closing or pending, and the close is not repeated", async () => {
+    const a = make({ onActionWhileClosing: "run" });
+    void a.core.close(() => undefined);
+    const fn = vi.fn();
+    await a.core.close(fn);
+    expect(fn).toHaveBeenCalledTimes(1);
+    expect(a.onExitStart).toHaveBeenCalledTimes(1);
+
+    const b = make({ closeAfter: "settled", onActionWhileClosing: "run" });
+    let resolve!: () => void;
+    const first = b.core.close(() => new Promise<void>((r) => (resolve = r)));
+    await b.core.close(fn);
+    expect(fn).toHaveBeenCalledTimes(2);
+    resolve();
+    await first;
+    expect(b.onExitStart).toHaveBeenCalledTimes(1);
+  });
+
+  it("run: an action after the exit finished (closed) is still dropped", async () => {
+    const a = make({ onActionWhileClosing: "run", exitMs: 0 });
+    void a.core.close();
+    const fn = vi.fn();
+    await a.core.close(fn);
+    expect(fn).not.toHaveBeenCalled();
+  });
 });

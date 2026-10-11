@@ -25,6 +25,7 @@ export {
 export {
   clampIndex,
   moveIndex,
+  readIndex,
   selectByPointer,
   typeaheadMatch,
   useListNavigation,

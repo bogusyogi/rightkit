@@ -18,11 +18,22 @@ export function clampIndex(index: number, count: number): number {
 }
 
 /**
+ * The index to expose for a stored `index`. `"clamp"` (default): into `[0, count - 1]`. `"preserve"`: -1 stays -1
+ * ("nothing selected", which ArrowDown on an empty list stores), so results arriving later select nothing; the upper
+ * end is still capped at the last item. An empty list is -1 in both modes.
+ */
+export function readIndex(index: number, count: number, mode: "clamp" | "preserve" = "clamp"): number {
+  if (count <= 0) return -1;
+  return mode === "preserve" ? Math.max(-1, Math.min(index, count - 1)) : clampIndex(index, count);
+}
+
+/**
  * The index a move lands on, from the clamped `current`. `wrap` cycles past the ends, otherwise the move clamps.
  * Disabled items are skipped; when every item is disabled the index is unchanged. An empty list gives -1.
  */
 export function moveIndex(current: number, count: number, move: ListMove, wrap: boolean, isDisabled?: (index: number) => boolean): number {
   if (count <= 0) return -1;
+  if (current < 0 && move === "prev") move = wrap ? "last" : "first";
   const ok = (i: number) => !isDisabled?.(i);
   if (move === "first" || move === "last") {
     const order = move === "first" ? Array.from({ length: count }, (_, i) => i) : Array.from({ length: count }, (_, i) => count - 1 - i);
@@ -104,16 +115,29 @@ export interface ListNavigationOptions {
   role?: "listbox" | "menu";
   /** Which element holds focus and so carries aria-activedescendant: the input (default) or the list. */
   focusOwner?: "input" | "list";
-  /** Scroll the active option into view (`block: "nearest"`) when it changes. Default false. */
+  /** Scroll the active option into view (`block: "nearest"`). Default false. */
   scrollIntoView?: boolean;
+  /** What triggers that scroll: the active option changing (default), or also the list length changing. */
+  scrollOn?: "active" | "active-or-length";
+  /** Ignore keys during an IME composition (`isComposing` / `keyCode` 229). Default true. */
+  imeGuard?: boolean;
+  /**
+   * `"clamp"` (default): the exposed index is always inside the list, so ArrowDown on an empty list and then
+   * results arriving selects the first item. `"preserve"`: the stored -1 ("nothing selected") survives, nothing is
+   * selected when results arrive, and ArrowDown or ArrowUp then select the first item (the last, when wrapping,
+   * for ArrowUp). Read the stored value from `rawIndex`.
+   */
+  emptyIndex?: "clamp" | "preserve";
 }
 
 type KeyLike = { key: string; ctrlKey?: boolean; metaKey?: boolean; altKey?: boolean; keyCode?: number; nativeEvent?: { isComposing?: boolean; keyCode?: number }; preventDefault(): void };
 type PointerLike = { clientX: number; clientY: number };
 
 export interface ListNavigation {
-  /** Clamped active index, -1 for an empty list. */
+  /** Active index as exposed (see `emptyIndex`), -1 when nothing is selected or the list is empty. */
   activeIndex: number;
+  /** The stored index, before it is read against the current `count`. */
+  rawIndex: number;
   activeId: string | undefined;
   setActiveIndex(index: number): void;
   getInputProps(): { role: "combobox"; "aria-expanded": true; "aria-controls": string; "aria-activedescendant": string | undefined; onKeyDown(event: KeyLike): void };
@@ -138,6 +162,9 @@ export function useListNavigation(options: ListNavigationOptions): ListNavigatio
     role = "listbox",
     focusOwner = "input",
     scrollIntoView = false,
+    scrollOn = "active",
+    imeGuard = true,
+    emptyIndex = "clamp",
   } = options;
   const generated = useId();
   const prefix = idPrefix ?? generated;
@@ -153,7 +180,7 @@ export function useListNavigation(options: ListNavigationOptions): ListNavigatio
     if (!Object.is(seen.resetKey, resetKey) || !keepIndexOnItemsChange) setState(fresh());
   }
 
-  const active = clampIndex(state.index, count);
+  const active = readIndex(state.index, count, emptyIndex);
   const activeId = active >= 0 ? optionId(active) : undefined;
 
   const latest = useRef({ options, active, count });
@@ -163,7 +190,8 @@ export function useListNavigation(options: ListNavigationOptions): ListNavigatio
   useEffect(() => {
     if (!scrollIntoView || !activeId) return;
     document.getElementById(activeId)?.scrollIntoView?.({ block: "nearest" });
-  }, [scrollIntoView, activeId]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [scrollIntoView, activeId, scrollOn === "active-or-length" ? count : 0]);
 
   const go = (move: ListMove) => {
     const { active: current, count: n } = latest.current;
@@ -172,7 +200,7 @@ export function useListNavigation(options: ListNavigationOptions): ListNavigatio
   };
 
   const onKeyDown = (e: KeyLike, onList: boolean) => {
-    if (e.nativeEvent?.isComposing || e.nativeEvent?.keyCode === 229 || e.keyCode === 229) return;
+    if (imeGuard && (e.nativeEvent?.isComposing || e.nativeEvent?.keyCode === 229 || e.keyCode === 229)) return;
     const { active: current, count: n } = latest.current;
     if (e.key === "ArrowDown") {
       e.preventDefault();
@@ -205,8 +233,9 @@ export function useListNavigation(options: ListNavigationOptions): ListNavigatio
 
   return {
     activeIndex: active,
+    rawIndex: state.index,
     activeId,
-    setActiveIndex: (index) => setState((s) => ({ ...s, index: clampIndex(index, count) })),
+    setActiveIndex: (index) => setState((s) => ({ ...s, index: emptyIndex === "preserve" ? Math.max(-1, index) : clampIndex(index, count) })),
     getInputProps: () => ({
       role: "combobox",
       "aria-expanded": true,

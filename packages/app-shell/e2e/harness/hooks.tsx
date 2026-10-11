@@ -66,6 +66,7 @@ function MenuLayer({ x, y, onGone }: { x: number; y: number; onGone: () => void 
     closeAfter: (q.get("after") as "immediately" | "settled" | null) ?? "immediately",
     onClosed: onGone,
     onExitStart: () => log("menu:exit-start"),
+    onActionWhileClosing: (q.get("whileClosing") as "drop" | "run" | null) ?? undefined,
   });
   (window as unknown as { __exit: typeof exit }).__exit = exit;
   const outside = (q.get("dismiss") ?? "mousedown") as OutsidePress;
@@ -130,6 +131,7 @@ function ModalLayer({ onGone }: { onGone: () => void }) {
     captureOpener: (q.get("capture") as "render" | "effect" | null) ?? undefined,
     restoreTiming: restore === "sync" ? "sync" : restore && /^\d+$/.test(restore) ? Number(restore) : undefined,
     restore: restore === "none" ? false : undefined,
+    restoreWhen: (q.get("when") as "inactive" | "always" | null) ?? undefined,
     fromOutside: (q.get("from") as "both" | "backward" | "none" | null) ?? undefined,
     skipHidden: q.get("skipHidden") === "0" ? false : undefined,
     emptyList: (q.get("emptyList") as "prevent" | "pass" | null) ?? undefined,
@@ -193,6 +195,9 @@ function PaletteLayer({ onGone }: { onGone: () => void }) {
     listId: "vr-palette-results",
     optionId: (i) => `vr-palette-option-${i}`,
     scrollIntoView: true,
+    scrollOn: (q.get("scrollOn") as "active" | "active-or-length" | null) ?? undefined,
+    imeGuard: q.get("ime") === "0" ? false : undefined,
+    emptyIndex: (q.get("emptyIndex") as "clamp" | "preserve" | null) ?? undefined,
     onActivate: (i) => void exit.close(() => log(`run ${items[i].label}`)),
   });
   useFocusTrap(dialog, true, { autoFocus: false });
