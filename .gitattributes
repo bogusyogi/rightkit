@@ -2,3 +2,5 @@
 *.sh text eol=lf
 # Vendored sources are hashed byte for byte: never convert their line endings.
 crates/rightkit-qts-ggml-sys/vendor/** -text
+# PDFs are binary even when every byte is ASCII: a converted line ending breaks the xref offsets.
+*.pdf binary
