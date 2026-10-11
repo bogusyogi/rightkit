@@ -302,9 +302,15 @@ fn length_mismatch_deletes_part() {
     assert!(!part_of(&dest).exists());
 }
 
+/// `MockBody::TruncatedAfter` announces 1000 bytes more than it sends, so the first answer
+/// declares a total of 80 + 1000 = 1080. The ranged answer has to report that same total: a
+/// `206` whose total differs from the declared one describes another representation, and the
+/// download (correctly) restarts from zero. An earlier version of this test answered
+/// `bytes 80-199/200` to a 1080-byte declaration, got the restart, and then the mock's 500 for
+/// a plain request.
 #[test]
 fn truncated_body_reconnects_with_if_range() {
-    let data = payload();
+    let data: Vec<u8> = (0..1080u32).map(|i| (i % 251) as u8).collect();
     let first = data[..80].to_vec();
     let rest = data[80..].to_vec();
     let server = MockServer::start(move |req, index| {
@@ -316,7 +322,7 @@ fn truncated_body_reconnects_with_if_range() {
             && req.header("if-range") == Some("\"v1\"")
         {
             MockResponse::new(206)
-                .header("Content-Range", "bytes 80-199/200")
+                .header("Content-Range", "bytes 80-1079/1080")
                 .body(rest.clone())
         } else {
             MockResponse::new(500)
@@ -335,8 +341,13 @@ fn truncated_body_reconnects_with_if_range() {
         )
         .unwrap();
     assert_eq!(report.attempts, 2);
-    assert_eq!(report.bytes, 200);
+    assert_eq!(report.bytes, 1080);
+    assert_eq!(report.resumed_from, 0);
     assert_eq!(fs::read(&dest).unwrap(), data);
+    let reqs = server.requests();
+    assert_eq!(reqs.len(), 2);
+    assert_eq!(reqs[1].header("range"), Some("bytes=80-"));
+    assert_eq!(reqs[1].header("if-range"), Some("\"v1\""));
 }
 
 #[test]
