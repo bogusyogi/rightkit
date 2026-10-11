@@ -134,7 +134,7 @@ impl DbOptions {
     }
 }
 
-fn allowed(options: &DbOptions, policy: RecoveryPolicy) -> bool {
+pub(crate) fn allowed(options: &DbOptions, policy: RecoveryPolicy) -> bool {
     if options.is_keyed() {
         policy.quarantine_keyed
     } else {
@@ -146,7 +146,7 @@ fn allowed(options: &DbOptions, policy: RecoveryPolicy) -> bool {
 /// corrupt, or an open-time integrity check failed ([`DbError::Integrity`], from `Quick` or `Full`).
 /// Busy, locked, permission and other I/O failures are not unreadable. They are transient or
 /// environmental, and quarantining on them would move a healthy file aside.
-fn is_unreadable(error: &DbError) -> bool {
+pub(crate) fn is_unreadable(error: &DbError) -> bool {
     match error {
         DbError::Integrity(_) => true,
         DbError::Sqlite(rusqlite::Error::SqliteFailure(failure, _)) => matches!(

@@ -6,8 +6,9 @@ use std::sync::{mpsc, Arc, Mutex};
 use std::time::Duration;
 
 use rightkit_secrets::{
-    Backend, ConditionalDelete, Config, Error, GuardMode, Interaction, MemoryBackend,
-    MigrationReport, Namespace, Secret, Store, WindowsTarget,
+    macos_credential_identity, windows_credential_identity, Backend, ConditionalDelete, Config,
+    Error, GuardMode, Interaction, MemoryBackend, MigrationReport, Namespace, Secret, Store,
+    WindowsTarget, WriteIntent,
 };
 
 fn memory_store(service: &str) -> Store {
@@ -106,6 +107,10 @@ struct TruncatingBackend(MemoryBackend);
 impl rightkit_secrets::Backend for TruncatingBackend {
     fn name(&self) -> &'static str {
         "truncating-test"
+    }
+    fn durable(&self) -> bool {
+        // A destination that would keep the value, so only its read-back can fail the migration.
+        true
     }
     fn get(
         &self,
@@ -780,7 +785,7 @@ fn migrate_one(conditional_delete: bool, replace_after_read: bool) -> Migrated {
     );
     let to = store_for(
         Namespace::new("dev.rightkit.secrets.test.mig-race-to").unwrap(),
-        Arc::new(MemoryBackend::new()),
+        Arc::new(MemoryBackend::simulating_durable()),
     );
     let report = rightkit_secrets::migrate_between(&from, &to, &["acct"]);
     let text = |s: Option<Secret>| s.map(|s| s.expose_str().unwrap().to_string());
@@ -915,4 +920,360 @@ fn memory_conditional_delete_compares_and_removes_in_one_step() {
         ConditionalDelete::Deleted
     );
     assert!(!store.exists("acct").unwrap());
+}
+
+// ---- fourth read, finding 10: the exclusion key is the BACKEND's native credential ----
+
+/// A backend that addresses by Keychain service and account, as the macOS one does, over the
+/// gated fake.
+struct MacNamed(Arc<GatedBackend>);
+
+impl Backend for MacNamed {
+    fn name(&self) -> &'static str {
+        "mac-named-test"
+    }
+    fn exclusion_identity(&self) -> Option<String> {
+        Some("mac-named-test:one-keychain".into())
+    }
+    fn credential_identity(
+        &self,
+        ns: &Namespace,
+        account: &str,
+    ) -> rightkit_secrets::Result<String> {
+        macos_credential_identity(ns, account)
+    }
+    fn get(
+        &self,
+        ns: &Namespace,
+        account: &str,
+        mode: Interaction,
+    ) -> rightkit_secrets::Result<Option<Secret>> {
+        self.0.get(ns, account, mode)
+    }
+    fn exists(
+        &self,
+        ns: &Namespace,
+        account: &str,
+        mode: Interaction,
+    ) -> rightkit_secrets::Result<bool> {
+        self.0.exists(ns, account, mode)
+    }
+    fn set(
+        &self,
+        ns: &Namespace,
+        account: &str,
+        secret: &Secret,
+        mode: Interaction,
+    ) -> rightkit_secrets::Result<()> {
+        self.0.set(ns, account, secret, mode)
+    }
+    fn add_if_absent(
+        &self,
+        ns: &Namespace,
+        account: &str,
+        secret: &Secret,
+        mode: Interaction,
+    ) -> rightkit_secrets::Result<bool> {
+        self.0.add_if_absent(ns, account, secret, mode)
+    }
+    fn delete(
+        &self,
+        ns: &Namespace,
+        account: &str,
+        mode: Interaction,
+    ) -> rightkit_secrets::Result<bool> {
+        self.0.delete(ns, account, mode)
+    }
+}
+
+#[test]
+fn stores_that_differ_only_in_windows_prefix_exclude_each_other_on_a_service_account_backend() {
+    let (release, release_rx) = mpsc::channel();
+    let (entered_tx, entered) = mpsc::channel();
+    let (finished_tx, finished) = mpsc::channel();
+    let gated = Arc::new(GatedBackend::new(release_rx, entered_tx, finished_tx));
+    let mac: Arc<dyn Backend> = Arc::new(MacNamed(gated.clone()));
+    let open = |prefix: &str| {
+        Store::open(
+            Config::new(
+                Namespace::new("dev.rightkit.secrets.test.mac-alias")
+                    .unwrap()
+                    .windows_target(WindowsTarget::Slash {
+                        prefix: Some(prefix.into()),
+                    }),
+            )
+            .backend(mac.clone())
+            .timeout(Duration::from_millis(250)),
+        )
+    };
+    let (a, b) = (open("PrefixA"), open("PrefixB"));
+
+    // A stalls in the native call and its caller gives up.
+    assert!(matches!(a.set_str("acct", "A"), Err(Error::Timeout { .. })));
+    entered.recv_timeout(Duration::from_secs(5)).unwrap();
+
+    // B addresses the SAME Keychain item through a different Windows prefix: it must be refused,
+    // not run beside A and be overwritten when A resumes.
+    assert!(matches!(
+        b.set_str("acct", "B"),
+        Err(Error::InProgress { .. })
+    ));
+    assert!(matches!(b.delete("acct"), Err(Error::InProgress { .. })));
+    assert!(matches!(
+        b.put("acct", &Secret::from_string("B"), WriteIntent::CreateOnly),
+        Err(Error::InProgress { .. })
+    ));
+    assert!(
+        !gated.log().contains(&"set:B".to_string()),
+        "B reached the backend while A was still running"
+    );
+    // A different account is a different Keychain item and is not held up.
+    b.set_str("other", "O").unwrap();
+
+    release.send(()).unwrap();
+    finished.recv_timeout(Duration::from_secs(5)).unwrap();
+    let mut attempts = 0;
+    loop {
+        match b.set_str("acct", "B") {
+            Ok(()) => break,
+            Err(Error::InProgress { .. }) if attempts < 500 => {
+                attempts += 1;
+                std::thread::sleep(Duration::from_millis(10));
+            }
+            Err(error) => panic!("retry failed: {error:?}"),
+        }
+    }
+    assert_eq!(
+        a.get("acct").unwrap().unwrap().expose_str().unwrap(),
+        "B",
+        "the stalled call overwrote the other store's write"
+    );
+}
+
+#[test]
+fn the_native_naming_functions_are_pinned_to_exact_strings() {
+    let ns = Namespace::new("Dev.App")
+        .unwrap()
+        .windows_target(WindowsTarget::Slash {
+            prefix: Some("Shared".into()),
+        });
+    assert_eq!(
+        macos_credential_identity(&ns, "Key").unwrap(),
+        "macos:dev.app\u{1f}key"
+    );
+    assert_eq!(
+        windows_credential_identity(&ns, "Key").unwrap(),
+        "windows:shared/key"
+    );
+    // The built-in memory backend names credentials by its own exact key.
+    assert_eq!(
+        MemoryBackend::new()
+            .credential_identity(&ns, "Key")
+            .unwrap(),
+        "memory:Dev.App\u{1f}Key"
+    );
+}
+
+// ---- fourth read, finding 8: destructive migration needs a durable destination ----
+
+fn durable_source(service: &str) -> Store {
+    let from = store_for(
+        Namespace::new(service).unwrap(),
+        Arc::new(MemoryBackend::simulating_durable()),
+    );
+    from.set_str("acct", "persistent-value").unwrap();
+    from
+}
+
+#[test]
+fn migrating_into_a_guarded_destination_never_removes_the_persistent_source() {
+    for mode in [GuardMode::Memory, GuardMode::Deny] {
+        let from = durable_source("dev.rightkit.secrets.test.guarded-dest-from");
+        let to = Store::open(
+            Config::new(Namespace::new("dev.rightkit.secrets.test.guarded-dest-to").unwrap())
+                .guard_when(true, mode),
+        );
+        assert!(!to.is_durable());
+        let report = rightkit_secrets::migrate_between(&from, &to, &["acct"]);
+        assert_eq!(report.refused, vec!["acct"], "{mode:?}: {report:?}");
+        assert!(
+            report.moved.is_empty() && report.retained.is_empty() && report.failed.is_empty(),
+            "{mode:?}: {report:?}"
+        );
+        assert_eq!(
+            from.get("acct").unwrap().unwrap().expose_str().unwrap(),
+            "persistent-value",
+            "{mode:?}: the only persistent copy was removed"
+        );
+        if mode == GuardMode::Memory {
+            assert!(to.get("acct").unwrap().is_none(), "nothing was copied");
+        }
+    }
+}
+
+#[test]
+fn migrating_into_a_backend_that_does_not_report_durability_removes_nothing() {
+    let from = durable_source("dev.rightkit.secrets.test.nondurable-dest-from");
+    let to = memory_store("dev.rightkit.secrets.test.nondurable-dest-to");
+    assert!(!to.is_durable());
+    let report = rightkit_secrets::migrate_between(&from, &to, &["acct", "other"]);
+    assert_eq!(report.refused, vec!["acct", "other"]);
+    assert!(from.exists("acct").unwrap() && !to.exists("acct").unwrap());
+}
+
+#[test]
+fn a_refused_legacy_migration_writes_no_marker_and_reports_the_refusal() {
+    let from = durable_source("dev.rightkit.secrets.test.marker-refused-from");
+    let to = memory_store("dev.rightkit.secrets.test.marker-refused-to");
+    let dir = tempfile::tempdir().unwrap();
+    let marker = dir.path().join("migrated.json");
+    // The legacy namespace is read through `to`'s own backend, which is not durable, so the
+    // account is refused before anything is read or copied.
+    let report = to
+        .migrate_legacy_namespaces(&[from.namespace().clone()], &["acct"], Some(&marker))
+        .unwrap()
+        .unwrap();
+    assert_eq!(report.refused, vec!["acct"]);
+    assert!(!marker.exists(), "a refused migration must be retried");
+}
+
+#[test]
+fn a_durable_destination_still_moves_the_source() {
+    let from = durable_source("dev.rightkit.secrets.test.durable-dest-from");
+    let to = store_for(
+        Namespace::new("dev.rightkit.secrets.test.durable-dest-to").unwrap(),
+        Arc::new(MemoryBackend::simulating_durable()),
+    );
+    assert!(to.is_durable());
+    let report = rightkit_secrets::migrate_between(&from, &to, &["acct"]);
+    assert_eq!(report.moved, vec!["acct"], "{report:?}");
+    assert!(report.refused.is_empty());
+    assert!(from.get("acct").unwrap().is_none());
+    assert!(to.exists("acct").unwrap());
+}
+
+#[test]
+fn put_create_only_never_replaces_and_replace_always_does() {
+    let store = memory_store("dev.rightkit.secrets.test.put");
+    let v = |s: &str| Secret::from_string(s);
+    assert!(store
+        .put("a", &v("first"), WriteIntent::CreateOnly)
+        .unwrap());
+    assert!(!store
+        .put("a", &v("second"), WriteIntent::CreateOnly)
+        .unwrap());
+    assert_eq!(
+        store.get("a").unwrap().unwrap().expose_str().unwrap(),
+        "first"
+    );
+    assert!(store.put("a", &v("third"), WriteIntent::Replace).unwrap());
+    assert_eq!(
+        store.get("a").unwrap().unwrap().expose_str().unwrap(),
+        "third"
+    );
+    for intent in [WriteIntent::CreateOnly, WriteIntent::Replace] {
+        assert!(matches!(
+            store.put("a", &Secret::from_bytes(Vec::new()), intent),
+            Err(Error::Invalid { .. })
+        ));
+    }
+}
+
+/// Class guard: the migration module reaches the store's writers only through the guarded
+/// primitives. A new `.set(`, `.delete(` or bare `.add_if_absent(` there fails this test.
+#[test]
+fn migration_code_reaches_the_store_only_through_the_guarded_primitives() {
+    let src =
+        std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/src/migrate.rs")).unwrap();
+    let production = src.split("#[cfg(test)]\nmod tests").next().unwrap();
+    for banned in [".set(", ".set_str(", ".delete(", ".add_if_absent("] {
+        assert!(
+            !production.contains(banned),
+            "migrate.rs calls `{banned}` outside Store::put / remove_copied_source"
+        );
+    }
+    assert_eq!(
+        production.matches(".delete_if_equals(").count(),
+        1,
+        "source removal must stay in remove_copied_source"
+    );
+    assert_eq!(production.matches("remove_copied_source(").count(), 2); // definition + one call
+}
+
+// ---- fourth read, finding 9: import_env cannot overwrite a concurrent save ----
+
+/// A store where the credential is saved by someone else in the instant between the importer's
+/// presence view and its write: `exists` still says "absent", and the user's value B lands first.
+struct SavedBetweenCheckAndWrite {
+    inner: MemoryBackend,
+    concurrent: Secret,
+}
+
+impl Backend for SavedBetweenCheckAndWrite {
+    fn name(&self) -> &'static str {
+        "saved-between-test"
+    }
+    fn get(
+        &self,
+        ns: &Namespace,
+        account: &str,
+        mode: Interaction,
+    ) -> rightkit_secrets::Result<Option<Secret>> {
+        self.inner.get(ns, account, mode)
+    }
+    fn exists(&self, _: &Namespace, _: &str, _: Interaction) -> rightkit_secrets::Result<bool> {
+        Ok(false)
+    }
+    fn set(
+        &self,
+        ns: &Namespace,
+        account: &str,
+        secret: &Secret,
+        mode: Interaction,
+    ) -> rightkit_secrets::Result<()> {
+        // An unconditional write lands on top of the user's value.
+        self.inner.set(ns, account, &self.concurrent, mode)?;
+        self.inner.set(ns, account, secret, mode)
+    }
+    fn add_if_absent(
+        &self,
+        ns: &Namespace,
+        account: &str,
+        secret: &Secret,
+        mode: Interaction,
+    ) -> rightkit_secrets::Result<bool> {
+        self.inner.set(ns, account, &self.concurrent, mode)?;
+        self.inner.add_if_absent(ns, account, secret, mode)
+    }
+    fn delete(
+        &self,
+        ns: &Namespace,
+        account: &str,
+        mode: Interaction,
+    ) -> rightkit_secrets::Result<bool> {
+        self.inner.delete(ns, account, mode)
+    }
+}
+
+#[test]
+fn import_env_without_overwrite_keeps_a_credential_saved_just_before_its_write() {
+    let store = store_for(
+        Namespace::new("dev.rightkit.secrets.test.import-race").unwrap(),
+        Arc::new(SavedBetweenCheckAndWrite {
+            inner: MemoryBackend::new(),
+            concurrent: Secret::from_string("B-saved-by-user"),
+        }),
+    );
+    let env = |name: &str| (name == "KEY").then(|| "A-stale-from-env".to_string());
+    let map: rightkit_secrets::EnvMap = &[("acct", &["KEY"])];
+    let report = store
+        .import_env(map, WriteIntent::CreateOnly, &env)
+        .unwrap();
+    assert_eq!(report.skipped_present, vec!["acct"], "{report:?}");
+    assert!(report.imported.is_empty());
+    assert_eq!(
+        store.get("acct").unwrap().unwrap().expose_str().unwrap(),
+        "B-saved-by-user",
+        "the import overwrote a concurrently saved credential"
+    );
 }

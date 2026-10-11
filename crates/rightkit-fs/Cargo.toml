@@ -76,6 +76,12 @@ name = "atomic_checked"
 path = "tests/atomic_checked.rs"
 required-features = ["fs"]
 
+# Sync events around the check of `commit_checked` need the step log of `atomic::testing`.
+[[test]]
+name = "atomic_checked_sync"
+path = "tests/atomic_checked_sync.rs"
+required-features = ["testing"]
+
 [[test]]
 name = "atomic_privacy"
 path = "tests/atomic_privacy.rs"

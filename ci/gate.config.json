@@ -1,15 +1,93 @@
 {
   "rust": {
-    "rightkit-contracts": { "paths": ["contracts"] },
-    "rightkit-fs": { "featureSets": [["--all-features"]], "alsoSerial": true },
-    "rightkit-http": { "featureSets": [["--all-features"], ["--features", "async"], []] },
-    "rightkit-jobs": {
-      "featureSets": [["--all-features"], ["--no-default-features"], ["--no-default-features", "--features", "contract"], ["--no-default-features", "--features", "supervisor"], ["--no-default-features", "--features", "service"]],
+    "rightkit-contracts": {
+      "paths": [
+        "contracts"
+      ]
+    },
+    "rightkit-fs": {
+      "featureSets": [
+        [
+          "--all-features"
+        ]
+      ],
       "alsoSerial": true
     },
-    "rightkit-pdf": { "featureSets": [[], ["--features", "extract"]] },
-    "rightkit-process": { "alsoSerial": true },
-    "rightkit-tts": { "featureSets": [[], ["--features", "engine"]] },
-    "rightkit-watch": { "featureSets": [["--all-features"]], "alsoSerial": true }
+    "rightkit-http": {
+      "featureSets": [
+        [
+          "--all-features"
+        ],
+        [
+          "--features",
+          "async"
+        ],
+        []
+      ]
+    },
+    "rightkit-jobs": {
+      "featureSets": [
+        [
+          "--all-features"
+        ],
+        [
+          "--no-default-features"
+        ],
+        [
+          "--no-default-features",
+          "--features",
+          "contract"
+        ],
+        [
+          "--no-default-features",
+          "--features",
+          "supervisor"
+        ],
+        [
+          "--no-default-features",
+          "--features",
+          "service"
+        ]
+      ],
+      "alsoSerial": true
+    },
+    "rightkit-pdf": {
+      "featureSets": [
+        [],
+        [
+          "--features",
+          "extract"
+        ]
+      ]
+    },
+    "rightkit-process": {
+      "alsoSerial": true
+    },
+    "rightkit-tts": {
+      "featureSets": [
+        [],
+        [
+          "--features",
+          "engine"
+        ]
+      ]
+    },
+    "rightkit-watch": {
+      "featureSets": [
+        [
+          "--all-features"
+        ]
+      ],
+      "alsoSerial": true
+    },
+    "rightkit-secrets": {
+      "featureSets": [
+        [],
+        [
+          "--features",
+          "isolated-test-keychain"
+        ]
+      ]
+    }
   }
 }

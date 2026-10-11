@@ -3,6 +3,7 @@
 //! case-folded basename substring, extension, kind and logical size, with
 //! deterministic ordering and bounded pagination.
 
+use crate::fold::fold;
 use std::fmt;
 use std::path::{Path, PathBuf};
 
@@ -121,8 +122,7 @@ impl FilenameIndex {
     }
 
     pub fn insert(&mut self, entry: Entry) {
-        self.entries
-            .push((basename(&entry.path).to_lowercase(), entry));
+        self.entries.push((fold(&basename(&entry.path)), entry));
         self.sorted = false;
     }
 
@@ -140,11 +140,11 @@ impl FilenameIndex {
             self.entries.dedup_by(|a, b| a.1.path == b.1.path);
             self.sorted = true;
         }
-        let q = req.query.to_lowercase();
+        let q = fold(&req.query);
         let ext = req
             .extension
             .as_deref()
-            .map(|e| e.strip_prefix('.').unwrap_or(e).to_lowercase());
+            .map(|e| fold(e.strip_prefix('.').unwrap_or(e)));
         let matches: Vec<&Entry> = self
             .entries
             .iter()
@@ -155,7 +155,7 @@ impl FilenameIndex {
                 ext.as_deref().is_none_or(|x| {
                     e.path
                         .extension()
-                        .is_some_and(|have| have.to_string_lossy().to_lowercase() == x)
+                        .is_some_and(|have| fold(&have.to_string_lossy()) == x)
                 })
             })
             .filter(|e| req.min_size.is_none_or(|m| e.size.is_some_and(|s| s >= m)))

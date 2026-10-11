@@ -46,10 +46,10 @@ pub use sched::{Gate, InteractiveGuard, Priority};
 #[cfg(feature = "service")]
 pub use service::DispatcherHandler;
 pub use store::{
-    Adoption, Artifact, CancelToken, Event, Job, JobRecord, JobStore, ListFilter, NewJob,
-    ProgressStats, PrunePolicy, PruneReport, Recovery, Resolution, Submission, SubmissionRecord,
-    SubmitOptions, Submitted, Transition, CANCELLED, COMPLETE, FAILED, MAX_EVENTS, META_TABLE,
-    QUEUED, RUNNING, SUBMISSIONS_TABLE,
+    Adoption, Artifact, CancelToken, DeleteOptions, DeleteReport, Event, Job, JobRecord, JobStore,
+    ListFilter, NewJob, ProgressStats, PrunePolicy, PruneReport, Recovery, Resolution, Submission,
+    SubmissionRecord, SubmitOptions, Submitted, Transition, CANCELLED, COMPLETE, DELETING_TABLE,
+    FAILED, MAX_EVENTS, META_TABLE, PATH_OUTSIDE_ROOT, QUEUED, RUNNING, SUBMISSIONS_TABLE,
 };
 #[cfg(feature = "supervisor")]
 pub use supervisor::{

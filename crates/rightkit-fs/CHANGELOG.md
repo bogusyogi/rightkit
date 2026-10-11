@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Fix (ViewRight gap): `AtomicWriter::commit_checked` now flushes and file-syncs the temp file before the check runs in EVERY mode, including `durable: false` (previously a non-durable write ran the check on unsynced bytes). The file only is synced (`File::sync_all`; the Apple ladder / `FlushFileBuffers` when `durable`); the directory is still synced only when `durable`. Plain `commit` and `commit_with_digest` are unchanged (a non-durable write still does no sync). Order documented on the method. In the `testing` seam a non-durable checked write now logs `Step::TempFlushed` before the check and never `Step::DirSynced`. Tests in `tests/atomic_checked_sync.rs`. Not compiled when written.
+
 - Additive: `AtomicWriter::commit_checked(check)`. `check(&temp_path)` runs after the temp file's content is written (flushed and synced first when `durable`) and before the replace; an `Err` aborts the write (`FsError::Io` naming the temp path), leaves the destination untouched and removes the temp file. `commit` and `commit_with_digest` are unchanged. Tests in `tests/atomic_checked.rs`. Not compiled when written.
 
 **Third-read fixes (2026-10-11, `docs/audits/2026-10-11-astra-fs-third-read.md`).** Nothing here was compiled or run locally; verification is the CI run.

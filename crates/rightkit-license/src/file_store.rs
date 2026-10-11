@@ -13,6 +13,8 @@ use std::fmt;
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex, MutexGuard};
 
 use crate::clock::{ClockDecodeError, ClockState, ClockStore};
 
@@ -53,18 +55,54 @@ impl CrossProcessLock {
         Self::open(path, false)
     }
 
+    /// Take the exclusive lock on `path` only if nobody holds it right now. `Ok(None)` means
+    /// another handle or process holds it (it is never bypassed). Creates the file (and its
+    /// parent directories) like [`acquire`](Self::acquire). Never blocks and never sleeps, so
+    /// a caller that wants a bounded wait loops on it against its own timer.
+    pub fn try_acquire(path: impl AsRef<Path>) -> io::Result<Option<Self>> {
+        match Self::lock_file(Self::open_file(path.as_ref())?, true, LockWait::DoNotWait) {
+            Ok(lock) => Ok(Some(lock)),
+            Err(error) if error.kind() == io::ErrorKind::WouldBlock => Ok(None),
+            Err(error) => Err(error),
+        }
+    }
+
     fn open(path: &Path, exclusive: bool) -> io::Result<Self> {
+        Self::lock_file(Self::open_file(path)?, exclusive, LockWait::Block)
+    }
+
+    /// Create (if needed) and open the lock file. A failure here is "the lock cannot be
+    /// opened", as opposed to "the lock is held".
+    fn open_file(path: &Path) -> io::Result<File> {
         create_parent(path)?;
-        let file = OpenOptions::new()
+        OpenOptions::new()
             .read(true)
             .write(true)
             .create(true)
             .truncate(false)
-            .open(path)?;
-        if exclusive {
-            file.lock()?;
-        } else {
-            file.lock_shared()?;
+            .open(path)
+    }
+
+    /// Lock an opened lock file. With [`LockWait::DoNotWait`] a lock held elsewhere is an
+    /// `io::ErrorKind::WouldBlock` error.
+    fn lock_file(file: File, exclusive: bool, wait: LockWait) -> io::Result<Self> {
+        match (wait, exclusive) {
+            (LockWait::Block, true) => file.lock()?,
+            (LockWait::Block, false) => file.lock_shared()?,
+            (LockWait::DoNotWait, exclusive) => {
+                let tried = if exclusive {
+                    file.try_lock()
+                } else {
+                    file.try_lock_shared()
+                };
+                match tried {
+                    Ok(()) => {}
+                    Err(std::fs::TryLockError::WouldBlock) => {
+                        return Err(io::Error::from(io::ErrorKind::WouldBlock))
+                    }
+                    Err(std::fs::TryLockError::Error(error)) => return Err(error),
+                }
+            }
         }
         Ok(Self { file })
     }
@@ -204,11 +242,54 @@ impl ClockStore for FileClockStore {
     }
 }
 
+/// What a [`ClosureClockStore`] does when its lock file cannot be OPENED (the data directory
+/// is missing and cannot be created, or is not writable). Set with
+/// [`ClosureClockStore::with_lock_failure`]. A lock that is HELD by another process is a
+/// different case and is never bypassed under either policy.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[non_exhaustive]
+pub enum LockFailure {
+    /// Return [`ClosureClockStoreError::Lock`]; nothing is read or written. The default, and
+    /// the only policy with full rollback protection.
+    #[default]
+    Fail,
+    /// Proceed WITHOUT cross-process exclusion for that call, so a user whose data directory
+    /// cannot hold a lock file keeps their licence state for the session. The first such
+    /// call is reported through the callback set with
+    /// [`ClosureClockStore::with_degraded_report`] and [`ClosureClockStore::is_degraded`]
+    /// turns true.
+    ///
+    /// Security trade-off: while degraded, two processes (a helper and the main process, two
+    /// launches) can interleave a read-compare-write and one can move the trusted mark
+    /// backwards, so rollback protection ACROSS processes is weaker. Within this process
+    /// calls still serialise (one process-wide gate shared by every degraded store).
+    /// Degradation is per call: if the lock file can be opened on a later call, that call is
+    /// fully locked again.
+    Degrade,
+}
+
+/// How a [`ClosureClockStore`] waits for a lock that another process holds. Set with
+/// [`ClosureClockStore::with_lock_wait`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[non_exhaustive]
+pub enum LockWait {
+    /// Block until the holder releases it. The default.
+    #[default]
+    Block,
+    /// Do not wait: a lock held elsewhere is [`ClosureClockStoreError::Lock`] with
+    /// `io::ErrorKind::WouldBlock`, and the closures are not called. This is the bounded wait
+    /// the crate can offer without a timer (it carries no sleep or thread); an app that wants
+    /// "wait up to N seconds" retries the call against its own deadline, or polls
+    /// [`CrossProcessLock::try_acquire`].
+    DoNotWait,
+}
+
 /// Failure of a [`ClosureClockStore`] operation.
 #[derive(Debug)]
 pub enum ClosureClockStoreError<E> {
-    /// The cross-process lock file could not be opened or locked. Nothing was read or
-    /// written.
+    /// The cross-process lock file could not be opened or locked (under
+    /// [`LockWait::DoNotWait`], held elsewhere: `io::ErrorKind::WouldBlock`). Nothing was
+    /// read or written.
     Lock(io::Error),
     /// The host's `get` or `set` closure failed.
     Store(E),
@@ -264,16 +345,47 @@ impl<E: fmt::Debug + fmt::Display> std::error::Error for ClosureClockStoreError<
 /// into this store or take the same lock (it is not re-entrant); every process must pass
 /// the same lock path. The lock is advisory, so it orders cooperating writers only, and it
 /// protects against interleaving, not against someone editing the keychain by hand.
+///
+/// **The closures run while the lock is held.** A `get` or `set` that can block on user
+/// interaction (a keychain access prompt, a credential-manager dialog) blocks every other
+/// process that needs this lock for as long as the prompt is up (under [`LockWait::Block`],
+/// forever if nobody answers). Keep the closures short and non-interactive, or pre-warm the
+/// access before the first call, or choose [`LockWait::DoNotWait`] in the processes that must
+/// not hang.
+///
+/// Two opt-in knobs, both off by default: [`with_lock_failure`](Self::with_lock_failure)
+/// (what to do when the lock file cannot be opened; see [`LockFailure`] for the security
+/// trade-off) and [`with_lock_wait`](Self::with_lock_wait) (what to do when it is held).
 pub struct ClosureClockStore<G, S> {
     lock_path: PathBuf,
     get: G,
     set: S,
+    lock_failure: LockFailure,
+    lock_wait: LockWait,
+    on_degraded: Option<DegradedReport>,
+    degraded: AtomicBool,
+}
+
+/// Callback for [`ClosureClockStore::with_degraded_report`].
+type DegradedReport = Arc<dyn Fn(&io::Error) + Send + Sync>;
+
+/// Serialises degraded calls within the process (no OS lock is held for them).
+static DEGRADED_GATE: Mutex<()> = Mutex::new(());
+
+/// What a [`ClosureClockStore`] holds while its closures run.
+#[allow(dead_code)] // held for its Drop, never read
+enum StoreGuard {
+    Os(CrossProcessLock),
+    Local(MutexGuard<'static, ()>),
 }
 
 impl<G, S> fmt::Debug for ClosureClockStore<G, S> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("ClosureClockStore")
             .field("lock_path", &self.lock_path)
+            .field("lock_failure", &self.lock_failure)
+            .field("lock_wait", &self.lock_wait)
+            .field("degraded", &self.is_degraded())
             .finish_non_exhaustive()
     }
 }
@@ -286,7 +398,66 @@ impl<G, S> ClosureClockStore<G, S> {
             lock_path: lock_path.into(),
             get,
             set,
+            lock_failure: LockFailure::Fail,
+            lock_wait: LockWait::Block,
+            on_degraded: None,
+            degraded: AtomicBool::new(false),
         }
+    }
+
+    /// Choose what happens when the lock file cannot be opened. Default [`LockFailure::Fail`].
+    /// Read the security trade-off on [`LockFailure::Degrade`] before enabling it.
+    pub fn with_lock_failure(mut self, policy: LockFailure) -> Self {
+        self.lock_failure = policy;
+        self
+    }
+
+    /// Choose how to treat a lock held by another process. Default [`LockWait::Block`].
+    pub fn with_lock_wait(mut self, wait: LockWait) -> Self {
+        self.lock_wait = wait;
+        self
+    }
+
+    /// Called once per store, with the open error, the first time [`LockFailure::Degrade`]
+    /// lets a call proceed without the lock. The callback runs on the calling thread before
+    /// the closures and must not call back into this store. No logging dependency: log it,
+    /// show it, or count it as the host sees fit.
+    pub fn with_degraded_report(
+        mut self,
+        report: impl Fn(&io::Error) + Send + Sync + 'static,
+    ) -> Self {
+        self.on_degraded = Some(Arc::new(report));
+        self
+    }
+
+    /// Whether any call has run without the cross-process lock (sticky; set with the first
+    /// degraded call and never reset).
+    pub fn is_degraded(&self) -> bool {
+        self.degraded.load(Ordering::SeqCst)
+    }
+
+    fn guard(&self, exclusive: bool) -> Result<StoreGuard, io::Error> {
+        let file = match CrossProcessLock::open_file(&self.lock_path) {
+            Ok(file) => file,
+            Err(error) => {
+                return match self.lock_failure {
+                    LockFailure::Fail => Err(error),
+                    LockFailure::Degrade => {
+                        if !self.degraded.swap(true, Ordering::SeqCst) {
+                            if let Some(report) = &self.on_degraded {
+                                report(&error);
+                            }
+                        }
+                        Ok(StoreGuard::Local(
+                            DEGRADED_GATE
+                                .lock()
+                                .unwrap_or_else(|poisoned| poisoned.into_inner()),
+                        ))
+                    }
+                };
+            }
+        };
+        CrossProcessLock::lock_file(file, exclusive, self.lock_wait).map(StoreGuard::Os)
     }
 
     /// The lock file shared by every process.
@@ -303,14 +474,12 @@ where
     type Error = ClosureClockStoreError<E>;
 
     fn load(&self) -> Result<Option<ClockState>, Self::Error> {
-        let _lock = CrossProcessLock::acquire_shared(&self.lock_path)
-            .map_err(ClosureClockStoreError::Lock)?;
+        let _lock = self.guard(false).map_err(ClosureClockStoreError::Lock)?;
         (self.get)().map_err(ClosureClockStoreError::Store)
     }
 
     fn save(&self, state: &ClockState) -> Result<(), Self::Error> {
-        let _lock =
-            CrossProcessLock::acquire(&self.lock_path).map_err(ClosureClockStoreError::Lock)?;
+        let _lock = self.guard(true).map_err(ClosureClockStoreError::Lock)?;
         (self.set)(state).map_err(ClosureClockStoreError::Store)
     }
 
@@ -319,8 +488,7 @@ where
         expected: Option<&ClockState>,
         new: &ClockState,
     ) -> Result<bool, Self::Error> {
-        let _lock =
-            CrossProcessLock::acquire(&self.lock_path).map_err(ClosureClockStoreError::Lock)?;
+        let _lock = self.guard(true).map_err(ClosureClockStoreError::Lock)?;
         let current = (self.get)().map_err(ClosureClockStoreError::Store)?;
         if current.as_ref() != expected {
             return Ok(false);

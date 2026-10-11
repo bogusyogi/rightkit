@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased (owned delete cleanup)
+
+Additive. Nothing here was compiled or run locally; verification is the CI run. A store with no roots configured behaves exactly as 0.2.9.
+
+- **`delete` owns file cleanup.** New `StoreConfig::artifact_root(path)` (repeatable) and `StoreConfig::scratch_root(path)` (the `<root>/<job_id>` layout `Runner::sweep_orphan_scratch` uses); both must be absolute. When either is set, `JobStore::delete` also removes the job's artifact files and its scratch directory. Only paths strictly inside a configured root are touched, with symlinks in the parent path resolved first; a recorded path outside every root (or with `..`, or relative) fails the delete with `path_outside_root` and deletes nothing. A symlink artifact or scratch directory is unlinked, never followed. A file also recorded by another job is left for it (`DeleteReport::shared`). `<artifact_root>/<job_id>` is removed when empty.
+- **New `JobStore::delete_with(job_id, &DeleteOptions { keep_files })` -> `DeleteReport`** (`prune`, `removed`, `already_gone`, `kept`, `shared`, `scratch_removed`). `keep_files: true` removes rows only. `delete` is `delete_with(default)` and still returns `PruneReport`.
+- **Crash-safe order.** `begin_delete` (validate, cancel a live job, write the mark in new crate-owned table `rk_job_deleting`), files removed, `complete_delete` (rows and mark removed in one transaction). New `JobStore::pending_deletions()` and `JobStore::finish_deletions()`: the recovery pass; call it at startup. The job row stays visible until the last step. `prune` still never deletes files.
+- **Schema:** `CREATE TABLE IF NOT EXISTS rk_job_deleting` at open (reserved name, `DELETING_TABLE`). No existing column changed.
+- **Tests:** `tests/delete_files.rs`.
+
 ## 0.2.9 (staged pool, delete and rejection, held jobs, per-job resume and sweep)
 
 Additive only. No existing signature, wire frame, `JOB_METHODS` entry or schema column changed;

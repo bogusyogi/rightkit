@@ -4,3 +4,6 @@
 crates/rightkit-qts-ggml-sys/vendor/** -text
 # PDFs are binary even when every byte is ASCII: a converted line ending breaks the xref offsets.
 *.pdf binary
+# The vendored plugin schemas are pinned by digest (packages/ax/plugin/schemas/pins.json, invariant I4):
+# a converted line ending changes the hash and right-ax refuses to run from the checkout.
+packages/ax/plugin/schemas/*.json -text

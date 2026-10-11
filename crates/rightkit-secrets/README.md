@@ -11,10 +11,11 @@ Per-app OS credential storage for Right Suite applications. It provides macOS Ke
 | Feature | Default | Pulls in | Effect |
 |---|---|---|---|
 | `settings-probe` | off | `rightkit-settings` | Enables the `rightkit-settings` presence adapter (`SecretProbe`). |
+| `isolated-test-keychain` | off | none | TEST ONLY. Compiles the throwaway macOS test keychain (`IsolatedKeychain`, `KeychainBackend::open_isolated_file`) and the CLI's `--isolated-keychain`. Without it there is no write path to an explicit keychain. Enable it only as `cargo test --features isolated-test-keychain` for `tests/e2e.rs`; never in a shipped build. |
 
 ## Platform support
 
-- macOS: the user-domain default keychain (explicit on every call; the search list is never used), with the `apple_helper` module driving the synced-credentials Swift helper (`RightKitAppleCredentials`). Apple's creation calls fall back to the default keychain when an explicit keychain is unusable, so a write is gated before it is made: the destination must be valid, present on disk and unlocked, and an explicit keychain from `KeychainBackend::open_file` that is not the current default is read and delete only (`Error::Unavailable` on write). Throwaway test keychains (`IsolatedKeychain`, `KeychainBackend::open_isolated_file`, temp directory only) can be written. See `src/macos.rs`.
+- macOS: the user-domain default keychain (explicit on every call; the search list is never used), with the `apple_helper` module driving the synced-credentials Swift helper (`RightKitAppleCredentials`). Apple's creation calls fall back to the default keychain when an explicit keychain is unusable, so a write is gated before it is made: the destination must be valid, present on disk and unlocked, and an explicit keychain from `KeychainBackend::open_file` that is not the current default is read and delete only (`Error::Unavailable` on write). Throwaway test keychains (`IsolatedKeychain`, `KeychainBackend::open_isolated_file`, temp directory only) can be written only in this crate's own tests and under the `isolated-test-keychain` feature; a production build has no write path to an explicit keychain. The mutation-exclusion identity of a macOS credential is its keychain file plus Keychain service and account (`macos_credential_identity`); a `WindowsTarget` prefix plays no part in it. See `src/macos.rs`.
 - Windows: Credential Manager (`src/windows.rs`).
 - Linux: no OS store is wired. Every call fails closed (`src/backend.rs`).
 
@@ -46,9 +47,11 @@ Illustrative; not compiled as a doctest. For compiled usage, see `tests/store.rs
 ## Timeouts, retries and migration
 
 - A call that times out keeps running inside the OS. Mutations of one native credential are serialised and the credential stays claimed until the OS call returns, so a retry that arrives while a timed-out call is still running gets `Error::InProgress` (retry after a short delay) instead of racing it and being overwritten.
-- `migrate_between` copies and verifies, then removes the source only through `Store::delete_if_equals` (delete only if it still holds the copied value). Memory and Windows can do that atomically; macOS cannot, so there the source is **kept** and listed in `MigrationReport::retained`. A source that changed after it was read is also kept.
+- `migrate_between` copies and verifies, then removes the source only through `Store::delete_if_equals` (delete only if it still holds the copied value). Memory and Windows can do that atomically; macOS cannot, so there the source is **kept** and listed in `MigrationReport::retained`. A source that changed after it was read is also kept. A destination that is not durable (`Store::is_durable`: a guard put it in memory or deny mode, or its backend does not report `Backend::durable`) takes nothing and removes nothing: every account is listed in `MigrationReport::refused`.
+- Every write that can replace a stored value takes an explicit `WriteIntent` (`CreateOnly` or `Replace`) through `Store::put`; `Store::set` is `Replace` and `Store::add_if_absent` is `CreateOnly`. `Store::import_env` takes the intent (`CreateOnly` cannot overwrite a credential saved concurrently, because the check and the write are one call). The CLI `set` is `CreateOnly` unless `--replace` is given.
+- `migrate_plaintext_file` takes a `LegacyFile` choice: `Retain` stores the value and leaves the file untouched; `RetireIfUnchanged` also wipes and deletes it (moved aside first, so a file that replaced it is never touched). The caller asserts nothing else writes the file; this crate shares no lock with its writers.
 - `apple_helper`: one deadline covers the request write, the reply read and the helper exit; the helper is killed and reaped on every path. A `read` reply's `value` is unescaped into a zeroised buffer without a serde_json intermediate.
 
 ## Verification
 
-Run through the RightKit wrapper: `rightkit cargo test -p rightkit-secrets`.
+Run through the RightKit wrapper: `rightkit cargo test -p rightkit-secrets`; add `--features isolated-test-keychain` on macOS for `tests/e2e.rs`.

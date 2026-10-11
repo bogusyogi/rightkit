@@ -99,7 +99,7 @@ pub enum ReplaceMode {
     ///   is not issued write-through and there is no directory `fsync`, so after a power loss the
     ///   old content may reappear. Use [`ReplaceMode::MoveWriteThrough`] where that matters.
     ///
-    /// With `durable: false` no flush is done on any platform. [`publication_durability`] reports
+    /// With `durable: false` no flush is done on any platform, except that [`AtomicWriter::commit_checked`] still file-syncs the temp file before its check. [`publication_durability`] reports
     /// which of these a given option set gets. The call and flag word each replace receives are
     /// observable under the `testing` feature (`atomic::testing`).
     #[default]
@@ -500,18 +500,26 @@ impl AtomicWriter {
     /// [`FsError::ReplacedButPostStepFailed`]. Check [`FsError::target_replaced`] before deciding
     /// to write again. What a durable write guarantees per platform is on [`ReplaceMode`].
     pub fn commit(self) -> Result<()> {
-        self.commit_inner(false, |_| Ok(())).map(|_| ())
+        self.commit_inner(false, false, |_| Ok(())).map(|_| ())
     }
 
-    /// [`AtomicWriter::commit`] with a check that runs after the temp file's content is written
-    /// (flushed and synced first when `durable`) and before anything is published.
+    /// [`AtomicWriter::commit`] with a check that runs on the synced temp file before anything is
+    /// published.
+    ///
+    /// Order, in every mode (`durable` or not): (1) the temp file's content is written and
+    /// flushed, (2) the temp file is synced (`fsync`, or `F_FULLFSYNC` with the Apple ladder when
+    /// `durable`; `FlushFileBuffers` on Windows) -- the file only, never the directory, (3)
+    /// `check` runs, (4) the replace publishes, (5) the directory is synced if and only if
+    /// `durable`. So what `check` reads is what is on stable storage and what `Ok` publishes;
+    /// a non-durable write with a check pays one file sync that a plain [`AtomicWriter::commit`]
+    /// does not, and still never syncs the directory.
     ///
     /// `check` receives the temp file's path. Its `Err` aborts the write: the destination is left
     /// as it was (no replace is attempted), the temp file is removed, and the error is returned as
     /// [`FsError::Io`] carrying the temp path. `Ok` publishes exactly the content that was checked.
     /// The check must not write to the temp file; it is a read-only gate.
     pub fn commit_checked(self, check: impl FnOnce(&Path) -> std::io::Result<()>) -> Result<()> {
-        self.commit_inner(false, check).map(|_| ())
+        self.commit_inner(false, true, check).map(|_| ())
     }
 
     /// [`AtomicWriter::commit`], also returning the lowercase hex SHA-256 of the published bytes.
@@ -522,17 +530,18 @@ impl AtomicWriter {
     /// cache still holds. For hashing while streaming, feed [`crate::digest::Sha256Hasher`] yourself.
     #[cfg(feature = "digest")]
     pub fn commit_with_digest(self) -> Result<String> {
-        self.commit_inner(true, |_| Ok(()))
+        self.commit_inner(true, false, |_| Ok(()))
             .map(|d| d.expect("a digest was requested"))
     }
 
     fn commit_inner(
         mut self,
         want_digest: bool,
+        checked: bool,
         check: impl FnOnce(&Path) -> std::io::Result<()>,
     ) -> Result<Option<String>> {
         let file = self.file.take().expect("writer is open until commit");
-        let result = self.finish(file, want_digest, check);
+        let result = self.finish(file, want_digest, checked, check);
         // Unpublished: the temp is all there is to clean. Published with a later error: the
         // temp name is already gone (rename), or it is a leftover second name for the
         // published inode (link fallback), and removing it again is correct and harmless.
@@ -551,10 +560,17 @@ impl AtomicWriter {
         &self,
         file: File,
         want_digest: bool,
+        checked: bool,
         check: impl FnOnce(&Path) -> std::io::Result<()>,
     ) -> Result<Option<String>> {
         if self.options.durable {
             durable_sync(&file).map_err(|e| FsError::io(&self.temp, e))?;
+            #[cfg(feature = "testing")]
+            testing::record(testing::Step::TempFlushed);
+        } else if checked {
+            // A caller's check is about to vouch for these bytes: they must be on stable
+            // storage (the file only, never the directory) before it reads them, in every mode.
+            file.sync_all().map_err(|e| FsError::io(&self.temp, e))?;
             #[cfg(feature = "testing")]
             testing::record(testing::Step::TempFlushed);
         }
@@ -1327,7 +1343,7 @@ pub mod testing {
     /// One durability-relevant call of an atomic write, in the order it happened.
     #[derive(Clone, Debug, PartialEq, Eq)]
     pub enum Step {
-        /// The temp file was flushed before publication (durable writes only).
+        /// The temp file was flushed before publication (durable writes, and checked writes in any mode).
         TempFlushed,
         /// The replace call ran (an injected failure stands in for it).
         Replace,

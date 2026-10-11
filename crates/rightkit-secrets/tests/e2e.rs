@@ -1,11 +1,11 @@
-#[cfg(target_os = "macos")]
+#[cfg(all(target_os = "macos", feature = "isolated-test-keychain"))]
 use rightkit_secrets::{migrate_between, Config, Error, Namespace, Store};
-#[cfg(target_os = "macos")]
+#[cfg(all(target_os = "macos", feature = "isolated-test-keychain"))]
 use std::process::{Command, Stdio};
-#[cfg(target_os = "macos")]
+#[cfg(all(target_os = "macos", feature = "isolated-test-keychain"))]
 use std::sync::Arc;
 
-#[cfg(target_os = "macos")]
+#[cfg(all(target_os = "macos", feature = "isolated-test-keychain"))]
 #[test]
 fn isolated_keychain_real_process_api_round_trip() {
     let isolated = rightkit_secrets::macos::IsolatedKeychain::create().unwrap();
@@ -21,7 +21,7 @@ fn isolated_keychain_real_process_api_round_trip() {
     assert!(!store.exists("account").unwrap());
 }
 
-#[cfg(target_os = "macos")]
+#[cfg(all(target_os = "macos", feature = "isolated-test-keychain"))]
 #[test]
 fn isolated_keychain_migration_locked_presence_and_cli_redaction() {
     let isolated = rightkit_secrets::macos::IsolatedKeychain::create().unwrap();
@@ -65,7 +65,13 @@ fn isolated_keychain_migration_locked_presence_and_cli_redaction() {
     let path = tempfile::NamedTempFile::new().unwrap().into_temp_path();
     std::fs::write(&path, b" file-fixture \n").unwrap();
     assert_eq!(
-        rightkit_secrets::migrate_plaintext_file(&to, "file-account", &path).unwrap(),
+        rightkit_secrets::migrate_plaintext_file(
+            &to,
+            "file-account",
+            &path,
+            rightkit_secrets::LegacyFile::RetireIfUnchanged
+        )
+        .unwrap(),
         rightkit_secrets::FileMigration::Migrated
     );
     assert!(!path.exists());
@@ -136,7 +142,7 @@ fn isolated_keychain_migration_locked_presence_and_cli_redaction() {
     assert!(!status_out.contains("cli-secret-fixture"));
 }
 
-#[cfg(target_os = "macos")]
+#[cfg(all(target_os = "macos", feature = "isolated-test-keychain"))]
 #[test]
 fn concurrent_isolated_processes_create_one_key() {
     let isolated = rightkit_secrets::macos::IsolatedKeychain::create().unwrap();
@@ -171,7 +177,7 @@ fn concurrent_isolated_processes_create_one_key() {
     assert_eq!(adopted, 3, "other processes must adopt winner");
 }
 
-#[cfg(target_os = "macos")]
+#[cfg(all(target_os = "macos", feature = "isolated-test-keychain"))]
 #[test]
 fn child_ensure_key() {
     let (Some(path), Some(password)) = (

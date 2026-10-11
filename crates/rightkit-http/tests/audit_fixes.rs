@@ -472,6 +472,8 @@ fn f16_incomplete_or_malformed_content_range_is_not_published() {
                 &dest,
                 DownloadOptions {
                     resume: true,
+                    // Without a proof the prefix would be discarded before any ranged request.
+                    expected_sha256: Some("0".repeat(64)),
                     ..DownloadOptions::default()
                 },
             )

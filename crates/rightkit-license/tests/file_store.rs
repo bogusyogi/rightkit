@@ -15,7 +15,7 @@ use std::time::{Duration, Instant};
 use rightkit_license::{
     AntiRollbackClock, ClockDecodeError, ClockReading, ClockRefusal, ClockState, ClockStore,
     ClosureClockStore, ClosureClockStoreError, CrossProcessLock, FileClockStore,
-    FileClockStoreError, ProcessAnchor, TrustedClock,
+    FileClockStoreError, LockFailure, LockWait, ProcessAnchor, TrustedClock,
 };
 
 fn state(highest_seen: i64, trusted_process: &str, last_server_iat: i64) -> ClockState {
@@ -507,4 +507,140 @@ fn a_closure_store_waits_for_the_cross_process_lock_and_then_sees_the_other_writ
         assert_eq!(done_rx.recv_timeout(Duration::from_secs(30)), Ok(false));
     });
     assert_eq!(keychain.get().unwrap(), Some(state(1_100, "b", 0)));
+}
+
+// ------------------------------------------------------------------ lock failure policy
+
+use std::sync::atomic::AtomicUsize;
+use std::sync::Arc;
+
+/// A lock path that cannot be opened: its parent "directory" is a regular file.
+fn unopenable_lock(dir: &TempDir) -> PathBuf {
+    let blocker = dir.0.join("not-a-directory");
+    fs::write(&blocker, b"file").unwrap();
+    blocker.join("clock.lock")
+}
+
+type Cell = Arc<std::sync::Mutex<Option<ClockState>>>;
+
+fn memory_store(
+    lock: PathBuf,
+    cell: &Cell,
+) -> ClosureClockStore<
+    impl Fn() -> Result<Option<ClockState>, String>,
+    impl Fn(&ClockState) -> Result<(), String>,
+> {
+    let (read, write) = (Arc::clone(cell), Arc::clone(cell));
+    ClosureClockStore::new(
+        lock,
+        move || Ok(read.lock().unwrap().clone()),
+        move |s: &ClockState| {
+            *write.lock().unwrap() = Some(s.clone());
+            Ok(())
+        },
+    )
+}
+
+#[test]
+fn an_unopenable_lock_fails_by_default() {
+    let dir = TempDir::new();
+    let cell: Cell = Arc::default();
+    let store = memory_store(unopenable_lock(&dir), &cell);
+    assert!(matches!(store.load(), Err(ClosureClockStoreError::Lock(_))));
+    assert!(matches!(
+        store.save(&state(1, "a", 1)),
+        Err(ClosureClockStoreError::Lock(_))
+    ));
+    assert!(cell.lock().unwrap().is_none(), "nothing was written");
+    assert!(!store.is_degraded());
+}
+
+#[test]
+fn an_unopenable_lock_degrades_when_asked_and_reports_once() {
+    let dir = TempDir::new();
+    let cell: Cell = Arc::default();
+    let reports = Arc::new(AtomicUsize::new(0));
+    let counter = Arc::clone(&reports);
+    let store = memory_store(unopenable_lock(&dir), &cell)
+        .with_lock_failure(LockFailure::Degrade)
+        .with_degraded_report(move |_| {
+            counter.fetch_add(1, Ordering::SeqCst);
+        });
+
+    assert_eq!(store.load().unwrap(), None);
+    store.save(&state(5, "a", 4)).unwrap();
+    assert_eq!(store.load().unwrap(), Some(state(5, "a", 4)));
+    assert!(store
+        .compare_and_save(Some(&state(5, "a", 4)), &state(6, "a", 5))
+        .unwrap());
+    assert_eq!(*cell.lock().unwrap(), Some(state(6, "a", 5)));
+    assert_eq!(
+        reports.load(Ordering::SeqCst),
+        1,
+        "reported once, not per call"
+    );
+    assert!(store.is_degraded());
+}
+
+#[test]
+fn a_held_lock_is_never_bypassed_under_degrade() {
+    let dir = TempDir::new();
+    let lock_path = dir.0.join("clock.lock");
+    let called = Arc::new(AtomicUsize::new(0));
+    let seen = Arc::clone(&called);
+    let store = ClosureClockStore::new(
+        lock_path.clone(),
+        move || {
+            seen.fetch_add(1, Ordering::SeqCst);
+            Ok::<_, String>(None)
+        },
+        |_: &ClockState| Ok(()),
+    )
+    .with_lock_failure(LockFailure::Degrade)
+    .with_lock_wait(LockWait::DoNotWait);
+
+    let held = CrossProcessLock::acquire(&lock_path).unwrap();
+    match store.load() {
+        Err(ClosureClockStoreError::Lock(error)) => {
+            assert_eq!(error.kind(), std::io::ErrorKind::WouldBlock)
+        }
+        other => panic!("expected a held-lock error, got {other:?}"),
+    }
+    assert_eq!(called.load(Ordering::SeqCst), 0, "the closure never ran");
+    assert!(!store.is_degraded(), "a held lock is not a degradation");
+    drop(held);
+    assert_eq!(store.load().unwrap(), None);
+    assert_eq!(called.load(Ordering::SeqCst), 1);
+}
+
+#[test]
+fn a_held_lock_still_blocks_by_default_under_degrade() {
+    let dir = TempDir::new();
+    let lock_path = dir.0.join("clock.lock");
+    let held = CrossProcessLock::acquire(&lock_path).unwrap();
+    let (tx, rx) = mpsc::channel();
+    let worker = thread::spawn(move || {
+        let store =
+            ClosureClockStore::new(lock_path, || Ok::<_, String>(None), |_: &ClockState| Ok(()))
+                .with_lock_failure(LockFailure::Degrade);
+        tx.send(store.load().is_ok()).unwrap();
+    });
+    assert!(
+        rx.recv_timeout(Duration::from_millis(300)).is_err(),
+        "the load waits while another handle holds the lock"
+    );
+    drop(held);
+    assert!(rx.recv_timeout(Duration::from_secs(10)).unwrap());
+    worker.join().unwrap();
+}
+
+#[test]
+fn try_acquire_reports_a_held_lock_as_none() {
+    let dir = TempDir::new();
+    let lock_path = dir.0.join("clock.lock");
+    let first = CrossProcessLock::try_acquire(&lock_path).unwrap();
+    assert!(first.is_some());
+    assert!(CrossProcessLock::try_acquire(&lock_path).unwrap().is_none());
+    drop(first);
+    assert!(CrossProcessLock::try_acquire(&lock_path).unwrap().is_some());
 }

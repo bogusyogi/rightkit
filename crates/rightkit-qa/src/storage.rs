@@ -707,7 +707,7 @@ pub fn check_root_cap(parent: &Path, cap_bytes: u64) -> std::result::Result<(), 
     if total <= cap_bytes {
         return Ok(());
     }
-    homes.sort_by(|a, b| b.1.cmp(&a.1));
+    homes.sort_by_key(|home| std::cmp::Reverse(home.1));
     homes.truncate(5);
     Err(RootOverCap {
         root: parent.to_path_buf(),
@@ -1861,7 +1861,7 @@ mod tests {
         assert!(e.largest.iter().any(|(p, _)| p == &small));
         let text = crate::util::Error::from(e).to_string();
         assert!(
-            text.contains("big") && text.contains(ROOT_CAP_ENV),
+            text.contains(&big.display().to_string()) && text.contains(ROOT_CAP_ENV),
             "{text}"
         );
         let _ = fs::remove_dir_all(&root);
