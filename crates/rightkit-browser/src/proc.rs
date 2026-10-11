@@ -16,6 +16,39 @@ pub(crate) struct ChromeProc {
     /// Unix only: kills Chrome's process group when this host process vanishes.
     pub _watchdog: Option<OwnedChild>,
     pub ws_url: String,
+    /// The last lines Chrome wrote to stderr, for the detail of a failed navigation.
+    pub stderr_tail: StderrTail,
+}
+
+/// The most recent stderr lines of the Chrome process, bounded in count and length.
+#[derive(Clone, Default)]
+pub(crate) struct StderrTail(std::sync::Arc<std::sync::Mutex<std::collections::VecDeque<String>>>);
+
+impl StderrTail {
+    const LINES: usize = 30;
+    const LINE_CHARS: usize = 300;
+
+    fn push(&self, line: &str) {
+        let line = line.trim();
+        if line.is_empty() {
+            return;
+        }
+        let mut lines = self.0.lock().unwrap_or_else(|e| e.into_inner());
+        if lines.len() == Self::LINES {
+            lines.pop_front();
+        }
+        lines.push_back(line.chars().take(Self::LINE_CHARS).collect());
+    }
+
+    /// The retained lines joined with ` | `, or `(nothing)`.
+    pub(crate) fn text(&self) -> String {
+        let lines = self.0.lock().unwrap_or_else(|e| e.into_inner());
+        if lines.is_empty() {
+            "(nothing)".into()
+        } else {
+            lines.iter().cloned().collect::<Vec<_>>().join(" | ")
+        }
+    }
 }
 
 impl ChromeProc {
@@ -90,11 +123,26 @@ pub(crate) fn spawn_chrome(
         .take_stderr()
         .ok_or_else(|| BrowserError::Launch("no stderr".into()))?;
     let (tx, rx) = std::sync::mpsc::channel::<String>();
-    // Keeps draining stderr after the URL line so Chrome never blocks on a full pipe.
+    // Keeps draining stderr after the URL line so Chrome never blocks on a full pipe. The
+    // drain reads bytes, not text: a line that is not UTF-8 (Windows writes some messages in
+    // the system code page) must not end it, or the pipe fills and Chrome stalls on its next
+    // write.
+    let stderr_tail = StderrTail::default();
+    let tail = stderr_tail.clone();
     std::thread::spawn(move || {
-        for line in BufReader::new(stderr).lines().map_while(|l| l.ok()) {
-            if let Some(u) = line.split("DevTools listening on ").nth(1) {
+        let mut reader = BufReader::new(stderr);
+        let mut line = Vec::new();
+        loop {
+            line.clear();
+            match reader.read_until(b'\n', &mut line) {
+                Ok(0) | Err(_) => break,
+                Ok(_) => {}
+            }
+            let text = String::from_utf8_lossy(&line);
+            if let Some(u) = text.split("DevTools listening on ").nth(1) {
                 let _ = tx.send(u.trim().to_string());
+            } else {
+                tail.push(&text);
             }
         }
     });
@@ -106,6 +154,7 @@ pub(crate) fn spawn_chrome(
         child,
         _watchdog: watchdog,
         ws_url,
+        stderr_tail,
     })
 }
 
