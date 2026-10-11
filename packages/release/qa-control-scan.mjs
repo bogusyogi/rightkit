@@ -11,14 +11,20 @@
 //   wdio-webdriver     `tauri-plugin-wdio-webdriver` (HeardRight/MailRight/ViewRight `qa-native`): needs 2 of 3
 //                      independent signatures. WEAKER than the marker: the plugin source was not on disk when
 //                      the signatures were chosen, they come from Rust path/module/permission naming rules.
+//   shell-dev-inspect  `rightkit-shell` feature `dev-inspect` (developer inspection of an app's own webviews): every
+//                      binary built with it carries DEV_INSPECT_MARKER. Refused in every tier this module scans.
 //   remote-debugging   `--remote-debugging-port` / `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS` baked into a binary.
-//   tauri-devtools     Tauri's `devtools` feature (or a debug build): the toggle-devtools init script.
+//   tauri-devtools     Tauri's `devtools` feature (or a debug build): the toggle-devtools init script. Accepted only for an
+//                      allow-listed app (devtools-policy.json) whose binary carries CONTENT_ONLY_MARKER.
 import { closeSync, lstatSync, openSync, readSync, readdirSync } from "node:fs";
 import path from "node:path";
 import { inflateRawSync } from "node:zlib";
 
 // Keep identical to `QA_CONTROL_MARKER` in crates/rightkit-control/src/embedded/mod.rs.
 export const QA_CONTROL_MARKER = "RIGHTKIT-QA-CONTROL-SERVER-PRESENT";
+// Keep identical to `DEV_INSPECT_MARKER` in crates/rightkit-shell/src/devtools.rs (a `#[used]` static compiled only
+// with rightkit-shell's `dev-inspect` feature and read by the process guard). No allow-list lifts this rule.
+export const DEV_INSPECT_MARKER = "RIGHTKIT-SHELL-DEV-INSPECT-COMPILED";
 const MARKER = Buffer.from(QA_CONTROL_MARKER, "latin1");
 const CHUNK = 4 * 1024 * 1024;
 
@@ -27,6 +33,8 @@ const CHUNK = 4 * 1024 * 1024;
 export const QA_RULES = Object.freeze([
   { id: "qa-control-server", min: 1, label: "RightKit QA control server (rightkit-control qa-control)",
     signatures: [{ id: "marker", text: QA_CONTROL_MARKER }] },
+  { id: "shell-dev-inspect", min: 1, marker: DEV_INSPECT_MARKER, label: "rightkit-shell developer inspection (rightkit-shell dev-inspect)",
+    signatures: [{ id: "marker", text: DEV_INSPECT_MARKER }] },
   { id: "wdio-webdriver", min: 2, label: "tauri-plugin-wdio-webdriver test driver (app qa-native/dev-native)",
     signatures: [
       { id: "crate-path", text: "tauri-plugin-wdio-webdriver" },
@@ -45,10 +53,19 @@ export const QA_RULES = Object.freeze([
     ] },
 ]);
 
-const NEEDLES = QA_RULES.flatMap((rule) => rule.signatures.map((signature) => ({
+// Keep identical to `CONTENT_ONLY_MARKER` in crates/rightkit-shell/src/devtools.rs. A binary carries it when it was
+// built with rightkit-shell's `content-devtools` feature. It is not a finding; it is the evidence that lets an
+// allow-listed app (devtools-policy.json) ship Tauri's devtools code for ViewRight-style content inspection.
+export const CONTENT_ONLY_MARKER = "RIGHTKIT-SHELL-DEVTOOLS-CONTENT-ONLY-COMPILED";
+const CONTENT_ONLY_KEY = "content-only-marker/marker";
+
+const NEEDLES = [...QA_RULES.flatMap((rule) => rule.signatures.map((signature) => ({
   rule: rule.id, signature: signature.id,
   buffers: [Buffer.from(signature.text, "latin1"), Buffer.from(signature.text, "utf16le")],
-})));
+}))), {
+  rule: "content-only-marker", signature: "marker",
+  buffers: [Buffer.from(CONTENT_ONLY_MARKER, "latin1"), Buffer.from(CONTENT_ONLY_MARKER, "utf16le")],
+}];
 const MAX_NEEDLE = Math.max(...NEEDLES.flatMap((n) => n.buffers.map((b) => b.length)));
 
 // Incremental matcher: feed chunks in order; keeps an overlap so a signature split across chunks is found.
@@ -63,13 +80,17 @@ export class RuleScanner {
     }
     this.tail = Buffer.from(window.subarray(Math.max(0, window.length - (MAX_NEEDLE - 1))));
   }
-  findings() {
+  // `allowContentOnlyDevtools`: the app is allow-listed for rightkit-shell's ContentOnly DevTools policy. Then Tauri's
+  // devtools signatures are accepted only in a binary that also carries CONTENT_ONLY_MARKER; one without it is still
+  // a finding (devtools compiled in by some other route).
+  findings({ allowContentOnlyDevtools = false } = {}) {
     const out = [];
     for (const rule of QA_RULES) {
+      if (rule.id === "tauri-devtools" && allowContentOnlyDevtools && this.hits.has(CONTENT_ONLY_KEY)) continue;
       const matched = rule.signatures.filter((s) => this.hits.has(`${rule.id}/${s.id}`));
       if (matched.length < rule.min) continue;
-      out.push({ rule: rule.id, reason: rule.id === "qa-control-server"
-        ? `contains ${QA_CONTROL_MARKER}`
+      out.push({ rule: rule.id, reason: rule.id === "qa-control-server" || rule.marker
+        ? `contains ${rule.marker ?? QA_CONTROL_MARKER}`
         : `${rule.label}: ${matched.length} of ${rule.signatures.length} signatures (${matched.map((s) => s.text).join(", ")})` });
     }
     return out;
@@ -103,12 +124,12 @@ export function bufferQaFindings(buffer, options = {}) {
   const bytes = Buffer.from(buffer);
   if (isZipHeader(bytes.subarray(0, 4))) {
     const findings = []; const stats = newStats();
-    scanZip(bufferSource(bytes), "<buffer>", { findings, stats, limits: limitsOf(options), budget: { left: limitsOf(options).totalInflated } }, 0);
+    scanZip(bufferSource(bytes), "<buffer>", { findings, stats, allowContentOnlyDevtools: options.allowContentOnlyDevtools === true, limits: limitsOf(options), budget: { left: limitsOf(options).totalInflated } }, 0);
     return findings;
   }
   const scanner = new RuleScanner();
   for (let at = 0; at < bytes.length; at += CHUNK) scanner.push(bytes.subarray(at, Math.min(bytes.length, at + CHUNK)));
-  return scanner.findings();
+  return scanner.findings({ allowContentOnlyDevtools: options.allowContentOnlyDevtools === true });
 }
 
 // Streams the file in chunks with an overlap, so a marker split across chunks is found. Marker rule only.
@@ -276,7 +297,7 @@ function scanBody(body, file, ctx, depth) {
   ctx.stats.binaries += 1;
   const scanner = new RuleScanner();
   for (let at = 0; at < body.size; at += CHUNK) scanner.push(body.read(at, Math.min(CHUNK, body.size - at)));
-  for (const finding of scanner.findings()) ctx.findings.push({ file, ...finding });
+  for (const finding of scanner.findings({ allowContentOnlyDevtools: ctx.allowContentOnlyDevtools === true })) ctx.findings.push({ file, ...finding });
 }
 
 // ---- directory / file / container entry point ---------------------------------------------------------------
@@ -308,12 +329,12 @@ export function scanWithStats(paths, options = {}) {
       }
       fd = openSync(target, "r");
       const source = fdSource(fd, stat.size);
-      if (isZip) { scanZip(source, target, { findings, stats, limits, budget: { left: limits.totalInflated } }, 0); return; }
+      if (isZip) { scanZip(source, target, { findings, stats, allowContentOnlyDevtools: options.allowContentOnlyDevtools === true, limits, budget: { left: limits.totalInflated } }, 0); return; }
       stats.binaries += 1;
       const scanner = new RuleScanner();
       for (let at = 0; at < stat.size; at += CHUNK) scanner.push(source.read(at, Math.min(CHUNK, stat.size - at)));
       if (looksLikeNsis(source, stat.size)) stats.opaque.push({ file: target, kind: "nsis" });
-      for (const finding of scanner.findings()) findings.push({ file: target, ...finding });
+      for (const finding of scanner.findings({ allowContentOnlyDevtools: options.allowContentOnlyDevtools === true })) findings.push({ file: target, ...finding });
     } catch (error) {
       findings.push({ file: target, rule: "unscannable", reason: `could not scan: ${error.code ?? error.message}` });
     } finally {
@@ -338,8 +359,8 @@ export function scanForQaControl(paths, options = {}) {
 
 // `requireBinary`: fail when the scanned inputs contain no native binary at all (a missing or empty staging
 // directory must not read as "clean"). Returns the scan stats so a caller can report what stayed unscannable.
-export function assertNoQaControl(paths, label = "release", { requireBinary = false, limits } = {}) {
-  const { findings, stats } = scanWithStats(paths, { limits });
+export function assertNoQaControl(paths, label = "release", { requireBinary = false, limits, allowContentOnlyDevtools = false } = {}) {
+  const { findings, stats } = scanWithStats(paths, { limits, allowContentOnlyDevtools });
   if (requireBinary && stats.binaries === 0 && findings.length === 0) {
     findings.push({ file: paths.join(", ") || "<none>", rule: "unscannable", reason: "no Mach-O, PE or ELF file found to scan (missing or empty staging input); cannot verify" });
   }

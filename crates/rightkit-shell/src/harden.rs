@@ -1,4 +1,4 @@
-//! Webview hardening: no stray webview context menu, devtools off in production, reload / zoom /
+//! Webview hardening: no stray webview context menu, reload / zoom /
 //! history keys blocked, drag-drop cannot navigate, external links leave for the system browser.
 //!
 //! Three layers, because no single one covers every engine:
@@ -9,6 +9,8 @@
 
 use serde::Serialize;
 use tauri::{Runtime, Webview};
+
+use crate::devtools::WebviewDecision;
 
 /// Frame scope for the full shell plugin's DOM hardening script.
 /// Native webview settings & Rust navigation policy are configured separately.
@@ -21,26 +23,6 @@ pub enum HardeningScript {
     TopFrameOnly,
     /// Do not inject the DOM hardening script.
     Off,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Devtools {
-    /// Inspector unavailable in every build (the default).
-    Off,
-    /// Inspector available only in debug builds.
-    DebugBuilds,
-    /// Inspector always available (diagnostic builds only).
-    On,
-}
-
-impl Devtools {
-    pub fn enabled(self) -> bool {
-        match self {
-            Devtools::Off => false,
-            Devtools::DebugBuilds => cfg!(debug_assertions),
-            Devtools::On => true,
-        }
-    }
 }
 
 #[derive(Debug, Clone)]
@@ -56,8 +38,6 @@ pub struct Hardening {
     pub block_zoom: bool,
     /// Block Alt+Left/Right, Cmd+[ / ], browser back/forward keys and mouse buttons 4/5.
     pub block_history_nav: bool,
-    /// Block F12, Ctrl+Shift+I/J/C and Cmd+Opt+I/J/C (and turn the inspector off natively).
-    pub devtools: Devtools,
     /// A dropped file must never navigate the webview; only `data-rk-dropzone` accepts drops.
     pub block_drop_navigation: bool,
     /// Route http(s)/mailto link clicks and `window.open` to the system browser.
@@ -72,7 +52,6 @@ impl Default for Hardening {
             block_reload: true,
             block_zoom: true,
             block_history_nav: true,
-            devtools: Devtools::Off,
             block_drop_navigation: true,
             intercept_external_links: true,
         }
@@ -87,7 +66,7 @@ struct ScriptConfig {
     block_reload: bool,
     block_zoom: bool,
     block_history_nav: bool,
-    block_devtools_keys: bool,
+    content_devtools_labels: Vec<String>,
     block_drop_navigation: bool,
     intercept_external_links: bool,
 }
@@ -95,15 +74,24 @@ struct ScriptConfig {
 const SCRIPT_BODY: &str = include_str!("harden.js");
 
 impl Hardening {
-    /// The initialisation script for this configuration (idempotent per document).
+    /// The initialisation script for this configuration (idempotent per document). DevTools
+    /// shortcuts are always cancelled; see [`Hardening::script_for`] for content webviews.
     pub fn script(&self) -> String {
+        self.script_for(&[])
+    }
+
+    /// Like [`Hardening::script`], for an app whose `DevToolsPolicy::ContentOnly` registered the
+    /// webviews in `content_labels`. In those webviews the script leaves the context menu and the
+    /// DevTools shortcuts alone (the native layer decides what they may do); everywhere else
+    /// F12, Ctrl+Shift+I/J/C and Cmd+Opt+I/J/C/U are cancelled.
+    pub fn script_for(&self, content_labels: &[String]) -> String {
         let cfg = ScriptConfig {
             block_context_menu: self.block_context_menu,
             allow_editable_menu: self.allow_editable_menu,
             block_reload: self.block_reload,
             block_zoom: self.block_zoom,
             block_history_nav: self.block_history_nav,
-            block_devtools_keys: !self.devtools.enabled(),
+            content_devtools_labels: content_labels.to_vec(),
             block_drop_navigation: self.block_drop_navigation,
             intercept_external_links: self.intercept_external_links,
         };
@@ -112,18 +100,16 @@ impl Hardening {
     }
 }
 
-/// Apply the native (non-DOM) hardening to a freshly created webview.
-pub fn apply_native<R: Runtime>(webview: &Webview<R>, h: &Hardening) {
-    // `close_devtools` exists only in debug builds or with tauri's `devtools` feature; production
-    // builds have no inspector to close (and the native settings below turn it off regardless).
-    #[cfg(any(debug_assertions, feature = "devtools"))]
-    if !h.devtools.enabled() {
-        webview.close_devtools();
-    }
+/// Apply the native (non-DOM, non-DevTools) hardening to a freshly created webview. The DevTools
+/// settings are applied separately and unconditionally by [`crate::devtools::apply_native`];
+/// `decision` only tells this layer to leave a content webview's context menu to that layer.
+pub fn apply_native<R: Runtime>(webview: &Webview<R>, h: &Hardening, decision: WebviewDecision) {
     #[cfg(target_os = "macos")]
     macos::apply(webview, h);
     #[cfg(windows)]
-    windows_impl::apply(webview, h);
+    windows_impl::apply(webview, h, decision);
+    #[cfg(not(windows))]
+    let _ = decision;
     #[cfg(not(any(target_os = "macos", windows)))]
     let _ = (webview, h);
 }
@@ -133,23 +119,14 @@ mod macos {
     use super::*;
     use objc2::msg_send;
     use objc2::runtime::AnyObject;
-    use objc2_foundation::{ns_string, NSNumber};
 
     pub fn apply<R: Runtime>(webview: &Webview<R>, h: &Hardening) {
-        let devtools = h.devtools.enabled();
         let zoom_off = h.block_zoom;
         let nav_off = h.block_history_nav;
         let _ = webview.with_webview(move |platform| unsafe {
             // SAFETY: Tauri hands over the live WKWebView for this webview; used only inside this
             // main-thread closure.
             let wk = &*(platform.inner() as *mut AnyObject);
-            let config: objc2::rc::Retained<AnyObject> = msg_send![wk, configuration];
-            let prefs: objc2::rc::Retained<AnyObject> = msg_send![&config, preferences];
-            // Wry enables the private `developerExtrasEnabled` preference, which also installs
-            // WebKit's own Cmd+Opt+I handler that JavaScript cannot cancel. Turning it off removes
-            // "Inspect Element" from the context menu and the shortcut together.
-            let flag = NSNumber::numberWithBool(devtools);
-            let (): () = msg_send![&prefs, setValue: Some(&*flag), forKey: ns_string!("developerExtrasEnabled")];
             if zoom_off {
                 let (): () = msg_send![wk, setAllowsMagnification: false];
             }
@@ -172,8 +149,9 @@ mod windows_impl {
 
     /// WebView2 side of the same policy. NOT compiled on this (macOS) host: compile and verify on
     /// the Windows agent with `rightkit cargo check -p rightkit-shell` (see API.md).
-    pub fn apply<R: Runtime>(webview: &Webview<R>, h: &Hardening) {
+    pub fn apply<R: Runtime>(webview: &Webview<R>, h: &Hardening, decision: WebviewDecision) {
         let h = h.clone();
+        let content = decision != WebviewDecision::Deny;
         let _ = webview.with_webview(move |platform| unsafe {
             let Ok(core) = platform.controller().CoreWebView2() else {
                 return;
@@ -181,7 +159,6 @@ mod windows_impl {
             let Ok(settings) = core.Settings() else {
                 return;
             };
-            let _ = settings.SetAreDevToolsEnabled(h.devtools.enabled());
             let _ = settings.SetIsStatusBarEnabled(false);
             if h.block_zoom {
                 let _ = settings.SetIsZoomControlEnabled(false);
@@ -194,14 +171,14 @@ mod windows_impl {
                     let _ = s6.SetIsSwipeNavigationEnabled(false);
                 }
             }
-            if h.block_reload || h.block_history_nav || !h.devtools.enabled() {
-                // F5, Ctrl+R, Alt+Left, F12 and friends are WebView2 "browser accelerator keys".
+            if h.block_reload || h.block_history_nav {
+                // F5, Ctrl+R, Alt+Left and friends are WebView2 "browser accelerator keys".
                 if let Ok(s3) = settings.cast::<ICoreWebView2Settings3>() {
                     let _ = s3.SetAreBrowserAcceleratorKeysEnabled(false);
                 }
             }
-            if h.block_context_menu {
-                // Keep default menus only so the editable-field menu can survive; every other
+            if h.block_context_menu && !content {
+                // Content webviews: the DevTools layer owns their menu. Keep default menus only so the editable-field menu can survive; every other
                 // target is marked handled (no menu shown).
                 let allow_editable = h.allow_editable_menu;
                 if let Ok(wv11) = core.cast::<ICoreWebView2_11>() {

@@ -1,0 +1,5 @@
+{
+  "schema": 1,
+  "note": "Owner's fixed design: every Right app has no access to DevTools; ViewRight alone may inspect the HTML content it opens, never its own UI or shell. Only an app listed here may declare devtools: \"content-only\" in its right-release config. Edit only on the owner's instruction.",
+  "contentOnlyApps": ["viewright"]
+}
