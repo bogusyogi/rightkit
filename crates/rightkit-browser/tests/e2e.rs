@@ -5,6 +5,20 @@ use std::io::{Read, Write};
 use std::net::TcpListener;
 use std::time::Duration;
 
+/// Every test here drives a real Chrome for Testing. Without one the test prints a SKIP line
+/// and returns; `RIGHTKIT_REQUIRE_ASSETS=1` turns the gap into a failure.
+macro_rules! need_chrome {
+    ($test:literal) => {
+        if let Err(e) = rightkit_browser::chrome_for_testing_path(None) {
+            if std::env::var_os("RIGHTKIT_REQUIRE_ASSETS").is_some_and(|v| v == "1") {
+                panic!("{}: {e}", $test);
+            }
+            println!("[browser] SKIP {}: {e}", $test);
+            return;
+        }
+    };
+}
+
 const INDEX: &str = r##"<!doctype html><html><head><title>RK Test</title><style>
 #hov{width:120px;height:40px;background:#ccc} #hov:hover{background:#0a0}
 #box{width:60px;height:60px;background:#36f;position:absolute;left:300px;top:200px;user-select:none}
@@ -64,6 +78,7 @@ fn serve() -> String {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn browser_runtime_outcomes() {
+    need_chrome!("browser_runtime_outcomes");
     let base = serve();
     let session = BrowserSession::launch(fixture_opts())
         .await
@@ -177,6 +192,7 @@ async fn browser_runtime_outcomes() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn named_profile_persists_and_is_exclusive() {
+    need_chrome!("named_profile_persists_and_is_exclusive");
     let base = serve();
     let root = tempfile::tempdir().unwrap();
     let opts = || fixture_opts().named_profile(root.path(), "qa");
@@ -203,6 +219,7 @@ async fn named_profile_persists_and_is_exclusive() {
 #[tokio::test(flavor = "multi_thread")]
 #[ignore = "opens a visible window; run with --ignored"]
 async fn headed_smoke() {
+    need_chrome!("headed_smoke");
     let base = serve();
     let s = BrowserSession::launch(fixture_opts().headed())
         .await

@@ -1173,7 +1173,8 @@ fn link_or_copy(src: &Path, dest: &Path) -> Result<bool> {
     let tmp = crate::download::part_path_for(dest);
     let copied = (|| -> std::io::Result<()> {
         fs::copy(&src, &tmp)?;
-        fs::File::open(&tmp)?.sync_all()?;
+        // Opened for writing: Windows refuses to flush a read-only handle.
+        fs::OpenOptions::new().write(true).open(&tmp)?.sync_all()?;
         fs::rename(&tmp, dest)
     })();
     if let Err(e) = copied {
