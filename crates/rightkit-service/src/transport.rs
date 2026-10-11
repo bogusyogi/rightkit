@@ -28,6 +28,9 @@ pub(crate) struct Conn {
     /// Non-blocking: has the peer closed its end? Safe to call from another thread.
     pub peer_closed: Arc<dyn Fn() -> bool + Send + Sync>,
     pub shutdown: Arc<dyn Fn() + Send + Sync>,
+    /// Who the OS says is on the other end. Filled in for an accepted connection, where the
+    /// peer check has just run; empty for a connection this process opened.
+    pub peer: crate::peer::PeerIdentity,
 }
 
 fn fnv(s: &str) -> u32 {
@@ -239,7 +242,7 @@ mod imp {
         verify: impl FnOnce(&UnixStream) -> Result<PeerIdentity, PeerError>,
     ) -> io::Result<Accepted> {
         match verify(&s) {
-            Ok(_) => wrap(s).map(Accepted::Conn),
+            Ok(peer) => wrap(s).map(|conn| Accepted::Conn(Conn { peer, ..conn })),
             Err(e) if e.peer_gone() => Ok(Accepted::Vanished),
             Err(e) => Ok(Accepted::Rejected(e.to_string())),
         }
@@ -251,6 +254,7 @@ mod imp {
         let watch = s.try_clone()?;
         let sd = s;
         Ok(Conn {
+            peer: crate::peer::PeerIdentity::default(),
             reader: Box::new(r),
             writer: Box::new(w),
             peer_closed: Arc::new(move || {
@@ -551,6 +555,7 @@ mod imp {
     fn wrap(pipe: Pipe) -> Conn {
         let (w, watch, sd) = (pipe.clone(), pipe.clone(), pipe.clone());
         Conn {
+            peer: crate::peer::PeerIdentity::default(),
             reader: Box::new(Half(pipe)),
             writer: Box::new(Half(w)),
             peer_closed: Arc::new(move || {
@@ -640,7 +645,7 @@ mod imp {
             // (the peer sees a disconnect); the next accept creates a fresh instance.
             let raw = pipe.0.raw.load(Ordering::SeqCst) as RawHandle;
             match verify_pipe_peer_is_current_user(raw) {
-                Ok(_) => Ok(Accepted::Conn(wrap(pipe))),
+                Ok(peer) => Ok(Accepted::Conn(Conn { peer, ..wrap(pipe) })),
                 Err(e) => {
                     pipe.cancel();
                     if e.peer_gone() {
