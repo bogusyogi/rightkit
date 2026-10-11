@@ -108,7 +108,7 @@ before any Rust command.
     assertions on real engine output; fast tier only (no models, no network, no audio). A scenario that
     cannot run fails the run unless it declares `optional = true`. Never make a billed call; paid
     providers are exercised only against local HTTP mocks. Native UI scenarios drive the hidden app
-    through `rightkit-control` in an app-level `qa-native` feature that is off by default (pattern in `src-tauri/Cargo.toml` and `src-tauri/src/lib.rs`, to be enabled once rightkit-control 0.3.0 is on the registry; see `crates/rightkit-qa/examples`). QA control never ships: the dev lane builds it, `right-release` fails a release or update seal that contains it, and users automate only through the app's command line or plugin.
+    through `rightkit-control` in an app-level `qa-native` feature that is off by default (pattern in `src-tauri/Cargo.toml` and `src-tauri/src/lib.rs`, to be enabled once rightkit-control 0.3.0 is on the registry; see `crates/rightkit-qa/examples`). QA control never ships: the dev lane builds it, `right-release` fails a release or update seal that contains it, and users automate only through the app's command line or plugin. Developer inspection of dev builds follows the same pattern: an optional `dev-native = ["rightkit-shell/dev-inspect"]` feature, commented in `src-tauri/Cargo.toml` until the registry pin of `rightkit-shell` has `dev-inspect`; a build with it can never be released.
     There is no browser/Node UI harness and no in-page IPC mock.
 12. **Adopt shared pieces as they land.** When a package or crate becomes listed in
     `rightkit-versions.json`, the gate fails until you pin it exactly, delete its stand-in, and delete its

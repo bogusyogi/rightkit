@@ -7,6 +7,7 @@ import test from "node:test";
 import { runInNewContext } from "node:vm";
 import { signingReceiptPath } from "./signing-receipts.mjs";
 import { notarizeMacosArtifact, validateNotarizationReceipt } from "./macos-notarization.mjs";
+import { devtoolsEvidence, resolveDevtoolsAllowance } from "./devtools-policy.mjs";
 
 const source = fs.readFileSync(new URL("./build-release.mjs", import.meta.url), "utf8");
 const hashFile = (file) => createHash("sha256").update(fs.readFileSync(file)).digest("hex");
@@ -52,7 +53,7 @@ test("MailRight config seals current build receipts despite stale legacy & other
   const sealEnd = source.indexOf("\nfunction collectToolVersions", sealStart);
   const validations = [];
   const seal = runInNewContext(`${source.slice(sealStart, sealEnd)}\nsealRelease;`, {
-    ...fs, path, process, hashFile,
+    ...fs, path, process, hashFile, devtoolsEvidence, resolveDevtoolsAllowance,
     writeJson: (file, value) => fs.writeFileSync(file, JSON.stringify(value)),
     fail: (message) => { throw new Error(message); },
     resolveArtifactDir: () => root, materializeArtifacts: () => {}, completeArtifactLease: () => {}, retainArtifacts: () => ({ removed: [] }),
