@@ -398,4 +398,18 @@ describe('QaPage with real Chrome for Testing', () => {
     await page.setFocusEmulation(false);
     await expect(page.setFocusEmulation(1 as any)).rejects.toThrow('boolean');
   });
+
+  it('0.4.6 failure dump: real page text, the focused element descriptor (no value) and the extra callback', async () => {
+    await page.type('#text', 'secret-value');
+    await page.focus('#text');
+    const error = await page.waitForFunction('window.neverSet === true', { timeout: 300, failureArtifacts: { directory: output, label: 'state', extra: () => ({ step: 'typed' }) } }).catch(caught => caught);
+    expect(error).toBeInstanceOf(TimeoutError);
+    const dump = JSON.parse(await readFile(error.artifacts.json, 'utf8'));
+    expect(dump.pageText.text).toContain('QaPage fixture');
+    expect(dump.pageText.truncated).toBe(false);
+    expect(dump.activeElement).toMatchObject({ tag: 'input', id: 'text' });
+    expect(JSON.stringify(dump)).not.toContain('secret-value');
+    expect(dump.extra).toEqual({ step: 'typed' });
+    expect(dump.extraError).toBeNull();
+  });
 });

@@ -354,7 +354,7 @@ importers:
   packages/qa:
     dependencies:
       '@rightkit/qa-chrome':
-        specifier: 0.1.4
+        specifier: 0.1.5
         version: link:../qa-chrome
     devDependencies:
       '@types/node':

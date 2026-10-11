@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.4.6 — 2026-10-11
+
+Additive. Depends on `@rightkit/qa-chrome` 0.1.5 (settled close report, `observedExitingPids`).
+
+- `failureArtifacts` gains `extra: () => unknown | Promise<unknown>`: its result is embedded in the JSON dump under `extra`. Bounded: JSON over 64 KiB is previewed and marked `truncated`; a callback that throws, rejects, never settles (cut off after 1 s) or returns something unserialisable is recorded under `extraError`. None of these masks the timeout. A non-function is refused before any CDP work.
+- The JSON dump gains `pageText` (`{ text, truncated, length }`, text cut at 20,000 characters) and `activeElement` (tag, id, name, type, role, aria-label of `document.activeElement`; never its value).
+- `failureArtifacts.allowInsideRunRoot: true` opts in to a directory under `RIGHTKIT_RUN_ROOT`. The default still refuses. These files are deleted with the workspace by `disposeQaWorkspace`: copy them out before dispose.
+
 ## 0.4.5 — 2026-10-11
 
 Additive; defaults are unchanged. Depends on `@rightkit/qa-chrome` 0.1.4 (POSIX leftover scan, `leftoverPids`).

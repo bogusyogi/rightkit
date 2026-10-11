@@ -39,5 +39,5 @@ await browser.close(); // CDP Browser.close, then SIGTERM, then SIGKILL; profile
 
 `chromeProcessesForProfile(profileDir)` returns the pids still carrying `--user-data-dir=<profileDir>` as a whole argument. It scans the process list on Windows (PowerShell), macOS and Linux (`ps`), so it can find a helper orphaned by a killed parent. A sibling profile whose path only starts with the same text does not match.
 
-`launchChromeForTesting(...).close()` returns a `ChromeCloseReport` whose `leftoverPids` lists the profile's processes left after close. POSIX reports them without signalling; Windows forces them before reporting.
+`launchChromeForTesting(...).close()` returns a `ChromeCloseReport`. After the forced phase it runs `settleProfileProcesses`: it rescans the profile's processes and waits, up to `settleMs` (default 4 s), for listed pids to exit. `leftoverPids` lists what is still listed after that bound; `observedExitingPids` lists pids seen at the last forced round that were gone by the settle. `exited` is true only when the tree is gone and `leftoverPids` is empty. POSIX reports leftovers without signalling; Windows forces them before the settle.
 

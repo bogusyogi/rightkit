@@ -12,6 +12,7 @@ import {
   findChromeForTesting,
   launchChromeForTesting,
   resolveChromeForTesting,
+  settleProfileProcesses,
 } from './index.js';
 
 const scratch = mkdtempSync(path.join(tmpdir(), 'rk-qa-cft-test-'));
@@ -137,5 +138,62 @@ describe.skipIf(process.platform === 'win32')('chromeProcessesForProfile on POSI
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
+  });
+});
+
+/** A fake clock and delay: sleeping advances the clock, so bounds are exact and no real time passes. */
+function fakeClock() {
+  let t = 0;
+  return { now: () => t, sleep: async (ms: number) => { t += ms; } };
+}
+/** A lister that returns the scripted answers in order, then repeats the last one. */
+function scripted(answers: number[][]) {
+  let call = 0;
+  const list = () => answers[Math.min(call++, answers.length - 1)];
+  return { list, calls: () => call };
+}
+
+describe('settleProfileProcesses (bounded settle, injected lister and clock)', () => {
+  it('pids listed on the first scan and gone on the third: exited, nothing left, the exits are observed', async () => {
+    const clock = fakeClock();
+    const lister = scripted([[7452, 54436], [7452], []]);
+    const result = await settleProfileProcesses({ list: lister.list, boundMs: 4_000, pollMs: 250, now: clock.now, sleep: clock.sleep });
+    expect(result).toMatchObject({ leftoverPids: [], scans: 3 });
+    expect([...result.observedExitingPids].sort((a, b) => a - b)).toEqual([7452, 54436]);
+    expect(lister.calls()).toBe(3);
+  });
+
+  it('pids that never exit are reported as leftover after the bound, and none are called exiting', async () => {
+    const clock = fakeClock();
+    const lister = scripted([[7452, 54436]]);
+    const result = await settleProfileProcesses({ list: lister.list, boundMs: 1_000, pollMs: 250, now: clock.now, sleep: clock.sleep });
+    expect(result.leftoverPids).toEqual([7452, 54436]);
+    expect(result.observedExitingPids).toEqual([]);
+    expect(clock.now()).toBe(1_000);
+    expect(result.scans).toBe(5);
+  });
+
+  it('separates a pid that exited from one that stayed: only the stayed one is leftover', async () => {
+    const clock = fakeClock();
+    const lister = scripted([[10, 20], [20], [20], [20], [20]]);
+    const result = await settleProfileProcesses({ list: lister.list, boundMs: 1_000, pollMs: 250, now: clock.now, sleep: clock.sleep });
+    expect(result.leftoverPids).toEqual([20]);
+    expect(result.observedExitingPids).toEqual([10]);
+  });
+
+  it('a clean first scan returns at once without waiting', async () => {
+    const clock = fakeClock();
+    const lister = scripted([[]]);
+    const result = await settleProfileProcesses({ list: lister.list, now: clock.now, sleep: clock.sleep });
+    expect(result).toEqual({ leftoverPids: [], observedExitingPids: [], scans: 1 });
+    expect(clock.now()).toBe(0);
+  });
+
+  it('a zero bound scans once and reports what it saw, without waiting', async () => {
+    const clock = fakeClock();
+    const lister = scripted([[5]]);
+    const result = await settleProfileProcesses({ list: lister.list, boundMs: 0, now: clock.now, sleep: clock.sleep });
+    expect(result.leftoverPids).toEqual([5]);
+    expect(clock.now()).toBe(0);
   });
 });

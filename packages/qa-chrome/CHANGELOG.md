@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.5 — 2026-10-11
+
+- Close report built after the forced phase no longer treats processes that are still exiting as leftovers. A bounded settle (`settleMs`, default 4 s) rescans the profile's processes, waits between scans, and reports only what is still listed after the bound as `leftoverPids`. Pids listed at the last forced round and gone by the settle are reported as `observedExitingPids`, so slow exit can be told from a leak. `exited` is now `tree gone and leftoverPids empty` on every platform; a real leftover never reads as a pass.
+- Export `settleProfileProcesses({ list, boundMs?, pollMs?, now?, sleep? })`, the settle with an injected lister and clock, for tests.
+- Found by HeardRight: `step: sigkill, exited: false, leftoverPids: [7452, 54436]` on Windows under load, with both pids gone moments later.
+
 ## 0.1.4 — 2026-10-11
 
 - `chromeProcessesForProfile` now scans the process list on macOS and Linux (`ps -axww -o pid= -o args=`) for processes whose argv carries `--user-data-dir=<profileDir>` as a whole argument. It returned `[]` off Windows, so a "no leftover processes" check could never fail there. Found by HeardRight.

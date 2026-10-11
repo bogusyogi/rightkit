@@ -11,10 +11,24 @@ export interface NavigationOptions { waitUntil?: 'load' | 'domcontentloaded' | '
 export interface ViewportOptions { width: number; height: number; deviceScaleFactor?: number; mobile?: boolean }
 /** Where a timed-out wait writes its screenshot and JSON state dump. */
 export interface FailureArtifactOptions {
-  /** Absolute directory, created if missing. Must lie outside RIGHTKIT_RUN_ROOT, which disposeQaWorkspace deletes. */
+  /**
+   * Absolute directory, created if missing. Must lie outside RIGHTKIT_RUN_ROOT, which
+   * disposeQaWorkspace deletes, unless allowInsideRunRoot is set.
+   */
   directory: string;
   /** Short name used in the file names and the dump. Default 'wait'. */
   label?: string;
+  /**
+   * Opt-in: the directory may lie inside RIGHTKIT_RUN_ROOT. These files are deleted with the
+   * workspace by disposeQaWorkspace; copy them out before dispose. Default false.
+   */
+  allowInsideRunRoot?: boolean;
+  /**
+   * Host state to embed in the JSON dump under `extra` (bounded to 64 KiB, cut off after 1 s). A
+   * throw, a timeout or an unserialisable result is recorded under `extraError` and never masks the
+   * timeout.
+   */
+  extra?: () => unknown | Promise<unknown>;
 }
 /** Called once per poll, before the predicate. A throw rejects the wait with that error. */
 export type PollHook = () => void | Promise<void>;
@@ -137,21 +151,47 @@ function exceptionEntry(event: CdpParams): ConsoleEntry {
  * Validates a failureArtifacts option before any CDP work: absolute, and never inside
  * RIGHTKIT_RUN_ROOT (the workspace home that disposeQaWorkspace deletes).
  */
-function failureTarget(options: FailureArtifactOptions | undefined): { directory: string; label: string } | undefined {
+function failureTarget(options: FailureArtifactOptions | undefined): FailureTarget | undefined {
   if (!options) return undefined;
-  const { directory, label } = options;
+  const { directory, label, extra, allowInsideRunRoot } = options;
   if (typeof directory !== 'string' || !path.isAbsolute(directory)) throw new Error('failureArtifacts.directory must be an absolute path');
   if (label !== undefined && typeof label !== 'string') throw new Error('failureArtifacts.label must be a string');
+  if (extra !== undefined && typeof extra !== 'function') throw new Error('failureArtifacts.extra must be a function');
   const resolved = path.resolve(directory);
   const runRoot = process.env.RIGHTKIT_RUN_ROOT;
-  if (runRoot) {
+  if (runRoot && !allowInsideRunRoot) {
     const relative = path.relative(path.resolve(runRoot), resolved);
     const inside = relative === '' || (!path.isAbsolute(relative) && relative !== '..' && !relative.startsWith(`..${path.sep}`));
     if (inside) throw new Error('failureArtifacts.directory must be outside RIGHTKIT_RUN_ROOT: disposeQaWorkspace deletes that tree');
   }
-  return { directory: resolved, label: (label ?? 'wait').replace(/[^A-Za-z0-9._-]+/g, '-').slice(0, 60) || 'wait' };
+  return { directory: resolved, label: (label ?? 'wait').replace(/[^A-Za-z0-9._-]+/g, '-').slice(0, 60) || 'wait', extra };
 }
 let failureSequence = 0;
+/** Bounds for the failure dump: extra state, page text, and the time a host callback may take. */
+const EXTRA_LIMIT = 64 * 1024;
+const EXTRA_TIMEOUT_MS = 1_000;
+const PAGE_TEXT_LIMIT = 20_000;
+interface FailureTarget { directory: string; label: string; extra?: () => unknown | Promise<unknown> }
+function errorText(error: unknown): string { return error instanceof Error ? error.message : String(error); }
+/** Runs the host's extra callback under a bound, and keeps its JSON within EXTRA_LIMIT. Never throws. */
+async function runExtra(extra: (() => unknown | Promise<unknown>) | undefined): Promise<{ value: unknown; error: string | null }> {
+  if (!extra) return { value: null, error: null };
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    const value = await Promise.race([
+      Promise.resolve().then(() => extra()),
+      new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error(`extra timed out after ${EXTRA_TIMEOUT_MS}ms`)), EXTRA_TIMEOUT_MS); }),
+    ]);
+    const json = JSON.stringify(value);
+    if (json === undefined) return { value: null, error: null };
+    if (json.length > EXTRA_LIMIT) return { value: { truncated: true, length: json.length, preview: json.slice(0, EXTRA_LIMIT) }, error: null };
+    return { value: JSON.parse(json), error: null };
+  } catch (error) {
+    return { value: null, error: errorText(error) };
+  } finally {
+    clearTimeout(timer);
+  }
+}
 const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 function functionSource(fn: Function): string {
   const source = fn.toString();
@@ -807,43 +847,69 @@ export class QaPage {
     }, point.x, point.y);
     if (occluder !== null) throw new ElementOccludedError(occluder, point);
   }
+  /** URL, title, bounded page text and the active element. Each part is null when unreadable; never throws. */
+  private async failureState(): Promise<{ url: string | null; title: string | null; pageText: { text: string; truncated: boolean; length: number } | null; activeElement: unknown }> {
+    try {
+      const raw = resultValue(await this.run(() => {
+        const el = document.activeElement;
+        const attr = (name: string) => el?.getAttribute(name) || undefined;
+        return {
+          url: location.href,
+          title: document.title,
+          text: document.body ? document.body.innerText : '',
+          // Descriptor only: never the value, which may be a secret.
+          active: el ? { tag: el.tagName.toLowerCase(), id: el.id || undefined, name: attr('name'), type: attr('type'), role: attr('role'), ariaLabel: attr('aria-label') } : null,
+        };
+      }, [], true, 2_000)) ?? {};
+      const text = typeof raw.text === 'string' ? raw.text : '';
+      return {
+        url: typeof raw.url === 'string' ? raw.url : null,
+        title: typeof raw.title === 'string' ? raw.title : null,
+        pageText: { text: text.slice(0, PAGE_TEXT_LIMIT), truncated: text.length > PAGE_TEXT_LIMIT, length: text.length },
+        activeElement: raw.active ?? null,
+      };
+    } catch {
+      return { url: null, title: null, pageText: null, activeElement: null };
+    }
+  }
   /** Writes a PNG and a JSON state dump for a timed-out wait into the caller directory. */
-  private async captureFailure(directory: string, label: string, predicate: string, timeout: number): Promise<{ json: string; screenshot?: string }> {
-    await mkdir(directory, { recursive: true });
-    const stem = `${label}-${Date.now()}-${++failureSequence}`;
-    const json = path.join(directory, `${stem}.json`);
-    const png = path.join(directory, `${stem}.png`);
+  private async captureFailure(target: FailureTarget, predicate: string, timeout: number): Promise<{ json: string; screenshot?: string }> {
+    await mkdir(target.directory, { recursive: true });
+    const stem = `${target.label}-${Date.now()}-${++failureSequence}`;
+    const json = path.join(target.directory, `${stem}.json`);
+    const png = path.join(target.directory, `${stem}.png`);
     let screenshot: string | undefined;
     let screenshotError: string | undefined;
     try { await writeFile(png, await this.screenshot()); screenshot = png; }
-    catch (error) { screenshotError = error instanceof Error ? error.message : String(error); }
-    let where: { url?: string; title?: string } = {};
-    try {
-      where = resultValue(await this.run(() => ({ url: location.href, title: document.title }), [], true, 2_000)) ?? {};
-    } catch { /* page gone or stuck: the dump records no url or title */ }
+    catch (error) { screenshotError = errorText(error); }
+    const state = await this.failureState();
+    const extra = await runExtra(target.extra);
     const dump = {
-      label,
+      label: target.label,
       predicate,
       timeoutMs: timeout,
       timestamp: new Date().toISOString(),
-      url: where.url ?? null,
-      title: where.title ?? null,
+      url: state.url,
+      title: state.title,
+      pageText: state.pageText,
+      activeElement: state.activeElement,
       screenshot: screenshot ? path.basename(screenshot) : null,
       screenshotError: screenshotError ?? null,
       console: this.consoleEntries(),
+      extra: extra.value,
+      extraError: extra.error,
     };
     await writeFile(json, JSON.stringify(dump, null, 2));
     return screenshot ? { json, screenshot } : { json };
   }
-  /** Attaches artifact paths to a timeout error. A write failure is appended to its message; the timeout still throws. */
   /**
    * Writes the failure artifacts for a timed-out wait or a failed onPoll hook. The paths are attached as
    * `artifacts` only on a TimeoutError; for other errors the files are written and the paths are not attached.
    * A write failure is appended to a TimeoutError's message; the original error still throws.
    */
-  private async attachFailureArtifacts(error: unknown, target: { directory: string; label: string }, predicate: string, timeout: number): Promise<void> {
+  private async attachFailureArtifacts(error: unknown, target: FailureTarget, predicate: string, timeout: number): Promise<void> {
     try {
-      const written = await this.captureFailure(target.directory, target.label, predicate, timeout);
+      const written = await this.captureFailure(target, predicate, timeout);
       if (error instanceof TimeoutError) error.artifacts = written;
     } catch (captureError) {
       if (error instanceof TimeoutError) error.message += ` (failure artifacts were not written: ${captureError instanceof Error ? captureError.message : String(captureError)})`;

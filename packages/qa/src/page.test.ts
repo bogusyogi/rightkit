@@ -861,3 +861,102 @@ describe('0.4.5: context re-resolution, page.send, setFocusEmulation, onPoll, sc
     await expect(page.fill('input', 'hello', { replace: true, verify: { timeoutMs: 0 } })).rejects.toThrow('Timeout');
   });
 });
+
+describe('0.4.6: failure artifacts with extra state, page text, active element and an explicit run-root opt-in', () => {
+  /** A page whose failure dump has url, title, page text and an active element; the predicate never holds. */
+  async function failingPage(text = 'Hub is idle', active: unknown = { tag: 'input', id: 'search', type: 'text' }) {
+    return fixture((message, send) => {
+      const declaration = String(message.params?.functionDeclaration ?? '');
+      if (message.method === 'Runtime.callFunctionOn' && declaration.includes('window.never')) send({ id: message.id, result: { result: { value: false } } });
+      else if (message.method === 'Runtime.callFunctionOn' && declaration.includes('innerText')) send({ id: message.id, result: { result: { value: { url: 'http://fixture/hub', title: 'Hub', text, active } } } });
+      else if (message.method === 'Page.captureScreenshot') send({ id: message.id, result: { data: Buffer.from([137, 80, 78, 71]).toString('base64') } });
+      else pageResponder(message, send);
+    });
+  }
+  async function scratch() {
+    const dir = await mkdtemp(path.join(tmpdir(), 'rk-qa-extra-'));
+    cleanup.push(() => rm(dir, { recursive: true, force: true }));
+    return dir;
+  }
+  async function dumpOf(error: any) {
+    return JSON.parse(await readFile(error.artifacts.json, 'utf8'));
+  }
+
+  it('embeds the extra result, page text and the active element descriptor in the JSON dump', async () => {
+    const dir = await scratch();
+    const { page } = await failingPage();
+    const error = await page.waitForFunction(() => (window as any).never === true, { timeout: 60, polling: 5, failureArtifacts: { directory: dir, extra: () => ({ hubState: 'idle', queued: 3 }) } }).catch((caught) => caught);
+    const dump = await dumpOf(error);
+    expect(dump.extra).toEqual({ hubState: 'idle', queued: 3 });
+    expect(dump.extraError).toBeNull();
+    expect(dump.pageText).toEqual({ text: 'Hub is idle', truncated: false, length: 11 });
+    expect(dump.activeElement).toEqual({ tag: 'input', id: 'search', type: 'text' });
+  });
+
+  it('a throwing or async-throwing extra is recorded as an error string and never masks the timeout', async () => {
+    const dir = await scratch();
+    const { page } = await failingPage();
+    const sync = await page.waitForFunction(() => (window as any).never === true, { timeout: 60, polling: 5, failureArtifacts: { directory: dir, extra: () => { throw new Error('state read failed'); } } }).catch((caught) => caught);
+    expect(sync).toBeInstanceOf(TimeoutError);
+    expect(sync.message).toContain('timed out');
+    expect((await dumpOf(sync)).extraError).toContain('state read failed');
+    const async = await page.waitForFunction(() => (window as any).never === true, { timeout: 60, polling: 5, failureArtifacts: { directory: dir, extra: async () => { throw new Error('async read failed'); } } }).catch((caught) => caught);
+    expect(async).toBeInstanceOf(TimeoutError);
+    expect((await dumpOf(async)).extraError).toContain('async read failed');
+  });
+
+  it('an extra that never settles is cut off after its bound and recorded as an error', async () => {
+    const dir = await scratch();
+    const { page } = await failingPage();
+    const started = Date.now();
+    const error = await page.waitForFunction(() => (window as any).never === true, { timeout: 60, polling: 5, failureArtifacts: { directory: dir, extra: () => new Promise(() => {}) } }).catch((caught) => caught);
+    expect(error).toBeInstanceOf(TimeoutError);
+    expect((await dumpOf(error)).extraError).toMatch(/timed out/);
+    expect(Date.now() - started).toBeLessThan(5_000);
+  });
+
+  it('an unserialisable extra (circular) is recorded as an error string', async () => {
+    const dir = await scratch();
+    const { page } = await failingPage();
+    const circular: any = {}; circular.self = circular;
+    const error = await page.waitForFunction(() => (window as any).never === true, { timeout: 60, polling: 5, failureArtifacts: { directory: dir, extra: () => circular } }).catch((caught) => caught);
+    expect(error).toBeInstanceOf(TimeoutError);
+    expect((await dumpOf(error)).extraError).toMatch(/circular/i);
+  });
+
+  it('extra and page text are bounded: a large extra is previewed and truncated, long page text is cut', async () => {
+    const dir = await scratch();
+    const { page } = await failingPage('p'.repeat(30_000));
+    const error = await page.waitForFunction(() => (window as any).never === true, { timeout: 60, polling: 5, failureArtifacts: { directory: dir, extra: () => 'e'.repeat(200_000) } }).catch((caught) => caught);
+    const dump = await dumpOf(error);
+    expect(dump.extra).toMatchObject({ truncated: true, length: 200_002 });
+    expect(dump.extra.preview.length).toBeLessThanOrEqual(64 * 1024);
+    expect(dump.pageText.truncated).toBe(true);
+    expect(dump.pageText.text.length).toBe(20_000);
+    expect(dump.pageText.length).toBe(30_000);
+  });
+
+  it('a non-function extra is refused before any CDP work', async () => {
+    const dir = await scratch();
+    const { page, server } = await failingPage();
+    const sent = server.messages.length;
+    await expect(page.waitForFunction(() => true, { failureArtifacts: { directory: dir, extra: 'nope' as any } })).rejects.toThrow('extra must be a function');
+    expect(server.messages.length).toBe(sent);
+  });
+
+  it('allowInsideRunRoot opts in to a directory under RIGHTKIT_RUN_ROOT; the default still refuses', async () => {
+    const root = await scratch();
+    const previous = process.env.RIGHTKIT_RUN_ROOT;
+    process.env.RIGHTKIT_RUN_ROOT = root;
+    try {
+      const { page } = await failingPage();
+      const inside = path.join(root, 'evidence');
+      await expect(page.waitForFunction(() => false, { failureArtifacts: { directory: inside } })).rejects.toThrow('outside RIGHTKIT_RUN_ROOT');
+      const error = await page.waitForFunction(() => (window as any).never === true, { timeout: 60, polling: 5, failureArtifacts: { directory: inside, allowInsideRunRoot: true } }).catch((caught) => caught);
+      expect(error).toBeInstanceOf(TimeoutError);
+      expect(error.artifacts.json.startsWith(inside)).toBe(true);
+    } finally {
+      if (previous === undefined) delete process.env.RIGHTKIT_RUN_ROOT; else process.env.RIGHTKIT_RUN_ROOT = previous;
+    }
+  });
+});

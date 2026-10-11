@@ -181,10 +181,17 @@ export interface ChromeCloseReport {
    * does not signal them on POSIX; on Windows they are forced before the report is built.
    */
   leftoverPids: number[];
+  /**
+   * Pids the profile scan listed right after the forced phase but not after the settle: they were
+   * exiting. Reported so a caller can tell slow exit from a leak; not counted as leftover.
+   */
+  observedExitingPids: number[];
   durationMs: number;
 }
 
 export interface CloseChromeOptions {
+  /** Upper bound for the post-force settle that waits for profile processes to exit. Default 4 s. */
+  settleMs?: number;
   /** Per-step grace before escalating. Default 5000 ms. */
   graceMs?: number;
 }
@@ -418,6 +425,8 @@ export async function closeChromeGracefully(options: {
   graceMs?: number;
   /** Upper bound for the forced-kill phase (re-issued until the tree is gone). Default 15 s. */
   killTimeoutMs?: number;
+  /** Upper bound for the post-force settle. Default 4 s. */
+  settleMs?: number;
 }): Promise<ChromeCloseReport> {
   const started = Date.now();
   const grace = options.graceMs ?? 5_000;
@@ -452,7 +461,7 @@ export async function closeChromeGracefully(options: {
       if (step !== 'sigkill') step = 'sigkill';
       left = await waitProfileProcessesGone(options.profileDir, Math.min(2_000, Math.max(0, deadline - Date.now())));
     }
-    exited = exited && left.length === 0;
+    // The forced loop only decides when to stop forcing; whether the profile is clean is decided by the settle below.
   }
   let profileRemoved = true;
   if (options.profileDir) {
@@ -463,8 +472,64 @@ export async function closeChromeGracefully(options: {
     }
     profileRemoved = !existsSync(options.profileDir);
   }
-  const leftoverPids = options.profileDir ? chromeProcessesForProfile(options.profileDir) : [];
-  return { step, exited, profileRemoved, leftoverPids, durationMs: Date.now() - started };
+  // Settle: processes that were still exiting at the last forced round get a bounded wait, then one
+  // final scan decides. A pid still listed after the bound is a leftover; it never turns into a pass.
+  let leftoverPids: number[] = [];
+  let observedExitingPids: number[] = [];
+  if (options.profileDir) {
+    const profileDir = options.profileDir;
+    const settled = await settleProfileProcesses({ list: () => chromeProcessesForProfile(profileDir), boundMs: options.settleMs ?? 4_000 });
+    leftoverPids = settled.leftoverPids;
+    observedExitingPids = settled.observedExitingPids;
+  }
+  exited = exited && leftoverPids.length === 0;
+  return { step, exited, profileRemoved, leftoverPids, observedExitingPids, durationMs: Date.now() - started };
+}
+
+export interface ProfileSettleOptions {
+  /** Lists the pids of the profile's processes now. */
+  list: () => number[];
+  /** Upper bound on waiting for listed pids to exit. Default 4 s. */
+  boundMs?: number;
+  /** Delay between scans. Default 250 ms. */
+  pollMs?: number;
+  /** Clock, injectable for tests. Default Date.now. */
+  now?: () => number;
+  /** Delay, injectable for tests. Default setTimeout. */
+  sleep?: (ms: number) => Promise<void>;
+}
+export interface ProfileSettleResult {
+  /** Pids still listed when the bound ended. Empty means the profile is clean. */
+  leftoverPids: number[];
+  /** Pids listed by the first scan that a later scan no longer listed: they exited during the settle. */
+  observedExitingPids: number[];
+  /** Scans performed, including the first. */
+  scans: number;
+}
+
+/**
+ * Bounded settle for a profile's process list: scan, and while anything is listed and the bound has
+ * not passed, wait and scan again. Reports what is still listed (leftovers) apart from what was seen
+ * exiting, so slow exit and a real leak are distinguishable. Pure apart from the injected list, clock
+ * and delay.
+ */
+export async function settleProfileProcesses(options: ProfileSettleOptions): Promise<ProfileSettleResult> {
+  const boundMs = options.boundMs ?? 4_000;
+  const pollMs = options.pollMs ?? 250;
+  const now = options.now ?? Date.now;
+  const sleep = options.sleep ?? ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
+  const deadline = now() + boundMs;
+  let current = options.list();
+  let scans = 1;
+  const first = [...current];
+  const exiting = new Set<number>();
+  while (current.length > 0 && now() < deadline) {
+    await sleep(Math.min(pollMs, Math.max(1, deadline - now())));
+    current = options.list();
+    scans++;
+    for (const pid of first) if (!current.includes(pid)) exiting.add(pid);
+  }
+  return { leftoverPids: current, observedExitingPids: [...exiting], scans };
 }
 
 /** macOS per-user `X` directories that hold browser code-sign clones (deduplicated). */

@@ -93,7 +93,7 @@ try {
 - `page.fill(target, value, { replace?, verify? })`. The default inserts at the caret, as `type()` does. `replace: true` selects the whole field first; an empty value then deletes it. `verify: true` (requires `replace`) reads the value back once and throws `FillMismatchError` on a difference. The error gives lengths, not values.
 - `page.mouse.wheel({ deltaX?, deltaY? })` sends one `mouseWheel` event at the tracked pointer position. The pointer does not move.
 - `page.setUserAgent(ua, { platform?, acceptLanguage? })` overrides the user agent for the page and its later navigations. Each call replaces the whole override. `page.resetUserAgent()` restores the `navigator.userAgent` captured before the first override.
-- `waitForFunction(fn, { failureArtifacts: { directory, label? } })` and `waitForSelector(...)` write a screenshot and a JSON state dump (url, title, predicate text, timeout, console entries) when they time out. Paths are on `error.artifacts` (`json`, `screenshot?`). `directory` must be absolute and must not lie inside `RIGHTKIT_RUN_ROOT`: `disposeQaWorkspace` deletes that tree. A failed write is appended to the error message; the timeout still throws.
+- `waitForFunction(fn, { failureArtifacts: { directory, label?, extra?, allowInsideRunRoot? } })` and `waitForSelector(...)` write a screenshot and a JSON state dump on timeout: url, title, bounded page text (`pageText`), the focused element's descriptor without its value (`activeElement`), console entries, and `extra()` if given (`extra`, or `extraError` when it throws, never settles or cannot serialise). Paths are on `error.artifacts` (`json`, `screenshot?`). `directory` must be absolute and must not lie inside `RIGHTKIT_RUN_ROOT`, which `disposeQaWorkspace` deletes; `allowInsideRunRoot: true` opts in, and those files then go with the workspace, so copy them out before dispose. A failed write is appended to the error message; the timeout still throws.
 
 - `page.send(method, params?, timeout?)` is a page-scoped raw CDP escape hatch: unsupported surface, with Chrome's names, params and results. Prefer the typed methods. `page.setFocusEmulation(enabled)` sends `Emulation.setFocusEmulationEnabled`.
 - Navigation and reloads: `evaluate`, `waitForFunction` and `waitForSelector` re-resolve the main-frame context when Chrome reports it missing, and retry within the caller's timeout.
@@ -143,5 +143,5 @@ This package launches no native app and no WebView2 window; it never replaces th
 
 ## Known issues
 
-- `@rightkit/qa-chrome` is pinned exactly to `0.1.4`. A qa-chrome release therefore needs a `@rightkit/qa` republish to reach consumers (npm audit 2026-10-08, qa finding).
+- `@rightkit/qa-chrome` is pinned exactly to `0.1.5`. A qa-chrome release therefore needs a `@rightkit/qa` republish to reach consumers (npm audit 2026-10-08, qa finding).
 - Three consumers pin three different versions of `@rightkit/qa-chrome` as dev dependencies (npm audit 2026-10-08).
