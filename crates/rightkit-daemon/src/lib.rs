@@ -5,7 +5,7 @@
 //! blake3-keyed resumable uploads, compare-and-swap mutations, durable state and
 //! structured lifecycle events. The core ([`Daemon`]) is transport-free and
 //! platform-neutral; [`router`] adapts it to axum and [`serve`] terminates TLS
-//! with rustls.
+//! with rustls. [`serve_blocking`] runs it on a runtime the crate owns.
 
 pub mod config;
 pub mod daemon;
@@ -23,5 +23,5 @@ pub use daemon::{
     Daemon, DaemonMetrics, DaemonStatus, OAuthCallbackHandler, OAuthOutcome, Request, Response,
 };
 pub use events::{Event, EventLog};
-pub use http::{load_tls, router, serve};
+pub use http::{load_tls, router, serve, serve_blocking, StopHandle};
 pub use util::{hex, sha256_hex, unhex, Clock, SystemClock};

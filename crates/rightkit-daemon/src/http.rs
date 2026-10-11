@@ -5,6 +5,8 @@
 use std::collections::BTreeMap;
 use std::future::Future;
 use std::io;
+use std::net::SocketAddr;
+use std::panic::AssertUnwindSafe;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -21,7 +23,7 @@ use rustls::pki_types::pem::PemObject;
 use rustls::pki_types::{CertificateDer, PrivateKeyDer};
 use serde_json::{json, Value};
 use tokio::net::TcpListener;
-use tokio::sync::Semaphore;
+use tokio::sync::{Notify, Semaphore};
 use tokio_rustls::TlsAcceptor;
 
 use crate::daemon::{Daemon, Request, Response};
@@ -127,14 +129,25 @@ pub async fn serve(
     tls: Arc<rustls::ServerConfig>,
     shutdown: impl Future<Output = ()>,
 ) -> io::Result<()> {
+    serve_with(daemon, listener, tls, shutdown, |_| {}).await
+}
+
+/// [`serve`] with a hook called with the bound address once `LISTENING` is
+/// emitted, immediately before the first accept is polled (no await between).
+async fn serve_with(
+    daemon: Arc<Daemon>,
+    listener: TcpListener,
+    tls: Arc<rustls::ServerConfig>,
+    shutdown: impl Future<Output = ()>,
+    on_listening: impl FnOnce(SocketAddr),
+) -> io::Result<()> {
     let acceptor = TlsAcceptor::from(tls);
     let app = router(daemon.clone());
     let graceful = GracefulShutdown::new();
     let permits = Arc::new(Semaphore::new(MAX_CONNECTIONS));
-    daemon.emit(
-        "LISTENING",
-        json!({ "addr": listener.local_addr()?.to_string() }),
-    );
+    let local = listener.local_addr()?;
+    daemon.emit("LISTENING", json!({ "addr": local.to_string() }));
+    on_listening(local);
     tokio::pin!(shutdown);
     loop {
         tokio::select! {
@@ -168,4 +181,98 @@ pub async fn serve(
     }
     daemon.emit("SHUTDOWN", json!({}));
     Ok(())
+}
+
+/// Cancels a [`serve_blocking`] call from any thread. Clones share one signal.
+///
+/// Built on [`Notify::notify_one`], which stores a permit: `stop` is safe to
+/// call before the server starts waiting, from a non-runtime thread, more than
+/// once, and without any polling.
+#[derive(Clone, Default)]
+pub struct StopHandle {
+    notify: Arc<Notify>,
+}
+
+impl StopHandle {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Ask the server to stop accepting, drain, and return. Never blocks.
+    pub fn stop(&self) {
+        self.notify.notify_one();
+    }
+}
+
+/// Worker threads of the runtime [`serve_blocking`] owns. The accept loop, TLS
+/// handshakes and connection I/O are async and light; request handling runs on
+/// the blocking pool, so two workers are enough and keep the thread count small.
+const BLOCKING_WORKERS: usize = 2;
+/// Cap on the blocking pool that runs [`Daemon::handle`] (file I/O).
+const BLOCKING_POOL_MAX: usize = 32;
+/// How long the owned runtime waits for blocking handlers after the drain.
+const RUNTIME_SHUTDOWN: Duration = Duration::from_secs(5);
+
+/// Blocking entry point for [`serve`]: owns a dedicated tokio runtime so callers
+/// need no tokio dependency.
+///
+/// `listener` is already bound; it is switched to non-blocking and handed to
+/// tokio. `ready` receives the bound address once `LISTENING` is emitted,
+/// immediately before the first accept (the socket was already listening, so
+/// no connection is refused after this). `stop` ends the call: the listener
+/// closes, in-flight connections drain for the same 10 s bound as [`serve`],
+/// then the runtime is shut down (blocking handlers get a further 5 s; the
+/// threads of a handler stuck past that are abandoned). Runtime build failure
+/// and panics come back as `Err`.
+///
+/// Must not be called from inside a tokio runtime (including `spawn_blocking`
+/// threads): that returns an error instead of panicking.
+pub fn serve_blocking(
+    daemon: Arc<Daemon>,
+    listener: std::net::TcpListener,
+    tls: Arc<rustls::ServerConfig>,
+    ready: std::sync::mpsc::Sender<SocketAddr>,
+    stop: StopHandle,
+) -> io::Result<()> {
+    if tokio::runtime::Handle::try_current().is_ok() {
+        return Err(io::Error::other(
+            "serve_blocking called from inside a tokio runtime; use serve or a plain thread",
+        ));
+    }
+    listener.set_nonblocking(true)?;
+    let rt = tokio::runtime::Builder::new_multi_thread()
+        .worker_threads(BLOCKING_WORKERS)
+        .max_blocking_threads(BLOCKING_POOL_MAX)
+        .thread_name("rightkit-daemon")
+        .enable_all()
+        .build()?;
+    let outcome = std::panic::catch_unwind(AssertUnwindSafe(|| {
+        rt.block_on(async move {
+            let listener = TcpListener::from_std(listener)?;
+            serve_with(
+                daemon,
+                listener,
+                tls,
+                async move { stop.notify.notified().await },
+                move |addr| {
+                    // A dropped receiver only means nobody waits for readiness.
+                    let _ = ready.send(addr);
+                },
+            )
+            .await
+        })
+    }));
+    // Runs on every path (success, error, panic): no worker outlives the call.
+    rt.shutdown_timeout(RUNTIME_SHUTDOWN);
+    match outcome {
+        Ok(result) => result,
+        Err(payload) => {
+            let what = payload
+                .downcast_ref::<&str>()
+                .map(|s| s.to_string())
+                .or_else(|| payload.downcast_ref::<String>().cloned())
+                .unwrap_or_else(|| "unknown panic".into());
+            Err(io::Error::other(format!("daemon server panicked: {what}")))
+        }
+    }
 }

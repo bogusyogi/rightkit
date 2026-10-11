@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- New `serve_blocking(daemon, std_listener, tls, ready, stop)` and `StopHandle`: a blocking entry point that owns a dedicated tokio runtime (2 workers, blocking pool capped at 32), so consumers need no tokio dependency. `ready` is a `std::sync::mpsc::Sender<SocketAddr>` signalled after `LISTENING`; `StopHandle::stop()` (clonable, any thread, no polling) triggers the same bounded drain as `serve`, then the runtime shuts down with a 5 s timeout. Calling from inside a tokio runtime, a runtime build failure or a panic returns `Err`. `serve` is unchanged (it now shares an internal `serve_with`). No Cargo.toml change.
+
 - A device-authenticated request writes `state.json` at most once: `authenticate` marks the replay nonce dirty instead of writing it, and the request's own change (the job patch and its idempotency record, for `job.update`) is written with it before the answer. A submission drops from two writes (two fsync pairs) to one. The file format, metrics and events are unchanged. A failed write still answers 500; on the upload routes the handler now runs before that write, so its in-memory effect can precede the 500.
 
 ## 0.1.3

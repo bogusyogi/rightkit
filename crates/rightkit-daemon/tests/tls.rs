@@ -6,7 +6,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use common::*;
-use rightkit_daemon::{load_tls, router, serve};
+use rightkit_daemon::{load_tls, router, serve, serve_blocking, StopHandle};
 use serde_json::{json, Value};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
@@ -197,4 +197,88 @@ async fn adapter_bounds_bodies_and_maps_headers() {
         .unwrap();
     let v: Value = serde_json::from_slice(&bytes).unwrap();
     assert_eq!(v["uploadId"], json!(id));
+}
+
+#[test]
+fn serve_blocking_serves_stops_and_releases_the_port() {
+    let h = Harness::new();
+    let (cert, key) = self_signed();
+    let tls = load_tls(cert.as_bytes(), key.as_bytes()).unwrap();
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let bound = listener.local_addr().unwrap();
+    let (ready_tx, ready_rx) = std::sync::mpsc::channel();
+    let (done_tx, done_rx) = std::sync::mpsc::channel();
+    let stop = StopHandle::new();
+    let daemon = h.daemon.clone();
+    let stop_for_server = stop.clone();
+    let thread = std::thread::spawn(move || {
+        let _ = done_tx.send(serve_blocking(
+            daemon,
+            listener,
+            tls,
+            ready_tx,
+            stop_for_server,
+        ));
+    });
+
+    let addr = ready_rx
+        .recv_timeout(Duration::from_secs(10))
+        .expect("ready signalled");
+    assert_eq!(addr, bound);
+
+    // The client runs on its own runtime, outside the server's.
+    let client = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    let resp = client.block_on(https(
+        addr,
+        &cert,
+        "POST /v1/uploads HTTP/1.1\r\nHost: localhost\r\nContent-Length: 2\r\nConnection: close\r\n\r\n{}",
+    ));
+    assert!(resp.starts_with("HTTP/1.1 401"), "{resp}");
+
+    stop.stop();
+    done_rx
+        .recv_timeout(Duration::from_secs(30))
+        .expect("serve_blocking returned")
+        .unwrap();
+    thread.join().unwrap();
+
+    assert!(
+        std::net::TcpStream::connect_timeout(&addr, Duration::from_secs(2)).is_err(),
+        "port still accepting after stop"
+    );
+    let names: Vec<String> = h
+        .daemon
+        .events()
+        .iter()
+        .map(|e| e["event"].as_str().unwrap().to_string())
+        .collect();
+    assert!(names.contains(&"LISTENING".to_string()));
+    assert_eq!(names.last().map(String::as_str), Some("SHUTDOWN"));
+}
+
+#[test]
+fn serve_blocking_stop_before_start_returns() {
+    let h = Harness::new();
+    let (cert, key) = self_signed();
+    let tls = load_tls(cert.as_bytes(), key.as_bytes()).unwrap();
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let (ready_tx, _ready_rx) = std::sync::mpsc::channel();
+    let stop = StopHandle::new();
+    stop.stop();
+    serve_blocking(h.daemon.clone(), listener, tls, ready_tx, stop).unwrap();
+}
+
+#[tokio::test]
+async fn serve_blocking_inside_a_runtime_errors() {
+    let h = Harness::new();
+    let (cert, key) = self_signed();
+    let tls = load_tls(cert.as_bytes(), key.as_bytes()).unwrap();
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let (ready_tx, _ready_rx) = std::sync::mpsc::channel();
+    let err =
+        serve_blocking(h.daemon.clone(), listener, tls, ready_tx, StopHandle::new()).unwrap_err();
+    assert!(err.to_string().contains("inside a tokio runtime"), "{err}");
 }
