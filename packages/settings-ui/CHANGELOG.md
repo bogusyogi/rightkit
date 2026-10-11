@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.4.2
+
+Headless search for hosts that keep their own markup and classes, and four additive options on the styled parts. Requested by Pulse, whose settings markup is fixed by its locked UI and cannot adopt the styled search parts. Every addition is opt-in: the default DOM, classes, attributes and search results are byte-identical to 0.4.1, pinned by the existing snapshot tests (unedited) and by `src/default-markup-0.4.1.test.tsx`, which asserts literal HTML captured from 0.4.1.
+
+Added:
+- `@rightkit/settings-ui/headless` (new entry; imports only `react`, no stylesheet, no styled component): `SettingsSearchProvider`, `useSettingsSearch`, `useSettingsRow` (`{ matches, hidden, props, mark }`), `useSettingsItem` (the same, for content that is not a row), `useSettingsGroup` (`{ key, visibleRowCount, empty }`) with `SettingsGroupScope`, `useSettingsSection` (`{ key, visibleRowCount, empty }`) with `SettingsSectionScope` (`scopeKey`), `useSettingsSearchField` (`{ value, onChange, clear, active, count, status }`), `useSettingsSearchStatus`, `useSearchKeys`, `highlightText`, `parseSearchTerms`, `defaultAnnouncement`, and their types.
+- `SettingsGroup`: `className` (added after `rk-sg`), `headingLevel` (default 3), and `hideWhenEmpty="unmount"`, which renders no section and no heading while the group is empty. The rows stay mounted, so a later match brings the group back. `hideWhenEmpty={true}` is unchanged (`display: none`).
+- `SettingRow`: `className`, added after the row's own classes.
+- `SettingsSearchSection`: `passthroughWhenInactive` (opt-in). With no search active it renders its children without its own section, heading or action. `className` already existed.
+- `SettingsSectionScope`: optional `scopeKey`, so a section's count can be read with `useSettingsSection()`.
+
+Changed:
+- Internal: the search context, provider, hooks and keyboard logic moved from `search.tsx` to `search-core.tsx`, which has no markup or stylesheet. `search.tsx` re-exports it, so every existing import keeps working.
+- `useSearchEntry` also reports `matches` (the entry's own text matches the query), which the headless row hook uses.
+
 ## 0.4.1
 
 - Fix `useSettings`: a `load()` that finished while a write was pending (the mount-time load, or a reload) overwrote the optimistic value with the state from before the write. Such a load is now not applied; it is repeated once the writes have drained, so values stored elsewhere still arrive, including after a failed write.

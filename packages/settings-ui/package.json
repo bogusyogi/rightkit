@@ -1,6 +1,6 @@
 {
   "name": "@rightkit/settings-ui",
-  "version": "0.4.1",
+  "version": "0.4.2",
   "description": "Settings panel frame, search and standard sections (appearance, updates, license, legal, diagnostics, models, API keys, about) persisted through rightkit-settings. The panel shell and primitives (/core) need only React.",
   "license": "MIT OR Apache-2.0",
   "type": "module",
@@ -18,6 +18,10 @@
     "./standard": {
       "types": "./dist/standard-entry.d.ts",
       "import": "./dist/standard-entry.js"
+    },
+    "./headless": {
+      "types": "./dist/headless.d.ts",
+      "import": "./dist/headless.js"
     },
     "./settings.css": "./settings.css",
     "./shell-adapter": {

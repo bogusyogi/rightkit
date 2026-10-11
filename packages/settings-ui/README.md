@@ -16,6 +16,7 @@ Settings panel frame and standard sections for Right Suite apps: appearance, upd
 | `@rightkit/settings-ui` | Everything in `/core` and `/standard` (the 0.3.x surface, unchanged, plus the search exports) |
 | `@rightkit/settings-ui/core` | `SettingsPanel`, `SectionFrame`, `mergeSections`, `orderSections`, `searchSections`, `revealSetting`, `SettingsGroup`, `SettingRow`, `ProgressBar`, `formatBytes`, `useSettings`, `createMemorySettings`, `sectionIcons`, the search API (`SettingsSearchProvider`, `SettingsItem`, `SettingsSearchSection`, `SettingsSectionScope`, `HighlightedText`, `useSettingsSearch`, `useSearchKeys`), and types. Imports only `react`. |
 | `@rightkit/settings-ui/standard` | `standardSections`, the section factories, `useLicenseSection`, `useDoctor`. Needs the optional peers below. |
+| `@rightkit/settings-ui/headless` | The search state as hooks and no-DOM providers, for a host with its own markup: `SettingsSearchProvider`, `useSettingsSearch`, `useSettingsRow`, `useSettingsItem`, `useSettingsGroup`, `useSettingsSection`, `useSettingsSearchField`, `useSettingsSearchStatus`, `useSearchKeys`, `highlightText`. Imports only `react`; no stylesheet. See [Headless search](#headless-search). |
 | `@rightkit/settings-ui/settings.css` | Stylesheet |
 | `@rightkit/settings-ui/shell-adapter` | `createShellBackends` and the `rightkit-settings` / `rightkit-models` engine wire constants, over the `@rightkit/shell` engine bridge. The engine is described structurally, so this subpath needs no import of `@rightkit/shell`. |
 
@@ -134,8 +135,10 @@ The query is split on whitespace and every term must appear (case-insensitive) i
 | `SettingsPanel` | `findShortcut` | `false` | `true`: Cmd+F (Ctrl+F off macOS) focuses and selects the field and cancels the browser's find. A function decides for itself. |
 | `SettingsPanel` | `escapeClears` | none | `"always"`: Escape clears from anywhere. `"when-search-focused"`: only from the field. `"unless-in-input-or-dialog"`: from the field or the page, but not from another input, textarea, select, contenteditable, `dialog` or `[role=dialog]`. Ignored during IME composition and when another handler already called `preventDefault`. |
 | `SettingsPanel` | `announceResults`, `formatAnnouncement` | on in all-sections, off in navigate | A polite `role="status"` live region (`rk-settings__sr`) with the count ("3 settings found", "No settings found"), updated 300 ms after typing settles. Off by default in navigate mode so default markup is unchanged. |
-| `SettingsGroup` | `hideWhenEmpty` | `false` | Under a provider, hide the group while none of its registered rows or items is visible; re-evaluated on every registration change, so late rows reveal it. Wrap non-row content in `SettingsItem` to count. |
-| `SettingRow` | `keywords`, `searchText` | none | Extra terms; text to match when `label` is not a string. |
+| `SettingsGroup` | `hideWhenEmpty` | `false` | Under a provider, hide the group while none of its registered rows or items is visible; re-evaluated on every registration change, so late rows reveal it. Wrap non-row content in `SettingsItem` to count. `"unmount"` (0.4.2) removes the section and its heading instead of hiding them; the rows stay mounted. |
+| `SettingsGroup` | `className`, `headingLevel` | none, `3` | (0.4.2) `className` is added after `rk-sg`; `headingLevel` sets the title's heading level. |
+| `SettingRow` | `keywords`, `searchText`, `className` | none | Extra terms; text to match when `label` is not a string. `className` (0.4.2) is added after the row's own classes. |
+| `SettingsSearchSection` | `passthroughWhenInactive` | `false` | (0.4.2) With no search active, render the children untouched: no section, heading or action. |
 
 Focus is never moved by search: typing, changing results and opening results leave focus where it was (only the find shortcut and an explicit "Open section" click act on focus).
 
@@ -165,6 +168,108 @@ Set on `:root` or `.rk-settings`. Every default is today's built-in value.
 | `--rk-settings-font-size` | `13.5px` | Base font size of the panel |
 
 The panel reads the suite colour tokens from `@rightkit/app-shell/shell.css` (`--rk-plane`, `--rk-chrome`, `--rk-ink` and the rest). It brings no colours of its own.
+
+## Headless search
+
+From 0.4.2, `@rightkit/settings-ui/headless` gives the search state the styled parts compute, as hooks, for a host whose markup and classes are fixed. The hooks render nothing and import no stylesheet; every element is yours. `@rightkit/platform-ui/headless` follows the same pattern.
+
+| Hook or component | Returns or does | Use it for |
+|---|---|---|
+| `SettingsSearchProvider` | `query`, `filter`, `highlight` (a function for your own `<mark>`) | Wraps the search. Renders no DOM. |
+| `useSettingsRow({ id, label, description, keywords, searchText })` | `{ matches, hidden, props, mark }`. `props` carries `data-setting-id` and `data-hit=""` for a matching row during a search | A row. Render nothing when `hidden`; spread `props`; wrap label and description in `mark()`. |
+| `useSettingsItem({ id, text, description, keywords })` | Same as `useSettingsRow`, for content that is not a row (an account list, a permission row) | Shown only while it matches; counts for its group. |
+| `useSettingsGroup()` + `SettingsGroupScope` | `{ key, visibleRowCount, empty }` | A group. Pass `key` to the scope around its rows. |
+| `useSettingsSection()` + `SettingsSectionScope` | `{ key, visibleRowCount, empty }`; the scope takes `scopeKey={key}` | A section, the same way as a group. |
+| `useSettingsSearchField({ query, setQuery })` | `{ value, onChange, clear, active, count, status }` | The search input and its `role="status"` text. Put it under the provider. |
+| `useSearchKeys({ inputRef, query, setQuery, findShortcut, escapeClears })` | Cmd/Ctrl+F and Escape policy | Keyboard handling for a host-owned field. |
+| `useSettingsSearch()` | `{ query, terms, active, results, count, highlight }` | Anything else that needs the results. |
+
+Two rules keep the hooks correct:
+
+- **Keep the children mounted.** A group or section must render its rows whether or not it is empty. Only its own wrapper (the `<section>`, the heading, the card) is omitted when `empty`. A row registers on mount, so an empty group whose rows were unmounted could never reveal itself.
+- **Rows remount when a wrapper appears or disappears.** Moving the rows from inside a wrapper to outside one (or back) remounts them, so a control's local state is lost. Keep drafts in state the app owns.
+
+This is the shape of Pulse's `settingsKit.tsx` in headless form:
+
+```tsx
+import {
+  SettingsGroupScope, SettingsSearchProvider, SettingsSectionScope, useSearchKeys, useSettingsGroup,
+  useSettingsRow, useSettingsSearch, useSettingsSearchField, useSettingsSection,
+} from "@rightkit/settings-ui/headless";
+
+const mark = (m: string) => <mark className="ck-mark">{m}</mark>;
+
+function Row({ label, note, children }: { label: string; note?: string; children: ReactNode }) {
+  const r = useSettingsRow({ label, description: note });
+  if (r.hidden) return null;
+  return (
+    <div className="ck-set" {...r.props}>
+      <div className="ck-text">
+        <strong>{r.mark(label)}</strong>
+        {note && <div className="ck-sub">{r.mark(note)}</div>}
+      </div>
+      <div className="ck-ctl">{children}</div>
+    </div>
+  );
+}
+
+function Group({ title, children }: { title: string; children: ReactNode }) {
+  const g = useSettingsGroup();
+  return (
+    <SettingsGroupScope groupKey={g.key} title={title}>
+      {g.empty ? <>{children}</> : (
+        <section className="ck-sgroup">
+          <h2>{title}</h2>
+          <div className="ck-card">{children}</div>
+        </section>
+      )}
+    </SettingsGroupScope>
+  );
+}
+
+function Section({ id, title, onOpen, children }: { id: string; title: string; onOpen(id: string): void; children: ReactNode }) {
+  const s = useSettingsSection();
+  const { active } = useSettingsSearch();
+  return (
+    <SettingsSectionScope scopeKey={s.key} id={id} title={title}>
+      {!active ? children : s.empty ? <>{children}</> : (
+        <div className="ck-search-section">
+          <div className="ck-search-head">
+            <h3>{title}</h3>
+            <button type="button" onClick={() => onOpen(id)}>Open {title}</button>
+          </div>
+          {children}
+        </div>
+      )}
+    </SettingsSectionScope>
+  );
+}
+
+function SearchField({ query, setQuery, inputRef }: { query: string; setQuery(q: string): void; inputRef: RefObject<HTMLInputElement | null> }) {
+  const f = useSettingsSearchField({ query, setQuery });
+  useSearchKeys({ inputRef, query, setQuery, findShortcut: true, escapeClears: "unless-in-input-or-dialog" });
+  return (
+    <>
+      <input ref={inputRef} className="ck-search" type="search" aria-label="Search settings" value={f.value} onChange={f.onChange} />
+      <div role="status" className="ck-sr-only">{f.status}</div>
+    </>
+  );
+}
+
+// In the page, under the provider:
+<SettingsSearchProvider query={query.trim()} highlight={mark}>
+  <SearchField query={query} setQuery={setQuery} inputRef={input} />
+  {sections.map((s) => (
+    <Section key={s.id} id={s.id} title={s.title} onOpen={open}>
+      <Group title="Startup">
+        <Row label="Open at login" note="Start Pulse when you sign in.">{/* control */}</Row>
+      </Group>
+    </Section>
+  ))}
+</SettingsSearchProvider>
+```
+
+What the hooks do not do: they set no `id`s, no `role`s other than what you ask for, and no `data-` attributes beyond `data-setting-id` and `data-hit`. `mark()` wraps every term, where Pulse's local kit marks the first occurrence only. Outside a provider every hook is inert: rows render, nothing is hidden, groups and sections are not empty and the status is empty.
 
 ## Known issues
 

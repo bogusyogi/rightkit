@@ -57,8 +57,8 @@ describe("@rightkit/settings-ui/core import graph", () => {
 
 describe("package.json", () => {
   const pkg = JSON.parse(readFileSync(join(root, "package.json"), "utf8")) as { exports: Record<string, unknown>; peerDependencies: Record<string, string>; peerDependenciesMeta: Record<string, { optional?: boolean }> };
-  it("exposes ., ./core and ./standard and keeps the existing subpaths", () => {
-    expect(Object.keys(pkg.exports).sort()).toEqual([".", "./core", "./settings.css", "./shell-adapter", "./standard"]);
+  it("exposes ., ./core, ./standard and ./headless (added in 0.4.2) and keeps the existing subpaths", () => {
+    expect(Object.keys(pkg.exports).sort()).toEqual([".", "./core", "./headless", "./settings.css", "./shell-adapter", "./standard"]);
   });
   it("marks license, logs, theme and updates optional peers", () => {
     for (const peer of ["@rightkit/license", "@rightkit/logs", "@rightkit/theme", "@rightkit/updates"]) {
