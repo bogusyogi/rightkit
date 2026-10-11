@@ -127,13 +127,16 @@ export class DevelopmentInstallError extends Error {
 
 const NODE_FS = { existsSync, readFileSync, renameSync, rmSync, statSync };
 
-/** CFBundleExecutable from a bundle's XML Info.plist, falling back to the bundle name (a missing file then fails verification). */
-function bundleExecutableName(bundle, fs) {
+/**
+ * CFBundleExecutable from a bundle's XML Info.plist. Without one, fall back to the installed bundle's name (`fallback`): the staged
+ * path carries a `.rightkit-dev-<pid>` suffix, so its own basename never names the executable (a missing file then fails verification).
+ */
+function bundleExecutableName(bundle, fs, fallback) {
   try {
     const match = /<key>CFBundleExecutable<\/key>\s*<string>([^<]+)<\/string>/.exec(fs.readFileSync(path.join(bundle, "Contents", "Info.plist"), "utf8"));
     if (match) return match[1].trim();
   } catch { /* unreadable or binary plist: fall back */ }
-  return path.basename(bundle, ".app");
+  return fallback;
 }
 
 /**
@@ -143,7 +146,7 @@ function bundleExecutableName(bundle, fs) {
  * DEV_INSTALL_EXECUTABLE_MISSING or DEV_INSTALL_EXECUTABLE_MISMATCH). `fs` is the file-system seam (tests inject it).
  */
 export function swapInstalledMacosBundle({ staging, destination, backup, fs = NODE_FS }) {
-  const executable = path.join("Contents", "MacOS", bundleExecutableName(staging, fs));
+  const executable = path.join("Contents", "MacOS", bundleExecutableName(staging, fs, path.basename(destination, ".app")));
   const digest = (file) => createHash("sha256").update(fs.readFileSync(file)).digest("hex");
   let expected;
   try { expected = digest(path.join(staging, executable)); }

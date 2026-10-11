@@ -3,11 +3,11 @@
 // `hideOnlyWhileSearching`; and the once-per-page warning for a row whose label cannot be searched.
 import { cleanup, render } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { searchStoreStats } from "./search-core.js";
 import {
   SettingsGroupScope,
   SettingsSearchProvider,
   SettingsSectionScope,
-  searchStoreStats,
   useSettingsGroup,
   useSettingsHit,
   useSettingsItem,

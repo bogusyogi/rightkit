@@ -114,6 +114,8 @@ fn fetch_rows(
 }
 
 /// One bounded scan page: the title is checked first, the body only when undecided.
+// The eight inputs are the fixture, the query, and the page position; a struct would only rename them.
+#[allow(clippy::too_many_arguments)]
 fn run_scan(
     conn: &Connection,
     filters: &Compiled,

@@ -32,8 +32,10 @@ describe("host-injected platform, QA options and fallback", () => {
     osMock.platform.mockImplementation(() => {
       throw new Error("not in Tauri");
     });
-    const { getPlatform } = await import("./index.js");
+    const { getPlatform, loadPlatform } = await import("./index.js");
     expect(getPlatform()).toBe("macos");
+    // getPlatform() starts the native load in the background; settle it here so it cannot warn during the next test.
+    await loadPlatform();
   });
 
   it("lets the async native value win over a disagreeing injected value, with a warning", async () => {

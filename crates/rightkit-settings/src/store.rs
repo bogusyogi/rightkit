@@ -44,6 +44,46 @@ pub enum Error {
     Corrupt(String),
 }
 
+/// The typed payload of an [`Error::Io`] when the replace step was interrupted. The settings file
+/// at `path` may be missing: the swap started and did not finish, so neither the old nor the new
+/// file is guaranteed to be there. `new_content` and `previous_content` name the files that hold
+/// the new and the previous bytes, when they still exist. Nothing here reports success.
+///
+/// Recover it from the `io::Error`:
+/// `err.get_ref().and_then(|e| e.downcast_ref::<InterruptedReplace>())`.
+#[derive(Debug)]
+pub struct InterruptedReplace {
+    pub path: PathBuf,
+    pub new_content: Option<PathBuf>,
+    pub previous_content: Option<PathBuf>,
+    /// The underlying I/O failure.
+    pub source: io::Error,
+}
+
+fn show_content(p: &Option<PathBuf>) -> String {
+    p.as_ref()
+        .map_or_else(|| "gone".to_string(), |p| p.display().to_string())
+}
+
+impl std::fmt::Display for InterruptedReplace {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "settings file {} may be missing: replace interrupted ({}); new content: {}; previous content: {}",
+            self.path.display(),
+            self.source,
+            show_content(&self.new_content),
+            show_content(&self.previous_content),
+        )
+    }
+}
+
+impl std::error::Error for InterruptedReplace {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        Some(&self.source)
+    }
+}
+
 /// One forward transform over the raw settings object, bringing it to `to`.
 #[derive(Clone, Copy)]
 pub struct Migration {

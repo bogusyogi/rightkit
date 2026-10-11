@@ -8,12 +8,17 @@
 // so a red run is repeated in full for the units it covered until they pass. Units listed in
 // ci/known-red.json still run and still show red, but do not fail the gate; an entry is a
 // recorded defect with an owner, never a waiver for publishing.
+//
+// Publish verification (.github/workflows/publish.yml) names its units explicitly:
+//   gate.mjs --registry npm|crates --units "<space-separated names>"
+// That mode selects exactly those units (no diff, no dependents, no root or Swift suites) and
+// treats every red unit as a failure: known-red is not a waiver for publishing.
 import { spawn, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { changedConfigCrates, changedLockNames, parseLock, selectByPaths, selectNpm, selectRust } from "./select.mjs";
+import { changedConfigCrates, changedLockNames, parseLock, selectByPaths, selectNpm, selectRust, selectUnits } from "./select.mjs";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
 const WIN = process.platform === "win32";
@@ -21,6 +26,7 @@ const HOST = WIN ? "windows" : process.platform === "darwin" ? "macos" : "linux"
 const PLAN = process.argv.includes("--plan");
 const argOf = (flag) => { const i = process.argv.indexOf(flag); return i > 0 ? process.argv[i + 1] : undefined; };
 const MINUTE = 60_000;
+const UNIT_MODE = process.argv.includes("--units") || process.argv.includes("--registry");
 
 const ROOT_SUITES = [
   { id: "test:ownership-approval", paths: ["ownership-approval"] },
@@ -74,7 +80,20 @@ function npmPackages() {
   return packages.map((p) => ({ name: p.name, dir: p.dir, scripts: p.scripts, deps: Object.keys(p.all).filter((d) => names.has(d)) }));
 }
 
+function unitPlan() {
+  const config = readJson("ci/gate.config.json", {});
+  const units = (argOf("--units") ?? "").split(/\s+/).filter(Boolean);
+  const packages = npmPackages();
+  let picked;
+  try { picked = selectUnits({ registry: argOf("--registry"), units, members: rustMembers(config), packages }); } catch (error) {
+    console.error(`gate: ${error.message}. Usage: --registry npm|crates --units "<names>"`);
+    process.exit(2);
+  }
+  return { host: HOST, base: null, all: false, changedPaths: 0, config, packages, rust: picked.rust, npm: picked.npm, root: [], swift: [] };
+}
+
 function plan() {
+  if (UNIT_MODE) return unitPlan();
   const config = readJson("ci/gate.config.json", {});
   const base = resolveBase();
   const all = !base || process.argv.includes("--all");
@@ -222,7 +241,7 @@ async function swiftGate(selection) {
 }
 
 function report(selection) {
-  const knownRed = readJson("ci/known-red.json", {})[HOST] ?? {};
+  const knownRed = UNIT_MODE ? {} : readJson("ci/known-red.json", {})[HOST] ?? {};
   const units = new Map();
   for (const result of results) {
     const unit = units.get(result.unit) ?? { ok: true, seconds: 0, failed: [], skipped: 0 };

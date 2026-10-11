@@ -117,3 +117,27 @@ export function changedConfigCrates(previous, next) {
   const a = previous?.rust ?? {}; const b = next?.rust ?? {};
   return new Set([...new Set([...Object.keys(a), ...Object.keys(b)])].filter((k) => JSON.stringify(a[k]) !== JSON.stringify(b[k])));
 }
+
+/**
+ * Explicit unit selection for a publish verification run: exactly the named units, in the order
+ * given, with nothing derived from a diff and no dependents added. `registry` is "crates" (units
+ * are crate names, `members` as for selectRust) or "npm" (units are package names, `packages` as
+ * for selectNpm). Returns the shapes selectRust and selectNpm return, so the gate runs them unchanged.
+ */
+export function selectUnits({ registry, units, members = [], packages = [] }) {
+  if (!Array.isArray(units) || units.length === 0) throw new Error("no units named");
+  const unique = [...new Set(units)];
+  if (registry === "crates") {
+    const known = new Set(members.map((m) => m.name));
+    const unknown = unique.filter((name) => !known.has(name));
+    if (unknown.length) throw new Error(`unknown crate(s): ${unknown.join(", ")}`);
+    return { rust: { all: false, test: unique, check: [] }, npm: { all: false, test: [] } };
+  }
+  if (registry === "npm") {
+    const dirs = new Map(packages.map((p) => [p.name, p.dir]));
+    const unknown = unique.filter((name) => !dirs.has(name));
+    if (unknown.length) throw new Error(`unknown npm package(s): ${unknown.join(", ")}`);
+    return { rust: { all: false, test: [], check: [] }, npm: { all: false, test: unique.map((name) => dirs.get(name)) } };
+  }
+  throw new Error(`registry must be npm or crates, got ${JSON.stringify(registry)}`);
+}

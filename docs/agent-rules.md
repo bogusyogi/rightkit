@@ -16,6 +16,7 @@ RightKit owns shared packages, crates, QA, licensing, logging, & release tooling
 - Push to `main` in batches & read the `ci` run; apply its `fmt.patch` or `Cargo.lock.patch`, never hand-format.
 - Run `rustfmt --edition <edition> --check <file>` on each changed Rust file before pushing.
 - Record a red unit in `ci/known-red.json` with its reason; never publish a unit listed there.
+- Publish npm packages & crates only by dispatching `.github/workflows/publish.yml` (`dry_run` first); see `docs/CI.md` "Publishing".
 
 ## Locked invariants
 - Keep shared source only under `rightkit/`.
@@ -27,7 +28,6 @@ RightKit owns shared packages, crates, QA, licensing, logging, & release tooling
 - Require explicit `distribution.provider`: public products use `github-releases`; private products use `r2`.
 - Keep add-on adoption bound to version, full manifest SHA-256, immutable URL, and target-qualified aliases.
 - Never run browser login, `az login`, Azure enrollment, or signing setup; use native-host provisioned signers.
-- Publish Cargo crates only through the RightKit release command.
 - Upload no unsigned or test artifact.
 - Activate enforcement policy & verifier changes only through Adrian-authenticated trust-sync; see `docs/OWNERSHIP-ENFORCEMENT.md`.
 - Apply identical qualification requirements across distribution providers; see `../../docs/rules/release-signing.md`.
