@@ -81,21 +81,42 @@ in which that could happen. The rule that replaces it:
   `OwnedChild::while_unreaped` runs a caller's pid-based action (a descendant sweep) under the
   same proof and lock. **The proof does not close the race entirely; see "Known limits".**
 - **Waits are loops of non-blocking looks, and the exit event is only a hint.** `ProcessHandle::wait`,
-  `wait_timeout`, `wait_exited*`, `OwnedChild::wait*`, `wait_or_kill` and the failed-spawn cleanup take
+  `wait_timeout`, `wait_exited*`, `OwnedChild::wait*`, `wait_or_kill`, `terminate_tree*`, `Drop`, the
+  detached reaper thread (`rightkit-detached-reap`) and the failed-spawn cleanup (up to its timeout) take
   the shared lock for one non-blocking look (`waitpid(WNOHANG)`, or the non-reaping
   `waitid(WNOHANG | WNOWAIT)` for `wait_exited*`), release it, sleep, and look again until the leader
-  is reaped or the caller's deadline passes. Nothing reaps with a blocking call and nothing sleeps
-  while holding the lock, so a deadline is honoured whatever the child does, `kill` or
-  `terminate_tree` from another thread runs while a wait is in progress, and no wait system call
-  names the pid outside the lock. The sleep between looks is a kqueue `NOTE_EXIT` / pidfd
-  wake-up where the kernel offers one (at most 1 s per sleep, ending early at the exit), and 5 ms,
-  the interval 0.3.3 polled at, where it does not (no such facility, no descriptor to spare, or a
-  process already exiting at spawn). The event never decides anything: the look after it does. The
-  tree-wide grace of `terminate_tree*` lists the group every 5 ms until only the exited, unreaped
-  leader is left, or the grace ends. Only a wait made through the `OwnedChild::child()` guard
-  (`UnixChild::wait`) holds the lock for its whole length, because the caller holds it; it still
-  reaps only with non-blocking looks. Each child holds one extra descriptor (the hint) while
-  it is alive.
+  is reaped or the caller's deadline passes. None of them reaps with a blocking call or sleeps while
+  holding the lock, so a deadline is honoured whatever the child does, `kill` or `terminate_tree` from
+  another thread runs while one of them is in progress, and no wait system call names the pid outside
+  the lock. The sleep between looks is a kqueue `NOTE_EXIT` / pidfd wake-up where the kernel offers one
+  (at most 1 s per sleep, ending early at the exit), and 5 ms, the interval 0.3.3 polled at, where it
+  does not (no such facility, no descriptor to spare, or a process already exiting at spawn). The event
+  never decides anything: the look after it does. The tree-wide grace of `terminate_tree*` lists the
+  group every 5 ms until only the exited, unreaped leader is left, or the grace ends. Each child holds
+  one extra descriptor (the hint) while it is alive. Waiting threads wake about once a second with the
+  hint and about 200 times a second without it, for as long as the child lives (0.3.3's Linux and macOS
+  `wait()` blocked in the kernel).
+- **Where the shared lock is held across a wait or a long action: the complete list.** Everything else
+  releases it between looks.
+  1. **`wait` through the `OwnedChild::child()` guard (`UnixChild::wait`).** The guard is the lock, so
+     the wait holds it until the child has exited, and a bounded wait on a clone, a `kill`,
+     `terminate_tree` or `Drop` on another thread queues behind it and can exceed its own deadline. The
+     caller chose to hold the guard; `std::process::Child::wait` through the same accessor did the same
+     in 0.3.3, and the accessor's contract has always been "release this guard before another accessor
+     or exit reader". It still reaps only with non-blocking looks. Wait through `OwnedChild::wait`,
+     `wait_timeout` or a `ProcessHandle` when anything else must stay live. (Windows:
+     `WindowsChild::wait` through the guard blocks in `WaitForSingleObject` under the lock, as in 0.3.3.)
+  2. **Failed-spawn cleanup with no timeout** (the default), and
+  3. **the `rightkit-partial-reap` thread** it hands a timed-out child to. Both wait under the lock, as
+     0.3.3 did. They run only for a child whose spawn failed after the process existed, and nothing
+     but the spawning thread (then the reaper thread) holds that child: the partial `OwnedChild` was
+     never returned, no `ProcessHandle` was cloned from it, so no other thread can reach its lock.
+  4. **`OwnedChild::while_unreaped`** holds the lock while the caller's closure runs (that keeps a reap
+     out between the proof and the action), so a bounded wait on another thread is delayed by as long
+     as the closure takes. `rightkit-sandbox` passes a descendant sweep with a 200 ms grace. New since
+     0.3.3.
+  The spawn-time identity check (`require_identity`) reaps a just-killed child with a blocking wait
+  before the child is shared with anyone.
 - `OwnedChild::child()` no longer exposes the std `Child` on Unix. It returns `UnixChild`
   (stdio fields, `id`, `try_wait`, `wait`, `kill`), so a reap through it is recorded.
 - `UnixChild::kill`, and every direct-pid signal for detached children, follow the same rule.

@@ -29,20 +29,44 @@
 //!
 //! # Waiting
 //!
-//! * **Every wait is a loop of non-blocking looks.** [`wait_shared`] takes the lock, makes one
-//!   non-blocking `try_wait` (a `waitpid(WNOHANG)`), releases the lock, sleeps, and looks again
-//!   until the leader is reaped or the caller's deadline passes. [`observe_shared`] does the
-//!   same with the non-reaping `waitid(WNOHANG | WNOWAIT)` probe. Nothing reaps with a
-//!   blocking call and nothing sleeps while holding the lock, so `kill`, `terminate_tree` and
-//!   every other waiter run while a wait is in progress, and a deadline is honoured whatever
-//!   the child does.
+//! * **A wait on a shared child is a loop of non-blocking looks.** [`wait_shared`] takes the
+//!   lock, makes one non-blocking `try_wait` (a `waitpid(WNOHANG)`), releases the lock, sleeps,
+//!   and looks again until the leader is reaped or the caller's deadline passes.
+//!   [`observe_shared`] does the same with the non-reaping `waitid(WNOHANG | WNOWAIT)` probe.
+//!   `ProcessHandle::wait`, `wait_timeout` and `wait_exited*`, `OwnedChild::wait*`,
+//!   `wait_or_kill`, `terminate_tree*`, `Drop`, the detached reaper thread
+//!   (`rightkit-detached-reap`) and, up to its timeout, the failed-spawn cleanup all wait this
+//!   way.
+//!   None of them reaps with a blocking call or sleeps while holding the lock, so `kill`,
+//!   `terminate_tree` and every other waiter run while one of them is in progress, and a
+//!   deadline is honoured whatever the child does.
 //! * The sleep is [`ExitWatch::pause`](crate::exit_watch::ExitWatch::pause): a hint. With an
 //!   event source it ends early at the child's exit; without one it is a 5 ms interval. The
 //!   event never decides anything, so it cannot make a wait return early or hang.
-//! * The one exception is [`UnixChild::wait`] reached through the `OwnedChild::child()` guard:
-//!   the caller already holds the lock, so that wait holds it for its whole length, as
-//!   `std::process::Child::wait` held its owner in 0.3.3. It still reaps only with
-//!   non-blocking looks.
+//! * **Where the lock is held across a wait or a long action (the complete list).** None of
+//!   these is a bounded wait that entered a blocking reap; the first is the only one a
+//!   deadline-bearing caller on another thread can be held behind.
+//!   1. [`UnixChild::wait`] through the `OwnedChild::child()` guard. The caller holds the lock
+//!      by holding the guard, so the wait cannot release it: a bounded wait on a clone, a
+//!      `kill`, `terminate_tree` or `Drop` on another thread waits behind it until the child
+//!      has exited, and can exceed its own deadline. That is the caller's choice, not the
+//!      crate's: `std::process::Child::wait` through the same guard did exactly this in
+//!      0.3.3 (documented: "release this guard before another accessor or exit reader").
+//!      The wait still reaps only with non-blocking looks. A program that needs a deadline
+//!      or a cancel to stay live must wait through `OwnedChild`/`ProcessHandle` instead.
+//!   2. `cleanup_direct` with no timeout (`partial_spawn_cleanup_timeout` not set), and
+//!   3. the `rightkit-partial-reap` thread it hands a timed-out child to. Both call
+//!      `UnixChild::wait` under the lock, as 0.3.3 called `std::process::Child::wait`. They
+//!      run only for a child whose spawn failed after the process existed, and that `Arc`
+//!      is held by nothing but the spawning thread (the partial `OwnedChild`, which no
+//!      caller has seen and from which no `ProcessHandle` was cloned) and then by the reaper
+//!      thread: no other thread can reach the lock, so nothing can be held behind it.
+//!   4. `OwnedChild::while_unreaped` holds the lock while the caller's closure runs, which
+//!      is its purpose (no reap can fall between the proof and the action). A bounded wait on
+//!      another thread can be delayed by as long as the closure takes.
+//!      `rightkit-sandbox` passes a descendant sweep with a 200 ms grace. New since 0.3.3.
+//!   Also, [`UnixChild::require_identity`] reaps a just-killed child with a blocking
+//!   `Child::wait`, before the child is shared at all.
 //! * No wait-class system call names the pid while the lock is released. A blocked
 //!   `waitpid(pid)`/`waitid(P_PID, pid)` outside the lock could be entered after another reader
 //!   reaped the leader and the kernel recycled the number, and would then wait on an unrelated
@@ -129,8 +153,11 @@ pub(crate) enum SignalOutcome {
 /// crate cannot see would make later group signals unsafe (see the module documentation).
 ///
 /// Obtained through [`OwnedChild::child`](crate::OwnedChild::child), which holds the shared
-/// lock while the guard lives. `wait` blocks while holding it; prefer `OwnedChild::wait` or
-/// `ProcessHandle::wait`, which do not.
+/// lock while the guard lives. `wait` through the guard therefore holds that lock until the
+/// child has exited, and every other thread's access to the same child (a bounded wait on a
+/// clone, `kill`, `terminate_tree`, `Drop`) waits behind it, as `std::process::Child::wait`
+/// through the guard did in 0.3.3. Prefer `OwnedChild::wait`, `wait_timeout` or
+/// `ProcessHandle::wait`, which release the lock between looks.
 #[derive(Debug)]
 pub struct UnixChild {
     pub stdin: Option<ChildStdin>,
@@ -258,9 +285,12 @@ impl UnixChild {
         }
     }
 
-    /// Closes stdin as std does, then waits until the leader is reaped. The lock stays held for
-    /// the whole wait (the caller holds it); the reap itself is only ever a non-blocking
-    /// `waitpid(WNOHANG)` between sleeps.
+    /// Closes stdin as std does, then waits until the leader is reaped. The reap itself is only
+    /// ever a non-blocking `waitpid(WNOHANG)` between sleeps, but this method cannot release
+    /// the lock: when it is reached through the `OwnedChild::child()` guard the caller holds
+    /// it for the whole wait, so other threads' waits, kills and drops on the same child
+    /// queue behind it (as with `std::process::Child::wait` in 0.3.3). Use `OwnedChild::wait`
+    /// or `ProcessHandle::wait` where that matters.
     pub fn wait(&mut self) -> io::Result<ExitStatus> {
         drop(self.stdin.take());
         self.wait_reaping()
@@ -552,8 +582,9 @@ fn group_members_besides(_leader: u32, _group: u32) -> io::Result<Members> {
 /// Every look is one non-blocking `try_wait` under the lock, released before the thread sleeps
 /// (see the module documentation), so a deadline is honoured whatever the child does, a
 /// `kill` or `terminate_tree` from another thread runs at once, and no wait-class system call
-/// names the pid while the lock is free. This is the only way `ProcessHandle` and the cleanup
-/// paths wait.
+/// names the pid while the lock is free. `ProcessHandle` waits this way, and so does the
+/// failed-spawn cleanup that has a timeout; the cleanup without one waits through
+/// `UnixChild::wait` instead (see the module documentation, item 2).
 pub(crate) fn wait_shared(
     shared: &Mutex<UnixChild>,
     deadline: Option<Instant>,

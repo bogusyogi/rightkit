@@ -14,13 +14,15 @@ Removed:
   event). Reasons: a registration that answered `ESRCH` was read as "already exited" although XNU hides a
   process from registration before it is waitable, so a bounded wait entered a blocking reap holding the
   shared lock and outlived its deadline; and a failed pipe or thread allocation made an independent wait
-  block `kill` and `terminate_tree` behind that lock. Replaced by the 0.3.3 contract: every wait is a loop
-  of non-blocking `try_wait` looks (the non-reaping `waitid(WNOHANG | WNOWAIT)` for `wait_exited*`), each
-  under the lock and released at once, sleeping 5 ms between looks as 0.3.3 did. The kqueue `NOTE_EXIT` /
+  block `kill` and `terminate_tree` behind that lock. Replaced by the 0.3.3 contract: every wait on a shared
+  child is a loop of non-blocking `try_wait` looks (the non-reaping `waitid(WNOHANG | WNOWAIT)` for
+  `wait_exited*`), each under the lock and released at once (the exceptions are listed below), sleeping 5 ms
+  between looks as 0.3.3 did. The kqueue `NOTE_EXIT` /
   pidfd descriptor remains **only as a wake-up hint**: a sleep on it ends early at the exit, never lasts
   past the caller's deadline or 1 s, and decides nothing; the look after it does. When it cannot be opened
   the wait polls at 5 ms. An unbounded `ProcessHandle::wait` releases the lock while it sleeps. A child
-  still holds one extra descriptor for the hint.
+  still holds one extra descriptor for the hint. Waiting threads wake about once a second with the hint and
+  about 200 times a second without it, for as long as the child lives.
 - **Linux pidfd signalling and pidfd proof** (`pidfd_send_signal`, `Origin::Unavailable` on pidfd hosts).
   Linux now uses the same `/proc/<pid>/stat` identity proof as macOS, so there is one proof to reason
   about.
@@ -51,6 +53,23 @@ Changed (Unix) beyond the restorations:
 - The tree-wide grace of `terminate_tree*` lists the group every 5 ms (macOS `proc_listpids`, Linux
   `/proc`) until nothing but the exited, unreaped leader is left. It no longer opens a descriptor per
   group member.
+
+Where the shared child lock is still held across a wait or a long action, stated precisely (README
+"Where the shared lock is held", `unix_child` module docs) and not changed, because none is a bounded wait
+that enters a blocking reap and only the first can hold a deadline-bearing caller back:
+- `wait` through the `OwnedChild::child()` guard. The caller holds the lock by holding the guard, so a
+  bounded wait on a clone, a `kill`, `terminate_tree` or `Drop` on another thread queues behind it. The
+  caller chose that, and 0.3.3's `std::process::Child::wait` through the same accessor did the same. The
+  wait itself reaps only with non-blocking looks. Use `OwnedChild::wait`, `wait_timeout` or a
+  `ProcessHandle` where anything else must stay live.
+- Failed-spawn cleanup with no timeout and the `rightkit-partial-reap` thread. Both wait under the lock, as
+  in 0.3.3, on a child that only the spawning thread (then the reaper) can reach: the partial `OwnedChild`
+  was never returned and no `ProcessHandle` was cloned from it.
+- `OwnedChild::while_unreaped`, which holds the lock for as long as the caller's closure runs. New since
+  0.3.3; `rightkit-sandbox` passes a descendant sweep with a 200 ms grace.
+The `rightkit-detached-reap` thread (a detached child's eventual reap) makes non-blocking looks and releases
+the lock between them. Waiting threads wake about once a second with the hint and about 200 times a second
+without it for as long as the child lives.
 
 Known limits, stated in the README and in `identity`, not closed here:
 - Unix: the identity proof and the call it guards are two steps; foreign code that reaps our child in

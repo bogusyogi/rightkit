@@ -1,6 +1,6 @@
 //! Verifying the host from the client side: a real host process, real impostor processes (the
 //! compiled examples `svc_host` and `svc_fakehost`), real sockets. The platform check itself is
-//! Unix only; one Windows test pins that the stub fails closed.
+//! per platform; the Windows tests host in the test process itself.
 
 #[cfg(unix)]
 mod unix_tests {
@@ -419,49 +419,136 @@ mod unix_tests {
 #[cfg(windows)]
 mod windows_tests {
     use rightkit_service::*;
-    use serde_json::Value;
+    use serde_json::{json, Value};
+    use std::path::PathBuf;
     use std::sync::Arc;
 
-    /// Verifying the host is not implemented on Windows yet: a client that asks for it is refused
-    /// with the typed `Unverified` reason, never silently connected to an unverified host. The
-    /// Windows session replaces this test with accept and refuse cases (see the docs of
-    /// `host_identity::verify_pipe_host`).
-    #[test]
-    fn connect_expecting_fails_closed_until_the_windows_check_exists() {
-        struct Echo;
-        impl Handler for Echo {
-            fn call(
-                &self,
-                _cx: &CallContext,
-                _method: &str,
-                params: &Value,
-                _emit: &Emit,
-            ) -> Result<Value, ServiceError> {
-                Ok(params.clone())
-            }
+    struct Echo;
+    impl Handler for Echo {
+        fn call(
+            &self,
+            _cx: &CallContext,
+            _method: &str,
+            params: &Value,
+            _emit: &Emit,
+        ) -> Result<Value, ServiceError> {
+            Ok(params.clone())
         }
+    }
+
+    /// A service hosted by this test process, so the pipe's server process is this executable.
+    fn hosted(name: &str) -> (tempfile::TempDir, ClientConfig, impl Sized) {
         let dir = tempfile::tempdir().unwrap();
         let suite = Suite::at(dir.path().join("suite")).unwrap();
         let cfg = ServiceConfig::new(
-            "vh-win",
+            name,
             "test",
             5,
             "test",
             Allowlist::new().allow("*", ["echo"]),
         );
-        let _hosted = host(&suite, cfg, Arc::new(Echo)).expect("host starts");
+        let hosted = host(&suite, cfg, Arc::new(Echo)).expect("host starts");
+        (dir, ClientConfig::new(name, "app").suite(suite), hosted)
+    }
 
-        let config = ClientConfig::new("vh-win", "app").suite(suite);
-        let expect = HostExpectation::executable(std::env::current_exe().unwrap());
-        let err = Client::connect_expecting(&config, &expect)
-            .err()
-            .expect("an unverifiable host must be refused");
-        match err {
-            ConnectError::HostIdentity(e) => assert!(
-                matches!(e.reason, HostIdentityReason::Unverified { .. }),
-                "{e}"
-            ),
+    fn refusal(config: &ClientConfig, expect: &HostExpectation) -> HostIdentityError {
+        match Client::connect_expecting(config, expect).err() {
+            Some(ConnectError::HostIdentity(e)) => e,
             other => panic!("expected a host identity refusal, got {other:?}"),
         }
+    }
+
+    fn same_file(a: &std::path::Path, b: &std::path::Path) -> bool {
+        let canonical = |p: &std::path::Path| {
+            std::fs::canonicalize(p)
+                .unwrap()
+                .to_string_lossy()
+                .to_lowercase()
+        };
+        canonical(a) == canonical(b)
+    }
+
+    #[test]
+    fn the_expected_program_is_accepted_and_described() {
+        let (_dir, config, _hosted) = hosted("vh-win-ok");
+        let me = std::env::current_exe().unwrap();
+        let client = Client::connect_expecting(&config, &HostExpectation::executable(&me))
+            .expect("this process hosts the pipe and is the expected executable");
+        let host = client
+            .verified_host()
+            .expect("a verified connection records its host");
+        assert_eq!(host.pid, std::process::id());
+        assert!(same_file(&host.executable, &me), "{:?}", host.executable);
+        assert!(
+            !host.executable.to_string_lossy().starts_with(r"\\?\"),
+            "{:?}",
+            host.executable
+        );
+        assert_eq!(host.uid, None);
+        assert!(host
+            .sid
+            .as_deref()
+            .is_some_and(|sid| sid.starts_with("S-1-")));
+        // The verified connection carries requests.
+        assert_eq!(
+            client.call("echo", json!({ "n": 1 })).unwrap(),
+            json!({ "n": 1 })
+        );
+
+        // Another spelling of the same path is the same program.
+        let upper = PathBuf::from(me.to_string_lossy().to_uppercase());
+        Client::connect_expecting(&config, &HostExpectation::executable(upper))
+            .expect("NTFS ignores case");
+    }
+
+    #[test]
+    fn another_program_is_refused_before_anything_is_sent() {
+        let (_dir, config, _hosted) = hosted("vh-win-other");
+        let system = std::env::var_os("SystemRoot").unwrap_or_else(|| "C:\\Windows".into());
+        let other = PathBuf::from(system).join("System32").join("cmd.exe");
+        let e = refusal(&config, &HostExpectation::executable(&other));
+        assert_eq!(e.reason, HostIdentityReason::ExecutableMismatch, "{e}");
+        assert_eq!(e.found_pid, Some(std::process::id()));
+        assert_eq!(e.expected, vec![other]);
+        let found = e
+            .found_executable
+            .expect("the refusal names what was found");
+        assert!(
+            same_file(&found, &std::env::current_exe().unwrap()),
+            "{found:?}"
+        );
+
+        // An expected path that does not exist matches nothing.
+        let missing = std::env::temp_dir().join("rightkit-no-such-host.exe");
+        let e = refusal(&config, &HostExpectation::executable(missing));
+        assert_eq!(e.reason, HostIdentityReason::ExecutableMismatch, "{e}");
+    }
+
+    #[test]
+    fn no_expectation_and_a_refusing_verifier_both_fail_closed() {
+        let (_dir, config, _hosted) = hosted("vh-win-closed");
+        let e = refusal(&config, &HostExpectation::default());
+        assert_eq!(e.reason, HostIdentityReason::NoExpectation, "{e}");
+
+        let me = std::env::current_exe().unwrap();
+        let picky = HostExpectation::executable(&me)
+            .with_verifier(|host| Err(format!("pid {} is not signed by us", host.pid)));
+        let e = refusal(&config, &picky);
+        assert_eq!(
+            e.reason,
+            HostIdentityReason::Refused(format!("pid {} is not signed by us", std::process::id())),
+            "{e}"
+        );
+        assert_eq!(e.found_pid, Some(std::process::id()));
+
+        // A verifier that accepts sees the described host.
+        let seen = Arc::new(std::sync::Mutex::new(None));
+        let record = seen.clone();
+        let accepting = HostExpectation::executable(&me).with_verifier(move |host| {
+            *record.lock().unwrap() = Some(host.pid);
+            Ok(())
+        });
+        Client::connect_expecting(&config, &accepting).expect("accepted");
+        assert_eq!(*seen.lock().unwrap(), Some(std::process::id()));
     }
 }

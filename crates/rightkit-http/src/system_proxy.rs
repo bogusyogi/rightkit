@@ -7,18 +7,17 @@
 //! Windows would use.
 //!
 //! A client here uses one proxy for every request it makes, so the result is one of three
-//! things ([`SystemProxyChoice`]): no static proxy, one proxy that serves both `http` and
-//! `https`, or a per-scheme configuration this client cannot follow. The last is reported, never
-//! approximated: sending plain HTTP to the endpoint configured for HTTPS (or the reverse) is
-//! not what the user configured.
-//!
-//! Not evaluated: a PAC script and auto-detection. Both choose a proxy per URL. A
-//! configuration that has only those reads as "no static proxy", and the caller falls back to
-//! the environment.
+//! things ([`SystemProxyChoice`]): no proxy, one proxy that serves both `http` and `https`
+//! with a bypass list of plain hosts, or a configuration this client cannot follow exactly.
+//! The last is reported with the first element it cannot follow, never approximated: no
+//! entry is dropped while the proxy stays in use, and no scheme is sent to the endpoint
+//! configured for the other. That covers endpoints that differ by scheme, a bypass entry
+//! limited to one scheme, `<local>`, a wildcard this client cannot express, a PAC script and
+//! automatic detection (both of those choose a proxy per URL).
 //!
 //! [`ProxyMode::System`]: crate::ProxyMode::System
 
-/// The static part of the operating system's proxy configuration, as the OS stores it.
+/// The operating system's proxy configuration, as the OS stores it.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub(crate) struct SystemProxySettings {
     /// `host:port`, or a per-protocol list such as `http=a:80;https=b:443`.
@@ -27,27 +26,29 @@ pub(crate) struct SystemProxySettings {
     /// wildcards are allowed by the OS, and an entry may be limited to one scheme
     /// (`https://host`).
     pub(crate) bypass: Option<String>,
+    /// A proxy auto-config (PAC) script is configured.
+    pub(crate) auto_config: bool,
+    /// "Automatically detect settings" is on.
+    pub(crate) auto_detect: bool,
 }
 
-/// What the static settings mean for a client that uses one proxy for every request.
+/// What the settings mean for a client that uses one proxy for every request.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum SystemProxyChoice {
-    /// No static proxy is configured (or only entries for protocols this crate does not
-    /// speak, such as `socks=` and `ftp=`).
+    /// Nothing is configured (or only entries for protocols this crate does not speak, such
+    /// as `socks=` and `ftp=`).
     None,
-    /// One endpoint serves both `http` and `https` requests.
+    /// One endpoint serves both `http` and `https` requests, and every bypass entry is a
+    /// host that holds for both.
     Single {
         /// The proxy URL, always `http://` or `https://`.
         url: String,
-        /// `NO_PROXY`-style entries for the hosts that connect directly whatever the scheme.
+        /// `NO_PROXY`-style entries for the hosts that connect directly.
         no_proxy: Vec<String>,
     },
-    /// `http` and `https` requests are configured differently: two endpoints, or a proxy for
-    /// one scheme and a direct connection for the other. `None` is a direct connection.
-    PerScheme {
-        http: Option<String>,
-        https: Option<String>,
-    },
+    /// The configuration holds something this client cannot follow exactly. Carries the
+    /// first such element, in words a person can match against the Windows proxy settings.
+    Unsupported(String),
 }
 
 /// The endpoint each request scheme uses, as Windows resolves a static proxy string.
@@ -102,60 +103,79 @@ pub(crate) fn endpoints_by_scheme(proxy: &str) -> (Option<String>, Option<String
     (http, https)
 }
 
-/// The bypass entries that hold for every scheme, as `NO_PROXY` entries.
+/// The bypass list as `NO_PROXY` entries: a host name as it is, `*.example.com` as
+/// `.example.com`.
 ///
-/// A host name is kept as it is and `*.example.com` becomes `.example.com`. Dropped, so that
-/// those hosts go through the proxy instead of connecting directly:
+/// `Err` with the first entry that has no such form, because a client that used the proxy
+/// without it would send through the proxy what the user configured as direct:
 ///
-/// * an entry limited to one scheme (`https://host`): the `NO_PROXY` form is by host only, and
-///   keeping the host would also bypass the proxy for the other scheme;
+/// * an entry limited to one scheme (`https://host`): a by-host bypass would also apply to
+///   the other scheme;
 /// * `<local>` (names without a dot);
-/// * a pattern with a wildcard anywhere but the front (`10.*`).
-pub(crate) fn bypass_for_every_scheme(bypass: &str) -> Vec<String> {
+/// * a wildcard anywhere but in a leading `*.` (`10.*`, `*`).
+pub(crate) fn bypass_hosts(bypass: &str) -> Result<Vec<String>, String> {
     let mut no_proxy = Vec::new();
     for entry in bypass
         .split(|c: char| c == ';' || c.is_whitespace())
         .map(str::trim)
         .filter(|e| !e.is_empty())
     {
-        if entry.eq_ignore_ascii_case("<local>") || entry.contains("://") {
-            continue;
-        }
         let host = entry.strip_prefix('*').unwrap_or(entry);
-        if host.is_empty() || host.contains('*') || host == "." {
-            continue;
+        let expressible = !entry.contains("://")
+            && !entry.contains('<')
+            && !host.contains('*')
+            && !host.is_empty()
+            && host != "."
+            && (host.len() == entry.len() || host.starts_with('.'));
+        if !expressible {
+            return Err(entry.to_string());
         }
         if !no_proxy.iter().any(|known: &String| known == host) {
             no_proxy.push(host.to_string());
         }
     }
-    no_proxy
+    Ok(no_proxy)
 }
 
 /// What `settings` mean for a client with one proxy for every request.
 pub(crate) fn proxy_choice(settings: &SystemProxySettings) -> SystemProxyChoice {
+    if settings.auto_detect {
+        return SystemProxyChoice::Unsupported(
+            "\"Automatically detect settings\" (proxy auto-detect) is on".into(),
+        );
+    }
+    if settings.auto_config {
+        return SystemProxyChoice::Unsupported("a proxy auto-config script is set".into());
+    }
     let raw = settings.proxy.as_deref().unwrap_or_default().trim();
     let (http, https) = endpoints_by_scheme(raw);
     match (http, https) {
         (None, None) => SystemProxyChoice::None,
         (Some(http), Some(https)) if http.eq_ignore_ascii_case(&https) => {
-            SystemProxyChoice::Single {
-                url: http,
-                no_proxy: bypass_for_every_scheme(settings.bypass.as_deref().unwrap_or_default()),
+            match bypass_hosts(settings.bypass.as_deref().unwrap_or_default()) {
+                Ok(no_proxy) => SystemProxyChoice::Single {
+                    url: http,
+                    no_proxy,
+                },
+                Err(entry) => SystemProxyChoice::Unsupported(format!(
+                    "the bypass entry `{entry}` cannot be followed exactly"
+                )),
             }
         }
-        (http, https) => SystemProxyChoice::PerScheme { http, https },
+        _ => {
+            SystemProxyChoice::Unsupported("HTTP and HTTPS are given different proxy routes".into())
+        }
     }
 }
 
-/// The current user's static proxy configuration, or the default (nothing configured) on a
+/// The current user's proxy configuration, or the default (nothing configured) on a
 /// system without one.
 #[cfg(not(windows))]
 pub(crate) fn system_proxy_settings() -> SystemProxySettings {
     SystemProxySettings::default()
 }
 
-/// The current user's static proxy configuration from WinHTTP's view of the Internet
+/// The current user's proxy configuration from WinHTTP's view of the Internet
 /// settings. A failed query reads as nothing configured.
 #[cfg(windows)]
 pub(crate) fn system_proxy_settings() -> SystemProxySettings {
@@ -211,14 +231,19 @@ pub(crate) fn system_proxy_settings() -> SystemProxySettings {
     }
     // SAFETY: the call succeeded, so each pointer is null or an OS-allocated string that is
     // taken (and freed) exactly once here.
-    let (_pac, proxy, bypass) = unsafe {
+    let (pac, proxy, bypass) = unsafe {
         (
             take(config.auto_config_url),
             take(config.proxy),
             take(config.proxy_bypass),
         )
     };
-    SystemProxySettings { proxy, bypass }
+    SystemProxySettings {
+        proxy,
+        bypass,
+        auto_config: pac.is_some_and(|url| !url.trim().is_empty()),
+        auto_detect: config.auto_detect != 0,
+    }
 }
 
 #[cfg(test)]
@@ -229,6 +254,7 @@ mod tests {
         SystemProxySettings {
             proxy: Some(proxy.into()).filter(|p: &String| !p.is_empty()),
             bypass: Some(bypass.into()).filter(|b: &String| !b.is_empty()),
+            ..SystemProxySettings::default()
         }
     }
 
@@ -239,12 +265,11 @@ mod tests {
         }
     }
 
-    fn per_scheme(http: Option<&str>, https: Option<&str>) -> SystemProxyChoice {
-        SystemProxyChoice::PerScheme {
-            http: http.map(str::to_string),
-            https: https.map(str::to_string),
-        }
+    fn unsupported(element: &str) -> SystemProxyChoice {
+        SystemProxyChoice::Unsupported(element.into())
     }
+
+    const DIFFERENT_ROUTES: &str = "HTTP and HTTPS are given different proxy routes";
 
     #[test]
     fn a_bare_host_and_port_is_one_http_proxy_for_both_schemes() {
@@ -326,22 +351,19 @@ mod tests {
 
     #[test]
     fn different_endpoints_or_one_direct_scheme_are_reported_not_approximated() {
-        assert_eq!(
-            proxy_choice(&settings("http=web.corp:8080;https=secure.corp:8443", "")),
-            per_scheme(
-                Some("http://web.corp:8080"),
-                Some("http://secure.corp:8443")
-            )
-        );
-        // Plain HTTP must not be sent to the endpoint configured for HTTPS, or the reverse.
-        assert_eq!(
-            proxy_choice(&settings("https=secure.corp:8443", "")),
-            per_scheme(None, Some("http://secure.corp:8443"))
-        );
-        assert_eq!(
-            proxy_choice(&settings("http=web.corp:8080", "")),
-            per_scheme(Some("http://web.corp:8080"), None)
-        );
+        // Plain HTTP must not be sent to the endpoint configured for HTTPS, or the reverse,
+        // and a scheme configured as direct must not be sent to the other one's proxy.
+        for proxy in [
+            "http=web.corp:8080;https=secure.corp:8443",
+            "https=secure.corp:8443",
+            "http=web.corp:8080",
+        ] {
+            assert_eq!(
+                proxy_choice(&settings(proxy, "")),
+                unsupported(DIFFERENT_ROUTES),
+                "{proxy}"
+            );
+        }
     }
 
     #[test]
@@ -365,27 +387,87 @@ mod tests {
     }
 
     #[test]
-    fn the_bypass_list_keeps_only_entries_that_hold_for_every_scheme() {
+    fn a_bypass_list_of_plain_hosts_is_kept_whole() {
         assert_eq!(
-            bypass_for_every_scheme(
-                "localhost; *.corp.example ;intranet <local>;10.*;localhost;*;."
-            ),
-            vec!["localhost", ".corp.example", "intranet"]
+            bypass_hosts("localhost; *.corp.example ;intranet 10.0.0.1;localhost;.suffix.example"),
+            Ok(vec![
+                "localhost".to_string(),
+                ".corp.example".to_string(),
+                "intranet".to_string(),
+                "10.0.0.1".to_string(),
+                ".suffix.example".to_string(),
+            ])
+        );
+        assert_eq!(bypass_hosts(""), Ok(vec![]));
+        assert_eq!(
+            proxy_choice(&settings("p:1", "localhost;*.corp.example")),
+            single("http://p:1", &["localhost", ".corp.example"])
         );
     }
 
     #[test]
-    fn a_bypass_entry_limited_to_one_scheme_is_not_widened_to_both() {
-        // `https://only.example` bypasses the proxy for HTTPS alone. Kept as a host it would
-        // also send plain HTTP to that host around the proxy, so it is dropped and both
-        // schemes go through the proxy.
+    fn a_bypass_entry_this_client_cannot_follow_is_reported_never_dropped() {
+        // Fifth read, finding 11, and the ruling that followed: while the proxy is in use no
+        // bypass entry is dropped (the traffic the user configured as direct would go through
+        // the proxy) and none is widened (a scheme-limited entry kept as a host would send
+        // the other scheme around the proxy). The first such entry is named.
+        let rows = [
+            ("https://only.example;both.example", "https://only.example"),
+            ("both.example;http://plain.example", "http://plain.example"),
+            ("HTTP://plain.example", "HTTP://plain.example"),
+            ("localhost;<local>", "<local>"),
+            ("<LOCAL>", "<LOCAL>"),
+            ("10.*", "10.*"),
+            ("*.corp.example;192.168.*.1", "192.168.*.1"),
+            ("*", "*"),
+            ("*corp.example", "*corp.example"),
+            (".", "."),
+        ];
+        for (bypass, entry) in rows {
+            assert_eq!(bypass_hosts(bypass), Err(entry.to_string()), "{bypass}");
+            assert_eq!(
+                proxy_choice(&settings("p:1", bypass)),
+                unsupported(&format!(
+                    "the bypass entry `{entry}` cannot be followed exactly"
+                )),
+                "{bypass}"
+            );
+        }
+        // Without a proxy there is nothing to bypass, whatever the list says.
         assert_eq!(
-            bypass_for_every_scheme("https://only.example;http://plain.example;both.example"),
-            vec!["both.example"]
+            proxy_choice(&settings("", "https://only.example;<local>")),
+            SystemProxyChoice::None
         );
+        // Different routes are reported as that, whatever the bypass list says.
         assert_eq!(
-            proxy_choice(&settings("p:1", "https://only.example;both.example")),
-            single("http://p:1", &["both.example"])
+            proxy_choice(&settings("http=h:80;https=s:443", "<local>")),
+            unsupported(DIFFERENT_ROUTES)
         );
+    }
+
+    #[test]
+    fn a_pac_script_or_automatic_detection_is_reported_with_or_without_a_static_proxy() {
+        // Both choose a proxy per URL. Falling back to a direct connection, or to the static
+        // proxy, would not be what Windows itself does with these settings.
+        for proxy in ["", "p:1"] {
+            let detect = SystemProxySettings {
+                auto_detect: true,
+                ..settings(proxy, "")
+            };
+            assert_eq!(
+                proxy_choice(&detect),
+                unsupported("\"Automatically detect settings\" (proxy auto-detect) is on"),
+                "{proxy:?}"
+            );
+            let pac = SystemProxySettings {
+                auto_config: true,
+                ..settings(proxy, "")
+            };
+            assert_eq!(
+                proxy_choice(&pac),
+                unsupported("a proxy auto-config script is set"),
+                "{proxy:?}"
+            );
+        }
     }
 }

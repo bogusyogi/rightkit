@@ -458,6 +458,14 @@ impl OwnedChild {
     ///
     /// Unix: a `wait` or `try_wait` through the guard that reaps the leader permanently
     /// ends process-group signalling for this child, exactly like `OwnedChild::wait`.
+    ///
+    /// Unix: `wait` through the guard holds the shared lock until the child has exited, because
+    /// the guard is the lock. A bounded wait on a `ProcessHandle` clone, `kill`,
+    /// `terminate_tree` and `Drop` on other threads queue behind it and can exceed their own
+    /// deadlines, as with `std::process::Child::wait` through this accessor in 0.3.3. Wait
+    /// through `OwnedChild::wait`/`wait_timeout` or a `ProcessHandle` when anything else must
+    /// stay live meanwhile. (Windows: `WindowsChild::wait` through the guard blocks in
+    /// `WaitForSingleObject` while holding the lock, as in 0.3.3.)
     pub fn child(&self) -> MutexGuard<'_, PlatformChild> {
         lock_child(&self.child)
     }
@@ -465,8 +473,10 @@ impl OwnedChild {
     /// unreaped, holding the shared lock so no reap can fall between the proof and `act`.
     /// Returns `Ok(None)` without calling `act` once the leader has been reaped or its pid no
     /// longer provably names it. For code that must signal by pid (a descendant sweep) and
-    /// would otherwise act on a number that may have been recycled. Keep `act` short: waiters
-    /// on this child wait for it. Windows has no recyclable-pid hazard here and always runs it.
+    /// would otherwise act on a number that may have been recycled. The lock is held for as
+    /// long as `act` runs (that is what keeps a reap out), so every other thread's wait,
+    /// including a bounded one, is delayed by that long: keep `act` short, and never call back
+    /// into this child from it. Windows has no recyclable-pid hazard here and always runs it.
     pub fn while_unreaped<R>(&self, act: impl FnOnce(u32) -> R) -> io::Result<Option<R>> {
         #[cfg(unix)]
         {
@@ -689,7 +699,8 @@ impl Drop for OwnedChild {
             #[cfg(unix)]
             {
                 // Shared launch still needs eventual reaping. Close owner pipes
-                // now; poll cached std state without blocking exit-reader locks.
+                // now; the reaper thread makes non-blocking looks and releases the child
+                // lock between them, so exit readers and kills are not held behind it.
                 {
                     let mut child = self.child();
                     drop(child.stdin.take());
@@ -734,9 +745,16 @@ fn wait_out(remaining: Duration) -> io::Result<()> {
     thread::sleep(remaining);
     Ok(())
 }
+/// Stops and reaps a child whose spawn failed after the process existed. Every caller passes
+/// an `Arc` that nothing but the spawning thread holds (the partial `OwnedChild`, from which no
+/// `ProcessHandle` was cloned and which no caller has seen, or a child that was never wrapped),
+/// so no other thread can contend for its lock. That is why the two blocking-under-lock waits
+/// below, the unbounded one and the `rightkit-partial-reap` thread, cannot hold a deadline-
+/// bearing caller back; both are what 0.3.3 did with `std::process::Child::wait`.
 pub(crate) fn cleanup_direct(child: Arc<Mutex<PlatformChild>>, timeout: Option<Duration>) {
     let _ = lock_child(&child).kill();
     let Some(timeout) = timeout else {
+        // Unbounded by default, as before. Exclusive child: see above.
         let _ = lock_child(&child).wait();
         return;
     };
@@ -768,7 +786,9 @@ pub(crate) fn cleanup_direct(child: Arc<Mutex<PlatformChild>>, timeout: Option<D
             thread::sleep(Duration::from_millis(5).min(timeout.saturating_sub(started.elapsed())));
         }
     }
-    // std Child does not reap on Drop. Transfer timed-out children to a waiter.
+    // std Child does not reap on Drop. Transfer timed-out children to a waiter. This thread
+    // holds the child's lock for the whole wait and is the only holder of the `Arc` (see
+    // above), so nothing can queue behind it.
     let _ = thread::Builder::new()
         .name("rightkit-partial-reap".into())
         .spawn(move || {

@@ -692,9 +692,8 @@ mod imp {
     }
 
     /// Connect, verify the server is the current user, then verify WHICH program it is before any
-    /// byte is exchanged. The second step is a stub that fails closed with
-    /// `HostIdentityReason::Unverified` (see `host_identity::verify_pipe_host` for what the
-    /// Windows implementation must do); the pipe is cancelled (closed) on every error path.
+    /// byte is exchanged (see `host_identity::verify_pipe_host`); the pipe is cancelled (closed)
+    /// on every error path.
     pub fn connect_expecting(
         endpoint: &str,
         expect: &HostExpectation,
