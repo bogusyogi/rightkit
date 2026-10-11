@@ -50,7 +50,7 @@ function assertSwiftCredentialTriggers(rendered) {
  * never silently emits an unresolved token into a workflow file).
  */
 export function renderTemplate(templateText, context) {
-  const rendered = templateText.replace(TOKEN_RE, (full, key) => {
+  const rendered = templateText.replace(/\r\n?/g, "\n").replace(TOKEN_RE, (full, key) => {
     if (!Object.hasOwn(context, key)) {
       throw new Error(`render: no value provided for placeholder \${${key}}`);
     }

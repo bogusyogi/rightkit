@@ -23,8 +23,9 @@ include = [
 default = ["merge", "edit", "fonts"]
 # Font catalog (fontdb), parsing (ttf-parser), subsetting (subsetter) and WOFF2 (wuff).
 fonts = ["dep:fontdb", "dep:ttf-parser", "dep:subsetter", "dep:wuff"]
-# Compose, staged save and atomic commit (getrandom tokens). Add-text needs `fonts`.
-edit = ["fonts", "dep:getrandom"]
+# Compose, staged save and atomic commit (getrandom tokens; the replacement is rightkit-fs's
+# AtomicWriter). Add-text needs `fonts`.
+edit = ["fonts", "dep:getrandom", "dep:rightkit-fs"]
 # Page merge / selection built on lopdf (Legion deck export donor, hardened for inherited page attributes).
 merge = []
 # Whole-document and per-page text extraction (ScrapeRight donor; pdf-extract, no PDFium).
@@ -37,15 +38,22 @@ fontdb = { version = "0.24.0", optional = true }
 ttf-parser = { version = "0.25.1", optional = true }
 subsetter = { version = "0.2.6", optional = true }
 wuff = { version = "0.2.8", optional = true }
-serde.workspace = true
+serde = { version = "1.0.228", features = ["derive"] }
 sha2 = "0.11.0"
 getrandom = { version = "0.4.3", optional = true }
 pdf-extract = { version = "0.12", optional = true }
+# The one writer behind a commit (temp sibling, flush, rename, directory sync). `fs` is the smallest
+# feature set that has `AtomicWriter`; `json`, `lock` and `digest` are not needed.
+rightkit-fs = { version = "0.3.4", path = "../rightkit-fs", default-features = false, features = ["fs"], optional = true }
 
-# Windows file identity (volume serial + file id) read from an opened handle; see `commit.rs`.
+# Windows file identity (volume serial + file id) read from an opened handle; see `commit.rs`. Only
+# that: the file replacement itself is rightkit-fs's.
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.61.2", features = ["Win32_Foundation", "Win32_Storage_FileSystem"] }
 
 [dev-dependencies]
-serde_json.workspace = true
+serde_json = "1.0.150"
 image = { version = "0.25", default-features = false, features = ["png"] }
+# Fault seam around the replace call (debug and test builds only; a release build with it fails to
+# compile): proves a failed publish leaves the original file. Same pattern as rightkit-settings.
+rightkit-fs = { version = "0.3.4", path = "../rightkit-fs", default-features = false, features = ["fs", "testing"] }

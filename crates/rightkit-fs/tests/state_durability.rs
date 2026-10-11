@@ -66,7 +66,7 @@ mod dir_sync {
     }
 
     #[test]
-    fn creating_a_child_reports_a_failed_directory_sync_and_a_retry_publishes_it() {
+    fn creating_a_child_reports_a_failed_directory_sync_and_a_retry_does_not_sync_it_again() {
         let (_g, dir) = tmp();
         let state = StateDir::create(&dir.join("s")).unwrap();
         let guard = fail_dir_sync(ErrorKind::Other);
@@ -75,19 +75,27 @@ mod dir_sync {
             .map(|_| ())
             .expect_err("directory sync failed");
         assert!(matches!(err, FsError::DirSyncFailed { .. }), "{err:?}");
-        // The directory exists now, but its link was never published: a retry must not accept
-        // it as if it were, so with the sync still failing it fails again.
-        let again = state
-            .child("kid")
-            .map(|_| ())
-            .expect_err("the unpublished link is synced on retry, and that still fails");
-        assert!(matches!(again, FsError::DirSyncFailed { .. }), "{again:?}");
         drop(guard);
-        // Once the sync works the retry succeeds, and opening it again syncs nothing.
-        state.child("kid").expect("retry publishes the link");
+        // The directory exists now but its link was never synced. A retry finds an existing
+        // directory and syncs nothing (the residual in the `atomic` module docs, section 3), and
+        // so does every later call.
         let before = dir_sync_count();
-        state.child("kid").expect("a published child opens plainly");
-        assert_eq!(dir_sync_count(), before, "no sync for a published child");
+        state.child("kid").expect("the retry finds the directory");
+        state.child("kid").expect("and so does a later call");
+        assert_eq!(
+            dir_sync_count(),
+            before,
+            "an existing child is returned without a sync"
+        );
+    }
+
+    #[test]
+    fn creating_a_new_child_makes_exactly_one_directory_sync() {
+        let (_g, dir) = tmp();
+        let state = StateDir::create(&dir.join("s")).unwrap();
+        let before = dir_sync_count();
+        state.child("fresh").unwrap();
+        assert_eq!(dir_sync_count() - before, 1);
     }
 
     #[test]

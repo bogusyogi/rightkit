@@ -5,9 +5,9 @@
 //!
 //! A write has two phases. Until the replace call succeeds nothing is published: any failure
 //! leaves the destination as it was and removes the temp file. After it succeeds the new content
-//! is in place, and every later failure (the directory sync, removing a leftover temp name or
-//! backup file) is a typed post-publication error whose
-//! [`FsError::target_replaced`] is true, reported only after the required directory sync ran.
+//! is in place, and every later failure (the directory sync, removing a leftover temp name) is a
+//! typed post-publication error whose [`FsError::target_replaced`] is true, reported only after
+//! the required directory sync ran.
 //!
 //! # Every publish path
 //!
@@ -30,59 +30,60 @@
 //! | Unix | `Inherit` | absent, or not a regular file (a symlink is never followed) | `open(O_CREAT\|O_EXCL\|O_NOFOLLOW\|O_CLOEXEC, 0666 & ~umask)` | | `atomic_privacy.rs::inherit_is_unchanged_and_private_true_wins_over_privacy` |
 //! | Unix | `Inherit` | regular file | the same `open`, mode = the file's mode & ~umask, then `fchmod` to its exact bits | never wider than the file it replaces | `e2e.rs::private_writes_are_owner_only_and_plain_writes_keep_the_existing_mode` |
 //! | Unix | `Inherit` | symlink | as for absent: the link's target lends no mode | the rename replaces the link itself | `atomic_privacy.rs::a_symlink_at_the_destination_is_replaced_not_followed_and_lends_no_mode` |
-//! | Unix | `OwnerOnly`, `OwnerOnlyUnixInheritWindows`, `private: true` | any | `open(... , 0600)` (final bits at creation, no later `chmod`); parents `0700` | macOS: the parent's ACL is read first, and an inheritable `allow` entry refuses the write ([`FsError::UnsafeAcl`]) before anything exists; an ACL the temp got anyway is removed and read back (see `acl`) | `atomic_publish.rs::the_temp_is_owner_only_before_the_replace_publishes_it`; macOS ACLs: `acl_macos.rs::an_inheriting_parent_refuses_a_private_atomic_write_and_creates_nothing` |
+//! | Unix | `OwnerOnly`, `OwnerOnlyUnixInheritWindows`, `private: true` | any | `open(... , 0600)` (final bits at creation, no later `chmod`); parents `0700` | macOS: the parent's ACL is read first, and an inheritable `allow` entry refuses the write ([`FsError::UnsafeAcl`]) before anything exists; a temp that carries an `allow` entry anyway is removed while still empty and the write is refused with the same error; a deny-only ACL passes. No ACL is ever removed from an inode, because that cannot revoke a descriptor already open (see `acl`) | `atomic_publish.rs::the_temp_is_owner_only_before_the_replace_publishes_it`; macOS ACLs: `acl_macos.rs::an_inheriting_parent_refuses_a_private_atomic_write_and_creates_nothing` |
 //! | Windows | `Inherit`, `OwnerOnlyUnixInheritWindows` | any | `OpenOptions::create_new`: the parent's inherited ACL | | `atomic_publish.rs::windows::inherit_privacy_takes_no_owner_only_step`, `atomic_dacl_windows.rs::privacy_variants_on_windows` |
 //! | Windows | `OwnerOnly`, `private: true` | any | `CreateFileW(CREATE_NEW)` with the descriptor `D:P(A;;FA;;;<user>)` in `SECURITY_ATTRIBUTES` (never created then restricted); fails closed, nothing created, if the descriptor cannot be built | | `atomic_publish.rs::windows::the_temp_carries_its_owner_only_descriptor_from_creation_and_is_never_restricted_later`, `a_failed_owner_only_creation_publishes_nothing_and_leaves_no_temp` |
-//! | all | any | a target named like a generated temp name, including on Windows one that *becomes* such a name after Win32 drops trailing spaces and periods or a `:stream` suffix | refused before anything is created ([`FsError::BadName`]) | | `atomic_namespace.rs::a_public_write_cannot_target_a_generated_temp_name`, `windows_trailing_space_and_period_names_are_refused`; unit `temp_name_tests::windows_names_that_normalize_to_a_temp_name_are_reserved` |
+//! | all | any | a target named like a generated temp name, or, on Windows, one that Windows would store as such a name: it drops leading spaces, trailing spaces and periods, and a `:stream` suffix | refused before anything is created ([`FsError::BadName`]) | | `atomic_namespace.rs::a_public_write_cannot_target_a_generated_temp_name`, `windows_trailing_space_and_period_names_are_refused`; unit `temp_name_tests::windows_names_that_normalize_to_a_temp_name_are_reserved` |
 //!
 //! ## 2. Publishing (step 5) and what a crash leaves, per platform x mode x durable x destination
 //!
-//! Privacy does not change the publish call, except the one Windows row marked (P). On Unix the
-//! three replacing modes are the same `rename(2)`.
+//! Privacy does not change the publish call: a private temp already carries its owner-only mode or
+//! descriptor, and every publish below moves that temp, with its ACL, into place. On Unix the two
+//! replacing modes are the same `rename(2)`.
 //!
 //! | # | Platform | Mode | durable | Destination | Flushed, and when | OS call that publishes | A crash after each step leaves | Error | Test |
 //! |---|---|---|---|---|---|---|---|---|---|
-//! | U1 | Unix | `Rename`, `ReplaceFile`, `MoveWriteThrough` | yes | exists or not | temp (step 3) before the call; dir (step 6) after | `rename(2)` | before the call: destination as it was, orphan temp. After the call, before the dir sync: old or new content after reboot, never a mix (the temp's data was flushed first). After the dir sync: new | replace failed: `Io`, temp removed, destination untouched. Dir sync failed: `ReplacedButDirSyncFailed` (`target_replaced()`) | `atomic_publish.rs::a_durable_write_flushes_the_temp_then_replaces_then_syncs_the_directory`, `a_failed_replace_syncs_no_directory_and_publishes_nothing`; `atomic_options.rs::directory_sync_failure_after_replace_is_typed_and_keeps_new_content` |
+//! | U1 | Unix | `Rename`, `MoveWriteThrough` | yes | exists or not | temp (step 3) before the call; dir (step 6) after | `rename(2)` | before the call: destination as it was, orphan temp. After the call, before the dir sync: old or new content after reboot, never a mix (the temp's data was flushed first). After the dir sync: new | replace failed: `Io`, temp removed, destination untouched. Dir sync failed: `ReplacedButDirSyncFailed` (`target_replaced()`) | `atomic_publish.rs::a_durable_write_flushes_the_temp_then_replaces_then_syncs_the_directory`, `a_failed_replace_syncs_no_directory_and_publishes_nothing`; `atomic_options.rs::directory_sync_failure_after_replace_is_typed_and_keeps_new_content` |
 //! | U2 | Unix | same | no | exists or not | nothing (with `commit_checked`: the temp only, never the dir) | `rename(2)` | old or new name, but the new file's *data* may be lost or short after power loss: that is what `durable: false` means | as U1, no dir sync | `atomic_publish.rs::a_non_durable_write_flushes_and_syncs_nothing`, `atomic_options.rs::directory_sync_is_skipped_when_not_durable`, `atomic_checked_sync.rs::a_non_durable_checked_write_syncs_the_file_before_the_check_and_never_the_directory` |
 //! | U3 | Unix | `NoReplace` | yes | absent | temp before; dir after | `renameat2(RENAME_NOREPLACE)` (Linux), `renamex_np(RENAME_EXCL)` (Apple) | as U1 | as U1 | `atomic_publish.rs::no_replace_flushes_publishes_exclusively_then_syncs_the_directory`, `atomic_exclusive.rs::publishes_when_absent_and_refuses_when_present_without_touching_the_old_file` |
 //! | U4 | Unix | `NoReplace` | any | exists, or appears first | temp (durable) | the same call, which fails `EEXIST` | destination untouched, temp removed, no dir sync | `AlreadyExists` | `atomic_publish.rs::a_no_replace_loser_syncs_no_directory_and_leaves_the_winner`, `atomic_exclusive.rs::racing_publishers_have_exactly_one_winner_and_the_losers_leave_no_temp` |
 //! | U5 | Unix | `NoReplace`, kernel/filesystem without the exclusive rename | any | absent | as U3 | `link(2)` then `unlink(2)` of the temp name | between the two calls both names are one inode with the full content (published); a crash leaves the temp name for the sweep | `link` fails `EEXIST`: `AlreadyExists`. `unlink` fails: dir sync still runs, then `ReplacedButPostStepFailed(TempCleanup)` | `atomic_publish.rs::post_publication::the_link_fallback_publishes_cleanly_when_the_unlink_works`, `a_failed_unlink_after_the_link_is_a_typed_error_and_the_directory_is_still_synced`; the real ENOSYS/EINVAL fallback needs an old kernel: seam `force_link_fallback` |
 //! | W1 | Windows | `Rename` | yes | exists or not | temp (`FlushFileBuffers`) before the call; no dir sync exists | `std::fs::rename` (POSIX-semantics rename; not write-through) | before: destination as it was, orphan temp. After: old or new, never a mix, but the *swap itself* may be lost in a power failure (`FileFlushedOnly`) | `Io`, temp removed | `atomic_publish.rs::a_durable_write_on_windows_flushes_the_temp_and_claims_no_directory_sync`; plan: unit `plan_tests::publication_durability_states_what_each_windows_mode_gives` |
 //! | W2 | Windows | `Rename` | no | exists or not | nothing | `std::fs::rename` | as W1, without the temp flush | `Io` | `atomic_publish.rs::a_non_durable_write_flushes_and_syncs_nothing` |
-//! | W3 | Windows | `ReplaceFile` | yes / no | absent | temp flushed (durable) | `MoveFileExW(MOVEFILE_REPLACE_EXISTING [\| MOVEFILE_WRITE_THROUGH when durable])` | destination absent, or complete new content (write-through: committed when the call returns) | `Io`, temp removed | `atomic_testing.rs::the_flags_each_mode_hands_the_os`; unit `plan_tests::windows_write_through_is_only_ever_movefileex` |
-//! | W4 | Windows | `ReplaceFile`, no Windows ACL step wanted | yes / no | exists | temp flushed (durable); `ReplaceFileW` has no supported write-through, flag word 0 | `ReplaceFileW(.., backup = ".<name>.rktbak-<pid>-<n>")`; on success the backup is deleted | not atomic across a crash in the middle of the call (Microsoft documents only what the 1176 and 1177 failures leave): the destination is intact, or absent with the old content at the backup name and the new content still at the temp name, or new with the old at the backup. All three are recoverable from the names; the temp, backup and a recovery copy are never swept | success: `Ok`, a backup that cannot be deleted is `ReplacedButPostStepFailed(TempCleanup)`. 1176/1177 with the destination missing or a backup beside it: `ReplaceInterrupted` (below). Any other failure with the destination intact: `Io`, temp removed | `atomic.rs` unit `partial_replace_tests::*`; `atomic_publish.rs::a_replace_that_lost_the_destination_keeps_the_new_content_where_a_sweep_cannot_reach_it`, `error_1176_with_the_destination_intact_is_an_ordinary_failure_and_cleans_up`. A real crash inside `ReplaceFileW` cannot be tested without power-loss injection; the seam `on_replace` stands in for the OS state it leaves |
-//! | W5 (P) | Windows | `ReplaceFile`, `OwnerOnly` / `private: true` | yes / no | exists | temp flushed (durable) | `MoveFileExW(MOVEFILE_REPLACE_EXISTING [\| MOVEFILE_WRITE_THROUGH])`, not `ReplaceFileW`, which would keep the destination's DACL | destination old or new (write-through when durable); no backup, no interrupted state | `Io`; a reader holding the old file without share-delete makes the move fail (retry: [`RetryPolicy`]) | unit `plan_tests::a_private_windows_replace_file_over_an_existing_destination_is_a_move`; `atomic_publish.rs::windows::a_private_replace_file_write_over_a_broad_destination_is_a_move_and_ends_owner_only` |
-//! | W6 | Windows | `MoveWriteThrough` | yes / no | exists or not | temp flushed (durable) | `MoveFileExW(MOVEFILE_REPLACE_EXISTING \| MOVEFILE_WRITE_THROUGH)` (also when not `durable`) | destination old or new; committed when the call returns | `Io`; sharing/lock violations retried per [`RetryPolicy`] | `atomic_testing.rs::the_flags_each_mode_hands_the_os`, unit `retry_tests::*`; no power-loss test has been run (the guarantee is Microsoft's) |
-//! | W7 | Windows | `NoReplace` | yes / no | absent | temp flushed (durable) | `MoveFileExW(0 [\| MOVEFILE_WRITE_THROUGH when durable])`: fails if the name exists | as W6 | exists or appears first: `AlreadyExists`, temp removed | `atomic_exclusive.rs::publishes_when_absent_and_refuses_when_present_without_touching_the_old_file` |
+//! | W3 | Windows | `MoveWriteThrough` | yes / no | exists or not | temp flushed (durable) | `MoveFileExW(MOVEFILE_REPLACE_EXISTING \| MOVEFILE_WRITE_THROUGH)` (also when not `durable`) | destination old or new; committed when the call returns | `Io`; sharing/lock violations retried per [`RetryPolicy`] | `atomic_testing.rs::the_flags_each_mode_hands_the_os`, unit `retry_tests::*`; no power-loss test has been run (the guarantee is Microsoft's) |
+//! | W4 | Windows | `NoReplace` | yes / no | absent | temp flushed (durable) | `MoveFileExW(0 [\| MOVEFILE_WRITE_THROUGH when durable])`: fails if the name exists | as W3 | exists or appears first: `AlreadyExists`, temp removed | `atomic_exclusive.rs::publishes_when_absent_and_refuses_when_present_without_touching_the_old_file` |
 //!
-//! ### Interrupted replace (W4) and its recovery files
-//!
-//! When `ReplaceFileW` fails with 1176 or 1177 and the destination is missing or a backup sits
-//! beside it, the new content may exist only in the temp file. The temp is **moved at once to
-//! `.<name>.rktnew-<pid>-<n>-<nanos in hex>`** (exclusive: it never replaces a file), a name that
-//! no sweep matches, and [`FsError::ReplaceInterrupted`] names it as `new_content`; the old
-//! content is `previous_content` (the `.rktbak-` backup, or the destination). Neither file is
-//! ever swept, by [`sweep_stale_temps`] or `StateDir::sweep_temps`, whether the writer is alive,
-//! dead or restarted, because protection is in the *file name* on disk, not in process memory
-//! (test: `atomic_publish.rs::a_replace_that_lost_the_destination_keeps_the_new_content_where_a_sweep_cannot_reach_it`,
-//! which sweeps with a zero age). Deciding which version wins and deleting the loser is the
-//! caller's. If the move itself fails the temp stays under its sweepable name and the error's
-//! message says so (seam `fail_recovery_move`; test `an_interrupted_replace_that_cannot_be_protected_says_so`).
+//! There is no `ReplaceFileW` path: it can fail after it has already removed the destination
+//! (error 1176), leaving neither version under the destination name, and this crate has no
+//! recovery protocol for that state. A Windows write over an existing file is a rename (W1, W2)
+//! or a move (W3).
 //!
 //! ## 3. Directories made for `create_parents`
 //!
 //! The same table, for directories, is in the `state` module docs (`StateDir::create`, `child`).
-//! For [`create_dir_all_durable`], which a durable `create_parents` write calls:
+//! For [`create_dir_all_durable`], which a durable `create_parents` write calls. The rule is the
+//! same everywhere: the link of a directory is synced (its parent `fsync`ed, before the next
+//! component) **only when this call created it**, meaning the create returned `Ok` and not
+//! `AlreadyExists`. There is no record of earlier syncs and no walk over components that already
+//! exist, so a write whose directories all exist makes no ancestor sync; the destination
+//! directory's own sync after the published file is the write's (table 2), not this one's.
+//!
+//! **Residual, stated here once.** A directory created by an earlier call that died before its
+//! parent sync, or whose parent sync failed (`DirSyncFailed`: the directory stays), is not synced
+//! by later calls: they find it and leave it, however it got there. That is still strictly more
+//! than 0.3.3, which synced no ancestor at all, but it is not a guarantee that every directory on
+//! the path has a durable link. A symlinked component is likewise left alone, and the ancestors of
+//! its target are not walked.
 //!
 //! | Platform | Component | Action | A crash leaves | Error | Test |
 //! |---|---|---|---|---|---|
-//! | Unix | missing | `mkdir` (`0700` when private), then `fsync` of its parent before the next component | before that sync: possibly no directory after reboot; nothing was written below it yet | `DirSyncFailed`; the retry syncs again | `atomic_publish.rs::parents::every_created_ancestor_is_published_before_the_file_is_written`, `a_failed_ancestor_sync_stops_the_write_and_the_retry_completes_it` |
-//! | Unix | exists, owned by the caller, not yet published by this process (made by another process, a crashed run or a racing thread) | `fsync` of its parent, once per process, then recorded | its link may have been lost before this sync; nothing was written below it yet | `DirSyncFailed` | `atomic_publish.rs::parents::a_directory_made_by_another_process_is_published_before_the_file_is_written` (a real `mkdir` child process) |
-//! | Unix | exists, already published by this process | none | n/a | none | `atomic_publish.rs::parents::a_published_directory_is_not_synced_again` |
-//! | Unix | exists, owned by someone else | none (not this user's link) | n/a | none | unit `published_tests::a_foreign_owned_directory_is_never_owed` |
-//! | Unix, macOS | missing under a parent with an inheritable `allow` ACL entry (private only) | refused before `mkdir`; a directory that got an ACL anyway has it removed or is removed | nothing created | [`FsError::UnsafeAcl`] | `acl_macos.rs::an_inheriting_parent_refuses_private_parents` |
+//! | Unix | missing, and this call's create returns `Ok` | `mkdir` (`0700` when private), then `fsync` of its parent before the next component | before that sync: possibly no directory after reboot; nothing was written below it yet | `DirSyncFailed` (the directory stays; see the residual) | `atomic_publish.rs::parents::every_created_ancestor_is_published_before_the_file_is_written`, `a_failed_ancestor_sync_stops_the_write_and_the_retry_syncs_only_what_it_creates` |
+//! | Unix | exists (made by an earlier call, another process, a crashed run, or moved into place) | none: not looked at again, so a second identical call syncs no ancestor | n/a (see the residual) | none | `atomic_publish.rs::parents::a_second_identical_write_syncs_no_ancestor`, `a_pre_existing_directory_is_not_synced_only_what_the_call_creates_is`, `a_directory_moved_into_place_is_a_pre_existing_directory` |
+//! | Unix | missing, but a racing creator wins (`AlreadyExists`) | none: theirs to publish | n/a | none | none: needs a racing creator |
+//! | Unix | a symlink | none | n/a | none | none: an open gap, stated in the README |
+//! | Unix, macOS | missing under a parent with an inheritable `allow` ACL entry (private only) | refused before `mkdir`; a directory that got an `allow` entry anyway is removed (empty) and refused; deny-only ACLs pass | nothing created | [`FsError::UnsafeAcl`] | `acl_macos.rs::an_inheriting_parent_refuses_private_parents` |
 //! | Unix | `durable: false` | `create_dir_all` (or `ensure_private_dir`), no sync | the directories may be lost with the file, as the mode says | none | `atomic_publish.rs::parents::a_non_durable_write_makes_parents_without_syncing` |
-//! | Windows | any | `std::fs::create_dir_all` (or `ensure_private_dir`): **not** write-through, no flush exists. A later write-through move (W3, W5, W6, W7) is a journal commit that follows the directory creation in the NTFS log, which orders them; this crate has not run a power-loss test of that ordering, and for W1 and W4 nothing is committed after the creation. Directories made by `StateDir::create` do use write-through handles | not durable on Windows | none | cannot be tested without power-loss injection |
+//! | Windows | any | `std::fs::create_dir_all` (or `ensure_private_dir`): **not** write-through, no flush exists. A later write-through move (W3, W4) is a journal commit that follows the directory creation in the NTFS log, which orders them; this crate has not run a power-loss test of that ordering, and for W1 nothing is committed after the creation. Directories made by `StateDir::create` do use write-through handles | not durable on Windows | none | cannot be tested without power-loss injection |
 //!
 //! Consolidates CutRight `fsutil::atomic_write` (project and qa copies), CodeRight
 //! `private_fs::atomic` and the settings/model-store writers.
@@ -139,7 +140,7 @@ impl AtomicOptions {
 /// | | Unix | Windows |
 /// |---|---|---|
 /// | [`Privacy::Inherit`] | mode from the existing file, else `0666 & ~umask` | the parent's inherited ACL |
-/// | [`Privacy::OwnerOnly`] | `0600` from creation (parents `0700`) | one protected ACE for the current user (`D:P(A;;FA;;;<user>)`) passed to `CreateFileW` when the temp file is created, so it never exists with a broader ACL; a `ReplaceFile`-mode write over an existing destination is published by `MoveFileExW` (the temp's DACL travels with it) instead of `ReplaceFileW`, which would keep the destination's |
+/// | [`Privacy::OwnerOnly`] | `0600` from creation (parents `0700`) | one protected ACE for the current user (`D:P(A;;FA;;;<user>)`) passed to `CreateFileW` when the temp file is created, so it never exists with a broader ACL; every publish moves the temp file, so its DACL is the published file's |
 /// | [`Privacy::OwnerOnlyUnixInheritWindows`] | as `OwnerOnly` | as `Inherit`: no ACL step, so the file carries the parent's ACL |
 ///
 /// Windows measurements (build 10.0.26300.9550, `tests/atomic_dacl_windows.rs`): a fresh file in a
@@ -179,40 +180,6 @@ pub enum ReplaceMode {
     /// observable under the `testing` feature (`atomic::testing`).
     #[default]
     Rename,
-    /// Windows: `ReplaceFileW` when the destination exists, so the replacement keeps the
-    /// destination's attributes and ACL. A missing destination is moved into place with
-    /// `MoveFileExW` (write-through when `durable`). Elsewhere this is the same as
-    /// [`ReplaceMode::Rename`].
-    ///
-    /// **Durability.** `ReplaceFileW` has no supported write-through: Microsoft documents its
-    /// `REPLACEFILE_WRITE_THROUGH` flag as "not supported", and this crate never passes it. Over an
-    /// existing destination a durable write flushes the temp file before the call and nothing
-    /// after it, so the swap itself can be lost in a power failure (the file is never torn: the
-    /// old or the new content survives). Only the first creation is write-through. Use
-    /// [`ReplaceMode::MoveWriteThrough`] when the replacement must be on stable storage;
-    /// [`publication_durability`] states what each mode gives.
-    ///
-    /// **Backup and partial failure.** `ReplaceFileW` is given a unique backup file
-    /// (`.<name>.rktbak-<pid>-<n>` beside the destination, never swept) because without one a
-    /// failure after the original was removed (`ERROR_UNABLE_TO_MOVE_REPLACEMENT`, 1176) leaves
-    /// neither version at the destination. The backup is deleted after a successful replace
-    /// (a failure to delete it is [`FsError::ReplacedButPostStepFailed`] with
-    /// [`crate::PostPublishStep::TempCleanup`]). When the call fails with 1176 or 1177 and the
-    /// destination is not intact, the result is [`FsError::ReplaceInterrupted`]: the backup is left
-    /// in place and the temp, which may hold the only copy of the new content, is moved to a
-    /// `.<name>.rktnew-...` recovery name that no sweep reclaims.
-    ///
-    /// DACL, verified on Windows build 10.0.26300.9550 by `tests/atomic_dacl_windows.rs`
-    /// (reads the DACL back with `GetNamedSecurityInfoW`): `ReplaceFileW` keeps the DESTINATION's
-    /// DACL, not the temp file's. A **private** write therefore does not use it: over an existing
-    /// destination it is published by `MoveFileExW` with `MOVEFILE_REPLACE_EXISTING` (plus
-    /// `MOVEFILE_WRITE_THROUGH` when `durable`), which carries the temp file's owner-only DACL
-    /// with it. There is no step that narrows the destination, so no moment at which a broader
-    /// file at the destination name lends its ACL to the new secret. A reader holding the old file
-    /// open without share-delete can make that move fail like [`ReplaceMode::MoveWriteThrough`].
-    /// A non-private write over a private destination keeps the destination's DACL.
-    /// [`ReplaceMode::Rename`] likewise moves the temp file's owner-only DACL.
-    ReplaceFile,
     /// Windows: `MoveFileExW` with `MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH`, so the
     /// move is on stable storage when the call returns, whether or not the destination exists
     /// (the mode HeardRight's telemetry outbox uses). This is a separate mode, not part of
@@ -509,9 +476,8 @@ impl AtomicWriter {
                 options.unix_owner_only()
             };
             if options.durable {
-                // Publish the link of every directory on the path this process has not yet
-                // published (new ones, and ones another process or a crashed run made) before
-                // the file is written below them.
+                // Publish the link of every directory this call creates on the path before the
+                // file is written below them. Directories that already exist are not touched.
                 create_dir_all_durable(&parent, private_dirs)?;
             } else if private_dirs {
                 crate::private::ensure_private_dir(&parent)?;
@@ -519,7 +485,7 @@ impl AtomicWriter {
                 fs::create_dir_all(&parent).map_err(|e| FsError::io(&parent, e))?;
             }
         }
-        // macOS: a parent whose ACL would hand an `allow` entry to the new temp file makes the
+        // macOS: a parent whose ACL would hand an inheritable `allow` entry to the new temp file makes the
         // owner-only guarantee impossible; refuse before anything is created.
         #[cfg(unix)]
         if options.unix_owner_only() {
@@ -541,9 +507,12 @@ impl AtomicWriter {
             let temp = parent.join(temp_name(&name, attempt));
             match open_temp(&temp, &options, existing_mode) {
                 Ok(file) => {
+                    // A temp that carries an `allow` entry anyway is still empty (nothing is written
+                    // before this check): remove it and refuse. No ACL is ever removed from an
+                    // inode that may already be open elsewhere.
                     #[cfg(unix)]
                     if options.unix_owner_only() {
-                        if let Err(error) = crate::acl::scrub_created(&file, &temp) {
+                        if let Err(error) = crate::acl::refuse_acl(&file, &temp) {
                             drop(file);
                             let _ = fs::remove_file(&temp);
                             return Err(error);
@@ -635,9 +604,7 @@ impl AtomicWriter {
         // Unpublished: the temp is all there is to clean. Published with a later error: the
         // temp name is already gone (rename), or it is a leftover second name for the
         // published inode (link fallback), and removing it again is correct and harmless.
-        // An interrupted replace is the exception: the temp may hold the only copy of the new
-        // content, so it stays for the caller (the error names it).
-        if matches!(&result, Err(e) if !matches!(e, FsError::ReplaceInterrupted { .. })) {
+        if result.is_err() {
             let _ = fs::remove_file(&self.temp);
         }
         // Either published or cleaned up: nothing left for Drop.
@@ -824,10 +791,13 @@ pub(crate) fn generated_temp_pid(name: &str) -> Option<u32> {
 /// Refuses a public write target whose name is a complete generated temp name: such a file would
 /// be indistinguishable from an orphan and a sweep would delete it.
 ///
-/// On Windows the check also runs on the name the filesystem will store: Win32 drops trailing
-/// spaces and periods from the last path component (and `name:stream` addresses a stream of
-/// `name`), so `".record.rktmp-123-1-0 "` is created as the reserved `".record.rktmp-123-1-0"`.
-/// Every name check in the crate funnels through here, so no creation API sees only the raw text.
+/// On Windows the check also runs on the name the filesystem will store: Win32 drops leading
+/// spaces, trailing spaces and trailing periods from the last path component (and `name:stream`
+/// addresses a stream of `name`), so `".record.rktmp-123-1-0 "`, `" .record.rktmp-123-1-0"` and
+/// `".record.rktmp-123-1-0:s"` are all created as the reserved `".record.rktmp-123-1-0"`. Every
+/// name check in the crate funnels through here, so no creation API sees only the raw text. A
+/// name whose stored form is *not* reserved is accepted as it is (this is not a refusal of every
+/// name Windows would normalise).
 pub(crate) fn reject_reserved_name(name: &str) -> Result<()> {
     reject_reserved_name_on(cfg!(windows), name)
 }
@@ -844,10 +814,17 @@ fn reject_reserved_name_on(windows: bool, name: &str) -> Result<()> {
 }
 
 /// The name Windows stores for a last path component written as `name`: the part before any
-/// `:stream` suffix, without trailing spaces and periods.
+/// `:stream` suffix, without leading ASCII spaces and without trailing spaces and periods.
+///
+/// Leading-space removal is what the fifth Astra read reports from Microsoft's file-name
+/// whitespace documentation; it has not been observed on a Windows host from this tree. Treating a
+/// name as normalised when Windows would in fact keep it only refuses a name that was safe, which
+/// is the harmless direction.
 fn windows_stored_name(name: &str) -> String {
     let base = name.split(':').next().unwrap_or(name);
-    base.trim_end_matches([' ', '.']).to_string()
+    base.trim_start_matches(' ')
+        .trim_end_matches([' ', '.'])
+        .to_string()
 }
 
 /// Best-effort directory `fsync` so a rename itself survives power loss (no-op off unix).
@@ -883,85 +860,20 @@ pub(crate) fn sync_parent_dir(path: &Path) -> std::io::Result<()> {
     try_sync_dir(&parent_of(path))
 }
 
-/// Directories whose link in their parent this process has already made durable, so a later
-/// create-or-open of the same directory need not sync again.
-///
-/// This is a *positive* record: absence means "unknown", and unknown is synced. (The earlier
-/// design recorded the opposite, the directories known to be unpublished, so a directory made by
-/// another process, by a crashed run, or by a thread between its `mkdir` and its bookkeeping was
-/// assumed published and skipped.) A key is added only after the sync of the parent succeeded, so
-/// a failed sync leaves nothing behind and the retry syncs again.
-///
-/// The key is `(dev, ino, birth time)`; the birth time, where the filesystem has one, keeps an
-/// inode number that was freed and reused for a new directory from matching. Bounded: past
-/// `CAP` keys the record is cleared, which only costs repeat syncs. In-process only.
-#[cfg(unix)]
-pub(crate) mod published {
-    use std::collections::HashSet;
-    use std::fs::Metadata;
-    use std::os::unix::fs::MetadataExt;
-    use std::sync::{Mutex, MutexGuard, OnceLock};
-
-    pub(crate) type Key = (u64, u64, Option<u128>);
-    const CAP: usize = 4096;
-
-    fn set() -> MutexGuard<'static, HashSet<Key>> {
-        static SET: OnceLock<Mutex<HashSet<Key>>> = OnceLock::new();
-        SET.get_or_init(|| Mutex::new(HashSet::new()))
-            .lock()
-            .unwrap_or_else(|p| p.into_inner())
-    }
-
-    /// The key of a directory, `None` for anything that is not one (a link is never keyed).
-    pub(crate) fn key_of(meta: &Metadata) -> Option<Key> {
-        if !meta.is_dir() {
-            return None;
-        }
-        let birth = meta
-            .created()
-            .ok()
-            .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
-            .map(|d| d.as_nanos());
-        Some((meta.dev(), meta.ino(), birth))
-    }
-
-    /// Whether this process owes the sync of the link to the directory `meta` describes, and the
-    /// key to record once it has been done.
-    ///
-    /// Owed when `created` (this call made it) or when the directory is owned by the effective
-    /// user and not yet recorded. A directory owned by someone else (`/`, `/Users`, `/home`) was
-    /// not made by this user, so publishing its link is not this user's to do and is skipped.
-    pub(crate) fn owed(meta: &Metadata, created: bool) -> (bool, Option<Key>) {
-        let key = key_of(meta);
-        if let Some(key) = key {
-            if set().contains(&key) {
-                return (false, Some(key));
-            }
-        }
-        // SAFETY: geteuid has no preconditions.
-        let ours = created || meta.uid() == unsafe { libc::geteuid() };
-        (ours, key)
-    }
-
-    pub(crate) fn mark(key: Key) {
-        let mut set = set();
-        if set.len() >= CAP {
-            set.clear();
-        }
-        set.insert(key);
-    }
-}
-
 /// Creates `dir` and its missing ancestors one component at a time, top down, and makes the link
-/// of every component this process has not yet published durable by syncing its parent before
-/// going on (Unix). That covers the directories this call makes **and** the ones it merely finds:
-/// a directory another process, a crashed earlier run or a concurrent thread made may have been
-/// created without its parent having been synced, and nothing on disk says so. The sync is owed
-/// for a directory owned by the effective user (see `published::owed`) and happens once per
-/// directory per process. A failed sync is [`FsError::DirSyncFailed`]; the directories already
-/// made stay, and a retry syncs again. New directories are `0700` when `owner_only`, and on macOS
-/// are refused ([`FsError::UnsafeAcl`]) under a parent whose ACL would give them an `allow`
-/// entry. Elsewhere there is no directory flush, so only the ordinary creation runs.
+/// of every component **this call created** durable by syncing its parent before going on (Unix).
+/// A component counts as created only when the create returned `Ok`; one that already existed, or
+/// that a racing creator made first (`AlreadyExists`), is neither synced nor looked at again, and
+/// neither is a component that is a symlink. There is no record of earlier syncs and no walk over
+/// pre-existing components, so when every directory already exists this makes no sync at all (the
+/// destination directory's own sync after a published file is the write's, not this function's).
+///
+/// A directory created by an earlier call whose parent sync did not happen is not synced by
+/// later calls; the residual is spelled out in the module docs, section 3.
+///
+/// New directories are `0700` when `owner_only`, and on macOS are refused
+/// ([`FsError::UnsafeAcl`]) under a parent whose ACL has an inheritable `allow` entry. Elsewhere
+/// there is no directory flush, so only the ordinary creation runs.
 ///
 /// Unlike [`AtomicWriter::create_with`] this makes no file; it is the directory half of a durable
 /// `create_parents` write, for callers (a lock file, a settings file) that create a file some
@@ -987,49 +899,39 @@ fn create_dirs_durable(dir: &Path, owner_only: bool) -> Result<()> {
         .collect();
     chain.reverse();
     for path in chain {
-        let mut created = false;
         match fs::symlink_metadata(path) {
-            Ok(_) => {}
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-                if owner_only {
-                    crate::acl::guard_parent_path(&parent_of(path), path)?;
-                }
-                let mut builder = fs::DirBuilder::new();
-                if owner_only {
-                    builder.mode(0o700);
-                }
-                match builder.create(path) {
-                    Ok(()) => {
-                        created = true;
-                        if owner_only {
-                            if let Err(error) = crate::acl::scrub_created_path(path) {
-                                let _ = fs::remove_dir(path);
-                                return Err(error);
-                            }
-                        }
-                    }
-                    Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {}
-                    Err(e) => return Err(FsError::io(path, e)),
-                }
-            }
+            // Already there (a directory, or a link): not this call's to publish.
+            Ok(_) => continue,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
             Err(e) => return Err(FsError::io(path, e)),
         }
-        // Looked at again after the creation: only a real directory (not a link to one) is keyed.
-        let meta = fs::symlink_metadata(path).ok().filter(|m| m.is_dir());
-        let (needed, key) = match &meta {
-            Some(meta) => published::owed(meta, created),
-            None => (false, None),
-        };
-        if !needed || path.parent().is_none() {
-            continue;
+        if owner_only {
+            crate::acl::guard_parent_path(&parent_of(path), path)?;
         }
+        let mut builder = fs::DirBuilder::new();
+        if owner_only {
+            builder.mode(0o700);
+        }
+        match builder.create(path) {
+            Ok(()) => {}
+            // A racing creator made it first: it is theirs to publish.
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(e) => return Err(FsError::io(path, e)),
+        }
+        if owner_only {
+            // A directory that carries an allow ACL anyway is empty: remove it and refuse. It is
+            // never repaired.
+            if let Err(error) = crate::acl::refuse_acl_path(path) {
+                let _ = fs::remove_dir(path);
+                return Err(error);
+            }
+        }
+        // This call created `path`: make its link in the parent durable before the next
+        // component, and so before anything is written below it.
         sync_parent_dir(path).map_err(|source| FsError::DirSyncFailed {
             path: path.to_path_buf(),
             source,
         })?;
-        if let Some(key) = key {
-            published::mark(key);
-        }
     }
     Ok(())
 }
@@ -1040,20 +942,17 @@ fn create_dirs_durable(_dir: &Path, _owner_only: bool) -> Result<()> {
 }
 
 /// What happened after a replace call succeeded: the failure, if any, of removing a leftover
-/// second name for the published file (the `link` fallback, or the `ReplaceFileW` backup). The
-/// content is in place either way.
+/// second name for the published file (the `link` fallback). The content is in place either way.
 struct Published {
     cleanup: Option<std::io::Error>,
 }
 
 /// Replaces `target` with `temp` under the requested mode, retrying sharing violations when the
-/// options ask for it. `Err` means nothing was published, except [`FsError::ReplaceInterrupted`],
-/// which says exactly which of the old and new content survive where; `Ok` means the new content
-/// is in place and carries the failure of any step after that.
+/// options ask for it. `Err` means nothing was published; `Ok` means the new content is in place
+/// and carries the failure of any step after that.
 ///
-/// A private write needs no step on the destination: Windows `ReplaceFile` mode plans a
-/// `MoveFileExW` replace for it (see [`plan_replace_on`]), which keeps the temp file's owner-only
-/// DACL, so the published file is owner-only from the instant it has its name.
+/// A private write needs no step on the destination: every publish moves the temp file, so its
+/// owner-only mode or DACL is the published file's from the instant it has its name.
 fn publish(temp: &Path, target: &Path, options: AtomicWriteOptions) -> Result<Published> {
     let cleanup = retry_with(
         options.retry_sharing_violation,
@@ -1066,109 +965,9 @@ fn publish(temp: &Path, target: &Path, options: AtomicWriteOptions) -> Result<Pu
         {
             return FsError::AlreadyExists(target.to_path_buf());
         }
-        match PartialReplace::take(e) {
-            Ok(partial) => FsError::ReplaceInterrupted {
-                path: target.to_path_buf(),
-                new_content: partial.new_content,
-                previous_content: partial.previous_content,
-                source: partial.source,
-            },
-            Err(e) => FsError::io(target, e),
-        }
+        FsError::io(target, e)
     })?;
     Ok(Published { cleanup })
-}
-
-/// `ReplaceFileW` failed after it had already changed names (`ERROR_UNABLE_TO_MOVE_REPLACEMENT`
-/// 1176, `ERROR_UNABLE_TO_MOVE_REPLACEMENT_2` 1177): Microsoft documents that without a backup
-/// file the replaced file is already gone, and with one it may have been renamed to the backup
-/// name. Carried inside an `io::Error` from [`replace_step`] to [`publish`], which turns it into
-/// [`FsError::ReplaceInterrupted`].
-#[derive(Debug)]
-struct PartialReplace {
-    /// Where the new content still is (the temp file), if it exists.
-    new_content: Option<PathBuf>,
-    /// Where the previous content is: the backup file, else the destination, if it exists.
-    previous_content: Option<PathBuf>,
-    source: std::io::Error,
-}
-
-impl std::fmt::Display for PartialReplace {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "replace interrupted midway: {}", self.source)
-    }
-}
-
-impl std::error::Error for PartialReplace {
-    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        Some(&self.source)
-    }
-}
-
-impl PartialReplace {
-    /// The partial state inside `error`, or `error` back when it is an ordinary failure.
-    fn take(error: std::io::Error) -> std::result::Result<Self, std::io::Error> {
-        if !error.get_ref().is_some_and(|inner| inner.is::<Self>()) {
-            return Err(error);
-        }
-        match error.into_inner().map(|inner| inner.downcast::<Self>()) {
-            Some(Ok(partial)) => Ok(*partial),
-            Some(Err(inner)) => Err(std::io::Error::other(inner)),
-            None => unreachable!("an inner error was present"),
-        }
-    }
-}
-
-/// `ERROR_UNABLE_TO_MOVE_REPLACEMENT`.
-const ERROR_UNABLE_TO_MOVE_REPLACEMENT: i32 = 1176;
-/// `ERROR_UNABLE_TO_MOVE_REPLACEMENT_2`.
-const ERROR_UNABLE_TO_MOVE_REPLACEMENT_2: i32 = 1177;
-
-/// Decides from the files that exist after a failed replace call whether it left the old and new
-/// content as they were. Only the two `ReplaceFileW` codes that can leave a half-done swap are
-/// looked at; every other error is returned unchanged, as is one that left the destination in
-/// place with no backup beside it. Otherwise the error becomes a [`PartialReplace`] naming where
-/// each version now is, and the caller keeps the temp file.
-fn classify_partial(
-    error: std::io::Error,
-    temp: &Path,
-    target: &Path,
-    backup: Option<&Path>,
-) -> std::io::Error {
-    if !matches!(
-        error.raw_os_error(),
-        Some(ERROR_UNABLE_TO_MOVE_REPLACEMENT | ERROR_UNABLE_TO_MOVE_REPLACEMENT_2)
-    ) {
-        return error;
-    }
-    let present = |p: &Path| fs::symlink_metadata(p).is_ok();
-    let backup_present = backup.filter(|b| present(b));
-    if present(target) && backup_present.is_none() {
-        return error;
-    }
-    let kind = error.kind();
-    std::io::Error::new(
-        kind,
-        PartialReplace {
-            new_content: present(temp).then(|| temp.to_path_buf()),
-            previous_content: backup_present
-                .map(Path::to_path_buf)
-                .or_else(|| present(target).then(|| target.to_path_buf())),
-            source: error,
-        },
-    )
-}
-
-/// A unique sibling name for the backup `ReplaceFileW` is given. It is not a `.rktmp-` name, so
-/// [`sweep_stale_temps`] never reclaims it: should a replace be interrupted, the previous content
-/// sits there until someone decides what to do with it.
-fn backup_path(target: &Path) -> PathBuf {
-    let name = target
-        .file_name()
-        .map(|n| n.to_string_lossy().into_owned())
-        .unwrap_or_default();
-    let n = COUNTER.fetch_add(1, Ordering::Relaxed);
-    parent_of(target).join(format!(".{name}.rktbak-{}-{n}", std::process::id()))
 }
 
 /// Where in an atomic write an owner-only security step runs. Reported to the `testing` hook
@@ -1177,12 +976,6 @@ fn backup_path(target: &Path) -> PathBuf {
 pub enum HardenStage {
     /// The temp file is created with its owner-only security descriptor (no later restriction).
     TempCreate,
-    /// No longer taken: a private write is published by a move that keeps the temp file's DACL,
-    /// so the destination is not narrowed. Kept so existing matches keep compiling.
-    DestinationBeforeReplace,
-    /// No longer taken: nothing re-checks the destination after the replace. Kept so existing
-    /// matches keep compiling.
-    DestinationAfterReplace,
 }
 
 /// One owner-only step about to run, as the `testing` hook sees it.
@@ -1231,8 +1024,6 @@ pub enum ReplaceApi {
     Rename,
     /// Windows `MoveFileExW`; `flags` are its `dwFlags`.
     MoveFileEx,
-    /// Windows `ReplaceFileW`; `flags` are its `dwReplaceFlags`.
-    ReplaceFile,
     /// The exclusive rename of [`ReplaceMode::NoReplace`] on Unix (`flags` 0).
     RenameExclusive,
 }
@@ -1241,10 +1032,6 @@ pub enum ReplaceApi {
 pub const MOVEFILE_REPLACE_EXISTING: u32 = 0x1;
 /// `MOVEFILE_WRITE_THROUGH`.
 pub const MOVEFILE_WRITE_THROUGH: u32 = 0x8;
-/// `REPLACEFILE_WRITE_THROUGH`. Windows documents this `ReplaceFileW` flag as not supported, so this
-/// crate never passes it (no replace call it makes carries it); the constant stays so existing
-/// imports keep compiling.
-pub const REPLACEFILE_WRITE_THROUGH: u32 = 0x1;
 
 /// What one replace call is about to do.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -1257,70 +1044,31 @@ pub struct ReplaceCall {
 }
 
 /// Chooses the call and flags for one replace. Write-through follows `options.durable` only where
-/// Windows supports it: `MoveFileExW` with `MOVEFILE_WRITE_THROUGH`. `ReplaceFileW` has no
-/// supported write-through (its `REPLACEFILE_WRITE_THROUGH` flag is documented as not supported),
-/// so it always gets flag word 0. `Rename` never uses `MoveFileExW`: `std::fs::rename` replaces
-/// with POSIX semantics on Windows, which a concurrent reader's open handle cannot block
-/// (measured: `MoveFileExW` made writers fail with `ERROR_ACCESS_DENIED` against readers in
-/// `tests/e2e.rs`).
-fn plan_replace(options: AtomicWriteOptions, target_exists: bool) -> (ReplaceApi, u32) {
-    plan_replace_on(cfg!(windows), options, target_exists)
+/// Windows supports it for the mode: `MoveFileExW` with `MOVEFILE_WRITE_THROUGH`. `Rename` never
+/// uses `MoveFileExW`: `std::fs::rename` replaces with POSIX semantics on Windows, which a
+/// concurrent reader's open handle cannot block (measured: `MoveFileExW` made writers fail with
+/// `ERROR_ACCESS_DENIED` against readers in `tests/e2e.rs`).
+fn plan_replace(options: AtomicWriteOptions) -> (ReplaceApi, u32) {
+    plan_replace_on(cfg!(windows), options)
 }
 
 /// [`plan_replace`] for an explicit platform, so the Windows plan is testable everywhere.
-fn plan_replace_on(
-    windows: bool,
-    options: AtomicWriteOptions,
-    target_exists: bool,
-) -> (ReplaceApi, u32) {
-    if options.replace == ReplaceMode::NoReplace {
-        return if windows {
-            (
-                ReplaceApi::MoveFileEx,
-                if options.durable {
-                    MOVEFILE_WRITE_THROUGH
-                } else {
-                    0
-                },
-            )
-        } else {
-            (ReplaceApi::RenameExclusive, 0)
-        };
-    }
-    if !windows {
-        return (ReplaceApi::Rename, 0);
-    }
-    match (options.replace, target_exists) {
-        (ReplaceMode::NoReplace, _) => unreachable!("handled above"),
-        (ReplaceMode::Rename, _) => (ReplaceApi::Rename, 0),
-        (ReplaceMode::MoveWriteThrough, _) => (
+fn plan_replace_on(windows: bool, options: AtomicWriteOptions) -> (ReplaceApi, u32) {
+    match (options.replace, windows) {
+        (ReplaceMode::NoReplace, true) => (
+            ReplaceApi::MoveFileEx,
+            if options.durable {
+                MOVEFILE_WRITE_THROUGH
+            } else {
+                0
+            },
+        ),
+        (ReplaceMode::NoReplace, false) => (ReplaceApi::RenameExclusive, 0),
+        (ReplaceMode::MoveWriteThrough, true) => (
             ReplaceApi::MoveFileEx,
             MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH,
         ),
-        // A private write must not go through ReplaceFileW: it keeps the DESTINATION's DACL, so a
-        // concurrent writer that put a broadly readable file there would hand its ACL to the
-        // new secret. A move keeps the temp file's owner-only DACL. It is also write-through.
-        (ReplaceMode::ReplaceFile, true) if options.windows_acl() => (
-            ReplaceApi::MoveFileEx,
-            MOVEFILE_REPLACE_EXISTING
-                | if options.durable {
-                    MOVEFILE_WRITE_THROUGH
-                } else {
-                    0
-                },
-        ),
-        // No supported write-through exists for ReplaceFileW: flag word 0 whatever `durable` says.
-        (ReplaceMode::ReplaceFile, true) => (ReplaceApi::ReplaceFile, 0),
-        // ReplaceFile mode, first creation: no reader can hold a missing file open.
-        (ReplaceMode::ReplaceFile, false) => (
-            ReplaceApi::MoveFileEx,
-            MOVEFILE_REPLACE_EXISTING
-                | if options.durable {
-                    MOVEFILE_WRITE_THROUGH
-                } else {
-                    0
-                },
-        ),
+        (ReplaceMode::Rename | ReplaceMode::MoveWriteThrough, _) => (ReplaceApi::Rename, 0),
     }
 }
 
@@ -1332,41 +1080,36 @@ pub enum PublicationDurability {
     None,
     /// The temp file is flushed before the replace, and nothing is flushed after it. The new
     /// content is never torn, but after a power loss the previous version can reappear. This is
-    /// the typed "durable publication is not available" answer: Windows `Rename`, and Windows
-    /// `ReplaceFile` over an existing destination.
+    /// the typed "durable publication is not available" answer: Windows `Rename`.
     FileFlushedOnly,
     /// The temp file is flushed, the replace runs, and the parent directory is flushed (Unix).
     DirectoryFlushed,
     /// The temp file is flushed and the replace is `MoveFileExW` with `MOVEFILE_WRITE_THROUGH`
-    /// (Windows `MoveWriteThrough`, `NoReplace`, and `ReplaceFile`'s first creation). Microsoft
-    /// documents the move as complete on disk when the call returns; this crate has not run a
-    /// power-loss test of it.
+    /// (Windows `MoveWriteThrough` and `NoReplace`). Microsoft documents the move as complete on
+    /// disk when the call returns; this crate has not run a power-loss test of it.
     WriteThroughMove,
 }
 
-/// What publishing with `options` guarantees on this platform when the call returns `Ok`, given
-/// whether the destination already exists (only `ReplaceMode::ReplaceFile` on Windows depends on
-/// it). Callers that must not accept [`PublicationDurability::FileFlushedOnly`] can check this
-/// before writing.
+/// What publishing with `options` guarantees on this platform when the call returns `Ok`.
+/// `destination_exists` is accepted for compatibility with callers written when a mode existed
+/// whose answer depended on it; no mode does now, and it is ignored. Callers that must not accept
+/// [`PublicationDurability::FileFlushedOnly`] can check this before writing.
 pub fn publication_durability(
     options: &AtomicWriteOptions,
     destination_exists: bool,
 ) -> PublicationDurability {
-    publication_durability_on(cfg!(windows), options, destination_exists)
+    let _ = destination_exists;
+    publication_durability_on(cfg!(windows), options)
 }
 
-fn publication_durability_on(
-    windows: bool,
-    options: &AtomicWriteOptions,
-    destination_exists: bool,
-) -> PublicationDurability {
+fn publication_durability_on(windows: bool, options: &AtomicWriteOptions) -> PublicationDurability {
     if !options.durable {
         return PublicationDurability::None;
     }
     if !windows {
         return PublicationDurability::DirectoryFlushed;
     }
-    match plan_replace_on(true, *options, destination_exists) {
+    match plan_replace_on(true, *options) {
         (ReplaceApi::MoveFileEx, flags) if flags & MOVEFILE_WRITE_THROUGH != 0 => {
             PublicationDurability::WriteThroughMove
         }
@@ -1375,120 +1118,30 @@ fn publication_durability_on(
 }
 
 /// One replace call. `Ok(None)`: published cleanly. `Ok(Some(error))`: published, but removing a
-/// leftover second name failed (the `link` fallback, or the `ReplaceFileW` backup). `Err`: nothing
-/// was published, unless the error carries a [`PartialReplace`].
+/// leftover second name failed (the `link` fallback). `Err`: nothing was published.
 fn replace_step(
     temp: &Path,
     target: &Path,
     options: AtomicWriteOptions,
 ) -> std::io::Result<Option<std::io::Error>> {
-    let exists =
-        options.replace == ReplaceMode::ReplaceFile && fs::symlink_metadata(target).is_ok();
-    let (api, flags) = plan_replace(options, exists);
-    // `ReplaceFileW` without a backup deletes the destination before it moves the replacement
-    // in, and some failures happen in between. A unique backup keeps the old content reachable.
-    let backup = (api == ReplaceApi::ReplaceFile).then(|| backup_path(target));
-    let outcome = (|| -> std::io::Result<Option<std::io::Error>> {
-        #[cfg(feature = "testing")]
-        {
-            testing::record(testing::Step::Replace);
-            if let Some(error) = testing::before_replace(&ReplaceCall {
-                api,
-                flags,
-                temp: temp.to_path_buf(),
-                target: target.to_path_buf(),
-            }) {
-                return Err(error);
-            }
-        }
-        match api {
-            ReplaceApi::Rename => fs::rename(temp, target).map(|()| None),
-            ReplaceApi::RenameExclusive => rename_exclusive_io(temp, target),
-            ReplaceApi::MoveFileEx => move_file_ex(temp, target, flags).map(|()| None),
-            ReplaceApi::ReplaceFile => {
-                let backup = backup.as_deref().expect("planned with a backup");
-                replace_file_w(temp, target, backup, flags)?;
-                // Published. The old content sat at the backup name; drop it.
-                Ok(match fs::remove_file(backup) {
-                    Err(e) if e.kind() != std::io::ErrorKind::NotFound => Some(e),
-                    _ => None,
-                })
-            }
-        }
-    })();
-    outcome
-        .map_err(|error| classify_partial(error, temp, target, backup.as_deref()))
-        .map_err(|error| protect_partial(error, target))
-}
-
-/// A unique sibling name the new content of an interrupted replace is moved to:
-/// `.<name>.rktnew-<pid>-<n>-<nanos in hex>`. Like the backup name it is not a `.rktmp-` name, so
-/// no sweep ever reclaims it; unlike a temp name it is not a claim that a live writer owns it.
-fn recovery_path(target: &Path) -> PathBuf {
-    let name = target
-        .file_name()
-        .map(|n| n.to_string_lossy().into_owned())
-        .unwrap_or_default();
-    let n = COUNTER.fetch_add(1, Ordering::Relaxed);
-    let nanos = SystemTime::now()
-        .duration_since(SystemTime::UNIX_EPOCH)
-        .map(|d| d.subsec_nanos())
-        .unwrap_or(0);
-    parent_of(target).join(format!(
-        ".{name}.rktnew-{}-{n}-{nanos:x}",
-        std::process::id()
-    ))
-}
-
-/// Moves the temp file that holds the only copy of the new content to a [`recovery_path`] name,
-/// exclusively (never over anything). On the `link` fallback of the exclusive rename the old
-/// name may remain as a second name for the same inode; the recovery name has the full content
-/// either way, which is all this needs.
-fn move_to_recovery_name(temp: &Path, target: &Path) -> std::io::Result<PathBuf> {
+    let (api, flags) = plan_replace(options);
     #[cfg(feature = "testing")]
-    if let Some(error) = testing::recovery_move_failure() {
-        return Err(error);
-    }
-    let mut last = None;
-    for _ in 0..TEMP_ATTEMPTS {
-        let to = recovery_path(target);
-        match rename_exclusive_io(temp, &to) {
-            Ok(_) => return Ok(to),
-            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => last = Some(e),
-            Err(e) => return Err(e),
+    {
+        testing::record(testing::Step::Replace);
+        if let Some(error) = testing::before_replace(&ReplaceCall {
+            api,
+            flags,
+            temp: temp.to_path_buf(),
+            target: target.to_path_buf(),
+        }) {
+            return Err(error);
         }
     }
-    Err(last.unwrap_or_else(|| std::io::Error::other("recovery name collisions")))
-}
-
-/// For an interrupted replace, moves the new content out of its sweepable temp name, so that
-/// neither a sweep nor the writer's own cleanup can delete the only copy, and rewrites the error
-/// to name where it now is. If the move fails the temp stays where it is (and stays sweepable):
-/// the error then says so, in its message, because there is nothing else left to protect it with.
-/// Any other error passes through unchanged.
-fn protect_partial(error: std::io::Error, target: &Path) -> std::io::Error {
-    let kind = error.kind();
-    let mut partial = match PartialReplace::take(error) {
-        Err(error) => return error,
-        Ok(partial) => partial,
-    };
-    if let Some(temp) = partial.new_content.take() {
-        partial.new_content = Some(match move_to_recovery_name(&temp, target) {
-            Ok(recovery) => recovery,
-            Err(moved) => {
-                partial.source = std::io::Error::new(
-                    partial.source.kind(),
-                    format!(
-                        "{}; the new content could not be moved out of the sweepable temp name {} ({moved}) and a temp sweep may delete it",
-                        partial.source,
-                        temp.display()
-                    ),
-                );
-                temp
-            }
-        });
+    match api {
+        ReplaceApi::Rename => fs::rename(temp, target).map(|()| None),
+        ReplaceApi::RenameExclusive => rename_exclusive_io(temp, target),
+        ReplaceApi::MoveFileEx => move_file_ex(temp, target, flags).map(|()| None),
     }
-    std::io::Error::new(kind, partial)
 }
 
 #[cfg(windows)]
@@ -1513,47 +1166,6 @@ fn move_file_ex(temp: &Path, target: &Path, _flags: u32) -> std::io::Result<()> 
     fs::rename(temp, target)
 }
 
-#[cfg(windows)]
-fn replace_file_w(temp: &Path, target: &Path, backup: &Path, flags: u32) -> std::io::Result<()> {
-    use std::os::windows::ffi::OsStrExt;
-    #[link(name = "kernel32")]
-    unsafe extern "system" {
-        fn ReplaceFileW(
-            replaced_file_name: *const u16,
-            replacement_file_name: *const u16,
-            backup_file_name: *const u16,
-            replace_flags: u32,
-            exclude: *mut std::ffi::c_void,
-            reserved: *mut std::ffi::c_void,
-        ) -> i32;
-    }
-    let replaced: Vec<u16> = target.as_os_str().encode_wide().chain(Some(0)).collect();
-    let replacement: Vec<u16> = temp.as_os_str().encode_wide().chain(Some(0)).collect();
-    let backup: Vec<u16> = backup.as_os_str().encode_wide().chain(Some(0)).collect();
-    // SAFETY: all three name buffers are NUL-terminated and outlive the call. The exclude and
-    // reserved arguments are null, which the API documents as "not used".
-    let ok = unsafe {
-        ReplaceFileW(
-            replaced.as_ptr(),
-            replacement.as_ptr(),
-            backup.as_ptr(),
-            flags,
-            std::ptr::null_mut(),
-            std::ptr::null_mut(),
-        )
-    };
-    if ok == 0 {
-        Err(std::io::Error::last_os_error())
-    } else {
-        Ok(())
-    }
-}
-
-#[cfg(not(windows))]
-fn replace_file_w(temp: &Path, target: &Path, _backup: &Path, _flags: u32) -> std::io::Result<()> {
-    fs::rename(temp, target)
-}
-
 /// Fault injection for consumer tests (feature `testing`, off by default). Every hook is per
 /// thread and removed when its guard drops.
 ///
@@ -1561,7 +1173,7 @@ fn replace_file_w(temp: &Path, target: &Path, _backup: &Path, _flags: u32) -> st
 ///   atomic write. It sees the call that is about to happen ([`ReplaceCall`]: the API, its flag
 ///   word, temp and target) and may return an error, which then stands in for the OS call: the
 ///   destination is untouched, and the writer removes its temp file and returns the error,
-///   exactly as for a failed `MoveFileExW`, `ReplaceFileW` or `rename`.
+///   exactly as for a failed `MoveFileExW` or `rename`.
 /// - [`on_harden`]: runs before each Windows owner-only security step ([`HardenCall`]) and may
 ///   return an error in place of it, to prove a write fails closed. Unix takes no such steps.
 /// - [`take_steps`]: the flush, replace and directory-sync calls of this thread's writes, in
@@ -1597,7 +1209,6 @@ pub mod testing {
         static STEPS: RefCell<Vec<Step>> = const { RefCell::new(Vec::new()) };
         static DIR_SYNC_FAILURE: Cell<Option<std::io::ErrorKind>> = const { Cell::new(None) };
         static LINK_FALLBACK: Cell<Option<bool>> = const { Cell::new(None) };
-        static RECOVERY_MOVE_FAILS: Cell<bool> = const { Cell::new(false) };
     }
 
     /// Removes the hook when dropped.
@@ -1641,24 +1252,10 @@ pub mod testing {
         HookGuard(|| LINK_FALLBACK.with(|f| f.set(None)))
     }
 
-    /// Make the move of an interrupted replace's new content to its recovery name
-    /// (`.<name>.rktnew-...`) fail on this thread, so the "could not be protected" outcome of
-    /// [`FsError::ReplaceInterrupted`](crate::FsError::ReplaceInterrupted) can be produced.
-    pub fn fail_recovery_move() -> HookGuard {
-        RECOVERY_MOVE_FAILS.with(|f| f.set(true));
-        HookGuard(|| RECOVERY_MOVE_FAILS.with(|f| f.set(false)))
-    }
-
     /// The flushes, replaces and directory syncs this thread's atomic writes made since the last
     /// call, in order. Empties the log.
     pub fn take_steps() -> Vec<Step> {
         STEPS.with(|steps| std::mem::take(&mut *steps.borrow_mut()))
-    }
-
-    pub(super) fn recovery_move_failure() -> Option<std::io::Error> {
-        RECOVERY_MOVE_FAILS
-            .with(Cell::get)
-            .then(|| std::io::Error::other("injected recovery move failure"))
     }
 
     pub(super) fn record(step: Step) {
@@ -1908,131 +1505,70 @@ mod plan_tests {
         }
     }
 
-    const MODES: [ReplaceMode; 4] = [
+    const MODES: [ReplaceMode; 3] = [
         ReplaceMode::Rename,
-        ReplaceMode::ReplaceFile,
         ReplaceMode::MoveWriteThrough,
         ReplaceMode::NoReplace,
     ];
-
-    /// `ReplaceFileW` documents `REPLACEFILE_WRITE_THROUGH` as unsupported: whatever the mode,
-    /// durability and destination, the Windows plan hands it flag word 0.
-    #[test]
-    fn windows_replace_file_never_gets_the_unsupported_write_through_flag() {
-        for replace in MODES {
-            for durable in [true, false] {
-                for exists in [true, false] {
-                    let (api, flags) = plan_replace_on(true, options(replace, durable), exists);
-                    if api == ReplaceApi::ReplaceFile {
-                        assert_eq!(flags, 0, "{replace:?} durable={durable} exists={exists}");
-                    }
-                }
-            }
-        }
-        assert_eq!(
-            plan_replace_on(true, options(ReplaceMode::ReplaceFile, true), true),
-            (ReplaceApi::ReplaceFile, 0)
-        );
-    }
-
-    /// `ReplaceFileW` keeps the destination's DACL, so a private write over an existing
-    /// destination is planned as a move, which carries the temp file's owner-only DACL.
-    #[test]
-    fn a_private_windows_replace_file_over_an_existing_destination_is_a_move() {
-        let private = |privacy, durable| AtomicWriteOptions {
-            privacy,
-            durable,
-            replace: ReplaceMode::ReplaceFile,
-            ..AtomicWriteOptions::default()
-        };
-        assert_eq!(
-            plan_replace_on(true, private(Privacy::OwnerOnly, true), true),
-            (
-                ReplaceApi::MoveFileEx,
-                MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH
-            )
-        );
-        assert_eq!(
-            plan_replace_on(true, private(Privacy::OwnerOnly, false), true),
-            (ReplaceApi::MoveFileEx, MOVEFILE_REPLACE_EXISTING)
-        );
-        let by_flag = AtomicWriteOptions {
-            private: true,
-            replace: ReplaceMode::ReplaceFile,
-            ..AtomicWriteOptions::default()
-        };
-        assert_eq!(
-            plan_replace_on(true, by_flag, true).0,
-            ReplaceApi::MoveFileEx
-        );
-        // No ACL step is wanted for this privacy on Windows, so the destination's ACL is kept.
-        assert_eq!(
-            plan_replace_on(
-                true,
-                private(Privacy::OwnerOnlyUnixInheritWindows, true),
-                true
-            ),
-            (ReplaceApi::ReplaceFile, 0)
-        );
-        assert_eq!(
-            publication_durability_on(true, &by_flag, true),
-            PublicationDurability::WriteThroughMove
-        );
-    }
 
     #[test]
     fn windows_write_through_is_only_ever_movefileex() {
         let both = MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH;
         assert_eq!(
-            plan_replace_on(true, options(ReplaceMode::MoveWriteThrough, true), true),
+            plan_replace_on(true, options(ReplaceMode::MoveWriteThrough, true)),
             (ReplaceApi::MoveFileEx, both)
         );
         assert_eq!(
-            plan_replace_on(true, options(ReplaceMode::ReplaceFile, true), false),
+            plan_replace_on(true, options(ReplaceMode::MoveWriteThrough, false)),
             (ReplaceApi::MoveFileEx, both),
-            "first creation under ReplaceFile is a write-through move"
+            "MoveWriteThrough is write-through whatever `durable` says"
         );
         assert_eq!(
-            plan_replace_on(true, options(ReplaceMode::NoReplace, true), true),
+            plan_replace_on(true, options(ReplaceMode::NoReplace, true)),
             (ReplaceApi::MoveFileEx, MOVEFILE_WRITE_THROUGH)
         );
         assert_eq!(
-            plan_replace_on(true, options(ReplaceMode::Rename, true), true),
+            plan_replace_on(true, options(ReplaceMode::NoReplace, false)),
+            (ReplaceApi::MoveFileEx, 0),
+            "NoReplace never passes MOVEFILE_REPLACE_EXISTING"
+        );
+        assert_eq!(
+            plan_replace_on(true, options(ReplaceMode::Rename, true)),
             (ReplaceApi::Rename, 0),
             "the default mode stays std::fs::rename"
         );
     }
 
     #[test]
+    fn off_windows_every_replacing_mode_is_a_rename_and_no_replace_is_exclusive() {
+        for durable in [true, false] {
+            for replace in [ReplaceMode::Rename, ReplaceMode::MoveWriteThrough] {
+                assert_eq!(
+                    plan_replace_on(false, options(replace, durable)),
+                    (ReplaceApi::Rename, 0),
+                    "{replace:?} durable={durable}"
+                );
+            }
+            assert_eq!(
+                plan_replace_on(false, options(ReplaceMode::NoReplace, durable)),
+                (ReplaceApi::RenameExclusive, 0)
+            );
+        }
+    }
+
+    #[test]
     fn publication_durability_states_what_each_windows_mode_gives() {
         use PublicationDurability::*;
-        let on_windows = |replace, durable, exists| {
-            publication_durability_on(true, &options(replace, durable), exists)
-        };
-        assert_eq!(on_windows(ReplaceMode::Rename, true, true), FileFlushedOnly);
+        let on_windows =
+            |replace, durable| publication_durability_on(true, &options(replace, durable));
+        assert_eq!(on_windows(ReplaceMode::Rename, true), FileFlushedOnly);
         assert_eq!(
-            on_windows(ReplaceMode::Rename, true, false),
-            FileFlushedOnly
-        );
-        assert_eq!(
-            on_windows(ReplaceMode::ReplaceFile, true, true),
-            FileFlushedOnly,
-            "ReplaceFileW has no supported write-through"
-        );
-        assert_eq!(
-            on_windows(ReplaceMode::ReplaceFile, true, false),
+            on_windows(ReplaceMode::MoveWriteThrough, true),
             WriteThroughMove
         );
-        assert_eq!(
-            on_windows(ReplaceMode::MoveWriteThrough, true, true),
-            WriteThroughMove
-        );
-        assert_eq!(
-            on_windows(ReplaceMode::NoReplace, true, false),
-            WriteThroughMove
-        );
+        assert_eq!(on_windows(ReplaceMode::NoReplace, true), WriteThroughMove);
         for replace in MODES {
-            assert_eq!(on_windows(replace, false, true), None, "{replace:?}");
+            assert_eq!(on_windows(replace, false), None, "{replace:?}");
         }
     }
 
@@ -2041,133 +1577,25 @@ mod plan_tests {
         for replace in MODES {
             let durable = options(replace, true);
             assert_eq!(
-                publication_durability_on(false, &durable, true),
+                publication_durability_on(false, &durable),
                 PublicationDurability::DirectoryFlushed
             );
             assert_eq!(
-                publication_durability_on(false, &options(replace, false), true),
+                publication_durability_on(false, &options(replace, false)),
                 PublicationDurability::None
             );
         }
     }
-}
 
-#[cfg(test)]
-mod partial_replace_tests {
-    use super::*;
-    use std::io::Error;
-
-    fn code(code: i32) -> Error {
-        Error::from_raw_os_error(code)
-    }
-
-    fn setup(
-        target: bool,
-        temp: bool,
-        backup: bool,
-    ) -> (tempfile::TempDir, PathBuf, PathBuf, PathBuf) {
-        let dir = tempfile::tempdir().unwrap();
-        let (t, tmp, b) = (
-            dir.path().join("t"),
-            dir.path().join("tmp"),
-            dir.path().join("bak"),
-        );
-        for (present, path) in [(target, &t), (temp, &tmp), (backup, &b)] {
-            if present {
-                fs::write(path, b"x").unwrap();
-            }
+    #[test]
+    fn the_destination_argument_of_the_public_answer_changes_nothing() {
+        for replace in MODES {
+            let o = options(replace, true);
+            assert_eq!(
+                publication_durability(&o, true),
+                publication_durability(&o, false)
+            );
         }
-        (dir, t, tmp, b)
-    }
-
-    #[test]
-    fn other_errors_and_an_intact_destination_are_ordinary() {
-        let (_d, target, temp, backup) = setup(true, true, false);
-        let kept = classify_partial(code(1176), &temp, &target, Some(&backup));
-        assert!(
-            PartialReplace::take(kept).is_err(),
-            "destination intact, no backup"
-        );
-        let (_d, target, temp, backup) = setup(false, true, true);
-        let other = classify_partial(code(5), &temp, &target, Some(&backup));
-        assert!(
-            PartialReplace::take(other).is_err(),
-            "only 1176 and 1177 qualify"
-        );
-    }
-
-    #[test]
-    fn a_missing_destination_or_a_backup_beside_it_is_a_partial_state() {
-        // Destination gone, old content in the backup, new content still in the temp.
-        let (_d, target, temp, backup) = setup(false, true, true);
-        let partial =
-            PartialReplace::take(classify_partial(code(1177), &temp, &target, Some(&backup)))
-                .expect("partial");
-        assert_eq!(partial.new_content, Some(temp.clone()));
-        assert_eq!(partial.previous_content, Some(backup.clone()));
-        // Destination gone and no backup (1176 without one): the old content is lost, the new
-        // content is the temp.
-        let (_d, target, temp, _backup) = setup(false, true, false);
-        let partial = PartialReplace::take(classify_partial(code(1176), &temp, &target, None))
-            .expect("partial");
-        assert_eq!(partial.new_content, Some(temp));
-        assert_eq!(partial.previous_content, None);
-    }
-
-    #[test]
-    fn the_new_content_is_moved_to_a_name_no_sweep_matches() {
-        let (_d, target, temp, _backup) = setup(false, true, false);
-        // A temp name as `temp_name` makes it, holding the only copy of the new content.
-        let temp_named = temp.with_file_name(temp_name("t", 0));
-        fs::rename(&temp, &temp_named).unwrap();
-        let error = protect_partial(
-            classify_partial(code(1177), &temp_named, &target, None),
-            &target,
-        );
-        let partial = PartialReplace::take(error).expect("still a partial replace");
-        let recovery = partial.new_content.expect("the new content is named");
-        assert_ne!(recovery, temp_named);
-        assert!(!temp_named.exists(), "the sweepable name is gone");
-        assert_eq!(fs::read(&recovery).unwrap(), b"x");
-        let name = recovery.file_name().unwrap().to_string_lossy().into_owned();
-        assert!(name.starts_with(".t.rktnew-"), "{name}");
-        assert_eq!(generated_temp_pid(&name), None, "{name}");
-        // The sweep, at zero age, leaves it alone.
-        assert_eq!(
-            sweep_stale_temps(recovery.parent().unwrap(), Duration::ZERO).unwrap(),
-            0
-        );
-        assert!(recovery.exists());
-    }
-
-    #[test]
-    fn recovery_names_are_unique_and_never_swept_even_for_names_that_contain_the_marker() {
-        for target in ["/d/state.json", "/d/x.rktmp-1-2-3"] {
-            let target = Path::new(target);
-            let (a, b) = (recovery_path(target), recovery_path(target));
-            assert_ne!(a, b);
-            let name = a.file_name().unwrap().to_string_lossy().into_owned();
-            assert!(name.contains(".rktnew-"), "{name}");
-            assert_eq!(generated_temp_pid(&name), None, "{name}");
-            assert!(reject_reserved_name(&name).is_ok(), "{name}");
-        }
-    }
-
-    #[test]
-    fn an_ordinary_error_is_not_touched_by_protection() {
-        let (_d, target, _temp, _backup) = setup(true, true, false);
-        let error = protect_partial(code(5), &target);
-        assert_eq!(error.raw_os_error(), Some(5));
-    }
-
-    #[test]
-    fn backup_names_are_unique_and_never_swept() {
-        let target = Path::new("/d/state.json");
-        let (a, b) = (backup_path(target), backup_path(target));
-        assert_ne!(a, b);
-        let name = a.file_name().unwrap().to_string_lossy().into_owned();
-        assert!(name.starts_with(".state.json.rktbak-"), "{name}");
-        assert_eq!(generated_temp_pid(&name), None);
     }
 }
 
@@ -2199,8 +1627,8 @@ mod temp_name_tests {
 
     #[test]
     fn windows_names_that_normalize_to_a_temp_name_are_reserved() {
-        // Win32 drops trailing spaces and periods and addresses `name:stream` as a stream of
-        // `name`: each of these is created as the reserved `.record.rktmp-123-1-0`.
+        // Win32 drops leading spaces, trailing spaces and periods and addresses `name:stream` as a
+        // stream of `name`: each of these is created as the reserved `.record.rktmp-123-1-0`.
         for name in [
             ".record.rktmp-123-1-0 ",
             ".record.rktmp-123-1-0.",
@@ -2208,6 +1636,13 @@ mod temp_name_tests {
             ".record.rktmp-123-1-0:stream",
             ".record.rktmp-123-1-0::$DATA",
             ".record.rktmp-123-1-ff-0 ",
+            // Leading ASCII spaces, alone and combined with every other form.
+            " .record.rktmp-123-1-0",
+            "   .record.rktmp-123-1-0",
+            " .record.rktmp-123-1-ff-0",
+            " .record.rktmp-123-1-0 ",
+            "  .record.rktmp-123-1-0. . ",
+            " .record.rktmp-123-1-0:stream",
         ] {
             assert!(
                 matches!(
@@ -2219,17 +1654,29 @@ mod temp_name_tests {
             // Elsewhere those are different, legitimate names.
             assert!(reject_reserved_name_on(false, name).is_ok(), "{name:?}");
         }
-        // Ordinary names, including ones with a space or period inside, are untouched.
+        // Ordinary names, including ones with a space or period inside or a leading space that
+        // does not lead to a reserved name, are untouched.
         for name in [
             "record.json",
             "my record.json",
             "a.b.c",
             ".record.rktmp-1-final ",
+            " record.json",
+            " .record.rktmp-1-final",
+            ".record.rktmp-123-1-0x",
         ] {
             assert!(reject_reserved_name_on(true, name).is_ok(), "{name:?}");
         }
         assert_eq!(windows_stored_name("a. ."), "a");
         assert_eq!(windows_stored_name("a:b"), "a");
+        assert_eq!(windows_stored_name("  a"), "a");
+        assert_eq!(windows_stored_name(" a b . "), "a b");
+        assert_eq!(windows_stored_name(" a:b"), "a");
+        assert_eq!(
+            windows_stored_name("a\t"),
+            "a\t",
+            "only ASCII spaces are dropped"
+        );
     }
 
     #[test]
@@ -2327,48 +1774,5 @@ mod retry_tests {
         });
         assert!(result.is_err());
         assert_eq!(calls.get(), 1);
-    }
-}
-
-#[cfg(all(test, unix))]
-mod published_tests {
-    use super::published;
-    use std::os::unix::fs::MetadataExt;
-
-    #[test]
-    fn a_foreign_owned_directory_is_never_owed() {
-        // SAFETY: geteuid has no preconditions.
-        if unsafe { libc::geteuid() } == 0 {
-            return; // as root every directory is owned by the caller
-        }
-        let root = std::fs::metadata("/").unwrap();
-        assert_ne!(root.uid(), unsafe { libc::geteuid() }, "`/` is not ours");
-        assert!(
-            !published::owed(&root, false).0,
-            "not this user's link to publish"
-        );
-        assert!(
-            published::owed(&root, true).0,
-            "a directory this call made is always owed"
-        );
-    }
-
-    #[test]
-    fn a_published_directory_is_not_owed_again_and_an_unknown_one_is() {
-        let dir = tempfile::tempdir().unwrap();
-        let meta = std::fs::symlink_metadata(dir.path()).unwrap();
-        let (owed, key) = published::owed(&meta, false);
-        assert!(owed, "unknown and ours: owed");
-        published::mark(key.expect("a directory has a key"));
-        assert!(!published::owed(&meta, false).0, "recorded after its sync");
-        assert!(!published::owed(&meta, true).0, "recorded is recorded");
-        let file = dir.path().join("f");
-        std::fs::write(&file, b"x").unwrap();
-        let file_meta = std::fs::symlink_metadata(&file).unwrap();
-        assert_eq!(
-            published::owed(&file_meta, false).1,
-            None,
-            "files are never keyed"
-        );
     }
 }

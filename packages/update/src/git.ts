@@ -19,7 +19,8 @@ export async function isRepoRoot(ctx: GitContext): Promise<boolean> {
   const result = await git(ctx, ["rev-parse", "--show-toplevel"]);
   if (result.code !== 0) return false;
   try {
-    return fs.realpathSync(result.stdout.trim()) === fs.realpathSync(ctx.repo);
+    // Native: expands a Windows 8.3 short name (RUNNER~1), which git reports in long form.
+    return fs.realpathSync.native(result.stdout.trim()) === fs.realpathSync.native(ctx.repo);
   } catch {
     return false;
   }

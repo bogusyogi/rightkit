@@ -32,6 +32,12 @@ mod import;
 pub use import::{ImportOptions, ImportRecord, Imported, MAX_IMPORT_BATCH};
 mod page;
 pub use page::{Cursor, ListPage};
+mod settle;
+pub(crate) use settle::{projected, LifecycleEvent, Settle, SettleRequest};
+pub use settle::{
+    FlushReport, Settlement, SettlementShutdown, UnsettledJob, MAX_PENDING_SETTLEMENTS,
+    MAX_PENDING_SETTLEMENT_BYTES,
+};
 
 const CORE_SCHEMA: &str = "
 CREATE INDEX IF NOT EXISTS jobs_status ON jobs(status);
@@ -109,6 +115,23 @@ impl Recovery {
     }
 }
 
+/// Which jobs' files [`JobStore::claimed_paths_with`] and `Runner::sweep_unclaimed_with` treat
+/// as owned.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[non_exhaustive]
+pub enum ClaimScope {
+    /// The artifact paths of every job still in the store, terminal or not, and the per-job
+    /// scratch directory `<scratch_root>/<job_id>` of each when [`StoreConfig::scratch_root`] is
+    /// set. A finished job that keeps its media directory until it is deleted or pruned keeps
+    /// that directory out of a sweep.
+    All,
+    /// The artifact paths of the non-terminal jobs (held ones included): what
+    /// [`JobStore::claimed_paths`] and `Runner::sweep_unclaimed` have always claimed. The files
+    /// of a finished job are unclaimed and a sweep may remove them.
+    #[default]
+    NonTerminal,
+}
+
 /// Terminal jobs to drop. At least one limit is required; a job matching either limit goes.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct PrunePolicy {
@@ -131,10 +154,15 @@ impl PrunePolicy {
         self.keep_latest = Some(n);
         self
     }
-    /// Bound the whole table to `n` rows: keep `n` minus the number of non-terminal jobs of the
-    /// newest terminal rows, so active jobs are never dropped and never crowd the total past
-    /// `n`. Inside [`SubmitOptions::prune`] the incoming row counts as a non-terminal job. A
-    /// table already holding `n` or more non-terminal jobs keeps no terminal row.
+    /// Bound the terminal rows to `n`: keep the `n` newest by `created_at` and drop the rest.
+    /// Active (non-terminal) jobs neither count toward the bound nor are ever removed by it, so
+    /// a table with more than `n` active jobs still keeps its newest `n` terminal rows. A
+    /// terminal row whose runner has not yet finished announcing it is skipped (see
+    /// [`JobStore::prune`]).
+    ///
+    /// Changed from the unpublished 0.2.9 text, which bounded the whole table to `n` and so
+    /// dropped every terminal row once `n` jobs were active. The bound is now the same as
+    /// [`PrunePolicy::keep_latest`]`(n)`; the name stays for apps that adopted it.
     pub fn keep_total(mut self, n: usize) -> Self {
         self.keep_total = Some(n);
         self
@@ -539,6 +567,8 @@ pub struct JobStore {
     st_written: AtomicU64,
     st_coalesced: AtomicU64,
     st_relaxed: AtomicU64,
+    /// Terminal writes held for a later retry, and jobs being announced (see `store/settle.rs`).
+    settle: settle::SettleState,
 }
 
 impl JobStore {
@@ -565,7 +595,7 @@ impl JobStore {
     /// added, nothing is dropped, rewritten, or renamed.
     pub fn open_with_config(options: &DbOptions, cfg: StoreConfig) -> JobResult<Self> {
         cfg.validate()?;
-        let conn = retry_busy_db(|| options.open_writer())?;
+        let conn = retry_busy_db(&options.path, || options.open_writer())?;
         Self::finish_open(options, cfg, conn)
     }
 
@@ -579,7 +609,7 @@ impl JobStore {
         policy: RecoveryPolicy,
     ) -> JobResult<(Self, Option<PathBuf>)> {
         cfg.validate()?;
-        let outcome = retry_busy_db(|| options.open_writer_recovering(policy))?;
+        let outcome = retry_busy_db(&options.path, || options.open_writer_recovering(policy))?;
         let quarantined = outcome.quarantined;
         let store = Self::finish_open(options, cfg, outcome.conn)?;
         Ok((store, quarantined))
@@ -617,7 +647,8 @@ impl JobStore {
                 ),
                 _ => false,
             },
-        )?;
+        )
+        .map_err(|e| JobError::from_open(e, &options.path))?;
         let recovery = OpenRecovery {
             quarantined: outcome.quarantined,
             action: outcome.action,
@@ -647,7 +678,7 @@ impl JobStore {
             select.push_str(", ");
             select.push_str(&c.name);
         }
-        Ok(Self {
+        let store = Self {
             conn: Mutex::new(conn),
             cfg,
             select,
@@ -659,7 +690,11 @@ impl JobStore {
             st_written: AtomicU64::new(0),
             st_coalesced: AtomicU64::new(0),
             st_relaxed: AtomicU64::new(0),
-        })
+            settle: settle::SettleState::new(&options.path),
+        };
+        // A terminal write an earlier run could not store (see `store/settle.rs`) lands now.
+        store.replay_journal();
+        Ok(store)
     }
 
     pub fn config(&self) -> &StoreConfig {
@@ -767,7 +802,7 @@ impl JobStore {
             }
         }
         let pruned = match &opts.prune {
-            Some(p) => self.prune_in(&tx, p, 1)?,
+            Some(p) => self.prune_in(&tx, p)?,
             None => PruneReport::default(),
         };
         let (id, rec) = self.insert_new(&tx, n, &names, vals)?;
@@ -818,6 +853,7 @@ impl JobStore {
         for gone in &pruned.jobs {
             self.settle(gone, false);
         }
+        self.after_write();
         Ok(Submitted {
             record: rec,
             deduplicated: false,
@@ -917,6 +953,7 @@ impl JobStore {
         tx.commit()?;
         drop(conn);
         self.settle(&id, false);
+        self.after_write();
         Ok(after)
     }
 
@@ -1016,10 +1053,16 @@ impl JobStore {
     /// metadata, in one transaction; the job row and its result go last. Non-terminal jobs are
     /// never touched. Artifact files are not deleted: see [`PruneReport`]. A policy with no limit
     /// is refused (`bad_input`) rather than meaning "everything".
+    ///
+    /// A terminal row is kept while the runner that wrote its terminal state is still announcing
+    /// it (the lifecycle event and the sink call of `Runner::run`), so a prune made from a sink
+    /// callback, another thread or a store hook cannot remove a row before its terminal
+    /// notification has gone out. This guard lives in the process that runs the job; another
+    /// process pruning the same file is not held back.
     pub fn prune(&self, policy: &PrunePolicy) -> JobResult<PruneReport> {
         let mut conn = self.c();
         let tx = write_txn(&mut conn)?;
-        let report = self.prune_in(&tx, policy, 0)?;
+        let report = self.prune_in(&tx, policy)?;
         tx.commit()?;
         drop(conn);
         for id in &report.jobs {
@@ -1028,14 +1071,10 @@ impl JobStore {
         Ok(report)
     }
 
-    /// `incoming` is the number of rows the caller is about to insert as non-terminal jobs
-    /// (they count toward `keep_total`).
-    fn prune_in(
-        &self,
-        conn: &Connection,
-        policy: &PrunePolicy,
-        incoming: usize,
-    ) -> JobResult<PruneReport> {
+    /// Terminal rows only: an active job is never listed, counted or removed. A terminal row
+    /// whose runner is still announcing it (a [`DeliveryPin`] is held) stays, but still counts
+    /// toward `keep_latest` and `keep_total` so the newest rows keep their place.
+    fn prune_in(&self, conn: &Connection, policy: &PrunePolicy) -> JobResult<PruneReport> {
         if policy.older_than.is_none()
             && policy.keep_latest.is_none()
             && policy.keep_total.is_none()
@@ -1044,17 +1083,7 @@ impl JobStore {
                 "prune policy needs older_than, keep_latest and/or keep_total",
             ));
         }
-        let total_room = match policy.keep_total {
-            Some(n) => {
-                let active: i64 = conn.query_row(
-                    "SELECT COUNT(*) FROM jobs WHERE status NOT IN ('complete','failed','cancelled')",
-                    [],
-                    |r| r.get(0),
-                )?;
-                Some(n.saturating_sub((active.max(0) as usize).saturating_add(incoming)))
-            }
-            None => None,
-        };
+        let announcing = self.delivering_ids();
         let cutoff = policy.older_than.map(|d| {
             let secs = std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
@@ -1074,10 +1103,11 @@ impl JobStore {
                 .enumerate()
                 .filter(|(rank, (_, updated))| {
                     policy.keep_latest.is_some_and(|k| *rank >= k)
-                        || total_room.is_some_and(|k| *rank >= k)
+                        || policy.keep_total.is_some_and(|k| *rank >= k)
                         || cutoff.as_deref().is_some_and(|c| updated.as_str() < c)
                 })
                 .map(|(_, (id, _))| id)
+                .filter(|id| !announcing.contains(id))
                 .collect()
         };
         self.remove_jobs(conn, doomed)
@@ -1130,18 +1160,48 @@ impl JobStore {
     }
 
     /// Paths of the artifacts of every non-terminal job (held ones included), oldest first and
-    /// without repeats: files that must not be swept as orphans.
+    /// without repeats: files that must not be swept as orphans. The same as
+    /// [`JobStore::claimed_paths_with`]`(`[`ClaimScope::NonTerminal`]`)`: the files of a finished
+    /// job are not claimed here. An app that keeps finished jobs' media until it deletes the job
+    /// uses [`ClaimScope::All`].
     pub fn claimed_paths(&self) -> JobResult<Vec<PathBuf>> {
+        self.claimed_paths_with(ClaimScope::NonTerminal)
+    }
+
+    /// Paths that must not be swept as orphans, oldest job first and without repeats.
+    ///
+    /// - [`ClaimScope::NonTerminal`]: the artifact paths of the non-terminal jobs (held ones
+    ///   included), as [`JobStore::claimed_paths`].
+    /// - [`ClaimScope::All`]: the artifact paths of every job row still in the store, whatever its
+    ///   status, followed by `<scratch_root>/<job_id>` of every row when
+    ///   [`StoreConfig::scratch_root`] is set. Rows already deleted or pruned claim nothing.
+    pub fn claimed_paths_with(&self, scope: ClaimScope) -> JobResult<Vec<PathBuf>> {
         let conn = self.c();
+        let filter = match scope {
+            ClaimScope::NonTerminal => format!("WHERE j.status IN {}", self.cfg.statuses.sql_set()),
+            ClaimScope::All => String::new(),
+        };
         let mut st = conn.prepare(&format!(
-            "SELECT a.path FROM {} a JOIN jobs j ON j.job_id=a.job_id WHERE j.status IN {} \
+            "SELECT a.path FROM {} a JOIN jobs j ON j.job_id=a.job_id {filter} \
              ORDER BY j.created_at, j.rowid, a.created_at, a.rowid",
             self.cfg.artifacts.table,
-            self.cfg.statuses.sql_set()
         ))?;
-        let all = st
+        let mut all = st
             .query_map([], |r| r.get::<_, String>(0))?
             .collect::<Result<Vec<_>, _>>()?;
+        drop(st);
+        if scope == ClaimScope::All {
+            if let Some(root) = self.cfg.scratch_root_path() {
+                let mut st = conn.prepare("SELECT job_id FROM jobs ORDER BY created_at, rowid")?;
+                let ids = st
+                    .query_map([], |r| r.get::<_, String>(0))?
+                    .collect::<Result<Vec<_>, _>>()?;
+                all.extend(
+                    ids.into_iter()
+                        .map(|id| root.join(id).to_string_lossy().into_owned()),
+                );
+            }
+        }
         let mut seen = std::collections::HashSet::new();
         Ok(all
             .into_iter()
@@ -1308,22 +1368,11 @@ impl JobStore {
         fence: Option<i64>,
         t: &Transition,
     ) -> JobResult<Option<JobRecord>> {
-        let mut conn = self.c();
-        let tx = write_txn(&mut conn)?;
-        check_fence(&tx, job_id, fence)?;
-        let before = self.load(&tx, job_id)?;
-        if before.job.is_terminal() {
-            return Ok(None);
+        let done = self.transition_event_in(job_id, fence, t, None)?;
+        if done.is_some() {
+            self.after_write();
         }
-        // Latest coalesced progress lands before the state change, in the same durable commit.
-        self.flush_pending_in(&tx, job_id)?;
-        let after = self.exec(&tx, &before, t)?;
-        tx.commit()?;
-        drop(conn);
-        if after.job.is_terminal() {
-            self.settle(job_id, after.job.status == CANCELLED);
-        }
-        Ok(Some(after))
+        Ok(done.map(|(after, _)| after))
     }
 
     /// Current attempt generation of `job_id` (0 for a job never run). Bumped by
@@ -1433,6 +1482,7 @@ impl JobStore {
             .lock()
             .unwrap_or_else(|p| p.into_inner())
             .remove(job_id);
+        self.after_write();
         Ok(Some((after, generation)))
     }
 
@@ -1490,6 +1540,8 @@ impl JobStore {
             ],
         )?;
         tx.commit()?;
+        drop(conn);
+        self.after_write();
         Ok(())
     }
 
@@ -1552,6 +1604,7 @@ impl JobStore {
         tx.commit()?;
         drop(conn);
         self.settle(job_id, true);
+        self.after_write();
         Ok(after.job)
     }
 
@@ -1983,6 +2036,8 @@ impl JobStore {
         self.flush_pending_in(&tx, job_id)?;
         let ev = add_event_on(&tx, job_id, None, stage, None, progress, message)?;
         tx.commit()?;
+        drop(conn);
+        self.after_write();
         Ok(ev)
     }
 
@@ -2565,12 +2620,14 @@ fn retry_busy<T>(f: impl FnMut() -> rusqlite::Result<T>) -> JobResult<T> {
     backoff(f, is_busy).map_err(Into::into)
 }
 
-fn retry_busy_db<T>(f: impl FnMut() -> rightkit_db::Result<T>) -> JobResult<T> {
+/// Retry a busy open for up to 30 seconds. A failure is classified against the database file
+/// `path` (see [`JobError::open_failure`]).
+fn retry_busy_db<T>(path: &Path, f: impl FnMut() -> rightkit_db::Result<T>) -> JobResult<T> {
     backoff(
         f,
         |e| matches!(e, rightkit_db::DbError::Sqlite(s) if is_busy(s)),
     )
-    .map_err(Into::into)
+    .map_err(|e| JobError::from_open(e, path))
 }
 
 #[cfg(test)]

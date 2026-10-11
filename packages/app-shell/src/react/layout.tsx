@@ -158,7 +158,9 @@ export interface TitlebarProps {
  */
 export function Titlebar({ start, startWidth, title, end, windowControls, windowControlLabels, captionGlyphs, maximized, platform: platformProp, className, slots }: TitlebarProps) {
   const detected = usePlatform();
-  const platform = platformProp ?? detected;
+  // The provider's platform wins over host detection: one injected platform for the whole shell.
+  const provided = useShellOptional()?.platform;
+  const platform = platformProp ?? provided ?? detected;
   const caps = platformCapabilities(platform);
   const style = startWidth !== undefined ? ({ width: startWidth } as CSSProperties) : undefined;
   return (
@@ -181,7 +183,9 @@ export function Titlebar({ start, startWidth, title, end, windowControls, window
  */
 export function AppFrame({ platform: platformProp, className, style, children }: { platform?: Platform; className?: string; style?: CSSProperties; children: ReactNode }) {
   const detected = usePlatform();
-  const platform = platformProp ?? detected;
+  // The provider's platform wins over host detection: one injected platform for the whole shell.
+  const provided = useShellOptional()?.platform;
+  const platform = platformProp ?? provided ?? detected;
   return (
     <div className={`rk-shell${className ? ` ${className}` : ""}`} data-platform={platform} style={style}>
       {children}
@@ -231,7 +235,9 @@ export interface JumpToProps {
 }
 
 /** Inline sidebar filter (`searchMode="filter"`). Enter opens the first match; Esc clears. */
-export function JumpTo({ groups, query, onQueryChange, onNavigate, label = DEFAULT_SHELL_LABELS.jumpTo, platform }: JumpToProps) {
+export function JumpTo({ groups, query, onQueryChange, onNavigate, label = DEFAULT_SHELL_LABELS.jumpTo, platform: platformProp }: JumpToProps) {
+  const provided = useShellOptional()?.platform;
+  const platform = platformProp ?? provided;
   const ref = useRef<HTMLInputElement | null>(null);
   return (
     <label className="rk-search">
@@ -260,7 +266,9 @@ export function JumpTo({ groups, query, onQueryChange, onNavigate, label = DEFAU
 
 /** Sidebar search that opens the command palette (HeardRight / CodeRight pattern). */
 /** `chord={false}` hides the shortcut hint (the binding is disabled in `keybindings`). */
-export function PaletteTrigger({ onOpen, label = DEFAULT_SHELL_LABELS.jumpTo, chord = "mod+k", platform, className }: { onOpen: () => void; label?: string; chord?: string | false; platform?: Platform; className?: string }) {
+export function PaletteTrigger({ onOpen, label = DEFAULT_SHELL_LABELS.jumpTo, chord = "mod+k", platform: platformProp, className }: { onOpen: () => void; label?: string; chord?: string | false; platform?: Platform; className?: string }) {
+  const provided = useShellOptional()?.platform;
+  const platform = platformProp ?? provided;
   return (
     <button type="button" className={cx("rk-search rk-search--trigger", className)} aria-label={`${label} (command palette)`} aria-haspopup="dialog" onClick={onOpen}>
       <SearchIcon />
@@ -418,9 +426,9 @@ export interface AppShellProps {
 
 function ShellLayout(props: AppShellProps) {
   const detected = usePlatform();
-  const platform = props.platform ?? detected;
-  const labels: ShellLabels = { ...DEFAULT_SHELL_LABELS, ...props.labels, theme: { ...DEFAULT_SHELL_LABELS.theme, ...props.labels?.theme } };
   const shell = useShellOptional()!;
+  const platform = props.platform ?? shell.platform ?? detected;
+  const labels: ShellLabels = { ...DEFAULT_SHELL_LABELS, ...props.labels, theme: { ...DEFAULT_SHELL_LABELS.theme, ...props.labels?.theme } };
   const providerTheme = useTheme();
   const theme = props.theme ?? providerTheme.choice;
   const setTheme = props.onThemeChange ?? providerTheme.setChoice;

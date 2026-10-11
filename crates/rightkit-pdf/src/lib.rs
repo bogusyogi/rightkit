@@ -4,7 +4,7 @@
 //!
 //! Every function takes bytes, paths, or in-memory `lopdf::Document`s and returns typed values.
 //! Path authorization (the host's file broker) stays in the app; [`commit`] provides the atomic
-//! disk write once the host has authorized a target.
+//! disk write (through `rightkit-fs`) once the host has authorized a target.
 //!
 //! | module    | responsibility                                                    |
 //! |-----------|-------------------------------------------------------------------|
@@ -13,7 +13,7 @@
 //! | `font`    | bundled + system font catalog, subsetting, ToUnicode              |
 //! | `compose` | sparse-write composition of edit commands onto fresh bytes        |
 //! | `save`    | candidate verification, single-use save tokens, commit resolution |
-//! | `commit`  | (feature `edit`) atomic on-disk write for a resolved save token   |
+//! | `commit`  | (feature `edit`) lock, recheck and rightkit-fs replace of a token |
 //! | `merge`   | (feature `merge`) merge PDFs, select/reorder pages                |
 //! | `extract` | (feature `extract`) text extraction, whole-document and per page  |
 

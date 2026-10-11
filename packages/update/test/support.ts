@@ -57,7 +57,10 @@ import { execFileSync } from "node:child_process";
 import { runCommand, type RunFn, type RunOptions, type RunResult } from "../src/exec.js";
 
 // Keep git hermetic: no user or system config, fixed identity.
-process.env.GIT_CONFIG_GLOBAL = os.devNull;
+// An empty file, not the null device: Git for Windows cannot open `\\.\nul` as a config file.
+const emptyGitConfig = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "rk-update-gitconfig-")), "gitconfig");
+fs.writeFileSync(emptyGitConfig, "");
+process.env.GIT_CONFIG_GLOBAL = emptyGitConfig;
 process.env.GIT_CONFIG_NOSYSTEM = "1";
 process.env.GIT_AUTHOR_NAME = "Test";
 process.env.GIT_AUTHOR_EMAIL = "test@example.com";

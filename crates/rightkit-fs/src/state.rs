@@ -27,10 +27,11 @@
 //!   is `F_FULLFSYNC`, falling back to `F_BARRIERFSYNC` then `fsync` unless
 //!   [`StateOptions::sync`] is [`SyncPolicy::Strict`]; the `*_reporting` writes return the
 //!   [`SyncLevel`] reached. [`StateDir::create`] and [`StateDir::child`] publish the link of every
-//!   directory they traverse, made or merely found: before descending into a directory they sync
-//!   its *parent* unless this process already did (see the table below), so a later durable write
-//!   into the leaf cannot lose an ancestor link whoever created it. A failed flush stops the walk
-//!   with [`FsError::DirSyncFailed`] (the directory exists; the retry syncs again).
+//!   directory **they create**: before descending into it they sync its *parent* (see the table
+//!   below), so a later durable write into the leaf cannot lose a link this call made. A
+//!   directory that already exists is not synced, and neither is one a racing creator made first.
+//!   A failed flush stops the walk with [`FsError::DirSyncFailed`] (the directory exists; see the
+//!   residual in the `atomic` module docs, section 3).
 //! - Windows: there is no directory flush. `FlushFileBuffers` needs `GENERIC_WRITE`, and on a
 //!   directory handle opened for listing (the pinned handle) it fails with
 //!   `ERROR_ACCESS_DENIED` (Pulse measured this on NTFS), so the crate does not call it. The
@@ -43,21 +44,22 @@
 //!
 //! # Directory creation: every path, what it syncs, what a crash leaves
 //!
-//! "Owed" means: the directory is owned by the effective user (or this call made it) and this
-//! process has not yet synced its link (`atomic::published`, a positive in-process record added
-//! only after a successful sync). A directory owned by anyone else (`/`, `/Users`, `/home`) is
-//! never synced. The same rule runs in `atomic::create_dir_all_durable`, which the durable
-//! `create_parents` atomic write and the settings crate use.
+//! The rule, the same as `atomic::create_dir_all_durable` (which the durable `create_parents`
+//! atomic write and the settings crate use): a directory's link is synced only when **this call
+//! created it** (the `mkdirat` returned success, not `EEXIST`). There is no in-process record of
+//! earlier syncs and no walk over directories that already exist, so a call whose directories all
+//! exist makes no ancestor sync. The residual (a directory created by an earlier call that died
+//! before its parent sync, or whose sync failed, is not synced by later calls) is stated once, in
+//! the `atomic` module docs, section 3.
 //!
 //! | Path | Platform | Component state | Creation call and mode | Sync | Crash between steps leaves | Error | Test |
 //! |---|---|---|---|---|---|---|---|
-//! | `StateDir::create` / `create_with` (`pin`, create) | Unix | missing | `mkdirat` `0700` below the verified parent descriptor | parent descriptor synced before descending | before the sync: the directory may be absent after reboot, nothing was written below it; after: present | [`FsError::DirSyncFailed`] (directory exists, retry syncs again) | `tests/state_ancestors.rs::create_syncs_the_parent_of_each_new_directory_before_descending`, `a_failed_ancestor_sync_stops_the_walk_with_a_typed_error` |
-//! | same | Unix | exists, owned by caller, not yet published by this process (made by another process, a crashed run, or a thread between its `mkdir` and its sync) | none | parent synced once, then recorded | the link may have been lost before this sync; nothing was written below it yet | `DirSyncFailed` | `state_ancestors.rs::a_directory_made_by_another_process_is_published_by_the_walk_that_finds_it` (a real `mkdir` child process). The thread interleaving between `mkdir` and the record cannot be tested deterministically; it is the same state (directory present, not recorded), which this test builds directly |
-//! | same | Unix | exists, already published by this process | none | none | n/a | none | `state_ancestors.rs::a_directory_this_process_published_is_not_synced_again` |
-//! | same | Unix | exists, owned by another user | none | none (not this user's link) | n/a | none | `src/atomic.rs` unit test `published_tests::a_foreign_owned_directory_is_never_owed` |
+//! | `StateDir::create` / `create_with` (`pin`, create) | Unix | missing, this call's `mkdirat` succeeds | `mkdirat` `0700` below the verified parent descriptor | parent descriptor synced before descending | before the sync: the directory may be absent after reboot, nothing was written below it; after: present | [`FsError::DirSyncFailed`] (the directory stays) | `tests/state_ancestors.rs::create_syncs_the_parent_of_each_new_directory_before_descending`, `a_failed_ancestor_sync_stops_the_walk_with_a_typed_error` |
+//! | same | Unix | exists (made by an earlier call, another process, a crashed run, or moved into place) | none | none: a second identical call syncs nothing | n/a (see the residual) | none | `state_ancestors.rs::a_second_identical_create_syncs_nothing`, `a_directory_made_by_another_process_is_found_not_synced`, `a_directory_moved_into_place_is_found_not_synced` |
+//! | same | Unix | missing, but a racing creator's `mkdirat` wins (`EEXIST`) | none | none: theirs to publish | n/a | none | none: needs a racing creator |
 //! | same | Unix | exists, a symlink | none | refused (`O_NOFOLLOW`) | n/a | [`FsError::Symlink`] | `tests/e2e.rs::symlink_attacks_on_the_state_dir_are_refused` |
-//! | same | Unix, macOS | missing, parent ACL has an inheritable `allow` | refused before `mkdirat` | none | nothing created | [`FsError::UnsafeAcl`] | `tests/acl_macos.rs::state_dir_refuses_an_inheriting_parent` |
-//! | `StateDir::child` | Unix | missing / owned+unpublished / published / foreign | as `pin` above, relative to this directory | as `pin` above | as `pin` above | `DirSyncFailed` | `state_ancestors.rs::a_child_created_through_the_handle_is_published_through_its_parent`, `state_durability.rs::dir_sync::creating_a_child_reports_a_failed_directory_sync_and_a_retry_publishes_it` |
+//! | same | Unix, macOS | missing, parent ACL has an inheritable `allow` entry | refused before `mkdirat`; a directory that got an `allow` entry anyway is removed (empty) and refused; deny-only ACLs pass | none | nothing created | [`FsError::UnsafeAcl`] | `tests/acl_macos.rs::state_dir_refuses_an_inheriting_parent` |
+//! | `StateDir::child` | Unix | missing / exists | as `pin` above, relative to this directory: a created child is synced through its parent, an existing one is returned as it is | as `pin` above | as `pin` above | `DirSyncFailed` | `state_ancestors.rs::a_child_created_through_the_handle_is_published_through_its_parent`, `a_child_made_by_another_process_is_found_not_synced`, `state_durability.rs::dir_sync::creating_a_child_reports_a_failed_directory_sync_and_a_retry_does_not_sync_it_again` |
 //! | `StateDir::create` / `child` | Windows | missing | `NtCreateFile` `FILE_OPEN_IF` with `FILE_WRITE_THROUGH`, owner-only DACL at creation | none exists; write-through on the creating handle | creation committed before the call returns, by the filesystem's write-through contract (no power-loss test has been run) | none | cannot be tested without power-loss injection; the flag is `src/state/windows_tests.rs::directory_removal_and_creation_need_no_directory_flush` shows creation succeeds without a flush call |
 //! | same | Windows | exists | none | none | n/a | none | `windows_tests.rs::native_temp_creation_and_relative_publication` |
 
@@ -306,10 +308,8 @@ impl StateDir {
     /// name is held to the write cap, since the call may create it. A directory this call
     /// creates is made durable like a write: on unix this directory is synced, and a failure is
     /// [`FsError::DirSyncFailed`] with the child already created. A child that already exists is
-    /// published too, once per process, unless it is owned by someone else (see the module
-    /// table), so a directory another process or a crashed run made cannot carry an unsynced
-    /// link into a durable write. The cost is one directory sync the first time this process
-    /// opens each child.
+    /// returned as it is, with no sync (see the module table), and so is one a racing creator
+    /// made first.
     pub fn child(&self, name: &str) -> Result<StateDir> {
         check_name(name, self.options.write_cap())?;
         Ok(Self {
@@ -737,9 +737,10 @@ mod sys {
 
     /// `Ok(true)` when this call created the directory, `Ok(false)` when it already existed.
     ///
-    /// macOS: a `parent` whose ACL would give the new directory an `allow` entry is refused
-    /// before the `mkdirat` ([`FsError::UnsafeAcl`]), and an ACL the new directory nevertheless
-    /// received is removed or the directory is (best effort) removed again.
+    /// macOS: a `parent` whose ACL would give the new directory an inheritable `allow` entry is refused
+    /// before the `mkdirat` ([`FsError::UnsafeAcl`]), and a new directory that nevertheless
+    /// carries an `allow` entry is (best effort) removed again, still empty, and refused. Nothing is
+    /// repaired.
     fn mkdir_at(parent: &File, name: &CStr, shown: &Path) -> Result<bool> {
         let base = parent.as_raw_fd();
         crate::acl::guard_parent(parent, shown)?;
@@ -754,9 +755,9 @@ mod sys {
         #[cfg(feature = "testing")]
         super::testing::record_created(&name.to_string_lossy());
         if cfg!(target_os = "macos") {
-            let scrubbed = open_dir_at(base, name, shown)
-                .and_then(|made| crate::acl::scrub_created(&made, shown));
-            if let Err(error) = scrubbed {
+            let checked = open_dir_at(base, name, shown)
+                .and_then(|made| crate::acl::refuse_acl(&made, shown));
+            if let Err(error) = checked {
                 // SAFETY: valid fd and C string; AT_REMOVEDIR removes the empty directory just made.
                 unsafe { libc::unlinkat(base, name.as_ptr(), libc::AT_REMOVEDIR) };
                 return Err(error);
@@ -775,33 +776,15 @@ mod sys {
         super::flush(dir, policy).map(Some)
     }
 
-    /// Makes the link to `child` in `parent` durable when it is not yet known to be.
+    /// Makes the link to a directory this call has just created durable, by syncing `parent`.
     ///
-    /// `created`: this call made the directory. Whether it did or merely found it, the link is
-    /// synced unless this process has already published that directory's link (a positive
-    /// record, added only after a sync succeeded; see `atomic::published`), because a directory
-    /// that another process, a crashed run, or a racing thread made may never have had its parent
-    /// synced and nothing on disk says so. A directory owned by someone else (`/`, `/Users`) is
-    /// not this user's to publish and is skipped. A failed sync records nothing, so the retry
-    /// syncs again.
-    fn publish_entry(
-        parent: &File,
-        child: &File,
-        created: bool,
-        policy: SyncPolicy,
-    ) -> io::Result<()> {
-        let (needed, key) = match child.metadata() {
-            Ok(meta) => crate::atomic::published::owed(&meta, created),
-            Err(_) => (created, None),
-        };
-        if !needed {
-            return Ok(());
-        }
-        sync_dir_file(parent, policy)?;
-        if let Some(key) = key {
-            crate::atomic::published::mark(key);
-        }
-        Ok(())
+    /// Called only when `mkdir_at` returned `Ok(true)` (the `mkdirat` succeeded; a directory that
+    /// already existed, or that a racing creator made first, is `Ok(false)` and is neither synced
+    /// nor looked at again). There is no record of earlier syncs and no walk over pre-existing
+    /// directories. A failed sync is returned; the directory stays, and a later call finds it as
+    /// an existing directory and does not sync it (the residual in the `atomic` module docs).
+    fn publish_created(parent: &File, policy: SyncPolicy) -> io::Result<()> {
+        sync_dir_file(parent, policy).map(|_| ())
     }
 
     fn verify(file: &File, shown: &Path) -> Result<libc::stat> {
@@ -857,30 +840,21 @@ mod sys {
                         let next = open_dir_at(current.as_raw_fd(), &c, &walked)?;
                         // The new directory's entry lives in `current`. Publish it before
                         // descending, so a later durable write below cannot lose the link
-                        // to the directory it went into. A failed flush stops here.
-                        publish_entry(&current, &next, created, options.sync).map_err(
-                            |source| FsError::DirSyncFailed {
-                                path: walked.clone(),
-                                source,
-                            },
-                        )?;
-                        next
-                    }
-                    Ok(next) => {
-                        // Found, not made by this call. When creating, it may be the product of
-                        // another process, a crashed run, or a racing thread whose publishing
-                        // sync never ran or has not finished: this process syncs the link
-                        // itself (once per directory) before accepting it.
-                        if create {
-                            publish_entry(&current, &next, false, options.sync).map_err(
-                                |source| FsError::DirSyncFailed {
+                        // to the directory it went into. A failed flush stops here. Only a
+                        // directory this call made is published; one that is already there
+                        // (including one a racing creator made first) is left as it is.
+                        if created {
+                            publish_created(&current, options.sync).map_err(|source| {
+                                FsError::DirSyncFailed {
                                     path: walked.clone(),
                                     source,
-                                },
-                            )?;
+                                }
+                            })?;
                         }
                         next
                     }
+                    // Found, not made by this call: no sync, whoever made it and whenever.
+                    Ok(next) => next,
                     Err(e) => return Err(e),
                 };
             }
@@ -909,15 +883,14 @@ mod sys {
             };
             verify(&file, shown)?;
             let child = Dir(file);
-            // The entry lives in this directory; make it durable like a write. That includes a
-            // child that already exists but whose own publishing sync failed or is still running
-            // (an earlier or concurrent creator).
-            publish_entry(&self.0, &child.0, created, policy).map_err(|source| {
-                FsError::DirSyncFailed {
+            // The entry lives in this directory; a child this call created is made durable like
+            // a write. A child that already exists is returned as it is, with no sync.
+            if created {
+                publish_created(&self.0, policy).map_err(|source| FsError::DirSyncFailed {
                     path: shown.to_path_buf(),
                     source,
-                }
-            })?;
+                })?;
+            }
             Ok(child)
         }
 
@@ -969,7 +942,7 @@ mod sys {
 
         pub fn create_new(&self, name: &str) -> Result<File> {
             let c = cname(name)?;
-            // macOS: no private file below a directory whose ACL would hand it an `allow` entry.
+            // macOS: no private file below a directory whose ACL would hand it an inheritable `allow` entry.
             crate::acl::guard_parent(&self.0, Path::new(name))?;
             // SAFETY: valid fd and C string; O_EXCL|O_NOFOLLOW means a planted symlink is never followed.
             let fd = unsafe {
@@ -993,7 +966,8 @@ mod sys {
             }
             // SAFETY: fd just returned by openat.
             let file = unsafe { File::from_raw_fd(fd) };
-            if let Err(error) = crate::acl::scrub_created(&file, Path::new(name)) {
+            // A file that carries an `allow` entry anyway is still empty: remove it and refuse.
+            if let Err(error) = crate::acl::refuse_acl(&file, Path::new(name)) {
                 drop(file);
                 // SAFETY: valid fd and C string.
                 unsafe { libc::unlinkat(self.fd(), c.as_ptr(), 0) };

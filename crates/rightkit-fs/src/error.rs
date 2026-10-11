@@ -12,17 +12,12 @@ pub enum PostPublishStep {
     /// unlink (the fallback where the kernel has no exclusive rename). The content is published and
     /// complete; a leftover temp name remains, which [`crate::sweep_stale_temps`] reclaims.
     TempCleanup,
-    /// Making the published file owner-only on Windows. No longer reported: a private write is
-    /// published by a move that carries the temp file's owner-only ACL, so there is no step after
-    /// publication. The variant stays for existing matches.
-    OwnerOnlyAcl,
 }
 
 impl std::fmt::Display for PostPublishStep {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(match self {
             Self::TempCleanup => "removing the temp file",
-            Self::OwnerOnlyAcl => "making the file owner-only",
         })
     }
 }
@@ -52,9 +47,13 @@ pub enum FsError {
     TooPermissive(PathBuf),
     /// A private (owner-only) file or directory was asked for where its owner-only guarantee cannot
     /// be established because of an extended ACL (macOS): the parent directory has an inheritable
-    /// `allow` entry that the new entry would receive, or the entry's own ACL could not be removed.
-    /// Nothing is left behind. See [`crate::private`] and the `acl` notes in the crate README.
-    #[error("{0} cannot be made owner-only: an extended ACL would grant access to others")]
+    /// `allow` entry that the new entry would receive, the new entry carries an `allow` entry
+    /// anyway (it is removed, still empty), or an existing entry handed to `restrict_owner_only`
+    /// carries one (it is left as it is, never repaired). An ACL made only of `deny` entries never
+    /// causes this error. See [`crate::private`] and the `acl` notes in the crate README.
+    #[error(
+        "{0} cannot be made owner-only: an extended ACL `allow` entry would grant access to others"
+    )]
     UnsafeAcl(PathBuf),
     #[error("directory identity changed while it was being pinned: {0}")]
     IdentityChanged(PathBuf),
@@ -89,9 +88,10 @@ pub enum FsError {
         source: io::Error,
     },
     /// A `StateDir` removal or directory creation took effect, but syncing the containing
-    /// directory failed, so it may not survive a power loss. Repeating the call is safe: a create
-    /// or open that finds a directory it has not itself published (in this process) syncs its link
-    /// again, whoever made the directory, and fails again if the sync still fails.
+    /// directory failed, so it may not survive a power loss. For a directory a call created, the
+    /// directory stays, and a repeated call finds it as an existing directory and does not sync
+    /// its link again (the residual in the `atomic` module docs, section 3): a caller that needs
+    /// that link durable must not take a successful retry as proof of it.
     #[error("{} was changed, but syncing its directory failed: {source}", path.display())]
     DirSyncFailed {
         path: PathBuf,
@@ -101,8 +101,8 @@ pub enum FsError {
     /// The new content is published at `path` and any required directory sync has run, but a step
     /// after publication failed (see [`PostPublishStep`]). The destination holds the new content,
     /// so [`FsError::target_replaced`] is true and retrying the write is safe. When several
-    /// post-publication steps fail, the most serious is reported: the owner-only ACL first, then
-    /// the directory sync ([`FsError::ReplacedButDirSyncFailed`]), then temp cleanup.
+    /// post-publication steps fail, the most serious is reported: the directory sync
+    /// ([`FsError::ReplacedButDirSyncFailed`]) first, then temp cleanup.
     #[error("{} was replaced, but {step} failed: {source}", path.display())]
     ReplacedButPostStepFailed {
         path: PathBuf,
@@ -110,35 +110,6 @@ pub enum FsError {
         #[source]
         source: io::Error,
     },
-    /// Windows `ReplaceFileW` failed after it had begun swapping names, so the destination is not
-    /// in a known state: it may be missing. Nothing was deleted by this crate. `new_content` is
-    /// the file that holds the new bytes and `previous_content` the one that holds the old bytes
-    /// (the `.<name>.rktbak-...` backup file, or the destination itself); each is `None` when no
-    /// such file exists. Both are left in place for recovery. The new bytes were in the temp
-    /// file, which is moved to `.<name>.rktnew-<pid>-<n>-<nanos>` before this error is returned,
-    /// so `new_content` names that recovery file: a name no sweep (`sweep_stale_temps`,
-    /// `StateDir::sweep_temps`) ever matches, so neither a later sweep nor a restart deletes it.
-    /// If that move failed, `new_content` is the original temp name and `source`'s message says
-    /// it is still sweepable. [`FsError::target_replaced`] is false: the new content is not at
-    /// the destination. Deleting the version that lost is the caller's decision.
-    #[error(
-        "replacing {} was interrupted; new content: {}, previous content: {}: {source}",
-        path.display(),
-        show_path(new_content),
-        show_path(previous_content)
-    )]
-    ReplaceInterrupted {
-        path: PathBuf,
-        new_content: Option<PathBuf>,
-        previous_content: Option<PathBuf>,
-        #[source]
-        source: io::Error,
-    },
-}
-
-fn show_path(path: &Option<PathBuf>) -> String {
-    path.as_ref()
-        .map_or_else(|| "gone".to_string(), |p| p.display().to_string())
 }
 
 impl FsError {
@@ -155,7 +126,6 @@ impl FsError {
             Self::Io { source, .. }
             | Self::ReplacedButDirSyncFailed { source, .. }
             | Self::ReplacedButPostStepFailed { source, .. }
-            | Self::ReplaceInterrupted { source, .. }
             | Self::DirSyncFailed { source, .. } => Some(source.kind()),
             Self::AlreadyExists(_) => Some(io::ErrorKind::AlreadyExists),
             _ => None,
@@ -182,7 +152,6 @@ impl FsError {
             Self::Io { source, .. }
             | Self::ReplacedButDirSyncFailed { source, .. }
             | Self::ReplacedButPostStepFailed { source, .. }
-            | Self::ReplaceInterrupted { source, .. }
             | Self::DirSyncFailed { source, .. } => source.kind(),
             Self::Symlink(_) | Self::NotAFile(_) | Self::BadName(_) => K::InvalidInput,
             Self::NotADirectory(_) => K::NotADirectory,
@@ -324,15 +293,6 @@ mod tests {
         assert_mapped(
             FsError::DirSyncFailed {
                 path: p.clone(),
-                source: source(),
-            },
-            io::ErrorKind::StorageFull,
-        );
-        assert_mapped(
-            FsError::ReplaceInterrupted {
-                path: p.clone(),
-                new_content: Some(PathBuf::from("/x.tmp")),
-                previous_content: None,
                 source: source(),
             },
             io::ErrorKind::StorageFull,

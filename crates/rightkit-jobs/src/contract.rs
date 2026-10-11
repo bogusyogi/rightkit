@@ -665,6 +665,10 @@ impl JobCommands {
         if matches!(o, RunOutcome::Paused(_)) {
             v["recoverable"] = json!(true);
         }
+        // The outcome is final but its terminal write is held (the stored row is not terminal yet).
+        if matches!(o, RunOutcome::Unsettled(_)) {
+            v["unsettled"] = json!(true);
+        }
         Ok(v)
     }
 
