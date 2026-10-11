@@ -1,7 +1,12 @@
-//! `StateDir::create` publishes every directory it makes: the parent of each newly created
-//! directory is synced before the walk descends into it, and a failed sync stops the walk. The
-//! order is observed through the `state::testing` event log (the power-loss argument is "the link
-//! is flushed before anything is written below it", so the order is what is asserted).
+//! `StateDir::create` publishes the link of every directory it walks, made or merely found: the
+//! parent of each is synced before the walk descends into it (once per directory per process,
+//! and only for directories the caller owns), and a failed sync stops the walk. The order is
+//! observed through the `state::testing` event log (the power-loss argument is "the link is
+//! flushed before anything is written below it", so the order is what is asserted).
+//!
+//! The record of published directories is process-wide and shared by parallel tests, so every
+//! test starts by publishing its temp root and all that is above it (`tmp`); what is asserted
+//! after that is the walk under the root only.
 
 #![cfg(unix)]
 
@@ -14,6 +19,8 @@ use std::path::{Path, PathBuf};
 fn tmp() -> (tempfile::TempDir, PathBuf) {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().canonicalize().unwrap();
+    StateDir::create(&path).unwrap();
+    let _ = take_dir_events();
     (dir, path)
 }
 
@@ -45,14 +52,14 @@ fn create_syncs_the_parent_of_each_new_directory_before_descending() {
 }
 
 #[test]
-fn existing_directories_are_not_synced_again() {
+fn a_directory_this_process_published_is_not_synced_again() {
     let (_g, root) = tmp();
-    std::fs::create_dir_all(root.join("a/b")).unwrap();
+    StateDir::create(&root.join("a/b")).unwrap();
     let _ = take_dir_events();
     StateDir::create(&root.join("a/b")).unwrap();
     assert!(
         take_dir_events().is_empty(),
-        "nothing was created, so nothing is published"
+        "both links were published by this process, so nothing is synced again"
     );
     // Only the missing tail is created and published.
     StateDir::create(&root.join("a/b/c")).unwrap();
@@ -65,6 +72,56 @@ fn existing_directories_are_not_synced_again() {
     );
     StateDir::open(&root.join("a/b/c")).unwrap();
     assert!(take_dir_events().is_empty(), "open never creates");
+}
+
+/// The directory below was made by a different process (a real `mkdir`), exactly as a crashed
+/// earlier run or a racing thread between its `mkdir` and its bookkeeping would leave it: it is
+/// there, this process never recorded it, and nothing on disk says whether its parent was synced.
+/// The walk that finds it must sync the link itself, before descending.
+#[test]
+fn a_directory_made_by_another_process_is_published_by_the_walk_that_finds_it() {
+    let (_g, root) = tmp();
+    let status = std::process::Command::new("mkdir")
+        .arg(root.join("other"))
+        .status()
+        .unwrap();
+    assert!(status.success());
+    let _ = take_dir_events();
+    let state = StateDir::create(&root.join("other/leaf")).unwrap();
+    assert_eq!(
+        take_dir_events(),
+        vec![
+            DirEvent::Synced(ino(&root)),
+            DirEvent::Created("leaf".into()),
+            DirEvent::Synced(ino(&root.join("other"))),
+        ],
+        "the found directory's link is synced before the walk descends into it"
+    );
+    state.write("record", b"x").unwrap();
+    // A fresh handle on it is now known to be published.
+    let _ = take_dir_events();
+    StateDir::create(&root.join("other/leaf")).unwrap();
+    assert!(take_dir_events().is_empty());
+}
+
+/// `child` has the same rule: an existing child nobody here published has its link synced, once.
+#[test]
+fn a_child_made_by_another_process_is_published_by_the_child_call() {
+    let (_g, root) = tmp();
+    let state = StateDir::create(&root.join("s")).unwrap();
+    let status = std::process::Command::new("mkdir")
+        .arg(root.join("s/found"))
+        .status()
+        .unwrap();
+    assert!(status.success());
+    let _ = take_dir_events();
+    state.child("found").unwrap();
+    assert_eq!(
+        take_dir_events(),
+        vec![DirEvent::Synced(ino(&root.join("s")))]
+    );
+    state.child("found").unwrap();
+    assert!(take_dir_events().is_empty(), "published once");
 }
 
 #[test]

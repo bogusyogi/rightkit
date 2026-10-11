@@ -9,6 +9,81 @@
 //! backup file) is a typed post-publication error whose
 //! [`FsError::target_replaced`] is true, reported only after the required directory sync ran.
 //!
+//! # Every publish path
+//!
+//! Notation. *flush* is `durable_sync`: `F_FULLFSYNC` with the Apple ladder, `fsync(2)` elsewhere on
+//! Unix, `FlushFileBuffers` on Windows. *dir sync* is `fsync` of the destination's directory (Unix
+//! only; Windows has no directory flush, see [`publication_durability`]). Every write passes the
+//! same phases in this order: (1) create the temp, (2) write, (3) flush (`durable`; or, for
+//! [`AtomicWriter::commit_checked`] in any mode, `File::sync_all`), (4) the caller's check, (5)
+//! publish with one OS call, (6) dir sync (`durable`, Unix), (7) report. Before step 5 nothing is
+//! published: a failure leaves the destination as it was and removes the temp. A crash before step
+//! 5 leaves the destination as it was plus an orphan `.<name>.rktmp-<pid>-...` that
+//! [`sweep_stale_temps`] reclaims. "Test" names a test in `tests/` (or a unit test in this file);
+//! "seam" means the row cannot be produced without fault injection and is covered by the named
+//! `atomic::testing` hook, which stands in for the OS call or state.
+//!
+//! ## 1. Creating the temp (step 1), per platform x privacy x destination
+//!
+//! | Platform | Privacy | Destination | Temp is created with | Notes | Test |
+//! |---|---|---|---|---|---|
+//! | Unix | `Inherit` | absent, or not a regular file (a symlink is never followed) | `open(O_CREAT\|O_EXCL\|O_NOFOLLOW\|O_CLOEXEC, 0666 & ~umask)` | | `atomic_privacy.rs::inherit_is_unchanged_and_private_true_wins_over_privacy` |
+//! | Unix | `Inherit` | regular file | the same `open`, mode = the file's mode & ~umask, then `fchmod` to its exact bits | never wider than the file it replaces | `e2e.rs::private_writes_are_owner_only_and_plain_writes_keep_the_existing_mode` |
+//! | Unix | `Inherit` | symlink | as for absent: the link's target lends no mode | the rename replaces the link itself | `atomic_privacy.rs::a_symlink_at_the_destination_is_replaced_not_followed_and_lends_no_mode` |
+//! | Unix | `OwnerOnly`, `OwnerOnlyUnixInheritWindows`, `private: true` | any | `open(... , 0600)` (final bits at creation, no later `chmod`); parents `0700` | macOS: the parent's ACL is read first, and an inheritable `allow` entry refuses the write ([`FsError::UnsafeAcl`]) before anything exists; an ACL the temp got anyway is removed and read back (see `acl`) | `atomic_publish.rs::the_temp_is_owner_only_before_the_replace_publishes_it`; macOS ACLs: `acl_macos.rs::an_inheriting_parent_refuses_a_private_atomic_write_and_creates_nothing` |
+//! | Windows | `Inherit`, `OwnerOnlyUnixInheritWindows` | any | `OpenOptions::create_new`: the parent's inherited ACL | | `atomic_publish.rs::windows::inherit_privacy_takes_no_owner_only_step`, `atomic_dacl_windows.rs::privacy_variants_on_windows` |
+//! | Windows | `OwnerOnly`, `private: true` | any | `CreateFileW(CREATE_NEW)` with the descriptor `D:P(A;;FA;;;<user>)` in `SECURITY_ATTRIBUTES` (never created then restricted); fails closed, nothing created, if the descriptor cannot be built | | `atomic_publish.rs::windows::the_temp_carries_its_owner_only_descriptor_from_creation_and_is_never_restricted_later`, `a_failed_owner_only_creation_publishes_nothing_and_leaves_no_temp` |
+//! | all | any | a target named like a generated temp name, including on Windows one that *becomes* such a name after Win32 drops trailing spaces and periods or a `:stream` suffix | refused before anything is created ([`FsError::BadName`]) | | `atomic_namespace.rs::a_public_write_cannot_target_a_generated_temp_name`, `windows_trailing_space_and_period_names_are_refused`; unit `temp_name_tests::windows_names_that_normalize_to_a_temp_name_are_reserved` |
+//!
+//! ## 2. Publishing (step 5) and what a crash leaves, per platform x mode x durable x destination
+//!
+//! Privacy does not change the publish call, except the one Windows row marked (P). On Unix the
+//! three replacing modes are the same `rename(2)`.
+//!
+//! | # | Platform | Mode | durable | Destination | Flushed, and when | OS call that publishes | A crash after each step leaves | Error | Test |
+//! |---|---|---|---|---|---|---|---|---|---|
+//! | U1 | Unix | `Rename`, `ReplaceFile`, `MoveWriteThrough` | yes | exists or not | temp (step 3) before the call; dir (step 6) after | `rename(2)` | before the call: destination as it was, orphan temp. After the call, before the dir sync: old or new content after reboot, never a mix (the temp's data was flushed first). After the dir sync: new | replace failed: `Io`, temp removed, destination untouched. Dir sync failed: `ReplacedButDirSyncFailed` (`target_replaced()`) | `atomic_publish.rs::a_durable_write_flushes_the_temp_then_replaces_then_syncs_the_directory`, `a_failed_replace_syncs_no_directory_and_publishes_nothing`; `atomic_options.rs::directory_sync_failure_after_replace_is_typed_and_keeps_new_content` |
+//! | U2 | Unix | same | no | exists or not | nothing (with `commit_checked`: the temp only, never the dir) | `rename(2)` | old or new name, but the new file's *data* may be lost or short after power loss: that is what `durable: false` means | as U1, no dir sync | `atomic_publish.rs::a_non_durable_write_flushes_and_syncs_nothing`, `atomic_options.rs::directory_sync_is_skipped_when_not_durable`, `atomic_checked_sync.rs::a_non_durable_checked_write_syncs_the_file_before_the_check_and_never_the_directory` |
+//! | U3 | Unix | `NoReplace` | yes | absent | temp before; dir after | `renameat2(RENAME_NOREPLACE)` (Linux), `renamex_np(RENAME_EXCL)` (Apple) | as U1 | as U1 | `atomic_publish.rs::no_replace_flushes_publishes_exclusively_then_syncs_the_directory`, `atomic_exclusive.rs::publishes_when_absent_and_refuses_when_present_without_touching_the_old_file` |
+//! | U4 | Unix | `NoReplace` | any | exists, or appears first | temp (durable) | the same call, which fails `EEXIST` | destination untouched, temp removed, no dir sync | `AlreadyExists` | `atomic_publish.rs::a_no_replace_loser_syncs_no_directory_and_leaves_the_winner`, `atomic_exclusive.rs::racing_publishers_have_exactly_one_winner_and_the_losers_leave_no_temp` |
+//! | U5 | Unix | `NoReplace`, kernel/filesystem without the exclusive rename | any | absent | as U3 | `link(2)` then `unlink(2)` of the temp name | between the two calls both names are one inode with the full content (published); a crash leaves the temp name for the sweep | `link` fails `EEXIST`: `AlreadyExists`. `unlink` fails: dir sync still runs, then `ReplacedButPostStepFailed(TempCleanup)` | `atomic_publish.rs::post_publication::the_link_fallback_publishes_cleanly_when_the_unlink_works`, `a_failed_unlink_after_the_link_is_a_typed_error_and_the_directory_is_still_synced`; the real ENOSYS/EINVAL fallback needs an old kernel: seam `force_link_fallback` |
+//! | W1 | Windows | `Rename` | yes | exists or not | temp (`FlushFileBuffers`) before the call; no dir sync exists | `std::fs::rename` (POSIX-semantics rename; not write-through) | before: destination as it was, orphan temp. After: old or new, never a mix, but the *swap itself* may be lost in a power failure (`FileFlushedOnly`) | `Io`, temp removed | `atomic_publish.rs::a_durable_write_on_windows_flushes_the_temp_and_claims_no_directory_sync`; plan: unit `plan_tests::publication_durability_states_what_each_windows_mode_gives` |
+//! | W2 | Windows | `Rename` | no | exists or not | nothing | `std::fs::rename` | as W1, without the temp flush | `Io` | `atomic_publish.rs::a_non_durable_write_flushes_and_syncs_nothing` |
+//! | W3 | Windows | `ReplaceFile` | yes / no | absent | temp flushed (durable) | `MoveFileExW(MOVEFILE_REPLACE_EXISTING [\| MOVEFILE_WRITE_THROUGH when durable])` | destination absent, or complete new content (write-through: committed when the call returns) | `Io`, temp removed | `atomic_testing.rs::the_flags_each_mode_hands_the_os`; unit `plan_tests::windows_write_through_is_only_ever_movefileex` |
+//! | W4 | Windows | `ReplaceFile`, no Windows ACL step wanted | yes / no | exists | temp flushed (durable); `ReplaceFileW` has no supported write-through, flag word 0 | `ReplaceFileW(.., backup = ".<name>.rktbak-<pid>-<n>")`; on success the backup is deleted | not atomic across a crash in the middle of the call (Microsoft documents only what the 1176 and 1177 failures leave): the destination is intact, or absent with the old content at the backup name and the new content still at the temp name, or new with the old at the backup. All three are recoverable from the names; the temp, backup and a recovery copy are never swept | success: `Ok`, a backup that cannot be deleted is `ReplacedButPostStepFailed(TempCleanup)`. 1176/1177 with the destination missing or a backup beside it: `ReplaceInterrupted` (below). Any other failure with the destination intact: `Io`, temp removed | `atomic.rs` unit `partial_replace_tests::*`; `atomic_publish.rs::a_replace_that_lost_the_destination_keeps_the_new_content_where_a_sweep_cannot_reach_it`, `error_1176_with_the_destination_intact_is_an_ordinary_failure_and_cleans_up`. A real crash inside `ReplaceFileW` cannot be tested without power-loss injection; the seam `on_replace` stands in for the OS state it leaves |
+//! | W5 (P) | Windows | `ReplaceFile`, `OwnerOnly` / `private: true` | yes / no | exists | temp flushed (durable) | `MoveFileExW(MOVEFILE_REPLACE_EXISTING [\| MOVEFILE_WRITE_THROUGH])`, not `ReplaceFileW`, which would keep the destination's DACL | destination old or new (write-through when durable); no backup, no interrupted state | `Io`; a reader holding the old file without share-delete makes the move fail (retry: [`RetryPolicy`]) | unit `plan_tests::a_private_windows_replace_file_over_an_existing_destination_is_a_move`; `atomic_publish.rs::windows::a_private_replace_file_write_over_a_broad_destination_is_a_move_and_ends_owner_only` |
+//! | W6 | Windows | `MoveWriteThrough` | yes / no | exists or not | temp flushed (durable) | `MoveFileExW(MOVEFILE_REPLACE_EXISTING \| MOVEFILE_WRITE_THROUGH)` (also when not `durable`) | destination old or new; committed when the call returns | `Io`; sharing/lock violations retried per [`RetryPolicy`] | `atomic_testing.rs::the_flags_each_mode_hands_the_os`, unit `retry_tests::*`; no power-loss test has been run (the guarantee is Microsoft's) |
+//! | W7 | Windows | `NoReplace` | yes / no | absent | temp flushed (durable) | `MoveFileExW(0 [\| MOVEFILE_WRITE_THROUGH when durable])`: fails if the name exists | as W6 | exists or appears first: `AlreadyExists`, temp removed | `atomic_exclusive.rs::publishes_when_absent_and_refuses_when_present_without_touching_the_old_file` |
+//!
+//! ### Interrupted replace (W4) and its recovery files
+//!
+//! When `ReplaceFileW` fails with 1176 or 1177 and the destination is missing or a backup sits
+//! beside it, the new content may exist only in the temp file. The temp is **moved at once to
+//! `.<name>.rktnew-<pid>-<n>-<nanos in hex>`** (exclusive: it never replaces a file), a name that
+//! no sweep matches, and [`FsError::ReplaceInterrupted`] names it as `new_content`; the old
+//! content is `previous_content` (the `.rktbak-` backup, or the destination). Neither file is
+//! ever swept, by [`sweep_stale_temps`] or `StateDir::sweep_temps`, whether the writer is alive,
+//! dead or restarted, because protection is in the *file name* on disk, not in process memory
+//! (test: `atomic_publish.rs::a_replace_that_lost_the_destination_keeps_the_new_content_where_a_sweep_cannot_reach_it`,
+//! which sweeps with a zero age). Deciding which version wins and deleting the loser is the
+//! caller's. If the move itself fails the temp stays under its sweepable name and the error's
+//! message says so (seam `fail_recovery_move`; test `an_interrupted_replace_that_cannot_be_protected_says_so`).
+//!
+//! ## 3. Directories made for `create_parents`
+//!
+//! The same table, for directories, is in the `state` module docs (`StateDir::create`, `child`).
+//! For [`create_dir_all_durable`], which a durable `create_parents` write calls:
+//!
+//! | Platform | Component | Action | A crash leaves | Error | Test |
+//! |---|---|---|---|---|---|
+//! | Unix | missing | `mkdir` (`0700` when private), then `fsync` of its parent before the next component | before that sync: possibly no directory after reboot; nothing was written below it yet | `DirSyncFailed`; the retry syncs again | `atomic_publish.rs::parents::every_created_ancestor_is_published_before_the_file_is_written`, `a_failed_ancestor_sync_stops_the_write_and_the_retry_completes_it` |
+//! | Unix | exists, owned by the caller, not yet published by this process (made by another process, a crashed run or a racing thread) | `fsync` of its parent, once per process, then recorded | its link may have been lost before this sync; nothing was written below it yet | `DirSyncFailed` | `atomic_publish.rs::parents::a_directory_made_by_another_process_is_published_before_the_file_is_written` (a real `mkdir` child process) |
+//! | Unix | exists, already published by this process | none | n/a | none | `atomic_publish.rs::parents::a_published_directory_is_not_synced_again` |
+//! | Unix | exists, owned by someone else | none (not this user's link) | n/a | none | unit `published_tests::a_foreign_owned_directory_is_never_owed` |
+//! | Unix, macOS | missing under a parent with an inheritable `allow` ACL entry (private only) | refused before `mkdir`; a directory that got an ACL anyway has it removed or is removed | nothing created | [`FsError::UnsafeAcl`] | `acl_macos.rs::an_inheriting_parent_refuses_private_parents` |
+//! | Unix | `durable: false` | `create_dir_all` (or `ensure_private_dir`), no sync | the directories may be lost with the file, as the mode says | none | `atomic_publish.rs::parents::a_non_durable_write_makes_parents_without_syncing` |
+//! | Windows | any | `std::fs::create_dir_all` (or `ensure_private_dir`): **not** write-through, no flush exists. A later write-through move (W3, W5, W6, W7) is a journal commit that follows the directory creation in the NTFS log, which orders them; this crate has not run a power-loss test of that ordering, and for W1 and W4 nothing is committed after the creation. Directories made by `StateDir::create` do use write-through handles | not durable on Windows | none | cannot be tested without power-loss injection |
+//!
 //! Consolidates CutRight `fsutil::atomic_write` (project and qa copies), CodeRight
 //! `private_fs::atomic` and the settings/model-store writers.
 
@@ -123,8 +198,9 @@ pub enum ReplaceMode {
     /// neither version at the destination. The backup is deleted after a successful replace
     /// (a failure to delete it is [`FsError::ReplacedButPostStepFailed`] with
     /// [`crate::PostPublishStep::TempCleanup`]). When the call fails with 1176 or 1177 and the
-    /// destination is not intact, the result is [`FsError::ReplaceInterrupted`] and the temp and
-    /// backup files are left in place for recovery.
+    /// destination is not intact, the result is [`FsError::ReplaceInterrupted`]: the backup is left
+    /// in place and the temp, which may hold the only copy of the new content, is moved to a
+    /// `.<name>.rktnew-...` recovery name that no sweep reclaims.
     ///
     /// DACL, verified on Windows build 10.0.26300.9550 by `tests/atomic_dacl_windows.rs`
     /// (reads the DACL back with `GetNamedSecurityInfoW`): `ReplaceFileW` keeps the DESTINATION's
@@ -433,15 +509,21 @@ impl AtomicWriter {
                 options.unix_owner_only()
             };
             if options.durable {
-                // Publish every directory this creates (and any left unpublished by an earlier
-                // or concurrent attempt) before the file is written below it.
-                create_dirs_durable(&parent, private_dirs)?;
-            }
-            if private_dirs {
+                // Publish the link of every directory on the path this process has not yet
+                // published (new ones, and ones another process or a crashed run made) before
+                // the file is written below them.
+                create_dir_all_durable(&parent, private_dirs)?;
+            } else if private_dirs {
                 crate::private::ensure_private_dir(&parent)?;
             } else {
                 fs::create_dir_all(&parent).map_err(|e| FsError::io(&parent, e))?;
             }
+        }
+        // macOS: a parent whose ACL would hand an `allow` entry to the new temp file makes the
+        // owner-only guarantee impossible; refuse before anything is created.
+        #[cfg(unix)]
+        if options.unix_owner_only() {
+            crate::acl::guard_parent_path(&parent, target)?;
         }
         // Keep the mode of an existing regular destination (never a symlink's target).
         #[cfg(unix)]
@@ -459,6 +541,14 @@ impl AtomicWriter {
             let temp = parent.join(temp_name(&name, attempt));
             match open_temp(&temp, &options, existing_mode) {
                 Ok(file) => {
+                    #[cfg(unix)]
+                    if options.unix_owner_only() {
+                        if let Err(error) = crate::acl::scrub_created(&file, &temp) {
+                            drop(file);
+                            let _ = fs::remove_file(&temp);
+                            return Err(error);
+                        }
+                    }
                     return Ok(Self {
                         file: Some(file),
                         temp,
@@ -733,12 +823,31 @@ pub(crate) fn generated_temp_pid(name: &str) -> Option<u32> {
 
 /// Refuses a public write target whose name is a complete generated temp name: such a file would
 /// be indistinguishable from an orphan and a sweep would delete it.
+///
+/// On Windows the check also runs on the name the filesystem will store: Win32 drops trailing
+/// spaces and periods from the last path component (and `name:stream` addresses a stream of
+/// `name`), so `".record.rktmp-123-1-0 "` is created as the reserved `".record.rktmp-123-1-0"`.
+/// Every name check in the crate funnels through here, so no creation API sees only the raw text.
 pub(crate) fn reject_reserved_name(name: &str) -> Result<()> {
-    if generated_temp_pid(name).is_some() {
+    reject_reserved_name_on(cfg!(windows), name)
+}
+
+/// [`reject_reserved_name`] for an explicit platform, so the Windows rule is testable everywhere.
+fn reject_reserved_name_on(windows: bool, name: &str) -> Result<()> {
+    let reserved = generated_temp_pid(name).is_some()
+        || (windows && generated_temp_pid(&windows_stored_name(name)).is_some());
+    if reserved {
         Err(FsError::BadName(name.to_string()))
     } else {
         Ok(())
     }
+}
+
+/// The name Windows stores for a last path component written as `name`: the part before any
+/// `:stream` suffix, without trailing spaces and periods.
+fn windows_stored_name(name: &str) -> String {
+    let base = name.split(':').next().unwrap_or(name);
+    base.trim_end_matches([' ', '.']).to_string()
 }
 
 /// Best-effort directory `fsync` so a rename itself survives power loss (no-op off unix).
@@ -774,46 +883,101 @@ pub(crate) fn sync_parent_dir(path: &Path) -> std::io::Result<()> {
     try_sync_dir(&parent_of(path))
 }
 
-/// Directories whose creation was made but whose publishing directory sync has not (yet)
-/// succeeded, by `(dev, ino)`. A creator records a directory here when it makes it and clears it
-/// after the sync of its parent succeeds, so a retry after a failed sync, or a concurrent
-/// creator that merely finds the directory, still owes (and runs) that sync instead of
-/// building a durable write on an unflushed link. In-process only.
+/// Directories whose link in their parent this process has already made durable, so a later
+/// create-or-open of the same directory need not sync again.
+///
+/// This is a *positive* record: absence means "unknown", and unknown is synced. (The earlier
+/// design recorded the opposite, the directories known to be unpublished, so a directory made by
+/// another process, by a crashed run, or by a thread between its `mkdir` and its bookkeeping was
+/// assumed published and skipped.) A key is added only after the sync of the parent succeeded, so
+/// a failed sync leaves nothing behind and the retry syncs again.
+///
+/// The key is `(dev, ino, birth time)`; the birth time, where the filesystem has one, keeps an
+/// inode number that was freed and reused for a new directory from matching. Bounded: past
+/// `CAP` keys the record is cleared, which only costs repeat syncs. In-process only.
 #[cfg(unix)]
-pub(crate) mod unpublished {
+pub(crate) mod published {
     use std::collections::HashSet;
+    use std::fs::Metadata;
+    use std::os::unix::fs::MetadataExt;
     use std::sync::{Mutex, MutexGuard, OnceLock};
 
-    fn set() -> MutexGuard<'static, HashSet<(u64, u64)>> {
-        static SET: OnceLock<Mutex<HashSet<(u64, u64)>>> = OnceLock::new();
+    pub(crate) type Key = (u64, u64, Option<u128>);
+    const CAP: usize = 4096;
+
+    fn set() -> MutexGuard<'static, HashSet<Key>> {
+        static SET: OnceLock<Mutex<HashSet<Key>>> = OnceLock::new();
         SET.get_or_init(|| Mutex::new(HashSet::new()))
             .lock()
             .unwrap_or_else(|p| p.into_inner())
     }
 
-    pub(crate) fn insert(key: (u64, u64)) {
-        set().insert(key);
+    /// The key of a directory, `None` for anything that is not one (a link is never keyed).
+    pub(crate) fn key_of(meta: &Metadata) -> Option<Key> {
+        if !meta.is_dir() {
+            return None;
+        }
+        let birth = meta
+            .created()
+            .ok()
+            .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+            .map(|d| d.as_nanos());
+        Some((meta.dev(), meta.ino(), birth))
     }
 
-    pub(crate) fn contains(key: (u64, u64)) -> bool {
-        let set = set();
-        !set.is_empty() && set.contains(&key)
+    /// Whether this process owes the sync of the link to the directory `meta` describes, and the
+    /// key to record once it has been done.
+    ///
+    /// Owed when `created` (this call made it) or when the directory is owned by the effective
+    /// user and not yet recorded. A directory owned by someone else (`/`, `/Users`, `/home`) was
+    /// not made by this user, so publishing its link is not this user's to do and is skipped.
+    pub(crate) fn owed(meta: &Metadata, created: bool) -> (bool, Option<Key>) {
+        let key = key_of(meta);
+        if let Some(key) = key {
+            if set().contains(&key) {
+                return (false, Some(key));
+            }
+        }
+        // SAFETY: geteuid has no preconditions.
+        let ours = created || meta.uid() == unsafe { libc::geteuid() };
+        (ours, key)
     }
 
-    pub(crate) fn remove(key: (u64, u64)) {
-        set().remove(&key);
+    pub(crate) fn mark(key: Key) {
+        let mut set = set();
+        if set.len() >= CAP {
+            set.clear();
+        }
+        set.insert(key);
     }
 }
 
-/// Creates `dir` and its missing ancestors one component at a time, top down, publishing each
-/// new directory by syncing its parent before going on (Unix). An ancestor that already exists
-/// but is recorded as unpublished (see [`unpublished`]) gets its parent synced now. A failed
-/// sync is [`FsError::DirSyncFailed`]; the directories already made stay, and a retry completes
-/// the sync. New directories are `0700` when `owner_only`. Elsewhere there is no directory flush,
-/// so nothing is done here and the caller's ordinary creation runs.
+/// Creates `dir` and its missing ancestors one component at a time, top down, and makes the link
+/// of every component this process has not yet published durable by syncing its parent before
+/// going on (Unix). That covers the directories this call makes **and** the ones it merely finds:
+/// a directory another process, a crashed earlier run or a concurrent thread made may have been
+/// created without its parent having been synced, and nothing on disk says so. The sync is owed
+/// for a directory owned by the effective user (see `published::owed`) and happens once per
+/// directory per process. A failed sync is [`FsError::DirSyncFailed`]; the directories already
+/// made stay, and a retry syncs again. New directories are `0700` when `owner_only`, and on macOS
+/// are refused ([`FsError::UnsafeAcl`]) under a parent whose ACL would give them an `allow`
+/// entry. Elsewhere there is no directory flush, so only the ordinary creation runs.
+///
+/// Unlike [`AtomicWriter::create_with`] this makes no file; it is the directory half of a durable
+/// `create_parents` write, for callers (a lock file, a settings file) that create a file some
+/// other way below a directory this has made durable.
+pub fn create_dir_all_durable(dir: &Path, owner_only: bool) -> Result<()> {
+    create_dirs_durable(dir, owner_only)?;
+    if owner_only {
+        crate::private::ensure_private_dir(dir)
+    } else {
+        fs::create_dir_all(dir).map_err(|e| FsError::io(dir, e))
+    }
+}
+
 #[cfg(unix)]
 fn create_dirs_durable(dir: &Path, owner_only: bool) -> Result<()> {
-    use std::os::unix::fs::{DirBuilderExt, MetadataExt};
+    use std::os::unix::fs::DirBuilderExt;
     if dir.as_os_str().is_empty() {
         return Ok(());
     }
@@ -827,32 +991,35 @@ fn create_dirs_durable(dir: &Path, owner_only: bool) -> Result<()> {
         match fs::symlink_metadata(path) {
             Ok(_) => {}
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                if owner_only {
+                    crate::acl::guard_parent_path(&parent_of(path), path)?;
+                }
                 let mut builder = fs::DirBuilder::new();
                 if owner_only {
                     builder.mode(0o700);
                 }
                 match builder.create(path) {
-                    Ok(()) => created = true,
+                    Ok(()) => {
+                        created = true;
+                        if owner_only {
+                            if let Err(error) = crate::acl::scrub_created_path(path) {
+                                let _ = fs::remove_dir(path);
+                                return Err(error);
+                            }
+                        }
+                    }
                     Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {}
                     Err(e) => return Err(FsError::io(path, e)),
                 }
             }
             Err(e) => return Err(FsError::io(path, e)),
         }
-        // Only a real directory (not a link to one) can be an entry this call or an earlier one
-        // created, so only that is keyed.
-        let key = fs::symlink_metadata(path)
-            .ok()
-            .filter(|m| m.is_dir())
-            .map(|m| (m.dev(), m.ino()));
-        let mut needed = created;
-        if let Some(key) = key {
-            if created {
-                unpublished::insert(key);
-            } else if unpublished::contains(key) {
-                needed = true;
-            }
-        }
+        // Looked at again after the creation: only a real directory (not a link to one) is keyed.
+        let meta = fs::symlink_metadata(path).ok().filter(|m| m.is_dir());
+        let (needed, key) = match &meta {
+            Some(meta) => published::owed(meta, created),
+            None => (false, None),
+        };
         if !needed || path.parent().is_none() {
             continue;
         }
@@ -861,7 +1028,7 @@ fn create_dirs_durable(dir: &Path, owner_only: bool) -> Result<()> {
             source,
         })?;
         if let Some(key) = key {
-            unpublished::remove(key);
+            published::mark(key);
         }
     }
     Ok(())
@@ -1249,7 +1416,79 @@ fn replace_step(
             }
         }
     })();
-    outcome.map_err(|error| classify_partial(error, temp, target, backup.as_deref()))
+    outcome
+        .map_err(|error| classify_partial(error, temp, target, backup.as_deref()))
+        .map_err(|error| protect_partial(error, target))
+}
+
+/// A unique sibling name the new content of an interrupted replace is moved to:
+/// `.<name>.rktnew-<pid>-<n>-<nanos in hex>`. Like the backup name it is not a `.rktmp-` name, so
+/// no sweep ever reclaims it; unlike a temp name it is not a claim that a live writer owns it.
+fn recovery_path(target: &Path) -> PathBuf {
+    let name = target
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    let n = COUNTER.fetch_add(1, Ordering::Relaxed);
+    let nanos = SystemTime::now()
+        .duration_since(SystemTime::UNIX_EPOCH)
+        .map(|d| d.subsec_nanos())
+        .unwrap_or(0);
+    parent_of(target).join(format!(
+        ".{name}.rktnew-{}-{n}-{nanos:x}",
+        std::process::id()
+    ))
+}
+
+/// Moves the temp file that holds the only copy of the new content to a [`recovery_path`] name,
+/// exclusively (never over anything). On the `link` fallback of the exclusive rename the old
+/// name may remain as a second name for the same inode; the recovery name has the full content
+/// either way, which is all this needs.
+fn move_to_recovery_name(temp: &Path, target: &Path) -> std::io::Result<PathBuf> {
+    #[cfg(feature = "testing")]
+    if let Some(error) = testing::recovery_move_failure() {
+        return Err(error);
+    }
+    let mut last = None;
+    for _ in 0..TEMP_ATTEMPTS {
+        let to = recovery_path(target);
+        match rename_exclusive_io(temp, &to) {
+            Ok(_) => return Ok(to),
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => last = Some(e),
+            Err(e) => return Err(e),
+        }
+    }
+    Err(last.unwrap_or_else(|| std::io::Error::other("recovery name collisions")))
+}
+
+/// For an interrupted replace, moves the new content out of its sweepable temp name, so that
+/// neither a sweep nor the writer's own cleanup can delete the only copy, and rewrites the error
+/// to name where it now is. If the move fails the temp stays where it is (and stays sweepable):
+/// the error then says so, in its message, because there is nothing else left to protect it with.
+/// Any other error passes through unchanged.
+fn protect_partial(error: std::io::Error, target: &Path) -> std::io::Error {
+    let kind = error.kind();
+    let mut partial = match PartialReplace::take(error) {
+        Err(error) => return error,
+        Ok(partial) => partial,
+    };
+    if let Some(temp) = partial.new_content.take() {
+        partial.new_content = Some(match move_to_recovery_name(&temp, target) {
+            Ok(recovery) => recovery,
+            Err(moved) => {
+                partial.source = std::io::Error::new(
+                    partial.source.kind(),
+                    format!(
+                        "{}; the new content could not be moved out of the sweepable temp name {} ({moved}) and a temp sweep may delete it",
+                        partial.source,
+                        temp.display()
+                    ),
+                );
+                temp
+            }
+        });
+    }
+    std::io::Error::new(kind, partial)
 }
 
 #[cfg(windows)]
@@ -1358,6 +1597,7 @@ pub mod testing {
         static STEPS: RefCell<Vec<Step>> = const { RefCell::new(Vec::new()) };
         static DIR_SYNC_FAILURE: Cell<Option<std::io::ErrorKind>> = const { Cell::new(None) };
         static LINK_FALLBACK: Cell<Option<bool>> = const { Cell::new(None) };
+        static RECOVERY_MOVE_FAILS: Cell<bool> = const { Cell::new(false) };
     }
 
     /// Removes the hook when dropped.
@@ -1401,10 +1641,24 @@ pub mod testing {
         HookGuard(|| LINK_FALLBACK.with(|f| f.set(None)))
     }
 
+    /// Make the move of an interrupted replace's new content to its recovery name
+    /// (`.<name>.rktnew-...`) fail on this thread, so the "could not be protected" outcome of
+    /// [`FsError::ReplaceInterrupted`](crate::FsError::ReplaceInterrupted) can be produced.
+    pub fn fail_recovery_move() -> HookGuard {
+        RECOVERY_MOVE_FAILS.with(|f| f.set(true));
+        HookGuard(|| RECOVERY_MOVE_FAILS.with(|f| f.set(false)))
+    }
+
     /// The flushes, replaces and directory syncs this thread's atomic writes made since the last
     /// call, in order. Empties the log.
     pub fn take_steps() -> Vec<Step> {
         STEPS.with(|steps| std::mem::take(&mut *steps.borrow_mut()))
+    }
+
+    pub(super) fn recovery_move_failure() -> Option<std::io::Error> {
+        RECOVERY_MOVE_FAILS
+            .with(Cell::get)
+            .then(|| std::io::Error::other("injected recovery move failure"))
     }
 
     pub(super) fn record(step: Step) {
@@ -1861,6 +2115,52 @@ mod partial_replace_tests {
     }
 
     #[test]
+    fn the_new_content_is_moved_to_a_name_no_sweep_matches() {
+        let (_d, target, temp, _backup) = setup(false, true, false);
+        // A temp name as `temp_name` makes it, holding the only copy of the new content.
+        let temp_named = temp.with_file_name(temp_name("t", 0));
+        fs::rename(&temp, &temp_named).unwrap();
+        let error = protect_partial(
+            classify_partial(code(1177), &temp_named, &target, None),
+            &target,
+        );
+        let partial = PartialReplace::take(error).expect("still a partial replace");
+        let recovery = partial.new_content.expect("the new content is named");
+        assert_ne!(recovery, temp_named);
+        assert!(!temp_named.exists(), "the sweepable name is gone");
+        assert_eq!(fs::read(&recovery).unwrap(), b"x");
+        let name = recovery.file_name().unwrap().to_string_lossy().into_owned();
+        assert!(name.starts_with(".t.rktnew-"), "{name}");
+        assert_eq!(generated_temp_pid(&name), None, "{name}");
+        // The sweep, at zero age, leaves it alone.
+        assert_eq!(
+            sweep_stale_temps(recovery.parent().unwrap(), Duration::ZERO).unwrap(),
+            0
+        );
+        assert!(recovery.exists());
+    }
+
+    #[test]
+    fn recovery_names_are_unique_and_never_swept_even_for_names_that_contain_the_marker() {
+        for target in ["/d/state.json", "/d/x.rktmp-1-2-3"] {
+            let target = Path::new(target);
+            let (a, b) = (recovery_path(target), recovery_path(target));
+            assert_ne!(a, b);
+            let name = a.file_name().unwrap().to_string_lossy().into_owned();
+            assert!(name.contains(".rktnew-"), "{name}");
+            assert_eq!(generated_temp_pid(&name), None, "{name}");
+            assert!(reject_reserved_name(&name).is_ok(), "{name}");
+        }
+    }
+
+    #[test]
+    fn an_ordinary_error_is_not_touched_by_protection() {
+        let (_d, target, _temp, _backup) = setup(true, true, false);
+        let error = protect_partial(code(5), &target);
+        assert_eq!(error.raw_os_error(), Some(5));
+    }
+
+    #[test]
     fn backup_names_are_unique_and_never_swept() {
         let target = Path::new("/d/state.json");
         let (a, b) = (backup_path(target), backup_path(target));
@@ -1895,6 +2195,41 @@ mod temp_name_tests {
             None,
             "no name before the marker"
         );
+    }
+
+    #[test]
+    fn windows_names_that_normalize_to_a_temp_name_are_reserved() {
+        // Win32 drops trailing spaces and periods and addresses `name:stream` as a stream of
+        // `name`: each of these is created as the reserved `.record.rktmp-123-1-0`.
+        for name in [
+            ".record.rktmp-123-1-0 ",
+            ".record.rktmp-123-1-0.",
+            ".record.rktmp-123-1-0. . ",
+            ".record.rktmp-123-1-0:stream",
+            ".record.rktmp-123-1-0::$DATA",
+            ".record.rktmp-123-1-ff-0 ",
+        ] {
+            assert!(
+                matches!(
+                    reject_reserved_name_on(true, name),
+                    Err(FsError::BadName(_))
+                ),
+                "{name:?} must be refused on Windows"
+            );
+            // Elsewhere those are different, legitimate names.
+            assert!(reject_reserved_name_on(false, name).is_ok(), "{name:?}");
+        }
+        // Ordinary names, including ones with a space or period inside, are untouched.
+        for name in [
+            "record.json",
+            "my record.json",
+            "a.b.c",
+            ".record.rktmp-1-final ",
+        ] {
+            assert!(reject_reserved_name_on(true, name).is_ok(), "{name:?}");
+        }
+        assert_eq!(windows_stored_name("a. ."), "a");
+        assert_eq!(windows_stored_name("a:b"), "a");
     }
 
     #[test]
@@ -1992,5 +2327,48 @@ mod retry_tests {
         });
         assert!(result.is_err());
         assert_eq!(calls.get(), 1);
+    }
+}
+
+#[cfg(all(test, unix))]
+mod published_tests {
+    use super::published;
+    use std::os::unix::fs::MetadataExt;
+
+    #[test]
+    fn a_foreign_owned_directory_is_never_owed() {
+        // SAFETY: geteuid has no preconditions.
+        if unsafe { libc::geteuid() } == 0 {
+            return; // as root every directory is owned by the caller
+        }
+        let root = std::fs::metadata("/").unwrap();
+        assert_ne!(root.uid(), unsafe { libc::geteuid() }, "`/` is not ours");
+        assert!(
+            !published::owed(&root, false).0,
+            "not this user's link to publish"
+        );
+        assert!(
+            published::owed(&root, true).0,
+            "a directory this call made is always owed"
+        );
+    }
+
+    #[test]
+    fn a_published_directory_is_not_owed_again_and_an_unknown_one_is() {
+        let dir = tempfile::tempdir().unwrap();
+        let meta = std::fs::symlink_metadata(dir.path()).unwrap();
+        let (owed, key) = published::owed(&meta, false);
+        assert!(owed, "unknown and ours: owed");
+        published::mark(key.expect("a directory has a key"));
+        assert!(!published::owed(&meta, false).0, "recorded after its sync");
+        assert!(!published::owed(&meta, true).0, "recorded is recorded");
+        let file = dir.path().join("f");
+        std::fs::write(&file, b"x").unwrap();
+        let file_meta = std::fs::symlink_metadata(&file).unwrap();
+        assert_eq!(
+            published::owed(&file_meta, false).1,
+            None,
+            "files are never keyed"
+        );
     }
 }

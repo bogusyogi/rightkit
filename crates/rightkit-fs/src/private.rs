@@ -14,6 +14,8 @@ pub const DIR_MODE_OWNER_ONLY: u32 = 0o700;
 
 /// Narrow an existing file or directory to owner-only. A missing path is a no-op.
 /// Symlinks are never followed on unix: a symlink is refused rather than chmod-ing its target.
+/// On macOS the entry's extended ACL is removed as well as its mode narrowed
+/// ([`FsError::UnsafeAcl`] if it cannot be).
 pub fn restrict_owner_only(path: &Path) -> Result<()> {
     restrict_owner_only_impl(path)
 }
@@ -34,11 +36,28 @@ fn restrict_owner_only_impl(path: &Path) -> Result<()> {
     } else {
         FILE_MODE_OWNER_ONLY
     };
-    if meta.permissions().mode() & 0o7777 == mode {
-        return Ok(());
+    if meta.permissions().mode() & 0o7777 != mode {
+        std::fs::set_permissions(path, std::fs::Permissions::from_mode(mode))
+            .map_err(|e| FsError::io(path, e))?;
     }
-    std::fs::set_permissions(path, std::fs::Permissions::from_mode(mode))
-        .map_err(|e| FsError::io(path, e))
+    // The mode bits are only half of the guarantee: on macOS an ACL `allow` entry is evaluated
+    // before them, so a `0600` file can still be readable by others. Remove any ACL (the mode is
+    // already tight, so the descriptor can be opened), failing closed if one stays.
+    if cfg!(target_os = "macos") && (meta.is_file() || meta.is_dir()) {
+        let file = open_no_follow(path).map_err(|e| FsError::io(path, e))?;
+        crate::acl::strip(&file, path)?;
+    }
+    Ok(())
+}
+
+/// Opens `path` read-only without following a link at its name.
+#[cfg(unix)]
+fn open_no_follow(path: &Path) -> std::io::Result<std::fs::File> {
+    use std::os::unix::fs::OpenOptionsExt;
+    std::fs::OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC)
+        .open(path)
 }
 
 #[cfg(not(any(unix, windows)))]
@@ -46,15 +65,28 @@ fn restrict_owner_only_impl(_path: &Path) -> Result<()> {
     Ok(())
 }
 
-/// True when no group/other access exists on unix; on Windows true when the DACL is not
-/// inherited-open (approximated by a successful hardening having been applied: always true
-/// here, callers needing proof use `restrict_owner_only` and trust its error).
+/// True when no group/other access exists on unix: no group or other mode bits and, on macOS, no
+/// extended ACL (an `allow` entry is evaluated before the mode bits). On macOS an entry that
+/// cannot be opened to read its ACL is reported as not owner-only, because that cannot be
+/// proven. On Windows true when the DACL is not inherited-open (approximated by a successful
+/// hardening having been applied: always true here, callers needing proof use
+/// `restrict_owner_only` and trust its error).
 pub fn is_owner_only(path: &Path) -> Result<bool> {
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
         let meta = std::fs::symlink_metadata(path).map_err(|e| FsError::io(path, e))?;
-        Ok(meta.permissions().mode() & 0o077 == 0)
+        if meta.permissions().mode() & 0o077 != 0 {
+            return Ok(false);
+        }
+        if cfg!(target_os = "macos") && (meta.is_file() || meta.is_dir()) {
+            return match open_no_follow(path) {
+                Ok(file) => Ok(!crate::acl::has_acl(&file, path)?),
+                Err(e) if e.kind() == std::io::ErrorKind::PermissionDenied => Ok(false),
+                Err(e) => Err(FsError::io(path, e)),
+            };
+        }
+        Ok(true)
     }
     #[cfg(not(unix))]
     {
@@ -65,7 +97,10 @@ pub fn is_owner_only(path: &Path) -> Result<bool> {
 
 /// Create `dir` and any missing ancestors. Each *newly created* directory is owner-only
 /// before a child is created inside it; pre-existing ancestors are left alone, and the leaf
-/// is always hardened. A symlinked leaf is refused.
+/// is always hardened. A symlinked leaf is refused. This does not sync directories: it is not a
+/// durable operation (the durable form is [`crate::atomic::create_dir_all_durable`]). On macOS a
+/// directory is not created under a parent whose ACL would give it an `allow` entry
+/// ([`FsError::UnsafeAcl`]).
 pub fn ensure_private_dir(dir: &Path) -> Result<()> {
     if dir.as_os_str().is_empty() {
         return Err(FsError::io(
@@ -97,9 +132,20 @@ fn create_private_dir_one(path: &Path) -> Result<()> {
     #[cfg(unix)]
     let result = {
         use std::os::unix::fs::DirBuilderExt;
-        std::fs::DirBuilder::new()
+        // macOS: refuse a parent whose ACL would give the new directory an `allow` entry.
+        if let Some(parent) = path.parent().filter(|p| !p.as_os_str().is_empty()) {
+            crate::acl::guard_parent_path(parent, path)?;
+        }
+        let made = std::fs::DirBuilder::new()
             .mode(DIR_MODE_OWNER_ONLY)
-            .create(path)
+            .create(path);
+        if made.is_ok() {
+            if let Err(error) = crate::acl::scrub_created_path(path) {
+                let _ = std::fs::remove_dir(path);
+                return Err(error);
+            }
+        }
+        made
     };
     #[cfg(not(unix))]
     let result = std::fs::create_dir(path);
@@ -155,7 +201,21 @@ fn create_private_new_impl(path: &Path) -> Result<std::fs::File> {
             .mode(FILE_MODE_OWNER_ONLY)
             .custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC);
     }
+    // macOS: refuse a parent whose ACL would give the new file an `allow` entry, before creating.
+    #[cfg(unix)]
+    crate::acl::guard_parent_path(
+        path.parent()
+            .filter(|p| !p.as_os_str().is_empty())
+            .unwrap_or(Path::new(".")),
+        path,
+    )?;
     let file = options.open(path).map_err(|e| FsError::io(path, e))?;
+    #[cfg(unix)]
+    if let Err(error) = crate::acl::scrub_created(&file, path) {
+        drop(file);
+        let _ = std::fs::remove_file(path);
+        return Err(error);
+    }
     #[cfg(not(unix))]
     restrict_owner_only(path)?;
     Ok(file)
