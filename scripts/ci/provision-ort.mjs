@@ -29,7 +29,7 @@ function usable(record, library) {
   if (!record.archive || !HEX.test(record.archive.sha256 ?? "") || !/^https:\/\//.test(record.archive.url ?? "")) {
     throw new Error(`catalog record ${record.id} has no https archive with a sha256`);
   }
-  if (!HEX.test(record.sha256 ?? "") || !record.artifactFileName || /[\/]/.test(record.artifactFileName)) {
+  if (!HEX.test(record.sha256 ?? "") || !record.artifactFileName || /[\\/]/.test(record.artifactFileName)) {
     throw new Error(`catalog record ${record.id} has no file name and sha256 for the ${library} file`);
   }
   return record;
