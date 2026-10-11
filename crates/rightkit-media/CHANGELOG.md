@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Native catalog: `onnxruntime-1.24.4-windows-x64-directml` moves from `planned` to `pinned`:
+  `onnxruntime.dll` from the NuGet package `Microsoft.ML.OnnxRuntime.DirectML` 1.24.4, with the
+  package and file digests and the package's own `ThirdPartyNotices.txt`. Not resolvable as
+  approved until rightkit-ort has loaded it. `DirectML.dll` has no record: its Microsoft licence
+  terms are not on the suite's approved list.
 - Windows x86_64 catalog rows, both `pending`: `ffmpeg-7.1.5-export-ass-zimg-windows-x64` (libass
   through DirectWrite, FreeType, HarfBuzz, FriBidi, zimg, zlib, Media Foundation `h264_mf`) and
   `ffprobe-7.1.5-windows-x64` (`decode`). Recipe: `recipes/build-ffmpeg-windows.sh` (MSYS2
