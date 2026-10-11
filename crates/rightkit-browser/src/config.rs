@@ -723,6 +723,9 @@ mod tests {
         let temp = tempfile::tempdir().unwrap();
         let root = temp.path().join("managed Chrome for Testing");
         let puppeteer = temp.path().join("puppeteer");
+        // An empty stand-in, so discovery does not list the user's own Playwright folder.
+        let playwright = temp.path().join("ms-playwright");
+        std::fs::create_dir(&playwright).unwrap();
         let older = managed_executable(&root, "129.99.0.0");
         let recent = managed_executable(&root, "130.2.0.0");
         let newest = managed_executable(&root, "130.10.0.0");
@@ -743,6 +746,7 @@ mod tests {
             (CHROME_FOR_TESTING_ROOT_ENV, Some(&root)),
             (CHROME_FOR_TESTING_ENV, None),
             ("PUPPETEER_CACHE_DIR", Some(&puppeteer)),
+            ("PLAYWRIGHT_BROWSERS_PATH", Some(&playwright)),
         ]);
         let candidates = chrome_for_testing_candidates();
         assert_eq!(&candidates[..3], &[newest.clone(), recent.clone(), older]);

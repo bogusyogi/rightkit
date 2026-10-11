@@ -5,6 +5,11 @@ version is `0.x`, a minor bump may carry breaking changes.
 
 ## Unreleased
 
+- Tests: the two Windows tests that write under `HKEY_CURRENT_USER` (`devtools_policy.rs` real key, all of
+  `autostart_registry_windows.rs`) run only on CI (`GITHUB_ACTIONS=true`) or with `RIGHTKIT_TEST_REAL_USER_STORES=1`, and otherwise print why and pass;
+  each asserts its key starts with its test prefix, and the DevTools key is removed however the test ends. The HTTP
+  cache directory test uses a temporary root instead of creating a folder under the user's cache root. Shared helper:
+  `tests/common/mod.rs`. No product change.
 - **Windows: a policy that substitutes the browser runtime is refused, and the port-file tripwire looks where the browser
   really writes (ledger 180, findings 7 and 8).** `guard_process_start` now refuses the WebView2 `BrowserExecutableFolder`
   policy when a value applies to this program (`DevToolsError::BrowserRuntimeRedirected { source, folder }`, code

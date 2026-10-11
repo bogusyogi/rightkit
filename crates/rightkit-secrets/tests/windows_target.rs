@@ -6,6 +6,8 @@
 use rightkit_secrets::{system_backend, Error, Interaction, Namespace, Secret, WindowsTarget};
 use std::time::{SystemTime, UNIX_EPOCH};
 
+mod common;
+
 struct Cleanup(Namespace, &'static str);
 
 impl Drop for Cleanup {
@@ -24,6 +26,11 @@ fn slash(service: &str, prefix: String) -> Namespace {
 
 #[test]
 fn a_prefix_with_nul_cannot_reach_the_credential_it_would_truncate_to() {
+    if !common::real_user_stores_allowed(
+        "a_prefix_with_nul_cannot_reach_the_credential_it_would_truncate_to",
+    ) {
+        return;
+    }
     let base = format!(
         "rk-secrets-nul-{}-{}",
         std::process::id(),
@@ -32,6 +39,7 @@ fn a_prefix_with_nul_cannot_reach_the_credential_it_would_truncate_to() {
             .unwrap()
             .as_nanos()
     );
+    common::assert_test_name(&base, "rk-secrets-");
     let ni = Interaction::NonInteractive;
     let backend = system_backend();
 
@@ -70,6 +78,11 @@ fn a_prefix_with_nul_cannot_reach_the_credential_it_would_truncate_to() {
 
 #[test]
 fn services_sharing_a_prefix_see_one_credential_and_conditional_delete_is_atomic() {
+    if !common::real_user_stores_allowed(
+        "services_sharing_a_prefix_see_one_credential_and_conditional_delete_is_atomic",
+    ) {
+        return;
+    }
     let base = format!(
         "rk-secrets-shared-{}-{}",
         std::process::id(),
@@ -78,6 +91,7 @@ fn services_sharing_a_prefix_see_one_credential_and_conditional_delete_is_atomic
             .unwrap()
             .as_nanos()
     );
+    common::assert_test_name(&base, "rk-secrets-");
     let ni = Interaction::NonInteractive;
     let backend = system_backend();
     let a = slash("dev.rightkit.secrets.shared.a", base.clone());

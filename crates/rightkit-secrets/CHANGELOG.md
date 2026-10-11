@@ -2,6 +2,10 @@
 
 ## 0.1.4
 
+- Tests: the Windows tests that write to the real Credential Manager (`tests/store.rs` round trip, `windows_target.rs`,
+  `windows_lock.rs`, `windows_keyring_compat.rs`) run only on CI (`GITHUB_ACTIONS=true`) or with `RIGHTKIT_TEST_REAL_USER_STORES=1`, and otherwise print why and pass.
+  Each asserts that the name it writes starts with its own test prefix, and the round trip now removes its credential
+  however it ends. Shared helper: `tests/common/mod.rs`. No product change.
 - **Publication-path reduction (2026-10-11), after `docs/audits/2026-10-11-astra-publication-path-consult.md`
   and the fifth read (`docs/audits/2026-10-11-astra-secrets-fifth-read.md`). Removes optional
   machinery, keeps the proven fixes and adds no platform call. 0.1.4 is unreleased and, like the

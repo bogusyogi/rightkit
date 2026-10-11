@@ -77,12 +77,27 @@ fn secret_debug_output_is_redacted() {
 }
 
 #[cfg(windows)]
+mod common;
+
+#[cfg(windows)]
 #[test]
 fn windows_credential_manager_real_round_trip() {
+    if !common::real_user_stores_allowed("windows_credential_manager_real_round_trip") {
+        return;
+    }
     let service = format!("dev.rightkit.secrets.e2e.{}", std::process::id());
+    common::assert_test_name(&service, "dev.rightkit.secrets.e2e.");
     let store = Store::open(
         Config::new(Namespace::new(&service).unwrap()).backend(rightkit_secrets::system_backend()),
     );
+    /// Removes the test credential however the test ends.
+    struct Cleanup<'a>(&'a Store);
+    impl Drop for Cleanup<'_> {
+        fn drop(&mut self) {
+            let _ = self.0.delete("probe");
+        }
+    }
+    let _cleanup = Cleanup(&store);
     let _ = store.delete("probe");
     store.set_str("probe", "credential-manager-value").unwrap();
     assert_eq!(
