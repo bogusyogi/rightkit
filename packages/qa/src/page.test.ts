@@ -244,16 +244,39 @@ describe('raw CDP', () => {
     expect(server.messages.filter((m) => m.method === 'Page.navigate')).toHaveLength(2);
   });
 
-  it('an aborted navigation with no other commit is thrown with its URL & not repeated', async () => {
+  it('on a page that has navigated, an abort with no other commit is thrown with its URL & not repeated', async () => {
+    let navigations = 0;
     const { page, server } = await fixture((message, send) => {
-      if (message.method === 'Page.navigate') send({ id: message.id, result: { errorText: 'net::ERR_ABORTED' } });
-      else pageResponder(message, send);
+      if (message.method === 'Page.navigate') {
+        navigations += 1;
+        if (navigations === 1) {
+          send({ method: 'Page.lifecycleEvent', sessionId: 'session', params: { frameId: 'main', loaderId: 'new', name: 'load' } });
+          send({ id: message.id, result: { frameId: 'main', loaderId: 'new' } });
+        } else send({ id: message.id, result: { errorText: 'net::ERR_ABORTED' } });
+      } else pageResponder(message, send);
     });
+    await page.goto('https://fixture');
     await expect(page.goto('https://fixture/download')).rejects.toThrow('Navigation failed: net::ERR_ABORTED (https://fixture/download)');
-    expect(server.messages.filter((m) => m.method === 'Page.navigate')).toHaveLength(1);
+    expect(server.messages.filter((m) => m.method === 'Page.navigate')).toHaveLength(2);
   });
 
-  it('a second abort after the one repeat is thrown', async () => {
+  it('the first navigation of a page is repeated after an abort even with no commit seen, then succeeds', async () => {
+    let navigations = 0;
+    const { page, server } = await fixture((message, send) => {
+      if (message.method === 'Page.navigate') {
+        navigations += 1;
+        if (navigations < 3) send({ id: message.id, result: { errorText: 'net::ERR_ABORTED' } });
+        else {
+          send({ method: 'Page.lifecycleEvent', sessionId: 'session', params: { frameId: 'main', loaderId: 'new', name: 'load' } });
+          send({ id: message.id, result: { frameId: 'main', loaderId: 'new' } });
+        }
+      } else pageResponder(message, send);
+    }, 2000);
+    await page.goto('https://fixture');
+    expect(server.messages.filter((m) => m.method === 'Page.navigate')).toHaveLength(3);
+  });
+
+  it('repeats are bounded: a navigation aborted every time is thrown after four repeats', async () => {
     const { page, server } = await fixture((message, send) => {
       if (message.method === 'Page.navigate') {
         send({ method: 'Page.frameNavigated', sessionId: 'session', params: { frame: { id: 'main', loaderId: 'blank', url: 'about:blank' } } });
@@ -261,7 +284,32 @@ describe('raw CDP', () => {
       } else pageResponder(message, send);
     });
     await expect(page.goto('https://fixture')).rejects.toThrow('net::ERR_ABORTED');
-    expect(server.messages.filter((m) => m.method === 'Page.navigate')).toHaveLength(2);
+    expect(server.messages.filter((m) => m.method === 'Page.navigate')).toHaveLength(5);
+  });
+
+  it('newPage waits until the tab\'s own first navigation has committed & its loader is stable', async () => {
+    let histories = 0;
+    const { server } = await fixture((message, send) => {
+      if (message.method === 'Page.getNavigationHistory') {
+        histories += 1;
+        // Nothing committed for the first three polls, then about:blank.
+        send({ id: message.id, result: { currentIndex: 0, entries: [{ url: histories <= 3 ? '' : 'about:blank' }] } });
+      } else if (message.method === 'Page.getFrameTree') {
+        send({ id: message.id, result: { frameTree: { frame: { id: 'main', loaderId: histories <= 3 ? 'initial' : 'blank' } } } });
+      } else pageResponder(message, send);
+    });
+    // Three polls with nothing committed, then two with the same committed loader.
+    expect(server.messages.filter((m) => m.method === 'Page.getNavigationHistory')).toHaveLength(5);
+  });
+
+  it('newPage does not wait on a browser that never commits or does not answer the history query', async () => {
+    const start = Date.now();
+    const { page } = await fixture((message, send) => {
+      if (message.method === 'Page.getNavigationHistory') send({ id: message.id, error: { code: -32601, message: 'not found' } });
+      else pageResponder(message, send);
+    });
+    expect(Date.now() - start).toBeLessThan(400);
+    await page.close();
   });
 
   it('networkidle0 observes 500ms with zero requests & resets on brief bursts', async () => {
