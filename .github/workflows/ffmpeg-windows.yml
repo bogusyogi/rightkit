@@ -75,6 +75,22 @@ jobs:
           bash "$recipe" build --variant "$VARIANT" --tool "$TOOL" \
             --sources "$temp/sources" --work "$temp/work" --out "$(pwd)/ffmpeg-out"
 
+      # Promotion evidence for the catalogue row (crates/rightkit-media/tests/promote_evidence_windows.rs):
+      # the crate's own content identity, sha256 and size of the built binary; ffprobe reads a committed
+      # fixture; ffmpeg runs the h264_mf, subtitles, drawtext and zscale+tonemap smokes. Evidence lands in
+      # the .evidence folder that the artifact already uploads. A hosted runner has only the software MFT.
+      - uses: dtolnay/rust-toolchain@f8be11a05b1d4f3fcebe6410cc16743212b999b0
+        if: ${{ inputs.tool == 'ffprobe' || (inputs.tool == 'ffmpeg' && inputs.variant == 'export-ass-zimg') }}
+      - name: Promotion evidence on the built binary
+        if: ${{ inputs.tool == 'ffprobe' || (inputs.tool == 'ffmpeg' && inputs.variant == 'export-ass-zimg') }}
+        shell: pwsh
+        env:
+          RIGHTKIT_MEDIA_PROMOTE_EVIDENCE: ${{ github.workspace }}\ffmpeg-out\${{ inputs.tool }}-${{ inputs.variant }}-windows-x64.evidence
+        run: |
+          $exe = Join-Path $env:GITHUB_WORKSPACE "ffmpeg-out\$env:TOOL-$env:VARIANT-windows-x64.exe"
+          if ($env:TOOL -eq 'ffprobe') { $env:RIGHTKIT_MEDIA_PROMOTE_FFPROBE = $exe } else { $env:RIGHTKIT_MEDIA_PROMOTE_FFMPEG = $exe }
+          cargo test -p rightkit-media --test promote_evidence_windows -- --nocapture
+
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: ${{ inputs.tool }}-${{ inputs.variant }}-windows-x64
