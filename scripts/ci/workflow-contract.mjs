@@ -16,6 +16,28 @@ export const UPLOAD_IF = "${{ needs.plan.outputs.count != '0' && needs.plan.outp
 export const NPM_STEP_IF = "${{ needs.plan.outputs.registry == 'npm' }}";
 export const CRATES_STEP_IF = "${{ needs.plan.outputs.registry == 'crates' }}";
 export const TOKEN_ENV = { NODE_AUTH_TOKEN: "${{ secrets.NPM_TOKEN }}", CARGO_REGISTRY_TOKEN: "${{ secrets.CARGO_REGISTRY_TOKEN }}" };
+const RT = "${{ runner.temp }}";
+const PLAN_OUT = (name) => `\${{ needs.plan.outputs.${name} }}`;
+export const PUBLISH_ENV = {
+  PUBLISH_REGISTRY: PLAN_OUT("registry"), PUBLISH_UNITS: PLAN_OUT("units"), PUBLISH_ALLOW_HOST_EXCLUSION: PLAN_OUT("allow_host_exclusion"),
+  PUBLISH_ALLOW_NO_TEST: PLAN_OUT("allow_no_test"), PUBLISH_ALLOW_IGNORED: PLAN_OUT("allow_ignored"), PUBLISH_ALLOW_MISSING_ASSETS: PLAN_OUT("allow_missing_assets"),
+};
+// The privileged job, completely: these are the only job keys, step keys, steps, `with` keys and env keys it may carry.
+// Anything not listed (NODE_OPTIONS, NPM_CONFIG_*, any *_OPTIONS, PATH, a custom shell, a working directory, a container,
+// service containers, defaults, a step the list does not name) is a violation, because the upload job holds the tokens.
+export const UPLOAD_JOB_KEYS = ["environment", "if", "needs", "permissions", "runs-on", "steps", "timeout-minutes"];
+export const UPLOAD_STEP_KEYS = ["env", "if", "name", "run", "uses", "with"];
+export const UPLOAD_STEPS = [
+  { uses: "actions/checkout@", with: { "persist-credentials": "false", "sparse-checkout": "scripts/ci/upload.mjs", "sparse-checkout-cone-mode": "false" }, env: [] },
+  { uses: "actions/setup-node@", with: { "node-version": /^\d+\.\d+\.\d+$/, "package-manager-cache": "false" }, env: [] },
+  { uses: "actions/download-artifact@", with: { name: "publish-packed", path: `${RT}/sealed/packed` }, env: [] },
+  { uses: "actions/download-artifact@", with: { pattern: "publish-receipt-verify-*", path: `${RT}/sealed/receipts` }, env: [] },
+  { uses: "actions/download-artifact@", with: { pattern: "publication-receipt", path: `${RT}/sealed/previous` }, env: [] },
+  { run: "node scripts/ci/upload.mjs run", with: {}, env: { ...PUBLISH_ENV, NODE_AUTH_TOKEN: TOKEN_ENV.NODE_AUTH_TOKEN } },
+  { run: "node scripts/ci/upload.mjs run", with: {}, env: { ...PUBLISH_ENV, CARGO_REGISTRY_TOKEN: TOKEN_ENV.CARGO_REGISTRY_TOKEN } },
+  { uses: "actions/upload-artifact@", with: { name: "publication-receipt", path: `${RT}/publication-receipt`, "retention-days": "90", overwrite: "true", "if-no-files-found": "ignore" }, env: [] },
+];
+const HAZARD_ENV = /^(?:NODE_OPTIONS|NODE_PATH|PATH|LD_[A-Z_]+|DYLD_[A-Z_]+|BASH_ENV|ENV|SHELLOPTS|PS4|GITHUB_(?:ENV|PATH)|NPM_CONFIG_.*|.*_OPTIONS)$/i;
 const SEAL_CHECK_RUN = "node scripts/ci/upload.mjs run --dry-run";
 const SEAL_CHECK_ACTIONS = ["actions/checkout@", "actions/setup-node@", "actions/download-artifact@", "actions/upload-artifact@"];
 const ALL_JOBS = ["guard", "plan", "pack", "verify", "seal-check", "upload"];
@@ -135,6 +157,30 @@ export function assertPublishDoc(doc, name = "publish.yml") {
   });
   check(secretRefs.every((h) => /^\.steps\[\d+\]\.env\.(NODE_AUTH_TOKEN|CARGO_REGISTRY_TOKEN)$/.test(h.path)), `the secrets context may appear only as the value of NODE_AUTH_TOKEN or CARGO_REGISTRY_TOKEN in a step env (found ${secretRefs.map((h) => h.path).join(", ")})`);
   check(upload?.env === undefined && upload?.defaults === undefined && upload?.uses === undefined && upload?.secrets === undefined, "upload has no job-level env, defaults, uses or secrets");
+  // The privileged job is closed: exact job keys, exact steps, exact step keys, exact `with` keys and env keys per step.
+  const extraJobKeys = Object.keys(upload ?? {}).filter((k) => !UPLOAD_JOB_KEYS.includes(k));
+  check(extraJobKeys.length === 0, `upload may carry only the keys ${UPLOAD_JOB_KEYS.join(", ")}, not ${extraJobKeys.join(", ")} (container, services, defaults, env, strategy, outputs and concurrency are forbidden there)`);
+  check(uploadSteps.length === UPLOAD_STEPS.length, `upload must have exactly ${UPLOAD_STEPS.length} steps (${UPLOAD_STEPS.map((x) => x.uses ?? "run").join(", ")}); found ${uploadSteps.length}`);
+  UPLOAD_STEPS.forEach((expected, i) => {
+    const step = uploadSteps[i];
+    if (!step) return;
+    const where = `upload step ${i} (${step.name ?? step.uses ?? "run"})`;
+    const stray = Object.keys(step).filter((k) => !UPLOAD_STEP_KEYS.includes(k));
+    check(stray.length === 0, `${where} may carry only the keys ${UPLOAD_STEP_KEYS.join(", ")}, not ${stray.join(", ")} (no shell, working-directory, id, timeout or continue-on-error)`);
+    if (expected.uses) check(typeof step.uses === "string" && step.uses.startsWith(expected.uses) && step.run === undefined, `${where} must be ${expected.uses}`);
+    else check(step.run !== undefined && step.uses === undefined && step.run.trim() === expected.run, `${where} must run exactly ${expected.run}`);
+    const withKeys = Object.keys(step.with ?? {});
+    check(same(sorted(withKeys), sorted(Object.keys(expected.with))), `${where} must carry exactly the with keys [${Object.keys(expected.with).join(", ")}], not [${withKeys.join(", ")}]`);
+    for (const [key, want] of Object.entries(expected.with)) {
+      const have = step.with?.[key];
+      check(have !== undefined && (want instanceof RegExp ? want.test(String(have)) : String(have) === want), `${where}: with.${key} must be ${want instanceof RegExp ? String(want) : JSON.stringify(want)}`);
+    }
+    const envKeys = Object.keys(step.env ?? {});
+    const wantEnv = Array.isArray(expected.env) ? {} : expected.env;
+    for (const key of envKeys) if (HAZARD_ENV.test(key)) check(false, `${where}: env ${key} is a startup-hook, search-path, option or npm-config override and is never allowed`);
+    check(same(sorted(envKeys), sorted(Object.keys(wantEnv))), `${where} must carry exactly the env keys [${Object.keys(wantEnv).join(", ")}], not [${envKeys.join(", ")}]`);
+    for (const [key, want] of Object.entries(wantEnv)) check(step.env?.[key] === undefined || String(step.env[key]).trim() === want, `${where}: env ${key} must be ${want}`);
+  });
   const checkout = uploadSteps.find((s) => /^actions\/checkout@/.test(s.uses ?? ""));
   check(checkout?.with?.["sparse-checkout"] === "scripts/ci/upload.mjs" && checkout?.with?.["sparse-checkout-cone-mode"] === "false", "upload must check out scripts/ci/upload.mjs and nothing else");
   const tokenEnv = (vars) => tokenSteps.filter(({ step }) => Object.keys(step.env ?? {}).some((k) => vars.includes(k)));
@@ -246,6 +292,52 @@ export const MUTATIONS = [
   ["seal-check uses an unlisted action", edit((j) => { j["seal-check"].steps.splice(2, 0, actionStep("pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86")); })],
   ["the Chrome pin step is told it is always a dry run", edit((j) => { j.verify.steps.find((x) => /provision-chrome/.test(x.run ?? "")).env.PUBLISH_DRY_RUN = "true"; })],
   ["the Chrome pin step loses its dry-run flag", edit((j) => { delete j.verify.steps.find((x) => /provision-chrome/.test(x.run ?? "")).env.PUBLISH_DRY_RUN; })],
+  // The privileged job is closed (audit finding 18): environment, step keys, `with` keys, step list and job keys.
+  ["the npm step gains NODE_OPTIONS (a preload runs with the token)", edit((j) => { j.upload.steps[5].env.NODE_OPTIONS = "--import=./evil.mjs"; })],
+  ["the crates step gains NODE_OPTIONS", edit((j) => { j.upload.steps[6].env.NODE_OPTIONS = "--require ./evil.cjs"; })],
+  ["the npm step gains NPM_CONFIG_SCRIPT_SHELL", edit((j) => { j.upload.steps[5].env.NPM_CONFIG_SCRIPT_SHELL = "/tmp/sh"; })],
+  ["the npm step gains a lower-case npm_config_ key", edit((j) => { j.upload.steps[5].env.npm_config_registry = "https://evil.invalid/"; })],
+  ["the crates step gains a *_OPTIONS key", edit((j) => { j.upload.steps[6].env.JAVA_TOOL_OPTIONS = "-javaagent:x.jar"; })],
+  ["the npm step gains PATH", edit((j) => { j.upload.steps[5].env.PATH = "/tmp/bin"; })],
+  ["the npm step gains a key outside the allow-list", edit((j) => { j.upload.steps[5].env.EXTRA = "1"; })],
+  ["the npm step loses a PUBLISH_ key", edit((j) => { delete j.upload.steps[5].env.PUBLISH_ALLOW_NO_TEST; })],
+  ["a PUBLISH_ key is rebound to a literal", edit((j) => { j.upload.steps[5].env.PUBLISH_UNITS = "@rightkit/anything"; })],
+  ["the checkout step gains an env block", edit((j) => { j.upload.steps[0].env = { NODE_OPTIONS: "--import=./evil.mjs" }; })],
+  ["the setup-node step gains PATH", edit((j) => { j.upload.steps[1].env = { PATH: "/tmp/bin" }; })],
+  ["a download step gains an env block", edit((j) => { j.upload.steps[2].env = { X: "1" }; })],
+  ["the receipt upload gains an env block", edit((j) => { j.upload.steps[7].env = { NODE_OPTIONS: "--import=./evil.mjs" }; })],
+  ["the npm step overrides the shell", edit((j) => { j.upload.steps[5].shell = "bash -c 'node --import ./evil.mjs {0}'"; })],
+  ["the crates step overrides the shell", edit((j) => { j.upload.steps[6].shell = "pwsh"; })],
+  ["the npm step changes its working directory", edit((j) => { j.upload.steps[5]["working-directory"] = "${{ runner.temp }}/sealed/packed"; })],
+  ["a step gains an id", edit((j) => { j.upload.steps[5].id = "publish"; })],
+  ["a step gains its own timeout", edit((j) => { j.upload.steps[5]["timeout-minutes"] = 1; })],
+  ["a run step gains a with block", edit((j) => { j.upload.steps[5].with = { x: "1" }; })],
+  ["an extra upload step repeats the uploader", edit((j) => { j.upload.steps.splice(7, 0, { name: "again", run: "node scripts/ci/upload.mjs run" }); })],
+  ["an extra upload step appends a checkout", edit((j) => { j.upload.steps.push({ uses: j.upload.steps[0].uses, with: { ...j.upload.steps[0].with } }); })],
+  ["an upload step is removed", edit((j) => { j.upload.steps.splice(4, 1); })],
+  ["upload steps are reordered", edit((j) => { const [x] = j.upload.steps.splice(5, 1); j.upload.steps.splice(2, 0, x); })],
+  ["the checkout gains a ref", edit((j) => { j.upload.steps[0].with.ref = "refs/heads/other"; })],
+  ["the checkout gains a repository", edit((j) => { j.upload.steps[0].with.repository = "someone/else"; })],
+  ["the checkout drops sparse-checkout-cone-mode", edit((j) => { delete j.upload.steps[0].with["sparse-checkout-cone-mode"]; })],
+  ["setup-node gains a cache", edit((j) => { j.upload.steps[1].with.cache = "npm"; })],
+  ["setup-node gains a registry-url", edit((j) => { j.upload.steps[1].with["registry-url"] = "https://evil.invalid/"; })],
+  ["setup-node drops package-manager-cache", edit((j) => { delete j.upload.steps[1].with["package-manager-cache"]; })],
+  ["a download takes another run id", edit((j) => { j.upload.steps[2].with["run-id"] = "1"; })],
+  ["a download takes another repository", edit((j) => { j.upload.steps[3].with.repository = "someone/else"; })],
+  ["a download merges into another path", edit((j) => { j.upload.steps[4].with["merge-multiple"] = "true"; })],
+  ["the packed download reads another artifact", edit((j) => { j.upload.steps[2].with.name = "other"; })],
+  ["the previous-receipt download reads a wider pattern", edit((j) => { j.upload.steps[4].with.pattern = "*"; })],
+  ["the previous-receipt download writes into the sealed bytes", edit((j) => { j.upload.steps[4].with.path = "${{ runner.temp }}/sealed/packed"; })],
+  ["the receipt upload gains a second path", edit((j) => { j.upload.steps[7].with.path = "${{ runner.temp }}/publication-receipt\n${{ runner.temp }}/sealed"; })],
+  ["the receipt upload drops overwrite", edit((j) => { delete j.upload.steps[7].with.overwrite; })],
+  ["upload gains defaults", edit((j) => { j.upload.defaults = { run: { shell: "bash", "working-directory": "/tmp" } }; })],
+  ["upload gains job-level NODE_OPTIONS", edit((j) => { j.upload.env = { NODE_OPTIONS: "--import=./evil.mjs" }; })],
+  ["upload gains a container", edit((j) => { j.upload.container = "evil.invalid/image:latest"; })],
+  ["upload gains services", edit((j) => { j.upload.services = { db: { image: "evil.invalid/db" } }; })],
+  ["upload gains a strategy", edit((j) => { j.upload.strategy = { matrix: { x: [1] } }; })],
+  ["upload gains job outputs", edit((j) => { j.upload.outputs = { x: "${{ steps.a.outputs.b }}" }; })],
+  ["upload gains a concurrency group", edit((j) => { j.upload.concurrency = "x"; })],
+  ["upload gains a display name that is a key outside the list", edit((j) => { j.upload["runs-on-labels"] = ["self-hosted"]; })],
   ["plan's dry_run output is rewritten", edit((j) => { j.plan.outputs.dry_run = "false"; })],
 ];
 

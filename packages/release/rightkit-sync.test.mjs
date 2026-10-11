@@ -225,6 +225,15 @@ for (const [registry, name, stagedKey, legacyKey] of [
   });
 }
 
+test("recordPublished logs and continues by default, and throws when strict (publish.mjs ledger)", async (context) => {
+  const options = await syncFixture(context, {});
+  const broken = { ...options, file: `${options.file}.missing` };
+  const lines = [];
+  recordPublished({ registry: "npm", name: "@rightkit/release", version: "0.2.10" }, { ...broken, log: (l) => lines.push(l) });
+  assert.match(lines.join("\n"), /release feed not updated/);
+  assert.throws(() => recordPublished({ registry: "npm", name: "@rightkit/release", version: "0.2.10" }, { ...broken, strict: true, log: () => {} }), /release feed not updated for @rightkit\/release 0\.2\.10/);
+});
+
 test("stage preserves prerelease legacy entries in semver order", async (context) => {
   const name = "@rightkit/release";
   const options = await syncFixture(context, {

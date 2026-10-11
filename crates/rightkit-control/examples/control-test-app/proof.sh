@@ -1,7 +1,7 @@
 #!/bin/sh
 # Manual end-to-end proof of the in-app control server over rightkit-service (macOS).
 # Build first (from rightkit):
-#   rightkit cargo test -p rightkit-control --features tauri-plugin --lib
+#   rightkit cargo test -p rightkit-control --features qa-control --lib
 #   rightkit cargo build --manifest-path crates/rightkit-control/examples/control-test-app/Cargo.toml
 #   rightkit cargo build -p rightkit-control -p rightkit-service -p rightkit-qa --bins --example svc_call
 # Then: TARGET=<workspace managed target>/debug APP_TARGET=<fixture managed target>/debug sh proof.sh

@@ -308,6 +308,7 @@ export function createManagedAppRoot(run: ManagedRun): string {
   ensureSafeDirectory(parent);
   const home = fs.mkdtempSync(path.join(parent, `${run.app.slice(0, 16)}-`));
   fs.writeFileSync(path.join(home, '.rightkit-app.json'), JSON.stringify({ runRoot: fs.realpathSync(run.root), app: run.app, runId: run.runId }), { flag: 'wx' });
+  fs.writeFileSync(path.join(home, HOME_MARKER), JSON.stringify({ schemaVersion: 1, pid: process.pid, startedAtMs: Date.now(), app: run.app, runId: run.runId }), { flag: 'wx' });
   run.marker.appRoot = home;
   writeMarker(run.root, run.marker);
   return home;
@@ -342,3 +343,185 @@ function copyAppTree(source: string, target: string): void {
     fs.copyFileSync(source, target);
   } else throw new Error('unsupported QA app evidence file');
 }
+
+// ---------------------------------------------------------------------------------------------
+// QA root hygiene: every home is removed when its run ends; dead homes are swept at run start;
+// a root over its size cap refuses to start another run. Mirrors the Rust crate's `storage`.
+
+/** Marker inside each home: the owning process and when the run started. */
+export const HOME_MARKER = '.rightkit-home.json';
+/** Bytes the whole `rightkit-qa` root may hold after the start-of-run sweep. `0` disables the cap. */
+export const ROOT_CAP_ENV = 'RIGHTKIT_QA_ROOT_CAP_BYTES';
+/** Seconds a home whose owner is dead must be old before the start-of-run sweep removes it. */
+export const HOME_MAX_AGE_ENV = 'RIGHTKIT_QA_HOME_MAX_AGE_SECS';
+/** `1` keeps the home of a failed run for inspection (its path and size are printed). */
+export const KEEP_FAILED_HOME_ENV = 'RIGHTKIT_QA_KEEP_FAILED_HOME';
+/** `0` skips the start-of-run sweep. */
+export const HOME_SWEEP_ENV = 'RIGHTKIT_QA_HOME_SWEEP';
+export const DEFAULT_ROOT_CAP_BYTES = 4_000_000_000;
+export const DEFAULT_HOME_MAX_AGE_MS = 2 * 60 * 60_000;
+
+export function qaRoot(): string { return path.join(appTempDir(), 'rightkit-qa'); }
+
+export function rootCapBytes(env: NodeJS.ProcessEnv = process.env): number {
+  const n = Number(env[ROOT_CAP_ENV]?.trim());
+  return env[ROOT_CAP_ENV]?.trim() && Number.isFinite(n) && n >= 0 ? Math.floor(n) : DEFAULT_ROOT_CAP_BYTES;
+}
+
+export function homeMaxAgeMs(env: NodeJS.ProcessEnv = process.env): number {
+  const n = Number(env[HOME_MAX_AGE_ENV]?.trim());
+  return env[HOME_MAX_AGE_ENV]?.trim() && Number.isFinite(n) && n >= 0 ? Math.floor(n * 1000) : DEFAULT_HOME_MAX_AGE_MS;
+}
+
+export function keepFailedHomeRequested(env: NodeJS.ProcessEnv = process.env): boolean {
+  return ['1', 'true', 'yes'].includes(env[KEEP_FAILED_HOME_ENV]?.trim() ?? '');
+}
+
+/** A directory this runner created as a QA home: a real directory directly under `rightkit-qa` with the binding file. */
+export function isOwnedHome(home: string): boolean {
+  try {
+    const resolved = path.resolve(home);
+    return fs.lstatSync(resolved).isDirectory() && !fs.lstatSync(resolved).isSymbolicLink()
+      && path.basename(path.dirname(resolved)) === 'rightkit-qa'
+      && fs.statSync(path.join(resolved, '.rightkit-app.json')).isFile();
+  } catch { return false; }
+}
+
+/** Bytes under `dir`, skipping symlinks and unreadable entries (an estimate, not a proof). */
+function treeBytes(dir: string): number {
+  let total = 0;
+  const stack = [dir];
+  while (stack.length) {
+    const current = stack.pop() as string;
+    let entries: fs.Dirent[];
+    try { entries = fs.readdirSync(current, { withFileTypes: true }); } catch { continue; }
+    for (const entry of entries) {
+      const p = path.join(current, entry.name);
+      if (entry.isSymbolicLink()) continue;
+      if (entry.isDirectory()) stack.push(p);
+      else if (entry.isFile()) { try { total += fs.statSync(p).size; } catch { /* vanished */ } }
+    }
+  }
+  return total;
+}
+
+function readHomeMarker(home: string): { pid: number; startedAtMs: number } | undefined {
+  try {
+    const x = JSON.parse(fs.readFileSync(path.join(home, HOME_MARKER), 'utf8')) as Record<string, unknown>;
+    if (typeof x.pid === 'number' && Number.isInteger(x.pid) && x.pid >= 0 && typeof x.startedAtMs === 'number' && Number.isFinite(x.startedAtMs)) return { pid: x.pid, startedAtMs: x.startedAtMs };
+  } catch { /* none */ }
+  return undefined;
+}
+
+export interface HomeCleanReport {
+  removed: Array<{ path: string; bytes: number; reason: string }>;
+  retained: Array<{ path: string; reason: string }>;
+  totalBytes: number;
+  removedBytes: number;
+}
+
+export interface CleanQaHomesOptions {
+  /** The `.../rightkit-qa` directory. Default: this runner's own root. Must be named `rightkit-qa`. */
+  parent?: string;
+  maxAgeMs?: number;
+  dryRun?: boolean;
+  now?: number;
+  /** Liveness probe, injectable for tests. Default: signal 0. */
+  isAlive?: (pid: number) => boolean;
+}
+
+/**
+ * Remove the homes of dead runs. A home goes when its recorded process is gone and it is older than
+ * `maxAgeMs`; a home whose pid is alive is never touched, nor is a directory without the binding file,
+ * a symlink, or anything outside `parent`. Homes from before the pid marker existed fall back to their
+ * run record's liveness. Deletion never follows a symlink out of the root.
+ */
+export function cleanQaHomes(options: CleanQaHomesOptions = {}): HomeCleanReport {
+  const report: HomeCleanReport = { removed: [], retained: [], totalBytes: 0, removedBytes: 0 };
+  const parent = path.resolve(options.parent ?? qaRoot());
+  if (path.basename(parent) !== 'rightkit-qa' || !safeDirectory(parent)) return report;
+  let canonicalParent: string;
+  let entries: fs.Dirent[];
+  try { canonicalParent = fs.realpathSync(parent); entries = fs.readdirSync(canonicalParent, { withFileTypes: true }); } catch { return report; }
+  const now = options.now ?? Date.now();
+  const maxAge = options.maxAgeMs ?? homeMaxAgeMs();
+  const alive = options.isAlive ?? isProcessLive;
+  for (const entry of entries) {
+    if (!entry.isDirectory() || entry.isSymbolicLink() || entry.name.startsWith('.')) continue;
+    const dir = path.join(canonicalParent, entry.name);
+    let binding: Record<string, unknown>;
+    try { binding = JSON.parse(fs.readFileSync(path.join(dir, '.rightkit-app.json'), 'utf8')); } catch {
+      report.retained.push({ path: dir, reason: 'no readable binding file: not proven ours' });
+      continue;
+    }
+    let live: boolean;
+    let started: number;
+    const marker = readHomeMarker(dir);
+    if (marker) { live = alive(marker.pid); started = marker.startedAtMs; }
+    else {
+      const run = typeof binding.runRoot === 'string' ? readMarker(path.join(binding.runRoot, RUN_MARKER)) : undefined;
+      if (run) { live = run.ownerPid > 0 && alive(run.ownerPid) || run.leaseUntil > now; started = run.createdAt; }
+      else { live = false; try { started = fs.statSync(dir).mtimeMs; } catch { started = now; } }
+    }
+    const bytes = treeBytes(dir);
+    report.totalBytes += bytes;
+    if (live) { report.retained.push({ path: dir, reason: 'owner process alive' }); continue; }
+    if (now - started < maxAge) { report.retained.push({ path: dir, reason: 'owner gone but younger than the window' }); continue; }
+    if (!options.dryRun) {
+      try { removeHomeDirectory(dir, canonicalParent); } catch (error) { report.retained.push({ path: dir, reason: describeError(error) }); continue; }
+    }
+    report.removedBytes += bytes;
+    report.removed.push({ path: dir, bytes, reason: 'owner process gone and older than the window' });
+  }
+  return report;
+}
+
+/** Remove `dir` only when it is a plain directory directly inside `canonicalParent`. */
+function removeHomeDirectory(dir: string, canonicalParent: string): void {
+  if (!safeDirectory(dir) || fs.realpathSync(dir) !== dir || path.dirname(dir) !== canonicalParent) throw new Error('path is not a plain home directory');
+  fs.rmSync(dir, { recursive: true, force: false });
+}
+
+export interface QaRootOverCap { root: string; totalBytes: number; capBytes: number; largest: Array<{ path: string; bytes: number }> }
+
+/** Thrown before a run starts when the QA root holds more than its cap after the sweep. */
+export class QaRootOverCapError extends Error {
+  readonly detail: QaRootOverCap;
+  constructor(detail: QaRootOverCap) {
+    super(`QA root ${detail.root} holds ${detail.totalBytes} bytes, over its ${detail.capBytes} byte cap (${ROOT_CAP_ENV}); largest homes: ${detail.largest.map((h) => `${h.path} (${h.bytes} bytes)`).join('; ')}; run \`cleanQaHomes()\`, or remove those homes, then retry`);
+    this.name = 'QaRootOverCapError';
+    this.detail = detail;
+  }
+}
+
+/** Throw {@link QaRootOverCapError} when the directories under `parent` hold more than `capBytes` (`0` disables). */
+export function checkQaRootCap(parent: string, capBytes: number): void {
+  if (!(capBytes > 0) || !safeDirectory(parent)) return;
+  let entries: fs.Dirent[];
+  try { entries = fs.readdirSync(parent, { withFileTypes: true }); } catch { return; }
+  const homes = entries.filter((e) => e.isDirectory() && !e.isSymbolicLink()).map((e) => ({ path: path.join(parent, e.name), bytes: treeBytes(path.join(parent, e.name)) }));
+  const total = homes.reduce((sum, h) => sum + h.bytes, 0);
+  if (total <= capBytes) return;
+  homes.sort((a, b) => b.bytes - a.bytes);
+  throw new QaRootOverCapError({ root: parent, totalBytes: total, capBytes, largest: homes.slice(0, 5) });
+}
+
+export interface PreflightOptions {
+  /** Force the sweep and cap on or off. Default: on, except under vitest (it runs against the developer's real root). */
+  enabled?: boolean;
+  capBytes?: number;
+  maxAgeMs?: number;
+}
+
+/** Run before a run is created: sweep dead homes, then refuse to start over the cap. */
+export function preflightQaRoot(options: PreflightOptions = {}): void {
+  const enabled = options.enabled ?? !process.env.VITEST;
+  if (!enabled) return;
+  const parent = qaRoot();
+  if (!safeDirectory(parent)) return;
+  if ((process.env[HOME_SWEEP_ENV] ?? '').trim() !== '0') cleanQaHomes({ parent, maxAgeMs: options.maxAgeMs });
+  checkQaRootCap(parent, options.capBytes ?? rootCapBytes());
+}
+
+/** `"<path> (<bytes> bytes)"` for a kept home. */
+export function describeKeptHome(home: string): string { return `${home} (${treeBytes(home)} bytes)`; }

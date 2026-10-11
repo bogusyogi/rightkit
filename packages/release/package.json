@@ -7,6 +7,15 @@
   "bin": {
     "right-release": "cli/right-release.mjs"
   },
+  "rightkit": {
+    "publishCheck": {
+      "binSmoke": {
+        "right-release": [
+          "--version"
+        ]
+      }
+    }
+  },
   "files": [
     "cli",
     "*.mjs",

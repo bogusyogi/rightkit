@@ -621,19 +621,54 @@ export function commandVerify({ env = process.env, spawn = spawnSync, host = hos
   return receipt;
 }
 
-/** Record verified, real publications in the version ledger (the registry feed `rightkit-versions.json`). */
-async function commandLedger(files) {
-  if (files.length === 0) throw new Error("usage: publish.mjs ledger <publication-receipt.json...>");
-  const { recordPublished } = await import(pathToFileURL(path.join(ROOT, "packages", "release", "rightkit-sync.mjs")).href);
-  for (const file of files) {
-    const doc = JSON.parse(fs.readFileSync(file, "utf8"));
-    if (doc.schema !== 1) throw new Error(`${file}: unknown receipt schema`);
-    if (doc.dryRun) throw new Error(`${file}: a dry-run receipt is not a publication`);
-    for (const r of doc.receipts) {
-      if (!r.published || !r.registryVerified) { log(`skipped ${r.unit}@${r.version}: not published and byte-verified`); continue; }
-      recordPublished({ registry: doc.registry === "crates" ? "cargo" : "npm", name: r.unit, version: r.version });
-    }
+/** The ledger rows a publication receipt supports: only units published AND byte-verified on the registry. */
+export function ledgerEntries(doc, file = "receipt") {
+  if (doc?.schema !== 1) throw new Error(`${file}: unknown receipt schema`);
+  if (doc.dryRun) throw new Error(`${file}: a dry-run receipt is not a publication`);
+  if (!Array.isArray(doc.receipts)) throw new Error(`${file}: receipt has no receipts list`);
+  const entries = []; const skipped = [];
+  for (const r of doc.receipts) {
+    if (!r.published || !r.registryVerified) { skipped.push(`${r.unit}@${r.version}`); continue; }
+    entries.push({ registry: doc.registry === "crates" ? "cargo" : "npm", name: r.unit, version: r.version });
   }
+  return { entries, skipped };
+}
+
+/** After recording: every expected version is in the ledger (or a later one), and the session-hook copy is byte-identical. Returns problems. */
+export function verifyLedger({ entries, versionsFile, copyFile, compareVersions }) {
+  const problems = [];
+  let raw; let versions;
+  try { raw = fs.readFileSync(versionsFile); versions = JSON.parse(raw.toString("utf8")); } catch (error) { return [`cannot read ${versionsFile} after recording: ${error.message}`]; }
+  for (const { registry, name, version } of entries) {
+    const have = versions.registry?.[registry]?.[name];
+    let ok = false;
+    try { ok = typeof have === "string" && compareVersions(have, version) >= 0; } catch { ok = false; }
+    if (!ok) problems.push(`${registry} ${name}@${version} is not in the ledger after recording (registry pin ${JSON.stringify(have)})`);
+  }
+  try { if (!fs.readFileSync(copyFile).equals(raw)) problems.push(`${path.basename(copyFile)} differs from ${path.basename(versionsFile)} after recording`); } catch (error) { problems.push(`cannot read ${copyFile} after recording: ${error.message}`); }
+  return problems;
+}
+
+/**
+ * Record verified, real publications in the version ledger (the registry feed `rightkit-versions.json`).
+ * Strict: a failed write or consumer-copy refresh throws, and the ledger is read back to prove every expected
+ * version and the consumer copy are present before this returns.
+ */
+export async function commandLedger(files, { root = ROOT, sync = null } = {}) {
+  if (files.length === 0) throw new Error("usage: publish.mjs ledger <publication-receipt.json...>");
+  const mod = sync ?? await import(pathToFileURL(path.join(root, "packages", "release", "rightkit-sync.mjs")).href);
+  const versionsFile = path.join(root, "packages", "release", "rightkit-versions.json");
+  const copyFile = path.join(root, "packages", "build-control-policy", "src", "ownership-session-versions.json");
+  const expected = [];
+  for (const file of files) {
+    const { entries, skipped } = ledgerEntries(JSON.parse(fs.readFileSync(file, "utf8")), file);
+    for (const row of skipped) log(`skipped ${row}: not published and byte-verified`);
+    if (entries.length === 0) throw new Error(`${file}: no unit is published and byte-verified; nothing to record`);
+    for (const entry of entries) { mod.recordPublished(entry, { strict: true, file: versionsFile, root }); expected.push(entry); }
+  }
+  const problems = verifyLedger({ entries: expected, versionsFile, copyFile, compareVersions: mod.compareVersions });
+  if (problems.length) throw new Error(`the ledger is incomplete:\n  - ${problems.join("\n  - ")}`);
+  log(`ledger holds ${expected.length} recorded version(s) and its consumer copy matches`);
 }
 
 if (process.argv[1] && fs.realpathSync(process.argv[1]) === fs.realpathSync(fileURLToPath(import.meta.url))) {

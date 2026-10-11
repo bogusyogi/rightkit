@@ -4,6 +4,7 @@ import { existsSync, readFileSync, readdirSync, watch } from "node:fs";
 import path from "node:path";
 import { readCachePolicy, resolveCacheLayout } from "./cache-policy.mjs";
 import { resolveNativeCargoLayout } from "./native-cargo-layout.mjs";
+import { QA_CONTROL_MARKER, bufferHasQaControlMarker } from "./qa-control-scan.mjs";
 
 export function cacheFingerprint({ cargoLockSha256, rustc, target, architecture, features = [] }) {
   const payload = JSON.stringify({
@@ -130,6 +131,9 @@ export function verifySealedRelease(sealedDir) {
     const actualHash = createHash("sha256").update(bytes).digest("hex");
     if (actualHash !== item.sha256) throw new Error(`sealed file hash mismatch: ${item.name}`);
     if (bytes.length !== item.sizeBytes) throw new Error(`sealed file size mismatch: ${item.name}`);
+    // Every seal and upload path verifies through here. A compressed installer hides the bytes, so
+    // release.mjs also scans the raw binaries before packaging; this catches a payload that is not compressed.
+    if (bufferHasQaControlMarker(bytes)) throw new Error(`sealed file contains the QA control server (${QA_CONTROL_MARKER}); it must never ship: ${item.name}`);
   }
   return { manifest, manifestPath, sealedDir };
 }

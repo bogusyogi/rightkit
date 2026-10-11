@@ -4,6 +4,7 @@ import { createReadStream, readFileSync, realpathSync } from "node:fs";
 import { lstat, readdir } from "node:fs/promises";
 import path from "node:path";
 import { HARDENING_RULES } from "./hardening-evidence.mjs";
+import { QA_CONTROL_MARKER } from "./qa-control-scan.mjs";
 
 const rawArgs = process.argv.slice(2);
 if (rawArgs.length === 0 || rawArgs.includes("-h") || rawArgs.includes("--help")) {
@@ -68,6 +69,8 @@ const contentRules = [
   ["secret-env-name", /OPENAI_API_KEY|ANTHROPIC_API_KEY|APPLE_PASSWORD|NOTARY_PROFILE/gi, "secret/env key name leaked"],
   ["gpl-flag", /--enable-gpl|--enable-nonfree/gi, "GPL/nonfree ffmpeg flag leaked"],
   ["stale-model", /tdt_w15_p6/gi, "stale TDT p6 string leaked"],
+  // Not allowable through hardening evidence: a shipped artifact never contains the QA control server.
+  ["qa-control-marker", new RegExp(QA_CONTROL_MARKER, "g"), "QA control server shipped (rightkit-control qa-control)"],
   ["experiment-model", /Canary-Qwen|Nemotron|dqlstm|bias-experiments/gi, "experiment/model-history marker leaked"],
 ];
 

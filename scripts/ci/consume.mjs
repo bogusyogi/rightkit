@@ -3,7 +3,9 @@
 //   npm     install the sealed tarballs of the request TOGETHER (plus their already-published
 //           dependencies, from the registry) into a scratch project with `npm install --ignore-scripts`,
 //           then prove from the INSTALLED copy that every declared main/module/types/bin/exports target
-//           exists, every exports subpath resolves, and every JS entry imports without throwing.
+//           exists, every exports subpath resolves, every JS entry imports without throwing, and every
+//           declared bin runs its declared safe command (rightkit.publishCheck.binSmoke) with the
+//           expected exit code.
 //   crates  extract the sealed .crate, check that the packaged Cargo.toml still yields the sealed upload
 //           metadata, and `cargo check` the packaged crate (with --locked when it ships a Cargo.lock and
 //           needs no patch). Sibling crates of the same request that are not on the registry yet are
@@ -32,15 +34,15 @@ export function npmCliCommand({ execPath = process.execPath, platform = process.
 
 /**
  * What a package.json promises. Returns { subpaths: [{ subpath, spec, runtime: [files], types: [files] }],
- * patterns: [subpath], files: [every non-pattern file the manifest points at], bins, hasEntry }.
+ * patterns: [subpath], files: [every non-pattern file the manifest points at], bins, binMap: { binName: file }, hasEntry }.
  */
 export function declaredEntries(pkg) {
   const rel = (v) => (typeof v === "string" && v.startsWith("./") ? v.slice(2) : typeof v === "string" && v && !v.startsWith("/") ? v : "");
-  const files = new Set(); const bins = [];
+  const files = new Set(); const bins = []; const binMap = {};
   const addFile = (v) => { const r = rel(v); if (r && !r.includes("*")) files.add(r); };
   for (const key of ["main", "module", "types", "typings"]) addFile(pkg[key]);
-  if (typeof pkg.bin === "string") { addFile(pkg.bin); bins.push(rel(pkg.bin)); }
-  else if (pkg.bin && typeof pkg.bin === "object") for (const v of Object.values(pkg.bin)) { addFile(v); bins.push(rel(v)); }
+  if (typeof pkg.bin === "string") { addFile(pkg.bin); bins.push(rel(pkg.bin)); binMap[String(pkg.name ?? "").replace(/^@[^/]+\//, "")] = rel(pkg.bin); }
+  else if (pkg.bin && typeof pkg.bin === "object") for (const [name, v] of Object.entries(pkg.bin)) { addFile(v); bins.push(rel(v)); binMap[name] = rel(v); }
 
   const collect = (node, underTypes, out) => {
     if (typeof node === "string") { const r = rel(node); if (r) (underTypes ? out.types : out.runtime).push(r); }
@@ -59,7 +61,7 @@ export function declaredEntries(pkg) {
       subpaths.push({ subpath, spec: subpath === "." ? pkg.name : `${pkg.name}/${subpath.slice(2)}`, runtime: out.runtime, types: out.types });
     }
   } else if (pkg.main) subpaths.push({ subpath: ".", spec: pkg.name, runtime: [rel(pkg.main)], types: [] });
-  return { subpaths, patterns, files: [...files], bins, hasEntry: subpaths.length > 0 || files.size > 0 };
+  return { subpaths, patterns, files: [...files], bins, binMap, hasEntry: subpaths.length > 0 || files.size > 0 };
 }
 
 /** `rightkit.publishCheck.skipImport`: subpaths a package declares cannot be imported in plain Node (DOM or Tauri host only). */
@@ -70,6 +72,46 @@ export function skipImportList(pkg, declared) {
   const known = new Set(declared.subpaths.map((s) => s.subpath));
   const stray = raw.filter((v) => !known.has(v));
   return { list: raw, problems: stray.length ? [`${pkg.name}: rightkit.publishCheck.skipImport names ${stray.join(", ")}, which package.json does not export`] : [] };
+}
+
+/**
+ * `rightkit.publishCheck.binSmoke`: one safe, read-only command per declared bin, run from the scratch install.
+ * Each value is an argument array (exit 0 expected) or { args, exitCode?, output? } for a CLI whose only safe
+ * invocation exits non-zero (a usage message) and must print `output`. Every bin must be declared.
+ */
+export function binSmokePlan(pkg, declared) {
+  const names = Object.keys(declared.binMap ?? {});
+  if (names.length === 0) return { checks: [], problems: [] };
+  const raw = pkg?.rightkit?.publishCheck?.binSmoke;
+  if (raw === undefined || raw === null || typeof raw !== "object" || Array.isArray(raw)) return { checks: [], problems: [`${pkg.name}: declares bin ${names.join(", ")} but no rightkit.publishCheck.binSmoke object naming a safe command for each`] };
+  const problems = []; const checks = [];
+  for (const name of names) {
+    const spec = raw[name];
+    const args = Array.isArray(spec) ? spec : spec?.args;
+    if (!Array.isArray(args) || args.some((a) => typeof a !== "string")) { problems.push(`${pkg.name}: rightkit.publishCheck.binSmoke has no argument array for bin ${name}`); continue; }
+    const exitCode = Array.isArray(spec) ? 0 : (spec.exitCode ?? 0);
+    const output = Array.isArray(spec) ? undefined : spec.output;
+    if (!Number.isInteger(exitCode) || exitCode < 0 || exitCode > 255) { problems.push(`${pkg.name}: binSmoke ${name} exitCode must be an integer 0-255`); continue; }
+    if (output !== undefined && (typeof output !== "string" || !output)) { problems.push(`${pkg.name}: binSmoke ${name} output must be a non-empty string`); continue; }
+    checks.push({ bin: name, file: declared.binMap[name], args, exitCode, output });
+  }
+  const stray = Object.keys(raw).filter((k) => !names.includes(k));
+  if (stray.length) problems.push(`${pkg.name}: rightkit.publishCheck.binSmoke names ${stray.join(", ")}, which package.json does not declare as a bin`);
+  return { checks, problems };
+}
+
+/** Run each planned bin from the installed package with node (no shell, no stdin). Returns { report, problems }. */
+function runBinSmoke({ unit, dir, checks, spawn, node, cwd, env }) {
+  const report = []; const problems = [];
+  for (const check of checks) {
+    if (!/\.(?:[cm]?js)$/.test(check.file)) { problems.push(`${unit.name}: bin ${check.bin} (${check.file}) is not a Node script; the smoke check cannot run it`); continue; }
+    const ran = spawn(node, [path.join(dir, check.file), ...check.args], { cwd, encoding: "utf8", env, input: "", maxBuffer: 8 * 1024 * 1024, timeout: 60_000 });
+    const text = `${ran.stdout ?? ""}${ran.stderr ?? ""}`;
+    report.push({ bin: check.bin, args: check.args, status: ran.status ?? null });
+    if (ran.error || ran.status !== check.exitCode) problems.push(`${unit.name}: installed bin ${check.bin} ${check.args.join(" ")} exited ${ran.status ?? "without a status"} (expected ${check.exitCode}): ${tail(text || ran.error?.message, 300)}`);
+    else if (check.output !== undefined && !text.includes(check.output)) problems.push(`${unit.name}: installed bin ${check.bin} ${check.args.join(" ")} did not print ${JSON.stringify(check.output)}: ${tail(text, 300)}`);
+  }
+  return { report, problems };
 }
 
 const CHECK_SCRIPT = `import fs from "node:fs";
@@ -115,10 +157,14 @@ export function consumeNpm({ units, packDir, scratchRoot = os.tmpdir(), spawn = 
       const skip = skipImportList(pkg, declared);
       out.problems.push(...skip.problems);
       for (const file of declared.files) if (!fs.existsSync(path.join(dir, file))) out.problems.push(`${unit.name}: installed package.json points at ${file}, which the installed package does not contain`);
+      const smokePlan = binSmokePlan(pkg, declared);
+      out.problems.push(...smokePlan.problems);
+      const smoke = runBinSmoke({ unit, dir, checks: smokePlan.checks, spawn, node, cwd: scratch, env: childEnv });
+      out.problems.push(...smoke.problems);
       const items = declared.subpaths
         .filter((s) => s.runtime.length > 0)
         .map((s) => ({ spec: s.spec, subpath: s.subpath, import: !skip.list.includes(s.subpath) }));
-      const report = { entries: items.length, imported: [], resolvedOnly: [], skippedImport: skip.list, patterns: declared.patterns, bins: declared.bins, filesChecked: declared.files.length, noJsEntry: items.length === 0 };
+      const report = { entries: items.length, imported: [], resolvedOnly: [], skippedImport: skip.list, patterns: declared.patterns, bins: declared.bins, binSmoke: smoke.report, filesChecked: declared.files.length, noJsEntry: items.length === 0 };
       out.report = report;
       if (items.length === 0) continue;
       const scriptFile = path.join(scratch, `check-${unit.name.replace(/[^A-Za-z0-9]+/g, "_")}.mjs`);

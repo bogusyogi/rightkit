@@ -57,7 +57,7 @@ const COMMANDS = {
     bools: [],
   },
   "marketplace": {
-    usage: "right-ax marketplace build [--sources ...] [--out <dir>] [--check] | right-ax marketplace validate [--sources ...] [--out <dir>] (--workspace <dir> | --fetch) [--no-drift]",
+    usage: "right-ax marketplace build [--sources ...] [--out <dir>] [--check] | right-ax marketplace validate [--sources ...] [--out <dir>] (--workspace <dir of checkouts, or the marketplace repository root> | --fetch) [--no-drift]",
   },
   "marketplace build": {
     usage: "right-ax marketplace build [--sources marketplace/plugins.json] [--out .] [--check]",
@@ -66,7 +66,7 @@ const COMMANDS = {
     bools: ["check"],
   },
   "marketplace validate": {
-    usage: "right-ax marketplace validate [--sources marketplace/plugins.json] [--out .] (--workspace <dir> | --fetch) [--no-drift]",
+    usage: "right-ax marketplace validate [--sources marketplace/plugins.json] [--out .] (--workspace <dir of checkouts, or the marketplace repository root> | --fetch) [--no-drift]",
     positionals: "none",
     values: ["sources", "out", "workspace"],
     bools: ["fetch", "no-drift"],
@@ -477,7 +477,7 @@ Commands:
   plugin validate <repo-path>                Validate layout, path safety, hooks, and the skill description gate
   marketplace build [--sources marketplace/plugins.json] [--out .] [--check]
                                               Generate the suite marketplace manifest(s) from the source list
-  marketplace validate [--sources ...] [--out .] (--workspace <dir> | --fetch) [--no-drift]
+  marketplace validate [--sources ...] [--out .] (--workspace <dir of checkouts, or the marketplace repository root> | --fetch) [--no-drift]
                                               Source list valid, manifests in sync, every plugin resolves and validates
   ax static <repo-path> [--artifact-root <dir>]
                                               Phase B contract checklist; artifact required for MCP surfaces

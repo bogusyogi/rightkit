@@ -41,5 +41,14 @@
   },
   "bin": {
     "rightkit-qa-chrome": "dist/cli.js"
+  },
+  "rightkit": {
+    "publishCheck": {
+      "binSmoke": {
+        "rightkit-qa-chrome": [
+          "list"
+        ]
+      }
+    }
   }
 }

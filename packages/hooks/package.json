@@ -11,6 +11,17 @@
   "bin": {
     "rightkit-hooks": "./bin/rightkit-hooks.mjs"
   },
+  "rightkit": {
+    "publishCheck": {
+      "binSmoke": {
+        "rightkit-hooks": {
+          "args": [],
+          "exitCode": 64,
+          "output": "usage: rightkit-hooks"
+        }
+      }
+    }
+  },
   "files": [
     "bin",
     "lib",

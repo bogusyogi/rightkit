@@ -167,15 +167,19 @@ export async function syncRightkitVersions({ check = false, fetchImpl = fetch, f
 }
 
 /** Record one just-published version (the registry index can lag the upload) and refresh the copies.
- * Called by right-release after a verified cargo or npm publish; never fails the publish itself. */
-export function recordPublished({ registry, name, version }, { file = VERSIONS_FILE, root = rightkitRoot, log = (line) => process.stdout.write(`${line}\n`) } = {}) {
+ * Called by right-release after a verified cargo or npm publish; never fails the publish itself unless `strict` is set. */
+export function recordPublished({ registry, name, version }, { file = VERSIONS_FILE, root = rightkitRoot, log = (line) => process.stdout.write(`${line}\n`), strict = false } = {}) {
   try {
     const versions = JSON.parse(readFileSync(file, "utf8"));
     const { versions: next, changes } = applyRegistryLatest(versions, [{ registry, name, version }]);
     if (JSON.stringify(next) !== JSON.stringify(versions)) writeFileSync(file, `${JSON.stringify(next, null, 2)}\n`);
     const copies = syncConsumerCopies(root);
     log(`[right-release] release feed: ${name} ${version} ${changes.length ? "staged" : "already current"}${copies.length ? `; refreshed ${copies.length} copies` : ""}; commit rightkit-versions.json and its copies`);
-  } catch (error) { log(`[right-release] release feed not updated (${error.message}); run node rightkit-sync.mjs`); }
+  } catch (error) {
+    // `strict` (publish.mjs ledger) propagates: a recording that did not complete must fail its caller. Every other caller keeps the log-and-continue behaviour.
+    if (strict) throw new Error(`release feed not updated for ${name} ${version}: ${error.message}`);
+    log(`[right-release] release feed not updated (${error.message}); run node rightkit-sync.mjs`);
+  }
 }
 
 /** The session hook carries byte copies of the catalog and versions; keep them exact. */

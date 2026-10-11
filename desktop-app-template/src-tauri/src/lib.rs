@@ -48,8 +48,15 @@ fn engine_path(app: &tauri::AppHandle) -> Result<PathBuf, Box<dyn std::error::Er
     if let Some(p) = std::env::var_os("RIGHTAPP_ENGINE_BIN") {
         return Ok(p.into());
     }
-    let name = if cfg!(windows) { "rightapp-engine.exe" } else { "rightapp-engine" };
-    let exe_dir = std::env::current_exe()?.parent().map(|p| p.to_path_buf()).ok_or("no exe dir")?;
+    let name = if cfg!(windows) {
+        "rightapp-engine.exe"
+    } else {
+        "rightapp-engine"
+    };
+    let exe_dir = std::env::current_exe()?
+        .parent()
+        .map(|p| p.to_path_buf())
+        .ok_or("no exe dir")?;
     let packaged = exe_dir.join(name);
     if packaged.is_file() {
         return Ok(packaged);
@@ -95,18 +102,26 @@ impl SecureStore<String> for FileDeviceStore {
 }
 
 #[tauri::command]
-fn device_get_or_create(device: tauri::State<'_, DeviceService<FileDeviceStore>>) -> Result<String, String> {
+fn device_get_or_create(
+    device: tauri::State<'_, DeviceService<FileDeviceStore>>,
+) -> Result<String, String> {
     device.get_or_create().map_err(|e| e.to_string())
 }
 
 /// One engine call. The blocking supervisor call runs off the UI thread, so a slow command never
 /// stalls the window.
 #[tauri::command]
-async fn engine_call(engine: tauri::State<'_, Arc<EngineSupervisor>>, cmd: String, input: Value) -> Result<Value, String> {
+async fn engine_call(
+    engine: tauri::State<'_, Arc<EngineSupervisor>>,
+    cmd: String,
+    input: Value,
+) -> Result<Value, String> {
     let engine = engine.inner().clone();
-    tauri::async_runtime::spawn_blocking(move || engine.call(&cmd, input).map_err(|e| e.to_string()))
-        .await
-        .map_err(|e| e.to_string())?
+    tauri::async_runtime::spawn_blocking(move || {
+        engine.call(&cmd, input).map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 pub fn run() {
@@ -118,7 +133,14 @@ pub fn run() {
         .state_dir(data_root.join("shell"))
         .build()
         .plugin();
-    tauri::Builder::default()
+    let builder = tauri::Builder::default();
+    // QA control never ships: see the `qa-native` pattern in Cargo.toml. Once adopted, uncomment:
+    // #[cfg(feature = "qa-native")]
+    // let builder = match rightkit_control::embedded::Control::<tauri::Wry>::new().build_if_enabled() {
+    //     Some(control) => builder.plugin(control), // logs "RIGHTKIT QA CONTROL SERVER ACTIVE" when the launcher sets RIGHTKIT_CONTROL_SERVICE
+    //     None => builder,
+    // };
+    builder
         .plugin(shell)
         .plugin(tauri_plugin_os::init())
         .plugin(tauri_plugin_process::init())

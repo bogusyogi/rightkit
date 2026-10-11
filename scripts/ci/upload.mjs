@@ -8,6 +8,10 @@
 //      at this commit, with explicit pass evidence for every unit,
 //   3. uploads those bytes: `npm publish <tgz> --ignore-scripts --provenance`, or a PUT of the sealed
 //      `.crate` to the crates.io publish API with the token on that one HTTP request only.
+// A retry of failed jobs (same run id, later attempt) starts from the previous attempt's publication receipt,
+// re-checks the registry for every planned unit before sending anything, records a unit whose exact version
+// AND sealed hash are already there as published by an earlier attempt, and refuses a version that exists
+// with different bytes.
 // `run --dry-run` does steps 1 and 2 and builds the exact commands and request bodies, sends nothing,
 // and refuses to start when any registry token is present. publish.mjs imports the pure helpers here.
 //
@@ -303,22 +307,79 @@ export async function waitForCrateIndex({ name, version, cksum, fetchImpl, attem
 
 // ---- upload -----------------------------------------------------------------------------------
 
+/** The previous attempt's receipt for this same run, or null on a first attempt. Refuses a receipt that is not this run's. */
+export function loadPreviousReceipt({ previousDir, registry, commit, run }) {
+  const files = listFiles(previousDir).filter((f) => path.basename(f) === "publication-receipt.json");
+  if (files.length === 0) return null;
+  if (files.length > 1) throw new Error(`previous attempt receipt is ambiguous (${files.length} files)`);
+  let doc;
+  try { doc = JSON.parse(fs.readFileSync(files[0], "utf8")); } catch { throw new Error("previous attempt receipt is unreadable; refusing to continue without its evidence"); }
+  const bad = [];
+  if (doc?.schema !== 1) bad.push("unknown schema");
+  if (doc?.dryRun !== false) bad.push("it is not a real publication receipt");
+  if (doc?.registry !== registry) bad.push(`registry ${doc?.registry} is not ${registry}`);
+  if (doc?.commit !== commit) bad.push(`commit ${doc?.commit} is not ${commit}`);
+  if (String(doc?.runId) !== String(run.runId)) bad.push(`run ${doc?.runId} is not this run ${run.runId}`);
+  if (!(Number(doc?.runAttempt) >= 1 && Number(doc.runAttempt) < Number(run.runAttempt))) bad.push(`attempt ${doc?.runAttempt} is not earlier than this attempt ${run.runAttempt}`);
+  if (!Array.isArray(doc?.receipts)) bad.push("it has no receipts list");
+  if (bad.length) throw new Error(`previous attempt receipt refused: ${bad.join("; ")}`);
+  return doc;
+}
+
 class Receipt {
-  constructor(dir, doc) { this.file = path.join(dir, "publication-receipt.json"); fs.mkdirSync(dir, { recursive: true }); this.doc = { ...doc, receipts: [] }; this.flush(); }
+  constructor(dir, doc, previous = null) {
+    this.file = path.join(dir, "publication-receipt.json"); fs.mkdirSync(dir, { recursive: true });
+    this.attempt = String(doc.runAttempt);
+    this.previous = previous;
+    const carried = (previous?.receipts ?? []).map((r) => ({ ...r, attempt: r.attempt ?? String(previous.runAttempt) }));
+    this.doc = { ...doc, priorAttempts: [...(previous?.priorAttempts ?? []), ...(previous ? [String(previous.runAttempt)] : [])], receipts: carried, history: [...(previous?.history ?? [])] };
+    this.flush();
+  }
+  /** What the earlier attempt recorded for this unit, if anything. */
+  earlier(unit) { return (this.previous?.receipts ?? []).find((r) => r.unit === unit) ?? null; }
   record(entry) {
-    const full = { ...entry, registry: this.doc.registry, commit: this.doc.commit, dryRun: this.doc.dryRun, timestamp: new Date().toISOString() };
+    const full = { ...entry, attempt: this.attempt, registry: this.doc.registry, commit: this.doc.commit, dryRun: this.doc.dryRun, timestamp: new Date().toISOString() };
     const at = this.doc.receipts.findIndex((r) => r.unit === entry.unit);
-    if (at >= 0) this.doc.receipts[at] = full; else this.doc.receipts.push(full);
+    if (at >= 0) {
+      // A superseded row from an earlier attempt is evidence: keep it, never overwrite it.
+      if (this.doc.receipts[at].attempt !== this.attempt) this.doc.history.push(this.doc.receipts[at]);
+      this.doc.receipts[at] = full;
+    } else this.doc.receipts.push(full);
     this.flush();
   }
   flush() { fs.writeFileSync(this.file, `${JSON.stringify(this.doc, null, 2)}\n`); }
 }
 
 /**
+ * What the registry holds for one planned unit: "absent", "same" (this exact version with the sealed hash),
+ * or throws when it holds the version with DIFFERENT bytes or cannot be read (an ambiguous answer never
+ * becomes permission to publish).
+ */
+export async function reconcileUnit({ registry, unit, fetchImpl }) {
+  if (registry === "npm") {
+    const doc = await getJson(`${NPM_REGISTRY_URL}${unit.name.replace("/", "%2F")}/${unit.version}`, fetchImpl, { accept: "application/json" });
+    if (!doc?.dist) return "absent";
+    if (doc.dist.shasum !== unit.sha1 || (doc.dist.integrity && doc.dist.integrity !== unit.integrity)) throw new Error(`npm already serves different bytes for ${unit.name}@${unit.version} (shasum ${doc.dist.shasum}, sealed ${unit.sha1}); refusing to publish`);
+    return "same";
+  }
+  const response = await fetchImpl(`${CRATES_INDEX_URL}${crateIndexPath(unit.name)}`, { headers: { "user-agent": USER_AGENT }, redirect: "error", signal: AbortSignal.timeout(30_000) });
+  if (response.status === 404) return "absent";
+  if (!response.ok) throw new Error(`HTTP ${response.status} from the crates.io index for ${unit.name}`);
+  for (const line of (await response.text()).split("\n")) {
+    if (!line.trim()) continue;
+    const row = JSON.parse(line);
+    if (row.vers !== unit.version) continue;
+    if (row.cksum !== unit.sha256) throw new Error(`crates.io already serves different bytes for ${unit.name}@${unit.version} (checksum ${row.cksum}, sealed ${unit.sha256}); refusing to publish`);
+    return "same";
+  }
+  return "absent";
+}
+
+/**
  * Check everything, then upload (or, with dryRun, describe) each sealed unit in order. Injectable `spawn`
  * and `fetchImpl` let a test intercept every child process and HTTP call. Returns the receipt document.
  */
-export async function executeUpload({ env, packDir, receiptsDir, outDir, dryRun, spawn = spawnSync, fetchImpl = fetch, log = (line) => process.stdout.write(`${line}\n`), pause = 10_000 }) {
+export async function executeUpload({ env, packDir, receiptsDir, previousDir = null, outDir, dryRun, spawn = spawnSync, fetchImpl = fetch, log = (line) => process.stdout.write(`${line}\n`), pause = 10_000 }) {
   const registry = env.PUBLISH_REGISTRY;
   if (registry !== "npm" && registry !== "crates") throw new Error(`registry must be npm or crates, got ${JSON.stringify(registry)}`);
   if (env.GITHUB_ACTIONS !== "true") throw new Error("upload runs in GitHub Actions only");
@@ -356,9 +417,35 @@ export async function executeUpload({ env, packDir, receiptsDir, outDir, dryRun,
   }
   if (problems.length) throw new Error(`sealed upload refused:\n  - ${problems.join("\n  - ")}`);
 
-  const receipt = new Receipt(outDir, { schema: 1, registry, dryRun, commit: manifest.commit, repository: env.GITHUB_REPOSITORY, runId: env.GITHUB_RUN_ID ?? "", runAttempt: env.GITHUB_RUN_ATTEMPT ?? "" });
+  const previous = !dryRun && previousDir ? loadPreviousReceipt({ previousDir, registry, commit: manifest.commit, run }) : null;
+  const receipt = new Receipt(outDir, { schema: 1, registry, dryRun, commit: manifest.commit, repository: env.GITHUB_REPOSITORY, runId: env.GITHUB_RUN_ID ?? "", runAttempt: env.GITHUB_RUN_ATTEMPT ?? "" }, previous);
   const redact = (text) => (token ? String(text ?? "").split(token).join("<redacted>") : String(text ?? ""));
   log(`sealed ${manifest.units.length} ${registry} unit(s) at ${manifest.commit}; both hosts verified the same bytes`);
+  if (previous) log(`continuing run ${run.runId} from attempt ${previous.runAttempt}'s receipt (${previous.receipts.length} unit row(s))`);
+
+  // Reconcile EVERY planned unit with the registry before sending anything: a unit already there with the sealed
+  // hash was published by an earlier attempt; the same version with other bytes, or an unreadable answer, stops the run.
+  const done = new Set();
+  if (!dryRun) {
+    for (const unit of manifest.units) {
+      const base = { unit: unit.name, version: unit.version, artifact: unit.file, sha256: unit.sha256, ...(registry === "npm" ? { sha1: unit.sha1 } : {}) };
+      let state;
+      try { state = await reconcileUnit({ registry, unit, fetchImpl }); } catch (error) {
+        receipt.record({ ...base, published: false, registryVerified: false, outcome: "refused", error: redact(error.message).slice(0, 300) });
+        throw new Error(`cannot reconcile ${unit.name}@${unit.version} with the ${registry} registry: ${redact(error.message)}`);
+      }
+      const earlier = receipt.earlier(unit.name);
+      if (state === "same") {
+        receipt.record({ ...base, published: true, registryVerified: true, outcome: "published-by-earlier-attempt", publishedBy: "earlier-attempt", earlierAttempt: earlier?.attempt ?? null, earlierOutcome: earlier?.outcome ?? null });
+        log(`${unit.name}@${unit.version} is already on ${registry} with the sealed hash: published by an earlier attempt`);
+        done.add(unit.name);
+      } else if (earlier?.registryVerified === true) {
+        const why = `${unit.name}@${unit.version} was recorded as published and verified by attempt ${earlier.attempt}, but the ${registry} registry no longer serves it`;
+        receipt.record({ ...base, published: false, registryVerified: false, outcome: "refused", error: why });
+        throw new Error(why);
+      }
+    }
+  }
 
   if (registry === "npm") {
     const scratch = fs.mkdtempSync(path.join(env.RUNNER_TEMP || os.tmpdir(), "rk-npmrc-"));
@@ -371,13 +458,22 @@ export async function executeUpload({ env, packDir, receiptsDir, outDir, dryRun,
         const args = ["publish", file, "--ignore-scripts", "--access", "public", "--provenance", "--registry", NPM_REGISTRY_URL, "--userconfig", userconfig];
         const base = { unit: unit.name, version: unit.version, artifact: unit.file, sha256: unit.sha256, sha1: unit.sha1 };
         if (dryRun) { log(`dry run: would run npm ${args.map((a) => (a === file ? unit.file : a === userconfig ? "<userconfig>" : a)).join(" ")}`); receipt.record({ ...base, published: false, registryVerified: false }); continue; }
-        const result = spawn("npm", args, { encoding: "utf8", env: childEnv(env, { NODE_AUTH_TOKEN: token }), cwd: packDir });
-        const out = redact(`${result.stdout ?? ""}${result.stderr ?? ""}`).trim();
-        if (out) log(out);
-        if (result.error || result.status !== 0) throw new Error(`npm publish failed for ${unit.name}@${unit.version}`);
-        receipt.record({ ...base, published: true, registryVerified: false });
-        await waitForNpmBytes({ name: unit.name, version: unit.version, sha1: unit.sha1, integrity: unit.integrity, fetchImpl, pause });
-        receipt.record({ ...base, published: true, registryVerified: true });
+        if (done.has(unit.name)) continue;
+        let published = false;
+        try {
+          receipt.record({ ...base, published: false, registryVerified: false, outcome: "pending" });
+          const result = spawn("npm", args, { encoding: "utf8", env: childEnv(env, { NODE_AUTH_TOKEN: token }), cwd: packDir });
+          const out = redact(`${result.stdout ?? ""}${result.stderr ?? ""}`).trim();
+          if (out) log(out);
+          if (result.error || result.status !== 0) throw new Error(`npm publish failed for ${unit.name}@${unit.version}`);
+          published = true;
+          receipt.record({ ...base, published: true, registryVerified: false, outcome: "published-unverified" });
+          await waitForNpmBytes({ name: unit.name, version: unit.version, sha1: unit.sha1, integrity: unit.integrity, fetchImpl, pause });
+          receipt.record({ ...base, published: true, registryVerified: true, outcome: "published" });
+        } catch (error) {
+          receipt.record({ ...base, published, registryVerified: false, outcome: published ? "published-unverified" : "failed", error: redact(error.message).slice(0, 300) });
+          throw error;
+        }
       }
     } finally { fs.rmSync(scratch, { recursive: true, force: true }); }
   } else {
@@ -386,17 +482,27 @@ export async function executeUpload({ env, packDir, receiptsDir, outDir, dryRun,
       const body = buildCratePublishBody(fs.readFileSync(path.join(packDir, unit.metaFile), "utf8"), crateBytes);
       const base = { unit: unit.name, version: unit.version, artifact: unit.file, sha256: unit.sha256 };
       if (dryRun) { log(`dry run: would PUT ${CRATES_PUBLISH_URL} with ${body.length} bytes for ${unit.name}@${unit.version}`); receipt.record({ ...base, published: false, registryVerified: false }); continue; }
-      // The token is passed to this one HTTP call. redirect: "error" keeps it from following a redirect elsewhere.
-      const response = await fetchImpl(CRATES_PUBLISH_URL, { method: "PUT", headers: { authorization: token, accept: "application/json", "content-type": "application/octet-stream", "user-agent": USER_AGENT }, body, redirect: "error", signal: AbortSignal.timeout(300_000) });
-      const text = redact(await response.text());
-      if (!response.ok) throw new Error(`crates.io refused ${unit.name}@${unit.version}: HTTP ${response.status} ${text.slice(0, 600)}`);
-      const answer = parseCratesResponse(text);
-      if (answer.errors.length) throw new Error(`crates.io answered HTTP ${response.status} with errors for ${unit.name}@${unit.version}; not recorded as published: ${answer.errors.join("; ").slice(0, 600)}`);
-      if (answer.unreadable) throw new Error(`crates.io answered HTTP ${response.status} with a body that is not the documented JSON for ${unit.name}@${unit.version}; not recorded as published (inspect the registry): ${text.slice(0, 200)}`);
-      if (answer.warnings.length) log(`crates.io warnings for ${unit.name}@${unit.version}: ${answer.warnings.join("; ").slice(0, 600)}`);
-      receipt.record({ ...base, published: true, registryVerified: false, warnings: answer.warnings });
-      await waitForCrateIndex({ name: unit.name, version: unit.version, cksum: unit.sha256, fetchImpl, pause: pause * 1.5 });
-      receipt.record({ ...base, published: true, registryVerified: true, warnings: answer.warnings });
+      if (done.has(unit.name)) continue;
+      let published = false;
+      try {
+        receipt.record({ ...base, published: false, registryVerified: false, outcome: "pending" });
+        // The token is passed to this one HTTP call. redirect: "error" keeps it from following a redirect elsewhere.
+        const response = await fetchImpl(CRATES_PUBLISH_URL, { method: "PUT", headers: { authorization: token, accept: "application/json", "content-type": "application/octet-stream", "user-agent": USER_AGENT }, body, redirect: "error", signal: AbortSignal.timeout(300_000) });
+        const text = redact(await response.text());
+        if (!response.ok) throw new Error(`crates.io refused ${unit.name}@${unit.version}: HTTP ${response.status} ${text.slice(0, 600)}`);
+        const answer = parseCratesResponse(text);
+        if (answer.errors.length) throw new Error(`crates.io answered HTTP ${response.status} with errors for ${unit.name}@${unit.version}; not recorded as published: ${answer.errors.join("; ").slice(0, 600)}`);
+        if (answer.unreadable) throw new Error(`crates.io answered HTTP ${response.status} with a body that is not the documented JSON for ${unit.name}@${unit.version}; not recorded as published (inspect the registry): ${text.slice(0, 200)}`);
+        if (answer.warnings.length) log(`crates.io warnings for ${unit.name}@${unit.version}: ${answer.warnings.join("; ").slice(0, 600)}`);
+        published = true;
+        receipt.record({ ...base, published: true, registryVerified: false, outcome: "published-unverified", warnings: answer.warnings });
+        await waitForCrateIndex({ name: unit.name, version: unit.version, cksum: unit.sha256, fetchImpl, pause: pause * 1.5 });
+        receipt.record({ ...base, published: true, registryVerified: true, outcome: "published", warnings: answer.warnings });
+      } catch (error) {
+        // A network failure leaves the outcome ambiguous: the row says so, and the next attempt reconciles with the registry.
+        receipt.record({ ...base, published, registryVerified: false, outcome: published ? "published-unverified" : "failed", error: redact(error.message).slice(0, 300) });
+        throw error;
+      }
     }
   }
   return receipt.doc;
@@ -408,6 +514,6 @@ if (process.argv[1] && fs.realpathSync(process.argv[1]) === fs.realpathSync(file
   const temp = process.env.RUNNER_TEMP || os.tmpdir();
   const sealed = process.env.SEALED_DIR || path.join(temp, "sealed");
   try {
-    await executeUpload({ env: process.env, packDir: path.join(sealed, "packed"), receiptsDir: path.join(sealed, "receipts"), outDir: path.join(temp, "publication-receipt"), dryRun: flags.includes("--dry-run") });
+    await executeUpload({ env: process.env, packDir: path.join(sealed, "packed"), receiptsDir: path.join(sealed, "receipts"), previousDir: path.join(sealed, "previous"), outDir: path.join(temp, "publication-receipt"), dryRun: flags.includes("--dry-run") });
   } catch (error) { process.stderr.write(`upload: ${error.message}\n`); process.exit(1); }
 }

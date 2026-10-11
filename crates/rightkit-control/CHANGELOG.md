@@ -1,6 +1,15 @@
 # Changelog
 
-## Unreleased (after 0.2.0)
+## 0.3.0
+
+Breaking (pre-1.0 minor). QA control can no longer ship by accident.
+
+- **New feature `qa-control` gates `embedded::Control`.** `tauri-plugin` no longer compiles the control server; it keeps only `tauri` and the `offscreen::start_for_window` / `start_from_env` window helpers. `rightkit-service` and `serde_json` moved from `tauri-plugin` to `qa-control`. Migrate: `features = ["tauri-plugin", "wv2-0_39"]` becomes `features = ["qa-control", "wv2-0_39"]`, inside an app feature (`qa-native`) that is off by default with an optional dependency. With the feature off, `embedded` is not compiled.
+- Every binary with `embedded` compiled in contains `RIGHTKIT-QA-CONTROL-SERVER-PRESENT` (`embedded::QA_CONTROL_MARKER`; `#[used]` static, also read by `Control::build`). `right-release` fails a release or update seal or upload that contains it.
+- The server logs one stderr line, `RIGHTKIT QA CONTROL SERVER ACTIVE: ...`, when `RIGHTKIT_CONTROL_SERVICE` is set and it starts.
+- README: new section "QA control never ships".
+
+Carried from before the bump:
 
 - `set_viewport` reports what it observed, not what was asked. After applying the request it reads `innerWidth`/`innerHeight` back from the page until two consecutive readings (50 ms apart) agree, within a bound (default 2 s; `Control::viewport_settle` or a per-request `settleMs`), and returns that size. Additive result fields: `requestedWidth`, `requestedHeight`, `settled`, `clamped` (settled at a size other than the request, for example clamped to the display's work area), `placementTimedOut`, and `reason` (`"clamped"` or `"unsettled"`). When the size is still changing at the bound, the last observed size is returned with `settled:false`. A size the system will not give is no longer a `viewport mismatch` / readback-timeout error; it is a result with `clamped:true`.
 - `set_viewport` waits (bounded, `Control::viewport_placement_wait`, default 5 s) for the shell's initial window placement and state restore before applying, so a late restore can no longer undo the first request after launch. Driven by the `rk-shell:placement` app event `rightkit-shell` emits; without a shell that announces it, there is no wait. Nothing here shows, orders or focuses a window.

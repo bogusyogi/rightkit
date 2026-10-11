@@ -43,6 +43,7 @@ pub mod scenario;
 pub mod settings;
 pub mod storage;
 pub mod suite;
+pub mod userdata;
 pub mod util;
 pub mod workspace;
 

@@ -38,6 +38,7 @@ import { runConfiguredChecks } from "./release-checks.mjs";
 import { resolveMacosDeveloperIdIdentity } from "./macos-signing-identity.mjs";
 import { DEFAULT_STORAGE_THRESHOLD_BYTES, findInstallerCopyScripts, findLargeRepositorySubdirectories } from "./installer-storage-doctor.mjs";
 import { macosCodesignEnvironment } from "./codesign-environment.mjs";
+import { assertNoQaControl } from "./qa-control-scan.mjs";
 
 const TOOL_ROOT = path.dirname(fileURLToPath(import.meta.url));
 const HARDENING_SCAN = path.resolve(TOOL_ROOT, "hardeningscan.mjs");
@@ -334,6 +335,8 @@ if (opts.platform === "win" && target.signingContract === MSIX_SIGNING_CONTRACT)
   const rawFiles = target.sign.prePackageFiles.map((p) => path.resolve(root, p));
   await runCommand(target.prePackage, root);
   for (const file of rawFiles) await mustExist(file, `missing raw EXE signing artifact: ${file}`);
+  // Before signing and packaging: the raw EXE is uncompressed, so a QA control server is visible here.
+  assertNoQaControlBinaries("windows raw EXE", rawFiles);
   // The marker must reach its FINAL value before signing. Tauri rewrites it during
   // bundling, and doing that to signed bytes invalidates Authenticode — the exact
   // defect that shipped invalid binaries. Idempotent, so an app that still patches
@@ -361,6 +364,7 @@ if (opts.platform === "win" && target.signingContract === MSIX_SIGNING_CONTRACT)
   // Resolve after prePackage: with storage governance the artifact may live only in RIGHT_RELEASE_ARTIFACT_DIR.
   const signingEntries = macSigning.entries.map((entry) => ({ ...entry, file: resolveReleaseArtifactPath(root, entry.file) }));
   for (const { file } of signingEntries) await mustExist(file, `missing macOS Developer ID signing artifact: ${file}`);
+  assertNoQaControlBinaries("macOS signing set", signingEntries.map(({ file }) => file));
   if (runMacPhase("sign")) {
     await signMacos(signingEntries, root, "signing", macSigning.nestedCode);
     // Opt-in (notarize.appBeforePackage): staple the .app itself before the package step copies it into the DMG.
@@ -378,6 +382,9 @@ if (opts.platform === "win" && target.signingContract === MSIX_SIGNING_CONTRACT)
     });
   }
 }
+
+// Extra files or directories the app declares (for example the unpacked bundle or a staged payload).
+assertNoQaControlBinaries("target.qaControlScan", (target.qaControlScan ?? []).map((p) => resolveReleaseArtifactPath(root, p)));
 
 if (opts.platform === "mac" && runMacPhase("package")) {
   // SwiftPM + appBeforePackage: the .app is stapled by now, so right-release packs it into the DMG itself.
@@ -429,6 +436,7 @@ if (opts.platform !== "mac" || runMacPhase("harden")) {
       hardeningEvidence = path.join(receiptRoot, opts.platform + "-hardening-evidence.json");
       materializeHardeningEvidence({ root, allowances: target.hardeningAllowances, outputPath: hardeningEvidence });
     }
+    assertNoQaControlBinaries("hardening targets", scanTargets.map((p) => resolveReleaseArtifactPath(root, p)));
     await run("node", [
       HARDENING_SCAN,
       ...(hardeningEvidence ? ["--allow-evidence", hardeningEvidence] : []),
@@ -467,6 +475,17 @@ function usage(code, message) {
 // Product package scripts may emit final installer bytes directly into the
 // managed artifact directory. Keep legacy target-relative paths working while
 // preferring managed output when the local path does not exist.
+// Release and update builds never contain the QA control server (rightkit-control `qa-control`).
+// The development lane (development.mjs) does not run this file and is allowed to contain it.
+function assertNoQaControlBinaries(label, files) {
+  if (opts.dryRun || files.length === 0) return;
+  try {
+    assertNoQaControl(files, label);
+  } catch (error) {
+    fail(error.message);
+  }
+}
+
 function resolveReleaseArtifactPath(root, declared) {
   const local = path.resolve(root, declared);
   if (existsSync(local)) return local;

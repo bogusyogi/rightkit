@@ -13,7 +13,7 @@ Catalog capability: `desktop-control`. Published to crates.io (see [INDEX.md](..
 | `events` | `ControlEvent` lifecycle events (start, stop, crash, denied, lease acquired, fenced, released, rejected) via an `EventSink`. Content-free. |
 | `mac` | macOS primitives. Effectful ones are reachable only through `mac::Gated`; `mac::unsafe_ungated` is the explicit opt-in. |
 | `webdriver` | `webdriver::Server` with `with_gate`, plus `webdriver::macos::AxBackend`. |
-| `embedded` | The Tauri control server behind the `tauri-plugin` feature. |
+| `embedded` | The QA-only Tauri control server behind the `qa-control` feature. Never ships; see "QA control never ships". |
 | `cli` | `rightkit-control` command parsing and the `Policy` file. |
 | `keys`, `json` | Key chord mapping and small JSON helpers. |
 
@@ -30,10 +30,11 @@ Do not use it for a web page that a headless browser can drive (see `rightkit-br
 |---|---|---|---|
 | `wv2-0_38` | no | `windows` 0.61, `webview2-com` 0.38 (Windows only) | WebView2 types for Tauri 2.11 (wry 0.55). |
 | `wv2-0_39` | no | `windows` 0.62, `webview2-com` 0.39 (Windows only) | WebView2 types for Tauri 2.12 and later. |
-| `tauri-plugin` | no | `tauri` 2, `rightkit-service`, `serde_json` | The embedded Tauri control server (`embedded` module). |
+| `tauri-plugin` | no | `tauri` 2 | Tauri window helpers only (`offscreen::start_for_window`, `offscreen::start_from_env`). Does not compile the control server. |
+| `qa-control` | no | `tauri-plugin`, `rightkit-service`, `serde_json` | QA ONLY, NEVER SHIPPED. The embedded Tauri control server (`embedded` module). Since 0.3.0 this is the only way to get `embedded::Control`. |
 | `offscreen-private-spi` | no | none | macOS only: WKWebView `_setWindowOcclusionDetectionEnabled:` private SPI for `offscreen` launch; without it `offscreen` fails with `OcclusionSpiNotCompiled` (`Cargo.toml:22-25`). |
 
-There are no default features. On Windows the `tauri-plugin` feature requires one WebView2 generation (enable exactly one; if both are enabled `wv2-0_39` wins, `src/embedded/win_view.rs:13-19`): `features = ["tauri-plugin", "wv2-0_38"]` for Tauri 2.11, or `features = ["tauri-plugin", "wv2-0_39"]` for Tauri 2.12 and later (a Windows build with neither fails with a `compile_error!`). macOS and non-plugin builds need neither.
+There are no default features. On Windows the `qa-control` feature requires one WebView2 generation (enable exactly one; if both are enabled `wv2-0_39` wins, `src/embedded/win_view.rs:13-19`): `features = ["qa-control", "wv2-0_38"]` for Tauri 2.11, or `features = ["qa-control", "wv2-0_39"]` for Tauri 2.12 and later (a Windows build with neither fails with a `compile_error!`). macOS and builds without `qa-control` need neither.
 
 ## Usage
 
@@ -46,6 +47,14 @@ rightkit-control [--policy FILE] [--events] <command> ...
 `<command>` is one of `launch click hover drag scroll click-text press keywin keyraw type key shot`, and `serve` handles click, send keys and screenshot. Read-only commands are not effects.
 
 Rust integration goes through the gate. The default gate is allow-all, so existing callers keep their behaviour. A host supplies an `AdmissionHook` (trait or closure) to refuse effects. A denial, or a panicking hook, happens before any side effect.
+
+## QA control never ships
+
+The QA harness (`rightkit-qa`, `@rightkit/qa`) is an internal development tool. A shipped app must not be operable headlessly by anyone's harness: the only supported automation surface for users is the app's own command line or plugin. The app-side half of the harness is `embedded::Control`, an in-process server that accepts input injection, DOM and accessibility reads, screenshots and JavaScript evaluation. Its caller identity is a label the client sends in the hello frame (`right-qa`, `right-ctl`); the only OS check is that the peer is the same user (`rightkit-service/src/peer.rs`). Anything of that user can therefore drive a build that contains it, so a shipped build must not contain it. Three layers enforce that:
+
+1. **Feature.** `embedded` is compiled only with `qa-control` (since 0.3.0; `tauri-plugin` alone no longer exposes it). An app names it only from a `qa-native` feature that is off by default, with `rightkit-control` declared `optional = true`: `qa-native = ["dep:rightkit-control", "rightkit-control/qa-control", ...]`. The registration sits inside `#[cfg(feature = "qa-native")]`. Dev lane builds (`right-release dev`, profile `release-iterate`) must pass `--features qa-native` explicitly; release and update lanes must not.
+2. **Release scan.** Every binary that compiles `embedded` contains the fixed string `RIGHTKIT-QA-CONTROL-SERVER-PRESENT` (`embedded::QA_CONTROL_MARKER`, a `#[used]` static that `Control::build` also reads, so linker dead-stripping, `/OPT:REF`, LTO and release optimisation keep it for as long as the server is kept). `right-release` scans every Mach-O, PE and ELF file in the signing set before signing, the hardening targets, and every sealed file, and fails the build, seal or upload when it finds the marker (`packages/release/qa-control-scan.mjs`). The scan is skipped for the development lane. A compressed installer (DMG, NSIS) hides the bytes, so the pre-package raw binary or `.app` must be in the scanned set; `target.qaControlScan` lists extra files or directories.
+3. **Environment, and a loud line.** A compiled-in server still serves nothing unless the launcher sets `RIGHTKIT_CONTROL_SERVICE=<name>`, and then writes `RIGHTKIT QA CONTROL SERVER ACTIVE: ...` to stderr before the socket exists.
 
 ## Hidden macOS pointer input
 
@@ -69,7 +78,7 @@ On macOS, the hidden WKWebView is resized explicitly and native layout completes
 
 ## Control-plane guarantees
 
-- **Admission (EFF-001).** `admission::EffectGate` validates each effectful request, asks the host `AdmissionHook` for approval, executes it, and settles it. `webdriver::Server::with_gate` (click, send keys, screenshot), the `tauri-plugin` `Control::gate`, `mac::Gated` and the CLI all route effects through it.
+- **Admission (EFF-001).** `admission::EffectGate` validates each effectful request, asks the host `AdmissionHook` for approval, executes it, and settles it. `webdriver::Server::with_gate` (click, send keys, screenshot), the `qa-control` `Control::gate`, `mac::Gated` and the CLI all route effects through it.
 - **Input lease (PTY-002).** `lease::InputLease` acquire bumps the epoch and fences the previous holder. Stale epochs are rejected. Duplicate acknowledged input is deduplicated without re-execution. Gaps are rejected. Ambiguous (unacknowledged) input must be explicitly reconciled before new input. `Control::input_lease` makes the plugin's input methods require `leaseEpoch` and `inputSequence` and adds `lease_*` methods.
 - **Durable lease state.** `InputLease::open` with a `LeaseStore`. The default is in-memory. `FileLeaseStore` writes atomically (temp file, fsync, rename, directory fsync, checksum). An epoch is granted only once durable, and an input sequence is reserved durably before its executor runs. Each lease has an `ExecutionIdentity` and an `ExecutionState` (`Running`, `Exited`, `Unknown`). On restart the epoch is fenced forward, the lease is detached, `Running` comes back `Unknown`, and unacknowledged input comes back as `Unknown` input. It must be resolved with `acknowledge_input(epoch, seq)`, `reconcile` or `acquire_reconciling`. A corrupt or foreign record fails closed rather than resetting.
 - **Events.** `events::ControlEvent` content-free lifecycle events through an `EventSink`.
@@ -86,7 +95,7 @@ Without a policy, the gate is allow-all and output is unchanged. With `--policy 
 - The holder is identified by its epoch only. No holder label is stored.
 - Recovery runs in `InputLease::open` before an event sink is attached, so no recovery event is emitted. Inspect `record()` after opening.
 - `LeaseError` gained variants (`ExecutionNotRunning`, `UnsentSequence`, `NonMonotonicAck`, `InvalidExecutionTransition`, `Store`). Exhaustive external matches need a new arm.
-- The `tauri-plugin` lease methods do not yet expose durable state or `acknowledge_input` over the wire.
+- The `qa-control` lease methods do not yet expose durable state or `acknowledge_input` over the wire.
 - Breaking for direct `mac` callers: `mac::click`, `type_text`, `key`, `ax_press`, `click_node`, `launch_hidden`, `capture_window`, `ax_make_key`, `key_without_raise`, `hover`, `drag` and `scroll` moved to `mac::Gated` (or `mac::unsafe_ungated`). Reads (`windows`, `main_window`, `frontmost_*`, `ax_dump`, `ax_find`, `ax_text`, `accessibility_trusted`) are unchanged.
 - `webdriver::macos::AxBackend` is an adapter whose `Backend` methods act directly, and `Server::backend` is a public field. Only calls through `Server::handle` or `serve` are admitted.
 

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -12,6 +12,7 @@ import {
   parseSourceList,
   renderMarketplaceFiles,
   validateMarketplace,
+  workspaceIsMarketplaceRoot,
 } from "./plugin/marketplace.mjs";
 
 const CLI = path.join(path.dirname(fileURLToPath(import.meta.url)), "cli", "right-ax.mjs");
@@ -108,7 +109,15 @@ test("the source list rejects bad names, duplicates, urls, refs, shas, versions 
   bad((entry) => { entry.hosts.claude.path = "/abs/path"; });
   bad((entry) => { entry.hosts.claude.path = "a\\b"; });
   bad((entry) => { entry.hosts.codex.local = "plugins/pulse"; });
-  bad((entry) => { entry.hosts.claude.local = "./x"; });
+  bad((entry) => { entry.hosts.claude.local = "/abs/plugin"; });
+  bad((entry) => { entry.hosts.claude.local = "./../escape"; });
+  bad((entry) => { entry.hosts.claude.local = "./a/../b"; });
+  bad((entry) => { entry.hosts.claude.local = "plugins/pulse"; });
+  bad((entry) => { entry.hosts.claude.local = ".\\plugins"; });
+  bad((entry) => { entry.hosts.claude.local = "./"; });
+  bad((entry) => { entry.hosts.claude.local = "C:/plugins/pulse"; });
+  bad((entry) => { entry.hosts.claude.local = 5; });
+  bad((entry) => { entry.hosts.claude = { local: "./plugins/pulse" }; delete entry.url; });
   bad((entry, input) => { input.schemaVersion = 2; });
   bad((entry, input) => { input.name = "Right Suite"; });
   bad((entry, input) => { delete input.owner; });
@@ -389,4 +398,175 @@ test("a portable-layout plugin at the repository root validates through its list
   writeFileSync(sourcesPath, JSON.stringify(input));
   const result = validateMarketplace({ sourcesPath, workspace, skipDrift: true });
   assert.equal(result.valid, true, JSON.stringify(result, null, 2));
+});
+
+// ---- vendored plugins: hosts.<host>.local ------------------------------------------------------
+
+function vendoredList(extraPlugins = []) {
+  return {
+    schemaVersion: 1,
+    name: "right-suite",
+    owner: { name: "Orthic Labs" },
+    plugins: [
+      {
+        name: "pulse",
+        description: "Message AI chats on paired machines through Pulse chat.",
+        category: "productivity",
+        version: "0.1.0",
+        hosts: { claude: { local: "./plugins/claude/pulse" }, codex: { local: "./plugins/codex/pulse" } },
+      },
+      ...extraPlugins,
+    ],
+  };
+}
+
+const LEGION_ENTRY = {
+  name: "legion",
+  description: "Legion orchestrates capability selection and authority attachment for AI-assisted engineering.",
+  version: "0.3.23",
+  category: "development",
+  url: "https://github.com/Orthic-Labs/legion.git",
+  ref: "main",
+  hosts: { claude: { path: "." } },
+};
+
+// A marketplace repository that vendors its plugins: <root>/marketplace/plugins.json plus plugins/ beside it.
+function vendoredRepo({ description = PULSE_DESCRIPTION, extraPlugins = [] } = {}) {
+  const parent = tmp();
+  const root = path.join(parent, "right-plugins");
+  const claude = path.join(root, "plugins", "claude", "pulse");
+  writeFile(claude, ".claude-plugin/plugin.json", JSON.stringify({ name: "pulse", version: "0.1.0", description: "Pulse Chat for Claude Code.", author: { name: "Orthic Labs" } }));
+  writeFile(claude, "skills/pulse-bridge/SKILL.md", `---\nname: pulse-bridge\ndescription: ${description}\n---\n\n# Pulse\n`);
+  const codex = path.join(root, "plugins", "codex", "pulse");
+  writeFile(codex, ".codex-plugin/plugin.json", JSON.stringify({ name: "pulse", version: "0.1.0", description: "Pulse Chat for Codex.", skills: "./skills/" }));
+  writeFile(codex, "skills/pulse-bridge/SKILL.md", `---\nname: pulse-bridge\ndescription: ${description}\n---\n\n# Pulse\n`);
+  const sourcesPath = path.join(root, "marketplace", "plugins.json");
+  writeFile(root, "marketplace/plugins.json", JSON.stringify(vendoredList(extraPlugins)));
+  return { parent, root, sourcesPath };
+}
+
+test("a local host needs no url or ref, and emits the relative-path source each host's manifest uses", () => {
+  const parsed = parseSourceList(vendoredList());
+  assert.deepEqual(parsed.findings, []);
+  assert.deepEqual(buildClaudeMarketplace(parsed.list).plugins, [{ name: "pulse", source: "./plugins/claude/pulse", description: "Message AI chats on paired machines through Pulse chat.", version: "0.1.0", category: "productivity" }]);
+  assert.deepEqual(buildCodexMarketplace(parsed.list).manifest.plugins, [{ name: "pulse", source: { source: "local", path: "./plugins/codex/pulse" }, policy: { installation: "AVAILABLE", authentication: "ON_INSTALL" }, category: "productivity" }]);
+  // a sha never leaks into a local source; a local entry beside a remote one keeps each shape
+  const mixed = parseSourceList(vendoredList([{ ...LEGION_ENTRY, sha: "a".repeat(40) }])).list;
+  const plugins = buildClaudeMarketplace(mixed).plugins;
+  assert.equal(plugins[0].source, "./plugins/claude/pulse");
+  assert.deepEqual(plugins[1].source, { source: "url", url: "https://github.com/Orthic-Labs/legion.git", ref: "main", sha: "a".repeat(40) });
+  // a host that is NOT local still needs its repository
+  const needsUrl = vendoredList();
+  needsUrl.plugins[0].hosts.codex = { path: "plugins/codex/pulse" };
+  assert.ok(parseSourceList(needsUrl).findings.some((item) => /\.url must be a public https git URL/.test(item.claim)));
+  // local and path together: local wins for the source, path stays a valid upstream path
+  const both = vendoredList();
+  both.plugins[0].hosts.claude.path = "plugins/claude/pulse";
+  assert.equal(buildClaudeMarketplace(parseSourceList(both).list).plugins[0].source, "./plugins/claude/pulse");
+});
+
+test("local paths refuse absolute, parent-traversal and malformed values with the host named", () => {
+  for (const value of ["/abs/plugin", "./../escape", "./a/../b", "plugins/pulse", ".\\plugins", "./", "C:/plugins/pulse", "//server/share", "./a//b"]) {
+    for (const host of ["claude", "codex"]) {
+      const input = vendoredList();
+      input.plugins[0].hosts[host].local = value;
+      const { list, findings } = parseSourceList(input);
+      assert.equal(list, null, `${host} ${value}`);
+      assert.ok(findings.some((item) => item.claim.includes(`hosts.${host}.local must be a ./relative path inside the marketplace repository`)), `${host} ${value}: ${JSON.stringify(findings)}`);
+    }
+  }
+});
+
+test("build then validate on a vendoring repository: drift checking passes against the generated files", () => {
+  const { root, sourcesPath } = vendoredRepo({ extraPlugins: [LEGION_ENTRY] });
+  const built = buildMarketplace({ sourcesPath, outDir: root });
+  assert.equal(built.ok, true, JSON.stringify(built.findings));
+  const claude = JSON.parse(readFileSync(path.join(root, ".claude-plugin", "marketplace.json"), "utf8"));
+  assert.equal(claude.plugins[0].source, "./plugins/claude/pulse");
+  assert.equal(claude.plugins[1].source.source, "url");
+  const codex = JSON.parse(readFileSync(path.join(root, ".agents", "plugins", "marketplace.json"), "utf8"));
+  assert.deepEqual(codex.plugins.map((plugin) => plugin.source.path), ["./plugins/codex/pulse"]);
+  assert.equal(buildMarketplace({ sourcesPath, outDir: root, check: true }).ok, true);
+  // legion is a sibling checkout of the marketplace repository (beside it, as in a workspace of checkouts)
+  const legion = path.join(path.dirname(root), "legion");
+  writeFile(legion, "plugin.json", JSON.stringify({ $schema: "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json", name: "legion", version: "0.3.23" }));
+  writeFile(legion, "skills/legion/SKILL.md", `---\nname: legion\ndescription: ${SCRAPE_DESCRIPTION}\n---\n`);
+  const result = validateMarketplace({ sourcesPath, outDir: root, workspace: root });
+  assert.equal(result.valid, true, JSON.stringify(result, null, 2));
+  assert.deepEqual(result.plugins.map((record) => [record.plugin, record.host]), [["pulse", "claude"], ["pulse", "codex"], ["legion", "claude"]]);
+  assert.match(result.plugins[0].source, /^local \.\/plugins\/claude\/pulse in marketplace repository /);
+  assert.match(result.plugins[2].source, /workspace checkout .*legion/);
+  // a stale generated file is drift, even though every plugin validates
+  writeFileSync(path.join(root, ".claude-plugin", "marketplace.json"), "{}\n");
+  const stale = validateMarketplace({ sourcesPath, outDir: root, workspace: root });
+  assert.equal(stale.valid, false);
+  assert.ok(stale.findings.some((item) => item.ruleId === "marketplace-drift"));
+});
+
+test("--workspace may be the marketplace repository root; a directory of checkouts still works for remote entries", () => {
+  const { parent, root, sourcesPath } = vendoredRepo();
+  assert.equal(workspaceIsMarketplaceRoot(root, sourcesPath), true);
+  assert.equal(workspaceIsMarketplaceRoot(parent, sourcesPath), true, "any directory the source list lives under");
+  assert.equal(workspaceIsMarketplaceRoot(path.join(parent, "elsewhere"), sourcesPath), false);
+  assert.equal(workspaceIsMarketplaceRoot(undefined, sourcesPath), false);
+  // local entries resolve against --out when no workspace is given, and against the workspace when it is the repository
+  assert.equal(validateMarketplace({ sourcesPath, outDir: root, skipDrift: true }).valid, true);
+  assert.equal(validateMarketplace({ sourcesPath, workspace: root, skipDrift: true }).valid, true);
+  const noRoot = validateMarketplace({ sourcesPath, skipDrift: true });
+  assert.equal(noRoot.valid, false);
+  assert.ok(noRoot.plugins[0].findings.some((item) => item.ruleId === "marketplace-plugin-unresolved" && /pass --out <marketplace repository root> or --workspace/.test(item.evidence)));
+  // a repository entry whose own name matches the workspace directory resolves to the workspace itself
+  const self = vendoredList();
+  self.plugins[0] = { ...self.plugins[0], url: "https://github.com/Orthic-Labs/right-plugins.git", ref: "main", hosts: { claude: { path: "plugins/claude/pulse" } } };
+  writeFileSync(sourcesPath, JSON.stringify(self));
+  const viaSelf = validateMarketplace({ sourcesPath, workspace: root, skipDrift: true });
+  assert.equal(viaSelf.valid, true, JSON.stringify(viaSelf, null, 2));
+  assert.match(viaSelf.plugins[0].source, /workspace checkout .*right-plugins/);
+});
+
+test("validate fails a local plugin that is missing, escapes the repository, or fails plugin validate", () => {
+  const missing = vendoredRepo();
+  const list = vendoredList();
+  list.plugins[0].hosts.claude.local = "./plugins/nowhere";
+  writeFileSync(missing.sourcesPath, JSON.stringify(list));
+  const gone = validateMarketplace({ sourcesPath: missing.sourcesPath, outDir: missing.root, skipDrift: true });
+  assert.equal(gone.valid, false);
+  assert.ok(gone.plugins[0].findings.some((item) => item.ruleId === "marketplace-plugin-unresolved" && /local path \.\/plugins\/nowhere does not exist in the marketplace repository/.test(item.evidence)));
+
+  const vague = vendoredRepo({ description: "A chat tool." });
+  const vagueResult = validateMarketplace({ sourcesPath: vague.sourcesPath, outDir: vague.root, skipDrift: true });
+  assert.equal(vagueResult.valid, false);
+  assert.ok(vagueResult.plugins[0].findings.some((item) => item.ruleId === "skill-description-length"));
+
+  const linked = vendoredRepo();
+  const outside = path.join(linked.parent, "outside-plugin");
+  writeFile(outside, ".claude-plugin/plugin.json", JSON.stringify({ name: "pulse", version: "0.1.0", description: "Outside the repository." }));
+  symlinkSync(outside, path.join(linked.root, "plugins", "linked"));
+  const escaping = vendoredList();
+  escaping.plugins[0].hosts = { claude: { local: "./plugins/linked" } };
+  writeFileSync(linked.sourcesPath, JSON.stringify(escaping));
+  const escaped = validateMarketplace({ sourcesPath: linked.sourcesPath, outDir: linked.root, skipDrift: true });
+  assert.equal(escaped.valid, false);
+  assert.ok(escaped.plugins[0].findings.some((item) => /escapes the marketplace repository/.test(item.evidence)), JSON.stringify(escaped.plugins));
+
+  // identity checks still apply to a vendored plugin
+  const renamed = vendoredRepo();
+  const wrong = vendoredList();
+  wrong.plugins[0].version = "9.9.9";
+  writeFileSync(renamed.sourcesPath, JSON.stringify(wrong));
+  const versionResult = validateMarketplace({ sourcesPath: renamed.sourcesPath, outDir: renamed.root, skipDrift: true });
+  assert.ok(versionResult.plugins.some((record) => record.findings.some((item) => item.ruleId === "marketplace-plugin-version")));
+});
+
+test("the CLI validates a vendoring repository with --workspace <its root> and drift checking on", () => {
+  const { root, sourcesPath } = vendoredRepo();
+  const run = (args) => spawnSync(process.execPath, [CLI, ...args], { encoding: "utf8", cwd: root });
+  assert.equal(run(["marketplace", "build"]).status, 0);
+  assert.equal(run(["marketplace", "build", "--check"]).status, 0);
+  const validated = run(["marketplace", "validate", "--workspace", "."]);
+  assert.equal(validated.status, 0, validated.stdout + validated.stderr);
+  assert.equal(JSON.parse(validated.stdout).valid, true);
+  assert.ok(existsSync(sourcesPath));
+  writeFileSync(path.join(root, ".agents", "plugins", "marketplace.json"), "{}\n");
+  assert.equal(run(["marketplace", "validate", "--workspace", "."]).status, 1);
 });

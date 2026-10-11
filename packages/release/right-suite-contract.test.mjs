@@ -1105,13 +1105,13 @@ test("publish.yml: named violations fail the contract with the property they bre
     ["continue-on-error on a step", /continue-on-error is forbidden/],
     ["guard allows another branch", /refs\/heads\/main/],
     ["verify requests id-token", /verify must not request id-token/],
-    ["pack reads a secret", /pack must not reference a secret/],
+    ["pack reads a secret", /pack must not reference the secrets context in any form/],
     ["upload installs dependencies", /upload may run only/],
     ["upload adds pnpm", /upload may not use pnpm/],
     ["upload loses its environment", /environment: release/],
-    ["upload runs even after failures", /override the needs result/],
-    ["upload no longer needs main", /real publish from main/],
-    ["seal-check reads a secret", /seal-check must not reference a secret/],
+    ["upload runs even after failures", /upload's condition must be exactly/],
+    ["upload no longer needs main", /upload's condition must be exactly/],
+    ["seal-check reads a secret", /seal-check must not reference the secrets context in any form/],
   ];
   const doc = parseYaml(publishWorkflowText());
   for (const [name, pattern] of expectations) {

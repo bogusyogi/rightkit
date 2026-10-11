@@ -3,7 +3,7 @@
 //!
 //! `#[ignore]` by default because it creates a real window in the interactive desktop session.
 //! Run explicitly, Windows only:
-//!   rightkit cargo test -p rightkit-control --no-default-features --features tauri-plugin,wv2-0_38 --test offscreen_windows -- --ignored
+//!   rightkit cargo test -p rightkit-control --no-default-features --features qa-control,wv2-0_38 --test offscreen_windows -- --ignored
 //! The window is moved off every display, so nothing appears on screen after placement. Geometry, identity and
 //! focus are read from this test process (GetWindowRect, EnumDisplayMonitors, IsWindowVisible, ...), not from
 //! the fixture, so the fixture's self-report is only used for EcoQoS, which only it can read.

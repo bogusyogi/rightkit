@@ -78,6 +78,10 @@ impl EngineTarget {
                 self.binary.display()
             ));
         }
+        crate::userdata::check_engine_dirs(
+            opts.data_dir.as_deref(),
+            &self.env_for(None, &opts.env),
+        )?;
         let mut argv = args.to_vec();
         if let Some(input) = &opts.input {
             argv.push("--input".into());
@@ -330,6 +334,10 @@ impl StderrBuf {
 
 impl Sidecar {
     fn start(engine: &EngineTarget, opts: &CliOptions, tracker: &Tracker) -> Result<Self> {
+        crate::userdata::check_engine_dirs(
+            opts.data_dir.as_deref(),
+            &engine.env_for(None, &opts.env),
+        )?;
         let mut cmd = Command::new(&engine.binary);
         cmd.arg("--stdio")
             .stdin(Stdio::piped())

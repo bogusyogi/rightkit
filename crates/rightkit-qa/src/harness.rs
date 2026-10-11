@@ -78,6 +78,7 @@ pub struct Harness {
     run_root: PathBuf,
     scratch_root: PathBuf,
     allow_external_evidence: bool,
+    keep_failed_home: bool,
 }
 
 impl Drop for Harness {
@@ -87,7 +88,16 @@ impl Drop for Harness {
         }
         if let Ok(mut run) = self.run.lock() {
             if let Some(ws) = run.take() {
-                let _ = crate::workspace::dispose(&ws, true, 3, 10);
+                if self.keep_failed_home && std::thread::panicking() {
+                    let _ = ws.finish();
+                    eprintln!(
+                        "{} kept QA home of the failed run: {}",
+                        self.prefix,
+                        crate::storage::describe_kept_home(&ws.home)
+                    );
+                } else {
+                    let _ = crate::workspace::dispose(&ws, true, 3, 10);
+                }
             }
         }
     }
@@ -166,7 +176,15 @@ impl Harness {
             run: Arc::new(Mutex::new(run)),
             run_root,
             allow_external_evidence: managed_root.is_some(),
+            keep_failed_home: crate::storage::keep_failed_home_requested(),
         }
+    }
+
+    /// Keep the QA home when the run fails (the thread is panicking as the harness drops); its path
+    /// and size are printed. Default: removed pass or fail, unless `RIGHTKIT_QA_KEEP_FAILED_HOME=1`.
+    pub fn with_keep_failed_home(mut self, keep: bool) -> Self {
+        self.keep_failed_home = keep;
+        self
     }
 
     /// Tiers enabled at compile time: `&[("full", cfg!(feature = "full")), ...]`.

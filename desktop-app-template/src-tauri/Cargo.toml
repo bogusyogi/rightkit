@@ -42,3 +42,19 @@ rightkit-shell = { version = "=0.1.4", default-features = false, features = ["wv
 # rightkit-tauri: DeviceService.
 rightkit-tauri = "=0.1.2"
 # rightkit-db = "=0.3.2"  (add when the app owns a database beside the job store)
+
+# QA control never ships. The in-app control server (`rightkit-control` `qa-control`) is for the internal
+# rightkit-qa harness only; the only supported automation surface for users is the app's own command line
+# or plugin. When rightkit-control 0.3.0 is on the registry (`rightkit-versions.json` `registry`), adopt it
+# exactly like this (an optional dependency, a feature that is off by default, never in `default`):
+#
+#   [features]
+#   qa-native = ["dep:rightkit-control", "rightkit-control/qa-control"]
+#
+#   # in [dependencies]; wv2-0_39 matches Tauri 2.12:
+#   rightkit-control = { version = "=0.3.0", default-features = false, features = ["wv2-0_39"], optional = true }
+#
+# then enable the registration in src/lib.rs (the commented block in `run`). The dev lane builds with
+# `--features qa-native`; `right-release` fails any release or update seal that contains the server.
+[features]
+default = []

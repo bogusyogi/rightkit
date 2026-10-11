@@ -21,7 +21,11 @@ import path from 'node:path';
 import {
   createManagedRun,
   createManagedAppRoot,
+  describeKeptHome,
   finishManagedRun,
+  isOwnedHome,
+  keepFailedHomeRequested,
+  preflightQaRoot,
   pruneManagedRuns,
   resolveManagedRoot,
   type ManagedRun,
@@ -48,6 +52,8 @@ export interface QaWorkspace {
 export interface DisposeReport {
   removed: string[];
   retained: Array<{ path: string; reason: string }>;
+  /** Set when a failed run's home was kept on request; also printed to stderr. */
+  kept?: { path: string; description: string };
 }
 
 export interface CreateQaWorkspaceOptions {
@@ -57,6 +63,8 @@ export interface CreateQaWorkspaceOptions {
   appKey: string;
   leaseMs?: number;
   retention?: import('./storage.js').RetentionPolicy;
+  /** Start-of-run sweep and size-cap check of the QA root. Default on (off under vitest). */
+  preflight?: import('./storage.js').PreflightOptions;
 }
 
 /**
@@ -66,6 +74,8 @@ export interface CreateQaWorkspaceOptions {
  */
 export function createQaWorkspace(options: CreateQaWorkspaceOptions): QaWorkspace {
   const appKey = requireText(options.appKey, 'appKey');
+  // Sweep dead homes and refuse to start over the QA root's size cap, before a run exists.
+  preflightQaRoot(options.preflight);
   const managed = createManagedRun({ managedRoot: options.root ? requireText(options.root, 'root') : resolveManagedRoot(), app: appKey, runId: options.runId ?? crypto.randomUUID(), leaseMs: options.leaseMs, retention: options.retention });
   const runId = managed.runId;
   const root = managed.root;
@@ -121,7 +131,27 @@ export function createQaWorkspace(options: CreateQaWorkspaceOptions): QaWorkspac
   };
 }
 
+/**
+ * Create a workspace, run `body`, and dispose of it however `body` ends. A throw counts as a failed run
+ * (see {@link DisposeOptions.keepFailedHome}). Evidence is kept and the home removed unless `dispose` says otherwise.
+ */
+export async function withQaWorkspace<T>(options: CreateQaWorkspaceOptions, body: (workspace: QaWorkspace) => Promise<T> | T, dispose: Omit<DisposeOptions, 'failed'> = {}): Promise<T> {
+  const workspace = createQaWorkspace(options);
+  let failed = true;
+  try {
+    const result = await body(workspace);
+    failed = false;
+    return result;
+  } finally {
+    const report = disposeQaWorkspace(workspace, { keepEvidence: true, ...dispose, failed });
+    for (const r of report.retained) if (!report.kept) process.stderr.write(`[qa] WARN could not remove ${r.path}: ${r.reason}\n`);
+  }
+}
+
 export interface DisposeOptions {
+  /** The run failed. With `keepFailedHome` (or RIGHTKIT_QA_KEEP_FAILED_HOME=1) its home is kept and reported. */
+  failed?: boolean;
+  keepFailedHome?: boolean;
   /** Keep the recorded evidence and remove only the volatile profile. */
   keepEvidence?: boolean;
   attempts?: number;
@@ -151,6 +181,14 @@ export function disposeQaWorkspace(workspace: QaWorkspace, options: DisposeOptio
     return report;
   }
 
+  if (options.failed && (options.keepFailedHome ?? keepFailedHomeRequested())) {
+    const description = describeKeptHome(workspace.home);
+    report.kept = { path: workspace.home, description };
+    report.retained.push({ path: workspace.home, reason: 'kept: failed run' });
+    process.stderr.write(`[qa] kept QA home of the failed run: ${description}\n`);
+    return report;
+  }
+
   for (const target of targets) {
     // Only remove the managed run or its registered temp companion.
     const resolved = path.resolve(target);
@@ -160,6 +198,11 @@ export function disposeQaWorkspace(workspace: QaWorkspace, options: DisposeOptio
     }
     if (!fs.existsSync(resolved)) {
       report.removed.push(resolved);
+      continue;
+    }
+    // Deletion happens only inside the QA root this runner owns, never by a caller's path.
+    if (resolved === path.resolve(workspace.home) && !isOwnedHome(resolved)) {
+      report.retained.push({ path: resolved, reason: 'not a QA home created by rightkit-qa; not deleted' });
       continue;
     }
 

@@ -188,7 +188,7 @@ mod tests {
 [features]
 qa-native = ["dep:rightkit-control"]
 [dependencies]
-rightkit-control = { version = "0.1", optional = true, features = ["tauri-plugin"] }
+rightkit-control = { version = "0.1", optional = true, features = ["qa-control"] }
 "#;
     const RUST: &str = r#"
 #[cfg(all(not(debug_assertions), feature = "qa-native"))]

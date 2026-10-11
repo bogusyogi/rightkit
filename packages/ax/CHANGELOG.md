@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.3.2
+
+Additive. Existing source lists, commands and exports behave as before, except that `hosts.<host>.local` is now accepted for Claude too.
+
+- `marketplace build`: `hosts.<host>.local: "./plugins/<name>"` lists a plugin vendored inside the marketplace repository, for either host. Claude gets the relative-path source string (`"source": "./plugins/<name>"`, as in Pulse's and Legion's own marketplace files), Codex keeps `{ "source": "local", "path": ... }`. A repository that vendors its plugins (the new `Orthic-Labs/right-plugins`) can now generate both manifests instead of hand-editing the Claude one, so `marketplace validate` passes with drift checking.
+- `local` is refused unless it is a `./` relative path inside the marketplace repository: no absolute path, no drive letter, no `..`, no backslashes, no empty segment. `url` and `ref` are required only for an entry that has a host without `local`; `path` is optional on a `local` host. `sha` never applies to a local source.
+- `marketplace validate` resolves a `local` host inside the marketplace repository (`--workspace` when that is the repository, else `--out`), refuses a symlink that leaves it, and runs `plugin validate` and the name/version identity checks on it like any other listed plugin. Because it is a vendored copy, validation no longer needs a checkout of another repository for it.
+- `--workspace` accepts the marketplace repository root itself (the directory the source list lives under). Remote entries are then looked up in the root when it is that repository, then beside it (`<root>/../<repo>`), as well as under the root. A directory of checkouts works as before.
+- New exports: `workspaceIsMarketplaceRoot`. Tests in `marketplace.test.mjs`.
+
 ## 0.3.1
 
 Fixes to argument parsing across the CLI. No new commands; exports unchanged.
