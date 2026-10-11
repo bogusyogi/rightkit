@@ -27,9 +27,27 @@
 //! A destination is refused, before any request or filesystem access, when its file name or a
 //! directory in its parent path is `.rk-download` (compared with a simple Unicode case fold, so
 //! `.RK-DOWNLOAD` and a spelling with the Kelvin sign U+212A are the same name), when the name ends in a dot
-//! or space, and on Windows when it contains `:`, is a device name, or contains `~<digit>`. A
-//! destination that is an alias for the directory itself in some other way fails at the rename,
-//! because a file cannot replace a directory.
+//! or space, and on Windows when it contains `:`, is a device name, or contains `~<digit>`. After
+//! the URL policy and before any file is created, the destination's parent is also resolved
+//! (links followed, the directory must exist) and refused with the same error when any component
+//! of the resolved path is `.rk-download`, so `alias/<key>.lock` is refused when `alias` is a link
+//! to a `.rk-download`. The resolved parent is the one the claim, the partial file and the rename
+//! use. A destination that is an alias for the directory itself in some other way fails at the
+//! rename, because a file cannot replace a directory.
+//!
+//! # Modes (Unix)
+//!
+//! The partial file is created owner-only (`0600`), and a partial left by an earlier call is set
+//! to `0600` before any byte is appended; a failure to do so is an error. Just before the rename
+//! a regular file already at `dest` passes its permission bits, masked to `0o777`, to the
+//! partial: replacing a `0600` file leaves a `0600` file, and a setuid, setgid or sticky bit is
+//! never carried onto downloaded bytes. For any other destination (none, a link that the rename
+//! replaces, or another kind of entry) the partial keeps `0600`, so a new file is published
+//! owner-only whatever the umask. A caller that wants a wider file sets it after the call, or creates `dest` first with the
+//! mode it wants (the mode is then kept). Ownership is not carried over. Windows: permissions
+//! are unchanged; files get the access rules of their directory. The destination's parent is
+//! resolved on every platform (on Windows the resolved path has the `\\?\` form and is used
+//! only inside this module; a junction in the parent is resolved too).
 //!
 //! Limits, stated rather than hidden:
 //!
@@ -44,7 +62,9 @@
 //! - `.rk-download` and `dest` must be on one filesystem, or the final rename fails.
 //! - Only the last component of each file is opened without following links. A caller who can
 //!   swap `.rk-download` itself for a link between the check and the open can already write
-//!   anywhere the parent allows.
+//!   anywhere the parent allows. The same holds for a component of the destination's parent
+//!   swapped for a link after the parent was resolved: the check covers the path as it was at
+//!   that moment, not later.
 //!
 //! # Resume and restart decisions
 //!
@@ -274,6 +294,12 @@ impl Client {
     /// resource, or whose ETag, `Last-Modified` or total contradicts what was saved, restarts
     /// from zero.
     ///
+    /// The destination's parent must exist; it is resolved (links followed) before any file is
+    /// created, and the download is refused when any component of the resolved path is
+    /// `.rk-download`. On Unix the partial file is `0600`; the published file keeps the
+    /// permission bits, masked to `0o777`, of a regular file it replaces and is `0600`
+    /// otherwise (see the module docs).
+    ///
     /// Safety rules: the URL is checked against the address policy before any file is
     /// opened. The destination is then claimed: an exclusive OS lock on the destination's claim
     /// file (in `.rk-download`, never deleted) is taken before the partial file is opened and
@@ -328,11 +354,16 @@ impl Client {
         reject_reserved_destination(dest)?;
         // Policy first: a denied URL must not touch the filesystem.
         self.preflight_url(url)?;
+        // Resolve the destination's parent once and use the resolved path for the layout, the
+        // claim, the partial file and the rename, so the directory that was checked is the
+        // directory that is written. A parent reached through a link to `.rk-download` is
+        // refused here, before any coordination file exists.
+        let target = resolve_destination(dest)?;
         // The claim and partial file are in a hidden directory of the destination's parent,
         // never beside `dest`. One writer per destination, from before the partial file is
         // opened until after the rename. The claim is declared before `file`, so it is
         // released after the handle is closed.
-        let layout = Layout::for_destination(dest)?;
+        let layout = Layout::for_destination(&target)?;
         ensure_coordination_dir(&layout.dir)?;
         let _claim = Claim::acquire(&layout)?;
         let part: &Path = &layout.part;
@@ -398,9 +429,21 @@ impl Client {
             }
         }
         ensure_same_file(&file, part).map_err(io_error("check partial file"))?;
-        fs::rename(part, dest).map_err(io_error("rename into place"))?;
+        // The partial file is owner-only. Before it replaces `target` it takes the mode the
+        // published file is documented to have (see `set_published_mode`).
+        #[cfg(unix)]
+        set_published_mode(&file, &target)?;
+        if let Err(e) = fs::rename(part, &target) {
+            // The partial file stays for a resume, which opens it for writing: put its
+            // owner-only mode back so a mode copied from the destination cannot lock it out.
+            #[cfg(unix)]
+            {
+                let _ = restrict_part(&file);
+            }
+            return Err(io_error("rename into place")(e));
+        }
         drop(file);
-        sync_parent(dest);
+        sync_parent(&target);
         Ok(DownloadReport {
             path: dest.to_path_buf(),
             bytes: st.written,
@@ -709,6 +752,12 @@ fn open_part_with(
             "partial path is a hard link to another file".into(),
         ));
     }
+    // Owner-only before any byte is appended, a partial from an earlier call included (it
+    // may have been made by an older version or another tool with the default mode). After
+    // the hard-link check, so another name for the same inode is never changed. A failure is
+    // an error: the file is not used.
+    #[cfg(unix)]
+    restrict_part(&file).map_err(io_error("restrict partial file"))?;
     #[cfg(windows)]
     let file = {
         let mut file = file;
@@ -744,7 +793,47 @@ fn append_part(file: &mut File, bytes: &[u8]) -> io::Result<()> {
 fn create_new(part: &Path) -> Result<File, DownloadError> {
     let mut options = part_options();
     options.create_new(true);
+    // Owner-only from the first instant, not after a chmod.
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(PART_MODE);
+    }
     open_nofollow(&mut options, part).map_err(io_error("create partial file"))
+}
+
+/// Mode of the partial file on Unix: owner read and write only.
+#[cfg(unix)]
+const PART_MODE: u32 = 0o600;
+
+/// Set the open partial file to [`PART_MODE`] through its handle.
+#[cfg(unix)]
+fn restrict_part(file: &File) -> io::Result<()> {
+    use std::os::unix::fs::PermissionsExt;
+    file.set_permissions(fs::Permissions::from_mode(PART_MODE))
+}
+
+/// Give the partial file the mode the published file will have, just before the rename.
+///
+/// - A regular file already at `dest`: its permission bits masked to `0o777` (taken without
+///   following a link), so replacing a `0600` file does not make it `0644` and a setuid,
+///   setgid or sticky bit is never carried onto the downloaded bytes.
+/// - Anything else (no file, a link, which the rename replaces without touching its target, or
+///   another kind of entry): nothing changes, and the partial stays [`PART_MODE`].
+///
+/// Ownership is not carried over. The destination can change between this read and the
+/// rename; the mode is then the one the file had a moment earlier.
+#[cfg(unix)]
+fn set_published_mode(file: &File, dest: &Path) -> Result<(), DownloadError> {
+    use std::os::unix::fs::{MetadataExt, PermissionsExt};
+    let mode = match fs::symlink_metadata(dest) {
+        Ok(meta) if meta.file_type().is_file() => meta.mode() & 0o777,
+        Ok(_) => return Ok(()),
+        Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(()),
+        Err(e) => return Err(io_error("inspect destination")(e)),
+    };
+    file.set_permissions(fs::Permissions::from_mode(mode))
+        .map_err(io_error("set the mode of the published file"))
 }
 
 /// Name of the hidden directory, in the destination's parent, that holds the claim and the
@@ -949,18 +1038,53 @@ fn reject_reserved_destination(dest: &Path) -> Result<(), DownloadError> {
     if let Some(why) = destination_name_problem(&name.to_string_lossy(), cfg!(windows)) {
         return Err(DownloadError::Io(why.into()));
     }
-    let inside = dest.parent().is_some_and(|parent| {
-        parent.components().any(|component| {
-            matches!(component, Component::Normal(dir_name)
-                if names_coordination_dir(&dir_name.to_string_lossy()))
-        })
-    });
-    if inside {
-        return Err(DownloadError::Io(
-            "destinations inside the download's own .rk-download directory are refused".into(),
-        ));
+    if dest.parent().is_some_and(path_has_coordination_dir) {
+        return Err(inside_coordination_dir());
     }
     Ok(())
+}
+
+/// Whether any component of `path` is the download directory's name ([`fold`]ed).
+fn path_has_coordination_dir(path: &Path) -> bool {
+    path.components().any(|component| {
+        matches!(component, Component::Normal(dir_name)
+            if names_coordination_dir(&dir_name.to_string_lossy()))
+    })
+}
+
+fn inside_coordination_dir() -> DownloadError {
+    DownloadError::Io(
+        "destinations inside the download's own .rk-download directory are refused".into(),
+    )
+}
+
+/// The destination with its parent directory resolved (every link in it followed, so no `..`
+/// or alias is left), and the same refusal as [`reject_reserved_destination`] when any
+/// component of the resolved parent is `.rk-download`. That catches a destination reached
+/// through a link, such as `alias/<key>.lock` where `alias` links to a `.rk-download`, which
+/// the lexical check cannot see. The final component is the file name and is not followed. The
+/// parent must exist; nothing is created here.
+///
+/// The returned path is what the layout, the claim, the partial file and the rename use, so
+/// the directory that was checked is the directory that is written. Not covered: a component
+/// of the parent swapped for a link after this check. Every later open re-resolves the path;
+/// there is no directory handle to anchor it, so a caller who can do that can already write
+/// anywhere the parent allows.
+fn resolve_destination(dest: &Path) -> Result<PathBuf, DownloadError> {
+    let Some(name) = dest.file_name() else {
+        return Err(DownloadError::Io(
+            "destination has no file name (it ends in `..` or is a root)".into(),
+        ));
+    };
+    let parent = match dest.parent() {
+        Some(parent) if !parent.as_os_str().is_empty() => parent,
+        _ => Path::new("."),
+    };
+    let resolved = fs::canonicalize(parent).map_err(io_error("resolve destination directory"))?;
+    if path_has_coordination_dir(&resolved) {
+        return Err(inside_coordination_dir());
+    }
+    Ok(resolved.join(name))
 }
 
 /// Why `name` (a final path component) may not be a download destination, or `None`.
