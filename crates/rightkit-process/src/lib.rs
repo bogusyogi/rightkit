@@ -33,7 +33,7 @@ pub use restart::{
     Generation, RestartMode, RestartOutcome, RestartPermit, RestartPolicy, RestartTracker,
 };
 #[cfg(windows)]
-pub use spawn_windows::{WindowsChild, WindowsSpawnConfig, WindowsStdio};
+pub use spawn_windows::{with_windows_spawn_lock, WindowsChild, WindowsSpawnConfig, WindowsStdio};
 pub use stall::{Ack, Cooldown, StallConfig, StallEvent, StallWatchdog};
 pub use stderr_tail::StderrTail;
 #[cfg(unix)]

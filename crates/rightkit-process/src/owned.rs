@@ -361,23 +361,30 @@ impl OwnedCommand {
         let mut stayed_in_job = false;
         #[cfg(windows)]
         let child: PlatformChild = match self.inherited_handles.as_deref() {
-            None => match self.command.spawn() {
-                Ok(child) => child.into(),
-                Err(error)
-                    if detached && self.tolerate_denied_breakaway && is_access_denied(&error) =>
-                {
-                    // Breakaway denied by the parent job: retry once, detached, in the job.
-                    crate::process_windows::configure(
-                        &mut self.command,
-                        true,
-                        self.windows_hidden,
-                        true,
-                    );
-                    stayed_in_job = true;
-                    self.command.spawn()?.into()
+            None => {
+                // An ordinary spawn inherits every inheritable handle. Held for both attempts
+                // so it never runs while an allowlisted spawn has private handles raised.
+                let _spawning = crate::spawn_windows::spawn_guard();
+                match self.command.spawn() {
+                    Ok(child) => child.into(),
+                    Err(error)
+                        if detached
+                            && self.tolerate_denied_breakaway
+                            && is_access_denied(&error) =>
+                    {
+                        // Breakaway denied by the parent job: retry once, detached, in the job.
+                        crate::process_windows::configure(
+                            &mut self.command,
+                            true,
+                            self.windows_hidden,
+                            true,
+                        );
+                        stayed_in_job = true;
+                        self.command.spawn()?.into()
+                    }
+                    Err(error) => return Err(error),
                 }
-                Err(error) => return Err(error),
-            },
+            }
             Some(handles) => {
                 let config = self.windows_spawn_config.take().ok_or_else(|| {
                     io::Error::new(io::ErrorKind::InvalidInput,
