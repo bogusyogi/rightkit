@@ -26,7 +26,44 @@ export const EVENTS = {
   window: 'rightkit-shell://window',
   idle: 'rightkit-shell://idle',
   presence: 'rightkit-shell://presence',
+  /** Host asks the renderer to drain before exit (needs the `quitDrain` capability). */
+  quitRequested: 'rightkit-shell://quit-requested',
 } as const;
+
+/** Drain budget for quit handlers when neither `createShell` nor `quit()` sets one. */
+export const DEFAULT_QUIT_TIMEOUT_MS = 10_000;
+
+/** Host features a renderer can rely on. Read with `shell.capabilities()`; missing means `false`. */
+export interface ShellCapabilities {
+  /** `rightkit-shell://quit-requested` plus `rk_shell_finish_quit`: quit handlers can drain. */
+  quitDrain: boolean;
+  /** `rk_shell_notify` honours `bypassDoNotDisturb`. */
+  notifyBypassDnd: boolean;
+}
+
+export type QuitHandler = () => void | Promise<void>;
+export interface QuitOptions {
+  /** `true` quits at once through `rk_shell_quit` and runs no drain handlers. Default `false`. */
+  force?: boolean;
+  /** Maximum time to wait for drain handlers, in ms. Default: the `createShell` option, else 10 000. */
+  timeoutMs?: number;
+}
+export interface QuitReport {
+  /**
+   * `drained`: every handler settled. `timed-out`: the budget elapsed first (`pending` handlers
+   * were still running). `forced`: `quit({force: true})`. `immediate`: the host lacks the drain.
+   */
+  outcome: 'drained' | 'timed-out' | 'forced' | 'immediate';
+  pending: number;
+  /** Rejections from drain handlers, normalised to `ShellError`. */
+  errors: ShellError[];
+}
+export interface ShellOptions {
+  /** Default drain budget in ms (finite, >= 0). */
+  quitTimeoutMs?: number;
+  /** Receives every quit report that timed out or had handler errors. Default: `console.error`. */
+  onQuitReport?: (report: QuitReport) => void;
+}
 
 export type MenuEntry =
   | { kind: 'item'; id: string; label: string; accelerator?: string; enabled?: boolean }
@@ -121,6 +158,12 @@ export interface NotificationRequest {
   navigatePath?: string;
   soundEnabled?: boolean;
   soundName?: string;
+  /**
+   * Post even while Do-Not-Disturb (manual or automatic) is on. Default `false`. Needs the
+   * `notifyBypassDnd` capability; otherwise `notifications.post` rejects with `unsupported`.
+   * The OS Focus mode is not bypassed.
+   */
+  bypassDoNotDisturb?: boolean;
 }
 export interface NotifyOutcome {
   delivered: boolean;
@@ -225,13 +268,140 @@ export interface ShellBridge {
   setNativeTheme: (theme: 'light' | 'dark' | 'system') => Promise<void>;
 }
 
-export function createShell(transport: ShellTransport = tauriTransport()) {
+const messageOf = (e: unknown): string =>
+  typeof e === 'string' ? e : e && typeof e === 'object' && 'message' in e ? String((e as { message: unknown }).message) : String(e);
+
+const typed = (code: ShellErrorCode, message: string): ShellError => ({ code, message });
+
+const checkTimeout = (ms: number, name: string): void => {
+  if (typeof ms !== 'number' || !Number.isFinite(ms) || ms < 0) throw typed('invalid', `${name} must be a finite number of milliseconds >= 0`);
+};
+
+const NO_CAPABILITIES: ShellCapabilities = { quitDrain: false, notifyBypassDnd: false };
+
+export function createShell(transport: ShellTransport = tauriTransport(), options: ShellOptions = {}) {
   const { invoke, listen } = transport;
+  const defaultTimeout = options.quitTimeoutMs ?? DEFAULT_QUIT_TIMEOUT_MS;
+  checkTimeout(defaultTimeout, 'quitTimeoutMs');
+  const reportQuit = options.onQuitReport ?? ((r: QuitReport) => console.error('rightkit-shell: quit drain', r));
+
+  // Probed once per shell. A host that predates `rk_shell_capabilities` reports no capabilities.
+  let capsCache: Promise<ShellCapabilities> | null = null;
+  const capabilities = (): Promise<ShellCapabilities> => {
+    capsCache ??= invoke<Partial<ShellCapabilities>>('rk_shell_capabilities').then(
+      (c) => ({ quitDrain: c?.quitDrain === true, notifyBypassDnd: c?.notifyBypassDnd === true }),
+      (e: unknown) => {
+        const msg = messageOf(e);
+        if (msg.includes('rk_shell_capabilities') && /not found/i.test(msg)) return NO_CAPABILITIES;
+        capsCache = null;
+        throw asShellError(e);
+      },
+    );
+    return capsCache;
+  };
+  const requireCapability = async (key: keyof ShellCapabilities, what: string): Promise<void> => {
+    if (!(await capabilities())[key]) throw typed('unsupported', `rightkit-shell host lacks ${what}; see the rightkit-shell crate README`);
+  };
+
+  // Before-quit drain. Subscribers run concurrently; one quit runs at a time.
+  const quitHandlers = new Set<QuitHandler>();
+  let quitListen: Promise<Unlisten> | null = null;
+  let quitting: Promise<QuitReport> | null = null;
+
+  const drain = async (timeoutMs: number): Promise<QuitReport> => {
+    let pending = 0;
+    const errors: ShellError[] = [];
+    const runs = [...quitHandlers].map((h) => {
+      pending += 1;
+      return Promise.resolve()
+        .then(() => h())
+        .then(
+          () => {
+            pending -= 1;
+          },
+          (e: unknown) => {
+            pending -= 1;
+            errors.push(asShellError(e));
+          },
+        );
+    });
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const budget = new Promise<'timed-out'>((resolve) => {
+      timer = setTimeout(() => resolve('timed-out'), timeoutMs);
+    });
+    const all = Promise.all(runs).then(() => 'drained' as const);
+    const outcome = await Promise.race([all, budget]);
+    clearTimeout(timer);
+    return { outcome, pending, errors: [...errors] };
+  };
+
+  const drainAndFinish = (timeoutMs: number): Promise<QuitReport> => {
+    const run = quitting ?? (quitting = (async (): Promise<QuitReport> => {
+      const report = await drain(timeoutMs);
+      if (report.outcome === 'timed-out' || report.errors.length > 0) reportQuit(report);
+      try {
+        await invoke<void>('rk_shell_finish_quit');
+      } catch (e) {
+        quitting = null;
+        throw asShellError(e);
+      }
+      return report;
+    })());
+    return run;
+  };
+
   const api = {
     /** Tell the host the UI is listening: queued deep links are delivered now. Call once after subscribing. */
     ready: () => invoke<{ background: boolean; appId: string; appName: string; engine: { state: 'starting' | 'ready' | 'error'; hello?: unknown; code?: string; message?: string } | null }>('rk_shell_ready'),
     status: () => invoke<ShellStatus>('rk_shell_status'),
-    quit: () => invoke<void>('rk_shell_quit'),
+    /** Host feature probe. Missing fields and a host without `rk_shell_capabilities` read as `false`. */
+    capabilities,
+
+    /**
+     * Quit the app. Default: run the drain handlers (see `onQuitRequested`), wait for them or the
+     * timeout, then call `rk_shell_finish_quit`. Without the `quitDrain` capability it calls
+     * `rk_shell_quit` at once. `force: true` always calls `rk_shell_quit` at once.
+     */
+    quit: async (quitOptions: QuitOptions = {}): Promise<QuitReport> => {
+      if (quitOptions.force === true) {
+        await invoke<void>('rk_shell_quit');
+        return { outcome: 'forced', pending: 0, errors: [] };
+      }
+      const timeoutMs = quitOptions.timeoutMs ?? defaultTimeout;
+      checkTimeout(timeoutMs, 'timeoutMs');
+      if (!(await capabilities()).quitDrain) {
+        await invoke<void>('rk_shell_quit');
+        return { outcome: 'immediate', pending: 0, errors: [] };
+      }
+      return drainAndFinish(timeoutMs);
+    },
+
+    /**
+     * Register a before-quit drain handler. It runs when the host asks the app to quit (tray Quit,
+     * Dock, Cmd+Q) or when `quit()` is called. Returns an unsubscribe. Rejects `unsupported` when
+     * the host lacks the `quitDrain` capability.
+     */
+    onQuitRequested: async (handler: QuitHandler): Promise<Unlisten> => {
+      await requireCapability('quitDrain', 'quit drain (missing: rightkit-shell://quit-requested event and rk_shell_finish_quit command)');
+      quitHandlers.add(handler);
+      if (!quitListen) {
+        quitListen = listen<unknown>(EVENTS.quitRequested, () => {
+          drainAndFinish(defaultTimeout).catch((e: unknown) => reportQuit({ outcome: 'drained', pending: 0, errors: [asShellError(e)] }));
+        }).catch((e: unknown) => {
+          quitListen = null;
+          throw asShellError(e);
+        });
+      }
+      try {
+        await quitListen;
+      } catch (e) {
+        quitHandlers.delete(handler);
+        throw e;
+      }
+      return () => {
+        quitHandlers.delete(handler);
+      };
+    },
 
     /** Open an http(s)/mailto URL in the system browser. Other schemes are refused by the host. */
     openExternal: (url: string) => invoke<void>('rk_shell_open_external', { url }),
@@ -254,7 +424,17 @@ export function createShell(transport: ShellTransport = tauriTransport()) {
 
     tray: {
       update: (update: TrayUpdate) => invoke<void>('rk_shell_set_tray', { update }),
+      /** Shell tray events: menu items (any id in the tray spec) and left clicks. */
       onEvent: (h: (e: { kind: 'menu'; id: string } | { kind: 'click' }) => void) => listen(EVENTS.tray, h),
+      /**
+       * An app-defined event, such as one the app's own Rust code emits (`app.emit("tray-compose", ())`).
+       * The shell's tray does not emit custom names; use `onEvent` for menu item ids. Names under
+       * `rightkit-shell://` are reserved and rejected as `invalid`.
+       */
+      onCustom: async (name: string, h: (payload: unknown) => void): Promise<Unlisten> => {
+        if (!name || name.startsWith('rightkit-shell://')) throw typed('invalid', 'tray.onCustom needs a non-empty event name outside the rightkit-shell:// namespace');
+        return listen<unknown>(name, h);
+      },
     },
 
     deepLinks: {
@@ -294,8 +474,17 @@ export function createShell(transport: ShellTransport = tauriTransport()) {
     },
 
     notifications: {
-      /** Post a native notification (suppressed while Do-Not-Disturb is on). May wait on the OS permission prompt. */
-      post: (request: NotificationRequest) => invoke<NotifyOutcome>('rk_shell_notify', { request }),
+      /**
+       * Post a native notification (suppressed while Do-Not-Disturb is on, unless
+       * `bypassDoNotDisturb: true`, which needs the `notifyBypassDnd` capability). May wait on the
+       * OS permission prompt. Without the option the request is sent exactly as before.
+       */
+      post: async (request: NotificationRequest): Promise<NotifyOutcome> => {
+        const { bypassDoNotDisturb, ...rest } = request;
+        if (bypassDoNotDisturb !== true) return invoke<NotifyOutcome>('rk_shell_notify', { request: rest });
+        await requireCapability('notifyBypassDnd', 'notification bypass of Do-Not-Disturb (missing: bypassDoNotDisturb support in rk_shell_notify)');
+        return invoke<NotifyOutcome>('rk_shell_notify', { request: { ...rest, bypassDoNotDisturb: true } });
+      },
       /** Authorization plus what the OS reports as delivered to this app. */
       status: () => invoke<NotifyStatus>('rk_shell_notify_status'),
       clear: (ids?: string[]) => invoke<void>('rk_shell_notify_clear', { ids: ids ?? null }),

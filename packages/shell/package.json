@@ -1,6 +1,6 @@
 {
   "name": "@rightkit/shell",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Typed renderer bridge for the rightkit-shell Tauri crate: window controls, menu/tray events, deep links, autostart, rich clipboard, engine calls.",
   "license": "MIT OR Apache-2.0",
   "packageManager": "pnpm@11.24.0",
@@ -13,11 +13,15 @@
       "import": "./dist/index.js"
     }
   },
-  "files": ["dist", "README.md"],
+  "files": [
+    "dist",
+    "README.md"
+  ],
   "sideEffects": false,
   "scripts": {
     "build": "tsc -p tsconfig.json",
-    "typecheck": "tsc -p tsconfig.json --noEmit"
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "pnpm run build && node --test tests/shell.test.mjs"
   },
   "devDependencies": {
     "typescript": "^5.7.0"
