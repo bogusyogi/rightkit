@@ -1,4 +1,4 @@
-import { spawnSync, type ChildProcess } from 'node:child_process';
+import { spawn, spawnSync, type ChildProcess } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -140,6 +140,46 @@ describe.skipIf(process.platform === 'win32')('chromeProcessesForProfile on POSI
       rmSync(root, { recursive: true, force: true });
     }
   });
+});
+
+describe.skipIf(process.platform !== 'win32')('chromeProcessesForProfile on Windows (CIM command-line scan)', () => {
+  it('finds the processes of exactly one profile: quoted, unquoted, a file inside it, never a sibling prefix', () => {
+    const root = mkdtempSync(path.join(tmpdir(), 'rk-qa-scan-'));
+    const script = path.join(root, 'child.mjs');
+    writeFileSync(script, 'setInterval(() => {}, 1000);\n');
+    const profile = path.join(root, 'profile');
+    const sibling = `${profile}2`;
+    const spaced = path.join(root, 'pro file');
+    // Each child stands in for a Chrome process: its command line carries the profile, like Chrome's children.
+    const start = (argument: string) => {
+      const child = spawn(process.execPath, [script, argument], { stdio: 'ignore', windowsHide: true });
+      expect(child.pid).toBeGreaterThan(0);
+      return child;
+    };
+    const children = [
+      start(`--user-data-dir=${profile}`),
+      start(`--database=${path.join(profile, 'Crashpad')}`),
+      start(`--user-data-dir=${sibling}`),
+      start(`--user-data-dir=${spaced}`), // has a space, so Windows quotes the whole argument
+    ];
+    const [main, inside, other, quoted] = children.map((child) => child.pid!);
+    try {
+      const found = chromeProcessesForProfile(profile);
+      expect(found).toContain(main);
+      expect(found).toContain(inside);
+      expect(found).not.toContain(other);
+      expect(found).not.toContain(quoted);
+      // The match ignores case, as Windows paths do.
+      expect(chromeProcessesForProfile(profile.toUpperCase())).toContain(main);
+      expect(chromeProcessesForProfile(sibling)).toEqual([other]);
+      expect(chromeProcessesForProfile(spaced)).toEqual([quoted]);
+      expect(chromeProcessesForProfile(path.join(root, 'missing'))).toEqual([]);
+    } finally {
+      for (const child of children) { try { child.kill(); } catch { /* already gone */ } }
+      spawnSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', 'Start-Sleep -Milliseconds 300'], { windowsHide: true });
+      rmSync(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+    }
+  }, 120_000);
 });
 
 /** A fake clock and delay: sleeping advances the clock, so bounds are exact and no real time passes. */

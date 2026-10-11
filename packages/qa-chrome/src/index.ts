@@ -351,6 +351,10 @@ const SCAN_COMPLETE = 'RK_QA_SCAN_COMPLETE';
  * descendants, including orphans of an exited launcher. The profile directory is unique per launch, so the
  * match cannot hit unrelated browsers. Windows scans with PowerShell; macOS and Linux with `ps`.
  *
+ * On Windows the path is matched as a whole path, in any case: it must be followed by a quote, white
+ * space, a path separator or the end of the command line. A sibling profile `<profileDir>2` does not match,
+ * while a child that names a file inside the profile (`--database=<profileDir>\Crashpad`) does.
+ *
  * A scan that fails or times out returns `[]`, which means "unknown", not "none". `closeChromeGracefully`
  * never reads that as clean; it reports `livenessUnknown` instead.
  */
@@ -362,7 +366,7 @@ export function chromeProcessesForProfile(profileDir: string): number[] {
 function probeProfileProcesses(profileDir: string): number[] | null {
   if (!profileDir) return [];
   if (process.platform !== 'win32') return posixProcessesForProfile(profileDir);
-  const script = `$ErrorActionPreference = 'Stop'; $p = $env:RK_QA_PROFILE; Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -and $_.ProcessId -ne $PID -and $_.CommandLine.IndexOf($p, [StringComparison]::OrdinalIgnoreCase) -ge 0 } | ForEach-Object { $_.ProcessId }; '${SCAN_COMPLETE}'`;
+  const script = `$ErrorActionPreference = 'Stop'; $p = $env:RK_QA_PROFILE; $q = [string][char]34; $r = [regex]::new([regex]::Escape($p) + '(?![^' + $q + '\\s\\\\/])', 'IgnoreCase'); Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -and $_.ProcessId -ne $PID -and $r.IsMatch($_.CommandLine) } | ForEach-Object { $_.ProcessId }; '${SCAN_COMPLETE}'`;
   const result = spawnSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', script], {
     encoding: 'utf8',
     windowsHide: true,
