@@ -91,6 +91,53 @@ describe.skipIf(process.platform === 'win32')('spawnOwnedProcess registry (POSIX
   });
 });
 
+describe('spawnOwnedProcess registry (every platform: taskkill tree on Windows, process group on POSIX)', () => {
+  const idle = 'setInterval(() => {}, 1000);';
+  // The launched program starts a grandchild, prints its pid and stays alive.
+  const parent = `const c = require('node:child_process').spawn(process.execPath, ['-e', ${JSON.stringify(idle)}], { stdio: 'ignore' }); console.log(c.pid); ${idle}`;
+
+  it('stops the launched process and its grandchild, and refuses anything it did not launch', async () => {
+    const owned = spawnOwnedProcess(process.execPath, ['-e', parent], { stdio: 'pipe' });
+    let grandchild = 0;
+    try {
+      grandchild = await new Promise<number>((resolve, reject) => {
+        owned.child.stdout!.setEncoding('utf8');
+        owned.child.stdout!.once('data', (chunk: string) => resolve(Number.parseInt(chunk, 10)));
+        owned.child.once('error', reject);
+      });
+      expect(grandchild).toBeGreaterThan(0);
+      expect(ownedProcessReceipt().leftoverPids).toContain(owned.pid);
+      await expect(stopOwnedProcess(owned.pid as any)).rejects.toThrow('did not launch');
+      await expect(stopOwnedProcess({ pid: owned.pid, child: owned.child } as any)).rejects.toThrow('did not launch');
+      expect(isProcessAlive(owned.pid)).toBe(true);
+      expect(isProcessAlive(grandchild)).toBe(true);
+    } finally {
+      await stopOwnedProcess(owned);
+    }
+    await waitUntilDead(owned.pid);
+    await waitUntilDead(grandchild);
+    expect(isProcessAlive(owned.pid)).toBe(false);
+    expect(isProcessAlive(grandchild)).toBe(false);
+    expect(ownedProcessReceipt().leftoverPids).not.toContain(owned.pid);
+    await stopOwnedProcess(owned); // idempotent
+  }, 30_000);
+
+  it('the receipt lists a launched process that is still running and drops one that exited', async () => {
+    const quick = spawnOwnedProcess(process.execPath, ['-e', '']);
+    await new Promise<void>((resolve) => quick.child.once('exit', () => resolve()));
+    const held = spawnOwnedProcess(process.execPath, ['-e', idle]);
+    try {
+      const { leftoverPids } = ownedProcessReceipt();
+      expect(leftoverPids).toContain(held.pid);
+      expect(leftoverPids).not.toContain(quick.pid);
+    } finally {
+      await stopOwnedProcess(held);
+    }
+    await waitUntilDead(held.pid);
+    expect(ownedProcessReceipt().leftoverPids).not.toContain(held.pid);
+  }, 30_000);
+});
+
 describe('freePortSync (0.4.8)', () => {
   it('returns a port from 1 to 65535 that a 127.0.0.1 listener can bind', async () => {
     const port = freePortSync();

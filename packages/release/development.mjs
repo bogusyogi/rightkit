@@ -9,7 +9,7 @@ import { assertReleaseExecutionAllowed } from "./execution-policy.mjs";
 import { acquireManagedRunLease, managedRuntimeClient, managedRuntimeCommand, runCargoSync } from "./managed-cargo.mjs";
 import { BUNDLE_MARKERS, bundleMarkerBuffer, readTauriBundleMarkers } from "./tauri-bundle-marker.mjs";
 import { installPortableDevelopment } from "./portable-development.mjs";
-import { signMacosDevelopmentBundle } from "./development-signing.mjs";
+import { readBundleExecutable, signMacosDevelopmentBundle } from "./development-signing.mjs";
 import { macosCodesignEnvironment } from "./codesign-environment.mjs";
 
 export const DEVELOPMENT_PROFILE = "release-iterate";
@@ -113,9 +113,12 @@ function install(descriptor, { root, platform, config, env, run, sinceMs = null 
   rmSync(backup, { recursive: true, force: true });
   cpSync(app, staging, { recursive: true, verbatimSymlinks: true });
   let signing;
-  try { signing = signMacosDevelopmentBundle({ root, bundle: staging, descriptor, config, env, run }); }
-  catch (error) { rmSync(staging, { recursive: true, force: true }); throw error; }
-  swapInstalledMacosBundle({ staging, destination, backup });
+  let executableName;
+  try {
+    signing = signMacosDevelopmentBundle({ root, bundle: staging, descriptor, config, env, run });
+    executableName = readBundleExecutable(staging, { root, env, run });
+  } catch (error) { rmSync(staging, { recursive: true, force: true }); throw error; }
+  swapInstalledMacosBundle({ staging, destination, backup, executableName });
   if (signing.provisioningProfile) signing.provisioningProfile = path.join(destination, "Contents", "embedded.provisionprofile");
   console.log(`right-release dev: installed ${destination}; identity=${signing.identity}; TeamIdentifier=${signing.teamIdentifier}; profile=${signing.provisioningProfile ?? "none"}`);
   return signing;
@@ -128,25 +131,14 @@ export class DevelopmentInstallError extends Error {
 const NODE_FS = { existsSync, readFileSync, renameSync, rmSync, statSync };
 
 /**
- * CFBundleExecutable from a bundle's XML Info.plist. Without one, fall back to the installed bundle's name (`fallback`): the staged
- * path carries a `.rightkit-dev-<pid>` suffix, so its own basename never names the executable (a missing file then fails verification).
- */
-function bundleExecutableName(bundle, fs, fallback) {
-  try {
-    const match = /<key>CFBundleExecutable<\/key>\s*<string>([^<]+)<\/string>/.exec(fs.readFileSync(path.join(bundle, "Contents", "Info.plist"), "utf8"));
-    if (match) return match[1].trim();
-  } catch { /* unreadable or binary plist: fall back */ }
-  return fallback;
-}
-
-/**
  * Move the signed staging bundle into place and verify it before the previous app's backup is removed: Info.plist exists and
- * the installed main executable (CFBundleExecutable) exists with the same SHA-256 as the staged one. Any failure removes the
+ * the installed main executable (`executableName`, the staged CFBundleExecutable read through plutil by the caller) exists with the same SHA-256 as the staged one. Any failure removes the
  * new install, restores the backup and throws a DevelopmentInstallError (code DEV_INSTALL_VERIFICATION_FAILED,
  * DEV_INSTALL_EXECUTABLE_MISSING or DEV_INSTALL_EXECUTABLE_MISMATCH). `fs` is the file-system seam (tests inject it).
  */
-export function swapInstalledMacosBundle({ staging, destination, backup, fs = NODE_FS }) {
-  const executable = path.join("Contents", "MacOS", bundleExecutableName(staging, fs, path.basename(destination, ".app")));
+export function swapInstalledMacosBundle({ staging, destination, backup, executableName, fs = NODE_FS }) {
+  if (typeof executableName !== "string" || !executableName) throw new DevelopmentInstallError("DEV_INSTALL_VERIFICATION_FAILED", "swapInstalledMacosBundle requires the staged CFBundleExecutable name");
+  const executable = path.join("Contents", "MacOS", executableName);
   const digest = (file) => createHash("sha256").update(fs.readFileSync(file)).digest("hex");
   let expected;
   try { expected = digest(path.join(staging, executable)); }

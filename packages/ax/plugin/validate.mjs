@@ -10,6 +10,8 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { validateAgainstSchema } from "../lib/json-schema-lite.mjs";
 import { describePathHazard, resolvesOutsideRoot } from "../lib/path-safety.mjs";
+import { validateHooks } from "./hooks.mjs";
+import { checkSkillDescription } from "./skill-gate.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const SCHEMA_DIR = join(HERE, "schemas");
@@ -124,17 +126,64 @@ function validateMcpPathSafety(mcpManifest, pluginRoot) {
 function listSkillDirs(repoPath) {
   const skillsDir = join(repoPath, "skills");
   if (!existsSync(skillsDir) || !statSync(skillsDir).isDirectory()) return [];
-  return readdirSync(skillsDir).filter((name) => statSync(join(skillsDir, name)).isDirectory());
+  // Directories starting with "." or "_" (for example _shared, .audit) are the
+  // conventional home of shared assets, not skills.
+  return readdirSync(skillsDir).filter((name) => !/^[._]/.test(name) && statSync(join(skillsDir, name)).isDirectory());
 }
 
-export function validateRepoLayout(repoPath) {
+const NAME_PATTERN = /^(?!.*(--|\.\.))[a-z0-9]([a-z0-9.-]*[a-z0-9])?$/;
+const HOST_MANIFESTS = [
+  ["claude", ".claude-plugin/plugin.json"],
+  ["codex", ".codex-plugin/plugin.json"],
+];
+
+function readJsonFile(path) {
+  try { return { value: JSON.parse(readFileSync(path, "utf8")) }; } catch (error) { return { error: String(error?.message ?? error) }; }
+}
+
+// Which layout a plugin root uses: the portable agent-plugins.org layout
+// (plugin.json at the root), or a host-native one (only
+// .claude-plugin/plugin.json, as in pulse/plugins/claude/pulse, or only
+// .codex-plugin/plugin.json, as in pulse/plugins/codex/pulse).
+export function detectLayout(repoPath) {
+  if (existsSync(join(repoPath, "plugin.json"))) return "portable";
+  for (const [host, rel] of HOST_MANIFESTS) if (existsSync(join(repoPath, ...rel.split("/")))) return `${host}-native`;
+  return "none";
+}
+
+// Host manifests are looser than the portable schema (Claude's `repository` is a
+// string, Codex adds `interface`), so they get the checks every host shares:
+// parseable, an object, a valid name, string version/description.
+function validateHostManifest(repoPath, host, rel, portableName) {
+  const findings = [];
+  const parsed = readJsonFile(join(repoPath, ...rel.split("/")));
+  if (parsed.error) return [finding("plugin-host-manifest", "error", `${rel} is not valid JSON`, parsed.error, "fix the JSON syntax error")];
+  const manifest = parsed.value;
+  if (!manifest || typeof manifest !== "object" || Array.isArray(manifest)) return [finding("plugin-host-manifest", "error", `${rel} must be a JSON object`, rel, "write a manifest object")];
+  if (typeof manifest.name !== "string" || !NAME_PATTERN.test(manifest.name) || manifest.name.length > 64) {
+    findings.push(finding("plugin-host-manifest", "error", `${rel} needs a lowercase kebab-case name of at most 64 characters`, JSON.stringify(manifest.name), "set name to match the plugin directory/skill naming"));
+  } else if (portableName && manifest.name !== portableName) {
+    findings.push(finding("plugin-host-name-mismatch", "error", `${rel} name differs from plugin.json`, `${manifest.name} vs ${portableName}`, "keep one plugin name across host manifests"));
+  }
+  for (const field of ["version", "description"]) {
+    if (manifest[field] !== undefined && (typeof manifest[field] !== "string" || !manifest[field].trim())) {
+      findings.push(finding("plugin-host-manifest", "error", `${rel} ${field} must be a non-empty string`, field, `set ${field} to a string or remove it`));
+    }
+  }
+  return findings;
+}
+
+export function validateRepoLayout(repoPath, options = {}) {
+  const descriptionGate = options.descriptionGate !== false;
   const findings = [];
   const { pluginSchema, mcpSchema } = loadPinnedSchemas();
+  const layout = detectLayout(repoPath);
+  let portableName = null;
 
   const pluginJsonPath = join(repoPath, "plugin.json");
-  if (!existsSync(pluginJsonPath)) {
+  if (layout === "none") {
     findings.push(finding("plugin-json-present", "error", "plugin.json is required for agent-plugins.org packaging", pluginJsonPath, "run `right-ax plugin init <repo>` to scaffold plugin.json"));
-  } else {
+  } else if (layout === "portable") {
     let manifest;
     try { manifest = JSON.parse(readFileSync(pluginJsonPath, "utf8")); } catch (error) {
       findings.push(finding("plugin-json-parse", "error", "plugin.json is not valid JSON", String(error?.message ?? error), "fix the JSON syntax error"));
@@ -143,6 +192,14 @@ export function validateRepoLayout(repoPath) {
     if (manifest) {
       const { errors } = validateAgainstSchema(manifest, pluginSchema);
       findings.push(...classifySchemaErrors("plugin-json-schema", errors));
+      if (typeof manifest.name === "string") portableName = manifest.name;
+    }
+  }
+  if (layout !== "none") {
+    for (const [host, rel] of HOST_MANIFESTS) {
+      if (layout === `${host}-native` || (layout === "portable" && existsSync(join(repoPath, ...rel.split("/"))))) {
+        findings.push(...validateHostManifest(repoPath, host, rel, portableName));
+      }
     }
   }
 
@@ -154,8 +211,12 @@ export function validateRepoLayout(repoPath) {
     const skillPath = join(repoPath, "skills", name, "SKILL.md");
     if (!existsSync(skillPath)) {
       findings.push(finding("plugin-skill-file", "error", `skills/${name}/ has no SKILL.md`, skillPath, `add skills/${name}/SKILL.md`));
+    } else if (descriptionGate) {
+      findings.push(...checkSkillDescription(readFileSync(skillPath, "utf8"), { skillDirName: name, skillPath: `skills/${name}/SKILL.md` }));
     }
   }
+
+  findings.push(...validateHooks(repoPath));
 
   const mcpJsonPath = join(repoPath, "mcp.json");
   if (existsSync(mcpJsonPath)) {
@@ -172,5 +233,5 @@ export function validateRepoLayout(repoPath) {
   }
 
   const fatal = findings.some((item) => item.severity === "error");
-  return { valid: !fatal, findings };
+  return { valid: !fatal, layout, findings };
 }

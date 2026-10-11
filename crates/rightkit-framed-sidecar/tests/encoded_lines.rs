@@ -49,7 +49,7 @@ fn encoded_bytes_equal_what_write_json_line_emits() {
     assert_eq!(encoded, written);
     assert_eq!(
         encoded,
-        br#"{"id":7,"value":"ok"}"#.iter().copied().chain([b'\n']).collect::<Vec<u8>>()
+        br#"{"id":7,"value":"ok"}"#.iter().copied().chain(*b"\n").collect::<Vec<u8>>()
     );
 }
 

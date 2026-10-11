@@ -38,6 +38,14 @@ function readPlist(file, context) {
   catch { throw new MacosDevelopmentSigningError("DEV_MAC_SIGNING_CONFIG_INVALID", `Invalid plist JSON: ${file}`); }
 }
 
+/** CFBundleExecutable of a bundle, read through the same plutil path (and injectable runner) as every other plist here. */
+export function readBundleExecutable(bundle, { root, env = process.env, run = spawnSync }) {
+  const file = path.join(bundle, "Contents", "Info.plist");
+  const name = readPlist(file, { root, env, run }).CFBundleExecutable;
+  if (typeof name !== "string" || !name.trim() || /[\\/]/.test(name)) throw new MacosDevelopmentSigningError("DEV_MAC_SIGNING_CONFIG_INVALID", `Info.plist has no usable CFBundleExecutable: ${file}`);
+  return name.trim();
+}
+
 function decodeProfile(file, context) {
   const cms = checked("security", ["cms", "-D", "-i", file], context, "DEV_MAC_SIGNING_PROFILE_INVALID");
   // plutil JSON conversion rejects the date/data values in provisioning profiles.

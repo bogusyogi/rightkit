@@ -240,6 +240,12 @@ fn dir_watch_set_caps_evicts_oldest_and_unwatches() {
     assert!(!set.is_watching(&dirs[0]) && !set.is_watching(&dirs[1]));
     assert!(set.is_watching(&dirs[4]));
     settle();
+    // Eviction joins the worker, which flushes what it held, and FSEvents replays a short history window
+    // on arm (the creation of the directory itself). Both run inside `watch`/`unwatch`, before they
+    // return, so a batch from an evicted directory may legitimately sit in the channel by now. What a
+    // consumer must never see is a callback AFTER eviction returned, so discard that backlog and
+    // judge only what arrives from here on.
+    while rx.try_recv().is_ok() {}
 
     fs::write(dirs[0].join("evicted.txt"), "x").unwrap();
     fs::write(dirs[4].join("live.txt"), "y").unwrap();
@@ -254,6 +260,13 @@ fn dir_watch_set_caps_evicts_oldest_and_unwatches() {
     assert!(
         got.iter().all(|(i, _)| *i != 0),
         "evicted dir still emitting"
+    );
+    // The live batch was observed, so a batch from the evicted directory would have had every chance to
+    // arrive too; none may be queued behind it either.
+    std::thread::sleep(Duration::from_millis(300));
+    assert!(
+        rx.try_iter().all(|(i, _)| i != 0),
+        "evicted dir emitted after eviction returned"
     );
 
     set.unwatch(&dirs[4]);

@@ -989,10 +989,9 @@ fn setup(
         notifications: notify::NotificationState::new(),
         presence,
         idle: cfg.idle_after.map(|d| {
-            let options = idle::IdleOptions {
-                suspend_after: d,
-                ..cfg.idle_options.unwrap_or_default()
-            };
+            // `webview_idle(d)` replaces only the timeout; a provider set on the options is kept.
+            let mut options = cfg.idle_options.unwrap_or_default();
+            options.suspend_after = d;
             idle::IdleHost::new(d)
                 .with_options(options)
                 .with_on_error(cfg.idle_on_error.clone())

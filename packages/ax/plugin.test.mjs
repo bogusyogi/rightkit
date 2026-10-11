@@ -12,7 +12,7 @@ function tempRepo() {
 
 test("scaffold -> validate round trip is valid with no findings", () => {
   const repo = tempRepo();
-  writeFileSync(path.join(repo, "package.json"), JSON.stringify({ name: "widget-tool", version: "1.0.0", description: "A widget tool." }));
+  writeFileSync(path.join(repo, "package.json"), JSON.stringify({ name: "widget-tool", version: "1.0.0", description: "Manage widgets with the widget-tool CLI; use when the user asks to list widgets, create a widget, or delete a widget." }));
   const { written } = scaffoldPlugin(repo, { mcpCommand: "node server.mjs" });
   assert.equal(written.length, 3);
   for (const file of written) assert.ok(existsSync(file), file);

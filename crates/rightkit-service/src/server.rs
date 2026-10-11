@@ -4,7 +4,7 @@ use crate::record::*;
 use crate::suite::{make_private_dir, valid_service_name, Suite, SuiteError};
 use crate::takeover_watch::{self, Bell, Wake, TAKEOVER_CHECK_INTERVAL};
 use crate::transport::{
-    self, endpoint_for, pid_alive, probe_endpoint, Accepted, Conn, Listener,
+    self, pid_alive, probe_endpoint, try_endpoint_for, Accepted, Conn, Listener,
     DEFAULT_MAX_PIPE_INSTANCES,
 };
 use rightkit_framed_sidecar::{read_json_line, write_json_line, FrameError};
@@ -118,7 +118,7 @@ pub struct ServiceConfig {
     /// resolved is never taken over from and never obliges a handoff.
     pub known_roles: std::collections::BTreeMap<String, u8>,
     /// Explicit endpoint (a compatibility convention such as HeardRight's
-    /// `<service_dir>/speech.sock`); default is [`endpoint_for`].
+    /// `<service_dir>/speech.sock`); default is [`crate::endpoint_for`].
     pub endpoint: Option<String>,
 }
 
@@ -187,6 +187,8 @@ pub enum HostError {
     InvalidName(String),
     Suite(SuiteError),
     Io(std::io::Error),
+    /// No socket path within the OS limit can name this service (typed; carries path, length, limit).
+    Endpoint(crate::transport::EndpointError),
 }
 impl std::fmt::Display for HostError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -200,6 +202,7 @@ impl std::fmt::Display for HostError {
             HostError::InvalidName(s) => write!(f, "invalid service name {s:?}"),
             HostError::Suite(e) => write!(f, "{e}"),
             HostError::Io(e) => write!(f, "{e}"),
+            HostError::Endpoint(e) => write!(f, "{e}"),
         }
     }
 }
@@ -409,10 +412,10 @@ fn start_host(
     let deadline = Instant::now() + cfg.takeover_timeout;
     let mut requested = false;
     let lock_path = dir.join("election.lock");
-    let endpoint = cfg
-        .endpoint
-        .clone()
-        .unwrap_or_else(|| endpoint_for(suite, &cfg.service));
+    let endpoint = match cfg.endpoint.clone() {
+        Some(e) => e,
+        None => try_endpoint_for(suite, &cfg.service).map_err(HostError::Endpoint)?,
+    };
     let mut backoff = Duration::from_millis(5);
     let (listener, election) = loop {
         // Never unlink the lock file: every contender must lock the same inode.

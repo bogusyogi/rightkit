@@ -1,6 +1,8 @@
 //! Idle options: per-host timeout, minimise-started timer, controller hide timing, event gating.
 //! Pure pieces only; the WebView2 calls are Windows-only and not exercised here.
 
+use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
+use std::sync::Arc;
 use std::time::Duration;
 
 use rightkit_shell::idle::{
@@ -150,4 +152,106 @@ fn a_failed_suspend_lets_the_next_hide_start_a_fresh_timer() {
         action,
         rightkit_shell::idle::IdleAction::HideControllerAndStartTimer
     );
+}
+
+#[test]
+fn the_provider_is_read_at_each_hide_and_again_at_the_next_hide() {
+    let ms = Arc::new(AtomicU64::new(5_000));
+    let calls = Arc::new(AtomicUsize::new(0));
+    let (m, c) = (ms.clone(), calls.clone());
+    let options = IdleOptions::default().suspend_after_with(move || {
+        c.fetch_add(1, Ordering::SeqCst);
+        Some(Duration::from_millis(m.load(Ordering::SeqCst)))
+    });
+    assert_eq!(
+        calls.load(Ordering::SeqCst),
+        0,
+        "not evaluated at build time"
+    );
+    let host = IdleHost::new(DEFAULT_SUSPEND_AFTER).with_options(options);
+    assert_eq!(
+        host.options.hide_delay(host.suspend_after, None),
+        Duration::from_secs(5)
+    );
+    // The value changes between hides; the next hide sees it.
+    ms.store(9_000, Ordering::SeqCst);
+    assert_eq!(
+        host.options.hide_delay(host.suspend_after, None),
+        Duration::from_secs(9)
+    );
+    assert_eq!(calls.load(Ordering::SeqCst), 2, "once per hide");
+}
+
+#[test]
+fn a_provider_returning_none_falls_back_to_the_fixed_suspend_after() {
+    let options = IdleOptions {
+        suspend_after: Duration::from_secs(120),
+        ..IdleOptions::default()
+    }
+    .suspend_after_with(|| None);
+    assert_eq!(
+        options.hide_delay(Duration::from_secs(120), None),
+        Duration::from_secs(120)
+    );
+    // The fixed value is what the host passes in, so it is used even if it differs from the field.
+    assert_eq!(
+        options.hide_delay(Duration::from_secs(7), None),
+        Duration::from_secs(7)
+    );
+}
+
+#[test]
+fn a_panicking_provider_falls_back_and_the_next_hide_still_works() {
+    let calls = Arc::new(AtomicUsize::new(0));
+    let c = calls.clone();
+    let options = IdleOptions::default().suspend_after_with(move || {
+        c.fetch_add(1, Ordering::SeqCst);
+        panic!("provider failed on purpose (test)");
+    });
+    let fixed = Duration::from_secs(45);
+    assert_eq!(options.hide_delay(fixed, None), fixed);
+    assert_eq!(
+        options.hide_delay(fixed, None),
+        fixed,
+        "later hides still run"
+    );
+    assert_eq!(calls.load(Ordering::SeqCst), 2);
+}
+
+#[test]
+fn an_explicit_per_hide_delay_wins_and_skips_the_provider() {
+    let calls = Arc::new(AtomicUsize::new(0));
+    let c = calls.clone();
+    let options = IdleOptions::default().suspend_after_with(move || {
+        c.fetch_add(1, Ordering::SeqCst);
+        Some(Duration::from_secs(60))
+    });
+    assert_eq!(
+        options.hide_delay(DEFAULT_SUSPEND_AFTER, Some(Duration::from_secs(3))),
+        Duration::from_secs(3)
+    );
+    assert_eq!(calls.load(Ordering::SeqCst), 0);
+}
+
+#[test]
+fn a_provider_value_is_clamped_like_any_other_delay() {
+    let options =
+        IdleOptions::default().suspend_after_with(|| Some(Duration::from_secs(10 * 24 * 3600)));
+    assert_eq!(
+        options.hide_delay(DEFAULT_SUSPEND_AFTER, None),
+        MAX_SUSPEND_AFTER
+    );
+}
+
+#[test]
+fn options_with_a_provider_clone_equal_and_differ_from_plain_options() {
+    let a = IdleOptions::default().suspend_after_with(|| None);
+    let b = a.clone();
+    assert_eq!(a, b, "a clone shares the provider");
+    assert_ne!(
+        a,
+        IdleOptions::default().suspend_after_with(|| None),
+        "distinct closures are distinct providers"
+    );
+    assert_ne!(a, IdleOptions::default());
 }

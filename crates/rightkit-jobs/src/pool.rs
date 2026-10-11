@@ -224,6 +224,8 @@ struct Item<P> {
     reply: mpsc::Sender<JobResult<Value>>,
 }
 
+// `Work` is the hot path; boxing it would add an allocation per job to shrink a rare `Stop`.
+#[allow(clippy::large_enum_variant)]
 enum Msg<P> {
     Work(Item<P>),
     Stop,

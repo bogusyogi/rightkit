@@ -23,6 +23,7 @@
 //! [`note_hidden`] / [`note_visible`] (or the `rk_shell_idle_note` command).
 
 use std::fmt::Display;
+use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -73,17 +74,43 @@ impl IdleEvents {
     }
 }
 
+/// Per-hide delay source held by [`IdleOptions`]; set with [`IdleOptions::suspend_after_with`].
+#[derive(Clone)]
+pub struct SuspendAfterProvider(Arc<dyn Fn() -> Option<Duration> + Send + Sync>);
+
+impl std::fmt::Debug for SuspendAfterProvider {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("SuspendAfterProvider(..)")
+    }
+}
+
+/// Two options are equal when they share the same provider instance (closures have no value
+/// equality), so a clone is equal to its source.
+impl PartialEq for SuspendAfterProvider {
+    fn eq(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.0, &other.0)
+    }
+}
+
+impl Eq for SuspendAfterProvider {}
+
 /// Per-host idle options (see [`crate::ShellBuilder::webview_idle_options`]). The default is the
 /// behaviour `webview_idle(DEFAULT_SUSPEND_AFTER)` has always had.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+///
+/// Not `Copy`: it may hold a delay provider (see [`IdleOptions::suspend_after_with`]). Struct
+/// literals need `..IdleOptions::default()`, since the provider field is private.
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct IdleOptions {
-    /// Hidden this long before the webview is suspended (clamped to [`MAX_SUSPEND_AFTER`]).
+    /// Hidden this long before the webview is suspended (clamped to [`MAX_SUSPEND_AFTER`]). With a
+    /// provider set, this is the value used whenever the provider returns `None` or fails.
     pub suspend_after: Duration,
     /// Also start the idle timer when the main window is minimised, not only on a hide the shell or
     /// host reports (`note_hidden`). Restoring the window ends it. Default off.
     pub start_on_minimize: bool,
     pub controller_hide: ControllerHide,
     pub events: IdleEvents,
+    /// Per-hide delay source; `None` keeps the fixed `suspend_after`.
+    suspend_after_fn: Option<SuspendAfterProvider>,
 }
 
 impl Default for IdleOptions {
@@ -93,7 +120,45 @@ impl Default for IdleOptions {
             start_on_minimize: false,
             controller_hide: ControllerHide::Immediate,
             events: IdleEvents::Always,
+            suspend_after_fn: None,
         }
+    }
+}
+
+impl IdleOptions {
+    /// Read the suspend delay at each hide instead of fixing it at build time.
+    ///
+    /// `provider` is called once per hide transition (a window hide, or the start of a minimise
+    /// when `start_on_minimize` is set), never at build time. Its `Some(d)` is the delay for that
+    /// hide, clamped to [`MAX_SUSPEND_AFTER`]; `None` uses the fixed `suspend_after`. A panic in
+    /// `provider` is caught and also uses the fixed `suspend_after`. An explicit per-hide delay
+    /// (`note_hidden_after`, `note_minimized_after`, `rk_shell_idle_note`) takes precedence and the
+    /// provider is not called for that hide.
+    ///
+    /// Takes `self`, so it chains onto a literal or the default:
+    /// `IdleOptions::default().suspend_after_with(|| Some(read_env()))`.
+    pub fn suspend_after_with(
+        mut self,
+        provider: impl Fn() -> Option<Duration> + Send + Sync + 'static,
+    ) -> Self {
+        self.suspend_after_fn = Some(SuspendAfterProvider(Arc::new(provider)));
+        self
+    }
+
+    /// The suspend delay for one hide, evaluating the provider now (once per call). Precedence:
+    /// `per_hide` if given, else the provider's `Some`, else `host_default` (the fixed
+    /// `suspend_after`). The result is clamped to [`MAX_SUSPEND_AFTER`].
+    pub fn hide_delay(&self, host_default: Duration, per_hide: Option<Duration>) -> Duration {
+        effective_delay(host_default, per_hide.or_else(|| self.provided_delay()))
+    }
+
+    /// The provider's value for this hide. `None` when there is no provider, it returns `None`, or
+    /// it panics (the panic is contained here so the idle machinery keeps running).
+    fn provided_delay(&self) -> Option<Duration> {
+        let provider = self.suspend_after_fn.as_ref()?;
+        catch_unwind(AssertUnwindSafe(|| (*provider.0)()))
+            .ok()
+            .flatten()
     }
 }
 
@@ -550,7 +615,9 @@ pub fn note_hidden_after(
     if plan.now {
         hide_controller(app);
     }
-    let delay = effective_delay(host.suspend_after, suspend_after);
+    // Evaluated once, here, after the transition check: a hide that did not start the timer does
+    // not call the provider.
+    let delay = host.options.hide_delay(host.suspend_after, suspend_after);
     let app = app.clone();
     let _ = std::thread::Builder::new()
         .name("rk-shell-idle".into())
@@ -679,7 +746,13 @@ pub fn note_minimized_after(
         return;
     }
     let step = host.minimize.step(minimized);
-    match minimize_action(host.suspend_after, step, suspend_after) {
+    // A minimise that starts the timer is a hide transition: resolve its delay once, here, with the
+    // same precedence `note_hidden_after` uses, so the provider is not consulted twice.
+    let per_hide = match step {
+        MinimizeStep::Start => Some(host.options.hide_delay(host.suspend_after, suspend_after)),
+        MinimizeStep::End | MinimizeStep::None => suspend_after,
+    };
+    match minimize_action(host.suspend_after, step, per_hide) {
         MinimizeAction::Hide { delay } => note_hidden_after(app, false, Some(delay)),
         MinimizeAction::Visible => note_visible(app),
         MinimizeAction::None => {}

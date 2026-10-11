@@ -261,7 +261,9 @@ function rule12(tools, repoPath) {
 
 // Rule 13 — agent-plugins layout valid (delegates to plugin/validate.mjs).
 function rule13(repoPath) {
-  const { findings } = validateRepoLayout(repoPath);
+  // The skill-description gate belongs to `right-ax plugin validate`; the static MCP
+  // contract keeps its original layout-only scope.
+  const { findings } = validateRepoLayout(repoPath, { descriptionGate: false });
   if (!findings.length) return [finding("static-13-plugin-layout", "info", "pass", "agent-plugins layout is valid", repoPath, null)];
   return findings.map((item) => finding(`static-13-${item.ruleId}`, item.severity, item.severity === "error" ? "fail" : item.severity === "info" ? "pass" : "report", item.claim, item.evidence, item.remediation));
 }

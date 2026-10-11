@@ -1,6 +1,6 @@
 {
   "name": "@rightkit/ax",
-  "version": "0.2.4",
+  "version": "0.3.0",
   "description": "Suite-wide agent-experience (AX) + agent-plugins.org conformance layer: plugin scaffolding/validation and AXA-1 static/conformance/behavioral gates over one product's MCP/CLI surface.",
   "license": "MIT OR Apache-2.0",
   "type": "module",
@@ -17,7 +17,10 @@
     "./ax/report": "./ax/report.mjs",
     "./plugin/scaffold": "./plugin/scaffold.mjs",
     "./plugin/validate": "./plugin/validate.mjs",
-    "./plugin/portable-core": "./plugin/portable-core.mjs"
+    "./plugin/portable-core": "./plugin/portable-core.mjs",
+    "./plugin/hooks": "./plugin/hooks.mjs",
+    "./plugin/skill-gate": "./plugin/skill-gate.mjs",
+    "./plugin/marketplace": "./plugin/marketplace.mjs"
   },
   "files": [
     "cli",

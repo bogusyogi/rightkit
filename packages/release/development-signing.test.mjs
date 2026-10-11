@@ -22,8 +22,8 @@ function fixture(t, { profile = null, mac = {}, team = "6KLGD3LLKF", signingFail
   t.after(() => rmSync(root, { recursive: true, force: true }));
   const bundle = path.join(root, "bundle/Fixture.app");
   const write = (file, contents) => { mkdirSync(path.dirname(file), { recursive: true }); writeFileSync(file, contents); };
-  // A real XML plist: swapInstalledMacosBundle reads CFBundleExecutable from the XML text, and plutil reads it too.
-  write(path.join(bundle, "Contents/Info.plist"), '<?xml version="1.0" encoding="UTF-8"?><plist version="1.0"><dict><key>CFBundleExecutable</key><string>fixture</string><key>CFBundleIdentifier</key><string>app.fixture</string></dict></plist>');
+  // The fake plutil returns file content verbatim for `-convert json`, so fixture plists are JSON (real plutil reads either format).
+  write(path.join(bundle, "Contents/Info.plist"), JSON.stringify({ CFBundleExecutable: "fixture", CFBundleIdentifier: "app.fixture" }));
   write(path.join(bundle, "Contents/MacOS/fixture"), Buffer.from("cffaedfe00000000", "hex"));
   write(path.join(root, "src-tauri/tauri.conf.json"), JSON.stringify({ bundle: { macOS: { signingIdentity: releaseIdentity, entitlements: "entitlements.plist", ...mac } } }));
   const entitlements = { "com.apple.security.cs.allow-jit": true, "com.apple.developer.icloud-services": ["CloudKit"] };
