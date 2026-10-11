@@ -9,12 +9,17 @@ mod common;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
+#[cfg(unix)]
 use std::time::{Duration, Instant};
 
-use rightkit_ocr::worker::{self, MAX_INPUT_BYTES, WORKER_DEADLINE};
+#[cfg(unix)]
+use rightkit_ocr::worker::WORKER_DEADLINE;
+use rightkit_ocr::worker::{self, MAX_INPUT_BYTES};
+#[cfg(unix)]
+use rightkit_ocr::OcrBackend;
 use rightkit_ocr::{
-    BackendPreference, NativeHealthHook, Ocr, OcrBackend, OcrError, OcrErrorKind, OcrOptions,
-    WorkerCommand, WorkerEvent, WorkerEvents,
+    BackendPreference, NativeHealthHook, Ocr, OcrError, OcrErrorKind, OcrOptions, WorkerCommand,
+    WorkerEvent, WorkerEvents,
 };
 
 /// Collects events in order. Implements `WorkerEvents` directly, not via a closure.

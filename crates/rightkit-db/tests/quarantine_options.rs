@@ -35,16 +35,18 @@ fn marker_is_written_before_the_move_and_names_both_paths() {
     assert!(!db.exists(), "original moved away");
     assert_eq!(fs::read(&dest).unwrap(), b"damaged bytes");
     let text = fs::read_to_string(&marker).unwrap();
+    // The marker is JSON, so a Windows path appears with its backslashes escaped.
+    let json = |p: &std::path::Path| p.display().to_string().replace('\\', "\\\\");
     assert!(
         text.contains("\"schema\":\"rightkit-db-quarantine.v1\""),
         "{text}"
     );
     assert!(
-        text.contains(&format!("\"original\":\"{}\"", db.display())),
+        text.contains(&format!("\"original\":\"{}\"", json(&db))),
         "{text}"
     );
     assert!(
-        text.contains(&format!("\"quarantined\":\"{}\"", dest.display())),
+        text.contains(&format!("\"quarantined\":\"{}\"", json(&dest))),
         "{text}"
     );
     fs::remove_dir_all(dir).unwrap();

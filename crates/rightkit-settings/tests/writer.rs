@@ -131,9 +131,12 @@ fn configured_replace_mode_and_flags_reach_the_replace_call() {
             "{mode:?} durable={durable} replace"
         );
         assert_eq!(calls[1].target, p);
-        // No call the crate makes ever carries the unsupported flag.
+        // No ReplaceFileW call the crate makes ever carries the unsupported flag. Only those
+        // calls are checked: the bit has another meaning in MoveFileExW's flag word
+        // (MOVEFILE_REPLACE_EXISTING has the same value).
         assert!(calls
             .iter()
+            .filter(|c| c.api == ReplaceFile)
             .all(|c| c.flags & REPLACEFILE_WRITE_THROUGH == 0));
         println!(
             "ok  {mode:?} durable={durable}: {:?} / {:?}",
