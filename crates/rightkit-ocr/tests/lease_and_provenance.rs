@@ -1,7 +1,7 @@
 #![cfg(feature = "onnx")]
 
 use std::any::Any;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
@@ -164,11 +164,12 @@ fn validate_fallback_verifies_before_building_sessions() {
         ocr.validate_fallback(),
         Err(OcrError::DigestMismatch { .. })
     ));
+    // An absolute path on every OS: a rooted path without a drive is not absolute on Windows
+    // and is refused as unsafe before the directory is looked up.
+    let missing =
+        std::env::temp_dir().join(format!("nonexistent-rightkit-ocr-{}", std::process::id()));
     assert!(matches!(
-        OcrEngine::validate_sessions(
-            Path::new("/nonexistent-rightkit-ocr"),
-            &OcrArtifactManifest::pp_ocr_v6()
-        ),
+        OcrEngine::validate_sessions(&missing, &OcrArtifactManifest::pp_ocr_v6()),
         Err(OcrError::MissingArtifact { .. })
     ));
     let _ = std::fs::remove_dir_all(dir);
