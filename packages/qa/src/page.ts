@@ -1,16 +1,37 @@
-import { writeFile } from 'node:fs/promises';
+import { mkdir, writeFile } from 'node:fs/promises';
+import path from 'node:path';
 import { CdpClient, TimeoutError, validateTimeout, type CdpParams, type QaConnectOptions } from './cdp.js';
 import { QaKeyboard } from './keyboard.js';
 import { QaMouse } from './mouse.js';
 export { TimeoutError, type QaConnectOptions } from './cdp.js';
 export { QaKeyboard } from './keyboard.js';
-export { QaMouse, type MouseButton, type MouseButtonOptions, type MouseMoveOptions, type MousePosition } from './mouse.js';
+export { QaMouse, type MouseButton, type MouseButtonOptions, type MouseMoveOptions, type MousePosition, type MouseWheelOptions } from './mouse.js';
 
 export interface NavigationOptions { waitUntil?: 'load' | 'domcontentloaded' | 'networkidle0'; timeout?: number }
 export interface ViewportOptions { width: number; height: number; deviceScaleFactor?: number; mobile?: boolean }
-export interface WaitOptions { timeout?: number; polling?: 'raf' | number }
-export interface SelectorWaitOptions { visible?: boolean; hidden?: boolean; timeout?: number }
-export interface ClickOptions { button?: 'left' | 'right' | 'middle'; clickCount?: number; delay?: number }
+/** Where a timed-out wait writes its screenshot and JSON state dump. */
+export interface FailureArtifactOptions {
+  /** Absolute directory, created if missing. Must lie outside RIGHTKIT_RUN_ROOT, which disposeQaWorkspace deletes. */
+  directory: string;
+  /** Short name used in the file names and the dump. Default 'wait'. */
+  label?: string;
+}
+export interface WaitOptions { timeout?: number; polling?: 'raf' | number; failureArtifacts?: FailureArtifactOptions }
+export interface SelectorWaitOptions { visible?: boolean; hidden?: boolean; timeout?: number; failureArtifacts?: FailureArtifactOptions }
+export interface ClickOptions {
+  button?: 'left' | 'right' | 'middle'; clickCount?: number; delay?: number;
+  /** Default false. When true, after the pointer moves and before pressing, checks that the element at the click point is the target or its descendant; otherwise throws ElementOccludedError. */
+  checkOccluded?: boolean;
+}
+export interface FillOptions {
+  /** Default false: insert at the caret, exactly as type() does. True selects the whole field first, so the value replaces its content; an empty value then deletes the selection. */
+  replace?: boolean;
+  /** Default false. Reads the value back after insertion and throws FillMismatchError on a difference. Requires replace. */
+  verify?: boolean;
+}
+/** One console call or uncaught exception of a page. `line` is 1-based. */
+export interface ConsoleEntry { type: string; text: string; url?: string; line?: number; timestamp: number }
+export interface UserAgentOptions { platform?: string; acceptLanguage?: string }
 export interface TypeOptions { delay?: number }
 export interface ScreenshotOptions { path?: string; type?: 'png'; captureBeyondViewport?: false; fullPage?: false }
 export interface BoundingBox { x: number; y: number; width: number; height: number }
@@ -27,6 +48,80 @@ export interface QaAttachOptions extends QaConnectOptions {
   allowRemoteHost?: boolean;
 }
 type PageFunction<Args extends unknown[], Result> = (...args: Args) => Result;
+/** Newest console entries kept per page. */
+const CONSOLE_LIMIT = 200;
+/** Thrown by click({ checkOccluded: true }) when another element is on top of the target at the click point. */
+export class ElementOccludedError extends Error {
+  readonly point: { x: number; y: number };
+  /** Short description of the element on top, e.g. <div id="toast">. Text content is never included. */
+  readonly occluder: string;
+  constructor(occluder: string, point: { x: number; y: number }) {
+    super(`Click target is covered by ${occluder} at (${point.x}, ${point.y})`);
+    this.name = 'ElementOccludedError';
+    this.occluder = occluder;
+    this.point = point;
+  }
+}
+/** Thrown by fill({ verify: true }) when the field does not hold the requested value. The values are not included. */
+export class FillMismatchError extends Error {
+  readonly expectedLength: number;
+  readonly actualLength: number;
+  constructor(expectedLength: number, actualLength: number) {
+    super(`fill verification failed: field holds ${actualLength} characters, expected ${expectedLength}`);
+    this.name = 'FillMismatchError';
+    this.expectedLength = expectedLength;
+    this.actualLength = actualLength;
+  }
+}
+/** Text of one console argument, from its CDP RemoteObject. */
+function remoteText(object: CdpParams): string {
+  if ('value' in object) return typeof object.value === 'string' ? object.value : JSON.stringify(object.value) ?? String(object.value);
+  return String(object.unserializableValue ?? object.description ?? object.type ?? '');
+}
+/** url and 1-based line, present only when the event carries them. */
+function locationOf(url: unknown, zeroBasedLine: unknown): Pick<ConsoleEntry, 'url' | 'line'> {
+  const location: Pick<ConsoleEntry, 'url' | 'line'> = {};
+  if (typeof url === 'string' && url) location.url = url;
+  if (typeof zeroBasedLine === 'number' && zeroBasedLine >= 0) location.line = zeroBasedLine + 1;
+  return location;
+}
+function consoleEntry(event: CdpParams): ConsoleEntry {
+  const frame = event.stackTrace?.callFrames?.[0] as CdpParams | undefined;
+  return {
+    type: String(event.type),
+    text: ((event.args ?? []) as CdpParams[]).map(remoteText).join(' '),
+    ...locationOf(frame?.url, frame?.lineNumber),
+    timestamp: typeof event.timestamp === 'number' ? event.timestamp : Date.now(),
+  };
+}
+function exceptionEntry(event: CdpParams): ConsoleEntry {
+  const details: CdpParams = event.exceptionDetails ?? {};
+  return {
+    type: 'exception',
+    text: String(details.exception?.description ?? details.exception?.value ?? details.text ?? 'Uncaught exception'),
+    ...locationOf(details.url, details.lineNumber),
+    timestamp: typeof event.timestamp === 'number' ? event.timestamp : Date.now(),
+  };
+}
+/**
+ * Validates a failureArtifacts option before any CDP work: absolute, and never inside
+ * RIGHTKIT_RUN_ROOT (the workspace home that disposeQaWorkspace deletes).
+ */
+function failureTarget(options: FailureArtifactOptions | undefined): { directory: string; label: string } | undefined {
+  if (!options) return undefined;
+  const { directory, label } = options;
+  if (typeof directory !== 'string' || !path.isAbsolute(directory)) throw new Error('failureArtifacts.directory must be an absolute path');
+  if (label !== undefined && typeof label !== 'string') throw new Error('failureArtifacts.label must be a string');
+  const resolved = path.resolve(directory);
+  const runRoot = process.env.RIGHTKIT_RUN_ROOT;
+  if (runRoot) {
+    const relative = path.relative(path.resolve(runRoot), resolved);
+    const inside = relative === '' || (!path.isAbsolute(relative) && relative !== '..' && !relative.startsWith(`..${path.sep}`));
+    if (inside) throw new Error('failureArtifacts.directory must be outside RIGHTKIT_RUN_ROOT: disposeQaWorkspace deletes that tree');
+  }
+  return { directory: resolved, label: (label ?? 'wait').replace(/[^A-Za-z0-9._-]+/g, '-').slice(0, 60) || 'wait' };
+}
+let failureSequence = 0;
 const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 function functionSource(fn: Function): string {
   const source = fn.toString();
@@ -252,6 +347,9 @@ export class QaPage {
   private lastNetworkActivity = 0;
   private generation = 0;
   private navigating = false;
+  private consoleBuffer: ConsoleEntry[] = [];
+  private userAgentBaseline?: string;
+  private userAgentOverridden = false;
   private get objectGroup() { return `qa-elements-${this.generation}`; }
   /** @internal Use QaBrowserSession.newPage() or attachPage(). `owned` pages are closed on close(); attached ones only detach. */
   constructor(private client: CdpClient, readonly targetId: string, private sessionId: string, private onClosed: () => void, private owned = true) {
@@ -281,6 +379,8 @@ export class QaPage {
         for (const id of removed) this.frameParents.delete(id);
         for (const [id, request] of this.requests) if (request.frameId && removed.has(request.frameId)) this.requests.delete(id);
       }),
+      this.on('Runtime.consoleAPICalled', (event) => this.recordConsole(consoleEntry(event))),
+      this.on('Runtime.exceptionThrown', (event) => this.recordConsole(exceptionEntry(event))),
       this.on('Network.requestWillBeSent', ({ requestId, frameId, loaderId }) => { this.requests.set(requestId, { frameId, loaderId }); this.lastNetworkActivity = Date.now(); }),
       this.on('Network.loadingFinished', ({ requestId }) => { this.requests.delete(requestId); this.lastNetworkActivity = Date.now(); }),
       this.on('Network.loadingFailed', ({ requestId }) => { this.requests.delete(requestId); this.lastNetworkActivity = Date.now(); }),
@@ -478,26 +578,35 @@ export class QaPage {
     const polling = options.polling ?? 'raf';
     if (typeof polling === 'number' && (!(polling > 0) || !Number.isFinite(polling))) throw new Error('Polling interval must be positive');
     const source = typeof fn === 'string' ? `function() { return (${fn}); }` : functionSource(fn);
-    await this.bounded(`Predicate ${source}`, options.timeout ?? this.client.timeout, async (remaining, stopped) => {
-      while (!stopped()) {
-        try {
-          if (resultValue(await this.runSourceFunction(source, args, remaining()))) return;
-          if (polling === 'raf') {
-            // A browser animation frame, bounded fallback for background targets.
-            await this.runSourceFunction('function() { return new Promise(resolve => { const timer = setTimeout(resolve, 100); requestAnimationFrame(() => { clearTimeout(timer); resolve(); }); }); }', [], remaining());
-          } else await sleep(Math.min(polling, remaining()));
-        } catch (error) {
-          if (error instanceof TimeoutError) { await sleep(remaining()); continue; }
-          if (!/context.*(destroyed|not found)|Cannot find context/i.test(String(error))) throw error;
-          await sleep(Math.min(10, remaining()));
+    const artifacts = failureTarget(options.failureArtifacts);
+    const timeout = options.timeout ?? this.client.timeout;
+    try {
+      await this.bounded(`Predicate ${source}`, timeout, async (remaining, stopped) => {
+        while (!stopped()) {
+          try {
+            if (resultValue(await this.runSourceFunction(source, args, remaining()))) return;
+            if (polling === 'raf') {
+              // A browser animation frame, bounded fallback for background targets.
+              await this.runSourceFunction('function() { return new Promise(resolve => { const timer = setTimeout(resolve, 100); requestAnimationFrame(() => { clearTimeout(timer); resolve(); }); }); }', [], remaining());
+            } else await sleep(Math.min(polling, remaining()));
+          } catch (error) {
+            if (error instanceof TimeoutError) { await sleep(remaining()); continue; }
+            if (!/context.*(destroyed|not found)|Cannot find context/i.test(String(error))) throw error;
+            await sleep(Math.min(10, remaining()));
+          }
         }
-      }
-    });
+      });
+    } catch (error) {
+      if (artifacts && error instanceof TimeoutError) await this.attachFailureArtifacts(error, artifacts, source, timeout);
+      throw error;
+    }
   }
   async waitForSelector(selector: string, options: SelectorWaitOptions = {}): Promise<QaElement | null> {
     if (options.visible && options.hidden) throw new Error('visible & hidden cannot both be true');
+    const artifacts = failureTarget(options.failureArtifacts);
+    const timeout = options.timeout ?? this.client.timeout;
     try {
-      return await this.bounded(`Selector ${selector}`, options.timeout ?? this.client.timeout, async remaining => {
+      return await this.bounded(`Selector ${selector}`, timeout, async remaining => {
         await this.waitForFunction((selector: string, visible: boolean, hidden: boolean) => {
           const element = document.querySelector(selector);
           if (!element) return hidden;
@@ -508,7 +617,11 @@ export class QaPage {
         return options.hidden ? null : this.lookup(selector, remaining());
       });
     } catch (error) {
-      if (error instanceof TimeoutError) throw new TimeoutError(`Selector ${selector} timed out after ${options.timeout ?? this.client.timeout}ms`);
+      if (error instanceof TimeoutError) {
+        const named = new TimeoutError(`Selector ${selector} timed out after ${timeout}ms`);
+        if (artifacts) await this.attachFailureArtifacts(named, artifacts, `waitForSelector ${JSON.stringify(selector)} visible=${!!options.visible} hidden=${!!options.hidden}`, timeout);
+        throw named;
+      }
       throw error;
     }
   }
@@ -528,12 +641,135 @@ export class QaPage {
     if (!box || !box.width || !box.height) throw new Error('Element has no clickable box');
     return { x: box.x + box.width / 2, y: box.y + box.height / 2 };
   }
+  /** Recent console calls and uncaught exceptions of this page, oldest first. Bounded to the newest 200. Returns copies. */
+  consoleEntries(): ConsoleEntry[] { return this.consoleBuffer.map((entry) => ({ ...entry })); }
+  /** Empties the console buffer. */
+  clearConsoleEntries(): void { this.consoleBuffer.length = 0; }
+  private recordConsole(entry: ConsoleEntry) {
+    this.consoleBuffer.push(entry);
+    if (this.consoleBuffer.length > CONSOLE_LIMIT) this.consoleBuffer.splice(0, this.consoleBuffer.length - CONSOLE_LIMIT);
+  }
+  /**
+   * Overrides the user agent (Emulation.setUserAgentOverride) for this page, including later navigations.
+   * Each call replaces the whole override, so platform & acceptLanguage are sent only when given.
+   */
+  async setUserAgent(userAgent: string, options: UserAgentOptions = {}): Promise<void> {
+    if (typeof userAgent !== 'string' || !userAgent.trim()) throw new Error('User agent must be a non-empty string');
+    // The first override records the page's own navigator.userAgent so resetUserAgent can restore it.
+    if (!this.userAgentOverridden) this.userAgentBaseline = await this.evaluate(() => navigator.userAgent);
+    await this.send('Emulation.setUserAgentOverride', {
+      userAgent,
+      ...(options.platform !== undefined ? { platform: options.platform } : {}),
+      ...(options.acceptLanguage !== undefined ? { acceptLanguage: options.acceptLanguage } : {}),
+    });
+    this.userAgentOverridden = true;
+  }
+  /** Restores the navigator.userAgent captured before the first setUserAgent. A no-op when this page never overrode it. */
+  async resetUserAgent(): Promise<void> {
+    if (!this.userAgentOverridden || this.userAgentBaseline === undefined) return;
+    await this.send('Emulation.setUserAgentOverride', { userAgent: this.userAgentBaseline });
+    this.userAgentOverridden = false;
+    this.userAgentBaseline = undefined;
+  }
+  /**
+   * Types a value into a field. Default: insert at the caret, exactly as type() does. With replace the
+   * whole content is selected first and replaced. With verify (requires replace) the value is read back
+   * once after insertion and FillMismatchError is thrown on a difference.
+   */
+  async fill(target: string | QaElement, value: string, options: FillOptions = {}): Promise<void> {
+    if (typeof value !== 'string') throw new Error('fill value must be a string');
+    if (options.verify && !options.replace) throw new Error('fill verify requires replace: true; an insert-only fill has no fixed expected value');
+    await this.withElement(target, async (handle) => {
+      if (!options.replace) { await this.typeElement(handle, value); return; }
+      await handle.focus();
+      await this.selectAll(handle);
+      if (value === '') await this.keyboard.press('Backspace');
+      else await this.send('Input.insertText', { text: value });
+      if (options.verify) {
+        const actual = await handle.evaluate((element) => (element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement ? element.value : element.textContent) ?? '');
+        if (actual !== value) throw new FillMismatchError(value.length, actual.length);
+      }
+    });
+  }
+  private async selectAll(handle: QaElement): Promise<void> {
+    const selected = await handle.evaluate((element) => {
+      if (element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement) { element.select(); return true; }
+      if (element.isContentEditable) {
+        const range = element.ownerDocument.createRange();
+        range.selectNodeContents(element);
+        const selection = element.ownerDocument.getSelection();
+        selection?.removeAllRanges();
+        selection?.addRange(range);
+        return true;
+      }
+      return false;
+    });
+    if (!selected) throw new Error('fill target is not an editable input, textarea or contenteditable element');
+  }
+  /** Throws ElementOccludedError naming the element on top unless the target itself or a composed descendant is hit. */
+  private async assertUnoccluded(handle: QaElement, point: { x: number; y: number }): Promise<void> {
+    const occluder = await handle.evaluate((element, x: number, y: number) => {
+      let hit: Element | null = element.ownerDocument.elementFromPoint(x, y);
+      // The document reports a shadow host, not the element inside its open shadow root: descend.
+      while (hit?.shadowRoot) {
+        const inner: Element | null = hit.shadowRoot.elementFromPoint(x, y);
+        if (!inner || inner === hit) break;
+        hit = inner;
+      }
+      // Composed ancestry: a shadow root's host counts as its parent, so shadow content inside the target passes.
+      for (let node: Node | null = hit; node; node = node.parentNode ?? (node as ShadowRoot).host ?? null) {
+        if (node === element) return null;
+      }
+      if (!hit) return '(no element at the click point)';
+      const id = hit.id ? ` id="${hit.id}"` : '';
+      const className = typeof hit.className === 'string' ? hit.className.trim().slice(0, 80) : '';
+      return `<${hit.tagName.toLowerCase()}${id}${className ? ` class="${className}"` : ''}>`;
+    }, point.x, point.y);
+    if (occluder !== null) throw new ElementOccludedError(occluder, point);
+  }
+  /** Writes a PNG and a JSON state dump for a timed-out wait into the caller directory. */
+  private async captureFailure(directory: string, label: string, predicate: string, timeout: number): Promise<{ json: string; screenshot?: string }> {
+    await mkdir(directory, { recursive: true });
+    const stem = `${label}-${Date.now()}-${++failureSequence}`;
+    const json = path.join(directory, `${stem}.json`);
+    const png = path.join(directory, `${stem}.png`);
+    let screenshot: string | undefined;
+    let screenshotError: string | undefined;
+    try { await writeFile(png, await this.screenshot()); screenshot = png; }
+    catch (error) { screenshotError = error instanceof Error ? error.message : String(error); }
+    let where: { url?: string; title?: string } = {};
+    try {
+      where = resultValue(await this.run(() => ({ url: location.href, title: document.title }), [], true, 2_000)) ?? {};
+    } catch { /* page gone or stuck: the dump records no url or title */ }
+    const dump = {
+      label,
+      predicate,
+      timeoutMs: timeout,
+      timestamp: new Date().toISOString(),
+      url: where.url ?? null,
+      title: where.title ?? null,
+      screenshot: screenshot ? path.basename(screenshot) : null,
+      screenshotError: screenshotError ?? null,
+      console: this.consoleEntries(),
+    };
+    await writeFile(json, JSON.stringify(dump, null, 2));
+    return screenshot ? { json, screenshot } : { json };
+  }
+  /** Attaches artifact paths to a timeout error. A write failure is appended to its message; the timeout still throws. */
+  private async attachFailureArtifacts(error: TimeoutError, target: { directory: string; label: string }, predicate: string, timeout: number): Promise<void> {
+    try { error.artifacts = await this.captureFailure(target.directory, target.label, predicate, timeout); }
+    catch (captureError) {
+      error.message += ` (failure artifacts were not written: ${captureError instanceof Error ? captureError.message : String(captureError)})`;
+    }
+  }
+
   async click(target: string | QaElement, options: ClickOptions = {}): Promise<void> {
     this.mouse.assertReleased();
     await this.withElement(target, async (handle) => {
       const point = await this.point(handle), button = options.button ?? 'left', count = options.clickCount ?? 1;
       await this.send('Input.dispatchMouseEvent', { type: 'mouseMoved', ...point });
       this.mouse.track(point.x, point.y);
+      if (options.checkOccluded) await this.assertUnoccluded(handle, point);
       for (let clickCount = 1; clickCount <= count; clickCount++) {
         await this.send('Input.dispatchMouseEvent', { type: 'mousePressed', ...point, button, buttons: button === 'left' ? 1 : button === 'right' ? 2 : 4, clickCount });
         if (options.delay) await sleep(options.delay);

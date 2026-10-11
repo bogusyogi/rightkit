@@ -1,5 +1,7 @@
 /** Minimal flattened-session CDP transport using Node's built-in WebSocket. */
 export class TimeoutError extends Error {
+  /** Set when the wait was given failureArtifacts and the artifacts were written. */
+  artifacts?: { json: string; screenshot?: string };
   constructor(message: string) { super(message); this.name = 'TimeoutError'; }
 }
 

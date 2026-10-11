@@ -5,7 +5,7 @@ import { existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { launchChromeForTesting, type ChromeForTestingBrowser } from '@rightkit/qa-chrome';
-import { QaBrowserSession, type QaPage, TimeoutError } from './index.js';
+import { ElementOccludedError, QaBrowserSession, type QaPage, TimeoutError } from './index.js';
 
 // Deliberately no skip: this integration lane requires installed Chrome for Testing.
 describe('QaPage with real Chrome for Testing', () => {
@@ -238,5 +238,98 @@ describe('QaPage with real Chrome for Testing', () => {
     expect(png.subarray(0, 8)).toEqual(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]));
     expect([png.readUInt32BE(16), png.readUInt32BE(20)]).toEqual([1280, 960]);
     expect(await readFile(file)).toEqual(png);
+  });
+
+  it('0.4.4 console: records console.error calls and uncaught exceptions from the real page', async () => {
+    await page.evaluate(() => console.error('fixture-error', 7));
+    await page.evaluate(() => { setTimeout(() => { throw new Error('late-boom'); }, 0); });
+    await new Promise(resolve => setTimeout(resolve, 100));
+    const entries = page.consoleEntries();
+    expect(entries).toEqual(expect.arrayContaining([expect.objectContaining({ type: 'error', text: 'fixture-error 7' })]));
+    expect(entries).toEqual(expect.arrayContaining([expect.objectContaining({ type: 'exception', text: expect.stringContaining('late-boom') })]));
+  });
+
+  it('0.4.4 click({ checkOccluded }): names a cover over the target; passes when the hit is the target or a descendant', async () => {
+    await page.evaluate(() => {
+      const cover = document.createElement('div');
+      cover.id = 'cover';
+      cover.style.cssText = 'position:fixed;left:0;top:0;width:100vw;height:100vh;z-index:10';
+      document.body.append(cover);
+    });
+    await expect(page.click('#click', { checkOccluded: true })).rejects.toBeInstanceOf(ElementOccludedError);
+    await expect(page.click('#click', { checkOccluded: true })).rejects.toThrow(/covered by <div id="cover"/);
+    expect(await page.$eval('#click', element => element.textContent)).toBe('Click');
+    await page.evaluate(() => {
+      document.querySelector('#cover')!.remove();
+      document.querySelector('#click')!.innerHTML = '<span id="inner" style="display:block;width:100%;height:100%">Click</span>';
+    });
+    await page.click('#click', { checkOccluded: true });
+    expect(await page.$eval('#click', element => element.textContent)).toBe('Clicked');
+  });
+
+  it('0.4.4 click({ checkOccluded }) passes when the hit is inside a shadow root hosted by the target', async () => {
+    await page.evaluate(() => {
+      const button = document.querySelector('#click')!;
+      button.innerHTML = '<span id="host" style="display:block;width:100%;height:100%"></span>';
+      document.querySelector('#host')!.attachShadow({ mode: 'open' }).innerHTML = '<i id="deep" style="display:block;width:100%;height:100%">deep</i>';
+    });
+    await page.click('#click', { checkOccluded: true });
+    expect(await page.$eval('#click', element => element.textContent)).toBe('Clicked');
+  });
+
+  it('0.4.4 fill: insert-only default, replace+verify, empty clears, and non-editable targets are refused', async () => {
+    const value = () => page.$eval('#text', element => (element as HTMLInputElement).value);
+    await page.fill('#text', 'first');
+    expect(await value()).toBe('first');
+    await page.fill('#text', 'second');
+    expect(await value()).toBe('firstsecond');
+    await page.fill('#text', 'third', { replace: true, verify: true });
+    expect(await value()).toBe('third');
+    await page.fill('#text', '', { replace: true, verify: true });
+    expect(await value()).toBe('');
+    await expect(page.fill('#hover', 'x', { replace: true })).rejects.toThrow('not an editable');
+    await expect(page.fill('#text', 'x', { verify: true })).rejects.toThrow('requires replace');
+  });
+
+  it('0.4.4 mouse.wheel scrolls the element under the tracked pointer', async () => {
+    await page.evaluate(() => {
+      const box = document.createElement('div');
+      box.id = 'scroller';
+      box.style.cssText = 'height:100px;overflow:auto;width:300px';
+      box.innerHTML = '<div style="height:2000px"></div>';
+      document.querySelector('main')!.append(box);
+    });
+    const centre = await page.$eval('#scroller', element => {
+      element.scrollIntoView({ block: 'center', behavior: 'instant' });
+      const { x, y, width, height } = element.getBoundingClientRect();
+      return { x: x + width / 2, y: y + height / 2 };
+    });
+    await page.mouse.move(centre.x, centre.y);
+    await page.mouse.wheel({ deltaY: 200 });
+    await page.waitForFunction("document.querySelector('#scroller').scrollTop > 0", { timeout: 2000 });
+    expect(await page.$eval('#scroller', element => element.scrollTop)).toBeGreaterThan(0);
+  });
+
+  it('0.4.4 user agent: setUserAgent changes navigator; resetUserAgent restores the default', async () => {
+    const originalAgent = await page.evaluate(() => navigator.userAgent);
+    const originalPlatform = await page.evaluate(() => navigator.platform);
+    await page.setUserAgent('RightKit-QA/9.9 (Test)', { platform: 'Win32' });
+    expect(await page.evaluate(() => navigator.userAgent)).toBe('RightKit-QA/9.9 (Test)');
+    expect(await page.evaluate(() => navigator.platform)).toBe('Win32');
+    await page.resetUserAgent();
+    expect(await page.evaluate(() => navigator.userAgent)).toBe(originalAgent);
+    expect(await page.evaluate(() => navigator.platform)).toBe(originalPlatform);
+  });
+
+  it('0.4.4 failure artifacts: a waitForFunction timeout writes a real PNG and JSON state dump', async () => {
+    await page.evaluate(() => console.error('before-timeout'));
+    const error = await page.waitForFunction('window.neverSet === true', { timeout: 300, failureArtifacts: { directory: output, label: 'never' } }).catch(caught => caught);
+    expect(error).toBeInstanceOf(TimeoutError);
+    const dump = JSON.parse(await readFile(error.artifacts.json, 'utf8'));
+    expect(dump.url).toContain(url);
+    expect(dump.title).toBe('QaPage fixture');
+    expect(dump.predicate).toContain('neverSet');
+    expect(dump.console).toEqual(expect.arrayContaining([expect.objectContaining({ type: 'error', text: 'before-timeout' })]));
+    expect((await readFile(error.artifacts.screenshot)).subarray(0, 8)).toEqual(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]));
   });
 });

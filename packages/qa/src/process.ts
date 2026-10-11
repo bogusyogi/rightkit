@@ -1,4 +1,5 @@
 import { spawn } from 'node:child_process';
+import { createServer } from 'node:net';
 
 export interface OwnedProcessResult {
   pid: number;
@@ -71,6 +72,23 @@ export function runOwnedProcess(
       settled = true;
       clearTimeout(timer);
       resolve({ pid, code, signal, stdout, stderr });
+    });
+  });
+}
+
+/**
+ * A free TCP port on 127.0.0.1, found by binding port 0 and releasing it. Another process can take
+ * the port before the caller binds it; bind promptly or retry on EADDRINUSE.
+ */
+export function freePort(): Promise<number> {
+  return new Promise((resolve, reject) => {
+    const server = createServer();
+    server.once('error', reject);
+    server.listen(0, '127.0.0.1', () => {
+      const address = server.address();
+      if (!address || typeof address === 'string') { server.close(); reject(new Error('freePort: no TCP address')); return; }
+      const port = address.port;
+      server.close((error) => (error ? reject(error) : resolve(port)));
     });
   });
 }

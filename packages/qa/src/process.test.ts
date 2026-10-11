@@ -1,6 +1,7 @@
 import { spawn } from 'node:child_process';
+import { createServer } from 'node:net';
 import { describe, expect, it } from 'vitest';
-import { isProcessAlive, killProcessTree, runOwnedProcess } from './process.js';
+import { freePort, isProcessAlive, killProcessTree, runOwnedProcess } from './process.js';
 
 async function waitUntilDead(pid: number, timeoutMs = 5_000): Promise<void> {
   const deadline = Date.now() + timeoutMs;
@@ -42,4 +43,14 @@ describe('owned process cleanup', () => {
       await killProcessTree(sibling.pid);
     }
   }, 15_000);
+});
+
+describe('freePort', () => {
+  it('returns a loopback port number that can be bound immediately afterwards', async () => {
+    const port = await freePort();
+    expect(Number.isInteger(port) && port > 0 && port < 65536).toBe(true);
+    const server = createServer();
+    await new Promise<void>((resolve, reject) => { server.once('error', reject); server.listen(port, '127.0.0.1', () => resolve()); });
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  });
 });

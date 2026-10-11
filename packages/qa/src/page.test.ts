@@ -1,5 +1,8 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { QaBrowserSession, TimeoutError } from './index.js';
+import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
+import { ElementOccludedError, FillMismatchError, QaBrowserSession, TimeoutError } from './index.js';
 import { CdpClient } from './cdp.js';
 import { keyDefinition, QaKeyboard } from './keyboard.js';
 import { mockCdp, pageResponder } from '../test/mock-cdp.js';
@@ -562,5 +565,182 @@ describe('browser-level escape hatch', () => {
     await expect(browser.version()).rejects.toThrow('Browser session closed');
     await expect(browser.commandLine()).rejects.toThrow('Browser session closed');
     expect(server.messages.length).toBe(sent);
+  });
+});
+
+describe('0.4.4: console capture, occlusion, fill, wheel, user agent & failure artifacts', () => {
+  const sinceParams = (server: { messages: any[] }, method: string, from = 0) =>
+    server.messages.slice(from).filter((message) => message.method === method).map((message) => message.params);
+
+  it('records console calls & uncaught exceptions as typed entries', async () => {
+    const { page, server } = await fixture();
+    server.emit({ method: 'Runtime.consoleAPICalled', sessionId: 'session', params: {
+      type: 'error', args: [{ type: 'string', value: 'boom' }, { type: 'number', value: 4 }, { type: 'object', description: 'Object' }],
+      timestamp: 1000, stackTrace: { callFrames: [{ url: 'http://fixture/app.js', lineNumber: 4 }] },
+    } });
+    server.emit({ method: 'Runtime.exceptionThrown', sessionId: 'session', params: {
+      timestamp: 1001, exceptionDetails: { text: 'Uncaught', lineNumber: 9, url: 'http://fixture/app.js', exception: { type: 'object', description: 'Error: late' } },
+    } });
+    await page.evaluate('1');
+    expect(page.consoleEntries()).toEqual([
+      { type: 'error', text: 'boom 4 Object', url: 'http://fixture/app.js', line: 5, timestamp: 1000 },
+      { type: 'exception', text: 'Error: late', url: 'http://fixture/app.js', line: 10, timestamp: 1001 },
+    ]);
+  });
+
+  it('keeps the newest 200 entries, returns copies and clears on request', async () => {
+    const { page, server } = await fixture();
+    for (let i = 0; i < 250; i++) server.emit({ method: 'Runtime.consoleAPICalled', sessionId: 'session', params: { type: 'log', args: [{ type: 'string', value: `m${i}` }], timestamp: i } });
+    await page.evaluate('1');
+    const entries = page.consoleEntries();
+    expect(entries).toHaveLength(200);
+    expect(entries[0].text).toBe('m50');
+    expect(entries.at(-1)?.text).toBe('m249');
+    entries[0].text = 'mutated';
+    expect(page.consoleEntries()[0].text).toBe('m50');
+    page.clearConsoleEntries();
+    expect(page.consoleEntries()).toEqual([]);
+  });
+
+  it('click({ checkOccluded }) throws ElementOccludedError naming the cover; default click does no occlusion check', async () => {
+    let occluder: string | null = '<div id="toast" class="banner">';
+    const { page, server } = await fixture((message, send) => {
+      const declaration = String(message.params?.functionDeclaration ?? '');
+      if (message.method === 'Runtime.callFunctionOn' && message.params?.objectId === 'el') {
+        if (declaration.includes('getClientRects')) send({ id: message.id, result: { result: { value: { x: 10, y: 20, width: 40, height: 20 } } } });
+        else if (declaration.includes('elementFromPoint')) send({ id: message.id, result: { result: { value: occluder } } });
+        else send({ id: message.id, result: { result: { value: undefined } } });
+      } else if (message.method === 'Runtime.callFunctionOn' && declaration.includes('querySelector')) {
+        send({ id: message.id, result: { result: { objectId: 'el' } } });
+      } else pageResponder(message, send);
+    });
+    const error = await page.click('#button', { checkOccluded: true }).catch((caught) => caught);
+    expect(error).toBeInstanceOf(ElementOccludedError);
+    expect(error.message).toBe('Click target is covered by <div id="toast" class="banner"> at (30, 30)');
+    expect(sinceParams(server, 'Input.dispatchMouseEvent').map((params) => params.type)).toEqual(['mouseMoved']);
+
+    occluder = null;
+    let start = server.messages.length;
+    await page.click('#button', { checkOccluded: true });
+    expect(sinceParams(server, 'Input.dispatchMouseEvent', start).map((params) => params.type)).toEqual(['mouseMoved', 'mousePressed', 'mouseReleased']);
+
+    occluder = '<div id="toast">';
+    start = server.messages.length;
+    await page.click('#button');
+    expect(server.messages.slice(start).some((message) => String(message.params?.functionDeclaration ?? '').includes('elementFromPoint'))).toBe(false);
+  });
+
+  it('fill is insert-only by default; replace selects all first; verify reads back and throws on mismatch', async () => {
+    let field = 'old', selected = false, selectCalls = 0, readOverride: string | undefined;
+    const { page, server } = await fixture((message, send) => {
+      const declaration = String(message.params?.functionDeclaration ?? '');
+      if (message.method === 'Input.insertText') {
+        field = selected ? message.params.text : field + message.params.text; selected = false;
+      } else if (message.method === 'Input.dispatchKeyEvent' && message.params.key === 'Backspace' && message.params.type !== 'keyUp') {
+        if (selected) field = ''; selected = false;
+      }
+      if (message.method === 'Runtime.callFunctionOn' && message.params?.objectId === 'el') {
+        if (declaration.includes('.select()')) { selectCalls++; selected = true; send({ id: message.id, result: { result: { value: true } } }); }
+        else if (declaration.includes('textContent')) send({ id: message.id, result: { result: { value: readOverride ?? field } } });
+        else send({ id: message.id, result: { result: { value: undefined } } });
+      } else if (message.method === 'Runtime.callFunctionOn' && declaration.includes('querySelector')) {
+        send({ id: message.id, result: { result: { objectId: 'el' } } });
+      } else pageResponder(message, send);
+    });
+    await page.fill('input', 'hello');
+    expect(field).toBe('oldhello');
+    expect(selectCalls).toBe(0);
+
+    field = 'old';
+    await page.fill('input', 'new', { replace: true, verify: true });
+    expect(field).toBe('new');
+    expect(selectCalls).toBe(1);
+
+    readOverride = 'ab';
+    await expect(page.fill('input', 'other', { replace: true, verify: true })).rejects.toBeInstanceOf(FillMismatchError);
+    await expect(page.fill('input', 'other', { replace: true, verify: true })).rejects.toThrow('fill verification failed');
+    readOverride = undefined;
+
+    const start = server.messages.length;
+    await expect(page.fill('input', 'x', { verify: true })).rejects.toThrow('requires replace');
+    expect(server.messages.length).toBe(start);
+
+    field = 'abc';
+    await page.fill('input', '', { replace: true, verify: true });
+    expect(field).toBe('');
+  });
+
+  it('page.mouse.wheel sends mouseWheel at the tracked position with exact deltas', async () => {
+    const { page, server } = await fixture();
+    await page.mouse.move(12, 34);
+    const start = server.messages.length;
+    await page.mouse.wheel({ deltaY: 120 });
+    await page.mouse.wheel({ deltaX: -30 });
+    expect(sinceParams(server, 'Input.dispatchMouseEvent', start)).toEqual([
+      { type: 'mouseWheel', x: 12, y: 34, deltaX: 0, deltaY: 120 },
+      { type: 'mouseWheel', x: 12, y: 34, deltaX: -30, deltaY: 0 },
+    ]);
+    await expect(page.mouse.wheel({})).rejects.toThrow('non-zero');
+    await expect(page.mouse.wheel({ deltaY: Number.NaN })).rejects.toThrow('finite');
+    expect(page.mouse.position()).toEqual({ x: 12, y: 34 });
+  });
+
+  it('setUserAgent sends Emulation.setUserAgentOverride; resetUserAgent restores the captured original and is a no-op when unset', async () => {
+    let current = 'Original/1.0';
+    const { page, server } = await fixture((message, send) => {
+      const declaration = String(message.params?.functionDeclaration ?? '');
+      if (message.method === 'Runtime.callFunctionOn' && declaration.includes('navigator.userAgent')) send({ id: message.id, result: { result: { value: current } } });
+      else if (message.method === 'Emulation.setUserAgentOverride') { current = message.params.userAgent; send({ id: message.id, result: {} }); }
+      else pageResponder(message, send);
+    });
+    await page.resetUserAgent();
+    expect(sinceParams(server, 'Emulation.setUserAgentOverride')).toEqual([]);
+    await page.setUserAgent('QA-Agent/2.0', { platform: 'Win32', acceptLanguage: 'en-US' });
+    expect(sinceParams(server, 'Emulation.setUserAgentOverride').at(-1)).toEqual({ userAgent: 'QA-Agent/2.0', platform: 'Win32', acceptLanguage: 'en-US' });
+    expect(await page.evaluate(() => navigator.userAgent)).toBe('QA-Agent/2.0');
+    await page.resetUserAgent();
+    expect(sinceParams(server, 'Emulation.setUserAgentOverride').at(-1)).toEqual({ userAgent: 'Original/1.0' });
+    expect(await page.evaluate(() => navigator.userAgent)).toBe('Original/1.0');
+    const sent = server.messages.length;
+    await page.resetUserAgent();
+    expect(server.messages.length).toBe(sent);
+    await expect(page.setUserAgent('   ')).rejects.toThrow('non-empty');
+  });
+
+  it('waitForFunction timeout writes a PNG & JSON dump into the caller directory, including console entries', async () => {
+    const dir = await mkdtemp(path.join(tmpdir(), 'rk-qa-artifacts-'));
+    cleanup.push(() => rm(dir, { recursive: true, force: true }));
+    const { page, server } = await fixture((message, send) => {
+      const declaration = String(message.params?.functionDeclaration ?? '');
+      if (message.method === 'Runtime.callFunctionOn' && declaration.includes('window.never')) send({ id: message.id, result: { result: { value: false } } });
+      else if (message.method === 'Runtime.callFunctionOn' && declaration.includes('location.href')) send({ id: message.id, result: { result: { value: { url: 'http://fixture/hub', title: 'Hub' } } } });
+      else if (message.method === 'Page.captureScreenshot') send({ id: message.id, result: { data: Buffer.from([137, 80, 78, 71]).toString('base64') } });
+      else pageResponder(message, send);
+    });
+    server.emit({ method: 'Runtime.consoleAPICalled', sessionId: 'session', params: { type: 'warning', args: [{ type: 'string', value: 'slow render' }], timestamp: 5 } });
+    const error = await page.waitForFunction(() => (window as any).never === true, { timeout: 60, polling: 5, failureArtifacts: { directory: dir, label: 'hub wait' } }).catch((caught) => caught);
+    expect(error).toBeInstanceOf(TimeoutError);
+    expect(error.artifacts.json.startsWith(dir)).toBe(true);
+    const dump = JSON.parse(await readFile(error.artifacts.json, 'utf8'));
+    expect(dump).toMatchObject({ label: 'hub-wait', url: 'http://fixture/hub', title: 'Hub', screenshot: path.basename(error.artifacts.screenshot) });
+    expect(dump.predicate).toContain('window.never');
+    expect(dump.console).toEqual([{ type: 'warning', text: 'slow render', timestamp: 5 }]);
+    expect((await readFile(error.artifacts.screenshot)).subarray(0, 4)).toEqual(Buffer.from([137, 80, 78, 71]));
+  });
+
+  it('failure artifacts refuse relative paths & RIGHTKIT_RUN_ROOT before any CDP work', async () => {
+    const root = await mkdtemp(path.join(tmpdir(), 'rk-qa-run-root-'));
+    cleanup.push(() => rm(root, { recursive: true, force: true }));
+    const previous = process.env.RIGHTKIT_RUN_ROOT;
+    process.env.RIGHTKIT_RUN_ROOT = root;
+    try {
+      const { page, server } = await fixture();
+      const sent = server.messages.length;
+      await expect(page.waitForFunction(() => false, { failureArtifacts: { directory: path.join(root, 'evidence') } })).rejects.toThrow('outside RIGHTKIT_RUN_ROOT');
+      await expect(page.waitForSelector('#missing', { failureArtifacts: { directory: 'relative/dir' } })).rejects.toThrow('absolute path');
+      expect(server.messages.length).toBe(sent);
+    } finally {
+      if (previous === undefined) delete process.env.RIGHTKIT_RUN_ROOT; else process.env.RIGHTKIT_RUN_ROOT = previous;
+    }
   });
 });

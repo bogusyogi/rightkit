@@ -13,7 +13,7 @@ Shared browser and QA primitives for Right Suite apps: run storage and evidence 
 
 | Import | Contents |
 |---|---|
-| `@rightkit/qa` | `export *` from evidence, frames, guard, loopback, ownership, paint, panes, process, workspace, storage, page and chrome modules. Includes `QaBrowserSession`, `QaPage`, `QaElement`, `QaKeyboard`, `QaMouse`, `TimeoutError`. |
+| `@rightkit/qa` | `export *` from evidence, frames, guard, loopback, ownership, paint, panes, process, workspace, storage, page and chrome modules. Includes `QaBrowserSession`, `QaPage`, `QaElement`, `QaKeyboard`, `QaMouse`, `TimeoutError`, `ElementOccludedError`, `FillMismatchError`, `freePort`. |
 | `@rightkit/qa/chrome` | Re-export of `@rightkit/qa-chrome` |
 
 Dependency: `@rightkit/qa-chrome` (exact `0.1.3`).
@@ -85,6 +85,17 @@ try {
 ```
 
 `evaluate` throws the page's JavaScript exception (or a `TimeoutError`) rather than returning an error value. Wrap the call if you need the error as data.
+
+## Console, occlusion, fill, wheel, user agent and failure artifacts
+
+- `page.consoleEntries()` returns the newest 200 console calls and uncaught exceptions of the page, oldest first, as `{ type, text, url?, line?, timestamp }`. `type` is the console method (`log`, `error`, ...) or `exception`. Capture is always on; `clearConsoleEntries()` empties the buffer. Entries may contain page data, so do not write them to shared logs.
+- `page.click(target, { checkOccluded: true })` checks, after the pointer moves and before it presses, that `elementFromPoint` at the click point is the target or one of its descendants. Otherwise it throws `ElementOccludedError`, whose `occluder` names the element on top (tag, id, class; never text). The check walks into open shadow roots to name the element on top; a cover inside a closed shadow root is named by its host. The default is `false`.
+- `page.fill(target, value, { replace?, verify? })`. The default inserts at the caret, as `type()` does. `replace: true` selects the whole field first; an empty value then deletes it. `verify: true` (requires `replace`) reads the value back once and throws `FillMismatchError` on a difference. The error gives lengths, not values.
+- `page.mouse.wheel({ deltaX?, deltaY? })` sends one `mouseWheel` event at the tracked pointer position. The pointer does not move.
+- `page.setUserAgent(ua, { platform?, acceptLanguage? })` overrides the user agent for the page and its later navigations. Each call replaces the whole override. `page.resetUserAgent()` restores the `navigator.userAgent` captured before the first override.
+- `waitForFunction(fn, { failureArtifacts: { directory, label? } })` and `waitForSelector(...)` write a screenshot and a JSON state dump (url, title, predicate text, timeout, console entries) when they time out. Paths are on `error.artifacts` (`json`, `screenshot?`). `directory` must be absolute and must not lie inside `RIGHTKIT_RUN_ROOT`: `disposeQaWorkspace` deletes that tree. A failed write is appended to the error message; the timeout still throws.
+
+`freePort()` returns a free `127.0.0.1` port by binding port 0 and releasing it. Another process can take the port before use.
 
 ## Keyboard keys
 

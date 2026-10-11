@@ -4,6 +4,7 @@ export type MouseButton = 'left' | 'right' | 'middle';
 export interface MouseMoveOptions { /** Intermediate moves, linear from the current position; default 1 (a single move to the target). */ steps?: number }
 export interface MouseButtonOptions { button?: MouseButton; clickCount?: number }
 export interface MousePosition { x: number; y: number }
+export interface MouseWheelOptions { /** Horizontal scroll delta in CSS pixels; default 0. */ deltaX?: number; /** Vertical scroll delta in CSS pixels; positive scrolls down. Default 0. */ deltaY?: number }
 
 /** CDP `buttons` bit per button. */
 const buttonBits: Record<MouseButton, number> = { left: 1, right: 2, middle: 4 };
@@ -64,6 +65,17 @@ export class QaMouse {
     const buttons = this.mask() & ~buttonBits[button];
     await this.send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: this.x, y: this.y, button, buttons, clickCount });
     this.held.delete(button);
+  }
+
+  /**
+   * Wheel (scroll) at the tracked position. Sends one mouseWheel event with the given deltas;
+   * the pointer does not move. At least one delta must be non-zero.
+   */
+  async wheel(options: MouseWheelOptions = {}): Promise<void> {
+    const deltaX = options.deltaX ?? 0, deltaY = options.deltaY ?? 0;
+    if (!Number.isFinite(deltaX) || !Number.isFinite(deltaY)) throw new Error('Mouse wheel deltas must be finite numbers');
+    if (deltaX === 0 && deltaY === 0) throw new Error('Mouse wheel needs a non-zero deltaX or deltaY');
+    await this.send('Input.dispatchMouseEvent', { type: 'mouseWheel', x: this.x, y: this.y, deltaX, deltaY });
   }
 
   /** @internal Called by page.click & page.hover after they dispatch at a point. */
