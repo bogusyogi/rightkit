@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased
+
+- **Trust store: `TrustStore::try_load`, and `save` is atomic.** `load` returned an empty store for a missing file and
+  for any other failure: a file that could not be read (on Windows an open can be refused for a moment while another
+  process replaces the file) or did not parse. The caller's next `save` then wrote that empty store over every
+  recorded decision. `try_load` returns an empty store only for a missing file and an `io::Error` otherwise
+  (`InvalidData` for a parse failure). `load` is deprecated and unchanged in behaviour, so nothing breaks; callers
+  should move to `try_load` and decide what an error means for them. `save` now writes through
+  `rightkit_fs::atomic_write` (temp file, flush, rename); it was a plain `fs::write`, which a reader or a crash could
+  catch half written. The `rightkit-fs` dependency gains its `fs` feature. Not built or run locally.
+
 ## 0.5.3
 
 - New default-on feature `advanced-http` gates `tokio`, `rightkit-http[async]`, `http` and

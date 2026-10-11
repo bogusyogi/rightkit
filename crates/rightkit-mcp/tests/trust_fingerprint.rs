@@ -7,6 +7,52 @@ use rightkit_mcp::{fingerprint, ServerSpec, TrustDecision, TrustStore};
 
 const SECRET: &str = "sk-live-canary-7f3a9c2e51";
 
+#[test]
+fn only_a_missing_file_is_an_empty_store() {
+    let dir = tempfile::tempdir().unwrap();
+    let spec = stdio(&[("PATH", "/usr/bin")]);
+
+    let missing = TrustStore::try_load(&dir.path().join("absent.json")).unwrap();
+    assert_eq!(
+        missing.decide("/proj", "srv", &spec),
+        TrustDecision::Pending
+    );
+
+    let corrupt = dir.path().join("corrupt.json");
+    std::fs::write(&corrupt, b"{ damaged").unwrap();
+    let error = TrustStore::try_load(&corrupt).unwrap_err();
+    assert_eq!(error.kind(), std::io::ErrorKind::InvalidData);
+    assert_eq!(std::fs::read(&corrupt).unwrap(), b"{ damaged");
+
+    // Something that exists and cannot be read as a file is an error too, never "empty".
+    let unreadable = dir.path().join("a-directory");
+    std::fs::create_dir(&unreadable).unwrap();
+    let error = TrustStore::try_load(&unreadable).unwrap_err();
+    assert_ne!(error.kind(), std::io::ErrorKind::NotFound, "{error}");
+}
+
+#[test]
+fn save_replaces_the_file_whole_and_leaves_no_temp_file() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("state").join("trust.json");
+    let spec = stdio(&[("PATH", "/usr/bin")]);
+    let mut store = TrustStore::new();
+    store.save(&path).unwrap();
+    store.approve("/proj", "srv", &spec);
+    store.save(&path).unwrap();
+
+    let reloaded = TrustStore::try_load(&path).unwrap();
+    assert_eq!(
+        reloaded.decide("/proj", "srv", &spec),
+        TrustDecision::Approved
+    );
+    let names: Vec<_> = std::fs::read_dir(path.parent().unwrap())
+        .unwrap()
+        .map(|entry| entry.unwrap().file_name())
+        .collect();
+    assert_eq!(names, ["trust.json"]);
+}
+
 fn stdio(env: &[(&str, &str)]) -> ServerSpec {
     ServerSpec::Stdio {
         command: "node".into(),
@@ -55,7 +101,7 @@ fn identical_config_stays_approved_after_reload() {
     store.approve("/proj", "srv", &spec);
     store.save(&path).unwrap();
 
-    let reloaded = TrustStore::load(&path);
+    let reloaded = TrustStore::try_load(&path).unwrap();
     assert_eq!(
         reloaded.decide(
             "/proj",

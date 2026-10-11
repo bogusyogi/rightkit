@@ -109,22 +109,37 @@ impl TrustStore {
         Self::default()
     }
 
-    /// Missing or corrupt file => empty store (everything still gated).
-    pub fn load(path: &Path) -> Self {
-        std::fs::read_to_string(path)
-            .ok()
-            .and_then(|t| serde_json::from_str(&t).ok())
-            .unwrap_or_default()
+    /// The store at `path`. Only a missing file is an empty store (everything still gated).
+    ///
+    /// A file that exists and cannot be read, or does not parse, is an error
+    /// (`InvalidData` for a parse failure). An empty store returned for such a file would be
+    /// saved over the recorded decisions the next time one is made, and on Windows an open
+    /// can be refused for a moment while another process replaces the file.
+    pub fn try_load(path: &Path) -> std::io::Result<Self> {
+        match std::fs::read_to_string(path) {
+            Ok(text) => serde_json::from_str(&text)
+                .map_err(|error| std::io::Error::new(std::io::ErrorKind::InvalidData, error)),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(Self::default()),
+            Err(error) => Err(error),
+        }
     }
 
+    /// As [`TrustStore::try_load`], but every failure is an empty store.
+    #[deprecated(
+        note = "an unreadable or corrupt file reads as an empty store, which a later save writes over the recorded decisions; use `try_load`"
+    )]
+    pub fn load(path: &Path) -> Self {
+        Self::try_load(path).unwrap_or_default()
+    }
+
+    /// Write the store to `path`: a temp file beside it, flushed, then renamed over it, so a
+    /// reader or a crash never sees a partly written store.
     pub fn save(&self, path: &Path) -> std::io::Result<()> {
         if let Some(p) = path.parent() {
             std::fs::create_dir_all(p)?;
         }
-        std::fs::write(
-            path,
-            serde_json::to_string_pretty(self).unwrap_or_else(|_| "{}".into()),
-        )
+        let text = serde_json::to_string_pretty(self).unwrap_or_else(|_| "{}".into());
+        rightkit_fs::atomic_write(path, text.as_bytes()).map_err(std::io::Error::from)
     }
 
     pub fn decide(&self, workspace: &str, server: &str, spec: &ServerSpec) -> TrustDecision {
