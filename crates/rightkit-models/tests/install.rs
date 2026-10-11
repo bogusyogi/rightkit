@@ -154,10 +154,9 @@ fn fixture() -> Fixture {
     };
     foreign.platforms = vec![other_host.into(), "plan9".into()];
 
-    let spec = ModelSpec {
-        id: "demo".into(),
-        label: "Demo".into(),
-        revisions: vec![
+    let spec = ModelSpec::new(
+        "demo",
+        vec![
             RevisionSpec {
                 revision: "1".into(),
                 quant: Some("q4".into()),
@@ -177,7 +176,8 @@ fn fixture() -> Fixture {
                 measured: vec![],
             },
         ],
-    };
+    )
+    .with_label("Demo");
     Fixture {
         server,
         spec,

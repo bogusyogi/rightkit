@@ -54,7 +54,7 @@ pub use grant::{
     grant_policy, parse_retry_after_header, try_acquire_grant_pinned,
     try_acquire_grant_with_client, GrantError, ModelGrant, ModelGrantRequest,
 };
-pub use handle::{ModelStore, ResolvedModel};
+pub use handle::{EntitlementError, ModelStore, ResolvedModel};
 pub use install::{
     device_id_get_or_create, ensure_with_grant, ensure_with_grant_via, GrantConfig, GrantSession,
 };

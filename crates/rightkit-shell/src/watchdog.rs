@@ -289,7 +289,9 @@ impl Bell {
         self.state.lock().unwrap_or_else(|e| e.into_inner())
     }
 
-    /// End both threads' waits for good. Idempotent.
+    /// End both threads' waits for good. Idempotent. Test-only: the installed watchdog has no
+    /// shutdown handle and runs until the process exits, so production code never stops the bell.
+    #[cfg(test)]
     pub(crate) fn stop(&self) {
         self.state().stop = true;
         self.watch.notify_all();

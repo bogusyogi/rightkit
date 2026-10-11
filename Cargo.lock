@@ -5264,7 +5264,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-contracts"
-version = "0.1.4"
+version = "0.1.5"
 dependencies = [
  "jsonschema",
  "serde",
@@ -5474,6 +5474,7 @@ dependencies = [
  "http",
  "rightkit-fs",
  "rightkit-http",
+ "rightkit-mcp",
  "serde",
  "serde_json",
  "tempfile",
@@ -5495,7 +5496,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-models"
-version = "0.2.9"
+version = "0.3.0"
 dependencies = [
  "base64 0.22.1",
  "chrono",
@@ -5809,7 +5810,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-speech-client"
-version = "0.3.3"
+version = "0.3.4"
 dependencies = [
  "rightkit-framed-sidecar",
  "rightkit-service",

@@ -354,11 +354,23 @@ impl StoreOptions {
     }
 }
 
+/// When an omitted optional key is filled from the caller's defaults on a read.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub(crate) enum OptionalFill {
+    /// Never: an omitted optional key takes its plain serde default. The default.
+    #[default]
+    Never,
+    /// Always: every omitted optional key is filled from the defaults.
+    Always,
+    /// Only when the read repaired at least one other field (a dropped or defaulted field).
+    WhenRepaired,
+}
+
 /// Options for [`crate::read_with_options`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ReadOptions {
     pub(crate) format: FileFormat,
-    pub(crate) fill_optional: bool,
+    pub(crate) fill: OptionalFill,
     pub(crate) sidecars: bool,
 }
 
@@ -367,7 +379,7 @@ impl ReadOptions {
     pub fn new(format: FileFormat) -> Self {
         Self {
             format,
-            fill_optional: false,
+            fill: OptionalFill::Never,
             sidecars: true,
         }
     }
@@ -379,9 +391,23 @@ impl ReadOptions {
         self
     }
 
-    /// Same meaning as [`StoreOptions::fill_optional`]. Default `false`.
+    /// Same meaning as [`StoreOptions::fill_optional`]. Default `false`. Replaces any earlier
+    /// [`ReadOptions::fill_optional_when_repaired`] on this value.
     pub fn fill_optional(mut self, yes: bool) -> Self {
-        self.fill_optional = yes;
+        self.fill = if yes {
+            OptionalFill::Always
+        } else {
+            OptionalFill::Never
+        };
+        self
+    }
+
+    /// Fill omitted optional keys from the defaults only when the same read repaired at least one
+    /// other field (a dropped or defaulted field). A file that needs no repair keeps plain serde
+    /// defaults for its omitted optional keys, as with the default `false`. Replaces any earlier
+    /// [`ReadOptions::fill_optional`] on this value.
+    pub fn fill_optional_when_repaired(mut self) -> Self {
+        self.fill = OptionalFill::WhenRepaired;
         self
     }
 }

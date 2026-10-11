@@ -54,7 +54,8 @@ pub use atomic::{
 };
 #[cfg(feature = "fs")]
 pub use clone::{
-    clone_file_nofollow, clone_or_link_or_copy_nofollow, CloneError, CloneOptions, CloneOutcome,
+    clone_file_nofollow, clone_or_link_or_copy_nofollow, clone_or_link_or_copy_nofollow_with,
+    CloneError, CloneOptions, CloneOutcome,
 };
 #[cfg(feature = "fs")]
 pub use error::{FsError, PostPublishStep, Result};

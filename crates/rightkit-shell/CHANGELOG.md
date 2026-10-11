@@ -3,6 +3,38 @@
 All notable changes to `rightkit-shell`. Versions follow Cargo semver; while the
 version is `0.x`, a minor bump may carry breaking changes.
 
+## Unreleased
+
+Additive. The one behaviour change is `lifecycle_only` only, and is called out below.
+
+- **One visibility guard.** Every path that shows, unminimises or focuses a window asks
+  `lifecycle::reveal_mode(app, RevealSource)` (decision: `ShowPolicy::mode`): Dock reopen, opened URL,
+  second instance, show-on-ready, tray Show and toggle, the `rk_shell_window` `show` command,
+  `windows::open`, `windows::reveal` and `WindowStateStore::restore_with`. Answers: `Forbidden` (no
+  window call at all), `Background` (`RIGHTKIT_QA_BACKGROUND`: native order-back only) or `Foreground`.
+  `windows::apply_reveal` + `RevealTarget` is the seam the tests record through.
+- **`ShellBuilder::never_show(bool)` and `never_show_env(name)`.** Absolute host-declared never-show: no
+  show, unminimise or focus under any event, windows built through `windows::builder` are unfocused, hide
+  and reveal never change the macOS activation policy, and on macOS the policy is set to Prohibited at
+  plugin setup (and again when each webview is ready). `never_show_env` registers extra environment
+  variables that mean never-show when set to anything but empty, `0`, `false`, `no` or `off`, read at each
+  reveal (ScrapeRight: `RIGHTKIT_QA_NATIVE_REAL`). The `show` command answers `Ok` and does nothing.
+- **`ShellBuilder::reveal_on_reopen(bool)` and `Module::RevealOnReopen`.** Default on. Off, a Dock reopen
+  and an OS-delivered URL or file deliver their links and reveal nothing. `Module::ALL` is now 12;
+  `state_only` keeps the module (its behaviour is unchanged). `show_on_ready_decision` is unchanged.
+- **Webview idle.** `ShellBuilder::webview_idle_options(IdleOptions { suspend_after, start_on_minimize,
+  controller_hide, events })`. `start_on_minimize` starts the timer when the main window is minimised
+  (and a restore or focus ends it). `ControllerHide::Immediate` (default, the donor behaviour: the
+  WebView2 controller is hidden as the window hides) or `OnTimer` (hidden when the timer fires, then
+  suspended). `IdleEvents::NativeSuspendOnly` stops `rightkit-shell://idle` events where nothing is
+  suspended (macOS, Linux); default `Always`. `suspend_after` defaults to 30 s
+  (`DEFAULT_SUSPEND_AFTER`); `webview_idle(d)` still works. Per-hide override: `idle::note_hidden_after`
+  and `rk_shell_idle_note({hidden, suspendAfterMs})` (optional). Delays clamp to 24 h.
+- **Behaviour change, `lifecycle_only` only.** `ModuleSet::lifecycle_only()` / `Shell::lifecycle_plugin()`
+  now also leave `ShowOnReady` off, and the startup cache repair defaults to off. The host turns them on
+  with `show_on_ready(true)` and `repair_cache(true)`. `Shell::plugin()`, `ShellPlugin::builder()` sets and
+  `install_state_only` are unchanged.
+
 ## 0.3.0
 
 Additive except where marked **Breaking**. Each item has a test in `tests/`.

@@ -129,3 +129,37 @@ fn a_crashed_holders_leftover_file_does_not_block_or_mislead() {
     );
     drop(lease);
 }
+
+#[test]
+fn interactive_options_wait_at_most_120_seconds_and_keep_the_default_unbounded() {
+    use rightkit_models::suite::lease::INTERACTIVE_WAIT;
+
+    assert_eq!(INTERACTIVE_WAIT, Duration::from_secs(120));
+    let interactive = LeaseOptions::interactive();
+    assert_eq!(interactive.wait, Some(Duration::from_secs(120)));
+    assert!(interactive.deadline.is_none());
+
+    // The struct default is unchanged: a literal with `wait: None` has no time limit.
+    let unbounded = LeaseOptions {
+        wait: None,
+        deadline: None,
+        cancel: &|| false,
+        waiting: &|_| {},
+    };
+    assert_eq!(unbounded.wait, None);
+
+    // Interactive options with a cancel hook acquire a free lease at once.
+    let root = tempfile::tempdir().unwrap();
+    let cancel = AtomicBool::new(false);
+    let lease = acquire_bounded_at_root(
+        root.path(),
+        "speech",
+        "scraperight",
+        &LeaseOptions {
+            cancel: &|| cancel.load(Ordering::SeqCst),
+            ..LeaseOptions::interactive()
+        },
+    )
+    .unwrap();
+    drop(lease);
+}

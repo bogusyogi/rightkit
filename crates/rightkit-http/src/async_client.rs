@@ -603,8 +603,19 @@ impl AsyncClient {
         for (k, v) in headers {
             builder = builder.header(k.as_str(), v.as_str());
         }
-        if !body.is_empty() || matches!(method, Method::Post | Method::Put | Method::Patch) {
+        // A bodiless GET, HEAD or DELETE sends no body and no `Content-Length`. POST, PUT and
+        // PATCH always send their body; an empty one carries `Content-Length: 0` unless the
+        // caller set its own length, which the blocking client matches.
+        if !body.is_empty() {
             builder = builder.body(body.to_vec());
+        } else if matches!(method, Method::Post | Method::Put | Method::Patch) {
+            builder = builder.body(Vec::new());
+            if !headers
+                .iter()
+                .any(|(k, _)| k.eq_ignore_ascii_case("content-length"))
+            {
+                builder = builder.header("content-length", "0");
+            }
         }
         let request = builder.build().map_err(map_reqwest_error)?;
 

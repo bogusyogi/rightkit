@@ -42,6 +42,18 @@ Illustrative; not compiled as a doctest. The compiled references are `tests/poli
 - Dependencies: `windows_061`/`windows_062` and `webview2_com_038`/`webview2_com_039` are optional. They enable Win32 features `Win32_Foundation`, `Win32_System_Com`, `Win32_System_DataExchange`, `Win32_System_Memory`, `Win32_System_Ole` and `Win32_UI_Shell`. Consumers select only a `wv2-*` feature.
 - Caveat: `harden.rs`, `clipboard.rs` and `idle.rs` each say they are not compiled or not exercised on the macOS host (`src/idle.rs:9`). Run `rightkit cargo check -p rightkit-shell` on Windows before relying on them.
 
+## Hidden hosts: never_show, reopen opt-out, idle options
+
+- `Shell::builder(..).never_show(true)` and `.never_show_env("RIGHTKIT_QA_NATIVE_REAL")`: the shell shows,
+  unminimises and focuses nothing under any event, and macOS runs Prohibited from plugin setup. Every
+  reveal path goes through `lifecycle::reveal_mode`; the host's own direct window calls are outside it.
+- `.reveal_on_reopen(false)` (or `ShellPlugin::builder().without(Module::RevealOnReopen)`): Dock reopen and
+  opened URLs no longer reveal; links still deliver.
+- `.webview_idle_options(IdleOptions { start_on_minimize: true, controller_hide: ControllerHide::OnTimer,
+  events: IdleEvents::NativeSuspendOnly, ..Default::default() })`. Defaults match `webview_idle(30 s)`.
+- `lifecycle_only` leaves `ShowOnReady` and the cache repair off unless the host calls `show_on_ready(true)` /
+  `repair_cache(true)`.
+
 ## Also (0.3.0, host-decided lifecycle)
 
 - Quit drain: `quit_drain(true)` / `quit_drain_bound(d)`; the renderer (`@rightkit/shell` 0.1.1) answers

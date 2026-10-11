@@ -289,7 +289,9 @@ impl std::error::Error for AcquireError {}
 /// its process dies, and the stale holder file is replaced by the next holder. Only a live
 /// process that keeps the lease makes the wait run out.
 pub struct LeaseOptions<'a> {
-    /// Longest to wait. `None`: no time limit (cancel still applies).
+    /// Longest to wait. `None`: no time limit (cancel still applies). There is no default bound:
+    /// a struct literal with `wait: None` and no `deadline` waits as long as another process
+    /// holds the lease. Interactive apps should use [`LeaseOptions::interactive`].
     pub wait: Option<Duration>,
     /// Absolute limit; the earlier of `wait` and `deadline` applies.
     pub deadline: Option<std::time::Instant>,
@@ -298,6 +300,11 @@ pub struct LeaseOptions<'a> {
     /// Called each poll with the current holder, so the UI can say who has the model.
     pub waiting: &'a dyn Fn(Option<Holder>),
 }
+
+/// Recommended longest wait for an interactive app (a user is waiting on the result): two minutes.
+/// Long enough to ride out a job that is about to finish, short enough that the user is told who
+/// holds the model instead of waiting in silence.
+pub const INTERACTIVE_WAIT: Duration = Duration::from_secs(120);
 
 impl<'a> LeaseOptions<'a> {
     /// Wait at most `wait`, no cancel hook, no progress callback.
@@ -308,6 +315,13 @@ impl<'a> LeaseOptions<'a> {
             cancel: &|| false,
             waiting: &|_| {},
         }
+    }
+
+    /// Recommended options for an interactive app: wait at most [`INTERACTIVE_WAIT`] (120 seconds),
+    /// no cancel hook, no progress callback. Set `cancel` and `waiting` on the returned value with
+    /// struct update syntax, for example `LeaseOptions { cancel: &stop, ..LeaseOptions::interactive() }`.
+    pub fn interactive() -> LeaseOptions<'static> {
+        LeaseOptions::within(INTERACTIVE_WAIT)
     }
 
     fn limit(&self, started: std::time::Instant) -> Option<std::time::Instant> {

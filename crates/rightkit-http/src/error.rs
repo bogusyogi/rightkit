@@ -10,6 +10,7 @@ pub const MAX_ERROR_BODY_BYTES: usize = 64 * 1024;
 /// Where in a call an error happened. Carried by [`HttpError::Timeout`] and
 /// [`HttpError::Transport`] so apps can keep their own per-phase messages.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[non_exhaustive]
 pub enum Phase {
     /// Name lookup, TCP connect or TLS handshake.
     Connect,
@@ -33,6 +34,7 @@ impl Phase {
 }
 
 #[derive(Debug)]
+#[non_exhaustive]
 pub enum HttpError {
     /// URL, header, or request construction failed before anything was sent.
     InvalidRequest(String),
@@ -96,6 +98,7 @@ impl From<AddressDenial> for HttpError {
 /// Coarse class of an [`HttpError`], from [`HttpError::class`]. Apps map their own error
 /// classes and retry sets from this one table instead of matching statuses themselves.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum ErrorClass {
     /// HTTP 401, 403 or 407.
     Auth,

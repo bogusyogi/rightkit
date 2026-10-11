@@ -16,9 +16,10 @@
 //! Donors: HeardRight `tray.rs` Quit (engine shutdown before exit), `hub_window` (close hides,
 //! Dock reopen restores), ViewRight `RunEvent::Reopen`, CodeRight `window_state` save hooks.
 
+use std::ffi::{OsStr, OsString};
 use std::sync::atomic::{AtomicBool, Ordering};
 
-use tauri::{AppHandle, Emitter, Manager, RunEvent, WindowEvent, Wry};
+use tauri::{AppHandle, Emitter, Manager, RunEvent, Runtime, WindowEvent, Wry};
 
 use crate::quit::QuitStep;
 use crate::{ShellState, EVENT_DEEP_LINK, EVENT_MENU, EVENT_QUIT_REQUESTED, EVENT_SECOND_INSTANCE};
@@ -37,6 +38,148 @@ pub fn qa_hidden() -> bool {
 pub fn qa_background() -> bool {
     std::env::var_os("RIGHTKIT_QA_BACKGROUND").as_deref() == Some(std::ffi::OsStr::new("1"))
 }
+
+/// Why the shell is bringing a window up. Every source asks the same guard ([`reveal_mode`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum RevealSource {
+    /// macOS Dock reopen (`RunEvent::Reopen`).
+    Reopen,
+    /// The OS handed the app a URL or file (`RunEvent::Opened`).
+    Opened,
+    /// A second launch forwarded to the primary.
+    SecondInstance,
+    /// The main webview became ready.
+    ShowOnReady,
+    /// Tray menu "Show" or a tray click.
+    Tray,
+    /// The `rk_shell_window` `show` command from the renderer.
+    WindowCommand,
+    /// `windows::open` (create or re-reveal a secondary window).
+    OpenWindow,
+    /// `WindowStateStore::restore_with` visibility options.
+    Restore,
+    /// A host call to `windows::reveal`.
+    Api,
+}
+
+/// What the guard allows for one reveal.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RevealMode {
+    /// Nothing: no show, no unminimise, no focus, no activation.
+    Forbidden,
+    /// QA background: native order-back only; never unminimise or focus.
+    Background,
+    /// Ordinary production reveal.
+    Foreground,
+}
+
+/// True when an environment value means "never show": set, and not empty, `0`, `false`, `no`
+/// or `off` (case-insensitive).
+pub fn env_means_never_show(value: Option<&OsStr>) -> bool {
+    let Some(value) = value else { return false };
+    let text = value.to_string_lossy();
+    let text = text.trim().to_ascii_lowercase();
+    !(text.is_empty() || matches!(text.as_str(), "0" | "false" | "no" | "off"))
+}
+
+/// The host's say over window visibility, evaluated by [`ShowPolicy::mode`].
+#[derive(Debug, Clone)]
+pub struct ShowPolicy {
+    /// Host-declared: the shell never shows, unminimises or focuses a window, and on macOS the app
+    /// is a Prohibited-activation app.
+    pub never_show: bool,
+    /// Extra environment variables that mean never-show when set (see [`env_means_never_show`]).
+    pub never_show_env: Vec<String>,
+    /// Whether `Reopen` and `Opened` may reveal at all (also needs the module).
+    pub reveal_on_reopen: bool,
+}
+
+impl Default for ShowPolicy {
+    fn default() -> Self {
+        Self {
+            never_show: false,
+            never_show_env: Vec::new(),
+            reveal_on_reopen: true,
+        }
+    }
+}
+
+impl ShowPolicy {
+    /// True when never-show is declared by the host or by any registered environment variable.
+    pub fn is_never_show(&self, env: &dyn Fn(&str) -> Option<OsString>) -> bool {
+        self.never_show
+            || self
+                .never_show_env
+                .iter()
+                .any(|name| env_means_never_show(env(name).as_deref()))
+    }
+
+    /// [`ShowPolicy::is_never_show`] against the process environment.
+    pub fn never_show_now(&self) -> bool {
+        self.is_never_show(&|name: &str| std::env::var_os(name))
+    }
+
+    /// The one decision. Never-show beats everything; the reopen opt-out beats QA mode.
+    pub fn mode(
+        &self,
+        source: RevealSource,
+        qa_background: bool,
+        env: &dyn Fn(&str) -> Option<OsString>,
+    ) -> RevealMode {
+        if self.is_never_show(env) {
+            return RevealMode::Forbidden;
+        }
+        if matches!(source, RevealSource::Reopen | RevealSource::Opened) && !self.reveal_on_reopen {
+            return RevealMode::Forbidden;
+        }
+        if qa_background {
+            RevealMode::Background
+        } else {
+            RevealMode::Foreground
+        }
+    }
+
+    /// [`ShowPolicy::mode`] against the process environment and `RIGHTKIT_QA_BACKGROUND`.
+    pub fn mode_now(&self, source: RevealSource) -> RevealMode {
+        self.mode(source, qa_background(), &|name: &str| {
+            std::env::var_os(name)
+        })
+    }
+}
+
+/// THE guard. Every path that shows, unminimises or focuses a window (reopen, opened, second
+/// instance, show-on-ready, tray, the window command, `windows::open`, `windows::reveal`, restore)
+/// asks this function and does exactly what the answer allows. Without `ShellState` (a standalone
+/// helper outside the plugin) the default policy applies.
+pub fn reveal_mode<R: Runtime>(app: &AppHandle<R>, source: RevealSource) -> RevealMode {
+    match app.try_state::<ShellState>() {
+        Some(state) => state.show_policy.mode_now(source),
+        None => ShowPolicy::default().mode_now(source),
+    }
+}
+
+/// True when the host forbade showing windows (builder flag or registered environment variable).
+pub fn never_show<R: Runtime>(app: &AppHandle<R>) -> bool {
+    app.try_state::<ShellState>()
+        .is_some_and(|state| state.show_policy.never_show_now())
+}
+
+/// A Dock reopen with no visible window is the only reopen that asks to reveal.
+pub fn reopen_wants_reveal(has_visible_windows: bool) -> bool {
+    !has_visible_windows
+}
+
+/// macOS: make the app Prohibited (no Dock icon, no menu bar, never frontmost) when never-show
+/// applies. Idempotent; called at plugin setup and again when each webview is ready.
+#[cfg(target_os = "macos")]
+pub(crate) fn enforce_never_show(app: &AppHandle<Wry>, policy: &ShowPolicy) {
+    if policy.never_show_now() {
+        let _ = app.set_activation_policy(tauri::ActivationPolicy::Prohibited);
+    }
+}
+
+#[cfg(not(target_os = "macos"))]
+pub(crate) fn enforce_never_show(_app: &AppHandle<Wry>, _policy: &ShowPolicy) {}
 
 /// How a launch takes part in single-instance arbitration.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -75,6 +218,23 @@ pub fn show_on_ready_decision(
         return false;
     }
     explicit.unwrap_or(!qa_hidden_env)
+}
+
+/// Whether the `ShowOnReady` behaviour is installed. `lifecycle_only` turns the module off, and
+/// only the host's explicit `show_on_ready(true)` brings it back; every other module set is
+/// decided by the module alone.
+pub fn show_on_ready_installed(
+    module_in_set: bool,
+    lifecycle_only: bool,
+    explicit: Option<bool>,
+) -> bool {
+    module_in_set || (lifecycle_only && explicit == Some(true))
+}
+
+/// Whether the startup cache repair runs: the host's explicit choice, else on, except under
+/// `lifecycle_only` where the host owns its cache.
+pub fn repair_cache_enabled(explicit: Option<bool>, lifecycle_only: bool) -> bool {
+    explicit.unwrap_or(!lifecycle_only)
 }
 
 /// What happened to the main window.
@@ -139,7 +299,12 @@ pub(crate) fn note_visibility(app: &AppHandle<Wry>, visibility: Visibility) {
         .webview_windows()
         .iter()
         .any(|(label, w)| *label != state.main_label && w.is_visible().unwrap_or(false));
-    let want = activation_for(state.hide_to_background, visibility, other_visible);
+    // A never-show host stays Prohibited: hide/reveal never changes the activation policy.
+    let want = if state.show_policy.never_show_now() {
+        None
+    } else {
+        activation_for(state.hide_to_background, visibility, other_visible)
+    };
     if let Some(change) = state.activation.transition(want) {
         apply_activation(app, change);
     }
@@ -270,7 +435,7 @@ pub(crate) fn on_second_instance(
     );
     deliver_links(app, argv.iter().skip(1).map(String::as_str));
     if second_instance_reveals(decider, app, argv, cwd) {
-        crate::windows::reveal(app, None);
+        crate::windows::reveal_with(app, None, RevealSource::SecondInstance);
     }
 }
 
@@ -279,6 +444,23 @@ pub(crate) fn on_menu_event(app: &AppHandle<Wry>, id: &str) {
     let _ = app.emit(EVENT_MENU, serde_json::json!({"id": id}));
     if let Some(cb) = &state.on_menu {
         cb(app, id);
+    }
+}
+
+/// Feed the idle machine a minimise or restore of the main window (only for a host that asked with
+/// `IdleOptions::start_on_minimize`).
+fn note_minimized_for_idle(app: &AppHandle<Wry>, label: &str) {
+    let state = app.state::<ShellState>();
+    if label != state.main_label
+        || !state
+            .idle
+            .as_ref()
+            .is_some_and(|h| h.options.start_on_minimize)
+    {
+        return;
+    }
+    if let Some(w) = app.get_webview_window(label) {
+        crate::idle::note_minimized(app, w.is_minimized().unwrap_or(false));
     }
 }
 
@@ -296,8 +478,10 @@ pub(crate) fn run_event(app: &AppHandle<Wry>, event: &RunEvent) {
                             state.traffic.reapply(&w);
                         }
                     }
+                    note_minimized_for_idle(app, label);
                 }
             }
+            WindowEvent::Focused(false) => note_minimized_for_idle(app, label),
             WindowEvent::Focused(true) => {
                 if let Some(w) = app.get_webview_window(label) {
                     if state.modules.contains(crate::Module::Frameless) {
@@ -364,15 +548,15 @@ pub(crate) fn run_event(app: &AppHandle<Wry>, event: &RunEvent) {
             has_visible_windows,
             ..
         } => {
-            if !has_visible_windows {
-                crate::windows::reveal(app, None);
+            if reopen_wants_reveal(*has_visible_windows) {
+                crate::windows::reveal_with(app, None, RevealSource::Reopen);
             }
         }
         #[cfg(any(target_os = "macos", target_os = "ios"))]
         RunEvent::Opened { urls } => {
             let raw: Vec<String> = urls.iter().map(|u| u.to_string()).collect();
             deliver_links(app, raw.iter().map(String::as_str));
-            crate::windows::reveal(app, None);
+            crate::windows::reveal_with(app, None, RevealSource::Opened);
         }
         _ => {}
     }

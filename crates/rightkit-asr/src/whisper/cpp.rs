@@ -14,11 +14,11 @@
 //! fetched from the `v1.9.3` tag) in a comment on their type alias. Scalar
 //! accessors are used for token data; `whisper_full_get_token_data` (returns a
 //! 56-byte struct by value) is deliberately not bound.
+use super::control::{check_interrupt, interrupted_error, AbortState, CancelToken, ProgressSlot};
 use super::{LanguageDetection, Segment, WindowDecoder, WindowOutput, WindowRequest, WordSpan};
 use crate::error::{Error, Result};
 use std::ffi::{c_char, c_float, c_int, c_void, CStr, CString};
 use std::path::Path;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -37,6 +37,8 @@ struct WhisperContext {
 
 type Strategy = c_int;
 const GREEDY: Strategy = 0;
+/// `WHISPER_SAMPLING_BEAM_SEARCH`, the second `whisper_sampling_strategy` value.
+const BEAM_SEARCH: Strategy = 1;
 
 #[repr(C)]
 struct FullParams {
@@ -142,17 +144,36 @@ type FnTokTime = unsafe extern "C" fn(*mut WhisperContext, c_int, c_int) -> i64;
 /// `WHISPER_API float whisper_full_get_token_p (struct whisper_context * ctx, int i_segment, int i_token);` (whisper.h:681)
 type FnTokP = unsafe extern "C" fn(*mut WhisperContext, c_int, c_int) -> c_float;
 
-struct AbortFlag(AtomicBool);
+/// `typedef void (*whisper_progress_callback)(struct whisper_context * ctx, struct whisper_state * state, int progress, void * user_data);`
+/// (whisper.h, `whisper_progress_callback`; it is stored in `FullParams::progress_callback`).
+type ProgressCb = extern "C" fn(*mut WhisperContext, *mut c_void, c_int, *mut c_void);
 
+/// whisper.cpp abort callback: `true` stops the running graph. Called from
+/// ggml worker threads; `AbortState::poll` is lock-free.
 extern "C" fn abort_trampoline(user_data: *mut c_void) -> bool {
     if user_data.is_null() {
         return false;
     }
-    // SAFETY: always the `Arc<AbortFlag>` raw pointer set in `decode_window`,
-    // kept alive for the whole `whisper_full` call.
-    unsafe { &*(user_data as *const AbortFlag) }
-        .0
-        .load(Ordering::Relaxed)
+    // SAFETY: `user_data` is the `Arc<AbortState>` owned by the `WhisperCpp`
+    // (set in `decode_window`); that allocation outlives the context, and so
+    // every callback whisper.cpp or ggml can still hold. See `AbortState`.
+    unsafe { &*(user_data as *const AbortState) }.poll()
+}
+
+/// whisper.cpp progress callback (percent of the current `whisper_full` call).
+/// Never unwinds into C: a panicking caller callback is contained and dropped.
+extern "C" fn progress_trampoline(
+    _ctx: *mut WhisperContext,
+    _state: *mut c_void,
+    progress: c_int,
+    user_data: *mut c_void,
+) {
+    if user_data.is_null() {
+        return;
+    }
+    // SAFETY: as in `abort_trampoline`.
+    let state = unsafe { &*(user_data as *const AbortState) };
+    let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| state.report(progress)));
 }
 
 pub struct WhisperCpp {
@@ -178,7 +199,13 @@ pub struct WhisperCpp {
     tok_p: FnTokP,
     ctx: *mut WhisperContext,
     threads: c_int,
+    /// The load-time per-window bound. Kept for the public `load` signature;
+    /// each run now passes its own bound in the window request.
+    #[allow(dead_code)]
     deadline: Option<Duration>,
+    /// Callback user data. Declared after `ctx` and freed after it (`Drop` frees
+    /// the context first), so it outlives anything whisper.cpp can still call.
+    abort: Arc<AbortState>,
 }
 
 // SAFETY: a whisper_context is used by one thread at a time (`&mut self`);
@@ -291,6 +318,7 @@ impl WhisperCpp {
             ctx,
             threads,
             deadline,
+            abort: Arc::new(AbortState::new()),
         })
     }
 
@@ -316,16 +344,43 @@ impl WhisperCpp {
     /// then `whisper_lang_auto_detect` (whisper.h:276-280, :378-382). No text
     /// decode runs. Takes `&self`: the context is reached only through its raw
     /// pointer and `Whisper` is not `Sync`, so no other thread can touch it.
-    /// The deadline set at load time is not applied to this call.
+    /// No cancel or deadline applies; see [`detect_pcm_controlled`](Self::detect_pcm_controlled).
     pub(crate) fn detect_pcm(&self, samples: &[f32]) -> Result<LanguageDetection> {
+        self.detect_pcm_controlled(samples, None, None)
+    }
+
+    /// [`detect_pcm`](Self::detect_pcm) with a caller cancel token and an
+    /// absolute deadline.
+    ///
+    /// Neither native call can be aborted: `whisper_lang_auto_detect` runs its
+    /// encoder with a null abort callback (whisper.cpp `src/whisper.cpp:4243`)
+    /// and `whisper_pcm_to_mel` has no hook at all (line from the 1.9.4 checkout named in
+    /// `DecodeQuality::whisper_cli`; the 1.9.3 pin has the same public signatures). So the checks run before the
+    /// mel, between the two calls and after the second; the worst-case latency
+    /// is one mel plus one encoder pass. A result that completes past the
+    /// deadline is reported as exceeded, and one that completes after a cancel
+    /// as cancelled, so the outcome does not depend on timing luck.
+    pub(crate) fn detect_pcm_controlled(
+        &self,
+        samples: &[f32],
+        cancel: Option<&CancelToken>,
+        deadline: Option<Instant>,
+    ) -> Result<LanguageDetection> {
         if samples.is_empty() {
             return Err(Error::Audio("no samples to detect the language from".into()));
+        }
+        let stop = || check_interrupt(cancel, deadline).map(interrupted_error);
+        if let Some(e) = stop() {
+            return Err(e);
         }
         let n = samples.len().min(DETECT_SAMPLES);
         // SAFETY: ctx valid until Drop; `samples[..n]` outlives the call.
         let rc = unsafe { (self.pcm_to_mel)(self.ctx, samples.as_ptr(), n as c_int, self.threads) };
         if rc != 0 {
             return Err(Error::Model(format!("whisper_pcm_to_mel returned {rc}")));
+        }
+        if let Some(e) = stop() {
+            return Err(e);
         }
         // SAFETY: resolved export, no arguments.
         let max_id = unsafe { (self.lang_max_id)() };
@@ -336,6 +391,9 @@ impl WhisperCpp {
         let mut probs = vec![0f32; count];
         // SAFETY: `probs` holds whisper_lang_max_id()+1 floats, as the header requires.
         let top = unsafe { (self.lang_auto_detect)(self.ctx, 0, self.threads, probs.as_mut_ptr()) };
+        if let Some(e) = stop() {
+            return Err(e);
+        }
         if top < 0 || top as usize >= count {
             return Err(Error::Model(format!(
                 "whisper_lang_auto_detect returned {top} (the model may not be multilingual)"
@@ -400,13 +458,18 @@ impl WindowDecoder for WhisperCpp {
         }
         let lang_c =
             CString::new(req.lang.unwrap_or("auto")).map_err(|e| Error::Config(e.to_string()))?;
+        // Beam search above beam 1, else greedy (the same rule whisper-cli applies).
+        let strategy = if req.beam_size > 1 { BEAM_SEARCH } else { GREEDY };
         // SAFETY: resolved export; struct layout pinned (module docs).
-        let mut p = unsafe { (self.defaults)(GREEDY) };
+        let mut p = unsafe { (self.defaults)(strategy) };
         p.n_threads = self.threads;
         p.translate = false;
-        // Text-only and timed modes differ only here. `no_context` is always set:
-        // windows are disjoint and must not condition on each other.
-        p.no_context = true;
+        // Text-only and timed modes differ only here. Windows are disjoint and by
+        // default must not condition on each other (`no_context`). With
+        // `carry_context`, windows after the first keep whisper's text history;
+        // the first window always clears it so nothing leaks between recordings
+        // (whisper.cpp clears the history at the start of a `no_context` call).
+        p.no_context = !(req.carry_context && !req.first_window);
         p.no_timestamps = !req.timed;
         p.token_timestamps = req.timed && req.token_timestamps;
         p.max_len = req.max_len as c_int;
@@ -421,39 +484,39 @@ impl WindowDecoder for WhisperCpp {
         // decoding when this is set (existing 0.1.0 finding, re-confirmed in 0.2.0
         // design). Language identification is done by `detect_pcm` instead.
         p.detect_language = false;
-        p.greedy_best_of = 1;
-        p.beam_search_beam_size = 1;
+        p.greedy_best_of = req.best_of.max(1) as c_int;
+        p.beam_search_beam_size = req.beam_size.max(1) as c_int;
         // Copy before `p` moves into `whisper_full` below.
         let token_timestamps = p.token_timestamps;
 
-        let flag = Arc::new(AbortFlag(AtomicBool::new(false)));
+        // Callback user data is the `Arc<AbortState>` owned by `self`, which
+        // outlives the context (see `AbortState`). The per-call cancel flag,
+        // deadline and progress sink are armed here and disarmed by the guard
+        // before any of them can be dropped, so nothing whisper.cpp keeps after
+        // the call (ggml backends retain the last abort pointer) reaches freed
+        // memory, and nothing is touched after `whisper_full` returns.
+        let user_data = Arc::as_ptr(&self.abort) as *mut c_void;
+        let slot = req.progress.map(|f| ProgressSlot { f });
+        let guard = self.abort.arm(req.cancel, req.deadline, slot.as_ref());
         p.abort_callback = Some(abort_trampoline);
-        p.abort_callback_user_data = Arc::as_ptr(&flag) as *mut c_void;
-        let (done_tx, done_rx) = std::sync::mpsc::channel::<()>();
-        let watchdog = self.deadline.map(|d| {
-            let flag = Arc::clone(&flag);
-            let limit = Instant::now() + d;
-            std::thread::spawn(move || loop {
-                if done_rx.recv_timeout(Duration::from_millis(100)).is_ok() {
-                    return;
-                }
-                if Instant::now() >= limit {
-                    flag.0.store(true, Ordering::Relaxed);
-                    return;
-                }
-            })
-        });
+        p.abort_callback_user_data = user_data;
+        if slot.is_some() {
+            let cb: ProgressCb = progress_trampoline;
+            p.progress_callback = cb as *const c_void;
+            p.progress_callback_user_data = user_data;
+        }
+        // Already cancelled or past the deadline: do not start a window.
+        if self.abort.poll() {
+            drop(guard);
+            return Err(interrupted_error(self.abort.reason().unwrap_or(super::InterruptReason::Cancelled)));
+        }
         // SAFETY: ctx valid until Drop; `samples` outlives the call.
         let rc = unsafe { (self.full)(self.ctx, p, samples.as_ptr(), samples.len() as c_int) };
-        let _ = done_tx.send(());
-        if let Some(w) = watchdog {
-            let _ = w.join();
-        }
-        if flag.0.load(Ordering::Relaxed) {
-            return Err(Error::Model(format!(
-                "whisper_full aborted after deadline ({} samples)",
-                samples.len()
-            )));
+        // whisper_full has joined its workers and returned: disarm so no callback
+        // can read the borrowed flag or progress sink again.
+        drop(guard);
+        if let Some(reason) = self.abort.reason() {
+            return Err(interrupted_error(reason));
         }
         if rc != 0 {
             return Err(Error::Model(format!("whisper_full returned {rc}")));
@@ -470,10 +533,8 @@ impl WindowDecoder for WhisperCpp {
             if ptr.is_null() {
                 continue;
             }
-            let text = unsafe { CStr::from_ptr(ptr) }
-                .to_string_lossy()
-                .trim()
-                .to_string();
+            let raw_text = unsafe { CStr::from_ptr(ptr) }.to_string_lossy().into_owned();
+            let text = raw_text.trim().to_string();
             let (t0, t1) = unsafe { ((self.seg_t0)(self.ctx, i), (self.seg_t1)(self.ctx, i)) };
             if text.is_empty() {
                 continue;
@@ -482,6 +543,7 @@ impl WindowDecoder for WhisperCpp {
             let end_sample = cs_to_sample(t1, max_sample).max(start_sample);
             segs.push(Segment {
                 text,
+                raw_text,
                 start: t0 as f32 / 100.0,
                 end: t1 as f32 / 100.0,
                 start_sample,
@@ -501,6 +563,15 @@ impl WindowDecoder for WhisperCpp {
 
     fn detect_window(&mut self, samples: &[f32]) -> Result<LanguageDetection> {
         self.detect_pcm(samples)
+    }
+
+    fn detect_window_controlled(
+        &mut self,
+        samples: &[f32],
+        cancel: Option<&CancelToken>,
+        deadline: Option<Instant>,
+    ) -> Result<LanguageDetection> {
+        self.detect_pcm_controlled(samples, cancel, deadline)
     }
 }
 

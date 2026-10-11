@@ -267,6 +267,12 @@ impl WindowStateStore {
         let Some(window) = app.get_webview_window(label) else {
             return Ok(false);
         };
+        // The visibility guard has the last word on unminimise, show and focus.
+        let constrained = options.constrained(crate::lifecycle::reveal_mode(
+            app,
+            crate::lifecycle::RevealSource::Restore,
+        ));
+        let options = &constrained;
         let monitors = window
             .available_monitors()
             .map_err(|e| format!("available_monitors: {e}"))?;
@@ -392,6 +398,28 @@ pub struct RestoreOptions {
     pub focus: bool,
     /// Minimise again a window that was saved minimised. Applied last, after `show`.
     pub restore_minimized: bool,
+}
+
+impl RestoreOptions {
+    /// These options as the visibility guard allows them: `Forbidden` strips unminimise, show,
+    /// focus and re-minimise; `Background` strips unminimise and focus (QA never raises a window).
+    pub fn constrained(self, mode: crate::lifecycle::RevealMode) -> Self {
+        use crate::lifecycle::RevealMode;
+        match mode {
+            RevealMode::Foreground => self,
+            RevealMode::Background => Self {
+                unminimize: false,
+                focus: false,
+                ..self
+            },
+            RevealMode::Forbidden => Self {
+                unminimize: false,
+                show: false,
+                focus: false,
+                restore_minimized: false,
+            },
+        }
+    }
 }
 
 /// The window calls a restore makes, so the order is testable without a window.

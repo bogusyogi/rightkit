@@ -93,43 +93,6 @@ pub(crate) fn register_error_from_status(chord: String, status: i32) -> Register
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn statuses_map_to_typed_errors() {
-        let c = || "Ctrl+Space".to_string();
-        assert!(matches!(
-            register_error_from_status(c(), -9878),
-            RegisterError::Conflict {
-                os_status: -9878,
-                ..
-            }
-        ));
-        assert!(matches!(
-            register_error_from_status(c(), -9879),
-            RegisterError::Unsupported(_)
-        ));
-        assert!(matches!(
-            register_error_from_status(c(), -50),
-            RegisterError::Unsupported(_)
-        ));
-        assert!(matches!(
-            register_error_from_status(c(), -108),
-            RegisterError::ResourceExhausted { .. }
-        ));
-        assert!(matches!(
-            register_error_from_status(c(), 0),
-            RegisterError::Os { os_status: 0, .. }
-        ));
-        assert!(matches!(
-            register_error_from_status(c(), -1),
-            RegisterError::Os { os_status: -1, .. }
-        ));
-    }
-}
-
 type Callback = Box<dyn Fn(HotkeyId, HotkeyState)>;
 
 struct Inner {
@@ -270,5 +233,42 @@ impl Drop for GlobalHotkeys {
             RemoveEventHandler(self.handler);
             drop(Box::from_raw(self.inner));
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn statuses_map_to_typed_errors() {
+        let c = || "Ctrl+Space".to_string();
+        assert!(matches!(
+            register_error_from_status(c(), -9878),
+            RegisterError::Conflict {
+                os_status: -9878,
+                ..
+            }
+        ));
+        assert!(matches!(
+            register_error_from_status(c(), -9879),
+            RegisterError::Unsupported(_)
+        ));
+        assert!(matches!(
+            register_error_from_status(c(), -50),
+            RegisterError::Unsupported(_)
+        ));
+        assert!(matches!(
+            register_error_from_status(c(), -108),
+            RegisterError::ResourceExhausted { .. }
+        ));
+        assert!(matches!(
+            register_error_from_status(c(), 0),
+            RegisterError::Os { os_status: 0, .. }
+        ));
+        assert!(matches!(
+            register_error_from_status(c(), -1),
+            RegisterError::Os { os_status: -1, .. }
+        ));
     }
 }

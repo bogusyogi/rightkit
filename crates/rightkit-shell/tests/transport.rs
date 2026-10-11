@@ -456,7 +456,14 @@ fn module_set_names_every_module_and_toggles_membership() {
     let state = ModuleSet::state_only();
     assert_eq!(
         state.names(),
-        vec!["broker", "stream", "recovery", "frameless", "clipboard"]
+        vec![
+            "reveal_on_reopen",
+            "broker",
+            "stream",
+            "recovery",
+            "frameless",
+            "clipboard"
+        ]
     );
     assert!(!state.contains(Module::Presence));
     assert!(state.with(Module::Presence).contains(Module::Presence));

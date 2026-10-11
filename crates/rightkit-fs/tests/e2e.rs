@@ -35,15 +35,25 @@ fn spawn_role(role: &str, args: &[&str]) -> Child {
         .unwrap()
 }
 
-/// Block until the child prints READY on its own line.
+/// Block until the child prints READY on its own line, then keep draining its stdout on a
+/// thread. Dropping the pipe here would close it under the child's libtest output, which then
+/// fails with a broken pipe (os error 32 on unix, 232 on Windows).
 fn wait_ready(child: &mut Child) {
-    let out = child.stdout.take().unwrap();
-    for line in BufReader::new(out).lines() {
-        if line.unwrap().trim_end().ends_with("READY") {
-            return;
+    let mut reader = BufReader::new(child.stdout.take().unwrap());
+    let mut line = String::new();
+    loop {
+        line.clear();
+        assert!(
+            reader.read_line(&mut line).unwrap_or(0) > 0,
+            "child exited before READY"
+        );
+        if line.trim_end().ends_with("READY") {
+            break;
         }
     }
-    panic!("child exited before READY");
+    std::thread::spawn(move || {
+        let _ = std::io::copy(&mut reader, &mut std::io::sink());
+    });
 }
 
 fn kill9(mut child: Child) {

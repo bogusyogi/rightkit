@@ -128,6 +128,32 @@ let model_file = ensure_whisper_model(WhisperKind::Ggml, "heardright", Some(&ent
   until the route serves the archive. `resolve_whisper_model` returns `NotFound`
   until then.
 
+## Entitlement downloads and bounded lease waits
+
+Two ways to call the entitlement-gated add-on download. They differ in the bearer
+they take, so check which one you call:
+
+- `ModelStore::ensure_entitled(spec, bearer, ...)` and `suite::whisper::ensure_whisper_model`
+  take the full `Authorization` header value, for example `Bearer <token>`, and send it
+  unchanged. A bare token is not corrected, so the server answers 401.
+- `ModelStore::try_ensure_entitled(spec, token, ...)` takes the raw token. The crate
+  sends `Authorization: Bearer <token>`. A value starting with `Bearer ` (any case), an
+  empty value, or one with whitespace or non-ASCII characters is refused before any
+  request with `EntitlementError::InvalidRequest`.
+
+`try_ensure_entitled` returns typed errors so an app can branch on them:
+`NotEntitled { status }` for 401 or 403; `Refused { status, message }` for other
+non-success statuses after the transient-status retries; `RateLimited(GrantError)` for
+429, with `retry_after()` giving the server's `Retry-After` (the same type the grant API
+returns); `Transport` when no response arrived; and `Install` for verify, disk, hash or
+install failures. Its `Display` text matches the string API.
+
+A lease wait with no bound is unlimited: `LeaseOptions { wait: None, .. }` waits as long
+as another process holds the model. An interactive app should bound the wait and show who
+holds it. `LeaseOptions::interactive()` waits at most `suite::lease::INTERACTIVE_WAIT`
+(120 seconds) and has no cancel hook; set `cancel` and `waiting` with struct update
+syntax. `LeaseOptions::within(d)` sets any bound. The struct default is unchanged.
+
 ## RightApps promoted private artifacts (`rightapps` feature)
 
 The example below is illustrative and not compiled as a doctest. It shows the call sequence, and the host in the example is a placeholder, not a verified endpoint.

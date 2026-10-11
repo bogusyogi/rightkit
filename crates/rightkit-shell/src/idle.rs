@@ -11,10 +11,11 @@
 //!   shell tracks the state and emits `rightkit-shell://idle` for the app to pause its own timers.
 //!
 //! Hide/show paths owned by the shell (`rk_shell_window hide|show`, tray toggle, close-to-tray,
-//! reveal) feed the machine automatically; an app that hides its window itself calls
+//! reveal) feed the machine automatically (a minimise too, with `IdleOptions::start_on_minimize`); an app that hides its window itself calls
 //! [`note_hidden`] / [`note_visible`] (or the `rk_shell_idle_note` command).
 
 use std::fmt::Display;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -25,6 +26,121 @@ use crate::{ShellState, EVENT_IDLE};
 
 /// Tray / minimise to suspend delay (MailRight, locked 2026-07-06).
 pub const DEFAULT_SUSPEND_AFTER: Duration = Duration::from_secs(30);
+
+/// Longest suspend delay accepted (a larger host or per-hide value is clamped to it).
+pub const MAX_SUSPEND_AFTER: Duration = Duration::from_secs(24 * 60 * 60);
+
+/// When the WebView2 controller is hidden after the main window hides.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ControllerHide {
+    /// At once, when the window hides (the MailRight donor behaviour and the default): rendering
+    /// stops immediately, and `TrySuspend` later finds the controller already hidden.
+    #[default]
+    Immediate,
+    /// When the idle timer fires, just before `TrySuspend` (WebView2 requires a hidden controller
+    /// to suspend). The webview keeps rendering for `suspend_after` first, so a window that is
+    /// minimised or hidden only briefly never loses its compositor surface.
+    OnTimer,
+}
+
+/// Whether `rightkit-shell://idle` events are emitted.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum IdleEvents {
+    /// Every transition on every platform (the default; macOS and Linux apps pause their own
+    /// timers from these).
+    #[default]
+    Always,
+    /// Only where the platform really suspends the webview (Windows). On macOS and Linux nothing
+    /// is suspended, so nothing is emitted.
+    NativeSuspendOnly,
+}
+
+impl IdleEvents {
+    /// True when events are emitted on a platform with (`native_suspend`) or without a real suspend.
+    pub fn emits(self, native_suspend: bool) -> bool {
+        match self {
+            IdleEvents::Always => true,
+            IdleEvents::NativeSuspendOnly => native_suspend,
+        }
+    }
+}
+
+/// Per-host idle options (see [`crate::ShellBuilder::webview_idle_options`]). The default is the
+/// behaviour `webview_idle(DEFAULT_SUSPEND_AFTER)` has always had.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct IdleOptions {
+    /// Hidden this long before the webview is suspended (clamped to [`MAX_SUSPEND_AFTER`]).
+    pub suspend_after: Duration,
+    /// Also start the idle timer when the main window is minimised, not only on a hide the shell or
+    /// host reports (`note_hidden`). Restoring the window ends it. Default off.
+    pub start_on_minimize: bool,
+    pub controller_hide: ControllerHide,
+    pub events: IdleEvents,
+}
+
+impl Default for IdleOptions {
+    fn default() -> Self {
+        Self {
+            suspend_after: DEFAULT_SUSPEND_AFTER,
+            start_on_minimize: false,
+            controller_hide: ControllerHide::Immediate,
+            events: IdleEvents::Always,
+        }
+    }
+}
+
+/// The delay for one hide: the per-hide override if given, else the host default, clamped.
+pub fn effective_delay(host_default: Duration, per_hide: Option<Duration>) -> Duration {
+    per_hide.unwrap_or(host_default).min(MAX_SUSPEND_AFTER)
+}
+
+/// When the controller is hidden for one window hide.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct HidePlan {
+    /// Hide the controller as the window hides.
+    pub now: bool,
+    /// Hide the controller when the timer fires.
+    pub on_timer: bool,
+}
+
+/// `controller_already_hidden`: the OS hid the window already (close-to-tray), so no call is needed.
+pub fn hide_plan(mode: ControllerHide, controller_already_hidden: bool) -> HidePlan {
+    HidePlan {
+        now: mode == ControllerHide::Immediate && !controller_already_hidden,
+        on_timer: mode == ControllerHide::OnTimer && !controller_already_hidden,
+    }
+}
+
+/// What a minimise or restore of the main window asks of the idle machine.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MinimizeStep {
+    Start,
+    End,
+    None,
+}
+
+/// Remembers that a minimise (not a tray hide) started the idle timer, so repeated resize events
+/// do not restart it and a restore ends only what a minimise began.
+#[derive(Debug, Default)]
+pub struct MinimizeTracker {
+    active: AtomicBool,
+}
+
+impl MinimizeTracker {
+    pub fn step(&self, minimized: bool) -> MinimizeStep {
+        let was = self.active.swap(minimized, Ordering::SeqCst);
+        match (was, minimized) {
+            (false, true) => MinimizeStep::Start,
+            (true, false) => MinimizeStep::End,
+            _ => MinimizeStep::None,
+        }
+    }
+
+    /// The window is visible again by another route.
+    pub fn clear(&self) {
+        self.active.store(false, Ordering::SeqCst);
+    }
+}
 
 /// Which platform webview action failed.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -126,6 +242,8 @@ impl IdleState {
 /// Runtime half kept in [`ShellState`].
 pub struct IdleHost {
     pub suspend_after: Duration,
+    pub options: IdleOptions,
+    pub minimize: MinimizeTracker,
     pub state: Mutex<IdleState>,
     /// How many times the platform suspend / resume action ran (diagnostics, QA).
     pub counters: Mutex<(u32, u32)>,
@@ -137,10 +255,25 @@ impl IdleHost {
     pub fn new(suspend_after: Duration) -> Self {
         Self {
             suspend_after,
+            options: IdleOptions {
+                suspend_after,
+                ..IdleOptions::default()
+            },
+            minimize: MinimizeTracker::default(),
             state: Mutex::new(IdleState::default()),
             counters: Mutex::new((0, 0)),
             on_error: None,
         }
+    }
+
+    /// Replace the options; the timeout follows `options.suspend_after`.
+    pub fn with_options(mut self, options: IdleOptions) -> Self {
+        self.suspend_after = options.suspend_after.min(MAX_SUSPEND_AFTER);
+        self.options = IdleOptions {
+            suspend_after: self.suspend_after,
+            ..options
+        };
+        self
     }
 
     /// Install (or clear, with `None`) the failure callback.
@@ -203,13 +336,24 @@ pub fn status(app: &AppHandle<Wry>) -> IdleStatus {
     }
 }
 
-fn emit(app: &AppHandle<Wry>, state: &str) {
-    let _ = app.emit(EVENT_IDLE, serde_json::json!({"state": state}));
+fn emit(app: &AppHandle<Wry>, host: &IdleHost, state: &str) {
+    if host.options.events.emits(cfg!(windows)) {
+        let _ = app.emit(EVENT_IDLE, serde_json::json!({"state": state}));
+    }
 }
 
 /// The main window was hidden (minimise, tray, app-driven). `controller_already_hidden` skips the
 /// redundant WebView2 visibility call on close-to-tray, where the OS hid the window already.
 pub fn note_hidden(app: &AppHandle<Wry>, controller_already_hidden: bool) {
+    note_hidden_after(app, controller_already_hidden, None);
+}
+
+/// [`note_hidden`] with a delay for this hide only (`None`: the host's `suspend_after`).
+pub fn note_hidden_after(
+    app: &AppHandle<Wry>,
+    controller_already_hidden: bool,
+    suspend_after: Option<Duration>,
+) {
     let state = app.state::<ShellState>();
     let Some(host) = &state.idle else { return };
     let (generation, action) = host
@@ -220,11 +364,13 @@ pub fn note_hidden(app: &AppHandle<Wry>, controller_already_hidden: bool) {
     if action != IdleAction::HideControllerAndStartTimer {
         return;
     }
-    emit(app, "hidden");
-    if !controller_already_hidden {
+    emit(app, host, "hidden");
+    let plan = hide_plan(host.options.controller_hide, controller_already_hidden);
+    if plan.now {
         platform::set_visible(app, false);
     }
-    let (app, delay) = (app.clone(), host.suspend_after);
+    let delay = effective_delay(host.suspend_after, suspend_after);
+    let app = app.clone();
     let reporter = host.reporter(&state.main_label);
     let _ = std::thread::Builder::new()
         .name("rk-shell-idle".into())
@@ -239,16 +385,35 @@ pub fn note_hidden(app: &AppHandle<Wry>, controller_already_hidden: bool) {
                 .on_timer(generation);
             if action == IdleAction::SuspendNow {
                 host.counters.lock().unwrap_or_else(|e| e.into_inner()).0 += 1;
+                if plan.on_timer {
+                    platform::set_visible(&app, false);
+                }
                 platform::suspend(&app, &reporter);
-                emit(&app, "suspended");
+                emit(&app, host, "suspended");
             }
         });
+}
+
+/// The main window was minimised (`true`) or restored (`false`). Does nothing unless the host set
+/// `IdleOptions::start_on_minimize`. A restore ends only an idle period a minimise began.
+pub fn note_minimized(app: &AppHandle<Wry>, minimized: bool) {
+    let state = app.state::<ShellState>();
+    let Some(host) = &state.idle else { return };
+    if !host.options.start_on_minimize {
+        return;
+    }
+    match host.minimize.step(minimized) {
+        MinimizeStep::Start => note_hidden_after(app, false, None),
+        MinimizeStep::End => note_visible(app),
+        MinimizeStep::None => {}
+    }
 }
 
 /// The main window is visible again.
 pub fn note_visible(app: &AppHandle<Wry>) {
     let state = app.state::<ShellState>();
     let Some(host) = &state.idle else { return };
+    host.minimize.clear();
     let action = host
         .state
         .lock()
@@ -257,13 +422,13 @@ pub fn note_visible(app: &AppHandle<Wry>) {
     match action {
         IdleAction::ShowController => {
             platform::set_visible(app, true);
-            emit(app, "visible");
+            emit(app, host, "visible");
         }
         IdleAction::ResumeAndShowController => {
             host.counters.lock().unwrap_or_else(|e| e.into_inner()).1 += 1;
             platform::resume(app, &host.reporter(&state.main_label));
             platform::set_visible(app, true);
-            emit(app, "resumed");
+            emit(app, host, "resumed");
         }
         _ => {}
     }

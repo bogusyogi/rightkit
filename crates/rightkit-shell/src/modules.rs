@@ -39,6 +39,10 @@ pub enum Module {
     WindowState,
     /// Show the main window once its webview is ready.
     ShowOnReady,
+    /// Reveal the main window on a macOS Dock reopen (`RunEvent::Reopen`) and when the OS hands the
+    /// app a URL or file (`RunEvent::Opened`). Off, neither shows, unminimises or focuses anything
+    /// (the URL is still delivered). On in every set except where a host removes it.
+    RevealOnReopen,
     /// The hang watchdog and its `rightkit-shell://stall` event.
     Watchdog,
     /// The presence loop (fullscreen and meeting detection).
@@ -57,11 +61,12 @@ pub enum Module {
 
 impl Module {
     /// Every module, in declaration order.
-    pub const ALL: [Module; 11] = [
+    pub const ALL: [Module; 12] = [
         Module::JsHardening,
         Module::NavigationPolicy,
         Module::WindowState,
         Module::ShowOnReady,
+        Module::RevealOnReopen,
         Module::Watchdog,
         Module::Presence,
         Module::Broker,
@@ -89,6 +94,10 @@ impl Module {
         Module::WindowState,
     ];
 
+    /// Modules `lifecycle_only` leaves off by default because a lifecycle-only host owns its own
+    /// windows: the host turns one back on explicitly (`ShellBuilder::show_on_ready(true)`).
+    pub const LIFECYCLE_HOST_OPT_IN: [Module; 1] = [Module::ShowOnReady];
+
     /// Stable snake_case name, used in diagnostics (`rk_shell_status`).
     pub fn name(self) -> &'static str {
         match self {
@@ -96,6 +105,7 @@ impl Module {
             Module::NavigationPolicy => "navigation_policy",
             Module::WindowState => "window_state",
             Module::ShowOnReady => "show_on_ready",
+            Module::RevealOnReopen => "reveal_on_reopen",
             Module::Watchdog => "watchdog",
             Module::Presence => "presence",
             Module::Broker => "broker",
@@ -117,9 +127,13 @@ impl ModuleSet {
         Module::ALL.iter().fold(Self(0), |set, m| set.with(*m))
     }
 
-    /// Only the state-only set (`Module::STATE`).
+    /// Only the state-only set (`Module::STATE`), plus `RevealOnReopen`: reopen handling is
+    /// lifecycle, not state, and a state-only install has always revealed on reopen.
     pub fn state_only() -> Self {
-        Module::STATE.iter().fold(Self(0), |set, m| set.with(*m))
+        Module::STATE
+            .iter()
+            .fold(Self(0), |set, m| set.with(*m))
+            .with(Module::RevealOnReopen)
     }
 
     fn bit(module: Module) -> u16 {
@@ -143,9 +157,13 @@ impl ModuleSet {
 
     /// Everything except the five webview-policy modules: no hardening script or native hardening,
     /// no navigation policy, no presence loop, no watchdog and no window-state restore or save.
+    /// `ShowOnReady` is also off (`Module::LIFECYCLE_HOST_OPT_IN`): the host owns its windows and
+    /// turns it on with `ShellBuilder::show_on_ready(true)` if it wants the shell to show the main
+    /// window. `RevealOnReopen` stays on; a host removes it with `ShellBuilder::reveal_on_reopen(false)`.
     pub fn lifecycle_only() -> Self {
         Module::LIFECYCLE_OFF
             .iter()
+            .chain(Module::LIFECYCLE_HOST_OPT_IN.iter())
             .fold(Self::all(), |set, m| set.without(*m))
     }
 
@@ -206,9 +224,15 @@ impl ShellPluginBuilder {
         crate::install(cfg)
     }
 
-    /// Install the lifecycle without the webview policy: [`ModuleSet::lifecycle_only`].
+    /// Install the lifecycle without the webview policy: [`ModuleSet::lifecycle_only`]. Besides the
+    /// module set, a lifecycle-only install defaults `repair_cache` to off and shows the main window
+    /// on ready only when the host called `show_on_ready(true)`; `repair_cache(true)` turns the
+    /// repair back on.
     pub fn lifecycle_only(mut self) -> TauriPlugin<Wry> {
         self.modules = ModuleSet::lifecycle_only();
+        if let Some(shell) = self.shell.as_mut() {
+            shell.cfg.lifecycle_only = true;
+        }
         self.build()
     }
 

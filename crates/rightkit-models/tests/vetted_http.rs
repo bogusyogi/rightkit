@@ -387,10 +387,9 @@ fn default_clients_refuse_a_loopback_origin_without_connecting() {
     assert!(server.paths().is_empty(), "the origin was contacted");
 
     // The same holds through a Store that was not configured for local servers.
-    let spec = ModelSpec {
-        id: "demo".into(),
-        label: String::new(),
-        revisions: vec![RevisionSpec {
+    let spec = ModelSpec::new(
+        "demo",
+        vec![RevisionSpec {
             revision: "1".into(),
             files: vec![rightkit_models::FileSpec {
                 path: "m.bin".into(),
@@ -399,7 +398,7 @@ fn default_clients_refuse_a_loopback_origin_without_connecting() {
             }],
             ..Default::default()
         }],
-    };
+    );
     let store = Store::new(tmp.path().join("models"), "t");
     let err = store
         .install(&spec, &Default::default(), |_| {})

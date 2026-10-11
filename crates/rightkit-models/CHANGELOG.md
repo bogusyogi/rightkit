@@ -1,5 +1,25 @@
 # Changelog
 
+## Unreleased
+
+- Additive, no existing signature changed:
+  - Typed entitlement download: `ModelStore::try_ensure_entitled(spec, token, cancelled,
+    progress)` returns `Result<ModelStatus, EntitlementError>`. `token` is the raw
+    token; the crate sends `Authorization: Bearer <token>`. A value that starts with
+    `Bearer ` (any case), is empty, or has whitespace or non-ASCII characters is
+    refused with `EntitlementError::InvalidRequest` before any request. Variants:
+    `NotEntitled { status }` (401 or 403), `Refused { status, message }` (other
+    non-success statuses after the transient-status retries), `RateLimited(GrantError)`
+    (HTTP 429, `retry_after()` gives `Retry-After`; the same type the grant API
+    returns), `Transport(message)` (no response) and `Install(message)` (verify, disk
+    or install failure after the transfer). `Display` matches the string text.
+    `ModelStore::ensure_entitled` is unchanged; its `bearer` is the full
+    `Authorization` header value (`Bearer <token>`) and is sent as given. The same
+    convention applies to `suite::whisper::ensure_whisper_model`.
+  - `suite::lease::LeaseOptions::interactive()` waits at most `INTERACTIVE_WAIT`
+    (120 seconds) with no cancel hook. The struct default is unchanged: `wait: None`
+    is unlimited, and `LeaseOptions::within(d)` still sets a bound.
+
 ## 0.3.0
 
 - **Breaking: `ModelSpec` is `#[non_exhaustive]`.** Struct literals of `rightkit_models::ModelSpec` outside
@@ -53,9 +73,17 @@
   large-v3-turbo q5_k). Its archive pin is `whisper-win.tar.gz`, SHA-256
   `e4fa834a3b6000ca51b71ac42799277b33496e2f86c43e95b3da57b170f76f9f`; its file
   pin is the `.bin` itself, SHA-256 `fcacbe37c8ddd49a137b3ef7cccd2743bea1f9a9dd20d2b9755978972a02bb0b`.
-  The entry is Pro-gated (`requires_auth()`). It is now in `catalog()`, so
-  code that iterates the catalog sees it; filter on `can_download()` and
-  `requires_auth()` where a Pro-gated model must not be offered.
+  The entry is Pro-gated (`requires_auth()`) and an add-on (`ModelTier::AddOn`).
+  It is in `add_ons()` and in `all_models()` (base set, then add-ons), and it is
+  not in `catalog()`: `catalog()` stays the base set, as in 0.2.8, so setup,
+  onboarding and size estimates never require it. `catalog()` returns
+  `base_catalog()` (Parakeet, plus OCR on Windows).
+- Catalog accessors: `base_catalog()` (every install needs it), `add_ons()`
+  (optional, entitlement-gated), `all_models()` (base then add-ons, for code that
+  manages the whole store), and `catalog()` (the same as `base_catalog()`).
+- Lease waits: `suite::lease::acquire_bounded_at_root` and `ModelLease::acquire_bounded`
+  take `LeaseOptions` and return `Result<ModelLease, AcquireError>`. `AcquireError::Held`
+  names the holder (`Held`), `Cancelled` is the cancel hook, and `Io` is a file error.
 - Archive-only descriptors, not store entries: `catalog::WHISPER_COREML_ARCHIVE`
   (macOS `whisper-multi`, SHA-256 `046ce2ae...`) and `catalog::WHISPER_IOS_ARCHIVE`
   (iOS `whisper-multi`, SHA-256 `a37fc293...`). A store entry needs per-file size

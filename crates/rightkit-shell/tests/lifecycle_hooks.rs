@@ -97,8 +97,18 @@ fn lifecycle_only_drops_exactly_the_five_named_modules() {
     ] {
         assert!(!set.contains(dropped), "{} must be off", dropped.name());
     }
-    assert!(set.contains(Module::ShowOnReady));
+    // Behaviour change for lifecycle_only only: the host owns its windows, so ShowOnReady is off
+    // unless it calls show_on_ready(true). RevealOnReopen stays on; the host opts out of it.
+    assert!(!set.contains(Module::ShowOnReady));
+    assert!(set.contains(Module::RevealOnReopen));
     assert!(set.contains(Module::Broker));
+    // Other sets are unchanged: the full set shows on ready, and state-only keeps reopen.
+    assert!(ModuleSet::all().contains(Module::ShowOnReady));
+    assert!(ModuleSet::all()
+        .without(Module::Watchdog)
+        .contains(Module::ShowOnReady));
+    assert!(ModuleSet::state_only().contains(Module::RevealOnReopen));
+    assert!(!ModuleSet::state_only().contains(Module::ShowOnReady));
     // The full set is untouched.
     assert_eq!(ModuleSet::all().names().len(), Module::ALL.len());
 }
@@ -116,4 +126,43 @@ fn lifecycle_plugin_injects_no_script_and_the_full_plugin_keeps_its_script() {
         .unwrap()
         .script
         .contains("root.__rkShell"));
+}
+
+#[test]
+fn lifecycle_only_defaults_show_on_ready_and_cache_repair_off_unless_the_host_turns_them_on() {
+    use rightkit_shell::lifecycle::{repair_cache_enabled, show_on_ready_installed};
+    // show on ready: (module in set, lifecycle_only, explicit)
+    assert!(!show_on_ready_installed(false, true, None));
+    assert!(!show_on_ready_installed(false, true, Some(false)));
+    assert!(show_on_ready_installed(false, true, Some(true)));
+    // Not lifecycle_only: the module alone decides, an explicit call does not resurrect it.
+    assert!(show_on_ready_installed(true, false, None));
+    assert!(!show_on_ready_installed(false, false, Some(true)));
+    // cache repair: (explicit, lifecycle_only)
+    assert!(!repair_cache_enabled(None, true));
+    assert!(repair_cache_enabled(Some(true), true));
+    assert!(!repair_cache_enabled(Some(false), true));
+    assert!(repair_cache_enabled(None, false));
+    assert!(!repair_cache_enabled(Some(false), false));
+}
+
+#[test]
+fn the_new_visibility_builders_install_in_every_plugin_shape() {
+    for plugin in [
+        Shell::builder("test-vis")
+            .never_show(true)
+            .never_show_env("RIGHTKIT_QA_NATIVE_REAL")
+            .reveal_on_reopen(false)
+            .build()
+            .lifecycle_plugin(),
+        Shell::builder("test-vis").never_show(true).build().plugin(),
+    ] {
+        assert_eq!(plugin.name(), "rightkit-shell");
+    }
+}
+
+#[test]
+#[should_panic(expected = "never_show_env")]
+fn an_empty_never_show_environment_name_is_a_startup_error() {
+    let _ = Shell::builder("test-vis").never_show_env("");
 }

@@ -17,8 +17,8 @@ mod supervisor;
 
 #[cfg(feature = "supervisor")]
 pub use client::{
-    ClientOptions, ContractRequirement, EngineClient, EventFrame, OnEventFrame, ProtocolError,
-    ProtocolErrorSink, DEFAULT_HELLO_TIMEOUT,
+    ChildExit, ClientOptions, ContractRequirement, EngineClient, EventFrame, OnEventFrame,
+    ProtocolError, ProtocolErrorSink, DEFAULT_HELLO_TIMEOUT,
 };
 pub use config::{
     ArtifactNames, ColumnType, Ext, ExtColumn, ProgressPolicy, StatusModel, StoreConfig, StoreHook,
@@ -50,7 +50,8 @@ pub use store::{
 #[cfg(feature = "supervisor")]
 pub use supervisor::{
     CallOptions, EngineSupervisor, ExitReason, HealthCheck, InitialFailure, Lifecycle,
-    LifecycleEvent, Readiness, SupervisorConfig, SupervisorStatus, Terminal,
+    LifecycleEvent, Readiness, ShutdownOutcome, ShutdownReport, SupervisorConfig, SupervisorStatus,
+    Terminal,
 };
 // Re-exported so a host that only depends on rightkit-jobs can build the policy and spawn command.
 #[cfg(feature = "supervisor")]

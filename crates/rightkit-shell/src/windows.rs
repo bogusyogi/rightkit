@@ -10,6 +10,7 @@ use serde::{Deserialize, Serialize};
 use tauri::webview::NewWindowResponse;
 use tauri::{AppHandle, Emitter, Manager, WebviewUrl, WebviewWindow, WebviewWindowBuilder, Wry};
 
+use crate::lifecycle::{reveal_mode, RevealMode, RevealSource};
 use crate::nav::WindowOpenDecision;
 use crate::opener::open_checked;
 use crate::{ShellState, EVENT_WINDOW};
@@ -91,6 +92,12 @@ pub fn builder<'a>(
                 WindowOpenDecision::Deny => NewWindowResponse::Deny,
             }
         });
+    // A never-show host's windows are never created focused.
+    let b = if crate::lifecycle::never_show(app) {
+        b.focused(false)
+    } else {
+        b
+    };
     crate::frameless::style(b, state.frameless)
 }
 
@@ -98,7 +105,7 @@ pub fn builder<'a>(
 pub fn open(app: &AppHandle<Wry>, spec: &WindowSpec) -> Result<String, String> {
     let label = safe_label(&spec.label).ok_or("invalid window label")?;
     if let Some(w) = app.get_webview_window(&label) {
-        reveal(app, Some(&label));
+        reveal_with(app, Some(&label), RevealSource::OpenWindow);
         return Ok(w.label().to_owned());
     }
     let title = spec
@@ -108,7 +115,8 @@ pub fn open(app: &AppHandle<Wry>, spec: &WindowSpec) -> Result<String, String> {
         .filter(|t| !t.is_empty())
         .unwrap_or(&app.state::<ShellState>().app_name)
         .to_owned();
-    let focused = !crate::lifecycle::qa_background() && spec.focused.unwrap_or(true);
+    let focused = reveal_mode(app, RevealSource::OpenWindow) == RevealMode::Foreground
+        && spec.focused.unwrap_or(true);
     let window = builder(
         app,
         &label,
@@ -128,51 +136,132 @@ pub fn open(app: &AppHandle<Wry>, spec: &WindowSpec) -> Result<String, String> {
         EVENT_WINDOW,
         serde_json::json!({"label": label, "kind": "created"}),
     );
-    show_background_aware(&window)?;
+    show_window(
+        app,
+        &window,
+        RevealSource::OpenWindow,
+        RevealStyle::ShowOnly,
+    )?;
     Ok(label)
 }
 
-fn reveal_window(app: &AppHandle<Wry>, w: &WebviewWindow<Wry>) {
-    if crate::lifecycle::qa_background() {
-        // Native order-back is the only QA reveal operation; never unminimize or focus.
-        if show_background_aware(w).is_err() {
-            return;
+/// The window calls one reveal makes, so every path is testable (and recordable) without a window.
+pub trait RevealTarget {
+    /// Before a foreground reveal of the main window: back to a Regular app, run the host's
+    /// visibility callback.
+    fn prepare(&mut self);
+    /// macOS `app.show()`.
+    fn app_show(&mut self);
+    fn unminimize(&mut self) -> Result<(), String>;
+    fn show(&mut self) -> Result<(), String>;
+    fn focus(&mut self) -> Result<(), String>;
+    /// QA background: native order-back without activation.
+    fn order_back(&mut self) -> Result<(), String>;
+}
+
+/// Which calls a foreground reveal makes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RevealStyle {
+    /// prepare, app show, unminimise, show, focus (errors ignored): `reveal`, tray, reopen.
+    Full,
+    /// prepare, show, focus (errors returned): the `rk_shell_window` `show` command.
+    ShowFocus,
+    /// show only (errors returned): show-on-ready and a newly opened window.
+    ShowOnly,
+}
+
+/// Do exactly what `mode` allows. `Ok(true)` when the window was brought up, `Ok(false)` when
+/// nothing was (forbidden, or a `Full` order-back that failed). `Forbidden` makes no call at all.
+pub fn apply_reveal<T: RevealTarget>(
+    mode: RevealMode,
+    style: RevealStyle,
+    target: &mut T,
+) -> Result<bool, String> {
+    match mode {
+        RevealMode::Forbidden => Ok(false),
+        RevealMode::Background => match target.order_back() {
+            Ok(()) => Ok(true),
+            Err(_) if style == RevealStyle::Full => Ok(false),
+            Err(e) => Err(e),
+        },
+        RevealMode::Foreground => {
+            match style {
+                RevealStyle::Full => {
+                    target.prepare();
+                    target.app_show();
+                    let _ = target.unminimize();
+                    let _ = target.show();
+                    let _ = target.focus();
+                }
+                RevealStyle::ShowFocus => {
+                    target.prepare();
+                    target.show()?;
+                    target.focus()?;
+                }
+                RevealStyle::ShowOnly => target.show()?,
+            }
+            Ok(true)
         }
-    } else {
-        // Back to a Regular app first (a hide-to-background host is an Accessory app while
-        // hidden), so the activation below can bring a Dock icon and menu bar with it.
-        if w.label() == app.state::<ShellState>().main_label {
-            crate::lifecycle::note_visibility(app, crate::lifecycle::Visibility::Revealed);
-        }
-        #[cfg(target_os = "macos")]
-        let _ = app.show();
-        let _ = w.unminimize();
-        let _ = w.show();
-        let _ = w.set_focus();
-    }
-    if w.label() == app.state::<ShellState>().main_label {
-        crate::idle::note_visible(app);
     }
 }
 
-/// Show a QA window without activating it or taking keyboard focus. On macOS the
-/// native order-back keeps its real pixels available to AX/readback while preserving
-/// whatever app the user is using. Production launches use ordinary `show` semantics.
-pub(crate) fn show_background_aware(w: &WebviewWindow<Wry>) -> Result<(), String> {
-    if !crate::lifecycle::qa_background() {
-        return w.show().map_err(|e| e.to_string());
+struct WindowReveal<'a> {
+    app: &'a AppHandle<Wry>,
+    w: &'a WebviewWindow<Wry>,
+}
+
+impl RevealTarget for WindowReveal<'_> {
+    fn prepare(&mut self) {
+        // Back to a Regular app first (a hide-to-background host is an Accessory app while
+        // hidden), so the activation below can bring a Dock icon and menu bar with it.
+        if self.w.label() == self.app.state::<ShellState>().main_label {
+            crate::lifecycle::note_visibility(self.app, crate::lifecycle::Visibility::Revealed);
+        }
     }
-    // Native AppKit ordering must run on the Tauri main thread. Window commands
-    // arrive on rightkit-service connection threads; dispatch synchronously there
-    // so errors are returned to the caller after WindowServer applies the order.
-    #[cfg(target_os = "macos")]
-    {
-        dispatch_native(w, order_back_native)
+    fn app_show(&mut self) {
+        #[cfg(target_os = "macos")]
+        let _ = self.app.show();
     }
-    #[cfg(not(target_os = "macos"))]
-    {
-        let _ = w;
-        Err("background native ordering is unimplemented on this platform".into())
+    fn unminimize(&mut self) -> Result<(), String> {
+        self.w.unminimize().map_err(|e| e.to_string())
+    }
+    fn show(&mut self) -> Result<(), String> {
+        self.w.show().map_err(|e| e.to_string())
+    }
+    fn focus(&mut self) -> Result<(), String> {
+        self.w.set_focus().map_err(|e| e.to_string())
+    }
+    fn order_back(&mut self) -> Result<(), String> {
+        // Native AppKit ordering must run on the Tauri main thread. Window commands
+        // arrive on rightkit-service connection threads; dispatch synchronously there
+        // so errors are returned to the caller after WindowServer applies the order.
+        #[cfg(target_os = "macos")]
+        {
+            dispatch_native(self.w, order_back_native)
+        }
+        #[cfg(not(target_os = "macos"))]
+        {
+            Err("background native ordering is unimplemented on this platform".into())
+        }
+    }
+}
+
+/// Bring `w` up as the guard allows for `source`. The only function that touches a window for a
+/// reveal; every caller reaches it through [`crate::lifecycle::reveal_mode`].
+pub(crate) fn show_window(
+    app: &AppHandle<Wry>,
+    w: &WebviewWindow<Wry>,
+    source: RevealSource,
+    style: RevealStyle,
+) -> Result<bool, String> {
+    let mode = reveal_mode(app, source);
+    apply_reveal(mode, style, &mut WindowReveal { app, w })
+}
+
+fn reveal_window(app: &AppHandle<Wry>, w: &WebviewWindow<Wry>, source: RevealSource) {
+    let shown = show_window(app, w, source, RevealStyle::Full).unwrap_or(false);
+    if shown && w.label() == app.state::<ShellState>().main_label {
+        crate::idle::note_visible(app);
     }
 }
 
@@ -275,12 +364,18 @@ pub fn readback(w: &WebviewWindow<Wry>) -> Result<WindowReadback, String> {
     })
 }
 
-/// Show + unminimize + focus. `None` targets the main window.
+/// Show + unminimize + focus, as the host's visibility policy allows (never-show makes this a
+/// no-op). `None` targets the main window.
 pub fn reveal(app: &AppHandle<Wry>, label: Option<&str>) {
+    reveal_with(app, label, RevealSource::Api);
+}
+
+/// [`reveal`] naming why, for the guard.
+pub fn reveal_with(app: &AppHandle<Wry>, label: Option<&str>, source: RevealSource) {
     let main = app.state::<ShellState>().main_label.clone();
     let label = label.unwrap_or(&main);
     if let Some(w) = app.get_webview_window(label) {
-        reveal_window(app, &w);
+        reveal_window(app, &w, source);
     }
 }
 
@@ -294,7 +389,7 @@ pub fn toggle(app: &AppHandle<Wry>, label: &str) {
                 crate::lifecycle::note_visibility(app, crate::lifecycle::Visibility::Hidden);
             }
         } else {
-            reveal_window(app, &w);
+            reveal_window(app, &w, RevealSource::Tray);
         }
     }
 }

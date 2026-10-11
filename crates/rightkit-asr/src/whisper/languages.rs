@@ -33,6 +33,32 @@ pub fn validate_language(code: &str) -> Result<&'static str> {
         .ok_or_else(|| Error::Config(format!("unknown Whisper language code `{code}`")))
 }
 
+/// Whisper language codes whose scripts are written without spaces between
+/// words, so segment texts are concatenated with nothing inserted. The one place
+/// this table lives; extend it here and [`join_segment_text`] follows.
+///
+/// Japanese, Chinese (`zh`), Cantonese (`yue`), Thai, Lao and Khmer. Every other
+/// code (including ones not in this table) keeps the single-space join.
+pub const UNSPACED_LANGUAGES: [&str; 6] = ["ja", "zh", "yue", "th", "lo", "km"];
+
+/// Whether `code` (case-insensitive, whitespace ignored) is written without
+/// inter-word spaces (see [`UNSPACED_LANGUAGES`]).
+pub fn is_unspaced_language(code: &str) -> bool {
+    let c = code.trim();
+    UNSPACED_LANGUAGES.iter().any(|l| l.eq_ignore_ascii_case(c))
+}
+
+/// Join already-trimmed segment texts into a transcript: one space between
+/// segments for space-separated languages (the 0.2.0 behaviour), nothing
+/// inserted for [`UNSPACED_LANGUAGES`].
+pub fn join_segment_text<'a, I>(parts: I, language: &str) -> String
+where
+    I: IntoIterator<Item = &'a str>,
+{
+    let sep = if is_unspaced_language(language) { "" } else { " " };
+    parts.into_iter().collect::<Vec<_>>().join(sep)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -56,5 +82,32 @@ mod tests {
         assert!(validate_language("english").is_err());
         assert!(validate_language("auto").is_err());
         assert!(validate_language("").is_err());
+    }
+
+    #[test]
+    fn unspaced_table_is_valid_codes_and_matches_the_documented_set() {
+        assert_eq!(UNSPACED_LANGUAGES, ["ja", "zh", "yue", "th", "lo", "km"]);
+        assert!(UNSPACED_LANGUAGES.iter().all(|c| is_whisper_language(c)), "every entry is a real Whisper code");
+        assert!(is_unspaced_language(" JA "));
+        assert!(is_unspaced_language("yue"));
+        assert!(!is_unspaced_language("en"));
+        assert!(!is_unspaced_language(""));
+    }
+
+    #[test]
+    fn join_inserts_a_space_only_for_spaced_languages() {
+        let parts = ["Hello there.", "How are you?"];
+        assert_eq!(join_segment_text(parts, "en"), "Hello there. How are you?");
+        assert_eq!(join_segment_text(parts, "fr"), "Hello there. How are you?");
+        assert_eq!(join_segment_text(["こんにちは", "元気ですか"], "ja"), "こんにちは元気ですか");
+        assert_eq!(join_segment_text(["你好", "世界"], "ZH"), "你好世界");
+        for code in UNSPACED_LANGUAGES {
+            assert_eq!(join_segment_text(["a", "b"], code), "ab", "{code}");
+        }
+        // Unknown or empty language (e.g. a partial with nothing decoded) keeps the spaced join.
+        assert_eq!(join_segment_text(["a", "b"], ""), "a b");
+        assert_eq!(join_segment_text(["a", "b"], "xx"), "a b");
+        assert_eq!(join_segment_text([], "en"), "");
+        assert_eq!(join_segment_text(["only"], "ja"), "only");
     }
 }

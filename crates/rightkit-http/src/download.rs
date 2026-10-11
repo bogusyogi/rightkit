@@ -71,6 +71,7 @@ pub struct DownloadReport {
 }
 
 #[derive(Debug)]
+#[non_exhaustive]
 pub enum DownloadError {
     Http(HttpError),
     Io(String),

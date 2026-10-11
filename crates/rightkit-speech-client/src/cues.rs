@@ -60,7 +60,7 @@ pub fn parse_srt_cues(srt: &str) -> Vec<Cue> {
 /// `HH:MM:SS,mmm`, `HH:MM:SS.mmm` or `MM:SS.mmm`. A fraction shorter than three digits is
 /// padded with zeros and a longer one is cut to three.
 fn parse_stamp(stamp: &str) -> Option<u64> {
-    let (clock, fraction) = stamp.trim().split_once(|c: char| c == ',' || c == '.')?;
+    let (clock, fraction) = stamp.trim().split_once([',', '.'])?;
     let fields = clock
         .split(':')
         .map(|part| part.parse::<u64>().ok())

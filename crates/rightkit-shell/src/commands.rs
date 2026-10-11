@@ -132,24 +132,17 @@ pub fn rk_shell_window(action: String, window: WebviewWindow<Wry>) -> Result<(),
             r.map_err(|e| e.to_string())
         }
         "show" => {
-            let r = if crate::lifecycle::qa_background() {
-                crate::windows::show_background_aware(&window)
-            } else {
-                if window.label() == window.app_handle().state::<ShellState>().main_label {
-                    crate::lifecycle::note_visibility(
-                        window.app_handle(),
-                        crate::lifecycle::Visibility::Revealed,
-                    );
-                }
-                window
-                    .show()
-                    .and_then(|_| window.set_focus())
-                    .map_err(|e| e.to_string())
-            };
-            if window.label() == "main" {
+            // The guard decides: never-show makes this a silent no-op.
+            let r = crate::windows::show_window(
+                window.app_handle(),
+                &window,
+                crate::lifecycle::RevealSource::WindowCommand,
+                crate::windows::RevealStyle::ShowFocus,
+            );
+            if window.label() == "main" && matches!(r, Ok(true)) {
                 crate::idle::note_visible(window.app_handle());
             }
-            r
+            r.map(|_| ())
         }
         "close" => window.close().map_err(|e| e.to_string()),
         "start-drag" => window.start_dragging().map_err(|e| e.to_string()),
@@ -509,9 +502,13 @@ pub fn rk_shell_idle_status(app: AppHandle<Wry>) -> crate::idle::IdleStatus {
 
 /// App-driven hide/show of the main window for the idle machine.
 #[tauri::command]
-pub fn rk_shell_idle_note(hidden: bool, app: AppHandle<Wry>) {
+pub fn rk_shell_idle_note(hidden: bool, suspend_after_ms: Option<u64>, app: AppHandle<Wry>) {
     if hidden {
-        crate::idle::note_hidden(&app, false);
+        crate::idle::note_hidden_after(
+            &app,
+            false,
+            suspend_after_ms.map(std::time::Duration::from_millis),
+        );
     } else {
         crate::idle::note_visible(&app);
     }

@@ -4,9 +4,12 @@
 
 use rightkit_asr::longform::{self, LongFormOptions, DEFAULT_WORD_ASSEMBLY_FLOOR_MS};
 use rightkit_asr::{
-    is_whisper_language, samples_to_ms, validate_language, AudioSource, BeamOptions, DecodeMode,
-    Language, TimedToken, WhisperOptions, WHISPER_LANGUAGES, WHISPER_SAMPLE_RATE,
+    audio_duration, is_unspaced_language, is_whisper_language, join_segment_text, load_wav_mono_16k,
+    recording_deadline, samples_to_ms, validate_language, AudioSource, BeamOptions, CancelToken,
+    DecodeMode, DecodeQuality, Error, InterruptReason, Language, TimedToken, WhisperOptions,
+    UNSPACED_LANGUAGES, WHISPER_LANGUAGES, WHISPER_SAMPLE_RATE,
 };
+use std::time::Duration;
 
 #[test]
 fn whisper_defaults_keep_0_1_0_behaviour() {
@@ -19,6 +22,40 @@ fn whisper_defaults_keep_0_1_0_behaviour() {
     assert!(!o.detect_language);
     assert_eq!(o.threads, 0);
     assert_eq!(o.window_deadline, Some(std::time::Duration::from_secs(180)));
+    // Added after 0.2.0: every new control is off by default.
+    assert!(o.cancel.is_none() && o.progress.is_none());
+    assert_eq!(o.total_deadline, None);
+    assert_eq!(o.detect_deadline, None);
+    assert_eq!(o.quality, DecodeQuality { beam_size: 1, best_of: 1, carry_context: false });
+}
+
+#[test]
+fn cancel_deadline_and_text_helpers_are_public() {
+    let t = CancelToken::new();
+    let u = t.clone();
+    t.cancel();
+    assert!(u.is_cancelled());
+
+    assert_eq!(recording_deadline(Duration::from_secs(60)), Duration::from_secs(360), "120 s + 4 x 60 s");
+    assert_eq!(audio_duration(16_000 * 90), Duration::from_secs(90));
+
+    assert_eq!(UNSPACED_LANGUAGES, ["ja", "zh", "yue", "th", "lo", "km"]);
+    assert!(is_unspaced_language("ja") && !is_unspaced_language("en"));
+    assert_eq!(join_segment_text(["a", "b"], "en"), "a b");
+    assert_eq!(join_segment_text(["あ", "い"], "ja"), "あい");
+
+    let e = Error::Cancelled;
+    assert!(e.is_cancelled() && e.interrupted().is_none());
+    assert_ne!(InterruptReason::Cancelled, InterruptReason::DeadlineExceeded);
+}
+
+#[test]
+fn quality_presets_and_missing_wav_are_reported() {
+    assert_eq!(DecodeQuality::default().beam_size, 1);
+    let cli = DecodeQuality::whisper_cli();
+    assert!(cli.beam_size > 1 && cli.carry_context);
+    let err = load_wav_mono_16k("/definitely/not/here.wav").unwrap_err();
+    assert!(matches!(err, Error::Audio(_)), "{err:?}");
 }
 
 #[test]

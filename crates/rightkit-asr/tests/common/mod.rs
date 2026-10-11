@@ -29,7 +29,7 @@ pub fn workspace_asset(rel: &str) -> Option<PathBuf> {
 /// asset (a SKIP line, or a panic under `RIGHTKIT_REQUIRE_ASSETS=1`) and returns from the test.
 #[allow(unused_macros)]
 macro_rules! gate {
-    ($opt:expr, $what:expr, $looked_at:expr) => {
+    ($opt:expr, $what:expr, $looked_at:expr $(,)?) => {
         match $opt {
             Some(v) => v,
             None => {
