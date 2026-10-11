@@ -129,7 +129,8 @@ fn run() {
             unchanged("strict focus restores the foreground after tier 1");
             a.end_session(app.pid);
             let _ = a.terminate(app.pid);
-            let reason = "the installed Notepad activates itself on a UI Automation write, so                           the frontmost-unchanged scenarios cannot run against it";
+            let reason = "the installed Notepad activates itself on a UI Automation write, \
+                          so the frontmost-unchanged scenarios cannot run against it";
             if std::env::var_os("RIGHTKIT_REQUIRE_ASSETS").is_some_and(|v| v == "1") {
                 panic!("e2e_win: {reason}");
             }
