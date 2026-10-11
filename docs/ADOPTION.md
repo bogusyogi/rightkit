@@ -17,9 +17,9 @@ Status values compare each pin with the latest published version (registry-recor
 
 - Packages in RightKit: 82 (57 crates, 25 npm packages).
 - Packages with at least one app pin: 64.
-- App pins: 342. Stale: 39. Ahead of published: 142. Unpublished: 5. Local: 36. Git: 0. Unparsed: 0.
-- Vendored copies of RightKit packages inside app repos: 21.
-- App and package pairs with more than one requirement: 9.
+- App pins: 386. Stale: 36. Ahead of published: 158. Unpublished: 6. Local: 77. Git: 0. Unparsed: 0.
+- Vendored copies of RightKit packages inside app repos: 44.
+- App and package pairs with more than one requirement: 22.
 
 ## Packages
 
@@ -29,61 +29,61 @@ Status values compare each pin with the latest published version (registry-recor
 | `rightkit-agent-tools` | private | 0.1.2 | none recorded | 0 | none | - |
 | `rightkit-align` | private | 0.1.0 | none recorded | 0 | none | - |
 | `rightkit-asr` | crates.io | 0.2.0 | 0.0.2 | 3 | cutright, heardright, scraperight | 1 vendored copy; 6 ahead of published |
-| `rightkit-audio` | crates.io | 0.2.2 | 0.2.0 | 3 | cutright, heardright, scraperight | 1 vendored copy; 5 ahead of published |
+| `rightkit-audio` | crates.io | 0.2.2 | 0.2.0 | 4 | cutright, genright, heardright, scraperight | 2 vendored copies; 7 ahead of published |
 | `rightkit-automation` | private | 0.3.0 | none recorded | 0 | none | - |
-| `rightkit-browser` | crates.io | 0.2.4 | 0.2.2 | 2 | coderight, genright | 2 ahead of published |
+| `rightkit-browser` | crates.io | 0.2.4 | 0.2.2 | 2 | coderight, genright | 1 vendored copy; 2 ahead of published |
 | `rightkit-cache` | crates.io | 0.2.0 | 0.1.0 | 3 | coderight, cutright, mailright | 1 vendored copy; 1 ahead of published |
-| `rightkit-channel-memory` | private | 0.1.0 | none recorded | 0 | none | - |
+| `rightkit-channel-memory` | private | 0.1.0 | none recorded | 1 | postright | 1 vendored copy |
 | `rightkit-compose` | private | 0.1.0 | none recorded | 1 | cutright | 1 vendored copy |
 | `rightkit-contracts` | private | 0.1.5 | none recorded | 1 | cutright | 1 vendored copy |
-| `rightkit-control` | crates.io | 0.2.0 | 0.1.11 | 3 | cutright, genright, viewright | 1 ahead of published |
+| `rightkit-control` | crates.io | 0.2.0 | 0.1.11 | 3 | cutright, genright, viewright | 1 vendored copy; 1 ahead of published |
 | `rightkit-crash` | crates.io | 0.2.1 | 0.2.0 | 2 | heardright, postright | 1 ahead of published |
 | `rightkit-daemon` | private | 0.1.3 | none recorded | 0 | none | - |
-| `rightkit-db` | crates.io | 0.4.0 | 0.3.2 | 8 | coderight, cutright, genright, heardright, mailright, postright, scraperight, viewright | 1 vendored copy; 1 stale; 4 ahead of published |
+| `rightkit-db` | crates.io | 0.4.0 | 0.3.2 | 8 | coderight, cutright, genright, heardright, mailright, postright, scraperight, viewright | 2 vendored copies; 1 stale; 6 ahead of published |
 | `rightkit-embed` | crates.io | 0.3.2 | 0.3.1 | 2 | coderight, mailright | 1 stale; 1 ahead of published |
-| `rightkit-framed-sidecar` | crates.io | 0.2.0 | 0.1.0 | 3 | cutright, heardright, scraperight | 1 vendored copy; 4 ahead of published |
-| `rightkit-fs` | crates.io | 0.3.4 | 0.3.3 | 5 | coderight, cutright, genright, heardright, scraperight | 1 vendored copy; 8 ahead of published |
+| `rightkit-framed-sidecar` | crates.io | 0.2.0 | 0.1.0 | 4 | cutright, genright, heardright, scraperight | 2 vendored copies; 5 ahead of published |
+| `rightkit-fs` | crates.io | 0.3.4 | 0.3.3 | 5 | coderight, cutright, genright, heardright, scraperight | 2 vendored copies; 10 ahead of published |
 | `rightkit-fsindex` | crates.io | 0.2.0 | 0.1.0 | 0 | none | - |
 | `rightkit-hotkeys` | crates.io | 0.1.0 | none recorded | 0 | none | - |
-| `rightkit-http` | crates.io | 0.3.0 | 0.2.4 | 7 | coderight, cutright, genright, mailright, postright, scraperight, viewright | 1 vendored copy; 1 stale; 6 ahead of published |
-| `rightkit-jobs` | crates.io | 0.2.8 | 0.2.6 | 3 | cutright, genright, postright | 1 vendored copy; 6 ahead of published |
+| `rightkit-http` | crates.io | 0.3.0 | 0.2.4 | 8 | coderight, cutright, genright, heardright, mailright, postright, scraperight, viewright | 2 vendored copies; 1 stale; 9 ahead of published |
+| `rightkit-jobs` | crates.io | 0.2.9 | 0.2.6 | 3 | cutright, genright, postright | 2 vendored copies; 6 ahead of published |
 | `rightkit-license` | crates.io | 0.2.0 | 0.1.3 | 5 | coderight, heardright, mailright, scraperight, viewright | 3 ahead of published |
 | `rightkit-llm` | crates.io | 0.2.0 | none recorded | 1 | cutright | 1 vendored copy |
-| `rightkit-logs` | crates.io | 0.2.2 | 0.2.0 | 8 | coderight, cutright, genright, heardright, mailright, postright, scraperight, viewright | 11 ahead of published |
+| `rightkit-logs` | crates.io | 0.2.2 | 0.2.0 | 8 | coderight, cutright, genright, heardright, mailright, postright, scraperight, viewright | 1 vendored copy; 11 ahead of published |
 | `rightkit-mcp` | crates.io | 0.5.3 | 0.5.2 | 1 | coderight | 2 ahead of published |
-| `rightkit-media` | crates.io | 0.2.6 | 0.2.4 | 4 | cutright, genright, heardright, scraperight | 1 vendored copy; 11 ahead of published |
-| `rightkit-models` | crates.io | 0.3.0 | 0.2.7 | 4 | cutright, genright, heardright, scraperight | 6 ahead of published |
+| `rightkit-media` | crates.io | 0.2.6 | 0.2.4 | 4 | cutright, genright, heardright, scraperight | 2 vendored copies; 11 ahead of published |
+| `rightkit-models` | crates.io | 0.3.0 | 0.2.7 | 4 | cutright, genright, heardright, scraperight | 1 vendored copy; 6 ahead of published |
 | `rightkit-oauth` | crates.io | 0.3.1 | 0.3.0 | 2 | coderight, mailright | 1 stale; 1 ahead of published |
 | `rightkit-ocr` | crates.io | 0.2.1 | 0.1.2 | 3 | coderight, scraperight, viewright | 4 ahead of published |
-| `rightkit-ort` | crates.io | 0.2.3 | 0.2.2 | 5 | coderight, cutright, genright, heardright, scraperight | 1 vendored copy; 14 ahead of published |
+| `rightkit-ort` | crates.io | 0.2.3 | 0.2.2 | 5 | coderight, cutright, genright, heardright, scraperight | 2 vendored copies; 18 ahead of published |
 | `rightkit-overlay` | crates.io | 0.1.1 | none recorded | 0 | none | - |
 | `rightkit-ownership` | crates.io | 0.2.1 | 0.2.1 | 0 | none | - |
 | `rightkit-pdf` | crates.io | 0.2.1 | 0.2.0 | 2 | scraperight, viewright | 1 ahead of published |
 | `rightkit-playback` | crates.io | 0.2.0 | 0.1.1 | 2 | cutright, scraperight | 1 vendored copy; 2 ahead of published |
-| `rightkit-process` | crates.io | 0.3.4 | 0.3.3 | 6 | coderight, cutright, genright, heardright, postright, scraperight | 1 vendored copy; 2 ahead of published |
-| `rightkit-qa` | crates.io | 0.2.16 | 0.2.14 | 4 | cutright, genright, postright, viewright | 2 ahead of published |
-| `rightkit-qts` | crates.io | 0.2.6 | 0.2.4 | 1 | genright | 1 ahead of published |
-| `rightkit-qts-ggml` | crates.io | 0.1.2 | 0.1.1 | 1 | genright | 1 ahead of published |
-| `rightkit-qts-ggml-sys` | crates.io | 0.1.2 | 0.1.1 | 1 | genright | 1 ahead of published |
+| `rightkit-process` | crates.io | 0.3.4 | 0.3.3 | 6 | coderight, cutright, genright, heardright, postright, scraperight | 2 vendored copies; 6 ahead of published |
+| `rightkit-qa` | crates.io | 0.2.16 | 0.2.14 | 4 | cutright, genright, postright, viewright | 1 vendored copy; 2 ahead of published |
+| `rightkit-qts` | crates.io | 0.2.6 | 0.2.4 | 1 | genright | 1 vendored copy |
+| `rightkit-qts-ggml` | crates.io | 0.1.2 | 0.1.1 | 0 | none | 1 vendored copy |
+| `rightkit-qts-ggml-sys` | crates.io | 0.1.2 | 0.1.1 | 1 | genright | 1 vendored copy |
 | `rightkit-record` | private | 0.2.0 | none recorded | 0 | none | - |
 | `rightkit-review` | crates.io | 0.2.0 | none recorded | 1 | cutright | 1 vendored copy |
 | `rightkit-sandbox` | crates.io | 0.3.4 | 0.3.3 | 1 | coderight | 1 ahead of published |
 | `rightkit-scenario` | crates.io | 0.1.0 | none recorded | 0 | none | - |
-| `rightkit-search` | crates.io | 0.2.0 | 0.2.0 | 0 | none | - |
-| `rightkit-secrets` | crates.io | 0.1.4 | 0.1.2 | 8 | coderight, cutright, genright, heardright, mailright, postright, scraperight, viewright | 1 stale; 7 ahead of published |
+| `rightkit-search` | crates.io | 0.2.1 | 0.2.0 | 0 | none | - |
+| `rightkit-secrets` | crates.io | 0.1.4 | 0.1.2 | 8 | coderight, cutright, genright, heardright, mailright, postright, scraperight, viewright | 1 vendored copy; 1 stale; 7 ahead of published |
 | `rightkit-send` | private | 0.1.0 | none recorded | 0 | none | - |
-| `rightkit-service` | crates.io | 0.1.5 | 0.1.3 | 3 | cutright, heardright, postright | 1 vendored copy; 4 ahead of published |
-| `rightkit-settings` | crates.io | 0.2.0 | 0.1.0 | 5 | coderight, cutright, genright, postright, scraperight | 1 vendored copy; 6 ahead of published |
+| `rightkit-service` | crates.io | 0.1.5 | 0.1.3 | 4 | cutright, genright, heardright, postright | 2 vendored copies; 4 ahead of published |
+| `rightkit-settings` | crates.io | 0.2.0 | 0.1.0 | 5 | coderight, cutright, genright, postright, scraperight | 2 vendored copies; 6 ahead of published |
 | `rightkit-shell` | crates.io | 0.3.0 | 0.1.4 | 5 | coderight, cutright, mailright, postright, viewright | 1 stale; 3 ahead of published |
 | `rightkit-speech-client` | crates.io | 0.3.4 | 0.3.2 | 3 | cutright, heardright, scraperight | 1 vendored copy; 5 ahead of published |
 | `rightkit-sync` | crates.io | 0.1.1 | none recorded | 1 | scraperight | - |
 | `rightkit-tauri` | crates.io | 0.1.3 | 0.1.2 | 6 | coderight, heardright, mailright, postright, scraperight, viewright | 1 stale; 1 ahead of published |
-| `rightkit-transcript` | crates.io | 0.3.0 | 0.2.0 | 4 | cutright, genright, heardright, scraperight | 1 vendored copy; 4 ahead of published |
-| `rightkit-tts` | crates.io | 0.2.0 | 0.1.0 | 1 | genright | 1 ahead of published |
+| `rightkit-transcript` | crates.io | 0.3.0 | 0.2.0 | 4 | cutright, genright, heardright, scraperight | 2 vendored copies; 5 ahead of published |
+| `rightkit-tts` | crates.io | 0.2.0 | 0.1.0 | 1 | genright | 1 vendored copy; 1 ahead of published |
 | `rightkit-vad` | crates.io | 0.1.0 | 0.0.2 | 2 | cutright, heardright | 1 vendored copy; 3 ahead of published |
 | `rightkit-watch` | crates.io | 0.4.0 | 0.3.1 | 2 | coderight, viewright | - |
 | `@rightkit/agent-room-mcp` | private | 0.1.0 | none recorded | 0 | none | - |
-| `@rightkit/app-shell` | npm | 0.6.2 | 0.6.2 | 7 | coderight, cutright, genright, heardright, postright, scraperight, viewright | 5 stale |
+| `@rightkit/app-shell` | npm | 0.6.4 | 0.6.2 | 7 | coderight, cutright, genright, heardright, postright, scraperight, viewright | 5 stale |
 | `@rightkit/ax` | npm | 0.2.4 | 0.2.4 | 2 | coderight, legion | - |
 | `@rightkit/build-control-policy` | private | 0.1.1-phase1 | none recorded | 0 | none | - |
 | `@rightkit/doc-render` | npm | 0.1.6 | 0.1.6 | 1 | viewright | - |
@@ -91,17 +91,17 @@ Status values compare each pin with the latest published version (registry-recor
 | `@rightkit/hooks` | npm | 0.1.2 | 0.1.2 | 1 | legion | - |
 | `@rightkit/i18n` | npm | 0.1.0 | 0.1.0 | 0 | none | - |
 | `@rightkit/legal` | npm | 0.3.1 | 0.3.1 | 8 | coderight, cutright, heardright, mailright, rightsites, scraperight, sellright, viewright | - |
-| `@rightkit/legal-ui` | npm | 0.2.2 | 0.2.2 | 6 | coderight, cutright, genright, heardright, scraperight, viewright | 4 stale |
+| `@rightkit/legal-ui` | npm | 0.2.2 | 0.2.2 | 6 | coderight, cutright, genright, heardright, scraperight, viewright | 3 stale |
 | `@rightkit/license` | npm | 0.2.0 | 0.1.8 | 6 | coderight, cutright, heardright, mailright, scraperight, viewright | - |
 | `@rightkit/logs` | npm | 0.1.4 | 0.1.4 | 7 | coderight, cutright, heardright, mailright, postright, scraperight, viewright | - |
 | `@rightkit/media-ui` | npm | 0.3.4 | 0.3.4 | 4 | cutright, genright, scraperight, viewright | 3 stale |
 | `@rightkit/onboarding` | npm | 0.3.2 | 0.3.2 | 4 | cutright, genright, heardright, scraperight | - |
 | `@rightkit/pdf-ui` | npm | 0.1.6 | 0.1.6 | 1 | viewright | - |
-| `@rightkit/platform-ui` | npm | 0.2.7 | 0.2.7 | 6 | coderight, cutright, genright, postright, scraperight, viewright | 4 stale |
+| `@rightkit/platform-ui` | npm | 0.2.8 | 0.2.7 | 6 | coderight, cutright, genright, postright, scraperight, viewright | 4 stale |
 | `@rightkit/qa` | npm | 0.4.8 | 0.4.7 | 1 | scraperight | 1 stale |
-| `@rightkit/qa-chrome` | npm | 0.1.6 | 0.1.5 | 3 | heardright, scraperight, viewright | 3 stale |
+| `@rightkit/qa-chrome` | npm | 0.1.6 | 0.1.5 | 3 | heardright, scraperight, viewright | 2 stale |
 | `@rightkit/release` | npm | 0.2.153 | 0.2.151 | 10 | coderight, cutright, genright, heardright, legion, mailright, postright, scraperight, viewright, voiceright | 2 stale |
-| `@rightkit/settings-ui` | npm | 0.4.3 | 0.4.3 | 4 | cutright, genright, heardright, scraperight | 4 stale |
+| `@rightkit/settings-ui` | npm | 0.4.4 | 0.4.3 | 4 | cutright, genright, heardright, scraperight | 3 stale |
 | `@rightkit/shell` | npm | 0.1.1 | 0.1.1 | 2 | coderight, cutright | 2 stale |
 | `@rightkit/tauri` | npm | 0.2.0 | 0.2.0 | 6 | coderight, heardright, mailright, postright, scraperight, viewright | 1 stale |
 | `@rightkit/theme` | npm | 0.2.3 | 0.2.3 | 5 | cutright, genright, heardright, scraperight, viewright | - |
@@ -118,19 +118,25 @@ Status values compare each pin with the latest published version (registry-recor
 | `rightkit-asr` | scraperight | `scraperight/crates/engine/Cargo.toml` | dependencies | `=0.2.0` | 0.0.2 | ahead |
 | `rightkit-asr` | scraperight | `scraperight/crates/speech/Cargo.toml` | dependencies | `=0.2.0` | 0.0.2 | ahead |
 | `rightkit-asr` | scraperight | `scraperight/crates/speech/Cargo.toml` | dependencies | `=0.2.0` | 0.0.2 | ahead |
-| `rightkit-audio` | cutright | `cutright/crates/cutright-audio/Cargo.toml` | dependencies | `=0.2.1` | 0.2.0 | ahead |
+| `rightkit-audio` | cutright | `cutright/crates/cutright-audio/Cargo.toml` | dependencies | `=0.2.2` | 0.2.0 | ahead |
+| `rightkit-audio` | genright | `genright/crates/genright-studio/Cargo.toml` | dependencies | `=0.2.2` | 0.2.0 | ahead |
+| `rightkit-audio` | genright | `genright/src-tauri/Cargo.toml` | dependencies | `=0.2.2` | 0.2.0 | ahead |
 | `rightkit-audio` | heardright | `heardright/tauri-app-next/heardright-engine/Cargo.toml` | dev-dependencies | `=0.2.1` | 0.2.0 | ahead |
 | `rightkit-audio` | heardright | `heardright/tauri-app-next/heardright-runtime/Cargo.toml` | dependencies | `=0.2.1` | 0.2.0 | ahead |
 | `rightkit-audio` | heardright | `heardright/tauri-app-next/src-tauri/Cargo.toml` | dependencies | `=0.2.1` | 0.2.0 | ahead |
-| `rightkit-audio` | scraperight | `scraperight/crates/audio/Cargo.toml` | dependencies | `=0.2.1` | 0.2.0 | ahead |
+| `rightkit-audio` | scraperight | `scraperight/crates/audio/Cargo.toml` | dependencies | `=0.2.2` | 0.2.0 | ahead |
 | `rightkit-browser` | coderight | `coderight/engine/Cargo.toml` | workspace.dependencies | `=0.2.4` | 0.2.2 | ahead |
 | `rightkit-browser` | genright | `genright/crates/genright-e2e/Cargo.toml` | dev-dependencies | `=0.2.4` | 0.2.2 | ahead |
+| `rightkit-browser` | genright | `genright/rk-snapshot/crates/rightkit-qa/Cargo.toml` | dependencies | `0.2.2` | 0.2.2 | local |
 | `rightkit-cache` | coderight | `coderight/engine/Cargo.toml` | workspace.dependencies | `=0.1.0` | 0.1.0 | current |
 | `rightkit-cache` | cutright | `cutright/crates/cutright-engine/Cargo.toml` | dependencies | `=0.2.0` | 0.1.0 | ahead |
 | `rightkit-cache` | mailright | `mailright/src-tauri/Cargo.toml` | dependencies | `=0.1.0` | 0.1.0 | current |
+| `rightkit-channel-memory` | postright | `postright/crates/engine/Cargo.toml` | dependencies | `=0.1.0` | none recorded | unpublished |
 | `rightkit-compose` | cutright | `cutright/crates/cutright-compose/Cargo.toml` | dependencies | `=0.1.0` | none recorded | unpublished |
-| `rightkit-contracts` | cutright | `cutright/crates/cutright-engine/Cargo.toml` | dependencies | `=0.1.4` | none recorded | unpublished |
+| `rightkit-contracts` | cutright | `cutright/crates/cutright-engine/Cargo.toml` | dependencies | `=0.1.5` | none recorded | unpublished |
 | `rightkit-control` | cutright | `cutright/apps/cutright/src-tauri/Cargo.toml` | dependencies | `=0.1.11` | 0.1.11 | current |
+| `rightkit-control` | genright | `genright/rk-snapshot/crates/rightkit-control/examples/control-test-app/Cargo.toml` | dependencies | `*` | 0.1.11 | local |
+| `rightkit-control` | genright | `genright/rk-snapshot/crates/rightkit-qa/Cargo.toml` | dependencies | `0.2.0` | 0.1.11 | local |
 | `rightkit-control` | genright | `genright/src-tauri/Cargo.toml` | dependencies | `=0.2.0` | 0.1.11 | ahead |
 | `rightkit-control` | viewright | `viewright/src-tauri/Cargo.toml` | dependencies | `=0.1.11` | 0.1.11 | current |
 | `rightkit-crash` | heardright | `heardright/tauri-app-next/heardright-telemetry/Cargo.toml` | dependencies | `=0.2.0` | 0.2.0 | current |
@@ -142,8 +148,9 @@ Status values compare each pin with the latest published version (registry-recor
 | `rightkit-db` | coderight | `coderight/context/engine/crates/membrane-transcript/Cargo.toml` | dependencies | `=0.3.2` | 0.3.2 | current |
 | `rightkit-db` | coderight | `coderight/engine/Cargo.toml` | workspace.dependencies | `=0.3.2` | 0.3.2 | current |
 | `rightkit-db` | cutright | `cutright/rk-snapshot/crates/rightkit-jobs/Cargo.toml` | dependencies | `0.4.0` | 0.3.2 | local |
-| `rightkit-db` | genright | `genright/crates/genright-gen/Cargo.toml` | dependencies | `=0.3.2` | 0.3.2 | current |
-| `rightkit-db` | genright | `genright/crates/genright-local-image/Cargo.toml` | dependencies | `=0.3.2` | 0.3.2 | current |
+| `rightkit-db` | genright | `genright/crates/genright-gen/Cargo.toml` | dependencies | `=0.4.0` | 0.3.2 | ahead |
+| `rightkit-db` | genright | `genright/crates/genright-local-image/Cargo.toml` | dependencies | `=0.4.0` | 0.3.2 | ahead |
+| `rightkit-db` | genright | `genright/rk-snapshot/crates/rightkit-jobs/Cargo.toml` | dependencies | `0.4.0` | 0.3.2 | local |
 | `rightkit-db` | heardright | `heardright/tauri-app-next/src-tauri/Cargo.toml` | dependencies | `=0.4.0` | 0.3.2 | ahead |
 | `rightkit-db` | heardright | `heardright/tauri-app-next/src-tauri/Cargo.toml` | dependencies | `=0.4.0` | 0.3.2 | ahead |
 | `rightkit-db` | heardright | `heardright/tauri-app-next/src-tauri/Cargo.toml` | dependencies | `=0.4.0` | 0.3.2 | ahead |
@@ -156,6 +163,10 @@ Status values compare each pin with the latest published version (registry-recor
 | `rightkit-framed-sidecar` | cutright | `cutright/rk-snapshot/crates/rightkit-jobs/Cargo.toml` | dependencies | `0.2.0` | 0.1.0 | local |
 | `rightkit-framed-sidecar` | cutright | `cutright/rk-snapshot/crates/rightkit-service/Cargo.toml` | dependencies | `0.2.0` | 0.1.0 | local |
 | `rightkit-framed-sidecar` | cutright | `cutright/rk-snapshot/crates/rightkit-speech-client/Cargo.toml` | dependencies | `0.2.0` | 0.1.0 | local |
+| `rightkit-framed-sidecar` | genright | `genright/rk-snapshot/crates/rightkit-jobs/Cargo.toml` | dependencies | `0.2.0` | 0.1.0 | local |
+| `rightkit-framed-sidecar` | genright | `genright/rk-snapshot/crates/rightkit-qa/Cargo.toml` | dependencies | `0.2.0` | 0.1.0 | local |
+| `rightkit-framed-sidecar` | genright | `genright/rk-snapshot/crates/rightkit-service/Cargo.toml` | dependencies | `0.2.0` | 0.1.0 | local |
+| `rightkit-framed-sidecar` | genright | `genright/src-tauri/Cargo.toml` | dependencies | `=0.2.0` | 0.1.0 | ahead |
 | `rightkit-framed-sidecar` | heardright | `heardright/tauri-app-next/heardright-app-runtime/Cargo.toml` | dependencies | `=0.2.0` | 0.1.0 | ahead |
 | `rightkit-framed-sidecar` | heardright | `heardright/tauri-app-next/heardright-runtime/Cargo.toml` | dependencies | `=0.2.0` | 0.1.0 | ahead |
 | `rightkit-framed-sidecar` | scraperight | `scraperight/crates/engine/Cargo.toml` | dependencies | `=0.2.0` | 0.1.0 | ahead |
@@ -172,8 +183,19 @@ Status values compare each pin with the latest published version (registry-recor
 | `rightkit-fs` | cutright | `cutright/rk-snapshot/crates/rightkit-service/Cargo.toml` | dependencies | `0.3.3` | 0.3.3 | local |
 | `rightkit-fs` | cutright | `cutright/rk-snapshot/crates/rightkit-settings/Cargo.toml` | dependencies | `0.3.4` | 0.3.3 | local |
 | `rightkit-fs` | cutright | `cutright/rk-snapshot/crates/rightkit-settings/Cargo.toml` | dev-dependencies | `0.3.4` | 0.3.3 | local |
-| `rightkit-fs` | genright | `genright/crates/genright-gen/Cargo.toml` | dependencies | `=0.3.3` | 0.3.3 | current |
-| `rightkit-fs` | genright | `genright/crates/genright-studio/Cargo.toml` | dependencies | `=0.3.3` | 0.3.3 | current |
+| `rightkit-fs` | genright | `genright/crates/genright-gen/Cargo.toml` | dependencies | `=0.3.4` | 0.3.3 | ahead |
+| `rightkit-fs` | genright | `genright/crates/genright-studio/Cargo.toml` | dependencies | `=0.3.4` | 0.3.3 | ahead |
+| `rightkit-fs` | genright | `genright/rk-snapshot/crates/rightkit-db/Cargo.toml` | dependencies | `0.3.0` | 0.3.3 | local |
+| `rightkit-fs` | genright | `genright/rk-snapshot/crates/rightkit-http/Cargo.toml` | dependencies | `0.3` | 0.3.3 | local |
+| `rightkit-fs` | genright | `genright/rk-snapshot/crates/rightkit-jobs/Cargo.toml` | dependencies | `0.3` | 0.3.3 | local |
+| `rightkit-fs` | genright | `genright/rk-snapshot/crates/rightkit-logs/Cargo.toml` | dependencies | `0.3` | 0.3.3 | local |
+| `rightkit-fs` | genright | `genright/rk-snapshot/crates/rightkit-media/Cargo.toml` | dependencies | `0.3` | 0.3.3 | local |
+| `rightkit-fs` | genright | `genright/rk-snapshot/crates/rightkit-models/Cargo.toml` | dependencies | `0.3` | 0.3.3 | local |
+| `rightkit-fs` | genright | `genright/rk-snapshot/crates/rightkit-qa/Cargo.toml` | dependencies | `0.3` | 0.3.3 | local |
+| `rightkit-fs` | genright | `genright/rk-snapshot/crates/rightkit-service/Cargo.toml` | dependencies | `0.3.3` | 0.3.3 | local |
+| `rightkit-fs` | genright | `genright/rk-snapshot/crates/rightkit-settings/Cargo.toml` | dependencies | `0.3.4` | 0.3.3 | local |
+| `rightkit-fs` | genright | `genright/rk-snapshot/crates/rightkit-settings/Cargo.toml` | dev-dependencies | `0.3.4` | 0.3.3 | local |
+| `rightkit-fs` | genright | `genright/rk-snapshot/crates/rightkit-tts/Cargo.toml` | dependencies | `0.3.3` | 0.3.3 | local |
 | `rightkit-fs` | heardright | `heardright/tauri-app-next/heardright-telemetry/Cargo.toml` | dependencies | `=0.3.4` | 0.3.3 | ahead |
 | `rightkit-fs` | heardright | `heardright/tauri-app-next/heardright-telemetry/Cargo.toml` | dev-dependencies | `=0.3.4` | 0.3.3 | ahead |
 | `rightkit-fs` | heardright | `heardright/tauri-app-next/src-tauri/Cargo.toml` | dependencies | `=0.3.4` | 0.3.3 | ahead |
@@ -184,7 +206,12 @@ Status values compare each pin with the latest published version (registry-recor
 | `rightkit-http` | cutright | `cutright/rk-snapshot/crates/rightkit-http/Cargo.toml` | dev-dependencies | `*` | 0.2.4 | local |
 | `rightkit-http` | cutright | `cutright/rk-snapshot/crates/rightkit-llm/Cargo.toml` | dependencies | `0.3.0` | 0.2.4 | local |
 | `rightkit-http` | cutright | `cutright/rk-snapshot/crates/rightkit-llm/Cargo.toml` | dev-dependencies | `0.3.0` | 0.2.4 | local |
-| `rightkit-http` | genright | `genright/crates/genright-protocol/Cargo.toml` | dependencies | `=0.2.6` | 0.2.4 | ahead |
+| `rightkit-http` | genright | `genright/crates/genright-protocol/Cargo.toml` | dependencies | `=0.3.0` | 0.2.4 | ahead |
+| `rightkit-http` | genright | `genright/rk-snapshot/crates/rightkit-http/Cargo.toml` | dev-dependencies | `*` | 0.2.4 | local |
+| `rightkit-http` | genright | `genright/rk-snapshot/crates/rightkit-models/Cargo.toml` | dependencies | `0.3.0` | 0.2.4 | local |
+| `rightkit-http` | heardright | `heardright/tauri-app-next/heardright-model-store/Cargo.toml` | dependencies | `=0.3.0` | 0.2.4 | ahead |
+| `rightkit-http` | heardright | `heardright/tauri-app-next/heardright-telemetry/Cargo.toml` | dependencies | `=0.3.0` | 0.2.4 | ahead |
+| `rightkit-http` | heardright | `heardright/tauri-app-next/src-tauri/Cargo.toml` | dependencies | `=0.3.0` | 0.2.4 | ahead |
 | `rightkit-http` | mailright | `mailright/src-tauri/Cargo.toml` | dependencies | `=0.1.0` | 0.2.4 | stale |
 | `rightkit-http` | postright | `postright/crates/engine/Cargo.toml` | dependencies | `=0.2.5` | 0.2.4 | ahead |
 | `rightkit-http` | scraperight | `scraperight/crates/engine/Cargo.toml` | dependencies | `=0.3.0` | 0.2.4 | ahead |
@@ -192,8 +219,8 @@ Status values compare each pin with the latest published version (registry-recor
 | `rightkit-http` | viewright | `viewright/src-tauri/Cargo.toml` | dependencies | `=0.2.5` | 0.2.4 | ahead |
 | `rightkit-jobs` | cutright | `cutright/apps/cutright/src-tauri/Cargo.toml` | dependencies | `=0.2.8` | 0.2.6 | ahead |
 | `rightkit-jobs` | cutright | `cutright/crates/cutright-engine/Cargo.toml` | dependencies | `=0.2.8` | 0.2.6 | ahead |
-| `rightkit-jobs` | genright | `genright/crates/genright-gen/Cargo.toml` | dependencies | `=0.2.7` | 0.2.6 | ahead |
-| `rightkit-jobs` | genright | `genright/crates/genright-local-image/Cargo.toml` | dependencies | `=0.2.7` | 0.2.6 | ahead |
+| `rightkit-jobs` | genright | `genright/crates/genright-gen/Cargo.toml` | dependencies | `=0.2.8` | 0.2.6 | ahead |
+| `rightkit-jobs` | genright | `genright/crates/genright-local-image/Cargo.toml` | dependencies | `=0.2.8` | 0.2.6 | ahead |
 | `rightkit-jobs` | postright | `postright/crates/engine/Cargo.toml` | dependencies | `=0.2.7` | 0.2.6 | ahead |
 | `rightkit-jobs` | postright | `postright/src-tauri/Cargo.toml` | dependencies | `=0.2.7` | 0.2.6 | ahead |
 | `rightkit-license` | coderight | `coderight/apps/coderight-tauri/src-tauri/Cargo.toml` | dependencies | `=0.1.3` | 0.1.3 | current |
@@ -206,7 +233,8 @@ Status values compare each pin with the latest published version (registry-recor
 | `rightkit-logs` | coderight | `coderight/apps/coderight-tauri/src-tauri/Cargo.toml` | dependencies | `=0.2.1` | 0.2.0 | ahead |
 | `rightkit-logs` | coderight | `coderight/engine/crates/support_bundle/Cargo.toml` | dependencies | `=0.2.1` | 0.2.0 | ahead |
 | `rightkit-logs` | cutright | `cutright/apps/cutright/src-tauri/Cargo.toml` | dependencies | `=0.2.1` | 0.2.0 | ahead |
-| `rightkit-logs` | genright | `genright/crates/genright-local-image/Cargo.toml` | dependencies | `=0.2.1` | 0.2.0 | ahead |
+| `rightkit-logs` | genright | `genright/crates/genright-local-image/Cargo.toml` | dependencies | `=0.2.2` | 0.2.0 | ahead |
+| `rightkit-logs` | genright | `genright/rk-snapshot/crates/rightkit-logs/Cargo.toml` | dev-dependencies | `*` | 0.2.0 | local |
 | `rightkit-logs` | heardright | `heardright/tauri-app-next/heardright-telemetry/Cargo.toml` | dependencies | `=0.2.1` | 0.2.0 | ahead |
 | `rightkit-logs` | heardright | `heardright/tauri-app-next/src-tauri/Cargo.toml` | dependencies | `=0.2.1` | 0.2.0 | ahead |
 | `rightkit-logs` | mailright | `mailright/src-tauri/Cargo.toml` | dependencies | `=0.2.0` | 0.2.0 | current |
@@ -227,19 +255,21 @@ Status values compare each pin with the latest published version (registry-recor
 | `rightkit-media` | cutright | `cutright/rk-snapshot/crates/rightkit-ort/Cargo.toml` | dev-dependencies | `0.2.3` | 0.2.4 | local |
 | `rightkit-media` | cutright | `cutright/rk-snapshot/crates/rightkit-playback/Cargo.toml` | dependencies | `0.2.3` | 0.2.4 | local |
 | `rightkit-media` | cutright | `cutright/rk-snapshot/crates/rightkit-vad/Cargo.toml` | dev-dependencies | `0.2.3` | 0.2.4 | local |
-| `rightkit-media` | genright | `genright/crates/genright-protocol/Cargo.toml` | dependencies | `=0.2.5` | 0.2.4 | ahead |
-| `rightkit-media` | genright | `genright/crates/genright-studio/Cargo.toml` | dependencies | `=0.2.5` | 0.2.4 | ahead |
+| `rightkit-media` | genright | `genright/crates/genright-protocol/Cargo.toml` | dependencies | `=0.2.6` | 0.2.4 | ahead |
+| `rightkit-media` | genright | `genright/crates/genright-studio/Cargo.toml` | dependencies | `=0.2.6` | 0.2.4 | ahead |
+| `rightkit-media` | genright | `genright/rk-snapshot/crates/rightkit-audio/Cargo.toml` | dependencies | `0.2.3` | 0.2.4 | local |
+| `rightkit-media` | genright | `genright/rk-snapshot/crates/rightkit-ort/Cargo.toml` | dev-dependencies | `0.2.3` | 0.2.4 | local |
 | `rightkit-media` | heardright | `heardright/tauri-app-next/heardright-inference/Cargo.toml` | dependencies | `=0.2.6` | 0.2.4 | ahead |
 | `rightkit-media` | scraperight | `scraperight/crates/audio/Cargo.toml` | dependencies | `=0.2.6` | 0.2.4 | ahead |
 | `rightkit-media` | scraperight | `scraperight/crates/engine/Cargo.toml` | dependencies | `=0.2.6` | 0.2.4 | ahead |
 | `rightkit-media` | scraperight | `scraperight/src-tauri/Cargo.toml` | dependencies | `=0.2.6` | 0.2.4 | ahead |
 | `rightkit-models` | cutright | `cutright/crates/cutright-model-store/Cargo.toml` | dependencies | `=0.2.7` | 0.2.7 | current |
-| `rightkit-models` | genright | `genright/crates/genright-local-image/Cargo.toml` | dependencies | `=0.2.8` | 0.2.7 | ahead |
-| `rightkit-models` | genright | `genright/crates/genright-protocol/Cargo.toml` | dependencies | `=0.2.8` | 0.2.7 | ahead |
-| `rightkit-models` | genright | `genright/crates/genright-qts/Cargo.toml` | dependencies | `=0.2.8` | 0.2.7 | ahead |
-| `rightkit-models` | genright | `genright/crates/genright-studio/Cargo.toml` | dependencies | `=0.2.8` | 0.2.7 | ahead |
+| `rightkit-models` | genright | `genright/crates/genright-local-image/Cargo.toml` | dependencies | `=0.3.0` | 0.2.7 | ahead |
+| `rightkit-models` | genright | `genright/crates/genright-protocol/Cargo.toml` | dependencies | `=0.3.0` | 0.2.7 | ahead |
+| `rightkit-models` | genright | `genright/crates/genright-qts/Cargo.toml` | dependencies | `=0.3.0` | 0.2.7 | ahead |
+| `rightkit-models` | genright | `genright/crates/genright-studio/Cargo.toml` | dependencies | `=0.3.0` | 0.2.7 | ahead |
 | `rightkit-models` | heardright | `heardright/tauri-app-next/heardright-model-store/Cargo.toml` | dependencies | `=0.2.8` | 0.2.7 | ahead |
-| `rightkit-models` | scraperight | `scraperight/crates/model-store/Cargo.toml` | dependencies | `=0.2.9` | 0.2.7 | ahead |
+| `rightkit-models` | scraperight | `scraperight/crates/model-store/Cargo.toml` | dependencies | `=0.3.0` | 0.2.7 | ahead |
 | `rightkit-oauth` | coderight | `coderight/engine/Cargo.toml` | workspace.dependencies | `=0.3.1` | 0.3.0 | ahead |
 | `rightkit-oauth` | mailright | `mailright/src-tauri/Cargo.toml` | dependencies | `=0.2.0` | 0.3.0 | stale |
 | `rightkit-ocr` | coderight | `coderight/engine/crates/media/Cargo.toml` | dependencies | `0.2.0` | 0.1.2 | ahead |
@@ -254,10 +284,12 @@ Status values compare each pin with the latest published version (registry-recor
 | `rightkit-ort` | cutright | `cutright/crates/cutright-speech/Cargo.toml` | dependencies | `=0.2.3` | 0.2.2 | ahead |
 | `rightkit-ort` | cutright | `cutright/rk-snapshot/crates/rightkit-asr/Cargo.toml` | dependencies | `0.2.2` | 0.2.2 | local |
 | `rightkit-ort` | cutright | `cutright/rk-snapshot/crates/rightkit-vad/Cargo.toml` | dependencies | `0.2.2` | 0.2.2 | local |
-| `rightkit-ort` | genright | `genright/crates/genright-e2e/Cargo.toml` | dev-dependencies | `=0.2.2` | 0.2.2 | current |
-| `rightkit-ort` | genright | `genright/crates/genright-engine/Cargo.toml` | dev-dependencies | `=0.2.2` | 0.2.2 | current |
-| `rightkit-ort` | genright | `genright/crates/genright-gen/Cargo.toml` | dependencies | `=0.2.2` | 0.2.2 | current |
-| `rightkit-ort` | genright | `genright/crates/genright-qts/Cargo.toml` | dependencies | `=0.2.2` | 0.2.2 | current |
+| `rightkit-ort` | genright | `genright/crates/genright-e2e/Cargo.toml` | dev-dependencies | `=0.2.3` | 0.2.2 | ahead |
+| `rightkit-ort` | genright | `genright/crates/genright-engine/Cargo.toml` | dev-dependencies | `=0.2.3` | 0.2.2 | ahead |
+| `rightkit-ort` | genright | `genright/crates/genright-gen/Cargo.toml` | dependencies | `=0.2.3` | 0.2.2 | ahead |
+| `rightkit-ort` | genright | `genright/crates/genright-qts/Cargo.toml` | dependencies | `=0.2.3` | 0.2.2 | ahead |
+| `rightkit-ort` | genright | `genright/rk-snapshot/crates/rightkit-qts/Cargo.toml` | dependencies | `0.2.2` | 0.2.2 | local |
+| `rightkit-ort` | genright | `genright/rk-snapshot/crates/rightkit-tts/Cargo.toml` | dependencies | `0.2.3` | 0.2.2 | local |
 | `rightkit-ort` | heardright | `heardright/tauri-app-next/heardright-engine/Cargo.toml` | dev-dependencies | `=0.2.3` | 0.2.2 | ahead |
 | `rightkit-ort` | heardright | `heardright/tauri-app-next/heardright-inference/Cargo.toml` | dependencies | `=0.2.3` | 0.2.2 | ahead |
 | `rightkit-ort` | heardright | `heardright/tauri-app-next/heardright-inference/Cargo.toml` | dependencies | `=0.2.3` | 0.2.2 | ahead |
@@ -283,29 +315,36 @@ Status values compare each pin with the latest published version (registry-recor
 | `rightkit-process` | cutright | `cutright/rk-snapshot/crates/rightkit-media/Cargo.toml` | dependencies | `0.3.0` | 0.3.3 | local |
 | `rightkit-process` | cutright | `cutright/rk-snapshot/crates/rightkit-playback/Cargo.toml` | dependencies | `0.3.0` | 0.3.3 | local |
 | `rightkit-process` | cutright | `cutright/rk-snapshot/crates/rightkit-service/Cargo.toml` | dependencies | `0.3.4` | 0.3.3 | local |
-| `rightkit-process` | genright | `genright/crates/genright-e2e/Cargo.toml` | dev-dependencies | `=0.3.3` | 0.3.3 | current |
-| `rightkit-process` | genright | `genright/crates/genright-gen/Cargo.toml` | dependencies | `=0.3.3` | 0.3.3 | current |
-| `rightkit-process` | genright | `genright/crates/genright-local-image/Cargo.toml` | dependencies | `=0.3.3` | 0.3.3 | current |
-| `rightkit-process` | genright | `genright/crates/genright-qts/Cargo.toml` | dependencies | `=0.3.3` | 0.3.3 | current |
-| `rightkit-process` | genright | `genright/src-tauri/Cargo.toml` | dependencies | `=0.3.3` | 0.3.3 | current |
+| `rightkit-process` | genright | `genright/crates/genright-e2e/Cargo.toml` | dev-dependencies | `=0.3.4` | 0.3.3 | ahead |
+| `rightkit-process` | genright | `genright/crates/genright-gen/Cargo.toml` | dependencies | `=0.3.4` | 0.3.3 | ahead |
+| `rightkit-process` | genright | `genright/crates/genright-local-image/Cargo.toml` | dependencies | `=0.3.4` | 0.3.3 | ahead |
+| `rightkit-process` | genright | `genright/rk-snapshot/crates/rightkit-browser/Cargo.toml` | dependencies | `0.3.0` | 0.3.3 | local |
+| `rightkit-process` | genright | `genright/rk-snapshot/crates/rightkit-jobs/Cargo.toml` | dependencies | `0.3.4` | 0.3.3 | local |
+| `rightkit-process` | genright | `genright/rk-snapshot/crates/rightkit-logs/Cargo.toml` | dependencies | `0.3.4` | 0.3.3 | local |
+| `rightkit-process` | genright | `genright/rk-snapshot/crates/rightkit-media/Cargo.toml` | dependencies | `0.3.0` | 0.3.3 | local |
+| `rightkit-process` | genright | `genright/rk-snapshot/crates/rightkit-qa/Cargo.toml` | dependencies | `0.3.4` | 0.3.3 | local |
+| `rightkit-process` | genright | `genright/rk-snapshot/crates/rightkit-service/Cargo.toml` | dependencies | `0.3.4` | 0.3.3 | local |
+| `rightkit-process` | genright | `genright/rk-snapshot/crates/rightkit-tts/Cargo.toml` | dependencies | `0.3.0` | 0.3.3 | local |
+| `rightkit-process` | genright | `genright/src-tauri/Cargo.toml` | dependencies | `=0.3.4` | 0.3.3 | ahead |
 | `rightkit-process` | heardright | `heardright/tauri-app-next/heardright-app-runtime/Cargo.toml` | dependencies | `=0.3.3` | 0.3.3 | current |
 | `rightkit-process` | postright | `postright/crates/engine/Cargo.toml` | dependencies | `=0.3.3` | 0.3.3 | current |
 | `rightkit-process` | postright | `postright/src-tauri/Cargo.toml` | dependencies | `=0.3.3` | 0.3.3 | current |
 | `rightkit-process` | scraperight | `scraperight/crates/audio/Cargo.toml` | dependencies | `=0.3.4` | 0.3.3 | ahead |
 | `rightkit-process` | scraperight | `scraperight/src-tauri/Cargo.toml` | dependencies | `=0.3.4` | 0.3.3 | ahead |
 | `rightkit-qa` | cutright | `cutright/crates/cutright-ui-e2e/Cargo.toml` | dependencies | `=0.2.14` | 0.2.14 | current |
-| `rightkit-qa` | genright | `genright/crates/genright-e2e/Cargo.toml` | dependencies | `=0.2.15` | 0.2.14 | ahead |
-| `rightkit-qa` | genright | `genright/crates/genright-e2e/Cargo.toml` | dev-dependencies | `=0.2.15` | 0.2.14 | ahead |
+| `rightkit-qa` | genright | `genright/crates/genright-e2e/Cargo.toml` | dependencies | `=0.2.16` | 0.2.14 | ahead |
+| `rightkit-qa` | genright | `genright/crates/genright-e2e/Cargo.toml` | dev-dependencies | `=0.2.16` | 0.2.14 | ahead |
+| `rightkit-qa` | genright | `genright/rk-snapshot/crates/rightkit-models/Cargo.toml` | dev-dependencies | `0.2.8` | 0.2.14 | local |
 | `rightkit-qa` | postright | `postright/crates/e2e/Cargo.toml` | dev-dependencies | `=0.2.14` | 0.2.14 | current |
 | `rightkit-qa` | viewright | `viewright/src-tauri/qa-e2e/Cargo.toml` | dev-dependencies | `=0.2.14` | 0.2.14 | current |
-| `rightkit-qts` | genright | `genright/crates/genright-qts/Cargo.toml` | dependencies | `=0.2.5` | 0.2.4 | ahead |
-| `rightkit-qts-ggml` | genright | `genright/crates/genright-qts/Cargo.toml` | dependencies | `=0.1.2` | 0.1.1 | ahead |
-| `rightkit-qts-ggml-sys` | genright | `genright/crates/genright-qts/Cargo.toml` | dependencies | `=0.1.2` | 0.1.1 | ahead |
+| `rightkit-qts` | genright | `genright/rk-snapshot/crates/rightkit-tts/Cargo.toml` | dependencies | `0.2.6` | 0.2.4 | local |
+| `rightkit-qts-ggml-sys` | genright | `genright/rk-snapshot/crates/rightkit-qts-ggml/Cargo.toml` | dependencies | `0.1.0` | 0.1.1 | local |
+| `rightkit-qts-ggml-sys` | genright | `genright/rk-snapshot/crates/rightkit-qts/Cargo.toml` | dependencies | `0.1.0` | 0.1.1 | local |
 | `rightkit-review` | cutright | `cutright/crates/cutright-qa/Cargo.toml` | dependencies | `=0.2.0` | none recorded | unpublished |
 | `rightkit-sandbox` | coderight | `coderight/engine/crates/tools/Cargo.toml` | dependencies | `=0.3.4` | 0.3.3 | ahead |
 | `rightkit-secrets` | coderight | `coderight/engine/Cargo.toml` | workspace.dependencies | `=0.1.3` | 0.1.2 | ahead |
 | `rightkit-secrets` | cutright | `cutright/crates/cutright-shorts/Cargo.toml` | dependencies | `=0.1.2` | 0.1.2 | current |
-| `rightkit-secrets` | genright | `genright/crates/genright-gen/Cargo.toml` | dependencies | `=0.1.3` | 0.1.2 | ahead |
+| `rightkit-secrets` | genright | `genright/crates/genright-gen/Cargo.toml` | dependencies | `=0.1.4` | 0.1.2 | ahead |
 | `rightkit-secrets` | heardright | `heardright/tauri-app-next/src-tauri/Cargo.toml` | dependencies | `=0.1.3` | 0.1.2 | ahead |
 | `rightkit-secrets` | heardright | `heardright/tauri-app-next/src-tauri/Cargo.toml` | dependencies | `=0.1.3` | 0.1.2 | ahead |
 | `rightkit-secrets` | mailright | `mailright/src-tauri/Cargo.toml` | dependencies | `=0.1.0` | 0.1.2 | stale |
@@ -316,12 +355,16 @@ Status values compare each pin with the latest published version (registry-recor
 | `rightkit-service` | cutright | `cutright/crates/cutright-engine/Cargo.toml` | dependencies | `=0.1.5` | 0.1.3 | ahead |
 | `rightkit-service` | cutright | `cutright/rk-snapshot/crates/rightkit-jobs/Cargo.toml` | dependencies | `0.1.0` | 0.1.3 | local |
 | `rightkit-service` | cutright | `cutright/rk-snapshot/crates/rightkit-speech-client/Cargo.toml` | dependencies | `0.1.3` | 0.1.3 | local |
+| `rightkit-service` | genright | `genright/rk-snapshot/crates/rightkit-control/Cargo.toml` | dependencies | `0.1.0` | 0.1.3 | local |
+| `rightkit-service` | genright | `genright/rk-snapshot/crates/rightkit-jobs/Cargo.toml` | dependencies | `0.1.0` | 0.1.3 | local |
+| `rightkit-service` | genright | `genright/rk-snapshot/crates/rightkit-qa/Cargo.toml` | dependencies | `0.1.0` | 0.1.3 | local |
 | `rightkit-service` | heardright | `heardright/tauri-app-next/heardright-runtime/Cargo.toml` | dependencies | `=0.1.4` | 0.1.3 | ahead |
 | `rightkit-service` | postright | `postright/crates/engine/Cargo.toml` | dependencies | `=0.1.4` | 0.1.3 | ahead |
 | `rightkit-service` | postright | `postright/src-tauri/Cargo.toml` | dependencies | `=0.1.4` | 0.1.3 | ahead |
 | `rightkit-settings` | coderight | `coderight/engine/Cargo.toml` | workspace.dependencies | `=0.1.1` | 0.1.0 | ahead |
 | `rightkit-settings` | cutright | `cutright/crates/cutright-engine/Cargo.toml` | dependencies | `=0.2.0` | 0.1.0 | ahead |
-| `rightkit-settings` | genright | `genright/src-tauri/Cargo.toml` | dependencies | `=0.1.1` | 0.1.0 | ahead |
+| `rightkit-settings` | genright | `genright/rk-snapshot/crates/rightkit-secrets/Cargo.toml` | dependencies | `0.2.0` | 0.1.0 | local |
+| `rightkit-settings` | genright | `genright/src-tauri/Cargo.toml` | dependencies | `=0.2.0` | 0.1.0 | ahead |
 | `rightkit-settings` | postright | `postright/crates/engine/Cargo.toml` | dependencies | `=0.1.1` | 0.1.0 | ahead |
 | `rightkit-settings` | scraperight | `scraperight/crates/protocol/Cargo.toml` | dependencies | `=0.2.0` | 0.1.0 | ahead |
 | `rightkit-settings` | scraperight | `scraperight/src-tauri/Cargo.toml` | dependencies | `=0.2.0` | 0.1.0 | ahead |
@@ -330,12 +373,12 @@ Status values compare each pin with the latest published version (registry-recor
 | `rightkit-shell` | mailright | `mailright/src-tauri/Cargo.toml` | dependencies | `=0.1.2` | 0.1.4 | stale |
 | `rightkit-shell` | postright | `postright/src-tauri/Cargo.toml` | dependencies | `=0.2.0` | 0.1.4 | ahead |
 | `rightkit-shell` | viewright | `viewright/src-tauri/Cargo.toml` | dependencies | `=0.1.4` | 0.1.4 | current |
-| `rightkit-speech-client` | cutright | `cutright/crates/cutright-speech/Cargo.toml` | dependencies | `=0.3.3` | 0.3.2 | ahead |
+| `rightkit-speech-client` | cutright | `cutright/crates/cutright-speech/Cargo.toml` | dependencies | `=0.3.4` | 0.3.2 | ahead |
 | `rightkit-speech-client` | cutright | `cutright/rk-snapshot/crates/rightkit-asr/Cargo.toml` | dev-dependencies | `0.3.3` | 0.3.2 | local |
 | `rightkit-speech-client` | heardright | `heardright/tauri-app-next/heardright-engine/Cargo.toml` | dev-dependencies | `=0.3.3` | 0.3.2 | ahead |
 | `rightkit-speech-client` | heardright | `heardright/tauri-app-next/heardright-runtime/Cargo.toml` | dependencies | `=0.3.3` | 0.3.2 | ahead |
 | `rightkit-speech-client` | heardright | `heardright/tauri-app-next/heardright_core/Cargo.toml` | dependencies | `=0.3.3` | 0.3.2 | ahead |
-| `rightkit-speech-client` | scraperight | `scraperight/crates/speech/Cargo.toml` | dependencies | `=0.3.3` | 0.3.2 | ahead |
+| `rightkit-speech-client` | scraperight | `scraperight/crates/speech/Cargo.toml` | dependencies | `=0.3.4` | 0.3.2 | ahead |
 | `rightkit-sync` | scraperight | `scraperight/src-tauri/Cargo.toml` | dependencies | `=0.1.1` | none recorded | unpublished |
 | `rightkit-tauri` | coderight | `coderight/apps/coderight-tauri/src-tauri/Cargo.toml` | dependencies | `=0.1.2` | 0.1.2 | current |
 | `rightkit-tauri` | coderight | `coderight/apps/coderight-tauri/src-tauri/crates/auth/Cargo.toml` | dependencies | `=0.1.2` | 0.1.2 | current |
@@ -348,10 +391,11 @@ Status values compare each pin with the latest published version (registry-recor
 | `rightkit-transcript` | cutright | `cutright/crates/cutright-transcript/Cargo.toml` | dependencies | `=0.3.0` | 0.2.0 | ahead |
 | `rightkit-transcript` | cutright | `cutright/rk-snapshot/crates/rightkit-asr/Cargo.toml` | dependencies | `0.3.0` | 0.2.0 | local |
 | `rightkit-transcript` | cutright | `cutright/rk-snapshot/crates/rightkit-speech-client/Cargo.toml` | dependencies | `0.3.0` | 0.2.0 | local |
-| `rightkit-transcript` | genright | `genright/crates/genright-studio/Cargo.toml` | dependencies | `=0.2.0` | 0.2.0 | current |
+| `rightkit-transcript` | genright | `genright/crates/genright-studio/Cargo.toml` | dependencies | `=0.3.0` | 0.2.0 | ahead |
+| `rightkit-transcript` | genright | `genright/rk-snapshot/crates/rightkit-tts/Cargo.toml` | dependencies | `0.3.0` | 0.2.0 | local |
 | `rightkit-transcript` | heardright | `heardright/tauri-app-next/heardright-inference/Cargo.toml` | dependencies | `=0.3.0` | 0.2.0 | ahead |
 | `rightkit-transcript` | scraperight | `scraperight/crates/speech/Cargo.toml` | dependencies | `=0.3.0` | 0.2.0 | ahead |
-| `rightkit-tts` | genright | `genright/crates/genright-qts/Cargo.toml` | dependencies | `=0.1.1` | 0.1.0 | ahead |
+| `rightkit-tts` | genright | `genright/crates/genright-qts/Cargo.toml` | dependencies | `=0.2.0` | 0.1.0 | ahead |
 | `rightkit-vad` | cutright | `cutright/crates/cutright-speech/Cargo.toml` | dependencies | `=0.1.0` | 0.0.2 | ahead |
 | `rightkit-vad` | cutright | `cutright/crates/cutright-speech/Cargo.toml` | dependencies | `=0.1.0` | 0.0.2 | ahead |
 | `rightkit-vad` | cutright | `cutright/rk-snapshot/crates/rightkit-asr/Cargo.toml` | dependencies | `0.1.0` | 0.0.2 | local |
@@ -386,7 +430,7 @@ Status values compare each pin with the latest published version (registry-recor
 | `@rightkit/legal-ui` | genright | `genright/package.json` | dependencies | `0.2.2` | 0.2.2 | current |
 | `@rightkit/legal-ui` | heardright | `heardright/tauri-app-next/package.json` | dependencies | `0.2.1` | 0.2.2 | stale |
 | `@rightkit/legal-ui` | scraperight | `scraperight/package.json` | dependencies | `0.2.2` | 0.2.2 | current |
-| `@rightkit/legal-ui` | viewright | `viewright/package.json` | dependencies | `0.2.1` | 0.2.2 | stale |
+| `@rightkit/legal-ui` | viewright | `viewright/package.json` | dependencies | `0.2.2` | 0.2.2 | current |
 | `@rightkit/license` | coderight | `coderight/apps/coderight-tauri/package.json` | dependencies | `0.1.8` | 0.1.8 | current |
 | `@rightkit/license` | cutright | `cutright/apps/cutright/package.json` | dependencies | `0.1.8` | 0.1.8 | current |
 | `@rightkit/license` | heardright | `heardright/tauri-app-next/package.json` | dependencies | `0.1.8` | 0.1.8 | current |
@@ -418,7 +462,7 @@ Status values compare each pin with the latest published version (registry-recor
 | `@rightkit/qa` | scraperight | `scraperight/package.json` | devDependencies | `0.4.1` | 0.4.7 | stale |
 | `@rightkit/qa-chrome` | heardright | `heardright/tauri-app-next/package.json` | devDependencies | `0.1.3` | 0.1.5 | stale |
 | `@rightkit/qa-chrome` | scraperight | `scraperight/package.json` | devDependencies | `0.1.3` | 0.1.5 | stale |
-| `@rightkit/qa-chrome` | viewright | `viewright/package.json` | devDependencies | `0.1.3` | 0.1.5 | stale |
+| `@rightkit/qa-chrome` | viewright | `viewright/package.json` | devDependencies | `0.1.5` | 0.1.5 | current |
 | `@rightkit/release` | coderight | `coderight/apps/coderight-tauri/package.json` | devDependencies | `0.2.151` | 0.2.151 | current |
 | `@rightkit/release` | coderight | `coderight/context/package.json` | devDependencies | `0.2.151` | 0.2.151 | current |
 | `@rightkit/release` | cutright | `cutright/apps/cutright/package.json` | devDependencies | `0.2.151` | 0.2.151 | current |
@@ -433,7 +477,7 @@ Status values compare each pin with the latest published version (registry-recor
 | `@rightkit/settings-ui` | cutright | `cutright/apps/cutright/package.json` | dependencies | `0.3.3` | 0.4.3 | stale |
 | `@rightkit/settings-ui` | genright | `genright/package.json` | dependencies | `0.3.4` | 0.4.3 | stale |
 | `@rightkit/settings-ui` | heardright | `heardright/tauri-app-next/package.json` | dependencies | `0.3.3` | 0.4.3 | stale |
-| `@rightkit/settings-ui` | scraperight | `scraperight/package.json` | dependencies | `0.3.4` | 0.4.3 | stale |
+| `@rightkit/settings-ui` | scraperight | `scraperight/package.json` | dependencies | `0.4.3` | 0.4.3 | current |
 | `@rightkit/shell` | coderight | `coderight/apps/coderight-tauri/package.json` | dependencies | `0.1.0` | 0.1.1 | stale |
 | `@rightkit/shell` | cutright | `cutright/apps/cutright/package.json` | dependencies | `0.1.0` | 0.1.1 | stale |
 | `@rightkit/tauri` | coderight | `coderight/apps/coderight-tauri/package.json` | dependencies | `0.2.0` | 0.2.0 | current |
@@ -462,39 +506,75 @@ Vendored copies are app-owned source trees that carry a RightKit package name. T
 | Package | App | Manifest | Version in tree | Latest published |
 |---|---|---|---|---|
 | `rightkit-asr` | cutright | `cutright/rk-snapshot/crates/rightkit-asr/Cargo.toml` | 0.2.0 | 0.0.2 |
-| `rightkit-audio` | cutright | `cutright/rk-snapshot/crates/rightkit-audio/Cargo.toml` | 0.2.1 | 0.2.0 |
+| `rightkit-audio` | cutright | `cutright/rk-snapshot/crates/rightkit-audio/Cargo.toml` | 0.2.2 | 0.2.0 |
+| `rightkit-audio` | genright | `genright/rk-snapshot/crates/rightkit-audio/Cargo.toml` | 0.2.2 | 0.2.0 |
+| `rightkit-browser` | genright | `genright/rk-snapshot/crates/rightkit-browser/Cargo.toml` | 0.2.4 | 0.2.2 |
 | `rightkit-cache` | cutright | `cutright/rk-snapshot/crates/rightkit-cache/Cargo.toml` | 0.2.0 | 0.1.0 |
+| `rightkit-channel-memory` | postright | `postright/rk-snapshot/crates/rightkit-channel-memory/Cargo.toml` | 0.1.0 | none recorded |
 | `rightkit-compose` | cutright | `cutright/rk-snapshot/crates/rightkit-compose/Cargo.toml` | 0.1.0 | none recorded |
-| `rightkit-contracts` | cutright | `cutright/rk-snapshot/crates/rightkit-contracts/Cargo.toml` | 0.1.4 | none recorded |
+| `rightkit-contracts` | cutright | `cutright/rk-snapshot/crates/rightkit-contracts/Cargo.toml` | 0.1.5 | none recorded |
+| `rightkit-control` | genright | `genright/rk-snapshot/crates/rightkit-control/Cargo.toml` | 0.2.0 | 0.1.11 |
 | `rightkit-db` | cutright | `cutright/rk-snapshot/crates/rightkit-db/Cargo.toml` | 0.4.0 | 0.3.2 |
+| `rightkit-db` | genright | `genright/rk-snapshot/crates/rightkit-db/Cargo.toml` | 0.4.0 | 0.3.2 |
 | `rightkit-framed-sidecar` | cutright | `cutright/rk-snapshot/crates/rightkit-framed-sidecar/Cargo.toml` | 0.2.0 | 0.1.0 |
+| `rightkit-framed-sidecar` | genright | `genright/rk-snapshot/crates/rightkit-framed-sidecar/Cargo.toml` | 0.2.0 | 0.1.0 |
 | `rightkit-fs` | cutright | `cutright/rk-snapshot/crates/rightkit-fs/Cargo.toml` | 0.3.4 | 0.3.3 |
+| `rightkit-fs` | genright | `genright/rk-snapshot/crates/rightkit-fs/Cargo.toml` | 0.3.4 | 0.3.3 |
 | `rightkit-http` | cutright | `cutright/rk-snapshot/crates/rightkit-http/Cargo.toml` | 0.3.0 | 0.2.4 |
+| `rightkit-http` | genright | `genright/rk-snapshot/crates/rightkit-http/Cargo.toml` | 0.3.0 | 0.2.4 |
 | `rightkit-jobs` | cutright | `cutright/rk-snapshot/crates/rightkit-jobs/Cargo.toml` | 0.2.8 | 0.2.6 |
+| `rightkit-jobs` | genright | `genright/rk-snapshot/crates/rightkit-jobs/Cargo.toml` | 0.2.8 | 0.2.6 |
 | `rightkit-llm` | cutright | `cutright/rk-snapshot/crates/rightkit-llm/Cargo.toml` | 0.2.0 | none recorded |
+| `rightkit-logs` | genright | `genright/rk-snapshot/crates/rightkit-logs/Cargo.toml` | 0.2.2 | 0.2.0 |
 | `rightkit-media` | cutright | `cutright/rk-snapshot/crates/rightkit-media/Cargo.toml` | 0.2.6 | 0.2.4 |
+| `rightkit-media` | genright | `genright/rk-snapshot/crates/rightkit-media/Cargo.toml` | 0.2.6 | 0.2.4 |
+| `rightkit-models` | genright | `genright/rk-snapshot/crates/rightkit-models/Cargo.toml` | 0.3.0 | 0.2.7 |
 | `rightkit-ort` | cutright | `cutright/rk-snapshot/crates/rightkit-ort/Cargo.toml` | 0.2.3 | 0.2.2 |
+| `rightkit-ort` | genright | `genright/rk-snapshot/crates/rightkit-ort/Cargo.toml` | 0.2.3 | 0.2.2 |
 | `rightkit-playback` | cutright | `cutright/rk-snapshot/crates/rightkit-playback/Cargo.toml` | 0.2.0 | 0.1.1 |
 | `rightkit-process` | cutright | `cutright/rk-snapshot/crates/rightkit-process/Cargo.toml` | 0.3.4 | 0.3.3 |
+| `rightkit-process` | genright | `genright/rk-snapshot/crates/rightkit-process/Cargo.toml` | 0.3.4 | 0.3.3 |
+| `rightkit-qa` | genright | `genright/rk-snapshot/crates/rightkit-qa/Cargo.toml` | 0.2.16 | 0.2.14 |
+| `rightkit-qts` | genright | `genright/rk-snapshot/crates/rightkit-qts/Cargo.toml` | 0.2.6 | 0.2.4 |
+| `rightkit-qts-ggml` | genright | `genright/rk-snapshot/crates/rightkit-qts-ggml/Cargo.toml` | 0.1.2 | 0.1.1 |
+| `rightkit-qts-ggml-sys` | genright | `genright/rk-snapshot/crates/rightkit-qts-ggml-sys/Cargo.toml` | 0.1.2 | 0.1.1 |
 | `rightkit-review` | cutright | `cutright/rk-snapshot/crates/rightkit-review/Cargo.toml` | 0.2.0 | none recorded |
+| `rightkit-secrets` | genright | `genright/rk-snapshot/crates/rightkit-secrets/Cargo.toml` | 0.1.4 | 0.1.2 |
 | `rightkit-service` | cutright | `cutright/rk-snapshot/crates/rightkit-service/Cargo.toml` | 0.1.5 | 0.1.3 |
+| `rightkit-service` | genright | `genright/rk-snapshot/crates/rightkit-service/Cargo.toml` | 0.1.5 | 0.1.3 |
 | `rightkit-settings` | cutright | `cutright/rk-snapshot/crates/rightkit-settings/Cargo.toml` | 0.2.0 | 0.1.0 |
-| `rightkit-speech-client` | cutright | `cutright/rk-snapshot/crates/rightkit-speech-client/Cargo.toml` | 0.3.3 | 0.3.2 |
+| `rightkit-settings` | genright | `genright/rk-snapshot/crates/rightkit-settings/Cargo.toml` | 0.2.0 | 0.1.0 |
+| `rightkit-speech-client` | cutright | `cutright/rk-snapshot/crates/rightkit-speech-client/Cargo.toml` | 0.3.4 | 0.3.2 |
 | `rightkit-transcript` | cutright | `cutright/rk-snapshot/crates/rightkit-transcript/Cargo.toml` | 0.3.0 | 0.2.0 |
+| `rightkit-transcript` | genright | `genright/rk-snapshot/crates/rightkit-transcript/Cargo.toml` | 0.3.0 | 0.2.0 |
+| `rightkit-tts` | genright | `genright/rk-snapshot/crates/rightkit-tts/Cargo.toml` | 0.2.0 | 0.1.0 |
 | `rightkit-vad` | cutright | `cutright/rk-snapshot/crates/rightkit-vad/Cargo.toml` | 0.1.0 | 0.0.2 |
 
 Split pins: one app names the same package with different requirements, possibly in different manifests.
 
 | Package | Ecosystem | App | Requirements |
 |---|---|---|---|
+| `rightkit-browser` | cargo | genright | =0.2.4; local 0.2.2 |
+| `rightkit-control` | cargo | genright | =0.2.0; local *; local 0.2.0 |
+| `rightkit-db` | cargo | genright | =0.4.0; local 0.4.0 |
+| `rightkit-framed-sidecar` | cargo | genright | =0.2.0; local 0.2.0 |
 | `rightkit-fs` | cargo | cutright | =0.3.4; local 0.3; local 0.3.0; local 0.3.3; local 0.3.4 |
+| `rightkit-fs` | cargo | genright | =0.3.4; local 0.3; local 0.3.0; local 0.3.3; local 0.3.4 |
 | `rightkit-http` | cargo | cutright | local *; local 0.3.0 |
+| `rightkit-http` | cargo | genright | =0.3.0; local *; local 0.3.0 |
+| `rightkit-logs` | cargo | genright | =0.2.2; local * |
 | `rightkit-media` | cargo | cutright | =0.2.6; local 0.2.3 |
+| `rightkit-media` | cargo | genright | =0.2.6; local 0.2.3 |
 | `rightkit-ort` | cargo | cutright | =0.2.3; local 0.2.2 |
+| `rightkit-ort` | cargo | genright | =0.2.3; local 0.2.2; local 0.2.3 |
 | `rightkit-process` | cargo | cutright | local 0.3.0; local 0.3.4 |
+| `rightkit-process` | cargo | genright | =0.3.4; local 0.3.0; local 0.3.4 |
+| `rightkit-qa` | cargo | genright | =0.2.16; local 0.2.8 |
 | `rightkit-service` | cargo | cutright | =0.1.5; local 0.1.0; local 0.1.3 |
-| `rightkit-speech-client` | cargo | cutright | =0.3.3; local 0.3.3 |
+| `rightkit-settings` | cargo | genright | =0.2.0; local 0.2.0 |
+| `rightkit-speech-client` | cargo | cutright | =0.3.4; local 0.3.3 |
 | `rightkit-transcript` | cargo | cutright | =0.3.0; local 0.3.0 |
+| `rightkit-transcript` | cargo | genright | =0.3.0; local 0.3.0 |
 | `rightkit-vad` | cargo | cutright | =0.1.0; local 0.1.0 |
 
 ## Scan scope
@@ -502,13 +582,13 @@ Split pins: one app names the same package with different requirements, possibly
 | App | Present | Manifests read | Parse errors | RightKit pins matched |
 |---|---|---|---|---|
 | cutright | yes | 49 | 0 | 82 |
-| genright | yes | 11 | 0 | 42 |
+| genright | yes | 34 | 0 | 82 |
 | scraperight | yes | 13 | 0 | 53 |
 | viewright | yes | 8 | 0 | 27 |
-| heardright | yes | 19 | 0 | 48 |
+| heardright | yes | 19 | 0 | 51 |
 | coderight | yes | 92 | 0 | 45 |
 | mailright | yes | 3 | 0 | 16 |
-| postright | yes | 8 | 0 | 22 |
+| postright | yes | 9 | 0 | 23 |
 | cockpit | **missing** | 0 | 0 | 0 |
 | workright | yes | 16 | 0 | 0 |
 | sellright | yes | 6 | 0 | 1 |
