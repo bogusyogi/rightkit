@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- Additive: `valid_service_name(&str) -> bool` and `MAX_SERVICE_NAME_LEN` (48) are now public, so callers
+  can check a derived name against the exact rule `host` enforces (non-empty, <= 48 bytes, ASCII
+  `[a-z0-9-]`). The rule itself is unchanged.
+
 ## 0.1.5
 
 Peer authentication hardening (gap ledger #59). Public API is additive, with two caveats:

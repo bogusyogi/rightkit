@@ -5,6 +5,23 @@ version is `0.x`, a minor bump may carry breaking changes.
 
 ## Unreleased
 
+Single-instance naming defect (found by MailRight): `instance::arbitrate("app.mailright", ..)` returned
+`Unavailable("invalid service name ..")` because `rightkit-service` names allow only `[a-z0-9-]`, so a
+dotted bundle identifier ran with single-instance protection off.
+
+- **Service names are derived from the app id by a documented normalisation**: ASCII lowercase, every
+  character outside `[a-z0-9-]` becomes `-` (`app.mailright` -> `app-mailright-shell`). An already valid id
+  gives exactly the same name as before. The caller identity used for the allowlist and the connect is the
+  same normalised id, so differently spelled equivalents agree.
+- **New `Arbitration::InvalidAppId(InvalidAppId)`** for an id that cannot be named (empty, or a name over
+  48 bytes). `Arbitration` is not `#[non_exhaustive]`, so an exhaustive `match` in an app now fails to
+  compile: that is intended, handle it by refusing to start. `arbitrate` also prints a line to stderr. New
+  `instance::{try_service_name, InvalidAppId, InvalidAppIdReason}`; `instance::service_name` now normalises.
+- **`ClaimFailure::InvalidId(String)`** for `SingleInstance::claim*` (name `<id>-instance`, so ids over 39
+  bytes are refused). Same normalisation; it was previously a generic `ClaimFailure::Host`.
+- The plugin entry points (`single_instance_plugin`, the full plugin) fail startup with a message naming
+  the id on `InvalidAppId`; OS-level `Unavailable` behaves as before.
+
 Gaps ViewRight reported, closed additively (CutRight, PostRight, GenRight and ScrapeRight need no change):
 
 - **`TrafficLights` works without `ShellState`.** `set_offset` and `reapply` now fall back, when the shell

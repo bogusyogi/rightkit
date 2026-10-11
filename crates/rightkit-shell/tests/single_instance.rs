@@ -11,7 +11,7 @@ use std::time::Duration;
 
 use rightkit_service::{Client, Suite};
 use rightkit_shell::single_instance::MESSAGE_METHOD;
-use rightkit_shell::{ClaimOutcome, InstanceMessage, SingleInstance};
+use rightkit_shell::{ClaimFailure, ClaimOutcome, InstanceMessage, SingleInstance};
 use serde_json::json;
 
 const ID: &str = "test-shell";
@@ -131,6 +131,72 @@ fn an_undecidable_claim_fails_closed_instead_of_becoming_a_primary() {
     assert!(
         matches!(outcome, ClaimOutcome::Failed(_)),
         "an undecidable claim must be Failed"
+    );
+}
+
+const DOTTED: &str = "app.mailright";
+const DOTTED_ROOT_ENV: &str = "RK_SINGLE_INSTANCE_DOTTED_ROOT";
+
+#[test]
+fn a_dotted_bundle_id_is_normalised_and_the_second_launch_is_forwarded() {
+    let suite = Suite::per_run_temp("shell-single-instance-dotted").unwrap();
+    let (tx, rx) = mpsc::channel();
+    let primary =
+        match SingleInstance::claim_in(&suite, DOTTED, InstanceMessage::default(), move |m| {
+            let _ = tx.send(m);
+        }) {
+            ClaimOutcome::Primary(guard) => guard,
+            other => panic!(
+                "the first claim must be the primary, got {}",
+                describe(&other)
+            ),
+        };
+    // The service is named from the normalised id.
+    assert!(Client::connect(&suite, "app-mailright-instance", "app-mailright").is_ok());
+    let child = Command::new(std::env::current_exe().unwrap())
+        .args(["--exact", "child_dotted_second_launch", "--nocapture"])
+        .env(DOTTED_ROOT_ENV, suite.root())
+        .status()
+        .unwrap();
+    assert!(child.success(), "the dotted secondary must be forwarded");
+    rx.recv_timeout(Duration::from_secs(5)).unwrap();
+    drop(primary);
+}
+
+#[test]
+fn child_dotted_second_launch() {
+    let Some(root) = std::env::var_os(DOTTED_ROOT_ENV) else {
+        return;
+    };
+    let suite = Suite::at(std::path::PathBuf::from(root)).unwrap();
+    let outcome = SingleInstance::claim_in(
+        &suite,
+        "App.MailRight",
+        InstanceMessage::from_process(),
+        |_| panic!("the secondary callback must not run"),
+    );
+    assert!(
+        matches!(outcome, ClaimOutcome::Forwarded),
+        "got {}",
+        describe(&outcome)
+    );
+}
+
+#[test]
+fn an_id_that_cannot_name_a_service_is_a_typed_failure() {
+    let suite = Suite::per_run_temp("shell-single-instance-invalid").unwrap();
+    let long = "a".repeat(40);
+    for id in ["", long.as_str()] {
+        let outcome = SingleInstance::claim_in(&suite, id, InstanceMessage::default(), |_| {});
+        assert!(
+            matches!(outcome, ClaimOutcome::Failed(ClaimFailure::InvalidId(_))),
+            "id {id:?}: got {}",
+            describe(&outcome)
+        );
+    }
+    assert!(
+        SingleInstance::claim_in(&suite, &"a".repeat(39), InstanceMessage::default(), |_| {})
+            .is_primary()
     );
 }
 

@@ -644,6 +644,7 @@ impl Shell {
                     instance::Arbitration::Unavailable(why) => {
                         return Err(unavailable_error(&why));
                     }
+                    instance::Arbitration::InvalidAppId(e) => return Err(invalid_app_id_error(&e)),
                 }
                 Ok(())
             })
@@ -807,6 +808,12 @@ fn unavailable_error(why: &str) -> Box<dyn std::error::Error> {
     format!("rightkit-shell: single-instance could not be decided, refusing to start as a second primary: {why}").into()
 }
 
+/// An app id that cannot name the single-instance service: a programming error, so startup fails
+/// with the id and the rule instead of running with single-instance protection silently off.
+fn invalid_app_id_error(e: &instance::InvalidAppId) -> Box<dyn std::error::Error> {
+    format!("rightkit-shell: single-instance cannot start, app id is not usable: {e}").into()
+}
+
 /// The window-visibility policy a configuration declares.
 fn show_policy_of(cfg: &ShellBuilder) -> lifecycle::ShowPolicy {
     lifecycle::ShowPolicy {
@@ -866,6 +873,7 @@ fn setup(
             instance::Arbitration::Secondary => std::process::exit(0),
             // Fail closed: setup errors abort startup instead of running as a second primary.
             instance::Arbitration::Unavailable(why) => return Err(unavailable_error(&why)),
+            instance::Arbitration::InvalidAppId(e) => return Err(invalid_app_id_error(&e)),
         }
     }
 
