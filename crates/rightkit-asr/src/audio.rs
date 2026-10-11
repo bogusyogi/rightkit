@@ -1,9 +1,129 @@
 use crate::config::PreprocessorConfig;
 use crate::error::{Error, Result};
+use crate::whisper::WHISPER_SAMPLE_RATE;
 use hound::{WavReader, WavSpec};
 use ndarray::Array2;
 use std::f32::consts::PI;
+use std::fs::File;
+use std::io::BufReader;
 use std::path::{Path, PathBuf};
+use std::time::Duration;
+
+/// Why [`load_wav_mono_16k_head`] refused a file. Each variant says what the file
+/// holds, so a host can tell the user what to convert.
+#[derive(Debug)]
+pub enum WavLoadError {
+    /// The file could not be opened or read.
+    Io(std::io::Error),
+    /// The bytes are not a WAV file this reader can parse, or the samples are truncated.
+    Malformed(String),
+    /// A sample format other than 16, 24 or 32-bit integer PCM and 32-bit float.
+    /// `float` is true for a float file.
+    UnsupportedFormat { float: bool, bits_per_sample: u16 },
+    /// A sample rate other than 16 kHz. This crate does not resample; convert the file first.
+    UnsupportedSampleRate(u32),
+    /// The header declares zero channels.
+    NoChannels,
+    /// A float sample is NaN or infinite.
+    NonFiniteSample,
+}
+
+impl std::fmt::Display for WavLoadError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            WavLoadError::Io(e) => write!(f, "could not read the WAV file: {e}"),
+            WavLoadError::Malformed(m) => write!(f, "malformed WAV file: {m}"),
+            WavLoadError::UnsupportedFormat { float, bits_per_sample } => write!(
+                f,
+                "unsupported WAV sample format: {bits_per_sample}-bit {}; expected 16, 24 or 32-bit integer PCM or 32-bit float",
+                if *float { "float" } else { "integer" }
+            ),
+            WavLoadError::UnsupportedSampleRate(rate) => {
+                write!(f, "unsupported WAV sample rate {rate} Hz; expected 16000 Hz (no resampling)")
+            }
+            WavLoadError::NoChannels => write!(f, "WAV file declares zero channels"),
+            WavLoadError::NonFiniteSample => write!(f, "WAV file contains a NaN or infinite sample"),
+        }
+    }
+}
+
+impl std::error::Error for WavLoadError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            WavLoadError::Io(e) => Some(e),
+            _ => None,
+        }
+    }
+}
+
+impl From<WavLoadError> for Error {
+    fn from(e: WavLoadError) -> Self {
+        Error::Audio(e.to_string())
+    }
+}
+
+/// Read at most the first `max_duration` of a WAV file as mono 16 kHz `f32` in `[-1, 1]`,
+/// for example to identify the language before decoding the whole recording.
+///
+/// Reading stops once the requested samples are in hand, so a long file costs no more
+/// than its head. Accepts 16, 24 or 32-bit integer PCM and 32-bit float, mono or
+/// multi-channel (channels are averaged). The file must already be 16 kHz: this crate
+/// has no resampler, and any other rate is [`WavLoadError::UnsupportedSampleRate`].
+/// A file shorter than `max_duration` yields all of its samples.
+pub fn load_wav_mono_16k_head<P: AsRef<Path>>(
+    path: P,
+    max_duration: Duration,
+) -> std::result::Result<Vec<f32>, WavLoadError> {
+    let file = File::open(path).map_err(WavLoadError::Io)?;
+    let mut reader =
+        WavReader::new(BufReader::new(file)).map_err(|e| WavLoadError::Malformed(e.to_string()))?;
+    let spec = reader.spec();
+    let float = spec.sample_format == hound::SampleFormat::Float;
+    let supported = match spec.sample_format {
+        hound::SampleFormat::Int => matches!(spec.bits_per_sample, 16 | 24 | 32),
+        hound::SampleFormat::Float => spec.bits_per_sample == 32,
+    };
+    if !supported {
+        return Err(WavLoadError::UnsupportedFormat { float, bits_per_sample: spec.bits_per_sample });
+    }
+    if spec.sample_rate != WHISPER_SAMPLE_RATE {
+        return Err(WavLoadError::UnsupportedSampleRate(spec.sample_rate));
+    }
+    let channels = spec.channels as usize;
+    if channels == 0 {
+        return Err(WavLoadError::NoChannels);
+    }
+    // Frames wanted from the head, capped by what the file holds.
+    let wanted = usize::try_from(max_duration.as_nanos() * WHISPER_SAMPLE_RATE as u128 / 1_000_000_000)
+        .unwrap_or(usize::MAX);
+    let frames = wanted.min(reader.duration() as usize);
+    let take = frames.saturating_mul(channels);
+    let malformed = |e: hound::Error| WavLoadError::Malformed(e.to_string());
+    let samples: Vec<f32> = match spec.sample_format {
+        hound::SampleFormat::Int => {
+            // hound returns integer samples in the file's own bit range, so scale by 2^(bits-1).
+            let scale = (1i64 << (spec.bits_per_sample - 1)) as f32;
+            reader
+                .samples::<i32>()
+                .take(take)
+                .map(|s| s.map(|v| v as f32 / scale))
+                .collect::<std::result::Result<Vec<f32>, hound::Error>>()
+                .map_err(malformed)?
+        }
+        hound::SampleFormat::Float => reader
+            .samples::<f32>()
+            .take(take)
+            .collect::<std::result::Result<Vec<f32>, hound::Error>>()
+            .map_err(malformed)?,
+    };
+    if samples.iter().any(|v| !v.is_finite()) {
+        return Err(WavLoadError::NonFiniteSample);
+    }
+    Ok(samples
+        .chunks(channels)
+        .map(|c| c.iter().sum::<f32>() / channels as f32)
+        .collect())
+}
 
 /// Audio handed to a transcriber. WAV stays supported in-crate; every other
 /// container or codec is the caller's job: decode it to mono 16 kHz `f32` in
@@ -307,5 +427,88 @@ mod tests {
         assert_eq!(spec.shape()[0], freq_bins);
         // num_frames = (audio_len + n_fft - n_fft) / hop_length + 1 = 16000 / 160 + 1 = 101
         assert!(spec.shape()[1] > 0);
+    }
+}
+
+#[cfg(test)]
+mod wav_head_tests {
+    use super::*;
+    use hound::{SampleFormat, WavSpec, WavWriter};
+
+    fn temp(name: &str) -> PathBuf {
+        std::env::temp_dir().join(format!("rightkit-asr-{}-{name}.wav", std::process::id()))
+    }
+
+    fn spec(channels: u16, sample_rate: u32, bits_per_sample: u16, sample_format: SampleFormat) -> WavSpec {
+        WavSpec { channels, sample_rate, bits_per_sample, sample_format }
+    }
+
+    #[test]
+    fn head_stops_at_the_requested_duration_for_16_bit_mono() {
+        let path = temp("head16");
+        let mut w = WavWriter::create(&path, spec(1, 16_000, 16, SampleFormat::Int)).unwrap();
+        for i in 0..(3 * 16_000) {
+            w.write_sample(if i < 16_000 { 16_384i16 } else { 0i16 }).unwrap();
+        }
+        w.finalize().unwrap();
+        let head = load_wav_mono_16k_head(&path, Duration::from_secs(1)).unwrap();
+        assert_eq!(head.len(), 16_000);
+        assert!((head[0] - 0.5).abs() < 1e-6, "16-bit scale is 2^15");
+        let whole = load_wav_mono_16k_head(&path, Duration::from_secs(60)).unwrap();
+        assert_eq!(whole.len(), 48_000, "a request longer than the file returns the file");
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn head_downmixes_24_bit_stereo() {
+        let path = temp("head24");
+        let mut w = WavWriter::create(&path, spec(2, 16_000, 24, SampleFormat::Int)).unwrap();
+        for _ in 0..16_000 {
+            w.write_sample(4_194_304i32).unwrap(); // 2^22 = half of 2^23
+            w.write_sample(0i32).unwrap();
+        }
+        w.finalize().unwrap();
+        let head = load_wav_mono_16k_head(&path, Duration::from_millis(250)).unwrap();
+        assert_eq!(head.len(), 4_000);
+        assert!((head[0] - 0.25).abs() < 1e-6, "mean of 0.5 and 0.0");
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn head_reads_32_bit_int_and_32_bit_float() {
+        let path = temp("head32i");
+        let mut w = WavWriter::create(&path, spec(1, 16_000, 32, SampleFormat::Int)).unwrap();
+        w.write_sample(1_073_741_824i32).unwrap(); // 2^30 = half of 2^31
+        w.write_sample(-1_073_741_824i32).unwrap();
+        w.finalize().unwrap();
+        let v = load_wav_mono_16k_head(&path, Duration::from_secs(1)).unwrap();
+        assert_eq!(v.len(), 2);
+        assert!((v[0] - 0.5).abs() < 1e-6 && (v[1] + 0.5).abs() < 1e-6);
+        let _ = std::fs::remove_file(&path);
+
+        let path = temp("head32f");
+        let mut w = WavWriter::create(&path, spec(1, 16_000, 32, SampleFormat::Float)).unwrap();
+        w.write_sample(0.25f32).unwrap();
+        w.write_sample(-0.5f32).unwrap();
+        w.finalize().unwrap();
+        let v = load_wav_mono_16k_head(&path, Duration::from_secs(1)).unwrap();
+        assert_eq!(v, vec![0.25, -0.5]);
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn unsupported_rate_and_missing_file_are_typed() {
+        let path = temp("rate");
+        let mut w = WavWriter::create(&path, spec(1, 44_100, 16, SampleFormat::Int)).unwrap();
+        w.write_sample(0i16).unwrap();
+        w.finalize().unwrap();
+        let err = load_wav_mono_16k_head(&path, Duration::from_secs(1)).unwrap_err();
+        assert!(matches!(err, WavLoadError::UnsupportedSampleRate(44_100)), "{err:?}");
+        let as_crate: Error = err.into();
+        assert!(matches!(as_crate, Error::Audio(_)));
+        let _ = std::fs::remove_file(&path);
+
+        let err = load_wav_mono_16k_head("/definitely/not/here.wav", Duration::from_secs(1)).unwrap_err();
+        assert!(matches!(err, WavLoadError::Io(_)), "{err:?}");
     }
 }

@@ -102,12 +102,12 @@ pub use transcriber::*;
 pub use whisper::{
     audio_duration, is_unspaced_language, is_whisper_language, join_segment_text, load_wav_mono_16k,
     recording_deadline, samples_to_ms, validate_language, CancelToken, DecodeMode, DecodeQuality,
-    InterruptReason, Language, LanguageDetection, ProgressCallback, Whisper, WhisperCpp,
-    WhisperInterrupted, WhisperModel, WhisperOptions, WhisperProgress, WhisperSegment,
+    InterruptReason, Language, LanguageDetection, ProgressCallback, ProgressProbe, Whisper,
+    WhisperCpp, WhisperInterrupted, WhisperModel, WhisperOptions, WhisperProgress, WhisperSegment,
     WhisperTranscript, WhisperWord, RECORDING_DEADLINE_AUDIO_FACTOR, RECORDING_DEADLINE_BASE,
     UNSPACED_LANGUAGES, WHISPER_LANGUAGES, WHISPER_SAMPLE_RATE,
 };
-pub use audio::{load_audio, AudioSource};
+pub use audio::{load_audio, load_wav_mono_16k_head, AudioSource, WavLoadError};
 pub use hound::WavSpec;
 #[cfg(target_os = "macos")]
 pub use whisper::ComputeUnits;

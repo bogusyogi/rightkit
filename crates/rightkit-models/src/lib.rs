@@ -45,3 +45,4 @@ pub use store::{
     AliasStatus, AliasSync, FileRecord, PausedInstall, ResolvedRevision, RevisionRecord, State,
     Store, VerifyMode,
 };
+pub use suite::{EntitlementError, ModelStore};

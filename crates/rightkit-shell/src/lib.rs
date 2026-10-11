@@ -72,7 +72,10 @@ pub use broker::PathBroker;
 pub use clipboard::{ClipboardItem, ClipboardPolicy};
 pub use error::ShellError;
 pub use harden::{Devtools, Hardening, HardeningScript};
-pub use idle::{IdleErrorCallback, IdleFailure, IdlePhase};
+pub use idle::{
+    IdleErrorCallback, IdleFailure, IdlePhase, IdleTransition, IdleTransitionCallback,
+    IdleTransitionKind,
+};
 pub use menu::{MenuEntry, MenuGroup, MenuSpec};
 pub use modules::{Module, ModuleSet, ShellPlugin, ShellPluginBuilder};
 pub use nav::{NavDecision, NavPolicy};
@@ -193,6 +196,7 @@ pub struct ShellBuilder {
     on_visibility: Option<VisibilityCallback>,
     never_show: bool,
     never_show_env: Vec<String>,
+    never_show_env_values: Vec<(String, String)>,
     reveal_on_reopen: bool,
     lifecycle_only: bool,
     qa_instance_exempt: bool,
@@ -212,6 +216,7 @@ pub struct ShellBuilder {
     modules: ModuleSet,
     clipboard: clipboard::ClipboardPolicy,
     idle_on_error: Option<idle::IdleErrorCallback>,
+    idle_on_transition: Option<idle::IdleTransitionCallback>,
     autostart: autostart::AutostartOptions,
     recovery: Option<RecoverySpec>,
     idle_after: Option<std::time::Duration>,
@@ -246,6 +251,7 @@ impl Shell {
             on_visibility: None,
             never_show: false,
             never_show_env: Vec::new(),
+            never_show_env_values: Vec::new(),
             reveal_on_reopen: true,
             lifecycle_only: false,
             qa_instance_exempt: false,
@@ -265,6 +271,7 @@ impl Shell {
             modules: ModuleSet::all(),
             clipboard: clipboard::ClipboardPolicy::default(),
             idle_on_error: None,
+            idle_on_transition: None,
             autostart: autostart::AutostartOptions::default(),
             recovery: None,
             idle_after: None,
@@ -360,8 +367,9 @@ impl ShellBuilder {
         self
     }
     /// Register an environment variable that means never-show for this process when it is set to
-    /// anything but empty, `0`, `false`, `no` or `off` (read at each reveal, so a harness can set it
-    /// before launch). Call it once per name (ScrapeRight: `RIGHTKIT_QA_NATIVE_REAL`).
+    /// exactly `1`, `true`, `yes` or `on` (ASCII case-insensitive; anything else, including empty,
+    /// `0` and unrecognised text, is off; read at each reveal, so a harness can set it before
+    /// launch). Call it once per name (ScrapeRight: `RIGHTKIT_QA_NATIVE_REAL`).
     ///
     /// # Panics
     /// Panics on an empty name or one containing `=` or NUL: a programmer error at startup.
@@ -372,6 +380,23 @@ impl ShellBuilder {
         );
         if !self.never_show_env.iter().any(|n| n == name) {
             self.never_show_env.push(name.to_owned());
+        }
+        self
+    }
+    /// Register an environment variable that means never-show only when it is set to exactly
+    /// `expected` (case-sensitive, no trimming); any other value, or unset, is off. For a harness
+    /// that uses its own token.
+    ///
+    /// # Panics
+    /// Panics on an empty name (or one containing `=` or NUL) or an empty `expected`.
+    pub fn never_show_env_value(mut self, name: &str, expected: &str) -> Self {
+        assert!(
+            !name.is_empty() && !name.contains(['=', '\0']) && !expected.is_empty(),
+            "rightkit-shell: never_show_env_value needs a plain variable name and a non-empty expected value"
+        );
+        let pair = (name.to_owned(), expected.to_owned());
+        if !self.never_show_env_values.contains(&pair) {
+            self.never_show_env_values.push(pair);
         }
         self
     }
@@ -526,6 +551,15 @@ impl ShellBuilder {
         f: impl Fn(&idle::IdleFailure) + Send + Sync + 'static,
     ) -> Self {
         self.idle_on_error = Some(Arc::new(f));
+        self
+    }
+    /// Receive one [`idle::IdleTransition`] each time the main webview is really suspended or
+    /// resumed (window label and elapsed time), for the host's log. Without this nothing changes.
+    pub fn webview_idle_on_transition(
+        mut self,
+        f: impl Fn(&idle::IdleTransition) + Send + Sync + 'static,
+    ) -> Self {
+        self.idle_on_transition = Some(Arc::new(f));
         self
     }
     /// App cache directory to keep usable (default: Tauri's app cache dir).
@@ -767,6 +801,7 @@ fn show_policy_of(cfg: &ShellBuilder) -> lifecycle::ShowPolicy {
     lifecycle::ShowPolicy {
         never_show: cfg.never_show,
         never_show_env: cfg.never_show_env.clone(),
+        never_show_env_values: cfg.never_show_env_values.clone(),
         reveal_on_reopen: cfg.reveal_on_reopen && cfg.modules.contains(Module::RevealOnReopen),
     }
 }
@@ -942,6 +977,7 @@ fn setup(
             idle::IdleHost::new(d)
                 .with_options(options)
                 .with_on_error(cfg.idle_on_error.clone())
+                .with_on_transition(cfg.idle_on_transition.clone())
         }),
         recovery,
         cache_repair: Mutex::new(cache_repair),

@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+- Additive: `impl From<FsError> for std::io::Error`. The `io::ErrorKind` is mapped per variant
+  (`AlreadyExists` stays `AlreadyExists`, `NotFound` for `UnknownId`, `PermissionDenied` for
+  `NotOwned` and `TooPermissive`, `Io`-carrying variants keep their source's kind, and so on), so callers
+  need not re-map "already exists" by text. The original `FsError` is the `io::Error`'s inner error
+  (`get_ref()` / `into_inner()`), and its `source()` chain is kept. Unit tests in `src/error.rs` cover each
+  variant. Not compiled when written.
+
 ## 0.3.4
 
 **Review fixes (2026-10-11, `docs/audits/2026-10-11-astra-rightkit-fs-first-read.md`).** The ten findings of the first independent read, and what changed. Nothing here was compiled or run locally; verification is the CI run.

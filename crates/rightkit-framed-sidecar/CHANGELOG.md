@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+- Additive: `FrameError::json_error(&self) -> Option<&serde_json::Error>` and
+  `FrameError::json_message(&self) -> Option<String>` return the serde error and its bare message
+  (no "json frame failed to deserialize:" prefix) for `FrameError::Json`, and `None` for other variants.
+  `json_message` returns an owned `String` because `serde_json` formats its message on demand. The
+  variant's shape is unchanged. Tests are in `src/lib.rs`. Not compiled when written.
+
 ## 0.2.0 — 2026-10-11
 
 Added (0.2.0, unpublished; additive options, defaults unchanged):

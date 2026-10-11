@@ -70,6 +70,7 @@ impl AnthropicProvider {
         req: &ChatRequest,
         stream: bool,
     ) -> Result<(Request, Option<String>, Value), LlmError> {
+        check_empty_messages(req)?;
         let credential = self
             .credentials
             .credential(&self.id)?
@@ -106,6 +107,26 @@ impl AnthropicProvider {
     }
 }
 
+/// Anthropic has no empty content. With `keep_empty_messages` set, a message with no text is
+/// rejected here, before anything is sent. Without the option the message is sent unchanged,
+/// as before, and the API's own error applies.
+fn check_empty_messages(req: &ChatRequest) -> Result<(), LlmError> {
+    if !req.keep_empty_messages {
+        return Ok(());
+    }
+    let empty = req.messages.iter().position(|m| {
+        m.content
+            .iter()
+            .all(|b| matches!(b, ContentBlock::Text { text } if text.is_empty()))
+    });
+    match empty {
+        Some(i) => Err(LlmError::InvalidRequest(format!(
+            "message {i} has no content; Anthropic rejects empty messages (keep_empty_messages is set)"
+        ))),
+        None => Ok(()),
+    }
+}
+
 /// Build the exact JSON body sent to the API.
 pub fn build_body(req: &ChatRequest, stream: bool) -> Value {
     let auto = req.cache == CacheMode::Auto;
@@ -114,7 +135,7 @@ pub fn build_body(req: &ChatRequest, stream: bool) -> Value {
     body.insert("model".into(), json!(req.model));
     body.insert("max_tokens".into(), json!(req.max_tokens));
     if let Some(t) = req.temperature {
-        body.insert("temperature".into(), json!(t));
+        body.insert("temperature".into(), f32_json(t));
     }
     if !req.stop_sequences.is_empty() {
         body.insert("stop_sequences".into(), json!(req.stop_sequences));

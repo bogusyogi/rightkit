@@ -144,6 +144,25 @@ impl From<serde_json::Error> for FrameError {
     }
 }
 
+impl FrameError {
+    /// The `serde_json` error inside a [`FrameError::Json`]; `None` for every other variant.
+    /// The variant's shape is unchanged.
+    pub fn json_error(&self) -> Option<&serde_json::Error> {
+        match self {
+            FrameError::Json(err) => Some(err),
+            _ => None,
+        }
+    }
+
+    /// The bare serde message for a [`FrameError::Json`], without the
+    /// "json frame failed to deserialize:" prefix that `Display` adds, for example
+    /// ``missing field `id` at line 1 column 9``. `None` for every other variant. It is an owned
+    /// `String` because `serde_json` formats its message on demand rather than storing it.
+    pub fn json_message(&self) -> Option<String> {
+        self.json_error().map(|err| err.to_string())
+    }
+}
+
 /// Default bound on bytes thrown away while resynchronising after an
 /// oversized frame (see [`ReadLimits`]).
 pub const DEFAULT_MAX_DISCARD: usize = 64 * 1024 * 1024;
@@ -827,6 +846,35 @@ mod tests {
     use super::*;
 
     use std::io::{BufReader, Cursor};
+
+    #[test]
+    fn json_message_is_the_bare_serde_message() {
+        let serde_err = serde_json::from_str::<serde_json::Value>("{").unwrap_err();
+        let expected = serde_err.to_string();
+        let err = FrameError::from(serde_err);
+        assert!(err.json_error().is_some());
+        assert_eq!(err.json_message().as_deref(), Some(expected.as_str()));
+        assert!(!err
+            .json_message()
+            .unwrap()
+            .contains("failed to deserialize"));
+        assert!(
+            err.to_string().ends_with(&expected),
+            "Display still wraps the same text"
+        );
+    }
+
+    #[test]
+    fn json_accessors_are_none_for_other_variants() {
+        for err in [
+            FrameError::EmptyLine,
+            FrameError::TooLarge { limit: 4 },
+            FrameError::InvalidUtf8 { len: 2 },
+        ] {
+            assert!(err.json_error().is_none());
+            assert!(err.json_message().is_none());
+        }
+    }
 
     #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
     struct Sample {

@@ -10,6 +10,11 @@
 - `OpenAiCompatProvider::list_models` (`GET {base}/models`) and `validate_credential`, plus `openai::parse_model_ids`.
 - NVIDIA NIM preset `nvidia` (`https://integrate.api.nvidia.com/v1`, from NVIDIA's public API documentation).
 - `with_observer` on both HTTP providers: a `CallRecord` with the sent body and the response or error, never the credential or auth header.
+- `ChatRequest::keep_empty_messages(bool)` (field `keep_empty_messages`, default `false`). Default keeps today's behaviour: an OpenAI-compatible user message with no text is dropped. With `true` it is sent as `""`. Anthropic has no empty content, so with `true` an empty message fails with `LlmError::InvalidRequest` before anything is sent; with the default the message is sent unchanged, as before. Struct literals of `ChatRequest` need the new field too.
+- Behaviour change: an OpenAI-compatible `choices` answer is now two errors, both `LlmError::Malformed`. An absent or null `choices` is `"missing choices field"`; an empty array is `"empty choices array"`. Both were `"missing choices[0]"` before. Matches on the variant still work; text matches on the old message do not.
+- Behaviour change: a first choice with no text (`content` null, absent or not a string), no tool call and no refusal is no longer `Ok("")`. It is `LlmError::Malformed("empty completion: ...")`. An explicit `""` is still accepted and returns `""`. A refusal, or a `finish_reason` of `content_filter` with no text and no tool call, is the new `LlmError::Refused { message }`, which is not a failover trigger. The streaming path is unchanged.
+- `LlmError::Refused { message }` is a new variant. Exhaustive matches on `LlmError` need an arm for it.
+- Behaviour change: `temperature` is written as its shortest decimal that round-trips the `f32`, so `0.3` goes on the wire as `0.3` (was `0.30000001192092896`). Both HTTP providers. The `with_temperature(f32)` signature is unchanged; `temperature` is the only `f32` request field.
 
 ## 0.2.0
 

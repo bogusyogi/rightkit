@@ -10,6 +10,14 @@
 //! * macOS / Linux: WebKit already throttles a hidden view, there is no public suspend call, so the
 //!   shell tracks the state and emits `rightkit-shell://idle` for the app to pause its own timers.
 //!
+//! Controller sequencing (Windows semantics, matching ScrapeRight's `webview_idle.rs`): suspend is
+//! one operation on the WebView2 thread, `SetIsVisible(false)` then `TrySuspend`, and `TrySuspend`
+//! is never called when hiding failed. Resume is one operation, `Resume` then `SetIsVisible(true)`,
+//! and the show is skipped when `Resume` failed. A failed step stays pending in [`Applied`] and is
+//! retried by the next resume request; a resume with nothing hidden or suspended by this shell
+//! makes no controller call. The calls go through the internal [`Controller`] trait so the order
+//! is tested with a fake.
+//!
 //! Hide/show paths owned by the shell (`rk_shell_window hide|show`, tray toggle, close-to-tray,
 //! reveal) feed the machine automatically (a minimise too, with `IdleOptions::start_on_minimize`); an app that hides its window itself calls
 //! [`note_hidden`] / [`note_visible`] (or the `rk_shell_idle_note` command).
@@ -17,7 +25,7 @@
 use std::fmt::Display;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager, Wry};
@@ -233,9 +241,159 @@ impl IdleState {
         }
     }
 
+    /// The platform suspend did not happen (hiding the controller or `TrySuspend` failed): the
+    /// webview is still running, so forget the suspend. A later hide starts a fresh timer.
+    pub fn on_suspend_failed(&mut self) {
+        self.suspended = false;
+    }
+
     /// `(hidden, suspended)`.
     pub fn snapshot(&self) -> (bool, bool) {
         (self.hidden, self.suspended)
+    }
+}
+
+/// A real suspend or resume of the main webview (see [`IdleTransition`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum IdleTransitionKind {
+    Suspended,
+    Resumed,
+}
+
+/// Delivered to the callback set with [`crate::ShellBuilder::webview_idle_on_transition`], once per
+/// transition, after the platform calls succeeded.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct IdleTransition {
+    pub kind: IdleTransitionKind,
+    /// Label of the webview window.
+    pub window: String,
+    /// `Suspended`: how long the window had been hidden. `Resumed`: how long the webview was
+    /// suspended. (For `Suspended` on Windows the `TrySuspend` request was accepted; its later
+    /// completion error still goes to the error callback.)
+    pub elapsed: Duration,
+}
+
+/// Receives [`IdleTransition`]s. Runs on the thread that applied the transition.
+pub type IdleTransitionCallback = Arc<dyn Fn(&IdleTransition) + Send + Sync>;
+
+/// The WebView2 controller calls the sequencing needs. Windows implements them on the real
+/// controller; elsewhere they succeed without effect; tests record and fail them.
+pub(crate) trait Controller {
+    fn set_visible(&mut self, visible: bool) -> Result<(), String>;
+    /// Request `TrySuspend` (accepted, not completed).
+    fn try_suspend(&mut self) -> Result<(), String>;
+    fn resume(&mut self) -> Result<(), String>;
+}
+
+/// What this shell has done to the controller and not yet undone.
+#[derive(Debug, Default)]
+pub(crate) struct Applied {
+    /// This shell hid the controller.
+    pub(crate) hidden: bool,
+    /// This shell suspended the webview.
+    pub(crate) suspended: bool,
+    suspended_at: Option<Instant>,
+    /// `Resume` succeeded but the show did not: the resumed hook fires when the retry succeeds.
+    resumed_for: Option<Duration>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct StepFailure {
+    pub(crate) phase: IdlePhase,
+    pub(crate) error: String,
+}
+
+/// What a resume request did.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ResumeStep {
+    /// Nothing was hidden or suspended by this shell: no controller call was made.
+    Nothing,
+    /// The controller was shown (it had not been suspended).
+    Shown,
+    /// The webview was resumed and shown after being suspended for the duration.
+    Resumed(Duration),
+}
+
+impl Applied {
+    /// Hide the controller (once). A failure leaves the webview visible and running.
+    pub(crate) fn hide(&mut self, c: &mut dyn Controller) -> Result<(), StepFailure> {
+        if self.hidden {
+            return Ok(());
+        }
+        c.set_visible(false).map_err(|error| StepFailure {
+            phase: IdlePhase::Suspend,
+            error: format!("SetIsVisible(false): {error}"),
+        })?;
+        self.hidden = true;
+        Ok(())
+    }
+
+    /// Hide, then suspend; the suspend is not attempted when the hide failed. When `TrySuspend`
+    /// itself fails the controller stays hidden (the window is hidden) but nothing is suspended.
+    pub(crate) fn hide_and_suspend(
+        &mut self,
+        c: &mut dyn Controller,
+        now: Instant,
+    ) -> Result<(), StepFailure> {
+        self.hide(c)?;
+        if self.suspended {
+            return Ok(());
+        }
+        c.try_suspend().map_err(|error| StepFailure {
+            phase: IdlePhase::Suspend,
+            error: format!("TrySuspend: {error}"),
+        })?;
+        self.suspended = true;
+        self.suspended_at = Some(now);
+        Ok(())
+    }
+
+    /// Resume, then show; the show is not attempted when the resume failed. Whatever failed stays
+    /// pending, so the next call retries exactly that step.
+    pub(crate) fn resume_and_show(
+        &mut self,
+        c: &mut dyn Controller,
+        now: Instant,
+    ) -> Result<ResumeStep, StepFailure> {
+        let mut resumed = None;
+        if self.suspended {
+            c.resume().map_err(|error| StepFailure {
+                phase: IdlePhase::Resume,
+                error: format!("Resume: {error}"),
+            })?;
+            self.suspended = false;
+            let for_ = self
+                .suspended_at
+                .take()
+                .map(|at| now.saturating_duration_since(at))
+                .unwrap_or_default();
+            self.resumed_for = Some(for_);
+        }
+        if self.hidden {
+            c.set_visible(true).map_err(|error| StepFailure {
+                phase: IdlePhase::Resume,
+                error: format!("SetIsVisible(true): {error}"),
+            })?;
+            self.hidden = false;
+        }
+        if let Some(for_) = self.resumed_for.take() {
+            resumed = Some(for_);
+        }
+        Ok(match resumed {
+            Some(for_) => ResumeStep::Resumed(for_),
+            None => ResumeStep::Nothing,
+        })
+    }
+}
+
+impl Applied {
+    /// A resume request that found the controller hidden but not suspended reports `Shown`.
+    fn classify(&self, before_hidden: bool, step: ResumeStep) -> ResumeStep {
+        match step {
+            ResumeStep::Nothing if before_hidden => ResumeStep::Shown,
+            other => other,
+        }
     }
 }
 
@@ -245,10 +403,13 @@ pub struct IdleHost {
     pub options: IdleOptions,
     pub minimize: MinimizeTracker,
     pub state: Mutex<IdleState>,
-    /// How many times the platform suspend / resume action ran (diagnostics, QA).
+    /// How many times the platform suspend / resume action succeeded (diagnostics, QA).
     pub counters: Mutex<(u32, u32)>,
     /// Receives platform suspend / resume failures. `None` keeps them silent (the default).
     pub on_error: Option<IdleErrorCallback>,
+    /// Receives suspended / resumed transitions. `None` (the default) changes nothing.
+    pub on_transition: Option<IdleTransitionCallback>,
+    pub(crate) applied: Mutex<Applied>,
 }
 
 impl IdleHost {
@@ -263,6 +424,8 @@ impl IdleHost {
             state: Mutex::new(IdleState::default()),
             counters: Mutex::new((0, 0)),
             on_error: None,
+            on_transition: None,
+            applied: Mutex::new(Applied::default()),
         }
     }
 
@@ -282,6 +445,12 @@ impl IdleHost {
         self
     }
 
+    /// Install (or clear, with `None`) the transition callback.
+    pub fn with_on_transition(mut self, on_transition: Option<IdleTransitionCallback>) -> Self {
+        self.on_transition = on_transition;
+        self
+    }
+
     /// Deliver a failure to the callback, if one is installed. Platform code and tests use this.
     pub fn report_failure(&self, phase: IdlePhase, window: &str, error: &str) {
         self.reporter(window).fail(phase, error);
@@ -291,6 +460,17 @@ impl IdleHost {
         Reporter {
             window: window.to_owned(),
             sink: self.on_error.clone(),
+        }
+    }
+
+    /// Deliver a transition to the callback, if one is installed.
+    pub(crate) fn transition(&self, kind: IdleTransitionKind, window: &str, elapsed: Duration) {
+        if let Some(sink) = &self.on_transition {
+            sink(&IdleTransition {
+                kind,
+                window: window.to_owned(),
+                elapsed,
+            });
         }
     }
 }
@@ -365,51 +545,150 @@ pub fn note_hidden_after(
         return;
     }
     emit(app, host, "hidden");
+    let hidden_at = Instant::now();
     let plan = hide_plan(host.options.controller_hide, controller_already_hidden);
     if plan.now {
-        platform::set_visible(app, false);
+        hide_controller(app);
     }
     let delay = effective_delay(host.suspend_after, suspend_after);
     let app = app.clone();
-    let reporter = host.reporter(&state.main_label);
     let _ = std::thread::Builder::new()
         .name("rk-shell-idle".into())
         .spawn(move || {
             std::thread::sleep(delay);
-            let state = app.state::<ShellState>();
-            let Some(host) = &state.idle else { return };
-            let action = host
-                .state
-                .lock()
-                .unwrap_or_else(|e| e.into_inner())
-                .on_timer(generation);
-            if action == IdleAction::SuspendNow {
-                host.counters.lock().unwrap_or_else(|e| e.into_inner()).0 += 1;
-                if plan.on_timer {
-                    platform::set_visible(&app, false);
-                }
-                platform::suspend(&app, &reporter);
-                emit(&app, host, "suspended");
-            }
+            suspend_controller(&app, generation, hidden_at);
         });
+}
+
+/// Hide the controller as the window hides (`ControllerHide::Immediate`). One operation on the
+/// WebView2 thread; skipped when the window was shown again before it ran.
+fn hide_controller(app: &AppHandle<Wry>) {
+    let state = app.state::<ShellState>();
+    let Some(host) = &state.idle else { return };
+    let reporter = host.reporter(&state.main_label);
+    let app = app.clone();
+    let run = platform::with_controller(&app.clone(), move |c| {
+        let state = app.state::<ShellState>();
+        let Some(host) = &state.idle else { return };
+        let mut applied = host.applied.lock().unwrap_or_else(|e| e.into_inner());
+        let still_hidden = host
+            .state
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .snapshot()
+            .0;
+        if !still_hidden {
+            return;
+        }
+        if let Err(f) = applied.hide(c) {
+            host.reporter(&state.main_label).fail(f.phase, f.error);
+        }
+    });
+    if let Err(e) = run {
+        reporter.fail(IdlePhase::Suspend, e);
+    }
+}
+
+/// The idle timer fired: decide on the WebView2 thread (so a show that raced the timer wins),
+/// then hide and suspend as one operation.
+fn suspend_controller(app: &AppHandle<Wry>, generation: u64, hidden_at: Instant) {
+    let state = app.state::<ShellState>();
+    let Some(host) = &state.idle else { return };
+    let reporter = host.reporter(&state.main_label);
+    let handle = app.clone();
+    let run = platform::with_controller(app, move |c| {
+        let state = handle.state::<ShellState>();
+        let Some(host) = &state.idle else { return };
+        let mut applied = host.applied.lock().unwrap_or_else(|e| e.into_inner());
+        let action = host
+            .state
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .on_timer(generation);
+        if action != IdleAction::SuspendNow {
+            return;
+        }
+        let now = Instant::now();
+        match applied.hide_and_suspend(c, now) {
+            Ok(()) => {
+                host.counters.lock().unwrap_or_else(|e| e.into_inner()).0 += 1;
+                emit(&handle, host, "suspended");
+                host.transition(
+                    IdleTransitionKind::Suspended,
+                    &state.main_label,
+                    now.saturating_duration_since(hidden_at),
+                );
+            }
+            Err(f) => {
+                host.state
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .on_suspend_failed();
+                host.reporter(&state.main_label).fail(f.phase, f.error);
+            }
+        }
+    });
+    if let Err(e) = run {
+        reporter.fail(IdlePhase::Suspend, e);
+    }
+}
+
+/// What a minimise or restore asks of the idle machine, with the delay resolved.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MinimizeAction {
+    /// Start the idle period; the controller is hidden per the options; suspend after the delay.
+    Hide {
+        delay: Duration,
+    },
+    Visible,
+    None,
+}
+
+/// The decision behind [`note_minimized_after`]: the per-hide override applies to a minimise
+/// exactly as it does to [`note_hidden_after`].
+pub fn minimize_action(
+    host_default: Duration,
+    step: MinimizeStep,
+    per_hide: Option<Duration>,
+) -> MinimizeAction {
+    match step {
+        MinimizeStep::Start => MinimizeAction::Hide {
+            delay: effective_delay(host_default, per_hide),
+        },
+        MinimizeStep::End => MinimizeAction::Visible,
+        MinimizeStep::None => MinimizeAction::None,
+    }
 }
 
 /// The main window was minimised (`true`) or restored (`false`). Does nothing unless the host set
 /// `IdleOptions::start_on_minimize`. A restore ends only an idle period a minimise began.
 pub fn note_minimized(app: &AppHandle<Wry>, minimized: bool) {
+    note_minimized_after(app, minimized, None);
+}
+
+/// [`note_minimized`] with a delay for this minimise only (`None`: the host's `suspend_after`),
+/// the same override [`note_hidden_after`] takes.
+pub fn note_minimized_after(
+    app: &AppHandle<Wry>,
+    minimized: bool,
+    suspend_after: Option<Duration>,
+) {
     let state = app.state::<ShellState>();
     let Some(host) = &state.idle else { return };
     if !host.options.start_on_minimize {
         return;
     }
-    match host.minimize.step(minimized) {
-        MinimizeStep::Start => note_hidden_after(app, false, None),
-        MinimizeStep::End => note_visible(app),
-        MinimizeStep::None => {}
+    let step = host.minimize.step(minimized);
+    match minimize_action(host.suspend_after, step, suspend_after) {
+        MinimizeAction::Hide { delay } => note_hidden_after(app, false, Some(delay)),
+        MinimizeAction::Visible => note_visible(app),
+        MinimizeAction::None => {}
     }
 }
 
-/// The main window is visible again.
+/// The main window is visible again. Resume then show as one operation on the WebView2 thread;
+/// a no-op for the controller unless this shell hid or suspended it. A step that failed earlier
+/// is retried here.
 pub fn note_visible(app: &AppHandle<Wry>) {
     let state = app.state::<ShellState>();
     let Some(host) = &state.idle else { return };
@@ -419,18 +698,36 @@ pub fn note_visible(app: &AppHandle<Wry>) {
         .lock()
         .unwrap_or_else(|e| e.into_inner())
         .on_visible();
-    match action {
-        IdleAction::ShowController => {
-            platform::set_visible(app, true);
-            emit(app, host, "visible");
+    let reporter = host.reporter(&state.main_label);
+    let handle = app.clone();
+    let run = platform::with_controller(app, move |c| {
+        let state = handle.state::<ShellState>();
+        let Some(host) = &state.idle else { return };
+        let mut applied = host.applied.lock().unwrap_or_else(|e| e.into_inner());
+        let before_hidden = applied.hidden;
+        let now = Instant::now();
+        match applied.resume_and_show(c, now) {
+            Ok(step) => match applied.classify(before_hidden, step) {
+                ResumeStep::Resumed(for_) => {
+                    host.counters.lock().unwrap_or_else(|e| e.into_inner()).1 += 1;
+                    emit(&handle, host, "resumed");
+                    host.transition(IdleTransitionKind::Resumed, &state.main_label, for_);
+                }
+                ResumeStep::Shown => emit(&handle, host, "visible"),
+                ResumeStep::Nothing => {
+                    if matches!(
+                        action,
+                        IdleAction::ShowController | IdleAction::ResumeAndShowController
+                    ) {
+                        emit(&handle, host, "visible");
+                    }
+                }
+            },
+            Err(f) => host.reporter(&state.main_label).fail(f.phase, f.error),
         }
-        IdleAction::ResumeAndShowController => {
-            host.counters.lock().unwrap_or_else(|e| e.into_inner()).1 += 1;
-            platform::resume(app, &host.reporter(&state.main_label));
-            platform::set_visible(app, true);
-            emit(app, host, "resumed");
-        }
-        _ => {}
+    });
+    if let Err(e) = run {
+        reporter.fail(IdlePhase::Resume, e);
     }
 }
 
@@ -440,84 +737,81 @@ mod platform {
     use crate::winapi::windows::core::Interface;
     use tauri::{AppHandle, Manager, Wry};
 
-    use super::{IdlePhase, Reporter};
+    use super::Controller;
     use crate::ShellState;
 
-    fn main_window(app: &AppHandle<Wry>) -> Option<tauri::WebviewWindow<Wry>> {
-        let label = app.state::<ShellState>().main_label.clone();
-        app.get_webview_window(&label)
+    /// The real controller, as three closures built inside the `with_webview` callback.
+    struct Wv2<'a> {
+        visible: &'a dyn Fn(bool) -> Result<(), String>,
+        suspend: &'a dyn Fn() -> Result<(), String>,
+        resume: &'a dyn Fn() -> Result<(), String>,
     }
 
-    pub fn set_visible(app: &AppHandle<Wry>, visible: bool) {
-        if let Some(w) = main_window(app) {
-            let _ = w.with_webview(move |webview| {
-                // SAFETY: the controller is live for the duration of the closure.
-                let _ = unsafe { webview.controller().SetIsVisible(visible) };
-            });
+    impl Controller for Wv2<'_> {
+        fn set_visible(&mut self, visible: bool) -> Result<(), String> {
+            (self.visible)(visible)
+        }
+        fn try_suspend(&mut self) -> Result<(), String> {
+            (self.suspend)()
+        }
+        fn resume(&mut self) -> Result<(), String> {
+            (self.resume)()
         }
     }
 
-    pub fn suspend(app: &AppHandle<Wry>, reporter: &Reporter) {
-        let Some(w) = main_window(app) else {
-            reporter.fail(IdlePhase::Suspend, "main window not found");
-            return;
-        };
-        let report = reporter.clone();
-        let dispatched = w.with_webview(move |webview| {
-            // SAFETY: COM calls on the live controller inside the webview closure.
-            unsafe {
-                let core = match webview.controller().CoreWebView2() {
-                    Ok(core) => core,
-                    Err(e) => return report.fail(IdlePhase::Suspend, e),
-                };
-                let core3 = match core.cast::<ICoreWebView2_3>() {
-                    Ok(core3) => core3,
-                    Err(e) => return report.fail(IdlePhase::Suspend, e),
-                };
+    /// Run `f` on the WebView2 thread against the main window's controller. `Err`: the closure
+    /// could not be dispatched (window missing, webview gone); `f` did not run.
+    pub fn with_controller(
+        app: &AppHandle<Wry>,
+        f: impl FnOnce(&mut dyn Controller) + Send + 'static,
+    ) -> Result<(), String> {
+        let label = app.state::<ShellState>().main_label.clone();
+        let w = app
+            .get_webview_window(&label)
+            .ok_or_else(|| "main window not found".to_string())?;
+        let report = app
+            .state::<ShellState>()
+            .idle
+            .as_ref()
+            .map(|h| h.reporter(&label));
+        w.with_webview(move |webview| {
+            let controller = webview.controller();
+            let visible = |v: bool| -> Result<(), String> {
+                // SAFETY: COM call on the live controller inside the webview closure.
+                unsafe { controller.SetIsVisible(v) }.map_err(|e| e.to_string())
+            };
+            let core3 = || -> Result<ICoreWebView2_3, String> {
+                // SAFETY: as above.
+                let core = unsafe { controller.CoreWebView2() }.map_err(|e| e.to_string())?;
+                core.cast::<ICoreWebView2_3>().map_err(|e| e.to_string())
+            };
+            let suspend = || -> Result<(), String> {
+                let core3 = core3()?;
                 let completion = report.clone();
                 let handler = crate::winapi::webview2_com::TrySuspendCompletedHandler::create(
                     Box::new(move |error, _suspended| {
-                        if let Err(e) = error {
-                            completion.fail(IdlePhase::Suspend, e);
+                        if let (Err(e), Some(r)) = (error, &completion) {
+                            r.fail(super::IdlePhase::Suspend, e);
                         }
                         Ok(())
                     }),
                 );
-                if let Err(e) = core3.TrySuspend(&handler) {
-                    report.fail(IdlePhase::Suspend, e);
-                }
-            }
-        });
-        if let Err(e) = dispatched {
-            reporter.fail(IdlePhase::Suspend, e);
-        }
-    }
-
-    pub fn resume(app: &AppHandle<Wry>, reporter: &Reporter) {
-        let Some(w) = main_window(app) else {
-            reporter.fail(IdlePhase::Resume, "main window not found");
-            return;
-        };
-        let report = reporter.clone();
-        let dispatched = w.with_webview(move |webview| {
-            // SAFETY: COM calls on the live controller inside the webview closure.
-            unsafe {
-                let core = match webview.controller().CoreWebView2() {
-                    Ok(core) => core,
-                    Err(e) => return report.fail(IdlePhase::Resume, e),
-                };
-                let core3 = match core.cast::<ICoreWebView2_3>() {
-                    Ok(core3) => core3,
-                    Err(e) => return report.fail(IdlePhase::Resume, e),
-                };
-                if let Err(e) = core3.Resume() {
-                    report.fail(IdlePhase::Resume, e);
-                }
-            }
-        });
-        if let Err(e) = dispatched {
-            reporter.fail(IdlePhase::Resume, e);
-        }
+                // SAFETY: as above.
+                unsafe { core3.TrySuspend(&handler) }.map_err(|e| e.to_string())
+            };
+            let resume = || -> Result<(), String> {
+                let core3 = core3()?;
+                // SAFETY: as above.
+                unsafe { core3.Resume() }.map_err(|e| e.to_string())
+            };
+            let mut c = Wv2 {
+                visible: &visible,
+                suspend: &suspend,
+                resume: &resume,
+            };
+            f(&mut c);
+        })
+        .map_err(|e| e.to_string())
     }
 }
 
@@ -525,8 +819,275 @@ mod platform {
 mod platform {
     use tauri::{AppHandle, Wry};
 
-    use super::Reporter;
-    pub fn set_visible(_: &AppHandle<Wry>, _: bool) {}
-    pub fn suspend(_: &AppHandle<Wry>, _: &Reporter) {}
-    pub fn resume(_: &AppHandle<Wry>, _: &Reporter) {}
+    use super::Controller;
+
+    /// No webview suspend call here: every step succeeds without effect, so the state, counters,
+    /// events and hooks behave as on Windows.
+    struct Noop;
+
+    impl Controller for Noop {
+        fn set_visible(&mut self, _: bool) -> Result<(), String> {
+            Ok(())
+        }
+        fn try_suspend(&mut self) -> Result<(), String> {
+            Ok(())
+        }
+        fn resume(&mut self) -> Result<(), String> {
+            Ok(())
+        }
+    }
+
+    pub fn with_controller(
+        _: &AppHandle<Wry>,
+        f: impl FnOnce(&mut dyn Controller) + Send + 'static,
+    ) -> Result<(), String> {
+        f(&mut Noop);
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::HashSet;
+    use std::sync::atomic::AtomicUsize;
+
+    /// Records every call in order; any named call can be made to fail.
+    #[derive(Default)]
+    struct Fake {
+        calls: Vec<&'static str>,
+        failing: HashSet<&'static str>,
+    }
+
+    impl Fake {
+        fn failing(names: &[&'static str]) -> Self {
+            Self {
+                failing: names.iter().copied().collect(),
+                ..Self::default()
+            }
+        }
+        fn call(&mut self, name: &'static str) -> Result<(), String> {
+            self.calls.push(name);
+            if self.failing.contains(name) {
+                Err(format!("{name} failed"))
+            } else {
+                Ok(())
+            }
+        }
+    }
+
+    impl Controller for Fake {
+        fn set_visible(&mut self, visible: bool) -> Result<(), String> {
+            self.call(if visible { "show" } else { "hide" })
+        }
+        fn try_suspend(&mut self) -> Result<(), String> {
+            self.call("suspend")
+        }
+        fn resume(&mut self) -> Result<(), String> {
+            self.call("resume")
+        }
+    }
+
+    #[test]
+    fn suspend_is_hide_then_suspend() {
+        let (mut a, mut c) = (Applied::default(), Fake::default());
+        a.hide_and_suspend(&mut c, Instant::now()).unwrap();
+        assert_eq!(c.calls, ["hide", "suspend"]);
+        assert!(a.hidden && a.suspended);
+    }
+
+    #[test]
+    fn a_failed_hide_means_no_suspend_and_a_running_webview() {
+        let (mut a, mut c) = (Applied::default(), Fake::failing(&["hide"]));
+        let f = a.hide_and_suspend(&mut c, Instant::now()).unwrap_err();
+        assert_eq!(f.phase, IdlePhase::Suspend);
+        assert_eq!(c.calls, ["hide"], "TrySuspend must not run");
+        assert!(!a.hidden && !a.suspended);
+    }
+
+    #[test]
+    fn an_immediate_hide_is_not_repeated_by_the_suspend() {
+        let (mut a, mut c) = (Applied::default(), Fake::default());
+        a.hide(&mut c).unwrap();
+        a.hide_and_suspend(&mut c, Instant::now()).unwrap();
+        assert_eq!(c.calls, ["hide", "suspend"]);
+    }
+
+    #[test]
+    fn a_failed_immediate_hide_is_retried_by_the_suspend() {
+        let (mut a, mut c) = (Applied::default(), Fake::failing(&["hide"]));
+        assert!(a.hide(&mut c).is_err());
+        c.failing.clear();
+        a.hide_and_suspend(&mut c, Instant::now()).unwrap();
+        assert_eq!(c.calls, ["hide", "hide", "suspend"]);
+    }
+
+    #[test]
+    fn a_failed_try_suspend_leaves_the_controller_hidden_not_suspended() {
+        let (mut a, mut c) = (Applied::default(), Fake::failing(&["suspend"]));
+        assert!(a.hide_and_suspend(&mut c, Instant::now()).is_err());
+        assert!(a.hidden && !a.suspended);
+        // Resume then shows only.
+        c.calls.clear();
+        assert_eq!(
+            a.resume_and_show(&mut c, Instant::now()).unwrap(),
+            ResumeStep::Nothing
+        );
+        assert_eq!(c.calls, ["show"]);
+    }
+
+    #[test]
+    fn resume_is_resume_then_show() {
+        let (mut a, mut c) = (Applied::default(), Fake::default());
+        let t0 = Instant::now();
+        a.hide_and_suspend(&mut c, t0).unwrap();
+        c.calls.clear();
+        let step = a
+            .resume_and_show(&mut c, t0 + Duration::from_secs(5))
+            .unwrap();
+        assert_eq!(c.calls, ["resume", "show"]);
+        assert_eq!(step, ResumeStep::Resumed(Duration::from_secs(5)));
+        assert!(!a.hidden && !a.suspended);
+    }
+
+    #[test]
+    fn a_failed_resume_means_no_show_and_an_error_then_retries() {
+        let (mut a, mut c) = (Applied::default(), Fake::default());
+        a.hide_and_suspend(&mut c, Instant::now()).unwrap();
+        c.calls.clear();
+        c.failing.insert("resume");
+        let f = a.resume_and_show(&mut c, Instant::now()).unwrap_err();
+        assert_eq!(f.phase, IdlePhase::Resume);
+        assert_eq!(c.calls, ["resume"], "no show after a failed resume");
+        assert!(a.hidden && a.suspended, "still pending");
+        c.failing.clear();
+        c.calls.clear();
+        assert!(matches!(
+            a.resume_and_show(&mut c, Instant::now()),
+            Ok(ResumeStep::Resumed(_))
+        ));
+        assert_eq!(c.calls, ["resume", "show"]);
+    }
+
+    #[test]
+    fn a_failed_show_is_surfaced_and_retried_on_the_next_request_without_resuming_again() {
+        let (mut a, mut c) = (Applied::default(), Fake::default());
+        a.hide_and_suspend(&mut c, Instant::now()).unwrap();
+        c.calls.clear();
+        c.failing.insert("show");
+        let f = a.resume_and_show(&mut c, Instant::now()).unwrap_err();
+        assert_eq!(f.phase, IdlePhase::Resume);
+        assert_eq!(c.calls, ["resume", "show"]);
+        assert!(a.hidden && !a.suspended);
+        c.failing.clear();
+        c.calls.clear();
+        let step = a.resume_and_show(&mut c, Instant::now()).unwrap();
+        assert_eq!(c.calls, ["show"]);
+        assert!(
+            matches!(step, ResumeStep::Resumed(_)),
+            "resumed hook still fires once"
+        );
+        // And a further request is a no-op.
+        c.calls.clear();
+        assert_eq!(
+            a.resume_and_show(&mut c, Instant::now()).unwrap(),
+            ResumeStep::Nothing
+        );
+        assert!(c.calls.is_empty());
+    }
+
+    #[test]
+    fn resume_with_nothing_suspended_makes_no_call() {
+        let (mut a, mut c) = (Applied::default(), Fake::default());
+        assert_eq!(
+            a.resume_and_show(&mut c, Instant::now()).unwrap(),
+            ResumeStep::Nothing
+        );
+        assert!(c.calls.is_empty());
+    }
+
+    #[test]
+    fn a_hide_alone_is_undone_by_a_show_alone() {
+        let (mut a, mut c) = (Applied::default(), Fake::default());
+        a.hide(&mut c).unwrap();
+        c.calls.clear();
+        let step = a.resume_and_show(&mut c, Instant::now()).unwrap();
+        assert_eq!(c.calls, ["show"]);
+        assert_eq!(a.classify(true, step), ResumeStep::Shown);
+    }
+
+    #[test]
+    fn a_failed_suspend_is_forgotten_by_the_state_machine() {
+        let mut s = IdleState::default();
+        let (g, _) = s.on_hidden();
+        assert_eq!(s.on_timer(g), IdleAction::SuspendNow);
+        s.on_suspend_failed();
+        assert_eq!(s.snapshot(), (true, false));
+        let (_, action) = s.on_hidden();
+        assert_eq!(action, IdleAction::HideControllerAndStartTimer);
+    }
+
+    #[test]
+    fn the_transition_hook_fires_once_per_call_and_is_silent_when_unset() {
+        let count = Arc::new(AtomicUsize::new(0));
+        let seen = Arc::new(Mutex::new(Vec::new()));
+        let (c2, s2) = (count.clone(), seen.clone());
+        let host = IdleHost::new(Duration::from_secs(1)).with_on_transition(Some(Arc::new(
+            move |t: &IdleTransition| {
+                c2.fetch_add(1, Ordering::SeqCst);
+                s2.lock().unwrap().push(t.clone());
+            },
+        )));
+        host.transition(
+            IdleTransitionKind::Suspended,
+            "main",
+            Duration::from_secs(30),
+        );
+        host.transition(IdleTransitionKind::Resumed, "main", Duration::from_secs(4));
+        assert_eq!(count.load(Ordering::SeqCst), 2);
+        let seen = seen.lock().unwrap();
+        assert_eq!(seen[0].kind, IdleTransitionKind::Suspended);
+        assert_eq!(seen[0].window, "main");
+        assert_eq!(seen[0].elapsed, Duration::from_secs(30));
+        assert_eq!(seen[1].kind, IdleTransitionKind::Resumed);
+        // Unset: no panic, no effect.
+        IdleHost::new(Duration::from_secs(1)).transition(
+            IdleTransitionKind::Suspended,
+            "main",
+            Duration::ZERO,
+        );
+    }
+
+    #[test]
+    fn the_minimise_trigger_honours_a_per_hide_delay() {
+        let host = Duration::from_secs(30);
+        assert_eq!(
+            minimize_action(host, MinimizeStep::Start, None),
+            MinimizeAction::Hide { delay: host }
+        );
+        assert_eq!(
+            minimize_action(host, MinimizeStep::Start, Some(Duration::from_secs(2))),
+            MinimizeAction::Hide {
+                delay: Duration::from_secs(2)
+            }
+        );
+        assert_eq!(
+            minimize_action(
+                host,
+                MinimizeStep::Start,
+                Some(Duration::from_secs(10 * 24 * 3600))
+            ),
+            MinimizeAction::Hide {
+                delay: MAX_SUSPEND_AFTER
+            }
+        );
+        assert_eq!(
+            minimize_action(host, MinimizeStep::End, Some(Duration::ZERO)),
+            MinimizeAction::Visible
+        );
+        assert_eq!(
+            minimize_action(host, MinimizeStep::None, None),
+            MinimizeAction::None
+        );
+    }
 }

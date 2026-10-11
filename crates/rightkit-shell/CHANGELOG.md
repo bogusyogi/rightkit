@@ -5,7 +5,24 @@ version is `0.x`, a minor bump may carry breaking changes.
 
 ## Unreleased
 
-Additive. The one behaviour change is `lifecycle_only` only, and is called out below.
+- **Webview idle matches ScrapeRight's WebView2 ordering.** Suspend is one operation on the WebView2
+  thread, `SetIsVisible(false)` then `TrySuspend`; a failed hide means no suspend, the webview stays
+  visible and running, the failure goes to `webview_idle_on_error`, and the next hide starts a fresh timer.
+  Resume is one operation, `Resume` then `SetIsVisible(true)`; a failed resume means no show, and a failed
+  show is no longer swallowed: either is reported and retried by the next resume request. Resume makes no
+  controller call unless this shell hid or suspended the webview. The idle timer is decided on the
+  WebView2 thread, so a show that races it wins. Counters now count successful transitions.
+- **`ShellBuilder::webview_idle_on_transition(|t| ..)`**: `IdleTransition { kind: Suspended | Resumed,
+  window, elapsed }`, once per real transition (Suspended: time hidden; Resumed: time suspended). Unset: no
+  change.
+- **`idle::note_minimized_after(app, minimized, Option<Duration>)`** (and `minimize_action`): the minimise
+  trigger takes the per-hide delay `note_hidden_after` takes. `note_minimized` is unchanged (`None`).
+- **Behaviour change, `never_show_env`.** Only `1`, `true`, `yes`, `on` (ASCII case-insensitive, exact, no
+  trimming) mean never-show; every other value, including `native` or padded text, is now off (previously
+  any value but empty/`0`/`false`/`no`/`off`). New `ShellBuilder::never_show_env_value(name, expected)`
+  matches only that exact value. Empty names panic at startup as before.
+
+Additive otherwise. The one behaviour change is `lifecycle_only` only, and is called out below.
 
 - **Placement announced.** When a webview becomes ready the shell emits the app event `rk-shell:placement` `{label, phase:"begin"}`, runs window-state restore, then emits `{label, phase:"done"}` queued on the main thread behind the restore's size and position calls (`windows::with_placement_announced`, `windows::EVENT_PLACEMENT`). `rightkit-control` holds `set_viewport` until `done`, which fixes the first viewport request after a hidden launch being overridden by the late restore (1440x900 requested, 1440x789 settled). Announcing never shows, orders or focuses a window and runs under never-show too.
 - **One visibility guard.** Every path that shows, unminimises or focuses a window asks

@@ -73,13 +73,25 @@ pub enum RevealMode {
     Foreground,
 }
 
-/// True when an environment value means "never show": set, and not empty, `0`, `false`, `no`
-/// or `off` (case-insensitive).
+/// The documented truthy values for a never-show environment variable, compared exactly
+/// (ASCII case-insensitive, no trimming).
+pub const NEVER_SHOW_TRUTHY: [&str; 4] = ["1", "true", "yes", "on"];
+
+/// True when an environment value means "never show": exactly one of [`NEVER_SHOW_TRUTHY`]
+/// (`1`, `true`, `yes`, `on`), ASCII case-insensitive. Anything else (unset, empty, `0`, padded or
+/// unrecognised text) is off.
 pub fn env_means_never_show(value: Option<&OsStr>) -> bool {
-    let Some(value) = value else { return false };
-    let text = value.to_string_lossy();
-    let text = text.trim().to_ascii_lowercase();
-    !(text.is_empty() || matches!(text.as_str(), "0" | "false" | "no" | "off"))
+    let Some(value) = value.and_then(|v| v.to_str()) else {
+        return false;
+    };
+    NEVER_SHOW_TRUTHY
+        .iter()
+        .any(|truthy| value.eq_ignore_ascii_case(truthy))
+}
+
+/// True when the value is exactly `expected` (case-sensitive, no trimming).
+pub fn env_equals(value: Option<&OsStr>, expected: &str) -> bool {
+    value.is_some_and(|v| v == OsStr::new(expected))
 }
 
 /// The host's say over window visibility, evaluated by [`ShowPolicy::mode`].
@@ -88,8 +100,11 @@ pub struct ShowPolicy {
     /// Host-declared: the shell never shows, unminimises or focuses a window, and on macOS the app
     /// is a Prohibited-activation app.
     pub never_show: bool,
-    /// Extra environment variables that mean never-show when set (see [`env_means_never_show`]).
+    /// Extra environment variables that mean never-show when set to a truthy value (see [`env_means_never_show`]).
     pub never_show_env: Vec<String>,
+    /// Environment variables that mean never-show only when set to exactly the paired value
+    /// (see [`env_equals`]), for a harness whose variable uses its own token.
+    pub never_show_env_values: Vec<(String, String)>,
     /// Whether `Reopen` and `Opened` may reveal at all (also needs the module).
     pub reveal_on_reopen: bool,
 }
@@ -99,6 +114,7 @@ impl Default for ShowPolicy {
         Self {
             never_show: false,
             never_show_env: Vec::new(),
+            never_show_env_values: Vec::new(),
             reveal_on_reopen: true,
         }
     }
@@ -112,6 +128,10 @@ impl ShowPolicy {
                 .never_show_env
                 .iter()
                 .any(|name| env_means_never_show(env(name).as_deref()))
+            || self
+                .never_show_env_values
+                .iter()
+                .any(|(name, expected)| env_equals(env(name).as_deref(), expected))
     }
 
     /// [`ShowPolicy::is_never_show`] against the process environment.

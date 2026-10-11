@@ -9,8 +9,23 @@ Additive on 0.2.0: existing defaults, signatures and behaviour for default optio
 Closes the behaviour ScrapeRight lost when it moved from spawning `whisper-cli` to this crate.
 Not compiled or run when written.
 
+### Audio
+
+- `load_wav_mono_16k_head(path, max_duration: Duration) -> Result<Vec<f32>, WavLoadError>`: the first
+  `max_duration` of a WAV file as mono 16 kHz `f32`, for language identification. Reading stops once the
+  requested frames are in hand. Accepts 16, 24 and 32-bit integer PCM and 32-bit float, multi-channel
+  averaged to mono. The crate has no resampler, so a rate other than 16 kHz is
+  `WavLoadError::UnsupportedSampleRate`. `WavLoadError` (`Io`, `Malformed`, `UnsupportedFormat { float,
+  bits_per_sample }`, `UnsupportedSampleRate`, `NoChannels`, `NonFiniteSample`) implements `Error` and
+  converts into `Error::Audio`. `load_wav_mono_16k` is unchanged.
+
 ### Whisper
 
+- Progress probe: `WhisperOptions::progress_probe: Option<ProgressProbe>` (`Whisper::set_progress_probe`).
+  `ProgressProbe` is a cloneable, `Send + Sync` handle with `completed_windows()`, `total_windows()`,
+  `samples_completed()`, `samples_total()` and `fraction()`, updated by the decode loop with atomics. It
+  needs no callback, so a borrowed non-`Sync` host closure is not required. `ProgressCallback` is unchanged.
+  Adding the field means struct literals of `WhisperOptions` need `..Default::default()`.
 - Cancel: `WhisperOptions::cancel: Option<CancelToken>` (`Whisper::set_cancel`). Polled in whisper.cpp's abort
   callback (an in-flight window stops promptly) and between windows. A stopped run returns the new
   `Error::Interrupted(Box<WhisperInterrupted>)` with `reason: InterruptReason::Cancelled`;

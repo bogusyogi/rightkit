@@ -5,7 +5,9 @@
 //!
 //! Sample offsets are integers: window starts are sample indices, so segment
 //! and word sample positions across windows add without float arithmetic.
-use super::control::{check_interrupt, deadline_after, earliest, CancelToken, ProgressCallback};
+use super::control::{
+    check_interrupt, deadline_after, earliest, CancelToken, ProgressCallback, ProgressProbe,
+};
 use super::{
     DecodeOptions, InterruptReason, Segment, WhisperProgress, WindowDecoder, WindowOutput,
     WindowRequest, WordSpan,
@@ -74,12 +76,19 @@ pub(crate) struct RunControl<'a> {
     /// Bound for each window's decode, measured from that window's start.
     pub window_deadline: Option<Duration>,
     pub progress: Option<&'a ProgressCallback>,
+    /// Polled progress sink, updated alongside `progress`.
+    pub probe: Option<&'a ProgressProbe>,
 }
 
 impl RunControl<'_> {
     #[cfg(test)]
     pub fn none() -> Self {
-        RunControl { cancel: None, total_deadline: None, window_deadline: None, progress: None }
+        RunControl { cancel: None, total_deadline: None, window_deadline: None, progress: None, probe: None }
+    }
+
+    /// True when some progress sink (callback or probe) wants events.
+    fn reports(&self) -> bool {
+        self.progress.is_some() || self.probe.is_some()
     }
 }
 
@@ -112,23 +121,32 @@ pub(crate) fn estimate_windows(total_samples: usize) -> usize {
 /// patterns of non-negative floats order like the floats, so `fetch_max` on the
 /// bits keeps the largest value seen.
 fn emit_progress(
-    cb: &ProgressCallback,
+    ctl: &RunControl<'_>,
     last_bits: &AtomicU32,
     windows_completed: usize,
     windows_estimated: usize,
     samples_completed: usize,
     samples_total: usize,
 ) {
+    if !ctl.reports() {
+        return;
+    }
     let raw = if samples_total == 0 { 1.0 } else { samples_completed as f32 / samples_total as f32 };
     let bits = raw.clamp(0.0, 1.0).to_bits();
     let prev = last_bits.fetch_max(bits, Ordering::SeqCst);
-    cb.call(&WhisperProgress {
+    let p = WhisperProgress {
         windows_completed,
         windows_estimated: windows_estimated.max(windows_completed),
         samples_completed: samples_completed.min(samples_total),
         samples_total,
         fraction: f32::from_bits(prev.max(bits)),
-    });
+    };
+    if let Some(probe) = ctl.probe {
+        probe.publish(&p);
+    }
+    if let Some(cb) = ctl.progress {
+        cb.call(&p);
+    }
 }
 
 /// Decode `audio` window by window. `forced` fixes the language; otherwise it
@@ -151,6 +169,9 @@ pub(crate) fn transcribe_windowed(
     let total = audio.len();
     let estimated = estimate_windows(total);
     let last_bits = AtomicU32::new(0f32.to_bits());
+    if let Some(probe) = ctl.probe {
+        probe.begin(estimated, total);
+    }
     let mut windows_done = 0usize;
     let mut start = 0usize;
     let stop = |reason: InterruptReason, mut out: WindowOutput, lang: Option<String>, done: usize| {
@@ -177,13 +198,11 @@ pub(crate) fn transcribe_windowed(
             );
             let done_before = windows_done;
             let in_window = |p: f32| {
-                if let Some(cb) = ctl.progress {
-                    let at = start + (p.clamp(0.0, 1.0) * window.len() as f32) as usize;
-                    emit_progress(cb, &last_bits, done_before, estimated, at, total);
-                }
+                let at = start + (p.clamp(0.0, 1.0) * window.len() as f32) as usize;
+                emit_progress(ctl, &last_bits, done_before, estimated, at, total);
             };
             let progress: Option<&(dyn Fn(f32) + Sync)> =
-                if ctl.progress.is_some() { Some(&in_window) } else { None };
+                if ctl.reports() { Some(&in_window) } else { None };
             let req = WindowRequest {
                 lang: lang.as_deref(),
                 timed: opts.timed,
@@ -222,10 +241,8 @@ pub(crate) fn transcribe_windowed(
                 probability: w.probability,
             }));
             windows_done += 1;
-            if let Some(cb) = ctl.progress {
-                let est = if end >= total { windows_done } else { estimated };
-                emit_progress(cb, &last_bits, windows_done, est, end, total);
-            }
+            let est = if end >= total { windows_done } else { estimated };
+            emit_progress(ctl, &last_bits, windows_done, est, end, total);
         }
         if end >= total {
             break;
@@ -513,6 +530,20 @@ mod tests {
         assert_eq!(last.windows_estimated, last.windows_completed, "exact once the last window is done");
         assert!(ev[0].fraction > 0.0 && ev[0].fraction < 0.5);
         assert!(ev.iter().all(|e| e.samples_total == audio.len()));
+    }
+
+    #[test]
+    fn probe_is_updated_by_the_decode_loop_without_a_callback() {
+        let audio = tone(70);
+        let probe = ProgressProbe::new();
+        let ctl = RunControl { probe: Some(&probe), ..RunControl::none() };
+        let mut m = Fake { progress_points: vec![0.25, 0.75], ..Fake::default() };
+        run(&mut m, &audio, &ctl).unwrap();
+        assert_eq!(probe.completed_windows(), 3);
+        assert_eq!(probe.total_windows(), 3);
+        assert_eq!(probe.samples_completed(), audio.len());
+        assert_eq!(probe.samples_total(), audio.len());
+        assert_eq!(probe.fraction(), 1.0);
     }
 
     #[test]

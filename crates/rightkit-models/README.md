@@ -128,6 +128,23 @@ let model_file = ensure_whisper_model(WhisperKind::Ggml, "heardright", Some(&ent
   until the route serves the archive. `resolve_whisper_model` returns `NotFound`
   until then.
 
+## Wrapping this crate
+
+An app that wraps the suite crate (a shared-store wrapper or a host SDK) re-exports the
+handle types at the crate root, so the wrapper and its callers need only one import path:
+
+```rust
+use rightkit_models::{EntitlementError, ModelStore};
+use rightkit_models::suite::catalog::ModelSpec; // the suite's catalog spec, not the root `ModelSpec`
+```
+
+- `ModelStore::shared(app_id)` binds the shared Orthic Labs store; `ModelStore::at_models_root(root, app_id)`
+  binds an explicit directory (tests, sandboxes). `with_http_client` swaps the transport.
+- `EntitlementError` is what `try_ensure_entitled` returns. Match on it to tell "not entitled"
+  (`NotEntitled`), "back off" (`RateLimited`), "retry" (`Transport`) and "local failure" (`Install`).
+- The root `ModelSpec` re-export is the declarative manifest type from `spec`. The suite's catalog
+  type is `suite::catalog::ModelSpec`, and `try_ensure_entitled` takes that one.
+
 ## Entitlement downloads and bounded lease waits
 
 Two ways to call the entitlement-gated add-on download. They differ in the bearer
@@ -137,9 +154,10 @@ they take, so check which one you call:
   take the full `Authorization` header value, for example `Bearer <token>`, and send it
   unchanged. A bare token is not corrected, so the server answers 401.
 - `ModelStore::try_ensure_entitled(spec, token, ...)` takes the raw token. The crate
-  sends `Authorization: Bearer <token>`. A value starting with `Bearer ` (any case), an
-  empty value, or one with whitespace or non-ASCII characters is refused before any
-  request with `EntitlementError::InvalidRequest`.
+  sends `Authorization: Bearer <token>`. Surrounding whitespace and one leading `Bearer `
+  (any case) are stripped, so a pasted `Authorization` value works. A value that is then
+  empty, or still has whitespace or non-ASCII characters, is refused before any request
+  with `EntitlementError::InvalidRequest`.
 
 `try_ensure_entitled` returns typed errors so an app can branch on them:
 `NotEntitled { status }` for 401 or 403; `Refused { status, message }` for other

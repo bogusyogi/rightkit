@@ -49,6 +49,13 @@ Illustrative; not compiled as a doctest. The compiled references are `tests/poli
   reveal path goes through `lifecycle::reveal_mode`; the host's own direct window calls are outside it.
 - `.reveal_on_reopen(false)` (or `ShellPlugin::builder().without(Module::RevealOnReopen)`): Dock reopen and
   opened URLs no longer reveal; links still deliver.
+- `never_show_env(name)` counts only `1`, `true`, `yes`, `on` (case-insensitive, exact); other values are off.
+  `never_show_env_value(name, "token")` matches that exact value only.
+- Idle ordering (Windows): suspend = `SetIsVisible(false)` then `TrySuspend`, skipped if the hide failed;
+  resume = `Resume` then `SetIsVisible(true)`, skipped if the resume failed; failures reach
+  `webview_idle_on_error` and are retried on the next resume; resume does nothing if this shell did not hide
+  or suspend. `webview_idle_on_transition(|t| ..)` logs real suspends and resumes with elapsed time;
+  `idle::note_minimized_after` takes a per-minimise delay.
 - `.webview_idle_options(IdleOptions { start_on_minimize: true, controller_hide: ControllerHide::OnTimer,
   events: IdleEvents::NativeSuspendOnly, ..Default::default() })`. Defaults match `webview_idle(30 s)`.
 - `lifecycle_only` leaves `ShowOnReady` and the cache repair off unless the host calls `show_on_ready(true)` /
