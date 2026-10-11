@@ -65,7 +65,8 @@ pub enum HttpError {
     /// The call was cancelled through a [`crate::CancelToken`].
     Cancelled,
     /// [`ProxyMode::System`](crate::ProxyMode::System): the Windows proxy settings route HTTP
-    /// and HTTPS differently (two proxies, or a proxy for one of them only). A client uses
+    /// and HTTPS differently (two proxies, a proxy for one of them only, or a bypass entry
+    /// limited to one scheme such as `https://host`). A client uses
     /// one proxy for both, so it sends nothing rather than use the wrong proxy or none.
     /// The user can set one proxy for both in the Windows proxy settings; the app can use
     /// `ProxyMode::Explicit` or `ProxyMode::Environment`. Never retried.

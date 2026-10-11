@@ -48,6 +48,12 @@ pub(crate) enum SystemProxyChoice {
         http: Option<String>,
         https: Option<String>,
     },
+    /// One endpoint serves both schemes, but the bypass list holds an entry limited to one
+    /// scheme (`https://host`): that host connects directly for one scheme and through the
+    /// proxy for the other. A by-host bypass cannot say that. Dropping the entry would send
+    /// traffic the user configured as direct through the proxy; keeping the host would send
+    /// the other scheme around it. So this is per-scheme routing too, and is reported.
+    ScopedBypass,
 }
 
 /// The endpoint each request scheme uses, as Windows resolves a static proxy string.
@@ -104,21 +110,27 @@ pub(crate) fn endpoints_by_scheme(proxy: &str) -> (Option<String>, Option<String
 
 /// The bypass entries that hold for every scheme, as `NO_PROXY` entries.
 ///
-/// A host name is kept as it is and `*.example.com` becomes `.example.com`. Dropped, so that
-/// those hosts go through the proxy instead of connecting directly:
+/// A host name is kept as it is and `*.example.com` becomes `.example.com`.
 ///
-/// * an entry limited to one scheme (`https://host`): the `NO_PROXY` form is by host only, and
-///   keeping the host would also bypass the proxy for the other scheme;
+/// `None` when an entry is limited to one scheme (`https://host`): the `NO_PROXY` form is by
+/// host only, so the entry can be neither kept (the other scheme would go around the proxy)
+/// nor dropped (the scheme it names would go through the proxy), and the caller reports it.
+///
+/// Dropped, so that those hosts go through the proxy instead of connecting directly:
+///
 /// * `<local>` (names without a dot);
 /// * a pattern with a wildcard anywhere but the front (`10.*`).
-pub(crate) fn bypass_for_every_scheme(bypass: &str) -> Vec<String> {
+pub(crate) fn bypass_for_every_scheme(bypass: &str) -> Option<Vec<String>> {
     let mut no_proxy = Vec::new();
     for entry in bypass
         .split(|c: char| c == ';' || c.is_whitespace())
         .map(str::trim)
         .filter(|e| !e.is_empty())
     {
-        if entry.eq_ignore_ascii_case("<local>") || entry.contains("://") {
+        if entry.contains("://") {
+            return None;
+        }
+        if entry.eq_ignore_ascii_case("<local>") {
             continue;
         }
         let host = entry.strip_prefix('*').unwrap_or(entry);
@@ -129,7 +141,7 @@ pub(crate) fn bypass_for_every_scheme(bypass: &str) -> Vec<String> {
             no_proxy.push(host.to_string());
         }
     }
-    no_proxy
+    Some(no_proxy)
 }
 
 /// What `settings` mean for a client with one proxy for every request.
@@ -139,9 +151,12 @@ pub(crate) fn proxy_choice(settings: &SystemProxySettings) -> SystemProxyChoice 
     match (http, https) {
         (None, None) => SystemProxyChoice::None,
         (Some(http), Some(https)) if http.eq_ignore_ascii_case(&https) => {
-            SystemProxyChoice::Single {
-                url: http,
-                no_proxy: bypass_for_every_scheme(settings.bypass.as_deref().unwrap_or_default()),
+            match bypass_for_every_scheme(settings.bypass.as_deref().unwrap_or_default()) {
+                Some(no_proxy) => SystemProxyChoice::Single {
+                    url: http,
+                    no_proxy,
+                },
+                None => SystemProxyChoice::ScopedBypass,
             }
         }
         (http, https) => SystemProxyChoice::PerScheme { http, https },
@@ -370,22 +385,40 @@ mod tests {
             bypass_for_every_scheme(
                 "localhost; *.corp.example ;intranet <local>;10.*;localhost;*;."
             ),
-            vec!["localhost", ".corp.example", "intranet"]
+            Some(vec![
+                "localhost".to_string(),
+                ".corp.example".to_string(),
+                "intranet".to_string()
+            ])
         );
     }
 
     #[test]
-    fn a_bypass_entry_limited_to_one_scheme_is_not_widened_to_both() {
-        // `https://only.example` bypasses the proxy for HTTPS alone. Kept as a host it would
-        // also send plain HTTP to that host around the proxy, so it is dropped and both
-        // schemes go through the proxy.
+    fn a_bypass_entry_limited_to_one_scheme_is_reported_not_widened_or_dropped() {
+        // Fifth read, finding 11. `https://only.example` bypasses the proxy for HTTPS alone.
+        // Kept as a host it would also send plain HTTP around the proxy; dropped, the HTTPS
+        // traffic the user configured as direct would go through the proxy. Neither happens.
+        for bypass in [
+            "https://only.example;both.example",
+            "both.example;http://plain.example",
+            "HTTP://plain.example",
+        ] {
+            assert_eq!(bypass_for_every_scheme(bypass), None, "{bypass}");
+            assert_eq!(
+                proxy_choice(&settings("p:1", bypass)),
+                SystemProxyChoice::ScopedBypass,
+                "{bypass}"
+            );
+        }
+        // Without a proxy there is nothing to bypass, whatever the list says.
         assert_eq!(
-            bypass_for_every_scheme("https://only.example;http://plain.example;both.example"),
-            vec!["both.example"]
+            proxy_choice(&settings("", "https://only.example")),
+            SystemProxyChoice::None
         );
-        assert_eq!(
-            proxy_choice(&settings("p:1", "https://only.example;both.example")),
-            single("http://p:1", &["both.example"])
-        );
+        // Two endpoints are reported as that, with or without a scoped entry.
+        assert!(matches!(
+            proxy_choice(&settings("http=h:80;https=s:443", "https://only.example")),
+            SystemProxyChoice::PerScheme { .. }
+        ));
     }
 }

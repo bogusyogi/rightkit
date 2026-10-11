@@ -311,7 +311,8 @@ impl ClientConfig {
 /// Settings that route `http` and `https` differently (two endpoints, or a proxy for one
 /// scheme and a direct connection for the other) are an error. A client uses one proxy for
 /// every request, so following them would send one scheme to the endpoint configured for the
-/// other, or around the proxy. The client then fails closed, as for any invalid proxy setting.
+/// other, or around the proxy. A bypass entry limited to one scheme (`https://host`) is the
+/// same thing for one host. The client then fails closed, as for any invalid proxy setting.
 pub(crate) fn proxy_from_system(
     settings: &crate::system_proxy::SystemProxySettings,
 ) -> Result<Option<ResolvedProxy>, HttpError> {
@@ -324,7 +325,9 @@ pub(crate) fn proxy_from_system(
                 proxy
             }))
         }
-        SystemProxyChoice::PerScheme { .. } => Err(HttpError::SystemProxyPerScheme),
+        SystemProxyChoice::PerScheme { .. } | SystemProxyChoice::ScopedBypass => {
+            Err(HttpError::SystemProxyPerScheme)
+        }
     }
 }
 
@@ -1881,12 +1884,11 @@ mod tests {
         use crate::system_proxy::SystemProxySettings;
         let proxy = proxy_from_system(&SystemProxySettings {
             proxy: Some("http=web.corp:8080;https=web.corp:8080".into()),
-            bypass: Some("*.corp.example;<local>;https://only.example".into()),
+            bypass: Some("*.corp.example;<local>".into()),
         })
         .unwrap()
         .expect("a static system proxy resolves");
         assert_eq!((proxy.host.as_str(), proxy.port), ("web.corp", 8080));
-        // The scheme-limited bypass entry is not widened to both schemes.
         assert_eq!(proxy.no_proxy, vec![".corp.example".to_string()]);
         assert!(ProxyDiagnostic::of(&proxy).from_environment);
         // Nothing configured: the caller falls back to the environment.
@@ -1900,14 +1902,18 @@ mod tests {
         use crate::system_proxy::SystemProxySettings;
         // Two endpoints, and a proxy for one scheme only: neither is approximated with one
         // proxy, so plain HTTP is never sent to the HTTPS endpoint and nothing goes around.
-        for proxy in [
-            "http=web.corp:8080;https=secure.corp:8443",
-            "https=secure.corp:8443",
-            "http=web.corp:8080",
+        // A bypass entry limited to one scheme is the same for one host (fifth read, finding
+        // 11): it is not dropped while the proxy is still used.
+        for (proxy, bypass) in [
+            ("http=web.corp:8080;https=secure.corp:8443", None),
+            ("https=secure.corp:8443", None),
+            ("http=web.corp:8080", None),
+            ("web.corp:8080", Some("http://private.example")),
+            ("web.corp:8080", Some("*.corp.example;https://only.example")),
         ] {
             let error = proxy_from_system(&SystemProxySettings {
                 proxy: Some(proxy.into()),
-                bypass: None,
+                bypass: bypass.map(str::to_string),
             })
             .err()
             .unwrap_or_else(|| panic!("{proxy} must be refused"));
