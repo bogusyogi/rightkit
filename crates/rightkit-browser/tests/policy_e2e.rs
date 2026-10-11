@@ -618,7 +618,12 @@ async fn dns_answer_is_resolved_once_and_pinned() {
         NetworkPolicy::default()
             .allow_class(AddressClass::Reserved)
             .with_resolver(move |host| {
-                assert_eq!(host, "rebind.example");
+                // Only the page's host counts. Chrome may still ask for a host of its own; it
+                // gets no address, and a panic here would be on a runtime worker thread, where
+                // it fails nothing and only litters the log.
+                if host != "rebind.example" {
+                    return Vec::new();
+                }
                 let mut n = c.lock().unwrap();
                 *n += 1;
                 if *n == 1 {

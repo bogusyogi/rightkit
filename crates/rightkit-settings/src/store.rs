@@ -1,4 +1,4 @@
-use crate::backend::{read_values_only, Edit, FileBackend, SettingsBackend, Stored};
+use crate::backend::{read_values_only, Edit, FileBackend, KeyLayout, SettingsBackend, Stored};
 use crate::options::{
     DefaultsProvider, FileFormat, FlatMigration, KeyValidator, NullMeans, OptionalFill,
     ReadOptions, StoreOptions, Validator,
@@ -42,45 +42,49 @@ pub enum Error {
     /// Nothing was moved or written.
     #[error("settings file is corrupt: {0}")]
     Corrupt(String),
+    /// A step that keeps the previous content failed, so the operation stopped before it changed
+    /// the settings file: nothing was written, moved or replaced. `step` says which step,
+    /// `path` is the file being kept, `kept_as` is where it was to go (the quarantine name, the
+    /// copy, or `<path>.bak`), and `source` is the I/O error.
+    ///
+    /// With [`PreserveStep::Quarantine`] the file at `path` is damaged and is still there, byte
+    /// for byte: it could not be moved aside, so it is not overwritten. A retry repeats the step,
+    /// so remove the cause first (permissions, a full disk, a directory or a locked file at
+    /// `kept_as`). The in-memory value is unchanged and no change event fires.
+    #[error(
+        "settings file {} could not be {step} to {}: {source}; nothing was written",
+        path.display(),
+        kept_as.display()
+    )]
+    PreserveFailed {
+        step: PreserveStep,
+        path: PathBuf,
+        kept_as: PathBuf,
+        #[source]
+        source: io::Error,
+    },
 }
 
-/// The typed payload of an [`Error::Io`] when the replace step was interrupted. The settings file
-/// at `path` may be missing: the swap started and did not finish, so neither the old nor the new
-/// file is guaranteed to be there. `new_content` and `previous_content` name the files that hold
-/// the new and the previous bytes, when they still exist. Nothing here reports success.
-///
-/// Recover it from the `io::Error`:
-/// `err.get_ref().and_then(|e| e.downcast_ref::<InterruptedReplace>())`.
-#[derive(Debug)]
-pub struct InterruptedReplace {
-    pub path: PathBuf,
-    pub new_content: Option<PathBuf>,
-    pub previous_content: Option<PathBuf>,
-    /// The underlying I/O failure.
-    pub source: io::Error,
+/// Which step of keeping the previous content failed. See [`Error::PreserveFailed`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum PreserveStep {
+    /// Moving a damaged file aside ([`crate::OnCorrupt::Quarantine`]).
+    Quarantine,
+    /// Copying a damaged file aside before it is overwritten
+    /// ([`crate::StoreOptions::keep_corrupt_copy`]).
+    CorruptCopy,
+    /// Refreshing `<path>.bak` from the current good file.
+    Backup,
 }
 
-fn show_content(p: &Option<PathBuf>) -> String {
-    p.as_ref()
-        .map_or_else(|| "gone".to_string(), |p| p.display().to_string())
-}
-
-impl std::fmt::Display for InterruptedReplace {
+impl std::fmt::Display for PreserveStep {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "settings file {} may be missing: replace interrupted ({}); new content: {}; previous content: {}",
-            self.path.display(),
-            self.source,
-            show_content(&self.new_content),
-            show_content(&self.previous_content),
-        )
-    }
-}
-
-impl std::error::Error for InterruptedReplace {
-    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        Some(&self.source)
+        f.write_str(match self {
+            PreserveStep::Quarantine => "moved aside",
+            PreserveStep::CorruptCopy => "copied aside",
+            PreserveStep::Backup => "backed up",
+        })
     }
 }
 
@@ -409,7 +413,7 @@ impl<T: Serialize + DeserializeOwned + Default + Clone> Store<T> {
         let mut g = lock(&self.inner);
         let mut f = Some(f);
         let mut done: Option<(Plan<T, R>, u64)> = None;
-        let committed = self.backend.patch(&mut |cur| {
+        let committed = self.backend.patch_ordered(&mut |cur| {
             let migrated = self.migrate_pending(cur)?;
             let cur = migrated.as_ref().or(cur);
             let l = decode::<T>(
@@ -448,8 +452,15 @@ impl<T: Serialize + DeserializeOwned + Default + Clone> Store<T> {
             } else {
                 Edit::Keep
             };
+            // The order the settings type serialises its keys in, for a backend that writes
+            // ordered text. `to_object` above cannot carry it: a map has already sorted it.
+            let layout = if matches!(edit, Edit::Commit(_)) {
+                KeyLayout::of(&p.next)
+            } else {
+                KeyLayout::default()
+            };
             done = Some((p, l.revision));
-            Ok(edit)
+            Ok((edit, layout))
         })?;
         *lock(&self.pending) = None;
         let (p, base) = done.ok_or(Error::Invalid(

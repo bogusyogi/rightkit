@@ -10,6 +10,9 @@ import { resolveReleaseBuildInputs } from "./release-invocation.mjs";
 import { packageCommandOptional } from "./project-type.mjs";
 import { collectSwiftToolVersions, planSwiftBuild, swiftArchitecture } from "./swift-build-context.mjs";
 
+// Not run on Windows: Swift packages are built on macOS.
+const WINDOWS_SKIP = process.platform === "win32" ? "Swift packages are built on macOS" : false;
+
 const tmp = () => mkdtempSync(path.join(os.tmpdir(), "rk-swiftbuild-"));
 const here = path.dirname(fileURLToPath(import.meta.url));
 
@@ -82,7 +85,7 @@ test("build-release wires the swift plan through every Rust-only step", () => {
   ]) assert.match(src, re);
 });
 
-test("build --dry-run accepts a minimal swiftpm config with no package.json, Cargo, or rust toolchain", () => {
+test("build --dry-run accepts a minimal swiftpm config with no package.json, Cargo, or rust toolchain", { skip: WINDOWS_SKIP }, () => {
   const root = tmp();
   writeFileSync(path.join(root, "Package.swift"), "// swift-tools-version:6.0\n");
   writeFileSync(path.join(root, "right-release.config.mjs"), "export default { app: 'swiftfixture', version: '1.0.0', targets: { win: { projectType: 'swiftpm', signed: true, package: { cmd: 'true' } } } };\n");

@@ -1,9 +1,17 @@
+use crate::host_identity::HostIdentityError;
 use serde_json::{json, Value};
 use std::fmt;
 
 /// The host is handing the service to a higher-ranked host. Retryable: re-read
 /// discovery and resubmit the whole request.
 pub const ERROR_HOST_HANDOFF: &str = "host_handoff";
+/// The process behind the endpoint is not the host the caller expected
+/// ([`Client::connect_expecting`](crate::Client::connect_expecting)). Not retryable: reconnecting
+/// reaches the same impostor, and no application byte was sent to it.
+pub const ERROR_HOST_IDENTITY: &str = "host_identity";
+/// The suite root could not be resolved, or a [`ClientConfig`](crate::ClientConfig) that ignores
+/// environment overrides was handed a suite that came from the environment. Not retryable.
+pub const ERROR_SUITE_UNRESOLVED: &str = "suite_unresolved";
 /// The calling app may not call this method (or is not on the allowlist).
 pub const ERROR_NOT_ALLOWED: &str = "request_not_allowed";
 /// The handler's result did not fit the host's frame limit, so it was not sent. Not retryable:
@@ -68,5 +76,65 @@ impl std::error::Error for ServiceError {}
 impl From<std::io::Error> for ServiceError {
     fn from(e: std::io::Error) -> Self {
         Self::new("io", e.to_string())
+    }
+}
+impl From<HostIdentityError> for ServiceError {
+    /// The wire-style form of a host identity refusal: code [`ERROR_HOST_IDENTITY`], not retryable.
+    fn from(e: HostIdentityError) -> Self {
+        Self::new(ERROR_HOST_IDENTITY, e.to_string())
+    }
+}
+
+/// Why [`Client::connect_expecting`](crate::Client::connect_expecting) did not return a client.
+///
+/// The two variants are different facts. [`ConnectError::Service`] is the ordinary connection
+/// story (no record, host unreachable, protocol mismatch, hello refused, timeout) and keeps its
+/// `retryable` flag. [`ConnectError::HostIdentity`] means something answered at the endpoint and
+/// the OS says it is not the host the caller named; no application byte was sent to it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum ConnectError {
+    Service(ServiceError),
+    HostIdentity(HostIdentityError),
+}
+
+impl ConnectError {
+    /// Collapse into the single wire-style error. A host identity refusal becomes code
+    /// [`ERROR_HOST_IDENTITY`], not retryable, with the typed detail in the message.
+    pub fn into_service_error(self) -> ServiceError {
+        match self {
+            ConnectError::Service(e) => e,
+            ConnectError::HostIdentity(e) => e.into(),
+        }
+    }
+}
+
+impl fmt::Display for ConnectError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            ConnectError::Service(e) => fmt::Display::fmt(e, f),
+            ConnectError::HostIdentity(e) => fmt::Display::fmt(e, f),
+        }
+    }
+}
+
+impl std::error::Error for ConnectError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            ConnectError::Service(e) => Some(e),
+            ConnectError::HostIdentity(e) => Some(e),
+        }
+    }
+}
+
+impl From<ServiceError> for ConnectError {
+    fn from(e: ServiceError) -> Self {
+        ConnectError::Service(e)
+    }
+}
+
+impl From<HostIdentityError> for ConnectError {
+    fn from(e: HostIdentityError) -> Self {
+        ConnectError::HostIdentity(e)
     }
 }

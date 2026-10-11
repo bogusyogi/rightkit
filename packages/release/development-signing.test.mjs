@@ -9,6 +9,9 @@ import { spawnSync } from "./background-process.mjs";
 import { MacosDevelopmentSigningError, resolveMacosDevelopmentSigning, signMacosDevelopmentBundle } from "./development-signing.mjs";
 import { runDevelopment } from "./development.mjs";
 
+// Not run on Windows: development signing runs on macOS.
+const WINDOWS_SKIP = process.platform === "win32" ? "development signing runs on macOS" : false;
+
 // Public, self-signed fixture certificates only; no private signing material.
 const developmentCertificate = "MIIDfTCCAmWgAwIBAgIUSdJGaBUVphuaRHDPPHdfv6wuYqcwDQYJKoZIhvcNAQELBQAwTjE3MDUGA1UEAwwuQXBwbGUgRGV2ZWxvcG1lbnQ6IEFkcmlhbiBEJ3NvdXphICg4NzU3S0w5ODlSKTETMBEGA1UECwwKODc1N0tMOTg5UjAeFw0yNjEwMDgwNjQ3MTFaFw0zNjEwMDUwNjQ3MTFaME4xNzA1BgNVBAMMLkFwcGxlIERldmVsb3BtZW50OiBBZHJpYW4gRCdzb3V6YSAoODc1N0tMOTg5UikxEzARBgNVBAsMCjg3NTdLTDk4OVIwggEiMA0GCSqGSIb3DQEBAQUAA4IBDwAwggEKAoIBAQDPkONHjVz4oJf4U8YeYUrL9wXVmUUOeh5yrsVsXxqWypQw1l0Fl9/fRHpTJ7DNxUc56Vpm39LNnRXeCJcOEN7V7baUedWNQYSDXjyDEvoHX1g4BUmswRGblNvjS17qLItO8H3LfovGFSlVTfsjgp/liH0vHx1msRxLUKpdsqFy29phk33RqBQJm28aaLglfaiTCkYKT9FcTmq0x+bhOK7hFIp059hqaIT06VKcXJ4Abmwiu7krL2Ni2m812NdPz4bSJim6890V9bXCnpH4A/1Goxp2a3KmpGtp/USZhtqgo+Vi2i6kVEmazOVtVWi3p1ee4iPYEWwGxhLaiH0pg2vfAgMBAAGjUzBRMB0GA1UdDgQWBBTg8C9vvsB3ZTVzuvZVJHPhMwA4lTAfBgNVHSMEGDAWgBTg8C9vvsB3ZTVzuvZVJHPhMwA4lTAPBgNVHRMBAf8EBTADAQH/MA0GCSqGSIb3DQEBCwUAA4IBAQDAxnLum9vCtTt939b8blQkec/qr3yv7yHkWIeCOnZU3cjKuzwOtavKeCrG3fmIIDYJlr6scAq77ua+Z6NDrQ13hrm99rUSJgQn6A0TXfbazKFcI5SlO11ZnHTN1XYjV9hxO3BMZSueUs3GBA+tofZ6s/rjk2WTTBUFNqmEUkhkF8f/YoWleIZFPdB6fofSEdqmLb5CBp5FVgWnb+MqkTtk3BkSx2KGNXOQUIGMCdch0gwuzA4fjDR572TrZc2/DBX9yO1W2im5RoLt6zmf/ZLguQQHBQLCm4TEcrHxou8DbSTPTb/hIuyDYi1uCoIEoxsiZ561QacFRQMMMi2CGfaA";
 const releaseCertificate = "MIIDizCCAnOgAwIBAgIUOVtNhnSONprpVGyOy5KS4rF7WawwDQYJKoZIhvcNAQELBQAwVTE+MDwGA1UEAww1RGV2ZWxvcGVyIElEIEFwcGxpY2F0aW9uOiBBZHJpYW4gRCdzb3V6YSAoNktMR0QzTExLRikxEzARBgNVBAsMCjZLTEdEM0xMS0YwHhcNMjYxMDA4MDY0NzExWhcNMzYxMDA1MDY0NzExWjBVMT4wPAYDVQQDDDVEZXZlbG9wZXIgSUQgQXBwbGljYXRpb246IEFkcmlhbiBEJ3NvdXphICg2S0xHRDNMTEtGKTETMBEGA1UECwwKNktMR0QzTExLRjCCASIwDQYJKoZIhvcNAQEBBQADggEPADCCAQoCggEBAJhlP4N8VQKkkHb7DA6vupCpMfdcN7cSXxo58PxZs0aVx+wGm+UIcTWoVzOtc+A2j1Jt+XCu2kum+fzeem9N0qWbxbLpMZD/2nh2EixN7cKtHIi+BM+1K1RGLWNQ7SHov36k6xUFueeWAkgs/h415yB/Wvl3m9htBjy2VnNpykEN1xoZ67WofhC39gxgP016xxFHHGHuieefPCkZ32xlc8dIfeWKlaiIzmJ1QSTIVQob94NKnehn+17S6uuSNxxt3sr+5Pp9vmHAqE3rzbVeLmwo1HP3jaduXpZxE1WgAlS0i9P4ZIrwvqU+zyQ8o1Ry9Sukq7KhFJPEivZIyfQLO7sCAwEAAaNTMFEwHQYDVR0OBBYEFD+GLnlvn6meULbXJax7aj4cQXUcMB8GA1UdIwQYMBaAFD+GLnlvn6meULbXJax7aj4cQXUcMA8GA1UdEwEB/wQFMAMBAf8wDQYJKoZIhvcNAQELBQADggEBAEvWu0nBG5Y3GGqSBp3JAjfcDsZ6xtaDbidWHuBWjrCMOGBSu4uGf0ytWGRJo3G0BGBi8vnr1TwTOQ6Pe0deEoMyqycMqGYxBNF8xhblBJ2aWLRyJPe64NNlwbvKZTBrnJuqOVVKLAwxixgbFE6LYj+QODBxIy2z7dAPBcpLuIiBHcVxncKIteoZRyxOqvq47z8QdEFUqo4XruqkkZ97BajLwkpfoMnM57gXQglvNWPOFsmXS26PV1K0LEsCu90VXyRs9SVaSrWkBvuTo1n55+/OLyLNYPTLJhkF8a9XyXQWTBcL+qpWDDv+4Js+PoNTyv2IDu8oiDQ/JvXTAv6lhHc=";
@@ -107,7 +110,7 @@ test("ad hoc configuration and overrides are rejected without signing", (t) => {
   assert.equal(f.calls.length, 0);
 });
 
-test("profile embedding precedes inside-out nested code and parent sealing; no deep signing or ad hoc", (t) => {
+test("profile embedding precedes inside-out nested code and parent sealing; no deep signing or ad hoc", { skip: WINDOWS_SKIP }, (t) => {
   const f = fixture(t, { profile: profile(releaseCertificate, "6KLGD3LLKF"), mac: { provisioningProfile: "profile.provisionprofile" } });
   const helper = path.join(f.bundle, "Contents/Library/LoginItems/Helper.app");
   const framework = path.join(helper, "Contents/Frameworks/Nested.framework");

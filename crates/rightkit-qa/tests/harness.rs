@@ -261,3 +261,79 @@ fn discover_uses_the_app_root_search_order() {
     let managed = fs::canonicalize(r.join("managed")).unwrap();
     assert!(h.evidence_root().starts_with(&managed));
 }
+
+/// A harness for `app` in its own managed root; its home sits in the real QA root, as in production.
+fn harness_for(app: &str, root: &Path) -> Harness {
+    fs::create_dir_all(root.join(".cache/qa")).unwrap();
+    fs::write(root.join(".cache/qa/settings.env"), "").unwrap();
+    let s = Settings::load(&root.join(".cache/qa/settings.env"))
+        .unwrap()
+        .with_env_override(false);
+    Harness::with_parts_in_managed_root(app, root.to_path_buf(), s, root.join("managed"))
+}
+
+/// The panic message of a scenario that was refused.
+fn refusal(result: std::thread::Result<Outcome>) -> String {
+    let payload = result.expect_err("the scenario must be refused");
+    payload
+        .downcast_ref::<String>()
+        .cloned()
+        .or_else(|| payload.downcast_ref::<&str>().map(|s| s.to_string()))
+        .unwrap_or_default()
+}
+
+#[test]
+fn qa_root_limits_are_per_product_and_are_set_in_code() {
+    let pid = std::process::id();
+    let (own, other) = (format!("limA{pid}"), format!("limB{pid}"));
+    let r = root("limits");
+    // One product leaves 100 KB in its home: a kept scratch file survives the scenario.
+    let fill = harness_for(&own, &r)
+        .with_root_cap_bytes(0)
+        .with_root_ceiling_bytes(0);
+    assert_eq!(
+        fill.scenario("fill", "fast", &[], |sc| {
+            let file = sc.scratch("fill").join("blob");
+            fs::write(&file, vec![0u8; 100_000]).unwrap();
+            sc.keep("blob", &file);
+        }),
+        Outcome::Passed
+    );
+
+    // Another run of the same product, with a cap below that, is refused and told what to do.
+    let same = harness_for(&own, &r)
+        .with_root_cap_bytes(50_000)
+        .with_root_ceiling_bytes(0);
+    let text = refusal(std::panic::catch_unwind(std::panic::AssertUnwindSafe(
+        || same.scenario("refused", "fast", &[], |_| panic!("must not run")),
+    )));
+    assert!(
+        text.contains(&own)
+            && text.contains("per-product cap")
+            && text.contains("rightkit-qa clean"),
+        "{text}"
+    );
+
+    // A run of another product with the same cap is not blocked by it.
+    let stranger = harness_for(&other, &r)
+        .with_root_cap_bytes(50_000)
+        .with_root_ceiling_bytes(0);
+    assert_eq!(
+        stranger.scenario("not blocked", "fast", &[], |_| {}),
+        Outcome::Passed
+    );
+
+    // The root ceiling counts every product's homes.
+    let tight = harness_for(&other, &r)
+        .with_root_cap_bytes(0)
+        .with_root_ceiling_bytes(50_000);
+    let text = refusal(std::panic::catch_unwind(std::panic::AssertUnwindSafe(
+        || tight.scenario("ceiling", "fast", &[], |_| panic!("must not run")),
+    )));
+    assert!(
+        text.contains("root ceiling") && text.contains("RIGHTKIT_QA_ROOT_CEILING_BYTES"),
+        "{text}"
+    );
+    drop((fill, same, stranger, tight));
+    let _ = fs::remove_dir_all(&r);
+}

@@ -198,7 +198,9 @@ fn sweep(a: &Args) -> Result<i32> {
 
 /// `rightkit-qa clean [--dry-run] [--dir <.../rightkit-qa>] [--max-age-hours N]`: remove the QA
 /// homes of dead runs (owner process gone, older than the window; default 2 h or
-/// `RIGHTKIT_QA_HOME_MAX_AGE_SECS`). A home whose owner is alive is never touched.
+/// `RIGHTKIT_QA_HOME_MAX_AGE_SECS`). A home whose owner is alive is never touched. A home written
+/// before the owner marker existed goes when it is named like a QA home, no pid its records name is
+/// alive, and nothing in it changed within the window (`storage::clean_homes` states the rule).
 fn clean(a: &Args) -> Result<i32> {
     use rightkit_qa::storage::{clean_homes, home_max_age, qa_root};
     let dir = a

@@ -2,16 +2,112 @@
 
 ## Unreleased
 
-- Fixed (Windows, fourth read finding 6): an ordinary spawn could run while an allowlisted spawn (`inherit_handles_only`) had the caller's handles raised for inheritance, and its child then inherited those private handles. Both spawn paths of this crate now take one lock that covers raising the flags, creating the process and restoring them. Added `with_windows_spawn_lock` so code that creates processes by other means (a plain `std::process::Command::spawn`) can join the same serialisation; a spawn made outside it, in a process that also uses `inherit_handles_only`, is still exposed. A regression test stops an allowlisted spawn while its handle is inheritable and shows an ordinary spawn creates nothing until the handle is private again.
-- Fixed (Windows): `wait_or_kill` terminates the retained job when the leader exits within `grace`, so descendants that outlived the leader no longer survive; the result is still `Exited` with the leader's status.
-- Fixed (macOS): `inherit_handles_only` now lists the executed child's own descriptor table after the fork and seals every unlisted descriptor, instead of trusting a bound taken before the fork. A descriptor opened, or a soft limit raised, between those two moments can no longer leak into the program. A table that cannot be listed fails the spawn.
-- Fixed (macOS): releasing the parent-death helper no longer reaps an unrelated child. The helper's parent and start time are recorded at spawn and checked before each `waitpid`; if its pid was collected elsewhere and reused by another child of this process, that child keeps its exit status.
-- Fixed (macOS), fourth read finding 4: that check failed open. A helper with no recorded identity, or whose pid the kernel no longer describes, is now forgotten without any `waitpid`; the check and the wait are one function with a test seam between them, and a test collects the helper at exactly that point. The `proc_pidinfo(PROC_PIDTBSDINFO, arg = 1)` zombie assumption was verified on Darwin 27 (a zombie child is described with its parent and start time; `arg = 0` describes nothing) and is covered by a test.
-- Fixed (Unix), fourth read finding 7: a pid is no longer trusted because it is "one of my unreaped children". Foreign code can reap the leader and a replacement child can take its number. A new `identity` module reads parent and start time (macOS `proc_pidinfo`, Linux `/proc/<pid>/stat`) at spawn; `UnixChild::prove` compares it before every site that names the pid: group and leader signals, the `waitid` exit probe (proved again after a positive probe), the macOS `kill(-pgid, 0)` membership probe, `try_wait` and `wait`. A changed or missing description marks the leader lost: no signal, no wait, no reap, and the replacement keeps its status. A child the host cannot describe at spawn is killed and the spawn fails (`require_identity`). `UnixChild::wait` now polls the proof and a non-blocking reap instead of one blocking `waitpid(pid)`, which would have waited on a replacement. Sites: signal (group and leader), `kill`, `leader_state`/`probe_exit`, `group_has_other_members`, `try_wait`, `wait_reaping`/`wait`, `cleanup_direct`, helper `child_gone`; the helper child's `kill(-engine)` is safe by group membership. Residual (documented in `identity`): foreign reap plus pid reuse inside the microseconds between proof and call.
-- Changed (Unix): waiting no longer polls. Each child opens an exit watch at spawn (macOS `NOTE_EXIT` knote, Linux pidfd, else a `waitid(WNOWAIT)` thread); `ProcessHandle::wait`/`wait_timeout`/`wait_exited*`, `OwnedChild::wait*`, `wait_or_kill`, the tree-wide grace of `terminate_tree*` (leader and every other group member on one `poll(2)`), `cleanup_direct`, the macOS helper's release, `StderrTail::finish_within` and the mid-exit `EPERM` retry sleep until the kernel reports the event instead of looping on timers. A wait costs one wake-up however long the child lives, takes the child lock only to look and to reap, and `kill` from another thread runs while it blocks. On Linux leader signals use `pidfd_send_signal` and the proof is a pidfd probe, so no pid number is involved. Hosts without an event source refuse bounded waits with `Unsupported`. Each child holds one more descriptor. This replaces the intermediate 0.1 to 2 ms polling `UnixChild::wait`.
-- Added `PidProof` (Unix): identity capture, `is_same`, `while_same` and an event-driven `wait_exit` for a direct child spawned by another library (used for `rightkit-sandbox`'s PTY child).
-- Added `OwnedChild::while_unreaped(act)`: runs a pid-based action under the proof and the child lock, and skips it once the leader is reaped. `rightkit-sandbox`'s `SandboxedChild::terminate_tree` uses it, so its descendant sweep no longer signals a recycled number after the leader was reaped.
-- `StderrTail::try_capture` returns `io::Result<StderrTail>` and surfaces a drain-thread spawn failure. `capture` keeps its signature and is documented as best effort: on a spawn failure it returns a tail that retains nothing.
+**Reduced candidate: mechanisms added after the published 0.3.3 were removed where a read found them
+unsafe or their contract is not demonstrated by a test in this crate.** Five reads of this crate did
+not converge because each fix added a platform mechanism that had not run, and the next defect was
+inside it. What was removed is listed here with the reason; each item is restored to what 0.3.3 did.
+None of the removed items was ever published, so removing them is not a break.
+
+Removed:
+- **Exit-event-driven reaping** (the `ExitWatch` that decided when to reap, its raw-pid
+  `waitid(WNOWAIT)` fallback thread, `ExitWatch::wait_all`, and the blocking reap that followed an exit
+  event). Reasons: a registration that answered `ESRCH` was read as "already exited" although XNU hides a
+  process from registration before it is waitable, so a bounded wait entered a blocking reap holding the
+  shared lock and outlived its deadline; and a failed pipe or thread allocation made an independent wait
+  block `kill` and `terminate_tree` behind that lock. Replaced by the 0.3.3 contract: every wait on a shared
+  child is a loop of non-blocking `try_wait` looks (the non-reaping `waitid(WNOHANG | WNOWAIT)` for
+  `wait_exited*`), each under the lock and released at once (the exceptions are listed below), sleeping 5 ms
+  between looks as 0.3.3 did. The kqueue `NOTE_EXIT` /
+  pidfd descriptor remains **only as a wake-up hint**: a sleep on it ends early at the exit, never lasts
+  past the caller's deadline or 1 s, and decides nothing; the look after it does. When it cannot be opened
+  the wait polls at 5 ms. An unbounded `ProcessHandle::wait` releases the lock while it sleeps. A child
+  still holds one extra descriptor for the hint. Waiting threads wake about once a second with the hint and
+  about 200 times a second without it, for as long as the child lives.
+- **Linux pidfd signalling and pidfd proof** (`pidfd_send_signal`, `Origin::Unavailable` on pidfd hosts).
+  Linux now uses the same `/proc/<pid>/stat` identity proof as macOS, so there is one proof to reason
+  about.
+- **The macOS parent-death helper** (a forked helper process, its pipes, its kqueue, its descriptor sweep,
+  its release protocol and its identity-checked reap) and `UnixChild`'s helper field. A reap of the helper
+  could take another child's exit status once its pid was collected elsewhere and reused, and the
+  ownership that would make it safe was not established simply. `OwnedCommand::kill_on_parent_exit` stays
+  for Linux (`PR_SET_PDEATHSIG`, SIGTERM to the direct child, keyed to the spawning thread); on macOS and
+  other Unix hosts it now fails the spawn with `ErrorKind::Unsupported` before anything is started.
+  Nothing in this repository calls it.
+- **`PidProof`** (public, Unix) and its use for a PTY child: it had no test in this crate, and its
+  `wait_exit` reported a hint that its only caller took as "reap returns at once", the blocking-reap
+  pattern above. `rightkit-sandbox`'s `PtySession` returns to polling `try_wait` as in 0.3.3 (an edit
+  in that crate).
+- **The macOS post-fork descriptor listing** in `inherit_handles_only` (`PROC_PIDLISTFDS` with `mmap` in
+  the forked child). `Inheritance` is exactly the 0.3.3 code again, with its bound taken before the fork.
+  See "Known limits" in the README.
+- **Windows** `OwnedCommand::spawn_detached_tolerating_denied_breakaway` and `DetachedBreakaway`: the
+  denied-breakaway branch that defines the feature has no test. `spawn_uncontained_detached` is unchanged
+  and still fails closed.
+- Tests of the removed mechanisms: `tests/atfork_handlers.rs`, `tests/spawn_ready.rs`,
+  `tests/high_descriptor.rs`, the macOS cases of `tests/parent_death.rs`, the helper and descriptor-sweep
+  tests in `src/process_unix.rs`, the exit-watch wake-up-count tests.
+
+Changed (Unix) beyond the restorations:
+- The macOS refusal of a group signal (`EPERM` while the last members are mid-exit) is retried for at
+  most 300 ms **outside** the child lock (`OwnedChild` releases it between attempts), not inside it.
+- The tree-wide grace of `terminate_tree*` lists the group every 5 ms (macOS `proc_listpids`, Linux
+  `/proc`) until nothing but the exited, unreaped leader is left. It no longer opens a descriptor per
+  group member.
+
+Where the shared child lock is still held across a wait or a long action, stated precisely (README
+"Where the shared lock is held", `unix_child` module docs) and not changed, because none is a bounded wait
+that enters a blocking reap and only the first can hold a deadline-bearing caller back:
+- `wait` through the `OwnedChild::child()` guard. The caller holds the lock by holding the guard, so a
+  bounded wait on a clone, a `kill`, `terminate_tree` or `Drop` on another thread queues behind it. The
+  caller chose that, and 0.3.3's `std::process::Child::wait` through the same accessor did the same. The
+  wait itself reaps only with non-blocking looks. Use `OwnedChild::wait`, `wait_timeout` or a
+  `ProcessHandle` where anything else must stay live.
+- Failed-spawn cleanup with no timeout and the `rightkit-partial-reap` thread. Both wait under the lock, as
+  in 0.3.3, on a child that only the spawning thread (then the reaper) can reach: the partial `OwnedChild`
+  was never returned and no `ProcessHandle` was cloned from it.
+- `OwnedChild::while_unreaped`, which holds the lock for as long as the caller's closure runs. New since
+  0.3.3; `rightkit-sandbox` passes a descendant sweep with a 200 ms grace.
+The `rightkit-detached-reap` thread (a detached child's eventual reap) makes non-blocking looks and releases
+the lock between them. Waiting threads wake about once a second with the hint and about 200 times a second
+without it for as long as the child lives.
+
+Known limits, stated in the README and in `identity`, not closed here:
+- Unix: the identity proof and the call it guards are two steps; foreign code that reaps our child in
+  that gap, and a replacement that takes the pid there, defeats it for one call. The identity is read
+  just after spawn, not by it.
+- Windows: handles raised for inheritance by `inherit_handles_only` can reach a process created by code
+  outside this crate (a plain `Command::spawn`). Not addressed and not verified on Windows.
+- macOS: `inherit_handles_only` closes descriptors up to a bound taken before the fork (0.3.3).
+
+Kept from earlier unreleased work, each covered by a test in this crate:
+- Fixed (Windows, fourth read finding 6, partial): an ordinary spawn could run while an allowlisted spawn
+  (`inherit_handles_only`) had the caller's handles raised for inheritance. Both spawn paths of this crate
+  now take one lock that covers raising the flags, creating the process and restoring them. Added
+  `with_windows_spawn_lock` so code that creates processes by other means can join the same
+  serialisation (the lock is not re-entrant); a spawn made outside it is still exposed. A regression test
+  stops an allowlisted spawn while its handle is inheritable and shows an ordinary spawn creates nothing
+  until the handle is private again.
+- Fixed (Windows): `wait_or_kill` terminates the retained job when the leader exits within `grace`, so
+  descendants that outlived the leader no longer survive; the result is still `Exited` with the leader's
+  status.
+- Fixed (Unix), fourth read finding 7: a pid is no longer trusted because it is "one of my unreaped
+  children". Foreign code can reap the leader and a replacement child can take its number. A new
+  `identity` module reads parent and start time (macOS `proc_pidinfo`, Linux `/proc/<pid>/stat`) at
+  spawn; `UnixChild::prove` compares it before every site that names the pid: group and leader
+  signals, the `waitid` exit probe (proved again after a positive probe), the macOS `kill(-pgid, 0)`
+  membership probe, `try_wait` and `wait`. A changed or missing description marks the leader lost: no
+  signal, no wait, no reap, and the replacement keeps its status. A child the host cannot describe at
+  spawn is killed and the spawn fails (`require_identity`). `UnixChild::wait` polls the proof and a
+  non-blocking reap instead of one blocking `waitpid(pid)`, which would have waited on a replacement.
+  Residual: foreign reap plus pid reuse inside the gap between proof and call (see above).
+- Added `OwnedChild::while_unreaped(act)`: runs a pid-based action under the proof and the child lock,
+  and skips it once the leader is reaped. `rightkit-sandbox`'s `SandboxedChild::terminate_tree` uses it,
+  so its descendant sweep no longer signals a recycled number after the leader was reaped.
+- `StderrTail::try_capture` returns `io::Result<StderrTail>` and surfaces a drain-thread spawn failure.
+  `capture` keeps its signature and is documented as best effort: on a spawn failure it returns a tail
+  that retains nothing.
+- `process_usage`, `observe_idle` and their types (see 0.3.4 "Added"): unchanged, used by the runtime
+  budget benches of other crates.
 
 ## 0.3.4
 
@@ -41,20 +137,6 @@ Fixed (Unix):
   `ProcessHandle` clone that waits on another thread reaps as soon as the leader exits and retires signalling for
   the owner as well (a monitor that must not do that uses `wait_exited`). `wait_or_kill` whose leader exits inside the grace now kills descendants that are still
   running (before it reaps the leader) instead of leaving them for `Drop`.
-- `kill_on_parent_exit` on macOS: the helper is forked by the supervisor, not by a second `fork` inside the new
-  process. The nested fork re-ran registered `pthread_atfork` handlers in the new process and could deadlock
-  before any timeout started. The engine now blocks in `pre_exec`, before `exec`, until the helper has armed.
-- `kill_on_parent_exit` on macOS: the helper closes every inherited descriptor except its three pipe ends by
-  listing them with the kernel (`proc_pidinfo(PROC_PIDLISTFDS)`), instead of closing up to the highest known
-  descriptor plus 1024. A pipe writer another thread duplicated higher than that bound stayed open in the helper
-  (which never execs, so close-on-exec does not help) and kept readers from ever seeing end of file. If the
-  kernel will not list the table, the helper no longer falls back to a walk bounded by a number taken before
-  the fork (a writer duplicated above that number, after it was taken, stayed open): it cannot prove it closed
-  everything, so it fails the spawn closed (`EIO`, or `EPIPE` if the engine wrote after the helper exited) and
-  exits, which releases whatever it held.
-- `kill_on_parent_exit` on macOS: the tie no longer ends when the engine exits. The helper lives as long as the
-  `OwnedChild` (and its handle clones), so a supervisor that dies while the `OwnedChild` exists still takes down
-  descendants that outlived the engine. After the last owner is dropped nothing is protected.
 - Windows: `OwnedCommand::from_command` again has no default spawn configuration, as in 0.3.3. An allowlisted
   spawn (`inherit_handles_only`) from a wrapped `Command` requires `windows_spawn_config`, so a wrapped command
   with `env_clear()` or piped stdio can never silently inherit the parent's environment or stdout. Only
@@ -73,19 +155,12 @@ Fixed (Unix), second independent read of 0.3.4 (`docs/audits/2026-10-11-astra-ri
   `wait_timeout`, so the gap stays open there. `rightkit-media`'s runners use them and keep the deadline and
   cancel live while the pipes drain (a pipe that stays held past the stop is abandoned after 2 s, not joined
   forever); `rightkit-sandbox::wait_with_output` reaps only after the drain.
-- **macOS helper: no pid is signalled.** After `ECHILD` (another reaper in the process took the helper) the
-  `UnixChild` kept the pid and a later drop sent `SIGKILL` to it, by then possibly an unrelated process. The
-  helper is now told to stand down over a private pipe (one byte; the helper exits by itself with status 0),
-  its pid is forgotten as soon as `waitpid` says it is gone or `ECHILD`, and `waitpid(pid, WNOHANG)` is the
-  only call that names it. End of file on that pipe is not a release: the supervisor's own death closes it
-  too, so the helper keeps waiting for `NOTE_EXIT` and still kills the group.
 - **Waits cannot follow a recycled pid.** `ProcessHandle::wait` (and `wait_exited`) used to read the shared
   state, release the lock and then block in `waitid(pid)`; a pause between the two let another reader reap, the
   kernel recycle the number, and the waiter block on an unrelated child. Waiters now look under the lock,
-  release it, sleep and look again, so no wait system call names the pid outside the lock. **Behaviour
-  change:** `wait` polls (0.25 ms for the first 20 ms, 2 ms to 1 s, 10 ms to 30 s, 50 ms after that) instead
-  of blocking in the kernel, so an exit is noticed up to that long after it happens. Other Unix hosts no
-  longer hold the child lock for the whole wait either.
+  release it, sleep and look again, so no wait system call names the pid outside the lock. (An unreleased
+  intermediate did this with an exit-event-driven reap; that was removed, see "Unreleased": the waits are
+  non-blocking looks, 5 ms apart where no wake-up hint is available, as in 0.3.3.)
 - **`StderrTail` redaction and byte cap.** A line longer than four times `max_bytes` was cut and each piece
   handed to the line-based `map` as if it were a line, so a secret spanning the cut passed through unredacted,
   and a single retained line could exceed `max_bytes`. Such a line now never reaches `map`: it is read to its
@@ -93,10 +168,7 @@ Fixed (Unix), second independent read of 0.3.4 (`docs/audits/2026-10-11-astra-ri
   in its place. A retained line longer than the budget is cut to its last bytes (at a character boundary), so
   `snapshot()` is never longer than `max_bytes`; `max_bytes == 0` retains nothing.
 - Test only: the sampling test no longer runs on Unix targets where sampling returns `Unsupported`, and a
-  test asserts that error there. `tests/high_descriptor.rs` now duplicates the writer before the helper is
-  forked (it used to do so after, in the engine, so the helper never held it); the fail-closed case with the
-  listing forced to fail is `an_unlistable_descriptor_table_fails_the_spawn_and_frees_a_writer_above_any_bound`
-  in `src/process_unix.rs`.
+  test asserts that error there.
 
 Breaking (Unix, public items):
 - `OwnedChild::child()` returns `MutexGuard<UnixChild>` instead of `MutexGuard<std::process::Child>`. The new
@@ -104,8 +176,6 @@ Breaking (Unix, public items):
   and `kill`, mirroring `WindowsChild`. Code that named `std::process::Child`, or used any other `Child` member
   through the accessor, no longer compiles. The std `Child` is no longer reachable, because a reap through it
   could not be seen by the crate. (`PlatformChild`, the alias behind the accessor, follows.)
-- `kill_on_parent_exit(true)` combined with `UnixContainment::Session` fails with `ErrorKind::Unsupported` on
-  macOS (the helper cannot join a process group in another session). Linux is unchanged.
 - Strictly this is a minor-version break (0.4.0); the version stays 0.3.4 only because every sibling crate in the
   repository pins `rightkit-process` at 0.3.x and that bump is a coordinated release step outside this crate.
 
@@ -120,29 +190,17 @@ Added:
 - `ProcessHandle::wait_exited()` and `ProcessHandle::wait_exited_timeout(Duration) -> io::Result<bool>`: block until
   the leader has exited without reaping it (see "Fixed", second read). Windows: they wait on the process
   handle; nothing is reaped there. Additive.
-- Windows: `OwnedCommand::spawn_detached_tolerating_denied_breakaway()` returns `(OwnedChild, DetachedBreakaway)`.
-  It tries `CREATE_BREAKAWAY_FROM_JOB`; on `ERROR_ACCESS_DENIED` it retries once with `DETACHED_PROCESS |
-  CREATE_NO_WINDOW` inside the parent job and reports `DetachedBreakaway::StayedInJob` (else `BrokeAway`). The
-  plain `spawn_uncontained_detached` is unchanged and still never falls back.
-- `OwnedCommand::kill_on_parent_exit(bool)`, off by default. On macOS and Linux, the child's process
-  group is terminated when the supervising process dies without cleanup, such as SIGKILL.
-  - Linux sets `PR_SET_PDEATHSIG(SIGTERM)` on the direct child in `pre_exec`, then checks `getppid()` so the spawn
-    fails if the supervisor already died. The guarantee is weaker: the direct child only, one catchable
-    `SIGTERM`, keyed to the forking thread, with no group kill and no `SIGKILL` escalation.
-  - macOS: a helper process joins the child's process group and watches the supervisor with `EVFILT_PROC`
-    `NOTE_EXIT`; on the supervisor's death it sends `SIGTERM` to the group, waits 2 s, then `SIGKILL`. The helper
-    confirms over a pipe once its watch is armed and the engine waits up to 5 s for that. The spawn fails (`ESRCH`
-    if the supervisor is already gone or was replaced, `ETIMEDOUT`, `ECONNRESET`, or the registration `errno`) and
-    the helper is released and collected, so a child is never left running untied. The helper lives as long as the
-    owner (see "Fixed").
-  - Other Unix hosts fail the spawn with `ErrorKind::Unsupported` rather than run untied.
-  - Windows is unchanged and the option is a no-op there, because kill-on-close job objects already cover parent death.
-  - Combining the option with `spawn_uncontained_detached` returns `InvalidInput`.
+- `OwnedCommand::kill_on_parent_exit(bool)`, off by default; Linux only (`PR_SET_PDEATHSIG(SIGTERM)` on the
+  direct child in `pre_exec`, then `getppid()` is checked so the spawn fails if the supervisor already died;
+  direct child only, one catchable `SIGTERM`, keyed to the forking thread, no group kill and no `SIGKILL`
+  escalation). Other Unix hosts, macOS included, fail the spawn with `ErrorKind::Unsupported` before anything
+  starts rather than run untied (an unreleased macOS helper was removed, see "Unreleased"). Windows ignores
+  it because kill-on-close job objects already cover parent death. Combining the option with
+  `spawn_uncontained_detached` returns `InvalidInput`.
 - `process_usage`, `observe_idle`, `ProcessUsage`, `UsageRates`, `IdleObservation` and `BudgetLabels`: resource
   usage of the current process (macOS, Windows, Linux/Android).
-- Tests: `tests/tree_identity.rs`, `tests/high_descriptor.rs`, `tests/atfork_handlers.rs`, `tests/parent_death.rs`
-  (Linux and macOS; group-wide and outlived-engine cases on macOS), `tests/spawn_ready.rs`, and unit tests that
-  record every signal and reap in order, including forced-id-reuse and clone-interleaving cases.
+- Tests: `tests/tree_identity.rs`, `tests/parent_death.rs` (Linux), and unit tests that record every
+  signal and reap in order, including forced-id-reuse and clone-interleaving cases.
 - Crate metadata now includes `CHANGELOG.md`.
 
 ## 0.3.3 — 2026-10-09

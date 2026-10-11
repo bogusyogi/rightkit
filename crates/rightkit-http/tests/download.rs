@@ -1,12 +1,15 @@
 //! download_to_path against an in-process HTTP server: fresh, resume (206),
-//! restart (200), 416 verify, cancel keeps .part, integrity and length mismatch
-//! delete .part, and reconnect after a truncated body.
+//! restart (200), restart (416), cancel keeps the partial file, integrity and length mismatch
+//! delete it, and reconnect after a truncated body.
+
+mod common;
 
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
+use common::{part_of, plant_part};
 use rightkit_http::testing::{MockBody, MockResponse, MockServer};
 use rightkit_http::*;
 use sha2::{Digest, Sha256};
@@ -35,12 +38,6 @@ fn scratch(name: &str) -> PathBuf {
     let _ = fs::remove_dir_all(&dir);
     fs::create_dir_all(&dir).unwrap();
     dir
-}
-
-fn part_of(dest: &Path) -> PathBuf {
-    let mut s = dest.as_os_str().to_owned();
-    s.push(".part");
-    PathBuf::from(s)
 }
 
 #[test]
@@ -93,7 +90,7 @@ fn resume_appends_on_206() {
     });
     let dir = scratch("resume");
     let dest = dir.join("out.bin");
-    fs::write(part_of(&dest), &data[..80]).unwrap();
+    plant_part(&dest, &data[..80]);
     let report = client()
         .download_to_path(
             &server.url("/file"),
@@ -123,7 +120,7 @@ fn restart_on_200_truncates_partial_file() {
     let server = MockServer::start(move |_req, _i| MockResponse::new(200).body(served.clone()));
     let dir = scratch("restart");
     let dest = dir.join("out.bin");
-    fs::write(part_of(&dest), vec![0xEEu8; 50]).unwrap();
+    plant_part(&dest, &[0xEEu8; 50]);
     let report = client()
         .download_to_path(
             &server.url("/file"),
@@ -141,14 +138,23 @@ fn restart_on_200_truncates_partial_file() {
     assert_eq!(server.requests()[0].header("range"), Some("bytes=50-"));
 }
 
+/// A `416` is never a completion. Even a complete partial file whose hash is the expected one
+/// is not published on the strength of a `416`: the download restarts from zero and fetches the
+/// file again.
 #[test]
-fn complete_partial_verifies_on_416_without_fetching_bytes() {
+fn a_416_restarts_from_zero_even_when_the_partial_file_is_complete() {
     let data = payload();
-    let server =
-        MockServer::start(|_req, _i| MockResponse::new(416).header("Content-Range", "bytes */200"));
-    let dir = scratch("verify416");
+    let served = data.clone();
+    let server = MockServer::start(move |req, _i| {
+        if req.header("range").is_some() {
+            MockResponse::new(416).header("Content-Range", "bytes */200")
+        } else {
+            MockResponse::new(200).body(served.clone())
+        }
+    });
+    let dir = scratch("restart416");
     let dest = dir.join("out.bin");
-    fs::write(part_of(&dest), &data).unwrap();
+    plant_part(&dest, &data);
     let report = client()
         .download_to_path(
             &server.url("/file"),
@@ -161,20 +167,32 @@ fn complete_partial_verifies_on_416_without_fetching_bytes() {
             },
         )
         .unwrap();
-    assert_eq!(report.attempts, 1);
-    assert_eq!(report.resumed_from, 200);
+    assert_eq!(report.attempts, 2);
+    assert_eq!(report.resumed_from, 0);
+    assert_eq!(report.bytes, 200);
     assert_eq!(fs::read(&dest).unwrap(), data);
-    assert_eq!(server.request_count(), 1);
+    let reqs = server.requests();
+    assert_eq!(reqs.len(), 2);
+    assert_eq!(reqs[0].header("range"), Some("bytes=200-"));
+    assert_eq!(reqs[1].header("range"), None);
 }
 
+/// The saved bytes have the wrong hash: a `416` does not let them through, the restart fetches
+/// the real file, and the hash check then fails on it.
 #[test]
-fn verify_on_416_with_wrong_hash_deletes_part() {
+fn a_416_never_lets_a_prefix_with_the_wrong_hash_through() {
     let data = payload();
-    let server =
-        MockServer::start(|_req, _i| MockResponse::new(416).header("Content-Range", "bytes */200"));
-    let dir = scratch("verify416-bad");
+    let served = data.clone();
+    let server = MockServer::start(move |req, _i| {
+        if req.header("range").is_some() {
+            MockResponse::new(416).header("Content-Range", "bytes */200")
+        } else {
+            MockResponse::new(200).body(served.clone())
+        }
+    });
+    let dir = scratch("restart416-bad");
     let dest = dir.join("out.bin");
-    fs::write(part_of(&dest), &data).unwrap();
+    plant_part(&dest, &data);
     let err = client()
         .download_to_path(
             &server.url("/file"),
@@ -284,9 +302,15 @@ fn length_mismatch_deletes_part() {
     assert!(!part_of(&dest).exists());
 }
 
+/// `MockBody::TruncatedAfter` announces 1000 bytes more than it sends, so the first answer
+/// declares a total of 80 + 1000 = 1080. The ranged answer has to report that same total: a
+/// `206` whose total differs from the declared one describes another representation, and the
+/// download (correctly) restarts from zero. An earlier version of this test answered
+/// `bytes 80-199/200` to a 1080-byte declaration, got the restart, and then the mock's 500 for
+/// a plain request.
 #[test]
 fn truncated_body_reconnects_with_if_range() {
-    let data = payload();
+    let data: Vec<u8> = (0..1080u32).map(|i| (i % 251) as u8).collect();
     let first = data[..80].to_vec();
     let rest = data[80..].to_vec();
     let server = MockServer::start(move |req, index| {
@@ -298,7 +322,7 @@ fn truncated_body_reconnects_with_if_range() {
             && req.header("if-range") == Some("\"v1\"")
         {
             MockResponse::new(206)
-                .header("Content-Range", "bytes 80-199/200")
+                .header("Content-Range", "bytes 80-1079/1080")
                 .body(rest.clone())
         } else {
             MockResponse::new(500)
@@ -317,8 +341,13 @@ fn truncated_body_reconnects_with_if_range() {
         )
         .unwrap();
     assert_eq!(report.attempts, 2);
-    assert_eq!(report.bytes, 200);
+    assert_eq!(report.bytes, 1080);
+    assert_eq!(report.resumed_from, 0);
     assert_eq!(fs::read(&dest).unwrap(), data);
+    let reqs = server.requests();
+    assert_eq!(reqs.len(), 2);
+    assert_eq!(reqs[1].header("range"), Some("bytes=80-"));
+    assert_eq!(reqs[1].header("if-range"), Some("\"v1\""));
 }
 
 #[test]

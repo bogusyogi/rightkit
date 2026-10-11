@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- Windows: `installChromeForTesting` grants Chrome's sandbox read and execute on the installed version folder (`ALL APPLICATION PACKAGES`, `S-1-15-2-1`, and `ALL RESTRICTED APPLICATION PACKAGES`, `S-1-15-2-2`) and checks the grant on the executable; an existing install is repaired the same way. A Chrome unpacked from the archive had neither grant, so Chrome logged "Sandbox cannot access executable", its network service crashed at startup, and a first navigation hung or failed with `net::ERR_ABORTED`. This was the main cause of that failure on the Windows runner.
+- Windows: `launchChromeForTesting` checks the grant before starting the browser and throws the new `ChromeSandboxAccessError` (`code: 'CHROME_SANDBOX_ACCESS'`, with `directory`, `principals` and the `fix` command) when it is missing. A launch with `--no-sandbox` is not checked, and an access list that cannot be read does not stop a launch.
+- New exports: `grantSandboxAccess`, `sandboxAccessProblem`, `missingSandboxGrants`, `sandboxGrantCommand`, `readAccessList`.
+
 ## 0.1.6 — 2026-10-11
 
 - Found by HeardRight: Windows close reported `step: sigkill, exited: false, leftoverPids: [], observedExitingPids: []`, with the profile scan empty. Two code paths in `closeChromeGracefully` produce that shape, and the report alone does not show which fired. (a) A failed or timed-out profile scan (PowerShell non-zero exit, or the 15 s `spawnSync` timeout) returned `[]`, the same as an empty profile. (b) The launcher's exit is recorded only on an event-loop turn, and the close took no turn after a blocking `taskkill` or scan, so a read could be stale.

@@ -6,6 +6,9 @@ import path from "node:path";
 import { detectMacSigningSession, codesignAgentItems, runMacCodesignCommands, runMacGuiSigning, signMacUpdaterFiles } from "./macos-signing-session.mjs";
 import { SigningAgentError } from "./rightkit-signing-agent.mjs";
 
+// Not run on Windows: the macOS signing session runs on macOS.
+const WINDOWS_SKIP = process.platform === "win32" ? "the macOS signing session runs on macOS" : false;
+
 const codesign = ["--force", "--options", "runtime", "--timestamp", "--sign", "Developer ID Application: Fixture (TEAM)", "/Volumes/D/claude/Fixture.app"];
 const result = { status: 0, stdout: "", stderr: "" };
 function fixture() {
@@ -48,7 +51,7 @@ test("codesign adapter accepts closed options & preserves supplied inside-out or
   assert.equal(codesignAgentItems([["--sign", "CERT-SHA1", "--preserve-metadata=entitlements", "/absolute/path"]])[0].preserveEntitlements, true);
   for (const args of [["--sign", "-", "/app"], ["--sign", "identity", "relative"], ["--sign", "identity", "--deep", "/app"], ["--sign", "identity", "--entitlements", "relative", "/app"], ["--sign", "identity", "--sign", "other", "/app"]]) assert.throws(() => codesignAgentItems([args]), TypeError);
 });
-test("missing agent installs once & retries once", () => {
+test("missing agent installs once & retries once", { skip: WINDOWS_SKIP }, () => {
   const f = fixture(); let attempts = 0, installs = 0;
   f.request = (plan) => { if (++attempts === 1) throw new SigningAgentError("MAC_SIGNING_AGENT_UNAVAILABLE", "missing"); return { schema: 1, ok: true, results: [result] }; };
   f.install = () => { installs++; };
@@ -104,7 +107,7 @@ test("malformed agent reports, invalid kind & invalid deadlines rejected", () =>
   for (const timeoutMs of [0, Infinity, 180001, 1.5]) assert.throws(() => runMacGuiSigning({ ...f, kind: "codesign", commands: [codesign], timeoutMs }), TypeError);
   assert.throws(() => runMacGuiSigning({ ...f, kind: "shell" }), TypeError);
 });
-test("external temporary entitlements use private staging & are removed after response", (t) => {
+test("external temporary entitlements use private staging & are removed after response", { skip: WINDOWS_SKIP }, (t) => {
   const home = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "rk-sign-stage-")));
   t.after(() => fs.rmSync(home, { recursive: true, force: true }));
   const workspace = path.join(home, "workspace"), external = path.join(home, "external.plist");

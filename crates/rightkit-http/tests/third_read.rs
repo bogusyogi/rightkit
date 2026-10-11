@@ -1,12 +1,15 @@
 //! Regression tests for the third independent read of 0.3.0
 //! (docs/audits/2026-10-11-astra-http-third-read.md). Each test names its finding.
 
+mod common;
+
 use std::fs;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
+use common::{coord_dir, part_of, plant_claim};
 use rightkit_http::testing::{loopback_config, MockBody, MockResponse, MockServer};
 use rightkit_http::*;
 
@@ -28,6 +31,8 @@ fn scratch(name: &str) -> PathBuf {
 }
 
 // ------------------------------------------------------------------ finding 1
+/// The partial file is a second name for another file, and the claim record vouches for it, so
+/// it reaches the open on resume: refused before any write or truncation.
 #[test]
 fn f1_a_hard_linked_part_is_not_truncated_or_overwritten_on_resume() {
     let server = MockServer::start(|_, _| MockResponse::text(200, "fresh bytes"));
@@ -35,7 +40,8 @@ fn f1_a_hard_linked_part_is_not_truncated_or_overwritten_on_resume() {
     let victim = dir.join("precious.txt");
     fs::write(&victim, b"precious").unwrap();
     let dest = dir.join("out.bin");
-    let part = dir.join("out.bin.part");
+    plant_claim(&dest);
+    let part = part_of(&dest);
     fs::hard_link(&victim, &part).expect("hard link fixture must be created");
     let err = Client::new(cfg())
         .download_to_path(
@@ -53,29 +59,47 @@ fn f1_a_hard_linked_part_is_not_truncated_or_overwritten_on_resume() {
     assert!(!dest.exists());
 }
 
-// ------------------------------------------------------------------ finding 2
+/// The same hard link with no claim record behind it was not made by a download of this
+/// destination: it is unlinked, never followed, and the download proceeds on a fresh file.
 #[test]
-fn f2_destinations_named_like_the_internal_files_are_refused_before_any_io() {
-    let hits = Arc::new(AtomicUsize::new(0));
-    let seen = hits.clone();
-    let server = MockServer::start(move |_, _| {
-        seen.fetch_add(1, Ordering::SeqCst);
-        MockResponse::text(200, "x")
-    });
+fn f1_an_unclaimed_hard_linked_part_is_unlinked_and_the_other_name_keeps_its_bytes() {
+    let server = MockServer::start(|_, _| MockResponse::text(200, "fresh bytes"));
+    let dir = scratch("f1-unclaimed");
+    let victim = dir.join("precious.txt");
+    fs::write(&victim, b"precious").unwrap();
+    let dest = dir.join("out.bin");
+    fs::create_dir_all(coord_dir(&dest)).unwrap();
+    fs::hard_link(&victim, part_of(&dest)).expect("hard link fixture must be created");
+    let report = Client::new(cfg())
+        .download_to_path(
+            &server.url("/f"),
+            &dest,
+            DownloadOptions {
+                resume: true,
+                ..DownloadOptions::default()
+            },
+        )
+        .unwrap();
+    assert_eq!(report.bytes, 11);
+    assert_eq!(fs::read(&dest).unwrap(), b"fresh bytes");
+    assert_eq!(fs::read(&victim).unwrap(), b"precious");
+}
+
+// ------------------------------------------------------------------ finding 2
+/// Names that used to be reserved for the lock and partial file beside the destination are
+/// ordinary destination names now: those files are not beside the destination any more.
+#[test]
+fn f2_destinations_named_like_the_old_internal_files_are_ordinary_destinations() {
+    let server = MockServer::start(|_, _| MockResponse::text(200, "x"));
     let dir = scratch("f2");
     for name in ["out.lock", "out.part", "OUT.LOCK"] {
         let dest = dir.join(name);
-        let err = Client::new(cfg())
+        let report = Client::new(cfg())
             .download_to_path(&server.url("/f"), &dest, DownloadOptions::default())
-            .expect_err("reserved suffix must be refused");
-        assert!(matches!(err, DownloadError::Io(_)), "{name}: {err:?}");
+            .unwrap_or_else(|e| panic!("{name}: {e:?}"));
+        assert_eq!(report.bytes, 1, "{name}");
+        assert_eq!(fs::read(&dest).unwrap(), b"x", "{name}");
     }
-    assert_eq!(hits.load(Ordering::SeqCst), 0, "no request may be sent");
-    assert_eq!(
-        fs::read_dir(&dir).unwrap().count(),
-        0,
-        "nothing may be created"
-    );
 }
 
 // ------------------------------------------------------------------ finding 3

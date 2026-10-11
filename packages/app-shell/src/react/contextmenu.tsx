@@ -3,6 +3,7 @@ import { createPortal } from "react-dom";
 import { Kbd } from "@rightkit/platform-ui/react";
 import { floatingPanelStyle } from "../geometry.js";
 import { cx } from "./ui.js";
+import { useShellOptional } from "./provider.js";
 import type { SlotClasses } from "./slots.js";
 
 export interface MenuItem {
@@ -101,6 +102,8 @@ export function ContextMenu({
   exitClassName = "is-closing",
   onExitStart,
 }: ContextMenuProps) {
+  // Shortcut labels are drawn for the shell's platform; outside a provider `Kbd` falls back to the host.
+  const shellPlatform = useShellOptional()?.platform;
   const ref = useRef<HTMLDivElement>(null);
   const menuId = useRef(`rk-menu-${Math.random().toString(36).slice(2, 8)}`);
   const opener = useRef<HTMLElement | null>(typeof document !== "undefined" ? (document.activeElement as HTMLElement | null) : null);
@@ -289,7 +292,7 @@ export function ContextMenu({
                 <>
                   {showLead ? <span className={cx("rk-menu__lead", slots?.lead)} aria-hidden="true">{item.checked ? "✓" : item.icon}</span> : null}
                   <span className={cx("rk-menu__label", slots?.label)}>{item.label}</span>
-                  {item.shortcut ? <Kbd chord={item.shortcut} gap={1} /> : null}
+                  {item.shortcut ? <Kbd chord={item.shortcut} gap={1} platform={shellPlatform} /> : null}
                 </>
               )}
             </Row>

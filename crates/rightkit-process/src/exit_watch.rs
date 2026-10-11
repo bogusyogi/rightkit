@@ -1,36 +1,55 @@
-//! Event-driven observation of a process exit, so nothing in this crate sleeps in a loop to find
-//! out whether a child is still running.
+//! A wake-up hint for waiters. It is never a verdict.
 //!
-//! An [`ExitWatch`] owns one kernel object that becomes readable when the process exits:
+//! Every wait on a shared child is a loop of non-blocking looks (`try_wait`, or the non-reaping
+//! `waitid(WNOHANG | WNOWAIT)` probe), each taken under the child's lock and released at once.
+//! Between two looks the thread sleeps. (The few places that hold the lock across a wait, a
+//! caller's `OwnedChild::child()` guard among them, are listed in `unix_child`.) An
+//! [`ExitWatch`] only decides **how** it sleeps:
 //!
-//! * **macOS / iOS:** a kqueue with an `EVFILT_PROC` / `NOTE_EXIT` knote registered at spawn. The
-//!   knote is bound to the process, not to the pid number, so a later reuse of the number can
-//!   neither satisfy nor block it. The event is never drained: the kqueue stays readable, so every
-//!   waiter (the owner, each `ProcessHandle` clone) wakes. Registering on a process that is
-//!   already a zombie answers `ESRCH` (checked on Darwin 27: the receipt carries `EV_ERROR`,
-//!   data `ESRCH`, and no exit event is queued); that is recorded as "already exited".
-//! * **Linux / Android:** a pidfd (`pidfd_open`), also bound to the process. It is readable once
-//!   the process has exited, and it allows `pidfd_send_signal` and an exact liveness proof
-//!   ([`ExitWatch::exact_proof`]) that does not depend on the pid number at all.
-//! * **Fallback** (kernel without pidfd, or a failed kqueue): one thread blocks in
-//!   `waitid(P_PID, pid, WEXITED | WNOWAIT)`, which does not reap, and closes a pipe when it
-//!   returns. This names the pid number for as long as it blocks. If other code collected the
-//!   child and the kernel gave the number to a new child, the thread would wait on that child and
-//!   report its exit; the identity proof that follows every wake-up (`UnixChild::prove`) still
-//!   refuses to act on the replacement, so the cost is a wake-up that is late or spurious, never
-//!   a signal or a reap of the wrong process.
-//! * **Anything else:** no event source. Bounded waits return `ErrorKind::Unsupported`; an
-//!   unbounded wait is a blocking reap, as in `std`.
+//! * **With an event source** it sleeps in `poll(2)` on a descriptor the kernel makes readable
+//!   when the process exits, so a long-lived child costs one wake-up per second at most
+//!   instead of one per interval. The sleep never outlasts the caller's limit, and never
+//!   outlasts [`EVENT_SLICE`] either, so a missing or early event cannot stall a waiter: the
+//!   next look finds out for itself.
+//!   * macOS / iOS: a kqueue with an `EVFILT_PROC` / `NOTE_EXIT` knote registered at spawn.
+//!   * Linux / Android: a pidfd (`pidfd_open`).
+//! * **Without one** (no such kernel facility, a process out of descriptors, or a process that
+//!   was already gone when the watch was opened) it sleeps [`POLL_INTERVAL`], the interval the
+//!   published 0.3.3 used, and the caller looks again. Never an unbounded block, never a
+//!   busy loop.
 //!
-//! The exit is reported to waiters through `poll(2)`, so a wait costs one wake-up per exit (plus
-//! signal interruptions), however long the child lives.
+//! What the event does **not** mean: the kernel posts `NOTE_EXIT` before the process becomes
+//! waitable, and a registration against a process that is already exiting answers `ESRCH`
+//! although `wait` would still block. So the event is only ever a reason to look sooner. No
+//! reap, no signal and no decision is made from it. Once it has fired a waiter that still finds
+//! the child unwaitable sleeps [`POLL_INTERVAL`] between looks.
+//!
+//! The watch is bound to the process, not to its pid number, and is closed with the last
+//! clone of the child.
 
 use std::{
     io,
-    os::fd::{AsRawFd, FromRawFd, OwnedFd, RawFd},
+    os::fd::RawFd,
     sync::atomic::{AtomicBool, Ordering},
+    thread,
     time::{Duration, Instant},
 };
+
+#[cfg(any(
+    target_os = "linux",
+    target_os = "android",
+    target_os = "macos",
+    target_os = "ios"
+))]
+use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
+
+/// The pause between two looks when no event can wake a waiter: the interval the published
+/// 0.3.3 used for `wait_timeout`.
+pub(crate) const POLL_INTERVAL: Duration = Duration::from_millis(5);
+
+/// The longest one sleep on the event lasts. The waiter looks again after it, whatever the
+/// event did, so the event is a hint that can only save wake-ups, never lose an exit.
+pub(crate) const EVENT_SLICE: Duration = Duration::from_secs(1);
 
 #[derive(Debug)]
 enum Source {
@@ -38,38 +57,26 @@ enum Source {
     Kqueue(OwnedFd),
     #[cfg(any(target_os = "linux", target_os = "android"))]
     Pidfd(OwnedFd),
-    /// Closed by the watcher thread when `waitid` returns.
-    #[cfg(any(
-        target_os = "linux",
-        target_os = "android",
-        target_os = "macos",
-        target_os = "ios"
-    ))]
-    Thread(OwnedFd),
-    /// Exited (or not there) when the watch was opened.
-    Gone,
-    Unsupported,
+    /// No event source: waiters poll.
+    None,
 }
 
 #[derive(Debug)]
 pub(crate) struct ExitWatch {
     source: Source,
+    /// The event has been seen. It stays set: the process is exiting or gone, so the event can
+    /// say nothing more, and further sleeps are plain intervals.
     fired: AtomicBool,
-    /// Test only: how many times a wait returned from the kernel.
-    #[cfg(test)]
-    wakeups: std::sync::atomic::AtomicUsize,
 }
 
 impl ExitWatch {
-    /// Opens the watch for `pid`. `own_child` allows the thread fallback, which only makes
-    /// sense for a child of this process (`waitid` on any other process answers `ECHILD`).
-    pub(crate) fn open(pid: u32, own_child: bool) -> Self {
-        let (source, fired) = open_source(pid, own_child);
+    /// Opens the watch for `pid`, a child of this process that has not been reaped. Any failure
+    /// (no facility, no descriptor, the process already exiting) yields a watch with no event
+    /// source, which waiters poll.
+    pub(crate) fn open(pid: u32) -> Self {
         Self {
-            source,
-            fired: AtomicBool::new(fired),
-            #[cfg(test)]
-            wakeups: std::sync::atomic::AtomicUsize::new(0),
+            source: open_source(pid),
+            fired: AtomicBool::new(false),
         }
     }
 
@@ -77,78 +84,14 @@ impl ExitWatch {
     #[cfg(test)]
     pub(crate) fn unsupported() -> Self {
         Self {
-            source: Source::Unsupported,
+            source: Source::None,
             fired: AtomicBool::new(false),
-            wakeups: std::sync::atomic::AtomicUsize::new(0),
         }
     }
 
     #[cfg(test)]
-    pub(crate) fn wakeups(&self) -> usize {
-        self.wakeups.load(Ordering::SeqCst)
-    }
-
-    pub(crate) fn is_supported(&self) -> bool {
-        !matches!(self.source, Source::Unsupported)
-    }
-
-    /// True when this watch can say, without reference to the pid number, whether the
-    /// original process still exists (Linux pidfd).
-    pub(crate) fn proves_exactly(&self) -> bool {
-        #[cfg(any(target_os = "linux", target_os = "android"))]
-        if matches!(self.source, Source::Pidfd(_)) {
-            return true;
-        }
-        false
-    }
-
-    /// `Some(Ok(true))`: the original process still exists (running, or exited and unreaped).
-    /// `Some(Ok(false))`: it is gone. `None`: this watch cannot tell.
-    #[cfg(any(target_os = "linux", target_os = "android"))]
-    pub(crate) fn exact_proof(&self) -> Option<io::Result<bool>> {
-        match self.send_signal(0)? {
-            Ok(()) => Some(Ok(true)),
-            Err(error) if error.raw_os_error() == Some(libc::ESRCH) => Some(Ok(false)),
-            Err(error) => Some(Err(error)),
-        }
-    }
-
-    #[cfg(not(any(target_os = "linux", target_os = "android")))]
-    pub(crate) fn exact_proof(&self) -> Option<io::Result<bool>> {
-        None
-    }
-
-    /// Sends `signal` to the original process through its pidfd: no pid number is involved, so
-    /// no recycled number can receive it. `None` when this watch has no pidfd.
-    #[cfg(any(target_os = "linux", target_os = "android"))]
-    pub(crate) fn send_signal(&self, signal: i32) -> Option<io::Result<()>> {
-        let Source::Pidfd(fd) = &self.source else {
-            return None;
-        };
-        loop {
-            // SAFETY: pidfd_send_signal(pidfd, sig, NULL info, 0 flags) takes no pointers here.
-            let result = unsafe {
-                libc::syscall(
-                    libc::SYS_pidfd_send_signal,
-                    fd.as_raw_fd() as libc::c_long,
-                    signal as libc::c_long,
-                    0 as libc::c_long,
-                    0 as libc::c_long,
-                )
-            };
-            if result == 0 {
-                return Some(Ok(()));
-            }
-            let error = io::Error::last_os_error();
-            if error.raw_os_error() != Some(libc::EINTR) {
-                return Some(Err(error));
-            }
-        }
-    }
-
-    #[cfg(not(any(target_os = "linux", target_os = "android")))]
-    pub(crate) fn send_signal(&self, _signal: i32) -> Option<io::Result<()>> {
-        None
+    pub(crate) fn has_event_source(&self) -> bool {
+        self.raw_fd().is_some()
     }
 
     fn raw_fd(&self) -> Option<RawFd> {
@@ -157,126 +100,88 @@ impl ExitWatch {
             Source::Kqueue(fd) => Some(fd.as_raw_fd()),
             #[cfg(any(target_os = "linux", target_os = "android"))]
             Source::Pidfd(fd) => Some(fd.as_raw_fd()),
-            #[cfg(any(
-                target_os = "linux",
-                target_os = "android",
-                target_os = "macos",
-                target_os = "ios"
-            ))]
-            Source::Thread(fd) => Some(fd.as_raw_fd()),
-            Source::Gone | Source::Unsupported => None,
+            Source::None => None,
         }
     }
 
-    /// Blocks until the process has exited (`Ok(true)`) or `timeout` has passed (`Ok(false)`);
-    /// `None` waits without limit. Holds no lock and uses no timer: the thread sleeps in
-    /// `poll(2)` until the kernel reports the exit. `Err(Unsupported)` when there is no event
-    /// source.
-    pub(crate) fn wait(&self, timeout: Option<Duration>) -> io::Result<bool> {
-        if self.fired.load(Ordering::Acquire) {
-            return Ok(true);
+    /// Sleeps for at most `limit` and returns. With an unfired event source it sleeps on the
+    /// event (at most [`EVENT_SLICE`]); otherwise for [`POLL_INTERVAL`] (or `limit`, if
+    /// shorter). It reports nothing: the caller looks again.
+    pub(crate) fn pause(&self, limit: Duration) {
+        if limit.is_zero() {
+            return;
         }
-        let fd = match self.raw_fd() {
-            Some(fd) => fd,
-            None if matches!(self.source, Source::Gone) => return Ok(true),
-            None => return Err(io::Error::from(io::ErrorKind::Unsupported)),
-        };
-        let deadline = timeout.and_then(|limit| Instant::now().checked_add(limit));
-        loop {
-            let mut entry = libc::pollfd {
-                fd,
-                events: libc::POLLIN,
-                revents: 0,
-            };
-            // SAFETY: one valid pollfd, as counted.
-            let ready = unsafe { libc::poll(&mut entry, 1, poll_millis(deadline)) };
-            #[cfg(test)]
-            self.wakeups.fetch_add(1, Ordering::SeqCst);
-            if ready > 0 {
-                self.fired.store(true, Ordering::Release);
-                return Ok(true);
-            }
-            if ready == 0 {
-                return Ok(false); // poll's own timeout ran out
-            }
-            let error = io::Error::last_os_error();
-            if error.raw_os_error() != Some(libc::EINTR) {
-                return Err(error);
-            }
-            if let Some(deadline) = deadline {
-                if Instant::now() >= deadline {
-                    return Ok(false);
+        if !self.fired.load(Ordering::Acquire) {
+            if let Some(fd) = self.raw_fd() {
+                match wait_readable(fd, limit.min(EVENT_SLICE)) {
+                    Ok(true) => {
+                        self.fired.store(true, Ordering::Release);
+                        return;
+                    }
+                    // Slept the whole slice, or a signal ended the sleep early.
+                    Ok(false) => return,
+                    // The descriptor is unusable: fall through to the plain interval.
+                    Err(_) => {}
                 }
             }
         }
+        thread::sleep(limit.min(POLL_INTERVAL));
     }
 
-    /// Blocks until every watch has fired (`Ok(true)`) or `timeout` has passed (`Ok(false)`).
-    /// One `poll(2)` over all the descriptors; no timer.
-    pub(crate) fn wait_all(watches: &[ExitWatch], timeout: Duration) -> io::Result<bool> {
-        let deadline = Instant::now().checked_add(timeout);
+    /// Calls `look` until it reports something (`Ok(Some)`) or fails, or until `deadline`
+    /// passes (`Ok(None)`); `None` waits without limit. `look` is called first, then after
+    /// every [`pause`](Self::pause), and once more after the last pause, so a result that
+    /// arrives at the deadline is returned. The pause is never longer than the time left, so
+    /// the call returns within one scheduler wake-up of the deadline whatever the event did.
+    pub(crate) fn wait_for<T>(
+        &self,
+        deadline: Option<Instant>,
+        mut look: impl FnMut() -> io::Result<Option<T>>,
+    ) -> io::Result<Option<T>> {
         loop {
-            let mut entries = Vec::with_capacity(watches.len());
-            let mut pending = Vec::with_capacity(watches.len());
-            for (index, watch) in watches.iter().enumerate() {
-                if watch.fired.load(Ordering::Acquire) {
-                    continue;
-                }
-                match watch.raw_fd() {
-                    Some(fd) => {
-                        entries.push(libc::pollfd {
-                            fd,
-                            events: libc::POLLIN,
-                            revents: 0,
-                        });
-                        pending.push(index);
-                    }
-                    None if matches!(watch.source, Source::Gone) => {}
-                    None => return Err(io::Error::from(io::ErrorKind::Unsupported)),
-                }
+            if let Some(found) = look()? {
+                return Ok(Some(found));
             }
-            if entries.is_empty() {
-                return Ok(true);
-            }
-            // SAFETY: `entries` holds `len` valid pollfd records.
-            let ready = unsafe {
-                libc::poll(
-                    entries.as_mut_ptr(),
-                    entries.len() as libc::nfds_t,
-                    poll_millis(deadline),
-                )
+            let limit = match deadline {
+                Some(at) => at.saturating_duration_since(Instant::now()),
+                None => EVENT_SLICE,
             };
-            if ready > 0 {
-                for (entry, index) in entries.iter().zip(&pending) {
-                    if entry.revents != 0 {
-                        watches[*index].fired.store(true, Ordering::Release);
-                    }
-                }
-            } else if ready == 0 {
-                return Ok(false); // poll's own timeout ran out
-            } else {
-                let error = io::Error::last_os_error();
-                if error.raw_os_error() != Some(libc::EINTR) {
-                    return Err(error);
-                }
-                if deadline.is_some_and(|at| Instant::now() >= at) {
-                    return Ok(false);
-                }
+            if limit.is_zero() {
+                return Ok(None);
             }
+            self.pause(limit);
         }
     }
 }
 
-/// Milliseconds until `deadline`, rounded up; `-1` (no limit) when there is none.
-fn poll_millis(deadline: Option<Instant>) -> libc::c_int {
-    let Some(deadline) = deadline else {
-        return -1;
+/// Sleeps in `poll(2)` until `fd` is readable (`Ok(true)`), `limit` has passed or a signal
+/// interrupted the sleep (`Ok(false)`).
+fn wait_readable(fd: RawFd, limit: Duration) -> io::Result<bool> {
+    // Round up so a sub-millisecond remainder does not turn into a zero-length poll.
+    let millis = limit.as_millis() + u128::from(!limit.subsec_nanos().is_multiple_of(1_000_000));
+    let millis = millis.min(libc::c_int::MAX as u128) as libc::c_int;
+    let mut entry = libc::pollfd {
+        fd,
+        events: libc::POLLIN,
+        revents: 0,
     };
-    let remaining = deadline.saturating_duration_since(Instant::now());
-    let millis = remaining.as_millis() + u128::from(remaining.subsec_nanos() % 1_000_000 != 0);
-    millis.min(libc::c_int::MAX as u128) as libc::c_int
+    // SAFETY: one valid pollfd, as counted.
+    let ready = unsafe { libc::poll(&mut entry, 1, millis) };
+    if ready > 0 {
+        return Ok(true);
+    }
+    if ready == 0 {
+        return Ok(false);
+    }
+    let error = io::Error::last_os_error();
+    if error.raw_os_error() == Some(libc::EINTR) {
+        Ok(false)
+    } else {
+        Err(error)
+    }
 }
 
+#[cfg(any(target_os = "macos", target_os = "ios"))]
 fn set_cloexec(fd: RawFd) {
     // SAFETY: fcntl on a descriptor this module owns.
     unsafe {
@@ -288,18 +193,15 @@ fn set_cloexec(fd: RawFd) {
 }
 
 #[cfg(any(target_os = "macos", target_os = "ios"))]
-fn open_source(pid: u32, own_child: bool) -> (Source, bool) {
-    match kqueue_source(pid) {
-        Ok(Some(fd)) => (Source::Kqueue(fd), false),
-        Ok(None) => (Source::Gone, true),
-        Err(_) if own_child => thread_source(pid),
-        Err(_) => (Source::Unsupported, false),
-    }
+fn open_source(pid: u32) -> Source {
+    // An `ESRCH` receipt means the process is already exiting or gone. That says nothing about
+    // whether `wait` would block (XNU hides a process from registration before it is waitable),
+    // so it is not an exit: the watch simply has no event, and waiters poll.
+    kqueue_source(pid).map_or(Source::None, Source::Kqueue)
 }
 
-/// `Ok(None)` when the process had already exited (`ESRCH` in the receipt).
 #[cfg(any(target_os = "macos", target_os = "ios"))]
-fn kqueue_source(pid: u32) -> io::Result<Option<OwnedFd>> {
+fn kqueue_source(pid: u32) -> io::Result<OwnedFd> {
     // SAFETY: kqueue takes no arguments.
     let raw = unsafe { libc::kqueue() };
     if raw < 0 {
@@ -331,34 +233,23 @@ fn kqueue_source(pid: u32) -> io::Result<Option<OwnedFd>> {
         return Err(io::Error::from_raw_os_error(libc::EIO));
     }
     if (receipt.flags & libc::EV_ERROR) != 0 && receipt.data != 0 {
-        if receipt.data == libc::ESRCH as isize {
-            return Ok(None);
-        }
         return Err(io::Error::from_raw_os_error(receipt.data as i32));
     }
-    Ok(Some(kq))
+    Ok(kq)
 }
 
 #[cfg(any(target_os = "linux", target_os = "android"))]
-fn open_source(pid: u32, own_child: bool) -> (Source, bool) {
+fn open_source(pid: u32) -> Source {
     // SAFETY: pidfd_open(pid, 0) takes no pointers. The descriptor is close-on-exec.
     let raw =
         unsafe { libc::syscall(libc::SYS_pidfd_open, pid as libc::c_long, 0 as libc::c_long) };
     if raw >= 0 {
         // SAFETY: a fresh descriptor owned by nothing else.
-        return (
-            Source::Pidfd(unsafe { OwnedFd::from_raw_fd(raw as RawFd) }),
-            false,
-        );
+        return Source::Pidfd(unsafe { OwnedFd::from_raw_fd(raw as RawFd) });
     }
-    if io::Error::last_os_error().raw_os_error() == Some(libc::ESRCH) {
-        return (Source::Gone, true);
-    }
-    if own_child {
-        // Kernel without pidfd (ENOSYS), or one that a sandbox filters (EPERM): thread fallback.
-        return thread_source(pid);
-    }
-    (Source::Unsupported, false)
+    // Kernel without pidfd (ENOSYS), one a sandbox filters (EPERM), no descriptor left, or the
+    // process already gone: no event, waiters poll.
+    Source::None
 }
 
 #[cfg(not(any(
@@ -367,59 +258,15 @@ fn open_source(pid: u32, own_child: bool) -> (Source, bool) {
     target_os = "macos",
     target_os = "ios"
 )))]
-fn open_source(_pid: u32, _own_child: bool) -> (Source, bool) {
-    (Source::Unsupported, false)
-}
-
-/// The fallback: a thread blocks in `waitid(WNOWAIT)` (which does not reap) and closes the write
-/// end of a pipe when it returns, which makes the read end readable (`POLLHUP`).
-#[cfg(any(
-    target_os = "linux",
-    target_os = "android",
-    target_os = "macos",
-    target_os = "ios"
-))]
-fn thread_source(pid: u32) -> (Source, bool) {
-    let mut ends: [RawFd; 2] = [-1; 2];
-    // SAFETY: pipe writes two descriptors into the array.
-    if unsafe { libc::pipe(ends.as_mut_ptr()) } != 0 {
-        return (Source::Unsupported, false);
-    }
-    set_cloexec(ends[0]);
-    set_cloexec(ends[1]);
-    // SAFETY: two fresh descriptors, each owned by nothing else.
-    let (read, write) = unsafe { (OwnedFd::from_raw_fd(ends[0]), OwnedFd::from_raw_fd(ends[1])) };
-    let spawned = std::thread::Builder::new()
-        .name("rightkit-exit-watch".into())
-        .spawn(move || {
-            loop {
-                // SAFETY: an all-zero siginfo_t is valid, and waitid fills it.
-                let mut info: libc::siginfo_t = unsafe { std::mem::zeroed() };
-                // SAFETY: valid out pointer; WNOWAIT leaves the zombie in place.
-                let result = unsafe {
-                    libc::waitid(
-                        libc::P_PID,
-                        pid as libc::id_t,
-                        &mut info,
-                        libc::WEXITED | libc::WNOWAIT,
-                    )
-                };
-                if result == 0 || io::Error::last_os_error().raw_os_error() != Some(libc::EINTR) {
-                    break;
-                }
-            }
-            drop(write);
-        });
-    match spawned {
-        Ok(_) => (Source::Thread(read), false),
-        Err(_) => (Source::Unsupported, false),
-    }
+fn open_source(_pid: u32) -> Source {
+    Source::None
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use std::process::{Command, Stdio};
+    use std::sync::atomic::AtomicUsize;
 
     fn child(script: &str) -> std::process::Child {
         Command::new("/bin/sh")
@@ -432,75 +279,134 @@ mod tests {
     }
 
     #[test]
-    fn a_running_child_times_out_once_and_then_fires_on_exit() {
-        let mut process = child("exec sleep 0.4");
-        let watch = ExitWatch::open(process.id(), true);
-        assert!(watch.is_supported());
-        assert!(!watch.wait(Some(Duration::from_millis(50))).expect("wait"));
-        assert!(watch.wait(Some(Duration::from_secs(10))).expect("wait"));
-        // Fired for good: answers at once, with no further system call.
-        let before = watch.wakeups();
-        assert!(watch.wait(None).expect("wait"));
-        assert_eq!(watch.wakeups(), before);
-        process.wait().expect("reap");
-    }
-
-    #[test]
-    fn a_watch_opened_after_the_exit_reports_it() {
-        let mut process = child("exit 0");
-        // The child is a zombie by now; it is still unreaped, so its number is still ours.
-        std::thread::sleep(Duration::from_millis(300));
-        let watch = ExitWatch::open(process.id(), true);
-        assert!(watch.wait(Some(Duration::from_secs(5))).expect("wait"));
-        process.wait().expect("reap");
-    }
-
-    #[test]
-    fn a_watch_survives_the_reap_and_still_reports_the_exit_to_a_late_waiter() {
-        let mut process = child("exit 0");
-        let watch = ExitWatch::open(process.id(), true);
-        process.wait().expect("reap");
-        assert!(watch.wait(Some(Duration::from_secs(5))).expect("wait"));
-    }
-
-    #[test]
-    fn wait_all_waits_for_every_watch() {
-        let mut slow = child("exec sleep 0.3");
-        let mut fast = child("exit 0");
-        let watches = [
-            ExitWatch::open(slow.id(), true),
-            ExitWatch::open(fast.id(), true),
-        ];
-        assert!(!ExitWatch::wait_all(&watches, Duration::from_millis(20)).expect("wait"));
-        assert!(ExitWatch::wait_all(&watches, Duration::from_secs(10)).expect("wait"));
-        slow.wait().expect("reap");
-        fast.wait().expect("reap");
-    }
-
-    #[test]
-    fn an_unsupported_watch_refuses_bounded_waits() {
-        let watch = ExitWatch::unsupported();
-        let error = watch.wait(Some(Duration::from_millis(1))).unwrap_err();
-        assert_eq!(error.kind(), io::ErrorKind::Unsupported);
-    }
-
-    #[cfg(any(target_os = "linux", target_os = "android"))]
-    #[test]
-    fn a_pidfd_proves_the_original_process_and_signals_it_without_the_number() {
+    fn a_pause_on_a_running_child_ends_at_its_limit_not_after_it() {
         let mut process = child("exec sleep 600");
-        let watch = ExitWatch::open(process.id(), true);
-        if !watch.proves_exactly() {
-            return; // kernel without pidfd: the thread fallback is in use
+        let watch = ExitWatch::open(process.id());
+        let started = Instant::now();
+        watch.pause(Duration::from_millis(150));
+        let elapsed = started.elapsed();
+        assert!(elapsed < Duration::from_secs(5), "{elapsed:?}");
+        if watch.has_event_source() {
+            assert!(elapsed >= Duration::from_millis(100), "{elapsed:?}");
         }
-        assert!(matches!(watch.exact_proof(), Some(Ok(true))));
-        watch
-            .send_signal(libc::SIGKILL)
-            .expect("pidfd")
-            .expect("signal");
-        // Exited but unreaped: still the same process.
-        assert!(watch.wait(Some(Duration::from_secs(10))).expect("wait"));
-        assert!(matches!(watch.exact_proof(), Some(Ok(true))));
+        process.kill().expect("kill");
         process.wait().expect("reap");
-        assert!(matches!(watch.exact_proof(), Some(Ok(false))));
+    }
+
+    #[test]
+    fn an_exit_wakes_a_long_pause_early() {
+        let mut process = child("exec sleep 0.3");
+        let watch = ExitWatch::open(process.id());
+        let started = Instant::now();
+        watch.pause(Duration::from_secs(30));
+        assert!(started.elapsed() < Duration::from_secs(10));
+        process.wait().expect("reap");
+    }
+
+    #[test]
+    fn a_watch_opened_after_the_exit_still_pauses_for_a_bounded_time() {
+        let mut process = child("exit 0");
+        // A zombie by now. macOS registers nothing for it; Linux gives a pidfd that is already
+        // readable. Neither may make a pause block.
+        std::thread::sleep(Duration::from_millis(300));
+        let watch = ExitWatch::open(process.id());
+        let started = Instant::now();
+        watch.pause(Duration::from_secs(30));
+        watch.pause(Duration::from_secs(30));
+        assert!(started.elapsed() < Duration::from_secs(5));
+        process.wait().expect("reap");
+    }
+
+    /// The fallback: no event source. A pause is the polling interval, not the limit.
+    #[test]
+    fn a_watch_without_an_event_source_pauses_one_interval_not_the_limit() {
+        let watch = ExitWatch::unsupported();
+        assert!(!watch.has_event_source());
+        let started = Instant::now();
+        watch.pause(Duration::from_secs(60));
+        assert!(started.elapsed() < Duration::from_secs(2));
+        let started = Instant::now();
+        watch.pause(Duration::ZERO);
+        assert!(started.elapsed() < Duration::from_millis(500));
+    }
+
+    /// The fallback loop keeps the caller's deadline and neither spins nor sleeps it away.
+    #[test]
+    fn the_fallback_loop_honours_the_deadline_and_does_not_spin() {
+        let watch = ExitWatch::unsupported();
+        let looks = AtomicUsize::new(0);
+        let started = Instant::now();
+        let found: Option<()> = watch
+            .wait_for(Some(started + Duration::from_millis(200)), || {
+                looks.fetch_add(1, Ordering::SeqCst);
+                Ok(None)
+            })
+            .expect("wait_for");
+        let elapsed = started.elapsed();
+        assert!(found.is_none());
+        assert!(
+            elapsed >= Duration::from_millis(200) && elapsed < Duration::from_secs(5),
+            "{elapsed:?}"
+        );
+        // One look per 5 ms is about 40 in 200 ms. A spin would be thousands; fewer than three
+        // would mean the loop slept the deadline away in one go.
+        let looks = looks.load(Ordering::SeqCst);
+        assert!((3..=60).contains(&looks), "{looks} looks");
+    }
+
+    #[test]
+    fn a_deadline_already_passed_looks_once_and_returns() {
+        let watch = ExitWatch::unsupported();
+        let looks = AtomicUsize::new(0);
+        let found: Option<()> = watch
+            .wait_for(Some(Instant::now()), || {
+                looks.fetch_add(1, Ordering::SeqCst);
+                Ok(None)
+            })
+            .expect("wait_for");
+        assert!(found.is_none());
+        assert_eq!(looks.load(Ordering::SeqCst), 1);
+    }
+
+    #[test]
+    fn an_unbounded_wait_returns_as_soon_as_a_look_reports() {
+        let watch = ExitWatch::unsupported();
+        let looks = AtomicUsize::new(0);
+        let started = Instant::now();
+        let found = watch
+            .wait_for(None, || {
+                Ok((looks.fetch_add(1, Ordering::SeqCst) == 2).then_some("done"))
+            })
+            .expect("wait_for");
+        assert_eq!(found, Some("done"));
+        assert_eq!(looks.load(Ordering::SeqCst), 3);
+        assert!(started.elapsed() < Duration::from_secs(2));
+    }
+
+    #[test]
+    fn a_failing_look_ends_the_wait_with_its_error() {
+        let watch = ExitWatch::unsupported();
+        let error = watch
+            .wait_for(None, || -> io::Result<Option<()>> {
+                Err(io::Error::from_raw_os_error(libc::ECHILD))
+            })
+            .unwrap_err();
+        assert_eq!(error.raw_os_error(), Some(libc::ECHILD));
+    }
+
+    /// With the real source: the loop finds the exit, early, and the child stays reapable.
+    #[test]
+    fn a_wait_on_a_real_child_returns_its_status_when_it_exits() {
+        let mut process = child("exec sleep 0.3");
+        let watch = ExitWatch::open(process.id());
+        let started = Instant::now();
+        let status = watch
+            .wait_for(Some(started + Duration::from_secs(30)), || {
+                process.try_wait()
+            })
+            .expect("wait_for")
+            .expect("the child exits within 30 s");
+        assert!(status.success());
+        assert!(started.elapsed() < Duration::from_secs(10));
     }
 }

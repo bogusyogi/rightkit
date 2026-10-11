@@ -28,6 +28,7 @@ import {
   statusApiDeclared,
   syncRuntimeBudgetReadme,
 } from "./runtime-budgets.mjs";
+import { fileURLToPath } from "node:url";
 
 const COMMIT = "a".repeat(40);
 const CEILINGS = { residentMemoryBytes: 536870912, idleCpuPercent: 2, wakeupsPerSecond: 10, diskOpsPerSecond: 5 };
@@ -784,8 +785,9 @@ test("app qualification is wired into preflight, so doctor, --dry-run and every 
 });
 
 test("runtime-budget-classes.json is exactly what the crates' manifests generate", (t) => {
-  const cratesDir = path.resolve(path.dirname(new URL(import.meta.url).pathname), "../../crates");
-  const shipped = readFileSync(new URL("./runtime-budget-classes.json", import.meta.url), "utf8");
+  const cratesDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../crates");
+  // A Windows checkout may hold the file with CRLF; the generator writes LF.
+  const shipped = readFileSync(new URL("./runtime-budget-classes.json", import.meta.url), "utf8").replace(/\r\n/g, "\n");
   assert.equal(shipped, renderClasses(heldResourceClasses(cratesDir)), "run: node runtime-budgets.mjs classes ../../crates");
   const dir = mkdtempSync(path.join(os.tmpdir(), "rightkit-classes-"));
   t.after(() => rmSync(dir, { recursive: true, force: true }));
@@ -799,7 +801,7 @@ test("runtime-budget-classes.json is exactly what the crates' manifests generate
 
 // ---------------------------------------------------------------- filled examples against the real crates
 
-const REAL = path.resolve(path.dirname(new URL(import.meta.url).pathname), "../../crates");
+const REAL = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../crates");
 export const VAD_EXAMPLE = `
 [package.metadata.rightkit]
 continuous = "held-resource"

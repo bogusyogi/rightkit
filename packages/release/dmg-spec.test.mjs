@@ -5,6 +5,9 @@ import path from "node:path";
 import test from "node:test";
 import { parseDmgSpec, readDmgSpec } from "./dmg-spec.mjs";
 
+// Not run on Windows: disk image specs use macOS paths.
+const WINDOWS_SKIP = process.platform === "win32" ? "disk image specs use macOS paths" : false;
+
 // release/appdmg.json from Pulse, verbatim.
 const PULSE_SPEC = { title: "Pulse", "icon-size": 128, window: { size: { width: 640, height: 420 } },
   contents: [{ x: 180, y: 210, type: "file", path: "Pulse.app" }, { x: 460, y: 210, type: "link", path: "/Applications" }] };
@@ -15,7 +18,7 @@ test("the Pulse appdmg spec maps onto buildDmg options", () => {
   });
 });
 
-test("background, icon and window position resolve against the spec directory", () => {
+test("background, icon and window position resolve against the spec directory", { skip: WINDOWS_SKIP }, () => {
   const options = parseDmgSpec({ title: "T", background: "art/bg.png", icon: "art/vol.icns", format: "UDZO", filesystem: "HFS+",
     window: { position: { x: 50, y: 60 }, size: { width: 500, height: 300 } } }, { baseDir: "/repo/release" });
   assert.deepEqual(options, { volname: "T", background: "/repo/release/art/bg.png", volumeIcon: "/repo/release/art/vol.icns", window: [500, 300], windowPosition: [50, 60] });

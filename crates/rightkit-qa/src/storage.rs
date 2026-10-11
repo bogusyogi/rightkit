@@ -244,7 +244,7 @@ pub(crate) fn create_app_root(run: &mut ManagedRun) -> Result<PathBuf> {
 }
 
 fn create_app_root_in(run: &mut ManagedRun, parent: &Path) -> Result<PathBuf> {
-    let label: String = run.marker.app.chars().take(16).collect();
+    let label = product_label(&run.marker.app);
     let home = parent.join(format!("{}-{}", label, &new_id().replace('-', "")[..16]));
     fs::create_dir(&home)?;
     run.marker.app_root = Some(home.clone());
@@ -492,24 +492,95 @@ fn sweep_homes_throttled(parent: &Path) {
 
 // ---------------------------------------------------------------------------------------------
 // QA root hygiene: every home is removed when its run ends; dead homes are swept at run start;
-// a root over its size cap refuses to start another run.
+// a product whose own homes hold too much, or a root that holds far too much, refuses to start
+// another run.
 
 /// Marker inside each home: the owning process and when the run started.
 pub const HOME_MARKER: &str = ".rightkit-home.json";
-/// Bytes the whole `rightkit-qa` root may hold after the start-of-run sweep. `0` disables the cap.
+/// Binding file inside each home: the run record it belongs to and its product (`app`).
+const BINDING_FILE: &str = ".rightkit-app.json";
+/// Bytes one product's homes may hold after the start-of-run sweep. `0` disables the cap. The cap
+/// is per product: a home belongs to the product named by its binding file (else by its directory
+/// name prefix), and other products' homes never count against it.
 pub const ROOT_CAP_ENV: &str = "RIGHTKIT_QA_ROOT_CAP_BYTES";
-/// Seconds a home whose owner is dead must be old before the start-of-run sweep removes it.
+/// Bytes the whole `rightkit-qa` root may hold, all products together, after the start-of-run
+/// sweep. Above it every run is refused, because the disk itself is at risk. `0` disables it.
+pub const ROOT_CEILING_ENV: &str = "RIGHTKIT_QA_ROOT_CEILING_BYTES";
+/// Seconds a home whose owner is dead must be untouched before the start-of-run sweep removes it.
 pub const HOME_MAX_AGE_ENV: &str = "RIGHTKIT_QA_HOME_MAX_AGE_SECS";
 /// `1` keeps the home of a failed run for inspection (its path and size are printed).
 pub const KEEP_FAILED_HOME_ENV: &str = "RIGHTKIT_QA_KEEP_FAILED_HOME";
 pub const DEFAULT_ROOT_CAP_BYTES: u64 = 4_000_000_000;
+pub const DEFAULT_ROOT_CEILING_BYTES: u64 = 32_000_000_000;
 pub const DEFAULT_HOME_MAX_AGE: Duration = Duration::from_secs(2 * 3600);
+/// The app key is cut to this many characters to make the product label in a home's name.
+const HOME_LABEL_LEN: usize = 16;
 
+fn bytes_from(raw: Option<&str>, default: u64) -> u64 {
+    raw.and_then(|v| v.trim().parse::<u64>().ok())
+        .unwrap_or(default)
+}
+
+/// The per-product cap from the environment, else [`DEFAULT_ROOT_CAP_BYTES`].
 pub fn root_cap_bytes() -> u64 {
-    std::env::var(ROOT_CAP_ENV)
-        .ok()
-        .and_then(|v| v.trim().parse::<u64>().ok())
-        .unwrap_or(DEFAULT_ROOT_CAP_BYTES)
+    bytes_from(
+        std::env::var(ROOT_CAP_ENV).ok().as_deref(),
+        DEFAULT_ROOT_CAP_BYTES,
+    )
+}
+
+/// The root-wide ceiling from the environment, else [`DEFAULT_ROOT_CEILING_BYTES`].
+pub fn root_ceiling_bytes() -> u64 {
+    bytes_from(
+        std::env::var(ROOT_CEILING_ENV).ok().as_deref(),
+        DEFAULT_ROOT_CEILING_BYTES,
+    )
+}
+
+/// The limits a run start enforces on the QA root, as an app sets them in code. A value set here
+/// wins over the environment variable; `None` leaves the limit to the environment, then the
+/// default; `Some(0)` disables it.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct RootLimits {
+    /// Per-product cap ([`ROOT_CAP_ENV`]).
+    pub cap_bytes: Option<u64>,
+    /// Root-wide ceiling ([`ROOT_CEILING_ENV`]).
+    pub ceiling_bytes: Option<u64>,
+}
+
+/// [`RootLimits`] after setter, environment and default are applied. `0` means disabled.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ResolvedRootLimits {
+    pub cap_bytes: u64,
+    pub ceiling_bytes: u64,
+}
+
+impl RootLimits {
+    pub fn with_cap_bytes(mut self, bytes: u64) -> Self {
+        self.cap_bytes = Some(bytes);
+        self
+    }
+
+    pub fn with_ceiling_bytes(mut self, bytes: u64) -> Self {
+        self.ceiling_bytes = Some(bytes);
+        self
+    }
+
+    /// Setter, else environment, else default.
+    pub fn resolve(&self) -> ResolvedRootLimits {
+        self.resolve_with(&|key: &str| std::env::var(key).ok())
+    }
+
+    fn resolve_with(&self, env: &dyn Fn(&str) -> Option<String>) -> ResolvedRootLimits {
+        ResolvedRootLimits {
+            cap_bytes: self.cap_bytes.unwrap_or_else(|| {
+                bytes_from(env(ROOT_CAP_ENV).as_deref(), DEFAULT_ROOT_CAP_BYTES)
+            }),
+            ceiling_bytes: self.ceiling_bytes.unwrap_or_else(|| {
+                bytes_from(env(ROOT_CEILING_ENV).as_deref(), DEFAULT_ROOT_CEILING_BYTES)
+            }),
+        }
+    }
 }
 
 pub fn home_max_age() -> Duration {
@@ -543,12 +614,62 @@ fn read_home_marker(home: &Path) -> Option<(u32, u128)> {
     Some((pid, u128::from(v.get("startedAtMs")?.as_u64()?)))
 }
 
+/// The binding file of a home, when it is readable JSON object.
+fn read_binding(home: &Path) -> Option<serde_json::Value> {
+    fs::read(home.join(BINDING_FILE))
+        .ok()
+        .and_then(|b| serde_json::from_slice::<serde_json::Value>(&b).ok())
+        .filter(serde_json::Value::is_object)
+}
+
+/// The product label a home's directory name carries: the app key cut to [`HOME_LABEL_LEN`].
+fn product_label(app: &str) -> String {
+    app.chars().take(HOME_LABEL_LEN).collect()
+}
+
+/// The product label of a directory name that follows the naming pattern of a QA home, else
+/// `None`. The pattern is `<label>-<suffix>`: the label is an app key cut to 16 characters (a
+/// safe key: ASCII letters, digits, `.`, `_`, `-`, starting with a letter or digit), and the suffix
+/// is the 16 lowercase hex digits this crate appends or the 6 letters and digits `mkdtemp` appends
+/// in `@rightkit/qa`. Both runners write into the same root, so both suffixes are accepted.
+fn parse_home_name(name: &str) -> Option<&str> {
+    let (label, suffix) = name.rsplit_once('-')?;
+    let suffix_ok = (suffix.len() == 16
+        && suffix
+            .bytes()
+            .all(|b| b.is_ascii_digit() || matches!(b, b'a'..=b'f')))
+        || (suffix.len() == 6 && suffix.bytes().all(|b| b.is_ascii_alphanumeric()));
+    let label_ok = !label.is_empty()
+        && label.chars().count() <= HOME_LABEL_LEN
+        && label.starts_with(|c: char| c.is_ascii_alphanumeric())
+        && label
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-'));
+    (suffix_ok && label_ok).then_some(label)
+}
+
+/// The product a home belongs to: the `app` in its binding file when present, else the label in
+/// its directory name, else the whole name (a directory this runner did not name).
+fn home_product(name: &str, binding: Option<&serde_json::Value>) -> String {
+    binding
+        .and_then(|b| b.get("app"))
+        .and_then(|v| v.as_str())
+        .filter(|app| !app.is_empty())
+        .map(str::to_owned)
+        .unwrap_or_else(|| parse_home_name(name).unwrap_or(name).to_owned())
+}
+
+/// Two product names are the same product when their home-name labels are equal.
+fn same_product(home_product: &str, app: &str) -> bool {
+    product_label(home_product) == product_label(app)
+}
+
 /// A directory this runner created as a QA home: a real directory directly under `rightkit-qa`
 /// with the binding file. `workspace::dispose` deletes a home only when this holds.
 pub(crate) fn is_owned_home(home: &Path) -> bool {
     safe_dir(home)
         && home.parent().and_then(Path::file_name) == Some(std::ffi::OsStr::new("rightkit-qa"))
-        && home.join(".rightkit-app.json").is_file()
+        && home.join(BINDING_FILE).is_file()
 }
 
 /// `<home base>/rightkit-qa`, the root this runner owns.
@@ -567,11 +688,87 @@ fn remove_home_dir(dir: &Path, canonical_parent: &Path) -> std::result::Result<(
     fs::remove_dir_all(dir).map_err(|e| e.to_string())
 }
 
-/// Remove the homes of dead runs. A home goes when its recorded process is gone and it is older
-/// than `max_age`; a home whose pid is alive is never touched, nor is a directory without the
-/// binding file, a symlink, or anything outside `parent` (the `.../rightkit-qa` directory).
-/// Homes from before the pid marker existed fall back to their run record's liveness.
-/// `dry_run` reports without deleting.
+/// True when `dir` itself or anything under it was modified after `cutoff_ms` (milliseconds since
+/// the epoch). Symlinks are examined, never followed. Stops at the first newer entry. A tree that
+/// cannot be inspected counts as recently modified: it is not proven idle.
+fn modified_after(dir: &Path, cutoff_ms: u128) -> bool {
+    if modified_ms(dir).is_none_or(|t| t > cutoff_ms) {
+        return true;
+    }
+    let mut stack = vec![dir.to_path_buf()];
+    while let Some(d) = stack.pop() {
+        let Ok(entries) = fs::read_dir(&d) else {
+            return true;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if modified_ms(&path).is_none_or(|t| t > cutoff_ms) {
+                return true;
+            }
+            if entry.file_type().is_ok_and(|ft| ft.is_dir()) {
+                stack.push(path);
+            }
+        }
+    }
+    false
+}
+
+/// Whether a home that has no owner marker (`.rightkit-home.json`, or no binding file beside it)
+/// may be swept. `Ok(reason)` removes it, `Err(why)` keeps it.
+///
+/// "Dead" for such a home means every one of these holds:
+/// * its name matches the home naming pattern ([`parse_home_name`]);
+/// * no pid recorded for it is alive: the pid in a home marker that has no binding beside it, and
+///   the `ownerPid` of the run record its binding names (`runRoot`), when either is readable
+///   ([`pid_live`]: a process that cannot be measured counts as alive);
+/// * nothing in the home, the directory itself included, was modified within `max_age_ms`.
+///
+/// Not checked: which processes have the home as their working directory or an open file in it
+/// (no process table walk), the run record's lease (`leaseUntil` is a timer set when the run
+/// began, not proof of a live process, and a cancelled run's lease is what kept these homes for
+/// 24 hours), and whether a pid in the record now belongs to an unrelated process (that keeps the
+/// home). A process that holds the home but writes nothing for the whole window is not noticed.
+fn unmarked_home_verdict(
+    dir: &Path,
+    name: &str,
+    binding: Option<&serde_json::Value>,
+    marker_pid: Option<u32>,
+    now: u128,
+    max_age_ms: u128,
+) -> std::result::Result<&'static str, String> {
+    if parse_home_name(name).is_none() {
+        return Err("no owner marker and the name is not a QA home name: not proven ours".into());
+    }
+    let record_pid = binding
+        .and_then(|b| b.get("runRoot"))
+        .and_then(|v| v.as_str())
+        .and_then(|root| read_marker(&Path::new(root).join(RUN_MARKER)))
+        .map(|m| m.owner_pid);
+    for pid in marker_pid.into_iter().chain(record_pid) {
+        if pid_live(pid) {
+            return Err(format!(
+                "no owner marker; recorded owner process {pid} is alive"
+            ));
+        }
+    }
+    if modified_after(dir, now.saturating_sub(max_age_ms)) {
+        return Err("no owner marker; modified within the window".into());
+    }
+    Ok("no owner marker, no live recorded owner, untouched for longer than the window")
+}
+
+/// Remove the homes of dead runs. Two kinds of home exist:
+///
+/// * A home with an owner marker (`.rightkit-home.json`) and a binding file goes when its recorded
+///   process is gone and its run started more than `max_age` ago. A home whose pid is alive is
+///   never touched.
+/// * Any other home (written before the marker existed, or missing a file) goes only under
+///   [`unmarked_home_verdict`]: a QA home name, no live recorded pid, and nothing in it modified
+///   within `max_age`. That function states what is and is not checked.
+///
+/// Symlinks, dot-directories, anything outside `parent` (the `.../rightkit-qa` directory), and any
+/// path that is not a plain directory directly inside it are never removed. `dry_run` reports
+/// without deleting.
 pub fn clean_homes(parent: &Path, max_age: Duration, dry_run: bool) -> HomeSweepReport {
     let mut report = HomeSweepReport::default();
     if parent.file_name().is_none_or(|n| n != "rightkit-qa") || !safe_dir(parent) {
@@ -584,67 +781,57 @@ pub fn clean_homes(parent: &Path, max_age: Duration, dry_run: bool) -> HomeSweep
         return report;
     };
     let now = now_ms();
+    let max_age_ms = max_age.as_millis();
     for entry in entries.flatten() {
         let name = entry.file_name().to_string_lossy().into_owned();
-        let Ok(ft) = entry.file_type() else { continue };
-        if !ft.is_dir() || ft.is_symlink() || name.starts_with('.') {
+        if name.starts_with('.') {
             continue;
         }
+        let Ok(ft) = entry.file_type() else { continue };
         let dir = entry.path();
-        let binding_path = dir.join(".rightkit-app.json");
-        let Some(binding) = fs::read(&binding_path)
-            .ok()
-            .and_then(|b| serde_json::from_slice::<serde_json::Value>(&b).ok())
-        else {
-            report
-                .retained
-                .push((dir, "no readable binding file: not proven ours".into()));
+        if ft.is_symlink() {
+            report.retained.push((dir, "symlink skipped".into()));
             continue;
-        };
-        let (alive, started) = match read_home_marker(&dir) {
-            Some((pid, started)) => (pid_live(pid), started),
-            None => {
-                let run = binding
-                    .get("runRoot")
-                    .and_then(|v| v.as_str())
-                    .and_then(|root| read_marker(&Path::new(root).join(RUN_MARKER)));
-                match run {
-                    Some(m) => (marker_active(&m, now), m.created_at),
-                    None => (
-                        false,
-                        modified_ms(&binding_path)
-                            .into_iter()
-                            .chain(modified_ms(&dir))
-                            .max()
-                            .unwrap_or(now),
-                    ),
-                }
-            }
-        };
+        }
+        if !ft.is_dir() {
+            continue;
+        }
+        let binding = read_binding(&dir);
+        let owner = read_home_marker(&dir);
         let bytes = tree_bytes(&dir);
         report.total_bytes = report.total_bytes.saturating_add(bytes);
-        if alive {
-            report.retained.push((dir, "owner process alive".into()));
-            continue;
-        }
-        if now.saturating_sub(started) < max_age.as_millis() {
-            report
-                .retained
-                .push((dir, "owner gone but younger than the window".into()));
-            continue;
-        }
-        if !dry_run {
-            if let Err(why) = remove_home_dir(&dir, &canonical_parent) {
-                report.retained.push((dir, why));
-                continue;
+        let verdict: std::result::Result<&'static str, String> = match (&binding, owner) {
+            (Some(_), Some((pid, started))) => {
+                if pid_live(pid) {
+                    Err("owner process alive".into())
+                } else if now.saturating_sub(started) < max_age_ms {
+                    Err("owner gone but younger than the window".into())
+                } else {
+                    Ok("owner process gone and older than the window")
+                }
+            }
+            _ => unmarked_home_verdict(
+                &dir,
+                &name,
+                binding.as_ref(),
+                owner.map(|(pid, _)| pid),
+                now,
+                max_age_ms,
+            ),
+        };
+        match verdict {
+            Err(why) => report.retained.push((dir, why)),
+            Ok(reason) => {
+                if !dry_run {
+                    if let Err(why) = remove_home_dir(&dir, &canonical_parent) {
+                        report.retained.push((dir, why));
+                        continue;
+                    }
+                }
+                report.removed_bytes = report.removed_bytes.saturating_add(bytes);
+                report.removed.push((dir, bytes, reason.to_string()));
             }
         }
-        report.removed_bytes = report.removed_bytes.saturating_add(bytes);
-        report.removed.push((
-            dir,
-            bytes,
-            "owner process gone and older than the window".into(),
-        ));
     }
     report
 }
@@ -655,30 +842,79 @@ pub fn clean(dry_run: bool) -> HomeSweepReport {
     clean_homes(&qa_root(), home_max_age(), dry_run)
 }
 
-/// The QA root holds more than its cap even after the sweep.
+/// Which limit a refused run exceeded.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RootLimitKind {
+    /// The run's own product holds more than its per-product cap.
+    ProductCap,
+    /// All products together hold more than the root-wide ceiling.
+    RootCeiling,
+}
+
+/// A run was refused because a QA root limit is exceeded even after the sweep.
 #[derive(Debug, Clone)]
 pub struct RootOverCap {
+    pub kind: RootLimitKind,
     pub root: PathBuf,
+    /// The product the refused run is for.
+    pub app: String,
+    /// Bytes counted against the limit: the product's homes, or every home.
     pub total_bytes: u64,
-    pub cap_bytes: u64,
-    /// Largest homes first: `(home, bytes)`.
-    pub largest: Vec<(PathBuf, u64)>,
+    /// Homes counted against the limit.
+    pub home_count: usize,
+    /// The limit that was exceeded.
+    pub limit_bytes: u64,
+    /// Largest homes first: `(home, bytes, product)`.
+    pub largest: Vec<(PathBuf, u64, String)>,
+}
+
+/// `"5.26 GB (5260000000 bytes)"`, or `"812 bytes"` below a megabyte.
+fn human_bytes(bytes: u64) -> String {
+    if bytes >= 1_000_000_000 {
+        format!("{:.2} GB ({bytes} bytes)", bytes as f64 / 1e9)
+    } else if bytes >= 1_000_000 {
+        format!("{:.1} MB ({bytes} bytes)", bytes as f64 / 1e6)
+    } else {
+        format!("{bytes} bytes")
+    }
 }
 
 impl std::fmt::Display for RootOverCap {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self.kind {
+            RootLimitKind::ProductCap => write!(
+                f,
+                "QA run for `{app}` refused: the {app} homes in {root} hold {total} in {n} home(s), over the {limit} per-product cap ({env}; `Harness::with_root_cap_bytes` sets it in code, 0 disables). Other products' homes are not counted. Largest {app} homes:",
+                app = self.app,
+                root = self.root.display(),
+                total = human_bytes(self.total_bytes),
+                n = self.home_count,
+                limit = human_bytes(self.limit_bytes),
+                env = ROOT_CAP_ENV,
+            )?,
+            RootLimitKind::RootCeiling => write!(
+                f,
+                "QA run for `{app}` refused: {root} holds {total} across all products in {n} home(s), over the {limit} root ceiling ({env}; `Harness::with_root_ceiling_bytes` sets it in code, 0 disables), so the disk may be at risk. Largest homes:",
+                app = self.app,
+                root = self.root.display(),
+                total = human_bytes(self.total_bytes),
+                n = self.home_count,
+                limit = human_bytes(self.limit_bytes),
+                env = ROOT_CEILING_ENV,
+            )?,
+        }
+        for (home, bytes, product) in &self.largest {
+            write!(
+                f,
+                " {} [{product}] ({});",
+                home.display(),
+                human_bytes(*bytes)
+            )?;
+        }
         write!(
             f,
-            "QA root {} holds {} bytes, over its {} byte cap ({}); largest homes:",
-            self.root.display(),
-            self.total_bytes,
-            self.cap_bytes,
-            ROOT_CAP_ENV
-        )?;
-        for (home, bytes) in &self.largest {
-            write!(f, " {} ({bytes} bytes);", home.display())?;
-        }
-        f.write_str(" run `rightkit-qa clean`, or remove those homes, then retry")
+            " Run `rightkit-qa clean` to remove the homes of dead runs (owner process gone and untouched for the home age bound, 2 hours by default, {HOME_MAX_AGE_ENV}); a home it keeps belongs to a live or recent run, so remove it by hand once you know that run is over, then retry"
+        )
     }
 }
 impl std::error::Error for RootOverCap {}
@@ -688,38 +924,160 @@ impl From<RootOverCap> for crate::util::Error {
     }
 }
 
-/// Fail with [`RootOverCap`] when the directories under `parent` hold more than `cap_bytes`
-/// (`0` disables the check).
-pub fn check_root_cap(parent: &Path, cap_bytes: u64) -> std::result::Result<(), RootOverCap> {
-    if cap_bytes == 0 || !safe_dir(parent) {
+/// Fail with [`RootOverCap`] when the homes of the product `app` hold more than `cap_bytes`
+/// (`0` disables the check). Other products' homes are not counted.
+pub fn check_root_cap(
+    parent: &Path,
+    app: &str,
+    cap_bytes: u64,
+) -> std::result::Result<(), RootOverCap> {
+    check_root_limits(parent, app, cap_bytes, 0)
+}
+
+/// Fail with [`RootOverCap`] when the homes of the product `app` hold more than `cap_bytes`
+/// (checked first), or when every directory under `parent` together holds more than
+/// `ceiling_bytes`. `0` disables a limit. A home's product is the `app` in its binding file, else
+/// the label in its directory name. Symlinks are not followed or counted.
+pub fn check_root_limits(
+    parent: &Path,
+    app: &str,
+    cap_bytes: u64,
+    ceiling_bytes: u64,
+) -> std::result::Result<(), RootOverCap> {
+    if (cap_bytes == 0 && ceiling_bytes == 0) || !safe_dir(parent) {
         return Ok(());
     }
-    let mut homes: Vec<(PathBuf, u64)> = Vec::new();
+    struct SizedHome {
+        path: PathBuf,
+        bytes: u64,
+        product: String,
+        own: bool,
+    }
+    let mut homes: Vec<SizedHome> = Vec::new();
     if let Ok(entries) = fs::read_dir(parent) {
         for entry in entries.flatten() {
             let Ok(ft) = entry.file_type() else { continue };
-            if ft.is_dir() && !ft.is_symlink() {
-                homes.push((entry.path(), tree_bytes(&entry.path())));
+            if !ft.is_dir() || ft.is_symlink() {
+                continue;
             }
+            let path = entry.path();
+            let name = entry.file_name().to_string_lossy().into_owned();
+            let product = home_product(&name, read_binding(&path).as_ref());
+            let own = same_product(&product, app);
+            // Another product's home is sized only for the ceiling.
+            let bytes = if (own && cap_bytes > 0) || ceiling_bytes > 0 {
+                tree_bytes(&path)
+            } else {
+                0
+            };
+            homes.push(SizedHome {
+                path,
+                bytes,
+                product,
+                own,
+            });
         }
     }
-    let total: u64 = homes.iter().map(|(_, b)| *b).sum();
-    if total <= cap_bytes {
-        return Ok(());
+    fn refusal(
+        kind: RootLimitKind,
+        limit_bytes: u64,
+        parent: &Path,
+        app: &str,
+        mut counted: Vec<&SizedHome>,
+    ) -> RootOverCap {
+        let total_bytes = counted
+            .iter()
+            .fold(0u64, |sum, home| sum.saturating_add(home.bytes));
+        let home_count = counted.len();
+        counted.sort_by_key(|home| std::cmp::Reverse(home.bytes));
+        RootOverCap {
+            kind,
+            root: parent.to_path_buf(),
+            app: app.to_string(),
+            total_bytes,
+            home_count,
+            limit_bytes,
+            largest: counted
+                .into_iter()
+                .take(5)
+                .map(|home| (home.path.clone(), home.bytes, home.product.clone()))
+                .collect(),
+        }
     }
-    homes.sort_by_key(|home| std::cmp::Reverse(home.1));
-    homes.truncate(5);
-    Err(RootOverCap {
-        root: parent.to_path_buf(),
-        total_bytes: total,
-        cap_bytes,
-        largest: homes,
-    })
+    if cap_bytes > 0 {
+        let own: Vec<&SizedHome> = homes.iter().filter(|home| home.own).collect();
+        let own_total = own
+            .iter()
+            .fold(0u64, |sum, home| sum.saturating_add(home.bytes));
+        if own_total > cap_bytes {
+            return Err(refusal(
+                RootLimitKind::ProductCap,
+                cap_bytes,
+                parent,
+                app,
+                own,
+            ));
+        }
+    }
+    if ceiling_bytes > 0 {
+        let all: Vec<&SizedHome> = homes.iter().collect();
+        let total = all
+            .iter()
+            .fold(0u64, |sum, home| sum.saturating_add(home.bytes));
+        if total > ceiling_bytes {
+            return Err(refusal(
+                RootLimitKind::RootCeiling,
+                ceiling_bytes,
+                parent,
+                app,
+                all,
+            ));
+        }
+    }
+    Ok(())
 }
 
-/// Run before a run is created: sweep dead homes, then refuse to start over the cap. Skipped in
-/// this crate's own unit tests, which run against the developer's real root.
-pub(crate) fn preflight_home_root() -> Result<()> {
+/// Sweep dead homes under `parent`, then the 24 hour rules (at most every ten minutes).
+/// `RIGHTKIT_QA_HOME_SWEEP=0` skips both.
+fn sweep_root_at_run_start(parent: &Path) {
+    if std::env::var(HOME_SWEEP_ENV).is_ok_and(|v| v.trim() == "0") {
+        return;
+    }
+    let _ = clean_homes(parent, home_max_age(), false);
+    sweep_homes_throttled(parent);
+}
+
+/// [`check_root_limits`] with `limits` resolved against `env`: a limit set in code wins over the
+/// environment, and the environment over the default.
+fn enforce_limits_with(
+    parent: &Path,
+    app: &str,
+    limits: RootLimits,
+    env: &dyn Fn(&str) -> Option<String>,
+) -> std::result::Result<(), RootOverCap> {
+    let limits = limits.resolve_with(env);
+    check_root_limits(parent, app, limits.cap_bytes, limits.ceiling_bytes)
+}
+
+/// The sweep half of the start-of-run preflight, for a caller that checks the limits later (the
+/// harness, so a limit set after construction takes effect). Skipped in this crate's own unit
+/// tests, which run against the developer's real root.
+pub(crate) fn sweep_home_root() {
+    if cfg!(test) {
+        return;
+    }
+    let parent = qa_root();
+    if safe_dir(&parent) {
+        sweep_root_at_run_start(&parent);
+    }
+}
+
+/// The limit half of the start-of-run preflight for the product `app`. Skipped in this crate's own
+/// unit tests, like [`sweep_home_root`].
+pub(crate) fn enforce_root_limits(
+    app: &str,
+    limits: RootLimits,
+) -> std::result::Result<(), RootOverCap> {
     if cfg!(test) {
         return Ok(());
     }
@@ -727,11 +1085,15 @@ pub(crate) fn preflight_home_root() -> Result<()> {
     if !safe_dir(&parent) {
         return Ok(());
     }
-    if std::env::var(HOME_SWEEP_ENV).map_or(true, |v| v.trim() != "0") {
-        let _ = clean_homes(&parent, home_max_age(), false);
-        sweep_homes_throttled(&parent);
-    }
-    check_root_cap(&parent, root_cap_bytes())?;
+    enforce_limits_with(&parent, app, limits, &|key: &str| std::env::var(key).ok())
+}
+
+/// Run before a run is created: sweep dead homes, then refuse to start when the run's own product
+/// is over its cap or the root is over its ceiling (`limits` set in code, else the environment,
+/// else the defaults).
+pub(crate) fn preflight_home_root(app: &str, limits: RootLimits) -> Result<()> {
+    sweep_home_root();
+    enforce_root_limits(app, limits)?;
     Ok(())
 }
 
@@ -1619,12 +1981,68 @@ mod tests {
     }
 
     fn home_for(root: &Path, parent: &Path, run_id: &str, payload: usize) -> (ManagedRun, PathBuf) {
-        let mut run = create(Some(root), "app", Some(run_id), Duration::from_secs(60)).unwrap();
+        home_of(root, parent, "app", run_id, payload)
+    }
+
+    /// A home of the product `app` with a dead owner recorded in its marker.
+    fn home_of(
+        root: &Path,
+        parent: &Path,
+        app: &str,
+        run_id: &str,
+        payload: usize,
+    ) -> (ManagedRun, PathBuf) {
+        let mut run = create(Some(root), app, Some(run_id), Duration::from_secs(60)).unwrap();
         let home = create_app_root_in(&mut run, parent).unwrap();
         // The sweep tests model homes of other, finished processes: record a dead owner.
         set_home_marker(&home, 0, now_ms());
         fs::write(home.join("payload.bin"), vec![0u8; payload]).unwrap();
         (run, home)
+    }
+
+    /// A home written before the owner marker existed: binding and run record, no
+    /// `.rightkit-home.json`. The run record still names this process, which is alive.
+    fn unmarked_home(
+        root: &Path,
+        parent: &Path,
+        app: &str,
+        run_id: &str,
+        payload: usize,
+    ) -> (ManagedRun, PathBuf) {
+        let (run, home) = home_of(root, parent, app, run_id, payload);
+        fs::remove_file(home.join(HOME_MARKER)).unwrap();
+        (run, home)
+    }
+
+    /// Set the owner and lease the run record of `run` names.
+    fn record_owner(run: &ManagedRun, pid: u32, lease_until: u128) {
+        let mut marker = read_marker(&run.root.join(RUN_MARKER)).unwrap();
+        marker.owner_pid = pid;
+        marker.lease_until = lease_until;
+        write_marker(&run.root, &marker).unwrap();
+    }
+
+    /// Set the modification time of everything under `dir`, `dir` included, to `age` ago.
+    /// Symlinks are left alone (setting a time would follow them).
+    fn age_tree(dir: &Path, age: Duration) {
+        let time = std::time::SystemTime::now() - age;
+        let mut all = vec![dir.to_path_buf()];
+        let mut stack = vec![dir.to_path_buf()];
+        while let Some(d) = stack.pop() {
+            for entry in fs::read_dir(&d).unwrap().flatten() {
+                let ft = entry.file_type().unwrap();
+                if ft.is_symlink() {
+                    continue;
+                }
+                if ft.is_dir() {
+                    stack.push(entry.path());
+                }
+                all.push(entry.path());
+            }
+        }
+        for path in all {
+            set_modified(&path, time);
+        }
     }
 
     fn set_home_marker(home: &Path, pid: u32, started_at_ms: u128) {
@@ -1848,22 +2266,358 @@ mod tests {
         let _ = fs::remove_dir_all(&root);
     }
 
+    // ---- per-product cap, root ceiling, setters ----
+
     #[test]
-    fn root_over_cap_names_the_largest_homes() {
-        let (root, parent) = homes_parent("cap");
-        let (_a, big) = home_for(&root, &parent, "big", 3_000_000);
-        let (_b, small) = home_for(&root, &parent, "small", 1_000_000);
-        check_root_cap(&parent, 10_000_000).unwrap();
-        check_root_cap(&parent, 0).unwrap();
-        let e = check_root_cap(&parent, 2_000_000).unwrap_err();
-        assert!(e.total_bytes >= 4_000_000 && e.cap_bytes == 2_000_000);
+    fn another_products_homes_never_block_a_run() {
+        let (root, parent) = homes_parent("cap-other");
+        for i in 0..3 {
+            home_of(&root, &parent, "genright", &format!("g{i}"), 1_000_000);
+        }
+        home_of(&root, &parent, "cutright", "c0", 1_000_000);
+        let (_p, post) = home_of(&root, &parent, "postright", "p0", 100_000);
+        // genright and cutright hold 4 MB between them; none of it counts against postright.
+        check_root_cap(&parent, "postright", 2_000_000).unwrap();
+        check_root_limits(&parent, "postright", 2_000_000, 0).unwrap();
+        assert!(post.exists());
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn own_product_over_the_cap_refuses_and_names_own_homes() {
+        let (root, parent) = homes_parent("cap-own");
+        let (_a, big) = home_of(&root, &parent, "genright", "g-big", 3_000_000);
+        let (_b, small) = home_of(&root, &parent, "genright", "g-small", 1_000_000);
+        let (_c, other) = home_of(&root, &parent, "cutright", "c0", 9_000_000);
+        check_root_cap(&parent, "genright", 10_000_000).unwrap();
+        check_root_cap(&parent, "genright", 0).unwrap();
+        let e = check_root_cap(&parent, "genright", 2_000_000).unwrap_err();
+        assert_eq!(e.kind, RootLimitKind::ProductCap);
+        assert_eq!(e.app, "genright");
+        assert!(
+            e.total_bytes >= 4_000_000 && e.total_bytes < 5_000_000,
+            "{}",
+            e.total_bytes
+        );
+        assert_eq!(e.home_count, 2);
+        assert_eq!(e.limit_bytes, 2_000_000);
+        assert_eq!(e.largest.len(), 2);
         assert_eq!(e.largest[0].0, big);
-        assert!(e.largest.iter().any(|(p, _)| p == &small));
+        assert!(e
+            .largest
+            .iter()
+            .any(|(p, _, product)| p == &small && product == "genright"));
+        assert!(e.largest.iter().all(|(p, _, _)| p != &other));
         let text = crate::util::Error::from(e).to_string();
         assert!(
-            text.contains(&big.display().to_string()) && text.contains(ROOT_CAP_ENV),
+            text.contains("genright")
+                && text.contains(&big.display().to_string())
+                && text.contains(ROOT_CAP_ENV)
+                && text.contains("rightkit-qa clean"),
             "{text}"
         );
+        assert!(!text.contains(&other.display().to_string()), "{text}");
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn a_home_without_a_binding_counts_for_the_product_in_its_name() {
+        let (root, parent) = homes_parent("cap-unbound");
+        let unbound = parent.join("cutright-0123456789abcdef");
+        fs::create_dir_all(&unbound).unwrap();
+        fs::write(unbound.join("blob"), vec![0u8; 3_000_000]).unwrap();
+        check_root_cap(&parent, "genright", 1_000_000).unwrap();
+        let e = check_root_cap(&parent, "cutright", 1_000_000).unwrap_err();
+        assert_eq!(e.largest[0].0, unbound);
+        assert_eq!(e.largest[0].2, "cutright");
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn root_ceiling_names_the_largest_homes_with_their_product() {
+        let (root, parent) = homes_parent("ceiling");
+        let (_a, g) = home_of(&root, &parent, "genright", "g0", 3_000_000);
+        let (_b, c) = home_of(&root, &parent, "cutright", "c0", 2_000_000);
+        home_of(&root, &parent, "viewright", "v0", 1_000_000);
+        // Under the ceiling, or no ceiling: fine. The per-product cap is off here.
+        check_root_limits(&parent, "viewright", 0, 10_000_000).unwrap();
+        check_root_limits(&parent, "viewright", 0, 0).unwrap();
+        let e = check_root_limits(&parent, "viewright", 0, 5_000_000).unwrap_err();
+        assert_eq!(e.kind, RootLimitKind::RootCeiling);
+        assert!(e.total_bytes >= 6_000_000 && e.limit_bytes == 5_000_000);
+        assert_eq!(e.home_count, 3);
+        assert_eq!(e.largest[0].0, g);
+        assert_eq!(e.largest[0].2, "genright");
+        assert_eq!(e.largest[1].0, c);
+        assert_eq!(e.largest[1].2, "cutright");
+        let text = crate::util::Error::from(e).to_string();
+        assert!(
+            text.contains("genright")
+                && text.contains("cutright")
+                && text.contains(ROOT_CEILING_ENV)
+                && text.contains("rightkit-qa clean"),
+            "{text}"
+        );
+        // A product over its own cap is told about its cap first.
+        let e = check_root_limits(&parent, "genright", 2_000_000, 5_000_000).unwrap_err();
+        assert_eq!(e.kind, RootLimitKind::ProductCap);
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn limits_set_in_code_win_over_the_environment_and_the_environment_over_the_default() {
+        let (root, parent) = homes_parent("limits-precedence");
+        home_of(&root, &parent, "genright", "g0", 3_000_000);
+        let tiny_env = |key: &str| match key {
+            ROOT_CAP_ENV | ROOT_CEILING_ENV => Some("1".to_string()),
+            _ => None,
+        };
+        let disabled_env = |_: &str| Some("0".to_string());
+        let empty_env = |_: &str| None::<String>;
+
+        // The environment alone (1 byte) refuses.
+        assert!(
+            enforce_limits_with(&parent, "genright", RootLimits::default(), &tiny_env).is_err()
+        );
+        // A limit set in code wins over it, in either direction.
+        let roomy = RootLimits::default()
+            .with_cap_bytes(10_000_000)
+            .with_ceiling_bytes(10_000_000);
+        enforce_limits_with(&parent, "genright", roomy, &tiny_env).unwrap();
+        let off = RootLimits::default()
+            .with_cap_bytes(0)
+            .with_ceiling_bytes(0);
+        enforce_limits_with(&parent, "genright", off, &tiny_env).unwrap();
+        let tight = RootLimits::default().with_cap_bytes(1_000_000);
+        let e = enforce_limits_with(&parent, "genright", tight, &disabled_env).unwrap_err();
+        assert_eq!(e.kind, RootLimitKind::ProductCap);
+        // One limit set in code leaves the other to the environment.
+        let cap_only = RootLimits::default().with_cap_bytes(0);
+        let e = enforce_limits_with(&parent, "genright", cap_only, &tiny_env).unwrap_err();
+        assert_eq!(e.kind, RootLimitKind::RootCeiling);
+        // Defaults when neither says anything, or the environment is not a number.
+        let defaults = ResolvedRootLimits {
+            cap_bytes: DEFAULT_ROOT_CAP_BYTES,
+            ceiling_bytes: DEFAULT_ROOT_CEILING_BYTES,
+        };
+        assert_eq!(RootLimits::default().resolve_with(&empty_env), defaults);
+        let junk_env = |_: &str| Some("lots".to_string());
+        assert_eq!(RootLimits::default().resolve_with(&junk_env), defaults);
+        assert_eq!(DEFAULT_ROOT_CAP_BYTES, 4_000_000_000);
+        assert_eq!(DEFAULT_ROOT_CEILING_BYTES, 32_000_000_000);
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    // ---- home names and products ----
+
+    #[test]
+    fn the_home_name_pattern_matches_what_the_runners_write() {
+        assert_eq!(
+            parse_home_name("genright-0123456789abcdef"),
+            Some("genright")
+        );
+        assert_eq!(
+            parse_home_name("scrape-right-0123456789abcdef"),
+            Some("scrape-right")
+        );
+        // `@rightkit/qa` names homes with `mkdtemp`: six letters and digits.
+        assert_eq!(parse_home_name("viewright-aB3dE9"), Some("viewright"));
+        for bad in [
+            "stranger",
+            "precious-data",
+            "x-0123456789ABCDEF",
+            "x-0123456789abcde",
+            "-0123456789abcdef",
+            "a-b-c",
+            ".hidden-0123456789abcdef",
+            "waytoolonglabelname-0123456789abcdef",
+            "my dir-0123456789abcdef",
+        ] {
+            assert_eq!(parse_home_name(bad), None, "{bad}");
+        }
+        // A home this crate creates matches its own pattern, and a long app key is cut to 16.
+        let (root, parent) = homes_parent("name-pattern");
+        let key = "longappnamewithmorethan16chars";
+        let mut run = create(Some(&root), key, Some("n"), Duration::from_secs(60)).unwrap();
+        let home = create_app_root_in(&mut run, &parent).unwrap();
+        let name = home.file_name().unwrap().to_string_lossy().into_owned();
+        assert_eq!(parse_home_name(&name), Some("longappnamewithm"));
+        assert!(same_product(key, "longappnamewithm"));
+        assert!(!same_product("genright", "cutright"));
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn a_homes_product_comes_from_its_binding_then_its_name() {
+        let (root, parent) = homes_parent("product");
+        let (_r, bound) = home_of(&root, &parent, "genright", "g0", 1);
+        let name = bound.file_name().unwrap().to_string_lossy().into_owned();
+        let binding = read_binding(&bound);
+        assert_eq!(home_product(&name, binding.as_ref()), "genright");
+        // The binding wins over a name that says otherwise.
+        assert_eq!(
+            home_product("cutright-0123456789abcdef", binding.as_ref()),
+            "genright"
+        );
+        // No binding: the label in the name; an unrecognised name stands for itself.
+        assert_eq!(home_product("cutright-0123456789abcdef", None), "cutright");
+        assert_eq!(home_product("stranger", None), "stranger");
+        // A binding file that is not a JSON object is no binding.
+        fs::write(bound.join(BINDING_FILE), b"[1]").unwrap();
+        assert!(read_binding(&bound).is_none());
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    // ---- homes without an owner marker ----
+
+    const WINDOW: Duration = Duration::from_secs(2 * 3600);
+    const THREE_HOURS: Duration = Duration::from_secs(3 * 3600);
+
+    #[test]
+    fn a_dead_unmarked_home_is_swept_and_the_sweep_unblocks_its_product() {
+        let (root, parent) = homes_parent("unmarked-dead");
+        // The run record names a dead owner but its lease is still running: the 24 hour lease is
+        // what kept cancelled runs alive before.
+        let (run, with_record) = unmarked_home(&root, &parent, "genright", "rec", 1_000_000);
+        record_owner(&run, dead_pid(), now_ms() + 3600 * 1000);
+        // The run record is gone.
+        let (gone, no_record) = unmarked_home(&root, &parent, "genright", "gone", 1_000_000);
+        fs::remove_dir_all(&gone.root).unwrap();
+        // No binding either: only the name says whose it is.
+        let (_u, no_binding) = unmarked_home(&root, &parent, "cutright", "nb", 1_000_000);
+        fs::remove_file(no_binding.join(BINDING_FILE)).unwrap();
+        for home in [&with_record, &no_record, &no_binding] {
+            age_tree(home, THREE_HOURS);
+        }
+
+        let dry = clean_homes(&parent, WINDOW, true);
+        assert_eq!(dry.removed.len(), 3, "{dry:?}");
+        assert!(
+            with_record.exists() && no_record.exists() && no_binding.exists(),
+            "dry run deletes nothing"
+        );
+        // They count against genright until swept, and not after.
+        check_root_cap(&parent, "genright", 1_500_000).unwrap_err();
+        let report = clean_homes(&parent, WINDOW, false);
+        assert_eq!(report.removed.len(), 3, "{report:?}");
+        assert!(report
+            .removed
+            .iter()
+            .all(|(_, _, why)| why.contains("no owner marker")));
+        assert!(!with_record.exists() && !no_record.exists() && !no_binding.exists());
+        check_root_cap(&parent, "genright", 1_500_000).unwrap();
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn a_young_unmarked_home_is_kept_and_so_is_one_with_a_recently_written_file() {
+        let (root, parent) = homes_parent("unmarked-young");
+        // Just created: nothing is old.
+        let (r1, fresh) = unmarked_home(&root, &parent, "genright", "fresh", 1000);
+        record_owner(&r1, dead_pid(), 0);
+        // An old tree with one recently written file deep inside (a live app's log).
+        let (r2, busy) = unmarked_home(&root, &parent, "genright", "busy", 1000);
+        record_owner(&r2, dead_pid(), 0);
+        fs::create_dir_all(busy.join("data/deep")).unwrap();
+        fs::write(busy.join("data/deep/app.log"), b"x").unwrap();
+        age_tree(&busy, THREE_HOURS);
+        fs::write(busy.join("data/deep/app.log"), b"y").unwrap();
+
+        let report = clean_homes(&parent, WINDOW, false);
+        assert!(report.removed.is_empty(), "{report:?}");
+        assert!(fresh.exists() && busy.exists());
+        for kept in [&fresh, &busy] {
+            assert!(
+                report
+                    .retained
+                    .iter()
+                    .any(|(p, why)| p == kept && why.contains("modified within the window")),
+                "{kept:?}: {report:?}"
+            );
+        }
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn an_unmarked_home_with_a_live_recorded_pid_is_kept() {
+        let (root, parent) = homes_parent("unmarked-live");
+        // `create` records this process as the run's owner, and this process is alive.
+        let (run, home) = unmarked_home(&root, &parent, "genright", "live", 1000);
+        age_tree(&home, THREE_HOURS);
+        let report = clean_homes(&parent, WINDOW, false);
+        assert!(home.exists(), "{report:?}");
+        assert!(
+            report
+                .retained
+                .iter()
+                .any(|(p, why)| p == &home && why.contains("is alive")),
+            "{report:?}"
+        );
+        // Once the record names a dead process the home goes, lease or not.
+        record_owner(&run, dead_pid(), now_ms() + 3600 * 1000);
+        let report = clean_homes(&parent, WINDOW, false);
+        assert!(!home.exists(), "{report:?}");
+
+        // A pid in a home marker that has no binding beside it counts the same way.
+        let (_r, orphan) = unmarked_home(&root, &parent, "cutright", "marked", 1000);
+        fs::remove_file(orphan.join(BINDING_FILE)).unwrap();
+        set_home_marker(&orphan, std::process::id(), 1);
+        age_tree(&orphan, THREE_HOURS);
+        clean_homes(&parent, WINDOW, false);
+        assert!(orphan.exists(), "live pid in the home marker");
+        set_home_marker(&orphan, dead_pid(), 1);
+        age_tree(&orphan, THREE_HOURS);
+        clean_homes(&parent, WINDOW, false);
+        assert!(!orphan.exists(), "dead pid in the home marker");
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn an_unmarked_directory_that_is_not_named_like_a_home_is_kept() {
+        let (root, parent) = homes_parent("unmarked-foreign");
+        let names = ["precious-data", "stranger", "x-0123456789ABCDEF"];
+        for name in names {
+            let dir = parent.join(name);
+            fs::create_dir_all(dir.join("sub")).unwrap();
+            fs::write(dir.join("sub/f"), b"keep").unwrap();
+            age_tree(&dir, THREE_HOURS);
+        }
+        let report = clean_homes(&parent, WINDOW, false);
+        assert!(report.removed.is_empty(), "{report:?}");
+        for name in names {
+            assert!(parent.join(name).join("sub/f").exists(), "{name}");
+        }
+        assert!(report
+            .retained
+            .iter()
+            .any(|(p, why)| p.ends_with("precious-data") && why.contains("not a QA home name")));
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_symlinked_entry_named_like_a_home_is_skipped() {
+        let (root, parent) = homes_parent("unmarked-symlink");
+        let outside = root.join("outside");
+        fs::create_dir_all(outside.join("sub")).unwrap();
+        fs::write(outside.join("sub/precious"), b"keep").unwrap();
+        age_tree(&outside, THREE_HOURS);
+        // A link directly in the root, named like a home, pointing out of it.
+        let link = parent.join("genright-0123456789abcdef");
+        std::os::unix::fs::symlink(&outside, &link).unwrap();
+        // A doomed unmarked home that holds a link out of the root.
+        let (run, doomed) = unmarked_home(&root, &parent, "genright", "doomed", 10);
+        record_owner(&run, dead_pid(), 0);
+        std::os::unix::fs::symlink(&outside, doomed.join("link-out")).unwrap();
+        // A zero window: a link's own modification time cannot be aged here.
+        let report = clean_homes(&parent, Duration::ZERO, false);
+        assert!(!doomed.exists(), "{report:?}");
+        assert_eq!(fs::read(outside.join("sub/precious")).unwrap(), b"keep");
+        assert!(fs::symlink_metadata(&link).is_ok());
+        assert!(report
+            .retained
+            .iter()
+            .any(|(p, why)| p == &link && why.contains("symlink")));
         let _ = fs::remove_dir_all(&root);
     }
 

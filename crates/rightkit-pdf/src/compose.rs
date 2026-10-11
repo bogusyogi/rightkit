@@ -88,8 +88,8 @@ use serde::Deserialize;
 
 use crate::font::{build_to_unicode_cmap, subset_for_pdf};
 use crate::inspect::{
-    self, content_stream_ids, encode_middle_for_font, walk_page_graph, ContentBudget,
-    ReencodeFailure,
+    self, content_stream_ids, encode_middle_for_font, is_line_moving_show, walk_page_graph,
+    ContentBudget, ReencodeFailure,
 };
 use crate::model::{
     document_sha256, effective_pdf_edit_commands, ComposedCandidate, GapNumber, GlyphSourceAddress,
@@ -1142,7 +1142,7 @@ fn remove_glyphs_keeping_pen(
                 op.operator = "TJ".to_string();
                 op.operands = vec![Object::Array(replacement)];
             }
-            "'" | "\"" => return Err(PdfEditError::UnsupportedEncoding),
+            other if is_line_moving_show(other) => return Err(PdfEditError::UnsupportedEncoding),
             _ => return Err(PdfEditError::SourceDigestMismatch),
         }
         end = begin;
@@ -1443,7 +1443,9 @@ const MAX_STRAY_RESTORES: i64 = 1 << 16;
 ///
 /// Original streams are not modified (§9.3: "Do not mutate existing content operators"). Content
 /// that cannot be parsed strictly cannot be counted, so it is refused as malformed; the count is
-/// charged to a [`ContentBudget`] before anything is decoded or allocated.
+/// charged to a [`ContentBudget`] before anything is decoded or allocated. A stream that merely
+/// ends in the operands of an operator that opens the next stream is not malformed (ISO 32000-1
+/// 7.8.2 cuts at token boundaries, not operation boundaries) and is counted as it stands.
 fn install_isolated_content(
     doc: &mut Document,
     mut blocks: Vec<(usize, Isolated)>,
@@ -1486,7 +1488,9 @@ fn isolate_page_content(
     let mut net: i64 = 0;
     let mut lowest: i64 = 0;
     for id in &ids {
-        for operation in decode_stream_content(doc, *id, &mut budget)?.operations {
+        // Read, never written back, so a stream may end in the operands of an operator that opens
+        // the next one (see `ContentBudget::content_to_read`).
+        for operation in budget.content_to_read(doc, *id)?.operations {
             match operation.operator.as_str() {
                 "q" => net += 1,
                 "Q" => {
@@ -4326,6 +4330,44 @@ mod tests {
     }
 
     #[test]
+    fn finding16_inspection_advertises_a_substitution_exactly_when_composition_admits_it() {
+        // The same two letters shown by each of the four show operators. The island may say
+        // `substitution_editable` only where the composer will remove its glyphs, and the composer
+        // must succeed exactly there: one predicate, read by both.
+        let cases: [(&[u8], bool); 4] = [
+            (b"BT /F1 12 Tf 72 700 Td (AB) Tj ET", true),
+            (b"BT /F1 12 Tf 72 700 Td [(AB)] TJ ET", true),
+            (b"BT /F1 12 Tf 72 700 Td 14 TL (AB) ' ET", false),
+            (b"BT /F1 12 Tf 72 700 Td 14 TL 0 0 (AB) \" ET", false),
+        ];
+        for (content, advertised) in cases {
+            let label = String::from_utf8_lossy(content).into_owned();
+            let source = doc_bytes(&build_pdf(content));
+            let before = page_islands(&source);
+            let island = before
+                .iter()
+                .find(|i| i.text == "AB")
+                .unwrap_or_else(|| panic!("{label}: no AB island"));
+            assert_eq!(island.substitution_editable, advertised, "{label}");
+
+            let command = changed_font_cmd("substitute", island, "Hi", 72.0);
+            let composed = compose_candidate(&source, &[command], &test_resolver());
+            assert_eq!(
+                composed.is_ok(),
+                advertised,
+                "{label}: composition said {:?}",
+                composed.as_ref().err()
+            );
+            if !advertised {
+                assert!(
+                    matches!(composed, Err(PdfEditError::UnsupportedEncoding)),
+                    "{label}"
+                );
+            }
+        }
+    }
+
+    #[test]
     fn finding12_an_island_listed_twice_in_a_batch_is_still_refused_the_second_time() {
         let source = doc_bytes(&build_pdf(THREE_COLOURS));
         let before = page_islands(&source);
@@ -4414,5 +4456,140 @@ mod tests {
             compose_candidate(&source, &[add_hi("a")], &test_resolver()),
             Err(PdfEditError::MalformedContent)
         ));
+    }
+
+    // -----------------------------------------------------------------------------------
+    // Corpus probe of 0.2.1, 2026-10-12: Add Text and changed-font replacement returned
+    // `malformed_content` on irs-1040.pdf, irs-p17.pdf and irs-w9.pdf (0.2.0 composed them)
+    // -----------------------------------------------------------------------------------
+
+    /// The first page of those forms: `/Contents` is cut inside the operation `/Artifact
+    /// <</MCID 0>> BDC`, between its operands. ISO 32000-1 7.8.2 lets a producer cut at any
+    /// boundary between tokens, so the page is well formed, yet the middle stream alone ends in an
+    /// operand with no operator.
+    const CUT_INSIDE_AN_OPERATION: [&[u8]; 3] = [
+        b"BT /F1 12 Tf 72 700 Td (Existing) Tj ET ",
+        b"q 1 0 0 1 0 0 cm Q /Artifact ",
+        b"<< /MCID 0 >> BDC EMC ",
+    ];
+
+    fn page_cut_inside_an_operation() -> Document {
+        // The fixture is what it claims: refused alone, well formed as the one stream it is.
+        assert!(Content::decode_strict(CUT_INSIDE_AN_OPERATION[1]).is_err());
+        assert!(Content::decode_strict(&CUT_INSIDE_AN_OPERATION.concat()).is_ok());
+        custom_page_pdf(
+            |d| vec![("F1", helvetica_font(d))],
+            &CUT_INSIDE_AN_OPERATION,
+            false,
+        )
+    }
+
+    /// Page 1's `/Contents` streams, in order.
+    fn page_one_streams(doc: &Document) -> Vec<ObjectId> {
+        let page_id = doc.get_pages()[&1];
+        let contents = doc
+            .get_object(page_id)
+            .expect("page")
+            .as_dict()
+            .expect("dict")
+            .get(b"Contents")
+            .expect("contents");
+        content_stream_ids(doc, contents).expect("ids")
+    }
+
+    fn stream_bytes(doc: &Document, id: ObjectId) -> Vec<u8> {
+        doc.get_object(id)
+            .expect("object")
+            .as_stream()
+            .expect("a stream")
+            .decompressed_content()
+            .expect("decodes")
+    }
+
+    /// The nesting depth reached just before the last stream and the lowest depth seen, counted
+    /// with the lenient parser (a stream here may end in operands, which the strict one refuses).
+    fn nesting_before_the_last_stream_leniently(doc: &Document) -> (i64, i64) {
+        let ids = page_one_streams(doc);
+        let (mut depth, mut lowest) = (0_i64, 0_i64);
+        for id in &ids[..ids.len() - 1] {
+            let content = Content::decode(&stream_bytes(doc, *id)).expect("parses leniently");
+            for op in content.operations {
+                match op.operator.as_str() {
+                    "q" => depth += 1,
+                    "Q" => {
+                        depth -= 1;
+                        lowest = lowest.min(depth);
+                    }
+                    _ => {}
+                }
+            }
+        }
+        (depth, lowest)
+    }
+
+    #[test]
+    fn add_text_on_a_page_cut_inside_an_operation_composes_and_leaves_every_stream_alone() {
+        let doc = page_cut_inside_an_operation();
+        let original = page_one_streams(&doc);
+        let source = doc_bytes(&doc);
+        let candidate = compose_candidate(&source, &[add_hi("a")], &test_resolver())
+            .expect("a page is not malformed because its streams are cut inside an operation");
+        let (out, graph) = reinspect(&candidate, 1);
+        assert!(graph.islands.iter().any(|isl| isl.text == "Existing"));
+        assert!(graph.islands.iter().any(|isl| isl.text == "Hi"));
+
+        // q wrapper, the three originals, Q wrapper, the added stream.
+        let ids = page_one_streams(&out);
+        assert_eq!(ids.len(), 6);
+        assert_eq!(&ids[1..4], &original[..]);
+        for (id, bytes) in ids[1..4].iter().zip(CUT_INSIDE_AN_OPERATION) {
+            assert_eq!(stream_bytes(&out, *id), bytes);
+        }
+        assert_eq!(nesting_before_the_last_stream_leniently(&out), (0, 0));
+    }
+
+    #[test]
+    fn a_changed_font_replacement_on_a_page_cut_inside_an_operation_composes() {
+        let doc = page_cut_inside_an_operation();
+        let source = doc_bytes(&doc);
+        let before = page_islands(&source);
+        assert_eq!(
+            before.iter().map(|i| i.text.as_str()).collect::<Vec<_>>(),
+            ["Existing"]
+        );
+        let command = changed_font_cmd("redraw", &before[0], "Hi", 72.0);
+        let candidate = compose_candidate(&source, &[command], &test_resolver())
+            .expect("a page is not malformed because its streams are cut inside an operation");
+        let (out, graph) = reinspect(&candidate, 1);
+        assert!(graph.islands.iter().any(|isl| isl.text == "Hi"));
+        assert!(!graph.islands.iter().any(|isl| isl.text == "Existing"));
+
+        // The edit rewrote the first stream. The cut ones were not edited and are as they were.
+        let ids = page_one_streams(&out);
+        assert_eq!(ids.len(), 6);
+        assert_eq!(stream_bytes(&out, ids[2]), CUT_INSIDE_AN_OPERATION[1]);
+        assert_eq!(stream_bytes(&out, ids[3]), CUT_INSIDE_AN_OPERATION[2]);
+        assert_eq!(nesting_before_the_last_stream_leniently(&out), (0, 0));
+    }
+
+    #[test]
+    fn add_text_still_refuses_a_stream_that_ends_in_anything_but_operands() {
+        // The allowance for a cut between operands and operator is not a way past the strict parse:
+        // a string left open, or a byte no tokenizer reads, is still malformed content.
+        for (label, tail) in [
+            ("open string", &b"q (open"[..]),
+            ("stray byte", &b"q \x01 Q"[..]),
+        ] {
+            let streams: [&[u8]; 2] = [b"BT /F1 12 Tf 72 700 Td (Existing) Tj ET ", tail];
+            let doc = custom_page_pdf(|d| vec![("F1", helvetica_font(d))], &streams, false);
+            let source = doc_bytes(&doc);
+            assert!(
+                matches!(
+                    compose_candidate(&source, &[add_hi("a")], &test_resolver()),
+                    Err(PdfEditError::MalformedContent)
+                ),
+                "{label}"
+            );
+        }
     }
 }

@@ -13,6 +13,9 @@ import { validateSigningRequest, executeSigningRequest, signingAgentPaths, defau
 import { installSigningAgent } from "./signing-agent-install.mjs";
 import { runDevelopment } from "./development.mjs";
 
+// Not run on Windows: the codesign shim runs on macOS.
+const WINDOWS_SKIP = process.platform === "win32" ? "the codesign shim runs on macOS" : false;
+
 function fixture(t) {
   const home = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "rk-codesign-")));
   t.after(() => fs.rmSync(home, { recursive: true, force: true }));
@@ -81,7 +84,7 @@ test("agent contains cwd, every target & entitlement input with lexical plus rea
   assert.doesNotThrow(() => validateSigningRequest(f.request(["--verify", "contained"]), f.policy));
 });
 
-test("codesign-argv relay preserves nonzero exit, cwd, argv & output beyond legacy truncation", async (t) => {
+test("codesign-argv relay preserves nonzero exit, cwd, argv & output beyond legacy truncation", { skip: WINDOWS_SKIP }, async (t) => {
   const f = fixture(t), argv = ["-dvv", "--entitlements", ":-", "App with 'quotes'.app"];
   const expected = { status: 36, stdout: " leading\n" + "λ".repeat(9000) + "\n", stderr: "\n denied\r\ntrailing " };
   const result = await runCodesignShim(argv, { ...f, env: { SSH_CONNECTION: "fixture", PRIVATE_SECRET: "never forwarded" },
@@ -114,7 +117,7 @@ test("GUI API uses original argv/cwd/env & absolute real codesign without valida
   assert.equal(result.status, 23);
 });
 
-test("managed PATH injection preserves Cargo precedence, deduplicates wrapper & isolates GUI/SSH", (t) => {
+test("managed PATH injection preserves Cargo precedence, deduplicates wrapper & isolates GUI/SSH", { skip: WINDOWS_SKIP }, (t) => {
   const f = fixture(t), base = { PATH: "/cargo-shims:/usr/bin", RIGHTKIT_MANAGED_ROOT: f.managed, SSH_CONNECTION: "fixture", KEEP: "yes" };
   const injected = macosCodesignEnvironment(base, { platform: "darwin" });
   const bin = injected.PATH.split(path.delimiter)[0];
@@ -142,7 +145,7 @@ test("GUI shell wrapper execs real codesign with exact args/output/exit & no Nod
   assert.equal(ssh.status, 36, ssh.stderr); assert.deepEqual(JSON.parse(ssh.stdout), argv); assert.equal(ssh.stderr, " agent\n");
 });
 
-test("release worker injects PATH after command env overrides before spawning prePackage/package children", async (t) => {
+test("release worker injects PATH after command env overrides before spawning prePackage/package children", { skip: WINDOWS_SKIP }, async (t) => {
   const f = fixture(t), source = fs.readFileSync(new URL("./release.mjs", import.meta.url), "utf8");
   const start = source.indexOf("function run(cmd, runArgs, cwd"), end = source.indexOf("function ", start + 9);
   const calls = [];
@@ -161,7 +164,7 @@ test("release worker injects PATH after command env overrides before spawning pr
   }
 });
 
-test("build runner injects shim into environment inherited by release worker", (t) => {
+test("build runner injects shim into environment inherited by release worker", { skip: WINDOWS_SKIP }, (t) => {
   const f = fixture(t), source = fs.readFileSync(new URL("./build-release.mjs", import.meta.url), "utf8");
   const start = source.indexOf("  const pathPrefix = buildPathPrefix"), end = source.indexOf("  if (managedCargoTarget)", start);
   const context = { process: { env: { PATH: "/cargo-shims:/usr/bin", SSH_CONNECTION: "fixture", RIGHTKIT_MANAGED_ROOT: f.managed } },
@@ -175,7 +178,7 @@ test("build runner injects shim into environment inherited by release worker", (
   assert.ok(context.childEnv.PATH.endsWith(":/cargo-shims:/usr/bin"));
 });
 
-test("right-release dev passes installed shim to every build & install child", (t) => {
+test("right-release dev passes installed shim to every build & install child", { skip: WINDOWS_SKIP }, (t) => {
   const f = fixture(t);
   for (const args of [["init", "--initial-branch", "main"]]) assert.equal(spawnSync("git", args, { cwd: f.cwd }).status, 0);
   const platform = process.platform === "win32" ? "win" : "mac", seen = [];
@@ -187,7 +190,7 @@ test("right-release dev passes installed shim to every build & install child", (
   assert.deepEqual(seen, ["build", "build2", "install"]);
 });
 
-test("installed agent policy includes system temp & configured cargo targets without caller widening", (t) => {
+test("installed agent policy includes system temp & configured cargo targets without caller widening", { skip: WINDOWS_SKIP }, (t) => {
   const f = fixture(t), target = path.join(f.home, "cargo-target"); fs.mkdirSync(target);
   fs.writeFileSync(path.join(target, "app"), "fixture");
   const temp = path.join(f.home, "system-temp"), alias = path.join(f.home, "temp-alias");

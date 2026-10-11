@@ -11,8 +11,9 @@ use crate::config::Ext;
 use crate::error::{JobError, JobResult, HOST_HANDOFF};
 use crate::sched::{Gate, Priority};
 use crate::store::{
-    Artifact, CancelToken, Event, Job, JobRecord, JobStore, Recovery, Submission, Transition,
-    CANCELLED,
+    now, projected, Artifact, CancelToken, ClaimScope, Event, FlushReport, Job, JobRecord,
+    JobStore, LifecycleEvent, Recovery, Settle, SettleRequest, Settlement, SettlementShutdown,
+    Submission, Transition, UnsettledJob, CANCELLED, COMPLETE, FAILED,
 };
 
 /// Attempts allowed before a job is failed with `max_attempts`.
@@ -82,6 +83,61 @@ impl JobLocks {
     }
 }
 
+/// How a handler attempt ended, when the handler (not the runner) owns the job's outcome.
+/// Returned by [`JobHandler::run_outcome`]; an error is returned as `Err` exactly as from
+/// [`JobHandler::run`] (a `retryable` error pauses the job, any other fails it).
+///
+/// Use `Settled` or `Pending` when the handler has itself written the job's terminal state or
+/// handed the job to something that will (a provider callback, a held status). The runner then
+/// writes nothing for the job: no `FAILED` and no `COMPLETE`. That is how a handler that
+/// settles its own jobs avoids a second, conflicting write after it returns.
+#[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
+pub enum HandlerOutcome {
+    /// The attempt produced this result and the runner completes the job with it: what
+    /// `Ok(value)` from [`JobHandler::run`] has always meant.
+    Done(Value),
+    /// The handler already wrote the job's terminal state (through [`JobControl::transition`],
+    /// [`JobControl::settle`] or the store). The runner writes nothing, checks that the row
+    /// really is terminal, releases its claim (the per-job lock) and emits the usual lifecycle
+    /// event for that terminal status with the reason "settled by handler". A row that is not
+    /// terminal is a handler bug: the job is failed with [`crate::HANDLER_UNSETTLED`] rather
+    /// than left running with no owner. A row in a held status counts as `Pending`. If the
+    /// handler's own terminal write was deferred by a storage error ([`Settlement::Deferred`]),
+    /// the runner takes over the claim and returns [`RunOutcome::Unsettled`].
+    Settled,
+    /// The outcome is pending with something that will settle the job later: the string says
+    /// what, for the event log. The runner writes nothing, releases its claim and emits the
+    /// usual `paused` lifecycle event with the reason "pending: ...". The job keeps whatever
+    /// status the handler left it in, and the call returns [`RunOutcome::Paused`]. A job in a
+    /// held status ([`crate::StatusModel::hold`]) waits for [`JobStore::resolve`] and is never
+    /// run again meanwhile. A job that is not held stays recoverable (the next
+    /// `resume_recoverable` runs the handler again, which is how a polling handler resumes), so
+    /// a `Recovery::Never` job that is not held cannot be `Pending`: it is failed with
+    /// [`crate::HANDLER_UNSETTLED`] because recovery would otherwise fail it as `interrupted`.
+    Pending(String),
+}
+
+/// Reason on the lifecycle event the runner emits for [`HandlerOutcome::Settled`].
+const SETTLED_BY_HANDLER: &str = "settled by handler";
+
+/// What recovery does with a job whose handler finished but whose terminal write storage has
+/// not taken (see [`Runner::pending_settlements`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[non_exhaustive]
+pub enum UnsettledRecovery {
+    /// Never run a handler again for a job that reported its outcome: `resume_recoverable`,
+    /// `recoverable_ids` and `run` skip it (`run` returns [`RunOutcome::Unsettled`]) until the
+    /// held write lands, which `flush_pending_settlements` and the next successful store write
+    /// retry. The default.
+    #[default]
+    Settle,
+    /// Discard a held write that came from the journal of an earlier run and treat the job as
+    /// unfinished: recovery runs the handler again (a `Recovery::Never` job is failed as
+    /// `interrupted`). Choose it only for idempotent handlers.
+    Rerun,
+}
+
 /// What a job does. The only product-specific part of an engine.
 pub trait JobHandler: Send + Sync {
     /// Run one attempt. Return the result value; report progress and register
@@ -89,11 +145,20 @@ pub trait JobHandler: Send + Sync {
     /// A `retryable` error pauses the job (still recoverable); any other error fails it.
     fn run(&self, job: &Job, ctl: &JobControl) -> JobResult<Value>;
 
-    /// What [`Runner`] calls: the same attempt with the shared control handle, for handlers
+    /// What [`Runner`] calls first: the same attempt with the shared control handle, for handlers
     /// that hand the control to another thread. The default calls [`JobHandler::run`], so
     /// existing handlers are unchanged.
     fn run_shared(&self, job: &Job, ctl: &Arc<JobControl>) -> JobResult<Value> {
         self.run(job, ctl)
+    }
+
+    /// What [`Runner`] actually calls: an attempt that may end with a [`HandlerOutcome`].
+    /// The default is [`JobHandler::run_shared`] with `Ok(value)` read as
+    /// [`HandlerOutcome::Done`], so a handler that implements only `run` behaves exactly as
+    /// before. Override it when the handler settles its own jobs; `run` must still be
+    /// implemented (return the same result or an error, it is not called by the runner then).
+    fn run_outcome(&self, job: &Job, ctl: &Arc<JobControl>) -> JobResult<HandlerOutcome> {
+        self.run_shared(job, ctl).map(HandlerOutcome::Done)
     }
 }
 
@@ -185,6 +250,57 @@ impl JobControl {
             if let Some(s) = &self.sink {
                 s(&ev);
             }
+        }
+    }
+    /// Write this attempt's terminal state (`complete`, `failed` or `cancelled`) itself. If the
+    /// database refuses it on storage (`db` or `io`) the write is not lost: it is kept in
+    /// memory and in the journal, and `Settlement::Deferred` is returned. Return
+    /// [`HandlerOutcome::Settled`] then: the runner takes over the job's claim so it is not
+    /// started again, retries the write when the store next completes one (or on
+    /// [`JobStore::flush_pending_settlements`]) and returns [`RunOutcome::Unsettled`]. Fenced: a
+    /// stale attempt gets `stale_attempt` and writes nothing. No lifecycle event is written; the
+    /// handler owns the event stream, or the runner's own event follows the settled outcome.
+    pub fn settle(&self, t: &Transition) -> JobResult<Settlement> {
+        self.heartbeat();
+        if self.abandoned.load(Ordering::SeqCst) {
+            return Err(JobError::stalled(self.idle().as_secs_f64()));
+        }
+        self.store
+            .settle_terminal_fenced(&self.job_id, self.generation, t)
+    }
+    /// Hand a stored event to the sink.
+    fn publish(&self, ev: &Event) {
+        if let Some(s) = &self.sink {
+            s(ev);
+        }
+    }
+    /// A terminal lifecycle event of `job`, a row this run already holds. If the row has since
+    /// gone (removed after its terminal write) the event is built from `job` instead of being
+    /// dropped: it reaches the sink with `seq` 0, as it is stored nowhere.
+    fn lifecycle_terminal(
+        &self,
+        job: &Job,
+        stage: &str,
+        progress: Option<f64>,
+        message: Option<&str>,
+    ) {
+        self.heartbeat();
+        match self
+            .store
+            .add_event_fenced(&self.job_id, self.generation, stage, progress, message)
+        {
+            Ok(ev) => self.publish(&ev),
+            Err(e) if e.code == "job_not_found" => self.publish(&Event {
+                seq: 0,
+                job_id: self.job_id.clone(),
+                at: now(),
+                status: job.status.clone(),
+                stage: stage.into(),
+                attempt: job.attempts,
+                progress,
+                message: message.map(Into::into),
+            }),
+            Err(_) => {}
         }
     }
     /// A lifecycle event (`started`, `complete`, `preempted`, ...): always written at once and
@@ -293,14 +409,22 @@ pub enum RunOutcome {
     Finished(Job),
     /// Another runner holds the job.
     LockedElsewhere(String),
-    /// A retryable error paused the job; it stays recoverable.
+    /// A retryable error paused the job; it stays recoverable. Also the result for a job that is
+    /// held, and for a handler that reported [`HandlerOutcome::Pending`].
     Paused(Job),
+    /// The job's outcome is final but storage refused its terminal write: it is held in memory
+    /// and in the journal, with the job's claim, and retried (see
+    /// [`JobStore::flush_pending_settlements`]). The `Job` is the row as it will read once the
+    /// write lands; the stored row is still non-terminal until then. Before settle-later this case was
+    /// an `Err` and the job stayed `running` and recoverable; opt out with
+    /// [`Runner::with_settle_later`]`(false)`.
+    Unsettled(Job),
 }
 
 impl RunOutcome {
     pub fn job(&self) -> Option<&Job> {
         match self {
-            RunOutcome::Finished(j) | RunOutcome::Paused(j) => Some(j),
+            RunOutcome::Finished(j) | RunOutcome::Paused(j) | RunOutcome::Unsettled(j) => Some(j),
             RunOutcome::LockedElsewhere(_) => None,
         }
     }
@@ -311,6 +435,11 @@ impl RunOutcome {
             RunOutcome::Paused(j) => {
                 let mut v = j.to_value();
                 v["recoverable"] = json!(true);
+                v
+            }
+            RunOutcome::Unsettled(j) => {
+                let mut v = j.to_value();
+                v["unsettled"] = json!(true);
                 v
             }
         }
@@ -327,6 +456,8 @@ pub struct Runner {
     stall_timeout: Option<Duration>,
     attempts: AttemptPolicy,
     implicit_events: bool,
+    settle_later: bool,
+    unsettled: UnsettledRecovery,
 }
 
 impl Runner {
@@ -341,6 +472,8 @@ impl Runner {
             stall_timeout: None,
             attempts: AttemptPolicy::PerRun,
             implicit_events: true,
+            settle_later: true,
+            unsettled: UnsettledRecovery::Settle,
         }
     }
     pub fn with_sink(mut self, sink: EventSink) -> Self {
@@ -378,6 +511,40 @@ impl Runner {
     }
     pub fn implicit_events(&self) -> bool {
         self.implicit_events
+    }
+    /// Whether a terminal write that storage refuses (`db` or `io`) is held and retried instead
+    /// of lost (default `true`). The run then returns [`RunOutcome::Unsettled`], the job's lock
+    /// stays held, and the write lands on [`Runner::flush_pending_settlements`] or the store's
+    /// next successful write; a restart applies it from the journal. With `false` the write's
+    /// error is returned and the job stays `running` and recoverable, as before.
+    pub fn with_settle_later(mut self, on: bool) -> Self {
+        self.settle_later = on;
+        self
+    }
+    pub fn settle_later(&self) -> bool {
+        self.settle_later
+    }
+    /// What recovery does with a job whose terminal write is held (default
+    /// [`UnsettledRecovery::Settle`]: never run its handler again).
+    pub fn with_unsettled_recovery(mut self, p: UnsettledRecovery) -> Self {
+        self.unsettled = p;
+        self
+    }
+    pub fn unsettled_recovery(&self) -> UnsettledRecovery {
+        self.unsettled
+    }
+    /// [`JobStore::flush_pending_settlements`] on this runner's store.
+    pub fn flush_pending_settlements(&self) -> FlushReport {
+        self.store.flush_pending_settlements()
+    }
+    /// Jobs that finished but whose terminal state is not stored ([`JobStore::pending_settlements`]).
+    pub fn pending_settlements(&self) -> Vec<UnsettledJob> {
+        self.store.pending_settlements()
+    }
+    /// [`JobStore::shutdown_detailed`]: one last flush, then the jobs that could not be stored.
+    /// Call it after the last run ends, before the process exits.
+    pub fn shutdown_detailed(&self) -> SettlementShutdown {
+        self.store.shutdown_detailed()
     }
     fn implicit(&self, ctl: &JobControl, stage: &str, progress: Option<f64>, msg: Option<&str>) {
         if self.implicit_events {
@@ -454,6 +621,15 @@ impl Runner {
         if self.is_held(&self.store.get(&id)?.status) {
             return Ok(None);
         }
+        // The handler of this job finished and storage has not taken its outcome yet.
+        if self.store.has_pending_settlement(&id) {
+            match self.unsettled {
+                UnsettledRecovery::Settle => return Ok(None),
+                UnsettledRecovery::Rerun => {
+                    self.store.discard_unclaimed_settlement(&id);
+                }
+            }
+        }
         let Some(_lock) = self.locks.try_lock(&id)? else {
             return Ok(None);
         };
@@ -473,6 +649,7 @@ impl Runner {
 
     /// Fail a started `Never` job (its lock is held by the caller) and publish the event.
     fn interrupt(&self, job_id: &str) -> JobResult<Option<Job>> {
+        let _pin = self.store.pin_delivery(job_id);
         let Some((job, ev)) = self.store.interrupt(job_id)? else {
             return Ok(None);
         };
@@ -490,10 +667,13 @@ impl Runner {
 
     /// Like [`Runner::run`], publishing this run's events to `sink` (per-request streaming).
     pub fn run_with(&self, job_id: &str, sink: Option<EventSink>) -> JobResult<RunOutcome> {
-        let Some(_lock) = self.locks.try_lock(job_id)? else {
+        let Some(lock) = self.locks.try_lock(job_id)? else {
             return Ok(RunOutcome::LockedElsewhere(job_id.into()));
         };
+        let mut lock = Some(lock);
         let _live = LiveToken(&self.store, job_id);
+        // The row stays out of `prune` until this run has announced its terminal state.
+        let _pin = self.store.pin_delivery(job_id);
         let job = self.store.get(job_id)?;
         if job.is_terminal() {
             return Ok(RunOutcome::Finished(job));
@@ -501,6 +681,25 @@ impl Runner {
         // Held: waiting for an operator's `resolve`. Nothing runs, nothing is counted.
         if self.is_held(&job.status) {
             return Ok(RunOutcome::Paused(job));
+        }
+        // A handler already finished this job and storage has not taken its outcome yet (the
+        // journal of an earlier run brought it back): do not run the handler again.
+        if self.store.has_pending_settlement(job_id) {
+            match self.unsettled {
+                UnsettledRecovery::Rerun => {
+                    self.store.discard_unclaimed_settlement(job_id);
+                }
+                UnsettledRecovery::Settle => {
+                    self.store.flush_pending_settlements();
+                    let now = self.store.get(job_id)?;
+                    if now.is_terminal() {
+                        return Ok(RunOutcome::Finished(now));
+                    }
+                    if let Some(t) = self.store.pending_transition(job_id) {
+                        return Ok(RunOutcome::Unsettled(projected(&now, &t)));
+                    }
+                }
+            }
         }
         let (recovery, started) = self.store.run_class(job_id)?;
         let never = recovery == Recovery::Never;
@@ -565,23 +764,37 @@ impl Runner {
         } else {
             (gen, ctl)
         };
-        match result {
-            Ok(value) => {
-                if self.store.complete_fenced(job_id, owner, &value)? {
-                    self.implicit(&ctl, "complete", Some(1.0), None);
-                } else if self.store.get(job_id)?.status == CANCELLED {
-                    self.implicit(&ctl, "cancelled", None, None);
+        // A terminal write the handler deferred through `JobControl::settle` is the job's
+        // outcome whatever the handler returned: the runner writes nothing and takes the claim.
+        if let Some(held) = lock.take() {
+            match self.store.adopt_claim(job_id, held, ctl.sink.clone()) {
+                Ok(t) => {
+                    if self.implicit_events {
+                        let status = t.to.as_deref().unwrap_or(FAILED);
+                        self.store
+                            .set_pending_event(job_id, terminal_event(status, SETTLED_BY_HANDLER));
+                    }
+                    return Ok(RunOutcome::Unsettled(projected(&job, &t)));
                 }
-                Ok(RunOutcome::Finished(self.store.get(job_id)?))
+                Err(held) => lock = Some(held),
+            }
+        }
+        match result {
+            Ok(HandlerOutcome::Done(value)) => {
+                let t = Transition::to(COMPLETE).result(value).error(None);
+                let term = Terminal::new(t, "complete", Some(1.0), None, true);
+                self.write_terminal(&ctl, owner, &job, term, lock)
+            }
+            Ok(HandlerOutcome::Settled) => self.handler_settled(&ctl, owner, &job, lock),
+            Ok(HandlerOutcome::Pending(reason)) => {
+                self.handler_pending(&ctl, owner, &job, &reason, lock)
             }
             // The handler began; it may already have had effects, so a `Never` job cannot pause
             // for a later re-run.
             Err(e) if e.retryable && never => {
                 let e = JobError::interrupted_by(job_id, &e);
-                if self.store.fail_fenced(job_id, owner, &e)? {
-                    self.implicit(&ctl, "failed", None, Some(&e.message));
-                }
-                Ok(RunOutcome::Finished(self.store.get(job_id)?))
+                let term = self.failure(&e, false);
+                self.write_terminal(&ctl, owner, &job, term, lock)
             }
             Err(e) if e.retryable => {
                 if e.code == HOST_HANDOFF && per_run {
@@ -597,22 +810,142 @@ impl Runner {
                 Ok(RunOutcome::Paused(self.store.get(job_id)?))
             }
             Err(e) => {
-                if self.store.fail_fenced(job_id, owner, &e)? {
-                    self.implicit(&ctl, "failed", None, Some(&e.message));
-                } else if self.store.get(job_id)?.status == CANCELLED {
-                    self.implicit(&ctl, "cancelled", None, None);
-                }
-                Ok(RunOutcome::Finished(self.store.get(job_id)?))
+                let term = self.failure(&e, true);
+                self.write_terminal(&ctl, owner, &job, term, lock)
             }
         }
+    }
+
+    /// The terminal write of a failure.
+    fn failure(&self, e: &JobError, cancelled_event: bool) -> Terminal {
+        let t = Transition::to(FAILED).error(Some(
+            e.to_json_with(self.store.config().includes_retryable()),
+        ));
+        Terminal::new(t, "failed", None, Some(e.message.clone()), cancelled_event)
+    }
+
+    /// The runner's own terminal write for the job `ctl` runs: one transaction with its
+    /// lifecycle event, from data this run holds. If storage refuses it (and
+    /// [`Runner::with_settle_later`] is on) the write is held with `lock` and the run is
+    /// `Unsettled`; a job already terminal (cancelled meanwhile) is left as it is.
+    fn write_terminal(
+        &self,
+        ctl: &JobControl,
+        owner: i64,
+        base: &Job,
+        term: Terminal,
+        lock: Option<JobLock>,
+    ) -> JobResult<RunOutcome> {
+        let job_id = ctl.job_id.as_str();
+        let event = self
+            .implicit_events
+            .then(|| LifecycleEvent::new(term.stage, term.progress, term.message.as_deref()));
+        let settled = self.store.settle_request(SettleRequest {
+            job_id: job_id.to_string(),
+            fence: Some(owner),
+            transition: term.transition.clone(),
+            event,
+            claim: lock,
+            sink: ctl.sink.clone(),
+            defer: self.settle_later,
+        })?;
+        match settled {
+            Settle::Written {
+                record: Some(rec),
+                event,
+            } => {
+                if let Some(ev) = &event {
+                    ctl.publish(ev);
+                }
+                Ok(RunOutcome::Finished(rec.job))
+            }
+            Settle::Written { record: None, .. } => {
+                let now = self.store.get(job_id)?;
+                if term.cancelled_event && now.status == CANCELLED {
+                    self.implicit_final(ctl, &now, "cancelled", None, None);
+                }
+                Ok(RunOutcome::Finished(now))
+            }
+            Settle::Deferred => Ok(RunOutcome::Unsettled(projected(base, &term.transition))),
+        }
+    }
+
+    /// Like `implicit`, for a terminal event of a row this run already holds (see
+    /// [`JobControl::lifecycle_terminal`]).
+    fn implicit_final(
+        &self,
+        ctl: &JobControl,
+        job: &Job,
+        stage: &str,
+        progress: Option<f64>,
+        msg: Option<&str>,
+    ) {
+        if self.implicit_events {
+            ctl.lifecycle_terminal(job, stage, progress, msg);
+        }
+    }
+
+    /// [`HandlerOutcome::Settled`]: the row must be terminal; the runner writes nothing.
+    fn handler_settled(
+        &self,
+        ctl: &JobControl,
+        owner: i64,
+        base: &Job,
+        lock: Option<JobLock>,
+    ) -> JobResult<RunOutcome> {
+        let job_id = ctl.job_id.as_str();
+        let now = self.store.get(job_id)?;
+        if now.is_terminal() {
+            let (stage, progress) = match now.status.as_str() {
+                COMPLETE => ("complete", Some(1.0)),
+                FAILED => ("failed", None),
+                _ => ("cancelled", None),
+            };
+            self.implicit_final(ctl, &now, stage, progress, Some(SETTLED_BY_HANDLER));
+            return Ok(RunOutcome::Finished(now));
+        }
+        // A held row waits for `resolve`: the handler did hand the outcome on.
+        if self.is_held(&now.status) {
+            return self.handler_pending(ctl, owner, base, "held for resolve", lock);
+        }
+        // The handler says it settled the job and the row says it did not. Nobody owns the job:
+        // fail it with a typed error instead of leaving it running.
+        let e = JobError::handler_unsettled(job_id, &now.status);
+        let term = self.failure(&e, true);
+        self.write_terminal(ctl, owner, base, term, lock)
+    }
+
+    /// [`HandlerOutcome::Pending`]: the runner writes nothing and releases its claim.
+    fn handler_pending(
+        &self,
+        ctl: &JobControl,
+        owner: i64,
+        base: &Job,
+        reason: &str,
+        lock: Option<JobLock>,
+    ) -> JobResult<RunOutcome> {
+        let job_id = ctl.job_id.as_str();
+        let now = self.store.get(job_id)?;
+        // Settled meanwhile (the callback got there first): that is a settled job.
+        if now.is_terminal() {
+            return self.handler_settled(ctl, owner, base, lock);
+        }
+        if !self.is_held(&now.status) && self.store.run_class(job_id)?.0 == Recovery::Never {
+            // Recovery would fail it as `interrupted` and lose the pending outcome.
+            let e = JobError::handler_pending_unowned(job_id, &now.status);
+            let term = self.failure(&e, true);
+            return self.write_terminal(ctl, owner, base, term, lock);
+        }
+        self.implicit(ctl, "paused", None, Some(&format!("pending: {reason}")));
+        Ok(RunOutcome::Paused(now))
     }
 
     /// Run the handler inline, or on a watched worker thread when a stall
     /// timeout is set. A stalled attempt is abandoned: its thread is told to
     /// stop (`abort_reason`), its result is discarded, and the job pauses.
-    fn run_handler(&self, job: &Job, ctl: &Arc<JobControl>) -> JobResult<Value> {
+    fn run_handler(&self, job: &Job, ctl: &Arc<JobControl>) -> JobResult<HandlerOutcome> {
         let Some(limit) = self.stall_timeout else {
-            return catch_unwind(AssertUnwindSafe(|| self.handler.run_shared(job, ctl)))
+            return catch_unwind(AssertUnwindSafe(|| self.handler.run_outcome(job, ctl)))
                 .unwrap_or_else(|_| Err(JobError::new("panic", "job handler panicked")));
         };
         let (tx, rx) = std::sync::mpsc::channel();
@@ -620,7 +953,7 @@ impl Runner {
         std::thread::Builder::new()
             .name(format!("rk-job-{}", job.job_id))
             .spawn(move || {
-                let r = catch_unwind(AssertUnwindSafe(|| handler.run_shared(&job2, &ctl2)))
+                let r = catch_unwind(AssertUnwindSafe(|| handler.run_outcome(&job2, &ctl2)))
                     .unwrap_or_else(|_| Err(JobError::new("panic", "job handler panicked")));
                 let _ = tx.send(r);
             })
@@ -668,10 +1001,21 @@ impl Runner {
     /// Remove child directories of `root` that contain no path claimed by a non-terminal job's
     /// artifacts (see [`JobStore::claimed_paths`]). Plain files and symlinks under `root` are
     /// left alone, and a symlink is never followed out of `root`. Returns the removed
-    /// directories. Pass `root` only when this process is the sole engine for it.
+    /// directories. Pass `root` only when this process is the sole engine for it. The files of
+    /// a finished job are not claimed: an app that keeps them until the job is deleted uses
+    /// [`Runner::sweep_unclaimed_with`]`(root, `[`ClaimScope::All`]`)`.
     pub fn sweep_unclaimed(&self, root: &Path) -> JobResult<Vec<PathBuf>> {
+        self.sweep_unclaimed_with(root, ClaimScope::NonTerminal)
+    }
+
+    /// [`Runner::sweep_unclaimed`] with the claim scope chosen: [`ClaimScope::NonTerminal`] is
+    /// what `sweep_unclaimed` does; [`ClaimScope::All`] also claims the artifact paths (and, with
+    /// a scratch root configured, the `<scratch_root>/<job_id>` directory) recorded on terminal
+    /// rows still in the store, so a sweep never removes the media of a finished job that has not
+    /// been deleted or pruned.
+    pub fn sweep_unclaimed_with(&self, root: &Path, scope: ClaimScope) -> JobResult<Vec<PathBuf>> {
         let mut claimed: Vec<PathBuf> = Vec::new();
-        for p in self.store.claimed_paths()? {
+        for p in self.store.claimed_paths_with(scope)? {
             if let Some(c) = canonical_or_none(&p) {
                 claimed.push(c);
             }
@@ -749,6 +1093,43 @@ fn canonical_or_none(p: &Path) -> Option<PathBuf> {
 enum Scanned {
     Resume(String),
     Interrupted(Box<Job>),
+}
+
+/// A terminal write the runner makes, with the lifecycle event that announces it.
+struct Terminal {
+    transition: Transition,
+    stage: &'static str,
+    progress: Option<f64>,
+    message: Option<String>,
+    /// When the job turns out to be cancelled already, announce that instead.
+    cancelled_event: bool,
+}
+
+impl Terminal {
+    fn new(
+        transition: Transition,
+        stage: &'static str,
+        progress: Option<f64>,
+        message: Option<String>,
+        cancelled_event: bool,
+    ) -> Self {
+        Self {
+            transition,
+            stage,
+            progress,
+            message,
+            cancelled_event,
+        }
+    }
+}
+
+/// The lifecycle event for a job that ended `status`, with `reason`.
+fn terminal_event(status: &str, reason: &str) -> LifecycleEvent {
+    match status {
+        COMPLETE => LifecycleEvent::new("complete", Some(1.0), Some(reason)),
+        FAILED => LifecycleEvent::new("failed", None, Some(reason)),
+        _ => LifecycleEvent::new("cancelled", None, Some(reason)),
+    }
 }
 
 /// Drops the job's cancel flag from the store registry when its run ends, however it ends.

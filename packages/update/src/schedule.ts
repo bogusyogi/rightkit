@@ -43,11 +43,11 @@ export function launchdLabel(repo: string): string {
 }
 
 export function launchdPlistPath(spec: Pick<ScheduleSpec, "repo" | "home">): string {
-  return path.join(spec.home, "Library", "LaunchAgents", `${launchdLabel(spec.repo)}.plist`);
+  return path.posix.join(spec.home, "Library", "LaunchAgents", `${launchdLabel(spec.repo)}.plist`);
 }
 
 export function macLogPath(spec: Pick<ScheduleSpec, "repo" | "home">): string {
-  return path.join(spec.home, "Library", "Logs", "RightKit", "update", `${repoSlug(spec.repo).slug}.log`);
+  return path.posix.join(spec.home, "Library", "Logs", "RightKit", "update", `${repoSlug(spec.repo).slug}.log`);
 }
 
 export function windowsLogPath(spec: Pick<ScheduleSpec, "repo" | "home" | "localAppData">): string {

@@ -9,7 +9,8 @@ import { runInNewContext } from "node:vm";
 import { parseCpuSeconds, processGroupCpuSeconds } from "./process-liveness.mjs";
 import { brokerManagedHost } from "./cargo-contract.mjs";
 
-const source = readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), "build-release.mjs"), "utf8");
+// LF whatever the checkout: the patterns below span lines.
+const source = readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), "build-release.mjs"), "utf8").replace(/\r\n/g, "\n");
 const stateMachine = readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), "release-state.mjs"), "utf8");
 const build = path.join(path.dirname(fileURLToPath(import.meta.url)), "build-release.mjs");
 

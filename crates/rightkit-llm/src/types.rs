@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
 
 use crate::error::LlmError;
+use crate::raw::RawHandle;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -333,6 +334,15 @@ pub struct CallRecord<'a> {
     /// The parsed response, with its usage, or the error the call ended with. Error text has
     /// the credential removed.
     pub result: Result<&'a ChatResponse, &'a LlmError>,
+    /// The provider's raw response (status, request id and body bytes up to the cap), for a
+    /// non-streaming call that got an HTTP response, whether it then succeeded or failed.
+    /// `None` when raw capture is off (the default), for a streamed call (streams are not
+    /// captured), and when no response arrived (a transport failure or a timeout). The same
+    /// handle is attached to a `Truncated` or `Malformed` error of this call. The body is the
+    /// provider's answer to the prompt and belongs to the app from here on; the credential
+    /// text is replaced in it, and the request's auth headers are never part of it. See
+    /// [`crate::raw`].
+    pub raw: Option<&'a RawHandle>,
 }
 
 /// Callback for an on-device payload ledger. Called synchronously on the calling thread, so

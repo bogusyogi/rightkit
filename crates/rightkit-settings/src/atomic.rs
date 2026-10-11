@@ -4,7 +4,7 @@ use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use crate::options::{ReplaceMode, SharingRetry};
-use crate::store::{Error, InterruptedReplace};
+use crate::store::Error;
 
 static NEXT_TEMP: AtomicU64 = AtomicU64::new(0);
 
@@ -45,7 +45,6 @@ pub(crate) fn fs_options(mode: &WriteMode) -> rightkit_fs::AtomicWriteOptions {
         create_parents: true,
         replace: match mode.replace {
             ReplaceMode::Rename => rightkit_fs::ReplaceMode::Rename,
-            ReplaceMode::ReplaceFile => rightkit_fs::ReplaceMode::ReplaceFile,
             ReplaceMode::MoveWriteThrough => rightkit_fs::ReplaceMode::MoveWriteThrough,
         },
         retry_sharing_violation: mode
@@ -121,23 +120,6 @@ fn publish_error(dest: &Path, e: rightkit_fs::FsError) -> Error {
             source,
         },
         rightkit_fs::FsError::Io { source, .. } => Error::Io(source),
-        // The swap started and did not finish: the settings file may be missing. Settings has no
-        // variant that says so without claiming the new file is in place, and `Error` is not
-        // non_exhaustive, so this maps to `Error::Io` carrying a typed `InterruptedReplace`.
-        rightkit_fs::FsError::ReplaceInterrupted {
-            path,
-            new_content,
-            previous_content,
-            source,
-        } => Error::Io(io::Error::new(
-            source.kind(),
-            InterruptedReplace {
-                path,
-                new_content,
-                previous_content,
-                source,
-            },
-        )),
         other => Error::Io(io::Error::other(other)),
     }
 }

@@ -13,6 +13,7 @@ Catalog capability: `llm-providers`. Release versions are tracked in [INDEX.md](
 - `cache`: prompt-cache breakpoint planning (`plan_breakpoints`, `CacheBreakpointPlanner`) and a `CacheLedger`.
 - `credentials`: `CredentialSource`, with `StaticCredentials` and `SecretStoreCredentials`. Production wiring uses `rightkit-secrets` through the `SecretStore` trait.
 - `types`, `error`: `ChatRequest`, `Message`, `StreamEvent`, `LlmError`.
+- `raw`: opt-in capture of the provider's raw response bytes, status and request id for non-streaming calls (`RawExchange`, `RawHandle`). See "Raw response capture".
 
 HTTP comes from `rightkit-http`. With feature `cli`:
 
@@ -114,7 +115,27 @@ Under every policy, a route that has already delivered a token is never failed o
 
 ## Request and response observer
 
-`with_observer(f)` on `OpenAiCompatProvider` or `AnthropicProvider` calls `f` with a `CallRecord` once for each call that reaches the network. The record holds the provider id, whether the call streamed, the exact JSON body sent (after extra fields are merged), and either the parsed `ChatResponse` (with usage) or the `LlmError`. The credential and auth headers are never part of it, and error text has the credential removed. The callback runs on the calling thread, so keep it quick. A call rejected before sending (a missing credential or a body collision) is not reported. Use it for an on-device payload ledger; the body contains the prompt, so store it accordingly.
+`with_observer(f)` on `OpenAiCompatProvider` or `AnthropicProvider` calls `f` with a `CallRecord` once for each call that reaches the network. The record holds the provider id, whether the call streamed, the exact JSON body sent (after extra fields are merged), and either the parsed `ChatResponse` (with usage) or the `LlmError`. The credential and auth headers are never part of it, and error text has the credential removed. The callback runs on the calling thread, so keep it quick. A call rejected before sending (a missing credential or a body collision) is not reported. Use it for an on-device payload ledger; the body contains the prompt, so store it accordingly. For the provider's response bytes, turn on raw capture (next section).
+
+## Raw response capture
+
+`with_raw_capture(max_body_bytes)` on `OpenAiCompatProvider` or `AnthropicProvider` keeps the provider's raw answer to a non-streaming `complete()` call. It is off by default; with it off nothing is retained and every result is unchanged. When on, each call that got an HTTP response produces one `RawExchange`, shared as a `RawHandle` (an `Arc`):
+
+- `CallRecord::raw` hands it to the observer, for every such call, whether the call then succeeded or failed (a 429 or a malformed 200 included). It is `None` when no response arrived (a transport failure or a timeout).
+- `LlmError::Truncated` and `LlmError::Malformed` come back wrapped as `LlmError::Captured { error, raw }`, and `err.raw()` returns the same handle the observer got (`Arc::ptr_eq` holds). Other errors are not wrapped; a non-2xx answer stays `LlmError::Status`, and the observer has its body.
+
+`RawExchange` holds `status`, `request_id`, `attempts`, `body` (the retained bytes), `received_bytes`, `truncated` and `credential_removed`. The cap is yours: `body` is at most `max_body_bytes`, `truncated` says bytes were left out, and `0` keeps status and request id only. The request id is the `x-request-id` header, else `request-id` (Anthropic); any other header is not read.
+
+What the body can contain: the model's output, which usually repeats or derives from the user's text; tool-call arguments; token usage; provider metadata; on an error status, the provider's error text. The crate keeps no copy of its own once the call returns, so the app owns that data from then on, including storing, rotating and scrubbing it. `Debug` for `RawExchange` prints sizes only, never the body.
+
+Secrets: the request side is as before. The credential and the auth headers are never part of a `CallRecord` or a `RawExchange`. A provider can echo a credential in an error body, so the exact credential text (and the client's `redact_values`) is replaced with `[redacted]` in the retained bytes, and `credential_removed` is set when that happened; then `body` is not byte-identical to what arrived. A masked or partial key is not the credential text and is left alone.
+
+Things to know:
+
+- **Wrapped errors.** With capture on, match on `err.root()` (or use `err.is_truncated()` and `err.is_malformed()`), because `Truncated` and `Malformed` arrive inside `Captured`. Display, `status()` and `is_failover_trigger()` answer for the inner error, and `FailoverOn` policies (including `FailoverOn::custom`) are applied to it. A failover chain that moves on after such an error keeps only its text in `AllRoutesFailed`; the observer of the route that failed still had the handle.
+- **Streams are not covered.** `stream()` reports `raw: None` and attaches nothing to its errors, with capture on or off. A stream has no single response body to keep.
+- **Retries.** `rightkit-http` retries inside one call and returns the final response only, so `RawExchange` describes the final attempt (`attempts` counts them). For every attempt's own response, use `ChatRequest::without_retries()` and retry in the app; the observer then runs once per attempt.
+- **Memory.** The transport still reads the whole response to parse it, bounded by the client's `max_response_bytes`, as before. Capture adds only the capped copy.
 
 ## Per-call options, errors and network
 
@@ -143,6 +164,8 @@ Pure Rust over `rightkit-http` (`ureq` with `rustls`). No platform-specific code
 `tests/e2e.rs` runs both provider clients against a local mock server. It checks exact headers, body and parsed tool calls.
 
 `tests/call_controls.rs` covers the extra body fields and their collision rule, per-call retry (including a call that makes one attempt), truncation as an error for both wires and for streams, the failover trigger, the NVIDIA preset, `GET /models` key checks, and the observer, all against the same mock server.
+
+`tests/raw_capture.rs` covers raw capture against the same mock server: exact bytes, status and request id on success for both wires, the cap and its flag, the same handle on the observer and on `Truncated` and `Malformed`, an error status that stays `LlmError::Status` while the observer gets its body, the final attempt of a retried call, credential removal, no body in `Debug`, failover policies, and a stream that is not captured.
 
 `tests/call_options.rs` covers the per-call options above against the same mock server: an omitted `max_tokens` field, `temperature` 0.3, a slow server that times out at a short per-call budget and succeeds within it, a 429 that yields `LlmError::Status`, a streamed non-2xx, and the sentinel-key redaction checks.
 

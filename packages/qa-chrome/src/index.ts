@@ -15,8 +15,10 @@ import { existsSync, mkdtempSync, readdirSync, rmSync, statSync } from 'node:fs'
 import { homedir, tmpdir } from 'node:os';
 import path from 'node:path';
 import { chromeForTestingPlatform, managedChromeForTestingRoot, managedExecutable, managedVersions } from './install.js';
+import { sandboxAccessProblem } from './sandbox-access.js';
 
 export * from './install.js';
+export * from './sandbox-access.js';
 
 /** Environment variable naming an explicit Chrome for Testing executable. */
 export const CHROME_FOR_TESTING_ENV = 'RIGHTKIT_CHROME_FOR_TESTING';
@@ -223,6 +225,12 @@ export async function launchChromeForTesting(options: LaunchChromeOptions = {}):
   const extra = options.args ?? [];
   const managed = extra.find((arg) => MANAGED_FLAGS.test(arg));
   if (managed) throw new Error(`${managed} is managed by launchChromeForTesting`);
+  // Windows: a sandbox that cannot read its own browser crashes the network service at startup.
+  // Refuse that launch with the folder and the fix instead of a browser whose navigations abort.
+  if (!extra.includes('--no-sandbox')) {
+    const unreadable = sandboxAccessProblem(executablePath);
+    if (unreadable) throw unreadable;
+  }
   const profileDir = mkdtempSync(path.join(tmpdir(), options.profilePrefix ?? 'rk-qa-chrome-'));
   const args = [
     ...(options.headless === false ? [] : ['--headless=new']),

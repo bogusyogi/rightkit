@@ -480,7 +480,7 @@ function scanRepositoryRoot(appRoot) {
   if (!rootPath || !path.isAbsolute(rootPath)) return { root: path.resolve(appRoot), prefix: "", pathBase: "scan-root", commit };
   // Git prints the resolved root (macOS /private/var/...); resolve the app root the same way so a
   // symlinked spelling (/var, /tmp) is not mistaken for a path outside the repository.
-  const real = (p) => { try { return realpathSync(p); } catch { return path.resolve(p); } };
+  const real = (p) => { try { return realpathSync.native(p); } catch { return path.resolve(p); } };
   const root = real(rootPath), app = real(appRoot);
   const relative = path.relative(root, app);
   if (relative === ".." || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) return { root: app, prefix: "", pathBase: "scan-root", commit };
@@ -758,7 +758,7 @@ function checkCommitted(appRoot, manifest, options, acquire, readAuthority = rea
   if ((options.expectedCommit && committed.commit !== options.expectedCommit) || (options.expectedTree && committed.tree !== options.expectedTree)) throw new Error("committed ownership: source handle does not match expected commit/tree");
   // Compare real paths: Git reports the resolved root (macOS /private/var/...), while callers
   // may pass a symlinked spelling of the same directory (/var/..., /tmp/...).
-  const real = (p) => { try { return realpathSync(p); } catch { return path.resolve(p); } };
+  const real = (p) => { try { return realpathSync.native(p); } catch { return path.resolve(p); } };
   const relativeRoot = path.relative(real(committed.repositoryRoot), real(appRoot));
   if (relativeRoot === ".." || relativeRoot.startsWith(`..${path.sep}`) || path.isAbsolute(relativeRoot)) throw new Error("committed ownership: scan root is outside committed repository");
   const pathPrefix = relativeRoot ? `${relativeRoot.split(path.sep).join("/")}/` : "";

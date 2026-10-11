@@ -24,7 +24,9 @@
 //! runner pauses them, refunds the attempt, and they stay recoverable. A `prepare` or
 //! `compute` call already executing is never interrupted; shutdown waits for it to return
 //! (plus at most one 50 ms poll). The bound is therefore the longest single `prepare` or
-//! `compute` call in flight, and a handler call that never returns blocks shutdown.
+//! `compute` call in flight, and a handler call that never returns blocks shutdown. Shutdown
+//! also makes one last attempt to store terminal writes that storage refused (see
+//! [`StagedPool::shutdown_detailed`]).
 
 use std::collections::{BTreeSet, HashMap, HashSet, VecDeque};
 use std::panic::{catch_unwind, AssertUnwindSafe};
@@ -37,8 +39,8 @@ use std::time::Duration;
 use serde_json::Value;
 
 use crate::error::{JobError, JobResult};
-use crate::runner::{JobControl, JobHandler, JobLocks, RunOutcome, Runner};
-use crate::store::{Job, JobStore};
+use crate::runner::{HandlerOutcome, JobControl, JobHandler, JobLocks, RunOutcome, Runner};
+use crate::store::{Job, JobStore, SettlementShutdown};
 
 /// How often a waiting thread heartbeats and checks for cancel, stall or shutdown.
 const POLL: Duration = Duration::from_millis(50);
@@ -53,6 +55,9 @@ pub enum Staged<P> {
     Done(Value),
     /// Needs the lane; `P` is handed to `compute`.
     Compute(P),
+    /// `prepare` already settled the job itself, or handed it to something that will: the
+    /// runner writes nothing for it (see [`HandlerOutcome`]).
+    Handled(HandlerOutcome),
 }
 
 /// Product code for a staged pool. `prepare` runs on many threads (up to the limit);
@@ -70,6 +75,18 @@ pub trait StagedHandler: Send + Sync + 'static {
         work: Self::Prepared,
         ctl: &JobControl,
     ) -> JobResult<Value>;
+    /// What the lane calls: `compute` whose result may be a [`HandlerOutcome`] when the handler
+    /// settles its own jobs. The default is `compute` with `Ok(value)` read as
+    /// [`HandlerOutcome::Done`], so a handler that implements only `compute` is unchanged.
+    fn compute_outcome(
+        &self,
+        lane: &mut Self::Lane,
+        job: &Job,
+        work: Self::Prepared,
+        ctl: &JobControl,
+    ) -> JobResult<HandlerOutcome> {
+        self.compute(lane, job, work, ctl).map(HandlerOutcome::Done)
+    }
     /// Called once per idle period, after `idle_after` with no work, on the lane thread.
     fn idle(&self, _lane: &mut Self::Lane) {}
 }
@@ -221,7 +238,7 @@ struct Item<P> {
     work: P,
     ctl: Arc<JobControl>,
     claim: Arc<AtomicU8>,
-    reply: mpsc::Sender<JobResult<Value>>,
+    reply: mpsc::Sender<JobResult<HandlerOutcome>>,
 }
 
 // `Work` is the hot path; boxing it would add an allocation per job to shrink a rare `Stop`.
@@ -277,6 +294,16 @@ impl<H: StagedHandler> JobHandler for Adapter<H> {
     }
 
     fn run_shared(&self, job: &Job, ctl: &Arc<JobControl>) -> JobResult<Value> {
+        match self.run_outcome(job, ctl)? {
+            HandlerOutcome::Done(v) => Ok(v),
+            _ => Err(JobError::new(
+                "pool_misuse",
+                "a staged pool handler that settles its own jobs needs a runner that calls run_outcome",
+            )),
+        }
+    }
+
+    fn run_outcome(&self, job: &Job, ctl: &Arc<JobControl>) -> JobResult<HandlerOutcome> {
         let sh = &self.shared;
         let ticket = sh.ticket(&job.job_id);
         let _guard = TicketGuard {
@@ -287,7 +314,8 @@ impl<H: StagedHandler> JobHandler for Adapter<H> {
             return Err(JobError::handoff());
         }
         let work = match self.handler.prepare(job, ctl)? {
-            Staged::Done(v) => return Ok(v),
+            Staged::Done(v) => return Ok(HandlerOutcome::Done(v)),
+            Staged::Handled(outcome) => return Ok(outcome),
             Staged::Compute(p) => p,
         };
         match &ticket {
@@ -414,17 +442,19 @@ fn lane_main<H: StagedHandler>(
         };
         let result = match abort {
             Some(e) => Err(e),
-            None => catch_unwind(AssertUnwindSafe(|| h.compute(&mut lane, &job, work, &ctl)))
-                .unwrap_or_else(|_| {
-                    // The lane may be inconsistent after a panic: rebuild it on this thread.
-                    let old = std::mem::replace(
-                        &mut lane,
-                        // `new_lane` may itself panic; that ends the thread and waiters see it.
-                        h.new_lane(),
-                    );
-                    let _ = catch_unwind(AssertUnwindSafe(|| drop(old)));
-                    Err(JobError::new("panic", "staged compute panicked"))
-                }),
+            None => catch_unwind(AssertUnwindSafe(|| {
+                h.compute_outcome(&mut lane, &job, work, &ctl)
+            }))
+            .unwrap_or_else(|_| {
+                // The lane may be inconsistent after a panic: rebuild it on this thread.
+                let old = std::mem::replace(
+                    &mut lane,
+                    // `new_lane` may itself panic; that ends the thread and waiters see it.
+                    h.new_lane(),
+                );
+                let _ = catch_unwind(AssertUnwindSafe(|| drop(old)));
+                Err(JobError::new("panic", "staged compute panicked"))
+            }),
         };
         let _ = reply.send(result);
         idle_pending = true;
@@ -613,9 +643,19 @@ impl StagedPool {
 
     /// Stop admission, withdraw buffered work (left recoverable), and join every thread the
     /// pool started. Waits for any `prepare` or `compute` call already running; see the
-    /// module docs for the bound.
+    /// module docs for the bound. Ends with one attempt to store terminal writes that storage
+    /// refused; [`StagedPool::shutdown_detailed`] reports what could not be stored.
     pub fn shutdown(mut self) {
         self.stop();
+    }
+
+    /// [`StagedPool::shutdown`] that returns what the last flush found: the jobs whose handler
+    /// finished but whose terminal state is not stored ("finished, unsettled"). A job that is
+    /// `durable` in the report is applied by the next open of the store; any other is lost with
+    /// the process and reads as unfinished at the next open.
+    pub fn shutdown_detailed(mut self) -> SettlementShutdown {
+        self.stop();
+        self.runner.store().shutdown_detailed()
     }
 
     fn stop(&mut self) {
@@ -637,6 +677,8 @@ impl StagedPool {
         if let Some(h) = self.lane.take() {
             let _ = h.join();
         }
+        // Nothing runs now: give held terminal writes one more chance.
+        let _ = self.runner.store().flush_pending_settlements();
     }
 }
 

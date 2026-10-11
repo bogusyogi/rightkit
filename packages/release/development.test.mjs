@@ -7,6 +7,9 @@ import { test } from "node:test";
 import { assertInstalledExecutableMatches, assertNativeDevelopmentHost, developmentEnvironment, resolveCommand, resolvePnpmCli, resolveTauriArtifact, runDevelopment as runDevelopmentActual, swapInstalledMacosBundle, validateDevelopmentConfig } from "./development.mjs";
 import { assertReleaseExecutionAllowed } from "./execution-policy.mjs";
 
+// Not run on Windows: installs a macOS app bundle through POSIX paths.
+const WINDOWS_SKIP = process.platform === "win32" ? "installs a macOS app bundle through POSIX paths" : false;
+
 const nativePlatform = process.platform === "win32" ? "win" : "mac";
 // These fixtures test development mechanics without installing host shims.
 const runDevelopment = (options) => runDevelopmentActual({ codesignEnvironment: (env) => env, ...options });
@@ -250,21 +253,21 @@ function swapFixture({ installedExecutable = "signed-binary" } = {}) {
   return { files, fs, args: { staging: "/Apps/Fixture.app.stage", destination: "/Apps/Fixture.app", backup: "/Apps/Fixture.app.backup", executableName: "Fixture" } };
 }
 
-test("macOS dev install removes the backup when the installed executable hash matches the staged one", () => {
+test("macOS dev install removes the backup when the installed executable hash matches the staged one", { skip: WINDOWS_SKIP }, () => {
   const { files, fs, args } = swapFixture();
   swapInstalledMacosBundle({ ...args, fs });
   assert.equal(files.get("/Apps/Fixture.app/Contents/MacOS/Fixture"), "signed-binary");
   assert.deepEqual([...files.keys()].filter((file) => file.startsWith(args.backup)), []);
 });
 
-test("macOS dev install restores the previous app and throws a typed error on a hash mismatch", () => {
+test("macOS dev install restores the previous app and throws a typed error on a hash mismatch", { skip: WINDOWS_SKIP }, () => {
   const { files, fs, args } = swapFixture({ installedExecutable: "corrupted" });
   assert.throws(() => swapInstalledMacosBundle({ ...args, fs }), (error) => error.code === "DEV_INSTALL_EXECUTABLE_MISMATCH" && /does not match/.test(error.message));
   assert.equal(files.get("/Apps/Fixture.app/Contents/MacOS/Fixture"), "previous-binary");
   assert.deepEqual([...files.keys()].filter((file) => file.startsWith(args.backup) || file.startsWith(args.staging)), []);
 });
 
-test("macOS dev install restores the previous app and throws a typed error when the installed executable is missing", () => {
+test("macOS dev install restores the previous app and throws a typed error when the installed executable is missing", { skip: WINDOWS_SKIP }, () => {
   const { files, fs, args } = swapFixture({ installedExecutable: null });
   assert.throws(() => swapInstalledMacosBundle({ ...args, fs }), (error) => error.code === "DEV_INSTALL_EXECUTABLE_MISSING" && /missing/.test(error.message));
   assert.equal(files.get("/Apps/Fixture.app/Contents/MacOS/Fixture"), "previous-binary");

@@ -9,6 +9,9 @@ import { assembleMsixRoot, buildMsix, generateAppxManifest, peFilesIn } from "./
 import { assembleMacApp, discoverNestedCode, generateInfoPlist, signAndNotarizeMacApp } from "./swift-mac-app.mjs";
 import { loadSwiftPackageConfig, macOptions, main, msixOptions, windowsStageOptions } from "./swift-package-command.mjs";
 
+// Not run on Windows: Swift packages are built on macOS.
+const WINDOWS_SKIP = process.platform === "win32" ? "Swift packages are built on macOS" : false;
+
 // Build a tiny valid PE32+ with the given import names (one .idata section).
 function pe({ imports = [], delay = [], machine = 0x8664, subsystem = 3 } = {}) {
   const rva = 0x1000, raw = 0x200;
@@ -169,7 +172,7 @@ test("Info.plist is well formed and validated", () => {
   assert.throws(() => generateInfoPlist({ name: "X", bundleId: "bad", version: "1", executable: "X" }), { code: "MAC_APP_INVALID" });
 });
 
-test("app assembly lays out bundle and finds nested code deepest-first", () => {
+test("app assembly lays out bundle and finds nested code deepest-first", { skip: WINDOWS_SKIP }, () => {
   const root = tmp();
   const macho = Buffer.from("cffaedfe00000000", "hex");
   const exe = write(root, "build/SwiftRight", macho); chmodSync(exe, 0o755);

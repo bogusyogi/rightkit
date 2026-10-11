@@ -5,7 +5,7 @@ use crate::error::{Error, Result};
 use crate::secret::Secret;
 use crate::store::{Store, WriteIntent};
 use serde::Serialize;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 #[derive(Debug, Default, Clone, PartialEq, Eq, Serialize)]
 pub struct MigrationReport {
@@ -140,230 +140,78 @@ impl Store {
     }
 }
 
+/// What [`migrate_plaintext_file`] found and did. Whatever it is, the legacy file was NOT
+/// changed, wiped, moved or removed: removing it is the caller's separate step.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum FileMigration {
-    /// Stored, read back identical, file overwritten with zeros and deleted.
-    Migrated,
-    /// No legacy file.
+    /// No legacy file, or it holds only whitespace. Nothing was stored.
     NoFile,
-    /// The store already held exactly the file's value; the file was zeroed and deleted.
-    AlreadyStored,
-    /// The store could not take the value, or it is not a durable store (a guard put this
-    /// `Store` in memory or deny mode); the file is untouched (fail closed, no plaintext
+    /// The store holds exactly the file's value: it was stored now (and read back identical), or
+    /// the store already held exactly it. The file was left exactly as it was. Remove it yourself,
+    /// once you have verified the stored value and nothing else writes the file.
+    Retained,
+    /// The store already holds a value that differs from the file's. Neither was changed. The
+    /// file holds something the store does not, so deleting it would destroy content that was
+    /// never stored: the caller decides which of the two is current.
+    StoredValueDiffers,
+    /// The store could not take the value or could not be read back, or it is not a durable
+    /// store ([`Store::is_durable`]: a guard put this `Store` in memory or deny mode, or its
+    /// backend does not report itself durable); the file is untouched (fail closed, no plaintext
     /// fallback in this crate).
     StoreUnavailable,
-    /// Stored (or already stored identically) and, as [`LegacyFile::Retain`] asked, the file was
-    /// left exactly as it was. Remove it yourself once nothing else writes it.
-    Retained,
-    /// The file was replaced or rewritten while it was being migrated, or the store already holds
-    /// a value that differs from the file (the stored copy is older than the file). It is
-    /// untouched, because deleting it would have destroyed content that was never stored.
-    SourceChanged,
 }
 
-/// What to do with the legacy plaintext file once its value is safely stored. Chosen by the
-/// caller; there is no default.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum LegacyFile {
-    /// Leave the file untouched. The only choice that cannot destroy a writer's data: this crate
-    /// shares no lock with the file's writers, so no wipe-and-delete of it is race-free.
-    Retain,
-    /// Zero and delete the file, if it is still exactly the file that was read. The caller
-    /// asserts that nothing else writes the file (for example the app that owned it is not
-    /// running). A writer that replaces the path is never touched, but one that already holds
-    /// the file open and writes in place in the instant before the wipe cannot be excluded.
-    RetireIfUnchanged,
-}
-
-/// The legacy file, opened ONCE: the bytes migrated and the handle they came from.
-struct Legacy {
-    file: std::fs::File,
-    bytes: Secret,
-}
-
-fn io_err(e: std::io::Error) -> Error {
-    Error::Io(e.to_string())
-}
-
-fn read_all(file: &mut std::fs::File, hint: usize) -> Result<Secret> {
+/// Read the legacy file once, read-only. The buffer is sized for the whole file up front so it
+/// never grows (a regrown buffer would leave an unwiped copy of the secret behind).
+fn read_legacy(path: &Path) -> Result<Option<Secret>> {
     use std::io::Read;
-    let mut buf = zeroize::Zeroizing::new(Vec::with_capacity(hint.saturating_add(1)));
-    file.read_to_end(&mut buf).map_err(io_err)?;
-    Ok(Secret::from_bytes(std::mem::take(&mut *buf)))
-}
-
-fn open_legacy(path: &Path, writable: bool) -> Result<Option<Legacy>> {
-    // Read and write when the file may be retired, so the same handle can wipe the content it
-    // read; a file we may not write is still read (and removed without a wipe, as before). A
-    // file that is only to be retained is opened read-only and is never written through us.
-    let mut file = match std::fs::OpenOptions::new()
-        .read(true)
-        .write(writable)
-        .open(path)
-    {
+    let mut file = match std::fs::File::open(path) {
         Ok(f) => f,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
-        Err(_) => match std::fs::File::open(path) {
-            Ok(f) => f,
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
-            Err(e) => return Err(io_err(e)),
-        },
+        Err(e) => return Err(Error::Io(e.to_string())),
     };
     let hint = file.metadata().map(|m| m.len() as usize).unwrap_or(0);
-    let bytes = read_all(&mut file, hint)?;
-    Ok(Some(Legacy { file, bytes }))
+    let mut buf = zeroize::Zeroizing::new(Vec::with_capacity(hint.saturating_add(1)));
+    file.read_to_end(&mut buf)
+        .map_err(|e| Error::Io(e.to_string()))?;
+    Ok(Some(Secret::from_bytes(std::mem::take(&mut *buf))))
 }
 
-/// True when `path` still names the file `legacy` was read from.
-#[cfg(unix)]
-fn path_is_legacy(path: &Path, legacy: &Legacy) -> bool {
-    use std::os::unix::fs::MetadataExt;
-    match (std::fs::metadata(path), legacy.file.metadata()) {
-        (Ok(a), Ok(b)) => a.dev() == b.dev() && a.ino() == b.ino(),
-        _ => false,
-    }
-}
-
-/// True when `path` still names the file `legacy` was read from. Without a portable file
-/// identity the content is compared instead.
-#[cfg(not(unix))]
-fn path_is_legacy(path: &Path, legacy: &Legacy) -> bool {
-    match std::fs::File::open(path)
-        .map_err(io_err)
-        .and_then(|mut f| read_all(&mut f, legacy.bytes.len()))
-    {
-        Ok(now) => now.ct_eq(&legacy.bytes),
-        Err(_) => false,
-    }
-}
-
-/// True when `path` is still the file `legacy` was read from and the handle still reads the
-/// bytes that were read.
-fn still_legacy(path: &Path, legacy: &mut Legacy) -> Result<bool> {
-    use std::io::{Seek, SeekFrom};
-    legacy.file.seek(SeekFrom::Start(0)).map_err(io_err)?;
-    let now = read_all(&mut legacy.file, legacy.bytes.len())?;
-    Ok(now.ct_eq(&legacy.bytes) && path_is_legacy(path, legacy))
-}
-
-/// A hidden sibling of `path` to move the file to before it is wiped.
-fn aside_name(path: &Path) -> Result<PathBuf> {
-    let mut rnd = [0u8; 8];
-    getrandom::fill(&mut rnd).map_err(|_| Error::Unavailable("OS CSPRNG failed".into()))?;
-    let hex: String = rnd.iter().map(|b| format!("{b:02x}")).collect();
-    let name = path.file_name().ok_or_else(|| Error::Invalid {
-        what: "path",
-        reason: "has no file name".into(),
-    })?;
-    let mut aside = std::ffi::OsString::from(".");
-    aside.push(name);
-    aside.push(format!(".rk-retiring-{hex}"));
-    Ok(path.with_file_name(aside))
-}
-
-/// Zero and delete the legacy file, but only if it is still the file that was read and still
-/// holds exactly the bytes that were read. `Ok(false)` means it changed and nothing was lost.
+/// One-way COPY of a legacy plaintext key file (e.g. `~/.myapp/<provider>.key`) into the store.
 ///
-/// The file is first MOVED ASIDE (a rename, so the path is free again at once) and verified
-/// there, and only the moved file is wiped and removed. A writer that replaces the path after
-/// the first check therefore never has its new file wiped or deleted: the rename carries the
-/// replacement aside, the identity check fails, and the replacement is put back (without
-/// overwriting anything newer; if the name was taken again it is left at its hidden name, never
-/// deleted). The one case this cannot exclude is a writer that already holds the file open and
-/// writes in place between the final verification and the wipe, because no lock is shared with
-/// the file's writers; hence [`LegacyFile::RetireIfUnchanged`] is the caller's assertion that
-/// there is no such writer.
+/// The file is opened read-only, once. Its content, trimmed of ASCII whitespace, is stored with
+/// [`WriteIntent::CreateOnly`] (an existing credential is never replaced) and read back from the
+/// store to confirm it is identical.
 ///
-/// `before_move` runs after the first check and before the rename (a seam for tests).
-fn retire(path: &Path, mut legacy: Legacy, before_move: &mut dyn FnMut()) -> Result<bool> {
-    use std::io::{Seek, SeekFrom, Write};
-    if !still_legacy(path, &mut legacy)? {
-        return Ok(false);
-    }
-    before_move();
-    let aside = aside_name(path)?;
-    std::fs::rename(path, &aside).map_err(io_err)?;
-    if !still_legacy(&aside, &mut legacy)? {
-        // Not the file that was read: give it back, never overwriting a newer file.
-        if std::fs::hard_link(&aside, path).is_ok() {
-            let _ = std::fs::remove_file(&aside);
-        }
-        return Ok(false);
-    }
-    // Wipe through the handle that was read, so a file that replaced it is never written to.
-    if legacy.file.seek(SeekFrom::Start(0)).is_ok() {
-        let _ = legacy.file.write_all(&vec![0u8; legacy.bytes.len()]);
-        let _ = legacy.file.sync_all();
-    }
-    drop(legacy);
-    std::fs::remove_file(&aside).map_err(io_err)?;
-    Ok(true)
-}
-
-/// One-way migration of a legacy plaintext key file (e.g. `~/.myapp/<provider>.key`).
+/// **This function never modifies, wipes, moves or deletes the file, whatever it returns.**
+/// [`FileMigration::Retained`] says the store holds exactly the file's value. Removing the
+/// now-redundant plaintext file is the app's explicit, separate step, taken after it has verified
+/// the stored value (for example by reading it back with [`Store::get`]) and when nothing else
+/// writes the file. This crate shares no lock with the file's writers, so no deletion it made could
+/// be safe against them; that is why it makes none.
 ///
-/// The file is opened once; the bytes stored are the bytes of that open file, stored with
-/// [`WriteIntent::CreateOnly`] (an existing credential is never replaced). What happens to the
-/// file afterwards is the caller's typed choice, `file`: [`LegacyFile::Retain`] leaves it alone
-/// ([`FileMigration::Retained`]); [`LegacyFile::RetireIfUnchanged`] zeroes and deletes it only if
-/// it is still that file with the same content ([`FileMigration::SourceChanged`] otherwise).
-/// Nothing is removed when `store` is not durable ([`Store::is_durable`]): a store guarded into
+/// Nothing is stored when `store` is not durable ([`Store::is_durable`]): a store guarded into
 /// memory or deny mode, or one whose backend does not report itself durable, returns
-/// [`FileMigration::StoreUnavailable`] with the file untouched, because copying into process
-/// memory and deleting the only persistent copy would lose the secret on exit.
-pub fn migrate_plaintext_file(
-    store: &Store,
-    account: &str,
-    path: &Path,
-    file: LegacyFile,
-) -> Result<FileMigration> {
-    migrate_plaintext_file_with(store, account, path, file, &mut || {})
-}
-
-fn migrate_plaintext_file_with(
-    store: &Store,
-    account: &str,
-    path: &Path,
-    file: LegacyFile,
-    before_move: &mut dyn FnMut(),
-) -> Result<FileMigration> {
+/// [`FileMigration::StoreUnavailable`], because a value copied into process memory is lost on exit
+/// and the caller must not be led to delete the only persistent copy.
+pub fn migrate_plaintext_file(store: &Store, account: &str, path: &Path) -> Result<FileMigration> {
     if !store.is_durable() {
         return Ok(FileMigration::StoreUnavailable);
     }
-    let retire_requested = file == LegacyFile::RetireIfUnchanged;
-    let Some(legacy) = open_legacy(path, retire_requested)? else {
+    let Some(raw) = read_legacy(path)? else {
         return Ok(FileMigration::NoFile);
     };
-    let value = Secret::from_bytes(legacy.bytes.expose_bytes().trim_ascii().to_vec());
-    let mut finish = |legacy: Legacy, done: FileMigration| -> Result<FileMigration> {
-        if !retire_requested {
-            return Ok(FileMigration::Retained);
-        }
-        retire(path, legacy, before_move).map(|removed| {
-            if removed {
-                done
-            } else {
-                FileMigration::SourceChanged
-            }
-        })
-    };
+    let value = Secret::from_bytes(raw.expose_bytes().trim_ascii().to_vec());
     if value.is_empty() {
-        return if retire_requested {
-            finish(legacy, FileMigration::NoFile)
-        } else {
-            Ok(FileMigration::NoFile)
-        };
+        return Ok(FileMigration::NoFile);
     }
     match store.exists(account) {
         Ok(true) => {
-            // Delete the file only if the store already holds exactly its content; a file that
-            // differs holds something never stored, so it is left untouched.
+            // The store already has a credential. It is the file's own value, or it is not.
             return match store.get(account) {
-                Ok(Some(stored)) if stored.ct_eq(&value) => {
-                    finish(legacy, FileMigration::AlreadyStored)
-                }
-                Ok(Some(_)) => Ok(FileMigration::SourceChanged),
+                Ok(Some(stored)) if stored.ct_eq(&value) => Ok(FileMigration::Retained),
+                Ok(Some(_)) => Ok(FileMigration::StoredValueDiffers),
                 Ok(None) | Err(_) => Ok(FileMigration::StoreUnavailable),
             };
         }
@@ -377,7 +225,7 @@ fn migrate_plaintext_file_with(
     if !ok {
         return Ok(FileMigration::StoreUnavailable);
     }
-    finish(legacy, FileMigration::Migrated)
+    Ok(FileMigration::Retained)
 }
 
 /// Account -> environment variable names; the first non-empty value wins.
@@ -483,21 +331,40 @@ mod tests {
         )
     }
 
+    fn stored(store: &Store, account: &str) -> String {
+        store
+            .get(account)
+            .unwrap()
+            .unwrap()
+            .expose_str()
+            .unwrap()
+            .to_owned()
+    }
+
     #[test]
-    fn an_uncontended_migration_stores_zeroes_and_removes_the_file() {
+    fn a_migration_stores_the_trimmed_value_and_leaves_the_file_exactly_as_it_was() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("legacy.key");
         std::fs::write(&path, b" legacy-secret \n").unwrap();
         let store = memory_store();
         assert_eq!(
-            migrate_plaintext_file(&store, "acct", &path, LegacyFile::RetireIfUnchanged).unwrap(),
-            FileMigration::Migrated
+            migrate_plaintext_file(&store, "acct", &path).unwrap(),
+            FileMigration::Retained
         );
-        assert!(!path.exists());
+        assert_eq!(std::fs::read(&path).unwrap(), b" legacy-secret \n");
+        assert_eq!(stored(&store, "acct"), "legacy-secret");
+        // Run again over a value the store already holds: still retained, still not removed.
         assert_eq!(
-            store.get("acct").unwrap().unwrap().expose_str().unwrap(),
-            "legacy-secret"
+            migrate_plaintext_file(&store, "acct", &path).unwrap(),
+            FileMigration::Retained
         );
+        assert_eq!(std::fs::read(&path).unwrap(), b" legacy-secret \n");
+        // Nothing but the file itself is in its directory: no aside copy, no marker.
+        let names: Vec<_> = std::fs::read_dir(dir.path())
+            .unwrap()
+            .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+            .collect();
+        assert_eq!(names, vec!["legacy.key"], "{names:?}");
     }
 
     #[test]
@@ -511,91 +378,11 @@ mod tests {
                     .guard_when(true, mode),
             );
             assert_eq!(
-                migrate_plaintext_file(&store, "acct", &path, LegacyFile::RetireIfUnchanged)
-                    .unwrap(),
+                migrate_plaintext_file(&store, "acct", &path).unwrap(),
                 FileMigration::StoreUnavailable
             );
             assert_eq!(std::fs::read(&path).unwrap(), b"legacy-secret");
         }
-    }
-
-    #[test]
-    fn a_file_rewritten_after_it_was_read_is_kept_not_wiped() {
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("legacy.key");
-        std::fs::write(&path, b"content-A").unwrap();
-        let legacy = open_legacy(&path, true).unwrap().unwrap();
-        // Another writer rewrites the same file in place.
-        std::fs::write(&path, b"content-B").unwrap();
-        assert!(!retire(&path, legacy, &mut || {}).unwrap());
-        assert_eq!(std::fs::read(&path).unwrap(), b"content-B");
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn a_file_replaced_after_it_was_read_is_kept_and_never_written_to() {
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("legacy.key");
-        std::fs::write(&path, b"content-A").unwrap();
-        let legacy = open_legacy(&path, true).unwrap().unwrap();
-        // Another writer replaces the path with a different file.
-        let other = dir.path().join("replacement");
-        std::fs::write(&other, b"content-B").unwrap();
-        std::fs::rename(&other, &path).unwrap();
-        assert!(!retire(&path, legacy, &mut || {}).unwrap());
-        assert_eq!(std::fs::read(&path).unwrap(), b"content-B");
-    }
-
-    #[test]
-    fn an_unchanged_file_is_retired() {
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("legacy.key");
-        std::fs::write(&path, b"content-A").unwrap();
-        let legacy = open_legacy(&path, true).unwrap().unwrap();
-        assert!(retire(&path, legacy, &mut || {}).unwrap());
-        assert!(!path.exists());
-    }
-
-    #[test]
-    fn a_file_rewritten_after_its_first_copy_was_stored_is_kept_on_rerun() {
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("legacy.key");
-        std::fs::write(&path, b"first-copy").unwrap();
-        let store = memory_store();
-        // The first copy is stored but the file survives (as after a crash before removal).
-        store.set_str("acct", "first-copy").unwrap();
-        std::fs::write(&path, b"rewritten-later").unwrap();
-        assert_eq!(
-            migrate_plaintext_file(&store, "acct", &path, LegacyFile::RetireIfUnchanged).unwrap(),
-            FileMigration::SourceChanged
-        );
-        assert_eq!(std::fs::read(&path).unwrap(), b"rewritten-later");
-        assert_eq!(
-            store.get("acct").unwrap().unwrap().expose_str().unwrap(),
-            "first-copy"
-        );
-        // A file equal to the stored value is the stale copy and is retired.
-        std::fs::write(&path, b"first-copy\n").unwrap();
-        assert_eq!(
-            migrate_plaintext_file(&store, "acct", &path, LegacyFile::RetireIfUnchanged).unwrap(),
-            FileMigration::AlreadyStored
-        );
-        assert!(!path.exists());
-    }
-
-    #[test]
-    fn a_missing_file_is_no_file() {
-        let dir = tempfile::tempdir().unwrap();
-        assert_eq!(
-            migrate_plaintext_file(
-                &memory_store(),
-                "acct",
-                &dir.path().join("none"),
-                LegacyFile::RetireIfUnchanged
-            )
-            .unwrap(),
-            FileMigration::NoFile
-        );
     }
 
     #[test]
@@ -609,77 +396,73 @@ mod tests {
                 .backend(Arc::new(MemoryBackend::new())),
         );
         assert!(!store.is_durable());
-        for file in [LegacyFile::Retain, LegacyFile::RetireIfUnchanged] {
-            assert_eq!(
-                migrate_plaintext_file(&store, "acct", &path, file).unwrap(),
-                FileMigration::StoreUnavailable
-            );
-        }
+        assert_eq!(
+            migrate_plaintext_file(&store, "acct", &path).unwrap(),
+            FileMigration::StoreUnavailable
+        );
         assert_eq!(std::fs::read(&path).unwrap(), b"legacy-secret");
         assert!(!store.exists("acct").unwrap());
     }
 
     #[test]
-    fn retain_stores_the_value_and_leaves_the_file_alone() {
+    fn a_missing_file_is_no_file_and_a_blank_one_is_no_file_and_is_left_alone() {
         let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("legacy.key");
-        std::fs::write(&path, b" legacy-secret \n").unwrap();
         let store = memory_store();
         assert_eq!(
-            migrate_plaintext_file(&store, "acct", &path, LegacyFile::Retain).unwrap(),
-            FileMigration::Retained
+            migrate_plaintext_file(&store, "acct", &dir.path().join("none")).unwrap(),
+            FileMigration::NoFile
         );
-        assert_eq!(std::fs::read(&path).unwrap(), b" legacy-secret \n");
+        let blank = dir.path().join("blank.key");
+        std::fs::write(&blank, b"  \n").unwrap();
         assert_eq!(
-            store.get("acct").unwrap().unwrap().expose_str().unwrap(),
-            "legacy-secret"
+            migrate_plaintext_file(&store, "acct", &blank).unwrap(),
+            FileMigration::NoFile
         );
-        // Already stored and identical: still retained, never removed.
-        assert_eq!(
-            migrate_plaintext_file(&store, "acct", &path, LegacyFile::Retain).unwrap(),
-            FileMigration::Retained
-        );
-        assert!(path.exists());
+        assert_eq!(std::fs::read(&blank).unwrap(), b"  \n");
+        assert!(!store.exists("acct").unwrap());
     }
 
     #[test]
-    fn migration_never_replaces_a_credential_that_already_exists() {
+    fn a_stored_value_that_differs_from_the_file_is_reported_and_neither_side_changes() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("legacy.key");
         std::fs::write(&path, b"from-file").unwrap();
         let store = memory_store();
         store.set_str("acct", "saved-by-user").unwrap();
+        // A credential that already exists is never replaced, and the file holds something that
+        // was never stored.
         assert_eq!(
-            migrate_plaintext_file(&store, "acct", &path, LegacyFile::RetireIfUnchanged).unwrap(),
-            FileMigration::SourceChanged
+            migrate_plaintext_file(&store, "acct", &path).unwrap(),
+            FileMigration::StoredValueDiffers
         );
-        assert_eq!(
-            store.get("acct").unwrap().unwrap().expose_str().unwrap(),
-            "saved-by-user"
-        );
+        assert_eq!(stored(&store, "acct"), "saved-by-user");
         assert_eq!(std::fs::read(&path).unwrap(), b"from-file");
+        // Once the file holds exactly the stored value, it is the stale copy: retained, not removed.
+        std::fs::write(&path, b"saved-by-user\n").unwrap();
+        assert_eq!(
+            migrate_plaintext_file(&store, "acct", &path).unwrap(),
+            FileMigration::Retained
+        );
+        assert_eq!(std::fs::read(&path).unwrap(), b"saved-by-user\n");
     }
 
-    /// Audit finding 4: a replacement that arrives AFTER the final comparison is not deleted.
+    /// The file is only ever read: a file that cannot be opened for writing migrates the same way
+    /// and is unchanged afterwards.
+    #[cfg(unix)]
     #[test]
-    fn a_replacement_arriving_after_the_final_comparison_is_neither_wiped_nor_deleted() {
+    fn a_read_only_file_is_migrated_without_being_opened_for_writing() {
+        use std::os::unix::fs::PermissionsExt;
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("legacy.key");
-        std::fs::write(&path, b"content-A").unwrap();
-        let legacy = open_legacy(&path, true).unwrap().unwrap();
-        let mut replace = || {
-            let other = dir.path().join("replacement");
-            std::fs::write(&other, b"content-B").unwrap();
-            std::fs::rename(&other, &path).unwrap();
-        };
-        assert!(!retire(&path, legacy, &mut replace).unwrap());
-        assert_eq!(std::fs::read(&path).unwrap(), b"content-B");
-        // Nothing is left behind under a hidden name.
-        let names: Vec<_> = std::fs::read_dir(dir.path())
-            .unwrap()
-            .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
-            .collect();
-        assert_eq!(names, vec!["legacy.key"], "{names:?}");
+        std::fs::write(&path, b"legacy-secret").unwrap();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o400)).unwrap();
+        let store = memory_store();
+        assert_eq!(
+            migrate_plaintext_file(&store, "acct", &path).unwrap(),
+            FileMigration::Retained
+        );
+        assert_eq!(std::fs::read(&path).unwrap(), b"legacy-secret");
+        assert_eq!(stored(&store, "acct"), "legacy-secret");
     }
 
     #[test]

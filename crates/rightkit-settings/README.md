@@ -7,9 +7,9 @@ Versioned settings persistence for Right Suite apps. It owns one JSON document p
 Behavior:
 
 - **Migrations**: ordered `Migration { to, apply }` transforms over the raw JSON object; a legacy flat file with no envelope is adopted as version 0 (envelope mode).
-- **Atomic writes**: a temp file in the destination directory is flushed, renamed over the settings file (`rename(2)`, or `std::fs::rename` on Windows), and on Unix and macOS the directory is flushed. This is `rightkit_fs::atomic_write_with_options` with its default `ReplaceMode::Rename`. Windows has no directory flush. The previous good file is kept as `settings.json.bak`.
+- **Atomic writes**: a temp file in the destination directory is flushed, renamed over the settings file (`rename(2)`, or `std::fs::rename` on Windows), and on Unix and macOS the directory is flushed. This is `rightkit_fs::atomic_write_with_options` with its default `ReplaceMode::Rename`. Windows has no directory flush. The previous good file is kept as `settings.json.bak`; if that copy fails, the write stops before it touches the settings file (`Error::PreserveFailed`, see below).
 - **Cross-process transactions**: writes take an advisory lock on `settings.json.lock`, reload the committed value, apply the edit, and save. Concurrent updates to different keys from other stores or processes are not lost. `update_at` / `revision` give compare-and-swap.
-- **Corruption recovery**: a main file that is present but does not parse is quarantined as `settings.json.corrupt-<unix>`, then `.bak` is tried, then defaults. Single invalid fields are dropped back to their defaults rather than resetting all. A file that exists but cannot be read (permission denied, I/O error) is an `Error::Io`: nothing is quarantined or overwritten.
+- **Corruption recovery**: a main file that is present but does not parse is quarantined as `settings.json.corrupt-<unix>`, then `.bak` is tried, then defaults. If the damaged file cannot be moved aside, the operation fails with `Error::PreserveFailed` and the damaged file is left exactly where it is: nothing is written over a damaged file that could not be preserved. Single invalid fields are dropped back to their defaults rather than resetting all. A file that exists but cannot be read (permission denied, I/O error) is an `Error::Io`: nothing is quarantined or overwritten.
 - **Cached reads**: `get()` compares the backend's stamp (for files: inode, mtime, ctime, length) with the one the cache was read under, and re-parses only when it changed.
 - **Newer file** (downgrade): opening fails with `Error::NewerSchema`; nothing is overwritten.
 - **Change events**: `subscribe` callbacks receive the changed top-level keys after a successful save. Failed saves leave the in-memory value unchanged. The one exception is `Error::Replaced`: the new file is already in place, so do not retry the write; `get()` reads it and no event fires for that write.
@@ -79,7 +79,7 @@ let preview = store.patch_dry_run(&serde_json::json!({ "theme": "dark" }), None)
 
 ### Durability, damaged files, formatting, flat migration
 
-- **Replace mode** (`replace_mode`, `durable`, `retry_sharing_violation`). Default `Rename` with `durable(true)`: on Unix and macOS the temp file is flushed, renamed, and the directory flushed. On Windows the rename is not write-through, so a power loss can bring back the previous (complete) file. `ReplaceMode::ReplaceFile` over an existing file is not write-through on Windows either: Windows documents `REPLACEFILE_WRITE_THROUGH` as unsupported, so that flag is no longer passed. Only `ReplaceMode::MoveWriteThrough` (and `ReplaceFile`'s first creation) is write-through on Windows. Those modes can hit a sharing violation when another process holds the file open, so pair them with a retry:
+- **Replace mode** (`replace_mode`, `durable`, `retry_sharing_violation`). Default `Rename` with `durable(true)`: on Unix and macOS the temp file is flushed, renamed, and the directory flushed. On Windows the rename is not write-through, so a power loss can bring back the previous (complete) file. Only `ReplaceMode::MoveWriteThrough` is write-through on Windows. It can hit a sharing violation when another process holds the file open, so pair it with a retry:
 
   ```rust,ignore
   let opts = StoreOptions::new(schema)
@@ -93,12 +93,25 @@ let preview = store.patch_dry_run(&serde_json::json!({ "theme": "dark" }), None)
   No power-loss test has been run for any Windows mode.
 - **Post-publication failures**: `Error::Replaced { path, source }` means the new file is in place and a later step failed (on Unix and macOS, the directory flush). The write is not undone. Do not repeat it as if it had failed; an `update` re-run applies its edit twice.
 - **Damaged files**: `OnCorrupt::Quarantine` (default) renames it aside; `Refuse` errors; `Overwrite` leaves it in place until the atomic replace succeeds (add `keep_corrupt_copy(true)` for a copy made before the replace). Name the quarantine file with `quarantine_name(QuarantineName::Fixed(".corrupt".into()))` to overwrite one fixed file, or keep the timestamped default.
-- **Formatting**: `trailing_newline(true)` ends every write with a newline without sorting keys or rewriting unchanged values.
+- **A step that keeps the previous content fails**: the operation fails and nothing is written. `Error::PreserveFailed { step, path, kept_as, source }` names the file, where it was to go and the I/O cause; `step` is `PreserveStep::Quarantine` (a damaged file could not be moved aside; it stays in place byte for byte), `CorruptCopy` (the `keep_corrupt_copy` copy), or `Backup` (`<path>.bak` could not be refreshed from the current good file). The in-memory value is unchanged and no change event fires. A retry repeats the step, so remove the cause (permissions, a full disk, a directory or locked file at `kept_as`) first. `sidecars(false)` has no `.bak` to refresh.
+- **Formatting**: `trailing_newline(true)` ends every write with a newline without rewriting unchanged values. `key_order` is below.
+
+### Key order
+
+`StoreOptions::key_order(KeyOrder::{Preserve, Sorted})` decides the order of object keys in what a write produces. Number formatting, string escaping and whitespace are the same in both.
+
+- **`Preserve`** (default). A key the file already holds stays where it is, at every nesting level (an object inside an array follows the element at the same index). A key the file does not hold yet is appended after them, in the order the settings type serialises its fields; open keys (`allow_unknown_keys`) follow. A removed key disappears and nothing else moves. A file written by another build, or by the old app, keeps its order, so diffs stay small: an unchanged document rewrites to the same bytes, and a patch changes the bytes of the value it changes (an envelope also advances `revision`). A **new** file is written in the settings type's field order, with the envelope's own keys as `schemaVersion`, `namespace`, `values`, `revision`.
+- **`Sorted`**. Alphabetical (byte order) at every level: the envelope exactly as it was written before this option existed. A flat file still keeps the order of the keys it holds, which is its contract; `Sorted` applies to the keys a write adds and the values it rewrites.
+- A file written sorted by an earlier version stays sorted under `Preserve`. A key it did not hold is appended after the sorted ones, not inserted in its sorted place; use `Sorted` to keep inserting in place.
+- A legacy flat file adopted as an envelope keeps its key order inside `values`.
+- A patch is a `serde_json::Value`, which cannot carry the order it was written in: several new open keys in one patch are appended alphabetically (in the patch's own order when serde_json's `preserve_order` feature is on somewhere in the build; this crate does not enable it, because that would change `serde_json::Map` for every crate in the build). Keys added by separate patches are appended in call order.
+- A `HashMap` field has no stable serialisation order, so several new keys inside one are appended in no stable order. Use a struct or a `BTreeMap`.
+- `pretty_sorted_newline(true)` always sorts, whatever `key_order` says.
 - **Flat migration**: `flat_migration(|map| ...)` returns `(migrated, changed)`; it runs once on open, before defaults and repair, never read-only.
 
 ### Custom backends
 
-`SettingsBackend` is the storage seam. The default is `FileBackend`. An app can plug in its own, for example an encrypted database. Implement `load` and `patch` (`patch` runs the edit under the backend's exclusion), then open with `Store::with_backend(backend, options)`. The trait documentation carries an illustrative SQLCipher example. No SQLCipher implementation ships in this crate.
+`SettingsBackend` is the storage seam. The default is `FileBackend`. An app can plug in its own, for example an encrypted database. Implement `load` and `patch` (`patch` runs the edit under the backend's exclusion), then open with `Store::with_backend(backend, options)`. A backend that writes ordered text can also implement `patch_ordered`, whose edit returns the `KeyLayout` (the settings type's key order) beside its decision; the default drops the layout and calls `patch`, so existing backends need no change. The trait documentation carries an illustrative SQLCipher example. No SQLCipher implementation ships in this crate.
 
 ## Platform support
 

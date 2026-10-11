@@ -4,11 +4,13 @@
 //! `src/download.rs`, one test per row that no earlier file already pins.
 //!
 //! Rows pinned elsewhere: append on a proven `206` (`download.rs::resume_appends_on_206`,
-//! `truncated_body_reconnects_with_if_range`), `416` that completes (`download.rs::
-//! complete_partial_verifies_on_416_without_fetching_bytes`), `206`/`416` from another
-//! resource (`third_read.rs::f3_*`, `audit_fixes.rs` splice test), malformed `206`
-//! (`audit_030.rs::f4_*`, `audit_fixes.rs::f16_*`), `200` over a cross-call prefix
-//! (`download.rs::restart_on_200_truncates_partial_file`).
+//! `truncated_body_reconnects_with_if_range`), `416` restarts (`download.rs::
+//! a_416_restarts_from_zero_even_when_the_partial_file_is_complete`, `fifth_read.rs::f10_*`),
+//! `206`/`416` from another resource (`third_read.rs::f3_*`, `audit_fixes.rs` splice test),
+//! malformed `206` (`audit_030.rs::f4_*`, `audit_fixes.rs::f16_*`), `200` over a cross-call
+//! prefix (`download.rs::restart_on_200_truncates_partial_file`).
+
+mod common;
 
 use std::fs;
 use std::path::PathBuf;
@@ -16,6 +18,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
+use common::plant_part;
 use rightkit_http::testing::{
     loopback_config, MockBody, MockResponse, MockServer, RecordedRequest,
 };
@@ -46,12 +49,11 @@ fn sha_hex(bytes: &[u8]) -> String {
 }
 
 // ------------------------------------------------------------------ finding 2
-/// `out.lock.` is `out.lock` on Windows (trailing dots are dropped before the lookup) while
-/// its staging names stay distinct, so the suffix check alone let it replace a held lock.
-/// The refusal is made on every platform, before any request or filesystem access, and the
-/// file it would have replaced keeps its bytes.
+/// A trailing dot or space is dropped by Windows before the lookup, so `.rk-download.` would
+/// name the download directory there, and `out.` would name `out`. The refusal is made on every
+/// platform, before any request or filesystem access, and nothing is created.
 #[test]
-fn f2_destinations_that_windows_normalizes_onto_a_reserved_name_are_refused() {
+fn f2_destinations_that_windows_normalizes_onto_another_name_are_refused() {
     let hits = Arc::new(AtomicUsize::new(0));
     let seen = hits.clone();
     let server = MockServer::start(move |_, _| {
@@ -60,8 +62,10 @@ fn f2_destinations_that_windows_normalizes_onto_a_reserved_name_are_refused() {
     });
     let dir = scratch("f2-alias");
     let held = dir.join("out.lock");
-    fs::write(&held, b"another download's lock").unwrap();
+    fs::write(&held, b"an ordinary file").unwrap();
     for name in [
+        ".rk-download.",
+        ".rk-download ",
         "out.lock.",
         "out.lock..",
         "out.lock ",
@@ -78,7 +82,7 @@ fn f2_destinations_that_windows_normalizes_onto_a_reserved_name_are_refused() {
         assert!(matches!(err, DownloadError::Io(_)), "{name:?}: {err:?}");
     }
     assert_eq!(hits.load(Ordering::SeqCst), 0, "no request may be sent");
-    assert_eq!(fs::read(&held).unwrap(), b"another download's lock");
+    assert_eq!(fs::read(&held).unwrap(), b"an ordinary file");
     assert_eq!(
         fs::read_dir(&dir).unwrap().count(),
         1,
@@ -277,14 +281,14 @@ fn f6_a_200_to_a_ranged_request_replaces_the_prefix() {
     assert_eq!(reqs[1].header("range"), Some("bytes=4-"));
 }
 
-/// A `.part` from an earlier call, with nothing to prove it: it is discarded and no range is
-/// requested.
+/// A partial file from an earlier call, with nothing to prove it: it is discarded and no range
+/// is requested.
 #[test]
 fn f6_a_prefix_from_an_earlier_call_without_a_hash_is_discarded() {
     let server = MockServer::start(|_, _| MockResponse::new(200).body(b"NEWDATA".to_vec()));
     let dir = scratch("f6-crosscall");
     let dest = dir.join("out.bin");
-    fs::write(dir.join("out.bin.part"), b"OLD!").unwrap();
+    plant_part(&dest, b"OLD!");
     let report = Client::new(cfg())
         .download_to_path(
             &server.url("/f"),
@@ -300,10 +304,10 @@ fn f6_a_prefix_from_an_earlier_call_without_a_hash_is_discarded() {
     assert_eq!(server.requests()[0].header("range"), None);
 }
 
-/// A `.part` from an earlier call with a hash: the range is requested. A `416` whose total is
-/// not the local length restarts once, and the restart is a plain request.
+/// A partial file from an earlier call with a hash: the range is requested. A `416` restarts,
+/// and the restart is a plain request.
 #[test]
-fn f6_a_416_with_another_total_restarts_once() {
+fn f6_a_416_restarts_with_a_plain_request() {
     let server = MockServer::start(|req, _| {
         if req.header("range").is_some() {
             MockResponse::new(416).header("Content-Range", "bytes */300")
@@ -313,7 +317,7 @@ fn f6_a_416_with_another_total_restarts_once() {
     });
     let dir = scratch("f6-416-other");
     let dest = dir.join("out.bin");
-    fs::write(dir.join("out.bin.part"), b"zzzz").unwrap();
+    plant_part(&dest, b"zzzz");
     Client::new(cfg())
         .download_to_path(
             &server.url("/f"),
@@ -337,7 +341,7 @@ fn f6_a_304_publishes_nothing() {
     let server = MockServer::start(|_, _| MockResponse::new(304));
     let dir = scratch("f6-304");
     let dest = dir.join("out.bin");
-    fs::write(dir.join("out.bin.part"), b"zzzz").unwrap();
+    plant_part(&dest, b"zzzz");
     let err = Client::new(cfg())
         .download_to_path(
             &server.url("/f"),

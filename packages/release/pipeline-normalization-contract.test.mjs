@@ -6,8 +6,9 @@ import path from "node:path";
 import test from "node:test";
 
 const liveWorkspace = process.env.RIGHT_SUITE_CONTRACT_WORKSPACE;
-const fixtureRoot = mkdtempSync(path.join(os.tmpdir(), "rightkit-pipeline-contract-"));
-const positiveRoot = mkdtempSync(path.join(os.tmpdir(), "rightkit-pipeline-positive-"));
+// Long-form roots: git lists files under the long path, and labels are taken relative to these.
+const fixtureRoot = realpathSync.native(mkdtempSync(path.join(os.tmpdir(), "rightkit-pipeline-contract-")));
+const positiveRoot = realpathSync.native(mkdtempSync(path.join(os.tmpdir(), "rightkit-pipeline-positive-")));
 const workspace = path.resolve(liveWorkspace ?? positiveRoot);
 
 function writeFixture(relative, contents, root = fixtureRoot) {

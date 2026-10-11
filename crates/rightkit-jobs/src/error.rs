@@ -1,4 +1,7 @@
 use std::fmt;
+use std::path::Path;
+
+use rightkit_db::{StorageProblem, UnreadableCause};
 
 /// Where a [`JobError`] arose.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -13,12 +16,108 @@ pub enum ErrorOrigin {
 
 /// Typed engine error: `code` is the stable wire identifier. `retryable`
 /// errors pause a running job (it stays recoverable) instead of failing it.
-#[derive(Debug, Clone, PartialEq, Eq)]
+///
+/// Equality compares `code`, `message`, `retryable` and `origin`; the database classification
+/// behind [`JobError::open_failure`] is derived from the same failure and does not take part.
+#[derive(Debug, Clone)]
 pub struct JobError {
     pub code: String,
     pub message: String,
     pub retryable: bool,
     pub origin: ErrorOrigin,
+    /// What kind of database failure this error came from, when it came from one.
+    db_failure: Option<OpenFailure>,
+}
+
+impl PartialEq for JobError {
+    fn eq(&self, other: &Self) -> bool {
+        self.code == other.code
+            && self.message == other.message
+            && self.retryable == other.retryable
+            && self.origin == other.origin
+    }
+}
+
+impl Eq for JobError {}
+
+/// What kind of database failure an open (or any other database call) ran into, so a consumer
+/// can react without matching message text. Read with [`JobError::open_failure`]; built from
+/// the underlying `rightkit_jobs::db::DbError`. The string `code` of the error (`db`,
+/// `db_unreadable`) is unchanged and stays the wire identifier.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum OpenFailure {
+    /// The file is not a usable SQLite database: SQLite reports it as not-a-database or
+    /// corrupt, or an open-time integrity check failed. `JobStore::open_recovering` and
+    /// `open_recovering_unreadable` can set such a file aside when their `RecoveryPolicy` says so.
+    Corrupt,
+    /// The file could not be read: permission denied or an I/O read failure. The cause is
+    /// only ever `UnreadableCause::PermissionDenied` or `UnreadableCause::IoReadFailure`; a
+    /// storage problem is [`OpenFailure::StorageUnavailable`].
+    Unreadable(UnreadableCause),
+    /// The storage is unavailable and the file may be healthy: disk full, read-only filesystem,
+    /// a dropped share, a lock held by another process, a missing file. Retrying later, or
+    /// asking the user to free space, can fix it; setting the file aside never does.
+    StorageUnavailable(StorageProblem),
+    /// A database failure that is none of the above (a bad option, a read pool that was
+    /// closed, a migration refusal, ...).
+    Other,
+}
+
+impl OpenFailure {
+    fn from_cause(cause: UnreadableCause) -> Self {
+        match cause {
+            UnreadableCause::StorageUnavailable(problem) => Self::StorageUnavailable(problem),
+            other => Self::Unreadable(other),
+        }
+    }
+
+    /// Classify a SQLite error. `path` is the database file when the caller knows it: it is
+    /// probed (opened for reading) only to tell a permission failure from the other causes of
+    /// `SQLITE_CANTOPEN`.
+    fn from_sqlite(e: &rightkit_db::rusqlite::Error, path: Option<&Path>) -> Self {
+        use rightkit_db::rusqlite::ErrorCode as C;
+        let rightkit_db::rusqlite::Error::SqliteFailure(f, _) = e else {
+            return Self::Other;
+        };
+        let busy = Self::StorageUnavailable(StorageProblem::LockedOrBusy);
+        match f.code {
+            C::NotADatabase | C::DatabaseCorrupt => Self::Corrupt,
+            C::PermissionDenied => Self::Unreadable(UnreadableCause::PermissionDenied),
+            C::DiskFull => Self::StorageUnavailable(StorageProblem::DiskFull),
+            C::ReadOnly => Self::StorageUnavailable(StorageProblem::ReadOnlyFilesystem),
+            C::DatabaseBusy | C::DatabaseLocked | C::FileLockingProtocolFailed => busy,
+            C::SystemIoFailure => match f.extended_code {
+                // SQLITE_IOERR_READ, SQLITE_IOERR_SHORT_READ
+                266 | 522 => Self::Unreadable(UnreadableCause::IoReadFailure),
+                // SQLITE_IOERR_UNLOCK, _RDLOCK, _BLOCKED, _CHECKRESERVEDLOCK, _LOCK, _SHMLOCK
+                2058 | 2314 | 2826 | 3594 | 3850 | 5130 => busy,
+                // SQLITE_IOERR_DATA, SQLITE_IOERR_CORRUPTFS: the file system is damaged
+                8202 | 8458 => Self::Other,
+                _ => Self::StorageUnavailable(StorageProblem::Other),
+            },
+            C::CannotOpen => match path.map(std::fs::File::open) {
+                Some(Err(io)) if io.kind() == std::io::ErrorKind::PermissionDenied => {
+                    Self::Unreadable(UnreadableCause::PermissionDenied)
+                }
+                Some(Err(io)) if io.kind() == std::io::ErrorKind::NotFound => {
+                    Self::StorageUnavailable(StorageProblem::FileMissing)
+                }
+                _ => Self::StorageUnavailable(StorageProblem::Other),
+            },
+            C::OutOfMemory => Self::StorageUnavailable(StorageProblem::Other),
+            _ => Self::Other,
+        }
+    }
+
+    fn from_db(e: &rightkit_db::DbError, path: Option<&Path>) -> Self {
+        match e {
+            rightkit_db::DbError::Unreadable { cause, .. } => Self::from_cause(*cause),
+            rightkit_db::DbError::Integrity(_) => Self::Corrupt,
+            rightkit_db::DbError::Sqlite(s) => Self::from_sqlite(s, path),
+            _ => Self::Other,
+        }
+    }
 }
 
 /// Stable wire code for [`JobError::handoff`].
@@ -44,6 +143,11 @@ pub const JOB_EXISTS: &str = "job_exists";
 /// Stable code: the database file could not be read and the store was not allowed to set it
 /// aside (`rightkit_db::DbError::Unreadable`). The message names the cause.
 pub const DB_UNREADABLE: &str = "db_unreadable";
+/// Stable code: a handler reported that it owns a job's outcome (`HandlerOutcome::Settled` or
+/// `HandlerOutcome::Pending`) but the job's row says otherwise. A job that returned `Settled` is
+/// not terminal, or a `Recovery::Never` job returned `Pending` in a status the runner would
+/// interrupt. The runner fails the job with this error rather than leave it with no owner.
+pub const HANDLER_UNSETTLED: &str = "handler_unsettled";
 
 pub type JobResult<T> = Result<T, JobError>;
 
@@ -54,6 +158,7 @@ impl JobError {
             message: message.into(),
             retryable: false,
             origin: ErrorOrigin::Engine,
+            db_failure: None,
         }
     }
     pub fn retryable(code: impl Into<String>, message: impl Into<String>) -> Self {
@@ -62,7 +167,45 @@ impl JobError {
             message: message.into(),
             retryable: true,
             origin: ErrorOrigin::Engine,
+            db_failure: None,
         }
+    }
+    /// What kind of database failure this error came from, or `None` for an error that did not
+    /// come from the database (a bad configuration, a handler error, a refused input). Set on the
+    /// errors of `JobStore::open`, `open_with`, `open_with_config`, `open_recovering` and
+    /// `open_recovering_unreadable`, and on any other error converted from a `DbError` or a
+    /// SQLite error. It is derived from the underlying error, never from the message, so a
+    /// consumer can choose between "set the file aside", "ask the user to free space" and "try
+    /// again" without parsing text. The `code` of the error is unchanged.
+    pub fn open_failure(&self) -> Option<OpenFailure> {
+        self.db_failure
+    }
+    /// An open-time database error: classified like any `DbError`, with `path` (the database
+    /// file) probed to tell a permission failure from the other causes of "cannot open".
+    pub(crate) fn from_open(e: rightkit_db::DbError, path: &Path) -> Self {
+        let failure = OpenFailure::from_db(&e, Some(path));
+        let mut err = Self::from(e);
+        err.db_failure = Some(failure);
+        err
+    }
+    /// A handler returned `Settled` but job `job_id` is still `status`.
+    pub(crate) fn handler_unsettled(job_id: &str, status: &str) -> Self {
+        Self::new(
+            HANDLER_UNSETTLED,
+            format!(
+                "the handler of job {job_id} reported the outcome as settled, but the job is still {status}; it was failed instead of left with no owner"
+            ),
+        )
+    }
+    /// A handler returned `Pending` for a `Recovery::Never` job that is not held (`status`): the
+    /// next recovery scan would fail it as `interrupted` and lose the pending outcome.
+    pub(crate) fn handler_pending_unowned(job_id: &str, status: &str) -> Self {
+        Self::new(
+            HANDLER_UNSETTLED,
+            format!(
+                "the handler of job {job_id} reported the outcome as pending, but the job's recovery class is never and its status {status} is not held, so recovery would fail it as interrupted; it was failed instead (park such a job with hold_submission)"
+            ),
+        )
     }
     /// An error the shell raised itself, not relayed from an engine reply.
     pub fn supervisor(code: impl Into<String>, message: impl Into<String>) -> Self {
@@ -164,7 +307,9 @@ impl std::error::Error for JobError {}
 
 impl From<rightkit_db::rusqlite::Error> for JobError {
     fn from(e: rightkit_db::rusqlite::Error) -> Self {
-        Self::new("db", format!("database error: {e}"))
+        let mut err = Self::new("db", format!("database error: {e}"));
+        err.db_failure = Some(OpenFailure::from_sqlite(&e, None));
+        err
     }
 }
 impl From<rightkit_db::DbError> for JobError {
@@ -175,7 +320,9 @@ impl From<rightkit_db::DbError> for JobError {
             rightkit_db::DbError::Unreadable { .. } => DB_UNREADABLE,
             _ => "db",
         };
-        Self::new(code, format!("database error: {e}"))
+        let mut err = Self::new(code, format!("database error: {e}"));
+        err.db_failure = Some(OpenFailure::from_db(&e, None));
+        err
     }
 }
 impl From<std::io::Error> for JobError {
@@ -204,5 +351,92 @@ mod tests {
         assert!(!e.retryable);
         // Every other database error keeps the plain `db` code it always had.
         assert_eq!(JobError::from(DbError::ReadPoolClosed).code, "db");
+    }
+
+    fn sqlite(code: i32) -> DbError {
+        DbError::Sqlite(rightkit_db::rusqlite::Error::SqliteFailure(
+            rightkit_db::rusqlite::ffi::Error::new(code),
+            None,
+        ))
+    }
+
+    #[test]
+    fn database_errors_carry_a_typed_classification() {
+        // SQLITE_CORRUPT (11) and SQLITE_NOTADB (26): the file is not a usable database.
+        assert_eq!(
+            JobError::from(sqlite(11)).open_failure(),
+            Some(OpenFailure::Corrupt)
+        );
+        assert_eq!(
+            JobError::from(sqlite(26)).open_failure(),
+            Some(OpenFailure::Corrupt)
+        );
+        assert_eq!(
+            JobError::from(DbError::Integrity("page 3".into())).open_failure(),
+            Some(OpenFailure::Corrupt)
+        );
+        // SQLITE_BUSY (5), SQLITE_FULL (13), SQLITE_READONLY (8): the storage, not the file.
+        assert_eq!(
+            JobError::from(sqlite(5)).open_failure(),
+            Some(OpenFailure::StorageUnavailable(
+                StorageProblem::LockedOrBusy
+            ))
+        );
+        assert_eq!(
+            JobError::from(sqlite(13)).open_failure(),
+            Some(OpenFailure::StorageUnavailable(StorageProblem::DiskFull))
+        );
+        assert_eq!(
+            JobError::from(sqlite(8)).open_failure(),
+            Some(OpenFailure::StorageUnavailable(
+                StorageProblem::ReadOnlyFilesystem
+            ))
+        );
+        // SQLITE_PERM (3): the file cannot be read by this process.
+        assert_eq!(
+            JobError::from(sqlite(3)).open_failure(),
+            Some(OpenFailure::Unreadable(UnreadableCause::PermissionDenied))
+        );
+        assert_eq!(
+            JobError::from(DbError::ReadPoolClosed).open_failure(),
+            Some(OpenFailure::Other)
+        );
+    }
+
+    #[test]
+    fn an_unreadable_open_error_splits_read_failures_from_storage_problems() {
+        fn unreadable(cause: UnreadableCause) -> DbError {
+            DbError::Unreadable {
+                path: std::path::PathBuf::from("/data/jobs.sqlite"),
+                cause,
+                consecutive_failures: 0,
+                quarantine_after: None,
+                source: Box::new(DbError::InvalidDatabasePath),
+            }
+        }
+        assert_eq!(
+            JobError::from(unreadable(UnreadableCause::IoReadFailure)).open_failure(),
+            Some(OpenFailure::Unreadable(UnreadableCause::IoReadFailure))
+        );
+        assert_eq!(
+            JobError::from(unreadable(UnreadableCause::StorageUnavailable(
+                StorageProblem::DeviceNotReady
+            )))
+            .open_failure(),
+            Some(OpenFailure::StorageUnavailable(
+                StorageProblem::DeviceNotReady
+            ))
+        );
+    }
+
+    #[test]
+    fn errors_that_never_touched_the_database_have_no_classification() {
+        assert_eq!(JobError::new("config", "bad").open_failure(), None);
+        assert_eq!(JobError::bad_input("x").open_failure(), None);
+        // The classification takes no part in equality.
+        let a = JobError::from(sqlite(5));
+        let mut b = a.clone();
+        b.db_failure = None;
+        assert_eq!(a, b);
     }
 }
