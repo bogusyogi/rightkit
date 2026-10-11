@@ -1,6 +1,6 @@
 {
   "name": "@rightkit/app-shell",
-  "version": "0.6.0",
+  "version": "0.6.1",
   "description": "Brand-neutral React frame for Right Suite desktop apps: optional fused sidebar+titlebar layout with slots, command palette, shortcut registry/help, toasts, modals, context menus, ui kit, theme hooks.",
   "license": "MIT OR Apache-2.0",
   "type": "module",
@@ -37,7 +37,7 @@
     "*.css"
   ],
   "peerDependencies": {
-    "@rightkit/platform-ui": ">=0.2.1 <1",
+    "@rightkit/platform-ui": ">=0.2.2 <1",
     "@tauri-apps/plugin-os": ">=2 <3",
     "react": ">=18 <21",
     "react-dom": ">=18 <21"

@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.6.1
+
+Stylesheet defects only. No component, prop or export is added or removed; `rankCommands`, `matchScore`, `rankItems` and `Rankable` are now re-exported from `@rightkit/platform-ui/headless` (0.2.2), where the implementation lives, with the same behaviour. The `@rightkit/platform-ui` peer range is now `>=0.2.2 <1` for that reason.
+
+Fixed:
+- `.rk-toasts` centred itself with `transform: translateX(-50%)`, which stacks with Tailwind 4's `-translate-x-1/2` (the `translate` property) and moved the stack half a width too far. It now uses `translate: var(--rk-toast-translate, -50% 0)`: same rendered position, no `transform`, and a host can set `--rk-toast-translate` (`0 0`, `none`) to take over. Pinned by `e2e/default-output.e2e.test.ts` (position equals the 0.5.1 transform centring; a host `translate` utility does not shift it).
+- Rules that restyle a surface or control a host usually owns, and are not needed for the frame to function, moved from `shell.structure.css` to `shell.visual.css`: `.rk-modal { overflow: auto }`, `.rk-palette { overflow: hidden }`, `.rk-btn { display: inline-flex; align-items: center; justify-content: center }`, `.rk-btn:disabled { pointer-events: none }`. A structure-only host no longer gets them, and `shell.css` (structure then visual) computes the same styles; `src/css.test.ts` checks that no moved property is also set by another visual rule for the same class.
+
+Unchanged: every default for `shell.css` users. The computed style and box of every element in the shell, palette, confirm dialog, menu and toast states (light and dark) are identical to 0.6.0, with one exception: the toast stack's own `transform` and `translate` (see above). `e2e/default-output.e2e.test.ts` leaves those two properties out of the stack's hash and pins its position separately.
+
 ## 0.6.0
 
 Everything new is optional. With no new prop or import, DOM, attributes, classes, computed styles and timing match 0.5.1; this is pinned by `src/react/default-overlays.test.tsx`, `src/react/default-markup.test.tsx` and `e2e/default-output.e2e.test.ts` (computed style and box of every element in the shell, palette, confirm dialog, menu and toast states, light and dark).

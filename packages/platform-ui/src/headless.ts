@@ -3,6 +3,34 @@
  * `@tauri-apps/plugin-os`, so apps without the plugin (or with no Tauri at all) can use it freely.
  */
 export { formatChord, normalizePlatform, type Platform } from "./format.js";
-export { floatingPanelStyle, type FloatingPanelInput, type FloatingPanelStyle } from "./geometry.js";
+export {
+  floatingPanelStyle,
+  fitToViewport,
+  type FitToViewportInput,
+  type FitToViewportResult,
+  type FloatingPanelInput,
+  type FloatingPanelStyle,
+} from "./geometry.js";
 export * from "./toast.js";
-export { useFocusTrap, useLatest, useModalDismiss } from "./focus.js";
+export { attachFocusTrap, useFocusTrap, useLatest, useModalDismiss, type FocusTrapOptions } from "./focus.js";
+export { attachDismiss, useDismiss, type DismissConfig, type DismissOptions, type DismissReason, type OutsidePress } from "./dismiss.js";
+export {
+  createExitTransition,
+  useExitTransition,
+  type ExitPhase,
+  type ExitState,
+  type ExitTransition,
+  type ExitTransitionOptions,
+} from "./exit.js";
+export {
+  clampIndex,
+  moveIndex,
+  selectByPointer,
+  typeaheadMatch,
+  useListNavigation,
+  type ListMove,
+  type ListNavState,
+  type ListNavigation,
+  type ListNavigationOptions,
+} from "./list.js";
+export { matchScore, rankCommands, rankItems, type Rankable } from "./rank.js";

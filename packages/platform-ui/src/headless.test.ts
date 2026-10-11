@@ -15,6 +15,9 @@ describe("@rightkit/platform-ui/headless", () => {
     expect(typeof headless.useFocusTrap).toBe("function");
     expect(typeof headless.useModalDismiss).toBe("function");
     expect(typeof headless.useLatest).toBe("function");
+    for (const name of ["useDismiss", "useExitTransition", "useListNavigation", "fitToViewport", "rankCommands", "rankItems", "matchScore", "attachFocusTrap", "attachDismiss", "createExitTransition"]) {
+      expect(typeof (headless as Record<string, unknown>)[name], name).toBe("function");
+    }
   });
 
   it("formats chords without detecting the platform", () => {
@@ -47,7 +50,7 @@ describe("@rightkit/platform-ui/headless", () => {
   });
 
   it("never imports @tauri-apps/plugin-os (static or dynamic)", () => {
-    const modules = ["headless.ts", "format.ts", "geometry.ts", "toast.ts", "focus.ts"];
+    const modules = ["headless.ts", "format.ts", "geometry.ts", "toast.ts", "focus.ts", "dismiss.ts", "exit.ts", "list.ts", "rank.ts"];
     for (const name of modules) {
       const source = readFileSync(join(here, name), "utf8");
       expect(source, name).not.toMatch(/from\s+["']@tauri-apps\/plugin-os["']/);

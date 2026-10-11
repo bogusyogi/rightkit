@@ -1,7 +1,8 @@
 import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
 import { Kbd } from "@rightkit/platform-ui/react";
 import type { Command } from "../commands.js";
-import { groupByName, initialPaletteSelection, rankItems, selectByKeyboard, selectByPointer, type PaletteSelection } from "../match.js";
+import { rankCommands } from "@rightkit/platform-ui/headless";
+import { groupByName, initialPaletteSelection, selectByKeyboard, selectByPointer, type PaletteSelection } from "../match.js";
 import type { ShortcutRegistry } from "../shortcuts.js";
 import { chordSteps } from "../shortcuts.js";
 import { useFocusTrap, useModalDismiss } from "./hooks.js";
@@ -24,10 +25,8 @@ export const DEFAULT_PALETTE_LABELS: PaletteLabels = {
   results: "Results",
 };
 
-/** Built-in ranking: substring, keyword, hint and subsequence matching; empty query keeps input order. */
-export function rankCommands(commands: readonly Command[], query: string, limit = 50): Command[] {
-  return rankItems(commands, query, limit);
-}
+/** Built-in ranking: substring, keyword, hint and subsequence matching; empty query keeps input order. Lives in `@rightkit/platform-ui/headless`. */
+export { rankCommands };
 
 export interface CommandPaletteProps {
   commands: readonly Command[];

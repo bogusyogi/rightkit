@@ -91,11 +91,11 @@
 .rk-page__head p { margin: 5px 0 0; color: var(--rk-ink-2); font-size: 13.5px; text-wrap: pretty; }
 .rk-page__actions { gap: 8px; }
 /* ---- UI kit ----------------------------------------------------------------------------- */
-.rk-btn { gap: 6px; min-height: 30px; padding: 0 12px; border: 0; border-radius: 8px; font-weight: 550; transition: background-color .12s, transform .1s; }
+.rk-btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-height: 30px; padding: 0 12px; border: 0; border-radius: 8px; font-weight: 550; transition: background-color .12s, transform .1s; }
 .rk-btn--sm { min-height: 24px; padding: 0 9px; font-size: 12px; border-radius: 6px; }
 .rk-btn:active { transform: scale(.97); }
 .rk-btn:focus-visible { outline: 2px solid var(--rk-focus); outline-offset: 1px; }
-.rk-btn:disabled { opacity: .5; }
+.rk-btn:disabled { opacity: .5; pointer-events: none; }
 .rk-btn--primary { background: var(--rk-accent); color: var(--rk-accent-ink); }
 .rk-btn--primary:hover { background: color-mix(in srgb, var(--rk-accent) 88%, black); }
 .rk-btn--secondary { background: var(--rk-fill-2); color: var(--rk-ink); }
@@ -139,7 +139,7 @@
 .rk-overlay.is-closing { opacity: 0; }
 :where(.rk-overlay, .rk-menu, .rk-toasts) button { font: inherit; color: inherit; }
 .rk-modal, .rk-palette { background: var(--rk-elevated); color: var(--rk-ink); border-radius: 14px; box-shadow: var(--rk-pop); max-width: calc(100vw - 2rem); outline: none; animation: rk-pop .14s cubic-bezier(.2,.8,.2,1); }
-.rk-modal { padding: 20px; max-height: calc(100vh - 2rem); }
+.rk-modal { padding: 20px; max-height: calc(100vh - 2rem); overflow: auto; }
 .rk-modal.is-closing, .rk-palette.is-closing { animation: rk-pop-out .08s ease-in forwards; }
 .rk-modal__title { margin: 0 0 6px; font-size: 15px; font-weight: 650; }
 .rk-modal__desc { margin: 0 0 14px; color: var(--rk-ink-2); line-height: 1.5; text-wrap: pretty; }
@@ -149,7 +149,7 @@
 .rk-modal__actions { gap: 8px; margin-top: 16px; }
 @keyframes rk-pop { from { opacity: 0; transform: scale(.97) translateY(4px); } }
 @keyframes rk-pop-out { to { opacity: 0; transform: scale(.98); } }
-.rk-palette { width: var(--rk-palette-width); }
+.rk-palette { width: var(--rk-palette-width); overflow: hidden; }
 .rk-palette__field { gap: 12px; height: 54px; padding: 0 18px; border-bottom: .5px solid var(--rk-hairline); color: var(--rk-ink-3); }
 .rk-palette__field svg { width: 18px; height: 18px; }
 .rk-palette__field input { border: 0; outline: 0; background: none; color: var(--rk-ink); font-size: 18px; user-select: text; }

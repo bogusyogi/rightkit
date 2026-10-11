@@ -57,15 +57,16 @@ describe("shell.css split", () => {
     expect(css).not.toMatch(/@import/);
   });
 
-  it("keeps every 0.5.1 declaration; the only changes are the toast width variable and the menu exit rules", () => {
+  it("keeps every 0.5.1 declaration; the only changes are the toast width variable, the toast centring and the menu exit rules", () => {
     const before = declarations(read("test-fixtures/shell-0.5.1.css"));
     const after = declarations(read("shell.css"));
     const removed = before.filter((d) => !after.includes(d));
     const added = after.filter((d) => !before.includes(d));
-    expect(removed).toEqual(["| .rk-toasts | width: min(26rem, calc(100vw - 2rem))"]);
+    expect(sorted(removed)).toEqual(sorted(["| .rk-toasts | width: min(26rem, calc(100vw - 2rem))", "| .rk-toasts | transform: translateX(-50%)"]));
     expect(sorted(added)).toEqual(
       sorted([
         "| .rk-toasts | width: min(var(--rk-toast-width, 26rem), calc(100vw - 2rem))",
+        "| .rk-toasts | translate: var(--rk-toast-translate, -50% 0)",
         "| .rk-menu-scrim.is-closing, .rk-menu.is-closing | pointer-events: none",
         "| .rk-menu.is-closing | animation: rk-pop-out var(--rk-menu-exit-ms, 80ms) ease-in forwards",
       ]),
@@ -93,6 +94,46 @@ describe("shell.css split", () => {
     expect(rootVars.every((d) => /--rk-(sidebar-width|titlebar-[a-z-]+|lights-width|caption-width|toast-offset|palette-width):/.test(d))).toBe(true);
   });
 
+  it("0.6.1: rules that restyle a host's surface without being needed to function are visual, and moving them reorders nothing that matters", () => {
+    const moved = [
+      "| .rk-btn | display: inline-flex",
+      "| .rk-btn | align-items: center",
+      "| .rk-btn | justify-content: center",
+      "| .rk-btn:disabled | pointer-events: none",
+      "| .rk-modal | overflow: auto",
+      "| .rk-palette | overflow: hidden",
+    ];
+    const structure = declarations(read("shell.structure.css"));
+    const visual = declarations(read("shell.visual.css"));
+    for (const d of moved) {
+      expect(structure, d).not.toContain(d);
+      expect(visual, d).toContain(d);
+    }
+    // The move changes source order only relative to visual rules. None of them sets the same property for a selector
+    // that can match the same element (same class token), so the computed style is the same wherever the rule sits.
+    const parts = (d: string) => {
+      const [, selector = "", decl = ""] = d.split(" | ");
+      return { classes: new Set(selector.match(/\.rk-[a-z0-9_-]+/g) ?? []), prop: decl.split(":")[0] };
+    };
+    for (const d of moved) {
+      const m = parts(d);
+      const clashes = visual.filter((o) => {
+        if (o === d) return false;
+        const p = parts(o);
+        return p.prop === m.prop && [...p.classes].some((c) => m.classes.has(c));
+      });
+      expect(clashes, d).toEqual([]);
+    }
+  });
+
+  it("0.6.1: the toast stack centres with the individual `translate` property, never `transform`, so a host translate utility does not stack with it", () => {
+    for (const file of ["shell.structure.css", "shell.css"]) {
+      const toasts = declarations(read(file)).filter((d) => d.includes("| .rk-toasts |"));
+      expect(toasts, file).toContain("| .rk-toasts | translate: var(--rk-toast-translate, -50% 0)");
+      expect(toasts.some((d) => /\| transform:/.test(d)), file).toBe(false);
+    }
+  });
+
   it("G2: the overlay button font/colour reset is a visual rule, not structural", () => {
     const rule = "| :where(.rk-overlay, .rk-menu, .rk-toasts) button | font: inherit";
     expect(declarations(read("shell.visual.css"))).toContain(rule);
@@ -105,7 +146,7 @@ describe("shell.css split", () => {
   });
 
   it("package version, exports and files list the new stylesheets", () => {
-    expect(pkg.version).toBe("0.6.0");
+    expect(pkg.version).toBe("0.6.1");
     for (const name of ["shell.css", "shell.layered.css", "shell.structure.css", "shell.visual.css", "suite-aliases.css"]) {
       expect(pkg.exports[`./${name}`]).toBe(`./${name}`);
       expect(pkg.files).toContain(name);

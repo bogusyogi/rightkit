@@ -26,7 +26,7 @@ Brand-neutral React frame for Right Suite desktop apps: fused sidebar and titleb
 | Peer | Range |
 |---|---|
 | `react` | `>=18 <21` |
-| `@rightkit/platform-ui` | `>=0.2.1 <1` |
+| `@rightkit/platform-ui` | `>=0.2.2 <1` |
 | `@tauri-apps/plugin-os` | `>=2 <3`, optional. Native platform detection loads it lazily; without it the browser's platform report is used. |
 
 ## Example
@@ -151,11 +151,13 @@ Check the result against the old app in light and dark. Each value that differs 
 
 ### Palette and toast tokens
 
-`--rk-palette-width` (640px), `--rk-toast-offset` (16px) and `--rk-plane-radius` (20px) size the palette, the toast stack and the content corner. `--rk-toast-width` (default `26rem`) sets the toast stack width; it is still capped at `100vw - 2rem`. `--rk-menu-exit-ms` is set by `ContextMenu` itself while `exitMs` is above 0.
+`--rk-palette-width` (640px), `--rk-toast-offset` (16px) and `--rk-plane-radius` (20px) size the palette, the toast stack and the content corner. `--rk-toast-width` (default `26rem`) sets the toast stack width; it is still capped at `100vw - 2rem`. `--rk-toast-translate` (default `-50% 0`) is the stack's horizontal centring, applied with the individual `translate` property (not `transform`), so a host `-translate-x-1/2` utility does not stack with it; set `--rk-toast-translate: 0 0` or `none` to take over the positioning (0.6.1). `--rk-menu-exit-ms` is set by `ContextMenu` itself while `exitMs` is above 0.
 
 ## Adopting with a locked UI
 
 0.6.0 lets an app that already has a finished design (its own menu, modal, palette and toast look) use the shell's behaviour, focus handling and accessibility without inheriting its look. Every option below is optional and its default reproduces 0.5.1 exactly (DOM, attributes, classes and timing), pinned by snapshot tests.
+
+The options below are for apps that take the shell's components with small changes. An app whose markup is fixed should not keep adding flags here: keep your own markup and take only the behaviour from `@rightkit/platform-ui/headless` (`useFocusTrap`, `useDismiss`, `useExitTransition`, `useListNavigation`, `fitToViewport`, `rankCommands`), documented with worked menu, modal and palette examples in that package's README.
 
 ### 1. Put the stylesheet in a cascade layer
 
@@ -184,7 +186,7 @@ Rules:
 - Define brand tokens (`--rk-brand`, `--rk-brand-dark`, `--rk-wordmark-font`) in unlayered CSS or in a layer after `rk` (for example `components`). A `:root` rule inside `base` loses to the layered defaults.
 - Apps that keep importing `shell.css` change nothing.
 
-To take structure only, import `shell.structure.css` (optionally `layer(rk)`), skip the visual file and style the `rk-*` classes yourself. Structure holds position, z-index, display/flex/grid, overflow, pointer-events, the sidebar/titlebar box sizes and the layout variables. Colour variables, radii, type, spacing, shadows and animation are in `shell.visual.css`. `shell.css` is generated from the two (`pnpm run build:css`; `pnpm run check:css` fails when it is stale).
+To take structure only, import `shell.structure.css` (optionally `layer(rk)`), skip the visual file and style the `rk-*` classes yourself. Structure holds position, z-index, display/flex/grid, overflow, pointer-events, the sidebar/titlebar box sizes and the layout variables. Since 0.6.1 it carries only rules the frame needs to function: `.rk-modal { overflow: auto }`, `.rk-palette { overflow: hidden }`, `.rk-btn { display: inline-flex; align-items: center; justify-content: center }` and `.rk-btn:disabled { pointer-events: none }` restyle a surface or control the host usually owns and sit in `shell.visual.css`. `shell.css` renders the same computed styles as 0.6.0 except the toast stack's centring (`transform: translateX(-50%)` became `translate: -50% 0`; same position). Colour variables, radii, type, spacing, shadows and animation are in `shell.visual.css`. `shell.css` is generated from the two (`pnpm run build:css`; `pnpm run check:css` fails when it is stale).
 
 ### 2. Options
 

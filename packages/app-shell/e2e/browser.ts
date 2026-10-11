@@ -42,6 +42,8 @@ export interface Page {
   type(text: string): Promise<void>;
   click(selector: string, button?: "left" | "right"): Promise<void>;
   clickAt(x: number, y: number, button?: "left" | "right"): Promise<void>;
+  /** Press at one point, move, release at another: a real drag, so the click target is the common ancestor. */
+  drag(x1: number, y1: number, x2: number, y2: number): Promise<void>;
   /** Moves the pointer without pressing, e.g. to park it where it triggers no hover style. */
   moveTo(x: number, y: number): Promise<void>;
   rect(selector: string): Promise<{ x: number; y: number; width: number; height: number }>;
@@ -58,6 +60,7 @@ const KEYS: Record<string, { code: string; vk: number; text?: string }> = {
   Enter: { code: "Enter", vk: 13, text: "\r" },
   Escape: { code: "Escape", vk: 27 },
   Tab: { code: "Tab", vk: 9 },
+  Backspace: { code: "Backspace", vk: 8 },
   ArrowDown: { code: "ArrowDown", vk: 40 },
   ArrowUp: { code: "ArrowUp", vk: 38 },
   Home: { code: "Home", vk: 36 },
@@ -149,6 +152,14 @@ async function attach(browser: Awaited<ReturnType<typeof launchChromeForTesting>
       await send("Input.dispatchMouseEvent", { type: "mouseMoved", x, y });
       await send("Input.dispatchMouseEvent", { type: "mousePressed", x, y, button, clickCount: 1, buttons: button === "left" ? 1 : 2 });
       await send("Input.dispatchMouseEvent", { type: "mouseReleased", x, y, button, clickCount: 1 });
+      await sleep(60);
+    },
+    async drag(x1, y1, x2, y2) {
+      await send("Input.dispatchMouseEvent", { type: "mouseMoved", x: x1, y: y1 });
+      await send("Input.dispatchMouseEvent", { type: "mousePressed", x: x1, y: y1, button: "left", clickCount: 1, buttons: 1 });
+      await send("Input.dispatchMouseEvent", { type: "mouseMoved", x: (x1 + x2) / 2, y: (y1 + y2) / 2, buttons: 1 });
+      await send("Input.dispatchMouseEvent", { type: "mouseMoved", x: x2, y: y2, buttons: 1 });
+      await send("Input.dispatchMouseEvent", { type: "mouseReleased", x: x2, y: y2, button: "left", clickCount: 1 });
       await sleep(60);
     },
     async moveTo(x, y) {

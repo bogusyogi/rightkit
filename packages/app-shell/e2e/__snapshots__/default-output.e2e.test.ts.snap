@@ -137,7 +137,7 @@ exports[`default output is pinned in a real browser > dark: computed style of th
     "body/div[1]/div.rk-overlay.rk-overlay--center[0]/div.rk-modal[2]/div.rk-modal__actions": "af5aa32",
     "body/div[1]/div.rk-overlay.rk-overlay--center[0]/div.rk-modal[2]/div.rk-modal__actions[0]/button.rk-btn.rk-btn--secondary": "d1fd3248",
     "body/div[1]/div.rk-overlay.rk-overlay--center[0]/div.rk-modal[2]/div.rk-modal__actions[1]/button.rk-btn.rk-btn--danger": "558f67ae",
-    "body/div[2]/div.rk-toasts": "5c683b72",
+    "body/div[2]/div.rk-toasts": "188ae225",
   },
   "menu": {
     "body/div": "e910ab86",
@@ -285,7 +285,7 @@ exports[`default output is pinned in a real browser > dark: computed style of th
     "body/div[0]/div.rk-shell.rk-shell--fused[1]/div.rk-body[1]/section.rk-plane[0]/div.rk-page[0]/div.rk-page__scroll[0]/div.rk-page__container[4]/div[2]/div.rk-card[0]/div.rk-empty[0]/strong": "840b188",
     "body/div[0]/div.rk-shell.rk-shell--fused[1]/div.rk-body[1]/section.rk-plane[0]/div.rk-page[0]/div.rk-page__scroll[0]/div.rk-page__container[4]/div[2]/div.rk-card[0]/div.rk-empty[1]/p": "12fa2c9b",
     "body/div[0]/div.rk-shell.rk-shell--fused[1]/div.rk-body[1]/section.rk-plane[0]/div.rk-page[0]/div.rk-page__scroll[0]/div.rk-page__container[4]/div[2]/div.rk-card[0]/div.rk-empty[2]/button.rk-btn.rk-btn--secondary.rk-btn--sm": "21828562",
-    "body/div[1]/div.rk-toasts": "5c683b72",
+    "body/div[1]/div.rk-toasts": "188ae225",
   },
   "palette": {
     "body/div": "e910ab86",
@@ -468,7 +468,7 @@ exports[`default output is pinned in a real browser > dark: computed style of th
     "body/div[1]/div.rk-overlay.rk-overlay--top[0]/div.rk-palette[1]/div.rk-palette__list[3]/div[1]/div.rk-palette__opt[1]/span.rightkit-kbd-chord": "48578c5b",
     "body/div[1]/div.rk-overlay.rk-overlay--top[0]/div.rk-palette[1]/div.rk-palette__list[3]/div[1]/div.rk-palette__opt[1]/span.rightkit-kbd-chord[0]/kbd.rightkit-kbd-key": "d61b2bc2",
     "body/div[1]/div.rk-overlay.rk-overlay--top[0]/div.rk-palette[1]/div.rk-palette__list[3]/div[1]/div.rk-palette__opt[1]/span.rightkit-kbd-chord[1]/kbd.rightkit-kbd-key": "b141da63",
-    "body/div[2]/div.rk-toasts": "5c683b72",
+    "body/div[2]/div.rk-toasts": "188ae225",
   },
   "shell": {
     "body/div": "e910ab86",
@@ -590,7 +590,7 @@ exports[`default output is pinned in a real browser > dark: computed style of th
     "body/div[0]/div.rk-shell.rk-shell--fused[1]/div.rk-body[1]/section.rk-plane[0]/div.rk-page[0]/div.rk-page__scroll[0]/div.rk-page__container[4]/div[2]/div.rk-card[0]/div.rk-empty[0]/strong": "840b188",
     "body/div[0]/div.rk-shell.rk-shell--fused[1]/div.rk-body[1]/section.rk-plane[0]/div.rk-page[0]/div.rk-page__scroll[0]/div.rk-page__container[4]/div[2]/div.rk-card[0]/div.rk-empty[1]/p": "12fa2c9b",
     "body/div[0]/div.rk-shell.rk-shell--fused[1]/div.rk-body[1]/section.rk-plane[0]/div.rk-page[0]/div.rk-page__scroll[0]/div.rk-page__container[4]/div[2]/div.rk-card[0]/div.rk-empty[2]/button.rk-btn.rk-btn--secondary.rk-btn--sm": "21828562",
-    "body/div[1]/div.rk-toasts": "5c683b72",
+    "body/div[1]/div.rk-toasts": "188ae225",
   },
   "toasts": {
     "body/div": "e910ab86",
@@ -712,7 +712,7 @@ exports[`default output is pinned in a real browser > dark: computed style of th
     "body/div[0]/div.rk-shell.rk-shell--fused[1]/div.rk-body[1]/section.rk-plane[0]/div.rk-page[0]/div.rk-page__scroll[0]/div.rk-page__container[4]/div[2]/div.rk-card[0]/div.rk-empty[0]/strong": "840b188",
     "body/div[0]/div.rk-shell.rk-shell--fused[1]/div.rk-body[1]/section.rk-plane[0]/div.rk-page[0]/div.rk-page__scroll[0]/div.rk-page__container[4]/div[2]/div.rk-card[0]/div.rk-empty[1]/p": "12fa2c9b",
     "body/div[0]/div.rk-shell.rk-shell--fused[1]/div.rk-body[1]/section.rk-plane[0]/div.rk-page[0]/div.rk-page__scroll[0]/div.rk-page__container[4]/div[2]/div.rk-card[0]/div.rk-empty[2]/button.rk-btn.rk-btn--secondary.rk-btn--sm": "21828562",
-    "body/div[1]/div.rk-toasts": "830349b7",
+    "body/div[1]/div.rk-toasts": "a719c8b6",
     "body/div[1]/div.rk-toasts[0]/div.rk-toast.rk-toast--success": "4e1c6d77",
     "body/div[1]/div.rk-toasts[0]/div.rk-toast.rk-toast--success[0]/span.rk-toast__glyph": "41331c9c",
     "body/div[1]/div.rk-toasts[0]/div.rk-toast.rk-toast--success[1]/span.rk-toast__msg": "ea7daed4",
@@ -855,7 +855,7 @@ exports[`default output is pinned in a real browser > light: computed style of t
     "body/div[1]/div.rk-overlay.rk-overlay--center[0]/div.rk-modal[2]/div.rk-modal__actions": "56859eb0",
     "body/div[1]/div.rk-overlay.rk-overlay--center[0]/div.rk-modal[2]/div.rk-modal__actions[0]/button.rk-btn.rk-btn--secondary": "89e1e828",
     "body/div[1]/div.rk-overlay.rk-overlay--center[0]/div.rk-modal[2]/div.rk-modal__actions[1]/button.rk-btn.rk-btn--danger": "f5a8f83",
-    "body/div[2]/div.rk-toasts": "aed3d8c5",
+    "body/div[2]/div.rk-toasts": "c580b9c0",
   },
   "menu": {
     "body/div": "77a458c5",
@@ -1003,7 +1003,7 @@ exports[`default output is pinned in a real browser > light: computed style of t
     "body/div[0]/div.rk-shell.rk-shell--fused[1]/div.rk-body[1]/section.rk-plane[0]/div.rk-page[0]/div.rk-page__scroll[0]/div.rk-page__container[4]/div[2]/div.rk-card[0]/div.rk-empty[0]/strong": "c265fee2",
     "body/div[0]/div.rk-shell.rk-shell--fused[1]/div.rk-body[1]/section.rk-plane[0]/div.rk-page[0]/div.rk-page__scroll[0]/div.rk-page__container[4]/div[2]/div.rk-card[0]/div.rk-empty[1]/p": "a84bfe50",
     "body/div[0]/div.rk-shell.rk-shell--fused[1]/div.rk-body[1]/section.rk-plane[0]/div.rk-page[0]/div.rk-page__scroll[0]/div.rk-page__container[4]/div[2]/div.rk-card[0]/div.rk-empty[2]/button.rk-btn.rk-btn--secondary.rk-btn--sm": "8249a964",
-    "body/div[1]/div.rk-toasts": "aed3d8c5",
+    "body/div[1]/div.rk-toasts": "c580b9c0",
   },
   "palette": {
     "body/div": "77a458c5",
@@ -1186,7 +1186,7 @@ exports[`default output is pinned in a real browser > light: computed style of t
     "body/div[1]/div.rk-overlay.rk-overlay--top[0]/div.rk-palette[1]/div.rk-palette__list[3]/div[1]/div.rk-palette__opt[1]/span.rightkit-kbd-chord": "c6d8a0ad",
     "body/div[1]/div.rk-overlay.rk-overlay--top[0]/div.rk-palette[1]/div.rk-palette__list[3]/div[1]/div.rk-palette__opt[1]/span.rightkit-kbd-chord[0]/kbd.rightkit-kbd-key": "fd7c2d13",
     "body/div[1]/div.rk-overlay.rk-overlay--top[0]/div.rk-palette[1]/div.rk-palette__list[3]/div[1]/div.rk-palette__opt[1]/span.rightkit-kbd-chord[1]/kbd.rightkit-kbd-key": "ca03bdc6",
-    "body/div[2]/div.rk-toasts": "aed3d8c5",
+    "body/div[2]/div.rk-toasts": "c580b9c0",
   },
   "shell": {
     "body/div": "77a458c5",
@@ -1308,7 +1308,7 @@ exports[`default output is pinned in a real browser > light: computed style of t
     "body/div[0]/div.rk-shell.rk-shell--fused[1]/div.rk-body[1]/section.rk-plane[0]/div.rk-page[0]/div.rk-page__scroll[0]/div.rk-page__container[4]/div[2]/div.rk-card[0]/div.rk-empty[0]/strong": "c265fee2",
     "body/div[0]/div.rk-shell.rk-shell--fused[1]/div.rk-body[1]/section.rk-plane[0]/div.rk-page[0]/div.rk-page__scroll[0]/div.rk-page__container[4]/div[2]/div.rk-card[0]/div.rk-empty[1]/p": "a84bfe50",
     "body/div[0]/div.rk-shell.rk-shell--fused[1]/div.rk-body[1]/section.rk-plane[0]/div.rk-page[0]/div.rk-page__scroll[0]/div.rk-page__container[4]/div[2]/div.rk-card[0]/div.rk-empty[2]/button.rk-btn.rk-btn--secondary.rk-btn--sm": "8249a964",
-    "body/div[1]/div.rk-toasts": "aed3d8c5",
+    "body/div[1]/div.rk-toasts": "c580b9c0",
   },
   "toasts": {
     "body/div": "77a458c5",
@@ -1430,7 +1430,7 @@ exports[`default output is pinned in a real browser > light: computed style of t
     "body/div[0]/div.rk-shell.rk-shell--fused[1]/div.rk-body[1]/section.rk-plane[0]/div.rk-page[0]/div.rk-page__scroll[0]/div.rk-page__container[4]/div[2]/div.rk-card[0]/div.rk-empty[0]/strong": "c265fee2",
     "body/div[0]/div.rk-shell.rk-shell--fused[1]/div.rk-body[1]/section.rk-plane[0]/div.rk-page[0]/div.rk-page__scroll[0]/div.rk-page__container[4]/div[2]/div.rk-card[0]/div.rk-empty[1]/p": "a84bfe50",
     "body/div[0]/div.rk-shell.rk-shell--fused[1]/div.rk-body[1]/section.rk-plane[0]/div.rk-page[0]/div.rk-page__scroll[0]/div.rk-page__container[4]/div[2]/div.rk-card[0]/div.rk-empty[2]/button.rk-btn.rk-btn--secondary.rk-btn--sm": "8249a964",
-    "body/div[1]/div.rk-toasts": "f4f4d5ea",
+    "body/div[1]/div.rk-toasts": "229741a1",
     "body/div[1]/div.rk-toasts[0]/div.rk-toast.rk-toast--success": "767e0748",
     "body/div[1]/div.rk-toasts[0]/div.rk-toast.rk-toast--success[0]/span.rk-toast__glyph": "ddee1913",
     "body/div[1]/div.rk-toasts[0]/div.rk-toast.rk-toast--success[1]/span.rk-toast__msg": "8609a3ae",

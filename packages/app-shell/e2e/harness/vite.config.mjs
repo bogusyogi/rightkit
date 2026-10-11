@@ -6,6 +6,8 @@ export default {
   root: here,
   base: "./",
   esbuild: { jsx: "automatic" },
-  build: { rollupOptions: { input: { index: join(here, "index.html"), variants: join(here, "variants.html") } }, outDir: process.env.RK_HARNESS_OUT ?? join(here, "dist"), emptyOutDir: true, minify: false },
+  build: { rollupOptions: { input: { index: join(here, "index.html"), variants: join(here, "variants.html"), hooks: join(here, "hooks.html") } }, outDir: process.env.RK_HARNESS_OUT ?? join(here, "dist"), emptyOutDir: true, minify: false },
+  // RK_HARNESS_DEV=1 bundles React's development build, the only one that double-invokes effects under StrictMode.
+  ...(process.env.RK_HARNESS_DEV ? { define: { "process.env.NODE_ENV": '"development"' } } : {}),
   resolve: { dedupe: ["react", "react-dom"] },
 };

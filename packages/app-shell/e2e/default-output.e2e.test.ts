@@ -26,7 +26,11 @@ const open = async (query: string) => {
   await page.waitFor("window.__rkReady === true");
 };
 
-/** Hash of computed style + rounded box for every element under body, keyed by structural path. */
+/**
+ * Hash of computed style + rounded box for every element under body, keyed by structural path. 0.6.1 moved the
+ * toast stack's centring from `transform` to `translate`, so those two properties are left out of the stack's own
+ * hash; its box (which includes the centring) is still hashed, and the "toast stack" tests below pin the position.
+ */
 const styleHashes = () =>
   page.eval<Record<string, string>>(`(() => {
     const hash = (s) => { let h = 2166136261; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); } return (h >>> 0).toString(16); };
@@ -35,7 +39,8 @@ const styleHashes = () =>
       if (el.id === 'log' || el.tagName === 'SCRIPT') return;
       const cs = getComputedStyle(el);
       const props = [];
-      for (let i = 0; i < cs.length; i++) { const p = cs[i]; if (p === 'transition' || p.startsWith('animation')) continue; props.push(p + ':' + cs.getPropertyValue(p)); }
+      const stack = el.classList.contains('rk-toasts');
+      for (let i = 0; i < cs.length; i++) { const p = cs[i]; if (p === 'transition' || p.startsWith('animation')) continue; if (stack && (p === 'transform' || p === 'translate')) continue; props.push(p + ':' + cs.getPropertyValue(p)); }
       let s = props.sort().join(';');
       const r = el.getBoundingClientRect();
       s += [r.x, r.y, r.width, r.height].map((n) => Math.round(n * 10) / 10).join(',');
@@ -143,5 +148,55 @@ describe.skipIf(!chrome)("default output is pinned in a real browser", () => {
     await page.click(".rk-toast--success .rk-toast__x");
     await page.waitFor("window.__delays.includes(150)");
     await page.waitFor("!document.querySelector('.rk-toast--success')");
+  });
+
+  describe("toast stack centring (0.6.1)", () => {
+    const rectOf = () => page.eval<{ left: number; width: number; top: number }>(`(() => { const r = document.querySelector('[data-rk-toasts]').getBoundingClientRect(); return { left: r.left, width: r.width, top: r.top }; })()`);
+    const withToast = async () => {
+      await open("p=macos&t=light");
+      await page.click("#b-ok");
+      await page.waitFor("document.querySelector('.rk-toast--success')");
+      await page.sleep(400);
+    };
+    const inject = (css: string) => page.eval(`(() => { const s = document.createElement('style'); s.id = 'probe'; s.textContent = ${JSON.stringify(css)}; document.head.appendChild(s); })()`);
+    const clearProbe = () => page.eval("document.getElementById('probe')?.remove()");
+
+    it("sits in the horizontal centre of the viewport with no transform", async () => {
+      await withToast();
+      const r = await rectOf();
+      expect(Math.abs(r.left + r.width / 2 - 550)).toBeLessThan(0.5);
+      expect(await page.eval<string>("getComputedStyle(document.querySelector('[data-rk-toasts]')).transform")).toBe("none");
+    });
+
+    it("renders at exactly the 0.5.1 position (transform: translateX(-50%))", async () => {
+      await withToast();
+      const now = await rectOf();
+      await inject("[data-rk-toasts]{translate:none !important;transform:translateX(-50%) !important}");
+      const legacy = await rectOf();
+      await clearProbe();
+      expect(now).toEqual(legacy);
+    });
+
+    it("a host `-translate-x-1/2` utility (the `translate` property) no longer stacks with the centring", async () => {
+      await withToast();
+      const base = await rectOf();
+      // Tailwind 4 emits `translate: var(--tw-translate-x) var(--tw-translate-y)` in @layer utilities.
+      await inject("@layer utilities { .tw-center { --tw-translate-x: -50%; --tw-translate-y: 0; translate: var(--tw-translate-x) var(--tw-translate-y); } }");
+      await page.eval("document.querySelector('[data-rk-toasts]').classList.add('tw-center')");
+      expect(await rectOf()).toEqual(base);
+      // The 0.5.1 transform centring plus the same utility moved the stack by half its width (the defect).
+      await inject("[data-rk-toasts]{transform:translateX(-50%) !important}");
+      expect((await rectOf()).left).toBeCloseTo(base.left - base.width / 2, 0);
+      await clearProbe();
+    });
+
+    it("a host can move the centring with --rk-toast-translate", async () => {
+      await withToast();
+      const base = await rectOf();
+      await page.eval("document.querySelector('[data-rk-toasts]').style.setProperty('--rk-toast-translate', '0 0')");
+      expect((await rectOf()).left).toBeCloseTo(base.left + base.width / 2, 0);
+      await page.eval("document.querySelector('[data-rk-toasts]').style.setProperty('--rk-toast-translate', 'none')");
+      expect((await rectOf()).left).toBeCloseTo(base.left + base.width / 2, 0);
+    });
   });
 });
