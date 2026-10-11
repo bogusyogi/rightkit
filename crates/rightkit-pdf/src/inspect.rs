@@ -273,7 +273,56 @@ impl ContentBudget {
         let bytes = self.decode_stream(doc, id)?;
         self.parse(&bytes, strict)
     }
+
+    /// Decodes and strictly parses stream `id` **to read its operators**, never to write it back.
+    ///
+    /// ISO 32000-1 7.8.2 lets a producer cut a page's `/Contents` at any boundary between lexical
+    /// tokens, and that is not a boundary between operations: Acrobat-class producers end a stream
+    /// with the operands of an operator that opens the next one (`/Artifact ` here and
+    /// `<</MCID 5>>BDC` there, in the IRS forms). Parsed alone, such a stream ends in operands with
+    /// no operator, which the strict parser refuses, although the page is well formed.
+    ///
+    /// So a stream that fails is tried once more with an operator appended, and is accepted only if
+    /// that closes it: its tail is then operands and nothing else (a string, array or dictionary
+    /// left open, or a byte no tokenizer reads, still fails). Operands hide no operator, so the
+    /// operations returned are exactly the ones the stream holds; the appended one is dropped. The
+    /// second parse is charged like the first, before it allocates.
+    ///
+    /// A stream about to be rewritten must not be read this way: its dangling operands would be
+    /// lost when it is written back. The composer decodes those with [`Self::content`] and
+    /// `strict`, which refuses them.
+    pub(crate) fn content_to_read(
+        &mut self,
+        doc: &Document,
+        id: ObjectId,
+    ) -> Result<Content, PdfEditError> {
+        let mut bytes = self.decode_stream(doc, id)?;
+        if let Ok(content) = self.parse(&bytes, true) {
+            return Ok(content);
+        }
+        // An exhausted charge fails here too: it left `tokens` as it was, below `bytes.len()`.
+        self.tokens = self
+            .tokens
+            .checked_sub(bytes.len().saturating_add(OPERANDS_CLOSER.len()))
+            .ok_or(PdfEditError::MalformedContent)?;
+        bytes.reserve_exact(OPERANDS_CLOSER.len());
+        bytes.extend_from_slice(OPERANDS_CLOSER);
+        let mut content =
+            Content::decode_strict(&bytes).map_err(|_| PdfEditError::MalformedContent)?;
+        if content
+            .operations
+            .last()
+            .is_some_and(|op| op.operator == "n")
+        {
+            content.operations.pop();
+        }
+        Ok(content)
+    }
 }
+
+/// What [`ContentBudget::content_to_read`] appends to a stream that does not parse as it stands: a
+/// line break (so a trailing comment ends) and `n`, an operator that takes any operands.
+const OPERANDS_CLOSER: &[u8] = b"\nn";
 
 // -------------------------------------------------------------------------------------------
 // Byte entry point
@@ -4776,6 +4825,67 @@ mod tests {
             );
         }
         assert_eq!(decoded, 3);
+    }
+
+    #[test]
+    fn a_stream_ending_in_operands_is_read_and_one_ending_in_anything_else_is_refused() {
+        // `/Artifact <</MCID 0>>` are the operands of a `BDC` the next stream holds (the IRS forms
+        // cut their pages' `/Contents` there); the strict parser alone refuses such a stream.
+        let cut: &[u8] = b"q /Artifact <</MCID 0>> ";
+        assert!(Content::decode_strict(cut).is_err());
+        let mut doc = Document::with_version("1.7");
+        let mut add = |bytes: &[u8]| doc.add_object(Stream::new(dictionary! {}, bytes.to_vec()));
+        let cut_id = add(cut);
+        let clean_id = add(b"q Q");
+        let open_string = add(b"q (open");
+        let open_array = add(b"q [ (a) 20 ");
+        let stray_byte = add(b"q \x01 Q");
+
+        // Read: the stream's own operations, without the operator appended to close it, charged
+        // for both parses (the refused one and the closed one).
+        let mut budget = ContentBudget::new();
+        let operators: Vec<String> = budget
+            .content_to_read(&doc, cut_id)
+            .expect("operands at the end are read")
+            .operations
+            .into_iter()
+            .map(|op| op.operator)
+            .collect();
+        assert_eq!(operators, ["q"]);
+        assert_eq!(
+            budget.tokens,
+            MAX_CONTENT_TOKENS_PER_PAGE - (cut.len() + (cut.len() + OPERANDS_CLOSER.len()))
+        );
+
+        // A stream that parses as it stands is charged once and is read as before.
+        let mut budget = ContentBudget::new();
+        let operators: Vec<String> = budget
+            .content_to_read(&doc, clean_id)
+            .expect("a clean stream is read")
+            .operations
+            .into_iter()
+            .map(|op| op.operator)
+            .collect();
+        assert_eq!(operators, ["q", "Q"]);
+        assert_eq!(budget.tokens, MAX_CONTENT_TOKENS_PER_PAGE - 3);
+
+        // Nothing but operands is allowed after the last operation: a string or array left open,
+        // or a byte that is no token, still fails.
+        for refused in [open_string, open_array, stray_byte] {
+            assert!(matches!(
+                ContentBudget::new().content_to_read(&doc, refused),
+                Err(PdfEditError::MalformedContent)
+            ));
+        }
+
+        // The second parse is charged before it allocates: a page with less left than it needs is
+        // refused, not read for free.
+        let mut budget = ContentBudget::new();
+        budget.tokens = cut.len() + 1;
+        assert!(matches!(
+            budget.content_to_read(&doc, cut_id),
+            Err(PdfEditError::MalformedContent)
+        ));
     }
 
     #[test]

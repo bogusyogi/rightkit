@@ -94,7 +94,7 @@ The replacement is `rightkit_fs::AtomicWriter`: a temp sibling in the destinatio
 
 ## Page content
 
-`/Contents` may be a stream, an array, or an indirect reference to an array of streams. Text state flows from one stream into the next. Composition re-parses a stream strictly and refuses (`malformed_content`) one the parser cannot read to the end, rather than rewriting it with the tail dropped.
+`/Contents` may be a stream, an array, or an indirect reference to an array of streams. Text state flows from one stream into the next. Composition re-parses a stream strictly and refuses (`malformed_content`) one the parser cannot read to the end, rather than rewriting it with the tail dropped. A stream that is only read (the `q`/`Q` count behind Add Text and a catalog-font rewrite) may end in the operands of an operator that opens the next stream, which ISO 32000-1 7.8.2 allows; a string, array or dictionary left open there, or a byte no tokenizer reads, is still refused.
 
 ## Limits
 
