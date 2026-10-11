@@ -118,10 +118,11 @@ impl ProcessHandle {
     /// Unix: a loop of non-blocking `try_wait` looks. Each look takes the shared lock and
     /// releases it at once; between looks the thread sleeps, ending early at the child's exit
     /// where the kernel offers an event (a hint, see `exit_watch`) and otherwise after 5 ms. The
-    /// lock is never held while the thread sleeps, so `kill`, `terminate_tree` and other
-    /// waiters run meanwhile, and no wait system call names the pid outside the lock: a blocked
-    /// `waitid(pid)` entered after another reader reaped the leader and the kernel recycled
-    /// the number would wait on an unrelated child.
+    /// lock is never held while this thread sleeps, so `kill`, `terminate_tree` and other
+    /// waiters run meanwhile (unless some other thread holds an `OwnedChild::child()` guard,
+    /// which is the lock itself), and no wait system call names the pid outside the lock: a
+    /// blocked `waitid(pid)` entered after another reader reaped the leader and the kernel
+    /// recycled the number would wait on an unrelated child.
     pub fn wait(&self) -> io::Result<ExitStatus> {
         #[cfg(unix)]
         {

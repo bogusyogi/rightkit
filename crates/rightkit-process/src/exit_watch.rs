@@ -1,8 +1,10 @@
 //! A wake-up hint for waiters. It is never a verdict.
 //!
-//! Every wait in this crate is a loop of non-blocking looks (`try_wait`, or the non-reaping
+//! Every wait on a shared child is a loop of non-blocking looks (`try_wait`, or the non-reaping
 //! `waitid(WNOHANG | WNOWAIT)` probe), each taken under the child's lock and released at once.
-//! Between two looks the thread sleeps. An [`ExitWatch`] only decides **how** it sleeps:
+//! Between two looks the thread sleeps. (The few places that hold the lock across a wait, a
+//! caller's `OwnedChild::child()` guard among them, are listed in `unix_child`.) An
+//! [`ExitWatch`] only decides **how** it sleeps:
 //!
 //! * **With an event source** it sleeps in `poll(2)` on a descriptor the kernel makes readable
 //!   when the process exits, so a long-lived child costs one wake-up per second at most
