@@ -11,6 +11,17 @@ Portable release CLI and SDK for Right Suite products: builds, signs, and publis
 
 Signing and publication rules are in the workspace file `docs/rules/release-signing.md`. Public releases use RightKit CI. Private builds run on the native host.
 
+## No test-automation surface ships
+
+Release and update builds (`right-release build`, `publish-update`) must not contain any test-automation or debugging surface; the development lane may. Layers, in the order they run:
+
+1. **Source (before anything is built, also in `--dry-run`)** - `qa-build-features.mjs` refuses a build command, a package.json script it runs, or an app `Cargo.toml` that enables `devtools`, `qa-native`, `qa-control` or `dev-native` (also `--all-features`, and `devtools` on the `tauri` dependency, `qa-control` on `rightkit-control`, a non-optional `tauri-plugin-wdio-webdriver`, or any of them reachable from the default features).
+2. **Pre-pack payload scan** - `qa-control-scan.mjs` over the raw EXE (Windows NSIS and portable), the macOS signing set and `notarize.app` (the `.app` going into the DMG; `dmg build` also scans its staging directory), the MSIX `stageDir` before packing, and `target.qaControlScan`. Mach-O, PE and ELF files are matched against four rules: `qa-control-server` (marker `RIGHTKIT-QA-CONTROL-SERVER-PRESENT`), `wdio-webdriver` (2 of 3 of `tauri-plugin-wdio-webdriver`, `tauri_plugin_wdio_webdriver`, `wdio-webdriver:default`), `remote-debugging` (`--remote-debugging-port`, `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS`) and `tauri-devtools` (`plugin:webview|internal_toggle_devtools`, `toggleDevtoolsHotkey`); each signature also as UTF-16LE. A scan that finds no native binary fails.
+3. **Packed MSIX** - the finished `.msix` is read through its ZIP central directory (stored and deflate entries, nested ZIPs to depth 3, 1 GiB per entry, 8 GiB inflated per container; encrypted, unsupported-method or oversized entries are findings).
+4. **Hardening targets** (final artifacts) and **every sealed file** (`verifySealedRelease`, used by every seal and upload path) run the same rules, including ZIP containers.
+
+Not coverable after packing: an NSIS exe (LZMA payload) and a compressed DMG. They are covered only by layer 2, so the release fails when no pre-pack scan saw a native binary, and the log names each unreadable installer. Not coverable at all: assets embedded compressed in the app, resources an NSIS installer packs that were never in the scanned set (list them in `target.qaControlScan`), and any surface without a rule in `QA_RULES`. The `wdio-webdriver` rule is weaker than the marker rule (signatures chosen without the plugin source). Full list: `crates/rightkit-control/README.md`, "QA control never ships".
+
 ## Commands
 
 `right-release` maps these subcommands to the modules in this package:

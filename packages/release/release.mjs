@@ -39,6 +39,7 @@ import { resolveMacosDeveloperIdIdentity } from "./macos-signing-identity.mjs";
 import { DEFAULT_STORAGE_THRESHOLD_BYTES, findInstallerCopyScripts, findLargeRepositorySubdirectories } from "./installer-storage-doctor.mjs";
 import { macosCodesignEnvironment } from "./codesign-environment.mjs";
 import { assertNoQaControl } from "./qa-control-scan.mjs";
+import { assertNoForbiddenBuildFeatures } from "./qa-build-features.mjs";
 
 const TOOL_ROOT = path.dirname(fileURLToPath(import.meta.url));
 const HARDENING_SCAN = path.resolve(TOOL_ROOT, "hardeningscan.mjs");
@@ -297,6 +298,19 @@ if (opts.doctor) {
   process.exit(0);
 }
 
+let prePackScanned = false; // set once a pre-pack payload scan has seen a native binary
+// Source-level layer of "no test-automation surface ships": refuse a release or update build whose build command
+// or app Cargo manifest enables devtools, qa-native, qa-control or dev-native (also in --dry-run).
+try {
+  assertNoForbiddenBuildFeatures({ root, tier: "release/update", commands: [
+    { label: "target.prePackage", command: target.prePackage },
+    { label: "target.package", command: target.package },
+    { label: "nativeAssembly.packageHook", command: nativeAssembly?.packageHook },
+    { label: "nativeAssembly.finalizer", command: nativeFinalizer },
+    { label: "target.postSign", command: target.postSign },
+  ] });
+} catch (error) { fail(error.message); }
+
 const releaseLock = acquireReleaseLock(root, config.app ?? path.basename(root), opts.platform, opts.tier);
 const mode = "package";
 const command = target.package;
@@ -326,17 +340,21 @@ if (opts.platform === "win" && target.signingContract === MSIX_SIGNING_CONTRACT)
   // packs the exact signed bytes, signs the package through sign-windows, verifies signer == Publisher,
   // writes the App Installer route and the seal record. Never a second signer.
   await runCommand(target.prePackage, root);
+  // Raw payload scan BEFORE the package is packed (a packed MSIX is only readable through its ZIP directory).
+  assertNoQaControlBinaries("msix staged payload", [path.resolve(root, target.msix.stageDir)], { requireBinary: true, prePack: true });
   const options = msixBuildOptions({ root, target, app: config.app, dryRun: opts.dryRun, receipts: {
     pe: windowsReceiptPath(root, "raw-exe"), msix: windowsReceiptPath(root, "installer"),
     dir: path.dirname(windowsReceiptPath(root, "raw-exe")) } });
   const built = buildMsix(options, { log: (event) => console.log(`right-release: ${JSON.stringify(event)}`) });
   console.log(`right-release: msix ${built.dryRun ? "dry-run" : "built"} ${options.out}`);
+  // Second layer: read the finished package through its ZIP central directory (stored and deflate entries).
+  if (!built.dryRun) assertNoQaControlBinaries("msix package", [options.out], { requireBinary: true });
 } else if (opts.platform === "win") {
   const rawFiles = target.sign.prePackageFiles.map((p) => path.resolve(root, p));
   await runCommand(target.prePackage, root);
   for (const file of rawFiles) await mustExist(file, `missing raw EXE signing artifact: ${file}`);
   // Before signing and packaging: the raw EXE is uncompressed, so a QA control server is visible here.
-  assertNoQaControlBinaries("windows raw EXE", rawFiles);
+  assertNoQaControlBinaries("windows raw EXE", rawFiles, { requireBinary: true, prePack: true });
   // The marker must reach its FINAL value before signing. Tauri rewrites it during
   // bundling, and doing that to signed bytes invalidates Authenticode — the exact
   // defect that shipped invalid binaries. Idempotent, so an app that still patches
@@ -364,7 +382,13 @@ if (opts.platform === "win" && target.signingContract === MSIX_SIGNING_CONTRACT)
   // Resolve after prePackage: with storage governance the artifact may live only in RIGHT_RELEASE_ARTIFACT_DIR.
   const signingEntries = macSigning.entries.map((entry) => ({ ...entry, file: resolveReleaseArtifactPath(root, entry.file) }));
   for (const { file } of signingEntries) await mustExist(file, `missing macOS Developer ID signing artifact: ${file}`);
-  assertNoQaControlBinaries("macOS signing set", signingEntries.map(({ file }) => file));
+  assertNoQaControlBinaries("macOS signing set", signingEntries.map(({ file }) => file), { requireBinary: true, prePack: true });
+  // The DMG is built from the .app (notarize.app / the signing set); a compressed DMG cannot be scanned afterwards.
+  if (target.notarize.app) {
+    const stagedApp = resolveReleaseArtifactPath(root, target.notarize.app);
+    await mustExist(stagedApp, `missing macOS app to be packed into the DMG: ${stagedApp}`);
+    assertNoQaControlBinaries("macOS app staged for the DMG", [stagedApp], { requireBinary: true, prePack: true });
+  }
   if (runMacPhase("sign")) {
     await signMacos(signingEntries, root, "signing", macSigning.nestedCode);
     // Opt-in (notarize.appBeforePackage): staple the .app itself before the package step copies it into the DMG.
@@ -384,7 +408,7 @@ if (opts.platform === "win" && target.signingContract === MSIX_SIGNING_CONTRACT)
 }
 
 // Extra files or directories the app declares (for example the unpacked bundle or a staged payload).
-assertNoQaControlBinaries("target.qaControlScan", (target.qaControlScan ?? []).map((p) => resolveReleaseArtifactPath(root, p)));
+assertNoQaControlBinaries("target.qaControlScan", (target.qaControlScan ?? []).map((p) => resolveReleaseArtifactPath(root, p)), { requireBinary: (target.qaControlScan ?? []).length > 0, prePack: true });
 
 if (opts.platform === "mac" && runMacPhase("package")) {
   // SwiftPM + appBeforePackage: the .app is stapled by now, so right-release packs it into the DMG itself.
@@ -436,6 +460,9 @@ if (opts.platform !== "mac" || runMacPhase("harden")) {
       hardeningEvidence = path.join(receiptRoot, opts.platform + "-hardening-evidence.json");
       materializeHardeningEvidence({ root, allowances: target.hardeningAllowances, outputPath: hardeningEvidence });
     }
+    // Fail closed: the installer itself (NSIS LZMA, compressed DMG) cannot be read, so the raw/staged payload must
+    // have been scanned before packing. Inputs that are only ZIP containers (MSIX) are scanned in place.
+    if (!opts.dryRun && !prePackScanned) fail("no pre-pack payload scan ran for this release (raw EXE, staged payload or .app); an installer cannot be scanned after packing");
     assertNoQaControlBinaries("hardening targets", scanTargets.map((p) => resolveReleaseArtifactPath(root, p)));
     await run("node", [
       HARDENING_SCAN,
@@ -477,10 +504,17 @@ function usage(code, message) {
 // preferring managed output when the local path does not exist.
 // Release and update builds never contain the QA control server (rightkit-control `qa-control`).
 // The development lane (development.mjs) does not run this file and is allowed to contain it.
-function assertNoQaControlBinaries(label, files) {
+// `requireBinary`: an input holding no native binary (missing or empty staging dir) is a failure, not a pass.
+// `prePack`: marks that the raw payload was scanned before packing. What stays unscannable after packing
+// (NSIS LZMA payload, compressed DMG) is logged so the release record says so.
+function assertNoQaControlBinaries(label, files, { requireBinary = false, prePack = false } = {}) {
   if (opts.dryRun || files.length === 0) return;
   try {
-    assertNoQaControl(files, label);
+    const stats = assertNoQaControl(files, label, { requireBinary });
+    if (prePack && stats.binaries > 0) prePackScanned = true;
+    for (const opaque of stats.opaque) {
+      console.log(`right-release: ${label}: ${opaque.kind.toUpperCase()} payload is compressed and cannot be scanned (${opaque.file}); the raw payload was scanned before packing`);
+    }
   } catch (error) {
     fail(error.message);
   }

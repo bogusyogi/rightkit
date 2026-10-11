@@ -1,0 +1,83 @@
+import assert from "node:assert/strict";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import test from "node:test";
+import {
+  assertNoForbiddenBuildFeatures, buildFeatureIssues, cargoManifestIssues, commandFeatureIssues, isForbiddenFeature, tokenize,
+} from "./qa-build-features.mjs";
+
+const issues = (command, scripts = {}) => commandFeatureIssues(command, { label: "target.prePackage", scripts });
+
+test("forbidden feature names, including dep:, crate/ and crate?/ forms", () => {
+  for (const f of ["devtools", "qa-native", "qa-control", "dev-native", "tauri/devtools", "tauri?/devtools", "rightkit-control/qa-control", "dep:tauri-plugin-wdio-webdriver"]) assert.equal(isForbiddenFeature(f), true, f);
+  for (const f of ["custom-protocol", "tauri-shell", "dep:rightkit-control", "wv2-0_39", "tauri/custom-protocol"]) assert.equal(isForbiddenFeature(f), false, f);
+});
+
+test("a build command that enables a forbidden feature is refused in every spelling", () => {
+  const cases = [
+    { cmd: "pnpm", args: ["tauri", "build", "--features", "qa-native"] },
+    { cmd: "cargo", args: ["build", "--release", "--features=custom-protocol,devtools"] },
+    { cmd: "cargo", args: ["build", "-F", "qa-control"] },
+    { cmd: "cargo", args: ["build", "-Fdev-native"] },
+    { cmd: "pnpm", args: ["tauri", "build", "-f", "tauri/devtools"] },
+    { cmd: "pnpm", args: ["tauri", "build", "--", "--features", "a b qa-native"] },
+    { cmd: "sh", args: ["-c", "cargo build --release --features 'custom-protocol qa-native'"] },
+    { cmd: "cargo", args: ["build", "--all-features"] },
+    { cmd: "cargo", args: ["build"], env: { CARGO_FEATURES: "devtools" } },
+    "cargo build --features qa-native",
+  ];
+  for (const command of cases) assert.notDeepEqual(issues(command), [], JSON.stringify(command));
+});
+
+test("clean build commands pass, including similar words", () => {
+  for (const command of [
+    { cmd: "pnpm", args: ["tauri", "build", "--features", "custom-protocol"] },
+    { cmd: "cargo", args: ["build", "--release", "--no-default-features"] },
+    { cmd: "node", args: ["scripts/devtools-docs.mjs"] },
+    undefined,
+  ]) assert.deepEqual(command === undefined ? [] : issues(command), []);
+});
+
+test("a package script that the build runs is followed up to three levels", () => {
+  const scripts = { "build:win": "pnpm run tauri:build", "tauri:build": "tauri build --features qa-native", ok: "tauri build" };
+  const found = issues({ cmd: "pnpm", args: ["run", "build:win"] }, scripts);
+  assert.equal(found.length, 1);
+  assert.match(found[0], /build:win.*tauri:build.*qa-native/);
+  assert.deepEqual(issues({ cmd: "pnpm", args: ["run", "ok"] }, scripts), []);
+  assert.notDeepEqual(issues({ cmd: "pnpm", args: ["build:win"] }, scripts), []);
+});
+
+const manifest = (features, dependencies) => `[package]\nname = "app"\n[features]\n${features}\n[dependencies]\n${dependencies}\n`;
+
+test("Cargo.toml: devtools on tauri, qa-control on rightkit-control, non-optional wdio plugin, forbidden default closure", () => {
+  assert.match(cargoManifestIssues(manifest('default = []', 'tauri = { version = "2.11.5", features = ["devtools"] }'))[0], /devtools/);
+  assert.match(cargoManifestIssues(manifest('default = []', 'rightkit-control = { version = "0.3", features = ["qa-control", "wv2-0_39"] }'))[0], /qa-control/);
+  assert.match(cargoManifestIssues(manifest('default = []', 'tauri-plugin-wdio-webdriver = "1.4.0"'))[0], /not optional/);
+  assert.match(cargoManifestIssues(manifest('default = ["shell"]\nshell = ["qa-native"]\nqa-native = ["dep:tauri-plugin-wdio-webdriver"]', 'tauri-plugin-wdio-webdriver = { version = "1.4.0", optional = true }'))[0], /default feature set reaches `qa-native`/);
+  assert.match(cargoManifestIssues(manifest('default = ["tauri/devtools"]', 'tauri = "2"')).join("\n"), /reaches `tauri\/devtools`/);
+  const table = `[features]\ndefault = []\n[dependencies.tauri]\nversion = "2"\nfeatures = ["devtools"]\n`;
+  assert.match(cargoManifestIssues(table)[0], /devtools/);
+});
+
+test("Cargo.toml: the optional, off-by-default qa-native layout used by the apps is accepted", () => {
+  const ok = manifest('default = ["tauri-shell"]\nqa-native = ["tauri-shell", "dep:tauri-plugin-wdio-webdriver", "tauri/custom-protocol"]\ntauri-shell = []',
+    'tauri = { version = "2.11.5", features = ["custom-protocol"] }\n# tauri = { features = ["devtools"] }\ntauri-plugin-wdio-webdriver = { version = "1.2.0", optional = true }\nrightkit-control = { version = "0.3", optional = true }');
+  assert.deepEqual(cargoManifestIssues(ok), []);
+});
+
+test("buildFeatureIssues reads package.json scripts and src-tauri/Cargo.toml; the assert throws with every finding", () => {
+  const root = mkdtempSync(join(tmpdir(), "rk-qa-features-"));
+  mkdirSync(join(root, "src-tauri"));
+  writeFileSync(join(root, "package.json"), JSON.stringify({ scripts: { "bundle": "tauri build --features qa-native" } }));
+  writeFileSync(join(root, "src-tauri", "Cargo.toml"), manifest("default = []", 'tauri = { version = "2", features = ["devtools"] }'));
+  const commands = [{ label: "target.prePackage", command: { cmd: "pnpm", args: ["run", "bundle"] } }, { label: "target.package", command: undefined }];
+  assert.equal(buildFeatureIssues({ root, commands }).length, 2);
+  assert.throws(() => assertNoForbiddenBuildFeatures({ root, commands, tier: "update" }), /update build refused[\s\S]*qa-native[\s\S]*devtools/);
+  const clean = mkdtempSync(join(tmpdir(), "rk-qa-features-"));
+  assert.doesNotThrow(() => assertNoForbiddenBuildFeatures({ root: clean, commands: [{ label: "x", command: { cmd: "pnpm", args: ["tauri", "build"] } }] }));
+});
+
+test("tokenize keeps quoted groups together", () => {
+  assert.deepEqual(tokenize("a --features 'b c' \"d\""), ["a", "--features", "b c", "d"]);
+});
