@@ -512,8 +512,12 @@ fn many_repetitions_of_a_full_width_w_range_hit_a_total_work_budget() {
 
 #[test]
 fn many_repetitions_of_a_full_width_w_array_hit_the_same_budget() {
-    let mut w: Vec<Object> = Vec::with_capacity(80);
-    for _ in 0..40 {
+    // 18 x `0 [500 x 60000]` is 1 080 000 assignments: just over the 2^20 budget, which is what
+    // the test needs to prove. The cost of this test is the file itself: lopdf parses every
+    // width before the reader can charge it, so fewer entries than the old 40 repetitions keep
+    // the case well inside the guard.
+    let mut w: Vec<Object> = Vec::with_capacity(36);
+    for _ in 0..18 {
         w.push(0.into());
         w.push(Object::Array(vec![500.into(); 60_000]));
     }

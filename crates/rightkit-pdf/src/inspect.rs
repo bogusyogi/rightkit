@@ -1310,31 +1310,43 @@ const MAX_CID_WIDTH_ASSIGNMENTS: usize = 1 << 20;
 /// from the map. Such a font is displayed (missing codes are rejected, never guessed) but is not
 /// reversibly encoded, because a fit check needs every width.
 fn parse_cid_widths(doc: &Document, font_dict: &Dictionary) -> (f64, HashMap<u32, f64>, bool) {
+    let (dw, map, complete, _) = parse_cid_widths_within(doc, font_dict, MAX_CID_WIDTH_ASSIGNMENTS);
+    (dw, map, complete)
+}
+
+/// [`parse_cid_widths`] with an explicit total budget. The fourth value counts the assignments
+/// actually performed; each is charged against `budget_total` before it is made, so it never
+/// exceeds the budget.
+fn parse_cid_widths_within(
+    doc: &Document,
+    font_dict: &Dictionary,
+    budget_total: usize,
+) -> (f64, HashMap<u32, f64>, bool, usize) {
     let mut dw = 1000.0;
     let mut map = HashMap::new();
     let mut complete = true;
 
     let Ok(desc_obj) = font_dict.get(b"DescendantFonts") else {
-        return (dw, map, complete);
+        return (dw, map, complete, 0);
     };
     let Some(Object::Array(desc_arr)) = deref_obj(doc, desc_obj) else {
-        return (dw, map, complete);
+        return (dw, map, complete, 0);
     };
     let Some(first) = desc_arr.first() else {
-        return (dw, map, complete);
+        return (dw, map, complete, 0);
     };
     let Some(cid_obj) = deref_obj(doc, first) else {
-        return (dw, map, complete);
+        return (dw, map, complete, 0);
     };
     let Ok(cid_dict) = cid_obj.as_dict() else {
-        return (dw, map, complete);
+        return (dw, map, complete, 0);
     };
 
     if let Some(v) = cid_dict.get(b"DW").ok().and_then(object_number) {
         dw = v;
     }
 
-    let mut budget = MAX_CID_WIDTH_ASSIGNMENTS;
+    let mut budget = budget_total;
     if let Ok(w_obj) = cid_dict.get(b"W") {
         if let Some(Object::Array(items)) = deref_obj(doc, w_obj) {
             let mut i = 0usize;
@@ -1403,7 +1415,7 @@ fn parse_cid_widths(doc: &Document, font_dict: &Dictionary) -> (f64, HashMap<u32
         }
     }
 
-    (dw, map, complete)
+    (dw, map, complete, budget_total - budget)
 }
 
 /// Total work a single `ToUnicode` CMap may cost: each (range) code assigned counts one. A real
@@ -3925,6 +3937,31 @@ mod tests {
         let (_, widths, complete) = parse_cid_widths(&doc, &cid_font_with_w(entries));
         assert!(!complete);
         assert_eq!(widths.len(), 60_000);
+    }
+
+    #[test]
+    fn finding8_over_budget_w_array_form_stops_at_the_budget_by_construction() {
+        // 40 x `0 [500 x 60000]` is 2.4 million assignments. Every assignment is charged before
+        // it is made, so the parser performs exactly the budget and stops at the first entry
+        // beyond it, without walking the rest of the array.
+        let doc = Document::with_version("1.7");
+        let mut entries = Vec::new();
+        for _ in 0..40 {
+            entries.push(Object::Integer(0));
+            entries.push(Object::Array(vec![Object::Integer(500); 60_000]));
+        }
+        let font = cid_font_with_w(entries);
+        let (dw, widths, complete, performed) =
+            parse_cid_widths_within(&doc, &font, MAX_CID_WIDTH_ASSIGNMENTS);
+        assert_eq!(dw, 1000.0);
+        assert!(!complete, "the budget ran out, so the table is not exact");
+        assert!(performed <= MAX_CID_WIDTH_ASSIGNMENTS);
+        assert_eq!(performed, MAX_CID_WIDTH_ASSIGNMENTS);
+        assert_eq!(
+            widths.len(),
+            60_000,
+            "the CIDs 0..60000 are the only ones in the array"
+        );
     }
 
     #[test]
