@@ -1,6 +1,6 @@
 {
   "name": "@rightkit/qa-chrome",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "description": "Zero-dependency Chrome for Testing resolver, launcher and graceful close for Right Suite QA harnesses.",
   "license": "MIT OR Apache-2.0",
   "packageManager": "pnpm@11.24.0",

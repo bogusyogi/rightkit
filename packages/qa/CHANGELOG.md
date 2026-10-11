@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.4.5 — 2026-10-11
+
+Additive; defaults are unchanged. Depends on `@rightkit/qa-chrome` 0.1.4 (POSIX leftover scan, `leftoverPids`).
+
+- Context re-resolution: `evaluate`, `waitForFunction` and `waitForSelector` survive a navigation or reload. A call that fails with CDP's "Cannot find context with specified id" (the command did not run) re-resolves the main-frame context and retries until the caller's timeout; when the budget runs out the missing-context error is thrown. `waitForFunction` already retried a missing context per poll and still does.
+- `page.send(method, params?, timeout?)` is public: a page-scoped raw CDP escape hatch, unsupported surface like `session.send`.
+- `page.setFocusEmulation(enabled)` sends `Emulation.setFocusEmulationEnabled`.
+- `onPoll` option on `waitForFunction` and `waitForSelector`: called once per poll before the predicate; a throw rejects the wait with that same error, after failure artifacts are written when configured. Artifact paths are attached to the error only for a TimeoutError.
+- `click`/`hover` take `scroll: { inline: 'center' | 'nearest' }`; default `center` as before. `hover(target, options)` and `QaElement.hover(options)` are new.
+- `fill(..., { verify: { timeoutMs } })` polls the readback every 25 ms until it matches or the window ends. `verify: true` is still one read.
+- Adds `spawnOwnedProcess(command, args?, { stdio?, cwd?, env?, windowsHide? })` (process group on POSIX), `stopOwnedProcess(handle)` (refuses any handle it did not return, including a bare pid; signals the whole group: SIGTERM, then SIGKILL after 1 s; idempotent) and `ownedProcessReceipt()` (`leftoverPids` of launched processes still running).
+
 ## 0.4.4 — 2026-10-11
 
 Additive; existing methods and defaults are unchanged.

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { mkdtemp, readdir, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { ElementOccludedError, FillMismatchError, QaBrowserSession, TimeoutError } from './index.js';
@@ -742,5 +742,122 @@ describe('0.4.4: console capture, occlusion, fill, wheel, user agent & failure a
     } finally {
       if (previous === undefined) delete process.env.RIGHTKIT_RUN_ROOT; else process.env.RIGHTKIT_RUN_ROOT = previous;
     }
+  });
+});
+
+describe('0.4.5: context re-resolution, page.send, setFocusEmulation, onPoll, scroll option, fill verify window', () => {
+  const callsOf = (server: { messages: any[] }, method: string) => server.messages.filter((message) => message.method === method);
+
+  it('evaluate re-resolves the main context after the old one is destroyed mid-call and retries on the new one', async () => {
+    let first = true;
+    const { page, server } = await fixture((message, send) => {
+      if (message.method === 'Runtime.callFunctionOn' && message.params?.executionContextId === 13 && first) {
+        first = false;
+        // A reload: the replacement context is announced, then the call against the old id fails.
+        send({ method: 'Runtime.executionContextCreated', sessionId: 'session', params: { context: { id: 30, auxData: { frameId: 'main', isDefault: true } } } });
+        send({ id: message.id, error: { message: 'Cannot find context with specified id' } });
+      } else pageResponder(message, send);
+    });
+    expect(await page.evaluate(() => 4)).toBe(true);
+    expect(callsOf(server, 'Runtime.callFunctionOn').map((message) => message.params.executionContextId)).toEqual([13, 30]);
+  });
+
+  it('evaluate gives up with the last context error once the caller timeout is spent', async () => {
+    const { page } = await fixture((message, send) => {
+      if (message.method === 'Runtime.callFunctionOn') send({ id: message.id, error: { message: 'Cannot find context with specified id' } });
+      else pageResponder(message, send);
+    }, 200);
+    await expect(page.evaluate(() => 1)).rejects.toThrow('Cannot find context');
+  });
+
+  it('page.send is a public page-scoped escape hatch; setFocusEmulation sends the typed command', async () => {
+    const { page, server } = await fixture();
+    expect(await page.send('Emulation.setFocusEmulationEnabled', { enabled: true })).toEqual({});
+    expect(server.messages.at(-1)).toMatchObject({ method: 'Emulation.setFocusEmulationEnabled', params: { enabled: true }, sessionId: 'session' });
+    await page.setFocusEmulation(false);
+    expect(server.messages.at(-1)).toMatchObject({ method: 'Emulation.setFocusEmulationEnabled', params: { enabled: false }, sessionId: 'session' });
+    await expect(page.setFocusEmulation('yes' as any)).rejects.toThrow('boolean');
+    await expect(page.send('')).rejects.toThrow('non-empty');
+  });
+
+  it('onPoll runs once before each predicate poll; a throw rejects with that error and writes artifacts', async () => {
+    const dir = await mkdtemp(path.join(tmpdir(), 'rk-qa-onpoll-'));
+    cleanup.push(() => rm(dir, { recursive: true, force: true }));
+    const log: string[] = [];
+    const { page } = await fixture((message, send) => {
+      const declaration = String(message.params?.functionDeclaration ?? '');
+      if (message.method === 'Runtime.callFunctionOn' && declaration.includes('window.never')) { log.push('predicate'); send({ id: message.id, result: { result: { value: false } } }); }
+      else if (message.method === 'Runtime.callFunctionOn' && declaration.includes('location.href')) send({ id: message.id, result: { result: { value: { url: 'http://fixture/poll', title: 'Poll' } } } });
+      else if (message.method === 'Page.captureScreenshot') send({ id: message.id, result: { data: Buffer.from([137, 80, 78, 71]).toString('base64') } });
+      else pageResponder(message, send);
+    });
+    const pollError = new Error('host gave up');
+    let polls = 0;
+    await expect(page.waitForFunction(() => (window as any).never === true, {
+      timeout: 2000, polling: 5,
+      onPoll: () => { polls++; log.push('poll'); if (polls === 3) throw pollError; },
+      failureArtifacts: { directory: dir, label: 'poll' },
+    })).rejects.toBe(pollError);
+    expect(log).toEqual(['poll', 'predicate', 'poll', 'predicate', 'poll']);
+    const files = (await readdir(dir)).filter((file) => file.endsWith('.json'));
+    expect(files).toHaveLength(1);
+    expect(JSON.parse(await readFile(path.join(dir, files[0]), 'utf8'))).toMatchObject({ url: 'http://fixture/poll' });
+  });
+
+  it('waitForSelector calls onPoll on each poll of its predicate', async () => {
+    const { page } = await fixture((message, send) => {
+      // The selector predicate is the only one that reads getComputedStyle; keep it false so the wait polls.
+      if (message.method === 'Runtime.callFunctionOn' && String(message.params?.functionDeclaration ?? '').includes('getComputedStyle')) send({ id: message.id, result: { result: { value: false } } });
+      else pageResponder(message, send);
+    });
+    let polls = 0;
+    await expect(page.waitForSelector('#missing', { timeout: 80, onPoll: () => { polls++; } })).rejects.toThrow('Selector #missing');
+    expect(polls).toBeGreaterThan(1);
+  });
+
+  it('click & hover take scroll.inline; the default stays centre and an unknown value is refused', async () => {
+    const { page, server } = await fixture((message, send) => {
+      const declaration = String(message.params?.functionDeclaration ?? '');
+      if (message.method === 'Runtime.callFunctionOn' && message.params?.objectId === 'el') {
+        send({ id: message.id, result: { result: declaration.includes('getClientRects') ? { value: { x: 10, y: 20, width: 40, height: 20 } } : { value: undefined } } });
+      } else if (message.method === 'Runtime.callFunctionOn' && declaration.includes('querySelector')) {
+        send({ id: message.id, result: { result: { objectId: 'el' } } });
+      } else pageResponder(message, send);
+    });
+    await page.click('#button');
+    await page.click('#button', { scroll: { inline: 'nearest' } });
+    await page.hover('#button', { scroll: { inline: 'nearest' } });
+    const scrolls = callsOf(server, 'Runtime.callFunctionOn').filter((message) => String(message.params.functionDeclaration).includes('scrollIntoView'));
+    expect(scrolls.map((message) => message.params.arguments)).toEqual([[{ value: 'center' }], [{ value: 'nearest' }], [{ value: 'nearest' }]]);
+    await expect(page.click('#button', { scroll: { inline: 'left' as any } })).rejects.toThrow('scroll.inline');
+  });
+
+  it('fill verify { timeoutMs } polls the readback until it matches; verify true stays a single read', async () => {
+    let queue: string[] = [];
+    let reads = 0;
+    const { page } = await fixture((message, send) => {
+      const declaration = String(message.params?.functionDeclaration ?? '');
+      if (message.method === 'Runtime.callFunctionOn' && message.params?.objectId === 'el') {
+        if (declaration.includes('.select()')) send({ id: message.id, result: { result: { value: true } } });
+        else if (declaration.includes('textContent')) { reads++; send({ id: message.id, result: { result: { value: queue.length ? queue.shift() : 'hello' } } }); }
+        else send({ id: message.id, result: { result: { value: undefined } } });
+      } else if (message.method === 'Runtime.callFunctionOn' && declaration.includes('querySelector')) {
+        send({ id: message.id, result: { result: { objectId: 'el' } } });
+      } else pageResponder(message, send);
+    });
+    queue = ['', '']; reads = 0;
+    await page.fill('input', 'hello', { replace: true, verify: { timeoutMs: 1000 } });
+    expect(reads).toBe(3);
+
+    queue = ['', '', 'hello']; reads = 0;
+    await expect(page.fill('input', 'hello', { replace: true, verify: true })).rejects.toBeInstanceOf(FillMismatchError);
+    expect(reads).toBe(1);
+
+    queue = []; reads = 0;
+    await page.fill('input', 'hello', { replace: true, verify: { timeoutMs: 60 } });
+    queue = Array.from({ length: 1000 }, () => 'x'); reads = 0;
+    await expect(page.fill('input', 'hello', { replace: true, verify: { timeoutMs: 60 } })).rejects.toBeInstanceOf(FillMismatchError);
+    expect(reads).toBeGreaterThan(1);
+    await expect(page.fill('input', 'hello', { replace: true, verify: { timeoutMs: 0 } })).rejects.toThrow('Timeout');
   });
 });

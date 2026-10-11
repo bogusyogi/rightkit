@@ -16,18 +16,31 @@ export interface FailureArtifactOptions {
   /** Short name used in the file names and the dump. Default 'wait'. */
   label?: string;
 }
-export interface WaitOptions { timeout?: number; polling?: 'raf' | number; failureArtifacts?: FailureArtifactOptions }
-export interface SelectorWaitOptions { visible?: boolean; hidden?: boolean; timeout?: number; failureArtifacts?: FailureArtifactOptions }
+/** Called once per poll, before the predicate. A throw rejects the wait with that error. */
+export type PollHook = () => void | Promise<void>;
+export interface WaitOptions { timeout?: number; polling?: 'raf' | number; failureArtifacts?: FailureArtifactOptions; onPoll?: PollHook }
+export interface SelectorWaitOptions { visible?: boolean; hidden?: boolean; timeout?: number; failureArtifacts?: FailureArtifactOptions; onPoll?: PollHook }
+/** How the target is brought into view before the pointer moves. Vertical alignment is always centre. */
+export interface ScrollOptions {
+  /** Default 'center', as before 0.4.5. 'nearest' scrolls the least needed to show the target at the edge. */
+  inline?: 'center' | 'nearest';
+}
+export interface HoverOptions { scroll?: ScrollOptions }
 export interface ClickOptions {
   button?: 'left' | 'right' | 'middle'; clickCount?: number; delay?: number;
+  scroll?: ScrollOptions;
   /** Default false. When true, after the pointer moves and before pressing, checks that the element at the click point is the target or its descendant; otherwise throws ElementOccludedError. */
   checkOccluded?: boolean;
 }
 export interface FillOptions {
   /** Default false: insert at the caret, exactly as type() does. True selects the whole field first, so the value replaces its content; an empty value then deletes the selection. */
   replace?: boolean;
-  /** Default false. Reads the value back after insertion and throws FillMismatchError on a difference. Requires replace. */
-  verify?: boolean;
+  /**
+   * Default false: read the value back once after insertion and throw FillMismatchError on a difference.
+   * `{ timeoutMs }` polls the readback every 25 ms until it matches or the window ends, for fields that
+   * settle late (a framework rewrites the value after an input event). Requires replace.
+   */
+  verify?: boolean | { timeoutMs: number };
 }
 /** One console call or uncaught exception of a page. `line` is 1-based. */
 export interface ConsoleEntry { type: string; text: string; url?: string; line?: number; timestamp: number }
@@ -72,6 +85,23 @@ export class FillMismatchError extends Error {
     this.expectedLength = expectedLength;
     this.actualLength = actualLength;
   }
+}
+/** CDP's answer for a context id that no longer exists. The command did not run, so retrying is safe. */
+function isMissingContext(error: unknown): boolean {
+  return error instanceof Error && /Cannot find context with specified id/.test(error.message);
+}
+function scrollInline(scroll: ScrollOptions | undefined): 'center' | 'nearest' {
+  const inline = scroll?.inline ?? 'center';
+  if (inline !== 'center' && inline !== 'nearest') throw new Error('scroll.inline must be center or nearest');
+  return inline;
+}
+/** Wraps an onPoll hook so a throw is recorded on `state` (failure artifacts then apply to it). */
+function pollHook(onPoll: PollHook | undefined, state: { failed: boolean; error: unknown }): (() => Promise<void>) | undefined {
+  if (!onPoll) return undefined;
+  return async () => {
+    try { await onPoll(); }
+    catch (error) { state.failed = true; state.error = error; throw error; }
+  };
 }
 /** Text of one console argument, from its CDP RemoteObject. */
 function remoteText(object: CdpParams): string {
@@ -409,10 +439,23 @@ export class QaPage {
     await this.send('Network.enable');
     await this.send('Page.setLifecycleEventsEnabled', { enabled: true });
   }
-  /** @internal */
+  /**
+   * UNSUPPORTED escape hatch: sends one page-scoped CDP command on this page's session and resolves
+   * with its raw result. Method names, params and results follow Chrome's protocol, not this package,
+   * and may change with the browser version. Prefer the typed QaPage methods where they exist.
+   */
   send(method: string, params: CdpParams = {}, timeout?: number): Promise<CdpParams> {
     if (this.closed) return Promise.reject(this.closed);
+    if (typeof method !== 'string' || !method) return Promise.reject(new Error('CDP method must be a non-empty string'));
     return this.client.send(method, params, this.sessionId, timeout);
+  }
+  /**
+   * Emulation.setFocusEmulationEnabled: the page behaves as focused while its window is not
+   * (background or headless). Persists for the page until turned off.
+   */
+  async setFocusEmulation(enabled: boolean): Promise<void> {
+    if (typeof enabled !== 'boolean') throw new Error('setFocusEmulation expects a boolean');
+    await this.send('Emulation.setFocusEmulationEnabled', { enabled });
   }
   private invalidateHandles() {
     const objectGroup = this.objectGroup;
@@ -516,13 +559,30 @@ export class QaPage {
   }
   private async run(fn: Function | string, args: unknown[], returnByValue: boolean, timeout = this.client.timeout): Promise<CdpParams> {
     const deadline = Date.now() + timeout;
-    const contextId = await this.mainContext(timeout);
-    timeout = Math.max(1, deadline - Date.now());
-    const common = { returnByValue, awaitPromise: true, objectGroup: this.objectGroup, timeout };
-    const result = typeof fn === 'string'
-      ? await this.send('Runtime.evaluate', { expression: fn, contextId, ...common }, timeout)
-      : await this.send('Runtime.callFunctionOn', { functionDeclaration: functionSource(fn), executionContextId: contextId, arguments: args.map(argument), ...common }, timeout);
-    resultValue(result); return result;
+    // A reload destroys the context an earlier call resolved. CDP refuses a call against a missing
+    // context without running it, so re-resolve the main context and retry until the caller's deadline.
+    let missing: Error | undefined;
+    for (;;) {
+      const remaining = Math.max(1, deadline - Date.now());
+      let result: CdpParams;
+      try {
+        const contextId = await this.mainContext(remaining);
+        const common = { returnByValue, awaitPromise: true, objectGroup: this.objectGroup, timeout: remaining };
+        result = typeof fn === 'string'
+          ? await this.send('Runtime.evaluate', { expression: fn, contextId, ...common }, remaining)
+          : await this.send('Runtime.callFunctionOn', { functionDeclaration: functionSource(fn), executionContextId: contextId, arguments: args.map(argument), ...common }, remaining);
+      } catch (error) {
+        if (isMissingContext(error)) {
+          missing = error as Error;
+          if (Date.now() < deadline) { await sleep(10); continue; }
+          throw error;
+        }
+        // The budget ran out while a context was missing: report the cause, not a bare timeout.
+        if (error instanceof TimeoutError && missing) throw missing;
+        throw error;
+      }
+      resultValue(result); return result;
+    }
   }
   async evaluate<Args extends unknown[], Result>(fn: PageFunction<Args, Result> | string, ...args: Args): Promise<Awaited<Result>> {
     return resultValue(await this.run(fn, args, true));
@@ -580,9 +640,12 @@ export class QaPage {
     const source = typeof fn === 'string' ? `function() { return (${fn}); }` : functionSource(fn);
     const artifacts = failureTarget(options.failureArtifacts);
     const timeout = options.timeout ?? this.client.timeout;
+    const pollState = { failed: false, error: undefined as unknown };
+    const poll = pollHook(options.onPoll, pollState);
     try {
       await this.bounded(`Predicate ${source}`, timeout, async (remaining, stopped) => {
         while (!stopped()) {
+          if (poll) await poll();
           try {
             if (resultValue(await this.runSourceFunction(source, args, remaining()))) return;
             if (polling === 'raf') {
@@ -597,7 +660,9 @@ export class QaPage {
         }
       });
     } catch (error) {
-      if (artifacts && error instanceof TimeoutError) await this.attachFailureArtifacts(error, artifacts, source, timeout);
+      if (artifacts && (error instanceof TimeoutError || (pollState.failed && pollState.error === error))) {
+        await this.attachFailureArtifacts(error, artifacts, source, timeout);
+      }
       throw error;
     }
   }
@@ -605,6 +670,8 @@ export class QaPage {
     if (options.visible && options.hidden) throw new Error('visible & hidden cannot both be true');
     const artifacts = failureTarget(options.failureArtifacts);
     const timeout = options.timeout ?? this.client.timeout;
+    const pollState = { failed: false, error: undefined as unknown };
+    const poll = pollHook(options.onPoll, pollState);
     try {
       return await this.bounded(`Selector ${selector}`, timeout, async remaining => {
         await this.waitForFunction((selector: string, visible: boolean, hidden: boolean) => {
@@ -613,7 +680,7 @@ export class QaPage {
           const style = getComputedStyle(element), box = element.getBoundingClientRect();
           const shown = style.visibility !== 'hidden' && style.visibility !== 'collapse' && box.width > 0 && box.height > 0;
           return hidden ? !shown : visible ? shown : true;
-        }, { timeout: remaining() }, selector, !!options.visible, !!options.hidden);
+        }, { timeout: remaining(), onPoll: poll }, selector, !!options.visible, !!options.hidden);
         return options.hidden ? null : this.lookup(selector, remaining());
       });
     } catch (error) {
@@ -621,6 +688,9 @@ export class QaPage {
         const named = new TimeoutError(`Selector ${selector} timed out after ${timeout}ms`);
         if (artifacts) await this.attachFailureArtifacts(named, artifacts, `waitForSelector ${JSON.stringify(selector)} visible=${!!options.visible} hidden=${!!options.hidden}`, timeout);
         throw named;
+      }
+      if (artifacts && pollState.failed && pollState.error === error) {
+        await this.attachFailureArtifacts(error, artifacts, `waitForSelector ${JSON.stringify(selector)} onPoll`, timeout);
       }
       throw error;
     }
@@ -635,8 +705,8 @@ export class QaPage {
     handle.assertUsable(this);
     try { return await work(handle); } finally { if (typeof target === 'string') await handle.dispose(); }
   }
-  private async point(handle: QaElement): Promise<{ x: number; y: number }> {
-    await handle.evaluate((element) => { if (!element.isConnected) throw new Error('Element detached'); element.scrollIntoView({ block: 'center', inline: 'center', behavior: 'instant' }); });
+  private async point(handle: QaElement, inline: 'center' | 'nearest' = 'center'): Promise<{ x: number; y: number }> {
+    await handle.evaluate((element, inline: string) => { if (!element.isConnected) throw new Error('Element detached'); element.scrollIntoView({ block: 'center', inline: inline as ScrollLogicalPosition, behavior: 'instant' }); }, inline);
     const box = await handle.boundingBox();
     if (!box || !box.width || !box.height) throw new Error('Element has no clickable box');
     return { x: box.x + box.width / 2, y: box.y + box.height / 2 };
@@ -673,22 +743,32 @@ export class QaPage {
   }
   /**
    * Types a value into a field. Default: insert at the caret, exactly as type() does. With replace the
-   * whole content is selected first and replaced. With verify (requires replace) the value is read back
-   * once after insertion and FillMismatchError is thrown on a difference.
+   * whole content is selected first and replaced. With verify the value is read back and
+   * FillMismatchError is thrown on a difference: once by default, or polled until `timeoutMs` with
+   * `verify: { timeoutMs }`. Verify requires replace.
    */
   async fill(target: string | QaElement, value: string, options: FillOptions = {}): Promise<void> {
     if (typeof value !== 'string') throw new Error('fill value must be a string');
-    if (options.verify && !options.replace) throw new Error('fill verify requires replace: true; an insert-only fill has no fixed expected value');
+    const verify = options.verify;
+    if (verify && !options.replace) throw new Error('fill verify requires replace: true; an insert-only fill has no fixed expected value');
+    const windowMs = typeof verify === 'object' && verify !== null ? validateTimeout(verify.timeoutMs) : undefined;
     await this.withElement(target, async (handle) => {
       if (!options.replace) { await this.typeElement(handle, value); return; }
       await handle.focus();
       await this.selectAll(handle);
       if (value === '') await this.keyboard.press('Backspace');
       else await this.send('Input.insertText', { text: value });
-      if (options.verify) {
-        const actual = await handle.evaluate((element) => (element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement ? element.value : element.textContent) ?? '');
-        if (actual !== value) throw new FillMismatchError(value.length, actual.length);
+      if (!verify) return;
+      const read = () => handle.evaluate((element) => (element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement ? element.value : element.textContent) ?? '');
+      let actual = await read();
+      if (windowMs !== undefined) {
+        const deadline = Date.now() + windowMs;
+        while (actual !== value && Date.now() < deadline) {
+          await sleep(Math.min(25, Math.max(1, deadline - Date.now())));
+          actual = await read();
+        }
       }
+      if (actual !== value) throw new FillMismatchError(value.length, actual.length);
     });
   }
   private async selectAll(handle: QaElement): Promise<void> {
@@ -756,17 +836,24 @@ export class QaPage {
     return screenshot ? { json, screenshot } : { json };
   }
   /** Attaches artifact paths to a timeout error. A write failure is appended to its message; the timeout still throws. */
-  private async attachFailureArtifacts(error: TimeoutError, target: { directory: string; label: string }, predicate: string, timeout: number): Promise<void> {
-    try { error.artifacts = await this.captureFailure(target.directory, target.label, predicate, timeout); }
-    catch (captureError) {
-      error.message += ` (failure artifacts were not written: ${captureError instanceof Error ? captureError.message : String(captureError)})`;
+  /**
+   * Writes the failure artifacts for a timed-out wait or a failed onPoll hook. The paths are attached as
+   * `artifacts` only on a TimeoutError; for other errors the files are written and the paths are not attached.
+   * A write failure is appended to a TimeoutError's message; the original error still throws.
+   */
+  private async attachFailureArtifacts(error: unknown, target: { directory: string; label: string }, predicate: string, timeout: number): Promise<void> {
+    try {
+      const written = await this.captureFailure(target.directory, target.label, predicate, timeout);
+      if (error instanceof TimeoutError) error.artifacts = written;
+    } catch (captureError) {
+      if (error instanceof TimeoutError) error.message += ` (failure artifacts were not written: ${captureError instanceof Error ? captureError.message : String(captureError)})`;
     }
   }
 
   async click(target: string | QaElement, options: ClickOptions = {}): Promise<void> {
     this.mouse.assertReleased();
     await this.withElement(target, async (handle) => {
-      const point = await this.point(handle), button = options.button ?? 'left', count = options.clickCount ?? 1;
+      const point = await this.point(handle, scrollInline(options.scroll)), button = options.button ?? 'left', count = options.clickCount ?? 1;
       await this.send('Input.dispatchMouseEvent', { type: 'mouseMoved', ...point });
       this.mouse.track(point.x, point.y);
       if (options.checkOccluded) await this.assertUnoccluded(handle, point);
@@ -786,10 +873,11 @@ export class QaPage {
     if (!options.delay) { await this.send('Input.insertText', { text }); return; }
     for (const char of text) { await this.send('Input.insertText', { text: char }); await sleep(options.delay); }
   }
-  async hover(target: string | QaElement): Promise<void> {
+  async hover(target: string | QaElement, options: HoverOptions = {}): Promise<void> {
     this.mouse.assertReleased();
+    const inline = scrollInline(options.scroll);
     await this.withElement(target, async (handle) => {
-      const point = await this.point(handle);
+      const point = await this.point(handle, inline);
       await this.send('Input.dispatchMouseEvent', { type: 'mouseMoved', ...point });
       this.mouse.track(point.x, point.y);
     });
@@ -839,7 +927,7 @@ export class QaElement {
   }
   click(options: ClickOptions = {}): Promise<void> { return this.page.click(this, options); }
   type(text: string, options: TypeOptions = {}): Promise<void> { return this.page.typeElement(this, text, options); }
-  hover(): Promise<void> { return this.page.hover(this); }
+  hover(options: HoverOptions = {}): Promise<void> { return this.page.hover(this, options); }
   async focus(): Promise<void> { await this.evaluate((element) => element.focus()); }
   boundingBox(): Promise<BoundingBox | null> {
     return this.evaluate((element) => {

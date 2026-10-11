@@ -1,7 +1,7 @@
 import { spawn } from 'node:child_process';
 import { createServer } from 'node:net';
 import { describe, expect, it } from 'vitest';
-import { freePort, isProcessAlive, killProcessTree, runOwnedProcess } from './process.js';
+import { freePort, isProcessAlive, killProcessTree, ownedProcessReceipt, runOwnedProcess, spawnOwnedProcess, stopOwnedProcess } from './process.js';
 
 async function waitUntilDead(pid: number, timeoutMs = 5_000): Promise<void> {
   const deadline = Date.now() + timeoutMs;
@@ -52,5 +52,41 @@ describe('freePort', () => {
     const server = createServer();
     await new Promise<void>((resolve, reject) => { server.once('error', reject); server.listen(port, '127.0.0.1', () => resolve()); });
     await new Promise<void>((resolve) => server.close(() => resolve()));
+  });
+});
+
+describe.skipIf(process.platform === 'win32')('spawnOwnedProcess registry (POSIX process groups)', () => {
+  it('stops the whole launched group, grandchildren included, and refuses anything it did not launch', async () => {
+    const owned = spawnOwnedProcess('/bin/sh', ['-c', 'sleep 600 & echo $!; wait'], { stdio: 'pipe' });
+    const grandchild = await new Promise<number>((resolve, reject) => {
+      owned.child.stdout!.setEncoding('utf8');
+      owned.child.stdout!.once('data', (chunk: string) => resolve(Number.parseInt(chunk, 10)));
+      owned.child.once('error', reject);
+    });
+    expect(grandchild).toBeGreaterThan(0);
+    expect(ownedProcessReceipt().leftoverPids).toContain(owned.pid);
+    // A bare pid, a forged handle, or this test process are all refused, and nothing is signalled.
+    await expect(stopOwnedProcess(owned.pid as any)).rejects.toThrow('did not launch');
+    await expect(stopOwnedProcess({ pid: owned.pid, child: owned.child } as any)).rejects.toThrow('did not launch');
+    await expect(stopOwnedProcess({ pid: process.pid, child: owned.child } as any)).rejects.toThrow('did not launch');
+    expect(isProcessAlive(owned.pid)).toBe(true);
+    expect(isProcessAlive(grandchild)).toBe(true);
+
+    await stopOwnedProcess(owned);
+    await waitUntilDead(grandchild);
+    expect(isProcessAlive(grandchild)).toBe(false);
+    expect(ownedProcessReceipt().leftoverPids).not.toContain(owned.pid);
+    await stopOwnedProcess(owned); // idempotent
+  });
+
+  it('the receipt lists launched processes whose group is still alive, and only those', async () => {
+    const quick = spawnOwnedProcess('/bin/sh', ['-c', 'exit 0']);
+    await new Promise<void>((resolve) => quick.child.once('exit', () => resolve()));
+    const held = spawnOwnedProcess('/bin/sh', ['-c', 'sleep 600']);
+    try {
+      expect(ownedProcessReceipt().leftoverPids).toEqual([held.pid]);
+    } finally {
+      await stopOwnedProcess(held);
+    }
   });
 });

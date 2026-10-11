@@ -95,6 +95,14 @@ try {
 - `page.setUserAgent(ua, { platform?, acceptLanguage? })` overrides the user agent for the page and its later navigations. Each call replaces the whole override. `page.resetUserAgent()` restores the `navigator.userAgent` captured before the first override.
 - `waitForFunction(fn, { failureArtifacts: { directory, label? } })` and `waitForSelector(...)` write a screenshot and a JSON state dump (url, title, predicate text, timeout, console entries) when they time out. Paths are on `error.artifacts` (`json`, `screenshot?`). `directory` must be absolute and must not lie inside `RIGHTKIT_RUN_ROOT`: `disposeQaWorkspace` deletes that tree. A failed write is appended to the error message; the timeout still throws.
 
+- `page.send(method, params?, timeout?)` is a page-scoped raw CDP escape hatch: unsupported surface, with Chrome's names, params and results. Prefer the typed methods. `page.setFocusEmulation(enabled)` sends `Emulation.setFocusEmulationEnabled`.
+- Navigation and reloads: `evaluate`, `waitForFunction` and `waitForSelector` re-resolve the main-frame context when Chrome reports it missing, and retry within the caller's timeout.
+- `onPoll: () => void | Promise<void>` on `waitForFunction` and `waitForSelector` runs once per poll, before the predicate. A throw rejects the wait with that error.
+- `click(target, { scroll: { inline: "nearest" } })` and `hover(target, { scroll })` choose horizontal alignment; the default is `center`, as before.
+- `fill(target, value, { replace: true, verify: { timeoutMs } })` polls the readback until it matches or the window ends; `verify: true` reads once.
+
+`spawnOwnedProcess(command, args, options)` starts a process in its own group (POSIX) and records it. `stopOwnedProcess(handle)` stops only a handle that `spawnOwnedProcess` returned, signalling the whole group. Bare pids and other objects are refused. `ownedProcessReceipt()` lists launched processes still running.
+
 `freePort()` returns a free `127.0.0.1` port by binding port 0 and releasing it. Another process can take the port before use.
 
 ## Keyboard keys
@@ -135,5 +143,5 @@ This package launches no native app and no WebView2 window; it never replaces th
 
 ## Known issues
 
-- `@rightkit/qa-chrome` is pinned exactly to `0.1.3`. A qa-chrome release therefore needs a `@rightkit/qa` republish to reach consumers (npm audit 2026-10-08, qa finding).
+- `@rightkit/qa-chrome` is pinned exactly to `0.1.4`. A qa-chrome release therefore needs a `@rightkit/qa` republish to reach consumers (npm audit 2026-10-08, qa finding).
 - Three consumers pin three different versions of `@rightkit/qa-chrome` as dev dependencies (npm audit 2026-10-08).

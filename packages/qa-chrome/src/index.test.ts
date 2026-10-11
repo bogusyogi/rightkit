@@ -1,3 +1,4 @@
+import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -90,6 +91,7 @@ describe.skipIf(!installed.path)('launchChromeForTesting + graceful close (real 
     // and the forced sweep then reports `sigkill`; the tree and profile are still gone.
     expect(process.platform === 'win32' ? ['cdp', 'sigkill'] : ['cdp']).toContain(report.step);
     expect(existsSync(browser.profileDir)).toBe(false);
+    expect(report.leftoverPids).toEqual([]);
     if (process.platform !== 'win32') {
       expect(() => process.kill(-browser.pid, 0)).toThrow();
     } else {
@@ -101,4 +103,39 @@ describe.skipIf(!installed.path)('launchChromeForTesting + graceful close (real 
     const created = codeSignCloneEntries().filter((entry) => !before.has(entry));
     expect(created).toEqual([]);
   }, 60_000);
+});
+
+describe.skipIf(process.platform === 'win32')('chromeProcessesForProfile on POSIX (process-list scan)', () => {
+  it('finds a leftover process whose parent was killed without cleanup, and only for the exact profile', () => {
+    const root = mkdtempSync(path.join(tmpdir(), 'rk-qa-orphan-'));
+    try {
+      const profile = path.join(root, 'profile');
+      const child = path.join(root, 'child.mjs');
+      const parent = path.join(root, 'parent.mjs');
+      // The child stands in for a Chrome helper: its argv carries the profile flag, like Chrome's children.
+      writeFileSync(child, 'setInterval(() => {}, 1000);\n');
+      writeFileSync(parent, [
+        "import { spawn } from 'node:child_process';",
+        "import { writeSync } from 'node:fs';",
+        `const c = spawn(process.execPath, [${JSON.stringify(child)}, '--user-data-dir=${profile}'], { stdio: 'ignore', detached: true });`,
+        'c.unref();',
+        'writeSync(1, String(c.pid) + "\\n");',
+        "process.kill(process.pid, 'SIGKILL'); // no cleanup: the child is left behind",
+      ].join('\n'));
+      const run = spawnSync(process.execPath, [parent], { encoding: 'utf8' });
+      expect(run.signal).toBe('SIGKILL');
+      const childPid = Number.parseInt(run.stdout.trim(), 10);
+      expect(childPid).toBeGreaterThan(0);
+      try {
+        expect(chromeProcessesForProfile(profile)).toContain(childPid);
+        // The profile flag is matched exactly: a sibling profile path with the same prefix is not a match.
+        expect(chromeProcessesForProfile(`${profile}2`)).not.toContain(childPid);
+        expect(chromeProcessesForProfile(path.join(root, 'missing'))).toEqual([]);
+      } finally {
+        try { process.kill(childPid, 'SIGKILL'); } catch { /* already gone */ }
+      }
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
 });

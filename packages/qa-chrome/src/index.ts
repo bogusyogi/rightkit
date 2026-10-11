@@ -175,6 +175,12 @@ export interface ChromeCloseReport {
   step: ChromeCloseStep;
   exited: boolean;
   profileRemoved: boolean;
+  /**
+   * Pids of processes still carrying this profile's `--user-data-dir` after the close, from a
+   * process-list scan (Windows, macOS and Linux). Empty when none remain. Reported only: close()
+   * does not signal them on POSIX; on Windows they are forced before the report is built.
+   */
+  leftoverPids: number[];
   durationMs: number;
 }
 
@@ -330,7 +336,7 @@ function signalTree(child: ChildProcess, signal: 'SIGTERM' | 'SIGKILL'): void {
  * unrelated browsers.
  */
 export function chromeProcessesForProfile(profileDir: string): number[] {
-  if (process.platform !== 'win32') return [];
+  if (process.platform !== 'win32') return posixProcessesForProfile(profileDir);
   const script = '$p = $env:RK_QA_PROFILE; Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -and $_.ProcessId -ne $PID -and $_.CommandLine.IndexOf($p, [StringComparison]::OrdinalIgnoreCase) -ge 0 } | ForEach-Object { $_.ProcessId }';
   const result = spawnSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', script], {
     encoding: 'utf8',
@@ -343,6 +349,30 @@ export function chromeProcessesForProfile(profileDir: string): number[] {
     .split(/\r?\n/)
     .map((line) => Number.parseInt(line.trim(), 10))
     .filter((pid) => Number.isInteger(pid) && pid > 0 && pid !== process.pid);
+}
+
+/**
+ * POSIX scan: every process whose argv carries `--user-data-dir=<profileDir>` as a whole argument
+ * (a sibling profile `<profileDir>2` does not match). `ps -o args=` works on macOS and Linux.
+ */
+function posixProcessesForProfile(profileDir: string): number[] {
+  if (!profileDir) return [];
+  const flag = `--user-data-dir=${profileDir}`;
+  const result = spawnSync('ps', ['-axww', '-o', 'pid=', '-o', 'args='], { encoding: 'utf8', timeout: 15_000 });
+  if (result.status !== 0 || typeof result.stdout !== 'string') return [];
+  const pids: number[] = [];
+  for (const line of result.stdout.split('\n')) {
+    const match = /^\s*(\d+)\s+(.*)$/.exec(line);
+    if (!match) continue;
+    const pid = Number(match[1]);
+    if (!Number.isInteger(pid) || pid <= 0 || pid === process.pid) continue;
+    const command = match[2];
+    for (let at = command.indexOf(flag); at >= 0; at = command.indexOf(flag, at + 1)) {
+      const after = command[at + flag.length];
+      if (after === undefined || after === ' ') { pids.push(pid); break; }
+    }
+  }
+  return pids;
 }
 
 async function waitProfileProcessesGone(profileDir: string, timeoutMs: number): Promise<number[]> {
@@ -433,7 +463,8 @@ export async function closeChromeGracefully(options: {
     }
     profileRemoved = !existsSync(options.profileDir);
   }
-  return { step, exited, profileRemoved, durationMs: Date.now() - started };
+  const leftoverPids = options.profileDir ? chromeProcessesForProfile(options.profileDir) : [];
+  return { step, exited, profileRemoved, leftoverPids, durationMs: Date.now() - started };
 }
 
 /** macOS per-user `X` directories that hold browser code-sign clones (deduplicated). */

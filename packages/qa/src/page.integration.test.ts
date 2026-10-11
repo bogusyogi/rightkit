@@ -5,7 +5,7 @@ import { existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { launchChromeForTesting, type ChromeForTestingBrowser } from '@rightkit/qa-chrome';
-import { ElementOccludedError, QaBrowserSession, type QaPage, TimeoutError } from './index.js';
+import { ElementOccludedError, FillMismatchError, QaBrowserSession, type QaPage, TimeoutError } from './index.js';
 
 // Deliberately no skip: this integration lane requires installed Chrome for Testing.
 describe('QaPage with real Chrome for Testing', () => {
@@ -331,5 +331,71 @@ describe('QaPage with real Chrome for Testing', () => {
     expect(dump.predicate).toContain('neverSet');
     expect(dump.console).toEqual(expect.arrayContaining([expect.objectContaining({ type: 'error', text: 'before-timeout' })]));
     expect((await readFile(error.artifacts.screenshot)).subarray(0, 8)).toEqual(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]));
+  });
+
+  it('0.4.5 waitForFunction survives location.reload(): the poll retries on the new main context', async () => {
+    await page.evaluateOnNewDocument('window.afterReload = true');
+    const waiting = page.waitForFunction('window.afterReload === true', { timeout: 5000, polling: 10 });
+    await page.reload();
+    await waiting;
+    expect(await page.evaluate('window.afterReload')).toBe(true);
+  });
+
+  it('0.4.5 evaluate works on the new context after a reload', async () => {
+    await page.reload();
+    expect(await page.evaluate('2 + 2')).toBe(4);
+  });
+
+  it('0.4.5 onPoll runs on each poll; a throw rejects the wait with that error', async () => {
+    let polls = 0;
+    await expect(page.waitForFunction('false', { timeout: 300, polling: 20, onPoll: () => { polls++; } })).rejects.toThrow(/Predicate/);
+    expect(polls).toBeGreaterThan(3);
+    const gaveUp = new Error('host gave up');
+    await expect(page.waitForFunction('false', { timeout: 2000, polling: 10, onPoll: () => { throw gaveUp; } })).rejects.toBe(gaveUp);
+  });
+
+  it('0.4.5 fill verify { timeoutMs } waits out a field that is cleared and restored; verify true does not', async () => {
+    await page.evaluate(() => {
+      for (const id of ['#text', '#next']) {
+        const input = document.querySelector(id) as HTMLInputElement;
+        input.addEventListener('input', () => {
+          const typed = input.value;
+          input.value = '';
+          setTimeout(() => { input.value = typed; }, 80);
+        });
+      }
+    });
+    await page.fill('#text', 'delayed', { replace: true, verify: { timeoutMs: 2000 } });
+    expect(await page.$eval('#text', element => (element as HTMLInputElement).value)).toBe('delayed');
+    await expect(page.fill('#next', 'instant', { replace: true, verify: true })).rejects.toBeInstanceOf(FillMismatchError);
+    await new Promise(resolve => setTimeout(resolve, 120));
+  });
+
+  it('0.4.5 scroll.inline nearest puts the target at the edge; the default centres it', async () => {
+    await page.evaluate(() => {
+      const box = document.createElement('div');
+      box.id = 'wide';
+      box.style.cssText = 'width:200px;overflow-x:auto;white-space:nowrap';
+      box.innerHTML = '<span style="display:inline-block;width:1000px;height:20px"></span><span id="target" style="display:inline-block;width:20px;height:20px;background:#f00"></span><span style="display:inline-block;width:2000px;height:20px"></span>';
+      document.querySelector('main')!.append(box);
+    });
+    const scrollLeft = () => page.$eval('#wide', element => (element as HTMLElement).scrollLeft);
+    await page.click('#target');
+    const centred = await scrollLeft();
+    await page.$eval('#wide', element => { (element as HTMLElement).scrollLeft = 0; });
+    await page.click('#target', { scroll: { inline: 'nearest' } });
+    const nearest = await scrollLeft();
+    expect(centred).toBeGreaterThan(nearest);
+    expect(nearest).toBeGreaterThan(0);
+  });
+
+  it('0.4.5 page.send runs a raw page command; setFocusEmulation toggles the emulation', async () => {
+    const reply = await page.send('Runtime.evaluate', { expression: '21 * 2', returnByValue: true });
+    expect(reply.result.value).toBe(42);
+    // The retry in evaluate keys on this message; Chrome must still send it for a missing context.
+    await expect(page.send('Runtime.evaluate', { expression: '1', contextId: 999999 })).rejects.toThrow('Cannot find context with specified id');
+    await page.setFocusEmulation(true);
+    await page.setFocusEmulation(false);
+    await expect(page.setFocusEmulation(1 as any)).rejects.toThrow('boolean');
   });
 });

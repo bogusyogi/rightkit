@@ -34,3 +34,10 @@ await browser.close(); // CDP Browser.close, then SIGTERM, then SIGKILL; profile
 
 - `codeSignCloneRoots` and `codeSignCloneEntries` are macOS code-sign clone checks inside a QA package. Their ownership is unresolved (npm audit 2026-10-08, qa-chrome finding).
 - Three consumers pin three different versions of this package as dev dependencies (npm audit 2026-10-08).
+
+## Leftover processes
+
+`chromeProcessesForProfile(profileDir)` returns the pids still carrying `--user-data-dir=<profileDir>` as a whole argument. It scans the process list on Windows (PowerShell), macOS and Linux (`ps`), so it can find a helper orphaned by a killed parent. A sibling profile whose path only starts with the same text does not match.
+
+`launchChromeForTesting(...).close()` returns a `ChromeCloseReport` whose `leftoverPids` lists the profile's processes left after close. POSIX reports them without signalling; Windows forces them before reporting.
+

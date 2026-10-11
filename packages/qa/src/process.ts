@@ -1,4 +1,4 @@
-import { spawn } from 'node:child_process';
+import { spawn, type ChildProcess } from 'node:child_process';
 import { createServer } from 'node:net';
 
 export interface OwnedProcessResult {
@@ -138,4 +138,107 @@ async function waitForExit(pid: number, timeoutMs: number): Promise<void> {
   while (Date.now() < deadline && isProcessAlive(pid)) {
     await new Promise((resolve) => setTimeout(resolve, 25));
   }
+}
+
+export interface SpawnOwnedProcessOptions {
+  cwd?: string;
+  env?: NodeJS.ProcessEnv;
+  /** Default 'ignore'. 'pipe' exposes child.stdout and child.stderr. */
+  stdio?: 'ignore' | 'pipe';
+  windowsHide?: boolean;
+}
+
+/**
+ * A process this package launched. Only the object returned by spawnOwnedProcess is accepted by
+ * stopOwnedProcess: a bare pid or a look-alike object is refused.
+ */
+export interface OwnedProcess {
+  readonly pid: number;
+  readonly child: ChildProcess;
+}
+
+/** Every handle this package has launched in this process, stopped or not. */
+const launched = new Set<OwnedProcess>();
+const stopped = new WeakSet<OwnedProcess>();
+
+/**
+ * Launches a long-running process in its own process group (POSIX) and records it. Stopping it
+ * with stopOwnedProcess signals the whole group, so grandchildren go too.
+ */
+export function spawnOwnedProcess(command: string, args: string[] = [], options: SpawnOwnedProcessOptions = {}): OwnedProcess {
+  const child = spawn(command, args, {
+    cwd: options.cwd,
+    env: options.env,
+    stdio: options.stdio === 'pipe' ? ['ignore', 'pipe', 'pipe'] : 'ignore',
+    windowsHide: options.windowsHide ?? true,
+    detached: process.platform !== 'win32',
+  });
+  // Spawn failures arrive as 'error'; surface them through the missing pid, not as an unhandled event.
+  child.on('error', () => {});
+  if (!child.pid) throw new Error(`failed to start owned process: ${command}`);
+  const handle: OwnedProcess = Object.freeze({ pid: child.pid, child });
+  launched.add(handle);
+  return handle;
+}
+
+/**
+ * Stops a process returned by spawnOwnedProcess: SIGTERM to its process group, SIGKILL after 1 s
+ * if members remain (POSIX); taskkill /T /F on Windows. Idempotent. Refuses anything else.
+ */
+export async function stopOwnedProcess(handle: OwnedProcess): Promise<void> {
+  if (!handle || typeof handle !== 'object' || !launched.has(handle)) {
+    const pid = handle && typeof handle === 'object' ? handle.pid : handle;
+    throw new Error(`refusing to stop pid ${String(pid)}: this package did not launch it`);
+  }
+  if (stopped.has(handle)) return;
+  const pid = handle.pid;
+  if (process.platform === 'win32') {
+    await runCleanupCommand('taskkill.exe', ['/PID', String(pid), '/T', '/F']);
+  } else {
+    signalGroup(pid, 'SIGTERM');
+    if (!(await waitGroupGone(pid, 1_000))) {
+      signalGroup(pid, 'SIGKILL');
+      await waitGroupGone(pid, 2_000);
+    }
+  }
+  stopped.add(handle);
+}
+
+export interface OwnedProcessReceipt {
+  /**
+   * Pids launched by spawnOwnedProcess and not stopped whose process group (POSIX) or process
+   * (Windows) still exists. Empty when nothing this package launched is left running.
+   */
+  leftoverPids: number[];
+}
+
+/** Receipt of what this package launched and still has running. Read only; signals nothing. */
+export function ownedProcessReceipt(): OwnedProcessReceipt {
+  const leftoverPids = [...launched]
+    .filter((handle) => !stopped.has(handle))
+    .filter((handle) => (process.platform === 'win32' ? isProcessAlive(handle.pid) : groupAlive(handle.pid)))
+    .map((handle) => handle.pid);
+  return { leftoverPids };
+}
+
+function groupAlive(pid: number): boolean {
+  try {
+    process.kill(-pid, 0);
+    return true;
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code === 'EPERM';
+  }
+}
+
+function signalGroup(pid: number, signal: NodeJS.Signals): void {
+  try { process.kill(-pid, signal); } catch { /* group already gone */ }
+}
+
+async function waitGroupGone(pid: number, timeoutMs: number): Promise<boolean> {
+  const deadline = Date.now() + timeoutMs;
+  while (groupAlive(pid)) {
+    if (Date.now() >= deadline) return false;
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+  return true;
 }
