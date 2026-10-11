@@ -271,13 +271,15 @@ pub fn record_report(
         stamp,
     );
     if dir_ready && config.native_capture == NativeCapture::Auto {
-        if let Some(path) = native::capture(&config.crash_dir, &kind, stamp) {
+        let outcome = native::capture_detailed(&config.crash_dir, &kind, stamp);
+        if let Some(path) = outcome.artifact {
             if let Some(name) = path.file_name() {
                 report
                     .native_artifacts
                     .push(name.to_string_lossy().into_owned());
             }
         }
+        report.native_capture_note = outcome.note;
     }
     let value = report.to_scrubbed_value();
     // File first: under `panic = "abort"` a panicking sink aborts the process, and the file record

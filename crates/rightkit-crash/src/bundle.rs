@@ -113,9 +113,7 @@ fn stage_and_zip(
         if let Ok(entries) = std::fs::read_dir(&options.crash_dir) {
             for entry in entries.flatten() {
                 let name = entry.file_name().to_string_lossy().into_owned();
-                if (name.starts_with("dump_") || name.starts_with("sample_"))
-                    && entry.path().is_file()
-                {
+                if is_native_artifact_name(&name) && entry.path().is_file() {
                     std::fs::create_dir_all(&crash_out).map_err(|e| e.to_string())?;
                     std::fs::copy(entry.path(), crash_out.join(&name))
                         .map_err(|e| e.to_string())?;
@@ -134,7 +132,64 @@ fn stage_and_zip(
     })
 }
 
+/// Published native artifacts only. An unscrubbed raw sample (`.sample_raw_*.raw`, see
+/// `native::RAW_PREFIX`) does not match, so a bundle can never carry one.
+fn is_native_artifact_name(name: &str) -> bool {
+    name.starts_with("dump_") || name.starts_with("sample_")
+}
+
 fn write_json(path: &std::path::Path, value: &Value) -> Result<(), String> {
     let bytes = serde_json::to_vec_pretty(value).map_err(|e| e.to_string())?;
     std::fs::write(path, bytes).map_err(|e| format!("write {}: {e}", path.display()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::native::{RAW_PREFIX, RAW_SUFFIX};
+
+    #[test]
+    fn the_raw_sample_name_is_not_selected_for_a_bundle() {
+        let raw = format!("{RAW_PREFIX}panic_1_2{RAW_SUFFIX}");
+        assert!(!is_native_artifact_name(&raw));
+        assert!(is_native_artifact_name("sample_panic_1_2.txt"));
+        assert!(is_native_artifact_name("dump_panic_1_2.dmp"));
+    }
+
+    #[test]
+    fn a_bundle_with_native_dumps_included_leaves_a_raw_sample_out() {
+        let nonce = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0);
+        let dir = std::env::temp_dir().join(format!(
+            "rightkit-crash-bundle-{}-{nonce}",
+            std::process::id()
+        ));
+        let crash_dir = dir.join("crash");
+        std::fs::create_dir_all(&crash_dir).unwrap();
+        std::fs::write(crash_dir.join("sample_panic_1_2.txt"), "scrubbed").unwrap();
+        std::fs::write(
+            crash_dir.join(format!("{RAW_PREFIX}panic_3_4{RAW_SUFFIX}")),
+            "/Users/someone/private",
+        )
+        .unwrap();
+        let manifest = build_support_bundle(&SupportBundleOptions {
+            app_name: "App".into(),
+            app_version: "1".into(),
+            build: "t".into(),
+            crash_dir,
+            log_sources: Vec::new(),
+            settings: json!({}),
+            policy: rightkit_logs::CollectionPolicy::default(),
+            include_native_dumps: true,
+            destination: dir.join("out.zip"),
+        })
+        .expect("bundle");
+        assert_eq!(manifest.native_artifacts, 1);
+        let bytes = std::fs::read(&manifest.destination).unwrap();
+        let text = String::from_utf8_lossy(&bytes);
+        assert!(!text.contains(".sample_raw_"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }

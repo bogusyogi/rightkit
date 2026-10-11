@@ -27,6 +27,11 @@ pub struct CrashReport {
     /// File names (not paths) of local-only native captures next to this report.
     #[serde(default)]
     pub native_artifacts: Vec<String>,
+    /// Set when a native capture was attempted but not kept cleanly, for example
+    /// `sample_publish_failed` (the sample could not be scrubbed and published, so none was kept).
+    /// A fixed code, optionally followed by a leftover raw file's name; never a path or content.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub native_capture_note: Option<String>,
 }
 
 pub(crate) struct RawCrash<'a> {
@@ -70,6 +75,7 @@ impl CrashReport {
             message,
             backtrace,
             native_artifacts: Vec::new(),
+            native_capture_note: None,
         }
     }
 
@@ -93,5 +99,37 @@ pub(crate) fn sanitize_kind(kind: &str) -> String {
         "unknown".into()
     } else {
         cleaned
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_capture_note_is_omitted_when_empty_and_older_reports_still_parse() {
+        let report = CrashReport::redacted(
+            RawCrash {
+                kind: "panic",
+                app_name: "App",
+                app_version: "1",
+                build: None,
+                thread: "main",
+                location: None,
+                message: "boom",
+                backtrace: "",
+            },
+            1,
+        );
+        let mut value = serde_json::to_value(&report).unwrap();
+        assert!(value.get("native_capture_note").is_none());
+        value.as_object_mut().unwrap().remove("native_artifacts");
+        let parsed: CrashReport = serde_json::from_value(value).unwrap();
+        assert_eq!(parsed.native_capture_note, None);
+
+        let mut noted = report;
+        noted.native_capture_note = Some("sample_publish_failed".into());
+        let value = noted.to_scrubbed_value();
+        assert_eq!(value["native_capture_note"], "sample_publish_failed");
     }
 }

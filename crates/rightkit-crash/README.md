@@ -46,6 +46,12 @@ fn main() {
 `capture_native(dir, kind)` takes the same native capture on demand, for hang, UI-stall or
 sidecar-crash paths that are not panics, and returns the artifact path.
 
+### What a native artifact contains, and what is scrubbed
+
+- **macOS sample** (`sample_<kind>_<stamp>_<pid>.txt`): the call stacks and loaded binary image paths of the process, as text. Image paths include the user's home folder name, so the text is scrubbed (home folder names, emails, credentials) before it can be bundled. `sample` writes to a hidden, owner-only raw file (`.sample_raw_<kind>_<stamp>_<pid>.raw`) that the support bundle, `prune` retention and `list_pending` never list. The scrubbed bytes are then published atomically, owner-only, under the `sample_*.txt` name, and only then does the capture return the path and the report name the file in `native_artifacts`. The raw file is deleted in every case.
+- **If scrubbing or publishing fails** (the raw file cannot be read, or the scrubbed file cannot be written), nothing is published: the capture returns `None`, the raw file is deleted, the report's `native_artifacts` stays empty, `native_capture_note` carries a fixed code (`sample_read_failed`, `sample_publish_failed`, `sample_raw_create_failed`, and `sample_raw_not_removed <file name>` if the raw file could not be deleted), and the same code is written to stderr as a `rightkit-crash:` line. A leftover raw file cannot be exported, and `prune` (and the next macOS capture) removes raw files older than five minutes.
+- **Windows minidump** (`dump_<kind>_<stamp>_<pid>.dmp`): process memory, **not scrubbed** (there is no sound way to scrub a binary dump). It stays local, is never queued, and enters a support bundle only when the app sets `include_native_dumps` after an explicit user opt-in.
+
 ### Bundling the Windows dump helper
 
 The helper is this crate's `rightkit-dump-helper` binary. An app builds it and ships it next to
