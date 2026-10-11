@@ -59,6 +59,11 @@ export interface CreateQaWorkspaceOptions {
   retention?: import('./storage.js').RetentionPolicy;
 }
 
+/**
+ * Create an isolated run home. `env.RIGHTKIT_RUN_ROOT` is set to `home`, which lives inside the
+ * workspace that {@link disposeQaWorkspace} deletes. A host must never map a directory holding
+ * artifacts it wants to keep onto RIGHTKIT_RUN_ROOT: disposal removes that tree.
+ */
 export function createQaWorkspace(options: CreateQaWorkspaceOptions): QaWorkspace {
   const appKey = requireText(options.appKey, 'appKey');
   const managed = createManagedRun({ managedRoot: options.root ? requireText(options.root, 'root') : resolveManagedRoot(), app: appKey, runId: options.runId ?? crypto.randomUUID(), leaseMs: options.leaseMs, retention: options.retention });
@@ -128,6 +133,11 @@ export interface DisposeOptions {
  * Remove the workspace, retrying through the brief window in which an exiting
  * app still holds its files open. Anything still present afterwards is returned,
  * never silently ignored.
+ *
+ * Deletes `workspace.home`, which is what RIGHTKIT_RUN_ROOT points at, and also
+ * `workspace.root` unless `keepEvidence` is set. Anything a host maps under
+ * RIGHTKIT_RUN_ROOT is deleted: never map a directory holding artifacts you want
+ * to keep onto it.
  */
 export function disposeQaWorkspace(workspace: QaWorkspace, options: DisposeOptions = {}): DisposeReport {
   const attempts = Math.max(1, options.attempts ?? 5);

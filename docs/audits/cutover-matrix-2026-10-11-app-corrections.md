@@ -12,6 +12,7 @@ The audit in `cutover-matrix-2026-10-11/` is left as its author wrote it. This f
 | HeardRight | rightkit-vad | N | Silero scoring on rightkit_vad::Silero on every platform (second-wave tree, uncommitted). |
 | HeardRight | rightkit-transcript | N | File-transcription SRT/VTT already on rightkit-transcript; history_export.rs has no SRT/VTT (Json, Markdown, PlainText, Csv are product schema). Ruled local, mark Y. |
 | HeardRight | rightkit-shell | N ("pinned app dependency") | No rightkit-shell dependency exists in src-tauri/Cargo.toml. |
+| HeardRight | @rightkit/platform-ui | M | formatChord ported onto 0.2.7 (uncommitted tree; 124-case parity, every rendered chord identical); getPlatform ruled local. |
 | MailRight | @rightkit/legal-ui | N | LegalGate 0.2.2 (18e0cc5). |
 | MailRight | @rightkit/pdf-ui | N | PdfViewer 0.1.5, direct pdfjs-dist removed (18e0cc5). |
 | MailRight | @rightkit/theme | N | applyTokens, contrastRatio, readableOn (bb55964, fab695c); presets and font picker ruled local. |

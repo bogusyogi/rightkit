@@ -86,6 +86,28 @@ try {
 
 `evaluate` throws the page's JavaScript exception (or a `TimeoutError`) rather than returning an error value. Wrap the call if you need the error as data.
 
+## Keyboard keys
+
+`page.keyboard.press(chord)` accepts named keys (`Enter`, `Tab`, `Escape`, arrows, `Home`, `End`, `PageUp`, `PageDown`, `Backspace`, `Delete`, `Space`, `Shift`, `Control`, `Alt`, `Meta`), function keys `F1` through `F24`, letters, digits, and every printable US-layout symbol, including backslash.
+
+- Shifted symbols send Shift. `?` is Shift+`/`, `+` is Shift+`=`, `!` is Shift+`1`. Such a key carries `modifiers` 8 and its shifted `key` and `text`; no separate Shift key-down is sent.
+- Chords join parts with `+`. A literal plus key goes last: `+` and `Control++`.
+- `code` follows the US layout (`?` has code `Slash`). Other layouts are not modelled.
+
+## Browser escape hatch (unsupported surface)
+
+These methods expose Chrome's own DevTools protocol. Their names, params and results follow the browser version, not this package, and may break when Chrome changes. Use the typed `QaPage` API where it exists.
+
+- `browser.send(method, params?)` sends one browser-scoped command with no `sessionId` and resolves with its raw result.
+- `browser.version()` returns `Browser.getVersion`.
+- `browser.commandLine()` returns the browser argv from `Browser.getBrowserCommandLine` as `string[]`.
+
+`commandLine()` needs the browser launched with `--enable-automation`. `launchChromeForTesting` does not pass that flag, so launch with `launchChromeForTesting({ args: ["--enable-automation"] })`. Without it, the call rejects with an error that names the requirement; the browser is unchanged.
+
+## Run root and workspace disposal
+
+`createQaWorkspace` sets `RIGHTKIT_RUN_ROOT` to the workspace `home`. `disposeQaWorkspace` deletes that home, and deletes the workspace root too unless `keepEvidence` is set. A host must never map a directory that holds artifacts it wants to keep onto `RIGHTKIT_RUN_ROOT`, or onto the workspace root or home. Copy artifacts out before disposal, or use `keepEvidence: true` and keep anything written under `evidence` or `captures`.
+
 ## Ownership: this package versus the Rust `rightkit-qa` crate
 
 Both runners stay. Pick by what the test drives.

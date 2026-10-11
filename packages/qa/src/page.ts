@@ -185,6 +185,41 @@ export class QaBrowserSession {
       throw error;
     }
   }
+  /**
+   * UNSUPPORTED escape hatch: sends one browser-scoped CDP command (no sessionId) and resolves
+   * with its raw result. The protocol is Chrome's, not this package's: method names, params and
+   * results may change or disappear with a browser version. Prefer the typed QaPage API.
+   */
+  send(method: string, params: CdpParams = {}): Promise<CdpParams> {
+    if (this.closed) return Promise.reject(new Error('Browser session closed'));
+    if (typeof method !== 'string' || !method) return Promise.reject(new Error('CDP method must be a non-empty string'));
+    return this.client.send(method, params);
+  }
+  /** Browser.getVersion (unsupported surface, see send). Read only. */
+  version(): Promise<CdpParams> {
+    return this.send('Browser.getVersion');
+  }
+  /**
+   * Browser argv via Browser.getBrowserCommandLine (unsupported surface, see send). The browser
+   * answers only when it was launched with --enable-automation; launchChromeForTesting passes no
+   * such flag by default, so pass { args: ['--enable-automation'] } to use this. A refusal rejects
+   * with an error that names the requirement; the browser is not changed.
+   */
+  async commandLine(): Promise<string[]> {
+    let reply: CdpParams;
+    try {
+      reply = await this.send('Browser.getBrowserCommandLine');
+    } catch (error) {
+      // CdpClient prefixes errors the browser itself returned with "CDP: "; timeouts and closed sockets pass through.
+      if (error instanceof Error && error.message.startsWith('CDP: ')) {
+        throw new Error(`Browser.getBrowserCommandLine was refused (${error.message.slice(5)}). It requires the browser to be launched with --enable-automation, e.g. launchChromeForTesting({ args: ['--enable-automation'] }).`, { cause: error });
+      }
+      throw error;
+    }
+    const argv = reply.arguments;
+    if (!Array.isArray(argv) || !argv.every((arg) => typeof arg === 'string')) throw new Error('Browser.getBrowserCommandLine did not return an argument list');
+    return argv;
+  }
   close(): Promise<void> {
     if (this.closing) return this.closing;
     this.closed = true;

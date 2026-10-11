@@ -203,6 +203,34 @@ describe('QaPage with real Chrome for Testing', () => {
     await expect(page.select('#text', 'one')).rejects.toThrow('not a select');
   });
 
+  it('presses F3, F5, ? and backslash; the page receives the matching key and code', async () => {
+    for (const key of ['F3', 'F5', '?', '\\']) await page.keyboard.press(key);
+    const events = await page.evaluate('window.events');
+    expect(events).toEqual(expect.arrayContaining([
+      expect.objectContaining({ type: 'keydown', key: 'F3', code: 'F3', trusted: true }),
+      expect.objectContaining({ type: 'keydown', key: 'F5', code: 'F5', trusted: true }),
+      expect.objectContaining({ type: 'keydown', key: '?', code: 'Slash', trusted: true }),
+      expect.objectContaining({ type: 'keydown', key: '\\', code: 'Backslash', trusted: true }),
+    ]));
+  });
+
+  it('reads the browser version through the escape hatch; commandLine() needs --enable-automation', async () => {
+    const version = await browser.version();
+    expect(String(version.product)).toMatch(/Chrome/);
+    expect(await browser.send('Browser.getVersion')).toMatchObject({ product: version.product });
+    await expect(browser.commandLine()).rejects.toThrow('launched with --enable-automation');
+    const automated = await launchChromeForTesting({ args: ['--enable-automation'] });
+    const session = await QaBrowserSession.connect(automated.wsEndpoint, { timeout: 5000 });
+    try {
+      const argv = await session.commandLine();
+      expect(argv).toEqual(expect.arrayContaining(['--enable-automation', '--headless=new']));
+      expect(argv.some(arg => arg.startsWith('--user-data-dir='))).toBe(true);
+    } finally {
+      await session.close();
+      expect((await automated.close()).exited).toBe(true);
+    }
+  }, 30_000);
+
   it('captures viewport PNG at expected DPR size & writes identical bytes', async () => {
     const file = path.join(output, 'viewport.png');
     const png = await page.screenshot({ path: file, type: 'png', captureBeyondViewport: false, fullPage: false });

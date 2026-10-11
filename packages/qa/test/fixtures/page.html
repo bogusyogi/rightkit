@@ -28,7 +28,7 @@
   window.events = [];
   for (const type of ['click', 'dblclick', 'contextmenu', 'input', 'change', 'keydown', 'keyup', 'focusin', 'mouseover']) {
     document.addEventListener(type, event => {
-      window.events.push({ type, id: event.target.id, trusted: event.isTrusted, key: event.key });
+      window.events.push({ type, id: event.target.id, trusted: event.isTrusted, key: event.key, code: event.code });
       if (type === 'contextmenu') event.preventDefault();
     });
   }

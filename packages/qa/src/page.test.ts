@@ -428,3 +428,139 @@ describe('attach to an existing page & page.mouse', () => {
     expect(mouseEvents(server, hoverStart)).toEqual([{ type: 'mouseMoved', x: 30, y: 30 }]);
   });
 });
+
+describe('keyboard table: function keys, US symbols & chords', () => {
+  /** Records every CDP command QaKeyboard sends, in order. */
+  function recorder() {
+    const calls: Array<{ method: string; params: any }> = [];
+    const keyboard = new QaKeyboard(async (method, params) => { calls.push({ method, params }); return {}; });
+    return { calls, keyboard };
+  }
+  it('sends exact rawKeyDown & keyUp events for F3 and F5', async () => {
+    for (const [key, virtualKey] of [['F3', 114], ['F5', 116]] as const) {
+      const { calls, keyboard } = recorder();
+      await keyboard.press(key);
+      expect(calls).toEqual([
+        { method: 'Input.dispatchKeyEvent', params: { type: 'rawKeyDown', key, code: key, windowsVirtualKeyCode: virtualKey, modifiers: 0 } },
+        { method: 'Input.dispatchKeyEvent', params: { type: 'keyUp', key, code: key, windowsVirtualKeyCode: virtualKey, modifiers: 0 } },
+      ]);
+    }
+  });
+  it('maps F1 through F24 to Windows virtual keys 112 through 135 and rejects the rest', () => {
+    for (let n = 1; n <= 24; n++) expect(keyDefinition(`F${n}`, 0)).toMatchObject({ key: `F${n}`, code: `F${n}`, windowsVirtualKeyCode: 111 + n });
+    for (const key of ['F0', 'F25', 'F01']) expect(() => keyDefinition(key, 0)).toThrow(`Unsupported key: ${key}`);
+  });
+  it('sends exact events for ? as Shift+Slash with shift modifier and text', async () => {
+    const { calls, keyboard } = recorder();
+    await keyboard.press('?');
+    expect(calls).toEqual([
+      { method: 'Input.dispatchKeyEvent', params: { type: 'keyDown', key: '?', code: 'Slash', windowsVirtualKeyCode: 191, modifiers: 8, text: '?', unmodifiedText: '/' } },
+      { method: 'Input.dispatchKeyEvent', params: { type: 'keyUp', key: '?', code: 'Slash', windowsVirtualKeyCode: 191, modifiers: 8 } },
+    ]);
+  });
+  it('sends exact events for backslash', async () => {
+    const { calls, keyboard } = recorder();
+    await keyboard.press('\\');
+    expect(calls).toEqual([
+      { method: 'Input.dispatchKeyEvent', params: { type: 'keyDown', key: '\\', code: 'Backslash', windowsVirtualKeyCode: 220, modifiers: 0, text: '\\', unmodifiedText: '\\' } },
+      { method: 'Input.dispatchKeyEvent', params: { type: 'keyUp', key: '\\', code: 'Backslash', windowsVirtualKeyCode: 220, modifiers: 0 } },
+    ]);
+  });
+  it('sends exact events for the chord Control+/ (no text while a command modifier is held)', async () => {
+    const { calls, keyboard } = recorder();
+    await keyboard.press('Control+/');
+    expect(calls).toEqual([
+      { method: 'Input.dispatchKeyEvent', params: { type: 'rawKeyDown', key: 'Control', code: 'ControlLeft', windowsVirtualKeyCode: 17, modifiers: 2 } },
+      { method: 'Input.dispatchKeyEvent', params: { type: 'rawKeyDown', key: '/', code: 'Slash', windowsVirtualKeyCode: 191, modifiers: 2 } },
+      { method: 'Input.dispatchKeyEvent', params: { type: 'keyUp', key: '/', code: 'Slash', windowsVirtualKeyCode: 191, modifiers: 2 } },
+      { method: 'Input.dispatchKeyEvent', params: { type: 'keyUp', key: 'Control', code: 'ControlLeft', windowsVirtualKeyCode: 17, modifiers: 0 } },
+    ]);
+  });
+  it('covers every printable US symbol, shifted and unshifted, with its base key code', () => {
+    const table: Array<[string, string, string, number, number, string]> = [
+      ['/', 'Slash', '/', 191, 0, '/'], ['?', 'Slash', '/', 191, 8, '?'],
+      ['\\', 'Backslash', '\\', 220, 0, '\\'], ['|', 'Backslash', '\\', 220, 8, '|'],
+      ['`', 'Backquote', '`', 192, 0, '`'], ['~', 'Backquote', '`', 192, 8, '~'],
+      ['-', 'Minus', '-', 189, 0, '-'], ['_', 'Minus', '-', 189, 8, '_'],
+      ['=', 'Equal', '=', 187, 0, '='], ['+', 'Equal', '=', 187, 8, '+'],
+      [';', 'Semicolon', ';', 186, 0, ';'], [':', 'Semicolon', ';', 186, 8, ':'],
+      ["'", 'Quote', "'", 222, 0, "'"], ['"', 'Quote', "'", 222, 8, '"'],
+      [',', 'Comma', ',', 188, 0, ','], ['<', 'Comma', ',', 188, 8, '<'],
+      ['.', 'Period', '.', 190, 0, '.'], ['>', 'Period', '.', 190, 8, '>'],
+      ['[', 'BracketLeft', '[', 219, 0, '['], ['{', 'BracketLeft', '[', 219, 8, '{'],
+      [']', 'BracketRight', ']', 221, 0, ']'], ['}', 'BracketRight', ']', 221, 8, '}'],
+      ['1', 'Digit1', '1', 49, 0, '1'], ['!', 'Digit1', '1', 49, 8, '!'],
+      ['0', 'Digit0', '0', 48, 0, '0'], [')', 'Digit0', '0', 48, 8, ')'],
+    ];
+    for (const [key, code, unmodifiedText, windowsVirtualKeyCode, modifiers, text] of table) {
+      expect(keyDefinition(key, 0)).toMatchObject({ key: modifiers ? text : unmodifiedText, code, windowsVirtualKeyCode, modifiers: modifiers ? 8 : 0 });
+      expect(keyDefinition(key, 0).unmodifiedText).toBe(unmodifiedText);
+      expect(keyDefinition(key, 0).text).toBe(text);
+    }
+    // Shift held as its own modifier selects the shifted character of the same key.
+    expect(keyDefinition('/', 8)).toMatchObject({ key: '?', code: 'Slash', text: '?', modifiers: 8 });
+    expect(() => keyDefinition('€', 0)).toThrow('Unsupported key: €');
+  });
+  it('treats a trailing + as the plus key, alone and in a chord', async () => {
+    const { calls, keyboard } = recorder();
+    await keyboard.press('+');
+    expect(calls[0].params).toMatchObject({ type: 'keyDown', key: '+', code: 'Equal', windowsVirtualKeyCode: 187, modifiers: 8, text: '+' });
+    const chord = recorder();
+    await chord.keyboard.press('Control++');
+    expect(chord.calls.map((call) => call.params.key)).toEqual(['Control', '+', '+', 'Control']);
+    expect(chord.calls[1].params).toMatchObject({ type: 'rawKeyDown', key: '+', code: 'Equal', modifiers: 10 });
+  });
+});
+
+describe('browser-level escape hatch', () => {
+  async function browserFixture(handler: (message: any, send: (message: any) => void) => void) {
+    const server = await mockCdp(handler); cleanup.push(server.close);
+    const browser = await QaBrowserSession.connect(server.endpoint, { timeout: 500 });
+    cleanup.push(() => browser.close().catch(() => {}));
+    return { server, browser };
+  }
+  it('send() forwards browser-scoped commands with no sessionId', async () => {
+    const { server, browser } = await browserFixture((message, send) => {
+      send({ id: message.id, result: message.method === 'Browser.getVersion' ? { product: 'HeadlessChrome/1.0', protocolVersion: '1.3' } : {} });
+    });
+    expect(await browser.send('Browser.getVersion')).toEqual({ product: 'HeadlessChrome/1.0', protocolVersion: '1.3' });
+    expect(server.messages[0]).toEqual({ id: 1, method: 'Browser.getVersion', params: {} });
+    await expect(browser.send('')).rejects.toThrow('CDP method must be a non-empty string');
+  });
+  it('version() returns Browser.getVersion without a sessionId', async () => {
+    const { server, browser } = await browserFixture((message, send) => {
+      send({ id: message.id, result: { product: 'HeadlessChrome/1.0', userAgent: 'x' } });
+    });
+    expect(await browser.version()).toMatchObject({ product: 'HeadlessChrome/1.0' });
+    expect(server.messages.at(-1)).toEqual({ id: 1, method: 'Browser.getVersion', params: {} });
+  });
+  it('commandLine() returns the argv from Browser.getBrowserCommandLine', async () => {
+    const { server, browser } = await browserFixture((message, send) => {
+      send({ id: message.id, result: message.method === 'Browser.getBrowserCommandLine' ? { arguments: ['chrome', '--headless=new', '--enable-automation'] } : {} });
+    });
+    expect(await browser.commandLine()).toEqual(['chrome', '--headless=new', '--enable-automation']);
+    expect(server.messages.at(-1)).toEqual({ id: 1, method: 'Browser.getBrowserCommandLine', params: {} });
+  });
+  it('commandLine() rejects with a clear --enable-automation error when the browser refuses', async () => {
+    const { browser } = await browserFixture((message, send) => {
+      send({ id: message.id, error: { code: -32601, message: "'Browser.getBrowserCommandLine' wasn't found" } });
+    });
+    await expect(browser.commandLine()).rejects.toThrow(/launched with --enable-automation/);
+    await expect(browser.commandLine()).rejects.toThrow(/Browser\.getBrowserCommandLine was refused/);
+  });
+  it('commandLine() rejects a reply that is not an argument list', async () => {
+    const { browser } = await browserFixture((message, send) => {
+      send({ id: message.id, result: { arguments: 'chrome --headless' } });
+    });
+    await expect(browser.commandLine()).rejects.toThrow('did not return an argument list');
+  });
+  it('escape-hatch methods reject after close without sending', async () => {
+    const { server, browser } = await browserFixture((message, send) => send({ id: message.id, result: {} }));
+    await browser.close();
+    const sent = server.messages.length;
+    await expect(browser.send('Browser.getVersion')).rejects.toThrow('Browser session closed');
+    await expect(browser.version()).rejects.toThrow('Browser session closed');
+    await expect(browser.commandLine()).rejects.toThrow('Browser session closed');
+    expect(server.messages.length).toBe(sent);
+  });
+});
