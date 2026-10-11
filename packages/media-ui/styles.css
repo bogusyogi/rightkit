@@ -261,8 +261,10 @@
   flex: 1;
   min-height: 0;
   overflow: hidden;
-  outline: none;
 }
+/* The stage is a keyboard target (zoom, pan, fit). Ring on keyboard focus only; restyle with
+   --rk-iv-input-focus or by overriding .rk-iv-stage:focus-visible. */
+:where(.rk-iv-stage:focus-visible) { outline: 2px solid var(--_rkiv-input-focus); outline-offset: -2px; }
 :where(.rk-iv-canvas-pos) {
   position: absolute; left: 50%; top: 50%;
   user-select: none;

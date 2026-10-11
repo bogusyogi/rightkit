@@ -23,6 +23,12 @@ const ImageCropTool = lazy(() =>
   import("./ImageCropTool.js").then((m) => ({ default: m.ImageCropTool })),
 );
 
+function isTextEntry(target: EventTarget): boolean {
+  const element = target as HTMLElement;
+  const tag = element.tagName;
+  return tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || element.isContentEditable === true;
+}
+
 export function ImageViewerStage({
   displayName,
   displaySrc,
@@ -102,8 +108,10 @@ export function ImageViewerStage({
     <div
       ref={frameRef}
       data-rk-image-stage
-      role="img"
+      role="group"
+      aria-roledescription="image viewer"
       aria-label={displayName}
+      tabIndex={0}
       className="rk-iv-stage"
       style={{ cursor: dragging ? "grabbing" : panning ? "grab" : "default", touchAction: "none" }}
       onWheel={onWheel}
@@ -113,6 +121,8 @@ export function ImageViewerStage({
       onPointerCancel={onPointerStop}
       onDoubleClick={onDoubleClick}
       onKeyDown={(event) => {
+        // Leave browser shortcuts (Ctrl/Cmd +/-/0) and text entry (the text tool's editor) alone.
+        if (event.ctrlKey || event.metaKey || event.altKey || isTextEntry(event.target)) return;
         if (event.key === "+" || event.key === "=") onZoomIn();
         else if (event.key === "-" || event.key === "_") onZoomOut();
         else if (event.key === "0") onActual();

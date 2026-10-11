@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.3
+
+- The image stage is now a keyboard target: `tabIndex={0}`, `role="group"` (was `role="img"`, which hid the folder-paging buttons from assistive technology) with `aria-roledescription="image viewer"` and the file name as its label. Zoom (`+`/`-`), actual size (`0`), fit (`f`) and pan (arrow keys) work while it has focus; Ctrl/Cmd/Alt shortcuts and typing in a text field inside the stage are left to the browser. A 2px `:focus-visible` ring uses `--rk-iv-input-focus` (accent by default); override `.rk-iv-stage:focus-visible` to restyle. No other visual change.
+
 ## 0.3.2
 
 - Republish with `dist/` present. 0.3.1 was published from an unbuilt tree and cannot be imported (exports point at ./dist/index.js); do not pin 0.3.1. `prepack` now builds.
