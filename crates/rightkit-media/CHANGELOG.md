@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Tests: `tests/promote_evidence_windows.rs` produces the evidence a pending Windows catalogue row needs before it
+  is approved, on the binary a build just made. With `RIGHTKIT_MEDIA_PROMOTE_FFPROBE` or
+  `RIGHTKIT_MEDIA_PROMOTE_FFMPEG` set to the built executable it prints the SHA-256, size and
+  `content_identity_file` digest, checks them against the row, has ffprobe read a committed 1,644-byte WAV
+  (`tests/fixtures/tone-8k-mono-s16.wav`), and runs the four export smokes on ffmpeg (`h264_mf`, `subtitles`,
+  `drawtext`, `zscale` + `tonemap`), each decoded back and checked. Unset, the tests print why and pass. Not run
+  yet; on a hosted runner `h264_mf` is the software encoder.
 - Runner: a run that completes on its own now ends the process tree before it reaps and before it
   joins the stdin writer (`wait_or_kill` on the unreaped leader), not a bare `wait`. A descendant that
   redirected its output and kept running no longer outlives `run_with_progress`, `run_with_stdin`,
