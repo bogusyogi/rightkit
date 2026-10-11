@@ -13,7 +13,8 @@ Shared Tauri desktop shell for Right Suite applications. It owns hardened webvie
 | `engine` | off | `rightkit-jobs`, `rightkit-process` | Engine sidecar wiring over `rightkit-jobs` `EngineClient`. Opt in; it pulls `rightkit-jobs` (db, time, uuid). |
 | `wv2-0_38` | on | `windows` 0.61, `webview2-com` 0.38 | Windows types for Tauri 2.11 (the default). Must match the app's Tauri. |
 | `wv2-0_39` | off | `windows` 0.62, `webview2-com` 0.39 | Windows types for Tauri 2.12. With `default-features = false`, enable `wv2-0_39` (plus `engine` if used). Enabling both selects 0.39. |
-| `devtools` | off | `tauri/devtools` | Lets `Devtools::On` and `DebugBuilds` open the inspector in release builds. Keep it off in production. |
+| `content-devtools` | off | `tauri/devtools` | Required by `DevToolsPolicy::ContentOnly`. Only an app on the `right-release` allow-list (today ViewRight) may ship it; see "DevTools policy". Never a default feature. |
+| `dev-inspect` | off | `tauri/devtools` | Development builds only: every webview is inspectable and the DevTools guards stand down; see "DevTools policy / Development builds". A build with it can never be released. Never a default feature, and not needed by ContentOnly. |
 
 Mismatched `wv2` features put two copies of `windows` or `webview2-com` beside Tauri's, and `cast()` then fails. With `default-features = false`, enable exactly the feature that matches the app's Tauri version.
 
@@ -41,6 +42,59 @@ Illustrative; not compiled as a doctest. The compiled references are `tests/poli
 - Single instance uses the rightkit-service named pipe (`src/instance.rs`). Broker entropy comes from `SystemFunction036` in advapi32 (`src/broker.rs`).
 - Dependencies: `windows_061`/`windows_062` and `webview2_com_038`/`webview2_com_039` are optional. They enable Win32 features `Win32_Foundation`, `Win32_System_Com`, `Win32_System_DataExchange`, `Win32_System_Memory`, `Win32_System_Ole`, `Win32_UI_Shell` and `Win32_UI_WindowsAndMessaging`. Consumers select only a `wv2-*` feature.
 - Caveat: `harden.rs`, `clipboard.rs` and `idle.rs` are not compiled or exercised on the macOS host (`src/idle.rs:9`); the windows-2025 CI job compiles them. The clipboard backend has not been run against a live Windows clipboard, so verify copy and paste on a Windows machine before relying on it.
+
+## DevTools policy
+
+**The owner's fixed design, verbatim, never to be changed:** every Right app has absolutely NO access to DevTools: blocked at each and every level that is possible, for the app, its shell and its own UI. The single exception is ViewRight: it opens HTML documents, and DevTools must be available INSIDE that opened HTML content only (the content frame), never for ViewRight's own UI or shell.
+
+Source: `src/devtools.rs` (`OWNER_DECISION`). Written, unverified: nothing here was compiled or run; the macOS and Windows calls are the uncertain part.
+
+### API
+
+- `DevToolsPolicy::Denied` (the default) and `DevToolsPolicy::ContentOnly` (exactly two values). `Shell::builder(id).devtools_policy(..)`.
+- `ContentWebview::new(label, window_label).capability(json)...app_acl_manifest(true)` and `Shell::builder(id).content_webview(..)` register a webview that renders opened content. Registration is refused (typed `DevToolsError`, startup fails, loud stderr line) when: the policy is `Denied`; the `content-devtools` feature is not compiled; the label is the main webview (never allowed); a supplied capability document applies to the content webview by webview label or by the label of its parent window and grants permissions; a capability document cannot be parsed; the app did not attest an application ACL manifest.
+- `devtools::guard_process_start()` runs when the plugin is built and may be called first in `main`. `devtools::open_content_devtools(app, label)` is the only path to an open inspector and refuses anything but a registered content webview.
+- The old `Devtools` enum and `Hardening::devtools` are removed: there is no "on" and no "debug builds" any more.
+- The policy is not a `Module`: opting out of `Module::JsHardening` does not opt out of it.
+
+### What each layer blocks
+
+| Layer | macOS (WKWebView) | Windows (WebView2) |
+|---|---|---|
+| Per webview, native | `isInspectable = false` (macOS 13.3+, guarded by `respondsToSelector`) and the private `developerExtrasEnabled` preference set to false explicitly, on every webview the shell sees, including debug builds. This removes Safari Develop attach, "Inspect Element" and WebKit's Cmd+Opt+I handler. `close_devtools` runs first where Tauri has one. | `AreDevToolsEnabled = false`; `AreBrowserAcceleratorKeysEnabled = false` (F12, Ctrl+Shift+I/J/C); a `ContextMenuRequested` handler removes every menu item whose name contains "inspect" from every menu, including the editable-field menu the hardening keeps. |
+| Page script | F12, Ctrl+Shift+I/J/C, Cmd+Opt+I/J/C/U, Ctrl+Alt+I/J/C/U cancelled in every frame of every non-content webview (matched by `KeyboardEvent.code`, so Option-letter dead keys do not slip through). | Same. |
+| Process start | Refuses a launch argument that enables remote debugging. | Same, plus: removes the WebView2 additional-browser-arguments and script-debugger-pipe environment variables from the process; refuses to start when the `AdditionalBrowserArguments` machine or user policy (HKLM, HKCU, HKLM WOW6432Node) injects a debugging switch. |
+| After creation | none | A fresh `DevToolsActivePort` file in the app's local or roaming data folder (or its `EBWebView`) means a debugging port is open: the process logs and exits 1. |
+
+### What cannot be blocked
+
+- **Windows machine policy.** WebView2 appends policy and environment arguments to whatever the app passes (`learn.microsoft.com ... webview2-idl`, CreateCoreWebView2EnvironmentWithOptions), so an explicit argument string cannot override them. The environment variable is process-local and is removed. The registry policy is not ours: the shell detects it at startup and refuses to run. An administrator can still write the key after the check; the port-file tripwire is the second line. Elevated host apps ignore the environment variable (Microsoft's security page, via the browser-flags page), so this matters most for non-elevated apps.
+- **A debugger attached to the process** (lldb/Visual Studio, `get-task-allow`, Time Travel Debugging) and **UI automation / accessibility** are outside "DevTools" and outside this crate. The hardened runtime and signing checks in `right-release` are the control for the macOS entitlement.
+- **macOS before 13.3** has no `isInspectable`; only the `developerExtrasEnabled` preference and the absence of `get-task-allow` apply.
+- **The user's own `WebKitDeveloperExtras` default** is overridden by the explicit per-webview preference; this ordering is unverified.
+- Linux is not covered by native settings (Tauri on Linux is not a supported Right target).
+
+### ContentOnly
+
+`ContentOnly` makes only registered content webviews inspectable: `isInspectable = true` + `developerExtrasEnabled = true` (macOS); `AreDevToolsEnabled = true` with a context menu trimmed to the Inspect item, accelerator keys still off, so the inspector is opened from that item or from `open_content_devtools` (Windows). The shell's DOM, Console and Sources are never reachable because the shell is a different WKWebView / CoreWebView2 whose own setting stays off.
+
+Iframes: inspection of an iframe alone cannot be granted. On both platforms the inspector attaches to a whole webview, so a page whose content is an iframe in the app UI webview would make the UI inspectable. Content must live in its own webview. ViewRight renders HTML previews as iframes today and does not meet this rule; see `docs/plans/2026-10-11-viewright-content-devtools-design.md`.
+
+### Adoption
+
+- Every app: nothing to call. Do not enable Tauri's `devtools` feature, do not use `Devtools::*` (removed), do not create webviews with `.devtools(true)`.
+- An app that created webviews itself: they pass through `on_webview_ready` like any other and are denied.
+- ViewRight only: enable `content-devtools`, `devtools_policy(ContentOnly)`, register each content webview, declare an application ACL manifest in `build.rs`, scope its capabilities with `webviews` (not `windows`) and set `"devtools": "content-only"` in its `right-release` config.
+- `right-release` refuses `devtools` in a release or update build for any app that is not allow-listed (`packages/release/devtools-policy.json`).
+
+### Development builds
+
+The owner's rule for shipped apps is unchanged: no DevTools, ViewRight's content frame excepted. Developers and the QA tooling still need to inspect a development build, so exactly one switch exists, the cargo feature `dev-inspect` (off by default, never reached from `default`, and not needed by `ContentOnly`; a `content-devtools` release build never compiles it).
+
+- **Only under `dev-inspect`:** the policy for the app's webviews becomes "developer inspection allowed". Every webview, the app UI included, is inspectable (`WebviewDecision::AllowDev`; macOS `isInspectable` and `developerExtrasEnabled` true, Windows `AreDevToolsEnabled` true, menus and accelerator keys left as the hardening set them); `guard_process_start` stops scrubbing `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS`, stops refusing a debugging launch argument or registry policy, and the `DevToolsActivePort` tripwire does not run, so a remote-debugging port (the wdio WebDriver driver of `qa-native` builds) keeps working. The build embeds the marker `RIGHTKIT-SHELL-DEV-INSPECT-COMPILED` (`DEV_INSPECT_MARKER`, a `#[used]` static read from startup code, the technique `RIGHTKIT-QA-CONTROL-SERVER-PRESENT` uses) and prints one stderr line at startup beginning `RIGHTKIT SHELL DEVELOPER INSPECTION ACTIVE`.
+- **Without the feature nothing changes:** `Denied` / `ContentOnly` exactly as above, in every build profile (debug assertions do not matter, because installed dev builds are release-profile builds).
+- **Selecting it:** an app adds an optional feature that its default features never reach, `dev-native = ["rightkit-shell/dev-inspect"]` (beside `qa-native`), and builds its development lane with `--features dev-native`.
+- **Such a build can never be released, three layers:** (1) `right-release` refuses `dev-inspect` (and `dev-native`) in a release or update build command, package script, or Cargo manifest, directly, through another feature, through `default`, or via `--all-features` (`qa-build-features.mjs`); (2) the binary scan refuses the marker in every release and update artifact, including inside MSIX/ZIP containers, and no `devtools: "content-only"` allowance lifts it (`qa-control-scan.mjs`, rule `shell-dev-inspect`); (3) the `rightkit-qa` native QA guard rejects `dev-inspect` / `dev-native` reachable from default features, a non-optional `rightkit-shell` that lists it, and release-named package scripts that enable it. The development lane (`right-release dev`) never runs layers 1 and 2.
 
 ## Hidden hosts: never_show, reopen opt-out, idle options
 

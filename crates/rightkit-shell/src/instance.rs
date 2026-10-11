@@ -179,7 +179,10 @@ pub fn arbitrate(
 
 /// Arbitration that also probes for a live `tauri-plugin-single-instance` holder under
 /// `legacy_identifier` (the Tauri identifier) first. A live legacy holder receives this launch and
-/// the result is [`Arbitration::Secondary`]; an unreachable one is [`Arbitration::Unavailable`].
+/// the result is [`Arbitration::Secondary`]; an unreachable one is [`Arbitration::Unavailable`]. A
+/// socket that only a leaked descriptor keeps open is not a live holder, and a macOS holder that
+/// stays silent is logged on stderr as unconfirmed (see
+/// [`ClaimOutcome::Forwarded`](crate::single_instance::ClaimOutcome::Forwarded)).
 pub fn arbitrate_with_legacy(
     app_id: &str,
     version: &str,
@@ -228,8 +231,11 @@ fn arbitrate_in_suite_with(
         .map(|p| p.to_string_lossy().into_owned())
         .unwrap_or_default();
     if let Some(identifier) = legacy_identifier {
-        match crate::legacy_instance::forward(identifier, &argv, &cwd) {
-            Ok(Some(())) => return Arbitration::Secondary,
+        match crate::legacy_instance::forward_checked(identifier, &argv, &cwd) {
+            Ok(Some(delivery)) => {
+                delivery.log_unconfirmed("instance::arbitrate_with_legacy");
+                return Arbitration::Secondary;
+            }
             Ok(None) => {}
             Err(e) => {
                 return Arbitration::Unavailable(format!(
