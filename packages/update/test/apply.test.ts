@@ -512,7 +512,8 @@ describe("apply: tool", () => {
     git(work, "init", "-q"); // any command that proves git exists; archive made with tar below
     const archive = path.join(work, "helper.tar.gz");
     const { execFileSync } = await import("node:child_process");
-    execFileSync("tar", ["-czf", archive, "-C", path.join(work, "pkg"), "bin"]);
+    // Relative names: Git for Windows puts a GNU tar on PATH that reads "C:" in a path as a remote host.
+    execFileSync("tar", ["-czf", "helper.tar.gz", "-C", "pkg", "bin"], { cwd: work });
     const archiveBytes = fs.readFileSync(archive);
 
     const repo = mkRepo({

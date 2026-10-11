@@ -130,7 +130,7 @@ describe("runSchedule", () => {
     const result = await runSchedule("install", { repo, intervalMinutes: 60 }, { run, platform: "darwin", home, nodePath: process.execPath, binPath: bin, env: { PATH: "/usr/bin" }, uid: 501 });
     expect(result.exitCode).toBe(0);
     const label = launchdLabel(repo);
-    const plistPath = path.join(home, "Library", "LaunchAgents", `${label}.plist`);
+    const plistPath = path.posix.join(home, "Library", "LaunchAgents", `${label}.plist`);
     expect(result.files).toEqual([plistPath]);
     const plist = fs.readFileSync(plistPath, "utf8");
     expect(plist).toContain(`<string>${repo}</string>`);
