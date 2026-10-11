@@ -218,17 +218,17 @@ impl<'a> Ctx<'a> {
             .join(data_dir.file_name().unwrap_or_default());
         std::fs::create_dir_all(&app_evidence_dir)?;
         let mut vars = BTreeMap::new();
-        vars.insert("data_dir".into(), json!(data_dir.to_string_lossy()));
+        // Every path a scenario can expand goes through `scenario_path_text`, so text such as
+        // `${data_dir}/proj/README.txt` is a path Windows accepts.
+        vars.insert("data_dir".into(), json!(scenario_path_text(&data_dir)));
         vars.insert(
             "evidence_dir".into(),
-            json!(app_evidence_dir.to_string_lossy()),
+            json!(scenario_path_text(&app_evidence_dir)),
         );
-        vars.insert("app_root".into(), json!(cfg.app_root.to_string_lossy()));
+        vars.insert("app_root".into(), json!(scenario_path_text(&cfg.app_root)));
         vars.insert(
             "engine".into(),
-            json!(engine
-                .as_ref()
-                .map(|e| e.binary.to_string_lossy().to_string())),
+            json!(engine.as_ref().map(|e| scenario_path_text(&e.binary))),
         );
         Ok(Self {
             cfg,
@@ -332,13 +332,71 @@ pub(crate) fn pb(p: &Map<String, Value>, k: &str) -> bool {
 pub(crate) fn dur(p: &Map<String, Value>, k: &str, default_s: f64) -> Duration {
     Duration::from_millis((pf_or(p, k, default_s) * 1000.0) as u64)
 }
-fn resolve(ctx: &Ctx, s: &str) -> PathBuf {
-    let p = Path::new(s);
-    if p.is_absolute() {
-        p.to_path_buf()
+/// A Windows verbatim path (`\\?\C:\dir`, `\\?\UNC\server\share`) in its ordinary form
+/// (`C:\dir`, `\\server\share`), when it fits the ordinary length limit. Anything else is
+/// returned unchanged, including a verbatim path too long to be written without the prefix.
+///
+/// A canonicalised path on Windows is verbatim, and under that prefix Windows does no
+/// normalisation: `/` is a file-name character, not a separator. Scenario text joins with `/`.
+pub(crate) fn strip_verbatim(text: &str) -> String {
+    // Below MAX_PATH (260) with room for a file name appended by the scenario.
+    const ORDINARY_LIMIT: usize = 200;
+    let plain = if let Some(unc) = text.strip_prefix(r"\\?\UNC\") {
+        format!(r"\\{unc}")
+    } else if let Some(rest) = text.strip_prefix(r"\\?\") {
+        let bytes = rest.as_bytes();
+        let drive = bytes.len() >= 3
+            && bytes[0].is_ascii_alphabetic()
+            && bytes[1] == b':'
+            && bytes[2] == b'\\';
+        if !drive {
+            return text.to_owned();
+        }
+        rest.to_owned()
     } else {
-        ctx.data_dir.join(p)
+        return text.to_owned();
+    };
+    if plain.chars().count() > ORDINARY_LIMIT {
+        text.to_owned()
+    } else {
+        plain
     }
+}
+
+/// The text a scenario variable holds for `path`: the path itself, in ordinary (non-verbatim)
+/// form on Windows where it fits.
+fn scenario_path_text(path: &Path) -> String {
+    let text = path.to_string_lossy();
+    if cfg!(windows) {
+        strip_verbatim(&text)
+    } else {
+        text.into_owned()
+    }
+}
+
+/// `s` as a path of this host. On Windows every `/` becomes `\`, which is the same path for an
+/// ordinary one and the only correct reading for a verbatim one.
+fn host_path(s: &str) -> PathBuf {
+    if cfg!(windows) {
+        PathBuf::from(s.replace('/', "\\"))
+    } else {
+        PathBuf::from(s)
+    }
+}
+
+/// A scenario path: absolute as it is, relative inside `data_dir`. Separators are normalised
+/// after the join, so a relative `a/b` under a verbatim `data_dir` is still two components.
+fn resolve_in(data_dir: &Path, s: &str) -> PathBuf {
+    let p = host_path(s);
+    if p.is_absolute() {
+        p
+    } else {
+        data_dir.join(p)
+    }
+}
+
+fn resolve(ctx: &Ctx, s: &str) -> PathBuf {
+    resolve_in(&ctx.data_dir, s)
 }
 fn env_pairs(p: &Map<String, Value>) -> Vec<(String, String)> {
     pv(p, "env")
@@ -825,5 +883,89 @@ input = { a = 1 }
             Some("missing file /definitely/not/here")
         );
         assert!(unmet_requirement(&[], Path::new("/")).is_none());
+    }
+
+    #[test]
+    fn a_verbatim_path_is_given_to_scenarios_in_its_ordinary_form() {
+        assert_eq!(strip_verbatim(r"\\?\C:\qa\run-1"), r"C:\qa\run-1");
+        assert_eq!(
+            strip_verbatim(r"\\?\UNC\server\share\qa"),
+            r"\\server\share\qa"
+        );
+        // Already ordinary, not Windows at all, or a verbatim form with no ordinary spelling.
+        for unchanged in [
+            r"C:\qa\run-1",
+            "/tmp/qa/run-1",
+            r"\\?\Volume{4c1b02c1-d990-11dc-99ae-806e6f6e6963}\qa",
+            r"\\?\GLOBALROOT\Device\x",
+        ] {
+            assert_eq!(strip_verbatim(unchanged), unchanged);
+        }
+        // Too long to be written without the prefix: left verbatim.
+        let long = format!(r"\\?\C:\{}", "d".repeat(260));
+        assert_eq!(strip_verbatim(&long), long);
+    }
+
+    #[cfg(not(windows))]
+    #[test]
+    fn scenario_paths_are_untouched_off_windows() {
+        assert_eq!(
+            resolve_in(Path::new("/data"), "proj/a\\b.txt"),
+            Path::new("/data/proj/a\\b.txt")
+        );
+        assert_eq!(
+            resolve_in(Path::new("/data"), "/abs/x"),
+            Path::new("/abs/x")
+        );
+        assert_eq!(scenario_path_text(Path::new("/data/run")), "/data/run");
+    }
+
+    /// The defect: `${data_dir}/proj/README.txt` under a canonicalised (verbatim) data
+    /// directory reached the file system with a `/` Windows does not split on (os error 123).
+    #[cfg(windows)]
+    #[test]
+    fn a_scenario_path_mixing_separators_reaches_the_file_system_on_windows() {
+        let root = std::env::temp_dir().join(format!("rkqa-paths-{}", util::new_id()));
+        std::fs::create_dir_all(&root).unwrap();
+        let data_dir = std::fs::canonicalize(&root).unwrap();
+        assert!(
+            data_dir.to_string_lossy().starts_with(r"\\?\"),
+            "{data_dir:?}"
+        );
+
+        // The variable a scenario expands is ordinary, so text built on it is a valid path.
+        let var = scenario_path_text(&data_dir);
+        assert!(!var.starts_with(r"\\?\"), "{var}");
+        let expanded = resolve_in(&data_dir, &format!("{var}/proj/README.txt"));
+        std::fs::create_dir_all(expanded.parent().unwrap()).unwrap();
+        std::fs::write(&expanded, "one").unwrap();
+
+        // A relative path with `/`, joined to the verbatim directory itself.
+        let relative = resolve_in(&data_dir, "proj/nested/b.txt");
+        std::fs::create_dir_all(relative.parent().unwrap()).unwrap();
+        std::fs::write(&relative, "two").unwrap();
+
+        // Text built on the verbatim form, as a scenario written before this fix would hold.
+        let verbatim = resolve_in(
+            &data_dir,
+            &format!("{}/proj/c.txt", data_dir.to_string_lossy()),
+        );
+        std::fs::write(&verbatim, "three").unwrap();
+
+        // All three are real files in the same directory tree.
+        assert_eq!(
+            std::fs::read_to_string(root.join("proj").join("README.txt")).unwrap(),
+            "one"
+        );
+        assert_eq!(
+            std::fs::read_to_string(root.join("proj").join("nested").join("b.txt")).unwrap(),
+            "two"
+        );
+        assert_eq!(
+            std::fs::read_to_string(root.join("proj").join("c.txt")).unwrap(),
+            "three"
+        );
+        assert!(std::fs::metadata(&expanded).unwrap().is_file());
+        std::fs::remove_dir_all(root).unwrap();
     }
 }

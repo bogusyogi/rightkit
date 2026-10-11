@@ -20,6 +20,7 @@ pub mod broker;
 pub mod clipboard;
 pub mod commands;
 pub mod deep_link;
+pub mod devtools;
 #[cfg(feature = "engine")]
 pub mod engine;
 pub mod error;
@@ -70,8 +71,9 @@ use tauri::{AppHandle, Manager, Wry};
 pub use autostart::{AutostartMigration, AutostartOptions, LegacyAutostartNames};
 pub use broker::PathBroker;
 pub use clipboard::{ClipboardItem, ClipboardOptions, ClipboardPolicy, ImagePreference};
+pub use devtools::{ContentWebview, DevToolsError, DevToolsGate, DevToolsPolicy, WebviewDecision};
 pub use error::ShellError;
-pub use harden::{Devtools, Hardening, HardeningScript};
+pub use harden::{Hardening, HardeningScript};
 pub use idle::{
     IdleErrorCallback, IdleFailure, IdlePhase, IdleTransition, IdleTransitionCallback,
     IdleTransitionKind,
@@ -189,6 +191,8 @@ pub struct ShellBuilder {
     main_label: String,
     hardening: Hardening,
     hardening_script: HardeningScript,
+    devtools_policy: DevToolsPolicy,
+    content_webviews: Vec<ContentWebview>,
     nav: NavPolicy,
     extra_internal_schemes: Vec<String>,
     opener: Arc<dyn ExternalOpener>,
@@ -245,6 +249,8 @@ impl Shell {
             main_label: "main".into(),
             hardening: Hardening::default(),
             hardening_script: HardeningScript::default(),
+            devtools_policy: DevToolsPolicy::default(),
+            content_webviews: Vec::new(),
             nav: NavPolicy::default(),
             extra_internal_schemes: Vec::new(),
             opener: Arc::new(SystemOpener),
@@ -306,6 +312,21 @@ impl ShellBuilder {
     /// Native hardening & navigation policy still apply when the script is off.
     pub fn hardening_script(mut self, scope: HardeningScript) -> Self {
         self.hardening_script = scope;
+        self
+    }
+    /// Who may use DevTools. The default, [`DevToolsPolicy::Denied`], makes no webview of the app
+    /// inspectable. [`DevToolsPolicy::ContentOnly`] is a named allowance for an app that renders
+    /// opened content (ViewRight) and must also register that content with
+    /// [`ShellBuilder::content_webview`]. The policy applies whichever modules are installed.
+    pub fn devtools_policy(mut self, p: DevToolsPolicy) -> Self {
+        self.devtools_policy = p;
+        self
+    }
+    /// Register a webview that renders opened content as inspectable under
+    /// [`DevToolsPolicy::ContentOnly`]. The main webview can never be registered, and setup fails
+    /// with a typed [`DevToolsError`] when the content webview could reach the app's IPC.
+    pub fn content_webview(mut self, c: ContentWebview) -> Self {
+        self.content_webviews.push(c);
         self
     }
     pub fn nav_policy(mut self, p: NavPolicy) -> Self {
@@ -691,6 +712,20 @@ pub(crate) fn install(cfg: ShellBuilder) -> TauriPlugin<Wry> {
     let script_scope = cfg.hardening_script;
     let (nav_hook, opener_hook) = (Arc::clone(&nav), Arc::clone(&opener));
     let hardening_for_views = hardening.clone();
+    // DevTools: the process guard and the gate. A failure is carried to plugin setup, which
+    // refuses to start; until then every webview is treated as denied.
+    let guard_result = devtools::guard_process_start();
+    let gate_result = devtools::build_gate_with(
+        cfg.devtools_policy,
+        &cfg.main_label,
+        &cfg.content_webviews,
+        cfg!(feature = "content-devtools"),
+        devtools::DEV_INSPECT_COMPILED,
+    );
+    let gate_for_views = gate_result
+        .clone()
+        .unwrap_or_else(|_| DevToolsGate::denied(&cfg.main_label));
+    let content_labels = gate_for_views.content_labels();
     let harden_webviews = modules.contains(Module::JsHardening);
     let show_on_ready_explicit = cfg.show_on_ready;
     // `lifecycle_only` turns ShowOnReady off; only the host's explicit `show_on_ready(true)` brings
@@ -722,8 +757,16 @@ pub(crate) fn install(cfg: ShellBuilder) -> TauriPlugin<Wry> {
     }
     plugin = plugin
         .on_webview_ready(move |webview| {
+            let decision = gate_for_views.decide(webview.label());
+            // The DevTools policy is not a module: it applies to every webview, always.
+            devtools::apply_native(&webview, decision);
             if harden_webviews {
-                harden::apply_native(&webview, &hardening_for_views);
+                harden::apply_native(&webview, &hardening_for_views, decision);
+            }
+            if let Err(e) = devtools::verify_not_remote_debuggable(webview.app_handle()) {
+                eprintln!("{e}");
+                webview.app_handle().exit(1);
+                return;
             }
             let app = webview.app_handle().clone();
             let label = webview.label().to_owned();
@@ -761,16 +804,31 @@ pub(crate) fn install(cfg: ShellBuilder) -> TauriPlugin<Wry> {
         })
         .setup(move |app, _api| {
             let app = app.clone();
+            if let Err(e) = guard_result {
+                eprintln!("{e}");
+                return Err(Box::new(e));
+            }
+            match gate_result {
+                Ok(gate) => {
+                    app.manage(gate);
+                }
+                Err(e) => {
+                    eprintln!("{e}");
+                    return Err(Box::new(e));
+                }
+            }
             setup(&app, cfg, nav, opener)
         });
     if harden_webviews {
         plugin = match script_scope {
-            HardeningScript::AllFrames => plugin.js_init_script_on_all_frames(hardening.script()),
+            HardeningScript::AllFrames => {
+                plugin.js_init_script_on_all_frames(hardening.script_for(&content_labels))
+            }
             // WebView2 injects even main-frame-only scripts into child frames. Guard the body
             // as well as requesting native main-frame scope (WKWebView honors that scope).
             HardeningScript::TopFrameOnly => plugin.js_init_script(format!(
                 "if (window.top !== window.self) {{ return; }}\n{}",
-                hardening.script()
+                hardening.script_for(&content_labels)
             )),
             HardeningScript::Off => plugin,
         };

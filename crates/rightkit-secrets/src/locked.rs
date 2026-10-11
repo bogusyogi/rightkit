@@ -10,14 +10,14 @@
 //!   created the item.
 //! * **The lock is named by the native target.** Two namespaces that share a Windows prefix write
 //!   the same Credential Manager entry, so they must take the same lock; it is keyed on the
-//!   normalised target name ([`normalize_target_name`]), not on the service.
+//!   normalised target name ([`Namespace::windows_lock_target`]), not on the service.
 //!
 //! The functions here hold the lock for the whole operation and call the *unlocked* primitives of
 //! [`CredentialOps`], so nothing re-takes a lock it already holds.
 
 use crate::backend::ConditionalDelete;
 use crate::error::Result;
-use crate::namespace::{normalize_target_name, Namespace};
+use crate::namespace::Namespace;
 use crate::secret::Secret;
 
 /// The unlocked primitives of one credential store, plus its lock.
@@ -36,9 +36,10 @@ pub(crate) trait CredentialOps {
 }
 
 fn lock_target<O: CredentialOps>(ops: &O, ns: &Namespace, account: &str) -> Result<O::Guard> {
-    // The validated name: a prefix with a NUL would otherwise lock (and write) a truncated target.
-    let target = ns.windows_target_checked(account)?;
-    ops.lock(&normalize_target_name(&target))
+    // The validated, normalised name (the same one the store's exclusion identity is built
+    // from): a prefix with a NUL would otherwise lock (and write) a truncated target.
+    let target = ns.windows_lock_target(account)?;
+    ops.lock(&target)
 }
 
 pub(crate) fn set<O: CredentialOps>(

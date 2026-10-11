@@ -409,6 +409,40 @@ fn a_private_source_is_copied_through_an_owner_only_temp_and_ends_private() {
     );
 }
 
+/// The permissions a copy ends with come from the file it actually read. The clone step runs
+/// after the source was checked by path and before the copy opens it; here it replaces the source
+/// in that gap (a `0644` file by a `0600` secret, and the reverse). The copy must carry the mode
+/// of the opened file, not the one of the file that used to be at the path: the old code applied
+/// the stale mode and published a secret `0644`.
+#[cfg(unix)]
+#[test]
+fn a_source_replaced_between_the_check_and_the_copy_is_copied_with_its_own_permissions() {
+    use std::os::unix::fs::PermissionsExt;
+    for (before, after) in [(0o644, 0o600), (0o600, 0o644)] {
+        let (_g, dir) = tmp();
+        let (src, dst) = (source(&dir), dir.join("copy.bin"));
+        std::fs::set_permissions(&src, std::fs::Permissions::from_mode(before)).unwrap();
+        let replaced = src.clone();
+        let _clone = override_clone(move |_, _| {
+            std::fs::remove_file(&replaced).unwrap();
+            std::fs::write(&replaced, b"replacement content").unwrap();
+            std::fs::set_permissions(&replaced, std::fs::Permissions::from_mode(after)).unwrap();
+            Err(io::Error::from(io::ErrorKind::Unsupported))
+        });
+        let _link = override_link(unavailable);
+        assert_eq!(
+            clone_or_link_or_copy_nofollow(&src, &dst).unwrap(),
+            CloneOutcome::Copied
+        );
+        assert_eq!(std::fs::read(&dst).unwrap(), b"replacement content");
+        assert_eq!(
+            std::fs::metadata(&dst).unwrap().permissions().mode() & 0o7777,
+            after,
+            "source went {before:o} -> {after:o}: the copy takes the replacement's mode"
+        );
+    }
+}
+
 #[test]
 fn a_destination_named_like_a_generated_temp_file_is_refused() {
     let (_g, dir) = tmp();

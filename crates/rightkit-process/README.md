@@ -71,12 +71,33 @@ in which that could happen. The rule that replaces it:
   killed with the group at the deadline. A plain `ProcessHandle::wait` on another thread
   reaps and ends that. On Unix hosts other than Linux, Android, macOS and iOS there is no
   non-reaping probe, so `wait_exited` reaps like `wait` there.
-- **Waits poll.** `ProcessHandle::wait` and `wait_exited` look at the shared state under its
-  lock, release it, sleep and look again (0.25 ms for the first 20 ms, then 2 ms to 1 s, 10 ms
-  to 30 s, 50 ms after). No wait system call names the pid outside the lock: a blocking
-  `waitid(pid)` entered after another reader reaped the leader and the kernel recycled the
-  number would wait on an unrelated child. The cost is that an exit is noticed up to one poll
-  interval late.
+- **An unreaped child is not proof the pid is still ours.** Other code in the process can collect
+  the leader (`waitpid(-1)`) and a replacement child can take its number. So every signal, every
+  `waitpid`/`waitid` and every group-membership probe that names the pid first compares the
+  kernel's description of it (parent and start time: `proc_pidinfo` on macOS, `/proc/<pid>/stat`
+  on Linux) with the one taken at spawn. A different or missing description marks the leader
+  lost: nothing is sent, waited or reaped (`wait` answers `ECHILD`) and the replacement keeps its
+  status. A child the host cannot describe at spawn is stopped and the spawn fails. The same
+  proof guards the macOS parent-death helper's reap, and a helper that cannot be described is
+  never waited on. The residual is the gap between the proof and the call against foreign code
+  that reaps in exactly that gap and a replacement that takes the number there; no user-space API
+  closes it. `OwnedChild::while_unreaped` runs a caller's pid-based action (a descendant sweep)
+  under the same proof and lock.
+- **Waits are event-driven, never timed.** Each Unix child owns an exit watch opened at spawn: a
+  kqueue `EVFILT_PROC`/`NOTE_EXIT` knote on macOS, a pidfd on Linux and Android (a thread blocked in
+  `waitid(WNOWAIT)` where the kernel has no pidfd). Both are bound to the process, not to its
+  number. `ProcessHandle::wait`, `wait_timeout`, `wait_exited*`, `OwnedChild::wait*`,
+  `wait_or_kill` and the tree-wide grace of `terminate_tree*` read the shared state under the
+  lock, release it, and sleep in `poll(2)` on the watch (the grace, on one `poll` over the leader
+  and every other group member), so a wait costs one wake-up however long the child lives and
+  `kill` or `terminate_tree` from another thread runs while it blocks. After the exit event the
+  pid is proven and reaped under the lock. Only a wait made through the `OwnedChild::child()`
+  guard (`UnixChild::wait`) blocks with the lock held, because the caller holds it. Linux leader
+  signals go through `pidfd_send_signal`, and the proof is a signal-0 pidfd probe, neither of which
+  involves the pid number; a group signal is still `kill(-pgid)` after that proof. Hosts with no
+  event source (Unix other than Linux, Android, macOS and iOS, or a process out of descriptors)
+  refuse bounded waits with `ErrorKind::Unsupported`, skip a termination grace, and reap an
+  unbounded `wait` with a blocking call. Each child holds one extra descriptor (the watch).
 - `OwnedChild::child()` no longer exposes the std `Child` on Unix. It returns `UnixChild`
   (stdio fields, `id`, `try_wait`, `wait`, `kill`), so a reap through it is recorded.
 - `UnixChild::kill`, and every direct-pid signal for detached children, follow the same rule.

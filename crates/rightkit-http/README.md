@@ -85,8 +85,8 @@ The URL policy runs before any file is touched. The destination is then locked: 
 
 `Client::download_to_path(url, dest, DownloadOptions)` writes to `<dest>.part`, then fsyncs and renames it to `dest`.
 
-- `resume: true` sends `Range: bytes=<len>-` with `If-Range` set to the first ETag seen in this call. A `206` appends. A `200` truncates and restarts from zero. A `416` whose `Content-Range` total equals the local length verifies the file without fetching bytes. Any other `416` restarts once from zero.
-- `If-Range` is only sent once this call has seen an ETag. A `.part` left by an earlier call is protected only by `expected_sha256`.
+- Bytes from an earlier representation are never published unless a strong validator proves it unchanged. A saved prefix is extended only when this call saw a strong ETag (sent as `If-Range`; a `W/` tag does not count) or when `expected_sha256` is set; otherwise `.part` is discarded and the download restarts from zero with no `Range`. Validators are not stored on disk, so resuming a `.part` from an earlier call needs `expected_sha256`. A `206` appends; a `200` truncates and restarts. A `206` or `416` is a restart, never a completion, when its resource, ETag, `Last-Modified` or total contradicts what was saved (the object changed, shrank or grew). A `416` whose total equals the local length and agrees with any earlier total verifies the file without fetching bytes; any other `416` restarts once. The full decision table is in the module docs of `src/download.rs`, with a test per row.
+- Destination names ending in `.lock` or `.part`, or in a dot or space (Windows drops those, so `out.lock.` is `out.lock` there), are refused on every platform before any request or file access. On Windows a name with `:`, a device name, or `~<digit>` is refused as well.
 - A mid-body failure reconnects from the current length, up to `max_reconnects`. The `.part` is kept if the budget runs out.
 - A SHA-256 mismatch or a length mismatch deletes `.part`. Cancellation keeps it.
 - `Accept-Encoding: identity` is sent unless the caller sets one, so byte offsets match what is on disk. A response with any other `Content-Encoding` is an error.
@@ -153,6 +153,11 @@ let client = Client::new(ClientConfig::default().address_policy(policy));
 ## Proxies
 
 `ClientConfig::proxy` takes a `ProxyMode`: `None` (default), `Environment` (`ALL_PROXY`, `HTTPS_PROXY`, `HTTP_PROXY` in that order, either case, plus `NO_PROXY`) or `Explicit("http://10.0.0.5:3128")`. Only `http` and `https` proxies are accepted. `ProxyMode::None` stays the default, and environment variables are ignored unless `Environment` is chosen. `System` uses the operating system's proxy for the current user: on Windows the static proxy and bypass list of the system proxy settings (a proxy auto-config script and auto-detection are not evaluated); with no static proxy, and on other systems, it behaves as `Environment`.
+
+Limits of `System` in this version:
+
+- **One proxy for both schemes.** The static proxy string is read per scheme as Windows reads it (`http=`, `https=`, a bare `host:port` for the rest). When HTTP and HTTPS get the same proxy, it is used. When they are routed differently (two proxies, or a proxy for one of them only), the client sends nothing and every request fails with `HttpError::SystemProxyPerScheme` ("Windows proxy settings route HTTP and HTTPS differently; this version supports one proxy for both"). It never sends plain HTTP to the proxy configured for HTTPS, or around the proxy. The user can set one proxy for both in the Windows proxy settings; an app can offer `Explicit` or `Environment` instead.
+- **Bypass entries limited to one scheme are not honoured.** `https://host` in the bypass list is dropped, so `host` goes through the proxy for both schemes. Keeping it as a host would bypass the proxy for plain HTTP too. `<local>` and patterns with a wildcard anywhere but the front (`10.*`) are dropped the same way.
 
 **Proxy mode is weaker than a direct connection by construction.** The proxy resolves the destination name itself, so this crate cannot see or pin the address a proxied connection reaches. What it enforces is name- and literal-based:
 

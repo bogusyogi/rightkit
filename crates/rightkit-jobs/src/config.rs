@@ -4,6 +4,7 @@
 //! unchanged.
 
 use std::collections::BTreeSet;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -407,6 +408,17 @@ pub trait StoreHook: Send + Sync {
     ) -> JobResult<()> {
         Ok(())
     }
+    /// A finished job was inserted by [`crate::JobStore::import_terminal`] (or its `_with` and
+    /// `_batch` forms), in the same transaction as the insert and its artifact rows; `job` is the
+    /// stored record, already terminal. An error rolls back the whole import (every record of a
+    /// batch). Not called when an idempotent import finds an identical record already stored.
+    ///
+    /// An import calls this and none of `on_create`, `on_attempt` or `on_transition`: no job was
+    /// created to run, no attempt was counted now, and no status changed. A ledger that keeps a
+    /// mirror of finished jobs records them here.
+    fn on_import(&self, _conn: &Connection, _job: &JobRecord) -> JobResult<()> {
+        Ok(())
+    }
 }
 
 /// How [`crate::JobControl::progress`] events are written. The default is today's behaviour:
@@ -452,6 +464,8 @@ pub struct StoreConfig {
     pub(crate) user_version: Option<i64>,
     pub(crate) include_retryable: bool,
     pub(crate) progress: ProgressPolicy,
+    pub(crate) artifact_roots: Vec<PathBuf>,
+    pub(crate) scratch_root: Option<PathBuf>,
 }
 
 impl Default for StoreConfig {
@@ -466,6 +480,8 @@ impl Default for StoreConfig {
             user_version: Some(1),
             include_retryable: true,
             progress: ProgressPolicy::default(),
+            artifact_roots: vec![],
+            scratch_root: None,
         }
     }
 }
@@ -482,6 +498,8 @@ impl std::fmt::Debug for StoreConfig {
             .field("user_version", &self.user_version)
             .field("include_retryable", &self.include_retryable)
             .field("progress", &self.progress)
+            .field("artifact_roots", &self.artifact_roots)
+            .field("scratch_root", &self.scratch_root)
             .finish()
     }
 }
@@ -539,6 +557,27 @@ impl StoreConfig {
         self.progress = p;
         self
     }
+    /// A directory the store may delete artifact files from (repeatable). With any root
+    /// configured, `JobStore::delete` removes a job's artifact files, but only paths strictly
+    /// inside a configured root (symlinks resolved); a recorded path outside every root makes
+    /// the delete fail with `path_outside_root` and delete nothing. Must be absolute.
+    pub fn artifact_root(mut self, root: impl Into<PathBuf>) -> Self {
+        self.artifact_roots.push(root.into());
+        self
+    }
+    /// The directory holding per-job scratch directories (`<root>/<job_id>`, the layout
+    /// `Runner::sweep_orphan_scratch` uses). `JobStore::delete` removes the job's directory.
+    /// Artifacts recorded inside it are also deletable. Must be absolute.
+    pub fn scratch_root(mut self, root: impl Into<PathBuf>) -> Self {
+        self.scratch_root = Some(root.into());
+        self
+    }
+    pub fn artifact_roots(&self) -> &[PathBuf] {
+        &self.artifact_roots
+    }
+    pub fn scratch_root_path(&self) -> Option<&Path> {
+        self.scratch_root.as_deref()
+    }
     pub fn progress(&self) -> &ProgressPolicy {
         &self.progress
     }
@@ -586,10 +625,27 @@ impl StoreConfig {
             }
             c.ddl()?;
         }
+        for r in self.artifact_roots.iter().chain(self.scratch_root.iter()) {
+            if !r.is_absolute() {
+                return Err(JobError::new(
+                    "config",
+                    format!(
+                        "artifact and scratch roots must be absolute: {}",
+                        r.display()
+                    ),
+                ));
+            }
+        }
         check_ident(&self.artifacts.table)?;
         check_ident(&self.artifacts.id_column)?;
-        if ["jobs", "job_events", "rk_job_submissions", "rk_job_meta"]
-            .contains(&self.artifacts.table.as_str())
+        if [
+            "jobs",
+            "job_events",
+            "rk_job_submissions",
+            "rk_job_meta",
+            "rk_job_deleting",
+        ]
+        .contains(&self.artifacts.table.as_str())
         {
             return Err(JobError::new("config", "artifact table name is reserved"));
         }

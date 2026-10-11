@@ -223,3 +223,63 @@ fn a_lock_file_named_like_a_generated_temp_file_is_refused() {
     assert!(matches!(error, FsError::BadName(_)), "{error:?}");
     assert!(!path.exists());
 }
+
+#[cfg(feature = "testing")]
+mod swap {
+    use super::*;
+    use rightkit_fs::lock::testing::after_identity_check;
+
+    /// The name `p` is swapped between the pre-open `lstat` (which saw the unheld file Y) and the
+    /// `open` (which finds the held file X). The request on `p` is answered by X's entry, and the
+    /// descriptor it opened is parked, not closed. Nothing may remember "p looked like Y but was
+    /// X": a later request on Y through its own, never-swapped name `q` must take a real lock on
+    /// Y (a process that remembered the pairing would grant X's guard and lock nothing on Y).
+    #[test]
+    fn a_name_swapped_between_the_identity_check_and_the_open_never_lends_one_files_guard_to_another(
+    ) {
+        let (_g, dir) = tmp();
+        let (x, y, p, q) = (
+            dir.join("x.lock"),
+            dir.join("y.lock"),
+            dir.join("p.lock"),
+            dir.join("q.lock"),
+        );
+        std::fs::File::create(&x).unwrap();
+        std::fs::File::create(&y).unwrap();
+        std::fs::hard_link(&y, &p).unwrap();
+        std::fs::hard_link(&y, &q).unwrap();
+
+        let held_x = FileLock::acquire(&x, &zero()).unwrap();
+        assert!(!other_process_finds_it_free(&x), "precondition: X is held");
+        assert!(other_process_finds_it_free(&q), "precondition: Y is free");
+
+        let swapped = {
+            let (p, x) = (p.clone(), x.clone());
+            let _hook = after_identity_check(move |path| {
+                if path == p {
+                    std::fs::remove_file(&p).unwrap();
+                    std::fs::hard_link(&x, &p).unwrap();
+                }
+            });
+            FileLock::try_acquire(&p)
+        };
+        assert!(
+            matches!(swapped, Err(FsError::Locked { .. })),
+            "the open found X, which is held: {swapped:?}"
+        );
+        assert!(
+            !other_process_finds_it_free(&x),
+            "the refused request must not have released X"
+        );
+
+        let on_y = FileLock::try_acquire(&q).expect("Y is not held by anyone and must be lockable");
+        assert!(
+            !other_process_finds_it_free(&q),
+            "Y must be really locked, not granted from X's entry"
+        );
+        drop(on_y);
+        assert!(other_process_finds_it_free(&q));
+        drop(held_x);
+        assert!(other_process_finds_it_free(&x));
+    }
+}

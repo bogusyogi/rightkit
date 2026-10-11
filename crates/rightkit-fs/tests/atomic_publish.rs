@@ -9,8 +9,11 @@ use std::io::Write;
 use std::path::Path;
 use std::rc::Rc;
 
-use rightkit_fs::atomic::testing::{on_replace, take_steps, Step};
-use rightkit_fs::{atomic_write_with_options, AtomicWriteOptions, FsError};
+use rightkit_fs::atomic::testing::{fail_recovery_move, on_replace, take_steps, Step};
+use rightkit_fs::{
+    atomic_write_with_options, sweep_stale_temps, AtomicWriteOptions, FsError, ReplaceMode,
+    StateDir,
+};
 
 /// What a hook saw just before the rename: the temp file's mode and the destination's content.
 #[cfg(unix)]
@@ -88,6 +91,47 @@ fn a_failed_replace_syncs_no_directory_and_publishes_nothing() {
     assert_eq!(take_steps(), vec![Step::TempFlushed, Step::Replace]);
     assert_eq!(std::fs::read(&target).unwrap(), b"old");
     assert_eq!(names(dir.path()), vec!["state.json".to_string()]);
+}
+
+#[cfg(unix)]
+#[test]
+fn no_replace_flushes_publishes_exclusively_then_syncs_the_directory() {
+    let dir = tempfile::tempdir().unwrap();
+    let target = dir.path().join("once.json");
+    let options = AtomicWriteOptions {
+        replace: ReplaceMode::NoReplace,
+        ..AtomicWriteOptions::default()
+    };
+    let _ = take_steps();
+    write(&target, options, b"x").unwrap();
+    assert_eq!(
+        take_steps(),
+        vec![
+            Step::TempFlushed,
+            Step::Replace,
+            Step::DirSynced(dir.path().to_path_buf())
+        ]
+    );
+    assert_eq!(std::fs::read(&target).unwrap(), b"x");
+}
+
+#[cfg(unix)]
+#[test]
+fn a_no_replace_loser_syncs_no_directory_and_leaves_the_winner() {
+    let dir = tempfile::tempdir().unwrap();
+    let target = dir.path().join("once.json");
+    std::fs::write(&target, b"winner").unwrap();
+    let options = AtomicWriteOptions {
+        replace: ReplaceMode::NoReplace,
+        ..AtomicWriteOptions::default()
+    };
+    let _ = take_steps();
+    let error = write(&target, options, b"loser").expect_err("the name is taken");
+    assert!(matches!(error, FsError::AlreadyExists(_)), "{error:?}");
+    assert!(!error.target_replaced());
+    assert_eq!(take_steps(), vec![Step::TempFlushed, Step::Replace]);
+    assert_eq!(std::fs::read(&target).unwrap(), b"winner");
+    assert_eq!(names(dir.path()), vec!["once.json".to_string()]);
 }
 
 // ------------------------------------------------ owner-only before publication (Unix, by mode)
@@ -285,28 +329,50 @@ mod post_publication {
 /// renamed it away, then could not move the replacement in.
 const UNABLE_TO_MOVE_REPLACEMENT: i32 = 1176;
 
-#[test]
-fn a_replace_that_lost_the_destination_keeps_the_temp_and_says_where_the_content_is() {
-    let dir = tempfile::tempdir().unwrap();
-    let target = dir.path().join("state.json");
-    std::fs::write(&target, b"old").unwrap();
+/// What `ReplaceFileW` leaves after 1176 without a backup: the destination is gone and the
+/// replacement is still under its temp name. Returns the error and that temp name.
+fn interrupted_write(target: &Path) -> (FsError, std::path::PathBuf) {
     let temp_seen: Rc<RefCell<Option<std::path::PathBuf>>> = Rc::default();
     let sink = temp_seen.clone();
     let result = {
         let _guard = on_replace(move |call| {
-            // The state ReplaceFileW leaves after error 1176 without a backup: the destination
-            // is gone and the replacement is still under its temp name.
             std::fs::remove_file(&call.target).unwrap();
             *sink.borrow_mut() = Some(call.temp.clone());
             Some(std::io::Error::from_raw_os_error(
                 UNABLE_TO_MOVE_REPLACEMENT,
             ))
         });
-        write(&target, AtomicWriteOptions::default(), b"new")
+        write(target, AtomicWriteOptions::default(), b"new")
     };
-    let error = result.expect_err("the replace was interrupted");
     let temp = temp_seen.borrow().clone().expect("the hook ran");
-    match &error {
+    (result.expect_err("the replace was interrupted"), temp)
+}
+
+const SWEEP_ENV: &str = "RIGHTKIT_FS_TEST_SWEEP_DIR";
+
+/// Runs in the re-executed child: a fresh process sweeps the directory named in the env var with
+/// both sweepers at zero age, which reclaims every complete generated temp name there is.
+#[test]
+fn sweep_entry_point() {
+    let Ok(dir) = std::env::var(SWEEP_ENV) else {
+        return;
+    };
+    let dir = Path::new(&dir);
+    let atomic = sweep_stale_temps(dir, std::time::Duration::ZERO).unwrap();
+    let state = StateDir::open(dir)
+        .unwrap()
+        .sweep_temps(std::time::Duration::ZERO)
+        .unwrap();
+    println!("SWEPT {atomic} {state}");
+}
+
+#[test]
+fn a_replace_that_lost_the_destination_keeps_the_new_content_where_a_sweep_cannot_reach_it() {
+    let dir = tempfile::tempdir().unwrap();
+    let target = dir.path().join("state.json");
+    std::fs::write(&target, b"old").unwrap();
+    let (error, temp) = interrupted_write(&target);
+    let recovery = match &error {
         FsError::ReplaceInterrupted {
             path,
             new_content,
@@ -314,16 +380,78 @@ fn a_replace_that_lost_the_destination_keeps_the_temp_and_says_where_the_content
             ..
         } => {
             assert_eq!(path, &target);
-            assert_eq!(new_content.as_ref(), Some(&temp));
             assert_eq!(previous_content, &None, "the old file is gone");
+            new_content.clone().expect("the new content is named")
+        }
+        other => panic!("expected ReplaceInterrupted, got {other:?}"),
+    };
+    assert!(!error.target_replaced());
+    assert_ne!(recovery, temp, "moved off the sweepable temp name");
+    assert!(!temp.exists());
+    let name = recovery.file_name().unwrap().to_string_lossy().into_owned();
+    assert!(name.starts_with(".state.json.rktnew-"), "{name}");
+    assert_eq!(recovery.parent(), Some(dir.path()));
+    assert_eq!(
+        std::fs::read(&recovery).expect("the recovery file holds the only copy of the new content"),
+        b"new"
+    );
+
+    // The writer is gone and any age counts as old: a sweep in this process, then a sweep in a
+    // fresh process (a restart), must both leave it. Nothing but the file name protects it.
+    assert_eq!(
+        sweep_stale_temps(dir.path(), std::time::Duration::ZERO).unwrap(),
+        0
+    );
+    let output = std::process::Command::new(std::env::current_exe().unwrap())
+        .args([
+            "--exact",
+            "sweep_entry_point",
+            "--nocapture",
+            "--test-threads=1",
+        ])
+        .env(SWEEP_ENV, dir.path())
+        .stdin(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .output()
+        .unwrap();
+    let text = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        text.contains("SWEPT 0 0"),
+        "the restarted sweep removed something: {text}"
+    );
+    assert_eq!(
+        std::fs::read(&recovery).unwrap(),
+        b"new",
+        "still there after the restart"
+    );
+}
+
+#[test]
+fn an_interrupted_replace_that_cannot_be_protected_says_so() {
+    let dir = tempfile::tempdir().unwrap();
+    let target = dir.path().join("state.json");
+    std::fs::write(&target, b"old").unwrap();
+    let (error, temp) = {
+        let _fail = fail_recovery_move();
+        interrupted_write(&target)
+    };
+    match &error {
+        FsError::ReplaceInterrupted { new_content, .. } => {
+            assert_eq!(
+                new_content.as_ref(),
+                Some(&temp),
+                "still under the temp name"
+            );
         }
         other => panic!("expected ReplaceInterrupted, got {other:?}"),
     }
-    assert!(!error.target_replaced());
+    assert!(
+        error.to_string().contains("sweep may delete it"),
+        "the message must say the copy is not protected: {error}"
+    );
     assert_eq!(
-        std::fs::read(&temp).expect("the temp holds the only copy of the new content"),
-        b"new",
-        "the writer must not delete it"
+        std::fs::read(&temp).expect("the writer must not delete the only copy"),
+        b"new"
     );
 }
 
@@ -360,12 +488,20 @@ mod parents {
         }
     }
 
+    /// Publishes `root` and everything above it, so the step log of the test shows only the walk
+    /// under `root` (the record of published directories is process-wide and shared by the
+    /// parallel tests), then empties the log.
+    fn warm(root: &Path) {
+        rightkit_fs::atomic::create_dir_all_durable(root, false).unwrap();
+        let _ = take_steps();
+    }
+
     #[test]
     fn every_created_ancestor_is_published_before_the_file_is_written() {
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path().to_path_buf();
         let target = root.join("new/deep/settings.json");
-        let _ = take_steps();
+        warm(&root);
         write(&target, with_parents(), b"x").unwrap();
         assert_eq!(
             take_steps(),
@@ -385,6 +521,7 @@ mod parents {
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path().to_path_buf();
         let target = root.join("first/second/settings.json");
+        warm(&root);
         let guard = fail_dir_sync(std::io::ErrorKind::Other);
         let error = write(&target, with_parents(), b"x").expect_err("the sync failed");
         drop(guard);
@@ -407,6 +544,57 @@ mod parents {
             "{steps:?}"
         );
         assert_eq!(std::fs::read(&target).unwrap(), b"x");
+    }
+
+    /// A real `mkdir` in another process stands for a crashed earlier run or a racing thread: the
+    /// directory exists, this process never published it, and nothing on disk says whether its
+    /// parent was synced. The write that finds it must sync that link before writing below it.
+    #[test]
+    fn a_directory_made_by_another_process_is_published_before_the_file_is_written() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().to_path_buf();
+        warm(&root);
+        let status = std::process::Command::new("mkdir")
+            .arg(root.join("found"))
+            .status()
+            .unwrap();
+        assert!(status.success());
+        write(
+            &root.join("found/inner/settings.json"),
+            with_parents(),
+            b"x",
+        )
+        .unwrap();
+        assert_eq!(
+            take_steps(),
+            vec![
+                Step::DirSynced(root.clone()),
+                Step::DirSynced(root.join("found")),
+                Step::TempFlushed,
+                Step::Replace,
+                Step::DirSynced(root.join("found/inner")),
+            ],
+            "the found directory's link is synced like the one this call makes"
+        );
+    }
+
+    #[test]
+    fn a_published_directory_is_not_synced_again() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().to_path_buf();
+        warm(&root);
+        write(&root.join("a/b/one.json"), with_parents(), b"1").unwrap();
+        let _ = take_steps();
+        write(&root.join("a/b/two.json"), with_parents(), b"2").unwrap();
+        assert_eq!(
+            take_steps(),
+            vec![
+                Step::TempFlushed,
+                Step::Replace,
+                Step::DirSynced(root.join("a/b"))
+            ],
+            "only the write's own directory sync remains"
+        );
     }
 
     #[test]

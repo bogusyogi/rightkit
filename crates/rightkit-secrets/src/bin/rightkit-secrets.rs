@@ -1,10 +1,13 @@
 //! Diagnostic CLI. It can report presence, store/delete a secret read from stdin, and ensure a
 //! random key exists. It has NO command that prints a secret.
 //!
-//!   rightkit-secrets <status|set|delete|ensure-key> --namespace N --account A
-//!       [--isolated-keychain PATH --keychain-password PW]   (macOS test keychain under the temp directory; never the login keychain)
+//!   rightkit-secrets <status|set|delete|ensure-key> --namespace N --account A [--replace]
+//!       [--isolated-keychain PATH --keychain-password PW]   (macOS test keychain under the temp directory; never the login keychain; needs the `isolated-test-keychain` feature)
+//!
+//! `set` creates the credential and refuses (`"stored":false`) when one exists; `--replace` is
+//! the explicit instruction to overwrite it.
 
-use rightkit_secrets::{Config, Namespace, Secret, Store};
+use rightkit_secrets::{Config, Namespace, Secret, Store, WriteIntent};
 use std::io::Read;
 
 fn arg(args: &[String], name: &str) -> Option<String> {
@@ -43,7 +46,7 @@ fn run(args: &[String]) -> rightkit_secrets::Result<serde_json::Value> {
     #[allow(unused_mut)]
     let mut cfg = Config::new(ns);
     if let Some(path) = arg(args, "--isolated-keychain") {
-        #[cfg(target_os = "macos")]
+        #[cfg(all(target_os = "macos", feature = "isolated-test-keychain"))]
         {
             let pw = arg(args, "--keychain-password");
             let kc = rightkit_secrets::macos::KeychainBackend::open_isolated_file(
@@ -52,11 +55,11 @@ fn run(args: &[String]) -> rightkit_secrets::Result<serde_json::Value> {
             )?;
             cfg = cfg.backend(std::sync::Arc::new(kc));
         }
-        #[cfg(not(target_os = "macos"))]
+        #[cfg(not(all(target_os = "macos", feature = "isolated-test-keychain")))]
         {
             let _ = path;
             return Err(rightkit_secrets::Error::Unavailable(
-                "--isolated-keychain is macOS only".into(),
+                "--isolated-keychain needs macOS and the isolated-test-keychain feature".into(),
             ));
         }
     }
@@ -71,11 +74,17 @@ fn run(args: &[String]) -> rightkit_secrets::Result<serde_json::Value> {
             std::io::stdin()
                 .read_to_string(&mut s)
                 .map_err(|e| rightkit_secrets::Error::Io(e.to_string()))?;
-            store.set(
+            let intent = if args.iter().any(|a| a == "--replace") {
+                WriteIntent::Replace
+            } else {
+                WriteIntent::CreateOnly
+            };
+            let stored = store.put(
                 &account,
                 &Secret::from_string(s.trim_end_matches(['\n', '\r'])),
+                intent,
             )?;
-            Ok(serde_json::json!({ "ok": true, "stored": true }))
+            Ok(serde_json::json!({ "ok": true, "stored": stored }))
         }
         "delete" => Ok(serde_json::json!({ "ok": true, "deleted": store.delete(&account)? })),
         "ensure-key" => {

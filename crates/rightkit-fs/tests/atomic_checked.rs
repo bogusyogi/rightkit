@@ -2,7 +2,6 @@
 //! publication. A passing check publishes exactly the checked content; a failing check leaves the
 //! destination untouched and removes the temp file.
 
-use std::io::Write;
 use std::path::Path;
 
 use rightkit_fs::{AtomicWriteOptions, AtomicWriter, FsError};

@@ -22,6 +22,8 @@ compile_error!(
      remove it from release builds"
 );
 
+#[cfg(all(feature = "fs", unix))]
+pub(crate) mod acl;
 #[cfg(feature = "fs")]
 pub mod atomic;
 #[cfg(feature = "fs")]

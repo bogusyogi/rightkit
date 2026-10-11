@@ -158,9 +158,84 @@ impl WindowsChild {
     }
 }
 
-// Serialize temporary flag changes within this crate. Callers must keep supplied
-// handles valid & avoid changing their flags until spawn returns.
+// One lock for every process this crate creates on Windows.
+//
+// An allowlisted spawn raises the inherit flag on the caller's handles for the length of
+// `CreateProcessW` and lowers it again afterwards. Rust's ordinary spawn passes
+// `bInheritHandles = TRUE` with no handle list, so one running inside that window would hand
+// those handles to its own child: a file or pipe the caller meant for one process only. Both
+// spawn paths of this crate therefore take this lock, and it covers the raise, the creation
+// and the restore. Callers must keep supplied handles valid and leave their flags alone until
+// spawn returns.
 static SPAWN_LOCK: Mutex<()> = Mutex::new(());
+
+/// Held while this crate creates a process.
+pub(crate) fn spawn_guard() -> std::sync::MutexGuard<'static, ()> {
+    SPAWN_LOCK
+        .lock()
+        .unwrap_or_else(|poison| poison.into_inner())
+}
+
+/// Run `spawn` while no RightKit spawn has handles raised for inheritance.
+///
+/// `OwnedCommand::inherit_handles_only` makes the listed handles inheritable for the moment
+/// the child is created. A process created at that moment by other code (a plain
+/// `std::process::Command::spawn`, a library) inherits them too, because Windows hands every
+/// inheritable handle to a child created with handle inheritance on. RightKit's own spawns
+/// are serialised against each other; code that spawns by other means in a process that also
+/// uses `inherit_handles_only` wraps its spawn in this function to join that serialisation.
+///
+/// Do not create a RightKit process inside `spawn`: the lock is not re-entrant.
+pub fn with_windows_spawn_lock<T>(spawn: impl FnOnce() -> T) -> T {
+    let _spawning = spawn_guard();
+    spawn()
+}
+
+/// Test seam: stop an allowlisted spawn at the point where its handles are inheritable.
+#[cfg(test)]
+mod pause {
+    use std::sync::{Condvar, Mutex};
+    use std::time::Duration;
+
+    /// (the handle the spawn to stop must carry, reached, released).
+    static STATE: Mutex<(Option<usize>, bool, bool)> = Mutex::new((None, false, false));
+    static CHANGED: Condvar = Condvar::new();
+
+    pub(super) fn arm(handle: usize) {
+        *STATE.lock().unwrap() = (Some(handle), false, false);
+    }
+
+    /// Called by `spawn` once the inherit flags are raised. Only the armed spawn stops.
+    pub(super) fn reached(handles: &[usize]) {
+        let mut state = STATE.lock().unwrap();
+        if !state.0.is_some_and(|armed| handles.contains(&armed)) {
+            return;
+        }
+        state.1 = true;
+        CHANGED.notify_all();
+        while !state.2 {
+            state = CHANGED.wait(state).unwrap();
+        }
+        *state = (None, false, false);
+    }
+
+    pub(super) fn wait_reached() {
+        let state = STATE.lock().unwrap();
+        let (state, timeout) = CHANGED
+            .wait_timeout_while(state, Duration::from_secs(30), |state| !state.1)
+            .unwrap();
+        assert!(
+            !timeout.timed_out(),
+            "the armed spawn never raised its handles"
+        );
+        drop(state);
+    }
+
+    pub(super) fn release() {
+        STATE.lock().unwrap().2 = true;
+        CHANGED.notify_all();
+    }
+}
 
 struct Inheritable(Vec<(HANDLE, u32)>);
 impl Inheritable {
@@ -381,10 +456,15 @@ pub(crate) fn spawn(
     ]);
     handles.sort_unstable_by_key(|handle| handle.0 as usize);
     handles.dedup();
-    let _lock = SPAWN_LOCK
-        .lock()
-        .unwrap_or_else(|poison| poison.into_inner());
+    let _lock = spawn_guard();
     let mut inheritable = Inheritable::new(&handles)?;
+    #[cfg(test)]
+    pause::reached(
+        &handles
+            .iter()
+            .map(|handle| handle.0 as usize)
+            .collect::<Vec<_>>(),
+    );
     let attributes = Attributes::new(&handles)?;
     let mut startup = STARTUPINFOEXW::default();
     startup.StartupInfo.cb = std::mem::size_of::<STARTUPINFOEXW>() as u32;
@@ -847,6 +927,84 @@ mod tests {
             String::from_utf16(&line[..line.len() - 1]).unwrap(),
             "\"cmd.exe\" /c echo first & echo second"
         );
+    }
+
+    fn is_inheritable(handle: usize) -> bool {
+        let mut flags = 0;
+        unsafe { GetHandleInformation(HANDLE(handle as *mut _), &mut flags) }.unwrap();
+        flags & HANDLE_FLAG_INHERIT.0 != 0
+    }
+
+    /// Fourth read, finding 6. An allowlisted spawn is stopped at the moment its private
+    /// handle is inheritable. An ordinary spawn started then must not create its process
+    /// until the handle is private again, or its child would inherit the handle.
+    #[test]
+    fn an_ordinary_spawn_waits_until_an_allowlisted_spawn_has_restored_its_handles() {
+        use std::os::windows::io::AsRawHandle;
+        use std::sync::mpsc;
+        use std::time::Duration;
+
+        let path = std::env::temp_dir().join(format!(
+            "rightkit-process-private-{}-{:?}.txt",
+            std::process::id(),
+            std::thread::current().id()
+        ));
+        let private = std::fs::File::create(&path).unwrap();
+        let handle = private.as_raw_handle() as usize;
+        assert!(!is_inheritable(handle), "a fresh handle is private");
+
+        // Both children are hidden console programs that exit at once.
+        let quick = || {
+            let mut command = crate::OwnedCommand::new("cmd.exe");
+            command.command_mut().args(["/d", "/c", "exit", "0"]);
+            command
+        };
+
+        pause::arm(handle);
+        let allowlisted = std::thread::spawn(move || {
+            let mut command = quick();
+            command.inherit_handles_only([handle as crate::RawHandleOrFd]);
+            command.windows_spawn_config(WindowsSpawnConfig {
+                stdin: WindowsStdio::Null,
+                stdout: WindowsStdio::Null,
+                stderr: WindowsStdio::Null,
+                inherit_environment: true,
+                raw_arguments: Vec::new(),
+            });
+            let mut child = command.spawn().expect("allowlisted spawn");
+            child.wait_timeout(Duration::from_secs(30)).unwrap();
+        });
+        pause::wait_reached();
+        // The window the finding describes: the private handle is inheritable right now.
+        assert!(is_inheritable(handle));
+
+        let (created, seen) = mpsc::channel();
+        let ordinary = std::thread::spawn(move || {
+            let mut child = quick().spawn().expect("ordinary spawn");
+            created.send(is_inheritable(handle)).unwrap();
+            child.wait_timeout(Duration::from_secs(30)).unwrap();
+        });
+        // While the window is open the ordinary spawn creates nothing.
+        assert!(
+            matches!(
+                seen.recv_timeout(Duration::from_millis(500)),
+                Err(mpsc::RecvTimeoutError::Timeout)
+            ),
+            "an ordinary spawn ran while a private handle was inheritable"
+        );
+
+        pause::release();
+        // It runs once the allowlisted spawn is done, and by then the handle is private again.
+        let inheritable_at_creation = seen.recv_timeout(Duration::from_secs(30)).unwrap();
+        assert!(!inheritable_at_creation);
+        allowlisted.join().unwrap();
+        ordinary.join().unwrap();
+        assert!(!is_inheritable(handle));
+
+        // Code outside this crate joins the same serialisation.
+        assert_eq!(with_windows_spawn_lock(|| 7), 7);
+        drop(private);
+        let _ = std::fs::remove_file(path);
     }
 
     #[test]

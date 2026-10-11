@@ -51,14 +51,15 @@ pub use clock::{
 };
 pub use file_store::{
     ClosureClockStore, ClosureClockStoreError, CrossProcessLock, FileClockStore,
-    FileClockStoreError,
+    FileClockStoreError, LockFailure, LockWait,
 };
 pub use lease::{
     canonical_lease_envelope, verify_lease_envelope, verify_lease_envelope_fields, LeaseEnvelope,
     LeaseError,
 };
 pub use lifecycle::{
-    evaluate_lifecycle, Lifecycle, LifecycleContext, LifecycleMessages, LifecyclePolicy,
+    evaluate_lifecycle, Lifecycle, LifecycleContext, LifecycleMessageContext,
+    LifecycleMessageFormatter, LifecycleMessageKind, LifecycleMessages, LifecyclePolicy,
     LifecycleReport, StoredCredential,
 };
 pub use refresh::{

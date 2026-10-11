@@ -56,5 +56,19 @@ rightkit-tauri = "=0.1.2"
 #
 # then enable the registration in src/lib.rs (the commented block in `run`). The dev lane builds with
 # `--features qa-native`; `right-release` fails any release or update seal that contains the server.
+#
+# Developer inspection of DEV builds. rightkit-shell denies DevTools on every webview of every build (the
+# owner's rule for shipped apps). A development build that must be inspected (attached debugger, QA tooling,
+# the wdio remote-debugging port) selects the shell's `dev-inspect` feature through an optional, off-by-default
+# app feature, exactly like `qa-native`. It is NOT enabled here: the pinned `rightkit-shell = "=0.1.4"` has no
+# `dev-inspect` feature yet, so adding the line below would break `cargo metadata`. Once the registry pin moves
+# to the rightkit-shell release that has it (`rightkit-versions.json` `registry`), add to [features]:
+#
+#   dev-native = ["rightkit-shell/dev-inspect"]
+#
+# and build the dev lane with `--features dev-native` (or `qa-native,dev-native`). `default` must never reach it:
+# `right-release` refuses `dev-native` / `dev-inspect` in a release or update build command or manifest, the
+# binary scan refuses the marker `RIGHTKIT-SHELL-DEV-INSPECT-COMPILED`, and `rightkit-qa guard` rejects it in
+# default features.
 [features]
 default = []

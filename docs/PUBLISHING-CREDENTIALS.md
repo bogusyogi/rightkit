@@ -9,7 +9,7 @@ No machine publishes locally, and no chat needs a registry token in its shell.
 
 | Registry | GitHub secret on `Orthic-Labs/rightkit` | Scope | Set | Source |
 |---|---|---|---|---|
-| npm (`@rightkit/*`) | `NPM_TOKEN` | `release` environment (main only) | 11 Oct 2026, 14:53 UTC | Copied by pipe from the Mac's npm login |
+| npm (`@rightkit/*`) | `NPM_TOKEN` | `release` environment (main only) | 11 Oct 2026, 14:53 UTC, **wrong token: must be replaced** | First copy came from `~/.npmrc`, which is not a publish token: the first real publish (run 38157017970) was refused by npm with 404 on PUT. The publish token is the macOS keychain item `npm-rightkit-publish` that the old local publish path used. |
 | crates.io | `CARGO_REGISTRY_TOKEN` | repository | 11 Oct 2026, 14:45 UTC | Token `rightkit-github-actions`, created by Adrian on crates.io with scopes `publish-new` and `publish-update`, no crate restriction |
 
 Check that they exist (names and dates only; GitHub never returns a value):

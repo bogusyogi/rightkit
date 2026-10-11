@@ -25,7 +25,7 @@ pub mod values;
 pub mod filename;
 
 pub use ast::{Leaf, Node, ParseError, Syntax};
-pub use fold::fold;
+pub use fold::{check_fold_version, fold, fold_with, FoldOptions, RebuildNeeded, FOLD_VERSION};
 pub use matcher::{MatchError, Snippet, TextMatcher};
 pub use page::{Cursor, CursorError, Keyset, PagedSql};
 pub use scan::{read_text_prefix, scan_page, ScanBudget, ScanPage};

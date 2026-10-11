@@ -290,6 +290,10 @@ pub(crate) struct RunItem {
     /// True for a glyph that word spacing (`Tw`) applies to: the single-byte character code 32,
     /// whatever it decodes to. Never true for a gap or a multi-byte (CID) code.
     pub word_space: bool,
+    /// For a glyph: the `TJ` number whose pen movement equals the glyph's own (so a glyph removed
+    /// from a string leaves the pen where it was). `None` for a gap, and for a glyph whose
+    /// advance cannot be expressed that way (a zero or non-finite font size).
+    pub pen_adjust: Option<f64>,
 }
 
 /// One numeric `TJ` item that contributes to a word gap.
@@ -591,6 +595,10 @@ pub struct PositionedGlyph {
     pub source: GlyphSourceAddress,
     pub font_id: String,
     pub font_size: f64,
+    /// Text-space distance the pen moved after this glyph, before horizontal scaling: the font's
+    /// advance plus `Tc` (plus `Tw` for single-byte code 32). A removed glyph is replaced by the
+    /// `TJ` number that moves the pen by exactly this.
+    pub pen_advance: f64,
     pub text_matrix: Matrix,
     pub ctm: Matrix,
     pub writing_direction: WritingDirection,

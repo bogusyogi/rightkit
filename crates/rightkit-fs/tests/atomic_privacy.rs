@@ -90,3 +90,29 @@ fn parents_created_for_an_owner_only_write_are_0700_on_unix() {
         & 0o777;
     assert_eq!(parent, 0o700);
 }
+
+/// A symlink at the destination lends nothing: its target's mode is not copied to the new file
+/// (the existing-mode rule applies to a regular file only), the link itself is replaced, and the
+/// target is untouched.
+#[test]
+fn a_symlink_at_the_destination_is_replaced_not_followed_and_lends_no_mode() {
+    let dir = tempfile::tempdir().unwrap();
+    let secret = dir.path().join("target.bin");
+    std::fs::write(&secret, b"target content").unwrap();
+    std::fs::set_permissions(&secret, std::fs::Permissions::from_mode(0o600)).unwrap();
+    let link = dir.path().join("link.bin");
+    std::os::unix::fs::symlink(&secret, &link).unwrap();
+
+    let options = AtomicWriteOptions::default();
+    atomic_write_with_options(&link, options, |f| f.write_all(b"new")).unwrap();
+
+    let meta = std::fs::symlink_metadata(&link).unwrap();
+    assert!(meta.is_file(), "the link was replaced by a regular file");
+    assert_eq!(std::fs::read(&link).unwrap(), b"new");
+    assert_eq!(std::fs::read(&secret).unwrap(), b"target content");
+    assert_eq!(
+        meta.permissions().mode() & 0o777,
+        mode_after(options),
+        "the mode is the one a fresh file gets, not the link target's 0600"
+    );
+}

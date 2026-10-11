@@ -1,5 +1,5 @@
 use crate::error::{Error, Result};
-use crate::namespace::{check_target, Namespace};
+use crate::namespace::{check_target, windows_credential_identity, Namespace};
 use crate::secret::Secret;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, OnceLock};
@@ -43,6 +43,27 @@ pub trait Backend: Send + Sync + 'static {
     fn exclusion_identity(&self) -> Option<String> {
         None
     }
+    /// The identity of the ONE native credential `(ns, account)` addresses in this backend, used
+    /// (together with [`Backend::exclusion_identity`]) to serialise mutations. Two calls that can
+    /// reach the same native item MUST return the same string, whatever differs in `ns`; this is
+    /// not the Windows target for a backend that does not address by Windows target.
+    ///
+    /// The default is [`windows_credential_identity`] (right for any backend keyed on the
+    /// Windows target shape). A backend that addresses by anything else MUST override it: the
+    /// macOS Keychain addresses by service and account only, so it uses
+    /// [`crate::macos_credential_identity`]; a backend keyed on service and account without case
+    /// folding may return its own exact key.
+    fn credential_identity(&self, ns: &Namespace, account: &str) -> Result<String> {
+        windows_credential_identity(ns, account)
+    }
+    /// Whether a value this backend accepts survives the process. Defaults to `false`
+    /// (fail closed): migration deletes its source only after the copy is in a backend that
+    /// says `true`, because copying into process memory and then deleting the persistent copy
+    /// would lose the secret on exit. The OS backends return `true`; [`MemoryBackend`] returns
+    /// `false` (see [`MemoryBackend::simulating_durable`] for tests).
+    fn durable(&self) -> bool {
+        false
+    }
     /// `Ok(None)` ONLY when the store authoritatively reports the item absent.
     fn get(&self, ns: &Namespace, account: &str, mode: Interaction) -> Result<Option<Secret>>;
     /// Passive presence: must not request secret bytes and must not prompt.
@@ -81,11 +102,21 @@ pub trait Backend: Send + Sync + 'static {
 #[derive(Default)]
 pub struct MemoryBackend {
     map: Mutex<HashMap<(String, String), Secret>>,
+    simulate_durable: bool,
 }
 
 impl MemoryBackend {
     pub fn new() -> Self {
         Self::default()
+    }
+    /// A memory backend that REPORTS itself durable ([`Backend::durable`]), so tests can
+    /// exercise destructive migration against a fake. It still loses everything on exit; never
+    /// use it where the value matters.
+    pub fn simulating_durable() -> Self {
+        Self {
+            simulate_durable: true,
+            ..Self::default()
+        }
     }
     /// Shared by every `Store` in this process that is guarded into memory.
     pub fn process_wide() -> Arc<MemoryBackend> {
@@ -102,6 +133,15 @@ impl MemoryBackend {
 impl Backend for MemoryBackend {
     fn name(&self) -> &'static str {
         "memory"
+    }
+    fn credential_identity(&self, ns: &Namespace, account: &str) -> Result<String> {
+        check_target(ns, account)?;
+        // Exactly the key the map uses.
+        let (service, account) = Self::key(ns, account);
+        Ok(format!("memory:{service}\u{1f}{account}"))
+    }
+    fn durable(&self) -> bool {
+        self.simulate_durable
     }
     fn get(&self, ns: &Namespace, account: &str, _: Interaction) -> Result<Option<Secret>> {
         check_target(ns, account)?;

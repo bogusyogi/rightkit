@@ -8,9 +8,11 @@ use crate::store::{Error, InterruptedReplace};
 
 static NEXT_TEMP: AtomicU64 = AtomicU64::new(0);
 
-/// Write `bytes` so readers see the old or the new file, never a mix. Creates missing parent
-/// directories, then replaces through `rightkit_fs::atomic_write_with_options` (temp file, flush,
-/// replace, and on Unix and macOS a directory sync). On Windows no directory flush is made. A
+/// Write `bytes` so readers see the old or the new file, never a mix. Missing parent directories
+/// are created by `rightkit_fs` itself (`create_parents`), which on Unix and macOS syncs the link
+/// of every ancestor this process has not yet published before the file is written below it;
+/// the file is then replaced through `rightkit_fs::atomic_write_with_options` (temp file, flush,
+/// replace, directory sync). On Windows no directory flush is made. A
 /// failure after the file was replaced is returned as an error whose message says so; see
 /// [`crate::Error::Replaced`] for the typed form used by [`crate::Store`].
 pub fn atomic_write(dest: &Path, bytes: &[u8]) -> io::Result<()> {
@@ -40,6 +42,7 @@ impl Default for WriteMode {
 pub(crate) fn fs_options(mode: &WriteMode) -> rightkit_fs::AtomicWriteOptions {
     rightkit_fs::AtomicWriteOptions {
         durable: mode.durable,
+        create_parents: true,
         replace: match mode.replace {
             ReplaceMode::Rename => rightkit_fs::ReplaceMode::Rename,
             ReplaceMode::ReplaceFile => rightkit_fs::ReplaceMode::ReplaceFile,
@@ -55,22 +58,25 @@ pub(crate) fn fs_options(mode: &WriteMode) -> rightkit_fs::AtomicWriteOptions {
 /// [`atomic_write`] with an explicit replace mode, durability flag, and sharing-violation retry.
 /// `Error::Io` means nothing was published; `Error::Replaced` means the new file is in place.
 pub(crate) fn atomic_write_mode(dest: &Path, bytes: &[u8], mode: &WriteMode) -> Result<(), Error> {
-    let parent = parent_of(dest)?;
-    fs::create_dir_all(parent)?;
+    // Parents are made by the write itself, not here: a plain `create_dir_all` creates them with
+    // no directory sync, so a durable write below them could lose the whole path.
+    parent_of(dest)?;
     rightkit_fs::atomic_write_with_options(dest, fs_options(mode), |f| f.write_all(bytes))
         .map_err(|e| publish_error(dest, e))
 }
 
 /// As [`atomic_write`] with an injectable replace step (used to prove the old file survives a
 /// failed replace). `replace(temp, dest)` must move `temp` over `dest`; the default is
-/// `fs::rename`, which replaces an existing file on every platform.
+/// `fs::rename`, which replaces an existing file on every platform. Missing parents are made
+/// durably (see [`atomic_write`]); the replace itself is the caller's, so this makes no
+/// directory sync after it: use [`atomic_write`] for a durable publication.
 pub fn atomic_write_with(
     dest: &Path,
     bytes: &[u8],
     replace: impl FnOnce(&Path, &Path) -> io::Result<()>,
 ) -> io::Result<()> {
     let parent = parent_of(dest)?;
-    fs::create_dir_all(parent)?;
+    rightkit_fs::atomic::create_dir_all_durable(parent, false).map_err(io::Error::from)?;
     let name = dest
         .file_name()
         .and_then(|n| n.to_str())

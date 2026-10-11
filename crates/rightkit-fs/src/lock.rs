@@ -34,6 +34,35 @@
 //! `started_unix_ms` and an RFC 3339 `started` field (the shape CutRight reads), and a read
 //! accepts either one, so records written by older builds still parse.
 //!
+//! # The Unix registry: every request, what it does, what a crash leaves
+//!
+//! All rows run under one mutex, keyed by the opened file's `(dev, ino)`, never by a path.
+//! "Entry" is the registry record of a held lock file (mode, holder count, every descriptor this
+//! process has open on it). Tests are in `tests/lock_alias.rs` unless named otherwise.
+//!
+//! | Request (`LockKind::Fcntl`) | Registry state | Result | State left on a crash of this process | Test |
+//! |---|---|---|---|---|
+//! | exclusive or shared, file unheld | no entry for the inode | `open` (`0600`, `O_NOFOLLOW`), `F_SETLK`; granted: entry inserted, one holder; refused by another process: descriptor dropped, nothing recorded (this process holds nothing on it) | the kernel drops the record lock; the `.owner` file is stale evidence | `lock_cross_process.rs::exclusive_holder_in_another_process_blocks_every_mode`, `killed_holder_leaves_a_recoverable_lock` |
+//! | shared | entry, shared | joins: holder count +1, no new lock call | as above | `lock_alias.rs::hard_link_shared_holders_keep_the_lock_until_the_last_drops` |
+//! | exclusive | entry, any mode | busy: [`FsError::Locked`] / [`FsError::LockTimeout`]; no descriptor kept open beyond the entry's | n/a | `lock_alias.rs::a_hard_link_cannot_downgrade_or_release_an_exclusive_lock`, `lock_spawn.rs::shared_locks_coexist_and_exclude_exclusive` |
+//! | shared | entry, exclusive | busy (a second `F_SETLK` from this process would silently downgrade the exclusive lock, so it is never issued) | n/a | same test |
+//! | any, through an alias seen by the pre-open `lstat` (hard link, case alias, symlinked directory) | entry for that inode | answered from the entry, no `open` | n/a | `lock_alias.rs::a_case_alias_cannot_downgrade_or_release_an_exclusive_lock`, `a_symlinked_directory_reaches_the_same_lock`, `waiting_on_an_alias_does_not_accumulate_descriptors` |
+//! | any, through a name swapped between the `lstat` and the `open` so the opened inode is held | entry for the opened inode | the new descriptor is parked in the entry and closed only with the last holder (closing it would drop the holder's lock); the request is answered by the entry | n/a | deterministic with the seam: `lock_alias.rs::swap::a_name_swapped_between_the_identity_check_and_the_open_never_lends_one_files_guard_to_another` (`lock::testing::after_identity_check`) |
+//! | any, through a name swapped so the `lstat` identity (held) differs from what is opened | no remembered pairing | nothing is remembered between the two identities: a later request on the unchanged, unrelated inode takes its own real lock | n/a | same test (asserts a second process sees the unrelated inode locked) |
+//! | release, not the last holder | holders > 1 | holder count -1; descriptors stay open | n/a | `lock_alias.rs::hard_link_shared_holders_keep_the_lock_until_the_last_drops` |
+//! | release, last holder | holders = 1 | entry removed and every descriptor closed under the mutex, so no acquire in this process can open the file before the lock is gone | n/a | `lock_alias.rs::assert_alias_cannot_downgrade_or_release` (via `a_hard_link_...`) |
+//! | `fork` while held (another thread spawns a child) | any | record locks are not inherited, so the child holds nothing | the child cannot keep the lock alive | `lock_spawn.rs::released_exclusive_lock_is_free_while_other_threads_spawn_children` |
+//! | a panic while the mutex is held | any | poison is ignored; the guarded map is never left half-updated by a panic (every step is a single map operation) | n/a | cannot be tested without a panic injected between two map operations; there is no step between them to inject at |
+//! | lock file missing | none | created `0600`; on macOS refused ([`FsError::UnsafeAcl`]) under a parent whose ACL would give it an `allow` entry, and an ACL it still got is removed | an empty `0600` lock file remains: it is never deleted | `tests/acl_macos.rs::a_lock_file_is_refused_under_an_inheriting_parent` |
+//! | lock file is a symlink | n/a | [`FsError::Symlink`], nothing created | n/a | `lock_reparse.rs` |
+//! | lock file named like a generated temp name | n/a | [`FsError::BadName`] | n/a | `lock_alias.rs::a_lock_file_named_like_a_generated_temp_file_is_refused` |
+//!
+//! [`LockKind::Flock`] keeps no registry: each attempt opens its own descriptor, the kernel
+//! decides, and drop unlocks explicitly (`lock_spawn.rs::two_flock_descriptors_in_one_process_exclude_each_other`,
+//! `lock_alias.rs::flock_kind_is_unaffected_by_aliases`, `lock_cross_process.rs::killed_flock_holder_releases_the_lock`).
+//! Windows takes `LockFileEx` on one handle per attempt (no registry, not inherited); a reparse
+//! point at the lock path is refused (`lock_reparse.rs`, Windows).
+//!
 //! Consolidates CutRight project/model-store/qa locks and CodeRight `DaemonDbLock`.
 
 #[cfg(feature = "json")]
@@ -234,6 +263,22 @@ fn open_lock_file(path: &Path) -> Result<File> {
         // A lock file named like a generated temp file would be deleted by a temp sweep.
         crate::atomic::reject_reserved_name(&name.to_string_lossy())?;
     }
+    // A lock file this call creates is `0600` from creation. On macOS a parent whose ACL would
+    // hand the new file an `allow` entry is refused first, and an ACL it got anyway is removed
+    // (see `crate::acl`). An existing lock file is opened as it is.
+    #[cfg(unix)]
+    let creating = matches!(
+        std::fs::symlink_metadata(path),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound
+    );
+    #[cfg(unix)]
+    if creating {
+        let parent = path
+            .parent()
+            .filter(|p| !p.as_os_str().is_empty())
+            .unwrap_or(Path::new("."));
+        crate::acl::guard_parent_path(parent, path)?;
+    }
     let mut options = OpenOptions::new();
     options.read(true).write(true).create(true).truncate(false);
     #[cfg(unix)]
@@ -256,6 +301,14 @@ fn open_lock_file(path: &Path) -> Result<File> {
         }
         FsError::io(path, e)
     })?;
+    #[cfg(unix)]
+    if creating {
+        if let Err(error) = crate::acl::scrub_created(&file, path) {
+            drop(file);
+            let _ = std::fs::remove_file(path);
+            return Err(error);
+        }
+    }
     #[cfg(windows)]
     {
         use std::os::windows::fs::MetadataExt;
@@ -526,6 +579,8 @@ mod posix {
             }
         }
 
+        #[cfg(feature = "testing")]
+        super::testing::after_identity_check_run(path);
         let file = open_lock_file(path)?;
         let id = FileId::of(&file.metadata().map_err(|e| FsError::io(path, e))?);
         if let Some(entry) = registry.entries.get_mut(&id) {
@@ -673,6 +728,49 @@ mod flock {
             // description, including one a forked child has not yet exec'd away from.
             unsafe { libc::flock(self.file.as_raw_fd(), libc::LOCK_UN) };
         }
+    }
+}
+
+/// Fault injection for consumer tests (feature `testing`, off by default; debug builds only).
+///
+/// [`after_identity_check`] runs a closure on the calling thread at the one point of a POSIX
+/// record-lock acquisition where a name can be swapped under it: after the pre-open `lstat`
+/// decided the file was not held, before the file is opened. It lets a test build the swap
+/// deterministically.
+#[cfg(feature = "testing")]
+pub mod testing {
+    use std::cell::RefCell;
+    use std::path::Path;
+
+    type Hook = Box<dyn Fn(&Path)>;
+
+    thread_local! {
+        static AFTER_IDENTITY_CHECK: RefCell<Option<Hook>> = const { RefCell::new(None) };
+    }
+
+    /// Removes the hook when dropped.
+    pub struct HookGuard(fn());
+
+    impl Drop for HookGuard {
+        fn drop(&mut self) {
+            (self.0)();
+        }
+    }
+
+    /// Run `hook(path)` on this thread between the identity check and the open of every
+    /// `Fcntl` acquisition, until the guard drops.
+    pub fn after_identity_check(hook: impl Fn(&Path) + 'static) -> HookGuard {
+        AFTER_IDENTITY_CHECK.with(|slot| *slot.borrow_mut() = Some(Box::new(hook)));
+        HookGuard(|| AFTER_IDENTITY_CHECK.with(|slot| *slot.borrow_mut() = None))
+    }
+
+    #[cfg(unix)]
+    pub(super) fn after_identity_check_run(path: &Path) {
+        AFTER_IDENTITY_CHECK.with(|slot| {
+            if let Some(hook) = slot.borrow().as_ref() {
+                hook(path);
+            }
+        });
     }
 }
 

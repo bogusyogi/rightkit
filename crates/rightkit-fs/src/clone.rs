@@ -245,13 +245,13 @@ pub fn clone_or_link_or_copy_nofollow_with(
         // reclaimed by a sweep.
         crate::atomic::reject_reserved_name(&name.to_string_lossy())?;
     }
-    let source = check_source(src)?;
+    check_source(src)?;
     check_destination(dst)?;
 
     if options.fresh_metadata {
         // A clone copies the source's mode and extended attributes, and a hard link is the
         // source's inode; neither step can give a fresh file, so only the byte copy runs.
-        copy_step(src, dst, source, options)?;
+        copy_step(src, dst, options)?;
         return Ok(CloneOutcome::Copied);
     }
 
@@ -269,7 +269,7 @@ pub fn clone_or_link_or_copy_nofollow_with(
             StepResult::Unavailable => {}
         }
     }
-    copy_step(src, dst, source, options)?;
+    copy_step(src, dst, options)?;
     Ok(CloneOutcome::Copied)
 }
 
@@ -425,12 +425,13 @@ fn finish(dst: &Path, options: &CloneOptions, outcome: CloneOutcome) -> FsResult
 
 /// The byte-copy floor: read `src` (opened without following a link), write it through the
 /// atomic-write path, publish exclusively.
-fn copy_step(
-    src: &Path,
-    dst: &Path,
-    source: std::fs::Metadata,
-    options: &CloneOptions,
-) -> FsResult<()> {
+///
+/// Everything about the source that the copy depends on (that it is a regular file, and its
+/// permission bits) is read from the **opened handle**, never from the path metadata that
+/// [`check_source`] took earlier: the clone and link steps run in between, and a source replaced
+/// in that gap (a `0644` file by a `0600` secret) must be copied with the permissions of the
+/// bytes actually read, not those of the file that used to be there.
+fn copy_step(src: &Path, dst: &Path, options: &CloneOptions) -> FsResult<()> {
     let mut input = open_source(src).map_err(|e| match e.raw_os_error() {
         #[cfg(unix)]
         Some(libc::ELOOP) => FsError::Symlink(src.to_path_buf()),
@@ -444,7 +445,8 @@ fn copy_step(
             return Err(FsError::Symlink(src.to_path_buf()));
         }
     }
-    if !input.metadata().map_err(|e| FsError::io(src, e))?.is_file() {
+    let opened = input.metadata().map_err(|e| FsError::io(src, e))?;
+    if !opened.is_file() {
         return Err(FsError::NotAFile(src.to_path_buf()));
     }
     // Unless the caller asked for a fresh file the copy ends with the source's permission bits.
@@ -467,10 +469,10 @@ fn copy_step(
         io::copy(&mut input, out)?;
         #[cfg(unix)]
         if !options.fresh_metadata {
-            out.set_permissions(source.permissions())?;
+            out.set_permissions(opened.permissions())?;
         }
         #[cfg(not(unix))]
-        let _ = (&source, options.fresh_metadata);
+        let _ = (&opened, options.fresh_metadata);
         Ok(())
     })
 }

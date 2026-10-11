@@ -14,6 +14,11 @@ include = ["src/**", "tests/**", "README.md", "LICENSE-MIT", "LICENSE-APACHE"]
 [features]
 # `impl rightkit_settings::SecretProbe for Store` (presence-only adapter).
 settings-probe = ["dep:rightkit-settings"]
+# TEST ONLY. Compiles the throwaway macOS test keychain (`IsolatedKeychain`,
+# `KeychainBackend::open_isolated_file`) and the CLI's `--isolated-keychain`. Without it there is
+# no write path to an explicit keychain. Never enable it in a shipped build; enable it only as
+# `cargo test --features isolated-test-keychain` for the end-to-end suite.
+isolated-test-keychain = []
 
 [[bin]]
 name = "rightkit-secrets"

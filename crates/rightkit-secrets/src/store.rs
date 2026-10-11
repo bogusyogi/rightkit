@@ -1,11 +1,22 @@
 use crate::backend::{system_backend, Backend, ConditionalDelete, Interaction, MemoryBackend};
 use crate::error::{Error, Result};
-use crate::namespace::{check_target, normalize_target_name, Namespace};
+use crate::namespace::{check_target, Namespace};
 use crate::secret::Secret;
 use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Condvar, Mutex, MutexGuard, PoisonError};
 use std::time::{Duration, Instant};
+
+/// What a write may do to a credential that already exists. Every write in this crate that can
+/// replace a stored value goes through [`Store::put`] with one of these, chosen by the caller;
+/// nothing replaces a value by default.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WriteIntent {
+    /// Create the credential; if one exists, change nothing and report that it was not written.
+    CreateOnly,
+    /// Create the credential or overwrite the one that exists (a rotation, a user's "Save key").
+    Replace,
+}
 
 /// Standard padded base64 (RFC 4648) of `bytes`. The only encoder this crate needs, for minted keys.
 fn base64_standard(bytes: &[u8]) -> String {
@@ -197,9 +208,9 @@ enum Slot {
     Abandoned,
 }
 
-/// Identity of a credential target: the backend's store identity and the normalised native target
-/// name. Stores that share a backend store and a Windows prefix share a native target, so they
-/// share a key, even when each was opened over its own backend instance.
+/// Identity of a credential target: the backend's store identity and the backend's identity for
+/// the native credential ([`Backend::credential_identity`]). Stores that reach the same native
+/// credential share a key, even when each was opened over its own backend instance.
 type TargetKey = (String, String);
 
 /// `Backend::exclusion_identity`, else the instance's allocation.
@@ -374,9 +385,12 @@ impl Store {
         // Mutations of one native target run one at a time, and a call that timed out keeps its
         // place until the OS returns: a retry is refused rather than raced.
         let permit = if mutation {
+            // The BACKEND says which native credential this is (service and account on macOS,
+            // the normalised target on Windows), so two stores that reach one native item
+            // through different Windows prefixes still exclude each other.
             let key = (
                 backend_identity(&self.backend),
-                normalize_target_name(&self.ns.windows_target_name(account)),
+                self.backend.credential_identity(&self.ns, account)?,
             );
             Some(TargetPermit::acquire(key, op, deadline)?)
         } else {
@@ -421,8 +435,13 @@ impl Store {
             b.exists(&ns, &a, m)
         })
     }
-    /// Create or replace. An empty secret is rejected; use [`Store::delete`].
-    pub fn set(&self, account: &str, secret: &Secret) -> Result<()> {
+    /// The one write primitive. `Ok(true)` when the value was written, `Ok(false)` only for
+    /// [`WriteIntent::CreateOnly`] when a credential already exists (nothing was changed). The
+    /// check and the write are ONE backend call made under this target's exclusion
+    /// (`add_if_absent`, never a presence check followed by a write), so a credential saved by
+    /// another writer in between is never overwritten by [`WriteIntent::CreateOnly`]. An empty
+    /// secret is rejected; use [`Store::delete`].
+    pub fn put(&self, account: &str, secret: &Secret, intent: WriteIntent) -> Result<bool> {
         if secret.is_empty() {
             return Err(Error::Invalid {
                 what: "secret",
@@ -430,9 +449,20 @@ impl Store {
             });
         }
         let s = secret.clone();
-        self.run("set", account, true, move |b, ns, a, m| {
-            b.set(&ns, &a, &s, m)
-        })
+        match intent {
+            WriteIntent::Replace => self.run("set", account, true, move |b, ns, a, m| {
+                b.set(&ns, &a, &s, m).map(|()| true)
+            }),
+            WriteIntent::CreateOnly => self.run("add", account, true, move |b, ns, a, m| {
+                b.add_if_absent(&ns, &a, &s, m)
+            }),
+        }
+    }
+    /// Create or replace: [`Store::put`] with [`WriteIntent::Replace`]. The method name is the
+    /// caller's statement of intent; code that must not overwrite uses [`Store::put`] with
+    /// [`WriteIntent::CreateOnly`] or [`Store::add_if_absent`].
+    pub fn set(&self, account: &str, secret: &Secret) -> Result<()> {
+        self.put(account, secret, WriteIntent::Replace).map(|_| ())
     }
     pub fn set_str(&self, account: &str, value: &str) -> Result<()> {
         self.set(account, &Secret::from_string(value))
@@ -450,11 +480,16 @@ impl Store {
             b.delete_if_equals(&ns, &a, &e, m)
         })
     }
+    /// [`Store::put`] with [`WriteIntent::CreateOnly`]: `Ok(false)` when a credential exists.
     pub fn add_if_absent(&self, account: &str, secret: &Secret) -> Result<bool> {
-        let s = secret.clone();
-        self.run("add", account, true, move |b, ns, a, m| {
-            b.add_if_absent(&ns, &a, &s, m)
-        })
+        self.put(account, secret, WriteIntent::CreateOnly)
+    }
+
+    /// Whether this store keeps what it is given beyond the process: no guard is active and the
+    /// backend says it is [`Backend::durable`]. A guarded store is memory or deny and never
+    /// durable. Destructive migration requires it of its destination.
+    pub fn is_durable(&self) -> bool {
+        self.guard.is_none() && self.backend.durable()
     }
 
     /// Get-or-create a random key (SQLCipher DB key etc.), returned as standard base64 text

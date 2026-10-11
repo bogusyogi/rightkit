@@ -1,0 +1,47 @@
+Reviewed committed `25fe6c337a3eacb5c4fd8cbcafb45fbbcca5c8c7` only, including media & sandbox consumers. All line numbers refer to that commit. No builds or tests run.
+
+| Fourth-read finding | Status | Evidence |
+|---|---|---|
+| 1. Normal completion abandons descendants | **CLOSED** | Media routes completion through [`finish_tree`, runner.rs:292](/Volumes/D/claude/rightkit/crates/rightkit-media/src/runner.rs:292), called before writer join at [:639](/Volumes/D/claude/rightkit/crates/rightkit-media/src/runner.rs:639) & capture completion at [:830](/Volumes/D/claude/rightkit/crates/rightkit-media/src/runner.rs:830). Sandbox terminates before final reap at [spawn.rs:458](/Volumes/D/claude/rightkit/crates/rightkit-sandbox/src/spawn.rs:458). |
+| 2. Windows early exit bypasses termination | **CLOSED** | [owned.rs:609](/Volumes/D/claude/rightkit/crates/rightkit-process/src/owned.rs:609) terminates retained job before returning cached leader status; [process_windows.rs:171](/Volumes/D/claude/rightkit/crates/rightkit-process/src/process_windows.rs:171) preserves job termination after leader exit. |
+| 3. Stale macOS descriptor bound | **CLOSED** | Post-fork enumeration & fail-closed handling remain at [process_unix.rs:72](/Volumes/D/claude/rightkit/crates/rightkit-process/src/process_unix.rs:72); helper independently enumerates its actual descriptor table at [:1015](/Volumes/D/claude/rightkit/crates/rightkit-process/src/process_unix.rs:1015). |
+| 4. Helper steals unrelated exit status | **PARTLY — blocking, P2** | Missing identity now fails closed, but comparison at [process_unix.rs:488](/Volumes/D/claude/rightkit/crates/rightkit-process/src/process_unix.rs:488) remains separate from `waitpid` at [:498](/Volumes/D/claude/rightkit/crates/rightkit-process/src/process_unix.rs:498). External reap → PID replacement between those calls still steals replacement status. |
+| 5. Unbounded media stderr | **CLOSED** | Consumer uses bounded primitive at [runner.rs:545](/Volumes/D/claude/rightkit/crates/rightkit-media/src/runner.rs:545); input cap, discard & retention bounds remain at [stderr_tail.rs:102](/Volumes/D/claude/rightkit/crates/rightkit-process/src/stderr_tail.rs:102), [:194](/Volumes/D/claude/rightkit/crates/rightkit-process/src/stderr_tail.rs:194), [:215](/Volumes/D/claude/rightkit/crates/rightkit-process/src/stderr_tail.rs:215). |
+| HTTP 4. OAuth credential echoes | **CLOSED** | Secret registration & provider scrubbing remain at [lib.rs:524](/Volumes/D/claude/rightkit/crates/rightkit-oauth/src/lib.rs:524), [:595](/Volumes/D/claude/rightkit/crates/rightkit-oauth/src/lib.rs:595), plus [device.rs:197](/Volumes/D/claude/rightkit/crates/rightkit-oauth/src/device.rs:197). |
+| 6. Windows spawn handle inheritance | **OPEN-IN-PR — blocking, P1** | `win/process-spawn-handles` remains outside reviewed main. Main still changes inheritance at [spawn_windows.rs:173](/Volumes/D/claude/rightkit/crates/rightkit-process/src/spawn_windows.rs:173), guarded only by [:384](/Volumes/D/claude/rightkit/crates/rightkit-process/src/spawn_windows.rs:384); ordinary spawn at [owned.rs:368](/Volumes/D/claude/rightkit/crates/rightkit-process/src/owned.rs:368) bypasses that lock. Existing finding, not new. |
+| 7. macOS termination reaches replacement group | **PARTLY — blocking, P1** | Identity mismatch now stops actions, but final proof at [unix_child.rs:385](/Volumes/D/claude/rightkit/crates/rightkit-process/src/unix_child.rs:385) remains separate from numeric group signal at [:395](/Volumes/D/claude/rightkit/crates/rightkit-process/src/unix_child.rs:395). External collection & replacement inside that interval still permits unrelated termination. |
+| 8. Retained-stdin regression never retains stdin | **CLOSED** | [runner.rs:1178](/Volumes/D/claude/rightkit/crates/rightkit-media/src/runner.rs:1178) explicitly preserves incoming pipe through fd 3; [:1203](/Volumes/D/claude/rightkit/crates/rightkit-media/src/runner.rs:1203) waits for stalled writer progress before releasing leader. |
+
+Class-level closure is **incomplete**:
+
+- **Spawn provenance remains unguarded.** Identity/watch capture occurs after spawn at [owned.rs:353](/Volumes/D/claude/rightkit/crates/rightkit-process/src/owned.rs:353) & [unix_child.rs:151](/Volumes/D/claude/rightkit/crates/rightkit-process/src/unix_child.rs:151). External collection before capture can make replacement identity become baseline. Failed capture directly kills/waits without proof at [:190](/Volumes/D/claude/rightkit/crates/rightkit-process/src/unix_child.rs:190); PTY repeats this at [pty.rs:204](/Volumes/D/claude/rightkit/crates/rightkit-sandbox/src/pty.rs:204).
+- **Consumer sweep guards only leader.** [spawn.rs:366](/Volumes/D/claude/rightkit/crates/rightkit-sandbox/src/spawn.rs:366) wraps `process_tree::kill_tree`, which retains raw descendant PIDs across grace & signals them again at [process_tree.rs:188](/Volumes/D/claude/rightkit/crates/rightkit-sandbox/src/process_tree.rs:188), [:207](/Volumes/D/claude/rightkit/crates/rightkit-sandbox/src/process_tree.rs:207). Descendant replacement bypasses leader proof entirely.
+- **PTY proof does not serialize with reaping.** [pty.rs:461](/Volumes/D/claude/rightkit/crates/rightkit-sandbox/src/pty.rs:461) runs sweep without holding reap mutex acquired at [:436](/Volumes/D/claude/rightkit/crates/rightkit-sandbox/src/pty.rs:436). Another RightKit thread can reap during its grace window.
+- **Fallback wait bypasses claimed authority.** [exit_watch.rs:400](/Volumes/D/claude/rightkit/crates/rightkit-process/src/exit_watch.rs:400) starts raw PID `waitid` on another thread without identity check or ownership lock.
+
+Fix #4/#7 through coordinated spawn/reap/signal ownership, including descendants; isolate child parentage in dedicated supervisor where foreign reapers cannot cooperate. More adjacent identity comparisons cannot close these races.
+
+Case coverage also falls short: [helper interleaving test:1731](/Volumes/D/claude/rightkit/crates/rightkit-process/src/process_unix.rs:1731) explicitly omits replacement inside proof/reap interval; [replacement tests:619](/Volumes/D/claude/rightkit/crates/rightkit-process/src/identity_tests.rs:619) simulate mismatch before actions. Neither establishes atomic ownership.
+
+**NEW — BLOCKING**
+
+**9. P1 — macOS exit-watch falsely declares reap readiness, defeating deadlines.**  
+[exit_watch.rs:334](/Volumes/D/claude/rightkit/crates/rightkit-process/src/exit_watch.rs:334) converts registration `ESRCH` into permanently fired `Gone`. But XNU hides processes from `proc_find` before potentially blocking AIO/file cleanup; `EVFILT_PROC` registration therefore returns `ESRCH` before waitable exit. This follows directly from [XNU registration](https://github.com/apple-oss-distributions/xnu/blob/main/bsd/kern/kern_event.c#L1031) & [exit ordering](https://github.com/apple-oss-distributions/xnu/blob/main/bsd/kern/kern_exit.c#L1932).
+
+Concrete sequence: fast child starts exit, stalls closing filesystem resources, watch registration returns `ESRCH`, `try_wait` returns `None`, then bounded [process_handle.rs:163](/Volumes/D/claude/rightkit/crates/rightkit-process/src/process_handle.rs:163) enters blocking [unix_child.rs:322](/Volumes/D/claude/rightkit/crates/rightkit-process/src/unix_child.rs:322), holding shared lock past timeout. PTY repeats blocking reap at [pty.rs:449](/Volumes/D/claude/rightkit/crates/rightkit-sandbox/src/pty.rs:449).
+
+**Fix:** distinguish unavailable registration from confirmed waitable exit; bounded calls must finish with nonblocking reap & preserve remaining deadline. Never infer blocking reap safety solely from watch readiness.
+
+**10. P2 — failed watch allocation makes independent wait block termination.**  
+Pipe/thread failures produce `Unsupported` at [exit_watch.rs:385](/Volumes/D/claude/rightkit/crates/rightkit-process/src/exit_watch.rs:385), [:415](/Volumes/D/claude/rightkit/crates/rightkit-process/src/exit_watch.rs:415). [process_handle.rs:168](/Volumes/D/claude/rightkit/crates/rightkit-process/src/process_handle.rs:168) then permits unbounded blocking reap under shared child mutex. For long-running child, concurrent `kill`/`terminate_tree` cannot acquire that mutex: cancellation hangs precisely when resources are scarce. [`Child::wait` blocks until complete exit](https://doc.rust-lang.org/std/process/struct.Child.html#method.wait).
+
+**Fix:** propagate watch failure or retain nonblocking reap fallback that releases mutex between attempts. Add allocation-failure case with concurrent termination.
+
+**NEW — NON-BLOCKING**
+
+**11. P2 — macOS helper retirement can abandon its zombie after early notification.**  
+[process_unix.rs:549](/Volumes/D/claude/rightkit/crates/rightkit-process/src/process_unix.rs:549) tries once after watch fires; background attempt at [:462](/Volumes/D/claude/rightkit/crates/rightkit-process/src/process_unix.rs:462) repeats immediately against permanently fired watch. XNU posts `NOTE_EXIT` before setting `SZOMB`; both attempts can return `WNOHANG=0`, then nobody remains to collect helper. [XNU exit notification & zombie transition](https://github.com/apple-oss-distributions/xnu/blob/main/bsd/kern/kern_exit.c#L2353).
+
+**Fix:** retain coordinated reaping responsibility until actual collection; notification must trigger reap attempts, not end retry lifetime. Add case rows for notification-before-waitability, registration `ESRCH`, watch failure & reap-after-proof replacement.
+
+DO NOT PUBLISH: 4, 6, 7, 9, 10

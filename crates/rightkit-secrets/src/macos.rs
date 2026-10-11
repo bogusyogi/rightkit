@@ -26,12 +26,13 @@
 //!   would then store the secret in the new default. Creation is refused until it can be bound to
 //!   its destination. Reads and deletes still work on it.
 //! * Throwaway test keychains ([`IsolatedKeychain`], and [`KeychainBackend::open_isolated_file`],
-//!   which accepts only a fixture this crate made): writes are allowed. They hold fake data in the
-//!   temp directory; the residual risk, that the file is deleted in the instant between the
-//!   pre-write checks and the add, would put a fixture secret in the default keychain. This is
-//!   the one write path that is not destination-bound; it exists because the end-to-end suite and
-//!   the CLI's `--isolated-keychain` need to write, and it cannot be reached with an arbitrary
-//!   file.
+//!   which accepts only a fixture this crate made): writes are allowed, but ONLY in this crate's
+//!   own unit tests and when the non-default `isolated-test-keychain` feature is enabled
+//!   (the end-to-end suite and the CLI's `--isolated-keychain` enable it). Without that feature
+//!   neither item is compiled, so a production build has NO write path to an explicit keychain:
+//!   no file name, path or content makes one writable. The residual risk of the test build, that
+//!   the fixture file is deleted in the instant between the pre-write checks and the add, would
+//!   put a fixture secret in the default keychain; it exists only where that secret is fake.
 //!
 //! Before every write the destination is also checked to be a valid keychain reference whose
 //! file exists, and unlocked (a locked one is `Error::InteractionRequired` when the call is
@@ -45,7 +46,7 @@
 
 use crate::backend::{Backend, Interaction};
 use crate::error::{Error, Result};
-use crate::namespace::{check_target, Namespace};
+use crate::namespace::{check_target, macos_credential_identity, Namespace};
 use crate::secret::Secret;
 use std::ffi::{c_char, c_void, CString};
 use std::path::{Path, PathBuf};
@@ -54,6 +55,9 @@ use std::sync::{Arc, Mutex};
 
 type OSStatus = i32;
 
+// `SecKeychainCreate`, `SecKeychainDelete` and `SecKeychainLock` serve only the throwaway test
+// keychain, which is compiled out of production builds.
+#[cfg_attr(not(any(test, feature = "isolated-test-keychain")), allow(dead_code))]
 #[link(name = "Security", kind = "framework")]
 extern "C" {
     fn SecKeychainSetUserInteractionAllowed(allowed: u8) -> OSStatus;
@@ -154,7 +158,8 @@ enum Target {
     /// The user-domain default keychain, resolved on every operation.
     UserDefault,
     /// One explicit keychain file. `fixture` is true only for a throwaway test keychain, the one
-    /// kind of explicit keychain that may be written to (see the module docs).
+    /// kind of explicit keychain that may be written to, and only code compiled for tests or the
+    /// `isolated-test-keychain` feature ever sets it (see the module docs).
     File { handle: Arc<Handle>, fixture: bool },
     /// Test seam: a resolver standing in for the user-domain default lookup. Fixture keychains
     /// only.
@@ -207,6 +212,14 @@ fn keychain_path(kc: *const c_void) -> Option<PathBuf> {
     String::from_utf8(buf).ok().map(PathBuf::from)
 }
 
+/// The identity of the keychain FILE behind `kc`: its canonical path, so every way of reaching
+/// one keychain (as the user default or as an explicit file) names it identically.
+fn keychain_identity(kc: &Handle) -> Option<String> {
+    let path = keychain_path(kc.0)?;
+    let path = path.canonicalize().unwrap_or(path);
+    Some(format!("macos-keychain-file:{}", path.to_string_lossy()))
+}
+
 /// The OS calls a write needs, behind a trait so the decision whether to make the add can be
 /// tested without a keychain that disappears at a chosen moment.
 trait Native {
@@ -232,7 +245,8 @@ impl Native for Os {
         keychain_path(kc.0)
     }
     fn add(&self, kc: &Handle, ns: &Namespace, account: &str, secret: &Secret) -> OSStatus {
-        let (s, a, p) = (ns.service(), account, secret.expose_bytes());
+        let (s, a) = ns.keychain_item(account);
+        let p = secret.expose_bytes();
         unsafe {
             SecKeychainAddGenericPassword(
                 kc.0,
@@ -297,8 +311,11 @@ impl KeychainBackend {
         Self::open_file_with(path, password, false)
     }
 
+    #[cfg(any(test, feature = "isolated-test-keychain"))]
     /// Open a throwaway test keychain file (one made by [`IsolatedKeychain`]) for reading AND
-    /// writing. Only a file under the OS temp directory is accepted. Test fixtures only: if the
+    /// writing. Compiled only for this crate's own tests and under the non-default
+    /// `isolated-test-keychain` feature; a production build has no write path to an explicit
+    /// keychain at all. Only a file under the OS temp directory is accepted. Test fixtures only: if the
     /// file were deleted in the instant between the pre-write checks and the add, the OS would
     /// store the fixture secret in the default keychain.
     pub fn open_isolated_file(path: &Path, password: Option<&str>) -> Result<Self> {
@@ -387,7 +404,7 @@ impl KeychainBackend {
         want_data: bool,
         want_item: bool,
     ) -> (OSStatus, Option<Secret>, *mut c_void) {
-        let (s, a) = (ns.service(), account);
+        let (s, a) = ns.keychain_item(account);
         let (mut len, mut data, mut item) = (0u32, null_mut::<c_void>(), null_mut::<c_void>());
         let st = unsafe {
             SecKeychainFindGenericPassword(
@@ -522,13 +539,28 @@ impl ItemOps for KcOps<'_> {
 }
 
 impl Backend for KeychainBackend {
+    fn credential_identity(&self, ns: &Namespace, account: &str) -> Result<String> {
+        // The Keychain addresses an item by service and account only; the Windows target prefix
+        // of the namespace is irrelevant to it and must not split the exclusion key.
+        macos_credential_identity(ns, account)
+    }
+    fn durable(&self) -> bool {
+        true
+    }
     fn exclusion_identity(&self) -> Option<String> {
+        // ONE identity per keychain FILE, however the backend reaches it: the user-default
+        // target and an explicit target on the same file exclude each other.
         match &self.target {
-            Target::UserDefault => Some("macos-keychain:user-default".to_string()),
-            Target::File { handle, .. } => keychain_path(handle.0)
-                .map(|p| format!("macos-keychain-file:{}", p.to_string_lossy())),
+            Target::UserDefault => Some(
+                user_default_keychain()
+                    .ok()
+                    .and_then(|kc| keychain_identity(&kc))
+                    // Unresolvable default: every call fails `Unavailable` before any write.
+                    .unwrap_or_else(|| "macos-keychain:user-default".to_string()),
+            ),
+            Target::File { handle, .. } => keychain_identity(handle),
             #[cfg(test)]
-            Target::Resolved(_) => None,
+            Target::Resolved(resolve) => resolve().ok().and_then(|kc| keychain_identity(&kc)),
         }
     }
     fn name(&self) -> &'static str {
@@ -618,6 +650,7 @@ pub fn user_interaction_allowed() -> Result<bool> {
     }
 }
 
+#[cfg(any(test, feature = "isolated-test-keychain"))]
 /// A throw-away keychain file used by end-to-end tests so they never see the user's real items.
 /// It is never added to the search list; only its own handle is passed to the OS. Deleted on drop.
 pub struct IsolatedKeychain {
@@ -627,6 +660,7 @@ pub struct IsolatedKeychain {
     handle: Arc<Handle>,
 }
 
+#[cfg(any(test, feature = "isolated-test-keychain"))]
 impl IsolatedKeychain {
     pub fn create() -> Result<Self> {
         let mut rnd = [0u8; 12];
@@ -695,6 +729,7 @@ impl IsolatedKeychain {
     }
 }
 
+#[cfg(any(test, feature = "isolated-test-keychain"))]
 impl Drop for IsolatedKeychain {
     fn drop(&mut self) {
         unsafe { SecKeychainDelete(self.handle.0) };
@@ -740,6 +775,52 @@ mod tests {
         b.get(ns, acct, Interaction::NonInteractive)
             .unwrap()
             .map(|s| s.expose_str().unwrap().to_owned())
+    }
+
+    #[test]
+    fn a_default_target_and_an_explicit_target_on_one_file_share_an_exclusion_identity() {
+        let kc = IsolatedKeychain::create().unwrap();
+        let explicit = kc.backend();
+        let as_default = default_is(&kc);
+        let id = explicit
+            .exclusion_identity()
+            .expect("a file keychain has a path");
+        assert!(id.starts_with("macos-keychain-file:"), "{id}");
+        assert_eq!(
+            as_default.exclusion_identity().as_deref(),
+            Some(id.as_str())
+        );
+        // A different file is a different store.
+        let other = IsolatedKeychain::create().unwrap();
+        assert_ne!(other.backend().exclusion_identity().unwrap(), id);
+    }
+
+    #[test]
+    fn the_keychain_excludes_by_service_and_account_not_by_windows_prefix() {
+        use crate::namespace::WindowsTarget;
+        let kc = IsolatedKeychain::create().unwrap();
+        let backend = kc.backend();
+        let plain = Namespace::new("rightkit.test.identity").unwrap();
+        let prefixed = Namespace::new("rightkit.test.identity")
+            .unwrap()
+            .windows_target(WindowsTarget::Slash {
+                prefix: Some("AnotherPrefix".into()),
+            });
+        // One Keychain item, however the Windows target is spelled: one identity.
+        assert_eq!(
+            backend.credential_identity(&plain, "acct").unwrap(),
+            backend.credential_identity(&prefixed, "acct").unwrap()
+        );
+        assert_eq!(
+            backend.credential_identity(&plain, "acct").unwrap(),
+            "macos:rightkit.test.identity\u{1f}acct"
+        );
+        assert!(backend.durable());
+        // The names handed to the OS come from the same single function.
+        assert_eq!(
+            plain.keychain_item("acct"),
+            ("rightkit.test.identity", "acct")
+        );
     }
 
     #[test]

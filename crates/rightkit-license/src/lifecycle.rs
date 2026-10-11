@@ -11,6 +11,10 @@
 //! [`Lifecycle::snapshot_kind`] maps back to the apps' existing wire strings so a UI
 //! keyed on `active_trial` / `expired_trial` / `verification_required` keeps working.
 
+use std::fmt;
+use std::panic::{catch_unwind, AssertUnwindSafe};
+use std::sync::Arc;
+
 use serde::{Deserialize, Serialize};
 
 use crate::clock::{
@@ -136,6 +140,9 @@ pub struct LifecyclePolicy {
 /// localises at runtime can map [`Lifecycle`] to its own text and ignore `message`.
 /// `#[non_exhaustive]`: start from [`Default`] and assign the fields you need.
 ///
+/// For messages that carry values, add a formatter with [`LifecycleContext::with_formatter`]
+/// (it takes precedence over these strings).
+///
 /// Attach with [`LifecycleContext::with_messages`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 #[non_exhaustive]
@@ -163,6 +170,86 @@ pub struct LifecycleMessages {
     /// license lifecycle is invalid."
     pub invalid_lifecycle: Option<&'static str>,
 }
+
+/// Which of the eight user-facing messages of a [`LifecycleReport`] is being produced. One
+/// per field of [`LifecycleMessages`]. `#[non_exhaustive]`: match with a wildcard arm.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[non_exhaustive]
+pub enum LifecycleMessageKind {
+    /// [`StoredCredential::Revoked`].
+    Revoked,
+    /// [`StoredCredential::LegacyUnsigned`].
+    MigrationRequired,
+    /// [`StoredCredential::Unsigned`].
+    Unsigned,
+    /// A signed token that failed authentication.
+    InvalidToken,
+    /// [`Lifecycle::ClockRepairRequired`].
+    ClockRepairRequired,
+    /// The token's issue time is later than the device clock allows.
+    IssuedInTheFuture,
+    /// [`Lifecycle::Expired`].
+    Expired,
+    /// [`Lifecycle::Invalid`] from inconsistent lifecycle claims.
+    InvalidLifecycle,
+}
+
+/// What a message formatter is told. Only the values that exist for the kind are `Some`;
+/// `#[non_exhaustive]`, so more values can be added later. Times are Unix seconds (`i64`),
+/// like every time in this crate.
+///
+/// | kind | values set |
+/// |---|---|
+/// | `Revoked`, `MigrationRequired`, `Unsigned` | `product_id` |
+/// | `InvalidToken` | `product_id`, `detail` (the `VerifyError` text) |
+/// | `ClockRepairRequired` | `product_id`, `last_trusted`, `issued_at`, `expiry` |
+/// | `IssuedInTheFuture` | `product_id`, `not_before`, `issued_at`, `expiry` |
+/// | `Expired`, `InvalidLifecycle` | `product_id`, `issued_at`, `expiry` |
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct LifecycleMessageContext {
+    /// The message being produced.
+    pub kind: LifecycleMessageKind,
+    /// The product the evaluation is for ([`LifecycleContext::expected_app`]).
+    pub product_id: String,
+    /// The earliest trusted time at which the token is acceptable: its `iat` minus the
+    /// issue-time tolerance (`IssuedInTheFuture` only).
+    pub not_before: Option<i64>,
+    /// The token's signed `exp`.
+    pub expiry: Option<i64>,
+    /// The token's signed `iat`.
+    pub issued_at: Option<i64>,
+    /// The persisted high-water mark (`ClockRepairRequired` only).
+    pub last_trusted: Option<i64>,
+    /// The built-in explanation the default text would carry (`InvalidToken`: the
+    /// `VerifyError` description).
+    pub detail: Option<String>,
+}
+
+impl LifecycleMessageContext {
+    fn new(kind: LifecycleMessageKind, product_id: &str) -> Self {
+        Self {
+            kind,
+            product_id: product_id.to_string(),
+            not_before: None,
+            expiry: None,
+            issued_at: None,
+            last_trusted: None,
+            detail: None,
+        }
+    }
+
+    fn token(mut self, entitlement: &Entitlement) -> Self {
+        self.issued_at = Some(entitlement.iat);
+        self.expiry = Some(entitlement.exp);
+        self
+    }
+}
+
+/// A message formatter: see [`LifecycleContext::with_formatter`]. Returning `None` falls back
+/// to the static override in [`LifecycleMessages`], then to the built-in text.
+pub type LifecycleMessageFormatter =
+    dyn Fn(&LifecycleMessageContext) -> Option<String> + Send + Sync;
 
 impl Entitlement {
     /// Classify an **already authenticated** entitlement at `now` (use a trusted time,
@@ -235,7 +322,7 @@ pub enum StoredCredential<'a> {
 }
 
 /// Static inputs to [`evaluate_lifecycle`].
-#[derive(Debug, Clone, Copy)]
+#[derive(Clone, Copy)]
 pub struct LifecycleContext<'a> {
     pub pubkey: &'a [u8; 32],
     pub expected_app: &'a str,
@@ -246,6 +333,21 @@ pub struct LifecycleContext<'a> {
     pub requirement: Option<&'a LicenseRequirement>,
     /// Message-text overrides (default: the built-in texts).
     pub messages: LifecycleMessages,
+    /// Optional message formatter (default: none). Set with [`Self::with_formatter`].
+    formatter: Option<&'a Arc<LifecycleMessageFormatter>>,
+}
+
+impl fmt::Debug for LifecycleContext<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("LifecycleContext")
+            .field("expected_app", &self.expected_app)
+            .field("device_id", &self.device_id)
+            .field("policy", &self.policy)
+            .field("requirement", &self.requirement)
+            .field("messages", &self.messages)
+            .field("formatter", &self.formatter.is_some())
+            .finish_non_exhaustive()
+    }
 }
 
 impl<'a> LifecycleContext<'a> {
@@ -257,6 +359,7 @@ impl<'a> LifecycleContext<'a> {
             policy: LifecyclePolicy::default(),
             requirement: None,
             messages: LifecycleMessages::default(),
+            formatter: None,
         }
     }
 
@@ -269,6 +372,45 @@ impl<'a> LifecycleContext<'a> {
     pub fn with_messages(mut self, messages: LifecycleMessages) -> Self {
         self.messages = messages;
         self
+    }
+
+    /// Produce messages that carry values ("not yet valid until <time>"). Additive to
+    /// [`LifecycleMessages`]; `LifecycleMessages` itself stays `Copy`, which is why the
+    /// formatter is borrowed here (keep the `Arc` alive for the evaluation) and not stored
+    /// in it.
+    ///
+    /// For each of the eight messages the formatter is called with a
+    /// [`LifecycleMessageContext`]. `Some(text)` is used as the message. `None` falls back to
+    /// the static override in [`LifecycleMessages`], then to the built-in text. A panic in the
+    /// formatter is caught and the built-in text is used (the static override is not
+    /// consulted, since the formatter was meant to supersede it). The formatter only changes
+    /// `message`; it cannot change a verdict.
+    ///
+    /// Evaluation order is unchanged and deliberate: authenticate first, then the clock. A
+    /// token that does not authenticate never reaches the clock logic, so no formatter call
+    /// for a clock or time message can happen for an unauthenticated token.
+    pub fn with_formatter(mut self, formatter: &'a Arc<LifecycleMessageFormatter>) -> Self {
+        self.formatter = Some(formatter);
+        self
+    }
+
+    fn text(
+        &self,
+        context: LifecycleMessageContext,
+        static_override: Option<&'static str>,
+        default: impl FnOnce() -> String,
+    ) -> String {
+        if let Some(formatter) = self.formatter {
+            match catch_unwind(AssertUnwindSafe(|| formatter(&context))) {
+                Ok(Some(text)) => return text,
+                Ok(None) => {}
+                Err(_) => return default(),
+            }
+        }
+        match static_override {
+            Some(text) => text.to_string(),
+            None => default(),
+        }
     }
 
     pub fn with_requirement(mut self, requirement: &'a LicenseRequirement) -> Self {
@@ -335,6 +477,7 @@ impl LifecycleReport {
 ///
 /// Pipeline for a [`StoredCredential::Signed`] token:
 /// 1. [`authenticate_token`] (signature, app, device). Failure is [`Lifecycle::Invalid`].
+///    This order is deliberate: an unauthenticated token never reaches the clock logic.
 /// 2. Reconcile the anti-rollback clock. A missing ledger on an initialised install is
 ///    `Err(ClockError::Missing)`. A rolled-back clock is
 ///    [`Lifecycle::ClockRepairRequired`], except that with
@@ -358,37 +501,43 @@ pub fn evaluate_lifecycle<S: ClockStore>(
             return Ok(LifecycleReport::bare(Lifecycle::Unlicensed, None, false))
         }
         StoredCredential::Revoked => {
+            let text = ctx.text(
+                LifecycleMessageContext::new(LifecycleMessageKind::Revoked, ctx.expected_app),
+                ctx.messages.revoked,
+                || "The server no longer considers this license active.".to_string(),
+            );
             return Ok(LifecycleReport::bare(
                 Lifecycle::Revoked,
-                Some(
-                    ctx.messages
-                        .revoked
-                        .unwrap_or("The server no longer considers this license active."),
-                ),
+                Some(&text),
                 false,
-            ))
+            ));
         }
         StoredCredential::LegacyUnsigned => {
+            let text = ctx.text(
+                LifecycleMessageContext::new(
+                    LifecycleMessageKind::MigrationRequired,
+                    ctx.expected_app,
+                ),
+                ctx.messages.migration_required,
+                || "This older paid record needs one signed online refresh.".to_string(),
+            );
             return Ok(LifecycleReport::bare(
                 Lifecycle::MigrationRequired,
-                Some(
-                    ctx.messages
-                        .migration_required
-                        .unwrap_or("This older paid record needs one signed online refresh."),
-                ),
+                Some(&text),
                 false,
-            ))
+            ));
         }
         StoredCredential::Unsigned => {
+            let text = ctx.text(
+                LifecycleMessageContext::new(LifecycleMessageKind::Unsigned, ctx.expected_app),
+                ctx.messages.unsigned,
+                || "A current signed license is required.".to_string(),
+            );
             return Ok(LifecycleReport::bare(
                 Lifecycle::Invalid,
-                Some(
-                    ctx.messages
-                        .unsigned
-                        .unwrap_or("A current signed license is required."),
-                ),
+                Some(&text),
                 false,
-            ))
+            ));
         }
         StoredCredential::Signed {
             token,
@@ -399,10 +548,10 @@ pub fn evaluate_lifecycle<S: ClockStore>(
     let entitlement = match authenticate_token(token, ctx.pubkey, ctx.expected_app, ctx.device_id) {
         Ok(entitlement) => entitlement,
         Err(error) => {
-            let text = match ctx.messages.invalid_token {
-                Some(text) => text.to_string(),
-                None => error.to_string(),
-            };
+            let mut context =
+                LifecycleMessageContext::new(LifecycleMessageKind::InvalidToken, ctx.expected_app);
+            context.detail = Some(error.to_string());
+            let text = ctx.text(context, ctx.messages.invalid_token, || error.to_string());
             return Ok(LifecycleReport::bare(
                 Lifecycle::Invalid,
                 Some(&text),
@@ -418,12 +567,17 @@ pub fn evaluate_lifecycle<S: ClockStore>(
             if ctx.policy.lifetime_survives_rollback && entitlement.is_final_lifetime() {
                 (*highest_seen, false)
             } else {
-                let message = match ctx.messages.clock_repair_required {
-                    Some(text) => text.to_string(),
-                    None => format!(
+                let mut context = LifecycleMessageContext::new(
+                    LifecycleMessageKind::ClockRepairRequired,
+                    ctx.expected_app,
+                )
+                .token(&entitlement);
+                context.last_trusted = Some(*highest_seen);
+                let message = ctx.text(context, ctx.messages.clock_repair_required, || {
+                    format!(
                         "device clock moved backwards or stopped advancing after restart (last trusted time {highest_seen})"
-                    ),
-                };
+                    )
+                });
                 return Ok(LifecycleReport::for_entitlement(
                     Lifecycle::ClockRepairRequired,
                     entitlement,
@@ -436,16 +590,22 @@ pub fn evaluate_lifecycle<S: ClockStore>(
     };
 
     if effective_now.saturating_add(CLOCK_ROLLBACK_TOLERANCE_SECS) < entitlement.iat {
+        let mut context =
+            LifecycleMessageContext::new(LifecycleMessageKind::IssuedInTheFuture, ctx.expected_app)
+                .token(&entitlement);
+        context.not_before = Some(
+            entitlement
+                .iat
+                .saturating_sub(CLOCK_ROLLBACK_TOLERANCE_SECS),
+        );
+        let message = ctx.text(context, ctx.messages.issued_in_the_future, || {
+            "The license issue time is later than the device clock.".to_string()
+        });
         return Ok(LifecycleReport::for_entitlement(
             Lifecycle::Invalid,
             entitlement,
             Some(effective_now),
-            Some(
-                ctx.messages
-                    .issued_in_the_future
-                    .unwrap_or("The license issue time is later than the device clock.")
-                    .to_string(),
-            ),
+            Some(message),
             was_initialized,
         ));
     }
@@ -468,16 +628,23 @@ pub fn evaluate_lifecycle<S: ClockStore>(
     }
     let message = match lifecycle {
         Lifecycle::Expired => Some(
-            ctx.messages
-                .expired
-                .unwrap_or("The signed license has expired.")
-                .to_string(),
+            ctx.text(
+                LifecycleMessageContext::new(LifecycleMessageKind::Expired, ctx.expected_app)
+                    .token(&entitlement),
+                ctx.messages.expired,
+                || "The signed license has expired.".to_string(),
+            ),
         ),
         Lifecycle::Invalid => Some(
-            ctx.messages
-                .invalid_lifecycle
-                .unwrap_or("The signed license lifecycle is invalid.")
-                .to_string(),
+            ctx.text(
+                LifecycleMessageContext::new(
+                    LifecycleMessageKind::InvalidLifecycle,
+                    ctx.expected_app,
+                )
+                .token(&entitlement),
+                ctx.messages.invalid_lifecycle,
+                || "The signed license lifecycle is invalid.".to_string(),
+            ),
         ),
         _ => None,
     };

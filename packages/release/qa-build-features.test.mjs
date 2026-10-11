@@ -10,7 +10,7 @@ import {
 const issues = (command, scripts = {}) => commandFeatureIssues(command, { label: "target.prePackage", scripts });
 
 test("forbidden feature names, including dep:, crate/ and crate?/ forms", () => {
-  for (const f of ["devtools", "qa-native", "qa-control", "dev-native", "tauri/devtools", "tauri?/devtools", "rightkit-control/qa-control", "dep:tauri-plugin-wdio-webdriver"]) assert.equal(isForbiddenFeature(f), true, f);
+  for (const f of ["devtools", "qa-native", "qa-control", "dev-native", "dev-inspect", "rightkit-shell/dev-inspect", "rightkit-shell?/dev-inspect", "tauri/devtools", "tauri?/devtools", "rightkit-control/qa-control", "dep:tauri-plugin-wdio-webdriver"]) assert.equal(isForbiddenFeature(f), true, f);
   for (const f of ["custom-protocol", "tauri-shell", "dep:rightkit-control", "wv2-0_39", "tauri/custom-protocol"]) assert.equal(isForbiddenFeature(f), false, f);
 });
 
@@ -20,6 +20,9 @@ test("a build command that enables a forbidden feature is refused in every spell
     { cmd: "cargo", args: ["build", "--release", "--features=custom-protocol,devtools"] },
     { cmd: "cargo", args: ["build", "-F", "qa-control"] },
     { cmd: "cargo", args: ["build", "-Fdev-native"] },
+    { cmd: "cargo", args: ["build", "--release", "--features", "rightkit-shell/dev-inspect"] },
+    { cmd: "cargo", args: ["build", "--features=custom-protocol,dev-inspect"] },
+    { cmd: "cargo", args: ["build"], env: { CARGO_FEATURES: "rightkit-shell/dev-inspect" } },
     { cmd: "pnpm", args: ["tauri", "build", "-f", "tauri/devtools"] },
     { cmd: "pnpm", args: ["tauri", "build", "--", "--features", "a b qa-native"] },
     { cmd: "sh", args: ["-c", "cargo build --release --features 'custom-protocol qa-native'"] },
@@ -58,6 +61,21 @@ test("Cargo.toml: devtools on tauri, qa-control on rightkit-control, non-optiona
   assert.match(cargoManifestIssues(manifest('default = ["tauri/devtools"]', 'tauri = "2"')).join("\n"), /reaches `tauri\/devtools`/);
   const table = `[features]\ndefault = []\n[dependencies.tauri]\nversion = "2"\nfeatures = ["devtools"]\n`;
   assert.match(cargoManifestIssues(table)[0], /devtools/);
+});
+
+test("Cargo.toml: dev-inspect on rightkit-shell, directly, through default, or through another feature", () => {
+  assert.match(cargoManifestIssues(manifest("default = []", 'rightkit-shell = { version = "0.4", features = ["dev-inspect"] }'))[0], /dev-inspect/);
+  assert.match(cargoManifestIssues(manifest('default = ["rightkit-shell/dev-inspect"]', 'rightkit-shell = "0.4"')).join("\n"), /reaches `rightkit-shell\/dev-inspect`/);
+  assert.match(cargoManifestIssues(manifest('default = ["shell"]\nshell = ["dev-native"]\ndev-native = ["rightkit-shell/dev-inspect"]', 'rightkit-shell = "0.4"')).join("\n"), /reaches `dev-native`/);
+  assert.match(cargoManifestIssues(manifest('default = ["x"]\nx = ["rightkit-shell?/dev-inspect"]', 'rightkit-shell = { version = "0.4", optional = true }')).join("\n"), /dev-inspect/);
+  // the allow-list for ContentOnly devtools never lifts dev-inspect
+  assert.match(cargoManifestIssues(manifest('default = ["rightkit-shell/dev-inspect"]', 'rightkit-shell = "0.4"'), "Cargo.toml", { allowDevtools: true }).join("\n"), /dev-inspect/);
+  assert.equal(isForbiddenFeature("dev-inspect", { allowDevtools: true }), true);
+});
+
+test("Cargo.toml: an optional dev-native = [rightkit-shell/dev-inspect] feature that default does not reach is accepted", () => {
+  const ok = manifest('default = ["tauri-shell"]\ntauri-shell = []\ndev-native = ["rightkit-shell/dev-inspect"]', 'rightkit-shell = { version = "0.4" }');
+  assert.deepEqual(cargoManifestIssues(ok), []);
 });
 
 test("Cargo.toml: the optional, off-by-default qa-native layout used by the apps is accepted", () => {

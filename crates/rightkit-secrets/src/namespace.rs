@@ -101,7 +101,51 @@ pub(crate) fn normalize_target_name(target: &str) -> String {
         .collect()
 }
 
+/// Separator inside a credential identity. A control character, so it cannot occur in a service
+/// or an account (both validated to contain none) and the join is injective.
+const IDENTITY_SEP: char = '\u{1f}';
+
+/// The name of one credential on macOS: the Keychain `service` and `account`, folded so that
+/// names differing only in case share one exclusion key (treating a few more names as equal only
+/// costs a little parallelism). The ONLY place the macOS identity is derived; the Keychain
+/// backend's mutation exclusion uses exactly this. Windows target prefixes play no part in it.
+///
+/// Format: `macos:<folded service>\u{1f}<folded account>`.
+pub fn macos_credential_identity(ns: &Namespace, account: &str) -> Result<String> {
+    check_target(ns, account)?;
+    let (service, account) = ns.keychain_item(account);
+    Ok(format!(
+        "macos:{}{IDENTITY_SEP}{}",
+        normalize_target_name(service),
+        normalize_target_name(account)
+    ))
+}
+
+/// The name of one credential on Windows: the validated Credential Manager target, normalised
+/// (Windows compares target names case-insensitively). The ONLY place the Windows identity is
+/// derived; the Windows backend's lock name and the store's mutation exclusion both use it.
+///
+/// Format: `windows:<normalised target>`.
+pub fn windows_credential_identity(ns: &Namespace, account: &str) -> Result<String> {
+    Ok(format!("windows:{}", ns.windows_lock_target(account)?))
+}
+
 impl Namespace {
+    /// The Keychain `(service, account)` a macOS operation addresses. Every native macOS call
+    /// (find, add, modify, delete) takes its names from here and from nowhere else.
+    #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+    pub(crate) fn keychain_item<'a>(&'a self, account: &'a str) -> (&'a str, &'a str) {
+        (self.service.as_str(), account)
+    }
+
+    /// The normalised, validated Windows target the per-target lock and the exclusion identity
+    /// are keyed on.
+    pub(crate) fn windows_lock_target(&self, account: &str) -> Result<String> {
+        Ok(normalize_target_name(
+            &self.windows_target_checked(account)?,
+        ))
+    }
+
     /// `service` is frozen per app (changing it orphans every stored item): use the bundle
     /// identifier, e.g. `app.example.myapp`.
     pub fn new(service: impl Into<String>) -> Result<Self> {
@@ -300,5 +344,72 @@ mod tests {
         assert_eq!(compat.blob_codec(), BlobCodec::KeyringUtf16);
         assert_eq!(legacy.blob_codec(), BlobCodec::LegacyUtf8);
         assert_eq!(Namespace::new("svc").unwrap().blob_codec(), BlobCodec::Raw);
+    }
+
+    #[test]
+    fn the_macos_identity_string_is_pinned_and_ignores_the_windows_prefix() {
+        let plain = Namespace::new("Dev.Example.App").unwrap();
+        assert_eq!(
+            macos_credential_identity(&plain, "Acct/Key").unwrap(),
+            "macos:dev.example.app\u{1f}acct/key"
+        );
+        // Two namespaces with the same service but different Windows prefixes address ONE
+        // Keychain item, so they must share one identity.
+        let other = Namespace::new("Dev.Example.App")
+            .unwrap()
+            .windows_target(slash("OtherPrefix"));
+        let keyring = Namespace::new("Dev.Example.App")
+            .unwrap()
+            .windows_target(WindowsTarget::KeyringCompat);
+        for ns in [&other, &keyring] {
+            assert_eq!(
+                macos_credential_identity(ns, "Acct/Key").unwrap(),
+                macos_credential_identity(&plain, "Acct/Key").unwrap()
+            );
+        }
+        // A different service or account is a different credential.
+        assert_ne!(
+            macos_credential_identity(&plain, "a").unwrap(),
+            macos_credential_identity(&plain, "b").unwrap()
+        );
+        assert_ne!(
+            macos_credential_identity(&Namespace::new("a.b").unwrap(), "c").unwrap(),
+            macos_credential_identity(&Namespace::new("a").unwrap(), "b.c").unwrap()
+        );
+        assert_eq!(
+            plain.keychain_item("Acct/Key"),
+            ("Dev.Example.App", "Acct/Key")
+        );
+        assert!(macos_credential_identity(&plain, "").is_err());
+    }
+
+    #[test]
+    fn the_windows_identity_string_is_pinned_and_follows_the_prefix() {
+        let slash_default = Namespace::new("Svc").unwrap();
+        assert_eq!(
+            windows_credential_identity(&slash_default, "Acct").unwrap(),
+            "windows:svc/acct"
+        );
+        let prefixed = Namespace::new("Svc")
+            .unwrap()
+            .windows_target(slash("Shared"));
+        assert_eq!(
+            windows_credential_identity(&prefixed, "Acct").unwrap(),
+            "windows:shared/acct"
+        );
+        let keyring = Namespace::new("Svc")
+            .unwrap()
+            .windows_target(WindowsTarget::KeyringCompat);
+        assert_eq!(
+            windows_credential_identity(&keyring, "Acct").unwrap(),
+            "windows:acct.svc"
+        );
+        // The lock target is the identity without its tag.
+        assert_eq!(prefixed.windows_lock_target("Acct").unwrap(), "shared/acct");
+        // Windows folds case; macOS identity differs by tag so the two can never collide.
+        assert_ne!(
+            windows_credential_identity(&slash_default, "a").unwrap(),
+            macos_credential_identity(&slash_default, "a").unwrap()
+        );
     }
 }

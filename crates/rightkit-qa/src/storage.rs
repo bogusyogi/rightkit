@@ -707,7 +707,7 @@ pub fn check_root_cap(parent: &Path, cap_bytes: u64) -> std::result::Result<(), 
     if total <= cap_bytes {
         return Ok(());
     }
-    homes.sort_by(|a, b| b.1.cmp(&a.1));
+    homes.sort_by_key(|home| std::cmp::Reverse(home.1));
     homes.truncate(5);
     Err(RootOverCap {
         root: parent.to_path_buf(),

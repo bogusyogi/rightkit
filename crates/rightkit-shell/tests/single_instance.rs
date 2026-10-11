@@ -278,11 +278,18 @@ fn a_live_legacy_holder_receives_the_launch_and_a_stale_socket_is_ignored() {
     let _ = std::fs::remove_file(&socket);
 
     // A stale socket file (nothing listening) is not a live holder: this launch becomes primary.
+    //
+    // The stale file is made by a helper process that binds the path and exits, never by
+    // `UnixListener::bind` + drop in this process. std creates the socket and sets close-on-exec in a
+    // second call (macOS has no atomic form), and the other tests in this binary re-execute this
+    // binary: a fork+exec on another thread inside that window inherits the listening descriptor,
+    // and the path keeps accepting connections after this process closed its own copy. macOS CI
+    // showed exactly that: `connect` returned `Ok(UnixStream)` where the precondition below wants a
+    // refusal. The helper process has no children, so nothing can hold a copy of its descriptor.
     let stale_id = format!("{identifier}-stale");
-    let stale_stem = stale_id.replace(['.', '-'], "_");
-    let stale_socket = std::path::PathBuf::from(format!("/tmp/{stale_stem}_si.sock"));
+    let stale_socket = legacy_fixture::socket(&stale_id);
     let _ = std::fs::remove_file(&stale_socket);
-    drop(UnixListener::bind(&stale_socket).unwrap());
+    legacy_fixture::run(&stale_socket, "stale");
     // Precondition: nothing answers on the stale path. If this fails the fixture is wrong, not the claim.
     match std::os::unix::net::UnixStream::connect(&stale_socket) {
         Err(e) if e.kind() == std::io::ErrorKind::ConnectionRefused => {}
@@ -305,4 +312,200 @@ fn a_live_legacy_holder_receives_the_launch_and_a_stale_socket_is_ignored() {
         describe(&outcome)
     );
     let _ = std::fs::remove_file(&stale_socket);
+}
+
+/// Fixtures for the macOS legacy-socket cases. Each socket is made by a helper process (this binary
+/// re-executed, see `child_legacy_fixture`), so no descriptor of it ever exists in this process and
+/// no fork of this process can inherit one.
+#[cfg(target_os = "macos")]
+mod legacy_fixture {
+    use std::path::{Path, PathBuf};
+    use std::process::Command;
+
+    pub const SOCKET_ENV: &str = "RK_LEGACY_FIXTURE_SOCKET";
+    pub const MODE_ENV: &str = "RK_LEGACY_FIXTURE_MODE";
+    pub const SIDECAR_PID_PREFIX: &str = "rk-legacy-fixture-sidecar-pid=";
+
+    /// A legacy identifier whose socket stem no other socket in `/tmp` can share or match by the
+    /// prefix scan.
+    pub fn identifier(tag: &str) -> String {
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos() % 1_000_000_000)
+            .unwrap_or(0);
+        format!("rk.legacy-{tag}-{}-{nanos}", std::process::id())
+    }
+
+    /// The plugin's socket for `identifier`: `/tmp/<identifier with . and - as _>_si.sock`.
+    pub fn socket(identifier: &str) -> PathBuf {
+        PathBuf::from(format!(
+            "/tmp/{}_si.sock",
+            identifier.replace(['.', '-'], "_")
+        ))
+    }
+
+    /// Run the helper process in `mode` ("stale": bind the path and exit; "leak": bind it, hand the
+    /// listening descriptor to a sidecar and exit) and wait for it. Returns its stdout.
+    pub fn run(socket: &Path, mode: &str) -> String {
+        let output = Command::new(std::env::current_exe().unwrap())
+            .args(["--exact", "child_legacy_fixture", "--nocapture"])
+            .env(SOCKET_ENV, socket)
+            .env(MODE_ENV, mode)
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "the {mode} fixture failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        String::from_utf8_lossy(&output.stdout).into_owned()
+    }
+
+    /// The pid the "leak" helper reported for its sidecar.
+    pub fn sidecar_pid(stdout: &str) -> u32 {
+        stdout
+            .split(SIDECAR_PID_PREFIX)
+            .nth(1)
+            .map(|rest| {
+                rest.chars()
+                    .take_while(|c| c.is_ascii_digit())
+                    .collect::<String>()
+            })
+            .and_then(|digits| digits.parse().ok())
+            .unwrap_or_else(|| panic!("the fixture did not report its sidecar: {stdout:?}"))
+    }
+
+    /// The socket file and the sidecar a fixture leaves behind, removed even when an assertion fails.
+    pub struct Leftovers {
+        pub socket: PathBuf,
+        pub sidecar: Option<u32>,
+    }
+
+    impl Leftovers {
+        pub fn new(socket: PathBuf) -> Self {
+            let _ = std::fs::remove_file(&socket);
+            Self {
+                socket,
+                sidecar: None,
+            }
+        }
+    }
+
+    impl Drop for Leftovers {
+        fn drop(&mut self) {
+            if let Some(pid) = self.sidecar {
+                let _ = Command::new("/bin/kill").arg(pid.to_string()).status();
+            }
+            let _ = std::fs::remove_file(&self.socket);
+        }
+    }
+}
+
+/// Helper-process entry point for `legacy_fixture::run`. Does nothing unless the parent set the
+/// socket path.
+#[cfg(target_os = "macos")]
+#[allow(clippy::zombie_processes)]
+#[test]
+fn child_legacy_fixture() {
+    use std::os::fd::OwnedFd;
+    use std::os::unix::net::UnixListener;
+    use std::process::Stdio;
+
+    let Some(socket) = std::env::var_os(legacy_fixture::SOCKET_ENV) else {
+        return;
+    };
+    let listener = UnixListener::bind(&socket).unwrap();
+    match std::env::var(legacy_fixture::MODE_ENV).as_deref() {
+        // The listener closes with this process: the path stays, nothing answers on it.
+        Ok("stale") => drop(listener),
+        // A sidecar inherits the listening descriptor (as its stdin) and outlives this process: what
+        // a descriptor leaked into a child looks like once the app that created it has exited.
+        Ok("leak") => {
+            let sidecar = Command::new("/bin/sleep")
+                .arg("120")
+                .stdin(Stdio::from(OwnedFd::from(listener)))
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .spawn()
+                .unwrap();
+            println!("{}{}", legacy_fixture::SIDECAR_PID_PREFIX, sidecar.id());
+            // Neither waited for nor killed: it must outlive this process.
+            std::mem::forget(sidecar);
+        }
+        other => panic!("unknown fixture mode {other:?}"),
+    }
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+fn a_listener_kept_open_by_a_sidecar_after_its_owner_exits_is_not_a_live_holder() {
+    use rightkit_shell::ClaimOptions;
+
+    let identifier = legacy_fixture::identifier("leak");
+    let mut leftovers = legacy_fixture::Leftovers::new(legacy_fixture::socket(&identifier));
+    // The "app" creates the listening socket, gives a sidecar a copy of the descriptor and exits.
+    // It has been reaped when `run` returns, so its pid names nothing, while the sidecar lives on.
+    let stdout = legacy_fixture::run(&leftovers.socket, "leak");
+    leftovers.sidecar = Some(legacy_fixture::sidecar_pid(&stdout));
+    // Precondition: the socket still accepts connections, held open by the sidecar alone. If this
+    // fails the fixture is wrong, not the claim.
+    drop(
+        std::os::unix::net::UnixStream::connect(&leftovers.socket)
+            .expect("the sidecar must keep the listener accepting after its creator exited"),
+    );
+
+    // A launch written to that socket would wait in a queue nobody reads and the app would never
+    // open: the claim must see that nothing serves it and become the primary.
+    let suite = Suite::per_run_temp("shell-legacy-leak").unwrap();
+    let outcome = SingleInstance::claim_in_with(
+        &suite,
+        ID,
+        ClaimOptions::with_legacy(&identifier),
+        InstanceMessage::default(),
+        |_| {},
+    );
+    assert!(
+        outcome.is_primary(),
+        "a listener only a sidecar keeps open is not a live holder, got {}",
+        describe(&outcome)
+    );
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+fn a_leaked_listener_does_not_stop_the_hold_from_taking_over_the_legacy_socket() {
+    use std::io::Write;
+
+    use rightkit_shell::ClaimOptions;
+
+    let identifier = legacy_fixture::identifier("holdleak");
+    let mut leftovers = legacy_fixture::Leftovers::new(legacy_fixture::socket(&identifier));
+    let stdout = legacy_fixture::run(&leftovers.socket, "leak");
+    leftovers.sidecar = Some(legacy_fixture::sidecar_pid(&stdout));
+
+    let suite = Suite::per_run_temp("shell-legacy-holdleak").unwrap();
+    let (tx, rx) = mpsc::channel();
+    let outcome = SingleInstance::claim_in_with(
+        &suite,
+        ID,
+        ClaimOptions::with_legacy(&identifier).holding_legacy(),
+        InstanceMessage::default(),
+        move |m| {
+            let _ = tx.send(m);
+        },
+    );
+    assert!(
+        outcome.is_primary(),
+        "the hold must replace a leaked listener, got {}",
+        describe(&outcome)
+    );
+
+    // An old build now finds this process serving the legacy path and its launch arrives.
+    {
+        let mut old = std::os::unix::net::UnixStream::connect(&leftovers.socket).unwrap();
+        old.write_all(b"/work\0\0/old\0--x").unwrap();
+    }
+    let message = rx.recv_timeout(Duration::from_secs(5)).unwrap();
+    assert_eq!(message.cwd, "/work");
+    assert_eq!(message.argv, ["/old", "--x"]);
 }

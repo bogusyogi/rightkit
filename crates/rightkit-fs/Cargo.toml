@@ -76,6 +76,12 @@ name = "atomic_checked"
 path = "tests/atomic_checked.rs"
 required-features = ["fs"]
 
+# Sync events around the check of `commit_checked` need the step log of `atomic::testing`.
+[[test]]
+name = "atomic_checked_sync"
+path = "tests/atomic_checked_sync.rs"
+required-features = ["testing"]
+
 [[test]]
 name = "atomic_privacy"
 path = "tests/atomic_privacy.rs"
@@ -116,6 +122,12 @@ required-features = ["lock"]
 name = "lock_reparse"
 path = "tests/lock_reparse.rs"
 required-features = ["lock"]
+
+# macOS extended ACLs under the owner-only guarantee (the file is empty off macOS).
+[[test]]
+name = "acl_macos"
+path = "tests/acl_macos.rs"
+required-features = ["fs"]
 
 [[test]]
 name = "state_durability"
