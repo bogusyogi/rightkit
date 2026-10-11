@@ -8,8 +8,6 @@ mod identity;
 #[cfg(all(test, unix))]
 mod identity_tests;
 mod owned;
-#[cfg(unix)]
-mod pid_proof;
 mod process_handle;
 #[cfg(unix)]
 mod process_unix;
@@ -27,15 +25,11 @@ mod usage;
 pub mod windows_job;
 
 pub use health::{HealthOutcome, HealthPolicy, HealthProbe, HealthTracker};
-#[cfg(windows)]
-pub use owned::DetachedBreakaway;
 pub use owned::{
     AdoptedProcess, JobAssignmentFailure, JobAssignmentMode, OwnedChild, OwnedCommand,
     RawHandleOrFd, ReapOutcome, TerminationOptions, UnixContainment, WaitOutcome,
     DEFAULT_ENV_ALLOWLIST,
 };
-#[cfg(unix)]
-pub use pid_proof::PidProof;
 pub use process_handle::ProcessHandle;
 pub use restart::{
     Generation, RestartMode, RestartOutcome, RestartPermit, RestartPolicy, RestartTracker,

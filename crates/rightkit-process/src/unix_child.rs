@@ -23,39 +23,45 @@
 //!   `waitid` probe, a membership probe) is preceded by [`UnixChild::prove`], which compares the
 //!   kernel's description of the pid (parent and start time, read at spawn) with the process
 //!   we spawned. A different or missing description marks the leader `Lost` and nothing is
-//!   sent or waited. See `identity` for the rule and its one residual.
+//!   sent or waited. The proof and the call that follows it are two system calls: foreign code
+//!   that reaps the child in exactly that gap, and a replacement that takes the number there,
+//!   defeat it. This is a known limit; see `identity`.
 //!
-//! * **Waiting is event-driven and does not hold the lock.** Each child owns an
-//!   [`ExitWatch`](crate::exit_watch::ExitWatch) (a kqueue `NOTE_EXIT` knote, or a pidfd), opened at
-//!   spawn. `ProcessHandle::wait*` and `OwnedChild::wait*` clone it out under the lock, release
-//!   the lock, and sleep in `poll(2)` until the kernel reports the exit; then they take the lock,
-//!   prove the pid and reap with one call that cannot block for long (the process has exited).
-//!   So `kill`, `terminate_tree` and every other waiter run while a wait is blocked, and a
-//!   wait costs one wake-up however long the child lives. The one exception is
-//!   [`UnixChild::wait`] reached through the `OwnedChild::child()` guard: the caller already holds
-//!   the lock, so that wait blocks (in `poll`, not in a loop) with the lock held, exactly as
-//!   `std::process::Child::wait` would hold its owner.
+//! # Waiting
 //!
-//! The state is one lock-guarded enum, never separate atomics, so no thread can observe a
-//! half-published transition.
-//!
+//! * **Every wait is a loop of non-blocking looks.** [`wait_shared`] takes the lock, makes one
+//!   non-blocking `try_wait` (a `waitpid(WNOHANG)`), releases the lock, sleeps, and looks again
+//!   until the leader is reaped or the caller's deadline passes. [`observe_shared`] does the
+//!   same with the non-reaping `waitid(WNOHANG | WNOWAIT)` probe. Nothing reaps with a
+//!   blocking call and nothing sleeps while holding the lock, so `kill`, `terminate_tree` and
+//!   every other waiter run while a wait is in progress, and a deadline is honoured whatever
+//!   the child does.
+//! * The sleep is [`ExitWatch::pause`](crate::exit_watch::ExitWatch::pause): a hint. With an
+//!   event source it ends early at the child's exit; without one it is a 5 ms interval. The
+//!   event never decides anything, so it cannot make a wait return early or hang.
+//! * The one exception is [`UnixChild::wait`] reached through the `OwnedChild::child()` guard:
+//!   the caller already holds the lock, so that wait holds it for its whole length, as
+//!   `std::process::Child::wait` held its owner in 0.3.3. It still reaps only with
+//!   non-blocking looks.
 //! * No wait-class system call names the pid while the lock is released. A blocked
 //!   `waitpid(pid)`/`waitid(P_PID, pid)` outside the lock could be entered after another reader
 //!   reaped the leader and the kernel recycled the number, and would then wait on an unrelated
-//!   child. Waiters instead look under the lock, release it, and sleep in `poll(2)` on the child's
-//!   exit watch until the kernel reports the exit.
+//!   child.
 //! * Seeing that the leader exited does not require reaping it (`UnixChild::leader_state`), so
 //!   an exit monitor can observe the exit and leave the reap, and with it the group's identity,
 //!   to the owner.
+//!
+//! The state is one lock-guarded enum, never separate atomics, so no thread can observe a
+//! half-published transition.
 
 use crate::exit_watch::ExitWatch;
 use crate::identity::{Origin, Proof};
-use crate::process_unix::Helper;
+use crate::process_handle::lock_child;
 use std::{
     io,
     process::{Child, ChildStderr, ChildStdin, ChildStdout, ExitStatus},
-    sync::Arc,
-    time::Duration,
+    sync::{Arc, Mutex},
+    time::Instant,
 };
 
 /// Whether this host can see that the leader exited without reaping it (`probe_exit` is real).
@@ -89,7 +95,7 @@ pub(crate) enum LeaderState {
     Reaped,
 }
 
-/// Who is in the leader's process group, besides the leader and its own helper.
+/// Who is in the leader's process group, besides the leader.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum Members {
     Pids(Vec<u32>),
@@ -112,6 +118,10 @@ pub(crate) enum SignalOutcome {
     Retired,
     /// The target was already gone (`ESRCH`, or only zombies were left).
     Gone,
+    /// A group signal answered `EPERM` while the leader still reads as running (macOS does
+    /// this when the last members are mid-exit). Nothing was sent. The caller may look again
+    /// after the lock is released: the group is gone as soon as the exit completes.
+    MidExit,
 }
 
 /// A spawned Unix child. The same API as Windows' `WindowsChild`: public stdio fields, `id`,
@@ -131,29 +141,22 @@ pub struct UnixChild {
     leader: Leader,
     /// Who the leader was at spawn. Checked by [`UnixChild::prove`] before any action by pid.
     origin: Origin,
-    /// The kernel's report of the leader's exit, opened at spawn. Shared with every waiter.
+    /// The wake-up hint for waiters (never a verdict), opened at spawn and shared with every
+    /// waiter.
     watch: Arc<ExitWatch>,
-    /// macOS parent-death helper. Never signalled by pid: this value tells it to stand down
-    /// over a private channel when it drops, and only collects its zombie by `waitpid`.
-    helper: Option<Helper>,
     /// Test only: the id used as the signal target, to stand in for a recycled id.
     #[cfg(test)]
     recycled_id: Option<u32>,
-    /// Test only: ignore the pidfd and prove the pid from `origin` alone.
-    #[cfg(test)]
-    force_origin: bool,
 }
 
 impl UnixChild {
-    pub(crate) fn new(mut child: Child, helper: Option<Helper>) -> Self {
-        // Both are taken now, while the child is certainly still ours: the exit watch is bound
-        // to the process, and the identity (when the watch cannot prove it exactly) names it.
-        let watch = Arc::new(ExitWatch::open(child.id(), true));
-        let origin = if watch.proves_exactly() {
-            Origin::Unavailable
-        } else {
-            Origin::capture(child.id())
-        };
+    pub(crate) fn new(mut child: Child) -> Self {
+        // Both are taken now, while the child is certainly still ours: the hint is bound to the
+        // process, and the identity names it. (A child collected by foreign code before this
+        // point would hand its replacement's description over as the baseline; that is part of
+        // the known limit described in `identity`.)
+        let watch = Arc::new(ExitWatch::open(child.id()));
+        let origin = Origin::capture(child.id());
         Self {
             stdin: child.stdin.take(),
             stdout: child.stdout.take(),
@@ -163,15 +166,12 @@ impl UnixChild {
             watch,
             child,
             leader: Leader::Unreaped,
-            helper,
             #[cfg(test)]
             recycled_id: None,
-            #[cfg(test)]
-            force_origin: false,
         }
     }
 
-    /// The exit watch, for waiters that block without holding the lock.
+    /// The wake-up hint, for waiters that sleep without holding the lock.
     pub(crate) fn exit_watch(&self) -> Arc<ExitWatch> {
         Arc::clone(&self.watch)
     }
@@ -206,20 +206,7 @@ impl UnixChild {
         }
         #[cfg(test)]
         trace::record(trace::Event::Proof { leader: self.pid });
-        // A pidfd answers for the original process whatever its number now names.
-        #[cfg(test)]
-        let exact = if self.force_origin {
-            None
-        } else {
-            self.watch.exact_proof()
-        };
-        #[cfg(not(test))]
-        let exact = self.watch.exact_proof();
-        let same = match exact {
-            Some(alive) => alive?,
-            None => self.origin.check(self.pid)? == Proof::Same,
-        };
-        if same {
+        if self.origin.check(self.pid)? == Proof::Same {
             Ok(true)
         } else {
             self.leader = Leader::Lost;
@@ -241,7 +228,6 @@ impl UnixChild {
     /// collected elsewhere and the number given to the process now holding it.
     #[cfg(test)]
     pub(crate) fn simulate_replaced(&mut self) {
-        self.force_origin = true;
         self.origin = Origin::Known(crate::identity::Identity {
             parent: 0,
             started_sec: 1,
@@ -272,8 +258,9 @@ impl UnixChild {
         }
     }
 
-    /// Closes stdin as std does, then blocks until the leader is reaped. The lock stays held
-    /// for the whole wait (the caller holds it); the thread sleeps in `poll`, it does not poll.
+    /// Closes stdin as std does, then waits until the leader is reaped. The lock stays held for
+    /// the whole wait (the caller holds it); the reap itself is only ever a non-blocking
+    /// `waitpid(WNOHANG)` between sleeps.
     pub fn wait(&mut self) -> io::Result<ExitStatus> {
         drop(self.stdin.take());
         self.wait_reaping()
@@ -285,47 +272,16 @@ impl UnixChild {
         self.signal(SignalTarget::Leader, libc::SIGKILL).map(|_| ())
     }
 
-    /// Reaps without touching stdin, for independent readers that must not close the owner's.
-    ///
-    /// Sleeps in the kernel until the exit event, then proves the pid and reaps (see
-    /// [`reap_exited`](Self::reap_exited)). A blocking `waitpid(pid)` from the start would name
-    /// the number for as long as it sleeps, and if other code collected the leader meanwhile it
-    /// would wait on whatever child the kernel gave the number to, and take its status.
+    /// Reaps without touching stdin, for the guard's `wait` and for cleanup of a child that
+    /// has just been killed. Each look is proven and non-blocking; between looks the thread
+    /// sleeps on the hint. A blocking `waitpid(pid)` from the start would name the number for
+    /// as long as it sleeps, and if other code collected the leader meanwhile it would wait on
+    /// whatever child the kernel gave the number to, and take its status.
     pub(crate) fn wait_reaping(&mut self) -> io::Result<ExitStatus> {
-        if let Some(status) = self.try_wait()? {
-            return Ok(status);
-        }
-        match self.watch.wait(None) {
-            Ok(_) => {}
-            // No event source on this host: the reap below blocks, as std's wait does.
-            Err(error) if error.kind() == io::ErrorKind::Unsupported => {}
-            Err(error) => return Err(error),
-        }
-        self.reap_exited()
-    }
-
-    /// The reap that follows an exit event (or stands in for one on a host without events):
-    /// returns the cached status, or proves the pid and collects the zombie. The process has
-    /// exited, so the underlying `waitpid` returns at once. Where there is no event source it
-    /// blocks until the exit instead.
-    pub(crate) fn reap_exited(&mut self) -> io::Result<ExitStatus> {
-        match self.leader {
-            Leader::Reaped(status) => return Ok(status),
-            Leader::Lost => return Err(io::Error::from_raw_os_error(libc::ECHILD)),
-            Leader::Unreaped => {}
-        }
-        if let Err(error) = self.require_ours() {
-            return Err(self.note_error(error));
-        }
-        #[cfg(test)]
-        trace::record(trace::Event::Wait { leader: self.pid });
-        match self.child.wait() {
-            Ok(status) => {
-                self.note_reaped(status);
-                Ok(status)
-            }
-            Err(error) => Err(self.note_error(error)),
-        }
+        let watch = Arc::clone(&self.watch);
+        watch
+            .wait_for(None, || self.try_wait())?
+            .ok_or_else(|| io::Error::other("an unbounded wait ended without a status"))
     }
 
     /// Looks at the leader without reaping it. `Lost` is recorded here when the kernel no
@@ -361,25 +317,6 @@ impl UnixChild {
         if self.leader_state()? == LeaderState::Reaped {
             return Ok(SignalOutcome::Retired);
         }
-        // A leader signal goes through the pidfd where there is one: no pid number is involved,
-        // so there is no window between a proof and the signal.
-        if target == SignalTarget::Leader && self.pidfd_signals() {
-            if let Some(result) = self.watch.send_signal(signal) {
-                #[cfg(test)]
-                trace::record(trace::Event::Signal {
-                    leader: self.pid,
-                    target: self.pid as i32,
-                    signal,
-                });
-                return match result {
-                    Ok(()) => Ok(SignalOutcome::Sent),
-                    Err(error) if error.raw_os_error() == Some(libc::ESRCH) => {
-                        Ok(SignalOutcome::Gone)
-                    }
-                    Err(error) => Err(error),
-                };
-            }
-        }
         // The state above looked at the pid; prove it once more immediately before it is used
         // as a signal target.
         if !self.prove()? {
@@ -390,42 +327,30 @@ impl UnixChild {
             SignalTarget::Group => -id,
             SignalTarget::Leader => id,
         };
-        let mut denied = 0;
-        loop {
-            if raw_kill(self.pid, target_id, signal) == 0 {
-                return Ok(SignalOutcome::Sent);
+        if raw_kill(self.pid, target_id, signal) == 0 {
+            return Ok(SignalOutcome::Sent);
+        }
+        let error = io::Error::last_os_error();
+        match error.raw_os_error() {
+            Some(libc::ESRCH) => Ok(SignalOutcome::Gone),
+            // macOS answers a group signal with EPERM, not ESRCH, when no member can take it:
+            // only zombies are left, or the last members are mid-exit. Our own children are
+            // always signalable, so this is never a real denial. Once the leader is no longer
+            // running (exited, or reaped by a handle clone) the group is gone. A leader that
+            // still reads as running is mid-exit: say so, and let the caller look again once it
+            // has released the lock (`OwnedChild::signal`).
+            Some(libc::EPERM) if target == SignalTarget::Group => {
+                Ok(if self.leader_state()? == LeaderState::Running {
+                    SignalOutcome::MidExit
+                } else {
+                    SignalOutcome::Gone
+                })
             }
-            let error = io::Error::last_os_error();
-            match error.raw_os_error() {
-                Some(libc::ESRCH) => return Ok(SignalOutcome::Gone),
-                // macOS answers a group signal with EPERM, not ESRCH, when no member can
-                // take it: only zombies are left, or the last members are mid-exit. Our own
-                // children are always signalable, so this is never a real denial. Once the
-                // leader is no longer running (exited, or reaped by a handle clone) the group
-                // is gone. A leader that still reads as running is mid-exit: wait for its exit
-                // event, for at most 100 ms (the lock is held, so nothing can reap it meanwhile),
-                // before giving up.
-                Some(libc::EPERM) if target == SignalTarget::Group => {
-                    if self.leader_state()? != LeaderState::Running {
-                        return Ok(SignalOutcome::Gone);
-                    }
-                    // Mid-exit: wait for the leader's exit event (bounded), not for a timer.
-                    denied += 1;
-                    if denied >= 3
-                        || !self
-                            .watch
-                            .wait(Some(Duration::from_millis(100)))
-                            .unwrap_or(false)
-                    {
-                        return Err(error);
-                    }
-                }
-                _ => return Err(error),
-            }
+            _ => Err(error),
         }
     }
 
-    /// The processes other than the leader (and this child's own helper) still in the group.
+    /// The processes other than the leader still in the group.
     /// Valid only while the leader is unreaped; a reaped leader has no group to speak of. An
     /// unknown answer is [`Members::Unknown`]: the caller then waits out its grace instead of
     /// cutting it short.
@@ -433,11 +358,7 @@ impl UnixChild {
         if self.leader_state()? == LeaderState::Reaped {
             return Ok(Members::Pids(Vec::new()));
         }
-        group_members_besides(
-            self.pid,
-            self.signal_id(),
-            self.helper.as_ref().map(Helper::pid),
-        )
+        group_members_besides(self.pid, self.signal_id())
     }
 
     /// True when a process other than the leader is still in the group (unknown counts as yes).
@@ -447,15 +368,6 @@ impl UnixChild {
             Members::Pids(pids) => !pids.is_empty(),
             Members::Unknown => true,
         })
-    }
-
-    /// Test hooks that aim signals elsewhere (`simulate_*`) bypass the pidfd.
-    fn pidfd_signals(&self) -> bool {
-        #[cfg(test)]
-        if self.force_origin || self.recycled_id.is_some() {
-            return false;
-        }
-        true
     }
 
     fn signal_id(&self) -> u32 {
@@ -477,7 +389,6 @@ impl UnixChild {
         self.leader = Leader::Reaped(status);
         #[cfg(test)]
         trace::record(trace::Event::Reaped { leader: self.pid });
-        self.reap_helper_if_exited();
     }
 
     fn note_error(&mut self, error: io::Error) -> io::Error {
@@ -485,25 +396,6 @@ impl UnixChild {
             self.leader = Leader::Lost;
         }
         error
-    }
-
-    /// Lets go of the helper once it is gone: reaped here, or reaped by another reaper in this
-    /// process (`ECHILD`). Either way its pid is no longer ours, so nothing may ever be done to
-    /// it again. The helper is our own child until then, so its pid is stable until then.
-    fn reap_helper_if_exited(&mut self) {
-        if self.helper.as_ref().is_some_and(Helper::has_gone) {
-            self.helper = None;
-        }
-    }
-}
-
-impl Drop for UnixChild {
-    fn drop(&mut self) {
-        if let Some(helper) = self.helper.take() {
-            // No signal is sent to the helper's pid: it may have been reaped elsewhere and the
-            // number recycled. It is told to stand down over its private channel instead.
-            helper.retire();
-        }
     }
 }
 
@@ -574,11 +466,7 @@ fn raw_kill(leader: u32, target: i32, signal: i32) -> i32 {
 }
 
 #[cfg(target_os = "macos")]
-fn group_members_besides(
-    leader: u32,
-    group: u32,
-    helper: Option<libc::pid_t>,
-) -> io::Result<Members> {
+fn group_members_besides(leader: u32, group: u32) -> io::Result<Members> {
     /// `PROC_PGRP_ONLY` from `<libproc.h>`: list the members of one process group.
     const PROC_PGRP_ONLY: u32 = 2;
     const CAPACITY: usize = 256;
@@ -609,18 +497,14 @@ fn group_members_besides(
     Ok(Members::Pids(
         pids[..count]
             .iter()
-            .filter(|&&pid| pid > 0 && pid as u32 != leader && Some(pid) != helper)
+            .filter(|&&pid| pid > 0 && pid as u32 != leader)
             .map(|&pid| pid as u32)
             .collect(),
     ))
 }
 
 #[cfg(any(target_os = "linux", target_os = "android"))]
-fn group_members_besides(
-    leader: u32,
-    group: u32,
-    _helper: Option<libc::pid_t>,
-) -> io::Result<Members> {
+fn group_members_besides(leader: u32, group: u32) -> io::Result<Members> {
     // kill(-pgid, 0) cannot tell an exited, unreaped leader from a live member, so read
     // /proc: a member is any non-zombie process whose group is this one.
     let Ok(entries) = std::fs::read_dir("/proc") else {
@@ -658,13 +542,68 @@ fn group_members_besides(
 }
 
 #[cfg(not(any(target_os = "linux", target_os = "android", target_os = "macos")))]
-fn group_members_besides(
-    _leader: u32,
-    _group: u32,
-    _helper: Option<libc::pid_t>,
-) -> io::Result<Members> {
+fn group_members_besides(_leader: u32, _group: u32) -> io::Result<Members> {
     Ok(Members::Unknown)
 }
+
+/// Waits for the leader of `shared` to be reaped, or for `deadline` to pass (`Ok(None)`); `None`
+/// waits without limit.
+///
+/// Every look is one non-blocking `try_wait` under the lock, released before the thread sleeps
+/// (see the module documentation), so a deadline is honoured whatever the child does, a
+/// `kill` or `terminate_tree` from another thread runs at once, and no wait-class system call
+/// names the pid while the lock is free. This is the only way `ProcessHandle` and the cleanup
+/// paths wait.
+pub(crate) fn wait_shared(
+    shared: &Mutex<UnixChild>,
+    deadline: Option<Instant>,
+) -> io::Result<Option<ExitStatus>> {
+    let (watch, pid) = {
+        let child = lock_child(shared);
+        (child.exit_watch(), child.id())
+    };
+    let mut first = true;
+    watch.wait_for(deadline, || {
+        let looked = lock_child(shared).try_wait();
+        pause_for_test(&mut first, pid, matches!(looked, Ok(None)));
+        looked
+    })
+}
+
+/// Like [`wait_shared`] but does not reap: `Ok(true)` once the leader has exited (or was reaped
+/// by someone), `Ok(false)` when `deadline` passed first. The zombie keeps pinning the group id.
+pub(crate) fn observe_shared(
+    shared: &Mutex<UnixChild>,
+    deadline: Option<Instant>,
+) -> io::Result<bool> {
+    let (watch, pid) = {
+        let child = lock_child(shared);
+        (child.exit_watch(), child.id())
+    };
+    let mut first = true;
+    let seen = watch.wait_for(deadline, || {
+        let state = lock_child(shared).leader_state();
+        pause_for_test(&mut first, pid, matches!(state, Ok(LeaderState::Running)));
+        Ok(match state? {
+            LeaderState::Running => None,
+            LeaderState::Exited | LeaderState::Reaped => Some(()),
+        })
+    })?;
+    Ok(seen.is_some())
+}
+
+/// Test seam: after the first look that found the child still running, with the lock already
+/// released and before the thread sleeps, run the hook installed for `pid` (see [`gate`]).
+#[cfg(test)]
+fn pause_for_test(first: &mut bool, pid: u32, running: bool) {
+    if *first && running {
+        *first = false;
+        gate::pause(pid);
+    }
+}
+
+#[cfg(not(test))]
+fn pause_for_test(_first: &mut bool, _pid: u32, _running: bool) {}
 
 /// Test instrumentation: every signal, every reap and every wait-class system call that names
 /// the leader's pid, in the order they happened. All are recorded under the child's lock, so the

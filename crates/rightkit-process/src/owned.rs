@@ -1,6 +1,6 @@
 use crate::process_handle::{lock_child, ProcessHandle};
 #[cfg(unix)]
-use crate::unix_child::{LeaderState, SignalTarget};
+use crate::unix_child::{LeaderState, SignalOutcome, SignalTarget};
 use std::{
     ffi::OsStr,
     io,
@@ -20,18 +20,6 @@ pub enum JobAssignmentMode {
     #[default]
     Strict,
     BestEffort,
-}
-
-/// Windows: how a tolerant detached launch ended up. See
-/// [`OwnedCommand::spawn_detached_tolerating_denied_breakaway`].
-#[cfg(windows)]
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum DetachedBreakaway {
-    /// The child left the parent's job (`CREATE_BREAKAWAY_FROM_JOB` was accepted).
-    BrokeAway,
-    /// Breakaway was denied (`ERROR_ACCESS_DENIED`), so the child was started with
-    /// `DETACHED_PROCESS | CREATE_NO_WINDOW` and remains a member of the parent's job.
-    StayedInJob,
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -106,8 +94,6 @@ pub struct OwnedCommand {
     windows_spawn_config_auto: bool,
     #[cfg(windows)]
     env_cleared: bool,
-    #[cfg(windows)]
-    tolerate_denied_breakaway: bool,
 }
 #[cfg(windows)]
 type CallerJob = Option<std::os::windows::io::OwnedHandle>;
@@ -149,8 +135,6 @@ impl OwnedCommand {
             windows_spawn_config_auto: false,
             #[cfg(windows)]
             env_cleared: false,
-            #[cfg(windows)]
-            tolerate_denied_breakaway: false,
         }
     }
     pub fn command_mut(&mut self) -> &mut Command {
@@ -236,12 +220,17 @@ impl OwnedCommand {
         self.unix_containment = mode;
         self
     }
-    /// Opt-in, off by default. When this process dies without running cleanup
-    /// (for example SIGKILL), the child's process group is terminated.
-    /// Linux sends SIGTERM to the direct child (`PR_SET_PDEATHSIG`); macOS runs a
-    /// helper in the child's group that sends SIGTERM, waits 2 s, then SIGKILL.
-    /// Other Unix hosts fail the spawn. Windows ignores it because kill-on-close
-    /// job objects already cover parent death. Rejected for detached spawns.
+    /// Opt-in, off by default. Linux only: the kernel sends `SIGTERM` to the direct child
+    /// (`PR_SET_PDEATHSIG`) when the thread that spawned it exits, which includes this
+    /// process dying without running cleanup (for example SIGKILL). The signal reaches the
+    /// direct child only, never the rest of its group, it can be caught, and there is no
+    /// `SIGKILL` escalation. It is keyed to the spawning *thread*, so spawn from a thread
+    /// that lives as long as the child.
+    ///
+    /// Other Unix hosts, macOS included, have no parent-death primitive this crate relies on:
+    /// the spawn fails with `ErrorKind::Unsupported` before anything is started, rather than
+    /// run the child untied. Windows ignores the option because kill-on-close job objects
+    /// already cover parent death. Rejected (`InvalidInput`) for detached spawns.
     pub fn kill_on_parent_exit(&mut self, enabled: bool) -> &mut Self {
         self.kill_on_parent_exit = enabled;
         self
@@ -259,24 +248,6 @@ impl OwnedCommand {
     /// Stdio follows Command: dropping piped stdin can still deliver EOF.
     pub fn spawn_uncontained_detached(self) -> io::Result<OwnedChild> {
         self.spawn_inner(true, false, None)
-    }
-    /// Windows, explicit opt-in. Like [`spawn_uncontained_detached`](Self::spawn_uncontained_detached),
-    /// but when the parent job denies breakaway (`ERROR_ACCESS_DENIED`) the launch is retried
-    /// once with `DETACHED_PROCESS | CREATE_NO_WINDOW` and the child stays inside that job.
-    /// The result says which happened. Any other failure is returned as is, and the plain
-    /// `spawn_uncontained_detached` keeps failing closed when breakaway is denied.
-    #[cfg(windows)]
-    pub fn spawn_detached_tolerating_denied_breakaway(
-        mut self,
-    ) -> io::Result<(OwnedChild, DetachedBreakaway)> {
-        self.tolerate_denied_breakaway = true;
-        let child = self.spawn_inner(true, false, None)?;
-        let outcome = if child.stayed_in_job {
-            DetachedBreakaway::StayedInJob
-        } else {
-            DetachedBreakaway::BrokeAway
-        };
-        Ok((child, outcome))
     }
     fn spawn_inner(
         mut self,
@@ -296,17 +267,13 @@ impl OwnedCommand {
                 "kill_on_parent_exit cannot combine with a detached launch",
             ));
         }
-        // On macOS this forks the parent-death helper, so it happens here, in the supervisor,
-        // before the new process exists. A later `?` drops the tie, which kills the helper.
-        #[cfg(unix)]
-        let parent_tie = self
-            .kill_on_parent_exit
-            .then(|| {
-                crate::process_unix::ParentDeathTie::prepare(
-                    self.unix_containment == UnixContainment::Session,
-                )
-            })
-            .transpose()?;
+        #[cfg(all(unix, not(target_os = "linux")))]
+        if self.kill_on_parent_exit {
+            return Err(io::Error::new(
+                io::ErrorKind::Unsupported,
+                "kill_on_parent_exit is supported on Linux only",
+            ));
+        }
         #[cfg(unix)]
         {
             use std::os::unix::process::CommandExt;
@@ -316,9 +283,12 @@ impl OwnedCommand {
                 .take()
                 .map(crate::process_unix::Inheritance::new)
                 .transpose()?;
-            let engine_tie = parent_tie
-                .as_ref()
-                .map(crate::process_unix::ParentDeathTie::engine_side);
+            // The supervisor's pid, read here and compared in the child (see `die_with_parent`).
+            #[cfg(target_os = "linux")]
+            let supervisor = self
+                .kill_on_parent_exit
+                // SAFETY: getpid has no preconditions.
+                .then(|| unsafe { libc::getpid() });
             // Only async-signal-safe libc calls run between fork and exec.
             unsafe {
                 self.command.pre_exec(move || {
@@ -333,16 +303,16 @@ impl OwnedCommand {
                     if let Some(inheritance) = &inheritance {
                         inheritance.apply()?;
                     }
-                    // Last, after setpgid/setsid, so the macOS helper joins the child's group.
-                    if let Some(tie) = &engine_tie {
-                        tie.apply_in_child()?;
+                    #[cfg(target_os = "linux")]
+                    if let Some(supervisor) = supervisor {
+                        crate::process_unix::die_with_parent(supervisor)?;
                     }
                     Ok(())
                 });
             }
         }
         #[cfg(windows)]
-        crate::process_windows::configure(&mut self.command, detached, self.windows_hidden, false);
+        crate::process_windows::configure(&mut self.command, detached, self.windows_hidden);
         #[cfg(unix)]
         let _ = (self.windows_hidden, self.job_assignment);
         #[cfg(windows)]
@@ -350,62 +320,34 @@ impl OwnedCommand {
         let spawned_at = SystemTime::now();
         #[cfg(unix)]
         let child = {
-            let spawned = self.command.spawn();
-            // Settle the parent-death helper whatever the outcome: kept on success, released
-            // (told to stand down, never signalled) and collected on failure, so a failed
-            // spawn leaves nothing running untied.
-            let helper = parent_tie.and_then(|tie| tie.settle(spawned.is_ok()));
-            let mut child = crate::unix_child::UnixChild::new(spawned?, helper);
+            let mut child = crate::unix_child::UnixChild::new(self.command.spawn()?);
             // A child whose pid cannot be tied to it is stopped here, while the pid is
             // certainly still its own: no later signal could be proven to reach it.
             child.require_identity()?;
             child
         };
         #[cfg(windows)]
-        let mut stayed_in_job = false;
-        #[cfg(windows)]
         let child: PlatformChild = match self.inherited_handles.as_deref() {
             None => {
-                // An ordinary spawn inherits every inheritable handle. Held for both attempts
-                // so it never runs while an allowlisted spawn has private handles raised.
+                // An ordinary spawn inherits every inheritable handle. Held so it never runs
+                // while an allowlisted spawn has private handles raised.
                 let _spawning = crate::spawn_windows::spawn_guard();
-                match self.command.spawn() {
-                    Ok(child) => child.into(),
-                    Err(error)
-                        if detached
-                            && self.tolerate_denied_breakaway
-                            && is_access_denied(&error) =>
-                    {
-                        // Breakaway denied by the parent job: retry once, detached, in the job.
-                        crate::process_windows::configure(
-                            &mut self.command,
-                            true,
-                            self.windows_hidden,
-                            true,
-                        );
-                        stayed_in_job = true;
-                        self.command.spawn()?.into()
-                    }
-                    Err(error) => return Err(error),
-                }
+                self.command.spawn()?.into()
             }
             Some(handles) => {
                 let config = self.windows_spawn_config.take().ok_or_else(|| {
                     io::Error::new(io::ErrorKind::InvalidInput,
                         "allowlisted Windows spawn requires windows_spawn_config for opaque Command settings")
                 })?;
-                let (child, stayed) = crate::spawn_windows::spawn(
+                crate::spawn_windows::spawn(
                     &self.command,
                     config,
                     handles,
                     detached,
-                    detached && self.tolerate_denied_breakaway,
                     self.windows_hidden,
                     self.env_cleared,
                     self.partial_spawn_cleanup_timeout,
-                )?;
-                stayed_in_job = stayed;
-                child
+                )?
             }
         };
         let pid = child.id();
@@ -431,8 +373,6 @@ impl OwnedCommand {
                 assignment_failures: Vec::new(),
                 #[cfg(windows)]
                 job: None,
-                #[cfg(windows)]
-                stayed_in_job,
             }),
             timeout: self.partial_spawn_cleanup_timeout,
         };
@@ -495,8 +435,6 @@ pub struct OwnedChild {
     assignment_failures: Vec<JobAssignmentFailure>,
     #[cfg(windows)]
     job: Option<crate::process_windows::KillOnCloseJob>,
-    #[cfg(windows)]
-    stayed_in_job: bool,
 }
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ReapOutcome {
@@ -594,14 +532,8 @@ impl OwnedChild {
             if !self.tree_terminated {
                 self.signal(libc::SIGTERM)?;
             }
-            // Sleeps in the kernel until the leader's exit event or the end of the grace.
-            let exited = match self.handle.wait_exited_timeout(grace) {
-                Ok(exited) => exited,
-                // No event source on this host: the grace cannot be waited; force the tree.
-                Err(error) if error.kind() == io::ErrorKind::Unsupported => false,
-                Err(error) => return Err(error),
-            };
-            if exited {
+            // Looks without reaping until the leader has exited or the grace has passed.
+            if self.handle.wait_exited_timeout(grace)? {
                 // Exited, not reaped yet: the zombie still pins the group id, so the
                 // stragglers can be killed safely, and only then reaped. (If a handle clone
                 // reaped it, the signal is a no-op, the cached status is returned and group
@@ -668,22 +600,19 @@ impl OwnedChild {
             // Stops waiting as soon as nothing but the exited, unreaped leader is left (or the
             // leader was reaped elsewhere, which ends signalling). The leader is not reaped
             // here: it must keep pinning the group id for the KILL below.
-            match self.await_tree(options.grace) {
-                // No event source on this host: the grace cannot be waited without polling,
-                // so it is skipped and the KILL goes out at once.
-                Err(error) if error.kind() == io::ErrorKind::Unsupported => {}
-                other => other?,
-            }
+            self.await_tree(options.grace)?;
         }
         self.force_kill(options.windows_exit_code)
     }
     /// Waits, for at most `grace`, until the leader has exited and every other member of its
-    /// group has too. Event-driven: the leader through its exit watch, each remaining member
-    /// through a watch of its own, all in one `poll(2)`; nothing wakes up while they run. A
-    /// group that cannot be listed is waited out for the rest of the grace in one timed sleep.
+    /// group has too. The leader is observed without reaping it; then the group is listed
+    /// every [`POLL_INTERVAL`](crate::exit_watch::POLL_INTERVAL) (the published 0.3.3 interval)
+    /// until nothing but the leader is left. A group that cannot be listed is waited out for
+    /// the rest of the grace in one timed sleep. Each listing takes the child lock briefly and
+    /// releases it before the thread sleeps. Bounded by `grace` in every case.
     #[cfg(unix)]
     fn await_tree(&self, grace: Duration) -> io::Result<()> {
-        use crate::{exit_watch::ExitWatch, unix_child::Members};
+        use crate::{exit_watch::POLL_INTERVAL, unix_child::Members};
         let Some(deadline) = Instant::now().checked_add(grace) else {
             return Ok(());
         };
@@ -694,33 +623,22 @@ impl OwnedChild {
         if self.detached {
             return Ok(()); // a detached child owns only its direct pid
         }
-        // Members seen exiting; a zombie that its own parent has not reaped stays listed.
-        let mut gone: Vec<u32> = Vec::new();
         loop {
-            let members = lock_child(&self.child).group_other_members()?;
-            let pids = match members {
-                Members::Pids(pids) => pids
-                    .into_iter()
-                    .filter(|pid| !gone.contains(pid))
-                    .collect::<Vec<_>>(),
+            match lock_child(&self.child).group_other_members()? {
+                Members::Pids(pids) if pids.is_empty() => return Ok(()),
+                Members::Pids(_) => {}
                 Members::Unknown => return wait_out(left(deadline)),
-            };
-            if pids.is_empty() {
-                return Ok(());
             }
-            let watches: Vec<ExitWatch> = pids
-                .iter()
-                .map(|&pid| ExitWatch::open(pid, false))
-                .collect();
-            if !watches.iter().all(ExitWatch::is_supported) {
-                return wait_out(left(deadline));
-            }
-            if !ExitWatch::wait_all(&watches, left(deadline))? {
+            let remaining = left(deadline);
+            if remaining.is_zero() {
                 return Ok(()); // the grace is over
             }
-            gone.extend(pids);
+            thread::sleep(POLL_INTERVAL.min(remaining));
         }
     }
+    /// Sends `signal` to the group (or, for a detached child, to the leader alone) while the
+    /// leader is unreaped and proven. Takes the child lock for each attempt and releases it
+    /// between attempts.
     #[cfg(unix)]
     fn signal(&self, signal: i32) -> io::Result<()> {
         // Detached children only own their direct pid. Under the child's lock, and only while
@@ -730,7 +648,23 @@ impl OwnedChild {
         } else {
             SignalTarget::Group
         };
-        lock_child(&self.child).signal(target, signal).map(|_| ())
+        let started = Instant::now();
+        loop {
+            let (outcome, watch) = {
+                let mut child = lock_child(&self.child);
+                (child.signal(target, signal)?, child.exit_watch())
+            };
+            if outcome != SignalOutcome::MidExit {
+                return Ok(());
+            }
+            // macOS refused the group signal while its last members are mid-exit. The group is
+            // gone once the exit completes: look again, for a bounded time, without the lock.
+            let remaining = MID_EXIT_RETRY.saturating_sub(started.elapsed());
+            if remaining.is_zero() {
+                return Err(io::Error::from_raw_os_error(libc::EPERM));
+            }
+            watch.pause(remaining);
+        }
     }
     fn force_kill(&mut self, code: u32) -> io::Result<()> {
         if self.tree_terminated {
@@ -788,8 +722,13 @@ impl Drop for PartialChild {
         }
     }
 }
-/// The rest of a grace for a group that cannot be listed or watched. There is no event to wait
-/// for, so this is one timed sleep, not a loop.
+/// How long a group signal that macOS refused with `EPERM` (the last members are mid-exit) is
+/// retried before the refusal is reported.
+#[cfg(unix)]
+const MID_EXIT_RETRY: Duration = Duration::from_millis(300);
+
+/// The rest of a grace for a group that cannot be listed. There is nothing to look at, so this
+/// is one timed sleep, not a loop.
 #[cfg(unix)]
 fn wait_out(remaining: Duration) -> io::Result<()> {
     thread::sleep(remaining);
@@ -803,10 +742,14 @@ pub(crate) fn cleanup_direct(child: Arc<Mutex<PlatformChild>>, timeout: Option<D
     };
     #[cfg(unix)]
     {
-        // Sleep in the kernel until the exit event or the timeout; then prove and reap.
+        // Non-blocking looks, each under the lock and released at once, until the child is
+        // reaped or the timeout passes. A killed child is gone within one hint or interval.
         let watch = lock_child(&child).exit_watch();
-        if matches!(watch.wait(Some(timeout)), Ok(true)) && lock_child(&child).reap_exited().is_ok()
-        {
+        let deadline = Instant::now().checked_add(timeout);
+        if matches!(
+            watch.wait_for(deadline, || lock_child(&child).try_wait()),
+            Ok(Some(_))
+        ) {
             return;
         }
     }
@@ -854,11 +797,6 @@ fn spawn_for_test(
     captured_pid: Arc<std::sync::atomic::AtomicU32>,
 ) -> io::Result<OwnedChild> {
     OwnedCommand::from_command(command).spawn_inner(false, true, Some(captured_pid))
-}
-
-#[cfg(windows)]
-fn is_access_denied(error: &io::Error) -> bool {
-    error.raw_os_error() == Some(5) // ERROR_ACCESS_DENIED
 }
 
 #[cfg(windows)]
@@ -964,6 +902,36 @@ mod tests {
         assert!(!command.kill_on_parent_exit);
         command.kill_on_parent_exit(true);
         assert!(command.kill_on_parent_exit);
+    }
+
+    #[test]
+    fn a_detached_spawn_rejects_kill_on_parent_exit() {
+        // Rejected before anything is started, so the program never needs to exist.
+        let mut command = super::OwnedCommand::new("unused");
+        command.kill_on_parent_exit(true);
+        let Err(error) = command.spawn_uncontained_detached() else {
+            panic!("a detached spawn must not accept the parent-death tie");
+        };
+        assert_eq!(error.kind(), std::io::ErrorKind::InvalidInput);
+    }
+
+    /// Hosts other than Linux have no parent-death primitive: the option fails closed, and the
+    /// program is never started (it would create the marker file).
+    #[cfg(all(unix, not(target_os = "linux")))]
+    #[test]
+    fn a_host_without_a_parent_death_primitive_refuses_before_starting_anything() {
+        let marker =
+            std::env::temp_dir().join(format!("rightkit-process-untied-{}", std::process::id()));
+        let _ = std::fs::remove_file(&marker);
+        let mut command = super::OwnedCommand::new("/usr/bin/touch");
+        command.command_mut().arg(&marker);
+        command.kill_on_parent_exit(true);
+        let Err(error) = command.spawn() else {
+            panic!("kill_on_parent_exit must not run the child untied");
+        };
+        assert_eq!(error.kind(), std::io::ErrorKind::Unsupported);
+        std::thread::sleep(std::time::Duration::from_millis(200));
+        assert!(!marker.exists(), "the program ran");
     }
 
     #[test]
@@ -1130,25 +1098,6 @@ mod tests {
             }
         }
         drop((first, second));
-    }
-
-    /// Runs wherever the suite runs: if the host job allows breakaway the child breaks
-    /// away, and if it denies it the child stays in the job. Either way the call succeeds and
-    /// reports which. (The denied branch needs a host job without breakaway to be exercised.)
-    #[cfg(windows)]
-    #[test]
-    fn tolerant_detached_spawn_succeeds_and_reports_how_it_started() {
-        use super::DetachedBreakaway;
-        let mut command = super::OwnedCommand::new("cmd.exe");
-        command.command_mut().args(["/c", "exit 0"]);
-        let (mut child, outcome) = command
-            .spawn_detached_tolerating_denied_breakaway()
-            .expect("tolerant detached spawn");
-        assert!(matches!(
-            outcome,
-            DetachedBreakaway::BrokeAway | DetachedBreakaway::StayedInJob
-        ));
-        assert!(child.wait().expect("wait").success());
     }
 
     #[test]
