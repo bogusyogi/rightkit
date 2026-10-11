@@ -1,0 +1,56 @@
+{
+  "schemaVersion": 1,
+  "kind": "legion-lens-result",
+  "provider": "reasoning.naming",
+  "packetDigest": "sha256:81b4f985bbbc874f440ec0f5932dddf9a3055026b1c4ceb318f8b19bf1022a1a",
+  "planDigest": "sha256:9b12c99c2ec21897dd8297a438f3fb1c1a2f405593c6db0fa4e9b89a6c6b5042",
+  "complete": false,
+  "findings": [
+    {
+      "id": "naming-f1-update-updates-package-collision",
+      "lens": "naming",
+      "severity": "medium",
+      "confidence": "likely",
+      "evidence": [
+        "packages/update/package.json:2-12",
+        "packages/updates/package.json:2-4",
+        "packages/update/README.md:1-3",
+        "packages/updates/README.md:1-5",
+        "packages/tauri/README.md:12-28",
+        "INDEX.md:104-105",
+        "packages/update/package.json:2"
+      ],
+      "failureScenario": "Consumers searching for a RightKit updater can select the wrong public package because @rightkit/update and @rightkit/updates differ only by a trailing s while both describe update behavior. The singular package is a per-repository dependency-update CLI (right-update), whereas the plural package is the app runtime policy helper consumed by Tauri apps; installing one when the other is intended produces a package with the wrong surface, and the singular package has no release record in INDEX.md.",
+      "action": "Rename unreleased @rightkit/update to an explicit repository or dependency updater name before publication, or publish an explicit package alias, and cross-link both READMEs with a one-line scope distinction. Keep @rightkit/updates reserved for app runtime update policy.",
+      "verifyStatus": "verified",
+      "verificationMethod": "source-review of both package manifests, entry-point READMEs, Tauri consumer guidance, and INDEX release records",
+      "reviewAxis": "standards",
+      "sourceLocation": "packages/update/package.json:2",
+      "sourceQuote": "  \"name\": \"@rightkit/update\",",
+      "disposition": "design-heuristic",
+      "anchor": {
+        "path": "packages/update/package.json",
+        "line": 2,
+        "text": "  \"name\": \"@rightkit/update\","
+      }
+    }
+  ],
+  "withdrawn": [],
+  "details": {
+    "changeRisk": {
+      "reversibility": "unknown",
+      "blastRadius": "public-package-name",
+      "reason": "Whole-repo packet has no diff context; package rename risk is inferred from public package metadata and current consumer references.",
+      "beforeEvidence": [],
+      "afterEvidence": []
+    },
+    "parentDisposition": "Not accepted as an actionable defect: distinct repo-maintenance and app-runtime contracts; no concrete misuse evidenced."
+  },
+  "coverage": {
+    "basis": "bounded-excerpts",
+    "examinedPaths": 214,
+    "truncatedPaths": 7,
+    "omittedPaths": 1775,
+    "status": "partial; update package manifests and consumer guidance read directly from live tree"
+  }
+}

@@ -1,0 +1,40 @@
+{
+  "schemaVersion": 1,
+  "kind": "legion-lens-result",
+  "provider": "reasoning.schema",
+  "packetDigest": "sha256:b7cb75e8f969db9a745288b657d8c4d036987d51010962214cd6de5a856f2583",
+  "planDigest": "sha256:9b12c99c2ec21897dd8297a438f3fb1c1a2f405593c6db0fa4e9b89a6c6b5042",
+  "complete": false,
+  "findings": [
+    {
+      "id": "schema-f1-sync-helper-accepts-any-version",
+      "lens": "schema",
+      "severity": "high",
+      "confidence": "confirmed",
+      "evidence": [
+        "crates/rightkit-sync/API.md:95-104",
+        "crates/rightkit-sync/src/helper/process.rs:186-192",
+        "swift/RightKitCloudKitHelper/Sources/rightkit-cloudkit-helper/Session.swift:71-95"
+      ],
+      "failureScenario": "rightkit-sync declares request v=1 & emits PROTOCOL_VERSION, but production helper parses only id & cmd before dispatch. A future client using v=2 can therefore reach prepare, fetch, or save handling under incompatible request semantics instead of receiving a version error; a changed field meaning or save policy can mutate or misread shared CloudKit state.",
+      "action": "Require numeric v == 1 before every command dispatch in production & fake helpers, reject missing or unsupported versions with a stable protocol error, & add v=0, missing-v, and v=2 protocol vectors.",
+      "verifyStatus": "verified",
+      "verificationMethod": "source-review",
+      "reviewAxis": "spec",
+      "sourceLocation": "swift/RightKitCloudKitHelper/Sources/rightkit-cloudkit-helper/Session.swift:74",
+      "sourceQuote": "              let id = (object[\"id\"] as? NSNumber)?.uint64Value,",
+      "disposition": "missing",
+      "changeAttribution": {
+        "status": "unknown",
+        "reason": "Whole-repository packet has no baseline.",
+        "baselineEvidence": []
+      },
+      "anchor": {
+        "path": "swift/RightKitCloudKitHelper/Sources/rightkit-cloudkit-helper/Session.swift",
+        "line": 74,
+        "text": "              let id = (object[\"id\"] as? NSNumber)?.uint64Value,"
+      }
+    }
+  ],
+  "withdrawn": []
+}

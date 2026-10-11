@@ -1,0 +1,51 @@
+{
+  "schemaVersion": 1,
+  "kind": "legion-lens-result",
+  "provider": "reasoning.doc-drift",
+  "packetDigest": "sha256:4f846b30387786c7718bbdddaafc5096c7168e2c86f89e68bcc270d07b03ef22",
+  "planDigest": "sha256:9b12c99c2ec21897dd8297a438f3fb1c1a2f405593c6db0fa4e9b89a6c6b5042",
+  "complete": false,
+  "findings": [
+    {
+      "id": "doc-drift.runtime-budget-proof-not-enforced",
+      "lens": "doc-drift",
+      "severity": "high",
+      "confidence": "confirmed",
+      "evidence": [
+        "docs/RUNTIME-BUDGETS.md:7-13",
+        "packages/release/runtime-budgets.mjs:3-6",
+        "packages/release/runtime-budgets.mjs:88-109",
+        "packages/release/publish-cargo.mjs:118-126"
+      ],
+      "failureScenario": "A listed long-running crate can publish after README text supplies resident-memory, CPU, & Measured lines, even when no repeatable bench ran, no runtime status exposes figures, & no installed-app adoption measurement exists. Documentation states all three proofs are required before publish or adoption.",
+      "action": "Align docs with current declaration-only gate, or extend release/adoption enforcement to execute or verify named measurement evidence, runtime status exposure, disk-I/O figures, & installed-app scale evidence before allowing publish/adoption.",
+      "verifyStatus": "verified",
+      "reviewAxis": "spec",
+      "sourceQuote": "It does not run the bench: the measured figures are the author's claim, and the bench is the author's job.",
+      "sourceLocation": "packages/release/runtime-budgets.mjs:5-6",
+      "disposition": "wrong",
+      "changeAttribution": {
+        "status": "unknown",
+        "reason": "Whole-repository audit has no baseline commit.",
+        "baselineEvidence": []
+      },
+      "anchor": {
+        "path": "packages/release/runtime-budgets.mjs",
+        "line": 5,
+        "text": "// declaration that lacks the required lines. It does not run the bench: the measured figures"
+      }
+    }
+  ],
+  "withdrawn": [],
+  "details": {
+    "excerptCoverage": {
+      "basis": "bounded-excerpts",
+      "examinedPaths": 29,
+      "expectedPaths": 1996,
+      "truncatedPaths": 0,
+      "omittedPaths": 1967,
+      "status": "partial"
+    },
+    "scope": "Current root README/INDEX, workspace manifests, runtime-budget documentation, & release gate implementation; no prior audit artifacts reviewed."
+  }
+}

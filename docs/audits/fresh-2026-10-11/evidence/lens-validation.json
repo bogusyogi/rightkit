@@ -1,0 +1,117 @@
+{
+  "lenses": [
+    {
+      "provider": "legacy.security.adjudication",
+      "packet_matches": true,
+      "plan_matches": true,
+      "complete": false,
+      "anchor_errors": []
+    },
+    {
+      "provider": "reasoning.a11y",
+      "packet_matches": true,
+      "plan_matches": true,
+      "complete": false,
+      "anchor_errors": []
+    },
+    {
+      "provider": "reasoning.ai-slop",
+      "packet_matches": true,
+      "plan_matches": true,
+      "complete": false,
+      "anchor_errors": []
+    },
+    {
+      "provider": "reasoning.architecture",
+      "packet_matches": true,
+      "plan_matches": true,
+      "complete": false,
+      "anchor_errors": []
+    },
+    {
+      "provider": "reasoning.correctness",
+      "packet_matches": true,
+      "plan_matches": true,
+      "complete": false,
+      "anchor_errors": []
+    },
+    {
+      "provider": "reasoning.data-safety",
+      "packet_matches": true,
+      "plan_matches": true,
+      "complete": false,
+      "anchor_errors": []
+    },
+    {
+      "provider": "reasoning.dead-file",
+      "packet_matches": true,
+      "plan_matches": true,
+      "complete": false,
+      "anchor_errors": []
+    },
+    {
+      "provider": "reasoning.doc-drift",
+      "packet_matches": true,
+      "plan_matches": true,
+      "complete": false,
+      "anchor_errors": []
+    },
+    {
+      "provider": "reasoning.minimize",
+      "packet_matches": true,
+      "plan_matches": true,
+      "complete": false,
+      "anchor_errors": []
+    },
+    {
+      "provider": "reasoning.naming",
+      "packet_matches": true,
+      "plan_matches": true,
+      "complete": false,
+      "anchor_errors": []
+    },
+    {
+      "provider": "reasoning.performance",
+      "packet_matches": true,
+      "plan_matches": true,
+      "complete": false,
+      "anchor_errors": []
+    },
+    {
+      "provider": "reasoning.platform-parity",
+      "packet_matches": true,
+      "plan_matches": true,
+      "complete": false,
+      "anchor_errors": []
+    },
+    {
+      "provider": "reasoning.release-readiness",
+      "packet_matches": true,
+      "plan_matches": true,
+      "complete": false,
+      "anchor_errors": []
+    },
+    {
+      "provider": "reasoning.resilience",
+      "packet_matches": true,
+      "plan_matches": true,
+      "complete": false,
+      "anchor_errors": []
+    },
+    {
+      "provider": "reasoning.schema",
+      "packet_matches": true,
+      "plan_matches": true,
+      "complete": false,
+      "anchor_errors": []
+    },
+    {
+      "provider": "reasoning.security",
+      "packet_matches": true,
+      "plan_matches": true,
+      "complete": false,
+      "anchor_errors": []
+    }
+  ],
+  "ingestion": "CLI rejects incomplete attestation; no false completion was supplied. See ingest-correctness.log."
+}

@@ -1,0 +1,12 @@
+{
+  "utc": "2026-10-11T01:31:44.123912+00:00",
+  "units": "rss KiB; %cpu ps reported instantaneous/recent process statistic, not per-crate or sustained workload",
+  "rows": [
+    "46382     1    06:55:52   0.7  20048 /Applications/HeardRight.app/Contents/MacOS/heardright_next_bin",
+    "46402     1    06:55:52   0.0  11136 /Applications/HeardRight.app/Contents/Library/LoginItems/HeardRightMenuBar.app/Contents/MacOS/HeardRightMenuBar",
+    "46447 46382    06:55:51   0.1   9888 /Applications/HeardRight.app/Contents/MacOS/heardright-engine",
+    "51868 46382       12:23   0.0   9296 /Applications/HeardRight.app/Contents/MacOS/heardright_next_bin",
+    "54967     1    03:04:45   5.7 161776 /Applications/Pulse.app/Contents/MacOS/Pulse",
+    "54981 54967    03:04:44   0.0  32480 /Applications/Pulse.app/Contents/Helpers/Pulse.app/Contents/MacOS/pulse-hub"
+  ]
+}

@@ -1,0 +1,93 @@
+{
+  "schemaVersion": 1,
+  "kind": "legion-lens-result",
+  "provider": "reasoning.architecture",
+  "packetDigest": "sha256:94bbdbb86df803747a963fd287e23f0e0ce17ef5d0c0b9dee1cd710bfdedd88c",
+  "planDigest": "sha256:9b12c99c2ec21897dd8297a438f3fb1c1a2f405593c6db0fa4e9b89a6c6b5042",
+  "complete": false,
+  "findings": [
+    {
+      "id": "architecture-f1-qa-boundary-reconciliation",
+      "lens": "architecture",
+      "severity": "medium",
+      "confidence": "confirmed",
+      "evidence": [
+        "docs/audits/fresh-2026-10-11/evidence/architecture-review.md:9",
+        "packages/qa/README.md:7-8",
+        "packages/qa/src/index.ts:1-12",
+        "crates/rightkit-qa/src/lib.rs:3-12",
+        "INDEX.md:55",
+        "INDEX.md:97"
+      ],
+      "failureScenario": "The Node package documents browser and QA tooling with no Rust pair, while rightkit-qa claims to replace @rightkit/qa. Their surfaces differ: Node exports browser/CDP, loopback, process, storage, evidence, and guards; Rust targets native app/control scenarios with optional Chrome. An owner or consumer can therefore infer a migration or select a harness without a current API and platform contract.",
+      "action": "Reconcile one current ownership statement, publish an API/platform matrix, and add concrete same-host consumer evidence before any migration. Keep Node/browser and Rust desktop runners separate until that evidence exists; share only a versioned evidence or receipt contract if needed.",
+      "verifyStatus": "verified",
+      "verificationMethod": "adversarial-skeptic-pass over fresh architecture evidence and live source",
+      "sourceLocation": "crates/rightkit-qa/src/lib.rs:3",
+      "sourceQuote": "//! Replaces `@rightkit/qa` (embedded-WebDriver launch, run lock, evidence, guard,",
+      "anchor": {
+        "path": "crates/rightkit-qa/src/lib.rs",
+        "line": 3,
+        "text": "//! Replaces `@rightkit/qa` (embedded-WebDriver launch, run lock, evidence, guard,"
+      }
+    },
+    {
+      "id": "architecture-f2-deprecated-qts-wrapper",
+      "lens": "architecture",
+      "severity": "medium",
+      "confidence": "confirmed",
+      "evidence": [
+        "crates/rightkit-qts-ggml/Cargo.toml:8",
+        "crates/rightkit-qts-ggml/src/lib.rs:1-7",
+        "crates/rightkit-qts/Cargo.toml:41-42",
+        "docs/audits/fresh-2026-10-11/evidence/architecture-review.md:10"
+      ],
+      "failureScenario": "rightkit-qts-ggml remains a published compatibility facade whose manifest and crate docs direct consumers to rightkit-qts-ggml-sys, while rightkit-qts already depends on the sys crate directly. New code can still choose the deprecated layer, preserving an unnecessary public boundary and maintenance path.",
+      "action": "Keep the facade compatibility-only with no new API. Confirm zero in-tree dependants, communicate the direct sys-crate replacement, and retire the wrapper on the next breaking release after external-consumer review.",
+      "verifyStatus": "verified",
+      "verificationMethod": "adversarial-skeptic-pass over fresh architecture evidence and live source",
+      "sourceLocation": "crates/rightkit-qts-ggml/src/lib.rs:3",
+      "sourceQuote": "//! Depend on `rightkit-qts-ggml-sys` instead of this facade; no new API will be added here.",
+      "anchor": {
+        "path": "crates/rightkit-qts-ggml/src/lib.rs",
+        "line": 3,
+        "text": "//! Depend on `rightkit-qts-ggml-sys` instead of this facade; no new API will be added here."
+      }
+    },
+    {
+      "id": "architecture-f3-send-atomic-persistence-overlap",
+      "lens": "architecture",
+      "severity": "medium",
+      "confidence": "likely",
+      "evidence": [
+        "crates/rightkit-send/src/lib.rs:215-237",
+        "crates/rightkit-send/src/trust.rs:244-252",
+        "crates/rightkit-fs/src/atomic.rs:21-29",
+        "crates/rightkit-fs/src/atomic.rs:175-237",
+        "crates/rightkit-fs/src/atomic.rs:260-287",
+        "docs/audits/fresh-2026-10-11/evidence/architecture-review.md:11"
+      ],
+      "failureScenario": "rightkit-send persists trust records through a private write_atomic helper that creates parents, sets Unix mode 0600, syncs only the file, renames, and cleans failed temps. rightkit-fs owns a broader atomic writer with private-directory policy, no-follow temp creation, existing-mode handling, replacement and retry options, and directory fsync. Replacing the send helper without checking these semantics could change trust-store durability, permissions, symlink behavior, or Windows results.",
+      "action": "Review trust-store persistence against rightkit-fs for directory durability, owner-only results, Windows behavior, symlink and mode handling, and failure cleanup. Then delegate with matching options or record a protocol-specific exception.",
+      "verifyStatus": "verified",
+      "verificationMethod": "adversarial-skeptic-pass over fresh architecture evidence and live source",
+      "sourceLocation": "crates/rightkit-send/src/lib.rs:215",
+      "sourceQuote": "fn write_atomic(path: &std::path::Path, contents: &[u8]) -> std::io::Result<()> {",
+      "anchor": {
+        "path": "crates/rightkit-send/src/lib.rs",
+        "line": 215,
+        "text": "fn write_atomic(path: &std::path::Path, contents: &[u8]) -> std::io::Result<()> {"
+      }
+    }
+  ],
+  "withdrawn": [],
+  "details": {
+    "changeRisk": {
+      "reversibility": "unknown",
+      "blastRadius": "unknown",
+      "reason": "Whole-repo packet has no diff context; no change risk is inferred.",
+      "beforeEvidence": [],
+      "afterEvidence": []
+    }
+  }
+}

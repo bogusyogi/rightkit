@@ -1,0 +1,13 @@
+{
+  "timestamp": "2026-10-11T01:52:18.392635+00:00",
+  "columns": "PID PPID ELAPSED PCPU RSS_KiB COMM",
+  "rows": [
+    "34020     1       17:51   1.4  52368 /Applications/Pulse.app/Contents/MacOS/Pulse",
+    "34240 34020       17:50   0.1  43728 /Applications/Pulse.app/Contents/Helpers/Pulse.app/Contents/MacOS/pulse-hub",
+    "46382     1    07:16:26   0.4  19472 /Applications/HeardRight.app/Contents/MacOS/heardright_next_bin",
+    "46402     1    07:16:26   0.0  11200 /Applications/HeardRight.app/Contents/Library/LoginItems/HeardRightMenuBar.app/Contents/MacOS/HeardRightMenuBar",
+    "46447 46382    07:16:25   0.1  10048 /Applications/HeardRight.app/Contents/MacOS/heardright-engine",
+    "86191 46382       01:35   0.0  11616 /Applications/HeardRight.app/Contents/MacOS/heardright_next_bin"
+  ],
+  "qualification": "passive observation; no controlled workload or per-crate attribution"
+}

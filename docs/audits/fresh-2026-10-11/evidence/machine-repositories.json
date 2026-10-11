@@ -1,0 +1,1352 @@
+[
+  {
+    "path": "/Volumes/D/claude",
+    "head": "22d78df2e5c9849ff97d566284acabdfc169de2d",
+    "origin": "git@github.com:bogusyogi/claude.git",
+    "git_marker": "directory"
+  },
+  {
+    "path": "/Volumes/D/claude/cutright",
+    "head": "bf712c7b55db221995e8b2958000a9f933cdeb54",
+    "origin": "git@github.com:bogusyogi/CutRight.git",
+    "git_marker": "directory"
+  },
+  {
+    "path": "/Volumes/D/claude/postright",
+    "head": "fb3b29d73d99bb3f7de0fa0e7cfc7f560f2197dd",
+    "origin": "git@github.com:bogusyogi/postright.git",
+    "git_marker": "directory"
+  },
+  {
+    "path": "/Volumes/D/claude/genright",
+    "head": "6bfb9e470dbb5ac73278a9d00d22f0df081fedae",
+    "origin": "git@github.com:bogusyogi/genright.git",
+    "git_marker": "directory"
+  },
+  {
+    "path": "/Volumes/D/claude/repos/coderight/app/omnigent",
+    "head": "3a9735e4241a6475d457602198440a4043d4d139",
+    "origin": "https://github.com/omnigent-ai/omnigent.git",
+    "git_marker": "directory"
+  },
+  {
+    "path": "/Volumes/D/claude/repos/coderight/app/omp-desktop",
+    "head": "46aac387c6cead159b3b2175dd8c31fd49f9c82d",
+    "origin": "https://github.com/apoc/omp-desktop.git",
+    "git_marker": "directory"
+  },
+  {
+    "path": "/Volumes/D/claude/repos/coderight/app/jcode",
+    "head": "4c4d9651c23987e5d89e9054d873fea606ed66df",
+    "origin": "https://github.com/1jehuang/jcode.git",
+    "git_marker": "directory"
+  },
+  {
+    "path": "/Volumes/D/claude/repos/coderight/app/opencovibe",
+    "head": "b070b1d00dfa3a747e6db9a245756e131c14ce96",
+    "origin": "https://github.com/AnyiWang/OpenCovibe.git",
+    "git_marker": "directory"
+  },
+  {
+    "path": "/Volumes/D/claude/repos/coderight/app/hermes-ide",
+    "head": "09500b7ff7a2a5dd81be74d70adee392416b4e9b",
+    "origin": "https://github.com/hermes-hq/hermes-ide.git",
+    "git_marker": "directory"
+  },
+  {
+    "path": "/Volumes/D/claude/repos/coderight/app/grok-build-desktop",
+    "head": "50d008ecfad60fe59fdfc1045bda6273c17be72e",
+    "origin": "https://github.com/JaydenCJ/grok-build-desktop.git",
+    "git_marker": "directory"
+  },
+  {
+    "path": "/Volumes/D/claude/repos/coderight/app/aethon",
+    "head": "7e7c905f20002b63aab33dc5289585d2f271939c",
+    "origin": "https://github.com/utensils/aethon.git",
+    "git_marker": "directory"
+  },
+  {
+    "path": "/Volumes/D/claude/repos/coderight/app/openchamber",
+    "head": "167883d452c4860c819bff0476b093feb265db1a",
+    "origin": "git@github.com:openchamber/openchamber.git",
+    "git_marker": "directory"
+  },
+  {
+    "path": "/Volumes/D/claude/repos/coderight/app/the-pair",
+    "head": "c58fde988e8c22696f807f96b49f0031c411a487",
+    "origin": "https://github.com/timwuhaotian/the-pair.git",
+    "git_marker": "directory"
+  },
+  {
+    "path": "/Volumes/D/claude/repos/coderight/app/clyde",
+    "head": "71a73c88ba3c00388a14146a0f2f945eb505b315",
+    "origin": "https://github.com/QingJ01/Clyde.git",
+    "git_marker": "directory"
+  },
+  {
+    "path": "/Volumes/D/claude/repos/coderight/app/sinew",
+    "head": "6c09c9c86c069496aa520361d3c8ef51cf01596e",
+    "origin": "https://github.com/Paseru/sinew.git",
+    "git_marker": "directory"
+  },
+  {
+    "path": "/Volumes/D/claude/repos/coderight/app/hermes-agent",
+    "head": "6d42313deee63b13dbf2f262d9a31cf603d3f1bc",
+    "origin": "https://github.com/nousresearch/hermes-agent.git",
+    "git_marker": "directory"
+  },
+  {
+    "path": "/Volumes/D/claude/repos/coderight/app/waku",
+    "head": "433ed580842e91d428e1759a2fc1e51f31ab3517",
+    "origin": "git@github.com:egoist/waku.git",
+    "git_marker": "directory"
+  },
+  {
+    "path": "/Volumes/D/claude/repos/coderight/app/opcode",
+    "head": "d1ca30a3c0c39fff01fde2f86c2d5af6a1db658b",
+    "origin": "https://github.com/winfunc/opcode.git",
+    "git_marker": "directory"
+  },
+  {
+    "path": "/Volumes/D/claude/repos/coderight/cli/cline",
+    "head": "efecb47fea0b1d43588c54bce8e0ce3d47b6167f",
+    "origin": "https://github.com/cline/cline.git",
+    "git_marker": "directory"
+  },
+  {
+    "path": "/Volumes/D/claude/repos/coderight/cli/aider",
+    "head": "5dc9490bb35f9729ef2c95d00a19ccd30c26339c",
+    "origin": "https://github.com/Aider-AI/aider.git",
+    "git_marker": "directory"
+  },
+  {
+    "path": "/Volumes/D/claude/repos/coderight/cli/claude-code",
+    "head": "eec3692193a30bdedb9f31e033d93971aec73585",
+    "origin": "https://github.com/codeaashu/claude-code.git",
+    "git_marker": "directory"
+  },
+  {
+    "path": "/Volumes/D/claude/repos/coderight/cli/deer-flow",
+    "head": "8a3a309d1ce8bac8418251be29d4e4297a20c5eb",
+    "origin": "https://github.com/bytedance/deer-flow.git",
+    "git_marker": "directory"
+  },
+  {
+    "path": "/Volumes/D/claude/repos/coderight/cli/Archon",
+    "head": "879c99fe4dceeeae1bef98869e9427f38aadeea4",
+    "origin": "https://github.com/coleam00/Archon",
+    "git_marker": "directory"
+  },
+  {
+    "path": "/Volumes/D/claude/repos/coderight/cli/waveloom",
+    "head": "daccab5d4816803a82eb6eabfe44a68c75bc1f58",
+    "origin": "https://github.com/Menfre01/waveloom.git",
+    "git_marker": "directory"
+  },
+  {
+    "path": "/Volumes/D/claude/repos/coderight/cli/bb",
+    "head": "a6ade96231f28eed751c95f7067fee46ce97b321",
+    "origin": "https://github.com/get-bb/bb",
+    "git_marker": "directory"
+  },
+  {
+    "path": "/Volumes/D/claude/repos/coderight/cli/pinchtab",
+    "head": "1ecbad44d1bc87cb21e2aa924fe96412cb129b4f",
+    "origin": "https://github.com/pinchtab/pinchtab",
+    "git_marker": "directory"
+  },
+  {
+    "path": "/Volumes/D/claude/repos/coderight/cli/jcode",
+    "head": "4c4d9651c23987e5d89e9054d873fea606ed66df",
+    "origin": "https://github.com/1jehuang/jcode.git",
+    "git_marker": "directory"
+  },
+  {
+    "path": "/Volumes/D/claude/repos/coderight/cli/fx",
+    "head": "b8ca67ac4531e63be57520ccfb313626d9b17f2f",
+    "origin": "https://github.com/vercel-labs/fx",
+    "git_marker": "directory"
+  },
+  {
+    "path": "/Volumes/D/claude/repos/coderight/cli/swe-agent",
+    "head": "3ea751c087f32b16e039a2233dd6eefecef325d5",
+    "origin": "https://github.com/SWE-agent/SWE-agent.git",
+    "git_marker": "directory"
+  },
+  {
+    "path": "/Volumes/D/claude/repos/coderight/cli/metaharness",
+    "head": "9ce8b8dd89045c3b9a1f809ae58f3589029db4a4",
+    "origin": "https://github.com/ruvnet/metaharness.git",
+    "git_marker": "directory"
+  },
+  {
+    "path": "/Volumes/D/claude/repos/coderight/cli/prime-agent",
+    "head": "2d24ad4e6b2d1ee8e6919af6f108e980a14d550e",
+    "origin": "https://github.com/PrimeIntellect-ai/prime-agent.git",
+    "git_marker": "directory"
+  },
+  {
+    "path": "/Volumes/D/claude/repos/coderight/cli/codex",
+    "head": "3074be908ac7f270b1b4781f2f8c55662067b96a",
+    "origin": "https://github.com/openai/codex.git",
+    "git_marker": "directory"
+  },
+  {
+    "path": "/Volumes/D/claude/repos/coderight/cli/headlong",
+    "head": "48491293dd1a4340cd717d7f346f84041c42f136",
+    "origin": "https://github.com/laude-institute/headlong.git",
+    "git_marker": "directory"
+  },
+  {
+    "path": "/Volumes/D/claude/repos/coderight/cli/openhands",
+    "head": "f174ba8465233e46e66ab2c5667b358f1d6676d6",
+    "origin": "https://github.com/All-Hands-AI/OpenHands.git",
+    "git_marker": "directory"
+  },
+  {
+    "path": "/Volumes/D/claude/repos/coderight/cli/deepseek-reasonix",
+    "head": "64638bccd1b5f6f94ddd3693398a4b3255619e55",
+    "origin": "https://github.com/esengine/DeepSeek-Reasonix.git",
+    "git_marker": "directory"
+  },
+  {
+    "path": "/Volumes/D/claude/repos/coderight/cli/opendev",
+    "head": "d32c660e4eed1a8e988d1fd58da88e41ba641d08",
+    "origin": "https://github.com/opendev-to/opendev.git",
+    "git_marker": "directory"
+  },
+  {
+    "path": "/Volumes/D/claude/repos/coderight/cli/Wake",
+    "head": "71aeca67ec80f8645d1f9d5199290c2c732036ce",
+    "origin": "https://github.com/iAmCorey/Wake",
+    "git_marker": "directory"
+  },
+  {
+    "path": "/Volumes/D/claude/repos/coderight/cli/pi",
+    "head": "11894012dd461232eb075bc890538b6866860a10",
+    "origin": "https://github.com/earendil-works/pi.git",
+    "git_marker": "directory"
+  },
+  {
+    "path": "/Volumes/D/claude/repos/coderight/cli/deepseek-harness",
+    "head": "4878cdabd87d4041bdaff61d04c966883b9fd07a",
+    "origin": "git@github.com:deepseek-ai/deepseek-harness.git",
+    "git_marker": "directory"
+  },
+  {
+    "path": "/Volumes/D/claude/repos/coderight/cli/gemini-cli",
+    "head": "2fe7c2d3f065dc40ad573d50b2091116f8a4aa18",
+    "origin": "https://github.com/google-gemini/gemini-cli.git",
+    "git_marker": "directory"
+  },
+  {
+    "path": "/Volumes/D/claude/repos/coderight/cli/codewhale",
+    "head": "0bfe04e163e16ecd583a7f771ee2cd787cd6ff27",
+    "origin": "https://github.com/Hmbown/CodeWhale.git",
+    "git_marker": "directory"
+  },
+  {
+    "path": "/Volumes/D/claude/repos/coderight/cli/san",
+    "head": "303189462e71bc544bb9ff9b208b390f8b8e2cc5",
+    "origin": "https://github.com/genai-io/san.git",
+    "git_marker": "directory"
+  },
+  {
+    "path": "/Volumes/D/claude/repos/coderight/cli/plandex",
+    "head": "e2d772072efadbe41d2946d97d79be55532dbab5",
+    "origin": "https://github.com/plandex-ai/plandex.git",
+    "git_marker": "directory"
+  },
+  {
+    "path": "/Volumes/D/claude/repos/coderight/cli/harnessrouter",
+    "head": "b4f81fe1533381b14b5500f8adce0509c6cbee8f",
+    "origin": "https://github.com/HarnessRouter/harnessrouter.git",
+    "git_marker": "directory"
+  },
+  {
+    "path": "/Volumes/D/claude/repos/coderight/cli/grok-build",
+    "head": "f0e3be1100ef5252488e3be8bb0e91cf68d8c305",
+    "origin": "https://github.com/xai-org/grok-build.git",
+    "git_marker": "directory"
+  },
+  {
+    "path": "/Volumes/D/claude/repos/coderight/cli/lightpanda-browser",
+    "head": "5932638bafb5c6584457c0cae037e6b395b265e5",
+    "origin": "https://github.com/lightpanda-io/browser",
+    "git_marker": "directory"
+  },
+  {
+    "path": "/Volumes/D/claude/repos/coderight/cli/browser-use",
+    "head": "4cbe921673b48a488f5415d9159249afd12a625b",
+    "origin": "https://github.com/browser-use/browser-use",
+    "git_marker": "directory"
+  },
+  {
+    "path": "/Volumes/D/claude/repos/coderight/cli/mini-swe-agent",
+    "head": "04d809ceab9df28f9adaed044884180159172930",
+    "origin": "https://github.com/SWE-agent/mini-swe-agent.git",
+    "git_marker": "directory"
+  },
+  {
+    "path": "/Volumes/D/claude/repos/coderight/cli/OpenMausBot",
+    "head": "55d475ef75558221c35212ed4d9499f15b694967",
+    "origin": "https://github.com/milind-soni/OpenMausBot",
+    "git_marker": "directory"
+  },
+  {
+    "path": "/Volumes/D/claude/repos/coderight/cli/opencode",
+    "head": "73ee493265acf15fcd8caab2bc8cd3bd375b63cb",
+    "origin": "https://github.com/opencode-ai/opencode.git",
+    "git_marker": "directory"
+  },
+  {
+    "path": "/Volumes/D/claude/repos/coderight/cli/goose",
+    "head": "5f9deb5141ff2f0d89c676945ca18305502bca6d",
+    "origin": "https://github.com/aaif-goose/goose.git",
+    "git_marker": "directory"
+  },
+  {
+    "path": "/Volumes/D/claude/repos/coderight/apps/omnigent",
+    "head": "3a9735e4241a6475d457602198440a4043d4d139",
+    "origin": "git@github.com:omnigent-ai/omnigent.git",
+    "git_marker": "directory"
+  },
+  {
+    "path": "/Volumes/D/claude/repos/coderight/apps/agentrunkit",
+    "head": "a7ac823ca42d4ecff386a83c10a44a97bd391cdb",
+    "origin": "https://github.com/Tom-Ryder/AgentRunKit.git",
+    "git_marker": "directory"
+  },
+  {
+    "path": "/Volumes/D/claude/repos/coderight/apps/happy",
+    "head": "4cf54d18488cba4787cc251cc37010f31125af29",
+    "origin": "git@github.com:slopus/happy.git",
+    "git_marker": "directory"
+  },
+  {
+    "path": "/Volumes/D/claude/repos/coderight/apps/codeapp",
+    "head": "6b508f35f45b5cd8706708179400078e90f528f4",
+    "origin": "https://github.com/thebaselab/codeapp.git",
+    "git_marker": "directory"
+  },
+  {
+    "path": "/Volumes/D/claude/repos/coderight/apps/bb",
+    "head": "a6ade96231f28eed751c95f7067fee46ce97b321",
+    "origin": "git@github.com:get-bb/bb.git",
+    "git_marker": "directory"
+  },
+  {
+    "path": "/Volumes/D/claude/repos/coderight/apps/ios-system",
+    "head": "ebc045299e56edaf3509144d43a7f7348af400a7",
+    "origin": "https://github.com/holzschu/ios_system.git",
+    "git_marker": "directory"
+  },
+  {
+    "path": "/Volumes/D/claude/repos/coderight/apps/jcode",
+    "head": "4c4d9651c23987e5d89e9054d873fea606ed66df",
+    "origin": "git@github.com:1jehuang/jcode.git",
+    "git_marker": "directory"
+  },
+  {
+    "path": "/Volumes/D/claude/repos/coderight/apps/ish",
+    "head": "83348361fe65311f6e87ad2e1cbb0ac38d123f69",
+    "origin": "https://github.com/ish-app/ish.git",
+    "git_marker": "directory"
+  },
+  {
+    "path": "/Volumes/D/claude/repos/coderight/apps/deepseek-harness-mobile",
+    "head": "636f476fa19c7d5ae9ae0aa6abf910e596ef7d9f",
+    "origin": "https://github.com/ChongYep/Deepseek-harness-mobile.git",
+    "git_marker": "directory"
+  },
+  {
+    "path": "/Volumes/D/claude/repos/coderight/apps/aethon",
+    "head": "7e7c905f20002b63aab33dc5289585d2f271939c",
+    "origin": "git@github.com:utensils/aethon.git",
+    "git_marker": "directory"
+  },
+  {
+    "path": "/Volumes/D/claude/repos/coderight/apps/tacticremote",
+    "head": "857383065eac4e6983f40cf96b0c82281350eb5e",
+    "origin": "git@github.com:TacticSpaceTech/TacticRemote.git",
+    "git_marker": "directory"
+  },
+  {
+    "path": "/Volumes/D/claude/repos/coderight/apps/openchamber",
+    "head": "167883d452c4860c819bff0476b093feb265db1a",
+    "origin": "git@github.com:openchamber/openchamber.git",
+    "git_marker": "directory"
+  },
+  {
+    "path": "/Volumes/D/claude/repos/coderight/apps/claude-code-by-agents",
+    "head": "7655042eb986bf146079032726a7347ac4547c0e",
+    "origin": "git@github.com:baryhuang/claude-code-by-agents.git",
+    "git_marker": "directory"
+  },
+  {
+    "path": "/Volumes/D/claude/repos/coderight/apps/gitsync-md",
+    "head": "2753b2c87488cebb7dd0d438806d930aa6cb2a9f",
+    "origin": "https://github.com/CodyBontecou/GitSync.md.git",
+    "git_marker": "directory"
+  },
+  {
+    "path": "/Volumes/D/claude/repos/coderight/apps/wasmkit",
+    "head": "1e9c513df0f246e7d9647665430e1f01f50fead2",
+    "origin": "https://github.com/swiftwasm/WasmKit.git",
+    "git_marker": "directory"
+  },
+  {
+    "path": "/Volumes/D/claude/repos/coderight/apps/pi-ios",
+    "head": "8433a703427949c18a2b1ceea06a1a4f8bc65f69",
+    "origin": "https://github.com/dannote/pi-ios.git",
+    "git_marker": "directory"
+  },
+  {
+    "path": "/Volumes/D/claude/repos/coderight/apps/happier",
+    "head": "bfdfd78b5bdc6bc1f8eec704728e898463ccd585",
+    "origin": "git@github.com:happier-dev/happier.git",
+    "git_marker": "directory"
+  },
+  {
+    "path": "/Volumes/D/claude/repos/coderight/apps/opencodex",
+    "head": "1d34372bb51372b7cd61b716021654c9019dfb94",
+    "origin": "git@github.com:mjmkk/opencodex.git",
+    "git_marker": "directory"
+  },
+  {
+    "path": "/Volumes/D/claude/repos/coderight/apps/dsh-ios",
+    "head": "d9a9731ccd73b38858fcfbf2f35d7120a861654c",
+    "origin": "https://github.com/ZSeven-W/dsh-ios.git",
+    "git_marker": "directory"
+  },
+  {
+    "path": "/Volumes/D/claude/repos/coderight/apps/agentkeys",
+    "head": "f2b74c18b9e82a8cb80a9e8c95b4388f1e063bc4",
+    "origin": "git@github.com:metaforismo/AgentKeys.git",
+    "git_marker": "directory"
+  },
+  {
+    "path": "/Volumes/D/claude/repos/coderight/apps/a-shell",
+    "head": "fb5c04f40140b30b9815545cc8ebf84c3e03a7e2",
+    "origin": "https://github.com/holzschu/a-Shell.git",
+    "git_marker": "directory"
+  },
+  {
+    "path": "/Volumes/D/claude/repos/coderight/apps/pi-mono",
+    "head": "11894012dd461232eb075bc890538b6866860a10",
+    "origin": "https://github.com/badlogic/pi-mono.git",
+    "git_marker": "directory"
+  },
+  {
+    "path": "/Volumes/D/claude/repos/coderight/apps/maludex",
+    "head": "6646566725a6b2c2ce4571809a6472387785f19e",
+    "origin": "git@github.com:malulungsoft/maludex.git",
+    "git_marker": "directory"
+  },
+  {
+    "path": "/Volumes/D/claude/repos/coderight/apps/openmausbot",
+    "head": "55d475ef75558221c35212ed4d9499f15b694967",
+    "origin": "git@github.com:milind-soni/OpenMausBot.git",
+    "git_marker": "directory"
+  },
+  {
+    "path": "/Volumes/D/claude/repos/coderight/apps/bun-ios",
+    "head": "a3f7a71a950b81109c39a755dca3a018ea121e1c",
+    "origin": "https://github.com/dannote/bun.git",
+    "git_marker": "directory"
+  },
+  {
+    "path": "/Volumes/D/claude/repos/coderight/apps/a-agent",
+    "head": "a480f13ad37ead4f7ab82438370f621abf7f8929",
+    "origin": "https://github.com/mikeypdev/a-agent.git",
+    "git_marker": "directory"
+  },
+  {
+    "path": "/Volumes/D/claude/repos/membrane/scip-code__scip",
+    "head": "08b592d981d675d46de9301b50c66ed9064dc759",
+    "origin": "https://github.com/scip-code/scip",
+    "git_marker": "directory"
+  },
+  {
+    "path": "/Volumes/D/claude/repos/membrane/Phoenixrr2113__codebase-graph",
+    "head": "f6f55f99b23aa7b5d08aa0063c8dbeafa4b45a39",
+    "origin": "https://github.com/Phoenixrr2113/codebase-graph",
+    "git_marker": "directory"
+  },
+  {
+    "path": "/Volumes/D/claude/repos/membrane/semantica-agi__semantica",
+    "head": "a756c5a0186902569b4935da115776b9bb3dbf7d",
+    "origin": "https://github.com/semantica-agi/semantica",
+    "git_marker": "directory"
+  },
+  {
+    "path": "/Volumes/D/claude/repos/membrane/Egonex-AI__Understand-Anything",
+    "head": "b05cc3b20990afca537b4fc0a49b4d7fbdc65bb0",
+    "origin": "https://github.com/Egonex-AI/Understand-Anything",
+    "git_marker": "directory"
+  },
+  {
+    "path": "/Volumes/D/claude/repos/membrane/hindsight",
+    "head": "26981c6b4e00bcc391a49c1f418e758dbae80171",
+    "origin": "https://github.com/vectorize-io/hindsight",
+    "git_marker": "directory"
+  },
+  {
+    "path": "/Volumes/D/claude/repos/membrane/caura-ai__caura",
+    "head": "2f6c247a2388ec850176fa1e30c90cf546d45108",
+    "origin": "https://github.com/caura-ai/caura",
+    "git_marker": "directory"
+  },
+  {
+    "path": "/Volumes/D/claude/repos/membrane/qualixar__superlocalmemory",
+    "head": "5bfa47c941b6329b23f93b17f3dce7f6d70a2b9a",
+    "origin": "https://github.com/qualixar/superlocalmemory",
+    "git_marker": "directory"
+  },
+  {
+    "path": "/Volumes/D/claude/repos/membrane/getzep__graphiti",
+    "head": "6b4b56ff6f4b1e4e69c3c3c5487cf1b8762c483a",
+    "origin": "https://github.com/getzep/graphiti",
+    "git_marker": "directory"
+  },
+  {
+    "path": "/Volumes/D/claude/repos/membrane/oraios__serena",
+    "head": "7a2968335f2198b966864de1ce3655c8e485a653",
+    "origin": "https://github.com/oraios/serena",
+    "git_marker": "directory"
+  },
+  {
+    "path": "/Volumes/D/claude/repos/membrane/supermemoryai__supermemory",
+    "head": "cfa6c7cb17476d19ea896867406c80e8186a72ec",
+    "origin": "https://github.com/supermemoryai/supermemory",
+    "git_marker": "directory"
+  },
+  {
+    "path": "/Volumes/D/claude/repos/membrane/emulo",
+    "head": "b2713326128b635a07feab90a2ad877897ed31c0",
+    "origin": "https://github.com/ohad6k/emulo",
+    "git_marker": "directory"
+  },
+  {
+    "path": "/Volumes/D/claude/repos/membrane/tirth8205__code-review-graph",
+    "head": "343ab7cea29d47a3e805381e09f8243a43d43d88",
+    "origin": "https://github.com/tirth8205/code-review-graph",
+    "git_marker": "directory"
+  },
+  {
+    "path": "/Volumes/D/claude/repos/membrane/Muvon__octocode",
+    "head": "9c7f4b96675b6abcee5f25098c663b4f1a9bec15",
+    "origin": "https://github.com/Muvon/octocode",
+    "git_marker": "directory"
+  },
+  {
+    "path": "/Volumes/D/claude/repos/membrane/mengram",
+    "head": "e90a8caa819f5f75fdb3cecb262e1b5071de894b",
+    "origin": "https://github.com/alibaizhanov/mengram",
+    "git_marker": "directory"
+  },
+  {
+    "path": "/Volumes/D/claude/repos/membrane/MemTensor__MemOS",
+    "head": "a7367d07e55db61099f7b4e2c1108bc5831a24f3",
+    "origin": "https://github.com/MemTensor/MemOS",
+    "git_marker": "directory"
+  },
+  {
+    "path": "/Volumes/D/claude/repos/membrane/github__stack-graphs",
+    "head": "fcb7705d5b38ae13b3665a9b2c882e5a97243d44",
+    "origin": "https://github.com/github/stack-graphs",
+    "git_marker": "directory"
+  },
+  {
+    "path": "/Volumes/D/claude/repos/membrane/intuit__infigraph",
+    "head": "c54d13768b5c5ee06c8e122b60e9512351f8d8db",
+    "origin": "https://github.com/intuit/infigraph",
+    "git_marker": "directory"
+  },
+  {
+    "path": "/Volumes/D/claude/repos/membrane/Graphify-Labs__graphify",
+    "head": "d6eaa8aae8df155874ebb1044302c055c286342a",
+    "origin": "https://github.com/Graphify-Labs/graphify",
+    "git_marker": "directory"
+  },
+  {
+    "path": "/Volumes/D/claude/repos/membrane/honcho",
+    "head": "7d7db70a1d462dcbee8fe7fa57744fc29e1a9fbc",
+    "origin": "https://github.com/plastic-labs/honcho",
+    "git_marker": "directory"
+  },
+  {
+    "path": "/Volumes/D/claude/repos/membrane/github__codeql",
+    "head": "0580587ec936ae33ddf096795e6f65d0164463ee",
+    "origin": "https://github.com/github/codeql",
+    "git_marker": "directory"
+  },
+  {
+    "path": "/Volumes/D/claude/repos/membrane/volcengine__OpenViking",
+    "head": "1f4f7039fc394c5d04637828166f4e4e74e249e0",
+    "origin": "https://github.com/volcengine/OpenViking",
+    "git_marker": "directory"
+  },
+  {
+    "path": "/Volumes/D/claude/repos/membrane/potpie-ai__potpie",
+    "head": "32b8cbbb15e7dccff72890c4f5f9cbb4ddf6aaff",
+    "origin": "https://github.com/potpie-ai/potpie",
+    "git_marker": "directory"
+  },
+  {
+    "path": "/Volumes/D/claude/repos/membrane/luuuc__sense",
+    "head": "89b062c009d4b4138f96131dc5a99a9bc6fa80f2",
+    "origin": "https://github.com/luuuc/sense",
+    "git_marker": "directory"
+  },
+  {
+    "path": "/Volumes/D/claude/repos/membrane/abhigyanpatwari__GitNexus",
+    "head": "0ef3f28d0eb3e82007da1933a95677d36ce6c84b",
+    "origin": "https://github.com/abhigyanpatwari/GitNexus",
+    "git_marker": "directory"
+  },
+  {
+    "path": "/Volumes/D/claude/repos/membrane/joernio__joern",
+    "head": "b2b1d893b9157b633ed90430c7749de2d4ddb05e",
+    "origin": "https://github.com/joernio/joern",
+    "git_marker": "directory"
+  },
+  {
+    "path": "/Volumes/D/claude/repos/membrane/graph-memory-starter",
+    "head": "496a6e9d9b9578943ec5ed34c2780de5a0fa5510",
+    "origin": "https://github.com/Glitch-Cat-Club/graph-memory-starter",
+    "git_marker": "directory"
+  },
+  {
+    "path": "/Volumes/D/claude/repos/membrane/colbymchenry__codegraph",
+    "head": "003305f1e7edbb2f3b966f1631585aab02cef7bf",
+    "origin": "https://github.com/colbymchenry/codegraph",
+    "git_marker": "directory"
+  },
+  {
+    "path": "/Volumes/D/claude/repos/membrane/cq27-dev__rag-rat",
+    "head": "5c73778dbd414d74f85dff7b0652d07ca8550bc1",
+    "origin": "https://github.com/cq27-dev/rag-rat",
+    "git_marker": "directory"
+  },
+  {
+    "path": "/Volumes/D/claude/repos/membrane/mnemon",
+    "head": "e9ce9945b12f879061a439d7174e014a3e93dfa7",
+    "origin": "https://github.com/mnemon-dev/mnemon",
+    "git_marker": "directory"
+  },
+  {
+    "path": "/Volumes/D/claude/repos/membrane/oracle__opengrok",
+    "head": "fbea954d72ad88d204a68d81347eebb9b4848ac5",
+    "origin": "https://github.com/oracle/opengrok",
+    "git_marker": "directory"
+  },
+  {
+    "path": "/Volumes/D/claude/repos/membrane/facebookincubator__Glean",
+    "head": "e3006764358ed418e3f80a5ed665f196bca6442d",
+    "origin": "https://github.com/facebookincubator/Glean",
+    "git_marker": "directory"
+  },
+  {
+    "path": "/Volumes/D/claude/repos/membrane/mnemosyne-oss__mnemosyne",
+    "head": "7295b4e23bf435942a4a630be4c43d0c51f182d5",
+    "origin": "https://github.com/mnemosyne-oss/mnemosyne",
+    "git_marker": "directory"
+  },
+  {
+    "path": "/Volumes/D/claude/repos/legion/mattpocock__skills",
+    "head": "c55ee46073ed923f86ce59a5eb3b6d895095d1b7",
+    "origin": "https://github.com/mattpocock/skills",
+    "git_marker": "directory"
+  },
+  {
+    "path": "/Volumes/D/claude/repos/legion/trailofbits__skills",
+    "head": "ed01a6bca3361fd937cd7d5f05a58cb1abffe509",
+    "origin": "https://github.com/trailofbits/skills",
+    "git_marker": "directory"
+  },
+  {
+    "path": "/Volumes/D/claude/repos/legion/LambdaTest__agent-skills",
+    "head": "e2d7423a899f2bef8ccf53b3a6edd15465075684",
+    "origin": "https://github.com/LambdaTest/agent-skills",
+    "git_marker": "directory"
+  },
+  {
+    "path": "/Volumes/D/claude/repos/legion/garrytan__gstack",
+    "head": "01593aa67c94780528e8f5121e47362502410ced",
+    "origin": "https://github.com/garrytan/gstack",
+    "git_marker": "directory"
+  },
+  {
+    "path": "/Volumes/D/claude/repos/legion/coderabbitai__skills",
+    "head": "965810ae892af34d88a8ae19e6ff69f737500b37",
+    "origin": "https://github.com/coderabbitai/skills",
+    "git_marker": "directory"
+  },
+  {
+    "path": "/Volumes/D/claude/repos/legion/instructa__agent-skills",
+    "head": "d49c149fed4a03d9cb0e45848b04709b3112f341",
+    "origin": "https://github.com/instructa/agent-skills",
+    "git_marker": "directory"
+  },
+  {
+    "path": "/Volumes/D/claude/repos/legion/ArabelaTso__Coding-Skills-Collection",
+    "head": "e66a625f0dd4e3ce2cdcf7ddcc81eec89b237bf4",
+    "origin": "https://github.com/ArabelaTso/Coding-Skills-Collection",
+    "git_marker": "directory"
+  },
+  {
+    "path": "/Volumes/D/claude/repos/legion/testdino-hq__playwright-skill",
+    "head": "400e4256cd22669ad69c18d31d3e5541e4e1c2a3",
+    "origin": "https://github.com/testdino-hq/playwright-skill",
+    "git_marker": "directory"
+  },
+  {
+    "path": "/Volumes/D/claude/repos/legion/obra__superpowers",
+    "head": "8ca22dba9a94f28898bbce59f2537ff4d87c747d",
+    "origin": "https://github.com/obra/superpowers",
+    "git_marker": "directory"
+  },
+  {
+    "path": "/Volumes/D/claude/repos/legion/anthropics__claude-code",
+    "head": "7779afb12e3635f46f56ec823979d68350ae000b",
+    "origin": "https://github.com/anthropics/claude-code",
+    "git_marker": "directory"
+  },
+  {
+    "path": "/Volumes/D/claude/repos/legion/addyosmani__agent-skills",
+    "head": "2686b620fc1fed2e8f60c704839c766b8594c6b6",
+    "origin": "https://github.com/addyosmani/agent-skills",
+    "git_marker": "directory"
+  },
+  {
+    "path": "/Volumes/D/claude/repos/legion/EricGrill__agents-skills-plugins",
+    "head": "43a037fd7952cc5205bafe146f33369e518e528b",
+    "origin": "https://github.com/EricGrill/agents-skills-plugins",
+    "git_marker": "directory"
+  },
+  {
+    "path": "/Volumes/D/claude/repos/legion/VoltAgent__awesome-agent-skills",
+    "head": "ed106e8edc7c6d04fe3aedcbfaed1b43247f56a7",
+    "origin": "https://github.com/VoltAgent/awesome-agent-skills",
+    "git_marker": "directory"
+  },
+  {
+    "path": "/Volumes/D/claude/repos/legion/NeoLabHQ__context-engineering-kit",
+    "head": "23e2428e809d77717f8acc9659c374a3a1fcb93e",
+    "origin": "https://github.com/NeoLabHQ/context-engineering-kit",
+    "git_marker": "directory"
+  },
+  {
+    "path": "/Volumes/D/claude/repos/legion/SWE-agent__mini-swe-agent",
+    "head": "04d809ceab9df28f9adaed044884180159172930",
+    "origin": "https://github.com/SWE-agent/mini-swe-agent",
+    "git_marker": "directory"
+  },
+  {
+    "path": "/Volumes/D/claude/repos/legion/Agent-Field__SWE-AF",
+    "head": "17d3160f20a2e2bd58810fb03a7f674c2a279415",
+    "origin": "https://github.com/Agent-Field/SWE-AF",
+    "git_marker": "directory"
+  },
+  {
+    "path": "/Volumes/D/claude/repos/legion/swe-agent__swe-agent",
+    "head": "3ea751c087f32b16e039a2233dd6eefecef325d5",
+    "origin": "https://github.com/swe-agent/swe-agent",
+    "git_marker": "directory"
+  },
+  {
+    "path": "/Volumes/D/claude/repos/legion/Agent-Field__agentfield",
+    "head": "57b4d6c7d1be0aae1b0681934174682ec2abce7d",
+    "origin": "https://github.com/Agent-Field/agentfield",
+    "git_marker": "directory"
+  },
+  {
+    "path": "/Volumes/D/claude/repos/heardright/Handy",
+    "head": "29bd2c0d6b4b705df5fd6d2f387e5db5ecc27480",
+    "origin": "https://github.com/cjpais/Handy.git",
+    "git_marker": "directory"
+  },
+  {
+    "path": "/Volumes/D/claude/repos/heardright/typewhisper-mac",
+    "head": "51da479927f0af1cf2d04c8606ef00b5925db611",
+    "origin": "https://github.com/TypeWhisper/typewhisper-mac.git",
+    "git_marker": "directory"
+  },
+  {
+    "path": "/Volumes/D/claude/repos/heardright/whisperio",
+    "head": "0c7a8731ccad2546de9b44cc6b971bd857300e1a",
+    "origin": "https://github.com/draenger/whisperio.git",
+    "git_marker": "directory"
+  },
+  {
+    "path": "/Volumes/D/claude/repos/heardright/BisonNotes-AI",
+    "head": "2dd86b5156f6859a07c763cf90e944ca90a64b50",
+    "origin": "https://github.com/bisonbet/BisonNotes-AI.git",
+    "git_marker": "directory"
+  },
+  {
+    "path": "/Volumes/D/claude/repos/heardright/vox.md",
+    "head": "4f5bd7d0dd88b0c22dc13dac5e9c780da43c5991",
+    "origin": "https://github.com/CodyBontecou/vox.md.git",
+    "git_marker": "directory"
+  },
+  {
+    "path": "/Volumes/D/claude/repos/heardright/muesli-ios",
+    "head": "cd8cd45bf25451f06df4555ae962bf2e5ff74ccf",
+    "origin": "https://github.com/Muesli-HQ/muesli-ios.git",
+    "git_marker": "directory"
+  },
+  {
+    "path": "/Volumes/D/claude/repos/heardright/OpenWhispr",
+    "head": "acc806b240ff86bc047ba8bf05b14fe3059d1216",
+    "origin": "https://github.com/openwhispr/openwhispr.git",
+    "git_marker": "directory"
+  },
+  {
+    "path": "/Volumes/D/claude/repos/heardright/FluidVoice",
+    "head": "5dc9fdef9ea46925ae92278e97a5256e15b6917b",
+    "origin": "https://github.com/altic-dev/FluidVoice.git",
+    "git_marker": "directory"
+  },
+  {
+    "path": "/Volumes/D/claude/repos/heardright/Transcribro",
+    "head": "6f6ec0c734290553eb684e1ae3af348e5a843132",
+    "origin": "https://github.com/soupslurpr/Transcribro.git",
+    "git_marker": "directory"
+  },
+  {
+    "path": "/Volumes/D/claude/repos/heardright/typewhisper-win",
+    "head": "30dabdc70c03da2d6492c6999f1a7ea2bc2a7ec7",
+    "origin": "https://github.com/TypeWhisper/typewhisper-win.git",
+    "git_marker": "directory"
+  },
+  {
+    "path": "/Volumes/D/claude/repos/heardright/keyvox",
+    "head": "069893ed97656cfd3da517284f4e42a1101afd63",
+    "origin": "https://github.com/macmixing/keyvox.git",
+    "git_marker": "directory"
+  },
+  {
+    "path": "/Volumes/D/claude/repos/heardright/apple-watch-captions",
+    "head": "0a1a3a2bbe026b9083f06f3fe65dee59766672d0",
+    "origin": "https://github.com/jonyen/apple-watch-captions.git",
+    "git_marker": "directory"
+  },
+  {
+    "path": "/Volumes/D/claude/repos/heardright/VivaDicta",
+    "head": "522c55490527e7e1e73f7154a07e83d754131288",
+    "origin": "https://github.com/n0an/VivaDicta.git",
+    "git_marker": "directory"
+  },
+  {
+    "path": "/Volumes/D/claude/repos/heardright/sayboard",
+    "head": "e531cabb823378fe7af8cedbbdd11e9b235b67b4",
+    "origin": "https://github.com/stanlsv/sayboard.git",
+    "git_marker": "directory"
+  },
+  {
+    "path": "/Volumes/D/claude/repos/heardright/android_transcribe_app",
+    "head": "d95e3a7e5555fa7309975751dc790e2c96387a28",
+    "origin": "https://github.com/notune/android_transcribe_app.git",
+    "git_marker": "directory"
+  },
+  {
+    "path": "/Volumes/D/claude/repos/heardright/VoiceInk",
+    "head": "6fdf011c991f3517023c7883ddc4ee37c6de6109",
+    "origin": "https://github.com/Beingpax/VoiceInk.git",
+    "git_marker": "directory"
+  },
+  {
+    "path": "/Volumes/D/claude/repos/heardright/dictus-ios",
+    "head": "0fd7badf47e1f98f3e3757dc84a2b1d4720d9ed8",
+    "origin": "https://github.com/getdictus/dictus-ios.git",
+    "git_marker": "directory"
+  },
+  {
+    "path": "/Volumes/D/claude/repos/heardright/whisperIME",
+    "head": "d390421ae3778c9f8fe13d7460ba6e1cadb71603",
+    "origin": "https://github.com/woheller69/whisperIME.git",
+    "git_marker": "directory"
+  },
+  {
+    "path": "/Volumes/D/claude/repos/build123d",
+    "head": "d3b12235d4c70a84300cd51d79aff5c80bb4a3fd",
+    "origin": "git@github.com:bogusyogi/build123d.git",
+    "git_marker": "directory"
+  },
+  {
+    "path": "/Volumes/D/claude/sellright",
+    "head": "8774314134ade8f6197e9791d112382ea13078e2",
+    "origin": "git@github.com:Orthic-Labs/sellright.git",
+    "git_marker": "directory"
+  },
+  {
+    "path": "/Volumes/D/claude/voiceright",
+    "head": "c42cf611f04355e666523ae7d3e6c2a9210a4cea",
+    "origin": "git@github.com:bogusyogi/voiceright.git",
+    "git_marker": "directory"
+  },
+  {
+    "path": "/Volumes/D/claude/scraperight",
+    "head": "867d602d9b2795462dd359c09ce085e7425574db",
+    "origin": "git@github.com:bogusyogi/scraperight.git",
+    "git_marker": "directory"
+  },
+  {
+    "path": "/Volumes/D/claude/archive/screenright-2026-10-08",
+    "head": "b4e2104ed7a32167bb803a93779ebda36df41e9b",
+    "origin": "git@github.com:Orthic-Labs/screenright.git",
+    "git_marker": "directory"
+  },
+  {
+    "path": "/Volumes/D/claude/archive/retired-2026-10-09/rightsuite",
+    "head": "3eb3e930e97933d9ca20918e449dcdc095becf49",
+    "origin": "git@github.com:bogusyogi/RightSuite.git",
+    "git_marker": "directory"
+  },
+  {
+    "path": "/Volumes/D/claude/archive/retired-2026-10-09/orthic",
+    "head": "034d89a4c4de8d24d813a10d1c8beca33d28db9f",
+    "origin": "git@github.com:Orthic-Labs/orthic.git",
+    "git_marker": "directory"
+  },
+  {
+    "path": "/Volumes/D/claude/rustright",
+    "head": "5975860dd339aff6f068f05940c75c619960053b",
+    "origin": "git@github.com:bogusyogi/rustright.git",
+    "git_marker": "directory"
+  },
+  {
+    "path": "/Volumes/D/claude/pulse",
+    "head": "dc17f145dd03e97f62e694df4a6c7c9c7644614c",
+    "origin": "https://github.com/Orthic-Labs/pulse.git",
+    "git_marker": "directory"
+  },
+  {
+    "path": "/Volumes/D/claude/workflows",
+    "head": "0cc72e7ae028bdb4cf53690814ed1e033a1b96e6",
+    "origin": "git@github.com:bogusyogi/workflows.git",
+    "git_marker": "directory"
+  },
+  {
+    "path": "/Volumes/D/claude/workflows/lightcraft",
+    "head": "fd6a998949072a5343e982cb99bdbe5815433cc5",
+    "origin": "git@github.com:Orthic-Labs/lightcraft.git",
+    "git_marker": "directory"
+  },
+  {
+    "path": "/Volumes/D/claude/workflows/freecad",
+    "head": "fe1bdd2aa0f72b31a1f1dd97211dfd6e587fb1d3",
+    "origin": "git@github.com:bogusyogi/FreeCAD.git",
+    "git_marker": "directory"
+  },
+  {
+    "path": "/Volumes/D/claude/workflows/seo",
+    "head": "be14bf9b23f56e96c3b170b91436f12effacaa3a",
+    "origin": "git@github.com:bogusyogi/SEO.git",
+    "git_marker": "directory"
+  },
+  {
+    "path": "/Volumes/D/claude/rightkit",
+    "head": "f60f116514467e83952f5e5c12a71b34e3341389",
+    "origin": "git@github.com:bogusyogi/rightkit.git",
+    "git_marker": "directory"
+  },
+  {
+    "path": "/Volumes/D/claude/mailright",
+    "head": "43882ebc1f52d460c91e3871550e40cd5928e808",
+    "origin": "git@github.com:bogusyogi/mailright.git",
+    "git_marker": "directory"
+  },
+  {
+    "path": "/Volumes/D/claude/workright",
+    "head": "f4a27f8099456893aa74e7ec87a13f68c6765065",
+    "origin": "git@github.com:bogusyogi/workright.git",
+    "git_marker": "directory"
+  },
+  {
+    "path": "/Volumes/D/claude/xtool",
+    "head": "17dcc15c67b43464850ed24f5d36b096ebdc9f4f",
+    "origin": "git@github.com:bogusyogi/xtool.git",
+    "git_marker": "directory"
+  },
+  {
+    "path": "/Volumes/D/claude/viewright",
+    "head": "1589fd05df51b929e8dc3b887aba4aeeaab405a9",
+    "origin": "git@github.com:bogusyogi/viewright.git",
+    "git_marker": "directory"
+  },
+  {
+    "path": "/Volumes/D/claude/ember",
+    "head": "7ee6f2c7e17a8b6ddeaeebc876653dbd9e2ebc55",
+    "origin": "https://github.com/storytold/lightcraft.git",
+    "git_marker": "directory"
+  },
+  {
+    "path": "/Volumes/D/claude/foundation-runs/heardright-text-insertion-2026-09-01/corpus/PowerToys",
+    "head": "5c351aee5fd67e51d8e2b26c0c18b102a12b8173",
+    "origin": "https://github.com/microsoft/PowerToys.git",
+    "git_marker": "directory"
+  },
+  {
+    "path": "/Volumes/D/claude/foundation-runs/heardright-text-insertion-2026-09-01/corpus/espanso",
+    "head": "3c4a281af494d9deb0f59515870042955d656f57",
+    "origin": "https://github.com/espanso/espanso.git",
+    "git_marker": "directory"
+  },
+  {
+    "path": "/Volumes/D/claude/apple-skill-sources/twostraws-swiftdata-agent-skill",
+    "head": "922d989473a9914210b41529a1ac5636aff4b8c1",
+    "origin": "https://github.com/twostraws/SwiftData-Agent-Skill.git",
+    "git_marker": "directory"
+  },
+  {
+    "path": "/Volumes/D/claude/apple-skill-sources/avdlee-swiftui-agent-skill",
+    "head": "9897311e3e42cc77e87603226e74bea711092fbd",
+    "origin": "https://github.com/AvdLee/SwiftUI-Agent-Skill.git",
+    "git_marker": "directory"
+  },
+  {
+    "path": "/Volumes/D/claude/apple-skill-sources/cpisciotta-xcbeautify",
+    "head": "513e4b12c3f6c965d1d3b66bd5cd9d635f03112d",
+    "origin": "https://github.com/cpisciotta/xcbeautify.git",
+    "git_marker": "directory"
+  },
+  {
+    "path": "/Volumes/D/claude/apple-skill-sources/dimillian-codexmonitor",
+    "head": "dd61b9abd37de5ded86e82b9fe8a83fd49d46fa5",
+    "origin": "https://github.com/Dimillian/CodexMonitor.git",
+    "git_marker": "directory"
+  },
+  {
+    "path": "/Volumes/D/claude/apple-skill-sources/cameroncooke-axe",
+    "head": "30f4bfa9bc81817906a60fadedbc913d7314b7e1",
+    "origin": "https://github.com/cameroncooke/AXe.git",
+    "git_marker": "directory"
+  },
+  {
+    "path": "/Volumes/D/claude/apple-skill-sources/steipete-agent-scripts",
+    "head": "444751eadeb7dabc00634326614ba2483642984f",
+    "origin": "https://github.com/steipete/agent-scripts.git",
+    "git_marker": "directory"
+  },
+  {
+    "path": "/Volumes/D/claude/apple-skill-sources/avdlee-swift-concurrency-agent-skill",
+    "head": "d5770817d2622e1585b1f7eaebc791a9cb0959c8",
+    "origin": "https://github.com/AvdLee/Swift-Concurrency-Agent-Skill.git",
+    "git_marker": "directory"
+  },
+  {
+    "path": "/Volumes/D/claude/apple-skill-sources/openai-build-ios-apps",
+    "head": "5fd93af4cd0c623e020d0cc7e9ce178b4ac1f70f",
+    "origin": "https://github.com/openai/plugins.git",
+    "git_marker": "directory"
+  },
+  {
+    "path": "/Volumes/D/claude/apple-skill-sources/avdlee-core-data-agent-skill",
+    "head": "855ca7d0df50e82b00c12881dd9cd23c19ef5f49",
+    "origin": "https://github.com/AvdLee/Core-Data-Agent-Skill.git",
+    "git_marker": "directory"
+  },
+  {
+    "path": "/Volumes/D/claude/apple-skill-sources/rorkai-app-store-connect-cli",
+    "head": "107242d3087360c7b54f2691656e2c6d70acfb9b",
+    "origin": "https://github.com/rorkai/App-Store-Connect-CLI.git",
+    "git_marker": "directory"
+  },
+  {
+    "path": "/Volumes/D/claude/apple-skill-sources/krzysztofzablocki-inject",
+    "head": "67e3ee9a2b7e40d6af72d07cf1b0d5c04399e809",
+    "origin": "https://github.com/krzysztofzablocki/Inject.git",
+    "git_marker": "directory"
+  },
+  {
+    "path": "/Volumes/D/claude/apple-skill-sources/xopoko-appstoreconnectcli",
+    "head": "2af677324e72d7c1684f9d75d57599e64f8c582a",
+    "origin": "https://github.com/Xopoko/AppStoreConnectCLI.git",
+    "git_marker": "directory"
+  },
+  {
+    "path": "/Volumes/D/claude/apple-skill-sources/twostraws-swift-concurrency-agent-skill",
+    "head": "bee3f69ba17142da148d3c5406f148ed62592b69",
+    "origin": "https://github.com/twostraws/Swift-Concurrency-Agent-Skill.git",
+    "git_marker": "directory"
+  },
+  {
+    "path": "/Volumes/D/claude/apple-skill-sources/getsentry-mobilebuildmcp",
+    "head": "d13ff0c707b0681769cf31da0eb42c4f94ceafff",
+    "origin": "https://github.com/getsentry/MobileBuildMCP.git",
+    "git_marker": "directory"
+  },
+  {
+    "path": "/Volumes/D/claude/apple-skill-sources/rorkai-app-store-connect-cli-skills",
+    "head": "9a093fa52177d1b784fcbb06f9abfef4974e7701",
+    "origin": "https://github.com/rorkai/app-store-connect-cli-skills.git",
+    "git_marker": "directory"
+  },
+  {
+    "path": "/Volumes/D/claude/apple-skill-sources/twostraws-swiftui-agent-skill",
+    "head": "be297ff80dddec529af1f9b1f1f114aab6c9d11c",
+    "origin": "https://github.com/twostraws/SwiftUI-Agent-Skill.git",
+    "git_marker": "directory"
+  },
+  {
+    "path": "/Volumes/D/claude/apple-skill-sources/avdlee-xcode-build-optimization-agent-skill",
+    "head": "6bd7b596cd688b1127ded00e812b1b6937ec35d6",
+    "origin": "https://github.com/AvdLee/Xcode-Build-Optimization-Agent-Skill.git",
+    "git_marker": "directory"
+  },
+  {
+    "path": "/Volumes/D/claude/apple-skill-sources/paulsolt-docsetquery",
+    "head": "ba68aabe2c84e907789d4c0043f97568ec8cdcfd",
+    "origin": "https://github.com/PaulSolt/DocSetQuery.git",
+    "git_marker": "directory"
+  },
+  {
+    "path": "/Volumes/D/claude/apple-skill-sources/krzysztofzablocki-sourcery",
+    "head": "f9d80ddec1d42b83b776064162ce0a93a0289334",
+    "origin": "https://github.com/krzysztofzablocki/Sourcery.git",
+    "git_marker": "directory"
+  },
+  {
+    "path": "/Volumes/D/claude/apple-skill-sources/avdlee-swift-testing-agent-skill",
+    "head": "798e9b1a2bcac164d4f0c781908199e754f0bab6",
+    "origin": "https://github.com/AvdLee/Swift-Testing-Agent-Skill.git",
+    "git_marker": "directory"
+  },
+  {
+    "path": "/Volumes/D/claude/apple-skill-sources/twostraws-swift-agent-skills",
+    "head": "a6d22db7216206f75e8e391e78b26a7500ae7aa2",
+    "origin": "https://github.com/twostraws/Swift-Agent-Skills",
+    "git_marker": "directory"
+  },
+  {
+    "path": "/Volumes/D/claude/apple-skill-sources/twostraws-swift-testing-agent-skill",
+    "head": "2d6bba14a3c8bf3694f218b92fffe617c41ae43e",
+    "origin": "https://github.com/twostraws/Swift-Testing-Agent-Skill.git",
+    "git_marker": "directory"
+  },
+  {
+    "path": "/Volumes/D/claude/rightsites",
+    "head": "6612d4de5b09509cb0a37c1a6f1118533ed2aa96",
+    "origin": "git@github.com:bogusyogi/rightsites.git",
+    "git_marker": "directory"
+  },
+  {
+    "path": "/Volumes/D/claude/coderight",
+    "head": "011f0d68de1572b8996013909311d05482e6bbd0",
+    "origin": "git@github.com:bogusyogi/coderight.git",
+    "git_marker": "directory"
+  },
+  {
+    "path": "/Volumes/D/claude/tmp/local-assistants-2026-10-04/localtalk",
+    "head": "69c0e13e7e85f772d197a712e22a817ea01e8f22",
+    "origin": "git@github.com:anthonywu/localtalk.git",
+    "git_marker": "directory"
+  },
+  {
+    "path": "/Volumes/D/claude/tmp/local-assistants-2026-10-04/leon",
+    "head": "1845c0feb6c0a31616c624c463115ceda433f666",
+    "origin": "git@github.com:leon-ai/leon.git",
+    "git_marker": "directory"
+  },
+  {
+    "path": "/Volumes/D/claude/tmp/local-assistants-2026-10-04/home-platforms/wyoming-faster-whisper",
+    "head": "f8e8b0e7592beac3de9ced7e2b5f3b4c5119d2ca",
+    "origin": "https://github.com/rhasspy/wyoming-faster-whisper.git",
+    "git_marker": "directory"
+  },
+  {
+    "path": "/Volumes/D/claude/tmp/local-assistants-2026-10-04/home-platforms/ovos-stt-plugin-vosk",
+    "head": "21fe8bd4d49ce8079fb3e3cb01d147b2f5ebe06f",
+    "origin": "https://github.com/OpenVoiceOS/ovos-stt-plugin-vosk",
+    "git_marker": "directory"
+  },
+  {
+    "path": "/Volumes/D/claude/tmp/local-assistants-2026-10-04/home-platforms/home-assistant-core",
+    "head": "b8954e010325d0f97f46ff7af2d03f9042009f89",
+    "origin": "https://github.com/home-assistant/core.git",
+    "git_marker": "directory"
+  },
+  {
+    "path": "/Volumes/D/claude/tmp/local-assistants-2026-10-04/home-platforms/wyoming-openwakeword",
+    "head": "419701f64aa936ff62a820dfeac757f1afda01d1",
+    "origin": "https://github.com/rhasspy/wyoming-openwakeword.git",
+    "git_marker": "directory"
+  },
+  {
+    "path": "/Volumes/D/claude/tmp/local-assistants-2026-10-04/home-platforms/ovos-core",
+    "head": "a40742a942369e81e4d14f0bd35a96e016554f95",
+    "origin": "https://github.com/OpenVoiceOS/ovos-core.git",
+    "git_marker": "directory"
+  },
+  {
+    "path": "/Volumes/D/claude/tmp/local-assistants-2026-10-04/home-platforms/wyoming-piper",
+    "head": "544902bc7fd75a7c31f3d90a18289e425c601f84",
+    "origin": "https://github.com/rhasspy/wyoming-piper.git",
+    "git_marker": "directory"
+  },
+  {
+    "path": "/Volumes/D/claude/tmp/local-assistants-2026-10-04/home-platforms/ovos-dinkum-listener",
+    "head": "45dbf72ee7e6f3b229ea16d46fcee01837674411",
+    "origin": "https://github.com/OpenVoiceOS/ovos-dinkum-listener.git",
+    "git_marker": "directory"
+  },
+  {
+    "path": "/Volumes/D/claude/tmp/local-assistants-2026-10-04/fono",
+    "head": "ac08ee8a269ac09cdbcca65ea386547b0e888a5c",
+    "origin": "git@github.com:bogdanr/fono.git",
+    "git_marker": "directory"
+  },
+  {
+    "path": "/Volumes/D/claude/tmp/v2-sources/palmier-pro",
+    "head": "397b82e64093f986cbabd89f1a1c93812ff546c2",
+    "origin": "https://github.com/palmier-io/palmier-pro.git",
+    "git_marker": "directory"
+  },
+  {
+    "path": "/Volumes/D/claude/tmp/v2-sources/autoshorts",
+    "head": "f17b04cdd97ef65c32b81b31b36bb6eb5d013d5b",
+    "origin": "https://github.com/JayWebtech/autoshorts.git",
+    "git_marker": "directory"
+  },
+  {
+    "path": "/Volumes/D/claude/tmp/v2-sources/vox-director",
+    "head": "8b034354dc443edcde7fdb2622e0491df5142fd3",
+    "origin": "https://github.com/Alisa0808/vox-director.git",
+    "git_marker": "directory"
+  },
+  {
+    "path": "/Volumes/D/claude/tmp/context-stack-tests/ctxstack-E1HbiP",
+    "head": "6a9318b04ab0c0a6ab93b88c58e3f738103c80d5",
+    "origin": "",
+    "git_marker": "directory"
+  },
+  {
+    "path": "/Volumes/D/claude/tmp/context-stack-tests/ctxstack-4V1y0T",
+    "head": "22d78df2e5c9849ff97d566284acabdfc169de2d",
+    "origin": "git@github.com:bogusyogi/claude.git",
+    "git_marker": "directory"
+  },
+  {
+    "path": "/Volumes/D/claude/tmp/context-stack-tests/ctxstack-Bn5TAm",
+    "head": "e629beff452656c3bb87753556403faf11fb31ba",
+    "origin": "",
+    "git_marker": "directory"
+  },
+  {
+    "path": "/Volumes/D/claude/tmp/context-stack-tests/ctxstack-ORTOyr",
+    "head": "5c414ecc187075662663776ab6d28e9c7ddd7e5a",
+    "origin": "",
+    "git_marker": "directory"
+  },
+  {
+    "path": "/Volumes/D/claude/tmp/context-stack-tests/probe-boundary",
+    "head": "ad037966cf59ec3959c204a862b20461b1acc2bd",
+    "origin": "",
+    "git_marker": "directory"
+  },
+  {
+    "path": "/Volumes/D/claude/tmp/context-stack-tests/ctxstack-lFVn4U",
+    "head": "013be60336d4a5970205b5b008ea1726a61cb4f2",
+    "origin": "",
+    "git_marker": "directory"
+  },
+  {
+    "path": "/Volumes/D/claude/tmp/postright-rk/memory2-prev-2281f4c0",
+    "head": "2281f4c0ac6af1fe50df916767e1374550b94667",
+    "origin": "/Volumes/D/claude/rightkit",
+    "git_marker": "directory"
+  },
+  {
+    "path": "/Volumes/D/claude/tmp/postright-rk/llm",
+    "head": "71b431c9726f6382897df9454807e00e641efb2d",
+    "origin": "/Volumes/D/claude/rightkit",
+    "git_marker": "directory"
+  },
+  {
+    "path": "/Volumes/D/claude/tmp/postright-rk/memory",
+    "head": "c22dd65214e788c21417692a7cc2bc2326de8cda",
+    "origin": "/Volumes/D/claude/rightkit",
+    "git_marker": "directory"
+  },
+  {
+    "path": "/Volumes/D/claude/tmp/postright-rk/contracts",
+    "head": "8d0c589a854f182dfadd1ee93336c1b4bf1c2974",
+    "origin": "/Volumes/D/claude/rightkit",
+    "git_marker": "directory"
+  },
+  {
+    "path": "/Volumes/D/claude/tmp/postright-rk/daemon",
+    "head": "d4df2bffecba524eb6803759f6328a6ad24de6cb",
+    "origin": "/Volumes/D/claude/rightkit",
+    "git_marker": "directory"
+  },
+  {
+    "path": "/Volumes/D/claude/tmp/postright-rk/review",
+    "head": "54cb536c148d80bc55d583fbf33ed92fe20c2947",
+    "origin": "/Volumes/D/claude/rightkit",
+    "git_marker": "directory"
+  },
+  {
+    "path": "/Volumes/D/claude/tmp/postright-rk/postright-cm",
+    "head": "b0adb5409fc8ecf36c442f6943676027dd8149ff",
+    "origin": "/Volumes/D/claude/postright",
+    "git_marker": "directory"
+  },
+  {
+    "path": "/Volumes/D/claude/tmp/postright-rk/memory2",
+    "head": "0231916a21e2ba4b40338d025a6cda611723066a",
+    "origin": "/Volumes/D/claude/tmp/postright-rk/memory",
+    "git_marker": "directory"
+  },
+  {
+    "path": "/Volumes/D/claude/legion",
+    "head": "3e280ef7ec92f89ee97e492d70295b92032790a3",
+    "origin": "git@github.com:Orthic-Labs/legion.git",
+    "git_marker": "directory"
+  },
+  {
+    "path": "/Volumes/D/claude/swiftright",
+    "head": "61be5f9456dffb3b62cd9478d93178bbe21f1187",
+    "origin": "git@github.com:bogusyogi/swiftright.git",
+    "git_marker": "directory"
+  },
+  {
+    "path": "/Volumes/D/claude/heardright",
+    "head": "b96da5f26b740698fbb58919f905607419fec3b0",
+    "origin": "git@github.com:bogusyogi/heardright.git",
+    "git_marker": "directory"
+  },
+  {
+    "path": "/Volumes/D/claude/heardright-release-0.1.167",
+    "head": "f5ee55ee303634be10b8f68dd8cf4cf4b9bfec00",
+    "origin": "/Volumes/D/claude/heardright",
+    "git_marker": "directory"
+  },
+  {
+    "path": "/Volumes/D/worktrees/membrane-main-f602-baseline",
+    "head": "",
+    "origin": "",
+    "git_marker": "file"
+  },
+  {
+    "path": "/Volumes/D/worktrees/membrane-blueprint-findings",
+    "head": "",
+    "origin": "",
+    "git_marker": "file"
+  },
+  {
+    "path": "/Volumes/D/worktrees/membrane-live-diagnostics-phase1-repair",
+    "head": "",
+    "origin": "",
+    "git_marker": "file"
+  },
+  {
+    "path": "/Users/adrdsouza/Documents/Codex/2026-10-07/https-github-com-storytold-lightcraft-can/craft-fonts",
+    "head": "8dcdacd5153e64560d109541a47d806f26f048c0",
+    "origin": "https://github.com/storytold/craft-fonts.git",
+    "git_marker": "directory"
+  }
+]

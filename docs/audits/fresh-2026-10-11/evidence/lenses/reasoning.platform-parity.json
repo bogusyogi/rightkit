@@ -1,0 +1,39 @@
+{
+  "schemaVersion": 1,
+  "kind": "legion-lens-result",
+  "provider": "reasoning.platform-parity",
+  "packetDigest": "sha256:809054ad57a8f76af647406c983afc09e3e1b3e4d2b68dccbb854759a7a4bcdc",
+  "planDigest": "sha256:9b12c99c2ec21897dd8297a438f3fb1c1a2f405593c6db0fa4e9b89a6c6b5042",
+  "complete": false,
+  "findings": [
+    {
+      "id": "platform-parity-f1-macos-license-platform-label",
+      "lens": "platform-parity",
+      "severity": "medium",
+      "confidence": "confirmed",
+      "evidence": [
+        "swift/RightKitSwift/Package.swift:7-10",
+        "swift/RightKitSwift/Sources/RightKitLicense/LicenseClient.swift:522-527",
+        "swift/RightKitSwift/Sources/RightKitLicense/LicenseClient.swift:612-623"
+      ],
+      "failureScenario": "A macOS RightKitLicense client activates a lease, but the payload labels the host as iOS because the non-UIKit branch returns the literal iOS platform name. A lease service that routes, scopes, or audits entitlements by platform can apply iOS policy to a macOS client or reject the request.",
+      "action": "Return an explicit macOS label in the macOS branch and keep iOS/iPadOS labels in UIKit branches. Add payload assertions for macOS, iOS, and iPadOS so each shipped platform label is qualified independently.",
+      "verifyStatus": "verified",
+      "reviewAxis": "spec",
+      "sourceQuote": "        return \"ios\"",
+      "sourceLocation": "swift/RightKitSwift/Sources/RightKitLicense/LicenseClient.swift:616",
+      "disposition": "wrong",
+      "changeAttribution": {
+        "status": "unknown",
+        "reason": "Whole-repo packet has no diff baseline for attribution.",
+        "baselineEvidence": []
+      },
+      "anchor": {
+        "path": "swift/RightKitSwift/Sources/RightKitLicense/LicenseClient.swift",
+        "line": 616,
+        "text": "        return \"ios\""
+      }
+    }
+  ],
+  "withdrawn": []
+}

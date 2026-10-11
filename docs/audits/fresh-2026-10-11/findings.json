@@ -1,0 +1,222 @@
+[
+  {
+    "id": "D01",
+    "priority": "P3",
+    "status": "candidate",
+    "owner": "settings-ui",
+    "finding": "Remove unused shell peer, optional-peer metadata & dev dependency",
+    "path": "/Volumes/D/claude/rightkit/packages/settings-ui/package.json",
+    "line": 33,
+    "acceptance": "Focused type/test & packed-consumer install; retain emitted type dependencies."
+  },
+  {
+    "id": "D02",
+    "priority": "P3",
+    "status": "candidate",
+    "owner": "desktop template",
+    "finding": "Remove direct rightkit-service dependency; protocol crate already owns it",
+    "path": "/Volumes/D/claude/rightkit/desktop-app-template/src-tauri/Cargo.toml",
+    "line": 41,
+    "acceptance": "Compile template on supported targets, retaining protocol dependency."
+  },
+  {
+    "id": "D03",
+    "priority": "P1",
+    "status": "source-confirmed",
+    "owner": "npm publication",
+    "finding": "Publish platform-ui 0.2.2 before app-shell 0.6.1 peer floor",
+    "path": "/Volumes/D/claude/rightkit/packages/app-shell/package.json",
+    "line": 40,
+    "acceptance": "Coherent registry-confirmed peer set & isolated install."
+  },
+  {
+    "id": "P01",
+    "priority": "P1",
+    "status": "qualification gap",
+    "owner": "all public units",
+    "finding": "Current publication receipts do not qualify this source revision",
+    "path": "/Volumes/D/claude/rightkit/packages/release/publication-gate.mjs",
+    "line": 34,
+    "acceptance": "Exact version/HEAD, clean unit path, host results & artifact hash per release."
+  },
+  {
+    "id": "P02",
+    "priority": "P1",
+    "status": "source-confirmed",
+    "owner": "release runtime gate",
+    "finding": "README regex gate does not verify measured budgets or installed adoption",
+    "path": "/Volumes/D/claude/rightkit/packages/release/runtime-budgets.mjs",
+    "line": 88,
+    "acceptance": "Structured measurement/status/scale artifacts checked by publish & adoption gates."
+  },
+  {
+    "id": "P03",
+    "priority": "P1",
+    "status": "qualification gap",
+    "owner": "continuous crates",
+    "finding": "All 11 named owners lack required Runtime budget sections; no fresh scale runs",
+    "path": "/Volumes/D/claude/rightkit/docs/RUNTIME-BUDGETS.md",
+    "line": 7,
+    "acceptance": "Declare ceilings, measure on representative data, expose status & enforce receipts."
+  },
+  {
+    "id": "S01",
+    "priority": "P1",
+    "status": "source-confirmed",
+    "owner": "RightKitSpeech",
+    "finding": "Unchecked Sendable exposes mutable Parakeet vocabulary",
+    "path": "/Volumes/D/claude/rightkit/swift/RightKitSwift/Sources/RightKitSpeech/SpeechEngines.swift",
+    "line": 88,
+    "acceptance": "Immutable or synchronized vocabulary; concurrent async/blocking stress test."
+  },
+  {
+    "id": "S02",
+    "priority": "P1",
+    "status": "source-confirmed",
+    "owner": "RightKitSpeech",
+    "finding": "Stop during legacy dictation setup can leave resources installed after teardown",
+    "path": "/Volumes/D/claude/rightkit/swift/RightKitSwift/Sources/RightKitSpeech/LiveDictationSession.swift",
+    "line": 145,
+    "acceptance": "Generation-owned setup/cleanup & deterministic stop-during-start test."
+  },
+  {
+    "id": "S03",
+    "priority": "P2",
+    "status": "conditional design gap",
+    "owner": "RightKitCloudSync",
+    "finding": "App-group state store has no cross-process transaction ownership",
+    "path": "/Volumes/D/claude/rightkit/swift/RightKitSwift/Sources/RightKitCloudSync/SyncStateStore.swift",
+    "line": 73,
+    "acceptance": "Single-owner lease or locked read-modify-write/merge; two-process test."
+  },
+  {
+    "id": "S04",
+    "priority": "P2",
+    "status": "source-confirmed",
+    "owner": "RightKitWatch",
+    "finding": "Unbounded Swift event stream under a stalled consumer",
+    "path": "/Volumes/D/claude/rightkit/swift/RightKitSwift/Sources/RightKitWatch/RightKitWatch.swift",
+    "line": 181,
+    "acceptance": "Bounded buffering with explicit loss/rescan signal & stalled-reader test."
+  },
+  {
+    "id": "S05",
+    "priority": "P2",
+    "status": "source-confirmed",
+    "owner": "RightKitLicense",
+    "finding": "macOS lease activation is labeled ios",
+    "path": "/Volumes/D/claude/rightkit/swift/RightKitSwift/Sources/RightKitLicense/LicenseClient.swift",
+    "line": 612,
+    "acceptance": "Explicit platform mapping & macOS/iOS/iPadOS payload tests."
+  },
+  {
+    "id": "S06",
+    "priority": "P2",
+    "status": "forward compatibility gap",
+    "owner": "CloudKit helper",
+    "finding": "Request protocol v is emitted but ignored at helper dispatch",
+    "path": "/Volumes/D/claude/rightkit/swift/RightKitCloudKitHelper/Sources/rightkit-cloudkit-helper/Session.swift",
+    "line": 71,
+    "acceptance": "Reject missing/unsupported versions before mutation; v0/v1/v2 vectors."
+  },
+  {
+    "id": "F01",
+    "priority": "P2",
+    "status": "conditional hardening gap",
+    "owner": "rightkit-send",
+    "finding": "Deterministic partial path can truncate an existing partial file",
+    "path": "/Volumes/D/claude/rightkit/crates/rightkit-send/src/receive.rs",
+    "line": 486,
+    "acceptance": "Reserve unique partial with create_new, track ownership & preserve preexisting file."
+  },
+  {
+    "id": "A01",
+    "priority": "P2",
+    "status": "source-confirmed",
+    "owner": "QA ownership",
+    "finding": "Node/browser & native QA split contradicts Rust replacement comment",
+    "path": "/Volumes/D/claude/rightkit/crates/rightkit-qa/src/lib.rs",
+    "line": 1,
+    "acceptance": "Document platform/API ownership matrix; keep both runners until parity established."
+  },
+  {
+    "id": "A02",
+    "priority": "P3",
+    "status": "compatibility decision",
+    "owner": "QTS wrapper",
+    "finding": "Deprecated qts-ggml wrapper should gain no new API",
+    "path": "/Volumes/D/claude/rightkit/crates/rightkit-qts-ggml/src/lib.rs",
+    "line": 1,
+    "acceptance": "Check in-tree plus published consumers before retirement; preserve compatibility."
+  },
+  {
+    "id": "A03",
+    "priority": "P3",
+    "status": "consolidation candidate",
+    "owner": "send/filesystem",
+    "finding": "Private trust-store atomic writer overlaps shared filesystem owner",
+    "path": "/Volumes/D/claude/rightkit/crates/rightkit-send/src/lib.rs",
+    "line": 213,
+    "acceptance": "Compare owner permissions, durability, Windows replacement, links & cleanup before delegation."
+  },
+  {
+    "id": "M01",
+    "priority": "P1",
+    "status": "source-confirmed",
+    "owner": "ScrapeRight",
+    "finding": "23 RightKit Cargo overrides resolve local source",
+    "path": "/Volumes/D/claude/scraperight/Cargo.toml",
+    "line": 36,
+    "acceptance": "Publish needed versions, remove overrides, build standalone consumer."
+  },
+  {
+    "id": "M02",
+    "priority": "P1",
+    "status": "source-confirmed",
+    "owner": "CutRight",
+    "finding": "Root & nested host override 18 owners to rk-snapshot",
+    "path": "/Volumes/D/claude/cutright/Cargo.toml",
+    "line": 87,
+    "acceptance": "Publish needed versions, remove both override blocks, resolve registry lockfile."
+  },
+  {
+    "id": "M03",
+    "priority": "P2",
+    "status": "migration required",
+    "owner": "VoiceRight",
+    "finding": "Local upstream QTS & direct ORT have no RightKit runtime integration",
+    "path": "/Volumes/D/claude/voiceright/src-tauri/Cargo.toml",
+    "line": 10,
+    "acceptance": "QTS API/feature parity, published exact owners, no eval layout dependency."
+  },
+  {
+    "id": "M04",
+    "priority": "P2",
+    "status": "source-confirmed",
+    "owner": "SellRight/RightSites",
+    "finding": "Swift package uses from range rather than exact version tag",
+    "path": "/Volumes/D/claude/sellright/ios/project.yml",
+    "line": 17,
+    "acceptance": "Choose compatible published tag, pin exact URL/version & verify resolution."
+  },
+  {
+    "id": "M05",
+    "priority": "P2",
+    "status": "source-confirmed",
+    "owner": "app release configs",
+    "finding": "Missing/noncanonical distribution provider values",
+    "path": "/Volumes/D/claude/postright/right-release.config.mjs",
+    "line": 21,
+    "acceptance": "Set github-releases or r2 as appropriate; preserve per-product storage config separately."
+  },
+  {
+    "id": "U01",
+    "priority": "P2",
+    "status": "source-confirmed",
+    "owner": "media-ui",
+    "finding": "Image stage keyboard handlers sit on an unfocusable div",
+    "path": "/Volumes/D/claude/rightkit/packages/media-ui/src/image/ImageViewerStage.tsx",
+    "line": 102,
+    "acceptance": "Focusable accessible stage with visible focus & keyboard zoom/pan/fit checks."
+  }
+]

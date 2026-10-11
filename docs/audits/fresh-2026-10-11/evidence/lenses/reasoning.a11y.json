@@ -1,0 +1,69 @@
+{
+  "schemaVersion": 1,
+  "kind": "legion-lens-result",
+  "provider": "reasoning.a11y",
+  "packetDigest": "sha256:0929c5732013471ee9d0da3b466f017d748646bdadfb53dd9fd24a214544219f",
+  "planDigest": "sha256:9b12c99c2ec21897dd8297a438f3fb1c1a2f405593c6db0fa4e9b89a6c6b5042",
+  "complete": false,
+  "findings": [
+    {
+      "id": "a11y-f1-image-viewer-stage-keyboard-unreachable",
+      "lens": "a11y",
+      "severity": "medium",
+      "confidence": "confirmed",
+      "evidence": [
+        "packages/media-ui/src/image/ImageViewerStage.tsx:102-126",
+        "packages/media-ui/src/image/ImageViewer.tsx:583-592"
+      ],
+      "failureScenario": "ImageViewerStage exposes keyboard zoom, pan, and fit handlers on a div with role=img, but the element has no tabIndex. The parent calls focus() after wheel and pointer input, yet a non-focusable div cannot receive normal keyboard focus, so keyboard-only users cannot reach the reusable stage controls.",
+      "action": "Make the stage intentionally focusable with tabIndex={0} and use an interactive/group semantic that matches its keyboard commands, or move these commands to an already focusable control. Preserve a visible focus indicator and test keyboard reachability.",
+      "verifyStatus": "verified",
+      "verificationMethod": "source-review",
+      "reviewAxis": "standards",
+      "disposition": "missing",
+      "sourceLocation": "packages/media-ui/src/image/ImageViewerStage.tsx:105",
+      "sourceQuote": "      role=\"img\"",
+      "anchor": {
+        "path": "packages/media-ui/src/image/ImageViewerStage.tsx",
+        "line": 105,
+        "text": "      role=\"img\""
+      }
+    },
+    {
+      "id": "a11y-f2-media-audio-face-unreachable-button",
+      "lens": "a11y",
+      "severity": "low",
+      "confidence": "confirmed",
+      "evidence": [
+        "packages/media-ui/src/MediaPlayer.tsx:672-682"
+      ],
+      "failureScenario": "Audio artwork is exposed as role=button with a click handler, but the div has no tabIndex or keyboard handler. It is announced as an interactive button while remaining unreachable through Tab or Enter/Space, creating a broken reusable component contract for consumers that enable artwork playback.",
+      "action": "Render artwork as a native button, or add tabIndex={0} plus Enter/Space activation and keep the accessible name synchronized with playback state.",
+      "verifyStatus": "verified",
+      "verificationMethod": "source-review",
+      "reviewAxis": "standards",
+      "disposition": "missing",
+      "sourceLocation": "packages/media-ui/src/MediaPlayer.tsx:675",
+      "sourceQuote": "          role=\"button\"",
+      "anchor": {
+        "path": "packages/media-ui/src/MediaPlayer.tsx",
+        "line": 675,
+        "text": "          role=\"button\""
+      }
+    }
+  ],
+  "withdrawn": [],
+  "details": {
+    "coverage": {
+      "basis": "bounded-excerpts plus fresh source review",
+      "examined": 79,
+      "expected": 99,
+      "omitted": 20,
+      "notes": [
+        "Packet excerpt coverage is incomplete; complete remains false.",
+        "Review is source-only and makes no visual or rendered approval claim.",
+        "Shared SwiftUI surface API was inspected; no independently evidenced semantic accessibility defect was added from it."
+      ]
+    }
+  }
+}

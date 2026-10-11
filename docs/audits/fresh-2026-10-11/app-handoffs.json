@@ -1,0 +1,122 @@
+[
+  {
+    "app": "CodeRight",
+    "path": "/Volumes/D/claude/coderight",
+    "status": "Integrated; engine/desktop/context/iOS differ",
+    "next_work": "Secrets/keyring seam, coherent OCR/ORT/FS/watch, iOS target/privacy verification"
+  },
+  {
+    "app": "HeardRight",
+    "path": "/Volumes/D/claude/heardright",
+    "status": "Integrated; native helpers remain local",
+    "next_work": "Service/lease/log/model seams; macOS helper extraction; Apple family acceptance"
+  },
+  {
+    "app": "ViewRight",
+    "path": "/Volumes/D/claude/viewright",
+    "status": "Broad integration",
+    "next_work": "Watcher/worker adapter boundary, published cohort & large-library runtime proof"
+  },
+  {
+    "app": "MailRight",
+    "path": "/Volumes/D/claude/mailright",
+    "status": "Integrated older cohort",
+    "next_work": "DB/SQLCipher, cache, OAuth migration with mailbox-scale proof"
+  },
+  {
+    "app": "ScrapeRight",
+    "path": "/Volumes/D/claude/scraperight",
+    "status": "Integrated through 23 local overrides",
+    "next_work": "M01 first; network/parser & model/group seams; iOS/share/helper verification"
+  },
+  {
+    "app": "CutRight",
+    "path": "/Volumes/D/claude/cutright",
+    "status": "Integrated through 18 overridden owners",
+    "next_work": "M02 first; cache/jobs/service budget & verified media artifacts"
+  },
+  {
+    "app": "GenRight",
+    "path": "/Volumes/D/claude/genright",
+    "status": "Integrated; several ledger-staged pins",
+    "next_work": "Published QTS/ORT/models/jobs/logs set; long-session installed evidence"
+  },
+  {
+    "app": "VoiceRight",
+    "path": "/Volumes/D/claude/voiceright",
+    "status": "Release tooling only",
+    "next_work": "M03: upstream local QTS/direct ORT to compatible published owners"
+  },
+  {
+    "app": "WorkRight",
+    "path": "/Volumes/D/claude/workright",
+    "status": "No RightKit integration found",
+    "next_work": "Candidate DB bootstrap & durable logs; preserve capture/retention/consent policy"
+  },
+  {
+    "app": "Pulse",
+    "path": "/Volumes/D/claude/pulse",
+    "status": "Core search/DB, hub fsindex/UI integrated",
+    "next_work": "Installed full-volume fsindex qualification; platform-specific fallback"
+  },
+  {
+    "app": "SwiftRight",
+    "path": "/Volumes/D/claude/swiftright",
+    "status": "Own SDK/bridge; no RightKitSwift integration",
+    "next_work": "Qualify ABI/packaging; adopt only required Apple products with API parity"
+  },
+  {
+    "app": "Ember / Lightcraft branch",
+    "path": "/Volumes/D/claude/ember",
+    "status": "Shell/UI/QA integrated",
+    "next_work": "Logger seam, compatible published shell/control & installed idle/watchdog metrics"
+  },
+  {
+    "app": "Legion",
+    "path": "/Volumes/D/claude/legion",
+    "status": "Release bridge integrated; other tooling declared",
+    "next_work": "Compatible workflow/release tooling updates; retain native audit engine"
+  },
+  {
+    "app": "RustRight",
+    "path": "/Volumes/D/claude/rustright",
+    "status": "Ownership/fs/process integrated",
+    "next_work": "Coherent registry contracts & lock policy; process runtime proof if watchdog enabled"
+  },
+  {
+    "app": "SellRight",
+    "path": "/Volumes/D/claude/sellright",
+    "status": "Legal + Swift diagnostics",
+    "next_work": "M04 exact Swift pin; canonical release provider; preserve commerce policy"
+  },
+  {
+    "app": "RightSites",
+    "path": "/Volumes/D/claude/rightsites",
+    "status": "Downstream SellRight code",
+    "next_work": "M04 plus separate product identity/provider; coordinate shared changes"
+  },
+  {
+    "app": "Xtool",
+    "path": "/Volumes/D/claude/xtool",
+    "status": "No RightKit integration found",
+    "next_work": "Native helper/Node compatibility mapping; no forced Rust adoption"
+  },
+  {
+    "app": "PostRight",
+    "path": "/Volumes/D/claude/postright",
+    "status": "Broad template integration",
+    "next_work": "Product placeholders, canonical provider, published cohort & installed runtime receipts"
+  },
+  {
+    "app": "LightCraft workflow checkout",
+    "path": "/Volumes/D/claude/workflows/lightcraft",
+    "status": "No RightKit integration found",
+    "next_work": "Separate earlier product checkout from Ember; choose maintained source before migration"
+  },
+  {
+    "app": "SEO tool",
+    "path": "/Volumes/D/claude/workflows/seo",
+    "status": "No RightKit integration found",
+    "next_work": "Independent Python/CLI/MCP owner; no proven compatible RightKit migration obligation"
+  }
+]

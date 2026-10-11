@@ -1,0 +1,49 @@
+{
+  "date": "2026-10-11",
+  "method": "Shallow identity census only: root directories, Git identity, and manifests at depth two or less. Caches, installed-app internals, vendor trees, backups, sessions, and personal content were excluded.",
+  "entries": [
+    {
+      "path": "/Volumes/D/archive/codex-archived-sessions-2026-10-09",
+      "classification": "archived session data",
+      "scope": "excluded",
+      "evidence": "No shallow source manifest or Git root."
+    },
+    {
+      "path": "/Volumes/D/sr0-build/r3-final and r3-final-011",
+      "classification": "SwiftRight staging clones / qualification artifacts",
+      "scope": "not an additional app root",
+      "evidence": "Git origins are bogusyogi/swiftright; heads 4496474d652a and c946d1d432b; README labels SwiftRight planned SDK, not released app. Primary source is /Volumes/D/claude/swiftright."
+    },
+    {
+      "path": "/Volumes/D/rightkit-publish",
+      "classification": "RightKit publish staging, artifacts, and duplicate source clones",
+      "scope": "excluded from consumer-app inventory",
+      "evidence": "RightKit clones occur under claude/rightkit, w2-w4, v1-v4, and npm; canonical named clone origin is bogusyogi/rightkit. Artifacts/ is release input/output storage."
+    },
+    {
+      "path": "/Volumes/D/tmp",
+      "classification": "temporary workspace",
+      "scope": "excluded",
+      "evidence": "No shallow candidate source root found."
+    },
+    {
+      "path": "/Users/adrdsouza/claude/sellright and tools",
+      "classification": "personal placeholder directories",
+      "scope": "excluded",
+      "evidence": "No shallow Git or manifest identity."
+    },
+    {
+      "path": "/Users/adrdsouza/Hyperframes/studio-starter",
+      "classification": "personal Hyperframes composition project",
+      "scope": "excluded",
+      "evidence": "package.json is private studio-starter with Hyperframes preview/check/render/publish scripts; no Git identity or RightKit dependency."
+    },
+    {
+      "path": "/Users/adrdsouza/{Sites,CodeBuddy,WorkBuddy AI,Desktop,Documents}",
+      "classification": "personal content, installed-app state, test output, or empty directories",
+      "scope": "excluded",
+      "evidence": "No shallow first-party source root/manifest selected; no deep personal-content scan performed."
+    }
+  ],
+  "additional_first_party_app_source_roots": []
+}

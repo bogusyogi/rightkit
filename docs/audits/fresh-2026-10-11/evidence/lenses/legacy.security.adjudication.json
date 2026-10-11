@@ -1,0 +1,104 @@
+{
+  "schemaVersion": 1,
+  "kind": "legion-lens-result",
+  "provider": "legacy.security.adjudication",
+  "packetDigest": "sha256:8d1b921d6793a22b9d279a9d4197bdb473defa9aae63aa6020cd2baea6745f6b",
+  "planDigest": "sha256:9b12c99c2ec21897dd8297a438f3fb1c1a2f405593c6db0fa4e9b89a6c6b5042",
+  "complete": false,
+  "findings": [],
+  "withdrawn": [],
+  "verdicts": [
+    {
+      "candidateId": "sha256:0c7155e58fe4d949f821c53ebf344638a911be67a9dd7c93c5126b23b434f7db",
+      "verdict": "HARDENING_GAP",
+      "severity": "medium",
+      "threatModel": "A compromised or unexpectedly changed Google release-list response can select a different archive at the allowed host.",
+      "reachability": "installChromeForTesting consumes mutable channel metadata, downloads its selected URL, extracts it, and records a digest after download.",
+      "impact": "QA tooling can execute an unpinned Chrome archive; recorded digest is evidence, not an authenticity check.",
+      "proof": "packages/qa-chrome/src/install.ts:88-125",
+      "evidenceStrength": "strong",
+      "devilsAdvocate": "Host allowlisting, HTTPS, archive extraction shape, and executable existence checks reduce accidental misrouting but do not bind bytes to an expected digest."
+    },
+    {
+      "candidateId": "sha256:0aa9d71854d6e689f0d1fe814e5164f952fc69fee494f2e4b6557b0500520a97",
+      "verdict": "FALSE_POSITIVE",
+      "threatModel": "A binary download is unsafe only when no independent integrity pin exists.",
+      "reachability": "The candidate URL is an archive descriptor, but its adjacent sha256 field is consumed as the archive pin.",
+      "impact": "No unpinned model artifact is established by this line.",
+      "proof": "crates/rightkit-models/src/suite/catalog.rs:504-505",
+      "evidenceStrength": "strong",
+      "devilsAdvocate": "This adjudication covers adjacent source only; runtime verification remains outside this bounded review."
+    },
+    {
+      "candidateId": "sha256:1aced9d7475fede5dd3ad09b93dc627b3d4cbfa9ff6860353ece192ca100c7ca",
+      "verdict": "FALSE_POSITIVE",
+      "threatModel": "A remote model file without an expected digest could be replaced.",
+      "reachability": "The URL is paired with sha256 and size fields in the same RemoteFile descriptor.",
+      "impact": "Scanner URL match does not show missing integrity metadata.",
+      "proof": "crates/rightkit-models/src/suite/catalog.rs:347-351",
+      "evidenceStrength": "strong",
+      "devilsAdvocate": "This does not prove every installer path enforces the descriptor; it closes only this candidate."
+    },
+    {
+      "candidateId": "sha256:03a745ab2b7e8247a7973c1aa1701337d56036bbf23d4a48880bf1c5cbbc0e87",
+      "verdict": "FALSE_POSITIVE",
+      "threatModel": "A repinning tool could publish a URL without binding downloaded bytes.",
+      "reachability": "repin downloads the exact release asset, hashes it, and writes both URI and expected SHA-256 into bootstrap.",
+      "impact": "The flagged URI is an input to a digest-pinning workflow, not an unverified installer fetch.",
+      "proof": "infrastructure/branded-installs/repin.mjs:72-78",
+      "evidenceStrength": "strong",
+      "devilsAdvocate": "The release tag itself is mutable in principle; the generated bootstrap's expected hash remains the byte-level check."
+    },
+    {
+      "candidateId": "sha256:011f8ce9ac32775c679940c767c2158ad46c546f1a3e7db0978e9e2a29f7ae08",
+      "verdict": "OUT_OF_SCOPE",
+      "threatModel": "Binary pinning rules apply to executable or model artifact downloads.",
+      "reachability": "The URL is documentation for Pinterest OAuth setup.",
+      "impact": "No artifact download or execution follows this line.",
+      "proof": "crates/rightkit-oauth/src/server/provider.rs:135",
+      "evidenceStrength": "strong",
+      "devilsAdvocate": "OAuth endpoint security needs separate protocol review; this binary-pin candidate does not establish it."
+    },
+    {
+      "candidateId": "sha256:01ae92696c861c6bcd770c495b0ba29dfb5f2f158f9a604c453837b17fc07771",
+      "verdict": "OUT_OF_SCOPE",
+      "threatModel": "Binary pinning rules apply to executable or model artifact downloads.",
+      "reachability": "The URL configures an OpenAI-compatible API base URL.",
+      "impact": "No local binary is fetched from this endpoint.",
+      "proof": "crates/rightkit-llm/src/presets.rs:83",
+      "evidenceStrength": "strong",
+      "devilsAdvocate": "Remote API trust is a separate data-safety/security concern, outside this scanner rule."
+    },
+    {
+      "candidateId": "sha256:1a03976bfd4f70a7f07bef5d986b02b1705d8ddfa38518c545678cfc26c4d1f7",
+      "verdict": "OUT_OF_SCOPE",
+      "threatModel": "Binary pinning rules apply to artifact consumers, not release metadata links.",
+      "reachability": "The URL is emitted as a GitHub release manifest link after publication artifacts are already sealed and hashed.",
+      "impact": "This line does not fetch or install the manifest.",
+      "proof": "packages/release/github-release.mjs:258-268",
+      "evidenceStrength": "strong",
+      "devilsAdvocate": "Downstream consumers still need manifest verification; that is governed by their own adoption checks."
+    },
+    {
+      "candidateId": "sha256:0974385df9920661df9a150a7145334e7f370c8fea2ea8c228648fa1292d5f7a",
+      "verdict": "OUT_OF_SCOPE",
+      "threatModel": "A model artifact URL should be adjudicated where bytes are fetched or verified.",
+      "reachability": "The candidate is a shared model-worker base URL used to compose platform-specific routes; no artifact is fetched at this declaration.",
+      "impact": "Base endpoint declaration alone does not prove an unpinned binary path.",
+      "proof": "crates/rightkit-models/src/suite/catalog.rs:117-126",
+      "evidenceStrength": "strong",
+      "devilsAdvocate": "Composed routes require separate per-artifact pin review; this bounded verdict does not close those candidates."
+    }
+  ],
+  "details": {
+    "coverage": {
+      "status": "partial",
+      "candidateCount": 1316,
+      "verdictCount": 8,
+      "unreviewedCount": 1308,
+      "fixtureOrTestLikeCount": 737,
+      "reason": "Packet had candidate-verdict coverage only and no source excerpts; full adjudication would require source review for every candidate."
+    },
+    "method": "Reviewed representative source-backed candidates across binary-pins, model descriptors, release tooling, API configuration, and release metadata. No generic dismissal was assigned to unreviewed candidates."
+  }
+}

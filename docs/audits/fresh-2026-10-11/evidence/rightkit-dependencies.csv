@@ -1,0 +1,628 @@
+app,manifest,ecosystem,section,dependency,spec,line
+rightkit,/Volumes/D/claude/rightkit/Cargo.toml,cargo,workspace.dependencies,serde,"{""version"": ""1.0.228"", ""features"": [""derive""]}",8
+rightkit,/Volumes/D/claude/rightkit/Cargo.toml,cargo,workspace.dependencies,serde_json,"""1.0.150""",9
+rightkit,/Volumes/D/claude/rightkit/crates/agent-room-core/Cargo.toml,cargo,dependencies,axum,"{""version"": ""0.8"", ""optional"": true}",21
+rightkit,/Volumes/D/claude/rightkit/crates/agent-room-core/Cargo.toml,cargo,dependencies,getrandom,"""0.3""",22
+rightkit,/Volumes/D/claude/rightkit/crates/agent-room-core/Cargo.toml,cargo,dependencies,rusqlite,"{""version"": ""0.40.1"", ""features"": [""bundled""]}",23
+rightkit,/Volumes/D/claude/rightkit/crates/agent-room-core/Cargo.toml,cargo,dependencies,serde,"{""version"": ""1"", ""features"": [""derive""]}",24
+rightkit,/Volumes/D/claude/rightkit/crates/agent-room-core/Cargo.toml,cargo,dependencies,serde_json,"""1""",25
+rightkit,/Volumes/D/claude/rightkit/crates/agent-room-core/Cargo.toml,cargo,dependencies,sha2,"""0.10""",26
+rightkit,/Volumes/D/claude/rightkit/crates/agent-room-core/Cargo.toml,cargo,dependencies,tokio,"{""version"": ""1"", ""default-features"": false, ""features"": [""rt-multi-thread"", ""macros"", ""net"", ""sync"", ""time""], ""optional"": true}",27
+rightkit,/Volumes/D/claude/rightkit/crates/agent-room-core/Cargo.toml,cargo,dependencies,tokio-stream,"{""version"": ""0.1"", ""features"": [""sync""], ""optional"": true}",28
+rightkit,/Volumes/D/claude/rightkit/crates/agent-room-core/Cargo.toml,cargo,dev-dependencies,tempfile,"""3""",31
+rightkit,/Volumes/D/claude/rightkit/crates/agent-room-core/Cargo.toml,cargo,dev-dependencies,tower,"{""version"": ""0.5"", ""features"": [""util""]}",32
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-agent-tools/Cargo.toml,cargo,dependencies,rightkit-service,"{""version"": ""0.1.0"", ""path"": ""../rightkit-service""}",20
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-agent-tools/Cargo.toml,cargo,dependencies,rightkit-automation,"{""version"": ""0.3.0"", ""path"": ""../rightkit-automation"", ""optional"": true}",21
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-agent-tools/Cargo.toml,cargo,dependencies,rightkit-browser,"{""version"": ""0.2.2"", ""path"": ""../rightkit-browser"", ""optional"": true}",22
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-agent-tools/Cargo.toml,cargo,dependencies,rightkit-speech-client,"{""version"": ""0.3.0"", ""path"": ""../rightkit-speech-client"", ""optional"": true}",23
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-agent-tools/Cargo.toml,cargo,dependencies,rightkit-mcp,"{""version"": ""0.5.0"", ""path"": ""../rightkit-mcp"", ""optional"": true}",24
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-agent-tools/Cargo.toml,cargo,dependencies,serde,"{""workspace"": true}",1
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-agent-tools/Cargo.toml,cargo,dependencies,serde_json,"{""workspace"": true}",1
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-agent-tools/Cargo.toml,cargo,dependencies,tokio,"{""version"": ""1"", ""features"": [""rt-multi-thread"", ""time""], ""optional"": true}",27
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-agent-tools/Cargo.toml,cargo,dev-dependencies,tempfile,"""3""",30
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-align/Cargo.toml,cargo,dependencies,rightkit-transcript,"{""path"": ""../rightkit-transcript""}",17
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-align/Cargo.toml,cargo,dependencies,serde,"{""version"": ""1.0.228"", ""features"": [""derive""]}",18
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-align/Cargo.toml,cargo,dev-dependencies,serde_json,"""1.0.150""",21
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-asr/Cargo.toml,cargo,dependencies,half,"""2""",32
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-asr/Cargo.toml,cargo,dependencies,hound,"""3.5""",33
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-asr/Cargo.toml,cargo,dependencies,ndarray,"""0.17""",34
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-asr/Cargo.toml,cargo,dependencies,realfft,"""3""",35
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-asr/Cargo.toml,cargo,dependencies,serde,"{""version"": ""1.0"", ""features"": [""derive""]}",36
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-asr/Cargo.toml,cargo,dependencies,serde_json,"""1.0""",37
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-asr/Cargo.toml,cargo,dependencies,libloading,"""0.9""",38
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-asr/Cargo.toml,cargo,dependencies,rightkit-ort,"{""path"": ""../rightkit-ort"", ""version"": ""0.2.2"", ""features"": [""ndarray"", ""half""]}",39
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-asr/Cargo.toml,cargo,dependencies,rightkit-transcript,"{""version"": ""0.3.0"", ""path"": ""../rightkit-transcript""}",40
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-asr/Cargo.toml,cargo,dependencies,rightkit-vad,"{""version"": ""0.1.0"", ""path"": ""../rightkit-vad"", ""default-features"": false}",41
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-asr/Cargo.toml,cargo,dependencies,tokenizers,"{""version"": ""0.22.2"", ""default-features"": false, ""features"": [""onig""], ""optional"": true}",44
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-asr/Cargo.toml,cargo,dev-dependencies,rightkit-vad,"{""version"": ""0.1.0"", ""path"": ""../rightkit-vad"", ""features"": [""silero""]}",41
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-asr/Cargo.toml,cargo,dev-dependencies,rightkit-media,"{""path"": ""../rightkit-media"", ""version"": ""0.2.3""}",54
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-asr/Cargo.toml,cargo,dev-dependencies,rightkit-speech-client,"{""path"": ""../rightkit-speech-client"", ""version"": ""0.3.3""}",55
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-asr/Cargo.toml,cargo,"target.cfg(target_os = ""macos"").dependencies",objc2,"{""version"": ""0.6"", ""features"": [""exception""]}",47
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-asr/Cargo.toml,cargo,"target.cfg(target_os = ""macos"").dependencies",objc2-core-ml,"""0.3""",48
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-asr/Cargo.toml,cargo,"target.cfg(target_os = ""macos"").dependencies",objc2-foundation,"""0.3""",49
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-audio/Cargo.toml,cargo,dependencies,rightkit-media,"{""path"": ""../rightkit-media"", ""version"": ""0.2.3"", ""default-features"": false}",21
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-audio/Cargo.toml,cargo,dependencies,serde,"{""version"": ""1.0.228"", ""features"": [""derive""]}",22
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-audio/Cargo.toml,cargo,dependencies,serde_json,"""1.0.150""",23
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-audio/Cargo.toml,cargo,dependencies,thiserror,"""2""",24
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-audio/Cargo.toml,cargo,dependencies,hound,"""3""",25
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-audio/Cargo.toml,cargo,dependencies,cpal,"{""version"": ""0.18.2"", ""optional"": true}",26
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-audio/Cargo.toml,cargo,dependencies,rubato,"{""version"": ""5.0.0"", ""optional"": true}",27
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-audio/Cargo.toml,cargo,dependencies,ringbuf,"{""version"": ""0.5"", ""optional"": true}",28
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-audio/Cargo.toml,cargo,dependencies,tracing,"{""version"": ""0.1"", ""optional"": true}",29
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-audio/Cargo.toml,cargo,dev-dependencies,tempfile,"""3""",47
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-audio/Cargo.toml,cargo,"target.cfg(target_os = ""macos"").dependencies",objc2-core-audio,"{""version"": ""0.3.2"", ""optional"": true}",32
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-audio/Cargo.toml,cargo,"target.cfg(target_os = ""macos"").dependencies",objc2-core-foundation,"{""version"": ""0.3.2"", ""optional"": true}",33
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-audio/Cargo.toml,cargo,target.cfg(windows).dependencies,windows,"{""version"": ""0.62.2"", ""optional"": true, ""features"": [""Win32_Foundation"", ""Win32_Media_Audio"", ""Win32_System_Com"", ""Win32_System_Com_StructuredStorage"", ""Win32_System_Power"", ""Win32_UI_WindowsAndMessaging""]}",36
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-audio/Cargo.toml,cargo,target.cfg(windows).dependencies,windows-core,"{""version"": ""0.62.2"", ""optional"": true}",44
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-automation/Cargo.toml,cargo,dependencies,rightkit-service,"{""version"": ""0.1.0"", ""path"": ""../rightkit-service"", ""optional"": true}",22
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-automation/Cargo.toml,cargo,dependencies,serde_json,"{""version"": ""1.0.150"", ""optional"": true}",23
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-automation/Cargo.toml,cargo,dev-dependencies,tempfile,"""3""",26
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-automation/Cargo.toml,cargo,target.cfg(windows).dependencies,windows,"{""version"": ""0.62"", ""features"": [""Win32_Foundation"", ""Win32_Graphics_Gdi"", ""Win32_Storage_FileSystem"", ""Win32_Storage_Xps"", ""Win32_System_JobObjects"", ""Win32_System_Com"", ""Win32_System_DataExchange"", ""Win32_System_Memory"", ""Win32_System_Ole"", ""Win32_System_Threading"", ""Win32_System_Variant"", ""Win32_UI_Accessibility"", ""Win32_UI_HiDpi"", ""Win32_UI_Input_KeyboardAndMouse"", ""Win32_UI_WindowsAndMessaging""]}",29
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-browser/Cargo.toml,cargo,dependencies,chromiumoxide,"{""version"": ""0.9"", ""default-features"": false}",15
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-browser/Cargo.toml,cargo,dependencies,futures,"""0.3""",16
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-browser/Cargo.toml,cargo,dependencies,serde,"{""version"": ""1"", ""features"": [""derive""]}",17
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-browser/Cargo.toml,cargo,dependencies,serde_json,"""1""",18
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-browser/Cargo.toml,cargo,dependencies,tempfile,"""3""",19
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-browser/Cargo.toml,cargo,dependencies,thiserror,"""2""",20
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-browser/Cargo.toml,cargo,dependencies,tokio,"{""version"": ""1"", ""features"": [""rt"", ""sync"", ""time"", ""net"", ""io-util""]}",21
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-browser/Cargo.toml,cargo,dependencies,url,"""2""",22
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-browser/Cargo.toml,cargo,dependencies,rightkit-process,"{""path"": ""../rightkit-process"", ""version"": ""0.3.0""}",23
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-browser/Cargo.toml,cargo,dev-dependencies,tokio,"{""version"": ""1"", ""features"": [""rt-multi-thread"", ""macros""]}",21
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-cache/Cargo.toml,cargo,dependencies,sha2,"""0.11""",13
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-cache/Cargo.toml,cargo,dependencies,rightkit-fs,"{""path"": ""../rightkit-fs"", ""version"": ""0.3.4"", ""default-features"": false, ""features"": [""fs""]}",15
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-cache/Cargo.toml,cargo,dev-dependencies,tempfile,"""3""",18
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-channel-memory/Cargo.toml,cargo,dependencies,serde,"{""version"": ""1.0.228"", ""features"": [""derive""]}",15
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-channel-memory/Cargo.toml,cargo,dependencies,serde_json,"""1.0.150""",16
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-channel-memory/Cargo.toml,cargo,dependencies,jsonschema,"{""version"": ""0.58.6"", ""default-features"": false}",18
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-compose/Cargo.toml,cargo,dependencies,serde,"{""version"": ""1.0.228"", ""features"": [""derive""]}",17
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-compose/Cargo.toml,cargo,dependencies,serde_json,"""1.0.150""",18
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-compose/Cargo.toml,cargo,dependencies,thiserror,"""2""",19
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-contracts/Cargo.toml,cargo,dependencies,serde,"{""version"": ""1.0.228"", ""features"": [""derive""]}",27
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-contracts/Cargo.toml,cargo,dependencies,serde_json,"""1.0.150""",28
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-contracts/Cargo.toml,cargo,dependencies,jsonschema,"{""version"": ""0.58.6"", ""default-features"": false, ""optional"": true}",32
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-control/Cargo.toml,cargo,dependencies,tauri,"{""version"": ""2"", ""optional"": true}",30
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-control/Cargo.toml,cargo,dependencies,rightkit-service,"{""version"": ""0.1.0"", ""path"": ""../rightkit-service"", ""optional"": true}",31
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-control/Cargo.toml,cargo,dependencies,serde_json,"{""version"": ""1.0.150"", ""optional"": true}",32
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-control/Cargo.toml,cargo,target.cfg(windows).dependencies,windows,"{""package"": ""windows"", ""version"": ""0.61"", ""optional"": true}",35
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-control/Cargo.toml,cargo,target.cfg(windows).dependencies,webview2-com,"{""package"": ""webview2-com"", ""version"": ""0.38"", ""optional"": true}",36
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-control/Cargo.toml,cargo,target.cfg(windows).dependencies,windows,"{""package"": ""windows"", ""version"": ""0.62"", ""optional"": true}",37
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-control/Cargo.toml,cargo,target.cfg(windows).dependencies,webview2-com,"{""package"": ""webview2-com"", ""version"": ""0.39"", ""optional"": true}",38
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-control/examples/control-test-app/Cargo.toml,cargo,build-dependencies,tauri-build,"""2""",11
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-control/examples/control-test-app/Cargo.toml,cargo,dependencies,tauri,"""2""",14
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-control/examples/control-test-app/Cargo.toml,cargo,dependencies,rightkit-control,"{""path"": ""../.."", ""features"": [""tauri-plugin"", ""wv2-0_38""]}",15
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-crash/Cargo.toml,cargo,dependencies,rightkit-logs,"{""version"": ""0.2.0"", ""path"": ""../rightkit-logs"", ""default-features"": false}",29
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-crash/Cargo.toml,cargo,dependencies,serde,"{""version"": ""1"", ""features"": [""derive""]}",30
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-crash/Cargo.toml,cargo,dependencies,serde_json,"""1""",31
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-crash/Cargo.toml,cargo,dependencies,zip,"{""version"": ""2"", ""default-features"": false, ""features"": [""deflate""], ""optional"": true}",32
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-crash/Cargo.toml,cargo,dev-dependencies,rightkit-logs,"{""version"": ""0.2.0"", ""path"": ""../rightkit-logs"", ""features"": [""testing""]}",29
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-crash/Cargo.toml,cargo,"target.cfg(target_os = ""windows"").dependencies",windows-sys,"{""version"": ""0.61.2"", ""features"": [""Win32_Foundation"", ""Win32_Storage_FileSystem"", ""Win32_System_Diagnostics_Debug"", ""Win32_System_Kernel"", ""Win32_System_Memory"", ""Win32_System_Threading""]}",35
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-daemon/Cargo.toml,cargo,dependencies,rightkit-contracts,"{""path"": ""../rightkit-contracts"", ""version"": ""0.1.3"", ""default-features"": false}",17
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-daemon/Cargo.toml,cargo,dependencies,rightkit-oauth,"{""path"": ""../rightkit-oauth"", ""version"": ""0.3.0"", ""default-features"": false, ""features"": [""server""], ""optional"": true}",18
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-daemon/Cargo.toml,cargo,dependencies,serde,"{""version"": ""1.0.228"", ""features"": [""derive""]}",19
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-daemon/Cargo.toml,cargo,dependencies,serde_json,"""1.0.150""",20
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-daemon/Cargo.toml,cargo,dependencies,axum,"{""version"": ""0.8"", ""default-features"": false, ""features"": [""http1"", ""tokio""]}",21
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-daemon/Cargo.toml,cargo,dependencies,tokio,"{""version"": ""1"", ""features"": [""rt-multi-thread"", ""macros"", ""net"", ""sync"", ""time"", ""io-util""]}",22
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-daemon/Cargo.toml,cargo,dependencies,tokio-rustls,"{""version"": ""0.26"", ""default-features"": false, ""features"": [""ring"", ""tls12""]}",23
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-daemon/Cargo.toml,cargo,dependencies,rustls,"{""version"": ""0.23"", ""default-features"": false, ""features"": [""ring"", ""std"", ""tls12""]}",24
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-daemon/Cargo.toml,cargo,dependencies,hyper,"{""version"": ""1"", ""features"": [""http1"", ""server""]}",25
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-daemon/Cargo.toml,cargo,dependencies,hyper-util,"{""version"": ""0.1"", ""features"": [""tokio"", ""service"", ""server-graceful""]}",26
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-daemon/Cargo.toml,cargo,dependencies,ring,"""0.17""",27
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-daemon/Cargo.toml,cargo,dependencies,blake3,"""1""",28
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-daemon/Cargo.toml,cargo,dependencies,base64,"""0.22""",29
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-daemon/Cargo.toml,cargo,dependencies,form_urlencoded,"""1""",30
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-daemon/Cargo.toml,cargo,dependencies,subtle,"""2.6""",31
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-daemon/Cargo.toml,cargo,dev-dependencies,rightkit-contracts,"{""path"": ""../rightkit-contracts"", ""version"": ""0.1.3""}",17
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-daemon/Cargo.toml,cargo,dev-dependencies,rightkit-http,"{""path"": ""../rightkit-http"", ""version"": ""0.3.0"", ""features"": [""testing""]}",36
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-daemon/Cargo.toml,cargo,dev-dependencies,rightkit-oauth,"{""path"": ""../rightkit-oauth"", ""version"": ""0.3.0"", ""default-features"": false, ""features"": [""server""]}",18
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-daemon/Cargo.toml,cargo,dev-dependencies,tempfile,"""3""",38
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-daemon/Cargo.toml,cargo,dev-dependencies,tower,"{""version"": ""0.5"", ""features"": [""util""]}",39
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-daemon/Cargo.toml,cargo,dev-dependencies,rcgen,"""0.13""",40
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-db/Cargo.toml,cargo,dependencies,rusqlite,"{""version"": ""0.40.1"", ""default-features"": false, ""features"": [""backup""]}",30
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-db/Cargo.toml,cargo,dependencies,rightkit-fs,"{""version"": ""0.3.0"", ""path"": ""../rightkit-fs"", ""default-features"": false, ""features"": [""fs""]}",32
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-db/Cargo.toml,cargo,dependencies,thiserror,"""2""",33
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-db/Cargo.toml,cargo,dependencies,zeroize,"""1.8""",34
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-db/Cargo.toml,cargo,dev-dependencies,tempfile,"""3""",40
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-db/Cargo.toml,cargo,target.cfg(unix).dependencies,libc,"""0.2""",37
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-embed/Cargo.toml,cargo,dependencies,rightkit-db,"{""version"": ""0.4"", ""path"": ""../rightkit-db"", ""default-features"": false, ""optional"": true}",20
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-embed/Cargo.toml,cargo,dependencies,rightkit-fs,"{""version"": ""0.3"", ""path"": ""../rightkit-fs"", ""default-features"": false, ""features"": [""digest""], ""optional"": true}",21
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-embed/Cargo.toml,cargo,dependencies,rightkit-ort,"{""version"": ""0.2.2"", ""path"": ""../rightkit-ort"", ""optional"": true}",22
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-embed/Cargo.toml,cargo,dependencies,rusqlite,"{""version"": ""0.40.1"", ""default-features"": false, ""optional"": true}",23
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-embed/Cargo.toml,cargo,dependencies,serde_json,"{""version"": ""1.0.150"", ""optional"": true}",24
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-embed/Cargo.toml,cargo,dependencies,thiserror,"""2""",25
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-embed/Cargo.toml,cargo,dependencies,tokenizers,"{""version"": ""0.22.2"", ""default-features"": false, ""features"": [""onig""], ""optional"": true}",26
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-embed/Cargo.toml,cargo,dev-dependencies,rusqlite,"{""version"": ""0.40.1"", ""features"": [""bundled""]}",23
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-embed/Cargo.toml,cargo,dev-dependencies,tempfile,"""3""",30
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-framed-sidecar/Cargo.toml,cargo,dependencies,serde,"{""version"": ""1.0.228"", ""features"": [""derive""]}",15
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-framed-sidecar/Cargo.toml,cargo,dependencies,serde_json,"""1.0.150""",16
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-framed-sidecar/Cargo.toml,cargo,target.cfg(unix).dependencies,libc,"""0.2""",20
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-framed-sidecar/Cargo.toml,cargo,target.cfg(windows).dependencies,windows-sys,"{""version"": ""0.61.2"", ""features"": [""Win32_Foundation"", ""Win32_Security"", ""Win32_Storage_FileSystem"", ""Win32_System_IO"", ""Win32_System_Threading""]}",23
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-framed-sidecar/Cargo.toml,cargo,target.cfg(windows).dev-dependencies,windows-sys,"{""version"": ""0.61.2"", ""features"": [""Win32_System_Pipes""]}",23
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-fs/Cargo.toml,cargo,dependencies,serde,"{""version"": ""1"", ""features"": [""derive""], ""optional"": true}",65
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-fs/Cargo.toml,cargo,dependencies,serde_json,"{""version"": ""1"", ""optional"": true}",66
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-fs/Cargo.toml,cargo,dependencies,sha2,"{""version"": ""0.11"", ""optional"": true}",67
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-fs/Cargo.toml,cargo,dependencies,thiserror,"{""version"": ""2"", ""optional"": true}",68
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-fs/Cargo.toml,cargo,dev-dependencies,tempfile,"""3""",74
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-fs/Cargo.toml,cargo,target.cfg(unix).dependencies,libc,"{""version"": ""0.2"", ""optional"": true}",71
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-fsindex/Cargo.toml,cargo,dependencies,memchr,"""2""",22
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-fsindex/Cargo.toml,cargo,dependencies,memmap2,"""0.9""",23
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-fsindex/Cargo.toml,cargo,dev-dependencies,tempfile,"""3""",29
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-fsindex/Cargo.toml,cargo,target.cfg(unix).dependencies,libc,"""0.2""",26
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-hotkeys/Cargo.toml,cargo,target.cfg(windows).dependencies,windows-sys,"{""version"": ""0.61.2"", ""features"": [""Win32_Foundation"", ""Win32_System_LibraryLoader"", ""Win32_System_Threading"", ""Win32_UI_Input_KeyboardAndMouse"", ""Win32_UI_WindowsAndMessaging""]}",17
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-http/Cargo.toml,cargo,dependencies,rightkit-fs,"{""version"": ""0.3"", ""path"": ""../rightkit-fs"", ""default-features"": false, ""features"": [""digest""], ""optional"": true}",28
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-http/Cargo.toml,cargo,dependencies,serde,"{""version"": ""1.0.228"", ""features"": [""derive""]}",29
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-http/Cargo.toml,cargo,dependencies,serde_json,"""1.0.150""",30
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-http/Cargo.toml,cargo,dependencies,ureq,"{""version"": ""3.4"", ""default-features"": false, ""features"": [""rustls""]}",31
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-http/Cargo.toml,cargo,dependencies,getrandom,"""0.4""",32
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-http/Cargo.toml,cargo,dependencies,sha2,"""0.11""",33
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-http/Cargo.toml,cargo,dependencies,reqwest,"{""version"": ""0.12"", ""default-features"": false, ""features"": [""rustls-tls"", ""stream""], ""optional"": true}",34
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-http/Cargo.toml,cargo,dependencies,tokio,"{""version"": ""1"", ""default-features"": false, ""features"": [""time"", ""net""], ""optional"": true}",35
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-http/Cargo.toml,cargo,dependencies,futures-util,"{""version"": ""0.3"", ""default-features"": false, ""optional"": true}",36
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-http/Cargo.toml,cargo,dependencies,bytes,"{""version"": ""1"", ""optional"": true}",37
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-http/Cargo.toml,cargo,dev-dependencies,tokio,"{""version"": ""1"", ""features"": [""rt"", ""macros"", ""time""]}",35
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-http/Cargo.toml,cargo,dev-dependencies,rightkit-http,"{""path"": ""."", ""default-features"": false, ""features"": [""testing""]}",44
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-http/Cargo.toml,cargo,target.cfg(unix).dependencies,libc,"""0.2""",40
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-jobs/Cargo.toml,cargo,dependencies,rightkit-fs,"{""version"": ""0.3"", ""path"": ""../rightkit-fs"", ""default-features"": false, ""features"": [""digest"", ""lock""]}",21
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-jobs/Cargo.toml,cargo,dependencies,rightkit-db,"{""version"": ""0.4.0"", ""path"": ""../rightkit-db""}",22
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-jobs/Cargo.toml,cargo,dependencies,rightkit-framed-sidecar,"{""version"": ""0.2.0"", ""path"": ""../rightkit-framed-sidecar""}",23
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-jobs/Cargo.toml,cargo,dependencies,rightkit-process,"{""version"": ""0.3.0"", ""path"": ""../rightkit-process""}",24
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-jobs/Cargo.toml,cargo,dependencies,rightkit-service,"{""version"": ""0.1.0"", ""path"": ""../rightkit-service"", ""optional"": true}",25
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-jobs/Cargo.toml,cargo,dependencies,serde,"{""version"": ""1.0.228"", ""features"": [""derive""]}",26
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-jobs/Cargo.toml,cargo,dependencies,serde_json,"""1.0.150""",27
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-jobs/Cargo.toml,cargo,dependencies,uuid,"{""version"": ""1"", ""features"": [""v4""]}",28
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-jobs/Cargo.toml,cargo,dev-dependencies,sha2,"""0.10""",32
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-jobs/Cargo.toml,cargo,dev-dependencies,tempfile,"""3""",33
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-jobs/Cargo.toml,cargo,dev-dependencies,time,"""0.3""",34
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-license/Cargo.toml,cargo,dependencies,ed25519-dalek,"""3""",15
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-license/Cargo.toml,cargo,dependencies,base64,"""0.23""",16
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-license/Cargo.toml,cargo,dependencies,serde,"{""version"": ""1"", ""features"": [""derive""]}",17
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-license/Cargo.toml,cargo,dependencies,serde_json,"""1""",18
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-llm/Cargo.toml,cargo,dependencies,rightkit-http,"{""version"": ""0.3.0"", ""path"": ""../rightkit-http""}",20
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-llm/Cargo.toml,cargo,dependencies,rightkit-process,"{""version"": ""0.3.0"", ""path"": ""../rightkit-process"", ""optional"": true}",21
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-llm/Cargo.toml,cargo,dependencies,serde,"{""version"": ""1.0.228"", ""features"": [""derive""]}",22
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-llm/Cargo.toml,cargo,dependencies,serde_json,"""1.0.150""",23
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-llm/Cargo.toml,cargo,dev-dependencies,rightkit-http,"{""version"": ""0.3.0"", ""path"": ""../rightkit-http"", ""features"": [""testing""]}",20
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-logs/Cargo.toml,cargo,dependencies,rightkit-fs,"{""version"": ""0.3"", ""path"": ""../rightkit-fs"", ""default-features"": false, ""features"": [""fs""]}",26
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-logs/Cargo.toml,cargo,dependencies,serde,"{""version"": ""1"", ""features"": [""derive""]}",27
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-logs/Cargo.toml,cargo,dependencies,serde_json,"""1""",28
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-logs/Cargo.toml,cargo,dependencies,ureq,"{""version"": ""3.4"", ""default-features"": false, ""features"": [""rustls""], ""optional"": true}",29
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-logs/Cargo.toml,cargo,dependencies,getrandom,"""0.4""",30
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-logs/Cargo.toml,cargo,dependencies,tracing,"{""version"": ""0.1"", ""default-features"": false, ""features"": [""std""], ""optional"": true}",23
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-logs/Cargo.toml,cargo,dependencies,tracing-subscriber,"{""version"": ""0.3"", ""default-features"": false, ""features"": [""std"", ""registry"", ""fmt"", ""json"", ""env-filter""], ""optional"": true}",32
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-logs/Cargo.toml,cargo,dev-dependencies,rightkit-logs,"{""path"": ""."", ""features"": [""testing""]}",47
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-logs/Cargo.toml,cargo,"target.cfg(target_os = ""macos"").dependencies",libc,"""0.2""",35
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-logs/Cargo.toml,cargo,"target.cfg(target_os = ""windows"").dependencies",windows-sys,"{""version"": ""0.61.2"", ""features"": [""Win32_Foundation"", ""Win32_System_ProcessStatus"", ""Win32_System_Registry"", ""Win32_System_SystemInformation"", ""Win32_System_Threading""]}",38
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-mcp/Cargo.toml,cargo,dependencies,getrandom,"""0.3""",15
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-mcp/Cargo.toml,cargo,dependencies,serde,"{""version"": ""1"", ""features"": [""derive""]}",16
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-mcp/Cargo.toml,cargo,dependencies,serde_json,"""1""",17
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-mcp/Cargo.toml,cargo,dependencies,ureq,"{""version"": ""3.4"", ""default-features"": false, ""features"": [""rustls""]}",18
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-mcp/Cargo.toml,cargo,dependencies,rightkit-fs,"{""version"": ""0.3"", ""path"": ""../rightkit-fs"", ""default-features"": false, ""features"": [""digest""]}",19
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-mcp/Cargo.toml,cargo,dependencies,rightkit-http,"{""version"": ""0.3.0"", ""path"": ""../rightkit-http"", ""default-features"": false}",20
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-mcp/Cargo.toml,cargo,dependencies,http,"{""version"": ""1"", ""optional"": true}",21
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-mcp/Cargo.toml,cargo,dependencies,tokio,"{""version"": ""1"", ""features"": [""rt-multi-thread"", ""time"", ""sync"", ""macros""], ""optional"": true}",22
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-mcp/Cargo.toml,cargo,dependencies,futures-util,"{""version"": ""0.3"", ""optional"": true}",23
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-mcp/Cargo.toml,cargo,dependencies,url,"""2""",24
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-mcp/Cargo.toml,cargo,dev-dependencies,tempfile,"""3""",39
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-mcp/Cargo.toml,cargo,dev-dependencies,tokio,"{""version"": ""1"", ""features"": [""rt-multi-thread"", ""time"", ""sync"", ""macros""]}",22
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-media/Cargo.toml,cargo,dependencies,rightkit-fs,"{""version"": ""0.3"", ""path"": ""../rightkit-fs"", ""default-features"": false, ""features"": [""digest"", ""fs""]}",21
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-media/Cargo.toml,cargo,dependencies,rightkit-process,"{""path"": ""../rightkit-process"", ""version"": ""0.3.0""}",22
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-media/Cargo.toml,cargo,dependencies,serde,"{""version"": ""1.0.228"", ""features"": [""derive""]}",23
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-media/Cargo.toml,cargo,dependencies,serde_json,"""1.0.150""",24
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-media/Cargo.toml,cargo,dev-dependencies,tempfile,"""3""",27
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-models/Cargo.toml,cargo,dependencies,rightkit-fs,"{""version"": ""0.3"", ""path"": ""../rightkit-fs"", ""default-features"": false, ""features"": [""digest"", ""fs"", ""lock""]}",23
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-models/Cargo.toml,cargo,dependencies,rightkit-http,"{""version"": ""0.3.0"", ""path"": ""../rightkit-http"", ""default-features"": false}",25
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-models/Cargo.toml,cargo,dependencies,ed25519-dalek,"{""version"": ""2"", ""optional"": true}",26
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-models/Cargo.toml,cargo,dependencies,base64,"{""version"": ""0.22"", ""optional"": true}",27
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-models/Cargo.toml,cargo,dependencies,url,"{""version"": ""2"", ""optional"": true}",28
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-models/Cargo.toml,cargo,dependencies,chrono,"{""version"": ""0.4"", ""default-features"": false, ""features"": [""std""], ""optional"": true}",29
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-models/Cargo.toml,cargo,dependencies,serde,"{""version"": ""1"", ""features"": [""derive""]}",30
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-models/Cargo.toml,cargo,dependencies,serde_json,"""1""",31
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-models/Cargo.toml,cargo,dependencies,ureq,"{""version"": ""3.4"", ""default-features"": false, ""features"": [""rustls""]}",32
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-models/Cargo.toml,cargo,dependencies,tar,"""0.4""",33
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-models/Cargo.toml,cargo,dependencies,flate2,"""1""",34
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-models/Cargo.toml,cargo,dependencies,dirs,"""7""",35
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-models/Cargo.toml,cargo,dependencies,getrandom,"""0.3""",36
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-models/Cargo.toml,cargo,dependencies,zip,"{""version"": ""2"", ""default-features"": false, ""features"": [""deflate""]}",37
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-models/Cargo.toml,cargo,dev-dependencies,sha2,"""0.11""",41
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-models/Cargo.toml,cargo,dev-dependencies,tempfile,"""3""",42
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-models/Cargo.toml,cargo,dev-dependencies,rightkit-qa,"{""version"": ""0.2.8"", ""path"": ""../rightkit-qa""}",46
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-oauth/Cargo.toml,cargo,dependencies,rightkit-http,"{""path"": ""../rightkit-http"", ""version"": ""0.3.0""}",39
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-oauth/Cargo.toml,cargo,dependencies,rightkit-secrets,"{""path"": ""../rightkit-secrets"", ""version"": ""0.1.0"", ""optional"": true}",40
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-oauth/Cargo.toml,cargo,dependencies,rightkit-process,"{""path"": ""../rightkit-process"", ""version"": ""0.3.0"", ""optional"": true}",41
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-oauth/Cargo.toml,cargo,dependencies,getrandom,"""0.3""",42
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-oauth/Cargo.toml,cargo,dependencies,serde_json,"""1.0.150""",43
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-oauth/Cargo.toml,cargo,dependencies,sha2,"""0.10.9""",44
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-oauth/Cargo.toml,cargo,dependencies,ring,"{""version"": ""0.17"", ""optional"": true}",46
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-oauth/Cargo.toml,cargo,dependencies,url,"{""version"": ""2.5"", ""optional"": true}",47
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-oauth/Cargo.toml,cargo,dependencies,zeroize,"{""version"": ""1.8"", ""optional"": true}",48
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-oauth/Cargo.toml,cargo,dependencies,serde,"{""version"": ""1.0.228"", ""features"": [""derive""], ""optional"": true}",49
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-oauth/Cargo.toml,cargo,dependencies,axum,"{""version"": ""0.8"", ""optional"": true}",50
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-oauth/Cargo.toml,cargo,dependencies,tokio,"{""version"": ""1"", ""features"": [""rt-multi-thread"", ""macros"", ""net""], ""optional"": true}",51
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-oauth/Cargo.toml,cargo,dev-dependencies,base64,"""0.22""",59
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-oauth/Cargo.toml,cargo,dev-dependencies,rightkit-http,"{""path"": ""../rightkit-http"", ""version"": ""0.3.0"", ""features"": [""testing""]}",39
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-oauth/Cargo.toml,cargo,dev-dependencies,tempfile,"""3""",61
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-oauth/Cargo.toml,cargo,target.cfg(unix).dependencies,libc,"{""version"": ""0.2"", ""optional"": true}",55
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-ocr/Cargo.toml,cargo,dependencies,image,"{""version"": ""0.25"", ""default-features"": false, ""features"": [""png"", ""jpeg""]}",27
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-ocr/Cargo.toml,cargo,dependencies,rightkit-ort,"{""version"": ""0.2.2"", ""path"": ""../rightkit-ort"", ""optional"": true}",28
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-ocr/Cargo.toml,cargo,dependencies,sha2,"{""version"": ""0.10"", ""optional"": true}",29
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-ocr/Cargo.toml,cargo,dependencies,serde,"{""version"": ""1"", ""features"": [""derive""]}",30
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-ocr/Cargo.toml,cargo,dependencies,serde_json,"""1""",31
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-ocr/Cargo.toml,cargo,dev-dependencies,base64,"""0.22""",56
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-ocr/Cargo.toml,cargo,"target.cfg(target_os = ""macos"").dependencies",objc2,"{""version"": ""0.6"", ""optional"": true}",46
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-ocr/Cargo.toml,cargo,"target.cfg(target_os = ""macos"").dependencies",objc2-foundation,"{""version"": ""0.3"", ""optional"": true, ""features"": [""NSString"", ""NSArray"", ""NSError"", ""NSDictionary"", ""NSValue"", ""NSGeometry""]}",47
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-ocr/Cargo.toml,cargo,"target.cfg(target_os = ""macos"").dependencies",objc2-core-graphics,"{""version"": ""0.3"", ""optional"": true, ""features"": [""CGImage"", ""CGColorSpace"", ""CGDataProvider""]}",48
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-ocr/Cargo.toml,cargo,"target.cfg(target_os = ""macos"").dependencies",objc2-vision,"{""version"": ""0.3"", ""optional"": true, ""default-features"": false, ""features"": [""std"", ""objc2-core-foundation"", ""objc2-core-graphics"", ""VNRequest"", ""VNRequestHandler"", ""VNRecognizeTextRequest"", ""VNObservation"", ""VNTypes"", ""VNError""]}",49
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-ocr/Cargo.toml,cargo,"target.cfg(target_os = ""macos"").dependencies",objc2-core-foundation,"{""version"": ""0.3"", ""optional"": true, ""features"": [""CFCGTypes""]}",50
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-ocr/Cargo.toml,cargo,target.cfg(windows).dependencies,windows,"{""version"": ""0.62"", ""optional"": true, ""features"": [""Foundation"", ""Foundation_Collections"", ""Globalization"", ""Graphics_Imaging"", ""Media_Ocr"", ""Security_Cryptography"", ""Storage_Streams""]}",53
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-ort/Cargo.toml,cargo,dependencies,half,"{""version"": ""2"", ""optional"": true}",24
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-ort/Cargo.toml,cargo,dependencies,ndarray,"{""version"": ""0.17"", ""optional"": true}",27
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-ort/Cargo.toml,cargo,dependencies,ort,"{""version"": ""=2.0.0-rc.13"", ""optional"": true, ""default-features"": false, ""features"": [""std"", ""api-24"", ""load-dynamic""]}",59
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-ort/Cargo.toml,cargo,dependencies,serde,"{""workspace"": true}",1
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-ort/Cargo.toml,cargo,dependencies,serde_json,"{""workspace"": true}",1
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-ort/Cargo.toml,cargo,dependencies,sha2,"""0.10""",63
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-ort/Cargo.toml,cargo,dev-dependencies,rightkit-media,"{""path"": ""../rightkit-media"", ""version"": ""0.2.3""}",77
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-ort/Cargo.toml,cargo,"target.cfg(target_vendor = ""apple"").dependencies",ort,"{""version"": ""=2.0.0-rc.13"", ""optional"": true, ""default-features"": false, ""features"": [""std"", ""api-24"", ""load-dynamic"", ""coreml""]}",59
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-ort/Cargo.toml,cargo,"target.cfg(target_os = ""windows"").dependencies",ort,"{""version"": ""=2.0.0-rc.13"", ""optional"": true, ""default-features"": false, ""features"": [""std"", ""api-24"", ""load-dynamic"", ""directml""]}",59
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-ort/Cargo.toml,cargo,"target.cfg(target_os = ""windows"").dependencies",windows-sys,"{""version"": ""0.61.2"", ""features"": [""Win32_System_SystemInformation""]}",73
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-overlay/Cargo.toml,cargo,dependencies,serde,"{""workspace"": true}",1
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-overlay/Cargo.toml,cargo,target.cfg(windows).dependencies,windows-sys,"{""version"": ""0.61.2"", ""features"": [""Win32_Foundation"", ""Win32_UI_WindowsAndMessaging""]}",16
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-ownership/Cargo.toml,cargo,dependencies,serde_json,"{""version"": ""1"", ""features"": [""preserve_order""]}",14
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-ownership/Cargo.toml,cargo,dependencies,sha2,"""0.10""",15
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-ownership/Cargo.toml,cargo,dependencies,hex,"""0.4""",16
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-ownership/Cargo.toml,cargo,dependencies,url,"""2""",17
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-ownership/Cargo.toml,cargo,dependencies,sha1,"""0.10""",18
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-ownership/Cargo.toml,cargo,dependencies,fancy-regex,"""0.19""",19
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-ownership/Cargo.toml,cargo,dependencies,toml,"{""version"": ""0.9"", ""default-features"": false, ""features"": [""parse"", ""serde"", ""std"", ""preserve_order""]}",20
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-ownership/Cargo.toml,cargo,dependencies,p256,"{""version"": ""0.13"", ""default-features"": false, ""features"": [""ecdsa"", ""pem"", ""std""]}",21
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-ownership/Cargo.toml,cargo,dependencies,rsa,"{""version"": ""0.9"", ""default-features"": false, ""features"": [""std"", ""pem"", ""sha2""]}",22
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-ownership/Cargo.toml,cargo,dependencies,base64,"""0.22""",23
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-ownership/Cargo.toml,cargo,dependencies,spki,"{""version"": ""0.7"", ""features"": [""pem"", ""std""]}",24
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-ownership/Cargo.toml,cargo,dev-dependencies,tempfile,"""3""",27
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-pdf/Cargo.toml,cargo,dependencies,lopdf,"{""version"": ""0.44.0"", ""default-features"": false, ""features"": [""rayon""]}",34
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-pdf/Cargo.toml,cargo,dependencies,thiserror,"""2.0.20""",35
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-pdf/Cargo.toml,cargo,dependencies,fontdb,"{""version"": ""0.24.0"", ""optional"": true}",36
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-pdf/Cargo.toml,cargo,dependencies,ttf-parser,"{""version"": ""0.25.1"", ""optional"": true}",37
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-pdf/Cargo.toml,cargo,dependencies,subsetter,"{""version"": ""0.2.6"", ""optional"": true}",38
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-pdf/Cargo.toml,cargo,dependencies,wuff,"{""version"": ""0.2.8"", ""optional"": true}",39
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-pdf/Cargo.toml,cargo,dependencies,serde,"{""workspace"": true}",1
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-pdf/Cargo.toml,cargo,dependencies,sha2,"""0.11.0""",41
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-pdf/Cargo.toml,cargo,dependencies,getrandom,"{""version"": ""0.4.3"", ""optional"": true}",42
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-pdf/Cargo.toml,cargo,dependencies,pdf-extract,"{""version"": ""0.12"", ""optional"": true}",43
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-pdf/Cargo.toml,cargo,dev-dependencies,serde_json,"{""workspace"": true}",1
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-pdf/Cargo.toml,cargo,dev-dependencies,image,"{""version"": ""0.25"", ""default-features"": false, ""features"": [""png""]}",47
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-playback/Cargo.toml,cargo,dependencies,rightkit-media,"{""path"": ""../rightkit-media"", ""version"": ""0.2.3"", ""default-features"": false}",19
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-playback/Cargo.toml,cargo,dependencies,rightkit-process,"{""path"": ""../rightkit-process"", ""version"": ""0.3.0""}",20
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-playback/Cargo.toml,cargo,dependencies,rightkit-fs,"{""path"": ""../rightkit-fs"", ""version"": ""0.3.3"", ""default-features"": false, ""features"": [""digest""]}",21
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-playback/Cargo.toml,cargo,dependencies,tauri,"{""version"": ""2"", ""optional"": true, ""default-features"": false}",16
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-process/Cargo.toml,cargo,dev-dependencies,trybuild,"""=1.0.116""",21
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-process/Cargo.toml,cargo,target.cfg(unix).dependencies,libc,"""0.2""",15
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-process/Cargo.toml,cargo,target.cfg(windows).dependencies,windows,"{""version"": ""0.62"", ""features"": [""Win32_Foundation"", ""Win32_Security"", ""Win32_System_Diagnostics_ToolHelp"", ""Win32_System_JobObjects"", ""Win32_System_Threading""]}",18
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-qa/Cargo.toml,cargo,dependencies,rightkit-fs,"{""version"": ""0.3"", ""path"": ""../rightkit-fs"", ""default-features"": false, ""features"": [""digest""]}",18
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-qa/Cargo.toml,cargo,dependencies,rightkit-framed-sidecar,"{""version"": ""0.2.0"", ""path"": ""../rightkit-framed-sidecar""}",19
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-qa/Cargo.toml,cargo,dependencies,rightkit-service,"{""version"": ""0.1.0"", ""path"": ""../rightkit-service""}",20
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-qa/Cargo.toml,cargo,dependencies,rightkit-process,"{""version"": ""0.3.0"", ""path"": ""../rightkit-process""}",21
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-qa/Cargo.toml,cargo,dependencies,rightkit-browser,"{""version"": ""0.2.2"", ""path"": ""../rightkit-browser"", ""optional"": true}",22
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-qa/Cargo.toml,cargo,dependencies,tokio,"{""version"": ""1"", ""features"": [""rt"", ""time""], ""optional"": true}",23
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-qa/Cargo.toml,cargo,dependencies,png,"""0.18""",24
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-qa/Cargo.toml,cargo,dependencies,serde,"{""version"": ""1.0.228"", ""features"": [""derive""]}",25
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-qa/Cargo.toml,cargo,dependencies,serde_json,"""1.0.150""",26
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-qa/Cargo.toml,cargo,dependencies,getrandom,"""0.3""",27
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-qa/Cargo.toml,cargo,dependencies,toml,"""0.8""",28
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-qa/Cargo.toml,cargo,"target.cfg(target_os = ""macos"").dependencies",rightkit-control,"{""version"": ""0.2.0"", ""path"": ""../rightkit-control"", ""default-features"": false}",40
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-qa/Cargo.toml,cargo,target.cfg(windows).dependencies,windows-sys,"{""version"": ""0.61.2"", ""features"": [""Win32_Foundation"", ""Win32_UI_WindowsAndMessaging""]}",43
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-qts-ggml-sys/Cargo.toml,cargo,build-dependencies,bindgen,"{""version"": ""0.72"", ""optional"": true}",29
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-qts-ggml-sys/Cargo.toml,cargo,build-dependencies,cmake,"""0.1""",30
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-qts-ggml/Cargo.toml,cargo,dependencies,rightkit-qts-ggml-sys,"{""path"": ""../rightkit-qts-ggml-sys"", ""version"": ""0.1.0"", ""default-features"": false}",23
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-qts/Cargo.toml,cargo,dependencies,rightkit-qts-ggml-sys,"{""path"": ""../rightkit-qts-ggml-sys"", ""version"": ""0.1.0"", ""default-features"": false}",42
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-qts/Cargo.toml,cargo,dependencies,thiserror,"""2""",43
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-qts/Cargo.toml,cargo,dependencies,getrandom,"""0.3""",44
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-qts/Cargo.toml,cargo,dependencies,hound,"""3.5.1""",45
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-qts/Cargo.toml,cargo,dependencies,rustfft,"""6.4.1""",46
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-qts/Cargo.toml,cargo,dependencies,prost,"""0.14""",47
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-qts/Cargo.toml,cargo,dependencies,rightkit-ort,"{""path"": ""../rightkit-ort"", ""version"": ""0.2.2"", ""features"": [""tracing""]}",48
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-record/Cargo.toml,cargo,dependencies,rightkit-contracts,"{""path"": ""../rightkit-contracts""}",21
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-record/Cargo.toml,cargo,dependencies,rightkit-framed-sidecar,"{""path"": ""../rightkit-framed-sidecar""}",22
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-record/Cargo.toml,cargo,dependencies,serde,"{""version"": ""1.0.228"", ""features"": [""derive""]}",23
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-record/Cargo.toml,cargo,dependencies,serde_json,"""1.0.150""",24
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-record/Cargo.toml,cargo,dependencies,blake3,"""1.8""",25
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-record/Cargo.toml,cargo,dependencies,hmac-sha256,"""1.1.14""",26
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-record/Cargo.toml,cargo,dependencies,rightkit-secrets,"{""path"": ""../rightkit-secrets""}",27
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-record/Cargo.toml,cargo,"target.cfg(target_os = ""macos"").dependencies",rightkit-process,"{""path"": ""../rightkit-process""}",31
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-record/Cargo.toml,cargo,target.cfg(windows).dependencies,windows,"{""version"": ""0.62"", ""features"": [""Foundation"", ""Foundation_Metadata"", ""Security_Authorization_AppCapabilityAccess"", ""Graphics_Capture"", ""Graphics_DirectX"", ""Graphics_DirectX_Direct3D11"", ""Win32_Foundation"", ""Win32_Graphics_Direct3D"", ""Win32_Graphics_Direct3D11"", ""Win32_Graphics_Dxgi"", ""Win32_Graphics_Dxgi_Common"", ""Win32_Graphics_Gdi"", ""Win32_Media_MediaFoundation"", ""Win32_System_Com"", ""Win32_System_Performance"", ""Win32_System_Registry"", ""Win32_System_WinRT"", ""Win32_System_WinRT_Direct3D11"", ""Win32_System_WinRT_Graphics_Capture"", ""Win32_UI_HiDpi"", ""Win32_UI_WindowsAndMessaging""]}",35
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-review/Cargo.toml,cargo,dependencies,serde,"{""version"": ""1.0.228"", ""features"": [""derive""]}",18
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-review/Cargo.toml,cargo,dependencies,serde_json,"""1.0.150""",19
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-sandbox/Cargo.toml,cargo,dependencies,rightkit-process,"{""version"": ""0.3.3"", ""path"": ""../rightkit-process""}",13
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-sandbox/Cargo.toml,cargo,dependencies,portable-pty,"{""version"": ""0.9"", ""optional"": true}",14
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-sandbox/Cargo.toml,cargo,target.cfg(unix).dependencies,libc,"""0.2""",23
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-sandbox/Cargo.toml,cargo,target.cfg(windows).dependencies,windows,"{""version"": ""0.62"", ""features"": [""Win32_Foundation"", ""Win32_System_Threading"", ""Win32_System_JobObjects"", ""Win32_Security""]}",26
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-scenario/Cargo.toml,cargo,dependencies,blake3,"""1.8.7""",19
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-scenario/Cargo.toml,cargo,dependencies,getrandom,"""0.3""",20
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-scenario/Cargo.toml,cargo,dependencies,serde,"{""version"": ""1.0.228"", ""features"": [""derive""]}",21
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-scenario/Cargo.toml,cargo,dependencies,serde_json,"""1.0.150""",22
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-search/Cargo.toml,cargo,dependencies,rusqlite,"{""version"": ""0.40.1"", ""default-features"": false, ""optional"": true}",20
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-search/Cargo.toml,cargo,dev-dependencies,rusqlite,"{""version"": ""0.40.1"", ""features"": [""bundled""]}",20
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-search/Cargo.toml,cargo,dev-dependencies,tempfile,"""3""",24
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-secrets/Cargo.toml,cargo,dependencies,serde,"{""version"": ""1.0.228"", ""features"": [""derive""]}",23
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-secrets/Cargo.toml,cargo,dependencies,serde_json,"""1.0.150""",24
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-secrets/Cargo.toml,cargo,dependencies,thiserror,"""2""",25
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-secrets/Cargo.toml,cargo,dependencies,getrandom,"""0.3""",26
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-secrets/Cargo.toml,cargo,dependencies,zeroize,"""1.8""",27
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-secrets/Cargo.toml,cargo,dependencies,rightkit-settings,"{""version"": ""0.2.0"", ""path"": ""../rightkit-settings"", ""optional"": true}",28
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-secrets/Cargo.toml,cargo,dev-dependencies,tempfile,"""3""",38
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-secrets/Cargo.toml,cargo,target.cfg(windows).dependencies,windows-sys,"{""version"": ""0.61"", ""features"": [""Win32_Foundation"", ""Win32_Security_Credentials"", ""Win32_Security_Cryptography"", ""Win32_System_Threading""]}",31
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-secrets/Cargo.toml,cargo,target.cfg(windows).dev-dependencies,keyring-core,"""1""",34
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-secrets/Cargo.toml,cargo,target.cfg(windows).dev-dependencies,windows-native-keyring-store,"""1.1.0""",35
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-send/Cargo.toml,cargo,dependencies,rustls,"{""version"": ""0.23"", ""default-features"": false, ""features"": [""ring"", ""std"", ""tls12""]}",25
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-send/Cargo.toml,cargo,dependencies,rcgen,"""0.13""",26
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-send/Cargo.toml,cargo,dependencies,sha2,"""0.10""",27
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-send/Cargo.toml,cargo,dependencies,serde,"{""version"": ""1.0.228"", ""features"": [""derive""]}",28
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-send/Cargo.toml,cargo,dependencies,serde_json,"""1.0.150""",29
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-send/Cargo.toml,cargo,dependencies,sysinfo,"{""version"": ""=0.37.2"", ""optional"": true}",30
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-send/Cargo.toml,cargo,target.cfg(unix).dependencies,libc,"""0.2.177""",33
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-service/Cargo.toml,cargo,dependencies,rightkit-framed-sidecar,"{""version"": ""0.2.0"", ""path"": ""../rightkit-framed-sidecar""}",13
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-service/Cargo.toml,cargo,dependencies,serde,"{""version"": ""1.0.228"", ""features"": [""derive""]}",14
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-service/Cargo.toml,cargo,dependencies,serde_json,"""1.0.150""",15
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-service/Cargo.toml,cargo,dependencies,rightkit-fs,"{""version"": ""0.3.3"", ""path"": ""../rightkit-fs"", ""default-features"": false, ""features"": [""fs""]}",16
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-service/Cargo.toml,cargo,dev-dependencies,tempfile,"""3""",32
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-service/Cargo.toml,cargo,target.cfg(windows).dependencies,windows,"{""version"": ""0.62"", ""features"": [""Win32_Foundation"", ""Win32_Security"", ""Win32_Security_Authorization"", ""Win32_Storage_FileSystem"", ""Win32_System_IO"", ""Win32_System_Pipes"", ""Win32_System_Threading""]}",21
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-settings/Cargo.toml,cargo,dependencies,serde,"{""version"": ""1.0.228"", ""features"": [""derive""]}",15
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-settings/Cargo.toml,cargo,dependencies,serde_json,"{""version"": ""1.0.150"", ""features"": [""raw_value""]}",16
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-settings/Cargo.toml,cargo,dependencies,thiserror,"""2""",17
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-settings/Cargo.toml,cargo,dependencies,rightkit-fs,"{""version"": ""0.3.3"", ""path"": ""../rightkit-fs"", ""default-features"": false, ""features"": [""fs""]}",18
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-settings/Cargo.toml,cargo,dev-dependencies,tempfile,"""3""",21
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-shell/Cargo.toml,cargo,dependencies,tauri,"{""version"": ""2"", ""features"": [""tray-icon"", ""image-png""]}",27
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-shell/Cargo.toml,cargo,dependencies,rightkit-service,"{""version"": ""0.1.0"", ""path"": ""../rightkit-service""}",28
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-shell/Cargo.toml,cargo,dependencies,rightkit-jobs,"{""version"": ""0.2.2"", ""path"": ""../rightkit-jobs"", ""optional"": true}",29
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-shell/Cargo.toml,cargo,dependencies,rightkit-process,"{""version"": ""0.3.0"", ""path"": ""../rightkit-process"", ""optional"": true}",30
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-shell/Cargo.toml,cargo,dependencies,serde,"{""version"": ""1.0.228"", ""features"": [""derive""]}",31
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-shell/Cargo.toml,cargo,dependencies,serde_json,"""1.0.150""",32
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-shell/Cargo.toml,cargo,dev-dependencies,tempfile,"""3""",64
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-shell/Cargo.toml,cargo,"target.cfg(target_os = ""macos"").dependencies",objc2,"""0.6""",35
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-shell/Cargo.toml,cargo,"target.cfg(target_os = ""macos"").dependencies",objc2-foundation,"{""version"": ""0.3"", ""features"": [""NSArray"", ""NSData"", ""NSString"", ""NSURL"", ""NSValue"", ""NSGeometry"", ""NSObject"", ""NSBundle"", ""NSDictionary"", ""NSError""]}",36
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-shell/Cargo.toml,cargo,"target.cfg(target_os = ""macos"").dependencies",objc2-user-notifications,"""0.3""",37
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-shell/Cargo.toml,cargo,"target.cfg(target_os = ""macos"").dependencies",block2,"""0.6""",38
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-shell/Cargo.toml,cargo,"target.cfg(target_os = ""macos"").dependencies",objc2-app-kit,"{""version"": ""0.3"", ""features"": [""NSWindow"", ""NSButton"", ""NSControl"", ""NSView"", ""NSResponder"", ""NSPasteboard"", ""NSPasteboardItem""]}",39
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-shell/Cargo.toml,cargo,target.cfg(windows).dependencies,tauri-winrt-notification,"""0.7""",43
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-shell/Cargo.toml,cargo,target.cfg(windows).dependencies,windows,"{""package"": ""windows"", ""version"": ""0.61"", ""optional"": true, ""features"": [""Win32_Foundation"", ""Win32_System_Com"", ""Win32_System_DataExchange"", ""Win32_System_Memory"", ""Win32_System_Ole"", ""Win32_UI_Shell""]}",44
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-shell/Cargo.toml,cargo,target.cfg(windows).dependencies,webview2-com,"{""package"": ""webview2-com"", ""version"": ""0.38"", ""optional"": true}",52
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-shell/Cargo.toml,cargo,target.cfg(windows).dependencies,windows,"{""package"": ""windows"", ""version"": ""0.62"", ""optional"": true, ""features"": [""Win32_Foundation"", ""Win32_System_Com"", ""Win32_System_DataExchange"", ""Win32_System_Memory"", ""Win32_System_Ole"", ""Win32_UI_Shell""]}",53
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-shell/Cargo.toml,cargo,target.cfg(windows).dependencies,webview2-com,"{""package"": ""webview2-com"", ""version"": ""0.39"", ""optional"": true}",61
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-shell/example-app/Cargo.toml,cargo,build-dependencies,tauri-build,"""2""",11
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-shell/example-app/Cargo.toml,cargo,dependencies,tauri,"""2""",14
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-shell/example-app/Cargo.toml,cargo,dependencies,serde_json,"""1.0.150""",15
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-shell/example-app/Cargo.toml,cargo,dependencies,rightkit-shell,"{""path"": "".."", ""features"": [""engine""]}",16
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-shell/example-app/Cargo.toml,cargo,dependencies,rightkit-control,"{""path"": ""../../rightkit-control"", ""features"": [""tauri-plugin"", ""wv2-0_38""]}",17
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-shell/example-app/Cargo.toml,cargo,dependencies,rightkit-process,"{""path"": ""../../rightkit-process"", ""version"": ""0.3.0""}",18
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-shell/example-app/Cargo.toml,cargo,dependencies,rightkit-framed-sidecar,"{""path"": ""../../rightkit-framed-sidecar""}",19
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-shell/example-app/Cargo.toml,cargo,dev-dependencies,rightkit-qa,"{""path"": ""../../rightkit-qa""}",22
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-shell/example-app/Cargo.toml,cargo,dev-dependencies,serde_json,"""1.0.150""",15
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-speech-client/Cargo.toml,cargo,dependencies,rightkit-service,"{""version"": ""0.1.3"", ""path"": ""../rightkit-service""}",13
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-speech-client/Cargo.toml,cargo,dependencies,rightkit-framed-sidecar,"{""version"": ""0.2.0"", ""path"": ""../rightkit-framed-sidecar""}",14
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-speech-client/Cargo.toml,cargo,dependencies,rightkit-transcript,"{""version"": ""0.3.0"", ""path"": ""../rightkit-transcript""}",15
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-speech-client/Cargo.toml,cargo,dependencies,serde,"{""version"": ""1.0.228"", ""features"": [""derive""]}",16
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-speech-client/Cargo.toml,cargo,dependencies,serde_json,"""1.0.150""",17
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-speech-client/Cargo.toml,cargo,dev-dependencies,tempfile,"""3""",20
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-speech-client/Cargo.toml,cargo,target.cfg(windows).dev-dependencies,windows,"{""version"": ""0.62"", ""features"": [""Win32_Foundation"", ""Win32_Security"", ""Win32_Storage_FileSystem"", ""Win32_System_Pipes""]}",24
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-sync/Cargo.toml,cargo,dependencies,serde,"{""version"": ""1.0.228"", ""features"": [""derive""]}",16
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-sync/Cargo.toml,cargo,dependencies,serde_json,"""1.0.150""",17
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-sync/Cargo.toml,cargo,dependencies,rightkit-fs,"{""version"": ""0.3.3"", ""path"": ""../rightkit-fs"", ""default-features"": false, ""features"": [""fs""]}",18
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-tauri/Cargo.toml,cargo,dependencies,getrandom,"""0.3""",13
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-tauri/Cargo.toml,cargo,dependencies,rightkit-license,"{""version"": ""0.1.3"", ""path"": ""../rightkit-license""}",14
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-transcript/Cargo.toml,cargo,dependencies,serde,"{""version"": ""1.0.228"", ""features"": [""derive""]}",22
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-transcript/Cargo.toml,cargo,dependencies,serde_json,"""1.0.150""",23
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-transcript/Cargo.toml,cargo,dependencies,thiserror,"""2""",24
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-tts/Cargo.toml,cargo,dependencies,serde,"{""version"": ""1.0.228"", ""features"": [""derive""], ""optional"": true}",33
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-tts/Cargo.toml,cargo,dependencies,serde_json,"{""version"": ""1.0.150"", ""optional"": true}",34
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-tts/Cargo.toml,cargo,dependencies,thiserror,"{""version"": ""2"", ""optional"": true}",35
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-tts/Cargo.toml,cargo,dependencies,rightkit-fs,"{""version"": ""0.3.3"", ""path"": ""../rightkit-fs"", ""default-features"": false, ""features"": [""digest""], ""optional"": true}",36
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-tts/Cargo.toml,cargo,dependencies,rightkit-ort,"{""version"": ""0.2.2"", ""path"": ""../rightkit-ort"", ""default-features"": false, ""optional"": true}",37
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-tts/Cargo.toml,cargo,dependencies,rightkit-process,"{""version"": ""0.3.0"", ""path"": ""../rightkit-process"", ""optional"": true}",38
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-tts/Cargo.toml,cargo,dependencies,rightkit-transcript,"{""version"": ""0.3.0"", ""path"": ""../rightkit-transcript"", ""optional"": true}",39
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-tts/Cargo.toml,cargo,dependencies,rightkit-qts,"{""package"": ""rightkit-qts"", ""version"": ""0.2.6"", ""path"": ""../rightkit-qts"", ""optional"": true}",40
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-tts/Cargo.toml,cargo,target.cfg(unix).dependencies,libc,"{""version"": ""0.2"", ""optional"": true}",43
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-vad/Cargo.toml,cargo,dependencies,rightkit-ort,"{""path"": ""../rightkit-ort"", ""version"": ""0.2.2"", ""optional"": true}",28
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-vad/Cargo.toml,cargo,dev-dependencies,hound,"""3.5""",31
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-vad/Cargo.toml,cargo,dev-dependencies,rightkit-media,"{""path"": ""../rightkit-media"", ""version"": ""0.2.3""}",32
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-watch/Cargo.toml,cargo,dependencies,notify,"""8.2.0""",21
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-watch/Cargo.toml,cargo,dependencies,tokio,"{""version"": ""1.53.0"", ""features"": [""rt"", ""sync"", ""time"", ""macros""], ""optional"": true}",22
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-watch/Cargo.toml,cargo,dependencies,tracing,"""0.1""",23
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-watch/Cargo.toml,cargo,dev-dependencies,tempfile,"""3""",26
+rightkit,/Volumes/D/claude/rightkit/crates/rightkit-watch/Cargo.toml,cargo,dev-dependencies,tokio,"{""version"": ""1.53.0"", ""features"": [""rt-multi-thread"", ""macros"", ""time"", ""sync""]}",22
+rightkit,/Volumes/D/claude/rightkit/desktop-app-template/crates/engine/Cargo.toml,cargo,dependencies,rightapp-protocol,"{""path"": ""../protocol""}",13
+rightkit,/Volumes/D/claude/rightkit/desktop-app-template/crates/engine/Cargo.toml,cargo,dependencies,rightkit-jobs,"""=0.2.6""",15
+rightkit,/Volumes/D/claude/rightkit/desktop-app-template/crates/engine/Cargo.toml,cargo,dependencies,serde_json,"""1""",16
+rightkit,/Volumes/D/claude/rightkit/desktop-app-template/crates/protocol/Cargo.toml,cargo,dependencies,rightkit-jobs,"""=0.2.6""",10
+rightkit,/Volumes/D/claude/rightkit/desktop-app-template/crates/protocol/Cargo.toml,cargo,dependencies,rightkit-service,"""=0.1.3""",11
+rightkit,/Volumes/D/claude/rightkit/desktop-app-template/crates/tools/Cargo.toml,cargo,dependencies,serde_json,"{""version"": ""1"", ""features"": [""preserve_order""]}",14
+rightkit,/Volumes/D/claude/rightkit/desktop-app-template/package.json,npm,dependencies,@rightkit/app-shell,"""0.4.1""",42
+rightkit,/Volumes/D/claude/rightkit/desktop-app-template/package.json,npm,dependencies,@rightkit/logs,"""0.1.4""",43
+rightkit,/Volumes/D/claude/rightkit/desktop-app-template/package.json,npm,dependencies,@rightkit/platform-ui,"""0.2.0""",44
+rightkit,/Volumes/D/claude/rightkit/desktop-app-template/package.json,npm,dependencies,@rightkit/tauri,"""0.2.0""",45
+rightkit,/Volumes/D/claude/rightkit/desktop-app-template/package.json,npm,dependencies,@rightkit/updates,"""0.2.5""",46
+rightkit,/Volumes/D/claude/rightkit/desktop-app-template/package.json,npm,dependencies,@tauri-apps/api,"""^2.11.1""",47
+rightkit,/Volumes/D/claude/rightkit/desktop-app-template/package.json,npm,dependencies,@tauri-apps/plugin-os,"""2.4.0""",48
+rightkit,/Volumes/D/claude/rightkit/desktop-app-template/package.json,npm,dependencies,@tauri-apps/plugin-process,"""2.3.1""",49
+rightkit,/Volumes/D/claude/rightkit/desktop-app-template/package.json,npm,dependencies,@tauri-apps/plugin-updater,"""2.10.1""",50
+rightkit,/Volumes/D/claude/rightkit/desktop-app-template/package.json,npm,dependencies,react,"""^19.2.8""",51
+rightkit,/Volumes/D/claude/rightkit/desktop-app-template/package.json,npm,dependencies,react-dom,"""^19.2.8""",52
+rightkit,/Volumes/D/claude/rightkit/desktop-app-template/package.json,npm,devDependencies,@rightkit/release,"""0.2.151""",55
+rightkit,/Volumes/D/claude/rightkit/desktop-app-template/package.json,npm,devDependencies,@tailwindcss/vite,"""^4.3.3""",56
+rightkit,/Volumes/D/claude/rightkit/desktop-app-template/package.json,npm,devDependencies,@tauri-apps/cli,"""^2.11.4""",57
+rightkit,/Volumes/D/claude/rightkit/desktop-app-template/package.json,npm,devDependencies,@types/react,"""^19.2.18""",58
+rightkit,/Volumes/D/claude/rightkit/desktop-app-template/package.json,npm,devDependencies,@types/react-dom,"""^19.2.5""",59
+rightkit,/Volumes/D/claude/rightkit/desktop-app-template/package.json,npm,devDependencies,@vitejs/plugin-react,"""^6.1.0""",60
+rightkit,/Volumes/D/claude/rightkit/desktop-app-template/package.json,npm,devDependencies,tailwindcss,"""^4.3.3""",61
+rightkit,/Volumes/D/claude/rightkit/desktop-app-template/package.json,npm,devDependencies,typescript,"""^6.0.3""",62
+rightkit,/Volumes/D/claude/rightkit/desktop-app-template/package.json,npm,devDependencies,vite,"""^8.2.2""",63
+rightkit,/Volumes/D/claude/rightkit/desktop-app-template/src-tauri/Cargo.toml,cargo,build-dependencies,tauri-build,"{""version"": ""2"", ""features"": []}",18
+rightkit,/Volumes/D/claude/rightkit/desktop-app-template/src-tauri/Cargo.toml,cargo,build-dependencies,serde_json,"""1""",19
+rightkit,/Volumes/D/claude/rightkit/desktop-app-template/src-tauri/Cargo.toml,cargo,dependencies,rightapp-protocol,"{""path"": ""../crates/protocol""}",22
+rightkit,/Volumes/D/claude/rightkit/desktop-app-template/src-tauri/Cargo.toml,cargo,dependencies,tauri,"{""version"": ""2"", ""features"": [""protocol-asset""]}",23
+rightkit,/Volumes/D/claude/rightkit/desktop-app-template/src-tauri/Cargo.toml,cargo,dependencies,serde_json,"""1""",19
+rightkit,/Volumes/D/claude/rightkit/desktop-app-template/src-tauri/Cargo.toml,cargo,dependencies,tauri-plugin-os,"""=2.4.0""",27
+rightkit,/Volumes/D/claude/rightkit/desktop-app-template/src-tauri/Cargo.toml,cargo,dependencies,tauri-plugin-process,"""=2.3.1""",28
+rightkit,/Volumes/D/claude/rightkit/desktop-app-template/src-tauri/Cargo.toml,cargo,dependencies,tauri-plugin-updater,"""=2.10.1""",29
+rightkit,/Volumes/D/claude/rightkit/desktop-app-template/src-tauri/Cargo.toml,cargo,dependencies,rightkit-jobs,"""=0.2.6""",35
+rightkit,/Volumes/D/claude/rightkit/desktop-app-template/src-tauri/Cargo.toml,cargo,dependencies,rightkit-logs,"""=0.2.0""",37
+rightkit,/Volumes/D/claude/rightkit/desktop-app-template/src-tauri/Cargo.toml,cargo,dependencies,rightkit-process,"""=0.3.3""",39
+rightkit,/Volumes/D/claude/rightkit/desktop-app-template/src-tauri/Cargo.toml,cargo,dependencies,rightkit-service,"""=0.1.3""",41
+rightkit,/Volumes/D/claude/rightkit/desktop-app-template/src-tauri/Cargo.toml,cargo,dependencies,rightkit-shell,"{""version"": ""=0.1.4"", ""default-features"": false, ""features"": [""wv2-0_39""]}",43
+rightkit,/Volumes/D/claude/rightkit/desktop-app-template/src-tauri/Cargo.toml,cargo,dependencies,rightkit-tauri,"""=0.1.2""",45
+rightkit,/Volumes/D/claude/rightkit/packages/app-shell/package.json,npm,devDependencies,@rightkit/platform-ui,"""workspace:*""",40
+rightkit,/Volumes/D/claude/rightkit/packages/app-shell/package.json,npm,devDependencies,@rightkit/qa-chrome,"""workspace:*""",47
+rightkit,/Volumes/D/claude/rightkit/packages/app-shell/package.json,npm,devDependencies,@types/react,"""^19.0.0""",48
+rightkit,/Volumes/D/claude/rightkit/packages/app-shell/package.json,npm,devDependencies,@types/react-dom,"""^19.0.0""",49
+rightkit,/Volumes/D/claude/rightkit/packages/app-shell/package.json,npm,devDependencies,react,"""^19.0.0""",42
+rightkit,/Volumes/D/claude/rightkit/packages/app-shell/package.json,npm,devDependencies,react-dom,"""^19.0.0""",43
+rightkit,/Volumes/D/claude/rightkit/packages/app-shell/package.json,npm,devDependencies,typescript,"""^5.7.0""",52
+rightkit,/Volumes/D/claude/rightkit/packages/app-shell/package.json,npm,devDependencies,vite,"""^6.0.0""",53
+rightkit,/Volumes/D/claude/rightkit/packages/app-shell/package.json,npm,devDependencies,vitest,"""^2.1.8""",54
+rightkit,/Volumes/D/claude/rightkit/packages/app-shell/package.json,npm,peerDependencies,@rightkit/platform-ui,""">=0.2.2 <1""",40
+rightkit,/Volumes/D/claude/rightkit/packages/app-shell/package.json,npm,peerDependencies,@tauri-apps/plugin-os,""">=2 <3""",41
+rightkit,/Volumes/D/claude/rightkit/packages/app-shell/package.json,npm,peerDependencies,react,""">=18 <21""",42
+rightkit,/Volumes/D/claude/rightkit/packages/app-shell/package.json,npm,peerDependencies,react-dom,""">=18 <21""",43
+rightkit,/Volumes/D/claude/rightkit/packages/doc-render/package.json,npm,dependencies,@types/mdast,"""^4.0.4""",31
+rightkit,/Volumes/D/claude/rightkit/packages/doc-render/package.json,npm,dependencies,dompurify,"""^3.4.16""",32
+rightkit,/Volumes/D/claude/rightkit/packages/doc-render/package.json,npm,dependencies,github-slugger,"""^2.0.0""",33
+rightkit,/Volumes/D/claude/rightkit/packages/doc-render/package.json,npm,dependencies,remark-frontmatter,"""^5.0.0""",34
+rightkit,/Volumes/D/claude/rightkit/packages/doc-render/package.json,npm,dependencies,remark-gfm,"""^4.0.1""",35
+rightkit,/Volumes/D/claude/rightkit/packages/doc-render/package.json,npm,dependencies,remark-math,"""^6.0.0""",36
+rightkit,/Volumes/D/claude/rightkit/packages/doc-render/package.json,npm,dependencies,remark-parse,"""^11.0.0""",37
+rightkit,/Volumes/D/claude/rightkit/packages/doc-render/package.json,npm,dependencies,remark-smartypants,"""^3.0.3""",38
+rightkit,/Volumes/D/claude/rightkit/packages/doc-render/package.json,npm,dependencies,shiki,"""^4.4.3""",39
+rightkit,/Volumes/D/claude/rightkit/packages/doc-render/package.json,npm,dependencies,unified,"""^11.0.5""",40
+rightkit,/Volumes/D/claude/rightkit/packages/doc-render/package.json,npm,devDependencies,@rightkit/qa-chrome,"""workspace:*""",43
+rightkit,/Volumes/D/claude/rightkit/packages/doc-render/package.json,npm,devDependencies,@types/react,"""^19.0.0""",44
+rightkit,/Volumes/D/claude/rightkit/packages/doc-render/package.json,npm,devDependencies,@types/react-dom,"""^19.0.0""",45
+rightkit,/Volumes/D/claude/rightkit/packages/doc-render/package.json,npm,devDependencies,esbuild,"""^0.28.1""",46
+rightkit,/Volumes/D/claude/rightkit/packages/doc-render/package.json,npm,devDependencies,react,"""^19.0.0""",28
+rightkit,/Volumes/D/claude/rightkit/packages/doc-render/package.json,npm,devDependencies,react-dom,"""^19.0.0""",48
+rightkit,/Volumes/D/claude/rightkit/packages/doc-render/package.json,npm,devDependencies,typescript,"""^5.7.0""",49
+rightkit,/Volumes/D/claude/rightkit/packages/doc-render/package.json,npm,devDependencies,vitest,"""^2.1.8""",50
+rightkit,/Volumes/D/claude/rightkit/packages/doc-render/package.json,npm,peerDependencies,react,""">=18 <21""",28
+rightkit,/Volumes/D/claude/rightkit/packages/i18n/package.json,npm,devDependencies,@testing-library/jest-dom,"""^6.6.3""",14
+rightkit,/Volumes/D/claude/rightkit/packages/i18n/package.json,npm,devDependencies,@testing-library/react,"""^16.1.0""",15
+rightkit,/Volumes/D/claude/rightkit/packages/i18n/package.json,npm,devDependencies,@types/react,"""^19.0.0""",16
+rightkit,/Volumes/D/claude/rightkit/packages/i18n/package.json,npm,devDependencies,@types/react-dom,"""^19.0.0""",17
+rightkit,/Volumes/D/claude/rightkit/packages/i18n/package.json,npm,devDependencies,jsdom,"""^25.0.1""",18
+rightkit,/Volumes/D/claude/rightkit/packages/i18n/package.json,npm,devDependencies,react,"""^19.0.0""",12
+rightkit,/Volumes/D/claude/rightkit/packages/i18n/package.json,npm,devDependencies,typescript,"""^5.7.0""",20
+rightkit,/Volumes/D/claude/rightkit/packages/i18n/package.json,npm,devDependencies,vitest,"""^2.1.8""",21
+rightkit,/Volumes/D/claude/rightkit/packages/i18n/package.json,npm,peerDependencies,react,""">=18 <21""",12
+rightkit,/Volumes/D/claude/rightkit/packages/legal-ui/package.json,npm,devDependencies,@testing-library/jest-dom,"""^6.6.3""",31
+rightkit,/Volumes/D/claude/rightkit/packages/legal-ui/package.json,npm,devDependencies,@testing-library/react,"""^16.1.0""",32
+rightkit,/Volumes/D/claude/rightkit/packages/legal-ui/package.json,npm,devDependencies,@testing-library/user-event,"""^14.5.2""",33
+rightkit,/Volumes/D/claude/rightkit/packages/legal-ui/package.json,npm,devDependencies,@types/react,"""^19.0.0""",34
+rightkit,/Volumes/D/claude/rightkit/packages/legal-ui/package.json,npm,devDependencies,@types/react-dom,"""^19.0.0""",35
+rightkit,/Volumes/D/claude/rightkit/packages/legal-ui/package.json,npm,devDependencies,axe-core,"""4.12.1""",36
+rightkit,/Volumes/D/claude/rightkit/packages/legal-ui/package.json,npm,devDependencies,esbuild,"""^0.28.1""",37
+rightkit,/Volumes/D/claude/rightkit/packages/legal-ui/package.json,npm,devDependencies,jsdom,"""^25.0.1""",38
+rightkit,/Volumes/D/claude/rightkit/packages/legal-ui/package.json,npm,devDependencies,react,"""^19.0.0""",28
+rightkit,/Volumes/D/claude/rightkit/packages/legal-ui/package.json,npm,devDependencies,react-dom,"""^19.0.0""",40
+rightkit,/Volumes/D/claude/rightkit/packages/legal-ui/package.json,npm,devDependencies,typescript,"""^5.7.0""",41
+rightkit,/Volumes/D/claude/rightkit/packages/legal-ui/package.json,npm,devDependencies,vitest,"""^2.1.8""",42
+rightkit,/Volumes/D/claude/rightkit/packages/legal-ui/package.json,npm,peerDependencies,react,""">=18 <21""",28
+rightkit,/Volumes/D/claude/rightkit/packages/legal/package.json,npm,devDependencies,@types/node,"""^22.10.0""",21
+rightkit,/Volumes/D/claude/rightkit/packages/legal/package.json,npm,devDependencies,typescript,"""^5.7.0""",22
+rightkit,/Volumes/D/claude/rightkit/packages/legal/package.json,npm,devDependencies,vitest,"""^2.1.8""",23
+rightkit,/Volumes/D/claude/rightkit/packages/license/package.json,npm,devDependencies,@tauri-apps/plugin-http,"""^2""",21
+rightkit,/Volumes/D/claude/rightkit/packages/license/package.json,npm,devDependencies,@types/node,"""^22.10.0""",22
+rightkit,/Volumes/D/claude/rightkit/packages/license/package.json,npm,devDependencies,typescript,"""^5.7.0""",23
+rightkit,/Volumes/D/claude/rightkit/packages/license/package.json,npm,devDependencies,vitest,"""^2.1.8""",24
+rightkit,/Volumes/D/claude/rightkit/packages/license/package.json,npm,peerDependencies,@tauri-apps/plugin-http,"""^2""",21
+rightkit,/Volumes/D/claude/rightkit/packages/logs/package.json,npm,devDependencies,typescript,"""^5.7.0""",24
+rightkit,/Volumes/D/claude/rightkit/packages/logs/package.json,npm,devDependencies,vitest,"""^2.1.8""",25
+rightkit,/Volumes/D/claude/rightkit/packages/media-ui/package.json,npm,devDependencies,@rightkit/qa-chrome,"""workspace:*""",46
+rightkit,/Volumes/D/claude/rightkit/packages/media-ui/package.json,npm,devDependencies,@testing-library/dom,"""^10.4.0""",47
+rightkit,/Volumes/D/claude/rightkit/packages/media-ui/package.json,npm,devDependencies,@testing-library/react,"""^16.1.0""",48
+rightkit,/Volumes/D/claude/rightkit/packages/media-ui/package.json,npm,devDependencies,@types/react,"""^19.0.0""",49
+rightkit,/Volumes/D/claude/rightkit/packages/media-ui/package.json,npm,devDependencies,@types/react-dom,"""^19.0.0""",50
+rightkit,/Volumes/D/claude/rightkit/packages/media-ui/package.json,npm,devDependencies,esbuild,"""^0.28.1""",51
+rightkit,/Volumes/D/claude/rightkit/packages/media-ui/package.json,npm,devDependencies,fabric,"""^7.4.0""",32
+rightkit,/Volumes/D/claude/rightkit/packages/media-ui/package.json,npm,devDependencies,jsdom,"""^25.0.1""",53
+rightkit,/Volumes/D/claude/rightkit/packages/media-ui/package.json,npm,devDependencies,react,"""^19.0.0""",33
+rightkit,/Volumes/D/claude/rightkit/packages/media-ui/package.json,npm,devDependencies,react-dom,"""^19.0.0""",34
+rightkit,/Volumes/D/claude/rightkit/packages/media-ui/package.json,npm,devDependencies,react-image-crop,"""^11.1.2""",35
+rightkit,/Volumes/D/claude/rightkit/packages/media-ui/package.json,npm,devDependencies,typescript,"""^5.7.0""",57
+rightkit,/Volumes/D/claude/rightkit/packages/media-ui/package.json,npm,devDependencies,vitest,"""^2.1.8""",58
+rightkit,/Volumes/D/claude/rightkit/packages/media-ui/package.json,npm,peerDependencies,fabric,"""^7.4.0""",32
+rightkit,/Volumes/D/claude/rightkit/packages/media-ui/package.json,npm,peerDependencies,react,""">=18 <21""",33
+rightkit,/Volumes/D/claude/rightkit/packages/media-ui/package.json,npm,peerDependencies,react-dom,""">=18 <21""",34
+rightkit,/Volumes/D/claude/rightkit/packages/media-ui/package.json,npm,peerDependencies,react-image-crop,"""^11.1.2""",35
+rightkit,/Volumes/D/claude/rightkit/packages/onboarding/package.json,npm,devDependencies,@rightkit/app-shell,"""workspace:*""",27
+rightkit,/Volumes/D/claude/rightkit/packages/onboarding/package.json,npm,devDependencies,@rightkit/legal-ui,"""workspace:*""",28
+rightkit,/Volumes/D/claude/rightkit/packages/onboarding/package.json,npm,devDependencies,@rightkit/qa-chrome,"""workspace:*""",34
+rightkit,/Volumes/D/claude/rightkit/packages/onboarding/package.json,npm,devDependencies,@testing-library/jest-dom,"""^6.6.3""",35
+rightkit,/Volumes/D/claude/rightkit/packages/onboarding/package.json,npm,devDependencies,@testing-library/react,"""^16.1.0""",36
+rightkit,/Volumes/D/claude/rightkit/packages/onboarding/package.json,npm,devDependencies,@testing-library/user-event,"""^14.5.2""",37
+rightkit,/Volumes/D/claude/rightkit/packages/onboarding/package.json,npm,devDependencies,@types/react,"""^19.0.0""",38
+rightkit,/Volumes/D/claude/rightkit/packages/onboarding/package.json,npm,devDependencies,@types/react-dom,"""^19.0.0""",39
+rightkit,/Volumes/D/claude/rightkit/packages/onboarding/package.json,npm,devDependencies,jsdom,"""^25.0.1""",40
+rightkit,/Volumes/D/claude/rightkit/packages/onboarding/package.json,npm,devDependencies,react,"""^19.0.0""",29
+rightkit,/Volumes/D/claude/rightkit/packages/onboarding/package.json,npm,devDependencies,react-dom,"""^19.0.0""",42
+rightkit,/Volumes/D/claude/rightkit/packages/onboarding/package.json,npm,devDependencies,typescript,"""^5.7.0""",43
+rightkit,/Volumes/D/claude/rightkit/packages/onboarding/package.json,npm,devDependencies,vite,"""^6.0.0""",44
+rightkit,/Volumes/D/claude/rightkit/packages/onboarding/package.json,npm,devDependencies,vitest,"""^2.1.8""",45
+rightkit,/Volumes/D/claude/rightkit/packages/onboarding/package.json,npm,peerDependencies,@rightkit/app-shell,""">=0.2.0 <1""",27
+rightkit,/Volumes/D/claude/rightkit/packages/onboarding/package.json,npm,peerDependencies,@rightkit/legal-ui,""">=0.1.2 <1""",28
+rightkit,/Volumes/D/claude/rightkit/packages/onboarding/package.json,npm,peerDependencies,react,""">=18 <21""",29
+rightkit,/Volumes/D/claude/rightkit/packages/pdf-ui/package.json,npm,dependencies,pdfjs-dist,"""^6.3.289""",31
+rightkit,/Volumes/D/claude/rightkit/packages/pdf-ui/package.json,npm,devDependencies,@rightkit/qa-chrome,"""workspace:*""",34
+rightkit,/Volumes/D/claude/rightkit/packages/pdf-ui/package.json,npm,devDependencies,@types/react,"""^19.0.0""",35
+rightkit,/Volumes/D/claude/rightkit/packages/pdf-ui/package.json,npm,devDependencies,@types/react-dom,"""^19.0.0""",36
+rightkit,/Volumes/D/claude/rightkit/packages/pdf-ui/package.json,npm,devDependencies,esbuild,"""^0.28.1""",37
+rightkit,/Volumes/D/claude/rightkit/packages/pdf-ui/package.json,npm,devDependencies,react,"""^19.0.0""",28
+rightkit,/Volumes/D/claude/rightkit/packages/pdf-ui/package.json,npm,devDependencies,react-dom,"""^19.0.0""",39
+rightkit,/Volumes/D/claude/rightkit/packages/pdf-ui/package.json,npm,devDependencies,typescript,"""^5.7.0""",40
+rightkit,/Volumes/D/claude/rightkit/packages/pdf-ui/package.json,npm,devDependencies,vitest,"""^2.1.8""",41
+rightkit,/Volumes/D/claude/rightkit/packages/pdf-ui/package.json,npm,peerDependencies,react,""">=18 <21""",28
+rightkit,/Volumes/D/claude/rightkit/packages/platform-ui/package.json,npm,devDependencies,@tauri-apps/plugin-os,"""^2.3.2""",32
+rightkit,/Volumes/D/claude/rightkit/packages/platform-ui/package.json,npm,devDependencies,@types/react,"""^19.0.0""",37
+rightkit,/Volumes/D/claude/rightkit/packages/platform-ui/package.json,npm,devDependencies,react,"""^19.0.0""",33
+rightkit,/Volumes/D/claude/rightkit/packages/platform-ui/package.json,npm,devDependencies,typescript,"""^5.7.0""",39
+rightkit,/Volumes/D/claude/rightkit/packages/platform-ui/package.json,npm,devDependencies,vitest,"""^2.1.8""",40
+rightkit,/Volumes/D/claude/rightkit/packages/platform-ui/package.json,npm,peerDependencies,@tauri-apps/plugin-os,""">=2 <3""",32
+rightkit,/Volumes/D/claude/rightkit/packages/platform-ui/package.json,npm,peerDependencies,react,""">=18 <21""",33
+rightkit,/Volumes/D/claude/rightkit/packages/qa-chrome/package.json,npm,devDependencies,@types/node,"""^24.0.0""",29
+rightkit,/Volumes/D/claude/rightkit/packages/qa-chrome/package.json,npm,devDependencies,typescript,"""^5.7.0""",30
+rightkit,/Volumes/D/claude/rightkit/packages/qa-chrome/package.json,npm,devDependencies,vitest,"""^2.1.8""",31
+rightkit,/Volumes/D/claude/rightkit/packages/qa/package.json,npm,dependencies,@rightkit/qa-chrome,"""0.1.3""",34
+rightkit,/Volumes/D/claude/rightkit/packages/qa/package.json,npm,devDependencies,@types/node,"""^24.0.0""",37
+rightkit,/Volumes/D/claude/rightkit/packages/qa/package.json,npm,devDependencies,typescript,"""^5.7.0""",38
+rightkit,/Volumes/D/claude/rightkit/packages/qa/package.json,npm,devDependencies,vitest,"""^2.1.8""",39
+rightkit,/Volumes/D/claude/rightkit/packages/release/package.json,npm,dependencies,smol-toml,"""1.9.0""",39
+rightkit,/Volumes/D/claude/rightkit/packages/settings-ui/package.json,npm,devDependencies,@rightkit/qa-chrome,"""workspace:*""",41
+rightkit,/Volumes/D/claude/rightkit/packages/settings-ui/package.json,npm,devDependencies,@rightkit/shell,"""workspace:*""",33
+rightkit,/Volumes/D/claude/rightkit/packages/settings-ui/package.json,npm,devDependencies,@testing-library/jest-dom,"""^6.6.3""",43
+rightkit,/Volumes/D/claude/rightkit/packages/settings-ui/package.json,npm,devDependencies,@testing-library/react,"""^16.1.0""",44
+rightkit,/Volumes/D/claude/rightkit/packages/settings-ui/package.json,npm,devDependencies,@testing-library/user-event,"""^14.5.2""",45
+rightkit,/Volumes/D/claude/rightkit/packages/settings-ui/package.json,npm,devDependencies,@types/react,"""^19.0.0""",46
+rightkit,/Volumes/D/claude/rightkit/packages/settings-ui/package.json,npm,devDependencies,@types/react-dom,"""^19.0.0""",47
+rightkit,/Volumes/D/claude/rightkit/packages/settings-ui/package.json,npm,devDependencies,jsdom,"""^25.0.1""",48
+rightkit,/Volumes/D/claude/rightkit/packages/settings-ui/package.json,npm,devDependencies,react,"""^19.0.0""",38
+rightkit,/Volumes/D/claude/rightkit/packages/settings-ui/package.json,npm,devDependencies,react-dom,"""^19.0.0""",50
+rightkit,/Volumes/D/claude/rightkit/packages/settings-ui/package.json,npm,devDependencies,typescript,"""^5.7.0""",51
+rightkit,/Volumes/D/claude/rightkit/packages/settings-ui/package.json,npm,devDependencies,vite,"""^6.0.0""",52
+rightkit,/Volumes/D/claude/rightkit/packages/settings-ui/package.json,npm,devDependencies,vitest,"""^2.1.8""",53
+rightkit,/Volumes/D/claude/rightkit/packages/settings-ui/package.json,npm,peerDependencies,@rightkit/app-shell,""">=0.2.0 <1""",32
+rightkit,/Volumes/D/claude/rightkit/packages/settings-ui/package.json,npm,peerDependencies,@rightkit/shell,""">=0.1.0 <1""",33
+rightkit,/Volumes/D/claude/rightkit/packages/settings-ui/package.json,npm,peerDependencies,@rightkit/license,""">=0.1.0""",34
+rightkit,/Volumes/D/claude/rightkit/packages/settings-ui/package.json,npm,peerDependencies,@rightkit/logs,""">=0.1.0""",35
+rightkit,/Volumes/D/claude/rightkit/packages/settings-ui/package.json,npm,peerDependencies,@rightkit/theme,""">=0.2.0 <1""",36
+rightkit,/Volumes/D/claude/rightkit/packages/settings-ui/package.json,npm,peerDependencies,@rightkit/updates,""">=0.2.0""",37
+rightkit,/Volumes/D/claude/rightkit/packages/settings-ui/package.json,npm,peerDependencies,react,""">=18 <21""",38
+rightkit,/Volumes/D/claude/rightkit/packages/shell/package.json,npm,devDependencies,typescript,"""^5.7.0""",23
+rightkit,/Volumes/D/claude/rightkit/packages/tauri/package.json,npm,dependencies,@rightkit/logs,"""^0.1.4""",19
+rightkit,/Volumes/D/claude/rightkit/packages/tauri/package.json,npm,devDependencies,typescript,"""^5.7.0""",31
+rightkit,/Volumes/D/claude/rightkit/packages/tauri/package.json,npm,devDependencies,vitest,"""^2.1.8""",32
+rightkit,/Volumes/D/claude/rightkit/packages/tauri/package.json,npm,peerDependencies,@rightkit/updates,"""^0.2.5""",22
+rightkit,/Volumes/D/claude/rightkit/packages/theme/package.json,npm,devDependencies,@rightkit/qa-chrome,"""workspace:*""",32
+rightkit,/Volumes/D/claude/rightkit/packages/theme/package.json,npm,devDependencies,@types/node,"""^24.0.0""",33
+rightkit,/Volumes/D/claude/rightkit/packages/theme/package.json,npm,devDependencies,typescript,"""^5.7.0""",34
+rightkit,/Volumes/D/claude/rightkit/packages/theme/package.json,npm,devDependencies,vitest,"""^2.1.8""",35
+rightkit,/Volumes/D/claude/rightkit/packages/update/package.json,npm,dependencies,@rightkit/git,"""workspace:^""",39
+rightkit,/Volumes/D/claude/rightkit/packages/update/package.json,npm,dependencies,smol-toml,"""1.9.0""",40
+rightkit,/Volumes/D/claude/rightkit/packages/update/package.json,npm,devDependencies,@types/node,"""^24.0.0""",43
+rightkit,/Volumes/D/claude/rightkit/packages/update/package.json,npm,devDependencies,typescript,"""^5.7.0""",44
+rightkit,/Volumes/D/claude/rightkit/packages/update/package.json,npm,devDependencies,vitest,"""^2.1.8""",45
+rightkit,/Volumes/D/claude/rightkit/packages/updates/package.json,npm,devDependencies,typescript,"""^5.7.0""",24
+rightkit,/Volumes/D/claude/rightkit/packages/updates/package.json,npm,devDependencies,vitest,"""^2.1.8""",25

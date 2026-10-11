@@ -1,0 +1,80 @@
+{
+  "schemaVersion": 1,
+  "kind": "legion-lens-result",
+  "provider": "reasoning.release-readiness",
+  "packetDigest": "sha256:5463d0a00e2746bbd5636881bd71e639b2a2e93a1a6062fa77d7672ea9d71b06",
+  "planDigest": "sha256:9b12c99c2ec21897dd8297a438f3fb1c1a2f405593c6db0fa4e9b89a6c6b5042",
+  "complete": false,
+  "findings": [
+    {
+      "id": "release-f1-current-publication-gate-evidence-unavailable",
+      "lens": "release-readiness",
+      "severity": "high",
+      "confidence": "confirmed",
+      "evidence": [
+        "docs/audits/fresh-2026-10-11/evidence/publication-review.md:100",
+        "packages/release/publication-gate.mjs:34-48",
+        "packages/release/publication-gate.mjs:55-68"
+      ],
+      "failureScenario": "No public unit has gate evidence bound to current HEAD. The gate rejects a receipt when its commit differs from HEAD, its package path is dirty, a required host receipt is absent, or its artifact digest is invalid. A release from this snapshot therefore lacks current qualification evidence; stale receipts cannot establish release readiness.",
+      "action": "From a clean, release-candidate commit, create fresh per-unit evidence with matching version, required host receipts, and sealed artifact digest; package and install each unit before release qualification.",
+      "verifyStatus": "verified",
+      "verificationMethod": "Compared current HEAD against all 60 local gate evidence commits; zero matched current HEAD. Confirmed the fail-closed checks in live publication-gate source.",
+      "sourceLocation": "packages/release/publication-gate.mjs:48",
+      "sourceQuote": "    else if (head && evidence.commit !== head) missing.push(`evidence commit ${evidence.commit} != current HEAD ${head}`);",
+      "anchor": {
+        "path": "packages/release/publication-gate.mjs",
+        "line": 48,
+        "text": "    else if (head && evidence.commit !== head) missing.push(`evidence commit ${evidence.commit} != current HEAD ${head}`);"
+      }
+    },
+    {
+      "id": "release-f2-runtime-budget-gate-is-declaration-only",
+      "lens": "release-readiness",
+      "severity": "high",
+      "confidence": "confirmed",
+      "evidence": [
+        "docs/RUNTIME-BUDGETS.md:7-13",
+        "packages/release/runtime-budgets.mjs:26-38",
+        "packages/release/runtime-budgets.mjs:88-109",
+        "packages/release/publish-cargo.mjs:118-125",
+        "crates/rightkit-daemon/Cargo.toml:1-10",
+        "crates/rightkit-send/Cargo.toml:1-13"
+      ],
+      "failureScenario": "The runtime rule requires measured ceiling, CPU, disk activity, runtime exposure, and first-consumer scale evidence, but cargo publication only parses a README section for resident, CPU, and one Measured line. It does not validate a run artifact or those omitted proof fields. Two listed continuous crates, daemon and send, are private and bypass cargo publication entirely, so app adoption can occur without this gate.",
+      "action": "Make release/adoption qualification require a structured measured receipt with ceiling, CPU, disk, runtime-status, and scale-run fields. Apply it to private app-adopted crates and add continuous owners such as process and models to required membership after owner review.",
+      "verifyStatus": "verified",
+      "verificationMethod": "Read rule, checker, and cargo publish path; verified all 11 listed READMEs lack the required heading and verified daemon/send set publish = false.",
+      "sourceLocation": "packages/release/runtime-budgets.mjs:88",
+      "sourceQuote": "export function checkRuntimeBudgetReadme(readmeText) {",
+      "anchor": {
+        "path": "packages/release/runtime-budgets.mjs",
+        "line": 88,
+        "text": "export function checkRuntimeBudgetReadme(readmeText) {"
+      }
+    },
+    {
+      "id": "release-f3-standalone-install-portability-unqualified",
+      "lens": "release-readiness",
+      "severity": "medium",
+      "confidence": "confirmed",
+      "evidence": [
+        "docs/audits/fresh-2026-10-11/evidence/publication-review.md:102",
+        "packages/release/publish-cargo.mjs:54-67"
+      ],
+      "failureScenario": "Archive declarations describe intended contents, but no current package archive or fresh install establishes that every public unit resolves independently. Cargo's publication plan checks package contents and registry dry-run, but current review has no executed portability receipt; npm and Swift parity is likewise unqualified.",
+      "action": "Record fresh package/archive and clean-install receipts for each public unit across required consumer platforms before release readiness is claimed.",
+      "verifyStatus": "verified",
+      "verificationMethod": "Validated the review's no-pack/no-install boundary against the live cargo publication plan; no execution was run for this lens.",
+      "sourceLocation": "packages/release/publish-cargo.mjs:57",
+      "sourceQuote": "    { label: \"package contents\", command: \"cargo\", args: packageArgs, capture: true },",
+      "anchor": {
+        "path": "packages/release/publish-cargo.mjs",
+        "line": 57,
+        "text": "    { label: \"package contents\", command: \"cargo\", args: packageArgs, capture: true },"
+      }
+    }
+  ],
+  "withdrawn": [],
+  "details": null
+}

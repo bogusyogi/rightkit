@@ -1,0 +1,96 @@
+{
+  "schemaVersion": 1,
+  "kind": "legion-lens-result",
+  "provider": "reasoning.correctness",
+  "packetDigest": "sha256:7ed45e3d4702d45abbe98dc0ef0afc0b8104111824dda842d05d0716c10a3645",
+  "planDigest": "sha256:9b12c99c2ec21897dd8297a438f3fb1c1a2f405593c6db0fa4e9b89a6c6b5042",
+  "complete": false,
+  "findings": [
+    {
+      "id": "swift-f1-parakeet-unsynchronized-state",
+      "lens": "correctness",
+      "severity": "high",
+      "confidence": "confirmed",
+      "evidence": [
+        "swift/RightKitSwift/Sources/RightKitSpeech/SpeechEngines.swift:61-103",
+        "swift/RightKitSwift/Sources/RightKitSpeech/ParakeetRuntime.swift:117-138"
+      ],
+      "failureScenario": "ParakeetEngine is advertised as Sendable while vocabulary is publicly mutable. A caller can mutate vocabulary while transcribe, transcribeBlocking, or transcribeStaticWindow reads it, producing an unsynchronised Array access and nondeterministic bias selection. Async transcribe also launches detached work against one shared runtime; no single-flight guard is present, so concurrent Core ML stage use is unqualified.",
+      "action": "Serialize vocabulary access and runtime decode through an actor or lock, or make per-call immutable options the only input. Add concurrent mutation and concurrent decode coverage before claiming Sendable safety.",
+      "verifyStatus": "verified",
+      "verificationMethod": "adversarial-skeptic-pass",
+      "sourceLocation": "swift/RightKitSwift/Sources/RightKitSpeech/SpeechEngines.swift:88",
+      "sourceQuote": "    public var vocabulary: [String] = []",
+      "anchor": {
+        "path": "swift/RightKitSwift/Sources/RightKitSpeech/SpeechEngines.swift",
+        "line": 88,
+        "text": "    public var vocabulary: [String] = []"
+      }
+    },
+    {
+      "id": "swift-f2-legacy-dictation-stale-setup",
+      "lens": "correctness",
+      "severity": "high",
+      "confidence": "confirmed",
+      "evidence": [
+        "swift/RightKitSwift/Sources/RightKitSpeech/LiveDictationSession.swift:77-81",
+        "swift/RightKitSwift/Sources/RightKitSpeech/LiveDictationSession.swift:128-166"
+      ],
+      "failureScenario": "stop increments generation, cancels startTask, and tears down currently stored resources. beginLegacy then performs synchronous engine.start and recognitionTask setup before storing engine, tap, request, and task. If stop wins during that window, teardown sees nil and stale resources are stored afterward; they keep the tap, audio engine, and recognition task alive after stop, while the stale callback only suppresses events.",
+      "action": "Keep setup resources local, recheck generation after each blocking setup boundary, and tear down local resources when stale before publishing state. Publish through a generation-owned state machine.",
+      "verifyStatus": "verified",
+      "verificationMethod": "adversarial-skeptic-pass",
+      "sourceLocation": "swift/RightKitSwift/Sources/RightKitSpeech/LiveDictationSession.swift:146",
+      "sourceQuote": "        try engine.start()",
+      "anchor": {
+        "path": "swift/RightKitSwift/Sources/RightKitSpeech/LiveDictationSession.swift",
+        "line": 146,
+        "text": "        try engine.start()"
+      }
+    },
+    {
+      "id": "swift-f3-cloud-sync-cross-process-lost-update",
+      "lens": "correctness",
+      "severity": "high",
+      "confidence": "confirmed",
+      "evidence": [
+        "swift/RightKitSwift/Sources/RightKitCloudSync/SyncStateStore.swift:73-112",
+        "swift/RightKitSwift/Sources/RightKitCloudSync/CloudSyncEngine.swift:48-112",
+        "swift/RightKitSwift/Sources/RightKitCloudSync/CloudSyncEngine.swift:693-693"
+      ],
+      "failureScenario": "FileSyncStateStore documents an App Group file usable by an app and extension, but load and save take no cross-process lock. Two CloudSyncEngine instances can load one ledger, make disjoint token/version/tombstone changes, then atomically replace the file; the later replacement silently loses the earlier state. Atomic replacement prevents torn bytes but cannot prevent read-modify-write loss.",
+      "action": "Guard load, corrupt-file quarantine, and save with one shared App Group lock, or expose a locked transactional update primitive. Add two-process interleaving coverage for merge and quarantine paths.",
+      "verifyStatus": "verified",
+      "verificationMethod": "adversarial-skeptic-pass",
+      "sourceLocation": "swift/RightKitSwift/Sources/RightKitCloudSync/SyncStateStore.swift:94",
+      "sourceQuote": "    public func save(_ state: CloudSyncState) throws {",
+      "anchor": {
+        "path": "swift/RightKitSwift/Sources/RightKitCloudSync/SyncStateStore.swift",
+        "line": 94,
+        "text": "    public func save(_ state: CloudSyncState) throws {"
+      }
+    },
+    {
+      "id": "swift-f4-watcher-unbounded-buffer",
+      "lens": "correctness",
+      "severity": "medium",
+      "confidence": "confirmed",
+      "evidence": [
+        "swift/RightKitSwift/Sources/RightKitWatch/RightKitWatch.swift:159-185",
+        "swift/RightKitSwift/Sources/RightKitWatch/RightKitWatch.swift:261-269"
+      ],
+      "failureScenario": "RightKitWatcher creates an AsyncStream with an unbounded buffering policy while FSEvents callbacks yield continuously. A stalled or never-started consumer lets pending events grow without a memory bound until stop or termination; the documented stop path does not protect a retained watcher whose consumer is merely slow.",
+      "action": "Use a bounded policy with explicit drop-to-rescan behavior, or let callers choose policy and document a memory bound. Preserve event-loss signaling through mustRescan.",
+      "verifyStatus": "verified",
+      "verificationMethod": "adversarial-skeptic-pass",
+      "sourceLocation": "swift/RightKitSwift/Sources/RightKitWatch/RightKitWatch.swift:181",
+      "sourceQuote": "        let (stream, continuation) = AsyncStream<RightKitWatchEvent>.makeStream(bufferingPolicy: .unbounded)",
+      "anchor": {
+        "path": "swift/RightKitSwift/Sources/RightKitWatch/RightKitWatch.swift",
+        "line": 181,
+        "text": "        let (stream, continuation) = AsyncStream<RightKitWatchEvent>.makeStream(bufferingPolicy: .unbounded)"
+      }
+    }
+  ],
+  "withdrawn": []
+}

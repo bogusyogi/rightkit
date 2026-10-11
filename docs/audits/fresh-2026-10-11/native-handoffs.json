@@ -1,0 +1,75 @@
+[
+  {
+    "id": "NATIVE-01",
+    "status": "proposed; conditional compatibility/qualification",
+    "review_rows": [
+      "| HeardRight credential helper is per-request JSON CLI, with allowlisted accounts/service/access group, scope commands, & Security implementation (`heardright/tauri-app-next/macos-native/HeardRightPillMac/Sources/HeardRightAppleCredentials/main.swift:1-73,165-284`). Package comments say Rust cannot call synchronizable Security APIs (`Package.swift:21-27`). No current RightKit import/call is present. | `RightKitAppleCredentials` has synced/device scopes, status/read/write/delete/copy APIs (`rightkit/swift/RightKitSwift/Sources/RightKitAppleCredentials/RightKitAppleCredentials.swift:8-12,30-38,102-147`); Rust `rightkit-secrets` has matching helper wire calls (`rightkit/crates/rightkit-secrets/src/apple_helper.rs:1-5,17-31,47-65,120-158`). | **Proposed migration.** Qualify needed API, publish version, exact-tag pin, then replace duplicate Security code. Keep HeardRight account allowlist, service, access-group, entitlement, & JSON boundary. | `NATIVE-01`: compare wire/status/error semantics; do not target unpublished `0.6.0`; after qualification/publish, pin exact compatible tag & remove local Security query/write/delete code. |"
+    ],
+    "evidence": "/Volumes/D/claude/rightkit/docs/audits/fresh-2026-10-11/evidence/native-migration-review.md"
+  },
+  {
+    "id": "NATIVE-02",
+    "status": "proposed; conditional compatibility/qualification",
+    "review_rows": [
+      "| HeardRight pill owns AppKit panel, event bridge, animation, splash/hub transitions, clipboard, & product callbacks (`/Volumes/D/claude/heardright/tauri-app-next/macos-native/HeardRightPillMac/Sources/HeardRightPillMac/PillBridge.swift:1-21,81-219`; `PillPanel.swift:6,131,197`). No current RightKit import/call is present. | `RightKitOverlay` owns pill/notch kind, mode/event, rect placement/hit testing, non-activating panel, click-through, & show-without-activation (`/Volumes/D/claude/rightkit/swift/RightKitSwift/Sources/RightKitOverlay/Overlay.swift:8-19,21-45,81-172,174-230`). | **Proposed migration.** Qualify needed API, publish version, exact-tag pin, then adopt generic model/panel/hit regions; retain `PillBridge`, animations, product callbacks, splash, hub, & C ABI. | `NATIVE-02`: map existing frame/mode/event state; after qualification/publish, pin exact tag & delete only duplicate panel geometry/click-through code. |"
+    ],
+    "evidence": "/Volumes/D/claude/rightkit/docs/audits/fresh-2026-10-11/evidence/native-migration-review.md"
+  },
+  {
+    "id": "NATIVE-03",
+    "status": "proposed; conditional compatibility/qualification",
+    "review_rows": [
+      "| HeardRight CloudSync helper is a CloudKit JSON CLI with Transcript schema, custom zone, token/change baseline, tombstones, aliases, empty-tag rules, entitlement gate, & diagnostics (`/Volumes/D/claude/heardright/tauri-app-next/macos-native/HeardRightPillMac/Sources/HeardRightCloudSync/CloudSyncMain.swift:1-19,21-78,82-178,368-418,468-527,1083-1215`). No current RightKit import/call is present. | `RightKitCloudSync` supplies adapter, transport, retry, direct read/write, tombstone, account-change, coordinator, & CloudKit transport (`/Volumes/D/claude/rightkit/swift/RightKitSwift/Sources/RightKitCloudSync/SyncAdapter.swift:3-115`; `CloudSyncEngine.swift:31-55,94-209,221-243`; `CloudSyncCoordinator.swift:3-134`). Rust `rightkit-sync` explicitly lists HeardRight desktop migration (`/Volumes/D/claude/rightkit/crates/rightkit-sync/API.md:154`). | **Proposed migration.** Qualify Swift or Rust owner against Transcript contract, publish version, exact-tag pin, then migrate generic sync. Retain Transcript mapping, conflict policy, baseline/system fields, entitlement, scope hash, JSON protocol, & Rust-facing diagnostics until parity is proven. | `NATIVE-03`: compare pull/commit/push response contracts, choose qualified owner, publish/pin it, then delete local sync paths only after parity. |"
+    ],
+    "evidence": "/Volumes/D/claude/rightkit/docs/audits/fresh-2026-10-11/evidence/native-migration-review.md"
+  },
+  {
+    "id": "NATIVE-04",
+    "status": "proposed; conditional compatibility/qualification",
+    "review_rows": [
+      "| HeardRight App Intents helper validates five actions, writes an app-group command, & wakes app through Darwin notification (`/Volumes/D/claude/heardright/tauri-app-next/macos-native/HeardRightPillMac/Sources/HeardRightShortcuts/main.swift:15-72,94-180`). No current RightKit import/call is present. | `RightKitIntents` owns recording action/error, mic permission handshake, queue fallback, & Darwin notification (`/Volumes/D/claude/rightkit/swift/RightKitSwift/Sources/RightKitIntents/RecordingBridge.swift:7-20,22-69,75-137`). | **Proposed migration.** Qualify needed API, publish version, exact-tag pin, then reuse bridge primitives; retain HeardRight intents, command names, app-group path, cold-start behavior, & menu policy. | `NATIVE-04`: after qualification/publish, wrap `RightKitRecordingBridge` behind existing ShortcutAction/CommandStore; remove only duplicate queue/notification plumbing. |"
+    ],
+    "evidence": "/Volumes/D/claude/rightkit/docs/audits/fresh-2026-10-11/evidence/native-migration-review.md"
+  },
+  {
+    "id": "NATIVE-05",
+    "status": "proposed; conditional compatibility/qualification",
+    "review_rows": [
+      "| Pulse foreign credential reader enumerates generic-password attributes, selects newest persistent ref, supports no-prompt vs interactive read, retries via `/usr/bin/security`, & decodes provider JSON (`/Volumes/D/claude/pulse/mac/Notch/Sources/Providers/KeychainItem.swift:1-25,26-103`; `ClaudeCredentials.swift:28-93,96-131`). No current RightKit import/call is present. | `ForeignGenericPassword` is explicitly read-only legacy file-Keychain, newest-by-modification, persistent-ref read, no-prompt/allow-prompt (`/Volumes/D/claude/rightkit/swift/RightKitSwift/Sources/RightKitAppleCredentials/ForeignGenericPassword.swift:7-27,28-97,101-173`). `AppleCredentialStore` is for own access-group items, so it is not a match. | **Proposed migration.** Qualify needed API, publish version, exact-tag pin, then replace generic enumeration/read implementation; retain Claude services, `/usr/bin/security` rescue policy, cache/backoff, JSON decode, status mapping, & Codex file/JWT reader (`CodexCredentials.swift:3-32`). Rust `rightkit-secrets` is not a replacement for foreign app reads. | `NATIVE-05`: verify rescue/error equivalence; after qualification/publish, pin exact tag, migrate `KeychainItem` to `ForeignGenericPassword`, & retain provider policy. |"
+    ],
+    "evidence": "/Volumes/D/claude/rightkit/docs/audits/fresh-2026-10-11/evidence/native-migration-review.md"
+  },
+  {
+    "id": "NATIVE-06",
+    "status": "proposed; conditional compatibility/qualification",
+    "review_rows": [
+      "| Pulse notch is non-activating borderless panel with custom hit testing, drag/menu callbacks, status-bar level, all-spaces/full-screen behavior (`/Volumes/D/claude/pulse/mac/Notch/Sources/Notch/NotchPanel.swift:3-6,24-49,73-94`); controller repeatedly toggles `ignoresMouseEvents` from product interactive rects (`NotchWindowController.swift:1393-1411`). No current RightKit import/call is present. | `RightKitOverlayPanel`, `RightKitOverlayModel`, & `RightKitOverlayHitRegions` cover non-activating panel, placement, hit testing, & click-through (`/Volumes/D/claude/rightkit/swift/RightKitSwift/Sources/RightKitOverlay/Overlay.swift:118-230`). | **Proposed migration.** Qualify needed API, publish version, exact-tag pin, then adopt panel/model/hit-region primitives; retain notch fleet, hover/fold timers, full-screen detector, display assignment, drag policy, SwiftUI content, & menu callbacks. | `NATIVE-06`: map notch interactive rects to RightKit hit regions; after qualification/publish, delete only duplicate generic panel/click-through code. |"
+    ],
+    "evidence": "/Volumes/D/claude/rightkit/docs/audits/fresh-2026-10-11/evidence/native-migration-review.md"
+  },
+  {
+    "id": "NATIVE-07",
+    "status": "proposed; conditional compatibility/qualification",
+    "review_rows": [
+      "| Pulse watchers own Claude profile/session lifecycle, PID/session semantics, JSONL tailing, debounce, & provider state (`/Volumes/D/claude/pulse/mac/Notch/Sources/Sessions/ClaudeSessionMonitor.swift`); Pi monitor uses FSEventStream file events/no-defer & custom latency (`/Volumes/D/claude/pulse/mac/Notch/Sources/Sessions/PiResponseMonitor.swift:39-85`). No current RightKit import/call is present. | `RightKitWatch` is a typed macOS FSEvents `AsyncStream` with IDs, root/item events, latency, flush, stop, & rescan reasons (`/Volumes/D/claude/rightkit/swift/RightKitSwift/Sources/RightKitWatch/RightKitWatch.swift:3-23,25-68,70-157,201-290`). Rust `rightkit-watch` is a separate notify watcher for Rust hosts. | **Proposed migration.** Qualify needed API, publish version, exact-tag pin, then translate RightKit events into existing session/provider monitors; retain path ownership, JSONL parsing, debounce, PID checks, & provider policy. | `NATIVE-07`: replace raw FSEventStream setup only after qualification/publish & event/order/rescan parity; no wholesale monitor rewrite. |"
+    ],
+    "evidence": "/Volumes/D/claude/rightkit/docs/audits/fresh-2026-10-11/evidence/native-migration-review.md"
+  },
+  {
+    "id": "NATIVE-08",
+    "status": "proposed; conditional compatibility/qualification",
+    "review_rows": [
+      "| Pulse Preferences/UserDefaults, SQLite usage/history, & NearbySharing are product data/policy stores; repository scan shows no existing RightKit command-queue adoption. | `RightKitStore` owns App Group file lock, owner lease, revisioned state, & bounded crash-safe command queue (`rightkit/swift/RightKitSwift/Sources/RightKitStore/RevisionedStateStore.swift:3-37`; `AppGroupCommandQueue.swift:3-18,18-47,51-149`). | **Keep local unless seam is proven.** Use RightKitStore only for a matching cross-process queue/state boundary; it does not replace Preferences migrations or SQLite history. | `NATIVE-08`: inventory one concrete Pulse cross-process queue before adoption; otherwise no change. |"
+    ],
+    "evidence": "/Volumes/D/claude/rightkit/docs/audits/fresh-2026-10-11/evidence/native-migration-review.md"
+  },
+  {
+    "id": "NATIVE-09",
+    "status": "proposed; conditional compatibility/qualification",
+    "review_rows": [
+      "| Xtool Swift helper implements AX tree/window/focus, CGEvent mouse/key input, permission checks, screenshot capture, target validation, & long-lived JSON C ABI (`xtool/native/macos-desktop-helper/main.swift:62-108,110-220,278-529,535-730,734-970,1362-1432,1437-1644`). Node starts/serializes/retire-spawns helper (`xtool/src/main/computer/index.ts:302-314,316-473,675-769`). | `rightkit-automation` is brand-neutral Rust AX/UIA automation for macOS/Windows, with focus, trees, capture, input ladder, kill switch, allow/deny policy, freshness, & receipts (`rightkit/crates/rightkit-automation/README.md:3-34`; `src/lib.rs:1-28`; `src/platform.rs:43-107`). | **Proposed migration.** Rust is a strong host-compatible owner, but only through a Node/Rust bridge preserving serial JSON, exact window/frame generation, screenshot bounds, permission errors, & Windows parity. No RightKitSwift replacement. | `NATIVE-09`: define bridge contract and compare behavior; migrate one operation family at a time. Keep current Swift helper until bridge parity exists. |",
+      "| Xtool Node owns helper process spawn/retire/queue; Swift helper has no generic RightKit process wrapper. | `rightkit-process` can own a RightKit-launched child tree; current `rightkit-automation` is explicitly in-process/no daemon (`rightkit/crates/rightkit-automation/README.md:27-34`). | **Proposed migration.** Consider Rust process ownership only with the automation bridge; do not force Node or Swift to adopt unrelated process APIs. | Fold into `NATIVE-09` only if lifecycle semantics are preserved. |"
+    ],
+    "evidence": "/Volumes/D/claude/rightkit/docs/audits/fresh-2026-10-11/evidence/native-migration-review.md"
+  }
+]

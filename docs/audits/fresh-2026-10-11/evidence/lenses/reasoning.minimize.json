@@ -1,0 +1,62 @@
+{
+  "schemaVersion": 1,
+  "kind": "legion-lens-result",
+  "provider": "reasoning.minimize",
+  "packetDigest": "sha256:eff8e8b869b3cd99d0a01327831c58a3d3c2453e0820801a3c08d408853a0445",
+  "planDigest": "sha256:9b12c99c2ec21897dd8297a438f3fb1c1a2f405593c6db0fa4e9b89a6c6b5042",
+  "complete": false,
+  "findings": [
+    {
+      "id": "minimize-f1-settings-ui-unused-shell-edge",
+      "lens": "minimize",
+      "severity": "low",
+      "confidence": "confirmed",
+      "evidence": [
+        "packages/settings-ui/package.json:33",
+        "packages/settings-ui/package.json:42",
+        "packages/settings-ui/src/shell-adapter.ts:3-5",
+        "packages/settings-ui/dist/shell-adapter.d.ts:3-5",
+        "packages/settings-ui/src/shell-adapter.ts:4"
+      ],
+      "failureScenario": "@rightkit/settings-ui declares @rightkit/shell as optional peer plus workspace development edge although its shell adapter accepts a structural engine shape and emitted declarations name no shell module. That preserves an unused package relation, broadens package metadata, and leaves two unnecessary version surfaces to maintain.",
+      "action": "Remove only @rightkit/shell peer, peer metadata, and dev edge. Then run focused typecheck/test plus packed-consumer verification before publication.",
+      "verifyStatus": "unverified",
+      "verificationMethod": "Current source and checked-in declaration were inspected; no build, test, or pack operation ran.",
+      "sourceLocation": "packages/settings-ui/src/shell-adapter.ts:4",
+      "sourceQuote": " * described structurally, so this module needs no runtime or type import from `@rightkit/shell`; any",
+      "ponytailTag": "delete",
+      "anchor": {
+        "path": "packages/settings-ui/src/shell-adapter.ts",
+        "line": 4,
+        "text": " * described structurally, so this module needs no runtime or type import from `@rightkit/shell`; any"
+      }
+    },
+    {
+      "id": "minimize-f2-template-duplicate-rightkit-service-edge",
+      "lens": "minimize",
+      "severity": "low",
+      "confidence": "confirmed",
+      "evidence": [
+        "desktop-app-template/src-tauri/Cargo.toml:41",
+        "desktop-app-template/src-tauri/src/lib.rs:12",
+        "desktop-app-template/src-tauri/src/diagnostics.rs:8",
+        "desktop-app-template/crates/protocol/Cargo.toml:11",
+        "desktop-app-template/crates/protocol/src/lib.rs:7",
+        "desktop-app-template/crates/protocol/src/lib.rs:27-32"
+      ],
+      "failureScenario": "rightapp directly declares rightkit-service although its shell sources receive only app_data_root from rightapp-protocol. Protocol owns both direct rightkit-service dependency and Suite resolution, so duplicate template root edge adds another version declaration without supplying an API to shell code.",
+      "action": "Remove rightkit-service only from desktop-app-template/src-tauri/Cargo.toml; retain protocol dependency. Validate template compilation on supported targets before accepting.",
+      "verifyStatus": "unverified",
+      "verificationMethod": "Manifest and current Rust import paths were inspected; no target compilation ran.",
+      "sourceLocation": "desktop-app-template/src-tauri/src/lib.rs:12",
+      "sourceQuote": "use rightapp_protocol::app_data_root;",
+      "ponytailTag": "delete",
+      "anchor": {
+        "path": "desktop-app-template/src-tauri/src/lib.rs",
+        "line": 12,
+        "text": "use rightapp_protocol::app_data_root;"
+      }
+    }
+  ],
+  "withdrawn": []
+}

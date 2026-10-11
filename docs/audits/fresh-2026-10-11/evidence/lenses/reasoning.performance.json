@@ -1,0 +1,139 @@
+{
+  "schemaVersion": 1,
+  "kind": "legion-lens-result",
+  "provider": "reasoning.performance",
+  "packetDigest": "sha256:49815008aa531bd9d5a66990e7d83756dd7fafa54e6d40fbed1185f477fdb7a7",
+  "planDigest": "sha256:9b12c99c2ec21897dd8297a438f3fb1c1a2f405593c6db0fa4e9b89a6c6b5042",
+  "complete": false,
+  "findings": [
+    {
+      "id": "performance-daemon-full-state-write-per-change",
+      "lens": "performance",
+      "severity": "medium",
+      "confidence": "confirmed",
+      "evidence": [
+        "docs/audits/fresh-2026-10-11/evidence/runtime-budget-review.md:21",
+        "crates/rightkit-daemon/src/daemon.rs:102-103",
+        "crates/rightkit-daemon/src/daemon.rs:303-310",
+        "crates/rightkit-daemon/src/state.rs:11-25",
+        "crates/rightkit-daemon/src/util.rs:67-82"
+      ],
+      "failureScenario": "Each durable daemon mutation serializes the complete State, atomically writes it, fsyncs the file, and fsyncs its directory. As device, job, idempotency, nonce, or webhook maps grow, one small change carries the full state serialization and sync cost, so request latency and disk work scale with retained state.",
+      "action": "Measure named state sizes and write latency under representative mutation rates. Then use append or per-record persistence, batching, or a bounded journal with checkpointing while preserving crash and durability semantics.",
+      "verifyStatus": "verified",
+      "reviewAxis": "standards",
+      "disposition": "design-heuristic",
+      "sourceLocation": "crates/rightkit-daemon/src/daemon.rs:304",
+      "sourceQuote": "        let bytes = serde_json::to_vec(&g.state)",
+      "anchor": {
+        "path": "crates/rightkit-daemon/src/daemon.rs",
+        "line": 304,
+        "text": "        let bytes = serde_json::to_vec(&g.state)"
+      }
+    },
+    {
+      "id": "performance-daemon-event-per-emit-flush",
+      "lens": "performance",
+      "severity": "medium",
+      "confidence": "confirmed",
+      "evidence": [
+        "docs/audits/fresh-2026-10-11/evidence/runtime-budget-review.md:21",
+        "crates/rightkit-daemon/src/events.rs:14-17",
+        "crates/rightkit-daemon/src/events.rs:49-77"
+      ],
+      "failureScenario": "EventLog::emit holds its file mutex while writing one JSONL event and flushing the file for every event. A burst or slow storage path serializes producers behind synchronous flushes and turns lifecycle logging into request-path I/O; no current named run establishes an acceptable bound.",
+      "action": "Move file writes to a bounded worker or batch flushes with an explicit loss and durability policy. Measure event rate, queue depth, flush latency, and retained file growth on named storage before setting a budget.",
+      "verifyStatus": "verified",
+      "reviewAxis": "standards",
+      "disposition": "design-heuristic",
+      "sourceLocation": "crates/rightkit-daemon/src/events.rs:69",
+      "sourceQuote": "                let _ = f.flush();",
+      "anchor": {
+        "path": "crates/rightkit-daemon/src/events.rs",
+        "line": 69,
+        "text": "                let _ = f.flush();"
+      }
+    },
+    {
+      "id": "performance-cache-lru-sort-under-eviction",
+      "lens": "performance",
+      "severity": "medium",
+      "confidence": "confirmed",
+      "evidence": [
+        "docs/audits/fresh-2026-10-11/evidence/runtime-budget-review.md:22",
+        "crates/rightkit-cache/src/disk.rs:567-570",
+        "crates/rightkit-cache/src/disk.rs:755-769",
+        "crates/rightkit-cache/src/disk.rs:115-124"
+      ],
+      "failureScenario": "Every cache put invokes eviction after indexing. When the byte cap is exceeded, eviction clones every indexed key into a vector and sorts the full vector before deleting the oldest entries. The byte cap does not bound entry count, so high-cardinality small entries can make an over-cap write hold the cache mutex through a full sort and deletion scan.",
+      "action": "Keep an ordered eviction index or heap synchronized with recency, and define a high-cardinality bound or measured eviction budget. Record cache entry count and eviction latency in native runs before adopting a limit.",
+      "verifyStatus": "verified",
+      "reviewAxis": "standards",
+      "disposition": "design-heuristic",
+      "sourceLocation": "crates/rightkit-cache/src/disk.rs:762",
+      "sourceQuote": "            st.index.iter().map(|(n, m)| (m.used, n.clone())).collect();",
+      "anchor": {
+        "path": "crates/rightkit-cache/src/disk.rs",
+        "line": 762,
+        "text": "            st.index.iter().map(|(n, m)| (m.used, n.clone())).collect();"
+      }
+    },
+    {
+      "id": "performance-sync-full-local-enumeration-per-pass",
+      "lens": "performance",
+      "severity": "medium",
+      "confidence": "confirmed",
+      "evidence": [
+        "docs/audits/fresh-2026-10-11/evidence/runtime-budget-review.md:23",
+        "crates/rightkit-sync/src/traits.rs:50-52",
+        "crates/rightkit-sync/src/engine.rs:721-740"
+      ],
+      "failureScenario": "Every sync pass synchronously calls LocalStore::all, materializes every local item, and builds a complete local-id set before applying the optional inferred-deletion check. The pass therefore scans and retains the whole local collection even when remote change feed is empty or inferred deletions are disabled.",
+      "action": "Make full enumeration conditional on inferred-deletion mode, or maintain an incremental local-id/revision index and query only changed or candidate records. Measure pass duration and working-set size against named mailbox or repository workloads.",
+      "verifyStatus": "verified",
+      "reviewAxis": "standards",
+      "disposition": "design-heuristic",
+      "sourceLocation": "crates/rightkit-sync/src/engine.rs:722",
+      "sourceQuote": "        let local_items = self.local.all()?;",
+      "anchor": {
+        "path": "crates/rightkit-sync/src/engine.rs",
+        "line": 722,
+        "text": "        let local_items = self.local.all()?;"
+      }
+    },
+    {
+      "id": "performance-send-unbounded-announcement-workers",
+      "lens": "performance",
+      "severity": "medium",
+      "confidence": "likely",
+      "evidence": [
+        "docs/audits/fresh-2026-10-11/evidence/runtime-budget-review.md:27",
+        "crates/rightkit-send/src/lib.rs:971-995",
+        "crates/rightkit-send/src/lib.rs:1002-1016",
+        "crates/rightkit-send/src/lib.rs:344-405"
+      ],
+      "failureScenario": "The multicast discovery loop starts one detached OS thread for every announcement packet that passes upsert, and each worker may block for a multi-second registration request. upsert returns true even for an existing device, so repeated announcements do not provide a worker admission bound or coalescing point.",
+      "action": "Route announcement responses through a bounded worker pool keyed by device fingerprint, coalesce in-flight work, and expose rejected or queued announcements in runtime status. Measure response latency and worker occupancy on named device-count workloads.",
+      "verifyStatus": "verified",
+      "reviewAxis": "standards",
+      "disposition": "design-heuristic",
+      "sourceLocation": "crates/rightkit-send/src/lib.rs:993",
+      "sourceQuote": "                thread::spawn(move || answer_announcement(&inner, &heard));",
+      "anchor": {
+        "path": "crates/rightkit-send/src/lib.rs",
+        "line": 993,
+        "text": "                thread::spawn(move || answer_announcement(&inner, &heard));"
+      }
+    }
+  ],
+  "withdrawn": [],
+  "details": {
+    "changeRisk": {
+      "reversibility": "unknown",
+      "blastRadius": "unknown",
+      "reason": "Whole-repo packet has no diff context; no change risk is inferred.",
+      "beforeEvidence": [],
+      "afterEvidence": []
+    }
+  }
+}

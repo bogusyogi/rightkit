@@ -1,0 +1,305 @@
+{
+  "captured_utc": "2026-10-11T01:47:41.053626+00:00",
+  "head": "f60f116514467e83952f5e5c12a71b34e3341389",
+  "baseline_files": 36395,
+  "unchanged": 36336,
+  "changed": [
+    {
+      "path": "/Volumes/D/claude/rightkit/crates/rightkit-db/src/lib.rs",
+      "before": "121d84be86c419e9285c674263afa5a11356692e5568c6be480fa07d543db79b",
+      "after": "f60af0cbe61087e4e9daf9e8c27f1cec3d5fbdc9e16f720d41c953b2e6c31432"
+    },
+    {
+      "path": "/Volumes/D/claude/rightkit/crates/rightkit-db/tests/quarantine_options.rs",
+      "before": "f13a57dcd70f5f0ba88ba798f9820e18230a7865dad62830a7413a144e32cde5",
+      "after": "4370943c9755ff5158da339210b3997f9f6d02e0d9401a00de30b4ccc59bf067"
+    },
+    {
+      "path": "/Volumes/D/claude/rightkit/crates/rightkit-jobs/src/contract.rs",
+      "before": "581a24a7f54b72b168935c8c0fbb96bf7f28e14c34ece986ee2d47b10a1ef03a",
+      "after": "5af385d27d2c171b3230f8ecdb073f4edd7d062448cd97cc89ac684497a0d70e"
+    },
+    {
+      "path": "/Volumes/D/claude/rightkit/crates/rightkit-media/src/content_digest.rs",
+      "before": "80a1fb9d86dc54b5ef66f56e0ad0ab3e81592b6b3539e7cc7eedd0811b37c4ef",
+      "after": "5d53c1db8149e2c26e387efb4c408d74d61a3a29f881ef23af2d667a3015c323"
+    },
+    {
+      "path": "/Volumes/D/claude/rightkit/crates/rightkit-media/src/lib.rs",
+      "before": "a2f36a1704531e1242336b7b64bcabcbb680f871a926a24f7e65944cf1772079",
+      "after": "4e3026ffcefc81f82f64577cd8be376cc3b23415d31afe44b43b40372c6cfc76"
+    },
+    {
+      "path": "/Volumes/D/claude/rightkit/crates/rightkit-media/src/loudnorm.rs",
+      "before": "a80a77aad1b08cee1bde8ef18a4aceb67e9ec7de8d69dab84804e6c00f1eb6f7",
+      "after": "8ef174705cb5155f257ed19fc241263d7d46187c65939c5f1d5846c89f7e841b"
+    },
+    {
+      "path": "/Volumes/D/claude/rightkit/crates/rightkit-media/src/native.rs",
+      "before": "5a13bee11d7df243d3c8370373dcf4aeea9d55cf2d77886e8946434d853cf139",
+      "after": "b4ca466dfbb78788f7b12ce0bb231c4fa73d7abd9cef3ed59595821ea0111548"
+    },
+    {
+      "path": "/Volumes/D/claude/rightkit/crates/rightkit-media/src/probe.rs",
+      "before": "d83a9a2f3f98a9b65ff28fc8ad0012e44f9916ba78d4a359acd53583e5eeaf7e",
+      "after": "258e60916aa64e394c993b6f9a3e6084d7976937277deab4fd40e67429b211c9"
+    },
+    {
+      "path": "/Volumes/D/claude/rightkit/crates/rightkit-media/src/runner.rs",
+      "before": "d43c9894f2b583229d7aab62ad1fd832a819ee65f5716d210b91083a2d4e6e6e",
+      "after": "7f1e89c46a9533b73e71b03122a91a4c3c2b2e1fe00c8cf891d0055cdee9e8e9"
+    },
+    {
+      "path": "/Volumes/D/claude/rightkit/crates/rightkit-media/src/staging.rs",
+      "before": "a6d9f3614a0af32c65da2b5f2d5b4c11384ba178ce2cea69269266ac1b71d1f5",
+      "after": "9371c2018b4e57c3bc5906d95357e41b33fd82e8fa168711911ba7b755d3c111"
+    },
+    {
+      "path": "/Volumes/D/claude/rightkit/crates/rightkit-pdf/src/compose.rs",
+      "before": "b515a6ba54b34d1f82faced1f159c4f073037c6412370329546212a8c470a684",
+      "after": "9e7cd6c73b419ccfcecb527f81fa57dd8916be0d79a885aa18ed41f480844195"
+    },
+    {
+      "path": "/Volumes/D/claude/rightkit/crates/rightkit-pdf/src/inspect.rs",
+      "before": "a8258f4cc77beb4650b03358a57a2a5df41d71d93f55acbd79d671a1da67cf57",
+      "after": "571fb5372807710fb1e1f3ef092953a00ba37164020be04c48fe077c6f51a76e"
+    },
+    {
+      "path": "/Volumes/D/claude/rightkit/crates/rightkit-pdf/tests/corpus_coverage.rs",
+      "before": "d70333084af46856593933e6a00a451a5ed066040ddebd1bad44e531ed971435",
+      "after": "74ce4ab8576d10b9a42d313e3ba4040c09ba7aa4515d3c0f97e15c8cb77062c3"
+    },
+    {
+      "path": "/Volumes/D/claude/rightkit/crates/rightkit-process/src/process_unix.rs",
+      "before": "399c4459e18894c1587131b581048ca5e6341259fe52421dba0a68f0158f2fcc",
+      "after": "ea8dca7bc8a7e3a47238635f564cae3fc9798b98dfb83be4a9341cd564d2fb72"
+    },
+    {
+      "path": "/Volumes/D/claude/rightkit/crates/rightkit-record/src/reader.rs",
+      "before": "af53bc1a11e8a14a1ec4c84f6dcc12f62ee1bdfb353545bb07e2178d9cbba8f1",
+      "after": "5624f8f03a36105b204d6dc84bba666a877562484b91c7daabb8522af3c38ff0"
+    },
+    {
+      "path": "/Volumes/D/claude/rightkit/crates/rightkit-shell/tests/single_instance.rs",
+      "before": "5a6cc5a8e5dceeae5e95f53cfe56838cd6992a2871fc807f3b76caa7f732fef5",
+      "after": "9b9692701d426934524390682a87a7f81af9b914405aa9e1ac1c2cd71c7f7890"
+    },
+    {
+      "path": "/Volumes/D/claude/rightkit/packages/app-shell/e2e/harness/hooks.tsx",
+      "before": "b4b509cfced5b7c1f6739cf289ab722865471d5f441284634024ae4f9aa6ce4f",
+      "after": "11f82fe5bc4567c8c0bb57fe21a74bbcc935b8f899ded3832389009a6cbb3a8d"
+    },
+    {
+      "path": "/Volumes/D/claude/rightkit/packages/app-shell/e2e/headless-hooks.e2e.test.ts",
+      "before": "401c938010daa8e1fcb9cc0b66152d881bfb7f5a6ba29f90cf953b8d96613661",
+      "after": "ae9c3ec3e8162228821162f98a4f2aace2596cf00d40ccb824603e4044883651"
+    },
+    {
+      "path": "/Volumes/D/claude/viewright/src-tauri/qa-e2e/tests/pdf_edit.rs",
+      "before": "d081c8e6628c38c55ee148cba4fe7a959e249d42ed6599a426fdd2d157022927",
+      "after": "08a9d7ade26e87097045c7b58634d3196657afdf5091db7cee24fcf34ed97eae"
+    },
+    {
+      "path": "/Volumes/D/claude/scraperight/crates/audio/src/process.rs",
+      "before": "193fcfdcbaa4b7dd9f880462e7dbd0138c58ea93245e83b6e6ac16c026ed6c72",
+      "after": "af01f6be7c7f9fe3afbe1397436ebbf87fb3a519022be10ac7562cfa353aee7e"
+    },
+    {
+      "path": "/Volumes/D/claude/scraperight/src-tauri/src/engine_supervisor.rs",
+      "before": "950772bd2c311b3c5e8baa3bf9743ffc826ba1acd62838bb1e2f9b1b3467c85b",
+      "after": "6036f575c2afd2667f285e474be1d589551a20b5d16ca58d8be2ec7ca62311c1"
+    },
+    {
+      "path": "/Volumes/D/claude/cutright/Cargo.lock",
+      "before": "007ba9358459553c5007c40da1531d9f63e6c09a60fe161efece7f9e0eb6d6d8",
+      "after": "59e1232ed3fe47aef12b81016e9af23f433dd62b094584bb4b98f43353ddb32e"
+    },
+    {
+      "path": "/Volumes/D/claude/cutright/Cargo.toml",
+      "before": "8f5d85b7f24c7a8c77efb7f2262c33dd2700e47f48618d76a9ffe64c4d09fafe",
+      "after": "d5e57e1a03420a51eb926d38e481f5d05eb7ab6c727e5e16e33a9ea08966bcaa"
+    },
+    {
+      "path": "/Volumes/D/claude/cutright/crates/cutright-audio/src/tools.rs",
+      "before": "98055a513198108c383bbc8fe36188d29f0445234b35afa6790b133b5d243bf0",
+      "after": "d83ed9f7a83d238fa586a6efe23e7307d0ee7541a3fcabe18a43a543ab363609"
+    },
+    {
+      "path": "/Volumes/D/claude/cutright/crates/cutright-color/src/plan.rs",
+      "before": "341e02c3d2113d6e292f391dda8113f1f43d3ba929f59b5d638f6b6685b32d7c",
+      "after": "eed73a5808cdfe545dcd6d43abd7a0390145dc817f4debad0e4cec3322e2f1b1"
+    },
+    {
+      "path": "/Volumes/D/claude/cutright/crates/cutright-engine/Cargo.toml",
+      "before": "92b838b91cc45905b415372cdf7a70cff1fe0d8f4648987242948f79d7bef6ef",
+      "after": "f7e5897d31961c09eb6ac5a6a6a2e77edd5bc8ff51888f3a40fc156f915dfa0c"
+    },
+    {
+      "path": "/Volumes/D/claude/cutright/crates/cutright-engine/src/storage_cmd.rs",
+      "before": "e5cef727808f87b491e564164ebd96ad9f703c9e363133a27309a98b4f66f40f",
+      "after": "4f911088e67b86ce91c5f30c9a9afb1feb459ab3a0bee369f1947f2cd2872dfb"
+    },
+    {
+      "path": "/Volumes/D/claude/cutright/crates/cutright-engine/tests/qa_checks_e2e.rs",
+      "before": "9dfa91e4df89134c215b8effc5223c73b5f66f33757a1026c5de5e896ae92c5c",
+      "after": "5f3a5aeb9622953818494188448014c041df6beb9e7fab37ef8d5c94e358585a"
+    },
+    {
+      "path": "/Volumes/D/claude/cutright/crates/cutright-project/src/ingest.rs",
+      "before": "76c1c1eee68e62fafe3f7dddb26b617063f72390a42216b2a4113ce7b454b992",
+      "after": "85d126238e30e0b8da276f13eebc79f2215bd336a79a6d315387afdf766cb5a7"
+    },
+    {
+      "path": "/Volumes/D/claude/cutright/crates/cutright-project/src/probe.rs",
+      "before": "b565636e08013bfdacf9a511ebfedddb40f9a6487eb6a96c779b1d67fdf7d01c",
+      "after": "dccaa30d3d06224f2c3cfb955f291d0d6b62e4d64d1c1a77c0f03cc82ad541a6"
+    },
+    {
+      "path": "/Volumes/D/claude/cutright/crates/cutright-project/src/worker.rs",
+      "before": "dfe164259953137ad2f4eab45bb85f6bb19559bbc7acdcf43508a337a745f9a4",
+      "after": "49b119c5ffa44f029256c79946b3437fea91a9fd767662bd35fbbb6cfb7afe7a"
+    },
+    {
+      "path": "/Volumes/D/claude/cutright/crates/cutright-qa/src/receipt.rs",
+      "before": "1ae0e007c0a895df0b6fed08db365f0ff63d6a5ce47e20125b62ff15011437b7",
+      "after": "d79c3569b610b24db1cade55775d850f61735c7aeb5bb51f5c707790cf05d838"
+    },
+    {
+      "path": "/Volumes/D/claude/cutright/crates/cutright-qa/src/run.rs",
+      "before": "c2cb8d21b64e811d47c4d0f1d6e20093580a7a2ac9fd39fa943e3c532a35a720",
+      "after": "2affd241d368b6cc1d2602fda34d0de9ace325a9c450dc842a2e68f765be3a08"
+    },
+    {
+      "path": "/Volumes/D/claude/cutright/crates/cutright-shorts/src/llm.rs",
+      "before": "c6944ee3f07ae445a6981b468959b20691bc5e6b8332b52bf561e818def65991",
+      "after": "55bd11795e6c01a584294e901881fb88f2ba92a093f4a83da4685e5d981c9377"
+    },
+    {
+      "path": "/Volumes/D/claude/cutright/crates/cutright-speech/src/onnx_tdt.rs",
+      "before": "687610be99eea6ef91ccf6332c480ec006a5c75cc93ad7c7609150fa317a51c9",
+      "after": "d0b019ffe5b6881add34b950b2ce3f7cde5eceab7686e3e496861b5d4e8ff5fe"
+    },
+    {
+      "path": "/Volumes/D/claude/cutright/crates/cutright-speech/src/window.rs",
+      "before": "0a30031fb9a3957a0d2d9362b0f8928f68f7750d0451bf7054baec5f20e562ae",
+      "after": "c58107652581910130a7968503c318a2864c1abd120224631abd70a1b8cbfcd5"
+    },
+    {
+      "path": "/Volumes/D/claude/cutright/rk-snapshot/crates/rightkit-media/src/content_digest.rs",
+      "before": "80a1fb9d86dc54b5ef66f56e0ad0ab3e81592b6b3539e7cc7eedd0811b37c4ef",
+      "after": "223b79e28a1f737232224201957fb09ef762d697593381db7b3f8ff7868a7126"
+    },
+    {
+      "path": "/Volumes/D/claude/cutright/rk-snapshot/crates/rightkit-media/src/lib.rs",
+      "before": "a2f36a1704531e1242336b7b64bcabcbb680f871a926a24f7e65944cf1772079",
+      "after": "f8e33ace3e7d83c7a292425ecd866b706c40657fbec3f9e9026da896872087cc"
+    },
+    {
+      "path": "/Volumes/D/claude/cutright/rk-snapshot/crates/rightkit-media/src/loudnorm.rs",
+      "before": "a80a77aad1b08cee1bde8ef18a4aceb67e9ec7de8d69dab84804e6c00f1eb6f7",
+      "after": "8ef174705cb5155f257ed19fc241263d7d46187c65939c5f1d5846c89f7e841b"
+    },
+    {
+      "path": "/Volumes/D/claude/cutright/rk-snapshot/crates/rightkit-media/src/native.rs",
+      "before": "5a13bee11d7df243d3c8370373dcf4aeea9d55cf2d77886e8946434d853cf139",
+      "after": "b4ca466dfbb78788f7b12ce0bb231c4fa73d7abd9cef3ed59595821ea0111548"
+    },
+    {
+      "path": "/Volumes/D/claude/cutright/rk-snapshot/crates/rightkit-media/src/probe.rs",
+      "before": "d83a9a2f3f98a9b65ff28fc8ad0012e44f9916ba78d4a359acd53583e5eeaf7e",
+      "after": "258e60916aa64e394c993b6f9a3e6084d7976937277deab4fd40e67429b211c9"
+    },
+    {
+      "path": "/Volumes/D/claude/cutright/rk-snapshot/crates/rightkit-media/src/runner.rs",
+      "before": "d43c9894f2b583229d7aab62ad1fd832a819ee65f5716d210b91083a2d4e6e6e",
+      "after": "7f1e89c46a9533b73e71b03122a91a4c3c2b2e1fe00c8cf891d0055cdee9e8e9"
+    },
+    {
+      "path": "/Volumes/D/claude/cutright/rk-snapshot/crates/rightkit-process/src/process_unix.rs",
+      "before": "399c4459e18894c1587131b581048ca5e6341259fe52421dba0a68f0158f2fcc",
+      "after": "ea8dca7bc8a7e3a47238635f564cae3fc9798b98dfb83be4a9341cd564d2fb72"
+    },
+    {
+      "path": "/Volumes/D/claude/swiftright/factory/catalogue/public-ancestor-consumer/independent-review/final-candidate-v1/raw-reference-list.json",
+      "before": "3255cc26c031d3bfb913ffcd480e4a9fba5bfb2096dc3f02d74f75665648f2a0",
+      "after": "0dde59b8bcc6bc0a35586beb298f46e0a19bdc64ebea4bf9a65e61a34951a74c"
+    },
+    {
+      "path": "/Volumes/D/claude/rustright/Cargo.lock",
+      "before": "84257d73e038c9c9dd690e9ccdaf3f046a5c2baa2bc3f30599712a48aa2a6f21",
+      "after": "6b506358a2425af3f4ef4a86f814029ec36e9aa122c3dc7ee0373abf75252cd8"
+    },
+    {
+      "path": "/Volumes/D/claude/rustright/crates/rustright-cli/src/remote.rs",
+      "before": "b72442660e08638fcba98621b4fa9cfe2d5b84a7b36bf1151fd1c060f4162e95",
+      "after": "4aa57c6d4a5ad8f9c98305ec1ac228ed3c8618f723501a35ce38c1c170900899"
+    },
+    {
+      "path": "/Volumes/D/claude/rustright/crates/rustright-install/src/activation.rs",
+      "before": "852cb3c13f7de6c4ccfcb8641ac9b51a5dadce22e2282d01062e3f212805b920",
+      "after": "bb1b81e125d468245a78906f5839c063f3423a53db4b6613c727f19ef6fd24fc"
+    },
+    {
+      "path": "/Volumes/D/claude/rustright/crates/rustright-install/src/activation/fence_tests.rs",
+      "before": "a8d2d59846f2d230bf9b942cccac044ab4665fb64a681e105d4ce734d40d3e8e",
+      "after": "ed89c3f5a188030bd778cbb6a6877c3e609fe71ccad7101a7900911065f1bba5"
+    },
+    {
+      "path": "/Volumes/D/claude/rustright/crates/rustright-install/src/cutover.rs",
+      "before": "4c5de1548372d5a1578b73745faea94a720bb5ff40003eaab24cb279c31a8f82",
+      "after": "ced9cf90cf444dadf9051e54be0818e1b4cfb3aec05cae7400ecd960901b4fd5"
+    },
+    {
+      "path": "/Volumes/D/claude/rustright/crates/rustright-install/src/launchd.rs",
+      "before": "a420f6390f7975fad14f9d2133dda4fa5feac8e3eb7156fbfbad3f806d9495ae",
+      "after": "edfc7c08a2aa4604f2aaa71ee9924fb6c781226ddb793cd09a980dce0a70b259"
+    },
+    {
+      "path": "/Volumes/D/claude/rustright/crates/rustright-install/src/main.rs",
+      "before": "6c4648f70379036eaf93f3db917b77bd06d11ed6fc90064ab6184849885d157f",
+      "after": "91b0899ce46a0ad85d9c8fca32f6ba207b13f109f1bece7919302e1a7ce06878"
+    },
+    {
+      "path": "/Volumes/D/claude/rustright/crates/rustright-install/src/preflight.rs",
+      "before": "a1f5f6f825d6e7169f7dc265ee36cba4d7cdc5dee1ab0ca6cdde15e6d6c87292",
+      "after": "4a8a876df2623a3a163a3671552b19bc0122b5e63cf72912e44cdb4640e21c68"
+    },
+    {
+      "path": "/Volumes/D/claude/rustright/crates/rustright-install/src/probe.rs",
+      "before": "5ab9bb4adc5c3a1accf15059d40916f6ce0d99c099e2fb07685ba7e37f1862fe",
+      "after": "40a7be152529d2c9be5aee6530324ec28adeaa98f639f348f88b33328cd76ace"
+    },
+    {
+      "path": "/Volumes/D/claude/rustright/crates/rustright-install/src/runtime.rs",
+      "before": "fc3515e62f20f814cbfc53bb48cfe3484a3a8b39848c817b8eb354d93c238c85",
+      "after": "1c282e295e7f085f937d775efdfd7e1d5bf04048956586455b5ed2ec926ed2ff"
+    },
+    {
+      "path": "/Volumes/D/claude/rustright/crates/rustright-remote/Cargo.toml",
+      "before": "ade05b69782006270c3054f969fd2335beded365dc492bc7cbe602708e169ba1",
+      "after": "025789b4a4e816112c7d65955b846fb0be63917414f4742b83227a380193f1f8"
+    },
+    {
+      "path": "/Volumes/D/claude/rustright/crates/rustright-remote/src/lib.rs",
+      "before": "540087ef586fdbedb554954e6bf57900939b9b0ec47015642dfbc7e9517784bc",
+      "after": "476a39a2b1702e5c6486eb738e9a7c44a0984dca6ff8f1f464e9260943941e7d"
+    },
+    {
+      "path": "/Volumes/D/claude/rustright/crates/rustright-remote/src/protocol.rs",
+      "before": "1a1ff550e079a04b1ea0f7ac9e8b63ef976471b574c125f355c3fa32f374c5f9",
+      "after": "d269ed1b35d40f0e524d7c4c15e2a2211c49577dafe9b924fc7a68da1869b511"
+    },
+    {
+      "path": "/Volumes/D/claude/rustright/crates/rustright-remote/src/worker.rs",
+      "before": "27b4c922c049dc9f27fc03227e061627b77a774316dfa30b61f985168482f63a",
+      "after": "62ed90814f9ae4ebb4a2e1901bb07e26bca4c77697b1b273a83ac805efb07e2f"
+    },
+    {
+      "path": "/Volumes/D/claude/rustright/crates/rustright-remote/src/worker/tests.rs",
+      "before": "59d29f9c4ecd62b929a0c3e150087afd322ad3e166660b27cdd5a60c8ba0b87a",
+      "after": "89144831d667328e73d999b3e69a20709f6fa28113b18b3b3d114866a214e0fb"
+    }
+  ],
+  "missing": [],
+  "note": "Changes observed after initial read; this audit wrote only audit artifacts. New files after baseline are not counted."
+}

@@ -1,0 +1,10 @@
+{
+  "reports": 4,
+  "local_links_checked": 364,
+  "link_errors": [],
+  "lens_results": 16,
+  "lens_errors": [],
+  "native_handoffs": 9,
+  "product_edits_by_audit": false,
+  "test_execution": "none; source/JSON/links/format validation only"
+}

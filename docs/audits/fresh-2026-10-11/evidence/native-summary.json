@@ -1,0 +1,80 @@
+{
+  "status": "incomplete",
+  "providers_selected": 79,
+  "providers_complete": 17,
+  "raw_candidates": 6678,
+  "pending_lenses": [
+    {
+      "provider": "legacy.security.adjudication",
+      "status": "pending-host"
+    },
+    {
+      "provider": "reasoning.a11y",
+      "status": "pending-host"
+    },
+    {
+      "provider": "reasoning.ai-slop",
+      "status": "pending-host"
+    },
+    {
+      "provider": "reasoning.architecture",
+      "status": "pending-host"
+    },
+    {
+      "provider": "reasoning.correctness",
+      "status": "pending-host"
+    },
+    {
+      "provider": "reasoning.data-safety",
+      "status": "pending-host"
+    },
+    {
+      "provider": "reasoning.dead-file",
+      "status": "pending-host"
+    },
+    {
+      "provider": "reasoning.doc-drift",
+      "status": "pending-host"
+    },
+    {
+      "provider": "reasoning.minimize",
+      "status": "pending-host"
+    },
+    {
+      "provider": "reasoning.naming",
+      "status": "pending-host"
+    },
+    {
+      "provider": "reasoning.performance",
+      "status": "pending-host"
+    },
+    {
+      "provider": "reasoning.platform-parity",
+      "status": "pending-host"
+    },
+    {
+      "provider": "reasoning.release-readiness",
+      "status": "pending-host"
+    },
+    {
+      "provider": "reasoning.resilience",
+      "status": "pending-host"
+    },
+    {
+      "provider": "reasoning.schema",
+      "status": "pending-host"
+    },
+    {
+      "provider": "reasoning.security",
+      "status": "pending-host"
+    }
+  ],
+  "planDigest": "sha256:9b12c99c2ec21897dd8297a438f3fb1c1a2f405593c6db0fa4e9b89a6c6b5042",
+  "gaps_count": 2722,
+  "verify": {
+    "status": "complete",
+    "valid": true,
+    "contentErrors": [],
+    "verdict_status": "incomplete"
+  }
+}

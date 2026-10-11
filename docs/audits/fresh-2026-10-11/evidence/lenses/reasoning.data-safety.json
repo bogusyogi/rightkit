@@ -1,0 +1,32 @@
+{
+  "schemaVersion": 1,
+  "kind": "legion-lens-result",
+  "provider": "reasoning.data-safety",
+  "packetDigest": "sha256:e661e03c55363697f9491cbf5162a47b6e24e729da2739794da1763a2055d6eb",
+  "planDigest": "sha256:9b12c99c2ec21897dd8297a438f3fb1c1a2f405593c6db0fa4e9b89a6c6b5042",
+  "complete": false,
+  "findings": [
+    {
+      "id": "send-f1-partial-path-overwrite",
+      "lens": "data-safety",
+      "severity": "medium",
+      "confidence": "confirmed",
+      "evidence": [
+        "crates/rightkit-send/src/receive.rs:469-493",
+        "crates/rightkit-send/src/proto.rs:179-211"
+      ],
+      "failureScenario": "reserve_unique protects final received name, but partial path is deterministic from that name. Opening it with create+truncate accepts an existing .<name><suffix> file. After user accepts a sender-controlled filename, an existing partial/resumable or manually created file at that path is erased before streaming, checksum validation, or successful receipt; failure cleanup then removes it.",
+      "action": "Reserve partial file with create_new plus collision retry, or use an unpredictable per-transfer temp name. Track ownership of both reservation files so cleanup only removes files this transfer created. Add coverage that precreates expected partial path & proves it remains intact.",
+      "verifyStatus": "verified",
+      "verificationMethod": "source-review",
+      "sourceLocation": "crates/rightkit-send/src/receive.rs:486",
+      "sourceQuote": "    options.write(true).create(true).truncate(true);",
+      "anchor": {
+        "path": "crates/rightkit-send/src/receive.rs",
+        "line": 486,
+        "text": "    options.write(true).create(true).truncate(true);"
+      }
+    }
+  ],
+  "withdrawn": []
+}

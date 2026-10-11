@@ -1,0 +1,108 @@
+{
+  "schemaVersion": 1,
+  "kind": "legion-lens-result",
+  "provider": "reasoning.resilience",
+  "packetDigest": "sha256:484bc8531b7612a0dd2c8ae11e107b27ae2968ed0483aa168b2cf103f599c2d8",
+  "planDigest": "sha256:9b12c99c2ec21897dd8297a438f3fb1c1a2f405593c6db0fa4e9b89a6c6b5042",
+  "complete": false,
+  "findings": [
+    {
+      "id": "resilience-rust-watch-subscriber-unbounded-path-set",
+      "lens": "resilience",
+      "severity": "medium",
+      "confidence": "confirmed",
+      "evidence": [
+        "crates/rightkit-watch/src/subscribe.rs:113-117",
+        "crates/rightkit-watch/src/subscribe.rs:141-152",
+        "crates/rightkit-watch/src/subscribe.rs:392-399",
+        "crates/rightkit-watch/src/subscribe.rs:149"
+      ],
+      "failureScenario": "A retained watcher whose subscriber stops draining continues to merge every distinct changed path into its BTreeSet. Neither that set nor raw notify ingress has a capacity or overflow transition, so a large tree churn can consume memory until process pressure or restart.",
+      "action": "Cap pending distinct paths per subscriber, replace excess with one explicit rescan/overflow state, & expose dropped-path count in watcher metrics.",
+      "verifyStatus": "verified",
+      "reviewAxis": "standards",
+      "sourceLocation": "crates/rightkit-watch/src/subscribe.rs:149",
+      "sourceQuote": "        changed_paths.extend(paths.iter().cloned());",
+      "disposition": "missing",
+      "anchor": {
+        "path": "crates/rightkit-watch/src/subscribe.rs",
+        "line": 149,
+        "text": "        changed_paths.extend(paths.iter().cloned());"
+      }
+    },
+    {
+      "id": "resilience-fsindex-unbounded-fsevents-worker-ingress",
+      "lens": "resilience",
+      "severity": "high",
+      "confidence": "confirmed",
+      "evidence": [
+        "crates/rightkit-fsindex/src/index.rs:569-574",
+        "crates/rightkit-fsindex/src/backend/macos.rs:371-388",
+        "crates/rightkit-fsindex/src/index.rs:1131-1146",
+        "crates/rightkit-fsindex/src/backend/macos.rs:380"
+      ],
+      "failureScenario": "The macOS FSEvents callback sends every raw batch into an unbounded Worker channel. Worker drains at most 4,096 messages before expensive handling; a disk-change burst that outpaces handling leaves arbitrary batches queued, making memory growth proportional to outage or churn duration instead of a declared bound.",
+      "action": "Use bounded/coalescing ingress keyed by roots, turn saturation into a persisted full-rescan requirement, & expose queue depth, drops, and rescan state through Index status.",
+      "verifyStatus": "verified",
+      "reviewAxis": "standards",
+      "sourceLocation": "crates/rightkit-fsindex/src/backend/macos.rs:380",
+      "sourceQuote": "            let _ = tx.send(WatchMsg::Events(batch));",
+      "disposition": "missing",
+      "anchor": {
+        "path": "crates/rightkit-fsindex/src/backend/macos.rs",
+        "line": 380,
+        "text": "            let _ = tx.send(WatchMsg::Events(batch));"
+      }
+    },
+    {
+      "id": "resilience-service-unix-unbounded-prehello-threads",
+      "lens": "resilience",
+      "severity": "high",
+      "confidence": "confirmed",
+      "evidence": [
+        "crates/rightkit-service/src/server.rs:162-177",
+        "crates/rightkit-service/src/server.rs:464-475",
+        "crates/rightkit-service/src/server.rs:550-554",
+        "crates/rightkit-service/src/transport.rs:139-171",
+        "crates/rightkit-service/src/server.rs:472"
+      ],
+      "failureScenario": "Unix explicitly has no connection cap, accept_loop creates one OS thread per admitted socket, then each thread can block indefinitely waiting for its first hello frame. A same-user stalled client or reconnect storm can therefore exhaust threads and descriptors before service logic records a ConnectionOpened event or can recover through normal handoff.",
+      "action": "Apply a cross-platform admission semaphore before spawning, enforce a server-side hello/read deadline, & surface rejected/saturated/idle connection counts in service status or journal events.",
+      "verifyStatus": "verified",
+      "reviewAxis": "standards",
+      "sourceLocation": "crates/rightkit-service/src/server.rs:472",
+      "sourceQuote": "                let _ = std::thread::Builder::new()",
+      "disposition": "missing",
+      "anchor": {
+        "path": "crates/rightkit-service/src/server.rs",
+        "line": 472,
+        "text": "                let _ = std::thread::Builder::new()"
+      }
+    },
+    {
+      "id": "resilience-jobs-unbounded-sidecar-event-subscribers",
+      "lens": "resilience",
+      "severity": "medium",
+      "confidence": "confirmed",
+      "evidence": [
+        "crates/rightkit-jobs/src/client.rs:357-370",
+        "crates/rightkit-jobs/src/client.rs:700-705",
+        "crates/rightkit-jobs/src/supervisor.rs:988-1000",
+        "crates/rightkit-jobs/src/client.rs:704"
+      ],
+      "failureScenario": "Every EngineClient or EngineSupervisor event subscriber receives an unbounded std::sync::mpsc queue. A live subscriber that stops reading remains sendable, so dispatch keeps cloning unsolicited sidecar frames into its backlog; failed sends prune only disconnected receivers. During high-rate engine output this creates unbounded retained JSON and no supervisor status field identifies pressure.",
+      "action": "Use bounded subscriber queues with explicit overflow/disconnect policy, retain one loss/resync marker per slow subscriber, & publish subscriber/backlog/overflow metrics with lifecycle status.",
+      "verifyStatus": "verified",
+      "reviewAxis": "standards",
+      "sourceLocation": "crates/rightkit-jobs/src/client.rs:704",
+      "sourceQuote": "            list.retain(|tx| tx.send(v.clone()).is_ok());",
+      "disposition": "missing",
+      "anchor": {
+        "path": "crates/rightkit-jobs/src/client.rs",
+        "line": 704,
+        "text": "            list.retain(|tx| tx.send(v.clone()).is_ok());"
+      }
+    }
+  ],
+  "withdrawn": []
+}

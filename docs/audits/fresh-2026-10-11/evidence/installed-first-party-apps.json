@@ -1,0 +1,65 @@
+[
+  {
+    "path": "/Applications/GenRight.app",
+    "id": "app.orthiclabs.genright",
+    "version": "0.1.0",
+    "build": "0.1.0",
+    "executable": "genright"
+  },
+  {
+    "path": "/Applications/LightCraft.app",
+    "id": "ai.storyteller.lightcraft",
+    "version": "0.2.1",
+    "build": "0.2.1",
+    "executable": "LightCraft"
+  },
+  {
+    "path": "/Applications/ViewRight.app",
+    "id": "app.viewright",
+    "version": "0.1.165",
+    "build": "0.1.165",
+    "executable": "viewright"
+  },
+  {
+    "path": "/Applications/MailRight.app",
+    "id": "app.mailright",
+    "version": "0.1.0",
+    "build": "0.1.0",
+    "executable": "mailright"
+  },
+  {
+    "path": "/Applications/CutRight.app",
+    "id": "app.orthiclabs.cutright",
+    "version": "0.1.6",
+    "build": "0.1.6",
+    "executable": "cutright"
+  },
+  {
+    "path": "/Applications/HeardRight.app",
+    "id": "app.heardright.next",
+    "version": "0.1.228",
+    "build": "0.1.228",
+    "executable": "heardright_next_bin"
+  },
+  {
+    "path": "/Applications/Pulse.app",
+    "id": "dev.orthic.pulse",
+    "version": "0.2.0",
+    "build": "518",
+    "executable": "Pulse"
+  },
+  {
+    "path": "/Applications/ScrapeRight.app",
+    "id": "app.scraperight",
+    "version": "0.1.10",
+    "build": "0.1.10",
+    "executable": "scraperight"
+  },
+  {
+    "path": "/Applications/CodeRight.app",
+    "id": "app.coderight",
+    "version": "0.1.74",
+    "build": "0.1.74",
+    "executable": "coderight"
+  }
+]

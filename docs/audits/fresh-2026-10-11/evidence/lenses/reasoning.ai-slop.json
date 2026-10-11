@@ -1,0 +1,34 @@
+{
+  "schemaVersion": 1,
+  "kind": "legion-lens-result",
+  "provider": "reasoning.ai-slop",
+  "packetDigest": "sha256:4b2bb64f750fca1a5ed7234d2ce5bda4ae8948455024494075cbcbc9ffb40a8d",
+  "planDigest": "sha256:9b12c99c2ec21897dd8297a438f3fb1c1a2f405593c6db0fa4e9b89a6c6b5042",
+  "complete": false,
+  "findings": [],
+  "withdrawn": [],
+  "details": {
+    "semanticReview": {
+      "axis": "standards",
+      "status": "unproven",
+      "reason": "Whole-repository standards review is incomplete: the frozen packet omits 1967 of 1996 denominator paths. Direct source review found documented optional seams and platform stubs, but cannot establish repository-wide standards coverage.",
+      "sources": [
+        {
+          "location": "packages/media-ui/src/adapters.tsx:34",
+          "quote": "Every field is optional; the components degrade cleanly without them"
+        },
+        {
+          "location": "crates/rightkit-tauri/src/lib.rs:24",
+          "quote": "Post-commit notifications are deliberately infallible"
+        }
+      ]
+    }
+  },
+  "coverage": {
+    "basis": "bounded-excerpts",
+    "examinedPaths": 29,
+    "truncatedPaths": 0,
+    "omittedPaths": 1967,
+    "status": "partial; direct source review checked reusable optional seams and explicit platform stubs"
+  }
+}
