@@ -494,21 +494,19 @@ pub fn seed_from_guarded(
     }
     transform(source, &dest)?;
     if let Some(s) = scrub {
-        if real.is_some() || s.declared_scrubbed {
-            if !(s.verify)(&dest) {
-                // The copy lives inside the QA data directory the guard just verified.
-                let _ = if dest.is_dir() {
-                    fs::remove_dir_all(&dest)
-                } else {
-                    fs::remove_file(&dest)
-                };
-                return Err(UserDataViolation {
-                    path: dest,
-                    rule: Rule::UnscrubbedRealData,
-                    detail: "the verification callback rejected the seeded copy; it was deleted and nothing launches".into(),
-                }
-                .into());
+        if (real.is_some() || s.declared_scrubbed) && !(s.verify)(&dest) {
+            // The copy lives inside the QA data directory the guard just verified.
+            let _ = if dest.is_dir() {
+                fs::remove_dir_all(&dest)
+            } else {
+                fs::remove_file(&dest)
+            };
+            return Err(UserDataViolation {
+                path: dest,
+                rule: Rule::UnscrubbedRealData,
+                detail: "the verification callback rejected the seeded copy; it was deleted and nothing launches".into(),
             }
+            .into());
         }
     }
     Ok(dest)
@@ -636,9 +634,13 @@ mod tests {
         for (path, rule) in cases {
             let v = g.check_dir(&path).unwrap_err();
             assert_eq!(v.rule, rule, "{}", path.display());
+            // The refused path is reported in resolved form; on Windows that is the canonical
+            // spelling of the home, which the fixture's own spelling does not start.
             assert!(
                 v.to_string().contains(&path.display().to_string())
                     || v.path.starts_with(&f.fake_home)
+                    || v.path.starts_with(resolve(&f.fake_home)),
+                "{v}"
             );
         }
         // A directory in the fake home that no rule names is still outside the QA root.
