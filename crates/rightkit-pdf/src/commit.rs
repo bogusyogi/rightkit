@@ -1,9 +1,19 @@
 //! Atomic on-disk commit for a staged save token.
 //!
 //! [`crate::save::resolve_commit_with`] is filesystem-free; this module supplies the real source
-//! re-read, the file-identity comparison that decides whether that re-read applies, a
-//! per-destination lock, and a crash-safe replace (write temp sibling, fsync, rename). Path
-//! authorization is the caller's job.
+//! re-read, the file-identity comparison that decides whether that re-read applies, and a
+//! per-destination lock. The replacement itself is not done here: it is
+//! `rightkit_fs::AtomicWriter` (temp sibling in the destination's directory, flush, rename,
+//! directory sync), which this crate does not reimplement. Path authorization is the caller's job.
+//!
+//! ## What this crate owns, and what it does not
+//!
+//! Owned here: the destination lock, the source re-validation, resolving a symlink destination
+//! once, invalidating the other staged tokens, and the check described under "What a replacement
+//! keeps" below. Owned by `rightkit-fs`: the temp file, the flush, the rename (on Windows the
+//! POSIX-semantics `std::fs::rename`, never `ReplaceFileW`), the directory sync, and cleanup. A
+//! write that fails before the rename leaves the original file as it was and removes the temp
+//! file; there is no state in which neither version exists.
 //!
 //! ## Concurrency and aliases
 //!
@@ -30,12 +40,29 @@
 //!
 //! The lock is in-process. Another program replacing the file between the recheck and the rename is
 //! narrowed by the recheck, not excluded.
+//!
+//! ## What a replacement keeps
+//!
+//! A replacement is a new file in the same directory, so it carries what a *new* file there would
+//! carry, not what the old file had. Before any byte is written this module compares the new temp
+//! file with the destination and **refuses** the save ([`CommitError::Refused`]) when a difference
+//! it can see would weaken or change the file's protection; the original is untouched. It sees only
+//! what `std` and `rightkit-fs` already expose, no platform call of its own:
+//!
+//! | Platform | Refused when | Not examined, and not kept |
+//! |---|---|---|
+//! | Unix | owner, group or permission bits (`0o7777`) of the new file differ from the destination's | POSIX ACLs, SELinux labels, extended attributes, file flags, hard links (siblings keep the old bytes), creation time |
+//! | macOS | as Unix; and a destination whose mode is owner-only (`& 0o077 == 0`) when it or the new file is not provably owner-only, which is how `rightkit-fs` reports an extended ACL | the ACL of a destination whose mode is wider than owner-only; extended attributes; file flags |
+//! | Windows | the read-only attribute or the EFS-encrypted attribute is set | the destination's DACL (a protected or explicit ACL, its owner), alternate data streams, the hidden/system/compressed attributes, creation time: the new file takes the parent directory's inherited ACL |
+//!
+//! "Not examined" means exactly that: such a save succeeds and the property is lost.
 
 use std::collections::BTreeSet;
 use std::fs;
-use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::{Condvar, Mutex, PoisonError};
+
+use rightkit_fs::{AtomicOptions, AtomicWriter, FsError};
 
 use crate::model::PdfEditError;
 use crate::save::{resolve_commit_with, PdfCommitResult, PdfSaveTokenStore};
@@ -46,131 +73,178 @@ pub enum CommitError {
     Edit(#[from] PdfEditError),
     #[error("write failed: {0}")]
     Io(#[from] std::io::Error),
+    /// The destination has protection the replacement file would not carry over. Nothing was
+    /// written and the original file is unchanged. The token is spent, as for every failed commit.
+    #[error("not saved, the original is unchanged: {0}")]
+    Refused(#[from] Unpreserved),
+    /// The destination now holds the new bytes, but a step after the replacement failed (the
+    /// directory sync). The token is spent and the other tokens staged against the file are
+    /// invalidated: treat the file as saved, durability across a power loss as not established.
+    #[error("saved, but a step after the replacement failed: {0}")]
+    Replaced(std::io::Error),
 }
 
-/// Writes `bytes` to `target` atomically: a temp file in the same directory is fsynced and then
-/// renamed over the target, so readers observe either the old or the new file, never a mix.
+/// What a replacement file would not keep of the file it replaces, found before anything was
+/// written. See "What a replacement keeps" in the module docs for what is, and is not, examined on
+/// each platform.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
+#[non_exhaustive]
+pub enum Unpreserved {
+    /// The file is read-only (Windows attribute).
+    #[error("the file is read-only")]
+    ReadOnly,
+    /// The file is EFS-encrypted (Windows attribute); the replacement would be plaintext.
+    #[error("the file is encrypted and a replacement would not be")]
+    Encrypted,
+    /// The replacement would have a different owner (Unix).
+    #[error("the replacement would have a different owner")]
+    Owner,
+    /// The replacement would have a different group (Unix).
+    #[error("the replacement would have a different group")]
+    Group,
+    /// The replacement would have different permission bits (Unix).
+    #[error("the replacement would have different permission bits")]
+    Mode,
+    /// The file is owner-only and has, or may have, an extended ACL the replacement would not
+    /// carry, or the replacement itself got one (macOS).
+    #[error("the file has, or may have, an access control list the replacement would not keep")]
+    Acl,
+}
+
+/// Writes `bytes` to `target` atomically through `rightkit_fs::AtomicWriter`: a temp file in the
+/// same directory is flushed and then renamed over the target, and the directory is synced, so
+/// readers observe either the old or the new file, never a mix, and a failure before the rename
+/// leaves the old file in place.
 ///
-/// Replacing an existing file keeps its protection. On Unix the temp file is created owner-only
-/// (`0600`) so no byte of the new content is ever readable by more than the owner while it is
-/// written, and then takes the original's owner, group and permission bits (setuid, setgid, sticky
-/// and the full `rwx` triple) just before the rename. On Windows the replacement goes through
-/// `ReplaceFileW`, which carries the original's DACL, attributes, and creation time onto the new
-/// content instead of letting it inherit the directory's ACL. A target that does not exist yet is
-/// created with the platform's ordinary new-file permissions, as before. A symlink target is
-/// resolved first, so the file it points at is replaced and the link survives.
+/// A symlink target is resolved first, so the file it points at is replaced and the link survives.
+/// Replacing an existing file is checked against what the replacement would not keep (module docs,
+/// "What a replacement keeps"); a refusal or a failure after the rename is an `io::Error` whose
+/// inner error is the [`CommitError`] (`get_ref()` and `downcast_ref`). This function takes no
+/// destination lock and cannot invalidate staged tokens: it is the bare writer. A staged save goes
+/// through [`commit_pdf_save`].
 pub fn write_atomic(target: &Path, bytes: &[u8]) -> std::io::Result<()> {
     let target = resolve_destination(target)?;
-    let target = target.as_path();
-    let dir = target
-        .parent()
-        .filter(|p| !p.as_os_str().is_empty())
-        .unwrap_or(Path::new("."));
-    let name = target
-        .file_name()
-        .map(|n| n.to_string_lossy().into_owned())
-        .unwrap_or_default();
-    let existing = match fs::metadata(target) {
-        Ok(meta) => Some(meta),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
-        Err(error) => return Err(error),
-    };
-    let mut nonce = [0_u8; 6];
-    getrandom::fill(&mut nonce).map_err(|e| std::io::Error::other(e.to_string()))?;
-    let suffix: String = nonce.iter().map(|b| format!("{b:02x}")).collect();
-    let tmp: PathBuf = dir.join(format!(".{name}.{suffix}.tmp"));
-    let result = (|| {
-        let mut file = create_temp(&tmp, existing.is_some())?;
-        file.write_all(bytes)?;
-        if let Some(meta) = &existing {
-            copy_protection(&file, meta)?;
+    publish(&target, bytes).map_err(into_io)
+}
+
+fn into_io(error: CommitError) -> std::io::Error {
+    match error {
+        CommitError::Io(source) => source,
+        other => {
+            let kind = match &other {
+                CommitError::Refused(_) => std::io::ErrorKind::PermissionDenied,
+                CommitError::Replaced(source) => source.kind(),
+                _ => std::io::ErrorKind::Other,
+            };
+            std::io::Error::new(kind, other)
         }
-        file.sync_all()?;
-        drop(file);
-        replace_file(&tmp, target, existing.is_some())
-    })();
-    if result.is_err() {
-        let _ = fs::remove_file(&tmp);
     }
-    result
 }
 
-/// Creates the temp sibling exclusively. When it will replace an existing file it starts owner-only
-/// on Unix; otherwise it gets the platform's default new-file permissions.
-fn create_temp(tmp: &Path, replacing: bool) -> std::io::Result<fs::File> {
-    let mut options = fs::OpenOptions::new();
-    options.write(true).create_new(true);
-    if replacing {
-        owner_only(&mut options);
+/// An `rightkit-fs` failure as a commit failure: a failure after the rename means the new bytes
+/// are in place.
+fn fs_error(error: FsError) -> CommitError {
+    if error.target_replaced() {
+        CommitError::Replaced(error.into())
+    } else {
+        CommitError::Io(error.into())
     }
-    options.open(tmp)
 }
 
+/// Replaces the already-resolved file `target` with `bytes`. The temp file is created first and
+/// compared with the destination before a byte is written; if the check refuses, the writer is
+/// dropped and removes the temp file.
+fn publish(target: &Path, bytes: &[u8]) -> Result<(), CommitError> {
+    let mut writer = AtomicWriter::create(target, AtomicOptions::default()).map_err(fs_error)?;
+    match fs::metadata(target) {
+        Ok(existing) => {
+            if !existing.is_file() {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::InvalidInput,
+                    "the destination exists and is not a regular file",
+                )
+                .into());
+            }
+            keeps_protection(target, &existing, writer.temp_path())?;
+        }
+        // A new file: there is nothing to keep.
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(error) => return Err(error.into()),
+    }
+    writer.write_all(bytes).map_err(fs_error)?;
+    writer.commit().map_err(fs_error)
+}
+
+/// The owner, group and permission bits of the new file must equal the destination's. The writer
+/// restores the mode itself but ignores a failure to do so, and it never sets an owner or a group,
+/// so this is what makes "kept" a fact instead of an intention.
 #[cfg(unix)]
-fn owner_only(options: &mut fs::OpenOptions) {
-    use std::os::unix::fs::OpenOptionsExt;
-    options.mode(0o600);
-}
-
-/// Windows has no mode bits to restrict at creation; the replacement takes the original's DACL in
-/// [`replace_file`].
-#[cfg(not(unix))]
-fn owner_only(_options: &mut fs::OpenOptions) {}
-
-/// Gives the written temp file the original's owner, group and permission bits. Ownership is
-/// best-effort (an unprivileged process can only keep its own uid, and may be refused a group it is
-/// not in); the permission bits are not: a mode that cannot be restored fails the save rather than
-/// leave a weaker file behind.
-#[cfg(unix)]
-fn copy_protection(file: &fs::File, original: &fs::Metadata) -> std::io::Result<()> {
-    use std::os::unix::fs::{fchown, MetadataExt, PermissionsExt};
-    let _ = fchown(file, Some(original.uid()), Some(original.gid()));
-    file.set_permissions(fs::Permissions::from_mode(original.mode() & 0o7777))
-}
-
-/// Windows keeps the original's DACL through `ReplaceFileW` (see [`replace_file`]); the read-only
-/// attribute is the only thing to carry here, and `ReplaceFileW` does that too.
-#[cfg(not(unix))]
-fn copy_protection(_file: &fs::File, _original: &fs::Metadata) -> std::io::Result<()> {
+fn same_protection(existing: &fs::Metadata, made: &fs::Metadata) -> Result<(), Unpreserved> {
+    use std::os::unix::fs::MetadataExt;
+    if existing.uid() != made.uid() {
+        return Err(Unpreserved::Owner);
+    }
+    if existing.gid() != made.gid() {
+        return Err(Unpreserved::Group);
+    }
+    if existing.mode() & 0o7777 != made.mode() & 0o7777 {
+        return Err(Unpreserved::Mode);
+    }
     Ok(())
 }
 
-/// Moves the finished temp file over `target`. Windows replaces an existing target with
-/// `ReplaceFileW`, which preserves its security descriptor, attributes and creation time; every
-/// other case is a plain rename.
+/// Compares the new temp file (still empty) with the destination. On macOS an owner-only
+/// destination must stay provably owner-only: `rightkit_fs::private::is_owner_only` also looks at
+/// the extended ACL there, which the mode bits do not show, and an unreadable ACL counts as "not
+/// provably". Elsewhere on Unix it is the mode check again.
+#[cfg(unix)]
+fn keeps_protection(
+    target: &Path,
+    existing: &fs::Metadata,
+    temp: &Path,
+) -> Result<(), CommitError> {
+    use std::os::unix::fs::MetadataExt;
+    let made = fs::metadata(temp)?;
+    same_protection(existing, &made)?;
+    if existing.mode() & 0o077 == 0 {
+        let owner_only = |path: &Path| rightkit_fs::private::is_owner_only(path).unwrap_or(false);
+        if !owner_only(target) || !owner_only(temp) {
+            return Err(Unpreserved::Acl.into());
+        }
+    }
+    Ok(())
+}
+
+/// Windows: the new file takes the parent directory's inherited ACL. Nothing in `std` reads a
+/// DACL, so a protected or explicit ACL on the destination is neither compared nor kept. The two
+/// attributes `std` does expose and a replacement would silently drop are refused.
 #[cfg(windows)]
-fn replace_file(tmp: &Path, target: &Path, replacing: bool) -> std::io::Result<()> {
-    use std::os::windows::ffi::OsStrExt;
-    use windows_sys::Win32::Storage::FileSystem::ReplaceFileW;
-
-    if !replacing {
-        return fs::rename(tmp, target);
+fn keeps_protection(
+    _target: &Path,
+    existing: &fs::Metadata,
+    _temp: &Path,
+) -> Result<(), CommitError> {
+    use std::os::windows::fs::MetadataExt;
+    // winnt.h: FILE_ATTRIBUTE_READONLY, FILE_ATTRIBUTE_ENCRYPTED.
+    const READONLY: u32 = 0x0000_0001;
+    const ENCRYPTED: u32 = 0x0000_4000;
+    let attributes = existing.file_attributes();
+    if attributes & READONLY != 0 {
+        return Err(Unpreserved::ReadOnly.into());
     }
-    let wide =
-        |path: &Path| -> Vec<u16> { path.as_os_str().encode_wide().chain(Some(0)).collect() };
-    let replaced = wide(target);
-    let replacement = wide(tmp);
-    // SAFETY: both buffers are NUL-terminated UTF-16 that outlive the call; the backup, exclude and
-    // reserved arguments are documented as optional/NULL.
-    let ok = unsafe {
-        ReplaceFileW(
-            replaced.as_ptr(),
-            replacement.as_ptr(),
-            std::ptr::null(),
-            0,
-            std::ptr::null(),
-            std::ptr::null(),
-        )
-    };
-    if ok == 0 {
-        return Err(std::io::Error::last_os_error());
+    if attributes & ENCRYPTED != 0 {
+        return Err(Unpreserved::Encrypted.into());
     }
     Ok(())
 }
 
-#[cfg(not(windows))]
-fn replace_file(tmp: &Path, target: &Path, _replacing: bool) -> std::io::Result<()> {
-    fs::rename(tmp, target)
+#[cfg(not(any(unix, windows)))]
+fn keeps_protection(
+    _target: &Path,
+    _existing: &fs::Metadata,
+    _temp: &Path,
+) -> Result<(), CommitError> {
+    Ok(())
 }
 
 /// A file's `(volume, file id)`. Unix uses `(dev, ino)`; Windows uses `FILE_ID_INFO` (a 64-bit
@@ -439,18 +513,22 @@ where
         read_source,
     )?;
     // Replace the resolved file, never a symlink that points at it.
-    write_atomic(&identity.path, &bytes)?;
+    let published = publish(&identity.path, &bytes);
 
-    // The destination now holds the candidate. Any other token staged against bytes that are gone
-    // must not be able to commit over this write. That is every staged source naming the file that
-    // was replaced (`identity`, read under the lock before the rename: a hard link to it keeps the
-    // old bytes under another name, so a sibling staged against that name no longer matches the
-    // destination afterwards) and every staged source naming the file the destination is now. A
-    // staged path whose identity cannot be read is invalidated too, and so is every staged path
-    // when the new destination cannot be read back.
-    let written = FileIdentity::try_of(&identity.path).ok();
-    invalidate_aliases(store, &identity, written.as_ref());
-    Ok(result)
+    // The destination now holds the candidate - also when only a step after the replacement failed
+    // (`Replaced`). Any other token staged against bytes that are gone must not be able to commit
+    // over this write. That is every staged source naming the file that was replaced (`identity`,
+    // read under the lock before the rename: a hard link to it keeps the old bytes under another
+    // name, so a sibling staged against that name no longer matches the destination afterwards)
+    // and every staged source naming the file the destination is now. A staged path whose identity
+    // cannot be read is invalidated too, and so is every staged path when the new destination
+    // cannot be read back. A write that failed before the replacement changed nothing, so nothing
+    // is invalidated.
+    if matches!(published, Ok(()) | Err(CommitError::Replaced(_))) {
+        let written = FileIdentity::try_of(&identity.path).ok();
+        invalidate_aliases(store, &identity, written.as_ref());
+    }
+    published.map(|()| result)
 }
 
 /// Invalidates every token staged against `replaced` (the file a commit just overwrote, as it was
@@ -495,6 +573,16 @@ mod tests {
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(&dir).expect("scratch dir");
         dir
+    }
+
+    /// The temp files `rightkit-fs` left in `dir` (its generated names all contain `.rktmp-`).
+    fn temps_in(dir: &Path) -> Vec<String> {
+        fs::read_dir(dir)
+            .expect("dir")
+            .filter_map(Result::ok)
+            .map(|e| e.file_name().to_string_lossy().into_owned())
+            .filter(|name| name.contains(".rktmp-"))
+            .collect()
     }
 
     /// Lets `parties` threads reach a point together, but never waits longer than `patience`:
@@ -857,13 +945,11 @@ mod tests {
             let now = fs::metadata(&target).expect("meta").permissions().mode() & 0o7777;
             assert_eq!(now, mode, "mode {mode:o} survives the replacement");
         }
-        // No temp sibling is left behind.
-        let leftovers = fs::read_dir(&dir)
-            .expect("dir")
-            .filter_map(Result::ok)
-            .filter(|e| e.file_name().to_string_lossy().ends_with(".tmp"))
-            .count();
-        assert_eq!(leftovers, 0);
+        assert_eq!(
+            temps_in(&dir),
+            Vec::<String>::new(),
+            "no temp sibling is left"
+        );
         let _ = fs::remove_dir_all(&dir);
     }
 
@@ -903,17 +989,178 @@ mod tests {
     }
 
     #[test]
-    fn finding7_a_new_destination_is_created_and_the_temp_is_exclusive() {
+    fn finding7_a_new_destination_is_created_and_leaves_no_temp() {
         let dir = scratch("fresh");
         let target = dir.join("new.pdf");
         write_atomic(&target, b"fresh").expect("create");
         assert_eq!(fs::read(&target).expect("read"), b"fresh");
-        let tmp = dir.join(".x.tmp");
-        fs::write(&tmp, b"squatter").expect("squatter");
-        assert!(
-            create_temp(&tmp, false).is_err(),
-            "an existing temp is never reused"
+        assert_eq!(temps_in(&dir), Vec::<String>::new());
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_destination_that_is_a_directory_is_refused_and_left_alone() {
+        let dir = scratch("dir-destination");
+        let target = dir.join("folder.pdf");
+        fs::create_dir(&target).expect("directory");
+        let error = write_atomic(&target, b"x").expect_err("a directory is not replaced");
+        assert_eq!(error.kind(), std::io::ErrorKind::InvalidInput, "{error}");
+        assert!(target.is_dir());
+        assert_eq!(temps_in(&dir), Vec::<String>::new());
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn finding13_a_publish_that_fails_leaves_the_original_and_no_temp() {
+        let dir = scratch("failed-publish");
+        let target = dir.join("memo.pdf");
+        let source = build_pdf(b"BT /F1 12 Tf 72 700 Td (Source) Tj ET");
+        fs::write(&target, &source).expect("write source");
+        let candidates = [build_pdf(b"BT /F1 12 Tf 72 700 Td (Edited) Tj ET")];
+        let store = PdfSaveTokenStore::default();
+        let tokens = stage_all(&store, &target, &source, &candidates);
+
+        // The seam stands in for the replace call of the one writer; the failure arrives exactly
+        // as a failed rename would.
+        let outcome = {
+            let _fail = rightkit_fs::atomic::testing::on_replace(|_| {
+                Some(std::io::Error::other("injected replace failure"))
+            });
+            commit_pdf_save(&store, &tokens[0], None)
+        };
+        assert!(matches!(outcome, Err(CommitError::Io(_))), "{outcome:?}");
+        assert_eq!(
+            fs::read(&target).expect("read"),
+            source,
+            "the original survives a failed publish"
         );
+        assert_eq!(temps_in(&dir), Vec::<String>::new(), "and no temp is left");
+
+        // Nothing changed, so a fresh token commits.
+        let again = stage_all(&store, &target, &source, &candidates);
+        commit_pdf_save(&store, &again[0], None).expect("the retry publishes");
+        assert_eq!(fs::read(&target).expect("read"), candidates[0]);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn finding13_a_failure_after_the_replacement_is_reported_as_replaced_and_still_invalidates() {
+        let dir = scratch("replaced-then-failed");
+        let target = dir.join("memo.pdf");
+        let source = build_pdf(b"BT /F1 12 Tf 72 700 Td (Source) Tj ET");
+        fs::write(&target, &source).expect("write source");
+        let candidates = [
+            build_pdf(b"BT /F1 12 Tf 72 700 Td (First) Tj ET"),
+            build_pdf(b"BT /F1 12 Tf 72 700 Td (Second) Tj ET"),
+        ];
+        let store = PdfSaveTokenStore::default();
+        let tokens = stage_all(&store, &target, &source, &candidates);
+
+        let outcome = {
+            let _fail = rightkit_fs::atomic::testing::fail_dir_sync(std::io::ErrorKind::Other);
+            commit_pdf_save(&store, &tokens[0], None)
+        };
+        assert!(
+            matches!(outcome, Err(CommitError::Replaced(_))),
+            "{outcome:?}"
+        );
+        assert_eq!(
+            fs::read(&target).expect("read"),
+            candidates[0],
+            "the new bytes are in place"
+        );
+        let second = commit_pdf_save(&store, &tokens[1], None);
+        assert!(
+            matches!(second, Err(CommitError::Edit(PdfEditError::WriteConflict))),
+            "{second:?}"
+        );
+        assert_eq!(fs::read(&target).expect("read"), candidates[0]);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn finding7_a_replacement_with_other_permission_bits_is_not_the_same_protection() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = scratch("protection");
+        let (old, new) = (dir.join("old.pdf"), dir.join("new.pdf"));
+        fs::write(&old, b"x").expect("old");
+        fs::write(&new, b"y").expect("new");
+        fs::set_permissions(&old, fs::Permissions::from_mode(0o640)).expect("chmod");
+        fs::set_permissions(&new, fs::Permissions::from_mode(0o600)).expect("chmod");
+        let (old_meta, new_meta) = (
+            fs::metadata(&old).expect("meta"),
+            fs::metadata(&new).expect("meta"),
+        );
+        assert_eq!(
+            same_protection(&old_meta, &new_meta),
+            Err(Unpreserved::Mode)
+        );
+        fs::set_permissions(&new, fs::Permissions::from_mode(0o640)).expect("chmod");
+        let new_meta = fs::metadata(&new).expect("meta");
+        assert_eq!(same_protection(&old_meta, &new_meta), Ok(()));
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    #[cfg(target_os = "macos")]
+    fn finding7_an_owner_only_file_with_an_acl_is_refused_and_left_alone() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = scratch("acl");
+        let target = dir.join("private.pdf");
+        fs::write(&target, b"old").expect("old");
+        fs::set_permissions(&target, fs::Permissions::from_mode(0o600)).expect("chmod");
+        let status = std::process::Command::new("/bin/chmod")
+            .arg("+a")
+            .arg("everyone allow read")
+            .arg(&target)
+            .status()
+            .expect("chmod +a runs");
+        assert!(status.success(), "chmod +a failed");
+        assert!(
+            !rightkit_fs::private::is_owner_only(&target).expect("reads the ACL"),
+            "precondition: the volume holds ACLs and rightkit-fs sees this one"
+        );
+
+        let error = write_atomic(&target, b"new").expect_err("refused");
+        let refusal = error
+            .get_ref()
+            .and_then(|inner| inner.downcast_ref::<CommitError>());
+        assert!(
+            matches!(refusal, Some(CommitError::Refused(Unpreserved::Acl))),
+            "{error:?}"
+        );
+        assert_eq!(fs::read(&target).expect("read"), b"old");
+        assert_eq!(temps_in(&dir), Vec::<String>::new());
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    #[cfg(windows)]
+    #[allow(clippy::permissions_set_readonly_false)]
+    fn finding7_a_read_only_file_is_refused_and_left_alone() {
+        let dir = scratch("readonly");
+        let target = dir.join("locked.pdf");
+        fs::write(&target, b"old").expect("old");
+        let mut permissions = fs::metadata(&target).expect("meta").permissions();
+        permissions.set_readonly(true);
+        fs::set_permissions(&target, permissions).expect("read-only");
+
+        let error = write_atomic(&target, b"new").expect_err("refused");
+        let refusal = error
+            .get_ref()
+            .and_then(|inner| inner.downcast_ref::<CommitError>());
+        assert!(
+            matches!(refusal, Some(CommitError::Refused(Unpreserved::ReadOnly))),
+            "{error:?}"
+        );
+        assert_eq!(fs::read(&target).expect("read"), b"old");
+        assert_eq!(temps_in(&dir), Vec::<String>::new());
+
+        let mut permissions = fs::metadata(&target).expect("meta").permissions();
+        permissions.set_readonly(false);
+        fs::set_permissions(&target, permissions).expect("writable again");
         let _ = fs::remove_dir_all(&dir);
     }
 }

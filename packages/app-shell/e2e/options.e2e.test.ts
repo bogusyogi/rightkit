@@ -273,7 +273,7 @@ describe.skipIf(!chrome)("opt-in options in real headless Chrome", () => {
           const t = await page.eval<string>("document.activeElement.closest('.rk-menu__item') ? document.activeElement.textContent : ''");
           if (t) seen.push(t);
         }
-        expect(seen.map((t) => t.replace(/^c/, "").replace(/⌘C$/, ""))).toEqual(["Copy", "Paste", "Select all"]);
+        expect(seen.map((t) => t.replace(/^c/, "").replace(/(⌘|Ctrl)C$/, ""))).toEqual(["Copy", "Paste", "Select all"]);
         expect(await count("[role=menu]")).toBe(1);
         // Enter on the focused item activates it exactly once.
         await page.press("Enter");

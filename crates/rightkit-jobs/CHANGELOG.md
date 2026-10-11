@@ -1,5 +1,42 @@
 # Changelog
 
+## Unreleased (handler-owned outcomes, settle-later, claim scopes, open-failure classification, terminal-only keep_total)
+
+Nothing here was compiled or run locally; verification is the CI run. Four additions and one fix, written for an adopter whose handlers settle jobs themselves. Behaviour changes for existing callers are listed first.
+
+**Behaviour changes (read these).**
+
+- **`PrunePolicy::keep_total(n)` now counts and removes terminal rows only.** It keeps the `n` newest terminal rows; active jobs neither count toward `n` nor are removed by it. The 0.2.9 text bounded the whole table (`n` minus the active count), so with 201 active rows and `keep_total(200)` the first completion was pruned the moment it landed. 0.2.9 is not published, and no GenRight, PostRight, CutRight or ScrapeRight call of `keep_total` exists in the checkouts; the bound is now the same as `keep_latest(n)`. `tests/prune.rs` changed with it.
+- **A terminal write that fails on storage no longer ends `Runner::run` with `Err`.** With a `db` or `io` error the runner now holds the write (see Settle later) and returns the new `RunOutcome::Unsettled(job)`; the job's lock stays held instead of being released. `Runner::with_settle_later(false)` restores the 0.2.9 behaviour (the error, the job left `running` and recoverable). Errors that are not storage errors (a hook refusal, `stale_attempt`, `illegal_transition`) are returned as before.
+- **New public enum variants.** `RunOutcome::Unsettled(Job)` and `Staged::Handled(HandlerOutcome)`. An exhaustive `match` on either needs a new arm; the compiler says so. No GenRight, PostRight or CutRight source matches on either.
+- **`JobError` gains a private field** (`open_failure()` reads it). Equality still compares `code`, `message`, `retryable` and `origin` only. Code that built a `JobError` as a struct literal outside the crate must use `JobError::new`, `retryable`, `supervisor` and `with_origin` (the 0.2.8 note already said literals need the new `origin` field). No such literal exists in the four apps.
+- **The runner writes its terminal lifecycle event in the same transaction as the terminal state** (`complete`, `failed`, `cancelled` after a failed write, `interrupted`), and `RunOutcome::Finished` carries the row that transaction wrote. Before, the event was a second commit and `Finished` a re-read, so a row removed in between lost both. The event rows, their order and their text are the same.
+- **`prune` and `submit` with `SubmitOptions::prune` skip a terminal row whose runner is still announcing it** (between its terminal write and the end of `Runner::run`, including the sink call). The guard lives in the process that runs the job.
+- **Opening a store reads `<database file>.settlements/` when it exists.** The directory is created only when a terminal write is held, so a store that never held one is untouched.
+
+**Handler-owned outcomes.**
+
+- New `HandlerOutcome` (`#[non_exhaustive]`): `Done(Value)`, `Settled`, `Pending(String)`. New provided `JobHandler::run_outcome(&self, &Job, &Arc<JobControl>) -> JobResult<HandlerOutcome>`; its default is `run_shared` with `Ok(v)` read as `Done(v)`, so a handler that implements only `run` behaves as before. `Runner` calls `run_outcome`.
+- `Settled`: the handler already wrote the terminal state. The runner writes nothing (no `COMPLETE`, no `FAILED`), verifies the row is terminal, releases the lock and emits the usual terminal lifecycle event with the message `settled by handler`. A row that is not terminal is a handler bug: the job is failed with the new typed error `handler_unsettled` (`HANDLER_UNSETTLED`); a row in a held status counts as `Pending`.
+- `Pending(reason)`: the runner writes nothing, releases the lock, emits `paused` with `pending: <reason>` and returns `RunOutcome::Paused`. A `Recovery::Never` job that is not held cannot be `Pending` (recovery would fail it as `interrupted`): it is failed with `handler_unsettled`.
+- `Staged::Handled(HandlerOutcome)` from `StagedHandler::prepare`, and provided `StagedHandler::compute_outcome` (default: `compute` read as `Done`); the pool adapter implements `run_outcome`, and its `run_shared` refuses a non-`Done` outcome with `pool_misuse`.
+- The `hold_submission` / `resolve` API already expressed "pending" for a held job and is reused; `Pending` adds the case of a job that is not held.
+
+**Settle later.**
+
+- A terminal write refused with a `db` or `io` error is kept in memory with the job's lock held, retried when the store next completes a write and on `JobStore::flush_pending_settlements() -> FlushReport { settled, dropped, pending }` (also `Runner`), with no timer and no sleep. A flush stops at the first storage error. The retry writes the state and the lifecycle event in one transaction and delivers the event to the runner's sink once.
+- Bounded: `MAX_PENDING_SETTLEMENTS` (64) entries and `MAX_PENDING_SETTLEMENT_BYTES` (4 MiB); past either, the error is returned. Opportunistic retries run immediately for an entry's first three tries and at most once a second after that; an explicit flush always tries.
+- Handlers: `JobControl::settle(&Transition) -> JobResult<Settlement>` and `JobStore::settle_terminal` / `settle_terminal_fenced` write a terminal transition and return `Settlement::{Written, Deferred}`. After `Deferred` the handler returns `HandlerOutcome::Settled`; the runner takes over the claim and returns `Unsettled`.
+- Restart: each held write is journaled, one file per job, in `<database file>.settlements/` with `rightkit_fs::atomic_write_with` (temp, `fsync`, rename, owner-only). `JobStore::open*` reads the journal and writes the recorded transitions, so a finished job is settled instead of run again. A still-refused entry stays pending and unclaimed; `Runner::with_unsettled_recovery`: `UnsettledRecovery::Settle` (default: recovery skips the job, `run` returns `Unsettled`) or `Rerun` (discard it and recover the job as unfinished).
+- Shutdown: `JobStore::shutdown_detailed()`, `Runner::shutdown_detailed()` and `StagedPool::shutdown_detailed()` flush once and return `SettlementShutdown { settled, dropped, unsettled: Vec<UnsettledJob> }` ("finished, unsettled", with `durable`). `StagedPool::shutdown` and drop flush once too. `JobStore::pending_settlements()` lists the held writes at any time.
+- Limit: if the journal cannot be written either, the entry is memory-only (`durable == false`) and a crash loses it; the next open sees an unfinished job.
+
+**Claim scopes.** New `ClaimScope::{All, NonTerminal}` (`NonTerminal` is the default), `JobStore::claimed_paths_with(scope)` and `Runner::sweep_unclaimed_with(root, scope)`. `claimed_paths()` and `sweep_unclaimed(root)` are `NonTerminal` and unchanged. `All` adds the artifact paths of every job row still in the store, and `<scratch_root>/<job_id>` of each row when a scratch root is configured.
+
+**Typed open failures.** New `JobError::open_failure() -> Option<OpenFailure>` with `OpenFailure::{Corrupt, Unreadable(UnreadableCause), StorageUnavailable(StorageProblem), Other}` (`#[non_exhaustive]`), derived from the `DbError` or SQLite error behind the `JobError`. `code` is unchanged. `Unreadable` holds only `PermissionDenied` or `IoReadFailure`; every storage cause is `StorageUnavailable`.
+
+**Tests.** `tests/handler_outcome.rs` (no second write: row, event log and hook count; a typed handler bug for `Settled` on a non-terminal row; `Pending` plain, held and `Never`; the pool), `tests/settle_later.rs` (injected failing terminal write held, retried by flush and by the next write, bounded, claim held, shutdown report, restart applies the journal, parked and `Rerun` recovery, handler-deferred write, non-storage errors not held, opt-out), `tests/terminal_announce.rs` (201 active rows with `keep_total(200)`: one terminal event, row readable from the sink; a prune from inside the sink skips the row being announced), `tests/claim_scope.rs`, `tests/open_failure.rs`; unit tests for the classification in `src/error.rs`; `tests/prune.rs` updated for the terminal-only bound.
+
 ## Unreleased (keyset paging, atomic terminal import, rightkit-db re-exports)
 
 Additive. Nothing here was compiled or run locally; verification is the CI run. No existing signature, field, wire frame or `JOB_METHODS` entry changed; `ListFilter` gained no field (apps build it as a full literal).

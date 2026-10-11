@@ -7,6 +7,7 @@ import type { ShortcutRegistry } from "../shortcuts.js";
 import { chordSteps } from "../shortcuts.js";
 import { useFocusTrap, useModalDismiss } from "./hooks.js";
 import { cx } from "./ui.js";
+import { useShellOptional } from "./provider.js";
 import type { SlotClasses } from "./slots.js";
 
 export interface PaletteLabels {
@@ -64,6 +65,8 @@ export interface CommandPaletteProps {
  */
 export function CommandPalette({ commands, onClose, registry, labels: labelOverrides, limit = 50, paletteWidth = 640, className, slots, rank = rankCommands, enterDelayMs = 90, searchIcon, renderIcon }: CommandPaletteProps) {
   const labels = { ...DEFAULT_PALETTE_LABELS, ...labelOverrides };
+  // Without a registry the chord hints are still drawn for the shell's platform.
+  const shellPlatform = useShellOptional()?.platform;
   const [query, setQuery] = useState("");
   const [selection, setSelection] = useState<PaletteSelection>(initialPaletteSelection);
   const { closing, close } = useModalDismiss(onClose, { escape: false });
@@ -162,7 +165,7 @@ export function CommandPalette({ commands, onClose, registry, labels: labelOverr
                   >
                     {icon ? <span className={cx("rk-palette__icon", slots?.icon)} aria-hidden="true">{icon}</span> : null}
                     <span className="rk-palette__label">{command.label}</span>
-                    {chord ? <Kbd chord={chordSteps(chord)[0]} gap={1} platform={registry?.platform} /> : command.hint ? <span className="rk-palette__hint">{command.hint}</span> : null}
+                    {chord ? <Kbd chord={chordSteps(chord)[0]} gap={1} platform={registry?.platform ?? shellPlatform} /> : command.hint ? <span className="rk-palette__hint">{command.hint}</span> : null}
                   </div>
                 );
               })}

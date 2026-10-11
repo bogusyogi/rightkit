@@ -88,8 +88,8 @@ use serde::Deserialize;
 
 use crate::font::{build_to_unicode_cmap, subset_for_pdf};
 use crate::inspect::{
-    self, content_stream_ids, encode_middle_for_font, walk_page_graph, ContentBudget,
-    ReencodeFailure,
+    self, content_stream_ids, encode_middle_for_font, is_line_moving_show, walk_page_graph,
+    ContentBudget, ReencodeFailure,
 };
 use crate::model::{
     document_sha256, effective_pdf_edit_commands, ComposedCandidate, GapNumber, GlyphSourceAddress,
@@ -1142,7 +1142,7 @@ fn remove_glyphs_keeping_pen(
                 op.operator = "TJ".to_string();
                 op.operands = vec![Object::Array(replacement)];
             }
-            "'" | "\"" => return Err(PdfEditError::UnsupportedEncoding),
+            other if is_line_moving_show(other) => return Err(PdfEditError::UnsupportedEncoding),
             _ => return Err(PdfEditError::SourceDigestMismatch),
         }
         end = begin;
@@ -4323,6 +4323,44 @@ mod tests {
             compose_candidate(&source, &[command], &test_resolver()),
             Err(PdfEditError::UnsupportedEncoding)
         ));
+    }
+
+    #[test]
+    fn finding16_inspection_advertises_a_substitution_exactly_when_composition_admits_it() {
+        // The same two letters shown by each of the four show operators. The island may say
+        // `substitution_editable` only where the composer will remove its glyphs, and the composer
+        // must succeed exactly there: one predicate, read by both.
+        let cases: [(&[u8], bool); 4] = [
+            (b"BT /F1 12 Tf 72 700 Td (AB) Tj ET", true),
+            (b"BT /F1 12 Tf 72 700 Td [(AB)] TJ ET", true),
+            (b"BT /F1 12 Tf 72 700 Td 14 TL (AB) ' ET", false),
+            (b"BT /F1 12 Tf 72 700 Td 14 TL 0 0 (AB) \" ET", false),
+        ];
+        for (content, advertised) in cases {
+            let label = String::from_utf8_lossy(content).into_owned();
+            let source = doc_bytes(&build_pdf(content));
+            let before = page_islands(&source);
+            let island = before
+                .iter()
+                .find(|i| i.text == "AB")
+                .unwrap_or_else(|| panic!("{label}: no AB island"));
+            assert_eq!(island.substitution_editable, advertised, "{label}");
+
+            let command = changed_font_cmd("substitute", island, "Hi", 72.0);
+            let composed = compose_candidate(&source, &[command], &test_resolver());
+            assert_eq!(
+                composed.is_ok(),
+                advertised,
+                "{label}: composition said {:?}",
+                composed.as_ref().err()
+            );
+            if !advertised {
+                assert!(
+                    matches!(composed, Err(PdfEditError::UnsupportedEncoding)),
+                    "{label}"
+                );
+            }
+        }
     }
 
     #[test]

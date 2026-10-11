@@ -4,6 +4,12 @@
 //! inherits from its `/Pages` ancestors (`Resources`, `MediaBox`, `CropBox`, `Rotate`) are
 //! materialized onto the page before the old page tree is discarded, and unreachable objects
 //! (old catalogs and page trees) are pruned.
+//!
+//! Materializing never copies a value per page. A value an ancestor holds directly (a `/Resources`
+//! dictionary, a box array) is turned into **one indirect object** the first time any page below that
+//! ancestor needs it, and every such page gets a reference to it, so ten thousand pages under one
+//! node with a large `/Resources` cost ten thousand references and one copy, not ten thousand
+//! copies. A value that is already a reference, or a number or boolean, is copied as is.
 
 use std::collections::BTreeMap;
 
@@ -23,12 +29,6 @@ pub enum MergeError {
     Write(String),
 }
 
-/// Most direct entries (dictionary entries and array items) the inherited attributes copied onto
-/// pages may total across one document. A `/Resources` held directly on a `/Pages` node is cloned
-/// onto every page below it, so thousands of pages over a large direct dictionary would otherwise
-/// multiply it; an indirect one costs a reference per page and is not counted.
-const MAX_MATERIALIZED_ENTRIES: usize = 1 << 21;
-
 const INHERITED: [&[u8]; 4] = [b"Resources", b"MediaBox", b"CropBox", b"Rotate"];
 
 fn load(index: usize, bytes: &[u8]) -> Result<Document, MergeError> {
@@ -44,25 +44,30 @@ fn load(index: usize, bytes: &[u8]) -> Result<Document, MergeError> {
     Ok(doc)
 }
 
-/// Copies the attributes `page_id` inherits onto the page itself. `budget` is the entries still
-/// available to copy for the whole document (see [`MAX_MATERIALIZED_ENTRIES`]); it is charged
-/// before each value is cloned.
-fn materialize_inherited(
-    doc: &mut Document,
-    page_id: ObjectId,
-    index: usize,
-    budget: &mut usize,
-) -> Result<(), MergeError> {
-    let mut found: Vec<(&[u8], Object)> = Vec::new();
-    let own = match doc.get_object(page_id).and_then(|o| o.as_dict()) {
-        Ok(d) => d.clone(),
-        Err(_) => return Ok(()),
+/// The indirect object made for an inherited value, by the ancestor that holds it and which of
+/// [`INHERITED`] it is. A page that inherits the same value gets this and nothing else.
+type SharedValues = BTreeMap<(ObjectId, usize), Object>;
+
+/// Sets on `page_id` the attributes it inherits. A direct value on an ancestor is cloned **once**
+/// into an indirect object kept in `shared` (the clone is of a value the document already holds, so
+/// the total is bounded by the document); every page below that ancestor then gets the same
+/// reference.
+fn materialize_inherited(doc: &mut Document, page_id: ObjectId, shared: &mut SharedValues) {
+    // Only asked about, never copied: which attributes the page has itself and where its parent is.
+    let (parent, has) = match doc.get_object(page_id).and_then(|o| o.as_dict()) {
+        Ok(page) => (
+            page.get(b"Parent").ok().and_then(|p| p.as_reference().ok()),
+            INHERITED.map(|key| page.has(key)),
+        ),
+        Err(_) => return,
     };
-    for key in INHERITED {
-        if own.has(key) {
+    let mut found: Vec<(&[u8], Object)> = Vec::new();
+    for (index, &key) in INHERITED.iter().enumerate() {
+        if has[index] {
             continue;
         }
-        let mut cursor = own.get(b"Parent").ok().and_then(|p| p.as_reference().ok());
+        let mut holder: Option<ObjectId> = None;
+        let mut cursor = parent;
         let mut hops = 0;
         while let Some(id) = cursor {
             hops += 1;
@@ -72,28 +77,44 @@ fn materialize_inherited(
             let Ok(node) = doc.get_object(id).and_then(|o| o.as_dict()) else {
                 break;
             };
-            if let Ok(value) = node.get(key) {
-                let cost = match value {
-                    Object::Dictionary(dict) => dict.len(),
-                    Object::Array(items) => items.len(),
-                    _ => 1,
-                };
-                *budget = budget.checked_sub(cost).ok_or_else(|| MergeError::Parse {
-                    index,
-                    message: "inherited page attributes are too large to copy".to_string(),
-                })?;
-                found.push((key, value.clone()));
+            if node.has(key) {
+                holder = Some(id);
                 break;
             }
             cursor = node.get(b"Parent").ok().and_then(|p| p.as_reference().ok());
         }
+        let Some(holder) = holder else { continue };
+        let value = if let Some(value) = shared.get(&(holder, index)).cloned() {
+            value
+        } else {
+            let direct = doc
+                .get_object(holder)
+                .ok()
+                .and_then(|o| o.as_dict().ok())
+                .and_then(|node| node.get(key).ok())
+                .cloned();
+            let value = match direct {
+                None => continue,
+                // A reference or a number costs the same shared or copied.
+                Some(
+                    plain @ (Object::Reference(_)
+                    | Object::Integer(_)
+                    | Object::Real(_)
+                    | Object::Boolean(_)
+                    | Object::Null),
+                ) => plain,
+                Some(container) => Object::Reference(doc.add_object(container)),
+            };
+            shared.insert((holder, index), value.clone());
+            value
+        };
+        found.push((key, value));
     }
     if let Ok(Object::Dictionary(dict)) = doc.get_object_mut(page_id) {
         for (key, value) in found {
             dict.set(key, value);
         }
     }
-    Ok(())
 }
 
 /// Merges `inputs` in order into one document (one page tree, pages in input order).
@@ -107,9 +128,9 @@ pub fn merge_pdfs(inputs: &[&[u8]]) -> Result<Vec<u8>, MergeError> {
     for (index, bytes) in inputs.iter().enumerate() {
         let mut doc = load(index, bytes)?;
         let pages: Vec<ObjectId> = doc.get_pages().into_values().collect();
-        let mut budget = MAX_MATERIALIZED_ENTRIES;
+        let mut shared = SharedValues::new();
         for id in &pages {
-            materialize_inherited(&mut doc, *id, index, &mut budget)?;
+            materialize_inherited(&mut doc, *id, &mut shared);
         }
         // Renumber moves page ids too; recompute them from the renumbered document.
         doc.renumber_objects_with(max_id);
@@ -127,9 +148,9 @@ pub fn select_pages(source: &[u8], pages: &[u32]) -> Result<Vec<u8>, MergeError>
     }
     let mut doc = load(0, source)?;
     let map = doc.get_pages();
-    let mut budget = MAX_MATERIALIZED_ENTRIES;
+    let mut shared = SharedValues::new();
     for id in map.values().copied().collect::<Vec<_>>() {
-        materialize_inherited(&mut doc, id, 0, &mut budget)?;
+        materialize_inherited(&mut doc, id, &mut shared);
     }
     let mut picked = Vec::with_capacity(pages.len());
     let mut objects = doc.objects.clone();
