@@ -12,6 +12,10 @@ use std::rc::Rc;
 use rightkit_fs::atomic::testing::{on_replace, take_steps, Step};
 use rightkit_fs::{atomic_write_with_options, AtomicWriteOptions, FsError};
 
+/// What a hook saw just before the rename: the temp file's mode and the destination's content.
+#[cfg(unix)]
+type Observed = (u32, Option<Vec<u8>>);
+
 fn write(path: &Path, options: AtomicWriteOptions, bytes: &[u8]) -> rightkit_fs::Result<()> {
     atomic_write_with_options(path, options, |f| f.write_all(bytes))
 }
@@ -129,7 +133,7 @@ fn the_temp_is_owner_only_before_the_replace_publishes_it() {
             // At the instant before the rename: the temp's mode, and what the destination name
             // shows (the old content, or nothing). Nothing readable by others may ever be
             // published under the destination name.
-            let seen: Rc<RefCell<Vec<(u32, Option<Vec<u8>>)>>> = Rc::default();
+            let seen: Rc<RefCell<Vec<Observed>>> = Rc::default();
             let sink = seen.clone();
             let guard = on_replace(move |call| {
                 let mode = std::fs::metadata(&call.temp).unwrap().permissions().mode() & 0o777;

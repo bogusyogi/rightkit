@@ -243,10 +243,14 @@ fn dir_watch_set_caps_evicts_oldest_and_unwatches() {
 
     fs::write(dirs[0].join("evicted.txt"), "x").unwrap();
     fs::write(dirs[4].join("live.txt"), "y").unwrap();
-    let got = collect_until(&rx, |all| all.iter().any(|(i, _)| *i == 4));
-    assert!(got
-        .iter()
-        .any(|(i, b)| *i == 4 && b.changed.iter().any(|p| p.ends_with("live.txt"))));
+    // Wait for the batch that names the file, not merely the first batch from that directory:
+    // a slow runner can deliver an earlier batch for the directory itself first.
+    let live = |all: &[(usize, ChangeBatch)]| {
+        all.iter()
+            .any(|(i, b)| *i == 4 && b.changed.iter().any(|p| p.ends_with("live.txt")))
+    };
+    let got = collect_until(&rx, |all| live(all));
+    assert!(live(&got));
     assert!(
         got.iter().all(|(i, _)| *i != 0),
         "evicted dir still emitting"
