@@ -426,6 +426,15 @@ mod real_flow {
 
     #[test]
     fn rightkit_oauth_flow_end_to_end() {
+        // The flow stores tokens in rightkit-oauth's sealed file store, which exists on Unix
+        // only: its private-directory check has no Windows form and it refuses to open there.
+        if !cfg!(unix) {
+            println!(
+                "SKIP rightkit_oauth_flow_end_to_end: SealedFileTokenStore is Unix-only, so \
+                 the server flow has no token store to run against on this OS"
+            );
+            return;
+        }
         let server = MockServer::start(|_, _| {
             MockResponse::json(
                 200,

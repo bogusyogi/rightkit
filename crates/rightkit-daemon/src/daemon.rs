@@ -940,7 +940,8 @@ impl Daemon {
             return Response::err(400, "hash_mismatch");
         }
         let committed = (|| -> std::io::Result<()> {
-            File::open(&part)?.sync_all()?;
+            // Opened for writing: Windows refuses to flush a read-only handle.
+            OpenOptions::new().write(true).open(&part)?.sync_all()?;
             let up = g
                 .uploads
                 .get_mut(&id)
