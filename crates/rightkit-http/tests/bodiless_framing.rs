@@ -231,7 +231,7 @@ mod async_client {
         let server = recording(seen.clone(), |head, _| ok_for(head));
         let client = async_client(RetryPolicy::none(), 0);
         client
-            .send_headers(&Request::new(Method::Head, server.url("/")))
+            .send(&Request::new(Method::Head, server.url("/")))
             .await
             .unwrap();
         client
