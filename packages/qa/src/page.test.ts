@@ -355,6 +355,13 @@ describe('raw CDP', () => {
   });
 });
 
+// The attach tests talk to an in-process HTTP fixture over loopback and are not about timing out. They used 500 ms,
+// and on a windows-2025 runner one `/json/version` request did not answer in that time while another test file was
+// starting real Chrome (the whole test took 2.5 s). They now use the package's own default for attach. That is the
+// product default, not a bound measured on runners; vitest's per-test limit is what bounds a test that hangs.
+// Tests that are about timing out keep their own short, explicit values.
+const FIXTURE_ATTACH_TIMEOUT_MS = 30_000;
+
 describe('attach to an existing page & page.mouse', () => {
   const pageTargets = [
     { targetId: 'app-page', type: 'page', url: 'app://main/', title: 'Pulse' },
@@ -380,7 +387,7 @@ describe('attach to an existing page & page.mouse', () => {
 
   it('attaches via /json/version without creating a target & lists page targets only', async () => {
     const { server, port } = await appFixture();
-    const browser = await QaBrowserSession.attach({ port, timeout: 500 }); cleanup.push(() => browser.close().catch(() => {}));
+    const browser = await QaBrowserSession.attach({ port, timeout: FIXTURE_ATTACH_TIMEOUT_MS }); cleanup.push(() => browser.close().catch(() => {}));
     expect(await browser.pages()).toEqual([{ targetId: 'app-page', url: 'app://main/', title: 'Pulse' }]);
     expect(server.httpRequests).toEqual(['/json/version']);
     expect(methods(server)).toEqual(['Target.getTargets']);
@@ -388,7 +395,7 @@ describe('attach to an existing page & page.mouse', () => {
 
   it('attachPage(targetId) attaches flattened without creating a target & runs page commands', async () => {
     const { server, port } = await appFixture();
-    const browser = await QaBrowserSession.attach({ port, timeout: 500 }); cleanup.push(() => browser.close().catch(() => {}));
+    const browser = await QaBrowserSession.attach({ port, timeout: FIXTURE_ATTACH_TIMEOUT_MS }); cleanup.push(() => browser.close().catch(() => {}));
     const page = await browser.attachPage('app-page');
     expect(page.targetId).toBe('app-page');
     expect(await page.evaluate((n: number) => n, 4)).toBe(true);
@@ -398,7 +405,7 @@ describe('attach to an existing page & page.mouse', () => {
 
   it('attachPage(predicate) must match exactly one page; unknown ids attach nothing', async () => {
     const { server, port } = await appFixture({ targets: [...pageTargets, { targetId: 'other', type: 'page', url: 'app://other/', title: 'Other' }] });
-    const browser = await QaBrowserSession.attach({ port, timeout: 500 }); cleanup.push(() => browser.close().catch(() => {}));
+    const browser = await QaBrowserSession.attach({ port, timeout: FIXTURE_ATTACH_TIMEOUT_MS }); cleanup.push(() => browser.close().catch(() => {}));
     await expect(browser.attachPage((info) => info.url.startsWith('app://'))).rejects.toThrow('matched 2 pages');
     await expect(browser.attachPage((info) => info.title === 'Missing')).rejects.toThrow('matched 0 pages');
     await expect(browser.attachPage('missing')).rejects.toThrow('No page target');
@@ -409,7 +416,7 @@ describe('attach to an existing page & page.mouse', () => {
 
   it('closing an attached page detaches only & never closes the app page', async () => {
     const { server, port } = await appFixture();
-    const browser = await QaBrowserSession.attach({ port, timeout: 500 }); cleanup.push(() => browser.close().catch(() => {}));
+    const browser = await QaBrowserSession.attach({ port, timeout: FIXTURE_ATTACH_TIMEOUT_MS }); cleanup.push(() => browser.close().catch(() => {}));
     const page = await browser.attachPage('app-page');
     await page.close(); await page.close();
     expect(server.messages.filter((message) => message.method.startsWith('Target.')).map((message) => message.method))
@@ -421,7 +428,7 @@ describe('attach to an existing page & page.mouse', () => {
 
   it('closing the browser session detaches attached pages & never closes app targets', async () => {
     const { server, port } = await appFixture();
-    const browser = await QaBrowserSession.attach({ port, timeout: 500 });
+    const browser = await QaBrowserSession.attach({ port, timeout: FIXTURE_ATTACH_TIMEOUT_MS });
     await browser.attachPage('app-page');
     await browser.close();
     expect(methods(server)).toContain('Target.detachFromTarget');
@@ -433,7 +440,7 @@ describe('attach to an existing page & page.mouse', () => {
     await expect(QaBrowserSession.attach({ port: 9333, host: '192.168.1.20' })).rejects.toThrow('non-loopback');
     await expect(QaBrowserSession.attach({ httpEndpoint: 'http://example.com:9333' })).rejects.toThrow('non-loopback');
     const { port } = await appFixture({ webSocketDebuggerUrl: 'ws://192.168.1.20:9222/devtools/browser/x' });
-    await expect(QaBrowserSession.attach({ port, timeout: 500 })).rejects.toThrow('non-loopback');
+    await expect(QaBrowserSession.attach({ port, timeout: FIXTURE_ATTACH_TIMEOUT_MS })).rejects.toThrow('non-loopback');
   });
 
   it('validates the port, endpoint shape & discovery payload', async () => {
@@ -443,7 +450,7 @@ describe('attach to an existing page & page.mouse', () => {
     await expect(QaBrowserSession.attach({ port: 9333, httpEndpoint: 'http://127.0.0.1:9333' })).rejects.toThrow('port or httpEndpoint');
     await expect(QaBrowserSession.attach({ httpEndpoint: 'ws://127.0.0.1:9333' })).rejects.toThrow('http');
     const { port } = await appFixture({ webSocketDebuggerUrl: '' });
-    await expect(QaBrowserSession.attach({ port, timeout: 500 })).rejects.toThrow('webSocketDebuggerUrl');
+    await expect(QaBrowserSession.attach({ port, timeout: FIXTURE_ATTACH_TIMEOUT_MS })).rejects.toThrow('webSocketDebuggerUrl');
   });
 
   it('page.mouse: move, down, move while held (buttons mask) & up send exact CDP params', async () => {

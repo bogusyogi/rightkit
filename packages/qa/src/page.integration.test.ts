@@ -25,6 +25,18 @@ describe('QaPage with real Chrome for Testing', () => {
     url = `http://127.0.0.1:${(server.address() as { port: number }).port}`;
     chrome = await launchChromeForTesting();
     browser = await QaBrowserSession.connect(chrome.wsEndpoint, { timeout: 5000 });
+    // The first navigation of a just-launched browser, done here and timed on every run. On a windows-2025 runner it
+    // once got no answer to Page.navigate within the tests' 5 s (no loader, no commit; the next test then made 40
+    // navigations in 6.7 s). Whether it was slow or lost is not known. Here it has the hook's budget instead: a slow
+    // one shows its time below, and a lost one fails this hook with the navigation detail on the error.
+    const first = await browser.newPage();
+    const started = Date.now();
+    try {
+      await first.goto(url, { timeout: 20_000 });
+    } finally {
+      console.log(`[qa-cold-start] first navigation: ${Date.now() - started} ms`);
+      await first.close().catch(() => undefined);
+    }
   }, 30_000);
   beforeEach(async () => {
     page = await browser.newPage();
