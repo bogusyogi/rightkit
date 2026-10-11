@@ -17,6 +17,15 @@ use serde_json::json;
 const ID: &str = "test-shell";
 const ROOT_ENV: &str = "RK_SINGLE_INSTANCE_TEST_ROOT";
 
+/// The claim's result as text, so a failed assertion names the branch that was taken.
+fn describe(outcome: &ClaimOutcome) -> String {
+    match outcome {
+        ClaimOutcome::Primary(_) => "primary".to_owned(),
+        ClaimOutcome::Forwarded => "forwarded".to_owned(),
+        ClaimOutcome::Failed(failure) => format!("failed: {failure}"),
+    }
+}
+
 #[test]
 fn second_launch_forwards_its_typed_message_to_the_primary() {
     let suite = Suite::per_run_temp("shell-single-instance").unwrap();
@@ -204,7 +213,8 @@ fn a_live_legacy_holder_receives_the_launch_and_a_stale_socket_is_ignored() {
     );
     assert!(
         outcome.is_primary(),
-        "a stale legacy socket must not block the claim"
+        "a stale legacy socket must not block the claim, got {}",
+        describe(&outcome)
     );
     let _ = std::fs::remove_file(&stale_socket);
 }
