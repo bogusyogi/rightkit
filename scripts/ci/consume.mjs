@@ -16,6 +16,10 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
+// A directory for tar's -C. Git for Windows puts a GNU tar on PATH that reads a backslash as an escape, so
+// "C:\\x\\y" is not found; both it and the system bsdtar accept forward slashes.
+const tarDir = (dir) => (process.platform === "win32" ? dir.replaceAll("\\", "/") : dir);
+
 const fwd = (p) => p.replace(/\\/g, "/");
 const tail = (text, n = 600) => String(text ?? "").trim().slice(-n);
 
@@ -204,7 +208,7 @@ export function consumeCrates({ units, packDir, scratchRoot = os.tmpdir(), spawn
       const out = results.get(unit.name);
       const dest = path.join(scratch, "src", unit.name);
       fs.mkdirSync(dest, { recursive: true });
-      const untar = spawn("tar", ["-xzf", path.basename(unit.file), "-C", dest], { cwd: packDir, encoding: "utf8", env });
+      const untar = spawn("tar", ["-xzf", path.basename(unit.file), "-C", tarDir(dest)], { cwd: packDir, encoding: "utf8", env });
       const inner = path.join(dest, `${unit.name}-${unit.version}`);
       if (untar.error || untar.status !== 0 || !fs.existsSync(inner)) { out.problems.push(`${unit.name}: cannot extract ${unit.file}`); continue; }
       dirs.set(unit.name, inner);
