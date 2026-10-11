@@ -165,7 +165,11 @@ pub enum Privacy {
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum ReplaceMode {
     /// `rename(2)` on Unix; `std::fs::rename` on Windows, which replaces with POSIX semantics, so a
-    /// reader holding the old file open does not block the writer. The default mode.
+    /// reader holding the old file open with `FILE_SHARE_DELETE` (what Rust's `File::open` asks
+    /// for) does not block the writer. A reader that opened it WITHOUT delete sharing does: the
+    /// write fails with `ERROR_ACCESS_DENIED` (5), the old file intact and the temp file removed
+    /// (observed by a consumer's test on Windows 11, not by a test in this crate). That is not a
+    /// sharing violation, so `retry_sharing_violation` does not retry it. The default mode.
     ///
     /// What a durable write guarantees when it returns `Ok`, per platform:
     ///
@@ -1006,7 +1010,10 @@ fn retry_with<T>(
     }
 }
 
-/// `ERROR_SHARING_VIOLATION` or `ERROR_LOCK_VIOLATION` on Windows. Never true elsewhere.
+/// `ERROR_SHARING_VIOLATION` (32) or `ERROR_LOCK_VIOLATION` (33) on Windows. Never true
+/// elsewhere. `ERROR_ACCESS_DENIED` (5) is deliberately not counted: it is also what a real
+/// permission failure returns, so it is never retried, including when its cause is a reader
+/// holding the destination without delete sharing.
 #[cfg(windows)]
 fn is_sharing_violation(error: &std::io::Error) -> bool {
     matches!(error.raw_os_error(), Some(32) | Some(33))
@@ -1046,8 +1053,9 @@ pub struct ReplaceCall {
 /// Chooses the call and flags for one replace. Write-through follows `options.durable` only where
 /// Windows supports it for the mode: `MoveFileExW` with `MOVEFILE_WRITE_THROUGH`. `Rename` never
 /// uses `MoveFileExW`: `std::fs::rename` replaces with POSIX semantics on Windows, which a
-/// concurrent reader's open handle cannot block (measured: `MoveFileExW` made writers fail with
-/// `ERROR_ACCESS_DENIED` against readers in `tests/e2e.rs`).
+/// concurrent reader's handle opened with delete sharing cannot block (measured: `MoveFileExW`
+/// made writers fail with `ERROR_ACCESS_DENIED` against such readers in `tests/e2e.rs`). A
+/// reader that denies delete sharing blocks either call with error 5; see [`ReplaceMode::Rename`].
 fn plan_replace(options: AtomicWriteOptions) -> (ReplaceApi, u32) {
     plan_replace_on(cfg!(windows), options)
 }

@@ -284,6 +284,9 @@ fn read_during_replaces(path: &Path) -> (Vec<u8>, u32) {
 
 /// The contract is about content: a reader never sees a truncated file or a mix of two writers.
 /// It is not that a Windows reader never gets a refused open while a replace is in flight.
+/// What a green run shows: readers are not broken by the writers on that machine. It does not
+/// show the retry working unless the printed count of refused opens is above zero; the first CI
+/// run on Windows printed zero.
 #[test]
 fn concurrent_processes_never_expose_a_mixed_file() {
     let (_g, dir) = canonical_tmp();
