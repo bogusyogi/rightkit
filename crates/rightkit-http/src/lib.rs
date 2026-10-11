@@ -28,6 +28,7 @@ mod redirect;
 pub mod retry;
 pub mod secret;
 pub mod sse;
+mod system_proxy;
 mod trust;
 #[cfg(feature = "untrusted")]
 pub mod untrusted;

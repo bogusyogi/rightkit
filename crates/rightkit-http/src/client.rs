@@ -92,6 +92,13 @@ pub enum ProxyMode {
     Environment,
     /// A proxy URL such as `http://proxy.corp:3128` or `socks5://127.0.0.1:1080`.
     Explicit(String),
+    /// The proxy the operating system is configured with for the current user.
+    ///
+    /// Windows: the static proxy and bypass list of the system proxy settings (an `http` or
+    /// `https` proxy; the bypass list becomes the `NO_PROXY` list where it can be expressed).
+    /// A proxy auto-config script and auto-detection are not evaluated. When the system
+    /// names no static proxy, and on other systems, this is [`ProxyMode::Environment`].
+    System,
 }
 
 impl fmt::Debug for ProxyMode {
@@ -100,6 +107,7 @@ impl fmt::Debug for ProxyMode {
             ProxyMode::None => f.write_str("None"),
             ProxyMode::Environment => f.write_str("Environment"),
             ProxyMode::Explicit(url) => write!(f, "Explicit({})", redact_url(url)),
+            ProxyMode::System => f.write_str("System"),
         }
     }
 }
@@ -170,7 +178,7 @@ pub(crate) struct ResolvedProxy {
     /// `NO_PROXY`-style entries as configured (the matcher lives in `ureq`).
     #[allow(dead_code)]
     pub(crate) no_proxy: Vec<String>,
-    /// True when the proxy came from the environment.
+    /// True when the proxy came from the environment or the operating system's settings.
     pub(crate) from_env: bool,
 }
 
@@ -180,7 +188,8 @@ pub(crate) struct ResolvedProxy {
 pub struct ProxyDiagnostic {
     /// `scheme://host:port` of the proxy, without credentials, path or query.
     pub endpoint: String,
-    /// True when the proxy was taken from the environment, false for `ProxyMode::Explicit`.
+    /// True when the proxy was taken from the environment or from the operating system's
+    /// settings ([`ProxyMode::System`]), false for `ProxyMode::Explicit`.
     pub from_environment: bool,
     /// The proxy endpoint is exempt from the destination class check because the caller or
     /// the environment configured it. Destinations are still checked: literals by class,
@@ -286,8 +295,25 @@ impl ClientConfig {
             ProxyMode::None => Ok(None),
             ProxyMode::Explicit(url) => build_proxy(url, &[]).map(Some),
             ProxyMode::Environment => proxy_from_lookup(&|name| std::env::var(name).ok()),
+            ProxyMode::System => {
+                match proxy_from_system(&crate::system_proxy::system_proxy_settings()) {
+                    Some(proxy) => Ok(Some(proxy)),
+                    None => proxy_from_lookup(&|name| std::env::var(name).ok()),
+                }
+            }
         }
     }
+}
+
+/// The proxy the operating system's static settings name, treated like an environment proxy.
+/// Settings that name no usable proxy, or one this crate cannot build, give `None`.
+pub(crate) fn proxy_from_system(
+    settings: &crate::system_proxy::SystemProxySettings,
+) -> Option<ResolvedProxy> {
+    let (url, no_proxy) = crate::system_proxy::proxy_from_settings(settings)?;
+    let mut proxy = build_proxy(&url, &no_proxy).ok()?;
+    proxy.from_env = true;
+    Some(proxy)
 }
 
 #[derive(Clone)]
@@ -1823,6 +1849,22 @@ mod tests {
         );
         assert_eq!(format!("{:?}", ProxyMode::None), "None");
         assert_eq!(format!("{:?}", ProxyMode::Environment), "Environment");
+        assert_eq!(format!("{:?}", ProxyMode::System), "System");
+    }
+
+    #[test]
+    fn system_settings_resolve_like_an_environment_proxy() {
+        use crate::system_proxy::SystemProxySettings;
+        let proxy = proxy_from_system(&SystemProxySettings {
+            proxy: Some("http=web.corp:8080;https=secure.corp:8443".into()),
+            bypass: Some("*.corp.example;<local>".into()),
+        })
+        .expect("a static system proxy resolves");
+        assert_eq!((proxy.host.as_str(), proxy.port), ("secure.corp", 8443));
+        assert_eq!(proxy.no_proxy, vec![".corp.example".to_string()]);
+        assert!(ProxyDiagnostic::of(&proxy).from_environment);
+        // Nothing configured: the caller falls back to the environment.
+        assert!(proxy_from_system(&SystemProxySettings::default()).is_none());
     }
 
     #[test]
