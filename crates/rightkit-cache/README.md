@@ -8,7 +8,7 @@ Cache primitives shared by Right Suite apps:
 - `Key`: unambiguous slot keys (length-prefixed SHA-256), optionally grouped so a whole group can be cleared at once.
 - `prefix`: stable-prefix prompt-cache keys and break tracking (`CacheTracker`) ported from CodeRight. Only the stable tier (identity and UTC day) enters the key. Volatile content such as per-turn memory or timestamps must stay out.
 
-Catalog capability: `disk-cache`. Published to crates.io (see [INDEX.md](../../INDEX.md)).
+Catalog capability: `disk-cache`. Registry: crates.io 0.1.0; this source is 0.2.0 (see [INDEX.md](../../INDEX.md)).
 
 ## When to use it
 
@@ -22,7 +22,7 @@ Do not use it as an in-memory cache. Data that must never be evicted belongs in 
 
 ## Cargo features
 
-None. The crate has no `[features]` table. Its only dependency is `sha2`.
+None. The crate has no `[features]` table. Its dependencies are `sha2`, `rightkit-fs` (`fs` feature, default features off) and `rightkit-process` (`Cargo.toml:13-16`).
 
 ## Usage
 
@@ -86,7 +86,7 @@ Foreign files: the root must be exclusive to the cache. The default `open` never
 
 ## Platform support
 
-Pure `std::fs` code with no platform-specific modules. Atomic write behaviour depends on the host filesystem's rename semantics. Reservations rename within the cache root, so `.tmp` and the shards stay on one volume.
+The crate uses `std::fs` and has no platform modules. Owner-only temp files set mode `0600` on Unix (`cfg(unix)`) and call `rightkit_fs::private::restrict_owner_only` elsewhere (`src/disk.rs:244-250`). Atomic write behaviour depends on the host filesystem's rename semantics. Reservations rename within the cache root, so `.tmp` and the shards stay on one volume.
 
 ## Version and changes
 
@@ -102,5 +102,5 @@ Generated from `runtime-budget.json`; edit that file, then run `node packages/re
 - Disk operations ceiling: 1 operations per second.
 - Required scale: 100,000 entries or more.
 - Required hosts: macOS and Windows.
-- Status exposure: `DiskCache::status()` in `src/disk.rs`; exposes resident memory, idle CPU, wake-ups, disk operations.
-- Measured: not yet measured.
+- Status exposure: `DiskCache::status()` in `src/disk.rs`; exposes resident memory, idle CPU, wake-ups, disk operations. Wake-ups are macOS only and disk operations are Windows and Linux only (`runtime-budget.json`, `status.note`).
+- Measured: 0.2.0 on macOS arm64 (`runtime-budget.evidence/macos-arm64-0.2.0.txt`) and Windows x86_64 (`runtime-budget.evidence/windows-x86_64-0.2.0.txt`). `runtime-budget.json` lists no `measurements`, so the generator prints "not yet measured" until it does.

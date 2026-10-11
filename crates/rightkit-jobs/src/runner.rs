@@ -260,6 +260,9 @@ impl JobControl {
     /// [`JobStore::flush_pending_settlements`]) and returns [`RunOutcome::Unsettled`]. Fenced: a
     /// stale attempt gets `stale_attempt` and writes nothing. No lifecycle event is written; the
     /// handler owns the event stream, or the runner's own event follows the settled outcome.
+    /// This is an explicit owner settle: it replaces a write already held for the job (extension
+    /// values included) while the row is non-terminal, and once the terminal row is stored a
+    /// different status is refused with `illegal_transition` (see [`JobStore::settle_terminal`]).
     pub fn settle(&self, t: &Transition) -> JobResult<Settlement> {
         self.heartbeat();
         if self.abandoned.load(Ordering::SeqCst) {
@@ -404,6 +407,7 @@ impl JobControl {
 }
 
 #[derive(Debug, Clone)]
+#[allow(clippy::large_enum_variant)]
 pub enum RunOutcome {
     /// Reached a terminal state (complete, failed, or cancelled).
     Finished(Job),
@@ -419,12 +423,17 @@ pub enum RunOutcome {
     /// an `Err` and the job stayed `running` and recoverable; opt out with
     /// [`Runner::with_settle_later`]`(false)`.
     Unsettled(Job),
+    /// A terminal write held from an earlier run (the journal) landed while this call started,
+    /// so the handler was not run. The record is the stored row: the job plus every extension
+    /// value, including those the held write restored. Use it instead of any state read earlier.
+    Restored(JobRecord),
 }
 
 impl RunOutcome {
     pub fn job(&self) -> Option<&Job> {
         match self {
             RunOutcome::Finished(j) | RunOutcome::Paused(j) | RunOutcome::Unsettled(j) => Some(j),
+            RunOutcome::Restored(r) => Some(&r.job),
             RunOutcome::LockedElsewhere(_) => None,
         }
     }
@@ -442,6 +451,7 @@ impl RunOutcome {
                 v["unsettled"] = json!(true);
                 v
             }
+            RunOutcome::Restored(r) => r.to_value(),
         }
     }
 }
@@ -693,7 +703,10 @@ impl Runner {
                     self.store.flush_pending_settlements();
                     let now = self.store.get(job_id)?;
                     if now.is_terminal() {
-                        return Ok(RunOutcome::Finished(now));
+                        // The held write landed (or the outcome was already stored): hand back
+                        // the whole row, extension values included, so a caller holding older
+                        // state does not write over what was restored.
+                        return Ok(RunOutcome::Restored(self.store.record(job_id)?));
                     }
                     if let Some(t) = self.store.pending_transition(job_id) {
                         return Ok(RunOutcome::Unsettled(projected(&now, &t)));
@@ -848,6 +861,7 @@ impl Runner {
             claim: lock,
             sink: ctl.sink.clone(),
             defer: self.settle_later,
+            owner: false,
         })?;
         match settled {
             Settle::Written {

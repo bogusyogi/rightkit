@@ -13,7 +13,7 @@ Brand-neutral media player and image viewer/editor for Right Suite apps. The roo
 
 | Import | Contents |
 |---|---|
-| `@rightkit/media-ui` | `MediaPlayer`, `MediaAdaptersProvider`, `useMediaAdapters`, label defaults, pure image-edit and export helpers, crop helpers, image save helpers, image-viewer state helpers, icons. Never imports `fabric`. |
+| `@rightkit/media-ui` | `MediaPlayer`, `MediaAdaptersProvider`, `useMediaAdapters`, label defaults, pure image-edit and export helpers, crop helpers, image save helpers, image-viewer state helpers, the `IconName` type. Never imports `fabric`. |
 | `@rightkit/media-ui/image` | `ImageViewer`, `ImageEditor`, `ImageViewerProps`, `ImageTool` (needs `fabric`) |
 | `@rightkit/media-ui/styles.css` | Stylesheet. Import once. |
 
@@ -23,6 +23,7 @@ Brand-neutral media player and image viewer/editor for Right Suite apps. The roo
 |---|---|---|
 | `react`, `react-dom` | `>=18 <21` | Yes |
 | `fabric` | `^7.4.0` | Optional. Only for `@rightkit/media-ui/image`. |
+| `react-image-crop` | `^11.1.2` | Optional. Only for `@rightkit/media-ui/image`. |
 
 ## Example
 
@@ -40,10 +41,10 @@ import "@rightkit/media-ui/styles.css";
 
 Image apps add `fabric` and `react-image-crop` and import `ImageViewer` or `ImageEditor` from `@rightkit/media-ui/image`. Because `fabric` lists the native `canvas` addon as an optional dependency, a pnpm workspace may need `allowBuilds: { canvas: false }`.
 
-Adapters are all optional: `resolveSrc`, `preparePlayback`, `cancelPlayback`, `setFullscreen`, `listImageSiblings`, `listSystemFonts`, `bundledFonts`, `saveImage`, `printImage`, `acquireResource`, `notify`, `logError`.
+Adapters are all optional: `resolveSrc`, `preparePlayback`, `cancelPlayback`, `setFullscreen`, `listImageSiblings`, `listSystemFonts`, `bundledFonts`, `saveImage`, `printImage`, `acquireResource`, `notify`, `logError`. The same object takes presentation options: `icons`, `defaultFontId`, `fallbackFontStack`, `systemFontFallbackStack`, `bundledFontsLabel`, `bundledFontsEmptyOption` and `accentColor`.
 
 Theme with `--rk-media-*` and `--rk-iv-*` custom properties on `:root` or an ancestor. The shared fallback is `--rk-accent`.
 
 ## Known issues
 
-- None open. `react-image-crop` (`^11.1.2`) is an optional peer since 0.3.0. It is imported only under `./image` (lazily, from `src/image/ImageViewerStage.tsx`). Image-viewer apps must install it alongside `fabric`; player-only apps need neither.
+- None open. `react-image-crop` (`^11.1.2`) is an optional peer since 0.3.0. It is imported only under `./image`, from `src/image/ImageCropTool.tsx`, which `src/image/ImageViewerStage.tsx` loads lazily. Image-viewer apps must install it alongside `fabric`; player-only apps need neither.

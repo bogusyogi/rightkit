@@ -65,6 +65,7 @@
 //!      is its purpose (no reap can fall between the proof and the action). A bounded wait on
 //!      another thread can be delayed by as long as the closure takes.
 //!      `rightkit-sandbox` passes a descendant sweep with a 200 ms grace. New since 0.3.3.
+//!
 //!   Also, [`UnixChild::require_identity`] reaps a just-killed child with a blocking
 //!   `Child::wait`, before the child is shared at all.
 //! * No wait-class system call names the pid while the lock is released. A blocked

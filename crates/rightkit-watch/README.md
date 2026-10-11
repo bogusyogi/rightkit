@@ -12,11 +12,11 @@ Filesystem watching for Right Suite apps. It is built on `notify` and has three 
 
 ## Features
 
-`async` (default): the `subscribe` module (`FileWatcher`, `FileWatcherSubscriber`, receivers) over `tokio` (`rt`, `sync`, `time`, `macros`). With `default-features = false`, `tokio` is not compiled and `sync`, `typed`, `options`, and `coalesce` remain. Other dependencies: `notify` (8.2) and `tracing`. The crate re-exports `notify`.
+`async` (default): the `subscribe` module (`FileWatcher`, `FileWatcherSubscriber`, receivers) over `tokio` (`rt`, `sync`, `time`, `macros`). With `default-features = false`, `tokio` is not compiled and `sync`, `typed`, `options`, and `coalesce` remain. Other dependencies: `notify` (8.2.0), `tracing`, and `rightkit-process` (not optional). The crate re-exports `notify`.
 
 ## Platform support
 
-The crate has no platform-specific code in `src/`. The only `cfg(unix)` is a test (`recursive_directory_snapshot_does_not_follow_symlinks`). Backend behavior comes from `notify`. For example, the README describes FSEvents on macOS supplying unpaired rename hints as Modify events.
+Platform-specific code is the `TypedWatcher` native backend: `src/native.rs` selects `native/macos.rs` (FSEvents, `cfg(target_os = "macos")`), `native/windows.rs` (`cfg(windows)`), or `native/unsupported.rs` elsewhere, where `WatchBackend::Native` is an error rather than a fallback (`src/typed.rs:195`). `subscribe` and `sync` use `notify`'s recommended watcher (`src/subscribe.rs:23`, `src/sync.rs:22`). The only `cfg(unix)` is a test (`recursive_directory_snapshot_does_not_follow_symlinks`, `src/options.rs:995`). FSEvents reports unpaired rename hints as Modify events (`src/native/macos.rs:196`).
 
 Published version: see `INDEX.md` at the repository root. Release notes for the 0.2.0 and 0.3.x additions are below. The full history is in [CHANGELOG.md](CHANGELOG.md).
 
@@ -109,7 +109,7 @@ without depending directly on `notify`.
    ```
 
 3. **Recursive directory sets.** Defaults stay nonrecursive. Opt in explicitly;
-   capacity counts watched roots, including their descendants.
+   capacity counts watched roots (`src/sync.rs:330`).
 
    ```rust,ignore
    use std::{path::Path, time::Duration};

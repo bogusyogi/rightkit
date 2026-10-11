@@ -8,8 +8,8 @@ Catalog capability: `content-contracts`. Not published (`publish = false`).
 
 | Contract | Schema file (in `rightkit/contracts/`) | Supported version |
 |---|---|---|
-| `content-brief` | `content-brief.v1.schema.json` | 1.0.0 |
-| `delivery-envelope` | `delivery-envelope.v1.schema.json` | 1.0.0 |
+| `content-brief` | `content-brief.v1.schema.json` | 1.1.0 |
+| `delivery-envelope` | `delivery-envelope.v1.schema.json` | 1.1.0 |
 | `record-session` | `record-session.v1.schema.json` | 1.2.0 |
 | `record-event` | `record-event.v1.schema.json` | 1.2.0 |
 | `demo-plan` | `demo-plan.v1.schema.json` | 1.0.0 |
@@ -19,7 +19,7 @@ The schemas are embedded with `include_str!`, so every installed engine validate
 
 ## Pipeline
 
-1. `version::negotiate(contract, offered)` reads the document's contract version and rejects an incompatible major, or a minor newer than this build knows, before any schema work.
+1. `negotiate(contract, offered)` (re-exported from the private `version` module, `src/lib.rs:39`) reads the document's contract version and rejects an incompatible major, or a minor newer than this build knows, before any schema work.
 2. The document is validated against the embedded schema (`validate`, `validate_str`).
 3. Semantic rules that JSON Schema cannot express (unique ids, resolvable references, contiguous time maps) run in `semantic`.
 4. `parse` and `check_typed` additionally deserialize into the structs in `types`.
@@ -51,7 +51,7 @@ Exit codes: 0 success, 1 validation or fixture failure, 2 usage error.
 
 ## Usage
 
-Taken from `tests/contracts.rs` (names and imports checked against that file):
+Condensed from the loop at `tests/contracts.rs:13-26` (names checked against that file):
 
 ```rust
 use rightkit_contracts::{check_typed, validate, Contract, Version};

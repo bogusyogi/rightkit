@@ -15,7 +15,7 @@ Catalog capability: `script-alignment`. Not published (`publish = false`, versio
 - Rejection reasons (`RejectReason`) and coverage failures (`CoverageFailure`). A rejected anchor never satisfies coverage.
 - Timing checks (`timing` module): boundary errors against the alignment's tolerance on the ASR lattice.
 
-Script-token identity is kept through normalisation. The crate holds no audio, models or I/O. It depends on `rightkit-transcript` only for the `Word`, `Span` and seconds adapter types.
+Script-token identity is kept through normalisation. The crate holds no audio, models or I/O. It depends on `rightkit-transcript` only for the `Word` and `EndSource` types and the seconds adapter (`words_from_seconds`). `Span` is defined in this crate (`src/lib.rs:81`).
 
 ## When to use it
 

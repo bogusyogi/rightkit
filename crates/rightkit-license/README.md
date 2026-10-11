@@ -4,7 +4,7 @@ Rust enforcement primitive for Right Suite license entitlements. The crate verif
 
 It is the security half of the licensing system. The JavaScript `@rightkit/license` package is the convenience half. Applications must enforce paid commands at the Rust boundary. Renderer state is never license authority.
 
-Catalog capability: `licensing`. Published to crates.io (see [INDEX.md](../../INDEX.md)). Licensed under MIT or Apache-2.0, at your option.
+Catalog capability: `licensing`. crates.io has 0.1.3; the source is 0.2.0, which is unpublished (see [INDEX.md](../../INDEX.md) and CHANGELOG 0.2.0). Licensed under MIT or Apache-2.0, at your option.
 
 ## What it owns
 
@@ -20,7 +20,7 @@ Catalog capability: `licensing`. Published to crates.io (see [INDEX.md](../../IN
 - `refresh_and_reanchor`, `RefreshTransport`, `RefreshOutcome`: online refresh that re-anchors the clock on the server-signed issue time.
 - `verify_lease_envelope`: device-lease envelope signature verification.
 
-The token is minted by the backend signer (`rightapps` `packages/api/src/licensing/sign.ts`). Revocation propagates through the short `exp` and by re-fetching on refresh.
+The token is minted by the backend signer outside this repository (`rightapps` `packages/api/src/licensing/sign.ts`; not checked in this audit). Revocation propagates through the short `exp` and by re-fetching on refresh.
 
 ## When to use it
 

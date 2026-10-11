@@ -4179,13 +4179,15 @@ mod tests {
         let candidate = compose_candidate(&source, &[command], &test_resolver()).expect("composes");
         let after = page_islands(&candidate.bytes);
 
+        // Stream reference, contents index, operator, operand and glyph range of one span.
+        type SpanPlace = ((u32, u16), u32, u32, u32, u32, u32);
         // The red island's quads and where its glyphs sit in the source.
         let red = |islands: &[crate::model::PdfTextIsland]| {
             islands
                 .iter()
                 .find(|i| i.text == "CD")
                 .map(|i| {
-                    let spans: Vec<((u32, u16), u32, u32, u32, u32, u32)> = i
+                    let spans: Vec<SpanPlace> = i
                         .locator
                         .spans
                         .iter()

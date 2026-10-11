@@ -70,7 +70,7 @@ pnpm exec right-ax plugin init . \
 pnpm exec right-ax plugin validate .
 ```
 
-This writes `plugin.json` (agent-plugins.org), `.claude-plugin/plugin.json`, `.codex-plugin/plugin.json` and `skills/<name>/SKILL.md`. It writes no `mcp.json`. The generated skill body is a seed: it tells the agent to check the binary is installed and to read `--help`. Replace it with the real commands, flags, output shapes and exit codes of your CLI, and keep every command in it true for the installed app, not a dev checkout. Scaffolding throws if the description fails the gate, so a vague description cannot be scaffolded.
+This writes `plugin.json` (agent-plugins.org), `.claude-plugin/plugin.json`, `.codex-plugin/plugin.json` and `skills/<name>/SKILL.md`. It writes no `mcp.json`. The generated skill body is a seed: it tells the agent to check the binary is installed and to read `--help`. Replace it with the real commands, flags, output shapes and exit codes of your CLI, and keep every command in it true for the installed app, not a dev checkout. With `--cli`, scaffolding throws if the description fails the gate, so a vague description cannot be scaffolded that way.
 
 `plugin init` argument rules: the target directory is required (there is no default to the current directory), and it is created, recursively, when it is missing. If `plugin.json` already exists there, `plugin init` refuses and writes nothing; pass `--force` to overwrite it. `--help` or `-h` anywhere on a command prints that command's usage and exits 0 without touching the filesystem. An unknown flag, a stray positional, or a target starting with `-` exits 2 before anything is written.
 
@@ -96,7 +96,7 @@ The gate checks form, not truth. Test a new description by asking whether a real
 
 ### How it lands in the suite marketplace
 
-The suite marketplace is its own small public repository, `Orthic-Labs/right-plugins` (local checkout `right-plugins` beside the others). It holds only the plugins and the marketplace manifest; the apps' source repositories stay private, and RightKit no longer carries a marketplace.
+The suite marketplace is its own small public repository, `Orthic-Labs/right-plugins` (local checkout `right-plugins` beside the others). It holds the plugins, the marketplace manifest and `SOURCES.json` (the source commit of each copied plugin), and RightKit no longer carries a marketplace.
 
 Flow:
 

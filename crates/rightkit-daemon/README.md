@@ -1,6 +1,6 @@
 # rightkit-daemon
 
-Daemon host capability implementing the `daemon-api` v1 contract (`contracts/daemon-api.v1.schema.json`). `publish = false`.
+Daemon host capability implementing the `daemon-api` v1 contract (`contracts/daemon-api.v1.schema.json` at the repository root, not inside this crate). `publish = false`.
 
 ## Provider slug rule
 
@@ -39,6 +39,6 @@ Generated from `runtime-budget.json`; edit that file, then run `node packages/re
 - Wake-ups ceiling: 1 per second.
 - Disk operations ceiling: 1 operations per second.
 - Required scale: 10,000 submissions or more.
-- Required hosts: macOS and Windows.
+- Required hosts: not declared in `runtime-budget.json`.
 - Status exposure: `Daemon::status()` in `src/daemon.rs`; exposes resident memory, idle CPU, wake-ups, disk operations.
 - Measured: not yet measured.

@@ -146,9 +146,9 @@ is recorded, not checked; catalog checks belong to the native-library catalog in
 ## Version policy
 
 The suite pins the Rust `ort` crate to `=2.0.0-rc.13` with `load-dynamic` and
-API 24 enabled (`ort` declares `links = "onnxruntime"`, so every crate in one
-build must agree). Do not enable `ort/default`: rc.13 raises its default API
-floor to 27, which the approved runtime cannot serve. The approved macOS arm64 ONNX Runtime shared library is
+API 24 enabled in `Cargo.toml`. Upstream `ort` declares `links = "onnxruntime"`, so every crate in one
+build must agree; this repository does not check that upstream metadata. Do not enable `ort/default`; this crate's
+`Cargo.toml` sets `api-24` on its `ort` dependency. The upstream default API floor is not checked here. The approved macOS arm64 ONNX Runtime shared library is
 `1.24.4`, recorded in `rightkit-media`'s native catalog. Runtime upgrades need
 one catalog row, real native-host verification, and coordinated app migration;
 this crate does not download or silently select a different runtime.
@@ -192,4 +192,4 @@ alone records nothing; this diagnostic does not validate or load a library.
 A hosted runner has none of these assets, so each test prints `SKIP <test>: ...` and passes. Set `RIGHTKIT_REQUIRE_ASSETS=1` on a host that must have them, and the test fails instead.
 
 - macOS, `tests/e2e_runtime.rs`, `tests/default_loader.rs`, `tests/session_first.rs`, `tests/explicit_runtime_versioned.rs`: the approved ONNX Runtime 1.24.4 dylib, enabled by `RIGHTKIT_ORT_TEST_DYLIB=<path>` or the `genright/.cache/.../libonnxruntime.1.24.4.dylib` download, found by walking up from the crate.
-- Windows, `tests/e2e_runtime_windows.rs`, `tests/default_loader_windows.rs`, `tests/session_first_windows.rs`, `tests/explicit_runtime_versioned_windows.rs`: the approved `onnxruntime.dll` and `DirectML.dll`, enabled by `RIGHTKIT_ORT_TEST_DLL_DIR=<dir>` or the HeardRight staging folder `heardright/tauri-app-next/src-tauri/resources/runtime`.
+- Windows, `tests/e2e_runtime_windows.rs`, `tests/default_loader_windows.rs`, `tests/session_first_windows.rs`, `tests/explicit_runtime_versioned_windows.rs`: the `onnxruntime.dll` and `DirectML.dll` files (catalog row `onnxruntime-1.24.4-windows-x64-directml` is `pinned`, not `approved`, in `rightkit-media/catalog/native-libraries.json`), enabled by `RIGHTKIT_ORT_TEST_DLL_DIR=<dir>` or the HeardRight staging folder `heardright/tauri-app-next/src-tauri/resources/runtime`.

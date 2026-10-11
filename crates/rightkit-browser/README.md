@@ -66,7 +66,7 @@ Launch resolves Chrome for Testing (`chrome_for_testing_path`) in this order: `L
 
 - `profile_dir(path)` selects `ProfileSpec::Directory`. Launch checks that the path is absolute, exists and is a directory, without creating it. Any existing directory is accepted, including real Chrome user-data directories, paths with spaces, and Unicode names. Named-profile validation stays exclusive to `named_profile(root, name)`.
 - The caller owns that directory. This mode creates no RightKit profile lock, and shutdown, cancellation, failed launch or drop never removes it.
-- Downloads go to `<profile>/rightkit-downloads` (created at launch), or to `LaunchOptions::download_dir` when it is set.
+- Downloads go to `<profile>/rightkit-downloads` for named and caller-owned profiles, and to `<profile>/downloads` for a temporary profile (`src/session.rs:61`, `:81`, `:89`), or to `LaunchOptions::download_dir` when it is set. The directory is created at launch.
 
 ## Shutdown
 

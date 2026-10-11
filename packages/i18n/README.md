@@ -37,4 +37,4 @@ export const { Provider, useI18n } = i18n;
 
 ## Known issues
 
-- No consumers were found in the scanned app repositories (npm audit 2026-10-08). Confirm a consumer before relying on this package.
+- No other package in this workspace declares `@rightkit/i18n`; consumers in app repositories outside it are unverified. Confirm a consumer before relying on this package.

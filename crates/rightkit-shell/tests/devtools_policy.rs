@@ -8,11 +8,11 @@
 use std::time::{Duration, SystemTime};
 
 use rightkit_shell::devtools::{
-    argv_violations, build_gate, build_gate_with, capability_granting_ipc, env_vars_to_scrub,
-    forbidden_switches_in, glob_match, is_live_debug_port_file, live_debug_port_file,
-    parse_reg_query, patterns_may_overlap, policy_violations, ContentWebview, DevToolsError,
-    DevToolsGate, DevToolsPolicy, WebviewDecision, DEBUG_PORT_FILE, DEV_INSPECT_COMPILED,
-    DEV_INSPECT_MARKER,
+    argv_violations, build_gate, build_gate_with, capability_granting_ipc, decode_reg_text,
+    env_vars_to_scrub, forbidden_switches_in, glob_match, is_live_debug_port_file,
+    live_debug_port_file, patterns_may_overlap, policy_violations, ContentWebview, DevToolsError,
+    DevToolsGate, DevToolsPolicy, PolicyKeyOpen, RegValue, WebviewDecision, DEBUG_PORT_FILE,
+    DEV_INSPECT_COMPILED, DEV_INSPECT_MARKER,
 };
 use rightkit_shell::{Hardening, Shell};
 
@@ -122,24 +122,157 @@ fn webview2_overrides_are_scrubbed_case_insensitively_and_nothing_else() {
     assert!(env_vars_to_scrub(["HOME", "TMPDIR"]).is_empty());
 }
 
+fn utf16le(text: &str) -> Vec<u8> {
+    text.encode_utf16().flat_map(u16::to_le_bytes).collect()
+}
+
 #[test]
-fn registry_output_is_parsed_and_a_debugging_policy_is_refused() {
-    let output = format!(
-        "\r\nHKEY_LOCAL_MACHINE\\Software\\Policies\\Microsoft\\Edge\\WebView2\\AdditionalBrowserArguments\r\n    *    REG_SZ    {}=9222 --disable-gpu\r\n    viewright.exe    REG_SZ    --disable-gpu\r\n\r\n",
-        dbg_port()
+fn registry_text_is_decoded_by_type_and_a_debugging_policy_is_refused() {
+    const REG_SZ: u32 = 1;
+    const REG_EXPAND_SZ: u32 = 2;
+    const REG_DWORD: u32 = 4;
+    const REG_MULTI_SZ: u32 = 7;
+    assert_eq!(
+        decode_reg_text(REG_SZ, &utf16le("--disable-gpu\0")).as_deref(),
+        Some("--disable-gpu")
     );
-    let values = parse_reg_query(&output);
-    assert_eq!(values.len(), 2);
-    assert_eq!(values[0].name, "*");
-    assert_eq!(values[1].value, "--disable-gpu");
-    let errors = policy_violations(&values, "HKLM policy");
+    assert_eq!(
+        decode_reg_text(REG_EXPAND_SZ, &utf16le("%X% --a")).as_deref(),
+        Some("%X% --a")
+    );
+    // Every string of a multi-string counts.
+    assert_eq!(
+        decode_reg_text(REG_MULTI_SZ, &utf16le("--a\0--b=1\0\0")).as_deref(),
+        Some("--a --b=1")
+    );
+    assert_eq!(decode_reg_text(REG_SZ, &[]).as_deref(), Some(""));
+    // A number or binary data carries no argument.
+    assert_eq!(decode_reg_text(REG_DWORD, &[1, 0, 0, 0]), None);
+    assert_eq!(decode_reg_text(3, &utf16le("--x")), None);
+
+    let values = vec![
+        RegValue {
+            name: "*".into(),
+            value: decode_reg_text(
+                REG_SZ,
+                &utf16le(&format!("{}=9222 --disable-gpu\0", dbg_port())),
+            )
+            .unwrap(),
+        },
+        RegValue {
+            name: "viewright.exe".into(),
+            value: "--disable-gpu".into(),
+        },
+    ];
+    let errors = policy_violations(&values, "HKLM policy (64-bit view)");
     assert_eq!(errors.len(), 1);
     assert!(matches!(
         &errors[0],
         DevToolsError::BrowserPolicyInjects { source, switch }
             if source.contains("HKLM policy") && switch.starts_with(&dbg_port())
     ));
-    assert!(policy_violations(&parse_reg_query(""), "HKCU policy").is_empty());
+    assert!(policy_violations(&[], "HKCU policy").is_empty());
+}
+
+#[test]
+fn only_a_missing_key_means_no_policy() {
+    assert_eq!(PolicyKeyOpen::from_status(0), PolicyKeyOpen::Opened);
+    // ERROR_FILE_NOT_FOUND.
+    assert_eq!(PolicyKeyOpen::from_status(2), PolicyKeyOpen::Absent);
+    // Access denied, path not found, a registry I/O failure: the policy is unknown, not empty.
+    for status in [5, 3, 1016, 6] {
+        assert_eq!(
+            PolicyKeyOpen::from_status(status),
+            PolicyKeyOpen::Unreadable(status)
+        );
+    }
+}
+
+/// The real registry: a key that does not exist reads as absent, and a key with text values of
+/// each type, a long value and a number reads back as the guard would see a policy key.
+#[cfg(windows)]
+#[test]
+fn a_real_registry_key_is_read_value_by_value() {
+    use rightkit_shell::devtools::read_user_key_text_values;
+    let key = format!(r"Software\RightKitTest\devtools-{}", std::process::id());
+    assert_eq!(read_user_key_text_values(&key), Ok(None));
+
+    let reg = |args: &[&str]| {
+        let system = std::env::var_os("SystemRoot").unwrap_or_else(|| "C:\\Windows".into());
+        let status = std::process::Command::new(
+            std::path::Path::new(&system)
+                .join("System32")
+                .join("reg.exe"),
+        )
+        .args(args)
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+        .unwrap();
+        assert!(status.success(), "reg {args:?}");
+    };
+    let full = format!(r"HKCU\{key}");
+    let long = format!("--long={}", "x".repeat(9000));
+    reg(&[
+        "add",
+        &full,
+        "/v",
+        "*",
+        "/t",
+        "REG_SZ",
+        "/d",
+        &format!("{}=9222", dbg_port()),
+        "/f",
+    ]);
+    reg(&[
+        "add",
+        &full,
+        "/v",
+        "many",
+        "/t",
+        "REG_MULTI_SZ",
+        "/d",
+        r"--a\0--b",
+        "/f",
+    ]);
+    reg(&[
+        "add", &full, "/v", "long", "/t", "REG_SZ", "/d", &long, "/f",
+    ]);
+    reg(&[
+        "add",
+        &full,
+        "/v",
+        "number",
+        "/t",
+        "REG_DWORD",
+        "/d",
+        "7",
+        "/f",
+    ]);
+
+    let read = read_user_key_text_values(&key);
+    reg(&["delete", &full, "/f"]);
+    let mut values = read.expect("the key is readable").expect("the key exists");
+    values.sort_by(|a, b| a.name.cmp(&b.name));
+    assert_eq!(
+        values,
+        vec![
+            RegValue {
+                name: "*".into(),
+                value: format!("{}=9222", dbg_port())
+            },
+            RegValue {
+                name: "long".into(),
+                value: long
+            },
+            RegValue {
+                name: "many".into(),
+                value: "--a --b".into()
+            },
+        ]
+    );
+    assert_eq!(policy_violations(&values, "test key").len(), 1);
+    assert_eq!(read_user_key_text_values(&key), Ok(None));
 }
 
 #[test]

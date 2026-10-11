@@ -3,7 +3,7 @@ import "@testing-library/jest-dom/vitest";
 import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { Onboarding } from "./Onboarding.js";
+import { Onboarding, isLegalAccepted } from "./Onboarding.js";
 import type { LegalAcceptanceRecord, LegalReceiptPort, ModelEntry, ModelsBackend, OnboardingProps, SettingsBackend } from "./types.js";
 
 afterEach(() => cleanup());
@@ -367,5 +367,26 @@ describe("legalReceipt seam", () => {
     await agree(user);
     await screen.findByText("A body");
     expect(store).toMatchObject({ legalAcceptanceVersion: "2026-09", legalEligibilityBasis: "individual", legalMaterialSha256: "abc" });
+  });
+});
+
+describe("isLegalAccepted", () => {
+  const stored = (version: string, documentsHash: string) => ({
+    legalAccepted: true,
+    legalAcceptance: { version, documentsHash, acceptedAt: "2026-10-12T00:00:00.000Z" },
+  }) as unknown as Parameters<typeof isLegalAccepted>[0];
+
+  it("re-prompts when the text changed and the version did not", () => {
+    expect(isLegalAccepted(stored("2026-09", "sha256:old"), "2026-09", undefined, "sha256:new")).toBe(false);
+    expect(isLegalAccepted(stored("2026-09", "sha256:new"), "2026-09", undefined, "sha256:new")).toBe(true);
+  });
+
+  it("still requires the version when both are given, and the hash alone when only it is given", () => {
+    expect(isLegalAccepted(stored("2026-08", "sha256:new"), "2026-09", undefined, "sha256:new")).toBe(false);
+    expect(isLegalAccepted(stored("2026-08", "sha256:new"), undefined, undefined, "sha256:new")).toBe(true);
+  });
+
+  it("compares nothing new when no required hash is given", () => {
+    expect(isLegalAccepted(stored("2026-09", "sha256:old"), "2026-09")).toBe(true);
   });
 });

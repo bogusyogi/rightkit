@@ -54,7 +54,7 @@ Other CLI modes from the usage text: `right-ctl --list` (live services), `right-
 - `desktop.launch`, `desktop.terminate`: launch or quit an allowlisted app.
 - `desktop.lease_acquire`, `desktop.lease_status`, `desktop.lease_release`: exclusive input lease.
 
-Actions touch only apps named in `RIGHT_CTL_DESKTOP_ALLOW` (comma-separated bundle ids, read per call). Input escalates through tiers: semantic accessibility action, in-app, then per-pid events. Foreground input is opt-in only.
+Actions touch only apps named in `RIGHT_CTL_DESKTOP_ALLOW` (comma-separated bundle ids, read per call). Input escalates through tiers: semantic accessibility action, in-app, then per-pid events. `desktop.act` accepts `semantic`, `in_app` or `targeted` as `max_tier` (default `targeted`). `foreground` is refused with `ERR_NOT_ALLOWED` (`src/backends/desktop.rs:38-48`), so agents cannot reach foreground input through this interface.
 
 ## Exit codes
 
@@ -69,11 +69,11 @@ Results go to stdout as JSON. Errors go to stderr as `{"error":{code,message,ret
 
 ## Installation and permissions
 
-`rightkit/scripts/install-right-ctl.sh` builds and installs `right-ctl` into the managed agent-bin. macOS Accessibility and Screen Recording are attributed to the responsible process, the agent app or terminal running `right-ctl`. `desktop.status` reports both. If either is false, grant it in System Settings, Privacy & Security, for that app.
+`rightkit/scripts/install-right-ctl.sh` builds and installs `right-ctl` into the managed agent-bin. `desktop.status` reports whether macOS Accessibility and Screen Recording are granted. If either is false, grant it in System Settings, Privacy & Security. The install script signs with a stable identifier so the grants survive rebuilds (`rightkit/scripts/install-right-ctl.sh:4-5`).
 
 ## Platform support
 
-Desktop tools need macOS Accessibility (the implemented path in this crate's tests). The Windows backend comes through `rightkit-automation`; see that crate's README for its status.
+Desktop tools need macOS Accessibility. No test in this crate calls a `desktop.*` tool (`tests/e2e.rs` has none); the desktop backend's tests live in `rightkit-automation`. The Windows backend comes through `rightkit-automation`; see that crate's README for its status.
 
 ## Version and changes
 

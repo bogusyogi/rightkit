@@ -27,6 +27,7 @@ Brand-neutral React frame for Right Suite desktop apps: fused sidebar and titleb
 | Peer | Range |
 |---|---|
 | `react` | `>=18 <21` |
+| `react-dom` | `>=18 <21` |
 | `@rightkit/platform-ui` | `>=0.2.8 <1` (0.6.4 raised the minimum from `>=0.2.2`: the `ctrlormeta` chord is formatted by 0.2.8) |
 | `@tauri-apps/plugin-os` | `>=2 <3`, optional. Native platform detection loads it lazily; without it the browser's platform report is used. |
 
@@ -296,4 +297,4 @@ Compare the app before and after in light and dark. Typical differences after mo
 
 - The default titlebar draws its own nav and caption layout. An app with a very different titlebar should use `titlebar={...}` rather than tuning tokens past their useful range.
 
-- Peer React is `<21`, the same range as `doc-render`, `i18n`, `media-ui` and `pdf-ui` (`package.json:36`).
+- Peer React is `<21`, the same range as `doc-render`, `i18n`, `media-ui` and `pdf-ui` (`package.json:46`).

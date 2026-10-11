@@ -5,7 +5,7 @@ Shared review capability for the content pipeline: typed deterministic checks ov
 - Typed rules (`RuleSet::standard`, `Rule`, `RuleKind`). Each rule returns one `Verdict`: verified, failed, unverified, inconclusive, held, or not applicable.
 - Text rules (`RuleKind::BannedPhrase`, `DashDensity`, `SemicolonDensity`, `SentenceLengthVariance`, `TricolonFrequency`, `StockOpener`, `ClaimProof`). Pure checks over a supplied text body. Thresholds and lists are data in the rule. Each returns pass, fail, or inconclusive.
 - Open rule kinds (`RuleKind::Extension`, `RuleRegistry`, `ExtensionRule`). A consumer registers its own rule without editing this crate. An unregistered kind is inconclusive.
-- Declared holds (`Declarations`, `DeclaredWindow`, `WindowKind`). A brief can exempt a deliberate pause, silence, static region, or hold. Undeclared or partly declared defects still fail.
+- Declared holds (`Declarations`, `DeclaredWindow`, `WindowKind`). A brief can exempt a deliberate hold, silence, or static region (`WindowKind::Hold`, `Silence`, `Static`). Undeclared or partly declared defects still fail.
 - Disposition (`disposition`). Failed findings block. Required unknowns block. Held findings route to a human. Everything else passes.
 - Repair loop (`run_repair_loop`, `RepairCap`, `HARD_MAX_REPAIR_ATTEMPTS`). The cap never exceeds 5. When it is reached, the loop returns the last inspectable candidate.
 - Advisory judge (`Judge`, `NoJudge`). Judge scores are recorded beside the disposition and cannot change it. This crate calls no model.
@@ -36,9 +36,9 @@ Text rules run on `ArtifactKind::Text`. They read `ArtifactDescription::text` (a
 
 Every text rule is inconclusive below its `min_words`, when no body is supplied, or when its denominator is zero. Inconclusive blocks when the rule is required.
 
-Normalisation: curly quotes fold to ASCII; a word is a run of letters, digits and U+0027; sentences end at `.`, `!` or `?` followed by whitespace or the end of text, and at line breaks that end a non-empty line. Unicode NFC is not applied here, so producers supply NFC text. Offsets are character positions. Decimal claim values compare as exact strings after removing leading and trailing zeros; they never pass through floats.
+Normalisation: curly quotes fold to ASCII; a word is a run of letters, digits and U+0027; sentences end at `.`, `!` or `?` followed by whitespace or the end of text, and at line breaks that end a line holding non-whitespace. Unicode NFC is not applied here, so producers supply NFC text. Offsets are character positions. Decimal claim values compare as exact strings after removing leading and trailing zeros; they never pass through floats.
 
-Judge and humanizer scores stay advisory. A text verdict's disposition depends only on its deterministic findings.
+Judge scores stay advisory. A text verdict's disposition depends only on its deterministic findings.
 
 ## Consumer rules
 
@@ -70,7 +70,7 @@ Pure Rust with no platform-specific code. It needs no OS services and no network
 
 ## Usage
 
-Copied from `tests/repair_and_judge.rs`. `black_defect` and `frame_mut` come from `tests/support/mod.rs`. `Subject` is in the crate root exports. Illustrative setup is omitted:
+Copied from `tests/repair_and_judge.rs`. `frame_mut` comes from `tests/support/mod.rs`; `black_defect` is defined at `tests/repair_and_judge.rs:33`. `Subject` is in the crate root exports. Illustrative setup is omitted:
 
 ```rust
 use rightkit_review::{
@@ -109,4 +109,4 @@ assert_eq!(outcome.record.attempts[1].disposition, Disposition::Pass);
 
 ## Version
 
-Crate version: see [INDEX.md](../../INDEX.md) and `CHANGELOG.md`. First published release: 0.1.0. Current: 0.2.0 (adds text rules and open rule kinds).
+Crate version: see [INDEX.md](../../INDEX.md) and `CHANGELOG.md`. 0.1.0 is staged, not published, in the registry record (`../../packages/release/rightkit-versions.json`). Current source: 0.2.0 (adds text rules and open rule kinds).

@@ -4,7 +4,7 @@ Product-neutral word-timed transcript contract for Right Suite applications. It 
 
 **Use it** to hold word-level timings from a transcription engine, turn them into captions, and read or write SRT, VTT, or timing JSON.
 
-**Do not use it** to transcribe audio. It holds and converts timings produced by an engine such as `rightkit-speech-client` or `rightkit-asr`.
+**Do not use it** to transcribe audio. It holds and converts timings produced by a transcription engine such as `rightkit-asr`, or returned in `rightkit-speech-client` file results (`FileTranscript::words`).
 
 ## Public surface
 

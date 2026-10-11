@@ -35,7 +35,7 @@ reason (`helper_lost; recovered_media frames=118/149 duration_ms=4006`) and retu
 
 A `hash` field stores HMAC-SHA256 keyed by a per-installation secret that never enters the bundle. The
 secret lives in the OS credential store (`rightkit-secrets`, service `dev.rightkit.record`, account
-`record.redaction-key.v1`, minted on first use). `StartRequest::key_source` (a `KeySource`) supplies it;
+`record.redaction-key.v1`, minted on first use). `StartRequest::key_source` (a `KeyHandle` wrapping a `KeySource`, `src/plan.rs:64`) supplies it;
 tests inject `FixedKeySource`. A take that hashes a field and cannot read the key is refused before
 anything is written. The bundle records only the key id (`scenario.json` `redaction.keyId`, plus
 `hashAlgorithm`), and each hashed event carries `saltId` `hmac-sha256:<keyId>`. Equal values hash equal
@@ -124,7 +124,7 @@ rules, or whose `schema` is not `rightkit.record.cursor-assets.v1`.
 
 - `rightkit-record-macos-helper` (Swift, `helpers/macos`): the macOS capture helper that `src/macos/mod.rs` launches.
 - `rightkit-record-helper capture ...`: a one-shot Windows take that prints a JSON summary.
-- `rightkit-record-helper serve`: the protocol over stdin and stdout, for rightkit-process.
+- `rightkit-record-helper serve`: the protocol over stdin and stdout, for rightkit-process. Windows only; other platforms print an `unsupported` result (`src/bin/rightkit-record-helper/main.rs:212`).
 
 Process ownership (spawn, supervise, restart) belongs to rightkit-process. A
 helper that dies mid-take is reported as `helper_lost` and the take is
@@ -132,15 +132,16 @@ quarantined, never completed.
 
 ## Windows borderless capture
 
-Windows grants borderless capture per executable path. On the XPS (build 26300), a
-byte-identical copy of a helper that captures borderless fails at a new path:
-`SetIsBorderRequired(false)` returns `0x80070490` (Element not found), even though
-`GraphicsCaptureAccess::RequestAccessAsync(Borderless)` reports `Allowed`. The access
-status therefore does not predict the setter.
+The helper requests borderless access and calls `SetIsBorderRequired(false)` only when that
+access reports `Allowed` (`src/windows/mod.rs:219-268`). The failure below was observed on one
+host (XPS, build 26300). No test or evidence file in this repository records it, so it is unverified:
+a byte-identical copy of a helper that captures borderless fails at a new path: `SetIsBorderRequired(false)`
+returns `0x80070490` (Element not found), even though `GraphicsCaptureAccess::RequestAccessAsync(Borderless)`
+reports `Allowed`.
 
 - Install the helper at a stable path: the app's install directory or its `current` root.
-  Never run it from a broker build path or a temp copy, which always shows the border.
-- Grant consent once, at install or first run, for that installed path.
+  Never run it from a broker build path or a temp copy (unverified: see above).
+- Grant consent once, at install or first run, for that installed path (unverified: see above).
 - A refused setter is not fatal: the take keeps the border, the helper warns on stderr, and
   the manifest records `capture.border {required, access, error}`. `bundle_verify` warns
   "capture border visible".

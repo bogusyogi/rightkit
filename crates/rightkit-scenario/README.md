@@ -69,4 +69,4 @@ let phase = run.execute(&lease, &spec, &mut driver, &ctx)?;
 
 ## Version
 
-Crate version: see [INDEX.md](../../INDEX.md) and `CHANGELOG.md`. First published release: 0.1.0.
+Crate version: see [INDEX.md](../../INDEX.md) and `CHANGELOG.md`. 0.1.0 is staged, not published, in the registry record (`../../packages/release/rightkit-versions.json`).

@@ -39,4 +39,4 @@ if (needsLegalAcceptance(manifest, storedReceipt)) {
 
 ## Known issues
 
-- None recorded in the npm audit (2026-10-08) beyond consumer version drift.
+- None recorded in this repository.

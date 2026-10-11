@@ -39,9 +39,18 @@ function withReceipt(state: PersistedOnboardingState, record: LegalAcceptanceRec
 }
 
 /** True when the stored acceptance satisfies the host's requirement. */
-export function isLegalAccepted(state: PersistedOnboardingState, requiredVersion?: string, custom?: (state: PersistedOnboardingState) => boolean): boolean {
+export function isLegalAccepted(
+  state: PersistedOnboardingState,
+  requiredVersion?: string,
+  custom?: (state: PersistedOnboardingState) => boolean,
+  requiredDocumentsHash?: string,
+): boolean {
   if (custom) return custom(state);
+  // A host that supplies the documents' hash is asking for the text itself to be what was accepted:
+  // a changed text re-prompts even when the version string did not move.
+  if (requiredDocumentsHash !== undefined && state.legalAcceptance?.documentsHash !== requiredDocumentsHash) return false;
   if (requiredVersion !== undefined) return state.legalAcceptance?.version === requiredVersion;
+  if (requiredDocumentsHash !== undefined) return state.legalAcceptance !== undefined;
   return state.legalAccepted;
 }
 
@@ -71,7 +80,7 @@ function TitleStrip({ titlebar, dragRegion }: { titlebar?: ReactNode; dragRegion
   return <div className="rk-onboarding__titlebar" data-testid="onboarding-titlebar" {...(dragRegion ? { "data-tauri-drag-region": "" } : {})}>{titlebar}</div>;
 }
 
-export function Onboarding({ settings, legal, steps = [], permissions, models, license, onComplete, onSkip, className, requiredVersion, isAccepted, documentsHash, beforeLegalGate, requireModel, autoStartDownload, shouldAutoStart, onModelsStepEnter, modelsIntro, allowSkip = true, titlebar, dragRegion, legalDragRegion = false, legalReceipt }: OnboardingProps) {
+export function Onboarding({ settings, legal, steps = [], permissions, models, license, onComplete, onSkip, className, requiredVersion, requiredDocumentsHash, isAccepted, documentsHash, beforeLegalGate, requireModel, autoStartDownload, shouldAutoStart, onModelsStepEnter, modelsIntro, allowSkip = true, titlebar, dragRegion, legalDragRegion = false, legalReceipt }: OnboardingProps) {
   const [state, setState] = useState<PersistedOnboardingState | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -119,7 +128,7 @@ export function Onboarding({ settings, legal, steps = [], permissions, models, l
     ...steps,
   ], [license, models, permissions, steps, requireModel, autoStartDownload, shouldAutoStart, onModelsStepEnter, modelsIntro]);
   const activeState = state ?? INITIAL;
-  const accepted = isLegalAccepted(activeState, requiredVersion, isAccepted);
+  const accepted = isLegalAccepted(activeState, requiredVersion, isAccepted, requiredDocumentsHash);
   const needsGate = state !== null && !accepted;
   // The agreement gate does not depend on the saved step: until it is accepted, the active step is the first.
   // Once accepted, the Agreement step (index 0) is never shown again when other steps exist.
@@ -154,7 +163,7 @@ export function Onboarding({ settings, legal, steps = [], permissions, models, l
     if (!gateCleared) return <div className={cx("rk-onboarding", className)} aria-busy="true"><TitleStrip titlebar={titlebar} dragRegion={legalDragRegion} /><p className="rk-onboarding__muted">Loading setup…</p></div>;
     const reacceptance = activeState.legalAccepted || activeState.legalAcceptance !== undefined;
     return <div className={cx("rk-onboarding rk-onboarding--legal", className)} data-testid="onboarding-legal" data-variant={reacceptance ? "re-acceptance" : "first-run"}><TitleStrip titlebar={titlebar} dragRegion={legalDragRegion} /><LegalGate {...legal} variant={reacceptance ? "re-acceptance" : "first-run"} onQuit={() => void legal.onQuit?.()} onAgree={async ({ eligibilityBasis }) => {
-      const legalAcceptance: LegalAcceptanceRecord = { version: requiredVersion ?? "1", documentsHash: documentsHash ?? await hashDocuments(legal.documents), acceptedAt: new Date().toISOString(), eligibilityBasis };
+      const legalAcceptance: LegalAcceptanceRecord = { version: requiredVersion ?? "1", documentsHash: documentsHash ?? requiredDocumentsHash ?? await hashDocuments(legal.documents), acceptedAt: new Date().toISOString(), eligibilityBasis };
       if (legalReceipt) {
         try { await legalReceipt.write(legalAcceptance); } catch (e) { setError(e instanceof Error ? e.message : String(e)); throw e; }
       }

@@ -1,6 +1,6 @@
 # @rightkit/updates
 
-Runtime update-policy helper for Right Suite Tauri apps. It coordinates the app's updater check and install, classifies a release as `patch` or `update` from the manifest, auto-installs only eligible patches by default, defers installs while the host is busy, and reports status through callbacks.
+Runtime update-policy helper for Right Suite Tauri apps. It coordinates the app's updater check and install, classifies a release as `patch` or `update` from the manifest, treats only patches as eligible by default, auto-installs an eligible release only when `shouldAutoInstall` returns true (default: never, so the app calls `installAvailable()`), defers installs while the host's `canInstall` returns false, and reports status through callbacks.
 
 It does not build, sign, publish or upload anything. `@rightkit/release` owns that lane. The package has no direct Tauri dependency. The app injects its updater `check` function, header loaders, eligibility policy and safe-to-install predicate.
 
@@ -15,7 +15,7 @@ It does not build, sign, publish or upload anything. `@rightkit/release` owns th
 
 | Import | Contents |
 |---|---|
-| `@rightkit/updates` | `createAutoUpdateClient(config)`, `fetchReleaseStatus(url, fetch?)`, `updateTierFromManifest(rawJson)`, `UPDATE_HOST_CONTRACT_VECTORS`; types `UpdateTier`, `AutoUpdateClient`, `AutoUpdateClientConfig`, `AutoUpdateStatus`, `ReleaseStatus`, `RuntimeUpdate`, `CheckForUpdate`, `UpdateHeaders`, `UpdateDownloadEvent` |
+| `@rightkit/updates` | `createAutoUpdateClient(config)`, `fetchReleaseStatus(url, fetch?)`, `updateTierFromManifest(rawJson)`, `UPDATE_HOST_CONTRACT_VECTORS`; types `UpdateTier`, `AutoUpdateClient`, `AutoUpdateClientConfig`, `AutoUpdateStatus`, `ReleaseStatus`, `RuntimeUpdate`, `CheckForUpdate`, `UpdateHeaders`, `UpdateDownloadEvent`, `UpdateInstallOptions`, `UpdateHostContractVector` |
 
 Peer dependencies: none. No runtime dependencies.
 
@@ -40,6 +40,6 @@ Status flow: `checking`, then `available`, then `downloading`, then `ready`. `re
 
 ## Known issues
 
-- Omitting `getInstallHeaders` reuses the `getHeaders` result for the download. That can send a manifest credential to a different artifact origin. New apps must set `getInstallHeaders` explicitly, returning `undefined` for public patches.
+- Omitting `getInstallHeaders` reuses the `getHeaders` result for the download. That can send a manifest credential to a different artifact origin. New apps should set `getInstallHeaders` explicitly, returning `undefined` for public patches.
 - `UPDATE_HOST_CONTRACT_VECTORS` is test data exported from the runtime entry. Within this repository only the package's own test uses it. Consumer tests import it too (npm audit 2026-10-08, updates finding 1).
 - `@rightkit/tauri` 0.2.0 in this tree declares `@rightkit/updates` as a peer (`^0.2.5`, `packages/tauri/package.json:21-23`), not a pinned dependency; an older published `@rightkit/tauri` that pins `0.2.4` can still give a consumer two copies of this package (npm audit 2026-10-08).

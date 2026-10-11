@@ -15,7 +15,7 @@ Source-preserving FFmpeg compatibility playback preparation for Right Suite medi
 - `FfmpegCandidates`: explicit override, bundled, or development path resolution (no `PATH` lookup).
 - `feature = "tauri"`: `PlaybackHost` trait, `PlaybackState`, and the `prepare_media_playback`, `prepare_registered_media_playback`, `revoke_media_source` and `cancel_media_playback` command handlers.
 
-`PLAYBACK_*` error codes are stable for the frontend. `@rightkit/media-ui` maps `PLAYBACK_UNSUPPORTED` to its codec error state.
+`PLAYBACK_*` error codes are stable for the frontend (`PlaybackError::code`, `src/lib.rs:109-120`). `@rightkit/media-ui` in this repository does not reference these codes by name; its unsupported-codec message is the `errorUnsupported` text in `packages/media-ui/src/MediaPlayer.tsx`.
 
 ## Features
 

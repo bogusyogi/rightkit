@@ -1,6 +1,6 @@
 # rightkit-asr
 
-Parakeet ONNX and Whisper decoding runtime for Right Suite applications. It reconciles the generic Parakeet ONNX runtime used by Right Suite products into one crate. It is published to crates.io; applications that adopt it depend on the published version.
+Parakeet ONNX and Whisper decoding runtime for Right Suite applications. It reconciles the generic Parakeet ONNX runtime used by Right Suite products into one crate. It is published to crates.io; the registry-recorded version is 0.1.0, and this source is 0.2.0 (see [INDEX.md](../../INDEX.md)).
 
 Catalog capability: `speech-recognition`.
 
@@ -22,23 +22,24 @@ Do not put product policy (model selection, downloads, environment variables) in
 |---|---|---|
 | `cpu` | yes | CPU build marker. It adds no dependency. |
 | `whisper-tokenizers` | yes | HF `tokenizers` for the Whisper CoreML decoder, the CTC and EOU Parakeet decoders and Cohere (`Cargo.toml:63`). |
-| `ort-defaults` | yes | `rightkit-ort/tracing` only (`Cargo.toml:67`). The suite API level lives in `rightkit-ort`; this crate does not use `ort/default`. |
-| `ort-download` | no | `rightkit-ort/download-binaries`, `rightkit-ort/tls-native`, `rightkit-ort/copy-dylibs`: build-time ONNX Runtime fetch (`Cargo.toml:69`). |
-| `cuda` | no | `ort/cuda` execution provider. |
-| `tensorrt` | no | `ort/tensorrt` execution provider. |
-| `coreml` | no | `ort/coreml` execution provider. |
-| `directml` | no | `ort/directml` execution provider, with the static-conformer graph-fusion workaround. |
-| `migraphx` | no | `ort/migraphx` execution provider. |
-| `openvino` | no | `ort/openvino` execution provider. |
-| `webgpu` | no | `ort/webgpu` execution provider. |
-| `nnapi` | no | `ort/nnapi` execution provider. |
+| `ort-defaults` | yes | Nothing. It is an empty feature kept so existing lists resolve (`Cargo.toml:68`). The suite API level lives in `rightkit-ort`; this crate does not use `ort/default`. |
+| `ort-tracing` | no | `rightkit-ort/tracing`: forwards ONNX Runtime log lines into `tracing` (`Cargo.toml:71`). |
+| `ort-download` | no | `rightkit-ort/download-binaries`, `rightkit-ort/tls-native`, `rightkit-ort/copy-dylibs`: build-time ONNX Runtime fetch (`Cargo.toml:73`). |
+| `cuda` | no | `rightkit-ort/cuda` execution provider. |
+| `tensorrt` | no | `rightkit-ort/tensorrt` execution provider. |
+| `coreml` | no | `rightkit-ort/coreml` execution provider. |
+| `directml` | no | `rightkit-ort/directml` execution provider, with the static-conformer graph-fusion workaround. |
+| `migraphx` | no | `rightkit-ort/migraphx` execution provider. |
+| `openvino` | no | `rightkit-ort/openvino` execution provider. |
+| `webgpu` | no | `rightkit-ort/webgpu` execution provider. |
+| `nnapi` | no | `rightkit-ort/nnapi` execution provider. |
 | `sortformer` | no | Enables the `sortformer` module. |
 | `multitalker` | no | Enables the `multitalker` module. It requires `sortformer`. |
-| `cohere` | no | Enables the `cohere` module. |
-| `load-dynamic` | no | No-op kept so existing feature lists resolve; `rightkit-ort` always loads ONNX Runtime dynamically (`Cargo.toml:81-82`). |
-| `preload-dylibs` | no | `ort/preload-dylibs`. |
+| `cohere` | no | Enables the `cohere` module. It also enables `whisper-tokenizers` (`Cargo.toml:84`). |
+| `load-dynamic` | no | No-op kept so existing feature lists resolve; `rightkit-ort` always loads ONNX Runtime dynamically (`Cargo.toml:85-86`). |
+| `preload-dylibs` | no | `rightkit-ort/preload-dylibs`. |
 
-Unreleased change: the `eyre` dependency is removed. `rightkit-vad` is taken with `default-features = false`, so the vad crate adds no ORT download features (its `default` is ORT tracing only; see `rightkit-vad/README.md`). This crate's `ort-defaults` enables only `rightkit-ort/tracing`, so the default build does not fetch ONNX Runtime (`Cargo.toml:67`); the fetch is the opt-in `ort-download` feature. Bind the runtime through `rightkit-ort`.
+Unreleased change: the `eyre` dependency is removed. `rightkit-vad` is taken with `default-features = false` (`Cargo.toml:41`), so this crate adds no Silero scorer and no ORT download feature; that crate's own default is `silero` (`rightkit-vad/Cargo.toml:40`). This crate's `ort-defaults` is empty (`Cargo.toml:68`), so the default build does not fetch ONNX Runtime; the fetch is the opt-in `ort-download` feature (`Cargo.toml:73`). Bind the runtime through `rightkit-ort`.
 
 On macOS the crate also depends on `objc2`, `objc2-core-ml` and `objc2-foundation`. The `parakeet_coreml` module compiles only on macOS.
 
@@ -55,7 +56,7 @@ let model = ParakeetTDT::from_pretrained("/abs/path/to/model-dir", Some(config))
 
 ## Whisper run control
 
-`WhisperOptions` carries the controls a host needs around a long decode (whisper.cpp backend; CoreML honors the ones marked):
+`WhisperOptions` carries the controls a host needs around a long decode. The CoreML backend differs from whisper.cpp as described after the table:
 
 | Option | Effect |
 | --- | --- |
@@ -66,8 +67,10 @@ let model = ParakeetTDT::from_pretrained("/abs/path/to/model-dir", Some(config))
 | `detect_deadline` | Bound for language identification (cooperative: checked around the two native calls, which cannot be aborted). |
 | `quality: DecodeQuality` | `beam_size`, `best_of`, `carry_context`. Default is greedy, no context. `DecodeQuality::whisper_cli()` is whisper-cli's default decode; see its docs for the source lines. |
 
+On the CoreML backend, `cancel` and `total_deadline` are checked between windows only, and `progress` is reported once per window (`src/whisper/windowing.rs:192`). `window_deadline` is not applied inside a CoreML window, because the CoreML decoder does not read the window deadline (`src/whisper/coreml/decoder/mod.rs:220`). Any `quality` other than the default, text-only mode, token timestamps, `max_len`, `split_on_word` or `detect_language` returns `Error::Config` (`src/whisper/mod.rs`, in `run`).
+
 ```rust
-use rightkit_asr::{recording_deadline, audio_duration, load_wav_mono_16k, AudioSource, CancelToken, Whisper, WhisperOptions};
+use rightkit_asr::{recording_deadline, audio_duration, load_wav_mono_16k, AudioSource, CancelToken, Whisper, WhisperModel, WhisperOptions};
 
 let pcm = load_wav_mono_16k("/abs/path/audio.wav")?;
 let cancel = CancelToken::new();
@@ -76,6 +79,7 @@ let options = WhisperOptions {
     total_deadline: Some(recording_deadline(audio_duration(pcm.len()))),
     ..Default::default()
 };
+let mut whisper = Whisper::load(model, options)?; // `model`: a WhisperModel, CoreMlDir { dir } or Ggml { library, model }
 // whisper.set_cancel(...) swaps the token between recordings on a resident model.
 match whisper.transcribe_detailed(AudioSource::Pcm16k(pcm)) {
     Ok(t) => println!("{}", t.text),
@@ -118,7 +122,7 @@ rightkit cargo fmt --check
 rightkit cargo package -p rightkit-asr --allow-dirty --no-verify --list
 ```
 
-The `load-dynamic` lane is `--no-default-features` plus a no-op feature (`Cargo.toml:81-82`); `rightkit-ort` loads ONNX Runtime dynamically in every lane, and only `ort-download` fetches it at build time. macOS parity and portable fixtures are still publication gates.
+The `load-dynamic` lane is `--no-default-features` plus a no-op feature (`Cargo.toml:85-86`); `rightkit-ort` loads ONNX Runtime dynamically in every lane, and only `ort-download` fetches it at build time. macOS parity and portable fixtures are still publication gates.
 
 ## Version and changes
 
@@ -131,7 +135,7 @@ A hosted runner has none of these assets, so each test prints `SKIP <test>: ...`
 - `tests/e2e_parakeet.rs` (the `coreml` module, including the `.mlpackage` compile test): the CoreML Parakeet bundle, enabled by `RIGHTKIT_PARAKEET_COREML_DIR` or `RIGHTKIT_PARAKEET_COREML_PKG_DIR` (`.mlpackage`). `onnx_transducer_decodes_the_fixtures_when_the_export_is_present` is ignored and also needs `RIGHTKIT_PARAKEET_ONNX_DIR` and the ORT dylib.
 - `tests/transcript_roundtrip.rs`: the CoreML Parakeet bundle, enabled by `RIGHTKIT_PARAKEET_COREML_DIR`.
 - `tests/e2e_whisper.rs` (the `coreml` module): the WhisperKit CoreML directory, enabled by `RIGHTKIT_WHISPER_COREML_DIR`. `vad_chunked_decode_retimes_onto_the_source_timeline` also needs `RIGHTKIT_VAD_MODEL` and the ONNX Runtime dylib (`RIGHTKIT_ORT_TEST_DYLIB`).
-- `tests/e2e_whisper.rs` (the `cpp` module) and `tests/e2e_whisper_ggml.rs`: whisper.cpp 1.9.3 (`RIGHTKIT_WHISPER_LIB`, `libwhisper.dylib` or `whisper.dll`) plus a multilingual ggml model (`RIGHTKIT_WHISPER_GGML`).
+- `tests/e2e_whisper.rs` (the `cpp` module) and `tests/e2e_whisper_ggml.rs`: whisper.cpp 1.9.3 (the library at `RIGHTKIT_WHISPER_LIB`; `load` refuses any other version, `src/whisper/cpp.rs:25`) plus a multilingual ggml model (`RIGHTKIT_WHISPER_GGML`).
 - `src/whisper/cpp.rs`, unit test `new_symbols_resolve_in_pinned_library`: `RIGHTKIT_WHISPER_LIB`.
 - `tests/e2e_whisper_ggml.rs` cancel, deadline, progress and `DecodeQuality` tests: the same library and model gate.
 - `tests/certify_heardright.rs`: an opt-in run against a live HeardRight speech service, enabled by `RIGHTKIT_ASR_CERTIFY=1`, with the HeardRight Parakeet bundle at `RIGHTKIT_PARAKEET_COREML_DIR` (or its default folder).

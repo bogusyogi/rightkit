@@ -31,6 +31,8 @@ export function Doc({ markdown }: { markdown: string }) {
 
 `MarkdownRenderer` props: `source`, `className`, `onOpenLink`, `bibliography`.
 
+`HtmlRenderer` props: `html`, `className`, `safeMode` (default `true`; `safeMode={false}` renders the markup without sanitizing).
+
 ## Known issues
 
 - `remark-math` parses math, but output is raw text in `<pre>`/`<code>` (`src/renderers.tsx:71-72`). Math is not rendered as KaTeX.

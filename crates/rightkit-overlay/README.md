@@ -12,9 +12,9 @@ None. The crate has no Cargo features and no dependencies beyond `serde` (and `w
 
 ## Platform support
 
-- `windows` module: real implementation under `cfg(windows)`. It takes an `HWND` as `isize`, and it must be called before first show (`make_noactivate`), then from the host's visible-overlay watchdog (`reassert_if_needed`).
-- `OverlayStyle` picks the window behaviour (`PASSIVE`: seen and clicked, never takes focus; `CLICK_THROUGH`: the pointer passes through; `KEYBOARD`: takes the keyboard while open). On Windows, `windows::apply_style` writes it to a window the host created, `set_click_through` switches click-through at run time, `show_noactivate` and `hide` show and hide without touching the foreground window, `monitor_at` gives the monitor under a point with its work area and DPI, and `foreground_fills_monitor` with `FullScreenPolicy` decides whether to show over a full-screen app. The host still creates and paints the window.
-- Other targets: the `windows` module compiles to stubs that return `false`. The rest of the crate (state, geometry, hover, hit test) is portable.
+- `windows` module: real implementation under `cfg(windows)`. It takes an `HWND` as `isize`. `make_noactivate` must be called on the thread that owns the window, before that window receives UI messages (`src/lib.rs:233`, `:301`). `reassert_if_needed` is for a watchdog that runs after foreground or z-order notifications (`src/lib.rs:94`).
+- `OverlayStyle` picks the window behaviour (`PASSIVE`: seen and clicked, never takes focus; `CLICK_THROUGH`: the pointer passes through; `KEYBOARD`: takes the keyboard while open). On Windows, `windows::apply_style` writes it to a window the host created, `set_click_through` switches click-through at run time, `show_noactivate` and `hide` show and hide without touching the foreground window, `monitor_at` gives the monitor under a point (or the nearest one) with its work area and DPI (system DPI unless the process is per-monitor DPI aware), and `foreground_fills_monitor` with `FullScreenPolicy` decides whether to show over a full-screen app. The host still creates and paints the window.
+- Other targets: the `windows` module compiles to stubs (`src/lib.rs:590`) that return `false`, except `monitor_at`, which returns `None`. The rest of the crate (state, geometry, hover, hit test) is portable.
 
 Published version: see `INDEX.md` at the repository root. Release history is in [CHANGELOG.md](CHANGELOG.md).
 
@@ -23,14 +23,15 @@ Published version: see `INDEX.md` at the repository root. Release history is in 
 Illustrative; not compiled as a doctest.
 
 ```rust,ignore
-use rightkit_overlay::{OverlayKind, OverlayModel, Rect, WorkArea};
+use rightkit_overlay::{OverlayEvent, OverlayKind, OverlayModel, Rect, WorkArea};
 
 let mut model = OverlayModel::new(OverlayKind::HeardRightPill,
     Rect { x: 0.0, y: 0.0, width: 320.0, height: 48.0 });
+model.apply(OverlayEvent::Idle); // hit_test is false until an event makes the overlay visible
 model.place(WorkArea { left: 0.0, top: 0.0, right: 1440.0, bottom: 900.0 });
 let inside = model.hit_test(10.0, 10.0);
 ```
 
 ## Tests
 
-The crate has no `tests/` content. Its behavior is exercised by the consuming host apps.
+There is no `tests/` directory. Unit tests are in `src/lib.rs` (`mod tests`, from line 705) and cover the extended-style mapping, full-screen policy, monitor coverage and DPI scale. None of them calls the `windows` module.

@@ -20,7 +20,7 @@ Do not use it to upload reports on its own. Upload goes through the consented ou
 
 ## Cargo features
 
-`support-bundle` (default): `build_support_bundle`, `SupportBundleOptions`, `BundleManifest`, `create_zip` and the `zip` (deflate) dependency. Other dependencies: `rightkit-logs` (without its default `http` feature), `serde`, `serde_json`. Windows-only dependencies apply on Windows.
+`support-bundle` (default): `build_support_bundle`, `SupportBundleOptions`, `BundleManifest`, `create_zip` and the `zip` (deflate) dependency. Other dependencies: `rightkit-fs` (`fs` feature only), `rightkit-logs` (without its default `http` feature), `serde`, `serde_json`. Windows-only dependencies apply on Windows.
 
 ## Usage
 
@@ -40,7 +40,7 @@ fn main() {
 ## Platform support
 
 - macOS: `sample`-based native capture.
-- Windows: an out-of-process minidump through the dump helper, verified on Windows 11 (build 26300) by `capture_native_writes_a_minidump_through_an_app_named_helper`.
+- Windows: an out-of-process minidump through the dump helper. The Windows-only test `capture_native_writes_a_minidump_through_an_app_named_helper` covers it (`tests/crash_e2e.rs:296`); the crate records no Windows 11 run.
 - Other platforms: structured reports only.
 
 `capture_native(dir, kind)` takes the same native capture on demand, for hang, UI-stall or

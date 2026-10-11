@@ -145,7 +145,13 @@ export interface OnboardingProps {
   requiredVersion?: string;
   /** Custom acceptance check; takes precedence over `requiredVersion`. */
   isAccepted?: (state: PersistedOnboardingState) => boolean;
-  /** Hash of the legal documents recorded with the acceptance. Default: hash of document titles and URLs. */
+  /**
+   * Hash the stored acceptance must carry. A stored acceptance with a different (or no) hash re-prompts even when
+   * the version is unchanged, so a text change without a version bump is caught. Pass the hash of the MATERIAL
+   * documents only (see `@rightkit/legal`), not of appendices that regenerate on dependency bumps.
+   */
+  requiredDocumentsHash?: string;
+  /** Hash of the legal documents recorded with the acceptance. Default: `requiredDocumentsHash`, else a hash of document titles and URLs. Recorded only; never compared. */
   documentsHash?: string;
   /** Runs (and is awaited) before the legal gate is shown, e.g. to resize or reveal the window. */
   beforeLegalGate?: () => void | Promise<void>;

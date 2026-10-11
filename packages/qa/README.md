@@ -13,10 +13,10 @@ Shared browser and QA primitives for Right Suite apps: run storage and evidence 
 
 | Import | Contents |
 |---|---|
-| `@rightkit/qa` | `export *` from evidence, frames, guard, loopback, ownership, paint, panes, process, workspace, storage, page and chrome modules. Includes `QaBrowserSession`, `QaPage`, `QaElement`, `QaKeyboard`, `QaMouse`, `TimeoutError`, `ElementOccludedError`, `FillMismatchError`, `freePort`. From 0.4.8 also `CdpClient`, `connectCdp`, `freePortSync`, `waitForHttp`, `stopDevServer`, `readDetachedRecord`, `DevServerIdentityError`. |
+| `@rightkit/qa` | `export *` from evidence, devserver, frames, guard, loopback, ownership, paint, panes, process, workspace, storage, userdata, page and chrome modules. Includes `QaBrowserSession`, `QaPage`, `QaElement`, `QaKeyboard`, `QaMouse`, `TimeoutError`, `ElementOccludedError`, `FillMismatchError`, `freePort`. From 0.4.8 also `CdpClient`, `connectCdp`, `freePortSync`, `waitForHttp`, `stopDevServer`, `readDetachedRecord`, `DevServerIdentityError`. |
 | `@rightkit/qa/chrome` | Re-export of `@rightkit/qa-chrome` |
 
-Dependency: `@rightkit/qa-chrome` (exact `0.1.3`).
+Dependency: `@rightkit/qa-chrome` (exact `0.1.6`).
 
 Peer dependencies: none.
 
@@ -43,12 +43,12 @@ The page driver uses Node's built-in `WebSocket`. It has no Puppeteer or Playwri
 
 ## Attach to a running app and drive its mouse
 
-`QaBrowserSession.attach` connects to an app that is already running with a debugging port, such as an installed WebView2 app started with `--remote-debugging-port`. It reads the browser socket from `http://<host>:<port>/json/version`. It creates no target, and nothing it attaches to is closed.
+`QaBrowserSession.attach` connects to an app that is already running with a debugging port, such as an installed WebView2 app started with `--remote-debugging-port`. Give exactly one of `port` or `httpEndpoint` (a full http or https origin). It reads the browser socket from `http://<host>:<port>/json/version` (from `/json/version` on `httpEndpoint` when that is given). It creates no target, and nothing it attaches to is closed.
 
 - `pages()` lists page targets (`targetId`, `url`, `title`).
 - `attachPage(targetId)` or `attachPage(info => ...)` (the predicate must match exactly one page) returns a `QaPage` attached with `Target.attachToTarget`, flattened.
 - `close()` on an attached page detaches it. Closing the session detaches every attached page. Neither sends `Target.closeTarget`.
-- The host defaults to `127.0.0.1`. Any other host, and any browser socket on another host, is refused unless `allowRemoteHost: true`. A debugging port controls the whole app, so only allow a machine you control.
+- The host defaults to `127.0.0.1`. A non-loopback host (loopback is `localhost`, `::1` and `127.x.x.x`), and a browser socket on a non-loopback host, is refused unless `allowRemoteHost: true`. A debugging port controls the whole app, so only allow a machine you control.
 
 `page.mouse` holds the pointer position and pressed buttons. A move while a button is held sends the matching `buttons` mask. `page.click` and `page.hover` send their own events, so release any held mouse button before calling them.
 
@@ -101,7 +101,7 @@ try {
 - `click(target, { scroll: { inline: "nearest" } })` and `hover(target, { scroll })` choose horizontal alignment; the default is `center`, as before.
 - `fill(target, value, { replace: true, verify: { timeoutMs } })` polls the readback until it matches or the window ends; `verify: true` reads once.
 
-`spawnOwnedProcess(command, args, options)` starts a process in its own group (POSIX) and records it. `stopOwnedProcess(handle)` stops only a handle that `spawnOwnedProcess` returned, signalling the whole group. Bare pids and other objects are refused. `ownedProcessReceipt()` lists launched processes still running.
+`spawnOwnedProcess(command, args, options)` starts a process in its own group (POSIX) and records it. `stopOwnedProcess(handle)` stops only a handle that `spawnOwnedProcess` returned, signalling the whole group. Bare pids and other objects are refused. `ownedProcessReceipt()` returns `{ leftoverPids }`, the pids of launched processes still running.
 
 `freePort()` returns a free `127.0.0.1` port by binding port 0 and releasing it. Another process can take the port before use.
 
@@ -130,7 +130,7 @@ await dev.stop();
 
 ## Detached dev servers (0.4.8)
 
-By default a dev server stops with the process that started it. `startDevServer({ ..., detached: true, recordPath })` starts one that outlives the caller, so a "start, return, stop later" pair of scripts works.
+By default a dev server's output goes to this process's pipes, and only `stop()` stops it; this package registers no exit hook. `startDevServer({ ..., detached: true, recordPath })` starts one that outlives the caller, so a "start, return, stop later" pair of scripts works.
 
 - The server gets its own process group (POSIX), or a detached process (Windows). Its stdio is the log file `${recordPath}.log`, not this process's pipes, and the child is unreferenced, so the caller can exit.
 - Once the server is ready, a JSON record is written to `recordPath`: `{ format, pid, startTime, command, url, port, logPath, recordedAt }`. `startTime` and `command` are read from the OS process table, and a record is never replaced. A call whose `recordPath` already exists refuses before it spawns anything.
@@ -190,16 +190,16 @@ These methods expose Chrome's own DevTools protocol. Their names, params and res
 A test run may never start an app on the user's real data or on a location that can raise a system dialog. `spawnQaApp(workspace, command, args, options)` calls `assertQaLaunchSafe` before it spawns anything; call `assertQaLaunchSafe(workspace, { cwd, env, dirs })` yourself when you launch by other means. There is no opt-out.
 
 - The workspace home must be a QA root this package created: directly under a `rightkit-qa` directory inside a system temp root on the internal disk, with the `.rightkit-app.json` binding. The working directory and every absolute path in the environment (and any `dirs`) must resolve, symlinks followed, inside it.
-- Refused anywhere: Documents, Desktop, Downloads, Pictures, Music, Movies; iCloud Drive (`~/Library/Mobile Documents`, `~/Library/CloudStorage`), OneDrive, Dropbox, Google Drive; the user's real application-support / AppData / `.config` directory of the app under test; any `/Volumes/*` volume; any UNC path.
+- Refused anywhere: the user's home directory itself; Documents, Desktop, Downloads, Pictures, Music, Movies, Videos; iCloud Drive (`~/Library/Mobile Documents`, `~/Library/CloudStorage`), OneDrive, Dropbox, Google Drive; the user's real application-support / AppData / `.config` directory of the app under test; any `/Volumes/*` volume; any UNC path.
 - A violation throws `UserDataViolation` with `path`, `rule` and `detail`. Nothing is launched.
 
-Seed state with generated fixtures; that is the default. `seedFrom(workspace, source, { destRel, transform, scrub })` copies through your `transform(source, dest)` into `<dataDir>/<destRel>` and refuses a `source` that is the real per-user data of the app unless `scrub` is `{ declaredScrubbed: true, verify }` and `verify(dest)` returns true before launch ("zero user rows, else no launch"). A false result deletes the copy and throws.
+Seed state with generated fixtures; that is the default. `seedFrom(workspace, source, { destRel, transform, scrub })` copies through your `transform(source, dest)` into `<dataDir>/<destRel>` and refuses a `source` in a forbidden location (including the real per-user data of the app) unless `scrub` is `{ declaredScrubbed: true, verify }` and `verify(dest)` returns true before launch ("zero user rows, else no launch"). A false result deletes the copy and throws.
 
 `assertNoPermissionDialog(pid, frontmostNames)` fails on a macOS dialog agent among sampled foreground names. The live check is a no-op: this package has no window-by-owner enumeration (TODO in `livePermissionDialogCheck`).
 
 ### QA home hygiene
 
-Each home carries `.rightkit-home.json` (owner pid, start time). `withQaWorkspace(options, body)` removes the home when `body` ends, pass or fail; `disposeQaWorkspace(ws, { failed, keepFailedHome })` or `RIGHTKIT_QA_KEEP_FAILED_HOME=1` keeps only a failed run's home and prints its path and size. `createQaWorkspace` first removes homes whose owner is dead and that are older than 2 hours (`RIGHTKIT_QA_HOME_MAX_AGE_SECS`; a live pid is never touched), then throws `QaRootOverCapError` naming the largest homes if the root still holds more than 4 GB (`RIGHTKIT_QA_ROOT_CAP_BYTES`, `0` disables; `RIGHTKIT_QA_HOME_SWEEP=0` skips the sweep). Both are off under vitest unless `preflight: { enabled: true }`. `cleanQaHomes({ dryRun })` runs the sweep by hand. Deletion happens only inside the `rightkit-qa` root, never by a caller's path, and never follows a symlink out of it. `disposeQaWorkspace` refuses a home that is not runner-created.
+Each home carries `.rightkit-home.json` (owner pid, start time). `withQaWorkspace(options, body)` removes the home when `body` ends, pass or fail; `disposeQaWorkspace(ws, { failed, keepFailedHome })` or `RIGHTKIT_QA_KEEP_FAILED_HOME=1` keeps only a failed run's home and prints its path and size. `createQaWorkspace` first removes homes whose owner is dead and that are older than 2 hours (`RIGHTKIT_QA_HOME_MAX_AGE_SECS`; a live pid is never touched), then throws `QaRootOverCapError` naming the largest homes if this product's homes still hold more than 4 GB (`RIGHTKIT_QA_ROOT_CAP_BYTES`, `0` disables; "QA root limits" below adds the root-wide ceiling; `RIGHTKIT_QA_HOME_SWEEP=0` skips the sweep). Both are off under vitest unless `preflight: { enabled: true }`. `cleanQaHomes({ dryRun })` runs the sweep by hand. Deletion happens only inside the `rightkit-qa` root, never by a caller's path, and never follows a symlink out of it. `disposeQaWorkspace` refuses a home that is not runner-created.
 
 ## Ownership: this package versus the Rust `rightkit-qa` crate
 
@@ -213,18 +213,19 @@ Both runners stay. Pick by what the test drives.
 | Windows WebView2 (Tauri) app | Rust `rightkit-qa` (embedded control server on a named pipe) | `crates/rightkit-qa/src/control.rs`, `suite.rs` |
 | Engine (CLI words, framed stdio sidecar) | Rust `rightkit-qa` (`engine::EngineTarget`) | `crates/rightkit-qa/src/engine.rs` |
 
-This package launches no native app and no WebView2 window; it never replaces the Rust crate for them.
+The pane, frame and paint helpers take a driver object with `execute` (paint also needs `executeAsync`; frames also need `switchToFrame` and `switchToParentFrame`). `QaPage` has none of these methods, so it needs an adapter.
 
-**QA is a development tool, not a user automation surface.** The native rows drive only builds compiled with `rightkit-control`'s `qa-control` feature (the app's `qa-native` build). A shipped app contains no such server and `right-release` refuses to seal or upload one that does; this package attaches only to browsers and dev servers that you launch with a debugging port, never to an installed app. The only supported automation surface for users is an app's own command line or plugin. See `crates/rightkit-control/README.md`, "QA control never ships".
+This package drives no native app and no WebView2 window (`spawnQaApp` only starts a guarded process in a QA workspace); it never replaces the Rust crate for them.
+
+**QA is a development tool, not a user automation surface.** The native rows drive only builds compiled with `rightkit-control`'s `qa-control` feature (the app's `qa-native` build). A shipped app contains no such server and `right-release` refuses to seal or upload one that does; this package's `QaBrowserSession.attach` connects only to a debugging port that the browser or app was already started with. The only supported automation surface for users is an app's own command line or plugin. See `crates/rightkit-control/README.md`, "QA control never ships".
 
 ## Known issues
 
-- `@rightkit/qa-chrome` is pinned exactly to `0.1.5`. A qa-chrome release therefore needs a `@rightkit/qa` republish to reach consumers (npm audit 2026-10-08, qa finding).
-- Three consumers pin three different versions of `@rightkit/qa-chrome` as dev dependencies (npm audit 2026-10-08).
+- `@rightkit/qa-chrome` is pinned exactly to `0.1.6`. A qa-chrome release therefore needs a `@rightkit/qa` republish to reach consumers.
 
 ## QA root limits
 
-Homes live under `<tmp>/rightkit-qa/` (`/private/tmp/rightkit-qa` on macOS). Two limits are checked when a run starts, after the dead-home sweep. This section replaces the whole-root 4 GB cap that "QA home hygiene" above describes.
+Homes live under `<tmp>/rightkit-qa/` (`/private/tmp/rightkit-qa` on macOS). Two limits are checked when a run starts, after the dead-home sweep.
 
 - **Per-product cap** (`RIGHTKIT_QA_ROOT_CAP_BYTES`, default 4 GB, `0` disables). A run for `appKey` X is refused only when X's own homes hold more than the cap. A home belongs to the product named by the `app` in its `.rightkit-app.json` binding, else by the label in its directory name (`<app cut to 16 characters>-<suffix>`). Other products' homes never count.
 - **Root ceiling** (`RIGHTKIT_QA_ROOT_CEILING_BYTES`, default 32 GB, `0` disables). Every run is refused when all homes together exceed it. The refusal names the largest homes with their product. The cap is checked first.

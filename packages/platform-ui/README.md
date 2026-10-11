@@ -13,9 +13,9 @@ Brand-neutral platform primitives for Right Suite desktop apps: Tauri-backed pla
 
 | Import | Contents |
 |---|---|
-| `@rightkit/platform-ui` | `getPlatform`, `normalizePlatform`, `formatChord`, `platformCapabilities`, `createWindowControls`, `createFullscreenControls`, `createWindowControlLabels`, `DEFAULT_WINDOW_CONTROL_LABELS`, `WINDOW_CONTROL_LABELS`, `bootstrapQaPlatform`, `resolveQaPlatform`, `configurePlatform`, `platformInitializationScript`; types `Platform`, `PlatformOptions`, `WindowControlAdapter`, `FullscreenControlAdapter`, `WindowControlLabels`, `QaPlatformBootstrapInput` |
+| `@rightkit/platform-ui` | `getPlatform`, `loadPlatform`, `normalizePlatform`, `formatChord`, `platformCapabilities`, `createWindowControls`, `createFullscreenControls`, `createWindowControlLabels`, `DEFAULT_WINDOW_CONTROL_LABELS`, `WINDOW_CONTROL_LABELS`, `bootstrapQaPlatform`, `resolveQaPlatform`, `configurePlatform`, `platformInitializationScript`; types `Platform`, `FormatChordOptions`, `PlatformOptions`, `WindowControlAdapter`, `FullscreenControlAdapter`, `WindowControlLabels`, `QaPlatformBootstrapInput` |
 | `@rightkit/platform-ui/react` | `usePlatform`, `Kbd`, `KbdProps` |
-| `@rightkit/platform-ui/headless` | No native detection and no `@tauri-apps/plugin-os` import, so it works in any app. `formatChord` (explicit platform, default `unknown`), `normalizePlatform`, `platformInitializationScript`, `floatingPanelStyle`, `fitToViewport`, `createToastBus`, `defaultToastBus`, `toast`, `useFocusTrap`, `useModalDismiss`, `useLatest`, `useDismiss`, `useExitTransition`, `useListNavigation`, `rankCommands`, `rankItems`, `matchScore`, and the framework-free cores `attachFocusTrap`, `attachDismiss`, `createExitTransition`. See [Headless behaviour hooks](#headless-behaviour-hooks). |
+| `@rightkit/platform-ui/headless` | No native detection and no `@tauri-apps/plugin-os` import, so it works in any app. `formatChord` (explicit platform, default `unknown`), `normalizePlatform`, `platformInitializationScript`, `floatingPanelStyle`, `fitToViewport`, `createToastBus`, `defaultToastBus`, `DEFAULT_TOAST_TTL`, `toast`, `useFocusTrap`, `useModalDismiss`, `useLatest`, `useDismiss`, `useExitTransition`, `useListNavigation`, `rankCommands`, `rankItems`, `matchScore`, the list helpers `clampIndex`, `readIndex`, `moveIndex`, `selectByPointer`, `typeaheadMatch`, and the framework-free cores `attachFocusTrap`, `attachDismiss`, `createExitTransition`. See [Headless behaviour hooks](#headless-behaviour-hooks). |
 
 ## Peer dependencies
 
@@ -75,26 +75,26 @@ import { configurePlatform } from "@rightkit/platform-ui";
 configurePlatform({ qaQueryParam: "qaPlatform", qaRequireQaFlag: false, nativeWinsOverQa: true, fallbackPlatform: "windows" });
 ```
 
-Platform names accept the aliases `mac` and `darwin` (macOS) and `win` and `win32` (Windows) in addition to the canonical `macos`, `ios`, `windows` and `linux`.
+Platform names accept the aliases `mac` and `darwin` (macOS) and `win` and `win32` or `Win32` (Windows) in addition to the canonical `macos`, `ios`, `windows` and `linux`.
 
 ### Chord modifier `ctrlormeta`
 
-The display grammar has no modifier for "Ctrl or Meta" on every platform. `formatChord` renders the token `ctrlormeta` as `⌘/⌃` on macOS, `Ctrl/Win` on Windows and Linux, `Touch` on iOS and `Ctrl/Meta` when unknown. Matching is in `@rightkit/app-shell`.
+`ctrlormeta` means "Ctrl or Meta" (Ctrl or Cmd/Win). `formatChord` renders the token as `⌘/⌃` on macOS, `Ctrl/Win` on Windows and Linux, `Touch` on iOS and `Ctrl/Meta` when unknown. Matching is in `@rightkit/app-shell`.
 
-Bundling note: the root and `./react` entries contain a dynamic `import("@tauri-apps/plugin-os")`. Apps that bundle those entries must install the plugin, which every Tauri app already does. An app without the plugin should import `./headless` only.
+Bundling note: the root and `./react` entries contain a dynamic `import("@tauri-apps/plugin-os")`. Apps that bundle those entries must install the plugin. An app without the plugin should import `./headless` only.
 
 ## Headless behaviour hooks
 
-For an app whose markup and look are fixed (ViewRight): keep your JSX and classes, delete your local focus, dismiss, exit and list logic, and take that behaviour from `@rightkit/platform-ui/headless`. The hooks return state and props; they render nothing, import no styles, create no portals and impose no element types or ids. Each default reproduces the previous behaviour, so adopting a hook with no options changes nothing that 0.2.1 did.
+For an app whose markup and look are fixed (ViewRight): keep your JSX and classes, delete your local focus, dismiss, exit and list logic, and take that behaviour from `@rightkit/platform-ui/headless`. The hooks return state and props; they render nothing, import no styles, create no portals and impose no element types or ids. The defaults of `useFocusTrap` and `useModalDismiss` reproduce 0.2.1, so adopting either with no options changes nothing that 0.2.1 did.
 
 | Hook / function | Options (default) | Returns |
 |---|---|---|
 | `useFocusTrap(ref, active = true, opts)` | `autoFocus` (true), `trap` (true), `restore` (true), `restoreTiming` (`"microtask"` \| `"sync"` \| ms), `restoreWhen` (`"inactive"` \| `"always"`), `captureOpener` (`"render"` \| `"effect"`), `fromOutside` (`"both"` \| `"backward"` \| `"none"`), `skipHidden` (true), `emptyList` (`"prevent"` \| `"pass"`), `focusFallback` (`"container"` \| `"none"`) | nothing |
 | `useModalDismiss(onClose, opts)` | `escape` (false), `exitMs` (80), `preventDefault` (true), `stopPropagation` (true) | `{ closing, close }` |
 | `useDismiss(onDismiss, opts)` | `enabled` (true), `escape` (true), `escapeTarget` (`"window"` capture, or a ref: bubble on that element), `preventDefault` (true), `stopPropagation` (true), `imeGuard` (true), `outside` (`"mousedown"` \| `"click"` \| `"click-target"` \| `false`; default `"mousedown"`), `container`, `backdrop`, `ignore`, `outsideContextMenu` (false), `onWindowBlur` (false), `onResize` (false), `onScroll` (false) | nothing; calls `onDismiss(reason, event)`, reason is `escape` \| `outside` \| `blur` \| `resize` \| `scroll` |
-| `useExitTransition(opts)` | `exitMs` (80), `closeAfter` (`"immediately"` \| `"settled"`), `onActionWhileClosing` (`"drop"` \| `"run"`), `onSyncThrow` (`"close"` \| `"propagate"`), `dismissWhilePending` (`"ignore"` \| `"exit"`), `initialOpen` (true), `onExitStart`, `onClosed` | `{ phase: "open" \| "closing" \| "closed", closing, isOpen, pending, open(), close(action?) }` |
+| `useExitTransition(opts)` | `exitMs` (80), `closeAfter` (`"immediately"` \| `"settled"`), `onActionWhileClosing` (`"drop"` \| `"run"`), `onSyncThrow` (`"close"` \| `"propagate"`), `dismissWhilePending` (`"ignore"` \| `"exit"`), `closeOn` (`"original-settled"` \| `"first-settled"`), `initialOpen` (true), `onExitStart`, `onClosed` | `{ phase: "open" \| "closing" \| "closed", closing, isOpen, pending, open(), close(action?) }` |
 | `useListNavigation(opts)` | `count`, `initialIndex` (0), `wrap` (true), `homeEnd` (true), `keepIndexOnItemsChange` (false), `resetKey`, `hoverSelects` (`"always"` \| `"after-pointer-move"`), `typeahead` (off), `isDisabled`, `onActivate`, `activateKeys` (`["Enter"]`), `idPrefix`, `listId`, `optionId`, `role` (`"listbox"` \| `"menu"`), `focusOwner` (`"input"` \| `"list"`), `scrollIntoView` (false), `scrollOn` (`"active"` \| `"active-or-length"`), `imeGuard` (true), `emptyIndex` (`"clamp"` \| `"preserve"`) | `{ activeIndex, rawIndex, activeId, setActiveIndex, getInputProps(), getListProps(), getOptionProps(i) }` |
-| `fitToViewport({ x, y, size \| estimatedSize, viewport, margin = 8 })` | pure; `size` (measured) wins over `estimatedSize` | `{ left, top, width, height, maxWidth, maxHeight }` |
+| `fitToViewport({ x, y, size \| estimatedSize, viewport, margin = 8 })` | pure; `size` (measured) wins over `estimatedSize`; one of the two is required, else it throws a `TypeError` | `{ left, top, width, height, maxWidth, maxHeight }` |
 | `rankCommands(items, query, limit = 50)` | pure; also `rankItems`, `matchScore` | ranked copy; empty query keeps input order |
 
 Notes that matter when you configure them:
@@ -119,12 +119,12 @@ Notes that matter when you configure them:
 
 ### Menu (replaces a local scrim + Escape listener + exit timer)
 
-ViewRight's `DocumentContextMenu`: a full-screen scrim closes on mousedown and on a context-menu gesture, a window-capture Escape listener calls only `onClose`, `floatingPanelStyle` with a fixed 176 x 260 estimate. The sidebar and explorer menus close with `click`, run each item then close after it settles.
+ViewRight's `DocumentContextMenu`: a full-screen scrim closes on mousedown and on a context-menu gesture, a window-capture Escape listener calls only `onClose`, `floatingPanelStyle` with a fixed 176 x 260 estimate. The sidebar and explorer menus close on a click (`outside: "click-target"`), run each item then close after it settles.
 
 ```tsx
 const panel = useRef<HTMLDivElement>(null);
 const scrim = useRef<HTMLDivElement>(null);
-const exit = useExitTransition({ exitMs: 80, closeAfter: "settled", onActionWhileClosing: "run", onSyncThrow: "propagate", dismissWhilePending: "exit", onClosed: onClose });
+const exit = useExitTransition({ exitMs: 80, closeAfter: "settled", onActionWhileClosing: "run", onSyncThrow: "propagate", closeOn: "first-settled", dismissWhilePending: "exit", onClosed: onClose });
 // document menu: exitMs 0 (it unmounts at once); sidebar menus: onSyncThrow "propagate" keeps the menu open when the action throws, and dismissWhilePending "exit" lets Escape or a backdrop press start the 80 ms exit during a slow action
 useDismiss(() => void exit.close(), {
   enabled: exit.isOpen, container: panel, backdrop: scrim,
@@ -136,7 +136,7 @@ useDismiss(() => void exit.close(), {
 const pos = fitToViewport({ x, y, estimatedSize: { width: 176, height: 260 }, viewport: { width: innerWidth, height: innerHeight } });
 // JSX unchanged: scrim div ref={scrim}, menu div ref={panel} style={pos} className={exit.closing ? "vr-pop-exit" : ""}
 // and onMouseDown={(e) => e.preventDefault()} stays yours (it keeps the document selection alive).
-// run = (fn) => () => void exit.close(fn).catch(() => {})    // replaces Promise.resolve(fn()).finally(close)
+// run = (fn) => () => void exit.close(fn)    // replaces Promise.resolve(fn()).finally(close); no .catch, see closeOn above
 ```
 
 Deletes: the `useEffect` Escape listener, the scrim `onMouseDown` / `onContextMenu` handlers, the `useModalDismiss` call and `run` wrapper in the sidebar menus. Stays: portal choice, `tabIndex`, wrappers, `vr-pop*` classes, the mousedown `preventDefault`, the measured-height re-fit if you want one (call `fitToViewport` again with `size`).
@@ -192,5 +192,5 @@ useDismiss(() => void exit.close(), { enabled: exit.isOpen, escapeTarget: dialog
 
 ## Known issues
 
-- `bootstrapQaPlatform` and `resolveQaPlatform` are QA helpers exported from the runtime entry. Call them only in QA builds. Browser overrides need `qa=1` and `qaPlatform`, or `RIGHTKIT_QA=1` and `RIGHTKIT_QA_PLATFORM`. Production detection uses `@tauri-apps/plugin-os`.
+- `bootstrapQaPlatform` and `resolveQaPlatform` are QA helpers exported from the runtime entry. Call them only in QA builds. By default an override needs `qa=1` and `qaPlatform` in the query string, or `RIGHTKIT_QA` (`1` or `true`) and `RIGHTKIT_QA_PLATFORM` in the `env` input. Production detection uses `@tauri-apps/plugin-os`.
 - Peer React is `<21`, the same range as `doc-render`, `i18n`, `media-ui` and `pdf-ui` (`package.json:33`).

@@ -11,7 +11,7 @@ Catalog capability: `llm-providers`. Release versions are tracked in [INDEX.md](
 - `failover::FailoverChain`, `Route`, `FailoverPolicy`, `FailoverOn`: route failover, a first-token timeout, and a circuit breaker. `FailoverEvent` reports each switch. The default trigger is retryable errors only; `FailoverOn::AnyError` and `FailoverOn::custom` widen it.
 - `pricing::PriceTable`: per-model prices.
 - `cache`: prompt-cache breakpoint planning (`plan_breakpoints`, `CacheBreakpointPlanner`) and a `CacheLedger`.
-- `credentials`: `CredentialSource`, with `StaticCredentials` and `SecretStoreCredentials`. Production wiring uses `rightkit-secrets` through the `SecretStore` trait.
+- `credentials`: `CredentialSource`, with `StaticCredentials` and `SecretStoreCredentials`. `SecretStoreCredentials` takes any `SecretStore`. The source comment names `rightkit-secrets` as the production binding (`src/credentials.rs:10`), but `rightkit-secrets` has no `SecretStore` implementation in this repository.
 - `types`, `error`: `ChatRequest`, `Message`, `StreamEvent`, `LlmError`.
 - `raw`: opt-in capture of the provider's raw response bytes, status and request id for non-streaming calls (`RawExchange`, `RawHandle`). See "Raw response capture".
 
@@ -81,7 +81,7 @@ let reply = provider.complete(&request)?; // reply.usage_known == false unless t
 - Output is untrusted data. It is size-capped, must be UTF-8, JSON is parsed strictly, and nothing in it is executed or used as a path. A non-empty answer is required.
 - Errors include stderr only truncated to 512 bytes, with control characters removed and credential-shaped tokens redacted. Redaction is best effort.
 - Not-signed-in detection runs only on a failed run (non-zero exit or the tool's JSON error flag), so an answer that mentions "not logged in" is never misread.
-- Windows: the code paths compile for Windows, but the tests use a `/bin/sh` fake CLI and run on Unix only.
+- Windows: `src/provider/cli.rs` has `cfg(windows)` branches (line 145), but the tests (`tests/cli.rs`, `#![cfg(all(feature = "cli", unix))]`) use a `/bin/sh` fake CLI and run on Unix only. The Windows branches were not built or run here.
 
 ## Pass-through body fields
 
@@ -152,12 +152,12 @@ Credentials: implement `credentials::CredentialSource` over the app's own store 
 Network defaults (no change in this version):
 
 - Redirects: `ClientConfig::max_redirects` is 0, so redirects are not followed and a 3xx answer surfaces as `LlmError::Status`. Raise it on the client to follow them. Credentials are never replayed to a different host.
-- Proxy: `ClientConfig::proxy` defaults to `ProxyMode::None`, which ignores environment proxy variables. `ProxyMode::Environment` and `ProxyMode::Explicit(url)` come from `rightkit-http`. The operating system's proxy settings are not read: `rightkit-http` does not implement system proxy lookup yet, so this crate cannot use them either.
+- Proxy: `ClientConfig::proxy` defaults to `ProxyMode::None`, which ignores environment proxy variables. `ProxyMode::Environment` and `ProxyMode::Explicit(url)` come from `rightkit-http`. The operating system's proxy settings are read only when the client is built with `ProxyMode::System` (`rightkit-http`; on Windows it follows the static proxy settings exactly or fails closed, and elsewhere it behaves as `ProxyMode::Environment`).
 - Timeouts: connect 10 s, whole request 60 s, response headers 60 s (`ClientConfig` defaults).
 
 ## Platform support
 
-Pure Rust over `rightkit-http` (`ureq` with `rustls`). No platform-specific code, except that `provider::cli` inherits `rightkit-process` platform behavior.
+Pure Rust over `rightkit-http` (`ureq` with `rustls`). `provider::cli` has `cfg(windows)` and `cfg(unix)` branches (`src/provider/cli.rs:145` and `:362`) and inherits `rightkit-process` platform behavior.
 
 ## Tests
 

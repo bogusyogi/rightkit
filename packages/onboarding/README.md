@@ -45,6 +45,10 @@ import "@rightkit/onboarding/onboarding.css";
 
 Acceptance is stored as `legalAcceptance: { version, documentsHash, acceptedAt, eligibilityBasis }`. An app that already keeps its own acceptance receipt can pass `legalReceipt` (`read()` and `write(record)`) and keep that store as the source of truth. Steps can set `canContinue(context)`.
 
+## When the legal gate re-prompts
+
+`isLegalAccepted(state, requiredVersion?, isAccepted?, requiredDocumentsHash?)` decides it, in this order: a custom `isAccepted` wins outright; a `requiredDocumentsHash` must equal the stored acceptance's `documentsHash`; a `requiredVersion` must equal its `version`; with neither, the stored `legalAccepted` flag is used. Pass `requiredDocumentsHash` (the hash of the material documents, from `@rightkit/legal`) to catch a text change that did not bump the version: without it only the version is compared. `documentsHash` is recorded with the acceptance and never compared; by default it covers document titles and URLs, not their text.
+
 ## Known issues
 
 - Peer React is `<21`, the same range as `doc-render`, `i18n`, `media-ui` and `pdf-ui` (`package.json:29`).

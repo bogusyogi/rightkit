@@ -741,5 +741,17 @@ fn scan_case(name: &str) {
 
 #[test]
 fn fixtures_scan() {
+    // The scanner gives its git inventory 2.5 s. On a cold macOS runner the first `/usr/bin/git`
+    // call (Xcode's shim) can take longer than that, which fails the first case alphabetically with
+    // `git-inventory-failed (ETIMEDOUT)` although nothing about ownership changed (seen twice on
+    // 2026-10-11). One throwaway call here pays that start-up cost outside any case. The scanner
+    // and its timeout are untouched.
+    let _ = Command::new(if cfg!(windows) {
+        "C:\\Program Files\\Git\\cmd\\git.exe"
+    } else {
+        "/usr/bin/git"
+    })
+    .arg("--version")
+    .output();
     run_group("scan", 38, scan_case);
 }

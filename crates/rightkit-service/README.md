@@ -19,11 +19,11 @@ None. The crate has no Cargo features.
 - Verifying the host (`Client::connect_expecting`): macOS, Linux and Windows. Other Unix refuses with the typed `HostIdentityReason::Unverified` until implemented; it never connects unverified. See "Verifying the host".
 - Platform gates: `cfg(windows)`, `cfg(unix)`, `cfg(target_os = "macos")`, and `cfg(target_os = "linux")` in `src/discovery.rs`, `src/host_identity.rs`, `src/record.rs`, `src/suite.rs`, and `src/transport.rs`.
 
-Published version: see `INDEX.md` at the repository root. Release notes: see `CHANGELOG.md`, if present; this crate has none, so use `INDEX.md`.
+Published version: see `INDEX.md` at the repository root. Release notes: see `CHANGELOG.md`.
 
 ## Example
 
-The compiled examples live in `examples/` (`svc_host.rs`, `svc_call.rs`, `svc_claim.rs`, `svc_mute.rs`, `svc_race.rs`). Run them through `rightkit cargo run -p rightkit-service --example <name>`.
+The compiled examples live in `examples/` (`svc_host.rs`, `svc_call.rs`, `svc_claim.rs`, `svc_mute.rs`, `svc_race.rs`, `svc_fakehost.rs`, `svc_verify_client.rs`). Run them through `rightkit cargo run -p rightkit-service --example <name>`.
 
 ## Convention
 
@@ -41,7 +41,7 @@ The one discovery and authentication convention for local Right Suite services: 
 
 Why a crate of its own and not a module of `rightkit-framed-sidecar`: the sidecar crate is a published, dependency-light, `unsafe`-free framing library. The service needs OS FFI (`getpeereid`, named pipes, SDDL), threads and a filesystem convention. Keeping them apart lets stdio-only consumers stay minimal; the service depends on the sidecar for its frames.
 
-Tests are end-to-end: real host processes, real clients over the real socket. The `examples/` directory has `svc_host.rs` (host), `svc_call.rs` and `svc_claim.rs` (clients), `svc_mute.rs`, and `svc_race.rs`. `RIGHTKIT_SUITE_ROOT` (aliases `RIGHT_SUITE_DIR`, `ORTHIC_SHARED_DIR`) isolates a run from the user's installed apps.
+Tests are end-to-end: real host processes, real clients over the real socket. The `examples/` directory has `svc_host.rs` (host), `svc_fakehost.rs`, `svc_call.rs` and `svc_claim.rs` (clients), `svc_verify_client.rs`, `svc_mute.rs`, and `svc_race.rs`. `RIGHTKIT_SUITE_ROOT` (aliases `RIGHT_SUITE_DIR`, `ORTHIC_SHARED_DIR`) isolates a run from the user's installed apps.
 
 ## Verifying the host
 
@@ -159,6 +159,6 @@ Generated from `runtime-budget.json`; edit that file, then run `node packages/re
 - Wake-ups ceiling: undeclared.
 - Disk operations ceiling: 1 operations per second.
 - Required scale: 64 connections or more.
-- Required hosts: macOS and Windows.
+- Required hosts: not declared in `runtime-budget.json`.
 - Status exposure: `Hosted::status()` in `src/server.rs`; exposes resident memory, idle CPU, wake-ups, disk operations.
 - Measured: not yet measured.

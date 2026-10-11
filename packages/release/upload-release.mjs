@@ -2,13 +2,8 @@
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import { spawnSync } from "./background-process.mjs";
-import { pathToFileURL } from "node:url";
 import { prepareGitHubRelease, publishGitHubRelease } from "./github-release.mjs";
-import { assertPrimaryReleaseCheckout } from "./release-invocation.mjs";
-import { verifySealedRelease } from "./release-state.mjs";
-import { assertCleanSource } from "./source-gate.mjs";
-import { verifyOwnershipEvidence } from "./ownership-evidence.mjs";
+import { authorizeGitHubUpload } from "./github-upload-gate.mjs";
 import { recordPublishedVersion } from "./artifact-storage.mjs";
 import { admitInstalledQa } from "./release-qa-audit.mjs";
 
@@ -32,33 +27,17 @@ for (let index = 0; index < args.length; index += 1) {
   else if (arg === "-h" || arg === "--help") usage(0);
   else fail(`unknown argument: ${arg}`);
 }
-if (tier !== "patch" && tier !== "update") fail("tier is required (patch|update)");
-if (!releaseId) fail("--release is required");
-if (platform !== "win" && platform !== "mac") fail("--platform must be win or mac");
 
-const repoRoot = git(process.cwd(), ["rev-parse", "--show-toplevel"]);
-assertPrimaryReleaseCheckout(repoRoot);
-const candidateCommit = git(repoRoot, ["rev-parse", "HEAD"]);
-assertCleanSource({
-  status: git(repoRoot, ["status", "--porcelain=v1", "-z", "--untracked-files=all"]),
-  commandId: "right-release upload",
-});
-const platformDir = platform === "win" ? "windows" : "mac";
-const sealed = verifySealedRelease(path.join(repoRoot, ".right-release", "sealed", releaseId, platformDir));
-if (sealed.manifest.commit !== candidateCommit) fail("sealed release was built from a different commit than the current checkout");
-
-const configPath = path.resolve(configName);
-if (!existsSync(configPath)) fail(`release config is required: ${configName}`);
-const releaseConfig = (await import(`${pathToFileURL(configPath).href}?upload=${Date.now()}`)).default;
-const ownership = verifyOwnershipEvidence(sealed.manifest.ownershipEvidence, repoRoot, path.dirname(configPath));
-if (!ownership.ok) fail(`sealed ownership evidence rejected: ${ownership.reason}`);
-if (releaseConfig?.distribution?.provider !== "github-releases") {
-  fail("release config distribution.provider must be github-releases");
+// Tier, primary checkout, clean tree, sealed commit, ownership evidence, provider and repository are checked by
+// the gate that `right-release github --release` also uses; nothing below runs until it passes.
+let authority;
+try {
+  authority = await authorizeGitHubUpload({ command: "right-release upload", tier, releaseId, platform, configName, repo });
+} catch (error) {
+  fail(error.message);
 }
-const configuredRepo = releaseConfig?.distribution?.repository ?? "";
-if (!configuredRepo) fail("release config distribution.repository is required for github-releases");
-if (repo && repo !== configuredRepo) fail(`--repo must match configured distribution.repository (${configuredRepo})`);
-repo = configuredRepo;
+const { repoRoot, platformDir, sealed, configPath } = authority;
+repo = authority.repo;
 
 // Hardening step 4: installed QA is recorded, not enforced; a missing receipt warns and the outcome is written to state.
 if (!dryRun) {
@@ -86,12 +65,6 @@ if (!dryRun) writeJson(verifiedMarker, {
 // Candidate builds never enter published.json.
 if (!dryRun) recordPublishedVersion({ app: sealed.manifest.app, version: sealed.manifest.version, platform });
 console.log(`right-release upload: ${dryRun ? "dry-run " : ""}${result.status} ${releaseId} tier=${tier} repo=${repo}`);
-
-function git(cwd, runArgs) {
-  const result = spawnSync("git", runArgs, { cwd, encoding: "utf8", windowsHide: true });
-  if (result.status !== 0) fail(`git ${runArgs.join(" ")} failed: ${result.stderr}`);
-  return result.stdout.trim();
-}
 
 function writeJson(file, value) {
   mkdirSync(path.dirname(file), { recursive: true });

@@ -2,7 +2,7 @@
 
 Bounded transport primitives for Right Suite sidecars: newline-delimited JSON frames with a size limit, strict decode errors, and resynchronisation on a clean line boundary. Length-prefixed frames can also be bounded by an absolute deadline. The crate is product-neutral and has no app dependencies. It is a transport layer only; product schemas and behaviour stay in the owning app.
 
-Catalog capability: `framed-sidecar`. Published to crates.io (see [INDEX.md](../../INDEX.md)).
+Catalog capability: `framed-sidecar`. crates.io has 0.1.0; the source is 0.2.0, so the `deadline` functions below are not yet published (see [INDEX.md](../../INDEX.md)).
 
 ## What it owns
 

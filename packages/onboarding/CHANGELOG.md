@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Fixed: `isLegalAccepted` compared only the version, so a legal text that changed without a version bump never re-prompted. New optional `requiredDocumentsHash` (prop on `Onboarding`, fourth argument of `isLegalAccepted`): when given, the stored acceptance must carry the same hash. `documentsHash` stays record-only. Not built or run locally.
+
 ## 0.3.2
 
 - Republish with `dist/` present. 0.3.1 was published from an unbuilt tree and cannot be imported (exports point at ./dist/index.js); do not pin 0.3.1. `prepack` now builds.

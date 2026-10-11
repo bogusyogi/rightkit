@@ -51,12 +51,11 @@ Registration and taps are platform-specific. See `src/macos` and `src/windows` f
 
 - macOS: Carbon hotkeys, and CoreGraphics event taps. Event taps need Accessibility and Input Monitoring permissions.
 - Windows: `RegisterHotKey` for ordinary chords, and a `WH_KEYBOARD_LL` low-level hook.
-- Other platforms: only the pure modules (`chord`, `conflict`, `ptt`, `decision`) compile.
+- Other platforms: only the pure modules (`chord`, `conflict`, `decision`, `hold`, `hook_chord`, `ptt`, `register_status`, `registration`) compile.
 
 ## Tests
 
-`tests/macos_e2e.rs` checks the Accessibility and Input Monitoring grants. It then drives private synthetic events through the real Carbon and CoreGraphics paths. It never emits audio.
-
+`tests/macos_e2e.rs` checks the Accessibility and Input Monitoring grants. It then drives private synthetic events through the real Carbon and CoreGraphics paths.
 ## Version and changes
 
 Version: see [INDEX.md](../../INDEX.md). Changes are recorded in `CHANGELOG.md`.
@@ -64,7 +63,7 @@ Version: see [INDEX.md](../../INDEX.md). Changes are recorded in `CHANGELOG.md`.
 ## Windows
 
 - Two mechanisms, both in `src/windows/mod.rs` and compiled only under `cfg(windows)`:
-  - `GlobalHotkeys` runs a thread with a message loop and calls `RegisterHotKey(NULL, id, mods | MOD_NOREPEAT, vk)`. `WM_HOTKEY` is handled on that thread. Ctrl, Alt and Shift map directly, and Meta, Super and Win all map to `MOD_WIN`. Registration errors are typed: 1409 `Conflict`, 87 and 1004 `Unsupported`, 5 `PermissionDenied`, 8, 14 and 1450 `ResourceExhausted`, anything else `Os`. `unregister(&Chord)` removes one chord; dropping unregisters every id and joins the thread.
+  - `GlobalHotkeys` runs a thread with a message loop and calls `RegisterHotKey(NULL, id, mods | MOD_NOREPEAT, vk)` for `register`; `register_repeating` omits `MOD_NOREPEAT` (`src/registration.rs:43-44`). `WM_HOTKEY` is handled on that thread. Ctrl, Alt and Shift map directly, and Meta, Super and Win all map to `MOD_WIN`. Registration errors are typed: 1409 `Conflict`, 87 and 1004 `Unsupported`, 5 `PermissionDenied`, 8, 14 and 1450 `ResourceExhausted`, anything else `Os`. `unregister(&Chord)` removes one chord; dropping unregisters every id and joins the thread.
   - Hold-to-talk: `GlobalHotkeys::with_state` delivers `Pressed` and `Released`. `RegisterHotKey` has no release event, so after `WM_HOTKEY` the loop thread starts a roughly 15 ms thread timer that polls `GetAsyncKeyState` for the chord's key and modifiers, and kills it when nothing is held. No global hook is installed. Exactly one `Released` per `Pressed`, also on unregister and drop. Limits: release latency is 15 to 30 ms; a released modifier ends the hold; a focus change alone does not; a lock screen or UAC desktop switch makes Windows report all keys up, so the hold ends at the next poll.
   - `LowLevelKeyboardHook` installs one process-wide `WH_KEYBOARD_LL` hook on its own thread. A second install returns `HookError::AlreadyInstalled`. The handler runs inside the hook procedure and returns `Pass` or `Swallow` (LRESULT 1). `KeyEvent.injected` reports `LLKHF_INJECTED`. The module comment says the handler must stay fast and hand real work to another thread.
 - Push-to-talk aliases come from one table, `PttAlias`: Windows `lalt`, `ralt`, `rctrl`; macOS `ctrl` (also `lctrl`, `rctrl`, `control`), `lalt`, `ralt`. Canonical and display spellings parse back to the same alias.

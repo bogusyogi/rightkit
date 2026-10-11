@@ -367,7 +367,10 @@ function runCombined(command, args, commandRunner = spawnSync) {
 }
 
 function usage(code) {
-  console.log("usage: right-release github (--release <sealed-id> | --addon <config>) --platform mac|win [--repo owner/repo] [--dry-run]");
+  console.log([
+    "usage: right-release github --release <sealed-id> --tier patch|update --platform mac|win [--config right-release.config.mjs] [--repo owner/repo] [--dry-run]",
+    "       right-release github --addon <config> --platform mac|win [--repo owner/repo] [--dry-run]",
+  ].join("\n"));
   process.exit(code);
 }
 
@@ -375,33 +378,48 @@ const realOrSelf = (file) => { try { return realpathSync(file); } catch { return
 if (process.argv[1] && realOrSelf(process.argv[1]) === realOrSelf(fileURLToPath(import.meta.url))) {
   const args = process.argv.slice(2);
   const options = { platform: process.platform === "win32" ? "win" : "mac", releaseId: "", addon: "", repo: "", dryRun: false };
+  let tier = "";
+  let configName = "right-release.config.mjs";
   for (let index = 0; index < args.length; index += 1) {
     if (args[index] === "--platform") options.platform = args[++index];
     else if (args[index] === "--release") options.releaseId = args[++index];
     else if (args[index] === "--addon") options.addon = args[++index];
     else if (args[index] === "--repo") options.repo = args[++index];
+    else if (args[index] === "--tier") tier = args[++index];
+    else if (args[index].startsWith("--tier=")) tier = args[index].slice("--tier=".length);
+    else if (args[index] === "--config") configName = args[++index];
     else if (args[index] === "--dry-run") options.dryRun = true;
     else if (args[index] === "-h" || args[index] === "--help") usage(0);
     else throw new Error(`unknown argument: ${args[index]}`);
   }
   if (Boolean(options.releaseId) === Boolean(options.addon)) usage(2);
-  const repoRoot = runCommand("git", ["rev-parse", "--show-toplevel"]);
+  if (options.addon && (tier || configName !== "right-release.config.mjs")) throw new Error("--tier and --config apply to --release only; an add-on takes its configuration from --addon");
   let plan;
   if (options.addon) {
+    const repoRoot = runCommand("git", ["rev-parse", "--show-toplevel"]);
     const configPath = path.resolve(options.addon);
     const config = (await import(`${pathToFileURL(configPath).href}?github=${Date.now()}`)).default;
     options.repo ||= config.distribution?.repository ?? "";
     if (config.distribution?.provider !== "github-releases") throw new Error("add-on config must select github-releases distribution");
     plan = prepareGitHubAddonRelease({ repoRoot, config, configRoot: path.dirname(configPath), ...options });
   } else {
-    options.repo ||= repositoryFromRemote(repoRoot);
+    // A sealed installer release has one authorization, shared with `right-release upload`: an explicit tier, the
+    // primary checkout, a clean tree, a sealed commit equal to HEAD, ownership evidence, and the configured
+    // github-releases provider and repository. It finishes before any plan is built or any gh call is made.
+    const { authorizeGitHubUpload } = await import("./github-upload-gate.mjs");
+    let authority;
+    try {
+      authority = await authorizeGitHubUpload({ command: "right-release github", tier, releaseId: options.releaseId, platform: options.platform, configName, repo: options.repo });
+    } catch (error) {
+      console.error(`right-release github: ${error.message}`);
+      process.exit(1);
+    }
+    options.repo = authority.repo;
     // Hardening step 4: the direct GitHub lane is a publication path too; installed QA is recorded like `upload` does, never enforced.
     if (!options.dryRun) {
-      const sealed = verifySealedRelease(path.join(repoRoot, ".right-release", "sealed", options.releaseId, options.platform === "win" ? "windows" : "mac"));
-      const configPath = path.resolve("right-release.config.mjs");
-      admitInstalledQa({ repoRoot, manifest: sealed.manifest, platform: options.platform, configName: "right-release.config.mjs", releaseConfigSha256: existsSync(configPath) ? createHash("sha256").update(readFileSync(configPath)).digest("hex") : undefined }, { provider: "github-releases" });
+      admitInstalledQa({ repoRoot: authority.repoRoot, manifest: authority.sealed.manifest, platform: options.platform, configName: path.relative(process.cwd(), authority.configPath) || configName, releaseConfigSha256: sha256(authority.configPath) }, { provider: "github-releases" });
     }
-    plan = prepareGitHubRelease({ repoRoot, ...options });
+    plan = prepareGitHubRelease({ repoRoot: authority.repoRoot, releaseId: options.releaseId, platform: options.platform, repo: options.repo });
   }
   const result = publishGitHubRelease(plan, options);
   console.log(`right-release github: ${result.status} ${result.tag}`);

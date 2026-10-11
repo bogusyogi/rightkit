@@ -2,7 +2,7 @@
 
 Live whole-disk file index for RightKit apps (Pulse and others): fuzzy,
 typo-tolerant **name search** plus **folder sizes** that are correct for a
-storage app. Library API only; a daemon/IPC can come later. `published to crates.io`.
+storage app. Library API only; a daemon/IPC can come later. `published to crates.io` as 0.1.1; the 0.2.0 APIs below are source-only (see INDEX.md).
 
 ```rust
 let mut cfg = Config::new(vec!["/".into()]);
@@ -10,8 +10,8 @@ cfg.state_dir = Some(app_support.join("fsindex")); // snapshot + mmap'd names; e
 let index = Index::open(cfg)?;                      // blocks for the first crawl or snapshot load
 
 index.search("invoice 2024")?;                      // Vec<Hit>, ranked
-index.folder_size("/Users/me/Library")?;            // SizeInfo { logical, allocated, allocated_unique, files, is_package }
-index.children_sorted_by_size("/Users/me")?;        // Vec<Item>, allocated_unique desc by default
+index.folder_size("/Users/me/Library");            // Option<SizeInfo> { logical, allocated, allocated_unique, files, is_package }
+index.children_sorted_by_size("/Users/me");        // Option<Vec<Item>>, allocated_unique desc by default
 let changes = index.subscribe();                    // Receiver<ChangeBatch>
 index.status();                                     // roots readable?, skipped/unreadable dirs, FDA, resume
 ```
@@ -103,7 +103,7 @@ Folder rollup fields:
 FSEvents (directory granularity) drives per-directory `getattrlistbulk` diffs; new subdirectories
 are crawled, removed ones dropped, and rollups adjusted incrementally (no re-walk). Rename and move
 are a remove plus an add. `subscribe()` returns `ChangeBatch`es coalesced to at most one per
-`Config::change_coalesce` (default 150 ms), bounded (`max_change_paths`, `max_change_rollups`; the
+`Config::change_coalesce` (default 1 s, `src/config.rs:137`), bounded (`max_change_paths`, `max_change_rollups`; the
 overflow is counted, not listed), carrying the changed paths and the **current rollups of the affected
 folders and their ancestors only**, shallowest first. Queues are bounded; a full queue sets
 `missed_batches` on the next batch. `rescanned` signals a full rebuild after dropped events.
@@ -129,7 +129,7 @@ contents.
 Approach and code adapted from [fsearch](https://github.com/noahdunnagan/fsearch) by Noah Dunnagan
 (MIT): the `getattrlistbulk` entry parser and FSEvents binding (`src/backend/macos.rs`) and the fuzzy
 and one-typo scoring (`src/query.rs`). Full licence text in `THIRD-PARTY-NOTICES`. No git or
-crates.io dependency on upstream. Unlike upstream this crate keeps 64-bit logical and allocated sizes,
+crates.io dependency on upstream. This crate keeps 64-bit logical and allocated sizes (`SizeInfo`, `src/index.rs:24`),
 rolls folders and packages up, and dedupes hard links and clones.
 
 ## Memory and on-disk layout
@@ -146,7 +146,7 @@ write after a commit; a commit flushes every column, then writes the header clea
 changing, and on drop). A dirty header at open means a torn update: the store is discarded and re-crawled. A crawl or compaction builds
 `index.new` and swaps it in; an interrupted swap is recovered on open.
 
-Measured (`rightkit cargo bench -p rightkit-fsindex --bench footprint -- 7700000`, entries generated straight into the columns,
+Declared figures, not re-run or recorded in this repository (harness `benches/footprint.rs`, run as `rightkit cargo bench -p rightkit-fsindex --bench footprint -- 7700000`; entries generated straight into the columns,
 fresh process reopening the store, macOS): ~114 bytes/entry on disk (836 MB at 7.7M); after reopen 3.5 MB phys footprint /
 22.6 MB resident; after a name search 24.4 MB footprint / 185 MB resident (clean mapped pages touched by the scan; footprint does
 not count them), back to 24 MB footprint / 29 MB resident after `trim()`, which the worker also does after large searches and

@@ -16,9 +16,9 @@ Other dependencies include `rightkit-framed-sidecar`, `rightkit-service`, `right
 
 ## Platform support
 
-- macOS: UI launch through `open`, and companions under `/private/tmp/rightkit-qa/`. The `cfg(target_os = "macos")` branches are in `src/audio.rs`, `src/control.rs`, and `src/storage.rs`.
-- Windows: real Tauri app UI driving through the app's embedded control server, with `rightkit-control` linked into the app. See [Windows: driving a real Tauri app](#windows-driving-a-real-tauri-app). The `cfg(windows)` branches are in `src/control.rs`, `src/process.rs`, and `src/suite.rs`.
-- Unix: `cfg(unix)` branches are in `src/process.rs` and `src/suite.rs`. Companions use the system temp directory.
+- macOS: UI launch through `open`, and companions under `/private/tmp/rightkit-qa/`. The `cfg(target_os = "macos")` branches are in `src/audio.rs`, `src/control.rs`, `src/storage.rs`, `src/util.rs`, `src/workspace.rs`, and `src/bin/rightkit-qa.rs`.
+- Windows: real Tauri app UI driving through the app's embedded control server, with `rightkit-control` linked into the app. See [Windows: driving a real Tauri app](#windows-driving-a-real-tauri-app). The `cfg(windows)` branches are in `src/control.rs`, `src/process.rs`, `src/suite.rs`, `src/storage.rs`, `src/workspace.rs`, `src/scenario.rs`.
+- Unix: `cfg(unix)` branches are in `src/process.rs`, `src/storage.rs`, and `src/userdata.rs`. Companions use the system temp directory.
 
 Published version: see `INDEX.md` at the repository root. Release notes are in `CHANGELOG.md`.
 
@@ -66,7 +66,7 @@ A test run may never start an app on the user's real data or on a location that 
 
 ### QA home hygiene
 
-Each home carries `.rightkit-home.json` (owner pid, start time). A home is removed when its run ends, pass or fail (`Harness` drop, `suite::run`, `workspace::dispose`); `Harness::with_keep_failed_home(true)` or `RIGHTKIT_QA_KEEP_FAILED_HOME=1` keeps only the failed run's home and prints its path and size. At run start, before the run is created, `storage::preflight_home_root` removes homes whose owner is dead and that are older than 2 hours (`RIGHTKIT_QA_HOME_MAX_AGE_SECS`; a live pid is never touched), then refuses to start with a `storage::RootOverCap` error naming the largest homes if the root still holds more than 4 GB (`RIGHTKIT_QA_ROOT_CAP_BYTES`, `0` disables). `RIGHTKIT_QA_HOME_SWEEP=0` skips the sweep. `storage::clean(dry_run)` / `rightkit-qa clean [--dry-run] [--max-age-hours N]` run the sweep by hand. Deletion happens only inside the `rightkit-qa` root, never by a caller's path, and never follows a symlink out of it. A harness that is never dropped (a `static`) leaves its home to the next run's sweep.
+Each home carries `.rightkit-home.json` (owner pid, start time). A home is removed when its run ends, pass or fail (`Harness` drop, `suite::run`, `workspace::dispose`); `Harness::with_keep_failed_home(true)` or `RIGHTKIT_QA_KEEP_FAILED_HOME=1` keeps only the failed run's home and prints its path and size. At run start, before the run is created, `storage::preflight_home_root` removes homes whose owner is dead and that are older than 2 hours (`RIGHTKIT_QA_HOME_MAX_AGE_SECS`; a live pid is never touched), then refuses to start with a `storage::RootOverCap` error if the run's own product holds more than `RIGHTKIT_QA_ROOT_CAP_BYTES` (default 4 GB, `0` disables) or all homes together exceed `RIGHTKIT_QA_ROOT_CEILING_BYTES` (default 32 GB). See "QA root limits" below. `RIGHTKIT_QA_HOME_SWEEP=0` skips the sweep. `storage::clean(dry_run)` / `rightkit-qa clean [--dry-run] [--max-age-hours N]` run the sweep by hand. Deletion happens only inside the `rightkit-qa` root, never by a caller's path, and never follows a symlink out of it. A harness that is never dropped (a `static`) leaves its home to the next run's sweep.
 
 ## Rust integration tests
 
@@ -129,7 +129,7 @@ if let Some(plugin) = rightkit_control::embedded::Control::<tauri::Wry>::new().b
 
 - `build_if_enabled()` returns `None` unless the launcher sets `RIGHTKIT_CONTROL_SERVICE`, so a normal launch of a debug build does not listen. When enabled, the server is a `rightkit-service` host: a discovery record at `<suite>/runtime/<name>/service.json`, a current-user named pipe on Windows, no TCP listener and no bearer token. It fails closed when no absolute suite root exists.
 - Input goes to the webview from inside the process (on Windows through WebView2's `Input.dispatch*`), not through OS input events.
-- Pulse pins `rightkit-control = "=0.1.11"`, while this repository's crate is 0.2.0. Check the feature names against the version the app pins.
+- Pulse pins `rightkit-control = "=0.1.11"`, while this repository's crate is 0.3.0. Check the feature names against the version the app pins.
 
 ### Harness side
 
@@ -138,7 +138,7 @@ if let Some(plugin) = rightkit_control::embedded::Control::<tauri::Wry>::new().b
 - Hidden launch: `Mode::Hidden` sets `RIGHTKIT_QA_HIDDEN=1` and `RIGHTKIT_QA_BACKGROUND=1` in the child environment (`launch_env` in `src/control.rs`). Pulse runs the hidden launch on a Windows runner (its hub journey drives a hidden WebView2 through the embedded control server). On Windows the harness samples the foreground window's owning pid every 20 ms (`GetForegroundWindow` + `GetWindowThreadProcessId`) and `StopReport::owned_never_frontmost` is true only when no sample found the started pid in front and no foreground owner was unreadable; a moment with no foreground window counts as nothing owned in front. It checks the started pid only, not helper processes, and does not stop the app taking focus (that is the app's job, below). Pulse's hub skips `set_focus()` under the flag but still calls `show()` on its main window, so do not read "hidden" as "no window".
 - Isolated data dir: `workspace::create(&sc.scratch("ws"), None, "<app-key>")` puts HOME, USERPROFILE, LOCALAPPDATA and WEBVIEW2_USER_DATA_FOLDER inside the workspace. On Windows those paths come back in `\\?\` verbatim form, but WebView2 and the Win32 settings code take plain drive paths only. Pulse rewrites `ws.home`, `ws.data_dir` and each `ws.env` value with the prefix removed (`plain_workspace` in `tests/ui.rs`). Expect the same in any app that hands these paths to WebView2 or Win32.
 - App-specific knobs go through `LaunchSpec::env` under `RIGHTKIT_<APP>_*` keys. Pulse passes `RIGHTKIT_PULSE_QA_HOME`, which the debug QA build reads to set its HOME and USERPROFILE.
-- `hub/qa-e2e` is its own cargo workspace (`[workspace]` in its `Cargo.toml`). rightkit-qa pins its Windows crates exactly (Pulse's comment names `windows =0.61.1`), and those pins do not resolve next to the hub's `pulse-core`. Pulse pins `rightkit-qa` exactly in that manifest; it is held at `=0.2.12` until a Windows run on 0.2.16 passes.
+- `hub/qa-e2e` is its own cargo workspace (`[workspace]` in its `Cargo.toml`). rightkit-qa declares `windows-sys` 0.61.2 as a caret requirement (`Cargo.toml:47`, not an exact pin), and Pulse's comment says its Windows crate pins do not resolve next to the hub's `pulse-core`. Pulse pins `rightkit-qa` exactly in that manifest; it is held at `=0.2.12` until a Windows run on 0.2.16 passes.
 
 ### Running
 
@@ -173,13 +173,13 @@ Generated from `runtime-budget.json`; edit that file, then run `node packages/re
 - Wake-ups ceiling: 1 per second.
 - Disk operations ceiling: 1 operations per second.
 - Required scale: 10,000 commands or more.
-- Required hosts: macOS and Windows.
+- Required hosts: not declared in `runtime-budget.json`.
 - Status exposure: `Sidecar::status()` in `src/engine.rs`; exposes resident memory, idle CPU, wake-ups, disk operations.
 - Measured: not yet measured.
 
 ## QA root limits
 
-Homes live under `<tmp>/rightkit-qa/` (`/private/tmp/rightkit-qa` on macOS). Two limits are checked when a run starts, after the dead-home sweep. This section replaces the whole-root 4 GB cap that "QA home hygiene" above describes.
+Homes live under `<tmp>/rightkit-qa/` (`/private/tmp/rightkit-qa` on macOS). Two limits are checked when a run starts, after the dead-home sweep.
 
 - **Per-product cap** (`RIGHTKIT_QA_ROOT_CAP_BYTES`, default 4 GB, `0` disables). A run for app X is refused only when X's own homes hold more than the cap. A home belongs to the product named by the `app` in its `.rightkit-app.json` binding, else by the label in its directory name (`<app cut to 16 characters>-<suffix>`). Other products' homes never count, so another app's leftovers cannot block a run.
 - **Root ceiling** (`RIGHTKIT_QA_ROOT_CEILING_BYTES`, default 32 GB, `0` disables). Every run is refused when all homes together exceed it, because the disk is at risk. The refusal names the largest homes with their product. The cap is checked first.

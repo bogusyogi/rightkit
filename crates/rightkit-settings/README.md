@@ -115,7 +115,7 @@ let preview = store.patch_dry_run(&serde_json::json!({ "theme": "dark" }), None)
 
 ## Platform support
 
-The crate has no platform-specific code in `src/`. Atomic replacement goes through `rightkit_fs::atomic_write`, which owns the per-platform replace and directory sync.
+`src/backend.rs` has Unix and non-Unix branches (for example `file_stamp`, the cache stamp from inode and ctime). Atomic replacement goes through `atomic_write_mode` in `src/atomic.rs`, which calls `rightkit_fs::atomic_write_with_options`; `rightkit-fs` owns the per-platform replace and directory sync.
 
 Published version: see `INDEX.md` at the repository root. See `CHANGELOG.md`.
 
