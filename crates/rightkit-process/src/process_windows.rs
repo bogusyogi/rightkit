@@ -20,7 +20,7 @@ use windows::Win32::{
         },
         Threading::{
             OpenThread, ResumeThread, TerminateProcess, CREATE_BREAKAWAY_FROM_JOB,
-            CREATE_NO_WINDOW, CREATE_SUSPENDED, DETACHED_PROCESS, THREAD_SUSPEND_RESUME,
+            CREATE_NO_WINDOW, CREATE_SUSPENDED, THREAD_SUSPEND_RESUME,
         },
     },
 };
@@ -45,12 +45,8 @@ fn own(handle: HANDLE) -> OwnedHandle {
     unsafe { OwnedHandle::from_raw_handle(handle.0 as _) }
 }
 
-/// `stay_in_job` (only with `detached`) replaces breakaway by `DETACHED_PROCESS`, for a
-/// launch whose parent job denied breakaway.
-pub(crate) fn configure(command: &mut Command, detached: bool, hidden: bool, stay_in_job: bool) {
-    let mode = if detached && stay_in_job {
-        DETACHED_PROCESS
-    } else if detached {
+pub(crate) fn configure(command: &mut Command, detached: bool, hidden: bool) {
+    let mode = if detached {
         CREATE_BREAKAWAY_FROM_JOB
     } else {
         CREATE_SUSPENDED

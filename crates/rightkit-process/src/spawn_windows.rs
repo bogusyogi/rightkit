@@ -28,7 +28,7 @@ use windows::{
             CreateProcessW, DeleteProcThreadAttributeList, GetExitCodeProcess,
             InitializeProcThreadAttributeList, ResumeThread, TerminateProcess,
             UpdateProcThreadAttribute, WaitForSingleObject, CREATE_BREAKAWAY_FROM_JOB,
-            CREATE_NO_WINDOW, CREATE_SUSPENDED, CREATE_UNICODE_ENVIRONMENT, DETACHED_PROCESS,
+            CREATE_NO_WINDOW, CREATE_SUSPENDED, CREATE_UNICODE_ENVIRONMENT,
             EXTENDED_STARTUPINFO_PRESENT, LPPROC_THREAD_ATTRIBUTE_LIST, PROCESS_INFORMATION,
             PROC_THREAD_ATTRIBUTE_HANDLE_LIST, STARTF_USESTDHANDLES, STARTUPINFOEXW,
         },
@@ -400,17 +400,15 @@ fn child_pipe(parent_reads: bool) -> io::Result<(OwnedHandle, OwnedHandle)> {
     Ok((parent, unsafe { OwnedHandle::from_raw_handle(child) }))
 }
 
-#[allow(clippy::too_many_arguments)]
 pub(crate) fn spawn(
     command: &Command,
     mut config: WindowsSpawnConfig,
     handles: &[usize],
     detached: bool,
-    tolerate_denied_breakaway: bool,
     hidden: bool,
     env_cleared: bool,
     cleanup_timeout: Option<Duration>,
-) -> io::Result<(WindowsChild, bool)> {
+) -> io::Result<WindowsChild> {
     if env_cleared {
         config.inherit_environment = false;
     }
@@ -481,42 +479,21 @@ pub(crate) fn spawn(
         flags |= CREATE_BREAKAWAY_FROM_JOB;
     }
     let mut info = PROCESS_INFORMATION::default();
-    let spare_line = line.clone();
-    let create = |flags, line: &mut Vec<u16>, info: &mut PROCESS_INFORMATION| {
-        unsafe {
-            CreateProcessW(
-                PCWSTR(program_wide.as_ptr()),
-                Some(PWSTR(line.as_mut_ptr())),
-                None,
-                None,
-                true,
-                flags,
-                Some(env_block.as_ptr().cast()),
-                PCWSTR(cwd.as_ref().map_or(std::ptr::null(), |cwd| cwd.as_ptr())),
-                &startup.StartupInfo,
-                info,
-            )
-        }
-        .map_err(os_error)
-    };
-    let mut stayed_in_job = false;
-    match create(flags, &mut line, &mut info) {
-        Err(error) if detached && tolerate_denied_breakaway && error.raw_os_error() == Some(5) => {
-            // The parent job denied breakaway: one retry, detached, inside the job.
-            let mut retry = CREATE_SUSPENDED
-                | CREATE_UNICODE_ENVIRONMENT
-                | EXTENDED_STARTUPINFO_PRESENT
-                | DETACHED_PROCESS;
-            if hidden {
-                retry |= CREATE_NO_WINDOW;
-            }
-            line = spare_line;
-            info = PROCESS_INFORMATION::default();
-            create(retry, &mut line, &mut info)?;
-            stayed_in_job = true;
-        }
-        other => other?,
+    unsafe {
+        CreateProcessW(
+            PCWSTR(program_wide.as_ptr()),
+            Some(PWSTR(line.as_mut_ptr())),
+            None,
+            None,
+            true,
+            flags,
+            Some(env_block.as_ptr().cast()),
+            PCWSTR(cwd.as_ref().map_or(std::ptr::null(), |cwd| cwd.as_ptr())),
+            &startup.StartupInfo,
+            &mut info,
+        )
     }
+    .map_err(os_error)?;
     // Immediately own both handles, even if restoring caller flags fails.
     let child = WindowsChild {
         stdin: parent_stdin.map(ChildStdin::from),
@@ -530,7 +507,7 @@ pub(crate) fn spawn(
         crate::owned::cleanup_direct(Arc::new(Mutex::new(child)), cleanup_timeout);
         return Err(error);
     }
-    Ok((child, stayed_in_job))
+    Ok(child)
 }
 
 fn wide(value: &OsStr) -> io::Result<Vec<u16>> {

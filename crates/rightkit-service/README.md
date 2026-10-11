@@ -16,7 +16,7 @@ None. The crate has no Cargo features.
 - Linux and Android: same, with `SO_PEERCRED` (generic ABI; the mips, powerpc and sparc families report `Unsupported` rather than guess).
 - Other Unix: the peer check reports `PeerError::Unsupported`, so the host refuses every peer. It never assumes the peer is you.
 - Windows: named pipe with a DACL that allows only the current user SID, remote clients rejected, first-instance flag set, at most `HostOptions::max_pipe_instances` instances, client token SID checked on every accept, `SECURITY_IDENTIFICATION` clients that check the server SID.
-- Verifying the host (`Client::connect_expecting`): macOS and Linux. Windows and other Unix refuse with the typed `HostIdentityReason::Unverified` until implemented; they never connect unverified. See "Verifying the host".
+- Verifying the host (`Client::connect_expecting`): macOS, Linux and Windows. Other Unix refuses with the typed `HostIdentityReason::Unverified` until implemented; it never connects unverified. See "Verifying the host".
 - Platform gates: `cfg(windows)`, `cfg(unix)`, `cfg(target_os = "macos")`, and `cfg(target_os = "linux")` in `src/discovery.rs`, `src/host_identity.rs`, `src/record.rs`, `src/suite.rs`, and `src/transport.rs`.
 
 Published version: see `INDEX.md` at the repository root. Release notes: see `CHANGELOG.md`, if present; this crate has none, so use `INDEX.md`.
@@ -103,7 +103,7 @@ A refusal is `ConnectError::HostIdentity(HostIdentityError { expected, found_pid
 |---|---|---|---|
 | macOS | uid by `getpeereid`; pid by `LOCAL_PEERPID` (the process that last owned the accepted socket, normally the acceptor) | `proc_pidpath(pid)` | start time (`proc_pidinfo` `PROC_PIDTBSDINFO`) and the `LOCAL_PEERTOKEN` audit token (it carries a pid version) read before and after the path, and the pid re-read from the socket: all equal |
 | Linux | uid and pid by `SO_PEERCRED` (the process that called `listen()`) | `readlink /proc/<pid>/exe`; file identity from `stat /proc/<pid>/exe` | `/proc/<pid>/stat` start time before and after the path, and the pid re-read from the socket |
-| Windows | not implemented: `Unverified` | | |
+| Windows | user SID of the pipe's server process (`GetNamedPipeServerProcessId`, process token) | `QueryFullProcessImageNameW` on a process handle; file identity from `GetFileInformationByHandle` (volume serial and file index) | the process handle is held throughout (the pid cannot be reused while it is open); creation time (`GetProcessTimes`) before and after the path, still running (`WaitForSingleObject`), and the pid re-read from the pipe |
 | other Unix | not implemented: `Unverified` | | |
 
 The executable matches when the canonicalised found path equals a canonicalised expected path, or when both name the same file (device and inode). The second rule is needed on macOS: volumes are case-insensitive and `realpath` keeps the spelling it was given, so `/applications/x` and `/Applications/x` differ as strings and are one file. A hard link to the genuine binary is the genuine binary. An expected path that does not exist matches nothing.
@@ -112,7 +112,7 @@ No Security.framework call is made by this crate. The macOS code-signature team 
 
 ### Environment hardening
 
-`ClientConfig::ignore_env_overrides(true)` makes the suite root come only from `Suite::per_user_default()`: the home directory from the account database (`getpwuid_r(geteuid())`), never `HOME`, and none of `RIGHTKIT_SUITE_ROOT`, `RIGHT_SUITE_DIR`, `ORTHIC_SHARED_DIR`, `XDG_DATA_HOME`, `LOCALAPPDATA`. A suite handed in from `Suite::resolve()` (see `Suite::env_derived()`) is refused under the switch, so the switch cannot be defeated by passing the environment in. On Windows the per-user root is not implemented yet and the switch fails closed.
+`ClientConfig::ignore_env_overrides(true)` makes the suite root come only from `Suite::per_user_default()`: the home directory from the account database (`getpwuid_r(geteuid())`), never `HOME`, and none of `RIGHTKIT_SUITE_ROOT`, `RIGHT_SUITE_DIR`, `ORTHIC_SHARED_DIR`, `XDG_DATA_HOME`, `LOCALAPPDATA`. A suite handed in from `Suite::resolve()` (see `Suite::env_derived()`) is refused under the switch, so the switch cannot be defeated by passing the environment in. On Windows the root is `<local app data>\Orthic Labs\shared` with the folder from `SHGetKnownFolderPath(FOLDERID_LocalAppData)`, which reads the profile's registry, never `%LOCALAPPDATA%`.
 
 * Release builds of an app and of its command-line engine set `ignore_env_overrides(true)`. QA builds and isolated test runs do not, because they depend on `RIGHTKIT_SUITE_ROOT`.
 * Hosts read no environment variable themselves: `host()` takes the `Suite` the app built. The same switch for a host is `Suite::resolve_ignoring_env_overrides(true)` (or `Suite::per_user_default()`), and a host and its hardened clients must resolve the same way. On Linux that means a user who moved `XDG_DATA_HOME` is hosted at `~/.local/share` by a hardened host, not at their `XDG_DATA_HOME`.
@@ -132,9 +132,9 @@ No Security.framework call is made by this crate. The macOS code-signature team 
 * A host that replaced its binary on disk while running (an update): on Linux `/proc/<pid>/exe` then names `... (deleted)`, which does not match the new path, so the old host is refused until it restarts. On macOS the old inode is not reachable by path. The refusal is typed, never an accept.
 * A Linux host that is non-dumpable (setuid, or `prctl(PR_SET_DUMPABLE, 0)`): `/proc/<pid>/exe` is unreadable to its own user and the host is refused as `Unreadable`. A pid namespace that hides the host's pid is refused as `PidUnavailable`.
 
-### What the Windows session must implement
+### Windows notes
 
-`host_identity::verify_pipe_host` and `Suite::per_user_default` are stubs that fail closed. The Windows implementation, after the existing `verify_pipe_server_is_current_user`: `GetNamedPipeServerProcessId` for the pid; `OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION | SYNCHRONIZE)` and keep the handle (it pins the pid); `GetProcessTimes` for a creation-time witness; `QueryFullProcessImageNameW(handle, 0, ...)` for the path; compare after `CreateFileW` + `GetFinalPathNameByHandleW` (case-insensitive) or by `GetFileInformationByHandle` file identity; re-prove with `GetProcessTimes`, `WaitForSingleObject(handle, 0) == WAIT_TIMEOUT` and `GetNamedPipeServerProcessId`; optionally `WinVerifyTrust` behind `with_verifier`. For the per-user root: `SHGetKnownFolderPath(FOLDERID_LocalAppData)`, not `%LOCALAPPDATA%`. The exact sequence is in the doc comments of both functions.
+`HostProcess::sid` is the host's user SID and `uid` is `None`. Paths are compared after canonicalisation without regard to case; `HostProcess::executable` and `HostIdentityError::found_executable` are given without the `\\?\` prefix. A code-signature check is not built in: do it in `HostExpectation::with_verifier` (for example `WinVerifyTrust` on `HostProcess::executable`), which runs while the process handle is still held. A host running elevated, or as a protected process, may refuse `OpenProcess` to a non-elevated client and is then refused as `Unreadable`.
 
 ## Threat model
 

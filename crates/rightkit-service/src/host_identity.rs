@@ -231,9 +231,15 @@ fn is_single_component(name: &OsStr) -> bool {
 }
 
 /// `<ancestor of exe, levels_up levels above it>/<relative>`. `levels_up` 1 is the directory that
-/// holds `exe`. `None` for 0 levels, a path with no such ancestor, or an absolute `relative`.
+/// holds `exe`. `None` for 0 levels, a path with no such ancestor, or a `relative` that is not
+/// relative: absolute, or (Windows) rooted without a drive (`\x`, `/x`) or carrying a drive
+/// (`C:x`), each of which `join` would let replace the base.
 fn up_and_join(exe: &Path, levels_up: usize, relative: &Path) -> Option<PathBuf> {
-    if levels_up == 0 || relative.is_absolute() {
+    use std::path::Component;
+    let leaves_base = relative
+        .components()
+        .any(|part| matches!(part, Component::Prefix(_) | Component::RootDir));
+    if levels_up == 0 || relative.is_absolute() || leaves_base {
         return None;
     }
     exe.ancestors()
@@ -912,57 +918,363 @@ mod unix_impl {
     }
 }
 
-/// Windows: verifying the host is NOT IMPLEMENTED. This stub fails closed with
-/// [`HostIdentityReason::Unverified`] so a Windows client that asks for a verified host never
-/// silently gets an unverified one. It runs after the existing same-user check
-/// (`verify_pipe_server_is_current_user`) and before any byte is written to the pipe.
-///
-/// What the Windows implementation must do, in order, on `pipe` (the client end opened by
-/// `CreateFile` with `SECURITY_SQOS_PRESENT | SECURITY_IDENTIFICATION`):
-///
-/// 1. `GetNamedPipeServerProcessId(pipe)` for the server's pid (already done by
-///    `verify_pipe_server_is_current_user`, which also compares the process token's user SID with
-///    ours; reuse its [`PeerIdentity`](crate::PeerIdentity)).
-/// 2. `OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION | SYNCHRONIZE, FALSE, pid)` and KEEP the
-///    handle: it pins the process object, so the pid cannot be recycled while it is held.
-/// 3. `GetProcessTimes(handle, ..)` for the creation time (witness one).
-/// 4. `QueryFullProcessImageNameW(handle, 0 /* PROCESS_NAME_WIN32 */, buf, &mut len)`, growing
-///    `buf` past `MAX_PATH` up to 32767 UTF-16 units; this is the executable path.
-/// 5. Canonicalise the found path and every expected path the same way, with `CreateFileW`
-///    (`FILE_FLAG_BACKUP_SEMANTICS`, no access, full sharing) then `GetFinalPathNameByHandleW`
-///    (`VOLUME_NAME_DOS`, strip the `\\?\` prefix), and compare case-insensitively (NTFS is
-///    case-insensitive and case-preserving); or compare file identity with
-///    `GetFileInformationByHandle` (`dwVolumeSerialNumber` + `nFileIndexHigh/Low`), which is the
-///    analogue of the Unix device and inode comparison.
-/// 6. Re-prove the pid: `GetProcessTimes` again must equal witness one, `WaitForSingleObject(handle,
-///    0)` must return `WAIT_TIMEOUT` (still running), and `GetNamedPipeServerProcessId(pipe)` must
-///    still return the same pid.
-/// 7. Optionally, behind [`HostExpectation::with_verifier`]: `WinVerifyTrust`
-///    (`WINTRUST_ACTION_GENERIC_VERIFY_V2`, `WINTRUST_FILE_INFO` of the found path) and compare the
-///    signer (`WTHelperProvDataFromStateData`, `WTHelperGetProvSignerFromChain`) with the
-///    client's own. Fill [`HostProcess::sid`] from the process token (`OpenProcessToken`,
-///    `GetTokenInformation(TokenUser)`) as `verify_pipe_server_is_current_user` does.
-///
-/// Cargo features the `windows` dependency will need beyond today's: `Win32_Security_WinTrust`
-/// (only for step 7). `QueryFullProcessImageNameW`, `GetProcessTimes` and `OpenProcess` are in
-/// `Win32_System_Threading`; `CreateFileW` and `GetFinalPathNameByHandleW` in
-/// `Win32_Storage_FileSystem`; both are already enabled.
-///
-/// The returned error carries `expected` so the typed refusal reads the same on every platform.
 #[cfg(windows)]
-pub(crate) fn verify_pipe_host(
-    _pipe: std::os::windows::io::RawHandle,
-    expect: &HostExpectation,
-) -> Result<HostProcess, HostConnectError> {
-    Err(HostConnectError::Identity(HostIdentityError {
-        expected: expect.executables.clone(),
-        found_pid: None,
-        found_executable: None,
-        reason: HostIdentityReason::Unverified {
-            platform: "windows",
-            detail: "not implemented yet; see the Windows contract in the docs of host_identity::verify_pipe_host",
-        },
-    }))
+pub(crate) use windows_impl::verify_pipe_host;
+
+/// Windows: which program holds the server end of a named pipe this client opened.
+#[cfg(windows)]
+mod windows_impl {
+    use super::*;
+    use crate::peer::{verify_pipe_server_is_current_user, PeerError};
+    use std::ffi::OsString;
+    use std::os::windows::ffi::OsStringExt;
+    use std::os::windows::io::{AsRawHandle, RawHandle};
+
+    const PROCESS_QUERY_LIMITED_INFORMATION: u32 = 0x1000;
+    const SYNCHRONIZE: u32 = 0x0010_0000;
+    const WAIT_TIMEOUT: u32 = 258;
+    const ERROR_INVALID_PARAMETER: i32 = 87;
+    /// The longest path `QueryFullProcessImageNameW` can return, in UTF-16 units.
+    const LONGEST_PATH: usize = 32_768;
+
+    #[repr(C)]
+    #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+    #[allow(dead_code)]
+    struct FileTime {
+        low: u32,
+        high: u32,
+    }
+
+    /// `BY_HANDLE_FILE_INFORMATION`.
+    #[repr(C)]
+    #[derive(Default)]
+    #[allow(dead_code)]
+    struct ByHandleFileInformation {
+        attributes: u32,
+        creation: FileTime,
+        access: FileTime,
+        write: FileTime,
+        volume_serial: u32,
+        size_high: u32,
+        size_low: u32,
+        links: u32,
+        index_high: u32,
+        index_low: u32,
+    }
+
+    #[link(name = "kernel32")]
+    unsafe extern "system" {
+        fn GetNamedPipeServerProcessId(pipe: RawHandle, pid: *mut u32) -> i32;
+        fn OpenProcess(access: u32, inherit: i32, pid: u32) -> RawHandle;
+        fn GetProcessTimes(
+            process: RawHandle,
+            creation: *mut FileTime,
+            exit: *mut FileTime,
+            kernel: *mut FileTime,
+            user: *mut FileTime,
+        ) -> i32;
+        fn QueryFullProcessImageNameW(
+            process: RawHandle,
+            flags: u32,
+            name: *mut u16,
+            size: *mut u32,
+        ) -> i32;
+        fn WaitForSingleObject(handle: RawHandle, milliseconds: u32) -> u32;
+        fn CloseHandle(handle: RawHandle) -> i32;
+        fn GetFileInformationByHandle(file: RawHandle, info: *mut ByHandleFileInformation) -> i32;
+    }
+
+    /// A process handle. While it is open the process object stays, so its pid is not reused.
+    struct Process(RawHandle);
+
+    impl Drop for Process {
+        fn drop(&mut self) {
+            // SAFETY: the handle came from OpenProcess and is closed once.
+            unsafe { CloseHandle(self.0) };
+        }
+    }
+
+    impl Process {
+        fn open(pid: u32) -> io::Result<Process> {
+            // SAFETY: plain call; a null result is the failure.
+            let handle =
+                unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION | SYNCHRONIZE, 0, pid) };
+            if handle.is_null() {
+                return Err(io::Error::last_os_error());
+            }
+            Ok(Process(handle))
+        }
+
+        /// When the process was created: with the pid, the identity of one process.
+        fn created(&self) -> io::Result<FileTime> {
+            let mut times = [FileTime::default(); 4];
+            let [creation, exit, kernel, user] = &mut times;
+            // SAFETY: four valid out-parameters for an open process handle.
+            if unsafe { GetProcessTimes(self.0, creation, exit, kernel, user) } == 0 {
+                return Err(io::Error::last_os_error());
+            }
+            Ok(times[0])
+        }
+
+        fn running(&self) -> bool {
+            // SAFETY: the handle was opened with SYNCHRONIZE.
+            unsafe { WaitForSingleObject(self.0, 0) == WAIT_TIMEOUT }
+        }
+
+        /// The Win32 path of the image the process runs.
+        fn image(&self) -> io::Result<PathBuf> {
+            let mut buffer = vec![0u16; LONGEST_PATH];
+            let mut length = buffer.len() as u32;
+            // SAFETY: `buffer` holds `length` units; the call writes at most that many and
+            // sets `length` to the number written, without the terminator.
+            if unsafe { QueryFullProcessImageNameW(self.0, 0, buffer.as_mut_ptr(), &mut length) }
+                == 0
+            {
+                return Err(io::Error::last_os_error());
+            }
+            Ok(PathBuf::from(OsString::from_wide(
+                &buffer[..length as usize],
+            )))
+        }
+    }
+
+    fn server_pid(pipe: RawHandle) -> io::Result<u32> {
+        let mut pid = 0u32;
+        // SAFETY: `pipe` is the client end of a named pipe; `pid` is a valid out-parameter.
+        if unsafe { GetNamedPipeServerProcessId(pipe, &mut pid) } == 0 {
+            return Err(io::Error::last_os_error());
+        }
+        Ok(pid)
+    }
+
+    /// Volume serial number and file index: the same file under any name, as device and inode
+    /// are on Unix.
+    pub(super) fn file_id(path: &Path) -> Option<(u32, u64)> {
+        let file = std::fs::File::open(path).ok()?;
+        let mut info = ByHandleFileInformation::default();
+        // SAFETY: an open file handle and a valid out-parameter of the documented layout.
+        if unsafe { GetFileInformationByHandle(file.as_raw_handle(), &mut info) } == 0 {
+            return None;
+        }
+        Some((
+            info.volume_serial,
+            (u64::from(info.index_high) << 32) | u64::from(info.index_low),
+        ))
+    }
+
+    /// Whether `expected` names the file at `found` (already canonical): the same canonical path
+    /// without regard to case (NTFS keeps case and ignores it), or the same file by identity (a
+    /// hard link).
+    pub(super) fn same_executable(
+        expected: &Path,
+        found: &Path,
+        found_id: Option<(u32, u64)>,
+    ) -> bool {
+        let Ok(expected) = std::fs::canonicalize(expected) else {
+            return false;
+        };
+        let lower = |path: &Path| path.to_string_lossy().to_lowercase();
+        if lower(&expected) == lower(found) {
+            return true;
+        }
+        found_id.is_some() && file_id(&expected) == found_id
+    }
+
+    /// A canonical path as a person writes it: without the `\\?\` prefix.
+    fn plain(path: PathBuf) -> PathBuf {
+        let text = path.to_string_lossy();
+        match text.strip_prefix(r"\\?\UNC\") {
+            Some(rest) => PathBuf::from(format!(r"\\{rest}")),
+            None => match text.strip_prefix(r"\\?\") {
+                Some(rest) => PathBuf::from(rest),
+                None => path,
+            },
+        }
+    }
+
+    /// Identify the process that holds the server end of `pipe` (the client end, opened with
+    /// `SECURITY_SQOS_PRESENT | SECURITY_IDENTIFICATION`) and check it against `expect`, before
+    /// any byte is written:
+    ///
+    /// 1. the pipe's server pid, and that process's token user is this client's (the existing
+    ///    same-user check, repeated here for its identity);
+    /// 2. a handle to that process, kept until the end: it pins the process object, so the pid
+    ///    cannot be given to another process while it is held;
+    /// 3. the process's creation time, its image path, then the creation time again, that it is
+    ///    still running, and that the pipe still reports the same pid;
+    /// 4. the image path, canonicalised, is one of the expected executables (same canonical
+    ///    path ignoring case, or the same file by volume and index);
+    /// 5. the caller's extra verifier, if any. A code-signature check (`WinVerifyTrust` on
+    ///    [`HostProcess::executable`]) belongs there.
+    pub(crate) fn verify_pipe_host(
+        pipe: RawHandle,
+        expect: &HostExpectation,
+    ) -> Result<HostProcess, HostConnectError> {
+        let refuse = |pid: Option<u32>, exe: Option<PathBuf>, reason: HostIdentityReason| {
+            HostConnectError::Identity(HostIdentityError {
+                expected: expect.executables.clone(),
+                found_pid: pid,
+                found_executable: exe,
+                reason,
+            })
+        };
+        if expect.executables.is_empty() {
+            return Err(refuse(None, None, HostIdentityReason::NoExpectation));
+        }
+
+        let first = match verify_pipe_server_is_current_user(pipe) {
+            Ok(id) => id,
+            Err(e) => {
+                // The host hung up before it could be identified: a connection problem.
+                if e.peer_gone() {
+                    return Err(HostConnectError::Io(io::Error::from(e)));
+                }
+                let pid = match &e {
+                    PeerError::Mismatch(id) => id.pid,
+                    _ => None,
+                };
+                return Err(refuse(pid, None, HostIdentityReason::Query(e.to_string())));
+            }
+        };
+        let Some(pid) = first.pid else {
+            return Err(refuse(None, None, HostIdentityReason::PidUnavailable));
+        };
+        let unreadable = |what: &str, e: io::Error| {
+            refuse(
+                Some(pid),
+                None,
+                HostIdentityReason::Unreadable(format!("{what}: {e}")),
+            )
+        };
+        let changed = |why: &str| {
+            refuse(
+                Some(pid),
+                None,
+                HostIdentityReason::HostChanged(why.to_string()),
+            )
+        };
+
+        let process = match Process::open(pid) {
+            Ok(process) => process,
+            // No process has this id any more.
+            Err(e) if e.raw_os_error() == Some(ERROR_INVALID_PARAMETER) => {
+                return Err(changed("it exited before it could be opened"))
+            }
+            Err(e) => return Err(unreadable("open process", e)),
+        };
+        let before = process
+            .created()
+            .map_err(|e| unreadable("creation time", e))?;
+        let image = process
+            .image()
+            .map_err(|e| unreadable("executable path", e))?;
+        let after = process
+            .created()
+            .map_err(|e| unreadable("creation time", e))?;
+        if before != after {
+            return Err(changed(
+                "its creation time differed before and after its executable path was read",
+            ));
+        }
+        if !process.running() {
+            return Err(changed("it exited while it was being identified"));
+        }
+        match server_pid(pipe) {
+            Ok(again) if again == pid => {}
+            _ => return Err(changed("the pipe no longer reports the same process id")),
+        }
+
+        let found = std::fs::canonicalize(&image).unwrap_or(image);
+        let id = file_id(&found);
+        if !expect
+            .executables
+            .iter()
+            .any(|expected| same_executable(expected, &found, id))
+        {
+            return Err(refuse(
+                Some(pid),
+                Some(plain(found)),
+                HostIdentityReason::ExecutableMismatch,
+            ));
+        }
+
+        let host = HostProcess {
+            pid,
+            uid: None,
+            sid: first.sid,
+            executable: plain(found),
+            audit_token: None,
+        };
+        if let Some(verifier) = &expect.verifier {
+            if let Err(why) = verifier(&host) {
+                return Err(refuse(
+                    Some(pid),
+                    Some(host.executable.clone()),
+                    HostIdentityReason::Refused(why),
+                ));
+            }
+        }
+        // The process handle is released only now: every check above saw one process.
+        drop(process);
+        Ok(host)
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        #[test]
+        fn the_same_file_matches_by_path_in_any_case_and_by_identity_through_a_hard_link() {
+            let dir = tempfile::tempdir().unwrap();
+            let real = dir.path().join("HostBin.exe");
+            std::fs::write(&real, b"binary").unwrap();
+            let found = std::fs::canonicalize(&real).unwrap();
+            let id = file_id(&found);
+            assert!(id.is_some());
+
+            assert!(same_executable(&real, &found, id));
+            // NTFS ignores case: another spelling names the same file.
+            assert!(same_executable(&dir.path().join("hostbin.EXE"), &found, id));
+            assert!(same_executable(
+                &dir.path().join("hostbin.EXE"),
+                &found,
+                None
+            ));
+
+            let hard = dir.path().join("hard.exe");
+            std::fs::hard_link(&real, &hard).unwrap();
+            assert!(same_executable(&hard, &found, id), "same file, other name");
+            // Without a file identity only the canonical path can match.
+            assert!(!same_executable(&hard, &found, None));
+
+            // Same bytes, different file: not the running executable.
+            let copy = dir.path().join("copy.exe");
+            std::fs::copy(&real, &copy).unwrap();
+            assert!(!same_executable(&copy, &found, id));
+            assert!(!same_executable(
+                &dir.path().join("missing.exe"),
+                &found,
+                id
+            ));
+        }
+
+        #[test]
+        fn this_process_is_described_by_its_own_handle() {
+            let process = Process::open(std::process::id()).unwrap();
+            assert!(process.running());
+            assert_eq!(process.created().unwrap(), process.created().unwrap());
+            let image = std::fs::canonicalize(process.image().unwrap()).unwrap();
+            let me = std::fs::canonicalize(std::env::current_exe().unwrap()).unwrap();
+            assert!(same_executable(&me, &image, file_id(&image)));
+            assert!(!plain(image).to_string_lossy().starts_with(r"\\?\"));
+        }
+
+        #[test]
+        fn a_process_id_nothing_holds_cannot_be_opened() {
+            // Process ids are multiples of four; this one is not.
+            assert!(Process::open(0xFFFF_FFF3).is_err());
+        }
+    }
 }
 
 #[cfg(test)]
@@ -1007,6 +1319,11 @@ mod tests {
         );
         assert_eq!(up_and_join(engine, 0, Path::new("x")), None);
         assert_eq!(up_and_join(engine, 1, Path::new("/etc/passwd")), None);
+        // Windows: a rooted path without a drive, and a drive-relative one, are not relative.
+        #[cfg(windows)]
+        for escape in [r"\Windows\System32\cmd.exe", "C:cmd.exe", r"C:\cmd.exe"] {
+            assert_eq!(up_and_join(engine, 1, Path::new(escape)), None, "{escape}");
+        }
         assert_eq!(up_and_join(Path::new("engine"), 5, Path::new("x")), None);
     }
 

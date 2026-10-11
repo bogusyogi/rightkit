@@ -107,9 +107,9 @@ impl Suite {
     /// * Linux: `<home>/.local/share/Orthic Labs/shared`. `XDG_DATA_HOME` is an environment
     ///   variable and is ignored, so a user who relocated it must host with this function too, or
     ///   host and hardened client disagree on the root.
-    /// * Windows: not implemented; fails closed. The Windows implementation must call
-    ///   `SHGetKnownFolderPath(&FOLDERID_LocalAppData, KF_FLAG_DEFAULT, None)` (then `CoTaskMemFree`
-    ///   the result), which reads the profile's registry, not `%LOCALAPPDATA%`.
+    /// * Windows: `<local app data>\Orthic Labs\shared`, `<local app data>` from
+    ///   `SHGetKnownFolderPath(FOLDERID_LocalAppData)`, which reads the profile's registry, not
+    ///   `%LOCALAPPDATA%`.
     /// * Other Unix: not implemented; fails closed.
     pub fn per_user_default() -> Result<Suite, SuiteError> {
         let base = platform_default_base()?;
@@ -232,15 +232,63 @@ fn platform_default_base() -> Result<PathBuf, SuiteError> {
     })
 }
 
-/// Windows: NOT IMPLEMENTED, fails closed. See [`Suite::per_user_default`] for the call the Windows
-/// implementation must make (`SHGetKnownFolderPath` for `FOLDERID_LocalAppData`; the `windows`
-/// crate needs `Win32_UI_Shell` and `Win32_System_Com` for it).
+/// Windows: the profile's local application data folder from the shell's known-folder table
+/// (`SHGetKnownFolderPath(FOLDERID_LocalAppData)`), which reads the profile's registry and never
+/// `%LOCALAPPDATA%`.
 #[cfg(windows)]
 fn platform_default_base() -> Result<PathBuf, SuiteError> {
-    Err(SuiteError::NoRoot(
-        "Unverified: the environment-independent per-user root is not implemented on Windows yet"
-            .into(),
-    ))
+    use std::ffi::{c_void, OsString};
+    use std::os::windows::ffi::OsStringExt;
+
+    #[repr(C)]
+    #[allow(dead_code)]
+    struct Guid(u32, u16, u16, [u8; 8]);
+    /// `FOLDERID_LocalAppData`, {F1B32785-6FBA-4FCF-9D55-7B8E7F157091}.
+    const LOCAL_APP_DATA: Guid = Guid(
+        0xF1B3_2785,
+        0x6FBA,
+        0x4FCF,
+        [0x9D, 0x55, 0x7B, 0x8E, 0x7F, 0x15, 0x70, 0x91],
+    );
+
+    #[link(name = "shell32")]
+    unsafe extern "system" {
+        fn SHGetKnownFolderPath(
+            id: *const Guid,
+            flags: u32,
+            token: *mut c_void,
+            path: *mut *mut u16,
+        ) -> i32;
+    }
+    #[link(name = "ole32")]
+    unsafe extern "system" {
+        fn CoTaskMemFree(memory: *mut c_void);
+    }
+
+    let mut text: *mut u16 = std::ptr::null_mut();
+    // SAFETY: a valid folder id and out-parameter; a null token means the current user.
+    let status =
+        unsafe { SHGetKnownFolderPath(&LOCAL_APP_DATA, 0, std::ptr::null_mut(), &mut text) };
+    let folder = if status >= 0 && !text.is_null() {
+        let mut len = 0;
+        // SAFETY: on success the function returned a NUL-terminated string.
+        while unsafe { *text.add(len) } != 0 {
+            len += 1;
+        }
+        // SAFETY: `len` units were just read from this allocation.
+        Some(PathBuf::from(OsString::from_wide(unsafe {
+            std::slice::from_raw_parts(text, len)
+        })))
+    } else {
+        None
+    };
+    // SAFETY: the caller frees the string in every case; null is allowed.
+    unsafe { CoTaskMemFree(text.cast()) };
+    folder.filter(|path| path.is_absolute()).ok_or_else(|| {
+        SuiteError::NoRoot(format!(
+            "the profile's local application data folder is unavailable (SHGetKnownFolderPath: 0x{status:08X})"
+        ))
+    })
 }
 
 #[cfg(not(any(target_os = "macos", target_os = "linux", windows)))]
@@ -407,10 +455,23 @@ mod tests {
 
     #[cfg(windows)]
     #[test]
-    fn the_per_user_default_fails_closed_until_windows_implements_it() {
-        assert!(matches!(
-            Suite::per_user_default(),
-            Err(SuiteError::NoRoot(_))
-        ));
+    fn the_per_user_default_comes_from_the_known_folder_table_not_the_environment() {
+        let suite = Suite::per_user_default().unwrap();
+        assert!(!suite.env_derived());
+        assert!(suite.root().is_absolute());
+        assert!(
+            suite
+                .root()
+                .ends_with(Path::new(SUITE_DIR_NAME).join(SHARED_DIR_NAME)),
+            "{:?}",
+            suite.root()
+        );
+        let base = platform_default_base().unwrap();
+        assert!(suite.root().starts_with(&base));
+        assert!(base.is_dir(), "{base:?}");
+        assert_eq!(
+            Suite::resolve_ignoring_env_overrides(true).unwrap().root(),
+            suite.root()
+        );
     }
 }

@@ -64,12 +64,16 @@ pub enum HttpError {
     Stream(String),
     /// The call was cancelled through a [`crate::CancelToken`].
     Cancelled,
-    /// [`ProxyMode::System`](crate::ProxyMode::System): the Windows proxy settings route HTTP
-    /// and HTTPS differently (two proxies, or a proxy for one of them only). A client uses
-    /// one proxy for both, so it sends nothing rather than use the wrong proxy or none.
-    /// The user can set one proxy for both in the Windows proxy settings; the app can use
-    /// `ProxyMode::Explicit` or `ProxyMode::Environment`. Never retried.
-    SystemProxyPerScheme,
+    /// [`ProxyMode::System`](crate::ProxyMode::System): the Windows proxy settings hold
+    /// something this version cannot follow exactly, named in `element`: different proxy
+    /// routes for HTTP and HTTPS, a bypass entry that is not a plain host (`<local>`, an entry
+    /// limited to one scheme, an inner wildcard), a proxy auto-config script, or automatic
+    /// detection. The client sends nothing: it never drops a bypass entry while still using
+    /// the proxy, and never sends one scheme to the other's proxy. Returned by
+    /// `Client::try_new` and by every request of a client built with `Client::new`. An app
+    /// catches it and uses the mode it used before (`ProxyMode::Environment`, or
+    /// `ProxyMode::Explicit`). Never retried.
+    SystemProxyUnsupported { element: String },
     /// The outbound address policy refused the destination (see [`crate::netpolicy`]).
     /// `addr` and `class` are `None` when the denial is about the name or scheme (no
     /// address, a metadata host name, or a host outside a first-party list). `reason`
@@ -192,7 +196,7 @@ impl HttpError {
             HttpError::Timeout { .. } => ErrorClass::Timeout,
             HttpError::Transport { .. } => ErrorClass::Transport,
             HttpError::Cancelled => ErrorClass::Cancelled,
-            HttpError::SystemProxyPerScheme => ErrorClass::Invalid,
+            HttpError::SystemProxyUnsupported { .. } => ErrorClass::Invalid,
             HttpError::AddressDenied { .. } => ErrorClass::AddressDenied,
             HttpError::HttpsRequired { .. } => ErrorClass::Invalid,
             HttpError::InvalidRequest(_)
@@ -218,10 +222,10 @@ impl fmt::Display for HttpError {
             HttpError::Json(m) => write!(f, "invalid JSON: {m}"),
             HttpError::Stream(m) => write!(f, "stream error: {m}"),
             HttpError::Cancelled => write!(f, "cancelled"),
-            HttpError::SystemProxyPerScheme => write!(
+            HttpError::SystemProxyUnsupported { element } => write!(
                 f,
-                "Windows proxy settings route HTTP and HTTPS differently; this version supports \
-                 one proxy for both"
+                "the Windows proxy settings cannot be followed exactly by this version \
+                 ({element}); nothing was sent"
             ),
             HttpError::AddressDenied { host, reason, .. } => {
                 write!(f, "address denied for host '{host}': {reason}")

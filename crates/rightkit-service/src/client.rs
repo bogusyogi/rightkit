@@ -221,8 +221,9 @@ impl Client {
     /// must be one of `expect`'s. The process id is proven stable across the read (start time,
     /// and on macOS the audit token, before and after, and the pid re-read from the socket). A
     /// caller-supplied [`HostExpectation::with_verifier`] check then runs. Platforms: macOS
-    /// (`getpeereid`, `LOCAL_PEERPID`, `proc_pidpath`), Linux (`SO_PEERCRED`, `/proc/<pid>/exe`);
-    /// elsewhere, including Windows today, the refusal is
+    /// (`getpeereid`, `LOCAL_PEERPID`, `proc_pidpath`), Linux (`SO_PEERCRED`, `/proc/<pid>/exe`),
+    /// Windows (the pipe's server process: its token user, a held process handle,
+    /// `QueryFullProcessImageNameW`); elsewhere the refusal is
     /// [`HostIdentityReason::Unverified`](crate::HostIdentityReason::Unverified) and nothing is
     /// sent. See the README, "Verifying the host".
     ///

@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-- Fixed (Unix): `SandboxedChild::terminate_tree` sweeps descendants only while the leader is proven to still be the spawned child (`OwnedChild::while_unreaped`); a reaped leader's pid is never signalled. `PtySession` records the PTY child's identity at spawn (`rightkit_process::PidProof`) and proves it before the descendant sweep, the kill and every reap; `wait_exit` sleeps until the kernel reports the exit instead of polling every 10 ms. Requires the `rightkit-process` release that adds `OwnedChild::while_unreaped` and `PidProof`.
+- Fixed (Unix): `SandboxedChild::terminate_tree` sweeps descendants only while the leader is proven to still be the spawned child (`OwnedChild::while_unreaped`); a reaped leader's pid is never signalled. Requires the `rightkit-process` release that adds `OwnedChild::while_unreaped`.
 - `wait_with_output` ends the process tree before its final reap. When the leader exited and the
   pipes closed on their own, it now kills the group while the leader is still unreaped (and
   terminates a confined Windows child's job), instead of a bare `wait`. A descendant that
