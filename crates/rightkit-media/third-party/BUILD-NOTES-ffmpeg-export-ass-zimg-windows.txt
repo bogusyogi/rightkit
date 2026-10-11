@@ -168,7 +168,8 @@ Toolchain runtime, linked statically by `-static -static-libgcc` (notices shippe
       10f7c55275f7fbe7924209d61c368a1a6fcf775cffbdeac2eef1f5ccacdd35cd
   (digests of the files in the build host's pacman cache; installed 2026-06-20). A CI build
   records its own package versions and digests in <name>.evidence/toolchain-packages.txt.
-  The approved Windows decode build (BUILD-NOTES.txt) links the same runtime the same way.
+  The approved Windows decode build (BUILD-NOTES.txt) links the same runtime the same way; its
+  catalog row now lists the same three notice files.
 LGPL obligations: FFmpeg and FriBidi are statically linked into one executable; ship the
 notices plus a written source offer covering their complete sources and this recipe.
 

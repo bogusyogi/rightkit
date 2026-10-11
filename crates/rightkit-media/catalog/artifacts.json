@@ -18,7 +18,10 @@
         "buildProvenance": "third-party/BUILD-NOTES.txt",
         "noticeFiles": [
           "third-party/LGPL-2.1.txt",
-          "third-party/BUILD-NOTES.txt"
+          "third-party/BUILD-NOTES.txt",
+          "third-party/MinGW-w64-runtime-COPYING.txt",
+          "third-party/winpthreads-COPYING.txt",
+          "third-party/GCC-RUNTIME-LIBRARY-EXCEPTION.txt"
         ]
       },
       "requiredConfigureFlags": [
