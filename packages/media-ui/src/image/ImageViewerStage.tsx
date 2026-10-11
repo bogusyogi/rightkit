@@ -127,6 +127,8 @@ export function ImageViewerStage({
         else if (event.key === "-" || event.key === "_") onZoomOut();
         else if (event.key === "0") onActual();
         else if (event.key.toLowerCase() === "f") onFit();
+        // Arrows pan only when the image can pan; at fit they stay unhandled so folder paging receives them.
+        else if (event.key.startsWith("Arrow") && !panning) return;
         else if (event.key === "ArrowLeft") onKeyPan(PAN_KEY_STEP, 0);
         else if (event.key === "ArrowRight") onKeyPan(-PAN_KEY_STEP, 0);
         else if (event.key === "ArrowUp") onKeyPan(0, PAN_KEY_STEP);

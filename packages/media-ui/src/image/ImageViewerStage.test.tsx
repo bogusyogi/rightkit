@@ -6,7 +6,7 @@ import { ImageViewerStage } from "./ImageViewerStage.js";
 
 afterEach(cleanup);
 
-function mount() {
+function mount(panning = false) {
   const handlers = {
     onKeyPan: vi.fn(),
     onZoomIn: vi.fn(),
@@ -26,7 +26,7 @@ function mount() {
         canNext={false}
         onPageSibling={() => {}}
         dragging={false}
-        panning={false}
+        panning={panning}
         view={{ scale: 1, offsetX: 0, offsetY: 0 } as never}
         stageSize={null}
         stageTransform=""
@@ -85,12 +85,27 @@ describe("ImageViewerStage keyboard access", () => {
     ["ArrowRight", -44, 0],
     ["ArrowUp", 0, 44],
     ["ArrowDown", 0, -44],
-  ] as const)("%s pans by (%i, %i)", (key, dx, dy) => {
-    const { stage, handlers } = mount();
+  ] as const)("%s pans by (%i, %i) when the image can pan", (key, dx, dy) => {
+    const { stage, handlers } = mount(true);
     stage.focus();
-    fireEvent.keyDown(stage, { key });
+    expect(fireEvent.keyDown(stage, { key })).toBe(false);
     expect(handlers.onKeyPan).toHaveBeenCalledWith(dx, dy);
   });
+
+  it.each(["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"])(
+    "%s is left unhandled at fit so a window listener (folder paging) still receives it",
+    (key) => {
+      const { stage, handlers } = mount(false);
+      const seen: boolean[] = [];
+      const onWindowKey = (event: KeyboardEvent) => seen.push(event.defaultPrevented);
+      window.addEventListener("keydown", onWindowKey);
+      stage.focus();
+      expect(fireEvent.keyDown(stage, { key })).toBe(true);
+      window.removeEventListener("keydown", onWindowKey);
+      expect(seen).toEqual([false]);
+      expect(handlers.onKeyPan).not.toHaveBeenCalled();
+    },
+  );
 
   it("ignores other keys, shortcuts with modifiers, and typing in a field", () => {
     const { stage, handlers } = mount();

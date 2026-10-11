@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.3.4
+
+- Fix (regression in 0.3.3): with the image stage focused (any click on the image focuses it), Left/Right no longer paged through the folder, because the stage consumed every arrow key. The stage now handles arrow keys only while the image can pan (zoomed past fit); at fit they are left unhandled, so folder paging receives them as in 0.3.2.
+- 0.3.3 notes that were missing: the stage is a Tab stop after the toolbar, its role changed from `img` to `group` with `aria-roledescription="image viewer"`, and it shows a focus ring (`:where(.rk-iv-stage:focus-visible)`, zero specificity, colour from `--rk-iv-accent`). A host with a locked look can override that rule; doing so removes the keyboard focus indicator.
+
 ## 0.3.3
 
 - The image stage is now a keyboard target: `tabIndex={0}`, `role="group"` (was `role="img"`, which hid the folder-paging buttons from assistive technology) with `aria-roledescription="image viewer"` and the file name as its label. Zoom (`+`/`-`), actual size (`0`), fit (`f`) and pan (arrow keys) work while it has focus; Ctrl/Cmd/Alt shortcuts and typing in a text field inside the stage are left to the browser. A 2px `:focus-visible` ring uses `--rk-iv-input-focus` (accent by default); override `.rk-iv-stage:focus-visible` to restyle. No other visual change.
