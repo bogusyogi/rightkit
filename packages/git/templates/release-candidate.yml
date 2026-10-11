@@ -5,6 +5,11 @@
 name: release-candidate
 on:
   workflow_dispatch:
+    inputs:
+      source_revision:
+        description: Exact 40-character lowercase commit SHA to build as the candidate
+        required: true
+        type: string
   push:
     tags: ['v*']
 permissions:
@@ -28,7 +33,10 @@ jobs:
         os: ${OS_MATRIX}
     runs-on: ${{ matrix.os }}
     steps:
+      # A dispatch builds the commit it names; a tag push has no input and builds the pushed commit.
       - uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.source_revision || github.sha }}
       - uses: actions/setup-node@v5
         with:
           node-version: ${{ fromJSON('${NODE_MATRIX}')[0] }}

@@ -108,7 +108,7 @@ test("ownership revision expression matches each lane trigger contract", () => {
   assert.doesNotMatch(rendered.ci, /inputs\.source_revision/);
   assert.match(rendered["publish-package-managers"], /git rev-parse HEAD\)" = "\$\{\{ github\.sha \}\}/);
   assert.doesNotMatch(rendered["publish-package-managers"], /inputs\.source_revision/);
-  assert.match(rendered["release-candidate"], /git rev-parse HEAD\)" = "\$\{\{ inputs\.source_revision \}\}/);
+  assert.match(rendered["release-candidate"], /git rev-parse HEAD\)" = "\$\{\{ inputs\.source_revision \|\| github\.sha \}\}/);
 });
 
 test("rust-hybrid ci preserves a declared macOS-only lane", () => {
@@ -1384,7 +1384,7 @@ test("rendered swift.privatePackages workflows pass actionlint", (t) => {
 });
 
 // Lane fixtures for the swift.privatePackages tests: one manifest per profile/shape and the
-// template each lane renders from. SW_BASELINE pins the unset output to the 0.2.40 renders.
+// template each lane renders from. SW_BASELINE pins the unset output to the 0.2.41 renders.
 const SW_NODE = {
   schemaVersion: 1,
   compile: "github-actions-only",
@@ -1478,7 +1478,7 @@ const SW_BASELINE = {
   "node/ci": "4eee8dbd414921ac4bb34488c251c3b9641db2805d02989276218d4d1b73b7ad",
   "node/qualification": "730cc94fde3400079c2a4e66effed0e8957de2b75576d13f02b9398059ccc921",
   "node/package-smoke": "bc981ccb7248cc022cb8157c1fbdb7895c48f6a3fe4eeaf5a76eb5bba4206517",
-  "node/release-candidate": "193cf0e62505e6aefc0887f145c17cb443d409418829d3f39fc6f11ce21b4c31",
+  "node/release-candidate": "6ff48f01cadc95e5e92cc225432aa280a7baac46017ae30e54a165e3db2d1539",
   "node/regenerate": "82bfa3063ae0bc04ba52fecc14d562b418037716283648a887c206683a4e1c14",
   "node/publish-npm": "50882207659dfb6e0207fc0d9b33d86b7c10a2d2e3e6c65b2db05d5261982834",
   "node/publish-package-managers": "106b8d28ed76d916afe68808388cd5dc0de0ddd719b566832a6e8280410f9d7f",
@@ -1518,10 +1518,10 @@ const swStepNames = (job) => [...job.matchAll(/^ {6}- (?:name: (.+)|(uses|run): 
 const swSwiftJobs = (workflow) => Object.entries(swJobs(workflow)).filter(([, job]) => job.includes(CONFIGURE_HEAD)).map(([id]) => id);
 const SW_SET = { privatePackages: SWIFT_ONE };
 
-test("swift.privatePackages unset: every lane's output is byte-identical to 0.2.40", () => {
+test("swift.privatePackages unset: every lane's output is byte-identical to 0.2.41", () => {
   for (const [name, manifest, lane] of SW_CASES) {
     const unset = swRender(manifest, lane);
-    assert.equal(crypto.createHash("sha256").update(unset).digest("hex"), SW_BASELINE[name], `${name} differs from the 0.2.40 render`);
+    assert.equal(crypto.createHash("sha256").update(unset).digest("hex"), SW_BASELINE[name], `${name} differs from the 0.2.41 render`);
     assert.equal(swRender({ ...manifest, swift: undefined }, lane), unset, `${name}: swift: undefined`);
     assert.doesNotMatch(unset, /private Swift package|\.netrc|insteadOf|RIGHT_GIT_PRIVATE_TOKEN/);
   }
@@ -1666,11 +1666,52 @@ test("rendered swift.privatePackages workflows for every lane pass actionlint", 
       fs.writeFileSync(file, swRender(manifest, lane, { privatePackages: [...SWIFT_ONE, { host: "git.example.com", secret: "SECOND_SWIFT_TOKEN" }] }));
       return [file];
     });
-    // The node release-candidate template's ownership step reads inputs.source_revision, which its
-    // workflow_dispatch does not declare (true of the 0.2.40 render too, and unrelated to these steps).
-    const result = spawnSync("actionlint", ["-shellcheck=", "-pyflakes=", "-ignore", 'property "source_revision" is not defined', "-config-file", path.join(dir, ".github", "actionlint.yaml"), ...files], { encoding: "utf8" });
+    const result = spawnSync("actionlint", ["-shellcheck=", "-pyflakes=", "-config-file", path.join(dir, ".github", "actionlint.yaml"), ...files], { encoding: "utf8" });
     assert.equal(result.status, 0, result.stdout + result.stderr);
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+// node release-candidate: the ownership step proves the checked-out commit is the revision the
+// candidate was requested for. A dispatch names it through the source_revision input; a v* tag
+// push has no input and compares against the pushed commit.
+test("node release-candidate declares source_revision, checks it out, and binds the ownership step to it", () => {
+  const out = swRender(SW_NODE, "release-candidate");
+  assert.match(out, /^on:\n  workflow_dispatch:\n    inputs:\n      source_revision:\n        description: [^\n]+\n        required: true\n        type: string\n  push:\n    tags: \['v\*'\]\npermissions:/m);
+  assert.match(out, /- uses: actions\/checkout@v5\n        with:\n          ref: \$\{\{ inputs\.source_revision \|\| github\.sha \}\}\n/);
+  assert.match(out, /run: test "\$\(git rev-parse HEAD\)" = "\$\{\{ inputs\.source_revision \|\| github\.sha \}\}" && /);
+  assert.doesNotMatch(out, /= "\$\{\{ inputs\.source_revision \}\}"/);
+  // The rust-hybrid dispatch-only lane keeps its input-only comparison.
+  assert.match(swRender(SW_RUST, "release-candidate"), /run: test "\$\(git rev-parse HEAD\)" = "\$\{\{ inputs\.source_revision \}\}" && /);
+  // Other node lanes still compare with the run's own commit.
+  assert.match(swRender(SW_NODE, "qualification"), /= "\$\{\{ github\.sha \}\}" && /);
+});
+
+test("node release-candidate ownership step passes on both triggers and fails on a revision mismatch", () => {
+  const scratch = fs.mkdtempSync(path.join(os.tmpdir(), "right-git-rc-revision-"));
+  try {
+    const git = (...args) => spawnSync("git", ["-C", scratch, ...args], { encoding: "utf8" });
+    git("init", "-q");
+    git("-c", "user.name=t", "-c", "user.email=t@example.com", "commit", "-q", "--allow-empty", "-m", "one");
+    git("-c", "user.name=t", "-c", "user.email=t@example.com", "commit", "-q", "--allow-empty", "-m", "two");
+    const head = git("rev-parse", "HEAD").stdout.trim();
+    const other = git("rev-parse", "HEAD~1").stdout.trim();
+    const line = swRender(SW_NODE, "release-candidate").split("\n").find((l) => l.includes("git rev-parse HEAD"));
+    const script = line.replace(/^\s*run: /, "").replace(/ && .*$/, "").replace("${{ inputs.source_revision || github.sha }}", "$RC_EXPECTED");
+    const check = (inputRevision, sha) => spawnSync("bash", ["-c", script], {
+      cwd: scratch,
+      encoding: "utf8",
+      env: { PATH: process.env.PATH, RC_EXPECTED: inputRevision || sha },
+    }).status;
+    // workflow_dispatch: the input names the commit that was checked out.
+    assert.equal(check(head, other), 0, "dispatch input equals HEAD");
+    assert.notEqual(check(other, head), 0, "dispatch input differs from HEAD");
+    // v* tag push: no input, so the pushed commit is the expectation.
+    assert.equal(check("", head), 0, "tag push at HEAD");
+    assert.notEqual(check("", other), 0, "tag push whose commit is not HEAD");
+    assert.match(script, /^test "\$\(git rev-parse HEAD\)" = "\$RC_EXPECTED"$/);
+  } finally {
+    fs.rmSync(scratch, { recursive: true, force: true });
   }
 });

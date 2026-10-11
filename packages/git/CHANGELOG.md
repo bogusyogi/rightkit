@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.2.42
+
+- Node `release-candidate`: the ownership step compared `git rev-parse HEAD` with `inputs.source_revision`, but the workflow declared no inputs, so the comparison was always against an empty string. `workflow_dispatch` now declares a required `source_revision` input (as the rust-hybrid lane does), the checkout uses `ref: ${{ inputs.source_revision || github.sha }}`, and the step compares against the same expression. A dispatch builds and verifies the commit it names; a `v*` tag push has no input and compares against the pushed commit. rust-hybrid and every other lane render unchanged.
+- Tests: the actionlint ignore for the undeclared input is gone, and both triggers (dispatch with a matching and a mismatched revision, tag push at and away from HEAD) run the rendered comparison in a scratch git repository.
+
 ## 0.2.41
 
 - `swift.privatePackages` now renders its configure and cleanup steps into every lane that builds Swift, not only `ci`. Same steps as `ci` (one implementation): the token reaches the step through `env`, `~/.netrc` is mode 600 and never overwritten, the `insteadOf` rewrite is job-scoped, and the cleanup step runs with `if: always()`. Jobs that now carry them, when the manifest sets `swift.privatePackages` and declares the lane:

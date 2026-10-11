@@ -1609,9 +1609,14 @@ export function ownershipStep(manifest, lane = "ci") {
   // Only release-candidate dispatches declare source_revision. Referencing
   // inputs.source_revision from other lanes makes actionlint reject their
   // generated workflows, even when guarded by an event-name expression.
-  const sourceRevision = lane === "release-candidate"
-    ? "\${{ inputs.source_revision }}"
-    : "\${{ github.sha }}";
+  // rust-hybrid release-candidate is dispatch-only. The node release-candidate
+  // also runs on a v* tag push, which has no input: it compares against the
+  // pushed commit instead.
+  const sourceRevision = lane !== "release-candidate"
+    ? "\${{ github.sha }}"
+    : manifest.profile === "rust-hybrid"
+      ? "\${{ inputs.source_revision }}"
+      : "\${{ inputs.source_revision || github.sha }}";
   return `\n      - name: RightKit ownership (protected registry roots)\n        shell: bash\n        run: test "$(git rev-parse HEAD)" = "${sourceRevision}" && ${ownershipCommand}`;
 }
 
