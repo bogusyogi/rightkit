@@ -7,6 +7,11 @@
 //! the store next completes a write, and on [`JobStore::flush_pending_settlements`]. There is no
 //! timer and no sleep: only store activity and that explicit call drive a retry.
 //!
+//! Who wins. A held write is the runner's or the owner's. An explicit owner settle
+//! ([`JobStore::settle_terminal`], [`crate::JobControl::settle`]) on a job whose held write is not
+//! stored yet replaces it, extension values included; the runner's own write never replaces a
+//! held one; once the terminal row is stored a conflicting settle is `illegal_transition`.
+//!
 //! Restart. A held transition is also written to a small journal file, one file per job, in
 //! `<database file>.settlements/` next to the database, through `rightkit_fs`'s atomic write
 //! (temp file, `fsync`, rename). The journal does not depend on the table that refused the write.
@@ -34,6 +39,7 @@ use serde_json::{json, Map, Value};
 
 use super::{
     add_event_on, check_fence, now, Event, Job, JobRecord, JobStore, Transition, CANCELLED,
+    COMPLETE,
 };
 use crate::config::StatusModel;
 use crate::error::{JobError, JobResult};
@@ -86,6 +92,9 @@ pub(crate) struct SettleRequest {
     pub(crate) sink: Option<EventSink>,
     /// Hold a write that fails on storage (otherwise return its error).
     pub(crate) defer: bool,
+    /// An explicit settle by the job's owner (`JobStore::settle_terminal`, `JobControl::settle`),
+    /// as opposed to the runner's own write. See [`JobStore::settle_terminal`] for the rule.
+    pub(crate) owner: bool,
 }
 
 #[allow(clippy::large_enum_variant)]
@@ -257,6 +266,15 @@ pub(crate) fn projected(base: &Job, t: &Transition) -> Job {
     job
 }
 
+/// The event for an explicit settle that replaces a held write which had one.
+fn owner_event(status: Option<&str>) -> LifecycleEvent {
+    match status {
+        Some(COMPLETE) => LifecycleEvent::new("complete", Some(1.0), Some("settled by owner")),
+        Some(CANCELLED) => LifecycleEvent::new("cancelled", None, Some("settled by owner")),
+        _ => LifecycleEvent::new("failed", None, Some("settled by owner")),
+    }
+}
+
 /// A write worth holding: the database or the disk refused it.
 fn is_storage_error(e: &JobError) -> bool {
     matches!(e.code.as_str(), "db" | "io")
@@ -393,8 +411,17 @@ impl JobStore {
     /// the database refuses it on storage (`db` or `io`), the transition is kept instead of
     /// lost and `Settlement::Deferred` is returned: it is retried when the store next completes a
     /// write and on [`JobStore::flush_pending_settlements`], and journaled so a restart applies
-    /// it (see the module notes). Any other error is returned and nothing is kept. A job that
-    /// already has a held write keeps it: the first outcome stands.
+    /// it (see the module notes). Any other error is returned and nothing is kept.
+    ///
+    /// The rule when the job already has an outcome:
+    /// - **Held, not yet stored** (the row is still non-terminal): this explicit settle
+    ///   **replaces** the held write, whether the runner or an earlier settle made it. The new
+    ///   transition is kept whole, extension values included, the journal file is rewritten, the
+    ///   job's claim and sink stay, and a lifecycle event the held write carried is replaced by
+    ///   one for the new status. The write is attempted at once; if storage accepts it the stale
+    ///   held write is dropped. The runner's own write never replaces a held one.
+    /// - **Already stored** (the row is terminal): nothing is written or merged. The same status
+    ///   is idempotent (`Written(None)`); a different one is refused with `illegal_transition`.
     pub fn settle_terminal(&self, job_id: &str, t: &Transition) -> JobResult<Settlement> {
         self.settle_terminal_in(job_id, None, t)
     }
@@ -431,6 +458,7 @@ impl JobStore {
             claim: None,
             sink: None,
             defer: true,
+            owner: true,
         })?;
         Ok(match out {
             Settle::Written { record, .. } => Settlement::Written(record),
@@ -438,19 +466,30 @@ impl JobStore {
         })
     }
 
-    /// The runner's terminal write: commit it, or hold it.
+    /// The terminal write of the runner or of the job's owner: commit it, or hold it.
     pub(crate) fn settle_request(&self, req: SettleRequest) -> JobResult<Settle> {
         let SettleRequest {
             job_id,
             fence,
             transition,
-            event,
+            mut event,
             claim,
             sink,
             defer,
+            owner,
         } = req;
-        let (claim, sink) = if defer {
-            // An outcome already held for this job stands; a second write never replaces it.
+        let mut prior_sink = None;
+        let (claim, sink) = if owner {
+            // A later explicit outcome replaces a held one; keep its announcement going.
+            if let Some((had_event, held_sink)) = self.pending_info(&job_id) {
+                if had_event && event.is_none() {
+                    event = Some(owner_event(transition.to.as_deref()));
+                }
+                prior_sink = held_sink;
+            }
+            (claim, sink)
+        } else if defer {
+            // An outcome already held for this job stands; the runner never replaces it.
             match self.adopt(&job_id, claim, sink) {
                 Ok(_) => return Ok(Settle::Deferred),
                 Err(back) => back,
@@ -460,10 +499,36 @@ impl JobStore {
         };
         match self.transition_event_in(&job_id, fence, &transition, event.as_ref()) {
             Ok(Some((record, ev))) => {
+                if owner {
+                    // The stored outcome is this one; the stale held write is moot.
+                    self.take_entry(&job_id);
+                    if let (Some(s), Some(e)) = (&prior_sink, &ev) {
+                        let _ = catch_unwind(AssertUnwindSafe(|| s(e)));
+                    }
+                }
                 self.after_write();
                 Ok(Settle::Written {
                     record: Some(record),
                     event: ev,
+                })
+            }
+            Ok(None) if owner => {
+                // Already terminal: never merged. The same outcome is idempotent.
+                let now = self.get(&job_id)?;
+                if transition.to.as_deref() != Some(now.status.as_str()) {
+                    return Err(JobError::new(
+                        "illegal_transition",
+                        format!(
+                            "job {job_id} is already {}; it cannot be settled as {}",
+                            now.status,
+                            transition.to.as_deref().unwrap_or("?")
+                        ),
+                    ));
+                }
+                self.take_entry(&job_id);
+                Ok(Settle::Written {
+                    record: None,
+                    event: None,
                 })
             }
             Ok(None) => Ok(Settle::Written {
@@ -485,7 +550,12 @@ impl JobStore {
                     durable: false,
                     bytes,
                 };
-                if self.push_entry(entry, true) {
+                let held = if owner {
+                    self.upsert_entry(entry)
+                } else {
+                    self.push_entry(entry, true)
+                };
+                if held {
                     Ok(Settle::Deferred)
                 } else {
                     Err(e)
@@ -493,6 +563,46 @@ impl JobStore {
             }
             Err(e) => Err(e),
         }
+    }
+
+    /// `(carries a lifecycle event, sink)` of the held write of `job_id`, if any.
+    fn pending_info(&self, job_id: &str) -> Option<(bool, Option<EventSink>)> {
+        if self.settle.len.load(Ordering::Relaxed) == 0 {
+            return None;
+        }
+        lk(&self.settle.pending)
+            .iter()
+            .find(|e| e.job_id == job_id)
+            .map(|e| (e.event.is_some(), e.sink.clone()))
+    }
+
+    /// Hold `entry`, replacing the held write of the same job (its claim and sink stay) and
+    /// rewriting the journal file. If the rewrite fails the old file is removed: replaying the
+    /// replaced outcome would be worse than none.
+    fn upsert_entry(&self, entry: Entry) -> bool {
+        {
+            let mut p = lk(&self.settle.pending);
+            if let Some(e) = p.iter_mut().find(|e| e.job_id == entry.job_id) {
+                e.generation = entry.generation;
+                e.transition = entry.transition;
+                e.event = entry.event;
+                e.bytes = entry.bytes;
+                e.last_error = entry.last_error;
+                if e.claim.is_none() {
+                    e.claim = entry.claim;
+                }
+                if e.sink.is_none() {
+                    e.sink = entry.sink;
+                }
+                let ok = self.write_journal(e);
+                if !ok {
+                    self.remove_journal(&e.job_id);
+                }
+                e.durable = ok;
+                return true;
+            }
+        }
+        self.push_entry(entry, true)
     }
 
     /// Merge `claim` and `sink` into the held write of `job_id` and return its transition. When

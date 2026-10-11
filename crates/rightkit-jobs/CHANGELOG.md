@@ -14,6 +14,12 @@ Nothing here was compiled or run locally; verification is the CI run. Four addit
 - **`prune` and `submit` with `SubmitOptions::prune` skip a terminal row whose runner is still announcing it** (between its terminal write and the end of `Runner::run`, including the sink call). The guard lives in the process that runs the job.
 - **Opening a store reads `<database file>.settlements/` when it exists.** The directory is created only when a terminal write is held, so a store that never held one is untouched.
 
+**Trial-build fixes (settle-later).**
+
+- **An explicit owner settle replaces a held write.** `JobStore::settle_terminal` / `settle_terminal_fenced` and `JobControl::settle` used to leave the first held transition standing (merging only the claim and sink), so a generic `FAILED` the runner had journalled beat a later, more specific `Cancelled` with extension values. Now, while the row is non-terminal, the explicit settle replaces the held write, extension values and fence included, rewrites the journal file (removing it if the rewrite fails), keeps the claim and sink, and swaps a carried lifecycle event for one for the new status (`settled by owner`). It is tried at once and the stale held write is dropped when storage accepts it. The runner's own write still never replaces a held one. Once the terminal row is stored, a settle to a different status now fails with `illegal_transition` (before: silently `Written(None)`), and the same status stays idempotent.
+- **A replay inside a run returns the restored row.** New `RunOutcome::Restored(JobRecord)`: when `Runner::run` finds a held write from the journal and it lands (or the row is already terminal) it returns the stored record with its extension values instead of `Finished(Job)`. This is a new enum variant (exhaustive matches need an arm); `RunOutcome::job()` and `to_value()` cover it.
+- Tests: `tests/settle_owner.rs`.
+
 **Handler-owned outcomes.**
 
 - New `HandlerOutcome` (`#[non_exhaustive]`): `Done(Value)`, `Settled`, `Pending(String)`. New provided `JobHandler::run_outcome(&self, &Job, &Arc<JobControl>) -> JobResult<HandlerOutcome>`; its default is `run_shared` with `Ok(v)` read as `Done(v)`, so a handler that implements only `run` behaves as before. `Runner` calls `run_outcome`.
