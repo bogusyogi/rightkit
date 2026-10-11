@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.4.0
+
+Search that rows, groups and items take part in themselves, an all-sections results mode, a backend-free controlled panel, a lean `/core` entry, and keyboard options. Requested by Pulse (gap ledger #104). Every addition is optional: the default DOM, classes, attributes and search results are identical to 0.3.4, pinned by `src/default-output.test.tsx` (snapshots written before the change) next to the existing `default-markup` and `output` snapshots.
+
+Added:
+- `@rightkit/shell` is no longer a peer or a dev dependency (audit D01): no source, type or emitted file referenced it; the `shell-adapter` subpath still needs only a structurally compatible `engine`.
+- Search context: `SettingsSearchProvider` (`query`, `filter`, `highlight`), `useSettingsSearch()` (`query`, `terms`, `active`, `results`, `count`, `register`, `highlight`), `SettingsItem` (arbitrary content searchable with supplied `text`, `description`, `keywords`), `SettingsSectionScope`, `SettingsSearchSection` (heading, "Open section" action, hides when empty), `HighlightedText`, `highlightText`, `parseSearchTerms`. `SettingRow`, `SettingsGroup` and `SettingsItem` register on mount and unregister on unmount, so conditional rows that are not rendered never appear and late rows appear without a `MutationObserver`.
+- `SettingRow` `keywords` and `searchText`; `SettingsGroup` `hideWhenEmpty`, re-evaluated when registrations change.
+- `SettingsPanel`: `searchMode` (`"navigate"` default, `"all-sections"`), `highlight`, `openSectionLabel`, `resultHeadingLevel`, `announceResults`, `formatAnnouncement`, `query`/`onQueryChange`, `activeSection`/`onActiveSectionChange`, `hideSearch`, `searchLabel`, `findShortcut`, `escapeClears` (`"always" | "when-search-focused" | "unless-in-input-or-dialog"`, IME composition respected). `useSearchKeys` exposes the keyboard options to hosts that own their field.
+- `backend` is optional on `SettingsPanel`: without it the panel keeps an in-memory store and never shows "Loading settings…".
+- Entries `@rightkit/settings-ui/core` (panel, primitives, search, backends, types; imports only `react`) and `@rightkit/settings-ui/standard` (standard sections and hooks). The root entry re-exports both, so every 0.3.x import keeps working.
+- Classes in `settings.css` for the new markup only: `rk-settings__searchbar`, `__results`, `__result`, `__result-head`, `__result-title`, `__mark`, `__sr`.
+
+Changed:
+- `@rightkit/license`, `@rightkit/logs`, `@rightkit/theme` and `@rightkit/updates` are optional peers (`peerDependenciesMeta`). They are still needed by `/standard` and the root entry. The repository lists them as `workspace:*` devDependencies for the build and tests.
+- `hideNav` no longer disables search by itself: with `hideNav`, `search={true}` renders the field above the content and a controlled `query` works with no field. To keep every existing app unchanged, `hideNav` with `search` unset still renders no field.
+- `SectionFrame` wraps the section body in a context-only `SettingsSectionScope` (no DOM) so rows know their section.
+
+Unchanged by design: in `"navigate"` mode no row is ever hidden and no live region is rendered unless `announceResults` is set; `Escape` and the find shortcut do nothing unless enabled.
+
 ## 0.3.4
 
 Added:

@@ -149,6 +149,18 @@ Check the result against the old app in light and dark. Each value that differs 
 - `AppShell`'s built-in titlebar does not take `captionGlyphs` or `maximized`. Use the `titlebar` prop with a `Titlebar` for those.
 - Tokens size the bar. They do not move the titlebar's title, the sidebar's nav, or the content plane. Use `slots` or a custom titlebar for those.
 
+### Reduced motion
+
+The shell stops the animations and transitions on `.rk-modal`, `.rk-palette`, `.rk-menu`, `.rk-toast` and `.rk-overlay` while the operating system asks for `prefers-reduced-motion: reduce`. That is the default and it does not change.
+
+A host that decides, deliberately, to keep full motion sets `data-rk-motion="full"` on the root element (or on any ancestor of the shell, or on a single element) instead of overriding the selectors:
+
+```html
+<html data-rk-motion="full">
+```
+
+Opting out removes an accessibility accommodation for people who asked their system for less motion. It is the host's decision to make, not a package default, and only the exact value `full` opts out. The selectors use `:where()`, so their specificity is what it was before the attribute existed. `@rightkit/platform-ui` ships no stylesheet and no animation, so this attribute is the only motion switch in these two packages. Pinned by `e2e/motion.e2e.test.ts` (real Chrome with the media feature emulated) and `src/css.test.ts`.
+
 ### Palette and toast tokens
 
 `--rk-palette-width` (640px), `--rk-toast-offset` (16px) and `--rk-plane-radius` (20px) size the palette, the toast stack and the content corner. `--rk-toast-width` (default `26rem`) sets the toast stack width; it is still capped at `100vw - 2rem`. `--rk-toast-translate` (default `-50% 0`) is the stack's horizontal centring, applied with the individual `translate` property (not `transform`), so a host `-translate-x-1/2` utility does not stack with it; set `--rk-toast-translate: 0 0` or `none` to take over the positioning (0.6.1). `--rk-menu-exit-ms` is set by `ContextMenu` itself while `exitMs` is above 0.

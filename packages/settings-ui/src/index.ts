@@ -1,11 +1,4 @@
-export * from "./types.js";
-export * from "./backends.js";
-export * from "./useSettings.js";
-export { SettingsGroup, SettingRow, ProgressBar, formatBytes } from "./primitives.js";
-export type { SettingRowProps } from "./primitives.js";
-export { SettingsPanel, SectionFrame, mergeSections, orderSections, searchSections, revealSetting } from "./SettingsPanel.js";
-export type { SettingsPanelProps } from "./SettingsPanel.js";
-export * from "./sections.js";
-export * from "./standard.js";
-export { sectionIcons } from "./icons.js";
-export * from "./hooks.js";
+// Root entry: core plus the standard sections, exactly the 0.3.x surface (plus the 0.4.0 additions).
+// Apps that do not use the standard sections should import `@rightkit/settings-ui/core`.
+export * from "./core.js";
+export * from "./standard-entry.js";

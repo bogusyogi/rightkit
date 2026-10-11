@@ -146,6 +146,10 @@ useDismiss(() => void exit.close(), { enabled: exit.isOpen, escapeTarget: dialog
 
 `rankCommands` scores substring, keyword, hint and subsequence matches (higher is better, stable, empty query keeps input order). It is not ViewRight's scorer (subsequence only, lower first): adopting it changes the order results appear in. Pass `onActivate` the `run` you want; grouping into sections stays in your JSX. An app that wants the shared look and resets on typing sets `wrap: true`, `homeEnd: true`, `resetKey: q`, `hoverSelects: "after-pointer-move"`.
 
+## Reduced motion
+
+`@rightkit/platform-ui` ships no stylesheet and runs no animation, so it has no `prefers-reduced-motion` handling of its own to opt out of. The visual stylesheet that does is `@rightkit/app-shell/shell.css`: it honours `prefers-reduced-motion: reduce` by default and a host sets `data-rk-motion="full"` on the root to opt out (see that README). Opting out removes an accessibility accommodation and is the host's decision.
+
 ## Known issues
 
 - `bootstrapQaPlatform` and `resolveQaPlatform` are QA helpers exported from the runtime entry. Call them only in QA builds. Browser overrides need `qa=1` and `qaPlatform`, or `RIGHTKIT_QA=1` and `RIGHTKIT_QA_PLATFORM`. Production detection uses `@tauri-apps/plugin-os`.

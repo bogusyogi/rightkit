@@ -204,6 +204,12 @@
 .rk-toast__x:hover { background: var(--rk-fill-2); color: var(--rk-ink); }
 .rk-toast__x:focus-visible, .rk-toast__action:focus-visible { outline: 2px solid var(--rk-focus); }
 @keyframes rk-toast-in { from { opacity: 0; transform: translateY(8px); } }
+/* Honoured by default. A host that deliberately wants full motion sets data-rk-motion="full" on the root (or on any ancestor of the
+   shell, or on the element itself). The :where() keeps the selector's specificity exactly what it was, so nothing else changes. */
 @media (prefers-reduced-motion: reduce) {
-  .rk-modal, .rk-palette, .rk-menu, .rk-toast, .rk-overlay { animation: none !important; transition: none !important; }
+  .rk-modal:where(:not([data-rk-motion="full"], [data-rk-motion="full"] *)),
+  .rk-palette:where(:not([data-rk-motion="full"], [data-rk-motion="full"] *)),
+  .rk-menu:where(:not([data-rk-motion="full"], [data-rk-motion="full"] *)),
+  .rk-toast:where(:not([data-rk-motion="full"], [data-rk-motion="full"] *)),
+  .rk-overlay:where(:not([data-rk-motion="full"], [data-rk-motion="full"] *)) { animation: none !important; transition: none !important; }
 }

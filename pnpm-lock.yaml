@@ -390,25 +390,22 @@ importers:
       '@rightkit/app-shell':
         specifier: '>=0.2.0 <1'
         version: link:../app-shell
+    devDependencies:
       '@rightkit/license':
-        specifier: '>=0.1.0'
+        specifier: workspace:*
         version: link:../license
       '@rightkit/logs':
-        specifier: '>=0.1.0'
+        specifier: workspace:*
         version: link:../logs
-      '@rightkit/theme':
-        specifier: '>=0.2.0 <1'
-        version: link:../theme
-      '@rightkit/updates':
-        specifier: '>=0.2.0'
-        version: link:../updates
-    devDependencies:
       '@rightkit/qa-chrome':
         specifier: workspace:*
         version: link:../qa-chrome
-      '@rightkit/shell':
+      '@rightkit/theme':
         specifier: workspace:*
-        version: link:../shell
+        version: link:../theme
+      '@rightkit/updates':
+        specifier: workspace:*
+        version: link:../updates
       '@testing-library/jest-dom':
         specifier: ^6.6.3
         version: 6.9.1

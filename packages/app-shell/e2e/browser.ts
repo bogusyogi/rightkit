@@ -49,6 +49,8 @@ export interface Page {
   rect(selector: string): Promise<{ x: number; y: number; width: number; height: number }>;
   setViewport(width: number, height: number): Promise<void>;
   setColorScheme(scheme: "light" | "dark"): Promise<void>;
+  /** Emulate the OS prefers-reduced-motion setting. */
+  setReducedMotion(value: "reduce" | "no-preference"): Promise<void>;
   screenshot(path: string, clip?: { x: number; y: number; width: number; height: number; scale?: number }): Promise<void>;
   waitFor(expression: string, timeoutMs?: number): Promise<void>;
   sleep(ms: number): Promise<void>;
@@ -175,6 +177,9 @@ async function attach(browser: Awaited<ReturnType<typeof launchChromeForTesting>
     },
     async setColorScheme(scheme) {
       await send("Emulation.setEmulatedMedia", { features: [{ name: "prefers-color-scheme", value: scheme }] });
+    },
+    async setReducedMotion(value) {
+      await send("Emulation.setEmulatedMedia", { features: [{ name: "prefers-reduced-motion", value }] });
     },
     async screenshot(path, clip) {
       const r = await send<{ data: string }>("Page.captureScreenshot", { format: "png", ...(clip ? { clip: { scale: 1, ...clip } } : {}) });

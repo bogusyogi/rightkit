@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+Docs only: the README states that platform-ui has no stylesheet and no motion handling, and points to `@rightkit/app-shell`'s `data-rk-motion="full"` opt-out.
+
 ## 0.2.4
 
 Two optional edge cases for ViewRight parity. Defaults equal 0.2.3.

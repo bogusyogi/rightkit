@@ -57,21 +57,31 @@ describe("shell.css split", () => {
     expect(css).not.toMatch(/@import/);
   });
 
-  it("keeps every 0.5.1 declaration; the only changes are the toast width variable, the toast centring and the menu exit rules", () => {
+  it("keeps every 0.5.1 declaration; the only changes are the toast width variable, the toast centring, the menu exit rules and the reduced-motion opt-out selectors", () => {
+    const motionSelectors = ["modal", "palette", "menu", "toast", "overlay"].map((c) => `.rk-${c}:where(:not([data-rk-motion="full"], [data-rk-motion="full"] *))`).join(", ");
     const before = declarations(read("test-fixtures/shell-0.5.1.css"));
     const after = declarations(read("shell.css"));
     const removed = before.filter((d) => !after.includes(d));
     const added = after.filter((d) => !before.includes(d));
-    expect(sorted(removed)).toEqual(sorted(["| .rk-toasts | width: min(26rem, calc(100vw - 2rem))", "| .rk-toasts | transform: translateX(-50%)"]));
+    expect(sorted(removed)).toEqual(
+      sorted([
+        "| .rk-toasts | width: min(26rem, calc(100vw - 2rem))",
+        "| .rk-toasts | transform: translateX(-50%)",
+        "@media (prefers-reduced-motion: reduce) | .rk-modal, .rk-palette, .rk-menu, .rk-toast, .rk-overlay | animation: none !important",
+        "@media (prefers-reduced-motion: reduce) | .rk-modal, .rk-palette, .rk-menu, .rk-toast, .rk-overlay | transition: none !important",
+      ]),
+    );
     expect(sorted(added)).toEqual(
       sorted([
         "| .rk-toasts | width: min(var(--rk-toast-width, 26rem), calc(100vw - 2rem))",
         "| .rk-toasts | translate: var(--rk-toast-translate, -50% 0)",
         "| .rk-menu-scrim.is-closing, .rk-menu.is-closing | pointer-events: none",
         "| .rk-menu.is-closing | animation: rk-pop-out var(--rk-menu-exit-ms, 80ms) ease-in forwards",
+        `@media (prefers-reduced-motion: reduce) | ${motionSelectors} | animation: none !important`,
+        `@media (prefers-reduced-motion: reduce) | ${motionSelectors} | transition: none !important`,
       ]),
     );
-    // Same count of declarations apart from those: nothing duplicated or dropped.
+    // Same count of declarations apart from those: nothing duplicated or dropped (the motion rule is swapped, not added).
     expect(after.length - before.length).toBe(2);
   });
 
@@ -146,10 +156,21 @@ describe("shell.css split", () => {
   });
 
   it("package version, exports and files list the new stylesheets", () => {
-    expect(pkg.version).toBe("0.6.1");
+    expect(pkg.version).toBe("0.6.2");
     for (const name of ["shell.css", "shell.layered.css", "shell.structure.css", "shell.visual.css", "suite-aliases.css"]) {
       expect(pkg.exports[`./${name}`]).toBe(`./${name}`);
       expect(pkg.files).toContain(name);
     }
+  });
+});
+
+describe("reduced motion", () => {
+  it("is honoured by default and opted out only through data-rk-motion=\"full\", with the original specificity", () => {
+    const css = read("shell.css");
+    const block = css.slice(css.indexOf("@media (prefers-reduced-motion: reduce)"));
+    for (const c of ["modal", "palette", "menu", "toast", "overlay"]) expect(block).toContain(`.rk-${c}:where(:not([data-rk-motion="full"], [data-rk-motion="full"] *))`);
+    expect(block).toContain("animation: none !important; transition: none !important;");
+    // :where() contributes no specificity, so a host rule that beat the old selector still beats this one and vice versa.
+    expect(block.match(/:where\(/g)?.length).toBe(5);
   });
 });

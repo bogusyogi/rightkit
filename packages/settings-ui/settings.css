@@ -54,6 +54,16 @@
   .rk-settings__body { padding: var(--rk-settings-padding, 18px 16px 32px); }
 }
 
+/* Search (0.4.0): all-sections results, highlight, live region, search bar without the nav. None of these appear in default output. */
+.rk-settings__searchbar { margin-bottom: 14px; max-width: 760px; }
+.rk-settings__searchbar .rk-settings__search { margin-bottom: 0; }
+.rk-settings__results { max-width: 760px; }
+.rk-settings__result { margin-bottom: 22px; }
+.rk-settings__result-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 8px; }
+.rk-settings__result-title { margin: 0; font-size: 16px; line-height: 1.25; font-weight: 650; letter-spacing: -.008em; }
+.rk-settings__mark { background: var(--rk-accent-soft); color: inherit; border-radius: 2px; }
+.rk-settings__sr { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap; border: 0; }
+
 /* Engine doctor */
 .rk-doctor__checks { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
 .rk-doctor__check { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 14px; border-top: 1px solid var(--rk-line, rgba(127,127,127,.2)); }

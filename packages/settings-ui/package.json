@@ -1,7 +1,7 @@
 {
   "name": "@rightkit/settings-ui",
-  "version": "0.3.4",
-  "description": "Settings panel frame and standard sections (appearance, updates, license, legal, diagnostics, models, API keys, about) persisted through rightkit-settings.",
+  "version": "0.4.0",
+  "description": "Settings panel frame, search and standard sections (appearance, updates, license, legal, diagnostics, models, API keys, about) persisted through rightkit-settings. The panel shell and primitives (/core) need only React.",
   "license": "MIT OR Apache-2.0",
   "type": "module",
   "main": "dist/index.js",
@@ -10,6 +10,14 @@
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
+    },
+    "./core": {
+      "types": "./dist/core.d.ts",
+      "import": "./dist/core.js"
+    },
+    "./standard": {
+      "types": "./dist/standard-entry.d.ts",
+      "import": "./dist/standard-entry.js"
     },
     "./settings.css": "./settings.css",
     "./shell-adapter": {
@@ -30,7 +38,6 @@
   ],
   "peerDependencies": {
     "@rightkit/app-shell": ">=0.2.0 <1",
-    "@rightkit/shell": ">=0.1.0 <1",
     "@rightkit/license": ">=0.1.0",
     "@rightkit/logs": ">=0.1.0",
     "@rightkit/theme": ">=0.2.0 <1",
@@ -38,8 +45,11 @@
     "react": ">=18 <21"
   },
   "devDependencies": {
+    "@rightkit/license": "workspace:*",
+    "@rightkit/logs": "workspace:*",
     "@rightkit/qa-chrome": "workspace:*",
-    "@rightkit/shell": "workspace:*",
+    "@rightkit/theme": "workspace:*",
+    "@rightkit/updates": "workspace:*",
     "@testing-library/jest-dom": "^6.6.3",
     "@testing-library/react": "^16.1.0",
     "@testing-library/user-event": "^14.5.2",
@@ -70,7 +80,16 @@
   },
   "packageManager": "pnpm@11.24.0",
   "peerDependenciesMeta": {
-    "@rightkit/shell": {
+    "@rightkit/license": {
+      "optional": true
+    },
+    "@rightkit/logs": {
+      "optional": true
+    },
+    "@rightkit/theme": {
+      "optional": true
+    },
+    "@rightkit/updates": {
       "optional": true
     }
   }

@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.6.2
+
+Added:
+- `data-rk-motion="full"` (on the root, an ancestor or the element) opts the shell out of its `prefers-reduced-motion` handling. The default is unchanged: the reduce rule still applies everywhere the attribute is absent or has any other value, and the rule's specificity is unchanged (`:where()`). Documented in the README; the choice to opt out is the host's. `src/css.test.ts` pins the rule and `e2e/motion.e2e.test.ts` checks it in Chrome with the media feature emulated.
+
 ## 0.6.1
 
 Stylesheet defects only. No component, prop or export is added or removed; `rankCommands`, `matchScore`, `rankItems` and `Rankable` are now re-exported from `@rightkit/platform-ui/headless` (0.2.2), where the implementation lives, with the same behaviour. The `@rightkit/platform-ui` peer range is now `>=0.2.2 <1` for that reason.
