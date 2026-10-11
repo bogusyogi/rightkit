@@ -81,7 +81,12 @@ describe("download", () => {
 
 describe("extractCommand", () => {
   it("picks tar for tar formats, tar or unzip for zip, and nothing for unknown formats", () => {
-    expect(extractCommand("/s/a.tar.gz", "/d", "bin/x")).toEqual(["tar", "-xf", "/s/a.tar.gz", "-C", "/d", "--", "bin/x"]);
+    expect(extractCommand("/s/a.tar.gz", "/d", "bin/x", "darwin")).toEqual(["tar", "-xf", "/s/a.tar.gz", "-C", "/d", "--", "bin/x"]);
+    expect(extractCommand("/s/a.tar.gz", "/d", "bin/x", "linux")).toEqual(["tar", "-xf", "/s/a.tar.gz", "-C", "/d", "--", "bin/x"]);
+    // Windows: the system bsdtar by full path, never whichever `tar` is first on PATH.
+    const windowsTar = extractCommand("C:\\s\\a.zip", "C:\\d", "x", "win32");
+    expect(windowsTar?.[0]).toMatch(/\\System32\\tar\.exe$/);
+    expect(windowsTar?.slice(1)).toEqual(["-xf", "C:\\s\\a.zip", "-C", "C:\\d", "--", "x"]);
     expect(extractCommand("/s/a.zip", "/d", "x", "darwin")).toEqual(["tar", "-xf", "/s/a.zip", "-C", "/d", "--", "x"]);
     expect(extractCommand("/s/a.zip", "/d", "x", "linux")).toEqual(["unzip", "-o", "-q", "/s/a.zip", "x", "-d", "/d"]);
     expect(extractCommand("/s/a.exe", "/d", "x")).toBeNull();
