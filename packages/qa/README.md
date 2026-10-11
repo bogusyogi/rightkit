@@ -221,3 +221,16 @@ This package launches no native app and no WebView2 window; it never replaces th
 
 - `@rightkit/qa-chrome` is pinned exactly to `0.1.5`. A qa-chrome release therefore needs a `@rightkit/qa` republish to reach consumers (npm audit 2026-10-08, qa finding).
 - Three consumers pin three different versions of `@rightkit/qa-chrome` as dev dependencies (npm audit 2026-10-08).
+
+## QA root limits
+
+Homes live under `<tmp>/rightkit-qa/` (`/private/tmp/rightkit-qa` on macOS). Two limits are checked when a run starts, after the dead-home sweep. This section replaces the whole-root 4 GB cap that "QA home hygiene" above describes.
+
+- **Per-product cap** (`RIGHTKIT_QA_ROOT_CAP_BYTES`, default 4 GB, `0` disables). A run for `appKey` X is refused only when X's own homes hold more than the cap. A home belongs to the product named by the `app` in its `.rightkit-app.json` binding, else by the label in its directory name (`<app cut to 16 characters>-<suffix>`). Other products' homes never count.
+- **Root ceiling** (`RIGHTKIT_QA_ROOT_CEILING_BYTES`, default 32 GB, `0` disables). Every run is refused when all homes together exceed it. The refusal names the largest homes with their product. The cap is checked first.
+
+A refusal is a `QaRootOverCapError`. Its message names the product, the total, the largest homes, and says `cleanQaHomes()` (or `rightkit-qa clean`) removes the homes of dead runs; `error.detail` has `kind` (`'product-cap'` or `'root-ceiling'`), `app`, `totalBytes`, `homeCount`, `limitBytes` and `largest` (`{ path, bytes, product }`).
+
+**Setting limits in code.** The variables do not always reach the test process, so pass the limits to the call: `createQaWorkspace({ appKey, rootCapBytes: 8_000_000_000, rootCeilingBytes: 0 })`, or the same options on `withQaWorkspace` (`0` disables a limit; a value that is not a non-negative number throws `TypeError`). `preflight.capBytes` and `preflight.ceilingBytes` do the same and lose to the top-level options. A value set in code wins over the variable; a limit left unset falls back to the variable, then the default. Both limits are off under vitest unless `preflight: { enabled: true }`.
+
+**The sweep removes more.** `cleanQaHomes` (run at every start) removes a home that has no `.rightkit-home.json` owner marker (written before it existed, or missing a file) when all of these hold: it is a plain directory directly inside `rightkit-qa` (never a symlink, never outside it); its name is `<label>-<6 letters or digits>` or `<label>-<16 lowercase hex>` (the two runners' patterns); no pid its records name is alive (the `ownerPid` of the run record its binding points at, and the pid of a home marker that has no binding); and nothing in it, the directory included, was modified within `RIGHTKIT_QA_HOME_MAX_AGE_SECS` (default 2 hours). Not checked: which processes have the home as working directory or an open file (there is no process-table walk), and the run record's lease (a 24 hour timer, not evidence of a live process; it is what kept cancelled runs counted). An app that holds a home and writes nothing for two hours, or a recorded pid reused by an unrelated live process, is the residual risk: the first is removed, the second is kept. Homes with an owner marker keep the earlier rule (pid dead and run older than the window).

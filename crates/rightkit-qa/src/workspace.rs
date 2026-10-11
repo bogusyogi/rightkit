@@ -28,30 +28,67 @@ pub struct DisposeReport {
     pub retained: Vec<(PathBuf, String)>,
 }
 
+/// What happens before a run is created. `Full` sweeps dead homes and enforces the QA root limits
+/// (the product cap and the root ceiling). `SweepOnly` sweeps and leaves the limit check to the
+/// caller, which runs it later through [`storage::enforce_root_limits`].
+#[derive(Clone, Copy)]
+enum Preflight {
+    Full(storage::RootLimits),
+    SweepOnly,
+}
+
+/// Create a workspace. The QA root limits come from the environment (`RIGHTKIT_QA_ROOT_CAP_BYTES`,
+/// `RIGHTKIT_QA_ROOT_CEILING_BYTES`), else the defaults; see [`create_with_limits`] to set them in
+/// code.
 pub fn create(cache_root: &Path, run_id: Option<&str>, app_key: &str) -> Result<QaWorkspace> {
-    create_impl(Some(cache_root), run_id, app_key)
+    create_with_limits(cache_root, run_id, app_key, storage::RootLimits::default())
+}
+
+/// [`create`] with the QA root limits set in code. A limit set in `limits` wins over its
+/// environment variable (`0` disables it); a limit left `None` falls back to the environment, then
+/// the default. This is for a test process that cannot receive the environment variable, such as
+/// one run under `rightkit cargo`.
+pub fn create_with_limits(
+    cache_root: &Path,
+    run_id: Option<&str>,
+    app_key: &str,
+    limits: storage::RootLimits,
+) -> Result<QaWorkspace> {
+    create_impl(Some(cache_root), run_id, app_key, Preflight::Full(limits))
 }
 
 /// Create under RIGHTKIT_MANAGED_ROOT (or its platform default).
 pub fn create_managed(run_id: Option<&str>, app_key: &str) -> Result<QaWorkspace> {
-    create_impl(None, run_id, app_key)
+    create_impl(
+        None,
+        run_id,
+        app_key,
+        Preflight::Full(storage::RootLimits::default()),
+    )
 }
 
+/// The harness sweeps at construction and checks its limits at its first scenario, so limits set
+/// with `Harness::with_root_cap_bytes` / `with_root_ceiling_bytes` after construction apply.
 pub(crate) fn create_impl_for_harness(
     managed_root: Option<&Path>,
     app_key: &str,
 ) -> Result<QaWorkspace> {
-    create_impl(managed_root, None, app_key)
+    create_impl(managed_root, None, app_key, Preflight::SweepOnly)
 }
 
 fn create_impl(
     cache_root: Option<&Path>,
     run_id: Option<&str>,
     app_key: &str,
+    preflight: Preflight,
 ) -> Result<QaWorkspace> {
     let app_key = require_text(app_key, "app")?;
-    // Sweep dead homes and refuse to start over the QA root's size cap, before a run exists.
-    storage::preflight_home_root()?;
+    // Sweep dead homes and, unless the caller checks later, refuse to start over a QA root limit,
+    // before a run exists.
+    match preflight {
+        Preflight::Full(limits) => storage::preflight_home_root(&app_key, limits)?,
+        Preflight::SweepOnly => storage::sweep_home_root(),
+    }
     let mut managed =
         storage::create(cache_root, &app_key, run_id, Duration::from_secs(24 * 3600))?;
     let home = storage::create_app_root(&mut managed)?;

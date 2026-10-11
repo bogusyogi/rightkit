@@ -39,6 +39,7 @@ use serde_json::{json, Value};
 use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
@@ -79,6 +80,9 @@ pub struct Harness {
     scratch_root: PathBuf,
     allow_external_evidence: bool,
     keep_failed_home: bool,
+    root_limits: crate::storage::RootLimits,
+    /// Set once the QA root limits passed; shared by clones, which share one run.
+    root_limits_checked: Arc<AtomicBool>,
 }
 
 impl Drop for Harness {
@@ -177,6 +181,8 @@ impl Harness {
             run_root,
             allow_external_evidence: managed_root.is_some(),
             keep_failed_home: crate::storage::keep_failed_home_requested(),
+            root_limits: crate::storage::RootLimits::default(),
+            root_limits_checked: Arc::new(AtomicBool::new(false)),
         }
     }
 
@@ -185,6 +191,46 @@ impl Harness {
     pub fn with_keep_failed_home(mut self, keep: bool) -> Self {
         self.keep_failed_home = keep;
         self
+    }
+
+    /// Per-product cap on the bytes this app's QA homes may hold, set in code: it wins over
+    /// `RIGHTKIT_QA_ROOT_CAP_BYTES` (which a test run under `rightkit cargo` never receives), and `0`
+    /// disables it. Only this app's homes count; other products' homes never block the run. The
+    /// default is 4 GB. The harness sweeps dead homes when it is built and checks the limits once,
+    /// at the first scenario that runs, so call this before running a scenario. A refusal panics
+    /// from that scenario and names the homes and `rightkit-qa clean`.
+    pub fn with_root_cap_bytes(mut self, bytes: u64) -> Self {
+        self.root_limits.cap_bytes = Some(bytes);
+        self
+    }
+
+    /// Ceiling on the bytes the whole QA root, all products together, may hold, set in code: it
+    /// wins over `RIGHTKIT_QA_ROOT_CEILING_BYTES`, and `0` disables it. The default is 32 GB. It
+    /// exists for a disk at risk, not for tidiness: the refusal names the largest homes with their
+    /// product. Checked together with [`Harness::with_root_cap_bytes`].
+    pub fn with_root_ceiling_bytes(mut self, bytes: u64) -> Self {
+        self.root_limits.ceiling_bytes = Some(bytes);
+        self
+    }
+
+    /// The QA root limits, checked once per harness (clones share the answer).
+    fn check_root_limits_once(&self) -> std::result::Result<(), crate::storage::RootOverCap> {
+        if self.root_limits_checked.load(Ordering::Acquire) {
+            return Ok(());
+        }
+        crate::storage::enforce_root_limits(&self.app, self.root_limits)?;
+        self.root_limits_checked.store(true, Ordering::Release);
+        Ok(())
+    }
+
+    /// Remove this run's home after a refused start, so the refusal does not add to the root it
+    /// was refused for. Evidence of the refusal stays.
+    fn release_refused_run(&self) {
+        if let Ok(mut run) = self.run.lock() {
+            if let Some(ws) = run.take() {
+                let _ = crate::workspace::dispose(&ws, true, 3, 10);
+            }
+        }
     }
 
     /// Tiers enabled at compile time: `&[("full", cfg!(feature = "full")), ...]`.
@@ -314,6 +360,20 @@ impl Harness {
                 self.prefix,
                 dir.display()
             );
+        }
+        if let Err(refusal) = self.check_root_limits_once() {
+            let msg = format!("QA root limits: {refusal}");
+            self.finish(
+                name,
+                tier,
+                &dir,
+                CheckStatus::Failed,
+                json!({"error": msg}),
+                &[],
+                started,
+            );
+            self.release_refused_run();
+            panic!("{msg}");
         }
         let mut lock = match &self.lock {
             Some((lock_dir, timeout)) => {
