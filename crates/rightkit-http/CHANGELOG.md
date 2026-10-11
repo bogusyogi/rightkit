@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- Tests: a refused connection now comes from `tests/common/refused.rs`. On Windows a loopback socket is bound with
+  exclusive address use, never listens and is held until the assertions are done. On Unix that cannot be used (on
+  macOS a connect to a bound socket that does not listen hangs; it is not refused), so the port is taken from
+  20000..30000, below every system's dynamic range, after checking that it can be bound and that a connect to it is
+  refused. The eight places in six test
+  files that bound a listener, read its port and dropped it assumed the freed port stayed closed; on the Windows CI
+  leg another test's server was given that port, and `tests/phases.rs` `connection_refused_is_the_connect_phase` got a
+  302 and `a_connect_failure_on_the_first_request_stays_retryable_for_post` got a 200. No product change.
 - **Fixed (behaviour change, fifth read finding 11):** `ProxyMode::System` follows the Windows proxy settings exactly or not at all. A bypass entry that is not a plain host (`<local>`, a scheme-limited `https://host`, an inner wildcard) used to be dropped while the proxy stayed in use, so traffic configured as direct went through the proxy; a PAC script or automatic detection was ignored. All of these, and different routes for HTTP and HTTPS, now fail closed with `HttpError::SystemProxyUnsupported { element }` (class `Invalid`, never retried), which names the first unsupported element; nothing is sent. This replaces `HttpError::SystemProxyPerScheme`, which was never published. Machines with `<local>` or automatic detection set get the error: an app catches it and uses `Environment` or `Explicit`. Per-request routing is a later version.
 
 Fixes from the fifth read (docs/audits/2026-10-11-astra-http-fifth-read.md, findings 9, 10 and the remainder of 5; finding 11 is the Windows system-proxy work and is not changed here). No published version contained `download_to_path` (0.2.5 had no download module), so none of this changes published behaviour. It is a reduction of the unreleased download code: the earlier rounds added mechanisms, this one removes them. The lock, partial-file and `416` statements in the third read, fourth read, 0.3.0 and 0.2.6 entries below describe states of the unreleased tree and are superseded by the entries here.
