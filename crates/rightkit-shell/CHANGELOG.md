@@ -5,6 +5,14 @@ version is `0.x`, a minor bump may carry breaking changes.
 
 ## Unreleased
 
+- **Windows: the WebView2 policy check no longer fails open (ledger 180, findings 1, 2, 8).** The guard read the
+  `AdditionalBrowserArguments` policy keys by running `reg.exe query` and treated exit code 1 as "no policy". `reg.exe`
+  exits 1 for a missing key and for a key it could not read alike, and a program started by name is looked up in the
+  application's directory and the working directory before the system's. The keys are now read through the registry API
+  (`RegOpenKeyExW` with `KEY_READ` and an explicit 64-bit or 32-bit view, `RegEnumValueW`): `ERROR_FILE_NOT_FOUND` is the
+  only status that means no policy, and any other failure to open or read a key is `DevToolsError::RegistryUnreadable`,
+  so the guard refuses to start. No process is started. `REG_SZ`, `REG_EXPAND_SZ` and every string of a `REG_MULTI_SZ`
+  are checked. API: `parse_reg_query` is removed; new `decode_reg_text`, `PolicyKeyOpen`.
 - **`dev-inspect` feature (development builds only).** Off by default, never a default feature, independent of
   `content-devtools`. Only when compiled in: every webview is inspectable (`WebviewDecision::AllowDev`,
   `DevToolsGate::is_dev_inspect`, new `build_gate_with`), the process guard no longer refuses debugging
