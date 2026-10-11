@@ -16,3 +16,7 @@ serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.150"
 # Same validator version as rightkit-contracts, so the workspace lock resolves one copy.
 jsonschema = { version = "0.58.6", default-features = false }
+
+[package.metadata.rightkit]
+continuous = false
+continuous_reason = "schema types and validation: serde types, JSON Schema validators initialised once, per-call checks; no thread-spawn, task-spawn, sleep, timer, listener or watcher in non-test src (checked by runtime-budgets.mjs)"

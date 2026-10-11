@@ -3,6 +3,10 @@
 
 use serde::{Deserialize, Serialize};
 
+use crate::unit::Unit;
+
+use crate::decimal::Decimal;
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub struct Scope {
@@ -116,6 +120,19 @@ pub struct BannedMove {
     pub id: String,
     pub description: String,
     pub applies_to: AppliesTo,
+    /// Matchable phrases. A move matches text that contains any of them,
+    /// ignoring case.
+    pub phrases: Vec<String>,
+}
+
+impl BannedMove {
+    /// True when `text` contains one of the move's phrases, ignoring case.
+    pub fn matches(&self, text: &str) -> bool {
+        let text = text.to_lowercase();
+        self.phrases
+            .iter()
+            .any(|phrase| text.contains(&phrase.to_lowercase()))
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -133,19 +150,20 @@ pub struct LicenceScope {
     pub asset_rights: AssetRights,
 }
 
+/// The authors the contract allows on proof records and controlled writes (§2.1, §7).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
-pub enum ProofOrigin {
-    Interview,
-    ConnectedAccount,
-    RoadmapFile,
+pub enum Author {
+    Adrian,
+    Skill,
+    Daemon,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ProofSourceKind {
     Interview,
-    ConnectedAccount,
+    ConnectedAccountExport,
     RoadmapFile,
     AdrianCorrection,
 }
@@ -158,40 +176,125 @@ pub struct ProofSource {
     pub reference: String,
 }
 
+/// Inclusive date window. Used for a proof's `period` (the span its value
+/// describes) and for performance-note windows.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+pub struct DateWindow {
+    pub from: String,
+    pub to: String,
+}
+
+/// Proof status (§3). `Collected` is the only state a skill may write.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
-pub enum ApprovalStatus {
+pub enum ProofStatus {
+    Collected,
     Approved,
-    Pending,
     Withdrawn,
+    Superseded,
+}
+
+/// Present only when the status is `approved`. The approver is always Adrian.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+pub struct Approval {
+    pub approved_by: String,
+    pub approved_at: String,
+}
+
+/// Present only when the status is `withdrawn`. Withdrawal is terminal.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+pub struct Withdrawal {
+    pub withdrawn_by: String,
+    pub withdrawn_at: String,
+    pub reason: String,
+}
+
+/// A structured permitted claim (§2.2). `value`, `units`, `subject` and
+/// `period` must equal the proof's own fields; `text` is the permitted wording.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+pub struct PermittedClaim {
+    pub claim_id: String,
+    pub text: String,
+    pub value: Decimal,
+    pub units: Unit,
+    pub subject: String,
+    pub period: DateWindow,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
-pub struct Approval {
-    pub status: ApprovalStatus,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub approved_by: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub approved_at: Option<String>,
+pub struct ProofProvenance {
+    pub authored_by: Author,
+    pub source_record_ids: Vec<String>,
 }
 
-/// An authoritative fact. Only proofs may be cited as facts.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+/// One revision of an authoritative fact (§2.1). Revisions share `id`; a
+/// correction is a new id.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub struct Proof {
     pub id: String,
+    pub revision: u32,
+    pub supersedes_revision: Option<u32>,
     pub subject: String,
-    pub value: f64,
-    pub units: String,
-    pub observed_from: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub observed_to: Option<String>,
+    pub value: Decimal,
+    pub units: Unit,
+    /// The span the value describes, inclusive.
+    pub period: DateWindow,
+    /// When Adrian's source showed the value.
+    pub observed_at: String,
+    /// First day a claim may state the value.
+    pub valid_from: String,
+    /// Last day a claim may state the value. `None` means open.
+    pub valid_until: Option<String>,
     pub source_excerpt: String,
-    pub origin: ProofOrigin,
     pub source: ProofSource,
-    pub approval: Approval,
-    pub permitted_claims: Vec<String>,
+    /// Observations that informed the record. Reference only; grants no authority.
+    pub observation_refs: Vec<String>,
+    pub status: ProofStatus,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub approval: Option<Approval>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub withdrawal: Option<Withdrawal>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub superseded_by: Option<String>,
+    pub permitted_claims: Vec<PermittedClaim>,
+    pub provenance: ProofProvenance,
+    pub updated_at: String,
+}
+
+/// Lifecycle of an open or resolved conflict between two device edits (§6 A5).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ConflictStatus {
+    Open,
+    Resolved,
+}
+
+/// One full body from one device. Both bodies come from the same base revision.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+pub struct ConflictBody {
+    pub device: String,
+    pub proof: Proof,
+}
+
+/// Two edits of one proof from the same base revision, both retained. While
+/// open, every claim on the proof fails with `E_PROOF_CONFLICT`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+pub struct ConflictRecord {
+    pub id: String,
+    pub proof_id: String,
+    pub base_revision: u32,
+    pub bodies: Vec<ConflictBody>,
+    pub status: ConflictStatus,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub chosen_device: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -259,13 +362,6 @@ pub enum Metric {
     Follows,
     LinkClicks,
     Other,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields, rename_all = "camelCase")]
-pub struct DateWindow {
-    pub from: String,
-    pub to: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -432,6 +528,7 @@ pub struct ChannelMemory {
     pub banned_phrases: Vec<String>,
     pub licence_scope: LicenceScope,
     pub proofs: Vec<Proof>,
+    pub conflicts: Vec<ConflictRecord>,
     pub observations: Vec<Observation>,
     pub lessons: Vec<Lesson>,
     pub performance_notes: Vec<PerformanceNote>,

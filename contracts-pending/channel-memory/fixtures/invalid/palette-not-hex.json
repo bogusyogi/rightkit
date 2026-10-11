@@ -1,132 +1,274 @@
 {
   "contract": "channel-memory",
   "contractVersion": "1.0.0",
-  "memoryId": "memory.orthic-kids-cartoon-main",
-  "revision": 1,
-  "createdAt": "2026-10-08T09:00:00Z",
+  "memoryId": "memory.orthic-legion-notes-main",
+  "revision": 2,
+  "supersedes": 1,
+  "createdAt": "2026-10-08T12:00:00Z",
   "scope": {
     "venture": "orthic",
-    "channel": "kids-cartoon",
+    "channel": "legion-notes",
     "account": "main"
   },
-  "brandCode": "orthic-kids",
+  "brandCode": "orthic",
   "voice": {
-    "tone": "warm, playful, short sentences",
-    "audience": "children aged 4 to 8 and their parents",
-    "narration": "one calm narrator, no sarcasm"
+    "tone": "direct, dry, concrete",
+    "audience": "developers who run agents daily"
   },
   "visualSystem": {
-    "style": "flat 2D cartoon with bold outlines",
-    "layout": "9:16 full frame, captions in the bottom third",
-    "captionStyle": "large rounded sans, one line at a time",
-    "pacing": "a new beat every three seconds",
-    "sound": "gentle xylophone bed under the narrator",
-    "typography": "rounded sans",
+    "style": "clean screen capture with a dark frame",
+    "layout": "16:9 with lower-third title",
+    "captionStyle": "small mono captions",
+    "pacing": "one idea per cut",
+    "sound": "no music, narrator only",
     "palette": [
-      "orange"
+      "blue"
     ]
   },
   "pillars": [
     {
-      "id": "pillar.counting",
-      "name": "Counting",
-      "description": "Count real objects in the scene."
-    },
-    {
-      "id": "pillar.colours",
-      "name": "Colours",
-      "description": "Name colours in everyday objects."
+      "id": "pillar.workflow",
+      "name": "Workflow",
+      "description": "How a real session got unstuck."
     }
   ],
   "cadence": {
-    "postsPerDay": 5,
+    "postsPerDay": 1,
     "timezone": "Europe/London",
-    "batch": "overnight",
-    "batchWindow": {
-      "start": "01:00",
-      "end": "05:00"
-    }
+    "batch": "daytime"
   },
   "guidance": {
     "doList": [
-      "Name one object per beat."
+      "Show the receipt on screen."
     ],
     "dontList": [
-      "Do not use fear or threats."
+      "Do not invent a metric."
     ]
   },
   "bannedMoves": [
     {
-      "id": "ban.countdown-hook",
-      "description": "No countdown openers.",
-      "appliesTo": "hook"
+      "id": "ban.hype",
+      "description": "No hype adjectives in hooks.",
+      "appliesTo": "any",
+      "phrases": [
+        "game-changer",
+        "unlock the power"
+      ]
     }
   ],
   "bannedPhrases": [
-    "in today's video",
-    "let's dive in"
+    "game-changer",
+    "unlock the power"
   ],
   "licenceScope": {
-    "monetised": true,
-    "assetRights": "commercial_safe"
+    "monetised": false,
+    "assetRights": "licensed"
   },
-  "proofs": [],
-  "observations": [],
-  "lessons": [],
-  "performanceNotes": [],
-  "references": [
+  "proofs": [
     {
-      "id": "ref.reel-01",
-      "kind": "reel",
-      "styleNotes": {
-        "type": "flat 2D",
-        "captionStyle": "big white text with black stroke",
-        "layout": "full frame",
-        "pacing": "fast cuts",
-        "sound": "bright bed",
-        "palette": [
-          "#FFB703"
+      "id": "proof.receipt-launch-week",
+      "revision": 2,
+      "supersedesRevision": 1,
+      "subject": "subject.launch-week-revenue",
+      "value": "1240.00",
+      "units": "USD",
+      "period": {
+        "from": "2026-03-01",
+        "to": "2026-03-07"
+      },
+      "observedAt": "2026-03-08T09:00:00Z",
+      "validFrom": "2026-10-07",
+      "validUntil": null,
+      "sourceExcerpt": "Weekly export total: 1,240.00 USD",
+      "source": {
+        "kind": "connected_account_export",
+        "ref": "exports/payments-2026-03.csv"
+      },
+      "observationRefs": [],
+      "status": "approved",
+      "approval": {
+        "approvedBy": "adrian",
+        "approvedAt": "2026-10-07T18:00:00Z"
+      },
+      "permittedClaims": [
+        {
+          "claimId": "claim.launch-week-revenue",
+          "text": "Made $1,240 in launch week.",
+          "value": "1240.00",
+          "units": "USD",
+          "subject": "subject.launch-week-revenue",
+          "period": {
+            "from": "2026-03-01",
+            "to": "2026-03-07"
+          }
+        }
+      ],
+      "provenance": {
+        "authoredBy": "adrian",
+        "sourceRecordIds": []
+      },
+      "updatedAt": "2026-10-07T18:00:00Z"
+    },
+    {
+      "id": "proof.receipt-launch-week-v2",
+      "revision": 1,
+      "supersedesRevision": null,
+      "subject": "subject.launch-week-revenue",
+      "value": "1260.00",
+      "units": "USD",
+      "period": {
+        "from": "2026-03-01",
+        "to": "2026-03-07"
+      },
+      "observedAt": "2026-10-08T09:00:00Z",
+      "validFrom": "2026-10-08",
+      "validUntil": null,
+      "sourceExcerpt": "Corrected weekly export total: 1,260.00 USD",
+      "source": {
+        "kind": "connected_account_export",
+        "ref": "exports/payments-2026-03-corrected.csv"
+      },
+      "observationRefs": [],
+      "status": "collected",
+      "permittedClaims": [
+        {
+          "claimId": "claim.launch-week-revenue-v2",
+          "text": "Made $1,260 in launch week.",
+          "value": "1260.00",
+          "units": "USD",
+          "subject": "subject.launch-week-revenue",
+          "period": {
+            "from": "2026-03-01",
+            "to": "2026-03-07"
+          }
+        }
+      ],
+      "provenance": {
+        "authoredBy": "skill",
+        "sourceRecordIds": [
+          "interview.2026-10-08"
         ]
       },
+      "updatedAt": "2026-10-08T09:00:00Z"
+    },
+    {
+      "id": "proof.active-users",
+      "revision": 1,
+      "supersedesRevision": null,
+      "subject": "subject.active-users",
+      "value": "310",
+      "units": "count",
+      "period": {
+        "from": "2026-09-01",
+        "to": "2026-09-30"
+      },
+      "observedAt": "2026-10-05T12:00:00Z",
+      "validFrom": "2026-10-05",
+      "validUntil": null,
+      "sourceExcerpt": "Interview note, 5 October",
       "source": {
-        "kind": "reel_decoder",
-        "ref": "reels/creator-a/reel-01"
+        "kind": "interview",
+        "ref": "interviews/2026-10-05"
+      },
+      "observationRefs": [],
+      "status": "collected",
+      "permittedClaims": [],
+      "provenance": {
+        "authoredBy": "skill",
+        "sourceRecordIds": [
+          "interview.2026-10-05"
+        ]
+      },
+      "updatedAt": "2026-10-05T12:00:00Z"
+    },
+    {
+      "id": "proof.refund-rate-withdrawn",
+      "revision": 2,
+      "supersedesRevision": 1,
+      "subject": "subject.refund-rate",
+      "value": "2.5",
+      "units": "percent",
+      "period": {
+        "from": "2026-02-01",
+        "to": "2026-02-28"
+      },
+      "observedAt": "2026-02-28T12:00:00Z",
+      "validFrom": "2026-02-01",
+      "validUntil": "2026-02-28",
+      "sourceExcerpt": "Refund rate from the February export",
+      "source": {
+        "kind": "adrian_correction",
+        "ref": "corrections/2026-10-06"
+      },
+      "observationRefs": [],
+      "status": "withdrawn",
+      "withdrawal": {
+        "withdrawnBy": "adrian",
+        "withdrawnAt": "2026-10-06T09:00:00Z",
+        "reason": "Export row was a duplicate."
+      },
+      "permittedClaims": [],
+      "provenance": {
+        "authoredBy": "adrian",
+        "sourceRecordIds": []
+      },
+      "updatedAt": "2026-10-06T09:00:00Z"
+    }
+  ],
+  "observations": [
+    {
+      "id": "obs.pricing-page",
+      "origin": "website",
+      "text": "Pricing page reads 9 dollars per month.",
+      "observedAt": "2026-10-07T10:00:00Z",
+      "authoritative": false,
+      "source": {
+        "kind": "website",
+        "ref": "https://example.test/pricing"
       }
     }
   ],
-  "modelDefaults": {
-    "image": "local-image",
-    "voice": "local-qts"
-  },
-  "identityBindings": {
-    "characters": [
-      {
-        "id": "char.bibo",
-        "anchorAssetId": "asset-bibo-anchor-01",
-        "status": "active"
+  "lessons": [
+    {
+      "id": "lesson.question-hooks",
+      "text": "Question hooks held 30-second retention better in this set.",
+      "recordedAt": "2026-10-06T08:00:00Z",
+      "source": {
+        "kind": "analytics_export",
+        "ref": "exports/tiktok-retention-2026-10"
       }
-    ],
-    "voice": {
-      "voiceId": "voice-narrator-01",
-      "provider": "local-qts",
-      "pronunciation": [
-        {
-          "term": "xylophone",
-          "respelling": "zy-lo-fone"
-        }
-      ]
     }
-  },
+  ],
+  "performanceNotes": [
+    {
+      "id": "perf.retention-question-hooks",
+      "platform": "tiktok",
+      "metric": "retention_30s",
+      "window": {
+        "from": "2026-09-20",
+        "to": "2026-10-04"
+      },
+      "sampleSize": 14,
+      "summary": "Median 30-second retention 41 percent for question hooks, 33 percent for statements.",
+      "caveat": "Fourteen posts from one account; directional only.",
+      "source": {
+        "kind": "analytics_export",
+        "ref": "exports/tiktok-retention-2026-10"
+      }
+    }
+  ],
+  "references": [],
+  "conflicts": [],
   "provenance": {
-    "authoredBy": "seed",
+    "authoredBy": "adrian",
     "sources": [
       {
-        "kind": "roadmap_file",
-        "ref": "Roadmap/2_brand_contexts.md"
+        "kind": "adrian_correction",
+        "ref": "corrections/2026-10-06"
       },
       {
-        "kind": "hook_bank",
-        "ref": "Roadmap/hook-bank"
+        "kind": "connected_account",
+        "ref": "exports/payments-2026-03.csv"
       }
     ]
   }

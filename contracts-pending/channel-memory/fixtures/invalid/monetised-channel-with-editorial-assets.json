@@ -61,7 +61,11 @@
     {
       "id": "ban.countdown-hook",
       "description": "No countdown openers.",
-      "appliesTo": "hook"
+      "appliesTo": "hook",
+      "phrases": [
+        "in a world where",
+        "stop scrolling"
+      ]
     }
   ],
   "bannedPhrases": [
@@ -70,7 +74,7 @@
   ],
   "licenceScope": {
     "monetised": true,
-    "assetRights": "editorial_only"
+    "assetRights": "licensed"
   },
   "proofs": [],
   "observations": [],
@@ -131,5 +135,6 @@
         "ref": "Roadmap/hook-bank"
       }
     ]
-  }
+  },
+  "conflicts": []
 }

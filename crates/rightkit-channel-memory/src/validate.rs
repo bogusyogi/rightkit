@@ -1,4 +1,4 @@
-//! Parse pipeline and consumer rules. Order: contract name and version, then
+//! Parse pipeline and document rules. Order: contract name and version, then
 //! the JSON Schema, then the typed model, then the semantic rules that JSON
 //! Schema cannot express. Each stage refuses before the next one runs.
 
@@ -6,7 +6,9 @@ use std::collections::BTreeSet;
 
 use serde_json::Value;
 
-use crate::model::{ApprovalStatus, ChannelMemory, Proof, Scope};
+use crate::model::{ChannelMemory, ConflictRecord, ConflictStatus, Proof, ProofStatus};
+use crate::proof::{conflicts_with, supersession_rule};
+use crate::ReasonCode;
 use crate::{schema, MemoryError};
 
 /// Parses and validates one channel-memory revision.
@@ -94,6 +96,10 @@ fn semantic(memory: &ChannelMemory) -> Result<(), MemoryError> {
     )?;
     unique("proofs", memory.proofs.iter().map(|item| item.id.as_str()))?;
     unique(
+        "conflicts",
+        memory.conflicts.iter().map(|item| item.id.as_str()),
+    )?;
+    unique(
         "observations",
         memory.observations.iter().map(|item| item.id.as_str()),
     )?;
@@ -124,14 +130,11 @@ fn semantic(memory: &ChannelMemory) -> Result<(), MemoryError> {
         }
     }
     for proof in &memory.proofs {
-        if let Some(to) = &proof.observed_to {
-            if to < &proof.observed_from {
-                return fail(format!(
-                    "proof `{}` observed_to is before observed_from",
-                    proof.id
-                ));
-            }
-        }
+        check_proof(proof, memory)?;
+    }
+    check_approved_scope(memory)?;
+    for conflict in &memory.conflicts {
+        check_conflict(conflict, memory)?;
     }
     for note in &memory.performance_notes {
         if note.window.to < note.window.from {
@@ -140,6 +143,167 @@ fn semantic(memory: &ChannelMemory) -> Result<(), MemoryError> {
                 note.id
             ));
         }
+    }
+    Ok(())
+}
+
+/// Proof rules that need the whole document: observation references that
+/// exist, and a superseded proof whose successor is approved in this revision.
+/// The record rules run first, through `check_proof_record`.
+fn check_proof(proof: &Proof, memory: &ChannelMemory) -> Result<(), MemoryError> {
+    let fail = |rule: String| Err(MemoryError::Semantic { rule });
+    check_proof_record(proof)?;
+    for reference in &proof.observation_refs {
+        if !memory.observations.iter().any(|item| &item.id == reference) {
+            return fail(format!(
+                "proof `{}` cites observation `{reference}`, which this revision does not hold",
+                proof.id
+            ));
+        }
+    }
+    if proof.status == ProofStatus::Superseded {
+        let successor = memory
+            .proofs
+            .iter()
+            .find(|item| Some(&item.id) == proof.superseded_by.as_ref());
+        supersession_rule(proof, successor).map_err(|(code, detail)| MemoryError::Semantic {
+            rule: format!("{code}: {detail}"),
+        })?;
+    }
+    Ok(())
+}
+
+/// Rules that apply to one proof record in isolation: date order, unique claim
+/// ids and claims that mirror the proof. Used by the document path and by
+/// `validate_proof`, so both return the same error for the same defect.
+pub(crate) fn check_proof_record(proof: &Proof) -> Result<(), MemoryError> {
+    let fail = |rule: String| Err(MemoryError::Semantic { rule });
+    if proof.period.to < proof.period.from {
+        return fail(format!("proof `{}` period ends before it starts", proof.id));
+    }
+    if let Some(until) = &proof.valid_until {
+        if until < &proof.valid_from {
+            return fail(format!(
+                "proof `{}` validUntil is before validFrom",
+                proof.id
+            ));
+        }
+    }
+    let mut claim_ids = BTreeSet::new();
+    for claim in &proof.permitted_claims {
+        if !claim_ids.insert(claim.claim_id.as_str()) {
+            return fail(format!(
+                "E_DUPLICATE_CLAIM: claim `{}` repeated in proof `{}`",
+                claim.claim_id, proof.id
+            ));
+        }
+        let differs = if claim.value != proof.value {
+            Some("value")
+        } else if claim.units != proof.units {
+            Some("units")
+        } else if claim.subject != proof.subject {
+            Some("subject")
+        } else if claim.period != proof.period {
+            Some("period")
+        } else {
+            None
+        };
+        if let Some(field) = differs {
+            return fail(format!(
+                "claim `{}` must mirror proof `{}`: {field} differs",
+                claim.claim_id, proof.id
+            ));
+        }
+    }
+    Ok(())
+}
+
+/// Two approved proofs for the same subject, period and units must agree.
+fn check_approved_scope(memory: &ChannelMemory) -> Result<(), MemoryError> {
+    let approved: Vec<&Proof> = memory
+        .proofs
+        .iter()
+        .filter(|proof| proof.status == ProofStatus::Approved)
+        .collect();
+    for (index, first) in approved.iter().enumerate() {
+        for second in &approved[index + 1..] {
+            if conflicts_with(first, second) {
+                return Err(MemoryError::Semantic {
+                    rule: format!(
+                        "{}: approved proofs `{}` and `{}` disagree for subject `{}`",
+                        ReasonCode::ProofConflictScope,
+                        first.id,
+                        second.id,
+                        first.subject
+                    ),
+                });
+            }
+        }
+    }
+    Ok(())
+}
+
+/// A conflict holds exactly two bodies from two devices. Both come from the
+/// same base revision: revision base + 1, superseding base, and differ.
+fn check_conflict(conflict: &ConflictRecord, memory: &ChannelMemory) -> Result<(), MemoryError> {
+    let fail = |rule: String| Err(MemoryError::Semantic { rule });
+    if !memory
+        .proofs
+        .iter()
+        .any(|proof| proof.id == conflict.proof_id)
+    {
+        return fail(format!(
+            "conflict `{}` names proof `{}`, which this revision does not hold",
+            conflict.id, conflict.proof_id
+        ));
+    }
+    let (first, second) = match conflict.bodies.as_slice() {
+        [first, second] => (first, second),
+        _ => return fail(format!("conflict `{}` must hold two bodies", conflict.id)),
+    };
+    if first.device == second.device {
+        return fail(format!(
+            "conflict `{}` holds two bodies from device `{}`",
+            conflict.id, first.device
+        ));
+    }
+    for body in [first, second] {
+        let base = conflict.base_revision;
+        if body.proof.id != conflict.proof_id
+            || body.proof.revision != base + 1
+            || body.proof.supersedes_revision != Some(base)
+        {
+            return fail(format!(
+                "conflict `{}` body from `{}` must be revision {} of `{}` superseding {base}",
+                conflict.id,
+                body.device,
+                base + 1,
+                conflict.proof_id
+            ));
+        }
+    }
+    if first.proof == second.proof {
+        return fail(format!(
+            "conflict `{}` holds identical bodies; there is nothing to resolve",
+            conflict.id
+        ));
+    }
+    match (conflict.status, &conflict.chosen_device) {
+        (ConflictStatus::Resolved, Some(device))
+            if device == &first.device || device == &second.device => {}
+        (ConflictStatus::Resolved, _) => {
+            return fail(format!(
+                "conflict `{}` is resolved but does not choose one of its devices",
+                conflict.id
+            ))
+        }
+        (ConflictStatus::Open, Some(_)) => {
+            return fail(format!(
+                "open conflict `{}` names a chosen device",
+                conflict.id
+            ))
+        }
+        (ConflictStatus::Open, None) => {}
     }
     Ok(())
 }
@@ -154,61 +318,4 @@ fn unique<'a>(collection: &str, ids: impl Iterator<Item = &'a str>) -> Result<()
         }
     }
     Ok(())
-}
-
-fn scope_label(scope: &Scope) -> String {
-    format!("{}/{}/{}", scope.venture, scope.channel, scope.account)
-}
-
-impl ChannelMemory {
-    /// Refuses a lookup made for another venture, channel or account.
-    pub fn ensure_scope(&self, expected: &Scope) -> Result<(), MemoryError> {
-        if &self.scope == expected {
-            Ok(())
-        } else {
-            Err(MemoryError::ForeignScope {
-                expected: scope_label(&self.scope),
-                found: scope_label(expected),
-            })
-        }
-    }
-
-    /// Proofs that may be cited as facts: approved ones only.
-    pub fn approved_proofs(&self) -> impl Iterator<Item = &Proof> {
-        self.proofs
-            .iter()
-            .filter(|proof| proof.approval.status == ApprovalStatus::Approved)
-    }
-
-    /// Resolves a cited proof. The citation must name the same value and units
-    /// the proof records, so a valid id attached to the wrong number fails.
-    pub fn cite_proof(&self, id: &str, value: f64, units: &str) -> Result<&Proof, MemoryError> {
-        let proof = self
-            .proofs
-            .iter()
-            .find(|proof| proof.id == id)
-            .ok_or_else(|| MemoryError::UnknownProof { id: id.to_string() })?;
-        if proof.approval.status != ApprovalStatus::Approved {
-            return Err(MemoryError::ProofNotApproved {
-                id: id.to_string(),
-                status: format!("{:?}", proof.approval.status).to_lowercase(),
-            });
-        }
-        if (proof.value - value).abs() > 1e-9 {
-            return Err(MemoryError::ProofMismatch {
-                id: id.to_string(),
-                reason: format!(
-                    "proof records {} but the citation states {value}",
-                    proof.value
-                ),
-            });
-        }
-        if proof.units != units {
-            return Err(MemoryError::ProofMismatch {
-                id: id.to_string(),
-                reason: format!("proof units are `{}`, citation says `{units}`", proof.units),
-            });
-        }
-        Ok(proof)
-    }
 }

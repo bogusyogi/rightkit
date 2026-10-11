@@ -1,0 +1,272 @@
+{
+  "contract": "channel-memory",
+  "contractVersion": "1.0.0",
+  "memoryId": "memory.orthic-legion-notes-main",
+  "revision": 2,
+  "supersedes": 1,
+  "createdAt": "2026-10-08T12:00:00Z",
+  "scope": {
+    "venture": "orthic",
+    "channel": "legion-notes",
+    "account": "main"
+  },
+  "brandCode": "orthic",
+  "voice": {
+    "tone": "direct, dry, concrete",
+    "audience": "developers who run agents daily"
+  },
+  "visualSystem": {
+    "style": "clean screen capture with a dark frame",
+    "layout": "16:9 with lower-third title",
+    "captionStyle": "small mono captions",
+    "pacing": "one idea per cut",
+    "sound": "no music, narrator only"
+  },
+  "pillars": [
+    {
+      "id": "pillar.workflow",
+      "name": "Workflow",
+      "description": "How a real session got unstuck."
+    }
+  ],
+  "cadence": {
+    "postsPerDay": 1,
+    "timezone": "Europe/London",
+    "batch": "daytime"
+  },
+  "guidance": {
+    "doList": [
+      "Show the receipt on screen."
+    ],
+    "dontList": [
+      "Do not invent a metric."
+    ]
+  },
+  "bannedMoves": [
+    {
+      "id": "ban.hype",
+      "description": "No hype adjectives in hooks.",
+      "appliesTo": "any",
+      "phrases": [
+        "game-changer",
+        "unlock the power"
+      ]
+    }
+  ],
+  "bannedPhrases": [
+    "game-changer",
+    "unlock the power"
+  ],
+  "licenceScope": {
+    "monetised": false,
+    "assetRights": "licensed"
+  },
+  "proofs": [
+    {
+      "id": "proof.receipt-launch-week",
+      "revision": 2,
+      "supersedesRevision": 1,
+      "subject": "subject.launch-week-revenue",
+      "value": "1240.00",
+      "units": "episodes",
+      "period": {
+        "from": "2026-03-01",
+        "to": "2026-03-07"
+      },
+      "observedAt": "2026-03-08T09:00:00Z",
+      "validFrom": "2026-10-07",
+      "validUntil": null,
+      "sourceExcerpt": "Weekly export total: 1,240.00 USD",
+      "source": {
+        "kind": "connected_account_export",
+        "ref": "exports/payments-2026-03.csv"
+      },
+      "observationRefs": [],
+      "status": "approved",
+      "approval": {
+        "approvedBy": "adrian",
+        "approvedAt": "2026-10-07T18:00:00Z"
+      },
+      "permittedClaims": [
+        {
+          "claimId": "claim.launch-week-revenue",
+          "text": "Made $1,240 in launch week.",
+          "value": "1240.00",
+          "units": "episodes",
+          "subject": "subject.launch-week-revenue",
+          "period": {
+            "from": "2026-03-01",
+            "to": "2026-03-07"
+          }
+        }
+      ],
+      "provenance": {
+        "authoredBy": "adrian",
+        "sourceRecordIds": []
+      },
+      "updatedAt": "2026-10-07T18:00:00Z"
+    },
+    {
+      "id": "proof.receipt-launch-week-v2",
+      "revision": 1,
+      "supersedesRevision": null,
+      "subject": "subject.launch-week-revenue",
+      "value": "1260.00",
+      "units": "USD",
+      "period": {
+        "from": "2026-03-01",
+        "to": "2026-03-07"
+      },
+      "observedAt": "2026-10-08T09:00:00Z",
+      "validFrom": "2026-10-08",
+      "validUntil": null,
+      "sourceExcerpt": "Corrected weekly export total: 1,260.00 USD",
+      "source": {
+        "kind": "connected_account_export",
+        "ref": "exports/payments-2026-03-corrected.csv"
+      },
+      "observationRefs": [],
+      "status": "collected",
+      "permittedClaims": [
+        {
+          "claimId": "claim.launch-week-revenue-v2",
+          "text": "Made $1,260 in launch week.",
+          "value": "1260.00",
+          "units": "USD",
+          "subject": "subject.launch-week-revenue",
+          "period": {
+            "from": "2026-03-01",
+            "to": "2026-03-07"
+          }
+        }
+      ],
+      "provenance": {
+        "authoredBy": "skill",
+        "sourceRecordIds": [
+          "interview.2026-10-08"
+        ]
+      },
+      "updatedAt": "2026-10-08T09:00:00Z"
+    },
+    {
+      "id": "proof.active-users",
+      "revision": 1,
+      "supersedesRevision": null,
+      "subject": "subject.active-users",
+      "value": "310",
+      "units": "count",
+      "period": {
+        "from": "2026-09-01",
+        "to": "2026-09-30"
+      },
+      "observedAt": "2026-10-05T12:00:00Z",
+      "validFrom": "2026-10-05",
+      "validUntil": null,
+      "sourceExcerpt": "Interview note, 5 October",
+      "source": {
+        "kind": "interview",
+        "ref": "interviews/2026-10-05"
+      },
+      "observationRefs": [],
+      "status": "collected",
+      "permittedClaims": [],
+      "provenance": {
+        "authoredBy": "skill",
+        "sourceRecordIds": [
+          "interview.2026-10-05"
+        ]
+      },
+      "updatedAt": "2026-10-05T12:00:00Z"
+    },
+    {
+      "id": "proof.refund-rate-withdrawn",
+      "revision": 2,
+      "supersedesRevision": 1,
+      "subject": "subject.refund-rate",
+      "value": "2.5",
+      "units": "percent",
+      "period": {
+        "from": "2026-02-01",
+        "to": "2026-02-28"
+      },
+      "observedAt": "2026-02-28T12:00:00Z",
+      "validFrom": "2026-02-01",
+      "validUntil": "2026-02-28",
+      "sourceExcerpt": "Refund rate from the February export",
+      "source": {
+        "kind": "adrian_correction",
+        "ref": "corrections/2026-10-06"
+      },
+      "observationRefs": [],
+      "status": "withdrawn",
+      "withdrawal": {
+        "withdrawnBy": "adrian",
+        "withdrawnAt": "2026-10-06T09:00:00Z",
+        "reason": "Export row was a duplicate."
+      },
+      "permittedClaims": [],
+      "provenance": {
+        "authoredBy": "adrian",
+        "sourceRecordIds": []
+      },
+      "updatedAt": "2026-10-06T09:00:00Z"
+    }
+  ],
+  "observations": [
+    {
+      "id": "obs.pricing-page",
+      "origin": "website",
+      "text": "Pricing page reads 9 dollars per month.",
+      "observedAt": "2026-10-07T10:00:00Z",
+      "authoritative": false,
+      "source": {
+        "kind": "website",
+        "ref": "https://example.test/pricing"
+      }
+    }
+  ],
+  "lessons": [
+    {
+      "id": "lesson.question-hooks",
+      "text": "Question hooks held 30-second retention better in this set.",
+      "recordedAt": "2026-10-06T08:00:00Z",
+      "source": {
+        "kind": "analytics_export",
+        "ref": "exports/tiktok-retention-2026-10"
+      }
+    }
+  ],
+  "performanceNotes": [
+    {
+      "id": "perf.retention-question-hooks",
+      "platform": "tiktok",
+      "metric": "retention_30s",
+      "window": {
+        "from": "2026-09-20",
+        "to": "2026-10-04"
+      },
+      "sampleSize": 14,
+      "summary": "Median 30-second retention 41 percent for question hooks, 33 percent for statements.",
+      "caveat": "Fourteen posts from one account; directional only.",
+      "source": {
+        "kind": "analytics_export",
+        "ref": "exports/tiktok-retention-2026-10"
+      }
+    }
+  ],
+  "references": [],
+  "conflicts": [],
+  "provenance": {
+    "authoredBy": "adrian",
+    "sources": [
+      {
+        "kind": "adrian_correction",
+        "ref": "corrections/2026-10-06"
+      },
+      {
+        "kind": "connected_account",
+        "ref": "exports/payments-2026-03.csv"
+      }
+    ]
+  }
+}

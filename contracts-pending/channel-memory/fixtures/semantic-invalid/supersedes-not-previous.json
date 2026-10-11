@@ -46,7 +46,11 @@
     {
       "id": "ban.hype",
       "description": "No hype adjectives in hooks.",
-      "appliesTo": "any"
+      "appliesTo": "any",
+      "phrases": [
+        "game-changer",
+        "unlock the power"
+      ]
     }
   ],
   "bannedPhrases": [
@@ -60,59 +64,152 @@
   "proofs": [
     {
       "id": "proof.receipt-launch-week",
-      "subject": "Launch-week revenue",
-      "value": 1240,
+      "revision": 2,
+      "supersedesRevision": 1,
+      "subject": "subject.launch-week-revenue",
+      "value": "1240.00",
       "units": "USD",
-      "observedFrom": "2026-03-01",
-      "observedTo": "2026-03-07",
+      "period": {
+        "from": "2026-03-01",
+        "to": "2026-03-07"
+      },
+      "observedAt": "2026-03-08T09:00:00Z",
+      "validFrom": "2026-10-07",
+      "validUntil": null,
       "sourceExcerpt": "Weekly export total: 1,240.00 USD",
-      "origin": "connected_account",
       "source": {
-        "kind": "connected_account",
+        "kind": "connected_account_export",
         "ref": "exports/payments-2026-03.csv"
       },
+      "observationRefs": [],
+      "status": "approved",
       "approval": {
-        "status": "approved",
         "approvedBy": "adrian",
         "approvedAt": "2026-10-07T18:00:00Z"
       },
       "permittedClaims": [
-        "Made $1,240 in launch week."
-      ]
+        {
+          "claimId": "claim.launch-week-revenue",
+          "text": "Made $1,240 in launch week.",
+          "value": "1240.00",
+          "units": "USD",
+          "subject": "subject.launch-week-revenue",
+          "period": {
+            "from": "2026-03-01",
+            "to": "2026-03-07"
+          }
+        }
+      ],
+      "provenance": {
+        "authoredBy": "adrian",
+        "sourceRecordIds": []
+      },
+      "updatedAt": "2026-10-07T18:00:00Z"
     },
     {
-      "id": "proof.active-users-pending",
-      "subject": "Active users",
-      "value": 310,
-      "units": "users",
-      "observedFrom": "2026-09-01",
+      "id": "proof.receipt-launch-week-v2",
+      "revision": 1,
+      "supersedesRevision": null,
+      "subject": "subject.launch-week-revenue",
+      "value": "1260.00",
+      "units": "USD",
+      "period": {
+        "from": "2026-03-01",
+        "to": "2026-03-07"
+      },
+      "observedAt": "2026-10-08T09:00:00Z",
+      "validFrom": "2026-10-08",
+      "validUntil": null,
+      "sourceExcerpt": "Corrected weekly export total: 1,260.00 USD",
+      "source": {
+        "kind": "connected_account_export",
+        "ref": "exports/payments-2026-03-corrected.csv"
+      },
+      "observationRefs": [],
+      "status": "collected",
+      "permittedClaims": [
+        {
+          "claimId": "claim.launch-week-revenue-v2",
+          "text": "Made $1,260 in launch week.",
+          "value": "1260.00",
+          "units": "USD",
+          "subject": "subject.launch-week-revenue",
+          "period": {
+            "from": "2026-03-01",
+            "to": "2026-03-07"
+          }
+        }
+      ],
+      "provenance": {
+        "authoredBy": "skill",
+        "sourceRecordIds": [
+          "interview.2026-10-08"
+        ]
+      },
+      "updatedAt": "2026-10-08T09:00:00Z"
+    },
+    {
+      "id": "proof.active-users",
+      "revision": 1,
+      "supersedesRevision": null,
+      "subject": "subject.active-users",
+      "value": "310",
+      "units": "count",
+      "period": {
+        "from": "2026-09-01",
+        "to": "2026-09-30"
+      },
+      "observedAt": "2026-10-05T12:00:00Z",
+      "validFrom": "2026-10-05",
+      "validUntil": null,
       "sourceExcerpt": "Interview note, 5 October",
-      "origin": "interview",
       "source": {
         "kind": "interview",
         "ref": "interviews/2026-10-05"
       },
-      "approval": {
-        "status": "pending"
+      "observationRefs": [],
+      "status": "collected",
+      "permittedClaims": [],
+      "provenance": {
+        "authoredBy": "skill",
+        "sourceRecordIds": [
+          "interview.2026-10-05"
+        ]
       },
-      "permittedClaims": []
+      "updatedAt": "2026-10-05T12:00:00Z"
     },
     {
       "id": "proof.refund-rate-withdrawn",
-      "subject": "Refund rate",
-      "value": 2.5,
+      "revision": 2,
+      "supersedesRevision": 1,
+      "subject": "subject.refund-rate",
+      "value": "2.5",
       "units": "percent",
-      "observedFrom": "2026-02-01",
-      "sourceExcerpt": "Receipt withdrawn by Adrian",
-      "origin": "interview",
+      "period": {
+        "from": "2026-02-01",
+        "to": "2026-02-28"
+      },
+      "observedAt": "2026-02-28T12:00:00Z",
+      "validFrom": "2026-02-01",
+      "validUntil": "2026-02-28",
+      "sourceExcerpt": "Refund rate from the February export",
       "source": {
         "kind": "adrian_correction",
         "ref": "corrections/2026-10-06"
       },
-      "approval": {
-        "status": "withdrawn"
+      "observationRefs": [],
+      "status": "withdrawn",
+      "withdrawal": {
+        "withdrawnBy": "adrian",
+        "withdrawnAt": "2026-10-06T09:00:00Z",
+        "reason": "Export row was a duplicate."
       },
-      "permittedClaims": []
+      "permittedClaims": [],
+      "provenance": {
+        "authoredBy": "adrian",
+        "sourceRecordIds": []
+      },
+      "updatedAt": "2026-10-06T09:00:00Z"
     }
   ],
   "observations": [
@@ -158,6 +255,7 @@
     }
   ],
   "references": [],
+  "conflicts": [],
   "provenance": {
     "authoredBy": "adrian",
     "sources": [
