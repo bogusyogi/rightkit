@@ -2,6 +2,47 @@
 
 ## 0.1.4
 
+- **Publication-path reduction (2026-10-11), after `docs/audits/2026-10-11-astra-publication-path-consult.md`
+  and the fifth read (`docs/audits/2026-10-11-astra-secrets-fifth-read.md`). Removes optional
+  machinery, keeps the proven fixes and adds no platform call. 0.1.4 is unreleased and, like the
+  rest of it, breaking relative to 0.1.3.**
+  - **Plaintext-file retirement is removed.** `LegacyFile` (with `RetireIfUnchanged`), the
+    rename-aside, the re-verification, the wipe and the delete of the legacy file, and their tests are
+    gone. No step of retiring a file can be made safe against that file's writers (the fifth read's
+    remaining race is a writer that holds the file open and writes in place between the last check and
+    the wipe), and 0.1.3 wiped and deleted by pathname with no check at all, so the reduction is to
+    delete nothing. `migrate_plaintext_file(store, account, path)` has 0.1.3's signature again: it
+    opens the file read-only, stores the trimmed value with `WriteIntent::CreateOnly`, reads it back
+    and ALWAYS leaves the file exactly as it was. Removing the file is the app's explicit, separate
+    step, taken after it has verified the stored value. **`FileMigration` is now `NoFile | Retained |
+    StoredValueDiffers | StoreUnavailable`**: `Migrated` and `AlreadyStored` are removed (only the
+    retirement path produced them, and keeping them with a changed meaning would let a caller that
+    matches `Migrated` assume the file is gone), `SourceChanged` is renamed `StoredValueDiffers` (it
+    now means only that the store already holds a value different from the file's, and neither was
+    changed), and `Retained` means the store holds exactly the file's value and the file is
+    untouched. A source-scan test pins that `migrate.rs` contains no file-mutating call.
+  - **macOS: the keychain a mutation locks is the keychain it writes (fifth read, finding 11).**
+    The exclusion identity was read by resolving the user-default keychain in `Store`, and the write
+    resolved the default again in the worker, so a default switched while an earlier call was stalled
+    let that call land on the new default under the old keychain's permit (and a first resolution that
+    failed gave a placeholder identity that a later success no longer matched). One function now
+    decides: new `Backend::pinned` (default `Ok(None)`, so existing backends are unchanged) lets a
+    backend whose target can change fix it ONCE per mutation. `Store` takes the exclusion identity from
+    the pinned backend and runs the mutation on that same backend. On macOS `pin_default` resolves the
+    default once, reads the identity of its file from that same reference, and the pinned backend keeps
+    the reference, so the write and the identity cannot differ. A default that cannot be resolved or
+    whose file cannot be identified refuses the mutation (`Error::Unavailable`) before anything is
+    locked or written; the placeholder identity is gone. A pinned backend that reports no identity is
+    refused too. Reads still resolve the default inside their own call. No new Security.framework call.
+    Tests: default-switch and resolution-failure interleavings on a fake backend (all platforms), and
+    `pin_default` unit tests on macOS that use no keychain.
+  - **Docs: "every write goes through `Store::put`" is narrowed to `Store`.** The claim was false for
+    the public `apple_helper::AppleHelper::write` and `copy_synced_to_device_only`, which drive the
+    Swift helper outside `Store` and its exclusion and replace by design; they are unchanged from
+    0.1.3. The source-scan guard is documented as covering `migrate.rs` only. The `open_file` and README
+    text now say what the code does: a write to any explicit keychain is always refused, not only when
+    it is not the default.
+
 - **Fourth independent read (2026-10-11): seven fixes, each applied to the whole class of defect
   (`docs/audits/2026-10-11-astra-secrets-fourth-read.md`). API changes are breaking; 0.1.4 is unreleased.**
   - **Destructive replacement needs typed intent (finding 8).** Every operation that can remove or
@@ -14,8 +55,8 @@
     so a guarded (memory or deny) destination can no longer cost the only persistent copy. The source
     is removed in exactly one function, `remove_copied_source`, which re-checks durability and that the
     destination still holds the copy, then uses `delete_if_equals`. `migrate_legacy_namespaces` writes
-    no marker while any account is `refused`. Sites reviewed: see the report; none else can replace or
-    remove a credential.
+    no marker while any account is `refused`. Scope: `Store` and `migrate.rs`; the `apple_helper` driver
+    is a separate client of the Swift helper and is outside this primitive.
   - **`import_env(overwrite: bool)` is now `import_env(intent: WriteIntent)` (finding 9).**
     `CreateOnly` is one `add_if_absent` under the target's exclusion, so a credential saved between the
     old `exists` and `set` is no longer overwritten by a stale environment value. `Store::add_if_absent`
@@ -28,18 +69,15 @@
     from `Namespace::keychain_item`. Tests pin the strings. A custom backend that does not address by
     Windows target must override `credential_identity`.
   - **macOS exclusion is per keychain file (finding 2).** The user-default target and an explicit
-    target on the same file used different identities; both now use the canonical keychain path.
+    target on the same file used different identities; both now use the canonical keychain path (the
+    default is resolved once per mutation, see the reduction entry above).
   - **Explicit-keychain writes are not compiled into production builds (finding 1).** The fixture
     exemption keyed on a file name is gone: `IsolatedKeychain` and `open_isolated_file` exist only for
     this crate's tests and the non-default `isolated-test-keychain` feature (used by `tests/e2e.rs` and
     the CLI's `--isolated-keychain`). Without it `write_is_refused` holds for every explicit keychain.
-  - **Plaintext file retirement (finding 4).** `migrate_plaintext_file` takes a `LegacyFile` choice.
-    `Retain` leaves the file untouched (`FileMigration::Retained`); `RetireIfUnchanged` moves the file
-    aside, re-verifies it there and wipes only the moved file, so a replacement arriving after the final
-    comparison is never wiped or deleted (it is put back, or kept under a hidden name if the name was
-    taken). A writer already holding the file open and writing in place cannot be excluded: the caller
-    asserts there is none by choosing `RetireIfUnchanged`. The store write is `CreateOnly`; a
-    non-durable store is `StoreUnavailable`. The tests now inject the replacement AFTER the comparison.
+  - **Plaintext file retirement (finding 4).** Superseded: the retirement path (`LegacyFile`,
+    `RetireIfUnchanged`, move aside, wipe, delete) was removed in the reduction entry above;
+    `migrate_plaintext_file` only copies.
   - **Zeroization probe replaced (finding 6).** The allocator-wide scan is deleted. A decoded `value` is
     held in `SecretBuf`, whose `Drop` wipes the initialised bytes and, under test, reports `len`,
     capacity at creation and at drop (equal: no growth, so no unwiped copy), and that every byte it
@@ -47,8 +85,9 @@
   - **Tests (in-memory and fake backends only):** durability refusal for Memory and Deny guards and a
     plain memory backend; the moving case with a durable fake; `put` semantics; import race with a
     fake that saves between check and write; macOS-style naming across Windows prefixes with a stalled
-    call; pinned identity strings; plaintext races after the comparison; a source-scan guard that
-    `migrate.rs` reaches writers only through the guarded primitives. macOS-only tests (identity of
+    call; pinned identity strings; a source-scan guard that
+    `migrate.rs` reaches writers only through the guarded primitives (plaintext-race tests were removed
+    with the retirement path). macOS-only tests (identity of
     default versus explicit target) need `--features isolated-test-keychain`.
 
 - **Third independent read (2026-10-11): six fixes (`docs/audits/2026-10-11-astra-license-secrets-third-read.md`).**
@@ -76,17 +115,12 @@
     write. Needs the `windows-sys` features `Win32_Security` and `Win32_Security_Authorization`
     (already pulled in by this crate; consumers enable nothing). The lock name changed, so a process
     running an older 0.1.x does not exclude a 0.1.4 process during a mixed-version window.
-  - **Plaintext migration (finding 4).** `migrate_plaintext_file` opens the file once, stores exactly
-    those bytes, and zeroes and deletes only if the path still names that open file (device and inode
-    on Unix, content comparison elsewhere) and it still holds the bytes that were stored. A file
-    replaced or rewritten meanwhile is left untouched and reported as the new
-    `FileMigration::SourceChanged` (an enum variant added: exhaustive matches need an arm). The
-    wipe goes through the handle that was read, never through the path. A `Store` whose guard put it
-    in memory or deny mode returns `StoreUnavailable` and leaves the file, since copying into process
-    memory and deleting the only persistent copy loses the secret. The window is narrowed, not
-    closed: this crate shares no lock with the file's writers.
-    The already-stored path no longer deletes the file blindly either: it is zeroed and deleted only
-    if the store holds exactly its content; a differing file is kept and reported as `SourceChanged`.
+  - **Plaintext migration (finding 4).** Superseded: this entry added deletion of the legacy file
+    guarded by an identity and content check. The reduction entry above removed the deletion;
+    `migrate_plaintext_file` now never changes the file. The reading side stands: the file is opened
+    once and exactly those bytes are stored, and a `Store` whose guard put it in memory or deny mode
+    returns `StoreUnavailable` and leaves the file, since copying into process memory and deleting the
+    only persistent copy loses the secret.
   - **Windows, decoded secret prefixes (finding 5).** `KeyringCompat` blobs are decoded into one
     zeroizing buffer sized for the worst case (3 UTF-8 bytes per UTF-16 unit), so it never grows and
     an unpaired surrogate after a long valid prefix leaves nothing unwiped. Previously

@@ -1074,6 +1074,248 @@ fn the_native_naming_functions_are_pinned_to_exact_strings() {
     );
 }
 
+// ---- fifth read, finding 11: the store a mutation locks is the store it writes ----
+
+/// Two stores and a "default" that selects one of them, like the macOS user-default keychain: a
+/// call that resolves the default afresh can land on a different store than an earlier call did.
+/// The first `set` stalls, before it resolves anything, until released (an OS call stuck behind
+/// a prompt, or a worker that has not been scheduled yet).
+struct TwoStores {
+    stores: [MemoryBackend; 2],
+    default: AtomicUsize,
+    /// `pinned()` fails: the default cannot be resolved.
+    unresolvable: AtomicBool,
+    /// A pinned view reports no `exclusion_identity`.
+    anonymous: AtomicBool,
+    gate: Mutex<Option<mpsc::Receiver<()>>>,
+    entered: Mutex<mpsc::Sender<()>>,
+    finished: Mutex<mpsc::Sender<()>>,
+}
+
+impl TwoStores {
+    fn value(&self, index: usize, ns: &Namespace, account: &str) -> Option<String> {
+        self.stores[index]
+            .get(ns, account, Interaction::NonInteractive)
+            .unwrap()
+            .map(|s| s.expose_str().unwrap().to_string())
+    }
+    /// Stall the first caller until released; `true` for that caller.
+    fn stall(&self) -> bool {
+        let Some(release) = self.gate.lock().unwrap().take() else {
+            return false;
+        };
+        self.entered.lock().unwrap().send(()).unwrap();
+        let _ = release.recv();
+        true
+    }
+}
+
+/// A view of [`TwoStores`]. `fixed: None` resolves the default at every call; `Some(i)` is bound
+/// to store `i`, which is what `pinned()` returns.
+struct View {
+    shared: Arc<TwoStores>,
+    fixed: Option<usize>,
+}
+
+impl View {
+    fn index(&self) -> usize {
+        self.fixed
+            .unwrap_or_else(|| self.shared.default.load(Ordering::SeqCst))
+    }
+}
+
+impl Backend for View {
+    fn name(&self) -> &'static str {
+        "two-stores-test"
+    }
+    fn exclusion_identity(&self) -> Option<String> {
+        // Only a view bound to one store can name it.
+        if self.shared.anonymous.load(Ordering::SeqCst) {
+            return None;
+        }
+        self.fixed.map(|i| format!("two-stores-test:{i}"))
+    }
+    fn pinned(&self) -> rightkit_secrets::Result<Option<Arc<dyn Backend>>> {
+        if self.fixed.is_some() {
+            return Ok(None);
+        }
+        if self.shared.unresolvable.load(Ordering::SeqCst) {
+            return Err(Error::Unavailable("no default store".into()));
+        }
+        // The default as it is right now, decided once.
+        let index = self.shared.default.load(Ordering::SeqCst);
+        Ok(Some(Arc::new(View {
+            shared: self.shared.clone(),
+            fixed: Some(index),
+        })))
+    }
+    fn get(
+        &self,
+        ns: &Namespace,
+        account: &str,
+        mode: Interaction,
+    ) -> rightkit_secrets::Result<Option<Secret>> {
+        self.shared.stores[self.index()].get(ns, account, mode)
+    }
+    fn exists(
+        &self,
+        ns: &Namespace,
+        account: &str,
+        mode: Interaction,
+    ) -> rightkit_secrets::Result<bool> {
+        self.shared.stores[self.index()].exists(ns, account, mode)
+    }
+    fn set(
+        &self,
+        ns: &Namespace,
+        account: &str,
+        secret: &Secret,
+        mode: Interaction,
+    ) -> rightkit_secrets::Result<()> {
+        let stalled = self.shared.stall();
+        // An unbound view resolves the default only now, after the stall.
+        let result = self.shared.stores[self.index()].set(ns, account, secret, mode);
+        if stalled {
+            let _ = self.shared.finished.lock().unwrap().send(());
+        }
+        result
+    }
+    fn add_if_absent(
+        &self,
+        ns: &Namespace,
+        account: &str,
+        secret: &Secret,
+        mode: Interaction,
+    ) -> rightkit_secrets::Result<bool> {
+        self.shared.stores[self.index()].add_if_absent(ns, account, secret, mode)
+    }
+    fn delete(
+        &self,
+        ns: &Namespace,
+        account: &str,
+        mode: Interaction,
+    ) -> rightkit_secrets::Result<bool> {
+        self.shared.stores[self.index()].delete(ns, account, mode)
+    }
+}
+
+struct TwoStoresRig {
+    shared: Arc<TwoStores>,
+    store: Store,
+    ns: Namespace,
+    release: mpsc::Sender<()>,
+    entered: mpsc::Receiver<()>,
+    finished: mpsc::Receiver<()>,
+}
+
+fn two_stores_rig(service: &str) -> TwoStoresRig {
+    let (release, release_rx) = mpsc::channel();
+    let (entered_tx, entered) = mpsc::channel();
+    let (finished_tx, finished) = mpsc::channel();
+    let shared = Arc::new(TwoStores {
+        stores: [MemoryBackend::new(), MemoryBackend::new()],
+        default: AtomicUsize::new(0),
+        unresolvable: AtomicBool::new(false),
+        anonymous: AtomicBool::new(false),
+        gate: Mutex::new(Some(release_rx)),
+        entered: Mutex::new(entered_tx),
+        finished: Mutex::new(finished_tx),
+    });
+    let ns = Namespace::new(service).unwrap();
+    let store = Store::open(
+        Config::new(ns.clone())
+            .backend(Arc::new(View {
+                shared: shared.clone(),
+                fixed: None,
+            }))
+            .timeout(Duration::from_millis(250)),
+    );
+    TwoStoresRig {
+        shared,
+        store,
+        ns,
+        release,
+        entered,
+        finished,
+    }
+}
+
+#[test]
+fn a_late_write_lands_on_the_store_it_was_locked_for_even_if_the_default_changed() {
+    let rig = two_stores_rig("dev.rightkit.secrets.test.switch-default");
+
+    // The default is store 0. A is admitted (store 0 is locked for it), stalls, and gives up.
+    assert!(matches!(
+        rig.store.set_str("acct", "A"),
+        Err(Error::Timeout { .. })
+    ));
+    rig.entered.recv_timeout(Duration::from_secs(5)).unwrap();
+    // While the default is still store 0 a retry is refused: that is the store A holds.
+    assert!(matches!(
+        rig.store.set_str("acct", "retry"),
+        Err(Error::InProgress { .. })
+    ));
+
+    // The default switches to store 1. A mutation there is a different store and is not held up.
+    rig.shared.default.store(1, Ordering::SeqCst);
+    rig.store.set_str("acct", "B").unwrap();
+    assert_eq!(rig.shared.value(1, &rig.ns, "acct").as_deref(), Some("B"));
+
+    // A resumes. It must finish on store 0, the store it was locked for, and leave B alone.
+    rig.release.send(()).unwrap();
+    rig.finished.recv_timeout(Duration::from_secs(5)).unwrap();
+    assert_eq!(
+        rig.shared.value(0, &rig.ns, "acct").as_deref(),
+        Some("A"),
+        "the stalled write did not finish on the store it was locked for"
+    );
+    assert_eq!(
+        rig.shared.value(1, &rig.ns, "acct").as_deref(),
+        Some("B"),
+        "the stalled write landed on the new default and overwrote B"
+    );
+}
+
+#[test]
+fn a_mutation_whose_store_cannot_be_decided_is_refused_before_it_locks_or_writes_anything() {
+    let rig = two_stores_rig("dev.rightkit.secrets.test.unresolvable-default");
+    rig.shared.unresolvable.store(true, Ordering::SeqCst);
+    let attempts = [
+        rig.store.set_str("acct", "A"),
+        rig.store.delete("acct").map(|_| ()),
+        rig.store
+            .add_if_absent("acct", &Secret::from_string("A"))
+            .map(|_| ()),
+        rig.store
+            .delete_if_equals("acct", &Secret::from_string("A"))
+            .map(|_| ()),
+    ];
+    for attempt in attempts {
+        assert!(matches!(attempt, Err(Error::Unavailable(_))), "{attempt:?}");
+    }
+    assert_eq!(rig.shared.value(0, &rig.ns, "acct"), None);
+    assert_eq!(rig.shared.value(1, &rig.ns, "acct"), None);
+    // A read resolves the default inside its own call and is not a mutation.
+    assert!(rig.store.get("acct").unwrap().is_none());
+
+    // Nothing was claimed: once the default resolves again the same call goes through at once
+    // (the stall is released up front), and is not refused as `InProgress`.
+    rig.shared.unresolvable.store(false, Ordering::SeqCst);
+    rig.release.send(()).unwrap();
+    rig.store.set_str("acct", "A").unwrap();
+    assert_eq!(rig.shared.value(0, &rig.ns, "acct").as_deref(), Some("A"));
+}
+
+#[test]
+fn a_pinned_backend_that_cannot_name_its_store_is_refused() {
+    let rig = two_stores_rig("dev.rightkit.secrets.test.anonymous-pin");
+    rig.shared.anonymous.store(true, Ordering::SeqCst);
+    let attempt = rig.store.set_str("acct", "A");
+    assert!(matches!(attempt, Err(Error::Unavailable(_))), "{attempt:?}");
+    assert_eq!(rig.shared.value(0, &rig.ns, "acct"), None);
+    assert_eq!(rig.shared.value(1, &rig.ns, "acct"), None);
+}
+
 // ---- fourth read, finding 8: destructive migration needs a durable destination ----
 
 fn durable_source(service: &str) -> Store {
@@ -1179,8 +1421,10 @@ fn put_create_only_never_replaces_and_replace_always_does() {
     }
 }
 
-/// Class guard: the migration module reaches the store's writers only through the guarded
-/// primitives. A new `.set(`, `.delete(` or bare `.add_if_absent(` there fails this test.
+/// Guard for `migrate.rs` ONLY, not for the crate: the migration module reaches the store's
+/// writers only through the guarded primitives. A new `.set(`, `.delete(` or bare
+/// `.add_if_absent(` there fails this test. (`apple_helper::AppleHelper` is a separate client of
+/// the Swift helper and is outside `Store`.)
 #[test]
 fn migration_code_reaches_the_store_only_through_the_guarded_primitives() {
     let src =
@@ -1198,6 +1442,30 @@ fn migration_code_reaches_the_store_only_through_the_guarded_primitives() {
         "source removal must stay in remove_copied_source"
     );
     assert_eq!(production.matches("remove_copied_source(").count(), 2); // definition + one call
+}
+
+/// The plaintext migration only COPIES: retiring a legacy file (wipe, move aside, delete) was
+/// removed on purpose, because no step of it can be made safe against the file's writers. A
+/// file-mutating call reappearing in `migrate.rs` fails this test.
+#[test]
+fn the_plaintext_migration_has_no_code_that_modifies_or_removes_a_file() {
+    let src =
+        std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/src/migrate.rs")).unwrap();
+    let production = src.split("#[cfg(test)]\nmod tests").next().unwrap();
+    for banned in [
+        "remove_file",
+        "OpenOptions",
+        "rename(",
+        "hard_link",
+        "set_len",
+        "File::create",
+        ".write_all(",
+    ] {
+        assert!(
+            !production.contains(banned),
+            "migrate.rs contains `{banned}`: the legacy file must only be read"
+        );
+    }
 }
 
 // ---- fourth read, finding 9: import_env cannot overwrite a concurrent save ----
