@@ -30,7 +30,7 @@
     "@rightkit/qa": "0.4.5",
     "@rightkit/qa-chrome": "0.1.4",
     "@rightkit/release": "0.2.153",
-    "@rightkit/settings-ui": "0.4.1",
+    "@rightkit/settings-ui": "0.4.2",
     "@rightkit/shell": "0.1.0",
     "@rightkit/tauri": "0.2.0",
     "@rightkit/theme": "0.2.3",
@@ -256,7 +256,8 @@
       "0.3.2",
       "0.3.3",
       "0.3.4",
-      "0.4.0"
+      "0.4.0",
+      "0.4.1"
     ],
     "@rightkit/onboarding": [
       "0.1.0",
@@ -450,7 +451,7 @@
       "@rightkit/qa": "0.4.5",
       "@rightkit/qa-chrome": "0.1.4",
       "@rightkit/release": "0.2.151",
-      "@rightkit/settings-ui": "0.4.1",
+      "@rightkit/settings-ui": "0.4.2",
       "@rightkit/shell": "0.1.0",
       "@rightkit/tauri": "0.2.0",
       "@rightkit/theme": "0.2.3",
