@@ -19,7 +19,8 @@ Catalog capability: `global-hotkeys`. Release versions are tracked in [INDEX.md]
 | `ptt` | Pure push-to-talk policy and the start and end handoff state machine (`PttPhase`, `PttHandoff`, `PttEnd`). |
 | `decision` | Pure predicates shared by the platform hooks: the fn-chord gate and the middle-button check. |
 | `macos` | `CGEventTap` primitive, fn-chord tap (`FnHotkeyTap`), middle-mouse tap (`MiddleMouseTap`), and Carbon global hotkeys (`GlobalHotkeys`). |
-| `windows` | `WH_KEYBOARD_LL` hook and `RegisterHotKey` registration (`GlobalHotkeys`). |
+| `windows` | `WH_KEYBOARD_LL` hook and `RegisterHotKey` registration (`GlobalHotkeys`); `HookHotkeys` for chords the system refuses. |
+| `hook_chord` | Pure chord matcher over raw key events (`HookChords`), used by `HookHotkeys`. |
 
 The pure modules compile and test on every platform. Platform modules are `cfg`-gated.
 

@@ -25,6 +25,7 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{
 
 use crate::chord::{Chord, Modifier};
 use crate::hold::{HoldKeys, HoldTracker, KeyStateSource};
+use crate::hook_chord::{AlreadyBound, HookChords};
 use crate::register_status::RegisterFailure;
 
 pub use crate::hold::HotkeyState;
@@ -286,7 +287,8 @@ impl std::fmt::Display for UnregisterError {
 impl std::error::Error for UnregisterError {}
 
 enum Command {
-    Register(Chord, mpsc::Sender<Result<i32, RegisterError>>),
+    /// The chord, whether auto-repeat is delivered, and where the result goes.
+    Register(Chord, bool, mpsc::Sender<Result<i32, RegisterError>>),
     Unregister(Chord, mpsc::Sender<Result<i32, UnregisterError>>),
 }
 
@@ -365,8 +367,9 @@ impl GlobalHotkeys {
                 loop {
                     while let Ok(command) = cmd_rx.try_recv() {
                         match command {
-                            Command::Register(chord, reply) => {
-                                let mut mods: HOT_KEY_MODIFIERS = MOD_NOREPEAT;
+                            Command::Register(chord, repeat, reply) => {
+                                let mut mods: HOT_KEY_MODIFIERS =
+                                    if repeat { 0 } else { MOD_NOREPEAT };
                                 for m in &chord.modifiers {
                                     mods |= match m {
                                         Modifier::Ctrl => MOD_CONTROL,
@@ -498,10 +501,28 @@ impl GlobalHotkeys {
         }
     }
 
+    /// Register `chord` without auto-repeat: one `WM_HOTKEY` per press, however long it is held.
+    ///
+    /// A chord Windows or another program already owns fails with [`RegisterError::Conflict`]
+    /// (`ERROR_HOTKEY_ALREADY_REGISTERED`, 1409); an app that still needs it can bind it through
+    /// [`HookHotkeys`]. To change a shortcut at run time, [`unregister`](Self::unregister) the old
+    /// chord and register the new one: no restart is needed.
     pub fn register(&self, chord: &Chord) -> Result<i32, RegisterError> {
+        self.register_inner(chord, false)
+    }
+
+    /// Register `chord` with auto-repeat: while it is held, Windows posts `WM_HOTKEY` at the
+    /// keyboard repeat rate (for a nudge or step action). Only press-only delivery
+    /// ([`GlobalHotkeys::new`]) repeats; with [`GlobalHotkeys::with_state`] a hold is one
+    /// `Pressed` and one `Released` either way.
+    pub fn register_repeating(&self, chord: &Chord) -> Result<i32, RegisterError> {
+        self.register_inner(chord, true)
+    }
+
+    fn register_inner(&self, chord: &Chord, repeat: bool) -> Result<i32, RegisterError> {
         let (tx, rx) = mpsc::channel();
         self.cmd
-            .send(Command::Register(chord.clone(), tx))
+            .send(Command::Register(chord.clone(), repeat, tx))
             .map_err(|_| RegisterError::Os {
                 chord: chord.canonical(),
                 message: "loop stopped".into(),
@@ -540,6 +561,94 @@ impl Drop for GlobalHotkeys {
         }
         if let Some(t) = self.thread.take() {
             let _ = t.join();
+        }
+    }
+}
+
+/// Chords matched through the low-level keyboard hook: the opt-in fallback for a chord that
+/// [`GlobalHotkeys::register`] refuses with [`RegisterError::Conflict`] (Alt+Space when another
+/// program holds it).
+///
+/// This installs the process-wide `WH_KEYBOARD_LL` hook, so every key press on the desktop
+/// passes through this process while it is installed: use it only for the chords that cannot
+/// be registered, and only when the user asked for them. One instance per process (the hook
+/// slot is shared with [`LowLevelKeyboardHook`]).
+///
+/// A matched chord's key is swallowed, so the program that owned the chord no longer sees it.
+/// `on_event` runs inside the hook procedure, once with `Pressed` and once with `Released`
+/// per hold: it must return quickly (hand the work to another thread), or Windows drops the
+/// hook. The matching rules are those of [`HookChords`].
+pub struct HookHotkeys {
+    hook: Option<LowLevelKeyboardHook>,
+    chords: Arc<Mutex<HookChords>>,
+    on_event: Arc<dyn Fn(i32, HotkeyState) + Send + Sync + 'static>,
+}
+
+impl HookHotkeys {
+    pub fn install(
+        on_event: impl Fn(i32, HotkeyState) + Send + Sync + 'static,
+    ) -> Result<Self, HookError> {
+        let chords = Arc::new(Mutex::new(HookChords::new()));
+        let on_event: Arc<dyn Fn(i32, HotkeyState) + Send + Sync + 'static> = Arc::new(on_event);
+        let (hook_chords, hook_event) = (chords.clone(), on_event.clone());
+        let hook = LowLevelKeyboardHook::install(move |event| {
+            // The lock is released before the callback runs.
+            let outcome = hook_chords
+                .lock()
+                .unwrap_or_else(|p| p.into_inner())
+                .on_key(event.vk, event.down, event.injected);
+            for (id, state) in &outcome.events {
+                hook_event(*id, *state);
+            }
+            if outcome.swallow {
+                HookDecision::Swallow
+            } else {
+                HookDecision::Pass
+            }
+        })?;
+        Ok(Self {
+            hook: Some(hook),
+            chords,
+            on_event,
+        })
+    }
+
+    /// Bind `chord` and return its id. Ids are not reused, and they are separate from the ids
+    /// of [`GlobalHotkeys`].
+    pub fn bind(&self, chord: &Chord) -> Result<i32, AlreadyBound> {
+        self.chords
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .bind(chord)
+    }
+
+    /// Remove the binding for `chord` and return its id, or `None` when it was not bound. A
+    /// chord held at this moment receives its `Released` first.
+    pub fn unbind(&self, chord: &Chord) -> Option<i32> {
+        let removed = self
+            .chords
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .unbind(chord);
+        let (id, held) = removed?;
+        if held {
+            (self.on_event)(id, HotkeyState::Released);
+        }
+        Some(id)
+    }
+}
+
+impl Drop for HookHotkeys {
+    fn drop(&mut self) {
+        // Remove the hook first, so no key event races the final releases.
+        drop(self.hook.take());
+        let held = self
+            .chords
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .release_all();
+        for id in held {
+            (self.on_event)(id, HotkeyState::Released);
         }
     }
 }
