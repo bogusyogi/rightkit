@@ -463,12 +463,17 @@ fn a_recorded_session_replayed_on_a_new_connection_is_rejected() {
     let _ = raw.read_to_end(&mut reply);
     // The worker sent only its fresh Identify frame, then closed: it never
     // accepted the stale Accept proof and never answered a sealed command.
-    let identify_len = u32::from_be_bytes(reply[0..4].try_into().expect("len")) as usize;
-    assert_eq!(
-        reply.len(),
-        4 + identify_len,
-        "worker answered beyond the handshake"
-    );
+    // It closes with replayed bytes still unread, which Windows turns into a connection
+    // reset, so the read may end before the whole frame arrived: never more than the frame.
+    if reply.len() >= 4 {
+        let identify_len = u32::from_be_bytes(reply[0..4].try_into().expect("len")) as usize;
+        assert!(
+            reply.len() <= 4 + identify_len,
+            "worker answered beyond the handshake: {} bytes, frame is {}",
+            reply.len(),
+            4 + identify_len
+        );
+    }
     assert_eq!(
         gui.performs.load(Ordering::SeqCst),
         1,
