@@ -12,3 +12,7 @@ target/
 .audit/
 .vite/
 .DS_Store
+
+# Local audit and tool caches
+.cache/
+.legion-cache/

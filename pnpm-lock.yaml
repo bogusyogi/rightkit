@@ -9,7 +9,14 @@ overrides:
 
 importers:
 
-  .: {}
+  .:
+    devDependencies:
+      '@rightkit/git':
+        specifier: workspace:*
+        version: link:packages/git
+      '@rightkit/release':
+        specifier: workspace:*
+        version: link:packages/release
 
   packages/agent-room-mcp: {}
 

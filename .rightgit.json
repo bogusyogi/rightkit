@@ -1,0 +1,35 @@
+{
+  "schemaVersion": 1,
+  "compile": "github-actions-only",
+  "lanes": [
+    "ci"
+  ],
+  "matrix": {
+    "os": [
+      "xcode-27",
+      "windows-2025"
+    ],
+    "node": [
+      "26.8.1"
+    ]
+  },
+  "packageManager": "pnpm@11.24.0",
+  "templateVersion": "1.8.0",
+  "profile": "rust-hybrid",
+  "gate": {
+    "path": "scripts/gate.sh"
+  },
+  "rustCache": {
+    "workspaces": [
+      "."
+    ],
+    "requiredForGate": true
+  },
+  "qaEvidencePath": "rightkit-ci",
+  "qaEvidenceRetentionDays": 7,
+  "ciAllOs": true,
+  "ciIncremental": true,
+  "concurrency": {
+    "mainPushes": "queue"
+  }
+}
