@@ -355,4 +355,62 @@ describe("createExitTransition", () => {
       expect(onExitStart).toHaveBeenCalledTimes(1);
     });
   });
+
+  describe("closeOn", () => {
+    const slow = () => {
+      let resolve!: () => void;
+      const action = vi.fn(() => new Promise<void>((r) => (resolve = r)));
+      return { action, resolve: () => resolve() };
+    };
+    const opts = { closeAfter: "settled", onActionWhileClosing: "run" } as const;
+
+    it("first-settled: a second action settling first starts the one exit; the first keeps running and starts none", async () => {
+      const { core, onClosed, onExitStart } = make({ ...opts, closeOn: "first-settled" });
+      const a = slow();
+      const first = core.close(a.action);
+      await core.close(() => Promise.resolve());
+      expect(onExitStart).toHaveBeenCalledTimes(1);
+      expect(core.getState()).toEqual({ phase: "closing", pending: false });
+      a.resolve();
+      await first;
+      vi.advanceTimersByTime(80);
+      expect(onExitStart).toHaveBeenCalledTimes(1);
+      expect(onClosed).toHaveBeenCalledTimes(1);
+    });
+
+    it("first-settled: a rejecting second action still closes and rejects only its own promise", async () => {
+      const { core, onExitStart } = make({ ...opts, closeOn: "first-settled" });
+      const a = slow();
+      const first = core.close(a.action);
+      await expect(core.close(() => Promise.reject(new Error("x")))).rejects.toThrow("x");
+      expect(onExitStart).toHaveBeenCalledTimes(1);
+      a.resolve();
+      await expect(first).resolves.toBeUndefined();
+    });
+
+    it("first-settled: a settle after a new open() does not close the new instance", async () => {
+      const { core, onExitStart } = make({ ...opts, closeOn: "first-settled" });
+      const a = slow();
+      void core.close(a.action);
+      const b = slow();
+      const second = core.close(b.action);
+      core.open();
+      b.resolve();
+      await second;
+      expect(core.getState()).toEqual({ phase: "open", pending: false });
+      expect(onExitStart).not.toHaveBeenCalled();
+    });
+
+    it("default (original-settled): the second action settling leaves the transition pending", async () => {
+      const { core, onExitStart } = make(opts);
+      const a = slow();
+      const first = core.close(a.action);
+      await core.close(() => Promise.resolve());
+      expect(onExitStart).not.toHaveBeenCalled();
+      expect(core.getState()).toEqual({ phase: "open", pending: true });
+      a.resolve();
+      await first;
+      expect(onExitStart).toHaveBeenCalledTimes(1);
+    });
+  });
 });

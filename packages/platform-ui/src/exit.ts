@@ -36,6 +36,13 @@ export interface ExitTransitionOptions {
    * not touched. A `close(action)` made while pending still follows `onActionWhileClosing`.
    */
   dismissWhilePending?: "ignore" | "exit";
+  /**
+   * With `closeAfter: "settled"` and `onActionWhileClosing: "run"`, which action's settling starts the exit when a
+   * second `close(action)` arrives while the first is pending. `"original-settled"` (default): only the action that
+   * made the transition pending. `"first-settled"`: whichever of the running actions settles first, as for a
+   * wrapper that attaches its own close to every action; the others keep running and start no second exit.
+   */
+  closeOn?: "original-settled" | "first-settled";
   /** Start in `open` (default) or `closed`. Read once, when the hook mounts. */
   initialOpen?: boolean;
   /** Called once when the exit starts (phase becomes `closing`, or `closed` when `exitMs` <= 0). */
@@ -141,6 +148,15 @@ export function createExitTransition(options: () => ExitTransitionOptions): Core
         if (!action || state.phase === "closed" || options().onActionWhileClosing !== "run") return Promise.resolve();
         const r = call(action);
         if (!r.ok && propagate) throw r.error;
+        if (state.pending && state.phase === "open" && options().closeOn === "first-settled") {
+          const gen = generation;
+          return done(r).finally(() => {
+            if (gen === generation && state.phase === "open") {
+              set({ phase: "open", pending: false });
+              startExit(gen);
+            }
+          });
+        }
         return done(r);
       }
       const gen = generation;

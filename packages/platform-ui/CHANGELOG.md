@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.6
+
+- `useExitTransition` / `createExitTransition`: new `closeOn: "original-settled" | "first-settled"` (default `"original-settled"`, unchanged). With `closeAfter: "settled"` and `onActionWhileClosing: "run"`, `"first-settled"` starts the exit when whichever running action settles first, as for a wrapper that attaches its own close to every action. The other actions keep running, start no second exit, and reject only their own promise.
+
 ## 0.2.5
 
 Added (default equals 0.2.4):
