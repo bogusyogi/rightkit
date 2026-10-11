@@ -1,5 +1,6 @@
 use crate::discovery::{record_process_matches, try_lock_exclusive};
-use crate::error::{ServiceError, ERROR_NOT_ALLOWED};
+use crate::error::{ServiceError, ERROR_NOT_ALLOWED, ERROR_RESPONSE_TOO_LARGE};
+use crate::peer::PeerIdentity;
 use crate::record::*;
 use crate::suite::{make_private_dir, valid_service_name, Suite, SuiteError};
 use crate::takeover_watch::{self, Bell, Wake, TAKEOVER_CHECK_INTERVAL};
@@ -25,6 +26,7 @@ pub type Emit = Arc<dyn Fn(Value) + Send + Sync>;
 pub struct CallContext {
     conn: u64,
     app: String,
+    peer: PeerIdentity,
     closed: Arc<AtomicBool>,
     handoff: Arc<AtomicBool>,
 }
@@ -34,8 +36,22 @@ impl CallContext {
         self.conn
     }
     /// The app label the client declared in `hello` (already allowlisted).
+    ///
+    /// The label is a claim: any process of the current user can declare any allowlisted
+    /// label. Use it to choose what a caller may ask for, never as proof of who is asking.
+    /// [`peer`](Self::peer) is what the OS verified.
     pub fn app(&self) -> &str {
         &self.app
+    }
+    /// Who the OS says is on the other end of this connection, from the peer check that ran
+    /// before any byte was read: the uid on Unix, the user SID on Windows, and the process id
+    /// where the platform reports it (Linux and Windows; not macOS).
+    ///
+    /// This is the fact, as opposed to the [`app`](Self::app) label. The user is always the
+    /// current user, since any other peer was refused. A pid identifies the process only while
+    /// it runs: record it for an audit trail, do not authorise by it later.
+    pub fn peer(&self) -> &PeerIdentity {
+        &self.peer
     }
     /// The client went away while this request was running.
     pub fn peer_closed(&self) -> bool {
@@ -94,6 +110,15 @@ pub enum ServiceEvent {
     HandoffRequested {
         by_role: String,
         by_rank: u8,
+    },
+    /// A handler's result (`kind` "response") or an emitted event (`kind` "event") was larger
+    /// than the frame limit and was not sent. For a response the client received the typed
+    /// [`ERROR_RESPONSE_TOO_LARGE`](crate::ERROR_RESPONSE_TOO_LARGE) error instead.
+    FrameTooLarge {
+        conn: u64,
+        method: String,
+        kind: &'static str,
+        limit: usize,
     },
     Released,
 }
@@ -681,17 +706,32 @@ fn serve_conn(s: Arc<Shared>, conn: Conn) {
         writer,
         peer_closed,
         shutdown,
+        peer,
     } = conn;
     let mut reader = BufReader::new(reader);
     let writer = Arc::new(Mutex::new(writer));
     let limit = s.cfg.frame_limit;
-    let send = {
+    // Write one frame. `false` only when the frame is larger than the limit: nothing was
+    // written, so the stream is still on a frame boundary. An I/O failure means the peer is
+    // gone, which the read loop and the peer watch already report.
+    let write = {
         let w = writer.clone();
-        move |v: &Value| {
+        move |v: &Value| -> bool {
             let mut w = w.lock().unwrap_or_else(|e| e.into_inner());
-            if write_json_line(&mut *w, v, limit).is_ok() {
-                let _ = w.flush();
+            match write_json_line(&mut *w, v, limit) {
+                Ok(()) => {
+                    let _ = w.flush();
+                    true
+                }
+                Err(FrameError::TooLarge { .. }) => false,
+                Err(_) => true,
             }
+        }
+    };
+    let send = {
+        let write = write.clone();
+        move |v: &Value| {
+            write(v);
         }
     };
     let mut buf = Vec::new();
@@ -810,12 +850,22 @@ fn serve_conn(s: Arc<Shared>, conn: Conn) {
         let cx = CallContext {
             conn: id,
             app: app.clone(),
+            peer: peer.clone(),
             closed: Arc::new(AtomicBool::new(false)),
             handoff: s.handoff.clone(),
         };
         let emit: Emit = {
-            let send = send.clone();
-            Arc::new(move |ev| send(&json!({"type": "event", "id": rid, "event": ev})))
+            let (write, s, method) = (write.clone(), s.clone(), method.clone());
+            Arc::new(move |ev| {
+                if !write(&json!({"type": "event", "id": rid, "event": ev})) {
+                    s.event(ServiceEvent::FrameTooLarge {
+                        conn: id,
+                        method: method.clone(),
+                        kind: "event",
+                        limit,
+                    });
+                }
+            })
         };
         s.inflight.fetch_add(1, Ordering::SeqCst);
         let done = AtomicBool::new(false);
@@ -842,7 +892,24 @@ fn serve_conn(s: Arc<Shared>, conn: Conn) {
             break;
         }
         match result {
-            Ok(v) => send(&json!({"type": "response", "id": rid, "ok": true, "result": v})),
+            Ok(v) => {
+                // A result that does not fit is answered with a typed error, never dropped:
+                // a dropped response leaves the client waiting for its whole deadline.
+                if !write(&json!({"type": "response", "id": rid, "ok": true, "result": v})) {
+                    s.event(ServiceEvent::FrameTooLarge {
+                        conn: id,
+                        method: method.clone(),
+                        kind: "response",
+                        limit,
+                    });
+                    respond_err(ServiceError::new(
+                        ERROR_RESPONSE_TOO_LARGE,
+                        format!(
+                            "the result of {method} is larger than the {limit}-byte frame limit"
+                        ),
+                    ));
+                }
+            }
             Err(e) => respond_err(e),
         }
     }

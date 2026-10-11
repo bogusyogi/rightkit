@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+- Fix: a handler result larger than the host's `frame_limit` was dropped without a word, so the
+  client waited for its whole deadline (120 s by default). The client now receives the typed,
+  non-retryable error `ERROR_RESPONSE_TOO_LARGE` ("response_too_large") straight away and the
+  connection stays usable. The host is told through the new `ServiceEvent::FrameTooLarge
+  { conn, method, kind, limit }` (`kind` is "response" or "event"; an oversized emitted event is
+  still not sent, and is now reported). Exhaustive matches on `ServiceEvent` need an arm.
+- Additive: `CallContext::peer()` returns the `PeerIdentity` the OS verified for the connection
+  (uid on Unix, user SID on Windows, pid on Linux and Windows) before any byte was read.
+  `CallContext::app()` is documented as what it is: a label the client declares. The label is a
+  claim; the peer identity is the fact.
 - Fix (gap ledger row 167): a legal 48-byte service name can now claim its endpoint on macOS and
   Linux. The Unix socket fallback used when the in-suite path is over 100 bytes was
   `<tmp>/rk-<tag>-<service>.sock`, about 65 bytes for a 48-byte name, so under macOS's ~49-byte
