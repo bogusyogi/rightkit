@@ -691,6 +691,8 @@ pub fn launch(spec: &LaunchSpec, ws: &QaWorkspace, tracker: &Tracker) -> Result<
     let (pid, child) = start_process(spec, ws, &env, &raw_log, &id, tracker, &focus, deadline)?;
     focus.track_primary(pid);
     tracker.register(pid, &spec.label);
+    // Disposal may end what this app started and left in the home, and nothing else.
+    crate::workspace::record_launched(ws, pid);
 
     let mut control = Control {
         pid,

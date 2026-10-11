@@ -271,19 +271,84 @@ impl QaWorkspace {
 pub struct HomeHolder {
     pub pid: u32,
     pub name: String,
+    /// Its executable is inside the home.
+    pub runs_from_home: bool,
+    /// It descends from an app this run launched into the home (see [`record_launched`]).
+    pub launched_by_run: bool,
 }
 
-/// The process scan's output, one `pid<TAB>name` per line, without this process.
-fn parse_holders(output: &str) -> Vec<HomeHolder> {
-    let mut holders: Vec<HomeHolder> = output
+impl HomeHolder {
+    /// Whether disposal may end it. A process is never ended merely because its command line
+    /// names the home: only one that runs from the home, or that the run's own app started.
+    pub fn owned_by_run(&self) -> bool {
+        self.runs_from_home || self.launched_by_run
+    }
+}
+
+/// One row of the process scan.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ScannedProcess {
+    pid: u32,
+    parent: u32,
+    names_home: bool,
+    runs_from_home: bool,
+    name: String,
+}
+
+/// The process scan's output: `pid<TAB>parent pid<TAB>flags<TAB>name` per process, where flags
+/// holds `C` (the command line names the home) and `E` (the executable is inside it).
+#[cfg_attr(not(windows), allow(dead_code))]
+fn parse_scan(output: &str) -> Vec<ScannedProcess> {
+    output
         .lines()
         .filter_map(|line| {
-            let (pid, name) = line.trim().split_once('\t')?;
-            let pid = pid.trim().parse::<u32>().ok()?;
-            (pid != std::process::id()).then(|| HomeHolder {
+            let mut fields = line.trim().splitn(4, '\t');
+            let pid = fields.next()?.trim().parse::<u32>().ok()?;
+            let parent = fields.next()?.trim().parse::<u32>().ok()?;
+            let flags = fields.next()?;
+            let name = fields.next()?.trim().to_string();
+            Some(ScannedProcess {
                 pid,
-                name: name.trim().to_string(),
+                parent,
+                names_home: flags.contains('C'),
+                runs_from_home: flags.contains('E'),
+                name,
             })
+        })
+        .collect()
+}
+
+/// Add to `launched` every scanned process whose parent is already in it, until nothing is
+/// added: the apps the run launched and everything they started that is still listed. The set
+/// is kept across scans, so a helper stays known after its parent has exited.
+fn extend_descendants(launched: &mut std::collections::BTreeSet<u32>, scan: &[ScannedProcess]) {
+    loop {
+        let before = launched.len();
+        for process in scan {
+            if process.pid != 0 && launched.contains(&process.parent) {
+                launched.insert(process.pid);
+            }
+        }
+        if launched.len() == before {
+            return;
+        }
+    }
+}
+
+/// The scanned processes that use the home, without this process.
+fn holders_in(
+    scan: &[ScannedProcess],
+    launched: &std::collections::BTreeSet<u32>,
+) -> Vec<HomeHolder> {
+    let mut holders: Vec<HomeHolder> = scan
+        .iter()
+        .filter(|process| process.pid != std::process::id())
+        .filter(|process| process.names_home || process.runs_from_home)
+        .map(|process| HomeHolder {
+            pid: process.pid,
+            name: process.name.clone(),
+            runs_from_home: process.runs_from_home,
+            launched_by_run: launched.contains(&process.pid),
         })
         .collect();
     holders.sort_by_key(|holder| holder.pid);
@@ -299,21 +364,18 @@ fn describe_holders(holders: &[HomeHolder]) -> String {
         .join(", ")
 }
 
-/// Windows: the processes whose command line names `home`, or whose executable lives in it.
-///
-/// An app launched into a QA home starts helpers that outlive it for a moment after it is
-/// stopped: WebView2 and GPU processes carry the home in `--user-data-dir=` and keep its
-/// `EBWebView`, shader cache and log files open while they exit, so removing the home at once
-/// fails with "Access is denied". `None` when the scan itself failed.
+/// Windows: every process, marked when its command line names `home` or its executable lives in
+/// it. `None` when the scan itself failed.
 #[cfg(windows)]
-pub fn home_holders(home: &Path) -> Option<Vec<HomeHolder>> {
+fn scan_processes(home: &Path) -> Option<Vec<ScannedProcess>> {
     use std::os::windows::process::CommandExt;
     use std::process::{Command, Stdio};
     const SCAN: &str = "$h = $env:RIGHTKIT_QA_SCAN_HOME; \
-        Get-CimInstance Win32_Process | Where-Object { \
-        ($_.CommandLine -and $_.CommandLine.IndexOf($h, [StringComparison]::OrdinalIgnoreCase) -ge 0) -or \
-        ($_.ExecutablePath -and $_.ExecutablePath.StartsWith($h, [StringComparison]::OrdinalIgnoreCase)) } | \
-        ForEach-Object { [string]$_.ProcessId + [char]9 + $_.Name }";
+        Get-CimInstance Win32_Process | ForEach-Object { \
+        $f = '-'; \
+        if ($_.CommandLine -and $_.CommandLine.IndexOf($h, [StringComparison]::OrdinalIgnoreCase) -ge 0) { $f += 'C' }; \
+        if ($_.ExecutablePath -and $_.ExecutablePath.StartsWith($h + [char]92, [StringComparison]::OrdinalIgnoreCase)) { $f += 'E' }; \
+        [string]$_.ProcessId + [char]9 + [string]$_.ParentProcessId + [char]9 + $f + [char]9 + $_.Name }";
     let system_root = std::env::var_os("SystemRoot").unwrap_or_else(|| "C:\\Windows".into());
     let powershell = Path::new(&system_root)
         .join("System32")
@@ -332,26 +394,72 @@ pub fn home_holders(home: &Path) -> Option<Vec<HomeHolder>> {
     output
         .status
         .success()
-        .then(|| parse_holders(&String::from_utf8_lossy(&output.stdout)))
+        .then(|| parse_scan(&String::from_utf8_lossy(&output.stdout)))
 }
 
-/// Other systems remove a directory whatever holds its files open.
+/// Other systems remove a directory whatever holds its files open: nothing to scan.
 #[cfg(not(windows))]
-pub fn home_holders(_home: &Path) -> Option<Vec<HomeHolder>> {
+fn scan_processes(_home: &Path) -> Option<Vec<ScannedProcess>> {
     Some(Vec::new())
 }
 
-/// Wait until no process uses `home`, at most `wait`; then end the ones that remain (they belong
-/// to this run: nothing else is ever started with a QA home). Returns the holders that were
-/// still there when the wait ran out.
-fn settle_home_holders(home: &Path, wait: Duration) -> Vec<HomeHolder> {
-    let deadline = std::time::Instant::now() + wait;
-    let mut holders = home_holders(home).unwrap_or_default();
-    while !holders.is_empty() && std::time::Instant::now() < deadline {
-        crate::util::sleep_ms(250);
-        holders = home_holders(home).unwrap_or_default();
+/// Windows: the processes that use `home`: their command line names it, or their executable is
+/// inside it. Empty on other systems. `None` when the scan itself failed.
+///
+/// An app launched into a QA home starts helpers that outlive it for a moment after it is
+/// stopped: WebView2 and GPU processes carry the home in `--user-data-dir=` and keep its
+/// `EBWebView`, shader cache and log files open while they exit, so removing the home at once
+/// fails with "Access is denied".
+pub fn home_holders(home: &Path) -> Option<Vec<HomeHolder>> {
+    let scan = scan_processes(home)?;
+    Some(holders_in(&scan, &Default::default()))
+}
+
+/// The file in a run root that lists the pids of the apps launched into its home.
+const LAUNCHED_PIDS: &str = ".launched-pids";
+
+/// Record that this run launched process `pid` into the workspace's home. Disposal may end
+/// what that process started and left behind; see [`dispose`]. Called by `control::launch`;
+/// call it for an app started by hand.
+pub fn record_launched(ws: &QaWorkspace, pid: u32) {
+    use std::io::Write;
+    if let Ok(mut file) = fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(ws.root.join(LAUNCHED_PIDS))
+    {
+        let _ = writeln!(file, "{pid}");
     }
-    for holder in &holders {
+}
+
+fn launched_pids(ws: &QaWorkspace) -> std::collections::BTreeSet<u32> {
+    fs::read_to_string(ws.root.join(LAUNCHED_PIDS))
+        .unwrap_or_default()
+        .lines()
+        .filter_map(|line| line.trim().parse().ok())
+        .filter(|pid| *pid != 0 && *pid != std::process::id())
+        .collect()
+}
+
+/// Wait until no process uses the home, at most `wait`. Then end the holders that belong to the
+/// run (they run from the home, or descend from an app the run launched) and leave the others.
+/// Returns the holders that were still there when the wait ran out.
+fn settle_home_holders(ws: &QaWorkspace, wait: Duration) -> Vec<HomeHolder> {
+    let deadline = std::time::Instant::now() + wait;
+    let mut launched = launched_pids(ws);
+    let mut holders;
+    loop {
+        let Some(scan) = scan_processes(&ws.home) else {
+            return Vec::new();
+        };
+        extend_descendants(&mut launched, &scan);
+        holders = holders_in(&scan, &launched);
+        if holders.is_empty() || std::time::Instant::now() >= deadline {
+            break;
+        }
+        crate::util::sleep_ms(250);
+    }
+    for holder in holders.iter().filter(|holder| holder.owned_by_run()) {
         crate::process::kill_tree(holder.pid);
     }
     holders
@@ -364,8 +472,10 @@ const HOLDER_WAIT: Duration = Duration::from_secs(20);
 /// window where an exiting app still holds files.
 ///
 /// On Windows it first waits (up to 20 seconds) for every process that still uses the home to
-/// exit and ends those that do not. A home that still cannot be removed is reported with the
-/// processes that hold it.
+/// exit. Of those that remain it ends only the run's own: a process whose executable is inside
+/// the home, or that descends from an app the run launched into it ([`record_launched`]). A
+/// process that merely names the home on its command line is never ended. A home that still
+/// cannot be removed is reported with the processes that hold it.
 pub fn dispose(
     ws: &QaWorkspace,
     keep_evidence: bool,
@@ -405,7 +515,7 @@ fn dispose_waiting(
             continue;
         }
         if target == ws.home {
-            settle_home_holders(&target, holder_wait);
+            settle_home_holders(ws, holder_wait);
         }
         let mut last = String::new();
         for attempt in 1..=attempts.max(1) {
@@ -623,64 +733,160 @@ mod tests {
         let _ = fs::remove_dir_all(root);
     }
 
+    fn scanned(pid: u32, parent: u32, flags: &str, name: &str) -> ScannedProcess {
+        ScannedProcess {
+            pid,
+            parent,
+            names_home: flags.contains('C'),
+            runs_from_home: flags.contains('E'),
+            name: name.into(),
+        }
+    }
+
     #[test]
-    fn the_process_scan_is_read_line_by_line_without_this_process() {
-        let me = std::process::id();
-        let scan = format!("  412\tmsedgewebview2.exe\r\n{me}\trightkit-qa.exe\n\nnot a row\n98\tCutRight.exe\n412\tmsedgewebview2.exe\n");
-        let holders = parse_holders(&scan);
+    fn the_process_scan_is_read_row_by_row() {
+        let scan = parse_scan(
+            "  412\t98\t-C\tmsedgewebview2.exe\r\n98\t4\t-\tCutRight.exe\n\nnot a row\n7\t1\t-CE\ttool.exe\n",
+        );
         assert_eq!(
-            holders,
+            scan,
             vec![
-                HomeHolder {
-                    pid: 98,
-                    name: "CutRight.exe".into()
-                },
-                HomeHolder {
-                    pid: 412,
-                    name: "msedgewebview2.exe".into()
-                },
+                scanned(412, 98, "C", "msedgewebview2.exe"),
+                scanned(98, 4, "", "CutRight.exe"),
+                scanned(7, 1, "CE", "tool.exe"),
             ]
+        );
+        assert!(parse_scan("").is_empty());
+    }
+
+    #[test]
+    fn only_the_runs_own_processes_may_be_ended_and_every_holder_is_named() {
+        let me = std::process::id();
+        let scan = vec![
+            // The launched app (already recorded), its WebView2 browser and that one's GPU child.
+            scanned(98, 4, "", "CutRight.exe"),
+            scanned(412, 98, "C", "msedgewebview2.exe"),
+            scanned(413, 412, "C", "msedgewebview2.exe"),
+            // A tool that runs from inside the home.
+            scanned(7, 1, "CE", "tool.exe"),
+            // Someone's editor or shell that merely names the home: a holder, never ended.
+            scanned(900, 1, "C", "notepad.exe"),
+            // Unrelated, and this process itself even if its command line named the home.
+            scanned(5000, 1, "", "explorer.exe"),
+            scanned(me, 1, "C", "rightkit-qa.exe"),
+        ];
+        let mut launched = std::collections::BTreeSet::from([98]);
+        extend_descendants(&mut launched, &scan);
+        assert_eq!(launched, std::collections::BTreeSet::from([98, 412, 413]));
+
+        let holders = holders_in(&scan, &launched);
+        assert_eq!(
+            holders
+                .iter()
+                .map(|h| (h.pid, h.owned_by_run()))
+                .collect::<Vec<_>>(),
+            vec![(7, true), (412, true), (413, true), (900, false)]
         );
         assert_eq!(
             describe_holders(&holders),
-            "CutRight.exe (pid 98), msedgewebview2.exe (pid 412)"
+            "tool.exe (pid 7), msedgewebview2.exe (pid 412), msedgewebview2.exe (pid 413), notepad.exe (pid 900)"
         );
-        assert!(parse_holders("").is_empty());
+
+        // A later scan, after the browser process has exited: its child is still known.
+        let later = vec![scanned(413, 412, "C", "msedgewebview2.exe")];
+        extend_descendants(&mut launched, &later);
+        assert!(holders_in(&later, &launched)[0].launched_by_run);
+        // Without a recorded launch nothing that only names the home may be ended.
+        assert!(!holders_in(&later, &Default::default())[0].owned_by_run());
     }
 
-    /// Ledger 174. A helper that outlives the stopped app sits in the home (its working
-    /// directory) and names it on its command line, as WebView2 does. Removing the home at once
-    /// fails; disposal finds the helper, waits, ends it and then removes the home.
+    #[test]
+    fn launched_pids_are_recorded_in_the_run_root() {
+        let root = storage::app_temp_dir().join(format!("rkqa-ws-pids-{}", new_id()));
+        let ws = create(&root, Some("pids1"), "pidsapp").unwrap();
+        assert!(launched_pids(&ws).is_empty());
+        record_launched(&ws, 4242);
+        record_launched(&ws, 4343);
+        record_launched(&ws, std::process::id());
+        assert_eq!(
+            launched_pids(&ws),
+            std::collections::BTreeSet::from([4242, 4343])
+        );
+        let report = dispose(&ws, false, 2, 1);
+        assert!(report.retained.is_empty(), "{report:?}");
+        let _ = fs::remove_dir_all(root);
+    }
+
+    /// Ledger 174. A helper that the launched app started outlives it, sits in the home (its
+    /// working directory) and names it on its command line, as WebView2 does. Removing the home
+    /// at once fails; disposal finds the helper, waits, ends it and then removes the home.
     #[cfg(windows)]
     #[test]
-    fn dispose_waits_for_a_helper_that_still_uses_the_home_then_removes_it() {
+    fn dispose_waits_for_a_helper_the_app_left_in_the_home_then_removes_it() {
         use std::os::windows::process::CommandExt;
         let root = storage::app_temp_dir().join(format!("rkqa-ws-held-{}", new_id()));
         let ws = create(&root, Some("held1"), "heldapp").unwrap();
-        let mut helper = std::process::Command::new("cmd.exe")
+        // The "app": a shell the run launched. Its child keeps running in the home.
+        let mut app = std::process::Command::new("cmd.exe")
             .args(["/d", "/c", "ping -n 120 127.0.0.1 >nul & rem"])
             .arg(format!("--user-data-dir={}", ws.home.display()))
             .current_dir(&ws.home)
             .creation_flags(0x0800_0000)
             .spawn()
             .unwrap();
+        record_launched(&ws, app.id());
 
-        // The scan names it, and the home cannot be removed while it runs.
+        // The scan names it, and it is not this process.
         let holders = home_holders(&ws.home).expect("the process scan runs");
         assert!(
-            holders.iter().any(|holder| holder.pid == helper.id()),
+            holders.iter().any(|holder| holder.pid == app.id()),
             "{holders:?}"
         );
         assert!(holders
             .iter()
             .all(|holder| holder.pid != std::process::id()));
-        assert!(fs::remove_dir(&ws.home).is_err());
 
         let report = dispose_waiting(&ws, false, 20, 250, Duration::from_secs(2));
         assert!(report.retained.is_empty(), "{report:?}");
         assert!(!ws.home.exists());
-        let _ = helper.kill();
-        let _ = helper.wait();
+        let _ = app.kill();
+        let _ = app.wait();
+        let _ = fs::remove_dir_all(root);
+    }
+
+    /// A process that only names the home on its command line, and that the run did not launch,
+    /// is left running and named in the report.
+    #[cfg(windows)]
+    #[test]
+    fn dispose_leaves_a_foreign_process_that_names_the_home_and_reports_it() {
+        use std::os::windows::process::CommandExt;
+        let root = storage::app_temp_dir().join(format!("rkqa-ws-foreign-{}", new_id()));
+        let ws = create(&root, Some("foreign1"), "foreignapp").unwrap();
+        let mut foreign = std::process::Command::new("cmd.exe")
+            .args(["/d", "/c", "ping -n 120 127.0.0.1 >nul & rem"])
+            .arg(format!("--watch={}", ws.home.display()))
+            .current_dir(&ws.home)
+            .creation_flags(0x0800_0000)
+            .spawn()
+            .unwrap();
+
+        let report = dispose_waiting(&ws, false, 2, 50, Duration::from_millis(500));
+        assert!(matches!(foreign.try_wait(), Ok(None)), "it must still run");
+        let (_, why) = report
+            .retained
+            .iter()
+            .find(|(path, _)| path == &ws.home)
+            .unwrap_or_else(|| panic!("the home is held: {report:?}"));
+        assert!(
+            why.contains(&format!("held by cmd.exe (pid {})", foreign.id())),
+            "{why}"
+        );
+
+        crate::process::kill_tree(foreign.id());
+        let _ = foreign.wait();
+        // With the holder gone the home can be removed.
+        crate::util::sleep_ms(300);
+        assert!(fs::remove_dir_all(&ws.home).is_ok());
         let _ = fs::remove_dir_all(root);
     }
 }
