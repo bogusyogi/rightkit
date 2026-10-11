@@ -183,13 +183,27 @@ tauri::Builder::default()
 Add this plugin first. It uses only `app_id` from the builder & always enables
 arbitration. It retains the primary service guard until exit, forwards argv/cwd
 to the primary callback & exits a successful secondary launch. Unavailable
-arbitration reports its reason to stderr & allows startup, as `instance::arbitrate`
-does. The callback owns all second-launch behavior, including URL delivery & focus.
+arbitration fails startup (the plugin setup returns an error): the app never runs as a second
+primary. `instance::arbitrate` returns `Arbitration::Unavailable` for OS-level failures and
+`Arbitration::InvalidAppId` for an unusable id; the caller must treat neither as "single instance off". The callback owns all second-launch behavior, including URL delivery & focus.
 
 This entry point installs no hardening script, native hardening, navigation
 policy, window-state restoration, presence loop or `ShellState`. Use your own
 invoke handler; `rightkit_shell::handler!` requires the full plugin. Choose one
 plugin entry point per app. The lower-level `instance::arbitrate` remains public.
+
+### Single-instance naming
+
+The single-instance service is named `<id>-shell` (`instance::arbitrate`, the plugins) or
+`<id>-instance` (`SingleInstance::claim`), after the id is normalised: ASCII-lowercased, then every
+character outside `[a-z0-9-]` becomes `-`, one for one, nothing collapsed or trimmed. A dotted bundle
+identifier works: `app.mailright` becomes `app-mailright`, `Mail_Right` becomes `mail-right`. An id that
+is already `[a-z0-9-]` is unchanged, so running instances are still found across an upgrade. Distinct
+ids can normalise to one name (`a.b` and `a-b`), which makes them the same app for this purpose.
+`rightkit-service` allows 1 to 48 bytes of `[a-z0-9-]`, so an empty id, or one longer than 42 bytes
+(`-shell`) or 39 bytes (`-instance`), is refused with `Arbitration::InvalidAppId(InvalidAppId)` or
+`ClaimFailure::InvalidId`, never with `Unavailable` or `Host`. `instance::try_service_name(id)` returns the
+name or the typed error. `ShellBuilder::build` still panics on any id outside `[a-z0-9-]` and 40 bytes.
 
 ### Full-plugin script scope
 

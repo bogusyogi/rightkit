@@ -4,21 +4,19 @@
 use rightkit_fs::{clone_file_nofollow, CloneError};
 use std::fs;
 use std::os::unix::fs::MetadataExt;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
-const MANAGED_TMP: &str = "/Volumes/D/.rightkit-managed/tmp";
-
-fn managed_tmp() -> Option<PathBuf> {
-    let base = Path::new(MANAGED_TMP);
-    base.is_dir().then(|| base.to_path_buf())
+/// Same-volume scratch base: the platform temp dir, resolved so no ancestor is a symlink
+/// (macOS temp dirs sit under the /var -> /private/var symlink).
+fn managed_tmp() -> PathBuf {
+    std::env::temp_dir()
+        .canonicalize()
+        .expect("platform temp dir must resolve")
 }
 
 #[test]
 fn clones_a_regular_file_on_the_same_apfs_volume() {
-    let Some(base) = managed_tmp() else {
-        eprintln!("skip: {MANAGED_TMP} is not present");
-        return;
-    };
+    let base = managed_tmp();
     let dir = tempfile::Builder::new()
         .prefix("clone-test-")
         .tempdir_in(&base)
@@ -43,10 +41,7 @@ fn clones_a_regular_file_on_the_same_apfs_volume() {
 
 #[test]
 fn refuses_a_symlink_source_instead_of_cloning_or_following_it() {
-    let Some(base) = managed_tmp() else {
-        eprintln!("skip: {MANAGED_TMP} is not present");
-        return;
-    };
+    let base = managed_tmp();
     let dir = tempfile::Builder::new()
         .prefix("clone-test-")
         .tempdir_in(&base)
@@ -68,10 +63,7 @@ fn refuses_a_symlink_source_instead_of_cloning_or_following_it() {
 
 #[test]
 fn refuses_an_existing_destination_without_overwriting_it() {
-    let Some(base) = managed_tmp() else {
-        eprintln!("skip: {MANAGED_TMP} is not present");
-        return;
-    };
+    let base = managed_tmp();
     let dir = tempfile::Builder::new()
         .prefix("clone-test-")
         .tempdir_in(&base)
@@ -89,28 +81,28 @@ fn refuses_an_existing_destination_without_overwriting_it() {
 
 #[test]
 fn refuses_a_cross_volume_destination() {
-    let Some(base) = managed_tmp() else {
-        eprintln!("skip: {MANAGED_TMP} is not present");
-        return;
-    };
+    let base = managed_tmp();
     let dir = tempfile::Builder::new()
         .prefix("clone-test-")
         .tempdir_in(&base)
         .expect("fresh subdir");
     let src = dir.path().join("source.rs");
     fs::write(&src, b"x\n").unwrap();
-    // /private/tmp lives on the system volume. TMPDIR is not used: rightkit cargo points it at /Volumes/D.
-    let system_tmp = Path::new("/private/tmp");
-    if !system_tmp.is_dir() {
-        eprintln!("skip: /private/tmp is not present");
+    // A cross-volume case needs a directory on a different volume from the scratch base, which no
+    // portable default provides. Name one with RIGHTKIT_CLONE_XVOL_DIR; unset, the case is skipped.
+    let Some(other_root) = std::env::var_os("RIGHTKIT_CLONE_XVOL_DIR").map(PathBuf::from) else {
+        eprintln!("skip: RIGHTKIT_CLONE_XVOL_DIR is not set; cross-volume case not exercised");
         return;
-    }
+    };
     let other = tempfile::Builder::new()
         .prefix("clone-xvol-")
-        .tempdir_in(system_tmp)
-        .expect("system temp dir");
+        .tempdir_in(&other_root)
+        .expect("cross-volume scratch dir");
     if fs::metadata(other.path()).unwrap().dev() == fs::metadata(&base).unwrap().dev() {
-        panic!("/private/tmp shares a volume with {MANAGED_TMP}; cross-volume case cannot be exercised");
+        panic!(
+            "RIGHTKIT_CLONE_XVOL_DIR shares a volume with the scratch base {}; cross-volume case cannot be exercised",
+            base.display()
+        );
     }
     let dst = other.path().join("clone.rs");
 
@@ -125,10 +117,7 @@ fn refuses_a_cross_volume_destination() {
 
 #[test]
 fn missing_source_is_an_io_error_and_creates_nothing() {
-    let Some(base) = managed_tmp() else {
-        eprintln!("skip: {MANAGED_TMP} is not present");
-        return;
-    };
+    let base = managed_tmp();
     let dir = tempfile::Builder::new()
         .prefix("clone-test-")
         .tempdir_in(&base)

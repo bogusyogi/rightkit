@@ -1,8 +1,13 @@
 # RightKitSwift changelog
 
-## Unreleased
+## 0.7.0 - 2026-10-11
 
-Audit S01-S06 (fresh-2026-10-11). Source compatible except where marked.
+Audit S01-S06 (fresh-2026-10-11), the RightKitOverlay panel work, and the move to URL distribution from `Orthic-Labs/rightkit`. Source compatible except where marked.
+
+- Distribution: the repository root now carries a `Package.swift` that exposes the same 15 library products with explicit `path:` under `swift/RightKitSwift`, so apps pin `https://github.com/Orthic-Labs/rightkit` with `exact: "0.7.0"`. The first tag on that repository is `0.7.0`. The private mirror `bogusyogi/rightkit-swift` is retired once apps move. The package identity SwiftPM derives from the URL is `rightkit`: use `package: "rightkit"` in `.product(...)`.
+- `RightKitOverlay`: panel configuration (`RightKitOverlayPanelConfiguration`, `RightKitOverlayPanel.init(contentRect:kind:configuration:)`), hit regions and hit shape, `showWithoutActivating()` / `showAsKey()` / `hide()`, pointer tracker, display ordering, and full-screen helpers (`RightKitOverlayFullScreen`, `frontmostAppIsFullScreen`). Additive; the default panel is unchanged.
+- Tools version: both manifests (`Package.swift` at the root and `swift/RightKitSwift/Package.swift`) declare `swift-tools-version: 6.1` (was 6.0). Sources use trailing commas in parameter lists, which need Swift 6.1. Consumers need Xcode 16.3 or newer. Nothing else in the manifests changes meaning between 6.0 and 6.1.
+- `RightKitAppleCredentials`: documented (no code change) that `ForeignGenericPassword.ReadError.accessDenied` covers both `errSecUserCanceled` and `errSecNotAvailable`; use the `...Detailed` calls to tell them apart.
 
 - `RightKitSpeech` S01: `ParakeetEngine` is checked `Sendable` (no `@unchecked`). `vocabulary` is lock-protected and snapshotted when a decode starts; every decode (async, blocking, static window, prime) is admitted one at a time through one gate, because the four Core ML stages are shared. Behaviour change: concurrent decodes on one engine now queue instead of overlapping.
 - `RightKitSpeech` S02: `LiveDictationSession` publishes a legacy capture only while its generation is current; a `stop()` or newer `start()` during setup makes the stale start tear down what it built (idempotent). A superseded start no longer tears down its successor or reports a failure.

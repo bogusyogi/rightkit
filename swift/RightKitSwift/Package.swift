@@ -1,4 +1,4 @@
-// swift-tools-version: 6.0
+// swift-tools-version: 6.1
 import PackageDescription
 
 // Shared platform infrastructure for the Right Suite's native Apple apps. It owns licensing,

@@ -1,112 +1,153 @@
 import assert from "node:assert/strict";
-import path from "node:path";
-import { fileURLToPath } from "node:url";
-import test from "node:test";
 import fs from "node:fs";
 import os from "node:os";
+import path from "node:path";
+import test from "node:test";
+import { fileURLToPath } from "node:url";
 import { spawnSync } from "./background-process.mjs";
 import { digestBytes } from "./publication-artifacts.mjs";
-import { runSwiftPublish, verifySwiftSourceArchive, DEFAULT_SWIFT_GIT_URL, parseSwiftPublishArgs, buildSwiftPublishPlan, readPackageIdentity } from "./publish-swift.mjs";
+import { parseSwiftPublishArgs, readPackageIdentity, runSwiftPublish, swiftTagCommands, verifySwiftSourceArchive, SWIFT_DISTRIBUTION_URL } from "./publish-swift.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
-const packageDir = path.resolve(here, "../../swift/RightKitSwift");
+const realPackageDir = path.resolve(here, "../../swift/RightKitSwift");
 
-test("dry-run needs nothing; the repo defaults to the pinned distribution URL", () => {
-  assert.deepEqual(parseSwiftPublishArgs(["--dry-run"], {}), {
-    repo: DEFAULT_SWIFT_GIT_URL, dryRun: true, allowDirty: false, evidence: undefined, workspace: undefined,
-  });
-  assert.equal(parseSwiftPublishArgs(["--repo", "https://example.com/r.git"], {}).repo, "https://example.com/r.git");
-  assert.throws(() => parseSwiftPublishArgs(["--repo", "ftp://nope"], {}), /invalid swift git url/);
+test("the only flags are --dry-run, --evidence and --workspace; there is no repo or dirty override", () => {
+  assert.deepEqual(parseSwiftPublishArgs(["--dry-run"]), { dryRun: true, evidence: undefined, workspace: undefined });
+  assert.deepEqual(parseSwiftPublishArgs(["--evidence", "e.json", "--workspace", "w"]), { dryRun: false, evidence: "e.json", workspace: "w" });
+  for (const flag of [["--repo", "https://example.com/r.git"], ["--allow-dirty"], ["--url", "x"]]) {
+    assert.throws(() => parseSwiftPublishArgs(flag), /unexpected argument/);
+  }
+  assert.throws(() => parseSwiftPublishArgs(["--evidence"]), /needs a value/);
 });
 
-test("env supplies the repo; --allow-dirty is dry-run only; registry flags are gone", () => {
-  assert.equal(parseSwiftPublishArgs([], { RIGHTKIT_SWIFT_GIT_URL: "https://e/r.git" }).repo, "https://e/r.git");
-  assert.throws(() => parseSwiftPublishArgs(["--allow-dirty"], {}), /only valid with --dry-run/);
-  assert.throws(() => parseSwiftPublishArgs(["--url", "https://reg.local"], {}), /unexpected argument/);
+test("the distribution URL is this repository and the tag commands are plain-semver tag + push", () => {
+  assert.equal(SWIFT_DISTRIBUTION_URL, "https://github.com/Orthic-Labs/rightkit");
+  assert.deepEqual(swiftTagCommands("0.7.0", "a".repeat(40)), [
+    ["git", ["tag", "0.7.0", "a".repeat(40)]],
+    ["git", ["push", "origin", "refs/tags/0.7.0:refs/tags/0.7.0"]],
+  ]);
 });
 
-test("reads the real package identity from VERSION + Package.swift", () => {
-  const { name, version } = readPackageIdentity(packageDir);
+test("reads the real package identity from VERSION + Package.swift; VERSION must be plain semver", () => {
+  const { name, version } = readPackageIdentity(realPackageDir);
   assert.equal(name, "RightKitSwift");
-  assert.match(version, /^\d+\.\d+\.\d+/);
+  assert.match(version, /^\d+\.\d+\.\d+$/);
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "rk-swift-id-"));
+  try {
+    fs.writeFileSync(path.join(dir, "Package.swift"), 'let package = Package(name: "X")\n');
+    for (const bad of ["v1.0.0", "1.0.0-rc.1", "1.0", ""]) {
+      fs.writeFileSync(path.join(dir, "VERSION"), `${bad}\n`);
+      assert.throws(() => readPackageIdentity(dir), /plain semver/, bad);
+    }
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
 
-test("dry-run and real plans both prove exact-pin consumer resolution; only real pushes", () => {
-  const base = { packageDir, name: "RightKitSwift", version: "0.3.0", repo: DEFAULT_SWIFT_GIT_URL };
-  const dry = buildSwiftPublishPlan({ ...base, dryRun: true });
-  assert.equal(dry[0].internal, "secret-scan");
-  assert.ok(dry.some((s) => s.label === "tests" && s.command === "swift"));
-  assert.ok(dry.some((s) => s.internal === "consume" && s.tag === "0.3.0"), "dry-run resolves a fresh consumer");
-  assert.ok(!dry.some((s) => s.internal === "push"), "dry-run must not push");
-  assert.equal(dry.find((s) => s.internal === "mirror").repo, null, "dry-run never touches the network");
-
-  const real = buildSwiftPublishPlan({ ...base, dryRun: false });
-  assert.equal(real.at(-1).internal, "push");
-  assert.equal(real.find((s) => s.internal === "mirror").repo, DEFAULT_SWIFT_GIT_URL);
-  assert.ok(real.findIndex((s) => s.internal === "consume") < real.findIndex((s) => s.internal === "push"), "resolve before push");
+test("Swift source-archive digest requires evidence and exact bytes", () => {
+  const bytes = Buffer.from("source archive");
+  assert.throws(() => verifySwiftSourceArchive(bytes, {}), /evidence is required/);
+  assert.throws(() => verifySwiftSourceArchive(bytes, { artifactSha256: "f".repeat(64) }), /does not match/);
+  assert.equal(verifySwiftSourceArchive(bytes, { artifactSha256: digestBytes(bytes) }), bytes);
 });
 
-for (const mode of ["unsealed", "mismatch", "swap", "happy", "mutated snapshot", "mutated tag"]) {
-  test(`publish swift: ${mode} binds archive evidence to immutable pushed tree`, () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "rightkit-swift-bytes-"));
-    const source = path.join(root, "source"); fs.mkdirSync(source);
-    fs.writeFileSync(path.join(source, "Package.swift"), '// swift-tools-version: 6.0\nimport PackageDescription\nlet package = Package(name: "RightKitSwift")\n');
-    fs.writeFileSync(path.join(source, "VERSION"), '1.0.0\n');
-    const git = (args, cwd = source) => {
-      const result = spawnSync('git', args, { cwd, encoding: 'utf8' });
-      assert.equal(result.status, 0, result.stderr); return result.stdout.trim();
-    };
-    git(['init', '-q', '-b', 'main']); git(['add', '.']);
-    git(['-c', 'user.name=fixture', '-c', 'user.email=fixture@example.invalid', 'commit', '-q', '-m', 'source']);
-    const tree = git(['rev-parse', 'HEAD^{tree}']), commit = git(['rev-parse', 'HEAD']);
-    const archive = spawnSync('git', ['archive', '--format=tar', '--mtime=1970-01-01T00:00:00Z', tree], { cwd: source }).stdout;
-    const evidence = path.join(root, 'evidence.json');
-    if (mode !== 'unsealed') fs.writeFileSync(evidence, JSON.stringify({ schema: 1, kind: 'swift', name: 'RightKitSwift', version: '1.0.0', commit, artifactSha256: mode === 'mismatch' ? 'f'.repeat(64) : digestBytes(archive), runs: [{ host: { os: 'darwin', arch: 'arm64' }, commit, features: ['default'], artifactSha256: mode === 'mismatch' ? 'f'.repeat(64) : digestBytes(archive), command: 'swift test', passed: 1, failed: 0, operator: 'fixture', timestamp: '2026-10-08T00:00:00Z' }] }));
-    const pushes = [], calls = [];
-    let mirror;
-    const execute = (command, args, options = {}) => {
-      calls.push([command, args]);
-      if (command === 'git' && args[0] === 'archive') {
-        const result = spawnSync(command, args, options);
-        if (mode === 'swap') fs.writeFileSync(path.join(source, 'VERSION'), '9.9.9\n');
-        return result;
-      }
-      if (command === 'git' && args[0] === 'clone') {
-        mirror = args[2]; fs.mkdirSync(mirror); git(['init', '-q', '-b', 'main'], mirror); return { status: 0, stdout: '' };
-      }
-      if (command === 'git' && args[0] === 'push') { pushes.push(args); return { status: 0, stdout: '' }; }
-      if (command === 'swift') {
-        if (args[0] === 'test' && mode === 'mutated snapshot') fs.writeFileSync(path.join(options.cwd, 'VERSION'), '9.9.9\n');
-        if (args[0] === 'package') {
-          fs.writeFileSync(path.join(options.cwd, 'Package.resolved'), '{"version" : "1.0.0"}');
-          if (mode === 'mutated tag') {
-            fs.writeFileSync(path.join(mirror, 'VERSION'), '9.9.9\n'); git(['add', '.'], mirror);
-            git(['-c', 'user.name=fixture', '-c', 'user.email=fixture@example.invalid', 'commit', '-q', '-m', 'changed'], mirror);
-            git(['tag', '-f', '1.0.0'], mirror);
-          }
-        }
-        return { status: 0 };
-      }
-      return spawnSync(command, args, options);
-    };
+const IDENTITY = ["-c", "user.name=fixture", "-c", "user.email=fixture@example.invalid"];
+
+// A bare origin + a working clone laid out like this repository: swift/RightKitSwift/{Package.swift,VERSION}.
+function fixture({ version = "1.0.0" } = {}) {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "rk-swift-tag-"));
+  const origin = path.join(root, "origin.git");
+  const work = path.join(root, "work");
+  const git = (args, cwd = work) => {
+    const result = spawnSync("git", args, { cwd, encoding: "utf8" });
+    assert.equal(result.status, 0, result.stderr);
+    return result.stdout.trim();
+  };
+  fs.mkdirSync(origin);
+  git(["init", "-q", "--bare", "-b", "main"], origin);
+  fs.mkdirSync(path.join(work, "swift", "RightKitSwift"), { recursive: true });
+  const packageDir = path.join(work, "swift", "RightKitSwift");
+  fs.writeFileSync(path.join(packageDir, "Package.swift"), '// swift-tools-version: 6.1\nimport PackageDescription\nlet package = Package(name: "RightKitSwift")\n');
+  fs.writeFileSync(path.join(packageDir, "VERSION"), `${version}\n`);
+  git(["init", "-q", "-b", "main"]);
+  git(["remote", "add", "origin", origin]);
+  git(["add", "."]);
+  git([...IDENTITY, "commit", "-q", "-m", "source"]);
+  git(["push", "-q", "origin", "main"]);
+  const commit = git(["rev-parse", "HEAD"]);
+  const tree = git(["rev-parse", "HEAD:swift/RightKitSwift"]);
+  const archive = spawnSync("git", ["archive", "--format=tar", "--mtime=1970-01-01T00:00:00Z", tree], { cwd: work }).stdout;
+  const evidence = path.join(root, "evidence.json");
+  const sha = digestBytes(archive);
+  fs.writeFileSync(evidence, JSON.stringify({ schema: 1, kind: "swift", name: "RightKitSwift", version, commit, artifactSha256: sha, runs: [{ host: { os: "darwin", arch: "arm64" }, commit, features: ["default"], artifactSha256: sha, command: "swift test", passed: 1, failed: 0, operator: "fixture", timestamp: "2026-10-08T00:00:00Z" }] }));
+  return { root, origin, work, packageDir, evidence, commit, git, cleanup: () => fs.rmSync(root, { recursive: true, force: true }) };
+}
+
+// Real git; the node --test drift run is stubbed so it never starts a nested test run.
+const executor = (driftStatus = 0, seen = []) => (command, args, options = {}) => {
+  seen.push([command, args]);
+  if (command === process.execPath) return { status: driftStatus, stdout: "", stderr: driftStatus ? "drift" : "" };
+  return spawnSync(command, args, options);
+};
+
+test("happy path: tags HEAD with the plain VERSION and pushes only that tag to origin", () => {
+  const f = fixture();
+  try {
+    const seen = [];
+    const result = runSwiftPublish({ packageDir: f.packageDir, evidence: f.evidence, dryRun: false }, executor(0, seen));
+    assert.deepEqual(result, { name: "RightKitSwift", version: "1.0.0", commit: f.commit, published: true });
+    assert.equal(f.git(["rev-parse", "1.0.0"]), f.commit);
+    assert.match(f.git(["ls-remote", "--tags", "origin", "refs/tags/1.0.0"]), new RegExp(`^${f.commit}\\s+refs/tags/1.0.0$`));
+    assert.ok(seen.some(([c, a]) => c === process.execPath && a.join(" ") === `--test ${path.join("scripts", "swift-root-manifest.test.mjs")}`), "drift check ran");
+    assert.ok(seen.some(([c, a]) => c === "git" && a.join(" ") === "push origin refs/tags/1.0.0:refs/tags/1.0.0"));
+  } finally { f.cleanup(); }
+});
+
+test("dry-run checks everything but creates no tag locally or remotely", () => {
+  const f = fixture();
+  try {
+    assert.equal(runSwiftPublish({ packageDir: f.packageDir, evidence: f.evidence, dryRun: true }, executor()).published, false);
+    assert.equal(f.git(["tag", "-l"]), "");
+    assert.equal(f.git(["ls-remote", "--tags", "origin"]), "");
+  } finally { f.cleanup(); }
+});
+
+const refusals = {
+  "off main": (f) => f.git(["checkout", "-q", "-b", "topic"]),
+  "dirty tree": (f) => fs.writeFileSync(path.join(f.work, "stray.txt"), "x"),
+  "HEAD not on origin/main": (f) => { fs.writeFileSync(path.join(f.packageDir, "extra.txt"), "x"); f.git(["add", "."]); f.git([...IDENTITY, "commit", "-q", "-m", "unpushed"]); },
+  "tag already local": (f) => f.git(["tag", "1.0.0"]),
+  "tag already on origin": (f) => { f.git(["tag", "1.0.0"]); f.git(["push", "-q", "origin", "refs/tags/1.0.0"]); f.git(["tag", "-d", "1.0.0"]); },
+};
+const expected = { "off main": /only on main/, "dirty tree": /not clean/, "HEAD not on origin/main": /not on origin\/main/, "tag already local": /already exists locally/, "tag already on origin": /already exists on origin/ };
+for (const [mode, arrange] of Object.entries(refusals)) {
+  test(`refuses: ${mode}`, () => {
+    const f = fixture();
     try {
-      const invoke = () => runSwiftPublish({ packageDir: source, repo: 'https://example.invalid/rightkit-swift.git', evidence, dryRun: false }, execute);
-      if (['happy', 'swap'].includes(mode)) {
-        assert.equal(invoke().published, true);
-        assert.equal(pushes.length, 1); assert.equal(pushes[0][1], '--atomic');
-        assert.match(pushes[0][3], /^[a-f0-9]{40}:refs\/heads\/main$/);
-        assert.equal(pushes[0][3].slice(0, 40), pushes[0][4].slice(0, 40));
-      } else {
-        assert.throws(invoke, /publication gate|archive sha256|mirror differs|tag changed/);
-        assert.equal(pushes.length, 0);
-        if (['unsealed', 'mismatch'].includes(mode)) assert.equal(calls.some(([command]) => command === 'swift'), false);
-      }
-    } finally { fs.rmSync(root, { recursive: true, force: true }); }
+      arrange(f);
+      const before = f.git(["ls-remote", "--tags", "origin"]);
+      assert.throws(() => runSwiftPublish({ packageDir: f.packageDir, evidence: f.evidence, dryRun: false }, executor()), expected[mode]);
+      assert.equal(f.git(["ls-remote", "--tags", "origin"]), before, "origin tags unchanged");
+    } finally { f.cleanup(); }
   });
 }
-test('Swift source-archive digest requires evidence and exact bytes', () => {
-  const bytes = Buffer.from('source archive');
-  assert.throws(() => verifySwiftSourceArchive(bytes, {}), /evidence is required/);
-  assert.throws(() => verifySwiftSourceArchive(bytes, { artifactSha256: 'f'.repeat(64) }), /does not match/);
-  assert.equal(verifySwiftSourceArchive(bytes, { artifactSha256: digestBytes(bytes) }), bytes);
+
+test("refuses when the root manifest drifted from the nested manifest", () => {
+  const f = fixture();
+  try {
+    assert.throws(() => runSwiftPublish({ packageDir: f.packageDir, evidence: f.evidence, dryRun: false }, executor(1)), /drifted/);
+    assert.equal(f.git(["tag", "-l"]), "");
+  } finally { f.cleanup(); }
+});
+
+test("refuses without publication evidence, and with evidence for another commit or tree", () => {
+  const f = fixture();
+  try {
+    const missing = path.join(f.root, "missing.json");
+    assert.throws(() => runSwiftPublish({ packageDir: f.packageDir, evidence: missing, dryRun: false }, executor()), /publication gate/);
+    const stale = JSON.parse(fs.readFileSync(f.evidence, "utf8"));
+    stale.artifactSha256 = "f".repeat(64);
+    stale.runs[0].artifactSha256 = "f".repeat(64);
+    fs.writeFileSync(f.evidence, JSON.stringify(stale));
+    assert.throws(() => runSwiftPublish({ packageDir: f.packageDir, evidence: f.evidence, dryRun: false }, executor()), /does not match|publication gate/);
+    assert.equal(f.git(["tag", "-l"]), "");
+  } finally { f.cleanup(); }
 });

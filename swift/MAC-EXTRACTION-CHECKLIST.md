@@ -12,9 +12,9 @@
 >
 > **Current qualification path:** `swift test` and `swift build -c release` in `RightKitSwift/`, the iOS Simulator
 > build (`xcodebuild -scheme RightKitSwift-Package -destination 'generic/platform=iOS Simulator' build`), then
-> `right-release publish swift` (secret scan, tests, release build, mirror and tag, fresh-consumer `exact:` resolution,
-> push; use `--dry-run` for everything but the push). `swift/scripts/archive-package.mjs` is a deterministic
-> source-archive helper derived from the package's own git tree. Each adopting app is qualified separately.
+> `right-release publish swift` (main, clean tree, HEAD on origin/main, root-manifest drift check, free tag, gate evidence,
+> then `git tag <VERSION>` and push of that tag to `Orthic-Labs/rightkit`; use `--dry-run` for everything but the tag).
+> Each adopting app is qualified separately.
 
 The sections below are the original gate text.
 
@@ -68,7 +68,7 @@ The sections below are the original gate text.
 
 ## 6. Publication and clean-clone proof (originally "Registry"; superseded by git URL + exact tag)
 
-- Publish only through the `right-release publish swift` lane (secret scan, tests, release build, mirror and tag, fresh-consumer exact-pin resolution, then push). Do not hand-run a publish.
+- Publish only through the `right-release publish swift` lane (main, clean tree, HEAD on origin/main, root-manifest drift check, free tag, gate evidence, then tag and push). Do not hand-run a publish.
 - In a clean directory outside the Claude workspace, resolve the exact git URL + version tag, run `swift test`, and build the HeardRight integration without sibling paths.
 - Record package version, git URL and tag, archive SHA-256, resolved dependency metadata, test logs, and clean-clone path in the evidence bundle.
 - Gate: `right-release doctor` rejects path/branch/revision dependencies and non-exact pins before app adoption.

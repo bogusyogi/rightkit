@@ -111,6 +111,11 @@ pub enum ClaimFailure {
     /// this launch within the bound (a hung old build). The caller must not start a second primary
     /// silently; report that the older copy is not responding and how to close it.
     Legacy(String),
+    /// The id cannot be turned into a service name (empty, or longer than 39 bytes). The id is
+    /// normalised first (ASCII lowercase, every character outside `[a-z0-9-]` becomes `-`), so a
+    /// dotted bundle identifier is fine. This is a caller bug: nothing was hosted and protection is
+    /// off, so fix the id rather than continuing unarbitrated.
+    InvalidId(String),
 }
 
 impl fmt::Display for ClaimFailure {
@@ -120,6 +125,7 @@ impl fmt::Display for ClaimFailure {
             Self::Host(m) => write!(f, "single-instance host failed: {m}"),
             Self::Forward(m) => write!(f, "single-instance forward failed: {m}"),
             Self::Legacy(m) => write!(f, "single-instance legacy holder refused the launch: {m}"),
+            Self::InvalidId(m) => write!(f, "single-instance id is not usable: {m}"),
         }
     }
 }
@@ -407,6 +413,14 @@ impl SingleInstance {
         message: InstanceMessage,
         on_message: impl Fn(InstanceMessage) + Send + Sync + 'static,
     ) -> ClaimOutcome {
+        let service = match crate::instance::derive_service_name(id, "-instance") {
+            Ok(name) => name,
+            Err(e) => {
+                eprintln!("rightkit-shell: single-instance is NOT active, invalid id: {e}");
+                return ClaimOutcome::Failed(ClaimFailure::InvalidId(e.to_string()));
+            }
+        };
+        let client_id = crate::instance::normalize_app_id(id);
         let hold_identifier = options
             .legacy_identifier
             .clone()
@@ -421,13 +435,12 @@ impl SingleInstance {
                 }
             }
         }
-        let service = format!("{id}-instance");
         let mut cfg = ServiceConfig::new(
             &service,
             &format!("instance:{id}"),
             100,
             env!("CARGO_PKG_VERSION"),
-            Allowlist::new().allow(id, [MESSAGE_METHOD]),
+            Allowlist::new().allow(&client_id, [MESSAGE_METHOD]),
         );
         // A claim must come back quickly (see `ClaimFailure`): bound the election.
         cfg.takeover_timeout = HOST_TIMEOUT;
@@ -463,7 +476,7 @@ impl SingleInstance {
                     }
                 }
             }
-            Err(HostError::Held(_)) => forward(suite, id, &service, &message),
+            Err(HostError::Held(_)) => forward(suite, &client_id, &service, &message),
             Err(e) => ClaimOutcome::Failed(ClaimFailure::Host(e.to_string())),
         }
     }

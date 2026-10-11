@@ -3,7 +3,7 @@ import Testing
 
 /// The one distribution contract: git URL + exact version tag (see docs/RIGHTKIT-SHARED-PACKAGES.md,
 /// Swift section). This resolves the package the way a consuming app does, from a fresh clone of a
-/// tagged copy of this package, with an `exact:` pin.
+/// tagged copy of the repository (root Package.swift), with an `exact:` pin.
 @Suite struct ConsumptionContractTests {
     private static let packageRoot = URL(fileURLWithPath: #filePath)
         .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
@@ -38,14 +38,18 @@ import Testing
         let version = try String(contentsOf: Self.packageRoot.appendingPathComponent("VERSION"), encoding: .utf8)
             .trimmingCharacters(in: .whitespacesAndNewlines)
         let work = FileManager.default.temporaryDirectory.appendingPathComponent("rk-consume-\(UUID().uuidString)")
-        let repo = work.appendingPathComponent("rightkit-swift")
+        let repo = work.appendingPathComponent("rightkit")
         let app = work.appendingPathComponent("app")
         defer { try? FileManager.default.removeItem(at: work) }
         try FileManager.default.createDirectory(at: repo, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(at: app.appendingPathComponent("Sources/App"), withIntermediateDirectories: true)
-        // The published mirror is the package tree minus build output.
+        // The distribution is this repository: the root Package.swift plus swift/RightKitSwift, minus build output.
+        let repoRoot = Self.packageRoot.deletingLastPathComponent().deletingLastPathComponent()
+        let nested = repo.appendingPathComponent("swift/RightKitSwift")
+        try FileManager.default.createDirectory(at: nested, withIntermediateDirectories: true)
+        try FileManager.default.copyItem(at: repoRoot.appendingPathComponent("Package.swift"), to: repo.appendingPathComponent("Package.swift"))
         for entry in ["Package.swift", "VERSION", "README.md", "Sources", "Tests"] {
-            try FileManager.default.copyItem(at: Self.packageRoot.appendingPathComponent(entry), to: repo.appendingPathComponent(entry))
+            try FileManager.default.copyItem(at: Self.packageRoot.appendingPathComponent(entry), to: nested.appendingPathComponent(entry))
         }
         for step in [["init", "-q"], ["add", "-A"], ["-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q", "-m", "release"], ["tag", version]] {
             let r = try run("git", step, in: repo)
@@ -58,8 +62,8 @@ import Testing
             name: "App", platforms: [.iOS(.v17), .macOS(.v14)],
             dependencies: [.package(url: "file://\(repo.path)", exact: "\(version)")],
             targets: [.target(name: "App", dependencies: [
-                .product(name: "RightKitCloudSync", package: "rightkit-swift"),
-                .product(name: "RightKitStore", package: "rightkit-swift"),
+                .product(name: "RightKitCloudSync", package: "rightkit"),
+                .product(name: "RightKitStore", package: "rightkit"),
             ])]
         )
         """.write(to: app.appendingPathComponent("Package.swift"), atomically: true, encoding: .utf8)

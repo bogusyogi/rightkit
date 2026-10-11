@@ -13,12 +13,11 @@ packages:
   RightKitSwift:
     # Git URL + EXACT tag, per docs/RIGHTKIT-SHARED-PACKAGES.md (Swift section). Never a local path:
     # scripts/check-package-pin.sh fails if one appears.
-    # Tag 0.3.0 exists on the distribution repo (verified 2026-10-10 with `git ls-remote --tags`),
-    # so a fresh clone resolves it. The pin is deliberately exact and lags newer published tags:
-    # raise it only with a template build proof (scripts/build-with-local-mirror.sh builds the
-    # current RightKitSwift source under the pinned tag name, for use before a pin is raised).
-    url: https://github.com/bogusyogi/rightkit-swift.git
-    exactVersion: 0.3.0
+    # The URL is the public repository itself; its root Package.swift exposes RightKitSwift at a plain
+    # semver tag. The pin is deliberately exact: raise it only after the tag exists on origin
+    # (`right-release publish swift`) and the template builds against it.
+    url: https://github.com/Orthic-Labs/rightkit
+    exactVersion: 0.7.0
 targets:
   RightAppTemplate:
     type: application

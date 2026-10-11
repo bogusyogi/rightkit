@@ -163,9 +163,14 @@ impl Suite {
     }
 }
 
-pub(crate) fn valid_service_name(s: &str) -> bool {
+/// The longest service name `host` accepts, in bytes.
+pub const MAX_SERVICE_NAME_LEN: usize = 48;
+
+/// Whether `s` is a service name `host` accepts: non-empty, at most [`MAX_SERVICE_NAME_LEN`] bytes,
+/// and only ASCII lowercase letters, digits and `-`. This is the single rule `host` enforces.
+pub fn valid_service_name(s: &str) -> bool {
     !s.is_empty()
-        && s.len() <= 48
+        && s.len() <= MAX_SERVICE_NAME_LEN
         && s.chars()
             .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
 }
