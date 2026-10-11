@@ -17,8 +17,6 @@ import {
 import "../../shell.css";
 
 const q = new URLSearchParams(location.search);
-// Shortcut glyphs are drawn per OS and detected from the host browser; pin them so the page renders the same on every runner.
-(globalThis as { __RIGHTKIT_QA_PLATFORM__?: string }).__RIGHTKIT_QA_PLATFORM__ = q.get("p") ?? "macos";
 const demo = q.get("demo") ?? "menu";
 const num = (k: string) => (q.has(k) ? Number(q.get(k)) : undefined);
 const log = (line: string) => {

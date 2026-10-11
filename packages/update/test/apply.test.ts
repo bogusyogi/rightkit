@@ -445,7 +445,8 @@ describe("apply: tool", () => {
     ]);
     const staged = path.join(repo, tool.candidateDir, "yt-dlp_macos");
     expect(fs.readFileSync(staged, "utf8")).toBe(MAC_BYTES);
-    expect(fs.statSync(staged).mode & 0o111).not.toBe(0);
+    // Windows has no execute bit to set or read.
+    if (process.platform !== "win32") expect(fs.statSync(staged).mode & 0o111).not.toBe(0);
     // The foreign-platform binary is not stored.
     expect(fs.readdirSync(path.join(repo, tool.candidateDir))).toEqual(["yt-dlp_macos"]);
     // The manifest is untouched until land.

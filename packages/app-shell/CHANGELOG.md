@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Shortcut labels take the platform from `ShellProvider`. `ContextMenu` drew its `Kbd` for the host browser even inside a provider given another `platform`; `JumpTo`, `PaletteTrigger`, `CommandPalette` (without a registry), `Titlebar`, `AppFrame` and the `AppShell` layout fell back to host detection the same way when not given their own `platform` prop. Order is now: the component's `platform` prop, then the provider's platform, then host detection (the provider's own default, and the fallback outside a provider).
+
 ## 0.6.4
 
 Additive. Defaults equal 0.6.3; nothing changes for an app that sets none of the new options. Peer range raised (see below).

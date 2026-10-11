@@ -172,7 +172,7 @@ describe("runSchedule", () => {
     expect(calls[0].slice(0, 4)).toEqual(["schtasks", "/Create", "/TN", windowsTaskName(repo)]);
     expect(calls[0]).toContain("/XML");
     const xmlFile = created.files[0];
-    expect(xmlFile.replace(/\\/g, "/")).toContain(`${local}/RightKit/update/`);
+    expect(xmlFile.replace(/\\/g, "/")).toContain(`${local.replace(/\\/g, "/")}/RightKit/update/`);
     const raw = fs.readFileSync(xmlFile.replace(/\\/g, "/"));
     expect([raw[0], raw[1]]).toEqual([0xff, 0xfe]);
     expect(raw.subarray(2).toString("utf16le")).toContain("<Hidden>true</Hidden>");
