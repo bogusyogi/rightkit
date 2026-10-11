@@ -209,8 +209,10 @@ EOF
   unset CFLAGS CXXFLAGS
 fi
 # Fully static: no libwinpthread-1.dll, libgcc or libstdc++ DLL. The PE timestamp is zeroed so
-# two builds of the same sources are comparable.
+# two builds of the same sources are comparable: --no-insert-timestamp covers the link, and
+# SOURCE_DATE_EPOCH covers FFmpeg's `strip` step, which otherwise stamps the current time.
 ffmpeg_flags+=(--extra-ldflags="-static -static-libgcc -Wl,--no-insert-timestamp")
+export SOURCE_DATE_EPOCH=0
 
 src="$(unpack ffmpeg)"
 (cd "$src" && ./configure "${ffmpeg_flags[@]}" && make -j"$jobs" "$tool.exe")
@@ -222,6 +224,24 @@ cp "$src/COPYING.LGPLv2.1" "$out/$build_tag.notices/FFmpeg-COPYING.LGPLv2.1"
 for entry in "${notices[@]+"${notices[@]}"}"; do
   cp "${entry#*:}" "$out/$build_tag.notices/${entry%%:*}-$(basename "${entry#*:}")"
 done
+# -static also links toolchain runtime code into every exe: the mingw-w64 C runtime, winpthreads
+# and libgcc, plus libstdc++ when a C++ library (zimg, HarfBuzz) is linked. The mingw-w64 runtime
+# licence requires its notices with binaries; they come from the toolchain's own licence files.
+licenses=/mingw64/share/licenses
+toolchain_notice() {
+  # Package directory names vary between MSYS2 snapshots (crt or crt-git, winpthreads or
+  # libwinpthread, gcc or gcc-libs), so each file is found by pattern.
+  local found; found="$(ls $1 2>/dev/null | awk 'NR==1' || true)"
+  if [ -z "$found" ]; then
+    echo "toolchain licence file not found: $1; $licenses holds: $(ls "$licenses" 2>/dev/null | tr '
+' ' ')" >&2
+    exit 1
+  fi
+  cp "$found" "$out/$build_tag.notices/$2"
+}
+toolchain_notice "$licenses/*crt*/COPYING.MinGW-w64-runtime.txt $licenses/*headers*/COPYING.MinGW-w64-runtime.txt" MinGW-w64-runtime-COPYING.txt
+toolchain_notice "$licenses/*winpthread*/COPYING" winpthreads-COPYING.txt
+toolchain_notice "$licenses/gcc*/COPYING.RUNTIME" GCC-RUNTIME-LIBRARY-EXCEPTION.txt
 
 # Linkage gate: every imported DLL must be a Windows system DLL.
 imports="$(objdump -p "$artifact" | sed -n 's/^[[:space:]]*DLL Name: //p' | tr -d '\r' | sort -f)"
@@ -241,6 +261,21 @@ grep -q '^#define CONFIG_GPL 0' "$src/config.h" && grep -q '^#define CONFIG_NONF
 ev="$out/$build_tag.evidence"
 echo "$configuration" > "$ev/configure-line.txt"
 echo "$imports" > "$ev/imports.txt"
+# The toolchain packages whose runtime code is linked statically, with the digest of each package
+# file: the catalog row's toolchain runtime components record these. The digest comes from the
+# package file pacman still has cached, or else from pacman's sync database entry for exactly the
+# installed version (a CI runner keeps no package files).
+{
+  pacman -Q 2>/dev/null | grep -E '^mingw-w64-x86_64-(gcc|gcc-libs|binutils|(crt|headers|winpthreads|libwinpthread)(-git)?) ' |
+    while read -r name version; do
+      digest="$(cd /var/cache/pacman/pkg 2>/dev/null && sha256sum "$name-$version-any.pkg.tar.zst" 2>/dev/null | cut -d' ' -f1 || true)"
+      if [ -z "$digest" ]; then
+        digest="$(bsdtar -xOf /var/lib/pacman/sync/mingw64.db "$name-$version/desc" 2>/dev/null |
+          awk '/^%SHA256SUM%$/ { getline; print; exit }' || true)"
+      fi
+      echo "$name $version ${digest:-digest-unavailable}"
+    done || true
+} > "$ev/toolchain-packages.txt"
 for probe in version buildconf L encoders decoders filters; do
   "$artifact" -hide_banner "-$probe" < /dev/null 2>&1 | tr -d '\r' > "$ev/$probe.txt"
 done

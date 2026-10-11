@@ -71,8 +71,8 @@ Sources (all digests SHA-256):
   zlib-1.3.2.tar.xz
     d7a0654783a4da529d1bb793b7ad9c3318020af77667bcae35f95d0e42a792f3
     https://zlib.net/zlib-1.3.2.tar.xz
-    https://zlib.net/ (fetched 2026-10-11) lists exactly this SHA-256. The OpenPGP signature
-    (zlib-1.3.2.tar.xz.asc) was NOT checked: the Windows host has no gpg.
+    https://zlib.net/ (fetched 2026-10-11) lists exactly this SHA-256: signature not checked,
+    digest matched publisher (accepted; the Windows host has no gpg for zlib-1.3.2.tar.xz.asc).
   zimg 3.0.5 (GitHub archive of tag release-3.0.5)
     a9a0226bf85e0d83c41a8ebe4e3e690e1348682f6a2a7838f1b8cbff1b799bcf
     The Windows host observed the same digest as the shared pin, whose evidence records the
@@ -144,12 +144,43 @@ Statically linked components (licence -> notice file shipped with the binary):
   libass 0.17.3       ISC                 third-party/libass-COPYING.txt
   zimg 3.0.5          WTFPL               third-party/zimg-COPYING.txt
   zlib 1.3.2          Zlib                third-party/zlib-LICENSE.txt
-Binary SPDX: LGPL-2.1-or-later AND FTL AND MIT-Modern-Variant AND ISC AND WTFPL AND Zlib
-OPEN QUESTION for approval (Windows only): `-static -static-libgcc` also links toolchain runtime
-code into the exe: the mingw-w64 C runtime, and, because zimg and HarfBuzz are C++, GCC's
-libgcc/libstdc++ (GPL-3.0 with the GCC Runtime Library Exception) and possibly libwinpthread
-and libatomic. The approved Windows decode build links the mingw-w64 runtime and libgcc the
-same way. Whether these need notice files has not been decided.
+Binary SPDX: LGPL-2.1-or-later AND FTL AND MIT-Modern-Variant AND ISC AND WTFPL AND Zlib AND
+  LicenseRef-MinGW-w64-runtime AND MIT AND BSD-3-Clause AND GPL-3.0-or-later WITH GCC-exception-3.1
+  (ffprobe: LGPL-2.1-or-later AND the four toolchain runtime terms)
+Toolchain runtime, linked statically by `-static -static-libgcc` (notices shipped with the binary):
+  mingw-w64 C runtime (crt 14.0.0.r426)  third-party/MinGW-w64-runtime-COPYING.txt
+                                         (its text requires the notices with binaries)
+  winpthreads 14.0.0.r426                third-party/winpthreads-COPYING.txt (MIT and BSD-style)
+  libgcc, libstdc++ (GCC 16.2.0)         third-party/GCC-RUNTIME-LIBRARY-EXCEPTION.txt
+                                         (GPL-3.0-or-later WITH GCC-exception-3.1)
+  Observed with nm on the unstripped local builds: both exes hold winpthreads symbols (123
+  pthread_*) and libgcc's ___chkstk_ms; the export ffmpeg also holds libstdc++ (434 std
+  symbols, 21 __cxa_/__gxx_), the decode ffprobe holds none. The three texts are copied from
+  the toolchain packages (mingw-w64-x86_64-crt, -winpthreads, -gcc-libs) by the recipe.
+  The catalog rows list them as the toolchain runtime components mingw-w64-runtime,
+  winpthreads and gcc-runtime (libgcc.a and libstdc++.a ship in the gcc package), pinned by
+  the MSYS2 package files of the CI runner that built the catalog binary (windows-2025, run
+  38137274090, <name>.evidence/toolchain-packages.txt):
+    mingw-w64-x86_64-crt-14.0.0.r426.g4564ee4b5-1-any.pkg.tar.zst
+      5513117e204c933ed3b3e17b1bb809667653b72b3ca932d0c048ffc8f01f3801
+    mingw-w64-x86_64-winpthreads-14.0.0.r426.g4564ee4b5-1-any.pkg.tar.zst
+      f8e8cea030192fedc17a41167a868c4de909ebf01ea9730d8d1133641b208785
+    mingw-w64-x86_64-gcc-16.2.0-4-any.pkg.tar.zst
+      7928a168fe0827e6ba41ea672a9957a5bfa47f732f6922e86cf0f24dd61e5d0c
+  (digests from pacman's sync database entries for exactly the installed versions; the runner
+  keeps no package files). Also on the runner: binutils 2.47-3, headers 14.0.0.r426.g4564ee4b5-1.
+  The local validation toolchain was older (crt and winpthreads 14.0.0.r98.g19f5121a2-1,
+  gcc 16.1.0-5), so its binaries differ from the CI ones.
+
+CI builds (ffmpeg-windows workflow, windows-2025)
+  ffmpeg, export-ass-zimg: runs 38132992466, 38134157839 and 38137274090 all gave
+    sha256 2ecd3ab3d313f1a09ad29491979f806faf98c38d150ab37ec2978627fcb9cdb9, 19496448 bytes.
+    -version reports "built with gcc 16.2.0 (Rev4, Built by MSYS2 project)".
+  ffprobe, decode: runs 38138566152 and 38139300738 both gave
+    sha256 4c0ac1359dfaffb28b54a5f6e78e78185271516d50e23ee73807721b14188097, 16198656 bytes.
+  The recipe sets SOURCE_DATE_EPOCH=0 so strip writes no timestamp into the PE header.
+  The approved Windows decode build (BUILD-NOTES.txt) links the same runtime the same way; its
+  catalog row now lists the same three notice files.
 LGPL obligations: FFmpeg and FriBidi are statically linked into one executable; ship the
 notices plus a written source offer covering their complete sources and this recipe.
 

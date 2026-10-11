@@ -78,7 +78,8 @@ pub const DECODE_AV1_VARIANT: &str = "decode-av1";
 pub const DECODE_APPLE_VARIANT: &str = "decode-apple";
 
 /// What a variant may link. `components` lists the only third-party components it may carry
-/// (by name); `required_flags` are configure flags every row of the variant must require.
+/// (by name), apart from [`TOOLCHAIN_RUNTIME_COMPONENTS`], which any variant may list;
+/// `required_flags` are configure flags every row of the variant must require.
 /// A variant not listed here has no extra restriction beyond the catalog-wide rules.
 struct VariantPolicy {
     components: &'static [&'static str],
@@ -141,7 +142,35 @@ pub const ALLOWED_COMPONENT_LICENSES: &[&str] = &[
     // zimg (libzimg, the `zscale` filter): permissive, no copyleft, no notice duty; approved
     // as a component licence 2026-10-11 (see third-party/BUILD-NOTES-ffmpeg-export-ass-zimg-macos.txt).
     "WTFPL",
+    // Toolchain runtime a static MinGW-w64 link carries (see `TOOLCHAIN_RUNTIME_COMPONENTS`).
+    // The mingw-w64 runtime licence is a permissive notice licence with no SPDX identifier.
+    "LicenseRef-MinGW-w64-runtime",
+    // libgcc and libstdc++: the GCC Runtime Library Exception lets a binary GCC built link them
+    // without the GPL reaching the binary. Every other GPL identifier stays refused.
+    "GPL-3.0-or-later WITH GCC-exception-3.1",
 ];
+
+/// Parts of the compiler toolchain's runtime that a static MinGW-w64 link carries into a
+/// Windows binary, each with the only licence it may be recorded under. Any variant may list
+/// them, `decode` included; no other component may carry the two toolchain-only licences.
+pub const TOOLCHAIN_RUNTIME_COMPONENTS: &[(&str, &str)] = &[
+    ("mingw-w64-runtime", "LicenseRef-MinGW-w64-runtime"),
+    ("winpthreads", "MIT AND BSD-3-Clause"),
+    ("gcc-runtime", "GPL-3.0-or-later WITH GCC-exception-3.1"),
+];
+
+/// Licences only a toolchain runtime component may carry.
+const TOOLCHAIN_ONLY_LICENSES: &[&str] = &[
+    "LicenseRef-MinGW-w64-runtime",
+    "GPL-3.0-or-later WITH GCC-exception-3.1",
+];
+
+fn toolchain_runtime_license(component: &str) -> Option<&'static str> {
+    TOOLCHAIN_RUNTIME_COMPONENTS
+        .iter()
+        .find(|(name, _)| *name == component)
+        .map(|(_, license)| *license)
+}
 
 /// FFmpeg's own licence; every entry's SPDX expression starts with it.
 pub const FFMPEG_LICENSE_SPDX: &str = "LGPL-2.1-or-later";
@@ -418,12 +447,10 @@ impl Artifact {
             }
         }
         if let Some(policy) = variant_policy(&self.variant) {
-            if let Some(component) = self
-                .attribution
-                .components
-                .iter()
-                .find(|component| !policy.components.contains(&component.name.as_str()))
-            {
+            if let Some(component) = self.attribution.components.iter().find(|component| {
+                !policy.components.contains(&component.name.as_str())
+                    && toolchain_runtime_license(&component.name).is_none()
+            }) {
                 return Err(MediaError::ComponentNotAllowed {
                     variant: self.variant.clone(),
                     component: component.name.clone(),
@@ -527,15 +554,31 @@ impl Attribution {
             return Err(MediaError::MissingAttribution("build provenance notice"));
         }
         for component in &self.components {
-            if !ALLOWED_COMPONENT_LICENSES.contains(&component.license_spdx.as_str()) {
+            // A toolchain runtime component carries exactly its own licence, and no other
+            // component may carry a toolchain-only licence.
+            let misplaced = match toolchain_runtime_license(&component.name) {
+                Some(license) => component.license_spdx != license,
+                None => component
+                    .license_spdx
+                    .split(" AND ")
+                    .any(|term| TOOLCHAIN_ONLY_LICENSES.contains(&term.trim())),
+            };
+            if misplaced {
                 return Err(MediaError::UnapprovedLicense(
                     component.license_spdx.clone(),
                 ));
             }
-            if !terms.contains(&component.license_spdx.as_str()) {
-                return Err(MediaError::MissingAttribution(
-                    "component licence absent from the SPDX expression",
-                ));
+            // A component licence may be a conjunction: every term must be allowed and named
+            // in the entry's expression.
+            for term in component.license_spdx.split(" AND ").map(str::trim) {
+                if !ALLOWED_COMPONENT_LICENSES.contains(&term) {
+                    return Err(MediaError::UnapprovedLicense(term.to_owned()));
+                }
+                if !terms.contains(&term) {
+                    return Err(MediaError::MissingAttribution(
+                        "component licence absent from the SPDX expression",
+                    ));
+                }
             }
             if !component.source_url.starts_with("https://") {
                 return Err(MediaError::MissingAttribution("component https source URL"));
@@ -1699,6 +1742,108 @@ mod tests {
     }
 
     #[test]
+    fn toolchain_runtime_components_are_admitted_in_any_variant_and_other_gpl_stays_refused() {
+        const DIGEST: &str = "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824";
+        const GCC: &str = "GPL-3.0-or-later WITH GCC-exception-3.1";
+        let runtime = |name: &str, license: &str, notice: &str| Component {
+            name: name.into(),
+            version: "16.1.0-5".into(),
+            license_spdx: license.into(),
+            source_url: "https://mirror.msys2.org/mingw/mingw64/".into(),
+            source_sha256: Some(DIGEST.into()),
+            source_commit: None,
+            enable_flag: None,
+            notice_file: notice.into(),
+        };
+        // A static MinGW-w64 decode build: no library, but the runtime the linker carries in.
+        let mut decode = approved_artifact(DIGEST);
+        assert_eq!(decode.variant, DECODE_VARIANT);
+        decode.attribution.license_spdx = format!(
+            "LGPL-2.1-or-later AND LicenseRef-MinGW-w64-runtime AND MIT AND BSD-3-Clause AND {GCC}"
+        );
+        for &(name, license) in TOOLCHAIN_RUNTIME_COMPONENTS {
+            let notice = format!("{name}-notice.txt");
+            decode.attribution.notice_files.push(notice.clone());
+            decode
+                .attribution
+                .components
+                .push(runtime(name, license, notice.as_str()));
+        }
+        decode.validate().unwrap();
+
+        // Every term of a conjunction must be named in the entry's expression.
+        let mut term_missing = decode.clone();
+        term_missing.attribution.license_spdx =
+            format!("LGPL-2.1-or-later AND LicenseRef-MinGW-w64-runtime AND MIT AND {GCC}");
+        assert!(matches!(
+            term_missing.validate(),
+            Err(MediaError::MissingAttribution(_))
+        ));
+
+        // A runtime component carries its own licence only: plain GPL is refused for libgcc.
+        let mut plain_gpl = decode.clone();
+        plain_gpl.attribution.components[2].license_spdx = "GPL-3.0-or-later".into();
+        assert!(matches!(
+            plain_gpl.validate(),
+            Err(MediaError::UnapprovedLicense(license)) if license == "GPL-3.0-or-later"
+        ));
+
+        // The exception belongs to the GCC runtime: a library cannot be recorded under it.
+        let mut library_under_exception = export_artifact();
+        library_under_exception.attribution.license_spdx = format!("LGPL-2.1-or-later AND {GCC}");
+        library_under_exception.attribution.components[0].license_spdx = GCC.into();
+        assert!(matches!(
+            library_under_exception.validate(),
+            Err(MediaError::UnapprovedLicense(license)) if license == GCC
+        ));
+
+        // The decode variant still admits no library.
+        let mut decode_with_library = decode.clone();
+        decode_with_library
+            .attribution
+            .license_spdx
+            .push_str(" AND ISC");
+        decode_with_library
+            .attribution
+            .notice_files
+            .push("libass-COPYING.txt".into());
+        let mut libass = export_artifact().attribution.components[0].clone();
+        libass.source_sha256 = Some(DIGEST.into());
+        decode_with_library.attribution.components.push(libass);
+        decode_with_library
+            .required_configure_flags
+            .push("--enable-libass".into());
+        assert!(matches!(
+            decode_with_library.validate(),
+            Err(MediaError::ComponentNotAllowed { .. })
+        ));
+
+        // Every other GPL identifier stays refused, as a component and in the expression.
+        for gpl in [
+            "GPL-2.0-only",
+            "GPL-2.0-or-later",
+            "GPL-3.0-only",
+            "GPL-3.0-or-later",
+            "AGPL-3.0-or-later",
+            "GPL-2.0-only WITH GCC-exception-2.0",
+        ] {
+            assert!(!ALLOWED_COMPONENT_LICENSES.contains(&gpl), "{gpl}");
+            let mut in_expression = decode.clone();
+            in_expression.attribution.license_spdx.push_str(" AND ");
+            in_expression.attribution.license_spdx.push_str(gpl);
+            assert!(
+                matches!(
+                    in_expression.validate(),
+                    Err(MediaError::UnapprovedLicense(license)) if license == gpl
+                ),
+                "{gpl}"
+            );
+        }
+        assert!(ALLOWED_COMPONENT_LICENSES.contains(&GCC));
+        assert!(ALLOWED_COMPONENT_LICENSES.contains(&"LicenseRef-MinGW-w64-runtime"));
+    }
+
+    #[test]
     fn x264_and_other_gpl_libraries_are_forbidden_in_a_probe() {
         let artifact =
             approved_artifact("2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824");
@@ -1812,7 +1957,7 @@ mod tests {
             catalog.approved_for(Tool::Ffmpeg, EXPORT_ASS_VARIANT, "macos", "x86_64"),
             Err(MediaError::ArtifactPending { .. })
         ));
-        // Windows has no ffprobe artifact yet: no silent fallback to another platform.
+        // The Windows ffprobe row is pending: no silent fallback to another platform.
         assert!(catalog
             .approved_for(Tool::Ffprobe, DECODE_VARIANT, "windows", "x86_64")
             .is_err());

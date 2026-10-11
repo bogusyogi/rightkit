@@ -2,6 +2,24 @@
 
 ## Unreleased
 
+- Windows x86_64 catalog rows, both `pending`: `ffmpeg-7.1.5-export-ass-zimg-windows-x64` (libass
+  through DirectWrite, FreeType, HarfBuzz, FriBidi, zimg, zlib, Media Foundation `h264_mf`) and
+  `ffprobe-7.1.5-windows-x64` (`decode`). Recipe: `recipes/build-ffmpeg-windows.sh` (MSYS2
+  MINGW64); notes: `third-party/BUILD-NOTES-ffmpeg-export-ass-zimg-windows.txt`. Built once
+  locally; digests are recorded after the `ffmpeg-windows` CI workflow has built them twice.
+- `TOOLCHAIN_RUNTIME_COMPONENTS` (`mingw-w64-runtime`, `winpthreads`, `gcc-runtime`): the runtime
+  code a static MinGW-w64 link carries into a Windows binary. Any variant may list them, `decode`
+  included, each only under its own licence. `ALLOWED_COMPONENT_LICENSES` gains
+  `LicenseRef-MinGW-w64-runtime` (permissive notice licence without an SPDX identifier) and
+  `GPL-3.0-or-later WITH GCC-exception-3.1` (libgcc and libstdc++; the exception permits linking
+  without the GPL reaching the binary); only those components may carry them, and every other
+  GPL identifier is still refused. A component licence may now be a conjunction
+  (`MIT AND BSD-3-Clause` for winpthreads): every term must be allowed and named in the entry's
+  expression. The two new Windows rows list all three with their notice files.
+- The approved `ffmpeg-7.1.5-windows-x64` decode row was built the same way and shipped without
+  the mingw-w64 runtime, winpthreads and GCC runtime notices. Its `noticeFiles` now list the three
+  files; id, digests, licence expression and components are unchanged (the components follow
+  separately). Apps that ship this binary must ship the three notices with it.
 - `bundled::verify_bundled_ffmpeg(path, variant, timeout)` / `verify_bundled_ffprobe(...)`: one
   call from a bundled binary path plus the expected variant to a `VerifiedFfmpeg` /
   `VerifiedFfprobe` (embedded catalog, this host's OS and architecture, content digest, then the
