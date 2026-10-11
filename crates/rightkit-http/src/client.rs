@@ -296,7 +296,7 @@ impl ClientConfig {
             ProxyMode::Explicit(url) => build_proxy(url, &[]).map(Some),
             ProxyMode::Environment => proxy_from_lookup(&|name| std::env::var(name).ok()),
             ProxyMode::System => {
-                match proxy_from_system(&crate::system_proxy::system_proxy_settings()) {
+                match proxy_from_system(&crate::system_proxy::system_proxy_settings())? {
                     Some(proxy) => Ok(Some(proxy)),
                     None => proxy_from_lookup(&|name| std::env::var(name).ok()),
                 }
@@ -306,14 +306,26 @@ impl ClientConfig {
 }
 
 /// The proxy the operating system's static settings name, treated like an environment proxy.
-/// Settings that name no usable proxy, or one this crate cannot build, give `None`.
+/// Settings that name no usable proxy, or one this crate cannot build, give `Ok(None)`.
+///
+/// Settings that route `http` and `https` differently (two endpoints, or a proxy for one
+/// scheme and a direct connection for the other) are an error. A client uses one proxy for
+/// every request, so following them would send one scheme to the endpoint configured for the
+/// other, or around the proxy. The client then fails closed, as for any invalid proxy setting.
 pub(crate) fn proxy_from_system(
     settings: &crate::system_proxy::SystemProxySettings,
-) -> Option<ResolvedProxy> {
-    let (url, no_proxy) = crate::system_proxy::proxy_from_settings(settings)?;
-    let mut proxy = build_proxy(&url, &no_proxy).ok()?;
-    proxy.from_env = true;
-    Some(proxy)
+) -> Result<Option<ResolvedProxy>, HttpError> {
+    use crate::system_proxy::SystemProxyChoice;
+    match crate::system_proxy::proxy_choice(settings) {
+        SystemProxyChoice::None => Ok(None),
+        SystemProxyChoice::Single { url, no_proxy } => {
+            Ok(build_proxy(&url, &no_proxy).ok().map(|mut proxy| {
+                proxy.from_env = true;
+                proxy
+            }))
+        }
+        SystemProxyChoice::PerScheme { .. } => Err(HttpError::SystemProxyPerScheme),
+    }
 }
 
 #[derive(Clone)]
@@ -832,6 +844,9 @@ pub struct Client {
     proxy_diagnostic: Option<ProxyDiagnostic>,
     /// Set when the proxy settings were invalid; every request then fails closed.
     config_error: Option<String>,
+    /// The invalid setting is a per-scheme system proxy: requests fail with the typed
+    /// [`HttpError::SystemProxyPerScheme`] instead of a generic message.
+    system_proxy_per_scheme: bool,
 }
 
 pub(crate) struct Raw {
@@ -858,6 +873,7 @@ impl Client {
                 let mut direct = config;
                 direct.proxy = ProxyMode::None;
                 let mut client = Self::build(direct, None);
+                client.system_proxy_per_scheme = matches!(e, HttpError::SystemProxyPerScheme);
                 client.config_error = Some(e.to_string());
                 client
             }
@@ -907,6 +923,7 @@ impl Client {
             proxy,
             proxy_diagnostic: diagnostic,
             config_error: None,
+            system_proxy_per_scheme: false,
         }
     }
 
@@ -1321,6 +1338,9 @@ impl Client {
         total: Option<Duration>,
         redirect_hop: bool,
     ) -> Result<Raw, HttpError> {
+        if self.system_proxy_per_scheme {
+            return Err(HttpError::SystemProxyPerScheme);
+        }
         if let Some(reason) = &self.config_error {
             return Err(HttpError::InvalidRequest(reason.clone()));
         }
@@ -1373,6 +1393,9 @@ impl Client {
     /// checked; otherwise the name is resolved and every address vetted (a pre-check: the
     /// request itself resolves again and connects to its own vetted addresses).
     pub(crate) fn preflight_url(&self, url: &str) -> Result<(), HttpError> {
+        if self.system_proxy_per_scheme {
+            return Err(HttpError::SystemProxyPerScheme);
+        }
         if let Some(reason) = &self.config_error {
             return Err(HttpError::InvalidRequest(reason.clone()));
         }
@@ -1567,6 +1590,7 @@ pub(crate) fn scrub_error(err: HttpError, values: &[String]) -> HttpError {
         HttpError::Json(m) => HttpError::Json(r(m)),
         HttpError::Stream(m) => HttpError::Stream(r(m)),
         HttpError::Cancelled => HttpError::Cancelled,
+        HttpError::SystemProxyPerScheme => HttpError::SystemProxyPerScheme,
         HttpError::HttpsRequired {
             host,
             scheme,
@@ -1856,15 +1880,48 @@ mod tests {
     fn system_settings_resolve_like_an_environment_proxy() {
         use crate::system_proxy::SystemProxySettings;
         let proxy = proxy_from_system(&SystemProxySettings {
-            proxy: Some("http=web.corp:8080;https=secure.corp:8443".into()),
-            bypass: Some("*.corp.example;<local>".into()),
+            proxy: Some("http=web.corp:8080;https=web.corp:8080".into()),
+            bypass: Some("*.corp.example;<local>;https://only.example".into()),
         })
+        .unwrap()
         .expect("a static system proxy resolves");
-        assert_eq!((proxy.host.as_str(), proxy.port), ("secure.corp", 8443));
+        assert_eq!((proxy.host.as_str(), proxy.port), ("web.corp", 8080));
+        // The scheme-limited bypass entry is not widened to both schemes.
         assert_eq!(proxy.no_proxy, vec![".corp.example".to_string()]);
         assert!(ProxyDiagnostic::of(&proxy).from_environment);
         // Nothing configured: the caller falls back to the environment.
-        assert!(proxy_from_system(&SystemProxySettings::default()).is_none());
+        assert!(proxy_from_system(&SystemProxySettings::default())
+            .unwrap()
+            .is_none());
+    }
+
+    #[test]
+    fn system_settings_that_differ_by_scheme_fail_closed() {
+        use crate::system_proxy::SystemProxySettings;
+        // Two endpoints, and a proxy for one scheme only: neither is approximated with one
+        // proxy, so plain HTTP is never sent to the HTTPS endpoint and nothing goes around.
+        for proxy in [
+            "http=web.corp:8080;https=secure.corp:8443",
+            "https=secure.corp:8443",
+            "http=web.corp:8080",
+        ] {
+            let error = proxy_from_system(&SystemProxySettings {
+                proxy: Some(proxy.into()),
+                bypass: None,
+            })
+            .err()
+            .unwrap_or_else(|| panic!("{proxy} must be refused"));
+            assert!(
+                matches!(error, HttpError::SystemProxyPerScheme),
+                "{proxy}: {error}"
+            );
+            assert_eq!(
+                error.to_string(),
+                "Windows proxy settings route HTTP and HTTPS differently; this version supports \
+                 one proxy for both"
+            );
+            assert!(matches!(error.class(), crate::error::ErrorClass::Invalid));
+        }
     }
 
     #[test]
