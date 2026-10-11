@@ -225,6 +225,45 @@ describe('raw CDP', () => {
     await expect(page.goto('fixture')).rejects.toThrow('net::ERR_FAILED');
   });
 
+  it('a navigation discarded by another document committing is sent once more', async () => {
+    let navigations = 0;
+    const { page, server } = await fixture((message, send) => {
+      if (message.method === 'Page.navigate') {
+        navigations += 1;
+        if (navigations === 1) {
+          // The abort answer arrives first; the commit that caused it follows from the renderer.
+          send({ id: message.id, result: { errorText: 'net::ERR_ABORTED' } });
+          setTimeout(() => send({ method: 'Page.frameNavigated', sessionId: 'session', params: { frame: { id: 'main', loaderId: 'blank', url: 'about:blank' } } }), 20);
+        } else {
+          send({ method: 'Page.lifecycleEvent', sessionId: 'session', params: { frameId: 'main', loaderId: 'new', name: 'load' } });
+          send({ id: message.id, result: { frameId: 'main', loaderId: 'new' } });
+        }
+      } else pageResponder(message, send);
+    });
+    await page.goto('https://fixture');
+    expect(server.messages.filter((m) => m.method === 'Page.navigate')).toHaveLength(2);
+  });
+
+  it('an aborted navigation with no other commit is thrown with its URL & not repeated', async () => {
+    const { page, server } = await fixture((message, send) => {
+      if (message.method === 'Page.navigate') send({ id: message.id, result: { errorText: 'net::ERR_ABORTED' } });
+      else pageResponder(message, send);
+    });
+    await expect(page.goto('https://fixture/download')).rejects.toThrow('Navigation failed: net::ERR_ABORTED (https://fixture/download)');
+    expect(server.messages.filter((m) => m.method === 'Page.navigate')).toHaveLength(1);
+  });
+
+  it('a second abort after the one repeat is thrown', async () => {
+    const { page, server } = await fixture((message, send) => {
+      if (message.method === 'Page.navigate') {
+        send({ method: 'Page.frameNavigated', sessionId: 'session', params: { frame: { id: 'main', loaderId: 'blank', url: 'about:blank' } } });
+        send({ id: message.id, result: { errorText: 'net::ERR_ABORTED' } });
+      } else pageResponder(message, send);
+    });
+    await expect(page.goto('https://fixture')).rejects.toThrow('net::ERR_ABORTED');
+    expect(server.messages.filter((m) => m.method === 'Page.navigate')).toHaveLength(2);
+  });
+
   it('networkidle0 observes 500ms with zero requests & resets on brief bursts', async () => {
     const { page } = await fixture((message, send) => {
       if (message.method === 'Page.navigate') {
