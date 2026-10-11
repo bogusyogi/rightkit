@@ -1033,25 +1033,91 @@ test("product scripts never override or destroy RightKit-owned Cargo cache state
   }
 });
 
-// rightkit hosts exactly two GitHub Actions workflows: the right-git managed verification gate (ci.yml), and the
+// rightkit hosts exactly three GitHub Actions workflows: the right-git managed verification gate (ci.yml), the
 // reviewed, manual-dispatch Windows FFmpeg build (ffmpeg-windows.yml), named here as an exception and held to its safety
-// properties. Any other workflow file fails. No workflow may publish or read secrets. Product repositories host none.
+// properties, and the manual-dispatch registry publication workflow (publish.yml), the only workflow that may read
+// secrets, held to its own properties below. Any other workflow file fails. Product repositories host none.
 const RIGHTKIT_VERIFICATION_WORKFLOWS = ["ci.yml"];
 const RIGHTKIT_EXCEPTION_WORKFLOWS = ["ffmpeg-windows.yml"];
+const RIGHTKIT_PUBLISHING_WORKFLOWS = ["publish.yml"];
 const PUBLISHING_WORKFLOW = /secrets\.|right-release\s+(?:build|upload|publish)|gh\s+release|action-gh-release/;
-function assertManualBuildWorkflow(text, name) {
-  assert.match(text, /^on:\n  workflow_dispatch:/m, `${name} must be triggered by workflow_dispatch`);
-  assert.doesNotMatch(text, /^  (?:push|pull_request|pull_request_target|schedule|workflow_run|release):/m, `${name} must have no automatic trigger`);
-  assert.match(text, /^permissions:\n  contents: read\s*$/m, `${name} top-level permissions must be contents: read`);
-  assert.doesNotMatch(text, /secrets\./, `${name} must not reference secrets`);
-  assert.doesNotMatch(text, /pull_request_target/, `${name} must not use pull_request_target`);
+function pinnedActionLines(text, name) {
   const usesLines = text.split("\n").filter((line) => /^\s*(?:- )?uses:/.test(line));
   assert.ok(usesLines.length > 0, `${name} must use at least one pinned action`);
   for (const line of usesLines) assert.match(line, /@[0-9a-f]{40}(?:\s|$)/, `${name} action must be pinned to a 40-hex commit SHA: ${line.trim()}`);
   const checkouts = usesLines.filter((line) => /actions\/checkout@/.test(line)).length;
   assert.equal((text.match(/persist-credentials:\s*false/g) ?? []).length, checkouts, `${name} every checkout must set persist-credentials: false`);
 }
-test("Right Suite hosts no hosted workflow except rightkit's two reviewed workflows", () => {
+function assertManualBuildWorkflow(text, name) {
+  assert.match(text, /^on:\n  workflow_dispatch:/m, `${name} must be triggered by workflow_dispatch`);
+  assert.doesNotMatch(text, /^  (?:push|pull_request|pull_request_target|schedule|workflow_run|release):/m, `${name} must have no automatic trigger`);
+  assert.match(text, /^permissions:\n  contents: read\s*$/m, `${name} top-level permissions must be contents: read`);
+  assert.doesNotMatch(text, /secrets\./, `${name} must not reference secrets`);
+  assert.doesNotMatch(text, /pull_request_target/, `${name} must not use pull_request_target`);
+  pinnedActionLines(text, name);
+}
+// The bodies of every `run:` key (inline or block scalar), so input expressions can be searched for in script text only.
+function workflowRunBlocks(text) {
+  const lines = text.split("\n");
+  const blocks = [];
+  for (let i = 0; i < lines.length; i += 1) {
+    const match = /^(\s*(?:- )?)run:\s*(.*)$/.exec(lines[i]);
+    if (!match) continue;
+    const column = match[1].length;
+    if (!/^[|>][+-]?\d*\s*$/.test(match[2])) { blocks.push(match[2]); continue; }
+    const body = [];
+    for (let j = i + 1; j < lines.length; j += 1) {
+      const indent = /^(\s*)/.exec(lines[j])[1].length;
+      if (lines[j].trim() !== "" && indent < column) break;
+      body.push(lines[j]);
+    }
+    blocks.push(body.join("\n"));
+  }
+  return blocks;
+}
+// Top-level jobs by name: the text of each `  name:` block under `jobs:`.
+function workflowJobs(text) {
+  const [, jobsText = ""] = text.split(/^jobs:\s*$/m);
+  const jobs = {};
+  let current = null;
+  for (const line of jobsText.split("\n")) {
+    const header = /^  ([A-Za-z][\w-]*):\s*$/.exec(line);
+    if (header) { current = header[1]; jobs[current] = []; continue; }
+    if (current) jobs[current].push(line);
+  }
+  return Object.fromEntries(Object.entries(jobs).map(([job, body]) => [job, body.join("\n")]));
+}
+function assertPublishWorkflow(text, name) {
+  assert.match(text, /^on:\n  workflow_dispatch:/m, `${name} must be triggered by workflow_dispatch`);
+  assert.doesNotMatch(text, /^  (?:push|pull_request|pull_request_target|schedule|workflow_run|release|workflow_call):/m, `${name} must be workflow_dispatch only`);
+  assert.doesNotMatch(text, /pull_request_target/, `${name} must not use pull_request_target`);
+  assert.match(text, /^permissions:\n  contents: read\s*$/m, `${name} top-level permissions must be contents: read`);
+  pinnedActionLines(text, name);
+  const jobs = workflowJobs(text);
+  for (const required of ["guard", "plan", "verify", "publish"]) assert.ok(jobs[required], `${name} must define the ${required} job`);
+  const header = text.split(/^jobs:\s*$/m)[0];
+  assert.doesNotMatch(header, /secrets\./, `${name} must not reference secrets outside the publish job`);
+  for (const [job, body] of Object.entries(jobs)) {
+    if (job !== "publish") assert.doesNotMatch(body, /secrets\./, `${name} job ${job} must not reference secrets; only publish may`);
+    if (job !== "publish") assert.doesNotMatch(body, /id-token:\s*write/, `${name} job ${job} must not request id-token: write`);
+  }
+  assert.match(jobs.publish, /^    environment: release\s*$/m, `${name} publish job must use environment: release`);
+  assert.match(jobs.publish, /^      id-token: write\s*$/m, `${name} publish job needs id-token: write for npm provenance`);
+  assert.match(jobs.publish, /^    needs: \[[^\]]*\bplan\b[^\]]*\bverify\b[^\]]*\]\s*$/m, `${name} publish job must need plan and verify`);
+  // Secrets only in real-publish steps: each such step is gated on dry_run == 'false'; no dry-run step reads one.
+  const steps = jobs.publish.split(/^      - /m).slice(1);
+  for (const step of steps) {
+    if (!/secrets\./.test(step)) continue;
+    assert.match(step, /dry_run == 'false'/, `${name} a step that reads a secret must run only when dry_run is false`);
+    assert.doesNotMatch(step, /dry_run == 'true'/, `${name} a dry-run step must not read a secret`);
+  }
+  assert.ok(steps.some((step) => /secrets\.NPM_TOKEN/.test(step)) && steps.some((step) => /secrets\.CARGO_REGISTRY_TOKEN/.test(step)), `${name} must publish with NPM_TOKEN and CARGO_REGISTRY_TOKEN`);
+  for (const block of workflowRunBlocks(text)) {
+    assert.doesNotMatch(block, /\$\{\{\s*inputs\./, `${name} must not interpolate inputs inside a run script; pass them through env`);
+    assert.doesNotMatch(block, /\$\{\{\s*github\.event\.inputs\./, `${name} must not interpolate github.event.inputs inside a run script; pass them through env`);
+  }
+}
+test("Right Suite hosts no hosted workflow except rightkit's three reviewed workflows", () => {
   for (const root of ["viewright", "scraperight", "heardright", "mailright", "coderight", "genright", "voiceright", "rightkit"]) {
     const workflowDir = path.join(workspace, root, ".github", "workflows");
     const workflows = existsSync(workflowDir) ? readdirSync(workflowDir) : [];
@@ -1059,10 +1125,11 @@ test("Right Suite hosts no hosted workflow except rightkit's two reviewed workfl
       assert.deepEqual(workflows, [], `${root} must not contain hosted workflow files`);
       continue;
     }
-    const allowed = [...RIGHTKIT_VERIFICATION_WORKFLOWS, ...RIGHTKIT_EXCEPTION_WORKFLOWS];
-    assert.deepEqual(workflows.filter((name) => !allowed.includes(name)), [], `rightkit may host only ${allowed.join(" and ")}; any other hosted workflow needs an explicit decision`);
+    const allowed = [...RIGHTKIT_VERIFICATION_WORKFLOWS, ...RIGHTKIT_EXCEPTION_WORKFLOWS, ...RIGHTKIT_PUBLISHING_WORKFLOWS];
+    assert.deepEqual(workflows.filter((name) => !allowed.includes(name)), [], `rightkit may host only ${allowed.join(", ")}; any other hosted workflow needs an explicit decision`);
     for (const name of workflows) {
       const text = readFileSync(path.join(workflowDir, name), "utf8").replace(/\r\n/g, "\n");
+      if (RIGHTKIT_PUBLISHING_WORKFLOWS.includes(name)) { assertPublishWorkflow(text, name); continue; }
       assert.doesNotMatch(text, PUBLISHING_WORKFLOW, `${name} must not publish or read secrets`);
       if (RIGHTKIT_EXCEPTION_WORKFLOWS.includes(name)) assertManualBuildWorkflow(text, name);
     }

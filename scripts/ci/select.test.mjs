@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { changedConfigCrates, changedLockNames, parseLock, reach, selectByPaths, selectNpm, selectRust } from "./select.mjs";
+import { changedConfigCrates, changedLockNames, parseLock, reach, selectByPaths, selectNpm, selectRust, selectUnits } from "./select.mjs";
 
 const LOCK = `version = 4
 
@@ -85,4 +85,18 @@ test("npm selection follows dependents; path suites match by directory", () => {
   assert.equal(selectNpm({ changedPaths: ["pnpm-lock.yaml"], packages }).all, true);
   const suites = [{ id: "swift/A", paths: ["swift/A"] }, { id: "swift/AB", paths: ["swift/AB"] }];
   assert.deepEqual(selectByPaths({ changedPaths: ["swift/AB/x.swift"], suites }), ["swift/AB"]);
+});
+
+test("explicit unit selection names exactly the requested units, in order, with no dependents", () => {
+  assert.deepEqual(selectUnits({ registry: "crates", units: ["rightkit-b", "rightkit-a", "rightkit-b"], members }).rust, { all: false, test: ["rightkit-b", "rightkit-a"], check: [] });
+  const packages = [
+    { name: "@rightkit/ui", dir: "packages/ui", deps: [] },
+    { name: "@rightkit/shell", dir: "packages/shell", deps: ["@rightkit/ui"] },
+  ];
+  assert.deepEqual(selectUnits({ registry: "npm", units: ["@rightkit/ui"], packages }).npm, { all: false, test: ["packages/ui"] });
+  assert.deepEqual(selectUnits({ registry: "npm", units: ["@rightkit/ui"], packages }).rust.test, []);
+  assert.throws(() => selectUnits({ registry: "crates", units: ["nope"], members }), /unknown crate/);
+  assert.throws(() => selectUnits({ registry: "npm", units: ["@rightkit/nope"], packages }), /unknown npm package/);
+  assert.throws(() => selectUnits({ registry: "crates", units: [], members }), /no units/);
+  assert.throws(() => selectUnits({ registry: "pip", units: ["x"] }), /npm or crates/);
 });
