@@ -682,6 +682,8 @@ pub fn launch(spec: &LaunchSpec, ws: &QaWorkspace, tracker: &Tracker) -> Result<
     let env = launch_env(spec, ws, &suite, &service)?;
     guard.check_dir(&ws.home)?;
     guard.check_env(&env)?;
+    // The app must be told its isolated data directory; otherwise it resolves its own default.
+    crate::userdata::check_app_data_dir(&guard, &spec.binary, &env)?;
     let frontmost_before = frontmost();
     let focus = FocusMonitor::start(spec.mode != Mode::Visible);
     let deadline = Instant::now() + spec.startup_timeout;

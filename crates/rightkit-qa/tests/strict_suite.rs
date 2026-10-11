@@ -44,7 +44,7 @@ fn app(root: &Path, scenarios: &[(&str, &str)]) -> QaConfig {
         .unwrap();
     }
     let cfg_path = root.join("rightkit-qa.toml");
-    fs::write(&cfg_path, "app = \"strict-app\"\nscenarios = [\"scenarios\"]\n[engine]\nbinary = { darwin = \"engine.sh\", windows = \"engine.sh\" }\n").unwrap();
+    fs::write(&cfg_path, "app = \"strict-app\"\nscenarios = [\"scenarios\"]\n[engine]\nbinary = { darwin = \"engine.sh\", windows = \"engine.sh\" }\ndata_dir_env = \"STRICT_APP_DATA\"\n").unwrap();
     QaConfig::load(&cfg_path).unwrap()
 }
 
