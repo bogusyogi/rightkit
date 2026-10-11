@@ -349,6 +349,51 @@ impl BrowserPage {
         o.fingerprint.clear();
     }
 
+    /// Waits until this new tab's own first navigation (to about:blank) has committed.
+    ///
+    /// A tab is created at about:blank and that navigation commits a little later. A
+    /// navigation sent before then is discarded by that commit: Chrome answers it with
+    /// `net::ERR_ABORTED` and no load ever follows, so the caller waits out its whole request
+    /// timeout. Seen on Windows, where a new tab's renderer starts more slowly.
+    ///
+    /// Before the commit the tab's committed history entry has an empty URL. The tab counts
+    /// as settled when that entry has a URL and the main frame's loader is the same on two
+    /// consecutive polls. Bounded at two seconds, and it stops at once if Chrome does not
+    /// answer, so a browser that behaves differently is not waited on.
+    pub(crate) async fn settle_initial_document(&self) {
+        use chromiumoxide::cdp::browser_protocol::page::{
+            GetFrameTreeParams, GetNavigationHistoryParams,
+        };
+        use std::time::{Duration, Instant};
+        let deadline = Instant::now() + Duration::from_secs(2);
+        let mut seen: Option<String> = None;
+        while Instant::now() < deadline {
+            let Ok(history) = self
+                .inner
+                .execute(GetNavigationHistoryParams::default())
+                .await
+            else {
+                return;
+            };
+            let Ok(tree) = self.inner.execute(GetFrameTreeParams::default()).await else {
+                return;
+            };
+            let committed = usize::try_from(history.result.current_index)
+                .ok()
+                .and_then(|index| history.result.entries.get(index))
+                .is_some_and(|entry| !entry.url.is_empty());
+            let loader = format!("{:?}", tree.result.frame_tree.frame.loader_id);
+            if !committed {
+                seen = None;
+            } else if seen.as_deref() == Some(loader.as_str()) {
+                return;
+            } else {
+                seen = Some(loader);
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    }
+
     pub async fn goto(&self, url: &str) -> Result<()> {
         // EFF-001 order: policy, then approval; both before any side effect.
         self.guard

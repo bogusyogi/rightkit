@@ -348,6 +348,8 @@ impl BrowserSession {
         self.pages.lock().unwrap().push(page.clone());
         *self.current.lock().unwrap() = Some(id);
         if url != "about:blank" {
+            // The tab's own about:blank must have committed, or it discards this navigation.
+            page.settle_initial_document().await;
             page.goto(url).await?;
         }
         Ok(page)
