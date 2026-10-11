@@ -88,7 +88,7 @@ test("AppleScript text escaping handles quotes, backslashes and newlines", () =>
   assert.equal(appleScriptText('a"b\\c'), '"a\\"b\\\\c"');
   assert.equal(appleScriptText("l1\nl2\r\nl3"), '"l1" & return & "l2" & return & "l3"');
   const script = buildMacConfirmScript('x "q" \\ \n y');
-  assert.match(script, /^display dialog "x \\"q\\" \\\\ " & return & " y" & return & "" & return & "Type yes below, then click Approve." default answer "" with title "RightKit ownership trust-sync" buttons \{"Cancel","Approve…"\} default button "Approve…" cancel button "Cancel" with icon caution$/);
+  assert.match(script, /^display dialog "x \\"q\\" \\\\ " & return & " y" & return & "" & return & "Type the word yes below \(not your password\), then click Approve." default answer "" with title "RightKit ownership trust-sync" buttons \{"Cancel","Approve…"\} default button "Approve…" cancel button "Cancel" with icon caution$/);
 });
 
 test("capSummary truncates with an 'and N more' tail", () => {

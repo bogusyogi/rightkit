@@ -41,7 +41,8 @@ function readLog(root) {
 }
 function ensureCleanMetadata(root, run, rels) {
   for (const rel of rels) assertSafeMetadataParents(root, rel);
-  const result = run("git", ["-C", root, "status", "--porcelain=v1", "--untracked-files=all"]);
+  // Limited to the metadata paths: an unscoped status of a large checkout overflows the child's output buffer.
+  const result = run("git", ["-C", root, "status", "--porcelain=v1", "--untracked-files=all", "--", ...rels]);
   if (result.status !== 0) throw new Error("could not inspect repository metadata status");
   const status = String(result.stdout ?? "");
   for (const rel of rels) {
@@ -49,7 +50,7 @@ function ensureCleanMetadata(root, run, rels) {
   }
 }
 function metadataIsDirty(root, run) {
-  const r = run("git", ["-C", root, "status", "--porcelain=v1", "--untracked-files=all"]);
+  const r = run("git", ["-C", root, "status", "--porcelain=v1", "--untracked-files=all", "--", LOG, REQUEST_DIR]);
   if (r.status !== 0) throw new Error("could not inspect repository metadata status");
   return String(r.stdout ?? "").split(/\r?\n/).some((line) => {
     const file = line.slice(3).replaceAll('"', "");

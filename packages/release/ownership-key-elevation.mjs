@@ -169,7 +169,7 @@ export function capSummary(lines, { maxLines = 16, maxChars = 1600 } = {}) {
 
 export function buildMacConfirmScript(text) {
   // The text field takes keyboard focus, so stray typing never presses a button; approval needs "yes" typed.
-  return `display dialog ${appleScriptText(`${text}\n\nType yes below, then click Approve.`)} default answer "" with title ${appleScriptText(CONFIRM_TITLE)} buttons {"Cancel","Approve\u2026"} default button "Approve\u2026" cancel button "Cancel" with icon caution`;
+  return `display dialog ${appleScriptText(`${text}\n\nType the word yes below (not your password), then click Approve.`)} default answer "" with title ${appleScriptText(CONFIRM_TITLE)} buttons {"Cancel","Approve\u2026"} default button "Approve\u2026" cancel button "Cancel" with icon caution`;
 }
 
 export const WINDOWS_APPROVE_PREFIX = "RK_CONFIRM_APPROVED:";
@@ -189,7 +189,16 @@ export function buildWindowsConfirmScript(text, nonce = "") {
 
 function readLineSync() {
   const buf = Buffer.alloc(1); let line = "";
-  for (;;) { let n = 0; try { n = readSync(0, buf, 0, 1, null); } catch { return line; } if (n === 0 || buf[0] === 10) return line; line += String.fromCharCode(buf[0]); }
+  for (;;) {
+    let n = 0;
+    try { n = readSync(0, buf, 0, 1, null); } catch (error) {
+      // A terminal whose stdin is non-blocking reports "no input yet" as EAGAIN: wait for the human, do not treat it as an answer.
+      if (error?.code === "EAGAIN") { Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 50); continue; }
+      return line;
+    }
+    if (n === 0 || buf[0] === 10) return line;
+    line += String.fromCharCode(buf[0]);
+  }
 }
 
 /**
