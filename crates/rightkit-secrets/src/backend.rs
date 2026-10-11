@@ -40,8 +40,26 @@ pub trait Backend: Send + Sync + 'static {
     /// store still exclude each other, including past a timeout. The default, `None`, means "this
     /// instance only" (identified by its allocation), which is right for in-memory and test
     /// backends and wrong for any backend whose instances share external state.
+    ///
+    /// For a backend whose target can change between calls (see [`Backend::pinned`]) this is the
+    /// identity of the store a PINNED backend is bound to; it is never resolved afresh.
     fn exclusion_identity(&self) -> Option<String> {
         None
+    }
+    /// Decide ONCE which store the next mutation addresses, for a backend whose target can change
+    /// between calls (the macOS user-default keychain is whichever keychain the user has set as
+    /// default at that moment). `Store` calls this before it mutates: it takes the mutation's
+    /// exclusion identity from the returned backend and makes the mutation on that same backend,
+    /// so the store that is locked and the store that is written cannot differ, however the
+    /// default changes in between.
+    ///
+    /// Return `Ok(Some(backend))` with a backend fixed to the store resolved just now; it MUST
+    /// report [`Backend::exclusion_identity`] as `Some(..)` (`Store` refuses the mutation
+    /// otherwise). Return `Err` when the target cannot be decided: the mutation is not attempted.
+    /// The default, `Ok(None)`, is right for every backend that addresses one store for its whole
+    /// life: `Store` then uses the backend itself.
+    fn pinned(&self) -> Result<Option<Arc<dyn Backend>>> {
+        Ok(None)
     }
     /// The identity of the ONE native credential `(ns, account)` addresses in this backend, used
     /// (together with [`Backend::exclusion_identity`]) to serialise mutations. Two calls that can

@@ -2,11 +2,11 @@
 
 use crate::atomic::{atomic_write_mode, WriteMode};
 use crate::options::{
-    FileFormat, OnCorrupt, QuarantineName, ReplaceMode, SharingRetry, StoreOptions,
+    FileFormat, KeyOrder, OnCorrupt, QuarantineName, ReplaceMode, SharingRetry, StoreOptions,
 };
-use crate::store::Error;
-use serde::de::{MapAccess, Visitor};
-use serde::ser::SerializeMap;
+use crate::store::{Error, PreserveStep};
+use serde::de::{MapAccess, SeqAccess, Visitor};
+use serde::ser::{SerializeMap, SerializeSeq};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use serde_json::ser::PrettyFormatter;
 use serde_json::value::RawValue;
@@ -88,6 +88,18 @@ pub trait SettingsBackend: Send + Sync {
         edit: &mut dyn FnMut(Option<&Stored>) -> Result<Edit, Error>,
     ) -> Result<Option<u64>, Error>;
 
+    /// [`SettingsBackend::patch`], where the edit also returns the [`KeyLayout`] of the document
+    /// it commits. [`crate::Store`] calls this one. A backend that writes ordered text (the
+    /// default [`FileBackend`] does) uses the layout to place keys the stored document does not
+    /// hold yet; the default implementation drops it and calls `patch`, which is right for any
+    /// backend that does not keep key order, so existing implementations need no change.
+    fn patch_ordered(
+        &self,
+        edit: &mut dyn FnMut(Option<&Stored>) -> Result<(Edit, KeyLayout), Error>,
+    ) -> Result<Option<u64>, Error> {
+        self.patch(&mut |current| edit(current).map(|(decision, _)| decision))
+    }
+
     /// The committed revision, or 0 when nothing is stored.
     fn revision(&self) -> Result<u64, Error> {
         Ok(self.load()?.map_or(0, |s| s.revision))
@@ -101,8 +113,35 @@ pub trait SettingsBackend: Send + Sync {
     }
 }
 
+/// The key order of the typed settings value a commit was made from. A backend that writes
+/// ordered text uses it to place keys the stored document does not hold yet, in the order the
+/// settings type serialises them; a backend that does not care ignores it. It carries no values
+/// and cannot be built from outside the crate: `KeyLayout::default()` says "no information", and
+/// then new keys follow the document's own map order.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct KeyLayout(Option<Shape>);
+
+impl KeyLayout {
+    /// The order `value` serialises its keys in, at every nesting level. Empty when it cannot be
+    /// serialised: the layout is only a hint, and a missing one changes where new keys go, not
+    /// what is written (the store serialises the same value to build the document, so a real
+    /// failure surfaces there).
+    pub(crate) fn of<T: Serialize>(value: &T) -> Self {
+        Self(
+            serde_json::to_vec(value)
+                .ok()
+                .and_then(|bytes| Shape::parse(&bytes)),
+        )
+    }
+
+    fn root(&self) -> Option<&Shape> {
+        self.0.as_ref()
+    }
+}
+
 /// The default backend: one JSON file, written atomically under a cross-process lock. The previous
-/// good file is kept as `<path>.bak`.
+/// good file is kept as `<path>.bak`; if that copy fails, the write stops before it changes the
+/// file ([`Error::PreserveFailed`]).
 #[derive(Debug, Clone)]
 pub struct FileBackend {
     path: PathBuf,
@@ -114,6 +153,7 @@ pub struct FileBackend {
     keep_corrupt_copy: bool,
     quarantine_name: QuarantineName,
     trailing_newline: bool,
+    key_order: KeyOrder,
 }
 
 /// Serialises writers of sidecar-free backends within this process.
@@ -133,7 +173,14 @@ impl FileBackend {
             keep_corrupt_copy: false,
             quarantine_name: QuarantineName::Timestamped,
             trailing_newline: false,
+            key_order: KeyOrder::Preserve,
         }
+    }
+
+    /// The order of object keys in what a write produces. Default [`KeyOrder::Preserve`].
+    pub fn key_order(mut self, order: KeyOrder) -> Self {
+        self.key_order = order;
+        self
     }
 
     /// How a write replaces the file. Default [`ReplaceMode::Rename`].
@@ -162,7 +209,7 @@ impl FileBackend {
     }
 
     /// A backend configured by the same options a [`crate::Store`] takes (format, policies,
-    /// sidecars, replace mode, naming, newline).
+    /// sidecars, replace mode, naming, newline, key order).
     pub fn with_options(path: impl Into<PathBuf>, options: &StoreOptions) -> Self {
         Self::from_options(path, options)
     }
@@ -183,6 +230,7 @@ impl FileBackend {
             keep_corrupt_copy: options.keep_corrupt_copy,
             quarantine_name: options.quarantine_name.clone(),
             trailing_newline: options.trailing_newline,
+            key_order: options.key_order,
         }
     }
 
@@ -196,18 +244,44 @@ impl FileBackend {
         self.format
     }
 
-    fn write(&self, next: &Stored, prev_revision: u64) -> Result<u64, Error> {
+    /// Writes `next` as the committed document. `reference` is the stored text the document was
+    /// read from (the file, or its `.bak` when the file was missing or damaged): it supplies the
+    /// key order to keep and, for a flat file, the bytes of unchanged values and the layout.
+    /// `main_good` says the file at the path is a good document, which `<path>.bak` is refreshed
+    /// from.
+    fn write(
+        &self,
+        next: &Stored,
+        prev_revision: u64,
+        layout: &KeyLayout,
+        reference: Option<&[u8]>,
+        main_good: bool,
+    ) -> Result<u64, Error> {
+        // `Sorted` writes what it always did: only a good file at the path informs a rewrite. A
+        // `.bak` stands in for the key order and layout under `Preserve` alone.
+        let reference = if main_good || self.key_order == KeyOrder::Preserve {
+            reference
+        } else {
+            None
+        };
         let (mut bytes, envelope_revision) = match self.format {
             FileFormat::Envelope => {
                 let revision = prev_revision + 1;
-                (envelope_bytes(next, revision, self.pretty)?, Some(revision))
+                let bytes = envelope_bytes(
+                    next,
+                    revision,
+                    self.pretty,
+                    self.key_order,
+                    reference,
+                    layout,
+                )?;
+                (bytes, Some(revision))
             }
             FileFormat::Flat => {
                 let bytes = if self.pretty {
                     pretty_sorted(&Value::Object(next.values.clone()))?
                 } else {
-                    let existing = fs::read(&self.path).ok();
-                    encode_flat(existing.as_deref(), &next.values)?
+                    encode_flat(reference, &next.values, self.key_order, layout)?
                 };
                 (bytes, None)
             }
@@ -216,12 +290,77 @@ impl FileBackend {
             bytes.push(b'\n');
         }
         let revision = envelope_revision.unwrap_or_else(|| fingerprint(&bytes));
-        // Keep the last good file; best-effort. A damaged file is never copied over a good backup.
-        if self.sidecars && matches!(read_file(&self.path, self.format), Ok(Doc::Stored(_))) {
-            let _ = fs::copy(&self.path, bak_path(&self.path));
+        // Keep the last good file. A damaged file is never copied over a good backup. A failed copy
+        // stops the write: replacing the file now would destroy the only copy of its content, and
+        // leave an older `.bak` to be restored from later.
+        if self.sidecars && main_good {
+            preserve(PreserveStep::Backup, &self.path, &bak_path(&self.path))?;
         }
         atomic_write_mode(&self.path, &bytes, &self.mode)?;
         Ok(revision)
+    }
+
+    /// The transaction behind both `patch` and `patch_ordered`.
+    fn commit(
+        &self,
+        edit: &mut dyn FnMut(Option<&Stored>) -> Result<(Edit, KeyLayout), Error>,
+    ) -> Result<Option<u64>, Error> {
+        // Exclusion: the cross-process sidecar lock, or the in-process lock when sidecars are off.
+        let _file_lock = if self.sidecars {
+            Some(lock_file(&self.path)?)
+        } else {
+            None
+        };
+        let _process_lock = if self.sidecars {
+            None
+        } else {
+            Some(
+                PROCESS_WRITERS
+                    .lock()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner()),
+            )
+        };
+        let mut corrupt_dest = false;
+        // The stored text the edit's document came from, for the key order to keep.
+        let mut reference: Option<Vec<u8>> = None;
+        let mut main_good = false;
+        let main = read_bytes(&self.path)?;
+        let doc = match &main {
+            Some(bytes) => parse_doc(&self.path, self.format, bytes)?,
+            None => Doc::Missing,
+        };
+        let current = match doc {
+            Doc::Stored(s) => {
+                main_good = true;
+                reference = main;
+                Some(s)
+            }
+            Doc::Missing => self.restore(&mut reference)?,
+            Doc::Corrupt => {
+                self.refuse_if_strict()?;
+                match self.on_corrupt {
+                    // Overwrite never moves the damaged file; the replace below decides.
+                    OnCorrupt::Overwrite => corrupt_dest = true,
+                    // A damaged file that cannot be set aside stops the operation here, before
+                    // anything is written over it.
+                    _ => quarantine(&self.path, &self.quarantine_name)?,
+                }
+                self.restore(&mut reference)?
+            }
+        };
+        match edit(current.as_ref())? {
+            (Edit::Keep, _) => Ok(None),
+            (Edit::Commit(next), layout) => {
+                if corrupt_dest && self.keep_corrupt_copy {
+                    // A copy, made before the replace: the original stays until the replace wins.
+                    let kept_as = quarantine_path(&self.path, &self.quarantine_name);
+                    preserve(PreserveStep::CorruptCopy, &self.path, &kept_as)?;
+                }
+                let prev = current.as_ref().map_or(0, |s| s.revision);
+                self.write(&next, prev, &layout, reference.as_deref(), main_good)
+                    .map(Some)
+            }
+        }
     }
 }
 
@@ -246,59 +385,37 @@ impl SettingsBackend for FileBackend {
         &self,
         edit: &mut dyn FnMut(Option<&Stored>) -> Result<Edit, Error>,
     ) -> Result<Option<u64>, Error> {
-        // Exclusion: the cross-process sidecar lock, or the in-process lock when sidecars are off.
-        let _file_lock = if self.sidecars {
-            Some(lock_file(&self.path)?)
-        } else {
-            None
-        };
-        let _process_lock = if self.sidecars {
-            None
-        } else {
-            Some(
-                PROCESS_WRITERS
-                    .lock()
-                    .unwrap_or_else(|poisoned| poisoned.into_inner()),
-            )
-        };
-        let mut corrupt_dest = false;
-        let current = match read_file(&self.path, self.format)? {
-            Doc::Stored(s) => Some(s),
-            Doc::Missing => self.backup()?,
-            Doc::Corrupt => {
-                self.refuse_if_strict()?;
-                match self.on_corrupt {
-                    // Overwrite never moves the damaged file; the replace below decides.
-                    OnCorrupt::Overwrite => corrupt_dest = true,
-                    _ => quarantine(&self.path, &self.quarantine_name),
-                }
-                self.backup()?
-            }
-        };
-        match edit(current.as_ref())? {
-            Edit::Keep => Ok(None),
-            Edit::Commit(next) => {
-                if corrupt_dest && self.keep_corrupt_copy {
-                    // A copy, made before the replace: the original stays until the replace wins.
-                    fs::copy(
-                        &self.path,
-                        quarantine_path(&self.path, &self.quarantine_name),
-                    )?;
-                }
-                let prev = current.as_ref().map_or(0, |s| s.revision);
-                self.write(&next, prev).map(Some)
-            }
-        }
+        self.commit(&mut |current| edit(current).map(|decision| (decision, KeyLayout::default())))
+    }
+
+    fn patch_ordered(
+        &self,
+        edit: &mut dyn FnMut(Option<&Stored>) -> Result<(Edit, KeyLayout), Error>,
+    ) -> Result<Option<u64>, Error> {
+        self.commit(edit)
     }
 }
 
 impl FileBackend {
     /// The `.bak` sidecar's values, or `None`. Never read when sidecars are off.
     fn backup(&self) -> Result<Option<Stored>, Error> {
+        Ok(self.backup_with_text()?.map(|(stored, _)| stored))
+    }
+
+    /// As [`FileBackend::backup`], with the text the values were read from.
+    fn backup_with_text(&self) -> Result<Option<(Stored, Vec<u8>)>, Error> {
         if !self.sidecars {
             return Ok(None);
         }
         from_backup(&self.path, self.format)
+    }
+
+    /// The `.bak` sidecar's values; its text becomes the reference for key order.
+    fn restore(&self, reference: &mut Option<Vec<u8>>) -> Result<Option<Stored>, Error> {
+        Ok(self.backup_with_text()?.map(|(stored, text)| {
+            *reference = Some(text);
+            stored
+        }))
     }
 
     fn refuse_if_strict(&self) -> Result<(), Error> {
@@ -316,13 +433,26 @@ enum Doc {
     Corrupt,
 }
 
+/// The bytes of `path`, or `None` when it does not exist. Any other error is an error: a file
+/// that cannot be read is never treated as missing.
+fn read_bytes(path: &Path) -> Result<Option<Vec<u8>>, Error> {
+    match fs::read(path) {
+        Ok(bytes) => Ok(Some(bytes)),
+        Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(None),
+        Err(e) => Err(e.into()),
+    }
+}
+
 fn read_file(path: &Path, format: FileFormat) -> Result<Doc, Error> {
-    let bytes = match fs::read(path) {
-        Ok(bytes) => bytes,
-        Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(Doc::Missing),
-        Err(e) => return Err(e.into()),
-    };
-    let Ok(Value::Object(mut doc)) = serde_json::from_slice::<Value>(&bytes) else {
+    match read_bytes(path)? {
+        Some(bytes) => parse_doc(path, format, &bytes),
+        None => Ok(Doc::Missing),
+    }
+}
+
+/// `bytes`, read from `path`, as a document of `format`.
+fn parse_doc(path: &Path, format: FileFormat, bytes: &[u8]) -> Result<Doc, Error> {
+    let Ok(Value::Object(mut doc)) = serde_json::from_slice::<Value>(bytes) else {
         return Ok(Doc::Corrupt);
     };
     match format {
@@ -339,7 +469,7 @@ fn read_file(path: &Path, format: FileFormat) -> Result<Doc, Error> {
                 version: None,
                 namespace: None,
                 values: doc,
-                revision: fingerprint(&bytes),
+                revision: fingerprint(bytes),
                 needs_rewrite: false,
             }))
         }
@@ -418,11 +548,16 @@ pub(crate) fn read_values_only(
     Ok(None)
 }
 
-fn from_backup(path: &Path, format: FileFormat) -> Result<Option<Stored>, Error> {
-    match read_file(&bak_path(path), format)? {
+/// The `.bak` document of `path` and the text it was read from.
+fn from_backup(path: &Path, format: FileFormat) -> Result<Option<(Stored, Vec<u8>)>, Error> {
+    let bak = bak_path(path);
+    let Some(text) = read_bytes(&bak)? else {
+        return Ok(None);
+    };
+    match parse_doc(&bak, format, &text)? {
         Doc::Stored(mut s) => {
             s.needs_rewrite = true;
-            Ok(Some(s))
+            Ok(Some((s, text)))
         }
         Doc::Missing | Doc::Corrupt => Ok(None),
     }
@@ -452,7 +587,16 @@ fn sorted_value(value: &Value) -> Value {
     }
 }
 
-fn envelope_bytes(next: &Stored, revision: u64, pretty: bool) -> Result<Vec<u8>, Error> {
+/// The envelope document for `next`. Keys are written as `order` says; see [`KeyOrder`]. `reference`
+/// is the stored text the document came from, whose key order `Preserve` keeps.
+fn envelope_bytes(
+    next: &Stored,
+    revision: u64,
+    pretty: bool,
+    order: KeyOrder,
+    reference: Option<&[u8]>,
+    layout: &KeyLayout,
+) -> Result<Vec<u8>, Error> {
     let version = next
         .version
         .ok_or(Error::BadSchema("envelope commit needs a schema version"))?;
@@ -468,38 +612,78 @@ fn envelope_bytes(next: &Stored, revision: u64, pretty: bool) -> Result<Vec<u8>,
     if pretty {
         return pretty_sorted(&Value::Object(doc));
     }
-    Ok(serde_json::to_vec_pretty(&Value::Object(doc))?)
+    // The same bytes `serde_json::to_vec_pretty` gives for a value with these keys in this order:
+    // `Ordered` serialises leaves, arrays and objects exactly as `Value` does.
+    let root = Value::Object(doc);
+    let mut bytes = Vec::new();
+    let mut ser = serde_json::Serializer::with_formatter(&mut bytes, PrettyFormatter::new());
+    match order {
+        KeyOrder::Sorted => Ordered::sorted(&root).serialize(&mut ser)?,
+        KeyOrder::Preserve => {
+            let old = reference.and_then(Shape::parse).map(Shape::as_envelope);
+            let typed = Shape::envelope(layout.root());
+            Ordered {
+                value: &root,
+                old: old.as_ref(),
+                typed: Some(&typed),
+                sorted: false,
+            }
+            .serialize(&mut ser)?;
+        }
+    }
+    Ok(bytes)
 }
 
 /// Rewrites a flat object, keeping every value whose content is unchanged byte for byte, the
-/// original key order, and the file's indentation and trailing newline.
-fn encode_flat(existing: Option<&[u8]>, values: &Map<String, Value>) -> Result<Vec<u8>, Error> {
+/// original key order, and the file's indentation and trailing newline. A value that changed is
+/// written with its keys in the order `order` asks for, and so are the keys the file did not
+/// hold: appended after the held ones, in the settings type's field order (`Preserve`) or
+/// alphabetically (`Sorted`).
+fn encode_flat(
+    existing: Option<&[u8]>,
+    values: &Map<String, Value>,
+    order: KeyOrder,
+    layout: &KeyLayout,
+) -> Result<Vec<u8>, Error> {
     let style = Style::detect(existing.unwrap_or(&[]));
     let original: Vec<(String, Box<RawValue>)> = existing
         .and_then(|bytes| serde_json::from_slice::<RawEntries>(bytes).ok())
         .map(|entries| entries.0)
         .unwrap_or_default();
+    let old = existing.and_then(Shape::parse);
+    let typed = layout.root();
+    let sorted = order == KeyOrder::Sorted;
 
     let mut written: BTreeSet<&str> = BTreeSet::new();
-    let mut out: Vec<(String, Entry<'_>)> = Vec::new();
+    let mut out: Vec<(&str, Entry<'_>)> = Vec::new();
     for (key, raw) in &original {
         if !written.insert(key.as_str()) {
             continue;
         }
         if let Some(value) = values.get(key) {
-            let unchanged = serde_json::from_str::<Value>(raw.get()).is_ok_and(|old| &old == value);
+            let unchanged =
+                serde_json::from_str::<Value>(raw.get()).is_ok_and(|previous| &previous == value);
             let entry = if unchanged {
                 Entry::Raw(raw)
             } else {
-                Entry::Val(value.clone())
+                rewritten(key, value, old.as_ref(), typed, sorted)
             };
-            out.push((key.clone(), entry));
+            out.push((key.as_str(), entry));
         }
     }
-    for (key, value) in values {
-        if !written.contains(key.as_str()) {
-            out.push((key.clone(), Entry::Val(value.clone())));
-        }
+    let fresh: Vec<(&str, &Value)> = if sorted {
+        let mut fresh: Vec<(&str, &Value)> = values
+            .iter()
+            .filter(|(key, _)| !written.contains(key.as_str()))
+            .map(|(key, value)| (key.as_str(), value))
+            .collect();
+        fresh.sort_unstable_by_key(|(key, _)| *key);
+        fresh
+    } else {
+        preserve_order(values, None, typed.and_then(Shape::entries), &written)
+    };
+    for (key, value) in fresh {
+        out.push((key, rewritten(key, value, old.as_ref(), typed, sorted)));
     }
 
     let out = Out(out);
@@ -518,6 +702,26 @@ fn encode_flat(existing: Option<&[u8]>, values: &Map<String, Value>) -> Result<V
         bytes.push(b'\n');
     }
     Ok(bytes)
+}
+
+/// A top-level value of a flat file that is written afresh: its keys follow `old` (the file's
+/// own order) and `typed` (the settings type's), or are sorted.
+fn rewritten<'a>(
+    key: &str,
+    value: &'a Value,
+    old: Option<&'a Shape>,
+    typed: Option<&'a Shape>,
+    sorted: bool,
+) -> Entry<'a> {
+    if sorted {
+        return Entry::Val(Ordered::sorted(value));
+    }
+    Entry::Val(Ordered {
+        value,
+        old: old.and_then(|shape| shape.child(key)),
+        typed: typed.and_then(|shape| shape.child(key)),
+        sorted: false,
+    })
 }
 
 /// Layout of an existing flat file, so a rewrite keeps it.
@@ -579,7 +783,7 @@ impl<'de> Deserialize<'de> for RawEntries {
 /// One output value: original text when unchanged, otherwise a fresh value.
 enum Entry<'a> {
     Raw(&'a RawValue),
-    Val(Value),
+    Val(Ordered<'a>),
 }
 
 impl Serialize for Entry<'_> {
@@ -591,7 +795,7 @@ impl Serialize for Entry<'_> {
     }
 }
 
-struct Out<'a>(Vec<(String, Entry<'a>)>);
+struct Out<'a>(Vec<(&'a str, Entry<'a>)>);
 
 impl Serialize for Out<'_> {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
@@ -601,6 +805,227 @@ impl Serialize for Out<'_> {
         }
         map.end()
     }
+}
+
+/// The key order of a JSON document, at every nesting level, with the values left out. Parsed in
+/// document order by a visitor, because `serde_json::Map` is a sorted map without the
+/// `preserve_order` feature, and that feature is not enabled here: it would change `Map` for
+/// every crate in the build.
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) enum Shape {
+    /// An object's keys in document order, each with its value's shape. A key that occurs twice
+    /// in the text occurs twice here; the last one is the one `serde_json` keeps.
+    Object(Vec<(String, Shape)>),
+    Array(Vec<Shape>),
+    /// A string, number, boolean or null.
+    Leaf,
+}
+
+impl Shape {
+    /// The shape of the JSON text `bytes`, or `None` when it is not JSON. Only a missing hint:
+    /// callers use the shape to order keys, never to decide what is written.
+    fn parse(bytes: &[u8]) -> Option<Shape> {
+        serde_json::from_slice(bytes).ok()
+    }
+
+    /// The envelope's own keys in the order a new file gets them, with `values` as given.
+    fn envelope(values: Option<&Shape>) -> Shape {
+        Shape::Object(vec![
+            (ENVELOPE_VERSION.to_owned(), Shape::Leaf),
+            (ENVELOPE_NS.to_owned(), Shape::Leaf),
+            (
+                ENVELOPE_VALUES.to_owned(),
+                values.cloned().unwrap_or(Shape::Leaf),
+            ),
+            (ENVELOPE_REVISION.to_owned(), Shape::Leaf),
+        ])
+    }
+
+    /// This shape read as an envelope. A legacy flat file (no `schemaVersion`) is the `values`
+    /// of the envelope that adopts it: its keys keep their order there, and the envelope's own
+    /// keys, which it lacks, take the order a new file gets.
+    fn as_envelope(self) -> Shape {
+        let flat = matches!(
+            &self,
+            Shape::Object(entries) if !entries.iter().any(|(key, _)| key == ENVELOPE_VERSION)
+        );
+        if flat {
+            Shape::envelope(Some(&self))
+        } else {
+            self
+        }
+    }
+
+    fn entries(&self) -> Option<&[(String, Shape)]> {
+        match self {
+            Shape::Object(entries) => Some(entries.as_slice()),
+            _ => None,
+        }
+    }
+
+    fn child(&self, key: &str) -> Option<&Shape> {
+        match self {
+            Shape::Object(entries) => entries
+                .iter()
+                .rev()
+                .find(|(name, _)| name == key)
+                .map(|(_, shape)| shape),
+            _ => None,
+        }
+    }
+
+    fn element(&self, index: usize) -> Option<&Shape> {
+        match self {
+            Shape::Array(items) => items.get(index),
+            _ => None,
+        }
+    }
+}
+
+impl<'de> Deserialize<'de> for Shape {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        struct ShapeVisitor;
+        impl<'de> Visitor<'de> for ShapeVisitor {
+            type Value = Shape;
+            fn expecting(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+                f.write_str("any JSON value")
+            }
+            fn visit_map<A: MapAccess<'de>>(self, mut map: A) -> Result<Shape, A::Error> {
+                let mut entries = Vec::new();
+                while let Some((key, shape)) = map.next_entry::<String, Shape>()? {
+                    entries.push((key, shape));
+                }
+                Ok(Shape::Object(entries))
+            }
+            fn visit_seq<A: SeqAccess<'de>>(self, mut seq: A) -> Result<Shape, A::Error> {
+                let mut items = Vec::new();
+                while let Some(shape) = seq.next_element::<Shape>()? {
+                    items.push(shape);
+                }
+                Ok(Shape::Array(items))
+            }
+            fn visit_bool<E>(self, _: bool) -> Result<Shape, E> {
+                Ok(Shape::Leaf)
+            }
+            fn visit_i64<E>(self, _: i64) -> Result<Shape, E> {
+                Ok(Shape::Leaf)
+            }
+            fn visit_u64<E>(self, _: u64) -> Result<Shape, E> {
+                Ok(Shape::Leaf)
+            }
+            fn visit_f64<E>(self, _: f64) -> Result<Shape, E> {
+                Ok(Shape::Leaf)
+            }
+            fn visit_str<E>(self, _: &str) -> Result<Shape, E> {
+                Ok(Shape::Leaf)
+            }
+            fn visit_unit<E>(self) -> Result<Shape, E> {
+                Ok(Shape::Leaf)
+            }
+        }
+        deserializer.deserialize_any(ShapeVisitor)
+    }
+}
+
+/// A [`Value`] written with its object keys in a chosen order. Leaves are serialised by `Value`
+/// itself, so numbers, escapes and whitespace are what `serde_json` gives for the same value; only
+/// the order of keys differs. `old` is the shape of the stored text this value replaces (its keys
+/// stay where they were) and `typed` the shape of the settings type's serialisation (keys the old
+/// text lacks follow it); keys in neither follow the map's own order. `sorted` ignores both and
+/// sorts every object, explicitly, so the bytes do not depend on the map type.
+#[derive(Clone, Copy)]
+struct Ordered<'a> {
+    value: &'a Value,
+    old: Option<&'a Shape>,
+    typed: Option<&'a Shape>,
+    sorted: bool,
+}
+
+impl<'a> Ordered<'a> {
+    fn sorted(value: &'a Value) -> Self {
+        Self {
+            value,
+            old: None,
+            typed: None,
+            sorted: true,
+        }
+    }
+}
+
+impl Serialize for Ordered<'_> {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        match self.value {
+            Value::Object(map) => {
+                let entries: Vec<(&str, &Value)> = if self.sorted {
+                    let mut all: Vec<(&str, &Value)> = map
+                        .iter()
+                        .map(|(key, value)| (key.as_str(), value))
+                        .collect();
+                    all.sort_unstable_by_key(|(key, _)| *key);
+                    all
+                } else {
+                    preserve_order(
+                        map,
+                        self.old.and_then(Shape::entries),
+                        self.typed.and_then(Shape::entries),
+                        &BTreeSet::new(),
+                    )
+                };
+                let mut out = serializer.serialize_map(Some(entries.len()))?;
+                for (key, value) in entries {
+                    let child = Ordered {
+                        value,
+                        old: self.old.and_then(|shape| shape.child(key)),
+                        typed: self.typed.and_then(|shape| shape.child(key)),
+                        sorted: self.sorted,
+                    };
+                    out.serialize_entry(key, &child)?;
+                }
+                out.end()
+            }
+            Value::Array(items) => {
+                let mut seq = serializer.serialize_seq(Some(items.len()))?;
+                for (index, item) in items.iter().enumerate() {
+                    let element = Ordered {
+                        value: item,
+                        old: self.old.and_then(|shape| shape.element(index)),
+                        typed: self.typed.and_then(|shape| shape.element(index)),
+                        sorted: self.sorted,
+                    };
+                    seq.serialize_element(&element)?;
+                }
+                seq.end()
+            }
+            leaf => leaf.serialize(serializer),
+        }
+    }
+}
+
+/// The keys of `map` in write order: those `old` names, in its order, then those `typed` names,
+/// then the rest in the map's own order. Keys in `skip` are left out (the caller wrote them).
+fn preserve_order<'a>(
+    map: &'a Map<String, Value>,
+    old: Option<&'a [(String, Shape)]>,
+    typed: Option<&'a [(String, Shape)]>,
+    skip: &BTreeSet<&str>,
+) -> Vec<(&'a str, &'a Value)> {
+    let mut placed: BTreeSet<&str> = skip.iter().copied().collect();
+    let mut out = Vec::with_capacity(map.len());
+    for source in [old, typed].into_iter().flatten() {
+        for (key, _) in source {
+            if let Some(value) = map.get(key.as_str()) {
+                if placed.insert(key.as_str()) {
+                    out.push((key.as_str(), value));
+                }
+            }
+        }
+    }
+    for (key, value) in map {
+        if placed.insert(key.as_str()) {
+            out.push((key.as_str(), value));
+        }
+    }
+    out
 }
 
 /// FNV-1a, 64-bit. Stable across builds, unlike `DefaultHasher`. Used as the revision of a flat
@@ -634,8 +1059,46 @@ fn quarantine_path(path: &Path, name: &QuarantineName) -> PathBuf {
     PathBuf::from(s)
 }
 
-fn quarantine(path: &Path, name: &QuarantineName) {
-    let _ = fs::rename(path, quarantine_path(path, name));
+/// Moves the damaged file at `path` aside. A failed move is an error naming the file, where it was
+/// to go and the cause: the caller must stop, because anything written now would go over a file
+/// that was not preserved.
+fn quarantine(path: &Path, name: &QuarantineName) -> Result<(), Error> {
+    preserve(PreserveStep::Quarantine, path, &quarantine_path(path, name))
+}
+
+/// One step that keeps the content at `path` before something replaces or removes it: moves it to
+/// `kept_as` ([`PreserveStep::Quarantine`]) or copies it there. A failure is returned, never
+/// dropped.
+fn preserve(step: PreserveStep, path: &Path, kept_as: &Path) -> Result<(), Error> {
+    let done = match step {
+        PreserveStep::Quarantine => rename_file(path, kept_as),
+        PreserveStep::CorruptCopy | PreserveStep::Backup => copy_file(path, kept_as),
+    };
+    done.map_err(|source| Error::PreserveFailed {
+        step,
+        path: path.to_path_buf(),
+        kept_as: kept_as.to_path_buf(),
+        source,
+    })
+}
+
+// The two calls below are the only places `preserve` touches the file system, so a unit test can
+// make either fail (`fault`), which no public seam of this crate or of rightkit-fs reaches.
+
+fn rename_file(from: &Path, to: &Path) -> io::Result<()> {
+    #[cfg(test)]
+    if let Some(error) = fault::rename() {
+        return Err(error);
+    }
+    fs::rename(from, to)
+}
+
+fn copy_file(from: &Path, to: &Path) -> io::Result<()> {
+    #[cfg(test)]
+    if let Some(error) = fault::copy() {
+        return Err(error);
+    }
+    fs::copy(from, to).map(|_| ())
 }
 
 /// Exclusive cross-process transaction guard (OS advisory lock on a sidecar file; released when
@@ -680,5 +1143,219 @@ fn lock_file(settings: &Path) -> Result<FileGuard, Error> {
             }
             Err(TryLockError::Error(e)) => return Err(e.into()),
         }
+    }
+}
+
+/// Failure injection for the unit tests below: `preserve` renames or copies through two calls
+/// that consult this module first. Per thread, so parallel tests do not see each other's faults.
+#[cfg(test)]
+mod fault {
+    use std::cell::Cell;
+    use std::io;
+
+    thread_local! {
+        static RENAME: Cell<Option<io::ErrorKind>> = const { Cell::new(None) };
+        static COPY: Cell<Option<io::ErrorKind>> = const { Cell::new(None) };
+    }
+
+    /// Clears the fault when dropped.
+    pub(super) struct Guard(fn());
+
+    impl Drop for Guard {
+        fn drop(&mut self) {
+            (self.0)();
+        }
+    }
+
+    /// Makes every rename `preserve` makes on this thread fail with `kind`.
+    pub(super) fn fail_rename(kind: io::ErrorKind) -> Guard {
+        RENAME.with(|fault| fault.set(Some(kind)));
+        Guard(|| RENAME.with(|fault| fault.set(None)))
+    }
+
+    /// Makes every copy `preserve` makes on this thread fail with `kind`.
+    pub(super) fn fail_copy(kind: io::ErrorKind) -> Guard {
+        COPY.with(|fault| fault.set(Some(kind)));
+        Guard(|| COPY.with(|fault| fault.set(None)))
+    }
+
+    pub(super) fn rename() -> Option<io::Error> {
+        RENAME
+            .with(Cell::get)
+            .map(|kind| io::Error::new(kind, "injected rename failure"))
+    }
+
+    pub(super) fn copy() -> Option<io::Error> {
+        COPY.with(Cell::get)
+            .map(|kind| io::Error::new(kind, "injected copy failure"))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::store::{Schema, Store};
+
+    #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+    #[serde(default)]
+    struct Cfg {
+        n: u32,
+    }
+
+    fn schema() -> Schema {
+        Schema::new("t", 1)
+    }
+
+    /// File names in `dir` other than the lock sidecar.
+    fn names(dir: &Path) -> Vec<String> {
+        let mut names: Vec<String> = fs::read_dir(dir)
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
+            .filter(|name| !name.ends_with(".lock"))
+            .collect();
+        names.sort();
+        names
+    }
+
+    fn bump(store: &Store<Cfg>, n: u32) -> Result<(), Error> {
+        store.update(|cfg| {
+            cfg.n = n;
+            Ok(())
+        })
+    }
+
+    #[test]
+    fn a_failed_quarantine_stops_the_open_and_leaves_the_damaged_file() {
+        let d = tempfile::tempdir().unwrap();
+        let p = d.path().join("s.json");
+        fs::write(&p, b"{ damaged").unwrap();
+        let _fault = fault::fail_rename(io::ErrorKind::PermissionDenied);
+        let err = Store::<Cfg>::open_path(&p, StoreOptions::new(schema()))
+            .err()
+            .expect("open must fail");
+        match &err {
+            Error::PreserveFailed {
+                step,
+                path,
+                kept_as,
+                source,
+            } => {
+                assert_eq!(*step, PreserveStep::Quarantine);
+                assert_eq!(path, &p);
+                assert!(kept_as.to_string_lossy().contains("s.json.corrupt-"));
+                assert_eq!(source.kind(), io::ErrorKind::PermissionDenied);
+            }
+            other => panic!("expected PreserveFailed, got {other:?}"),
+        }
+        let text = err.to_string();
+        assert!(
+            text.contains("s.json")
+                && text.contains("moved aside")
+                && text.contains("nothing was written"),
+            "{text}"
+        );
+        assert_eq!(fs::read(&p).unwrap(), b"{ damaged");
+        assert_eq!(
+            names(d.path()),
+            vec!["s.json"],
+            "nothing moved, written or left over"
+        );
+    }
+
+    #[test]
+    fn a_failed_quarantine_stops_an_update_and_the_next_one_succeeds() {
+        let d = tempfile::tempdir().unwrap();
+        let p = d.path().join("s.json");
+        let s = Store::<Cfg>::open_path(&p, StoreOptions::new(schema())).unwrap();
+        bump(&s, 1).unwrap(); // the second write makes the .bak
+        fs::write(&p, b"{ damaged").unwrap();
+        {
+            let _fault = fault::fail_rename(io::ErrorKind::PermissionDenied);
+            let r = bump(&s, 2);
+            assert!(
+                matches!(
+                    r,
+                    Err(Error::PreserveFailed {
+                        step: PreserveStep::Quarantine,
+                        ..
+                    })
+                ),
+                "{r:?}"
+            );
+        }
+        assert_eq!(
+            fs::read(&p).unwrap(),
+            b"{ damaged",
+            "nothing written over it"
+        );
+        assert_eq!(s.get().n, 1, "the in-memory value is unchanged");
+        // The cause is gone: the same write now sets the file aside and succeeds.
+        bump(&s, 3).unwrap();
+        assert_eq!(s.get().n, 3);
+        let kept: Vec<String> = names(d.path())
+            .into_iter()
+            .filter(|name| name.starts_with("s.json.corrupt-"))
+            .collect();
+        assert_eq!(kept.len(), 1, "{kept:?}");
+        assert_eq!(fs::read(d.path().join(&kept[0])).unwrap(), b"{ damaged");
+    }
+
+    #[test]
+    fn a_failed_backup_refresh_stops_the_write_and_keeps_the_previous_file() {
+        let d = tempfile::tempdir().unwrap();
+        let p = d.path().join("s.json");
+        let s = Store::<Cfg>::open_path(&p, StoreOptions::new(schema())).unwrap();
+        bump(&s, 1).unwrap();
+        let before = fs::read(&p).unwrap();
+        {
+            let _fault = fault::fail_copy(io::ErrorKind::StorageFull);
+            match bump(&s, 2) {
+                Err(Error::PreserveFailed {
+                    step: PreserveStep::Backup,
+                    path,
+                    kept_as,
+                    source,
+                }) => {
+                    assert_eq!(path, p);
+                    assert_eq!(kept_as, d.path().join("s.json.bak"));
+                    assert_eq!(source.kind(), io::ErrorKind::StorageFull);
+                }
+                other => panic!("expected PreserveFailed(Backup), got {other:?}"),
+            }
+        }
+        assert_eq!(
+            fs::read(&p).unwrap(),
+            before,
+            "the previous file is still there"
+        );
+        assert_eq!(s.get().n, 1);
+        bump(&s, 2).unwrap();
+        assert_eq!(s.get().n, 2);
+    }
+
+    #[test]
+    fn a_failed_corrupt_copy_stops_an_overwrite() {
+        let d = tempfile::tempdir().unwrap();
+        let p = d.path().join("s.json");
+        fs::write(&p, b"{ damaged").unwrap();
+        let _fault = fault::fail_copy(io::ErrorKind::PermissionDenied);
+        let opts = StoreOptions::new(schema())
+            .on_corrupt(OnCorrupt::Overwrite)
+            .keep_corrupt_copy(true);
+        let err = Store::<Cfg>::open_path(&p, opts)
+            .err()
+            .expect("open must fail");
+        assert!(
+            matches!(
+                err,
+                Error::PreserveFailed {
+                    step: PreserveStep::CorruptCopy,
+                    ..
+                }
+            ),
+            "{err:?}"
+        );
+        assert_eq!(fs::read(&p).unwrap(), b"{ damaged");
+        assert_eq!(names(d.path()), vec!["s.json"]);
     }
 }

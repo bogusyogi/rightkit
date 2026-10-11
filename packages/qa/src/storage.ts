@@ -306,7 +306,7 @@ export function appTempDir(): string {
 export function createManagedAppRoot(run: ManagedRun): string {
   const parent = path.join(appTempDir(), 'rightkit-qa');
   ensureSafeDirectory(parent);
-  const home = fs.mkdtempSync(path.join(parent, `${run.app.slice(0, 16)}-`));
+  const home = fs.mkdtempSync(path.join(parent, `${qaHomeLabel(run.app)}-`));
   fs.writeFileSync(path.join(home, '.rightkit-app.json'), JSON.stringify({ runRoot: fs.realpathSync(run.root), app: run.app, runId: run.runId }), { flag: 'wx' });
   fs.writeFileSync(path.join(home, HOME_MARKER), JSON.stringify({ schemaVersion: 1, pid: process.pid, startedAtMs: Date.now(), app: run.app, runId: run.runId }), { flag: 'wx' });
   run.marker.appRoot = home;
@@ -346,26 +346,80 @@ function copyAppTree(source: string, target: string): void {
 
 // ---------------------------------------------------------------------------------------------
 // QA root hygiene: every home is removed when its run ends; dead homes are swept at run start;
-// a root over its size cap refuses to start another run. Mirrors the Rust crate's `storage`.
+// a product whose own homes hold too much, or a root that holds far too much, refuses to start
+// another run. Mirrors the Rust crate's `storage`.
 
 /** Marker inside each home: the owning process and when the run started. */
 export const HOME_MARKER = '.rightkit-home.json';
-/** Bytes the whole `rightkit-qa` root may hold after the start-of-run sweep. `0` disables the cap. */
+/** Binding file inside each home: the run record it belongs to and its product (`app`). */
+const BINDING_FILE = '.rightkit-app.json';
+/**
+ * Bytes one product's homes may hold after the start-of-run sweep. `0` disables the cap. The cap is per
+ * product: a home belongs to the product named by its binding file (else by its directory name prefix),
+ * and other products' homes never count against it.
+ */
 export const ROOT_CAP_ENV = 'RIGHTKIT_QA_ROOT_CAP_BYTES';
-/** Seconds a home whose owner is dead must be old before the start-of-run sweep removes it. */
+/** Bytes the whole `rightkit-qa` root may hold, all products together. Above it every run is refused (the disk is at risk). `0` disables it. */
+export const ROOT_CEILING_ENV = 'RIGHTKIT_QA_ROOT_CEILING_BYTES';
+/** Seconds a home whose owner is dead must be untouched before the start-of-run sweep removes it. */
 export const HOME_MAX_AGE_ENV = 'RIGHTKIT_QA_HOME_MAX_AGE_SECS';
 /** `1` keeps the home of a failed run for inspection (its path and size are printed). */
 export const KEEP_FAILED_HOME_ENV = 'RIGHTKIT_QA_KEEP_FAILED_HOME';
 /** `0` skips the start-of-run sweep. */
 export const HOME_SWEEP_ENV = 'RIGHTKIT_QA_HOME_SWEEP';
 export const DEFAULT_ROOT_CAP_BYTES = 4_000_000_000;
+export const DEFAULT_ROOT_CEILING_BYTES = 32_000_000_000;
 export const DEFAULT_HOME_MAX_AGE_MS = 2 * 60 * 60_000;
+/** The app key is cut to this many characters to make the product label in a home's name. */
+const HOME_LABEL_LENGTH = 16;
 
 export function qaRoot(): string { return path.join(appTempDir(), 'rightkit-qa'); }
 
+function bytesFromEnv(env: NodeJS.ProcessEnv, key: string, fallback: number): number {
+  const raw = env[key]?.trim();
+  const n = Number(raw);
+  return raw && Number.isFinite(n) && n >= 0 ? Math.floor(n) : fallback;
+}
+
+/** The per-product cap from the environment, else {@link DEFAULT_ROOT_CAP_BYTES}. */
 export function rootCapBytes(env: NodeJS.ProcessEnv = process.env): number {
-  const n = Number(env[ROOT_CAP_ENV]?.trim());
-  return env[ROOT_CAP_ENV]?.trim() && Number.isFinite(n) && n >= 0 ? Math.floor(n) : DEFAULT_ROOT_CAP_BYTES;
+  return bytesFromEnv(env, ROOT_CAP_ENV, DEFAULT_ROOT_CAP_BYTES);
+}
+
+/** The root-wide ceiling from the environment, else {@link DEFAULT_ROOT_CEILING_BYTES}. */
+export function rootCeilingBytes(env: NodeJS.ProcessEnv = process.env): number {
+  return bytesFromEnv(env, ROOT_CEILING_ENV, DEFAULT_ROOT_CEILING_BYTES);
+}
+
+/**
+ * Limits a run start enforces on the QA root, as an app sets them in code. A value set here wins over
+ * the environment variable; `undefined` leaves the limit to the environment, then the default; `0`
+ * disables it.
+ */
+export interface QaRootLimits {
+  /** Per-product cap ({@link ROOT_CAP_ENV}). */
+  capBytes?: number;
+  /** Root-wide ceiling ({@link ROOT_CEILING_ENV}). */
+  ceilingBytes?: number;
+}
+
+/** {@link QaRootLimits} after setter, environment and default are applied. `0` means disabled. */
+export interface ResolvedQaRootLimits {
+  capBytes: number;
+  ceilingBytes: number;
+}
+
+function limitFromCode(value: number, name: string): number {
+  if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) throw new TypeError(`${name} must be a non-negative number of bytes (0 disables), got ${String(value)}`);
+  return Math.floor(value);
+}
+
+/** Setter, else environment, else default. A setter value that is not a non-negative number throws. */
+export function resolveQaRootLimits(limits: QaRootLimits = {}, env: NodeJS.ProcessEnv = process.env): ResolvedQaRootLimits {
+  return {
+    capBytes: limits.capBytes === undefined ? rootCapBytes(env) : limitFromCode(limits.capBytes, 'capBytes'),
+    ceilingBytes: limits.ceilingBytes === undefined ? rootCeilingBytes(env) : limitFromCode(limits.ceilingBytes, 'ceilingBytes'),
+  };
 }
 
 export function homeMaxAgeMs(env: NodeJS.ProcessEnv = process.env): number {
@@ -377,13 +431,51 @@ export function keepFailedHomeRequested(env: NodeJS.ProcessEnv = process.env): b
   return ['1', 'true', 'yes'].includes(env[KEEP_FAILED_HOME_ENV]?.trim() ?? '');
 }
 
+/** The product label a home's directory name carries: the app key cut to 16 characters. */
+export function qaHomeLabel(app: string): string { return app.slice(0, HOME_LABEL_LENGTH); }
+
+/**
+ * The product label of a directory name that follows the naming pattern of a QA home, else `undefined`.
+ * The pattern is `<label>-<suffix>`: the label is an app key cut to 16 characters (a safe key: ASCII
+ * letters, digits, `.`, `_`, `-`, starting with a letter or digit), and the suffix is the 6 letters and
+ * digits `mkdtemp` appends here or the 16 lowercase hex digits the Rust crate appends. Both runners write
+ * into the same root, so both suffixes are accepted.
+ */
+export function parseQaHomeName(name: string): string | undefined {
+  const cut = name.lastIndexOf('-');
+  if (cut <= 0) return undefined;
+  const label = name.slice(0, cut);
+  const suffix = name.slice(cut + 1);
+  const suffixOk = /^[0-9a-f]{16}$/.test(suffix) || /^[A-Za-z0-9]{6}$/.test(suffix);
+  const labelOk = label.length <= HOME_LABEL_LENGTH && /^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(label);
+  return suffixOk && labelOk ? label : undefined;
+}
+
+/** The binding file of a home, when it is a readable JSON object. */
+function readBinding(home: string): Record<string, unknown> | undefined {
+  try {
+    const raw: unknown = JSON.parse(fs.readFileSync(path.join(home, BINDING_FILE), 'utf8'));
+    return raw && typeof raw === 'object' && !Array.isArray(raw) ? raw as Record<string, unknown> : undefined;
+  } catch { return undefined; }
+}
+
+/** The product a home belongs to: the `app` in its binding file, else the label in its directory name, else the whole name. */
+export function qaHomeProduct(name: string, binding?: Record<string, unknown>): string {
+  const app = binding?.app;
+  if (typeof app === 'string' && app !== '') return app;
+  return parseQaHomeName(name) ?? name;
+}
+
+/** Two product names are the same product when their home-name labels are equal. */
+function sameProduct(homeProduct: string, app: string): boolean { return qaHomeLabel(homeProduct) === qaHomeLabel(app); }
+
 /** A directory this runner created as a QA home: a real directory directly under `rightkit-qa` with the binding file. */
 export function isOwnedHome(home: string): boolean {
   try {
     const resolved = path.resolve(home);
     return fs.lstatSync(resolved).isDirectory() && !fs.lstatSync(resolved).isSymbolicLink()
       && path.basename(path.dirname(resolved)) === 'rightkit-qa'
-      && fs.statSync(path.join(resolved, '.rightkit-app.json')).isFile();
+      && fs.statSync(path.join(resolved, BINDING_FILE)).isFile();
   } catch { return false; }
 }
 
@@ -403,6 +495,30 @@ function treeBytes(dir: string): number {
     }
   }
   return total;
+}
+
+/**
+ * True when `dir` itself or anything under it was modified after `cutoffMs` (milliseconds since the epoch).
+ * Symlinks are examined, never followed. Stops at the first newer entry. A tree that cannot be inspected
+ * counts as recently modified: it is not proven idle.
+ */
+function modifiedAfter(dir: string, cutoffMs: number): boolean {
+  const mtime = (p: string): number | undefined => { try { return fs.lstatSync(p).mtimeMs; } catch { return undefined; } };
+  const top = mtime(dir);
+  if (top === undefined || top > cutoffMs) return true;
+  const stack = [dir];
+  while (stack.length) {
+    const current = stack.pop() as string;
+    let entries: fs.Dirent[];
+    try { entries = fs.readdirSync(current, { withFileTypes: true }); } catch { return true; }
+    for (const entry of entries) {
+      const p = path.join(current, entry.name);
+      const t = mtime(p);
+      if (t === undefined || t > cutoffMs) return true;
+      if (entry.isDirectory()) stack.push(p);
+    }
+  }
+  return false;
 }
 
 function readHomeMarker(home: string): { pid: number; startedAtMs: number } | undefined {
@@ -431,10 +547,43 @@ export interface CleanQaHomesOptions {
 }
 
 /**
- * Remove the homes of dead runs. A home goes when its recorded process is gone and it is older than
- * `maxAgeMs`; a home whose pid is alive is never touched, nor is a directory without the binding file,
- * a symlink, or anything outside `parent`. Homes from before the pid marker existed fall back to their
- * run record's liveness. Deletion never follows a symlink out of the root.
+ * Why a home that has no owner marker (`.rightkit-home.json`, or no binding file beside it) must stay, or
+ * `undefined` when it may be swept.
+ *
+ * "Dead" for such a home means every one of these holds:
+ * - its name matches the home naming pattern ({@link parseQaHomeName});
+ * - no pid recorded for it is alive: the pid in a home marker that has no binding beside it, and the
+ *   `ownerPid` of the run record its binding names (`runRoot`), when either is readable;
+ * - nothing in the home, the directory itself included, was modified within `maxAgeMs`.
+ *
+ * Not checked: which processes have the home as their working directory or an open file in it (no process
+ * table walk), the run record's lease (`leaseUntil` is a timer set when the run began, not proof of a live
+ * process, and a cancelled run's lease is what kept these homes for 24 hours), and whether a pid in the
+ * record now belongs to an unrelated process (that keeps the home). A process that holds the home but writes
+ * nothing for the whole window is not noticed.
+ */
+function unmarkedHomeBlocker(dir: string, name: string, binding: Record<string, unknown> | undefined, markerPid: number | undefined, now: number, maxAgeMs: number, alive: (pid: number) => boolean): string | undefined {
+  if (parseQaHomeName(name) === undefined) return 'no owner marker and the name is not a QA home name: not proven ours';
+  const recorded = binding?.runRoot;
+  const runRoot = typeof recorded === 'string' ? recorded : undefined;
+  const record = runRoot ? readMarker(path.join(runRoot, RUN_MARKER)) : undefined;
+  for (const pid of [markerPid, record?.ownerPid]) {
+    if (pid !== undefined && pid > 0 && alive(pid)) return `no owner marker; recorded owner process ${pid} is alive`;
+  }
+  if (modifiedAfter(dir, now - maxAgeMs)) return 'no owner marker; modified within the window';
+  return undefined;
+}
+
+/**
+ * Remove the homes of dead runs. Two kinds of home exist:
+ * - A home with an owner marker (`.rightkit-home.json`) and a binding file goes when its recorded process is
+ *   gone and its run started more than `maxAgeMs` ago. A home whose pid is alive is never touched.
+ * - Any other home (written before the marker existed, or missing a file) goes only when it is named like a QA
+ *   home, no pid its records name is alive, and nothing in it was modified within `maxAgeMs`
+ *   (see `unmarkedHomeBlocker` for what is and is not checked).
+ *
+ * Symlinks, dot-directories, anything outside `parent` and any path that is not a plain directory directly
+ * inside it are never removed. Deletion never follows a symlink out of the root.
  */
 export function cleanQaHomes(options: CleanQaHomesOptions = {}): HomeCleanReport {
   const report: HomeCleanReport = { removed: [], retained: [], totalBytes: 0, removedBytes: 0 };
@@ -447,31 +596,30 @@ export function cleanQaHomes(options: CleanQaHomesOptions = {}): HomeCleanReport
   const maxAge = options.maxAgeMs ?? homeMaxAgeMs();
   const alive = options.isAlive ?? isProcessLive;
   for (const entry of entries) {
-    if (!entry.isDirectory() || entry.isSymbolicLink() || entry.name.startsWith('.')) continue;
+    if (entry.name.startsWith('.')) continue;
     const dir = path.join(canonicalParent, entry.name);
-    let binding: Record<string, unknown>;
-    try { binding = JSON.parse(fs.readFileSync(path.join(dir, '.rightkit-app.json'), 'utf8')); } catch {
-      report.retained.push({ path: dir, reason: 'no readable binding file: not proven ours' });
-      continue;
-    }
-    let live: boolean;
-    let started: number;
+    if (entry.isSymbolicLink()) { report.retained.push({ path: dir, reason: 'symlink skipped' }); continue; }
+    if (!entry.isDirectory()) continue;
+    const binding = readBinding(dir);
     const marker = readHomeMarker(dir);
-    if (marker) { live = alive(marker.pid); started = marker.startedAtMs; }
-    else {
-      const run = typeof binding.runRoot === 'string' ? readMarker(path.join(binding.runRoot, RUN_MARKER)) : undefined;
-      if (run) { live = run.ownerPid > 0 && alive(run.ownerPid) || run.leaseUntil > now; started = run.createdAt; }
-      else { live = false; try { started = fs.statSync(dir).mtimeMs; } catch { started = now; } }
-    }
     const bytes = treeBytes(dir);
     report.totalBytes += bytes;
-    if (live) { report.retained.push({ path: dir, reason: 'owner process alive' }); continue; }
-    if (now - started < maxAge) { report.retained.push({ path: dir, reason: 'owner gone but younger than the window' }); continue; }
+    let keep: string | undefined;
+    let reason: string;
+    if (binding && marker) {
+      reason = 'owner process gone and older than the window';
+      if (alive(marker.pid)) keep = 'owner process alive';
+      else if (now - marker.startedAtMs < maxAge) keep = 'owner gone but younger than the window';
+    } else {
+      reason = 'no owner marker, no live recorded owner, untouched for longer than the window';
+      keep = unmarkedHomeBlocker(dir, entry.name, binding, marker?.pid, now, maxAge, alive);
+    }
+    if (keep !== undefined) { report.retained.push({ path: dir, reason: keep }); continue; }
     if (!options.dryRun) {
       try { removeHomeDirectory(dir, canonicalParent); } catch (error) { report.retained.push({ path: dir, reason: describeError(error) }); continue; }
     }
     report.removedBytes += bytes;
-    report.removed.push({ path: dir, bytes, reason: 'owner process gone and older than the window' });
+    report.removed.push({ path: dir, bytes, reason });
   }
   return report;
 }
@@ -482,45 +630,120 @@ function removeHomeDirectory(dir: string, canonicalParent: string): void {
   fs.rmSync(dir, { recursive: true, force: false });
 }
 
-export interface QaRootOverCap { root: string; totalBytes: number; capBytes: number; largest: Array<{ path: string; bytes: number }> }
+/** Which limit a refused run exceeded. */
+export type QaRootLimitKind = 'product-cap' | 'root-ceiling';
 
-/** Thrown before a run starts when the QA root holds more than its cap after the sweep. */
+export interface QaRootOverCap {
+  kind: QaRootLimitKind;
+  root: string;
+  /** The product the refused run is for; `undefined` when the caller named none (only the ceiling applies then). */
+  app: string | undefined;
+  /** Bytes counted against the limit: the product's homes, or every home. */
+  totalBytes: number;
+  /** Homes counted against the limit. */
+  homeCount: number;
+  /** The limit that was exceeded. */
+  limitBytes: number;
+  /** Largest homes first. */
+  largest: Array<{ path: string; bytes: number; product: string }>;
+}
+
+/** `"5.26 GB (5260000000 bytes)"`, or `"812 bytes"` below a megabyte. */
+function humanBytes(bytes: number): string {
+  if (bytes >= 1e9) return `${(bytes / 1e9).toFixed(2)} GB (${bytes} bytes)`;
+  if (bytes >= 1e6) return `${(bytes / 1e6).toFixed(1)} MB (${bytes} bytes)`;
+  return `${bytes} bytes`;
+}
+
+function describeRootOverCap(detail: QaRootOverCap): string {
+  const who = detail.app ? ` for \`${detail.app}\`` : '';
+  const largest = detail.largest.map((h) => ` ${h.path} [${h.product}] (${humanBytes(h.bytes)});`).join('');
+  const head = detail.kind === 'product-cap'
+    ? `QA run${who} refused: the ${detail.app ?? 'product'} homes in ${detail.root} hold ${humanBytes(detail.totalBytes)} in ${detail.homeCount} home(s), over the ${humanBytes(detail.limitBytes)} per-product cap (${ROOT_CAP_ENV}; \`rootCapBytes\` sets it in code, 0 disables). Other products' homes are not counted. Largest ${detail.app ?? 'product'} homes:`
+    : `QA run${who} refused: ${detail.root} holds ${humanBytes(detail.totalBytes)} across all products in ${detail.homeCount} home(s), over the ${humanBytes(detail.limitBytes)} root ceiling (${ROOT_CEILING_ENV}; \`rootCeilingBytes\` sets it in code, 0 disables), so the disk may be at risk. Largest homes:`;
+  return `${head}${largest} Run \`cleanQaHomes()\` (or \`rightkit-qa clean\`) to remove the homes of dead runs (owner process gone and untouched for the home age bound, 2 hours by default, ${HOME_MAX_AGE_ENV}); a home it keeps belongs to a live or recent run, so remove it by hand once you know that run is over, then retry`;
+}
+
+/** Thrown before a run starts when the run's product is over its cap, or the root over its ceiling, after the sweep. */
 export class QaRootOverCapError extends Error {
   readonly detail: QaRootOverCap;
   constructor(detail: QaRootOverCap) {
-    super(`QA root ${detail.root} holds ${detail.totalBytes} bytes, over its ${detail.capBytes} byte cap (${ROOT_CAP_ENV}); largest homes: ${detail.largest.map((h) => `${h.path} (${h.bytes} bytes)`).join('; ')}; run \`cleanQaHomes()\`, or remove those homes, then retry`);
+    super(describeRootOverCap(detail));
     this.name = 'QaRootOverCapError';
     this.detail = detail;
   }
 }
 
-/** Throw {@link QaRootOverCapError} when the directories under `parent` hold more than `capBytes` (`0` disables). */
-export function checkQaRootCap(parent: string, capBytes: number): void {
-  if (!(capBytes > 0) || !safeDirectory(parent)) return;
+/**
+ * Throw {@link QaRootOverCapError} when the homes of the product `app` hold more than `limits.capBytes`
+ * (checked first), or when every directory under `parent` together holds more than `limits.ceilingBytes`.
+ * `0` disables a limit; without `app` only the ceiling applies. A home's product is the `app` in its binding
+ * file, else the label in its directory name. Symlinks are not followed or counted.
+ */
+export function checkQaRootLimits(parent: string, app: string | undefined, limits: ResolvedQaRootLimits): void {
+  const cap = app !== undefined && limits.capBytes > 0 ? limits.capBytes : 0;
+  const ceiling = limits.ceilingBytes > 0 ? limits.ceilingBytes : 0;
+  if ((cap === 0 && ceiling === 0) || !safeDirectory(parent)) return;
   let entries: fs.Dirent[];
   try { entries = fs.readdirSync(parent, { withFileTypes: true }); } catch { return; }
-  const homes = entries.filter((e) => e.isDirectory() && !e.isSymbolicLink()).map((e) => ({ path: path.join(parent, e.name), bytes: treeBytes(path.join(parent, e.name)) }));
-  const total = homes.reduce((sum, h) => sum + h.bytes, 0);
-  if (total <= capBytes) return;
-  homes.sort((a, b) => b.bytes - a.bytes);
-  throw new QaRootOverCapError({ root: parent, totalBytes: total, capBytes, largest: homes.slice(0, 5) });
+  const homes: Array<{ path: string; bytes: number; product: string; own: boolean }> = [];
+  for (const entry of entries) {
+    if (!entry.isDirectory() || entry.isSymbolicLink()) continue;
+    const dir = path.join(parent, entry.name);
+    const product = qaHomeProduct(entry.name, readBinding(dir));
+    const own = app !== undefined && sameProduct(product, app);
+    // Another product's home is sized only for the ceiling.
+    homes.push({ path: dir, product, own, bytes: (own && cap > 0) || ceiling > 0 ? treeBytes(dir) : 0 });
+  }
+  const refuse = (kind: QaRootLimitKind, limitBytes: number, counted: typeof homes): never => {
+    const sorted = [...counted].sort((a, b) => b.bytes - a.bytes);
+    throw new QaRootOverCapError({
+      kind,
+      root: parent,
+      app,
+      totalBytes: sorted.reduce((sum, h) => sum + h.bytes, 0),
+      homeCount: sorted.length,
+      limitBytes,
+      largest: sorted.slice(0, 5).map((h) => ({ path: h.path, bytes: h.bytes, product: h.product })),
+    });
+  };
+  if (cap > 0) {
+    const own = homes.filter((h) => h.own);
+    if (own.reduce((sum, h) => sum + h.bytes, 0) > cap) refuse('product-cap', cap, own);
+  }
+  if (ceiling > 0 && homes.reduce((sum, h) => sum + h.bytes, 0) > ceiling) refuse('root-ceiling', ceiling, homes);
+}
+
+/** {@link checkQaRootLimits} with only the per-product cap. */
+export function checkQaRootCap(parent: string, app: string, capBytes: number): void {
+  checkQaRootLimits(parent, app, { capBytes, ceilingBytes: 0 });
 }
 
 export interface PreflightOptions {
-  /** Force the sweep and cap on or off. Default: on, except under vitest (it runs against the developer's real root). */
+  /** Force the sweep and limits on or off. Default: on, except under vitest (it runs against the developer's real root). */
   enabled?: boolean;
+  /** The product the run is for. Without it only the root ceiling applies. */
+  app?: string;
+  /** Per-product cap in bytes, set in code: wins over {@link ROOT_CAP_ENV}. `0` disables. */
   capBytes?: number;
+  /** Root-wide ceiling in bytes, set in code: wins over {@link ROOT_CEILING_ENV}. `0` disables. */
+  ceilingBytes?: number;
   maxAgeMs?: number;
+  /** The `.../rightkit-qa` directory to sweep and check. Default: this runner's own root. A test hook. */
+  parent?: string;
+  /** Environment the variables are read from. Default: `process.env`. A test hook. */
+  env?: NodeJS.ProcessEnv;
 }
 
-/** Run before a run is created: sweep dead homes, then refuse to start over the cap. */
+/** Run before a run is created: sweep dead homes, then refuse to start when the run's product is over its cap or the root over its ceiling. */
 export function preflightQaRoot(options: PreflightOptions = {}): void {
   const enabled = options.enabled ?? !process.env.VITEST;
   if (!enabled) return;
-  const parent = qaRoot();
+  const env = options.env ?? process.env;
+  const parent = options.parent ?? qaRoot();
   if (!safeDirectory(parent)) return;
-  if ((process.env[HOME_SWEEP_ENV] ?? '').trim() !== '0') cleanQaHomes({ parent, maxAgeMs: options.maxAgeMs });
-  checkQaRootCap(parent, options.capBytes ?? rootCapBytes());
+  if ((env[HOME_SWEEP_ENV] ?? '').trim() !== '0') cleanQaHomes({ parent, maxAgeMs: options.maxAgeMs ?? homeMaxAgeMs(env) });
+  checkQaRootLimits(parent, options.app, resolveQaRootLimits({ capBytes: options.capBytes, ceilingBytes: options.ceilingBytes }, env));
 }
 
 /** `"<path> (<bytes> bytes)"` for a kept home. */

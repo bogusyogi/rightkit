@@ -7,9 +7,11 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Condvar, Mutex, MutexGuard, PoisonError};
 use std::time::{Duration, Instant};
 
-/// What a write may do to a credential that already exists. Every write in this crate that can
-/// replace a stored value goes through [`Store::put`] with one of these, chosen by the caller;
-/// nothing replaces a value by default.
+/// What a write may do to a credential that already exists. Every write a [`Store`] makes that
+/// can replace a stored value goes through [`Store::put`] with one of these, chosen by the
+/// caller; nothing replaces a value by default. This covers [`Store`] only: the
+/// `apple_helper::AppleHelper` driver is a separate client of the Swift helper, outside `Store`
+/// and its exclusion, and its `write` replaces by design (as in 0.1.3).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum WriteIntent {
     /// Create the credential; if one exists, change nothing and report that it was not written.
@@ -142,7 +144,9 @@ pub struct Diagnostics {
 /// caller's deadline is waited for, and a retry that arrives while a timed-out call is still
 /// running gets [`Error::InProgress`] instead of racing it (the stalled call could otherwise
 /// finish later and overwrite the retry). Retry after a short delay. Reads are never refused for
-/// this reason.
+/// this reason. The store a mutation addresses is decided once per call ([`Backend::pinned`]) and
+/// both the exclusion and the write use that decision, so a default store that changes while an
+/// earlier call is stalled cannot split them.
 #[derive(Clone)]
 pub struct Store {
     ns: Namespace,
@@ -218,6 +222,23 @@ fn backend_identity(backend: &Arc<dyn Backend>) -> String {
     backend
         .exclusion_identity()
         .unwrap_or_else(|| format!("instance:{:p}", Arc::as_ptr(backend) as *const ()))
+}
+
+/// The ONE decision of which store a mutation addresses: the backend the mutation will run on and
+/// the identity of the store it is bound to, both taken from the same [`Backend::pinned`] answer.
+/// A backend that never changes target is used as it is. A pinned backend that cannot name its
+/// store is refused: an unnamed store would be locked under the pinned object's own, throwaway
+/// identity, which excludes nothing.
+fn bind_mutation(backend: &Arc<dyn Backend>) -> Result<(Arc<dyn Backend>, String)> {
+    match backend.pinned()? {
+        Some(pinned) => {
+            let identity = pinned.exclusion_identity().ok_or_else(|| {
+                Error::Unavailable("a pinned backend must name the store it is bound to".into())
+            })?;
+            Ok((pinned, identity))
+        }
+        None => Ok((backend.clone(), backend_identity(backend))),
+    }
 }
 
 /// Mutations in flight, one per target. A timed-out OS call cannot be cancelled and keeps
@@ -384,25 +405,21 @@ impl Store {
             .unwrap_or_else(|| started + Duration::from_secs(365 * 24 * 60 * 60));
         // Mutations of one native target run one at a time, and a call that timed out keeps its
         // place until the OS returns: a retry is refused rather than raced.
-        let permit = if mutation {
+        let (backend, permit) = if mutation {
+            // The store is decided ONCE, here, and the mutation runs on the backend that decision
+            // returned: the exclusion key and the write cannot name different stores even if the
+            // OS default changes while an earlier call is stalled (`bind_mutation`).
+            let (backend, store) = bind_mutation(&self.backend)?;
             // The BACKEND says which native credential this is (service and account on macOS,
             // the normalised target on Windows), so two stores that reach one native item
             // through different Windows prefixes still exclude each other.
-            let key = (
-                backend_identity(&self.backend),
-                self.backend.credential_identity(&self.ns, account)?,
-            );
-            Some(TargetPermit::acquire(key, op, deadline)?)
+            let key = (store, backend.credential_identity(&self.ns, account)?);
+            (backend, Some(TargetPermit::acquire(key, op, deadline)?))
         } else {
-            None
+            (self.backend.clone(), None)
         };
         let ticket = permit.as_ref().map(TargetPermit::ticket);
-        let (backend, ns, acct, mode) = (
-            self.backend.clone(),
-            self.ns.clone(),
-            account.to_string(),
-            self.mode,
-        );
+        let (ns, acct, mode) = (self.ns.clone(), account.to_string(), self.mode);
         let (tx, rx) = std::sync::mpsc::channel();
         std::thread::spawn(move || {
             let result = f(backend, ns, acct, mode);

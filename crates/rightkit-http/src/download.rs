@@ -1,11 +1,50 @@
 //! Resumable download to a file, with optional SHA-256 and length verification.
 //!
-//! Bytes go to `<dest>.part`, created without following links. On success the file is
+//! Bytes go to a partial file, created without following links. On success the file is
 //! fsynced, hashed through the same open handle and renamed to `dest`. The URL policy runs
-//! before the filesystem is touched, and one download at a time holds `dest` (an exclusive
-//! OS lock on `<dest>.lock`) from before `.part` is opened until the rename or cleanup.
-//! Every request goes through the same policy layer as [`Client::send`]: timeouts,
-//! retry/backoff, redirect and size settings.
+//! before the filesystem is touched. Every request goes through the same policy layer as
+//! [`Client::send`]: timeouts, retry/backoff, redirect and size settings.
+//!
+//! # Where the download's own files live
+//!
+//! Nothing is created beside `dest`. The two files a destination needs sit in one hidden
+//! directory, `.rk-download`, in the destination's parent. It is created owner-only on Unix (on
+//! Windows it inherits the parent's access rules), and a file or link found at that path is
+//! refused. No destination in the parent can be one of these files, because they are not in the
+//! parent:
+//!
+//! | File | Name inside `.rk-download` | Role |
+//! |---|---|---|
+//! | claim | `<key>.lock` | An exclusive OS lock held from before the partial file is opened until the rename or cleanup. Its content is the destination's exact file name |
+//! | partial | `<key>.part` | The bytes received so far |
+//!
+//! `<key>` is the lowercase hex SHA-256 of the destination's file name: the raw bytes on Unix,
+//! the UTF-16LE code units on Windows. It is only a file name. The identity of a destination is
+//! the claim file, and the partial file is trusted only when the claim that was just locked
+//! records this destination's name; a partial file under any other claim state is deleted and
+//! the download starts from zero.
+//!
+//! A destination is refused, before any request or filesystem access, when its file name or a
+//! directory in its parent path is `.rk-download` (compared with a simple Unicode case fold, so
+//! `.RK-DOWNLOAD` and a spelling with the Kelvin sign U+212A are the same name), when the name ends in a dot
+//! or space, and on Windows when it contains `:`, is a device name, or contains `~<digit>`. A
+//! destination that is an alias for the directory itself in some other way fails at the rename,
+//! because a file cannot replace a directory.
+//!
+//! Limits, stated rather than hidden:
+//!
+//! - Two spellings that the filesystem treats as one file (`Out.bin` and `out.bin` on a
+//!   case-insensitive volume, or two Unicode forms of one name on APFS) have different keys, so
+//!   they are two independent downloads with two partial files. They are not excluded from each
+//!   other; each one publishes by an atomic rename and the later rename wins. No state is shared,
+//!   so neither can corrupt the other's partial file.
+//! - One claim file (`<key>.lock`, a few dozen bytes) stays in `.rk-download` for every
+//!   destination name ever downloaded in that directory. It is never deleted, because deleting a
+//!   lock file after unlocking it lets two holders lock different files.
+//! - `.rk-download` and `dest` must be on one filesystem, or the final rename fails.
+//! - Only the last component of each file is opened without following links. A caller who can
+//!   swap `.rk-download` itself for a link between the check and the open can already write
+//!   anywhere the parent allows.
 //!
 //! # Resume and restart decisions
 //!
@@ -13,7 +52,7 @@
 //! proves the representation is unchanged. The validators compared are the strong `ETag`
 //! (sent as `If-Range`; a `W/` tag is never strong), `Last-Modified` (compared for
 //! contradiction only: a date is not a strong validator here), the `Content-Length` of a
-//! `200` and the `Content-Range` total of a `206`/`416` (the saved total), the saved resource
+//! `200` and the `Content-Range` total of a `206` (the saved total), the saved resource
 //! key (final URL, query kept, fragment dropped), and the caller's `expected_sha256`, which
 //! proves the finished file whatever its history. "Proven" below means: a strong ETag saw this
 //! call, or `expected_sha256` is set. `expected_bytes` is never proof.
@@ -23,10 +62,10 @@
 //! | Prefix | Decision |
 //! |---|---|
 //! | Proven | Send `Range: bytes=N-`, plus `If-Range` with the strong ETag when there is one |
-//! | Not proven (a `.part` from an earlier call without `expected_sha256`; a `200` with no ETag or a weak one) | Discard it and request from zero, with no `Range` |
+//! | Not proven (a partial file from an earlier call without `expected_sha256`; a `200` with no ETag or a weak one) | Discard it and request from zero, with no `Range` |
 //!
-//! Answer to a ranged request (everything "restart" truncates `.part` and forgets all saved
-//! validators, then asks again from zero):
+//! Answer to a ranged request (everything "restart" truncates the partial file and forgets all
+//! saved validators, then asks again from zero):
 //!
 //! | Server answer | Decision |
 //! |---|---|
@@ -37,21 +76,23 @@
 //! | `206`, total differs from the saved total (shrank or grew), or range ends past it | Restart |
 //! | `206`, malformed `Content-Range`, `start != N`, or `Content-Length` disagrees | Error, nothing published |
 //! | `206` with no validators at all, prefix proven | Append (the `If-Range` or the hash decides) |
-//! | `416`, total equals N, total agrees with the saved one | Complete: verify only, publish if length and hash pass |
-//! | `416`, total differs from the saved total (even when it equals N) | Restart |
-//! | `416`, from another resource | Restart |
-//! | `416`, total not N, or no total | Restart once; a second one is an error |
+//! | `416` | Restart, whatever its `Content-Range` says: a `416` is never a completion, so it can never publish the saved bytes |
 //! | `304` | Error, nothing published (no conditional header except `If-Range` is sent) |
 //! | redirect to a different resource | Followed by the redirect policy; the answer is then one of the rows above and the resource key decides |
 //! | any other status | Error, nothing published |
 //!
+//! A `416` to a request that carried no `Range` is an error and publishes nothing. After a
+//! restart the next request has no `Range`, so a server that answers every request with `416`
+//! ends the download with that error instead of looping.
+//!
 //! After the body: length against the advertised total, `expected_bytes`, then
-//! `expected_sha256` over the whole file; any mismatch deletes `.part`.
+//! `expected_sha256` over the whole file; any mismatch deletes the partial file.
 
+use std::ffi::OsStr;
 use std::fmt;
 use std::fs::{self, File, OpenOptions, TryLockError};
 use std::io::{self, Read, Seek, SeekFrom, Write};
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 use std::sync::atomic::AtomicBool;
 
 use sha2::{Digest, Sha256};
@@ -79,19 +120,20 @@ pub struct DownloadOptions<'a> {
     pub expected_sha256: Option<String>,
     /// Expected complete length in bytes.
     pub expected_bytes: Option<u64>,
-    /// Keep an existing `.part` file and continue it with a `Range` request.
+    /// Keep an existing partial file (see the module docs for where it lives) and continue it
+    /// with a `Range` request.
     pub resume: bool,
-    /// Checked before every read and every retry sleep. Setting it keeps `.part`.
+    /// Checked before every read and every retry sleep. Setting it keeps the partial file.
     pub cancel: Option<&'a AtomicBool>,
     /// Called after each body chunk is written.
     pub on_progress: Option<&'a mut dyn FnMut(&DownloadProgress)>,
-    /// Mid-body failures to resume after before giving up (the `.part` is kept).
+    /// Mid-body failures to resume after before giving up (the partial file is kept).
     pub max_reconnects: u32,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct DownloadProgress {
-    /// Bytes present in the `.part` file, including any resumed prefix.
+    /// Bytes present in the partial file, including any resumed prefix.
     pub downloaded: u64,
     /// Total object length, when the server reported it.
     pub total: Option<u64>,
@@ -116,16 +158,16 @@ pub struct DownloadReport {
 pub enum DownloadError {
     Http(HttpError),
     Io(String),
-    /// Cancelled; the `.part` file is kept and holds `partial_bytes` bytes.
+    /// Cancelled; the partial file is kept and holds `partial_bytes` bytes.
     Cancelled {
         partial_bytes: u64,
     },
-    /// Hash mismatch; the `.part` file was deleted.
+    /// Hash mismatch; the partial file was deleted.
     Integrity {
         expected: String,
         actual: String,
     },
-    /// Length mismatch; the `.part` file was deleted.
+    /// Length mismatch; the partial file was deleted.
     LengthMismatch {
         expected: u64,
         actual: u64,
@@ -172,11 +214,11 @@ struct FetchState {
     etag: Option<String>,
     /// `Last-Modified` of the representation that supplied the bytes on disk.
     last_modified: Option<String>,
-    /// Resource (final URL without query) that supplied the bytes on disk and the ETag.
+    /// Resource (final URL, query kept, fragment dropped) that supplied the bytes on disk and
+    /// the ETag.
     source: Option<String>,
     attempts: u32,
     reconnects: u32,
-    restarted: bool,
 }
 
 impl FetchState {
@@ -209,7 +251,8 @@ fn contradicts(saved: &Option<String>, seen: Option<&str>) -> bool {
     matches!((saved.as_deref(), seen), (Some(a), Some(b)) if a.trim() != b.trim())
 }
 
-/// Truncate `.part` and drop everything known about it, so the next request starts at zero.
+/// Truncate the partial file and drop everything known about it, so the next request starts at
+/// zero.
 fn restart_from_zero(file: &mut File, st: &mut FetchState) -> Result<(), DownloadError> {
     file.set_len(0).map_err(io_error("truncate partial file"))?;
     st.forget_prefix();
@@ -217,41 +260,42 @@ fn restart_from_zero(file: &mut File, st: &mut FetchState) -> Result<(), Downloa
 }
 
 impl Client {
-    /// Download `url` to `dest`, resuming a `.part` file when `opts.resume` is set.
+    /// Download `url` to `dest`, resuming a partial file when `opts.resume` is set.
     ///
-    /// Resume rules (the full decision table is in the module docs): a non-empty `.part` is
-    /// extended only when something proves it unchanged, which is a strong ETag seen in this
-    /// call (sent as `If-Range`) or `expected_sha256`; otherwise it is discarded and the
-    /// download starts from zero. A `206` appends. A `200` truncates and restarts. A `416`
-    /// whose `Content-Range` total equals the local length (and agrees with any total seen
-    /// earlier) verifies the file without fetching bytes. Any other `416` restarts once from
-    /// zero. A mid-body failure reconnects from the current length, up to `max_reconnects`
-    /// times. The saved prefix and its validators belong to the resource (final URL, query
-    /// kept) that supplied them: a reconnect that lands on another resource, or whose ETag,
-    /// `Last-Modified` or total contradicts what was saved, restarts from zero.
+    /// Where the download's own files live: in a hidden `.rk-download` directory in the
+    /// destination's parent, never beside `dest` (see the module docs). Resume rules (the full
+    /// decision table is in the module docs): a non-empty partial file is extended only when
+    /// something proves it unchanged, which is a strong ETag seen in this call (sent as
+    /// `If-Range`) or `expected_sha256`; otherwise it is discarded and the download starts from
+    /// zero. A `206` appends. A `200` truncates and restarts. A `416` always restarts from zero
+    /// and never publishes the saved bytes. A mid-body failure reconnects from the current
+    /// length, up to `max_reconnects` times. The saved prefix and its validators belong to the
+    /// resource (final URL, query kept) that supplied them: a reconnect that lands on another
+    /// resource, or whose ETag, `Last-Modified` or total contradicts what was saved, restarts
+    /// from zero.
     ///
     /// Safety rules: the URL is checked against the address policy before any file is
-    /// opened. The destination is then locked: an exclusive OS lock on `<dest>.lock` (created
-    /// beside `dest`, never deleted) is taken before `.part` is opened and held until the
-    /// download has been verified, cleaned up or renamed, so two calls (threads or processes)
-    /// can never append to one `.part`. A call that finds the lock held fails at once with
-    /// [`DownloadError::Io`] and sends no request. `.part` is never opened through a symbolic
-    /// link: an existing link is removed (never followed) and the file is created
-    /// exclusively, or on resume opened with `O_NOFOLLOW` (Unix) or
+    /// opened. The destination is then claimed: an exclusive OS lock on the destination's claim
+    /// file (in `.rk-download`, never deleted) is taken before the partial file is opened and
+    /// held until the download has been verified, cleaned up or renamed, so two calls (threads
+    /// or processes) can never append to one partial file. A call that finds the claim held
+    /// fails at once with [`DownloadError::Io`] and sends no request. The partial file is
+    /// never opened through a symbolic link: an existing link is removed (never followed) and
+    /// the file is created exclusively, or on resume opened with `O_NOFOLLOW` (Unix) or
     /// `FILE_FLAG_OPEN_REPARSE_POINT` plus a reparse-point check on the opened handle
     /// (Windows), so a link swapped in after the check is refused before anything is written.
     /// The bytes are hashed through the same handle that wrote them, after an fsync, and the
     /// path is compared with the handle (device and inode, or volume and file index) just
     /// before the rename. Completion is checked against the real length of the file, not only
     /// the count of bytes this call received. A body that runs past `expected_bytes` (or the
-    /// declared range or length) stops the download and deletes `.part`. A response whose
-    /// framing shows transparent content decoding is refused, because byte offsets would then
-    /// describe decoded data; so is one whose head was not observed on the wire, because then
-    /// an encoding cannot be ruled out.
+    /// declared range or length) stops the download and deletes the partial file. A response
+    /// whose framing shows transparent content decoding is refused, because byte offsets would
+    /// then describe decoded data; so is one whose head was not observed on the wire, because
+    /// then an encoding cannot be ruled out.
     ///
-    /// Note: validators are not stored on disk. A `.part` left by an earlier call is resumed
-    /// only when `expected_sha256` is set (the hash then decides what is published); without
-    /// it the file is discarded and the download restarts.
+    /// Note: validators are not stored on disk. A partial file left by an earlier call is
+    /// resumed only when `expected_sha256` is set (the hash then decides what is published);
+    /// without it the file is discarded and the download restarts.
     pub fn download_to_path(
         &self,
         url: &str,
@@ -279,16 +323,20 @@ impl Client {
             )
             .into());
         }
-        // The names this function creates beside `dest` are reserved: a destination named
-        // like one would alias another download's lock or partial file.
+        // The download's own directory is reserved: a destination inside it, or named like it,
+        // would share a directory with other downloads' claim and partial files.
         reject_reserved_destination(dest)?;
         // Policy first: a denied URL must not touch the filesystem.
         self.preflight_url(url)?;
-        // One writer per destination, from before `.part` is opened until after the rename.
-        // Declared before `file`, so it is released after the handle is closed.
-        let _dest_lock = DestLock::acquire(dest)?;
-        let part = part_path(dest);
-        let mut file = open_part(&part, opts.resume)?;
+        // The claim and partial file are in a hidden directory of the destination's parent,
+        // never beside `dest`. One writer per destination, from before the partial file is
+        // opened until after the rename. The claim is declared before `file`, so it is
+        // released after the handle is closed.
+        let layout = Layout::for_destination(dest)?;
+        ensure_coordination_dir(&layout.dir)?;
+        let _claim = Claim::acquire(&layout)?;
+        let part: &Path = &layout.part;
+        let mut file = open_part(part, opts.resume)?;
         let mut st = FetchState::default();
         if opts.resume {
             st.written = file
@@ -301,7 +349,7 @@ impl Client {
         match self.fetch_into(url, &mut file, &mut st, opts) {
             Err(e @ DownloadError::LengthMismatch { .. }) => {
                 drop(file);
-                let _ = fs::remove_file(&part);
+                let _ = fs::remove_file(part);
                 return Err(e);
             }
             other => other?,
@@ -316,7 +364,7 @@ impl Client {
             .len();
         if on_disk != st.written {
             drop(file);
-            remove_part(&part)?;
+            remove_part(part)?;
             return Err(DownloadError::LengthMismatch {
                 expected: st.written,
                 actual: on_disk,
@@ -331,7 +379,7 @@ impl Client {
             .or(opts.expected_bytes.filter(|e| *e != st.written));
         if let Some(expected) = mismatch {
             drop(file);
-            remove_part(&part)?;
+            remove_part(part)?;
             return Err(DownloadError::LengthMismatch {
                 expected,
                 actual: st.written,
@@ -342,15 +390,15 @@ impl Client {
         if let Some(expected) = &opts.expected_sha256 {
             if !expected.eq_ignore_ascii_case(&actual) {
                 drop(file);
-                remove_part(&part)?;
+                remove_part(part)?;
                 return Err(DownloadError::Integrity {
                     expected: expected.clone(),
                     actual,
                 });
             }
         }
-        ensure_same_file(&file, &part).map_err(io_error("check partial file"))?;
-        fs::rename(&part, dest).map_err(io_error("rename into place"))?;
+        ensure_same_file(&file, part).map_err(io_error("check partial file"))?;
+        fs::rename(part, dest).map_err(io_error("rename into place"))?;
         drop(file);
         sync_parent(dest);
         Ok(DownloadReport {
@@ -480,39 +528,13 @@ impl Client {
                     st.last_modified = header_of(&headers, "last-modified").map(str::to_string);
                     st.source = Some(source);
                 }
-                416 => {
-                    let range_total = header_of(&headers, "content-range")
-                        .and_then(parse_content_range)
-                        .and_then(|r| r.total);
-                    if offset > 0
-                        && (st.source.as_deref().is_some_and(|s| s != source)
-                            || matches!((st.total, range_total), (Some(a), Some(b)) if a != b))
-                    {
-                        // This 416 describes another resource, or a total that contradicts
-                        // the one already seen (the object shrank or grew): it says nothing
-                        // about the saved bytes. Start over.
-                        restart_from_zero(file, st)?;
-                        continue;
-                    }
-                    if offset > 0 && range_total == Some(offset) {
-                        // The saved prefix (proven before the request) is the whole object:
-                        // verify only.
-                        st.total = Some(offset);
-                        st.limit = Some(offset);
-                        return Ok(());
-                    }
-                    if offset > 0 && !st.restarted {
-                        st.restarted = true;
-                        restart_from_zero(file, st)?;
-                        continue;
-                    }
-                    let bytes = read_error_body(body, opts.cancel);
-                    if is_set(opts.cancel) {
-                        return Err(DownloadError::Cancelled {
-                            partial_bytes: st.written,
-                        });
-                    }
-                    return Err(status_error(416, &headers, bytes, st.attempts).into());
+                416 if offset > 0 => {
+                    // A 416 never completes a download, whatever its Content-Range says: it
+                    // describes the server's current object, not the bytes on disk, and
+                    // nothing here can prove the two are the same. Discard the prefix; the
+                    // next request has no Range, so a 416 to it is the error arm below.
+                    restart_from_zero(file, st)?;
+                    continue;
                 }
                 s if (200..300).contains(&s) => {
                     return Err(stream_error(format!("unexpected HTTP {s} for a download")));
@@ -582,7 +604,7 @@ impl Client {
 
 /// Whether the bytes already on disk may be extended: a strong ETag seen in this call (the
 /// server then checks it through `If-Range`), or an expected SHA-256 that the finished file
-/// must match. Anything else (a `.part` left by an earlier call, or a `200` with no or only a
+/// must match. Anything else (a partial file left by an earlier call, or a `200` with no or only a
 /// weak ETag) could be an older representation, so it is not extended.
 fn prefix_is_proven(st: &FetchState, opts: &DownloadOptions<'_>) -> bool {
     st.strong_etag().is_some() || opts.expected_sha256.is_some()
@@ -635,7 +657,7 @@ fn frames_like_decoding(headers: &[(String, String)], body: &ureq::Body) -> bool
     header_of(headers, "content-length").is_none() && body.content_length().is_none() && !chunked
 }
 
-/// Open `.part` without following a link at that path.
+/// Open the partial file without following a link at that path.
 fn open_part(part: &Path, resume: bool) -> Result<File, DownloadError> {
     open_part_with(part, resume, &|| {})
 }
@@ -697,7 +719,7 @@ fn open_part_with(
     Ok(file)
 }
 
-/// How `.part` is opened: for reading and for writes that land at its end.
+/// How the partial file is opened: for reading and for writes that land at its end.
 ///
 /// Unix uses append mode. On Windows an append-only handle may not truncate the file (it lacks
 /// `FILE_WRITE_DATA`, so `set_len` is refused with access denied), and a restart has to
@@ -712,7 +734,7 @@ fn part_options() -> OpenOptions {
     options
 }
 
-/// Write `bytes` at the end of `.part`, wherever the handle was last read from.
+/// Write `bytes` at the end of the partial file, wherever the handle was last read from.
 fn append_part(file: &mut File, bytes: &[u8]) -> io::Result<()> {
     #[cfg(windows)]
     file.seek(SeekFrom::End(0))?;
@@ -725,93 +747,251 @@ fn create_new(part: &Path) -> Result<File, DownloadError> {
     open_nofollow(&mut options, part).map_err(io_error("create partial file"))
 }
 
-/// Exclusive cross-process lock on one destination, held from before `.part` is opened until
-/// the download is verified, cleaned up or renamed.
-///
-/// It is an OS advisory lock on `<dest>.lock` (`flock` on Unix, `LockFileEx` on Windows, both
-/// through `File::try_lock`), so the OS drops it when the holder exits or is killed: there is
-/// no stale lock to clean up. Separate handles exclude each other, inside one process as well
-/// as between processes. The lock file is never deleted: removing it after unlock would let
-/// one process lock the old file while another creates and locks a new one at the same path.
-/// A holder is not waited for; a call that finds the lock held fails at once.
-#[derive(Debug)]
-struct DestLock {
-    file: File,
+/// Name of the hidden directory, in the destination's parent, that holds the claim and the
+/// partial file of every destination in that parent.
+const COORD_DIR: &str = ".rk-download";
+
+/// What this module keeps for one destination, all inside [`COORD_DIR`] in the destination's
+/// parent, and the destination's exact file name.
+struct Layout {
+    /// The hidden directory itself.
+    dir: PathBuf,
+    /// `<key>.lock`: the claim file.
+    claim: PathBuf,
+    /// `<key>.part`: the partial file.
+    part: PathBuf,
+    /// The destination's file name, exactly (see [`name_bytes`]). The claim file records it.
+    name: Vec<u8>,
 }
 
-impl DestLock {
-    fn acquire(dest: &Path) -> Result<Self, DownloadError> {
-        let mut options = OpenOptions::new();
-        options.read(true).write(true).create(true).truncate(false);
-        let file = open_nofollow(&mut options, &lock_path(dest))
-            .map_err(io_error("open destination lock"))?;
-        match file.try_lock() {
-            Ok(()) => Ok(Self { file }),
-            Err(TryLockError::WouldBlock) => Err(DownloadError::Io(
-                "another download of this destination is in progress (its lock is held)".into(),
-            )),
-            Err(TryLockError::Error(e)) => Err(io_error("lock destination")(e)),
-        }
+impl Layout {
+    /// `<key>` is the lowercase hex SHA-256 of the destination's file name. It is only a file
+    /// name: what makes the files this destination's is the claim record, checked after the
+    /// claim is locked. Pure: nothing is read or created.
+    fn for_destination(dest: &Path) -> Result<Self, DownloadError> {
+        let Some(file_name) = dest.file_name() else {
+            return Err(DownloadError::Io(
+                "destination has no file name (it ends in `..` or is a root)".into(),
+            ));
+        };
+        let name = name_bytes(file_name);
+        let key: String = Sha256::digest(&name)
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect();
+        let dir = dest.parent().unwrap_or(Path::new("")).join(COORD_DIR);
+        Ok(Self {
+            claim: dir.join(format!("{key}.lock")),
+            part: dir.join(format!("{key}.part")),
+            dir,
+            name,
+        })
     }
 }
 
-impl Drop for DestLock {
+/// The exact bytes of a file name: the raw bytes on Unix, the UTF-16LE code units on Windows.
+#[cfg(unix)]
+fn name_bytes(name: &OsStr) -> Vec<u8> {
+    use std::os::unix::ffi::OsStrExt;
+    name.as_bytes().to_vec()
+}
+
+#[cfg(windows)]
+fn name_bytes(name: &OsStr) -> Vec<u8> {
+    use std::os::windows::ffi::OsStrExt;
+    name.encode_wide().flat_map(u16::to_le_bytes).collect()
+}
+
+#[cfg(not(any(unix, windows)))]
+fn name_bytes(name: &OsStr) -> Vec<u8> {
+    name.to_string_lossy().into_owned().into_bytes()
+}
+
+/// Make sure the hidden directory exists and is a real directory. It is created owner-only on
+/// Unix; Windows gives it the parent's access rules. A file or link at that path is refused:
+/// nothing is created through it. The parent must exist already, as it must for the
+/// destination itself.
+fn ensure_coordination_dir(dir: &Path) -> Result<(), DownloadError> {
+    let not_plain = || {
+        DownloadError::Io(
+            "the .rk-download path exists and is not a plain directory (it is a file or a link)"
+                .into(),
+        )
+    };
+    match fs::symlink_metadata(dir) {
+        Ok(meta) if meta.is_dir() => return Ok(()),
+        Ok(_) => return Err(not_plain()),
+        Err(e) if e.kind() == io::ErrorKind::NotFound => {}
+        Err(e) => return Err(io_error("inspect download directory")(e)),
+    }
+    #[cfg_attr(not(unix), allow(unused_mut))]
+    let mut builder = fs::DirBuilder::new();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::DirBuilderExt;
+        builder.mode(0o700);
+    }
+    match builder.create(dir) {
+        Ok(()) => Ok(()),
+        // Another download created it between the check and the create.
+        Err(e) if e.kind() == io::ErrorKind::AlreadyExists => match fs::symlink_metadata(dir) {
+            Ok(meta) if meta.is_dir() => Ok(()),
+            _ => Err(not_plain()),
+        },
+        Err(e) => Err(io_error("create download directory")(e)),
+    }
+}
+
+/// Exclusive cross-process claim on one destination, held from before the partial file is
+/// opened until the download is verified, cleaned up or renamed.
+///
+/// It is an OS advisory lock on the destination's claim file (`flock` on Unix, `LockFileEx` on
+/// Windows, both through `File::try_lock`), so the OS drops it when the holder exits or is
+/// killed: there is no stale lock to clean up. Separate handles exclude each other, inside one
+/// process as well as between processes. The claim file is never deleted: removing it after
+/// unlock would let one process lock the old file while another creates and locks a new one at
+/// the same path. A holder is not waited for; a call that finds the claim held fails at once.
+///
+/// The claim file's content is the destination's exact file name. It is read and, if needed,
+/// written only after the lock is held, and the partial file is trusted only when the record
+/// matched: see [`Claim::record`].
+#[derive(Debug)]
+struct Claim {
+    file: File,
+}
+
+impl Claim {
+    fn acquire(layout: &Layout) -> Result<Self, DownloadError> {
+        let mut options = OpenOptions::new();
+        options.read(true).write(true).create(true).truncate(false);
+        let file = open_nofollow(&mut options, &layout.claim)
+            .map_err(io_error("open destination claim"))?;
+        let meta = file
+            .metadata()
+            .map_err(io_error("stat destination claim"))?;
+        if !meta.is_file() {
+            return Err(DownloadError::Io(
+                "destination claim path is not a regular file".into(),
+            ));
+        }
+        // The record is written into this file, so it must not be a second name for another.
+        if link_count(&file, &meta).map_err(io_error("stat destination claim"))? > 1 {
+            return Err(DownloadError::Io(
+                "destination claim path is a hard link to another file".into(),
+            ));
+        }
+        match file.try_lock() {
+            Ok(()) => {}
+            Err(TryLockError::WouldBlock) => {
+                return Err(DownloadError::Io(
+                    "another download of this destination is in progress (its claim is held)"
+                        .into(),
+                ))
+            }
+            Err(TryLockError::Error(e)) => return Err(io_error("lock destination")(e)),
+        }
+        let mut claim = Self { file };
+        claim.record(layout)?;
+        Ok(claim)
+    }
+
+    /// With the claim held: when the claim file already names this destination, any partial
+    /// file beside it was made under this claim and stays. Otherwise (a first claim, or a file
+    /// that something else made) a partial file is not trusted: it is removed, then the name is
+    /// recorded. The record is written first and the partial file created after, so a partial
+    /// file whose claim lacks the record can only have been put there by someone else.
+    fn record(&mut self, layout: &Layout) -> Result<(), DownloadError> {
+        let mut found = Vec::new();
+        (&self.file)
+            .take(layout.name.len() as u64 + 1)
+            .read_to_end(&mut found)
+            .map_err(io_error("read destination claim"))?;
+        if found == layout.name {
+            return Ok(());
+        }
+        match fs::remove_file(&layout.part) {
+            Ok(()) => {}
+            Err(e) if e.kind() == io::ErrorKind::NotFound => {}
+            Err(e) => return Err(io_error("remove untrusted partial file")(e)),
+        }
+        self.file
+            .set_len(0)
+            .map_err(io_error("write destination claim"))?;
+        self.file
+            .seek(SeekFrom::Start(0))
+            .map_err(io_error("write destination claim"))?;
+        self.file
+            .write_all(&layout.name)
+            .map_err(io_error("write destination claim"))
+    }
+}
+
+impl Drop for Claim {
     fn drop(&mut self) {
-        // Explicit, so a descriptor inherited by a forked child cannot keep the lock busy.
+        // Explicit, so a descriptor inherited by a forked child cannot keep the claim busy.
         let _ = self.file.unlock();
     }
 }
 
-/// Refuse a destination whose file name could alias the lock or partial file of another
-/// download, or another destination altogether. Runs before any filesystem access.
+/// Refuse a destination that could land in the download's own directory. Runs before any
+/// filesystem access.
 ///
-/// The names this module creates beside `dest` end in `.lock` and `.part`, so a destination
-/// ending in either (ignoring ASCII case, because macOS and Windows volumes fold it) would
-/// be renamed over another download's lock. Windows also normalizes names before it looks at
-/// the disk, so the check is made on the name the filesystem will use: see
-/// [`destination_name_problem`].
+/// A destination's name or a directory in its parent path may not be `.rk-download`, compared
+/// with [`fold`]; [`destination_name_problem`] lists the other spellings of a name that are
+/// refused. Nothing else is reserved: the claim and partial file are named by a hash and live
+/// only in that directory, so no other name in the parent can reach them.
 fn reject_reserved_destination(dest: &Path) -> Result<(), DownloadError> {
     let Some(name) = dest.file_name() else {
         return Err(DownloadError::Io(
             "destination has no file name (it ends in `..` or is a root)".into(),
         ));
     };
-    match destination_name_problem(&name.to_string_lossy(), cfg!(windows)) {
-        Some(why) => Err(DownloadError::Io(why.into())),
-        None => Ok(()),
+    if let Some(why) = destination_name_problem(&name.to_string_lossy(), cfg!(windows)) {
+        return Err(DownloadError::Io(why.into()));
     }
+    let inside = dest.parent().is_some_and(|parent| {
+        parent.components().any(|component| {
+            matches!(component, Component::Normal(dir_name)
+                if names_coordination_dir(&dir_name.to_string_lossy()))
+        })
+    });
+    if inside {
+        return Err(DownloadError::Io(
+            "destinations inside the download's own .rk-download directory are refused".into(),
+        ));
+    }
+    Ok(())
 }
 
 /// Why `name` (a final path component) may not be a download destination, or `None`.
 ///
-/// Rules, each for a way two names reach one file:
+/// Rules, each for a way a name reaches the download's own directory:
+/// - A name equal to `.rk-download` under a simple Unicode case fold ([`fold`]) is refused on
+///   every platform. A file cannot replace a directory, so a name the filesystem equates with
+///   the directory by some other rule fails at the rename and leaves everything in place.
 /// - A trailing dot or space is refused on every platform. Windows drops them before the
-///   lookup, so `out.lock.` is `out.lock` there while its staging names (`out.lock..part`,
-///   `out.lock..lock`) stay distinct and the lock check would never fire.
-/// - A name ending in `.lock` or `.part` (ASCII case-insensitive) is refused on every platform.
-/// - With `windows` set: a colon (an alternate data stream: `out.lock::$DATA` is `out.lock`),
-///   a device name (`NUL`, `COM1`, `con.txt`: the device, whatever the extension), and a
-///   `~` followed by a digit (an 8.3 short name such as `OUT~1.LOC` may be the long name
-///   `out.lock`) are refused.
+///   lookup, so `.rk-download.` is `.rk-download` there.
+/// - With `windows` set: a colon (an alternate data stream: `.rk-download::$DATA` names the
+///   directory), a device name (`NUL`, `COM1`, `con.txt`: the device, whatever the extension),
+///   and a `~` followed by a digit (an 8.3 short name such as `RK-DOW~1` may be the long name
+///   `.rk-download`) are refused.
 ///
 /// `windows` is a parameter so the Windows rules are exercised on every platform.
 fn destination_name_problem(name: &str, windows: bool) -> Option<&'static str> {
     if name.ends_with('.') || name.ends_with(' ') {
         return Some(
             "destination names ending in a dot or space are refused: Windows drops them, so the \
-             name would alias another destination or one of the download's own files",
+             name would alias another destination or the download's own directory",
         );
     }
-    let folded = name.to_ascii_lowercase();
-    if folded.ends_with(".lock") || folded.ends_with(".part") {
-        return Some(
-            "destination names ending in .lock or .part are reserved for the download's own files",
-        );
+    if names_coordination_dir(name) {
+        return Some("the destination name .rk-download is reserved for the download's own files");
     }
     if windows {
         if name.contains(':') {
             return Some("destination names containing ':' are refused (alternate data streams)");
         }
+        let folded = name.to_ascii_lowercase();
         let stem = folded.split('.').next().unwrap_or("").trim_end();
         let device = matches!(stem, "con" | "prn" | "aux" | "nul" | "conin$" | "conout$")
             || (stem.len() == 4
@@ -831,10 +1011,21 @@ fn destination_name_problem(name: &str, windows: bool) -> Option<&'static str> {
     None
 }
 
-fn lock_path(dest: &Path) -> PathBuf {
-    let mut name = dest.as_os_str().to_owned();
-    name.push(".lock");
-    PathBuf::from(name)
+/// Whether `component` is the download directory's name, case-folded.
+fn names_coordination_dir(component: &str) -> bool {
+    fold(component) == fold(COORD_DIR)
+}
+
+/// Simple case fold using only `std`: each character upper-cased, then lower-cased. Unlike an
+/// ASCII lowercase it maps the Kelvin sign (U+212A) and the long s (U+017F), which case-
+/// insensitive volumes fold onto `k` and `s`, onto those letters. Unicode normalization is not
+/// applied: the directory name is plain ASCII, and the only non-ASCII characters that normalize
+/// to an ASCII letter are folded here already.
+fn fold(name: &str) -> String {
+    name.chars()
+        .flat_map(char::to_uppercase)
+        .flat_map(char::to_lowercase)
+        .collect()
 }
 
 /// Open `path` with `options`, never following a link at the final component. A link there
@@ -1028,12 +1219,6 @@ fn remove_part(part: &Path) -> Result<(), DownloadError> {
     fs::remove_file(part).map_err(io_error("remove partial file"))
 }
 
-fn part_path(dest: &Path) -> PathBuf {
-    let mut name = dest.as_os_str().to_owned();
-    name.push(".part");
-    PathBuf::from(name)
-}
-
 struct ContentRange {
     start: Option<u64>,
     end: Option<u64>,
@@ -1128,9 +1313,22 @@ mod tests {
         );
     }
 
+    /// The only reserved name is the download directory. `.lock` and `.part` are ordinary
+    /// destination names now: the claim and partial file are not beside the destination.
     #[test]
-    fn reserved_destination_suffixes_are_refused_case_insensitively() {
-        for bad in ["out.lock", "out.part", "dir/OUT.LOCK", "dir/x.Part"] {
+    fn the_download_directory_is_refused_as_a_name_and_as_a_parent() {
+        for bad in [
+            ".rk-download",
+            ".RK-DOWNLOAD",
+            ".Rk-Download",
+            // Kelvin sign (U+212A): a case-insensitive volume folds it onto `k`.
+            ".r\u{212A}-download",
+            "dir/.rk-download",
+            "dir/.rk-download/out.bin",
+            "dir/.RK-Download/out.bin",
+            "dir/.rk-download/sub/out.bin",
+            ".r\u{212A}-download/out.bin",
+        ] {
             assert!(
                 matches!(
                     reject_reserved_destination(Path::new(bad)),
@@ -1139,21 +1337,34 @@ mod tests {
                 "{bad}"
             );
         }
-        for ok in ["out", "out.bin", "lock", "out.locked", "out.lock.bin"] {
+        for ok in [
+            "out",
+            "out.bin",
+            "lock",
+            "out.lock",
+            "OUT.LOCK",
+            "out.part",
+            "dir/x.Part",
+            "out.locked",
+            "out.lock.bin",
+            ".rk-download.bin",
+            "rk-download",
+            "dir/.rk-downloads/out.bin",
+        ] {
             assert!(reject_reserved_destination(Path::new(ok)).is_ok(), "{ok}");
         }
     }
 
     #[test]
-    fn names_that_windows_normalizes_onto_a_reserved_name_are_refused() {
+    fn names_that_windows_normalizes_onto_the_download_directory_are_refused() {
         // Trailing dots and spaces are refused everywhere, so the check does not depend on
         // the platform that runs it.
         for bad in [
+            ".rk-download.",
+            ".rk-download..",
+            ".rk-download ",
+            ".RK-DOWNLOAD. ",
             "out.lock.",
-            "out.lock..",
-            "out.lock ",
-            "OUT.LOCK. ",
-            "out.part.",
             "out.part ",
             "out.",
             "out ",
@@ -1163,14 +1374,15 @@ mod tests {
             assert!(destination_name_problem(bad, true).is_some(), "{bad:?}");
         }
         for bad in [
-            "out.lock::$DATA",
-            "out.lock:stream",
+            ".rk-download::$DATA",
+            ".rk-download:stream",
+            "out.bin:stream",
             "NUL",
             "nul.txt",
             "Com1",
             "lpt9.log",
             "CON",
-            "OUT~1.LOC",
+            "RK-DOW~1",
             "x~2",
         ] {
             assert!(destination_name_problem(bad, true).is_some(), "{bad:?}");
@@ -1181,6 +1393,8 @@ mod tests {
             "out",
             "out.bin",
             "lock",
+            "out.lock",
+            "out.part",
             "out.locked",
             "out.lock.bin",
             "a~b",
@@ -1273,26 +1487,191 @@ mod tests {
         assert!(check_wire_encoding(&observed(None), &headers).is_err());
     }
 
-    // ------------------------------------------------------------------ destination lock
+    // ------------------------------------------------------------------ layout and claim
+    fn layout_in(dir: &Path, name: &str) -> Layout {
+        let layout = Layout::for_destination(&dir.join(name)).unwrap();
+        ensure_coordination_dir(&layout.dir).unwrap();
+        layout
+    }
+
+    /// Nothing the download keeps is beside the destination, and no destination spelling in
+    /// the parent can name it: the files are in `.rk-download`, named by a hash.
     #[test]
-    fn the_destination_lock_excludes_a_second_holder_until_released() {
-        let dir = scratch("dest-lock");
-        let dest = dir.join("out.bin");
-        let first = DestLock::acquire(&dest).unwrap();
+    fn the_download_files_are_in_the_hidden_directory_under_a_hash_name() {
+        let dir = scratch("layout");
+        let layout = Layout::for_destination(&dir.join("out.bin")).unwrap();
+        assert_eq!(layout.dir, dir.join(COORD_DIR));
+        assert_eq!(layout.claim.parent(), Some(layout.dir.as_path()));
+        assert_eq!(layout.part.parent(), Some(layout.dir.as_path()));
+        let claim = layout
+            .claim
+            .file_name()
+            .unwrap()
+            .to_string_lossy()
+            .into_owned();
+        let part = layout
+            .part
+            .file_name()
+            .unwrap()
+            .to_string_lossy()
+            .into_owned();
+        let key = claim.strip_suffix(".lock").expect("claim ends in .lock");
+        assert_eq!(part, format!("{key}.part"));
+        assert_eq!(key.len(), 64);
+        assert!(key
+            .bytes()
+            .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b)));
+        // A bare file name resolves against the current directory.
+        let bare = Layout::for_destination(Path::new("out.bin")).unwrap();
+        assert_eq!(bare.dir, Path::new(COORD_DIR));
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// Two spellings get two sets of files, whatever the filesystem thinks of the spellings,
+    /// so neither can reach the other's partial file; the same spelling gets the same files.
+    #[test]
+    fn different_spellings_have_different_files_and_one_spelling_has_one_set() {
+        let dir = scratch("spellings");
+        let a = Layout::for_destination(&dir.join("out.bin")).unwrap();
+        let again = Layout::for_destination(&dir.join("out.bin")).unwrap();
+        assert_eq!((&a.claim, &a.part), (&again.claim, &again.part));
+        for other in [
+            "Out.bin",
+            "OUT.BIN",
+            "out.bin ",
+            "out.bi\u{212A}n",
+            "out.b\u{0131}n",
+        ] {
+            let b = Layout::for_destination(&dir.join(other)).unwrap();
+            assert_ne!(a.claim, b.claim, "{other:?}");
+            assert_ne!(a.part, b.part, "{other:?}");
+            assert_eq!(a.dir, b.dir, "{other:?}");
+        }
+        // A destination named like the old beside-the-destination files shares nothing.
+        for old in ["out.bin.lock", "out.bin.part"] {
+            let b = Layout::for_destination(&dir.join(old)).unwrap();
+            assert_ne!(a.claim, b.claim, "{old}");
+            assert_ne!(a.part, b.part, "{old}");
+        }
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn the_destination_claim_excludes_a_second_holder_until_released() {
+        let dir = scratch("claim");
+        let layout = layout_in(&dir, "out.bin");
+        let first = Claim::acquire(&layout).unwrap();
         // A second handle in the same process is as much a second writer as another process.
-        let err = DestLock::acquire(&dest).expect_err("lock must be held");
+        let err = Claim::acquire(&layout).expect_err("claim must be held");
         assert!(
             matches!(&err, DownloadError::Io(m) if m.contains("in progress")),
             "{err:?}"
         );
-        // A different destination is independent.
-        assert!(DestLock::acquire(&dir.join("other.bin")).is_ok());
+        // A different destination in the same directory is independent.
+        assert!(Claim::acquire(&layout_in(&dir, "other.bin")).is_ok());
         drop(first);
-        assert!(DestLock::acquire(&dest).is_ok(), "released on drop");
-        // The lock file stays: deleting it would let two holders lock different files.
-        assert!(lock_path(&dest).exists());
-        assert_eq!(lock_path(&dest), dir.join("out.bin.lock"));
+        assert!(Claim::acquire(&layout).is_ok(), "released on drop");
+        // The claim file stays: deleting it would let two holders lock different files.
+        assert!(layout.claim.exists());
         let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// The claim file is the record of whose partial file this is. A partial file is kept only
+    /// under a claim that names the destination; under any other claim state it is removed.
+    #[test]
+    fn a_partial_file_is_trusted_only_under_a_claim_that_names_its_destination() {
+        let dir = scratch("claim-record");
+        let layout = layout_in(&dir, "out.bin");
+
+        // A partial file with no claim at all was not made by a download of this destination.
+        fs::write(&layout.part, b"planted").unwrap();
+        drop(Claim::acquire(&layout).unwrap());
+        assert!(
+            !layout.part.exists(),
+            "an unclaimed partial file is removed"
+        );
+        assert_eq!(fs::read(&layout.claim).unwrap(), layout.name);
+
+        // A partial file made under the recorded claim survives the next claim.
+        fs::write(&layout.part, b"mine").unwrap();
+        drop(Claim::acquire(&layout).unwrap());
+        assert_eq!(fs::read(&layout.part).unwrap(), b"mine");
+
+        // A claim file that names something else (another name, a longer file that starts
+        // with this name, an empty file) does not vouch for the partial file.
+        let mut longer = layout.name.clone();
+        longer.extend_from_slice(b"-and-more");
+        for other in [b"another name".to_vec(), longer, Vec::new()] {
+            fs::write(&layout.claim, &other).unwrap();
+            fs::write(&layout.part, b"theirs").unwrap();
+            drop(Claim::acquire(&layout).unwrap());
+            assert!(!layout.part.exists(), "{other:?}");
+            assert_eq!(fs::read(&layout.claim).unwrap(), layout.name, "{other:?}");
+        }
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// A claim file that is a second name for another file would have the record written
+    /// into that file: refused before anything is written.
+    #[test]
+    fn a_hard_linked_claim_is_refused_and_its_other_name_untouched() {
+        let dir = scratch("claim-hard-link");
+        let layout = layout_in(&dir, "out.bin");
+        let victim = dir.join("precious.txt");
+        fs::write(&victim, b"precious").unwrap();
+        if let Err(e) = fs::hard_link(&victim, &layout.claim) {
+            panic!("cannot create a hard link here ({e}); this test must run");
+        }
+        let err = Claim::acquire(&layout).expect_err("a hard-linked claim must be refused");
+        assert!(matches!(err, DownloadError::Io(_)), "{err:?}");
+        assert_eq!(fs::read(&victim).unwrap(), b"precious");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn the_download_directory_is_created_owner_only_and_a_file_or_link_there_is_refused() {
+        let dir = scratch("coord-dir");
+        let coord = dir.join(COORD_DIR);
+        ensure_coordination_dir(&coord).unwrap();
+        assert!(fs::metadata(&coord).unwrap().is_dir());
+        // Idempotent.
+        ensure_coordination_dir(&coord).unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mode = fs::metadata(&coord).unwrap().permissions().mode();
+            assert_eq!(
+                mode & 0o077,
+                0,
+                "group and others must have no access: {mode:o}"
+            );
+        }
+
+        let file_dir = scratch("coord-file");
+        let as_file = file_dir.join(COORD_DIR);
+        fs::write(&as_file, b"not a directory").unwrap();
+        assert!(matches!(
+            ensure_coordination_dir(&as_file),
+            Err(DownloadError::Io(_))
+        ));
+        assert_eq!(fs::read(&as_file).unwrap(), b"not a directory");
+
+        #[cfg(unix)]
+        {
+            let target = scratch("coord-link-target");
+            let link_dir = scratch("coord-link");
+            let as_link = link_dir.join(COORD_DIR);
+            std::os::unix::fs::symlink(&target, &as_link).unwrap();
+            assert!(matches!(
+                ensure_coordination_dir(&as_link),
+                Err(DownloadError::Io(_))
+            ));
+            assert_eq!(fs::read_dir(&target).unwrap().count(), 0);
+            let _ = fs::remove_dir_all(&target);
+            let _ = fs::remove_dir_all(&link_dir);
+        }
+        let _ = fs::remove_dir_all(&dir);
+        let _ = fs::remove_dir_all(&file_dir);
     }
 
     // ------------------------------------------------------------------ link swap
@@ -1364,10 +1743,10 @@ mod tests {
         // Windows.
         let other = dir.join("other.bin");
         fs::write(&other, b"two").unwrap();
-        if fs::rename(&other, &part).is_err() {
-            eprintln!("SKIPPED the_same_file_check_notices_a_replaced_part: cannot replace an open file here");
-            let _ = fs::remove_dir_all(&dir);
-            return;
+        // A runner that cannot replace an open file cannot show the check works: fail, never
+        // return success without having run the check.
+        if let Err(e) = fs::rename(&other, &part) {
+            panic!("cannot replace an open file here ({e}); this test must run");
         }
         assert!(ensure_same_file(&file, &part).is_err());
         drop(file);

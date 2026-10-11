@@ -7,12 +7,12 @@ mod common;
 
 use std::fs;
 use std::io::Write;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{mpsc, Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use common::RawServer;
+use common::{part_of, RawServer};
 use rightkit_http::testing::{loopback_config, MockResponse, MockServer};
 use rightkit_http::*;
 
@@ -38,12 +38,6 @@ fn scratch(name: &str) -> PathBuf {
     dir
 }
 
-fn part_of(dest: &Path) -> PathBuf {
-    let mut s = dest.as_os_str().to_owned();
-    s.push(".part");
-    PathBuf::from(s)
-}
-
 fn resume_opts() -> DownloadOptions<'static> {
     DownloadOptions {
         resume: true,
@@ -66,6 +60,9 @@ fn f1_windows_part_symlink_is_replaced_and_its_target_untouched() {
     let victim = dir.join("victim.txt");
     fs::write(&victim, b"precious").unwrap();
     let dest = dir.join("out.bin");
+    // The claim record vouches for the partial file path, so the link at it reaches the
+    // no-follow open and is not just removed with an untrusted partial file.
+    common::plant_claim(&dest);
     let part = part_of(&dest);
     if let Err(e) = std::os::windows::fs::symlink_file(&victim, &part) {
         // Creating a symlink needs Developer Mode or an elevated token. A runner that
@@ -93,6 +90,7 @@ fn f1_windows_part_junction_is_never_written_through() {
     fs::create_dir(&target).unwrap();
     fs::write(target.join("keep.txt"), b"precious").unwrap();
     let dest = dir.join("out.bin");
+    common::plant_claim(&dest);
     let part = part_of(&dest);
     let made = std::process::Command::new("cmd")
         .args(["/C", "mklink", "/J"])

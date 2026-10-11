@@ -63,8 +63,19 @@ export interface CreateQaWorkspaceOptions {
   appKey: string;
   leaseMs?: number;
   retention?: import('./storage.js').RetentionPolicy;
-  /** Start-of-run sweep and size-cap check of the QA root. Default on (off under vitest). */
+  /** Start-of-run sweep and size limits of the QA root. Default on (off under vitest). */
   preflight?: import('./storage.js').PreflightOptions;
+  /**
+   * Per-product cap on the bytes this app's QA homes may hold, set in code: wins over `RIGHTKIT_QA_ROOT_CAP_BYTES`
+   * and over `preflight.capBytes`; `0` disables it. Only the homes of `appKey` count, so another product's
+   * leftovers never block the run. Default 4 GB.
+   */
+  rootCapBytes?: number;
+  /**
+   * Ceiling on the bytes the whole QA root, all products together, may hold, set in code: wins over
+   * `RIGHTKIT_QA_ROOT_CEILING_BYTES` and over `preflight.ceilingBytes`; `0` disables it. Default 32 GB.
+   */
+  rootCeilingBytes?: number;
 }
 
 /**
@@ -74,8 +85,13 @@ export interface CreateQaWorkspaceOptions {
  */
 export function createQaWorkspace(options: CreateQaWorkspaceOptions): QaWorkspace {
   const appKey = requireText(options.appKey, 'appKey');
-  // Sweep dead homes and refuse to start over the QA root's size cap, before a run exists.
-  preflightQaRoot(options.preflight);
+  // Sweep dead homes and refuse to start over this product's cap or the root's ceiling, before a run exists.
+  preflightQaRoot({
+    ...options.preflight,
+    app: appKey,
+    capBytes: options.rootCapBytes ?? options.preflight?.capBytes,
+    ceilingBytes: options.rootCeilingBytes ?? options.preflight?.ceilingBytes,
+  });
   const managed = createManagedRun({ managedRoot: options.root ? requireText(options.root, 'root') : resolveManagedRoot(), app: appKey, runId: options.runId ?? crypto.randomUUID(), leaseMs: options.leaseMs, retention: options.retention });
   const runId = managed.runId;
   const root = managed.root;

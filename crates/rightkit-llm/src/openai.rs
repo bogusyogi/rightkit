@@ -12,6 +12,7 @@ use serde_json::{json, Map, Value};
 use crate::credentials::CredentialSource;
 use crate::error::LlmError;
 use crate::provider::Provider;
+use crate::raw::RawHandle;
 use crate::types::*;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -32,6 +33,7 @@ pub struct OpenAiCompatProvider {
     extra_headers: Vec<(String, String)>,
     max_tokens_field: MaxTokensField,
     observer: Option<CallObserver>,
+    raw_capture: Option<usize>,
 }
 
 impl OpenAiCompatProvider {
@@ -50,6 +52,7 @@ impl OpenAiCompatProvider {
             extra_headers: Vec::new(),
             max_tokens_field: MaxTokensField::MaxTokens,
             observer: None,
+            raw_capture: None,
         }
     }
     pub fn without_credential(mut self) -> Self {
@@ -69,6 +72,15 @@ impl OpenAiCompatProvider {
     /// See [`CallRecord`].
     pub fn with_observer(mut self, f: impl Fn(&CallRecord<'_>) + Send + Sync + 'static) -> Self {
         self.observer = Some(Arc::new(f));
+        self
+    }
+    /// Keep the provider's raw response for non-streaming calls: status, request id and up to
+    /// `max_body_bytes` of the body (0 keeps status and request id only). The observer gets it
+    /// in [`CallRecord::raw`], and a `Truncated` or `Malformed` error carries it
+    /// ([`LlmError::raw`]). Off by default, and streams are not captured. The body is the
+    /// provider's answer to the prompt; see [`crate::raw`] for what it holds and who owns it.
+    pub fn with_raw_capture(mut self, max_body_bytes: usize) -> Self {
+        self.raw_capture = Some(max_body_bytes);
         self
     }
 
@@ -123,13 +135,20 @@ impl OpenAiCompatProvider {
         Ok((http, secret))
     }
 
-    fn observe(&self, stream: bool, body: &Value, result: &Result<ChatResponse, LlmError>) {
+    fn observe(
+        &self,
+        stream: bool,
+        body: &Value,
+        result: &Result<ChatResponse, LlmError>,
+        raw: Option<&RawHandle>,
+    ) {
         if let Some(observer) = &self.observer {
             observer(&CallRecord {
                 provider: &self.id,
                 stream,
                 request_body: body,
                 result: result.as_ref(),
+                raw,
             });
         }
     }
@@ -383,18 +402,15 @@ impl Provider for OpenAiCompatProvider {
 
     fn complete(&self, req: &ChatRequest) -> Result<ChatResponse, LlmError> {
         let (http, secret, body) = self.request(req, false)?;
-        let result = self
-            .client
-            .send(&http)
-            .map_err(|e| LlmError::from_http(e, secret.as_deref()))
-            .and_then(|resp| {
-                let v: Value = resp
-                    .json()
-                    .map_err(|e| LlmError::Malformed(e.to_string()))?;
-                parse_response(&v)
-            })
-            .and_then(|r| check_output(r, req));
-        self.observe(false, &body, &result);
+        let (result, raw) = crate::raw::exchange(
+            &self.client,
+            &http,
+            secret.as_deref(),
+            self.raw_capture,
+            req,
+            parse_response,
+        );
+        self.observe(false, &body, &result, raw.as_ref());
         result
     }
 
@@ -405,7 +421,7 @@ impl Provider for OpenAiCompatProvider {
     ) -> Result<ChatResponse, LlmError> {
         let (http, secret, body) = self.request(req, true)?;
         let result = self.stream_call(req, &http, secret.as_deref(), on_event);
-        self.observe(true, &body, &result);
+        self.observe(true, &body, &result, None);
         result
     }
 }

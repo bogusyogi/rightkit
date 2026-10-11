@@ -100,6 +100,127 @@ fn signature_by_the_wrong_key_is_refused_as_unauthenticated() {
 }
 
 #[test]
+fn an_unsigned_request_to_a_signed_route_is_refused() {
+    let d = TestDaemon::start().unwrap();
+    let client = d.client().unwrap();
+    let dev = client.enrol(&d.enrolment_code, key(), None).unwrap();
+
+    // Control: signed, the same device reaches the route (authenticated, upload unknown).
+    let r = refusal(dev.send("GET", "/v1/uploads/up_x", &[], &[]).unwrap_err());
+    assert_eq!(r.code, ErrorCode::NotFound);
+    let nonces = d.daemon.metrics().nonce_records;
+
+    // The device id without a timestamp, nonce or signature: refused on every device route.
+    let refused = |method: &str, path: &str, headers: &[(&str, &str)], body: &[u8]| {
+        let r = refusal(dev.send_unsigned(method, path, headers, body).unwrap_err());
+        assert_eq!(
+            (r.status, r.code),
+            (401, ErrorCode::Unauthenticated),
+            "{method} {path}"
+        );
+    };
+    refused("POST", "/v1/uploads", &[], br#"{"size":10,"chunkBytes":5}"#);
+    refused("GET", "/v1/uploads/up_x", &[], b"");
+    refused(
+        "PATCH",
+        "/v1/publish-jobs/j",
+        &[("if-match", "\"0\""), ("idempotency-key", "k")],
+        br#"{"state":"queued"}"#,
+    );
+    assert_eq!(
+        rejections(&d),
+        ["malformed_timestamp"; 3],
+        "refused before any signature or replay check"
+    );
+    assert_eq!(
+        d.daemon.job_revision("j"),
+        0,
+        "the refused patch changed nothing"
+    );
+    assert_eq!(
+        d.daemon.metrics().nonce_records,
+        nonces,
+        "an unauthenticated caller leaves the replay table alone"
+    );
+
+    // The unsigned helper still cannot be handed credentials of its own.
+    assert!(matches!(
+        dev.send_unsigned(
+            "GET",
+            "/v1/uploads/up_x",
+            &[("x-rk-signature", "AAAA")],
+            &[]
+        ),
+        Err(Error::Config(_))
+    ));
+}
+
+#[test]
+fn a_replayed_nonce_is_refused_even_when_correctly_signed() {
+    let d = TestDaemon::start().unwrap();
+    let client = d.client().unwrap();
+    let dev = client.enrol(&d.enrolment_code, key(), None).unwrap();
+    let path = "/v1/publish-jobs/job-1";
+    let body = br#"{"state":"queued"}"#;
+
+    let first = dev
+        .send_with_nonce(
+            "fixed-nonce-1",
+            "PATCH",
+            path,
+            &[("if-match", "\"0\""), ("idempotency-key", "idem-1")],
+            body,
+        )
+        .unwrap();
+    assert_eq!(first.status, 200);
+    assert_eq!(d.daemon.job_revision("job-1"), 1);
+
+    // The identical request, signed afresh over the same nonce. Without replay protection the
+    // daemon would answer it from the idempotency record (200 with Idempotency-Replayed).
+    let r = refusal(
+        dev.send_with_nonce(
+            "fixed-nonce-1",
+            "PATCH",
+            path,
+            &[("if-match", "\"0\""), ("idempotency-key", "idem-1")],
+            body,
+        )
+        .unwrap_err(),
+    );
+    assert_eq!((r.status, r.code), (401, ErrorCode::Unauthenticated));
+    assert_eq!(rejections(&d), ["replayed_nonce"]);
+
+    // The nonce is remembered, not the request: a different, valid patch reusing it is refused
+    // and applies nothing.
+    let r = refusal(
+        dev.send_with_nonce(
+            "fixed-nonce-1",
+            "PATCH",
+            path,
+            &[("if-match", "\"1\""), ("idempotency-key", "idem-2")],
+            br#"{"state":"sent"}"#,
+        )
+        .unwrap_err(),
+    );
+    assert_eq!((r.status, r.code), (401, ErrorCode::Unauthenticated));
+    assert_eq!(rejections(&d), ["replayed_nonce", "replayed_nonce"]);
+    assert_eq!(d.daemon.job_revision("job-1"), 1);
+
+    // The refusal is not sticky: a fresh nonce for the same patch is accepted.
+    let next = dev
+        .send_with_nonce(
+            "fixed-nonce-2",
+            "PATCH",
+            path,
+            &[("if-match", "\"1\""), ("idempotency-key", "idem-2")],
+            br#"{"state":"sent"}"#,
+        )
+        .unwrap();
+    assert_eq!(next.status, 200);
+    assert_eq!(d.daemon.job_revision("job-1"), 2);
+}
+
+#[test]
 fn enrolment_refusals_are_typed() {
     let d = TestDaemon::start().unwrap();
     let client = d.client().unwrap();

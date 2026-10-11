@@ -98,8 +98,12 @@ impl FailoverOn {
         FailoverOn::Custom(Arc::new(f))
     }
 
-    /// Whether `error` moves the call to the next route under this policy.
+    /// Whether `error` moves the call to the next route under this policy. A raw-capture
+    /// wrapper ([`LlmError::Captured`]) is looked through first, so the policy, including a
+    /// [`FailoverOn::custom`] predicate, sees the inner `Truncated` or `Malformed` error and
+    /// decides the same whether capture is on or off.
     pub fn matches(&self, error: &LlmError) -> bool {
+        let error = error.root();
         match self {
             FailoverOn::Retryable => error.is_failover_trigger(),
             FailoverOn::AnyError => !matches!(

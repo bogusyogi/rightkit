@@ -2,6 +2,8 @@ use std::fmt;
 
 use rightkit_http::HttpError;
 
+use crate::raw::RawHandle;
+
 /// Longest provider error text kept in [`LlmError::Status`], in bytes (cut on a character
 /// boundary). The full body is never copied into an error.
 pub const MAX_PROVIDER_MESSAGE_BYTES: usize = 512;
@@ -62,6 +64,19 @@ pub enum LlmError {
     Cli(crate::provider::cli::CliError),
     /// Every route failed; one entry per route tried.
     AllRoutesFailed(Vec<Attempt>),
+    /// A [`LlmError::Truncated`] or [`LlmError::Malformed`] together with the provider's raw
+    /// response, returned only when raw capture is on (`with_raw_capture` on the provider).
+    /// With capture off these two errors are returned bare, exactly as before.
+    ///
+    /// Display, [`LlmError::status`] and [`LlmError::is_failover_trigger`] answer for the inner
+    /// error, and failover policies are applied to it. To match the inner variant, look through
+    /// the wrapper with [`LlmError::root`], [`LlmError::is_truncated`] or
+    /// [`LlmError::is_malformed`]; [`LlmError::raw`] returns the captured exchange, the same
+    /// handle the observer received for the call. See [`crate::raw`] for what it holds.
+    Captured {
+        error: Box<LlmError>,
+        raw: RawHandle,
+    },
 }
 
 impl LlmError {
@@ -83,8 +98,37 @@ impl LlmError {
             LlmError::Status { status, .. } => Some(*status),
             LlmError::Http(e) => e.status(),
             LlmError::Auth { status, .. } => Some(*status),
+            LlmError::Captured { error, .. } => error.status(),
             _ => None,
         }
+    }
+
+    /// The error with any raw-capture wrapper removed ([`LlmError::Captured`]); every other
+    /// error is returned as it is. Match on this when raw capture may be on.
+    pub fn root(&self) -> &LlmError {
+        match self {
+            LlmError::Captured { error, .. } => error.root(),
+            other => other,
+        }
+    }
+
+    /// The raw provider response captured for this error, when the provider has raw capture on
+    /// and this is a [`LlmError::Truncated`] or [`LlmError::Malformed`] outcome.
+    pub fn raw(&self) -> Option<&RawHandle> {
+        match self {
+            LlmError::Captured { raw, .. } => Some(raw),
+            _ => None,
+        }
+    }
+
+    /// True for [`LlmError::Truncated`], with or without a raw-capture wrapper.
+    pub fn is_truncated(&self) -> bool {
+        matches!(self.root(), LlmError::Truncated { .. })
+    }
+
+    /// True for [`LlmError::Malformed`], with or without a raw-capture wrapper.
+    pub fn is_malformed(&self) -> bool {
+        matches!(self.root(), LlmError::Malformed(_))
     }
 
     /// Whether another route could plausibly succeed: transport failures,
@@ -106,6 +150,7 @@ impl LlmError {
             }
             #[cfg(feature = "cli")]
             LlmError::Cli(e) => e.is_failover_trigger(),
+            LlmError::Captured { error, .. } => error.is_failover_trigger(),
             _ => false,
         }
     }
@@ -193,6 +238,7 @@ impl fmt::Display for LlmError {
             }
             #[cfg(feature = "cli")]
             LlmError::Cli(e) => write!(f, "{e}"),
+            LlmError::Captured { error, .. } => write!(f, "{error}"),
             LlmError::AllRoutesFailed(a) => {
                 write!(f, "all routes failed: ")?;
                 for (i, x) in a.iter().enumerate() {

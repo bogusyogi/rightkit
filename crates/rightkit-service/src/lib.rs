@@ -23,6 +23,15 @@
 //!   ([`HostOptions::max_pipe_instances`]), the client's process-token SID checked on
 //!   every accept, and clients opening with `SECURITY_IDENTIFICATION` and checking
 //!   the server's SID. See the README threat model.
+//! * **Verifying the host** - the transport proves a host runs as the current user, not which
+//!   program it is. [`Client::connect_expecting`] takes a [`HostExpectation`] (the executable the
+//!   host may be, for example a sibling inside the client's own app bundle), asks the kernel who
+//!   is on the listening end of the connected socket (macOS `LOCAL_PEERPID` and `proc_pidpath`,
+//!   Linux `SO_PEERCRED` and `/proc/<pid>/exe`), and refuses anyone else with a typed
+//!   [`HostIdentityError`] before the `hello` or any request is written. [`Client::connect`] stays
+//!   unauthenticated-host. [`ClientConfig::ignore_env_overrides`] makes the suite root come only
+//!   from the account database, so a launcher's environment cannot redirect a release client.
+//!   See the README, "Verifying the host".
 //! * **Per-app request allowlist** - each client names its app in `hello`; an
 //!   app may call only the methods listed for it (the generalisation of
 //!   HeardRight's `SERVICE_ALLOWED_SCHEMAS`). The app label is an allowlist key,
@@ -38,6 +47,7 @@
 mod client;
 mod discovery;
 mod error;
+mod host_identity;
 mod peer;
 mod record;
 mod server;
@@ -45,7 +55,7 @@ mod suite;
 mod takeover_watch;
 mod transport;
 
-pub use client::{Client, RetryPolicy, DEFAULT_DEADLINE};
+pub use client::{Client, ClientConfig, RetryPolicy, DEFAULT_DEADLINE};
 pub use discovery::{
     adopt_or_spawn, discover_apps_in, discover_apps_in_with, discover_macos, discover_macos_with,
     discover_windows, discover_windows_with, parse_plist_string, parse_reg_query, plan_host,
@@ -59,9 +69,11 @@ pub use discovery::{
 #[allow(deprecated)]
 pub use discovery::{discover_apps, KNOWN_APPS};
 pub use error::{
-    ServiceError, ERROR_CONNECTION_CLOSED, ERROR_HOST_HANDOFF, ERROR_NOT_ALLOWED,
-    ERROR_RESPONSE_TOO_LARGE, ERROR_TIMEOUT, ERROR_UNAVAILABLE,
+    ConnectError, ServiceError, ERROR_CONNECTION_CLOSED, ERROR_HOST_HANDOFF, ERROR_HOST_IDENTITY,
+    ERROR_NOT_ALLOWED, ERROR_RESPONSE_TOO_LARGE, ERROR_SUITE_UNRESOLVED, ERROR_TIMEOUT,
+    ERROR_UNAVAILABLE,
 };
+pub use host_identity::{HostExpectation, HostIdentityError, HostIdentityReason, HostProcess};
 #[cfg(unix)]
 pub use peer::verify_peer_is_current_user;
 #[cfg(windows)]
@@ -84,6 +96,7 @@ pub use suite::{
     SUITE_DIR_NAME,
 };
 pub use transport::{
-    endpoint_candidates, endpoint_for, find_live_endpoint, open_stream, pid_alive, probe_endpoint,
-    try_endpoint_for, EndpointError, Stream, DEFAULT_MAX_PIPE_INSTANCES, MAX_UNIX_SOCKET_PATH,
+    endpoint_candidates, endpoint_for, find_live_endpoint, open_stream, open_stream_expecting,
+    pid_alive, probe_endpoint, try_endpoint_for, EndpointError, Stream, DEFAULT_MAX_PIPE_INSTANCES,
+    MAX_UNIX_SOCKET_PATH,
 };

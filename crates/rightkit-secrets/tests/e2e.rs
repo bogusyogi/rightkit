@@ -65,16 +65,19 @@ fn isolated_keychain_migration_locked_presence_and_cli_redaction() {
     let path = tempfile::NamedTempFile::new().unwrap().into_temp_path();
     std::fs::write(&path, b" file-fixture \n").unwrap();
     assert_eq!(
-        rightkit_secrets::migrate_plaintext_file(
-            &to,
-            "file-account",
-            &path,
-            rightkit_secrets::LegacyFile::RetireIfUnchanged
-        )
-        .unwrap(),
-        rightkit_secrets::FileMigration::Migrated
+        rightkit_secrets::migrate_plaintext_file(&to, "file-account", &path).unwrap(),
+        rightkit_secrets::FileMigration::Retained
     );
-    assert!(!path.exists());
+    // The file is only copied from, never removed: that is the app's separate step.
+    assert_eq!(std::fs::read(&path).unwrap(), b" file-fixture \n");
+    assert_eq!(
+        to.get("file-account")
+            .unwrap()
+            .unwrap()
+            .expose_str()
+            .unwrap(),
+        "file-fixture"
+    );
     let env = |name: &str| (name == "PRIMARY").then(|| "env-fixture".to_string());
     let resolved = to.resolve("missing", &["PRIMARY"], &env).unwrap().unwrap();
     assert_eq!(resolved.1, rightkit_secrets::Source::Environment);
