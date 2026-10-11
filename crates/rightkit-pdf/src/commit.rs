@@ -50,7 +50,18 @@ pub enum CommitError {
 
 /// Writes `bytes` to `target` atomically: a temp file in the same directory is fsynced and then
 /// renamed over the target, so readers observe either the old or the new file, never a mix.
+///
+/// Replacing an existing file keeps its protection. On Unix the temp file is created owner-only
+/// (`0600`) so no byte of the new content is ever readable by more than the owner while it is
+/// written, and then takes the original's owner, group and permission bits (setuid, setgid, sticky
+/// and the full `rwx` triple) just before the rename. On Windows the replacement goes through
+/// `ReplaceFileW`, which carries the original's DACL, attributes, and creation time onto the new
+/// content instead of letting it inherit the directory's ACL. A target that does not exist yet is
+/// created with the platform's ordinary new-file permissions, as before. A symlink target is
+/// resolved first, so the file it points at is replaced and the link survives.
 pub fn write_atomic(target: &Path, bytes: &[u8]) -> std::io::Result<()> {
+    let target = resolve_destination(target)?;
+    let target = target.as_path();
     let dir = target
         .parent()
         .filter(|p| !p.as_os_str().is_empty())
@@ -59,20 +70,107 @@ pub fn write_atomic(target: &Path, bytes: &[u8]) -> std::io::Result<()> {
         .file_name()
         .map(|n| n.to_string_lossy().into_owned())
         .unwrap_or_default();
+    let existing = match fs::metadata(target) {
+        Ok(meta) => Some(meta),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
+        Err(error) => return Err(error),
+    };
     let mut nonce = [0_u8; 6];
     getrandom::fill(&mut nonce).map_err(|e| std::io::Error::other(e.to_string()))?;
     let suffix: String = nonce.iter().map(|b| format!("{b:02x}")).collect();
     let tmp: PathBuf = dir.join(format!(".{name}.{suffix}.tmp"));
     let result = (|| {
-        let mut file = fs::File::create(&tmp)?;
+        let mut file = create_temp(&tmp, existing.is_some())?;
         file.write_all(bytes)?;
+        if let Some(meta) = &existing {
+            copy_protection(&file, meta)?;
+        }
         file.sync_all()?;
-        fs::rename(&tmp, target)
+        drop(file);
+        replace_file(&tmp, target, existing.is_some())
     })();
     if result.is_err() {
         let _ = fs::remove_file(&tmp);
     }
     result
+}
+
+/// Creates the temp sibling exclusively. When it will replace an existing file it starts owner-only
+/// on Unix; otherwise it gets the platform's default new-file permissions.
+fn create_temp(tmp: &Path, replacing: bool) -> std::io::Result<fs::File> {
+    let mut options = fs::OpenOptions::new();
+    options.write(true).create_new(true);
+    if replacing {
+        owner_only(&mut options);
+    }
+    options.open(tmp)
+}
+
+#[cfg(unix)]
+fn owner_only(options: &mut fs::OpenOptions) {
+    use std::os::unix::fs::OpenOptionsExt;
+    options.mode(0o600);
+}
+
+/// Windows has no mode bits to restrict at creation; the replacement takes the original's DACL in
+/// [`replace_file`].
+#[cfg(not(unix))]
+fn owner_only(_options: &mut fs::OpenOptions) {}
+
+/// Gives the written temp file the original's owner, group and permission bits. Ownership is
+/// best-effort (an unprivileged process can only keep its own uid, and may be refused a group it is
+/// not in); the permission bits are not: a mode that cannot be restored fails the save rather than
+/// leave a weaker file behind.
+#[cfg(unix)]
+fn copy_protection(file: &fs::File, original: &fs::Metadata) -> std::io::Result<()> {
+    use std::os::unix::fs::{fchown, MetadataExt, PermissionsExt};
+    let _ = fchown(file, Some(original.uid()), Some(original.gid()));
+    file.set_permissions(fs::Permissions::from_mode(original.mode() & 0o7777))
+}
+
+/// Windows keeps the original's DACL through `ReplaceFileW` (see [`replace_file`]); the read-only
+/// attribute is the only thing to carry here, and `ReplaceFileW` does that too.
+#[cfg(not(unix))]
+fn copy_protection(_file: &fs::File, _original: &fs::Metadata) -> std::io::Result<()> {
+    Ok(())
+}
+
+/// Moves the finished temp file over `target`. Windows replaces an existing target with
+/// `ReplaceFileW`, which preserves its security descriptor, attributes and creation time; every
+/// other case is a plain rename.
+#[cfg(windows)]
+fn replace_file(tmp: &Path, target: &Path, replacing: bool) -> std::io::Result<()> {
+    use std::os::windows::ffi::OsStrExt;
+    use windows_sys::Win32::Storage::FileSystem::ReplaceFileW;
+
+    if !replacing {
+        return fs::rename(tmp, target);
+    }
+    let wide =
+        |path: &Path| -> Vec<u16> { path.as_os_str().encode_wide().chain(Some(0)).collect() };
+    let replaced = wide(target);
+    let replacement = wide(tmp);
+    // SAFETY: both buffers are NUL-terminated UTF-16 that outlive the call; the backup, exclude and
+    // reserved arguments are documented as optional/NULL.
+    let ok = unsafe {
+        ReplaceFileW(
+            replaced.as_ptr(),
+            replacement.as_ptr(),
+            std::ptr::null(),
+            0,
+            std::ptr::null(),
+            std::ptr::null(),
+        )
+    };
+    if ok == 0 {
+        return Err(std::io::Error::last_os_error());
+    }
+    Ok(())
+}
+
+#[cfg(not(windows))]
+fn replace_file(tmp: &Path, target: &Path, _replacing: bool) -> std::io::Result<()> {
+    fs::rename(tmp, target)
 }
 
 /// A file's `(volume, file id)`. Unix uses `(dev, ino)`; Windows uses `FILE_ID_INFO` (a 64-bit
@@ -343,20 +441,38 @@ where
     // Replace the resolved file, never a symlink that points at it.
     write_atomic(&identity.path, &bytes)?;
 
-    // The destination now holds the candidate. Any other token staged against that file recorded
-    // bytes that are gone; it must not be able to commit over this write. A staged path whose
-    // identity cannot be read is invalidated too.
-    let written = FileIdentity::try_of(&identity.path)?;
+    // The destination now holds the candidate. Any other token staged against bytes that are gone
+    // must not be able to commit over this write. That is every staged source naming the file that
+    // was replaced (`identity`, read under the lock before the rename: a hard link to it keeps the
+    // old bytes under another name, so a sibling staged against that name no longer matches the
+    // destination afterwards) and every staged source naming the file the destination is now. A
+    // staged path whose identity cannot be read is invalidated too, and so is every staged path
+    // when the new destination cannot be read back.
+    let written = FileIdentity::try_of(&identity.path).ok();
+    invalidate_aliases(store, &identity, written.as_ref());
+    Ok(result)
+}
+
+/// Invalidates every token staged against `replaced` (the file a commit just overwrote, as it was
+/// before the rename) or against `written` (what the destination path names now). `written` is
+/// `None` when it could not be read back; every token then dies, the safe direction.
+fn invalidate_aliases(
+    store: &PdfSaveTokenStore,
+    replaced: &FileIdentity,
+    written: Option<&FileIdentity>,
+) {
     for staged in store.source_paths() {
         let same = match FileIdentity::try_of(Path::new(&staged)) {
-            Ok(staged_identity) => staged_identity.same_file(&written),
+            Ok(staged_identity) => {
+                staged_identity.same_file(replaced)
+                    || written.map_or(true, |written| staged_identity.same_file(written))
+            }
             Err(_) => true,
         };
         if same {
             store.invalidate_source(&staged);
         }
     }
-    Ok(result)
 }
 
 #[cfg(test)]
@@ -670,6 +786,134 @@ mod tests {
         assert_eq!(a, file_key(&linked).expect("key").expect("exists"));
         assert_ne!(a, file_key(&other).expect("key").expect("exists"));
         assert_eq!(file_key(&dir.join("absent.pdf")).expect("key"), None);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn finding8_hard_link_sibling_tokens_die_when_the_first_commit_replaces_the_link() {
+        let dir = scratch("sibling");
+        let a = dir.join("A.pdf");
+        let b = dir.join("B.pdf");
+        let source = build_pdf(b"BT /F1 12 Tf 72 700 Td (Source) Tj ET");
+        fs::write(&a, &source).expect("write source");
+        fs::hard_link(&a, &b).expect("hard link");
+        let candidates = [
+            build_pdf(b"BT /F1 12 Tf 72 700 Td (First) Tj ET"),
+            build_pdf(b"BT /F1 12 Tf 72 700 Td (Second) Tj ET"),
+        ];
+        let store = PdfSaveTokenStore::default();
+        // Both candidates are staged against A; B is the same file when they are staged.
+        let tokens = stage_all(&store, &a, &source, &candidates);
+
+        commit_pdf_save(&store, &tokens[0], Some(&b)).expect("first commit to B");
+        assert_eq!(fs::read(&b).expect("read B"), candidates[0]);
+        assert_eq!(
+            fs::read(&a).expect("read A"),
+            source,
+            "A keeps the old bytes"
+        );
+
+        // B is no longer A, so a naive identity comparison now calls this a Save As and skips the
+        // source check. The sibling token must be dead instead.
+        let second = commit_pdf_save(&store, &tokens[1], Some(&b));
+        assert!(
+            matches!(second, Err(CommitError::Edit(PdfEditError::WriteConflict))),
+            "{second:?}"
+        );
+        assert_eq!(fs::read(&b).expect("read B"), candidates[0]);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn finding8_a_failed_read_back_still_invalidates_every_staged_token() {
+        let dir = scratch("readback");
+        let a = dir.join("A.pdf");
+        let source = build_pdf(b"BT /F1 12 Tf 72 700 Td (Source) Tj ET");
+        fs::write(&a, &source).expect("write source");
+        let store = PdfSaveTokenStore::default();
+        let tokens = stage_all(
+            &store,
+            &a,
+            &source,
+            &[build_pdf(b"BT /F1 12 Tf 72 700 Td (One) Tj ET")],
+        );
+        let replaced = identity_of(&a);
+        invalidate_aliases(&store, &replaced, None);
+        assert_eq!(store.source_path_of(&tokens[0]), None);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn finding7_saving_over_an_existing_file_keeps_its_mode() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = scratch("mode");
+        for mode in [0o600_u32, 0o640, 0o644, 0o444] {
+            let target = dir.join(format!("m{mode:o}.pdf"));
+            fs::write(&target, b"old").expect("old");
+            fs::set_permissions(&target, fs::Permissions::from_mode(mode)).expect("chmod");
+            write_atomic(&target, b"new").expect("write");
+            assert_eq!(fs::read(&target).expect("read"), b"new");
+            let now = fs::metadata(&target).expect("meta").permissions().mode() & 0o7777;
+            assert_eq!(now, mode, "mode {mode:o} survives the replacement");
+        }
+        // No temp sibling is left behind.
+        let leftovers = fs::read_dir(&dir)
+            .expect("dir")
+            .filter_map(Result::ok)
+            .filter(|e| e.file_name().to_string_lossy().ends_with(".tmp"))
+            .count();
+        assert_eq!(leftovers, 0);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn finding7_a_private_pdf_stays_private_through_a_staged_commit_and_through_a_symlink() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = scratch("mode-commit");
+        let real = dir.join("A.pdf");
+        let link = dir.join("L.pdf");
+        let source = build_pdf(b"BT /F1 12 Tf 72 700 Td (Source) Tj ET");
+        fs::write(&real, &source).expect("write source");
+        fs::set_permissions(&real, fs::Permissions::from_mode(0o600)).expect("chmod");
+        std::os::unix::fs::symlink(&real, &link).expect("symlink");
+        let candidate = build_pdf(b"BT /F1 12 Tf 72 700 Td (Edited) Tj ET");
+        let store = PdfSaveTokenStore::default();
+        let tokens = stage_all(&store, &real, &source, std::slice::from_ref(&candidate));
+        commit_pdf_save(&store, &tokens[0], Some(&link)).expect("commit through the link");
+        assert_eq!(fs::read(&real).expect("read"), candidate);
+        assert_eq!(
+            fs::metadata(&real).expect("meta").permissions().mode() & 0o7777,
+            0o600
+        );
+        assert!(fs::symlink_metadata(&link)
+            .expect("link")
+            .file_type()
+            .is_symlink());
+
+        // A direct write_atomic through the link is resolved too.
+        write_atomic(&link, b"direct").expect("direct");
+        assert_eq!(fs::read(&real).expect("read"), b"direct");
+        assert_eq!(
+            fs::metadata(&real).expect("meta").permissions().mode() & 0o7777,
+            0o600
+        );
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn finding7_a_new_destination_is_created_and_the_temp_is_exclusive() {
+        let dir = scratch("fresh");
+        let target = dir.join("new.pdf");
+        write_atomic(&target, b"fresh").expect("create");
+        assert_eq!(fs::read(&target).expect("read"), b"fresh");
+        let tmp = dir.join(".x.tmp");
+        fs::write(&tmp, b"squatter").expect("squatter");
+        assert!(
+            create_temp(&tmp, false).is_err(),
+            "an existing temp is never reused"
+        );
         let _ = fs::remove_dir_all(&dir);
     }
 }

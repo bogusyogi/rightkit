@@ -48,15 +48,21 @@
 //!   resolves `after.appearance.font_id` through `fonts` and embeds a fresh Type0/CIDFontType2
 //!   subset (§7.4), even when a caller happens to pass the same font family as the original run.
 //! - **Local-rewrite insertion point.** §9.2 says "insert ... at deterministic source boundary"
-//!   without specifying which. This implementation always appends the new `q/BT/.../ET/Q` block at
-//!   the END of the touched content stream's operator list, never in the middle. This is
-//!   deterministic and — critically — never renumbers any other operator's `operator_index`, so a
-//!   second, independent command's locator (captured against the same pristine source, per §9.4's
-//!   "Applies staged source commands to fresh source bytes") stays valid even when a prior command
-//!   in the same batch already rewrote a different run in the same content stream. Removed source
-//!   glyph bytes are blanked in place (byte range deleted from the operand string) rather than
-//!   deleting the whole operator, for the same reason: it never shifts a sibling span's
-//!   `operator_index`/`operand_index`.
+//!   without specifying which. The new `q/BT/.../ET/Q` block is never written into the middle of
+//!   the touched content stream: it goes in its own stream at the END of the page's `/Contents`.
+//!   Removing the old glyphs never renumbers an operator, so a second, independent command's
+//!   locator (captured against the same pristine source, per §9.4's "Applies staged source
+//!   commands to fresh source bytes") stays valid when a prior command in the same batch already
+//!   rewrote a different run in the same content stream. A removed glyph's bytes are replaced in
+//!   place by the `TJ` number that moves the pen exactly as the glyph did (a `Tj` becomes a `TJ`
+//!   at the same operator index), so the text that follows keeps its position; the `'` and `"`
+//!   operators carry a line move a `TJ` cannot, so glyphs shown by them are refused.
+//! - **Batch order.** All locators of a batch are resolved against the pristine source, so no
+//!   command may shift an address another command still needs. The `q`/`Q` isolation wrappers and
+//!   the new streams are therefore installed once, after the last command (installing a wrapper
+//!   per command shifted every original `contents_index`, which the island digest binds), and the
+//!   `ReplaceSourceText` commands of one page are applied back to front, so splitting a `TJ`
+//!   string item only ever moves items that a command already applied has finished with.
 //! - **Baseline anchor for a rewritten run.** §8 says "Replacement preserves original baseline
 //!   anchor," but `PdfSourceEdit`'s wire shape (`pdfEditModel.ts`/`PdfEditCommand`, §6) carries no
 //!   explicit origin point — only `availableBounds: PdfRect`. This implementation anchors the new
@@ -82,7 +88,8 @@ use serde::Deserialize;
 
 use crate::font::{build_to_unicode_cmap, subset_for_pdf};
 use crate::inspect::{
-    self, content_stream_ids, encode_middle_for_font, walk_page_graph, ReencodeFailure,
+    self, content_stream_ids, encode_middle_for_font, walk_page_graph, ContentBudget,
+    ReencodeFailure,
 };
 use crate::model::{
     document_sha256, effective_pdf_edit_commands, ComposedCandidate, GapNumber, GlyphSourceAddress,
@@ -167,11 +174,17 @@ pub fn compose_candidate_on_base(
     }
 
     // What every page can name before any edit; checked again below.
-    let resources_before = inspect::resource_fingerprint(&doc);
+    let resources_before = inspect::resource_fingerprint(&doc)?;
     let mut affected_pages: Vec<u32> = Vec::new();
 
-    for command in effective_pdf_edit_commands(commands) {
-        let page = match command {
+    // Locators are all captured against the pristine source, so the commands run in an order that
+    // never lets one shift an address another still needs (see the module docs), and every
+    // isolation wrapper and new stream waits until the last command has been applied.
+    let effective = effective_pdf_edit_commands(commands);
+    let mut isolated: Vec<(usize, Isolated)> = Vec::new();
+    for slot in back_to_front_order(&effective) {
+        let command = effective[slot];
+        let (page, block) = match command {
             PdfEditCommand::ReplaceSourceText {
                 locator,
                 before,
@@ -218,15 +231,19 @@ pub fn compose_candidate_on_base(
                 fonts,
             )?,
         };
+        if let Some(block) = block {
+            isolated.push((slot, block));
+        }
         if !affected_pages.contains(&page) {
             affected_pages.push(page);
         }
     }
+    install_isolated_content(&mut doc, isolated)?;
 
     // Never trust the composer blindly: an edit may add a resource, but a page must still resolve
     // every font, XObject and graphics state it resolved in the source. (Adding a font to a page
     // whose `/Resources` lived on an ancestor `/Pages` node once hid all of them.)
-    if !inspect::resources_preserved(&resources_before, &inspect::resource_fingerprint(&doc)) {
+    if !inspect::resources_preserved(&resources_before, &inspect::resource_fingerprint(&doc)?) {
         return Err(PdfEditError::VerificationFailed);
     }
 
@@ -246,6 +263,69 @@ pub fn compose_candidate_on_base(
 // §9.1/§9.2 — ReplaceSourceText
 // -------------------------------------------------------------------------------------------
 
+/// A block of operations to run on a page in its own content stream, outside the page's original
+/// graphics state: `(page object, operations)`. Collected while the batch runs and installed once
+/// at the end, in command order (see [`install_isolated_content`]).
+type Isolated = (ObjectId, Vec<Operation>);
+
+/// The first source address a command touches: `(contents_index, operator_index, operand_index,
+/// glyph_start)` of its earliest span.
+fn command_address(command: &PdfEditCommand) -> (u32, u32, u32, u32) {
+    match command {
+        PdfEditCommand::ReplaceSourceText { locator, .. } => locator
+            .spans
+            .iter()
+            .map(|span| {
+                (
+                    span.contents_index,
+                    span.operator_index,
+                    span.operand_index,
+                    span.glyph_start,
+                )
+            })
+            .min()
+            .unwrap_or_default(),
+        _ => (0, 0, 0, 0),
+    }
+}
+
+/// The order in which a batch is applied: the original order, except that the `ReplaceSourceText`
+/// commands aimed at one page take that page's slots back to front by source address. A command
+/// only ever changes bytes at or after its own address, so applying the later ones first leaves
+/// every earlier address exactly where the (pristine-source) locators say it is. Ties keep the
+/// caller's order, so a second command on the same island still meets a changed island and is
+/// refused.
+fn back_to_front_order(commands: &[&PdfEditCommand]) -> Vec<usize> {
+    let mut by_page: std::collections::BTreeMap<u32, Vec<usize>> =
+        std::collections::BTreeMap::new();
+    for (index, command) in commands.iter().enumerate() {
+        if let PdfEditCommand::ReplaceSourceText { locator, .. } = command {
+            by_page.entry(locator.page).or_default().push(index);
+        }
+    }
+    for list in by_page.values_mut() {
+        list.sort_by(|a, b| {
+            command_address(commands[*b])
+                .cmp(&command_address(commands[*a]))
+                .then(a.cmp(b))
+        });
+    }
+    let mut taken: std::collections::BTreeMap<u32, usize> = std::collections::BTreeMap::new();
+    commands
+        .iter()
+        .enumerate()
+        .map(|(index, command)| match command {
+            PdfEditCommand::ReplaceSourceText { locator, .. } => {
+                let next = taken.entry(locator.page).or_insert(0);
+                let chosen = by_page[&locator.page][*next];
+                *next += 1;
+                chosen
+            }
+            _ => index,
+        })
+        .collect()
+}
+
 #[allow(clippy::too_many_arguments)]
 fn apply_replace_source_text(
     doc: &mut Document,
@@ -255,7 +335,7 @@ fn apply_replace_source_text(
     after: &PdfTextEditState,
     available_bounds: PdfRect,
     fonts: &dyn PdfFontResolver,
-) -> Result<u32, PdfEditError> {
+) -> Result<(u32, Option<Isolated>), PdfEditError> {
     if locator.spans.is_empty() {
         return Err(PdfEditError::UnsupportedEncoding);
     }
@@ -317,7 +397,7 @@ fn apply_replace_source_text(
     // gets its own copy first, so the other pages stay as they were.
     isolate_shared_content_stream(doc, page_id, stream_id)?;
 
-    match select_replace_strategy(before, after, island.editable) {
+    let block = match select_replace_strategy(before, after, island.editable) {
         WriteStrategy::ExactOperandPatch => {
             apply_exact_operand_patch(
                 doc,
@@ -328,34 +408,43 @@ fn apply_replace_source_text(
                 after,
                 available_bounds,
             )?;
+            None
         }
-        WriteStrategy::LocalTextObjectRewrite => {
-            apply_local_text_object_rewrite(
-                doc,
-                page_id,
-                stream_id,
-                spans,
-                after,
-                available_bounds,
-                fonts,
-            )?;
-        }
-    }
+        WriteStrategy::LocalTextObjectRewrite => Some(apply_local_text_object_rewrite(
+            doc,
+            page_id,
+            stream_id,
+            island,
+            after,
+            available_bounds,
+            fonts,
+        )?),
+    };
 
-    Ok(locator.page)
+    Ok((locator.page, block))
 }
+
+/// Most content-stream references the pages that share one stream may carry together. Each is
+/// copied into the rewritten page arrays, so this is what an isolation may allocate for them.
+const MAX_ISOLATED_REFERENCES: usize = 1 << 20;
 
 /// Gives every *other* page that lists `stream_id` in its `/Contents` its own byte-identical copy
 /// of the stream, so rewriting `stream_id` in place changes only `page_id`. The edited page keeps
 /// the original object id on purpose: every locator in a batch is addressed by it. A later command
 /// aimed at one of the other pages therefore sees a different stream id and is refused as stale
 /// instead of being applied to the wrong page.
+///
+/// One copy is made, however many pages share the stream: they keep sharing it with each other
+/// (as they did with the original), so the allocation is one stream, not one per sharing page. The
+/// page arrays rewritten for them are bounded by [`MAX_ISOLATED_REFERENCES`], checked before they
+/// are collected.
 fn isolate_shared_content_stream(
     doc: &mut Document,
     page_id: ObjectId,
     stream_id: ObjectId,
 ) -> Result<(), PdfEditError> {
     let mut sharers: Vec<(ObjectId, Vec<ObjectId>)> = Vec::new();
+    let mut references = 0usize;
     for other in doc.get_pages().into_values() {
         if other == page_id {
             continue;
@@ -368,15 +457,22 @@ fn isolate_shared_content_stream(
         };
         let ids = content_stream_ids(doc, contents)?;
         if ids.contains(&stream_id) {
+            references = references
+                .checked_add(ids.len())
+                .filter(|total| *total <= MAX_ISOLATED_REFERENCES)
+                .ok_or(PdfEditError::MalformedContent)?;
             sharers.push((other, ids));
         }
     }
+    if sharers.is_empty() {
+        return Ok(());
+    }
+    let original = doc
+        .get_object(stream_id)
+        .map_err(|_| PdfEditError::MalformedContent)?
+        .clone();
+    let copy_id = doc.add_object(original);
     for (other, ids) in sharers {
-        let original = doc
-            .get_object(stream_id)
-            .map_err(|_| PdfEditError::MalformedContent)?
-            .clone();
-        let copy_id = doc.add_object(original);
         let array = Object::Array(
             ids.into_iter()
                 .map(|id| Object::Reference(if id == stream_id { copy_id } else { id }))
@@ -718,7 +814,7 @@ fn apply_exact_operand_patch(
     };
     validate_layout_advance(new_len_text, layout.axis, available_bounds)?;
 
-    let mut content = decode_stream_content(doc, stream_id)?;
+    let mut content = decode_stream_content(doc, stream_id, &mut ContentBudget::new())?;
 
     if positional {
         let bytes = &middle.pieces[0].bytes;
@@ -913,16 +1009,15 @@ fn validate_layout_advance(
 // §9.2 — Local text-object rewrite
 // -------------------------------------------------------------------------------------------
 
-#[allow(clippy::too_many_arguments)]
 fn apply_local_text_object_rewrite(
     doc: &mut Document,
     page_id: ObjectId,
     stream_id: ObjectId,
-    spans: &[PdfSourceSpan],
+    island: &PdfTextIsland,
     after: &PdfTextEditState,
     available_bounds: PdfRect,
     fonts: &dyn PdfFontResolver,
-) -> Result<(), PdfEditError> {
+) -> Result<Isolated, PdfEditError> {
     let resolved = fonts.resolve(&after.appearance.font_id)?;
     // Validates full glyph coverage up front (§7.3 rule 3: "fail before candidate creation").
     fonts.glyphs_for_text(&resolved, &after.text)?;
@@ -939,41 +1034,146 @@ fn apply_local_text_object_rewrite(
         available_bounds,
     )?;
 
+    // Every removed glyph and the `TJ` number that keeps the pen where the glyph left it. Worked
+    // out before anything is mutated, so a glyph whose advance cannot be kept is a refusal that
+    // leaves the document alone.
+    let removed = removed_glyphs(island)?;
+
     let (font_obj_id, cid_codes) = embed_type0_font(doc, &resolved, &after.text)?;
     let resource_name = add_font_resource(doc, page_id, font_obj_id)?;
 
-    let mut content = decode_stream_content(doc, stream_id)?;
-
-    // Blank covered glyph bytes from the end backward so earlier spans' byte offsets (captured
-    // against the pristine operand) stay valid while later ones are removed.
-    let mut ordered: Vec<&PdfSourceSpan> = spans.iter().collect();
-    ordered.sort_by(|a, b| {
-        b.operator_index
-            .cmp(&a.operator_index)
-            .then(b.operand_index.cmp(&a.operand_index))
-            .then(b.glyph_start.cmp(&a.glyph_start))
-    });
-    for span in ordered {
-        splice_operand_bytes(
-            &mut content,
-            span.operator_index,
-            span.operand_index,
-            span.glyph_start,
-            span.glyph_end,
-            &[],
-        )?;
-    }
-
+    let mut content = decode_stream_content(doc, stream_id, &mut ContentBudget::new())?;
+    remove_glyphs_keeping_pen(&mut content, removed)?;
     write_stream_content(doc, stream_id, &content)?;
 
     // §9.2 step 4/5: the new run goes in its own stream at the end of the page's `/Contents`,
     // outside the original content's graphics state. Appended inside the edited stream it would
     // inherit that stream's clip, alpha and blend mode, and a clip cannot be reset from inside.
-    append_isolated_content(
-        doc,
+    // The stream is installed with the rest of the batch (see `install_isolated_content`).
+    Ok((
         page_id,
         build_text_object_operations(&resource_name, &after.appearance, anchor, &cid_codes),
-    )
+    ))
+}
+
+/// One glyph an edit removes from a string operand, with the `TJ` number that keeps the pen where
+/// the glyph left it.
+struct RemovedGlyph {
+    operator_index: u32,
+    operand_index: u32,
+    start: u32,
+    end: u32,
+    adjust: f64,
+}
+
+/// The glyphs of `island`, in reading order, each with its pen-keeping `TJ` number. A glyph whose
+/// advance cannot be expressed that way (a zero font size) is refused.
+fn removed_glyphs(island: &PdfTextIsland) -> Result<Vec<RemovedGlyph>, PdfEditError> {
+    let mut removed = Vec::new();
+    for item in &island.run {
+        let Some(glyph) = &item.glyph else { continue };
+        removed.push(RemovedGlyph {
+            operator_index: glyph.operator_index,
+            operand_index: glyph.operand_index,
+            start: glyph.glyph_start,
+            end: glyph.glyph_end,
+            adjust: item.pen_adjust.ok_or(PdfEditError::UnsupportedEncoding)?,
+        });
+    }
+    Ok(removed)
+}
+
+/// Replaces each removed glyph by the `TJ` number that moves the pen exactly as the glyph did, so
+/// every glyph shown after it - in this operator or any later one - stays where it was.
+///
+/// A `TJ` string item is split around the removed ranges (items after it shift, which is why
+/// commands run back to front); a `Tj` becomes a `TJ` at the same operator index, so no operator
+/// is ever renumbered. `'` and `"` carry a line move a `TJ` cannot, so glyphs shown by them are
+/// refused rather than left with the pen short. Operators are rewritten last to first and, inside
+/// one `TJ`, items last to first, so no address still to be rewritten has moved.
+fn remove_glyphs_keeping_pen(
+    content: &mut Content,
+    mut removed: Vec<RemovedGlyph>,
+) -> Result<(), PdfEditError> {
+    removed.sort_by_key(|g| (g.operator_index, g.operand_index, g.start));
+    let mut end = removed.len();
+    while end > 0 {
+        let operator_index = removed[end - 1].operator_index;
+        let mut begin = end;
+        while begin > 0 && removed[begin - 1].operator_index == operator_index {
+            begin -= 1;
+        }
+        let glyphs = &removed[begin..end];
+        let op = content
+            .operations
+            .get_mut(operator_index as usize)
+            .ok_or(PdfEditError::SourceDigestMismatch)?;
+        let operator = op.operator.clone();
+        match operator.as_str() {
+            "TJ" => {
+                let Some(Object::Array(items)) = op.operands.get_mut(0) else {
+                    return Err(PdfEditError::SourceDigestMismatch);
+                };
+                let mut hi = glyphs.len();
+                while hi > 0 {
+                    let item_index = glyphs[hi - 1].operand_index;
+                    let mut lo = hi;
+                    while lo > 0 && glyphs[lo - 1].operand_index == item_index {
+                        lo -= 1;
+                    }
+                    let replacement = match items.get(item_index as usize) {
+                        Some(Object::String(bytes, format)) => {
+                            pieces_around_removed(bytes, *format, &glyphs[lo..hi])?
+                        }
+                        _ => return Err(PdfEditError::SourceDigestMismatch),
+                    };
+                    let at = item_index as usize;
+                    items.splice(at..=at, replacement).for_each(drop);
+                    hi = lo;
+                }
+            }
+            "Tj" => {
+                let replacement = match op.operands.first() {
+                    Some(Object::String(bytes, format)) => {
+                        pieces_around_removed(bytes, *format, glyphs)?
+                    }
+                    _ => return Err(PdfEditError::SourceDigestMismatch),
+                };
+                op.operator = "TJ".to_string();
+                op.operands = vec![Object::Array(replacement)];
+            }
+            "'" | "\"" => return Err(PdfEditError::UnsupportedEncoding),
+            _ => return Err(PdfEditError::SourceDigestMismatch),
+        }
+        end = begin;
+    }
+    Ok(())
+}
+
+/// `bytes` with each removed range (ascending, non-overlapping) replaced by its pen-keeping `TJ`
+/// number; the bytes between and after the ranges stay as strings of the same format.
+fn pieces_around_removed(
+    bytes: &[u8],
+    format: StringFormat,
+    glyphs: &[RemovedGlyph],
+) -> Result<Vec<Object>, PdfEditError> {
+    let mut out = Vec::with_capacity(glyphs.len() * 2 + 1);
+    let mut at = 0usize;
+    for glyph in glyphs {
+        let (start, end) = (glyph.start as usize, glyph.end as usize);
+        if start < at || end < start || end > bytes.len() {
+            return Err(PdfEditError::SourceDigestMismatch);
+        }
+        if start > at {
+            out.push(Object::String(bytes[at..start].to_vec(), format));
+        }
+        out.push(number_object(glyph.adjust));
+        at = end;
+    }
+    if at < bytes.len() {
+        out.push(Object::String(bytes[at..].to_vec(), format));
+    }
+    Ok(out)
 }
 
 fn validate_layout_measured(
@@ -1026,7 +1226,7 @@ fn apply_add_text(
     text: &str,
     appearance: &PdfTextAppearance,
     fonts: &dyn PdfFontResolver,
-) -> Result<u32, PdfEditError> {
+) -> Result<(u32, Option<Isolated>), PdfEditError> {
     if doc.is_encrypted() {
         return Err(PdfEditError::EncryptedDocument);
     }
@@ -1038,13 +1238,13 @@ fn apply_add_text(
     let (font_obj_id, cid_codes) = embed_type0_font(doc, &resolved, text)?;
     let resource_name = add_font_resource(doc, page_id, font_obj_id)?;
 
-    append_isolated_content(
-        doc,
-        page_id,
-        build_text_object_operations(&resource_name, appearance, anchor, &cid_codes),
-    )?;
-
-    Ok(page)
+    Ok((
+        page,
+        Some((
+            page_id,
+            build_text_object_operations(&resource_name, appearance, anchor, &cid_codes),
+        )),
+    ))
 }
 
 /// Covers one OCR line's proven near-uniform background, then appends a fresh Type0 text object.
@@ -1059,7 +1259,7 @@ fn apply_correct_ocr_text(
     cover_color: PdfColor,
     background_proof: PdfOcrBackgroundProof,
     fonts: &dyn PdfFontResolver,
-) -> Result<u32, PdfEditError> {
+) -> Result<(u32, Option<Isolated>), PdfEditError> {
     let page_id = pages_lookup(doc, page)?;
     let page_bounds = page_bounds(doc, page_id)?;
     validate_ocr_correction(
@@ -1081,12 +1281,19 @@ fn apply_correct_ocr_text(
     let (font_obj_id, cid_codes) = embed_type0_font(doc, &resolved, text)?;
     let resource_name = add_font_resource(doc, page_id, font_obj_id)?;
 
-    append_isolated_content(
-        doc,
-        page_id,
-        build_ocr_correction_operations(&resource_name, appearance, rect, cover_color, &cid_codes),
-    )?;
-    Ok(page)
+    Ok((
+        page,
+        Some((
+            page_id,
+            build_ocr_correction_operations(
+                &resource_name,
+                appearance,
+                rect,
+                cover_color,
+                &cid_codes,
+            ),
+        )),
+    ))
 }
 
 fn validate_ocr_correction(
@@ -1215,25 +1422,48 @@ fn inherited_page_number(doc: &Document, mut page_id: ObjectId, key: &[u8]) -> O
 /// Most unbalanced `Q` operators the original content may carry before the page is refused.
 const MAX_STRAY_RESTORES: i64 = 1 << 16;
 
-/// Appends `operations` to the page as a new stream, **isolated from the page's original
-/// content**.
+/// Installs the batch's new blocks, each as its own content stream **isolated from the page's
+/// original content**, once every command has been applied. Blocks go on a page in command order
+/// (`blocks` carries each one's command slot).
 ///
 /// Graphics state carries from one content stream into the next (ISO 32000-1 7.8.2), so a
 /// clipping path (`W n`), an `ExtGState` with `/ca 0` or a blend mode, or a leftover CTM in the
 /// original content applies to anything appended after it: the added text or OCR cover would be
 /// invisible while a structural read-back still succeeded. Resetting parameters from inside the
 /// new block cannot undo a clip. So the original streams are wrapped: a stream of `q` goes first
-/// and a stream of `Q` follows the last original stream, and the new stream runs in the default
+/// and a stream of `Q` follows the last original stream, and the new streams run in the default
 /// state. The wrapper is sized from the original content's own balance - one extra `q` for each
 /// stray `Q` the original would otherwise use to pop the wrapper, and enough `Q` to close every
-/// `q` the original left open - so the new stream always starts at nesting depth zero.
+/// `q` the original left open - so a new stream always starts at nesting depth zero. Each block is
+/// itself balanced, so the blocks of one page do not affect each other.
+///
+/// Installing at the end of the batch, not per command, is what keeps the originals' addresses
+/// still: the wrapper stream is prepended, which shifts every original `contents_index`, and the
+/// island digest binds it.
 ///
 /// Original streams are not modified (§9.3: "Do not mutate existing content operators"). Content
-/// that cannot be parsed strictly cannot be counted, so it is refused as malformed.
-fn append_isolated_content(
+/// that cannot be parsed strictly cannot be counted, so it is refused as malformed; the count is
+/// charged to a [`ContentBudget`] before anything is decoded or allocated.
+fn install_isolated_content(
+    doc: &mut Document,
+    mut blocks: Vec<(usize, Isolated)>,
+) -> Result<(), PdfEditError> {
+    blocks.sort_by_key(|(slot, _)| *slot);
+    let mut by_page: std::collections::BTreeMap<ObjectId, Vec<Vec<Operation>>> =
+        std::collections::BTreeMap::new();
+    for (_, (page_id, operations)) in blocks {
+        by_page.entry(page_id).or_default().push(operations);
+    }
+    for (page_id, operations) in by_page {
+        isolate_page_content(doc, page_id, operations)?;
+    }
+    Ok(())
+}
+
+fn isolate_page_content(
     doc: &mut Document,
     page_id: ObjectId,
-    operations: Vec<Operation>,
+    blocks: Vec<Vec<Operation>>,
 ) -> Result<(), PdfEditError> {
     let page_obj = doc
         .get_object(page_id)
@@ -1250,11 +1480,13 @@ fn append_isolated_content(
     };
 
     // Nesting balance of the original content: the lowest point it reaches below its start
-    // (stray `Q`) and where it ends (unclosed `q`).
+    // (stray `Q`) and where it ends (unclosed `q`). One budget for the page: a stream listed many
+    // times is decoded and charged many times.
+    let mut budget = ContentBudget::new();
     let mut net: i64 = 0;
     let mut lowest: i64 = 0;
     for id in &ids {
-        for operation in decode_stream_content(doc, *id)?.operations {
+        for operation in decode_stream_content(doc, *id, &mut budget)?.operations {
             match operation.operator.as_str() {
                 "q" => net += 1,
                 "Q" => {
@@ -1265,7 +1497,9 @@ fn append_isolated_content(
             }
         }
     }
-    if -lowest > MAX_STRAY_RESTORES {
+    // Both the stray `Q`s and the unclosed `q`s become operations of the wrapper streams, so both
+    // are bounded before those are built.
+    if -lowest > MAX_STRAY_RESTORES || net > MAX_STRAY_RESTORES {
         return Err(PdfEditError::MalformedContent);
     }
     let opening = 1 - lowest; // the wrapper's own `q` plus one per stray `Q`
@@ -1286,13 +1520,16 @@ fn append_isolated_content(
     };
     let prefix_id = add_stream(repeated("q", opening))?;
     let suffix_id = add_stream(repeated("Q", closing))?;
-    let new_stream_id = add_stream(operations)?;
+    let mut added = Vec::with_capacity(blocks.len());
+    for operations in blocks {
+        added.push(add_stream(operations)?);
+    }
 
-    let mut all: Vec<ObjectId> = Vec::with_capacity(ids.len() + 3);
+    let mut all: Vec<ObjectId> = Vec::with_capacity(ids.len() + 2 + added.len());
     all.push(prefix_id);
     all.extend(ids);
     all.push(suffix_id);
-    all.push(new_stream_id);
+    all.extend(added);
     let array = Object::Array(all.into_iter().map(Object::Reference).collect());
     if let Ok(Object::Dictionary(dict)) = doc.get_object_mut(page_id) {
         dict.set("Contents", array);
@@ -1491,7 +1728,7 @@ fn dict_entry_clone(doc: &Document, dict: &Dictionary, key: &[u8]) -> Dictionary
 /// is invisible text, a stray `Tc`/`Tw`/`Tz`/`Ts` moves or scales it) carry into a stream
 /// appended after it. So every parameter that changes how the string is drawn is set explicitly.
 /// What a block cannot reset - a clipping path, an `ExtGState` alpha or blend mode, a CTM - is
-/// removed by [`append_isolated_content`], which closes the original content's graphics state
+/// removed by [`install_isolated_content`], which closes the original content's graphics state
 /// before the block runs.
 fn build_text_object_operations(
     resource_name: &[u8],
@@ -1596,19 +1833,15 @@ fn build_ocr_correction_operations(
 // Content-stream mutation helpers shared by §9.1/§9.2
 // -------------------------------------------------------------------------------------------
 
-fn decode_stream_content(doc: &Document, id: ObjectId) -> Result<Content, PdfEditError> {
-    let obj = doc
-        .get_object(id)
-        .map_err(|_| PdfEditError::MalformedContent)?;
-    let stream = obj
-        .as_stream()
-        .map_err(|_| PdfEditError::MalformedContent)?;
-    let bytes = stream
-        .decompressed_content_with_limit(inspect::MAX_DECOMPRESSED_BYTES)
-        .map_err(|_| PdfEditError::MalformedContent)?;
+fn decode_stream_content(
+    doc: &Document,
+    id: ObjectId,
+    budget: &mut ContentBudget,
+) -> Result<Content, PdfEditError> {
     // Strict: the lenient decoder silently drops everything after the first byte it cannot
-    // parse, and a stream rewritten from a truncated parse would permanently lose that tail.
-    Content::decode_strict(&bytes).map_err(|_| PdfEditError::MalformedContent)
+    // parse, and a stream rewritten from a truncated parse would permanently lose that tail. Both
+    // the decode and the parse are charged to `budget` before they allocate.
+    budget.content(doc, id, true)
 }
 
 /// Replaces the stream object at `id` in place (same object number/generation, so every other
@@ -1726,6 +1959,11 @@ mod tests {
     // -----------------------------------------------------------------------------------
 
     use crate::test_fixtures::{build_one_page_pdf as build_pdf, pdf_bytes as doc_bytes};
+
+    /// [`super::decode_stream_content`] with a fresh page budget, for reading results back.
+    fn decode_stream_content(doc: &Document, id: ObjectId) -> Result<Content, PdfEditError> {
+        super::decode_stream_content(doc, id, &mut ContentBudget::new())
+    }
 
     fn locate_island(
         doc: &Document,
@@ -3191,7 +3429,12 @@ mod tests {
                 "Parent" => pages_id,
                 "Contents" => shared,
                 "Resources" => resources,
-                "MediaBox" => vec![0.into(), 0.into(), 612.into(), 792.into()],
+                "MediaBox" => Object::Array(vec![
+                    Object::Integer(0),
+                    Object::Integer(0),
+                    Object::Integer(612),
+                    Object::Integer(792),
+                ]),
             }));
         }
         doc.objects.insert(
@@ -3419,7 +3662,7 @@ mod tests {
         assert!(existing.editable, "{:?}", existing.edit_blocker);
         assert!(graph.islands.iter().any(|island| island.text == "Hi"));
 
-        let fingerprint = inspect::resource_fingerprint(&out);
+        let fingerprint = inspect::resource_fingerprint(&out).expect("fingerprint");
         let names: Vec<String> = fingerprint[&1]
             .keys()
             .map(|(category, name)| {
@@ -3468,7 +3711,7 @@ mod tests {
             .expect("two adds compose");
         let (out, graph) = reinspect(&candidate, 1);
         assert!(graph.islands.iter().any(|island| island.text == "Existing"));
-        let fingerprint = inspect::resource_fingerprint(&out);
+        let fingerprint = inspect::resource_fingerprint(&out).expect("fingerprint");
         let fonts: Vec<&[u8]> = fingerprint[&1]
             .keys()
             .filter(|(category, _)| category.as_slice() == b"Font")
@@ -3871,5 +4114,305 @@ mod tests {
             crate::save::expected_text_checks(std::slice::from_ref(&command)),
         )
         .expect("an Add Text hides nothing the page resolved");
+    }
+
+    // -----------------------------------------------------------------------------------
+    // Fourth Astra read, 2026-10-11: findings 9 and 12 (batches against one page)
+    // -----------------------------------------------------------------------------------
+
+    /// The islands of `bytes`' page 1, in reading order.
+    fn page_islands(bytes: &[u8]) -> Vec<crate::model::PdfTextIsland> {
+        let doc = Document::load_mem(bytes).expect("reopen");
+        walk_page_graph(&doc, &document_sha256(bytes), 1)
+            .expect("inspect")
+            .islands
+    }
+
+    fn changed_font_cmd(
+        id: &str,
+        island: &crate::model::PdfTextIsland,
+        text: &str,
+        x: f64,
+    ) -> PdfEditCommand {
+        replace_cmd(
+            id,
+            island,
+            text,
+            appearance("test-font", 24.0),
+            PdfRect {
+                x,
+                y: 650.0,
+                width: 200.0,
+                height: 40.0,
+            },
+        )
+    }
+
+    fn add_text_cmd(id: &str, text: &str) -> PdfEditCommand {
+        PdfEditCommand::AddText {
+            id: id.to_string(),
+            page: 1,
+            anchor: PdfPoint { x: 100.0, y: 100.0 },
+            text: text.to_string(),
+            appearance: appearance("test-font", 18.0),
+        }
+    }
+
+    /// Three islands on one baseline, told apart by colour: `AB` black, `CD` red, `AB` blue.
+    const THREE_COLOURS: &[u8] =
+        b"BT /F1 12 Tf 72 700 Td (AB) Tj 1 0 0 rg (CD) Tj 0 0 1 rg (AB) Tj ET";
+
+    #[test]
+    fn finding9_a_changed_font_replacement_leaves_the_neighbouring_text_where_it_was() {
+        let source = doc_bytes(&build_pdf(THREE_COLOURS));
+        let before = page_islands(&source);
+        assert_eq!(
+            before.iter().map(|i| i.text.as_str()).collect::<Vec<_>>(),
+            ["AB", "CD", "AB"]
+        );
+
+        let command = changed_font_cmd("first", &before[0], "Hi", 72.0);
+        let candidate = compose_candidate(&source, &[command], &test_resolver()).expect("composes");
+        let after = page_islands(&candidate.bytes);
+
+        let red = |islands: &[crate::model::PdfTextIsland]| {
+            islands
+                .iter()
+                .find(|i| i.text == "CD")
+                .map(|i| (i.quads.clone(), i.locator.island_digest.clone()))
+                .expect("the red island survives")
+        };
+        // Not "close": the same quads and the same digest, bit for bit. The old glyphs' advance
+        // was deleted with them, which slid CD left by the width of AB.
+        assert_eq!(red(&before), red(&after));
+        let blue = after
+            .iter()
+            .filter(|i| i.text == "AB")
+            .map(|i| i.quads.clone())
+            .collect::<Vec<_>>();
+        assert_eq!(blue, [before[2].quads.clone()]);
+        assert!(after.iter().any(|i| i.text == "Hi"));
+        assert!(!after
+            .iter()
+            .any(|i| i.text == "AB" && i.quads == before[0].quads));
+    }
+
+    #[test]
+    fn finding9_a_removed_string_inside_a_tj_keeps_the_pen_through_kerns_and_following_runs() {
+        // CD's own island begins after a -300 kern; EF follows in another colour.
+        let source = doc_bytes(&build_pdf(
+            b"BT /F1 12 Tf 72 700 Td [(AB) -300 (CD)] TJ 1 0 0 rg (EF) Tj ET",
+        ));
+        let before = page_islands(&source);
+        let first = before
+            .iter()
+            .find(|i| i.text.contains("AB"))
+            .expect("first island");
+        let command = changed_font_cmd("tj", first, "Hi", 72.0);
+        let candidate = compose_candidate(&source, &[command], &test_resolver()).expect("composes");
+        let after = page_islands(&candidate.bytes);
+        let ef = |islands: &[crate::model::PdfTextIsland]| {
+            islands
+                .iter()
+                .find(|i| i.text == "EF")
+                .map(|i| i.quads.clone())
+                .expect("EF survives")
+        };
+        assert_eq!(ef(&before), ef(&after));
+    }
+
+    #[test]
+    fn finding12_add_text_and_two_replacements_on_one_page_all_resolve_in_one_batch() {
+        let source = doc_bytes(&build_pdf(THREE_COLOURS));
+        let before = page_islands(&source);
+        // The add goes first: its isolation wrapper used to be installed on the spot, shifting every
+        // original `contents_index` and with it every later island digest.
+        let commands = [
+            add_text_cmd("add", "HH"),
+            changed_font_cmd("one", &before[0], "Hi", 72.0),
+            changed_font_cmd("two", &before[2], "CA", 300.0),
+        ];
+        let candidate = compose_candidate(&source, &commands, &test_resolver())
+            .expect("every command resolves");
+        assert_eq!(candidate.affected_pages, [1]);
+        let after = page_islands(&candidate.bytes);
+        let texts: Vec<&str> = after.iter().map(|i| i.text.as_str()).collect();
+        for wanted in ["CD", "Hi", "CA", "HH"] {
+            assert!(texts.contains(&wanted), "{wanted}: {texts:?}");
+        }
+        assert!(!texts.contains(&"AB"), "{texts:?}");
+
+        // The untouched middle island did not move.
+        let red = after.iter().find(|i| i.text == "CD").expect("CD");
+        assert_eq!(red.quads, before[1].quads);
+
+        // One wrapper pair around the original, then the three new streams in command order.
+        let (out, _) = reinspect(&candidate, 1);
+        let page_id = out.get_pages()[&1];
+        let contents = out
+            .get_object(page_id)
+            .expect("page")
+            .as_dict()
+            .expect("dict")
+            .get(b"Contents")
+            .expect("contents");
+        assert_eq!(content_stream_ids(&out, contents).expect("ids").len(), 6);
+    }
+
+    #[test]
+    fn finding12_replacements_apply_back_to_front_whatever_order_they_are_given_in() {
+        let source = doc_bytes(&build_pdf(THREE_COLOURS));
+        let before = page_islands(&source);
+        for order in [[0_usize, 2], [2, 0]] {
+            let commands: Vec<PdfEditCommand> = order
+                .iter()
+                .map(|&i| changed_font_cmd(&format!("c{i}"), &before[i], "Hi", 72.0 + i as f64))
+                .collect();
+            let candidate = compose_candidate(&source, &commands, &test_resolver())
+                .unwrap_or_else(|e| panic!("{order:?}: {e:?}"));
+            let after = page_islands(&candidate.bytes);
+            assert_eq!(
+                after.iter().filter(|i| i.text == "Hi").count(),
+                2,
+                "{order:?}"
+            );
+            let red = after.iter().find(|i| i.text == "CD").expect("CD");
+            assert_eq!(red.quads, before[1].quads, "{order:?}");
+        }
+    }
+
+    #[test]
+    fn finding12_two_islands_in_one_tj_array_both_resolve_when_the_first_is_split() {
+        // A 24 pt gap is wider than 1.5 em: AB (item 0) and CD (item 2) are two islands of one TJ.
+        // Splitting item 0 first would move CD to item 4 and break its locator.
+        let source = doc_bytes(&build_pdf(
+            b"BT /F1 12 Tf 72 700 Td [(AB) -2000 (CD)] TJ 1 0 0 rg (AB) Tj ET",
+        ));
+        let before = page_islands(&source);
+        assert_eq!(
+            before.iter().map(|i| i.text.as_str()).collect::<Vec<_>>(),
+            ["AB", "CD", "AB"]
+        );
+        let commands = [
+            changed_font_cmd("ab", &before[0], "Hi", 72.0),
+            changed_font_cmd("cd", &before[1], "CA", 300.0),
+        ];
+        let candidate = compose_candidate(&source, &commands, &test_resolver())
+            .expect("both islands of the array resolve");
+        let after = page_islands(&candidate.bytes);
+        let texts: Vec<&str> = after.iter().map(|i| i.text.as_str()).collect();
+        assert!(texts.contains(&"Hi") && texts.contains(&"CA"), "{texts:?}");
+        // The run after the array kept its place through both removals.
+        let tail = after
+            .iter()
+            .find(|i| i.text == "AB")
+            .map(|i| i.quads.clone())
+            .expect("the trailing AB");
+        assert_eq!(tail, before[2].quads);
+    }
+
+    #[test]
+    fn finding9_glyphs_shown_by_a_line_moving_operator_are_refused_not_left_with_the_pen_short() {
+        let source = doc_bytes(&build_pdf(
+            b"BT /F1 12 Tf 72 700 Td 14 TL (AB) ' 1 0 0 rg (CD) Tj ET",
+        ));
+        let before = page_islands(&source);
+        let first = before.iter().find(|i| i.text == "AB").expect("AB");
+        let command = changed_font_cmd("quote", first, "Hi", 72.0);
+        assert!(matches!(
+            compose_candidate(&source, &[command], &test_resolver()),
+            Err(PdfEditError::UnsupportedEncoding)
+        ));
+    }
+
+    #[test]
+    fn finding12_an_island_listed_twice_in_a_batch_is_still_refused_the_second_time() {
+        let source = doc_bytes(&build_pdf(THREE_COLOURS));
+        let before = page_islands(&source);
+        let commands = [
+            changed_font_cmd("a", &before[0], "Hi", 72.0),
+            changed_font_cmd("b", &before[0], "CA", 300.0),
+        ];
+        assert!(matches!(
+            compose_candidate(&source, &commands, &test_resolver()),
+            Err(PdfEditError::SourceDigestMismatch)
+        ));
+    }
+
+    #[test]
+    fn finding10_a_page_sharing_a_stream_with_many_pages_costs_one_copy() {
+        // Four pages share one content stream; editing page 1 copies it once for the other three.
+        let mut doc = build_pdf(b"BT /F1 12 Tf 72 700 Td (AB) Tj ET");
+        let page_id = doc.get_pages()[&1];
+        let (contents, parent, resources) = {
+            let page = doc
+                .get_object(page_id)
+                .expect("page")
+                .as_dict()
+                .expect("dict");
+            (
+                page.get(b"Contents").expect("contents").clone(),
+                page.get(b"Parent").expect("parent").clone(),
+                page.get(b"Resources").expect("resources").clone(),
+            )
+        };
+        let Object::Reference(pages_id) = parent.clone() else {
+            panic!("parent reference");
+        };
+        let mut kids = vec![Object::Reference(page_id)];
+        for _ in 0..3 {
+            let extra = doc.add_object(dictionary! {
+                "Type" => "Page",
+                "Parent" => parent.clone(),
+                "Contents" => contents.clone(),
+                "Resources" => resources.clone(),
+                "MediaBox" => Object::Array(vec![
+                    Object::Integer(0),
+                    Object::Integer(0),
+                    Object::Integer(612),
+                    Object::Integer(792),
+                ]),
+            });
+            kids.push(Object::Reference(extra));
+        }
+        if let Ok(Object::Dictionary(pages)) = doc.get_object_mut(pages_id) {
+            pages.set("Kids", Object::Array(kids));
+            pages.set("Count", 4);
+        }
+        let source = doc_bytes(&doc);
+        let before = page_islands(&source);
+        let before_objects = Document::load_mem(&source).expect("reopen").objects.len();
+        let command = changed_font_cmd("shared", &before[0], "Hi", 72.0);
+        let candidate = compose_candidate(&source, &[command], &test_resolver()).expect("composes");
+        let out = Document::load_mem(&candidate.bytes).expect("reopen candidate");
+        let mut streams: std::collections::BTreeSet<ObjectId> = Default::default();
+        for page in 2..=4 {
+            let id = out.get_pages()[&page];
+            let contents = out
+                .get_object(id)
+                .expect("page")
+                .as_dict()
+                .expect("dict")
+                .get(b"Contents")
+                .expect("contents");
+            streams.extend(content_stream_ids(&out, contents).expect("ids"));
+        }
+        assert_eq!(streams.len(), 1, "the three other pages share one copy");
+        assert!(out.objects.len() > before_objects);
+    }
+
+    #[test]
+    fn finding10_unclosed_q_operators_are_refused_not_expanded_into_a_wrapper() {
+        // The wrapper closes every `q` the original leaves open, one `Q` operation each; the count
+        // comes from the document, so it is bounded before the wrapper is built.
+        let content = format!(
+            "{}BT /F1 12 Tf 72 700 Td (Existing) Tj ET",
+            "q ".repeat(70_000)
+        );
+        let source = doc_bytes(&build_pdf(content.as_bytes()));
+        assert!(matches!(
+            compose_candidate(&source, &[add_hi("a")], &test_resolver()),
+            Err(PdfEditError::MalformedContent)
+        ));
     }
 }

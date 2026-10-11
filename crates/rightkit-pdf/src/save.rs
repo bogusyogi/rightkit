@@ -428,10 +428,11 @@ fn structurally_verify_candidate_against(
     if let Some(base_bytes) = base_bytes {
         let base =
             crate::inspect::load_pdf(base_bytes).map_err(|_| PdfEditError::VerificationFailed)?;
-        if !crate::inspect::resources_preserved(
-            &crate::inspect::resource_fingerprint(&base),
-            &crate::inspect::resource_fingerprint(&doc),
-        ) {
+        let before = crate::inspect::resource_fingerprint(&base)
+            .map_err(|_| PdfEditError::VerificationFailed)?;
+        let after = crate::inspect::resource_fingerprint(&doc)
+            .map_err(|_| PdfEditError::VerificationFailed)?;
+        if !crate::inspect::resources_preserved(&before, &after) {
             return Err(PdfEditError::VerificationFailed);
         }
     }

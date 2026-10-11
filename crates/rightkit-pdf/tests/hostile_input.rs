@@ -615,6 +615,148 @@ fn ordinary_text_is_unaffected_by_the_decode_budget() {
 }
 
 // -------------------------------------------------------------------------------------------
+// Resources are charged before they are allocated (fourth Astra read, findings 10 and 11)
+// -------------------------------------------------------------------------------------------
+
+/// A page whose `/Contents` array lists one compressed stream of `decoded_bytes` spaces `times`
+/// times. The file is tiny; the content it expands to is `decoded_bytes * times`.
+fn repeated_content_reference(decoded_bytes: usize, times: usize) -> Vec<u8> {
+    one_page(
+        |d| simple_font(d, 32, 126, vec![500.into(); 95]),
+        b"",
+        false,
+        move |doc, _, page| {
+            let mut stream = Stream::new(dictionary! {}, vec![b' '; decoded_bytes]);
+            let _ = stream.compress();
+            let id = doc.add_object(stream);
+            page.set(
+                "Contents",
+                Object::Array((0..times).map(|_| Object::Reference(id)).collect()),
+            );
+        },
+    )
+}
+
+#[test]
+fn one_compressed_stream_listed_a_thousand_times_is_refused_not_decoded_a_thousand_times() {
+    // 36 MiB listed 1 024 times is 36 GiB if every listing is decoded and retained. The page
+    // budget lets the first listing through and refuses the second, so memory stays near one
+    // stream however many times it is listed.
+    let pdf = repeated_content_reference(36 << 20, 1_024);
+    let outcome = guarded("repeated_content_reference", move || {
+        page_graph_from_bytes(&pdf, 1)
+            .map(|graph| graph.islands.len())
+            .map_err(|error| error.code())
+    });
+    assert!(outcome.is_err(), "{outcome:?}");
+}
+
+#[test]
+fn a_stream_listed_a_few_times_within_the_budget_is_still_read() {
+    let pdf = repeated_content_reference(1 << 20, 4);
+    let outcome = guarded("repeated_within_budget", move || {
+        page_graph_from_bytes(&pdf, 1).map(|graph| graph.islands.len())
+    });
+    assert_eq!(outcome.ok(), Some(0));
+}
+
+#[test]
+fn a_single_show_operand_past_the_glyph_cap_is_refused_before_its_glyphs_are_reserved() {
+    // 3 million single-byte codes in one `Tj`: past the two-million-glyph page cap, which used to
+    // be checked only after `bytes.len() / width` complete glyph records had been reserved.
+    let content = format!("BT /F1 12 Tf 72 700 Td ({}) Tj ET", "A".repeat(3_000_000));
+    let pdf = one_page(
+        |d| simple_font(d, 32, 126, vec![500.into(); 95]),
+        content.as_bytes(),
+        false,
+        |_, _, _| {},
+    );
+    let outcome = guarded("giant_operand", move || {
+        page_graph_from_bytes(&pdf, 1)
+            .map(|graph| graph.islands.len())
+            .map_err(|error| error.code())
+    });
+    assert_eq!(outcome, Err("text_overflow"), "{outcome:?}");
+}
+
+#[test]
+fn nine_million_empty_strings_in_one_array_are_refused_before_they_are_parsed() {
+    // `[()()()...] TJ`: no regular characters, so a byte count of operators misses it; every `()`
+    // is still an object the parser would build.
+    let content = format!("BT /F1 12 Tf 72 700 Td [{}] TJ ET", "()".repeat(9_000_000));
+    let pdf = one_page(
+        |d| simple_font(d, 32, 126, vec![500.into(); 95]),
+        content.as_bytes(),
+        false,
+        |_, _, _| {},
+    );
+    let outcome = guarded("string_flood", move || {
+        page_graph_from_bytes(&pdf, 1)
+            .map(|graph| graph.islands.len())
+            .map_err(|error| error.code())
+    });
+    assert!(outcome.is_err(), "{outcome:?}");
+}
+
+#[test]
+fn nine_million_operands_are_refused_before_they_are_parsed() {
+    let content = format!("{}Tj", "1 ".repeat(9_000_000));
+    let pdf = one_page(
+        |d| simple_font(d, 32, 126, vec![500.into(); 95]),
+        content.as_bytes(),
+        false,
+        |_, _, _| {},
+    );
+    let outcome = guarded("operand_flood", move || {
+        page_graph_from_bytes(&pdf, 1).map(|graph| graph.islands.len())
+    });
+    assert!(outcome.is_err(), "{outcome:?}");
+}
+
+#[test]
+fn six_hundred_fonts_naming_one_large_cmap_share_one_page_budget() {
+    // Each font names the same 4 MiB (decoded) CMap. Without a page-wide budget every font decodes
+    // its own copy; with one, the first few take the budget and the rest are built inexact.
+    let pdf = one_page(
+        |d| identity_h(d, vec![], &cmap("")),
+        b"BT /F1 12 Tf 72 700 Td <00010002> Tj ET",
+        false,
+        |doc, _, page| {
+            let mut stream = Stream::new(
+                dictionary! {},
+                format!("{}{}", cmap(""), " ".repeat(4 << 20)).into_bytes(),
+            );
+            let _ = stream.compress();
+            let shared = doc.add_object(stream);
+            let mut fonts = Dictionary::new();
+            for n in 0..600 {
+                let descendant = doc.add_object(dictionary! {
+                    "Type" => "Font",
+                    "Subtype" => "CIDFontType2",
+                    "BaseFont" => "X",
+                    "DW" => 1000,
+                    "CIDToGIDMap" => "Identity",
+                });
+                let font = doc.add_object(dictionary! {
+                    "Type" => "Font",
+                    "Subtype" => "Type0",
+                    "BaseFont" => "X",
+                    "Encoding" => "Identity-H",
+                    "DescendantFonts" => vec![descendant.into()],
+                    "ToUnicode" => shared,
+                });
+                fonts.set(format!("F{n}"), font);
+            }
+            page.set(
+                "Resources",
+                Object::Dictionary(dictionary! { "Font" => Object::Dictionary(fonts) }),
+            );
+        },
+    );
+    inspect_guarded("font_flood", pdf);
+}
+
+// -------------------------------------------------------------------------------------------
 // Sanity: the guard itself fails loudly
 // -------------------------------------------------------------------------------------------
 
