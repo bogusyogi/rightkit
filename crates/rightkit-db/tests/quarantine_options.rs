@@ -159,6 +159,7 @@ fn optimize_on_open_is_on_by_default_and_can_be_switched_off() {
 
     let mut explicit = DbOptions::new(dir.join("explicit.sqlite"));
     explicit.optimize_on_open = false;
-    let _conn = explicit.open_writer().unwrap();
+    // Closed before the directory is removed: Windows refuses to delete an open database file.
+    drop(explicit.open_writer().unwrap());
     fs::remove_dir_all(dir).unwrap();
 }
