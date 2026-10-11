@@ -97,6 +97,136 @@ pub fn should_reassert_windows_topmost(style_topmost: bool, in_topmost_band: boo
     !style_topmost || !in_topmost_band
 }
 
+/// Values of the Windows extended window styles an overlay uses (`WS_EX_*`). They are plain
+/// numbers here so [`OverlayStyle::ex_style`] is the same on every OS and its tests run
+/// everywhere.
+pub mod ex_style {
+    pub const TOPMOST: u32 = 0x0000_0008;
+    pub const TRANSPARENT: u32 = 0x0000_0020;
+    pub const TOOLWINDOW: u32 = 0x0000_0080;
+    pub const APPWINDOW: u32 = 0x0004_0000;
+    pub const LAYERED: u32 = 0x0008_0000;
+    pub const NOACTIVATE: u32 = 0x0800_0000;
+}
+
+/// How an overlay window behaves towards focus, the pointer and the z-order.
+///
+/// Every overlay is a layered tool window (per-pixel alpha, no taskbar button). The three
+/// switches cover the kinds a desktop app builds: a passive panel, a click-through drawing
+/// surface, and a panel that takes the keyboard while it is open.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct OverlayStyle {
+    /// Stay above ordinary windows.
+    pub topmost: bool,
+    /// The window may become the foreground window (a panel the user types into). When false
+    /// it never activates, so showing or clicking it leaves the user's app in front.
+    pub takes_focus: bool,
+    /// The whole window is invisible to the pointer: clicks and moves go to what is below it.
+    /// A window that is not click-through still passes the pointer through fully transparent
+    /// pixels, so give a hit zone a faint alpha to make it catch the pointer.
+    pub click_through: bool,
+}
+
+impl OverlayStyle {
+    /// A topmost panel that is seen and clicked but never takes focus (a notch, a hover card).
+    pub const PASSIVE: Self = Self {
+        topmost: true,
+        takes_focus: false,
+        click_through: false,
+    };
+    /// A topmost drawing surface the pointer passes through (a radial menu drawn over the app
+    /// whose clicks are read some other way).
+    pub const CLICK_THROUGH: Self = Self {
+        topmost: true,
+        takes_focus: false,
+        click_through: true,
+    };
+    /// A topmost panel that takes the keyboard while it is open (a launcher).
+    pub const KEYBOARD: Self = Self {
+        topmost: true,
+        takes_focus: true,
+        click_through: false,
+    };
+
+    /// The extended style a window should have for this behaviour, given the one it has now.
+    /// Bits this type does not own are kept.
+    pub fn ex_style(self, current: u32) -> u32 {
+        use ex_style::*;
+        let owned = TOPMOST | TRANSPARENT | TOOLWINDOW | APPWINDOW | LAYERED | NOACTIVATE;
+        let mut wanted = LAYERED | TOOLWINDOW;
+        if self.topmost {
+            wanted |= TOPMOST;
+        }
+        if !self.takes_focus {
+            wanted |= NOACTIVATE;
+        }
+        if self.click_through {
+            wanted |= TRANSPARENT;
+        }
+        (current & !owned) | wanted
+    }
+}
+
+/// What an overlay does while another program covers the whole monitor (a game, a video, a
+/// presentation).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FullScreenPolicy {
+    /// Stay visible above the full-screen window.
+    StayAbove,
+    /// Hide until the full-screen window is gone.
+    Hide,
+}
+
+impl FullScreenPolicy {
+    /// Whether the overlay is shown, given whether a foreground window fills its monitor.
+    pub fn shows(self, foreground_fills_monitor: bool) -> bool {
+        match self {
+            Self::StayAbove => true,
+            Self::Hide => !foreground_fills_monitor,
+        }
+    }
+}
+
+/// True when `window` covers all of `monitor` (both in the same screen coordinates). A window
+/// that is merely maximised does not: it stops at the work area.
+pub fn fills_monitor(window: WorkArea, monitor: WorkArea) -> bool {
+    [
+        window.left,
+        window.top,
+        window.right,
+        window.bottom,
+        monitor.left,
+        monitor.top,
+        monitor.right,
+        monitor.bottom,
+    ]
+    .into_iter()
+    .all(f64::is_finite)
+        && monitor.right > monitor.left
+        && monitor.bottom > monitor.top
+        && window.left <= monitor.left
+        && window.top <= monitor.top
+        && window.right >= monitor.right
+        && window.bottom >= monitor.bottom
+}
+
+/// One monitor, for placing an overlay on it: its full bounds, its work area (bounds without
+/// the taskbar) and its DPI. Coordinates are physical screen pixels.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct MonitorPlacement {
+    pub bounds: WorkArea,
+    pub work: WorkArea,
+    /// Effective DPI; 96 is 100% scaling.
+    pub dpi: u32,
+}
+
+impl MonitorPlacement {
+    /// The factor from design units at 100% scaling to this monitor's pixels (1.5 at 144 DPI).
+    pub fn scale(&self) -> f64 {
+        f64::from(self.dpi.max(1)) / 96.0
+    }
+}
+
 /// Windows-native overlay operations, ported from a mature native pill host. Hosts pass the raw
 /// `HWND` value as an `isize` so the crate stays independent of a Tauri/WebView window type while
 /// still owning the locked no-activation and TOPMOST behavior. Hosts must install the WNDPROC
@@ -107,13 +237,22 @@ pub mod windows {
     use std::sync::{Mutex, OnceLock};
 
     use windows_sys::core::BOOL;
-    use windows_sys::Win32::Foundation::{HWND, LPARAM, LRESULT, WPARAM};
-    use windows_sys::Win32::UI::WindowsAndMessaging::{
-        CallWindowProcW, DefWindowProcW, EnumWindows, GetWindowLongPtrW, IsWindowVisible,
-        SetWindowLongPtrW, SetWindowPos, GWLP_WNDPROC, GWL_EXSTYLE, HWND_TOPMOST, MA_NOACTIVATE,
-        SWP_FRAMECHANGED, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER, WM_MOUSEACTIVATE,
-        WM_NCDESTROY, WNDPROC, WS_EX_APPWINDOW, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_EX_TOPMOST,
+    use windows_sys::Win32::Foundation::{HWND, LPARAM, LRESULT, POINT, RECT, WPARAM};
+    use windows_sys::Win32::Graphics::Gdi::{
+        GetMonitorInfoW, MonitorFromPoint, MonitorFromWindow, HMONITOR, MONITORINFO,
+        MONITOR_DEFAULTTONEAREST,
     };
+    use windows_sys::Win32::UI::HiDpi::{GetDpiForMonitor, MDT_EFFECTIVE_DPI};
+    use windows_sys::Win32::UI::WindowsAndMessaging::{
+        CallWindowProcW, DefWindowProcW, EnumWindows, GetDesktopWindow, GetForegroundWindow,
+        GetShellWindow, GetWindowLongPtrW, GetWindowRect, IsWindowVisible, SetWindowLongPtrW,
+        SetWindowPos, GWLP_WNDPROC, GWL_EXSTYLE, HWND_TOPMOST, MA_NOACTIVATE, SWP_FRAMECHANGED,
+        SWP_HIDEWINDOW, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER, SWP_SHOWWINDOW,
+        WM_MOUSEACTIVATE, WM_NCDESTROY, WNDPROC, WS_EX_APPWINDOW, WS_EX_NOACTIVATE,
+        WS_EX_TOOLWINDOW, WS_EX_TOPMOST,
+    };
+
+    use crate::{ex_style, MonitorPlacement, OverlayStyle, WorkArea};
 
     static ORIGINAL_WNDPROCS: OnceLock<Mutex<HashMap<isize, isize>>> = OnceLock::new();
 
@@ -280,6 +419,172 @@ pub mod windows {
             false
         }
     }
+
+    /// Write `wanted` as the extended style of the window and make Windows re-read it, without
+    /// moving, resizing, reordering or activating the window. Returns whether it changed.
+    fn write_ex_style(hwnd: HWND, current: isize, wanted: u32) -> bool {
+        // The owned bits all sit in the low 32 bits; keep whatever is above them.
+        let high = (current as usize) & !(u32::MAX as usize);
+        let wanted = (high | wanted as usize) as isize;
+        if wanted == current {
+            return false;
+        }
+        unsafe {
+            SetWindowLongPtrW(hwnd, GWL_EXSTYLE, wanted);
+            let _ = SetWindowPos(
+                hwnd,
+                std::ptr::null_mut(),
+                0,
+                0,
+                0,
+                0,
+                SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED,
+            );
+        }
+        true
+    }
+
+    /// Give `hwnd` the extended style of `style` (see [`OverlayStyle::ex_style`]). Returns
+    /// whether the style changed. This sets the style bits only: a window that must not
+    /// activate on a mouse click also needs [`make_noactivate`], and the z-order is set by
+    /// [`show_noactivate`] or [`reassert_topmost`].
+    pub fn apply_style(hwnd: isize, style: OverlayStyle) -> bool {
+        if hwnd == 0 {
+            return false;
+        }
+        let hwnd = hwnd as HWND;
+        let current = unsafe { GetWindowLongPtrW(hwnd, GWL_EXSTYLE) };
+        write_ex_style(hwnd, current, style.ex_style(current as u32))
+    }
+
+    /// Turn click-through on or off at run time (`WS_EX_TRANSPARENT`; the window must be
+    /// layered). Returns whether the style changed.
+    pub fn set_click_through(hwnd: isize, on: bool) -> bool {
+        if hwnd == 0 {
+            return false;
+        }
+        let hwnd = hwnd as HWND;
+        let current = unsafe { GetWindowLongPtrW(hwnd, GWL_EXSTYLE) };
+        let bits = current as u32;
+        let wanted = if on {
+            bits | ex_style::TRANSPARENT | ex_style::LAYERED
+        } else {
+            bits & !ex_style::TRANSPARENT
+        };
+        write_ex_style(hwnd, current, wanted)
+    }
+
+    /// Show the window in the topmost band without activating it, moving it or resizing it.
+    pub fn show_noactivate(hwnd: isize) -> bool {
+        if hwnd == 0 {
+            return false;
+        }
+        unsafe {
+            SetWindowPos(
+                hwnd as HWND,
+                HWND_TOPMOST,
+                0,
+                0,
+                0,
+                0,
+                SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_SHOWWINDOW,
+            ) != 0
+        }
+    }
+
+    /// Hide the window without changing the foreground window or the z-order.
+    pub fn hide(hwnd: isize) -> bool {
+        if hwnd == 0 {
+            return false;
+        }
+        unsafe {
+            SetWindowPos(
+                hwnd as HWND,
+                std::ptr::null_mut(),
+                0,
+                0,
+                0,
+                0,
+                SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_HIDEWINDOW,
+            ) != 0
+        }
+    }
+
+    fn area(rect: RECT) -> WorkArea {
+        WorkArea {
+            left: f64::from(rect.left),
+            top: f64::from(rect.top),
+            right: f64::from(rect.right),
+            bottom: f64::from(rect.bottom),
+        }
+    }
+
+    fn placement(monitor: HMONITOR) -> Option<MonitorPlacement> {
+        if monitor.is_null() {
+            return None;
+        }
+        let empty = RECT {
+            left: 0,
+            top: 0,
+            right: 0,
+            bottom: 0,
+        };
+        let mut info = MONITORINFO {
+            cbSize: std::mem::size_of::<MONITORINFO>() as u32,
+            rcMonitor: empty,
+            rcWork: empty,
+            dwFlags: 0,
+        };
+        // SAFETY: `info` is a valid MONITORINFO with its size set, as the call requires.
+        if unsafe { GetMonitorInfoW(monitor, &mut info) } == 0 {
+            return None;
+        }
+        let (mut dpi_x, mut dpi_y) = (96u32, 96u32);
+        // SAFETY: both out-parameters are valid; a failure leaves the 96 DPI default.
+        let _ = unsafe { GetDpiForMonitor(monitor, MDT_EFFECTIVE_DPI, &mut dpi_x, &mut dpi_y) };
+        Some(MonitorPlacement {
+            bounds: area(info.rcMonitor),
+            work: area(info.rcWork),
+            dpi: if dpi_x == 0 { 96 } else { dpi_x },
+        })
+    }
+
+    /// The monitor under (or nearest to) a point in physical screen pixels, for example the
+    /// pointer position. The DPI is the per-monitor value only in a process that is
+    /// per-monitor DPI aware; otherwise Windows reports the system DPI.
+    pub fn monitor_at(x: i32, y: i32) -> Option<MonitorPlacement> {
+        // SAFETY: MonitorFromPoint takes the point by value and has no other preconditions.
+        placement(unsafe { MonitorFromPoint(POINT { x, y }, MONITOR_DEFAULTTONEAREST) })
+    }
+
+    /// True when the foreground window covers the whole of its monitor (a full-screen game,
+    /// video or presentation). The desktop and the shell do not count. Feed the result to
+    /// [`FullScreenPolicy::shows`](crate::FullScreenPolicy::shows).
+    pub fn foreground_fills_monitor() -> bool {
+        unsafe {
+            let foreground = GetForegroundWindow();
+            if foreground.is_null()
+                || foreground == GetDesktopWindow()
+                || foreground == GetShellWindow()
+            {
+                return false;
+            }
+            let mut rect = RECT {
+                left: 0,
+                top: 0,
+                right: 0,
+                bottom: 0,
+            };
+            if GetWindowRect(foreground, &mut rect) == 0 {
+                return false;
+            }
+            let Some(monitor) = placement(MonitorFromWindow(foreground, MONITOR_DEFAULTTONEAREST))
+            else {
+                return false;
+            };
+            crate::fills_monitor(area(rect), monitor.bounds)
+        }
+    }
 }
 
 #[cfg(not(windows))]
@@ -295,6 +600,24 @@ pub mod windows {
         false
     }
     pub fn reassert_if_needed(_hwnd: isize) -> bool {
+        false
+    }
+    pub fn apply_style(_hwnd: isize, _style: crate::OverlayStyle) -> bool {
+        false
+    }
+    pub fn set_click_through(_hwnd: isize, _on: bool) -> bool {
+        false
+    }
+    pub fn show_noactivate(_hwnd: isize) -> bool {
+        false
+    }
+    pub fn hide(_hwnd: isize) -> bool {
+        false
+    }
+    pub fn monitor_at(_x: i32, _y: i32) -> Option<crate::MonitorPlacement> {
+        None
+    }
+    pub fn foreground_fills_monitor() -> bool {
         false
     }
 }
@@ -376,5 +699,88 @@ impl OverlayModel {
     }
     pub fn hit_test(&self, x: f64, y: f64) -> bool {
         self.visible && self.hitbox.unwrap_or(self.frame).contains(x, y)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::ex_style::*;
+    use super::*;
+
+    fn area(left: f64, top: f64, right: f64, bottom: f64) -> WorkArea {
+        WorkArea {
+            left,
+            top,
+            right,
+            bottom,
+        }
+    }
+
+    #[test]
+    fn the_three_overlay_kinds_map_to_their_extended_styles() {
+        assert_eq!(
+            OverlayStyle::PASSIVE.ex_style(0),
+            LAYERED | NOACTIVATE | TOOLWINDOW | TOPMOST
+        );
+        assert_eq!(
+            OverlayStyle::CLICK_THROUGH.ex_style(0),
+            LAYERED | NOACTIVATE | TOOLWINDOW | TOPMOST | TRANSPARENT
+        );
+        // A panel that takes the keyboard is the same without NOACTIVATE.
+        assert_eq!(
+            OverlayStyle::KEYBOARD.ex_style(0),
+            LAYERED | TOOLWINDOW | TOPMOST
+        );
+    }
+
+    #[test]
+    fn applying_a_style_clears_what_it_owns_and_keeps_the_rest() {
+        const WS_EX_COMPOSITED: u32 = 0x0200_0000;
+        let before = APPWINDOW | TRANSPARENT | NOACTIVATE | WS_EX_COMPOSITED;
+        let after = OverlayStyle::KEYBOARD.ex_style(before);
+        assert_eq!(after, LAYERED | TOOLWINDOW | TOPMOST | WS_EX_COMPOSITED);
+        let not_topmost = OverlayStyle {
+            topmost: false,
+            ..OverlayStyle::PASSIVE
+        };
+        assert_eq!(
+            not_topmost.ex_style(TOPMOST),
+            LAYERED | TOOLWINDOW | NOACTIVATE
+        );
+    }
+
+    #[test]
+    fn full_screen_policy_hides_only_when_asked_and_only_under_a_full_screen_window() {
+        assert!(FullScreenPolicy::StayAbove.shows(true));
+        assert!(FullScreenPolicy::StayAbove.shows(false));
+        assert!(!FullScreenPolicy::Hide.shows(true));
+        assert!(FullScreenPolicy::Hide.shows(false));
+    }
+
+    #[test]
+    fn a_window_fills_a_monitor_only_when_it_covers_all_of_it() {
+        let monitor = area(1920.0, 0.0, 3840.0, 1080.0);
+        assert!(fills_monitor(monitor, monitor));
+        // Borderless windows often overhang by a few pixels.
+        assert!(fills_monitor(area(1912.0, -8.0, 3848.0, 1088.0), monitor));
+        // Maximised: stops above the taskbar.
+        assert!(!fills_monitor(area(1920.0, 0.0, 3840.0, 1040.0), monitor));
+        // On another monitor.
+        assert!(!fills_monitor(area(0.0, 0.0, 1920.0, 1080.0), monitor));
+        // Degenerate or non-finite input never counts.
+        assert!(!fills_monitor(monitor, area(0.0, 0.0, 0.0, 0.0)));
+        assert!(!fills_monitor(area(f64::NAN, 0.0, 3840.0, 1080.0), monitor));
+    }
+
+    #[test]
+    fn monitor_scale_follows_the_dpi() {
+        let placement = |dpi| MonitorPlacement {
+            bounds: area(0.0, 0.0, 1920.0, 1080.0),
+            work: area(0.0, 0.0, 1920.0, 1040.0),
+            dpi,
+        };
+        assert_eq!(placement(96).scale(), 1.0);
+        assert_eq!(placement(144).scale(), 1.5);
+        assert!(placement(0).scale() > 0.0);
     }
 }
