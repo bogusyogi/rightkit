@@ -522,23 +522,21 @@ fn unopenable_lock(dir: &TempDir) -> PathBuf {
 }
 
 type Cell = Arc<std::sync::Mutex<Option<ClockState>>>;
+// The two closures are boxed so the store has a nameable type.
+type MemoryRead = Box<dyn Fn() -> Result<Option<ClockState>, String>>;
+type MemoryWrite = Box<dyn Fn(&ClockState) -> Result<(), String>>;
+type MemoryStore = ClosureClockStore<MemoryRead, MemoryWrite>;
 
-fn memory_store(
-    lock: PathBuf,
-    cell: &Cell,
-) -> ClosureClockStore<
-    impl Fn() -> Result<Option<ClockState>, String>,
-    impl Fn(&ClockState) -> Result<(), String>,
-> {
+fn memory_store(lock: PathBuf, cell: &Cell) -> MemoryStore {
     let (read, write) = (Arc::clone(cell), Arc::clone(cell));
-    ClosureClockStore::new(
-        lock,
-        move || Ok(read.lock().unwrap().clone()),
-        move |s: &ClockState| {
-            *write.lock().unwrap() = Some(s.clone());
-            Ok(())
-        },
-    )
+    let get: MemoryRead = Box::new(move || -> Result<Option<ClockState>, String> {
+        Ok(read.lock().unwrap().clone())
+    });
+    let set: MemoryWrite = Box::new(move |s: &ClockState| -> Result<(), String> {
+        *write.lock().unwrap() = Some(s.clone());
+        Ok(())
+    });
+    ClosureClockStore::new(lock, get, set)
 }
 
 #[test]

@@ -660,7 +660,7 @@ mod replaced_pid {
 
     /// A running child standing in for the replacement that now holds the leader's number.
     fn replaced_leader() -> (OwnedChild, u32) {
-        let mut child = sh("exec sleep 600").spawn().expect("spawn");
+        let child = sh("exec sleep 600").spawn().expect("spawn");
         let pid = child.id();
         // Let `exec` finish so the process is the sleeper, not the shell.
         thread::sleep(Duration::from_millis(100));
@@ -740,7 +740,7 @@ mod replaced_pid {
 
     #[test]
     fn probes_and_kills_do_not_name_a_pid_that_changed_hands() {
-        let (mut child, pid) = replaced_leader();
+        let (child, pid) = replaced_leader();
         let mark = trace::mark();
         let handle = child.process_handle().expect("handle");
         child
@@ -914,7 +914,7 @@ mod bounded_waits {
     /// while another thread waits is not blocked.
     #[test]
     fn a_blocked_wait_is_released_by_a_plain_kill_from_another_thread() {
-        let mut child = sh("exec sleep 600").spawn().expect("spawn");
+        let child = sh("exec sleep 600").spawn().expect("spawn");
         let handle = child.process_handle().expect("handle");
         let waiter = thread::spawn(move || handle.wait());
         thread::sleep(Duration::from_millis(200));

@@ -10,7 +10,9 @@ use std::path::Path;
 use std::rc::Rc;
 
 use rightkit_fs::atomic::testing::{on_replace, take_steps, Step};
-use rightkit_fs::{atomic_write_with_options, AtomicWriteOptions, FsError, ReplaceMode};
+use rightkit_fs::{atomic_write_with_options, AtomicWriteOptions};
+#[cfg(unix)]
+use rightkit_fs::{FsError, ReplaceMode};
 
 /// What a hook saw just before the rename: the temp file's mode and the destination's content.
 #[cfg(unix)]

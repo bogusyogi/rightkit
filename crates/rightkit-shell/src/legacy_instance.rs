@@ -453,7 +453,10 @@ fn wait_for_close(stream: &mut std::os::unix::net::UnixStream) -> Closure {
             return Closure::Silent;
         }
         match stream.read(&mut reply) {
-            Ok(_) => return Closure::Answered,
+            // End-of-stream: the holder closed its end, which is its answer.
+            Ok(0) => return Closure::Answered,
+            // Bytes: the holder replied, which is also an answer.
+            Ok(_received) => return Closure::Answered,
             Err(e) => match e.kind() {
                 ErrorKind::Interrupted => {}
                 ErrorKind::WouldBlock | ErrorKind::TimedOut => return Closure::Silent,

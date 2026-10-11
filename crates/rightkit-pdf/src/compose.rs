@@ -4167,7 +4167,7 @@ mod tests {
         b"BT /F1 12 Tf 72 700 Td (AB) Tj 1 0 0 rg (CD) Tj 0 0 1 rg (AB) Tj ET";
 
     #[test]
-    fn finding9_a_changed_font_replacement_leaves_the_neighbouring_text_where_it_was() {
+    fn finding9_a_changed_font_replacement_keeps_the_neighbouring_quads_bit_for_bit() {
         let source = doc_bytes(&build_pdf(THREE_COLOURS));
         let before = page_islands(&source);
         assert_eq!(
@@ -4179,16 +4179,48 @@ mod tests {
         let candidate = compose_candidate(&source, &[command], &test_resolver()).expect("composes");
         let after = page_islands(&candidate.bytes);
 
+        // The red island's quads and where its glyphs sit in the source.
         let red = |islands: &[crate::model::PdfTextIsland]| {
             islands
                 .iter()
                 .find(|i| i.text == "CD")
-                .map(|i| (i.quads.clone(), i.locator.island_digest.clone()))
+                .map(|i| {
+                    let spans: Vec<((u32, u16), u32, u32, u32, u32, u32)> = i
+                        .locator
+                        .spans
+                        .iter()
+                        .map(|s| {
+                            (
+                                s.stream_ref,
+                                s.contents_index,
+                                s.operator_index,
+                                s.operand_index,
+                                s.glyph_start,
+                                s.glyph_end,
+                            )
+                        })
+                        .collect();
+                    (i.quads.clone(), spans)
+                })
                 .expect("the red island survives")
         };
-        // Not "close": the same quads and the same digest, bit for bit. The old glyphs' advance
-        // was deleted with them, which slid CD left by the width of AB.
-        assert_eq!(red(&before), red(&after));
+        let ((quads_before, spans_before), (quads_after, spans_after)) =
+            (red(&before), red(&after));
+        // What the replacement guarantees about the text after the edited run: its quads are the
+        // same, bit for bit, not close. The old glyphs' advance was deleted with them, which slid
+        // CD left by the width of AB.
+        assert_eq!(quads_after, quads_before);
+        // What it does not keep is the island digest. The digest binds every span's
+        // `contents_index`, and the isolation wrapper puts one stream in front of the original, so
+        // every island of the page is addressed one stream later (the same stream object, operator
+        // and operand). A locator taken before the edit is stale by design; inspect the page again.
+        let moved_one_stream: Vec<_> = spans_before
+            .iter()
+            .map(|&(stream, index, operator, operand, start, end)| {
+                (stream, index + 1, operator, operand, start, end)
+            })
+            .collect();
+        assert_eq!(spans_after, moved_one_stream);
         let blue = after
             .iter()
             .filter(|i| i.text == "AB")
