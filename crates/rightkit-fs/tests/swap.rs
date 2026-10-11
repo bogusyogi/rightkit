@@ -8,22 +8,12 @@ use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-const MANAGED_TMP: &str = "/Volumes/D/.rightkit-managed/tmp";
-
 fn tempdir() -> tempfile::TempDir {
-    // Prefer the managed volume (APFS); the default temp dir on macOS is APFS too.
-    let base = Path::new(MANAGED_TMP);
-    if base.is_dir() {
-        tempfile::Builder::new()
-            .prefix("swap-test-")
-            .tempdir_in(base)
-            .unwrap()
-    } else {
-        tempfile::Builder::new()
-            .prefix("swap-test-")
-            .tempdir()
-            .unwrap()
-    }
+    // The platform temp dir is APFS on macOS, which is what RENAME_SWAP needs.
+    tempfile::Builder::new()
+        .prefix("swap-test-")
+        .tempdir()
+        .unwrap()
 }
 
 fn two_dirs(root: &Path) -> (PathBuf, PathBuf) {
