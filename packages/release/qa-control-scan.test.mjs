@@ -1,11 +1,11 @@
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, symlinkSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, mkdtempSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { deflateRawSync } from "node:zlib";
 import {
-  QA_CONTROL_MARKER, assertNoQaControl, bufferHasQaControlMarker, bufferQaFindings, fileHasQaControlMarker, isNativeBinaryHeader, scanForQaControl, scanWithStats,
+  DEV_INSPECT_MARKER, QA_CONTROL_MARKER, assertNoQaControl, bufferHasQaControlMarker, bufferQaFindings, fileHasQaControlMarker, isNativeBinaryHeader, scanForQaControl, scanWithStats,
 } from "./qa-control-scan.mjs";
 
 const MACHO = Buffer.from([0xcf, 0xfa, 0xed, 0xfe]);
@@ -143,6 +143,30 @@ test("remote-debugging and tauri-devtools strings are findings; a clean binary w
   assert.deepEqual(rules(bytesWith(MACHO, "plugin:webview|internal_toggle_devtools")), ["tauri-devtools"]);
   assert.deepEqual(rules(bytesWith(MACHO, "allow-internal-toggle-devtools", "remote-debugging", "wdio")), []);
   assert.deepEqual(rules(bytesWith(PE, QA_CONTROL_MARKER, "--remote-debugging-port")).sort(), ["qa-control-server", "remote-debugging"]);
+});
+
+test("dev-inspect marker: the fixed string rightkit-shell emits, a finding in any encoding, never lifted by the devtools allow-list", () => {
+  assert.equal(DEV_INSPECT_MARKER, "RIGHTKIT-SHELL-DEV-INSPECT-COMPILED");
+  const rust = readFileSync(join(import.meta.dirname, "..", "..", "crates", "rightkit-shell", "src", "devtools.rs"), "utf8");
+  assert.ok(rust.includes(`"${DEV_INSPECT_MARKER}"`), "devtools.rs must define the same marker");
+  assert.deepEqual(rules(bytesWith(MACHO, DEV_INSPECT_MARKER)), ["shell-dev-inspect"]);
+  assert.deepEqual(rules(bytesWith(PE, DEV_INSPECT_MARKER)), ["shell-dev-inspect"]);
+  assert.deepEqual(rules(Buffer.concat([PE, filler(10), Buffer.from(DEV_INSPECT_MARKER, "utf16le")])), ["shell-dev-inspect"]);
+  // a near miss (the content-only marker, a prefix) is not this rule
+  assert.deepEqual(rules(bytesWith(PE, "RIGHTKIT-SHELL-DEV-INSPECT")), []);
+  // an allow-listed ContentOnly app that also carries the content marker still fails on dev-inspect
+  const both = bytesWith(PE, "RIGHTKIT-SHELL-DEVTOOLS-CONTENT-ONLY-COMPILED", "plugin:webview|internal_toggle_devtools", DEV_INSPECT_MARKER);
+  assert.deepEqual(bufferQaFindings(both, { allowContentOnlyDevtools: true }).map((f) => f.rule), ["shell-dev-inspect"]);
+  assert.match(bufferQaFindings(both)[0].reason, /contains RIGHTKIT-SHELL-DEV-INSPECT-COMPILED|signatures/);
+  // the content-only marker alone is not a dev-inspect finding
+  assert.deepEqual(rules(bytesWith(PE, "RIGHTKIT-SHELL-DEVTOOLS-CONTENT-ONLY-COMPILED")), []);
+  // split across the chunk boundary
+  const root = mkdtempSync(join(tmpdir(), "rk-qa-scan-"));
+  const file = join(root, "app.exe");
+  const chunk = 4 * 1024 * 1024;
+  writeFileSync(file, Buffer.concat([PE, filler(chunk - 2 - 10), Buffer.from(DEV_INSPECT_MARKER), filler(20)]));
+  assert.deepEqual(scanForQaControl([file]).map((f) => f.rule), ["shell-dev-inspect"]);
+  assert.throws(() => assertNoQaControl([file], "release"), /shell-dev-inspect|DEV-INSPECT/);
 });
 
 // ---- ZIP containers (MSIX/APPX): stored and deflate entries --------------------------------------------------

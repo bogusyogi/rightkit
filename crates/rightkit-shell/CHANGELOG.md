@@ -5,6 +5,26 @@ version is `0.x`, a minor bump may carry breaking changes.
 
 ## Unreleased
 
+- **`dev-inspect` feature (development builds only).** Off by default, never a default feature, independent of
+  `content-devtools`. Only when compiled in: every webview is inspectable (`WebviewDecision::AllowDev`,
+  `DevToolsGate::is_dev_inspect`, new `build_gate_with`), the process guard no longer refuses debugging
+  arguments or a registry policy and no longer scrubs the WebView2 override variables, the `DevToolsActivePort`
+  tripwire is off (a remote-debugging port, e.g. the wdio driver, works), the marker
+  `RIGHTKIT-SHELL-DEV-INSPECT-COMPILED` (`DEV_INSPECT_MARKER`, `#[used]` and read from startup code) is
+  embedded, and one stderr line announces that developer inspection is active. Without the feature the policy is
+  unchanged. `right-release` refuses the feature and the marker in release and update builds and `rightkit-qa`
+  rejects it in default features. Written, unverified: nothing was compiled or run.
+- **DevTools policy (owner's fixed design).** Every Right app has no access to DevTools; ViewRight alone may
+  inspect the HTML content it opens, never its own UI or shell. New `devtools` module: `DevToolsPolicy`
+  (`Denied` default, `ContentOnly`), `ContentWebview`, `DevToolsGate`, `DevToolsError`, `guard_process_start`,
+  `open_content_devtools`, plus `ShellBuilder::devtools_policy` / `content_webview`. Every webview is made
+  non-inspectable (macOS `isInspectable` and `developerExtrasEnabled` false; Windows `AreDevToolsEnabled`
+  false, accelerator keys off, Inspect removed from context menus) whatever modules are installed; the process
+  refuses a remote-debugging launch argument, removes the WebView2 override environment variables and refuses a
+  debugging `AdditionalBrowserArguments` policy. The hardening script now also cancels Ctrl+Shift+J/C,
+  Cmd+Opt+C/J/U (by key code). **Breaking:** the `Devtools` enum and `Hardening::devtools` are removed (no
+  "on", no "debug builds"); the `devtools` cargo feature is now `content-devtools`. Written, unverified (not
+  compiled, tests not run; Objective-C and WebView2 calls are the uncertain part).
 - **Per-hide idle delay provider.** `IdleOptions::default().suspend_after_with(|| Some(d))` (or on a
   literal, chained) reads the suspend delay at each hide transition instead of fixing it at build time.
   The provider runs once per hide (a window hide, or the start of a minimise with `start_on_minimize`),
@@ -111,6 +131,26 @@ Additive otherwise. The one behaviour change is `lifecycle_only` only, and is ca
   now also leave `ShowOnReady` off, and the startup cache repair defaults to off. The host turns them on
   with `show_on_ready(true)` and `repair_cache(true)`. `Shell::plugin()`, `ShellPlugin::builder()` sets and
   `install_state_only` are unchanged.
+- **Legacy macOS socket: a listener nobody serves is no longer taken for a live holder.** `connect`
+  succeeding to `/tmp/<id>_si.sock` only proves that some process still has the listening descriptor open;
+  a legacy holder's descriptor can leak into a sidecar it spawned and keep the socket accepting after the
+  app exited, so a new launch "forwarded" its arguments to nobody and exited (the user double-clicks the
+  app and nothing opens). This is also what made the stale-socket test flaky on macOS CI: `socket()` cannot
+  set close-on-exec atomically there, so a fork+exec on another test thread inherited the listener of a
+  dropped `UnixListener`. The plugin never replies (`tauri-plugin-single-instance` 2.4.2 and 2.4.3,
+  `macos.rs`: the holder reads to end-of-stream, runs the callback, drops the connection), so the forward
+  now shuts its write side and waits up to 2 s for the holder to close (one kernel receive timeout, no
+  sleep loop), and reads the socket's owner with `getsockopt(SOL_LOCAL, LOCAL_PEERPID)`: an owner pid that
+  no longer runs is stale and nothing is written to it; an owner that runs a different program (not this
+  executable, not this `.app` bundle) and stays silent is stale; a close confirms the launch. A silent
+  socket owned by this app's own process, or by an owner that could not be identified, keeps today's
+  behaviour (`ClaimOutcome::Forwarded` / `Arbitration::Secondary`) but is logged on stderr as "forwarded
+  but NOT confirmed". A torn-down connection to a possibly live holder fails closed
+  (`ClaimFailure::Legacy`). A stale verdict removes nothing; the existing stale-file removal in the legacy
+  hold is unchanged. Worst-case `claim` time on macOS with a legacy holder grows by 2 s (documented on
+  `ClaimFailure`). No public type changed. Windows and Linux unchanged. Written, unverified: nothing was
+  compiled or run; the `LOCAL_PEERPID` answer for a connection the listener has not accepted yet is the
+  uncertain part.
 
 ## 0.3.0
 

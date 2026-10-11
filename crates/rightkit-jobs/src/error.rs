@@ -33,6 +33,17 @@ pub const INTERRUPTED: &str = "interrupted";
 pub const SUPERSEDED: &str = "superseded";
 /// Stable wire code for [`JobError::contract_mismatch`].
 pub const CONTRACT_VERSION_MISMATCH: &str = "contract_version_mismatch";
+/// Stable code: a paging [`crate::Cursor`] is malformed, truncated or from an unknown version.
+pub const INVALID_CURSOR: &str = "invalid_cursor";
+/// Stable code: a paging [`crate::Cursor`] was issued for a different filter or sort order than
+/// the listing it was passed to.
+pub const CURSOR_MISMATCH: &str = "cursor_mismatch";
+/// Stable code: `JobStore::import_terminal*` found a job with the same id (or request id) and
+/// either was not asked to accept an identical record or the stored record differs.
+pub const JOB_EXISTS: &str = "job_exists";
+/// Stable code: the database file could not be read and the store was not allowed to set it
+/// aside (`rightkit_db::DbError::Unreadable`). The message names the cause.
+pub const DB_UNREADABLE: &str = "db_unreadable";
 
 pub type JobResult<T> = Result<T, JobError>;
 
@@ -158,11 +169,40 @@ impl From<rightkit_db::rusqlite::Error> for JobError {
 }
 impl From<rightkit_db::DbError> for JobError {
     fn from(e: rightkit_db::DbError) -> Self {
-        Self::new("db", format!("database error: {e}"))
+        // `Unreadable` only comes from the opt-in unreadable-database open
+        // (`JobStore::open_recovering_unreadable`); every other open keeps the plain `db` code.
+        let code = match &e {
+            rightkit_db::DbError::Unreadable { .. } => DB_UNREADABLE,
+            _ => "db",
+        };
+        Self::new(code, format!("database error: {e}"))
     }
 }
 impl From<std::io::Error> for JobError {
     fn from(e: std::io::Error) -> Self {
         Self::new("io", format!("io error: {e}"))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rightkit_db::{DbError, UnreadableCause};
+
+    #[test]
+    fn an_unreadable_database_keeps_a_typed_code() {
+        let unreadable = DbError::Unreadable {
+            path: std::path::PathBuf::from("/data/jobs.sqlite"),
+            cause: UnreadableCause::PermissionDenied,
+            consecutive_failures: 2,
+            quarantine_after: Some(3),
+            source: Box::new(DbError::InvalidDatabasePath),
+        };
+        let e = JobError::from(unreadable);
+        assert_eq!(e.code, DB_UNREADABLE);
+        assert!(e.message.contains("permission denied"), "{}", e.message);
+        assert!(!e.retryable);
+        // Every other database error keeps the plain `db` code it always had.
+        assert_eq!(JobError::from(DbError::ReadPoolClosed).code, "db");
     }
 }

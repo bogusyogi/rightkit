@@ -5,7 +5,10 @@ use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::{Duration, Instant};
 
 use rightkit_db::rusqlite::{self, params, params_from_iter, Connection, OptionalExtension, Row};
-use rightkit_db::{column_exists, write_txn, DbOptions, DurabilityProfile, RecoveryPolicy};
+use rightkit_db::{
+    column_exists, write_txn, DbError, DbOptions, DurabilityProfile, RecoveryAction,
+    RecoveryPolicy, StorageProblem, UnreadableCause, UnreadablePolicy,
+};
 use serde_json::{json, Value};
 
 use crate::config::{Ext, StatusModel, StoreConfig};
@@ -25,9 +28,15 @@ pub const SUBMISSIONS_TABLE: &str = "rk_job_submissions";
 
 mod delete;
 pub use delete::{DeleteOptions, DeleteReport, DELETING_TABLE, PATH_OUTSIDE_ROOT};
+mod import;
+pub use import::{ImportOptions, ImportRecord, Imported, MAX_IMPORT_BATCH};
+mod page;
+pub use page::{Cursor, ListPage};
 
 const CORE_SCHEMA: &str = "
 CREATE INDEX IF NOT EXISTS jobs_status ON jobs(status);
+CREATE INDEX IF NOT EXISTS rk_jobs_created ON jobs(created_at);
+CREATE INDEX IF NOT EXISTS rk_jobs_status_created ON jobs(status, created_at);
 CREATE TABLE IF NOT EXISTS job_events (
   seq INTEGER PRIMARY KEY AUTOINCREMENT,
   job_id TEXT NOT NULL,
@@ -364,6 +373,10 @@ pub struct NewJob {
     pub request: Value,
 }
 
+/// Which jobs a listing returns, newest first. `limit` is the page size (default 50, clamped to
+/// 1..=1000). To read past one page, pass the previous page's [`Cursor`] to
+/// [`JobStore::list_page`]; the cursor is not a field here because apps build this struct as a
+/// full literal.
 #[derive(Debug, Clone, Default)]
 pub struct ListFilter {
     pub limit: Option<i64>,
@@ -501,6 +514,16 @@ pub struct Adoption {
     pub added_columns: Vec<String>,
 }
 
+/// What [`JobStore::open_recovering_unreadable`] did to open the store.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct OpenRecovery {
+    /// Where the old database file went, when it was set aside.
+    pub quarantined: Option<PathBuf>,
+    /// Whether the database opened as it was, was corrupt, or could not be read.
+    pub action: RecoveryAction,
+}
+
 /// SQLite job store. One database may be shared by several processes (GUI
 /// sidecar plus CLI invocations): WAL plus a busy timeout via `rightkit-db`.
 pub struct JobStore {
@@ -560,6 +583,47 @@ impl JobStore {
         let quarantined = outcome.quarantined;
         let store = Self::finish_open(options, cfg, outcome.conn)?;
         Ok((store, quarantined))
+    }
+
+    /// [`JobStore::open_recovering`] that also decides what to do with a database that cannot be
+    /// *read* (permission denied, an I/O read error), as opposed to one that is corrupt.
+    ///
+    /// - Corrupt (not a database, failed integrity check): decided by `policy`, as in
+    ///   `open_recovering`; reported as `RecoveryAction::QuarantinedCorrupt`.
+    /// - Unreadable: decided by `unreadable`. The default `UnreadablePolicy::Fail` fails with
+    ///   `db_unreadable` ([`crate::DB_UNREADABLE`], the message names the cause) and never touches
+    ///   the file; `QuarantineAfter { attempts }` sets the file aside only after that many
+    ///   consecutive failed opens, and only for a permission or read failure of this file. A
+    ///   full disk, a read-only filesystem, a dropped share, a lock or a missing file never count
+    ///   and never move anything.
+    /// - A busy or locked database is retried for up to 30 seconds, as in every open.
+    ///
+    /// Returns the store and an [`OpenRecovery`]: `quarantined` is where the old file went, and
+    /// the original bytes are kept under it. `rightkit_jobs::db` re-exports the policy types.
+    pub fn open_recovering_unreadable(
+        options: &DbOptions,
+        cfg: StoreConfig,
+        policy: RecoveryPolicy,
+        unreadable: UnreadablePolicy,
+    ) -> JobResult<(Self, OpenRecovery)> {
+        cfg.validate()?;
+        let outcome = backoff(
+            || options.open_writer_recovering_unreadable(policy, unreadable),
+            |e| match e {
+                DbError::Sqlite(s) => is_busy(s),
+                DbError::Unreadable { cause, .. } => matches!(
+                    cause,
+                    UnreadableCause::StorageUnavailable(StorageProblem::LockedOrBusy)
+                ),
+                _ => false,
+            },
+        )?;
+        let recovery = OpenRecovery {
+            quarantined: outcome.quarantined,
+            action: outcome.action,
+        };
+        let store = Self::finish_open(options, cfg, outcome.conn)?;
+        Ok((store, recovery))
     }
 
     fn finish_open(options: &DbOptions, cfg: StoreConfig, mut conn: Connection) -> JobResult<Self> {
@@ -1118,27 +1182,19 @@ impl JobStore {
             })
     }
 
-    /// Newest-first; returns up to `limit` (default 50) rows and whether more matched.
+    /// Newest-first; returns up to `limit` (default 50, at most 1000) rows and whether more
+    /// matched. [`JobStore::list_page`] reads past that cap.
     pub fn list(&self, f: &ListFilter) -> JobResult<(Vec<Job>, bool)> {
         let (r, t) = self.list_records(f)?;
         Ok((r.into_iter().map(|r| r.job).collect(), t))
     }
 
+    /// [`JobStore::list`] with the extension columns: up to `limit` rows (default 50, at most
+    /// 1000), newest first, and whether more matched. It is the first page of
+    /// [`JobStore::list_page`]; to read past the cap, page with that.
     pub fn list_records(&self, f: &ListFilter) -> JobResult<(Vec<JobRecord>, bool)> {
-        let limit = f.limit.unwrap_or(50).clamp(1, 1000);
-        let conn = self.c();
-        let mut st = conn.prepare(&format!(
-            "SELECT {} FROM jobs WHERE (?1 IS NULL OR request_id=?1) AND (?2 IS NULL OR status=?2) ORDER BY created_at DESC, rowid DESC LIMIT ?3",
-            self.select
-        ))?;
-        let mut jobs = st
-            .query_map(params![f.request_id, f.status, limit + 1], |r| {
-                self.record_row(r)
-            })?
-            .collect::<Result<Vec<_>, _>>()?;
-        let truncated = jobs.len() as i64 > limit;
-        jobs.truncate(limit as usize);
-        Ok((jobs, truncated))
+        let page = self.list_page(f, None)?;
+        Ok((page.records, page.next.is_some()))
     }
 
     /// Ids of non-terminal jobs, oldest first. Passive: changes nothing.

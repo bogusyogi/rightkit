@@ -7,6 +7,13 @@
     state.blocked.push({ kind: kind, detail: detail || '' });
     if (state.blocked.length > 100) state.blocked.shift();
   }
+  // A content webview registered under DevToolsPolicy::ContentOnly: the native layer decides what
+  // its inspector may do, so the page-level DevTools and context-menu cancel stand aside there.
+  var webviewLabel = '';
+  try { webviewLabel = String(window.__TAURI_INTERNALS__.metadata.currentWebview.label); } catch (e) { webviewLabel = ''; }
+  var isContentWebview = webviewLabel !== '' && (cfg.contentDevtoolsLabels || []).some(function (p) {
+    return p.charAt(p.length - 1) === '*' ? webviewLabel.indexOf(p.slice(0, -1)) === 0 : webviewLabel === p;
+  });
   var EDITABLE = 'input, textarea, select, [contenteditable=""], [contenteditable="true"]';
   function closest(t, sel) {
     var n = t && t.nodeType === 1 ? t : t && t.parentElement;
@@ -24,7 +31,7 @@
     try { return u.origin === location.origin && u.protocol !== 'mailto:'; } catch (e) { return false; }
   }
 
-  if (cfg.blockContextMenu) {
+  if (cfg.blockContextMenu && !isContentWebview) {
     window.addEventListener('contextmenu', function (e) {
       if (cfg.allowEditableMenu && closest(e.target, EDITABLE)) { note('contextmenu-allowed-editable'); return; }
       if (closest(e.target, '[data-rk-native-menu]')) { note('contextmenu-allowed-surface'); return; }
@@ -45,8 +52,14 @@
     if (!hit && cfg.blockHistoryNav) {
       if ((e.altKey && (k === 'ArrowLeft' || k === 'ArrowRight')) || (e.metaKey && (k === '[' || k === ']')) || k === 'BrowserBack' || k === 'BrowserForward') hit = 'history';
     }
-    if (!hit && cfg.blockDevtoolsKeys) {
-      if (k === 'F12' || (e.ctrlKey && e.shiftKey && (lk === 'i' || lk === 'j' || lk === 'c')) || (e.metaKey && e.altKey && (lk === 'i' || lk === 'j' || lk === 'c' || k === 'ˆ' || k === '∆' || k === 'ç'))) hit = 'devtools';
+    if (!hit && !isContentWebview) {
+      var code = e.code;
+      var letter = code === 'KeyI' || code === 'KeyJ' || code === 'KeyC' || lk === 'i' || lk === 'j' || lk === 'c';
+      var letterU = code === 'KeyU' || lk === 'u';
+      if (k === 'F12'
+        || ((e.ctrlKey || e.metaKey) && e.shiftKey && letter)
+        || (e.metaKey && e.altKey && (letter || letterU))
+        || (e.ctrlKey && e.altKey && (letter || letterU))) hit = 'devtools';
     }
     if (hit) { e.preventDefault(); note('key-' + hit, k); }
   }, true);
