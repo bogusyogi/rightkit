@@ -67,7 +67,9 @@ fn run() {
         assert_eq!(
             f.as_ref().map(|f| (f.pid, f.window_id)),
             front0.as_ref().map(|f| (f.pid, f.window_id)),
-            "foreground changed: {what}"
+            "foreground changed: {what} (was {:?}, now {:?})",
+            front0.as_ref().map(|f| f.app_id.as_str()),
+            f.as_ref().map(|f| f.app_id.as_str())
         );
     };
 
@@ -105,20 +107,38 @@ fn run() {
             .expect("editor control")
     };
     let ed = editor(&s2);
+    unchanged("snapshots");
 
-    // Tier 1 (ValuePattern), read back.
-    let o = a
-        .act(
-            &s2.id,
-            Some(&ed.id),
-            Action::SetValue("tier1 value".into()),
-            &ActOptions {
-                guard: Guard::Element,
-                ..Default::default()
-            },
-        )
-        .expect("set value");
-    assert_eq!(o.receipt.tier_used, Some(Tier::Semantic));
+    // Tier 1 (ValuePattern), read back. Strict focus: an app that activates itself when UI
+    // Automation writes to it is reported as `FocusMoved` and the previous app is put back.
+    // The packaged Notepad on current Windows does that; the classic one does not.
+    let tier1 = a.act(
+        &s2.id,
+        Some(&ed.id),
+        Action::SetValue("tier1 value".into()),
+        &ActOptions {
+            guard: Guard::Element,
+            strict_focus: true,
+            ..Default::default()
+        },
+    );
+    match tier1 {
+        Ok(o) => assert_eq!(o.receipt.tier_used, Some(Tier::Semantic)),
+        Err(Error::FocusMoved { .. }) => {
+            sleep(150);
+            unchanged("strict focus restores the foreground after tier 1");
+            a.end_session(app.pid);
+            let _ = a.terminate(app.pid);
+            let reason = "the installed Notepad activates itself on a UI Automation write, \
+                          so the frontmost-unchanged scenarios cannot run against it";
+            if std::env::var_os("RIGHTKIT_REQUIRE_ASSETS").is_some_and(|v| v == "1") {
+                panic!("e2e_win: {reason}");
+            }
+            println!("SKIP e2e_win: {reason}");
+            return;
+        }
+        Err(e) => panic!("set value: {e:?}"),
+    }
     sleep(150);
     let read = |a: &Automation<NativePlatform>| {
         editor(&a.snapshot(Target::app(app.pid), limits).unwrap())
