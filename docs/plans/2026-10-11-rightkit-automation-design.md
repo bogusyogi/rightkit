@@ -514,3 +514,7 @@ Sonnet for all code lanes (unsafe FFI and security-relevant logic); Haiku for do
 - **HeardRight's exact `windows_uia` predicates.** Searches of `/Volumes/D/claude/heardright` timed out. `UiaFacts` exposes raw facts so HeardRight can keep its own test, but lane H must diff `editable()` and the stop-target validation against that source before freezing.
 - **How Pulse's Mac app, which is Swift, would link a Rust crate.** I found no bridge. This does not change the crate design but decides whether Pulse Mac can adopt it.
 - **What HEAD holds for this crate versus the working tree.** I could not run git.
+
+## Addendum, 2026-10-11: Mac side moves to Swift (Pulse)
+
+Pulse confirmed its Mac app is pure Swift (xcodegen, four Swift targets, no bridging header or cargo step) and cannot reasonably link a Rust crate; AX calls must run in the app process that holds the Accessibility grant, so a sidecar cannot make them. Lead decision: the macOS items of this design that Pulse needs (AX reads with per-call deadlines, AXValue point/size setters, AXURL, observers, the marked key-post primitive, focused-element probes) get a Swift owner, a new RightKitSwift product `RightKitAccessibility`, with the same semantics as the Rust `macos` module, which stays for Rust/Tauri hosts (HeardRight). The Rust crate matters to Pulse only on Windows. No credential override in either language.
