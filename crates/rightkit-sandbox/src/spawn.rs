@@ -444,11 +444,23 @@ impl SandboxedChild {
             }
         }
 
-        // Reap now if nothing has: the pipes are drained, so there is nothing left to kill
-        // through the leader's group id.
+        // Close out the tree before the final reap, never a bare `wait`. Closed pipes do not
+        // mean the tree is gone: a descendant can have redirected its output and kept running.
+        // Reaping first would end the group's killability for good (Unix) and leave it behind
+        // when the owner drops. So while the leader is still unreaped it pins the group id and
+        // the group is killed, then reaped; a confined Windows child is already reaped, so its
+        // Job Object is terminated by handle.
         let status = match status {
-            Some(status) => Some(status),
-            None => Some(self.wait()?),
+            Some(status) => {
+                #[cfg(windows)]
+                {
+                    if let Inner::Confined(c) = &mut self.inner {
+                        let _ = c.terminate_tree();
+                    }
+                }
+                Some(status)
+            }
+            None => Some(self.terminate_tree()?),
         };
 
         let finish = |c: Option<Captured>| {

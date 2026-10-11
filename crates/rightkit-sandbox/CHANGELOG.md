@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+- `wait_with_output` ends the process tree before its final reap. When the leader exited and the
+  pipes closed on their own, it now kills the group while the leader is still unreaped (and
+  terminates a confined Windows child's job), instead of a bare `wait`. A descendant that
+  redirected its output and kept running no longer outlives a successful run.
+
 ## 0.3.4
 
 (0.3.3 was already on crates.io; the entries below ship as 0.3.4.)

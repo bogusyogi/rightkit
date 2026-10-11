@@ -156,3 +156,25 @@ fn windows_job_kills_an_already_spawned_tree_on_drop_and_terminate() {
     wait_until_stopped(&grandchild);
     let _ = fs::remove_dir_all(&dir);
 }
+
+/// The leader writes the descendant's pid and exits at once, leaving a sleeper behind in the
+/// job. `wait_or_kill` sees the leader exit inside the grace period; it must still bring the
+/// retained job down and report the leader as `Exited`.
+#[test]
+fn leader_exiting_within_grace_does_not_leave_a_descendant_behind() {
+    let temp = std::env::temp_dir().join(format!("rightkit-process-early-{}", std::process::id()));
+    let _ = fs::remove_file(&temp);
+    let quoted = temp.display().to_string().replace('\'', "''");
+    let command = powershell(&format!(
+        "$child = Start-Process powershell.exe -WindowStyle Hidden -ArgumentList '-NoLogo','-NoProfile','-NonInteractive','-Command','Start-Sleep -Seconds 60' -PassThru; Set-Content -LiteralPath '{quoted}' -Value $child.Id"
+    ));
+    let mut owned = OwnedCommand::from_command(command).spawn().unwrap();
+    let grandchild = AdoptedProcess::new(NonZeroU32::new(wait_for_pid(&temp)).unwrap());
+
+    assert!(matches!(
+        owned.wait_or_kill(Duration::from_secs(30)).unwrap(),
+        WaitOutcome::Exited(_)
+    ));
+    wait_until_stopped(&grandchild);
+    let _ = fs::remove_file(temp);
+}

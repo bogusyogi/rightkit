@@ -491,6 +491,95 @@ fn a_stalled_mutation_blocks_every_store_that_shares_its_native_target() {
     finished.recv_timeout(Duration::from_secs(5)).unwrap();
 }
 
+/// A second, separately allocated handle on one underlying store, standing in for a reopened
+/// `Store` over a fresh `system_backend()` instance. Both report the same exclusion identity.
+struct SameStore(Arc<GatedBackend>);
+
+impl Backend for SameStore {
+    fn name(&self) -> &'static str {
+        "same-store-test"
+    }
+    fn exclusion_identity(&self) -> Option<String> {
+        Some("test:one-shared-os-store".to_string())
+    }
+    fn get(
+        &self,
+        ns: &Namespace,
+        account: &str,
+        mode: Interaction,
+    ) -> rightkit_secrets::Result<Option<Secret>> {
+        self.0.get(ns, account, mode)
+    }
+    fn exists(
+        &self,
+        ns: &Namespace,
+        account: &str,
+        mode: Interaction,
+    ) -> rightkit_secrets::Result<bool> {
+        self.0.exists(ns, account, mode)
+    }
+    fn set(
+        &self,
+        ns: &Namespace,
+        account: &str,
+        secret: &Secret,
+        mode: Interaction,
+    ) -> rightkit_secrets::Result<()> {
+        self.0.set(ns, account, secret, mode)
+    }
+    fn add_if_absent(
+        &self,
+        ns: &Namespace,
+        account: &str,
+        secret: &Secret,
+        mode: Interaction,
+    ) -> rightkit_secrets::Result<bool> {
+        self.0.add_if_absent(ns, account, secret, mode)
+    }
+    fn delete(
+        &self,
+        ns: &Namespace,
+        account: &str,
+        mode: Interaction,
+    ) -> rightkit_secrets::Result<bool> {
+        self.0.delete(ns, account, mode)
+    }
+}
+
+/// Audit finding: the exclusion key was the backend's `Arc` address, so a reopened `Store` (a
+/// fresh backend instance over the same OS store) bypassed the timeout protection.
+#[test]
+fn a_reopened_store_over_the_same_os_store_is_also_refused_while_a_timed_out_call_runs() {
+    let (release, release_rx) = mpsc::channel();
+    let (entered_tx, entered) = mpsc::channel();
+    let (finished_tx, finished) = mpsc::channel();
+    let gated = Arc::new(GatedBackend::new(release_rx, entered_tx, finished_tx));
+    let open = || {
+        Store::open(
+            Config::new(Namespace::new("dev.rightkit.secrets.test.reopened").unwrap())
+                .backend(Arc::new(SameStore(gated.clone())))
+                .timeout(Duration::from_millis(250)),
+        )
+    };
+    let first = open();
+    assert!(matches!(
+        first.set_str("acct", "A"),
+        Err(Error::Timeout { .. })
+    ));
+    entered.recv_timeout(Duration::from_secs(5)).unwrap();
+
+    let reopened = open();
+    let retry = reopened.set_str("acct", "B");
+    assert!(matches!(retry, Err(Error::InProgress { .. })), "{retry:?}");
+    assert!(
+        !gated.log().contains(&"set:B".to_string()),
+        "the reopened store reached the backend beside the stalled call"
+    );
+
+    release.send(()).unwrap();
+    finished.recv_timeout(Duration::from_secs(5)).unwrap();
+}
+
 /// Records how many mutations ran at the same moment.
 struct OverlapBackend {
     inner: MemoryBackend,

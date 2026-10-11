@@ -4,7 +4,10 @@
 //!
 //! Credential Manager has no atomic "write if absent" or "delete if equal", so every mutation
 //! (`set`, `add_if_absent`, `delete`, `delete_if_equals`) runs under a named mutex keyed on the
-//! normalised native target name (see `locked.rs`); reads take no lock. The target name is the
+//! normalised native target name AND the current user's SID, in the `Global\` kernel namespace
+//! with a DACL that grants only that SID (see `locked.rs`); reads take no lock. Credential Manager
+//! entries persisted with `CRED_PERSIST_LOCAL_MACHINE` are visible to every logon session of the
+//! same user, so a session-local (`Local\`) mutex would not exclude a writer in another session. The target name is the
 //! validated one (`Namespace::windows_target_checked`): no NUL or control character, within the
 //! native length limit.
 
@@ -14,16 +17,25 @@ use crate::keyring_compat;
 use crate::locked::{self, CredentialOps};
 use crate::namespace::{check_target, BlobCodec, Namespace};
 use crate::secret::Secret;
+use std::sync::OnceLock;
 use windows_sys::Win32::Foundation::{
-    CloseHandle, GetLastError, ERROR_NOT_FOUND, HANDLE, WAIT_ABANDONED, WAIT_FAILED, WAIT_OBJECT_0,
-    WAIT_TIMEOUT,
+    CloseHandle, GetLastError, LocalFree, ERROR_NOT_FOUND, HANDLE, WAIT_ABANDONED, WAIT_FAILED,
+    WAIT_OBJECT_0, WAIT_TIMEOUT,
+};
+use windows_sys::Win32::Security::Authorization::{
+    ConvertSidToStringSidW, ConvertStringSecurityDescriptorToSecurityDescriptorW,
 };
 use windows_sys::Win32::Security::Credentials::{
     CredDeleteW, CredFree, CredReadW, CredWriteW, CREDENTIALW, CRED_PERSIST_LOCAL_MACHINE,
     CRED_TYPE_GENERIC,
 };
 use windows_sys::Win32::Security::Cryptography::{BCryptHash, BCRYPT_SHA256_ALG_HANDLE};
-use windows_sys::Win32::System::Threading::{CreateMutexW, ReleaseMutex, WaitForSingleObject};
+use windows_sys::Win32::Security::{
+    GetTokenInformation, TokenUser, SECURITY_ATTRIBUTES, TOKEN_QUERY, TOKEN_USER,
+};
+use windows_sys::Win32::System::Threading::{
+    CreateMutexW, GetCurrentProcess, OpenProcessToken, ReleaseMutex, WaitForSingleObject,
+};
 
 /// How long a mutation waits for another writer of the same target before giving up.
 const LOCK_WAIT_MS: u32 = 10_000;
@@ -41,10 +53,67 @@ fn code(op: &'static str, err: u32) -> Error {
 
 pub struct CredentialManagerBackend;
 
-/// The named mutex for one normalised native target: `Local\rightkit-secrets-t-<hash>`. `Local\`
-/// scopes it to the logon session, which is also the scope of Credential Manager entries.
+/// The string form of the current user's SID (`S-1-5-21-...`), read once from the process token.
+fn user_sid() -> Result<&'static str> {
+    static SID: OnceLock<String> = OnceLock::new();
+    if let Some(sid) = SID.get() {
+        return Ok(sid.as_str());
+    }
+    let sid = query_user_sid()?;
+    Ok(SID.get_or_init(|| sid).as_str())
+}
+
+fn query_user_sid() -> Result<String> {
+    unsafe {
+        let mut token: HANDLE = std::ptr::null_mut();
+        if OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &mut token) == 0 {
+            return Err(code("lock sid token", GetLastError()));
+        }
+        let mut needed = 0u32;
+        // Sizing call: fails with ERROR_INSUFFICIENT_BUFFER and reports the size.
+        GetTokenInformation(token, TokenUser, std::ptr::null_mut(), 0, &mut needed);
+        if needed == 0 {
+            let e = GetLastError();
+            CloseHandle(token);
+            return Err(code("lock sid size", e));
+        }
+        // u64 elements keep the buffer aligned for TOKEN_USER.
+        let mut buf = vec![0u64; (needed as usize).div_ceil(8)];
+        let ok = GetTokenInformation(
+            token,
+            TokenUser,
+            buf.as_mut_ptr().cast(),
+            needed,
+            &mut needed,
+        );
+        let e = GetLastError();
+        CloseHandle(token);
+        if ok == 0 {
+            return Err(code("lock sid read", e));
+        }
+        let user = &*(buf.as_ptr() as *const TOKEN_USER);
+        let mut text: *mut u16 = std::ptr::null_mut();
+        if ConvertSidToStringSidW(user.User.Sid, &mut text) == 0 || text.is_null() {
+            return Err(code("lock sid text", GetLastError()));
+        }
+        let mut len = 0usize;
+        while *text.add(len) != 0 {
+            len += 1;
+        }
+        let sid = String::from_utf16_lossy(std::slice::from_raw_parts(text, len));
+        LocalFree(text.cast());
+        Ok(sid)
+    }
+}
+
+/// The named mutex for one normalised native target under the current user:
+/// `Global\rightkit-secrets-t-<hash of user SID and target>`. `Global\` makes it visible to every
+/// logon session of this user, which is the scope of a `CRED_PERSIST_LOCAL_MACHINE` entry; the
+/// SID in the name keeps one user's locks apart from another's (and from a squatter's: the mutex
+/// is created with a DACL granting only this SID, so another user cannot open or hold it).
 fn lock_name(normalized_target: &str) -> Result<Vec<u16>> {
-    let input = format!("rightkit-secrets/target\0{normalized_target}");
+    let sid = user_sid()?;
+    let input = format!("rightkit-secrets/target/v2\0{sid}\0{normalized_target}");
     let mut digest = [0u8; 32];
     let status = unsafe {
         BCryptHash(
@@ -64,7 +133,7 @@ fn lock_name(normalized_target: &str) -> Result<Vec<u16>> {
         });
     }
     let suffix: String = digest[..16].iter().map(|b| format!("{b:02x}")).collect();
-    Ok(wide(&format!("Local\\rightkit-secrets-t-{suffix}")))
+    Ok(wide(&format!("Global\\rightkit-secrets-t-{suffix}")))
 }
 
 /// Held while one thread mutates one target. Named mutexes are owned by a thread, so the guard
@@ -78,9 +147,29 @@ impl TargetLock {
     fn acquire(normalized_target: &str, wait_ms: u32) -> Result<Self> {
         let name = lock_name(normalized_target)?;
         unsafe {
-            let handle = CreateMutexW(std::ptr::null(), 0, name.as_ptr());
+            // Owner-only DACL: generic-all for this user's SID, nobody else.
+            let sddl = wide(&format!("D:(A;;GA;;;{})", user_sid()?));
+            let mut descriptor: *mut std::ffi::c_void = std::ptr::null_mut();
+            if ConvertStringSecurityDescriptorToSecurityDescriptorW(
+                sddl.as_ptr(),
+                1, // SDDL_REVISION_1
+                &mut descriptor,
+                std::ptr::null_mut(),
+            ) == 0
+            {
+                return Err(code("lock acl", GetLastError()));
+            }
+            let attributes = SECURITY_ATTRIBUTES {
+                nLength: std::mem::size_of::<SECURITY_ATTRIBUTES>() as u32,
+                lpSecurityDescriptor: descriptor,
+                bInheritHandle: 0,
+            };
+            let handle = CreateMutexW(&attributes, 0, name.as_ptr());
+            let create_error = GetLastError();
+            LocalFree(descriptor);
             if handle.is_null() {
-                return Err(code("lock create", GetLastError()));
+                // Includes access denied: the name is held by another user, so fail closed.
+                return Err(code("lock create", create_error));
             }
             // `guard` closes the handle on every path below.
             let mut guard = Self {
@@ -213,6 +302,10 @@ impl Backend for CredentialManagerBackend {
     fn name(&self) -> &'static str {
         "windows-credential-manager"
     }
+    fn exclusion_identity(&self) -> Option<String> {
+        // Every instance addresses the one per-user Credential Manager.
+        Some("windows-credential-manager".to_string())
+    }
     fn get(&self, ns: &Namespace, account: &str, _: Interaction) -> Result<Option<Secret>> {
         check_target(ns, account)?;
         Win32.read(ns, account, true)
@@ -295,6 +388,17 @@ mod tests {
         ))
         .unwrap();
         assert_ne!(name_a, other);
+    }
+
+    #[test]
+    fn the_lock_is_global_and_bound_to_the_user() {
+        let name = String::from_utf16(&lock_name("svc/acct").unwrap()).unwrap();
+        assert!(name.starts_with("Global\\rightkit-secrets-t-"), "{name}");
+        assert!(user_sid().unwrap().starts_with("S-1-"));
+        assert_eq!(
+            name,
+            String::from_utf16(&lock_name("svc/acct").unwrap()).unwrap()
+        );
     }
 
     /// Audit finding: `set` and `delete` took no lock, so they ran beside `add_if_absent`.

@@ -1,15 +1,16 @@
 //! `FileClockStore` and `CrossProcessLock`: the cross-process half of the anti-rollback
 //! ledger (second Astra read 2026-10-11, finding 1). `ClockStore::compare_and_save` has no
 //! default, and the only way for two processes to be atomic against each other is an OS
-//! lock, so these tests use separate store handles on one path as separate processes: an
-//! OS file lock arbitrates between handles exactly as it does between processes.
+//! lock. Most tests use separate store handles on one path (an OS file lock arbitrates between
+//! handles exactly as it does between processes); the interleaving test runs real child
+//! processes.
 
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::mpsc;
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use rightkit_license::{
     AntiRollbackClock, ClockDecodeError, ClockReading, ClockRefusal, ClockState, ClockStore,
@@ -222,6 +223,63 @@ fn concurrent_compare_and_save_through_separate_handles_loses_no_update() {
     );
 }
 
+const CHILD_ROLE_ENV: &str = "RK_LICENSE_TEST_CHILD_ROLE";
+const CHILD_DIR_ENV: &str = "RK_LICENSE_TEST_CHILD_DIR";
+const CHILD_TEST: &str = "clock_child_process";
+
+fn wait_for_file(path: &Path) {
+    let give_up = Instant::now() + Duration::from_secs(30);
+    while !path.exists() {
+        assert!(
+            Instant::now() < give_up,
+            "timed out waiting for {}",
+            path.display()
+        );
+        thread::sleep(Duration::from_millis(10));
+    }
+}
+
+/// Body of one child process of `clocks_in_two_processes_...`. When the test binary is run
+/// normally (no role in the environment) this is a no-op that passes.
+#[test]
+fn clock_child_process() {
+    let Ok(role) = std::env::var(CHILD_ROLE_ENV) else {
+        return;
+    };
+    let dir = PathBuf::from(std::env::var(CHILD_DIR_ENV).unwrap());
+    let store = FileClockStore::new(dir.join("nested").join("ledger.json"));
+    match role.as_str() {
+        // Reads the ledger, then commits only after the other process has committed.
+        "a" => {
+            let clock = AntiRollbackClock::new(&store, ProcessAnchor::with_id("a", 1_000));
+            let reading = clock.reconcile(1_000, true).unwrap();
+            fs::write(dir.join("a.reconciled"), "x").unwrap();
+            wait_for_file(&dir.join("b.committed"));
+            clock.commit(&reading).unwrap();
+        }
+        // Reads and commits entirely between A's read and A's commit.
+        "b" => {
+            wait_for_file(&dir.join("a.reconciled"));
+            let clock = AntiRollbackClock::new(&store, ProcessAnchor::with_id("b", 1_100));
+            let reading = clock.reconcile(1_100, true).unwrap();
+            clock.commit(&reading).unwrap();
+            fs::write(dir.join("b.committed"), "x").unwrap();
+        }
+        other => panic!("unknown child role {other}"),
+    }
+}
+
+fn spawn_child(role: &str, dir: &Path) -> std::process::Child {
+    std::process::Command::new(std::env::current_exe().unwrap())
+        .args(["--exact", CHILD_TEST, "--nocapture", "--test-threads=1"])
+        .env(CHILD_ROLE_ENV, role)
+        .env(CHILD_DIR_ENV, dir)
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .unwrap()
+}
+
 #[test]
 fn clocks_in_two_processes_cannot_move_a_file_ledger_backwards() {
     let dir = TempDir::new();
@@ -230,16 +288,29 @@ fn clocks_in_two_processes_cannot_move_a_file_ledger_backwards() {
         .save(&state(900, "seed", 0))
         .unwrap();
 
-    let store_a = FileClockStore::new(&path);
-    let store_b = FileClockStore::new(&path);
-    let a = AntiRollbackClock::new(&store_a, ProcessAnchor::with_id("a", 1_000));
-    let b = AntiRollbackClock::new(&store_b, ProcessAnchor::with_id("b", 1_100));
-    let reading_a = a.reconcile(1_000, true).unwrap();
-    let reading_b = b.reconcile(1_100, true).unwrap();
-    b.commit(&reading_b).unwrap();
-    a.commit(&reading_a).unwrap();
-    assert_eq!(store_a.load().unwrap(), Some(state(1_100, "b", 0)));
+    // Two real child processes (this test binary re-run on `clock_child_process`) interleave:
+    // A reads, B reads and commits, then A commits its stale reading.
+    let a = spawn_child("a", &dir.0);
+    let b = spawn_child("b", &dir.0);
+    for (role, child) in [("a", a), ("b", b)] {
+        let out = child.wait_with_output().unwrap();
+        let stdout = String::from_utf8_lossy(&out.stdout);
+        assert!(
+            out.status.success(),
+            "child {role} failed:\n{stdout}\n{}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        assert!(
+            stdout.contains(&format!("{CHILD_TEST} ... ok")),
+            "child {role} did not run its test body:\n{stdout}"
+        );
+    }
 
+    assert_eq!(
+        FileClockStore::new(&path).load().unwrap(),
+        Some(state(1_100, "b", 0)),
+        "A's stale commit moved the mark backwards or B's commit was lost"
+    );
     let store_c = FileClockStore::new(&path);
     let restarted = AntiRollbackClock::new(&store_c, ProcessAnchor::with_id("c", 1_001));
     assert_eq!(

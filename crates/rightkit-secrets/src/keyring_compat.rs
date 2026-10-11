@@ -40,9 +40,18 @@ pub(crate) fn decode(blob: &[u8]) -> Result<Vec<u8>> {
     }
     let units: Zeroizing<Vec<u16>> =
         Zeroizing::new(pairs.iter().map(|c| u16::from_le_bytes(*c)).collect());
-    String::from_utf16(&units)
-        .map(String::into_bytes)
-        .map_err(|_| Error::NotUtf8)
+    // One allocation sized for the worst case (3 UTF-8 bytes per UTF-16 unit; a surrogate pair is
+    // 4 bytes for 2 units), so the buffer never grows: a growing `String` frees its replaced
+    // allocations unwiped, and on an error (an unpaired surrogate after a long valid prefix) the
+    // decoded prefix would be left behind in ordinary freed memory. `Zeroizing` wipes the whole
+    // buffer on the error path; the stack scratch is wiped too.
+    let mut out: Zeroizing<Vec<u8>> = Zeroizing::new(Vec::with_capacity(units.len() * 3));
+    let mut scratch = Zeroizing::new([0u8; 4]);
+    for decoded in char::decode_utf16(units.iter().copied()) {
+        let c = decoded.map_err(|_| Error::NotUtf8)?;
+        out.extend_from_slice(c.encode_utf8(&mut scratch[..]).as_bytes());
+    }
+    Ok(std::mem::take(&mut *out))
 }
 
 #[cfg(test)]
@@ -92,6 +101,22 @@ mod tests {
             assert!(!blob.contains(&0));
             assert_eq!(decode(&blob).unwrap(), s.as_bytes(), "{s:?}");
         }
+    }
+
+    /// Audit finding: decoding through a growing `String` left unwiped, freed prefixes behind.
+    /// The decoded buffer is allocated once at its worst-case size, so it never grows.
+    #[test]
+    fn decoding_allocates_the_output_once_at_its_worst_case_size() {
+        for s in ["secret", "caf\u{e9}", "\u{65e5}\u{672c}", "a\u{1f600}b"] {
+            let blob = utf16le(s);
+            let out = decode(&blob).unwrap();
+            assert_eq!(out, s.as_bytes());
+            assert_eq!(out.capacity(), blob.len() / 2 * 3, "{s:?} reallocated");
+        }
+        // A long valid prefix followed by an unpaired surrogate is rejected.
+        let mut blob = utf16le(&"secret".repeat(100));
+        blob.extend_from_slice(&[0x00, 0xd8]);
+        assert_eq!(decode(&blob), Err(Error::NotUtf8));
     }
 
     #[test]

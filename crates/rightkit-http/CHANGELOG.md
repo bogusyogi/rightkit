@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+Fixes from the third read (docs/audits/2026-10-11-astra-http-third-read.md):
+
+- **Fixed:** `download_to_path` refuses a `.part` that has more than one hard link (Unix `nlink`, Windows link count) before any write or truncation, so a hard link to another file is never rewritten on resume.
+- **Fixed (behaviour change):** destination file names ending in `.lock` or `.part` (ASCII case-insensitive) are refused with `DownloadError::Io` before any filesystem access or request; they collided with the internal lock and partial files and let one download replace another's active lock.
+- **Fixed (behaviour change):** the resource-change check now compares the full final URL including the query (fragment only dropped) and also applies to `416`, so a reconnect that lands on a different resource restarts instead of publishing the saved prefix. A redirect that re-signs its query on every request now restarts the download rather than resuming.
+- **Added:** `Request::secret_form(pairs, secret_names)`, `Request::redact_value(value)` and `Request::scrub(text)`. Values registered through them are scrubbed from error text and `Debug` like secret headers. `rightkit-oauth` must adopt them to stop echoing submitted tokens (the OAuth side of audit finding 4 lives in that crate and is not changed here).
+- **Tests:** the Windows link and swap tests now fail, instead of skipping, when the symlink or junction fixture cannot be created. Regression tests in `tests/third_read.rs`.
+
 - **Fixed:** a bodiless GET, HEAD or DELETE no longer sends `Content-Length: 0` (the blocking client's ureq framed every request with a body; the async client now matches it). POST, PUT and PATCH with an empty body still send `Content-Length: 0`.
 
 - **Breaking:** `HttpError`, `Phase`, `ErrorClass` and `DownloadError` are `#[non_exhaustive]`: add a fallback arm to any exhaustive `match`. Later variants are then not breaking.

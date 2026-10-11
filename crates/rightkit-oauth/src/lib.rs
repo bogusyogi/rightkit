@@ -521,17 +521,19 @@ impl OAuthClient {
             .map(|(k, v)| (k.as_str(), v.as_str()))
             .collect();
         // GitHub answers form-encoded unless asked for JSON, and reports some errors with 200.
+        let request = Request::post(&self.config.token_url)
+            .header("Accept", "application/json")
+            .secret_form(&refs, SECRET_FORM_FIELDS);
         let response = self
             .http
-            .send(
-                &Request::post(&self.config.token_url)
-                    .header("Accept", "application/json")
-                    .form(&refs),
-            )
-            .map_err(provider_or_http)?;
+            .send(&request)
+            .map_err(|e| provider_or_http(&request, e))?;
         let value: serde_json::Value = response.json()?;
         if let Some(error) = value.get("error").and_then(|e| e.as_str()) {
-            return Err(error_from(response.status, error, &value));
+            return Err(scrub_provider(
+                &request,
+                error_from(response.status, error, &value),
+            ));
         }
         parse_tokens(&value, old_refresh)
     }
@@ -577,7 +579,35 @@ fn validate_config(c: &OAuthConfig) -> Result<(), OAuthError> {
     Ok(())
 }
 
-fn provider_or_http(e: HttpError) -> OAuthError {
+/// Form fields whose values are credentials: they are registered as secrets on the request
+/// so no error text, ours or the provider's, repeats them.
+pub(crate) const SECRET_FORM_FIELDS: &[&str] = &[
+    "client_secret",
+    "refresh_token",
+    "device_code",
+    "code",
+    "code_verifier",
+];
+
+/// Remove the request's secret values from a provider error's `error` and description. A
+/// provider may echo a submitted credential, and an HTTP 200 answer reaches us as a parsed
+/// body rather than as an `HttpError` that the HTTP layer would have scrubbed.
+pub(crate) fn scrub_provider(request: &Request, e: OAuthError) -> OAuthError {
+    match e {
+        OAuthError::Provider {
+            status,
+            error,
+            description,
+        } => OAuthError::Provider {
+            status,
+            error: request.scrub(&error),
+            description: description.map(|d| request.scrub(&d)),
+        },
+        other => other,
+    }
+}
+
+fn provider_or_http(request: &Request, e: HttpError) -> OAuthError {
     match e {
         HttpError::Status { status, body, .. } => {
             let v: serde_json::Value = serde_json::from_str(&body).unwrap_or_default();
@@ -586,7 +616,7 @@ fn provider_or_http(e: HttpError) -> OAuthError {
                 .and_then(|x| x.as_str())
                 .unwrap_or("token_request_failed")
                 .to_string();
-            error_from(status, &error, &v)
+            scrub_provider(request, error_from(status, &error, &v))
         }
         other => OAuthError::Http(other),
     }

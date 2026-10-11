@@ -33,6 +33,16 @@ pub enum ConditionalDelete {
 /// One OS credential store. Implementations must never return an error that embeds a value.
 pub trait Backend: Send + Sync + 'static {
     fn name(&self) -> &'static str;
+    /// A stable identity for the credential store this instance writes to, shared by EVERY
+    /// instance of the backend that addresses the same store (for the OS backends: the same
+    /// user-default keychain or Credential Manager). `Store` serialises mutations of one
+    /// credential per identity, so two `Store`s reopened over separate instances of the same OS
+    /// store still exclude each other, including past a timeout. The default, `None`, means "this
+    /// instance only" (identified by its allocation), which is right for in-memory and test
+    /// backends and wrong for any backend whose instances share external state.
+    fn exclusion_identity(&self) -> Option<String> {
+        None
+    }
     /// `Ok(None)` ONLY when the store authoritatively reports the item absent.
     fn get(&self, ns: &Namespace, account: &str, mode: Interaction) -> Result<Option<Secret>>;
     /// Passive presence: must not request secret bytes and must not prompt.

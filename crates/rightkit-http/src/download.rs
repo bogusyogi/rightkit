@@ -195,6 +195,9 @@ impl Client {
             )
             .into());
         }
+        // The names this function creates beside `dest` are reserved: a destination named
+        // like one would alias another download's lock or partial file.
+        reject_reserved_destination(dest)?;
         // Policy first: a denied URL must not touch the filesystem.
         self.preflight_url(url)?;
         // One writer per destination, from before `.part` is opened until after the rename.
@@ -383,6 +386,18 @@ impl Client {
                     st.source = Some(source);
                 }
                 416 => {
+                    if offset > 0 && st.source.as_deref().is_some_and(|s| s != source) {
+                        // The prefix came from another resource; this 416 describes that
+                        // other one, so it says nothing about the saved bytes. Start over.
+                        file.set_len(0).map_err(io_error("truncate partial file"))?;
+                        st.written = 0;
+                        st.resumed_from = 0;
+                        st.etag = None;
+                        st.source = None;
+                        st.total = None;
+                        st.limit = None;
+                        continue;
+                    }
                     let range_total = header_of(&headers, "content-range")
                         .and_then(parse_content_range)
                         .and_then(|r| r.total);
@@ -473,13 +488,12 @@ impl Client {
     }
 }
 
-/// Final URL without query or fragment: the identity of the resource that answered.
+/// Final URL without its fragment: the identity of the resource that answered. The query is
+/// part of it, because `/download?id=A` and `/download?id=B` are different resources. A
+/// redirect that re-signs its query on every request therefore restarts the download
+/// instead of resuming it, which is slower but never splices two resources.
 fn resource_key(final_url: &str) -> String {
-    final_url
-        .split(['?', '#'])
-        .next()
-        .unwrap_or(final_url)
-        .to_string()
+    final_url.split('#').next().unwrap_or(final_url).to_string()
 }
 
 /// Refuse a response whose body ureq may have decoded. What the server really sent is the
@@ -566,6 +580,13 @@ fn open_part_with(
             "partial path is not a regular file".into(),
         ));
     }
+    // A partial with another name is the same bytes under both: appending to it, or
+    // truncating it on a `200`, would rewrite the other file as well.
+    if link_count(&file, &meta).map_err(io_error("stat partial file"))? > 1 {
+        return Err(DownloadError::Io(
+            "partial path is a hard link to another file".into(),
+        ));
+    }
     #[cfg(windows)]
     let file = {
         let mut file = file;
@@ -641,6 +662,25 @@ impl Drop for DestLock {
     }
 }
 
+/// Refuse a destination whose name ends in `.lock` or `.part` (compared ignoring ASCII case,
+/// because macOS and Windows volumes usually fold case). Those suffixes name the lock and
+/// partial files this module creates beside every destination, so a download to `out.lock`
+/// would rename over the lock another download of `out` is holding. Runs before any
+/// filesystem access.
+fn reject_reserved_destination(dest: &Path) -> Result<(), DownloadError> {
+    let name = dest
+        .file_name()
+        .map(|n| n.to_string_lossy().to_ascii_lowercase())
+        .unwrap_or_default();
+    if name.ends_with(".lock") || name.ends_with(".part") {
+        return Err(DownloadError::Io(
+            "destination names ending in .lock or .part are reserved for the download's own files"
+                .into(),
+        ));
+    }
+    Ok(())
+}
+
 fn lock_path(dest: &Path) -> PathBuf {
     let mut name = dest.as_os_str().to_owned();
     name.push(".lock");
@@ -691,29 +731,37 @@ fn is_reparse_point(file: &File) -> io::Result<bool> {
     Ok(file.metadata()?.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0)
 }
 
+/// Number of directory entries that name the open file.
+#[cfg(unix)]
+fn link_count(_file: &File, meta: &fs::Metadata) -> io::Result<u64> {
+    use std::os::unix::fs::MetadataExt;
+    Ok(meta.nlink())
+}
+
+#[cfg(windows)]
+fn link_count(file: &File, _meta: &fs::Metadata) -> io::Result<u64> {
+    Ok(u64::from(handle_info(file)?.links))
+}
+
+#[cfg(not(any(unix, windows)))]
+fn link_count(_file: &File, _meta: &fs::Metadata) -> io::Result<u64> {
+    Ok(1)
+}
+
 /// Volume serial number and file index of an open handle: the identity of the file itself,
 /// whatever path names it.
 #[cfg(windows)]
 fn file_key(file: &File) -> io::Result<(u32, u64)> {
+    let info = handle_info(file)?;
+    Ok((
+        info.volume_serial,
+        (u64::from(info.index_high) << 32) | u64::from(info.index_low),
+    ))
+}
+
+#[cfg(windows)]
+fn handle_info(file: &File) -> io::Result<ByHandleFileInformation> {
     use std::os::windows::io::AsRawHandle;
-    #[repr(C)]
-    struct FileTime {
-        low: u32,
-        high: u32,
-    }
-    #[repr(C)]
-    struct ByHandleFileInformation {
-        attributes: u32,
-        creation: FileTime,
-        access: FileTime,
-        write: FileTime,
-        volume_serial: u32,
-        size_high: u32,
-        size_low: u32,
-        links: u32,
-        index_high: u32,
-        index_low: u32,
-    }
     #[link(name = "kernel32")]
     unsafe extern "system" {
         fn GetFileInformationByHandle(
@@ -728,11 +776,29 @@ fn file_key(file: &File) -> io::Result<(u32, u64)> {
         return Err(io::Error::last_os_error());
     }
     // SAFETY: the call succeeded and filled the struct.
-    let info = unsafe { info.assume_init() };
-    Ok((
-        info.volume_serial,
-        (u64::from(info.index_high) << 32) | u64::from(info.index_low),
-    ))
+    Ok(unsafe { info.assume_init() })
+}
+
+#[cfg(windows)]
+#[repr(C)]
+struct FileTime {
+    low: u32,
+    high: u32,
+}
+
+#[cfg(windows)]
+#[repr(C)]
+struct ByHandleFileInformation {
+    attributes: u32,
+    creation: FileTime,
+    access: FileTime,
+    write: FileTime,
+    volume_serial: u32,
+    size_high: u32,
+    size_low: u32,
+    links: u32,
+    index_high: u32,
+    index_low: u32,
 }
 
 /// Fail when `path` no longer names the file `file` is open on.
@@ -901,11 +967,56 @@ mod tests {
     }
 
     #[test]
-    fn resource_key_drops_query_and_fragment() {
+    fn resource_key_keeps_the_query_and_drops_the_fragment() {
         assert_eq!(
             resource_key("https://h.example/a/b?sig=1#x"),
-            "https://h.example/a/b"
+            "https://h.example/a/b?sig=1"
         );
+        assert_ne!(
+            resource_key("https://h.example/d?id=A"),
+            resource_key("https://h.example/d?id=B")
+        );
+    }
+
+    #[test]
+    fn reserved_destination_suffixes_are_refused_case_insensitively() {
+        for bad in ["out.lock", "out.part", "dir/OUT.LOCK", "dir/x.Part"] {
+            assert!(
+                matches!(
+                    reject_reserved_destination(Path::new(bad)),
+                    Err(DownloadError::Io(_))
+                ),
+                "{bad}"
+            );
+        }
+        for ok in ["out", "out.bin", "lock", "out.locked", "out.lock.bin"] {
+            assert!(reject_reserved_destination(Path::new(ok)).is_ok(), "{ok}");
+        }
+    }
+
+    /// A partial that is a second name for another file must be refused before any write or
+    /// truncation, and the other name must keep its bytes.
+    #[test]
+    fn a_hard_linked_part_is_refused_and_its_other_name_untouched() {
+        let dir = scratch("hard-link");
+        let victim = dir.join("precious.txt");
+        fs::write(&victim, b"precious").unwrap();
+        let part = dir.join("out.bin.part");
+        if let Err(e) = fs::hard_link(&victim, &part) {
+            panic!("cannot create a hard link here ({e}); this test must run");
+        }
+        for resume in [true, false] {
+            let r = open_part(&part, resume);
+            if resume {
+                let err = r.expect_err("a hard-linked partial must be refused");
+                assert!(matches!(err, DownloadError::Io(_)), "{err:?}");
+            } else {
+                // Without resume the stale name is removed and a fresh file created.
+                assert!(r.is_ok());
+            }
+            assert_eq!(fs::read(&victim).unwrap(), b"precious");
+        }
+        let _ = fs::remove_dir_all(&dir);
     }
 
     /// Fresh scratch directory for one unit test.
@@ -1009,14 +1120,8 @@ mod tests {
             }
         });
         if let Some(reason) = link_error.into_inner() {
-            // Windows needs Developer Mode or an elevated token to create a symlink. Say so
-            // loudly: the swap was not exercised, so this run proves nothing about it.
-            eprintln!(
-                "SKIPPED a_part_swapped_for_a_link_after_the_check_is_never_followed: \
-                 cannot create a symbolic link here ({reason})"
-            );
-            let _ = fs::remove_dir_all(&dir);
-            return;
+            // A runner that cannot create a link cannot show the protection works: fail.
+            panic!("cannot create a symbolic link here ({reason}); this test must run");
         }
         let err = result.expect_err("a link swapped in after the check must be refused");
         assert!(matches!(err, DownloadError::Io(_)), "{err:?}");

@@ -68,13 +68,12 @@ fn f1_windows_part_symlink_is_replaced_and_its_target_untouched() {
     let dest = dir.join("out.bin");
     let part = part_of(&dest);
     if let Err(e) = std::os::windows::fs::symlink_file(&victim, &part) {
-        // Creating a symlink needs Developer Mode or an elevated token. Say so: this run
-        // did not exercise a link.
-        eprintln!(
-            "SKIPPED f1_windows_part_symlink_is_replaced_and_its_target_untouched: \
-             cannot create a symbolic link here ({e})"
+        // Creating a symlink needs Developer Mode or an elevated token. A runner that
+        // cannot is not qualified to run this suite: fail rather than pass untested.
+        panic!(
+            "cannot create a symbolic link here ({e}); Windows qualification runners must \
+             allow symlink creation"
         );
-        return;
     }
     let report = Client::new(cfg())
         .download_to_path(&server.url("/f"), &dest, resume_opts())
@@ -102,16 +101,12 @@ fn f1_windows_part_junction_is_never_written_through() {
         .output();
     match made {
         Ok(out) if out.status.success() => {}
-        other => {
-            eprintln!(
-                "SKIPPED f1_windows_part_junction_is_never_written_through: \
-                 mklink /J failed ({other:?})"
-            );
-            return;
-        }
+        other => panic!("mklink /J failed ({other:?}); the junction fixture must be created"),
     }
-    // Either outcome is acceptable: the junction is removed and the download proceeds, or it
-    // is refused. A write through it, into the target directory, is not.
+    // This covers a junction already in place, which a plain directory check also refuses;
+    // the no-follow open is proved by the swap test in `src/download.rs`, which needs a
+    // file symlink. Either outcome is acceptable: the junction is removed and the download
+    // proceeds, or it is refused. A write through it, into the target directory, is not.
     let _ = Client::new(cfg()).download_to_path(&server.url("/f"), &dest, resume_opts());
     assert_eq!(fs::read(target.join("keep.txt")).unwrap(), b"precious");
     assert_eq!(

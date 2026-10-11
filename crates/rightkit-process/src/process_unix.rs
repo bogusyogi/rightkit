@@ -8,6 +8,10 @@ use std::{
 
 pub(crate) struct Inheritance {
     allowed: Vec<RawFd>,
+    /// Hosts without a kernel listing of the descriptor table guess a bound before the fork.
+    /// macOS lists the table after the fork instead, so a descriptor opened (or a soft limit
+    /// raised) between this snapshot and the fork cannot slip past it.
+    #[cfg(not(target_os = "macos"))]
     upper_bound: RawFd,
 }
 
@@ -25,18 +29,24 @@ impl Inheritance {
         }
         Ok(Self {
             allowed,
+            #[cfg(not(target_os = "macos"))]
             upper_bound: fd_upper_bound()?,
         })
     }
 
     // Called after fork: no allocation, directory traversal, locks or destructors.
     pub(crate) fn apply(&self) -> io::Result<()> {
-        let mut first = 3u32;
-        for &fd in self.allowed.iter().filter(|fd| **fd >= 3) {
-            self.exclude(first, fd as u32 - 1)?;
-            first = fd as u32 + 1;
+        #[cfg(target_os = "macos")]
+        self.exclude_listed()?;
+        #[cfg(not(target_os = "macos"))]
+        {
+            let mut first = 3u32;
+            for &fd in self.allowed.iter().filter(|fd| **fd >= 3) {
+                self.exclude(first, fd as u32 - 1)?;
+                first = fd as u32 + 1;
+            }
+            self.exclude(first, u32::MAX)?;
         }
-        self.exclude(first, u32::MAX)?;
         for &fd in self.allowed.iter().filter(|fd| **fd >= 3) {
             let flags = unsafe { libc::fcntl(fd, libc::F_GETFD) };
             if flags < 0 || unsafe { libc::fcntl(fd, libc::F_SETFD, flags & !libc::FD_CLOEXEC) } < 0
@@ -47,6 +57,89 @@ impl Inheritance {
         Ok(())
     }
 
+    /// macOS, in the forked child: asks the kernel which descriptors this process really has
+    /// now and makes every one that is not allowed (and not 0..=2) close-on-exec, then closes
+    /// it. The table is the child's own, copied at the fork, so it is exactly what would reach
+    /// the executed program; nothing is guessed from the parent's earlier state. std's
+    /// close-on-exec error pipe is untouched: it is already close-on-exec and so skipped,
+    /// which keeps exec failures reportable. If the table cannot be listed the call fails and
+    /// so does the spawn: it never proceeds with descriptors it could not account for.
+    ///
+    /// Async-signal-safe: `getpid`, `proc_pidinfo`, `mmap`, `munmap`, `fcntl`, `close`. The
+    /// buffer is an anonymous mapping, not the heap, because the forked copy of a
+    /// multithreaded process must not allocate.
+    #[cfg(target_os = "macos")]
+    fn exclude_listed(&self) -> io::Result<()> {
+        let record = std::mem::size_of::<libc::proc_fdinfo>();
+        let pid = unsafe { libc::getpid() };
+        // The size the kernel needs now, then room for descriptors that appear meanwhile.
+        let needed =
+            unsafe { libc::proc_pidinfo(pid, libc::PROC_PIDLISTFDS, 0, std::ptr::null_mut(), 0) };
+        if needed <= 0 {
+            return Err(io::Error::last_os_error());
+        }
+        let mut length = (needed as usize + 64 * record + 4095) & !4095;
+        for _ in 0..16 {
+            let map = unsafe {
+                libc::mmap(
+                    std::ptr::null_mut(),
+                    length,
+                    libc::PROT_READ | libc::PROT_WRITE,
+                    libc::MAP_PRIVATE | libc::MAP_ANON,
+                    -1,
+                    0,
+                )
+            };
+            if map == libc::MAP_FAILED {
+                return Err(io::Error::last_os_error());
+            }
+            let written = unsafe {
+                libc::proc_pidinfo(pid, libc::PROC_PIDLISTFDS, 0, map, length as libc::c_int)
+            };
+            // A listing that leaves less than a record free may have been cut short.
+            if written > 0 && (written as usize) + record <= length {
+                let result = self
+                    .exclude_entries(map.cast::<libc::proc_fdinfo>(), written as usize / record);
+                unsafe { libc::munmap(map, length) };
+                return result;
+            }
+            let failure = io::Error::last_os_error();
+            unsafe { libc::munmap(map, length) };
+            if written <= 0 {
+                return Err(failure);
+            }
+            length *= 2;
+        }
+        Err(io::Error::from_raw_os_error(libc::EMFILE))
+    }
+
+    #[cfg(target_os = "macos")]
+    fn exclude_entries(&self, list: *const libc::proc_fdinfo, count: usize) -> io::Result<()> {
+        for index in 0..count {
+            // SAFETY: `index < count` and the kernel wrote `count` whole records.
+            let fd = unsafe { (*list.add(index)).proc_fd };
+            if fd < 3 || self.allowed.binary_search(&fd).is_ok() {
+                continue;
+            }
+            let flags = unsafe { libc::fcntl(fd, libc::F_GETFD) };
+            if flags < 0 {
+                let error = io::Error::last_os_error();
+                if error.raw_os_error() != Some(libc::EBADF) {
+                    return Err(error);
+                }
+            } else if flags & libc::FD_CLOEXEC == 0 {
+                if unsafe { libc::fcntl(fd, libc::F_SETFD, flags | libc::FD_CLOEXEC) } < 0 {
+                    return Err(io::Error::last_os_error());
+                }
+                unsafe {
+                    libc::close(fd);
+                }
+            }
+        }
+        Ok(())
+    }
+
+    #[cfg(not(target_os = "macos"))]
     fn exclude(&self, first: u32, last: u32) -> io::Result<()> {
         if first > last {
             return Ok(());
@@ -91,6 +184,7 @@ impl Inheritance {
 
 /// One past the highest descriptor that may be open in this process. Includes
 /// descriptors above a lowered soft limit, so every inherited fd can be closed.
+#[cfg(not(target_os = "macos"))]
 pub(crate) fn fd_upper_bound() -> io::Result<RawFd> {
     let maximum = unsafe { libc::sysconf(libc::_SC_OPEN_MAX) };
     if maximum < 0 {
@@ -306,6 +400,46 @@ pub(crate) struct Helper {
     pid: libc::pid_t,
     /// Write end of the private release channel. `None` once released.
     tether: Option<OwnedFd>,
+    /// Who the helper was when it was forked: its parent and start time. Checked before every
+    /// `waitpid`, so a pid that another reaper collected and the kernel gave to an unrelated
+    /// child of this process is never reaped here, which would steal that child's exit status.
+    /// `None` only when the kernel would not describe the helper; reaping then behaves as it
+    /// did before the identity existed.
+    identity: Option<Identity>,
+}
+
+/// A process's parent and start time: together with its pid, a name that a recycled pid
+/// cannot reuse.
+#[cfg(target_os = "macos")]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct Identity {
+    parent: u32,
+    started_sec: u64,
+    started_usec: u64,
+}
+
+/// The identity of `pid` (a live process or an unreaped zombie), or `None` when the kernel has
+/// no such process or will not describe it.
+#[cfg(target_os = "macos")]
+fn identity_of(pid: libc::pid_t) -> Option<Identity> {
+    // SAFETY: an all-zero `proc_bsdinfo` is a valid value (plain integers and char arrays).
+    let mut info: libc::proc_bsdinfo = unsafe { std::mem::zeroed() };
+    let size = std::mem::size_of::<libc::proc_bsdinfo>() as libc::c_int;
+    // SAFETY: `info` is a writable buffer of exactly `size` bytes.
+    let written = unsafe {
+        libc::proc_pidinfo(
+            pid,
+            libc::PROC_PIDTBSDINFO,
+            0,
+            (&mut info as *mut libc::proc_bsdinfo).cast(),
+            size,
+        )
+    };
+    (written == size && info.pbi_pid == pid as u32).then_some(Identity {
+        parent: info.pbi_ppid,
+        started_sec: info.pbi_start_tvsec,
+        started_usec: info.pbi_start_tvusec,
+    })
 }
 
 #[cfg(target_os = "macos")]
@@ -318,7 +452,7 @@ impl Helper {
     /// collected by another reaper in this process (`ECHILD`). From then on its pid may belong
     /// to anyone, so the caller must forget it.
     pub(crate) fn has_gone(&self) -> bool {
-        child_gone(self.pid)
+        child_gone(self.pid, self.identity)
     }
 
     /// Tells the helper to stand down: one byte on the tether, then the tether closes. Nothing
@@ -346,13 +480,19 @@ impl Helper {
     pub(crate) fn retire(mut self) {
         self.release();
         let pid = self.pid;
-        if reap_within(pid, RETIRE_WAIT, Duration::from_millis(1)) {
+        let identity = self.identity;
+        if reap_within(pid, identity, RETIRE_WAIT, Duration::from_millis(1)) {
             return;
         }
         let _ = std::thread::Builder::new()
             .name("rightkit-helper-reap".into())
             .spawn(move || {
-                reap_within(pid, RETIRE_BACKGROUND_WAIT, Duration::from_millis(20));
+                reap_within(
+                    pid,
+                    identity,
+                    RETIRE_BACKGROUND_WAIT,
+                    Duration::from_millis(20),
+                );
             });
     }
 }
@@ -360,8 +500,18 @@ impl Helper {
 /// `waitpid(pid, WNOHANG)`: true when `pid` was collected here, or is not this process's child
 /// at all (`ECHILD`: another reaper took it). It only ever collects a zombie child, and it
 /// never blocks.
+///
+/// When `identity` is known, `waitpid` runs only if `pid` still names the process that was
+/// described then. If the helper was collected elsewhere and the pid now belongs to another
+/// child of this process (a replacement spawn), that child is left alone, so its owner gets its
+/// exit status, and the helper counts as gone.
 #[cfg(target_os = "macos")]
-fn child_gone(pid: libc::pid_t) -> bool {
+fn child_gone(pid: libc::pid_t, identity: Option<Identity>) -> bool {
+    if let Some(expected) = identity {
+        if identity_of(pid) != Some(expected) {
+            return true;
+        }
+    }
     loop {
         let mut status = 0;
         // SAFETY: waitpid with WNOHANG and a valid out pointer.
@@ -382,10 +532,15 @@ fn child_gone(pid: libc::pid_t) -> bool {
 
 /// Polls `child_gone` every `step` for at most `limit`.
 #[cfg(target_os = "macos")]
-fn reap_within(pid: libc::pid_t, limit: Duration, step: Duration) -> bool {
+fn reap_within(
+    pid: libc::pid_t,
+    identity: Option<Identity>,
+    limit: Duration,
+    step: Duration,
+) -> bool {
     let started = std::time::Instant::now();
     loop {
-        if child_gone(pid) {
+        if child_gone(pid, identity) {
             return true;
         }
         if started.elapsed() >= limit {
@@ -410,6 +565,7 @@ impl HelperLink {
         close_all(&[self.hello_write, self.ack_read]);
         Helper {
             pid: self.pid,
+            identity: identity_of(self.pid),
             // SAFETY: `tether_write` was created by `prepare`, is open, and is owned by nothing
             // else once the link is consumed.
             tether: Some(unsafe { OwnedFd::from_raw_fd(self.tether_write) }),
@@ -1450,6 +1606,7 @@ mod tests {
             pid: bystander,
             // SAFETY: `write_end` was just created and is owned by nothing else.
             tether: Some(unsafe { OwnedFd::from_raw_fd(write_end) }),
+            identity: None,
         };
         let leader = Command::new("/bin/sleep")
             .arg("30")
@@ -1481,6 +1638,7 @@ mod tests {
             pid: bystander,
             // SAFETY: `write_end` was just created and is owned by nothing else.
             tether: Some(unsafe { OwnedFd::from_raw_fd(write_end) }),
+            identity: None,
         };
         helper.retire();
         let first = read_byte(read_end);
@@ -1494,6 +1652,61 @@ mod tests {
         assert_eq!(first, Some(RELEASE));
         assert_eq!(second, None, "the channel closes after the release byte");
         assert!(survived, "retiring must not signal the helper's pid");
+    }
+
+    /// The helper was collected elsewhere and its pid now names a *direct child* of this
+    /// process (a replacement spawn) that has already exited. Releasing the old helper must
+    /// not reap that child: its owner still has to receive the exit status.
+    #[test]
+    fn a_replacement_child_on_the_helpers_recycled_pid_keeps_its_exit_status() {
+        // SAFETY: plain fork; the child only calls `_exit`.
+        let replacement = unsafe {
+            let pid = libc::fork();
+            if pid == 0 {
+                libc::_exit(7);
+            }
+            assert!(pid > 0, "fork");
+            pid
+        };
+        // What the old helper looked like: same pid, different start time.
+        let stale = Identity {
+            parent: unsafe { libc::getpid() } as u32,
+            started_sec: 1,
+            started_usec: 1,
+        };
+        assert_ne!(identity_of(replacement), Some(stale));
+        let helper = Helper {
+            pid: replacement,
+            tether: None,
+            identity: Some(stale),
+        };
+        assert!(helper.has_gone(), "a pid that changed hands counts as gone");
+        helper.retire();
+        let mut status = 0;
+        // SAFETY: blocking wait for the child forked above.
+        let reaped = unsafe { libc::waitpid(replacement, &mut status, 0) };
+        assert_eq!(reaped, replacement, "the helper cleanup stole the status");
+        assert!(libc::WIFEXITED(status) && libc::WEXITSTATUS(status) == 7);
+    }
+
+    /// The helper's own identity matches, so it is still collected.
+    #[test]
+    fn a_helper_with_its_own_identity_is_still_collected() {
+        let mut spawned = spawn_with(tie()).expect("spawn with an armed helper");
+        let helper = spawned.helper.take().expect("helper handed back");
+        let pid = helper.pid();
+        assert!(
+            helper.identity.is_some(),
+            "the helper was described at spawn"
+        );
+        assert_eq!(helper.identity, identity_of(pid));
+        let _ = spawned.child.kill();
+        let _ = spawned.child.wait();
+        helper.retire();
+        // SAFETY: WNOHANG probe of a pid that must no longer be our child.
+        let mut status = 0;
+        let probe = unsafe { libc::waitpid(pid, &mut status, libc::WNOHANG) };
+        assert_eq!(probe, -1, "the helper zombie was left behind");
     }
 
     /// Another thread's `dup2` lands a pipe writer above any bound, before the helper is
@@ -1571,6 +1784,50 @@ mod tests {
             ready > 0 && byte.is_none(),
             "no end of file: the helper kept the pipe writer open (poll {ready})"
         );
+    }
+
+    /// The allowlist must cover a descriptor that appears after the `Inheritance` was built:
+    /// another thread raising the soft limit and duplicating an inheritable descriptor far
+    /// above anything the earlier snapshot could have seen, right before the fork.
+    #[test]
+    fn the_allowlist_closes_a_descriptor_opened_after_it_was_built() {
+        let inheritance = Inheritance::new(Vec::new()).expect("inheritance");
+        let mut ends: [RawFd; 2] = [0; 2];
+        // SAFETY: plain descriptor calls on descriptors this test owns; the child calls only
+        // `apply`, `fcntl` and `_exit`.
+        unsafe {
+            let mut limit = libc::rlimit {
+                rlim_cur: 0,
+                rlim_max: 0,
+            };
+            libc::getrlimit(libc::RLIMIT_NOFILE, &mut limit);
+            let wanted = 8192.min(limit.rlim_max);
+            if limit.rlim_cur < wanted {
+                limit.rlim_cur = wanted;
+                assert_eq!(libc::setrlimit(libc::RLIMIT_NOFILE, &limit), 0);
+            }
+            assert_eq!(libc::pipe(ends.as_mut_ptr()), 0);
+            // F_DUPFD leaves the copy inheritable (no close-on-exec).
+            let late = libc::fcntl(ends[1], libc::F_DUPFD, 3000);
+            assert!(late >= 3000, "the duplicate must land above 3000");
+            let pid = libc::fork();
+            assert!(pid >= 0);
+            if pid == 0 {
+                let applied = inheritance.apply().is_ok();
+                let flags = libc::fcntl(late, libc::F_GETFD);
+                let sealed = flags < 0 || flags & libc::FD_CLOEXEC != 0;
+                libc::_exit(if applied && sealed { 0 } else { 1 });
+            }
+            let mut status = 0;
+            assert_eq!(libc::waitpid(pid, &mut status, 0), pid);
+            close_all(&[ends[0], ends[1], late]);
+            assert!(libc::WIFEXITED(status));
+            assert_eq!(
+                libc::WEXITSTATUS(status),
+                0,
+                "a descriptor opened after the snapshot would reach the executed program"
+            );
+        }
     }
 
     /// Forks a child that runs the sweep and then checks the descriptor table.

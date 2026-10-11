@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Fixed (Windows): `wait_or_kill` terminates the retained job when the leader exits within `grace`, so descendants that outlived the leader no longer survive; the result is still `Exited` with the leader's status.
+- Fixed (macOS): `inherit_handles_only` now lists the executed child's own descriptor table after the fork and seals every unlisted descriptor, instead of trusting a bound taken before the fork. A descriptor opened, or a soft limit raised, between those two moments can no longer leak into the program. A table that cannot be listed fails the spawn.
+- Fixed (macOS): releasing the parent-death helper no longer reaps an unrelated child. The helper's parent and start time are recorded at spawn and checked before each `waitpid`; if its pid was collected elsewhere and reused by another child of this process, that child keeps its exit status.
 - `StderrTail::try_capture` returns `io::Result<StderrTail>` and surfaces a drain-thread spawn failure. `capture` keeps its signature and is documented as best effort: on a spawn failure it returns a tail that retains nothing.
 
 ## 0.3.4
