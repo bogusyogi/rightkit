@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- Additive: `QuarantineStamp::Seconds` no longer fails when the plain `.corrupt-<secs>` name is taken. The quarantine takes `-1`, `-2`, ... (up to 99 retries) and claims each name with create-new semantics (`rename_exclusive`, or `link` for `MoveMode::HardLinkThenRemove`), so an earlier quarantine is never overwritten. `Millis` and `Custom` still refuse an existing name. Under `SidecarPolicy::RenameSidecars` a name counts as taken when a sidecar name is taken too, and a sidecar that is taken now errors instead of being overwritten. Tests in `tests/quarantine_options.rs`. Not compiled when written.
+- `DbOptions::optimize_on_open: bool` (default `true`, so behaviour is unchanged) and `DbOptions::without_optimize_on_open()`. When `false`, writer connections skip `PRAGMA optimize` at open; readers never ran it. The new public field is a breaking change for struct literals written without `..`; use `DbOptions::new(path)` or `..Default::default()`. Not compiled when written.
+
 ## 0.4.0 — 2026-10-11
 
 Breaking:

@@ -48,6 +48,8 @@ Without `json`, locks write no owner file, so `recovered_stale` and `current_own
 
 A write is two phases. Until the replace call succeeds nothing is published: a failure leaves the destination as it was and removes the temp file. After it, the content is in place; the required directory sync still runs, and a later failure is a typed error with `target_replaced()` true: `ReplacedButDirSyncFailed`, or `ReplacedButPostStepFailed { step }` (`TempCleanup`: a leftover second name after the `link` fallback or the `ReplaceFileW` backup). The most serious is reported: directory sync, then cleanup. Windows `ReplaceFileW` can fail after it has already changed names (errors 1176, 1177): it is given a unique backup file, and when the destination is not intact the result is `ReplaceInterrupted { new_content, previous_content }` with the temp and backup files left in place (`target_replaced()` false). `FsError` is `#[non_exhaustive]`.
 
+To gate the content before it is published, use `AtomicWriter::commit_checked(|temp| ...)`: the check runs on the temp file just before the replace, after it is flushed and synced when the write is durable. An error from the check aborts the write, leaves the destination as it was and removes the temp file.
+
 What a durable write (`durable: true`, the default) guarantees when it returns `Ok`, by platform and mode. `publication_durability(&options, destination_exists)` returns the same answer as a value (`PublicationDurability`):
 
 | Platform and mode | Guarantee |

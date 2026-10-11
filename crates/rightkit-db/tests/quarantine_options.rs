@@ -98,3 +98,67 @@ fn secure_delete_option_is_applied_at_open() {
     drop(conn);
     fs::remove_dir_all(dir).unwrap();
 }
+
+#[test]
+fn seconds_stamp_takes_a_numbered_name_when_the_plain_one_is_taken() {
+    let (dir, db) = fixture("seconds-collision");
+    // Occupy this second's name and the next one's, so whichever second the quarantine reads, its
+    // plain name is taken and it must take `-1`.
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+    for second in [now, now + 1] {
+        fs::write(dir.join(format!("app.sqlite.corrupt-{second}")), b"earlier").unwrap();
+    }
+    let options = QuarantineOptions {
+        name: QuarantineStamp::Seconds,
+        ..QuarantineOptions::default()
+    };
+    let dest = quarantine_database_opts(&db, &options).unwrap();
+    let name = dest.file_name().unwrap().to_string_lossy().into_owned();
+    assert!(name.ends_with("-1"), "{name}");
+    assert_eq!(fs::read(&dest).unwrap(), b"damaged bytes");
+    for second in [now, now + 1] {
+        assert_eq!(
+            fs::read(dir.join(format!("app.sqlite.corrupt-{second}"))).unwrap(),
+            b"earlier",
+            "an earlier quarantine is never overwritten"
+        );
+    }
+    fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn seconds_stamp_quarantines_twice_in_one_run_without_error() {
+    let (dir, db) = fixture("seconds-twice");
+    let options = QuarantineOptions {
+        name: QuarantineStamp::Seconds,
+        ..QuarantineOptions::default()
+    };
+    let first = quarantine_database_opts(&db, &options).unwrap();
+    fs::write(&db, b"damaged again").unwrap();
+    let second = quarantine_database_opts(&db, &options).unwrap();
+    assert_ne!(first, second);
+    assert_eq!(fs::read(&first).unwrap(), b"damaged bytes");
+    assert_eq!(fs::read(&second).unwrap(), b"damaged again");
+    fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn optimize_on_open_is_on_by_default_and_can_be_switched_off() {
+    let (dir, _db) = fixture("optimize-off");
+    assert!(DbOptions::new(dir.join("default.sqlite")).optimize_on_open);
+
+    let path = dir.join("quiet.sqlite");
+    let options = DbOptions::new(&path).without_optimize_on_open();
+    assert!(!options.optimize_on_open);
+    let conn = options.open_writer().unwrap();
+    conn.execute_batch("CREATE TABLE t (x INTEGER);").unwrap();
+    drop(conn);
+
+    let mut explicit = DbOptions::new(dir.join("explicit.sqlite"));
+    explicit.optimize_on_open = false;
+    let _conn = explicit.open_writer().unwrap();
+    fs::remove_dir_all(dir).unwrap();
+}

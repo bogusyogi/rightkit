@@ -208,8 +208,17 @@ pub struct QuarantineOptions {
     pub marker: Option<PathBuf>,
 }
 
-/// [`quarantine_database`] with full [`QuarantineOptions`]. The same refusal rules apply: an
-/// existing destination is an error, and sidecar failures are errors.
+/// Attempts for a unique quarantine name under [`QuarantineStamp::Seconds`]: the base name, then
+/// `-1`, `-2`, ... up to `-(QUARANTINE_NAME_ATTEMPTS - 1)`.
+const QUARANTINE_NAME_ATTEMPTS: u32 = 100;
+
+/// [`quarantine_database`] with full [`QuarantineOptions`]. The same refusal rules apply to the
+/// other stamps: an existing destination is an error, and sidecar failures are errors.
+///
+/// [`QuarantineStamp::Seconds`] names are unique per second, so a second quarantine within the same
+/// second takes `<db>.corrupt-<secs>-1`, `-2`, and so on. A name is claimed with create-new
+/// semantics (`rename_exclusive`, or `link` for [`MoveMode::HardLinkThenRemove`]), never by
+/// check-then-rename, so a concurrent quarantine cannot be overwritten.
 pub fn quarantine_database_opts(db: &Path, options: &QuarantineOptions) -> Result<PathBuf> {
     let name = db
         .file_name()
@@ -220,36 +229,79 @@ pub fn quarantine_database_opts(db: &Path, options: &QuarantineOptions) -> Resul
     if suffix.is_empty() || suffix.contains(['/', '\\', '\0']) {
         return Err(DbError::InvalidQuarantineSuffix(suffix));
     }
-    let dest = db.with_file_name(format!("{name}{suffix}"));
-    if dest.exists() {
-        return Err(DbError::Fs(rightkit_fs::FsError::io(
-            &dest,
-            std::io::Error::new(
-                std::io::ErrorKind::AlreadyExists,
-                "quarantine destination already exists",
-            ),
-        )));
-    }
-    if let Some(marker) = &options.marker {
-        write_marker(marker, db, &dest)?;
-    }
-    move_file(db, &dest, options.move_mode)
-        .map_err(|e| DbError::Fs(rightkit_fs::FsError::io(db, e)))?;
-    for sidecar in ["-wal", "-shm", "-journal"] {
-        let from = with_suffix(db, sidecar);
-        match options.sidecars {
-            SidecarPolicy::RenameSidecars => {
-                move_if_present(&from, &with_suffix(&dest, sidecar), options.move_mode)?
-            }
-            SidecarPolicy::DeleteSidecars => remove_if_present(&from)?,
+    let attempts = match options.name {
+        QuarantineStamp::Seconds => QUARANTINE_NAME_ATTEMPTS,
+        _ => 1,
+    };
+    let mut last = None;
+    for attempt in 0..attempts {
+        let dest = quarantine_candidate(db, &name, &suffix, attempt);
+        if quarantine_name_taken(&dest, options.sidecars) {
+            last = Some(dest);
+            continue;
         }
+        if let Some(marker) = &options.marker {
+            write_marker(marker, db, &dest)?;
+        }
+        match move_file(db, &dest, options.move_mode) {
+            Ok(()) => {}
+            // Another quarantine claimed the name after the check: try the next one.
+            Err(error)
+                if error.kind() == std::io::ErrorKind::AlreadyExists && attempt + 1 < attempts =>
+            {
+                last = Some(dest);
+                continue;
+            }
+            Err(error) => return Err(DbError::Fs(rightkit_fs::FsError::io(db, error))),
+        }
+        for sidecar in ["-wal", "-shm", "-journal"] {
+            let from = with_suffix(db, sidecar);
+            match options.sidecars {
+                SidecarPolicy::RenameSidecars => {
+                    move_if_present(&from, &with_suffix(&dest, sidecar), options.move_mode)?
+                }
+                SidecarPolicy::DeleteSidecars => remove_if_present(&from)?,
+            }
+        }
+        return Ok(dest);
     }
-    Ok(dest)
+    let dest = last.unwrap_or_else(|| quarantine_candidate(db, &name, &suffix, 0));
+    Err(DbError::Fs(rightkit_fs::FsError::io(
+        &dest,
+        std::io::Error::new(
+            std::io::ErrorKind::AlreadyExists,
+            "quarantine destination already exists",
+        ),
+    )))
 }
 
+/// The `attempt`-th destination for a quarantined `db`: `<db><suffix>`, then `<db><suffix>-1`, ...
+fn quarantine_candidate(db: &Path, name: &str, suffix: &str, attempt: u32) -> PathBuf {
+    if attempt == 0 {
+        db.with_file_name(format!("{name}{suffix}"))
+    } else {
+        db.with_file_name(format!("{name}{suffix}-{attempt}"))
+    }
+}
+
+/// True when the destination, or (under [`SidecarPolicy::RenameSidecars`]) one of its sidecar
+/// names, already exists. A dangling link counts as existing.
+fn quarantine_name_taken(dest: &Path, sidecars: SidecarPolicy) -> bool {
+    fn exists(path: &Path) -> bool {
+        std::fs::symlink_metadata(path).is_ok()
+    }
+    exists(dest)
+        || (sidecars == SidecarPolicy::RenameSidecars
+            && ["-wal", "-shm", "-journal"]
+                .iter()
+                .any(|sidecar| exists(&with_suffix(dest, sidecar))))
+}
+
+/// Moves `from` to `to`, failing with `AlreadyExists` (and leaving both names) when `to` exists.
+/// Both modes claim `to` atomically: `rename_exclusive` for `Rename`, `link` for `HardLinkThenRemove`.
 fn move_file(from: &Path, to: &Path, mode: MoveMode) -> std::io::Result<()> {
     match mode {
-        MoveMode::Rename => std::fs::rename(from, to),
+        MoveMode::Rename => rightkit_fs::rename_exclusive(from, to).map_err(std::io::Error::from),
         MoveMode::HardLinkThenRemove => {
             std::fs::hard_link(from, to)?;
             std::fs::remove_file(from)

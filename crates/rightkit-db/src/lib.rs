@@ -187,6 +187,10 @@ pub struct DbOptions {
     /// Sets `PRAGMA secure_delete` on every connection at open: `Some(true)` overwrites freed
     /// pages, `Some(false)` does not, `None` (default) leaves SQLite's compile-time default.
     pub secure_delete: Option<bool>,
+    /// Run `PRAGMA optimize` on each writer connection at open (default `true`). Set it to `false`
+    /// to leave planner statistics alone at open, for example when the file is opened only to
+    /// inspect it. Readers never run it, whatever this is set to.
+    pub optimize_on_open: bool,
 }
 
 impl DbOptions {
@@ -207,6 +211,7 @@ impl DbOptions {
             journal_env: None,
             per_host_fallback: false,
             secure_delete: None,
+            optimize_on_open: true,
         }
     }
 
@@ -217,6 +222,12 @@ impl DbOptions {
 
     pub fn with_per_host_fallback(mut self, on: bool) -> Self {
         self.per_host_fallback = on;
+        self
+    }
+
+    /// Turn `PRAGMA optimize` off at writer open (see [`DbOptions::optimize_on_open`]).
+    pub fn without_optimize_on_open(mut self) -> Self {
+        self.optimize_on_open = false;
         self
     }
 
@@ -523,7 +534,7 @@ fn configure_connection(
         // Readers never run `PRAGMA optimize`: it can write statistics, and the writer runs it
         // when it opens. `query_only` is set after every other reader setup statement.
         enforce_query_only(conn)?;
-    } else {
+    } else if options.optimize_on_open {
         optimize_on_open(conn)?;
     }
     Ok(opened)

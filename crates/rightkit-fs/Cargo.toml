@@ -72,6 +72,11 @@ path = "tests/atomic_options.rs"
 required-features = ["fs"]
 
 [[test]]
+name = "atomic_checked"
+path = "tests/atomic_checked.rs"
+required-features = ["fs"]
+
+[[test]]
 name = "atomic_privacy"
 path = "tests/atomic_privacy.rs"
 required-features = ["fs"]

@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Additive: `AtomicWriter::commit_checked(check)`. `check(&temp_path)` runs after the temp file's content is written (flushed and synced first when `durable`) and before the replace; an `Err` aborts the write (`FsError::Io` naming the temp path), leaves the destination untouched and removes the temp file. `commit` and `commit_with_digest` are unchanged. Tests in `tests/atomic_checked.rs`. Not compiled when written.
+
 **Third-read fixes (2026-10-11, `docs/audits/2026-10-11-astra-fs-third-read.md`).** Nothing here was compiled or run locally; verification is the CI run.
 
 - **Windows `ReplaceFileW` no longer risks both versions (P1 1).** It is given a unique backup file (`.<name>.rktbak-<pid>-<n>`, not swept). A failure with 1176 or 1177 that leaves the destination missing or a backup beside it is the new `FsError::ReplaceInterrupted { path, new_content, previous_content, source }`; the temp and backup are left for recovery and `target_replaced()` is false. `rightkit-settings` maps unknown variants to `Error::Io` (the `FsError` stays inside it); a typed mapping there is a follow-up.

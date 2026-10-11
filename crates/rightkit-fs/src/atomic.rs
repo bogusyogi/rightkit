@@ -500,7 +500,18 @@ impl AtomicWriter {
     /// [`FsError::ReplacedButPostStepFailed`]. Check [`FsError::target_replaced`] before deciding
     /// to write again. What a durable write guarantees per platform is on [`ReplaceMode`].
     pub fn commit(self) -> Result<()> {
-        self.commit_inner(false).map(|_| ())
+        self.commit_inner(false, |_| Ok(())).map(|_| ())
+    }
+
+    /// [`AtomicWriter::commit`] with a check that runs after the temp file's content is written
+    /// (flushed and synced first when `durable`) and before anything is published.
+    ///
+    /// `check` receives the temp file's path. Its `Err` aborts the write: the destination is left
+    /// as it was (no replace is attempted), the temp file is removed, and the error is returned as
+    /// [`FsError::Io`] carrying the temp path. `Ok` publishes exactly the content that was checked.
+    /// The check must not write to the temp file; it is a read-only gate.
+    pub fn commit_checked(self, check: impl FnOnce(&Path) -> std::io::Result<()>) -> Result<()> {
+        self.commit_inner(false, check).map(|_| ())
     }
 
     /// [`AtomicWriter::commit`], also returning the lowercase hex SHA-256 of the published bytes.
@@ -511,13 +522,17 @@ impl AtomicWriter {
     /// cache still holds. For hashing while streaming, feed [`crate::digest::Sha256Hasher`] yourself.
     #[cfg(feature = "digest")]
     pub fn commit_with_digest(self) -> Result<String> {
-        self.commit_inner(true)
+        self.commit_inner(true, |_| Ok(()))
             .map(|d| d.expect("a digest was requested"))
     }
 
-    fn commit_inner(mut self, want_digest: bool) -> Result<Option<String>> {
+    fn commit_inner(
+        mut self,
+        want_digest: bool,
+        check: impl FnOnce(&Path) -> std::io::Result<()>,
+    ) -> Result<Option<String>> {
         let file = self.file.take().expect("writer is open until commit");
-        let result = self.finish(file, want_digest);
+        let result = self.finish(file, want_digest, check);
         // Unpublished: the temp is all there is to clean. Published with a later error: the
         // temp name is already gone (rename), or it is a leftover second name for the
         // published inode (link fallback), and removing it again is correct and harmless.
@@ -531,8 +546,13 @@ impl AtomicWriter {
         result
     }
 
-    /// Flush, publish, then complete the post-publication steps in a fixed order.
-    fn finish(&self, file: File, want_digest: bool) -> Result<Option<String>> {
+    /// Flush, check, publish, then complete the post-publication steps in a fixed order.
+    fn finish(
+        &self,
+        file: File,
+        want_digest: bool,
+        check: impl FnOnce(&Path) -> std::io::Result<()>,
+    ) -> Result<Option<String>> {
         if self.options.durable {
             durable_sync(&file).map_err(|e| FsError::io(&self.temp, e))?;
             #[cfg(feature = "testing")]
@@ -550,6 +570,10 @@ impl AtomicWriter {
             let _ = want_digest;
             None
         };
+
+        // Caller's gate on the flushed temp file. A failure here is before publication: the
+        // destination is untouched and the caller's `commit` path removes the temp file.
+        check(&self.temp).map_err(|e| FsError::io(&self.temp, e))?;
 
         // The one step that publishes. An error here means nothing was published.
         let published = publish(&self.temp, &self.target, self.options)?;
