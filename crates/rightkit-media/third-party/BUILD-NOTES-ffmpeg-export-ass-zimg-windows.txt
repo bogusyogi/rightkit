@@ -192,3 +192,15 @@ To reproduce (MSYS2 MINGW64 shell, from rightkit/crates/rightkit-media):
     --sources <src-dir> --work <work-dir> --out <out-dir>
   recipes/build-ffmpeg-windows.sh build --variant decode --tool ffprobe ... (PYTHON only)
 or dispatch the ffmpeg-windows workflow with variant and tool.
+
+Promotion evidence (2026-10-12).
+On the windows-2025 runner, tests/promote_evidence_windows.rs ran on the binaries the ffmpeg-windows
+workflow built (runs 38173732506 ffprobe, 38173734903 ffmpeg): digests, content digests and sizes
+equal to the catalog rows; ffprobe read a WAV; h264_mf (Microsoft software encoder), subtitles,
+drawtext and zscale + tonemap each gave 25 H.264 frames.
+Supplementary, on a Dell laptop (RTX 4070 Laptop GPU, Intel Iris Xe), with the artifacts of those two
+runs: digests and sizes were verified against the catalog rows before anything was run. With
+-hw_encoding 1 FFmpeg's log named the encoder "NVIDIA H.264 Encoder MFT"; the four smokes gave 25
+frames each. With -hw_encoding 0 ("H264 Encoder MFT") the results matched the runner's. The CI
+ffprobe read these MP4/H.264 files (codec, pixel format, size, counted frames).
+Not covered: Intel Quick Sync, hevc_mf, aac_mf, long clips, real camera footage, colour accuracy.
