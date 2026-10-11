@@ -756,6 +756,185 @@ fn six_hundred_fonts_naming_one_large_cmap_share_one_page_budget() {
     inspect_guarded("font_flood", pdf);
 }
 
+#[test]
+fn adjacent_operands_and_operators_are_refused_before_they_are_parsed() {
+    // `0q0q0q...` is an operand and an operator per two bytes with nothing between them, so a count
+    // of whitespace-separated runs sees one token for the whole stream. The page budget charges the
+    // bytes, which cannot undercount: each pattern is a little over the 2^23 a page may parse.
+    for pattern in ["0q", "-1q", "[0]Q"] {
+        let content = pattern.repeat((1 << 23) / pattern.len() + 1);
+        let pdf = one_page(
+            |d| simple_font(d, 32, 126, vec![500.into(); 95]),
+            content.as_bytes(),
+            false,
+            |_, _, _| {},
+        );
+        let outcome = guarded("adjacent_flood", move || {
+            page_graph_from_bytes(&pdf, 1)
+                .map(|graph| graph.islands.len())
+                .map_err(|error| error.code())
+        });
+        assert_eq!(outcome, Err("malformed_content"), "{pattern}: {outcome:?}");
+    }
+}
+
+// -------------------------------------------------------------------------------------------
+// Inherited page attributes are shared, not copied per page (fifth Astra read, finding 15)
+// -------------------------------------------------------------------------------------------
+
+/// `pages` pages under one `/Pages` node that holds a direct `/Resources` of `names` XObjects (each
+/// a nested dictionary with an array), a direct `/MediaBox` and a `/Rotate`. The first page has a
+/// `/Resources` of its own. Counted shallowly the node's `/Resources` is one entry; copied, it is
+/// `pages * names * 3` of them.
+#[cfg(feature = "merge")]
+fn pages_inheriting_nested_resources(pages: usize, names: usize) -> Vec<u8> {
+    let mut doc = Document::with_version("1.7");
+    let pages_id = doc.new_object_id();
+    let mut xobjects = Dictionary::new();
+    for n in 0..names {
+        xobjects.set(
+            format!("X{n}"),
+            Object::Dictionary(dictionary! {
+                "Subtype" => "Form",
+                "BBox" => Object::Array(vec![
+                    Object::Integer(0),
+                    Object::Integer(0),
+                    Object::Integer(1),
+                    Object::Integer(1),
+                ]),
+            }),
+        );
+    }
+    let mut kids = Vec::new();
+    for n in 0..pages {
+        let mut page = dictionary! { "Type" => "Page", "Parent" => pages_id };
+        if n == 0 {
+            page.set("Resources", Object::Dictionary(Dictionary::new()));
+        }
+        kids.push(Object::Reference(doc.add_object(page)));
+    }
+    doc.objects.insert(
+        pages_id,
+        Object::Dictionary(dictionary! {
+            "Type" => "Pages",
+            "Kids" => Object::Array(kids),
+            "Count" => Object::Integer(pages as i64),
+            "MediaBox" => Object::Array(vec![
+                Object::Integer(0),
+                Object::Integer(0),
+                Object::Integer(612),
+                Object::Integer(792),
+            ]),
+            "Rotate" => Object::Integer(90),
+            "Resources" => dictionary! { "XObject" => Object::Dictionary(xobjects) },
+        }),
+    );
+    let catalog = doc.add_object(dictionary! { "Type" => "Catalog", "Pages" => pages_id });
+    doc.trailer.set("Root", catalog);
+    save(doc)
+}
+
+#[cfg(feature = "merge")]
+#[test]
+fn a_large_inherited_resource_dictionary_is_shared_by_reference_not_cloned_per_page() {
+    use std::collections::BTreeSet;
+
+    use rightkit_pdf::merge::merge_pdfs;
+
+    let input = pages_inheriting_nested_resources(400, 2_000);
+    let merged = guarded("merge_inherited", {
+        let input = input.clone();
+        move || merge_pdfs(&[&input])
+    })
+    .expect("merges");
+    // One copy of the 2 000 entries, not 399 more: copied per page the output would be about
+    // 400 times the input.
+    assert!(
+        merged.len() < input.len() * 2,
+        "{} bytes from {}",
+        merged.len(),
+        input.len()
+    );
+
+    let doc = Document::load_mem(&merged).expect("reloads");
+    let pages = doc.get_pages();
+    assert_eq!(pages.len(), 400);
+    let (mut resources, mut boxes) = (BTreeSet::new(), BTreeSet::new());
+    for (number, id) in &pages {
+        let page = doc.get_object(*id).expect("page").as_dict().expect("dict");
+        if *number == 1 {
+            // A page's own value is left alone.
+            assert!(
+                matches!(page.get(b"Resources"), Ok(Object::Dictionary(own)) if own.is_empty()),
+                "{:?}",
+                page.get(b"Resources")
+            );
+        } else {
+            match page.get(b"Resources").expect("resources") {
+                Object::Reference(target) => {
+                    resources.insert(*target);
+                }
+                other => panic!("page {number}: copied onto the page: {other:?}"),
+            }
+        }
+        match page.get(b"MediaBox").expect("box") {
+            Object::Reference(target) => {
+                boxes.insert(*target);
+            }
+            other => panic!("page {number}: box copied onto the page: {other:?}"),
+        }
+        // A number costs nothing to copy and stays direct.
+        assert!(matches!(page.get(b"Rotate"), Ok(Object::Integer(90))));
+    }
+    assert_eq!(resources.len(), 1, "one shared /Resources");
+    assert_eq!(boxes.len(), 1, "one shared /MediaBox");
+
+    // And it is the whole dictionary, nested content included.
+    let shared = *resources.iter().next().expect("one");
+    let shared = doc
+        .get_object(shared)
+        .expect("shared")
+        .as_dict()
+        .expect("dict");
+    let xobjects = shared
+        .get(b"XObject")
+        .expect("xobject")
+        .as_dict()
+        .expect("dict");
+    assert_eq!(xobjects.len(), 2_000);
+    let first = xobjects
+        .get(b"X0")
+        .expect("X0")
+        .as_dict()
+        .expect("form")
+        .get(b"BBox")
+        .expect("bbox")
+        .as_array()
+        .expect("array");
+    assert_eq!(first.len(), 4);
+}
+
+#[cfg(feature = "merge")]
+#[test]
+fn selecting_one_page_of_many_does_not_materialize_a_copy_per_page() {
+    use rightkit_pdf::merge::select_pages;
+
+    let input = pages_inheriting_nested_resources(400, 2_000);
+    let picked = guarded("select_inherited", {
+        let input = input.clone();
+        move || select_pages(&input, &[2])
+    })
+    .expect("selects");
+    assert!(
+        picked.len() < input.len() * 2,
+        "{} bytes from {}",
+        picked.len(),
+        input.len()
+    );
+    let doc = Document::load_mem(&picked).expect("reloads");
+    assert_eq!(doc.get_pages().len(), 1);
+}
+
 // -------------------------------------------------------------------------------------------
 // Sanity: the guard itself fails loudly
 // -------------------------------------------------------------------------------------------

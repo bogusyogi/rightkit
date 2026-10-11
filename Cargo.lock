@@ -5606,6 +5606,7 @@ dependencies = [
  "image",
  "lopdf 0.44.0",
  "pdf-extract",
+ "rightkit-fs",
  "serde",
  "serde_json",
  "sha2 0.11.0",

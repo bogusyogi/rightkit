@@ -8,7 +8,6 @@ use std::rc::Rc;
 use rightkit_fs::atomic::testing::on_replace;
 use rightkit_fs::atomic::{
     ReplaceApi, ReplaceCall, MOVEFILE_REPLACE_EXISTING, MOVEFILE_WRITE_THROUGH,
-    REPLACEFILE_WRITE_THROUGH,
 };
 use rightkit_fs::{atomic_write_with_options, AtomicWriteOptions, ReplaceMode};
 
@@ -50,9 +49,8 @@ fn the_flags_each_mode_hands_the_os() {
     for durable in [true, false] {
         let rename = capture(&existing, ReplaceMode::Rename, durable);
         let moved = capture(&existing, ReplaceMode::MoveWriteThrough, durable);
-        let on_existing = capture(&existing, ReplaceMode::ReplaceFile, durable);
         let missing = dir.path().join(format!("missing-{durable}.bin"));
-        let on_missing = capture(&missing, ReplaceMode::ReplaceFile, durable);
+        let moved_to_missing = capture(&missing, ReplaceMode::MoveWriteThrough, durable);
         let exclusive_target = dir.path().join(format!("exclusive-{durable}.bin"));
         let exclusive = capture(&exclusive_target, ReplaceMode::NoReplace, durable);
         assert_eq!(
@@ -68,7 +66,6 @@ fn the_flags_each_mode_hands_the_os() {
                 if durable { MOVEFILE_WRITE_THROUGH } else { 0 },
                 "NoReplace must not pass MOVEFILE_REPLACE_EXISTING, durable={durable}"
             );
-            let through = if durable { MOVEFILE_WRITE_THROUGH } else { 0 };
             // Rename stays std::fs::rename (POSIX replace semantics); only MoveWriteThrough moves with
             // MoveFileExW.
             assert_eq!(
@@ -82,26 +79,14 @@ fn the_flags_each_mode_hands_the_os() {
                 MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH,
                 "MoveWriteThrough, durable={durable}"
             );
-            assert_eq!(on_existing.api, ReplaceApi::ReplaceFile);
-            // `ReplaceFileW` has no supported write-through: Microsoft documents
-            // REPLACEFILE_WRITE_THROUGH as "not supported", so no mode ever passes it.
+            assert_eq!(moved_to_missing.api, ReplaceApi::MoveFileEx);
             assert_eq!(
-                on_existing.flags, 0,
-                "ReplaceFile over an existing file, durable={durable}"
-            );
-            assert_eq!(
-                on_existing.flags & REPLACEFILE_WRITE_THROUGH,
-                0,
-                "the unsupported flag must never be passed"
-            );
-            assert_eq!(on_missing.api, ReplaceApi::MoveFileEx);
-            assert_eq!(
-                on_missing.flags,
-                MOVEFILE_REPLACE_EXISTING | through,
-                "ReplaceFile first creation, durable={durable}"
+                moved_to_missing.flags,
+                MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH,
+                "MoveWriteThrough over a missing destination, durable={durable}"
             );
         } else {
-            for call in [&rename, &moved, &on_existing, &on_missing] {
+            for call in [&rename, &moved, &moved_to_missing] {
                 assert_eq!((call.api, call.flags), (ReplaceApi::Rename, 0));
             }
             assert_eq!(
@@ -114,11 +99,7 @@ fn the_flags_each_mode_hands_the_os() {
 
 #[test]
 fn an_injected_replace_failure_leaves_the_old_file_and_removes_the_temp() {
-    for mode in [
-        ReplaceMode::Rename,
-        ReplaceMode::ReplaceFile,
-        ReplaceMode::MoveWriteThrough,
-    ] {
+    for mode in [ReplaceMode::Rename, ReplaceMode::MoveWriteThrough] {
         for private in [false, true] {
             let dir = tempfile::tempdir().unwrap();
             let target = dir.path().join("state.json");

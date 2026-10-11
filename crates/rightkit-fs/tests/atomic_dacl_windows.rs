@@ -4,8 +4,8 @@
 //! The reference is the DACL the crate gives a fresh private file (`restrict_owner_only`: one
 //! protected, non-inherited ACE for the current user). Every private write must end with that same
 //! SDDL, whether the destination was missing, already private, or broad (a different DACL from the
-//! temp's). `ReplaceFileW` documents that the replaced file keeps the DESTINATION's attributes and
-//! ACLs, so the broad-destination case is the one that can leave a private write too open.
+//! temp's). Every mode publishes by moving the temp file, which carries its own DACL, so the
+//! broad-destination case must still end owner-only.
 //!
 //! The observed SDDL of each case is printed (run with `--nocapture`) so a qualification run records
 //! what the Windows build did.
@@ -212,16 +212,11 @@ fn move_write_through_mode_leaves_private_writes_owner_only() {
     check(ReplaceMode::MoveWriteThrough);
 }
 
-#[test]
-fn replace_file_mode_leaves_private_writes_owner_only() {
-    check(ReplaceMode::ReplaceFile);
-}
-
 /// Informational: a NON-private write over a private destination. Not asserted; it records which
-/// DACL each mode keeps (`ReplaceFileW` keeps the destination's, a rename takes the temp's).
+/// DACL each mode keeps (a rename and a move both take the temp's).
 #[test]
 fn record_plain_write_over_private_destination() {
-    for mode in [ReplaceMode::Rename, ReplaceMode::ReplaceFile] {
+    for mode in [ReplaceMode::Rename, ReplaceMode::MoveWriteThrough] {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("kept.bin");
         private_write(&path, mode, b"private");
@@ -244,11 +239,7 @@ fn privacy_variants_on_windows() {
     let dir = tempfile::tempdir().unwrap();
     let reference = reference_sddl(dir.path());
     println!("build: {}", windows_build());
-    for mode in [
-        ReplaceMode::Rename,
-        ReplaceMode::ReplaceFile,
-        ReplaceMode::MoveWriteThrough,
-    ] {
+    for mode in [ReplaceMode::Rename, ReplaceMode::MoveWriteThrough] {
         let write = |name: &str, privacy: Privacy, over_private: bool| {
             let path = dir.path().join(name);
             if over_private {

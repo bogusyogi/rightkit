@@ -66,11 +66,18 @@ const MAX_FONT_ENCODING_BYTES: usize = 16 * 1024 * 1024;
 /// what is left is ever allocated, and only one decoded stream is held at a time.
 pub(crate) const MAX_PAGE_CONTENT_BYTES: usize = 64 * 1024 * 1024;
 
-/// Most content-stream tokens (operators, numbers, names, strings, array and dictionary openers)
-/// one page may present across all its streams. Each token costs one parsed object, so this is the
-/// bound on what `Content::decode` may allocate. It is checked from a byte scan **before** the
-/// parse (see [`token_upper_bound`]). Real pages (vector maps included) stay far below it; a
-/// hostile stream of one-byte operators or `()()()...` does not.
+/// Most content-stream bytes one page may **parse** across all its streams, charged one byte per
+/// possible token (the field is still called `tokens`). Every object `Content::decode` builds - an
+/// operator, a number, a name, a string, an array or dictionary - starts at a byte of its own, so
+/// the number of objects can never exceed the number of bytes: `0q0q0q...` is one object per byte,
+/// and no byte scan that guessed at token boundaries could be sure of counting it. Charging the
+/// bytes themselves cannot undercount, needs no scan, and is charged **before** the parse allocates.
+///
+/// This is the tighter of the two page limits ([`MAX_PAGE_CONTENT_BYTES`] bounds only the decode
+/// buffer). Real pages (a dense text page is tens to hundreds of kilobytes, a vector map a few
+/// megabytes) stay below it; a page whose decoded content is larger is refused as malformed. What
+/// a hostile stream can make `Content::decode` allocate is therefore at most this many `lopdf`
+/// objects; the memory that is per object has not been measured.
 pub(crate) const MAX_CONTENT_TOKENS_PER_PAGE: usize = 1 << 23;
 
 /// Most glyphs one page may decode. A dense page holds tens of thousands; a hostile content stream
@@ -196,33 +203,6 @@ pub(crate) fn load_pdf(bytes: &[u8]) -> Result<Document, lopdf::Error> {
     )
 }
 
-/// Upper bound on the number of objects `Content::decode` can build from `bytes`: the count of
-/// maximal runs of regular characters (every operator, number, keyword and the body of a name is
-/// one) plus one for each byte that opens a string, hex string, array or name. Every operator and
-/// every operand starts at one of those, so the real count is never larger; strings and comments
-/// are not skipped, which only over-counts. A byte scan, so it allocates nothing.
-pub(crate) fn token_upper_bound(bytes: &[u8]) -> usize {
-    let mut count = 0usize;
-    let mut in_run = false;
-    for &byte in bytes {
-        match byte {
-            b'(' | b'<' | b'[' | b'/' => {
-                count += 1;
-                // A name's body belongs to the name, not to a second token.
-                in_run = byte == b'/';
-            }
-            b')' | b'>' | b']' | b'{' | b'}' | b'%' | 0 | 9 | 10 | 12 | 13 | 32 => in_run = false,
-            _ => {
-                if !in_run {
-                    count += 1;
-                    in_run = true;
-                }
-            }
-        }
-    }
-    count
-}
-
 /// What one page may still decode and parse from its content streams (see
 /// [`MAX_PAGE_CONTENT_BYTES`] and [`MAX_CONTENT_TOKENS_PER_PAGE`]). Every place that expands page
 /// content - inspection, composition, the isolation wrapper's balance count - charges one of these
@@ -267,12 +247,13 @@ impl ContentBudget {
         Ok(bytes)
     }
 
-    /// Parses `bytes` into operations after charging their token bound. `strict` selects the
-    /// composer's strict decoder over the walker's lenient one.
+    /// Parses `bytes` into operations after charging one token per byte (see
+    /// [`MAX_CONTENT_TOKENS_PER_PAGE`]). `strict` selects the composer's strict decoder over the
+    /// walker's lenient one.
     pub(crate) fn parse(&mut self, bytes: &[u8], strict: bool) -> Result<Content, PdfEditError> {
         self.tokens = self
             .tokens
-            .checked_sub(token_upper_bound(bytes))
+            .checked_sub(bytes.len())
             .ok_or(PdfEditError::MalformedContent)?;
         let content = if strict {
             Content::decode_strict(bytes)
@@ -2164,6 +2145,17 @@ struct GlyphSpacing {
     /// A text-positioning or state operator (`Td`, `Tm`, `Tf`, `cm`, `q`, ...) ran between the
     /// previous show operator and this one.
     break_before: bool,
+    /// The string is shown by `'` or `"`, which move to the next line as well (see
+    /// [`is_line_moving_show`]).
+    line_move: bool,
+}
+
+/// True for the show operators that also move to the next line: `'` and `"`. A `TJ` number can
+/// carry a glyph's pen advance but not that line move, so the composer refuses to remove glyphs
+/// they show (`compose::remove_glyphs_keeping_pen`), and inspection must not advertise a
+/// substitution edit for text they show (`substitution_editable`). Both read this one predicate.
+pub(crate) fn is_line_moving_show(operator: &str) -> bool {
+    matches!(operator, "'" | "\"")
 }
 
 type SpacingKey = ((u32, u16), u32, u32, u32);
@@ -2525,6 +2517,13 @@ fn walk_stream(
             }
             _ => {}
         }
+
+        // `'` and `"` show their string as operand 0 of the operator.
+        if is_line_moving_show(&op.operator) {
+            if let Some(entry) = spacing.get_mut(&spacing_key(&source)) {
+                entry.line_move = true;
+            }
+        }
     }
 
     Ok(WalkState {
@@ -2595,6 +2594,7 @@ fn show_operand(
                 horizontal_scale: text_state.horizontal_scale,
                 preceding,
                 break_before: false,
+                line_move: false,
             },
         );
     }
@@ -3160,10 +3160,18 @@ fn build_island(
 
     let edit_blocker = island_edit_blocker(&run, &spans, &items, fonts, spacing);
     // The composer removes the old glyphs from one content stream per edit and refuses an island
-    // whose spans live in several, so a catalog-font substitution is only promised for one stream.
-    let substitution_editable = spans.iter().all(|span| {
+    // whose spans live in several, and refuses glyphs shown by `'` or `"` (a `TJ` number cannot carry
+    // their line move): a catalog-font substitution is only promised when neither applies. The
+    // second test reads the predicate the composer's refusal reads.
+    let one_stream = spans.iter().all(|span| {
         span.stream_ref == spans[0].stream_ref && span.contents_index == spans[0].contents_index
     });
+    let shown_by_line_move = run.iter().any(|glyph| {
+        spacing
+            .get(&glyph_spacing_key(&glyph.source))
+            .is_some_and(|glyph_spacing| glyph_spacing.line_move)
+    });
+    let substitution_editable = one_stream && !shown_by_line_move;
     let first_spacing = spacing.get(&glyph_spacing_key(&first.source)).cloned();
     let layout = first_spacing.map(|glyph_spacing| IslandLayout {
         axis: glyph_axis(first),
@@ -4656,9 +4664,28 @@ mod tests {
         assert_eq!(pen_adjustment(f64::NAN, 12.0), None);
     }
 
+    /// The objects `Content::decode` built: each operation, each operand, and the items of every
+    /// array and dictionary operand.
+    fn objects_built(content: &Content) -> usize {
+        fn count(object: &Object) -> usize {
+            match object {
+                Object::Array(items) => 1 + items.iter().map(count).sum::<usize>(),
+                Object::Dictionary(dict) => 1 + dict.iter().map(|(_, v)| count(v)).sum::<usize>(),
+                _ => 1,
+            }
+        }
+        content
+            .operations
+            .iter()
+            .map(|op| 1 + op.operands.iter().map(count).sum::<usize>())
+            .sum()
+    }
+
     #[test]
-    fn finding10_the_token_bound_never_undercounts_what_the_parser_builds() {
-        let samples: [&[u8]; 6] = [
+    fn finding14_the_parser_never_builds_more_objects_than_it_has_bytes() {
+        // The charge is one token per byte, so it is only sound if no input makes the parser build
+        // more objects than bytes. These parse, and the count is checked.
+        let parses: [&[u8]; 6] = [
             b"BT /F1 12 Tf 72 700 Td (Hello) Tj ET",
             b"[(a)(b)(c)]TJ",
             b"q q q Q Q Q",
@@ -4666,32 +4693,62 @@ mod tests {
             b"<< /MCID 0 >> BDC EMC",
             b"(x)'(y)'",
         ];
-        for sample in samples {
+        for sample in parses {
             let parsed = Content::decode(sample).expect("parses");
-            let objects: usize = parsed
-                .operations
-                .iter()
-                .map(|op| {
-                    1 + op
-                        .operands
-                        .iter()
-                        .map(|o| match o {
-                            Object::Array(items) => 1 + items.len(),
-                            _ => 1,
-                        })
-                        .sum::<usize>()
-                })
-                .sum();
+            let objects = objects_built(&parsed);
             assert!(
-                token_upper_bound(sample) >= objects,
-                "{:?}: bound {} < {}",
+                objects <= sample.len(),
+                "{:?}: {objects} objects from {} bytes",
                 String::from_utf8_lossy(sample),
-                token_upper_bound(sample),
-                objects
+                sample.len()
             );
         }
-        // A flood of empty strings has no regular characters at all and is still counted.
-        assert_eq!(token_upper_bound(&b"()".repeat(1000)), 1000);
+        // Operands and operators with no whitespace between them (the shape the old run-counting
+        // bound saw as one token), signs, nested containers and bare names. Whether the parser
+        // accepts each is the parser's business; what it builds, if anything, is counted.
+        let hostile: [&[u8]; 7] = [
+            b"0q0q0q0q0q0q0q0q",
+            b"-1q+2Q.5q-.5Q",
+            b"[0][0]Q[0][0]q",
+            b"[[0]]Q[[1]]q",
+            b"()()()()Tj",
+            b"/A/B/C/D/E/F",
+            b"<</A 0/B[1 2]>>BDC",
+        ];
+        for sample in hostile {
+            if let Ok(parsed) = Content::decode(sample) {
+                assert!(
+                    objects_built(&parsed) <= sample.len(),
+                    "{:?}",
+                    String::from_utf8_lossy(sample)
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn finding14_adjacent_operands_and_operators_are_charged_by_the_byte_before_parsing() {
+        // `0q` repeated is an operand and an operator per two bytes with no whitespace: a count of
+        // runs of regular characters saw one run for the whole stream and let it through.
+        let units: [&[u8]; 5] = [b"0q", b"-1q", b"[0]Q", b"()Tj", b"/A/B"];
+        for unit in units {
+            let flood = unit.repeat(MAX_CONTENT_TOKENS_PER_PAGE / unit.len() + 1);
+            assert!(flood.len() > MAX_CONTENT_TOKENS_PER_PAGE);
+            for strict in [false, true] {
+                assert!(
+                    matches!(
+                        ContentBudget::new().parse(&flood, strict),
+                        Err(PdfEditError::MalformedContent)
+                    ),
+                    "{:?} strict={strict}",
+                    String::from_utf8_lossy(unit)
+                );
+            }
+        }
+        // Within the page, what is parsed is charged byte for byte, whatever the parser made of it.
+        let mut budget = ContentBudget::new();
+        let _ = budget.parse(&b"0q".repeat(10), false);
+        assert_eq!(budget.tokens, MAX_CONTENT_TOKENS_PER_PAGE - 20);
     }
 
     #[test]

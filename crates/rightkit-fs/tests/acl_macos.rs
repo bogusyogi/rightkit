@@ -4,11 +4,14 @@
 //! `everyone allow read,file_inherit,directory_inherit` would make every `0600` file created
 //! below it readable by everyone.
 //!
-//! The crate reads the parent's ACL before it creates anything private and refuses
-//! (`FsError::UnsafeAcl`) when an inheritable `allow` entry would be handed on, then removes any
-//! ACL the new entry got anyway. These tests make the ACLs with `/bin/chmod +a`, read them back
-//! with `/bin/ls -lde`, and need a macOS volume that holds ACLs (APFS does). They have not been
-//! run in the tree that wrote them.
+//! One predicate decides everything: an ACL is unsafe iff it has an `allow` entry; a `deny` entry
+//! cannot widen access, so deny-only ACLs pass. The crate reads the parent's ACL before it creates
+//! anything private and refuses (`FsError::UnsafeAcl`) when an inheritable `allow` entry would be
+//! handed on. A new entry that carries an `allow` entry anyway is removed while still empty and
+//! refused. No ACL is ever removed from an inode (that cannot revoke a descriptor already open),
+//! and `restrict_owner_only` refuses an entry that has an `allow` entry instead of repairing it.
+//! These tests make the ACLs with `/bin/chmod +a`, read them back with `/bin/ls -lde`, and need a
+//! macOS volume that holds ACLs (APFS does). They have not been run in the tree that wrote them.
 
 #![cfg(target_os = "macos")]
 
@@ -41,6 +44,13 @@ fn add_acl(path: &Path, entry: &str) {
         .status()
         .unwrap();
     assert!(status.success(), "chmod +a {entry:?} {}", path.display());
+}
+
+/// Whether any of `path`'s ACL entries is an `allow` entry.
+fn has_allow_entry(path: &Path) -> bool {
+    acl_entries(path)
+        .iter()
+        .any(|line| line.contains(" allow "))
 }
 
 /// The ACL entry lines `ls -lde` prints under the file line (` 0: group:everyone allow read`).
@@ -175,53 +185,138 @@ fn a_lock_file_is_refused_under_an_inheriting_parent() {
     assert!(!parent.join("x.lock").exists());
 }
 
-/// An allow entry that is not inheritable cannot reach a new entry, and an inheritable deny entry
-/// cannot widen access: both are accepted, and whatever the new file inherited is removed.
+/// An entry that is not inheritable cannot reach a new entry: the write is accepted and the new
+/// file ends without an ACL.
 #[test]
-fn entries_that_cannot_widen_access_are_accepted_and_the_new_file_ends_without_an_acl() {
+fn a_non_inheritable_entry_is_accepted_and_the_new_file_has_no_acl() {
+    let entry = "everyone allow read";
+    let (_g, parent) = parent_with(entry);
+    let target = parent.join("secret");
+    atomic_write_with_options(&target, private_options()[0], |f| f.write_all(b"secret"))
+        .unwrap_or_else(|e| panic!("{entry}: {e:?}"));
+    assert_eq!(std::fs::read(&target).unwrap(), b"secret");
+    assert!(
+        acl_entries(&target).is_empty(),
+        "{entry}: {:?}",
+        acl_entries(&target)
+    );
+    let file = create_private_new(&parent.join("log")).unwrap();
+    drop(file);
+    assert!(acl_entries(&parent.join("log")).is_empty(), "{entry}");
+}
+
+/// A deny entry cannot widen access, so a parent whose only inheritable entry is a deny entry is
+/// accepted (as 0.3.3 accepted it): every private creation works, nothing is refused, and the new
+/// entries carry no `allow` entry. (The deny entry used is harmless to this crate's own writes.)
+#[test]
+fn an_inheritable_deny_entry_is_accepted() {
+    use std::os::unix::fs::PermissionsExt;
+    let (_g, parent) = parent_with("everyone deny writeextattr,file_inherit,directory_inherit");
+    for options in private_options() {
+        let target = parent.join(format!("secret-{:?}", options.privacy));
+        atomic_write_with_options(&target, options, |f| f.write_all(b"secret"))
+            .unwrap_or_else(|e| panic!("{options:?}: {e:?}"));
+        assert_eq!(std::fs::read(&target).unwrap(), b"secret");
+        assert_eq!(
+            std::fs::metadata(&target).unwrap().permissions().mode() & 0o777,
+            0o600
+        );
+        assert!(!has_allow_entry(&target), "{:?}", acl_entries(&target));
+    }
+    drop(create_private_new(&parent.join("log")).expect("create_private_new accepts deny-only"));
+    assert!(!has_allow_entry(&parent.join("log")));
+    ensure_private_dir(&parent.join("dir")).expect("ensure_private_dir accepts deny-only");
+    assert!(!has_allow_entry(&parent.join("dir")));
+}
+
+/// An inheritable `allow` entry is refused (the guard), whether it is inherited by files only,
+/// directories only or both, and nothing is created.
+#[test]
+fn an_inheritable_allow_entry_is_refused_and_creates_nothing() {
     for entry in [
-        "everyone allow read",
-        "everyone deny delete,file_inherit,directory_inherit",
+        "everyone allow read,file_inherit",
+        "everyone allow read,directory_inherit",
+        INHERITING_ALLOW,
     ] {
         let (_g, parent) = parent_with(entry);
-        let target = parent.join("secret");
-        atomic_write_with_options(&target, private_options()[0], |f| f.write_all(b"secret"))
-            .unwrap_or_else(|e| panic!("{entry}: {e:?}"));
-        assert_eq!(std::fs::read(&target).unwrap(), b"secret");
+        let error = atomic_write_with_options(&parent.join("secret"), private_options()[0], |f| {
+            f.write_all(b"secret")
+        })
+        .expect_err(entry);
+        assert!(matches!(error, FsError::UnsafeAcl(_)), "{entry}: {error:?}");
+        let error = create_private_new(&parent.join("log")).expect_err(entry);
+        assert!(matches!(error, FsError::UnsafeAcl(_)), "{entry}: {error:?}");
         assert!(
-            acl_entries(&target).is_empty(),
-            "{entry}: {:?}",
-            acl_entries(&target)
+            names(&parent).is_empty(),
+            "{entry}: nothing was created: {:?}",
+            names(&parent)
         );
-        let file = create_private_new(&parent.join("log")).unwrap();
-        drop(file);
-        assert!(acl_entries(&parent.join("log")).is_empty(), "{entry}");
     }
 }
 
-/// Repair and verification: a `0600` file with an ACL `allow` entry is not owner-only, and
-/// `restrict_owner_only` removes the entry although the mode bits were already right.
+/// Verification and refusal of an existing entry: a `0600` file with an ACL `allow` entry is not
+/// owner-only, and `restrict_owner_only` does not repair it. It narrows the mode, leaves the ACL
+/// where it is (removing it could not revoke a descriptor somebody already holds) and refuses.
 #[test]
-fn restrict_owner_only_removes_an_acl_the_mode_check_would_miss() {
+fn restrict_owner_only_refuses_an_allow_entry_and_leaves_the_acl_alone() {
     use std::os::unix::fs::PermissionsExt;
     let (_g, root) = tmp();
     let file = root.join("f");
     std::fs::write(&file, b"x").unwrap();
-    std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o600)).unwrap();
+    std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o644)).unwrap();
     add_acl(&file, "everyone allow read");
+    assert!(!is_owner_only_for_test(&file), "readable through the mode");
+    let error = restrict_owner_only(&file).expect_err("an allow entry is refused, not removed");
+    assert!(matches!(error, FsError::UnsafeAcl(_)), "{error:?}");
+    assert_eq!(
+        std::fs::metadata(&file).unwrap().permissions().mode() & 0o7777,
+        0o600,
+        "the mode was narrowed"
+    );
+    assert!(
+        has_allow_entry(&file),
+        "the ACL is still there: it is not repaired"
+    );
     assert!(
         !is_owner_only_for_test(&file),
         "mode 0600 but readable through the ACL"
     );
-    restrict_owner_only(&file).unwrap();
-    assert!(acl_entries(&file).is_empty(), "{:?}", acl_entries(&file));
-    assert!(is_owner_only_for_test(&file));
 
     let dir = root.join("d");
     std::fs::create_dir(&dir).unwrap();
     std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o700)).unwrap();
     add_acl(&dir, "everyone allow list,search");
     assert!(!is_owner_only_for_test(&dir));
-    restrict_owner_only(&dir).unwrap();
-    assert!(acl_entries(&dir).is_empty());
+    let error = restrict_owner_only(&dir).expect_err("refused");
+    assert!(matches!(error, FsError::UnsafeAcl(_)), "{error:?}");
+    assert!(has_allow_entry(&dir));
+}
+
+/// A deny-only ACL passes `restrict_owner_only` and `is_owner_only`, and is left where it is.
+#[test]
+fn restrict_owner_only_accepts_a_deny_only_acl() {
+    use std::os::unix::fs::PermissionsExt;
+    let (_g, root) = tmp();
+    let file = root.join("f");
+    std::fs::write(&file, b"x").unwrap();
+    std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o644)).unwrap();
+    add_acl(&file, "everyone deny writeextattr");
+    assert!(!is_owner_only_for_test(&file), "the mode is still 0644");
+    restrict_owner_only(&file).expect("a deny-only ACL does not widen access");
+    assert_eq!(
+        std::fs::metadata(&file).unwrap().permissions().mode() & 0o7777,
+        0o600
+    );
+    assert!(is_owner_only_for_test(&file), "0600 and no allow entry");
+    assert!(
+        !acl_entries(&file).is_empty(),
+        "the deny entry is left in place"
+    );
+
+    let dir = root.join("d");
+    std::fs::create_dir(&dir).unwrap();
+    std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o755)).unwrap();
+    add_acl(&dir, "everyone deny writeextattr");
+    restrict_owner_only(&dir).expect("a deny-only ACL does not widen access");
+    assert!(is_owner_only_for_test(&dir));
 }

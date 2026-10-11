@@ -5,18 +5,30 @@
 //! it is created. A parent that carries `everyone allow read,file_inherit` therefore makes every
 //! `0600` file created below it readable by everyone, whatever the mode says.
 //!
-//! The guarantee this module gives, on macOS (it is a no-op elsewhere, see below):
+//! This module only **reads** ACLs and **refuses**. It never changes one: removing an ACL from
+//! an inode cannot revoke access through a descriptor somebody already holds open, so a "repair"
+//! of an entry that was ever exposed would report success while the exposure stood.
 //!
-//! 1. **Before creating** a private file or directory, the parent's ACL is read. If it holds any
-//!    inheritable `allow` entry the creation is refused with [`FsError::UnsafeAcl`] and nothing
-//!    is created, so the new inode never exists with an ACL that admits another principal. (An
-//!    inheritable `deny` entry cannot widen access and is accepted.)
-//! 2. **After creating**, the new inode's own ACL is read through its descriptor and, if it has
-//!    any entry (the parent's ACL changed between step 1 and the creation), removed and read back.
-//!    If it cannot be removed the creation is refused with [`FsError::UnsafeAcl`] and the caller
-//!    removes the inode. This closes only the race; step 1 is what keeps the file clean.
-//! 3. **Repair and verification** of an existing inode ([`crate::restrict_owner_only`],
-//!    [`crate::private::is_owner_only`]) look at the ACL as well as the mode bits.
+//! **One predicate.** An ACL is unsafe for the owner-only guarantee exactly when it has at least
+//! one `allow` entry. A `deny` entry cannot widen access, so an ACL made only of `deny` entries
+//! passes everywhere below. An entry whose type cannot be read counts as `allow` (fail closed),
+//! and so does any type other than `deny`. The guarantee, on macOS (it is a no-op elsewhere, see
+//! below):
+//!
+//! 1. **Before creating** a private file or directory, the parent's ACL is read. If it holds an
+//!    inheritable (`file_inherit` or `directory_inherit`) `allow` entry the creation is refused
+//!    with [`FsError::UnsafeAcl`] and nothing is created, so the new inode never exists with an
+//!    `allow` entry it did not ask for. A non-inheritable `allow` entry, and any `deny` entry,
+//!    inheritable or not, pass.
+//! 2. **After creating**, the new inode's own ACL is read through its descriptor. If it has any
+//!    `allow` entry (the parent's ACL changed between step 1 and the creation), the creation is
+//!    refused with [`FsError::UnsafeAcl`] and the caller removes the inode, which is still empty
+//!    because no byte is written before this check. Nothing is filled into an inode that
+//!    inherited access. Inherited `deny` entries are left on the new inode.
+//! 3. **Existing entries** ([`crate::restrict_owner_only`], [`crate::private::is_owner_only`])
+//!    are inspected the same way: `restrict_owner_only` narrows the mode bits and then refuses an
+//!    entry that has an `allow` entry ([`FsError::UnsafeAcl`]); it does not remove it. A
+//!    deny-only entry succeeds, and `is_owner_only` is true for it when the mode bits allow.
 //!
 //! Linux and the other Unixes: this module does nothing. POSIX default ACLs on Linux are applied
 //! to a new file masked by the creation mode, and a `0600` creation sets the mask to `---`, so
@@ -24,7 +36,9 @@
 //! is not checked here. Other ACL models (FreeBSD NFSv4 ACLs) are not handled.
 //!
 //! Every ACL call below is declared by hand against `<sys/acl.h>` on macOS and none of it has been
-//! compiled or run in this tree's verification.
+//! compiled or run in this tree's verification. The declarations are, exactly: `acl_get_fd_np`,
+//! `acl_free`, `acl_get_entry`, `acl_get_tag_type`, `acl_get_flagset_np`, `acl_get_flag_np`. All
+//! six only read; no call that sets or frees-and-replaces an ACL is declared.
 
 use crate::error::{FsError, Result};
 use std::fs::File;
@@ -45,16 +59,15 @@ mod sys {
     const ACL_TYPE_EXTENDED: c_int = 0x0000_0100;
     const ACL_FIRST_ENTRY: c_int = 0;
     const ACL_NEXT_ENTRY: c_int = -1;
-    /// `ACL_EXTENDED_ALLOW`.
-    const ACL_EXTENDED_ALLOW: c_int = 1;
+    /// `ACL_EXTENDED_DENY`. (`ACL_EXTENDED_ALLOW` is 1; every tag other than this one counts as
+    /// an `allow` entry, so only this value is named.)
+    const ACL_EXTENDED_DENY: c_int = 2;
     /// `ACL_ENTRY_FILE_INHERIT` and `ACL_ENTRY_DIRECTORY_INHERIT`.
     const ACL_ENTRY_FILE_INHERIT: c_uint = 1 << 5;
     const ACL_ENTRY_DIRECTORY_INHERIT: c_uint = 1 << 6;
 
     extern "C" {
         fn acl_get_fd_np(fd: c_int, acl_type: c_int) -> Acl;
-        fn acl_set_fd_np(fd: c_int, acl: Acl, acl_type: c_int) -> c_int;
-        fn acl_init(count: c_int) -> Acl;
         fn acl_free(object: *mut c_void) -> c_int;
         fn acl_get_entry(acl: Acl, entry_id: c_int, entry: *mut Entry) -> c_int;
         fn acl_get_tag_type(entry: Entry, tag: *mut c_int) -> c_int;
@@ -93,34 +106,41 @@ mod sys {
         }
     }
 
-    /// True when `file` has an ACL with at least one entry.
-    pub fn has_acl(file: &File) -> io::Result<bool> {
+    /// True when `entry` is an `allow` entry: its type cannot be read (fail closed), or it is
+    /// anything but `ACL_EXTENDED_DENY`.
+    fn is_allow(entry: Entry) -> bool {
+        let mut tag: c_int = 0;
+        // SAFETY: `entry` belongs to a live ACL; `tag` is a valid out-parameter.
+        if unsafe { acl_get_tag_type(entry, &mut tag) } != 0 {
+            return true;
+        }
+        tag != ACL_EXTENDED_DENY
+    }
+
+    /// True when `file` has an ACL with at least one `allow` entry. A deny-only ACL is false.
+    pub fn has_allow_entry(file: &File) -> io::Result<bool> {
         let Some(acl) = read(file)? else {
             return Ok(false);
         };
-        let any = any_entry(acl, |_| true);
+        let any = any_entry(acl, is_allow);
         // SAFETY: `acl` came from `acl_get_fd_np` and is freed once.
         unsafe { acl_free(acl) };
         Ok(any)
     }
 
     /// True when the ACL of directory `dir` has an `allow` entry that a new file or directory
-    /// inherits. An entry whose type or flags cannot be read counts as inheritable (fail closed).
+    /// inherits. A `deny` entry never counts. An entry whose type or flags cannot be read counts
+    /// as an inheritable `allow` (fail closed).
     pub fn dir_inherits_allow(dir: &File) -> io::Result<bool> {
         let Some(acl) = read(dir)? else {
             return Ok(false);
         };
         let found = any_entry(acl, |entry| {
-            let mut tag: c_int = 0;
-            // SAFETY: `entry` belongs to the live `acl`; `tag` is a valid out-parameter.
-            if unsafe { acl_get_tag_type(entry, &mut tag) } != 0 {
-                return true;
-            }
-            if tag != ACL_EXTENDED_ALLOW {
+            if !is_allow(entry) {
                 return false;
             }
             let mut flags: Flagset = std::ptr::null_mut();
-            // SAFETY: as above; `flags` is a valid out-parameter.
+            // SAFETY: `entry` belongs to the live `acl`; `flags` is a valid out-parameter.
             if unsafe { acl_get_flagset_np(entry, &mut flags) } != 0 {
                 return true;
             }
@@ -137,25 +157,6 @@ mod sys {
         unsafe { acl_free(acl) };
         Ok(found)
     }
-
-    /// Replaces the ACL of `file` with an empty one, then reads it back: `Ok` only if none is left.
-    pub fn remove_acl(file: &File) -> io::Result<()> {
-        // SAFETY: `acl_init(0)` allocates an empty ACL that is freed below; the descriptor is open.
-        let empty = unsafe { acl_init(0) };
-        if empty.is_null() {
-            return Err(io::Error::last_os_error());
-        }
-        let rc = unsafe { acl_set_fd_np(file.as_raw_fd(), empty, ACL_TYPE_EXTENDED) };
-        let set_error = (rc != 0).then(io::Error::last_os_error);
-        unsafe { acl_free(empty) };
-        if let Some(error) = set_error {
-            return Err(error);
-        }
-        if has_acl(file)? {
-            return Err(io::Error::other("the ACL is still present after removal"));
-        }
-        Ok(())
-    }
 }
 
 #[cfg(not(target_os = "macos"))]
@@ -163,14 +164,11 @@ mod sys {
     use std::fs::File;
     use std::io;
 
-    pub fn has_acl(_file: &File) -> io::Result<bool> {
+    pub fn has_allow_entry(_file: &File) -> io::Result<bool> {
         Ok(false)
     }
     pub fn dir_inherits_allow(_dir: &File) -> io::Result<bool> {
         Ok(false)
-    }
-    pub fn remove_acl(_file: &File) -> io::Result<()> {
-        Ok(())
     }
 }
 
@@ -197,31 +195,29 @@ pub(crate) fn guard_parent_path(parent: &Path, shown: &Path) -> Result<()> {
     }
 }
 
-/// Step 2: the entry this call just created must carry no ACL of its own. Removes one that is
-/// there; an ACL that cannot be removed is [`FsError::UnsafeAcl`] and the caller removes the entry.
-pub(crate) fn scrub_created(file: &File, shown: &Path) -> Result<()> {
-    match sys::has_acl(file) {
+/// Step 2 (and step 3): `Ok` when `file` carries no `allow` ACL entry (no ACL at all, or only
+/// `deny` entries), [`FsError::UnsafeAcl`] when it carries one. Nothing is changed. For an entry
+/// this call just created the caller removes the (still empty) entry on `Err`; for an existing
+/// entry the caller leaves it as it is.
+pub(crate) fn refuse_acl(file: &File, shown: &Path) -> Result<()> {
+    match sys::has_allow_entry(file) {
         Ok(false) => Ok(()),
-        Ok(true) => sys::remove_acl(file).map_err(|_| FsError::UnsafeAcl(shown.to_path_buf())),
+        Ok(true) => Err(FsError::UnsafeAcl(shown.to_path_buf())),
         Err(e) => Err(FsError::io(shown, e)),
     }
 }
 
-/// [`scrub_created`] for a directory just created at `path` (off macOS: nothing to do).
-pub(crate) fn scrub_created_path(path: &Path) -> Result<()> {
+/// [`refuse_acl`] for a directory just created at `path` (off macOS: nothing to do).
+pub(crate) fn refuse_acl_path(path: &Path) -> Result<()> {
     if cfg!(not(target_os = "macos")) {
         return Ok(());
     }
     let dir = File::open(path).map_err(|e| FsError::io(path, e))?;
-    scrub_created(&dir, path)
+    refuse_acl(&dir, path)
 }
 
-/// Step 3: whether `file` carries an ACL (always false off macOS).
-pub(crate) fn has_acl(file: &File, shown: &Path) -> Result<bool> {
-    sys::has_acl(file).map_err(|e| FsError::io(shown, e))
-}
-
-/// Step 3: remove any ACL from `file`; [`FsError::UnsafeAcl`] if one stays.
-pub(crate) fn strip(file: &File, shown: &Path) -> Result<()> {
-    scrub_created(file, shown)
+/// Step 3: whether `file` carries an `allow` ACL entry (always false off macOS). A deny-only ACL
+/// is false.
+pub(crate) fn has_allow_acl(file: &File, shown: &Path) -> Result<bool> {
+    sys::has_allow_entry(file).map_err(|e| FsError::io(shown, e))
 }
