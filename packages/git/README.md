@@ -108,7 +108,7 @@ Both keys are opt-in; unset, the rendered workflows are byte-identical.
 
 ## Private Swift packages (ci, qualification, release-candidate, regenerate lanes)
 
-Set `swift.privatePackages` to let a public repository's workflows fetch a private Swift package mirror, for example `bogusyogi/rightkit-swift`:
+Set `swift.privatePackages` to let a public repository's workflows fetch a private Swift package, for example `example-org/private-swift-package`:
 
 ```json
 {
@@ -118,10 +118,10 @@ Set `swift.privatePackages` to let a public repository's workflows fetch a priva
 ```
 
 - `host` is a bare host name, unique within the list (at most four entries). `secret` is a GitHub Actions secret name (letters, digits, `_`; not starting with a digit or `GITHUB_`). The manifest needs at least one of the lanes `ci`, `qualification`, `release-candidate`, `regenerate`.
-- The secret must be a fine-grained token with `contents: read` on the mirror repository only, and nothing else. The repository owner provisions it; the workflow never prints it.
+- The secret must be a fine-grained token with `contents: read` on the private package repository only, and nothing else. The repository owner provisions it; the workflow never prints it.
 - One implementation renders everywhere. The configure step runs right before the first build or test step of the job. It writes `~/.netrc` (`machine <host> login x-access-token password <token>`, mode 600) and a job-scoped `git config --global url."https://x-access-token:<token>@<host>/".insteadOf "https://<host>/"`. The token reaches the step through `env` (`${{ secrets.<NAME> }}` in an `env:` block), never the run script.
 - It refuses to run when `~/.netrc` already exists, so a persistent self-hosted runner's own file is never overwritten. The cleanup step runs with `if: always()` after the last build or test step of the job, removes the `~/.netrc` and the git rewrite it created, and leaves a pre-existing file alone.
-- Any code that runs between the configure and cleanup steps in that job can read the token. Keep the mirror token read-only.
+- Any code that runs between the configure and cleanup steps in that job can read the token. Keep the token read-only.
 - Unset, the rendered workflows are byte-identical to earlier versions.
 - A run from a fork gets no secrets, so the configure step fails with a message that names the secret.
 - Refused with `devArtifact.dispatch: true`: a manual dispatch of any ref would reach the secret. Rendering the steps into a workflow triggered by `pull_request_target` or `workflow_run` throws; no shipped template has either trigger.

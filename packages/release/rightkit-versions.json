@@ -389,7 +389,8 @@
   "swift": {
     "rightkit-swift": {
       "url": "https://github.com/bogusyogi/rightkit-swift.git",
-      "version": "0.4.0"
+      "version": "0.4.0",
+      "retired": "Historical record of the last tag on the deleted private mirror. Readers ignore this field. Apps pin https://github.com/Orthic-Labs/rightkit at a plain semver tag (stagedSwift); this entry is replaced by that URL once its first tag is published."
     }
   },
   "stagedSwift": {

@@ -290,8 +290,6 @@ derives the package identity from the URL, so it is `rightkit` (not `RightKitSwi
 once per machine (a shared cache under `~/Library/Caches/org.swift.swiftpm`); only the resolved tag is checked out. The tools
 version is 6.1, so the consumer needs Xcode 16.3 or newer.
 
-The old mirror `github.com/bogusyogi/rightkit-swift` is retired once the apps have moved to this URL. Do not tag it again.
-
 A clone of a consuming app resolves this straight from GitHub — no workspace
 checkout required.
 
@@ -341,6 +339,6 @@ manifests together (`scripts/swift-root-manifest.test.mjs` fails on drift).
 
 ## Releasing a new version
 
-Bump `RightKitSwift/VERSION`, date the changelog section, let CI pass on that commit, then tag the commit `X.Y.Z`
-(plain semver). Record the version in `packages/release/rightkit-versions.json` (`stagedSwift`, then `swift` once
-published) so apps can bump their pin. The retired mirror `bogusyogi/rightkit-swift` is not tagged any more.
+Bump `RightKitSwift/VERSION`, date the changelog section, let CI pass on that commit, then run
+`right-release publish swift`, which tags that commit `X.Y.Z` (plain semver) and pushes the tag to `Orthic-Labs/rightkit`. Record the version in `packages/release/rightkit-versions.json` (`stagedSwift`, then `swift` once
+published) so apps can bump their pin.
