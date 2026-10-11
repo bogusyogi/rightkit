@@ -86,9 +86,10 @@ impl InstanceMessage {
 /// * a live-primary forward retries the connect for at most 2 s (20 attempts, 100 ms apart) and sends
 ///   once;
 /// * a legacy forward waits at most 5 s for the old holder to answer (Windows `SendMessageTimeoutW`
-///   with abort-if-hung; macOS write timeout);
+///   with abort-if-hung; macOS a 5 s write timeout, then 2 s for the holder to close the connection
+///   it was written to, see [`ClaimOutcome::Forwarded`]);
 /// * hosting the claim waits at most 5 s for an election;
-/// * so one `claim` call returns within about 12 s in the worst case.
+/// * so one `claim` call returns within about 14 s in the worst case.
 ///
 /// The crate enforces those bounds; the app enforces the rest (below). An app should show or log
 /// the reason, and on a variant it cannot recover from, start anyway after at most that bound rather
@@ -300,6 +301,15 @@ pub enum ClaimOutcome {
     /// This process is the primary. Keep the guard alive.
     Primary(SingleInstanceGuard),
     /// A live primary accepted this launch's message. Exit.
+    ///
+    /// For a legacy `tauri-plugin-single-instance` holder on macOS the plugin has no reply, so
+    /// "accepted" means it read the launch to its end and closed the connection, or, when it stayed
+    /// silent for 2 s, that its socket belongs to this app's own process. That silent case cannot be
+    /// told from a slow callback, so it is still `Forwarded` but is logged loudly on stderr as
+    /// "forwarded but NOT confirmed". A socket whose owning process has exited, or belongs to another
+    /// program and never answers, is not a holder (a descriptor leaked into a sidecar can keep such a
+    /// socket accepting after the app is gone): the claim carries on and this process can become the
+    /// primary.
     Forwarded,
     /// Arbitration could not be decided. Do not continue as a primary.
     Failed(ClaimFailure),
@@ -428,8 +438,11 @@ impl SingleInstance {
         if hold_identifier.is_none() {
             if let Some(identifier) = options.legacy_identifier.as_deref() {
                 let argv = message.argv.clone();
-                match crate::legacy_instance::forward(identifier, &argv, &message.cwd) {
-                    Ok(Some(())) => return ClaimOutcome::Forwarded,
+                match crate::legacy_instance::forward_checked(identifier, &argv, &message.cwd) {
+                    Ok(Some(delivery)) => {
+                        delivery.log_unconfirmed("SingleInstance::claim");
+                        return ClaimOutcome::Forwarded;
+                    }
                     Ok(None) => {}
                     Err(e) => return ClaimOutcome::Failed(ClaimFailure::Legacy(e)),
                 }
