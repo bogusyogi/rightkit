@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import crypto from "node:crypto";
 import { binary, fail, fakeRun, git, gitRepo, mkRepo, manifest, mockFetch, ok, validToolSource } from "./support.js";
@@ -504,7 +505,7 @@ describe("apply: tool", () => {
   });
 
   it("extracts the named member from an archive with the system tar", async () => {
-    const work = fs.mkdtempSync(path.join(fs.realpathSync(process.env.TMPDIR ?? "/tmp"), "right-update-tar-"));
+    const work = fs.mkdtempSync(path.join(fs.realpathSync.native(os.tmpdir()), "right-update-tar-"));
     fs.mkdirSync(path.join(work, "pkg/bin"), { recursive: true });
     fs.writeFileSync(path.join(work, "pkg/bin/helper"), "helper-binary");
     fs.writeFileSync(path.join(work, "pkg/bin/other"), "other");
