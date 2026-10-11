@@ -201,6 +201,7 @@ impl WhisperCoreMl {
 fn seg_from_secs(text: String, start: f32, end: f32) -> Segment {
     let to_samples = |s: f32| (s.max(0.0) as f64 * 16_000.0).round() as u64;
     Segment {
+        raw_text: text.clone(),
         text,
         start,
         end,

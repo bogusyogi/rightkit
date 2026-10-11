@@ -8,7 +8,7 @@ use std::time::{Duration, Instant};
 use rightkit_framed_sidecar::{
     read_json_line_or_oversized, write_json_line, FrameError, Incoming, ReadLimits,
 };
-use rightkit_process::{OwnedChild, OwnedCommand, ReapOutcome};
+use rightkit_process::{OwnedChild, OwnedCommand, ReapOutcome, WaitOutcome};
 use serde_json::{json, Value};
 
 use crate::contract::DEFAULT_FRAME_LIMIT;
@@ -183,6 +183,30 @@ struct Core {
     pending: PendingMap,
     next_id: AtomicU64,
     child: Mutex<Option<OwnedChild>>,
+    /// Dropped (after `exit` is recorded) once the child has been waited. Declared after
+    /// `child` so a client dropped with its child still attached reaps before releasing.
+    release: Mutex<Option<Box<dyn Send>>>,
+    exit: Mutex<ChildExit>,
+    exit_cv: Condvar,
+}
+
+/// What is known about the engine process an [`EngineClient`] owns.
+///
+/// `reaped` means the process was waited: it is neither running nor a zombie. Do not use
+/// `kill -0 <pid>` (or any signal-0 probe) to decide that a child of this process is gone:
+/// an exited child that has not been waited is a zombie and still answers it. Read this
+/// record, [`EngineClient::is_reaped`] or `ShutdownReport` from
+/// `EngineSupervisor::shutdown_detailed` instead.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct ChildExit {
+    /// Process id of the attached engine; `None` when no process was ever attached.
+    pub pid: Option<u32>,
+    /// True once the process has been waited (reaped).
+    pub reaped: bool,
+    /// True when the tree had to be killed rather than leaving by itself.
+    pub killed: bool,
+    /// Exit status when the wait observed one.
+    pub status: Option<std::process::ExitStatus>,
 }
 
 /// Shell-side client for an engine speaking the stdio contract. Multiplexes
@@ -351,6 +375,9 @@ impl EngineClient {
                 pending,
                 next_id: AtomicU64::new(1),
                 child: Mutex::new(None),
+                release: Mutex::new(None),
+                exit: Mutex::new(ChildExit::default()),
+                exit_cv: Condvar::new(),
             }),
             hello,
         })
@@ -401,7 +428,44 @@ impl EngineClient {
 
     /// Take ownership of the engine process so shutdown/kill/reap act on it.
     pub fn attach_child(&self, child: OwnedChild) {
+        self.core.exit.lock().unwrap_or_else(|e| e.into_inner()).pid = Some(child.id());
         *self.core.child.lock().unwrap_or_else(|e| e.into_inner()) = Some(child);
+    }
+
+    /// As [`Self::attach_child`]; `release` is dropped once the child has been waited.
+    pub(crate) fn attach_child_with(&self, child: OwnedChild, release: Box<dyn Send>) {
+        *self.core.release.lock().unwrap_or_else(|e| e.into_inner()) = Some(release);
+        self.attach_child(child);
+    }
+
+    /// The attached engine process's state: pid, whether it was waited, whether it was
+    /// killed, and its exit status when observed. See [`ChildExit`] for why this, and not
+    /// `kill -0`, is the liveness check for a child of this process.
+    pub fn child_exit(&self) -> ChildExit {
+        *self.core.exit.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    /// Exit status of the attached engine once it was waited and a status was observed.
+    pub fn exit_status(&self) -> Option<std::process::ExitStatus> {
+        self.child_exit().status
+    }
+
+    /// True when no process is attached or the attached one has been waited (not a zombie).
+    pub fn is_reaped(&self) -> bool {
+        let e = self.child_exit();
+        e.pid.is_none() || e.reaped
+    }
+
+    /// Block until the attached engine has been waited or `timeout` passes; true when
+    /// [`Self::is_reaped`]. Returns at once when no process is attached.
+    pub fn wait_reaped(&self, timeout: Duration) -> bool {
+        let g = self.core.exit.lock().unwrap_or_else(|e| e.into_inner());
+        let (g, _) = self
+            .core
+            .exit_cv
+            .wait_timeout_while(g, timeout, |e| e.pid.is_some() && !e.reaped)
+            .unwrap_or_else(|e| e.into_inner());
+        g.pid.is_none() || g.reaped
     }
 
     /// PID of the attached engine process, if any.
@@ -424,10 +488,12 @@ impl EngineClient {
             .lock()
             .unwrap_or_else(|e| e.into_inner())
             .take()?;
-        match child.terminate_tree_bounded(bound) {
+        let status = match child.terminate_tree_bounded(bound) {
             Ok(ReapOutcome::Exited(status)) => Some(status),
             _ => None,
-        }
+        };
+        self.core.retire(child, status, true);
+        status
     }
 
     /// Collect the engine's exit: wait up to `patience` for it to leave on its
@@ -440,12 +506,15 @@ impl EngineClient {
             .unwrap_or_else(|e| e.into_inner())
             .take()?;
         if let Ok(Some(status)) = child.wait_timeout(patience) {
+            self.core.retire(child, Some(status), false);
             return Some(status);
         }
-        match child.terminate_tree_bounded(patience) {
+        let status = match child.terminate_tree_bounded(patience) {
             Ok(ReapOutcome::Exited(status)) => Some(status),
             _ => None,
-        }
+        };
+        self.core.retire(child, status, true);
+        status
     }
 
     /// Spawn an engine child (stdin/stdout are piped here) and connect, waiting
@@ -540,25 +609,68 @@ impl EngineClient {
     /// gets SIGTERM and, after another `grace`, is killed. Worst case about
     /// `2 * grace`. Killing the child also unblocks the helper.
     pub fn shutdown(&self, grace: Duration) {
+        let _ = self.shutdown_detailed(grace);
+    }
+
+    /// As [`Self::shutdown`], returning what became of the process. Returns only after the
+    /// process has been waited, within about `2 * grace` when this call owns the child, or
+    /// within `3 * grace + 500 ms` when another path (a monitor reaping it) already owns
+    /// it and is itself bounded. [`ChildExit::reaped`] is false only if that bound passed.
+    pub fn shutdown_detailed(&self, grace: Duration) -> ChildExit {
         let core = Arc::clone(&self.core);
         let (tx, rx) = channel();
         std::thread::spawn(move || {
             let _ = tx.send(core.call("shutdown", json!({}), None, Some(grace)));
         });
         let _ = rx.recv_timeout(grace);
-        if let Some(mut c) = self
+        let taken = self
             .core
             .child
             .lock()
             .unwrap_or_else(|e| e.into_inner())
-            .take()
-        {
-            let _ = c.wait_or_kill(grace);
+            .take();
+        match taken {
+            Some(mut c) => match c.wait_or_kill(grace) {
+                Ok(WaitOutcome::Exited(status)) => self.core.retire(c, Some(status), false),
+                Ok(WaitOutcome::Terminated(status)) => self.core.retire(c, Some(status), true),
+                Err(_) => self.core.retire(c, None, true),
+            },
+            None => {
+                self.wait_reaped(grace * 3 + Duration::from_millis(500));
+            }
         }
+        self.child_exit()
     }
 }
 
 impl Core {
+    /// Wait for `child` to be gone (a still-live one is killed by its drop), record how it
+    /// ended, release the owner's token, and wake `wait_reaped`.
+    fn retire(
+        &self,
+        mut child: OwnedChild,
+        status: Option<std::process::ExitStatus>,
+        killed: bool,
+    ) {
+        let status = status.or_else(|| child.try_wait().ok().flatten());
+        drop(child);
+        {
+            let mut e = self.exit.lock().unwrap_or_else(|e| e.into_inner());
+            e.reaped = true;
+            e.killed = killed;
+            if e.status.is_none() {
+                e.status = status;
+            }
+        }
+        drop(
+            self.release
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .take(),
+        );
+        self.exit_cv.notify_all();
+    }
+
     fn call(
         &self,
         method: &str,

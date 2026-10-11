@@ -14,8 +14,11 @@ mod common;
 
 use libloading::Library;
 use rightkit_asr::{
-    AudioSource, DecodeMode, Language, Whisper, WhisperModel, WhisperOptions, WHISPER_LANGUAGES,
+    AudioSource, CancelToken, DecodeMode, DecodeQuality, Error, InterruptReason, Language,
+    ProgressCallback, Whisper, WhisperModel, WhisperOptions, WHISPER_LANGUAGES,
 };
+use std::sync::{Arc, Mutex};
+use std::time::Duration;
 use std::path::{Path, PathBuf};
 
 fn env_file(name: &str) -> Option<PathBuf> {
@@ -141,4 +144,78 @@ fn detect_option_with_fixed_language_is_rejected() {
     let mut w = gate!(load(options), "whisper.cpp library and ggml model", "RIGHTKIT_WHISPER_LIB and RIGHTKIT_WHISPER_GGML");
     let err = w.transcribe_detailed(AudioSource::Pcm16k(wav("short_9s.wav"))).unwrap_err();
     assert!(matches!(err, rightkit_asr::Error::Config(_)), "{err:?}");
+}
+
+#[test]
+fn pre_tripped_cancel_returns_interrupted_without_decoding() {
+    let token = CancelToken::new();
+    token.cancel();
+    let options = WhisperOptions { cancel: Some(token), ..Default::default() };
+    let mut w = gate!(load(options), "whisper.cpp library and ggml model", "RIGHTKIT_WHISPER_LIB and RIGHTKIT_WHISPER_GGML");
+    let err = w.transcribe_detailed(AudioSource::Pcm16k(wav("short_9s.wav"))).unwrap_err();
+    assert!(err.is_cancelled(), "{err:?}");
+    let i = err.interrupted().expect("typed interruption");
+    assert_eq!(i.reason, InterruptReason::Cancelled);
+    assert_eq!(i.windows_completed, 0);
+    assert!(i.partial.segments.is_empty());
+}
+
+#[test]
+fn zero_total_deadline_stops_with_a_deadline_interruption() {
+    let options = WhisperOptions { total_deadline: Some(Duration::ZERO), ..Default::default() };
+    let mut w = gate!(load(options), "whisper.cpp library and ggml model", "RIGHTKIT_WHISPER_LIB and RIGHTKIT_WHISPER_GGML");
+    let err = w.transcribe_detailed(AudioSource::Pcm16k(wav("short_9s.wav"))).unwrap_err();
+    assert_eq!(err.interrupted().expect("typed interruption").reason, InterruptReason::DeadlineExceeded);
+}
+
+#[test]
+fn cancel_during_decode_stops_the_window_and_progress_is_ordered() {
+    let token = CancelToken::new();
+    let seen = Arc::new(Mutex::new(Vec::new()));
+    let sink = Arc::clone(&seen);
+    let trip = token.clone();
+    let options = WhisperOptions {
+        cancel: Some(token),
+        // Trip from inside whisper's own progress callback: the window is in flight.
+        progress: Some(ProgressCallback::new(move |p| {
+            sink.lock().unwrap().push(p.fraction);
+            trip.cancel();
+        })),
+        ..Default::default()
+    };
+    let mut w = gate!(load(options), "whisper.cpp library and ggml model", "RIGHTKIT_WHISPER_LIB and RIGHTKIT_WHISPER_GGML");
+    let err = w.transcribe_detailed(AudioSource::Pcm16k(wav("short_9s.wav"))).unwrap_err();
+    assert!(err.is_cancelled(), "{err:?}");
+    let seen = seen.lock().unwrap();
+    assert!(seen.windows(2).all(|p| p[1] >= p[0]), "progress never decreases: {seen:?}");
+}
+
+#[test]
+fn progress_completes_and_cli_quality_decodes() {
+    let seen = Arc::new(Mutex::new(Vec::new()));
+    let sink = Arc::clone(&seen);
+    let options = WhisperOptions {
+        language: Language::Code("en".into()),
+        quality: DecodeQuality::whisper_cli(),
+        progress: Some(ProgressCallback::new(move |p| sink.lock().unwrap().push(*p))),
+        ..Default::default()
+    };
+    let mut w = gate!(load(options), "whisper.cpp library and ggml model", "RIGHTKIT_WHISPER_LIB and RIGHTKIT_WHISPER_GGML");
+    let t = w.transcribe_detailed(AudioSource::Pcm16k(wav("short_9s.wav"))).expect("decode");
+    let lower = t.text.to_lowercase();
+    assert!(SHORT_KEYWORDS.iter().any(|k| lower.contains(k)), "transcript: {}", t.text);
+    assert!(t.segments.iter().all(|s| s.text == s.raw_text.trim()));
+    let seen = seen.lock().unwrap();
+    assert_eq!(seen.last().expect("progress reported").fraction, 1.0);
+}
+
+#[test]
+fn invalid_quality_is_a_config_error() {
+    let options = WhisperOptions {
+        quality: DecodeQuality { beam_size: 0, ..DecodeQuality::default() },
+        ..Default::default()
+    };
+    let mut w = gate!(load(options), "whisper.cpp library and ggml model", "RIGHTKIT_WHISPER_LIB and RIGHTKIT_WHISPER_GGML");
+    let err = w.transcribe_detailed(AudioSource::Pcm16k(wav("short_9s.wav"))).unwrap_err();
+    assert!(matches!(err, Error::Config(_)), "{err:?}");
 }

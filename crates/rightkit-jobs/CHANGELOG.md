@@ -2,6 +2,16 @@
 
 ## 0.2.8 (additions for long-running desktop jobs)
 
+- **`EngineSupervisor::shutdown()` never leaves an unreaped engine behind `Down`.** It now
+  returns only after every engine process the supervisor spawned has been waited, including one a
+  monitor thread was mid-reap on, one being booted, and a second concurrent caller (before, `Down`
+  could be reported while the child was still a zombie, so `kill -0 <pid>` still succeeded).
+  New, additive: `shutdown_detailed() -> ShutdownReport` (`outcome`: `Exited`, `Killed`,
+  `NoEngine`, `AlreadyShuttingDown`, `Unconfirmed`; `pid`, `exit_status`, `reaped`, `unreaped`),
+  `unreaped_children()`, and on `EngineClient` `child_exit()`, `exit_status()`, `is_reaped()`,
+  `wait_reaped()`. If the stated bound passes with a process still unwaited the outcome is
+  `Unconfirmed` and the terminal state is `Failed`, not `Stopped`. `kill -0` is not a liveness
+  check for a child of the same process (a zombie answers it); use these.
 - **Recovery class.** `JobStore::submit_with(&NewJob, &Ext, &SubmitOptions)` takes
   `Recovery::Resume` (default, unchanged behaviour) or `Recovery::Never`. Once a `Never` job has
   begun an attempt, `Runner::resume_recoverable`, `Runner::recoverable_ids` and `Runner::run`

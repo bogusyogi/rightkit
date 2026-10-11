@@ -53,6 +53,42 @@ let config = ExecutionConfig::new().with_execution_provider(ExecutionProvider::C
 let model = ParakeetTDT::from_pretrained("/abs/path/to/model-dir", Some(config))?;
 ```
 
+## Whisper run control
+
+`WhisperOptions` carries the controls a host needs around a long decode (whisper.cpp backend; CoreML honors the ones marked):
+
+| Option | Effect |
+| --- | --- |
+| `cancel: Option<CancelToken>` | Trip from any thread. Stops an in-flight window and the run between windows (CoreML: between windows). Returns `Error::Interrupted` with the finished windows. |
+| `progress: Option<ProgressCallback>` | `WhisperProgress { windows_completed, windows_estimated, samples_completed, samples_total, fraction }` per window and from whisper.cpp inside a window. |
+| `window_deadline` | Per-window bound (default 180 s, unchanged). |
+| `total_deadline` | Whole-recording bound (default none). `recording_deadline(audio_duration(n))` is the old CLI route's 120 s + 4x audio. |
+| `detect_deadline` | Bound for language identification (cooperative: checked around the two native calls, which cannot be aborted). |
+| `quality: DecodeQuality` | `beam_size`, `best_of`, `carry_context`. Default is greedy, no context. `DecodeQuality::whisper_cli()` is whisper-cli's default decode; see its docs for the source lines. |
+
+```rust
+use rightkit_asr::{recording_deadline, audio_duration, load_wav_mono_16k, AudioSource, CancelToken, Whisper, WhisperOptions};
+
+let pcm = load_wav_mono_16k("/abs/path/audio.wav")?;
+let cancel = CancelToken::new();
+let options = WhisperOptions {
+    cancel: Some(cancel.clone()),
+    total_deadline: Some(recording_deadline(audio_duration(pcm.len()))),
+    ..Default::default()
+};
+// whisper.set_cancel(...) swaps the token between recordings on a resident model.
+match whisper.transcribe_detailed(AudioSource::Pcm16k(pcm)) {
+    Ok(t) => println!("{}", t.text),
+    Err(e) if e.interrupted().is_some() => {
+        let done = &e.interrupted().unwrap().partial; // windows that finished
+        println!("stopped: {}", done.text);
+    }
+    Err(e) => return Err(e),
+}
+```
+
+Transcript text: `text` joins trimmed segments with one space, or with nothing for languages in `UNSPACED_LANGUAGES` (`ja`, `zh`, `yue`, `th`, `lo`, `km`); `raw_text` (per segment and whole) is whisper.cpp's text untouched.
+
 ## Model requirements
 
 The Parakeet TDT model directory contains `encoder-model.onnx`, `decoder_joint-model.onnx` and `vocab.txt` (see `ParakeetTDT::from_pretrained`). The crate docs describe a FastConformer-TDT directory with `model.onnx`, `model.onnx_data`, `config.json`, `preprocessor_config.json`, `tokenizer.json` and `tokenizer_config.json`. Audio input is 16 kHz mono.
@@ -97,4 +133,5 @@ A hosted runner has none of these assets, so each test prints `SKIP <test>: ...`
 - `tests/e2e_whisper.rs` (the `coreml` module): the WhisperKit CoreML directory, enabled by `RIGHTKIT_WHISPER_COREML_DIR`. `vad_chunked_decode_retimes_onto_the_source_timeline` also needs `RIGHTKIT_VAD_MODEL` and the ONNX Runtime dylib (`RIGHTKIT_ORT_TEST_DYLIB`).
 - `tests/e2e_whisper.rs` (the `cpp` module) and `tests/e2e_whisper_ggml.rs`: whisper.cpp 1.9.3 (`RIGHTKIT_WHISPER_LIB`, `libwhisper.dylib` or `whisper.dll`) plus a multilingual ggml model (`RIGHTKIT_WHISPER_GGML`).
 - `src/whisper/cpp.rs`, unit test `new_symbols_resolve_in_pinned_library`: `RIGHTKIT_WHISPER_LIB`.
+- `tests/e2e_whisper_ggml.rs` cancel, deadline, progress and `DecodeQuality` tests: the same library and model gate.
 - `tests/certify_heardright.rs`: an opt-in run against a live HeardRight speech service, enabled by `RIGHTKIT_ASR_CERTIFY=1`, with the HeardRight Parakeet bundle at `RIGHTKIT_PARAKEET_COREML_DIR` (or its default folder).
