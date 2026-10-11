@@ -6,6 +6,7 @@ import { backgroundAlias, dmgDSStore } from "./dmg-layout.mjs";
 import { readDmgSpec } from "./dmg-spec.mjs";
 import { detachWithRetrySync } from "./hdiutil-detach.mjs";
 import { assertReleaseExecutionAllowed } from "./execution-policy.mjs";
+import { assertNoQaControl } from "./qa-control-scan.mjs";
 
 const fail = (code, message) => Object.assign(new Error(message), { code });
 const pair = (value, label, positive = false) => {
@@ -76,6 +77,9 @@ export function buildDmg(input = {},
   try {
     mkdirSync(stage); mkdirSync(mount);
     command("/usr/bin/ditto", [app, path.join(stage, path.basename(app))]);
+    // The compressed DMG cannot be scanned afterwards: scan the staged payload before it is packed. An unreadable
+    // path or a finding fails; the "no binary at all" check lives in release.mjs, which knows the signed app.
+    assertNoQaControl([stage], "dmg staging");
     symlinkSync("/Applications", path.join(stage, "Applications"));
     const relative = background ? path.join(".background", path.basename(background)) : null;
     if (relative) { mkdirSync(path.join(stage, ".background")); copyFileSync(background, path.join(stage, relative)); }

@@ -3,8 +3,9 @@ import { mkdirSync, mkdtempSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
+import { deflateRawSync } from "node:zlib";
 import {
-  QA_CONTROL_MARKER, assertNoQaControl, bufferHasQaControlMarker, fileHasQaControlMarker, isNativeBinaryHeader, scanForQaControl,
+  QA_CONTROL_MARKER, assertNoQaControl, bufferHasQaControlMarker, bufferQaFindings, fileHasQaControlMarker, isNativeBinaryHeader, scanForQaControl, scanWithStats,
 } from "./qa-control-scan.mjs";
 
 const MACHO = Buffer.from([0xcf, 0xfa, 0xed, 0xfe]);
@@ -36,7 +37,7 @@ test("a Mach-O and a PE fixture containing the marker are findings; clean ones a
   assert.deepEqual(scanForQaControl(good), []);
   const findings = scanForQaControl(bad);
   assert.equal(findings.length, 2);
-  assert.throws(() => assertNoQaControl(bad, "release"), /QA control server must never ship/);
+  assert.throws(() => assertNoQaControl(bad, "release"), /QA control server and every other test-automation or debugging surface must never ship/);
   assert.doesNotThrow(() => assertNoQaControl(good, "release"));
 });
 
@@ -104,4 +105,162 @@ test("a sealed release containing the marker fails verification (every seal and 
   };
   assert.doesNotThrow(() => verifySealedRelease(make(without(PE))));
   assert.throws(() => verifySealedRelease(make(withMarker(PE))), /QA control server/);
+});
+
+// ---- second rule: tauri-plugin-wdio-webdriver (two of three independent signatures) -------------------------
+const WDIO_CRATE = "tauri-plugin-wdio-webdriver-1.4.0/src/server.rs";
+const WDIO_MODULE = "tauri_plugin_wdio_webdriver::init";
+const WDIO_PERMISSION = "wdio-webdriver:default";
+const bytesWith = (header, ...strings) => Buffer.concat([header, filler(64), ...strings.flatMap((t) => [Buffer.from(t), filler(32)])]);
+const rules = (buffer) => bufferQaFindings(buffer).map((f) => f.rule);
+
+test("wdio rule: two signatures fire, one alone does not, any pair does, UTF-16 counts", () => {
+  assert.deepEqual(rules(bytesWith(PE, WDIO_CRATE, WDIO_MODULE)), ["wdio-webdriver"]);
+  assert.deepEqual(rules(bytesWith(MACHO, WDIO_MODULE, WDIO_PERMISSION)), ["wdio-webdriver"]);
+  assert.deepEqual(rules(bytesWith(PE, WDIO_CRATE, WDIO_PERMISSION)), ["wdio-webdriver"]);
+  assert.deepEqual(rules(bytesWith(PE, WDIO_CRATE)), []);
+  assert.deepEqual(rules(bytesWith(PE, WDIO_MODULE)), []);
+  assert.deepEqual(rules(bytesWith(PE, WDIO_PERMISSION)), []);
+  assert.deepEqual(rules(Buffer.concat([PE, filler(10), Buffer.from(WDIO_CRATE, "utf16le"), filler(10), Buffer.from(WDIO_MODULE)])), ["wdio-webdriver"]);
+  // the same signature twice is still one signature
+  assert.deepEqual(rules(bytesWith(PE, WDIO_CRATE, WDIO_CRATE)), []);
+});
+
+test("wdio signatures split across a chunk boundary are found", () => {
+  const root = mkdtempSync(join(tmpdir(), "rk-qa-scan-"));
+  const chunk = 4 * 1024 * 1024;
+  const file = join(root, "app.exe");
+  writeFileSync(file, Buffer.concat([PE, filler(chunk - 2 - 5), Buffer.from(WDIO_MODULE), filler(50), Buffer.from(WDIO_PERMISSION)]));
+  const findings = scanForQaControl([file]);
+  assert.deepEqual(findings.map((f) => f.rule), ["wdio-webdriver"]);
+  assert.match(findings[0].reason, /2 of 3 signatures/);
+});
+
+test("remote-debugging and tauri-devtools strings are findings; a clean binary with similar text is not", () => {
+  assert.deepEqual(rules(bytesWith(PE, "--remote-debugging-port=9222")), ["remote-debugging"]);
+  assert.deepEqual(rules(bytesWith(PE, "WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS")), ["remote-debugging"]);
+  assert.deepEqual(rules(Buffer.concat([PE, Buffer.from("WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS", "utf16le")])), ["remote-debugging"]);
+  assert.deepEqual(rules(bytesWith(MACHO, "plugin:webview|internal_toggle_devtools")), ["tauri-devtools"]);
+  assert.deepEqual(rules(bytesWith(MACHO, "allow-internal-toggle-devtools", "remote-debugging", "wdio")), []);
+  assert.deepEqual(rules(bytesWith(PE, QA_CONTROL_MARKER, "--remote-debugging-port")).sort(), ["qa-control-server", "remote-debugging"]);
+});
+
+// ---- ZIP containers (MSIX/APPX): stored and deflate entries --------------------------------------------------
+function zip(entries) {
+  const locals = []; const central = []; let offset = 0;
+  for (const { name, data, method = 0, flags = 0 } of entries) {
+    const nameBuf = Buffer.from(name);
+    const body = method === 8 ? deflateRawSync(data) : data;
+    const local = Buffer.alloc(30);
+    local.writeUInt32LE(0x04034b50, 0); local.writeUInt16LE(20, 4); local.writeUInt16LE(flags, 6); local.writeUInt16LE(method, 8);
+    local.writeUInt32LE(body.length, 18); local.writeUInt32LE(data.length, 22); local.writeUInt16LE(nameBuf.length, 26);
+    const header = Buffer.alloc(46);
+    header.writeUInt32LE(0x02014b50, 0); header.writeUInt16LE(20, 4); header.writeUInt16LE(20, 6); header.writeUInt16LE(flags, 8); header.writeUInt16LE(method, 10);
+    header.writeUInt32LE(body.length, 20); header.writeUInt32LE(data.length, 24); header.writeUInt16LE(nameBuf.length, 28); header.writeUInt32LE(offset, 42);
+    locals.push(local, nameBuf, body); central.push(header, nameBuf);
+    offset += 30 + nameBuf.length + body.length;
+  }
+  const directory = Buffer.concat(central);
+  const end = Buffer.alloc(22);
+  end.writeUInt32LE(0x06054b50, 0); end.writeUInt16LE(entries.length, 8); end.writeUInt16LE(entries.length, 10);
+  end.writeUInt32LE(directory.length, 12); end.writeUInt32LE(offset, 16);
+  return Buffer.concat([...locals, directory, end]);
+}
+const msix = (entries) => {
+  const dir = mkdtempSync(join(tmpdir(), "rk-qa-msix-"));
+  const file = join(dir, "App.msix");
+  writeFileSync(file, zip(entries));
+  return file;
+};
+const marked = withMarker(PE, 3000, 3000);
+const wdio = bytesWith(PE, WDIO_CRATE, WDIO_MODULE);
+const manifestXml = Buffer.from("<Package/>");
+
+test("an MSIX with a marked PE is a finding whether the entry is stored or deflated", () => {
+  for (const method of [0, 8]) {
+    const file = msix([{ name: "AppxManifest.xml", data: manifestXml, method }, { name: "App/App.exe", data: marked, method }]);
+    const findings = scanForQaControl([file]);
+    assert.equal(findings.length, 1, `method ${method}`);
+    assert.equal(findings[0].file, `${file}!/App/App.exe`);
+    assert.equal(findings[0].rule, "qa-control-server");
+    assert.throws(() => assertNoQaControl([file], "msix package"), /App\.exe/);
+  }
+});
+
+test("an MSIX with the wdio plugin is a finding, deflated or stored; a clean MSIX passes and counts its binaries", () => {
+  for (const method of [0, 8]) {
+    assert.deepEqual(scanForQaControl([msix([{ name: "a.dll", data: wdio, method }])]).map((f) => f.rule), ["wdio-webdriver"]);
+  }
+  const clean = msix([{ name: "App.exe", data: without(PE), method: 8 }, { name: "x.dll", data: without(PE), method: 0 }, { name: "logo.png", data: filler(100), method: 8 }]);
+  const { findings, stats } = scanWithStats([clean]);
+  assert.deepEqual(findings, []);
+  assert.equal(stats.binaries, 2);
+  assert.equal(stats.containers, 1);
+  assert.doesNotThrow(() => assertNoQaControl([clean], "msix package", { requireBinary: true }));
+});
+
+test("a renamed binary and a nested container are still scanned", () => {
+  const inner = zip([{ name: "deep.exe", data: marked, method: 8 }]);
+  const file = msix([{ name: "Assets/logo.png", data: marked, method: 0 }, { name: "bundle/inner.msix", data: inner, method: 0 }]);
+  assert.deepEqual(scanForQaControl([file]).map((f) => f.file.split("!/").slice(1).join("!/")), ["Assets/logo.png", "bundle/inner.msix!/deep.exe"]);
+});
+
+test("containers fail closed: encrypted entry, unknown method, corrupt or truncated data, oversize, and no binary", () => {
+  const encrypted = msix([{ name: "a.exe", data: marked, flags: 1 }]);
+  assert.match(scanForQaControl([encrypted])[0].reason, /encrypted/);
+  const unknown = msix([{ name: "a.exe", data: marked, method: 0 }]);
+  const bytes = Buffer.from(zip([{ name: "a.exe", data: marked, method: 0 }]));
+  bytes.writeUInt16LE(14, bytes.indexOf(Buffer.from([0x50, 0x4b, 0x01, 0x02])) + 10); // LZMA
+  writeFileSync(unknown, bytes);
+  assert.match(scanForQaControl([unknown])[0].reason, /unsupported compression method 14/);
+  const truncated = join(mkdtempSync(join(tmpdir(), "rk-qa-msix-")), "t.msix");
+  writeFileSync(truncated, zip([{ name: "a.exe", data: marked }]).subarray(0, 120));
+  assert.match(scanForQaControl([truncated])[0].reason, /invalid ZIP container/);
+  const big = msix([{ name: "a.exe", data: marked, method: 8 }]);
+  assert.match(scanWithStats([big], { limits: { maxEntryBytes: 100 } }).findings[0].reason, /larger than/);
+  assert.match(scanWithStats([big], { limits: { totalInflated: 100 } }).findings[0].reason, /inflate budget/);
+  const empty = msix([{ name: "AppxManifest.xml", data: manifestXml }]);
+  assert.deepEqual(scanForQaControl([empty]), []);
+  assert.throws(() => assertNoQaControl([empty], "msix package", { requireBinary: true }), /no Mach-O, PE or ELF/);
+  const missing = join(tmpdir(), "rk-qa-stage-missing");
+  assert.throws(() => assertNoQaControl([missing], "msix staged payload", { requireBinary: true }), /could not scan/);
+  const stageEmpty = mkdtempSync(join(tmpdir(), "rk-qa-stage-"));
+  assert.throws(() => assertNoQaControl([stageEmpty], "msix staged payload", { requireBinary: true }), /no Mach-O, PE or ELF/);
+});
+
+test("a staged directory (MSIX payload, NSIS payload, .app in a DMG staging dir) is scanned before packing", () => {
+  const stage = mkdtempSync(join(tmpdir(), "rk-qa-stage-"));
+  mkdirSync(join(stage, "App.app", "Contents", "MacOS"), { recursive: true });
+  writeFileSync(join(stage, "App.exe"), without(PE));
+  writeFileSync(join(stage, "plugin.dll"), wdio);
+  writeFileSync(join(stage, "App.app", "Contents", "MacOS", "app"), bytesWith(MACHO, "plugin:webview|internal_toggle_devtools"));
+  const findings = scanForQaControl([stage]);
+  assert.deepEqual(findings.map((f) => f.rule).sort(), ["tauri-devtools", "wdio-webdriver"]);
+});
+
+test("what stays opaque after packing is reported: NSIS payload and compressed DMG", () => {
+  const dir = mkdtempSync(join(tmpdir(), "rk-qa-opaque-"));
+  writeFileSync(join(dir, "setup.exe"), Buffer.concat([PE, filler(64), Buffer.from("NullsoftInst"), filler(64)]));
+  writeFileSync(join(dir, "App.dmg"), Buffer.concat([Buffer.from("not-a-readable-image"), filler(1000)]));
+  writeFileSync(join(dir, "plain.exe"), without(PE));
+  const { findings, stats } = scanWithStats([dir]);
+  assert.deepEqual(findings, []);
+  assert.deepEqual(stats.opaque.map((o) => [o.file.split("/").pop(), o.kind]).sort(), [["App.dmg", "dmg"], ["setup.exe", "nsis"]]);
+});
+
+test("a sealed MSIX with a marked PE inside fails verification", async () => {
+  const { verifySealedRelease } = await import("./release-state.mjs");
+  const { createHash } = await import("node:crypto");
+  const make = (bytes) => {
+    const dir = mkdtempSync(join(tmpdir(), "rk-qa-sealed-"));
+    writeFileSync(join(dir, "App.msix"), bytes);
+    writeFileSync(join(dir, "release-manifest.json"), JSON.stringify({
+      schema: 1, checkpoints: ["sealed"],
+      files: [{ name: "App.msix", sha256: createHash("sha256").update(bytes).digest("hex"), sizeBytes: bytes.length }],
+    }));
+    return dir;
+  };
+  assert.doesNotThrow(() => verifySealedRelease(make(zip([{ name: "App.exe", data: without(PE), method: 8 }]))));
+  assert.throws(() => verifySealedRelease(make(zip([{ name: "App.exe", data: marked, method: 8 }]))), /QA control server/);
+  assert.throws(() => verifySealedRelease(make(zip([{ name: "a.dll", data: wdio, method: 8 }]))), /wdio-webdriver/);
 });
