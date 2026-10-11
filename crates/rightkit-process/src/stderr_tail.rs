@@ -5,7 +5,7 @@
 
 use std::collections::VecDeque;
 use std::io::{self, BufRead, BufReader, Read};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Condvar, Mutex};
 use std::thread::{self, JoinHandle};
 
 /// The retained lines and their cost: each line counts its bytes plus one for the newline
@@ -19,6 +19,21 @@ type Retained = (VecDeque<String>, usize);
 pub struct StderrTail {
     lines: Arc<Mutex<Retained>>,
     handle: Option<JoinHandle<()>>,
+    /// Set (and signalled) when the drain thread is over, so a bounded wait sleeps on the
+    /// condition instead of polling `is_finished`.
+    done: Arc<Done>,
+}
+
+type Done = (Mutex<bool>, Condvar);
+
+/// Marks the drain over when the thread's body ends, however it ends.
+struct DoneGuard(Arc<Done>);
+
+impl Drop for DoneGuard {
+    fn drop(&mut self) {
+        *self.0 .0.lock().unwrap_or_else(|e| e.into_inner()) = true;
+        self.0 .1.notify_all();
+    }
 }
 
 impl StderrTail {
@@ -45,6 +60,8 @@ impl StderrTail {
         Self::try_capture(stderr, max_bytes, map, on_line).unwrap_or_else(|_| Self {
             lines: Arc::default(),
             handle: None,
+            // No drain thread exists, so it is over from the start.
+            done: Arc::new((Mutex::new(true), Condvar::new())),
         })
     }
 
@@ -76,9 +93,12 @@ impl StderrTail {
     ) -> io::Result<Self> {
         let lines: Arc<Mutex<Retained>> = Arc::default();
         let shared = Arc::clone(&lines);
+        let done: Arc<Done> = Arc::new((Mutex::new(false), Condvar::new()));
+        let guard = DoneGuard(Arc::clone(&done));
         let handle = spawn(
             "rightkit-stderr-tail".into(),
             Box::new(move || {
+                let _guard = guard;
                 let line_cap = max_bytes.max(1).saturating_mul(4);
                 let mut reader = BufReader::new(stderr);
                 let mut raw = Vec::new();
@@ -119,6 +139,7 @@ impl StderrTail {
         Ok(Self {
             lines,
             handle: Some(handle),
+            done,
         })
     }
 
@@ -140,13 +161,18 @@ impl StderrTail {
     /// inherited stderr can keep the stream open after the child is gone) and
     /// returns what was captured so far.
     pub fn finish_within(&mut self, timeout: std::time::Duration) -> String {
-        let deadline = std::time::Instant::now() + timeout;
-        while self.handle.as_ref().is_some_and(|h| !h.is_finished())
-            && std::time::Instant::now() < deadline
-        {
-            thread::sleep(std::time::Duration::from_millis(5));
-        }
-        if self.handle.as_ref().is_some_and(|h| h.is_finished()) {
+        // Sleeps on the condition the drain thread signals when it ends: one wake-up, however
+        // long the stream stays open.
+        let finished = {
+            let guard = self.done.0.lock().unwrap_or_else(|e| e.into_inner());
+            let (guard, _) = self
+                .done
+                .1
+                .wait_timeout_while(guard, timeout, |over| !*over)
+                .unwrap_or_else(|e| e.into_inner());
+            *guard
+        };
+        if finished {
             if let Some(h) = self.handle.take() {
                 let _ = h.join();
             }

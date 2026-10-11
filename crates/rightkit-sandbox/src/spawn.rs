@@ -358,7 +358,18 @@ impl SandboxedChild {
 
     /// Kill the child and every descendant (including ones that left the process group).
     pub fn terminate_tree(&mut self) -> std::io::Result<ExitStatus> {
-        let _ = process_tree::kill_tree(self.id(), Duration::from_millis(200));
+        // The descendant sweep names the leader's pid, so it runs only while the leader is
+        // proven to be this child and unreaped; a reaped leader's number may be someone else's.
+        match &self.inner {
+            Inner::Owned(c) => {
+                let _ = c
+                    .while_unreaped(|pid| process_tree::kill_tree(pid, Duration::from_millis(200)));
+            }
+            #[cfg(windows)]
+            Inner::Confined(c) => {
+                let _ = process_tree::kill_tree(c.id(), Duration::from_millis(200));
+            }
+        }
         match &mut self.inner {
             Inner::Owned(c) => c.terminate_tree(),
             #[cfg(windows)]

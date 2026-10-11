@@ -355,7 +355,11 @@ impl OwnedCommand {
             // (told to stand down, never signalled) and collected on failure, so a failed
             // spawn leaves nothing running untied.
             let helper = parent_tie.and_then(|tie| tie.settle(spawned.is_ok()));
-            crate::unix_child::UnixChild::new(spawned?, helper)
+            let mut child = crate::unix_child::UnixChild::new(spawned?, helper);
+            // A child whose pid cannot be tied to it is stopped here, while the pid is
+            // certainly still its own: no later signal could be proven to reach it.
+            child.require_identity()?;
+            child
         };
         #[cfg(windows)]
         let mut stayed_in_job = false;
@@ -512,6 +516,24 @@ impl OwnedChild {
     pub fn child(&self) -> MutexGuard<'_, PlatformChild> {
         lock_child(&self.child)
     }
+    /// Runs `act` with the leader's pid while the leader is proven to be this child and
+    /// unreaped, holding the shared lock so no reap can fall between the proof and `act`.
+    /// Returns `Ok(None)` without calling `act` once the leader has been reaped or its pid no
+    /// longer provably names it. For code that must signal by pid (a descendant sweep) and
+    /// would otherwise act on a number that may have been recycled. Keep `act` short: waiters
+    /// on this child wait for it. Windows has no recyclable-pid hazard here and always runs it.
+    pub fn while_unreaped<R>(&self, act: impl FnOnce(u32) -> R) -> io::Result<Option<R>> {
+        #[cfg(unix)]
+        {
+            let mut child = lock_child(&self.child);
+            if child.leader_state()? == LeaderState::Reaped {
+                return Ok(None);
+            }
+            Ok(Some(act(self.pid)))
+        }
+        #[cfg(windows)]
+        Ok(Some(act(self.pid)))
+    }
     pub fn take_stdin(&mut self) -> Option<ChildStdin> {
         self.child().stdin.take()
     }
@@ -565,29 +587,22 @@ impl OwnedChild {
             if !self.tree_terminated {
                 self.signal(libc::SIGTERM)?;
             }
-            let started = Instant::now();
-            loop {
-                match self.leader_state()? {
-                    LeaderState::Running => {}
-                    LeaderState::Exited => {
-                        // Not reaped yet: the zombie still pins the group id, so the
-                        // stragglers can be killed safely, and only then reaped.
-                        self.force_kill(1)?;
-                        return self.wait().map(WaitOutcome::Exited);
-                    }
-                    LeaderState::Reaped => {
-                        // Reaped elsewhere (a handle clone): the cached status is returned
-                        // and group signalling is over.
-                        return self.wait().map(WaitOutcome::Exited);
-                    }
-                }
-                if started.elapsed() >= grace {
-                    return self.terminate_tree().map(WaitOutcome::Terminated);
-                }
-                thread::sleep(
-                    Duration::from_millis(5).min(grace.saturating_sub(started.elapsed())),
-                );
+            // Sleeps in the kernel until the leader's exit event or the end of the grace.
+            let exited = match self.handle.wait_exited_timeout(grace) {
+                Ok(exited) => exited,
+                // No event source on this host: the grace cannot be waited; force the tree.
+                Err(error) if error.kind() == io::ErrorKind::Unsupported => false,
+                Err(error) => return Err(error),
+            };
+            if exited {
+                // Exited, not reaped yet: the zombie still pins the group id, so the
+                // stragglers can be killed safely, and only then reaped. (If a handle clone
+                // reaped it, the signal is a no-op, the cached status is returned and group
+                // signalling is over.)
+                self.force_kill(1)?;
+                return self.wait().map(WaitOutcome::Exited);
             }
+            self.terminate_tree().map(WaitOutcome::Terminated)
         }
         #[cfg(windows)]
         {
@@ -643,20 +658,61 @@ impl OwnedChild {
         #[cfg(unix)]
         if !self.tree_terminated {
             self.signal(libc::SIGTERM)?;
-            let started = Instant::now();
-            while started.elapsed() < options.grace {
-                // Stop waiting once nothing but the exited, unreaped leader is left (or the
-                // leader was reaped elsewhere, which ends signalling). The leader is not
-                // reaped here: it must keep pinning the group id for the KILL below.
-                if self.tree_settled()? {
-                    break;
-                }
-                thread::sleep(
-                    Duration::from_millis(5).min(options.grace.saturating_sub(started.elapsed())),
-                );
+            // Stops waiting as soon as nothing but the exited, unreaped leader is left (or the
+            // leader was reaped elsewhere, which ends signalling). The leader is not reaped
+            // here: it must keep pinning the group id for the KILL below.
+            match self.await_tree(options.grace) {
+                // No event source on this host: the grace cannot be waited without polling,
+                // so it is skipped and the KILL goes out at once.
+                Err(error) if error.kind() == io::ErrorKind::Unsupported => {}
+                other => other?,
             }
         }
         self.force_kill(options.windows_exit_code)
+    }
+    /// Waits, for at most `grace`, until the leader has exited and every other member of its
+    /// group has too. Event-driven: the leader through its exit watch, each remaining member
+    /// through a watch of its own, all in one `poll(2)`; nothing wakes up while they run. A
+    /// group that cannot be listed is waited out for the rest of the grace in one timed sleep.
+    #[cfg(unix)]
+    fn await_tree(&self, grace: Duration) -> io::Result<()> {
+        use crate::{exit_watch::ExitWatch, unix_child::Members};
+        let Some(deadline) = Instant::now().checked_add(grace) else {
+            return Ok(());
+        };
+        let left = |deadline: Instant| deadline.saturating_duration_since(Instant::now());
+        if !self.handle.wait_exited_timeout(left(deadline))? {
+            return Ok(()); // the leader outlived the grace
+        }
+        if self.detached {
+            return Ok(()); // a detached child owns only its direct pid
+        }
+        // Members seen exiting; a zombie that its own parent has not reaped stays listed.
+        let mut gone: Vec<u32> = Vec::new();
+        loop {
+            let members = lock_child(&self.child).group_other_members()?;
+            let pids = match members {
+                Members::Pids(pids) => pids
+                    .into_iter()
+                    .filter(|pid| !gone.contains(pid))
+                    .collect::<Vec<_>>(),
+                Members::Unknown => return wait_out(left(deadline)),
+            };
+            if pids.is_empty() {
+                return Ok(());
+            }
+            let watches: Vec<ExitWatch> = pids
+                .iter()
+                .map(|&pid| ExitWatch::open(pid, false))
+                .collect();
+            if !watches.iter().all(ExitWatch::is_supported) {
+                return wait_out(left(deadline));
+            }
+            if !ExitWatch::wait_all(&watches, left(deadline))? {
+                return Ok(()); // the grace is over
+            }
+            gone.extend(pids);
+        }
     }
     #[cfg(unix)]
     fn signal(&self, signal: i32) -> io::Result<()> {
@@ -668,19 +724,6 @@ impl OwnedChild {
             SignalTarget::Group
         };
         lock_child(&self.child).signal(target, signal).map(|_| ())
-    }
-    #[cfg(unix)]
-    fn leader_state(&self) -> io::Result<LeaderState> {
-        lock_child(&self.child).leader_state()
-    }
-    #[cfg(unix)]
-    fn tree_settled(&self) -> io::Result<bool> {
-        let mut child = lock_child(&self.child);
-        Ok(match child.leader_state()? {
-            LeaderState::Running => false,
-            LeaderState::Reaped => true,
-            LeaderState::Exited => self.detached || !child.group_has_other_members()?,
-        })
     }
     fn force_kill(&mut self, code: u32) -> io::Result<()> {
         if self.tree_terminated {
@@ -738,23 +781,42 @@ impl Drop for PartialChild {
         }
     }
 }
+/// The rest of a grace for a group that cannot be listed or watched. There is no event to wait
+/// for, so this is one timed sleep, not a loop.
+#[cfg(unix)]
+fn wait_out(remaining: Duration) -> io::Result<()> {
+    thread::sleep(remaining);
+    Ok(())
+}
 pub(crate) fn cleanup_direct(child: Arc<Mutex<PlatformChild>>, timeout: Option<Duration>) {
     let _ = lock_child(&child).kill();
     let Some(timeout) = timeout else {
         let _ = lock_child(&child).wait();
         return;
     };
-    let started = Instant::now();
-    loop {
-        match lock_child(&child).try_wait() {
-            Ok(Some(_)) => return,
-            Err(_) => break,
-            Ok(None) => {}
+    #[cfg(unix)]
+    {
+        // Sleep in the kernel until the exit event or the timeout; then prove and reap.
+        let watch = lock_child(&child).exit_watch();
+        if matches!(watch.wait(Some(timeout)), Ok(true)) && lock_child(&child).reap_exited().is_ok()
+        {
+            return;
         }
-        if started.elapsed() >= timeout {
-            break;
+    }
+    #[cfg(windows)]
+    {
+        let started = Instant::now();
+        loop {
+            match lock_child(&child).try_wait() {
+                Ok(Some(_)) => return,
+                Err(_) => break,
+                Ok(None) => {}
+            }
+            if started.elapsed() >= timeout {
+                break;
+            }
+            thread::sleep(Duration::from_millis(5).min(timeout.saturating_sub(started.elapsed())));
         }
-        thread::sleep(Duration::from_millis(5).min(timeout.saturating_sub(started.elapsed())));
     }
     // std Child does not reap on Drop. Transfer timed-out children to a waiter.
     let _ = thread::Builder::new()
