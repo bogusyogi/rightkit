@@ -13,7 +13,7 @@ Brand-neutral, read-only PDF viewer for Right Suite apps, built on pdf.js. `PdfV
 
 | Import | Contents |
 |---|---|
-| `@rightkit/pdf-ui` | `PdfViewer`, `PdfPasswordCancelledError`, `renderPageLimit`, `PdfSearchContext`, `usePdfSearch`, `createPdfLinkService`, `isSafeExternalUrl`, `configurePdfJs`, `ensurePdfWorker`, `pdfWasmUrl`, `acquirePdfRenderKeepalive`, `boundedCanvasDpr`, `clampScale`, `highlightSpan`, `viewportRotation`, `withTimeout`, `ZOOM_MIN`, `ZOOM_MAX`, `findLiteralMatches`, `thumbnailWindow`; types |
+| `@rightkit/pdf-ui` | `PdfViewer`, `PdfPasswordCancelledError`, `renderPageLimit`, `PdfSearchContext`, `usePdfSearch`, `createPdfLinkService`, `isSafeExternalUrl`, `configurePdfJs`, `ensurePdfWorker`, `pdfWasmUrl`, `acquirePdfRenderKeepalive`, `boundedCanvasDpr`, `clampScale`, `highlightSpan`, `viewportRotation`, `withTimeout`, `ZOOM_MIN`, `ZOOM_MAX`, `findLiteralMatches`, `thumbnailWindow`, `attachPasswordHandler`, `createLoadTimer`, `MAX_PASSWORD_ATTEMPTS`, `pdfDocumentInit`, `pdfTextContentSource`, `renderPdfTextLayer`; types |
 | `@rightkit/pdf-ui/styles.css` | Stylesheet. Import once in the app. |
 
 Dependency: `pdfjs-dist` `^6.3.289`.
@@ -36,6 +36,19 @@ Encrypted PDFs: pass `onPassword={(reason, attempt) => askUser(reason)}`. `reaso
 `maxRenderPages={n}` renders only the first `n` pages; the rest stay empty placeholders and thumbnails and find stop at the cap. Default: unlimited.
 
 `PdfSource` is `{ kind: "bytes", data }`, `{ kind: "url", url }` or `{ kind: "loader", load() }`.
+
+`documentOptions={{ wasmUrl, cMapUrl, standardFontDataUrl }}` passes pdf.js `getDocument` options beside the source. `url` and `data` cannot be overridden. It is read when loading starts; changing it does not reload an open document.
+
+### Find UI owned by the host
+
+Hide the built-in bar with `findBar={false}`, render your controls in the `toolbar` slot, and call `usePdfSearch()` inside them: `find(query?)`, `next()`, `prev()` and `result`. `PdfViewer` has no provider-registration prop.
+
+### Headless pieces (build your own viewer)
+
+- `pdfDocumentInit(data, documentOptions?)`: the `getDocument` init the viewer sends.
+- `attachPasswordHandler(task, getHandler, timer?)` and `createLoadTimer(ms, message)`: the password flow and the load timer (its clock stops while the user is asked for a password).
+- `pdfTextContentSource(page, mode?)` and `renderPdfTextLayer(page, container, viewport, mode?)`: the text layer, from `getTextContent` (default) or `streamTextContent` (`"streamTextContent"`).
+- `highlightSpan(span, query, { matchCase, wholeWord, markBg, markActiveBg, activeOccurrence })`: find marks in a text-layer span. Without the colour options it uses the package colours.
 
 ## Known issues
 

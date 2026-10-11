@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.1.6
+
+Additive. Default `PdfViewer` output is intended to be unchanged. The characterization tests in `test/viewer-markup.test.tsx` pin only the initial rendered shell (no pages); the runtime `getDocument` call and text-layer render are not covered by tests.
+
+- New optional `PdfViewer` prop `documentOptions`: pdf.js `getDocument` options passed beside the source (for example `wasmUrl`, `cMapUrl`, `cMapPacked`, `standardFontDataUrl`, `httpHeaders`). Read when loading starts, like `onPassword`. `url` and `data` cannot be overridden.
+- `documentOptions` cannot replace the document source: `url`, `data` and `range` are dropped from it. `highlightSpan` ignores a `markBg`/`markActiveBg` value that could add a style declaration or fetch a resource. `renderPdfTextLayer` cannot be cancelled while rendering; a host that needs cancellation in `streamTextContent` mode builds the pdf.js `TextLayer` itself from `pdfTextContentSource`.
+- New export `pdfDocumentInit(data, documentOptions?)` and type `PdfDocumentOptions`, `PdfDocumentInit`: the same init the viewer sends, for hosts that drive pdf.js themselves. With no options it is exactly `{ url }` or `{ data }`.
+- New exports `attachPasswordHandler`, `createLoadTimer`, `MAX_PASSWORD_ATTEMPTS`, and types `PasswordTask`, `PasswordFlow`, `LoadTimer`: the password flow and load timer the viewer uses internally.
+- New exports `pdfTextContentSource(page, mode?)` and `renderPdfTextLayer(page, container, viewport, mode?)`, with `PdfTextContentMode` (`"getTextContent"` default, or `"streamTextContent"`). The viewer calls `renderPdfTextLayer` with the default, so its output is unchanged.
+- `highlightSpan(span, query, options)` gains `markBg`, `markActiveBg` and `activeOccurrence` (type `HighlightSpanOptions`). Without them the output is unchanged.
+- Documentation fix: `types.ts` documented a `PdfViewer.onSearchProvider` prop that never existed. The docs now describe the working path (`findBar={false}` with `usePdfSearch()` in the `toolbar` slot). `PdfSearchProvider` stays exported as a type only.
+
 ## 0.1.5
 
 - New optional `PdfViewer` prop `onPassword(reason, attempt)` for encrypted PDFs. `reason` is `"need"` (first request) or `"incorrect"` (last one was wrong). Return the string to retry with, or null/undefined to give up: the viewer shows no document and reports `PdfPasswordCancelledError` through `onError`. The load timeout is paused while the callback runs; a handler that keeps failing stops after 10 attempts. Absent: encrypted PDFs fail through `onError` exactly as before.

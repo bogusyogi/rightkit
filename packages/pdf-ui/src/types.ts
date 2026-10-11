@@ -43,8 +43,10 @@ export interface PdfSearchResult {
   activeIndex: number;
 }
 
-/** Find contract. Hosts that own their find UI can register this provider through
- *  `PdfViewer.onSearchProvider` and hide the built-in bar with `findBar={false}`. */
+/** Find shape for a host-owned find implementation. `PdfViewer` does not accept or consume this
+ *  type (there is no registration prop). To drive the viewer's find from host UI, render it in the
+ *  `toolbar` slot with `findBar={false}` and call `usePdfSearch()` there: `find(query?)`, `next()`,
+ *  `prev()` and `result`. The viewer's match options come from its built-in bar state. */
 export interface PdfSearchProvider {
   find(query: string, options: PdfSearchOptions): Promise<PdfSearchResult>;
   next(): PdfSearchResult;

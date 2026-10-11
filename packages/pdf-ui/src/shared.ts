@@ -53,13 +53,25 @@ export async function withTimeout<T>(promise: Promise<T>, ms: number, message: s
   }
 }
 
+export interface HighlightSpanOptions {
+  matchCase?: boolean;
+  wholeWord?: boolean;
+  /** Background for matches. Default `MARK_BG`. */
+  markBg?: string;
+  /** Background for the match at `activeOccurrence`. Default `MARK_ACTIVE_BG`. */
+  markActiveBg?: string;
+  /** 0-based index, among this span's matches in text order, drawn with `markActiveBg`. Absent: no
+   *  active match in this span (every match uses `markBg`). */
+  activeOccurrence?: number;
+}
+
 /** Wrap every occurrence of `q` inside a rendered text-layer span with <mark>. Reads the span's
  *  clean textContent each call, so re-running with a new query/options is idempotent; a span with
- *  no match is flattened back to plain text. */
+ *  no match is flattened back to plain text. Without the colour options the output is unchanged. */
 export function highlightSpan(
   span: HTMLElement,
   q: string,
-  options?: { matchCase?: boolean; wholeWord?: boolean },
+  options?: HighlightSpanOptions,
 ): void {
   const text = span.textContent ?? "";
   const matches = findLiteralMatches(text, q, options);
@@ -67,16 +79,22 @@ export function highlightSpan(
     if (span.childElementCount > 0) span.replaceChildren(document.createTextNode(text));
     return;
   }
+  // The colour goes into a style string: a value that could add a declaration or fetch a resource is ignored.
+  const safeColor = (value: string | undefined, fallback: string) =>
+    value && !/[;{}<>\\]|url\(|image\(|expression\(/i.test(value) ? value : fallback;
+  const markBg = safeColor(options?.markBg, MARK_BG);
+  const markActiveBg = safeColor(options?.markActiveBg, MARK_ACTIVE_BG);
   const frag = document.createDocumentFragment();
   let pos = 0;
-  for (const m of matches) {
+  matches.forEach((m, index) => {
     if (m.start > pos) frag.appendChild(document.createTextNode(text.slice(pos, m.start)));
     const mark = document.createElement("mark");
-    mark.style.cssText = `background:${MARK_BG};color:inherit;border-radius:2px`;
+    const background = index === options?.activeOccurrence ? markActiveBg : markBg;
+    mark.style.cssText = `background:${background};color:inherit;border-radius:2px`;
     mark.textContent = text.slice(m.start, m.end);
     frag.appendChild(mark);
     pos = m.end;
-  }
+  });
   if (pos < text.length) frag.appendChild(document.createTextNode(text.slice(pos)));
   span.replaceChildren(frag);
 }

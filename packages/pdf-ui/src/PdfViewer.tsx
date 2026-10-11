@@ -12,11 +12,12 @@ import {
 } from "react";
 import * as pdfjs from "pdfjs-dist";
 import type { PDFDocumentProxy, PDFPageProxy, PageViewport } from "pdfjs-dist";
-import { TextLayer } from "pdfjs-dist";
 import { createPdfLinkService, type PdfLinkActions } from "./linkService.js";
 import { ensurePdfWorker } from "./pdfJs.js";
 import { boundedCanvasDpr, clampScale, renderPageLimit, viewportRotation, withTimeout } from "./shared.js";
 import { attachPasswordHandler, createLoadTimer, type PdfPasswordHandler } from "./password.js";
+import { pdfDocumentInit, type PdfDocumentOptions } from "./loader.js";
+import { renderPdfTextLayer } from "./textLayer.js";
 import type {
   OutlineNode,
   PdfDocumentInfo,
@@ -55,6 +56,10 @@ export interface PdfViewerProps {
   /** Render at most this many pages (from page 1). Later pages stay as empty placeholders, are
    *  never rendered, and are skipped by the thumbnails and find. Absent/invalid: unlimited. */
   maxRenderPages?: number;
+  /** pdf.js `getDocument` options passed beside the source, for example `wasmUrl`, `cMapUrl`,
+   *  `standardFontDataUrl`. Read when loading starts, like `onPassword`: changing it does not reload
+   *  a document already open. Absent: pdf.js defaults, exactly as before. */
+  documentOptions?: PdfDocumentOptions;
 }
 
 interface PageState {
@@ -105,11 +110,13 @@ function fitScale(mode: Exclude<PdfFitMode, null>, host: HTMLElement, size: Size
   return clampScale(value);
 }
 
-function usePdfDocument(source: PdfSource, onError?: (error: Error) => void, onLoadingChange?: (loading: boolean) => void, onPassword?: PdfPasswordHandler) {
+function usePdfDocument(source: PdfSource, onError?: (error: Error) => void, onLoadingChange?: (loading: boolean) => void, onPassword?: PdfPasswordHandler, documentOptions?: PdfDocumentOptions) {
   const [document, setDocument] = useState<PDFDocumentProxy | null>(null);
   const [loading, setLoading] = useState(true);
   const unlockRef = useRef(onPassword);
   unlockRef.current = onPassword;
+  const optionsRef = useRef(documentOptions);
+  optionsRef.current = documentOptions;
   const key = sourceKey(source);
   useEffect(() => {
     let cancelled = false;
@@ -123,7 +130,7 @@ function usePdfDocument(source: PdfSource, onError?: (error: Error) => void, onL
       try {
         const data = await loadSource(source);
         if (cancelled) return;
-        task = pdfjs.getDocument(typeof data === "string" ? { url: data } : { data });
+        task = pdfjs.getDocument(pdfDocumentInit(data, optionsRef.current));
         timer = createLoadTimer(PAGE_LOAD_TIMEOUT, "PDF document load timed out");
         if (unlockRef.current) flow = attachPasswordHandler(task, () => unlockRef.current, timer);
         const next = await Promise.race([task.promise, timer.promise]);
@@ -170,6 +177,7 @@ export function PdfViewer({
   findBar = true,
   onPassword,
   maxRenderPages,
+  documentOptions,
 }: PdfViewerProps) {
   const hostRef = useRef<HTMLDivElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -177,7 +185,7 @@ export function PdfViewer({
   const pageRefs = useRef(new Map<number, PageState>());
   const pdfRef = useRef<PDFDocumentProxy | null>(null);
   const [pdf, setPdf] = useState<PDFDocumentProxy | null>(null);
-  const { document: pdfDocument, loading } = usePdfDocument(source, onError, onLoadingChange, onPassword);
+  const { document: pdfDocument, loading } = usePdfDocument(source, onError, onLoadingChange, onPassword, documentOptions);
   const [numPages, setNumPages] = useState(0);
   const [page, setPage] = useState(Math.max(1, initialView?.page ?? 1));
   const [scale, setScale] = useState(initialView?.scale ?? 1);
@@ -283,8 +291,7 @@ export function PdfViewer({
       const textLayer = document.createElement("div");
       textLayer.className = "textLayer";
       slot.append(textLayer);
-      const text = new TextLayer({ textContentSource: await pdfPage.getTextContent(), container: textLayer, viewport });
-      await text.render();
+      await renderPdfTextLayer(pdfPage, textLayer, viewport);
       // AnnotationLayer is optional in pdf.js builds. Text links remain safe through the exported
       // link service; hosts can mount pdf.js's full AnnotationLayer when form widgets are needed.
       setRenderedPages((old) => new Set(old).add(pageNumber));
