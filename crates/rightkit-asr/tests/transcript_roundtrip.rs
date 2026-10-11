@@ -10,6 +10,7 @@
 //! test passes; under `RIGHTKIT_REQUIRE_ASSETS=1` it fails.
 mod common;
 
+#[cfg(target_os = "macos")]
 use rightkit_transcript::*;
 
 #[cfg(target_os = "macos")]
