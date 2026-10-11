@@ -28,7 +28,7 @@
     "@rightkit/pdf-ui": "0.1.6",
     "@rightkit/platform-ui": "0.2.7",
     "@rightkit/qa": "0.4.5",
-    "@rightkit/qa-chrome": "0.1.4",
+    "@rightkit/qa-chrome": "0.1.5",
     "@rightkit/release": "0.2.153",
     "@rightkit/settings-ui": "0.4.2",
     "@rightkit/shell": "0.1.0",
@@ -299,7 +299,8 @@
       "0.1.0",
       "0.1.1",
       "0.1.2",
-      "0.1.3"
+      "0.1.3",
+      "0.1.4"
     ],
     "@rightkit/updates": [
       "0.2.4"
@@ -449,7 +450,7 @@
       "@rightkit/pdf-ui": "0.1.6",
       "@rightkit/platform-ui": "0.2.7",
       "@rightkit/qa": "0.4.5",
-      "@rightkit/qa-chrome": "0.1.4",
+      "@rightkit/qa-chrome": "0.1.5",
       "@rightkit/release": "0.2.151",
       "@rightkit/settings-ui": "0.4.2",
       "@rightkit/shell": "0.1.0",
