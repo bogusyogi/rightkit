@@ -258,6 +258,32 @@ fn killed_mid_write_leaves_the_old_file_and_a_sweepable_orphan() {
     assert_eq!(std::fs::read(&p).unwrap(), b"old contents");
 }
 
+/// Reads a file that other processes are replacing. On Windows the open can fail for a moment
+/// with access denied (5) or a sharing violation (32) while a replace is in flight; that is a
+/// refused read, not wrong content, so it is tried again, at most `READ_TRIES` times, without
+/// sleeping. Any other error, and the same error on Unix, fails the test. Returns the bytes and
+/// how many refusals came first.
+fn read_during_replaces(path: &Path) -> (Vec<u8>, u32) {
+    const READ_TRIES: u32 = 200;
+    let mut refused = 0;
+    loop {
+        match std::fs::read(path) {
+            Ok(bytes) => return (bytes, refused),
+            Err(error)
+                if cfg!(windows)
+                    && matches!(error.raw_os_error(), Some(5 | 32))
+                    && refused + 1 < READ_TRIES =>
+            {
+                refused += 1;
+                std::thread::yield_now();
+            }
+            Err(error) => panic!("read failed after {refused} refused tries: {error}"),
+        }
+    }
+}
+
+/// The contract is about content: a reader never sees a truncated file or a mix of two writers.
+/// It is not that a Windows reader never gets a refused open while a replace is in flight.
 #[test]
 fn concurrent_processes_never_expose_a_mixed_file() {
     let (_g, dir) = canonical_tmp();
@@ -268,8 +294,10 @@ fn concurrent_processes_never_expose_a_mixed_file() {
         .map(|tag| spawn_role("writer_loop", &[p.to_str().unwrap(), tag]))
         .collect();
     let mut reads = 0;
+    let mut refused_reads = 0;
     while kids.iter_mut().any(|k| k.try_wait().unwrap().is_none()) {
-        let bytes = std::fs::read(&p).unwrap();
+        let (bytes, refused) = read_during_replaces(&p);
+        refused_reads += refused;
         assert_eq!(bytes.len(), 96 * 1024, "never a truncated or partial file");
         let tag = bytes[1];
         assert!(
@@ -282,6 +310,7 @@ fn concurrent_processes_never_expose_a_mixed_file() {
         }
     }
     assert!(reads > 10);
+    println!("[fs-reader] {reads} reads, {refused_reads} opens refused during a replace");
     for mut k in kids {
         assert!(k.wait().unwrap().success());
     }
