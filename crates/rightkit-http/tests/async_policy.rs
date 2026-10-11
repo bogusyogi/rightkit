@@ -14,6 +14,9 @@ use futures_util::StreamExt;
 use rightkit_http::testing::{loopback_policy, MockResponse, MockServer};
 use rightkit_http::*;
 
+#[path = "common/refused.rs"]
+mod refused;
+
 fn ip(s: &str) -> IpAddr {
     s.parse().unwrap()
 }
@@ -427,10 +430,8 @@ async fn invalid_explicit_proxy_is_an_error_at_construction() {
 #[tokio::test]
 async fn error_phases() {
     // Connect.
-    let closed = {
-        let l = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
-        l.local_addr().unwrap().port()
-    };
+    let refused = refused::RefusedPort::hold();
+    let closed = refused.port();
     let c = client(loopback_policy(), 0);
     let err = c
         .send(&Request::get(format!("http://127.0.0.1:{closed}/")))

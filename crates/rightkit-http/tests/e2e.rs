@@ -8,6 +8,9 @@ use std::time::{Duration, Instant};
 use rightkit_http::testing::{MockBody, MockResponse, MockServer};
 use rightkit_http::*;
 
+#[path = "common/refused.rs"]
+mod refused;
+
 fn fast_retry(max: u32) -> RetryPolicy {
     RetryPolicy {
         max_attempts: max,
@@ -184,11 +187,9 @@ fn post_status_retry_can_be_disabled() {
 
 #[test]
 fn connection_refused_is_retried_then_reported() {
-    // Grab a free port, then close it so connections are refused.
-    let port = {
-        let l = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
-        l.local_addr().unwrap().port()
-    };
+    // A bound socket that never listens: the port is refused and nothing else can take it.
+    let refused = refused::RefusedPort::hold();
+    let port = refused.port();
     let count = Arc::new(Mutex::new(0u32));
     let c = count.clone();
     let mut cfg = ClientConfig {

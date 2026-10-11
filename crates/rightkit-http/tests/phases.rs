@@ -1,15 +1,13 @@
 //! `Phase` on `Timeout` and `Transport` errors, from the blocking client.
 
-use std::net::TcpListener;
 use std::time::Duration;
 
 use rightkit_http::testing::{loopback_config, MockResponse, MockServer};
 use rightkit_http::*;
 
-fn closed_port() -> u16 {
-    let l = TcpListener::bind("127.0.0.1:0").unwrap();
-    l.local_addr().unwrap().port()
-}
+#[path = "common/refused.rs"]
+mod refused;
+use refused::RefusedPort;
 
 fn config() -> ClientConfig {
     ClientConfig {
@@ -33,11 +31,9 @@ fn transport(err: &HttpError) -> (Phase, bool) {
 
 #[test]
 fn connection_refused_is_the_connect_phase() {
+    let refused = RefusedPort::hold();
     let err = Client::new(config())
-        .send(&Request::get(format!(
-            "http://127.0.0.1:{}/",
-            closed_port()
-        )))
+        .send(&Request::get(refused.url("/")))
         .unwrap_err();
     assert_eq!(transport(&err), (Phase::Connect, true));
     assert_eq!(err.phase(), Some(Phase::Connect));
@@ -129,10 +125,10 @@ fn reading_the_body_is_the_body_phase() {
 
 #[test]
 fn failures_on_a_redirect_hop_are_the_redirect_phase() {
-    let closed = closed_port();
-    let to_closed = MockServer::start(move |_, _| {
-        MockResponse::new(302).header("Location", &format!("http://127.0.0.1:{closed}/"))
-    });
+    let refused = RefusedPort::hold();
+    let closed = refused.url("/");
+    let to_closed =
+        MockServer::start(move |_, _| MockResponse::new(302).header("Location", &closed));
     let c = Client::new(ClientConfig {
         max_redirects: 3,
         ..config()
@@ -194,12 +190,8 @@ fn a_connect_failure_on_the_first_request_stays_retryable_for_post() {
         })),
         ..config()
     });
-    let err = c
-        .send(&Request::post(format!(
-            "http://127.0.0.1:{}/",
-            closed_port()
-        )))
-        .unwrap_err();
+    let refused = RefusedPort::hold();
+    let err = c.send(&Request::post(refused.url("/"))).unwrap_err();
     assert_eq!(err.phase(), Some(Phase::Connect));
     assert_eq!(attempts.load(std::sync::atomic::Ordering::SeqCst), 2);
 }
