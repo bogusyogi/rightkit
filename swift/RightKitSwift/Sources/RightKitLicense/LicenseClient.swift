@@ -607,19 +607,27 @@ public struct LicenseActivationClient: Sendable {
         SHA256.hash(data: Data(deviceID.utf8)).map { String(format: "%02x", $0) }.joined()
     }
 
+    /// The host's lease `platform` wire value. The lease server derives the seat pool from it
+    /// (`macos` -> computer pool, `ios`/`ipados` -> mobile pool), so a Mac must not claim `ios`.
     /// `UIDevice` is main-actor state, so the idiom is read by hopping to the main actor instead of
     /// touching it from this nonisolated client.
-    private static func platform() async -> String {
+    static func platform() async -> String {
         #if canImport(UIKit)
         return await mainActorPlatform()
+        #elseif os(macOS)
+        return LeasePlatform.wireValue(.mac)
         #else
-        return "ios"
+        return LeasePlatform.wireValue(.phone)
         #endif
     }
 
     #if canImport(UIKit)
     @MainActor private static func mainActorPlatform() -> String {
-        UIDevice.current.userInterfaceIdiom == .pad ? "ipados" : "ios"
+        switch UIDevice.current.userInterfaceIdiom {
+        case .pad: LeasePlatform.wireValue(.pad)
+        case .mac: LeasePlatform.wireValue(.mac)  // Mac Catalyst / "Designed for iPad" on a Mac
+        default: LeasePlatform.wireValue(.phone)
+        }
     }
     #endif
 
@@ -1122,4 +1130,20 @@ public struct CodeRightLicenseTokenStore: Sendable {
     public func saveToken(_ token: String) async throws { try await store.save(StoredLicense(status: "active", deviceId: deviceID(), signedToken: token.trimmingCharacters(in: .whitespacesAndNewlines))) }
     public func clear() async throws { try await store.remove() }
     public func deviceID() -> String { store.deviceID() }
+}
+
+/// Device families a lease can be activated from, and the `platform` value the lease server accepts
+/// for each (`KNOWN_PLATFORMS` in the licensing API's `device-policy.ts`: macos, windows, linux, ios,
+/// ipados, android, watchos). RightKitSwift ships for iOS, iPadOS and macOS only; visionOS, tvOS
+/// and watchOS have no accepted lease value and are not mapped.
+enum LeasePlatform: Sendable, Equatable {
+    case mac, pad, phone
+
+    static func wireValue(_ family: LeasePlatform) -> String {
+        switch family {
+        case .mac: "macos"
+        case .pad: "ipados"
+        case .phone: "ios"
+        }
+    }
 }

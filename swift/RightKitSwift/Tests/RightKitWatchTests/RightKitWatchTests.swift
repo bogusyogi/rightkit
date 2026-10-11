@@ -169,3 +169,113 @@ final class RightKitWatchTests: XCTestCase {
     }
 }
 #endif
+
+#if os(macOS)
+/// S04: a stalled consumer gets bounded memory and an explicit rescan signal, never silent loss.
+/// The engine is driven directly (no FSEvents) so overflow is deterministic.
+final class RightKitWatchBackpressureTests: XCTestCase {
+    private func makeEngine(capacity: Int, roots: [String]) -> (RightKitWatcher.Engine, AsyncStream<RightKitWatchEvent>) {
+        let (stream, continuation) = AsyncStream<RightKitWatchEvent>.makeStream(bufferingPolicy: .bufferingOldest(capacity))
+        return (RightKitWatcher.Engine(continuation: continuation, since: .init(rawValue: 1), roots: roots), stream)
+    }
+
+    private func burst(_ count: Int, from first: UInt64 = 100) -> [(path: String, flags: UInt32, id: UInt64)] {
+        (0..<count).map { ("/root/f\($0)", UInt32(kFSEventStreamEventFlagItemCreated | kFSEventStreamEventFlagItemIsFile), first + UInt64($0)) }
+    }
+
+    private func drain(_ stream: AsyncStream<RightKitWatchEvent>, upTo count: Int) async -> [RightKitWatchEvent] {
+        var out: [RightKitWatchEvent] = []
+        for await event in stream {
+            out.append(event)
+            if out.count == count { break }
+        }
+        return out
+    }
+
+    func testStalledConsumerKeepsOnlyTheBoundAndThenGetsOneRescanPerRoot() async {
+        let (engine, stream) = makeEngine(capacity: 3, roots: ["/root", "/other"])
+        engine.deliver(burst(50))  // nobody is reading
+        XCTAssertEqual(engine.droppedEventCount, 47)
+
+        // Room appears as the consumer resumes: 3 kept events, then the loss announcement.
+        let received = await drain(stream, upTo: 3 + 2)
+        XCTAssertEqual(received.count, 5)
+        XCTAssertEqual(received.prefix(3).compactMap { event -> String? in
+            if case let .item(path, _, _) = event { return path } else { return nil }
+        }, ["/root/f0", "/root/f1", "/root/f2"], "the buffered events are the oldest, intact and ordered")
+        XCTAssertEqual(received[3], .mustRescan(path: "/root", reason: .bufferOverflow, eventID: .init(rawValue: 149)))
+        XCTAssertEqual(received[4], .mustRescan(path: "/other", reason: .bufferOverflow, eventID: .init(rawValue: 149)))
+        engine.stop()
+    }
+
+    func testLiveEventsResumeAfterTheRescanMarkerInOrder() async {
+        let (engine, stream) = makeEngine(capacity: 2, roots: ["/root"])
+        engine.deliver(burst(10))
+        var iterator = stream.makeAsyncIterator()
+        _ = await iterator.next(); _ = await iterator.next()  // drain the two kept events
+        // Consumer is current again; a new event must queue behind the marker, not ahead of it.
+        engine.deliver(burst(1, from: 500))
+        let marker = await iterator.next()
+        let live = await iterator.next()
+        XCTAssertEqual(marker, .mustRescan(path: "/root", reason: .bufferOverflow, eventID: .init(rawValue: 109)))
+        XCTAssertEqual(live, .item(path: "/root/f0", kind: [.created, .isFile], eventID: .init(rawValue: 500)))
+        engine.stop()
+    }
+
+    func testMarkerStillArrivesWhenTheFilesystemGoesQuietBeforeTheConsumerResumes() async {
+        let (engine, stream) = makeEngine(capacity: 1, roots: ["/root"])
+        engine.deliver(burst(5))  // overflow, then no further FSEvents at all
+        var iterator = stream.makeAsyncIterator()
+        _ = await iterator.next()  // free the only slot; the retry timer must deliver the marker
+        let marker = await iterator.next()
+        XCTAssertEqual(marker, .mustRescan(path: "/root", reason: .bufferOverflow, eventID: .init(rawValue: 104)))
+        engine.stop()
+    }
+
+    func testNoOverflowSignalWhenTheConsumerKeepsUp() async {
+        let (engine, stream) = makeEngine(capacity: 4, roots: ["/root"])
+        var iterator = stream.makeAsyncIterator()
+        for round in 0..<20 {
+            engine.deliver(burst(3, from: UInt64(100 + round * 10)))
+            for _ in 0..<3 { let event = await iterator.next(); XCTAssertNotNil(event) }
+        }
+        XCTAssertEqual(engine.droppedEventCount, 0)
+        engine.stop()
+    }
+
+    func testRejectsAZeroBuffer() {
+        XCTAssertThrowsError(try RightKitWatcher(.init(paths: ["/tmp"], maxBufferedEvents: 0))) {
+            XCTAssertEqual($0 as? RightKitWatchError, .invalidConfiguration)
+        }
+    }
+
+    func testRealWatcherWithStalledReaderIsBoundedAndSignalsRescan() async throws {
+        let scratch = NSTemporaryDirectory() + "rightkit-watch-bp-\(UUID().uuidString)"
+        try FileManager.default.createDirectory(atPath: scratch, withIntermediateDirectories: true)
+        let root = realpath(scratch, nil).map { String(cString: $0) } ?? scratch
+        defer { try? FileManager.default.removeItem(atPath: scratch) }
+        let watcher = try RightKitWatcher(.init(paths: [root], latency: 0.05, maxBufferedEvents: 4))
+        defer { watcher.stop() }
+        for index in 0..<200 { try Data("x".utf8).write(to: URL(fileURLWithPath: root + "/f\(index)")) }
+        watcher.flush()
+        let deadline = Date(timeIntervalSinceNow: 10)
+        while watcher.droppedEventCount == 0, Date() < deadline { try await Task.sleep(nanoseconds: 20_000_000) }
+        XCTAssertGreaterThan(watcher.droppedEventCount, 0, "200 files through a 4-event buffer must overflow")
+
+        // Now read: at most 4 kept events, then the explicit rescan for the root.
+        var sawRescan = false
+        var kept = 0
+        for await event in watcher.events {
+            if case let .mustRescan(path, reason, _) = event, reason.contains(.bufferOverflow) {
+                XCTAssertEqual(path, root)
+                sawRescan = true
+                break
+            }
+            kept += 1
+            if kept > 4 { break }
+        }
+        XCTAssertTrue(sawRescan)
+        XCTAssertLessThanOrEqual(kept, 4)
+    }
+}
+#endif

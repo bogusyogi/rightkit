@@ -690,7 +690,9 @@ public actor CloudSyncEngine<Adapter: CloudSyncAdapter>: CloudSyncRunning {
         guard isEnabled, generation == gen else { throw CancellationError() }
     }
 
-    private func persist() throws { try stateStore.save(state) }
+    /// Persists the ledger; a store shared across processes returns it merged with concurrent
+    /// writers' changes, which this engine adopts.
+    private func persist() throws { state = try stateStore.commit(state) }
 
     private func noteRetry(_ error: Error) {
         if let e = error as? SyncTransportError { retryGate.note(e, now: config.clock()) }

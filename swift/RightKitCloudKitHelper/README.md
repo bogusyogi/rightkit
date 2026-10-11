@@ -13,6 +13,9 @@ swift build -c release                    # in this directory
 .build/release/rightkit-cloudkit-helper --container <id> --zone <name> --subscription <id>
 ```
 
+Every request must carry `"v":1`; a missing or different version is refused with error kind
+`unsupported_protocol` before any command runs (`swift test` in this directory covers it).
+
 `--backend memory` serves an in-process zone (`InMemorySyncTransport`); `rightkit-sync`'s
 `tests/helper_e2e.rs` runs the real engine against this binary when it is built.
 

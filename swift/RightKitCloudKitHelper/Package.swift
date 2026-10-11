@@ -18,5 +18,6 @@ let package = Package(
             name: "rightkit-cloudkit-helper",
             dependencies: [.product(name: "RightKitCloudSync", package: "RightKitSwift")]
         ),
+        .testTarget(name: "RightKitCloudKitHelperTests", dependencies: ["rightkit-cloudkit-helper"]),
     ]
 )

@@ -1,5 +1,16 @@
 # RightKitSwift changelog
 
+## Unreleased
+
+Audit S01-S06 (fresh-2026-10-11). Source compatible except where marked.
+
+- `RightKitSpeech` S01: `ParakeetEngine` is checked `Sendable` (no `@unchecked`). `vocabulary` is lock-protected and snapshotted when a decode starts; every decode (async, blocking, static window, prime) is admitted one at a time through one gate, because the four Core ML stages are shared. Behaviour change: concurrent decodes on one engine now queue instead of overlapping.
+- `RightKitSpeech` S02: `LiveDictationSession` publishes a legacy capture only while its generation is current; a `stop()` or newer `start()` during setup makes the stale start tear down what it built (idempotent). A superseded start no longer tears down its successor or reports a failure.
+- `RightKitCloudSync` S03: `FileSyncStateStore` takes an exclusive `flock` on `<state>.lock` around every load and save (bounded wait, `lockTimeout` default 10 s, throws `CloudSyncError.persistence`; the kernel releases it if the holder dies) and three-way merges a write that raced another process. New `CloudSyncStateStoring.commit(_:)` returns the merged state (default: `save`); `CloudSyncEngine` adopts it. Different `accountID`s never merge: the writer wins whole.
+- `RightKitWatch` S04: the event stream is bounded (`RightKitWatchConfiguration.maxBufferedEvents`, default 4096, must be at least 1). Overflow drops the newest events and delivers `.mustRescan(path:reason: .bufferOverflow, ...)` once per watched path. New `RightKitWatchRescanReason.bufferOverflow`, `RightKitWatcher.droppedEventCount`. An existing exhaustive `switch` over events is unaffected (no new case); a handler that only rescans on specific `reason`s must also rescan on `.bufferOverflow`.
+- `RightKitLicense` S05: lease activation sends `platform` `macos` on macOS (and Mac Catalyst), `ipados` on iPad, `ios` otherwise. WIRE CHANGE: it sent `ios` on macOS. The licensing API derives the seat pool from this value (macos: computer pool, ios/ipados: mobile pool), so Macs now count against the computer cap.
+- `RightKitCloudKitHelper` S06: a request whose `v` is missing, not an integer or not `1` is refused before dispatch with error kind `unsupported_protocol`; nothing is read or written.
+
 ## 0.6.0
 
 Gap ledger #75 (HeardRight fit review). The Diagnostics additions are source compatible. The Artifacts install API changes, see below.

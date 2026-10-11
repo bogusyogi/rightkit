@@ -3,6 +3,10 @@
 // per-record field-name memory below; the change cursor lives in the Rust ledger (the token travels
 // in every fetch_changes request/response as base64), so nothing here needs migrating.
 //
+// Every request carries `"v"`: the protocol major version, an integer, exactly `1` today. A request
+// whose `v` is absent, not an integer or not supported is refused before any command runs, with
+// error kind `unsupported_protocol` (see `HelperProtocol`).
+//
 // Commands (all except `status` carry `expected_scope`, the account/container/zone scope the Rust
 // ledger belongs to; a mismatch refuses the request before any I/O and again after it):
 //   status                          -> {status:"ready"|"unavailable", detail?, scope?}
@@ -53,6 +57,40 @@ struct WireFailure: Error {
     }
 }
 
+/// Why a request's protocol version was refused. Raised before dispatch, so nothing is read, saved
+/// or cached for a request this helper cannot interpret.
+enum HelperProtocolError: Error, Equatable {
+    case missingVersion
+    /// `v` was present but is not an integer, or is an integer other than ``HelperProtocol/version``.
+    case unsupportedVersion(String)
+
+    var failure: WireFailure {
+        switch self {
+        case .missingVersion:
+            WireFailure("unsupported_protocol", "request has no protocol version \"v\"; this helper speaks v\(HelperProtocol.version)")
+        case let .unsupportedVersion(found):
+            WireFailure("unsupported_protocol", "unsupported protocol version \(found); this helper speaks v\(HelperProtocol.version)")
+        }
+    }
+}
+
+enum HelperProtocol {
+    /// `rightkit-sync-helper/1`.
+    static let version = 1
+
+    /// The request's `v`, or the typed reason it is unusable. Booleans, strings and fractional
+    /// numbers are not versions.
+    static func validate(_ value: Any?) throws {
+        guard let value, !(value is NSNull) else { throw HelperProtocolError.missingVersion }
+        guard let number = value as? NSNumber, CFGetTypeID(number) != CFBooleanGetTypeID() else {
+            throw HelperProtocolError.unsupportedVersion("\(value)")
+        }
+        guard number.doubleValue == number.doubleValue.rounded(), number.int64Value == version else {
+            throw HelperProtocolError.unsupportedVersion(number.stringValue)
+        }
+    }
+}
+
 actor HelperSession {
     private let transport: any ZoneIO
     /// Field names last seen per record name. CloudKit saves with `.allKeys` overwrite the fields
@@ -77,6 +115,7 @@ actor HelperSession {
             return (Self.failureLine(id: 0, WireFailure("transient", "malformed request")), false)
         }
         do {
+            try HelperProtocol.validate(object["v"])
             var body: [String: Any]
             switch cmd {
             case "status": body = try await status()
@@ -100,6 +139,8 @@ actor HelperSession {
                 body["scope"] = expected
             }
             return (Self.okLine(id: id, body), false)
+        } catch let error as HelperProtocolError {
+            return (Self.failureLine(id: id, error.failure), false)
         } catch let failure as WireFailure {
             return (Self.failureLine(id: id, failure), false)
         } catch let error as SyncTransportError {

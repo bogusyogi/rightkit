@@ -187,3 +187,137 @@ struct LiveDictationPermissionTests {
         #expect(events.failures == ["Dictation needs Microphone access."])
     }
 }
+
+// MARK: Stop during legacy setup (S02)
+
+struct LiveDictationLegacySetupTests {
+    private final class Events: @unchecked Sendable {
+        private let lock = NSLock()
+        private var stored: [LiveDictationSession.Event] = []
+        func add(_ event: LiveDictationSession.Event) { lock.withLock { stored.append(event) } }
+        var all: [LiveDictationSession.Event] { lock.withLock { stored } }
+        var failures: [String] { all.compactMap { if case let .failed(text) = $0 { text } else { nil } } }
+    }
+
+    /// Stands in for the audio engine + tap + recognition task: "installed" until `tearDown()`.
+    private final class FakeCapture: LegacyCaptureHandle, @unchecked Sendable {
+        private let lock = NSLock()
+        private var live = true
+        private var count = 0
+        var isInstalled: Bool { lock.withLock { live } }
+        var tearDowns: Int { lock.withLock { count } }
+        func tearDown() { lock.withLock { live = false; count += 1 } }
+    }
+
+    private final class Harness: @unchecked Sendable {
+        let captures = Captures()
+        let events = Events()
+        var session: LiveDictationSession!
+        /// Runs inside the factory after a capture exists but before it is returned for publication,
+        /// i.e. exactly where the race window used to be.
+        var duringSetup: [@Sendable (Harness, Int) throws -> Void] = []
+
+        final class Captures: @unchecked Sendable {
+            private let lock = NSLock()
+            private var stored: [FakeCapture] = []
+            func add(_ capture: FakeCapture) -> Int { lock.withLock { stored.append(capture); return stored.count - 1 } }
+            var all: [FakeCapture] { lock.withLock { stored } }
+        }
+
+        func makeSession() {
+            session = LiveDictationSession(
+                localeCandidates: [Locale(identifier: "en_US")],
+                speechAuthorization: { true }, microphonePermission: { true },
+                legacyFactory: { [unowned self] _ in
+                    let capture = FakeCapture()
+                    let index = captures.add(capture)
+                    if index < duringSetup.count {
+                        do { try duringSetup[index](self, index) } catch { capture.tearDown(); throw error }
+                    }
+                    return capture
+                },
+                modernEnabled: false)
+        }
+    }
+
+    @Test func aStopDuringSetupLeavesNothingInstalled() async throws {
+        let h = Harness()
+        h.duringSetup = [{ harness, _ in harness.session.stop() }]
+        h.makeSession()
+        h.session.start(onEvent: h.events.add)
+        await h.session.lastStartTask?.value
+
+        let capture = try #require(h.captures.all.first)
+        #expect(!capture.isInstalled, "capture built during a stopped start must be torn down")
+        #expect(!h.events.all.contains(.status(nil)), "a stopped start must not report it is listening")
+        #expect(h.events.failures.isEmpty)
+    }
+
+    @Test func aReplacingStartDuringSetupDisposesOnlyTheStaleCapture() async throws {
+        let h = Harness()
+        h.makeSession()
+        let eventsB = Events()
+        h.duringSetup = [{ harness, _ in harness.session.start(onEvent: eventsB.add) }]
+        h.session.start(onEvent: h.events.add)
+        let taskA = try #require(h.session.lastStartTask)
+        await taskA.value
+        await h.session.lastStartTask?.value  // start B
+
+        let captures = h.captures.all
+        #expect(captures.count == 2)
+        #expect(!captures[0].isInstalled, "stale start A must dispose its own capture")
+        #expect(captures[1].isInstalled, "start B's capture must survive A's unwinding")
+        #expect(!h.events.all.contains(.status(nil)))
+        #expect(eventsB.all.contains(.status(nil)))
+
+        h.session.stop()
+        #expect(!captures[1].isInstalled)
+        h.session.stop()  // idempotent
+        #expect(captures[1].tearDowns >= 1)
+    }
+
+    @Test func aStaleStartFailureNeitherTearsDownNorReportsToItsSuccessor() async throws {
+        let h = Harness()
+        h.makeSession()
+        let eventsB = Events()
+        struct Boom: Error {}
+        h.duringSetup = [{ harness, _ in
+            harness.session.start(onEvent: eventsB.add)
+            throw Boom()
+        }]
+        h.session.start(onEvent: h.events.add)
+        let taskA = try #require(h.session.lastStartTask)
+        await taskA.value
+        await h.session.lastStartTask?.value
+
+        let captures = h.captures.all
+        #expect(captures.count == 2)
+        #expect(captures[1].isInstalled, "A's failure path must not tear down B")
+        #expect(h.events.failures.isEmpty, "a superseded start reports nothing")
+        #expect(eventsB.failures.isEmpty)
+        h.session.stop()
+    }
+
+    @Test func aCurrentStartPublishesAndStopReleasesIt() async throws {
+        let h = Harness()
+        h.makeSession()
+        h.session.start(onEvent: h.events.add)
+        await h.session.lastStartTask?.value
+        let capture = try #require(h.captures.all.first)
+        #expect(capture.isInstalled)
+        #expect(h.events.all.contains(.status(nil)))
+        h.session.stop()
+        #expect(!capture.isInstalled)
+    }
+
+    @Test func aCurrentSetupFailureIsReportedAndUnwound() async throws {
+        let h = Harness()
+        struct Boom: Error {}
+        h.duringSetup = [{ _, _ in throw Boom() }]
+        h.makeSession()
+        h.session.start(onEvent: h.events.add)
+        await h.session.lastStartTask?.value
+        #expect(h.events.failures == ["Couldn't start the microphone."])
+        #expect(try #require(h.captures.all.first).isInstalled == false)
+    }
+}

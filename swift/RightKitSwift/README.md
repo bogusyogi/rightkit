@@ -227,16 +227,18 @@ for await event in watcher.events {
     case let .item(path, kind, id): handle(path, kind); savedID = id
     case let .rootChanged(path): break      // the watched folder itself moved or was deleted
     case .historyDone: break                // replay since savedID finished; later events are live
-    case let .mustRescan(path, reason, id): rescan(path); savedID = id
+    case let .mustRescan(path, reason, id): rescan(path); savedID = id   // incl. .bufferOverflow
     }
 }
 ```
 
 `FSEventStreamCreate` with `FileEvents | UseCFTypes` (plus `WatchRoot`, needed for `rootChanged`;
-`NoDefer` and `IgnoreSelf` optional), delivered on a private dispatch queue into an unbounded
-`AsyncStream`. `RightKitWatchEventID` is `Codable`; persist the ID of the last event you *handled*
+`NoDefer` and `IgnoreSelf` optional), delivered on a private dispatch queue into a bounded
+`AsyncStream` (`maxBufferedEvents`, default 4096). A consumer that stalls past the bound keeps the
+oldest buffered events, loses the newest, and then receives one `mustRescan` with reason
+`.bufferOverflow` per watched path: rescan it. `watcher.droppedEventCount` reports the loss. `RightKitWatchEventID` is `Codable`; persist the ID of the last event you *handled*
 (`event.eventID`) and pass it as `sinceWhen` to replay. `RightKitWatchEventID.current()` is a bookmark
-to store before the first watch. `watcher.lastEventId` is the delivery high-water mark;
+to store before the first watch. `watcher.lastEventId` is the newest event ID seen (including any discarded on overflow);
 `watcher.flush()` waits for already-seen events; `stop()` (or ending the iteration) tears down.
 Event IDs are per volume and journal; a replay that cannot be honoured reports `mustRescan`.
 

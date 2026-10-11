@@ -65,6 +65,11 @@ public struct RightKitWatchRescanReason: OptionSet, Hashable, Sendable {
     public static let kernelDropped = Self(rawValue: UInt32(kFSEventStreamEventFlagKernelDropped))
     /// The event ID counter wrapped; saved IDs are no longer comparable (`EventIdsWrapped`).
     public static let eventIDsWrapped = Self(rawValue: UInt32(kFSEventStreamEventFlagEventIdsWrapped))
+    /// The consumer fell behind and the watcher's bounded buffer discarded events (see
+    /// ``RightKitWatchConfiguration/maxBufferedEvents``). Delivered once per watched root, in
+    /// order, after the events that were kept; rescan the whole root. Not an FSEvents flag, so it
+    /// uses a bit the system never sets.
+    public static let bufferOverflow = Self(rawValue: 0x8000_0000)
 }
 
 /// One typed notification from a ``RightKitWatcher``.
@@ -134,6 +139,14 @@ public struct RightKitWatchConfiguration: Sendable, Equatable {
     public var noDefer: Bool
     /// Suppress events caused by this process (`IgnoreSelf`).
     public var ignoreSelf: Bool
+    /// Most events the watcher holds for a consumer that is not iterating. When the buffer is full
+    /// the *newest* events are discarded (the buffered ones are intact and in order) and, once the
+    /// consumer has room again, one ``RightKitWatchEvent/mustRescan(path:reason:eventID:)`` with
+    /// ``RightKitWatchRescanReason/bufferOverflow`` is delivered per watched path. The consumer
+    /// must rescan those paths. Default ``defaultMaxBufferedEvents`` (about 1 MB of typical paths).
+    public var maxBufferedEvents: Int
+
+    public static let defaultMaxBufferedEvents = 4096
 
     public init(
         paths: [String],
@@ -141,10 +154,12 @@ public struct RightKitWatchConfiguration: Sendable, Equatable {
         latency: TimeInterval = 0.5,
         watchRoot: Bool = true,
         noDefer: Bool = false,
-        ignoreSelf: Bool = false
+        ignoreSelf: Bool = false,
+        maxBufferedEvents: Int = RightKitWatchConfiguration.defaultMaxBufferedEvents
     ) {
         self.paths = paths; self.sinceWhen = sinceWhen; self.latency = latency
         self.watchRoot = watchRoot; self.noDefer = noDefer; self.ignoreSelf = ignoreSelf
+        self.maxBufferedEvents = maxBufferedEvents
     }
 
     var streamFlags: FSEventStreamCreateFlags {
@@ -166,27 +181,39 @@ public struct RightKitWatchConfiguration: Sendable, Equatable {
 /// }
 /// ```
 ///
-/// The stream is live from `init`; events are buffered until iterated. Iteration ends when the
-/// watcher is stopped. Cancelling or abandoning the iteration also stops the watcher. A running
-/// watcher keeps itself alive, so it need not be retained by the caller. Not available on iOS.
+/// The stream is live from `init`; events are buffered, up to
+/// ``RightKitWatchConfiguration/maxBufferedEvents``, until iterated. A consumer that stalls past
+/// that bound loses the newest events, never memory: it then receives a
+/// ``RightKitWatchEvent/mustRescan(path:reason:eventID:)`` with
+/// ``RightKitWatchRescanReason/bufferOverflow`` for every watched path and must rescan them.
+/// Iteration ends when the watcher is stopped. Cancelling or abandoning the iteration also stops
+/// the watcher. A running watcher keeps itself alive, so it need not be retained by the caller.
+/// Not available on iOS.
 public final class RightKitWatcher: Sendable {
     /// Typed events in delivery order. Consume from one task.
     public let events: AsyncStream<RightKitWatchEvent>
     private let engine: Engine
 
     public init(_ configuration: RightKitWatchConfiguration) throws {
-        guard !configuration.paths.isEmpty, !configuration.paths.contains(where: \.isEmpty) else {
+        guard !configuration.paths.isEmpty, !configuration.paths.contains(where: \.isEmpty),
+              configuration.maxBufferedEvents >= 1
+        else {
             throw RightKitWatchError.invalidConfiguration
         }
-        let (stream, continuation) = AsyncStream<RightKitWatchEvent>.makeStream(bufferingPolicy: .unbounded)
-        let engine = Engine(continuation: continuation, since: configuration.sinceWhen)
+        let (stream, continuation) = AsyncStream<RightKitWatchEvent>.makeStream(
+            bufferingPolicy: .bufferingOldest(configuration.maxBufferedEvents))
+        let engine = Engine(continuation: continuation, since: configuration.sinceWhen, roots: configuration.paths)
         try engine.start(configuration)
         continuation.onTermination = { _ in engine.stop() }
         self.events = stream
         self.engine = engine
     }
 
-    /// The ID of the newest event this watcher has handed to ``events``. Persist the ID of events
+    /// How many events the bounded buffer has discarded since the watcher started. Non-zero means
+    /// the consumer was told (or is about to be told) to rescan.
+    public var droppedEventCount: Int { engine.droppedEventCount }
+
+    /// The ID of the newest event this watcher has seen (including any discarded on overflow). Persist the ID of events
     /// you have *handled* (``RightKitWatchEvent/eventID``) for exact resume; this value is the
     /// delivery high-water mark and is `sinceWhen` until the first event arrives.
     public var lastEventId: RightKitWatchEventID { engine.lastEventID }
@@ -200,15 +227,28 @@ public final class RightKitWatcher: Sendable {
 
 extension RightKitWatcher {
     /// Owns the FSEventStream. All mutable state sits behind `lock`; the callback runs on `queue`.
+    ///
+    /// Backpressure: the stream buffers the oldest `maxBufferedEvents` events. A refused `yield` means
+    /// the consumer is behind; the engine counts it, remembers the newest discarded ID and, as soon
+    /// as the buffer has room, enqueues one overflow `mustRescan` per root *before* any later event,
+    /// so the consumer sees "kept events, rescan, then live events" in order. A short timer retries
+    /// the marker so it still arrives when the filesystem goes quiet before the consumer resumes.
     final class Engine: @unchecked Sendable {
         private let lock = NSLock()
         private let queue = DispatchQueue(label: "org.rightkit.watch")
         private let continuation: AsyncStream<RightKitWatchEvent>.Continuation
         private var stream: FSEventStreamRef?
         private var latest: UInt64
+        private let roots: [String]
+        private var overflowPending = false
+        private var markersDelivered = 0
+        private var newestDropped: UInt64 = 0
+        private var dropped = 0
+        private var retryTimer: DispatchSourceTimer?
 
-        init(continuation: AsyncStream<RightKitWatchEvent>.Continuation, since: RightKitWatchEventID) {
+        init(continuation: AsyncStream<RightKitWatchEvent>.Continuation, since: RightKitWatchEventID, roots: [String]) {
             self.continuation = continuation
+            self.roots = roots
             // "Since now" is a sentinel, not a position; start the high-water mark at the real now.
             self.latest = since == .sinceNow ? FSEventsGetCurrentEventId() : since.rawValue
         }
@@ -258,15 +298,60 @@ extension RightKitWatcher {
             lock.lock(); stream = created; lock.unlock()
         }
 
+        var droppedEventCount: Int {
+            lock.lock(); defer { lock.unlock() }
+            return dropped
+        }
+
         func deliver(_ records: [(path: String, flags: UInt32, id: UInt64)]) {
+            lock.lock(); defer { lock.unlock() }
             for record in records {
                 for event in RightKitWatchEvent.decode(path: record.path, flags: record.flags, id: record.id) {
-                    if let id = event.eventID?.rawValue {
-                        lock.lock(); latest = max(latest, id); lock.unlock()
-                    }
-                    continuation.yield(event)
+                    if let id = event.eventID?.rawValue { latest = max(latest, id) }
+                    // Anything already lost must be announced before a later event is queued.
+                    if overflowPending { flushOverflowLocked() }
+                    if overflowPending { discardLocked(event); continue }
+                    if case .dropped = continuation.yield(event) { discardLocked(event) }
                 }
             }
+        }
+
+        private func discardLocked(_ event: RightKitWatchEvent) {
+            dropped += 1
+            if let id = event.eventID?.rawValue { newestDropped = max(newestDropped, id) }
+            overflowPending = true
+            if retryTimer == nil {
+                let timer = DispatchSource.makeTimerSource(queue: queue)
+                timer.schedule(deadline: .now() + .milliseconds(50), repeating: .milliseconds(50))
+                timer.setEventHandler { [weak self] in
+                    guard let self else { return }
+                    self.lock.lock(); defer { self.lock.unlock() }
+                    if self.overflowPending { self.flushOverflowLocked() }
+                }
+                retryTimer = timer
+                timer.resume()
+            }
+        }
+
+        /// Enqueues the overflow markers that still fit. Done (and the timer cancelled) once every
+        /// root has been told; otherwise the rest wait for the consumer to make room.
+        private func flushOverflowLocked() {
+            while markersDelivered < roots.count {
+                let marker = RightKitWatchEvent.mustRescan(
+                    path: roots[markersDelivered], reason: .bufferOverflow,
+                    eventID: RightKitWatchEventID(rawValue: newestDropped))
+                switch continuation.yield(marker) {
+                case .enqueued: markersDelivered += 1
+                case .dropped: return
+                case .terminated: markersDelivered = roots.count
+                @unknown default: return
+                }
+            }
+            overflowPending = false
+            markersDelivered = 0
+            newestDropped = 0
+            retryTimer?.cancel()
+            retryTimer = nil
         }
 
         func flush() {
@@ -278,6 +363,8 @@ extension RightKitWatcher {
             lock.lock()
             let current = stream
             stream = nil
+            retryTimer?.cancel()
+            retryTimer = nil
             lock.unlock()
             if let current {
                 FSEventStreamStop(current)

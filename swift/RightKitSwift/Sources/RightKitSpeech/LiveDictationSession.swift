@@ -19,33 +19,45 @@ public final class LiveDictationSession: @unchecked Sendable {
     public typealias SpeechAuthorizationProvider = @Sendable () async -> Bool
     public typealias MicrophonePermissionProvider = @Sendable () async -> Bool
 
-    private static let cancellationCodes: [String: Set<Int>] = [
-        "kLSRErrorDomain": [209, 216],
-        "kAFAssistantErrorDomain": [216],
-    ]
-
     private let lock = NSLock()
     private let speechAuthorization: SpeechAuthorizationProvider
     private let microphonePermission: MicrophonePermissionProvider
     private let localeCandidates: [Locale]
+    private let legacyFactory: LegacyCaptureFactory
+    private let modernEnabled: Bool
+    /// Bumped by every `start()` and `stop()`. A start owns exactly the resources it publishes while
+    /// its generation is still current; anything it built after that point is torn down by the
+    /// start itself, never left for (or taken from) a later owner.
     private var generation = 0
-    private var engine: AVAudioEngine?
-    private var tapInstalled = false
-    private var request: SFSpeechAudioBufferRecognitionRequest?
-    private var task: SFSpeechRecognitionTask?
+    private var legacy: (any LegacyCaptureHandle)?
     private var modern: AnyObject?
     private var startTask: Task<Void, Never>?
     /// Test seam: the most recent start's task, kept after `stop()` so tests can await it.
     private(set) var lastStartTask: Task<Void, Never>?
 
-    public init(
+    public convenience init(
         localeCandidates: [Locale] = Dictation.localeCandidates(),
         speechAuthorization: @escaping SpeechAuthorizationProvider = { await LiveDictationSession.requestSpeechAuthorization() },
         microphonePermission: @escaping MicrophonePermissionProvider = { await LiveDictationSession.requestMicrophonePermission() }
     ) {
+        self.init(
+            localeCandidates: localeCandidates, speechAuthorization: speechAuthorization,
+            microphonePermission: microphonePermission, legacyFactory: LegacyCapture.start, modernEnabled: true)
+    }
+
+    /// Test seam: substitutes the legacy capture factory and can disable the iOS/macOS 26 path.
+    init(
+        localeCandidates: [Locale],
+        speechAuthorization: @escaping SpeechAuthorizationProvider,
+        microphonePermission: @escaping MicrophonePermissionProvider,
+        legacyFactory: @escaping LegacyCaptureFactory,
+        modernEnabled: Bool
+    ) {
         self.localeCandidates = localeCandidates
         self.speechAuthorization = speechAuthorization
         self.microphonePermission = microphonePermission
+        self.legacyFactory = legacyFactory
+        self.modernEnabled = modernEnabled
     }
 
     public static func requestSpeechAuthorization() async -> Bool {
@@ -103,32 +115,130 @@ public final class LiveDictationSession: @unchecked Sendable {
             try session.setCategory(.record, mode: .measurement)
             try session.setActive(true, options: .notifyOthersOnDeactivation)
             #endif
-            if #available(iOS 26.0, macOS 26.0, *), let locale = await ModernCapture.supportedLocale(from: localeCandidates) {
+            if modernEnabled, #available(iOS 26.0, macOS 26.0, *), let locale = await ModernCapture.supportedLocale(from: localeCandidates) {
                 do {
                     let capture = try await ModernCapture.start(locale: locale, onEvent: { event in
                         if self.isCurrent(value) { onEvent(event) }
                     })
-                    guard isCurrent(value), !Task.isCancelled else { capture.stop(); return }
-                    lock.withLock { modern = capture }
+                    // Publish only if this start still owns the session; otherwise unwind it here.
+                    guard !Task.isCancelled, adopt(generation: value, modern: capture) else {
+                        capture.stop()
+                        releaseAudioSessionIfIdle()
+                        return
+                    }
                     onEvent(.status(nil))
                     return
                 } catch {
                     // Fall through to the legacy recognizer.
                 }
             }
-            guard isCurrent(value), !Task.isCancelled else { return }
-            try beginLegacy(generation: value, onEvent: onEvent)
+            guard isCurrent(value), !Task.isCancelled else { releaseAudioSessionIfIdle(); return }
+            guard try beginLegacy(generation: value, onEvent: onEvent) else {
+                releaseAudioSessionIfIdle()
+                return
+            }
             onEvent(.status(nil))
         } catch {
+            // A superseded start owns nothing and must neither tear down its successor's capture
+            // nor report a failure the current owner never asked for.
+            guard isCurrent(value) else { releaseAudioSessionIfIdle(); return }
             teardown()
             onEvent(.failed("Couldn't start the microphone."))
         }
     }
 
-    private func beginLegacy(generation value: Int, onEvent: @escaping @Sendable (Event) -> Void) throws {
+    /// Builds the legacy capture and publishes it only while `value` is still the current
+    /// generation. Returns `false` (after disposing everything it built) when a `stop()` or a newer
+    /// `start()` arrived during setup.
+    private func beginLegacy(generation value: Int, onEvent: @escaping @Sendable (Event) -> Void) throws -> Bool {
+        let context = LegacyCaptureContext(
+            localeCandidates: localeCandidates,
+            isCurrent: { [weak self] in self?.isCurrent(value) ?? false },
+            emit: onEvent,
+            stop: { [weak self] in self?.stop() }
+        )
+        let capture = try legacyFactory(context)
+        let adopted = lock.withLock { () -> Bool in
+            guard generation == value else { return false }
+            legacy = capture
+            return true
+        }
+        if !adopted { capture.tearDown() }  // idempotent; the stale start owns this capture alone
+        return adopted
+    }
+
+    private func adopt(generation value: Int, modern capture: AnyObject) -> Bool {
+        lock.withLock { () -> Bool in
+            guard generation == value else { return false }
+            modern = capture
+            return true
+        }
+    }
+
+    /// Deactivates the shared iOS audio session after a superseded start activated it, unless a
+    /// newer start (or a published capture) now owns it.
+    private func releaseAudioSessionIfIdle() {
+        #if os(iOS)
+        let idle = lock.withLock { startTask == nil && legacy == nil && modern == nil }
+        if idle { try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation) }
+        #endif
+    }
+
+    private func teardown() {
+        let (legacy, modern) = lock.withLock { () -> ((any LegacyCaptureHandle)?, AnyObject?) in
+            defer { self.legacy = nil; self.modern = nil }
+            return (self.legacy, self.modern)
+        }
+        if #available(iOS 26.0, macOS 26.0, *) { (modern as? ModernCapture)?.stop() }
+        legacy?.tearDown()
+        #if os(iOS)
+        try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+        #endif
+    }
+}
+
+// MARK: - Legacy capture
+
+/// Everything one legacy start installed: audio engine, input tap, recognition request and task.
+/// `tearDown()` releases all of it and is idempotent, so the owner and a stale start can both call it.
+protocol LegacyCaptureHandle: AnyObject, Sendable {
+    func tearDown()
+}
+
+struct LegacyCaptureContext: Sendable {
+    let localeCandidates: [Locale]
+    /// `false` once the owning start was stopped or replaced; callbacks must drop their output.
+    let isCurrent: @Sendable () -> Bool
+    let emit: @Sendable (LiveDictationSession.Event) -> Void
+    /// Ends the session (a final result or a recognizer error).
+    let stop: @Sendable () -> Void
+}
+
+typealias LegacyCaptureFactory = @Sendable (LegacyCaptureContext) throws -> any LegacyCaptureHandle
+
+private final class LegacyCapture: LegacyCaptureHandle, @unchecked Sendable {
+    private static let cancellationCodes: [String: Set<Int>] = [
+        "kLSRErrorDomain": [209, 216],
+        "kAFAssistantErrorDomain": [216],
+    ]
+
+    private let lock = NSLock()
+    private var engine: AVAudioEngine?
+    private var tapInstalled = false
+    private var request: SFSpeechAudioBufferRecognitionRequest?
+    private var task: SFSpeechRecognitionTask?
+
+    private init(engine: AVAudioEngine, request: SFSpeechAudioBufferRecognitionRequest) {
+        self.engine = engine
+        self.request = request
+    }
+
+    /// Installs tap, engine and recognition task one step at a time; any failure unwinds every step
+    /// already taken before it propagates.
+    static func start(_ context: LegacyCaptureContext) throws -> any LegacyCaptureHandle {
         // Local-only: pick only a recognizer that recognizes on-device, otherwise fail closed.
         let recognizer = try LegacySpeechPolicy.select(
-            from: localeCandidates.compactMap { SFSpeechRecognizer(locale: $0) },
+            from: context.localeCandidates.compactMap { SFSpeechRecognizer(locale: $0) },
             isAvailable: { $0.isAvailable },
             supportsOnDevice: { $0.supportsOnDeviceRecognition }
         )
@@ -141,46 +251,45 @@ public final class LiveDictationSession: @unchecked Sendable {
         let input = engine.inputNode
         let format = input.outputFormat(forBus: 0)
         guard format.channelCount > 0 else { throw SpeechError.engineUnavailable("no audio input") }
-        input.installTap(onBus: 0, bufferSize: 1024, format: format) { buffer, _ in request.append(buffer) }
-        engine.prepare()
-        try engine.start()
-        let recognition = recognizer.recognitionTask(with: request) { [weak self] result, error in
-            guard let self, self.isCurrent(value) else { return }
-            if let result {
-                let text = result.bestTranscription.formattedString
-                if result.isFinal { onEvent(.final(text)); self.stop(); return }
-                onEvent(.partial(text))
+        let capture = LegacyCapture(engine: engine, request: request)
+        do {
+            input.installTap(onBus: 0, bufferSize: 1024, format: format) { buffer, _ in request.append(buffer) }
+            capture.lock.withLock { capture.tapInstalled = true }
+            engine.prepare()
+            try engine.start()
+            let recognition = recognizer.recognitionTask(with: request) { result, error in
+                guard context.isCurrent() else { return }
+                if let result {
+                    let text = result.bestTranscription.formattedString
+                    if result.isFinal { context.emit(.final(text)); context.stop(); return }
+                    context.emit(.partial(text))
+                }
+                if let error {
+                    let value = error as NSError
+                    if cancellationCodes[value.domain]?.contains(value.code) == true { context.stop(); return }
+                    context.emit(.failed("Couldn't transcribe that."))
+                    context.stop()
+                }
             }
-            if let error {
-                let value = error as NSError
-                if Self.cancellationCodes[value.domain]?.contains(value.code) == true { self.stop(); return }
-                onEvent(.failed("Couldn't transcribe that."))
-                self.stop()
-            }
+            capture.lock.withLock { capture.task = recognition }
+        } catch {
+            capture.tearDown()
+            throw error
         }
-        lock.withLock {
-            self.engine = engine
-            self.tapInstalled = true
-            self.request = request
-            self.task = recognition
-        }
+        return capture
     }
 
-    private func teardown() {
-        let (engine, installed, request, task, modern) = lock.withLock { () -> (AVAudioEngine?, Bool, SFSpeechAudioBufferRecognitionRequest?, SFSpeechRecognitionTask?, AnyObject?) in
-            defer { self.engine = nil; self.tapInstalled = false; self.request = nil; self.task = nil; self.modern = nil }
-            return (self.engine, self.tapInstalled, self.request, self.task, self.modern)
+    func tearDown() {
+        let (engine, installed, request, task) = lock.withLock { () -> (AVAudioEngine?, Bool, SFSpeechAudioBufferRecognitionRequest?, SFSpeechRecognitionTask?) in
+            defer { self.engine = nil; self.tapInstalled = false; self.request = nil; self.task = nil }
+            return (self.engine, self.tapInstalled, self.request, self.task)
         }
-        if #available(iOS 26.0, macOS 26.0, *) { (modern as? ModernCapture)?.stop() }
         if let engine {
             if installed { engine.inputNode.removeTap(onBus: 0) }
             if engine.isRunning { engine.stop() }
         }
         task?.cancel()
         request?.endAudio()
-        #if os(iOS)
-        try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
-        #endif
     }
 }
 

@@ -1569,3 +1569,25 @@ private func raceThreads(_ count: Int, _ body: @escaping @Sendable (Int) -> Void
     var ran = false
     #expect(blocked.transact(forKey: "counter") { ran = true } == false && !ran)
 }
+
+// S05: the lease `platform` wire value names the real host; the server derives the seat pool from it.
+@Test func leasePlatformWireValuesAreTheOnesTheLeaseServerAccepts() {
+    #expect(LeasePlatform.wireValue(.mac) == "macos")
+    #expect(LeasePlatform.wireValue(.pad) == "ipados")
+    #expect(LeasePlatform.wireValue(.phone) == "ios")
+    // device-policy.ts KNOWN_PLATFORMS: macos, windows, linux, ios, ipados, android, watchos
+    let accepted: Set<String> = ["macos", "windows", "linux", "ios", "ipados", "android", "watchos"]
+    for family in [LeasePlatform.mac, .pad, .phone] { #expect(accepted.contains(LeasePlatform.wireValue(family))) }
+}
+
+#if os(macOS)
+@Test func macOSLeaseActivationSendsMacosNotIos() async throws {
+    let server = try await LoopbackLicenseServer(signingKey: Curve25519.Signing.PrivateKey(), deviceID: "dev")
+    defer { server.stop() }
+    _ = try? await client(server, store: InMemoryLicenseStore()).activateLease(key: "RK-L", deviceLabel: "My Mac")
+    #expect(server.lastBody["platform"] == "macos")
+    #expect(server.lastBody["deviceLabel"] == "My Mac")
+    #expect(Set(server.lastBody.keys) == ["appKey", "licenseKey", "deviceIdHash", "platform", "deviceLabel"])
+    #expect(await LicenseActivationClient.platform() == "macos")
+}
+#endif

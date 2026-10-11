@@ -1,6 +1,7 @@
 import AVFoundation
 import CoreML
 import Foundation
+import os
 
 /// Which recognizer produced a transcript. Persist it next to the text so a result is never
 /// attributed to an engine that did not run.
@@ -58,11 +59,18 @@ public enum AudioSamples {
 /// TextDecoder and Joint stages with TDT beam search, vocabulary biasing and padded-window seams.
 /// Based on HeardRight iOS (`Parakeet*.swift`), the most mature copy; ScrapeRight's was a marked
 /// temporary copy of it.
-public final class ParakeetEngine: SpeechTranscribing, @unchecked Sendable {
+///
+/// Thread safety: the engine is checked `Sendable`. `vocabulary` is lock-protected, and every
+/// decode (async, blocking, static window, prime) is admitted one at a time through a single
+/// lock because the four Core ML stages are shared mutable model objects. A decode snapshots the
+/// vocabulary when the call starts, so a concurrent assignment never changes a decode in flight.
+public final class ParakeetEngine: SpeechTranscribing {
     public var kind: SpeechEngineKind { .parakeet }
     public let modelDirectory: URL
     public let options: ParakeetOptions
-    private let runtime: ParakeetCoreMLRuntime
+    private let gate: ParakeetDecodeGate
+    private let timings: ParakeetCoreMLRuntime.TimingsBox
+    private let phrases: OSAllocatedUnfairLock<[String]>
 
     /// Loads an installed model directory (`pipeline.json`, `vocab.txt`, the four `*.mlmodelc` or
     /// `*.mlpackage` stages). Pass `requireReadyMarker: true` to demand a prior `validate(...)`.
@@ -71,54 +79,70 @@ public final class ParakeetEngine: SpeechTranscribing, @unchecked Sendable {
     /// `ConditioningProvider` / `DetokenizationProvider`). Every decode path — file, samples,
     /// blocking, static window and prime — routes through them, and their errors propagate.
     /// Omitted, the built-in Swift conditioning and detokenizer parity port are used.
-    public init(
+    public convenience init(
         modelDirectory: URL, options: ParakeetOptions = ParakeetOptions(), requireReadyMarker: Bool = false,
         conditioning: ConditioningProvider? = nil, detokenization: DetokenizationProvider? = nil
     ) throws {
-        self.modelDirectory = modelDirectory
-        self.options = options
-        runtime = requireReadyMarker
+        let runtime = requireReadyMarker
             ? try ParakeetCoreMLRuntime.loadInstalled(
                 at: modelDirectory, options: options, conditioning: conditioning, detokenization: detokenization)
             : try ParakeetCoreMLRuntime.load(
                 at: modelDirectory, options: options, conditioning: conditioning, detokenization: detokenization)
+        self.init(modelDirectory: modelDirectory, options: options, decoding: runtime)
     }
 
-    /// Vocabulary phrases (proper nouns, jargon) to bias the decode toward.
-    public var vocabulary: [String] = []
+    /// Test seam: any decoder, serialized and snapshot-isolated exactly like the Core ML runtime.
+    init(modelDirectory: URL, options: ParakeetOptions, decoding: any ParakeetDecoding) {
+        self.modelDirectory = modelDirectory
+        self.options = options
+        gate = ParakeetDecodeGate(decoding)
+        timings = decoding.timings
+        phrases = OSAllocatedUnfairLock(initialState: [])
+    }
+
+    /// Vocabulary phrases (proper nouns, jargon) to bias the decode toward. Safe to assign from any
+    /// thread; takes effect for decodes that start after the assignment.
+    public var vocabulary: [String] {
+        get { phrases.withLock { $0 } }
+        set { phrases.withLock { $0 = newValue } }
+    }
 
     public func transcribe(fileURL: URL) async throws -> String {
         let phrases = vocabulary
-        let runtime = runtime
+        let gate = gate
         return try await Task.detached(priority: .userInitiated) {
-            try runtime.transcribe(audioURL: fileURL, vocabulary: phrases)
+            try gate.run { try $0.transcribe(audioURL: fileURL, vocabulary: phrases) }
         }.value
     }
 
     public func transcribe(samples: [Float]) async throws -> String {
         let phrases = vocabulary
-        let runtime = runtime
+        let gate = gate
         return try await Task.detached(priority: .userInitiated) {
-            try runtime.transcribe(samples: samples, vocabulary: phrases)
+            try gate.run { try $0.transcribe(samples: samples, vocabulary: phrases) }
         }.value
     }
 
     /// Synchronous variant for callers that already own a worker queue.
     public func transcribeBlocking(samples: [Float], vocabulary phrases: [String]? = nil) throws -> String {
-        try runtime.transcribe(samples: samples, vocabulary: phrases ?? vocabulary)
+        let phrases = phrases ?? vocabulary
+        return try gate.run { try $0.transcribe(samples: samples, vocabulary: phrases) }
     }
 
     /// Decode one scheduled 15 s window (Static-15 capture scheduling).
     public func transcribeStaticWindow(samples: [Float], alreadyConditioned: Bool = false) throws -> String {
-        try runtime.transcribeStaticWindow(samples: samples, vocabulary: vocabulary, alreadyConditioned: alreadyConditioned)
+        let phrases = vocabulary
+        return try gate.run {
+            try $0.transcribeStaticWindow(samples: samples, vocabulary: phrases, alreadyConditioned: alreadyConditioned)
+        }
     }
 
     /// Runs a short silent window through the real decode path so the next decode is hot (ANE
     /// compile and first-inference setup happen at the first prediction, not at load).
-    public func prime() throws { try runtime.prime() }
+    public func prime() throws { try gate.run { try $0.prime() } }
 
     /// Timings of the most recent decode on this engine.
-    public var lastTimings: ParakeetTimings { runtime.timings.get() }
+    public var lastTimings: ParakeetTimings { timings.get() }
 
     /// Validates every stage loads and writes the `coreml-ready.json` marker.
     @discardableResult
@@ -147,6 +171,34 @@ public struct ParakeetModelReport: Sendable, Equatable {
     public let windowSeconds: Double
     public let blankID: Int
     public let isTDT: Bool
+}
+
+/// The decode surface the engine needs from a Parakeet runtime. `ParakeetCoreMLRuntime` is the
+/// only production conformer; tests substitute a recording decoder.
+protocol ParakeetDecoding {
+    var timings: ParakeetCoreMLRuntime.TimingsBox { get }
+    func transcribe(audioURL: URL, vocabulary: [String]) throws -> String
+    func transcribe(samples: [Float], vocabulary: [String]) throws -> String
+    func transcribeStaticWindow(samples: [Float], vocabulary: [String], alreadyConditioned: Bool) throws -> String
+    func prime() throws
+}
+
+extension ParakeetCoreMLRuntime: ParakeetDecoding {}
+
+/// Sole owner of the (non-Sendable) Core ML runtime. The decoder is reachable only inside `run`,
+/// which holds `lock` for the whole call, so this class is the one audited `@unchecked` boundary
+/// and `ParakeetEngine` itself stays compiler-checked.
+final class ParakeetDecodeGate: @unchecked Sendable {
+    private let lock = NSLock()
+    private let decoding: any ParakeetDecoding
+
+    init(_ decoding: any ParakeetDecoding) { self.decoding = decoding }
+
+    func run<T>(_ body: (any ParakeetDecoding) throws -> T) rethrows -> T {
+        lock.lock()
+        defer { lock.unlock() }
+        return try body(decoding)
+    }
 }
 
 // MARK: - Whisper
