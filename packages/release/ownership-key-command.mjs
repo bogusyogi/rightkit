@@ -356,7 +356,7 @@ export async function main(args, deps = {}) {
   try {
     if (!platform) throw new Error(`ownership key management unsupported platform: ${process.platform}`);
     // Delegate BEFORE taking the command lock: the desktop-session child needs that same lock.
-    if (args[0] === "trust-sync" && needsDesktopDelegation({ hostPlatform: deps.hostPlatform, env: deps.env, run, elevatedCheck: deps.elevatedCheck })) return delegateTrustSync(deps, run, print);
+    if (args[0] === "trust-sync" && !args.includes("--check") && needsDesktopDelegation({ hostPlatform: deps.hostPlatform, env: deps.env, run, elevatedCheck: deps.elevatedCheck })) return delegateTrustSync(deps, run, print);
     const helper = deps.helper ?? helperFor(run);
     const lockPath = deps.lockPath ?? path.join(os.tmpdir(), "rightkit-key-command.lock");
     let lockFd;
@@ -525,6 +525,17 @@ async function trustSync(_args, d) {
   if (!trust?.trust?.rootFingerprint) throw new Error("protected root trust is not enrolled on this host; run ownership enroll");
   if (trust.trust.rootFingerprint !== pin) throw new Error("committed key log root does not match this host's protected trust");
   const baseline = d.baseline ?? parse(readFileSync(path.join(here, "ownership-default-policy.json"), "utf8"), "ownership default policy");
+  if (_args.includes("--check")) {
+    // Read-only: say whether a sync would ask for approval, and for what. Asks nothing, elevates nothing, writes no trust.
+    const request = makeTrustRequest(log, pin, baseline, d.authority);
+    try {
+      const summary = (d.summarize ?? summarizeRequestFile)({ file: request.file, digest: request.digest, existing: trust.trust, ...(d.summaryInputs ?? {}) });
+      if (!summary.changed) { d.print("trust already current: no approval needed"); return 0; }
+      d.print(summary.lines.join("\n"));
+      d.print("approval needed: trust-sync on this host would ask for the change above");
+      return 3;
+    } finally { await import("node:fs").then(({ unlinkSync }) => unlinkSync(request.file)).catch(() => {}); }
+  }
   const installed = await installCheckpoint(log, pin, baseline, d);
   if (installed === false) { d.print("trust already current"); return 0; }
   postVerify(d.root, log, d);

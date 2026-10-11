@@ -555,6 +555,21 @@ test("trust-sync delegates to the desktop session before taking the command lock
   void code;
 });
 
+test("trust-sync --check never delegates to the desktop session (read-only, asks nothing)", async () => {
+  const lockPath = path.join(mkdtempSync(path.join(os.tmpdir(), "rk-lock-")), "held.lock");
+  writeFileSync(lockPath, String(process.pid));
+  const lines = [];
+  let delegated = false;
+  let message = "";
+  try {
+    await main(["trust-sync", "--check"], { runner: () => { delegated = true; return { status: 0, stdout: "" }; }, print: (t) => lines.push(t), root: "/nonexistent", helper: "h", lockPath, hostPlatform: "win32", env: { SSH_CONNECTION: "1" }, desktopCommand: ["node", "x"] });
+  } catch (error) { message = String(error?.message ?? error); }
+  // Not delegated, so it reaches the command lock held by this live process.
+  assert.match(`${message}\n${lines.join("\n")}`, /another ownership key command is active/);
+  assert.equal(delegated, false);
+  rmSync(path.dirname(lockPath), { recursive: true, force: true });
+});
+
 test("command lock records its pid and reclaims a lock whose pid is dead", () => {
   const dir = mkdtempSync(path.join(os.tmpdir(), "rk-lock2-"));
   const lock = path.join(dir, "k.lock");
