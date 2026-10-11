@@ -176,6 +176,8 @@ CI builds (ffmpeg-windows workflow, windows-2025)
   ffmpeg, export-ass-zimg: runs 38132992466, 38134157839 and 38137274090 all gave
     sha256 2ecd3ab3d313f1a09ad29491979f806faf98c38d150ab37ec2978627fcb9cdb9, 19496448 bytes.
     -version reports "built with gcc 16.2.0 (Rev4, Built by MSYS2 project)".
+  ffprobe, decode: runs 38138566152 and 38139300738 both gave
+    sha256 4c0ac1359dfaffb28b54a5f6e78e78185271516d50e23ee73807721b14188097, 16198656 bytes.
   The recipe sets SOURCE_DATE_EPOCH=0 so strip writes no timestamp into the PE header.
   The approved Windows decode build (BUILD-NOTES.txt) links the same runtime the same way; its
   catalog row now lists the same three notice files.

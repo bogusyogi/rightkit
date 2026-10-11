@@ -788,12 +788,12 @@
         "--disable-autodetect"
       ],
       "pending": {
-        "reason": "Built once on the Dell on 2026-10-11 from the same FFmpeg tree with the decode flags (local validation binary sha256 1be036043af54835fa942b3dbd2d1c1bc362f235b5a5c85c8eeb4eb065937b55, 16307200 bytes; linkage and licence gates passed; -version, -buildconf and -L executed). Not approved because the catalog binary must come from the ffmpeg-windows GitHub Actions workflow, which has not run, and reproducibility is unchecked. ffprobe was not exercised against media files.",
+        "reason": "Built twice by the ffmpeg-windows GitHub Actions workflow on windows-2025 with the decode flags (runs 38138566152 and 38139300738): both gave sha256 4c0ac1359dfaffb28b54a5f6e78e78185271516d50e23ee73807721b14188097, 16198656 bytes, and passed the recipe's linkage and licence gates. The three toolchain runtime components are the runner's MSYS2 packages, with the digests recorded in the runs' evidence/toolchain-packages.txt. contentSha256 a1cfb297e05d2ab426a2fb5d9d4fbc817834e1b2dba62f596646564ad738712a is the Authenticode SHA-256 Windows reports (Get-AppLockerFileInformation); it has not been confirmed by the crate's own content_identity_file yet. ffprobe was not exercised against media files.",
         "recipe": "recipes/build-ffmpeg-windows.sh",
         "commands": [
           "gh workflow run ffmpeg-windows.yml -f variant=decode -f tool=ffprobe  # twice, compare the two sha256 values"
         ],
-        "promote": "after two CI runs give the same digest and ffprobe has read at least one real file, record sha256 and size, set the three toolchain runtime components to the package versions and digests of that run (evidence/toolchain-packages.txt), set status approved and delete pending"
+        "promote": "after ffprobe has read at least one real file and the crate's content_identity_file confirms the content digest above on the CI binary, record sha256 4c0ac1359dfaffb28b54a5f6e78e78185271516d50e23ee73807721b14188097, contentSha256 and size 16198656, set status approved and delete pending"
       }
     }
   ]
