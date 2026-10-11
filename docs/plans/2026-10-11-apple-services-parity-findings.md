@@ -230,3 +230,7 @@ HeardRight is the reference column. "Partial" means the code is present but not 
 - A CloudKit and Pro-bridge adopter guide.
 - Recorded Apple-side setup for CodeRight (container, keychain group, products), or for HeardRight (schema deployment, App Store Connect).
 - The template does not include CloudSync or AppleCredentials.
+
+## Addendum (2026-10-11): the licence and Pro-bridge server is RightSites
+
+Found by the CodeRight chat, not verified by the RightKit lead: the server is the RightSites repository (`bogusyogi/rightsites`, a fork of SellRight), deployed on the Hetzner host (`docs/rules/ssh-server-access.md` lines 40-74). Endpoints: `packages/api/src/rightsites-plugin/pro-bridge.ts` (`/v1/licenses/bridge/from-activation`, `/from-storekit`, `/exchange`), `rightsites-plugin/pro-devices.ts` (device leases, `/windows-link/request`, `/windows-link/redeem`, `/v1/shop/pro/link-storekit`), `packages/api/src/routes/auth.ts` (`/v1/shop/auth/apple`). The bridge is pinned to HeardRight (`pro-bridge.ts:11` `const APP = 'heardright'`; `pro-devices.ts:185` one StoreKit bundle id), so enabling another app is a code and configuration change there plus a production deploy. RightSites is outside RightKit's scope; the owner handles it. This supersedes the earlier statements that the server source was not in the workspace and the inference that it was SellRight.
