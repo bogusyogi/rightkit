@@ -1,11 +1,18 @@
 // Pins the 0.5.1 markup of the server-renderable overlays so new options cannot change default output.
 // (Context menu and toast rows need a DOM; e2e/default-output.e2e.test.ts pins those in a real browser.)
-import { describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import { ConfirmDialog, Dialog, ModalShell, PromptDialog } from "./overlays.js";
 import { CommandPalette } from "./palette.js";
 import { ToastViewport } from "./toasts.js";
 import { createToastBus } from "../toast.js";
+
+// A chord is drawn per OS (Cmd+S on macOS, Ctrl+S elsewhere). The snapshots record the macOS form, so the
+// platform is pinned here; otherwise the markup depends on the host that runs the test.
+const qa = globalThis as { __RIGHTKIT_QA_PLATFORM__?: string };
+const hostPlatform = qa.__RIGHTKIT_QA_PLATFORM__;
+beforeAll(() => { qa.__RIGHTKIT_QA_PLATFORM__ = "macos"; });
+afterAll(() => { qa.__RIGHTKIT_QA_PLATFORM__ = hostPlatform; });
 
 const noop = () => undefined;
 
