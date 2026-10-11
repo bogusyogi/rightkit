@@ -1465,6 +1465,16 @@ fn try_lock(app_root: &Path, wait: Duration) -> Result<Option<LockGuard>> {
                 }
                 std::thread::sleep(Duration::from_millis(20));
             }
+            // Windows: a directory that is being removed keeps its name until the last handle on
+            // it closes, and creating that name meanwhile is refused with "access denied", not
+            // "already exists". Another starter is releasing the lock (or reading it while it is
+            // released): the lock counts as held, and a starter never fails for it.
+            Err(e) if cfg!(windows) && e.kind() == std::io::ErrorKind::PermissionDenied => {
+                if std::time::Instant::now() >= deadline {
+                    return Ok(None);
+                }
+                std::thread::sleep(Duration::from_millis(20));
+            }
             Err(e) => return Err(e.into()),
         }
     }
@@ -1837,6 +1847,77 @@ mod tests {
             assert!(run.join(RUN_MARKER).exists());
         }
         let _ = fs::remove_dir_all(&root);
+    }
+
+    /// The state the parallel starters hit by chance, made on purpose: the lock directory is
+    /// marked for deletion while another handle on it is still open. Creating it is then refused
+    /// with "access denied". The lock must count as held, and be takeable once the handle closes.
+    #[cfg(windows)]
+    #[test]
+    fn a_lock_directory_that_is_being_removed_counts_as_held() {
+        use std::os::windows::fs::OpenOptionsExt;
+        use std::os::windows::io::AsRawHandle;
+
+        #[link(name = "kernel32")]
+        unsafe extern "system" {
+            fn SetFileInformationByHandle(
+                file: *mut core::ffi::c_void,
+                class: u32,
+                info: *const core::ffi::c_void,
+                size: u32,
+            ) -> i32;
+        }
+        const DELETE: u32 = 0x0001_0000;
+        const FILE_READ_ATTRIBUTES: u32 = 0x80;
+        const FILE_FLAG_BACKUP_SEMANTICS: u32 = 0x0200_0000;
+        const SHARE_ALL: u32 = 7;
+        const FILE_DISPOSITION_INFO: u32 = 4;
+
+        let app_root = temp_root("lock-pending");
+        let lock = app_root.join(".retention-lock");
+        fs::create_dir(&lock).unwrap();
+        let open = |access: u32| {
+            OpenOptions::new()
+                .access_mode(access)
+                .share_mode(SHARE_ALL)
+                .custom_flags(FILE_FLAG_BACKUP_SEMANTICS)
+                .open(&lock)
+                .unwrap()
+        };
+        let reader = open(FILE_READ_ATTRIBUTES);
+        let remover = open(DELETE);
+        let delete: u8 = 1;
+        // SAFETY: a live handle opened with DELETE access; `delete` is one BOOLEAN, as the
+        // FILE_DISPOSITION_INFO class takes.
+        let marked = unsafe {
+            SetFileInformationByHandle(
+                remover.as_raw_handle().cast(),
+                FILE_DISPOSITION_INFO,
+                (&raw const delete).cast(),
+                1,
+            )
+        };
+        assert_ne!(marked, 0, "{}", std::io::Error::last_os_error());
+        drop(remover);
+
+        // What the starter saw: the name is still there and cannot be created.
+        let refused = fs::create_dir(&lock).unwrap_err();
+        assert_eq!(
+            refused.kind(),
+            std::io::ErrorKind::PermissionDenied,
+            "{refused}"
+        );
+        assert!(try_lock(&app_root, Duration::ZERO).unwrap().is_none());
+        assert!(try_lock(&app_root, Duration::from_millis(100))
+            .unwrap()
+            .is_none());
+
+        // The last handle closes, the directory goes, and the lock can be taken.
+        drop(reader);
+        let guard = try_lock(&app_root, Duration::from_secs(5)).unwrap();
+        assert!(guard.is_some());
+        drop(guard);
+        let _ = fs::remove_dir_all(&app_root);
     }
 
     /// Child half of `parallel_starters_in_two_processes_all_proceed`: inert unless driven.
