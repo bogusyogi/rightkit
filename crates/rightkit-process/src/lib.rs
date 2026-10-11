@@ -1,9 +1,15 @@
 //! `OwnedCommand::inherit_handles_only` restricts inheritance to caller handles/fds plus stdio; Windows requires `windows_spawn_config` for opaque Command settings.
 
+#[cfg(unix)]
+mod exit_watch;
 mod health;
+#[cfg(unix)]
+mod identity;
 #[cfg(all(test, unix))]
 mod identity_tests;
 mod owned;
+#[cfg(unix)]
+mod pid_proof;
 mod process_handle;
 #[cfg(unix)]
 mod process_unix;
@@ -28,12 +34,14 @@ pub use owned::{
     RawHandleOrFd, ReapOutcome, TerminationOptions, UnixContainment, WaitOutcome,
     DEFAULT_ENV_ALLOWLIST,
 };
+#[cfg(unix)]
+pub use pid_proof::PidProof;
 pub use process_handle::ProcessHandle;
 pub use restart::{
     Generation, RestartMode, RestartOutcome, RestartPermit, RestartPolicy, RestartTracker,
 };
 #[cfg(windows)]
-pub use spawn_windows::{WindowsChild, WindowsSpawnConfig, WindowsStdio};
+pub use spawn_windows::{with_windows_spawn_lock, WindowsChild, WindowsSpawnConfig, WindowsStdio};
 pub use stall::{Ack, Cooldown, StallConfig, StallEvent, StallWatchdog};
 pub use stderr_tail::StderrTail;
 #[cfg(unix)]

@@ -656,8 +656,11 @@ fn lock_path(p: &Path) -> PathBuf {
 
 fn lock_file(settings: &Path) -> Result<FileGuard, Error> {
     let path = lock_path(settings);
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent)?;
+    if let Some(parent) = path.parent().filter(|p| !p.as_os_str().is_empty()) {
+        // Durable, like the settings file written below it: a plain `create_dir_all` leaves the
+        // new directories' links unsynced.
+        rightkit_fs::atomic::create_dir_all_durable(parent, false)
+            .map_err(|e| Error::Io(std::io::Error::from(e)))?;
     }
     let file = OpenOptions::new()
         .read(true)

@@ -36,7 +36,7 @@ fn signals(events: &[Event]) -> Vec<(i32, i32)> {
         .iter()
         .filter_map(|event| match event {
             Event::Signal { target, signal, .. } => Some((*target, *signal)),
-            Event::Reaped { .. } | Event::Wait { .. } => None,
+            Event::Reaped { .. } | Event::Wait { .. } | Event::Proof { .. } => None,
         })
         .collect()
 }
@@ -614,4 +614,349 @@ fn a_parked_wait_exited_never_names_the_pid_after_another_reader_reaped_it() {
     a_parked_waiter_never_names_the_pid_after_the_reap(|handle| {
         handle.wait_exited().expect("wait_exited sees the reap");
     });
+}
+
+// ---- A pid that changed hands (fourth read, finding 7) ----------------------------------------
+//
+// Other code in the process collects our leader and a replacement child takes its number. The
+// replacement cannot be given the same number on demand, so the tests change what the child is
+// expected to look like (`simulate_replaced`): the kernel then describes the pid differently
+// from the leader that was spawned, which is exactly what a replacement looks like. Every
+// action that names the pid must stop at the proof: no signal, no wait-class call, no reap.
+// The replacement here is a live child, so a stray signal or reap is visible as its death.
+
+#[cfg(any(target_os = "linux", target_os = "android", target_os = "macos"))]
+mod replaced_pid {
+    use super::*;
+    use std::io;
+
+    /// A running child standing in for the replacement that now holds the leader's number.
+    fn replaced_leader() -> (OwnedChild, u32) {
+        let mut child = sh("exec sleep 600").spawn().expect("spawn");
+        let pid = child.id();
+        // Let `exec` finish so the process is the sleeper, not the shell.
+        thread::sleep(Duration::from_millis(100));
+        child.child().simulate_replaced();
+        (child, pid)
+    }
+
+    /// The replacement must still be running and unreaped; then clean it up ourselves.
+    fn assert_untouched_then_release(child: OwnedChild, pid: u32, mark: usize) {
+        let events = trace::since_with_waits(mark, pid);
+        assert!(
+            events
+                .iter()
+                .all(|event| matches!(event, Event::Proof { .. })),
+            "something other than a proof named the pid: {events:?}"
+        );
+        let mut status = 0;
+        // SAFETY: WNOHANG probe of this test's own child.
+        let probe = unsafe { libc::waitpid(pid as i32, &mut status, libc::WNOHANG) };
+        assert_eq!(probe, 0, "the replacement was signalled or reaped");
+        // SAFETY: cleanup of this test's own child.
+        unsafe {
+            libc::kill(pid as i32, libc::SIGKILL);
+            libc::waitpid(pid as i32, &mut status, 0);
+        }
+        drop(child);
+    }
+
+    #[test]
+    fn terminating_does_not_signal_a_pid_that_changed_hands() {
+        let actions: [fn(&mut OwnedChild) -> io::Result<()>; 4] = [
+            |c: &mut OwnedChild| c.terminate_tree().map(|_| ()),
+            |c: &mut OwnedChild| {
+                c.terminate_tree_with_options(crate::TerminationOptions {
+                    grace: Duration::from_millis(20),
+                    ..Default::default()
+                })
+                .map(|_| ())
+            },
+            |c: &mut OwnedChild| {
+                c.terminate_tree_bounded(Duration::from_millis(50))
+                    .map(|_| ())
+            },
+            |c: &mut OwnedChild| c.wait_or_kill(Duration::from_millis(20)).map(|_| ()),
+        ];
+        for terminate in actions {
+            let (mut child, pid) = replaced_leader();
+            let mark = trace::mark();
+            let result = terminate(&mut child);
+            // The leader is Lost: the reap answers ECHILD (or the bounded form times out).
+            if let Err(error) = result {
+                assert_eq!(error.raw_os_error(), Some(libc::ECHILD), "{error}");
+            }
+            assert_eq!(signals(&trace::since(mark, pid)), vec![]);
+            assert_untouched_then_release(child, pid, mark);
+        }
+    }
+
+    #[test]
+    fn waiting_does_not_name_a_pid_that_changed_hands() {
+        let (mut child, pid) = replaced_leader();
+        let mark = trace::mark();
+        let error = child.try_wait().expect_err("not our child any more");
+        assert_eq!(error.raw_os_error(), Some(libc::ECHILD));
+        let (mut child2, pid2) = replaced_leader();
+        let mark2 = trace::mark();
+        let error = child2.wait().expect_err("not our child any more");
+        assert_eq!(error.raw_os_error(), Some(libc::ECHILD));
+        let error = child2
+            .child()
+            .wait()
+            .expect_err("the public guard obeys the proof too");
+        assert_eq!(error.raw_os_error(), Some(libc::ECHILD));
+        assert_untouched_then_release(child, pid, mark);
+        assert_untouched_then_release(child2, pid2, mark2);
+    }
+
+    #[test]
+    fn probes_and_kills_do_not_name_a_pid_that_changed_hands() {
+        let (mut child, pid) = replaced_leader();
+        let mark = trace::mark();
+        let handle = child.process_handle().expect("handle");
+        child
+            .child()
+            .kill()
+            .expect("a lost leader's kill is a no-op");
+        assert_eq!(
+            child.child().leader_state().expect("state"),
+            LeaderState::Reaped
+        );
+        assert!(!child.child().group_has_other_members().expect("members"));
+        assert_eq!(
+            child
+                .child()
+                .signal(SignalTarget::Group, libc::SIGKILL)
+                .expect("signal"),
+            crate::unix_child::SignalOutcome::Retired
+        );
+        handle.wait_exited().expect("a lost leader reads as exited");
+        assert_untouched_then_release(child, pid, mark);
+    }
+}
+
+/// The description of a zombie is readable, so the proof holds at the moment of the reap. This
+/// is the assumption `unix_child` and the macOS helper reap rest on.
+#[cfg(any(target_os = "linux", target_os = "android", target_os = "macos"))]
+#[test]
+fn an_exited_unreaped_leader_is_still_described_as_the_same_process() {
+    let mut child = exits_at_once();
+    let pid = child.id();
+    let before = crate::identity::describe(pid).expect("describe");
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while child.child().leader_state().expect("state") != LeaderState::Exited {
+        assert!(Instant::now() < deadline, "the leader never exited");
+        thread::sleep(Duration::from_millis(5));
+    }
+    let after = crate::identity::describe(pid).expect("describe the zombie");
+    assert!(after.is_some(), "a zombie must be describable");
+    if let Some(before) = before {
+        assert_eq!(Some(before), after);
+    }
+    child.wait().expect("reap");
+}
+
+// ---- Waiting is event-driven (no timers) -------------------------------------------------------
+
+#[cfg(any(target_os = "linux", target_os = "android", target_os = "macos"))]
+mod event_driven_wait {
+    use super::*;
+    use std::os::unix::process::ExitStatusExt;
+
+    /// A wait on a child that runs for 300 ms returns from the kernel once: the old loop woke
+    /// 150 times or more over the same time.
+    #[test]
+    fn a_wait_on_a_child_that_runs_300_ms_wakes_exactly_once() {
+        let mut child = sh("exec sleep 0.3").spawn().expect("spawn");
+        let handle = child.process_handle().expect("handle");
+        let watch = child.child().exit_watch();
+        let started = Instant::now();
+        let status = handle.wait().expect("wait");
+        assert!(status.success());
+        assert!(started.elapsed() >= Duration::from_millis(250));
+        assert_eq!(watch.wakeups(), 1, "the wait woke more than once");
+        let _ = child.wait();
+    }
+
+    #[test]
+    fn a_bounded_wait_that_times_out_wakes_once_and_a_later_one_wakes_once_more() {
+        let mut child = sh("exec sleep 600").spawn().expect("spawn");
+        let handle = child.process_handle().expect("handle");
+        let watch = child.child().exit_watch();
+        assert_eq!(
+            handle
+                .wait_timeout(Duration::from_millis(300))
+                .expect("wait_timeout"),
+            None
+        );
+        assert_eq!(watch.wakeups(), 1, "a timed-out wait woke more than once");
+        assert!(!handle
+            .wait_exited_timeout(Duration::from_millis(200))
+            .expect("wait_exited_timeout"));
+        assert_eq!(watch.wakeups(), 2);
+        child.terminate_tree().expect("cleanup");
+    }
+
+    /// The waiter holds no lock while it sleeps, so another thread can kill the child and the
+    /// waiter is released with the real status.
+    #[test]
+    fn a_blocked_wait_is_released_when_another_thread_kills_the_child() {
+        let mut child = sh("exec sleep 600").spawn().expect("spawn");
+        let pid = child.id();
+        let handle = child.process_handle().expect("handle");
+        let (arrived_tx, arrived_rx) = mpsc::channel();
+        let arrived_tx = Mutex::new(arrived_tx);
+        gate::install(pid, move || {
+            let _ = arrived_tx.lock().unwrap().send(());
+        });
+        let (done_tx, done_rx) = mpsc::channel();
+        let waiter = thread::spawn(move || {
+            let _ = done_tx.send(handle.wait());
+        });
+        arrived_rx
+            .recv_timeout(Duration::from_secs(10))
+            .expect("the waiter reached its sleep");
+        // Let it enter poll(2).
+        thread::sleep(Duration::from_millis(100));
+        assert!(done_rx.try_recv().is_err(), "the wait returned early");
+        let killed = child
+            .terminate_tree()
+            .expect("terminate while a wait is blocked");
+        let waited = done_rx
+            .recv_timeout(Duration::from_secs(10))
+            .expect("the blocked wait was released");
+        gate::remove(pid);
+        waiter.join().expect("waiter");
+        assert_eq!(waited.expect("status").signal(), Some(libc::SIGKILL));
+        assert_eq!(killed.signal(), Some(libc::SIGKILL));
+    }
+
+    /// Same, through `kill` on the shared child instead of `terminate_tree`.
+    #[test]
+    fn a_blocked_wait_is_released_by_a_plain_kill_from_another_thread() {
+        let mut child = sh("exec sleep 600").spawn().expect("spawn");
+        let handle = child.process_handle().expect("handle");
+        let watch = child.child().exit_watch();
+        let waiter = thread::spawn(move || handle.wait());
+        thread::sleep(Duration::from_millis(200));
+        child
+            .child()
+            .kill()
+            .expect("kill while another thread waits");
+        let status = waiter.join().expect("waiter").expect("status");
+        assert_eq!(status.signal(), Some(libc::SIGKILL));
+        assert_eq!(watch.wakeups(), 1, "the waiter woke more than once");
+    }
+
+    /// `wait_or_kill` returns when the leader exits, not when the grace ends.
+    #[test]
+    fn wait_or_kill_returns_at_the_exit_not_at_the_end_of_the_grace() {
+        let mut child = sh("exec sleep 0.2").spawn().expect("spawn");
+        let watch = child.child().exit_watch();
+        let started = Instant::now();
+        let outcome = child
+            .wait_or_kill(Duration::from_secs(60))
+            .expect("wait_or_kill");
+        assert!(started.elapsed() < Duration::from_secs(20));
+        // TERM at the start ended `sleep` at once; either way nothing waited out the grace.
+        assert!(matches!(
+            outcome,
+            WaitOutcome::Exited(_) | WaitOutcome::Terminated(_)
+        ));
+        assert!(watch.wakeups() <= 3, "{} wake-ups", watch.wakeups());
+    }
+
+    /// The tree-wide grace is bounded by its length and event-driven: a member that ignores
+    /// TERM keeps the group alive for the whole grace and is then killed; one that exits on
+    /// TERM does not hold the call up.
+    #[test]
+    fn the_tree_grace_waits_for_a_term_resistant_member_and_no_longer() {
+        let dir = std::env::temp_dir().join(format!("rk-grace-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("dir");
+        let pid_file = dir.join("straggler.pid");
+        let script = format!(
+            "sh -c 'trap \"\" TERM; echo $$ > \"$0\"; exec sleep 600' '{}' &\nexit 0",
+            pid_file.display()
+        );
+        let mut child = sh(&script).spawn().expect("spawn");
+        let deadline = Instant::now() + Duration::from_secs(10);
+        let straggler: i32 = loop {
+            if let Some(pid) = std::fs::read_to_string(&pid_file)
+                .ok()
+                .and_then(|text| text.trim().parse().ok())
+            {
+                break pid;
+            }
+            assert!(Instant::now() < deadline, "the straggler never started");
+            thread::sleep(Duration::from_millis(5));
+        };
+        let started = Instant::now();
+        child
+            .terminate_tree_with_options(crate::TerminationOptions {
+                grace: Duration::from_millis(600),
+                ..Default::default()
+            })
+            .expect("terminate");
+        let elapsed = started.elapsed();
+        assert!(
+            elapsed >= Duration::from_millis(500) && elapsed < Duration::from_secs(10),
+            "the grace took {elapsed:?}"
+        );
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while running(straggler) {
+            assert!(Instant::now() < deadline, "the straggler survived the KILL");
+            thread::sleep(Duration::from_millis(10));
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Running, and not a zombie that only waits for its reaper.
+    fn running(pid: i32) -> bool {
+        #[cfg(any(target_os = "linux", target_os = "android"))]
+        {
+            std::fs::read_to_string(format!("/proc/{pid}/stat"))
+                .ok()
+                .and_then(|text| {
+                    text.rfind(')')
+                        .map(|at| !text[at + 1..].trim_start().starts_with('Z'))
+                })
+                .unwrap_or(false)
+        }
+        #[cfg(target_os = "macos")]
+        {
+            // SAFETY: an all-zero proc_bsdinfo is valid; the call fills at most its size.
+            let mut info: libc::proc_bsdinfo = unsafe { std::mem::zeroed() };
+            let size = std::mem::size_of::<libc::proc_bsdinfo>() as libc::c_int;
+            // arg 0 does not describe zombies, so a full record means a live process.
+            let written = unsafe {
+                libc::proc_pidinfo(
+                    pid,
+                    libc::PROC_PIDTBSDINFO,
+                    0,
+                    (&mut info as *mut libc::proc_bsdinfo).cast(),
+                    size,
+                )
+            };
+            written == size
+        }
+    }
+
+    #[test]
+    fn the_tree_grace_ends_early_when_every_member_exits_on_term() {
+        let mut child = sh("sleep 600 &\nsleep 600 &\nwait").spawn().expect("spawn");
+        thread::sleep(Duration::from_millis(200));
+        let started = Instant::now();
+        child
+            .terminate_tree_with_options(crate::TerminationOptions {
+                grace: Duration::from_secs(30),
+                ..Default::default()
+            })
+            .expect("terminate");
+        assert!(
+            started.elapsed() < Duration::from_secs(10),
+            "the call waited out the grace: {:?}",
+            started.elapsed()
+        );
+    }
 }

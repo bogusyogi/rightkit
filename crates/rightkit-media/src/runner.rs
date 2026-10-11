@@ -1128,11 +1128,10 @@ mod tests {
     /// The leader exits 0 and both pipes close at once, yet a descendant that sent its output
     /// elsewhere keeps running. A normal completion must take the group down: before, the final
     /// reap was a bare `wait`, which ended the group's killability and left the sleeper behind.
-    fn redirected_descendant(dir: &Path, keep_stdin: bool) -> (DevFfmpeg, PathBuf) {
+    fn redirected_descendant(dir: &Path) -> (DevFfmpeg, PathBuf) {
         let pid_file = dir.join("sleeper.pid");
-        let stdin = if keep_stdin { "" } else { "</dev/null " };
         let body = format!(
-            "sleep 600 {stdin}>/dev/null 2>&1 &\necho $! > '{}'\nexit 0",
+            "sleep 600 </dev/null >/dev/null 2>&1 &\necho $! > '{}'\nexit 0",
             pid_file.display()
         );
         (fake_ffmpeg(dir, &body), pid_file)
@@ -1141,7 +1140,7 @@ mod tests {
     #[test]
     fn a_normal_progress_run_does_not_leave_a_redirected_descendant_running() {
         let dir = tempfile::tempdir().unwrap();
-        let (bin, pid_file) = redirected_descendant(dir.path(), false);
+        let (bin, pid_file) = redirected_descendant(dir.path());
         let opts = RunOptions::new(Duration::from_secs(20), CancellationToken::new());
         run_with_progress(&bin, &FfmpegCommand::base("error"), opts).unwrap();
         assert_dies_soon(read_pid_file(&pid_file), "completed progress run");
@@ -1150,32 +1149,84 @@ mod tests {
     #[test]
     fn a_normal_capture_run_does_not_leave_a_redirected_descendant_running() {
         let dir = tempfile::tempdir().unwrap();
-        let (bin, pid_file) = redirected_descendant(dir.path(), false);
+        let (bin, pid_file) = redirected_descendant(dir.path());
         let opts = RunOptions::new(Duration::from_secs(20), CancellationToken::new());
         run_capture_with(&bin, &FfmpegCommand::base("error"), opts).unwrap();
         assert_dies_soon(read_pid_file(&pid_file), "completed capture run");
     }
 
-    /// A descendant that kept stdin open blocks the feed once the pipe is full. The run must
-    /// stop that descendant before it joins the writer, so it returns promptly with the
-    /// descendant dead instead of waiting on a write nobody will read.
+    /// A descendant that kept the run's stdin pipe open blocks the feed once the pipe is full.
+    /// The run must stop that descendant before it joins the writer, so it returns promptly with
+    /// the descendant dead instead of waiting on a write nobody will read.
+    ///
+    /// A background command in a non-interactive shell gets `/dev/null` for stdin unless it is
+    /// redirected explicitly, so the script saves the incoming pipe on descriptor 3, gives it to
+    /// the sleeper with `<&3`, and closes its own copy. The leader then stays alive until the
+    /// writer is observed stuck (no progress for a while with the pipe full), so the cleanup
+    /// is proven to run against a writer that is blocked, not one that has not started yet.
     #[test]
     fn a_descendant_holding_stdin_cannot_block_the_writer_join() {
+        use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+        const CHUNK: usize = 4 * 1024;
+        const CHUNKS: usize = 4096; // 16 MiB, far more than any pipe buffer
         let dir = tempfile::tempdir().unwrap();
-        let (bin, pid_file) = redirected_descendant(dir.path(), true);
+        let pid_file = dir.path().join("sleeper.pid");
+        let go_file = dir.path().join("writer-is-blocked");
+        let bin = fake_ffmpeg(
+            dir.path(),
+            &format!(
+                "exec 3<&0\nsleep 600 <&3 >/dev/null 2>&1 &\necho $! > '{pid}'\nexec 3<&-\n\
+                 while [ ! -e '{go}' ]; do sleep 0.01; done\nexit 0",
+                pid = pid_file.display(),
+                go = go_file.display(),
+            ),
+        );
         let mut cmd = FfmpegCommand::base("error");
         cmd.stdin_piped(true).texts(["-i", "pipe:0"]);
         let opts = RunOptions::new(Duration::from_secs(20), CancellationToken::new());
+        let written = AtomicUsize::new(0);
+        let blocked_seen = AtomicUsize::new(usize::MAX);
         let started = Instant::now();
         let result = run_with_stdin(&bin, &cmd, opts, |mut stdin| {
-            let chunk = vec![0u8; 64 * 1024];
-            for _ in 0..256 {
-                stdin.write_all(&chunk)?;
-            }
-            Ok(())
+            let finished = AtomicBool::new(false);
+            thread::scope(|scope| {
+                // Watches the progress counter; once it has stood still for 300 ms with bytes
+                // written, the pipe is full and the write is blocked: let the leader exit.
+                scope.spawn(|| {
+                    let mut last = usize::MAX;
+                    let mut still_since = Instant::now();
+                    while !finished.load(Ordering::SeqCst) {
+                        let now = written.load(Ordering::SeqCst);
+                        if now != last {
+                            last = now;
+                            still_since = Instant::now();
+                        } else if now > 0 && still_since.elapsed() >= Duration::from_millis(300) {
+                            blocked_seen.store(now, Ordering::SeqCst);
+                            std::fs::write(&go_file, b"go").unwrap();
+                            return;
+                        }
+                        thread::sleep(Duration::from_millis(10));
+                    }
+                });
+                let chunk = vec![0u8; CHUNK];
+                let outcome = (|| -> io::Result<()> {
+                    for _ in 0..CHUNKS {
+                        stdin.write_all(&chunk)?;
+                        written.fetch_add(CHUNK, Ordering::SeqCst);
+                    }
+                    Ok(())
+                })();
+                finished.store(true, Ordering::SeqCst);
+                outcome
+            })
         });
         let elapsed = started.elapsed();
         assert!(result.is_ok(), "{result:?}");
+        let seen = blocked_seen.load(Ordering::SeqCst);
+        assert!(
+            seen != usize::MAX && seen < CHUNK * CHUNKS,
+            "the writer was never observed blocked on a full pipe (progress {seen})"
+        );
         assert!(
             elapsed < Duration::from_secs(15),
             "the writer join waited {elapsed:?} on a descendant holding stdin"

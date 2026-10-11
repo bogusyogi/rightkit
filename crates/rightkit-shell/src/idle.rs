@@ -97,8 +97,10 @@ impl Eq for SuspendAfterProvider {}
 /// Per-host idle options (see [`crate::ShellBuilder::webview_idle_options`]). The default is the
 /// behaviour `webview_idle(DEFAULT_SUSPEND_AFTER)` has always had.
 ///
-/// Not `Copy`: it may hold a delay provider (see [`IdleOptions::suspend_after_with`]). Struct
-/// literals need `..IdleOptions::default()`, since the provider field is private.
+/// Not `Copy`: it may hold a delay provider (see [`IdleOptions::suspend_after_with`]). It cannot be
+/// built with a struct literal outside this crate, not even with `..IdleOptions::default()`,
+/// because the provider field is private. Build it with the setters:
+/// `IdleOptions::default().suspend_after(d).start_on_minimize(true)`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct IdleOptions {
     /// Hidden this long before the webview is suspended (clamped to [`MAX_SUSPEND_AFTER`]). With a
@@ -126,6 +128,30 @@ impl Default for IdleOptions {
 }
 
 impl IdleOptions {
+    /// Set the fixed suspend delay (see the field of the same name).
+    pub fn suspend_after(mut self, suspend_after: Duration) -> Self {
+        self.suspend_after = suspend_after;
+        self
+    }
+
+    /// Also start the idle timer when the main window is minimised.
+    pub fn start_on_minimize(mut self, start_on_minimize: bool) -> Self {
+        self.start_on_minimize = start_on_minimize;
+        self
+    }
+
+    /// Choose when the controller is hidden.
+    pub fn controller_hide(mut self, controller_hide: ControllerHide) -> Self {
+        self.controller_hide = controller_hide;
+        self
+    }
+
+    /// Choose which idle events are emitted.
+    pub fn events(mut self, events: IdleEvents) -> Self {
+        self.events = events;
+        self
+    }
+
     /// Read the suspend delay at each hide instead of fixing it at build time.
     ///
     /// `provider` is called once per hide transition (a window hide, or the start of a minimise
@@ -135,7 +161,7 @@ impl IdleOptions {
     /// (`note_hidden_after`, `note_minimized_after`, `rk_shell_idle_note`) takes precedence and the
     /// provider is not called for that hide.
     ///
-    /// Takes `self`, so it chains onto a literal or the default:
+    /// Takes `self`, so it chains onto the default and the other setters:
     /// `IdleOptions::default().suspend_after_with(|| Some(read_env()))`.
     pub fn suspend_after_with(
         mut self,

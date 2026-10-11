@@ -123,6 +123,12 @@ name = "lock_reparse"
 path = "tests/lock_reparse.rs"
 required-features = ["lock"]
 
+# macOS extended ACLs under the owner-only guarantee (the file is empty off macOS).
+[[test]]
+name = "acl_macos"
+path = "tests/acl_macos.rs"
+required-features = ["fs"]
+
 [[test]]
 name = "state_durability"
 path = "tests/state_durability.rs"

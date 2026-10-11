@@ -403,47 +403,15 @@ pub(crate) struct Helper {
     /// Who the helper was when it was forked: its parent and start time. Checked before every
     /// `waitpid`, so a pid that another reaper collected and the kernel gave to an unrelated
     /// child of this process is never reaped here, which would steal that child's exit status.
-    /// `None` only when the kernel would not describe the helper; reaping then behaves as it
-    /// did before the identity existed.
+    /// `None` only when the kernel would not describe the helper: its pid is then never waited
+    /// on (the zombie, if any, is left; nothing unrelated is ever reaped).
     identity: Option<Identity>,
+    /// The kernel's report of the helper's exit, so `retire` sleeps until it instead of polling.
+    watch: Option<std::sync::Arc<crate::exit_watch::ExitWatch>>,
 }
 
-/// A process's parent and start time: together with its pid, a name that a recycled pid
-/// cannot reuse.
 #[cfg(target_os = "macos")]
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-struct Identity {
-    parent: u32,
-    started_sec: u64,
-    started_usec: u64,
-}
-
-/// The identity of `pid` (a live process or an unreaped zombie), or `None` when the kernel has
-/// no such process or will not describe it.
-#[cfg(target_os = "macos")]
-fn identity_of(pid: libc::pid_t) -> Option<Identity> {
-    // SAFETY: an all-zero `proc_bsdinfo` is a valid value (plain integers and char arrays).
-    let mut info: libc::proc_bsdinfo = unsafe { std::mem::zeroed() };
-    let size = std::mem::size_of::<libc::proc_bsdinfo>() as libc::c_int;
-    // SAFETY: `info` is a writable buffer of exactly `size` bytes.
-    let written = unsafe {
-        libc::proc_pidinfo(
-            pid,
-            libc::PROC_PIDTBSDINFO,
-            // xnu reads `arg` as "zombies are allowed" for this flavor: with 0 an exited but
-            // unreaped child is invisible (`ESRCH`), which is exactly the state `waitpid` has to
-            // collect. With 1 the kernel describes it from the zombie list.
-            1,
-            (&mut info as *mut libc::proc_bsdinfo).cast(),
-            size,
-        )
-    };
-    (written == size && info.pbi_pid == pid as u32).then_some(Identity {
-        parent: info.pbi_ppid,
-        started_sec: info.pbi_start_tvsec,
-        started_usec: info.pbi_start_tvusec,
-    })
-}
+use crate::identity::{describe, Identity};
 
 #[cfg(target_os = "macos")]
 impl Helper {
@@ -484,41 +452,47 @@ impl Helper {
         self.release();
         let pid = self.pid;
         let identity = self.identity;
-        if reap_within(pid, identity, RETIRE_WAIT, Duration::from_millis(1)) {
+        let watch = self.watch.take();
+        if reap_within(pid, identity, watch.as_deref(), RETIRE_WAIT) {
             return;
         }
         let _ = std::thread::Builder::new()
             .name("rightkit-helper-reap".into())
             .spawn(move || {
-                reap_within(
-                    pid,
-                    identity,
-                    RETIRE_BACKGROUND_WAIT,
-                    Duration::from_millis(20),
-                );
+                reap_within(pid, identity, watch.as_deref(), RETIRE_BACKGROUND_WAIT);
             });
     }
 }
 
-/// `waitpid(pid, WNOHANG)`: true when `pid` was collected here, or is not this process's child
-/// at all (`ECHILD`: another reaper took it). It only ever collects a zombie child, and it
-/// never blocks.
+/// `waitpid(pid, WNOHANG)`: true when the helper is gone and its pid must be forgotten, either
+/// because it was collected here or because the number no longer provably names it. It only
+/// ever collects the helper's own zombie, and it never blocks.
 ///
-/// When `identity` is known, `waitpid` runs only if `pid` still names the process that was
-/// described then. If the helper was collected elsewhere and the pid now belongs to another
-/// child of this process (a replacement spawn), that child is left alone, so its owner gets its
-/// exit status, and the helper counts as gone.
+/// The pid is waited on only after the kernel's description of it equals the one taken at
+/// spawn. Anything else forgets the helper without a wait:
+///
+/// * no recorded identity (the kernel would not describe the helper): nothing proves a later
+///   `waitpid` would reach the helper, so none is made;
+/// * another description: the pid changed hands (the helper was collected elsewhere and a
+///   replacement spawn got the number), so that child keeps its exit status;
+/// * no description: the process is gone, or is a zombie the kernel will not describe (a
+///   described zombie is the normal case, see `identity`); either way no wait by pid is safe.
+///
+/// What is left is the interval between the description and the `waitpid` (see `identity`).
 #[cfg(target_os = "macos")]
 fn child_gone(pid: libc::pid_t, identity: Option<Identity>) -> bool {
-    if let Some(expected) = identity {
-        // A different description means the pid changed hands. No description at all means no
-        // such process exists (zombies are described), so `waitpid` below answers `ECHILD` or
-        // collects our own exited helper; it never reaches an unrelated child.
-        if matches!(identity_of(pid), Some(found) if found != expected) {
-            return true;
-        }
-    }
+    let Some(expected) = identity else {
+        return true;
+    };
     loop {
+        match describe(pid as u32) {
+            Ok(Some(found)) if found == expected => {}
+            Ok(_) => return true,
+            // The kernel could not be asked: not proven gone, not safe to wait. Ask again later.
+            Err(_) => return false,
+        }
+        #[cfg(test)]
+        test_hooks::between_proof_and_reap(pid);
         let mut status = 0;
         // SAFETY: waitpid with WNOHANG and a valid out pointer.
         let reaped = unsafe { libc::waitpid(pid, &mut status, libc::WNOHANG) };
@@ -536,23 +510,45 @@ fn child_gone(pid: libc::pid_t, identity: Option<Identity>) -> bool {
     }
 }
 
-/// Polls `child_gone` every `step` for at most `limit`.
+/// Test seam: runs between the identity proof and the `waitpid`, to interleave another
+/// reaper at exactly that point.
+#[cfg(all(target_os = "macos", test))]
+pub(crate) mod test_hooks {
+    use std::sync::Mutex;
+
+    type Hook = Box<dyn FnMut(libc::pid_t) + Send>;
+    static HOOK: Mutex<Option<Hook>> = Mutex::new(None);
+
+    pub(crate) fn install(hook: impl FnMut(libc::pid_t) + Send + 'static) {
+        *HOOK.lock().unwrap_or_else(|p| p.into_inner()) = Some(Box::new(hook));
+    }
+
+    pub(crate) fn clear() {
+        *HOOK.lock().unwrap_or_else(|p| p.into_inner()) = None;
+    }
+
+    pub(super) fn between_proof_and_reap(pid: libc::pid_t) {
+        if let Some(hook) = HOOK.lock().unwrap_or_else(|p| p.into_inner()).as_mut() {
+            hook(pid);
+        }
+    }
+}
+
+/// `child_gone` now; if the helper is still running, sleeps in `poll(2)` on its exit watch for
+/// at most `limit` and tries again once the kernel reports the exit. No timer, no loop.
 #[cfg(target_os = "macos")]
 fn reap_within(
     pid: libc::pid_t,
     identity: Option<Identity>,
+    watch: Option<&crate::exit_watch::ExitWatch>,
     limit: Duration,
-    step: Duration,
 ) -> bool {
-    let started = std::time::Instant::now();
-    loop {
-        if child_gone(pid, identity) {
-            return true;
-        }
-        if started.elapsed() >= limit {
-            return false;
-        }
-        std::thread::sleep(step);
+    if child_gone(pid, identity) {
+        return true;
+    }
+    match watch.map(|watch| watch.wait(Some(limit))) {
+        Some(Ok(true)) => child_gone(pid, identity),
+        _ => false,
     }
 }
 
@@ -571,7 +567,11 @@ impl HelperLink {
         close_all(&[self.hello_write, self.ack_read]);
         Helper {
             pid: self.pid,
-            identity: identity_of(self.pid),
+            identity: describe(self.pid as u32).ok().flatten(),
+            watch: Some(std::sync::Arc::new(crate::exit_watch::ExitWatch::open(
+                self.pid as u32,
+                true,
+            ))),
             // SAFETY: `tether_write` was created by `prepare`, is open, and is owned by nothing
             // else once the link is consumed.
             tether: Some(unsafe { OwnedFd::from_raw_fd(self.tether_write) }),
@@ -1613,6 +1613,7 @@ mod tests {
             // SAFETY: `write_end` was just created and is owned by nothing else.
             tether: Some(unsafe { OwnedFd::from_raw_fd(write_end) }),
             identity: None,
+            watch: None,
         };
         let leader = Command::new("/bin/sleep")
             .arg("30")
@@ -1645,6 +1646,7 @@ mod tests {
             // SAFETY: `write_end` was just created and is owned by nothing else.
             tether: Some(unsafe { OwnedFd::from_raw_fd(write_end) }),
             identity: None,
+            watch: None,
         };
         helper.retire();
         let first = read_byte(read_end);
@@ -1680,11 +1682,12 @@ mod tests {
             started_sec: 1,
             started_usec: 1,
         };
-        assert_ne!(identity_of(replacement), Some(stale));
+        assert_ne!(describe(replacement as u32).ok().flatten(), Some(stale));
         let helper = Helper {
             pid: replacement,
             tether: None,
             identity: Some(stale),
+            watch: None,
         };
         assert!(helper.has_gone(), "a pid that changed hands counts as gone");
         helper.retire();
@@ -1693,6 +1696,80 @@ mod tests {
         let reaped = unsafe { libc::waitpid(replacement, &mut status, 0) };
         assert_eq!(reaped, replacement, "the helper cleanup stole the status");
         assert!(libc::WIFEXITED(status) && libc::WEXITSTATUS(status) == 7);
+    }
+
+    /// No identity was recorded (the kernel would not describe the helper), and the helper's
+    /// pid now names a direct child of this process that has already exited. Nothing proves
+    /// the pid is still the helper, so it is forgotten without a wait: the child keeps its
+    /// status. (Before, a missing identity fell through to a blind `waitpid`.)
+    #[test]
+    fn a_helper_with_no_recorded_identity_is_forgotten_without_a_wait() {
+        // SAFETY: plain fork; the child only calls `_exit`.
+        let replacement = unsafe {
+            let pid = libc::fork();
+            if pid == 0 {
+                libc::_exit(9);
+            }
+            assert!(pid > 0, "fork");
+            pid
+        };
+        let helper = Helper {
+            pid: replacement,
+            tether: None,
+            identity: None,
+            watch: None,
+        };
+        assert!(helper.has_gone());
+        helper.retire();
+        let mut status = 0;
+        // SAFETY: blocking wait for the child forked above.
+        let reaped = unsafe { libc::waitpid(replacement, &mut status, 0) };
+        assert_eq!(reaped, replacement, "the helper cleanup stole the status");
+        assert!(libc::WIFEXITED(status) && libc::WEXITSTATUS(status) == 9);
+    }
+
+    /// Interleaving: the helper's identity is proven, and at exactly that point another reaper
+    /// in the process collects it. The wait that follows names a pid that is no longer a child:
+    /// it answers `ECHILD`, the helper counts as gone, and nothing else is reaped. (A
+    /// replacement taking the number inside that window is not constructible deterministically;
+    /// the replacement case itself is covered by the two tests around this one.)
+    #[test]
+    fn a_helper_collected_between_the_proof_and_the_wait_is_forgotten() {
+        let mut spawned = spawn_with(tie()).expect("spawn with an armed helper");
+        let helper = spawned.helper.take().expect("helper handed back");
+        let pid = helper.pid();
+        let bystander = unsafe {
+            let child = libc::fork();
+            if child == 0 {
+                libc::_exit(5);
+            }
+            child
+        };
+        let reaped_by_hook = Arc::new(AtomicI32::new(0));
+        let seen = Arc::clone(&reaped_by_hook);
+        test_hooks::install(move |hooked| {
+            if hooked != pid {
+                return;
+            }
+            // The foreign reaper: release the helper's tether first so it exits, then collect.
+            let mut status = 0;
+            // SAFETY: collects the helper, standing in for foreign code.
+            let got = unsafe { libc::waitpid(hooked, &mut status, 0) };
+            seen.store(got, Ordering::SeqCst);
+        });
+        let _ = spawned.child.kill();
+        let _ = spawned.child.wait();
+        // Ask the helper to exit so the hook's blocking wait returns.
+        let mut helper = helper;
+        helper.release();
+        assert!(helper.has_gone());
+        test_hooks::clear();
+        assert_eq!(reaped_by_hook.load(Ordering::SeqCst), pid);
+        let mut status = 0;
+        // SAFETY: collects the bystander forked above.
+        let got = unsafe { libc::waitpid(bystander, &mut status, 0) };
+        assert_eq!(got, bystander, "an unrelated child lost its status");
+        assert!(libc::WIFEXITED(status) && libc::WEXITSTATUS(status) == 5);
     }
 
     /// The helper's own identity matches, so it is still collected.
@@ -1705,7 +1782,7 @@ mod tests {
             helper.identity.is_some(),
             "the helper was described at spawn"
         );
-        assert_eq!(helper.identity, identity_of(pid));
+        assert_eq!(helper.identity, describe(pid as u32).ok().flatten());
         let _ = spawned.child.kill();
         let _ = spawned.child.wait();
         helper.retire();

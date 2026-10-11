@@ -146,3 +146,37 @@ fn create_private_new_refuses_a_generated_temp_name() {
     assert_eq!(sweep_stale_temps(dir.path(), Duration::ZERO).unwrap(), 0);
     assert!(kept.exists());
 }
+
+/// Win32 drops trailing spaces and periods from the last component, so a name that is not a
+/// generated temp name as text can still be created as one. Every creation API that takes a
+/// name refuses it. (On other platforms those are ordinary, distinct names; the rule itself is
+/// unit-tested for every platform as `temp_name_tests::windows_names_that_normalize_to_a_temp_name_are_reserved`.)
+#[cfg(windows)]
+#[test]
+fn windows_trailing_space_and_period_names_are_refused() {
+    use rightkit_fs::create_private_new;
+    let dir = tempfile::tempdir().unwrap();
+    for name in [
+        ".record.rktmp-123-1-0 ",
+        ".record.rktmp-123-1-0.",
+        ".record.rktmp-123-1-ff-0 . ",
+    ] {
+        let target = dir.path().join(name);
+        let error = atomic_write(&target, b"x").expect_err("atomic_write");
+        assert!(matches!(error, FsError::BadName(_)), "{name:?}: {error:?}");
+        let error = atomic_write_private(&target, b"x").expect_err("atomic_write_private");
+        assert!(matches!(error, FsError::BadName(_)), "{name:?}: {error:?}");
+        let error = create_private_new(&target).expect_err("create_private_new");
+        assert!(matches!(error, FsError::BadName(_)), "{name:?}: {error:?}");
+        let from = dir.path().join("src.bin");
+        std::fs::write(&from, b"x").unwrap();
+        let error = rename_exclusive(&from, &target).expect_err("rename_exclusive");
+        assert!(matches!(error, FsError::BadName(_)), "{name:?}: {error:?}");
+    }
+    let names: Vec<_> = std::fs::read_dir(dir.path()).unwrap().flatten().collect();
+    assert_eq!(names.len(), 1, "only src.bin: {names:?}");
+    // And the committed record survives a zero-age sweep.
+    let kept = dir.path().join(".record.rktmp-1-final ");
+    atomic_write(&kept, b"committed").unwrap();
+    assert_eq!(sweep_stale_temps(dir.path(), Duration::ZERO).unwrap(), 0);
+}

@@ -363,7 +363,25 @@ impl BrowserSession {
         self.pages.lock().unwrap().push(page.clone());
         *self.current.lock().unwrap() = Some(id);
         if url != "about:blank" {
-            page.goto(url).await?;
+            // The tab's own about:blank must have committed, or it discards this navigation.
+            page.settle_initial_document().await;
+            if let Err(error) = page.goto(url).await {
+                // What Chrome itself said, when it said anything: a navigation that fails
+                // inside the browser leaves no other trace on this side.
+                return Err(match error {
+                    crate::error::BrowserError::Cdp(text) => {
+                        let stderr = self
+                            .proc
+                            .lock()
+                            .unwrap()
+                            .as_ref()
+                            .map(|chrome| chrome.stderr_tail.text())
+                            .unwrap_or_default();
+                        crate::error::BrowserError::Cdp(format!("{text}; chrome stderr: {stderr}"))
+                    }
+                    other => other,
+                });
+            }
         }
         Ok(page)
     }

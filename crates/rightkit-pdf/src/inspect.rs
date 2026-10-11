@@ -59,10 +59,19 @@ use crate::model::{
 /// encodings while bounding malicious compressed font streams.
 const MAX_FONT_ENCODING_BYTES: usize = 16 * 1024 * 1024;
 
-/// Most content-stream operations one page may walk, across all its streams. Real pages (vector
-/// maps included) stay well under a million; a hostile stream of one-byte operators does not.
-/// A page past it is refused as malformed content before the walk starts on that stream.
-const MAX_OPERATIONS_PER_PAGE: usize = 1 << 24;
+/// Most decoded content bytes one page may present, summed over every `/Contents` entry **as
+/// listed**: a stream referenced a thousand times is decoded a thousand times and charged a
+/// thousand times. Real pages are kilobytes to a few megabytes; a vector map is tens of
+/// megabytes. A stream is decoded with the remaining budget as its limit, so no buffer larger than
+/// what is left is ever allocated, and only one decoded stream is held at a time.
+pub(crate) const MAX_PAGE_CONTENT_BYTES: usize = 64 * 1024 * 1024;
+
+/// Most content-stream tokens (operators, numbers, names, strings, array and dictionary openers)
+/// one page may present across all its streams. Each token costs one parsed object, so this is the
+/// bound on what `Content::decode` may allocate. It is checked from a byte scan **before** the
+/// parse (see [`token_upper_bound`]). Real pages (vector maps included) stay far below it; a
+/// hostile stream of one-byte operators or `()()()...` does not.
+pub(crate) const MAX_CONTENT_TOKENS_PER_PAGE: usize = 1 << 23;
 
 /// Most glyphs one page may decode. A dense page holds tens of thousands; a hostile content stream
 /// can show hundreds of millions of codes, each costing a retained `PositionedGlyph`.
@@ -75,6 +84,44 @@ const MAX_DECODED_BYTES_PER_PAGE: usize = 8 * 1024 * 1024;
 /// Longest `ToUnicode` destination, in UTF-16 units, the reader keeps. Real destinations are one
 /// character or a short ligature expansion; a longer one is not read and makes the CMap inexact.
 const MAX_CMAP_DESTINATION_UNITS: usize = 64;
+
+/// Most fonts one page resolves. A page names a handful to a few dozen; a resource dictionary of
+/// tens of thousands of fonts is hostile. Fonts past the cap are not built, so text shown through
+/// them becomes a typed unresolved-font island.
+const MAX_FONTS_PER_PAGE: usize = 512;
+
+/// Most decoded `ToUnicode` bytes all fonts of one page may present together (each font is also
+/// bounded by [`MAX_FONT_ENCODING_BYTES`]).
+const MAX_PAGE_CMAP_BYTES: usize = 32 * 1024 * 1024;
+
+/// Most `ToUnicode` code assignments, and most `/W` width assignments, all fonts of one page may
+/// perform together (each font is also bounded by its own per-font budget).
+const MAX_PAGE_CMAP_ASSIGNMENTS: usize = 1 << 21;
+const MAX_PAGE_CID_WIDTH_ASSIGNMENTS: usize = 1 << 21;
+
+/// Most tokens one `bfchar`/`bfrange` block may tokenize. A real CMap has at most a few hundred
+/// thousand; past it the block is cut off and the table is inexact.
+const MAX_CMAP_TOKENS_PER_BLOCK: usize = 1 << 19;
+
+/// What the fonts of one page may still spend, shared by every font the page resolves. Exhaustion
+/// never aborts: the font whose work ran out is built from what was read and marked inexact
+/// (displayed, never re-encoded), exactly as for the per-font budgets.
+#[derive(Debug)]
+struct FontWork {
+    cmap_bytes: usize,
+    cmap_assignments: usize,
+    width_assignments: usize,
+}
+
+impl FontWork {
+    fn new() -> FontWork {
+        FontWork {
+            cmap_bytes: MAX_PAGE_CMAP_BYTES,
+            cmap_assignments: MAX_PAGE_CMAP_ASSIGNMENTS,
+            width_assignments: MAX_PAGE_CID_WIDTH_ASSIGNMENTS,
+        }
+    }
+}
 
 /// What a page walk may still decode: glyph count and decoded Unicode bytes, aggregated over every
 /// show operand of the page. Exhaustion is a typed refusal ([`PdfEditError::TextOverflow`]).
@@ -113,6 +160,15 @@ impl DecodeBudget {
         }
     }
 
+    /// Refuses an operand that alone would exceed the glyphs still available. Called before any
+    /// per-glyph storage is reserved, so the reservation is never larger than the budget.
+    fn ensure_glyphs(&self, count: usize) -> Result<(), PdfEditError> {
+        if count > self.glyphs {
+            return Err(PdfEditError::TextOverflow);
+        }
+        Ok(())
+    }
+
     /// Charges one glyph whose decoded text is `unicode_bytes` long, before anything is cloned.
     fn charge(&mut self, unicode_bytes: usize) -> Result<(), PdfEditError> {
         if self.glyphs == 0 || unicode_bytes > self.bytes {
@@ -124,10 +180,13 @@ impl DecodeBudget {
     }
 }
 
-/// Most bytes any one stream (a page content stream, an object stream) may decode to. A page of
-/// text is kilobytes to a few megabytes; a flate stream that claims more is a decompression bomb
-/// and is refused as malformed content instead of being allocated.
-pub(crate) const MAX_DECOMPRESSED_BYTES: usize = 256 * 1024 * 1024;
+/// Most bytes any one stream **while the document loads** (an object stream) may decode to. A real
+/// object stream is kilobytes to a few megabytes; a flate stream that claims more is a
+/// decompression bomb and is refused as malformed content instead of being allocated. The loader
+/// is `lopdf`'s, which applies the limit per stream and builds its object-stream index from the
+/// decoded bytes, so a lower limit is also a lower ceiling on that index. Page content streams are
+/// decoded later under the page's own aggregate [`MAX_PAGE_CONTENT_BYTES`].
+pub(crate) const MAX_DECOMPRESSED_BYTES: usize = 64 * 1024 * 1024;
 
 /// Loads a document with every stream's decoded size bounded by [`MAX_DECOMPRESSED_BYTES`].
 pub(crate) fn load_pdf(bytes: &[u8]) -> Result<Document, lopdf::Error> {
@@ -135,6 +194,104 @@ pub(crate) fn load_pdf(bytes: &[u8]) -> Result<Document, lopdf::Error> {
         bytes,
         lopdf::LoadOptions::with_max_decompressed_size(MAX_DECOMPRESSED_BYTES),
     )
+}
+
+/// Upper bound on the number of objects `Content::decode` can build from `bytes`: the count of
+/// maximal runs of regular characters (every operator, number, keyword and the body of a name is
+/// one) plus one for each byte that opens a string, hex string, array or name. Every operator and
+/// every operand starts at one of those, so the real count is never larger; strings and comments
+/// are not skipped, which only over-counts. A byte scan, so it allocates nothing.
+pub(crate) fn token_upper_bound(bytes: &[u8]) -> usize {
+    let mut count = 0usize;
+    let mut in_run = false;
+    for &byte in bytes {
+        match byte {
+            b'(' | b'<' | b'[' | b'/' => {
+                count += 1;
+                // A name's body belongs to the name, not to a second token.
+                in_run = byte == b'/';
+            }
+            b')' | b'>' | b']' | b'{' | b'}' | b'%' | 0 | 9 | 10 | 12 | 13 | 32 => in_run = false,
+            _ => {
+                if !in_run {
+                    count += 1;
+                    in_run = true;
+                }
+            }
+        }
+    }
+    count
+}
+
+/// What one page may still decode and parse from its content streams (see
+/// [`MAX_PAGE_CONTENT_BYTES`] and [`MAX_CONTENT_TOKENS_PER_PAGE`]). Every place that expands page
+/// content - inspection, composition, the isolation wrapper's balance count - charges one of these
+/// **before** it allocates, so repeated references to one stream cannot multiply the work.
+#[derive(Debug)]
+pub(crate) struct ContentBudget {
+    bytes: usize,
+    tokens: usize,
+}
+
+impl ContentBudget {
+    pub(crate) fn new() -> ContentBudget {
+        ContentBudget {
+            bytes: MAX_PAGE_CONTENT_BYTES,
+            tokens: MAX_CONTENT_TOKENS_PER_PAGE,
+        }
+    }
+
+    /// Decodes stream object `id`, never allocating more than the bytes still available. A stream
+    /// whose stored size alone exceeds them is refused without decoding. Exhaustion is malformed
+    /// content.
+    pub(crate) fn decode_stream(
+        &mut self,
+        doc: &Document,
+        id: ObjectId,
+    ) -> Result<Vec<u8>, PdfEditError> {
+        let stream = doc
+            .get_object(id)
+            .map_err(|_| PdfEditError::MalformedContent)?
+            .as_stream()
+            .map_err(|_| PdfEditError::MalformedContent)?;
+        if stream.content.len() > self.bytes {
+            return Err(PdfEditError::MalformedContent);
+        }
+        let bytes = stream
+            .decompressed_content_with_limit(self.bytes)
+            .map_err(|_| PdfEditError::MalformedContent)?;
+        self.bytes = self
+            .bytes
+            .checked_sub(bytes.len())
+            .ok_or(PdfEditError::MalformedContent)?;
+        Ok(bytes)
+    }
+
+    /// Parses `bytes` into operations after charging their token bound. `strict` selects the
+    /// composer's strict decoder over the walker's lenient one.
+    pub(crate) fn parse(&mut self, bytes: &[u8], strict: bool) -> Result<Content, PdfEditError> {
+        self.tokens = self
+            .tokens
+            .checked_sub(token_upper_bound(bytes))
+            .ok_or(PdfEditError::MalformedContent)?;
+        let content = if strict {
+            Content::decode_strict(bytes)
+        } else {
+            Content::decode(bytes)
+        };
+        content.map_err(|_| PdfEditError::MalformedContent)
+    }
+
+    /// Decodes and parses stream `id`.
+    pub(crate) fn content(
+        &mut self,
+        doc: &Document,
+        id: ObjectId,
+        strict: bool,
+    ) -> Result<Content, PdfEditError> {
+        let bytes = self.decode_stream(doc, id)?;
+        self.parse(&bytes, strict)
+    }
 }
 
 // -------------------------------------------------------------------------------------------
@@ -180,7 +337,7 @@ pub fn walk_page_graph(
     let crop_box = resolve_rect(doc, page_dict, b"CropBox").unwrap_or(media_box);
     let rotation = resolve_rotation(doc, page_dict);
 
-    let streams = page_content_streams(doc, page_id)?;
+    let stream_ids = page_content_stream_ids(doc, page_id)?;
     let fonts = resolve_page_fonts(doc, page_id);
     let ext_gstates = page_ext_gstates(doc, page_dict);
 
@@ -194,16 +351,19 @@ pub fn walk_page_graph(
     // stream into the next. Each stream is still decoded and addressed separately (sparse writes
     // need the boundaries), but the walker state flows through them.
     let mut walk_state = WalkState::new();
-    let mut operations_left = MAX_OPERATIONS_PER_PAGE;
-    for stream in &streams {
-        let content = Content::decode(&stream.bytes).map_err(|_| PdfEditError::MalformedContent)?;
-        // Bounded parse work (gap ledger row 155): the walk is linear in operations, so a page
-        // may not present more of them than any real page does by a wide margin.
-        operations_left = operations_left
-            .checked_sub(content.operations.len())
-            .ok_or(PdfEditError::MalformedContent)?;
+    // One decoded stream is held at a time, and every decode and parse is charged to the page's
+    // budget before it allocates (so a stream listed a thousand times costs a thousand charges).
+    let mut budget = ContentBudget::new();
+    for (index, id) in stream_ids.into_iter().enumerate() {
+        let bytes = budget.decode_stream(doc, id)?;
+        let content = budget.parse(&bytes, false)?;
+        drop(bytes);
+        let stream = PageStream {
+            contents_index: index as u32,
+            stream_ref: (id.0, id.1),
+        };
         walk_state = walk_stream(
-            stream,
+            &stream,
             &content,
             page,
             document_sha256,
@@ -293,8 +453,14 @@ pub(crate) type ResourceFingerprint = BTreeMap<u32, BTreeMap<(Vec<u8>, Vec<u8>),
 /// `/Parent` chain (bounded, see [`resolve_inherited`]), which is the dictionary a viewer uses,
 /// never a merge of levels. A name whose indirect target does not exist is not recorded: it
 /// resolved to nothing before and cannot be lost.
-pub(crate) fn resource_fingerprint(doc: &Document) -> ResourceFingerprint {
+///
+/// Bounded: the fingerprint holds one entry per (page, category, name), and a page tree whose
+/// thousands of pages all inherit one resource dictionary of hundreds of thousands of names would
+/// otherwise multiply into billions. Past [`MAX_FINGERPRINT_ENTRIES`] the fingerprint is refused
+/// (a truncated one would pass "preserved" vacuously) as malformed content.
+pub(crate) fn resource_fingerprint(doc: &Document) -> Result<ResourceFingerprint, PdfEditError> {
     let mut out = ResourceFingerprint::new();
+    let mut entries_left = MAX_FINGERPRINT_ENTRIES;
     for (number, page_id) in doc.get_pages() {
         let mut names = BTreeMap::new();
         let resources = doc
@@ -324,14 +490,20 @@ pub(crate) fn resource_fingerprint(doc: &Document) -> ResourceFingerprint {
                         }
                         _ => ResourceTarget::Direct,
                     };
+                    entries_left = entries_left
+                        .checked_sub(1)
+                        .ok_or(PdfEditError::MalformedContent)?;
                     names.insert((category.to_vec(), name.clone()), target);
                 }
             }
         }
         out.insert(number, names);
     }
-    out
+    Ok(out)
 }
+
+/// Most (page, category, name) entries a [`ResourceFingerprint`] may hold.
+const MAX_FINGERPRINT_ENTRIES: usize = 1 << 21;
 
 /// True when every page in `before` still resolves every resource name it resolved, to the same
 /// target. An edit may add resources (a new font); it must never hide one the page already used.
@@ -348,13 +520,13 @@ pub(crate) fn resources_preserved(
     })
 }
 
-/// One page `/Contents` entry, kept separate rather than concatenated (per §5.2: "Do not use
-/// lopdf get_page_content as source identity because concatenation destroys stream boundaries
-/// required for sparse writes").
+/// One page `/Contents` entry's address, kept separate rather than concatenated (per §5.2: "Do not
+/// use lopdf get_page_content as source identity because concatenation destroys stream boundaries
+/// required for sparse writes"). Its bytes are decoded one stream at a time, under the page's
+/// [`ContentBudget`], and are not retained here.
 struct PageStream {
     contents_index: u32,
     stream_ref: (u32, u16),
-    bytes: Vec<u8>,
 }
 
 /// Resolves a page's `/Contents` value to its ordered content-stream object ids.
@@ -392,10 +564,12 @@ pub(crate) fn content_stream_ids(
     })
 }
 
-fn page_content_streams(
+/// The page's ordered content-stream ids. Nothing is decoded here; each id may repeat, and each
+/// occurrence is decoded (and charged) separately.
+fn page_content_stream_ids(
     doc: &Document,
     page_id: ObjectId,
-) -> Result<Vec<PageStream>, PdfEditError> {
+) -> Result<Vec<ObjectId>, PdfEditError> {
     let page_obj = doc
         .get_object(page_id)
         .map_err(|_| PdfEditError::MalformedContent)?;
@@ -406,25 +580,13 @@ fn page_content_streams(
         .get(b"Contents")
         .map_err(|_| PdfEditError::MalformedContent)?;
     let ids = content_stream_ids(doc, contents)?;
-
-    let mut streams = Vec::with_capacity(ids.len());
-    for (idx, id) in ids.into_iter().enumerate() {
-        let obj = doc
-            .get_object(id)
-            .map_err(|_| PdfEditError::MalformedContent)?;
-        let stream = obj
+    for id in &ids {
+        doc.get_object(*id)
+            .map_err(|_| PdfEditError::MalformedContent)?
             .as_stream()
             .map_err(|_| PdfEditError::MalformedContent)?;
-        let bytes = stream
-            .decompressed_content_with_limit(MAX_DECOMPRESSED_BYTES)
-            .map_err(|_| PdfEditError::MalformedContent)?;
-        streams.push(PageStream {
-            contents_index: idx as u32,
-            stream_ref: (id.0, id.1),
-            bytes,
-        });
     }
-    Ok(streams)
+    Ok(ids)
 }
 
 // -------------------------------------------------------------------------------------------
@@ -552,7 +714,14 @@ impl TextStateFont for BuiltFont {
             return Err(PdfEditError::MalformedContent);
         }
 
-        let mut out = Vec::with_capacity(bytes.len() / width);
+        // The operand's glyph count is known before any glyph exists: refuse one that alone passes
+        // the page budget, then reserve fallibly. A 64 MiB string of single-byte codes must not
+        // reserve gigabytes of `DecodedGlyph` records on its way to a typed refusal.
+        let count = bytes.len() / width;
+        self.budget.with(|b| b.ensure_glyphs(count))?;
+        let mut out = Vec::new();
+        out.try_reserve_exact(count)
+            .map_err(|_| PdfEditError::TextOverflow)?;
         for (i, chunk) in bytes.chunks_exact(width).enumerate() {
             let code = if width == 1 {
                 chunk[0] as u32
@@ -1054,8 +1223,12 @@ fn resolve_page_fonts(doc: &Document, page_id: ObjectId) -> HashMap<Vec<u8>, Rc<
         return out;
     };
     let budget = SharedDecodeBudget::new();
+    let mut work = FontWork::new();
 
     for (name, font_dict) in fonts.into_iter() {
+        if out.len() >= MAX_FONTS_PER_PAGE {
+            break;
+        }
         let subtype = font_dict
             .get(b"Subtype")
             .ok()
@@ -1108,7 +1281,7 @@ fn resolve_page_fonts(doc: &Document, page_id: ObjectId) -> HashMap<Vec<u8>, Rc<
                 let Some(code) = first_char.checked_add(idx as i64) else {
                     break;
                 };
-                if code > last_char {
+                if code > last_char || code > 255 {
                     break;
                 }
                 if (0..=255).contains(&code) {
@@ -1163,9 +1336,9 @@ fn resolve_page_fonts(doc: &Document, page_id: ObjectId) -> HashMap<Vec<u8>, Rc<
                 budget: budget.clone(),
             }
         } else {
-            let (unicode, cmap_complete) = parse_to_unicode(doc, font_dict);
+            let (unicode, cmap_complete) = parse_to_unicode(doc, font_dict, &mut work);
             let (default_width_1000, widths_1000, widths_complete) =
-                parse_cid_widths(doc, font_dict);
+                parse_cid_widths_charged(doc, font_dict, &mut work);
             // Identity-H: the 2-byte code is the CID, `ToUnicode` is the only character table.
             // A CMap with any entry or form this reader does not understand is not an exact
             // table: the font is not reversibly encoded, whatever the entries it did read say.
@@ -1391,8 +1564,22 @@ const MAX_CID_WIDTH_ASSIGNMENTS: usize = 1 << 20;
 /// table is not exact: the work budget ran out, so CIDs that the file gives a width may be missing
 /// from the map. Such a font is displayed (missing codes are rejected, never guessed) but is not
 /// reversibly encoded, because a fit check needs every width.
+#[cfg(test)]
 fn parse_cid_widths(doc: &Document, font_dict: &Dictionary) -> (f64, HashMap<u32, f64>, bool) {
     let (dw, map, complete, _) = parse_cid_widths_within(doc, font_dict, MAX_CID_WIDTH_ASSIGNMENTS);
+    (dw, map, complete)
+}
+
+/// [`parse_cid_widths`] charged to the page's [`FontWork`]: the font's budget is the smaller of
+/// its own and what the page has left, and what it performed is taken off the page.
+fn parse_cid_widths_charged(
+    doc: &Document,
+    font_dict: &Dictionary,
+    work: &mut FontWork,
+) -> (f64, HashMap<u32, f64>, bool) {
+    let allowed = MAX_CID_WIDTH_ASSIGNMENTS.min(work.width_assignments);
+    let (dw, map, complete, performed) = parse_cid_widths_within(doc, font_dict, allowed);
+    work.width_assignments = work.width_assignments.saturating_sub(performed);
     (dw, map, complete)
 }
 
@@ -1518,6 +1705,11 @@ fn cmap_tokens(block: &str, clean: &mut bool) -> Vec<CmapToken> {
     let mut out = Vec::new();
     let mut chars = block.chars();
     while let Some(c) = chars.next() {
+        // Bounded before the next token is allocated; a block past the cap is cut off and inexact.
+        if out.len() >= MAX_CMAP_TOKENS_PER_BLOCK {
+            *clean = false;
+            break;
+        }
         match c {
             '<' => {
                 let mut tok = String::new();
@@ -1581,7 +1773,11 @@ fn units_to_string(units: &[u16]) -> String {
 /// font is not reversibly encoded, so the caller must not write through it. Source codes are
 /// limited to the two-byte space (`<= 0xFFFF`) of an `Identity-H` font; destinations are never
 /// invented, and all arithmetic on file numbers is checked.
-fn parse_to_unicode(doc: &Document, font_dict: &Dictionary) -> (HashMap<u32, String>, bool) {
+fn parse_to_unicode(
+    doc: &Document,
+    font_dict: &Dictionary,
+    work: &mut FontWork,
+) -> (HashMap<u32, String>, bool) {
     let mut map = HashMap::new();
     let mut exact = true;
 
@@ -1594,19 +1790,28 @@ fn parse_to_unicode(doc: &Document, font_dict: &Dictionary) -> (HashMap<u32, Str
     let Ok(stream) = obj.as_stream() else {
         return (map, exact);
     };
+    // The decode limit is the smaller of the per-font bound and what the page's fonts have left,
+    // so a hundred fonts naming one big CMap cannot each take a full-size buffer. A stream whose
+    // stored size alone is past it is not decoded.
+    let limit = MAX_FONT_ENCODING_BYTES.min(work.cmap_bytes);
+    if stream.content.len() > limit {
+        return (map, false);
+    }
     let bytes = stream
-        .decompressed_content_with_limit(MAX_FONT_ENCODING_BYTES)
+        .decompressed_content_with_limit(limit)
         .unwrap_or_else(|_| stream.content.clone());
     // A stream that decodes past the limit falls back to its raw bytes, which are not a CMap:
     // the table comes out empty (or inexact) and the font is not editable.
-    if bytes.len() > MAX_FONT_ENCODING_BYTES {
+    if bytes.len() > limit {
         return (map, false);
     }
+    work.cmap_bytes -= bytes.len();
     let text = String::from_utf8_lossy(&bytes);
     if text.contains("usecmap") {
         exact = false;
     }
-    let mut budget = MAX_CMAP_ASSIGNMENTS;
+    let allowed = MAX_CMAP_ASSIGNMENTS.min(work.cmap_assignments);
+    let mut budget = allowed;
 
     for block in extract_blocks(&text, "beginbfchar", "endbfchar") {
         let tokens = cmap_tokens(block, &mut exact);
@@ -1743,6 +1948,7 @@ fn parse_to_unicode(doc: &Document, font_dict: &Dictionary) -> (HashMap<u32, Str
         }
     }
 
+    work.cmap_assignments = work.cmap_assignments.saturating_sub(allowed - budget);
     (map, exact)
 }
 
@@ -1856,7 +2062,7 @@ impl SavedGraphicsState {
 
 /// Most numeric `TJ` items one page may push into gap provenance, however they are grouped. Each
 /// item is moved into the gap in front of the next real string, never copied, so retained state is
-/// linear in the items; this bound turns "linear in a 256 MiB stream of `0 0 0 ...`" into a fixed
+/// linear in the items; this bound turns "linear in a 64 MiB stream of `0 0 0 ...`" into a fixed
 /// few megabytes. Past it a gap simply has no provenance, which only makes its island
 /// `positioned_text_run` (not editable).
 const MAX_GAP_NUMBERS_PER_PAGE: usize = 1 << 20;
@@ -2463,6 +2669,7 @@ fn visit_text_show(
             source: source.with_glyph(glyph.source_range),
             font_id: font.id().to_string(),
             font_size: state.font_size,
+            pen_advance: advance,
             text_matrix,
             ctm: state.ctm,
             writing_direction: WritingDirection::LeftToRight,
@@ -2792,6 +2999,28 @@ const GAP_SPACE_EM: f64 = 0.2;
 /// adjustments in front of the next string rather than by a position move.
 const GAP_PROVENANCE_TOLERANCE_PT: f64 = 0.05;
 
+/// The `TJ` number that moves the pen exactly as one shown glyph of text-space advance `advance`
+/// did: a `TJ` number `n` moves it by `-(n / 1000) * font_size` (before `Tz`, which scales both
+/// alike). `None` when `font_size` is zero or either value is not finite.
+///
+/// The number is chosen so the walker's own arithmetic reproduces the glyph's step bit for bit
+/// whenever the file can say so: a whole number when that does (the usual case, an integer font
+/// width with `Tc` and `Tw` at zero), else the closest value a PDF real (`f32`) holds. A removed
+/// glyph then leaves every later glyph at the same text-matrix value, not merely a close one.
+fn pen_adjustment(advance: f64, font_size: f64) -> Option<f64> {
+    if !(advance.is_finite() && font_size.is_finite() && font_size != 0.0) {
+        return None;
+    }
+    let step = |number: f64| -(number / 1000.0) * font_size;
+    let exact = -(advance / font_size) * 1000.0;
+    let rounded = exact.round();
+    if rounded.is_finite() && rounded.abs() < 1e9 && step(rounded) == advance {
+        return Some(rounded);
+    }
+    let stored = f64::from(exact as f32);
+    stored.is_finite().then_some(stored)
+}
+
 /// Builds the island's run in reading order: real glyphs and, between them, a synthesised space
 /// wherever the pen gap passes [`GAP_SPACE_EM`] and neither neighbour is a real space.
 fn build_run(run: &[PositionedGlyph], spacing: &HashMap<SpacingKey, GlyphSpacing>) -> Vec<RunItem> {
@@ -2855,6 +3084,7 @@ fn build_run(run: &[PositionedGlyph], spacing: &HashMap<SpacingKey, GlyphSpacing
                     gap_numbers,
                     beyond_tc: excess,
                     word_space: false,
+                    pen_adjust: None,
                 });
             }
         }
@@ -2869,6 +3099,7 @@ fn build_run(run: &[PositionedGlyph], spacing: &HashMap<SpacingKey, GlyphSpacing
                 glyph.cid,
                 (glyph.source.glyph_start, glyph.source.glyph_end),
             ),
+            pen_adjust: pen_adjustment(glyph.pen_advance, glyph.font_size),
         });
     }
     items
@@ -3679,6 +3910,7 @@ mod tests {
             source: addr_a.with_glyph((glyph_start, glyph_end)),
             font_id: "F1".to_string(),
             font_size: 12.0,
+            pen_advance: 6.0,
             text_matrix: Matrix::IDENTITY,
             ctm: Matrix::IDENTITY,
             writing_direction: WritingDirection::LeftToRight,
@@ -4329,7 +4561,7 @@ mod tests {
         let doc = crate::test_fixtures::inherited_resources_pdf(
             b"BT /F1 12 Tf 72 700 Td (Existing) Tj ET",
         );
-        let before = resource_fingerprint(&doc);
+        let before = resource_fingerprint(&doc).expect("fingerprint");
         let names: Vec<(&[u8], &[u8])> = before[&1]
             .keys()
             .map(|(category, name)| (category.as_slice(), name.as_slice()))
@@ -4356,7 +4588,7 @@ mod tests {
         }
         assert!(!resources_preserved(
             &before,
-            &resource_fingerprint(&hidden)
+            &resource_fingerprint(&hidden).expect("fingerprint")
         ));
 
         // Adding a font next to the inherited ones is fine.
@@ -4395,6 +4627,141 @@ mod tests {
         if let Ok(Object::Dictionary(page)) = added.get_object_mut(page_id) {
             page.set("Resources", Object::Dictionary(resources));
         }
-        assert!(resources_preserved(&before, &resource_fingerprint(&added)));
+        assert!(resources_preserved(
+            &before,
+            &resource_fingerprint(&added).expect("fingerprint")
+        ));
+    }
+
+    // -----------------------------------------------------------------------------------
+    // Fourth Astra read, 2026-10-11: findings 9, 10 and 11
+    // -----------------------------------------------------------------------------------
+
+    #[test]
+    fn finding9_a_removed_glyphs_pen_number_reproduces_its_step_bit_for_bit() {
+        // Whole-number widths with Tc and Tw at zero (the usual case) come back as integers whose
+        // walker step equals the glyph's own advance exactly.
+        for (width, size) in [(667.0, 12.0), (722.0, 11.0), (278.0, 9.5), (556.0, 10.0)] {
+            let advance = width / 1000.0 * size;
+            let number = pen_adjustment(advance, size).expect("expressible");
+            assert_eq!(number, -width);
+            assert_eq!(-(number / 1000.0) * size, advance);
+        }
+        // A Tc folded into the advance is not a whole number but is still reproduced closely.
+        let advance = 556.0 / 1000.0 * 12.0 + 0.3;
+        let number = pen_adjustment(advance, 12.0).expect("expressible");
+        assert!((-(number / 1000.0) * 12.0 - advance).abs() < 1e-5);
+        // No font size, no way to say it.
+        assert_eq!(pen_adjustment(5.0, 0.0), None);
+        assert_eq!(pen_adjustment(f64::NAN, 12.0), None);
+    }
+
+    #[test]
+    fn finding10_the_token_bound_never_undercounts_what_the_parser_builds() {
+        let samples: [&[u8]; 6] = [
+            b"BT /F1 12 Tf 72 700 Td (Hello) Tj ET",
+            b"[(a)(b)(c)]TJ",
+            b"q q q Q Q Q",
+            b"/A/B/C gs",
+            b"<< /MCID 0 >> BDC EMC",
+            b"(x)'(y)'",
+        ];
+        for sample in samples {
+            let parsed = Content::decode(sample).expect("parses");
+            let objects: usize = parsed
+                .operations
+                .iter()
+                .map(|op| {
+                    1 + op
+                        .operands
+                        .iter()
+                        .map(|o| match o {
+                            Object::Array(items) => 1 + items.len(),
+                            _ => 1,
+                        })
+                        .sum::<usize>()
+                })
+                .sum();
+            assert!(
+                token_upper_bound(sample) >= objects,
+                "{:?}: bound {} < {}",
+                String::from_utf8_lossy(sample),
+                token_upper_bound(sample),
+                objects
+            );
+        }
+        // A flood of empty strings has no regular characters at all and is still counted.
+        assert_eq!(token_upper_bound(&b"()".repeat(1000)), 1000);
+    }
+
+    #[test]
+    fn finding10_the_content_budget_charges_every_listing_and_refuses_before_parsing() {
+        let mut budget = ContentBudget::new();
+        let flood = "1 ".repeat(MAX_CONTENT_TOKENS_PER_PAGE + 1);
+        assert!(matches!(
+            budget.parse(flood.as_bytes(), false),
+            Err(PdfEditError::MalformedContent)
+        ));
+
+        // The same stream, listed repeatedly, is charged each time.
+        let mut doc = Document::with_version("1.7");
+        let id = doc.add_object(Stream::new(
+            dictionary! {},
+            vec![b' '; MAX_PAGE_CONTENT_BYTES / 4 + 1],
+        ));
+        let mut budget = ContentBudget::new();
+        let mut decoded = 0;
+        while budget.decode_stream(&doc, id).is_ok() {
+            decoded += 1;
+            assert!(
+                decoded <= 4,
+                "the page budget never lets a fifth listing through"
+            );
+        }
+        assert_eq!(decoded, 3);
+    }
+
+    #[test]
+    fn finding11_an_operand_past_the_glyph_budget_is_refused_before_anything_is_reserved() {
+        let budget = DecodeBudget {
+            glyphs: 10,
+            bytes: 1 << 20,
+        };
+        assert!(budget.ensure_glyphs(10).is_ok());
+        assert!(matches!(
+            budget.ensure_glyphs(11),
+            Err(PdfEditError::TextOverflow)
+        ));
+    }
+
+    #[test]
+    fn finding10_the_fingerprint_is_refused_not_truncated_past_its_bound() {
+        // One shared /Resources of 70 000 names inherited by 40 pages is 2.8 million entries.
+        let mut doc = Document::with_version("1.7");
+        let pages_id = doc.new_object_id();
+        let mut fonts = Dictionary::new();
+        for n in 0..70_000 {
+            fonts.set(format!("F{n}"), Object::Dictionary(Dictionary::new()));
+        }
+        let mut kids = Vec::new();
+        for _ in 0..40 {
+            let page = doc.add_object(dictionary! { "Type" => "Page", "Parent" => pages_id });
+            kids.push(Object::Reference(page));
+        }
+        doc.objects.insert(
+            pages_id,
+            Object::Dictionary(dictionary! {
+                "Type" => "Pages",
+                "Kids" => kids,
+                "Count" => 40,
+                "Resources" => dictionary! { "Font" => Object::Dictionary(fonts) },
+            }),
+        );
+        let catalog = doc.add_object(dictionary! { "Type" => "Catalog", "Pages" => pages_id });
+        doc.trailer.set("Root", catalog);
+        assert!(matches!(
+            resource_fingerprint(&doc),
+            Err(PdfEditError::MalformedContent)
+        ));
     }
 }

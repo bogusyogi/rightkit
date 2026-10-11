@@ -50,6 +50,12 @@ pub enum FsError {
     NotOwned(PathBuf),
     #[error("{0} is writable by group or others")]
     TooPermissive(PathBuf),
+    /// A private (owner-only) file or directory was asked for where its owner-only guarantee cannot
+    /// be established because of an extended ACL (macOS): the parent directory has an inheritable
+    /// `allow` entry that the new entry would receive, or the entry's own ACL could not be removed.
+    /// Nothing is left behind. See [`crate::private`] and the `acl` notes in the crate README.
+    #[error("{0} cannot be made owner-only: an extended ACL would grant access to others")]
+    UnsafeAcl(PathBuf),
     #[error("directory identity changed while it was being pinned: {0}")]
     IdentityChanged(PathBuf),
     #[error("invalid entry name {0:?}")]
@@ -83,9 +89,9 @@ pub enum FsError {
         source: io::Error,
     },
     /// A `StateDir` removal or directory creation took effect, but syncing the containing
-    /// directory failed, so it may not survive a power loss. Repeating the call is safe: a retry
-    /// that finds a directory this process made and has not yet published syncs it again, and
-    /// fails again if the sync still fails (a directory made by another process is not tracked).
+    /// directory failed, so it may not survive a power loss. Repeating the call is safe: a create
+    /// or open that finds a directory it has not itself published (in this process) syncs its link
+    /// again, whoever made the directory, and fails again if the sync still fails.
     #[error("{} was changed, but syncing its directory failed: {source}", path.display())]
     DirSyncFailed {
         path: PathBuf,
@@ -106,10 +112,15 @@ pub enum FsError {
     },
     /// Windows `ReplaceFileW` failed after it had begun swapping names, so the destination is not
     /// in a known state: it may be missing. Nothing was deleted by this crate. `new_content` is
-    /// the file that still holds the new bytes (the temp file) and `previous_content` the one that
-    /// holds the old bytes (the backup file, or the destination itself); each is `None` when no
-    /// such file exists. Both are left in place for recovery. [`FsError::target_replaced`] is
-    /// false: the new content is not at the destination.
+    /// the file that holds the new bytes and `previous_content` the one that holds the old bytes
+    /// (the `.<name>.rktbak-...` backup file, or the destination itself); each is `None` when no
+    /// such file exists. Both are left in place for recovery. The new bytes were in the temp
+    /// file, which is moved to `.<name>.rktnew-<pid>-<n>-<nanos>` before this error is returned,
+    /// so `new_content` names that recovery file: a name no sweep (`sweep_stale_temps`,
+    /// `StateDir::sweep_temps`) ever matches, so neither a later sweep nor a restart deletes it.
+    /// If that move failed, `new_content` is the original temp name and `source`'s message says
+    /// it is still sweepable. [`FsError::target_replaced`] is false: the new content is not at
+    /// the destination. Deleting the version that lost is the caller's decision.
     #[error(
         "replacing {} was interrupted; new content: {}, previous content: {}: {source}",
         path.display(),
@@ -175,7 +186,7 @@ impl FsError {
             | Self::DirSyncFailed { source, .. } => source.kind(),
             Self::Symlink(_) | Self::NotAFile(_) | Self::BadName(_) => K::InvalidInput,
             Self::NotADirectory(_) => K::NotADirectory,
-            Self::NotOwned(_) | Self::TooPermissive(_) => K::PermissionDenied,
+            Self::NotOwned(_) | Self::TooPermissive(_) | Self::UnsafeAcl(_) => K::PermissionDenied,
             Self::IdentityChanged(_) => K::Other,
             Self::AlreadyExists(_) => K::AlreadyExists,
             Self::TooLarge { .. } => K::FileTooLarge,
@@ -253,6 +264,10 @@ mod tests {
             ),
             (
                 FsError::TooPermissive(p.clone()),
+                io::ErrorKind::PermissionDenied,
+            ),
+            (
+                FsError::UnsafeAcl(p.clone()),
                 io::ErrorKind::PermissionDenied,
             ),
             (FsError::IdentityChanged(p.clone()), io::ErrorKind::Other),
