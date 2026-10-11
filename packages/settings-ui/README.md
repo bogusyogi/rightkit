@@ -175,23 +175,32 @@ From 0.4.2, `@rightkit/settings-ui/headless` gives the search state the styled p
 
 | Hook or component | Returns or does | Use it for |
 |---|---|---|
-| `SettingsSearchProvider` | `query`, `filter`, `highlight` (a function for your own `<mark>`) | Wraps the search. Renders no DOM. |
-| `useSettingsRow({ id, label, description, keywords, searchText })` | `{ matches, hidden, props, mark }`. `props` carries `data-setting-id` and `data-hit=""` for a matching row during a search | A row. Render nothing when `hidden`; spread `props`; wrap label and description in `mark()`. |
-| `useSettingsItem({ id, text, description, keywords })` | Same as `useSettingsRow`, for content that is not a row (an account list, a permission row) | Shown only while it matches; counts for its group. |
-| `useSettingsGroup()` + `SettingsGroupScope` | `{ key, visibleRowCount, empty }` | A group. Pass `key` to the scope around its rows. |
-| `useSettingsSection()` + `SettingsSectionScope` | `{ key, visibleRowCount, empty }`; the scope takes `scopeKey={key}` | A section, the same way as a group. |
+| `SettingsSearchProvider` | `query`, `filter`, `highlight` (a function for your own `<mark>`), `wrapHighlight` | Wraps the search. Renders no DOM. |
+| `useSettingsRow({ id, label, description, keywords, searchText })` | `{ matches, hidden, props, mark }`. `props` carries `data-setting-id` and `data-hit=""` for a matching row during a search | A row. Spread `props`; wrap label and description in `mark()`; hide it with `hidden`. |
+| `useSettingsItem({ id, text, description, keywords })` | The same as `useSettingsRow` | Content that is not a row (an account list, a permission row). It is a result for its group. |
+| `useSettingsHit({ text, keywords })` | `{ matches, mark }` | A match that is neither a row nor an item (a command, a help topic). It counts in `count`, `results` and the status sentence, and toward the group or section it sits in. Renders nothing. |
+| `useSettingsGroup()` + `SettingsGroupScope` | `{ key, visibleRowCount, empty, hidden, props, mark }` | A group. Pass `key` to the scope around its rows; spread `props` on the group's element; `mark` the title. |
+| `useSettingsSection()` + `SettingsSectionScope` | `{ key, visibleRowCount, empty, hidden, props, mark }`; the scope takes `scopeKey={key}` | A section, the same way as a group. |
 | `useSettingsSearchField({ query, setQuery })` | `{ value, onChange, clear, active, count, status }` | The search input and its `role="status"` text. Put it under the provider. |
 | `useSearchKeys({ inputRef, query, setQuery, findShortcut, escapeClears })` | Cmd/Ctrl+F and Escape policy | Keyboard handling for a host-owned field. |
 | `useSettingsSearch()` | `{ query, terms, active, results, count, highlight }` | Anything else that needs the results. |
 
-Two rules keep the hooks correct:
+### Stable tree (use this form)
 
-- **Keep the children mounted.** A group or section must render its rows whether or not it is empty. Only its own wrapper (the `<section>`, the heading, the card) is omitted when `empty`. A row registers on mount, so an empty group whose rows were unmounted could never reveal itself.
-- **Rows remount when a wrapper appears or disappears.** Moving the rows from inside a wrapper to outside one (or back) remounts them, so a control's local state is lost. Keep drafts in state the app owns.
+Keep one element tree and let `hidden` change. A group, section or row whose element stays where it is keeps its children mounted, so a control inside it keeps its typed value and focus when the query changes.
+
+**Swapping wrappers remounts children.** If a host renders the wrapper only while a group is non-empty (or a section only during a search), the rows move between two parents, React unmounts and remounts them, and every control in them loses its local state. The hooks do not prevent this; the stable tree does.
+
+Rules that keep the stable tree correct:
+
+- **Render the children in every case.** A row registers on mount, and an empty group whose rows were not rendered could never reveal itself.
+- **A row that does not match returns `null` from the styled parts but `hidden` from the hooks.** To keep a control's state across a query, render the row element with `hidden={r.hidden}` rather than returning `null`. The `hidden` attribute is overridden by a CSS `display` rule on the same element, so add `.ck-set[hidden] { display: none; }` (or set `display` yourself) in the host's stylesheet.
+- **Content that is not a row must count.** A group or section that holds plain content and no registered row is `empty`, and is hidden. Wrap such content in `useSettingsItem` or `useSettingsHit`.
 
 This is the shape of Pulse's `settingsKit.tsx` in headless form:
 
 ```tsx
+import { Button } from "@rightkit/app-shell/react";
 import {
   SettingsGroupScope, SettingsSearchProvider, SettingsSectionScope, useSearchKeys, useSettingsGroup,
   useSettingsRow, useSettingsSearch, useSettingsSearchField, useSettingsSection,
@@ -201,9 +210,8 @@ const mark = (m: string) => <mark className="ck-mark">{m}</mark>;
 
 function Row({ label, note, children }: { label: string; note?: string; children: ReactNode }) {
   const r = useSettingsRow({ label, description: note });
-  if (r.hidden) return null;
   return (
-    <div className="ck-set" {...r.props}>
+    <div className="ck-set" {...r.props} hidden={r.hidden}>
       <div className="ck-text">
         <strong>{r.mark(label)}</strong>
         {note && <div className="ck-sub">{r.mark(note)}</div>}
@@ -217,12 +225,10 @@ function Group({ title, children }: { title: string; children: ReactNode }) {
   const g = useSettingsGroup();
   return (
     <SettingsGroupScope groupKey={g.key} title={title}>
-      {g.empty ? <>{children}</> : (
-        <section className="ck-sgroup">
-          <h2>{title}</h2>
-          <div className="ck-card">{children}</div>
-        </section>
-      )}
+      <section className="ck-sgroup" {...g.props}>
+        <h2>{g.mark(title)}</h2>
+        <div className="ck-card">{children}</div>
+      </section>
     </SettingsGroupScope>
   );
 }
@@ -232,15 +238,15 @@ function Section({ id, title, onOpen, children }: { id: string; title: string; o
   const { active } = useSettingsSearch();
   return (
     <SettingsSectionScope scopeKey={s.key} id={id} title={title}>
-      {!active ? children : s.empty ? <>{children}</> : (
-        <div className="ck-search-section">
+      <div className={active ? "ck-search-section" : undefined} {...s.props}>
+        {active && (
           <div className="ck-search-head">
-            <h3>{title}</h3>
-            <button type="button" onClick={() => onOpen(id)}>Open {title}</button>
+            <h3>{s.mark(title)}</h3>
+            <Button size="sm" variant="ghost" onClick={() => onOpen(id)}>Open {title}</Button>
           </div>
-          {children}
-        </div>
-      )}
+        )}
+        {children}
+      </div>
     </SettingsSectionScope>
   );
 }
@@ -269,7 +275,17 @@ function SearchField({ query, setQuery, inputRef }: { query: string; setQuery(q:
 </SettingsSearchProvider>
 ```
 
-What the hooks do not do: they set no `id`s, no `role`s other than what you ask for, and no `data-` attributes beyond `data-setting-id` and `data-hit`. `mark()` wraps every term, where Pulse's local kit marks the first occurrence only. Outside a provider every hook is inert: rows render, nothing is hidden, groups and sections are not empty and the status is empty.
+The `Button` is from `@rightkit/app-shell/react`, as Pulse uses it. A host without `@rightkit/app-shell` uses its own `<button>` in the same place.
+
+The `.ck-set[hidden]` rule and the `ck-search-section` class are the host's own CSS. `mark()` wraps every term, where Pulse's local kit marks the first occurrence only.
+
+### Highlight wrapper
+
+With a function `highlight`, each matched piece is wrapped in `<span style="display: contents">` and your function's output sits inside it. The span exists so each piece is a keyed element of its own; it has no box and no layout effect, and the text keeps its place. Pass `wrapHighlight={false}` on the provider to render your output as it is, with no span. Either way, text content and accessible names are the same. Use `false` when your CSS targets the direct children of the matched text, or when the output must be the element that the text was.
+
+### Other rules
+
+Outside a provider every hook is inert: rows render, nothing is hidden, groups and sections are not empty, hits do not match and the status is empty. The hooks set no `id`s, no `role`s other than what you ask for, and no `data-` attributes beyond `data-setting-id`, `data-hit`, `data-empty` and `hidden`.
 
 ## Known issues
 

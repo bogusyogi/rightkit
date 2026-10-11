@@ -1,4 +1,5 @@
 import {
+  Fragment,
   createContext,
   useContext,
   useEffect,
@@ -23,7 +24,8 @@ import {
 
 const useIsoLayoutEffect = typeof window === "undefined" ? useEffect : useLayoutEffect;
 
-export type SettingsSearchKind = "row" | "item" | "group";
+/** `hit`: a match that is neither a row nor an item (`useSettingsHit`). */
+export type SettingsSearchKind = "row" | "item" | "group" | "hit";
 
 /** What a row, group or item contributes to search. */
 export interface SettingsSearchEntry {
@@ -46,7 +48,7 @@ export interface SettingsSearchEntry {
 }
 
 /** A registered row or item that matches the current query. */
-export type SettingsSearchResult = Omit<SettingsSearchEntry, "kind" | "groupKey" | "scopeKey" | "sectionKeywords"> & { kind: "row" | "item" };
+export type SettingsSearchResult = Omit<SettingsSearchEntry, "kind" | "groupKey" | "scopeKey" | "sectionKeywords"> & { kind: "row" | "item" | "hit" };
 
 /** `true` wraps matches in `<mark class="rk-settings__mark">`; a function renders each matched piece itself. Default: no highlight. */
 export type SettingsHighlight = boolean | ((match: string) => ReactNode);
@@ -105,6 +107,7 @@ interface Config {
   terms: readonly string[];
   filter: boolean;
   highlight: SettingsHighlight;
+  wrapHighlight: boolean;
 }
 export const ConfigContext = createContext<Config | null>(null);
 export const SectionContext = createContext<{ key: string; id: string; title: string; keywords?: readonly string[] } | null>(null);
@@ -113,8 +116,12 @@ export const GroupContext = createContext<{ key: string; title?: string } | null
 /** An entry counts as a hit when no query is active, when filtering is off, or when every term matches. */
 const isVisible = (cfg: Config, e: Stored) => cfg.terms.length === 0 || !cfg.filter || matchesAll(cfg.terms, e.hay);
 
-/** Wrap each occurrence of a term in `text`. Returns `text` untouched when nothing matches or highlighting is off. */
-export function highlightText(text: string, terms: readonly string[], highlight: SettingsHighlight): ReactNode {
+/**
+ * Wrap each occurrence of a term in `text`. Returns `text` untouched when nothing matches or highlighting is off.
+ * With a function `highlight`, `wrap` (default true) puts each piece in `<span style="display: contents">`, so the piece is a
+ * keyed element of its own and the span adds no box; `wrap` false renders the function's output as it is, in a keyed fragment.
+ */
+export function highlightText(text: string, terms: readonly string[], highlight: SettingsHighlight, wrap = true): ReactNode {
   if (!highlight || terms.length === 0 || !text) return text;
   const lower = text.toLowerCase();
   if (lower.length !== text.length) return text; // case folding changed the length; offsets would drift
@@ -135,7 +142,11 @@ export function highlightText(text: string, terms: readonly string[], highlight:
   merged.forEach(([s, e], i) => {
     if (s > pos) out.push(text.slice(pos, s));
     const piece = text.slice(s, e);
-    out.push(typeof highlight === "function" ? <span key={i} style={{ display: "contents" }}>{highlight(piece)}</span> : <mark key={i} className="rk-settings__mark">{piece}</mark>);
+    out.push(
+      typeof highlight === "function"
+        ? wrap ? <span key={i} style={{ display: "contents" }}>{highlight(piece)}</span> : <Fragment key={i}>{highlight(piece)}</Fragment>
+        : <mark key={i} className="rk-settings__mark">{piece}</mark>,
+    );
     pos = e;
   });
   if (pos < text.length) out.push(text.slice(pos));
@@ -152,15 +163,22 @@ export interface SettingsSearchProviderProps {
   filter?: boolean;
   /** Mark the matching text. Default off. */
   highlight?: SettingsHighlight;
+  /**
+   * With a function `highlight`: wrap each piece in a `display: contents` span (default true, as before). Set false to render the
+   * function's output as it is. The span exists so each piece is a keyed element and adds no box; it is harmless in most markup,
+   * but a host whose CSS targets the direct children of the matched text, or that needs the output to sit exactly where the text
+   * was, sets false. Has no effect on `highlight={true}` (the `<mark>` is always used).
+   */
+  wrapHighlight?: boolean;
   children?: ReactNode;
 }
 
 /** Provides the query to every row, group and item below it and collects their registrations. Renders no DOM. */
-export function SettingsSearchProvider({ query, filter = true, highlight = false, children }: SettingsSearchProviderProps) {
+export function SettingsSearchProvider({ query, filter = true, highlight = false, wrapHighlight = true, children }: SettingsSearchProviderProps) {
   const store = useRef<Store | null>(null);
   store.current ??= createStore();
   const terms = useMemo(() => parseSearchTerms(query), [query]);
-  const value = useMemo<Config>(() => ({ store: store.current!, query, terms, filter, highlight }), [query, terms, filter, highlight]);
+  const value = useMemo<Config>(() => ({ store: store.current!, query, terms, filter, highlight, wrapHighlight }), [query, terms, filter, highlight, wrapHighlight]);
   return <ConfigContext.Provider value={value}>{children}</ConfigContext.Provider>;
 }
 
@@ -198,7 +216,7 @@ export function useSettingsSearch(): SettingsSearchState {
     const results = store
       .all()
       .filter((e) => e.kind !== "group" && (cfg.terms.length === 0 || matchesAll(cfg.terms, e.hay)))
-      .map(({ hay: _hay, groupKey: _g, scopeKey: _s, sectionKeywords: _k, kind, ...rest }) => ({ ...rest, kind: kind as "row" | "item" }));
+      .map(({ hay: _hay, groupKey: _g, scopeKey: _s, sectionKeywords: _k, kind, ...rest }) => ({ ...rest, kind: kind as SettingsSearchResult["kind"] }));
     return {
       query: cfg.query,
       terms: cfg.terms,
@@ -206,7 +224,7 @@ export function useSettingsSearch(): SettingsSearchState {
       results,
       count: results.length,
       register: store.register,
-      highlight: (text) => highlightText(text, cfg.terms, cfg.highlight),
+      highlight: (text) => highlightText(text, cfg.terms, cfg.highlight, cfg.wrapHighlight),
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cfg, store, version]);
@@ -215,7 +233,7 @@ export function useSettingsSearch(): SettingsSearchState {
 /** `text` with the query marked, for content inside a `SettingsItem`. Plain text outside a provider or with highlighting off. */
 export function HighlightedText({ text }: { text: string }) {
   const cfg = useContext(ConfigContext);
-  return <>{cfg ? highlightText(text, cfg.terms, cfg.highlight) : text}</>;
+  return <>{cfg ? highlightText(text, cfg.terms, cfg.highlight, cfg.wrapHighlight) : text}</>;
 }
 
 /** Counts the registered, visible entries (rows and items) that `pred` selects. Subscribes to registrations. */
@@ -269,7 +287,7 @@ export function useSearchEntry(p: EntryInput) {
   // `visible`: not filtered out. Hidden only while filtering with a query, when it does not match.
   const matches = terms.length === 0 || matchesAll(terms, hayOf({ kind: p.kind, label, description, keywords: p.keywords, group: group?.title, section: section?.title, sectionKeywords: section?.keywords }));
   const visible = !(cfg && cfg.filter && terms.length) || matches;
-  const mark = (text: ReactNode): ReactNode => (cfg && typeof text === "string" ? highlightText(text, cfg.terms, cfg.highlight) : text);
+  const mark = (text: ReactNode): ReactNode => (cfg && typeof text === "string" ? highlightText(text, cfg.terms, cfg.highlight, cfg.wrapHighlight) : text);
   return { visible, matches, mark };
 }
 
@@ -363,6 +381,21 @@ function rowState(cfg: Config | null, id: string | undefined, visible: boolean, 
   return { matches, hidden: !visible, props, mark };
 }
 
+/** Props for a host element that stays in the tree and is hidden while its group or section is empty. */
+export interface SettingsHiddenProps {
+  /** The HTML `hidden` attribute, present while empty. */
+  hidden?: true;
+  /** `display: none` while empty. Set as a style so CSS that sets `display` on the element cannot undo the hiding. */
+  style?: { display: "none" };
+  /** `""` while empty, so a stylesheet can target it. */
+  "data-empty"?: "";
+}
+
+/** The props for `hidden` (see `SettingsHiddenProps`): an object with the three keys when hidden, and an empty object when not. */
+function hiddenProps(hidden: boolean): SettingsHiddenProps {
+  return hidden ? { hidden: true, style: { display: "none" }, "data-empty": "" } : {};
+}
+
 export interface SettingsGroupState {
   /** Pass to `SettingsGroupScope` around the group's rows. */
   key: string;
@@ -370,6 +403,12 @@ export interface SettingsGroupState {
   visibleRowCount: number;
   /** Under a provider and no visible row. Render your own wrapper only when this is false. */
   empty: boolean;
+  /** Same as `empty`: for a host that keeps one fixed element tree and hides it. */
+  hidden: boolean;
+  /** Spread on a host element that stays in the tree: `hidden`, `style.display` and `data-empty` while empty. */
+  props: SettingsHiddenProps;
+  /** Marks the query terms in a string, for the group's title or description. Non-strings are returned as they are. */
+  mark(text: ReactNode): ReactNode;
 }
 
 /**
@@ -380,16 +419,26 @@ export function useSettingsGroup(): SettingsGroupState {
   const cfg = useContext(ConfigContext);
   const key = useId();
   const visibleRowCount = useVisibleCount((e) => e.groupKey === key);
-  return { key, visibleRowCount, empty: !!cfg && visibleRowCount === 0 };
+  const empty = !!cfg && visibleRowCount === 0;
+  return { key, visibleRowCount, empty, hidden: empty, props: hiddenProps(empty), mark: markFor(cfg) };
 }
+
+const markFor = (cfg: Config | null) => (text: ReactNode): ReactNode =>
+  cfg && typeof text === "string" ? highlightText(text, cfg.terms, cfg.highlight, cfg.wrapHighlight) : text;
 
 export interface SettingsSectionState {
   /** Pass as `scopeKey` to `SettingsSectionScope` around the section's groups and rows. */
   key: string;
-  /** Registered rows and items in this section that are visible under the current query. */
+  /** Registered rows, items and hits in this section that are visible under the current query. */
   visibleRowCount: number;
   /** Under a provider and no visible row. Same rule as `useSettingsGroup`: keep the children mounted. */
   empty: boolean;
+  /** Same as `empty`: for a host that keeps one fixed element tree and hides it. */
+  hidden: boolean;
+  /** Spread on a host element that stays in the tree (see `SettingsGroupState.props`). */
+  props: SettingsHiddenProps;
+  /** Marks the query terms in a string, for the section's title. Non-strings are returned as they are. */
+  mark(text: ReactNode): ReactNode;
 }
 
 /** Per-section state for a host-rendered section (the rows of a section are searched together). */
@@ -397,7 +446,32 @@ export function useSettingsSection(): SettingsSectionState {
   const cfg = useContext(ConfigContext);
   const key = useId();
   const visibleRowCount = useVisibleCount((e) => e.scopeKey === key);
-  return { key, visibleRowCount, empty: !!cfg && visibleRowCount === 0 };
+  const empty = !!cfg && visibleRowCount === 0;
+  return { key, visibleRowCount, empty, hidden: empty, props: hiddenProps(empty), mark: markFor(cfg) };
+}
+
+export interface SettingsHitOptions {
+  /** The text that matches the query. */
+  text: string;
+  /** Extra terms that match. */
+  keywords?: readonly string[];
+}
+
+export interface SettingsHitState {
+  /** The text (or a keyword) contains every query term. True when no query is active. */
+  matches: boolean;
+  /** Marks the query terms in `text` as the provider's `highlight` option says. */
+  mark(text: ReactNode): ReactNode;
+}
+
+/**
+ * Registers a match that is neither a row nor an item: a command, a card, a help topic, anything the host shows that a search
+ * should find. It counts in `useSettingsSearch().count`, `results` (kind "hit") and the status sentence, and toward the
+ * visible count of the group or section it sits in. Renders nothing; the host decides what a match looks like.
+ */
+export function useSettingsHit(p: SettingsHitOptions): SettingsHitState {
+  const { matches, mark } = useSearchEntry({ kind: "hit", label: p.text, keywords: p.keywords });
+  return { matches, mark };
 }
 
 const useDebouncedValue = (value: string, delay: number): string => {

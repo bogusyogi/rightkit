@@ -51,7 +51,7 @@ describe("@rightkit/settings-ui/headless import graph", () => {
 
   it("the headless entry exports the hooks and the no-DOM scopes, and no styled component", async () => {
     const mod = await import("./headless.js");
-    for (const name of ["useSettingsRow", "useSettingsItem", "useSettingsGroup", "useSettingsSection", "useSettingsSearchField", "useSettingsSearchStatus", "useSettingsSearch", "SettingsSearchProvider", "SettingsGroupScope", "SettingsSectionScope", "useSearchKeys", "highlightText", "parseSearchTerms", "defaultAnnouncement"]) {
+    for (const name of ["useSettingsRow", "useSettingsItem", "useSettingsHit", "useSettingsGroup", "useSettingsSection", "useSettingsSearchField", "useSettingsSearchStatus", "useSettingsSearch", "SettingsSearchProvider", "SettingsGroupScope", "SettingsSectionScope", "useSearchKeys", "highlightText", "parseSearchTerms", "defaultAnnouncement"]) {
       expect(mod).toHaveProperty(name);
     }
     for (const styled of ["SettingsSearchSection", "SettingsResultsAnnouncer", "SettingsItem", "SettingsGroup", "SettingRow", "HighlightedText", "SettingsPanel"]) {

@@ -8,6 +8,8 @@ import {
   SettingsGroupScope,
   SettingsSearchProvider,
   SettingsSectionScope,
+  useSettingsHit,
+  useSettingsSearch,
   defaultAnnouncement,
   useSettingsGroup,
   useSettingsItem,
@@ -275,5 +277,174 @@ describe("headless section", () => {
       </SettingsSearchProvider>,
     );
     expect(v.container.querySelector("h3")).toBeNull();
+  });
+});
+
+describe("0.4.3 stable tree: hidden and props from the group and section hooks", () => {
+  function StableGroup({ title, children }: { title: string; children: ReactNode }) {
+    const g = useSettingsGroup();
+    return (
+      <SettingsGroupScope groupKey={g.key} title={title}>
+        <section className="my-card" {...g.props}>
+          <h2 className="my-heading">{g.mark(title)}</h2>
+          <ul>{children}</ul>
+        </section>
+      </SettingsGroupScope>
+    );
+  }
+  function Stable({ q, highlight: h }: { q: string; highlight?: (m: string) => ReactNode }) {
+    return (
+      <SettingsSearchProvider query={q} highlight={h}>
+        <StableGroup title="Appearance">
+          <HostRow id="dark" label="Dark mode" />
+          <Field />
+        </StableGroup>
+      </SettingsSearchProvider>
+    );
+  }
+  // An input inside a row keeps its own state; the row stays mounted while it matches.
+  // A row that stays in the tree: it is hidden, not unrendered, while it does not match.
+  function Field() {
+    const r = useSettingsRow({ id: "field", label: "Dark field" });
+    return <li {...r.props} hidden={r.hidden}><input aria-label="Dark field" /></li>;
+  }
+
+  it("the group reports hidden and props while empty, and nothing when it has rows", () => {
+    const v = render(<Stable q="" />);
+    expect(v.container.querySelector("section")?.hasAttribute("hidden")).toBe(false);
+    v.rerender(<Stable q="zzz" />);
+    const section = v.container.querySelector("section")!;
+    expect(section.hasAttribute("hidden")).toBe(true);
+    expect(section.getAttribute("data-empty")).toBe("");
+    expect(section.style.display).toBe("none");
+  });
+
+  it("a stable tree keeps the same nodes and a control's typed value when the group empties and refills", () => {
+    const v = render(<Stable q="dark" />);
+    const section = v.container.querySelector("section")!;
+    const input = screen.getByLabelText("Dark field") as HTMLInputElement;
+    fireEvent.change(input, { target: { value: "draft" } });
+    v.rerender(<Stable q="zzz" />);
+    expect(v.container.querySelector("section")).toBe(section);
+    expect(section.hasAttribute("hidden")).toBe(true);
+    v.rerender(<Stable q="dark" />);
+    expect(v.container.querySelector("section")).toBe(section);
+    expect(section.hasAttribute("hidden")).toBe(false);
+    expect(screen.getByLabelText("Dark field")).toBe(input);
+    expect(input.value).toBe("draft");
+  });
+
+  it("the group's mark highlights its title with the provider's highlight, without a second hook", () => {
+    const v = render(<Stable q="appear" highlight={(m) => <em className="hit">{m}</em>} />);
+    expect(v.container.querySelector("h2")?.textContent).toBe("Appearance");
+    expect(v.container.querySelector("h2 .hit")?.textContent).toBe("Appear");
+  });
+
+  it("a section reports hidden and props the same way", () => {
+    function StableSection() {
+      const s = useSettingsSection();
+      return (
+        <SettingsSectionScope scopeKey={s.key} id="look" title="Look">
+          <div data-testid="sec" {...s.props}>
+            <HostRow id="dark" label="Dark mode" />
+          </div>
+          <i data-testid="flag">{String(s.hidden)}</i>
+        </SettingsSectionScope>
+      );
+    }
+    const at = (q: string) => (
+      <SettingsSearchProvider query={q}>
+        <StableSection />
+      </SettingsSearchProvider>
+    );
+    const v = render(at("zzz"));
+    expect(screen.getByTestId("sec").hasAttribute("hidden")).toBe(true);
+    expect(screen.getByTestId("flag").textContent).toBe("true");
+    v.rerender(at("dark"));
+    expect(screen.getByTestId("sec").hasAttribute("hidden")).toBe(false);
+    expect(screen.getByTestId("flag").textContent).toBe("false");
+  });
+
+  it("outside a provider the hidden flag is false and props are empty", () => {
+    function Loose() {
+      const g = useSettingsGroup();
+      return <p data-testid="p" {...g.props}>{g.hidden ? "hidden" : "shown"}</p>;
+    }
+    render(<Loose />);
+    expect(screen.getByTestId("p").textContent).toBe("shown");
+    expect(screen.getByTestId("p").hasAttribute("hidden")).toBe(false);
+  });
+});
+
+describe("0.4.3 wrapHighlight and the function highlight", () => {
+  function Label() {
+    const r = useSettingsRow({ label: "Dark mode" });
+    return <span className="lbl">{r.mark("Dark mode")}</span>;
+  }
+  it("by default the function's output is wrapped in a display: contents span (unchanged)", () => {
+    const v = render(<SettingsSearchProvider query="dark" highlight={(m) => <em className="hit">{m}</em>}><Label /></SettingsSearchProvider>);
+    expect(v.container.querySelector(".lbl")?.innerHTML).toBe('<span style="display: contents;"><em class="hit">Dark</em></span> mode');
+  });
+  it("wrapHighlight={false} renders the function's output unwrapped", () => {
+    const v = render(<SettingsSearchProvider query="dark" highlight={(m) => <em className="hit">{m}</em>} wrapHighlight={false}><Label /></SettingsSearchProvider>);
+    expect(v.container.querySelector(".lbl")?.innerHTML).toBe('<em class="hit">Dark</em> mode');
+    expect(v.container.querySelector("span span")).toBeNull();
+  });
+  it("wrapHighlight={false} keeps several pieces keyed and in order", () => {
+    function Two() {
+      const r = useSettingsRow({ label: "a b a" });
+      return <span className="two">{r.mark("a b a")}</span>;
+    }
+    const v = render(<SettingsSearchProvider query="a" highlight={(m) => <b>{m}</b>} wrapHighlight={false}><Two /></SettingsSearchProvider>);
+    expect(v.container.querySelector(".two")?.innerHTML).toBe("<b>a</b> b <b>a</b>");
+  });
+});
+
+describe("0.4.3 useSettingsHit: matches that are neither rows nor items", () => {
+  function Hit({ text, keywords }: { text: string; keywords?: readonly string[] }) {
+    const h = useSettingsHit({ text, keywords });
+    return <p data-testid={`hit-${text}`} data-matches={String(h.matches)}>{h.mark(text)}</p>;
+  }
+  function Status() {
+    const s = useSettingsSearch();
+    return <output data-testid="count">{s.count}</output>;
+  }
+  it("counts toward the result count, the results list and the status sentence", () => {
+    const at = (q: string) => (
+      <SettingsSearchProvider query={q}>
+        <HostRow id="dark" label="Dark mode" />
+        <Hit text="Dark mode shortcut" keywords={["hotkey"]} />
+        <Hit text="Export archive" />
+        <Status />
+      </SettingsSearchProvider>
+    );
+    const v = render(at("dark"));
+    expect(screen.getByTestId("count").textContent).toBe("2");
+    expect(screen.getByTestId("hit-Dark mode shortcut").getAttribute("data-matches")).toBe("true");
+    expect(screen.getByTestId("hit-Export archive").getAttribute("data-matches")).toBe("false");
+    v.rerender(at("hotkey"));
+    expect(screen.getByTestId("count").textContent).toBe("1");
+    v.rerender(at("zzz"));
+    expect(screen.getByTestId("count").textContent).toBe("0");
+  });
+
+  it("a hit inside a group counts for that group, so the group is not empty", () => {
+    function Group() {
+      const g = useSettingsGroup();
+      return (
+        <SettingsGroupScope groupKey={g.key} title="Data">
+          <i data-testid="empty">{String(g.empty)}</i>
+          <Hit text="Export archive" />
+        </SettingsGroupScope>
+      );
+    }
+    render(<SettingsSearchProvider query="export"><Group /></SettingsSearchProvider>);
+    expect(screen.getByTestId("empty").textContent).toBe("false");
+  });
+
+  it("is inert outside a provider: matches is true, mark returns the text, count is zero", () => {
+    render(<Hit text="Loose" />);
+    expect(screen.getByTestId("hit-Loose").getAttribute("data-matches")).toBe("true");
+    expect(screen.getByTestId("hit-Loose").textContent).toBe("Loose");
   });
 });

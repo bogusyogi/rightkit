@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.4.3
+
+Headless follow-up from Pulse's port of its hub onto the headless hooks. Additive: the styled parts, every default and the 0.4.1 default markup (pinned by `src/default-markup-0.4.1.test.tsx`) are unchanged.
+
+Added:
+- `useSettingsGroup()` and `useSettingsSection()` return `hidden` (true while empty, for a host that keeps one fixed tree), `props` (`hidden`, `style: { display: "none" }` and `data-empty` while empty, spread on the host element) and `mark(text)` (highlights a title without a second hook).
+- `useSettingsHit({ text, keywords? })` returns `{ matches, mark }` for a match that is neither a row nor an item. It counts in `count`, `results` (kind `"hit"`) and the status sentence, and toward the visible count of the group or section it sits in. `SettingsSearchKind` and `SettingsSearchResult["kind"]` gain `"hit"`.
+- `SettingsSearchProvider` `wrapHighlight` (default `true`). `false` renders a function `highlight`'s output unwrapped, in a keyed fragment; `true` keeps the `display: contents` span, which is documented as the keyed wrapper for each piece.
+- Types `SettingsHiddenProps`, `SettingsItemOptions`, `SettingsHitOptions`, `SettingsHitState`.
+
+Docs: the README stable-tree example replaces the wrapper-swapping one, and states that swapping wrappers remounts children. The "Open section" example uses `Button` from `@rightkit/app-shell/react`.
+
 ## 0.4.2
 
 Headless search for hosts that keep their own markup and classes, and four additive options on the styled parts. Requested by Pulse, whose settings markup is fixed by its locked UI and cannot adopt the styled search parts. Every addition is opt-in: the default DOM, classes, attributes and search results are byte-identical to 0.4.1, pinned by the existing snapshot tests (unedited) and by `src/default-markup-0.4.1.test.tsx`, which asserts literal HTML captured from 0.4.1.

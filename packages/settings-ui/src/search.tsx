@@ -68,7 +68,7 @@ export function SettingsSearchSection({ id, title, keywords, onOpen, openLabel =
   if (passthroughWhenInactive && !(cfg && cfg.terms.length > 0)) {
     return <SectionContext.Provider value={value}>{children}</SectionContext.Provider>;
   }
-  const heading = createElement(`h${headingLevel}`, { id: headingId, className: "rk-settings__result-title" }, cfg ? highlightText(title, cfg.terms, cfg.highlight) : title);
+  const heading = createElement(`h${headingLevel}`, { id: headingId, className: "rk-settings__result-title" }, cfg ? highlightText(title, cfg.terms, cfg.highlight, cfg.wrapHighlight) : title);
   return (
     <SectionContext.Provider value={value}>
       <section className={["rk-settings__result", className].filter(Boolean).join(" ")} aria-labelledby={headingId} data-section-id={id} style={hidden ? { display: "none" } : undefined}>
