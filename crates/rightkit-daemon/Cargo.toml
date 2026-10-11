@@ -12,6 +12,11 @@ publish = false
 default = ["oauth"]
 # Adapter that delegates OAuth callbacks to rightkit-oauth's server flow.
 oauth = ["dep:rightkit-oauth"]
+# Blocking device client (enrol, signed requests, resumable upload) pinned to caller-supplied roots.
+# Uses only dependencies the server already has.
+client = []
+# Run-time test certificate and an in-process daemon for client tests. Implies `client`.
+testing = ["client", "dep:rcgen", "dep:tempfile"]
 
 [dependencies]
 rightkit-contracts = { path = "../rightkit-contracts", version = "0.1.3", default-features = false }
@@ -30,8 +35,12 @@ blake3 = "1"
 base64 = "0.22"
 form_urlencoded = "1"
 subtle = "2.6"
+rcgen = { version = "0.13", optional = true }
+tempfile = { version = "3", optional = true }
 
 [dev-dependencies]
+# Enables `testing` (and so `client`) for this crate's own tests and clippy run.
+rightkit-daemon = { path = ".", features = ["testing"] }
 # Conformance tests validate fixtures; the daemon itself never calls `validate`.
 rightkit-contracts = { path = "../rightkit-contracts", version = "0.1.3" }
 rightkit-http = { path = "../rightkit-http", version = "0.3.0", features = ["testing"] }

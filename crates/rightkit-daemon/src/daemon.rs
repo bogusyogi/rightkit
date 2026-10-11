@@ -13,15 +13,14 @@ use base64::engine::general_purpose::{STANDARD, URL_SAFE_NO_PAD};
 use base64::Engine as _;
 use rightkit_contracts::types::daemon_api::AuthClassId;
 use ring::hmac;
-use ring::signature::{UnparsedPublicKey, ED25519};
 use serde_json::{json, Value};
 
 use crate::config::DaemonConfig;
 use crate::events::EventLog;
 use crate::routes::{match_route, Matched, RouteDef};
 use crate::signing::{
-    canonical_request, H_NONCE, H_PROVIDER_SIGNATURE, H_PROVIDER_TIMESTAMP, H_SIGNATURE,
-    H_TIMESTAMP,
+    chunk_digest, object_digest, object_hasher, parse_digest_key, verify_request, H_NONCE,
+    H_PROVIDER_SIGNATURE, H_PROVIDER_TIMESTAMP, H_SIGNATURE, H_TIMESTAMP,
 };
 use crate::state::{Device, EnrolCode, IdemRecord, InboxItem, Job, State, Upload, UploadDone};
 use crate::util::{atomic_write, ct_eq, hex, random_bytes, sha256_hex, unhex, Clock};
@@ -527,10 +526,15 @@ impl Daemon {
         nonce: &str,
         sig: &[u8],
     ) -> bool {
-        let msg = canonical_request(&req.method, &req.path_and_query, ts, nonce, &req.body);
-        UnparsedPublicKey::new(&ED25519, key)
-            .verify(msg.as_bytes(), sig)
-            .is_ok()
+        verify_request(
+            key,
+            &req.method,
+            &req.path_and_query,
+            ts,
+            nonce,
+            &req.body,
+            sig,
+        )
     }
 
     fn authenticate(
@@ -782,10 +786,8 @@ impl Daemon {
         if req.body.len() as u64 != expected {
             return Response::err(416, "bad_chunk_length");
         }
-        let key: [u8; 32] = unhex(&up.key_hex)
-            .and_then(|k| k.try_into().ok())
-            .unwrap_or([0; 32]);
-        let digest = blake3::keyed_hash(&key, &req.body).to_hex().to_string();
+        let key: [u8; 32] = parse_digest_key(&up.key_hex).unwrap_or([0; 32]);
+        let digest = chunk_digest(&key, &req.body);
         if let Some(claimed) = req.header("x-chunk-digest") {
             if !ct_eq(claimed.as_bytes(), digest.as_bytes()) {
                 return Response::err(400, "chunk_digest_mismatch");
@@ -896,9 +898,7 @@ impl Daemon {
             return Response::new(400, json!({ "error": "incomplete", "missing": missing }));
         }
         up.finalizing = true;
-        let key: [u8; 32] = unhex(&up.key_hex)
-            .and_then(|k| k.try_into().ok())
-            .unwrap_or([0; 32]);
+        let key: [u8; 32] = parse_digest_key(&up.key_hex).unwrap_or([0; 32]);
         let size = up.size;
         drop(g); // hash outside the lock so other devices are not stalled
 
@@ -906,7 +906,7 @@ impl Daemon {
         let hashed = (|| -> std::io::Result<(String, u64)> {
             let mut f = File::open(&part)?;
             let len = f.metadata()?.len();
-            let mut h = blake3::Hasher::new_keyed(&key);
+            let mut h = object_hasher(&key);
             let mut buf = vec![0u8; 1 << 20];
             loop {
                 let n = f.read(&mut buf)?;
@@ -915,7 +915,7 @@ impl Daemon {
                 }
                 h.update(&buf[..n]);
             }
-            Ok((h.finalize().to_hex().to_string(), len))
+            Ok((object_digest(&h), len))
         })();
 
         let mut g = self.lock();

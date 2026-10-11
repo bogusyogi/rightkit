@@ -5,8 +5,13 @@
 //! blake3-keyed resumable uploads, compare-and-swap mutations, durable state and
 //! structured lifecycle events. The core ([`Daemon`]) is transport-free and
 //! platform-neutral; [`router`] adapts it to axum and [`serve`] terminates TLS
-//! with rustls. [`serve_blocking`] runs it on a runtime the crate owns.
+//! with rustls. [`serve_blocking`] runs it on a runtime the crate owns. The
+//! `client` feature adds a blocking device client (`client` module) and the
+//! `testing` feature a run-time test certificate and in-process daemon
+//! (`testing` module).
 
+#[cfg(feature = "client")]
+pub mod client;
 pub mod config;
 pub mod daemon;
 pub mod events;
@@ -16,6 +21,8 @@ pub mod oauth;
 pub mod routes;
 pub mod signing;
 mod state;
+#[cfg(feature = "testing")]
+pub mod testing;
 mod util;
 
 pub use config::{DaemonConfig, UploadLimits};
