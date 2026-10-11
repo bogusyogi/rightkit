@@ -2,9 +2,9 @@
   "schema": 1,
   "kind": "npm",
   "name": "@rightkit/pdf-ui",
-  "version": "0.1.5",
-  "commit": "37653977ad9da346882bbe33d6dac8eae014d9ca",
-  "artifactSha256": "b7410d0b907849fd1a5221d1535bf0d99d635381457a2f0e8524ee01137b8953",
+  "version": "0.1.6",
+  "commit": "c7119db79c5192ccf79425df6e71306f72eb3506",
+  "artifactSha256": "3a27bfe19efb5bfe6171f7f8e0b6d25df26dddb3cc67becb2dd124eb597fa584",
   "hostPolicy": "darwin-only",
   "hostPolicyReason": "Adrian 2026-10-07: apps validate on macOS first, Windows later",
   "runs": [
@@ -13,14 +13,14 @@
         "os": "darwin",
         "arch": "arm64"
       },
-      "commit": "37653977ad9da346882bbe33d6dac8eae014d9ca",
+      "commit": "c7119db79c5192ccf79425df6e71306f72eb3506",
       "command": "pnpm --dir packages/$D test",
       "features": [
         "default"
       ],
       "operator": "claude-opus-5.5 (RightKit lead) for adrdsouza",
-      "timestamp": "2026-10-10T22:20:18Z",
-      "passed": 11,
+      "timestamp": "2026-10-11T05:46:36Z",
+      "passed": 29,
       "failed": 0
     }
   ]
