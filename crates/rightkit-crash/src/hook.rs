@@ -2,7 +2,7 @@ use crate::report::{sanitize_kind, CrashReport, RawCrash};
 use crate::{native, retention, NativeCapture, Retention};
 use std::fmt;
 use std::io::Write;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{mpsc, Arc};
 use std::time::Duration;
@@ -37,6 +37,8 @@ pub struct CrashConfig {
     sink: Option<ReportSink>,
     /// Whether a report file is written to `crash_dir` (default `true`; see [`CrashConfig::write_report_file`]).
     write_file: bool,
+    /// Whether the panic hook captures a backtrace (default `true`; see [`CrashConfig::capture_backtrace`]).
+    capture_backtrace: bool,
 }
 
 impl CrashConfig {
@@ -54,15 +56,22 @@ impl CrashConfig {
             retention: Retention::default(),
             sink: None,
             write_file: true,
+            capture_backtrace: true,
         }
     }
 
     /// Hand each redacted report to `sink` as a JSON value: the same value that would be written to
     /// `crash_dir`. A host uses this to write reports into its own log. The sink runs inside the
     /// panic hook, under the re-entrancy guard, on a short-lived thread that the report path waits
-    /// for at most two seconds. A sink that panics is contained by that thread: the panic is
-    /// reported through the previous hook, and the next panic is still recorded. The sink should
-    /// not take locks the panicking code might hold.
+    /// for at most two seconds (if that thread cannot be spawned, the sink runs inline on the
+    /// panicking thread instead, unbounded). The file record, when enabled, is written before the
+    /// sink runs.
+    ///
+    /// With `panic = "unwind"` a sink that panics is contained by its thread: the panic is reported
+    /// through the previous hook, and the next panic is still recorded. With `panic = "abort"` a
+    /// sink panic aborts the process as any panic does; the file record, if enabled, is already on
+    /// disk by then, but a sink-only configuration has no other record. The sink should not take
+    /// locks the panicking code might hold.
     pub fn with_sink(mut self, sink: impl Fn(serde_json::Value) + Send + Sync + 'static) -> Self {
         self.sink = Some(ReportSink(Arc::new(sink)));
         self
@@ -74,49 +83,92 @@ impl CrashConfig {
         self.write_file = enabled;
         self
     }
-}
 
-/// Run `sink` on its own thread and wait for it, bounded by [`SINK_TIMEOUT`]. A panic in the sink
-/// ends that thread only (the panic hook, still guarded, skips the nested capture and chains to the
-/// previous hook), so the caller always returns.
-fn run_sink(sink: &ReportSink, value: serde_json::Value) {
-    let (done_tx, done_rx) = mpsc::channel::<()>();
-    let callback = Arc::clone(&sink.0);
-    let spawned = std::thread::Builder::new()
-        .name("rightkit-crash-sink".into())
-        .spawn(move || {
-            callback(value);
-            let _ = done_tx.send(());
-        });
-    if spawned.is_ok() {
-        // Disconnected (the sink panicked and dropped the sender) returns at once.
-        let _ = done_rx.recv_timeout(SINK_TIMEOUT);
+    /// Choose whether the panic hook captures a backtrace (default `true`). Capturing and
+    /// symbolizing one runs before the sink and is not bounded by the sink's two-second wait, so a
+    /// host that only forwards the message to its own log can turn it off; the report's
+    /// `backtrace` field is then empty. Reports recorded through [`record_report`] carry the
+    /// backtrace the caller passes, regardless of this setting.
+    pub fn capture_backtrace(mut self, enabled: bool) -> Self {
+        self.capture_backtrace = enabled;
+        self
     }
 }
 
-/// True while a panic is being recorded on some thread. Cleared by [`ReentryGuard`] on every exit
-/// path, including unwinding, so one failed record never disables later ones.
-static IN_HOOK: AtomicBool = AtomicBool::new(false);
+/// Run `sink` on its own thread and wait for it, bounded by [`SINK_TIMEOUT`]. A panic in the sink
+/// ends that thread only (the sink thread holds the re-entrancy guard, so the panic hook skips the
+/// nested capture and chains to the previous hook), so under unwinding the caller always returns.
+/// If the thread cannot be spawned the sink runs inline on the calling thread, which already holds
+/// the guard, so the record is not lost.
+fn run_sink(sink: &ReportSink, value: serde_json::Value) {
+    let (done_tx, done_rx) = mpsc::channel::<()>();
+    let callback = Arc::clone(&sink.0);
+    // The closure owns the value until it runs; recover it when the spawn fails.
+    let slot = Arc::new(std::sync::Mutex::new(Some(value)));
+    let thread_slot = Arc::clone(&slot);
+    let spawned = spawn_sink_thread(move || {
+        let _guard = ReentryGuard::enter();
+        let taken = thread_slot.lock().ok().and_then(|mut v| v.take());
+        if let Some(value) = taken {
+            callback(value);
+        }
+        let _ = done_tx.send(());
+    });
+    if spawned {
+        // Disconnected (the sink panicked and dropped the sender) returns at once.
+        let _ = done_rx.recv_timeout(SINK_TIMEOUT);
+    } else {
+        let taken = slot.lock().ok().and_then(|mut v| v.take());
+        if let Some(value) = taken {
+            (sink.0)(value);
+        }
+    }
+}
+
+/// Spawn the sink thread; false when the OS refused (or, in tests, when the seam says so).
+fn spawn_sink_thread(work: impl FnOnce() + Send + 'static) -> bool {
+    #[cfg(test)]
+    if FAIL_NEXT_SPAWN.swap(false, Ordering::SeqCst) {
+        return false;
+    }
+    std::thread::Builder::new()
+        .name("rightkit-crash-sink".into())
+        .spawn(work)
+        .is_ok()
+}
+
+thread_local! {
+    /// True while this thread is recording a panic (or running a sink for one). Per thread, so
+    /// concurrent panics on different threads are each recorded, while a panic inside the hook on
+    /// the same thread cannot recurse. `const` init and no destructor: access is safe in a hook.
+    static IN_HOOK: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// Test seam: the next sink thread spawn reports failure.
+#[cfg(test)]
+static FAIL_NEXT_SPAWN: AtomicBool = AtomicBool::new(false);
 /// Runtime switch for [`record_report`]; reports are recorded unless this is `false`.
 static RECORDING: AtomicBool = AtomicBool::new(true);
 /// Test seam: the next report write panics once, so tests can prove the guard resets.
 #[cfg(test)]
 static FAIL_NEXT_WRITE: AtomicBool = AtomicBool::new(false);
 
-/// Holds the re-entrancy flag for one capture. Dropping it (normally or while unwinding) clears
+/// Holds this thread's re-entrancy flag for one capture. Dropping it (normally or while unwinding) clears
 /// the flag. A caller that finds the flag already set gets `None` and records nothing.
 struct ReentryGuard;
 
 impl ReentryGuard {
     fn enter() -> Option<Self> {
-        let already = IN_HOOK.swap(true, Ordering::AcqRel);
-        (!already).then_some(Self)
+        IN_HOOK
+            .try_with(|flag| (!flag.replace(true)).then_some(Self))
+            .ok()
+            .flatten()
     }
 }
 
 impl Drop for ReentryGuard {
     fn drop(&mut self) {
-        IN_HOOK.store(false, Ordering::Release);
+        let _ = IN_HOOK.try_with(|flag| flag.set(false));
     }
 }
 
@@ -156,14 +208,18 @@ pub fn install_panic_hook(config: CrashConfig) {
     }));
 }
 
-/// Record one panic report, unless another capture is already running on any thread.
+/// Record one panic report, unless this thread is already inside a capture.
 fn capture_panic(config: &CrashConfig, message: &str, location: Option<&str>) -> Option<PathBuf> {
     let _guard = ReentryGuard::enter()?;
     let thread = std::thread::current()
         .name()
         .unwrap_or("<unnamed>")
         .to_string();
-    let backtrace = std::backtrace::Backtrace::force_capture().to_string();
+    let backtrace = if config.capture_backtrace {
+        std::backtrace::Backtrace::force_capture().to_string()
+    } else {
+        String::new()
+    };
     record_report(config, "panic", message, location, &thread, &backtrace)
 }
 
@@ -186,7 +242,12 @@ pub fn record_report(
     if !recording_enabled() {
         return None;
     }
-    std::fs::create_dir_all(&config.crash_dir).ok()?;
+    if !config.write_file && config.sink.is_none() {
+        return None;
+    }
+    // Only create the directory when something will be written there.
+    let dir_ready = (config.write_file || config.native_capture == NativeCapture::Auto)
+        && std::fs::create_dir_all(&config.crash_dir).is_ok();
     #[cfg(test)]
     if FAIL_NEXT_WRITE.swap(false, Ordering::SeqCst) {
         panic!("injected report writer failure");
@@ -209,7 +270,7 @@ pub fn record_report(
         },
         stamp,
     );
-    if config.native_capture == NativeCapture::Auto {
+    if dir_ready && config.native_capture == NativeCapture::Auto {
         if let Some(path) = native::capture(&config.crash_dir, &kind, stamp) {
             if let Some(name) = path.file_name() {
                 report
@@ -218,33 +279,41 @@ pub fn record_report(
             }
         }
     }
-    let path = config
-        .crash_dir
-        .join(format!("crash_{kind}_{stamp}_{}.json", std::process::id()));
     let value = report.to_scrubbed_value();
-    let bytes = serde_json::to_vec_pretty(&value).ok()?;
+    // File first: under `panic = "abort"` a panicking sink aborts the process, and the file record
+    // must already be on disk by then. A failed file never skips the sink.
+    let written = if config.write_file && dir_ready {
+        let path = config
+            .crash_dir
+            .join(format!("crash_{kind}_{stamp}_{}.json", std::process::id()));
+        persist_report(config, &path, &value)
+    } else {
+        None
+    };
     if let Some(sink) = &config.sink {
         run_sink(sink, value);
     }
-    if !config.write_file {
-        return None;
-    }
+    written
+}
+
+/// Write the report file atomically and prune old reports.
+fn persist_report(config: &CrashConfig, path: &Path, value: &serde_json::Value) -> Option<PathBuf> {
+    let bytes = serde_json::to_vec_pretty(value).ok()?;
     // Owner-only and write-then-rename: a crash while writing never leaves a truncated report
     // that the next launch would mis-parse, and no other local user can read the report.
     let options = rightkit_fs::AtomicWriteOptions {
         private: true,
         ..rightkit_fs::AtomicWriteOptions::default()
     };
-    rightkit_fs::atomic_write_with_options(&path, options, |file| file.write_all(&bytes)).ok()?;
+    rightkit_fs::atomic_write_with_options(path, options, |file| file.write_all(&bytes)).ok()?;
     retention::prune(&config.crash_dir, config.retention);
-    Some(path)
+    Some(path.to_path_buf())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use std::panic::{catch_unwind, AssertUnwindSafe};
-    use std::path::Path;
     use std::sync::Arc;
     use std::sync::Mutex;
 
@@ -286,7 +355,7 @@ mod tests {
         }));
         assert!(first.is_err(), "the injected writer failure must unwind");
         assert!(
-            !IN_HOOK.load(Ordering::SeqCst),
+            !IN_HOOK.with(|f| f.get()),
             "the re-entrancy flag must be cleared on unwind"
         );
 
@@ -381,7 +450,7 @@ mod tests {
             first.is_none(),
             "no file is written when the file option is off"
         );
-        assert!(!IN_HOOK.load(Ordering::SeqCst), "the guard is released");
+        assert!(!IN_HOOK.with(|f| f.get()), "the guard is released");
 
         capture_panic(&config, "second", None);
         assert_eq!(
@@ -407,5 +476,105 @@ mod tests {
         assert_eq!(calls.load(Ordering::SeqCst), 1);
         assert!(reports_in(&dir).is_empty(), "no file is written");
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_failed_sink_thread_spawn_runs_the_sink_inline() {
+        let _serial = SERIAL.lock().unwrap_or_else(|p| p.into_inner());
+        let dir = temp_dir("spawn-fail");
+        let calls = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let counter = Arc::clone(&calls);
+        let config = CrashConfig::new("test-app", "0.0.0", &dir)
+            .write_report_file(false)
+            .with_sink(move |_| {
+                counter.fetch_add(1, Ordering::SeqCst);
+            });
+        FAIL_NEXT_SPAWN.store(true, Ordering::SeqCst);
+        capture_panic(&config, "spawn fails", None);
+        assert!(!FAIL_NEXT_SPAWN.load(Ordering::SeqCst), "seam was consumed");
+        assert_eq!(calls.load(Ordering::SeqCst), 1, "the sink ran inline");
+        assert!(!IN_HOOK.with(|f| f.get()), "the guard is released");
+    }
+
+    #[test]
+    fn sink_only_mode_creates_no_directory() {
+        let _serial = SERIAL.lock().unwrap_or_else(|p| p.into_inner());
+        let dir = temp_dir("no-dir");
+        let calls = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let counter = Arc::clone(&calls);
+        let config = CrashConfig::new("test-app", "0.0.0", &dir)
+            .write_report_file(false)
+            .with_sink(move |_| {
+                counter.fetch_add(1, Ordering::SeqCst);
+            });
+        record_report(&config, "panic", "m", None, "t", "bt");
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
+        assert!(!dir.exists(), "crash_dir must not be created");
+    }
+
+    #[test]
+    fn capture_backtrace_off_leaves_the_backtrace_empty() {
+        let _serial = SERIAL.lock().unwrap_or_else(|p| p.into_inner());
+        let received = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let seen = Arc::clone(&received);
+        let off = CrashConfig::new("test-app", "0.0.0", temp_dir("bt-off"))
+            .write_report_file(false)
+            .capture_backtrace(false)
+            .with_sink(move |value| seen.lock().unwrap().push(value));
+        capture_panic(&off, "no bt", None);
+        let seen = Arc::clone(&received);
+        let on = CrashConfig::new("test-app", "0.0.0", temp_dir("bt-on"))
+            .write_report_file(false)
+            .with_sink(move |value| seen.lock().unwrap().push(value));
+        capture_panic(&on, "bt", None);
+        let got = received.lock().unwrap();
+        assert_eq!(got.len(), 2);
+        assert_eq!(got[0]["backtrace"], "");
+        assert_ne!(got[1]["backtrace"], "", "default still captures");
+    }
+
+    #[test]
+    fn the_file_is_on_disk_before_the_sink_runs() {
+        let _serial = SERIAL.lock().unwrap_or_else(|p| p.into_inner());
+        let dir = temp_dir("order");
+        let count_at_sink = Arc::new(std::sync::atomic::AtomicUsize::new(usize::MAX));
+        let slot = Arc::clone(&count_at_sink);
+        let watch = dir.clone();
+        let config = CrashConfig::new("test-app", "0.0.0", &dir)
+            .with_sink(move |_| slot.store(reports_in(&watch).len(), Ordering::SeqCst));
+        record_report(&config, "panic", "m", None, "t", "bt").expect("written");
+        assert_eq!(count_at_sink.load(Ordering::SeqCst), 1);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_panic_on_another_thread_during_a_slow_sink_is_still_recorded() {
+        let _serial = SERIAL.lock().unwrap_or_else(|p| p.into_inner());
+        let slow_dir = temp_dir("slow");
+        let other_dir = temp_dir("other");
+        let (entered_tx, entered_rx) = mpsc::channel::<()>();
+        let (release_tx, release_rx) = mpsc::channel::<()>();
+        let entered_tx = std::sync::Mutex::new(entered_tx);
+        let release_rx = std::sync::Mutex::new(release_rx);
+        let slow = CrashConfig::new("test-app", "0.0.0", &slow_dir)
+            .write_report_file(false)
+            .with_sink(move |_| {
+                let _ = entered_tx.lock().unwrap().send(());
+                let _ = release_rx
+                    .lock()
+                    .unwrap()
+                    .recv_timeout(Duration::from_secs(10));
+            });
+        let first = std::thread::spawn(move || capture_panic(&slow, "slow", None));
+        entered_rx
+            .recv_timeout(Duration::from_secs(10))
+            .expect("sink entered");
+        let other = CrashConfig::new("test-app", "0.0.0", &other_dir);
+        let recorded = capture_panic(&other, "concurrent", None);
+        let _ = release_tx.send(());
+        first.join().expect("first thread");
+        assert!(recorded.is_some(), "the concurrent panic was recorded");
+        assert_eq!(reports_in(&other_dir).len(), 1);
+        let _ = std::fs::remove_dir_all(&other_dir);
     }
 }
