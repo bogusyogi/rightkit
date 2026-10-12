@@ -288,6 +288,10 @@ fn strict_profile_denies_spawn_before_any_process_exists_and_slots_release() {
 
 /// Windows AppContainer: real confined processes, validated by content.
 #[cfg(windows)]
+#[path = "common/mod.rs"]
+mod common;
+
+#[cfg(windows)]
 mod windows {
     use rightkit_sandbox::*;
     use std::fs;
@@ -314,12 +318,18 @@ mod windows {
 
     #[test]
     fn appcontainer_denies_write_and_read_outside_allowed_dir_but_allows_inside() {
+        if !crate::common::real_user_stores_allowed(
+            "appcontainer_denies_write_and_read_outside_allowed_dir_but_allows_inside",
+        ) {
+            return;
+        }
         let root = scratch("fs");
         let (allowed, outside) = (root.join("allowed"), root.join("outside"));
         fs::create_dir_all(&allowed).unwrap();
         fs::create_dir_all(&outside).unwrap();
         fs::write(outside.join("private.txt"), "OUTSIDE-DATA").unwrap();
         let policy = SandboxPolicy::new().allow_write(&allowed);
+        let _profile = crate::common::ProfileCleanup::of(&policy);
         let script = format!(
             r"echo inside> {a}\in.txt & echo outside> {o}\out.txt & type {o}\private.txt",
             a = allowed.display(),
@@ -356,6 +366,11 @@ mod windows {
 
     #[test]
     fn cwd_inside_a_grant_is_honoured_and_outside_every_grant_is_refused() {
+        if !crate::common::real_user_stores_allowed(
+            "cwd_inside_a_grant_is_honoured_and_outside_every_grant_is_refused",
+        ) {
+            return;
+        }
         let root = scratch("cwd");
         let (allowed, nested, outside) = (
             root.join("a"),
@@ -365,6 +380,7 @@ mod windows {
         fs::create_dir_all(&nested).unwrap();
         fs::create_dir_all(&outside).unwrap();
         let policy = SandboxPolicy::new().allow_write(&allowed);
+        let _profile = crate::common::ProfileCleanup::of(&policy);
         let out = expanded()
             .spawn(&policy, cmd("echo here> marker.txt").cwd(&nested))
             .unwrap()
@@ -464,9 +480,13 @@ mod windows {
 
     #[test]
     fn network_capability_follows_policy() {
+        if !crate::common::real_user_stores_allowed("network_capability_follows_policy") {
+            return;
+        }
         let root = scratch("net");
         for (net, expect) in [(NetworkPolicy::Deny, false), (NetworkPolicy::Allow, true)] {
             let policy = SandboxPolicy::new().allow_write(&root).network(net);
+            let _profile = crate::common::ProfileCleanup::of(&policy);
             let mut child = expanded()
                 .spawn(
                     &policy,
@@ -492,11 +512,17 @@ mod windows {
 
     #[test]
     fn env_is_scrubbed_but_explicit_values_pass_into_the_container() {
+        if !crate::common::real_user_stores_allowed(
+            "env_is_scrubbed_but_explicit_values_pass_into_the_container",
+        ) {
+            return;
+        }
         std::env::set_var("RK_SANDBOX_PROBE", "parent-only-value");
         let root = scratch("env");
         let mut env = EnvPolicy::default();
         env.set.insert("RK_VISIBLE".into(), "yes".into());
         let policy = SandboxPolicy::new().allow_write(&root).env(env);
+        let _profile = crate::common::ProfileCleanup::of(&policy);
         let out = expanded()
             .spawn(&policy, cmd("set"))
             .unwrap()
@@ -517,8 +543,12 @@ mod windows {
 
     #[test]
     fn confined_grandchildren_die_with_the_child() {
+        if !crate::common::real_user_stores_allowed("confined_grandchildren_die_with_the_child") {
+            return;
+        }
         let root = scratch("tree");
         let policy = SandboxPolicy::new().allow_write(&root);
+        let _profile = crate::common::ProfileCleanup::of(&policy);
         let child = expanded()
             .spawn(
                 &policy,

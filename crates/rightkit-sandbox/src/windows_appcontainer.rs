@@ -192,6 +192,7 @@ unsafe extern "system" {
 
 #[link(name = "userenv")]
 unsafe extern "system" {
+    fn DeleteAppContainerProfile(name: *const u16) -> i32;
     fn CreateAppContainerProfile(
         name: *const u16,
         display_name: *const u16,
@@ -1540,6 +1541,44 @@ fn confined_cwd(requested: &Path, grants: &[(PathBuf, bool)]) -> Result<PathBuf,
     Ok(candidate)
 }
 
+/// The profile name for a sorted grant key: stable for one set of grants, so the profile is reused.
+fn profile_name(sorted_key: &[String]) -> String {
+    format!("{PROFILE_PREFIX}{:016x}", fnv1a(&sorted_key.join("|")))
+}
+
+/// Test support: the name of the AppContainer profile a spawn with `policy` registers for the
+/// current user. The granted paths must exist, as they must for the spawn itself.
+#[doc(hidden)]
+pub fn appcontainer_profile_name_for_test(policy: &SandboxPolicy) -> Result<String, SandboxError> {
+    let mut key: Vec<String> = canonical_grants(policy)?
+        .iter()
+        .map(|(p, w)| format!("{}{}", if *w { "w:" } else { "r:" }, lexical_path_key(p)))
+        .collect();
+    key.sort();
+    Ok(profile_name(&key))
+}
+
+/// Test support: delete the named AppContainer profile of the current user, so a test run leaves
+/// none behind. Only a name this crate could have made is accepted. Returns whether Windows
+/// reported the profile deleted; a profile that does not exist is not an error.
+///
+/// The crate itself never deletes a profile: a spawn creates or adopts one per distinct set of
+/// grants and leaves it registered.
+#[doc(hidden)]
+pub fn delete_appcontainer_profile_for_test(name: &str) -> io::Result<bool> {
+    let hash = name.strip_prefix(PROFILE_PREFIX).unwrap_or("");
+    if hash.len() != 16 || !hash.bytes().all(|b| b.is_ascii_hexdigit()) {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!("`{name}` is not a {PROFILE_PREFIX}<16 hex digits> profile name"),
+        ));
+    }
+    let wide_name = wide(name);
+    // SAFETY: a NUL-terminated name that outlives the call.
+    let result = unsafe { DeleteAppContainerProfile(wide_name.as_ptr()) };
+    Ok(result >= 0)
+}
+
 /// Spawn `command` confined to `policy`: suspended, assigned to a kill-on-close job, resumed.
 pub(crate) fn spawn(
     policy: &SandboxPolicy,
@@ -1558,8 +1597,7 @@ pub(crate) fn spawn(
         .map(|(p, w)| format!("{}{}", if *w { "w:" } else { "r:" }, lexical_path_key(p)))
         .collect();
     key.sort();
-    let profile =
-        AppContainerProfile::ensure(&format!("{PROFILE_PREFIX}{:016x}", fnv1a(&key.join("|"))))?;
+    let profile = AppContainerProfile::ensure(&profile_name(&key))?;
     for (path, _) in &grants {
         let lease = AncestorLease::acquire(path, &profile.sid_text)?;
         profile

@@ -7,6 +7,8 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
+mod common;
+
 const EXEC: &str = env!("CARGO_BIN_EXE_rightkit-sandbox-exec");
 
 fn scratch(name: &str) -> PathBuf {
@@ -34,6 +36,9 @@ fn run_exec(read_only: &Path, writable: &Path, cwd: &Path, script: &str) -> Outp
 
 #[test]
 fn write_into_writable_dir_succeeds() {
+    if !common::real_user_stores_allowed("write_into_writable_dir_succeeds") {
+        return;
+    }
     let base = scratch("rw");
     let ro = base.join("ro");
     let rw = base.join("rw");
@@ -41,6 +46,12 @@ fn write_into_writable_dir_succeeds() {
     fs::create_dir_all(&rw).unwrap();
     let ro = fs::canonicalize(&ro).unwrap();
     let rw = fs::canonicalize(&rw).unwrap();
+    // The profile `rightkit-sandbox-exec` registers for these two grants.
+    let _profile = common::ProfileCleanup::of(
+        &rightkit_sandbox::SandboxPolicy::new()
+            .allow_read(ro.clone())
+            .allow_write(rw.clone()),
+    );
 
     let out = run_exec(&ro, &rw, &rw, "echo granted>allowed.txt");
     println!(
@@ -60,6 +71,9 @@ fn write_into_writable_dir_succeeds() {
 
 #[test]
 fn write_into_read_only_dir_is_denied() {
+    if !common::real_user_stores_allowed("write_into_read_only_dir_is_denied") {
+        return;
+    }
     let base = scratch("ro");
     let ro = base.join("ro");
     let rw = base.join("rw");
@@ -67,6 +81,12 @@ fn write_into_read_only_dir_is_denied() {
     fs::create_dir_all(&rw).unwrap();
     let ro = fs::canonicalize(&ro).unwrap();
     let rw = fs::canonicalize(&rw).unwrap();
+    // The profile `rightkit-sandbox-exec` registers for these two grants.
+    let _profile = common::ProfileCleanup::of(
+        &rightkit_sandbox::SandboxPolicy::new()
+            .allow_read(ro.clone())
+            .allow_write(rw.clone()),
+    );
 
     let out = run_exec(&ro, &rw, &ro, "echo denied>blocked.txt");
     println!(

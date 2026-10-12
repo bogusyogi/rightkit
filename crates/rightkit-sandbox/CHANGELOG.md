@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Tests (Windows): the seven tests that spawn a confined process (`tests/e2e.rs` `windows` module, `tests/sandbox_exec.rs`)
+  register an AppContainer profile for the real user, so they run only on CI (`GITHUB_ACTIONS=true`) or with
+  `RIGHTKIT_TEST_REAL_USER_STORES=1`, and otherwise print why and pass. Each deletes the profile it registered when it
+  ends, through two doc-hidden test-support functions (`appcontainer_profile_name_for_test`,
+  `delete_appcontainer_profile_for_test`; the second accepts only a `rightkit.sandbox.<16 hex digits>` name).
+  Known product gap, not changed here: a spawn creates or adopts one profile per distinct set of grants and nothing in
+  the crate ever deletes one, so profiles accumulate for the user. A maintenance call that removes unused ones follows.
 - Fixed (Unix): `SandboxedChild::terminate_tree` sweeps descendants only while the leader is proven to still be the spawned child (`OwnedChild::while_unreaped`); a reaped leader's pid is never signalled. Requires the `rightkit-process` release that adds `OwnedChild::while_unreaped`.
 - `wait_with_output` ends the process tree before its final reap. When the leader exited and the
   pipes closed on their own, it now kills the group while the leader is still unreaped (and
