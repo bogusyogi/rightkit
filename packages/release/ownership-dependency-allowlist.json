@@ -786,7 +786,9 @@
     },
     {
       "repositoryIdentity": "https://github.com/bogusyogi/postright",
-      "dependencies": []
+      "dependencies": [
+        "cargo:jiff"
+      ]
     },
     {
       "repositoryIdentity": "https://github.com/orthic-labs/cockpit",
