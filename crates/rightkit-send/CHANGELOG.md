@@ -1,5 +1,17 @@
 # Changelog
 
+## Unreleased
+
+- **Fixed: a device list that could not be read is never overwritten with a partial one.** When the stored list could
+  not be read at start (on Windows an open can be refused for a moment while another process replaces the file), the
+  store started empty and held back automatic saves, but the first explicit change (allow, deny, label, forget, default)
+  wrote a list holding only that change over the file. Every other record and a stored default of Deny were lost.
+  Lost records fell back to Ask, so nothing was ever granted, but denials and labels were forgotten. Now nothing is
+  written while the list is unread. An explicit change reads the file again first: if it can be read, the change is
+  made to the full list (devices only sighted meanwhile are added and take the stored default); if it still cannot,
+  the change fails with `Error::TrustStore` and nothing is changed. Remaining limit: until the list has been read,
+  every device is treated as Ask, so a device the owner denied gets a request card again. Not built or run locally.
+
 ## 0.1.0
 
 Initial crate, extracted from Pulse's `core/src/localsend` (unpublished: `publish = false`

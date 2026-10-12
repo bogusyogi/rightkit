@@ -16,6 +16,10 @@ Status: `0.1.0`, `publish = false`. Rust API only: no C ABI is exported and no x
   devices remember survives restarts.
 - Trust: `Service::set_trust` (Allow, Ask, Deny), `set_label`, `forget`, `set_default_state`,
   `devices_trust`. A record that proved its certificate never accepts the weaker callback.
+  If the stored device list cannot be read at start, nothing is written over it: a change reads
+  it again first and fails with `Error::TrustStore` while it stays unreadable. Known limit: until
+  the list has been read, every device is treated as Ask, so a device the owner denied gets a
+  request card again. It is never allowed by this.
 - Errors: `Error`, typed. Hosts map variants (or the serialized `code`) to their own words.
 - `Policy`: the unproven-sender limits, the 64 GiB single-file refusal, the message cap and
   the answer wait. `Policy::default()` is Pulse's current behaviour.
