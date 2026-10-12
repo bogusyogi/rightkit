@@ -161,7 +161,6 @@ impl StderrTail {
     /// inherited stderr can keep the stream open after the child is gone) and
     /// returns what was captured so far.
     pub fn finish_within(&mut self, timeout: std::time::Duration) -> String {
-        let deadline = std::time::Instant::now() + timeout;
         // Sleeps on the condition the drain thread signals when its body ends: one wake-up,
         // however long the stream stays open.
         {
@@ -172,21 +171,13 @@ impl StderrTail {
                 .wait_timeout_while(guard, timeout, |over| !*over)
                 .unwrap_or_else(|e| e.into_inner());
         }
-        // The signal says the body is over, not that the thread has ended: the captured `map`
-        // and `on_line` are dropped after it, and their destructors are the caller's code (one
-        // may wait on a lock the caller holds right now). So join only a thread that has really
-        // ended, and never wait past the deadline for one that has not. The tail is complete
-        // either way: every line was retained before the signal.
-        while self.handle.as_ref().is_some_and(|h| !h.is_finished())
-            && std::time::Instant::now() < deadline
-        {
-            thread::sleep(std::time::Duration::from_millis(1));
-        }
-        if self.handle.as_ref().is_some_and(|h| h.is_finished()) {
-            if let Some(h) = self.handle.take() {
-                let _ = h.join();
-            }
-        }
+        // This call never joins the thread. After the signal the thread still runs the caller's
+        // code: the captured `map` and `on_line` are dropped, and then any thread-local
+        // destructors those callbacks registered; `JoinHandle::is_finished` can already be true
+        // while they run, and a join would wait for them (0.3.3 joined here and could wait for
+        // ever on a destructor blocked on a lock the caller holds). The tail is complete without
+        // a join: every line was retained before the signal. The handle is kept, so
+        // [`Self::finish`] can still join later; if it is never called the thread ends by itself.
         self.snapshot()
     }
 

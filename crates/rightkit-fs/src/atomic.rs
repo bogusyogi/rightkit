@@ -847,7 +847,15 @@ fn try_sync_dir(dir: &Path) -> std::io::Result<()> {
         if let Some(error) = testing::before_dir_sync(dir) {
             return Err(error);
         }
-        let d = File::open(dir)?;
+        // `O_DIRECTORY`: a path that is a regular file is refused without being opened, so a
+        // wrong argument cannot release a record lock this process holds on that file.
+        let d = {
+            use std::os::unix::fs::OpenOptionsExt;
+            std::fs::OpenOptions::new()
+                .read(true)
+                .custom_flags(libc::O_DIRECTORY | libc::O_CLOEXEC)
+                .open(dir)?
+        };
         durable_sync(&d)
     }
     #[cfg(not(unix))]

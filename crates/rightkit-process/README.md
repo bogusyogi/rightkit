@@ -171,6 +171,10 @@ in which that could happen. The rule that replaces it:
 Open in this release; none is new in the sense of being introduced by it, and each is stated so a
 caller can decide.
 
+- `StderrTail::finish_within` returns at its timeout and never joins the drain thread, so the thread may still be
+  running the caller's `map`/`on_line` destructors (and their thread-local destructors) after it returns. `finish`
+  joins and has no bound: a callback or destructor that blocks makes it wait.
+
 - **Unix: proof and signal are two steps.** The identity proof above runs before every signal,
   wait and probe, but the proof and the call it guards are separate system calls. Foreign code in
   the same process that reaps one of our children in exactly that gap, followed by a replacement

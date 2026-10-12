@@ -227,10 +227,49 @@ pub(crate) fn guard_parent_path(parent: &Path, shown: &Path) -> Result<()> {
     if cfg!(not(target_os = "macos")) {
         return Ok(());
     }
-    match File::open(parent) {
+    match open_directory(parent) {
         Ok(dir) => guard_parent(&dir, shown),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        // Not a directory: nothing can be created under it, and the creation says so itself.
+        // It was not opened (see `open_directory`).
+        Err(e) if is_not_a_directory(&e) => Ok(()),
         Err(e) => Err(FsError::io(parent, e)),
+    }
+}
+
+/// Opens `path` only if it is a directory, decided by the kernel in the open itself
+/// (`O_DIRECTORY`), never by a look beforehand.
+///
+/// A caller can hand this module a path it believes is a directory and that is, or has
+/// become, a regular file: `create_private_new(p.join("child"))` where `p` is a file, say.
+/// Opening and closing a regular file releases every POSIX record lock this process holds on
+/// it (its own `FileLock`, SQLite's locks on a database), so a failed creation would silently
+/// end an exclusion somewhere else. With `O_DIRECTORY` such a path is refused without being
+/// opened. A directory carries no record lock of this crate or of SQLite.
+fn open_directory(path: &Path) -> std::io::Result<File> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        std::fs::OpenOptions::new()
+            .read(true)
+            .custom_flags(libc::O_DIRECTORY | libc::O_CLOEXEC)
+            .open(path)
+    }
+    #[cfg(not(unix))]
+    {
+        File::open(path)
+    }
+}
+
+fn is_not_a_directory(error: &std::io::Error) -> bool {
+    #[cfg(unix)]
+    {
+        error.raw_os_error() == Some(libc::ENOTDIR)
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = error;
+        false
     }
 }
 
@@ -251,7 +290,8 @@ pub(crate) fn refuse_acl_path(path: &Path) -> Result<()> {
     if cfg!(not(target_os = "macos")) {
         return Ok(());
     }
-    let dir = File::open(path).map_err(|e| FsError::io(path, e))?;
+    // `O_DIRECTORY`: were the new directory swapped for a file, that file is not opened.
+    let dir = open_directory(path).map_err(|e| FsError::io(path, e))?;
     refuse_acl(&dir, path)
 }
 

@@ -2,10 +2,14 @@
 
 ## Unreleased
 
-- **`StderrTail::finish_within` cannot outlast its timeout (comparative review, 2026-10-12).** It joined the drain
-  thread as soon as the thread's body signalled its end, but the caller's `map` and `on_line` are dropped after that
-  signal; a destructor waiting on a lock the caller held made the join, and so the bounded call, wait for ever. It now
-  joins only a thread that has ended, as 0.3.3 did. Test: `finish_within_returns_while_the_callback_is_still_being_dropped`.
+- **`StderrTail::finish_within` never joins the drain thread (two comparative reviews, 2026-10-12).** It waits, up to
+  the timeout, for the thread's body to signal its end and returns what was captured; it does not join. Two ways a join
+  could outlast the timeout were found: the first candidate joined as soon as the body signalled, while the caller's
+  `map` and `on_line` are dropped after that signal; and 0.3.3 (and the first fix) joined once `JoinHandle::is_finished`
+  was true, which can be true while thread-local destructors registered by those callbacks still run. Either way a
+  destructor waiting on a lock the caller held made a bounded call wait for ever. The tail is complete without a join:
+  every line is retained before the signal. `finish` (unbounded) still joins. Test:
+  `finish_within_returns_while_the_callback_is_still_being_dropped`; the thread-local case has no test.
 
 **Reduced candidate: mechanisms added after the published 0.3.3 were removed where a read found them
 unsafe or their contract is not demonstrated by a test in this crate.** Five reads of this crate did
