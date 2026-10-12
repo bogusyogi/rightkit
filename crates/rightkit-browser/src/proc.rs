@@ -277,12 +277,13 @@ pub(crate) fn spawn_chrome_fixture(
         BrowserError::Launch(format!("fixture confinement unavailable: {error}"))
     })?;
     let mut cmd = chrome_command(exe, args);
-    cmd.env_clear()
+    cmd.env_allowlist(std::iter::empty::<&str>());
+    cmd.command_mut()
         .env("HOME", profile_dir)
         .env("TMPDIR", profile_dir)
         .env("TMP", profile_dir)
-        .env("TEMP", profile_dir)
-        .inherit_handles_only(std::iter::empty());
+        .env("TEMP", profile_dir);
+    cmd.inherit_handles_only(std::iter::empty());
     // SAFETY: the closure only applies a precomputed Seatbelt profile in the forked child;
     // it performs no allocation, lock acquisition, or interaction with parent state.
     unsafe {

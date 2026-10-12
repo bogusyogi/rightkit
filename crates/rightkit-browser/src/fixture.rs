@@ -4,7 +4,6 @@
 //! It exposes neither raw CDP nor arbitrary JavaScript and can emit a passed outcome only
 //! after the document identity remains bound and all disposable resources are cleaned up.
 
-use crate::error::cdp;
 use crate::fixture_protocol::{FixtureAction, FixtureError, FixtureIntent, FixtureKey};
 use crate::fixture_server::FixtureServer;
 use crate::page::{BrowserPage, Target};
@@ -408,7 +407,8 @@ where
     S: Stream<Item = Arc<T>> + Unpin + Send + 'static,
     F: FnMut(Arc<T>, &FixtureMonitor) + Send + 'static,
 {
-    let (barrier_sender, mut barriers) = tokio::sync::mpsc::unbounded_channel();
+    let (barrier_sender, mut barriers) =
+        tokio::sync::mpsc::unbounded_channel::<tokio::sync::oneshot::Sender<()>>();
     let task = tokio::spawn(async move {
         loop {
             tokio::select! {
@@ -1218,15 +1218,17 @@ impl FixtureSession {
         let _cleanup_guard = self.cleanup_lock.lock().await;
         self.monitor.begin_expected_shutdown();
         self.browser.stop_fixture_process().await?;
-        let mut cleanup = self
-            .cleanup_evidence
-            .lock()
-            .unwrap_or_else(|error| error.into_inner());
-        cleanup.browser_stopped = true;
-        // `stop_fixture_process` has already received its platform transport
-        // stop receipt: macOS has no separate bridge, Windows has Job-empty plus
-        // bridge finalization.
-        cleanup.transport_stopped = true;
+        {
+            let mut cleanup = self
+                .cleanup_evidence
+                .lock()
+                .unwrap_or_else(|error| error.into_inner());
+            cleanup.browser_stopped = true;
+            // `stop_fixture_process` has already received its platform transport
+            // stop receipt: macOS has no separate bridge, Windows has Job-empty plus
+            // bridge finalization.
+            cleanup.transport_stopped = true;
+        }
         self.verify_terminal_identity().await
     }
 
@@ -1281,31 +1283,31 @@ async fn install_monitor(
     exact_url: &str,
 ) -> std::result::Result<(Arc<FixtureMonitor>, EventTasks), FixtureError> {
     let raw = page.raw();
-    let mut frames = raw
+    let frames = raw
         .event_listener::<EventFrameNavigated>()
         .await
         .map_err(|error| FixtureError::Browser(error.to_string()))?;
-    let mut documents_opened = raw
+    let documents_opened = raw
         .event_listener::<EventDocumentOpened>()
         .await
         .map_err(|error| FixtureError::Browser(error.to_string()))?;
-    let mut within_document = raw
+    let within_document = raw
         .event_listener::<EventNavigatedWithinDocument>()
         .await
         .map_err(|error| FixtureError::Browser(error.to_string()))?;
-    let mut created = raw
+    let created = raw
         .event_listener::<EventExecutionContextCreated>()
         .await
         .map_err(|error| FixtureError::Browser(error.to_string()))?;
-    let mut destroyed = raw
+    let destroyed = raw
         .event_listener::<EventExecutionContextDestroyed>()
         .await
         .map_err(|error| FixtureError::Browser(error.to_string()))?;
-    let mut cleared = raw
+    let cleared = raw
         .event_listener::<EventExecutionContextsCleared>()
         .await
         .map_err(|error| FixtureError::Browser(error.to_string()))?;
-    let mut crashed = raw
+    let crashed = raw
         .event_listener::<EventTargetCrashed>()
         .await
         .map_err(|error| FixtureError::Browser(error.to_string()))?;
@@ -1654,6 +1656,16 @@ fn hex(bytes: &[u8]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn run_with_cancel_future_is_send() {
+        fn assert_send<T: Send>(_: T) {}
+
+        let assert_run_with_cancel = |session: FixtureSession| {
+            assert_send(session.run_with_cancel(FixtureCancellation::default()));
+        };
+        let _ = assert_run_with_cancel;
+    }
 
     #[test]
     fn document_replacement_is_sticky_and_never_rebinds() {

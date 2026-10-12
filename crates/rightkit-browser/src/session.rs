@@ -153,7 +153,7 @@ impl FixtureLaunchState {
                     (process, result)
                 })
                 .await;
-                let Ok((mut process, result)) = terminated else {
+                let Ok((process, result)) = terminated else {
                     return self.keep_profile();
                 };
                 if result.is_err() {
@@ -165,6 +165,7 @@ impl FixtureLaunchState {
                 } else {
                     #[cfg(windows)]
                     {
+                        let mut process = process;
                         if process
                             .finish_fixture_transport_shutdown(Instant::now() + GRACE)
                             .await
@@ -783,7 +784,7 @@ impl BrowserSession {
             None => (proc, profile_guard.take(), proxy),
         };
         let fixture_profile_path = fixture_mode.then(|| profile_dir.clone());
-        let mut session = Self {
+        let session = Self {
             id,
             browser: Mutex::new(browser),
             pages: StdMutex::new(Vec::new()),
@@ -1110,7 +1111,7 @@ impl BrowserSession {
                             (process, result)
                         })
                         .await;
-                        let (mut process, result) = match terminated {
+                        let (process, result) = match terminated {
                             Ok(result) => result,
                             Err(_) => return,
                         };
@@ -1122,6 +1123,7 @@ impl BrowserSession {
                         }
                         #[cfg(windows)]
                         {
+                            let mut process = process;
                             if process
                                 .finish_fixture_transport_shutdown(Instant::now() + GRACE)
                                 .await
