@@ -12,7 +12,12 @@ use rightkit_fs::{
 use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
-use std::time::Duration;
+use std::time::{Duration, Instant};
+
+/// No helper process lives longer than this, whatever its test does. A helper that outlives a
+/// failed test keeps the test binary's output pipes open, and a CI step that waits for those
+/// pipes then hangs (seen on the Windows runner: 71 minutes).
+const HELPER_CAP: Duration = Duration::from_secs(60);
 
 fn canonical_tmp() -> (tempfile::TempDir, PathBuf) {
     let dir = tempfile::tempdir().unwrap();
@@ -56,6 +61,48 @@ fn wait_ready(child: &mut Child) {
     });
 }
 
+/// Helper processes that loop until told to stop. Dropping this stops them, also when the test
+/// is unwinding from a failed assertion: the stop file is created, and a helper that is still
+/// running is killed and reaped. The stop file alone is not enough: the test's temp folder is
+/// removed right after, and with it the stop file, so a helper that checks later sees none.
+struct LoopingHelpers {
+    kids: Vec<Child>,
+    stop: PathBuf,
+}
+
+impl LoopingHelpers {
+    fn any_running(&mut self) -> bool {
+        self.kids
+            .iter_mut()
+            .any(|kid| kid.try_wait().unwrap().is_none())
+    }
+
+    fn tell_to_stop(&self) {
+        std::fs::write(&self.stop, b"").unwrap();
+    }
+
+    /// Wait for every helper and say whether all of them succeeded.
+    fn all_succeeded(&mut self) -> bool {
+        let mut ok = true;
+        for kid in &mut self.kids {
+            ok &= kid.wait().unwrap().success();
+        }
+        ok
+    }
+}
+
+impl Drop for LoopingHelpers {
+    fn drop(&mut self) {
+        let _ = std::fs::write(&self.stop, b"");
+        for kid in &mut self.kids {
+            if matches!(kid.try_wait(), Ok(None)) {
+                let _ = kid.kill();
+                let _ = kid.wait();
+            }
+        }
+    }
+}
+
 fn kill9(mut child: Child) {
     child.kill().unwrap();
     let _ = child.wait();
@@ -85,14 +132,19 @@ fn helper_entry() {
             w.write_all(&vec![b'N'; 512 * 1024]).unwrap();
             w.file_mut().sync_all().unwrap();
             ready();
-            std::thread::sleep(Duration::from_secs(120));
+            std::thread::sleep(HELPER_CAP);
         }
         "writer_loop" => {
             let tag = args[1].as_bytes()[0];
             // At least 150 writes, then keep going until the reader has seen enough overlap.
             let stop = Path::new(&args[0]).with_extension("stop");
+            let started = Instant::now();
             let mut i = 0usize;
             while i < 150 || !stop.exists() {
+                assert!(
+                    started.elapsed() < HELPER_CAP,
+                    "writer helper was not stopped within {HELPER_CAP:?}"
+                );
                 i += 1;
                 let mut payload = vec![tag; 96 * 1024];
                 payload[0] = b'0' + (i % 10) as u8;
@@ -109,8 +161,8 @@ fn helper_entry() {
             )
             .unwrap();
             ready();
-            let ms: u64 = args.get(1).and_then(|v| v.parse().ok()).unwrap_or(120_000);
-            std::thread::sleep(Duration::from_millis(ms));
+            let ms: u64 = args.get(1).and_then(|v| v.parse().ok()).unwrap_or(u64::MAX);
+            std::thread::sleep(Duration::from_millis(ms).min(HELPER_CAP));
         }
         "lock_counter" => {
             let lock = PathBuf::from(&args[0]);
@@ -292,13 +344,18 @@ fn concurrent_processes_never_expose_a_mixed_file() {
     let (_g, dir) = canonical_tmp();
     let p = dir.join("shared.bin");
     atomic_write(&p, &vec![b'A'; 96 * 1024]).unwrap();
-    let mut kids: Vec<Child> = ["B", "C", "D"]
-        .iter()
-        .map(|tag| spawn_role("writer_loop", &[p.to_str().unwrap(), tag]))
-        .collect();
+    // Declared after the temp folder, so it is dropped first: the helpers are stopped before
+    // the folder they write into is removed, on success and on a failed assertion alike.
+    let mut writers = LoopingHelpers {
+        kids: ["B", "C", "D"]
+            .iter()
+            .map(|tag| spawn_role("writer_loop", &[p.to_str().unwrap(), tag]))
+            .collect(),
+        stop: p.with_extension("stop"),
+    };
     let mut reads = 0;
     let mut refused_reads = 0;
-    while kids.iter_mut().any(|k| k.try_wait().unwrap().is_none()) {
+    while writers.any_running() {
         let (bytes, refused) = read_during_replaces(&p);
         refused_reads += refused;
         assert_eq!(bytes.len(), 96 * 1024, "never a truncated or partial file");
@@ -309,14 +366,12 @@ fn concurrent_processes_never_expose_a_mixed_file() {
         );
         reads += 1;
         if reads == 50 {
-            std::fs::write(p.with_extension("stop"), b"").unwrap();
+            writers.tell_to_stop();
         }
     }
     assert!(reads > 10);
     println!("[fs-reader] {reads} reads, {refused_reads} opens refused during a replace");
-    for mut k in kids {
-        assert!(k.wait().unwrap().success());
-    }
+    assert!(writers.all_succeeded());
     assert!(temps_in(&dir).is_empty());
 }
 
