@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+- **Windows: `remove_unused_appcontainer_profiles()` removes AppContainer profiles nothing is using.** A spawn creates or
+  adopts one `rightkit.sandbox.<hash>` profile per distinct grant set and nothing deleted them, so they accumulated for
+  the user. The new call deletes those no process holds and reports what it removed and what it kept and why
+  (`ProfileSweepReport`, `ProfileKept`). To make "in use" provable, every spawn now marks its profile in use (a named
+  kernel object held with the child's leases) inside a per-profile lock, before it creates or adopts the profile; the
+  call takes the same lock for its check and deletion. A foreign-named profile is never touched. **Until an application
+  calls it, profiles still accumulate.** Behaviour change for spawns: one named mutex is taken briefly per spawn, and a
+  spawn fails with a timeout if another process holds a profile's lock for 30 s, or with an error if the lock or mark
+  cannot be created. The lock and mark are in the machine-wide object namespace and carry the user's SID, so another
+  logon session of the same user is seen; a profile whose lock or mark cannot be created or read is kept
+  (`ProfileKept::CouldNotProveUnused`). Run the ancestor-ACE sweep before this call; the other order is harmless but
+  cannot clean a deleted profile's leftovers. Tests (CI or opt-in only): a held profile survives and an unused one
+  goes, a foreign name is untouched, two processes sweeping at once both succeed, the wrong order is harmless. Not
+  run on a machine yet.
 - Tests (Windows): the seven tests that spawn a confined process (`tests/e2e.rs` `windows` module, `tests/sandbox_exec.rs`)
   register an AppContainer profile for the real user, so they run only on CI (`GITHUB_ACTIONS=true`) or with
   `RIGHTKIT_TEST_REAL_USER_STORES=1`, and otherwise print why and pass. Each deletes the profile it registered when it

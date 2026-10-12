@@ -13,6 +13,8 @@ unsafe extern "system" {
     fn CreateMutexW(attributes: *const c_void, initial_owner: i32, name: *const u16)
         -> *mut c_void;
     fn OpenMutexW(access: u32, inherit: i32, name: *const u16) -> *mut c_void;
+    fn WaitForSingleObject(handle: *mut c_void, milliseconds: u32) -> u32;
+    fn ReleaseMutex(handle: *mut c_void) -> i32;
 }
 
 #[link(name = "bcrypt")]
@@ -208,6 +210,119 @@ fn validate_owner_prefix(prefix: &str) -> Result<(), SandboxError> {
     Ok(())
 }
 
+/// This user's registered profiles whose name this crate could have made under `prefix` and
+/// whose mapping is the SID that name derives to: (lower-case name, SID text).
+pub(super) fn owned_profiles(prefix: &str) -> io::Result<Vec<(String, String)>> {
+    let mut owned = Vec::new();
+    for (profile, mapped_sid) in registered_profiles()? {
+        if let Some(derived) = owned_mapping(&profile, &mapped_sid, prefix)? {
+            owned.push((profile.to_ascii_lowercase(), derived));
+        }
+    }
+    Ok(owned)
+}
+
+fn owned_profile_sids(prefix: &str) -> io::Result<Vec<String>> {
+    Ok(owned_profiles(prefix)?
+        .into_iter()
+        .map(|(_, sid)| sid)
+        .collect())
+}
+
+/// The name of a profile's `holder` or `guard` object. It is in the `Global` namespace, so every
+/// logon session of the machine sees it (fast user switching, Remote Desktop), and it carries the
+/// user's SID, so two users with the same grant set do not share one. An ordinary user may create
+/// mutexes there; the create-global privilege is for sections and symbolic links.
+pub(super) fn profile_object_text(kind: &str, profile: &str) -> io::Result<String> {
+    Ok(format!(
+        r"Global\rightkit-profile-{kind}-{}-{}",
+        current_user_sid()?,
+        profile.to_ascii_lowercase()
+    ))
+}
+
+fn profile_object_name(kind: &str, profile: &str) -> io::Result<Vec<u16>> {
+    Ok(wide(profile_object_text(kind, profile)?))
+}
+
+/// Marks a profile as in use for as long as it lives. It is a named kernel object, so it is
+/// gone when its last holder exits, however that process ends.
+pub(super) struct ProfileHolder(usize);
+
+impl Drop for ProfileHolder {
+    fn drop(&mut self) {
+        unsafe { CloseHandle(self.0 as *mut c_void) };
+    }
+}
+
+impl ProfileHolder {
+    pub(super) fn create(profile: &str) -> io::Result<Self> {
+        let name = profile_object_name("holder", profile)?;
+        let handle = unsafe { CreateMutexW(std::ptr::null(), 0, name.as_ptr()) };
+        if handle.is_null() {
+            Err(io::Error::last_os_error())
+        } else {
+            Ok(Self(handle as usize))
+        }
+    }
+}
+
+/// Whether any process holds a [`ProfileHolder`] for `profile`.
+pub(super) fn profile_holder_exists(profile: &str) -> io::Result<bool> {
+    let name = profile_object_name("holder", profile)?;
+    let handle = unsafe { OpenMutexW(0x0010_0000, 0, name.as_ptr()) }; // SYNCHRONIZE
+    if !handle.is_null() {
+        unsafe { CloseHandle(handle) };
+        return Ok(true);
+    }
+    let error = io::Error::last_os_error();
+    match error.raw_os_error() {
+        Some(2) => Ok(false), // ERROR_FILE_NOT_FOUND alone proves no holder.
+        Some(5) => Ok(true),  // ERROR_ACCESS_DENIED still proves existence.
+        _ => Err(error),
+    }
+}
+
+/// Exclusive, short-lived ownership of one profile's create-or-delete step, across processes.
+/// A spawn holds it while it marks the profile in use and creates or adopts it; the maintenance
+/// call holds it while it checks for a holder and deletes. Must be dropped on the thread that
+/// acquired it.
+pub(super) struct ProfileGuard(usize);
+
+impl Drop for ProfileGuard {
+    fn drop(&mut self) {
+        unsafe {
+            ReleaseMutex(self.0 as *mut c_void);
+            CloseHandle(self.0 as *mut c_void);
+        }
+    }
+}
+
+impl ProfileGuard {
+    /// `None` when another process kept it for longer than `wait_ms`.
+    pub(super) fn acquire(profile: &str, wait_ms: u32) -> io::Result<Option<Self>> {
+        let name = profile_object_name("guard", profile)?;
+        let handle = unsafe { CreateMutexW(std::ptr::null(), 0, name.as_ptr()) };
+        if handle.is_null() {
+            return Err(io::Error::last_os_error());
+        }
+        // 0 is WAIT_OBJECT_0; 0x80 is WAIT_ABANDONED (the last owner died holding it, and the
+        // mutex is ours now); 0x102 is WAIT_TIMEOUT.
+        match unsafe { WaitForSingleObject(handle, wait_ms) } {
+            0 | 0x80 => Ok(Some(Self(handle as usize))),
+            0x102 => {
+                unsafe { CloseHandle(handle) };
+                Ok(None)
+            }
+            _ => {
+                let error = io::Error::last_os_error();
+                unsafe { CloseHandle(handle) };
+                Err(error)
+            }
+        }
+    }
+}
+
 fn owned_mapping(profile: &str, mapped_sid: &str, prefix: &str) -> io::Result<Option<String>> {
     let profile = profile.to_ascii_lowercase();
     let Some(suffix) = profile.strip_prefix(prefix) else {
@@ -223,7 +338,7 @@ fn owned_mapping(profile: &str, mapped_sid: &str, prefix: &str) -> io::Result<Op
 
 /// SIDs are hashes, so a textual S-1-15-2 prefix cannot establish ownership.
 /// Enumerate persisted profiles, validate our exact name format, then derive & compare.
-fn owned_profile_sids(prefix: &str) -> io::Result<Vec<String>> {
+pub(super) fn registered_profiles() -> io::Result<Vec<(String, String)>> {
     let hkcu = (-2147483647isize) as *mut c_void;
     let Some(mappings) = open_key(
         hkcu,
@@ -285,9 +400,7 @@ fn owned_profile_sids(prefix: &str) -> io::Result<Vec<String>> {
         let units = &moniker[..bytes as usize / 2];
         let end = units.iter().position(|&u| u == 0).unwrap_or(units.len());
         let profile = String::from_utf16_lossy(&units[..end]);
-        if let Some(derived) = owned_mapping(&profile, &mapped_sid, prefix)? {
-            owned.push(derived);
-        }
+        owned.push((profile, mapped_sid));
     }
     Ok(owned)
 }
