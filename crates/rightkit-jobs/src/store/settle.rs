@@ -294,7 +294,7 @@ fn owner_event(status: Option<&str>) -> LifecycleEvent {
 }
 
 /// A write worth holding: the database or the disk refused it.
-fn is_storage_error(e: &JobError) -> bool {
+pub(crate) fn is_storage_error(e: &JobError) -> bool {
     matches!(e.code.as_str(), "db" | "io")
 }
 
@@ -994,17 +994,34 @@ impl JobStore {
     }
 
     /// Read the journal left by an earlier run and write what it recorded. Run at open.
-    pub(super) fn replay_journal(&self) {
+    ///
+    /// Only a missing directory means "no journal". A directory that exists and cannot be
+    /// listed (permission, I/O) may hold a durable Done or Cancelled for a job whose row still
+    /// reads non-terminal; opening the store without it would let recovery run that job again.
+    /// So the listing error is returned and the open fails; nothing is recovered until the
+    /// journal can be enumerated.
+    pub(super) fn replay_journal(&self) -> JobResult<()> {
         let Some(dir) = self.settle.dir.clone() else {
-            return;
+            return Ok(());
         };
-        let Ok(rd) = std::fs::read_dir(&dir) else {
-            return;
+        let unlisted = |e: std::io::Error| {
+            JobError::new(
+                "io",
+                format!(
+                    "settlement journal {} could not be listed: {e}",
+                    dir.display()
+                ),
+            )
+        };
+        let rd = match std::fs::read_dir(&dir) {
+            Ok(rd) => rd,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+            Err(e) => return Err(unlisted(e)),
         };
         let mut loaded = false;
         let mut unread = Vec::new();
-        for item in rd.flatten() {
-            let path = item.path();
+        for item in rd {
+            let path = item.map_err(unlisted)?.path();
             // Temp files of an interrupted atomic write carry another extension.
             if path.extension().and_then(|x| x.to_str()) != Some("json") {
                 continue;
@@ -1029,6 +1046,7 @@ impl JobStore {
         // Recorded after the flush above, which reads the unread files again: they were just
         // tried, and the next explicit flush is the retry.
         lk(&self.settle.unread).extend(unread);
+        Ok(())
     }
 
     /// Keep `job_id` out of `prune` until the returned pin drops.

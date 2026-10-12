@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased (a paused job stays paused; an unlistable journal fails the open)
+
+Two fixes from a consumer's independent read of the runner and the journal (ScrapeRight, 2026-10-12). Nothing here was compiled or run locally; verification is the CI run.
+
+- **A retryable handler error keeps the job paused when its bookkeeping write is refused.** The runner recorded the error text (and, for a host hand-off, refunded the attempt) with `?`, so a storage error on that write (disk full, database locked) replaced `RunOutcome::Paused` with an `Err`, and a caller treated a resumable job as a hard failure. A storage error on the refund, on the diagnostic write or on the read-back is now tolerated and the run returns `Paused` with the job as it was read at the start; any other error (a lost fence) still ends the run.
+- **A settlement journal that exists and cannot be listed fails `JobStore::open`.** `replay_journal` returned silently when the directory could not be read and skipped entries whose listing failed, so after a crash a job with a durable Done or Cancelled in the journal was not held and recovery could run it again. Only a missing directory means "no journal" now; any other listing error is returned (code `io`) and the store does not open. This is a behaviour change: an application that ignored an unreadable `<db>.settlements` directory now gets an error at open.
+
 ## Unreleased (settle-later: an owner settle cannot lose to a concurrent flush or runner)
 
 Fix, found by ScrapeRight's review of `store/settle.rs` at snapshot c9f222a1. Nothing here was compiled or run locally; verification is the CI run. No signature or field changed.

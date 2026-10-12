@@ -11,9 +11,9 @@ use crate::config::Ext;
 use crate::error::{JobError, JobResult, HOST_HANDOFF};
 use crate::sched::{Gate, Priority};
 use crate::store::{
-    now, projected, Artifact, CancelToken, ClaimScope, Event, FlushReport, Job, JobRecord,
-    JobStore, LifecycleEvent, Recovery, Settle, SettleRequest, Settlement, SettlementShutdown,
-    Submission, Transition, UnsettledJob, CANCELLED, COMPLETE, FAILED,
+    is_storage_error, now, projected, Artifact, CancelToken, ClaimScope, Event, FlushReport, Job,
+    JobRecord, JobStore, LifecycleEvent, Recovery, Settle, SettleRequest, Settlement,
+    SettlementShutdown, Submission, Transition, UnsettledJob, CANCELLED, COMPLETE, FAILED,
 };
 
 /// Attempts allowed before a job is failed with `max_attempts`.
@@ -810,17 +810,35 @@ impl Runner {
                 self.write_terminal(&ctl, owner, &job, term, lock)
             }
             Err(e) if e.retryable => {
+                // The pause is the outcome; the refund, the error text on the row and the fresh
+                // read below are bookkeeping. If storage refuses one of them (disk full, database
+                // locked) the job must still come back paused and recoverable: turning that into
+                // an `Err` made the caller treat a resumable job as a hard failure. Any other
+                // error (a lost fence, say) still ends the run.
+                let tolerated = |r: JobResult<()>| match r {
+                    Err(w) if is_storage_error(&w) => Ok(()),
+                    other => other,
+                };
                 if e.code == HOST_HANDOFF && per_run {
-                    self.store.refund_attempt_fenced(job_id, owner)?;
+                    tolerated(self.store.refund_attempt_fenced(job_id, owner))?;
                 }
-                self.store.record_error_fenced(job_id, owner, &e)?;
+                tolerated(
+                    self.store
+                        .record_error_fenced(job_id, owner, &e)
+                        .map(|_| ()),
+                )?;
                 self.implicit(
                     &ctl,
                     "paused",
                     None,
                     Some(&format!("paused, will resume: {}", e.message)),
                 );
-                Ok(RunOutcome::Paused(self.store.get(job_id)?))
+                let now = match self.store.get(job_id) {
+                    Ok(now) => now,
+                    Err(w) if is_storage_error(&w) => job.clone(),
+                    Err(w) => return Err(w),
+                };
+                Ok(RunOutcome::Paused(now))
             }
             Err(e) => {
                 let term = self.failure(&e, true);

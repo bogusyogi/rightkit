@@ -33,7 +33,7 @@ pub use import::{ImportOptions, ImportRecord, Imported, MAX_IMPORT_BATCH};
 mod page;
 pub use page::{Cursor, ListPage};
 mod settle;
-pub(crate) use settle::{projected, LifecycleEvent, Settle, SettleRequest};
+pub(crate) use settle::{is_storage_error, projected, LifecycleEvent, Settle, SettleRequest};
 pub use settle::{
     FlushReport, Settlement, SettlementShutdown, UnsettledJob, MAX_PENDING_SETTLEMENTS,
     MAX_PENDING_SETTLEMENT_BYTES,
@@ -693,7 +693,8 @@ impl JobStore {
             settle: settle::SettleState::new(&options.path),
         };
         // A terminal write an earlier run could not store (see `store/settle.rs`) lands now.
-        store.replay_journal();
+        // Fails the open when the journal directory exists and cannot be listed: see there.
+        store.replay_journal()?;
         Ok(store)
     }
 
