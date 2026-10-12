@@ -156,6 +156,46 @@ fn a_destination_whose_parent_links_to_an_ordinary_directory_still_downloads() {
     assert!(!dir.join(".rk-download").exists());
 }
 
+/// `important.bin/` and `important.bin/.` are read by `Path::file_name` as `important.bin`.
+/// They are refused as given, before any normalisation: the file keeps its bytes and its mode,
+/// no request is sent and nothing is created.
+#[test]
+fn a_directory_style_destination_never_replaces_the_file_it_names() {
+    let server = MockServer::start(|_, _| MockResponse::text(200, "intruder"));
+    let dir = scratch("dir-style");
+    let file = dir.join("important.bin");
+    fs::write(&file, b"precious").unwrap();
+    set_mode(&file, 0o640);
+    let before = snapshot(&dir);
+
+    for suffix in ["/", "/.", "//", "/./", "/.."] {
+        let mut raw = file.clone().into_os_string();
+        raw.push(suffix);
+        let dest = PathBuf::from(raw);
+        for resume in [false, true] {
+            let err = Client::new(cfg())
+                .download_to_path(
+                    &server.url("/f"),
+                    &dest,
+                    DownloadOptions {
+                        resume,
+                        ..DownloadOptions::default()
+                    },
+                )
+                .expect_err("a destination that names a directory must be refused");
+            assert!(
+                matches!(&err, DownloadError::Io(m) if m.contains("names a directory")),
+                "{dest:?}: {err:?}"
+            );
+        }
+    }
+
+    assert_eq!(server.request_count(), 0, "no request may be sent");
+    assert_eq!(fs::read(&file).unwrap(), b"precious");
+    assert_eq!(mode_of(&file), 0o640);
+    assert_eq!(snapshot(&dir), before, "nothing may be created or changed");
+}
+
 // ------------------------------------------------------------------ blocker 2
 /// An existing destination keeps its permission bits when the download replaces it, and holds
 /// the downloaded bytes.

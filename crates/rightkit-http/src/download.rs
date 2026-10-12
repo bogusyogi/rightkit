@@ -8,9 +8,8 @@
 //! # Where the download's own files live
 //!
 //! Nothing is created beside `dest`. The two files a destination needs sit in one hidden
-//! directory, `.rk-download`, in the destination's parent. It is created owner-only on Unix (on
-//! Windows it inherits the parent's access rules), and a file or link found at that path is
-//! refused. No destination in the parent can be one of these files, because they are not in the
+//! directory, `.rk-download`, in the destination's parent. It is created owner-only through
+//! rightkit-fs (see "Privacy" below), and a file or link found at that path is refused. No destination in the parent can be one of these files, because they are not in the
 //! parent:
 //!
 //! | File | Name inside `.rk-download` | Role |
@@ -24,7 +23,9 @@
 //! records this destination's name; a partial file under any other claim state is deleted and
 //! the download starts from zero.
 //!
-//! A destination is refused, before any request or filesystem access, when its file name or a
+//! A destination is refused, before any request or filesystem access, when it names a directory
+//! (the path as given ends in a path separator, or its last component is `.` or `..`: `file.bin/`
+//! and `file.bin/.` would otherwise be read as `file.bin` and replace it), when its file name or a
 //! directory in its parent path is `.rk-download` (compared with a simple Unicode case fold, so
 //! `.RK-DOWNLOAD` and a spelling with the Kelvin sign U+212A are the same name), when the name ends in a dot
 //! or space, and on Windows when it contains `:`, is a device name, or contains `~<digit>`. After
@@ -35,19 +36,36 @@
 //! use. A destination that is an alias for the directory itself in some other way fails at the
 //! rename, because a file cannot replace a directory.
 //!
-//! # Modes (Unix)
+//! # Privacy
 //!
-//! The partial file is created owner-only (`0600`), and a partial left by an earlier call is set
-//! to `0600` before any byte is appended; a failure to do so is an error. Just before the rename
-//! a regular file already at `dest` passes its permission bits, masked to `0o777`, to the
-//! partial: replacing a `0600` file leaves a `0600` file, and a setuid, setgid or sticky bit is
-//! never carried onto downloaded bytes. For any other destination (none, a link that the rename
-//! replaces, or another kind of entry) the partial keeps `0600`, so a new file is published
-//! owner-only whatever the umask. A caller that wants a wider file sets it after the call, or creates `dest` first with the
-//! mode it wants (the mode is then kept). Ownership is not carried over. Windows: permissions
-//! are unchanged; files get the access rules of their directory. The destination's parent is
-//! resolved on every platform (on Windows the resolved path has the `\\?\` form and is used
-//! only inside this module; a junction in the parent is resolved too).
+//! The mode bits alone do not keep the bytes private: on macOS an ACL `allow` entry inherited
+//! from the parent directory is evaluated before them, and on Windows a new file inherits the
+//! parent's access rules. So the download's directory and partial file are created through
+//! rightkit-fs (`ensure_private_dir`, `create_private_new`): owner-only from the first instant
+//! (`0700`/`0600` on Unix, a protected owner-only DACL on Windows), and on macOS never under a
+//! parent whose ACL would hand them an inheritable `allow` entry. That case is refused with
+//! [`DownloadError::UnsafeAcl`] before anything is created or requested; an ACL made only of
+//! `deny` entries is accepted. Other Unixes are mode-only.
+//!
+//! A partial left by an earlier call is first set to `0600` (Unix), then used only if
+//! rightkit-fs `is_owner_only` says it is private, which is read by path (the file is not opened
+//! to look). Otherwise the call fails with [`DownloadError::PartialNotPrivate`]: the file is not
+//! appended to and not deleted, and no request is sent. On Windows `is_owner_only` cannot test
+//! and reports true, so a leftover partial there is trusted as it was.
+//!
+//! Publication (Unix): just before the rename a regular file already at `dest` passes its
+//! permission bits, masked to `0o777`, to the partial: replacing a `0600` file leaves a `0600`
+//! file, and a setuid, setgid or sticky bit is never carried onto downloaded bytes. For any
+//! other destination (none, a link that the rename replaces, or another kind of entry) the
+//! partial keeps `0600`, so a new file is published owner-only whatever the umask. Ownership is
+//! not carried over. The destination's own ACL is not carried over either (macOS): the
+//! published file is the staged one.
+//!
+//! Windows: the published file is the staged file, so it carries the owner-only access it was
+//! staged with, not the parent's inherited access and not the replaced file's. A caller that
+//! wants a shared file changes its access, or its mode on Unix, after the call. The
+//! destination's parent is resolved on every platform (on Windows the resolved path has the
+//! `\\?\` form and is used only inside this module; a junction in the parent is resolved too).
 //!
 //! Limits, stated rather than hidden:
 //!
@@ -192,6 +210,21 @@ pub enum DownloadError {
         expected: u64,
         actual: u64,
     },
+    /// The download's own directory or partial file cannot be made owner-only, because an
+    /// access list entry that grants access to others would be inherited from the directory
+    /// that holds it (or is on `path` itself). `path` is the `.rk-download` directory or the
+    /// partial file inside it; the grant is on it or on its parent. Nothing was written. macOS:
+    /// extended ACL `allow` entries (a `deny`-only list never causes this). The error is
+    /// raised before any request when the directory is the cause.
+    UnsafeAcl {
+        path: PathBuf,
+    },
+    /// A partial file left by an earlier call is readable by group or others (mode bits, or on
+    /// macOS an ACL `allow` entry). It was neither used nor deleted: nothing was appended to
+    /// it and no request was sent. Remove it, or fix its access, and call again.
+    PartialNotPrivate {
+        path: PathBuf,
+    },
 }
 
 impl fmt::Display for DownloadError {
@@ -211,6 +244,19 @@ impl fmt::Display for DownloadError {
                     "length mismatch: expected {expected} bytes, got {actual}"
                 )
             }
+            DownloadError::UnsafeAcl { path } => write!(
+                f,
+                "download refused: {} cannot be kept private, because an access list entry on it \
+                 or on the directory that holds it would give other users access to the \
+                 downloaded bytes",
+                path.display()
+            ),
+            DownloadError::PartialNotPrivate { path } => write!(
+                f,
+                "download refused: the leftover partial file {} is not private (group or others \
+                 can read it, by mode or by access list); it was neither used nor deleted",
+                path.display()
+            ),
         }
     }
 }
@@ -296,9 +342,13 @@ impl Client {
     ///
     /// The destination's parent must exist; it is resolved (links followed) before any file is
     /// created, and the download is refused when any component of the resolved path is
-    /// `.rk-download`. On Unix the partial file is `0600`; the published file keeps the
-    /// permission bits, masked to `0o777`, of a regular file it replaces and is `0600`
-    /// otherwise (see the module docs).
+    /// `.rk-download`, and when the path as given names a directory (it ends in a separator, or
+    /// its last component is `.` or `..`). The directory and the partial file are owner-only
+    /// from creation and, on macOS, never under a parent whose ACL would give them an `allow`
+    /// entry ([`DownloadError::UnsafeAcl`]); a leftover partial that is not private is not used
+    /// ([`DownloadError::PartialNotPrivate`]). On Unix the published file keeps the permission
+    /// bits, masked to `0o777`, of a regular file it replaces and is `0600` otherwise; on
+    /// Windows it carries the owner-only access it was staged with (see the module docs).
     ///
     /// Safety rules: the URL is checked against the address policy before any file is
     /// opened. The destination is then claimed: an exclusive OS lock on the destination's claim
@@ -758,6 +808,15 @@ fn open_part_with(
     // an error: the file is not used.
     #[cfg(unix)]
     restrict_part(&file).map_err(io_error("restrict partial file"))?;
+    // Then the proof. A partial that is still readable by others (on macOS: through an ACL
+    // `allow` entry, which the mode step cannot remove) is not used and not deleted. Read by
+    // path, so nothing is opened here (rightkit-fs `is_owner_only`). On Windows rightkit-fs
+    // cannot test for it and reports true: see the README.
+    if !rightkit_fs::private::is_owner_only(part).map_err(fs_error("check partial file"))? {
+        return Err(DownloadError::PartialNotPrivate {
+            path: part.to_path_buf(),
+        });
+    }
     #[cfg(windows)]
     let file = {
         let mut file = file;
@@ -790,19 +849,21 @@ fn append_part(file: &mut File, bytes: &[u8]) -> io::Result<()> {
     file.write_all(bytes)
 }
 
+/// Create the partial file: exclusively, owner-only from the first instant and refusing an
+/// ACL that would hand it access (rightkit-fs `create_private_new`), then open it for reading
+/// and appending. `create_private_new` fails on any existing entry, a link included, and
+/// never follows one (`O_EXCL | O_NOFOLLOW` on Unix, `CREATE_NEW` on Windows), as the
+/// exclusive create this replaces did. Its handle is write-only, so it is dropped (the file
+/// is empty and no lock is held on it) and the file is opened again by path without following
+/// a link, which also gives the handle the read access the hash needs.
 fn create_new(part: &Path) -> Result<File, DownloadError> {
-    let mut options = part_options();
-    options.create_new(true);
-    // Owner-only from the first instant, not after a chmod.
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::OpenOptionsExt;
-        options.mode(PART_MODE);
-    }
-    open_nofollow(&mut options, part).map_err(io_error("create partial file"))
+    let created = rightkit_fs::create_private_new(part).map_err(fs_error("create partial file"))?;
+    drop(created);
+    open_nofollow(&mut part_options(), part).map_err(io_error("open new partial file"))
 }
 
-/// Mode of the partial file on Unix: owner read and write only.
+/// Mode of a partial file on Unix: owner read and write only. Creation gets it from
+/// rightkit-fs; this is the mode step for a partial that already existed.
 #[cfg(unix)]
 const PART_MODE: u32 = 0o600;
 
@@ -896,38 +957,34 @@ fn name_bytes(name: &OsStr) -> Vec<u8> {
     name.to_string_lossy().into_owned().into_bytes()
 }
 
-/// Make sure the hidden directory exists and is a real directory. It is created owner-only on
-/// Unix; Windows gives it the parent's access rules. A file or link at that path is refused:
-/// nothing is created through it. The parent must exist already, as it must for the
-/// destination itself.
+/// Make sure the hidden directory exists, is a real directory and is owner-only
+/// (rightkit-fs `ensure_private_dir`). It is created owner-only (`0700` on Unix, a protected
+/// owner-only DACL on Windows), and one that already exists is narrowed the same way. On macOS
+/// the directory is not created under a parent whose ACL would hand it an inheritable `allow`
+/// entry, and an existing one that carries an `allow` entry is refused
+/// ([`DownloadError::UnsafeAcl`]). A file or link at that path is refused: nothing is created
+/// through it. The parent must exist already, as it must for the destination itself.
 fn ensure_coordination_dir(dir: &Path) -> Result<(), DownloadError> {
-    let not_plain = || {
-        DownloadError::Io(
-            "the .rk-download path exists and is not a plain directory (it is a file or a link)"
-                .into(),
-        )
-    };
-    match fs::symlink_metadata(dir) {
-        Ok(meta) if meta.is_dir() => return Ok(()),
-        Ok(_) => return Err(not_plain()),
-        Err(e) if e.kind() == io::ErrorKind::NotFound => {}
-        Err(e) => return Err(io_error("inspect download directory")(e)),
+    rightkit_fs::ensure_private_dir(dir).map_err(|e| {
+        match e {
+        rightkit_fs::FsError::Symlink(_) | rightkit_fs::FsError::NotADirectory(_) => {
+            DownloadError::Io(
+                "the .rk-download path exists and is not a plain directory (it is a file or a link)"
+                    .into(),
+            )
+        }
+        other => fs_error("create download directory")(other),
     }
-    #[cfg_attr(not(unix), allow(unused_mut))]
-    let mut builder = fs::DirBuilder::new();
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::DirBuilderExt;
-        builder.mode(0o700);
-    }
-    match builder.create(dir) {
-        Ok(()) => Ok(()),
-        // Another download created it between the check and the create.
-        Err(e) if e.kind() == io::ErrorKind::AlreadyExists => match fs::symlink_metadata(dir) {
-            Ok(meta) if meta.is_dir() => Ok(()),
-            _ => Err(not_plain()),
-        },
-        Err(e) => Err(io_error("create download directory")(e)),
+    })
+}
+
+/// Map a rightkit-fs error: an access-list refusal keeps its type, anything else becomes the
+/// `Io` text it always was.
+fn fs_error(what: &'static str) -> impl Fn(rightkit_fs::FsError) -> DownloadError {
+    move |e| match e {
+        rightkit_fs::FsError::UnsafeAcl(path) => DownloadError::UnsafeAcl { path },
+        rightkit_fs::FsError::Io { source, .. } => DownloadError::Io(format!("{what}: {source}")),
+        other => DownloadError::Io(format!("{what}: {other}")),
     }
 }
 
@@ -1030,6 +1087,17 @@ impl Drop for Claim {
 /// refused. Nothing else is reserved: the claim and partial file are named by a hash and live
 /// only in that directory, so no other name in the parent can reach them.
 fn reject_reserved_destination(dest: &Path) -> Result<(), DownloadError> {
+    // Before anything is normalised: `file_name()` drops a trailing separator and a trailing
+    // `.`, so `important.bin/.` and `important.bin/` would be read as `important.bin` and a
+    // rename onto the rebuilt path would replace that file. The caller's own path names a
+    // directory there (the rename onto it fails because the prefix is not one), so refuse it.
+    if names_a_directory(&raw_units(dest), cfg!(windows)) {
+        return Err(DownloadError::Io(
+            "the destination names a directory (it ends in a path separator, `.` or `..`); \
+             give the path of the file"
+                .into(),
+        ));
+    }
     let Some(name) = dest.file_name() else {
         return Err(DownloadError::Io(
             "destination has no file name (it ends in `..` or is a root)".into(),
@@ -1042,6 +1110,49 @@ fn reject_reserved_destination(dest: &Path) -> Result<(), DownloadError> {
         return Err(inside_coordination_dir());
     }
     Ok(())
+}
+
+/// The destination exactly as given: the bytes on Unix, the UTF-16 code units on Windows. No
+/// lossy conversion, and no component parsing that would drop a trailing separator or `.`.
+#[cfg(unix)]
+fn raw_units(path: &Path) -> Vec<u32> {
+    use std::os::unix::ffi::OsStrExt;
+    path.as_os_str()
+        .as_bytes()
+        .iter()
+        .map(|b| u32::from(*b))
+        .collect()
+}
+
+#[cfg(windows)]
+fn raw_units(path: &Path) -> Vec<u32> {
+    use std::os::windows::ffi::OsStrExt;
+    path.as_os_str().encode_wide().map(u32::from).collect()
+}
+
+#[cfg(not(any(unix, windows)))]
+fn raw_units(path: &Path) -> Vec<u32> {
+    path.to_string_lossy().chars().map(u32::from).collect()
+}
+
+/// Whether the raw path `units` names a directory rather than a file: it ends in a separator
+/// (`/`; with `windows` also `\`), or its last component is `.` or `..`. `windows` is a
+/// parameter so both rules are exercised on every platform.
+fn names_a_directory(units: &[u32], windows: bool) -> bool {
+    let is_separator = |unit: u32| unit == u32::from(b'/') || (windows && unit == u32::from(b'\\'));
+    let Some(&last) = units.last() else {
+        return false;
+    };
+    if is_separator(last) {
+        return true;
+    }
+    let start = units
+        .iter()
+        .rposition(|unit| is_separator(*unit))
+        .map_or(0, |index| index + 1);
+    let dot = u32::from(b'.');
+    matches!(&units[start..], [a] if *a == dot)
+        || matches!(&units[start..], [a, b] if *a == dot && *b == dot)
 }
 
 /// Whether any component of `path` is the download directory's name ([`fold`]ed).
@@ -1539,6 +1650,61 @@ mod tests {
                     Err(DownloadError::Io(_))
                 ),
                 "{bad}"
+            );
+        }
+    }
+
+    fn units(path: &str) -> Vec<u32> {
+        path.chars().map(u32::from).collect()
+    }
+
+    /// `file.bin/` and `file.bin/.` are read by `file_name()` as `file.bin`; the raw path is
+    /// what decides, so they are refused before any normalisation.
+    #[test]
+    fn a_path_that_names_a_directory_is_refused_before_it_is_normalised() {
+        for bad in [
+            "file.bin/",
+            "file.bin/.",
+            "file.bin//",
+            "file.bin/./",
+            "dir/..",
+            "a/b/..",
+            ".",
+            "..",
+            "/",
+        ] {
+            assert!(names_a_directory(&units(bad), false), "{bad}");
+            assert!(names_a_directory(&units(bad), true), "{bad}");
+            assert!(
+                matches!(
+                    reject_reserved_destination(Path::new(bad)),
+                    Err(DownloadError::Io(m)) if m.contains("names a directory")
+                ),
+                "{bad}"
+            );
+        }
+        for ok in [
+            "file.bin",
+            "dir/file.bin",
+            ".hidden",
+            "a/.b",
+            "a/..b",
+            "a/...",
+            "a/b.",
+            "",
+        ] {
+            assert!(!names_a_directory(&units(ok), false), "{ok:?}");
+            assert!(!names_a_directory(&units(ok), true), "{ok:?}");
+        }
+        // A backslash separates only on Windows: on Unix `file.bin\\` is a file name.
+        for windows_only in ["file.bin\\", "dir\\.", "dir\\.."] {
+            assert!(
+                names_a_directory(&units(windows_only), true),
+                "{windows_only}"
+            );
+            assert!(
+                !names_a_directory(&units(windows_only), false),
+                "{windows_only}"
             );
         }
     }
