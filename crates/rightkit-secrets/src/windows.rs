@@ -467,11 +467,12 @@ mod tests {
     /// 16 bytes, computed outside this crate.
     #[test]
     fn the_legacy_lock_has_the_name_older_versions_take() {
-        let name =
-            String::from_utf16(&legacy_lock_name("dev.rightkit.secrets.legacy", "db").unwrap())
-                .unwrap();
+        // The name is built for `CreateMutexW`, so it ends with the terminating NUL.
+        let name = legacy_lock_name("dev.rightkit.secrets.legacy", "db").unwrap();
+        let (terminator, text) = name.split_last().unwrap();
+        assert_eq!(*terminator, 0);
         assert_eq!(
-            name,
+            String::from_utf16(text).unwrap(),
             "Local\\rightkit-secrets-4a09df4ea76be3781179b6dbb18cb6b1"
         );
     }
