@@ -14,7 +14,7 @@
 //!   privilege & upward listing may need `GIT_CEILING_DIRECTORIES`.
 //! * `sweep_stale_appcontainer_ancestor_aces_for_owner(path, owner_prefix)` sweeps stale
 //!   ancestor ACEs for derivation-verified owner profiles, preserving mutex-backed live
-//!   leases within the same logon session (`Local\`).
+//!   leases of any user in any logon session (`Global\`).
 
 mod denial;
 mod error;

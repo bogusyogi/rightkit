@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+- **Windows: the ancestor-ACE sweep sees leases held in another logon session.** The lease mutex was in the
+  session-local object namespace, so a sweep run in a second logon session of the same user (fast user switching,
+  Remote Desktop) found no mutex for a lease held in the first, called its ancestor entry stale and removed it while
+  the confined child ran; the child then lost traverse access to those folders. Access was never widened. The mutex
+  is now `Global\rightkit-ancestor-lease-<hash>`, with no user in the name: the AppContainer SID follows from the
+  grant set, so two users with the same grants share one entry on a shared folder and must see each other's lease.
+  Every authenticated user may open it for `SYNCHRONIZE`. An entry whose lease cannot be read is kept and logged,
+  where the sweep used to fail. The old name `Local\rightkit-ancestor-lease-<hash>` is kept for compatibility: a
+  lease is created under both names and the sweep counts either as live, so a process on 0.3.3 or earlier and a
+  process on this version see each other inside one logon session (across sessions an old process is still not
+  seen). The old name can go once no supported application ships rightkit-sandbox 0.3.3 or earlier. Limit: a local
+  user who creates the global name first with a closed security descriptor makes spawns that need that lease fail;
+  nothing is removed in that case. Not run on a machine yet.
 - **Windows: `remove_unused_appcontainer_profiles()` removes AppContainer profiles nothing is using.** A spawn creates or
   adopts one `rightkit.sandbox.<hash>` profile per distinct grant set and nothing deleted them, so they accumulated for
   the user. The new call deletes those no process holds and reports what it removed and what it kept and why

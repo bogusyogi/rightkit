@@ -1,4 +1,20 @@
 //! Physical-ancestor leases. Included only by the Windows AppContainer backend.
+//!
+//! Two kinds of named kernel object say "in use", and they are named differently on purpose.
+//!
+//! * The ancestor lease mutex is `Global\rightkit-ancestor-lease-<hash of path and AppContainer
+//!   SID>`, with no user in the name. The AppContainer SID follows from the grant set alone, so two
+//!   users with the same grants share one SID and one entry on a shared folder: the lease has to be
+//!   visible to both. Every authenticated user may open it; one that cannot be opened for lack of
+//!   access still counts as live.
+//! * The profile lock and in-use mark are `Global\rightkit-profile-<kind>-<user SID>-<profile>`.
+//!   A profile registration belongs to one user, so its mark does too.
+//!
+//! Both are in `Global` so that another logon session (fast user switching, Remote Desktop) sees
+//! them. The ancestor lease is also created under its old session-local name,
+//! `Local\rightkit-ancestor-lease-<hash>`, and the sweep counts either name as live, so a process
+//! on rightkit-sandbox 0.3.3 or earlier and a process on this version see each other inside one
+//! session.
 use super::*;
 use std::os::windows::ffi::OsStringExt;
 
@@ -12,6 +28,12 @@ unsafe extern "system" {
     fn GetFinalPathNameByHandleW(handle: *mut c_void, path: *mut u16, len: u32, flags: u32) -> u32;
     fn CreateMutexW(attributes: *const c_void, initial_owner: i32, name: *const u16)
         -> *mut c_void;
+    fn CreateMutexExW(
+        attributes: *const c_void,
+        name: *const u16,
+        flags: u32,
+        access: u32,
+    ) -> *mut c_void;
     fn OpenMutexW(access: u32, inherit: i32, name: *const u16) -> *mut c_void;
     fn WaitForSingleObject(handle: *mut c_void, milliseconds: u32) -> u32;
     fn ReleaseMutex(handle: *mut c_void) -> i32;
@@ -631,8 +653,25 @@ struct AncestorEntry {
     _mutex: AncestorMutex,
 }
 
-/// Paths supplied here come from physical_path; normalize case & separators once.
+/// The lease's name in the machine-wide namespace: every logon session and every user sees it.
 fn ancestor_mutex_name(path: &Path, sid: &str) -> io::Result<String> {
+    Ok(format!(
+        r"Global\rightkit-ancestor-lease-{}",
+        ancestor_mutex_hex(path, sid)?
+    ))
+}
+
+/// The name rightkit-sandbox 0.3.3 and earlier use. Kept so old and new processes in one logon
+/// session see each other's leases.
+fn legacy_ancestor_mutex_name(path: &Path, sid: &str) -> io::Result<String> {
+    Ok(format!(
+        r"Local\rightkit-ancestor-lease-{}",
+        ancestor_mutex_hex(path, sid)?
+    ))
+}
+
+/// Paths supplied here come from physical_path; normalize case & separators once.
+fn ancestor_mutex_hex(path: &Path, sid: &str) -> io::Result<String> {
     let input = format!(
         "{}|{}",
         lexical_path_key(path).to_lowercase(),
@@ -656,34 +695,113 @@ fn ancestor_mutex_name(path: &Path, sid: &str) -> io::Result<String> {
             unsafe { RtlNtStatusToDosError(status) } as i32,
         ));
     }
-    let hex: String = digest.iter().map(|byte| format!("{byte:02x}")).collect();
-    Ok(format!(r"Local\rightkit-ancestor-lease-{hex}"))
+    Ok(digest.iter().map(|byte| format!("{byte:02x}")).collect())
 }
 
-// Handle ownership is independent of threads; no waits or mutex ownership are used.
-struct AncestorMutex(usize);
-impl Drop for AncestorMutex {
-    fn drop(&mut self) {
-        unsafe { CloseHandle(self.0 as *mut c_void) };
-    }
-}
-impl AncestorMutex {
-    fn create(path: &Path, sid: &str) -> io::Result<Self> {
-        let name = wide(ancestor_mutex_name(path, sid)?);
-        let handle = unsafe { CreateMutexW(std::ptr::null(), 0, name.as_ptr()) };
-        if handle.is_null() {
-            Err(io::Error::last_os_error())
-        } else {
-            Ok(Self(handle as usize))
+/// An entry is stale only when its lease mutex was proved absent. A proof that failed keeps it.
+fn proved_stale(path: &Path, sid: &str, proof: io::Result<bool>) -> bool {
+    match proof {
+        Ok(exists) => !exists,
+        Err(error) => {
+            eprintln!(
+                "rightkit-sandbox: ancestor ACE kept for {} ({sid}): liveness unread: {error}",
+                path.display()
+            );
+            false
         }
     }
 }
 
-fn ancestor_mutex_exists(path: &Path, sid: &str) -> io::Result<bool> {
-    let name = wide(ancestor_mutex_name(path, sid)?);
-    let handle = unsafe { OpenMutexW(0x0010_0000, 0, name.as_ptr()) }; // SYNCHRONIZE
+const SYNCHRONIZE: u32 = 0x0010_0000;
+
+// Handle ownership is independent of threads; no waits or mutex ownership are used.
+struct MutexHandle(usize);
+impl Drop for MutexHandle {
+    fn drop(&mut self) {
+        unsafe { CloseHandle(self.0 as *mut c_void) };
+    }
+}
+
+#[repr(C)]
+struct MutexSecurityAttributes {
+    length: u32,
+    descriptor: *mut c_void,
+    inherit: i32,
+}
+
+/// Create or open the machine-wide lease. The creator has full access and every authenticated
+/// user may open it for `SYNCHRONIZE`, which is all a second holder asks for: a user who shares
+/// the folder and the grant set then holds the same object for as long as its own child runs.
+fn create_shared_mutex(name: &str) -> io::Result<MutexHandle> {
+    let sddl = wide(format!(
+        "D:(A;;GA;;;{})(A;;0x100000;;;AU)",
+        current_user_sid()?
+    ));
+    let mut descriptor = std::ptr::null_mut();
+    let mut size = 0u32;
+    // SAFETY: NUL-terminated SDDL and valid out-pointers.
+    if unsafe {
+        ConvertStringSecurityDescriptorToSecurityDescriptorW(
+            sddl.as_ptr(),
+            1,
+            &mut descriptor,
+            &mut size,
+        )
+    } == 0
+    {
+        return Err(io::Error::last_os_error());
+    }
+    let attributes = MutexSecurityAttributes {
+        length: std::mem::size_of::<MutexSecurityAttributes>() as u32,
+        descriptor,
+        inherit: 0,
+    };
+    let name = wide(name);
+    // SAFETY: the attributes and the name outlive the call. An existing object is opened with
+    // SYNCHRONIZE only and its own security descriptor is left as it is.
+    let handle = unsafe {
+        CreateMutexExW(
+            (&raw const attributes).cast(),
+            name.as_ptr(),
+            0,
+            SYNCHRONIZE,
+        )
+    };
+    let error = io::Error::last_os_error();
+    // SAFETY: allocated by the SDDL conversion; freed once.
+    unsafe { LocalFree(descriptor) };
+    if handle.is_null() {
+        Err(error)
+    } else {
+        Ok(MutexHandle(handle as usize))
+    }
+}
+
+/// One lease, held under both names for as long as the value lives.
+struct AncestorMutex {
+    _global: MutexHandle,
+    _legacy: MutexHandle,
+}
+impl AncestorMutex {
+    fn create(path: &Path, sid: &str) -> io::Result<Self> {
+        let global = create_shared_mutex(&ancestor_mutex_name(path, sid)?)?;
+        let name = wide(legacy_ancestor_mutex_name(path, sid)?);
+        let handle = unsafe { CreateMutexW(std::ptr::null(), 0, name.as_ptr()) };
+        if handle.is_null() {
+            return Err(io::Error::last_os_error());
+        }
+        Ok(Self {
+            _global: global,
+            _legacy: MutexHandle(handle as usize),
+        })
+    }
+}
+
+fn named_mutex_exists(name: &str) -> io::Result<bool> {
+    let name = wide(name);
+    let handle = unsafe { OpenMutexW(SYNCHRONIZE, 0, name.as_ptr()) };
     if !handle.is_null() {
-        drop(AncestorMutex(handle as usize));
+        drop(MutexHandle(handle as usize));
         return Ok(true);
     }
     let error = io::Error::last_os_error();
@@ -691,6 +809,17 @@ fn ancestor_mutex_exists(path: &Path, sid: &str) -> io::Result<bool> {
         Some(2) => Ok(false), // ERROR_FILE_NOT_FOUND alone proves no holder.
         Some(5) => Ok(true),  // ERROR_ACCESS_DENIED still proves existence.
         _ => Err(error),
+    }
+}
+
+/// Live under either name is live. Absent needs both names proved absent.
+fn ancestor_mutex_exists(path: &Path, sid: &str) -> io::Result<bool> {
+    let global = named_mutex_exists(&ancestor_mutex_name(path, sid)?);
+    let legacy = named_mutex_exists(&legacy_ancestor_mutex_name(path, sid)?);
+    match (global, legacy) {
+        (Ok(true), _) | (_, Ok(true)) => Ok(true),
+        (Err(error), _) | (_, Err(error)) => Err(error),
+        (Ok(false), Ok(false)) => Ok(false),
     }
 }
 
@@ -747,8 +876,7 @@ fn sweep_chain(
                             && !grants.contains_key(&k)
                             && unsafe { EqualSid(trustee, sid.0) } != 0
                         {
-                            stale = !ancestor_mutex_exists(path, text)
-                                .map_err(|e| ancestor_error(path, e))?;
+                            stale = proved_stale(path, text, ancestor_mutex_exists(path, text));
                             break;
                         }
                     }
@@ -768,8 +896,9 @@ fn sweep_chain(
 
 /// Remove stale explicit allow ACEs belonging to registered `rightkit.sandbox.` profiles
 /// from physical ancestors of `path` (excluding `path`). Returns removed ACE count.
-/// Live leases in this process & other processes in the same logon session (`Local\`
-/// mutex namespace), plus unrelated SIDs, are preserved. Paths must exist.
+/// Live leases in this process & other processes of any user in any logon session (`Global\`
+/// mutex namespace), plus unrelated SIDs, are preserved. An entry whose liveness cannot be
+/// read is kept, never removed. Paths must exist.
 /// Crashed holders become sweepable when their kernel handles close.
 pub fn sweep_stale_appcontainer_ancestor_aces(path: &Path) -> Result<usize, SandboxError> {
     sweep_stale_appcontainer_ancestor_aces_for_owner(path, PROFILE_PREFIX)
@@ -780,8 +909,9 @@ pub fn sweep_stale_appcontainer_ancestor_aces(path: &Path) -> Result<usize, Sand
 /// Prefixes require at least two nonempty lowercase ASCII letter/digit/hyphen segments,
 /// separated by '.', ending with '.', within 2..=64 bytes. Ownership requires a 16-hex
 /// suffix & a derived SID matching its persisted mapping. Paths must exist.
-/// Live leases in this process & other processes in the same logon session (`Local\`
-/// mutex namespace), plus unrelated SIDs, are preserved.
+/// Live leases in this process & other processes of any user in any logon session (`Global\`
+/// mutex namespace), plus unrelated SIDs, are preserved. An entry whose liveness cannot be
+/// read is kept, never removed.
 /// Crashed holders become sweepable when their kernel handles close.
 pub fn sweep_stale_appcontainer_ancestor_aces_for_owner(
     path: &Path,
@@ -940,7 +1070,8 @@ impl AncestorLease {
             }
             for path in chain {
                 if policy == AncestorLeasePolicy::BestEffort {
-                    // Only sweep writes may be skipped; reads & mutex failures stay fatal.
+                    // Only sweep writes may be skipped; reads stay fatal. An unread lease
+                    // mutex keeps its entry.
                     let sweep_write_failed = std::cell::Cell::new(false);
                     let swept = sweep_chain(
                         std::slice::from_ref(path),
