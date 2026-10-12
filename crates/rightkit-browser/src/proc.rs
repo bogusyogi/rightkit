@@ -15,6 +15,14 @@ use std::io::{BufRead, BufReader};
 use std::path::Path;
 use std::process::Stdio;
 use std::time::Duration;
+#[cfg(windows)]
+use std::{
+    fs::{File, OpenOptions},
+    io::{Read, Seek, SeekFrom},
+};
+
+#[cfg(windows)]
+const FIXTURE_LOG_TAIL_BYTES: u64 = 16 * 1024;
 
 pub(crate) struct ChromeProc {
     child: ChromeChild,
@@ -27,6 +35,10 @@ pub(crate) struct ChromeProc {
     pipe_io: Option<WindowsAuxiliaryIo>,
     #[cfg(windows)]
     pipe_bridge: Option<crate::pipe_transport::PipeBridge>,
+    /// Parent-created before Chrome launches. Diagnostics only ever read this retained handle,
+    /// never a path the confined child could replace with a reparse point.
+    #[cfg(windows)]
+    fixture_log: Option<File>,
 }
 
 /// Process ownership stays explicit: fixture Windows children live in their
@@ -182,6 +194,24 @@ impl ChromeProc {
 
     pub(crate) fn has_exited(&self) -> std::io::Result<bool> {
         self.child.has_exited()
+    }
+
+    /// Snapshot bounded diagnostics from parent-owned state after a fixture CDP failure.
+    /// This is observe-only: process ownership & transport state stay unchanged.
+    #[cfg(windows)]
+    pub(crate) fn fixture_diagnostics(&self) -> String {
+        let live_exit = match self.has_exited() {
+            Ok(exited) => exited.to_string(),
+            Err(error) => format!("unavailable ({error})"),
+        };
+        let log_tail = self
+            .fixture_log
+            .as_ref()
+            .and_then(|file| bounded_file_tail(file).ok())
+            .unwrap_or_else(|| "(retained fixture log unavailable)".into());
+        format!(
+            "windows fixture diagnostic chrome_exited={live_exit}; retained_log_tail={log_tail}"
+        )
     }
 
     #[cfg(windows)]
@@ -349,6 +379,8 @@ fn spawn_chrome_command(
         pipe_io: None,
         #[cfg(windows)]
         pipe_bridge: None,
+        #[cfg(windows)]
+        fixture_log: None,
     })
 }
 
@@ -360,6 +392,20 @@ pub(crate) fn spawn_chrome_fixture_windows(
     args: &[OsString],
     profile_dir: &Path,
 ) -> Result<ChromeProc> {
+    let log_path = profile_dir.join("fixture-chrome.log");
+    // Open before the confined process starts so diagnostics read this exact handle, even if
+    // Chrome later replaces its path. The profile is an owned temporary directory.
+    let fixture_log = OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create_new(true)
+        .open(&log_path)
+        .map_err(|error| {
+            BrowserError::Launch(format!(
+                "create Windows fixture diagnostic log {}: {error}",
+                log_path.display()
+            ))
+        })?;
     let policy = SandboxPolicy::new()
         .allow_exec(exe)
         .allow_write(profile_dir)
@@ -369,7 +415,12 @@ pub(crate) fn spawn_chrome_fixture_windows(
             keep: Vec::new(),
             set: std::collections::BTreeMap::new(),
         });
-    let command = SandboxCommand::new(exe).args(args.iter().cloned());
+    let mut log_arg = OsString::from("--log-file=");
+    log_arg.push(log_path.as_os_str());
+    let command = SandboxCommand::new(exe)
+        .args(args.iter().cloned())
+        .arg("--enable-logging")
+        .arg(log_arg);
     let sandbox = Sandbox::new(ResourceAuthority::new(ResourceProfile::Practical));
     let spawn = sandbox
         .spawn_with_pipe_pair(&policy, command, "--remote-debugging-io-pipes")
@@ -381,7 +432,26 @@ pub(crate) fn spawn_chrome_fixture_windows(
         stderr_tail: StderrTail::default(),
         pipe_io: Some(spawn.io),
         pipe_bridge: None,
+        fixture_log: Some(fixture_log),
     })
+}
+
+#[cfg(windows)]
+fn bounded_file_tail(file: &File) -> std::io::Result<String> {
+    let mut reader = file.try_clone()?;
+    let length = reader.metadata()?.len();
+    reader.seek(SeekFrom::Start(
+        length.saturating_sub(FIXTURE_LOG_TAIL_BYTES),
+    ))?;
+    let mut bytes = Vec::with_capacity(FIXTURE_LOG_TAIL_BYTES as usize);
+    reader
+        .take(FIXTURE_LOG_TAIL_BYTES)
+        .read_to_end(&mut bytes)?;
+    if bytes.is_empty() {
+        Ok("(retained fixture log empty)".into())
+    } else {
+        Ok(String::from_utf8_lossy(&bytes).into_owned())
+    }
 }
 
 #[cfg(unix)]

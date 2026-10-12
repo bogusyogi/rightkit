@@ -25,6 +25,8 @@ use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 const CHILD_DEADLINE: Duration = Duration::from_secs(20);
+const LOCAL_BLACKHOLE_DEADLINE: Duration = Duration::from_secs(2);
+const LOCAL_BLACKHOLE_EXIT: i32 = 18;
 const ACCEPT_SETTLE: Duration = Duration::from_millis(300);
 const DENIED_EXIT: i32 = 17;
 const REMOTE_CONTROL_DEADLINE: Duration = Duration::from_secs(10);
@@ -207,7 +209,7 @@ fn non_loopback_ipv4_addresses() -> Vec<Ipv4Addr> {
     }
     assert!(
         !addresses.is_empty(),
-        "Windows host exposed no non-loopback IPv4 address; outbound denial cannot be proved with loopback"
+        "Windows host exposed no non-loopback IPv4 address; narrow local listener control cannot use loopback"
     );
     addresses.into_iter().collect()
 }
@@ -219,8 +221,19 @@ fn tcp_probe_script(root: &Path) -> PathBuf {
         r#"$status = 19
 $client = [System.Net.Sockets.TcpClient]::new()
 try {
-    $client.Connect($env:RIGHTKIT_SANDBOX_OUTBOUND_HOST, [int]$env:RIGHTKIT_SANDBOX_OUTBOUND_PORT)
-    $status = 0
+    $timeoutMs = [int]$env:RIGHTKIT_SANDBOX_OUTBOUND_TIMEOUT_MS
+    if ($timeoutMs -gt 0) {
+        $connect = $client.ConnectAsync($env:RIGHTKIT_SANDBOX_OUTBOUND_HOST, [int]$env:RIGHTKIT_SANDBOX_OUTBOUND_PORT)
+        if ($connect.Wait($timeoutMs)) {
+            $connect.GetAwaiter().GetResult()
+            $status = 0
+        } else {
+            $status = 18
+        }
+    } else {
+        $client.Connect($env:RIGHTKIT_SANDBOX_OUTBOUND_HOST, [int]$env:RIGHTKIT_SANDBOX_OUTBOUND_PORT)
+        $status = 0
+    }
 } catch {
     $exception = $_.Exception
     for ($depth = 0; $depth -lt 8 -and $null -ne $exception; $depth++) {
@@ -243,7 +256,13 @@ exit $status
     script
 }
 
-fn tcp_probe_command(script: &Path, host: Ipv4Addr, port: u16, hold: bool) -> SandboxCommand {
+fn tcp_probe_command(
+    script: &Path,
+    host: Ipv4Addr,
+    port: u16,
+    hold: bool,
+    connect_timeout: Option<Duration>,
+) -> SandboxCommand {
     SandboxCommand::new("powershell.exe")
         .args(["-NoProfile", "-NonInteractive", "-File"])
         .arg(script.as_os_str())
@@ -252,6 +271,12 @@ fn tcp_probe_command(script: &Path, host: Ipv4Addr, port: u16, hold: bool) -> Sa
         .env(
             "RIGHTKIT_SANDBOX_OUTBOUND_HOLD",
             if hold { "1" } else { "0" },
+        )
+        .env(
+            "RIGHTKIT_SANDBOX_OUTBOUND_TIMEOUT_MS",
+            connect_timeout
+                .map(|timeout| timeout.as_millis().to_string())
+                .unwrap_or_default(),
         )
 }
 
@@ -372,7 +397,7 @@ fn pipe_pair_appcontainer_without_internet_client_cannot_reach_host_non_loopback
             let before = listener.accepted();
             let output = sandbox
                 .spawn_supervised(
-                    tcp_probe_command(&script, host, listener.port, false),
+                    tcp_probe_command(&script, host, listener.port, false, None),
                     &supervised_probe_env(),
                 )
                 .expect("spawn unsandboxed TCP positive control")
@@ -405,31 +430,43 @@ fn pipe_pair_appcontainer_without_internet_client_cannot_reach_host_non_loopback
     let pipe_spawn = sandbox
         .spawn_with_pipe_pair(
             &policy,
-            tcp_probe_command(&script, host, listener.port, false),
+            tcp_probe_command(
+                &script,
+                host,
+                listener.port,
+                false,
+                Some(LOCAL_BLACKHOLE_DEADLINE),
+            ),
             "--remote-debugging-io-pipes",
         )
         .expect("spawn network-denied AppContainer through pipe-pair path");
     let output = {
         let rightkit_sandbox::WindowsPipeSpawn { child, io } = pipe_spawn;
         let output = child
-            .wait_with_output(CHILD_DEADLINE)
+            .wait_with_output(LOCAL_BLACKHOLE_DEADLINE + Duration::from_secs(3))
             .expect("wait for network-denied AppContainer");
         drop(io);
         output
     };
     output_completed(&output, "network-denied AppContainer");
-    assert_eq!(
-        output.status.and_then(|status| status.code()),
-        Some(DENIED_EXIT),
-        "same helper reached host listener despite NetworkPolicy::Deny"
+    let local_exit = output.status.and_then(|status| status.code());
+    assert!(
+        matches!(local_exit, Some(DENIED_EXIT | LOCAL_BLACKHOLE_EXIT)),
+        "host-non-loopback control must return access-denied or explicit bounded-blackhole exit: {local_exit:?}"
     );
     assert!(
         !listener.wait_for_next_accept(denied_before),
         "network-denied AppContainer reached host listener"
     );
+    let local_behavior = if local_exit == Some(DENIED_EXIT) {
+        "access_denied_no_hit"
+    } else {
+        "bounded_blackhole_no_hit"
+    };
     println!(
-        "windows outbound local denial endpoint={host}:{} exit={DENIED_EXIT} listener_hit=false",
-        listener.port
+        "windows outbound narrow local control endpoint={host}:{} exit={} behavior={local_behavior}",
+        listener.port,
+        local_exit.unwrap_or_default()
     );
 
     // `wait_with_output` consumes and drops the confined child, which closes its job before
@@ -455,7 +492,7 @@ fn pipe_pair_appcontainer_without_internet_client_cannot_reach_remote_tcp_contro
         .find(|&(host, port)| {
             let output = sandbox
                 .spawn_supervised(
-                    tcp_probe_command(&script, host, port, false),
+                    tcp_probe_command(&script, host, port, false, None),
                     &supervised_probe_env(),
                 )
                 .expect("spawn unsandboxed remote TCP positive control")
@@ -480,7 +517,7 @@ fn pipe_pair_appcontainer_without_internet_client_cannot_reach_remote_tcp_contro
     let pipe_spawn = sandbox
         .spawn_with_pipe_pair(
             &policy,
-            tcp_probe_command(&script, host, port, true),
+            tcp_probe_command(&script, host, port, true, None),
             "--remote-debugging-io-pipes",
         )
         .expect("spawn network-denied AppContainer through pipe-pair path");

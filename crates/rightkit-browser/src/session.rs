@@ -360,6 +360,7 @@ pub struct BrowserSession {
     pid: Option<u32>,
     proc: Arc<StdMutex<Option<ChromeProc>>>,
     fixture_stop_status: tokio::sync::watch::Sender<u8>,
+    fixture_stop_failure: Arc<StdMutex<Option<String>>>,
     fixture_stop_lock: Mutex<()>,
     proxy: Option<PinProxy>,
     /// Set before an intentional stop so the CDP pump does not report a crash.
@@ -800,6 +801,7 @@ impl BrowserSession {
             pid,
             proc,
             fixture_stop_status,
+            fixture_stop_failure: Arc::new(StdMutex::new(None)),
             fixture_stop_lock: Mutex::new(()),
             proxy,
             stopping,
@@ -844,7 +846,8 @@ impl BrowserSession {
     pub(crate) async fn configure_fixture_downloads(
         &self,
     ) -> std::result::Result<(), FixtureError> {
-        self.browser
+        let configured = self
+            .browser
             .lock()
             .await
             .execute(
@@ -855,8 +858,27 @@ impl BrowserSession {
                     .map_err(|error| FixtureError::Browser(error.to_string()))?,
             )
             .await
-            .map_err(|error| FixtureError::Browser(error.to_string()))?;
+            .map_err(|error| FixtureError::Browser(error.to_string()));
+        #[cfg(windows)]
+        if let Err(error) = configured {
+            return Err(FixtureError::Browser(format!(
+                "{error}; {}",
+                self.fixture_cdp_diagnostics()
+            )));
+        }
+        #[cfg(not(windows))]
+        configured?;
         Ok(())
+    }
+
+    #[cfg(windows)]
+    fn fixture_cdp_diagnostics(&self) -> String {
+        self.proc
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .as_ref()
+            .map(ChromeProc::fixture_diagnostics)
+            .unwrap_or_else(|| "windows fixture diagnostic process ownership absent".into())
     }
     /// OS process id of the Chrome child this session owns.
     pub fn process_id(&self) -> Option<u32> {
@@ -1066,9 +1088,15 @@ impl BrowserSession {
             match current {
                 2 => break Ok(()),
                 3 => {
-                    break Err(FixtureError::Cleanup(
-                        "browser termination previously failed without a stop receipt".into(),
-                    ));
+                    let detail = self
+                        .fixture_stop_failure
+                        .lock()
+                        .unwrap_or_else(|error| error.into_inner())
+                        .clone()
+                        .unwrap_or_else(|| "terminal stop worker gave no detail".into());
+                    break Err(FixtureError::Cleanup(format!(
+                        "browser termination previously failed without a stop receipt: {detail}"
+                    )));
                 }
                 1 => {
                     drop(lock);
@@ -1089,6 +1117,12 @@ impl BrowserSession {
                     self.fixture_stop_status.send_replace(1);
                     let process = self.proc.lock().unwrap().take();
                     let Some(mut process) = process else {
+                        *self
+                            .fixture_stop_failure
+                            .lock()
+                            .unwrap_or_else(|error| error.into_inner()) = Some(
+                            "browser process ownership is absent without a stop receipt".into(),
+                        );
                         self.fixture_stop_status.send_replace(3);
                         break Err(FixtureError::Cleanup(
                             "browser process ownership is absent without a stop receipt".into(),
@@ -1100,6 +1134,7 @@ impl BrowserSession {
                     // fencing without abandoning status=1 or the process handle.
                     let process_slot = self.proc.clone();
                     let status_sender = self.fixture_stop_status.clone();
+                    let failure_slot = self.fixture_stop_failure.clone();
                     tokio::spawn(async move {
                         let mut completion = FixtureStopCompletionGuard {
                             status: status_sender,
@@ -1112,9 +1147,21 @@ impl BrowserSession {
                         .await;
                         let (process, result) = match terminated {
                             Ok(result) => result,
-                            Err(_) => return,
+                            Err(error) => {
+                                *failure_slot
+                                    .lock()
+                                    .unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(
+                                    format!("fixture browser termination worker failed: {error}"),
+                                );
+                                return;
+                            }
                         };
-                        if result.is_err() {
+                        if let Err(error) = result {
+                            *failure_slot
+                                .lock()
+                                .unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(format!(
+                                "fixture browser process tree termination failed: {error}"
+                            ));
                             *process_slot
                                 .lock()
                                 .unwrap_or_else(|error| error.into_inner()) = Some(process);
@@ -1123,11 +1170,15 @@ impl BrowserSession {
                         #[cfg(windows)]
                         {
                             let mut process = process;
-                            if process
+                            if let Err(error) = process
                                 .finish_fixture_transport_shutdown(Instant::now() + GRACE)
                                 .await
-                                .is_err()
                             {
+                                *failure_slot
+                                    .lock()
+                                    .unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(
+                                    format!("fixture CDP bridge finalization failed: {error}"),
+                                );
                                 *process_slot
                                     .lock()
                                     .unwrap_or_else(|error| error.into_inner()) = Some(process);

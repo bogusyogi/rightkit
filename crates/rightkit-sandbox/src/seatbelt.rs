@@ -10,6 +10,7 @@
 use crate::{NetworkPolicy, SandboxPolicy};
 use std::ffi::{CString, OsString};
 use std::net::{Ipv4Addr, SocketAddr};
+use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
 use std::path::{Path, PathBuf};
 
 unsafe extern "C" {
@@ -18,7 +19,6 @@ unsafe extern "C" {
         flags: u64,
         errorbuf: *mut *mut libc::c_char,
     ) -> i32;
-    fn sandbox_free_error(errorbuf: *mut libc::c_char);
 }
 
 /// Resolve symlinks; for paths that do not exist yet, resolve the deepest existing ancestor.
@@ -250,41 +250,92 @@ pub fn profile_for(policy: &SandboxPolicy) -> String {
 }
 
 /// Prepared in the parent; call [`Prepared::apply`] from `pre_exec`.
-pub struct Prepared(CString);
+pub struct Prepared {
+    profile: CString,
+    diagnostic: bool,
+    /// CI-only duplicate of parent stderr. CLOEXEC keeps it available to `pre_exec` while the
+    /// empty fixture inheritance sweep runs, then closes it on Chrome exec.
+    diagnostic_stderr: Option<OwnedFd>,
+}
 
 impl Prepared {
     pub fn new(policy: &SandboxPolicy) -> std::io::Result<Self> {
         CString::new(profile_for(policy))
-            .map(Self)
+            .map(|profile| Self {
+                profile,
+                diagnostic: false,
+                diagnostic_stderr: None,
+            })
             .map_err(|_| std::io::Error::other("seatbelt profile contained a NUL byte"))
     }
 
     /// Prepare strict browser-fixture confinement in the parent, before child `pre_exec`.
     pub fn for_browser_fixture(policy: &BrowserFixturePolicy) -> std::io::Result<Self> {
+        let diagnostic = std::env::var("GITHUB_ACTIONS").is_ok_and(|value| value == "true");
+        let diagnostic_stderr = if diagnostic {
+            // SAFETY: fcntl duplicates the valid parent stderr descriptor. OwnedFd takes sole
+            // ownership of its new descriptor and closes it after spawn returns.
+            let fd = unsafe { libc::fcntl(libc::STDERR_FILENO, libc::F_DUPFD_CLOEXEC, 3) };
+            if fd < 0 {
+                return Err(std::io::Error::last_os_error());
+            }
+            // SAFETY: fd is a fresh duplicate owned by no Rust value.
+            Some(unsafe { OwnedFd::from_raw_fd(fd) })
+        } else {
+            None
+        };
         CString::new(fixture_profile_for(policy)?)
-            .map(Self)
+            .map(|profile| Self {
+                profile,
+                diagnostic,
+                diagnostic_stderr,
+            })
             .map_err(|_| std::io::Error::other("seatbelt profile contained a NUL byte"))
+    }
+
+    /// Writes bounded CI diagnostics from the post-fork child without allocation or locking.
+    fn write_diagnostic(&self, bytes: &[u8]) {
+        if self.diagnostic {
+            if let Some(stderr) = &self.diagnostic_stderr {
+                // SAFETY: stderr is a parent-prepared, CLOEXEC descriptor held by Prepared.
+                // The write is best-effort diagnostic output only.
+                let _ = unsafe {
+                    libc::write(
+                        stderr.as_raw_fd(),
+                        bytes.as_ptr().cast::<libc::c_void>(),
+                        bytes.len(),
+                    )
+                };
+            }
+        }
     }
 
     /// Apply to the current process. Intended only for a forked child before exec.
     pub fn apply(&self) -> std::io::Result<()> {
+        self.write_diagnostic(b"rightkit-fixture-seatbelt:sandbox_init:start\n");
         let mut err: *mut libc::c_char = std::ptr::null_mut();
-        // SAFETY: valid NUL-terminated profile; err is a valid out-pointer freed below.
-        let status = unsafe { sandbox_init(self.0.as_ptr(), 0, &mut err) };
+        // SAFETY: valid NUL-terminated profile and out-pointer prepared in the parent.
+        let status = unsafe { sandbox_init(self.profile.as_ptr(), 0, &mut err) };
         if status == 0 {
+            self.write_diagnostic(b"rightkit-fixture-seatbelt:sandbox_init:success\n");
             return Ok(());
         }
-        let detail = if err.is_null() {
-            "unknown error".to_string()
-        } else {
-            // SAFETY: sandbox_init populated a NUL-terminated string, freed exactly once.
-            let t = unsafe { std::ffi::CStr::from_ptr(err) }
-                .to_string_lossy()
-                .into_owned();
-            unsafe { sandbox_free_error(err) };
-            t
-        };
-        Err(std::io::Error::other(format!("sandbox_init: {detail}")))
+        self.write_diagnostic(b"rightkit-fixture-seatbelt:sandbox_init:failure:");
+        if self.diagnostic && !err.is_null() {
+            let mut len = 0usize;
+            // SAFETY: sandbox_init returned this NUL-terminated buffer. A 1 KiB cap prevents
+            // unbounded child work before exec; it is not freed because the child now exits.
+            unsafe {
+                while len < 1024 && *err.add(len) != 0 {
+                    len += 1;
+                }
+                self.write_diagnostic(std::slice::from_raw_parts(err.cast::<u8>(), len));
+            }
+        }
+        self.write_diagnostic(b"\n");
+        // Child pre_exec must not allocate or format errors. The parent receives this fixed
+        // errno while CI stderr retains sandbox_init's bounded diagnostic detail.
+        Err(std::io::Error::from_raw_os_error(libc::EINVAL))
     }
 }
 
