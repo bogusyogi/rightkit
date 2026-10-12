@@ -17,7 +17,7 @@ Status values compare each pin with the latest published version (registry-recor
 
 - Packages in RightKit: 82 (57 crates, 25 npm packages).
 - Packages with at least one app pin: 67.
-- App pins: 793. Stale: 42. Ahead of published: 150. Unpublished: 11. Local: 466. Git: 0. Unparsed: 0.
+- App pins: 795. Stale: 41. Ahead of published: 150. Unpublished: 11. Local: 466. Git: 0. Unparsed: 0.
 - Vendored copies of RightKit packages inside app repos: 236.
 - App and package pairs with more than one requirement: 95.
 
@@ -83,7 +83,7 @@ Status values compare each pin with the latest published version (registry-recor
 | `rightkit-vad` | crates.io | 0.1.0 | 0.0.3 | 4 | cutright, heardright, scraperight, viewright | 4 vendored copies; 3 ahead of published |
 | `rightkit-watch` | crates.io | 0.4.0 | 0.3.1 | 2 | coderight, viewright | 3 vendored copies |
 | `@rightkit/agent-room-mcp` | private | 0.1.0 | none recorded | 0 | none | - |
-| `@rightkit/app-shell` | npm | 0.6.4 | 0.6.2 | 7 | coderight, cutright, genright, heardright, postright, scraperight, viewright | 5 stale |
+| `@rightkit/app-shell` | npm | 0.6.4 | 0.6.2 | 7 | coderight, cutright, genright, heardright, postright, scraperight, viewright | 4 stale |
 | `@rightkit/ax` | npm | 0.3.2 | 0.2.4 | 2 | coderight, legion | - |
 | `@rightkit/build-control-policy` | private | 0.1.1-phase1 | none recorded | 0 | none | - |
 | `@rightkit/doc-render` | npm | 0.1.6 | 0.1.6 | 1 | viewright | - |
@@ -97,9 +97,9 @@ Status values compare each pin with the latest published version (registry-recor
 | `@rightkit/media-ui` | npm | 0.3.4 | 0.3.4 | 4 | cutright, genright, scraperight, viewright | 3 stale |
 | `@rightkit/onboarding` | npm | 0.3.2 | 0.3.2 | 4 | cutright, genright, heardright, scraperight | - |
 | `@rightkit/pdf-ui` | npm | 0.1.6 | 0.1.6 | 1 | viewright | - |
-| `@rightkit/platform-ui` | npm | 0.2.8 | 0.2.7 | 6 | coderight, cutright, genright, postright, scraperight, viewright | 4 stale |
-| `@rightkit/qa` | npm | 0.4.8 | 0.4.7 | 1 | scraperight | 1 stale |
-| `@rightkit/qa-chrome` | npm | 0.1.6 | 0.1.5 | 3 | heardright, scraperight, viewright | 2 stale |
+| `@rightkit/platform-ui` | npm | 0.2.8 | 0.2.7 | 7 | coderight, cutright, genright, heardright, postright, scraperight, viewright | 4 stale |
+| `@rightkit/qa` | npm | 0.4.8 | 0.4.7 | 2 | heardright, scraperight | 2 stale |
+| `@rightkit/qa-chrome` | npm | 0.1.6 | 0.1.5 | 3 | heardright, scraperight, viewright | 1 stale |
 | `@rightkit/release` | npm | 0.2.153 | 0.2.151 | 10 | coderight, cutright, genright, heardright, legion, mailright, postright, scraperight, viewright, voiceright | 2 stale |
 | `@rightkit/settings-ui` | npm | 0.4.4 | 0.4.3 | 4 | cutright, genright, heardright, scraperight | 3 stale |
 | `@rightkit/shell` | npm | 0.1.1 | 0.1.1 | 2 | coderight, cutright | 2 stale |
@@ -814,7 +814,7 @@ Status values compare each pin with the latest published version (registry-recor
 | `@rightkit/app-shell` | coderight | `coderight/apps/coderight-tauri/package.json` | dependencies | `0.5.0` | 0.6.2 | stale |
 | `@rightkit/app-shell` | cutright | `cutright/apps/cutright/package.json` | dependencies | `0.5.0` | 0.6.2 | stale |
 | `@rightkit/app-shell` | genright | `genright/package.json` | dependencies | `0.6.1` | 0.6.2 | stale |
-| `@rightkit/app-shell` | heardright | `heardright/tauri-app-next/package.json` | dependencies | `0.5.0` | 0.6.2 | stale |
+| `@rightkit/app-shell` | heardright | `heardright/tauri-app-next/package.json` | dependencies | `0.6.2` | 0.6.2 | current |
 | `@rightkit/app-shell` | postright | `postright/package.json` | dependencies | `0.6.2` | 0.6.2 | current |
 | `@rightkit/app-shell` | scraperight | `scraperight/package.json` | dependencies | `0.6.0` | 0.6.2 | stale |
 | `@rightkit/app-shell` | viewright | `viewright/package.json` | dependencies | `0.6.2` | 0.6.2 | current |
@@ -863,11 +863,13 @@ Status values compare each pin with the latest published version (registry-recor
 | `@rightkit/platform-ui` | coderight | `coderight/apps/coderight-tauri/package.json` | dependencies | `0.2.3` | 0.2.7 | stale |
 | `@rightkit/platform-ui` | cutright | `cutright/apps/cutright/package.json` | dependencies | `0.2.1` | 0.2.7 | stale |
 | `@rightkit/platform-ui` | genright | `genright/package.json` | dependencies | `0.2.4` | 0.2.7 | stale |
+| `@rightkit/platform-ui` | heardright | `heardright/tauri-app-next/package.json` | dependencies | `0.2.7` | 0.2.7 | current |
 | `@rightkit/platform-ui` | postright | `postright/package.json` | dependencies | `0.2.7` | 0.2.7 | current |
 | `@rightkit/platform-ui` | scraperight | `scraperight/package.json` | dependencies | `0.2.1` | 0.2.7 | stale |
 | `@rightkit/platform-ui` | viewright | `viewright/package.json` | dependencies | `0.2.7` | 0.2.7 | current |
+| `@rightkit/qa` | heardright | `heardright/tauri-app-next/package.json` | devDependencies | `0.4.6` | 0.4.7 | stale |
 | `@rightkit/qa` | scraperight | `scraperight/package.json` | devDependencies | `0.4.1` | 0.4.7 | stale |
-| `@rightkit/qa-chrome` | heardright | `heardright/tauri-app-next/package.json` | devDependencies | `0.1.3` | 0.1.5 | stale |
+| `@rightkit/qa-chrome` | heardright | `heardright/tauri-app-next/package.json` | devDependencies | `0.1.5` | 0.1.5 | current |
 | `@rightkit/qa-chrome` | scraperight | `scraperight/package.json` | devDependencies | `0.1.3` | 0.1.5 | stale |
 | `@rightkit/qa-chrome` | viewright | `viewright/package.json` | devDependencies | `0.1.5` | 0.1.5 | current |
 | `@rightkit/release` | coderight | `coderight/apps/coderight-tauri/package.json` | devDependencies | `0.2.151` | 0.2.151 | current |
@@ -883,7 +885,7 @@ Status values compare each pin with the latest published version (registry-recor
 | `@rightkit/release` | voiceright | `voiceright/package.json` | devDependencies | `0.2.109` | 0.2.151 | stale |
 | `@rightkit/settings-ui` | cutright | `cutright/apps/cutright/package.json` | dependencies | `0.3.3` | 0.4.3 | stale |
 | `@rightkit/settings-ui` | genright | `genright/package.json` | dependencies | `0.3.4` | 0.4.3 | stale |
-| `@rightkit/settings-ui` | heardright | `heardright/tauri-app-next/package.json` | dependencies | `0.3.3` | 0.4.3 | stale |
+| `@rightkit/settings-ui` | heardright | `heardright/tauri-app-next/package.json` | dependencies | `0.4.0` | 0.4.3 | stale |
 | `@rightkit/settings-ui` | scraperight | `scraperight/package.json` | dependencies | `0.4.3` | 0.4.3 | current |
 | `@rightkit/shell` | coderight | `coderight/apps/coderight-tauri/package.json` | dependencies | `0.1.0` | 0.1.1 | stale |
 | `@rightkit/shell` | cutright | `cutright/apps/cutright/package.json` | dependencies | `0.1.0` | 0.1.1 | stale |
@@ -1257,7 +1259,7 @@ Split pins: one app names the same package with different requirements, possibly
 | genright | yes | 36 | 0 | 87 |
 | scraperight | yes | 44 | 0 | 117 |
 | viewright | yes | 95 | 0 | 188 |
-| heardright | yes | 79 | 0 | 162 |
+| heardright | yes | 79 | 0 | 164 |
 | coderight | yes | 92 | 0 | 45 |
 | mailright | yes | 3 | 0 | 16 |
 | postright | yes | 30 | 0 | 72 |
