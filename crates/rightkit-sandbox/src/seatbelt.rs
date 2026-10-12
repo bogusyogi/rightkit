@@ -9,6 +9,7 @@
 
 use crate::{NetworkPolicy, SandboxPolicy};
 use std::ffi::{CString, OsString};
+use std::net::{Ipv4Addr, SocketAddr};
 use std::path::{Path, PathBuf};
 
 unsafe extern "C" {
@@ -75,6 +76,142 @@ const SYSTEM_EXEC: &[&str] = &[
     "/Applications",
 ];
 
+/// Inputs for the narrowly confined macOS browser-fixture profile.
+///
+/// `profile_dir` must be a disposable directory owned by the fixture run. The resulting profile
+/// grants writes only beneath its canonical path.
+#[derive(Clone, Debug)]
+pub struct BrowserFixturePolicy {
+    pub chrome_executable: PathBuf,
+    pub profile_dir: PathBuf,
+    pub proxy_addr: SocketAddr,
+}
+
+const BROWSER_FIXTURE_SYSTEM_READ: &[&str] = &[
+    "/System/Library",
+    "/usr/lib",
+    "/usr/share",
+    "/private/etc",
+    "/private/var/db/dyld",
+    "/dev",
+];
+
+fn canonical_existing(path: &Path, kind: &str) -> std::io::Result<PathBuf> {
+    if !path.is_absolute() {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            format!("browser fixture {kind} path must be absolute"),
+        ));
+    }
+    let resolved = std::fs::canonicalize(path)?;
+    let metadata = std::fs::metadata(&resolved)?;
+    let valid = match kind {
+        "Chrome executable" => metadata.is_file(),
+        "profile directory" => metadata.is_dir(),
+        _ => false,
+    };
+    if !valid {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            format!("browser fixture {kind} has the wrong file type"),
+        ));
+    }
+    Ok(resolved)
+}
+
+fn quote_fixture_path(path: &Path) -> std::io::Result<String> {
+    let value = path.to_str().ok_or_else(|| {
+        std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "browser fixture paths must be valid UTF-8",
+        )
+    })?;
+    if value.chars().any(char::is_control) {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "browser fixture paths cannot contain control characters",
+        ));
+    }
+    Ok(quote(path))
+}
+
+fn browser_app_bundle(executable: &Path) -> std::io::Result<PathBuf> {
+    executable
+        .ancestors()
+        .find(|path| {
+            path.file_name()
+                .and_then(|name| name.to_str())
+                .is_some_and(|name| name.ends_with(".app"))
+        })
+        .map(Path::to_path_buf)
+        .ok_or_else(|| {
+            std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "Chrome executable must be inside a .app bundle",
+            )
+        })
+}
+
+fn validate_proxy(addr: SocketAddr) -> std::io::Result<u16> {
+    match addr {
+        SocketAddr::V4(addr) if *addr.ip() == Ipv4Addr::LOCALHOST && addr.port() != 0 => {
+            Ok(addr.port())
+        }
+        _ => Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "browser fixture proxy must be 127.0.0.1 with a nonzero port",
+        )),
+    }
+}
+
+/// Build strict deny-default SBPL for a browser fixture lane.
+///
+/// Network access is limited to TCP at `proxy_addr`; the only listener allowance is a loopback
+/// TCP debugging socket. Reads and execution stay within the Chrome bundle and fixed runtime
+/// locations, while writes stay within the canonical fixture profile directory.
+pub fn fixture_profile_for(policy: &BrowserFixturePolicy) -> std::io::Result<String> {
+    let executable = canonical_existing(&policy.chrome_executable, "Chrome executable")?;
+    let profile = canonical_existing(&policy.profile_dir, "profile directory")?;
+    let app_bundle = browser_app_bundle(&executable)?;
+    if profile.starts_with(&app_bundle) || app_bundle.starts_with(&profile) {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "browser fixture profile must not overlap the Chrome app bundle",
+        ));
+    }
+    let proxy_port = validate_proxy(policy.proxy_addr)?;
+    let executable = quote_fixture_path(&executable)?;
+    let app_bundle = quote_fixture_path(&app_bundle)?;
+    let profile = quote_fixture_path(&profile)?;
+
+    // Do not import bsd.sb here: it carries grants outside this fixture policy, including
+    // filesystem writes and IPC allowances which deny-default does not revoke.
+    let mut p = String::from(
+        "(version 1)\n(deny default)\n(allow process-fork)\n(allow signal (target self))\n(allow sysctl-read)\n",
+    );
+    p.push_str(&format!(
+        "(allow process-exec* (subpath {app_bundle}))\n(allow file-read* (subpath {app_bundle}))\n(allow file-read* (subpath {profile}))\n(allow file-write* (subpath {profile}))\n"
+    ));
+    p.push_str(&format!("(allow process-exec (literal {executable}))\n"));
+    for dir in BROWSER_FIXTURE_SYSTEM_READ {
+        p.push_str(&format!("(allow file-read* (subpath {dir:?}))\n"));
+    }
+    p.push_str(
+        "(allow file-read-metadata)\n(allow file-read* (literal \"/\"))\n\
+         (deny network-outbound)\n\
+         (allow network-outbound (require-all (remote ip \"127.0.0.1:",
+    );
+    p.push_str(&proxy_port.to_string());
+    p.push_str("\") (socket-type SOCK_STREAM)))\n");
+    p.push_str(
+        "(deny network-inbound)\n\
+         (deny network-bind)\n\
+         (allow network-bind (require-all (local ip \"127.0.0.1:*\") (socket-type SOCK_STREAM)))\n\
+         (allow network-inbound (require-all (local ip \"127.0.0.1:*\") (remote ip \"127.0.0.1:*\") (socket-type SOCK_STREAM)))\n",
+    );
+    Ok(p)
+}
+
 /// Build the deny-default SBPL profile for `policy`.
 pub fn profile_for(policy: &SandboxPolicy) -> String {
     let mut p = String::from("(version 1)\n(import \"bsd.sb\")\n(deny default)\n(allow process-fork)\n(allow signal (target self))\n(allow sysctl-read)\n");
@@ -118,6 +255,13 @@ pub struct Prepared(CString);
 impl Prepared {
     pub fn new(policy: &SandboxPolicy) -> std::io::Result<Self> {
         CString::new(profile_for(policy))
+            .map(Self)
+            .map_err(|_| std::io::Error::other("seatbelt profile contained a NUL byte"))
+    }
+
+    /// Prepare strict browser-fixture confinement in the parent, before child `pre_exec`.
+    pub fn for_browser_fixture(policy: &BrowserFixturePolicy) -> std::io::Result<Self> {
+        CString::new(fixture_profile_for(policy)?)
             .map(Self)
             .map_err(|_| std::io::Error::other("seatbelt profile contained a NUL byte"))
     }

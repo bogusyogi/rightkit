@@ -5,6 +5,11 @@
 //! destructors on Unix.
 use crate::error::{BrowserError, Result};
 use rightkit_process::{OwnedChild, OwnedCommand};
+#[cfg(windows)]
+use rightkit_sandbox::{
+    EnvPolicy, NetworkPolicy as SandboxNetworkPolicy, ResourceAuthority, ResourceProfile, Sandbox,
+    SandboxCommand, SandboxPolicy, SandboxedChild, WindowsAuxiliaryIo,
+};
 use std::ffi::OsString;
 use std::io::{BufRead, BufReader};
 use std::path::Path;
@@ -12,12 +17,77 @@ use std::process::Stdio;
 use std::time::Duration;
 
 pub(crate) struct ChromeProc {
-    pub child: OwnedChild,
+    child: ChromeChild,
     /// Unix only: kills Chrome's process group when this host process vanishes.
     pub _watchdog: Option<OwnedChild>,
     pub ws_url: String,
     /// The last lines Chrome wrote to stderr, for the detail of a failed navigation.
     pub stderr_tail: StderrTail,
+    #[cfg(windows)]
+    pipe_io: Option<WindowsAuxiliaryIo>,
+    #[cfg(windows)]
+    pipe_bridge: Option<crate::pipe_transport::PipeBridge>,
+}
+
+/// Process ownership stays explicit: fixture Windows children live in their
+/// AppContainer Job, while ordinary launches keep their existing OwnedChild.
+enum ChromeChild {
+    Owned(OwnedChild),
+    #[cfg(windows)]
+    Confined(SandboxedChild),
+}
+
+impl ChromeChild {
+    fn id(&self) -> u32 {
+        match self {
+            Self::Owned(child) => child.id(),
+            #[cfg(windows)]
+            Self::Confined(child) => child.id(),
+        }
+    }
+
+    fn try_wait(&mut self) -> std::io::Result<Option<std::process::ExitStatus>> {
+        match self {
+            Self::Owned(child) => child.try_wait(),
+            #[cfg(windows)]
+            Self::Confined(child) => child.try_wait(),
+        }
+    }
+
+    /// Observe only: fixture cleanup must retain ownership until the tree has
+    /// been killed & the Windows Job reports no active descendants.
+    fn has_exited(&self) -> std::io::Result<bool> {
+        match self {
+            Self::Owned(child) => child.process_handle()?.wait_exited_timeout(Duration::ZERO),
+            #[cfg(windows)]
+            Self::Confined(child) => child.has_exited(),
+        }
+    }
+
+    fn terminate_tree_bounded(
+        &mut self,
+        timeout: Duration,
+    ) -> std::io::Result<rightkit_process::ReapOutcome> {
+        match self {
+            Self::Owned(child) => child.terminate_tree_bounded(timeout),
+            #[cfg(windows)]
+            Self::Confined(child) => child.terminate_tree_bounded(timeout),
+        }
+    }
+
+    fn wait_or_kill(&mut self, grace: Duration) -> std::io::Result<()> {
+        match self {
+            Self::Owned(child) => child.wait_or_kill(grace).map(|_| ()),
+            #[cfg(windows)]
+            Self::Confined(child) => match child.terminate_tree_bounded(grace)? {
+                rightkit_process::ReapOutcome::Exited(_) => Ok(()),
+                rightkit_process::ReapOutcome::TimedOut => Err(std::io::Error::new(
+                    std::io::ErrorKind::TimedOut,
+                    "confined browser process tree did not exit",
+                )),
+            },
+        }
+    }
 }
 
 /// The most recent stderr lines of the Chrome process, bounded in count and length.
@@ -55,11 +125,12 @@ impl ChromeProc {
     /// Unix: SIGTERM Chrome's whole process group (Chrome's own clean-shutdown path),
     /// wait up to `grace`, then SIGKILL the group. Windows: terminate the job's tree.
     /// Then stops the watchdog.
-    pub(crate) fn terminate_gracefully(&mut self, grace: Duration) {
+    pub(crate) fn terminate_gracefully(&mut self, grace: Duration) -> std::io::Result<()> {
         #[cfg(unix)]
-        if !matches!(self.child.try_wait(), Ok(Some(_))) && self.child.wait_or_kill(grace).is_err()
         {
-            let _ = self.child.terminate_tree();
+            if !matches!(self.child.try_wait(), Ok(Some(_))) {
+                self.child.wait_or_kill(grace)?;
+            }
         }
         // Windows: always terminate the retained job, even when the browser process has
         // already exited: its renderer/GPU/utility helpers outlive it and keep the profile
@@ -67,12 +138,86 @@ impl ChromeProc {
         #[cfg(not(unix))]
         {
             let _ = grace;
-            let _ = self.child.terminate_tree_bounded(Duration::from_secs(2));
+            match self.child.terminate_tree_bounded(Duration::from_secs(2))? {
+                rightkit_process::ReapOutcome::Exited(_) => {}
+                rightkit_process::ReapOutcome::TimedOut => {
+                    return Err(std::io::Error::new(
+                        std::io::ErrorKind::TimedOut,
+                        "browser process tree did not exit after termination",
+                    ));
+                }
+            }
         }
         if let Some(w) = self._watchdog.as_mut() {
-            let _ = w.terminate_tree();
+            w.wait_or_kill(Duration::from_secs(1))?;
+        }
+        Ok(())
+    }
+
+    /// Fixture cleanup keeps the process-group leader unreaped until its whole tree is dead.
+    pub(crate) fn terminate_fixture_tree(&mut self) -> std::io::Result<()> {
+        match self.child.terminate_tree_bounded(Duration::from_secs(5))? {
+            rightkit_process::ReapOutcome::Exited(_) => {}
+            rightkit_process::ReapOutcome::TimedOut => {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::TimedOut,
+                    "fixture browser process tree did not stop",
+                ));
+            }
+        }
+        if let Some(watchdog) = self._watchdog.as_mut() {
+            watchdog.wait_or_kill(Duration::from_secs(1))?;
+        }
+        Ok(())
+    }
+
+    pub(crate) fn id(&self) -> u32 {
+        self.child.id()
+    }
+
+    pub(crate) fn try_wait(&mut self) -> std::io::Result<Option<std::process::ExitStatus>> {
+        self.child.try_wait()
+    }
+
+    pub(crate) fn has_exited(&self) -> std::io::Result<bool> {
+        self.child.has_exited()
+    }
+
+    #[cfg(windows)]
+    pub(crate) fn start_fixture_pipe_bridge(
+        &mut self,
+        deadline: std::time::Instant,
+    ) -> Result<String> {
+        let io = self.pipe_io.take().ok_or_else(|| {
+            BrowserError::Launch("Windows fixture CDP pipe ownership is absent".into())
+        })?;
+        let (to_child, from_child) = io.into_parent_handles();
+        let bridge = crate::pipe_transport::PipeBridge::start(to_child, from_child, deadline)?;
+        let url = bridge.websocket_url().to_owned();
+        self.pipe_bridge = Some(bridge);
+        Ok(url)
+    }
+
+    #[cfg(windows)]
+    pub(crate) fn begin_fixture_transport_shutdown(&self) {
+        if let Some(bridge) = &self.pipe_bridge {
+            bridge.begin_shutdown();
         }
     }
+
+    #[cfg(windows)]
+    pub(crate) async fn finish_fixture_transport_shutdown(
+        &mut self,
+        deadline: std::time::Instant,
+    ) -> Result<()> {
+        let bridge = self.pipe_bridge.as_mut().ok_or_else(|| {
+            BrowserError::Launch("Windows fixture transport ownership is absent".into())
+        })?;
+        bridge.shutdown(deadline).await
+    }
+
+    #[cfg(not(windows))]
+    pub(crate) fn begin_fixture_transport_shutdown(&self) {}
 }
 
 /// The caller's job object to bind Chrome to (Windows only).
@@ -106,8 +251,51 @@ pub(crate) fn spawn_chrome(
     timeout: Duration,
     job: CallerJob,
 ) -> Result<ChromeProc> {
-    #[cfg_attr(not(windows), allow(unused_mut))]
+    spawn_chrome_command(chrome_command(exe, args), timeout, job)
+}
+
+/// Fixture launches require a real macOS Seatbelt profile. Other platforms fail closed at
+/// the caller before reaching this function; this cfg boundary prevents an accidental
+/// unconfined fixture spawn from being added later.
+#[cfg(target_os = "macos")]
+pub(crate) fn spawn_chrome_fixture(
+    exe: &Path,
+    args: &[OsString],
+    timeout: Duration,
+    profile_dir: &Path,
+    proxy_addr: std::net::SocketAddr,
+) -> Result<ChromeProc> {
+    use rightkit_sandbox::seatbelt::{BrowserFixturePolicy, Prepared};
+    use std::os::unix::process::CommandExt;
+
+    let policy = BrowserFixturePolicy {
+        chrome_executable: exe.to_path_buf(),
+        profile_dir: profile_dir.to_path_buf(),
+        proxy_addr,
+    };
+    let prepared = Prepared::for_browser_fixture(&policy).map_err(|error| {
+        BrowserError::Launch(format!("fixture confinement unavailable: {error}"))
+    })?;
     let mut cmd = chrome_command(exe, args);
+    cmd.env_clear()
+        .env("HOME", profile_dir)
+        .env("TMPDIR", profile_dir)
+        .env("TMP", profile_dir)
+        .env("TEMP", profile_dir)
+        .inherit_handles_only(std::iter::empty());
+    // SAFETY: the closure only applies a precomputed Seatbelt profile in the forked child;
+    // it performs no allocation, lock acquisition, or interaction with parent state.
+    unsafe {
+        cmd.command_mut().pre_exec(move || prepared.apply());
+    }
+    spawn_chrome_command(cmd, timeout, None)
+}
+
+fn spawn_chrome_command(
+    #[cfg_attr(not(windows), allow(unused_mut))] mut cmd: OwnedCommand,
+    timeout: Duration,
+    job: CallerJob,
+) -> Result<ChromeProc> {
     #[cfg(windows)]
     if let Some(job) = &job {
         use std::os::windows::io::AsHandle;
@@ -151,10 +339,46 @@ pub(crate) fn spawn_chrome(
         .map_err(|_| BrowserError::Launch("chrome did not report a DevTools endpoint".into()))?;
     let watchdog = spawn_watchdog(child.id());
     Ok(ChromeProc {
-        child,
+        child: ChromeChild::Owned(child),
         _watchdog: watchdog,
         ws_url,
         stderr_tail,
+        #[cfg(windows)]
+        pipe_io: None,
+        #[cfg(windows)]
+        pipe_bridge: None,
+    })
+}
+
+/// Windows fixture Chrome has no DevTools TCP listener & no network authority.
+/// Its sole CDP channel is a sandbox-created inherited pipe pair.
+#[cfg(windows)]
+pub(crate) fn spawn_chrome_fixture_windows(
+    exe: &Path,
+    args: &[OsString],
+    profile_dir: &Path,
+) -> Result<ChromeProc> {
+    let policy = SandboxPolicy::new()
+        .allow_exec(exe)
+        .allow_write(profile_dir)
+        .network(SandboxNetworkPolicy::Deny)
+        .env(EnvPolicy {
+            inherit: false,
+            keep: Vec::new(),
+            set: std::collections::BTreeMap::new(),
+        });
+    let command = SandboxCommand::new(exe).args(args.iter().cloned());
+    let sandbox = Sandbox::new(ResourceAuthority::new(ResourceProfile::Practical));
+    let spawn = sandbox
+        .spawn_with_pipe_pair(&policy, command, "--remote-debugging-io-pipes")
+        .map_err(|error| BrowserError::Launch(format!("Windows fixture AppContainer: {error}")))?;
+    Ok(ChromeProc {
+        child: ChromeChild::Confined(spawn.child),
+        _watchdog: None,
+        ws_url: String::new(),
+        stderr_tail: StderrTail::default(),
+        pipe_io: Some(spawn.io),
+        pipe_bridge: None,
     })
 }
 

@@ -5,12 +5,16 @@
 
 use std::os::windows::io::AsRawHandle;
 use std::process::Child;
+use std::thread;
+use std::time::{Duration, Instant};
 
 use windows::Win32::Foundation::{CloseHandle, HANDLE};
 use windows::Win32::System::JobObjects::{
-    AssignProcessToJobObject, CreateJobObjectW, JobObjectExtendedLimitInformation,
-    SetInformationJobObject, TerminateJobObject, JOBOBJECT_EXTENDED_LIMIT_INFORMATION,
-    JOB_OBJECT_LIMIT_ACTIVE_PROCESS, JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
+    AssignProcessToJobObject, CreateJobObjectW, JobObjectBasicAccountingInformation,
+    JobObjectExtendedLimitInformation, QueryInformationJobObject, SetInformationJobObject,
+    TerminateJobObject, JOBOBJECT_BASIC_ACCOUNTING_INFORMATION,
+    JOBOBJECT_EXTENDED_LIMIT_INFORMATION, JOB_OBJECT_LIMIT_ACTIVE_PROCESS,
+    JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
 };
 use windows::Win32::System::Threading::{OpenProcess, PROCESS_SET_QUOTA, PROCESS_TERMINATE};
 
@@ -78,6 +82,36 @@ impl WindowsJob {
     /// Kills every process in the job now.
     pub fn terminate(&self) -> std::io::Result<()> {
         unsafe { TerminateJobObject(self.handle, 1) }.map_err(os_error)
+    }
+
+    /// Wait at most `timeout` until every process in this Job has exited.
+    ///
+    /// The Job remains owned by `self` on timeout, so callers can keep its
+    /// kill-on-close guarantee while retaining any related cleanup leases.
+    pub fn wait_empty(&self, timeout: Duration) -> std::io::Result<bool> {
+        const POLL_INTERVAL: Duration = Duration::from_millis(10);
+        let started = Instant::now();
+        loop {
+            let mut accounting = JOBOBJECT_BASIC_ACCOUNTING_INFORMATION::default();
+            unsafe {
+                QueryInformationJobObject(
+                    Some(self.handle),
+                    JobObjectBasicAccountingInformation,
+                    (&mut accounting as *mut JOBOBJECT_BASIC_ACCOUNTING_INFORMATION).cast(),
+                    std::mem::size_of::<JOBOBJECT_BASIC_ACCOUNTING_INFORMATION>() as u32,
+                    None,
+                )
+            }
+            .map_err(os_error)?;
+            if accounting.ActiveProcesses == 0 {
+                return Ok(true);
+            }
+            let remaining = timeout.saturating_sub(started.elapsed());
+            if remaining.is_zero() {
+                return Ok(false);
+            }
+            thread::sleep(POLL_INTERVAL.min(remaining));
+        }
     }
 }
 

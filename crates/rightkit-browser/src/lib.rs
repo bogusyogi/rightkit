@@ -16,8 +16,13 @@
 //! * [`BrowserPage::observe`] returns refs that are checked for staleness before use.
 mod config;
 mod error;
+mod fixture;
+mod fixture_protocol;
+mod fixture_server;
 mod keys;
 mod page;
+#[cfg(windows)]
+mod pipe_transport;
 mod policy;
 mod proc;
 mod proxy;
@@ -30,6 +35,15 @@ pub use config::{
     CHROME_FOR_TESTING_ROOT_ENV,
 };
 pub use error::{BrowserError, Result};
+pub use fixture::{
+    FixtureAttestation, FixtureCancellation, FixtureCleanupEvidence, FixtureConfinementBackend,
+    FixtureOutcome, FixtureOutcomeStatus, FixtureRunFailure, FixtureSession,
+};
+pub use fixture_protocol::{
+    actions_digest, FixtureAction, FixtureBundle, FixtureError, FixtureFile, FixtureIntent,
+    FixtureKey, FIXTURE_SCHEMA,
+};
+pub use fixture_server::FixtureServer;
 pub use page::{BrowserPage, ConsoleLine, Observation, ObservedNode, Rect, Target};
 pub use policy::{
     classify_ip, ActionKind, AddressClass, AdmissionHook, AdmissionRequest, AllowCallback,

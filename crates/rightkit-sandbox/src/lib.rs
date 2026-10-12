@@ -44,6 +44,8 @@ pub use resources::{
 };
 pub use spawn::{Sandbox, SandboxOutput, SandboxedChild, DEFAULT_OUTPUT_CAP};
 #[cfg(windows)]
+pub use spawn::{WindowsAuxiliaryIo, WindowsPipeSpawn};
+#[cfg(windows)]
 pub use windows_appcontainer::{
     appcontainer_profile_name_for_test, delete_appcontainer_profile_for_test,
     remove_unused_appcontainer_profiles, sweep_stale_appcontainer_ancestor_aces,

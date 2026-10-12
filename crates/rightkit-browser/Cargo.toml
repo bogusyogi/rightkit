@@ -18,10 +18,18 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tempfile = "3"
 thiserror = "2"
-tokio = { version = "1", features = ["rt", "sync", "time", "net", "io-util"] }
+tokio = { version = "1", features = ["rt", "sync", "time", "net", "io-util", "macros"] }
 url = "2"
 rightkit-process = { path = "../rightkit-process", version = "0.4.0" }
+sha2 = "0.10"
+
+[target.'cfg(any(target_os = "macos", windows))'.dependencies]
+rightkit-sandbox = { path = "../rightkit-sandbox", version = "0.3.4", default-features = false }
+
+[target.'cfg(windows)'.dependencies]
+async-tungstenite = { version = "=0.32.1", default-features = false, features = ["tokio-runtime"] }
+getrandom = "=0.3.4"
 
 [dev-dependencies]
-# `#[tokio::test(flavor = "multi_thread")]` in the e2e tests; production code needs no macros or multi-thread runtime.
-tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
+# `#[tokio::test(flavor = "multi_thread")]` in the e2e tests; production code needs no multi-thread runtime.
+tokio = { version = "1", features = ["rt-multi-thread"] }
