@@ -18,9 +18,10 @@ use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
     MOD_SHIFT, MOD_WIN,
 };
 use windows_sys::Win32::UI::WindowsAndMessaging::{
-    CallNextHookEx, GetMessageW, KillTimer, PostThreadMessageW, SetTimer, SetWindowsHookExW,
-    UnhookWindowsHookEx, HC_ACTION, KBDLLHOOKSTRUCT, MSG, WH_KEYBOARD_LL, WM_HOTKEY, WM_KEYDOWN,
-    WM_KEYUP, WM_QUIT, WM_SYSKEYDOWN, WM_SYSKEYUP, WM_TIMER,
+    CallNextHookEx, GetMessageW, KillTimer, PeekMessageW, PostThreadMessageW, SetTimer,
+    SetWindowsHookExW, UnhookWindowsHookEx, HC_ACTION, KBDLLHOOKSTRUCT, MSG, PM_NOREMOVE,
+    WH_KEYBOARD_LL, WM_HOTKEY, WM_KEYDOWN, WM_KEYUP, WM_QUIT, WM_SYSKEYDOWN, WM_SYSKEYUP, WM_TIMER,
+    WM_USER,
 };
 
 use crate::chord::Chord;
@@ -134,6 +135,16 @@ fn os_error_message(code: u32) -> String {
     std::io::Error::from_raw_os_error(code as i32).to_string()
 }
 
+/// Create the calling thread's message queue now. Windows creates it lazily, on the thread's first
+/// message call; until then `PostThreadMessageW` to that thread fails and the message is lost.
+/// A thread calls this before it hands out its id, so a command, wake or `WM_QUIT` posted the
+/// moment the id arrives is queued instead of dropped (a dropped one left the caller waiting for
+/// ever in `recv` or `join`).
+unsafe fn ensure_message_queue() {
+    let mut msg = MSG::default();
+    let _ = PeekMessageW(&mut msg, null_mut(), WM_USER, WM_USER, PM_NOREMOVE);
+}
+
 /// Formats the calling thread's last Win32 error. Call only immediately after a failed Win32 call.
 fn last_os_error_message() -> String {
     os_error_message(unsafe { GetLastError() })
@@ -174,6 +185,7 @@ impl LowLevelKeyboardHook {
                 if hook.is_null() {
                     let _ = tx.send(Err(last_os_error_message()));
                 } else {
+                    ensure_message_queue();
                     let _ = tx.send(Ok(GetCurrentThreadId()));
                     let mut msg = MSG::default();
                     while GetMessageW(&mut msg, null_mut(), 0, 0) != 0 {}
@@ -375,6 +387,7 @@ impl GlobalHotkeys {
         let thread = thread::Builder::new()
             .name("rightkit-hotkey-loop".into())
             .spawn(move || unsafe {
+                ensure_message_queue();
                 let _ = ready_tx.send(GetCurrentThreadId());
                 let mut registrations = Registrations::new();
                 let mut os = ThreadHotkeys;
@@ -476,7 +489,7 @@ impl GlobalHotkeys {
     fn wake(&self) {
         // Wake the loop so it drains the command queue.
         unsafe {
-            let _ = PostThreadMessageW(self.thread_id, 0x0400, 0, 0);
+            let _ = PostThreadMessageW(self.thread_id, WM_USER, 0, 0);
         }
     }
 
