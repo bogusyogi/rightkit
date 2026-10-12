@@ -891,6 +891,8 @@ impl Drop for GrantLease {
 struct LeaseSet {
     items: Mutex<Vec<GrantLease>>,
     ancestors: Mutex<Vec<AncestorLease>>,
+    /// Marks the profile in use for as long as these leases live.
+    holder: Mutex<Option<ancestors::ProfileHolder>>,
 }
 
 // ---------------------------------------------------------------------------------------
@@ -1541,6 +1543,72 @@ fn confined_cwd(requested: &Path, grants: &[(PathBuf, bool)]) -> Result<PathBuf,
     Ok(candidate)
 }
 
+/// How long a spawn waits for another process to finish creating or deleting the same profile.
+const PROFILE_GUARD_WAIT_MS: u32 = 30_000;
+
+/// Why [`remove_unused_appcontainer_profiles`] left a profile in place.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ProfileKept {
+    /// A process holds it: a confined child of that process may be running in it.
+    InUse,
+    /// Another process was creating or deleting it at that moment.
+    Busy,
+    /// Windows refused the deletion; the text is the HRESULT.
+    DeleteFailed(String),
+}
+
+/// What [`remove_unused_appcontainer_profiles`] did, by profile name.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ProfileSweepReport {
+    pub removed: Vec<String>,
+    pub kept: Vec<(String, ProfileKept)>,
+}
+
+/// Delete this user's `rightkit.sandbox.*` AppContainer profiles that no process is using.
+///
+/// A spawn creates or adopts one profile per distinct set of grants and never deletes it, so
+/// that the next spawn with the same grants reuses it. Until an application calls this, those
+/// profiles accumulate: one registry mapping and one folder under the user's local application
+/// data for every grant set ever used.
+///
+/// Only a profile this crate named is considered (the exact name format, and a mapping equal to
+/// the SID that name derives to). One is deleted only when no process holds it: every spawn
+/// marks its profile in use before creating or adopting it, the mark lasts as long as the
+/// child's leases and disappears when the holding process exits. The check and the deletion
+/// happen under a per-profile lock that spawns take too, so a spawn in another process either
+/// finishes first (the profile is kept) or starts after (it creates the profile afresh). It is
+/// safe to call at application start and while other RightKit processes run, and two calls at
+/// once do not fail: one of them reports the profile as busy or already gone.
+///
+/// Limits. The in-use mark is visible within one logon session: a process of the same user in
+/// another session is not seen. A deleted profile's SID is no longer recognised as this crate's,
+/// so run [`sweep_stale_appcontainer_ancestor_aces`] for the paths you grant *before* this call:
+/// afterwards, entries a crashed process left on those paths for a deleted profile stay.
+pub fn remove_unused_appcontainer_profiles() -> Result<ProfileSweepReport, SandboxError> {
+    let mut report = ProfileSweepReport::default();
+    for (name, _sid) in ancestors::owned_profiles(PROFILE_PREFIX)? {
+        let Some(_guard) = ancestors::ProfileGuard::acquire(&name, 0)? else {
+            report.kept.push((name, ProfileKept::Busy));
+            continue;
+        };
+        if ancestors::profile_holder_exists(&name)? {
+            report.kept.push((name, ProfileKept::InUse));
+            continue;
+        }
+        let wide_name = wide(&name);
+        // SAFETY: a NUL-terminated name that outlives the call.
+        let result = unsafe { DeleteAppContainerProfile(wide_name.as_ptr()) };
+        if result >= 0 {
+            report.removed.push(name);
+        } else {
+            report
+                .kept
+                .push((name, ProfileKept::DeleteFailed(format!("{result:#010x}"))));
+        }
+    }
+    Ok(report)
+}
+
 /// The profile name for a sorted grant key: stable for one set of grants, so the profile is reused.
 fn profile_name(sorted_key: &[String]) -> String {
     format!("{PROFILE_PREFIX}{:016x}", fnv1a(&sorted_key.join("|")))
@@ -1597,7 +1665,26 @@ pub(crate) fn spawn(
         .map(|(p, w)| format!("{}{}", if *w { "w:" } else { "r:" }, lexical_path_key(p)))
         .collect();
     key.sort();
-    let profile = AppContainerProfile::ensure(&profile_name(&key))?;
+    let name = profile_name(&key);
+    let profile = {
+        // Held while the profile is marked in use and created or adopted, so
+        // `remove_unused_appcontainer_profiles` in another process cannot delete it in between.
+        let _guard =
+            ancestors::ProfileGuard::acquire(&name, PROFILE_GUARD_WAIT_MS)?.ok_or_else(|| {
+                io::Error::new(
+                    io::ErrorKind::TimedOut,
+                    format!("AppContainer profile {name} stayed busy in another process"),
+                )
+            })?;
+        let holder = ancestors::ProfileHolder::create(&name)?;
+        let profile = AppContainerProfile::ensure(&name)?;
+        *profile
+            .leases
+            .holder
+            .lock()
+            .unwrap_or_else(|e| e.into_inner()) = Some(holder);
+        profile
+    };
     for (path, _) in &grants {
         let lease = AncestorLease::acquire(path, &profile.sid_text)?;
         profile
@@ -1804,6 +1891,147 @@ fn create_suspended(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// These tests register profiles for the real user: CI or the repository's opt-in only.
+    fn real_user_stores_allowed(test: &str) -> bool {
+        let is = |name: &str, value: &str| std::env::var(name).is_ok_and(|v| v == value);
+        if is("GITHUB_ACTIONS", "true") || is("RIGHTKIT_TEST_REAL_USER_STORES", "1") {
+            return true;
+        }
+        println!(
+            "skipped {test}: it registers AppContainer profiles for the real user; it runs only \
+             on CI (GITHUB_ACTIONS=true) or with RIGHTKIT_TEST_REAL_USER_STORES=1"
+        );
+        false
+    }
+
+    /// A profile name in this crate's format that no grant set of another test produces.
+    fn scratch_profile(tag: &str) -> String {
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        profile_name(&[format!("test:{tag}:{}:{nanos}", std::process::id())])
+    }
+
+    /// Deletes the named profiles however the test ends, whatever their names.
+    struct Profiles(Vec<String>);
+    impl Drop for Profiles {
+        fn drop(&mut self) {
+            for name in &self.0 {
+                let wide_name = wide(name);
+                // SAFETY: a NUL-terminated name that outlives the call.
+                unsafe { DeleteAppContainerProfile(wide_name.as_ptr()) };
+            }
+        }
+    }
+
+    fn registered(name: &str) -> bool {
+        ancestors::registered_profiles()
+            .unwrap()
+            .iter()
+            .any(|(moniker, _)| moniker.eq_ignore_ascii_case(name))
+    }
+
+    #[test]
+    fn an_unused_profile_is_removed_and_one_with_a_live_holder_is_kept() {
+        if !real_user_stores_allowed(
+            "an_unused_profile_is_removed_and_one_with_a_live_holder_is_kept",
+        ) {
+            return;
+        }
+        let (used, unused) = (scratch_profile("used"), scratch_profile("unused"));
+        let _cleanup = Profiles(vec![used.clone(), unused.clone()]);
+        let _used = AppContainerProfile::ensure(&used).unwrap();
+        let _unused = AppContainerProfile::ensure(&unused).unwrap();
+        assert!(registered(&used) && registered(&unused));
+        let holder = ancestors::ProfileHolder::create(&used).unwrap();
+
+        // Another test's sweep may run at the same moment and remove the unused one first, so
+        // the registry is what is asserted; the report is checked for what only this call can say.
+        let report = remove_unused_appcontainer_profiles().unwrap();
+        assert!(!report.removed.contains(&used), "{report:?}");
+        assert!(
+            report.kept.contains(&(used.clone(), ProfileKept::InUse)),
+            "{report:?}"
+        );
+        assert!(
+            registered(&used),
+            "a profile with a live holder was removed"
+        );
+        assert!(!registered(&unused), "an unused profile was kept");
+
+        drop(holder);
+        remove_unused_appcontainer_profiles().unwrap();
+        assert!(
+            !registered(&used),
+            "the profile stayed after its holder went"
+        );
+    }
+
+    #[test]
+    fn a_profile_this_crate_did_not_name_is_never_touched() {
+        if !real_user_stores_allowed("a_profile_this_crate_did_not_name_is_never_touched") {
+            return;
+        }
+        let foreign = format!(
+            "rightkit-test.foreign.{:016x}",
+            fnv1a(&scratch_profile("x"))
+        );
+        let _cleanup = Profiles(vec![foreign.clone()]);
+        let _profile = AppContainerProfile::ensure(&foreign).unwrap();
+        assert!(registered(&foreign));
+        let report = remove_unused_appcontainer_profiles().unwrap();
+        assert!(!report.removed.contains(&foreign), "{report:?}");
+        assert!(!report.kept.iter().any(|(name, _)| name == &foreign));
+        assert!(registered(&foreign));
+        // The test-support delete refuses it too.
+        assert!(delete_appcontainer_profile_for_test(&foreign).is_err());
+    }
+
+    const SWEEP_CHILD: &str = "RIGHTKIT_SANDBOX_PROFILE_SWEEP_CHILD";
+
+    /// Child half of the two-process test: inert unless driven.
+    #[test]
+    fn child_removes_unused_profiles() {
+        if std::env::var_os(SWEEP_CHILD).is_none() {
+            return;
+        }
+        remove_unused_appcontainer_profiles().expect("a concurrent sweep must not fail");
+    }
+
+    #[test]
+    fn two_processes_removing_at_once_do_not_fail() {
+        if !real_user_stores_allowed("two_processes_removing_at_once_do_not_fail") {
+            return;
+        }
+        let names: Vec<String> = (0..6)
+            .map(|i| scratch_profile(&format!("both{i}")))
+            .collect();
+        let _cleanup = Profiles(names.clone());
+        for name in &names {
+            let _ = AppContainerProfile::ensure(name).unwrap();
+        }
+        let children: Vec<_> = (0..2)
+            .map(|_| {
+                std::process::Command::new(std::env::current_exe().unwrap())
+                    .args([
+                        "--exact",
+                        "windows_appcontainer::tests::child_removes_unused_profiles",
+                        "--nocapture",
+                    ])
+                    .env(SWEEP_CHILD, "1")
+                    .spawn()
+                    .unwrap()
+            })
+            .collect();
+        for mut child in children {
+            assert!(child.wait().unwrap().success(), "a sweeping process failed");
+        }
+        for name in &names {
+            assert!(!registered(name), "{name} is still registered");
+        }
+    }
 
     #[test]
     fn arguments_quote_only_when_needed() {
