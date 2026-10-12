@@ -1617,6 +1617,16 @@ struct ConfinedLaunch {
     auxiliary: Option<(OwnedHandle, OwnedHandle)>,
 }
 
+struct SuspendedLaunchParams<'a> {
+    program: &'a Path,
+    command_line: &'a str,
+    cwd: &'a Path,
+    environment: &'a [u16],
+    network: bool,
+    stdio: [RawHandle; 3],
+    auxiliary: &'a [RawHandle],
+}
+
 /// The policy's grants as canonical existing paths: (path, writable). Missing paths fail
 /// closed (an ACE needs an object), and so does a filesystem root.
 fn canonical_grants(policy: &SandboxPolicy) -> Result<Vec<(PathBuf, bool)>, SandboxError> {
@@ -2028,13 +2038,15 @@ fn spawn_inner(
         set_inheritable(stderr_child)?;
         create_suspended(
             &profile,
-            &program,
-            &command_line,
-            &cwd,
-            &environment,
-            policy.network == NetworkPolicy::Allow,
-            [stdin, stdout_child, stderr_child],
-            &auxiliary_child_handles,
+            SuspendedLaunchParams {
+                program: &program,
+                command_line: &command_line,
+                cwd: &cwd,
+                environment: &environment,
+                network: policy.network == NetworkPolicy::Allow,
+                stdio: [stdin, stdout_child, stderr_child],
+                auxiliary: &auxiliary_child_handles,
+            },
         )
     })();
     for handle in child_handles {
@@ -2071,14 +2083,17 @@ fn spawn_inner(
 /// when network is allowed), an explicit inherited-handle list, no window, and suspended.
 fn create_suspended(
     profile: &AppContainerProfile,
-    program: &Path,
-    command_line: &str,
-    cwd: &Path,
-    environment: &[u16],
-    network: bool,
-    stdio: [RawHandle; 3],
-    auxiliary: &[RawHandle],
+    params: SuspendedLaunchParams<'_>,
 ) -> io::Result<(*mut c_void, *mut c_void, u32)> {
+    let SuspendedLaunchParams {
+        program,
+        command_line,
+        cwd,
+        environment,
+        network,
+        stdio,
+        auxiliary,
+    } = params;
     let wprogram = wide(program);
     let mut wcommand = wide(command_line);
     let wcwd = wide(cwd);

@@ -292,7 +292,7 @@ pub(crate) fn parse_fixture_url(value: &str) -> Result<Url, FixtureError> {
         "/"
     } else {
         remainder[authority_end..]
-            .split(|character| matches!(character, '?' | '#'))
+            .split(['?', '#'])
             .next()
             .unwrap_or_default()
     };
@@ -323,10 +323,7 @@ pub(crate) fn explicit_fixture_port(value: &str) -> Result<u16, FixtureError> {
     let remainder = value
         .strip_prefix("http://")
         .ok_or_else(|| FixtureError::Invalid("exact_url must use lowercase http://".into()))?;
-    let authority = remainder
-        .split(|character| matches!(character, '/' | '?' | '#'))
-        .next()
-        .unwrap_or_default();
+    let authority = remainder.split(['/', '?', '#']).next().unwrap_or_default();
     let port = authority
         .strip_prefix("127.0.0.1:")
         .ok_or_else(|| FixtureError::Invalid("exact_url must name 127.0.0.1 with a port".into()))?;
@@ -413,6 +410,57 @@ fn validate_actions(actions: &[FixtureAction]) -> Result<(), FixtureError> {
     Ok(())
 }
 
+fn validate_id(name: &str, value: &str) -> Result<(), FixtureError> {
+    if value.is_empty()
+        || value.len() > 128
+        || !value
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || b"._:-".contains(&byte))
+    {
+        return Err(FixtureError::Invalid(format!(
+            "{name} must be 1..128 ASCII identifier bytes"
+        )));
+    }
+    Ok(())
+}
+
+fn validate_digest(name: &str, value: &str) -> Result<(), FixtureError> {
+    let Some(hex_value) = value.strip_prefix("sha256:") else {
+        return Err(FixtureError::Invalid(format!(
+            "{name} must be a sha256 digest"
+        )));
+    };
+    if hex_value.len() != 64
+        || !hex_value
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+    {
+        return Err(FixtureError::Invalid(format!(
+            "{name} must use lowercase SHA-256 hex"
+        )));
+    }
+    Ok(())
+}
+
+fn validate_text(name: &str, value: &str) -> Result<(), FixtureError> {
+    if value.trim().is_empty() || value.len() > MAX_STRING_BYTES {
+        return Err(FixtureError::Invalid(format!(
+            "{name} must be nonempty and at most 2048 bytes"
+        )));
+    }
+    Ok(())
+}
+
+fn hex(bytes: &[u8]) -> String {
+    const HEX: &[u8; 16] = b"0123456789abcdef";
+    let mut output = String::with_capacity(bytes.len() * 2);
+    for byte in bytes {
+        output.push(HEX[(byte >> 4) as usize] as char);
+        output.push(HEX[(byte & 0x0f) as usize] as char);
+    }
+    output
+}
+
 #[cfg(test)]
 mod tests {
     use super::{actions_digest, canonical_json_bytes, FixtureAction, FixtureBundle, FixtureFile};
@@ -477,55 +525,4 @@ mod tests {
             serde_json::from_value(value).expect("fixture error should deserialize");
         assert!(matches!(decoded, super::FixtureError::Expired(message) if message == "deadline"));
     }
-}
-
-fn validate_id(name: &str, value: &str) -> Result<(), FixtureError> {
-    if value.is_empty()
-        || value.len() > 128
-        || !value
-            .bytes()
-            .all(|byte| byte.is_ascii_alphanumeric() || b"._:-".contains(&byte))
-    {
-        return Err(FixtureError::Invalid(format!(
-            "{name} must be 1..128 ASCII identifier bytes"
-        )));
-    }
-    Ok(())
-}
-
-fn validate_digest(name: &str, value: &str) -> Result<(), FixtureError> {
-    let Some(hex_value) = value.strip_prefix("sha256:") else {
-        return Err(FixtureError::Invalid(format!(
-            "{name} must be a sha256 digest"
-        )));
-    };
-    if hex_value.len() != 64
-        || !hex_value
-            .bytes()
-            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
-    {
-        return Err(FixtureError::Invalid(format!(
-            "{name} must use lowercase SHA-256 hex"
-        )));
-    }
-    Ok(())
-}
-
-fn validate_text(name: &str, value: &str) -> Result<(), FixtureError> {
-    if value.trim().is_empty() || value.len() > MAX_STRING_BYTES {
-        return Err(FixtureError::Invalid(format!(
-            "{name} must be nonempty and at most 2048 bytes"
-        )));
-    }
-    Ok(())
-}
-
-fn hex(bytes: &[u8]) -> String {
-    const HEX: &[u8; 16] = b"0123456789abcdef";
-    let mut output = String::with_capacity(bytes.len() * 2);
-    for byte in bytes {
-        output.push(HEX[(byte >> 4) as usize] as char);
-        output.push(HEX[(byte & 0x0f) as usize] as char);
-    }
-    output
 }

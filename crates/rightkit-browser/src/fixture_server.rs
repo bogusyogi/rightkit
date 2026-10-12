@@ -17,6 +17,7 @@ const MAX_HEADER_BYTES: usize = 16 * 1024;
 const MAX_CONNECTIONS: usize = 128;
 const CONNECTION_TIMEOUT: Duration = Duration::from_secs(5);
 const CSP: &str = "default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'none'; frame-src 'none'; child-src 'none'; object-src 'none'; media-src 'self'; form-action 'none'; base-uri 'none'; frame-ancestors 'none'; sandbox allow-scripts allow-same-origin";
+type FixtureFiles = Arc<HashMap<String, (String, Arc<[u8]>)>>;
 
 static NEXT_INSTANCE: AtomicU64 = AtomicU64::new(1);
 
@@ -29,6 +30,7 @@ pub struct FixtureServer {
     shutdown_signal: Option<oneshot::Sender<()>>,
 }
 
+#[cfg(windows)]
 pub(crate) struct FixtureResponse {
     pub(crate) status: u16,
     pub(crate) headers: Vec<(String, String)>,
@@ -67,7 +69,7 @@ impl FixtureServer {
                 "cannot inspect bound fixture socket: {error}"
             ))
         })?;
-        let files: Arc<HashMap<String, (String, Arc<[u8]>)>> = Arc::new(
+        let files: FixtureFiles = Arc::new(
             bundle
                 .files()
                 .iter()
@@ -155,6 +157,7 @@ impl FixtureServer {
         )
     }
 
+    #[cfg(windows)]
     pub(crate) fn response_for(
         &self,
         method: &str,
@@ -230,7 +233,7 @@ impl Drop for FixtureServer {
     }
 }
 
-async fn serve_connection(mut stream: TcpStream, files: Arc<HashMap<String, (String, Arc<[u8]>)>>) {
+async fn serve_connection(mut stream: TcpStream, files: FixtureFiles) {
     let _ = tokio::time::timeout(CONNECTION_TIMEOUT, async {
         let request = match read_request(&mut stream).await {
             Ok(request) => request,

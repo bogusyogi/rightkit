@@ -176,7 +176,7 @@ impl Drop for PipeBridge {
 }
 
 async fn run_bridge(
-    mut listener: TcpListener,
+    listener: TcpListener,
     mut to_child: NamedPipeServer,
     mut from_child: NamedPipeServer,
     expected_path: String,
@@ -215,6 +215,9 @@ async fn run_bridge(
 
         let path = expected_path.clone();
         let config = websocket_config();
+        // Tungstenite fixes rejection callback failures to its HTTP response type.
+        // Preserve that required error response rather than changing rejection semantics.
+        #[allow(clippy::result_large_err)]
         let handshake = accept_hdr_async_with_config(
             stream,
             move |request: &Request, response: Response| {

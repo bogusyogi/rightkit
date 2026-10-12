@@ -75,6 +75,7 @@ impl ChromeChild {
         }
     }
 
+    #[cfg(unix)]
     fn wait_or_kill(&mut self, grace: Duration) -> std::io::Result<()> {
         match self {
             Self::Owned(child) => child.wait_or_kill(grace).map(|_| ()),

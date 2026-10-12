@@ -5,7 +5,9 @@ use crate::config::{
 use crate::error::{cdp, BrowserError, Result};
 use crate::fixture_protocol::FixtureError;
 use crate::page::BrowserPage;
-use crate::policy::{Guard, LifecycleKind, NetworkPolicy};
+#[cfg(target_os = "macos")]
+use crate::policy::NetworkPolicy;
+use crate::policy::{Guard, LifecycleKind};
 use crate::proc::ChromeProc;
 use crate::proxy::{FixtureProxyPolicy, PinProxy, PinnedConnection};
 use chromiumoxide::browser::Browser;
@@ -30,10 +32,9 @@ static SESSION_SEQ: AtomicU64 = AtomicU64::new(0);
 const GRACE: Duration = Duration::from_secs(5);
 const FIXTURE_STOP_RECEIPT_GRACE: Duration = Duration::from_secs(12);
 
+#[cfg(windows)]
 #[derive(Clone, Copy)]
 enum FixtureBackend {
-    MacSeatbelt,
-    #[cfg(windows)]
     WinAppcontainer,
 }
 
@@ -261,20 +262,22 @@ impl Drop for FixtureLaunchOwner {
                     // inertness receipt. Keep profile evidence instead of claiming
                     // an unverified cleanup path.
                     self.state.keep_profile();
-                    return;
                 }
-                self.state
-                    .proxy
-                    .lock()
-                    .unwrap_or_else(|error| error.into_inner())
-                    .take();
-                release_profile(
+                #[cfg(not(windows))]
+                {
                     self.state
-                        .profile
+                        .proxy
                         .lock()
                         .unwrap_or_else(|error| error.into_inner())
-                        .take(),
-                );
+                        .take();
+                    release_profile(
+                        self.state
+                            .profile
+                            .lock()
+                            .unwrap_or_else(|error| error.into_inner())
+                            .take(),
+                    );
+                }
             } else {
                 self.state.keep_profile();
             }
@@ -363,13 +366,12 @@ pub struct BrowserSession {
     stopping: Arc<AtomicBool>,
     stopped: AtomicBool,
     fixture_mode: bool,
+    #[cfg(windows)]
     fixture_backend: Option<FixtureBackend>,
 }
 
 impl BrowserSession {
-    pub async fn launch(
-        #[cfg_attr(not(windows), allow(unused_mut))] mut opts: LaunchOptions,
-    ) -> Result<Self> {
+    pub async fn launch(opts: LaunchOptions) -> Result<Self> {
         Self::launch_inner(opts, None).await
     }
 
@@ -389,33 +391,37 @@ impl BrowserSession {
         {
             use crate::policy::{AddressClass, PolicyDecision};
             let permitted_urls = policy.permitted_urls.clone();
-            let mut opts = LaunchOptions::default();
-            opts.headless = true;
-            opts.mute_audio = true;
-            opts.profile = ProfileSpec::Temporary;
-            opts.chrome_path = None;
-            opts.allow_system_chrome = false;
-            opts.use_system_chrome_only = false;
-            opts.extra_args.clear();
-            opts.download_dir = None;
-            opts.upload_root = None;
-            opts.network = NetworkPolicy::default()
-                .allow_class(AddressClass::Loopback)
-                .allow_with(move |request| {
-                    if permitted_urls.contains(&request.url) {
-                        PolicyDecision::Allow
-                    } else {
-                        PolicyDecision::Deny("fixture URL is outside the immutable bundle".into())
-                    }
-                });
             let remaining = policy.expires_at.saturating_duration_since(Instant::now());
             if remaining.is_zero() {
                 return Err(FixtureError::Revoked(
                     "fixture lease expired before browser launch".into(),
                 ));
             }
-            opts.launch_timeout = remaining;
-            opts.request_timeout = remaining.min(Duration::from_secs(5));
+            let opts = LaunchOptions {
+                headless: true,
+                mute_audio: true,
+                profile: ProfileSpec::Temporary,
+                chrome_path: None,
+                allow_system_chrome: false,
+                use_system_chrome_only: false,
+                extra_args: Vec::new(),
+                download_dir: None,
+                upload_root: None,
+                network: NetworkPolicy::default()
+                    .allow_class(AddressClass::Loopback)
+                    .allow_with(move |request| {
+                        if permitted_urls.contains(&request.url) {
+                            PolicyDecision::Allow
+                        } else {
+                            PolicyDecision::Deny(
+                                "fixture URL is outside the immutable bundle".into(),
+                            )
+                        }
+                    }),
+                launch_timeout: remaining,
+                request_timeout: remaining.min(Duration::from_secs(5)),
+                ..Default::default()
+            };
             Self::launch_inner(opts, Some(policy))
                 .await
                 .map_err(|error| FixtureError::ConfinementUnavailable(error.to_string()))
@@ -430,19 +436,21 @@ impl BrowserSession {
             }
             // AppContainer denies all network. CDP uses inherited pipes, while
             // Fetch fulfills immutable fixture bytes without a TCP proxy.
-            let mut opts = LaunchOptions::default();
-            opts.headless = true;
-            opts.mute_audio = true;
-            opts.profile = ProfileSpec::Temporary;
-            opts.chrome_path = None;
-            opts.allow_system_chrome = false;
-            opts.use_system_chrome_only = false;
-            opts.extra_args.clear();
-            opts.download_dir = None;
-            opts.upload_root = None;
-            opts.network.unrestricted = true;
-            opts.launch_timeout = remaining;
-            opts.request_timeout = remaining.min(Duration::from_secs(5));
+            let opts = LaunchOptions {
+                headless: true,
+                mute_audio: true,
+                profile: ProfileSpec::Temporary,
+                chrome_path: None,
+                allow_system_chrome: false,
+                use_system_chrome_only: false,
+                extra_args: Vec::new(),
+                download_dir: None,
+                upload_root: None,
+                network: crate::policy::NetworkPolicy::unrestricted(),
+                launch_timeout: remaining,
+                request_timeout: remaining.min(Duration::from_secs(5)),
+                ..Default::default()
+            };
             Self::launch_inner(opts, Some(policy))
                 .await
                 .map_err(|error| FixtureError::ConfinementUnavailable(error.to_string()))
@@ -483,18 +491,8 @@ impl BrowserSession {
             events: opts.on_event.clone(),
         });
         let fixture_mode = fixture_proxy_policy.is_some();
-        let fixture_backend = if fixture_mode {
-            #[cfg(windows)]
-            {
-                Some(FixtureBackend::WinAppcontainer)
-            }
-            #[cfg(not(windows))]
-            {
-                Some(FixtureBackend::MacSeatbelt)
-            }
-        } else {
-            None
-        };
+        #[cfg(windows)]
+        let fixture_backend = fixture_mode.then_some(FixtureBackend::WinAppcontainer);
         #[cfg(windows)]
         let windows_fixture = matches!(fixture_backend, Some(FixtureBackend::WinAppcontainer));
         #[cfg(not(windows))]
@@ -807,6 +805,7 @@ impl BrowserSession {
             stopping,
             stopped: AtomicBool::new(false),
             fixture_mode,
+            #[cfg(windows)]
             fixture_backend,
         };
         if !fixture_mode {

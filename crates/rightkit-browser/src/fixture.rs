@@ -37,7 +37,6 @@ use tokio::task::JoinHandle;
 const ATTESTATION_SCHEMA: &str = "rightkit.browser.fixture-attestation.v1";
 const OUTCOME_SCHEMA: &str = "rightkit.browser.fixture-outcome.v1";
 const ASSERT_POLL: Duration = Duration::from_millis(25);
-const CLEANUP_GRACE: Duration = Duration::from_secs(5);
 static BINDING_SEQ: AtomicU64 = AtomicU64::new(1);
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
@@ -175,7 +174,7 @@ impl Default for FixtureCancellation {
 pub struct FixtureRunFailure {
     pub cause: FixtureError,
     pub completed_actions: usize,
-    pub attestation: FixtureAttestation,
+    pub attestation: Box<FixtureAttestation>,
     pub cleanup_complete: bool,
     pub cleanup_error: Option<FixtureError>,
 }
@@ -507,7 +506,6 @@ async fn cleanup_resources(
         }
     }
     let complete = state.complete();
-    drop(state);
     if !failures.is_empty() {
         Err(FixtureError::Cleanup(failures.join("; ")))
     } else if complete {
@@ -1014,7 +1012,7 @@ impl FixtureSession {
                 cause,
                 completed_actions,
                 cleanup_complete: self.attestation.output_cleanup.complete(),
-                attestation: self.attestation.clone(),
+                attestation: Box::new(self.attestation.clone()),
                 cleanup_error,
             });
         }
@@ -1422,17 +1420,21 @@ async fn wait_for_bound_frame(
 ) -> std::result::Result<String, FixtureError> {
     loop {
         check_deadline(deadline)?;
-        let data = monitor
-            .data
-            .lock()
-            .unwrap_or_else(|error| error.into_inner());
-        if let Some(reason) = &data.revoked {
-            return Err(FixtureError::Revoked(reason.clone()));
+        let frame_id = {
+            let data = monitor
+                .data
+                .lock()
+                .unwrap_or_else(|error| error.into_inner());
+            if let Some(reason) = &data.revoked {
+                return Err(FixtureError::Revoked(reason.clone()));
+            }
+            data.document
+                .as_ref()
+                .map(|document| document.frame_id.clone())
+        };
+        if let Some(frame_id) = frame_id {
+            return Ok(frame_id);
         }
-        if let Some(document) = &data.document {
-            return Ok(document.frame_id.clone());
-        }
-        drop(data);
         tokio::time::sleep(ASSERT_POLL).await;
     }
 }
@@ -1609,7 +1611,7 @@ async fn install_windows_fixture_fetch(
 #[cfg(windows)]
 fn base64_encode(bytes: &[u8]) -> String {
     const ALPHABET: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-    let mut output = String::with_capacity((bytes.len() + 2) / 3 * 4);
+    let mut output = String::with_capacity(bytes.len().div_ceil(3) * 4);
     for chunk in bytes.chunks(3) {
         let first = chunk[0];
         let second = *chunk.get(1).unwrap_or(&0);
