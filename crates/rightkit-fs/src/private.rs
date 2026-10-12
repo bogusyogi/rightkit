@@ -46,21 +46,17 @@ fn restrict_owner_only_impl(path: &Path) -> Result<()> {
     // before them, so a `0600` file can still be readable by others. An ACL is not removed (that
     // cannot revoke an open descriptor); the entry is refused, so the caller knows it is not
     // owner-only.
-    if cfg!(target_os = "macos") && (meta.is_file() || meta.is_dir()) {
-        let file = open_no_follow(path).map_err(|e| FsError::io(path, e))?;
-        crate::acl::refuse_acl(&file, path)?;
+    //
+    // The ACL is read by path. The entry is NOT opened: callers apply this to live files
+    // (rightkit-db hardens `<db>-wal` and `<db>-shm` on every open), and closing a descriptor
+    // releases every POSIX record lock this process holds on the file, SQLite's included.
+    if cfg!(target_os = "macos")
+        && (meta.is_file() || meta.is_dir())
+        && crate::acl::existing_has_allow_acl(path)?
+    {
+        return Err(FsError::UnsafeAcl(path.to_path_buf()));
     }
     Ok(())
-}
-
-/// Opens `path` read-only without following a link at its name.
-#[cfg(unix)]
-fn open_no_follow(path: &Path) -> std::io::Result<std::fs::File> {
-    use std::os::unix::fs::OpenOptionsExt;
-    std::fs::OpenOptions::new()
-        .read(true)
-        .custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC)
-        .open(path)
 }
 
 #[cfg(not(any(unix, windows)))]
@@ -83,11 +79,8 @@ pub fn is_owner_only(path: &Path) -> Result<bool> {
             return Ok(false);
         }
         if cfg!(target_os = "macos") && (meta.is_file() || meta.is_dir()) {
-            return match open_no_follow(path) {
-                Ok(file) => Ok(!crate::acl::has_allow_acl(&file, path)?),
-                Err(e) if e.kind() == std::io::ErrorKind::PermissionDenied => Ok(false),
-                Err(e) => Err(FsError::io(path, e)),
-            };
+            // By path, never by opening: see `restrict_owner_only`.
+            return Ok(!crate::acl::existing_has_allow_acl(path)?);
         }
         Ok(true)
     }

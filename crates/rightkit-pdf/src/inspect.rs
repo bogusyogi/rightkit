@@ -2836,6 +2836,27 @@ fn baseline_distance(left: &PositionedGlyph, right: &PositionedGlyph) -> f64 {
     (left.origin.1 - right.origin.1).abs()
 }
 
+/// The em of one glyph in device space: its `Tf` size (text space) times the length of one
+/// text-space unit along its baseline (`glyph_axis`, the `(a, b)` row of text matrix x CTM). Every
+/// distance the grouping compares it with - gaps, baseline offsets, quads - is device space, so a
+/// text-space size on a page under `0.1 0 0 0.1 0 0 cm` would make every tolerance ten times too
+/// loose. A glyph whose scale or size is zero or not finite has no usable em and counts as 1.0.
+fn glyph_em(glyph: &PositionedGlyph) -> f64 {
+    let axis = glyph_axis(glyph);
+    let em = (glyph.font_size * axis.0.hypot(axis.1)).abs();
+    if em.is_finite() && em > 0.0 {
+        em
+    } else {
+        1.0
+    }
+}
+
+/// The em the join tolerances of two neighbouring glyphs are measured in: the larger of the two,
+/// in device space.
+fn join_em(left: &PositionedGlyph, right: &PositionedGlyph) -> f64 {
+    glyph_em(left).max(glyph_em(right))
+}
+
 fn has_intervening_painted_content(
     left: &PositionedGlyph,
     right: &PositionedGlyph,
@@ -2846,7 +2867,7 @@ fn has_intervening_painted_content(
     if right_start <= left_end {
         return false;
     }
-    let em = left.font_size.max(right.font_size).max(1.0);
+    let em = join_em(left, right);
     let y_min = left.origin.1.min(right.origin.1) - em * 0.5;
     let y_max = left.origin.1.max(right.origin.1) + em * 0.5;
     let gap_rect = PdfRect {
@@ -2866,7 +2887,7 @@ fn may_join(
     right: &PositionedGlyph,
     painted_bounds: &[PaintedBoundsEntry],
 ) -> bool {
-    let em = left.font_size.max(right.font_size).max(1.0);
+    let em = join_em(left, right);
     let baseline_tolerance = 0.5_f64.max(0.20 * em);
     let gap = projected_gap(left, right);
 
@@ -3134,6 +3155,7 @@ fn build_run(run: &[PositionedGlyph], spacing: &HashMap<SpacingKey, GlyphSpacing
                     beyond_tc: excess,
                     word_space: false,
                     pen_adjust: None,
+                    placement: None,
                 });
             }
         }
@@ -3149,6 +3171,7 @@ fn build_run(run: &[PositionedGlyph], spacing: &HashMap<SpacingKey, GlyphSpacing
                 (glyph.source.glyph_start, glyph.source.glyph_end),
             ),
             pen_adjust: pen_adjustment(glyph.pen_advance, glyph.font_size),
+            placement: Some((glyph.text_matrix.then(glyph.ctm), glyph.font_size)),
         });
     }
     items
@@ -3224,6 +3247,7 @@ fn build_island(
     let first_spacing = spacing.get(&glyph_spacing_key(&first.source)).cloned();
     let layout = first_spacing.map(|glyph_spacing| IslandLayout {
         axis: glyph_axis(first),
+        placement: first.text_matrix.then(first.ctm),
         font_size: first.font_size,
         char_spacing: glyph_spacing.char_spacing,
         word_spacing: glyph_spacing.word_spacing,
@@ -3491,6 +3515,59 @@ mod tests {
         assert_eq!(graph.islands.len(), 2);
         assert_eq!(graph.islands[0].text, "Left");
         assert_eq!(graph.islands[1].text, "Right");
+    }
+
+    /// Two runs of 10-pt device text (`Tf 100` under `0.1 0 0 0.1 0 0 cm`) on one baseline, same
+    /// paint, the second starting `second_x` tenths of a point from the page's left edge. The first
+    /// run, "AB", ends about 13.3 device points after its origin at 100.
+    fn scaled_two_runs(second_x: &str) -> Vec<u8> {
+        format!(
+            "0.1 0 0 0.1 0 0 cm\n1 0 0 1 0 7000 cm\n\
+             q 1 0 0 1 1000 0 cm BT /F1 100 Tf 0 0 Td (AB) Tj ET Q\n\
+             q 1 0 0 1 {second_x} 0 cm BT /F1 100 Tf 0 0 Td (CA) Tj ET Q\n"
+        )
+        .into_bytes()
+    }
+
+    #[test]
+    fn join_tolerance_is_measured_in_device_space_on_a_scaled_page() {
+        // 30 device points of gap against a 10-point em: far outside the 1.5 em join window.
+        // Measured with the text-space size (1.5 x 100 = 150) the runs used to be one island.
+        let apart = inspect(&build_pdf(&scaled_two_runs("1434")));
+        assert_eq!(
+            apart
+                .islands
+                .iter()
+                .map(|island| island.text.as_str())
+                .collect::<Vec<_>>(),
+            ["AB", "CA"]
+        );
+        // 8 device points of gap are inside it: still one island.
+        let near = inspect(&build_pdf(&scaled_two_runs("1213")));
+        assert_eq!(near.islands.len(), 1, "{:?}", near.islands[0].text);
+        assert!(near.islands[0].text.starts_with("AB") && near.islands[0].text.ends_with("CA"));
+    }
+
+    #[test]
+    fn scaling_the_page_does_not_change_how_runs_group() {
+        // The fixtures of the two grouping tests above, unscaled and under a 0.1 scale with the
+        // sizes and moves multiplied by ten: same geometry in device space, same islands.
+        let cases: [(&[u8], &[u8], usize); 2] = [
+            (
+                b"BT /F1 12 Tf 72 700 Td (CAR YOU) Tj 55 0 Td ( LIST.) Tj ET",
+                b"0.1 0 0 0.1 0 0 cm BT /F1 120 Tf 720 7000 Td (CAR YOU) Tj 550 0 Td ( LIST.) Tj ET",
+                1,
+            ),
+            (
+                b"BT /F1 12 Tf 72 700 Td (Left) Tj 400 0 Td (Right) Tj ET",
+                b"0.1 0 0 0.1 0 0 cm BT /F1 120 Tf 720 7000 Td (Left) Tj 4000 0 Td (Right) Tj ET",
+                2,
+            ),
+        ];
+        for (unscaled, scaled, islands) in cases {
+            assert_eq!(inspect(&build_pdf(unscaled)).islands.len(), islands);
+            assert_eq!(inspect(&build_pdf(scaled)).islands.len(), islands);
+        }
     }
 
     #[test]

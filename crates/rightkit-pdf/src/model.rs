@@ -294,6 +294,11 @@ pub(crate) struct RunItem {
     /// from a string leaves the pen where it was). `None` for a gap, and for a glyph whose
     /// advance cannot be expressed that way (a zero or non-finite font size).
     pub pen_adjust: Option<f64>,
+    /// For a glyph: `(text matrix x CTM, Tf size)` at this glyph, the same pair
+    /// [`IslandLayout::placement`] and [`IslandLayout::font_size`] hold for the island's first
+    /// glyph. `None` for a gap. Lets the composer's read-back look at one glyph of an island, not
+    /// only at the island's first.
+    pub placement: Option<(Matrix, f64)>,
 }
 
 /// One numeric `TJ` item that contributes to a word gap.
@@ -346,8 +351,15 @@ pub struct PdfTextIsland {
 #[allow(dead_code)] // read by compose (feature `edit`) only
 pub(crate) struct IslandLayout {
     /// Device-space vector of one text-space unit along the baseline: the `(a, b)` row of
-    /// `text matrix x CTM` at the island's first glyph.
+    /// [`IslandLayout::placement`].
     pub axis: (f64, f64),
+    /// `text matrix x CTM` at the island's first glyph, all six numbers, in the row-vector
+    /// convention of [`Matrix`] (`Matrix::then` applies the left operand first, ISO 32000-1 9.4.2).
+    /// It carries the run's whole placement - translation, rotation, skew and scale - and excludes
+    /// `Tf` size, `Tz` and `Ts`, which the text rendering matrix applies in front of it. A block
+    /// that runs in the default graphics state (identity CTM) and sets this as its `Tm` with the
+    /// same `Tf` size draws the first glyph exactly where the source did.
+    pub placement: Matrix,
     /// Font size in text-space units (`Tf` operand).
     pub font_size: f64,
     pub char_spacing: f64,
