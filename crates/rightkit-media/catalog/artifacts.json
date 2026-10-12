@@ -459,7 +459,10 @@
       "os": "macos",
       "arch": "aarch64",
       "version": "7.1.5",
-      "status": "pending",
+      "status": "approved",
+      "sha256": "52f81f26277dce071cecae6c00555aac4b7d132a17a7e5016b7423942e78594d",
+      "contentSha256": "4fa975dac6830e5b3346b2056323912fb4cdc5b5062e4577658bdb8f83e8ca92",
+      "size": 16346792,
       "sourceSha256": "de668509caf9e35e3cd162473441fdb29538c6d96ed080292b3cf9e6fc5d558f",
       "attribution": {
         "licenseSpdx": "LGPL-2.1-or-later AND FTL AND MIT-Modern-Variant AND ISC AND WTFPL",
@@ -532,16 +535,7 @@
         "--enable-zlib",
         "--enable-videotoolbox",
         "--enable-audiotoolbox"
-      ],
-      "pending": {
-        "reason": "Built from the pinned, verified sources and executed on this arm64 host (sha256 52f81f26277dce071cecae6c00555aac4b7d132a17a7e5016b7423942e78594d, 16346792 bytes; bit-reproducible across two builds; -version, -filters including zscale, an HDR to bt709 zscale + tonemap + h264_videotoolbox smoke, see the build notes). contentSha256 4fa975dac6830e5b3346b2056323912fb4cdc5b5062e4577658bdb8f83e8ca92 was computed with a Python port of src/content_digest.rs that reproduces the catalog's existing contentSha256 for the export-ass arm64 and decode arm64 binaries; it has not been confirmed by the crate's own content_identity_file yet. Approve only after it is.",
-        "recipe": "recipes/build-ffmpeg-macos.sh",
-        "commands": [
-          "MESON=<venv>/bin/meson NINJA=<venv>/bin/ninja recipes/build-ffmpeg-macos.sh build --variant export-ass-zimg --arch arm64 --tool ffmpeg --sources <src-dir> --work <work-dir> --out <out-dir>",
-          "content_identity_file(vendor/ffmpeg-lgpl/ffmpeg-export-ass-zimg-macos-arm64) must print slice aarch64 4fa975dac6830e5b3346b2056323912fb4cdc5b5062e4577658bdb8f83e8ca92"
-        ],
-        "promote": "confirm sha256 52f81f26277dce071cecae6c00555aac4b7d132a17a7e5016b7423942e78594d and the content digest above with the crate, then record sha256, contentSha256 and size 16346792, set status approved and delete pending"
-      }
+      ]
     },
     {
       "id": "ffmpeg-7.1.5-export-ass-zimg-macos-x86_64",

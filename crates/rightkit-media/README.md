@@ -58,7 +58,7 @@ let verified = verify_ffmpeg(resolved, Duration::from_secs(10))?;
 
 ## Platform support
 
-- macOS aarch64: `decode` (ffmpeg, ffprobe), `decode-av1` (ffmpeg), `decode-apple` (ffprobe) and `export-ass` (ffmpeg) approved; `export-ass-zimg` pending.
+- macOS aarch64: `decode` (ffmpeg, ffprobe), `decode-av1` (ffmpeg), `decode-apple` (ffprobe), `export-ass` (ffmpeg) and `export-ass-zimg` (ffmpeg) approved.
 - macOS x86_64: `decode` (ffmpeg, ffprobe), `decode-av1` (ffmpeg) and `decode-apple` (ffprobe) approved; `export-ass` and `export-ass-zimg` pending.
 - Windows x86_64: `decode` (ffmpeg, ffprobe) and `export-ass-zimg` (ffmpeg) approved. No `export-ass` row: Windows exports use `export-ass-zimg`. The Windows builds are LGPL and carry no libx264: H.264 encoding there is Media Foundation (`h264_mf`). Always state a rate or a quality for it: with none it encodes 1080p at about 88 kbit/s (measured by CutRight on the approved 7.1.5 binary, 2026-10-12; not a test in this crate). This crate names no encoder; the choice and its rate are the consumer's.
 - Production `cfg(unix)` and `cfg(not(unix))` branches are in `src/staging.rs` (lines 117, 144, 154) and `src/verify_cache.rs` (lines 92, 98). `cfg(windows)` and `cfg(unix)` also appear in test modules (`src/lib.rs:2186`, `src/lib.rs:2211`, `src/probe.rs:1196`, `src/unverified.rs:540`).
