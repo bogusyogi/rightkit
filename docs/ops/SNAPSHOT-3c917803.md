@@ -32,7 +32,7 @@ Changed since c9f222a1 with NO version change: cache, crash, fs, fsindex (tests 
 
 **rightkit-pdf**: a changed-font replacement carries the source run's full placement (text matrix times CTM) and compose refuses one that lands elsewhere (`verification_failed`); it is placed from the island, not from `availableBounds.x/y`; `sizePt` is the island's own text-space value. Island grouping measures its tolerance in device space, so on pages with a scaled CTM islands that were wrongly merged are now separate and locators taken with an older build do not match there. A replacement now sits on the true baseline and can join a same-colour neighbour on its line into one island. Passed its second comparative read; ViewRight's rendered-pixel probe: misplaced changed-font replacements 24 of 407 before, 0 of 424 after.
 
-**rightkit-jobs**: an owner settle holds the flush lock, and its insert-or-replace is one step, so it cannot lose to a concurrent flush or runner. An owner settle that arrives just after a flush stored the runner's outcome returns `illegal_transition`: read the row, do not retry.
+**rightkit-jobs**: every settle (the owner's and the runner's) holds the flush lock, the owner's insert-or-replace is one step, and the discard of a held write runs under the same lock, so an owner settle cannot lose to a concurrent flush or runner (both passes of the held-write fix are in this commit). An owner settle that arrives just after a flush stored the runner's outcome returns `illegal_transition`: read the row, do not retry. The runner's deferral (`with_settle_later`) may be switched on again for testing against this snapshot.
 
 **rightkit-crash**: an unscrubbed process sample never sits under a name the support bundle copies; `CrashReport.native_capture_note` is a new optional field.
 
@@ -47,5 +47,5 @@ Changed since c9f222a1 with NO version change: cache, crash, fs, fsindex (tests 
 - rightkit-http: a destination written as `file/` or `file/.` is normalised onto `file` and overwrites it; and on macOS the staging directory and partial inherit a parent's ACL `allow` entries. Do not pass a destination that ends in a separator or a dot.
 - rightkit-fs: the macOS ACL check of a parent directory opens its argument plainly; if a caller passes a regular file where a directory is expected (`create_private_new(file.join("x"))`), that file is opened and closed, which releases locks on it.
 - rightkit-process: `finish_within` can still wait on thread-local destructors of the caller's callbacks.
-- rightkit-jobs: the runner's own settle does not hold the flush lock (an owner's held outcome can still be dropped in a narrow window); keep `with_settle_later(false)` until the next snapshot.
+- rightkit-jobs: two stores or two processes replaying one journal directory are not coordinated (ledger 207); keep one `JobStore` per database per machine.
 - rightkit-qa on Windows: dispose fails on a profile that contains the WinINet `Content.IE5` junction and removes the binding file first (ledger 216).
