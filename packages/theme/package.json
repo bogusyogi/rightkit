@@ -47,9 +47,9 @@
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
+    "prepack": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\" && pnpm run build",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "pnpm --filter \"@rightkit/theme^...\" run build && pnpm run build && vitest run",
-    "prepack": "pnpm run build"
+    "test": "pnpm --filter \"@rightkit/theme^...\" run build && pnpm run build && vitest run"
   },
   "publishConfig": {
     "registry": "https://registry.npmjs.org",

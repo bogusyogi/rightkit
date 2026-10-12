@@ -37,9 +37,9 @@
   "sideEffects": false,
   "scripts": {
     "build": "tsc -p tsconfig.json",
+    "prepack": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\" && pnpm run build",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "vitest run",
-    "prepack": "pnpm run build"
+    "test": "vitest run"
   },
   "engines": {
     "node": ">=26.8.0"
