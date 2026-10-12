@@ -1,0 +1,30 @@
+From 8c80873901ab6a4283c29847684f0e814f962dee Mon Sep 17 00:00:00 2001
+From: Adrian D'souza <adrdsouza@gmail.com>
+Date: Mon, 12 Oct 2026 08:31:19 +0530
+Subject: [PATCH] Ownership allowlist proposal: cargo:jiff for PostRight
+ (time-zone database; approved by Adrian 2026-10-12, "Yes install the
+ library."). Takes effect only when Adrian runs trust-sync.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ packages/release/ownership-dependency-allowlist.json | 4 +++-
+ 1 file changed, 3 insertions(+), 1 deletion(-)
+
+diff --git a/packages/release/ownership-dependency-allowlist.json b/packages/release/ownership-dependency-allowlist.json
+index 8d48f80f..fdf52f88 100644
+--- a/packages/release/ownership-dependency-allowlist.json
++++ b/packages/release/ownership-dependency-allowlist.json
+@@ -786,7 +786,9 @@
+     },
+     {
+       "repositoryIdentity": "https://github.com/bogusyogi/postright",
+-      "dependencies": []
++      "dependencies": [
++        "cargo:jiff"
++      ]
+     },
+     {
+       "repositoryIdentity": "https://github.com/orthic-labs/cockpit",
+-- 
+2.54.0 (Apple Git-157)
+
