@@ -28,6 +28,9 @@ impl Request { pub fn multipart(self, form: Multipart) -> Result<Self, HttpError
 ```
 
 (b) Range/resume download to a path:
+
+> Status 2026-10-12: dropped for rightkit-http 0.3.0. GenRight has no caller (its unused wrapper was removed the same day; model downloads go through rightkit-models). The downloader was removed before publication after four reviews (gap ledger 221) and returns in 0.3.1. The API below is kept as the record of the ask.
+
 ```rust
 #[derive(Default)] pub struct DownloadOptions<'a> {
   pub headers: Vec<(String,String)>, pub expected_sha256: Option<String>, pub expected_bytes: Option<u64>,
