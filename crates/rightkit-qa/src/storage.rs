@@ -249,9 +249,9 @@ fn create_app_root_in(run: &mut ManagedRun, parent: &Path) -> Result<PathBuf> {
     fs::create_dir(&home)?;
     run.marker.app_root = Some(home.clone());
     // Bind both sides; a forged path in a managed marker cannot delete arbitrary temp data.
-    fs::write(
-        home.join(".rightkit-app.json"),
-        serde_json::to_vec(&serde_json::json!({
+    write_whole(
+        &home.join(".rightkit-app.json"),
+        &serde_json::to_vec(&serde_json::json!({
             "runRoot": fs::canonicalize(&run.root)?, "app": run.marker.app,
             "runId": run.marker.run_id,
         }))?,
@@ -596,13 +596,19 @@ pub fn keep_failed_home_requested() -> bool {
 }
 
 fn write_home_marker(home: &Path, app: &str, run_id: &str) -> Result<()> {
-    fs::write(
-        home.join(HOME_MARKER),
-        serde_json::to_vec(&serde_json::json!({
+    write_whole(
+        &home.join(HOME_MARKER),
+        &serde_json::to_vec(&serde_json::json!({
             "schemaVersion": 1, "pid": std::process::id(), "startedAtMs": now_ms() as u64,
             "app": app, "runId": run_id,
         }))?,
-    )?;
+    )
+}
+
+/// Write a binding or marker file so that another process (a retention sweep reads these while
+/// runs start) sees the whole file or none of it: temp file, flush, rename.
+fn write_whole(path: &Path, bytes: &[u8]) -> Result<()> {
+    rightkit_fs::atomic_write(path, bytes).map_err(std::io::Error::from)?;
     Ok(())
 }
 

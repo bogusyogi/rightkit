@@ -6,6 +6,11 @@
   - Homes are now removed by `storage::remove_home_tree` (crate-private). It takes the `rightkit-qa` root it may work under and refuses a path that is not a real directory strictly inside it once both are resolved. A link in the tree (symlink, or junction on Windows) is removed as itself, never listed and never followed, on every system. A read-only file is removed on Windows. The binding file goes last. The error names the entry that could not be removed.
   - Used by `workspace::dispose` (the home; the run root is unchanged), `clean_homes`, `sweep_homes` and the prune of a finished run's home.
   - No change to which homes count as ours. Homes already left without a binding file are not removed by this version.
+- The application-home binding (`.rightkit-app.json`) and the home marker are written through `rightkit_fs::atomic_write`
+  (temp file, flush, rename). They were plain `fs::write`, so a retention sweep in another process could read a
+  partly written file and treat the home as unbound or malformed. The `rightkit-fs` dependency gains its `fs`
+  feature. Not changed: the sweep stamp (`let _ = fs::write`), whose content is a best-effort time. Not built or
+  run locally.
 - Windows: a run no longer fails to start with "Access is denied" while another starter releases the retention lock.
   The lock is a directory; on Windows a directory that is being removed keeps its name until the last handle on it
   closes, and creating that name meanwhile is refused with access denied, not "already exists". `try_lock` passed that

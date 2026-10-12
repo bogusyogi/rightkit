@@ -320,7 +320,7 @@ fn trust_gate_blocks_spawn_until_approved() {
     // Persisted approval survives reload; a changed command line is Pending again.
     let store_path = dir.path().join("trust.json");
     pool.trust().save(&store_path).unwrap();
-    let reloaded = TrustStore::load(&store_path);
+    let reloaded = TrustStore::try_load(&store_path).unwrap();
     assert_eq!(
         reloaded.decide("/proj", "ws-server", &spec),
         TrustDecision::Approved
