@@ -59,10 +59,10 @@
   },
   "scripts": {
     "build": "tsc -p tsconfig.json && node scripts/build-shell-css.mjs",
+    "prepack": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\" && pnpm run build",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "pretest": "pnpm --filter \"@rightkit/app-shell^...\" run build",
     "test": "vitest run",
-    "prepack": "pnpm run build",
     "build:css": "node scripts/build-shell-css.mjs",
     "check:css": "node scripts/build-shell-css.mjs --check"
   },
