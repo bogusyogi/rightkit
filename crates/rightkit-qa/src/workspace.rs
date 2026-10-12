@@ -519,13 +519,25 @@ fn dispose_waiting(
         }
         let mut last = String::new();
         for attempt in 1..=attempts.max(1) {
-            match fs::remove_dir_all(&target) {
+            // The home goes through the link-safe removal, which keeps the binding file until
+            // everything else is gone. The run root keeps `remove_dir_all`: it holds only files
+            // this crate wrote and no app profile lives in it, so no app-made link can be there.
+            // If a profile is ever placed in the run root, it must go through the same removal.
+            let removal = if target == ws.home {
+                match target.parent() {
+                    Some(qa_root) => storage::remove_home_tree(qa_root, &target),
+                    None => Err("home has no parent directory".to_string()),
+                }
+            } else {
+                fs::remove_dir_all(&target).map_err(|e| e.to_string())
+            };
+            match removal {
                 Ok(()) => {
                     last.clear();
                     break;
                 }
                 Err(e) => {
-                    last = e.to_string();
+                    last = e;
                     if attempt < attempts {
                         crate::util::sleep_ms(retry_ms);
                     }
@@ -730,6 +742,25 @@ mod tests {
         let report = dispose(&ws, false, 1, 0);
         assert!(report.retained.is_empty(), "{report:?}");
         assert!(!real_home.exists());
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn dispose_removes_a_home_that_holds_the_wininet_junction_and_a_link_out() {
+        // Gap ledger 216: every home of an app that used WinINet stayed behind.
+        let root = storage::app_temp_dir().join(format!("rkqa-ws-links-{}", new_id()));
+        let ws = create(&root, Some("links1"), "linkapp").unwrap();
+        let models = root.join("models-cache");
+        fs::create_dir_all(&models).unwrap();
+        fs::write(models.join("model.bin"), b"model bytes").unwrap();
+        storage::test_links::wininet_cache(&ws.home);
+        fs::create_dir_all(ws.home.join("data").join("shared")).unwrap();
+        storage::test_links::junction(&ws.home.join("data").join("shared").join("models"), &models);
+        let report = dispose(&ws, true, 1, 0);
+        assert!(report.retained.is_empty(), "{report:?}");
+        assert!(!ws.home.exists());
+        assert_eq!(fs::read(models.join("model.bin")).unwrap(), b"model bytes");
         let _ = fs::remove_dir_all(root);
     }
 

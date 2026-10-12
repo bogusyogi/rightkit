@@ -2,6 +2,10 @@
 
 ## Unreleased (after 0.2.16)
 
+- Windows: the home of an app that used WinINet is removed when its run ends, and a removal that stops part way can be finished later (gap ledger 216). WinINet leaves the junction `AppData\Local\Microsoft\Windows\INetCache\Content.IE5` in the redirected profile, with an entry that denies listing to everyone. `workspace::dispose` and the sweeps removed a home with `std::fs::remove_dir_all`, which failed there with "Access is denied. (os error 5)" after it had already deleted `.rightkit-app.json`; without that binding file no sweep can prove the home ours, so it stayed for good (176 CutRight homes, 1.86 GiB, on one machine in a day). Not compiled or run locally.
+  - Homes are now removed by `storage::remove_home_tree` (crate-private). It takes the `rightkit-qa` root it may work under and refuses a path that is not a real directory strictly inside it once both are resolved. A link in the tree (symlink, or junction on Windows) is removed as itself, never listed and never followed, on every system. A read-only file is removed on Windows. The binding file goes last. The error names the entry that could not be removed.
+  - Used by `workspace::dispose` (the home; the run root is unchanged), `clean_homes`, `sweep_homes` and the prune of a finished run's home.
+  - No change to which homes count as ours. Homes already left without a binding file are not removed by this version.
 - Windows: a run no longer fails to start with "Access is denied" while another starter releases the retention lock.
   The lock is a directory; on Windows a directory that is being removed keeps its name until the last handle on it
   closes, and creating that name meanwhile is refused with access denied, not "already exists". `try_lock` passed that
