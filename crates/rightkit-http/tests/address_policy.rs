@@ -747,32 +747,6 @@ fn redirect_chain_error_after_a_key_bearing_hop_is_scrubbed() {
 }
 
 #[test]
-fn download_obeys_the_address_policy_too() {
-    let server = MockServer::start(|_, _| MockResponse::text(200, "data"));
-    let dir = std::path::PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("address-policy-dl");
-    let _ = std::fs::remove_dir_all(&dir);
-    std::fs::create_dir_all(&dir).unwrap();
-    let c = Client::new(ClientConfig {
-        retry: RetryPolicy::none(),
-        ..ClientConfig::default()
-    });
-    let err = c
-        .download_to_path(
-            &server.url("/f"),
-            &dir.join("f.bin"),
-            DownloadOptions::default(),
-        )
-        .unwrap_err();
-    match err {
-        DownloadError::Http(HttpError::AddressDenied { class, .. }) => {
-            assert_eq!(class, Some(AddressClass::Loopback))
-        }
-        other => panic!("unexpected {other:?}"),
-    }
-    assert_eq!(server.request_count(), 0);
-}
-
-#[test]
 fn first_party_hosts_resolving_to_private_addresses_are_denied_by_default() {
     static TABLE: &[(&str, &[&str])] = &[
         ("onprem.test", &["10.20.30.40"]),

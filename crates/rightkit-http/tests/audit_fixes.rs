@@ -4,14 +4,10 @@
 mod common;
 
 use std::net::IpAddr;
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use common::{part_of, plant_part, TestProxy};
-use rightkit_http::testing::{
-    loopback_config, loopback_policy, MockBody, MockResponse, MockServer,
-};
+use common::TestProxy;
+use rightkit_http::testing::{loopback_config, loopback_policy, MockResponse, MockServer};
 use rightkit_http::*;
 
 fn ip(s: &str) -> IpAddr {
@@ -32,13 +28,6 @@ fn denied_class(err: &HttpError) -> Option<AddressClass> {
         HttpError::AddressDenied { class, .. } => *class,
         other => panic!("expected AddressDenied, got {other:?}"),
     }
-}
-
-fn scratch(name: &str) -> std::path::PathBuf {
-    let dir = std::path::PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join(format!("audit-{name}"));
-    let _ = std::fs::remove_dir_all(&dir);
-    std::fs::create_dir_all(&dir).unwrap();
-    dir
 }
 
 // ---------------------------------------------------------------- finding 1
@@ -240,82 +229,6 @@ fn f5_huge_retry_after_does_not_panic_and_is_capped() {
     assert_eq!(err.status(), Some(503));
 }
 
-// ---------------------------------------------------------------- finding 6, 21
-#[cfg(unix)]
-#[test]
-fn f6_part_symlink_is_never_followed_and_policy_runs_first() {
-    use std::os::unix::fs::symlink;
-    let server = MockServer::start(|_, _| MockResponse::text(200, "fresh bytes"));
-    let dir = scratch("symlink");
-    let victim = dir.join("victim.txt");
-    std::fs::write(&victim, b"precious").unwrap();
-    let dest = dir.join("out.bin");
-    // The claim record vouches for the partial file, so the link at its path reaches the
-    // no-follow open itself (an unclaimed partial file is simply removed first).
-    common::plant_claim(&dest);
-    let part = part_of(&dest);
-
-    // (a) A denied URL must not touch the filesystem at all.
-    symlink(&victim, &part).unwrap();
-    let before = std::fs::metadata(common::claim_of(&dest)).unwrap().len();
-    let denied = Client::new(ClientConfig {
-        retry: RetryPolicy::none(),
-        ..ClientConfig::default()
-    });
-    let err = denied
-        .download_to_path(&server.url("/f"), &dest, DownloadOptions::default())
-        .unwrap_err();
-    assert!(
-        matches!(err, DownloadError::Http(HttpError::AddressDenied { .. })),
-        "{err:?}"
-    );
-    assert_eq!(std::fs::read(&victim).unwrap(), b"precious");
-    assert!(std::fs::symlink_metadata(&part)
-        .unwrap()
-        .file_type()
-        .is_symlink());
-    assert_eq!(
-        std::fs::metadata(common::claim_of(&dest)).unwrap().len(),
-        before
-    );
-
-    // (b) An allowed download replaces the link and never writes through it.
-    let c = Client::new(cfg());
-    let report = c
-        .download_to_path(&server.url("/f"), &dest, DownloadOptions::default())
-        .unwrap();
-    assert_eq!(std::fs::read(&victim).unwrap(), b"precious");
-    assert_eq!(std::fs::read(&dest).unwrap(), b"fresh bytes");
-    assert_eq!(report.bytes, 11);
-    assert!(!part.exists());
-
-    // (c) Resume with a link in place: the link is removed, the victim untouched.
-    let dest2 = dir.join("out2.bin");
-    common::plant_claim(&dest2);
-    let part2 = part_of(&dest2);
-    symlink(&victim, &part2).unwrap();
-    c.download_to_path(
-        &server.url("/f"),
-        &dest2,
-        DownloadOptions {
-            resume: true,
-            ..DownloadOptions::default()
-        },
-    )
-    .unwrap();
-    assert_eq!(std::fs::read(&victim).unwrap(), b"precious");
-    assert_eq!(std::fs::read(&dest2).unwrap(), b"fresh bytes");
-
-    // (d) A directory at the partial path is refused.
-    let dest3 = dir.join("out3.bin");
-    common::plant_claim(&dest3);
-    std::fs::create_dir(part_of(&dest3)).unwrap();
-    let err = c
-        .download_to_path(&server.url("/f"), &dest3, DownloadOptions::default())
-        .unwrap_err();
-    assert!(matches!(err, DownloadError::Io(_)), "{err:?}");
-}
-
 // ---------------------------------------------------------------- finding 10, 11
 #[test]
 fn f10_request_debug_hides_bearer_tokens_and_embedded_secrets() {
@@ -359,31 +272,6 @@ fn f11_response_debug_hides_signed_urls_and_cookies() {
     assert!(resp.header("location").unwrap().contains("SIGNED-4"));
 }
 
-// ---------------------------------------------------------------- finding 12
-#[test]
-fn f12_download_errors_are_scrubbed() {
-    let dir = scratch("dl-redact");
-    let server = MockServer::start(|req, _| match req.path() {
-        "/401" => MockResponse::text(401, "token is SECRET-7 here"),
-        _ => MockResponse::text(200, "x").header("Content-Encoding", "SECRET-7"),
-    });
-    let c = Client::new(ClientConfig {
-        redact_values: vec!["SECRET-7".into()],
-        ..cfg()
-    });
-    for path in ["/401", "/enc"] {
-        let err = c
-            .download_to_path(
-                &server.url(path),
-                &dir.join("f.bin"),
-                DownloadOptions::default(),
-            )
-            .unwrap_err();
-        let text = format!("{err} {err:?}");
-        assert!(!text.contains("SECRET-7"), "{path}: {text}");
-    }
-}
-
 // ---------------------------------------------------------------- finding 13
 #[test]
 fn f13_json_decode_errors_do_not_echo_the_body() {
@@ -403,142 +291,6 @@ fn f13_json_decode_errors_do_not_echo_the_body() {
     let resp = c.send(&Request::get(server.url("/"))).unwrap();
     let err = resp.json::<u64>().unwrap_err();
     assert!(!format!("{err}").contains("SECRET-8"), "{err}");
-}
-
-// ---------------------------------------------------------------- finding 15
-#[test]
-fn f15_resume_does_not_splice_a_different_resource() {
-    let n = Arc::new(AtomicUsize::new(0));
-    let counter = n.clone();
-    let server = MockServer::start(move |req, _| match req.path() {
-        "/dl" => {
-            let i = counter.fetch_add(1, Ordering::SeqCst);
-            let to = if i == 0 { "/a" } else { "/b" };
-            MockResponse::new(302).header("Location", to)
-        }
-        "/a" => {
-            let mut r = MockResponse::new(200).header("ETag", "\"v1\"");
-            r.body = MockBody::TruncatedAfter(b"AAAA".to_vec());
-            r
-        }
-        _ => {
-            if req.header("range").is_some() {
-                MockResponse::new(206)
-                    .header("ETag", "\"v1\"")
-                    .header("Content-Range", "bytes 4-11/12")
-                    .body(b"BBBBBBBB".to_vec())
-            } else {
-                MockResponse::new(200)
-                    .header("ETag", "\"v1\"")
-                    .body(b"BBBBBBBBBBBB".to_vec())
-            }
-        }
-    });
-    let dir = scratch("splice");
-    let dest = dir.join("out.bin");
-    let c = Client::new(ClientConfig {
-        max_redirects: 3,
-        ..cfg()
-    });
-    c.download_to_path(
-        &server.url("/dl"),
-        &dest,
-        DownloadOptions {
-            max_reconnects: 2,
-            ..DownloadOptions::default()
-        },
-    )
-    .unwrap();
-    assert_eq!(std::fs::read(&dest).unwrap(), b"BBBBBBBBBBBB");
-}
-
-// ---------------------------------------------------------------- finding 16
-#[test]
-fn f16_incomplete_or_malformed_content_range_is_not_published() {
-    let payload = [7u8; 200];
-    let dir = scratch("range");
-    for (label, content_range) in [
-        ("unknown total, short body", "bytes 80-199/*"),
-        ("garbage end", "bytes 80-garbage/*"),
-        ("end beyond total", "bytes 80-300/200"),
-    ] {
-        let dest = dir.join(format!("{}.bin", label.replace(' ', "_")));
-        plant_part(&dest, &payload[..80]);
-        let cr = content_range.to_string();
-        let server = MockServer::start(move |_, _| {
-            MockResponse::new(206)
-                .header("Content-Range", &cr)
-                .body(vec![7u8; 20])
-        });
-        let c = Client::new(cfg());
-        let err = c
-            .download_to_path(
-                &server.url("/f"),
-                &dest,
-                DownloadOptions {
-                    resume: true,
-                    // Without a proof the prefix would be discarded before any ranged request.
-                    expected_sha256: Some("0".repeat(64)),
-                    ..DownloadOptions::default()
-                },
-            )
-            .unwrap_err();
-        assert!(!dest.exists(), "{label}: a partial file was published");
-        assert!(
-            matches!(err, DownloadError::Http(HttpError::Stream(_))),
-            "{label}: unexpected {err:?}"
-        );
-    }
-}
-
-// ---------------------------------------------------------------- finding 17
-#[test]
-fn f17_transparently_decoded_downloads_are_refused() {
-    let server = MockServer::start(|_, _| {
-        MockResponse::new(200)
-            .header("Content-Encoding", "gzip")
-            .body(vec![0x1f, 0x8b, 8, 0, 0, 0, 0, 0, 0, 3, 1, 2, 3])
-    });
-    let dir = scratch("gzip");
-    let dest = dir.join("out.bin");
-    let err = Client::new(cfg())
-        .download_to_path(&server.url("/f"), &dest, DownloadOptions::default())
-        .unwrap_err();
-    assert!(
-        matches!(err, DownloadError::Http(HttpError::Stream(_))),
-        "{err:?}"
-    );
-    assert!(!dest.exists());
-}
-
-// ---------------------------------------------------------------- finding 18
-#[test]
-fn f18_download_stops_at_expected_bytes_while_writing() {
-    let server = MockServer::start(|_, _| {
-        MockResponse::new(200).chunks(vec![
-            (Duration::ZERO, vec![1u8; 12]),
-            (Duration::from_secs(3), vec![2u8; 12]),
-        ])
-    });
-    let dir = scratch("expected");
-    let dest = dir.join("out.bin");
-    let started = Instant::now();
-    let err = Client::new(cfg())
-        .download_to_path(
-            &server.url("/f"),
-            &dest,
-            DownloadOptions {
-                expected_bytes: Some(10),
-                ..DownloadOptions::default()
-            },
-        )
-        .unwrap_err();
-    assert!(
-        matches!(err, DownloadError::LengthMismatch { expected: 10, .. }),
-        "{err:?}"
-    );
-    assert!(started.elapsed() < Duration::from_secs(2));
-    assert!(!dest.exists() && !part_of(&dest).exists());
 }
 
 // ---------------------------------------------------------------- finding 19
@@ -575,82 +327,6 @@ fn f19_name_lookup_runs_under_the_connect_deadline() {
         ),
         "{err:?}"
     );
-}
-
-// ---------------------------------------------------------------- finding 20
-#[test]
-fn f20_cancellation_stops_error_body_and_retry_drains() {
-    let trickle = || {
-        MockResponse::new(503).chunks(
-            (0..30)
-                .map(|_| (Duration::from_millis(300), vec![b'x']))
-                .collect(),
-        )
-    };
-    let server = MockServer::start(move |_, _| trickle());
-    // Retry drain.
-    let token = CancelToken::new();
-    let t = token.clone();
-    std::thread::spawn(move || {
-        std::thread::sleep(Duration::from_millis(100));
-        t.cancel();
-    });
-    let c = Client::new(ClientConfig {
-        retry: RetryPolicy {
-            max_attempts: 3,
-            initial_backoff: Duration::from_millis(5),
-            jitter: 0.0,
-            ..RetryPolicy::default()
-        },
-        ..loopback_config()
-    });
-    let started = Instant::now();
-    let err = c
-        .send(&Request::get(server.url("/")).cancel(token))
-        .unwrap_err();
-    assert!(matches!(err, HttpError::Cancelled), "{err:?}");
-    assert!(
-        started.elapsed() < Duration::from_millis(1500),
-        "{:?}",
-        started.elapsed()
-    );
-
-    // Error-body read of `stream`.
-    let token = CancelToken::new();
-    let t = token.clone();
-    std::thread::spawn(move || {
-        std::thread::sleep(Duration::from_millis(100));
-        t.cancel();
-    });
-    let started = Instant::now();
-    let err = Client::new(cfg())
-        .stream(&Request::get(server.url("/")).cancel(token))
-        .err()
-        .unwrap();
-    assert!(matches!(err, HttpError::Cancelled), "{err:?}");
-    assert!(started.elapsed() < Duration::from_millis(1500));
-
-    // Error-body read of a download.
-    let flag = Arc::new(AtomicBool::new(false));
-    let f = flag.clone();
-    std::thread::spawn(move || {
-        std::thread::sleep(Duration::from_millis(100));
-        f.store(true, Ordering::SeqCst);
-    });
-    let dir = scratch("drain");
-    let started = Instant::now();
-    let err = Client::new(cfg())
-        .download_to_path(
-            &server.url("/"),
-            &dir.join("f.bin"),
-            DownloadOptions {
-                cancel: Some(&flag),
-                ..DownloadOptions::default()
-            },
-        )
-        .unwrap_err();
-    assert!(matches!(err, DownloadError::Cancelled { .. }), "{err:?}");
-    assert!(started.elapsed() < Duration::from_millis(1500));
 }
 
 // ---------------------------------------------------------------- finding 9 (policy part)

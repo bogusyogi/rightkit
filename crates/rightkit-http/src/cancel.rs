@@ -1,4 +1,4 @@
-//! Cooperative cancellation shared by buffered calls, streams and downloads.
+//! Cooperative cancellation shared by buffered calls and streams.
 //!
 //! A [`CancelToken`] is checked between attempts, while sleeping between retries,
 //! and before every body read. It cannot interrupt a blocking socket call that is

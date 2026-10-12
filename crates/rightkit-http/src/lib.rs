@@ -2,12 +2,10 @@
 //!
 //! - [`Client`]: timeouts, bounded bodies, retry/backoff honoring `Retry-After`,
 //!   retry-safety rules for non-idempotent methods, streaming responses.
-//! - [`Client::download_to_path`]: resumable download to a file with SHA-256 and
-//!   length verification ([`DownloadOptions`], [`DownloadReport`]).
 //! - [`Multipart`]: `multipart/form-data` bodies with exact framing.
 //! - [`netpolicy`]: the outbound address policy (SSRF guard) every request passes: resolve once,
 //!   classify every address, connect only to checked addresses, on every redirect hop.
-//! - [`CancelToken`]: cooperative cancellation for calls, streams and downloads.
+//! - [`CancelToken`]: cooperative cancellation for calls and streams.
 //! - [`sse`]: WHATWG-compliant Server-Sent Events decoding.
 //! - `untrusted` (feature, default on): tamper-evident wrapping of external text for model input.
 //! - [`secret`]: redacted [`Secret`] and the [`SecretStore`] interface that
@@ -20,7 +18,6 @@
 pub mod async_client;
 pub mod cancel;
 pub mod client;
-pub mod download;
 pub mod error;
 pub mod multipart;
 pub mod netpolicy;
@@ -33,7 +30,6 @@ mod trust;
 #[cfg(feature = "untrusted")]
 pub mod untrusted;
 mod urlredact;
-mod wire;
 
 #[cfg(feature = "testing")]
 pub mod testing;
@@ -43,7 +39,6 @@ pub use client::{
     form_encode, percent_decode, percent_encode, Client, ClientConfig, Method, ProxyDiagnostic,
     ProxyMode, Request, Response, ResponseHead, RetryEvent, StreamResponse, TrustRoots,
 };
-pub use download::{DownloadError, DownloadOptions, DownloadProgress, DownloadReport};
 pub use error::{ErrorClass, HttpError, Phase};
 pub use multipart::Multipart;
 pub use netpolicy::{

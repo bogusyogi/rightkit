@@ -4,13 +4,10 @@
 
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
-use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
 use std::time::Duration;
-
-use sha2::{Digest, Sha256};
 
 pub struct TestProxy {
     port: u16,
@@ -197,64 +194,4 @@ impl Drop for RawServer {
             let _ = t.join();
         }
     }
-}
-
-// ---------------------------------------------------------------------- download layout
-//
-// Mirrors the layout documented in `src/download.rs`: a download keeps its claim file and its
-// partial file in `<parent of dest>/.rk-download/`, named `<key>.lock` and `<key>.part` where
-// `<key>` is the lowercase hex SHA-256 of the destination's file name (raw bytes on Unix,
-// UTF-16LE on Windows). Nothing is kept beside the destination. These helpers let a test plant
-// what an earlier call would have left, and find what a call leaves.
-
-fn dest_name_bytes(dest: &Path) -> Vec<u8> {
-    let name = dest.file_name().expect("destination has a file name");
-    #[cfg(unix)]
-    {
-        use std::os::unix::ffi::OsStrExt;
-        name.as_bytes().to_vec()
-    }
-    #[cfg(windows)]
-    {
-        use std::os::windows::ffi::OsStrExt;
-        name.encode_wide().flat_map(u16::to_le_bytes).collect()
-    }
-}
-
-/// The hidden directory that holds the claim and partial file of `dest`.
-pub fn coord_dir(dest: &Path) -> PathBuf {
-    dest.parent()
-        .expect("destination has a parent")
-        .join(".rk-download")
-}
-
-fn dest_key(dest: &Path) -> String {
-    Sha256::digest(dest_name_bytes(dest))
-        .iter()
-        .map(|b| format!("{b:02x}"))
-        .collect()
-}
-
-/// Where the claim file of `dest` is.
-pub fn claim_of(dest: &Path) -> PathBuf {
-    coord_dir(dest).join(format!("{}.lock", dest_key(dest)))
-}
-
-/// Where the partial file of `dest` is.
-pub fn part_of(dest: &Path) -> PathBuf {
-    coord_dir(dest).join(format!("{}.part", dest_key(dest)))
-}
-
-/// Create the download directory and a claim file that records `dest`'s name, as a call that
-/// ran earlier would have left them.
-pub fn plant_claim(dest: &Path) {
-    std::fs::create_dir_all(coord_dir(dest)).unwrap();
-    std::fs::write(claim_of(dest), dest_name_bytes(dest)).unwrap();
-}
-
-/// Plant the partial file an earlier call left behind, with the claim record that vouches for
-/// it.
-pub fn plant_part(dest: &Path, bytes: &[u8]) {
-    plant_claim(dest);
-    std::fs::write(part_of(dest), bytes).unwrap();
 }

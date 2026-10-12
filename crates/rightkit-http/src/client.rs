@@ -845,7 +845,7 @@ pub(crate) fn header_of<'a>(headers: &'a [(String, String)], name: &str) -> Opti
 #[derive(Clone)]
 pub struct Client {
     agent: ureq::Agent,
-    pub(crate) config: ClientConfig,
+    config: ClientConfig,
     /// The proxy in use, for the `NO_PROXY` decision and destination vetting.
     proxy: Option<ureq::Proxy>,
     proxy_diagnostic: Option<ProxyDiagnostic>,
@@ -866,9 +866,6 @@ pub(crate) struct Raw {
     pub(crate) final_url: String,
     /// Redirects followed.
     pub(crate) hops: u32,
-    /// The response head as read off the wire before ureq could decode the body and strip
-    /// `Content-Encoding` (see `wire.rs`). `Unobserved` is not the same as "no encoding".
-    pub(crate) wire_head: crate::wire::WireHead,
 }
 
 impl Client {
@@ -920,7 +917,7 @@ impl Client {
         // through a proxy are vetted by name and literal in `once_hop` instead.
         let agent = ureq::Agent::with_parts(
             builder.build(),
-            crate::wire::SniffConnector(ureq::unversioned::transport::DefaultConnector::default()),
+            ureq::unversioned::transport::DefaultConnector::default(),
             VettingResolver {
                 policy: Arc::new(config.address_policy.clone()),
                 proxy: endpoint,
@@ -1099,7 +1096,7 @@ impl Client {
 
     /// Run the retry loop. `total` bounds each attempt; `cancel` is checked between
     /// attempts and during retry sleeps. Errors are scrubbed of secret values.
-    pub(crate) fn execute(
+    fn execute(
         &self,
         req: &Request,
         total: Option<Duration>,
@@ -1373,9 +1370,7 @@ impl Client {
             .timeout_recv_response(self.config.response_timeout)
             .timeout_recv_body(self.config.recv_body_timeout)
             .build();
-        crate::wire::clear();
         let response = self.agent.run(configured).map_err(map_ureq_error)?;
-        let wire_head = crate::wire::take_head();
         let status = response.status().as_u16();
         let headers = response
             .headers()
@@ -1394,43 +1389,11 @@ impl Client {
             attempts: 1,
             final_url: String::new(),
             hops: 0,
-            wire_head,
         })
     }
 }
 
 impl Client {
-    /// Apply the address policy to `url` without sending anything: used by downloads so a
-    /// denied URL never touches the filesystem. Through a proxy only literals and names are
-    /// checked; otherwise the name is resolved and every address vetted (a pre-check: the
-    /// request itself resolves again and connects to its own vetted addresses).
-    pub(crate) fn preflight_url(&self, url: &str) -> Result<(), HttpError> {
-        if let Some(element) = &self.system_proxy_unsupported {
-            return Err(HttpError::SystemProxyUnsupported {
-                element: element.clone(),
-            });
-        }
-        if let Some(reason) = &self.config_error {
-            return Err(HttpError::InvalidRequest(reason.clone()));
-        }
-        let uri: ureq::http::Uri = url
-            .parse()
-            .map_err(|_| HttpError::InvalidRequest("invalid URL".into()))?;
-        let scheme = uri.scheme_str().unwrap_or("").to_ascii_lowercase();
-        let raw_host = uri.host().unwrap_or("");
-        redirect::require_https(self.config.https_only, &scheme, raw_host, false)?;
-        let host = normalize_host(raw_host);
-        let policy = &self.config.address_policy;
-        policy.admit(&scheme, raw_host)?;
-        if self.vet_proxied_destination(&uri)? {
-            return Ok(());
-        }
-        let port = uri
-            .port_u16()
-            .unwrap_or(if scheme == "http" { 80 } else { 443 });
-        policy.resolve_vetted(&host, port).map(|_| ())
-    }
-
     /// Through a proxy the destination's address cannot be checked, so vet its name and
     /// literal form first. Hosts that bypass the proxy (`NO_PROXY`) are vetted by the
     /// resolver like direct connections.
