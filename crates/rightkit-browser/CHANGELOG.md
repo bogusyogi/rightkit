@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Tests: the three real-Chrome test files say in their headers that they run the installed Chrome for Testing on a
+  temporary profile that is removed, and open no real browser profile.
 - Tests: the managed-folder discovery test points `PLAYWRIGHT_BROWSERS_PATH` at an empty temporary folder, so it no
   longer lists the user's own `ms-playwright` folder. No product change.
 - Launch passes `--disable-component-update`, `--disable-domain-reliability` and `--no-pings`. With `--disable-background-networking` alone Chrome still asked for `clients2.google.com` (the component updater), which reached a session's resolver and network policy as if a page had asked. A session now sees only its pages' requests.

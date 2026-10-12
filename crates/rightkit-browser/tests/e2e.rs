@@ -1,5 +1,9 @@
 //! Outcome tests: real headless Chrome against a local static page. Every
 //! assertion reads page state produced by trusted browser input.
+//!
+//! The browser is the installed Chrome for Testing (a tool installation, not user data). Each
+//! session runs on a temporary profile directory that is removed when the session closes; no
+//! test opens a real browser profile.
 use rightkit_browser::{BrowserError, BrowserSession, LaunchOptions, NetworkPolicy, Target};
 use std::io::{Read, Write};
 use std::net::TcpListener;

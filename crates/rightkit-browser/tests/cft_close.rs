@@ -1,5 +1,9 @@
 //! Launch through the Chrome for Testing resolver, close gracefully, and prove nothing is
 //! left behind: no process, no temporary profile, no new macOS code-sign clone.
+//!
+//! The browser is the installed Chrome for Testing (a tool installation, not user data). Each
+//! session runs on a temporary profile directory that is removed when the session closes; no
+//! test opens a real browser profile.
 use rightkit_browser::{chrome_for_testing_path, BrowserSession, LaunchOptions};
 use std::collections::BTreeSet;
 use std::path::PathBuf;
