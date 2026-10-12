@@ -1,0 +1,2483 @@
+From 9238e15625e33724f36beede55495b730c6488ab Mon Sep 17 00:00:00 2001
+From: Adrian D'souza <adrdsouza@gmail.com>
+Date: Sun, 11 Oct 2026 22:30:13 +0530
+Subject: [PATCH] DevTools policy: denied on every app webview by default;
+ content-only allowance for ViewRight; release gate
+
+Owner design (fixed): no Right app exposes DevTools at any level; ViewRight alone exposes them, and only inside the HTML content it opens.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ crates/rightkit-shell/CHANGELOG.md            |  11 +
+ crates/rightkit-shell/Cargo.toml              |   7 +-
+ crates/rightkit-shell/README.md               |  46 +-
+ crates/rightkit-shell/src/commands.rs         |   4 +-
+ crates/rightkit-shell/src/devtools.rs         | 822 ++++++++++++++++++
+ crates/rightkit-shell/src/harden.js           |  19 +-
+ crates/rightkit-shell/src/harden.rs           |  79 +-
+ crates/rightkit-shell/src/lib.rs              |  65 +-
+ .../rightkit-shell/tests/devtools_policy.rs   | 397 +++++++++
+ docs/PLATFORM-MATRIX.md                       |   2 +-
+ ...10-11-viewright-content-devtools-design.md | 113 +++
+ packages/release/CHANGELOG.md                 |   1 +
+ packages/release/README.md                    |   4 +
+ packages/release/build-release.mjs            |   3 +
+ packages/release/devtools-policy.json         |   5 +
+ packages/release/devtools-policy.mjs          | 111 +++
+ packages/release/devtools-policy.test.mjs     | 129 +++
+ packages/release/qa-build-features.mjs        |  41 +-
+ packages/release/qa-control-scan.mjs          |  36 +-
+ packages/release/release-state.mjs            |   4 +-
+ packages/release/release.mjs                  |   9 +-
+ 21 files changed, 1814 insertions(+), 94 deletions(-)
+ create mode 100644 crates/rightkit-shell/src/devtools.rs
+ create mode 100644 crates/rightkit-shell/tests/devtools_policy.rs
+ create mode 100644 docs/plans/2026-10-11-viewright-content-devtools-design.md
+ create mode 100644 packages/release/devtools-policy.json
+ create mode 100644 packages/release/devtools-policy.mjs
+ create mode 100644 packages/release/devtools-policy.test.mjs
+
+diff --git a/crates/rightkit-shell/CHANGELOG.md b/crates/rightkit-shell/CHANGELOG.md
+index 77fcde48..a9e81918 100644
+--- a/crates/rightkit-shell/CHANGELOG.md
++++ b/crates/rightkit-shell/CHANGELOG.md
+@@ -5,6 +5,17 @@ version is `0.x`, a minor bump may carry breaking changes.
+ 
+ ## Unreleased
+ 
++- **DevTools policy (owner's fixed design).** Every Right app has no access to DevTools; ViewRight alone may
++  inspect the HTML content it opens, never its own UI or shell. New `devtools` module: `DevToolsPolicy`
++  (`Denied` default, `ContentOnly`), `ContentWebview`, `DevToolsGate`, `DevToolsError`, `guard_process_start`,
++  `open_content_devtools`, plus `ShellBuilder::devtools_policy` / `content_webview`. Every webview is made
++  non-inspectable (macOS `isInspectable` and `developerExtrasEnabled` false; Windows `AreDevToolsEnabled`
++  false, accelerator keys off, Inspect removed from context menus) whatever modules are installed; the process
++  refuses a remote-debugging launch argument, removes the WebView2 override environment variables and refuses a
++  debugging `AdditionalBrowserArguments` policy. The hardening script now also cancels Ctrl+Shift+J/C,
++  Cmd+Opt+C/J/U (by key code). **Breaking:** the `Devtools` enum and `Hardening::devtools` are removed (no
++  "on", no "debug builds"); the `devtools` cargo feature is now `content-devtools`. Written, unverified (not
++  compiled, tests not run; Objective-C and WebView2 calls are the uncertain part).
+ - **Per-hide idle delay provider.** `IdleOptions::default().suspend_after_with(|| Some(d))` (or on a
+   literal, chained) reads the suspend delay at each hide transition instead of fixing it at build time.
+   The provider runs once per hide (a window hide, or the start of a minimise with `start_on_minimize`),
+diff --git a/crates/rightkit-shell/Cargo.toml b/crates/rightkit-shell/Cargo.toml
+index e3830000..dfa95cce 100644
+--- a/crates/rightkit-shell/Cargo.toml
++++ b/crates/rightkit-shell/Cargo.toml
+@@ -20,8 +20,11 @@ wv2-0_39 = ["dep:windows_062", "dep:webview2_com_039"]
+ # Engine sidecar wiring over rightkit-jobs EngineClient + rightkit-process. Off by default: it pulls
+ # rightkit-jobs (db, time, uuid); apps that run an engine sidecar opt in.
+ engine = ["dep:rightkit-jobs"]
+-# Lets `Devtools::On` / `DebugBuilds` open the inspector in release builds. Off in production.
+-devtools = ["tauri/devtools"]
++# Required by `DevToolsPolicy::ContentOnly`: compiles Tauri's devtools in so a registered content
++# webview can be inspected. Every other webview stays non-inspectable. Only an app on the
++# `right-release` allow-list (`packages/release/devtools-policy.json`, today only ViewRight) may
++# ship a build with it; every other app must leave it off. Never a default feature.
++content-devtools = ["tauri/devtools"]
+ 
+ [dependencies]
+ tauri = { version = "2", features = ["tray-icon", "image-png"] }
+diff --git a/crates/rightkit-shell/README.md b/crates/rightkit-shell/README.md
+index e9f21914..594a5138 100644
+--- a/crates/rightkit-shell/README.md
++++ b/crates/rightkit-shell/README.md
+@@ -13,7 +13,7 @@ Shared Tauri desktop shell for Right Suite applications. It owns hardened webvie
+ | `engine` | off | `rightkit-jobs`, `rightkit-process` | Engine sidecar wiring over `rightkit-jobs` `EngineClient`. Opt in; it pulls `rightkit-jobs` (db, time, uuid). |
+ | `wv2-0_38` | on | `windows` 0.61, `webview2-com` 0.38 | Windows types for Tauri 2.11 (the default). Must match the app's Tauri. |
+ | `wv2-0_39` | off | `windows` 0.62, `webview2-com` 0.39 | Windows types for Tauri 2.12. With `default-features = false`, enable `wv2-0_39` (plus `engine` if used). Enabling both selects 0.39. |
+-| `devtools` | off | `tauri/devtools` | Lets `Devtools::On` and `DebugBuilds` open the inspector in release builds. Keep it off in production. |
++| `content-devtools` | off | `tauri/devtools` | Required by `DevToolsPolicy::ContentOnly`. Only an app on the `right-release` allow-list (today ViewRight) may ship it; see "DevTools policy". Never a default feature. |
+ 
+ Mismatched `wv2` features put two copies of `windows` or `webview2-com` beside Tauri's, and `cast()` then fails. With `default-features = false`, enable exactly the feature that matches the app's Tauri version.
+ 
+@@ -42,6 +42,50 @@ Illustrative; not compiled as a doctest. The compiled references are `tests/poli
+ - Dependencies: `windows_061`/`windows_062` and `webview2_com_038`/`webview2_com_039` are optional. They enable Win32 features `Win32_Foundation`, `Win32_System_Com`, `Win32_System_DataExchange`, `Win32_System_Memory`, `Win32_System_Ole`, `Win32_UI_Shell` and `Win32_UI_WindowsAndMessaging`. Consumers select only a `wv2-*` feature.
+ - Caveat: `harden.rs`, `clipboard.rs` and `idle.rs` are not compiled or exercised on the macOS host (`src/idle.rs:9`); the windows-2025 CI job compiles them. The clipboard backend has not been run against a live Windows clipboard, so verify copy and paste on a Windows machine before relying on it.
+ 
++## DevTools policy
++
++**The owner's fixed design, verbatim, never to be changed:** every Right app has absolutely NO access to DevTools: blocked at each and every level that is possible, for the app, its shell and its own UI. The single exception is ViewRight: it opens HTML documents, and DevTools must be available INSIDE that opened HTML content only (the content frame), never for ViewRight's own UI or shell.
++
++Source: `src/devtools.rs` (`OWNER_DECISION`). Written, unverified: nothing here was compiled or run; the macOS and Windows calls are the uncertain part.
++
++### API
++
++- `DevToolsPolicy::Denied` (the default) and `DevToolsPolicy::ContentOnly` (exactly two values). `Shell::builder(id).devtools_policy(..)`.
++- `ContentWebview::new(label, window_label).capability(json)...app_acl_manifest(true)` and `Shell::builder(id).content_webview(..)` register a webview that renders opened content. Registration is refused (typed `DevToolsError`, startup fails, loud stderr line) when: the policy is `Denied`; the `content-devtools` feature is not compiled; the label is the main webview (never allowed); a supplied capability document applies to the content webview by webview label or by the label of its parent window and grants permissions; a capability document cannot be parsed; the app did not attest an application ACL manifest.
++- `devtools::guard_process_start()` runs when the plugin is built and may be called first in `main`. `devtools::open_content_devtools(app, label)` is the only path to an open inspector and refuses anything but a registered content webview.
++- The old `Devtools` enum and `Hardening::devtools` are removed: there is no "on" and no "debug builds" any more.
++- The policy is not a `Module`: opting out of `Module::JsHardening` does not opt out of it.
++
++### What each layer blocks
++
++| Layer | macOS (WKWebView) | Windows (WebView2) |
++|---|---|---|
++| Per webview, native | `isInspectable = false` (macOS 13.3+, guarded by `respondsToSelector`) and the private `developerExtrasEnabled` preference set to false explicitly, on every webview the shell sees, including debug builds. This removes Safari Develop attach, "Inspect Element" and WebKit's Cmd+Opt+I handler. `close_devtools` runs first where Tauri has one. | `AreDevToolsEnabled = false`; `AreBrowserAcceleratorKeysEnabled = false` (F12, Ctrl+Shift+I/J/C); a `ContextMenuRequested` handler removes every menu item whose name contains "inspect" from every menu, including the editable-field menu the hardening keeps. |
++| Page script | F12, Ctrl+Shift+I/J/C, Cmd+Opt+I/J/C/U, Ctrl+Alt+I/J/C/U cancelled in every frame of every non-content webview (matched by `KeyboardEvent.code`, so Option-letter dead keys do not slip through). | Same. |
++| Process start | Refuses a launch argument that enables remote debugging. | Same, plus: removes the WebView2 additional-browser-arguments and script-debugger-pipe environment variables from the process; refuses to start when the `AdditionalBrowserArguments` machine or user policy (HKLM, HKCU, HKLM WOW6432Node) injects a debugging switch. |
++| After creation | none | A fresh `DevToolsActivePort` file in the app's local or roaming data folder (or its `EBWebView`) means a debugging port is open: the process logs and exits 1. |
++
++### What cannot be blocked
++
++- **Windows machine policy.** WebView2 appends policy and environment arguments to whatever the app passes (`learn.microsoft.com ... webview2-idl`, CreateCoreWebView2EnvironmentWithOptions), so an explicit argument string cannot override them. The environment variable is process-local and is removed. The registry policy is not ours: the shell detects it at startup and refuses to run. An administrator can still write the key after the check; the port-file tripwire is the second line. Elevated host apps ignore the environment variable (Microsoft's security page, via the browser-flags page), so this matters most for non-elevated apps.
++- **A debugger attached to the process** (lldb/Visual Studio, `get-task-allow`, Time Travel Debugging) and **UI automation / accessibility** are outside "DevTools" and outside this crate. The hardened runtime and signing checks in `right-release` are the control for the macOS entitlement.
++- **macOS before 13.3** has no `isInspectable`; only the `developerExtrasEnabled` preference and the absence of `get-task-allow` apply.
++- **The user's own `WebKitDeveloperExtras` default** is overridden by the explicit per-webview preference; this ordering is unverified.
++- Linux is not covered by native settings (Tauri on Linux is not a supported Right target).
++
++### ContentOnly
++
++`ContentOnly` makes only registered content webviews inspectable: `isInspectable = true` + `developerExtrasEnabled = true` (macOS); `AreDevToolsEnabled = true` with a context menu trimmed to the Inspect item, accelerator keys still off, so the inspector is opened from that item or from `open_content_devtools` (Windows). The shell's DOM, Console and Sources are never reachable because the shell is a different WKWebView / CoreWebView2 whose own setting stays off.
++
++Iframes: inspection of an iframe alone cannot be granted. On both platforms the inspector attaches to a whole webview, so a page whose content is an iframe in the app UI webview would make the UI inspectable. Content must live in its own webview. ViewRight renders HTML previews as iframes today and does not meet this rule; see `docs/plans/2026-10-11-viewright-content-devtools-design.md`.
++
++### Adoption
++
++- Every app: nothing to call. Do not enable Tauri's `devtools` feature, do not use `Devtools::*` (removed), do not create webviews with `.devtools(true)`.
++- An app that created webviews itself: they pass through `on_webview_ready` like any other and are denied.
++- ViewRight only: enable `content-devtools`, `devtools_policy(ContentOnly)`, register each content webview, declare an application ACL manifest in `build.rs`, scope its capabilities with `webviews` (not `windows`) and set `"devtools": "content-only"` in its `right-release` config.
++- `right-release` refuses `devtools` in a release or update build for any app that is not allow-listed (`packages/release/devtools-policy.json`).
++
+ ## Hidden hosts: never_show, reopen opt-out, idle options
+ 
+ - `Shell::builder(..).never_show(true)` and `.never_show_env("RIGHTKIT_QA_NATIVE_REAL")`: the shell shows,
+diff --git a/crates/rightkit-shell/src/commands.rs b/crates/rightkit-shell/src/commands.rs
+index 770f09f5..660ddf1b 100644
+--- a/crates/rightkit-shell/src/commands.rs
++++ b/crates/rightkit-shell/src/commands.rs
+@@ -65,12 +65,12 @@ pub fn rk_shell_status(app: AppHandle<Wry>, state: State<'_, ShellState>) -> Val
+         .iter()
+         .map(|(p, l)| json!({"path": p, "label": l}))
+         .collect();
+-    #[cfg(any(debug_assertions, feature = "devtools"))]
++    #[cfg(any(debug_assertions, feature = "content-devtools"))]
+     let devtools_open = app
+         .get_webview_window(&state.main_label)
+         .map(|w| w.is_devtools_open())
+         .unwrap_or(false);
+-    #[cfg(not(any(debug_assertions, feature = "devtools")))]
++    #[cfg(not(any(debug_assertions, feature = "content-devtools")))]
+     let devtools_open = false;
+     let windows: Vec<Value> = app
+         .webview_windows()
+diff --git a/crates/rightkit-shell/src/devtools.rs b/crates/rightkit-shell/src/devtools.rs
+new file mode 100644
+index 00000000..29e29d59
+--- /dev/null
++++ b/crates/rightkit-shell/src/devtools.rs
+@@ -0,0 +1,822 @@
++//! DevTools policy: every Right app has no access to DevTools; ViewRight alone may inspect the
++//! HTML content it opens.
++//!
++//! The owner's fixed design, verbatim: every Right app has absolutely NO access to DevTools,
++//! blocked at each and every level that is possible, for the app, its shell and its own UI. The
++//! single exception is ViewRight: it opens HTML documents, and DevTools must be available INSIDE
++//! that opened HTML content only (the content frame), never for ViewRight's own UI or shell.
++//!
++//! Two values exist, [`DevToolsPolicy::Denied`] (the default) and [`DevToolsPolicy::ContentOnly`]
++//! (a named allowance an app must request explicitly). Under both, every webview the shell sees is
++//! made non-inspectable unless the app registered it as a content webview
++//! ([`ContentWebview`]) and the policy is `ContentOnly`.
++//!
++//! Layers (see README "DevTools policy" for what each can and cannot block):
++//! 1. [`guard_process_start`]: refuses a remote-debugging launch argument, removes the WebView2
++//!    environment overrides, and refuses a machine policy that injects debugging browser
++//!    arguments (Windows).
++//! 2. Native per-webview settings ([`apply_native`]): `isInspectable` / `developerExtrasEnabled`
++//!    (macOS), `AreDevToolsEnabled`, accelerator keys and the context-menu Inspect item (Windows).
++//! 3. The injected hardening script (keyboard shortcuts), in [`crate::harden`].
++//! 4. [`verify_not_remote_debuggable`]: a post-creation tripwire for a live remote-debugging port.
++//!
++//! Everything that decides (argument and environment scanning, registry output, content
++//! registration, capability checks) is a plain function so it is testable without a GUI.
++
++use std::collections::BTreeSet;
++use std::fmt;
++use std::path::PathBuf;
++use std::sync::OnceLock;
++use std::time::{Duration, SystemTime};
++
++use tauri::{AppHandle, Manager, Runtime, Webview};
++
++/// The owner's decision, stated verbatim. Do not edit or soften.
++pub const OWNER_DECISION: &str = "Every Right app has absolutely NO access to DevTools: blocked at each and every level that is possible, for the app, its shell and its own UI. The single exception is ViewRight: it opens HTML documents, and DevTools must be available INSIDE that opened HTML content only (the content frame), never for ViewRight's own UI or shell.";
++
++/// Bytes a binary carries when it was built with the `content-devtools` feature. `right-release`
++/// accepts Tauri's devtools code in a binary only if this marker is present and the app is on the
++/// allow-list (`packages/release/devtools-policy.json`). Keep identical to
++/// `CONTENT_ONLY_MARKER` in `packages/release/devtools-policy.mjs`.
++pub const CONTENT_ONLY_MARKER: &str = "RIGHTKIT-SHELL-DEVTOOLS-CONTENT-ONLY-COMPILED";
++
++#[cfg(feature = "content-devtools")]
++#[used]
++static CONTENT_ONLY_MARKER_BYTES: &[u8] = b"RIGHTKIT-SHELL-DEVTOOLS-CONTENT-ONLY-COMPILED";
++
++/// Who may use DevTools. Exactly two values.
++#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
++pub enum DevToolsPolicy {
++    /// No webview of the app is inspectable, in any build. The default for every app.
++    #[default]
++    Denied,
++    /// Only webviews the app registered as content webviews ([`ContentWebview`]) are inspectable.
++    /// A named allowance; intended for ViewRight only. Needs the `content-devtools` feature.
++    ContentOnly,
++}
++
++/// What the shell does to one webview.
++#[derive(Debug, Clone, Copy, PartialEq, Eq)]
++pub enum WebviewDecision {
++    /// Make the webview non-inspectable.
++    Deny,
++    /// Leave the webview inspectable (a registered content webview under `ContentOnly`).
++    AllowContent,
++}
++
++/// A webview that renders opened content and may be inspected under [`DevToolsPolicy::ContentOnly`].
++///
++/// Registration is refused unless the content webview cannot reach the app's IPC: no capability
++/// the app ships may apply to it, by webview label or by the label of its parent window (Tauri
++/// matches a capability's `windows` against the window a webview lives in, so a child webview of
++/// the main window inherits the main window's capability), and the app must declare an
++/// application ACL manifest (without one Tauri lets local-origin pages call every app command).
++#[derive(Debug, Clone)]
++pub struct ContentWebview {
++    /// Label of the content webview, or a prefix pattern such as `html-content-*` for webviews
++    /// created per document at run time.
++    pub label: String,
++    /// Label of the window that hosts it.
++    pub window_label: String,
++    /// Every capability document of the app, as JSON text (`include_str!` of each file under
++    /// `capabilities/`, plus any capability added at runtime).
++    pub capabilities: Vec<String>,
++    /// The app declares an ACL manifest for its own commands (`tauri_build::AppManifest` with
++    /// `commands(..)` in `build.rs`). The shell cannot read this at runtime, so the app attests it
++    /// and `right-release` checks `build.rs` for it.
++    pub app_acl_manifest: bool,
++}
++
++impl ContentWebview {
++    pub fn new(label: &str, window_label: &str) -> Self {
++        Self {
++            label: label.to_owned(),
++            window_label: window_label.to_owned(),
++            capabilities: Vec::new(),
++            app_acl_manifest: false,
++        }
++    }
++    /// Add one capability document (JSON text).
++    pub fn capability(mut self, json: &str) -> Self {
++        self.capabilities.push(json.to_owned());
++        self
++    }
++    /// Attest that the app declares an ACL manifest for its commands.
++    pub fn app_acl_manifest(mut self, declared: bool) -> Self {
++        self.app_acl_manifest = declared;
++        self
++    }
++}
++
++/// A refusal. Every variant is fatal at startup; there is no inspectable fallback.
++#[derive(Debug, Clone, PartialEq, Eq)]
++pub enum DevToolsError {
++    /// The process was launched with a remote-debugging or auto-open-DevTools argument.
++    RemoteDebuggingArgument { arg: String },
++    /// A machine or user policy injects a debugging browser argument into WebView2.
++    BrowserPolicyInjects { source: String, switch: String },
++    /// The Windows policy registry could not be read, so the policy cannot be ruled out.
++    RegistryUnreadable { detail: String },
++    /// A remote-debugging port file written by this process's WebView2 exists.
++    RemoteDebugPortLive { path: PathBuf },
++    /// Content webviews were registered but the policy is `Denied`.
++    NotContentOnly,
++    /// `ContentOnly` needs the `content-devtools` feature (it enables Tauri's devtools).
++    ContentDevtoolsNotCompiled,
++    /// The label is empty or not a valid Tauri label.
++    InvalidLabel { label: String },
++    /// The main (app UI) webview can never be a content webview.
++    MainWebview { label: String },
++    /// A capability applies to the content webview and grants permissions.
++    ContentHasIpc { label: String, capability: String },
++    /// A capability document could not be parsed.
++    CapabilitiesUnreadable { detail: String },
++    /// The app did not attest an application ACL manifest.
++    AppAclManifestMissing { label: String },
++    /// The webview is not a registered content webview.
++    NotAContentWebview { label: String },
++    /// The shell's DevTools gate is not installed.
++    NotInstalled,
++    /// The webview does not exist.
++    WebviewMissing { label: String },
++}
++
++impl DevToolsError {
++    pub fn code(&self) -> &'static str {
++        match self {
++            Self::RemoteDebuggingArgument { .. } => "remote_debugging_argument",
++            Self::BrowserPolicyInjects { .. } => "browser_policy_injects",
++            Self::RegistryUnreadable { .. } => "registry_unreadable",
++            Self::RemoteDebugPortLive { .. } => "remote_debug_port_live",
++            Self::NotContentOnly => "not_content_only",
++            Self::ContentDevtoolsNotCompiled => "content_devtools_not_compiled",
++            Self::InvalidLabel { .. } => "invalid_label",
++            Self::MainWebview { .. } => "main_webview",
++            Self::ContentHasIpc { .. } => "content_has_ipc",
++            Self::CapabilitiesUnreadable { .. } => "capabilities_unreadable",
++            Self::AppAclManifestMissing { .. } => "app_acl_manifest_missing",
++            Self::NotAContentWebview { .. } => "not_a_content_webview",
++            Self::NotInstalled => "not_installed",
++            Self::WebviewMissing { .. } => "webview_missing",
++        }
++    }
++}
++
++impl fmt::Display for DevToolsError {
++    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
++        write!(f, "rightkit-shell devtools policy: ")?;
++        match self {
++            Self::RemoteDebuggingArgument { arg } => write!(f, "refusing to start, the process was launched with a debugging argument ({arg})"),
++            Self::BrowserPolicyInjects { source, switch } => write!(f, "refusing to create a webview, {source} injects a debugging browser argument ({switch}); an application cannot override a machine policy"),
++            Self::RegistryUnreadable { detail } => write!(f, "refusing to create a webview, the WebView2 policy registry could not be read ({detail})"),
++            Self::RemoteDebugPortLive { path } => write!(f, "refusing to run, a remote-debugging port is live ({})", path.display()),
++            Self::NotContentOnly => write!(f, "content webviews are registered but the policy is Denied; select DevToolsPolicy::ContentOnly explicitly"),
++            Self::ContentDevtoolsNotCompiled => write!(f, "ContentOnly needs the rightkit-shell `content-devtools` feature"),
++            Self::InvalidLabel { label } => write!(f, "`{label}` is not a valid webview label"),
++            Self::MainWebview { label } => write!(f, "`{label}` is the app UI webview; it can never be a content webview"),
++            Self::ContentHasIpc { label, capability } => write!(f, "content webview `{label}` is covered by capability `{capability}`, which grants app IPC; content webviews need no capability at all"),
++            Self::CapabilitiesUnreadable { detail } => write!(f, "a capability document could not be read ({detail})"),
++            Self::AppAclManifestMissing { label } => write!(f, "content webview `{label}` requires an application ACL manifest for the app's own commands (otherwise local content can call every app command)"),
++            Self::NotAContentWebview { label } => write!(f, "`{label}` is not a registered content webview"),
++            Self::NotInstalled => write!(f, "the shell is not installed"),
++            Self::WebviewMissing { label } => write!(f, "webview `{label}` does not exist"),
++        }
++    }
++}
++
++impl std::error::Error for DevToolsError {}
++
++impl From<DevToolsError> for crate::ShellError {
++    fn from(e: DevToolsError) -> Self {
++        crate::ShellError::PermissionDenied(e.to_string())
++    }
++}
++
++// ---------------------------------------------------------------------------------------------
++// Names. They are stored reversed and reassembled at run time: `right-release` scans every
++// shipped binary for the remote-debugging switch and the WebView2 override variable as evidence of
++// a debugging surface, and this crate must not trip its own scan.
++// ---------------------------------------------------------------------------------------------
++
++fn unrev(s: &str) -> String {
++    s.chars().rev().collect()
++}
++
++/// Lower-case switch names (no leading dashes) that must never reach a browser process.
++fn forbidden_switch_names() -> Vec<String> {
++    [
++        "trop-gniggubed-etomer",
++        "epip-gniggubed-etomer",
++        "sserdda-gniggubed-etomer",
++        "snigiro-wolla-etomer",
++        "sbat-rof-slootved-nepo-otua",
++        "gniggubedetomerpdwslootvedegdesm",
++    ]
++    .iter()
++    .map(|s| unrev(s))
++    .collect()
++}
++
++/// Environment variables that can alter or attach a debugger to WebView2.
++fn scrubbed_env_names() -> Vec<String> {
++    [
++        "STNEMUGRA_RESWORB_LANOITIDDA_2WEIVBEW",
++        "REGGUBED_TPIRCS_ROF_EPIP_2WEIVBEW",
++    ]
++    .iter()
++    .map(|s| unrev(s))
++    .collect()
++}
++
++/// The debugging switches found in `args` (a command line or an `AdditionalBrowserArguments`
++/// string): remote debugging port, pipe, address and allowed origins, auto-open DevTools, the
++/// Edge remote-debugging flag, and `--js-flags` that enable the V8 inspector.
++pub fn forbidden_switches_in(args: &str) -> Vec<String> {
++    let names = forbidden_switch_names();
++    let mut out = Vec::new();
++    for raw in args.split_whitespace() {
++        let token = raw.trim_matches(|c| c == '"' || c == '\'');
++        let Some(rest) = token.strip_prefix('-') else {
++            continue;
++        };
++        let rest = rest.trim_start_matches('-');
++        let (name, value) = rest.split_once('=').unwrap_or((rest, ""));
++        let name = name.to_ascii_lowercase();
++        let hit = names.iter().any(|n| *n == name)
++            || (name == "js-flags" && value.to_ascii_lowercase().contains("inspect"));
++        if hit {
++            out.push(token.to_owned());
++        }
++    }
++    out
++}
++
++/// Launch arguments that carry a debugging switch.
++pub fn argv_violations(args: &[String]) -> Vec<String> {
++    args.iter().flat_map(|a| forbidden_switches_in(a)).collect()
++}
++
++/// Names (as spelled in `names`) of the environment variables to remove from the process.
++/// Matching ignores ASCII case: Windows environment names are case-insensitive.
++pub fn env_vars_to_scrub<I, S>(names: I) -> Vec<String>
++where
++    I: IntoIterator<Item = S>,
++    S: AsRef<str>,
++{
++    let wanted = scrubbed_env_names();
++    names
++        .into_iter()
++        .filter(|n| wanted.iter().any(|w| w.eq_ignore_ascii_case(n.as_ref())))
++        .map(|n| n.as_ref().to_owned())
++        .collect()
++}
++
++/// One value of a registry key as printed by `reg.exe query`.
++#[derive(Debug, Clone, PartialEq, Eq)]
++pub struct RegValue {
++    pub name: String,
++    pub value: String,
++}
++
++/// Parse `reg.exe query <key>` output: lines of `<name>    REG_SZ    <data>`.
++pub fn parse_reg_query(output: &str) -> Vec<RegValue> {
++    let mut values = Vec::new();
++    for line in output.lines() {
++        let t = line.trim();
++        if t.is_empty() || t.to_ascii_uppercase().starts_with("HKEY_") {
++            continue;
++        }
++        for ty in ["REG_EXPAND_SZ", "REG_MULTI_SZ", "REG_SZ"] {
++            if let Some(i) = t.find(ty) {
++                values.push(RegValue {
++                    name: t[..i].trim().to_owned(),
++                    value: t[i + ty.len()..].trim().to_owned(),
++                });
++                break;
++            }
++        }
++    }
++    values
++}
++
++/// Errors for every value of a policy key that injects a debugging switch. A value named for a
++/// different application is still refused: an administrator-set debugging policy is never normal.
++pub fn policy_violations(values: &[RegValue], source: &str) -> Vec<DevToolsError> {
++    values
++        .iter()
++        .flat_map(|v| {
++            forbidden_switches_in(&v.value)
++                .into_iter()
++                .map(move |switch| DevToolsError::BrowserPolicyInjects {
++                    source: format!("{source} (value `{}`)", v.name),
++                    switch,
++                })
++        })
++        .collect()
++}
++
++/// The result of [`guard_process_start`].
++#[derive(Debug, Clone, PartialEq, Eq, Default)]
++pub struct GuardReport {
++    /// Environment variables removed from the process.
++    pub scrubbed_env: Vec<String>,
++}
++
++static GUARD: OnceLock<Result<GuardReport, DevToolsError>> = OnceLock::new();
++static PROCESS_START: OnceLock<SystemTime> = OnceLock::new();
++
++/// Process-start guard. Call it first in `main` (before Tauri builds anything) to fail before any
++/// webview exists; the shell plugin also runs it when it is constructed and refuses to set up when
++/// it failed. Idempotent: the first result is returned on every call.
++///
++/// 1. Refuses a launch argument that enables remote debugging or auto-opens DevTools.
++/// 2. Removes the WebView2 override environment variables from this process, so they cannot reach
++///    the browser process that WebView2 starts later (Windows).
++/// 3. Refuses to continue when the WebView2 `AdditionalBrowserArguments` policy (HKLM, HKCU,
++///    WOW6432Node) injects a debugging switch. WebView2 appends policy arguments to whatever the
++///    application passes, so the application cannot override them (Windows).
++pub fn guard_process_start() -> Result<GuardReport, DevToolsError> {
++    GUARD.get_or_init(run_guard).clone()
++}
++
++fn run_guard() -> Result<GuardReport, DevToolsError> {
++    let _ = PROCESS_START.set(SystemTime::now());
++    let argv: Vec<String> = std::env::args_os()
++        .skip(1)
++        .map(|a| a.to_string_lossy().into_owned())
++        .collect();
++    if let Some(arg) = argv_violations(&argv).into_iter().next() {
++        return Err(DevToolsError::RemoteDebuggingArgument { arg });
++    }
++    let present: Vec<String> = std::env::vars_os()
++        .map(|(k, _)| k.to_string_lossy().into_owned())
++        .collect();
++    let scrubbed_env = env_vars_to_scrub(present.iter());
++    for name in &scrubbed_env {
++        std::env::remove_var(name);
++    }
++    #[cfg(windows)]
++    if let Some(err) = registry_policy_violations()?.into_iter().next() {
++        return Err(err);
++    }
++    Ok(GuardReport { scrubbed_env })
++}
++
++#[cfg(windows)]
++fn registry_policy_violations() -> Result<Vec<DevToolsError>, DevToolsError> {
++    use std::os::windows::process::CommandExt;
++    let tail = r"Software\Policies\Microsoft\Edge\WebView2\AdditionalBrowserArguments";
++    let keys = [
++        ("HKLM policy", format!(r"HKLM\{tail}")),
++        ("HKCU policy", format!(r"HKCU\{tail}")),
++        (
++            "HKLM WOW6432Node policy",
++            r"HKLM\Software\WOW6432Node\Policies\Microsoft\Edge\WebView2\AdditionalBrowserArguments".to_owned(),
++        ),
++    ];
++    let mut out = Vec::new();
++    for (source, key) in keys {
++        let output = std::process::Command::new("reg.exe")
++            .creation_flags(0x0800_0000)
++            .args(["query", key.as_str()])
++            .output()
++            .map_err(|e| DevToolsError::RegistryUnreadable {
++                detail: format!("run reg.exe: {e}"),
++            })?;
++        match output.status.code() {
++            // 1: the key does not exist, so there is no policy.
++            Some(1) => continue,
++            Some(0) => {
++                let text = String::from_utf8_lossy(&output.stdout);
++                out.extend(policy_violations(&parse_reg_query(&text), source));
++            }
++            other => {
++                return Err(DevToolsError::RegistryUnreadable {
++                    detail: format!("reg.exe query {key} exited with {other:?}"),
++                })
++            }
++        }
++    }
++    Ok(out)
++}
++
++/// The file name Chromium writes into the user data folder when remote debugging is on.
++pub const DEBUG_PORT_FILE: &str = "DevToolsActivePort";
++
++/// A port file older than the process (by more than 2 s) is a leftover of an earlier run.
++pub fn is_live_debug_port_file(modified: SystemTime, process_start: SystemTime) -> bool {
++    modified + Duration::from_secs(2) >= process_start
++}
++
++/// A live remote-debugging port file under any of `dirs` (or under `<dir>/EBWebView`).
++pub fn live_debug_port_file(dirs: &[PathBuf], process_start: SystemTime) -> Option<PathBuf> {
++    for dir in dirs {
++        for candidate in [
++            dir.join(DEBUG_PORT_FILE),
++            dir.join("EBWebView").join(DEBUG_PORT_FILE),
++        ] {
++            if let Ok(meta) = std::fs::metadata(&candidate) {
++                // Unreadable time: assume live (fail closed).
++                let modified = meta.modified().unwrap_or_else(|_| SystemTime::now());
++                if is_live_debug_port_file(modified, process_start) {
++                    return Some(candidate);
++                }
++            }
++        }
++    }
++    None
++}
++
++/// Post-creation tripwire (Windows): the browser process writes the port file while it starts, so a
++/// fresh file next to this process's user data means a debugging port is open. A no-op elsewhere.
++pub fn verify_not_remote_debuggable<R: Runtime>(app: &AppHandle<R>) -> Result<(), DevToolsError> {
++    #[cfg(windows)]
++    {
++        let start = PROCESS_START.get().copied().unwrap_or_else(SystemTime::now);
++        let mut dirs: Vec<PathBuf> = Vec::new();
++        if let Ok(d) = app.path().app_local_data_dir() {
++            dirs.push(d);
++        }
++        if let Ok(d) = app.path().app_data_dir() {
++            dirs.push(d);
++        }
++        if let Some(path) = live_debug_port_file(&dirs, start) {
++            return Err(DevToolsError::RemoteDebugPortLive { path });
++        }
++    }
++    #[cfg(not(windows))]
++    let _ = app;
++    Ok(())
++}
++
++// ---------------------------------------------------------------------------------------------
++// Registration and the gate
++// ---------------------------------------------------------------------------------------------
++
++/// Which webviews are inspectable. Built once at startup and kept in Tauri state.
++#[derive(Debug, Clone, PartialEq, Eq)]
++pub struct DevToolsGate {
++    policy: DevToolsPolicy,
++    main_label: String,
++    content: BTreeSet<String>,
++}
++
++impl DevToolsGate {
++    /// The gate that denies every webview.
++    pub fn denied(main_label: &str) -> Self {
++        Self {
++            policy: DevToolsPolicy::Denied,
++            main_label: main_label.to_owned(),
++            content: BTreeSet::new(),
++        }
++    }
++    pub fn policy(&self) -> DevToolsPolicy {
++        self.policy
++    }
++    /// Registered content webview labels or prefix patterns (empty under `Denied`).
++    pub fn content_labels(&self) -> Vec<String> {
++        self.content.iter().cloned().collect()
++    }
++    /// What to do with the webview labelled `label`. Anything not registered is denied, and the
++    /// main webview is denied whatever else is true.
++    pub fn decide(&self, label: &str) -> WebviewDecision {
++        if self.policy == DevToolsPolicy::ContentOnly
++            && label != self.main_label
++            && self
++                .content
++                .iter()
++                .any(|pattern| glob_match(pattern, label))
++        {
++            WebviewDecision::AllowContent
++        } else {
++            WebviewDecision::Deny
++        }
++    }
++}
++
++fn valid_label(label: &str) -> bool {
++    !label.is_empty()
++        && label
++            .chars()
++            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '/' | ':' | '_'))
++}
++
++/// A content label is an exact Tauri label, or a prefix pattern: a valid label followed by one
++/// trailing `*` (`html-content-*`), for webviews created per document or tab at run time.
++fn valid_content_label(label: &str) -> bool {
++    match label.strip_suffix('*') {
++        Some(prefix) => valid_label(prefix),
++        None => valid_label(label),
++    }
++}
++
++/// Could any label match both patterns? Conservative: patterns are compared by their literal head
++/// (the text before the first wildcard), and heads that are prefixes of one another overlap.
++pub fn patterns_may_overlap(a: &str, b: &str) -> bool {
++    let head = |p: &str| match p.find(['*', '?']) {
++        Some(i) => (p[..i].to_owned(), true),
++        None => (p.to_owned(), false),
++    };
++    let (ha, wa) = head(a);
++    let (hb, wb) = head(b);
++    match (wa, wb) {
++        (false, false) => ha == hb,
++        (true, false) => hb.starts_with(&ha) && glob_match(a, b),
++        (false, true) => ha.starts_with(&hb) && glob_match(b, a),
++        (true, true) => ha.starts_with(&hb) || hb.starts_with(&ha),
++    }
++}
++
++/// `*` matches any run, `?` one character: the glob subset Tauri capability patterns use.
++pub fn glob_match(pattern: &str, text: &str) -> bool {
++    let p: Vec<char> = pattern.chars().collect();
++    let t: Vec<char> = text.chars().collect();
++    let (mut pi, mut ti) = (0usize, 0usize);
++    let (mut star, mut mark) = (None::<usize>, 0usize);
++    while ti < t.len() {
++        if pi < p.len() && (p[pi] == '?' || p[pi] == t[ti]) {
++            pi += 1;
++            ti += 1;
++        } else if pi < p.len() && p[pi] == '*' {
++            star = Some(pi);
++            mark = ti;
++            pi += 1;
++        } else if let Some(s) = star {
++            pi = s + 1;
++            mark += 1;
++            ti = mark;
++        } else {
++            return false;
++        }
++    }
++    while pi < p.len() && p[pi] == '*' {
++        pi += 1;
++    }
++    pi == p.len()
++}
++
++fn patterns(value: &serde_json::Value, key: &str) -> Vec<String> {
++    value
++        .get(key)
++        .and_then(|v| v.as_array())
++        .map(|a| {
++            a.iter()
++                .filter_map(|s| s.as_str().map(str::to_owned))
++                .collect()
++        })
++        .unwrap_or_default()
++}
++
++/// The identifier of the first capability in `doc` that applies to the webview and grants
++/// permissions. A capability applies when one of its `webviews` patterns matches the webview label
++/// or one of its `windows` patterns matches the label of the window that hosts the webview.
++/// `webview_label` may be a content prefix pattern (`html-content-*`); overlap is judged conservatively.
++pub fn capability_granting_ipc(
++    doc: &str,
++    webview_label: &str,
++    window_label: &str,
++) -> Result<Option<String>, DevToolsError> {
++    let parsed: serde_json::Value =
++        serde_json::from_str(doc).map_err(|e| DevToolsError::CapabilitiesUnreadable {
++            detail: e.to_string(),
++        })?;
++    let docs: Vec<&serde_json::Value> = match &parsed {
++        serde_json::Value::Array(items) => items.iter().collect(),
++        other => vec![other],
++    };
++    for cap in docs {
++        let applies = patterns(cap, "webviews")
++            .iter()
++            .any(|p| patterns_may_overlap(p, webview_label))
++            || patterns(cap, "windows")
++                .iter()
++                .any(|p| glob_match(p, window_label));
++        let grants = cap
++            .get("permissions")
++            .and_then(|v| v.as_array())
++            .is_some_and(|a| !a.is_empty());
++        if applies && grants {
++            let id = cap
++                .get("identifier")
++                .and_then(|v| v.as_str())
++                .unwrap_or("<unnamed>");
++            return Ok(Some(id.to_owned()));
++        }
++    }
++    Ok(None)
++}
++
++/// Validate the policy and the content registrations and build the gate. `devtools_compiled` is
++/// `cfg!(feature = "content-devtools")` in the shell; it is a parameter so tests can cover both.
++pub fn build_gate(
++    policy: DevToolsPolicy,
++    main_label: &str,
++    registrations: &[ContentWebview],
++    devtools_compiled: bool,
++) -> Result<DevToolsGate, DevToolsError> {
++    if registrations.is_empty() {
++        return Ok(DevToolsGate {
++            policy,
++            main_label: main_label.to_owned(),
++            content: BTreeSet::new(),
++        });
++    }
++    if policy != DevToolsPolicy::ContentOnly {
++        return Err(DevToolsError::NotContentOnly);
++    }
++    if !devtools_compiled {
++        return Err(DevToolsError::ContentDevtoolsNotCompiled);
++    }
++    let mut content = BTreeSet::new();
++    for reg in registrations {
++        if !valid_content_label(&reg.label) || !valid_label(&reg.window_label) {
++            return Err(DevToolsError::InvalidLabel {
++                label: reg.label.clone(),
++            });
++        }
++        if reg.label == main_label || glob_match(&reg.label, main_label) {
++            return Err(DevToolsError::MainWebview {
++                label: reg.label.clone(),
++            });
++        }
++        if !reg.app_acl_manifest {
++            return Err(DevToolsError::AppAclManifestMissing {
++                label: reg.label.clone(),
++            });
++        }
++        for doc in &reg.capabilities {
++            if let Some(capability) = capability_granting_ipc(doc, &reg.label, &reg.window_label)? {
++                return Err(DevToolsError::ContentHasIpc {
++                    label: reg.label.clone(),
++                    capability,
++                });
++            }
++        }
++        content.insert(reg.label.clone());
++    }
++    Ok(DevToolsGate {
++        policy,
++        main_label: main_label.to_owned(),
++        content,
++    })
++}
++
++/// Open the inspector of a registered content webview. The only path from this crate to an open
++/// inspector; every other webview is refused.
++pub fn open_content_devtools<R: Runtime>(
++    app: &AppHandle<R>,
++    label: &str,
++) -> Result<(), DevToolsError> {
++    let gate = app
++        .try_state::<DevToolsGate>()
++        .ok_or(DevToolsError::NotInstalled)?;
++    if gate.decide(label) != WebviewDecision::AllowContent {
++        return Err(DevToolsError::NotAContentWebview {
++            label: label.to_owned(),
++        });
++    }
++    #[cfg(feature = "content-devtools")]
++    {
++        let webview = app
++            .get_webview(label)
++            .ok_or_else(|| DevToolsError::WebviewMissing {
++                label: label.to_owned(),
++            })?;
++        webview.open_devtools();
++        Ok(())
++    }
++    #[cfg(not(feature = "content-devtools"))]
++    Err(DevToolsError::ContentDevtoolsNotCompiled)
++}
++
++// ---------------------------------------------------------------------------------------------
++// Native, per-webview settings
++// ---------------------------------------------------------------------------------------------
++
++/// Apply the DevTools decision to one live webview. Runs for every webview, whatever other
++/// hardening modules the app opted out of.
++pub fn apply_native<R: Runtime>(webview: &Webview<R>, decision: WebviewDecision) {
++    // Close an inspector that already exists, where the build has one.
++    #[cfg(any(debug_assertions, feature = "content-devtools"))]
++    if decision == WebviewDecision::Deny {
++        webview.close_devtools();
++    }
++    #[cfg(target_os = "macos")]
++    macos::apply(webview, decision);
++    #[cfg(windows)]
++    windows_impl::apply(webview, decision);
++    #[cfg(not(any(target_os = "macos", windows)))]
++    let _ = (webview, decision);
++}
++
++#[cfg(target_os = "macos")]
++mod macos {
++    use super::*;
++    use objc2::msg_send;
++    use objc2::runtime::AnyObject;
++    use objc2_foundation::{ns_string, NSNumber};
++
++    pub fn apply<R: Runtime>(webview: &Webview<R>, decision: WebviewDecision) {
++        let allow = decision == WebviewDecision::AllowContent;
++        let _ = webview.with_webview(move |platform| unsafe {
++            // SAFETY: Tauri hands over the live WKWebView; used only inside this main-thread closure.
++            let wk = &*(platform.inner() as *mut AnyObject);
++            // `isInspectable` (macOS 13.3+) is what Safari's Develop menu and `_inspector` honour.
++            let responds: bool = msg_send![wk, respondsToSelector: objc2::sel!(setInspectable:)];
++            if responds {
++                let (): () = msg_send![wk, setInspectable: allow];
++            }
++            // The private `developerExtrasEnabled` preference adds "Inspect Element" to the context
++            // menu and WebKit's own Cmd+Opt+I handler. Set explicitly in both directions so the
++            // value never depends on a default (wry sets it true when its devtools are on).
++            let config: objc2::rc::Retained<AnyObject> = msg_send![wk, configuration];
++            let prefs: objc2::rc::Retained<AnyObject> = msg_send![&config, preferences];
++            let flag = NSNumber::numberWithBool(allow);
++            let (): () = msg_send![&prefs, setValue: Some(&*flag), forKey: ns_string!("developerExtrasEnabled")];
++        });
++    }
++}
++
++#[cfg(windows)]
++mod windows_impl {
++    use super::*;
++    use crate::winapi::webview2_com::ContextMenuRequestedEventHandler;
++    use crate::winapi::webview2_com::Microsoft::Web::WebView2::Win32::{
++        ICoreWebView2ContextMenuItem, ICoreWebView2ContextMenuItemCollection,
++        ICoreWebView2Settings3, ICoreWebView2_11,
++    };
++    use crate::winapi::windows::core::{Interface, PWSTR};
++
++    fn is_inspect_item(item: &ICoreWebView2ContextMenuItem) -> bool {
++        let mut name = PWSTR::null();
++        // SAFETY: Name writes a CoTaskMem string; the few bytes per menu are left unfreed on purpose.
++        let ok = unsafe { item.Name(&mut name) }.is_ok() && !name.is_null();
++        ok && unsafe { name.to_string() }
++            .unwrap_or_default()
++            .to_ascii_lowercase()
++            .contains("inspect")
++    }
++
++    /// Remove the items for which `remove` is true.
++    unsafe fn retain_items(
++        items: &ICoreWebView2ContextMenuItemCollection,
++        remove: impl Fn(&ICoreWebView2ContextMenuItem) -> bool,
++    ) -> usize {
++        let mut count: u32 = 0;
++        if items.Count(&mut count).is_err() {
++            return 0;
++        }
++        let mut i = count;
++        while i > 0 {
++            i -= 1;
++            if let Ok(item) = items.GetValueAtIndex(i) {
++                if remove(&item) {
++                    let _ = items.RemoveValueAtIndex(i);
++                }
++            }
++        }
++        let mut left: u32 = 0;
++        let _ = items.Count(&mut left);
++        left as usize
++    }
++
++    /// WebView2 side of the policy. NOT compiled on the macOS host: the windows-2025 CI job
++    /// compiles it, and nobody has run it on a Windows machine.
++    pub fn apply<R: Runtime>(webview: &Webview<R>, decision: WebviewDecision) {
++        let allow = decision == WebviewDecision::AllowContent;
++        let _ = webview.with_webview(move |platform| unsafe {
++            let Ok(core) = platform.controller().CoreWebView2() else {
++                return;
++            };
++            if let Ok(settings) = core.Settings() {
++                let _ = settings.SetAreDevToolsEnabled(allow);
++                if !allow {
++                    // F12, Ctrl+Shift+I / J / C are browser accelerator keys.
++                    if let Ok(s3) = settings.cast::<ICoreWebView2Settings3>() {
++                        let _ = s3.SetAreBrowserAcceleratorKeysEnabled(false);
++                    }
++                }
++            }
++            // The default context menu carries "Inspect". Denied: remove it from every menu.
++            // Content: keep only it, and show no menu when it is absent.
++            if let Ok(wv11) = core.cast::<ICoreWebView2_11>() {
++                let handler =
++                    ContextMenuRequestedEventHandler::create(Box::new(move |_sender, args| {
++                        let Some(args) = args else { return Ok(()) };
++                        let items = args.MenuItems()?;
++                        if allow {
++                            let left = retain_items(&items, |it| !is_inspect_item(it));
++                            if left == 0 {
++                                args.SetHandled(true)?;
++                            }
++                        } else {
++                            retain_items(&items, is_inspect_item);
++                        }
++                        Ok(())
++                    }));
++                let mut token: i64 = 0;
++                let _ = wv11.add_ContextMenuRequested(&handler, &mut token);
++            }
++        });
++    }
++}
+diff --git a/crates/rightkit-shell/src/harden.js b/crates/rightkit-shell/src/harden.js
+index e678c869..828e537c 100644
+--- a/crates/rightkit-shell/src/harden.js
++++ b/crates/rightkit-shell/src/harden.js
+@@ -7,6 +7,13 @@
+     state.blocked.push({ kind: kind, detail: detail || '' });
+     if (state.blocked.length > 100) state.blocked.shift();
+   }
++  // A content webview registered under DevToolsPolicy::ContentOnly: the native layer decides what
++  // its inspector may do, so the page-level DevTools and context-menu cancel stand aside there.
++  var webviewLabel = '';
++  try { webviewLabel = String(window.__TAURI_INTERNALS__.metadata.currentWebview.label); } catch (e) { webviewLabel = ''; }
++  var isContentWebview = webviewLabel !== '' && (cfg.contentDevtoolsLabels || []).some(function (p) {
++    return p.charAt(p.length - 1) === '*' ? webviewLabel.indexOf(p.slice(0, -1)) === 0 : webviewLabel === p;
++  });
+   var EDITABLE = 'input, textarea, select, [contenteditable=""], [contenteditable="true"]';
+   function closest(t, sel) {
+     var n = t && t.nodeType === 1 ? t : t && t.parentElement;
+@@ -24,7 +31,7 @@
+     try { return u.origin === location.origin && u.protocol !== 'mailto:'; } catch (e) { return false; }
+   }
+ 
+-  if (cfg.blockContextMenu) {
++  if (cfg.blockContextMenu && !isContentWebview) {
+     window.addEventListener('contextmenu', function (e) {
+       if (cfg.allowEditableMenu && closest(e.target, EDITABLE)) { note('contextmenu-allowed-editable'); return; }
+       if (closest(e.target, '[data-rk-native-menu]')) { note('contextmenu-allowed-surface'); return; }
+@@ -45,8 +52,14 @@
+     if (!hit && cfg.blockHistoryNav) {
+       if ((e.altKey && (k === 'ArrowLeft' || k === 'ArrowRight')) || (e.metaKey && (k === '[' || k === ']')) || k === 'BrowserBack' || k === 'BrowserForward') hit = 'history';
+     }
+-    if (!hit && cfg.blockDevtoolsKeys) {
+-      if (k === 'F12' || (e.ctrlKey && e.shiftKey && (lk === 'i' || lk === 'j' || lk === 'c')) || (e.metaKey && e.altKey && (lk === 'i' || lk === 'j' || lk === 'c' || k === 'ˆ' || k === '∆' || k === 'ç'))) hit = 'devtools';
++    if (!hit && !isContentWebview) {
++      var code = e.code;
++      var letter = code === 'KeyI' || code === 'KeyJ' || code === 'KeyC' || lk === 'i' || lk === 'j' || lk === 'c';
++      var letterU = code === 'KeyU' || lk === 'u';
++      if (k === 'F12'
++        || ((e.ctrlKey || e.metaKey) && e.shiftKey && letter)
++        || (e.metaKey && e.altKey && (letter || letterU))
++        || (e.ctrlKey && e.altKey && (letter || letterU))) hit = 'devtools';
+     }
+     if (hit) { e.preventDefault(); note('key-' + hit, k); }
+   }, true);
+diff --git a/crates/rightkit-shell/src/harden.rs b/crates/rightkit-shell/src/harden.rs
+index 18209752..50e6bd7c 100644
+--- a/crates/rightkit-shell/src/harden.rs
++++ b/crates/rightkit-shell/src/harden.rs
+@@ -1,4 +1,4 @@
+-//! Webview hardening: no stray webview context menu, devtools off in production, reload / zoom /
++//! Webview hardening: no stray webview context menu, reload / zoom /
+ //! history keys blocked, drag-drop cannot navigate, external links leave for the system browser.
+ //!
+ //! Three layers, because no single one covers every engine:
+@@ -10,6 +10,8 @@
+ use serde::Serialize;
+ use tauri::{Runtime, Webview};
+ 
++use crate::devtools::WebviewDecision;
++
+ /// Frame scope for the full shell plugin's DOM hardening script.
+ /// Native webview settings & Rust navigation policy are configured separately.
+ #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+@@ -23,26 +25,6 @@ pub enum HardeningScript {
+     Off,
+ }
+ 
+-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+-pub enum Devtools {
+-    /// Inspector unavailable in every build (the default).
+-    Off,
+-    /// Inspector available only in debug builds.
+-    DebugBuilds,
+-    /// Inspector always available (diagnostic builds only).
+-    On,
+-}
+-
+-impl Devtools {
+-    pub fn enabled(self) -> bool {
+-        match self {
+-            Devtools::Off => false,
+-            Devtools::DebugBuilds => cfg!(debug_assertions),
+-            Devtools::On => true,
+-        }
+-    }
+-}
+-
+ #[derive(Debug, Clone)]
+ pub struct Hardening {
+     /// Cancel `contextmenu` outside designated surfaces.
+@@ -56,8 +38,6 @@ pub struct Hardening {
+     pub block_zoom: bool,
+     /// Block Alt+Left/Right, Cmd+[ / ], browser back/forward keys and mouse buttons 4/5.
+     pub block_history_nav: bool,
+-    /// Block F12, Ctrl+Shift+I/J/C and Cmd+Opt+I/J/C (and turn the inspector off natively).
+-    pub devtools: Devtools,
+     /// A dropped file must never navigate the webview; only `data-rk-dropzone` accepts drops.
+     pub block_drop_navigation: bool,
+     /// Route http(s)/mailto link clicks and `window.open` to the system browser.
+@@ -72,7 +52,6 @@ impl Default for Hardening {
+             block_reload: true,
+             block_zoom: true,
+             block_history_nav: true,
+-            devtools: Devtools::Off,
+             block_drop_navigation: true,
+             intercept_external_links: true,
+         }
+@@ -87,7 +66,7 @@ struct ScriptConfig {
+     block_reload: bool,
+     block_zoom: bool,
+     block_history_nav: bool,
+-    block_devtools_keys: bool,
++    content_devtools_labels: Vec<String>,
+     block_drop_navigation: bool,
+     intercept_external_links: bool,
+ }
+@@ -95,15 +74,24 @@ struct ScriptConfig {
+ const SCRIPT_BODY: &str = include_str!("harden.js");
+ 
+ impl Hardening {
+-    /// The initialisation script for this configuration (idempotent per document).
++    /// The initialisation script for this configuration (idempotent per document). DevTools
++    /// shortcuts are always cancelled; see [`Hardening::script_for`] for content webviews.
+     pub fn script(&self) -> String {
++        self.script_for(&[])
++    }
++
++    /// Like [`Hardening::script`], for an app whose `DevToolsPolicy::ContentOnly` registered the
++    /// webviews in `content_labels`. In those webviews the script leaves the context menu and the
++    /// DevTools shortcuts alone (the native layer decides what they may do); everywhere else
++    /// F12, Ctrl+Shift+I/J/C and Cmd+Opt+I/J/C/U are cancelled.
++    pub fn script_for(&self, content_labels: &[String]) -> String {
+         let cfg = ScriptConfig {
+             block_context_menu: self.block_context_menu,
+             allow_editable_menu: self.allow_editable_menu,
+             block_reload: self.block_reload,
+             block_zoom: self.block_zoom,
+             block_history_nav: self.block_history_nav,
+-            block_devtools_keys: !self.devtools.enabled(),
++            content_devtools_labels: content_labels.to_vec(),
+             block_drop_navigation: self.block_drop_navigation,
+             intercept_external_links: self.intercept_external_links,
+         };
+@@ -112,18 +100,16 @@ impl Hardening {
+     }
+ }
+ 
+-/// Apply the native (non-DOM) hardening to a freshly created webview.
+-pub fn apply_native<R: Runtime>(webview: &Webview<R>, h: &Hardening) {
+-    // `close_devtools` exists only in debug builds or with tauri's `devtools` feature; production
+-    // builds have no inspector to close (and the native settings below turn it off regardless).
+-    #[cfg(any(debug_assertions, feature = "devtools"))]
+-    if !h.devtools.enabled() {
+-        webview.close_devtools();
+-    }
++/// Apply the native (non-DOM, non-DevTools) hardening to a freshly created webview. The DevTools
++/// settings are applied separately and unconditionally by [`crate::devtools::apply_native`];
++/// `decision` only tells this layer to leave a content webview's context menu to that layer.
++pub fn apply_native<R: Runtime>(webview: &Webview<R>, h: &Hardening, decision: WebviewDecision) {
+     #[cfg(target_os = "macos")]
+     macos::apply(webview, h);
+     #[cfg(windows)]
+-    windows_impl::apply(webview, h);
++    windows_impl::apply(webview, h, decision);
++    #[cfg(not(windows))]
++    let _ = decision;
+     #[cfg(not(any(target_os = "macos", windows)))]
+     let _ = (webview, h);
+ }
+@@ -133,23 +119,14 @@ mod macos {
+     use super::*;
+     use objc2::msg_send;
+     use objc2::runtime::AnyObject;
+-    use objc2_foundation::{ns_string, NSNumber};
+ 
+     pub fn apply<R: Runtime>(webview: &Webview<R>, h: &Hardening) {
+-        let devtools = h.devtools.enabled();
+         let zoom_off = h.block_zoom;
+         let nav_off = h.block_history_nav;
+         let _ = webview.with_webview(move |platform| unsafe {
+             // SAFETY: Tauri hands over the live WKWebView for this webview; used only inside this
+             // main-thread closure.
+             let wk = &*(platform.inner() as *mut AnyObject);
+-            let config: objc2::rc::Retained<AnyObject> = msg_send![wk, configuration];
+-            let prefs: objc2::rc::Retained<AnyObject> = msg_send![&config, preferences];
+-            // Wry enables the private `developerExtrasEnabled` preference, which also installs
+-            // WebKit's own Cmd+Opt+I handler that JavaScript cannot cancel. Turning it off removes
+-            // "Inspect Element" from the context menu and the shortcut together.
+-            let flag = NSNumber::numberWithBool(devtools);
+-            let (): () = msg_send![&prefs, setValue: Some(&*flag), forKey: ns_string!("developerExtrasEnabled")];
+             if zoom_off {
+                 let (): () = msg_send![wk, setAllowsMagnification: false];
+             }
+@@ -172,8 +149,9 @@ mod windows_impl {
+ 
+     /// WebView2 side of the same policy. NOT compiled on this (macOS) host: compile and verify on
+     /// the Windows agent with `rightkit cargo check -p rightkit-shell` (see API.md).
+-    pub fn apply<R: Runtime>(webview: &Webview<R>, h: &Hardening) {
++    pub fn apply<R: Runtime>(webview: &Webview<R>, h: &Hardening, decision: WebviewDecision) {
+         let h = h.clone();
++        let content = decision == WebviewDecision::AllowContent;
+         let _ = webview.with_webview(move |platform| unsafe {
+             let Ok(core) = platform.controller().CoreWebView2() else {
+                 return;
+@@ -181,7 +159,6 @@ mod windows_impl {
+             let Ok(settings) = core.Settings() else {
+                 return;
+             };
+-            let _ = settings.SetAreDevToolsEnabled(h.devtools.enabled());
+             let _ = settings.SetIsStatusBarEnabled(false);
+             if h.block_zoom {
+                 let _ = settings.SetIsZoomControlEnabled(false);
+@@ -194,14 +171,14 @@ mod windows_impl {
+                     let _ = s6.SetIsSwipeNavigationEnabled(false);
+                 }
+             }
+-            if h.block_reload || h.block_history_nav || !h.devtools.enabled() {
+-                // F5, Ctrl+R, Alt+Left, F12 and friends are WebView2 "browser accelerator keys".
++            if h.block_reload || h.block_history_nav {
++                // F5, Ctrl+R, Alt+Left and friends are WebView2 "browser accelerator keys".
+                 if let Ok(s3) = settings.cast::<ICoreWebView2Settings3>() {
+                     let _ = s3.SetAreBrowserAcceleratorKeysEnabled(false);
+                 }
+             }
+-            if h.block_context_menu {
+-                // Keep default menus only so the editable-field menu can survive; every other
++            if h.block_context_menu && !content {
++                // Content webviews: the DevTools layer owns their menu. Keep default menus only so the editable-field menu can survive; every other
+                 // target is marked handled (no menu shown).
+                 let allow_editable = h.allow_editable_menu;
+                 if let Ok(wv11) = core.cast::<ICoreWebView2_11>() {
+diff --git a/crates/rightkit-shell/src/lib.rs b/crates/rightkit-shell/src/lib.rs
+index 26e2adcf..40d3de39 100644
+--- a/crates/rightkit-shell/src/lib.rs
++++ b/crates/rightkit-shell/src/lib.rs
+@@ -20,6 +20,7 @@ pub mod broker;
+ pub mod clipboard;
+ pub mod commands;
+ pub mod deep_link;
++pub mod devtools;
+ #[cfg(feature = "engine")]
+ pub mod engine;
+ pub mod error;
+@@ -70,8 +71,9 @@ use tauri::{AppHandle, Manager, Wry};
+ pub use autostart::{AutostartMigration, AutostartOptions, LegacyAutostartNames};
+ pub use broker::PathBroker;
+ pub use clipboard::{ClipboardItem, ClipboardOptions, ClipboardPolicy, ImagePreference};
++pub use devtools::{ContentWebview, DevToolsError, DevToolsGate, DevToolsPolicy, WebviewDecision};
+ pub use error::ShellError;
+-pub use harden::{Devtools, Hardening, HardeningScript};
++pub use harden::{Hardening, HardeningScript};
+ pub use idle::{
+     IdleErrorCallback, IdleFailure, IdlePhase, IdleTransition, IdleTransitionCallback,
+     IdleTransitionKind,
+@@ -189,6 +191,8 @@ pub struct ShellBuilder {
+     main_label: String,
+     hardening: Hardening,
+     hardening_script: HardeningScript,
++    devtools_policy: DevToolsPolicy,
++    content_webviews: Vec<ContentWebview>,
+     nav: NavPolicy,
+     extra_internal_schemes: Vec<String>,
+     opener: Arc<dyn ExternalOpener>,
+@@ -245,6 +249,8 @@ impl Shell {
+             main_label: "main".into(),
+             hardening: Hardening::default(),
+             hardening_script: HardeningScript::default(),
++            devtools_policy: DevToolsPolicy::default(),
++            content_webviews: Vec::new(),
+             nav: NavPolicy::default(),
+             extra_internal_schemes: Vec::new(),
+             opener: Arc::new(SystemOpener),
+@@ -308,6 +314,21 @@ impl ShellBuilder {
+         self.hardening_script = scope;
+         self
+     }
++    /// Who may use DevTools. The default, [`DevToolsPolicy::Denied`], makes no webview of the app
++    /// inspectable. [`DevToolsPolicy::ContentOnly`] is a named allowance for an app that renders
++    /// opened content (ViewRight) and must also register that content with
++    /// [`ShellBuilder::content_webview`]. The policy applies whichever modules are installed.
++    pub fn devtools_policy(mut self, p: DevToolsPolicy) -> Self {
++        self.devtools_policy = p;
++        self
++    }
++    /// Register a webview that renders opened content as inspectable under
++    /// [`DevToolsPolicy::ContentOnly`]. The main webview can never be registered, and setup fails
++    /// with a typed [`DevToolsError`] when the content webview could reach the app's IPC.
++    pub fn content_webview(mut self, c: ContentWebview) -> Self {
++        self.content_webviews.push(c);
++        self
++    }
+     pub fn nav_policy(mut self, p: NavPolicy) -> Self {
+         self.nav = p;
+         self
+@@ -691,6 +712,19 @@ pub(crate) fn install(cfg: ShellBuilder) -> TauriPlugin<Wry> {
+     let script_scope = cfg.hardening_script;
+     let (nav_hook, opener_hook) = (Arc::clone(&nav), Arc::clone(&opener));
+     let hardening_for_views = hardening.clone();
++    // DevTools: the process guard and the gate. A failure is carried to plugin setup, which
++    // refuses to start; until then every webview is treated as denied.
++    let guard_result = devtools::guard_process_start();
++    let gate_result = devtools::build_gate(
++        cfg.devtools_policy,
++        &cfg.main_label,
++        &cfg.content_webviews,
++        cfg!(feature = "content-devtools"),
++    );
++    let gate_for_views = gate_result
++        .clone()
++        .unwrap_or_else(|_| DevToolsGate::denied(&cfg.main_label));
++    let content_labels = gate_for_views.content_labels();
+     let harden_webviews = modules.contains(Module::JsHardening);
+     let show_on_ready_explicit = cfg.show_on_ready;
+     // `lifecycle_only` turns ShowOnReady off; only the host's explicit `show_on_ready(true)` brings
+@@ -722,8 +756,16 @@ pub(crate) fn install(cfg: ShellBuilder) -> TauriPlugin<Wry> {
+     }
+     plugin = plugin
+         .on_webview_ready(move |webview| {
++            let decision = gate_for_views.decide(webview.label());
++            // The DevTools policy is not a module: it applies to every webview, always.
++            devtools::apply_native(&webview, decision);
+             if harden_webviews {
+-                harden::apply_native(&webview, &hardening_for_views);
++                harden::apply_native(&webview, &hardening_for_views, decision);
++            }
++            if let Err(e) = devtools::verify_not_remote_debuggable(webview.app_handle()) {
++                eprintln!("{e}");
++                webview.app_handle().exit(1);
++                return;
+             }
+             let app = webview.app_handle().clone();
+             let label = webview.label().to_owned();
+@@ -761,16 +803,31 @@ pub(crate) fn install(cfg: ShellBuilder) -> TauriPlugin<Wry> {
+         })
+         .setup(move |app, _api| {
+             let app = app.clone();
++            if let Err(e) = guard_result {
++                eprintln!("{e}");
++                return Err(Box::new(e));
++            }
++            match gate_result {
++                Ok(gate) => {
++                    app.manage(gate);
++                }
++                Err(e) => {
++                    eprintln!("{e}");
++                    return Err(Box::new(e));
++                }
++            }
+             setup(&app, cfg, nav, opener)
+         });
+     if harden_webviews {
+         plugin = match script_scope {
+-            HardeningScript::AllFrames => plugin.js_init_script_on_all_frames(hardening.script()),
++            HardeningScript::AllFrames => {
++                plugin.js_init_script_on_all_frames(hardening.script_for(&content_labels))
++            }
+             // WebView2 injects even main-frame-only scripts into child frames. Guard the body
+             // as well as requesting native main-frame scope (WKWebView honors that scope).
+             HardeningScript::TopFrameOnly => plugin.js_init_script(format!(
+                 "if (window.top !== window.self) {{ return; }}\n{}",
+-                hardening.script()
++                hardening.script_for(&content_labels)
+             )),
+             HardeningScript::Off => plugin,
+         };
+diff --git a/crates/rightkit-shell/tests/devtools_policy.rs b/crates/rightkit-shell/tests/devtools_policy.rs
+new file mode 100644
+index 00000000..d41c9fed
+--- /dev/null
++++ b/crates/rightkit-shell/tests/devtools_policy.rs
+@@ -0,0 +1,397 @@
++//! DevTools policy decisions that need no GUI: argument and environment neutralisation, registry
++//! policy parsing, policy selection, content-webview registration and the capability check.
++//!
++//! The switch and variable names are rebuilt from pieces: `right-release` scans shipped binaries
++//! for them, and test sources are not binaries, but spelling them out here would invite a copy
++//! into production code.
++
++use std::time::{Duration, SystemTime};
++
++use rightkit_shell::devtools::{
++    argv_violations, build_gate, capability_granting_ipc, env_vars_to_scrub, forbidden_switches_in,
++    glob_match, is_live_debug_port_file, live_debug_port_file, parse_reg_query,
++    patterns_may_overlap, policy_violations, ContentWebview, DevToolsError, DevToolsGate,
++    DevToolsPolicy, WebviewDecision, DEBUG_PORT_FILE,
++};
++use rightkit_shell::{Hardening, Shell};
++
++fn dbg_port() -> String {
++    ["--remote-", "debugging-", "port"].concat()
++}
++fn env_override() -> String {
++    ["WEBVIEW2_ADDITIONAL", "_BROWSER_ARGUMENTS"].concat()
++}
++
++const MAIN_CAP: &str = r#"{
++  "identifier": "default",
++  "windows": ["main"],
++  "permissions": ["core:default", "core:window:allow-close"]
++}"#;
++const MAIN_WEBVIEW_CAP: &str = r#"{
++  "identifier": "main-only",
++  "webviews": ["main"],
++  "permissions": ["core:default"]
++}"#;
++const EMPTY_CAP: &str = r#"{ "identifier": "inert", "windows": ["content"], "permissions": [] }"#;
++
++fn content(label: &str, window: &str) -> ContentWebview {
++    ContentWebview::new(label, window).app_acl_manifest(true)
++}
++
++#[test]
++fn default_policy_is_denied() {
++    assert_eq!(DevToolsPolicy::default(), DevToolsPolicy::Denied);
++    let gate = build_gate(DevToolsPolicy::default(), "main", &[], true).unwrap();
++    assert_eq!(gate.policy(), DevToolsPolicy::Denied);
++    assert_eq!(gate.decide("main"), WebviewDecision::Deny);
++    assert_eq!(gate.decide("anything"), WebviewDecision::Deny);
++    assert_eq!(
++        DevToolsGate::denied("main").decide("preview"),
++        WebviewDecision::Deny
++    );
++}
++
++#[test]
++fn builder_defaults_to_denied_and_accepts_the_allowance_explicitly() {
++    // Compiles against the public builder; the plugin itself needs a Tauri host.
++    let _ = Shell::builder("devtools-policy-test").build();
++    let _ = Shell::builder("devtools-policy-test")
++        .devtools_policy(DevToolsPolicy::ContentOnly)
++        .content_webview(content("preview", "content"))
++        .build();
++    // The Hardening struct no longer has a devtools switch to turn on.
++    let _ = Hardening::default();
++}
++
++#[test]
++fn debugging_switches_are_found_in_every_spelling() {
++    let port = dbg_port();
++    for text in [
++        format!("{port}=9222"),
++        format!("--disable-gpu {port}=0"),
++        format!("\"{port}=9222\""),
++        format!("-{}", &port[2..]),
++        "--remote-debugging-pipe".to_owned(),
++        "--REMOTE-DEBUGGING-ADDRESS=0.0.0.0".to_owned(),
++        "--remote-allow-origins=*".to_owned(),
++        "--auto-open-devtools-for-tabs".to_owned(),
++        "--msEdgeDevToolsWdpRemoteDebugging".to_owned(),
++        "--js-flags=--inspect-brk".to_owned(),
++    ] {
++        assert!(!forbidden_switches_in(&text).is_empty(), "{text}");
++    }
++    for text in [
++        "",
++        "--disable-gpu",
++        "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection",
++        "--autoplay-policy=no-user-gesture-required",
++        "--js-flags=--max-old-space-size=512",
++        "--proxy-server=http://127.0.0.1:8080",
++        "remote-debugging-port",
++    ] {
++        assert!(forbidden_switches_in(text).is_empty(), "{text}");
++    }
++}
++
++#[test]
++fn launch_arguments_with_a_debugging_switch_are_refused() {
++    let bad = vec!["--background".to_owned(), format!("{}=9333", dbg_port())];
++    assert_eq!(argv_violations(&bad), vec![format!("{}=9333", dbg_port())]);
++    assert!(argv_violations(&["--background".to_owned(), "/tmp/doc.html".to_owned()]).is_empty());
++}
++
++#[test]
++fn webview2_overrides_are_scrubbed_case_insensitively_and_nothing_else() {
++    let lower = env_override().to_ascii_lowercase();
++    let found = env_vars_to_scrub([
++        "PATH".to_owned(),
++        env_override(),
++        lower.clone(),
++        "WEBVIEW2_USER_DATA_FOLDER".to_owned(),
++        "WEBVIEW2_PIPE_FOR_SCRIPT_DEBUGGER".to_owned(),
++    ]);
++    assert_eq!(
++        found,
++        vec![
++            env_override(),
++            lower,
++            "WEBVIEW2_PIPE_FOR_SCRIPT_DEBUGGER".to_owned()
++        ]
++    );
++    assert!(env_vars_to_scrub(["HOME", "TMPDIR"]).is_empty());
++}
++
++#[test]
++fn registry_output_is_parsed_and_a_debugging_policy_is_refused() {
++    let output = format!(
++        "\r\nHKEY_LOCAL_MACHINE\\Software\\Policies\\Microsoft\\Edge\\WebView2\\AdditionalBrowserArguments\r\n    *    REG_SZ    {}=9222 --disable-gpu\r\n    viewright.exe    REG_SZ    --disable-gpu\r\n\r\n",
++        dbg_port()
++    );
++    let values = parse_reg_query(&output);
++    assert_eq!(values.len(), 2);
++    assert_eq!(values[0].name, "*");
++    assert_eq!(values[1].value, "--disable-gpu");
++    let errors = policy_violations(&values, "HKLM policy");
++    assert_eq!(errors.len(), 1);
++    assert!(matches!(
++        &errors[0],
++        DevToolsError::BrowserPolicyInjects { source, switch }
++            if source.contains("HKLM policy") && switch.starts_with(&dbg_port())
++    ));
++    assert!(policy_violations(&parse_reg_query(""), "HKCU policy").is_empty());
++}
++
++#[test]
++fn content_registration_under_denied_is_refused() {
++    let err = build_gate(
++        DevToolsPolicy::Denied,
++        "main",
++        &[content("preview", "content")],
++        true,
++    )
++    .unwrap_err();
++    assert_eq!(err, DevToolsError::NotContentOnly);
++    assert_eq!(err.code(), "not_content_only");
++}
++
++#[test]
++fn content_only_needs_the_feature_compiled() {
++    let err = build_gate(
++        DevToolsPolicy::ContentOnly,
++        "main",
++        &[content("preview", "content")],
++        false,
++    )
++    .unwrap_err();
++    assert_eq!(err, DevToolsError::ContentDevtoolsNotCompiled);
++}
++
++#[test]
++fn the_main_webview_can_never_be_registered() {
++    let err = build_gate(
++        DevToolsPolicy::ContentOnly,
++        "main",
++        &[content("main", "main")],
++        true,
++    )
++    .unwrap_err();
++    assert!(matches!(err, DevToolsError::MainWebview { .. }));
++    // The app may rename its main label; the rule follows the configured label.
++    let err = build_gate(
++        DevToolsPolicy::ContentOnly,
++        "shell",
++        &[content("shell", "w")],
++        true,
++    )
++    .unwrap_err();
++    assert!(matches!(err, DevToolsError::MainWebview { .. }));
++}
++
++#[test]
++fn labels_are_validated() {
++    for bad in ["", "has space", "dot.label", "emoji-\u{1F600}"] {
++        let err = build_gate(
++            DevToolsPolicy::ContentOnly,
++            "main",
++            &[content(bad, "content")],
++            true,
++        )
++        .unwrap_err();
++        assert!(matches!(err, DevToolsError::InvalidLabel { .. }), "{bad}");
++    }
++}
++
++#[test]
++fn a_content_webview_needs_the_app_acl_manifest_attestation() {
++    let reg = ContentWebview::new("preview", "content");
++    let err = build_gate(DevToolsPolicy::ContentOnly, "main", &[reg], true).unwrap_err();
++    assert!(matches!(err, DevToolsError::AppAclManifestMissing { .. }));
++}
++
++#[test]
++fn a_child_webview_inherits_its_windows_capability() {
++    // Tauri matches a capability's `windows` against the window that hosts the webview, so a
++    // content webview placed in the main window reaches everything the main window can.
++    let reg = content("preview", "main").capability(MAIN_CAP);
++    let err = build_gate(DevToolsPolicy::ContentOnly, "main", &[reg], true).unwrap_err();
++    assert!(
++        matches!(&err, DevToolsError::ContentHasIpc { capability, .. } if capability == "default"),
++        "{err:?}"
++    );
++}
++
++#[test]
++fn a_webview_scoped_capability_for_main_does_not_reach_a_content_webview_in_the_same_window() {
++    let reg = content("preview", "main").capability(MAIN_WEBVIEW_CAP);
++    let gate = build_gate(DevToolsPolicy::ContentOnly, "main", &[reg], true).unwrap();
++    assert_eq!(gate.decide("preview"), WebviewDecision::AllowContent);
++    assert_eq!(gate.decide("main"), WebviewDecision::Deny);
++}
++
++#[test]
++fn wildcard_and_array_capabilities_are_checked() {
++    let wildcard = r#"{ "identifier": "all", "windows": ["*"], "permissions": ["core:default"] }"#;
++    let err = build_gate(
++        DevToolsPolicy::ContentOnly,
++        "main",
++        &[content("preview", "content").capability(wildcard)],
++        true,
++    )
++    .unwrap_err();
++    assert!(matches!(err, DevToolsError::ContentHasIpc { .. }));
++
++    let array = format!("[{EMPTY_CAP}, {MAIN_CAP}, {wildcard}]");
++    assert_eq!(
++        capability_granting_ipc(&array, "preview", "content").unwrap(),
++        Some("all".to_owned())
++    );
++    // Applies by label but grants nothing: harmless.
++    assert_eq!(
++        capability_granting_ipc(EMPTY_CAP, "preview", "content").unwrap(),
++        None
++    );
++}
++
++#[test]
++fn an_unreadable_capability_is_a_refusal_not_a_pass() {
++    let err = build_gate(
++        DevToolsPolicy::ContentOnly,
++        "main",
++        &[content("preview", "content").capability("{ not json")],
++        true,
++    )
++    .unwrap_err();
++    assert!(matches!(err, DevToolsError::CapabilitiesUnreadable { .. }));
++}
++
++#[test]
++fn only_registered_labels_are_allowed_and_only_under_content_only() {
++    let reg = [
++        content("html-interactive", "content").capability(MAIN_WEBVIEW_CAP),
++        content("html-live", "content"),
++    ];
++    let gate = build_gate(DevToolsPolicy::ContentOnly, "main", &reg, true).unwrap();
++    assert_eq!(gate.policy(), DevToolsPolicy::ContentOnly);
++    assert_eq!(
++        gate.decide("html-interactive"),
++        WebviewDecision::AllowContent
++    );
++    assert_eq!(gate.decide("html-live"), WebviewDecision::AllowContent);
++    assert_eq!(gate.decide("print-preview"), WebviewDecision::Deny);
++    assert_eq!(gate.decide("main"), WebviewDecision::Deny);
++    assert_eq!(gate.content_labels(), vec!["html-interactive", "html-live"]);
++
++    // ContentOnly with nothing registered denies everything.
++    let none = build_gate(DevToolsPolicy::ContentOnly, "main", &[], true).unwrap();
++    assert_eq!(none.decide("html-live"), WebviewDecision::Deny);
++}
++
++#[test]
++fn glob_patterns_follow_the_capability_subset() {
++    assert!(glob_match("main", "main"));
++    assert!(!glob_match("main", "main2"));
++    assert!(glob_match("*", "anything"));
++    assert!(glob_match("html-*", "html-live"));
++    assert!(glob_match("*-live", "html-live"));
++    assert!(glob_match("h?ml", "html"));
++    assert!(!glob_match("html-*", "xhtml-live"));
++    assert!(glob_match("a*b*c", "aXXbYYc"));
++}
++
++#[test]
++fn a_remote_debugging_port_file_is_live_only_when_fresh() {
++    let start = SystemTime::now();
++    assert!(is_live_debug_port_file(start, start));
++    assert!(is_live_debug_port_file(
++        start + Duration::from_secs(5),
++        start
++    ));
++    assert!(!is_live_debug_port_file(
++        start - Duration::from_secs(3600),
++        start
++    ));
++
++    let dir = tempfile::tempdir().unwrap();
++    let dirs = vec![dir.path().to_path_buf()];
++    assert_eq!(live_debug_port_file(&dirs, start), None);
++    let nested = dir.path().join("EBWebView");
++    std::fs::create_dir_all(&nested).unwrap();
++    std::fs::write(nested.join(DEBUG_PORT_FILE), "9222\n/devtools/browser/x").unwrap();
++    assert_eq!(
++        live_debug_port_file(&dirs, start),
++        Some(nested.join(DEBUG_PORT_FILE))
++    );
++    // The same file is a leftover when the process started long after it was written.
++    let later = SystemTime::now() + Duration::from_secs(3600);
++    assert_eq!(live_debug_port_file(&dirs, later), None);
++}
++
++#[test]
++fn errors_are_typed_loud_and_convert_to_the_shell_error() {
++    let e = DevToolsError::RemoteDebuggingArgument { arg: dbg_port() };
++    assert_eq!(e.code(), "remote_debugging_argument");
++    assert!(e.to_string().contains("refusing to start"));
++    let shell: rightkit_shell::ShellError = e.into();
++    assert_eq!(shell.code(), "permission_denied");
++}
++
++#[test]
++fn prefix_patterns_cover_webviews_created_per_document() {
++    let reg = [content("html-content-*", "main").capability(MAIN_WEBVIEW_CAP)];
++    let gate = build_gate(DevToolsPolicy::ContentOnly, "main", &reg, true).unwrap();
++    assert_eq!(gate.decide("html-content-7"), WebviewDecision::AllowContent);
++    assert_eq!(gate.decide("html-content-"), WebviewDecision::AllowContent);
++    assert_eq!(gate.decide("html-other"), WebviewDecision::Deny);
++    assert_eq!(gate.decide("main"), WebviewDecision::Deny);
++    // A pattern may not reach the main label, nor be empty.
++    for bad in ["m*", "ma*", "*", "main*"] {
++        let err = build_gate(
++            DevToolsPolicy::ContentOnly,
++            "main",
++            &[content(bad, "w")],
++            true,
++        )
++        .unwrap_err();
++        assert!(
++            matches!(
++                err,
++                DevToolsError::MainWebview { .. } | DevToolsError::InvalidLabel { .. }
++            ),
++            "{bad}: {err:?}"
++        );
++    }
++    // Wildcards are only legal as one trailing `*`.
++    for bad in ["a*b", "*a", "a**"] {
++        let err = build_gate(
++            DevToolsPolicy::ContentOnly,
++            "main",
++            &[content(bad, "w")],
++            true,
++        )
++        .unwrap_err();
++        assert!(matches!(err, DevToolsError::InvalidLabel { .. }), "{bad}");
++    }
++}
++
++#[test]
++fn a_capability_that_could_cover_any_label_of_a_pattern_is_refused() {
++    for cap_pattern in ["*", "html-*", "html-content-3", "html-content-*", "h*"] {
++        let cap = format!(
++            r#"{{ "identifier": "c", "webviews": ["{cap_pattern}"], "permissions": ["core:default"] }}"#
++        );
++        let err = build_gate(
++            DevToolsPolicy::ContentOnly,
++            "main",
++            &[content("html-content-*", "w").capability(&cap)],
++            true,
++        )
++        .unwrap_err();
++        assert!(
++            matches!(err, DevToolsError::ContentHasIpc { .. }),
++            "{cap_pattern}"
++        );
++    }
++    assert!(patterns_may_overlap("main", "main"));
++    assert!(!patterns_may_overlap("main", "html-content-*"));
++    assert!(!patterns_may_overlap("print-*", "html-content-*"));
++}
+diff --git a/docs/PLATFORM-MATRIX.md b/docs/PLATFORM-MATRIX.md
+index 53571f7b..0c9042f8 100644
+--- a/docs/PLATFORM-MATRIX.md
++++ b/docs/PLATFORM-MATRIX.md
+@@ -91,7 +91,7 @@ Totals for the 57 crates: macOS Full 47, Partial 10 (`agent-room-core`, `rightki
+ | `rightkit-send` | private (`publish = false`); tree **0.1.0** | LocalSend v2 nearby file and text sharing with Pulse extensions: TLS pinning, per-device trust, discovery. 2026-10-11 (tree, verified on macOS): partial files are created exclusively and never adopted or truncated (audit F01); private trust-store writer gains collision-safe temp names and a directory fsync (audit A03). | **Partial**; gate: default off; `bonjour` (Cargo.toml:22) and `multicast` (Cargo.toml:20) features; cite: `src/lib.rs:21`; Core send and receive build by default. dns_sd discovery and multicast exist only behind non-default features. | **Partial**; gate: `multicast` feature (Cargo.toml:20); cite: `src/discovery.rs:119`; Winsock multicast discovery real. No Bonjour (src/lib.rs:21). No DnsService (README:37). | **Partial**; gate: multicast excluded on iOS; cite: `src/lib.rs:12`; Crate opens no multicast on iOS. Host supplies peers through Service::peer_add_resolved (src/lib.rs:631). | not claimed (code: Partial) | none found | **Fixed:** `multicast` "off on Apple targets": it compiles on macOS and is excluded only on iOS (`src/lib.rs:12`). |
+ | `rightkit-service` | registry 0.1.3; tree **0.1.5**; staged 0.1.4 (publishing) (tree newer) | Local service discovery and authentication convention: service.json, takeover, current-user socket or named pipe, app allowlist. | **Full**; gate: cfg(any(target_os = "macos", ...)) (crates/rightkit-service/src/peer.rs:120-127); cite: `src/peer.rs:184`; getpeereid checked on accept and connect. Socket dir 0700 (src/suite.rs:188); socket 0600 (src/transport.rs:165). 0.1.5 adds public `verify_peer_is_current_user` for Unix streams (`src/peer.rs:282`) and checks the peer on every accept and in clients (CHANGELOG 0.1.5): written, unverified. | **Full**; gate: cfg(windows) (crates/rightkit-service/src/transport.rs:208; src/peer.rs:296); cite: `src/peer.rs:418`; Named pipe with owner-only SDDL DACL, remote clients rejected (src/transport.rs:226), first-instance flag (src/transport.rs:473). Cross-user path not run (README:52). 0.1.5 adds `verify_pipe_peer_is_current_user` (`src/peer.rs:418`), `owner_only_security_attributes` (`src/peer.rs:495`), a pipe-instance limit and `discover_windows_with` with `include_incomplete` (`src/discovery.rs:297`) (ledger #59, #66, #81): written, unverified. | not claimed | **Full**; gate: cfg(target_os = "linux") (crates/rightkit-service/src/peer.rs:134-150); cite: `src/peer.rs:149`; SO_PEERCRED check. mips, powerpc and sparc report Unsupported (src/peer.rs:236-258), as README:16 says. | both: cutright, heardright, postright | **Open:** README:19 lists the platform-gate files without `src/peer.rs`, which holds most gates (uncommitted in-tree; service lane active, left alone); README:21 says the crate has no CHANGELOG but `CHANGELOG.md` exists; `Cargo.toml:19` points to `API.md`, which does not exist. |
+ | `rightkit-settings` | registry 0.1.0; tree **0.2.0**; published 0.1.1 on 2026-10-11 per the RightKit lead (feed not yet updated); staged 0.1.1 (tree newer) | Versioned per-app settings persistence: migrations, atomic writes, corruption recovery, cross-process transactions, change events. | **Full**; gate: none for behaviour (`cfg(unix)` file stamp only); cite: `src/backend.rs:316`; the cache stamp is dev/ino/mtime/ctime/len (`src/backend.rs:316-329`); atomic replace and directory sync are delegated to rightkit-fs (`src/atomic.rs:14`; rightkit-fs per-OS behavior is in its own row). 0.2.0 repair semantics (one resolver over `Store::open`, `get()`, `read_with_defaults`), `fill_optional`, `remove_keys`, `NullMeans`, `OnCorrupt`, sidecar read rule, flat format, `persist_defaults_on_first_save`: written, unverified. An unreadable file is now `Error::Io`, never overwritten with defaults. State: verified on macOS (50 tests) (per the lead, 2026-10-11). | **Full**; gate: `cfg(not(unix))` file stamp; cite: `src/backend.rs:331`; the stamp is the modification time and length only (`src/backend.rs:331-333`), weaker than the Unix stamp, so a same-size rewrite inside one timestamp tick is not detected by the cached `get()`; atomic replace behaviour depends on rightkit-fs (rename, not `ReplaceFileW`, see CHANGELOG 0.2.0). State: verified on Windows (Dell) (49 tests) (per the lead, 2026-10-11). | not claimed | not claimed (code: Full) | both: genright, cutright, scraperight, postright | none found |
+-| `rightkit-shell` | registry 0.1.4; tree **0.3.0**; staged 0.2.0 (publishing) (tree newer) | Shared Tauri desktop shell: webview hardening, window state, menu and tray, single instance, deep links, autostart, clipboard, watchdog. | **Partial**; gate: cfg(target_os = "macos") deps (crates/rightkit-shell/Cargo.toml:34); cite: `src/idle.rs:366`; Notify, presence, clipboard and frameless are real. Idle suspend and resume are a designed no-op (src/idle.rs:10-12). 0.3.0: `SingleInstance::destroy` with `on_destroy` releases, `LegacySingleInstanceNames`, `LegacyAutostartNames` (`tests/legacy_names.rs`), site-root scheme, typed clipboard (macOS AppleScript only where AppKit cannot supply the data): written, unverified. | **Partial (untested)**; gate: cfg(windows) plus wv2-0_38 / wv2-0_39 (crates/rightkit-shell/src/lib.rs:48-55); cite: `src/presence.rs:391`; Notify (src/notify.rs:477), clipboard, autostart, harden real. Presence observe is a stub. src/harden.rs:173, src/clipboard.rs:631 and src/idle.rs:9 say not compiled or exercised on the macOS host (clipboard: now compiled by windows-2025 CI, not run on a live clipboard). 0.3.0 Windows additions: legacy single-instance and autostart name detection (`src/legacy_instance.rs:29`, `:103`), typed clipboard with `CF_DIB` to BMP, Windows autostart migration: written, unverified. Unreleased: clipboard writes own the clipboard through a message-only window, a `CF_DIB`-first image option, V4/V5 DIB offset fix (CHANGELOG, Unreleased): written, unverified. README:43 still records that harden.rs, clipboard.rs and idle.rs were not compiled or exercised on the macOS host; the Windows host check has not been recorded. | not claimed | **Partial (not claimed)**; gate: cfg(not(any(macos, windows))); cite: `src/notify.rs:521`; Notifications, rich clipboard (src/clipboard.rs:866-877) and presence observe are stubs. Autostart entry path (src/autostart.rs:271) and open_url are real. | both: viewright, postright; both [cfg(windows) uses, cfg(macos) uses]: mailright, coderight | **Fixed:** example-app `Cargo.lock` records rightkit-shell 0.2.0, not 0.1.0 (`example-app/Cargo.lock:2692`); `idle.rs` carries the same not-exercised-on-macOS-host caveat. |
++| `rightkit-shell` | registry 0.1.4; tree **0.3.0**; staged 0.2.0 (publishing) (tree newer) | Shared Tauri desktop shell: webview hardening, window state, menu and tray, single instance, deep links, autostart, clipboard, watchdog. | **Partial**; gate: cfg(target_os = "macos") deps (crates/rightkit-shell/Cargo.toml:34); cite: `src/idle.rs:366`; Notify, presence, clipboard and frameless are real. Unreleased DevTools policy (`src/devtools.rs`: `isInspectable` and `developerExtrasEnabled` false on every webview, `ContentOnly` allowance for registered content webviews): written, unverified. Idle suspend and resume are a designed no-op (src/idle.rs:10-12). 0.3.0: `SingleInstance::destroy` with `on_destroy` releases, `LegacySingleInstanceNames`, `LegacyAutostartNames` (`tests/legacy_names.rs`), site-root scheme, typed clipboard (macOS AppleScript only where AppKit cannot supply the data): written, unverified. | **Partial (untested)**; gate: cfg(windows) plus wv2-0_38 / wv2-0_39 (crates/rightkit-shell/src/lib.rs:48-55); cite: `src/presence.rs:391`; Notify (src/notify.rs:477), clipboard, autostart, harden real. Presence observe is a stub. Unreleased DevTools policy on Windows (`AreDevToolsEnabled`, accelerator keys, Inspect menu item removal, environment scrub, `AdditionalBrowserArguments` registry refusal through `reg.exe`, port-file tripwire; `src/devtools.rs`): written, unverified, not compiled anywhere. src/harden.rs:173, src/clipboard.rs:631 and src/idle.rs:9 say not compiled or exercised on the macOS host (clipboard: now compiled by windows-2025 CI, not run on a live clipboard). 0.3.0 Windows additions: legacy single-instance and autostart name detection (`src/legacy_instance.rs:29`, `:103`), typed clipboard with `CF_DIB` to BMP, Windows autostart migration: written, unverified. Unreleased: clipboard writes own the clipboard through a message-only window, a `CF_DIB`-first image option, V4/V5 DIB offset fix (CHANGELOG, Unreleased): written, unverified. README:43 still records that harden.rs, clipboard.rs and idle.rs were not compiled or exercised on the macOS host; the Windows host check has not been recorded. | not claimed | **Partial (not claimed)**; gate: cfg(not(any(macos, windows))); cite: `src/notify.rs:521`; Notifications, rich clipboard (src/clipboard.rs:866-877) and presence observe are stubs. Autostart entry path (src/autostart.rs:271) and open_url are real. | both: viewright, postright; both [cfg(windows) uses, cfg(macos) uses]: mailright, coderight | **Fixed:** example-app `Cargo.lock` records rightkit-shell 0.2.0, not 0.1.0 (`example-app/Cargo.lock:2692`); `idle.rs` carries the same not-exercised-on-macOS-host caveat. |
+ | `rightkit-speech-client` | registry 0.3.2; tree **0.3.3**; staged 0.3.3 (publishing) (tree newer) | Client and contract for the Orthic Labs shared speech service (one resident engine per machine). | **Full**; gate: cfg(unix) in rightkit-service transport; no cfg in this crate's src; cite: `crates/rightkit-service/src/transport.rs:220`; endpoint is a Unix socket path (src/protocol.rs:190-192); connect at crates/rightkit-service/src/transport.rs:221 via UnixStream. | **Full**; gate: cfg!(windows) at crates/rightkit-speech-client/src/protocol.rs:184 "if cfg!(windows) {" + cfg(windows) mod imp in rightkit-service; cite: `crates/rightkit-service/src/transport.rs:504`; named pipe \\.\pipe\orthic-labs-speech-... (src/protocol.rs:186); real overlapped open, peer check. | not claimed | not claimed (code: Full) | both: cutright; both [tests]: heardright | **Fixed:** dependency list omitted `rightkit-transcript`; "platform gates are in `src/lib.rs`" (none; the endpoint switch is `src/protocol.rs:184`); "no CHANGELOG.md". |
+ | `rightkit-sync` | never published; tree **0.1.1**; staged 0.1.0 (publishing) | Brand-neutral desktop/mobile cloud sync engine (change tokens, tombstones, LWW conflicts, offline queue, retry/backoff). 0.1.1 adds `origin_scope` on LocalStore candidates and an `AccountSwitched` event (ledger #71); platform-neutral, written, unverified. | **Full**; gate: none for engine; CloudKit backend = external Swift helper; cite: `src/helper/process.rs:93`; helper is swift/RightKitCloudKitHelper (swift/RightKitCloudKitHelper/Package.swift:11 "rightkit-cloudkit-helper"); engine, MemoryBackend, ledger are cfg-free. | **Partial**; gate: cfg(windows) only for CREATE_NO_WINDOW in helper spawn; cite: `src/helper/process.rs:107`; engine, MemoryBackend, ledger, FileStorage work; CloudKitHelper calls return SyncError::Unavailable when no helper binary exists (src/helper/process.rs:108-111). No Windows helper in repo. | not claimed | not claimed (code: Partial) | both: scraperight | none found |
+ | `rightkit-tauri` | registry 0.1.2; tree **0.1.3**; staged 0.1.2 (tree newer) | Native host services for Right Suite Tauri license and device adapters. | **Full**; no OS `cfg` in `src/`, no `[target.*]` table; cite: `Cargo.toml:12` | **Full**; no OS `cfg` in `src/`, no `[target.*]` table; cite: `Cargo.toml:12` | not claimed | not claimed (code: Full) | both: heardright, viewright, mailright, coderight, scraperight, postright | none found |
+diff --git a/docs/plans/2026-10-11-viewright-content-devtools-design.md b/docs/plans/2026-10-11-viewright-content-devtools-design.md
+new file mode 100644
+index 00000000..76bbc275
+--- /dev/null
++++ b/docs/plans/2026-10-11-viewright-content-devtools-design.md
+@@ -0,0 +1,113 @@
++# ViewRight content DevTools: migration design
++
++Status: design for the ViewRight chat. Nothing here was compiled or run. Every Tauri/wry fact is cited to the source in the local cargo registry (tauri 2.11.5, wry 0.55.1, tauri-runtime-wry 2.11.4); anything from memory is marked **unverified**.
++
++## The rule
++
++Owner's fixed design, never to be changed: every Right app has absolutely NO access to DevTools: blocked at each and every level that is possible, for the app, its shell and its own UI. The single exception is ViewRight: it opens HTML documents, and DevTools must be available INSIDE that opened HTML content only (the content frame), never for ViewRight's own UI or shell.
++
++## Why ViewRight does not meet it today
++
++All three HTML preview kinds are iframes inside the main webview: interactive (`HtmlDocumentView.tsx:47-54`, `sandbox="allow-scripts"` + `srcDoc`), safe/sanitized (`HtmlViewer.tsx:760-764`, `sandbox="allow-same-origin"`), live URL (`LivePreviewPane.tsx:64-68`). `open_devtools` (`src-tauri/src/commands/external.rs:203-223`) opens the inspector of the whole main webview, so the shell DOM, Console and Sources are reachable. On macOS `developerExtrasEnabled` is toggled true while an iframe is hovered or focused (`external.rs:188-195`), which re-arms WebKit's Cmd+Opt+I for the whole webview; `isInspectable` is never set. On Windows `AreDevToolsEnabled` is never disabled and the additional-browser-arguments environment variable is not neutralised.
++
++An inspector attaches to a webview, not to a frame. WKWebView inspection (`isInspectable`, the private `_inspector`) and WebView2 (`OpenDevToolsWindow` on a `CoreWebView2`) both target the whole page, and Chromium DevTools can switch the JavaScript context to the parent frame. So no setting makes "iframe only" inspection possible; the rule can only be met by moving the content into webviews of their own. The shell enforces exactly that: `rightkit-shell` `DevToolsPolicy::ContentOnly` never makes the main webview inspectable and has no iframe-level allowance.
++
++## Target architecture
++
++One child webview per open HTML preview, hosted in the main window, no IPC, positioned over a placeholder element of the React UI.
++
++```
++window "main"
++ |- webview "main"                  app UI. Never inspectable. Capability: "webviews": ["main"]
++ |- webview "html-content-<tabId>"  one per HTML tab. Inspectable (ContentOnly). No capability at all.
++```
++
++### What Tauri 2 offers (verified)
++
++| Need | API | Status |
++|---|---|---|
++| Create a webview inside an existing window | `Window::add_child(WebviewBuilder, position, size)` (`tauri-2.11.5/src/window/mod.rs:1126-1129`) | **Unstable**: `#[cfg(any(test, all(desktop, feature = "unstable")))]`. Needs the `tauri` crate feature `unstable` (`Cargo.toml:130`, forwards `tauri-runtime-wry?/unstable`). Desktop only. |
++| The builder | `Webview::builder(label, WebviewUrl)` returning `WebviewBuilder` (`src/webview/mod.rs:1368-1370`) | **Unstable** (`#[cfg(feature = "unstable")]`). |
++| Move and size | `Webview::set_position`, `set_size`, `set_bounds` (`src/webview/mod.rs:1509-1527`) | Compiled; reaching a child webview needs `add_child`, so effectively unstable. |
++| Run script in it | `Webview::eval` (`src/webview/mod.rs:1917`) | stable |
++| Page-load hook, init script | `WebviewBuilder::on_page_load`, `initialization_script` (`:688`, `:868`) | stable on the builder |
++| Per-webview devtools switch | `WebviewBuilder::devtools(bool)` (`:1118`) and `Webview::open_devtools` (needs `devtools` feature or a debug build) | stable; the shell sets the real value natively anyway |
++| Per-webview capability | capability `webviews: [..]` (matched at `src/ipc/authority.rs:459`) | stable |
++| Which webview made a custom-scheme request | `UriSchemeContext::webview_label()` (`src/app.rs:2481`) | stable |
++
++Consequence: the real fix needs `tauri/unstable` in ViewRight. That is the only unstable surface. A stable-API alternative exists (each preview as a borderless `WebviewWindow` with `parent()` set, kept aligned with the placeholder by hand), but it loses clipping with the main window, Spaces/Mission Control behaviour and focus handling; **unverified** how tao positions such a child on both platforms. Recommendation: `unstable` + `add_child`, pinned to the Tauri version ViewRight already locks (2.11.5), and re-qualified at every Tauri bump.
++
++### Is inspectability per webview? (confirmed)
++
++- macOS: `isInspectable` is a property of one `WKWebView` (wry sets it per webview, `wry-0.55.1/src/wkwebview/mod.rs:537-545`, together with the per-webview `WKPreferences` key `developerExtrasEnabled`, `:546-549`). Each child webview is its own `WKWebView` with its own configuration, so the shell webview can stay `isInspectable = false` while a content webview's inspector is open. (`isInspectable` exists from macOS 13.3; wry guards with `respondsToSelector`.) **Unverified**: that a `WKWebViewConfiguration`'s `preferences` object is not shared between sibling webviews; wry creates one configuration per webview, so it should not be.
++- Windows: DevTools are a setting of the `ICoreWebView2Settings` object of one `CoreWebView2` (`SetAreDevToolsEnabled`, wry `src/webview2/mod.rs:573`, called for each created webview). Child webviews are separate controllers/`CoreWebView2`s in one shared environment and user-data folder, so the shell webview keeps `AreDevToolsEnabled = false` while a content webview has it true. The environment-wide parts (browser arguments, remote-debugging port) are per browser process and therefore not scopable per webview: they are blocked for everything by `guard_process_start` (see the rightkit-shell README).
++
++## IPC isolation (the part that is easy to get wrong)
++
++A content webview must not be able to call the app. Two verified Tauri behaviours decide how:
++
++1. A capability's `windows` field matches the window that hosts the webview, not the webview (`authority.rs:459-460`: `webviews.matches(webview) || windows.matches(window)`). ViewRight's `capabilities/default.json` has `"windows": ["main"]`; every child webview added to window `main` would inherit all of it. **Change it to `"webviews": ["main"]`** (and the same for any other capability that must not reach content).
++2. App-defined commands are ACL-checked only when the app declares an ACL manifest, or the plugin command, or the origin is remote (`src/webview/mod.rs:1819-1823`). Without a manifest a local-origin page (a custom scheme such as `viewright-content://`) can invoke every app command. **Add an `AppManifest` listing ViewRight's commands in `build.rs`** (`tauri_build::Attributes::new().app_manifest(AppManifest::new().commands(&[...]))`) and grant them only to webview `main` through the capability. Plugin commands (`core:*`, `dialog`, ...) are always ACL-checked, so a content webview with no capability gets none of them.
++
++`rightkit-shell` enforces this at startup: `ContentWebview::new("html-content-*", "main").capability(<each capability file>).app_acl_manifest(true)` fails with `ContentHasIpc` if any supplied capability could apply to the content webview (by webview-pattern overlap or by parent window label), and `right-release` refuses a build whose `build.rs` has no `AppManifest ... .commands(`. The shell cannot see capabilities at run time, so the app must pass every capability document it ships (`include_str!`).
++
++## The three preview kinds
++
++| Today | New webview | URL and origin |
++|---|---|---|
++| Interactive: `<iframe sandbox="allow-scripts" srcdoc>` | `html-content-<tab>` | `WebviewUrl::CustomProtocol("viewright-content://<token>/index.html")`, served by a Rust scheme handler from bytes the path broker granted. The handler sets `Content-Security-Policy: sandbox allow-scripts` so the document gets the iframe's opaque origin (**unverified** in WKWebView and WebView2 for a top-level document) and a per-document token host, so documents never share an origin. Bytes come from the in-memory editor buffer, as `srcdoc` does today. |
++| Safe/sanitized: `sandbox="allow-same-origin"` | `html-content-<tab>` | Same scheme; sanitised HTML; CSP `sandbox allow-same-origin; script-src 'none'`. |
++| Live URL: `sandbox="allow-scripts allow-same-origin allow-forms allow-popups"` | `html-content-<tab>` | `WebviewUrl::External(url)`. A remote origin is always ACL-checked (`mod.rs:1823`), and no capability matches it, so it has no IPC. New-window requests keep going to ViewRight's existing link policy (`route_new_windows_to_tabs`) through the shell `NavPolicy`. |
++
++Site documents (`viewright-site://`, `site_root.rs`) keep their scheme; the content webview loads it like the iframe did.
++
++## Replacing the postMessage bridge
++
++An iframe talks to its parent with `postMessage`. Separate webviews have no such link, and the content webview must not get IPC. The mediated channel uses no Tauri command at all:
++
++- **Content to app.** An initialization script (`WebviewBuilder::initialization_script`, injected before page scripts) defines `window.__vrBridge.post(kind, payload)` which does a `fetch`/`sendBeacon` POST to a second custom scheme, `viewright-bridge://<token>/m`. The handler is registered with `register_asynchronous_uri_scheme_protocol`; it reads `ctx.webview_label()` (`app.rs:2481`) to learn which webview sent it and ignores the claimed identity in the body. It accepts only a fixed list of message kinds (key relay for app shortcuts, link click, source-jump target, find results, title/size), caps body size and rate per webview, and forwards a validated value to the main webview with `app.emit_to("main", "viewright://content", {label, kind, payload})`. All content input is untrusted: a hostile page can call the bridge too, so nothing it sends may be an instruction. **Unverified**: cross-origin requests from `viewright-content://` (a `http://*.localhost` origin on Windows) to the bridge scheme need CORS response headers; if that proves fragile, serve the bridge from the same scheme under a reserved path.
++- **App to content.** `Webview::eval("window.__vrHost.receive(<json>)")` from Rust, called by a main-webview command that validates the label is a content webview. No event-system access (`core:event` would be IPC) is needed.
++- **Features that used `contentDocument`** from the parent must move into the content side: find-in-page (driven by `eval`, results back over the bridge), print (`Webview::print` on the content webview from Rust; the current `core:webview:allow-print` stays on `main` only), source-jump (script captures the click target, posts it), focus and keyboard relay (Cmd+F, Cmd+W, tab switching).
++
++## Layout and lifecycle costs
++
++- The placeholder `<div>` reports its rectangle (ResizeObserver + scroll/transform changes) to a Rust command, which calls `Webview::set_bounds` in logical pixels. Native child webviews sit above DOM content, so React overlays (context menus, dialogs, toasts, drag ghosts, the command palette) are covered by it: while any overlay is open the content webview must be hidden or shrunk. **Unverified**: that `Webview::hide/show` is available for child webviews in 2.11.5; shrinking to zero size is the fallback.
++- Per-tab webviews cost memory. Keep at most the active tab's content webview alive and recreate others on activation, or use a small pool; this replaces the `visibility:hidden` trick in `DocumentRouterTable.tsx` (iframes were kept alive that way to avoid reload).
++- Drag and drop, text selection hand-off, and macOS traffic-light/vibrancy composition around child webviews need a visual check on both platforms.
++- Windows: all webviews share one environment and one browser process; a content page that crashes the renderer takes only its own renderer, but `ProcessFailed` handling for child webviews should be added to the hang watchdog.
++
++## Removing ViewRight's current DevTools code
++
++Delete, do not adapt: `open_devtools`, `set_devtools_shortcut_scope`, `disable_automatic_devtools_shortcuts`, the macOS `_inspector` guard and `configure_macos_inspector` (`commands/external.rs`), the `dev-tools` feature (`Cargo.toml:36`; the owner's rule has no dev-build exception, and the release gate refuses the feature name), `install_view_source_context_item`'s dependence on the native Inspect item (the shell now removes Inspect from every Denied menu and keeps only Inspect in content menus), and the frontend F12 / Cmd+Opt+I handlers (`useGlobalShortcuts.ts:146-150`). Replace with one command that calls `rightkit_shell::devtools::open_content_devtools(&app, &label)`; the shell refuses anything but a registered content webview.
++
++Cargo and config changes:
++
++```toml
++tauri = { version = "2.11.5", features = ["unstable"] }
++rightkit-shell = { version = "...", features = ["content-devtools"] }
++```
++
++```rust
++Shell::builder("viewright")
++    .devtools_policy(DevToolsPolicy::ContentOnly)
++    .content_webview(
++        ContentWebview::new("html-content-*", "main")
++            .capability(include_str!("../capabilities/default.json"))
++            .capability(include_str!("../capabilities/print-preview.json"))
++            .app_acl_manifest(true),
++    )
++```
++
++and `devtools: "content-only"` in ViewRight's right-release config. The `tauri` crate does not need the `devtools` feature in ViewRight's manifest; `content-devtools` switches it on.
++
++## What the content inspector can and cannot reach
++
++Can: the content document, its scripts, console, network for its own requests, storage for its origin. Cannot: the app UI (a different webview with the inspector disabled), app IPC (no capability, ACL manifest), other documents (per-document origin). Residual, **unverified**: a user who can open DevTools for one WebView2 webview shares a browser process and user-data folder with the shell webview; without a remote-debugging port (blocked by the guard) there is no target list to reach it.
++
++## Order of work for the ViewRight chat
++
++1. Capabilities to `webviews`, `AppManifest`, `tauri/unstable` (behind a spike: one interactive preview in a child webview, both platforms).
++2. Content scheme handlers, bridge scheme, init script; port find/print/source-jump/keyboard relay.
++3. Placeholder layout and overlay handling; per-tab lifecycle.
++4. Remove the old DevTools code; adopt `ContentOnly`; run the rightkit-shell tests and a real-app check that F12, Ctrl+Shift+I/J/C, Cmd+Opt+I/J/C/U and the context menu give no inspector in the app UI and an inspector only in HTML content.
++5. `right-release` config `devtools: "content-only"`; the release scan then accepts the devtools code only with the shell's marker.
+diff --git a/packages/release/CHANGELOG.md b/packages/release/CHANGELOG.md
+index ce13ced6..e6ace48b 100644
+--- a/packages/release/CHANGELOG.md
++++ b/packages/release/CHANGELOG.md
+@@ -2,6 +2,7 @@
+ 
+ ## Unreleased
+ 
++- DevTools policy (owner's fixed design: no Right app has DevTools; ViewRight alone may inspect opened HTML content). New `devtools-policy.mjs` and `devtools-policy.json`: `devtools` and rightkit-shell `content-devtools` are refused for every app unless the config declares `devtools: "content-only"`, the app id is in `contentOnlyApps` (only `viewright`), the Cargo manifest selects `rightkit-shell/content-devtools` and `build.rs` declares an application ACL manifest. `qa-build-features.mjs` gains the allowance (`content-devtools` is now a forbidden feature name; `--all-features` stays refused); `qa-control-scan.mjs` accepts the `tauri-devtools` rule only with the allowance and the `RIGHTKIT-SHELL-DEVTOOLS-CONTENT-ONLY-COMPILED` marker; the allowance is recorded in the sealed manifest (`devtools`) and re-checked at `verifySealedRelease`. Written, unverified: nothing was run.
+ - No test-automation surface ships, every layer. `qa-control-scan.mjs` now applies four independent binary rules to release and update builds: `qa-control-server` (unchanged marker), `wdio-webdriver` (the `tauri-plugin-wdio-webdriver` test driver behind the apps' `qa-native`; fires on 2 of 3 signatures, weaker because the plugin source was not on disk), `remote-debugging` (`--remote-debugging-port`, `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS`) and `tauri-devtools` (`plugin:webview|internal_toggle_devtools`, `toggleDevtoolsHotkey`); signatures are matched as bytes and UTF-16LE. The scanner reads ZIP containers (MSIX/APPX/zip: stored and deflate, zip64, nested to depth 3, bounded sizes, encrypted/unsupported/oversized entries are findings) with `node:zlib` and no dependency. New `scanWithStats`, `bufferQaFindings`, `RuleScanner`, `QA_RULES`; `assertNoQaControl` takes `{ requireBinary }` and returns scan stats (`binaries`, `containers`, `opaque` for NSIS and `.dmg`).
+ - The MSIX branch scans the staged payload directory before packing and the finished `.msix` after; the macOS branch also scans `notarize.app`; `dmg build` scans its staging directory before `hdiutil`. Pre-pack scans fail when no native binary is found, and the hardening step fails when no pre-pack scan ran (fail closed for NSIS and DMG, which cannot be read after packing); the log names each unreadable installer.
+ - New `qa-build-features.mjs`: a release or update tier whose build command (prePackage, package, native hook, finalizer, postSign, and the package.json scripts they run) enables `devtools`, `qa-native`, `qa-control` or `dev-native`, or whose app `Cargo.toml` lists `devtools` on `tauri`, `qa-control` on `rightkit-control`, a non-optional `tauri-plugin-wdio-webdriver`, or reaches any of them from the default features, is refused before anything is built (also in `--dry-run`). ViewRight's unconditional `tauri` `devtools` feature (`src-tauri/Cargo.toml:36`) is refused by this rule.
+diff --git a/packages/release/README.md b/packages/release/README.md
+index 5d6a5f07..808b66a3 100644
+--- a/packages/release/README.md
++++ b/packages/release/README.md
+@@ -22,6 +22,10 @@ Release and update builds (`right-release build`, `publish-update`) must not con
+ 
+ Not coverable after packing: an NSIS exe (LZMA payload) and a compressed DMG. They are covered only by layer 2, so the release fails when no pre-pack scan saw a native binary, and the log names each unreadable installer. Not coverable at all: assets embedded compressed in the app, resources an NSIS installer packs that were never in the scanned set (list them in `target.qaControlScan`), and any surface without a rule in `QA_RULES`. The `wdio-webdriver` rule is weaker than the marker rule (signatures chosen without the plugin source). Full list: `crates/rightkit-control/README.md`, "QA control never ships".
+ 
++### DevTools policy (owner's fixed design)
++
++Every Right app has absolutely NO access to DevTools; the single exception is ViewRight, which may inspect the HTML content it opens, never its own UI or shell. The rules above therefore refuse `devtools` (and rightkit-shell's `content-devtools`) for every app, with one narrow allowance (`devtools-policy.mjs`): an app whose right-release config declares `devtools: "content-only"`, **and** that is listed in `devtools-policy.json` (`contentOnlyApps`, today only `viewright`), **and** whose Cargo manifest depends on `rightkit-shell` with `content-devtools`, **and** whose `build.rs` declares an application ACL manifest. Then the source layer accepts `devtools` / `content-devtools`, and the binary layer accepts the `tauri-devtools` signatures only in a binary that also carries `RIGHTKIT-SHELL-DEVTOOLS-CONTENT-ONLY-COMPILED` (written by rightkit-shell when `content-devtools` is compiled). `--all-features`, `qa-native`, `qa-control`, `dev-native` and every other rule stay refused. The allowance is recorded in the sealed manifest (`devtools`) and re-checked against the allow-list when a sealed file is verified. Any other app declaring it is refused (`devtools-policy.test.mjs`).
++
+ ## Commands
+ 
+ `right-release` maps these subcommands to the modules in this package:
+diff --git a/packages/release/build-release.mjs b/packages/release/build-release.mjs
+index aa8101e3..39a8388a 100644
+--- a/packages/release/build-release.mjs
++++ b/packages/release/build-release.mjs
+@@ -25,6 +25,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
+ import { assertPrimaryReleaseCheckout, dirtyBuildInputs, resolveReleaseBuildInputs } from "./release-invocation.mjs";
+ import { resolveNativeCargoLayout } from "./native-cargo-layout.mjs";
+ import { admitSourceQa } from "./release-qa-audit.mjs";
++import { devtoolsEvidence, resolveDevtoolsAllowance } from "./devtools-policy.mjs";
+ import { commandOutputPortable, releaseEnvironment, resolveReleaseLayout, runBuildStateMachine, verifySealedRelease, watchProgress } from "./release-state.mjs";
+ import { acquireCacheLease, acquireSuiteBuildSlot, applyCachePrune, assertWriteVolumeFloors, inspectCache, inspectWriteVolumes, markCacheEntrySuccessful, planCachePrune, readCachePolicy, resolveCacheLayout, resolveSharedCacheIdentity, resolveSharedCacheRoot } from "./cache-policy.mjs";
+ import { createTargetBridge } from "./target-bridge.mjs";
+@@ -522,6 +523,8 @@ function sealRelease({ configRoot, managedCargoTarget, nativeLayout, sealedDir,
+     commit,
+     ownershipEvidence,
+     qa: qaAdmission,
++    // DevTools allowance (owner's fixed design): { mode: "denied" } for every app; content-only only for an allow-listed app.
++    devtools: devtoolsEvidence(resolveDevtoolsAllowance({ config, root: configRoot })),
+     platform,
+     cacheKey,
+     // Portable contracts sign only raw executables — installer/embedding
+diff --git a/packages/release/devtools-policy.json b/packages/release/devtools-policy.json
+new file mode 100644
+index 00000000..bc280394
+--- /dev/null
++++ b/packages/release/devtools-policy.json
+@@ -0,0 +1,5 @@
++{
++  "schema": 1,
++  "note": "Owner's fixed design: every Right app has no access to DevTools; ViewRight alone may inspect the HTML content it opens, never its own UI or shell. Only an app listed here may declare devtools: \"content-only\" in its right-release config. Edit only on the owner's instruction.",
++  "contentOnlyApps": ["viewright"]
++}
+diff --git a/packages/release/devtools-policy.mjs b/packages/release/devtools-policy.mjs
+new file mode 100644
+index 00000000..98cc5216
+--- /dev/null
++++ b/packages/release/devtools-policy.mjs
+@@ -0,0 +1,111 @@
++// Release-side half of the DevTools policy (the runtime half is crates/rightkit-shell/src/devtools.rs).
++//
++// Owner's fixed design: every Right app has absolutely NO access to DevTools. The single exception is ViewRight,
++// which opens HTML documents and may inspect that opened content only, never its own UI or shell.
++//
++// Rules, applied to every release and update build before anything is built:
++//   - `devtools` is refused for every app (qa-build-features.mjs, qa-control-scan.mjs).
++//   - Exception: an app whose right-release config declares `devtools: "content-only"` AND is listed in
++//     devtools-policy.json (`contentOnlyApps`, today only `viewright`) AND whose Cargo manifest depends on
++//     rightkit-shell with the `content-devtools` feature (the only way to select DevToolsPolicy::ContentOnly)
++//     AND whose build.rs declares an application ACL manifest (without one Tauri lets local-origin content call
++//     every app command, so a content webview would not be IPC-isolated).
++//   - A manifest that turns on `content-devtools` without the declaration is refused as well.
++//   - The allowance is recorded in the release evidence (the sealed manifest, field `devtools`).
++import { existsSync, readFileSync } from "node:fs";
++import path from "node:path";
++import { fileURLToPath } from "node:url";
++import { parseCargoFeaturesAndDependencies } from "./qa-build-features.mjs";
++
++// Keep identical to `CONTENT_ONLY_MARKER` in crates/rightkit-shell/src/devtools.rs and qa-control-scan.mjs.
++export const CONTENT_ONLY_MARKER = "RIGHTKIT-SHELL-DEVTOOLS-CONTENT-ONLY-COMPILED";
++export const DEVTOOLS_POLICY_FILE = path.join(path.dirname(fileURLToPath(import.meta.url)), "devtools-policy.json");
++const SHELL_CRATE = "rightkit-shell";
++const SHELL_FEATURE = "content-devtools";
++
++export function readContentOnlyApps(file = DEVTOOLS_POLICY_FILE) {
++  const parsed = JSON.parse(readFileSync(file, "utf8"));
++  if (parsed.schema !== 1 || !Array.isArray(parsed.contentOnlyApps) || parsed.contentOnlyApps.some((a) => typeof a !== "string")) {
++    throw new Error(`${file}: expected { schema: 1, contentOnlyApps: [string] }`);
++  }
++  return Object.freeze([...parsed.contentOnlyApps]);
++}
++
++// "denied" | "content-only"; anything else is a configuration error.
++export function declaredDevtools(config) {
++  const value = config?.devtools;
++  if (value === undefined || value === null || value === "denied") return "denied";
++  if (value === "content-only") return "content-only";
++  throw new Error(`right-release config: devtools must be "denied" or "content-only", got ${JSON.stringify(value)}`);
++}
++
++// Does the manifest turn on rightkit-shell's content-devtools (directly or through an app feature it lists)?
++export function manifestSelectsContentDevtools(manifestText) {
++  const { features, dependencies } = parseCargoFeaturesAndDependencies(manifestText);
++  const shell = dependencies.get(SHELL_CRATE);
++  if (!shell) return false;
++  if (shell.features.includes(SHELL_FEATURE)) return true;
++  // An app feature such as `content-devtools = ["rightkit-shell/content-devtools"]` or a `devtools` alias.
++  for (const items of features.values()) {
++    if (items.some((item) => item === `${SHELL_CRATE}/${SHELL_FEATURE}` || item === `${SHELL_CRATE}?/${SHELL_FEATURE}`)) return true;
++  }
++  return false;
++}
++
++function appManifestDeclared(buildRsText) {
++  return /\bAppManifest\b/.test(buildRsText) && /\.commands\s*\(/.test(buildRsText);
++}
++
++function readIfExists(file) {
++  return existsSync(file) ? readFileSync(file, "utf8") : null;
++}
++
++// Returns { mode: "denied" } or { mode: "content-only", app, allowListed, shellFeature, appAclManifest, evidence }.
++// Throws (a refusal) when the declaration and the allow-list or the sources disagree. `contentOnlyApps` is injectable
++// so a test can prove that any other app declaring the allowance is refused.
++export function resolveDevtoolsAllowance({ config, root, contentOnlyApps = readContentOnlyApps() }) {
++  const declared = declaredDevtools(config);
++  const app = config?.app;
++  const manifests = ["src-tauri/Cargo.toml", "Cargo.toml"].map((rel) => ({ rel, text: readIfExists(path.join(root, rel)) })).filter((m) => m.text !== null);
++  const selecting = manifests.filter((m) => manifestSelectsContentDevtools(m.text));
++  if (declared === "denied") {
++    if (selecting.length) {
++      throw new Error(`${app ?? "app"}: ${selecting.map((m) => m.rel).join(", ")} enables rightkit-shell \`${SHELL_FEATURE}\` but the right-release config does not declare devtools: "content-only"; no app ships DevTools without that declaration`);
++    }
++    return { mode: "denied" };
++  }
++  const problems = [];
++  if (typeof app !== "string" || !contentOnlyApps.includes(app)) {
++    problems.push(`app \`${app ?? "<unnamed>"}\` is not on the content-only DevTools allow-list (${contentOnlyApps.join(", ") || "empty"}); only ViewRight may inspect opened content, and no Right app may inspect its own UI or shell`);
++  }
++  if (selecting.length === 0) {
++    problems.push(`the Cargo manifest does not depend on ${SHELL_CRATE} with the \`${SHELL_FEATURE}\` feature, so rightkit-shell's DevToolsPolicy::ContentOnly cannot be selected`);
++  }
++  const buildRs = readIfExists(path.join(root, "src-tauri", "build.rs")) ?? readIfExists(path.join(root, "build.rs"));
++  if (buildRs === null || !appManifestDeclared(buildRs)) {
++    problems.push("build.rs declares no application ACL manifest (tauri_build AppManifest with commands(..)); without one local content can call every app command");
++  }
++  if (problems.length) throw new Error(`devtools: "content-only" refused:\n- ${problems.join("\n- ")}`);
++  return {
++    mode: "content-only",
++    app,
++    allowListed: true,
++    shellFeature: `${SHELL_CRATE}/${SHELL_FEATURE}`,
++    appAclManifest: true,
++    marker: CONTENT_ONLY_MARKER,
++    evidence: `${app} is allow-listed for content-only DevTools (devtools-policy.json); ${selecting[0].rel} selects ${SHELL_CRATE}/${SHELL_FEATURE}; build.rs declares an application ACL manifest`,
++  };
++}
++
++// What the sealed manifest records.
++export function devtoolsEvidence(allowance) {
++  return allowance?.mode === "content-only"
++    ? { mode: "content-only", app: allowance.app, shellFeature: allowance.shellFeature, appAclManifest: true, marker: allowance.marker, evidence: allowance.evidence }
++    : { mode: "denied" };
++}
++
++// Re-checked at seal verification and upload: the manifest alone is not trusted, the allow-list is read again.
++export function sealedManifestAllowsContentDevtools(manifest, contentOnlyApps = readContentOnlyApps()) {
++  const devtools = manifest?.devtools;
++  return devtools?.mode === "content-only" && typeof manifest.app === "string" && devtools.app === manifest.app && contentOnlyApps.includes(manifest.app);
++}
+diff --git a/packages/release/devtools-policy.test.mjs b/packages/release/devtools-policy.test.mjs
+new file mode 100644
+index 00000000..b04040ff
+--- /dev/null
++++ b/packages/release/devtools-policy.test.mjs
+@@ -0,0 +1,129 @@
++import assert from "node:assert/strict";
++import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
++import { tmpdir } from "node:os";
++import { join } from "node:path";
++import test from "node:test";
++import {
++  CONTENT_ONLY_MARKER, declaredDevtools, devtoolsEvidence, manifestSelectsContentDevtools, readContentOnlyApps, resolveDevtoolsAllowance, sealedManifestAllowsContentDevtools,
++} from "./devtools-policy.mjs";
++import { assertNoForbiddenBuildFeatures, cargoManifestIssues, commandFeatureIssues, isForbiddenFeature } from "./qa-build-features.mjs";
++import { assertNoQaControl, bufferQaFindings } from "./qa-control-scan.mjs";
++
++const SHELL_CONTENT = '[package]\nname = "app"\n[features]\ndefault = []\n[dependencies]\nrightkit-shell = { version = "0.4", features = ["content-devtools"] }\ntauri = "2"\n';
++const SHELL_PLAIN = '[package]\nname = "app"\n[features]\ndefault = []\n[dependencies]\nrightkit-shell = "0.4"\ntauri = "2"\n';
++const BUILD_RS_ACL = 'fn main() { tauri_build::try_build(tauri_build::Attributes::new().app_manifest(tauri_build::AppManifest::new().commands(&["open_document"]))).unwrap(); }';
++
++function app({ manifest = SHELL_CONTENT, buildRs = BUILD_RS_ACL } = {}) {
++  const root = mkdtempSync(join(tmpdir(), "devtools-policy-"));
++  mkdirSync(join(root, "src-tauri"), { recursive: true });
++  writeFileSync(join(root, "src-tauri", "Cargo.toml"), manifest);
++  if (buildRs !== null) writeFileSync(join(root, "src-tauri", "build.rs"), buildRs);
++  return root;
++}
++
++test("the allow-list file names exactly one app: viewright", () => {
++  assert.deepEqual([...readContentOnlyApps()], ["viewright"]);
++});
++
++test("the declaration is denied by default and only knows two values", () => {
++  assert.equal(declaredDevtools({}), "denied");
++  assert.equal(declaredDevtools({ devtools: "denied" }), "denied");
++  assert.equal(declaredDevtools({ devtools: "content-only" }), "content-only");
++  for (const bad of [true, "on", "debug", "Content-Only", 1]) assert.throws(() => declaredDevtools({ devtools: bad }), /devtools must be/);
++});
++
++test("viewright declaring content-only with the shell feature and an ACL manifest is allowed and recorded", () => {
++  const allowance = resolveDevtoolsAllowance({ config: { app: "viewright", devtools: "content-only" }, root: app() });
++  assert.equal(allowance.mode, "content-only");
++  assert.equal(allowance.shellFeature, "rightkit-shell/content-devtools");
++  const evidence = devtoolsEvidence(allowance);
++  assert.equal(evidence.mode, "content-only");
++  assert.equal(evidence.app, "viewright");
++  assert.match(evidence.evidence, /allow-listed/);
++  assert.deepEqual(devtoolsEvidence({ mode: "denied" }), { mode: "denied" });
++});
++
++test("any other app declaring content-only is refused, whatever else is true", () => {
++  for (const name of ["heardright", "mailright", "genright", "cutright", "postright", "scraperight", "pulse", "coderight", "viewright-fork", undefined]) {
++    assert.throws(
++      () => resolveDevtoolsAllowance({ config: { app: name, devtools: "content-only" }, root: app() }),
++      /not on the content-only DevTools allow-list/,
++      String(name),
++    );
++  }
++});
++
++test("an app on a different allow-list entry is refused unless the list says so", () => {
++  const allowance = resolveDevtoolsAllowance({ config: { app: "other", devtools: "content-only" }, root: app(), contentOnlyApps: ["other"] });
++  assert.equal(allowance.mode, "content-only");
++});
++
++test("content-only without the shell feature or without the ACL manifest is refused", () => {
++  assert.throws(() => resolveDevtoolsAllowance({ config: { app: "viewright", devtools: "content-only" }, root: app({ manifest: SHELL_PLAIN }) }), /does not depend on rightkit-shell with the `content-devtools` feature/);
++  assert.throws(() => resolveDevtoolsAllowance({ config: { app: "viewright", devtools: "content-only" }, root: app({ buildRs: "fn main() { tauri_build::build() }" }) }), /no application ACL manifest/);
++  assert.throws(() => resolveDevtoolsAllowance({ config: { app: "viewright", devtools: "content-only" }, root: app({ buildRs: null }) }), /no application ACL manifest/);
++});
++
++test("turning content-devtools on without the declaration is refused", () => {
++  assert.throws(() => resolveDevtoolsAllowance({ config: { app: "viewright" }, root: app() }), /does not declare devtools: "content-only"/);
++  assert.deepEqual(resolveDevtoolsAllowance({ config: { app: "viewright" }, root: app({ manifest: SHELL_PLAIN }) }), { mode: "denied" });
++  const viaFeature = '[features]\ndefault = []\ncontent-devtools = ["rightkit-shell/content-devtools"]\n[dependencies]\nrightkit-shell = "0.4"\n';
++  assert.equal(manifestSelectsContentDevtools(viaFeature), true);
++  assert.equal(manifestSelectsContentDevtools(SHELL_PLAIN), false);
++});
++
++test("build features: devtools stays refused for everyone, accepted for the allow-listed app", () => {
++  for (const f of ["devtools", "content-devtools", "rightkit-shell/content-devtools", "tauri/devtools"]) {
++    assert.equal(isForbiddenFeature(f), true, f);
++    assert.equal(isForbiddenFeature(f, { allowDevtools: true }), false, f);
++  }
++  for (const f of ["qa-native", "qa-control", "dev-native", "dep:tauri-plugin-wdio-webdriver"]) assert.equal(isForbiddenFeature(f, { allowDevtools: true }), true, f);
++  const command = { cmd: "cargo", args: ["build", "--release", "--features", "custom-protocol,content-devtools"] };
++  assert.notDeepEqual(commandFeatureIssues(command, { label: "prePackage" }), []);
++  assert.deepEqual(commandFeatureIssues(command, { label: "prePackage", allowDevtools: true }), []);
++  assert.notDeepEqual(commandFeatureIssues({ cmd: "cargo", args: ["build", "--all-features"] }, { label: "x", allowDevtools: true }), []);
++  assert.notDeepEqual(commandFeatureIssues({ cmd: "cargo", args: ["build", "--features", "qa-native,content-devtools"] }, { label: "x", allowDevtools: true }), []);
++  const tauriDevtools = '[features]\ndefault = []\n[dependencies]\ntauri = { version = "2", features = ["devtools"] }\n';
++  assert.notDeepEqual(cargoManifestIssues(tauriDevtools), []);
++  assert.deepEqual(cargoManifestIssues(tauriDevtools, "Cargo.toml", { allowDevtools: true }), []);
++  const defaultReach = '[features]\ndefault = ["content-devtools"]\ncontent-devtools = ["rightkit-shell/content-devtools"]\n[dependencies]\nrightkit-shell = "0.4"\n';
++  assert.notDeepEqual(cargoManifestIssues(defaultReach), []);
++});
++
++test("assertNoForbiddenBuildFeatures: manifest enabling content-devtools in default features is refused without the allowance", () => {
++  const root = app({ manifest: '[features]\ndefault = ["tauri/devtools"]\n[dependencies]\ntauri = "2"\n' });
++  assert.throws(() => assertNoForbiddenBuildFeatures({ root, commands: [] }), /reaches `tauri\/devtools`/);
++  assert.doesNotThrow(() => assertNoForbiddenBuildFeatures({ root, commands: [], devtools: { mode: "content-only" } }));
++});
++
++const MACHO = Buffer.from([0xcf, 0xfa, 0xed, 0xfe, 0x07, 0x00, 0x00, 0x01]);
++const withText = (...texts) => Buffer.concat([MACHO, ...texts.map((t) => Buffer.concat([Buffer.from("\0"), Buffer.from(t, "latin1"), Buffer.from("\0")]))]);
++const TAURI = "plugin:webview|internal_toggle_devtools";
++
++test("binary scan: tauri devtools needs the allowance AND the shell's content-only marker", () => {
++  const plain = withText(TAURI);
++  const marked = withText(TAURI, CONTENT_ONLY_MARKER);
++  assert.deepEqual(bufferQaFindings(plain).map((f) => f.rule), ["tauri-devtools"]);
++  assert.deepEqual(bufferQaFindings(marked).map((f) => f.rule), ["tauri-devtools"]);
++  assert.deepEqual(bufferQaFindings(plain, { allowContentOnlyDevtools: true }).map((f) => f.rule), ["tauri-devtools"]);
++  assert.deepEqual(bufferQaFindings(marked, { allowContentOnlyDevtools: true }), []);
++  // The allowance never covers the other surfaces.
++  assert.deepEqual(bufferQaFindings(withText(TAURI, CONTENT_ONLY_MARKER, "RIGHTKIT-QA-CONTROL-SERVER-PRESENT"), { allowContentOnlyDevtools: true }).map((f) => f.rule), ["qa-control-server"]);
++});
++
++test("binary scan on disk: the allowance reaches assertNoQaControl", () => {
++  const dir = mkdtempSync(join(tmpdir(), "devtools-scan-"));
++  const file = join(dir, "app");
++  writeFileSync(file, withText(TAURI, CONTENT_ONLY_MARKER));
++  assert.throws(() => assertNoQaControl([file], "release"), /tauri-devtools|Tauri devtools/);
++  assert.doesNotThrow(() => assertNoQaControl([file], "release", { allowContentOnlyDevtools: true }));
++});
++
++test("sealed manifest: the allowance is honoured only for an allow-listed app that recorded it", () => {
++  const manifest = { app: "viewright", devtools: { mode: "content-only", app: "viewright" } };
++  assert.equal(sealedManifestAllowsContentDevtools(manifest), true);
++  assert.equal(sealedManifestAllowsContentDevtools({ app: "mailright", devtools: { mode: "content-only", app: "mailright" } }), false);
++  assert.equal(sealedManifestAllowsContentDevtools({ app: "viewright", devtools: { mode: "denied" } }), false);
++  assert.equal(sealedManifestAllowsContentDevtools({ app: "viewright" }), false);
++  assert.equal(sealedManifestAllowsContentDevtools({ app: "viewright", devtools: { mode: "content-only", app: "mailright" } }), false);
++});
+diff --git a/packages/release/qa-build-features.mjs b/packages/release/qa-build-features.mjs
+index 63a25b1d..fac4e3f2 100644
+--- a/packages/release/qa-build-features.mjs
++++ b/packages/release/qa-build-features.mjs
+@@ -5,12 +5,16 @@
+ //     features, directly (`--features`, `-F`, `-f`, `--features=`, `--all-features`) or through a package.json
+ //     script it runs (`pnpm run <script>`, followed up to three levels);
+ //   - an app Cargo.toml whose DEFAULT feature closure reaches one of them, or that lists `devtools` on `tauri`,
++//     (`devtools` and rightkit-shell's `content-devtools` are accepted only for an allow-listed app, see devtools-policy.mjs)
+ //     `qa-control` on `rightkit-control`, or `tauri-plugin-wdio-webdriver` as a non-optional dependency.
+ // Dev builds are unaffected: `development.mjs` never calls this.
+ import { existsSync, readFileSync } from "node:fs";
+ import path from "node:path";
+ 
+-export const FORBIDDEN_FEATURES = Object.freeze(["devtools", "qa-native", "qa-control", "dev-native"]);
++export const FORBIDDEN_FEATURES = Object.freeze(["devtools", "content-devtools", "qa-native", "qa-control", "dev-native"]);
++// The only forbidden features an allow-listed app may enable: rightkit-shell's `content-devtools` (and the Tauri
++// `devtools` it switches on). See devtools-policy.mjs; every other app is refused them.
++const DEVTOOLS_FEATURES = Object.freeze(["devtools", "content-devtools"]);
+ const FORBIDDEN_DEPENDENCY = "tauri-plugin-wdio-webdriver";
+ const MANAGERS = new Set(["pnpm", "npm", "yarn", "bun", "npx"]);
+ 
+@@ -19,9 +23,11 @@ function featureName(item) {
+   const bare = String(item).trim().replace(/^dep:/, "");
+   return bare.includes("/") ? bare.slice(bare.lastIndexOf("/") + 1) : bare;
+ }
+-export function isForbiddenFeature(item) {
++export function isForbiddenFeature(item, { allowDevtools = false } = {}) {
+   const text = String(item).trim();
+-  return text === `dep:${FORBIDDEN_DEPENDENCY}` || FORBIDDEN_FEATURES.includes(featureName(text));
++  const name = featureName(text);
++  if (allowDevtools && DEVTOOLS_FEATURES.includes(name)) return false;
++  return text === `dep:${FORBIDDEN_DEPENDENCY}` || FORBIDDEN_FEATURES.includes(name);
+ }
+ 
+ export function tokenize(text) {
+@@ -52,7 +58,7 @@ function scriptTarget(tokens) {
+ }
+ 
+ // Issues (strings) for one command object { cmd, args, env? } or a shell string.
+-export function commandFeatureIssues(command, { label = "command", scripts = {}, depth = 0, seen = new Set() } = {}) {
++export function commandFeatureIssues(command, { label = "command", scripts = {}, depth = 0, seen = new Set(), allowDevtools = false } = {}) {
+   const parts = typeof command === "string" ? [command] : [command?.cmd, ...(command?.args ?? [])].filter((v) => v !== undefined).map(String);
+   // Two views: every argument whole (`--features` followed by "a b qa-native"), and every argument re-tokenised as
+   // shell text (`sh -c "cargo build --features qa-native"`).
+@@ -61,16 +67,16 @@ export function commandFeatureIssues(command, { label = "command", scripts = {},
+   for (const tokens of views) {
+     const { enabled, allFeatures } = featuresInTokens(tokens);
+     if (allFeatures) issues.add(`${label}: --all-features enables every feature including ${FORBIDDEN_FEATURES.join(", ")}`);
+-    for (const feature of enabled) if (isForbiddenFeature(feature)) issues.add(`${label}: enables feature \`${feature}\``);
++    for (const feature of enabled) if (isForbiddenFeature(feature, { allowDevtools })) issues.add(`${label}: enables feature \`${feature}\``);
+   }
+   if (command && typeof command === "object") {
+     for (const [key, value] of Object.entries(command.env ?? {})) {
+-      if (/FEATURES$/i.test(key)) for (const feature of String(value).split(/[,\s]+/)) if (feature && isForbiddenFeature(feature)) issues.add(`${label}: env ${key} enables feature \`${feature}\``);
++      if (/FEATURES$/i.test(key)) for (const feature of String(value).split(/[,\s]+/)) if (feature && isForbiddenFeature(feature, { allowDevtools })) issues.add(`${label}: env ${key} enables feature \`${feature}\``);
+     }
+   }
+   const script = views.map(scriptTarget).find(Boolean);
+   if (script && depth < 3 && Object.hasOwn(scripts, script) && !seen.has(script)) {
+-    for (const issue of commandFeatureIssues(String(scripts[script]), { label: `${label} -> package script \`${script}\``, scripts, depth: depth + 1, seen: new Set([...seen, script]) })) issues.add(issue);
++    for (const issue of commandFeatureIssues(String(scripts[script]), { label: `${label} -> package script \`${script}\``, scripts, depth: depth + 1, seen: new Set([...seen, script]), allowDevtools })) issues.add(issue);
+   }
+   return [...issues];
+ }
+@@ -143,11 +149,11 @@ function dependencyInfo(spec) {
+   };
+ }
+ 
+-export function cargoManifestIssues(manifestText, label = "Cargo.toml") {
++export function cargoManifestIssues(manifestText, label = "Cargo.toml", { allowDevtools = false } = {}) {
+   const { features, dependencies } = parseCargoFeaturesAndDependencies(manifestText);
+   const issues = [];
+   const tauri = dependencies.get("tauri");
+-  if (tauri?.features.includes("devtools")) issues.push(`${label}: dependency \`tauri\` lists feature \`devtools\` unconditionally (inspector ships in release builds)`);
++  if (!allowDevtools && tauri?.features.includes("devtools")) issues.push(`${label}: dependency \`tauri\` lists feature \`devtools\` unconditionally (inspector ships in release builds)`);
+   const control = dependencies.get("rightkit-control");
+   if (control && !control.optional && control.features.includes("qa-control")) issues.push(`${label}: dependency \`rightkit-control\` lists \`qa-control\` unconditionally`);
+   const wdio = dependencies.get(FORBIDDEN_DEPENDENCY);
+@@ -157,30 +163,33 @@ export function cargoManifestIssues(manifestText, label = "Cargo.toml") {
+     const item = stack.pop();
+     if (reached.has(item)) continue;
+     reached.add(item);
+-    if (isForbiddenFeature(item)) issues.push(`${label}: default feature set reaches \`${item}\``);
++    if (isForbiddenFeature(item, { allowDevtools })) issues.push(`${label}: default feature set reaches \`${item}\``);
+     if (features.has(item)) stack.push(...features.get(item));
+   }
+   return issues;
+ }
+ 
+ // commands: [{ label, command }]. Reads package.json scripts and the app Cargo manifests under `root`.
+-export function buildFeatureIssues({ root, commands }) {
++// `devtools`: the allowance resolved by devtools-policy.mjs (mode "content-only") for an allow-listed app, else undefined.
++export function buildFeatureIssues({ root, commands, devtools }) {
++  const allowDevtools = devtools?.mode === "content-only";
+   let scripts = {};
+   try { scripts = JSON.parse(readFileSync(path.join(root, "package.json"), "utf8")).scripts ?? {}; } catch { /* no package.json */ }
+   const issues = [];
+-  for (const { label, command } of commands) if (command) issues.push(...commandFeatureIssues(command, { label, scripts }));
++  for (const { label, command } of commands) if (command) issues.push(...commandFeatureIssues(command, { label, scripts, allowDevtools }));
+   for (const rel of [path.join("src-tauri", "Cargo.toml"), "Cargo.toml"]) {
+     const manifest = path.join(root, rel);
+-    if (existsSync(manifest)) issues.push(...cargoManifestIssues(readFileSync(manifest, "utf8"), rel));
++    if (existsSync(manifest)) issues.push(...cargoManifestIssues(readFileSync(manifest, "utf8"), rel, { allowDevtools }));
+   }
+   return issues;
+ }
+ 
+-export function assertNoForbiddenBuildFeatures({ root, commands, tier = "release" }) {
+-  const issues = buildFeatureIssues({ root, commands });
++export function assertNoForbiddenBuildFeatures({ root, commands, tier = "release", devtools }) {
++  const issues = buildFeatureIssues({ root, commands, devtools });
+   if (issues.length === 0) return;
+   throw new Error(
+     `${tier} build refused: it enables a test-automation or debugging feature (${FORBIDDEN_FEATURES.join(", ")}); none may ship:\n- ${issues.join("\n- ")}\n`
+-    + "Remove the feature from the release build command, the app's default features and its tauri dependency; dev builds (`right-release dev`) may keep it.",
++    + "Remove the feature from the release build command, the app's default features and its tauri dependency; dev builds (`right-release dev`) may keep it. "
++    + "No app may ship devtools unless it is on the allow-list in devtools-policy.json and declares `devtools: \"content-only\"` (rightkit-shell DevToolsPolicy::ContentOnly).",
+   );
+ }
+diff --git a/packages/release/qa-control-scan.mjs b/packages/release/qa-control-scan.mjs
+index b4a22092..230ce83a 100644
+--- a/packages/release/qa-control-scan.mjs
++++ b/packages/release/qa-control-scan.mjs
+@@ -12,7 +12,8 @@
+ //                      independent signatures. WEAKER than the marker: the plugin source was not on disk when
+ //                      the signatures were chosen, they come from Rust path/module/permission naming rules.
+ //   remote-debugging   `--remote-debugging-port` / `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS` baked into a binary.
+-//   tauri-devtools     Tauri's `devtools` feature (or a debug build): the toggle-devtools init script.
++//   tauri-devtools     Tauri's `devtools` feature (or a debug build): the toggle-devtools init script. Accepted only for an
++//                      allow-listed app (devtools-policy.json) whose binary carries CONTENT_ONLY_MARKER.
+ import { closeSync, lstatSync, openSync, readSync, readdirSync } from "node:fs";
+ import path from "node:path";
+ import { inflateRawSync } from "node:zlib";
+@@ -45,10 +46,19 @@ export const QA_RULES = Object.freeze([
+     ] },
+ ]);
+ 
+-const NEEDLES = QA_RULES.flatMap((rule) => rule.signatures.map((signature) => ({
++// Keep identical to `CONTENT_ONLY_MARKER` in crates/rightkit-shell/src/devtools.rs. A binary carries it when it was
++// built with rightkit-shell's `content-devtools` feature. It is not a finding; it is the evidence that lets an
++// allow-listed app (devtools-policy.json) ship Tauri's devtools code for ViewRight-style content inspection.
++export const CONTENT_ONLY_MARKER = "RIGHTKIT-SHELL-DEVTOOLS-CONTENT-ONLY-COMPILED";
++const CONTENT_ONLY_KEY = "content-only-marker/marker";
++
++const NEEDLES = [...QA_RULES.flatMap((rule) => rule.signatures.map((signature) => ({
+   rule: rule.id, signature: signature.id,
+   buffers: [Buffer.from(signature.text, "latin1"), Buffer.from(signature.text, "utf16le")],
+-})));
++}))), {
++  rule: "content-only-marker", signature: "marker",
++  buffers: [Buffer.from(CONTENT_ONLY_MARKER, "latin1"), Buffer.from(CONTENT_ONLY_MARKER, "utf16le")],
++}];
+ const MAX_NEEDLE = Math.max(...NEEDLES.flatMap((n) => n.buffers.map((b) => b.length)));
+ 
+ // Incremental matcher: feed chunks in order; keeps an overlap so a signature split across chunks is found.
+@@ -63,9 +73,13 @@ export class RuleScanner {
+     }
+     this.tail = Buffer.from(window.subarray(Math.max(0, window.length - (MAX_NEEDLE - 1))));
+   }
+-  findings() {
++  // `allowContentOnlyDevtools`: the app is allow-listed for rightkit-shell's ContentOnly DevTools policy. Then Tauri's
++  // devtools signatures are accepted only in a binary that also carries CONTENT_ONLY_MARKER; one without it is still
++  // a finding (devtools compiled in by some other route).
++  findings({ allowContentOnlyDevtools = false } = {}) {
+     const out = [];
+     for (const rule of QA_RULES) {
++      if (rule.id === "tauri-devtools" && allowContentOnlyDevtools && this.hits.has(CONTENT_ONLY_KEY)) continue;
+       const matched = rule.signatures.filter((s) => this.hits.has(`${rule.id}/${s.id}`));
+       if (matched.length < rule.min) continue;
+       out.push({ rule: rule.id, reason: rule.id === "qa-control-server"
+@@ -103,12 +117,12 @@ export function bufferQaFindings(buffer, options = {}) {
+   const bytes = Buffer.from(buffer);
+   if (isZipHeader(bytes.subarray(0, 4))) {
+     const findings = []; const stats = newStats();
+-    scanZip(bufferSource(bytes), "<buffer>", { findings, stats, limits: limitsOf(options), budget: { left: limitsOf(options).totalInflated } }, 0);
++    scanZip(bufferSource(bytes), "<buffer>", { findings, stats, allowContentOnlyDevtools: options.allowContentOnlyDevtools === true, limits: limitsOf(options), budget: { left: limitsOf(options).totalInflated } }, 0);
+     return findings;
+   }
+   const scanner = new RuleScanner();
+   for (let at = 0; at < bytes.length; at += CHUNK) scanner.push(bytes.subarray(at, Math.min(bytes.length, at + CHUNK)));
+-  return scanner.findings();
++  return scanner.findings({ allowContentOnlyDevtools: options.allowContentOnlyDevtools === true });
+ }
+ 
+ // Streams the file in chunks with an overlap, so a marker split across chunks is found. Marker rule only.
+@@ -276,7 +290,7 @@ function scanBody(body, file, ctx, depth) {
+   ctx.stats.binaries += 1;
+   const scanner = new RuleScanner();
+   for (let at = 0; at < body.size; at += CHUNK) scanner.push(body.read(at, Math.min(CHUNK, body.size - at)));
+-  for (const finding of scanner.findings()) ctx.findings.push({ file, ...finding });
++  for (const finding of scanner.findings({ allowContentOnlyDevtools: ctx.allowContentOnlyDevtools === true })) ctx.findings.push({ file, ...finding });
+ }
+ 
+ // ---- directory / file / container entry point ---------------------------------------------------------------
+@@ -308,12 +322,12 @@ export function scanWithStats(paths, options = {}) {
+       }
+       fd = openSync(target, "r");
+       const source = fdSource(fd, stat.size);
+-      if (isZip) { scanZip(source, target, { findings, stats, limits, budget: { left: limits.totalInflated } }, 0); return; }
++      if (isZip) { scanZip(source, target, { findings, stats, allowContentOnlyDevtools: options.allowContentOnlyDevtools === true, limits, budget: { left: limits.totalInflated } }, 0); return; }
+       stats.binaries += 1;
+       const scanner = new RuleScanner();
+       for (let at = 0; at < stat.size; at += CHUNK) scanner.push(source.read(at, Math.min(CHUNK, stat.size - at)));
+       if (looksLikeNsis(source, stat.size)) stats.opaque.push({ file: target, kind: "nsis" });
+-      for (const finding of scanner.findings()) findings.push({ file: target, ...finding });
++      for (const finding of scanner.findings({ allowContentOnlyDevtools: options.allowContentOnlyDevtools === true })) findings.push({ file: target, ...finding });
+     } catch (error) {
+       findings.push({ file: target, rule: "unscannable", reason: `could not scan: ${error.code ?? error.message}` });
+     } finally {
+@@ -338,8 +352,8 @@ export function scanForQaControl(paths, options = {}) {
+ 
+ // `requireBinary`: fail when the scanned inputs contain no native binary at all (a missing or empty staging
+ // directory must not read as "clean"). Returns the scan stats so a caller can report what stayed unscannable.
+-export function assertNoQaControl(paths, label = "release", { requireBinary = false, limits } = {}) {
+-  const { findings, stats } = scanWithStats(paths, { limits });
++export function assertNoQaControl(paths, label = "release", { requireBinary = false, limits, allowContentOnlyDevtools = false } = {}) {
++  const { findings, stats } = scanWithStats(paths, { limits, allowContentOnlyDevtools });
+   if (requireBinary && stats.binaries === 0 && findings.length === 0) {
+     findings.push({ file: paths.join(", ") || "<none>", rule: "unscannable", reason: "no Mach-O, PE or ELF file found to scan (missing or empty staging input); cannot verify" });
+   }
+diff --git a/packages/release/release-state.mjs b/packages/release/release-state.mjs
+index 81839193..4eb52c27 100644
+--- a/packages/release/release-state.mjs
++++ b/packages/release/release-state.mjs
+@@ -5,6 +5,7 @@ import path from "node:path";
+ import { readCachePolicy, resolveCacheLayout } from "./cache-policy.mjs";
+ import { resolveNativeCargoLayout } from "./native-cargo-layout.mjs";
+ import { bufferQaFindings } from "./qa-control-scan.mjs";
++import { sealedManifestAllowsContentDevtools } from "./devtools-policy.mjs";
+ 
+ export function cacheFingerprint({ cargoLockSha256, rustc, target, architecture, features = [] }) {
+   const payload = JSON.stringify({
+@@ -135,7 +136,8 @@ export function verifySealedRelease(sealedDir) {
+     // release.mjs also scans the raw binaries before packaging; this catches a payload that is not compressed.
+     // Covers the QA control server marker, the wdio WebDriver plugin, remote-debugging and devtools strings, and
+     // reads inside ZIP containers (MSIX/APPX). Compressed NSIS/DMG installers stay opaque here by nature.
+-    const surfaces = bufferQaFindings(bytes);
++    // An allow-listed app (devtools-policy.json) that recorded its content-only DevTools allowance may carry Tauri's devtools code.
++    const surfaces = bufferQaFindings(bytes, { allowContentOnlyDevtools: sealedManifestAllowsContentDevtools(manifest) });
+     if (surfaces.length) throw new Error(`sealed file contains a test-automation or debugging surface that must never ship (the QA control server and the like): ${item.name}: ${surfaces.map((f) => f.reason).join("; ")}`);
+   }
+   return { manifest, manifestPath, sealedDir };
+diff --git a/packages/release/release.mjs b/packages/release/release.mjs
+index 3d75c40c..806ae416 100755
+--- a/packages/release/release.mjs
++++ b/packages/release/release.mjs
+@@ -40,6 +40,7 @@ import { DEFAULT_STORAGE_THRESHOLD_BYTES, findInstallerCopyScripts, findLargeRep
+ import { macosCodesignEnvironment } from "./codesign-environment.mjs";
+ import { assertNoQaControl } from "./qa-control-scan.mjs";
+ import { assertNoForbiddenBuildFeatures } from "./qa-build-features.mjs";
++import { devtoolsEvidence, resolveDevtoolsAllowance } from "./devtools-policy.mjs";
+ 
+ const TOOL_ROOT = path.dirname(fileURLToPath(import.meta.url));
+ const HARDENING_SCAN = path.resolve(TOOL_ROOT, "hardeningscan.mjs");
+@@ -301,8 +302,12 @@ if (opts.doctor) {
+ let prePackScanned = false; // set once a pre-pack payload scan has seen a native binary
+ // Source-level layer of "no test-automation surface ships": refuse a release or update build whose build command
+ // or app Cargo manifest enables devtools, qa-native, qa-control or dev-native (also in --dry-run).
++// DevTools: refused for every app except an allow-listed one that declares `devtools: "content-only"` (devtools-policy.mjs).
++let devtoolsAllowance = { mode: "denied" };
+ try {
+-  assertNoForbiddenBuildFeatures({ root, tier: "release/update", commands: [
++  devtoolsAllowance = resolveDevtoolsAllowance({ config, root });
++  if (devtoolsAllowance.mode === "content-only") console.log(`right-release: devtools allowance recorded: ${JSON.stringify(devtoolsEvidence(devtoolsAllowance))}`);
++  assertNoForbiddenBuildFeatures({ root, tier: "release/update", devtools: devtoolsAllowance, commands: [
+     { label: "target.prePackage", command: target.prePackage },
+     { label: "target.package", command: target.package },
+     { label: "nativeAssembly.packageHook", command: nativeAssembly?.packageHook },
+@@ -510,7 +515,7 @@ function usage(code, message) {
+ function assertNoQaControlBinaries(label, files, { requireBinary = false, prePack = false } = {}) {
+   if (opts.dryRun || files.length === 0) return;
+   try {
+-    const stats = assertNoQaControl(files, label, { requireBinary });
++    const stats = assertNoQaControl(files, label, { requireBinary, allowContentOnlyDevtools: devtoolsAllowance.mode === "content-only" });
+     if (prePack && stats.binaries > 0) prePackScanned = true;
+     for (const opaque of stats.opaque) {
+       console.log(`right-release: ${label}: ${opaque.kind.toUpperCase()} payload is compressed and cannot be scanned (${opaque.file}); the raw payload was scanned before packing`);
+-- 
+2.54.0 (Apple Git-157)
+

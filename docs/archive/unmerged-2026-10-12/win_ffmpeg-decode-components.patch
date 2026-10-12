@@ -1,0 +1,1656 @@
+From 1c0546cae3dec682053827b3bbd2e0712bd46586 Mon Sep 17 00:00:00 2001
+From: adrdsouza <102761952+adrdsouza@users.noreply.github.com>
+Date: Sun, 11 Oct 2026 14:44:27 +0530
+Subject: [PATCH 1/6] rightkit-media: pending Windows catalog rows and
+ toolchain runtime notices
+
+Merge the two proposed Windows rows into catalog/artifacts.json, both pending:
+ffmpeg-7.1.5-export-ass-zimg-windows-x64 and ffprobe-7.1.5-windows-x64. The
+proposal file is removed.
+
+A static MinGW-w64 link carries the mingw-w64 C runtime, winpthreads and
+libgcc (and libstdc++ when zimg and HarfBuzz are linked). Their notices are
+added under third-party/, listed in the rows' noticeFiles, and copied into the
+notices directory by the recipe from the toolchain's own licence files.
+
+Build notes: zlib signature not checked, digest matched publisher.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ crates/rightkit-media/CHANGELOG.md            |   7 +
+ crates/rightkit-media/README.md               |   2 +-
+ crates/rightkit-media/catalog/artifacts.json  | 138 +++++++++
+ .../catalog/artifacts.proposed-windows.json   | 137 ---------
+ .../recipes/build-ffmpeg-windows.sh           |  12 +
+ crates/rightkit-media/src/lib.rs              |   2 +-
+ ...D-NOTES-ffmpeg-export-ass-zimg-windows.txt |  23 +-
+ .../GCC-RUNTIME-LIBRARY-EXCEPTION.txt         |  73 +++++
+ .../third-party/MinGW-w64-runtime-COPYING.txt | 265 ++++++++++++++++++
+ .../third-party/winpthreads-COPYING.txt       |  57 ++++
+ 10 files changed, 570 insertions(+), 146 deletions(-)
+ delete mode 100644 crates/rightkit-media/catalog/artifacts.proposed-windows.json
+ create mode 100644 crates/rightkit-media/third-party/GCC-RUNTIME-LIBRARY-EXCEPTION.txt
+ create mode 100644 crates/rightkit-media/third-party/MinGW-w64-runtime-COPYING.txt
+ create mode 100644 crates/rightkit-media/third-party/winpthreads-COPYING.txt
+
+diff --git a/crates/rightkit-media/CHANGELOG.md b/crates/rightkit-media/CHANGELOG.md
+index 00168607..0f7e407c 100644
+--- a/crates/rightkit-media/CHANGELOG.md
++++ b/crates/rightkit-media/CHANGELOG.md
+@@ -2,6 +2,13 @@
+ 
+ ## Unreleased
+ 
++- Windows x86_64 catalog rows, both `pending`: `ffmpeg-7.1.5-export-ass-zimg-windows-x64` (libass
++  through DirectWrite, FreeType, HarfBuzz, FriBidi, zimg, zlib, Media Foundation `h264_mf`) and
++  `ffprobe-7.1.5-windows-x64` (`decode`). Recipe: `recipes/build-ffmpeg-windows.sh` (MSYS2
++  MINGW64); notes: `third-party/BUILD-NOTES-ffmpeg-export-ass-zimg-windows.txt`. Built once
++  locally; digests are recorded after the `ffmpeg-windows` CI workflow has built them twice.
++  The rows list the statically linked toolchain runtime notices (mingw-w64 runtime,
++  winpthreads, GCC Runtime Library Exception) in `noticeFiles`.
+ - `bundled::verify_bundled_ffmpeg(path, variant, timeout)` / `verify_bundled_ffprobe(...)`: one
+   call from a bundled binary path plus the expected variant to a `VerifiedFfmpeg` /
+   `VerifiedFfprobe` (embedded catalog, this host's OS and architecture, content digest, then the
+diff --git a/crates/rightkit-media/README.md b/crates/rightkit-media/README.md
+index 3bd98667..c48bfdac 100644
+--- a/crates/rightkit-media/README.md
++++ b/crates/rightkit-media/README.md
+@@ -58,7 +58,7 @@ let verified = verify_ffmpeg(resolved, Duration::from_secs(10))?;
+ 
+ - macOS aarch64: `decode` (ffmpeg, ffprobe) and `export-ass` (ffmpeg) approved; `export-ass-zimg` pending.
+ - macOS x86_64: `decode` (ffmpeg, ffprobe) approved; `export-ass` and `export-ass-zimg` pending.
+-- Windows x86_64: `decode` (ffmpeg) approved.
++- Windows x86_64: `decode` (ffmpeg) approved; `decode` (ffprobe) and `export-ass-zimg` (ffmpeg) pending.
+ - Production `cfg(unix)` and `cfg(not(unix))` branches exist only in `src/staging.rs`; `cfg(windows)` and `cfg(unix)` also appear in test modules (`src/lib.rs:1632`, `src/probe.rs:827`, `src/unverified.rs:540`).
+ 
+ Availability is defined by `catalog/artifacts.json`, not by this README. Check the `status` field of each record.
+diff --git a/crates/rightkit-media/catalog/artifacts.json b/crates/rightkit-media/catalog/artifacts.json
+index 791b3d10..c0fba12f 100644
+--- a/crates/rightkit-media/catalog/artifacts.json
++++ b/crates/rightkit-media/catalog/artifacts.json
+@@ -604,6 +604,144 @@
+         ],
+         "promote": "confirm the x86_64 digest above matches the built file, run the four probes (and a zscale smoke), then record sha256, contentSha256 and size, set status approved and delete pending"
+       }
++    },
++    {
++      "id": "ffmpeg-7.1.5-export-ass-zimg-windows-x64",
++      "tool": "ffmpeg",
++      "variant": "export-ass-zimg",
++      "os": "windows",
++      "arch": "x86_64",
++      "version": "7.1.5",
++      "status": "pending",
++      "sourceSha256": "de668509caf9e35e3cd162473441fdb29538c6d96ed080292b3cf9e6fc5d558f",
++      "attribution": {
++        "licenseSpdx": "LGPL-2.1-or-later AND FTL AND MIT-Modern-Variant AND ISC AND WTFPL AND Zlib",
++        "sourceUrl": "https://ffmpeg.org/releases/ffmpeg-7.1.5.tar.xz",
++        "buildProvenance": "third-party/BUILD-NOTES-ffmpeg-export-ass-zimg-windows.txt",
++        "noticeFiles": [
++          "third-party/LGPL-2.1.txt",
++          "third-party/BUILD-NOTES-ffmpeg-export-ass-zimg-windows.txt",
++          "third-party/FreeType-FTL.txt",
++          "third-party/FriBidi-COPYING.txt",
++          "third-party/HarfBuzz-COPYING.txt",
++          "third-party/libass-COPYING.txt",
++          "third-party/zimg-COPYING.txt",
++          "third-party/zlib-LICENSE.txt",
++          "third-party/MinGW-w64-runtime-COPYING.txt",
++          "third-party/winpthreads-COPYING.txt",
++          "third-party/GCC-RUNTIME-LIBRARY-EXCEPTION.txt"
++        ],
++        "components": [
++          {
++            "name": "freetype",
++            "version": "2.13.3",
++            "licenseSpdx": "FTL",
++            "sourceUrl": "https://download.savannah.gnu.org/releases/freetype/freetype-2.13.3.tar.xz",
++            "sourceSha256": "0550350666d427c74daeb85d5ac7bb353acba5f76956395995311a9c6f063289",
++            "enableFlag": "--enable-libfreetype",
++            "noticeFile": "third-party/FreeType-FTL.txt"
++          },
++          {
++            "name": "fribidi",
++            "version": "1.0.16",
++            "licenseSpdx": "LGPL-2.1-or-later",
++            "sourceUrl": "https://github.com/fribidi/fribidi/releases/download/v1.0.16/fribidi-1.0.16.tar.xz",
++            "sourceSha256": "1b1cde5b235d40479e91be2f0e88a309e3214c8ab470ec8a2744d82a5a9ea05c",
++            "noticeFile": "third-party/FriBidi-COPYING.txt"
++          },
++          {
++            "name": "harfbuzz",
++            "version": "10.1.0",
++            "licenseSpdx": "MIT-Modern-Variant",
++            "sourceUrl": "https://github.com/harfbuzz/harfbuzz/releases/download/10.1.0/harfbuzz-10.1.0.tar.xz",
++            "sourceSha256": "6ce3520f2d089a33cef0fc48321334b8e0b72141f6a763719aaaecd2779ecb82",
++            "enableFlag": "--enable-libharfbuzz",
++            "noticeFile": "third-party/HarfBuzz-COPYING.txt"
++          },
++          {
++            "name": "libass",
++            "version": "0.17.3",
++            "licenseSpdx": "ISC",
++            "sourceUrl": "https://github.com/libass/libass/releases/download/0.17.3/libass-0.17.3.tar.xz",
++            "sourceSha256": "eae425da50f0015c21f7b3a9c7262a910f0218af469e22e2931462fed3c50959",
++            "enableFlag": "--enable-libass",
++            "noticeFile": "third-party/libass-COPYING.txt"
++          },
++          {
++            "name": "zimg",
++            "version": "3.0.5",
++            "licenseSpdx": "WTFPL",
++            "sourceUrl": "https://github.com/sekrit-twc/zimg/archive/refs/tags/release-3.0.5.tar.gz",
++            "sourceSha256": "a9a0226bf85e0d83c41a8ebe4e3e690e1348682f6a2a7838f1b8cbff1b799bcf",
++            "enableFlag": "--enable-libzimg",
++            "noticeFile": "third-party/zimg-COPYING.txt"
++          },
++          {
++            "name": "zlib",
++            "version": "1.3.2",
++            "licenseSpdx": "Zlib",
++            "sourceUrl": "https://zlib.net/zlib-1.3.2.tar.xz",
++            "sourceSha256": "d7a0654783a4da529d1bb793b7ad9c3318020af77667bcae35f95d0e42a792f3",
++            "enableFlag": "--enable-zlib",
++            "noticeFile": "third-party/zlib-LICENSE.txt"
++          }
++        ]
++      },
++      "requiredConfigureFlags": [
++        "--disable-gpl",
++        "--disable-nonfree",
++        "--disable-autodetect",
++        "--enable-libass",
++        "--enable-libfreetype",
++        "--enable-libharfbuzz",
++        "--enable-libzimg",
++        "--enable-zlib",
++        "--enable-mediafoundation"
++      ],
++      "pending": {
++        "reason": "The recipe ran end to end once on the Dell on 2026-10-11 (local validation binary sha256 ea97989ef797f472ead7a544fe53fa57f94c4b91cf2f7902dbeb684a6fb07b15, 19607552 bytes; linkage, licence, filter and encoder gates passed; h264_mf, subtitles, drawtext and zscale+tonemap smoke tests passed). Not approved because: the catalog binary must come from the ffmpeg-windows GitHub Actions workflow, which has not run, and reproducibility is unchecked (one build). zlib: signature not checked, digest matched the publisher's.",
++        "recipe": "recipes/build-ffmpeg-windows.sh",
++        "commands": [
++          "gh workflow run ffmpeg-windows.yml -f variant=export-ass-zimg -f tool=ffmpeg  # twice, compare the two sha256 values",
++          "<artifact>/ffmpeg-export-ass-zimg-windows-x64.evidence/ holds -version, -buildconf, -L, -encoders, -decoders, -filters and the import list"
++        ],
++        "promote": "after two CI runs give the same digest, record sha256 and size from that run, set status approved and delete pending"
++      }
++    },
++    {
++      "id": "ffprobe-7.1.5-windows-x64",
++      "tool": "ffprobe",
++      "variant": "decode",
++      "os": "windows",
++      "arch": "x86_64",
++      "version": "7.1.5",
++      "status": "pending",
++      "sourceSha256": "de668509caf9e35e3cd162473441fdb29538c6d96ed080292b3cf9e6fc5d558f",
++      "attribution": {
++        "licenseSpdx": "LGPL-2.1-or-later",
++        "sourceUrl": "https://ffmpeg.org/releases/ffmpeg-7.1.5.tar.xz",
++        "buildProvenance": "third-party/BUILD-NOTES-ffmpeg-export-ass-zimg-windows.txt",
++        "noticeFiles": [
++          "third-party/LGPL-2.1.txt",
++          "third-party/BUILD-NOTES-ffmpeg-export-ass-zimg-windows.txt",
++          "third-party/MinGW-w64-runtime-COPYING.txt",
++          "third-party/winpthreads-COPYING.txt",
++          "third-party/GCC-RUNTIME-LIBRARY-EXCEPTION.txt"
++        ]
++      },
++      "requiredConfigureFlags": [
++        "--disable-gpl",
++        "--disable-nonfree",
++        "--disable-autodetect"
++      ],
++      "pending": {
++        "reason": "Built once on the Dell on 2026-10-11 from the same FFmpeg tree with the decode flags (local validation binary sha256 1be036043af54835fa942b3dbd2d1c1bc362f235b5a5c85c8eeb4eb065937b55, 16307200 bytes; linkage and licence gates passed; -version, -buildconf and -L executed). Not approved because the catalog binary must come from the ffmpeg-windows GitHub Actions workflow, which has not run, and reproducibility is unchecked. ffprobe was not exercised against media files.",
++        "recipe": "recipes/build-ffmpeg-windows.sh",
++        "commands": [
++          "gh workflow run ffmpeg-windows.yml -f variant=decode -f tool=ffprobe  # twice, compare the two sha256 values"
++        ],
++        "promote": "after two CI runs give the same digest and ffprobe has read at least one real file, record sha256 and size, set status approved and delete pending"
++      }
+     }
+   ]
+ }
+diff --git a/crates/rightkit-media/catalog/artifacts.proposed-windows.json b/crates/rightkit-media/catalog/artifacts.proposed-windows.json
+deleted file mode 100644
+index 4e9723ae..00000000
+--- a/crates/rightkit-media/catalog/artifacts.proposed-windows.json
++++ /dev/null
+@@ -1,137 +0,0 @@
+-{
+-  "note": "Proposed rows for catalog/artifacts.json (schemaVersion 2), for Right Mac to merge. Not read by any code. Both stay pending until the ffmpeg-windows workflow has produced the binaries: record that run's sha256 and size, not the local validation digests quoted in `pending.reason`.",
+-  "artifacts": [
+-    {
+-      "id": "ffmpeg-7.1.5-export-ass-zimg-windows-x64",
+-      "tool": "ffmpeg",
+-      "variant": "export-ass-zimg",
+-      "os": "windows",
+-      "arch": "x86_64",
+-      "version": "7.1.5",
+-      "status": "pending",
+-      "sourceSha256": "de668509caf9e35e3cd162473441fdb29538c6d96ed080292b3cf9e6fc5d558f",
+-      "attribution": {
+-        "licenseSpdx": "LGPL-2.1-or-later AND FTL AND MIT-Modern-Variant AND ISC AND WTFPL AND Zlib",
+-        "sourceUrl": "https://ffmpeg.org/releases/ffmpeg-7.1.5.tar.xz",
+-        "buildProvenance": "third-party/BUILD-NOTES-ffmpeg-export-ass-zimg-windows.txt",
+-        "noticeFiles": [
+-          "third-party/LGPL-2.1.txt",
+-          "third-party/BUILD-NOTES-ffmpeg-export-ass-zimg-windows.txt",
+-          "third-party/FreeType-FTL.txt",
+-          "third-party/FriBidi-COPYING.txt",
+-          "third-party/HarfBuzz-COPYING.txt",
+-          "third-party/libass-COPYING.txt",
+-          "third-party/zimg-COPYING.txt",
+-          "third-party/zlib-LICENSE.txt"
+-        ],
+-        "components": [
+-          {
+-            "name": "freetype",
+-            "version": "2.13.3",
+-            "licenseSpdx": "FTL",
+-            "sourceUrl": "https://download.savannah.gnu.org/releases/freetype/freetype-2.13.3.tar.xz",
+-            "sourceSha256": "0550350666d427c74daeb85d5ac7bb353acba5f76956395995311a9c6f063289",
+-            "enableFlag": "--enable-libfreetype",
+-            "noticeFile": "third-party/FreeType-FTL.txt"
+-          },
+-          {
+-            "name": "fribidi",
+-            "version": "1.0.16",
+-            "licenseSpdx": "LGPL-2.1-or-later",
+-            "sourceUrl": "https://github.com/fribidi/fribidi/releases/download/v1.0.16/fribidi-1.0.16.tar.xz",
+-            "sourceSha256": "1b1cde5b235d40479e91be2f0e88a309e3214c8ab470ec8a2744d82a5a9ea05c",
+-            "noticeFile": "third-party/FriBidi-COPYING.txt"
+-          },
+-          {
+-            "name": "harfbuzz",
+-            "version": "10.1.0",
+-            "licenseSpdx": "MIT-Modern-Variant",
+-            "sourceUrl": "https://github.com/harfbuzz/harfbuzz/releases/download/10.1.0/harfbuzz-10.1.0.tar.xz",
+-            "sourceSha256": "6ce3520f2d089a33cef0fc48321334b8e0b72141f6a763719aaaecd2779ecb82",
+-            "enableFlag": "--enable-libharfbuzz",
+-            "noticeFile": "third-party/HarfBuzz-COPYING.txt"
+-          },
+-          {
+-            "name": "libass",
+-            "version": "0.17.3",
+-            "licenseSpdx": "ISC",
+-            "sourceUrl": "https://github.com/libass/libass/releases/download/0.17.3/libass-0.17.3.tar.xz",
+-            "sourceSha256": "eae425da50f0015c21f7b3a9c7262a910f0218af469e22e2931462fed3c50959",
+-            "enableFlag": "--enable-libass",
+-            "noticeFile": "third-party/libass-COPYING.txt"
+-          },
+-          {
+-            "name": "zimg",
+-            "version": "3.0.5",
+-            "licenseSpdx": "WTFPL",
+-            "sourceUrl": "https://github.com/sekrit-twc/zimg/archive/refs/tags/release-3.0.5.tar.gz",
+-            "sourceSha256": "a9a0226bf85e0d83c41a8ebe4e3e690e1348682f6a2a7838f1b8cbff1b799bcf",
+-            "enableFlag": "--enable-libzimg",
+-            "noticeFile": "third-party/zimg-COPYING.txt"
+-          },
+-          {
+-            "name": "zlib",
+-            "version": "1.3.2",
+-            "licenseSpdx": "Zlib",
+-            "sourceUrl": "https://zlib.net/zlib-1.3.2.tar.xz",
+-            "sourceSha256": "d7a0654783a4da529d1bb793b7ad9c3318020af77667bcae35f95d0e42a792f3",
+-            "enableFlag": "--enable-zlib",
+-            "noticeFile": "third-party/zlib-LICENSE.txt"
+-          }
+-        ]
+-      },
+-      "requiredConfigureFlags": [
+-        "--disable-gpl",
+-        "--disable-nonfree",
+-        "--disable-autodetect",
+-        "--enable-libass",
+-        "--enable-libfreetype",
+-        "--enable-libharfbuzz",
+-        "--enable-libzimg",
+-        "--enable-zlib",
+-        "--enable-mediafoundation"
+-      ],
+-      "pending": {
+-        "reason": "The recipe ran end to end once on the Dell on 2026-10-11 (local validation binary sha256 ea97989ef797f472ead7a544fe53fa57f94c4b91cf2f7902dbeb684a6fb07b15, 19607552 bytes; linkage, licence, filter and encoder gates passed; h264_mf, subtitles, drawtext and zscale+tonemap smoke tests passed). Not approved because: the catalog binary must come from the ffmpeg-windows GitHub Actions workflow, which has not run; reproducibility is unchecked (one build); the zlib OpenPGP signature was not verified; and whether the statically linked toolchain runtime (mingw-w64 CRT, libgcc, libstdc++) needs notice files is undecided.",
+-        "recipe": "recipes/build-ffmpeg-windows.sh",
+-        "commands": [
+-          "gh workflow run ffmpeg-windows.yml -f variant=export-ass-zimg -f tool=ffmpeg  # twice, compare the two sha256 values",
+-          "<artifact>/ffmpeg-export-ass-zimg-windows-x64.evidence/ holds -version, -buildconf, -L, -encoders, -decoders, -filters and the import list"
+-        ],
+-        "promote": "after two CI runs give the same digest, record sha256 and size from that run, settle the toolchain-runtime notice question, set status approved and delete pending"
+-      }
+-    },
+-    {
+-      "id": "ffprobe-7.1.5-windows-x64",
+-      "tool": "ffprobe",
+-      "variant": "decode",
+-      "os": "windows",
+-      "arch": "x86_64",
+-      "version": "7.1.5",
+-      "status": "pending",
+-      "sourceSha256": "de668509caf9e35e3cd162473441fdb29538c6d96ed080292b3cf9e6fc5d558f",
+-      "attribution": {
+-        "licenseSpdx": "LGPL-2.1-or-later",
+-        "sourceUrl": "https://ffmpeg.org/releases/ffmpeg-7.1.5.tar.xz",
+-        "buildProvenance": "third-party/BUILD-NOTES-ffmpeg-export-ass-zimg-windows.txt",
+-        "noticeFiles": [
+-          "third-party/LGPL-2.1.txt",
+-          "third-party/BUILD-NOTES-ffmpeg-export-ass-zimg-windows.txt"
+-        ]
+-      },
+-      "requiredConfigureFlags": [
+-        "--disable-gpl",
+-        "--disable-nonfree",
+-        "--disable-autodetect"
+-      ],
+-      "pending": {
+-        "reason": "Built once on the Dell on 2026-10-11 from the same FFmpeg tree with the decode flags (local validation binary sha256 1be036043af54835fa942b3dbd2d1c1bc362f235b5a5c85c8eeb4eb065937b55, 16307200 bytes; linkage and licence gates passed; -version, -buildconf and -L executed). Not approved because the catalog binary must come from the ffmpeg-windows GitHub Actions workflow, which has not run, and reproducibility is unchecked. ffprobe was not exercised against media files.",
+-        "recipe": "recipes/build-ffmpeg-windows.sh",
+-        "commands": [
+-          "gh workflow run ffmpeg-windows.yml -f variant=decode -f tool=ffprobe  # twice, compare the two sha256 values"
+-        ],
+-        "promote": "after two CI runs give the same digest and ffprobe has read at least one real file, record sha256 and size, set status approved and delete pending"
+-      }
+-    }
+-  ]
+-}
+diff --git a/crates/rightkit-media/recipes/build-ffmpeg-windows.sh b/crates/rightkit-media/recipes/build-ffmpeg-windows.sh
+index 5a180105..79516378 100755
+--- a/crates/rightkit-media/recipes/build-ffmpeg-windows.sh
++++ b/crates/rightkit-media/recipes/build-ffmpeg-windows.sh
+@@ -222,6 +222,18 @@ cp "$src/COPYING.LGPLv2.1" "$out/$build_tag.notices/FFmpeg-COPYING.LGPLv2.1"
+ for entry in "${notices[@]+"${notices[@]}"}"; do
+   cp "${entry#*:}" "$out/$build_tag.notices/${entry%%:*}-$(basename "${entry#*:}")"
+ done
++# -static also links toolchain runtime code into every exe: the mingw-w64 C runtime, winpthreads
++# and libgcc, plus libstdc++ when a C++ library (zimg, HarfBuzz) is linked. The mingw-w64 runtime
++# licence requires its notices with binaries; they come from the toolchain's own licence files.
++licenses=/mingw64/share/licenses
++toolchain_notice() {
++  local found; found="$(ls $1 2>/dev/null | awk 'NR==1')"
++  test -n "$found" || { echo "toolchain licence file not found: $1" >&2; exit 1; }
++  cp "$found" "$out/$build_tag.notices/$2"
++}
++toolchain_notice "$licenses/crt/COPYING.MinGW-w64-runtime.txt" MinGW-w64-runtime-COPYING.txt
++toolchain_notice "$licenses/*winpthread*/COPYING" winpthreads-COPYING.txt
++toolchain_notice "$licenses/gcc-libs/COPYING.RUNTIME" GCC-RUNTIME-LIBRARY-EXCEPTION.txt
+ 
+ # Linkage gate: every imported DLL must be a Windows system DLL.
+ imports="$(objdump -p "$artifact" | sed -n 's/^[[:space:]]*DLL Name: //p' | tr -d '\r' | sort -f)"
+diff --git a/crates/rightkit-media/src/lib.rs b/crates/rightkit-media/src/lib.rs
+index 6aa52c90..44abc0db 100644
+--- a/crates/rightkit-media/src/lib.rs
++++ b/crates/rightkit-media/src/lib.rs
+@@ -1812,7 +1812,7 @@ mod tests {
+             catalog.approved_for(Tool::Ffmpeg, EXPORT_ASS_VARIANT, "macos", "x86_64"),
+             Err(MediaError::ArtifactPending { .. })
+         ));
+-        // Windows has no ffprobe artifact yet: no silent fallback to another platform.
++        // The Windows ffprobe row is pending: no silent fallback to another platform.
+         assert!(catalog
+             .approved_for(Tool::Ffprobe, DECODE_VARIANT, "windows", "x86_64")
+             .is_err());
+diff --git a/crates/rightkit-media/third-party/BUILD-NOTES-ffmpeg-export-ass-zimg-windows.txt b/crates/rightkit-media/third-party/BUILD-NOTES-ffmpeg-export-ass-zimg-windows.txt
+index 888ca317..c5efc1af 100644
+--- a/crates/rightkit-media/third-party/BUILD-NOTES-ffmpeg-export-ass-zimg-windows.txt
++++ b/crates/rightkit-media/third-party/BUILD-NOTES-ffmpeg-export-ass-zimg-windows.txt
+@@ -71,8 +71,8 @@ Sources (all digests SHA-256):
+   zlib-1.3.2.tar.xz
+     d7a0654783a4da529d1bb793b7ad9c3318020af77667bcae35f95d0e42a792f3
+     https://zlib.net/zlib-1.3.2.tar.xz
+-    https://zlib.net/ (fetched 2026-10-11) lists exactly this SHA-256. The OpenPGP signature
+-    (zlib-1.3.2.tar.xz.asc) was NOT checked: the Windows host has no gpg.
++    https://zlib.net/ (fetched 2026-10-11) lists exactly this SHA-256: signature not checked,
++    digest matched publisher (accepted; the Windows host has no gpg for zlib-1.3.2.tar.xz.asc).
+   zimg 3.0.5 (GitHub archive of tag release-3.0.5)
+     a9a0226bf85e0d83c41a8ebe4e3e690e1348682f6a2a7838f1b8cbff1b799bcf
+     The Windows host observed the same digest as the shared pin, whose evidence records the
+@@ -145,11 +145,20 @@ Statically linked components (licence -> notice file shipped with the binary):
+   zimg 3.0.5          WTFPL               third-party/zimg-COPYING.txt
+   zlib 1.3.2          Zlib                third-party/zlib-LICENSE.txt
+ Binary SPDX: LGPL-2.1-or-later AND FTL AND MIT-Modern-Variant AND ISC AND WTFPL AND Zlib
+-OPEN QUESTION for approval (Windows only): `-static -static-libgcc` also links toolchain runtime
+-code into the exe: the mingw-w64 C runtime, and, because zimg and HarfBuzz are C++, GCC's
+-libgcc/libstdc++ (GPL-3.0 with the GCC Runtime Library Exception) and possibly libwinpthread
+-and libatomic. The approved Windows decode build links the mingw-w64 runtime and libgcc the
+-same way. Whether these need notice files has not been decided.
++Toolchain runtime, linked statically by `-static -static-libgcc` (notices shipped with the binary):
++  mingw-w64 C runtime (crt 14.0.0.r98)   third-party/MinGW-w64-runtime-COPYING.txt
++                                         (its text requires the notices with binaries)
++  winpthreads 14.0.0.r98                 third-party/winpthreads-COPYING.txt (MIT and BSD-style)
++  libgcc, libstdc++ (GCC 16.1.0)         third-party/GCC-RUNTIME-LIBRARY-EXCEPTION.txt
++                                         (GPL-3.0-or-later WITH GCC-exception-3.1)
++  Observed with nm on the unstripped local builds: both exes hold winpthreads symbols (123
++  pthread_*) and libgcc's ___chkstk_ms; the export ffmpeg also holds libstdc++ (434 std
++  symbols, 21 __cxa_/__gxx_), the decode ffprobe holds none. The three texts are copied from
++  the toolchain packages (mingw-w64-x86_64-crt, -winpthreads, -gcc-libs) by the recipe.
++  They are listed in the catalog rows' noticeFiles, not as components: the component licence
++  list (ALLOWED_COMPONENT_LICENSES) has no entry for the mingw-w64 runtime licence or the GCC
++  exception, and the decode variant admits no components.
++  The approved Windows decode build (BUILD-NOTES.txt) links the same runtime the same way.
+ LGPL obligations: FFmpeg and FriBidi are statically linked into one executable; ship the
+ notices plus a written source offer covering their complete sources and this recipe.
+ 
+diff --git a/crates/rightkit-media/third-party/GCC-RUNTIME-LIBRARY-EXCEPTION.txt b/crates/rightkit-media/third-party/GCC-RUNTIME-LIBRARY-EXCEPTION.txt
+new file mode 100644
+index 00000000..e1b3c69c
+--- /dev/null
++++ b/crates/rightkit-media/third-party/GCC-RUNTIME-LIBRARY-EXCEPTION.txt
+@@ -0,0 +1,73 @@
++GCC RUNTIME LIBRARY EXCEPTION
++
++Version 3.1, 31 March 2009
++
++Copyright (C) 2009 Free Software Foundation, Inc. <http://fsf.org/>
++
++Everyone is permitted to copy and distribute verbatim copies of this
++license document, but changing it is not allowed.
++
++This GCC Runtime Library Exception ("Exception") is an additional
++permission under section 7 of the GNU General Public License, version
++3 ("GPLv3"). It applies to a given file (the "Runtime Library") that
++bears a notice placed by the copyright holder of the file stating that
++the file is governed by GPLv3 along with this Exception.
++
++When you use GCC to compile a program, GCC may combine portions of
++certain GCC header files and runtime libraries with the compiled
++program. The purpose of this Exception is to allow compilation of
++non-GPL (including proprietary) programs to use, in this way, the
++header files and runtime libraries covered by this Exception.
++
++0. Definitions.
++
++A file is an "Independent Module" if it either requires the Runtime
++Library for execution after a Compilation Process, or makes use of an
++interface provided by the Runtime Library, but is not otherwise based
++on the Runtime Library.
++
++"GCC" means a version of the GNU Compiler Collection, with or without
++modifications, governed by version 3 (or a specified later version) of
++the GNU General Public License (GPL) with the option of using any
++subsequent versions published by the FSF.
++
++"GPL-compatible Software" is software whose conditions of propagation,
++modification and use would permit combination with GCC in accord with
++the license of GCC.
++
++"Target Code" refers to output from any compiler for a real or virtual
++target processor architecture, in executable form or suitable for
++input to an assembler, loader, linker and/or execution
++phase. Notwithstanding that, Target Code does not include data in any
++format that is used as a compiler intermediate representation, or used
++for producing a compiler intermediate representation.
++
++The "Compilation Process" transforms code entirely represented in
++non-intermediate languages designed for human-written code, and/or in
++Java Virtual Machine byte code, into Target Code. Thus, for example,
++use of source code generators and preprocessors need not be considered
++part of the Compilation Process, since the Compilation Process can be
++understood as starting with the output of the generators or
++preprocessors.
++
++A Compilation Process is "Eligible" if it is done using GCC, alone or
++with other GPL-compatible software, or if it is done without using any
++work based on GCC. For example, using non-GPL-compatible Software to
++optimize any GCC intermediate representations would not qualify as an
++Eligible Compilation Process.
++
++1. Grant of Additional Permission.
++
++You have permission to propagate a work of Target Code formed by
++combining the Runtime Library with Independent Modules, even if such
++propagation would otherwise violate the terms of GPLv3, provided that
++all Target Code was generated by Eligible Compilation Processes. You
++may then convey such a combination under terms of your choice,
++consistent with the licensing of the Independent Modules.
++
++2. No Weakening of GCC Copyleft.
++
++The availability of this Exception does not imply any general
++presumption that third-party software is unaffected by the copyleft
++requirements of the license of GCC.
++
+diff --git a/crates/rightkit-media/third-party/MinGW-w64-runtime-COPYING.txt b/crates/rightkit-media/third-party/MinGW-w64-runtime-COPYING.txt
+new file mode 100644
+index 00000000..776d5f10
+--- /dev/null
++++ b/crates/rightkit-media/third-party/MinGW-w64-runtime-COPYING.txt
+@@ -0,0 +1,265 @@
++MinGW-w64 runtime licensing
++***************************
++
++This program or library was built using MinGW-w64 and statically
++linked against the MinGW-w64 runtime. Some parts of the runtime
++are under licenses which require that the copyright and license
++notices are included when distributing the code in binary form.
++These notices are listed below.
++
++
++========================
++Overall copyright notice
++========================
++
++Copyright (c) 2009, 2010, 2011, 2012, 2013 by the mingw-w64 project
++
++This license has been certified as open source. It has also been designated
++as GPL compatible by the Free Software Foundation (FSF).
++
++Redistribution and use in source and binary forms, with or without
++modification, are permitted provided that the following conditions are met:
++
++   1. Redistributions in source code must retain the accompanying copyright
++      notice, this list of conditions, and the following disclaimer.
++   2. Redistributions in binary form must reproduce the accompanying
++      copyright notice, this list of conditions, and the following disclaimer
++      in the documentation and/or other materials provided with the
++      distribution.
++   3. Names of the copyright holders must not be used to endorse or promote
++      products derived from this software without prior written permission
++      from the copyright holders.
++   4. The right to distribute this software or to use it for any purpose does
++      not give you the right to use Servicemarks (sm) or Trademarks (tm) of
++      the copyright holders.  Use of them is covered by separate agreement
++      with the copyright holders.
++   5. If any files are modified, you must cause the modified files to carry
++      prominent notices stating that you changed the files and the date of
++      any change.
++
++Disclaimer
++
++THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS ``AS IS'' AND ANY EXPRESSED
++OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES
++OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO
++EVENT SHALL THE COPYRIGHT HOLDERS BE LIABLE FOR ANY DIRECT, INDIRECT,
++INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
++LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA,
++OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF
++LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING
++NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE,
++EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
++
++======================================== 
++getopt, getopt_long, and getop_long_only
++======================================== 
++
++Copyright (c) 2002 Todd C. Miller <Todd.Miller@courtesan.com> 
++ 
++Permission to use, copy, modify, and distribute this software for any 
++purpose with or without fee is hereby granted, provided that the above 
++copyright notice and this permission notice appear in all copies. 
++ 	 
++THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
++WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
++MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR
++ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
++WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
++ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
++OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
++
++Sponsored in part by the Defense Advanced Research Projects
++Agency (DARPA) and Air Force Research Laboratory, Air Force
++Materiel Command, USAF, under agreement number F39502-99-1-0512.
++
++        *       *       *       *       *       *       * 
++
++Copyright (c) 2000 The NetBSD Foundation, Inc.
++All rights reserved.
++
++This code is derived from software contributed to The NetBSD Foundation
++by Dieter Baron and Thomas Klausner.
++
++Redistribution and use in source and binary forms, with or without
++modification, are permitted provided that the following conditions
++are met:
++ 1. Redistributions of source code must retain the above copyright
++    notice, this list of conditions and the following disclaimer.
++ 2. Redistributions in binary form must reproduce the above copyright
++    notice, this list of conditions and the following disclaimer in the
++    documentation and/or other materials provided with the distribution.
++
++THIS SOFTWARE IS PROVIDED BY THE NETBSD FOUNDATION, INC. AND CONTRIBUTORS
++``AS IS'' AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED
++TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR
++PURPOSE ARE DISCLAIMED.  IN NO EVENT SHALL THE FOUNDATION OR CONTRIBUTORS
++BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
++CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
++SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
++INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
++CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
++ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
++POSSIBILITY OF SUCH DAMAGE.
++
++
++===============================================================
++gdtoa: Converting between IEEE floating point numbers and ASCII
++===============================================================
++
++The author of this software is David M. Gay.
++
++Copyright (C) 1997, 1998, 1999, 2000, 2001 by Lucent Technologies
++All Rights Reserved
++
++Permission to use, copy, modify, and distribute this software and
++its documentation for any purpose and without fee is hereby
++granted, provided that the above copyright notice appear in all
++copies and that both that the copyright notice and this
++permission notice and warranty disclaimer appear in supporting
++documentation, and that the name of Lucent or any of its entities
++not be used in advertising or publicity pertaining to
++distribution of the software without specific, written prior
++permission.
++
++LUCENT DISCLAIMS ALL WARRANTIES WITH REGARD TO THIS SOFTWARE,
++INCLUDING ALL IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS.
++IN NO EVENT SHALL LUCENT OR ANY OF ITS ENTITIES BE LIABLE FOR ANY
++SPECIAL, INDIRECT OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
++WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER
++IN AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION,
++ARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF
++THIS SOFTWARE.
++
++        *       *       *       *       *       *       *
++
++The author of this software is David M. Gay.
++
++Copyright (C) 2005 by David M. Gay
++All Rights Reserved
++
++Permission to use, copy, modify, and distribute this software and its
++documentation for any purpose and without fee is hereby granted,
++provided that the above copyright notice appear in all copies and that
++both that the copyright notice and this permission notice and warranty
++disclaimer appear in supporting documentation, and that the name of
++the author or any of his current or former employers not be used in
++advertising or publicity pertaining to distribution of the software
++without specific, written prior permission.
++
++THE AUTHOR DISCLAIMS ALL WARRANTIES WITH REGARD TO THIS SOFTWARE,
++INCLUDING ALL IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS.  IN
++NO EVENT SHALL THE AUTHOR OR ANY OF HIS CURRENT OR FORMER EMPLOYERS BE
++LIABLE FOR ANY SPECIAL, INDIRECT OR CONSEQUENTIAL DAMAGES OR ANY
++DAMAGES WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS,
++WHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION,
++ARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS
++SOFTWARE.
++
++        *       *       *       *       *       *       *
++
++The author of this software is David M. Gay.
++
++Copyright (C) 2004 by David M. Gay.
++All Rights Reserved
++Based on material in the rest of /netlib/fp/gdota.tar.gz,
++which is copyright (C) 1998, 2000 by Lucent Technologies.
++
++Permission to use, copy, modify, and distribute this software and
++its documentation for any purpose and without fee is hereby
++granted, provided that the above copyright notice appear in all
++copies and that both that the copyright notice and this
++permission notice and warranty disclaimer appear in supporting
++documentation, and that the name of Lucent or any of its entities
++not be used in advertising or publicity pertaining to
++distribution of the software without specific, written prior
++permission.
++
++LUCENT DISCLAIMS ALL WARRANTIES WITH REGARD TO THIS SOFTWARE,
++INCLUDING ALL IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS.
++IN NO EVENT SHALL LUCENT OR ANY OF ITS ENTITIES BE LIABLE FOR ANY
++SPECIAL, INDIRECT OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
++WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER
++IN AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION,
++ARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF
++THIS SOFTWARE.
++
++
++=========================
++Parts of the math library
++=========================
++
++Copyright (C) 1993 by Sun Microsystems, Inc. All rights reserved.
++
++Developed at SunSoft, a Sun Microsystems, Inc. business.
++Permission to use, copy, modify, and distribute this
++software is freely granted, provided that this notice
++is preserved.
++
++        *       *       *       *       *       *       *
++
++Copyright (C) 1993 by Sun Microsystems, Inc. All rights reserved.
++
++Developed at SunPro, a Sun Microsystems, Inc. business.
++Permission to use, copy, modify, and distribute this
++software is freely granted, provided that this notice
++is preserved.
++
++        *       *       *       *       *       *       *
++
++FIXME: Cephes math lib
++Copyright (C) 1984-1998 Stephen L. Moshier
++
++It sounds vague, but as to be found at
++<http://lists.debian.org/debian-legal/2004/12/msg00295.html>, it gives an
++impression that the author could be willing to give an explicit
++permission to distribute those files e.g. under a BSD style license. So
++probably there is no problem here, although it could be good to get a
++permission from the author and then add a license into the Cephes files
++in MinGW runtime. At least on follow-up it is marked that debian sees the
++version a-like BSD one. As MinGW.org (where those cephes parts are coming
++from) distributes them now over 6 years, it should be fine.
++
++=================================================
++Some string, memory and time conversion functions
++=================================================
++
++Copyright © 2005-2020 Rich Felker, et al.
++
++Permission is hereby granted, free of charge, to any person obtaining
++a copy of this software and associated documentation files (the
++"Software"), to deal in the Software without restriction, including
++without limitation the rights to use, copy, modify, merge, publish,
++distribute, sublicense, and/or sell copies of the Software, and to
++permit persons to whom the Software is furnished to do so, subject to
++the following conditions:
++
++The above copyright notice and this permission notice shall be
++included in all copies or substantial portions of the Software.
++
++THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
++EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
++MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
++IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
++CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,
++TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
++SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
++
++===================================
++Headers and IDLs imported from Wine
++===================================
++
++Some header and IDL files were imported from the Wine project. These files
++are prominent maked in source. Their copyright belongs to contributors and
++they are distributed under LGPL license.
++
++Disclaimer
++
++This library is free software; you can redistribute it and/or
++modify it under the terms of the GNU Lesser General Public
++License as published by the Free Software Foundation; either
++version 2.1 of the License, or (at your option) any later version.
++
++This library is distributed in the hope that it will be useful,
++but WITHOUT ANY WARRANTY; without even the implied warranty of
++MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
++Lesser General Public License for more details.
+diff --git a/crates/rightkit-media/third-party/winpthreads-COPYING.txt b/crates/rightkit-media/third-party/winpthreads-COPYING.txt
+new file mode 100644
+index 00000000..35077012
+--- /dev/null
++++ b/crates/rightkit-media/third-party/winpthreads-COPYING.txt
+@@ -0,0 +1,57 @@
++Copyright (c) 2011 mingw-w64 project
++
++Permission is hereby granted, free of charge, to any person obtaining a
++copy of this software and associated documentation files (the "Software"),
++to deal in the Software without restriction, including without limitation
++the rights to use, copy, modify, merge, publish, distribute, sublicense,
++and/or sell copies of the Software, and to permit persons to whom the
++Software is furnished to do so, subject to the following conditions:
++
++The above copyright notice and this permission notice shall be included in
++all copies or substantial portions of the Software.
++
++THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
++IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
++FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
++AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
++LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
++FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
++DEALINGS IN THE SOFTWARE.
++
++
++/*
++ * Parts of this library are derived by:
++ *
++ * Posix Threads library for Microsoft Windows
++ *
++ * Use at own risk, there is no implied warranty to this code.
++ * It uses undocumented features of Microsoft Windows that can change
++ * at any time in the future.
++ *
++ * (C) 2010 Lockless Inc.
++ * All rights reserved.
++ *
++ * Redistribution and use in source and binary forms, with or without modification,
++ * are permitted provided that the following conditions are met:
++ *
++ *
++ *  * Redistributions of source code must retain the above copyright notice,
++ *    this list of conditions and the following disclaimer.
++ *  * Redistributions in binary form must reproduce the above copyright notice,
++ *    this list of conditions and the following disclaimer in the documentation
++ *    and/or other materials provided with the distribution.
++ *  * Neither the name of Lockless Inc. nor the names of its contributors may be
++ *    used to endorse or promote products derived from this software without
++ *    specific prior written permission.
++ *
++ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AN
++ * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
++ * WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED.
++ * IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT,
++ * INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING,
++ * BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
++ * DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF
++ * LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE
++ * OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED
++ * OF THE POSSIBILITY OF SUCH DAMAGE.
++ */
+-- 
+2.54.0 (Apple Git-157)
+
+
+From b4e7af35d9937d8bc4c1b4daae3c856e9d7903a5 Mon Sep 17 00:00:00 2001
+From: adrdsouza <102761952+adrdsouza@users.noreply.github.com>
+Date: Sun, 11 Oct 2026 14:53:31 +0530
+Subject: [PATCH 2/6] rightkit-media: toolchain runtime components for static
+ MinGW-w64 builds
+
+TOOLCHAIN_RUNTIME_COMPONENTS names the runtime code a static MinGW-w64 link
+carries into a Windows binary (mingw-w64-runtime, winpthreads, gcc-runtime).
+Any variant may list them, decode included, each only under its own licence.
+
+ALLOWED_COMPONENT_LICENSES gains LicenseRef-MinGW-w64-runtime and
+GPL-3.0-or-later WITH GCC-exception-3.1; only those components may carry
+them and every other GPL identifier is still refused. A component licence may
+be a conjunction whose every term is allowed and named in the entry's
+expression (MIT AND BSD-3-Clause for winpthreads).
+
+The two pending Windows rows list the three components; the recipe records
+the toolchain packages and their digests as evidence.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ crates/rightkit-media/CHANGELOG.md            |  13 +-
+ crates/rightkit-media/README.md               |   2 +-
+ crates/rightkit-media/catalog/artifacts.json  |  58 +++++-
+ .../recipes/build-ffmpeg-windows.sh           |   6 +
+ crates/rightkit-media/src/lib.rs              | 169 ++++++++++++++++--
+ ...D-NOTES-ffmpeg-export-ass-zimg-windows.txt |  18 +-
+ 6 files changed, 243 insertions(+), 23 deletions(-)
+
+diff --git a/crates/rightkit-media/CHANGELOG.md b/crates/rightkit-media/CHANGELOG.md
+index 0f7e407c..28e25c42 100644
+--- a/crates/rightkit-media/CHANGELOG.md
++++ b/crates/rightkit-media/CHANGELOG.md
+@@ -7,8 +7,17 @@
+   `ffprobe-7.1.5-windows-x64` (`decode`). Recipe: `recipes/build-ffmpeg-windows.sh` (MSYS2
+   MINGW64); notes: `third-party/BUILD-NOTES-ffmpeg-export-ass-zimg-windows.txt`. Built once
+   locally; digests are recorded after the `ffmpeg-windows` CI workflow has built them twice.
+-  The rows list the statically linked toolchain runtime notices (mingw-w64 runtime,
+-  winpthreads, GCC Runtime Library Exception) in `noticeFiles`.
++- `TOOLCHAIN_RUNTIME_COMPONENTS` (`mingw-w64-runtime`, `winpthreads`, `gcc-runtime`): the runtime
++  code a static MinGW-w64 link carries into a Windows binary. Any variant may list them, `decode`
++  included, each only under its own licence. `ALLOWED_COMPONENT_LICENSES` gains
++  `LicenseRef-MinGW-w64-runtime` (permissive notice licence without an SPDX identifier) and
++  `GPL-3.0-or-later WITH GCC-exception-3.1` (libgcc and libstdc++; the exception permits linking
++  without the GPL reaching the binary); only those components may carry them, and every other
++  GPL identifier is still refused. A component licence may now be a conjunction
++  (`MIT AND BSD-3-Clause` for winpthreads): every term must be allowed and named in the entry's
++  expression. The two new Windows rows list all three with their notice files.
++- Known gap, not changed here: the approved `ffmpeg-7.1.5-windows-x64` decode row was built the
++  same way and ships without the mingw-w64 runtime, winpthreads and GCC runtime notices.
+ - `bundled::verify_bundled_ffmpeg(path, variant, timeout)` / `verify_bundled_ffprobe(...)`: one
+   call from a bundled binary path plus the expected variant to a `VerifiedFfmpeg` /
+   `VerifiedFfprobe` (embedded catalog, this host's OS and architecture, content digest, then the
+diff --git a/crates/rightkit-media/README.md b/crates/rightkit-media/README.md
+index c48bfdac..f55117d8 100644
+--- a/crates/rightkit-media/README.md
++++ b/crates/rightkit-media/README.md
+@@ -80,7 +80,7 @@ Published version: see `INDEX.md` at the repository root. This README does not s
+ 
+ ## Licence
+ 
+-Licensed under either MIT or Apache-2.0, at your option. FFmpeg artifacts retain their own LGPL-2.1-or-later licence and attribution obligations (see `third-party/`). Statically linked components may carry only the licences in `ALLOWED_COMPONENT_LICENSES` (`src/lib.rs`): LGPL-2.0-or-later, LGPL-2.1-or-later, ISC, FTL, MIT, MIT-Modern-Variant, Zlib, BSD-2-Clause, BSD-3-Clause, and WTFPL. WTFPL was added for zimg (the `export-ass-zimg` variant): it is permissive, has no copyleft and no notice duty, and its notice is shipped anyway (`third-party/zimg-COPYING.txt`). Anything not on the list, notably GPL or AGPL, is refused.
++Licensed under either MIT or Apache-2.0, at your option. FFmpeg artifacts retain their own LGPL-2.1-or-later licence and attribution obligations (see `third-party/`). Statically linked components may carry only the licences in `ALLOWED_COMPONENT_LICENSES` (`src/lib.rs`): LGPL-2.0-or-later, LGPL-2.1-or-later, ISC, FTL, MIT, MIT-Modern-Variant, Zlib, BSD-2-Clause, BSD-3-Clause, and WTFPL. WTFPL was added for zimg (the `export-ass-zimg` variant): it is permissive, has no copyleft and no notice duty, and its notice is shipped anyway (`third-party/zimg-COPYING.txt`). Two further entries exist only for the toolchain runtime a static MinGW-w64 link carries into Windows binaries (`TOOLCHAIN_RUNTIME_COMPONENTS`): `LicenseRef-MinGW-w64-runtime` for the mingw-w64 C runtime and `GPL-3.0-or-later WITH GCC-exception-3.1` for libgcc and libstdc++ (the GCC Runtime Library Exception permits linking them without the GPL reaching the binary); winpthreads is `MIT AND BSD-3-Clause`. No other component may carry those two, and their notices ship in `third-party/`. Anything not on the list, notably GPL or AGPL, is refused.
+ 
+ ## Changes
+ 
+diff --git a/crates/rightkit-media/catalog/artifacts.json b/crates/rightkit-media/catalog/artifacts.json
+index c0fba12f..acbf0885 100644
+--- a/crates/rightkit-media/catalog/artifacts.json
++++ b/crates/rightkit-media/catalog/artifacts.json
+@@ -615,7 +615,7 @@
+       "status": "pending",
+       "sourceSha256": "de668509caf9e35e3cd162473441fdb29538c6d96ed080292b3cf9e6fc5d558f",
+       "attribution": {
+-        "licenseSpdx": "LGPL-2.1-or-later AND FTL AND MIT-Modern-Variant AND ISC AND WTFPL AND Zlib",
++        "licenseSpdx": "LGPL-2.1-or-later AND FTL AND MIT-Modern-Variant AND ISC AND WTFPL AND Zlib AND LicenseRef-MinGW-w64-runtime AND MIT AND BSD-3-Clause AND GPL-3.0-or-later WITH GCC-exception-3.1",
+         "sourceUrl": "https://ffmpeg.org/releases/ffmpeg-7.1.5.tar.xz",
+         "buildProvenance": "third-party/BUILD-NOTES-ffmpeg-export-ass-zimg-windows.txt",
+         "noticeFiles": [
+@@ -684,6 +684,30 @@
+             "sourceSha256": "d7a0654783a4da529d1bb793b7ad9c3318020af77667bcae35f95d0e42a792f3",
+             "enableFlag": "--enable-zlib",
+             "noticeFile": "third-party/zlib-LICENSE.txt"
++          },
++          {
++            "name": "mingw-w64-runtime",
++            "version": "14.0.0.r98.g19f5121a2-1",
++            "licenseSpdx": "LicenseRef-MinGW-w64-runtime",
++            "sourceUrl": "https://mirror.msys2.org/mingw/mingw64/mingw-w64-x86_64-crt-14.0.0.r98.g19f5121a2-1-any.pkg.tar.zst",
++            "sourceSha256": "7615a1dba7bb216bccee0d2698567005451a0ab557caa64a45f9ee7aabcd5d20",
++            "noticeFile": "third-party/MinGW-w64-runtime-COPYING.txt"
++          },
++          {
++            "name": "winpthreads",
++            "version": "14.0.0.r98.g19f5121a2-1",
++            "licenseSpdx": "MIT AND BSD-3-Clause",
++            "sourceUrl": "https://mirror.msys2.org/mingw/mingw64/mingw-w64-x86_64-winpthreads-14.0.0.r98.g19f5121a2-1-any.pkg.tar.zst",
++            "sourceSha256": "34bb7b5c7ca110084e2e9ef2ecc478091d112084bd34e8d90d8154439c4dc53f",
++            "noticeFile": "third-party/winpthreads-COPYING.txt"
++          },
++          {
++            "name": "gcc-runtime",
++            "version": "16.1.0-5",
++            "licenseSpdx": "GPL-3.0-or-later WITH GCC-exception-3.1",
++            "sourceUrl": "https://mirror.msys2.org/mingw/mingw64/mingw-w64-x86_64-gcc-16.1.0-5-any.pkg.tar.zst",
++            "sourceSha256": "10f7c55275f7fbe7924209d61c368a1a6fcf775cffbdeac2eef1f5ccacdd35cd",
++            "noticeFile": "third-party/GCC-RUNTIME-LIBRARY-EXCEPTION.txt"
+           }
+         ]
+       },
+@@ -705,7 +729,7 @@
+           "gh workflow run ffmpeg-windows.yml -f variant=export-ass-zimg -f tool=ffmpeg  # twice, compare the two sha256 values",
+           "<artifact>/ffmpeg-export-ass-zimg-windows-x64.evidence/ holds -version, -buildconf, -L, -encoders, -decoders, -filters and the import list"
+         ],
+-        "promote": "after two CI runs give the same digest, record sha256 and size from that run, set status approved and delete pending"
++        "promote": "after two CI runs give the same digest, record sha256 and size, set the three toolchain runtime components to the package versions and digests of that run (evidence/toolchain-packages.txt), set status approved and delete pending"
+       }
+     },
+     {
+@@ -718,7 +742,7 @@
+       "status": "pending",
+       "sourceSha256": "de668509caf9e35e3cd162473441fdb29538c6d96ed080292b3cf9e6fc5d558f",
+       "attribution": {
+-        "licenseSpdx": "LGPL-2.1-or-later",
++        "licenseSpdx": "LGPL-2.1-or-later AND LicenseRef-MinGW-w64-runtime AND MIT AND BSD-3-Clause AND GPL-3.0-or-later WITH GCC-exception-3.1",
+         "sourceUrl": "https://ffmpeg.org/releases/ffmpeg-7.1.5.tar.xz",
+         "buildProvenance": "third-party/BUILD-NOTES-ffmpeg-export-ass-zimg-windows.txt",
+         "noticeFiles": [
+@@ -727,6 +751,32 @@
+           "third-party/MinGW-w64-runtime-COPYING.txt",
+           "third-party/winpthreads-COPYING.txt",
+           "third-party/GCC-RUNTIME-LIBRARY-EXCEPTION.txt"
++        ],
++        "components": [
++          {
++            "name": "mingw-w64-runtime",
++            "version": "14.0.0.r98.g19f5121a2-1",
++            "licenseSpdx": "LicenseRef-MinGW-w64-runtime",
++            "sourceUrl": "https://mirror.msys2.org/mingw/mingw64/mingw-w64-x86_64-crt-14.0.0.r98.g19f5121a2-1-any.pkg.tar.zst",
++            "sourceSha256": "7615a1dba7bb216bccee0d2698567005451a0ab557caa64a45f9ee7aabcd5d20",
++            "noticeFile": "third-party/MinGW-w64-runtime-COPYING.txt"
++          },
++          {
++            "name": "winpthreads",
++            "version": "14.0.0.r98.g19f5121a2-1",
++            "licenseSpdx": "MIT AND BSD-3-Clause",
++            "sourceUrl": "https://mirror.msys2.org/mingw/mingw64/mingw-w64-x86_64-winpthreads-14.0.0.r98.g19f5121a2-1-any.pkg.tar.zst",
++            "sourceSha256": "34bb7b5c7ca110084e2e9ef2ecc478091d112084bd34e8d90d8154439c4dc53f",
++            "noticeFile": "third-party/winpthreads-COPYING.txt"
++          },
++          {
++            "name": "gcc-runtime",
++            "version": "16.1.0-5",
++            "licenseSpdx": "GPL-3.0-or-later WITH GCC-exception-3.1",
++            "sourceUrl": "https://mirror.msys2.org/mingw/mingw64/mingw-w64-x86_64-gcc-16.1.0-5-any.pkg.tar.zst",
++            "sourceSha256": "10f7c55275f7fbe7924209d61c368a1a6fcf775cffbdeac2eef1f5ccacdd35cd",
++            "noticeFile": "third-party/GCC-RUNTIME-LIBRARY-EXCEPTION.txt"
++          }
+         ]
+       },
+       "requiredConfigureFlags": [
+@@ -740,7 +790,7 @@
+         "commands": [
+           "gh workflow run ffmpeg-windows.yml -f variant=decode -f tool=ffprobe  # twice, compare the two sha256 values"
+         ],
+-        "promote": "after two CI runs give the same digest and ffprobe has read at least one real file, record sha256 and size, set status approved and delete pending"
++        "promote": "after two CI runs give the same digest and ffprobe has read at least one real file, record sha256 and size, set the three toolchain runtime components to the package versions and digests of that run (evidence/toolchain-packages.txt), set status approved and delete pending"
+       }
+     }
+   ]
+diff --git a/crates/rightkit-media/recipes/build-ffmpeg-windows.sh b/crates/rightkit-media/recipes/build-ffmpeg-windows.sh
+index 79516378..e7b38af1 100755
+--- a/crates/rightkit-media/recipes/build-ffmpeg-windows.sh
++++ b/crates/rightkit-media/recipes/build-ffmpeg-windows.sh
+@@ -253,6 +253,12 @@ grep -q '^#define CONFIG_GPL 0' "$src/config.h" && grep -q '^#define CONFIG_NONF
+ ev="$out/$build_tag.evidence"
+ echo "$configuration" > "$ev/configure-line.txt"
+ echo "$imports" > "$ev/imports.txt"
++# The toolchain packages whose runtime code is linked statically, and the digest of each package
++# file pacman still has cached: the catalog row's toolchain runtime components record these.
++{
++  pacman -Q 2>/dev/null | grep -E '^mingw-w64-x86_64-(gcc|gcc-libs|binutils|(crt|headers|winpthreads|libwinpthread)(-git)?) ' || true
++  (cd /var/cache/pacman/pkg 2>/dev/null && sha256sum mingw-w64-x86_64-{gcc,crt,crt-git,winpthreads,winpthreads-git}-[0-9]*.pkg.tar.zst 2>/dev/null) || true
++} > "$ev/toolchain-packages.txt"
+ for probe in version buildconf L encoders decoders filters; do
+   "$artifact" -hide_banner "-$probe" < /dev/null 2>&1 | tr -d '\r' > "$ev/$probe.txt"
+ done
+diff --git a/crates/rightkit-media/src/lib.rs b/crates/rightkit-media/src/lib.rs
+index 44abc0db..2e89ba48 100644
+--- a/crates/rightkit-media/src/lib.rs
++++ b/crates/rightkit-media/src/lib.rs
+@@ -78,7 +78,8 @@ pub const DECODE_AV1_VARIANT: &str = "decode-av1";
+ pub const DECODE_APPLE_VARIANT: &str = "decode-apple";
+ 
+ /// What a variant may link. `components` lists the only third-party components it may carry
+-/// (by name); `required_flags` are configure flags every row of the variant must require.
++/// (by name), apart from [`TOOLCHAIN_RUNTIME_COMPONENTS`], which any variant may list;
++/// `required_flags` are configure flags every row of the variant must require.
+ /// A variant not listed here has no extra restriction beyond the catalog-wide rules.
+ struct VariantPolicy {
+     components: &'static [&'static str],
+@@ -141,8 +142,36 @@ pub const ALLOWED_COMPONENT_LICENSES: &[&str] = &[
+     // zimg (libzimg, the `zscale` filter): permissive, no copyleft, no notice duty; approved
+     // as a component licence 2026-10-11 (see third-party/BUILD-NOTES-ffmpeg-export-ass-zimg-macos.txt).
+     "WTFPL",
++    // Toolchain runtime a static MinGW-w64 link carries (see `TOOLCHAIN_RUNTIME_COMPONENTS`).
++    // The mingw-w64 runtime licence is a permissive notice licence with no SPDX identifier.
++    "LicenseRef-MinGW-w64-runtime",
++    // libgcc and libstdc++: the GCC Runtime Library Exception lets a binary GCC built link them
++    // without the GPL reaching the binary. Every other GPL identifier stays refused.
++    "GPL-3.0-or-later WITH GCC-exception-3.1",
+ ];
+ 
++/// Parts of the compiler toolchain's runtime that a static MinGW-w64 link carries into a
++/// Windows binary, each with the only licence it may be recorded under. Any variant may list
++/// them, `decode` included; no other component may carry the two toolchain-only licences.
++pub const TOOLCHAIN_RUNTIME_COMPONENTS: &[(&str, &str)] = &[
++    ("mingw-w64-runtime", "LicenseRef-MinGW-w64-runtime"),
++    ("winpthreads", "MIT AND BSD-3-Clause"),
++    ("gcc-runtime", "GPL-3.0-or-later WITH GCC-exception-3.1"),
++];
++
++/// Licences only a toolchain runtime component may carry.
++const TOOLCHAIN_ONLY_LICENSES: &[&str] = &[
++    "LicenseRef-MinGW-w64-runtime",
++    "GPL-3.0-or-later WITH GCC-exception-3.1",
++];
++
++fn toolchain_runtime_license(component: &str) -> Option<&'static str> {
++    TOOLCHAIN_RUNTIME_COMPONENTS
++        .iter()
++        .find(|(name, _)| *name == component)
++        .map(|(_, license)| *license)
++}
++
+ /// FFmpeg's own licence; every entry's SPDX expression starts with it.
+ pub const FFMPEG_LICENSE_SPDX: &str = "LGPL-2.1-or-later";
+ 
+@@ -418,12 +447,10 @@ impl Artifact {
+             }
+         }
+         if let Some(policy) = variant_policy(&self.variant) {
+-            if let Some(component) = self
+-                .attribution
+-                .components
+-                .iter()
+-                .find(|component| !policy.components.contains(&component.name.as_str()))
+-            {
++            if let Some(component) = self.attribution.components.iter().find(|component| {
++                !policy.components.contains(&component.name.as_str())
++                    && toolchain_runtime_license(&component.name).is_none()
++            }) {
+                 return Err(MediaError::ComponentNotAllowed {
+                     variant: self.variant.clone(),
+                     component: component.name.clone(),
+@@ -527,15 +554,31 @@ impl Attribution {
+             return Err(MediaError::MissingAttribution("build provenance notice"));
+         }
+         for component in &self.components {
+-            if !ALLOWED_COMPONENT_LICENSES.contains(&component.license_spdx.as_str()) {
++            // A toolchain runtime component carries exactly its own licence, and no other
++            // component may carry a toolchain-only licence.
++            let misplaced = match toolchain_runtime_license(&component.name) {
++                Some(license) => component.license_spdx != license,
++                None => component
++                    .license_spdx
++                    .split(" AND ")
++                    .any(|term| TOOLCHAIN_ONLY_LICENSES.contains(&term.trim())),
++            };
++            if misplaced {
+                 return Err(MediaError::UnapprovedLicense(
+                     component.license_spdx.clone(),
+                 ));
+             }
+-            if !terms.contains(&component.license_spdx.as_str()) {
+-                return Err(MediaError::MissingAttribution(
+-                    "component licence absent from the SPDX expression",
+-                ));
++            // A component licence may be a conjunction: every term must be allowed and named
++            // in the entry's expression.
++            for term in component.license_spdx.split(" AND ").map(str::trim) {
++                if !ALLOWED_COMPONENT_LICENSES.contains(&term) {
++                    return Err(MediaError::UnapprovedLicense(term.to_owned()));
++                }
++                if !terms.contains(&term) {
++                    return Err(MediaError::MissingAttribution(
++                        "component licence absent from the SPDX expression",
++                    ));
++                }
+             }
+             if !component.source_url.starts_with("https://") {
+                 return Err(MediaError::MissingAttribution("component https source URL"));
+@@ -1698,6 +1741,108 @@ mod tests {
+         assert!(!ALLOWED_COMPONENT_LICENSES.contains(&"GPL-2.0-or-later"));
+     }
+ 
++    #[test]
++    fn toolchain_runtime_components_are_admitted_in_any_variant_and_other_gpl_stays_refused() {
++        const DIGEST: &str = "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824";
++        const GCC: &str = "GPL-3.0-or-later WITH GCC-exception-3.1";
++        let runtime = |name: &str, license: &str, notice: &str| Component {
++            name: name.into(),
++            version: "16.1.0-5".into(),
++            license_spdx: license.into(),
++            source_url: "https://mirror.msys2.org/mingw/mingw64/".into(),
++            source_sha256: Some(DIGEST.into()),
++            source_commit: None,
++            enable_flag: None,
++            notice_file: notice.into(),
++        };
++        // A static MinGW-w64 decode build: no library, but the runtime the linker carries in.
++        let mut decode = approved_artifact(DIGEST);
++        assert_eq!(decode.variant, DECODE_VARIANT);
++        decode.attribution.license_spdx = format!(
++            "LGPL-2.1-or-later AND LicenseRef-MinGW-w64-runtime AND MIT AND BSD-3-Clause AND {GCC}"
++        );
++        for &(name, license) in TOOLCHAIN_RUNTIME_COMPONENTS {
++            let notice = format!("{name}-notice.txt");
++            decode.attribution.notice_files.push(notice.clone());
++            decode
++                .attribution
++                .components
++                .push(runtime(name, license, notice.as_str()));
++        }
++        decode.validate().unwrap();
++
++        // Every term of a conjunction must be named in the entry's expression.
++        let mut term_missing = decode.clone();
++        term_missing.attribution.license_spdx =
++            format!("LGPL-2.1-or-later AND LicenseRef-MinGW-w64-runtime AND MIT AND {GCC}");
++        assert!(matches!(
++            term_missing.validate(),
++            Err(MediaError::MissingAttribution(_))
++        ));
++
++        // A runtime component carries its own licence only: plain GPL is refused for libgcc.
++        let mut plain_gpl = decode.clone();
++        plain_gpl.attribution.components[2].license_spdx = "GPL-3.0-or-later".into();
++        assert!(matches!(
++            plain_gpl.validate(),
++            Err(MediaError::UnapprovedLicense(license)) if license == "GPL-3.0-or-later"
++        ));
++
++        // The exception belongs to the GCC runtime: a library cannot be recorded under it.
++        let mut library_under_exception = export_artifact();
++        library_under_exception.attribution.license_spdx = format!("LGPL-2.1-or-later AND {GCC}");
++        library_under_exception.attribution.components[0].license_spdx = GCC.into();
++        assert!(matches!(
++            library_under_exception.validate(),
++            Err(MediaError::UnapprovedLicense(license)) if license == GCC
++        ));
++
++        // The decode variant still admits no library.
++        let mut decode_with_library = decode.clone();
++        decode_with_library
++            .attribution
++            .license_spdx
++            .push_str(" AND ISC");
++        decode_with_library
++            .attribution
++            .notice_files
++            .push("libass-COPYING.txt".into());
++        let mut libass = export_artifact().attribution.components[0].clone();
++        libass.source_sha256 = Some(DIGEST.into());
++        decode_with_library.attribution.components.push(libass);
++        decode_with_library
++            .required_configure_flags
++            .push("--enable-libass".into());
++        assert!(matches!(
++            decode_with_library.validate(),
++            Err(MediaError::ComponentNotAllowed { .. })
++        ));
++
++        // Every other GPL identifier stays refused, as a component and in the expression.
++        for gpl in [
++            "GPL-2.0-only",
++            "GPL-2.0-or-later",
++            "GPL-3.0-only",
++            "GPL-3.0-or-later",
++            "AGPL-3.0-or-later",
++            "GPL-2.0-only WITH GCC-exception-2.0",
++        ] {
++            assert!(!ALLOWED_COMPONENT_LICENSES.contains(&gpl), "{gpl}");
++            let mut in_expression = decode.clone();
++            in_expression.attribution.license_spdx.push_str(" AND ");
++            in_expression.attribution.license_spdx.push_str(gpl);
++            assert!(
++                matches!(
++                    in_expression.validate(),
++                    Err(MediaError::UnapprovedLicense(license)) if license == gpl
++                ),
++                "{gpl}"
++            );
++        }
++        assert!(ALLOWED_COMPONENT_LICENSES.contains(&GCC));
++        assert!(ALLOWED_COMPONENT_LICENSES.contains(&"LicenseRef-MinGW-w64-runtime"));
++    }
++
+     #[test]
+     fn x264_and_other_gpl_libraries_are_forbidden_in_a_probe() {
+         let artifact =
+diff --git a/crates/rightkit-media/third-party/BUILD-NOTES-ffmpeg-export-ass-zimg-windows.txt b/crates/rightkit-media/third-party/BUILD-NOTES-ffmpeg-export-ass-zimg-windows.txt
+index c5efc1af..7f162d8d 100644
+--- a/crates/rightkit-media/third-party/BUILD-NOTES-ffmpeg-export-ass-zimg-windows.txt
++++ b/crates/rightkit-media/third-party/BUILD-NOTES-ffmpeg-export-ass-zimg-windows.txt
+@@ -144,7 +144,9 @@ Statically linked components (licence -> notice file shipped with the binary):
+   libass 0.17.3       ISC                 third-party/libass-COPYING.txt
+   zimg 3.0.5          WTFPL               third-party/zimg-COPYING.txt
+   zlib 1.3.2          Zlib                third-party/zlib-LICENSE.txt
+-Binary SPDX: LGPL-2.1-or-later AND FTL AND MIT-Modern-Variant AND ISC AND WTFPL AND Zlib
++Binary SPDX: LGPL-2.1-or-later AND FTL AND MIT-Modern-Variant AND ISC AND WTFPL AND Zlib AND
++  LicenseRef-MinGW-w64-runtime AND MIT AND BSD-3-Clause AND GPL-3.0-or-later WITH GCC-exception-3.1
++  (ffprobe: LGPL-2.1-or-later AND the four toolchain runtime terms)
+ Toolchain runtime, linked statically by `-static -static-libgcc` (notices shipped with the binary):
+   mingw-w64 C runtime (crt 14.0.0.r98)   third-party/MinGW-w64-runtime-COPYING.txt
+                                          (its text requires the notices with binaries)
+@@ -155,9 +157,17 @@ Toolchain runtime, linked statically by `-static -static-libgcc` (notices shippe
+   pthread_*) and libgcc's ___chkstk_ms; the export ffmpeg also holds libstdc++ (434 std
+   symbols, 21 __cxa_/__gxx_), the decode ffprobe holds none. The three texts are copied from
+   the toolchain packages (mingw-w64-x86_64-crt, -winpthreads, -gcc-libs) by the recipe.
+-  They are listed in the catalog rows' noticeFiles, not as components: the component licence
+-  list (ALLOWED_COMPONENT_LICENSES) has no entry for the mingw-w64 runtime licence or the GCC
+-  exception, and the decode variant admits no components.
++  The catalog rows list them as the toolchain runtime components mingw-w64-runtime,
++  winpthreads and gcc-runtime (libgcc.a and libstdc++.a ship in the gcc package), pinned by
++  the MSYS2 package files of the local validation toolchain:
++    mingw-w64-x86_64-crt-14.0.0.r98.g19f5121a2-1-any.pkg.tar.zst
++      7615a1dba7bb216bccee0d2698567005451a0ab557caa64a45f9ee7aabcd5d20
++    mingw-w64-x86_64-winpthreads-14.0.0.r98.g19f5121a2-1-any.pkg.tar.zst
++      34bb7b5c7ca110084e2e9ef2ecc478091d112084bd34e8d90d8154439c4dc53f
++    mingw-w64-x86_64-gcc-16.1.0-5-any.pkg.tar.zst
++      10f7c55275f7fbe7924209d61c368a1a6fcf775cffbdeac2eef1f5ccacdd35cd
++  (digests of the files in the build host's pacman cache; installed 2026-06-20). A CI build
++  records its own package versions and digests in <name>.evidence/toolchain-packages.txt.
+   The approved Windows decode build (BUILD-NOTES.txt) links the same runtime the same way.
+ LGPL obligations: FFmpeg and FriBidi are statically linked into one executable; ship the
+ notices plus a written source offer covering their complete sources and this recipe.
+-- 
+2.54.0 (Apple Git-157)
+
+
+From b16c7222d928cf3a13a919f06a3929106a2bba1b Mon Sep 17 00:00:00 2001
+From: adrdsouza <102761952+adrdsouza@users.noreply.github.com>
+Date: Sun, 11 Oct 2026 14:55:28 +0530
+Subject: [PATCH 3/6] rightkit-media: list the toolchain runtime notices on the
+ approved Windows decode row
+
+The approved ffmpeg-7.1.5-windows-x64 binary is a static MinGW-w64 build and
+shipped without the mingw-w64 runtime, winpthreads and GCC runtime notices.
+Append the three notice files to its noticeFiles; id, digests, licence
+expression and components are unchanged.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ crates/rightkit-media/CHANGELOG.md                          | 6 ++++--
+ crates/rightkit-media/catalog/artifacts.json                | 5 ++++-
+ .../BUILD-NOTES-ffmpeg-export-ass-zimg-windows.txt          | 3 ++-
+ 3 files changed, 10 insertions(+), 4 deletions(-)
+
+diff --git a/crates/rightkit-media/CHANGELOG.md b/crates/rightkit-media/CHANGELOG.md
+index 28e25c42..45e0cff2 100644
+--- a/crates/rightkit-media/CHANGELOG.md
++++ b/crates/rightkit-media/CHANGELOG.md
+@@ -16,8 +16,10 @@
+   GPL identifier is still refused. A component licence may now be a conjunction
+   (`MIT AND BSD-3-Clause` for winpthreads): every term must be allowed and named in the entry's
+   expression. The two new Windows rows list all three with their notice files.
+-- Known gap, not changed here: the approved `ffmpeg-7.1.5-windows-x64` decode row was built the
+-  same way and ships without the mingw-w64 runtime, winpthreads and GCC runtime notices.
++- The approved `ffmpeg-7.1.5-windows-x64` decode row was built the same way and shipped without
++  the mingw-w64 runtime, winpthreads and GCC runtime notices. Its `noticeFiles` now list the three
++  files; id, digests, licence expression and components are unchanged (the components follow
++  separately). Apps that ship this binary must ship the three notices with it.
+ - `bundled::verify_bundled_ffmpeg(path, variant, timeout)` / `verify_bundled_ffprobe(...)`: one
+   call from a bundled binary path plus the expected variant to a `VerifiedFfmpeg` /
+   `VerifiedFfprobe` (embedded catalog, this host's OS and architecture, content digest, then the
+diff --git a/crates/rightkit-media/catalog/artifacts.json b/crates/rightkit-media/catalog/artifacts.json
+index acbf0885..9a20c728 100644
+--- a/crates/rightkit-media/catalog/artifacts.json
++++ b/crates/rightkit-media/catalog/artifacts.json
+@@ -18,7 +18,10 @@
+         "buildProvenance": "third-party/BUILD-NOTES.txt",
+         "noticeFiles": [
+           "third-party/LGPL-2.1.txt",
+-          "third-party/BUILD-NOTES.txt"
++          "third-party/BUILD-NOTES.txt",
++          "third-party/MinGW-w64-runtime-COPYING.txt",
++          "third-party/winpthreads-COPYING.txt",
++          "third-party/GCC-RUNTIME-LIBRARY-EXCEPTION.txt"
+         ]
+       },
+       "requiredConfigureFlags": [
+diff --git a/crates/rightkit-media/third-party/BUILD-NOTES-ffmpeg-export-ass-zimg-windows.txt b/crates/rightkit-media/third-party/BUILD-NOTES-ffmpeg-export-ass-zimg-windows.txt
+index 7f162d8d..399d1665 100644
+--- a/crates/rightkit-media/third-party/BUILD-NOTES-ffmpeg-export-ass-zimg-windows.txt
++++ b/crates/rightkit-media/third-party/BUILD-NOTES-ffmpeg-export-ass-zimg-windows.txt
+@@ -168,7 +168,8 @@ Toolchain runtime, linked statically by `-static -static-libgcc` (notices shippe
+       10f7c55275f7fbe7924209d61c368a1a6fcf775cffbdeac2eef1f5ccacdd35cd
+   (digests of the files in the build host's pacman cache; installed 2026-06-20). A CI build
+   records its own package versions and digests in <name>.evidence/toolchain-packages.txt.
+-  The approved Windows decode build (BUILD-NOTES.txt) links the same runtime the same way.
++  The approved Windows decode build (BUILD-NOTES.txt) links the same runtime the same way; its
++  catalog row now lists the same three notice files.
+ LGPL obligations: FFmpeg and FriBidi are statically linked into one executable; ship the
+ notices plus a written source offer covering their complete sources and this recipe.
+ 
+-- 
+2.54.0 (Apple Git-157)
+
+
+From 4bf5e319d866726705ea7853504fb6ad3c135bd2 Mon Sep 17 00:00:00 2001
+From: adrdsouza <102761952+adrdsouza@users.noreply.github.com>
+Date: Sun, 11 Oct 2026 15:47:11 +0530
+Subject: [PATCH 4/6] rightkit-media: Windows recipe sets SOURCE_DATE_EPOCH so
+ strip writes no timestamp
+
+Two CI builds of ffprobe differed in four bytes: the PE TimeDateStamp that
+FFmpeg's strip step writes, and the PE checksum that follows from it.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ crates/rightkit-media/recipes/build-ffmpeg-windows.sh | 4 +++-
+ 1 file changed, 3 insertions(+), 1 deletion(-)
+
+diff --git a/crates/rightkit-media/recipes/build-ffmpeg-windows.sh b/crates/rightkit-media/recipes/build-ffmpeg-windows.sh
+index e7b38af1..9f806973 100755
+--- a/crates/rightkit-media/recipes/build-ffmpeg-windows.sh
++++ b/crates/rightkit-media/recipes/build-ffmpeg-windows.sh
+@@ -209,8 +209,10 @@ EOF
+   unset CFLAGS CXXFLAGS
+ fi
+ # Fully static: no libwinpthread-1.dll, libgcc or libstdc++ DLL. The PE timestamp is zeroed so
+-# two builds of the same sources are comparable.
++# two builds of the same sources are comparable: --no-insert-timestamp covers the link, and
++# SOURCE_DATE_EPOCH covers FFmpeg's `strip` step, which otherwise stamps the current time.
+ ffmpeg_flags+=(--extra-ldflags="-static -static-libgcc -Wl,--no-insert-timestamp")
++export SOURCE_DATE_EPOCH=0
+ 
+ src="$(unpack ffmpeg)"
+ (cd "$src" && ./configure "${ffmpeg_flags[@]}" && make -j"$jobs" "$tool.exe")
+-- 
+2.54.0 (Apple Git-157)
+
+
+From aa9ac570c7aa8a485ff4a8254d5e0dc09ae0571e Mon Sep 17 00:00:00 2001
+From: adrdsouza <102761952+adrdsouza@users.noreply.github.com>
+Date: Sun, 11 Oct 2026 16:13:30 +0530
+Subject: [PATCH 5/6] rightkit-media: Windows recipe finds toolchain licence
+ files by pattern and names what is missing
+
+The lookup ran ls under pipefail, so a runner whose MSYS2 packages use other directory names
+ended the build with exit 2 and no message.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ .../rightkit-media/recipes/build-ffmpeg-windows.sh | 14 ++++++++++----
+ 1 file changed, 10 insertions(+), 4 deletions(-)
+
+diff --git a/crates/rightkit-media/recipes/build-ffmpeg-windows.sh b/crates/rightkit-media/recipes/build-ffmpeg-windows.sh
+index 9f806973..a6430218 100755
+--- a/crates/rightkit-media/recipes/build-ffmpeg-windows.sh
++++ b/crates/rightkit-media/recipes/build-ffmpeg-windows.sh
+@@ -229,13 +229,19 @@ done
+ # licence requires its notices with binaries; they come from the toolchain's own licence files.
+ licenses=/mingw64/share/licenses
+ toolchain_notice() {
+-  local found; found="$(ls $1 2>/dev/null | awk 'NR==1')"
+-  test -n "$found" || { echo "toolchain licence file not found: $1" >&2; exit 1; }
++  # Package directory names vary between MSYS2 snapshots (crt or crt-git, winpthreads or
++  # libwinpthread, gcc or gcc-libs), so each file is found by pattern.
++  local found; found="$(ls $1 2>/dev/null | awk 'NR==1' || true)"
++  if [ -z "$found" ]; then
++    echo "toolchain licence file not found: $1; $licenses holds: $(ls "$licenses" 2>/dev/null | tr '
++' ' ')" >&2
++    exit 1
++  fi
+   cp "$found" "$out/$build_tag.notices/$2"
+ }
+-toolchain_notice "$licenses/crt/COPYING.MinGW-w64-runtime.txt" MinGW-w64-runtime-COPYING.txt
++toolchain_notice "$licenses/*crt*/COPYING.MinGW-w64-runtime.txt $licenses/*headers*/COPYING.MinGW-w64-runtime.txt" MinGW-w64-runtime-COPYING.txt
+ toolchain_notice "$licenses/*winpthread*/COPYING" winpthreads-COPYING.txt
+-toolchain_notice "$licenses/gcc-libs/COPYING.RUNTIME" GCC-RUNTIME-LIBRARY-EXCEPTION.txt
++toolchain_notice "$licenses/gcc*/COPYING.RUNTIME" GCC-RUNTIME-LIBRARY-EXCEPTION.txt
+ 
+ # Linkage gate: every imported DLL must be a Windows system DLL.
+ imports="$(objdump -p "$artifact" | sed -n 's/^[[:space:]]*DLL Name: //p' | tr -d '\r' | sort -f)"
+-- 
+2.54.0 (Apple Git-157)
+
+
+From 0f0ca3b8dbc2cff6b98aec79b4107b9c998fd1de Mon Sep 17 00:00:00 2001
+From: adrdsouza <102761952+adrdsouza@users.noreply.github.com>
+Date: Sun, 11 Oct 2026 14:58:53 +0530
+Subject: [PATCH 6/6] rightkit-media: toolchain runtime components on the
+ approved Windows decode row
+
+The approved ffmpeg-7.1.5-windows-x64 row now names the mingw-w64 runtime,
+winpthreads and GCC runtime it links statically, pinned to the MSYS2 packages
+it was built with; id and digests are unchanged. Its licence expression gains
+the runtime terms.
+
+native::NativeRecord::validate accepts FFmpeg's licence followed by toolchain
+runtime terms only, and still refuses any library or GPL term there.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ crates/rightkit-media/CHANGELOG.md            |  8 +++--
+ crates/rightkit-media/catalog/artifacts.json  | 28 ++++++++++++++-
+ crates/rightkit-media/src/lib.rs              | 14 +++++++-
+ crates/rightkit-media/src/native.rs           | 20 +++++++++--
+ .../tests/native_catalog_e2e.rs               | 35 +++++++++++++++++++
+ 5 files changed, 98 insertions(+), 7 deletions(-)
+
+diff --git a/crates/rightkit-media/CHANGELOG.md b/crates/rightkit-media/CHANGELOG.md
+index 45e0cff2..d2f27efc 100644
+--- a/crates/rightkit-media/CHANGELOG.md
++++ b/crates/rightkit-media/CHANGELOG.md
+@@ -18,8 +18,12 @@
+   expression. The two new Windows rows list all three with their notice files.
+ - The approved `ffmpeg-7.1.5-windows-x64` decode row was built the same way and shipped without
+   the mingw-w64 runtime, winpthreads and GCC runtime notices. Its `noticeFiles` now list the three
+-  files; id, digests, licence expression and components are unchanged (the components follow
+-  separately). Apps that ship this binary must ship the three notices with it.
++  files and its `components` name the three toolchain runtime components, so its licence expression
++  is now `LGPL-2.1-or-later AND LicenseRef-MinGW-w64-runtime AND MIT AND BSD-3-Clause AND
++  GPL-3.0-or-later WITH GCC-exception-3.1`; id and digests are unchanged. The native catalog
++  (`native::NativeRecord::validate`) accepts FFmpeg's licence followed by toolchain runtime terms
++  only. Apps that ship this binary must ship the three notices with it; a caller comparing the
++  row's licence string with `LGPL-2.1-or-later` must compare the first term instead.
+ - `bundled::verify_bundled_ffmpeg(path, variant, timeout)` / `verify_bundled_ffprobe(...)`: one
+   call from a bundled binary path plus the expected variant to a `VerifiedFfmpeg` /
+   `VerifiedFfprobe` (embedded catalog, this host's OS and architecture, content digest, then the
+diff --git a/crates/rightkit-media/catalog/artifacts.json b/crates/rightkit-media/catalog/artifacts.json
+index 9a20c728..0eaf8033 100644
+--- a/crates/rightkit-media/catalog/artifacts.json
++++ b/crates/rightkit-media/catalog/artifacts.json
+@@ -13,7 +13,7 @@
+       "contentSha256": "293f16076954e8b53ac70908b1b29ae49a1bed2f9b0dc9fccb7f95aef49d297a",
+       "sourceSha256": "de668509caf9e35e3cd162473441fdb29538c6d96ed080292b3cf9e6fc5d558f",
+       "attribution": {
+-        "licenseSpdx": "LGPL-2.1-or-later",
++        "licenseSpdx": "LGPL-2.1-or-later AND LicenseRef-MinGW-w64-runtime AND MIT AND BSD-3-Clause AND GPL-3.0-or-later WITH GCC-exception-3.1",
+         "sourceUrl": "https://ffmpeg.org/releases/ffmpeg-7.1.5.tar.xz",
+         "buildProvenance": "third-party/BUILD-NOTES.txt",
+         "noticeFiles": [
+@@ -22,6 +22,32 @@
+           "third-party/MinGW-w64-runtime-COPYING.txt",
+           "third-party/winpthreads-COPYING.txt",
+           "third-party/GCC-RUNTIME-LIBRARY-EXCEPTION.txt"
++        ],
++        "components": [
++          {
++            "name": "mingw-w64-runtime",
++            "version": "14.0.0.r98.g19f5121a2-1",
++            "licenseSpdx": "LicenseRef-MinGW-w64-runtime",
++            "sourceUrl": "https://mirror.msys2.org/mingw/mingw64/mingw-w64-x86_64-crt-14.0.0.r98.g19f5121a2-1-any.pkg.tar.zst",
++            "sourceSha256": "7615a1dba7bb216bccee0d2698567005451a0ab557caa64a45f9ee7aabcd5d20",
++            "noticeFile": "third-party/MinGW-w64-runtime-COPYING.txt"
++          },
++          {
++            "name": "winpthreads",
++            "version": "14.0.0.r98.g19f5121a2-1",
++            "licenseSpdx": "MIT AND BSD-3-Clause",
++            "sourceUrl": "https://mirror.msys2.org/mingw/mingw64/mingw-w64-x86_64-winpthreads-14.0.0.r98.g19f5121a2-1-any.pkg.tar.zst",
++            "sourceSha256": "34bb7b5c7ca110084e2e9ef2ecc478091d112084bd34e8d90d8154439c4dc53f",
++            "noticeFile": "third-party/winpthreads-COPYING.txt"
++          },
++          {
++            "name": "gcc-runtime",
++            "version": "16.1.0-5",
++            "licenseSpdx": "GPL-3.0-or-later WITH GCC-exception-3.1",
++            "sourceUrl": "https://mirror.msys2.org/mingw/mingw64/mingw-w64-x86_64-gcc-16.1.0-5-any.pkg.tar.zst",
++            "sourceSha256": "10f7c55275f7fbe7924209d61c368a1a6fcf775cffbdeac2eef1f5ccacdd35cd",
++            "noticeFile": "third-party/GCC-RUNTIME-LIBRARY-EXCEPTION.txt"
++          }
+         ]
+       },
+       "requiredConfigureFlags": [
+diff --git a/crates/rightkit-media/src/lib.rs b/crates/rightkit-media/src/lib.rs
+index 2e89ba48..6223937d 100644
+--- a/crates/rightkit-media/src/lib.rs
++++ b/crates/rightkit-media/src/lib.rs
+@@ -1402,7 +1402,19 @@ mod tests {
+             assert_eq!(artifact.id, id);
+             assert_eq!(artifact.sha256.as_deref(), Some(digest));
+             assert_eq!(artifact.version, "7.1.5");
+-            assert_eq!(artifact.attribution.license_spdx, "LGPL-2.1-or-later");
++            // The Windows binary is a static MinGW-w64 build: its row also names the toolchain
++            // runtime the linker carries in. The macOS builds link no such code.
++            let (license, runtime_components) = if os == "windows" {
++                (
++                    "LGPL-2.1-or-later AND LicenseRef-MinGW-w64-runtime AND MIT AND BSD-3-Clause \
++                     AND GPL-3.0-or-later WITH GCC-exception-3.1",
++                    TOOLCHAIN_RUNTIME_COMPONENTS.len(),
++                )
++            } else {
++                ("LGPL-2.1-or-later", 0)
++            };
++            assert_eq!(artifact.attribution.license_spdx, license);
++            assert_eq!(artifact.attribution.components.len(), runtime_components);
+         }
+     }
+ 
+diff --git a/crates/rightkit-media/src/native.rs b/crates/rightkit-media/src/native.rs
+index 369aaa14..0b32c3ea 100644
+--- a/crates/rightkit-media/src/native.rs
++++ b/crates/rightkit-media/src/native.rs
+@@ -16,7 +16,7 @@ use serde::{Deserialize, Serialize};
+ 
+ use crate::{
+     sha256_file, Artifact, ArtifactCatalog, ArtifactStatus, MediaError, Tool,
+-    APPROVED_CATALOG_JSON, DECODE_VARIANT,
++    APPROVED_CATALOG_JSON, DECODE_VARIANT, TOOLCHAIN_RUNTIME_COMPONENTS,
+ };
+ 
+ pub const NATIVE_CATALOG_JSON: &str = include_str!("../catalog/native-libraries.json");
+@@ -247,7 +247,9 @@ impl NativeRecord {
+                 return Err(invalid(&self.id, format!("missing {field}")));
+             }
+         }
+-        if !ALLOWED_LICENSES.contains(&self.license_spdx.as_str()) {
++        let ffmpeg_with_runtime =
++            self.library == NativeLibrary::Ffmpeg && is_ffmpeg_license(&self.license_spdx);
++        if !ffmpeg_with_runtime && !ALLOWED_LICENSES.contains(&self.license_spdx.as_str()) {
+             return Err(invalid(
+                 &self.id,
+                 format!("unapproved licence {}", self.license_spdx),
+@@ -272,7 +274,7 @@ impl NativeRecord {
+             }
+         }
+         if self.library == NativeLibrary::Ffmpeg {
+-            if self.license_spdx != "LGPL-2.1-or-later" {
++            if !is_ffmpeg_license(&self.license_spdx) {
+                 return Err(invalid(&self.id, "FFmpeg must be LGPL-2.1-or-later"));
+             }
+             let flags: Vec<String> = self
+@@ -590,6 +592,18 @@ impl NativeCatalog {
+     }
+ }
+ 
++/// FFmpeg's own licence, optionally followed by the licences of the toolchain runtime a static
++/// MinGW-w64 link carries into the binary, and by nothing else.
++fn is_ffmpeg_license(expression: &str) -> bool {
++    let mut terms = expression.split(" AND ").map(str::trim);
++    terms.next() == Some("LGPL-2.1-or-later")
++        && terms.all(|term| {
++            TOOLCHAIN_RUNTIME_COMPONENTS
++                .iter()
++                .any(|(_, license)| license.split(" AND ").any(|allowed| allowed == term))
++        })
++}
++
+ fn ffmpeg_record(a: &Artifact) -> NativeRecord {
+     NativeRecord {
+         id: a.id.clone(),
+diff --git a/crates/rightkit-media/tests/native_catalog_e2e.rs b/crates/rightkit-media/tests/native_catalog_e2e.rs
+index 0153b158..fbde3246 100644
+--- a/crates/rightkit-media/tests/native_catalog_e2e.rs
++++ b/crates/rightkit-media/tests/native_catalog_e2e.rs
+@@ -64,6 +64,41 @@ fn embedded_catalog_pins_one_version_per_library_and_covers_all_eight_libraries(
+         .all(|r| !r.id.starts_with("ffprobe") && !r.id.contains("export")));
+ }
+ 
++#[test]
++fn ffmpeg_licence_admits_only_toolchain_runtime_terms_after_lgpl() {
++    let catalog = NativeCatalog::embedded().unwrap();
++    // The Windows decode binary is a static MinGW-w64 build: its record names the runtime too.
++    let windows = catalog
++        .approved(NativeLibrary::Ffmpeg, "windows", "x86_64")
++        .unwrap();
++    assert_eq!(
++        windows.license_spdx,
++        "LGPL-2.1-or-later AND LicenseRef-MinGW-w64-runtime AND MIT AND BSD-3-Clause \
++         AND GPL-3.0-or-later WITH GCC-exception-3.1"
++    );
++    windows.validate().unwrap();
++    for arch in ["aarch64", "x86_64"] {
++        let mac = catalog
++            .approved(NativeLibrary::Ffmpeg, "macos", arch)
++            .unwrap();
++        assert_eq!(mac.license_spdx, "LGPL-2.1-or-later");
++    }
++
++    // Nothing but the toolchain runtime may follow FFmpeg's own licence.
++    for refused in [
++        "LGPL-2.1-or-later AND ISC",
++        "LGPL-2.1-or-later AND GPL-3.0-or-later",
++        "LGPL-2.1-or-later AND GPL-2.0-only WITH GCC-exception-2.0",
++        "MIT AND LGPL-2.1-or-later",
++        "GPL-3.0-or-later WITH GCC-exception-3.1",
++        "MIT",
++    ] {
++        let mut record = windows.clone();
++        record.license_spdx = refused.into();
++        assert!(record.validate().is_err(), "{refused}");
++    }
++}
++
+ #[test]
+ fn mixed_versions_gpl_and_unverifiable_approvals_fail_closed() {
+     let mut value: serde_json::Value = serde_json::from_str(NATIVE_CATALOG_JSON).unwrap();
+-- 
+2.54.0 (Apple Git-157)
+

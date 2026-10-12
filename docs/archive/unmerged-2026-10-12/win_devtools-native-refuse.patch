@@ -1,0 +1,1309 @@
+From ab6213732a3a2e1d09fafb6627f78ec707c6d79e Mon Sep 17 00:00:00 2001
+From: adrdsouza <102761952+adrdsouza@users.noreply.github.com>
+Date: Mon, 12 Oct 2026 01:07:57 +0530
+Subject: [PATCH 1/3] rightkit-shell: the WebView2 policy keys are read through
+ the registry API; an unreadable key refuses the start (ledger 180 A)
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ crates/rightkit-shell/CHANGELOG.md            |   8 +
+ crates/rightkit-shell/README.md               |   2 +-
+ crates/rightkit-shell/src/devtools.rs         | 234 +++++++++++++++---
+ .../rightkit-shell/tests/devtools_policy.rs   | 163 ++++++++++--
+ docs/PLATFORM-MATRIX.md                       |   2 +-
+ 5 files changed, 351 insertions(+), 58 deletions(-)
+
+diff --git a/crates/rightkit-shell/CHANGELOG.md b/crates/rightkit-shell/CHANGELOG.md
+index 24237c9d..34b893d5 100644
+--- a/crates/rightkit-shell/CHANGELOG.md
++++ b/crates/rightkit-shell/CHANGELOG.md
+@@ -5,6 +5,14 @@ version is `0.x`, a minor bump may carry breaking changes.
+ 
+ ## Unreleased
+ 
++- **Windows: the WebView2 policy check no longer fails open (ledger 180, findings 1, 2, 8).** The guard read the
++  `AdditionalBrowserArguments` policy keys by running `reg.exe query` and treated exit code 1 as "no policy". `reg.exe`
++  exits 1 for a missing key and for a key it could not read alike, and a program started by name is looked up in the
++  application's directory and the working directory before the system's. The keys are now read through the registry API
++  (`RegOpenKeyExW` with `KEY_READ` and an explicit 64-bit or 32-bit view, `RegEnumValueW`): `ERROR_FILE_NOT_FOUND` is the
++  only status that means no policy, and any other failure to open or read a key is `DevToolsError::RegistryUnreadable`,
++  so the guard refuses to start. No process is started. `REG_SZ`, `REG_EXPAND_SZ` and every string of a `REG_MULTI_SZ`
++  are checked. API: `parse_reg_query` is removed; new `decode_reg_text`, `PolicyKeyOpen`.
+ - **`dev-inspect` feature (development builds only).** Off by default, never a default feature, independent of
+   `content-devtools`. Only when compiled in: every webview is inspectable (`WebviewDecision::AllowDev`,
+   `DevToolsGate::is_dev_inspect`, new `build_gate_with`), the process guard no longer refuses debugging
+diff --git a/crates/rightkit-shell/README.md b/crates/rightkit-shell/README.md
+index e79e12e2..5ef8c4d7 100644
+--- a/crates/rightkit-shell/README.md
++++ b/crates/rightkit-shell/README.md
+@@ -63,7 +63,7 @@ Source: `src/devtools.rs` (`OWNER_DECISION`). Written, unverified: nothing here
+ |---|---|---|
+ | Per webview, native | `isInspectable = false` (macOS 13.3+, guarded by `respondsToSelector`) and the private `developerExtrasEnabled` preference set to false explicitly, on every webview the shell sees, including debug builds. This removes Safari Develop attach, "Inspect Element" and WebKit's Cmd+Opt+I handler. `close_devtools` runs first where Tauri has one. | `AreDevToolsEnabled = false`; `AreBrowserAcceleratorKeysEnabled = false` (F12, Ctrl+Shift+I/J/C); a `ContextMenuRequested` handler removes every menu item whose name contains "inspect" from every menu, including the editable-field menu the hardening keeps. |
+ | Page script | F12, Ctrl+Shift+I/J/C, Cmd+Opt+I/J/C/U, Ctrl+Alt+I/J/C/U cancelled in every frame of every non-content webview (matched by `KeyboardEvent.code`, so Option-letter dead keys do not slip through). | Same. |
+-| Process start | Refuses a launch argument that enables remote debugging. | Same, plus: removes the WebView2 additional-browser-arguments and script-debugger-pipe environment variables from the process; refuses to start when the `AdditionalBrowserArguments` machine or user policy (HKLM, HKCU, HKLM WOW6432Node) injects a debugging switch. |
++| Process start | Refuses a launch argument that enables remote debugging. | Same, plus: removes the WebView2 additional-browser-arguments and script-debugger-pipe environment variables from the process; refuses to start when the `AdditionalBrowserArguments` machine or user policy (HKLM in the 64-bit and the 32-bit registry view, HKCU) injects a debugging switch, or when one of those keys exists and cannot be read. The keys are read through the registry API; no program is started for it. Only a key that does not exist counts as "no policy". |
+ | After creation | none | A fresh `DevToolsActivePort` file in the app's local or roaming data folder (or its `EBWebView`) means a debugging port is open: the process logs and exits 1. |
+ 
+ ### What cannot be blocked
+diff --git a/crates/rightkit-shell/src/devtools.rs b/crates/rightkit-shell/src/devtools.rs
+index 3e72daca..132c05ec 100644
+--- a/crates/rightkit-shell/src/devtools.rs
++++ b/crates/rightkit-shell/src/devtools.rs
+@@ -314,32 +314,57 @@ where
+         .collect()
+ }
+ 
+-/// One value of a registry key as printed by `reg.exe query`.
++/// One string value of a registry key.
+ #[derive(Debug, Clone, PartialEq, Eq)]
+ pub struct RegValue {
+     pub name: String,
+     pub value: String,
+ }
+ 
+-/// Parse `reg.exe query <key>` output: lines of `<name>    REG_SZ    <data>`.
+-pub fn parse_reg_query(output: &str) -> Vec<RegValue> {
+-    let mut values = Vec::new();
+-    for line in output.lines() {
+-        let t = line.trim();
+-        if t.is_empty() || t.to_ascii_uppercase().starts_with("HKEY_") {
+-            continue;
+-        }
+-        for ty in ["REG_EXPAND_SZ", "REG_MULTI_SZ", "REG_SZ"] {
+-            if let Some(i) = t.find(ty) {
+-                values.push(RegValue {
+-                    name: t[..i].trim().to_owned(),
+-                    value: t[i + ty.len()..].trim().to_owned(),
+-                });
+-                break;
+-            }
++/// `REG_SZ`, `REG_EXPAND_SZ` and `REG_MULTI_SZ`: the registry types that hold text.
++const REG_TEXT_TYPES: [u32; 3] = [1, 2, 7];
++
++/// The text of a registry value from its type and raw bytes (UTF-16LE), or `None` for a type that
++/// holds no text (a number or binary data cannot carry a browser argument). The strings of a
++/// `REG_MULTI_SZ` are joined with spaces; the terminating NULs are dropped.
++pub fn decode_reg_text(kind: u32, data: &[u8]) -> Option<String> {
++    if !REG_TEXT_TYPES.contains(&kind) {
++        return None;
++    }
++    let units: Vec<u16> = data
++        .chunks_exact(2)
++        .map(|pair| u16::from_le_bytes([pair[0], pair[1]]))
++        .collect();
++    let text = String::from_utf16_lossy(&units);
++    Some(
++        text.split('\0')
++            .filter(|part| !part.is_empty())
++            .collect::<Vec<_>>()
++            .join(" "),
++    )
++}
++
++/// What opening a policy key means for the guard, from the status `RegOpenKeyExW` returned.
++#[derive(Debug, Clone, Copy, PartialEq, Eq)]
++pub enum PolicyKeyOpen {
++    /// The key is open and its values are to be read.
++    Opened,
++    /// `ERROR_FILE_NOT_FOUND`: the key does not exist, so there is no policy. The only status
++    /// that means that.
++    Absent,
++    /// Anything else (access denied, a registry failure): what the policy says is unknown, and
++    /// the guard refuses to start.
++    Unreadable(u32),
++}
++
++impl PolicyKeyOpen {
++    pub fn from_status(status: u32) -> Self {
++        match status {
++            0 => Self::Opened,
++            2 => Self::Absent,
++            other => Self::Unreadable(other),
+         }
+     }
+-    values
+ }
+ 
+ /// Errors for every value of a policy key that injects a debugging switch. A value named for a
+@@ -431,37 +456,156 @@ fn announce_dev_inspect() -> GuardReport {
+     GuardReport::default()
+ }
+ 
++/// Windows: the registry, read through the registry API. No `reg.exe`: a program started by name
++/// is found in the application's directory and the working directory before the system's, and its
++/// exit code cannot tell a missing key from one that could not be read.
++#[cfg(windows)]
++mod registry {
++    use super::{decode_reg_text, PolicyKeyOpen, RegValue};
++
++    pub(super) const HKEY_CURRENT_USER: isize = 0x8000_0001_u32 as i32 as isize;
++    pub(super) const HKEY_LOCAL_MACHINE: isize = 0x8000_0002_u32 as i32 as isize;
++    /// The 64-bit and the 32-bit registry view, named explicitly so a 32-bit and a 64-bit build
++    /// read the same two keys.
++    pub(super) const VIEW_64: u32 = 0x0100;
++    pub(super) const VIEW_32: u32 = 0x0200;
++    const KEY_READ: u32 = 0x0002_0019;
++    const ERROR_MORE_DATA: u32 = 234;
++    const ERROR_NO_MORE_ITEMS: u32 = 259;
++    /// The longest value name the registry allows, in UTF-16 units, plus the terminator.
++    const NAME_UNITS: usize = 16_384;
++
++    #[link(name = "advapi32")]
++    unsafe extern "system" {
++        fn RegOpenKeyExW(
++            key: isize,
++            sub_key: *const u16,
++            options: u32,
++            access: u32,
++            result: *mut isize,
++        ) -> u32;
++        fn RegEnumValueW(
++            key: isize,
++            index: u32,
++            name: *mut u16,
++            name_len: *mut u32,
++            reserved: *mut u32,
++            kind: *mut u32,
++            data: *mut u8,
++            data_len: *mut u32,
++        ) -> u32;
++        fn RegCloseKey(key: isize) -> u32;
++    }
++
++    struct Key(isize);
++
++    impl Drop for Key {
++        fn drop(&mut self) {
++            // SAFETY: the handle came from RegOpenKeyExW and is closed once.
++            unsafe { RegCloseKey(self.0) };
++        }
++    }
++
++    /// The text values of `root\path` in `view`. `Ok(None)`: the key does not exist. `Err`: the
++    /// key could not be opened or read; the text names the step and the Win32 status.
++    pub(super) fn text_values(
++        root: isize,
++        path: &str,
++        view: u32,
++    ) -> Result<Option<Vec<RegValue>>, String> {
++        let wide: Vec<u16> = path.encode_utf16().chain([0]).collect();
++        let mut handle: isize = 0;
++        // SAFETY: `wide` is NUL-terminated and outlives the call; `handle` is a valid
++        // out-parameter.
++        let status = unsafe { RegOpenKeyExW(root, wide.as_ptr(), 0, KEY_READ | view, &mut handle) };
++        match PolicyKeyOpen::from_status(status) {
++            PolicyKeyOpen::Opened => {}
++            PolicyKeyOpen::Absent => return Ok(None),
++            PolicyKeyOpen::Unreadable(code) => {
++                return Err(format!("open failed with Win32 error {code}"))
++            }
++        }
++        let key = Key(handle);
++        let mut values = Vec::new();
++        let mut name = vec![0u16; NAME_UNITS];
++        let mut data = vec![0u8; 4096];
++        let mut index = 0u32;
++        loop {
++            let mut name_len = name.len() as u32;
++            let mut data_len = data.len() as u32;
++            let mut kind = 0u32;
++            // SAFETY: both buffers are writable for the lengths passed, which the call updates;
++            // the reserved pointer is null as documented.
++            let status = unsafe {
++                RegEnumValueW(
++                    key.0,
++                    index,
++                    name.as_mut_ptr(),
++                    &mut name_len,
++                    std::ptr::null_mut(),
++                    &mut kind,
++                    data.as_mut_ptr(),
++                    &mut data_len,
++                )
++            };
++            match status {
++                0 => {
++                    if let Some(value) = decode_reg_text(kind, &data[..data_len as usize]) {
++                        values.push(RegValue {
++                            name: String::from_utf16_lossy(&name[..name_len as usize]),
++                            value,
++                        });
++                    }
++                    index += 1;
++                }
++                // The data did not fit: `data_len` now holds the size needed. Same index again.
++                ERROR_MORE_DATA => {
++                    let needed = (data_len as usize).max(data.len() * 2);
++                    data.resize(needed, 0);
++                }
++                ERROR_NO_MORE_ITEMS => return Ok(Some(values)),
++                other => {
++                    return Err(format!(
++                        "reading value {index} failed with Win32 error {other}"
++                    ))
++                }
++            }
++        }
++    }
++}
++
++/// Every debugging switch the WebView2 `AdditionalBrowserArguments` policy injects, from the
++/// machine policy in both registry views and the user policy. A key that does not exist is no
++/// policy; a key that cannot be opened or read is [`DevToolsError::RegistryUnreadable`], and the
++/// guard refuses to start: what an unreadable policy says is not known, so it is not assumed empty.
+ #[cfg(windows)]
+ fn registry_policy_violations() -> Result<Vec<DevToolsError>, DevToolsError> {
+-    use std::os::windows::process::CommandExt;
+-    let tail = r"Software\Policies\Microsoft\Edge\WebView2\AdditionalBrowserArguments";
++    const PATH: &str = r"Software\Policies\Microsoft\Edge\WebView2\AdditionalBrowserArguments";
+     let keys = [
+-        ("HKLM policy", format!(r"HKLM\{tail}")),
+-        ("HKCU policy", format!(r"HKCU\{tail}")),
+         (
+-            "HKLM WOW6432Node policy",
+-            r"HKLM\Software\WOW6432Node\Policies\Microsoft\Edge\WebView2\AdditionalBrowserArguments".to_owned(),
++            "HKLM policy (64-bit view)",
++            registry::HKEY_LOCAL_MACHINE,
++            registry::VIEW_64,
++        ),
++        (
++            "HKLM policy (32-bit view)",
++            registry::HKEY_LOCAL_MACHINE,
++            registry::VIEW_32,
++        ),
++        (
++            "HKCU policy",
++            registry::HKEY_CURRENT_USER,
++            registry::VIEW_64,
+         ),
+     ];
+     let mut out = Vec::new();
+-    for (source, key) in keys {
+-        let output = std::process::Command::new("reg.exe")
+-            .creation_flags(0x0800_0000)
+-            .args(["query", key.as_str()])
+-            .output()
+-            .map_err(|e| DevToolsError::RegistryUnreadable {
+-                detail: format!("run reg.exe: {e}"),
+-            })?;
+-        match output.status.code() {
+-            // 1: the key does not exist, so there is no policy.
+-            Some(1) => continue,
+-            Some(0) => {
+-                let text = String::from_utf8_lossy(&output.stdout);
+-                out.extend(policy_violations(&parse_reg_query(&text), source));
+-            }
+-            other => {
++    for (source, root, view) in keys {
++        match registry::text_values(root, PATH, view) {
++            Ok(None) => {}
++            Ok(Some(values)) => out.extend(policy_violations(&values, source)),
++            Err(detail) => {
+                 return Err(DevToolsError::RegistryUnreadable {
+-                    detail: format!("reg.exe query {key} exited with {other:?}"),
++                    detail: format!("{source}, {PATH}: {detail}"),
+                 })
+             }
+         }
+@@ -469,6 +613,14 @@ fn registry_policy_violations() -> Result<Vec<DevToolsError>, DevToolsError> {
+     Ok(out)
+ }
+ 
++/// Test support (Windows): read the text values of a key under `HKEY_CURRENT_USER` the way the
++/// guard reads the policy keys. `Ok(None)` when the key does not exist.
++#[cfg(windows)]
++#[doc(hidden)]
++pub fn read_user_key_text_values(path: &str) -> Result<Option<Vec<RegValue>>, String> {
++    registry::text_values(registry::HKEY_CURRENT_USER, path, registry::VIEW_64)
++}
++
+ /// The file name Chromium writes into the user data folder when remote debugging is on.
+ pub const DEBUG_PORT_FILE: &str = "DevToolsActivePort";
+ 
+diff --git a/crates/rightkit-shell/tests/devtools_policy.rs b/crates/rightkit-shell/tests/devtools_policy.rs
+index 961b816c..7a56cd7f 100644
+--- a/crates/rightkit-shell/tests/devtools_policy.rs
++++ b/crates/rightkit-shell/tests/devtools_policy.rs
+@@ -8,11 +8,11 @@
+ use std::time::{Duration, SystemTime};
+ 
+ use rightkit_shell::devtools::{
+-    argv_violations, build_gate, build_gate_with, capability_granting_ipc, env_vars_to_scrub,
+-    forbidden_switches_in, glob_match, is_live_debug_port_file, live_debug_port_file,
+-    parse_reg_query, patterns_may_overlap, policy_violations, ContentWebview, DevToolsError,
+-    DevToolsGate, DevToolsPolicy, WebviewDecision, DEBUG_PORT_FILE, DEV_INSPECT_COMPILED,
+-    DEV_INSPECT_MARKER,
++    argv_violations, build_gate, build_gate_with, capability_granting_ipc, decode_reg_text,
++    env_vars_to_scrub, forbidden_switches_in, glob_match, is_live_debug_port_file,
++    live_debug_port_file, patterns_may_overlap, policy_violations, ContentWebview, DevToolsError,
++    DevToolsGate, DevToolsPolicy, PolicyKeyOpen, RegValue, WebviewDecision, DEBUG_PORT_FILE,
++    DEV_INSPECT_COMPILED, DEV_INSPECT_MARKER,
+ };
+ use rightkit_shell::{Hardening, Shell};
+ 
+@@ -122,24 +122,157 @@ fn webview2_overrides_are_scrubbed_case_insensitively_and_nothing_else() {
+     assert!(env_vars_to_scrub(["HOME", "TMPDIR"]).is_empty());
+ }
+ 
++fn utf16le(text: &str) -> Vec<u8> {
++    text.encode_utf16().flat_map(u16::to_le_bytes).collect()
++}
++
+ #[test]
+-fn registry_output_is_parsed_and_a_debugging_policy_is_refused() {
+-    let output = format!(
+-        "\r\nHKEY_LOCAL_MACHINE\\Software\\Policies\\Microsoft\\Edge\\WebView2\\AdditionalBrowserArguments\r\n    *    REG_SZ    {}=9222 --disable-gpu\r\n    viewright.exe    REG_SZ    --disable-gpu\r\n\r\n",
+-        dbg_port()
++fn registry_text_is_decoded_by_type_and_a_debugging_policy_is_refused() {
++    const REG_SZ: u32 = 1;
++    const REG_EXPAND_SZ: u32 = 2;
++    const REG_DWORD: u32 = 4;
++    const REG_MULTI_SZ: u32 = 7;
++    assert_eq!(
++        decode_reg_text(REG_SZ, &utf16le("--disable-gpu\0")).as_deref(),
++        Some("--disable-gpu")
++    );
++    assert_eq!(
++        decode_reg_text(REG_EXPAND_SZ, &utf16le("%X% --a")).as_deref(),
++        Some("%X% --a")
++    );
++    // Every string of a multi-string counts.
++    assert_eq!(
++        decode_reg_text(REG_MULTI_SZ, &utf16le("--a\0--b=1\0\0")).as_deref(),
++        Some("--a --b=1")
+     );
+-    let values = parse_reg_query(&output);
+-    assert_eq!(values.len(), 2);
+-    assert_eq!(values[0].name, "*");
+-    assert_eq!(values[1].value, "--disable-gpu");
+-    let errors = policy_violations(&values, "HKLM policy");
++    assert_eq!(decode_reg_text(REG_SZ, &[]).as_deref(), Some(""));
++    // A number or binary data carries no argument.
++    assert_eq!(decode_reg_text(REG_DWORD, &[1, 0, 0, 0]), None);
++    assert_eq!(decode_reg_text(3, &utf16le("--x")), None);
++
++    let values = vec![
++        RegValue {
++            name: "*".into(),
++            value: decode_reg_text(
++                REG_SZ,
++                &utf16le(&format!("{}=9222 --disable-gpu\0", dbg_port())),
++            )
++            .unwrap(),
++        },
++        RegValue {
++            name: "viewright.exe".into(),
++            value: "--disable-gpu".into(),
++        },
++    ];
++    let errors = policy_violations(&values, "HKLM policy (64-bit view)");
+     assert_eq!(errors.len(), 1);
+     assert!(matches!(
+         &errors[0],
+         DevToolsError::BrowserPolicyInjects { source, switch }
+             if source.contains("HKLM policy") && switch.starts_with(&dbg_port())
+     ));
+-    assert!(policy_violations(&parse_reg_query(""), "HKCU policy").is_empty());
++    assert!(policy_violations(&[], "HKCU policy").is_empty());
++}
++
++#[test]
++fn only_a_missing_key_means_no_policy() {
++    assert_eq!(PolicyKeyOpen::from_status(0), PolicyKeyOpen::Opened);
++    // ERROR_FILE_NOT_FOUND.
++    assert_eq!(PolicyKeyOpen::from_status(2), PolicyKeyOpen::Absent);
++    // Access denied, path not found, a registry I/O failure: the policy is unknown, not empty.
++    for status in [5, 3, 1016, 6] {
++        assert_eq!(
++            PolicyKeyOpen::from_status(status),
++            PolicyKeyOpen::Unreadable(status)
++        );
++    }
++}
++
++/// The real registry: a key that does not exist reads as absent, and a key with text values of
++/// each type, a long value and a number reads back as the guard would see a policy key.
++#[cfg(windows)]
++#[test]
++fn a_real_registry_key_is_read_value_by_value() {
++    use rightkit_shell::devtools::read_user_key_text_values;
++    let key = format!(r"Software\RightKitTest\devtools-{}", std::process::id());
++    assert_eq!(read_user_key_text_values(&key), Ok(None));
++
++    let reg = |args: &[&str]| {
++        let system = std::env::var_os("SystemRoot").unwrap_or_else(|| "C:\\Windows".into());
++        let status = std::process::Command::new(
++            std::path::Path::new(&system)
++                .join("System32")
++                .join("reg.exe"),
++        )
++        .args(args)
++        .stdout(std::process::Stdio::null())
++        .stderr(std::process::Stdio::null())
++        .status()
++        .unwrap();
++        assert!(status.success(), "reg {args:?}");
++    };
++    let full = format!(r"HKCU\{key}");
++    let long = format!("--long={}", "x".repeat(9000));
++    reg(&[
++        "add",
++        &full,
++        "/v",
++        "*",
++        "/t",
++        "REG_SZ",
++        "/d",
++        &format!("{}=9222", dbg_port()),
++        "/f",
++    ]);
++    reg(&[
++        "add",
++        &full,
++        "/v",
++        "many",
++        "/t",
++        "REG_MULTI_SZ",
++        "/d",
++        r"--a\0--b",
++        "/f",
++    ]);
++    reg(&[
++        "add", &full, "/v", "long", "/t", "REG_SZ", "/d", &long, "/f",
++    ]);
++    reg(&[
++        "add",
++        &full,
++        "/v",
++        "number",
++        "/t",
++        "REG_DWORD",
++        "/d",
++        "7",
++        "/f",
++    ]);
++
++    let read = read_user_key_text_values(&key);
++    reg(&["delete", &full, "/f"]);
++    let mut values = read.expect("the key is readable").expect("the key exists");
++    values.sort_by(|a, b| a.name.cmp(&b.name));
++    assert_eq!(
++        values,
++        vec![
++            RegValue {
++                name: "*".into(),
++                value: format!("{}=9222", dbg_port())
++            },
++            RegValue {
++                name: "long".into(),
++                value: long
++            },
++            RegValue {
++                name: "many".into(),
++                value: "--a --b".into()
++            },
++        ]
++    );
++    assert_eq!(policy_violations(&values, "test key").len(), 1);
++    assert_eq!(read_user_key_text_values(&key), Ok(None));
+ }
+ 
+ #[test]
+diff --git a/docs/PLATFORM-MATRIX.md b/docs/PLATFORM-MATRIX.md
+index d36f8ee8..2de86d1c 100644
+--- a/docs/PLATFORM-MATRIX.md
++++ b/docs/PLATFORM-MATRIX.md
+@@ -181,7 +181,7 @@ Crates and products whose Windows or macOS backend is a stub, absent, untested,
+ | `rightkit-process` | **Full (untested)**: the Windows spawn, job termination and spawn lock are untested (README:240); `kill_on_parent_exit` is a no-op because the kill-on-close Job Object covers parent death; the tolerant breakaway fallback is removed; handles raised for inheritance can reach outside processes (pre-existing, open, README:161-167); 91a696cb changes written, unverified | `README.md:240`, `README.md:161-167`, `src/owned.rs:319`, `src/spawn_windows.rs:496`, `src/process_windows.rs:169-174` | #52, #83 |
+ | `rightkit-ownership` | **Full, never run on Windows** (PowerShell ACL audit) | `README.md:38` | none |
+ | `rightkit-sandbox` | **Partial, untested**: AppContainer and kill-on-close Job real; `spawn_pty` with a policy returns `Unsupported` | `README.md:85`, `src/spawn.rs:233` | none |
+-| `rightkit-shell` | **Partial, untested**: presence observe is a stub; `harden.rs`, `clipboard.rs`, `idle.rs` say not compiled or exercised on the macOS host; 0.3.0 Windows additions (legacy names, `CF_DIB` clipboard) written, unverified | `src/presence.rs:390-391`, `src/harden.rs:150`, `README.md:44`, `src/idle.rs:8-9` | #44, #62, #73, #95 (2)(7) |
++| `rightkit-shell` | **Partial, untested**: DevTools guard reads the WebView2 `AdditionalBrowserArguments` policy keys through the registry API (HKLM both views, HKCU) and refuses to start on a debugging switch or an unreadable key (`src/devtools.rs`, `mod registry`; compiled and tested on the windows-2025 CI leg against a real `HKCU` test key, not run on a user machine); presence observe is a stub; `harden.rs`, `clipboard.rs`, `idle.rs` say not compiled or exercised on the macOS host; 0.3.0 Windows additions (legacy names, `CF_DIB` clipboard) written, unverified | `src/presence.rs:390-391`, `src/harden.rs:150`, `README.md:44`, `src/idle.rs:8-9` | #44, #62, #73, #95 (2)(7) |
+ | `rightkit-record` | **Partial**: `sources()` is `Unsupported`; audio, scale and masks `Unsupported`; the MF fragmented-MP4 container is unverified | `src/windows/mod.rs:186`, `README.md:24` | none (#37 is the reader API) |
+ | `rightkit-fs` | **Partial**: `is_owner_only` is a stub returning `Ok(true)` (Windows); `clone_file_nofollow` and `swap_paths` return `Unsupported` on Windows. Durable `create_parents` on Windows: the file and its replace are write-through; newly created parent directories are not flushed (README, "Parent directories made by a durable `create_parents` write"). The Windows DACL measurement (build 10.0.26300.9550, CHANGELOG 0.3.4) predates the 5c6fe134 reduction; its `ReplaceFile` half is removed, and the current publication is written, unverified | `src/private.rs:94-98`, `src/clone.rs:147-156`, `src/swap.rs:35-41`, `plan_replace_on` in `src/atomic.rs` | #73, #95 (the ledger's DACL caveat is not closed for the current tree) |
+ | `rightkit-http` | **Partial**: the Unix-only hardening is `O_NOFOLLOW`, the dev/ino check and the directory fsync; Windows has the reparse-point and file-index checks (written, unverified) but no directory flush; no OS proxy (ureq reads env only) | `src/download.rs:1176-1190`, `:1044-1055`, `:1159-1168` | #49 (WinHTTP not in tree), #86 (Astra read, 0.3.0 fixes unreviewed) |
+-- 
+2.54.0 (Apple Git-157)
+
+
+From 1413a9785f7a62f562edc151649b8fac2165b706 Mon Sep 17 00:00:00 2001
+From: adrdsouza <102761952+adrdsouza@users.noreply.github.com>
+Date: Mon, 12 Oct 2026 02:06:54 +0530
+Subject: [PATCH 2/3] rightkit-shell: decode_reg_text reads UTF-16 pairs with
+ as_chunks (clippy)
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ crates/rightkit-shell/src/devtools.rs | 6 ++++--
+ 1 file changed, 4 insertions(+), 2 deletions(-)
+
+diff --git a/crates/rightkit-shell/src/devtools.rs b/crates/rightkit-shell/src/devtools.rs
+index 132c05ec..a832c013 100644
+--- a/crates/rightkit-shell/src/devtools.rs
++++ b/crates/rightkit-shell/src/devtools.rs
+@@ -332,8 +332,10 @@ pub fn decode_reg_text(kind: u32, data: &[u8]) -> Option<String> {
+         return None;
+     }
+     let units: Vec<u16> = data
+-        .chunks_exact(2)
+-        .map(|pair| u16::from_le_bytes([pair[0], pair[1]]))
++        .as_chunks::<2>()
++        .0
++        .iter()
++        .map(|pair| u16::from_le_bytes(*pair))
+         .collect();
+     let text = String::from_utf16_lossy(&units);
+     Some(
+-- 
+2.54.0 (Apple Git-157)
+
+
+From a801b7a626e9ad5fb68f699e417dd675fe2bff4e Mon Sep 17 00:00:00 2001
+From: adrdsouza <102761952+adrdsouza@users.noreply.github.com>
+Date: Mon, 12 Oct 2026 01:14:59 +0530
+Subject: [PATCH 3/3] rightkit-shell: Windows refuses a denied webview whose
+ DevTools cannot be disabled; one key handler stops only the keys each rule
+ names
+
+Ledger 180, findings 3 to 6. apply_native returns Result; SetAreDevToolsEnabled(false) is checked and read
+back, and a failure closes the webview with NativePolicyNotApplied. One AcceleratorKeyPressed handler per
+webview replaces turning all browser keys off, in the DevTools layer and in the hardening: inspector and
+view-source keys when denied; reload, history and zoom keys only with the hardening option of that name.
+The menu item name is freed; one handler of each kind per webview.
+
+Not built or run locally. The WebView2 calls have not run against a live WebView2.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ crates/rightkit-shell/CHANGELOG.md            |  20 ++
+ crates/rightkit-shell/README.md               |   2 +-
+ crates/rightkit-shell/src/devtools.rs         | 339 ++++++++++++++++--
+ crates/rightkit-shell/src/harden.rs           |  17 +-
+ crates/rightkit-shell/src/lib.rs              |   6 +-
+ .../rightkit-shell/tests/devtools_policy.rs   | 172 +++++++++
+ docs/PLATFORM-MATRIX.md                       |   2 +-
+ 7 files changed, 519 insertions(+), 39 deletions(-)
+
+diff --git a/crates/rightkit-shell/CHANGELOG.md b/crates/rightkit-shell/CHANGELOG.md
+index 34b893d5..03d33c51 100644
+--- a/crates/rightkit-shell/CHANGELOG.md
++++ b/crates/rightkit-shell/CHANGELOG.md
+@@ -5,6 +5,26 @@ version is `0.x`, a minor bump may carry breaking changes.
+ 
+ ## Unreleased
+ 
++- **Windows: a denied webview whose DevTools cannot be disabled is refused (ledger 180, findings 3 to 6).**
++  `apply_native` ignored the result of `SetAreDevToolsEnabled(false)`. It now sets the value, reads it back, and when the
++  webview has no settings object, the call fails or the value is still on, it closes the webview and reports the new
++  `DevToolsError::NativePolicyNotApplied { label, detail }` (code `native_policy_not_applied`); the shell sets nothing
++  else up for that webview. **API change:** `devtools::apply_native` returns `Result<(), DevToolsError>` (always `Ok`
++  off Windows). When Tauri runs the native step later instead of at once, the function has already returned `Ok` and
++  the refusal is the printed error and the closed webview. A webview that may be inspected is never refused.
++  New: `DevToolsSwitch`, `enforce_switch`, `is_blocked_accelerator`.
++- **Windows: browser keys are stopped one by one, never all at once (ledger 180; MailRight lost Ctrl+P and keyboard zoom).**
++  The DevTools layer turned every WebView2 browser accelerator key off in a denied webview, and the hardening did the
++  same for `block_reload` or `block_history_nav`. Neither calls `SetAreBrowserAcceleratorKeysEnabled(false)` any more.
++  Each webview has one `AcceleratorKeyPressed` handler that stops exactly the keys its active rules name: F12,
++  Ctrl+Shift+I / J / C and Ctrl+U in a denied webview; F5, Ctrl+R, Ctrl+Shift+R and the refresh key only with
++  `block_reload`; Alt+Left / Right and the back and forward keys only with `block_history_nav`; Ctrl with plus, minus
++  or zero only with `block_zoom` (Ctrl+wheel stays with `IsZoomControlEnabled`). Ctrl+P, Ctrl+F and every other key
++  pass. **Behaviour change:** a denied webview without `block_reload` now reloads on F5, and without
++  `block_history_nav` goes back on Alt+Left. New: `KeyRules`, `KeyModifiers`.
++- Windows: the context-menu item name is freed after it is read, and a webview that becomes ready again has its previous
++  context-menu and key handlers removed before new ones are added. The hardening layer's own context-menu handler is
++  unchanged.
+ - **Windows: the WebView2 policy check no longer fails open (ledger 180, findings 1, 2, 8).** The guard read the
+   `AdditionalBrowserArguments` policy keys by running `reg.exe query` and treated exit code 1 as "no policy". `reg.exe`
+   exits 1 for a missing key and for a key it could not read alike, and a program started by name is looked up in the
+diff --git a/crates/rightkit-shell/README.md b/crates/rightkit-shell/README.md
+index 5ef8c4d7..af4bb754 100644
+--- a/crates/rightkit-shell/README.md
++++ b/crates/rightkit-shell/README.md
+@@ -61,7 +61,7 @@ Source: `src/devtools.rs` (`OWNER_DECISION`). Written, unverified: nothing here
+ 
+ | Layer | macOS (WKWebView) | Windows (WebView2) |
+ |---|---|---|
+-| Per webview, native | `isInspectable = false` (macOS 13.3+, guarded by `respondsToSelector`) and the private `developerExtrasEnabled` preference set to false explicitly, on every webview the shell sees, including debug builds. This removes Safari Develop attach, "Inspect Element" and WebKit's Cmd+Opt+I handler. `close_devtools` runs first where Tauri has one. | `AreDevToolsEnabled = false`; `AreBrowserAcceleratorKeysEnabled = false` (F12, Ctrl+Shift+I/J/C); a `ContextMenuRequested` handler removes every menu item whose name contains "inspect" from every menu, including the editable-field menu the hardening keeps. |
++| Per webview, native | `isInspectable = false` (macOS 13.3+, guarded by `respondsToSelector`) and the private `developerExtrasEnabled` preference set to false explicitly, on every webview the shell sees, including debug builds. This removes Safari Develop attach, "Inspect Element" and WebKit's Cmd+Opt+I handler. `close_devtools` runs first where Tauri has one. | `AreDevToolsEnabled = false`, read back; when it cannot be set or still reads on, the webview is closed and `DevToolsError::NativePolicyNotApplied` is reported (`apply_native` returns it when Tauri ran the native step at once, otherwise it is printed). One `AcceleratorKeyPressed` handler per webview stops exactly the keys the active rules name: F12, Ctrl+Shift+I/J/C and Ctrl+U in a denied webview; F5, Ctrl+R and Ctrl+Shift+R only with the hardening's `block_reload`; Alt+Left/Right and the back/forward keys only with `block_history_nav`; Ctrl with plus, minus or zero only with `block_zoom`. Browser keys are never turned off as a whole, so Ctrl+P and Ctrl+F always pass. A `ContextMenuRequested` handler removes every menu item whose name contains "inspect" from every menu, including the editable-field menu the hardening keeps. Each webview has one handler of each kind, however often it becomes ready. |
+ | Page script | F12, Ctrl+Shift+I/J/C, Cmd+Opt+I/J/C/U, Ctrl+Alt+I/J/C/U cancelled in every frame of every non-content webview (matched by `KeyboardEvent.code`, so Option-letter dead keys do not slip through). | Same. |
+ | Process start | Refuses a launch argument that enables remote debugging. | Same, plus: removes the WebView2 additional-browser-arguments and script-debugger-pipe environment variables from the process; refuses to start when the `AdditionalBrowserArguments` machine or user policy (HKLM in the 64-bit and the 32-bit registry view, HKCU) injects a debugging switch, or when one of those keys exists and cannot be read. The keys are read through the registry API; no program is started for it. Only a key that does not exist counts as "no policy". |
+ | After creation | none | A fresh `DevToolsActivePort` file in the app's local or roaming data folder (or its `EBWebView`) means a debugging port is open: the process logs and exits 1. |
+diff --git a/crates/rightkit-shell/src/devtools.rs b/crates/rightkit-shell/src/devtools.rs
+index a832c013..40368666 100644
+--- a/crates/rightkit-shell/src/devtools.rs
++++ b/crates/rightkit-shell/src/devtools.rs
+@@ -182,6 +182,8 @@ pub enum DevToolsError {
+     NotInstalled,
+     /// The webview does not exist.
+     WebviewMissing { label: String },
++    /// DevTools could not be disabled in a denied webview, so the webview is refused.
++    NativePolicyNotApplied { label: String, detail: String },
+ }
+ 
+ impl DevToolsError {
+@@ -201,6 +203,7 @@ impl DevToolsError {
+             Self::NotAContentWebview { .. } => "not_a_content_webview",
+             Self::NotInstalled => "not_installed",
+             Self::WebviewMissing { .. } => "webview_missing",
++            Self::NativePolicyNotApplied { .. } => "native_policy_not_applied",
+         }
+     }
+ }
+@@ -223,6 +226,7 @@ impl fmt::Display for DevToolsError {
+             Self::NotAContentWebview { label } => write!(f, "`{label}` is not a registered content webview"),
+             Self::NotInstalled => write!(f, "the shell is not installed"),
+             Self::WebviewMissing { label } => write!(f, "webview `{label}` does not exist"),
++            Self::NativePolicyNotApplied { label, detail } => write!(f, "refusing webview `{label}`, DevTools could not be disabled in it ({detail})"),
+         }
+     }
+ }
+@@ -952,9 +956,101 @@ pub fn open_content_devtools<R: Runtime>(
+ // Native, per-webview settings
+ // ---------------------------------------------------------------------------------------------
+ 
++/// The native DevTools setting of one webview, as [`enforce_switch`] needs it.
++pub trait DevToolsSwitch {
++    fn set(&mut self, enabled: bool) -> Result<(), String>;
++    fn get(&self) -> Result<bool, String>;
++}
++
++/// Set the native DevTools switch for `decision`. A denied webview is accepted only when the
++/// switch was set to off and reads back off; a missing settings object, a failed call or a value
++/// that is still on is [`DevToolsError::NativePolicyNotApplied`]. A webview that may be inspected
++/// is never refused here: failing to turn inspection on is not a security failure.
++pub fn enforce_switch(
++    label: &str,
++    decision: WebviewDecision,
++    switch: Option<&mut dyn DevToolsSwitch>,
++) -> Result<(), DevToolsError> {
++    let deny = decision == WebviewDecision::Deny;
++    let refuse = |detail: String| DevToolsError::NativePolicyNotApplied {
++        label: label.to_owned(),
++        detail,
++    };
++    let Some(switch) = switch else {
++        return if deny {
++            Err(refuse("the webview has no settings object".to_owned()))
++        } else {
++            Ok(())
++        };
++    };
++    let set = switch.set(!deny);
++    if !deny {
++        return Ok(());
++    }
++    set.map_err(|e| refuse(format!("the setting was rejected: {e}")))?;
++    match switch.get() {
++        Ok(false) => Ok(()),
++        Ok(true) => Err(refuse(
++            "the setting is still on after it was turned off".to_owned(),
++        )),
++        Err(e) => Err(refuse(format!("the setting could not be read back: {e}"))),
++    }
++}
++
++/// Which groups of browser keys one webview does not act on. Each group is switched by one rule:
++/// `devtools` by the DevTools decision (a denied webview), the others by the hardening options of
++/// the same name. A key in no active group is left to the browser.
++#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
++pub struct KeyRules {
++    /// F12, Ctrl+Shift+I / J / C (inspector) and Ctrl+U (view source).
++    pub devtools: bool,
++    /// F5, Ctrl+R and Ctrl+Shift+R, and the keyboard's refresh key.
++    pub reload: bool,
++    /// Alt+Left, Alt+Right and the keyboard's back and forward keys.
++    pub history: bool,
++    /// Ctrl with plus, minus or zero, on the main block or the number pad.
++    pub zoom: bool,
++}
++
++/// The modifier keys held while a key went down.
++#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
++pub struct KeyModifiers {
++    pub ctrl: bool,
++    pub shift: bool,
++    pub alt: bool,
++}
++
++/// Whether a webview with `rules` must not act on this key (a Windows virtual-key code). Find,
++/// print and every key outside the active groups always pass.
++pub fn is_blocked_accelerator(virtual_key: u32, held: KeyModifiers, rules: KeyRules) -> bool {
++    let KeyModifiers { ctrl, shift, alt } = held;
++    match virtual_key {
++        // F12; I, J, C; U.
++        0x7B => rules.devtools,
++        0x49 | 0x4A | 0x43 => rules.devtools && ctrl && shift,
++        0x55 => rules.devtools && ctrl,
++        // F5, browser refresh; R.
++        0x74 | 0xA8 => rules.reload,
++        0x52 => rules.reload && ctrl,
++        // Left, Right; browser back, forward.
++        0x25 | 0x27 => rules.history && alt,
++        0xA6 | 0xA7 => rules.history,
++        // Plus, minus, zero; number pad add, subtract, zero.
++        0xBB | 0xBD | 0x30 | 0x6B | 0x6D | 0x60 => rules.zoom && ctrl,
++        _ => false,
++    }
++}
++
+ /// Apply the DevTools decision to one live webview. Runs for every webview, whatever other
+ /// hardening modules the app opted out of.
+-pub fn apply_native<R: Runtime>(webview: &Webview<R>, decision: WebviewDecision) {
++///
++/// `Err` (Windows only) means DevTools could not be disabled in a denied webview; the webview has
++/// been closed and the caller must not go on setting it up. See `windows_impl::apply` for when
++/// the refusal happens after this function has returned.
++pub fn apply_native<R: Runtime>(
++    webview: &Webview<R>,
++    decision: WebviewDecision,
++) -> Result<(), DevToolsError> {
+     // Close an inspector that already exists, where the build has one.
+     #[cfg(any(
+         debug_assertions,
+@@ -967,9 +1063,10 @@ pub fn apply_native<R: Runtime>(webview: &Webview<R>, decision: WebviewDecision)
+     #[cfg(target_os = "macos")]
+     macos::apply(webview, decision);
+     #[cfg(windows)]
+-    windows_impl::apply(webview, decision);
++    windows_impl::apply(webview, decision)?;
+     #[cfg(not(any(target_os = "macos", windows)))]
+     let _ = (webview, decision);
++    Ok(())
+ }
+ 
+ #[cfg(target_os = "macos")]
+@@ -1000,24 +1097,94 @@ mod macos {
+     }
+ }
+ 
++#[cfg(windows)]
++pub(crate) use windows_impl::set_hardening_keys;
++
+ #[cfg(windows)]
+ mod windows_impl {
+     use super::*;
+-    use crate::winapi::webview2_com::ContextMenuRequestedEventHandler;
+     use crate::winapi::webview2_com::Microsoft::Web::WebView2::Win32::{
+         ICoreWebView2ContextMenuItem, ICoreWebView2ContextMenuItemCollection,
+-        ICoreWebView2Settings3, ICoreWebView2_11,
++        ICoreWebView2Settings, ICoreWebView2_11, COREWEBVIEW2_KEY_EVENT_KIND_KEY_DOWN,
++        COREWEBVIEW2_KEY_EVENT_KIND_SYSTEM_KEY_DOWN,
++    };
++    use crate::winapi::webview2_com::{
++        AcceleratorKeyPressedEventHandler, ContextMenuRequestedEventHandler,
+     };
+     use crate::winapi::windows::core::{Interface, PWSTR};
++    use std::collections::HashMap;
++    use std::sync::Mutex;
++    use tauri::webview::PlatformWebview;
++
++    #[link(name = "ole32")]
++    unsafe extern "system" {
++        fn CoTaskMemFree(block: *const core::ffi::c_void);
++    }
++    #[link(name = "user32")]
++    unsafe extern "system" {
++        fn GetKeyState(virtual_key: i32) -> i16;
++    }
++    const VK_SHIFT: i32 = 0x10;
++    const VK_CONTROL: i32 = 0x11;
++    const VK_MENU: i32 = 0x12;
++
++    /// The key rules of each webview, by label. The one key handler of a webview reads them when
++    /// a key goes down, so a rule set after the handler was added still applies.
++    static KEY_RULES: Mutex<Option<HashMap<String, KeyRules>>> = Mutex::new(None);
++
++    fn update_key_rules(label: &str, change: impl FnOnce(&mut KeyRules)) {
++        let mut rules = KEY_RULES
++            .lock()
++            .unwrap_or_else(|poison| poison.into_inner());
++        change(
++            rules
++                .get_or_insert_with(HashMap::new)
++                .entry(label.to_owned())
++                .or_default(),
++        );
++    }
++
++    fn key_rules(label: &str) -> KeyRules {
++        let rules = KEY_RULES
++            .lock()
++            .unwrap_or_else(|poison| poison.into_inner());
++        rules
++            .as_ref()
++            .and_then(|map| map.get(label).copied())
++            .unwrap_or_default()
++    }
++
++    /// The hardening layer's key groups for one webview. It adds no key handler of its own and
++    /// never turns all browser keys off.
++    pub(crate) fn set_hardening_keys(label: &str, reload: bool, history: bool, zoom: bool) {
++        update_key_rules(label, |rules| {
++            rules.reload = reload;
++            rules.history = history;
++            rules.zoom = zoom;
++        });
++    }
++
++    fn key_is_down(virtual_key: i32) -> bool {
++        // SAFETY: GetKeyState takes a virtual-key code and has no other precondition.
++        unsafe { GetKeyState(virtual_key) < 0 }
++    }
++
++    /// Event registrations this module made, by webview label: (context menu, accelerator keys).
++    /// A webview that becomes ready again gets its old handlers removed before the new ones are
++    /// added, so each webview has one of each.
++    static HANDLERS: Mutex<Option<HashMap<String, (Option<i64>, Option<i64>)>>> = Mutex::new(None);
+ 
+     fn is_inspect_item(item: &ICoreWebView2ContextMenuItem) -> bool {
+         let mut name = PWSTR::null();
+-        // SAFETY: Name writes a CoTaskMem string; the few bytes per menu are left unfreed on purpose.
+-        let ok = unsafe { item.Name(&mut name) }.is_ok() && !name.is_null();
+-        ok && unsafe { name.to_string() }
+-            .unwrap_or_default()
+-            .to_ascii_lowercase()
+-            .contains("inspect")
++        // SAFETY: Name writes a CoTaskMem string, which is copied and then freed here.
++        unsafe {
++            if item.Name(&mut name).is_err() || name.is_null() {
++                return false;
++            }
++            let text = name.to_string().unwrap_or_default();
++            CoTaskMemFree(name.0 as *const core::ffi::c_void);
++            text.to_ascii_lowercase().contains("inspect")
++        }
+     }
+ 
+     /// Remove the items for which `remove` is true.
+@@ -1043,31 +1210,139 @@ mod windows_impl {
+         left as usize
+     }
+ 
+-    /// WebView2 side of the policy. NOT compiled on the macOS host: the windows-2025 CI job
+-    /// compiles it, and nobody has run it on a Windows machine.
+-    pub fn apply<R: Runtime>(webview: &Webview<R>, decision: WebviewDecision) {
++    struct LiveSwitch<'a>(&'a ICoreWebView2Settings);
++
++    impl DevToolsSwitch for LiveSwitch<'_> {
++        fn set(&mut self, enabled: bool) -> Result<(), String> {
++            // SAFETY: a live settings object, used on the thread WebView2 gave it to us on.
++            unsafe { self.0.SetAreDevToolsEnabled(enabled) }.map_err(|e| e.to_string())
++        }
++        fn get(&self) -> Result<bool, String> {
++            let mut enabled = Default::default();
++            // SAFETY: as above; `enabled` is a valid out pointer.
++            unsafe { self.0.AreDevToolsEnabled(&mut enabled) }.map_err(|e| e.to_string())?;
++            Ok(enabled.as_bool())
++        }
++    }
++
++    /// WebView2 side of the policy. Compiled by the windows-2025 CI job; nobody has run it against
++    /// a live WebView2 on a Windows machine.
++    ///
++    /// `Err` means DevTools could not be disabled in a denied webview. The webview is then closed
++    /// by this function. When Tauri runs the native closure later rather than at once, the result
++    /// here is `Ok` and the closure closes the webview itself on failure.
++    pub fn apply<R: Runtime>(
++        webview: &Webview<R>,
++        decision: WebviewDecision,
++    ) -> Result<(), DevToolsError> {
++        let label = webview.label().to_owned();
++        let refused = webview.clone();
++        let (report, reported) = std::sync::mpsc::channel();
++        let on_main = label.clone();
++        let dispatched = webview.with_webview(move |platform| {
++            let outcome = apply_on_main(&platform, &on_main, decision);
++            if let Err(error) = &outcome {
++                eprintln!("{error}");
++                // Closed from another thread: this closure still holds the platform webview.
++                std::thread::spawn(move || {
++                    let _ = refused.close();
++                });
++            }
++            let _ = report.send(outcome);
++        });
++        if let Err(error) = dispatched {
++            if decision != WebviewDecision::Deny {
++                return Ok(());
++            }
++            let error = DevToolsError::NativePolicyNotApplied {
++                label,
++                detail: format!("the webview could not be reached: {error}"),
++            };
++            eprintln!("{error}");
++            let _ = webview.close();
++            return Err(error);
++        }
++        reported.try_recv().unwrap_or(Ok(()))
++    }
++
++    fn apply_on_main(
++        platform: &PlatformWebview,
++        label: &str,
++        decision: WebviewDecision,
++    ) -> Result<(), DevToolsError> {
+         let allow = decision != WebviewDecision::Deny;
+         // Developer inspection leaves the context menu exactly as WebView2 has it.
+         let dev = decision == WebviewDecision::AllowDev;
+-        let _ = webview.with_webview(move |platform| unsafe {
+-            let Ok(core) = platform.controller().CoreWebView2() else {
+-                return;
++        // SAFETY: Tauri hands over the live controller; used only inside this main-thread call.
++        unsafe {
++            let controller = platform.controller();
++            let core = controller.CoreWebView2().ok();
++            let settings = core.as_ref().and_then(|core| core.Settings().ok());
++            let mut live = settings.as_ref().map(LiveSwitch);
++            enforce_switch(
++                label,
++                decision,
++                live.as_mut().map(|live| live as &mut dyn DevToolsSwitch),
++            )?;
++            let Some(core) = core else {
++                return Ok(());
+             };
+-            if let Ok(settings) = core.Settings() {
+-                let _ = settings.SetAreDevToolsEnabled(allow);
+-                if !allow {
+-                    // F12, Ctrl+Shift+I / J / C are browser accelerator keys.
+-                    if let Ok(s3) = settings.cast::<ICoreWebView2Settings3>() {
+-                        let _ = s3.SetAreBrowserAcceleratorKeysEnabled(false);
+-                    }
++            let wv11 = core.cast::<ICoreWebView2_11>().ok();
++
++            let mut handlers = HANDLERS.lock().unwrap_or_else(|poison| poison.into_inner());
++            let (old_menu, old_keys) = handlers
++                .get_or_insert_with(HashMap::new)
++                .remove(label)
++                .unwrap_or((None, None));
++            if let (Some(wv11), Some(token)) = (&wv11, old_menu) {
++                let _ = wv11.remove_ContextMenuRequested(token);
++            }
++            if let Some(token) = old_keys {
++                let _ = controller.remove_AcceleratorKeyPressed(token);
++            }
++
++            // One key handler per webview, for the whole shell. It stops exactly the keys this
++            // webview's rules name (inspector and view-source keys when denied; reload, history
++            // and zoom keys when the hardening asks) and leaves every other key to WebView2.
++            update_key_rules(label, |rules| rules.devtools = !allow);
++            let mut keys = None;
++            {
++                let label = label.to_owned();
++                let handler =
++                    AcceleratorKeyPressedEventHandler::create(Box::new(move |_sender, args| {
++                        let Some(args) = args else { return Ok(()) };
++                        let mut kind = Default::default();
++                        args.KeyEventKind(&mut kind)?;
++                        if kind != COREWEBVIEW2_KEY_EVENT_KIND_KEY_DOWN
++                            && kind != COREWEBVIEW2_KEY_EVENT_KIND_SYSTEM_KEY_DOWN
++                        {
++                            return Ok(());
++                        }
++                        let mut key: u32 = 0;
++                        args.VirtualKey(&mut key)?;
++                        let held = KeyModifiers {
++                            ctrl: key_is_down(VK_CONTROL),
++                            shift: key_is_down(VK_SHIFT),
++                            alt: key_is_down(VK_MENU),
++                        };
++                        if is_blocked_accelerator(key, held, key_rules(&label)) {
++                            args.SetHandled(true)?;
++                        }
++                        Ok(())
++                    }));
++                let mut token: i64 = 0;
++                if controller
++                    .add_AcceleratorKeyPressed(&handler, &mut token)
++                    .is_ok()
++                {
++                    keys = Some(token);
+                 }
+             }
++
+             // The default context menu carries "Inspect". Denied: remove it from every menu.
+             // Content: keep only it, and show no menu when it is absent.
+-            if dev {
+-                return;
+-            }
+-            if let Ok(wv11) = core.cast::<ICoreWebView2_11>() {
++            let mut menu = None;
++            if let (false, Some(wv11)) = (dev, &wv11) {
+                 let handler =
+                     ContextMenuRequestedEventHandler::create(Box::new(move |_sender, args| {
+                         let Some(args) = args else { return Ok(()) };
+@@ -1083,8 +1358,14 @@ mod windows_impl {
+                         Ok(())
+                     }));
+                 let mut token: i64 = 0;
+-                let _ = wv11.add_ContextMenuRequested(&handler, &mut token);
++                if wv11.add_ContextMenuRequested(&handler, &mut token).is_ok() {
++                    menu = Some(token);
++                }
+             }
+-        });
++            if let Some(map) = handlers.as_mut() {
++                map.insert(label.to_owned(), (menu, keys));
++            }
++            Ok(())
++        }
+     }
+ }
+diff --git a/crates/rightkit-shell/src/harden.rs b/crates/rightkit-shell/src/harden.rs
+index 18b3d70a..b15305f7 100644
+--- a/crates/rightkit-shell/src/harden.rs
++++ b/crates/rightkit-shell/src/harden.rs
+@@ -142,7 +142,7 @@ mod windows_impl {
+     use super::*;
+     use crate::winapi::webview2_com::ContextMenuRequestedEventHandler;
+     use crate::winapi::webview2_com::Microsoft::Web::WebView2::Win32::{
+-        ICoreWebView2Settings3, ICoreWebView2Settings5, ICoreWebView2Settings6, ICoreWebView2_11,
++        ICoreWebView2Settings5, ICoreWebView2Settings6, ICoreWebView2_11,
+     };
+     use crate::winapi::windows::core::Interface;
+     use crate::winapi::windows::core::BOOL;
+@@ -152,6 +152,15 @@ mod windows_impl {
+     pub fn apply<R: Runtime>(webview: &Webview<R>, h: &Hardening, decision: WebviewDecision) {
+         let h = h.clone();
+         let content = decision != WebviewDecision::Deny;
++        // F5, Ctrl+R, Alt+Left and the zoom keys are stopped one by one by the shell's single key
++        // handler (the DevTools layer adds it); browser keys are never turned off as a whole, so
++        // print and find keep working.
++        crate::devtools::set_hardening_keys(
++            webview.label(),
++            h.block_reload,
++            h.block_history_nav,
++            h.block_zoom,
++        );
+         let _ = webview.with_webview(move |platform| unsafe {
+             let Ok(core) = platform.controller().CoreWebView2() else {
+                 return;
+@@ -171,12 +180,6 @@ mod windows_impl {
+                     let _ = s6.SetIsSwipeNavigationEnabled(false);
+                 }
+             }
+-            if h.block_reload || h.block_history_nav {
+-                // F5, Ctrl+R, Alt+Left and friends are WebView2 "browser accelerator keys".
+-                if let Ok(s3) = settings.cast::<ICoreWebView2Settings3>() {
+-                    let _ = s3.SetAreBrowserAcceleratorKeysEnabled(false);
+-                }
+-            }
+             if h.block_context_menu && !content {
+                 // Content webviews: the DevTools layer owns their menu. Keep default menus only so the editable-field menu can survive; every other
+                 // target is marked handled (no menu shown).
+diff --git a/crates/rightkit-shell/src/lib.rs b/crates/rightkit-shell/src/lib.rs
+index 6c866980..43bc49a4 100644
+--- a/crates/rightkit-shell/src/lib.rs
++++ b/crates/rightkit-shell/src/lib.rs
+@@ -759,7 +759,11 @@ pub(crate) fn install(cfg: ShellBuilder) -> TauriPlugin<Wry> {
+         .on_webview_ready(move |webview| {
+             let decision = gate_for_views.decide(webview.label());
+             // The DevTools policy is not a module: it applies to every webview, always.
+-            devtools::apply_native(&webview, decision);
++            // A denied webview whose DevTools could not be disabled is refused: it has been
++            // closed and reported, and nothing else is set up for it.
++            if devtools::apply_native(&webview, decision).is_err() {
++                return;
++            }
+             if harden_webviews {
+                 harden::apply_native(&webview, &hardening_for_views, decision);
+             }
+diff --git a/crates/rightkit-shell/tests/devtools_policy.rs b/crates/rightkit-shell/tests/devtools_policy.rs
+index 7a56cd7f..1bdc25cd 100644
+--- a/crates/rightkit-shell/tests/devtools_policy.rs
++++ b/crates/rightkit-shell/tests/devtools_policy.rs
+@@ -16,6 +16,178 @@ use rightkit_shell::devtools::{
+ };
+ use rightkit_shell::{Hardening, Shell};
+ 
++/// A native DevTools switch that can reject the call or ignore it.
++struct FakeSwitch {
++    enabled: bool,
++    reject_set: bool,
++    ignore_set: bool,
++    reject_get: bool,
++}
++
++impl FakeSwitch {
++    fn on() -> Self {
++        Self {
++            enabled: true,
++            reject_set: false,
++            ignore_set: false,
++            reject_get: false,
++        }
++    }
++}
++
++impl rightkit_shell::devtools::DevToolsSwitch for FakeSwitch {
++    fn set(&mut self, enabled: bool) -> Result<(), String> {
++        if self.reject_set {
++            return Err("E_FAIL".to_owned());
++        }
++        if !self.ignore_set {
++            self.enabled = enabled;
++        }
++        Ok(())
++    }
++    fn get(&self) -> Result<bool, String> {
++        if self.reject_get {
++            return Err("E_FAIL".to_owned());
++        }
++        Ok(self.enabled)
++    }
++}
++
++fn enforce(decision: WebviewDecision, switch: Option<&mut FakeSwitch>) -> Result<(), String> {
++    use rightkit_shell::devtools::{enforce_switch, DevToolsSwitch};
++    enforce_switch(
++        "main",
++        decision,
++        switch.map(|s| s as &mut dyn DevToolsSwitch),
++    )
++    .map_err(|e| e.code().to_owned())
++}
++
++#[test]
++fn a_denied_webview_is_refused_unless_devtools_are_off_and_read_back_off() {
++    let refused = Err("native_policy_not_applied".to_owned());
++    let mut switch = FakeSwitch::on();
++    assert_eq!(enforce(WebviewDecision::Deny, Some(&mut switch)), Ok(()));
++    assert!(!switch.enabled);
++
++    assert_eq!(enforce(WebviewDecision::Deny, None), refused);
++    let mut switch = FakeSwitch {
++        reject_set: true,
++        ..FakeSwitch::on()
++    };
++    assert_eq!(enforce(WebviewDecision::Deny, Some(&mut switch)), refused);
++    let mut switch = FakeSwitch {
++        ignore_set: true,
++        ..FakeSwitch::on()
++    };
++    assert_eq!(enforce(WebviewDecision::Deny, Some(&mut switch)), refused);
++    let mut switch = FakeSwitch {
++        reject_get: true,
++        ..FakeSwitch::on()
++    };
++    assert_eq!(enforce(WebviewDecision::Deny, Some(&mut switch)), refused);
++}
++
++#[test]
++fn a_content_webview_is_allowed_and_never_refused_by_the_native_switch() {
++    let mut switch = FakeSwitch {
++        enabled: false,
++        ..FakeSwitch::on()
++    };
++    assert_eq!(
++        enforce(WebviewDecision::AllowContent, Some(&mut switch)),
++        Ok(())
++    );
++    assert!(switch.enabled);
++    let mut switch = FakeSwitch {
++        reject_set: true,
++        ..FakeSwitch::on()
++    };
++    assert_eq!(
++        enforce(WebviewDecision::AllowContent, Some(&mut switch)),
++        Ok(())
++    );
++    assert_eq!(enforce(WebviewDecision::AllowContent, None), Ok(()));
++}
++
++fn blocked(key: u32, mods: &str, rules: rightkit_shell::devtools::KeyRules) -> bool {
++    use rightkit_shell::devtools::{is_blocked_accelerator, KeyModifiers};
++    let held = KeyModifiers {
++        ctrl: mods.contains('c'),
++        shift: mods.contains('s'),
++        alt: mods.contains('a'),
++    };
++    is_blocked_accelerator(key, held, rules)
++}
++
++const F5: u32 = 0x74;
++const F12: u32 = 0x7B;
++
++#[test]
++fn a_denied_webview_blocks_only_the_inspector_and_view_source_keys() {
++    use rightkit_shell::devtools::KeyRules;
++    let denied = KeyRules {
++        devtools: true,
++        ..KeyRules::default()
++    };
++    let key = |c: char| c as u32;
++    assert!(blocked(F12, "", denied) && blocked(F12, "cs", denied));
++    for c in ['I', 'J', 'C'] {
++        assert!(blocked(key(c), "cs", denied), "Ctrl+Shift+{c}");
++    }
++    assert!(blocked(key('U'), "c", denied));
++    // Ctrl+C is copy, and a plain letter is typing.
++    assert!(!blocked(key('C'), "c", denied) && !blocked(key('I'), "", denied));
++    // Reload, print, find, zoom and history keys are not this rule's.
++    assert!(!blocked(F5, "", denied) && !blocked(key('R'), "c", denied));
++    for c in ['P', 'F', '0'] {
++        assert!(!blocked(key(c), "c", denied), "Ctrl+{c}");
++    }
++    assert!(!blocked(0xBB, "c", denied) && !blocked(0x25, "a", denied));
++    // A webview that may be inspected has no rule at all.
++    assert!(!blocked(F12, "", KeyRules::default()));
++}
++
++#[test]
++fn with_block_reload_ctrl_p_still_reaches_the_page_and_f5_does_not() {
++    use rightkit_shell::devtools::KeyRules;
++    let reload = KeyRules {
++        reload: true,
++        ..KeyRules::default()
++    };
++    let key = |c: char| c as u32;
++    assert!(blocked(F5, "", reload) && blocked(F5, "c", reload));
++    assert!(blocked(key('R'), "c", reload) && blocked(key('R'), "cs", reload));
++    assert!(!blocked(key('R'), "", reload));
++    assert!(!blocked(key('P'), "c", reload) && !blocked(key('F'), "c", reload));
++    assert!(
++        !blocked(F12, "", reload) && !blocked(0x25, "a", reload) && !blocked(0xBB, "c", reload)
++    );
++}
++
++#[test]
++fn history_and_zoom_keys_are_blocked_only_by_their_own_rule() {
++    use rightkit_shell::devtools::KeyRules;
++    let history = KeyRules {
++        history: true,
++        ..KeyRules::default()
++    };
++    let zoom = KeyRules {
++        zoom: true,
++        ..KeyRules::default()
++    };
++    // Alt+Left, Alt+Right, browser back and forward; a plain arrow moves the caret.
++    assert!(blocked(0x25, "a", history) && blocked(0x27, "a", history));
++    assert!(blocked(0xA6, "", history) && blocked(0xA7, "", history));
++    assert!(!blocked(0x25, "", history) && !blocked(0xBB, "c", history));
++    // Ctrl with plus, minus, zero, also on the number pad; a plain zero is typing.
++    for k in [0xBB, 0xBD, 0x30, 0x6B, 0x6D, 0x60] {
++        assert!(blocked(k, "c", zoom), "{k:#x}");
++        assert!(!blocked(k, "", zoom) && !blocked(k, "c", history), "{k:#x}");
++    }
++    assert!(!blocked(0x25, "a", zoom) && !blocked('P' as u32, "c", zoom));
++}
++
+ fn dbg_port() -> String {
+     ["--remote-", "debugging-", "port"].concat()
+ }
+diff --git a/docs/PLATFORM-MATRIX.md b/docs/PLATFORM-MATRIX.md
+index 2de86d1c..dd2f5a00 100644
+--- a/docs/PLATFORM-MATRIX.md
++++ b/docs/PLATFORM-MATRIX.md
+@@ -181,7 +181,7 @@ Crates and products whose Windows or macOS backend is a stub, absent, untested,
+ | `rightkit-process` | **Full (untested)**: the Windows spawn, job termination and spawn lock are untested (README:240); `kill_on_parent_exit` is a no-op because the kill-on-close Job Object covers parent death; the tolerant breakaway fallback is removed; handles raised for inheritance can reach outside processes (pre-existing, open, README:161-167); 91a696cb changes written, unverified | `README.md:240`, `README.md:161-167`, `src/owned.rs:319`, `src/spawn_windows.rs:496`, `src/process_windows.rs:169-174` | #52, #83 |
+ | `rightkit-ownership` | **Full, never run on Windows** (PowerShell ACL audit) | `README.md:38` | none |
+ | `rightkit-sandbox` | **Partial, untested**: AppContainer and kill-on-close Job real; `spawn_pty` with a policy returns `Unsupported` | `README.md:85`, `src/spawn.rs:233` | none |
+-| `rightkit-shell` | **Partial, untested**: DevTools guard reads the WebView2 `AdditionalBrowserArguments` policy keys through the registry API (HKLM both views, HKCU) and refuses to start on a debugging switch or an unreadable key (`src/devtools.rs`, `mod registry`; compiled and tested on the windows-2025 CI leg against a real `HKCU` test key, not run on a user machine); presence observe is a stub; `harden.rs`, `clipboard.rs`, `idle.rs` say not compiled or exercised on the macOS host; 0.3.0 Windows additions (legacy names, `CF_DIB` clipboard) written, unverified | `src/presence.rs:390-391`, `src/harden.rs:150`, `README.md:44`, `src/idle.rs:8-9` | #44, #62, #73, #95 (2)(7) |
++| `rightkit-shell` | **Partial, untested**: DevTools guard reads the WebView2 `AdditionalBrowserArguments` policy keys through the registry API (HKLM both views, HKCU) and refuses to start on a debugging switch or an unreadable key (`src/devtools.rs`, `mod registry`; compiled and tested on the windows-2025 CI leg against a real `HKCU` test key, not run on a user machine); a denied webview is closed with `NativePolicyNotApplied` when `AreDevToolsEnabled` cannot be set to false and read back false, and one key handler per webview stops only the keys the active rules name (inspector and view-source when denied; reload, history, zoom with the hardening option of that name), never all browser keys (`windows_impl::apply`; the decision and the key table are tested on a fake switch on every leg, the WebView2 calls are compiled on the windows-2025 leg and have not run against a live WebView2); presence observe is a stub; `harden.rs`, `clipboard.rs`, `idle.rs` say not compiled or exercised on the macOS host; 0.3.0 Windows additions (legacy names, `CF_DIB` clipboard) written, unverified | `src/presence.rs:390-391`, `src/harden.rs:150`, `README.md:44`, `src/idle.rs:8-9` | #44, #62, #73, #95 (2)(7) |
+ | `rightkit-record` | **Partial**: `sources()` is `Unsupported`; audio, scale and masks `Unsupported`; the MF fragmented-MP4 container is unverified | `src/windows/mod.rs:186`, `README.md:24` | none (#37 is the reader API) |
+ | `rightkit-fs` | **Partial**: `is_owner_only` is a stub returning `Ok(true)` (Windows); `clone_file_nofollow` and `swap_paths` return `Unsupported` on Windows. Durable `create_parents` on Windows: the file and its replace are write-through; newly created parent directories are not flushed (README, "Parent directories made by a durable `create_parents` write"). The Windows DACL measurement (build 10.0.26300.9550, CHANGELOG 0.3.4) predates the 5c6fe134 reduction; its `ReplaceFile` half is removed, and the current publication is written, unverified | `src/private.rs:94-98`, `src/clone.rs:147-156`, `src/swap.rs:35-41`, `plan_replace_on` in `src/atomic.rs` | #73, #95 (the ledger's DACL caveat is not closed for the current tree) |
+ | `rightkit-http` | **Partial**: the Unix-only hardening is `O_NOFOLLOW`, the dev/ino check and the directory fsync; Windows has the reparse-point and file-index checks (written, unverified) but no directory flush; no OS proxy (ureq reads env only) | `src/download.rs:1176-1190`, `:1044-1055`, `:1159-1168` | #49 (WinHTTP not in tree), #86 (Astra read, 0.3.0 fixes unreviewed) |
+-- 
+2.54.0 (Apple Git-157)
+

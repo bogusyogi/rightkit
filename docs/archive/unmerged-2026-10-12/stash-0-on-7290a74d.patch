@@ -1,0 +1,629 @@
+diff --git a/crates/rightkit-asr/src/whisper/control.rs b/crates/rightkit-asr/src/whisper/control.rs
+index c12ca994..a4eb941a 100644
+--- a/crates/rightkit-asr/src/whisper/control.rs
++++ b/crates/rightkit-asr/src/whisper/control.rs
+@@ -9,7 +9,7 @@
+ use super::WhisperTranscript;
+ use std::ffi::c_void;
+ use std::fmt;
+-use std::sync::atomic::{AtomicBool, AtomicPtr, AtomicU64, AtomicU8, Ordering};
++use std::sync::atomic::{AtomicBool, AtomicPtr, AtomicU32, AtomicU64, AtomicU8, AtomicUsize, Ordering};
+ use std::sync::Arc;
+ use std::time::{Duration, Instant};
+ 
+@@ -137,6 +137,81 @@ impl fmt::Debug for ProgressCallback {
+     }
+ }
+ 
++/// Polled progress for a run, for callers that cannot or do not want a callback.
++///
++/// Create one, store a clone in [`WhisperOptions::progress_probe`], and read it from
++/// any thread while the run is in progress. The decode loop updates it with atomics,
++/// so the caller's code needs no `Send`, `Sync` or `'static` bound. Clones share one
++/// set of counters, and each run resets them when it starts.
++///
++/// Each getter reads one atomic, so values read in a row may come from different
++/// moments. `fraction` never decreases within a run, as with [`WhisperProgress::fraction`].
++///
++/// [`WhisperOptions::progress_probe`]: super::WhisperOptions::progress_probe
++#[derive(Debug, Clone, Default)]
++pub struct ProgressProbe(Arc<ProgressCounters>);
++
++#[derive(Debug, Default)]
++struct ProgressCounters {
++    windows_completed: AtomicUsize,
++    windows_estimated: AtomicUsize,
++    samples_completed: AtomicUsize,
++    samples_total: AtomicUsize,
++    /// `f32` bits of the fraction; non-negative floats order like their bits, so `fetch_max` keeps the largest.
++    fraction_bits: AtomicU32,
++}
++
++impl ProgressProbe {
++    pub fn new() -> Self {
++        Self::default()
++    }
++
++    /// Windows fully decoded so far in the current or most recent run.
++    pub fn completed_windows(&self) -> usize {
++        self.0.windows_completed.load(Ordering::SeqCst)
++    }
++
++    /// Windows needed at the nominal 30 s (see [`WhisperProgress::windows_estimated`]).
++    pub fn total_windows(&self) -> usize {
++        self.0.windows_estimated.load(Ordering::SeqCst)
++    }
++
++    /// Samples decoded so far.
++    pub fn samples_completed(&self) -> usize {
++        self.0.samples_completed.load(Ordering::SeqCst)
++    }
++
++    /// Samples in the audio of the current or most recent run.
++    pub fn samples_total(&self) -> usize {
++        self.0.samples_total.load(Ordering::SeqCst)
++    }
++
++    /// Share of the audio decoded, in `[0, 1]`.
++    pub fn fraction(&self) -> f32 {
++        f32::from_bits(self.0.fraction_bits.load(Ordering::SeqCst))
++    }
++
++    /// Reset for a run that will decode `samples_total` samples in about `windows_estimated` windows.
++    pub(crate) fn begin(&self, windows_estimated: usize, samples_total: usize) {
++        let c = &self.0;
++        c.windows_completed.store(0, Ordering::SeqCst);
++        c.windows_estimated.store(windows_estimated, Ordering::SeqCst);
++        c.samples_completed.store(0, Ordering::SeqCst);
++        c.samples_total.store(samples_total, Ordering::SeqCst);
++        c.fraction_bits.store(0f32.to_bits(), Ordering::SeqCst);
++    }
++
++    /// Record one progress event from the decode loop.
++    pub(crate) fn publish(&self, p: &WhisperProgress) {
++        let c = &self.0;
++        c.windows_completed.store(p.windows_completed, Ordering::SeqCst);
++        c.windows_estimated.store(p.windows_estimated, Ordering::SeqCst);
++        c.samples_completed.store(p.samples_completed, Ordering::SeqCst);
++        c.samples_total.store(p.samples_total, Ordering::SeqCst);
++        c.fraction_bits.fetch_max(p.fraction.to_bits(), Ordering::SeqCst);
++    }
++}
++
+ /// Fixed part of the whole-recording bound the pre-0.2 route used: 120 s.
+ pub const RECORDING_DEADLINE_BASE: Duration = Duration::from_secs(120);
+ /// Per-audio-second part of that bound: 4x the audio duration.
+@@ -369,6 +444,47 @@ mod tests {
+         assert_eq!(deadline_after(now, Some(Duration::MAX)), None, "overflow means unbounded");
+     }
+ 
++    #[test]
++    fn progress_probe_is_send_sync_and_clones_share_counters() {
++        fn assert_send_sync<T: Send + Sync + 'static>() {}
++        assert_send_sync::<ProgressProbe>();
++        let a = ProgressProbe::new();
++        let b = a.clone();
++        assert_eq!(b.completed_windows(), 0);
++        assert_eq!(b.fraction(), 0.0);
++        a.begin(3, 480_000);
++        assert_eq!(b.total_windows(), 3);
++        assert_eq!(b.samples_total(), 480_000);
++        let from_thread = std::thread::spawn(move || b.total_windows()).join().unwrap();
++        assert_eq!(from_thread, 3, "readable from another thread");
++    }
++
++    #[test]
++    fn progress_probe_fraction_is_monotonic_and_begin_resets() {
++        let probe = ProgressProbe::new();
++        probe.begin(3, 100);
++        probe.publish(&WhisperProgress {
++            windows_completed: 1,
++            windows_estimated: 3,
++            samples_completed: 40,
++            samples_total: 100,
++            fraction: 0.4,
++        });
++        probe.publish(&WhisperProgress {
++            windows_completed: 1,
++            windows_estimated: 3,
++            samples_completed: 30,
++            samples_total: 100,
++            fraction: 0.3,
++        });
++        assert_eq!(probe.completed_windows(), 1);
++        assert_eq!(probe.samples_completed(), 30, "counts are the latest event");
++        assert_eq!(probe.fraction(), 0.4, "fraction never goes back within a run");
++        probe.begin(1, 10);
++        assert_eq!(probe.completed_windows(), 0);
++        assert_eq!(probe.fraction(), 0.0, "a new run starts from zero");
++    }
++
+     #[test]
+     fn abort_state_trips_on_cancel_mid_call_and_disarms() {
+         let state = AbortState::new();
+diff --git a/crates/rightkit-asr/src/whisper/windowing.rs b/crates/rightkit-asr/src/whisper/windowing.rs
+index 0444e7b2..33c25c7a 100644
+--- a/crates/rightkit-asr/src/whisper/windowing.rs
++++ b/crates/rightkit-asr/src/whisper/windowing.rs
+@@ -5,7 +5,9 @@
+ //!
+ //! Sample offsets are integers: window starts are sample indices, so segment
+ //! and word sample positions across windows add without float arithmetic.
+-use super::control::{check_interrupt, deadline_after, earliest, CancelToken, ProgressCallback};
++use super::control::{
++    check_interrupt, deadline_after, earliest, CancelToken, ProgressCallback, ProgressProbe,
++};
+ use super::{
+     DecodeOptions, InterruptReason, Segment, WhisperProgress, WindowDecoder, WindowOutput,
+     WindowRequest, WordSpan,
+@@ -74,12 +76,19 @@ pub(crate) struct RunControl<'a> {
+     /// Bound for each window's decode, measured from that window's start.
+     pub window_deadline: Option<Duration>,
+     pub progress: Option<&'a ProgressCallback>,
++    /// Polled progress sink, updated alongside `progress`.
++    pub probe: Option<&'a ProgressProbe>,
+ }
+ 
+ impl RunControl<'_> {
+     #[cfg(test)]
+     pub fn none() -> Self {
+-        RunControl { cancel: None, total_deadline: None, window_deadline: None, progress: None }
++        RunControl { cancel: None, total_deadline: None, window_deadline: None, progress: None, probe: None }
++    }
++
++    /// True when some progress sink (callback or probe) wants events.
++    fn reports(&self) -> bool {
++        self.progress.is_some() || self.probe.is_some()
+     }
+ }
+ 
+diff --git a/crates/rightkit-llm/CHANGELOG.md b/crates/rightkit-llm/CHANGELOG.md
+index 785de305..0dde5f5b 100644
+--- a/crates/rightkit-llm/CHANGELOG.md
++++ b/crates/rightkit-llm/CHANGELOG.md
+@@ -10,6 +10,11 @@
+ - `OpenAiCompatProvider::list_models` (`GET {base}/models`) and `validate_credential`, plus `openai::parse_model_ids`.
+ - NVIDIA NIM preset `nvidia` (`https://integrate.api.nvidia.com/v1`, from NVIDIA's public API documentation).
+ - `with_observer` on both HTTP providers: a `CallRecord` with the sent body and the response or error, never the credential or auth header.
++- `ChatRequest::keep_empty_messages(bool)` (field `keep_empty_messages`, default `false`). Default keeps today's behaviour: an OpenAI-compatible user message with no text is dropped. With `true` it is sent as `""`. Anthropic has no empty content, so with `true` an empty message fails with `LlmError::InvalidRequest` before anything is sent; with the default the message is sent unchanged, as before. Struct literals of `ChatRequest` need the new field too.
++- Behaviour change: an OpenAI-compatible `choices` answer is now two errors, both `LlmError::Malformed`. An absent or null `choices` is `"missing choices field"`; an empty array is `"empty choices array"`. Both were `"missing choices[0]"` before. Matches on the variant still work; text matches on the old message do not.
++- Behaviour change: a first choice with no text (`content` null, absent or not a string), no tool call and no refusal is no longer `Ok("")`. It is `LlmError::Malformed("empty completion: ...")`. An explicit `""` is still accepted and returns `""`. A refusal, or a `finish_reason` of `content_filter` with no text and no tool call, is the new `LlmError::Refused { message }`, which is not a failover trigger. The streaming path is unchanged.
++- `LlmError::Refused { message }` is a new variant. Exhaustive matches on `LlmError` need an arm for it.
++- Behaviour change: `temperature` is written as its shortest decimal that round-trips the `f32`, so `0.3` goes on the wire as `0.3` (was `0.30000001192092896`). Both HTTP providers. The `with_temperature(f32)` signature is unchanged; `temperature` is the only `f32` request field.
+ 
+ ## 0.2.0
+ 
+diff --git a/crates/rightkit-llm/src/anthropic.rs b/crates/rightkit-llm/src/anthropic.rs
+index 513786eb..6dcaa060 100644
+--- a/crates/rightkit-llm/src/anthropic.rs
++++ b/crates/rightkit-llm/src/anthropic.rs
+@@ -70,6 +70,7 @@ impl AnthropicProvider {
+         req: &ChatRequest,
+         stream: bool,
+     ) -> Result<(Request, Option<String>, Value), LlmError> {
++        check_empty_messages(req)?;
+         let credential = self
+             .credentials
+             .credential(&self.id)?
+@@ -106,6 +107,26 @@ impl AnthropicProvider {
+     }
+ }
+ 
++/// Anthropic has no empty content. With `keep_empty_messages` set, a message with no text is
++/// rejected here, before anything is sent. Without the option the message is sent unchanged,
++/// as before, and the API's own error applies.
++fn check_empty_messages(req: &ChatRequest) -> Result<(), LlmError> {
++    if !req.keep_empty_messages {
++        return Ok(());
++    }
++    let empty = req.messages.iter().position(|m| {
++        m.content
++            .iter()
++            .all(|b| matches!(b, ContentBlock::Text { text } if text.is_empty()))
++    });
++    match empty {
++        Some(i) => Err(LlmError::InvalidRequest(format!(
++            "message {i} has no content; Anthropic rejects empty messages (keep_empty_messages is set)"
++        ))),
++        None => Ok(()),
++    }
++}
++
+ /// Build the exact JSON body sent to the API.
+ pub fn build_body(req: &ChatRequest, stream: bool) -> Value {
+     let auto = req.cache == CacheMode::Auto;
+@@ -114,7 +135,7 @@ pub fn build_body(req: &ChatRequest, stream: bool) -> Value {
+     body.insert("model".into(), json!(req.model));
+     body.insert("max_tokens".into(), json!(req.max_tokens));
+     if let Some(t) = req.temperature {
+-        body.insert("temperature".into(), json!(t));
++        body.insert("temperature".into(), f32_json(t));
+     }
+     if !req.stop_sequences.is_empty() {
+         body.insert("stop_sequences".into(), json!(req.stop_sequences));
+diff --git a/crates/rightkit-llm/src/error.rs b/crates/rightkit-llm/src/error.rs
+index e32353aa..679f53bd 100644
+--- a/crates/rightkit-llm/src/error.rs
++++ b/crates/rightkit-llm/src/error.rs
+@@ -51,6 +51,12 @@ pub enum LlmError {
+     Truncated {
+         output_tokens: Option<u64>,
+     },
++    /// The provider returned no text and no tool call, and either a refusal or a
++    /// `content_filter` finish reason. `message` is the refusal text when the provider sent
++    /// one, otherwise a fixed description. Not a failover trigger.
++    Refused {
++        message: String,
++    },
+     /// A command-line assistant route failed (feature `cli`).
+     #[cfg(feature = "cli")]
+     Cli(crate::provider::cli::CliError),
+@@ -176,6 +182,7 @@ impl fmt::Display for LlmError {
+                 write!(f, "credential rejected: HTTP {status}: {message}")
+             }
+             LlmError::InvalidRequest(m) => write!(f, "invalid request: {m}"),
++            LlmError::Refused { message } => write!(f, "completion refused or filtered: {message}"),
+             LlmError::Truncated {
+                 output_tokens: Some(n),
+             } => write!(f, "output truncated at the output limit after {n} tokens"),
+diff --git a/crates/rightkit-llm/src/openai.rs b/crates/rightkit-llm/src/openai.rs
+index e04024a7..50f8805e 100644
+--- a/crates/rightkit-llm/src/openai.rs
++++ b/crates/rightkit-llm/src/openai.rs
+@@ -182,7 +182,7 @@ pub fn build_body(req: &ChatRequest, stream: bool, field: MaxTokensField) -> Val
+         messages.push(json!({"role": "system", "content": s}));
+     }
+     for m in &req.messages {
+-        push_message(&mut messages, m);
++        push_message(&mut messages, m, req.keep_empty_messages);
+     }
+     body.insert("messages".into(), Value::Array(messages));
+     let key = match field {
+@@ -193,7 +193,7 @@ pub fn build_body(req: &ChatRequest, stream: bool, field: MaxTokensField) -> Val
+         body.insert(key.into(), json!(req.max_tokens));
+     }
+     if let Some(t) = req.temperature {
+-        body.insert("temperature".into(), json!(t));
++        body.insert("temperature".into(), f32_json(t));
+     }
+     if !req.stop_sequences.is_empty() {
+         body.insert("stop".into(), json!(req.stop_sequences));
+@@ -226,10 +226,13 @@ pub fn build_body(req: &ChatRequest, stream: bool, field: MaxTokensField) -> Val
+     Value::Object(body)
+ }
+ 
+-fn push_message(out: &mut Vec<Value>, m: &Message) {
++/// Maps one message. A user message with no text and no tool result is dropped, unless
++/// `keep_empty` is set, in which case it is sent as an empty string.
++fn push_message(out: &mut Vec<Value>, m: &Message, keep_empty: bool) {
+     match m.role {
+         Role::User => {
+             let mut text = String::new();
++            let mut sent_tool_result = false;
+             for b in &m.content {
+                 match b {
+                     ContentBlock::Text { text: t } => text.push_str(t),
+@@ -238,6 +241,7 @@ fn push_message(out: &mut Vec<Value>, m: &Message) {
+                         content,
+                         ..
+                     } => {
++                        sent_tool_result = true;
+                         out.push(json!({"role": "tool", "tool_call_id": tool_use_id, "content": content}));
+                     }
+                     ContentBlock::ToolUse { .. } => {}
+@@ -245,6 +249,8 @@ fn push_message(out: &mut Vec<Value>, m: &Message) {
+             }
+             if !text.is_empty() {
+                 out.push(json!({"role": "user", "content": text}));
++            } else if keep_empty && !sent_tool_result {
++                out.push(json!({"role": "user", "content": ""}));
+             }
+         }
+         Role::Assistant => {
+@@ -298,13 +304,23 @@ fn tool_input(args: &str) -> Result<Value, LlmError> {
+ }
+ 
+ pub fn parse_response(v: &Value) -> Result<ChatResponse, LlmError> {
+-    let choice = v
+-        .get("choices")
+-        .and_then(|c| c.get(0))
+-        .ok_or_else(|| LlmError::Malformed("missing choices[0]".into()))?;
++    let choices = match v.get("choices") {
++        None | Some(Value::Null) => {
++            return Err(LlmError::Malformed("missing choices field".into()))
++        }
++        Some(c) => c
++            .as_array()
++            .ok_or_else(|| LlmError::Malformed("choices is not an array".into()))?,
++    };
++    let choice = choices
++        .first()
++        .ok_or_else(|| LlmError::Malformed("empty choices array".into()))?;
+     let msg = &choice["message"];
+     let mut content = Vec::new();
+-    if let Some(t) = msg["content"].as_str().filter(|t| !t.is_empty()) {
++    // `None` when `content` is null, absent or not a string; `Some("")` only for an explicit
++    // empty string.
++    let text = msg["content"].as_str();
++    if let Some(t) = text.filter(|t| !t.is_empty()) {
+         content.push(ContentBlock::text(t));
+     }
+     if let Some(calls) = msg["tool_calls"].as_array() {
+@@ -316,6 +332,25 @@ pub fn parse_response(v: &Value) -> Result<ChatResponse, LlmError> {
+             });
+         }
+     }
++    let has_tool_use = content
++        .iter()
++        .any(|b| matches!(b, ContentBlock::ToolUse { .. }));
++    if !has_tool_use && text.is_none_or(str::is_empty) {
++        let refusal = msg["refusal"].as_str().filter(|r| !r.is_empty());
++        let filtered = choice["finish_reason"].as_str() == Some("content_filter");
++        if refusal.is_some() || filtered {
++            return Err(LlmError::Refused {
++                message: refusal
++                    .map(str::to_owned)
++                    .unwrap_or_else(|| "finish_reason content_filter".into()),
++            });
++        }
++        if text.is_none() {
++            return Err(LlmError::Malformed(
++                "empty completion: no text content and no tool call".into(),
++            ));
++        }
++    }
+     Ok(ChatResponse {
+         id: v["id"].as_str().unwrap_or_default().into(),
+         model: v["model"].as_str().unwrap_or_default().into(),
+diff --git a/crates/rightkit-llm/src/types.rs b/crates/rightkit-llm/src/types.rs
+index 3a171b1b..97b13cdc 100644
+--- a/crates/rightkit-llm/src/types.rs
++++ b/crates/rightkit-llm/src/types.rs
+@@ -3,7 +3,7 @@ use std::time::Duration;
+ 
+ use rightkit_http::{Request, RetryPolicy};
+ use serde::{Deserialize, Serialize};
+-use serde_json::{Map, Value};
++use serde_json::{json, Map, Value};
+ 
+ use crate::error::LlmError;
+ 
+@@ -146,6 +146,12 @@ pub struct ChatRequest {
+     /// Return [`LlmError::Truncated`] instead of a normal response when the provider stopped
+     /// at its output limit. Default `false`. See [`ChatRequest::reject_truncated_output`].
+     pub reject_truncated: bool,
++    /// Send user messages that have no text as an empty string instead of dropping them.
++    /// Default `false`: an empty user message is left out of the OpenAI-compatible body.
++    /// Anthropic rejects empty content, so with `true` an empty message fails with
++    /// [`LlmError::InvalidRequest`] before anything is sent. See
++    /// [`ChatRequest::keep_empty_messages`].
++    pub keep_empty_messages: bool,
+ }
+ 
+ impl ChatRequest {
+@@ -165,6 +171,7 @@ impl ChatRequest {
+             retry: CallRetry::Client,
+             extra_body: ExtraBody::default(),
+             reject_truncated: false,
++            keep_empty_messages: false,
+         }
+     }
+     /// One system prompt plus one user turn.
+@@ -226,6 +233,14 @@ impl ChatRequest {
+         self.extra_body.fields.insert(key, value);
+         self
+     }
++    /// Choose what happens to a user message with no text. `false` (default) drops it from
++    /// the OpenAI-compatible body, as before. `true` sends it as an empty string; Anthropic
++    /// has no empty content, so `true` makes an empty message an
++    /// [`LlmError::InvalidRequest`] there, before sending.
++    pub fn keep_empty_messages(mut self, keep: bool) -> Self {
++        self.keep_empty_messages = keep;
++        self
++    }
+     /// Treat a provider stop at the output limit as [`LlmError::Truncated`]. By default the
+     /// truncated text is returned with [`StopReason::MaxTokens`]. Applies to streams too.
+     pub fn reject_truncated_output(mut self) -> Self {
+@@ -234,6 +249,18 @@ impl ChatRequest {
+     }
+ }
+ 
++/// JSON number for an `f32` request field, written as its shortest decimal that round-trips
++/// the `f32` (`0.3` goes on the wire as `0.3`, not `0.30000001192092896`).
++pub(crate) fn f32_json(v: f32) -> Value {
++    // `Display` for f32 is the shortest round-tripping decimal; parsing that as f64 keeps the
++    // digits, since f64 serialises its shortest form. NaN and infinity become JSON null, as
++    // `json!` already did.
++    match v.to_string().parse::<f64>() {
++        Ok(d) => json!(d),
++        Err(_) => json!(v as f64),
++    }
++}
++
+ /// Per-call retry behaviour, honoured by both HTTP providers.
+ ///
+ /// Providers always allow status replay for chat calls (a chat completion has no
+diff --git a/crates/rightkit-shell/src/lib.rs b/crates/rightkit-shell/src/lib.rs
+index 55fe1747..7d6485c5 100644
+--- a/crates/rightkit-shell/src/lib.rs
++++ b/crates/rightkit-shell/src/lib.rs
+@@ -72,7 +72,10 @@ pub use broker::PathBroker;
+ pub use clipboard::{ClipboardItem, ClipboardPolicy};
+ pub use error::ShellError;
+ pub use harden::{Devtools, Hardening, HardeningScript};
+-pub use idle::{IdleErrorCallback, IdleFailure, IdlePhase};
++pub use idle::{
++    IdleErrorCallback, IdleFailure, IdlePhase, IdleTransition, IdleTransitionCallback,
++    IdleTransitionKind,
++};
+ pub use menu::{MenuEntry, MenuGroup, MenuSpec};
+ pub use modules::{Module, ModuleSet, ShellPlugin, ShellPluginBuilder};
+ pub use nav::{NavDecision, NavPolicy};
+@@ -193,6 +196,7 @@ pub struct ShellBuilder {
+     on_visibility: Option<VisibilityCallback>,
+     never_show: bool,
+     never_show_env: Vec<String>,
++    never_show_env_values: Vec<(String, String)>,
+     reveal_on_reopen: bool,
+     lifecycle_only: bool,
+     qa_instance_exempt: bool,
+@@ -212,6 +216,7 @@ pub struct ShellBuilder {
+     modules: ModuleSet,
+     clipboard: clipboard::ClipboardPolicy,
+     idle_on_error: Option<idle::IdleErrorCallback>,
++    idle_on_transition: Option<idle::IdleTransitionCallback>,
+     autostart: autostart::AutostartOptions,
+     recovery: Option<RecoverySpec>,
+     idle_after: Option<std::time::Duration>,
+@@ -246,6 +251,7 @@ impl Shell {
+             on_visibility: None,
+             never_show: false,
+             never_show_env: Vec::new(),
++            never_show_env_values: Vec::new(),
+             reveal_on_reopen: true,
+             lifecycle_only: false,
+             qa_instance_exempt: false,
+@@ -265,6 +271,7 @@ impl Shell {
+             modules: ModuleSet::all(),
+             clipboard: clipboard::ClipboardPolicy::default(),
+             idle_on_error: None,
++            idle_on_transition: None,
+             autostart: autostart::AutostartOptions::default(),
+             recovery: None,
+             idle_after: None,
+@@ -360,8 +367,9 @@ impl ShellBuilder {
+         self
+     }
+     /// Register an environment variable that means never-show for this process when it is set to
+-    /// anything but empty, `0`, `false`, `no` or `off` (read at each reveal, so a harness can set it
+-    /// before launch). Call it once per name (ScrapeRight: `RIGHTKIT_QA_NATIVE_REAL`).
++    /// exactly `1`, `true`, `yes` or `on` (ASCII case-insensitive; anything else, including empty,
++    /// `0` and unrecognised text, is off; read at each reveal, so a harness can set it before
++    /// launch). Call it once per name (ScrapeRight: `RIGHTKIT_QA_NATIVE_REAL`).
+     ///
+     /// # Panics
+     /// Panics on an empty name or one containing `=` or NUL: a programmer error at startup.
+@@ -375,6 +383,23 @@ impl ShellBuilder {
+         }
+         self
+     }
++    /// Register an environment variable that means never-show only when it is set to exactly
++    /// `expected` (case-sensitive, no trimming); any other value, or unset, is off. For a harness
++    /// that uses its own token.
++    ///
++    /// # Panics
++    /// Panics on an empty name (or one containing `=` or NUL) or an empty `expected`.
++    pub fn never_show_env_value(mut self, name: &str, expected: &str) -> Self {
++        assert!(
++            !name.is_empty() && !name.contains(['=', '\0']) && !expected.is_empty(),
++            "rightkit-shell: never_show_env_value needs a plain variable name and a non-empty expected value"
++        );
++        let pair = (name.to_owned(), expected.to_owned());
++        if !self.never_show_env_values.contains(&pair) {
++            self.never_show_env_values.push(pair);
++        }
++        self
++    }
+     /// Whether a macOS Dock reopen with no visible window, and an OS-delivered URL or file
+     /// (`RunEvent::Opened`), reveal the main window (default on). Off: both still deliver their
+     /// links and nothing is shown, unminimised or focused. Also off when `Module::RevealOnReopen`
+@@ -528,6 +553,15 @@ impl ShellBuilder {
+         self.idle_on_error = Some(Arc::new(f));
+         self
+     }
++    /// Receive one [`idle::IdleTransition`] each time the main webview is really suspended or
++    /// resumed (window label and elapsed time), for the host's log. Without this nothing changes.
++    pub fn webview_idle_on_transition(
++        mut self,
++        f: impl Fn(&idle::IdleTransition) + Send + Sync + 'static,
++    ) -> Self {
++        self.idle_on_transition = Some(Arc::new(f));
++        self
++    }
+     /// App cache directory to keep usable (default: Tauri's app cache dir).
+     pub fn cache_dir(mut self, dir: PathBuf) -> Self {
+         self.cache_dir = Some(dir);
+@@ -767,6 +801,7 @@ fn show_policy_of(cfg: &ShellBuilder) -> lifecycle::ShowPolicy {
+     lifecycle::ShowPolicy {
+         never_show: cfg.never_show,
+         never_show_env: cfg.never_show_env.clone(),
++        never_show_env_values: cfg.never_show_env_values.clone(),
+         reveal_on_reopen: cfg.reveal_on_reopen && cfg.modules.contains(Module::RevealOnReopen),
+     }
+ }
+@@ -942,6 +977,7 @@ fn setup(
+             idle::IdleHost::new(d)
+                 .with_options(options)
+                 .with_on_error(cfg.idle_on_error.clone())
++                .with_on_transition(cfg.idle_on_transition.clone())
+         }),
+         recovery,
+         cache_repair: Mutex::new(cache_repair),
+diff --git a/crates/rightkit-shell/src/lifecycle.rs b/crates/rightkit-shell/src/lifecycle.rs
+index fdbad6cb..12dfbf25 100644
+--- a/crates/rightkit-shell/src/lifecycle.rs
++++ b/crates/rightkit-shell/src/lifecycle.rs
+@@ -73,13 +73,25 @@ pub enum RevealMode {
+     Foreground,
+ }
+ 
+-/// True when an environment value means "never show": set, and not empty, `0`, `false`, `no`
+-/// or `off` (case-insensitive).
++/// The documented truthy values for a never-show environment variable, compared exactly
++/// (ASCII case-insensitive, no trimming).
++pub const NEVER_SHOW_TRUTHY: [&str; 4] = ["1", "true", "yes", "on"];
++
++/// True when an environment value means "never show": exactly one of [`NEVER_SHOW_TRUTHY`]
++/// (`1`, `true`, `yes`, `on`), ASCII case-insensitive. Anything else (unset, empty, `0`, padded or
++/// unrecognised text) is off.
+ pub fn env_means_never_show(value: Option<&OsStr>) -> bool {
+-    let Some(value) = value else { return false };
+-    let text = value.to_string_lossy();
+-    let text = text.trim().to_ascii_lowercase();
+-    !(text.is_empty() || matches!(text.as_str(), "0" | "false" | "no" | "off"))
++    let Some(value) = value.and_then(|v| v.to_str()) else {
++        return false;
++    };
++    NEVER_SHOW_TRUTHY
++        .iter()
++        .any(|truthy| value.eq_ignore_ascii_case(truthy))
++}
++
++/// True when the value is exactly `expected` (case-sensitive, no trimming).
++pub fn env_equals(value: Option<&OsStr>, expected: &str) -> bool {
++    value.is_some_and(|v| v == OsStr::new(expected))
+ }
+ 
+ /// The host's say over window visibility, evaluated by [`ShowPolicy::mode`].
+@@ -88,8 +100,11 @@ pub struct ShowPolicy {
+     /// Host-declared: the shell never shows, unminimises or focuses a window, and on macOS the app
+     /// is a Prohibited-activation app.
+     pub never_show: bool,
+-    /// Extra environment variables that mean never-show when set (see [`env_means_never_show`]).
++    /// Extra environment variables that mean never-show when set to a truthy value (see [`env_means_never_show`]).
+     pub never_show_env: Vec<String>,
++    /// Environment variables that mean never-show only when set to exactly the paired value
++    /// (see [`env_equals`]), for a harness whose variable uses its own token.
++    pub never_show_env_values: Vec<(String, String)>,
+     /// Whether `Reopen` and `Opened` may reveal at all (also needs the module).
+     pub reveal_on_reopen: bool,
+ }
+@@ -99,6 +114,7 @@ impl Default for ShowPolicy {
+         Self {
+             never_show: false,
+             never_show_env: Vec::new(),
++            never_show_env_values: Vec::new(),
+             reveal_on_reopen: true,
+         }
+     }
+@@ -112,6 +128,10 @@ impl ShowPolicy {
+                 .never_show_env
+                 .iter()
+                 .any(|name| env_means_never_show(env(name).as_deref()))
++            || self
++                .never_show_env_values
++                .iter()
++                .any(|(name, expected)| env_equals(env(name).as_deref(), expected))
+     }
+ 
+     /// [`ShowPolicy::is_never_show`] against the process environment.

@@ -1,0 +1,2599 @@
+From b352f01a915f26c5cb543b6e29e977f0ff64eb2d Mon Sep 17 00:00:00 2001
+From: Adrian D'souza <adrdsouza@gmail.com>
+Date: Mon, 12 Oct 2026 03:10:28 +0530
+Subject: [PATCH] rightkit-service, rightkit-models: a process under test is
+ refused the real per-user folder by default (RIGHTKIT_UNDER_TEST or a Cargo
+ test binary); an override into the real folder is refused too. Uncompiled;
+ held off main until the snapshot run completes
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ crates/rightkit-models/CHANGELOG.md          |   7 +
+ crates/rightkit-models/README.md             |  12 +-
+ crates/rightkit-models/src/error.rs          |   3 +
+ crates/rightkit-models/src/lib.rs            |   1 +
+ crates/rightkit-models/src/suite/discover.rs |  42 +-
+ crates/rightkit-models/src/suite/handle.rs   |  84 +++-
+ crates/rightkit-models/src/suite/install.rs  |  55 ++-
+ crates/rightkit-models/src/suite/lease.rs    |  30 +-
+ crates/rightkit-models/src/suite/manifest.rs |   8 +-
+ crates/rightkit-models/src/suite/paths.rs    | 458 ++++++++++++++++---
+ crates/rightkit-models/src/suite/store.rs    |  21 +-
+ crates/rightkit-models/src/suite/whisper.rs  |  16 +-
+ crates/rightkit-models/src/under_test.rs     | 299 ++++++++++++
+ crates/rightkit-models/tests/suite_paths.rs  |  69 ++-
+ crates/rightkit-models/tests/under_test.rs   | 103 +++++
+ crates/rightkit-service/CHANGELOG.md         |   6 +
+ crates/rightkit-service/README.md            |  11 +-
+ crates/rightkit-service/src/client.rs        |  23 +-
+ crates/rightkit-service/src/lib.rs           |   5 +
+ crates/rightkit-service/src/suite.rs         | 362 +++++++++++++--
+ crates/rightkit-service/src/under_test.rs    | 299 ++++++++++++
+ crates/rightkit-service/tests/e2e.rs         |  28 +-
+ crates/rightkit-service/tests/verify_host.rs |  49 +-
+ docs/PLATFORM-MATRIX.md                      |   4 +-
+ 24 files changed, 1812 insertions(+), 183 deletions(-)
+ create mode 100644 crates/rightkit-models/src/under_test.rs
+ create mode 100644 crates/rightkit-models/tests/under_test.rs
+ create mode 100644 crates/rightkit-service/src/under_test.rs
+
+diff --git a/crates/rightkit-models/CHANGELOG.md b/crates/rightkit-models/CHANGELOG.md
+index 5cbb2c8b..b560a41f 100644
+--- a/crates/rightkit-models/CHANGELOG.md
++++ b/crates/rightkit-models/CHANGELOG.md
+@@ -2,6 +2,13 @@
+ 
+ ## Unreleased
+ 
++- **Breaking for tests that relied on the real per-user default: under test, the real folder is refused.** No test may read or write a real user's data, so every resolver whose default is the real per-user folder now refuses while the process is under test. A process is under test when `RIGHTKIT_UNDER_TEST` is set to a non-empty value other than `0`, or when its executable sits in a Cargo `deps` or `examples` directory under a `target` profile directory (`.../target/<profile>/deps/<exe>`, `.../<target-dir>/<triple>/<profile>/deps/<exe>`; the program directly in `<profile>/`, as with `cargo run`, is not a test). Installed apps and dev runs are unaffected. An override (`RIGHT_SUITE_DIR`, `ORTHIC_SHARED_DIR`) or an explicit root always wins, except that under test an override pointing into the real `<data>/Orthic Labs` or `<data>/RightSuite` folder is refused too.
++  - Panic (the function cannot return an error without a signature change, and a silent temp folder or an empty result would hide the fault): `suite::paths::{suite_root, legacy_suite_root, models_root, tools_root}`, `ModelStore::shared`, `suite::handle::sibling_parakeet_dirs`, `suite::discover::find_existing_elsewhere`, `suite::lease::current_holder`. The message names the resolver, says the process is under test and names `RIGHT_SUITE_DIR`.
++  - Error: `suite::device_id_get_or_create` and `suite::lease::try_acquire_compat` (`Err(String)`), `ModelStore::resolve_parakeet` (`Err(String)`), `suite::paths::shared_runtime_dir`, `suite::whisper::{resolve_whisper_model, ensure_whisper_model}` (the new `ErrorCode::UnderTest`).
++  - Comparisons with the shared store inside `ModelStore::resolve`, `ensure_ready*`, `migrate_*`, `prune_unref_entries*`, `try_acquire_for_gc` and `readiness_report_at` no longer resolve the real folder for a store at an explicit root: under test without an override the explicit root is simply "not the shared one".
++  - `ErrorCode` gains `UnderTest` (an exhaustive `match` needs an arm).
++  - Existing test changed: `tests/suite_paths.rs` asserted the real default (`<data>/Orthic Labs/shared`); it now asserts the refusal. New: `tests/under_test.rs`, and unit tests in `suite/{paths,handle,install,discover}.rs` through seams that take the flag and data directory as parameters.
++
+ - `http::ModelHttpOptions` gains, all additive with the previous behaviour as the default (`ModelHttpOptions` is built with `..Default::default()` in every caller in this repository; a struct literal without it needs the new fields):
+   - `trust: TrustRoots` (default `Platform`, the operating system's store; `Bundled` is `rightkit-http`'s Mozilla set). `TrustRoots`, `HttpError` and `DEFAULT_RETRIES` are exported from `http`. `rightkit-http` has no caller-supplied-roots option, so an app's own roots are not possible here.
+   - `header_timeout: Option<Duration>` (default 60 s, which `rightkit-http` already applied; it is now settable). The existing `connect_timeout` (30 s) and `read_timeout` (the idle limit, 120 s) are unchanged.
+diff --git a/crates/rightkit-models/README.md b/crates/rightkit-models/README.md
+index d65e6237..8dbe4bd5 100644
+--- a/crates/rightkit-models/README.md
++++ b/crates/rightkit-models/README.md
+@@ -185,6 +185,16 @@ and SHA-256 (`catalog.rs`, `EMBEDDINGGEMMA2_Q4_FILES`). `rightkit-embed` reads `
+ - **Licence.** To be confirmed. The existing specs in this catalog carry no licence field, and
+   none was sourced for this bundle.
+ 
++## Under test
++
++No test may read or write a real user's data, so every resolver whose default is the real per-user folder refuses while the process is under test.
++
++- **Under test** means `RIGHTKIT_UNDER_TEST` is set to a non-empty value other than `0`, or the executable's path has a parent directory named `deps` or `examples` whose parent chain is a Cargo target profile: `.../target/<profile>/deps/<exe>` or `.../<target-dir>/<triple>/<profile>/deps/<exe>`. The program directly in `<profile>/` (`cargo run`, a dev build) is not a test. The path rule cannot be switched off.
++- **Panics** (infallible signatures; a silent temp folder or empty result would hide the fault): `suite::paths::{suite_root, legacy_suite_root, models_root, tools_root}` unless `RIGHT_SUITE_DIR` (or, for all but the legacy root, `ORTHIC_SHARED_DIR`) names a folder; `ModelStore::shared`; `suite::handle::sibling_parakeet_dirs` and `suite::discover::find_existing_elsewhere` (no override exists: pass explicit directories to `ModelStore::resolve`, or use `find_existing_under`); `suite::lease::current_holder`.
++- **Returns an error:** `suite::device_id_get_or_create` (use `device_id_in`), `suite::lease::try_acquire_compat`, `ModelStore::resolve_parakeet` (`Err(String)`); `suite::paths::shared_runtime_dir` and `suite::whisper::{resolve_whisper_model, ensure_whisper_model}` (`ErrorCode::UnderTest`).
++- **Never refused:** an override variable that names a folder outside the real one, and every `*_at` / explicit-root function (`ModelStore::at_models_root`, `models_root_at`, `device_id_in`, `find_existing_under`, ...). Under test an override that points into the real `<data>/Orthic Labs` or `<data>/RightSuite` folder is refused too.
++- **Unaffected:** installed apps and `cargo run`. A store at an explicit root is simply not "the shared store" for the internal comparisons, so no test needs a variable to use `at_models_root`.
++
+ ## Wrapping this crate
+ 
+ An app that wraps the suite crate (a shared-store wrapper or a host SDK) re-exports the
+@@ -195,7 +205,7 @@ use rightkit_models::{EntitlementError, ModelStore};
+ use rightkit_models::suite::catalog::ModelSpec; // the suite's catalog spec, not the root `ModelSpec`
+ ```
+ 
+-- `ModelStore::shared(app_id)` binds the machine-wide shared store (`ORTHIC_SHARED_DIR` overrides its root); `ModelStore::at_models_root(root, app_id)`
++- `ModelStore::shared(app_id)` binds the machine-wide shared store (`RIGHT_SUITE_DIR` or `ORTHIC_SHARED_DIR` overrides its root; it panics under test without one, see "Under test"); `ModelStore::at_models_root(root, app_id)`
+   binds an explicit directory (tests, sandboxes). `with_http_client` swaps the transport.
+ - `EntitlementError` is what `try_ensure_entitled` returns. Match on it to tell "not entitled"
+   (`NotEntitled`), "back off" (`RateLimited`), "retry" (`Transport`) and "local failure" (`Install`).
+diff --git a/crates/rightkit-models/src/error.rs b/crates/rightkit-models/src/error.rs
+index 76c0e33a..02f1b393 100644
+--- a/crates/rightkit-models/src/error.rs
++++ b/crates/rightkit-models/src/error.rs
+@@ -20,6 +20,9 @@ pub enum ErrorCode {
+     NoRollback,
+     NoFiles,
+     InvalidSpec,
++    /// The process is under test and the call would have used the real per-user folder (see the
++    /// README, "Under test"). Pass an explicit root, or set `RIGHT_SUITE_DIR` to a temp directory.
++    UnderTest,
+ }
+ 
+ #[derive(Debug, Clone, Serialize)]
+diff --git a/crates/rightkit-models/src/lib.rs b/crates/rightkit-models/src/lib.rs
+index 0af174ff..bf29ff75 100644
+--- a/crates/rightkit-models/src/lib.rs
++++ b/crates/rightkit-models/src/lib.rs
+@@ -15,6 +15,7 @@ mod alias;
+ mod archive_core;
+ #[cfg(feature = "rightapps")]
+ pub mod rightapps;
++mod under_test;
+ #[cfg(feature = "rightapps")]
+ pub use rightapps::RuntimeArtifactClient;
+ pub mod archive;
+diff --git a/crates/rightkit-models/src/suite/discover.rs b/crates/rightkit-models/src/suite/discover.rs
+index da3bd705..90001654 100644
+--- a/crates/rightkit-models/src/suite/discover.rs
++++ b/crates/rightkit-models/src/suite/discover.rs
+@@ -66,15 +66,15 @@ pub struct ExistingCopy {
+     pub dir: PathBuf,
+ }
+ 
+-fn data_root() -> Option<PathBuf> {
+-    #[cfg(windows)]
+-    {
+-        dirs::data_local_dir()
+-    }
+-    #[cfg(not(windows))]
+-    {
+-        dirs::data_dir()
++/// The platform data directory other apps keep their data in; under test, the refusal.
++fn data_root(under_test: bool) -> Result<Option<PathBuf>, String> {
++    if under_test {
++        return Err(crate::under_test::default_refusal(
++            "find_existing_elsewhere()",
++            "use find_existing_under(<temp dir>, ..) with an explicit data directory instead",
++        ));
+     }
++    Ok(crate::suite::paths::data_base())
+ }
+ 
+ /// Whether `dir` holds every file `spec` loads and matches trusted catalog
+@@ -128,6 +128,30 @@ pub fn find_existing_in_sources(
+ }
+ 
+ /// First usable copy of `spec` that another installed Right Suite app keeps.
++///
++/// # Panics
++/// Under test (README, "Under test"): it searches the real per-user data folder and has no
++/// override. It returns an `Option`, so a refusal as `None` would look like "not installed" and
++/// hide the fault. Use [`find_existing_under`] with a temp directory.
+ pub fn find_existing_elsewhere(spec: &ModelSpec, legacy_window_open: bool) -> Option<ExistingCopy> {
+-    find_existing_under(&data_root()?, spec, legacy_window_open)
++    let root = crate::suite::paths::unwrap_or_panic(data_root(crate::under_test::under_test()))?;
++    find_existing_under(&root, spec, legacy_window_open)
++}
++
++#[cfg(test)]
++mod under_test_tests {
++    use super::*;
++
++    #[test]
++    fn under_test_the_data_root_is_refused() {
++        let message = data_root(true).unwrap_err();
++        assert!(message.contains("find_existing_elsewhere()"), "{message}");
++        assert!(message.contains("under test"), "{message}");
++        assert!(message.contains("find_existing_under"), "{message}");
++    }
++
++    #[test]
++    fn not_under_test_the_data_root_is_the_platform_data_directory() {
++        assert_eq!(data_root(false).unwrap(), crate::suite::paths::data_base());
++    }
+ }
+diff --git a/crates/rightkit-models/src/suite/handle.rs b/crates/rightkit-models/src/suite/handle.rs
+index e62c8e42..5843b340 100644
+--- a/crates/rightkit-models/src/suite/handle.rs
++++ b/crates/rightkit-models/src/suite/handle.rs
+@@ -134,26 +134,50 @@ impl std::fmt::Debug for ModelStore {
+ }
+ 
+ /// Parakeet copies installed by sibling Orthic apps in their own stores.
++///
++/// # Panics
++/// Under test (README, "Under test"): the directories are in the real per-user data folder and
++/// there is no override. It returns a `Vec`, so an empty result for a refusal would look like "no
++/// siblings installed" and hide the fault. Pass explicit directories to [`ModelStore::resolve`].
+ pub fn sibling_parakeet_dirs() -> Vec<PathBuf> {
+-    let base = if cfg!(windows) {
+-        dirs::data_local_dir()
+-    } else {
+-        dirs::data_dir()
+-    };
+-    base.map(|b| {
+-        ["HeardRightNext", "HeardRight"]
+-            .iter()
+-            .map(|app| b.join(app).join("models").join("parakeet-tdt-v3"))
+-            .collect()
+-    })
+-    .unwrap_or_default()
++    paths::unwrap_or_panic(try_sibling_parakeet_dirs())
++}
++
++fn try_sibling_parakeet_dirs() -> Result<Vec<PathBuf>, String> {
++    sibling_parakeet_dirs_in(crate::under_test::under_test(), paths::data_base())
++}
++
++/// [`sibling_parakeet_dirs`] over an explicit "under test" flag and data directory.
++fn sibling_parakeet_dirs_in(
++    under_test: bool,
++    base: Option<PathBuf>,
++) -> Result<Vec<PathBuf>, String> {
++    if under_test {
++        return Err(crate::under_test::default_refusal(
++            "sibling_parakeet_dirs()",
++            "pass explicit sibling directories to ModelStore::resolve instead",
++        ));
++    }
++    Ok(base
++        .map(|b| {
++            ["HeardRightNext", "HeardRight"]
++                .iter()
++                .map(|app| b.join(app).join("models").join("parakeet-tdt-v3"))
++                .collect()
++        })
++        .unwrap_or_default())
+ }
+ 
+ impl ModelStore {
+-    /// The machine-wide shared store (`ORTHIC_SHARED_DIR` overrides the root).
++    /// The machine-wide shared store (`RIGHT_SUITE_DIR` or `ORTHIC_SHARED_DIR` overrides the root).
++    ///
++    /// # Panics
++    /// Under test (README, "Under test") without a usable override, or with one that points into
++    /// the real per-user folder. It returns `Self`, so it cannot return an error without a
++    /// signature change; use [`ModelStore::at_models_root`] with a temp directory.
+     pub fn shared(app_id: impl Into<String>) -> Self {
+         Self {
+-            models_root: paths::models_root(),
++            models_root: paths::unwrap_or_panic(paths::try_models_root_for("ModelStore::shared()")),
+             app_id: app_id.into(),
+             http: None,
+         }
+@@ -207,7 +231,9 @@ impl ModelStore {
+     /// under a running app.
+     pub fn resolve(&self, spec: &ModelSpec, siblings: &[PathBuf]) -> Result<ResolvedModel, String> {
+         let status = status_at(&self.models_root, spec, VerifyMode::Size);
+-        if status.state == EntryState::Missing && self.models_root == paths::models_root() {
++        if status.state == EntryState::Missing
++            && paths::shared_models_root_opt().is_some_and(|shared| self.models_root == shared)
++        {
+             if let Some(found) = siblings
+                 .iter()
+                 .map(|d| status_in(d.clone(), spec, VerifyMode::Size))
+@@ -257,7 +283,7 @@ impl ModelStore {
+     }
+ 
+     pub fn resolve_parakeet(&self) -> Result<ResolvedModel, String> {
+-        self.resolve(&parakeet_spec(), &sibling_parakeet_dirs())
++        self.resolve(&parakeet_spec(), &try_sibling_parakeet_dirs()?)
+     }
+ 
+     /// Download an entitlement-gated add-on (verified, resumable). `bearer` is the full
+@@ -359,3 +385,29 @@ impl ModelStore {
+         }
+     }
+ }
++
++#[cfg(test)]
++mod under_test_tests {
++    use super::*;
++
++    #[test]
++    fn under_test_the_sibling_directories_are_refused_not_returned() {
++        let message = sibling_parakeet_dirs_in(true, Some(PathBuf::from("/data"))).unwrap_err();
++        assert!(message.contains("sibling_parakeet_dirs()"), "{message}");
++        assert!(message.contains("under test"), "{message}");
++        assert!(message.contains("ModelStore::resolve"), "{message}");
++    }
++
++    #[test]
++    fn not_under_test_the_sibling_directories_are_as_before() {
++        let dirs = sibling_parakeet_dirs_in(false, Some(PathBuf::from("/data"))).unwrap();
++        assert_eq!(
++            dirs,
++            vec![
++                PathBuf::from("/data/HeardRightNext/models/parakeet-tdt-v3"),
++                PathBuf::from("/data/HeardRight/models/parakeet-tdt-v3"),
++            ]
++        );
++        assert!(sibling_parakeet_dirs_in(false, None).unwrap().is_empty());
++    }
++}
+diff --git a/crates/rightkit-models/src/suite/install.rs b/crates/rightkit-models/src/suite/install.rs
+index 434d8bd6..3b92ce62 100644
+--- a/crates/rightkit-models/src/suite/install.rs
++++ b/crates/rightkit-models/src/suite/install.rs
+@@ -128,11 +128,30 @@ impl<'a> GrantSession<'a> {
+ /// Stable random per-install device id for model grants, kept in the calling
+ /// app's own data folder (`<data dir>/<app_dir>/model-device-id`, never in the
+ /// shared store).
++///
++/// Under test (README, "Under test") it returns `Err`: there is no override for the real data
++/// folder, so use [`device_id_in`] with a temp directory.
+ pub fn device_id_get_or_create(app_dir: &str) -> Result<String, String> {
+-    let dir: PathBuf = dirs::data_dir().ok_or("no app data dir")?.join(app_dir);
++    let dir = device_id_dir(app_dir, crate::under_test::under_test(), &dirs::data_dir)?;
+     device_id_in(&dir)
+ }
+ 
++/// The directory [`device_id_get_or_create`] uses, over an explicit "under test" flag and data
++/// directory (the seam the tests use).
++fn device_id_dir(
++    app_dir: &str,
++    under_test: bool,
++    data_dir: &dyn Fn() -> Option<PathBuf>,
++) -> Result<PathBuf, String> {
++    if under_test {
++        return Err(crate::under_test::default_refusal(
++            "device_id_get_or_create()",
++            "call device_id_in(<temp dir>) instead",
++        ));
++    }
++    Ok(data_dir().ok_or("no app data dir")?.join(app_dir))
++}
++
+ /// As [`device_id_get_or_create`] under an explicit directory.
+ pub fn device_id_in(dir: &Path) -> Result<String, String> {
+     let path = dir.join("model-device-id");
+@@ -244,3 +263,37 @@ fn ensure_with_grant_inner(
+         }
+     }
+ }
++
++#[cfg(test)]
++mod under_test_tests {
++    use super::*;
++
++    #[test]
++    fn under_test_the_device_id_folder_is_refused() {
++        let message =
++            device_id_dir("HeardRight", true, &|| Some(PathBuf::from("/data"))).unwrap_err();
++        assert!(message.contains("device_id_get_or_create()"), "{message}");
++        assert!(message.contains("under test"), "{message}");
++        assert!(message.contains("device_id_in"), "{message}");
++    }
++
++    #[test]
++    fn not_under_test_the_device_id_folder_is_as_before() {
++        assert_eq!(
++            device_id_dir("HeardRight", false, &|| Some(PathBuf::from("/data"))).unwrap(),
++            PathBuf::from("/data/HeardRight")
++        );
++        assert_eq!(
++            device_id_dir("HeardRight", false, &|| None).unwrap_err(),
++            "no app data dir"
++        );
++    }
++
++    #[test]
++    fn the_explicit_directory_form_still_writes_and_rereads_an_id() {
++        let tmp = tempfile::tempdir().unwrap();
++        let first = device_id_in(tmp.path()).unwrap();
++        assert_eq!(first.len(), 32);
++        assert_eq!(device_id_in(tmp.path()).unwrap(), first);
++    }
++}
+diff --git a/crates/rightkit-models/src/suite/lease.rs b/crates/rightkit-models/src/suite/lease.rs
+index 25fb944d..7dc3b42d 100644
+--- a/crates/rightkit-models/src/suite/lease.rs
++++ b/crates/rightkit-models/src/suite/lease.rs
+@@ -50,7 +50,12 @@ impl Drop for ModelLease {
+ }
+ 
+ fn lease_path(family: &str) -> PathBuf {
+-    lease_path_at(&crate::suite::paths::suite_root(), family)
++    lease_path_at(
++        &crate::suite::paths::unwrap_or_panic(crate::suite::paths::try_suite_root_for(
++            "lease::current_holder()",
++        )),
++        family,
++    )
+ }
+ 
+ fn lease_path_at(root: &Path, family: &str) -> PathBuf {
+@@ -67,6 +72,10 @@ fn ensure_dir(path: &Path) -> Result<(), String> {
+ }
+ 
+ /// Who holds `family` right now, if anyone (best effort, for status text).
++///
++/// # Panics
++/// Under test (README, "Under test") without a usable `RIGHT_SUITE_DIR` or `ORTHIC_SHARED_DIR`;
++/// use [`current_holder_at_root`].
+ pub fn current_holder(family: &str) -> Option<Holder> {
+     holder_at(&lease_path(family))
+ }
+@@ -138,9 +147,12 @@ pub fn try_acquire_families_at_roots(
+ }
+ 
+ /// Compatibility lease guarding current Orthic Labs root plus legacy root.
++///
++/// Under test (README, "Under test") it returns `Err` unless `RIGHT_SUITE_DIR` names a folder
++/// outside the real per-user folder; the lease files are never taken in the real folder.
+ pub fn try_acquire_compat(family: &str, app: &str) -> Result<Option<ModelLease>, String> {
+-    let current = crate::suite::paths::suite_root();
+-    let legacy = crate::suite::paths::legacy_suite_root();
++    let current = crate::suite::paths::try_suite_root_for("lease::try_acquire_compat()")?;
++    let legacy = crate::suite::paths::try_legacy_suite_root_for("lease::try_acquire_compat()")?;
+     try_acquire_at_roots(&[&current, &legacy], family, app)
+ }
+ 
+@@ -168,10 +180,14 @@ pub fn acquire_bounded_at_root(
+ /// Attempt to guard model GC. Unknown runtime lock files block conservatively;
+ /// returned guard remains held through the caller's deletion.
+ pub fn try_acquire_for_gc(root: &Path, app: &str) -> Result<Option<ModelLease>, String> {
+-    let current = crate::suite::paths::suite_root();
+-    let legacy = crate::suite::paths::legacy_suite_root();
+-    if root == current && legacy != current {
+-        return try_acquire_for_gc_at_roots(&[root, &legacy], app);
++    // Under test without an override the shared roots cannot be resolved; `root` is then simply
++    // an explicit root and gets no legacy companion.
++    let current = crate::suite::paths::try_suite_root_for("").ok();
++    let legacy = crate::suite::paths::try_legacy_suite_root_for("").ok();
++    if let (Some(current), Some(legacy)) = (current, legacy) {
++        if root == current && legacy != current {
++            return try_acquire_for_gc_at_roots(&[root, &legacy], app);
++        }
+     }
+     try_acquire_for_gc_at_roots(&[root], app)
+ }
+diff --git a/crates/rightkit-models/src/suite/manifest.rs b/crates/rightkit-models/src/suite/manifest.rs
+index a62fa7af..1f99e1a1 100644
+--- a/crates/rightkit-models/src/suite/manifest.rs
++++ b/crates/rightkit-models/src/suite/manifest.rs
+@@ -327,11 +327,15 @@ pub fn readiness_report_at(
+     use crate::suite::manifest::{self, FileCheck, FileState};
+     let trusted = spec.expected_manifest();
+     let canonical = std::fs::canonicalize(dir).unwrap_or_else(|_| dir.to_path_buf());
++    // Under test without an override neither shared root resolves, so nothing counts as managed.
+     let managed = [
+-        crate::suite::paths::models_root(),
+-        crate::suite::paths::legacy_suite_root().join("models"),
++        crate::suite::paths::shared_models_root_opt(),
++        crate::suite::paths::try_legacy_suite_root_for("")
++            .ok()
++            .map(|root| root.join("models")),
+     ]
+     .iter()
++    .flatten()
+     .any(|root| {
+         dir.starts_with(root)
+             || canonical.starts_with(std::fs::canonicalize(root).unwrap_or_else(|_| root.clone()))
+diff --git a/crates/rightkit-models/src/suite/paths.rs b/crates/rightkit-models/src/suite/paths.rs
+index 3c4f022d..f1ea7682 100644
+--- a/crates/rightkit-models/src/suite/paths.rs
++++ b/crates/rightkit-models/src/suite/paths.rs
+@@ -15,8 +15,16 @@
+ //! `RIGHT_SUITE_DIR` overrides the root (dev/test). It is read on every call —
+ //! never cached — so tests and dev shells can point the store at a temp dir
+ //! without leaking state across the process.
++//!
++//! **Under test** (README, "Under test") the real per-user folder is unreachable by default:
++//! [`suite_root`], [`legacy_suite_root`], [`models_root`] and [`tools_root`] panic unless
++//! `RIGHT_SUITE_DIR` (or, for all but the legacy root, `ORTHIC_SHARED_DIR`) names a folder, and
++//! they refuse a folder that lies inside the real `Orthic Labs` or `RightSuite` folder. The
++//! `*_at` functions take an explicit root and are unaffected.
+ 
++use crate::under_test;
+ use serde::{Deserialize, Serialize};
++use std::ffi::OsString;
+ use std::path::{Path, PathBuf};
+ 
+ /// Env var that overrides the suite store root. Read live (not OnceLock) so
+@@ -65,76 +73,185 @@ pub fn version_within(app_version: &str, max_version: &str) -> bool {
+         .unwrap_or(false)
+ }
+ 
+-/// Suite-wide root directory shared by all Orthic Labs apps.
+-pub fn suite_root() -> PathBuf {
+-    if let Some(dir) = std::env::var_os(SUITE_ROOT_ENV) {
+-        let dir = PathBuf::from(dir);
+-        if !dir.as_os_str().is_empty() {
+-            return dir;
+-        }
++/// The platform data directory the real per-user folders live in (`%LOCALAPPDATA%` on Windows,
++/// the user's data directory elsewhere), from the `dirs` crate.
++pub(crate) fn data_base() -> Option<PathBuf> {
++    #[cfg(windows)]
++    {
++        dirs::data_local_dir()
+     }
+-    if let Some(dir) = std::env::var_os(ORTHIC_SHARED_DIR_ENV) {
+-        let dir = PathBuf::from(dir);
+-        if !dir.as_os_str().is_empty() {
+-            return dir;
+-        }
++    #[cfg(not(windows))]
++    {
++        dirs::data_dir()
+     }
+-    default_suite_root()
+ }
+ 
+-/// Previous Right Suite registry root retained during compatibility window.
+-pub fn legacy_suite_root() -> PathBuf {
+-    if let Some(dir) = std::env::var_os(SUITE_ROOT_ENV) {
+-        let dir = PathBuf::from(dir);
+-        if !dir.as_os_str().is_empty() {
+-            return dir;
++fn fallback_base() -> PathBuf {
++    std::env::temp_dir().join("Orthic Labs")
++}
++
++fn default_suite_root_from(base: Option<PathBuf>) -> PathBuf {
++    base.unwrap_or_else(fallback_base)
++        .join("Orthic Labs")
++        .join("shared")
++}
++
++fn default_legacy_suite_root_from(base: Option<PathBuf>) -> PathBuf {
++    base.unwrap_or_else(fallback_base).join("RightSuite")
++}
++
++/// The real per-user folders a test must not name: `<data>/Orthic Labs` and `<data>/RightSuite`.
++fn protected_from(base: Option<PathBuf>) -> Vec<PathBuf> {
++    match base {
++        Some(base) => vec![base.join("Orthic Labs"), base.join("RightSuite")],
++        None => Vec::new(),
++    }
++}
++
++fn process_env(key: &str) -> Option<OsString> {
++    std::env::var_os(key)
++}
++
++fn non_empty(value: Option<OsString>) -> Option<PathBuf> {
++    value
++        .map(PathBuf::from)
++        .filter(|p| !p.as_os_str().is_empty())
++}
++
++/// Under test, refuse an override that lies inside the real per-user folders.
++fn checked_override(
++    resolver: &str,
++    var: &str,
++    dir: PathBuf,
++    under_test: bool,
++    base: &dyn Fn() -> Option<PathBuf>,
++) -> Result<PathBuf, String> {
++    if under_test {
++        let protected = protected_from(base());
++        if let Some(real) = under_test::points_into(&dir, &protected) {
++            return Err(under_test::override_refusal(
++                &format!("{resolver} (via {var})"),
++                &dir,
++                real,
++            ));
+         }
+     }
+-    default_legacy_suite_root()
++    Ok(dir)
+ }
+ 
+-fn default_legacy_suite_root() -> PathBuf {
+-    #[cfg(windows)]
+-    {
+-        dirs::data_local_dir()
+-            .unwrap_or_else(|| std::env::temp_dir().join("Orthic Labs"))
+-            .join("RightSuite")
++/// [`suite_root`] over an explicit environment, "under test" flag and data directory. The seam
++/// the tests use; the public functions pass the real ones.
++fn suite_root_in(
++    resolver: &str,
++    env: &dyn Fn(&str) -> Option<OsString>,
++    under_test: bool,
++    base: &dyn Fn() -> Option<PathBuf>,
++) -> Result<PathBuf, String> {
++    for var in [SUITE_ROOT_ENV, ORTHIC_SHARED_DIR_ENV] {
++        if let Some(dir) = non_empty(env(var)) {
++            return checked_override(resolver, var, dir, under_test, base);
++        }
+     }
+-    #[cfg(not(windows))]
+-    {
+-        dirs::data_dir()
+-            .unwrap_or_else(|| std::env::temp_dir().join("Orthic Labs"))
+-            .join("RightSuite")
++    if under_test {
++        return Err(under_test::default_refusal(
++            resolver,
++            "set RIGHT_SUITE_DIR (or ORTHIC_SHARED_DIR) to a temp directory, or use the *_at \
++             function with an explicit root",
++        ));
+     }
++    Ok(default_suite_root_from(base()))
+ }
+ 
+-fn default_suite_root() -> PathBuf {
+-    #[cfg(windows)]
+-    {
+-        dirs::data_local_dir()
+-            .unwrap_or_else(|| std::env::temp_dir().join("Orthic Labs"))
+-            .join("Orthic Labs")
+-            .join("shared")
++/// As [`suite_root_in`] for the legacy root, which only `RIGHT_SUITE_DIR` overrides.
++fn legacy_suite_root_in(
++    resolver: &str,
++    env: &dyn Fn(&str) -> Option<OsString>,
++    under_test: bool,
++    base: &dyn Fn() -> Option<PathBuf>,
++) -> Result<PathBuf, String> {
++    if let Some(dir) = non_empty(env(SUITE_ROOT_ENV)) {
++        return checked_override(resolver, SUITE_ROOT_ENV, dir, under_test, base);
+     }
+-    #[cfg(target_os = "macos")]
+-    {
+-        dirs::data_dir()
+-            .unwrap_or_else(|| std::env::temp_dir().join("Orthic Labs"))
+-            .join("Orthic Labs")
+-            .join("shared")
++    if under_test {
++        return Err(under_test::default_refusal(
++            resolver,
++            "set RIGHT_SUITE_DIR to a temp directory (ORTHIC_SHARED_DIR does not move the legacy \
++             root), or use the *_at function with an explicit root",
++        ));
+     }
+-    #[cfg(not(any(windows, target_os = "macos")))]
+-    {
+-        dirs::data_dir()
+-            .unwrap_or_else(|| std::env::temp_dir().join("Orthic Labs"))
+-            .join("Orthic Labs")
+-            .join("shared")
++    Ok(default_legacy_suite_root_from(base()))
++}
++
++/// [`suite_root`] returning the refusal instead of panicking; `resolver` names the public
++/// function the caller used.
++pub(crate) fn try_suite_root_for(resolver: &str) -> Result<PathBuf, String> {
++    suite_root_in(resolver, &process_env, under_test::under_test(), &data_base)
++}
++
++/// [`legacy_suite_root`] returning the refusal instead of panicking.
++pub(crate) fn try_legacy_suite_root_for(resolver: &str) -> Result<PathBuf, String> {
++    legacy_suite_root_in(resolver, &process_env, under_test::under_test(), &data_base)
++}
++
++pub(crate) fn try_models_root_for(resolver: &str) -> Result<PathBuf, String> {
++    try_suite_root_for(resolver).map(|root| root.join("models"))
++}
++
++pub(crate) fn try_tools_root_for(resolver: &str) -> Result<PathBuf, String> {
++    try_suite_root_for(resolver).map(|root| root.join("tools"))
++}
++
++/// A refusal as the crate's typed error.
++pub(crate) fn typed(message: String) -> crate::error::Error {
++    crate::error::Error::new(crate::error::ErrorCode::UnderTest, message)
++}
++
++/// Turn a refusal into the panic that an infallible resolver raises.
++pub(crate) fn unwrap_or_panic<T>(result: Result<T, String>) -> T {
++    result.unwrap_or_else(|message| panic!("{message}"))
++}
++
++/// The machine-wide models root, when this process may resolve it; `None` under test without a
++/// usable override. For "is this store the shared one?" comparisons, which must not panic: a store
++/// at an explicit root is simply not the shared one.
++pub(crate) fn shared_models_root_opt() -> Option<PathBuf> {
++    try_models_root_for("").ok()
++}
++
++/// The legacy suite root when `models_root` is the machine-wide models root and the legacy root
++/// can be resolved; `None` otherwise (an explicit root, or under test without an override).
++pub(crate) fn legacy_suite_root_if_shared(models_root: &Path) -> Option<PathBuf> {
++    if models_root != shared_models_root_opt()? {
++        return None;
+     }
++    try_legacy_suite_root_for("").ok()
++}
++
++/// Suite-wide root directory shared by all Orthic Labs apps.
++///
++/// # Panics
++/// Under test (README, "Under test") when neither `RIGHT_SUITE_DIR` nor `ORTHIC_SHARED_DIR` names a
++/// folder, or when the one that does points into the real per-user folder. The function cannot
++/// return an error without a signature change, and a silent temp folder would hide the fault.
++pub fn suite_root() -> PathBuf {
++    unwrap_or_panic(try_suite_root_for("suite_root()"))
++}
++
++/// Previous Right Suite registry root retained during compatibility window.
++///
++/// # Panics
++/// Under test when `RIGHT_SUITE_DIR` is not set to a folder outside the real per-user folder
++/// (`ORTHIC_SHARED_DIR` does not move this root); see [`suite_root`].
++pub fn legacy_suite_root() -> PathBuf {
++    unwrap_or_panic(try_legacy_suite_root_for("legacy_suite_root()"))
+ }
+ 
+ /// `<root>/models` — shared model store.
++///
++/// # Panics
++/// As [`suite_root`].
+ pub fn models_root() -> PathBuf {
+-    suite_root().join("models")
++    unwrap_or_panic(try_models_root_for("models_root()"))
+ }
+ 
+ /// `<root>/models` under an explicit root (test/dev injection point).
+@@ -148,8 +265,11 @@ pub fn model_refs_dir_at(models_root: &Path) -> PathBuf {
+ }
+ 
+ /// `<root>/tools` — shared tools store (yt-dlp, deno, …).
++///
++/// # Panics
++/// As [`suite_root`].
+ pub fn tools_root() -> PathBuf {
+-    suite_root().join("tools")
++    unwrap_or_panic(try_tools_root_for("tools_root()"))
+ }
+ 
+ /// `<root>/tools` under an explicit root.
+@@ -176,8 +296,12 @@ pub fn tool_dir_at(tools_root: &Path, tool: &str, version: &str) -> PathBuf {
+ /// (`<root>/tools/<kind>/<version>`). `kind` and `version` must each be a
+ /// single safe path segment (model-id rules: ASCII letters, digits, `.`, `_`,
+ /// `-`; no separators, no `..`; `refs` is reserved), else `InvalidSpec`.
++///
++/// Under test (README, "Under test") without a usable `RIGHT_SUITE_DIR` or `ORTHIC_SHARED_DIR` it
++/// returns `ErrorCode::UnderTest`; use [`shared_runtime_dir_at`] with an explicit root.
+ pub fn shared_runtime_dir(kind: &str, version: &str) -> crate::error::Result<PathBuf> {
+-    shared_runtime_dir_at(&tools_root(), kind, version)
++    let tools = try_tools_root_for("shared_runtime_dir()").map_err(typed)?;
++    shared_runtime_dir_at(&tools, kind, version)
+ }
+ 
+ /// As [`shared_runtime_dir`], under an explicit tools root.
+@@ -209,3 +333,231 @@ pub(crate) fn parse_shared_runtime(
+ pub fn manifest_path(entry_dir: &Path) -> PathBuf {
+     entry_dir.join("manifest.json")
+ }
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++    use std::collections::HashMap;
++
++    /// An environment lookup over a fixed table; empty values are returned as set (the resolver
++    /// itself ignores them).
++    fn env_of(pairs: &[(&str, &Path)]) -> impl Fn(&str) -> Option<OsString> {
++        let table: HashMap<String, OsString> = pairs
++            .iter()
++            .map(|(k, v)| (k.to_string(), v.as_os_str().to_owned()))
++            .collect();
++        move |key| table.get(key).cloned()
++    }
++
++    fn base_in(tmp: &Path) -> PathBuf {
++        tmp.join("appdata")
++    }
++
++    fn real_suite(tmp: &Path) -> PathBuf {
++        base_in(tmp).join("Orthic Labs").join("shared")
++    }
++
++    #[test]
++    fn under_test_without_an_override_the_default_is_refused_naming_the_resolver_and_the_variable()
++    {
++        let tmp = tempfile::tempdir().unwrap();
++        let base = base_in(tmp.path());
++        for resolver in ["suite_root()", "models_root()", "ModelStore::shared()"] {
++            let message =
++                suite_root_in(resolver, &env_of(&[]), true, &|| Some(base.clone())).unwrap_err();
++            assert!(message.contains(resolver), "{message}");
++            assert!(message.contains("under test"), "{message}");
++            assert!(message.contains("RIGHT_SUITE_DIR"), "{message}");
++        }
++        // An empty override is no override.
++        let empty = [(SUITE_ROOT_ENV, Path::new(""))];
++        assert!(suite_root_in("suite_root()", &env_of(&empty), true, &|| None).is_err());
++    }
++
++    #[test]
++    fn under_test_the_documented_override_variables_win_in_their_order() {
++        let tmp = tempfile::tempdir().unwrap();
++        let (a, b) = (tmp.path().join("a"), tmp.path().join("b"));
++        let base = || Some(base_in(tmp.path()));
++        let only_shared = [(ORTHIC_SHARED_DIR_ENV, a.as_path())];
++        assert_eq!(
++            suite_root_in("suite_root()", &env_of(&only_shared), true, &base).unwrap(),
++            a
++        );
++        let only_suite = [(SUITE_ROOT_ENV, b.as_path())];
++        assert_eq!(
++            suite_root_in("suite_root()", &env_of(&only_suite), true, &base).unwrap(),
++            b
++        );
++        let both = [
++            (ORTHIC_SHARED_DIR_ENV, a.as_path()),
++            (SUITE_ROOT_ENV, b.as_path()),
++        ];
++        assert_eq!(
++            suite_root_in("suite_root()", &env_of(&both), true, &base).unwrap(),
++            b
++        );
++        assert_eq!(
++            legacy_suite_root_in("legacy_suite_root()", &env_of(&both), true, &base).unwrap(),
++            b
++        );
++    }
++
++    #[test]
++    fn under_test_the_legacy_root_is_refused_when_only_orthic_shared_dir_is_set() {
++        let tmp = tempfile::tempdir().unwrap();
++        let a = tmp.path().join("a");
++        let only_shared = [(ORTHIC_SHARED_DIR_ENV, a.as_path())];
++        let message =
++            legacy_suite_root_in("legacy_suite_root()", &env_of(&only_shared), true, &|| {
++                Some(base_in(tmp.path()))
++            })
++            .unwrap_err();
++        assert!(message.contains("legacy_suite_root()"), "{message}");
++        assert!(message.contains("RIGHT_SUITE_DIR"), "{message}");
++        assert!(message.contains("under test"), "{message}");
++    }
++
++    #[test]
++    fn under_test_an_override_into_the_real_folders_is_refused_and_a_sibling_is_not() {
++        let tmp = tempfile::tempdir().unwrap();
++        let base = base_in(tmp.path());
++        let inside = [
++            real_suite(tmp.path()),
++            base.join("Orthic Labs"),
++            base.join("Orthic Labs").join("shared").join("models"),
++            base.join("RightSuite"),
++            base.join("RightSuite").join("models"),
++        ];
++        for var in [SUITE_ROOT_ENV, ORTHIC_SHARED_DIR_ENV] {
++            for path in &inside {
++                let pairs = [(var, path.as_path())];
++                let message = suite_root_in("suite_root()", &env_of(&pairs), true, &|| {
++                    Some(base.clone())
++                })
++                .unwrap_err();
++                assert!(message.contains("real per-user folder"), "{var}: {message}");
++                assert!(message.contains("under test"), "{var}: {message}");
++            }
++        }
++        for path in &inside {
++            let pairs = [(SUITE_ROOT_ENV, path.as_path())];
++            assert!(
++                legacy_suite_root_in("legacy_suite_root()", &env_of(&pairs), true, &|| Some(
++                    base.clone()
++                ))
++                .is_err()
++            );
++        }
++        // Next to the real folders, or in a different data directory, is fine.
++        for ok in [
++            base.join("Orthic Labs Test"),
++            base.join("RightSuiteTest"),
++            tmp.path().join("elsewhere").join("Orthic Labs"),
++        ] {
++            let pairs = [(SUITE_ROOT_ENV, ok.as_path())];
++            assert_eq!(
++                suite_root_in("suite_root()", &env_of(&pairs), true, &|| Some(
++                    base.clone()
++                ))
++                .unwrap(),
++                ok
++            );
++        }
++        // No data directory known: nothing to protect, an override still works.
++        let pairs = [(SUITE_ROOT_ENV, inside[0].as_path())];
++        assert!(suite_root_in("suite_root()", &env_of(&pairs), true, &|| None).is_ok());
++    }
++
++    #[cfg(unix)]
++    #[test]
++    fn under_test_a_symlink_into_the_real_folder_is_refused() {
++        let tmp = tempfile::tempdir().unwrap();
++        let base = base_in(tmp.path());
++        std::fs::create_dir_all(base.join("Orthic Labs")).unwrap();
++        let link = tmp.path().join("innocent");
++        std::os::unix::fs::symlink(base.join("Orthic Labs"), &link).unwrap();
++        let target = link.join("shared");
++        let pairs = [(SUITE_ROOT_ENV, target.as_path())];
++        assert!(
++            suite_root_in("suite_root()", &env_of(&pairs), true, &|| Some(
++                base.clone()
++            ))
++            .is_err()
++        );
++    }
++
++    #[test]
++    fn not_under_test_behaviour_is_exactly_as_before() {
++        let tmp = tempfile::tempdir().unwrap();
++        let base = base_in(tmp.path());
++        let base_fn = || Some(base.clone());
++        // The real default, the legacy default and the layout under them.
++        assert_eq!(
++            suite_root_in("suite_root()", &env_of(&[]), false, &base_fn).unwrap(),
++            real_suite(tmp.path())
++        );
++        assert_eq!(
++            legacy_suite_root_in("legacy_suite_root()", &env_of(&[]), false, &base_fn).unwrap(),
++            base.join("RightSuite")
++        );
++        // The unusable-data-directory fallback is unchanged.
++        assert_eq!(
++            suite_root_in("suite_root()", &env_of(&[]), false, &|| None).unwrap(),
++            std::env::temp_dir()
++                .join("Orthic Labs")
++                .join("Orthic Labs")
++                .join("shared")
++        );
++        // Overrides are taken as given, even into the real folder.
++        let real = real_suite(tmp.path());
++        let pairs = [(ORTHIC_SHARED_DIR_ENV, real.as_path())];
++        assert_eq!(
++            suite_root_in("suite_root()", &env_of(&pairs), false, &base_fn).unwrap(),
++            real
++        );
++        // ORTHIC_SHARED_DIR still does not move the legacy root.
++        assert_eq!(
++            legacy_suite_root_in("legacy_suite_root()", &env_of(&pairs), false, &base_fn).unwrap(),
++            base.join("RightSuite")
++        );
++        // The data directory the default derives from is the platform one.
++        #[cfg(windows)]
++        assert_eq!(data_base(), dirs::data_local_dir());
++        #[cfg(not(windows))]
++        assert_eq!(data_base(), dirs::data_dir());
++    }
++
++    /// This test binary lives in `target/<profile>/deps`, so the public resolvers, wired to the
++    /// real process, are under test: they refuse unless the developer's own environment names an
++    /// override.
++    #[test]
++    fn the_public_resolvers_refuse_the_real_default_in_this_test_binary() {
++        assert!(under_test::under_test());
++        let set = |var: &str| non_empty(std::env::var_os(var)).is_some();
++        if set(SUITE_ROOT_ENV) || set(ORTHIC_SHARED_DIR_ENV) {
++            return;
++        }
++        assert!(try_suite_root_for("suite_root()").is_err());
++        assert!(try_models_root_for("models_root()").is_err());
++        assert!(try_tools_root_for("tools_root()").is_err());
++        assert!(shared_models_root_opt().is_none());
++        // An explicit root is "not the shared one", not a panic.
++        assert!(legacy_suite_root_if_shared(Path::new("/some/explicit/models")).is_none());
++        let panic = std::panic::catch_unwind(suite_root).unwrap_err();
++        let message = panic
++            .downcast_ref::<String>()
++            .cloned()
++            .or_else(|| panic.downcast_ref::<&str>().map(|s| s.to_string()))
++            .unwrap();
++        assert!(message.contains("suite_root()"), "{message}");
++        assert!(message.contains("under test"), "{message}");
++        assert!(std::panic::catch_unwind(models_root).is_err());
++        assert!(std::panic::catch_unwind(tools_root).is_err());
++        let error = shared_runtime_dir("onnxruntime", "1.20.1").unwrap_err();
++        assert_eq!(error.code, crate::error::ErrorCode::UnderTest);
++        // The `_at` forms take an explicit root and are unaffected.
++        let tmp = tempfile::tempdir().unwrap();
++        assert!(shared_runtime_dir_at(&tools_root_at(tmp.path()), "onnxruntime", "1.20.1").is_ok());
++    }
++}
+diff --git a/crates/rightkit-models/src/suite/store.rs b/crates/rightkit-models/src/suite/store.rs
+index d9e893e6..277fcf5c 100644
+--- a/crates/rightkit-models/src/suite/store.rs
++++ b/crates/rightkit-models/src/suite/store.rs
+@@ -283,10 +283,11 @@ pub(crate) fn ensure_ready_recorded(
+     // registration so GC cannot delete a ready entry between those steps.
+     let refs_dir = paths::model_refs_dir_at(models_root);
+     let mut ref_dirs = vec![refs_dir.clone()];
+-    let current_models = paths::models_root();
+-    let legacy_models = paths::legacy_suite_root().join("models");
+-    if models_root == current_models && legacy_models != *models_root {
+-        ref_dirs.push(paths::model_refs_dir_at(&legacy_models));
++    if let Some(legacy) = paths::legacy_suite_root_if_shared(models_root) {
++        let legacy_models = legacy.join("models");
++        if legacy_models != *models_root {
++            ref_dirs.push(paths::model_refs_dir_at(&legacy_models));
++        }
+     }
+     let ref_dir_refs: Vec<&Path> = ref_dirs.iter().map(PathBuf::as_path).collect();
+     let (_ref_guard_paths, _refs_guards) = refs::acquire_registries(&ref_dir_refs)?;
+@@ -661,8 +662,7 @@ pub fn migrate_source_checked(
+     let refs_dir = paths::model_refs_dir_at(models_root);
+     let mut ref_paths = vec![refs_dir.clone()];
+     let mut lease_root_paths = vec![destination_root.to_path_buf()];
+-    if models_root == paths::models_root() {
+-        let legacy = paths::legacy_suite_root();
++    if let Some(legacy) = paths::legacy_suite_root_if_shared(models_root) {
+         ref_paths.push(legacy.join("models/refs"));
+         lease_root_paths.push(legacy);
+     }
+@@ -1360,10 +1360,11 @@ pub fn prune_unref_entries_with(
+ ) -> Result<Vec<String>, String> {
+     let refs_dir = paths::model_refs_dir_at(models_root);
+     let mut ref_dirs = vec![refs_dir.clone()];
+-    let current_models = paths::models_root();
+-    let legacy_models = paths::legacy_suite_root().join("models");
+-    if models_root == current_models && legacy_models != *models_root {
+-        ref_dirs.push(paths::model_refs_dir_at(&legacy_models));
++    if let Some(legacy) = paths::legacy_suite_root_if_shared(models_root) {
++        let legacy_models = legacy.join("models");
++        if legacy_models != *models_root {
++            ref_dirs.push(paths::model_refs_dir_at(&legacy_models));
++        }
+     }
+     let ref_dir_refs: Vec<&Path> = ref_dirs.iter().map(PathBuf::as_path).collect();
+     let (_guard_paths, _refs_guards) = refs::acquire_registries(&ref_dir_refs)?;
+diff --git a/crates/rightkit-models/src/suite/whisper.rs b/crates/rightkit-models/src/suite/whisper.rs
+index 2d477ab7..b6fd9599 100644
+--- a/crates/rightkit-models/src/suite/whisper.rs
++++ b/crates/rightkit-models/src/suite/whisper.rs
+@@ -33,8 +33,12 @@ pub enum WhisperKind {
+ }
+ 
+ /// Path to the verified ggml model file in the shared store (size-depth check).
++///
++/// Under test (README, "Under test") without a usable `RIGHT_SUITE_DIR` or `ORTHIC_SHARED_DIR` it
++/// returns `ErrorCode::UnderTest`; use [`resolve_whisper_model_at`].
+ pub fn resolve_whisper_model(kind: WhisperKind) -> Result<PathBuf> {
+-    resolve_whisper_model_at(&paths::models_root(), kind)
++    let root = paths::try_models_root_for("resolve_whisper_model()").map_err(paths::typed)?;
++    resolve_whisper_model_at(&root, kind)
+ }
+ 
+ /// As [`resolve_whisper_model`], under an explicit `models` root.
+@@ -86,14 +90,8 @@ pub fn ensure_whisper_model(
+     cancelled: &dyn Fn() -> bool,
+     progress: impl FnMut(Progress),
+ ) -> Result<PathBuf> {
+-    ensure_whisper_model_at(
+-        &paths::models_root(),
+-        kind,
+-        app_id,
+-        bearer,
+-        cancelled,
+-        progress,
+-    )
++    let root = paths::try_models_root_for("ensure_whisper_model()").map_err(paths::typed)?;
++    ensure_whisper_model_at(&root, kind, app_id, bearer, cancelled, progress)
+ }
+ 
+ /// As [`ensure_whisper_model`], under an explicit `models` root.
+diff --git a/crates/rightkit-models/src/under_test.rs b/crates/rightkit-models/src/under_test.rs
+new file mode 100644
+index 00000000..16f00ecd
+--- /dev/null
++++ b/crates/rightkit-models/src/under_test.rs
+@@ -0,0 +1,299 @@
++//! "Is this process a test?" and the rule that keeps a test away from a real user's folders.
++//!
++//! A resolver that would hand back the real per-user folder by default must not do so while the
++//! process is under test; see the README section "Under test". This file is duplicated, by
++//! design, in `rightkit-service` (neither crate depends on the other for it); keep the two
++//! identical below this header.
++//!
++//! A process is under test when
++//!
++//! * the environment variable [`UNDER_TEST_ENV`] (`RIGHTKIT_UNDER_TEST`) is set to a non-empty
++//!   value other than `0`, or
++//! * its executable sits directly in a Cargo `deps` or `examples` directory whose parent chain
++//!   looks like a Cargo target profile ([`exe_is_cargo_test_binary`]).
++//!
++//! The second rule cannot be switched off: `RIGHTKIT_UNDER_TEST=0` only fails to switch the first
++//! one on. The program in `<profile>/<exe>` itself (`cargo run`, a dev build) is not a test.
++
++use std::ffi::OsStr;
++use std::path::{Component, Path, PathBuf};
++use std::sync::OnceLock;
++
++/// Set to any non-empty value other than `0` to mark a process as a test run.
++pub(crate) const UNDER_TEST_ENV: &str = "RIGHTKIT_UNDER_TEST";
++
++/// Whether an environment value marks the process as a test: non-empty after trimming, not `0`.
++pub(crate) fn env_marks_under_test(value: Option<&OsStr>) -> bool {
++    value.is_some_and(|v| {
++        let v = v.to_string_lossy();
++        let v = v.trim();
++        !v.is_empty() && v != "0"
++    })
++}
++
++/// Whether `exe` is a Cargo-built test, bench or example binary, judged by its path alone.
++///
++/// Pure and platform-independent: `/` and `\` both separate segments, so a Windows path is
++/// judged the same way on every host. The shapes that count:
++///
++/// * `<dir>/<debug|release>/deps/<exe>` and `<dir>/<debug|release>/examples/<exe>`, where `<dir>`
++///   is the target directory (any name, `CARGO_TARGET_DIR` may be anything) or a target triple
++///   under it;
++/// * the same with a custom profile name, when the directory above the profile is named `target`
++///   or is a target triple directly below one named `target`.
++///
++/// Not a test: `<profile>/<exe>` itself (`cargo run`), an installed app, and any path that only
++/// contains the word `deps` or `examples` somewhere other than directly above the executable.
++pub(crate) fn exe_is_cargo_test_binary(exe: &Path) -> bool {
++    let text = exe.to_string_lossy();
++    let parts: Vec<&str> = text.split(['/', '\\']).filter(|p| !p.is_empty()).collect();
++    let n = parts.len();
++    // At least `<target-dir>/<profile>/deps/<exe>`.
++    if n < 4 {
++        return false;
++    }
++    let holder = parts[n - 2];
++    if !(holder.eq_ignore_ascii_case("deps") || holder.eq_ignore_ascii_case("examples")) {
++        return false;
++    }
++    let profile = parts[n - 3];
++    if profile.eq_ignore_ascii_case("debug") || profile.eq_ignore_ascii_case("release") {
++        return true;
++    }
++    // A custom profile directory: only under a directory literally named `target`, directly or
++    // below one target triple.
++    let above = parts[n - 4];
++    if above.eq_ignore_ascii_case("target") {
++        return true;
++    }
++    n >= 5 && above.contains('-') && parts[n - 5].eq_ignore_ascii_case("target")
++}
++
++/// Whether this process is under test: [`UNDER_TEST_ENV`] now, or its own executable's path.
++pub(crate) fn under_test() -> bool {
++    if env_marks_under_test(std::env::var_os(UNDER_TEST_ENV).as_deref()) {
++        return true;
++    }
++    static EXE_IS_TEST: OnceLock<bool> = OnceLock::new();
++    *EXE_IS_TEST.get_or_init(|| {
++        std::env::current_exe()
++            .map(|exe| exe_is_cargo_test_binary(&exe))
++            .unwrap_or(false)
++    })
++}
++
++const WHY: &str = "this process is under test (RIGHTKIT_UNDER_TEST is set, or the executable is a \
++cargo test, bench or example binary), and no test may read or write a real user's data";
++
++/// The message for a resolver that would return the real per-user folder by default.
++pub(crate) fn default_refusal(resolver: &str, remedy: &str) -> String {
++    format!("{resolver} would use the real per-user folder, but {WHY}; {remedy}")
++}
++
++/// The message for an explicit path that points into the real per-user folder.
++pub(crate) fn override_refusal(resolver: &str, path: &Path, real: &Path) -> String {
++    format!(
++        "{resolver} was given {}, which is inside the real per-user folder {}, but {WHY}; point it at a temp directory",
++        path.display(),
++        real.display()
++    )
++}
++
++/// The protected folder that `candidate` is, or lies inside, if any. Canonicalised paths are
++/// compared where they exist (the deepest existing ancestor is canonicalised and the rest
++/// appended), else lexically.
++pub(crate) fn points_into<'a>(candidate: &Path, protected: &'a [PathBuf]) -> Option<&'a PathBuf> {
++    let candidate = components_of(&normalize(candidate));
++    protected
++        .iter()
++        .find(|p| candidate.starts_with(&components_of(&normalize(p))))
++}
++
++/// Path components as comparable strings; case-folded where the file system usually is.
++fn components_of(path: &Path) -> Vec<String> {
++    let fold = cfg!(any(windows, target_os = "macos"));
++    path.components()
++        .map(|c| {
++            let s = c.as_os_str().to_string_lossy().into_owned();
++            if fold {
++                s.to_lowercase()
++            } else {
++                s
++            }
++        })
++        .collect()
++}
++
++/// `.` and `..` removed lexically.
++fn lexical_clean(path: &Path) -> PathBuf {
++    let mut out = PathBuf::new();
++    for component in path.components() {
++        match component {
++            Component::CurDir => {}
++            Component::ParentDir => {
++                if !out.pop() {
++                    out.push("..");
++                }
++            }
++            other => out.push(other.as_os_str()),
++        }
++    }
++    out
++}
++
++/// The path with its deepest existing ancestor canonicalised (symlinks resolved), the missing
++/// tail appended lexically; the lexical form when nothing exists.
++fn normalize(path: &Path) -> PathBuf {
++    let lexical = lexical_clean(path);
++    let mut existing: &Path = &lexical;
++    let mut tail: Vec<&OsStr> = Vec::new();
++    loop {
++        if let Ok(mut resolved) = std::fs::canonicalize(existing) {
++            for part in tail.iter().rev() {
++                resolved.push(*part);
++            }
++            return resolved;
++        }
++        match (existing.parent(), existing.file_name()) {
++            (Some(parent), Some(name)) => {
++                tail.push(name);
++                existing = parent;
++            }
++            _ => return lexical.clone(),
++        }
++    }
++}
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++
++    fn is_test(path: &str) -> bool {
++        exe_is_cargo_test_binary(Path::new(path))
++    }
++
++    #[test]
++    fn the_environment_value_marks_a_test_unless_empty_or_zero() {
++        assert!(!env_marks_under_test(None));
++        for off in ["", " ", "0", " 0 "] {
++            assert!(!env_marks_under_test(Some(OsStr::new(off))), "{off:?}");
++        }
++        for on in ["1", "true", "yes", "00", "x"] {
++            assert!(env_marks_under_test(Some(OsStr::new(on))), "{on:?}");
++        }
++    }
++
++    #[test]
++    fn unix_cargo_test_and_example_binaries_are_tests() {
++        assert!(is_test("/work/rightkit/target/debug/deps/e2e-1a2b3c4d"));
++        assert!(is_test("/work/rightkit/target/release/deps/budget-9f"));
++        assert!(is_test("/work/rightkit/target/debug/examples/svc_host"));
++        assert!(is_test(
++            "/work/rightkit/target/aarch64-apple-darwin/debug/deps/e2e-1a2b3c4d"
++        ));
++        assert!(is_test(
++            "/work/rightkit/target/x86_64-unknown-linux-gnu/release/examples/svc_call"
++        ));
++        // CARGO_TARGET_DIR can be named anything.
++        assert!(is_test("/Volumes/D/cargo-out/debug/deps/e2e-1a2b3c4d"));
++        assert!(is_test(
++            "/Volumes/D/cargo-out/x86_64-apple-darwin/release/deps/e2e-1a2b3c4d"
++        ));
++        // A custom profile counts under a `target` directory, with or without a triple.
++        assert!(is_test("/work/target/release-lto/deps/e2e-1a2b3c4d"));
++        assert!(is_test(
++            "/work/target/aarch64-apple-darwin/dev-fast/examples/svc_host"
++        ));
++    }
++
++    #[test]
++    fn windows_cargo_test_and_example_binaries_are_tests_on_every_host() {
++        assert!(is_test(
++            r"C:\work\rightkit\target\debug\deps\e2e-1a2b3c4d.exe"
++        ));
++        assert!(is_test(
++            r"C:\work\rightkit\target\x86_64-pc-windows-msvc\release\deps\e2e-1a2b3c4d.exe"
++        ));
++        assert!(is_test(
++            r"C:\work\rightkit\target\debug\examples\svc_host.exe"
++        ));
++        assert!(is_test(r"D:\cargo-out\release\deps\budget-9f.exe"));
++        assert!(is_test(r"\\?\C:\work\target\DEBUG\DEPS\e2e-1a2b3c4d.exe"));
++        assert!(is_test(r"C:\work\target\release-lto\deps\e2e-1a2b3c4d.exe"));
++    }
++
++    #[test]
++    fn the_profile_directory_itself_is_a_dev_run_not_a_test() {
++        assert!(!is_test("/work/rightkit/target/debug/rightkit-app"));
++        assert!(!is_test("/work/rightkit/target/release/rightkit-app"));
++        assert!(!is_test(
++            "/work/rightkit/target/aarch64-apple-darwin/debug/rightkit-app"
++        ));
++        assert!(!is_test(r"C:\work\rightkit\target\debug\rightkit-app.exe"));
++        assert!(!is_test(
++            r"C:\work\rightkit\target\x86_64-pc-windows-msvc\release\rightkit-app.exe"
++        ));
++    }
++
++    #[test]
++    fn installed_apps_and_stray_deps_words_are_not_tests() {
++        assert!(!is_test(
++            "/Applications/HeardRight.app/Contents/MacOS/heardright"
++        ));
++        assert!(!is_test("/usr/local/bin/heardright-engine"));
++        assert!(!is_test(r"C:\Program Files\HeardRight\heardright.exe"));
++        assert!(!is_test(r"C:\Program Files\HeardRight\deps\helper.exe"));
++        // `deps` or `examples` elsewhere than directly above the executable.
++        assert!(!is_test("/home/u/deps/app/bin/tool"));
++        assert!(!is_test("/home/u/examples/app/tool"));
++        assert!(!is_test("/home/u/target/deps/tool"));
++        assert!(!is_test("/opt/app/custom/deps/helper"));
++        assert!(!is_test("/opt/deps/helper"));
++        assert!(!is_test("/work/rightkit/target/debug/deps/nested/tool"));
++        // Too shallow to be `<target-dir>/<profile>/deps/<exe>`, and relative or empty paths.
++        assert!(!is_test("/debug/deps/tool"));
++        assert!(!is_test("deps/tool"));
++        assert!(!is_test(""));
++    }
++
++    #[test]
++    fn a_path_is_inside_a_protected_folder_when_equal_or_below_it() {
++        let tmp = tempfile::tempdir().unwrap();
++        let real = tmp.path().join("data").join("Orthic Labs");
++        let protected = vec![real.clone()];
++        // None of these exist yet: compared lexically.
++        assert!(points_into(&real, &protected).is_some());
++        assert!(points_into(&real.join("shared"), &protected).is_some());
++        assert!(points_into(&real.join("shared").join("models"), &protected).is_some());
++        assert!(points_into(&tmp.path().join("data").join("Orthic Labs2"), &protected).is_none());
++        assert!(points_into(&tmp.path().join("data"), &protected).is_none());
++        assert!(points_into(&tmp.path().join("other"), &protected).is_none());
++        // `..` is resolved lexically.
++        assert!(points_into(
++            &tmp.path()
++                .join("other")
++                .join("..")
++                .join("data")
++                .join("Orthic Labs"),
++            &protected
++        )
++        .is_some());
++        // And again once the folder exists (canonical comparison).
++        std::fs::create_dir_all(&real).unwrap();
++        assert!(points_into(&real.join("shared"), &protected).is_some());
++        assert!(points_into(&tmp.path().join("other"), &protected).is_none());
++    }
++
++    #[cfg(unix)]
++    #[test]
++    fn a_symlink_into_the_protected_folder_is_still_inside_it() {
++        let tmp = tempfile::tempdir().unwrap();
++        let real = tmp.path().join("Orthic Labs");
++        std::fs::create_dir_all(&real).unwrap();
++        let link = tmp.path().join("innocent");
++        std::os::unix::fs::symlink(&real, &link).unwrap();
++        let protected = vec![real];
++        assert!(points_into(&link.join("shared"), &protected).is_some());
++        assert!(points_into(&link, &protected).is_some());
++    }
++}
+diff --git a/crates/rightkit-models/tests/suite_paths.rs b/crates/rightkit-models/tests/suite_paths.rs
+index 22d08039..6fb9b9ba 100644
+--- a/crates/rightkit-models/tests/suite_paths.rs
++++ b/crates/rightkit-models/tests/suite_paths.rs
+@@ -1,7 +1,22 @@
+ //! The suite root contract: one root shared by every app, env-overridable and
+ //! read live. Own test binary because it mutates process environment.
++//!
++//! This binary lives in `target/<profile>/deps`, so the process is under test: the real per-user
++//! default is refused (the resolvers panic), and an override that points into the real folder is
++//! refused too. The default itself is asserted by the unit tests in `src/suite/paths.rs` through
++//! their seam, never by calling the real resolver.
+ 
+ use rightkit_models::suite::paths;
++use rightkit_models::ModelStore;
++
++fn panic_text(f: impl FnOnce() + std::panic::UnwindSafe) -> String {
++    let payload = std::panic::catch_unwind(f).expect_err("the call must panic under test");
++    payload
++        .downcast_ref::<String>()
++        .cloned()
++        .or_else(|| payload.downcast_ref::<&str>().map(|s| s.to_string()))
++        .expect("a text panic")
++}
+ 
+ #[test]
+ fn suite_root_resolution_order_and_layout() {
+@@ -18,12 +33,56 @@ fn suite_root_resolution_order_and_layout() {
+     assert_eq!(paths::legacy_suite_root(), suite);
+     std::env::remove_var(paths::SUITE_ROOT_ENV);
+     assert_eq!(paths::suite_root(), shared);
+-    // Without overrides the default is `<data>/Orthic Labs/shared`.
++    // ORTHIC_SHARED_DIR alone does not move the legacy root, so under test it is refused.
++    let text = panic_text(|| {
++        paths::legacy_suite_root();
++    });
++    assert!(text.contains("legacy_suite_root()"), "{text}");
++    assert!(text.contains("RIGHT_SUITE_DIR"), "{text}");
++
++    // Without overrides the real default is refused, naming the resolver and the variable.
+     std::env::remove_var(paths::ORTHIC_SHARED_DIR_ENV);
+-    assert!(
+-        paths::suite_root().ends_with("Orthic Labs/shared")
+-            || paths::suite_root().ends_with("Orthic Labs\\shared")
+-    );
++    for (name, call) in [
++        ("suite_root()", (|| drop(paths::suite_root())) as fn()),
++        ("models_root()", || drop(paths::models_root())),
++        ("tools_root()", || drop(paths::tools_root())),
++        ("legacy_suite_root()", || drop(paths::legacy_suite_root())),
++        ("ModelStore::shared()", || drop(ModelStore::shared("app"))),
++    ] {
++        let text = panic_text(call);
++        assert!(text.contains(name), "{name}: {text}");
++        assert!(text.contains("under test"), "{name}: {text}");
++        assert!(text.contains("RIGHT_SUITE_DIR"), "{name}: {text}");
++    }
++    // Empty overrides are no overrides.
++    std::env::set_var(paths::SUITE_ROOT_ENV, "");
++    std::env::set_var(paths::ORTHIC_SHARED_DIR_ENV, "");
++    panic_text(|| drop(paths::suite_root()));
++    std::env::remove_var(paths::SUITE_ROOT_ENV);
++    std::env::remove_var(paths::ORTHIC_SHARED_DIR_ENV);
++
++    // A test may not name the real folder either (computed from `dirs`, never created here).
++    #[cfg(windows)]
++    let data = dirs::data_local_dir();
++    #[cfg(not(windows))]
++    let data = dirs::data_dir();
++    if let Some(data) = data {
++        for var in [paths::SUITE_ROOT_ENV, paths::ORTHIC_SHARED_DIR_ENV] {
++            for real in [
++                data.join("Orthic Labs").join("shared"),
++                data.join("Orthic Labs").join("shared").join("test-copy"),
++                data.join("RightSuite").join("models"),
++            ] {
++                std::env::set_var(var, &real);
++                let text = panic_text(|| drop(paths::suite_root()));
++                assert!(text.contains("real per-user folder"), "{var}: {text}");
++                assert!(text.contains("under test"), "{var}: {text}");
++                std::env::remove_var(var);
++            }
++        }
++    }
++
++    // The explicit-root forms never consult the environment.
+     assert_eq!(
+         paths::model_refs_dir_at(&paths::models_root_at(&suite)),
+         suite.join("models/refs")
+diff --git a/crates/rightkit-models/tests/under_test.rs b/crates/rightkit-models/tests/under_test.rs
+new file mode 100644
+index 00000000..470145d9
+--- /dev/null
++++ b/crates/rightkit-models/tests/under_test.rs
+@@ -0,0 +1,103 @@
++//! Under test, no resolver returns a real user's folder. This binary lives in
++//! `target/<profile>/deps`, so the process is under test; the public resolvers must refuse the
++//! real per-user default, and the explicit-root forms must keep working. Reads the environment
++//! only (never writes it), so it can run beside other tests; a developer who exported an override
++//! variable skips the refusals, which would then be overrides.
++
++use rightkit_models::error::ErrorCode;
++use rightkit_models::suite::catalog::parakeet_spec;
++use rightkit_models::suite::discover::{find_existing_elsewhere, find_existing_under};
++use rightkit_models::suite::handle::sibling_parakeet_dirs;
++use rightkit_models::suite::paths;
++use rightkit_models::suite::whisper::{resolve_whisper_model, WhisperKind};
++use rightkit_models::suite::{
++    device_id_get_or_create, lease, store, EntryState, ModelStore, VerifyMode,
++};
++
++fn overridden() -> bool {
++    ["RIGHT_SUITE_DIR", "ORTHIC_SHARED_DIR"]
++        .iter()
++        .any(|var| std::env::var_os(var).is_some_and(|v| !v.is_empty()))
++}
++
++fn panics_under_test(f: impl FnOnce() + std::panic::UnwindSafe, resolver: &str) {
++    let payload = std::panic::catch_unwind(f).expect_err("must panic under test");
++    let text = payload
++        .downcast_ref::<String>()
++        .cloned()
++        .or_else(|| payload.downcast_ref::<&str>().map(|s| s.to_string()))
++        .expect("a text panic");
++    assert!(text.contains(resolver), "{resolver}: {text}");
++    assert!(text.contains("under test"), "{resolver}: {text}");
++}
++
++#[test]
++fn infallible_resolvers_panic_with_the_resolver_named() {
++    if overridden() {
++        return;
++    }
++    panics_under_test(|| drop(sibling_parakeet_dirs()), "sibling_parakeet_dirs()");
++    panics_under_test(
++        || drop(find_existing_elsewhere(&parakeet_spec(), true)),
++        "find_existing_elsewhere()",
++    );
++    panics_under_test(|| drop(ModelStore::shared("app")), "ModelStore::shared()");
++    panics_under_test(
++        || drop(lease::current_holder("family")),
++        "lease::current_holder()",
++    );
++}
++
++#[test]
++fn fallible_resolvers_return_a_typed_or_string_error() {
++    if overridden() {
++        return;
++    }
++    let text = device_id_get_or_create("HeardRight").unwrap_err();
++    assert!(text.contains("device_id_get_or_create()"), "{text}");
++    assert!(text.contains("under test"), "{text}");
++
++    let error = resolve_whisper_model(WhisperKind::Ggml).unwrap_err();
++    assert_eq!(error.code, ErrorCode::UnderTest);
++    assert!(error.message.contains("resolve_whisper_model()"), "{error}");
++    let error = paths::shared_runtime_dir("onnxruntime", "1.20.1").unwrap_err();
++    assert_eq!(error.code, ErrorCode::UnderTest);
++
++    let text = lease::try_acquire_compat("family", "app")
++        .err()
++        .expect("refused");
++    assert!(text.contains("lease::try_acquire_compat()"), "{text}");
++    assert!(text.contains("under test"), "{text}");
++
++    let tmp = tempfile::tempdir().unwrap();
++    let text = ModelStore::at_models_root(tmp.path().join("models"), "app")
++        .resolve_parakeet()
++        .unwrap_err();
++    assert!(text.contains("sibling_parakeet_dirs()"), "{text}");
++    assert!(text.contains("under test"), "{text}");
++}
++
++#[test]
++fn explicit_roots_are_never_refused_and_comparisons_with_the_shared_root_do_not_panic() {
++    let tmp = tempfile::tempdir().unwrap();
++    let models = paths::models_root_at(tmp.path());
++    std::fs::create_dir_all(&models).unwrap();
++    // A store at an explicit root resolves, and the store paths that compare it with the shared
++    // root (without an override, "not the shared root") do not panic.
++    let store_at = ModelStore::at_models_root(&models, "app");
++    let spec = parakeet_spec();
++    let status = store_at.status(&spec, VerifyMode::Size);
++    assert!(status.state != EntryState::Ready);
++    // Neither call may panic: both compare `models` with the shared root internally.
++    let _ = store::prune_unref_entries(&models, &[]);
++    let _ = store_at.resolve(&spec, &[]);
++    assert!(find_existing_under(tmp.path(), &spec, true).is_none());
++    let root = tmp.path().join("suite");
++    let held = lease::try_acquire_at_root(&root, "family", "app").unwrap();
++    assert!(held.is_some());
++    assert_eq!(
++        paths::shared_runtime_dir_at(&paths::tools_root_at(&root), "onnxruntime", "1.20.1")
++            .unwrap(),
++        root.join("tools/onnxruntime/1.20.1")
++    );
++}
+diff --git a/crates/rightkit-service/CHANGELOG.md b/crates/rightkit-service/CHANGELOG.md
+index c41f1e13..76afda28 100644
+--- a/crates/rightkit-service/CHANGELOG.md
++++ b/crates/rightkit-service/CHANGELOG.md
+@@ -2,6 +2,12 @@
+ 
+ ## Unreleased
+ 
++- **Breaking for tests that relied on the real per-user default: under test, the real folder is refused.** No test may read or write a real user's data, so a resolver that would return the real per-user folder by default now refuses while the process is under test. A process is under test when `RIGHTKIT_UNDER_TEST` is set to a non-empty value other than `0`, or when its executable sits in a Cargo `deps` or `examples` directory under a `target` profile directory (`.../target/<profile>/deps/<exe>`, `.../<target-dir>/<triple>/<profile>/deps/<exe>`; the program directly in `<profile>/`, as with `cargo run`, is not a test). Installed apps and dev runs are unaffected.
++  - `Suite::resolve()` without `RIGHTKIT_SUITE_ROOT`, `RIGHT_SUITE_DIR` or `ORTHIC_SHARED_DIR` (so a `HOME`/`XDG_DATA_HOME`/`LOCALAPPDATA`-derived default), `Suite::per_user_default()` and `Suite::resolve_ignoring_env_overrides(true)` return the new `SuiteError::UnderTest(message)` (added to the public enum; an exhaustive `match` on `SuiteError` needs an arm). `ClientConfig::resolve_suite()` and the client connect functions report it as `ERROR_SUITE_UNRESOLVED`.
++  - An override always wins, but under test one that points into the real `<app data>/Orthic Labs` folder is refused too: the three variables, and `Suite::at(path)` (compared after canonicalising the deepest existing ancestor, else lexically).
++  - Tests that relied on the real default now use a temp root: `tests/e2e.rs` `default_root_is_the_shared_directory_the_apps_already_use` became `under_test_the_default_root_is_refused_and_the_override_spellings_still_win` (the default itself is asserted in `src/suite.rs` through a seam that takes the environment and the flag as parameters); `tests/verify_host.rs` `a_hardened_client_ignores_every_environment_redirect_of_the_suite_root` and `a_redirecting_launcher_never_receives_what_a_hardened_or_expecting_client_sends` now assert the refusal (`ERR suite ...`, `ERR service suite_unresolved`) instead of the real root; `src/client.rs` and `src/suite.rs` unit tests use the seam.
++  - New private module `under_test` (path rule as a pure function, unit-tested on Unix and Windows paths), documented in the README, "Under test".
++
+ - Windows: `Client::connect_expecting` verifies the host instead of refusing with `Unverified`. After the same-user check it opens the pipe's server process and keeps the handle (so the pid cannot be reused), reads the creation time, the image path (`QueryFullProcessImageNameW`) and the creation time again, checks the process still runs and the pipe still reports the same pid, then compares the canonical path without regard to case, or the file identity (volume serial and file index), with the expected executables. `HostProcess::sid` carries the host's user SID. A signature check goes in `with_verifier`.
+ - Windows: `Suite::per_user_default()` (and `ignore_env_overrides`) returns `<local app data>\Orthic Labs\shared` from `SHGetKnownFolderPath(FOLDERID_LocalAppData)`, never from `%LOCALAPPDATA%`.
+ 
+diff --git a/crates/rightkit-service/README.md b/crates/rightkit-service/README.md
+index e4d33af7..1787af8d 100644
+--- a/crates/rightkit-service/README.md
++++ b/crates/rightkit-service/README.md
+@@ -41,7 +41,16 @@ The one discovery and authentication convention for local Right Suite services:
+ 
+ Why a crate of its own and not a module of `rightkit-framed-sidecar`: the sidecar crate is a published, dependency-light, `unsafe`-free framing library. The service needs OS FFI (`getpeereid`, named pipes, SDDL), threads and a filesystem convention. Keeping them apart lets stdio-only consumers stay minimal; the service depends on the sidecar for its frames.
+ 
+-Tests are end-to-end: real host processes, real clients over the real socket. The `examples/` directory has `svc_host.rs` (host), `svc_fakehost.rs`, `svc_call.rs` and `svc_claim.rs` (clients), `svc_verify_client.rs`, `svc_mute.rs`, and `svc_race.rs`. `RIGHTKIT_SUITE_ROOT` (aliases `RIGHT_SUITE_DIR`, `ORTHIC_SHARED_DIR`) isolates a run from the user's installed apps.
++Tests are end-to-end: real host processes, real clients over the real socket. The `examples/` directory has `svc_host.rs` (host), `svc_fakehost.rs`, `svc_call.rs` and `svc_claim.rs` (clients), `svc_verify_client.rs`, `svc_mute.rs`, and `svc_race.rs`. `RIGHTKIT_SUITE_ROOT` (aliases `RIGHT_SUITE_DIR`, `ORTHIC_SHARED_DIR`) isolates a run from the user's installed apps, and under test it is required (see "Under test").
++
++## Under test
++
++No test may read or write a real user's data, so a resolver that would hand back the real per-user folder by default refuses while the process is under test.
++
++- **Under test** means `RIGHTKIT_UNDER_TEST` is set to a non-empty value other than `0`, or the executable's path has a parent directory named `deps` or `examples` whose parent chain is a Cargo target profile: `.../target/<profile>/deps/<exe>` or `.../<target-dir>/<triple>/<profile>/deps/<exe>`. The program directly in `<profile>/` (`cargo run`, a dev build) is not a test. The path rule cannot be switched off; `RIGHTKIT_UNDER_TEST=0` only fails to switch the variable on.
++- **Refused** with `SuiteError::UnderTest`: `Suite::resolve()` with none of `RIGHTKIT_SUITE_ROOT`, `RIGHT_SUITE_DIR`, `ORTHIC_SHARED_DIR` set (so the `HOME`, `XDG_DATA_HOME` or `LOCALAPPDATA` default); `Suite::per_user_default()` and `Suite::resolve_ignoring_env_overrides(true)`, always (they ignore every override on purpose, so use `Suite::at(<temp dir>)`, or set `RIGHTKIT_SUITE_ROOT` and use `Suite::resolve()`); and any override or `Suite::at(path)` that points into the real `<app data>/Orthic Labs` folder. Clients report it as `ERROR_SUITE_UNRESOLVED`.
++- **Never refused:** an override variable or `Suite::at(path)` outside the real folder, `Suite::per_run_temp`.
++- **Unaffected:** installed apps and `cargo run`. Test binaries and the examples in `examples/` count as tests, so a test that spawns an example and expects the real default now gets the refusal.
+ 
+ ## Verifying the host
+ 
+diff --git a/crates/rightkit-service/src/client.rs b/crates/rightkit-service/src/client.rs
+index e91447a0..a76b1462 100644
+--- a/crates/rightkit-service/src/client.rs
++++ b/crates/rightkit-service/src/client.rs
+@@ -596,16 +596,19 @@ mod tests {
+                 .ignore_env_overrides(ignore);
+             assert_eq!(cfg.resolve_suite().unwrap().root(), explicit.root());
+         }
+-        // `Suite::resolve` fails only where the environment names no root at all.
+-        if let Ok(from_env) = Suite::resolve() {
+-            let lenient = ClientConfig::new("svc", "app").suite(from_env);
+-            assert!(lenient.resolve_suite().is_ok());
+-            let strict = lenient.ignore_env_overrides(true);
+-            assert!(matches!(
+-                strict.resolve_suite(),
+-                Err(SuiteError::Insecure(_))
+-            ));
+-        }
++        // A suite derived from the environment, through the seam: the real `Suite::resolve` is
++        // refused by default in a test binary.
++        let env =
++            |key: &str| (key == crate::ENV_SUITE_ROOT).then(|| dir.path().display().to_string());
++        let from_env = Suite::resolve_checked(&env, true, &[]).unwrap();
++        assert!(from_env.env_derived());
++        let lenient = ClientConfig::new("svc", "app").suite(from_env);
++        assert!(lenient.resolve_suite().is_ok());
++        let strict = lenient.ignore_env_overrides(true);
++        assert!(matches!(
++            strict.resolve_suite(),
++            Err(SuiteError::Insecure(_))
++        ));
+     }
+ 
+     #[test]
+diff --git a/crates/rightkit-service/src/lib.rs b/crates/rightkit-service/src/lib.rs
+index 5489e5b4..1af2112f 100644
+--- a/crates/rightkit-service/src/lib.rs
++++ b/crates/rightkit-service/src/lib.rs
+@@ -39,6 +39,10 @@
+ //! * **Fail-closed roots** - [`Suite::resolve`] errors when no absolute
+ //!   app-data root can be determined; it never falls back to the working
+ //!   directory. [`Suite::per_run_temp`] is the explicit opt-in alternative.
++//! * **Under test** - a process that is a test (`RIGHTKIT_UNDER_TEST` set, or a Cargo `deps` or
++//!   `examples` binary) is refused the real per-user folder: [`Suite::resolve`] without an override
++//!   variable and [`Suite::per_user_default`] fail with [`SuiteError::UnderTest`], and a path that
++//!   points into the real folder is refused too. See the README, "Under test".
+ //!
+ //! Wire format: bounded JSON lines (`rightkit-framed-sidecar`), the same frames
+ //! as the `rightkit-jobs` engine contract:
+@@ -54,6 +58,7 @@ mod server;
+ mod suite;
+ mod takeover_watch;
+ mod transport;
++mod under_test;
+ 
+ pub use client::{Client, ClientConfig, RetryPolicy, DEFAULT_DEADLINE};
+ pub use discovery::{
+diff --git a/crates/rightkit-service/src/suite.rs b/crates/rightkit-service/src/suite.rs
+index da71f5ec..267c8728 100644
+--- a/crates/rightkit-service/src/suite.rs
++++ b/crates/rightkit-service/src/suite.rs
+@@ -4,6 +4,8 @@ use std::path::{Component, Path, PathBuf};
+ use std::sync::atomic::{AtomicU64, Ordering};
+ use std::sync::Arc;
+ 
++use crate::under_test;
++
+ pub const SUITE_DIR_NAME: &str = "Orthic Labs";
+ /// The shared-data subdirectory under [`SUITE_DIR_NAME`]. HeardRight, ScrapeRight and
+ /// CutRight already root their shared model store and speech discovery here
+@@ -20,6 +22,10 @@ pub enum SuiteError {
+     NotAbsolute(PathBuf),
+     /// A directory that must be private to the current user is not.
+     Insecure(String),
++    /// The process is under test (see the README section "Under test") and the call would have
++    /// used the real per-user folder: by default, or because the path given points into it. The
++    /// message names the resolver and what to set instead.
++    UnderTest(String),
+     Io(io::Error),
+ }
+ 
+@@ -32,6 +38,7 @@ impl fmt::Display for SuiteError {
+             ),
+             SuiteError::NotAbsolute(p) => write!(f, "suite root must be absolute: {}", p.display()),
+             SuiteError::Insecure(s) => write!(f, "insecure service directory: {s}"),
++            SuiteError::UnderTest(s) => f.write_str(s),
+             SuiteError::Io(e) => write!(f, "{e}"),
+         }
+     }
+@@ -90,10 +97,14 @@ impl Suite {
+     /// release build that talks to its installed app: use [`Suite::per_user_default`] or
+     /// [`Suite::resolve_ignoring_env_overrides`] there. The returned suite reports
+     /// [`Suite::env_derived`] `true`.
++    ///
++    /// **Under test** (README, "Under test") the per-user default is refused with
++    /// [`SuiteError::UnderTest`]: set `RIGHTKIT_SUITE_ROOT` (or `RIGHT_SUITE_DIR`,
++    /// `ORTHIC_SHARED_DIR`) to a temp directory. An override variable always wins, except one that
++    /// points into the real `Orthic Labs` folder, which is refused too.
+     pub fn resolve() -> Result<Suite, SuiteError> {
+-        let mut suite = Self::resolve_from_env()?;
+-        suite.env_derived = true;
+-        Ok(suite)
++        let under_test = under_test::under_test();
++        Self::resolve_checked(&env_nonempty, under_test, &protected_folders(under_test))
+     }
+ 
+     /// The per-user default suite root from the operating system's account database, never from
+@@ -111,15 +122,36 @@ impl Suite {
+     ///   `SHGetKnownFolderPath(FOLDERID_LocalAppData)`, which reads the profile's registry, not
+     ///   `%LOCALAPPDATA%`.
+     /// * Other Unix: not implemented; fails closed.
++    ///
++    /// **Under test** (README, "Under test") it always fails with [`SuiteError::UnderTest`]: it
++    /// ignores every override on purpose, so there is nothing to set. Use [`Suite::at`] with a temp
++    /// directory, or set `RIGHTKIT_SUITE_ROOT` and use [`Suite::resolve`].
+     pub fn per_user_default() -> Result<Suite, SuiteError> {
++        Self::per_user_default_in(under_test::under_test())
++    }
++
++    fn per_user_default_in(under_test: bool) -> Result<Suite, SuiteError> {
++        if under_test {
++            return Err(SuiteError::UnderTest(under_test::default_refusal(
++                "Suite::per_user_default()",
++                "it ignores every override variable, so use Suite::at(<temp dir>), or set \
++                 RIGHTKIT_SUITE_ROOT to a temp directory and use Suite::resolve()",
++            )));
++        }
+         let base = platform_default_base()?;
+-        Suite::at(absolute(base)?.join(SUITE_DIR_NAME).join(SHARED_DIR_NAME))
++        Suite::at_checked(
++            absolute(base)?.join(SUITE_DIR_NAME).join(SHARED_DIR_NAME),
++            false,
++            &[],
++            "Suite::per_user_default()",
++        )
+     }
+ 
+     /// One switch for hosts and clients: with `ignore_env_overrides` the root is
+     /// [`Suite::per_user_default`], otherwise [`Suite::resolve`]. A release build passes `true`,
+     /// a QA build `false`; wire the flag to a cargo feature or `cfg!(debug_assertions)` in the
+-    /// app, not to the environment.
++    /// app, not to the environment. Under test, `true` is refused like
++    /// [`Suite::per_user_default`].
+     pub fn resolve_ignoring_env_overrides(ignore_env_overrides: bool) -> Result<Suite, SuiteError> {
+         if ignore_env_overrides {
+             Self::per_user_default()
+@@ -134,36 +166,81 @@ impl Suite {
+         self.env_derived
+     }
+ 
+-    fn resolve_from_env() -> Result<Suite, SuiteError> {
++    /// [`Suite::resolve`] over an explicit environment lookup and "under test" flag, with the real
++    /// per-user folders passed in as `protected`. The seam the tests use.
++    pub(crate) fn resolve_checked(
++        env: &dyn Fn(&str) -> Option<String>,
++        under_test: bool,
++        protected: &[PathBuf],
++    ) -> Result<Suite, SuiteError> {
+         // Legacy aliases used by existing apps' isolated test runs (HeardRight e2e_engine).
+         for key in [ENV_SUITE_ROOT, "RIGHT_SUITE_DIR", "ORTHIC_SHARED_DIR"] {
+-            if let Some(v) = env_nonempty(key) {
+-                return Suite::at(v);
++            if let Some(v) = env(key) {
++                let mut suite =
++                    Suite::at_checked(PathBuf::from(v), under_test, protected, "Suite::resolve()")?;
++                suite.env_derived = true;
++                return Ok(suite);
+             }
+         }
++        if under_test {
++            return Err(SuiteError::UnderTest(under_test::default_refusal(
++                "Suite::resolve() with no RIGHTKIT_SUITE_ROOT, RIGHT_SUITE_DIR or ORTHIC_SHARED_DIR",
++                "set RIGHTKIT_SUITE_ROOT to a temp directory (or use Suite::at(<temp dir>))",
++            )));
++        }
+         let base = if cfg!(windows) {
+-            env_nonempty("LOCALAPPDATA")
++            env("LOCALAPPDATA")
+                 .map(PathBuf::from)
+                 .ok_or_else(|| SuiteError::NoRoot("LOCALAPPDATA is not set".into()))?
+         } else if cfg!(target_os = "macos") {
+-            env_nonempty("HOME")
++            env("HOME")
+                 .map(|h| PathBuf::from(h).join("Library").join("Application Support"))
+                 .ok_or_else(|| SuiteError::NoRoot("HOME is not set".into()))?
+         } else {
+-            env_nonempty("XDG_DATA_HOME")
++            env("XDG_DATA_HOME")
+                 .map(PathBuf::from)
+-                .or_else(|| {
+-                    env_nonempty("HOME").map(|h| PathBuf::from(h).join(".local").join("share"))
+-                })
++                .or_else(|| env("HOME").map(|h| PathBuf::from(h).join(".local").join("share")))
+                 .ok_or_else(|| SuiteError::NoRoot("neither XDG_DATA_HOME nor HOME is set".into()))?
+         };
+-        Suite::at(absolute(base)?.join(SUITE_DIR_NAME).join(SHARED_DIR_NAME))
++        let mut suite = Suite::at_checked(
++            absolute(base)?.join(SUITE_DIR_NAME).join(SHARED_DIR_NAME),
++            false,
++            &[],
++            "Suite::resolve()",
++        )?;
++        suite.env_derived = true;
++        Ok(suite)
+     }
+ 
+-    /// An explicit absolute root (isolated dev profiles, tests).
++    /// An explicit absolute root (isolated dev profiles, tests). Always honoured, except under
++    /// test (README, "Under test") when it points into the real `Orthic Labs` folder, which is
++    /// refused with [`SuiteError::UnderTest`].
+     pub fn at(root: impl Into<PathBuf>) -> Result<Suite, SuiteError> {
++        let under_test = under_test::under_test();
++        Self::at_checked(
++            root.into(),
++            under_test,
++            &protected_folders(under_test),
++            "Suite::at()",
++        )
++    }
++
++    fn at_checked(
++        root: PathBuf,
++        under_test: bool,
++        protected: &[PathBuf],
++        resolver: &str,
++    ) -> Result<Suite, SuiteError> {
++        let root = absolute(root)?;
++        if under_test {
++            if let Some(real) = under_test::points_into(&root, protected) {
++                return Err(SuiteError::UnderTest(under_test::override_refusal(
++                    resolver, &root, real,
++                )));
++            }
++        }
+         Ok(Suite {
+-            root: absolute(root.into())?,
++            root,
+             _temp: None,
+             env_derived: false,
+         })
+@@ -220,6 +297,17 @@ impl Suite {
+     }
+ }
+ 
++/// The real per-user `Orthic Labs` folder, which a test must not name; empty when not under test
++/// or when the account database names no home.
++fn protected_folders(under_test: bool) -> Vec<PathBuf> {
++    if !under_test {
++        return Vec::new();
++    }
++    platform_default_base()
++        .map(|base| vec![base.join(SUITE_DIR_NAME)])
++        .unwrap_or_default()
++}
++
+ /// The base directory (before `Orthic Labs/shared`) of the per-user default, from the account
+ /// database and never from the environment.
+ #[cfg(any(target_os = "macos", target_os = "linux"))]
+@@ -416,24 +504,240 @@ pub(crate) fn make_private_dir(dir: &Path) -> Result<(), SuiteError> {
+ #[cfg(test)]
+ mod tests {
+     use super::*;
++    use std::collections::HashMap;
++
++    /// An environment lookup over a fixed table, trimmed and non-empty like the real one.
++    fn env_of<'a>(pairs: &'a [(&'a str, String)]) -> impl Fn(&str) -> Option<String> + 'a {
++        let table: HashMap<&str, String> = pairs.iter().map(|(k, v)| (*k, v.clone())).collect();
++        move |key| table.get(key).cloned().filter(|v| !v.trim().is_empty())
++    }
++
++    fn display(e: SuiteError) -> String {
++        assert!(matches!(e, SuiteError::UnderTest(_)), "{e:?}");
++        e.to_string()
++    }
+ 
+     #[test]
+     fn only_resolve_is_marked_environment_derived() {
+         let dir = tempfile::tempdir().unwrap();
+         assert!(!Suite::at(dir.path()).unwrap().env_derived());
+         assert!(!Suite::per_run_temp("env-flag").unwrap().env_derived());
+-        // `resolve` fails only where the environment names no root at all; then there is no
+-        // suite to inspect.
+-        if let Ok(suite) = Suite::resolve() {
+-            assert!(suite.env_derived());
+-            assert!(suite.clone().env_derived(), "the mark survives a clone");
++        let pairs = [(ENV_SUITE_ROOT, dir.path().display().to_string())];
++        let suite = Suite::resolve_checked(&env_of(&pairs), true, &[]).unwrap();
++        assert!(suite.env_derived());
++        assert!(suite.clone().env_derived(), "the mark survives a clone");
++    }
++
++    #[test]
++    fn under_test_without_an_override_the_default_is_refused_naming_the_resolver_and_the_variable()
++    {
++        // HOME and friends do not make a default acceptable.
++        let pairs = [
++            ("HOME", "/Users/someone".to_string()),
++            ("XDG_DATA_HOME", "/home/someone/.local/share".to_string()),
++            (
++                "LOCALAPPDATA",
++                r"C:\Users\someone\AppData\Local".to_string(),
++            ),
++        ];
++        let text = display(Suite::resolve_checked(&env_of(&pairs), true, &[]).unwrap_err());
++        assert!(text.contains("Suite::resolve()"), "{text}");
++        assert!(text.contains("under test"), "{text}");
++        assert!(text.contains("RIGHTKIT_SUITE_ROOT"), "{text}");
++        // Empty or blank override variables are no override.
++        let blank = [(ENV_SUITE_ROOT, "  ".to_string())];
++        display(Suite::resolve_checked(&env_of(&blank), true, &[]).unwrap_err());
++    }
++
++    #[test]
++    fn under_test_every_documented_override_variable_wins_and_keeps_its_order() {
++        let a = tempfile::tempdir().unwrap();
++        let b = tempfile::tempdir().unwrap();
++        let c = tempfile::tempdir().unwrap();
++        for key in [ENV_SUITE_ROOT, "RIGHT_SUITE_DIR", "ORTHIC_SHARED_DIR"] {
++            let pairs = [(key, a.path().display().to_string())];
++            let suite = Suite::resolve_checked(&env_of(&pairs), true, &[]).unwrap();
++            assert_eq!(suite.root(), a.path(), "{key}");
++            assert!(suite.env_derived(), "{key}");
+         }
++        let all = [
++            ("ORTHIC_SHARED_DIR", c.path().display().to_string()),
++            ("RIGHT_SUITE_DIR", b.path().display().to_string()),
++            (ENV_SUITE_ROOT, a.path().display().to_string()),
++        ];
++        let suite = Suite::resolve_checked(&env_of(&all), true, &[]).unwrap();
++        assert_eq!(suite.root(), a.path());
++        let two = [
++            ("ORTHIC_SHARED_DIR", c.path().display().to_string()),
++            ("RIGHT_SUITE_DIR", b.path().display().to_string()),
++        ];
++        let suite = Suite::resolve_checked(&env_of(&two), true, &[]).unwrap();
++        assert_eq!(suite.root(), b.path());
++    }
++
++    #[test]
++    fn under_test_an_override_into_the_real_folder_is_refused_and_a_sibling_is_not() {
++        let tmp = tempfile::tempdir().unwrap();
++        let real = tmp.path().join("appdata").join(SUITE_DIR_NAME);
++        let protected = vec![real.clone()];
++        let inside = [
++            real.join(SHARED_DIR_NAME),
++            real.clone(),
++            real.join("x").join("y"),
++        ];
++        for key in [ENV_SUITE_ROOT, "RIGHT_SUITE_DIR", "ORTHIC_SHARED_DIR"] {
++            for path in &inside {
++                let pairs = [(key, path.display().to_string())];
++                let text =
++                    display(Suite::resolve_checked(&env_of(&pairs), true, &protected).unwrap_err());
++                assert!(text.contains("real per-user folder"), "{text}");
++                assert!(text.contains("under test"), "{text}");
++            }
++        }
++        let sibling = tmp.path().join("appdata").join("Orthic Labs Test");
++        let pairs = [(ENV_SUITE_ROOT, sibling.display().to_string())];
++        assert_eq!(
++            Suite::resolve_checked(&env_of(&pairs), true, &protected)
++                .unwrap()
++                .root(),
++            sibling
++        );
++        // `Suite::at` is held to the same rule.
++        for path in &inside {
++            display(Suite::at_checked(path.clone(), true, &protected, "Suite::at()").unwrap_err());
++        }
++        assert_eq!(
++            Suite::at_checked(sibling.clone(), true, &protected, "Suite::at()")
++                .unwrap()
++                .root(),
++            sibling
++        );
++        // Relative and parent-relative roots are still refused as before.
++        assert!(matches!(
++            Suite::at_checked("rel".into(), true, &protected, "Suite::at()"),
++            Err(SuiteError::NotAbsolute(_))
++        ));
++    }
++
++    #[cfg(unix)]
++    #[test]
++    fn under_test_a_symlink_into_the_real_folder_is_refused() {
++        let tmp = tempfile::tempdir().unwrap();
++        let real = tmp.path().join(SUITE_DIR_NAME);
++        std::fs::create_dir_all(&real).unwrap();
++        let link = tmp.path().join("innocent");
++        std::os::unix::fs::symlink(&real, &link).unwrap();
++        let pairs = [(ENV_SUITE_ROOT, link.join("shared").display().to_string())];
++        display(Suite::resolve_checked(&env_of(&pairs), true, &[real]).unwrap_err());
++    }
++
++    #[test]
++    fn not_under_test_an_override_is_taken_as_given_even_inside_the_real_folder() {
++        let tmp = tempfile::tempdir().unwrap();
++        let real = tmp.path().join(SUITE_DIR_NAME);
++        let inside = real.join(SHARED_DIR_NAME);
++        let pairs = [(ENV_SUITE_ROOT, inside.display().to_string())];
++        // Not under test the protected list is never even computed; whatever it holds is ignored.
++        let suite = Suite::resolve_checked(&env_of(&pairs), false, &[real.clone()]).unwrap();
++        assert_eq!(suite.root(), inside);
++        assert_eq!(
++            Suite::at_checked(inside.clone(), false, &[real], "Suite::at()")
++                .unwrap()
++                .root(),
++            inside
++        );
++        assert!(protected_folders(false).is_empty());
++    }
++
++    #[cfg(target_os = "macos")]
++    #[test]
++    fn not_under_test_the_default_is_the_shared_directory_the_apps_already_use() {
++        // The convention HeardRight, ScrapeRight and CutRight root their shared store at.
++        let pairs = [("HOME", "/Users/someone".to_string())];
++        let suite = Suite::resolve_checked(&env_of(&pairs), false, &[]).unwrap();
++        assert_eq!(
++            suite.root(),
++            Path::new("/Users/someone/Library/Application Support/Orthic Labs/shared")
++        );
++        assert!(suite.env_derived());
++        assert!(matches!(
++            Suite::resolve_checked(&env_of(&[]), false, &[]),
++            Err(SuiteError::NoRoot(_))
++        ));
++    }
++
++    #[cfg(all(unix, not(target_os = "macos")))]
++    #[test]
++    fn not_under_test_the_default_is_the_shared_directory_the_apps_already_use() {
++        let home = [("HOME", "/home/someone".to_string())];
++        let suite = Suite::resolve_checked(&env_of(&home), false, &[]).unwrap();
++        assert_eq!(
++            suite.root(),
++            Path::new("/home/someone/.local/share/Orthic Labs/shared")
++        );
++        let xdg = [
++            ("HOME", "/home/someone".to_string()),
++            ("XDG_DATA_HOME", "/data/xdg".to_string()),
++        ];
++        let suite = Suite::resolve_checked(&env_of(&xdg), false, &[]).unwrap();
++        assert_eq!(suite.root(), Path::new("/data/xdg/Orthic Labs/shared"));
++        assert!(matches!(
++            Suite::resolve_checked(&env_of(&[]), false, &[]),
++            Err(SuiteError::NoRoot(_))
++        ));
++    }
++
++    #[cfg(windows)]
++    #[test]
++    fn not_under_test_the_default_is_the_shared_directory_the_apps_already_use() {
++        let pairs = [(
++            "LOCALAPPDATA",
++            r"C:\Users\someone\AppData\Local".to_string(),
++        )];
++        let suite = Suite::resolve_checked(&env_of(&pairs), false, &[]).unwrap();
++        assert_eq!(
++            suite.root(),
++            Path::new(r"C:\Users\someone\AppData\Local\Orthic Labs\shared")
++        );
++        assert!(matches!(
++            Suite::resolve_checked(&env_of(&[]), false, &[]),
++            Err(SuiteError::NoRoot(_))
++        ));
++    }
++
++    #[test]
++    fn under_test_the_per_user_default_is_refused_with_the_remedy() {
++        let text = display(Suite::per_user_default_in(true).unwrap_err());
++        assert!(text.contains("Suite::per_user_default()"), "{text}");
++        assert!(text.contains("under test"), "{text}");
++        assert!(text.contains("RIGHTKIT_SUITE_ROOT"), "{text}");
++    }
++
++    /// This test binary lives in `target/<profile>/deps`, so the public functions, wired to the
++    /// real process, are under test: the real per-user folder is unreachable from here.
++    #[test]
++    fn the_public_functions_refuse_the_real_folder_in_this_test_binary() {
++        assert!(under_test::under_test());
++        display(Suite::per_user_default().unwrap_err());
++        display(Suite::resolve_ignoring_env_overrides(true).unwrap_err());
++        let overridden = [ENV_SUITE_ROOT, "RIGHT_SUITE_DIR", "ORTHIC_SHARED_DIR"]
++            .iter()
++            .any(|key| env_nonempty(key).is_some());
++        if !overridden {
++            display(Suite::resolve().unwrap_err());
++            display(Suite::resolve_ignoring_env_overrides(false).unwrap_err());
++        }
++        // A temp directory is never the real folder.
++        let dir = tempfile::tempdir().unwrap();
++        assert_eq!(Suite::at(dir.path()).unwrap().root(), dir.path());
++        assert!(Suite::per_run_temp("under-test").is_ok());
+     }
+ 
+     #[cfg(any(target_os = "macos", target_os = "linux"))]
+     #[test]
+     fn the_per_user_default_comes_from_the_account_database_under_orthic_labs_shared() {
+-        let suite = Suite::per_user_default().unwrap();
++        // Not under test: the one place the real default is computed, never created or touched.
++        let suite = Suite::per_user_default_in(false).unwrap();
+         assert!(!suite.env_derived());
+         assert!(suite.root().is_absolute());
+         assert!(
+@@ -446,17 +750,17 @@ mod tests {
+         let home = passwd_home_dir().unwrap();
+         assert!(home.is_absolute());
+         assert!(suite.root().starts_with(&home));
+-        // The switch picks the same suite when told to ignore the environment.
++        // The real folder the guard protects is exactly its parent.
+         assert_eq!(
+-            Suite::resolve_ignoring_env_overrides(true).unwrap().root(),
+-            suite.root()
++            protected_folders(true),
++            vec![suite.root().parent().unwrap().to_path_buf()]
+         );
+     }
+ 
+     #[cfg(windows)]
+     #[test]
+     fn the_per_user_default_comes_from_the_known_folder_table_not_the_environment() {
+-        let suite = Suite::per_user_default().unwrap();
++        let suite = Suite::per_user_default_in(false).unwrap();
+         assert!(!suite.env_derived());
+         assert!(suite.root().is_absolute());
+         assert!(
+@@ -470,8 +774,8 @@ mod tests {
+         assert!(suite.root().starts_with(&base));
+         assert!(base.is_dir(), "{base:?}");
+         assert_eq!(
+-            Suite::resolve_ignoring_env_overrides(true).unwrap().root(),
+-            suite.root()
++            protected_folders(true),
++            vec![suite.root().parent().unwrap().to_path_buf()]
+         );
+     }
+ }
+diff --git a/crates/rightkit-service/src/under_test.rs b/crates/rightkit-service/src/under_test.rs
+new file mode 100644
+index 00000000..1365044c
+--- /dev/null
++++ b/crates/rightkit-service/src/under_test.rs
+@@ -0,0 +1,299 @@
++//! "Is this process a test?" and the rule that keeps a test away from a real user's folders.
++//!
++//! A resolver that would hand back the real per-user folder by default must not do so while the
++//! process is under test; see the README section "Under test". This file is duplicated, by
++//! design, in `rightkit-models` (neither crate depends on the other for it); keep the two
++//! identical below this header.
++//!
++//! A process is under test when
++//!
++//! * the environment variable [`UNDER_TEST_ENV`] (`RIGHTKIT_UNDER_TEST`) is set to a non-empty
++//!   value other than `0`, or
++//! * its executable sits directly in a Cargo `deps` or `examples` directory whose parent chain
++//!   looks like a Cargo target profile ([`exe_is_cargo_test_binary`]).
++//!
++//! The second rule cannot be switched off: `RIGHTKIT_UNDER_TEST=0` only fails to switch the first
++//! one on. The program in `<profile>/<exe>` itself (`cargo run`, a dev build) is not a test.
++
++use std::ffi::OsStr;
++use std::path::{Component, Path, PathBuf};
++use std::sync::OnceLock;
++
++/// Set to any non-empty value other than `0` to mark a process as a test run.
++pub(crate) const UNDER_TEST_ENV: &str = "RIGHTKIT_UNDER_TEST";
++
++/// Whether an environment value marks the process as a test: non-empty after trimming, not `0`.
++pub(crate) fn env_marks_under_test(value: Option<&OsStr>) -> bool {
++    value.is_some_and(|v| {
++        let v = v.to_string_lossy();
++        let v = v.trim();
++        !v.is_empty() && v != "0"
++    })
++}
++
++/// Whether `exe` is a Cargo-built test, bench or example binary, judged by its path alone.
++///
++/// Pure and platform-independent: `/` and `\` both separate segments, so a Windows path is
++/// judged the same way on every host. The shapes that count:
++///
++/// * `<dir>/<debug|release>/deps/<exe>` and `<dir>/<debug|release>/examples/<exe>`, where `<dir>`
++///   is the target directory (any name, `CARGO_TARGET_DIR` may be anything) or a target triple
++///   under it;
++/// * the same with a custom profile name, when the directory above the profile is named `target`
++///   or is a target triple directly below one named `target`.
++///
++/// Not a test: `<profile>/<exe>` itself (`cargo run`), an installed app, and any path that only
++/// contains the word `deps` or `examples` somewhere other than directly above the executable.
++pub(crate) fn exe_is_cargo_test_binary(exe: &Path) -> bool {
++    let text = exe.to_string_lossy();
++    let parts: Vec<&str> = text.split(['/', '\\']).filter(|p| !p.is_empty()).collect();
++    let n = parts.len();
++    // At least `<target-dir>/<profile>/deps/<exe>`.
++    if n < 4 {
++        return false;
++    }
++    let holder = parts[n - 2];
++    if !(holder.eq_ignore_ascii_case("deps") || holder.eq_ignore_ascii_case("examples")) {
++        return false;
++    }
++    let profile = parts[n - 3];
++    if profile.eq_ignore_ascii_case("debug") || profile.eq_ignore_ascii_case("release") {
++        return true;
++    }
++    // A custom profile directory: only under a directory literally named `target`, directly or
++    // below one target triple.
++    let above = parts[n - 4];
++    if above.eq_ignore_ascii_case("target") {
++        return true;
++    }
++    n >= 5 && above.contains('-') && parts[n - 5].eq_ignore_ascii_case("target")
++}
++
++/// Whether this process is under test: [`UNDER_TEST_ENV`] now, or its own executable's path.
++pub(crate) fn under_test() -> bool {
++    if env_marks_under_test(std::env::var_os(UNDER_TEST_ENV).as_deref()) {
++        return true;
++    }
++    static EXE_IS_TEST: OnceLock<bool> = OnceLock::new();
++    *EXE_IS_TEST.get_or_init(|| {
++        std::env::current_exe()
++            .map(|exe| exe_is_cargo_test_binary(&exe))
++            .unwrap_or(false)
++    })
++}
++
++const WHY: &str = "this process is under test (RIGHTKIT_UNDER_TEST is set, or the executable is a \
++cargo test, bench or example binary), and no test may read or write a real user's data";
++
++/// The message for a resolver that would return the real per-user folder by default.
++pub(crate) fn default_refusal(resolver: &str, remedy: &str) -> String {
++    format!("{resolver} would use the real per-user folder, but {WHY}; {remedy}")
++}
++
++/// The message for an explicit path that points into the real per-user folder.
++pub(crate) fn override_refusal(resolver: &str, path: &Path, real: &Path) -> String {
++    format!(
++        "{resolver} was given {}, which is inside the real per-user folder {}, but {WHY}; point it at a temp directory",
++        path.display(),
++        real.display()
++    )
++}
++
++/// The protected folder that `candidate` is, or lies inside, if any. Canonicalised paths are
++/// compared where they exist (the deepest existing ancestor is canonicalised and the rest
++/// appended), else lexically.
++pub(crate) fn points_into<'a>(candidate: &Path, protected: &'a [PathBuf]) -> Option<&'a PathBuf> {
++    let candidate = components_of(&normalize(candidate));
++    protected
++        .iter()
++        .find(|p| candidate.starts_with(&components_of(&normalize(p))))
++}
++
++/// Path components as comparable strings; case-folded where the file system usually is.
++fn components_of(path: &Path) -> Vec<String> {
++    let fold = cfg!(any(windows, target_os = "macos"));
++    path.components()
++        .map(|c| {
++            let s = c.as_os_str().to_string_lossy().into_owned();
++            if fold {
++                s.to_lowercase()
++            } else {
++                s
++            }
++        })
++        .collect()
++}
++
++/// `.` and `..` removed lexically.
++fn lexical_clean(path: &Path) -> PathBuf {
++    let mut out = PathBuf::new();
++    for component in path.components() {
++        match component {
++            Component::CurDir => {}
++            Component::ParentDir => {
++                if !out.pop() {
++                    out.push("..");
++                }
++            }
++            other => out.push(other.as_os_str()),
++        }
++    }
++    out
++}
++
++/// The path with its deepest existing ancestor canonicalised (symlinks resolved), the missing
++/// tail appended lexically; the lexical form when nothing exists.
++fn normalize(path: &Path) -> PathBuf {
++    let lexical = lexical_clean(path);
++    let mut existing: &Path = &lexical;
++    let mut tail: Vec<&OsStr> = Vec::new();
++    loop {
++        if let Ok(mut resolved) = std::fs::canonicalize(existing) {
++            for part in tail.iter().rev() {
++                resolved.push(*part);
++            }
++            return resolved;
++        }
++        match (existing.parent(), existing.file_name()) {
++            (Some(parent), Some(name)) => {
++                tail.push(name);
++                existing = parent;
++            }
++            _ => return lexical.clone(),
++        }
++    }
++}
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++
++    fn is_test(path: &str) -> bool {
++        exe_is_cargo_test_binary(Path::new(path))
++    }
++
++    #[test]
++    fn the_environment_value_marks_a_test_unless_empty_or_zero() {
++        assert!(!env_marks_under_test(None));
++        for off in ["", " ", "0", " 0 "] {
++            assert!(!env_marks_under_test(Some(OsStr::new(off))), "{off:?}");
++        }
++        for on in ["1", "true", "yes", "00", "x"] {
++            assert!(env_marks_under_test(Some(OsStr::new(on))), "{on:?}");
++        }
++    }
++
++    #[test]
++    fn unix_cargo_test_and_example_binaries_are_tests() {
++        assert!(is_test("/work/rightkit/target/debug/deps/e2e-1a2b3c4d"));
++        assert!(is_test("/work/rightkit/target/release/deps/budget-9f"));
++        assert!(is_test("/work/rightkit/target/debug/examples/svc_host"));
++        assert!(is_test(
++            "/work/rightkit/target/aarch64-apple-darwin/debug/deps/e2e-1a2b3c4d"
++        ));
++        assert!(is_test(
++            "/work/rightkit/target/x86_64-unknown-linux-gnu/release/examples/svc_call"
++        ));
++        // CARGO_TARGET_DIR can be named anything.
++        assert!(is_test("/Volumes/D/cargo-out/debug/deps/e2e-1a2b3c4d"));
++        assert!(is_test(
++            "/Volumes/D/cargo-out/x86_64-apple-darwin/release/deps/e2e-1a2b3c4d"
++        ));
++        // A custom profile counts under a `target` directory, with or without a triple.
++        assert!(is_test("/work/target/release-lto/deps/e2e-1a2b3c4d"));
++        assert!(is_test(
++            "/work/target/aarch64-apple-darwin/dev-fast/examples/svc_host"
++        ));
++    }
++
++    #[test]
++    fn windows_cargo_test_and_example_binaries_are_tests_on_every_host() {
++        assert!(is_test(
++            r"C:\work\rightkit\target\debug\deps\e2e-1a2b3c4d.exe"
++        ));
++        assert!(is_test(
++            r"C:\work\rightkit\target\x86_64-pc-windows-msvc\release\deps\e2e-1a2b3c4d.exe"
++        ));
++        assert!(is_test(
++            r"C:\work\rightkit\target\debug\examples\svc_host.exe"
++        ));
++        assert!(is_test(r"D:\cargo-out\release\deps\budget-9f.exe"));
++        assert!(is_test(r"\\?\C:\work\target\DEBUG\DEPS\e2e-1a2b3c4d.exe"));
++        assert!(is_test(r"C:\work\target\release-lto\deps\e2e-1a2b3c4d.exe"));
++    }
++
++    #[test]
++    fn the_profile_directory_itself_is_a_dev_run_not_a_test() {
++        assert!(!is_test("/work/rightkit/target/debug/rightkit-app"));
++        assert!(!is_test("/work/rightkit/target/release/rightkit-app"));
++        assert!(!is_test(
++            "/work/rightkit/target/aarch64-apple-darwin/debug/rightkit-app"
++        ));
++        assert!(!is_test(r"C:\work\rightkit\target\debug\rightkit-app.exe"));
++        assert!(!is_test(
++            r"C:\work\rightkit\target\x86_64-pc-windows-msvc\release\rightkit-app.exe"
++        ));
++    }
++
++    #[test]
++    fn installed_apps_and_stray_deps_words_are_not_tests() {
++        assert!(!is_test(
++            "/Applications/HeardRight.app/Contents/MacOS/heardright"
++        ));
++        assert!(!is_test("/usr/local/bin/heardright-engine"));
++        assert!(!is_test(r"C:\Program Files\HeardRight\heardright.exe"));
++        assert!(!is_test(r"C:\Program Files\HeardRight\deps\helper.exe"));
++        // `deps` or `examples` elsewhere than directly above the executable.
++        assert!(!is_test("/home/u/deps/app/bin/tool"));
++        assert!(!is_test("/home/u/examples/app/tool"));
++        assert!(!is_test("/home/u/target/deps/tool"));
++        assert!(!is_test("/opt/app/custom/deps/helper"));
++        assert!(!is_test("/opt/deps/helper"));
++        assert!(!is_test("/work/rightkit/target/debug/deps/nested/tool"));
++        // Too shallow to be `<target-dir>/<profile>/deps/<exe>`, and relative or empty paths.
++        assert!(!is_test("/debug/deps/tool"));
++        assert!(!is_test("deps/tool"));
++        assert!(!is_test(""));
++    }
++
++    #[test]
++    fn a_path_is_inside_a_protected_folder_when_equal_or_below_it() {
++        let tmp = tempfile::tempdir().unwrap();
++        let real = tmp.path().join("data").join("Orthic Labs");
++        let protected = vec![real.clone()];
++        // None of these exist yet: compared lexically.
++        assert!(points_into(&real, &protected).is_some());
++        assert!(points_into(&real.join("shared"), &protected).is_some());
++        assert!(points_into(&real.join("shared").join("models"), &protected).is_some());
++        assert!(points_into(&tmp.path().join("data").join("Orthic Labs2"), &protected).is_none());
++        assert!(points_into(&tmp.path().join("data"), &protected).is_none());
++        assert!(points_into(&tmp.path().join("other"), &protected).is_none());
++        // `..` is resolved lexically.
++        assert!(points_into(
++            &tmp.path()
++                .join("other")
++                .join("..")
++                .join("data")
++                .join("Orthic Labs"),
++            &protected
++        )
++        .is_some());
++        // And again once the folder exists (canonical comparison).
++        std::fs::create_dir_all(&real).unwrap();
++        assert!(points_into(&real.join("shared"), &protected).is_some());
++        assert!(points_into(&tmp.path().join("other"), &protected).is_none());
++    }
++
++    #[cfg(unix)]
++    #[test]
++    fn a_symlink_into_the_protected_folder_is_still_inside_it() {
++        let tmp = tempfile::tempdir().unwrap();
++        let real = tmp.path().join("Orthic Labs");
++        std::fs::create_dir_all(&real).unwrap();
++        let link = tmp.path().join("innocent");
++        std::os::unix::fs::symlink(&real, &link).unwrap();
++        let protected = vec![real];
++        assert!(points_into(&link.join("shared"), &protected).is_some());
++        assert!(points_into(&link, &protected).is_some());
++    }
++}
+diff --git a/crates/rightkit-service/tests/e2e.rs b/crates/rightkit-service/tests/e2e.rs
+index 1c8ebd2d..a4373548 100644
+--- a/crates/rightkit-service/tests/e2e.rs
++++ b/crates/rightkit-service/tests/e2e.rs
+@@ -373,21 +373,25 @@ fn request_deadline_aborts_and_never_replays() {
+     );
+ }
+ 
+-/// The shared convention: HeardRight, ScrapeRight and CutRight already root their shared
+-/// store and speech discovery at `<app data>/Orthic Labs/shared`.
+-#[cfg(target_os = "macos")]
++/// Under test the per-user default is refused, whatever `HOME` says: `svc_host` is a Cargo example
++/// binary, so it counts as a test, and no test may resolve a real user's folder. The default
++/// itself (`<app data>/Orthic Labs/shared`, the root HeardRight, ScrapeRight and CutRight already
++/// use) is asserted in `suite.rs` through the seam that takes the environment as a parameter.
++#[cfg(unix)]
+ #[test]
+-fn default_root_is_the_shared_directory_the_apps_already_use() {
++fn under_test_the_default_root_is_refused_and_the_override_spellings_still_win() {
+     let out = Command::new(host_bin())
+         .arg("--resolve")
+         .env_clear()
+         .env("HOME", "/Users/someone")
+         .output()
+         .unwrap();
+-    assert_eq!(
+-        String::from_utf8_lossy(&out.stdout).trim(),
+-        "ROOT /Users/someone/Library/Application Support/Orthic Labs/shared"
+-    );
++    let text = String::from_utf8_lossy(&out.stdout).trim().to_string();
++    assert!(text.starts_with("ERR "), "{text}");
++    assert!(text.contains("under test"), "{text}");
++    assert!(text.contains("RIGHTKIT_SUITE_ROOT"), "{text}");
++    assert!(!text.contains("/Users/someone"), "{text}");
++    assert_eq!(out.status.code(), Some(5));
+     // HeardRight's override spellings still win, in HeardRight's order.
+     let out = Command::new(host_bin())
+         .arg("--resolve")
+@@ -397,6 +401,14 @@ fn default_root_is_the_shared_directory_the_apps_already_use() {
+         .output()
+         .unwrap();
+     assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "ROOT /b");
++    let out = Command::new(host_bin())
++        .arg("--resolve")
++        .env_clear()
++        .env("RIGHTKIT_SUITE_ROOT", "/c")
++        .env("RIGHT_SUITE_DIR", "/b")
++        .output()
++        .unwrap();
++    assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "ROOT /c");
+ }
+ 
+ #[test]
+diff --git a/crates/rightkit-service/tests/verify_host.rs b/crates/rightkit-service/tests/verify_host.rs
+index aa59612e..ef4b7bbf 100644
+--- a/crates/rightkit-service/tests/verify_host.rs
++++ b/crates/rightkit-service/tests/verify_host.rs
+@@ -320,13 +320,22 @@ mod unix_tests {
+         String::from_utf8(out.stdout).unwrap().trim().to_string()
+     }
+ 
++    /// `svc_verify_client` is a Cargo example, so it is under test and refuses the real per-user
++    /// folder; the hardened client's real root (from the account database) is therefore not
++    /// observable here, and no test may resolve it. What is observable, and asserted: no
++    /// environment redirect is followed by the hardened client, and the unhardened one follows
++    /// the override variables only. The unhardened default under `HOME`, and the hardened root
++    /// being the account database's, are asserted in `src/suite.rs` through its seam.
+     #[cfg(any(target_os = "macos", target_os = "linux"))]
+     #[test]
+     fn a_hardened_client_ignores_every_environment_redirect_of_the_suite_root() {
+         let fx = Fixture::new();
+         let evil_root = fx.dir.path().join("evil-suite");
+         let evil_home = fx.dir.path().join("evil-home");
+-        let default_root = Suite::per_user_default().unwrap().root().to_path_buf();
++        let followed = |out: &str| {
++            out.contains(&*evil_root.to_string_lossy())
++                || out.contains(&*evil_home.to_string_lossy())
++        };
+ 
+         for key in [
+             "RIGHTKIT_SUITE_ROOT",
+@@ -340,28 +349,27 @@ mod unix_tests {
+                 format!("ROOT {}", evil_root.display()),
+                 "{key}"
+             );
+-            // With it the root comes only from the account database.
+-            assert_eq!(
+-                run_client("resolve-hardened", "demo", &[], &env),
+-                format!("ROOT {}", default_root.display()),
+-                "{key}"
+-            );
++            // With it the root comes only from the account database; under test that is refused
++            // and the redirect is not followed.
++            let hardened = run_client("resolve-hardened", "demo", &[], &env);
++            assert!(hardened.starts_with("ERR suite"), "{key}: {hardened}");
++            assert!(hardened.contains("under test"), "{key}: {hardened}");
++            assert!(!followed(&hardened), "{key}: {hardened}");
+             // An environment-derived suite passed in explicitly is refused, not trusted.
+             let handed_in = run_client("resolve-env-suite-hardened", "demo", &[], &env);
+             assert!(handed_in.starts_with("ERR suite"), "{key}: {handed_in}");
++            assert!(!handed_in.contains("under test"), "{key}: {handed_in}");
+         }
+ 
+-        // HOME alone redirects the unhardened default and not the hardened one.
++        // HOME alone moves nothing: under test the unhardened default is refused too, and the
++        // hardened one never read HOME.
+         let env = [("HOME", evil_home.as_path())];
+-        let moved = run_client("resolve", "demo", &[], &env);
+-        assert!(
+-            moved.starts_with(&format!("ROOT {}", evil_home.display())),
+-            "{moved}"
+-        );
+-        assert_eq!(
+-            run_client("resolve-hardened", "demo", &[], &env),
+-            format!("ROOT {}", default_root.display())
+-        );
++        for mode in ["resolve", "resolve-hardened"] {
++            let out = run_client(mode, "demo", &[], &env);
++            assert!(out.starts_with("ERR suite"), "{mode}: {out}");
++            assert!(out.contains("under test"), "{mode}: {out}");
++            assert!(!followed(&out), "{mode}: {out}");
++        }
+     }
+ 
+     #[test]
+@@ -387,10 +395,11 @@ mod unix_tests {
+             ("HOME", evil_home.as_path()),
+         ];
+ 
+-        // 1. A release client ignores the environment, looks in the user's own suite, finds no
+-        //    host, and never touches the impostor's socket.
++        // 1. A release client ignores the environment, so it never touches the impostor's
++        //    socket. Under test it is also refused the user's own suite (the example is a Cargo
++        //    binary), so it stops at `suite_unresolved` instead of looking for a host there.
+         let out = run_client("hardened", &service, &[real_host], &env);
+-        assert!(out.starts_with("ERR service service_unavailable"), "{out}");
++        assert!(out.starts_with("ERR service suite_unresolved"), "{out}");
+         // A sentinel connection proves it: had (1) connected, its line would come first.
+         let mut sentinel = UnixStream::connect(&endpoint).unwrap();
+         sentinel.write_all(b"SENTINEL\n").unwrap();
+diff --git a/docs/PLATFORM-MATRIX.md b/docs/PLATFORM-MATRIX.md
+index e1b63dd7..3eb0f1ee 100644
+--- a/docs/PLATFORM-MATRIX.md
++++ b/docs/PLATFORM-MATRIX.md
+@@ -69,7 +69,7 @@ Totals for the 57 crates: macOS Full 46, Partial 11 (`agent-room-core`, `rightki
+ | `rightkit-logs` | registry 0.2.0; tree **0.2.2**; staged 0.2.1 (publishing) (tree newer) | Privacy-safe local JSONL logging, bounded diagnostics collection, consented outbox upload, optional tracing file logs. | **Full**; gate: cfg(target_os = "macos") in src/system; cite: `src/system/metrics.rs:197`; metrics via host_statistics (src/system/metrics.rs:243); identity via sysctlbyname (src/system/identity.rs:172). | **Full**; gate: cfg(target_os = "windows") in src/system; cite: `src/system/identity.rs:151`; system helpers implemented (src/system/identity.rs:17, src/system/metrics.rs:71); core files use rightkit-fs atomic writes with a non-unix branch (crates/rightkit-fs/src/atomic.rs:215-221). | not claimed | not claimed (code: Partial) | both: genright, heardright, mailright, coderight, scraperight, postright; both [cfg(macos) uses]: viewright | none found |
+ | `rightkit-mcp` | registry 0.5.2; tree **0.5.3**; published 0.5.3 on 2026-10-11 per the RightKit lead (feed not yet updated); staged 0.5.3 (tree newer) | Shared MCP client (stdio and streamable HTTP, trust gate, pool) and server host (stdio and loopback HTTP, admission). | **Full**; gate: none (default feature advanced-http); cite: `src/client_features.rs:231`; DefaultProcessLauncher spawns via std::process; client and server host are platform-neutral. | **Full**; gate: cfg(windows); cite: `src/client_features.rs:241`; CREATE_NO_WINDOW on spawned servers; the only platform branch in src (README.md:21 matches). | not claimed | not claimed (code: Full) | both: coderight | **Fixed:** "no other Cargo features" (default `advanced-http`, `Cargo.toml:27`). |
+ | `rightkit-media` | registry 0.2.4; tree **0.2.6**; staged 0.2.5 (publishing) (tree newer) | Verified FFmpeg catalog, binary verification, resolution, Tauri staging, process runner, loudness normalisation, one-call verified handle for a bundled ffmpeg/ffprobe. | **Full**; gate: none (catalog data); cite: `src/lib.rs:226`; catalog approved for macOS: ffmpeg `decode` arm64 and x86_64 (`catalog/artifacts.json:37,63`), ffprobe `decode` (`:89,115`), ffmpeg `export-ass` arm64 (`:141`), `decode-av1` (dav1d) arm64 and x86_64 (`:215,255`), ffprobe `decode-apple` (`:295,324`); `export-ass` x86_64 `pending` (`:353`); `export-ass-zimg` (`export-ass` plus libzimg for the `zscale` filter; zimg is a WTFPL component, `ALLOWED_COMPONENT_LICENSES` `src/lib.rs:131`, `EXPORT_ASS_ZIMG_VARIANT` `:73`) arm64 and x86_64 both `pending` (`:433,524`: arm64 built and executed, its content digest awaits confirmation by the crate's `content_identity_file`; x86_64 built, never run). One-call verified handle for a bundled binary: `verify_bundled_ffmpeg` / `verify_bundled_ffprobe` (`src/bundled.rs:47,63`; `_in` forms with explicit catalog, OS and arch `:82,96`), through the verify cache. Catalog identity is now a signature-independent content digest: Mach-O with the code signature removed, universal binaries per slice (`src/content_digest.rs:232`, `:111-117`, `verify_content` `src/lib.rs:854`). State: verified on macOS (lib 93 and all integration suites including the codesign round trip) (per the lead, 2026-10-11); the WTFPL allowlist entry and its test, the `bundled` module, `tests/bundled_handle_e2e.rs` and the `export-ass-zimg` rows are written, unverified (no build or test was run for them). | **Full**; gate: cfg(not(unix)); cite: `src/staging.rs:154`; staging on non-unix only clears read-only (`src/staging.rs:158-162`); catalog approves only ffmpeg `decode` x86_64 (`catalog/artifacts.json:11`), no Windows ffprobe or `export-ass` record; PE identity is the Authenticode hash (`src/content_digest.rs:413-414`). State: verified on Windows (Dell) for the approved ffmpeg `decode` row (HeardRight's bundled `ffmpeg.exe` verified against the catalog through the real resolution path, consumer evidence recorded in CHANGELOG 0.2.6, not a RightKit test); the other 0.2.6 / Unreleased changes are written, unverified; the `bundled` module is platform-neutral (no `cfg`) and written, unverified on Windows. Windows rerun of the 0.2.6 suites is queued (per the lead, 2026-10-11). | not claimed | not claimed (code: Partial) | both: genright, cutright, scraperight | **Fixed:** "no Cargo features" (default `native`, `Cargo.toml:15`); `cfg` branches claimed in `src/lib.rs` are test-only; "no CHANGELOG.md". Not documented: 0.2.6 `Unreleased` entries `probe_media_opt_with` and `decode_pcm_s16` (`CHANGELOG.md:5-11`) need a README mention if absent. README now covers `export-ass-zimg`, the bundled handle and the WTFPL licence entry (2026-10-11). |
+-| `rightkit-models` | registry 0.2.7; tree **0.2.9**; staged 0.2.8 (publishing) (tree newer) | Shared local-model manifest and installer: verified resumable downloads, archive extraction, atomic activation, shared runtimes, hardware fit. | **Full**; gate: cfg(target_os = "macos"); cite: `src/hardware.rs:400`; memory via sysctl hw.memsize (src/hardware.rs:401); Parakeet CoreML descriptor (src/suite/variant.rs:24) and archive pin (src/suite/catalog.rs:124). 0.2.9: macOS `whisper-multi` CoreML archive entry (`src/suite/catalog.rs:124`) and the shared Whisper `.bin` entry: written, unverified. | **Full**; gate: cfg(windows); cite: `src/alias.rs:80`; junction fallback via mklink /J (src/alias.rs:80+); GetDiskFreeSpaceExW (src/disk.rs:34); GlobalMemoryStatusEx (src/hardware.rs:409); Parakeet ONNX descriptor (src/suite/variant.rs:37). 0.2.9: cross-process locks use `rightkit_fs::FileLock`; a replaced file is no longer deleted before the rename on Windows; the Whisper Windows archive entry is catalogued (`src/suite/catalog.rs:437-471`) but CHANGELOG records it as not verified at release because `whisper-win.tar.gz` is not reachable. All outbound requests go through rightkit-http (ledger #83). State: written, unverified. | not claimed | not claimed (code: Partial) | both: genright, cutright, heardright, scraperight | **Fixed:** "no CHANGELOG.md"; `Hardware::probe_with` takes `Option<HardwareOverride>` (`src/hardware.rs:166`). |
++| `rightkit-models` | registry 0.2.7; tree **0.2.9**; staged 0.2.8 (publishing) (tree newer) | Shared local-model manifest and installer: verified resumable downloads, archive extraction, atomic activation, shared runtimes, hardware fit. | **Full**; gate: cfg(target_os = "macos"); cite: `src/hardware.rs:400`; memory via sysctl hw.memsize (src/hardware.rs:401); Parakeet CoreML descriptor (src/suite/variant.rs:24) and archive pin (src/suite/catalog.rs:124). 0.2.9: macOS `whisper-multi` CoreML archive entry (`src/suite/catalog.rs:124`) and the shared Whisper `.bin` entry: written, unverified. Under test (Cargo `deps`/`examples` binary, or `RIGHTKIT_UNDER_TEST`) the per-user folder resolvers (`suite_root`, `models_root`, `ModelStore::shared`, `device_id_get_or_create`, ...) panic or return an error instead of resolving the real folder, on every platform (`src/suite/paths.rs:144-256`, `src/under_test.rs`): written, not compiled. | **Full**; gate: cfg(windows); cite: `src/alias.rs:80`; junction fallback via mklink /J (src/alias.rs:80+); GetDiskFreeSpaceExW (src/disk.rs:34); GlobalMemoryStatusEx (src/hardware.rs:409); Parakeet ONNX descriptor (src/suite/variant.rs:37). 0.2.9: cross-process locks use `rightkit_fs::FileLock`; a replaced file is no longer deleted before the rename on Windows; the Whisper Windows archive entry is catalogued (`src/suite/catalog.rs:437-471`) but CHANGELOG records it as not verified at release because `whisper-win.tar.gz` is not reachable. All outbound requests go through rightkit-http (ledger #83). State: written, unverified. | not claimed | not claimed (code: Partial) | both: genright, cutright, heardright, scraperight | **Fixed:** "no CHANGELOG.md"; `Hardware::probe_with` takes `Option<HardwareOverride>` (`src/hardware.rs:166`). |
+ | `rightkit-oauth` | registry 0.3.0; tree **0.3.1**; staged 0.3.1 (publishing) (tree newer) | Shared OAuth 2.0 sign-in: loopback PKCE, RFC 8628 device flow, OS credential storage, server-mode flow with sealed file store. | **Full**; gate: default feature secrets (rightkit-secrets macOS backend) and cfg(unix) server store; cite: `crates/rightkit-secrets/src/backend.rs:138`; desktop loopback listener (src/lib.rs:370) and server SealedFileTokenStore (src/server/store.rs:217) both implemented. | **Partial**; gate: cfg(not(unix)) in server/store.rs; cite: `src/server/store.rs:230`; desktop secrets Full (crates/rightkit-secrets/src/backend.rs:142 "#[cfg(windows)]"); SealedFileTokenStore fails closed on Windows (src/server/store.rs:230, :247), so server token storage is unavailable. | not claimed | **Partial**; gate: cfg(not(any(target_os = "macos", windows))) in rightkit-secrets; cite: `crates/rightkit-secrets/src/backend.rs:148`; desktop secrets fail closed (UnavailableBackend); server sealed store works on unix (src/server/store.rs:217); loopback and device flows are portable. | both: mailright, coderight | **Fixed:** "starts no server" (desktop loopback binds `127.0.0.1`, `src/lib.rs:370`); `server` feature listed `base64`/`subtle` (`Cargo.toml:22`); state check is `ct_eq` over `ring::hmac::verify`, not `subtle`. |
+ | `rightkit-ocr` | registry 0.1.2; tree **0.2.1**; staged 0.2.0 (publishing) (tree newer) | Product-neutral OCR: Apple Vision / Windows.Media.Ocr native backends, isolated worker, verified two-stage ONNX fallback. | **Full**; gate: `native` (default on, Cargo.toml:39) + cfg(target_os="macos"); cite: `src/native/mod.rs:7`; Real VNRecognizeTextRequest code (src/native/vision.rs:234); ONNX path also present. | **Full**; gate: `native` (default on) + cfg(windows); cite: `src/native/mod.rs:9`, `src/native/win_native.rs:59`; Real WinRT OcrEngine path; ONNX path uses DirectML then CPU (src/support/session.rs:46-50). | not claimed | not claimed | both [cfg(macos) uses]: viewright; both: coderight; both [win target dep, cfg(windows) uses, cfg(macos) uses]: scraperight | none found |
+ | `rightkit-ort` | registry 0.2.2; tree **0.2.3** (uncommitted additions: `explicit_file_candidate`, `init_environment_default_loader`, session builds commit telemetry-off defaults; Mac 67 tests; Windows 63 passed / 0 failed by HeardRight 2026-10-11 against the real onnxruntime.dll and DirectML, including seven real-DLL binaries for the explicit-file candidate, default-loader refusals and session-first error; Linux not compiled); staged 0.2.2 (tree newer) | Product-neutral ONNX Runtime dynamic-library resolution, environment, execution-provider and session setup (single ort pin). | **Full**; gate: `session` (default on, Cargo.toml:15); CoreML via cfg(target_vendor="apple") (Cargo.toml:68); cite: `src/lib.rs:330`; libonnxruntime.dylib name (src/lib.rs:330); CoreML probe at src/probe.rs:58; macOS E2E test at tests/e2e_runtime.rs:4. | **Full**; gate: `session` (default) + cfg(target_os="windows") (Cargo.toml:71-72); cite: `src/probe.rs:68`; DirectML probe (src/probe.rs:68-71); DirectML EP registration (src/session.rs:273-274); windows-sys core count (src/environment.rs:123). `onnxruntime.dll` file name at `src/lib.rs:326`. 0.2.3 `verify_runtime_manifest` (`src/lib.rs:53`, `src/runtime_bundle.rs`): written, unverified. | not claimed | not claimed | both [tests]: genright; both [win target dep]: cutright; both [cfg(windows) uses]: coderight; both [win target dep, cfg(windows) uses, cfg(macos) uses]: scraperight | none found |
+@@ -89,7 +89,7 @@ Totals for the 57 crates: macOS Full 46, Partial 11 (`agent-room-core`, `rightki
+ | `rightkit-search` | registry 0.2.0; tree **0.2.0**; staged 0.2.0 | Product-neutral search query language: lexer, parser, Query model, FTS5 and SQL predicate compiler, snippets, filename index. | **Full**; no OS `cfg` in `src/`, no `[target.*]` table; cite: `Cargo.toml:19` | **Full**; no OS `cfg` in `src/`, no `[target.*]` table; cite: `Cargo.toml:19` | not claimed | not claimed (code: Full) | both: pulse | **Fixed:** `sqlite` feature gates only the `ToSql` impl (`src/sql.rs:17`); `rusqlite` is not bundled in the library build (`Cargo.toml:20`, bundled only for tests, `:23`). |
+ | `rightkit-secrets` | registry 0.1.2; tree **0.1.4** (uncommitted, held for Adrian: macOS find/update/delete scoped to the user default keychain, not the search list; real default-keychain lookup untested; Windows and Linux not compiled); published 0.1.3 on 2026-10-11 per the RightKit lead (feed not yet updated); staged 0.1.3 (tree newer) | Per-app OS credential storage (Keychain, Credential Manager), passive presence checks, DB-key provisioning, migration (`migrate_plaintext_file` copies a legacy key file and never deletes it; `FileMigration` is `NoFile`, `Retained`, `StoredValueDiffers`, `StoreUnavailable`, `src/migrate.rs:147-163`). | **Full**; gate: cfg(target_os = "macos") (crates/rightkit-secrets/src/lib.rs:23-24); cite: `src/macos.rs:215-219` (user-default keychain); SecKeychain FFI declarations (src/macos.rs:71-135); passive `exists` uses find without data (src/macos.rs:627-638, find at :631). One mutation pins the default keychain once: `KeychainBackend::pinned` (src/macos.rs:598-607) through `pin_default` (src/macos.rs:246-255); `Store` runs the mutation on that same backend (`bind_mutation`, src/store.rs:232-241, called at src/store.rs:412). | **Full (untested: lock)**; gate: cfg(windows) (crates/rightkit-secrets/src/lib.rs:25-26); cite: `src/windows.rs:301-313` (backend and `durable`); Credential Manager CredReadW/CredWriteW real (`src/windows.rs:220`, `:278`); every mutation takes the `Global\rightkit-secrets-t-` named mutex (`src/windows.rs:110-136`). Cross-process lock test not run (README:45). verified on Windows (Dell) for 0.1.3 (HeardRight reads provider keys and the SQLCipher key through it, ledger #79); the cross-process lock test is still not run. 0.1.4 Windows changes (SID-bound `Global\` lock, `delete_if_equals`, NUL-free target names, the `KeyringCompatLegacyUtf8` read view): written, unverified. | not claimed | **None**; gate: cfg(not(any(macos, windows))) (crates/rightkit-secrets/src/backend.rs:292); cite: `src/backend.rs:292-297`; system_backend returns UnavailableBackend (src/backend.rs:283-298); every store op fails Unavailable (src/backend.rs:238-280). MemoryBackend only if injected (src/backend.rs:120-149). | both: genright, cutright, viewright, coderight, scraperight, postright; both [cfg(windows) uses]: mailright | **Fixed:** "No CHANGELOG.md" (file exists). |
+ | `rightkit-send` | private (`publish = false`); tree **0.1.0** | LocalSend v2 nearby file and text sharing with Pulse extensions: TLS pinning, per-device trust, discovery. 2026-10-11 (tree, verified on macOS): partial files are created exclusively and never adopted or truncated (audit F01); private trust-store writer gains collision-safe temp names and a directory fsync (audit A03). | **Partial**; gate: default off; `bonjour` (Cargo.toml:22) and `multicast` (Cargo.toml:20) features; cite: `src/lib.rs:21`; Core send and receive build by default. dns_sd discovery and multicast exist only behind non-default features. | **Partial**; gate: `multicast` feature (Cargo.toml:20); cite: `src/discovery.rs:119`; Winsock multicast discovery real. No Bonjour (src/lib.rs:21). No DnsService (README:37). | **Partial**; gate: multicast excluded on iOS; cite: `src/lib.rs:12`; Crate opens no multicast on iOS. Host supplies peers through Service::peer_add_resolved (src/lib.rs:631). | not claimed (code: Partial) | none found | **Fixed:** `multicast` "off on Apple targets": it compiles on macOS and is excluded only on iOS (`src/lib.rs:12`). |
+-| `rightkit-service` | registry 0.1.3; tree **0.1.5**; staged 0.1.4 (publishing) (tree newer) | Local service discovery and authentication convention: service.json, takeover, current-user socket or named pipe, app allowlist. | **Full**; gate: cfg(any(target_os = "macos", ...)) (crates/rightkit-service/src/peer.rs:120-127); cite: `src/peer.rs:184`; getpeereid checked on accept (`src/transport.rs:309`) and connect (`src/transport.rs:341`). Socket dir 0700 (src/suite.rs:362); socket 0600 (src/transport.rs:303). 0.1.5 adds public `verify_peer_is_current_user` for Unix streams (`src/peer.rs:327`) and checks the peer on every accept and in clients (CHANGELOG 0.1.5): written, unverified. Host verification (`Client::connect_expecting`, `src/client.rs:237`; `verify_unix_host`, `src/host_identity.rs:454`): `LOCAL_PEERPID` (`src/peer.rs:195-220`), `proc_pidpath`, start time and `LOCAL_PEERTOKEN` (`src/host_identity.rs:577-707`): written, unverified (never compiled or run). | **Partial**; gate: cfg(windows) (crates/rightkit-service/src/transport.rs:361; src/peer.rs:341); the transport and same-user checks are real: named pipe with owner-only SDDL DACL (`src/transport.rs:598`), remote clients rejected (`src/transport.rs:633`), first-instance flag (`src/transport.rs:627`), peer check on accept (`src/transport.rs:663`). Host verification is a fail-closed stub: `Client::connect_expecting` returns `HostIdentityReason::Unverified` (`src/transport.rs:698-716`, `src/host_identity.rs:953-965` `verify_pipe_host`), and `Suite::per_user_default` fails closed (`src/suite.rs:238-244`). Cross-user path not run (README:147). 0.1.5 adds `verify_pipe_peer_is_current_user` (`src/peer.rs:462`), `owner_only_security_attributes` (`src/peer.rs:541`), a pipe-instance limit and `discover_windows_with` with `include_incomplete` (`src/discovery.rs:303`) (ledger #59, #66, #81): written, unverified. | not claimed | **Full**; gate: cfg(target_os = "linux") (crates/rightkit-service/src/peer.rs:135-150); cite: `src/peer.rs:261`; SO_PEERCRED check. mips, powerpc and sparc report Unsupported (src/peer.rs:133, :282), as README:16 says. Host verification (`/proc/<pid>/exe`, `src/host_identity.rs:708-756`): written, unverified (never compiled or run). | both: cutright, heardright, postright | **Open:** README:20 lists the platform-gate files without `src/peer.rs`, which holds most gates (uncommitted in-tree; service lane active, left alone); README:22 says the crate has no CHANGELOG but `CHANGELOG.md` exists; `Cargo.toml:20` points to `API.md`, which does not exist. |
++| `rightkit-service` | registry 0.1.3; tree **0.1.5**; staged 0.1.4 (publishing) (tree newer) | Local service discovery and authentication convention: service.json, takeover, current-user socket or named pipe, app allowlist. | **Full**; gate: cfg(any(target_os = "macos", ...)) (crates/rightkit-service/src/peer.rs:120-127); cite: `src/peer.rs:184`; getpeereid checked on accept (`src/transport.rs:309`) and connect (`src/transport.rs:341`). Socket dir 0700 (src/suite.rs:485); socket 0600 (src/transport.rs:303). 0.1.5 adds public `verify_peer_is_current_user` for Unix streams (`src/peer.rs:327`) and checks the peer on every accept and in clients (CHANGELOG 0.1.5): written, unverified. Host verification (`Client::connect_expecting`, `src/client.rs:237`; `verify_unix_host`, `src/host_identity.rs:454`): `LOCAL_PEERPID` (`src/peer.rs:195-220`), `proc_pidpath`, start time and `LOCAL_PEERTOKEN` (`src/host_identity.rs:577-707`): written, unverified (never compiled or run). | **Partial**; gate: cfg(windows) (crates/rightkit-service/src/transport.rs:361; src/peer.rs:341); the transport and same-user checks are real: named pipe with owner-only SDDL DACL (`src/transport.rs:598`), remote clients rejected (`src/transport.rs:633`), first-instance flag (`src/transport.rs:627`), peer check on accept (`src/transport.rs:663`). Host verification is a fail-closed stub: `Client::connect_expecting` returns `HostIdentityReason::Unverified` (`src/transport.rs:698-716`, `src/host_identity.rs:953-965` `verify_pipe_host`), and `Suite::per_user_default` reads the profile's local app data from `SHGetKnownFolderPath(FOLDERID_LocalAppData)` (`src/suite.rs:327`; CHANGELOG Unreleased): written, unverified on Windows. Under test (Cargo `deps`/`examples` binary, or `RIGHTKIT_UNDER_TEST`) `Suite::resolve()` without an override variable and `Suite::per_user_default()` return `SuiteError::UnderTest`, and a path into the real `Orthic Labs` folder is refused, on every platform (`src/suite.rs:105-230`, `src/under_test.rs`): written, not compiled. Cross-user path not run (README:147). 0.1.5 adds `verify_pipe_peer_is_current_user` (`src/peer.rs:462`), `owner_only_security_attributes` (`src/peer.rs:541`), a pipe-instance limit and `discover_windows_with` with `include_incomplete` (`src/discovery.rs:303`) (ledger #59, #66, #81): written, unverified. | not claimed | **Full**; gate: cfg(target_os = "linux") (crates/rightkit-service/src/peer.rs:135-150); cite: `src/peer.rs:261`; SO_PEERCRED check. mips, powerpc and sparc report Unsupported (src/peer.rs:133, :282), as README:16 says. Host verification (`/proc/<pid>/exe`, `src/host_identity.rs:708-756`): written, unverified (never compiled or run). | both: cutright, heardright, postright | **Open:** README:20 lists the platform-gate files without `src/peer.rs`, which holds most gates (uncommitted in-tree; service lane active, left alone); README:22 says the crate has no CHANGELOG but `CHANGELOG.md` exists; `Cargo.toml:20` points to `API.md`, which does not exist. |
+ | `rightkit-settings` | registry 0.1.0; tree **0.2.0**; published 0.1.1 on 2026-10-11 per the RightKit lead (feed not yet updated); staged 0.1.1 (tree newer) | Versioned per-app settings persistence: migrations, atomic writes, corruption recovery, cross-process transactions, change events. | **Full**; gate: none for behaviour (`cfg(unix)` file stamp only); cite: `src/backend.rs:512-524`; the cache stamp is dev/ino/mtime/ctime/len (`src/backend.rs:512-524`); atomic replace and directory sync are delegated to rightkit-fs (`src/atomic.rs:14`; rightkit-fs per-OS behavior is in its own row). 0.2.0 repair semantics (one resolver over `Store::open`, `get()`, `read_with_defaults`), `fill_optional`, `remove_keys`, `NullMeans`, `OnCorrupt`, sidecar read rule, flat format, `persist_defaults_on_first_save`: written, unverified. An unreadable file is now `Error::Io`, never overwritten with defaults. Unreleased (CHANGELOG): a failed quarantine or `.bak` refresh fails the write with `Error::PreserveFailed` and leaves the damaged or previous file in place (`src/backend.rs:297` `.bak`, `:357` corrupt copy, `:1065-1081` `preserve`); key order is preserved by default (`KeyOrder::Preserve`, `src/options.rs:89-96`): written, unverified. State: 0.2.0 verified on macOS (50 tests) (per the lead, 2026-10-11, before 5c6fe134); the Unreleased entries and the 5c6fe134 reduction are written, unverified. | **Full**; gate: `cfg(not(unix))` file stamp; cite: `src/backend.rs:526-528`; the stamp is the modification time and length only (`src/backend.rs:526-528`), weaker than the Unix stamp, so a same-size rewrite inside one timestamp tick is not detected by the cached `get()`; atomic replace behaviour depends on rightkit-fs: `ReplaceMode` is `Rename` (the default, `std::fs::rename`, not write-through on Windows; `src/options.rs:135-139`, CHANGELOG Unreleased) or `MoveWriteThrough` (`MoveFileExW` with `MOVEFILE_WRITE_THROUGH`, mapped at `src/atomic.rs:47-48`); there is no `ReplaceFile` mode. State: 0.2.0 verified on Windows (Dell) (49 tests) (per the lead, 2026-10-11, before 5c6fe134; those counts include the removed `ReplaceFile` case); the Unreleased entries and the 5c6fe134 reduction are written, unverified. | not claimed | not claimed (code: Full) | both: genright, cutright, scraperight, postright | none found |
+ | `rightkit-shell` | registry 0.1.4; tree **0.3.0**; staged 0.2.0 (publishing) (tree newer) | Shared Tauri desktop shell: webview hardening, window state, menu and tray, single instance, deep links, autostart, clipboard, watchdog. | **Partial**; gate: cfg(target_os = "macos") deps (crates/rightkit-shell/Cargo.toml:45); cite: `src/notify.rs:300`; Notify (src/notify.rs:300), presence (src/presence.rs:341), clipboard (src/clipboard.rs:483) and frameless (src/frameless.rs:98) are real. Unreleased DevTools policy (`src/devtools.rs`: `DevToolsPolicy` at :88-95; `isInspectable` and `developerExtrasEnabled` false on every webview, `ContentOnly` allowance for registered content webviews (`decide`, :567); macOS `apply` at :821-847): written, unverified (CHANGELOG: nothing compiled or run). Idle suspend and resume are a designed no-op (src/idle.rs:10-11; the non-Windows `Noop` controller, src/idle.rs:917-918). Legacy single-instance socket: a socket counts as a live holder only when its owner is alive and answers. The owner is read with `LOCAL_PEERPID` (src/legacy_instance.rs:327) and judged by `judge` (src/legacy_instance.rs:211): a dead owner is stale; another program that stays silent or drops the connection is stale; a close confirms the launch from any owner; this app's own process, or an unidentified owner, that stays silent is `Delivery::Unconfirmed` after `CLOSE_WAIT_SECS` = 2 s (src/legacy_instance.rs:53); a torn connection from this app or an unidentified owner is refused. Written, unverified (CHANGELOG: nothing compiled or run). 0.3.0: `SingleInstance::destroy` with `on_destroy` releases, `LegacySingleInstanceNames`, `LegacyAutostartNames` (`tests/legacy_names.rs`), site-root scheme, typed clipboard (macOS AppleScript only where AppKit cannot supply the data): written, unverified. | **Partial (untested)**; gate: cfg(windows) plus wv2-0_38 / wv2-0_39 (crates/rightkit-shell/src/lib.rs:51-53); cite: `src/presence.rs:390-391`; Notify (src/notify.rs:478), clipboard (src/clipboard.rs:632), autostart (src/autostart.rs:341) and harden (src/harden.rs:140) real. Presence observe is a stub. Unreleased DevTools policy on Windows (`AreDevToolsEnabled`, accelerator keys, Inspect menu item removal, environment scrub, `AdditionalBrowserArguments` registry refusal through `reg.exe`, port-file tripwire; `src/devtools.rs:849-894`): written, unverified, not compiled anywhere. src/harden.rs:150, README:44 and src/idle.rs:8-9 say not compiled or exercised on the macOS host (README:44 names clipboard.rs: now compiled by windows-2025 CI, not run on a live clipboard). 0.3.0 Windows additions: legacy single-instance and autostart name detection (`src/legacy_instance.rs:14-16`, `:103-106`, `:467`), typed clipboard with `CF_DIB` to BMP, Windows autostart migration: written, unverified. Unreleased: clipboard writes own the clipboard through a message-only window, a `CF_DIB`-first image option, V4/V5 DIB offset fix (CHANGELOG, Unreleased): written, unverified. README:44 still records that harden.rs, clipboard.rs and idle.rs were not compiled or exercised on the macOS host; the Windows host check has not been recorded. | not claimed | **Partial (not claimed)**; gate: cfg(not(any(macos, windows))); cite: `src/notify.rs:524-545`; Notifications (src/notify.rs:529-545), rich clipboard (src/clipboard.rs:876-886) and presence observe (src/presence.rs:390-391) are stubs. Autostart entry path (src/autostart.rs:271) and open_url are real. | both: viewright, postright; both [cfg(windows) uses, cfg(macos) uses]: mailright, coderight | **Fixed:** example-app `Cargo.lock` records rightkit-shell 0.2.0, not 0.1.0 (`example-app/Cargo.lock:2692`); `idle.rs` carries the same not-exercised-on-macOS-host caveat. |
+ | `rightkit-speech-client` | registry 0.3.2; tree **0.3.3**; staged 0.3.3 (publishing) (tree newer) | Client and contract for the Orthic Labs shared speech service (one resident engine per machine). | **Full**; gate: cfg(unix) in rightkit-service transport; no cfg in this crate's src; cite: `crates/rightkit-service/src/transport.rs:220`; endpoint is a Unix socket path (src/protocol.rs:190-192); connect at crates/rightkit-service/src/transport.rs:221 via UnixStream. | **Full**; gate: cfg!(windows) at crates/rightkit-speech-client/src/protocol.rs:184 "if cfg!(windows) {" + cfg(windows) mod imp in rightkit-service; cite: `crates/rightkit-service/src/transport.rs:504`; named pipe \\.\pipe\orthic-labs-speech-... (src/protocol.rs:186); real overlapped open, peer check. | not claimed | not claimed (code: Full) | both: cutright; both [tests]: heardright | **Fixed:** dependency list omitted `rightkit-transcript`; "platform gates are in `src/lib.rs`" (none; the endpoint switch is `src/protocol.rs:184`); "no CHANGELOG.md". |
+-- 
+2.54.0 (Apple Git-157)
+
