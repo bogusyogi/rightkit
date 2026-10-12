@@ -134,6 +134,8 @@ function plan() {
 
 const EVIDENCE = path.join(process.env.RUNNER_TEMP ?? os.tmpdir(), "rightkit-ci");
 const results = [];
+/** How long output is still read after a command has exited or been killed. */
+const PIPE_DRAIN_MS = 5000;
 
 function killTree(child) {
   try {
@@ -172,11 +174,30 @@ function run(unit, command, args, { cwd = ROOT, env = {}, timeoutMinutes = 25, d
     };
     // pnpm is a .cmd shim on Windows and needs a shell there; the arguments here never contain spaces.
     const child = spawn(command, args, { cwd, env: { ...process.env, CARGO_TERM_COLOR: "always", ...(UNIT_MODE ? { RIGHTKIT_REQUIRE_ASSETS: "1" } : {}), ...env }, stdio: ["ignore", "pipe", "pipe"], shell: WIN && command === "pnpm", detached: !WIN });
-    const timer = setTimeout(() => { timedOut = true; killTree(child); }, timeoutMinutes * MINUTE);
-    child.stdout.on("data", (chunk) => { if (!discardStdout) { outScan.push(chunk); process.stdout.write(chunk); log.write(chunk); } });
-    child.stderr.on("data", (chunk) => { errScan.push(chunk); process.stdout.write(chunk); log.write(chunk); });
-    child.on("error", (error) => finish(1, `could not start: ${error.message}`));
-    child.on("close", (code) => finish(code ?? 1, timedOut ? `timed out after ${timeoutMinutes} minutes` : ""));
+    const timeoutNote = `timed out after ${timeoutMinutes} minutes`;
+    // The step ends when the command EXITS, not when its output pipes close. "close" waits for
+    // every holder of those pipes, and a test that leaves a child process behind keeps them open
+    // after cargo has gone: the gate then waited for ever and, on main, blocked every later run
+    // (Windows, rightkit-fs e2e, 2026-10-12: cargo had printed its last line after 5 minutes and
+    // the job sat for 71). The time limit could not end it either: it kills the command's tree,
+    // and a leftover process is no longer in the tree of a command that has exited.
+    const release = () => { child.stdout.destroy(); child.stderr.destroy(); };
+    const settle = (code, note) => { finish(code, note); release(); };
+    const timer = setTimeout(() => {
+      timedOut = true; killTree(child);
+      setTimeout(() => settle(1, timeoutNote), PIPE_DRAIN_MS).unref();
+    }, timeoutMinutes * MINUTE);
+    child.stdout.on("data", (chunk) => { if (settled) return; if (!discardStdout) { outScan.push(chunk); process.stdout.write(chunk); log.write(chunk); } });
+    child.stderr.on("data", (chunk) => { if (settled) return; errScan.push(chunk); process.stdout.write(chunk); log.write(chunk); });
+    child.on("error", (error) => settle(1, `could not start: ${error.message}`));
+    child.on("close", (code) => settle(code ?? 1, timedOut ? timeoutNote : ""));
+    // Output still in the pipes is read for a moment after the exit; then the step is over.
+    child.on("exit", (code) => {
+      setTimeout(() => {
+        if (!settled) console.log("output pipes still open after the command exited (a process it started is still running); moving on");
+        settle(code ?? 1, timedOut ? timeoutNote : "");
+      }, PIPE_DRAIN_MS).unref();
+    });
   });
 }
 
