@@ -12,15 +12,6 @@ use common::RawServer;
 use rightkit_http::testing::loopback_config;
 use rightkit_http::*;
 
-fn cfg() -> ClientConfig {
-    ClientConfig {
-        retry: RetryPolicy::none(),
-        request_timeout: Duration::from_secs(5),
-        response_timeout: Some(Duration::from_secs(5)),
-        ..loopback_config()
-    }
-}
-
 // ------------------------------------------------------------------ finding 5
 /// A retryable 503 whose body never arrives. The pre-drain check passes (the backoff fits in
 /// the deadline), the drain runs until the deadline, and the retry sleep then has to be
