@@ -9,3 +9,5 @@ crates/rightkit-qts-ggml-sys/vendor/** -text
 packages/ax/plugin/schemas/*.json -text
 # The ownership fixtures are compared byte for byte with what generate.mjs writes (LF): never convert them.
 packages/release/fixtures/ownership/** -text
+# The EmbeddingGemma 2 export scripts are listed with SHA-256 in their FILES.txt: never convert their line endings.
+scripts/embed-export/** -text
