@@ -17,6 +17,13 @@
   it does not exercise the retry. README and PLATFORM-MATRIX state the
   reader behaviour. No product change: this crate's reads do not retry.
 
+- Tests: no helper process of `tests/e2e.rs` outlives its test. The writer helpers of
+  `concurrent_processes_never_expose_a_mixed_file` looped until a stop file appeared, and a test that failed never
+  created it; the orphaned helpers kept the test binary's output pipes open and a CI step waiting on those pipes
+  hung for 71 minutes on the Windows runner. The helpers are now held by a guard that creates the stop file and kills
+  and reaps any that still run when it is dropped, including during a failed assertion, and every helper role ends
+  on its own after 60 seconds (the two that sleep until killed slept 120).
+
 **Reduction before the 0.3.4 publication (2026-10-12, `docs/audits/2026-10-11-astra-publication-path-consult.md`).** Five review rounds did not converge: each added platform mechanisms that had never compiled, and the next read found new defects inside them. This release removes those mechanisms and keeps the proven fixes. Nothing removed here was ever published (0.3.3 has none of it), and no new mechanism or platform call was added. Nothing was compiled or run locally; verification is the CI run. This entry supersedes every entry below that describes a removed item.
 
 - **`ReplaceFileW` is gone.** Removed: `ReplaceMode::ReplaceFile`, `ReplaceApi::ReplaceFile`, `atomic::REPLACEFILE_WRITE_THROUGH`, `FsError::ReplaceInterrupted`, `PostPublishStep::OwnerOnlyAcl`, `HardenStage::{DestinationBeforeReplace, DestinationAfterReplace}` (both already inert), `atomic::testing::fail_recovery_move`, the `ReplaceFileW` call, the `.<name>.rktbak-` backup file, the `.<name>.rktnew-` recovery rename and their tests. Why: `ReplaceFileW` can fail after it has removed the destination (error 1176), and moving the new bytes to a protected name *afterwards* cannot cover a crash before that move, so a restart sweep could delete the only copy. Windows publication is `std::fs::rename` (`Rename`), or `MoveFileExW` with `MOVEFILE_REPLACE_EXISTING` (`MoveWriteThrough`, write-through) and without it (`NoReplace`): the calls the crate already made, unchanged. `publication_durability(options, destination_exists)` keeps its signature; no mode's answer depends on `destination_exists` now.
