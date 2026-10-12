@@ -467,11 +467,12 @@ mod tests {
     /// 16 bytes, computed outside this crate.
     #[test]
     fn the_legacy_lock_has_the_name_older_versions_take() {
+        // `wide` ends the name with the NUL the Win32 call needs; compare the name itself.
         let name =
             String::from_utf16(&legacy_lock_name("dev.rightkit.secrets.legacy", "db").unwrap())
                 .unwrap();
         assert_eq!(
-            name,
+            name.trim_end_matches('\0'),
             "Local\\rightkit-secrets-4a09df4ea76be3781179b6dbb18cb6b1"
         );
     }
