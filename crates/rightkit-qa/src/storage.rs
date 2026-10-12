@@ -1724,6 +1724,7 @@ fn pid_live(pid: u32) -> bool {
 /// Windows links for tests, made with the system's own tools.
 #[cfg(all(test, windows))]
 pub(crate) mod test_links {
+    use std::ffi::c_void;
     use std::path::Path;
     use std::process::Command;
 
@@ -1778,11 +1779,105 @@ pub(crate) mod test_links {
         let link = cache.join("Content.IE5");
         junction(&link, &cache.join("IE"));
         deny_listing(&link);
+        if std::fs::read_dir(&link).is_ok() {
+            // An account that holds the backup privilege enabled (a hosted CI runner) is let
+            // through whatever the access list says. Give the privilege up for this test
+            // process, so the fixture behaves as it does for an ordinary user.
+            drop_backup_privileges();
+            eprintln!(
+                "[qa-home-removal] listing was allowed; backup and restore privileges dropped"
+            );
+        } else {
+            eprintln!("[qa-home-removal] listing is refused by the access list alone");
+        }
         assert!(
             std::fs::read_dir(&link).is_err(),
-            "the junction must refuse listing for this test to mean anything"
+            "the junction must refuse listing for this test to mean anything; privileges: {}",
+            privileges()
         );
         link
+    }
+
+    /// The backup and restore lines of `whoami /priv`, for the message of a failed precondition.
+    fn privileges() -> String {
+        let out = Command::new("whoami").arg("/priv").output();
+        let Ok(out) = out else {
+            return "whoami did not run".into();
+        };
+        String::from_utf8_lossy(&out.stdout)
+            .lines()
+            .filter(|l| l.contains("SeBackupPrivilege") || l.contains("SeRestorePrivilege"))
+            .collect::<Vec<_>>()
+            .join(" | ")
+    }
+
+    // TOKEN_PRIVILEGES with one entry is four 32-bit words: the count, the two halves of the
+    // privilege's LUID, and its attributes.
+    #[link(name = "advapi32")]
+    extern "system" {
+        fn OpenProcessToken(process: *mut c_void, access: u32, token: *mut *mut c_void) -> i32;
+        fn LookupPrivilegeValueW(system: *const u16, name: *const u16, luid: *mut u32) -> i32;
+        fn AdjustTokenPrivileges(
+            token: *mut c_void,
+            disable_all: i32,
+            new_state: *const u32,
+            length: u32,
+            previous: *mut c_void,
+            returned: *mut u32,
+        ) -> i32;
+    }
+    #[link(name = "kernel32")]
+    extern "system" {
+        fn GetCurrentProcess() -> *mut c_void;
+        fn CloseHandle(handle: *mut c_void) -> i32;
+    }
+
+    /// Disable `SeBackupPrivilege` and `SeRestorePrivilege` in this process's token. They stay
+    /// disabled for the rest of the test process; no test here needs them. A privilege the
+    /// account does not hold is skipped.
+    fn drop_backup_privileges() {
+        const TOKEN_ADJUST_PRIVILEGES: u32 = 0x0020;
+        const TOKEN_QUERY: u32 = 0x0008;
+        let mut token: *mut c_void = std::ptr::null_mut();
+        // SAFETY: the pseudo-handle of this process is always valid; `token` receives a handle
+        // that is closed below.
+        let opened = unsafe {
+            OpenProcessToken(
+                GetCurrentProcess(),
+                TOKEN_ADJUST_PRIVILEGES | TOKEN_QUERY,
+                &mut token,
+            )
+        };
+        assert!(opened != 0, "OpenProcessToken failed");
+        for name in ["SeBackupPrivilege", "SeRestorePrivilege"] {
+            let wide: Vec<u16> = name.encode_utf16().chain(std::iter::once(0)).collect();
+            // Count 1; LUID filled in below; no attribute bit set, which disables the privilege
+            // without removing it.
+            let mut state: [u32; 4] = [1, 0, 0, 0];
+            // SAFETY: `wide` is NUL-terminated and outlives the call; words 1 and 2 of `state`
+            // are room for one LUID.
+            let found = unsafe {
+                LookupPrivilegeValueW(std::ptr::null(), wide.as_ptr(), state[1..].as_mut_ptr())
+            };
+            if found == 0 {
+                continue;
+            }
+            // SAFETY: `token` was opened with adjust access; `state` is one TOKEN_PRIVILEGES
+            // record with one entry (16 bytes) and outlives the call; no previous state is
+            // asked for.
+            unsafe {
+                AdjustTokenPrivileges(
+                    token,
+                    0,
+                    state.as_ptr(),
+                    16,
+                    std::ptr::null_mut(),
+                    std::ptr::null_mut(),
+                );
+            }
+        }
+        // SAFETY: `token` is the handle opened above and is not used again.
+        unsafe { CloseHandle(token) };
     }
 }
 
