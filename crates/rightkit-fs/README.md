@@ -10,7 +10,7 @@ Safe filesystem state for Right Suite apps:
 - macOS `clonefile(2)` with `CLONE_NOFOLLOW` (`clone_file_nofollow`). It never falls back to a byte copy. `clone_or_link_or_copy_nofollow` is the explicit ladder for callers that can accept less: clone, then hard link, then a durable copy, reporting which one it was.
 - macOS `renamex_np(RENAME_SWAP)` (`swap_paths`, `is_swap_unsupported`) and the `rightkit-swap A B` binary: atomic exchange of two paths, never absent in between.
 
-Catalog capability: `safe-filesystem`. Published to crates.io; the registry record is 0.3.3 and the source is 0.3.4, which [INDEX.md](../../INDEX.md) flags as a mismatch.
+Catalog capability: `safe-filesystem`. Published to crates.io; the registry record is 0.3.3 and the source is 0.4.0 (a breaking release, not yet published).
 
 ## When to use it
 

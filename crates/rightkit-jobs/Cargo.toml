@@ -27,10 +27,10 @@ supervisor = ["contract", "dep:rightkit-process"]
 service = ["contract", "dep:rightkit-service"]
 
 [dependencies]
-rightkit-fs = { version = "0.3", path = "../rightkit-fs", default-features = false, features = ["digest", "lock"] }
+rightkit-fs = { version = "0.4.0", path = "../rightkit-fs", default-features = false, features = ["digest", "lock"] }
 rightkit-db = { version = "0.4.0", path = "../rightkit-db" }
 rightkit-framed-sidecar = { version = "0.2.0", path = "../rightkit-framed-sidecar", optional = true }
-rightkit-process = { version = "0.3.4", path = "../rightkit-process", optional = true }
+rightkit-process = { version = "0.4.0", path = "../rightkit-process", optional = true }
 rightkit-service = { version = "0.1.0", path = "../rightkit-service", optional = true }
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.150"

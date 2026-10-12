@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-secrets"
-version = "0.1.4"
+version = "0.2.0"
 edition = "2021"
 rust-version = "1.98.0"
 description = "Per-app OS credential storage for Right Suite apps: Keychain / Credential Manager, passive presence checks, non-interactive mode, test guards, DB-key provisioning, and migration."

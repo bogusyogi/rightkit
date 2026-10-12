@@ -123,7 +123,7 @@ in which that could happen. The rule that replaces it:
 
 ## Also (0.3.0)
 
-- `OwnedChild::child()` borrows `UnixChild` on Unix (0.3.4; std `Child` before) or `WindowsChild` on Windows through
+- `OwnedChild::child()` borrows `UnixChild` on Unix (0.4.0; std `Child` before) or `WindowsChild` on Windows through
   a lock guard, including stdin/stdout/stderr and wait/try_wait; existing stream-taking APIs remain.
 - `unix_containment(UnixContainment::Session)` runs `setsid`; Windows
   `job_assignment_mode(JobAssignmentMode::BestEffort)` retains non-fatal errors
@@ -148,7 +148,7 @@ in which that could happen. The rule that replaces it:
 - `partial_spawn_cleanup_timeout(Duration::from_secs(5))` bounds failed-spawn
   cleanup; default remains unbounded. Timed-out children go to a background reaper.
 
-## Also (0.3.4)
+## Also (0.4.0)
 
 - `OwnedCommand::kill_on_parent_exit(true)` is an opt-in tie to the supervising process for the case where
   the parent dies without cleanup (SIGKILL, abort, crash). **Linux only.** `prctl(PR_SET_PDEATHSIG, SIGTERM)`

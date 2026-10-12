@@ -20,7 +20,7 @@ tempfile = "3"
 thiserror = "2"
 tokio = { version = "1", features = ["rt", "sync", "time", "net", "io-util"] }
 url = "2"
-rightkit-process = { path = "../rightkit-process", version = "0.3.0" }
+rightkit-process = { path = "../rightkit-process", version = "0.4.0" }
 
 [dev-dependencies]
 # `#[tokio::test(flavor = "multi_thread")]` in the e2e tests; production code needs no macros or multi-thread runtime.

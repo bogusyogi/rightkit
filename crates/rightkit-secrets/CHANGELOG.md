@@ -1,6 +1,8 @@
 # Changelog
 
-## 0.1.4
+## 0.2.0
+
+Published version number: this release changes or removes public items, so it is a breaking release under Cargo's rules for 0.x versions. It was developed as 0.1.4, which was never published. `migrate_plaintext_file`, `FileMigration`, the `settings-probe` trait version and the CLI `set` behaviour all changed.
 
 - **Windows: a mutation also takes the lock 0.1.0 to 0.1.3 take (comparative review, 2026-10-12).** Those versions hold
   `Local\rightkit-secrets-<hash of service and account>` across the check and the write; this version held only the new

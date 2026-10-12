@@ -26,7 +26,7 @@ default = ["support-bundle"]
 support-bundle = ["dep:zip"]
 
 [dependencies]
-rightkit-fs = { version = "0.3", path = "../rightkit-fs", default-features = false, features = ["fs"] }
+rightkit-fs = { version = "0.4.0", path = "../rightkit-fs", default-features = false, features = ["fs"] }
 rightkit-logs = { version = "0.2.2", path = "../rightkit-logs", default-features = false }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

@@ -15,13 +15,13 @@ include = ["src/**", "tests/**", "README.md", "CHANGELOG.md", "LICENSE-MIT", "LI
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = { version = "1.0.150", features = ["raw_value"] }
 thiserror = "2"
-rightkit-fs = { version = "0.3.4", path = "../rightkit-fs", default-features = false, features = ["fs"] }
+rightkit-fs = { version = "0.4.0", path = "../rightkit-fs", default-features = false, features = ["fs"] }
 
 [dev-dependencies]
 tempfile = "3"
 # Fault hook around the replace call (debug and test builds only): proves the configured replace
 # mode and flags reach the platform call.
-rightkit-fs = { version = "0.3.4", path = "../rightkit-fs", default-features = false, features = ["fs", "testing"] }
+rightkit-fs = { version = "0.4.0", path = "../rightkit-fs", default-features = false, features = ["fs", "testing"] }
 
 [package.metadata.rightkit]
 continuous = false

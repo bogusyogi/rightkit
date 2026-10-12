@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-pdf"
-version = "0.2.1"
+version = "0.3.0"
 edition = "2021"
 rust-version = "1.98.0"
 license = "MIT OR Apache-2.0"
@@ -44,7 +44,7 @@ getrandom = { version = "0.4.3", optional = true }
 pdf-extract = { version = "0.12", optional = true }
 # The one writer behind a commit (temp sibling, flush, rename, directory sync). `fs` is the smallest
 # feature set that has `AtomicWriter`; `json`, `lock` and `digest` are not needed.
-rightkit-fs = { version = "0.3.4", path = "../rightkit-fs", default-features = false, features = ["fs"], optional = true }
+rightkit-fs = { version = "0.4.0", path = "../rightkit-fs", default-features = false, features = ["fs"], optional = true }
 
 # Windows file identity (volume serial + file id) read from an opened handle; see `commit.rs`. Only
 # that: the file replacement itself is rightkit-fs's.
@@ -56,4 +56,4 @@ serde_json = "1.0.150"
 image = { version = "0.25", default-features = false, features = ["png"] }
 # Fault seam around the replace call (debug and test builds only; a release build with it fails to
 # compile): proves a failed publish leaves the original file. Same pattern as rightkit-settings.
-rightkit-fs = { version = "0.3.4", path = "../rightkit-fs", default-features = false, features = ["fs", "testing"] }
+rightkit-fs = { version = "0.4.0", path = "../rightkit-fs", default-features = false, features = ["fs", "testing"] }

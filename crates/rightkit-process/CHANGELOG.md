@@ -1,6 +1,8 @@
 # Changelog
 
-## Unreleased
+## 0.4.0
+
+Published version number: this release changes or removes public items, so it is a breaking release under Cargo's rules for 0.x versions. It was developed as 0.3.4, which was never published; everything under the 0.3.4 heading below ships in 0.4.0. `PidProof` and the Windows tolerant-detach API are gone, `OwnedChild::child()` returns `UnixChild` on Unix, and `kill_on_parent_exit` is refused at spawn off Linux.
 
 - **`StderrTail::finish_within` never joins the drain thread (two comparative reviews, 2026-10-12).** It waits, up to
   the timeout, for the thread's body to signal its end and returns what was captured; it does not join. Two ways a join

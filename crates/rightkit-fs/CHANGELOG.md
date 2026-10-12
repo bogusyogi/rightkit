@@ -1,6 +1,8 @@
 # Changelog
 
-## Unreleased
+## 0.4.0
+
+Published version number: this release changes or removes public items, so it is a breaking release under Cargo's rules for 0.x versions. It was developed as 0.3.4, which was never published; everything under the 0.3.4 heading below ships in 0.4.0. `FsError` is non-exhaustive and `ReplaceMode::ReplaceFile`, `REPLACEFILE_WRITE_THROUGH` and `FsError::ReplaceInterrupted` are gone, so a 0.3.x number would have broken published crates that depend on `^0.3`.
 
 - **A path taken for a directory is opened only if it is one (second comparative review, 2026-10-12).** The macOS ACL check of a parent directory (`acl::guard_parent_path`, before every private creation), the check of a directory just created, and `sync_dir` opened their argument with a plain open. Given a path that is a regular file (`create_private_new(p.join("child"))` where `p` is a file), they opened and closed that file, which releases every POSIX record lock the process holds on it, before the creation failed. All three now open with `O_DIRECTORY`, so a regular file is refused by the kernel without being opened; the parent check then lets the creation report the failure. 0.3.3 opened no parent for an ACL check; `sync_dir` had the same plain open.
 - **Known limit, stated:** any function that READS an existing file opens and closes it (`StateDir::read`, `read_opt`, the digest functions, `FileKey::of_path`, `Fingerprint::of_path`, the clone ladder's source). Do not call one on a file this process holds a POSIX record lock on through another descriptor (a locked database, a `FileLock` path): the close releases that lock. This is how POSIX record locks work and is unchanged from 0.3.3. Also unchanged: a `FileLock` acquisition that fails its ACL check after another process linked an already-held inode to the missing name drops the descriptor before it is parked.
