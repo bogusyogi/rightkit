@@ -496,12 +496,19 @@ impl JobStore {
             defer,
             owner,
         } = req;
-        // An owner settle and a flush never interleave. A flush copies a held write, commits
-        // the copy and then removes the entry by job id; an owner replacing the held outcome in
-        // between would be told `Deferred` while the flush stored the replaced outcome and then
-        // removed the owner's entry and its journal file. Held from before the look at the held
-        // write until this settle has committed or is held; released before any callback.
-        let flush_guard = owner.then(|| lk(&self.settle.flush));
+        // A settle and a flush never interleave, and neither do two settles of one store. A
+        // flush copies a held write, commits the copy and then removes the entry by job id; an
+        // owner replacing the held outcome in between would be told `Deferred` while the flush
+        // stored the replaced outcome and then removed the owner's entry and its journal file.
+        // The runner takes the same lock: otherwise an owner whose write storage refused could
+        // hold its outcome between the runner's look at the held writes and the runner's commit,
+        // and the runner's commit (then the flush after it, finding the row terminal) would
+        // drop the owner's accepted outcome. Held from before the look at the held write until
+        // this settle has committed or is held; released before any callback and before the
+        // opportunistic flush. Order: flush, then pending, then the connection; nothing takes
+        // them the other way round. A `StoreHook` runs with the connection locked and must not
+        // call back into the store (it would wait for the connection it is running under).
+        let flush_guard = lk(&self.settle.flush);
         let mut prior_sink = None;
         let (claim, sink) = if owner {
             // A later explicit outcome replaces a held one; keep its announcement going.
@@ -526,8 +533,10 @@ impl JobStore {
                 if owner {
                     // The stored outcome is this one; the stale held write is moot.
                     self.take_entry(&job_id);
-                    // A sink may flush; so may `after_write` below.
-                    drop(flush_guard);
+                }
+                // A sink may flush; so does `after_write`.
+                drop(flush_guard);
+                if owner {
                     if let (Some(s), Some(e)) = (&prior_sink, &ev) {
                         let _ = catch_unwind(AssertUnwindSafe(|| s(e)));
                     }
@@ -715,6 +724,10 @@ impl JobStore {
     /// Give up a held write that came from the journal (no runner holds it) so the job is
     /// recovered as unfinished. True when one was discarded.
     pub(crate) fn discard_unclaimed_settlement(&self, job_id: &str) -> bool {
+        // Under the flush lock, like a settle: a flush that had already copied this entry would
+        // otherwise commit it after the discard, and an owner settle held in between would have
+        // its journal file removed below while its entry said the file exists.
+        let _flush = lk(&self.settle.flush);
         let entry = {
             let mut p = lk(&self.settle.pending);
             match p
