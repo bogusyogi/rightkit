@@ -4,9 +4,9 @@
 //! Blocker 1: a destination whose parent is a link to a `.rk-download` directory passed the
 //! lexical check and could replace another download's claim or partial file. The parent is now
 //! resolved and refused. Blocker 2: the partial file had the default mode and the rename
-//! replaced a `0600` destination with a `0644` file. The partial is now `0600`; the published
-//! file takes the mode of a regular file it replaces, masked to `0o777`, and is `0600` when
-//! there is none.
+//! replaced a `0600` destination with a `0644` file. The partial is `0600` and the published
+//! file is the staged file as it is, `0600`, whatever mode the replaced file had: nothing is
+//! copied from it.
 #![cfg(unix)]
 
 mod common;
@@ -197,14 +197,15 @@ fn a_directory_style_destination_never_replaces_the_file_it_names() {
 }
 
 // ------------------------------------------------------------------ blocker 2
-/// An existing destination keeps its permission bits when the download replaces it, and holds
-/// the downloaded bytes.
+/// Replacing an existing destination publishes the staged file as it is: `0600`, whatever mode
+/// the replaced file had (wider, narrower, executable), holding the downloaded bytes.
 #[test]
-fn an_existing_destination_keeps_its_mode_when_replaced() {
+fn replacing_an_existing_destination_publishes_0600_whatever_its_mode() {
     let server = MockServer::start(|_, _| MockResponse::text(200, "downloaded"));
     let dir = scratch("keep-mode");
     for (name, mode) in [
         ("private.bin", 0o600),
+        ("world.bin", 0o644),
         ("group.bin", 0o640),
         ("exec.bin", 0o755),
         ("readonly.bin", 0o400),
@@ -217,11 +218,12 @@ fn an_existing_destination_keeps_its_mode_when_replaced() {
             .unwrap();
         assert_eq!(report.bytes, 10, "{name}");
         assert_eq!(fs::read(&dest).unwrap(), b"downloaded", "{name}");
-        assert_eq!(mode_of(&dest), mode, "{name}");
+        assert_eq!(mode_of(&dest), 0o600, "{name} (was {mode:o})");
     }
 }
 
-/// A replaced file's setuid bit is not carried onto the downloaded bytes; its other bits are.
+/// A replaced file's setuid bit is not carried onto the downloaded bytes: the published file is
+/// `0600`.
 #[test]
 fn a_setuid_bit_on_the_replaced_file_is_not_carried_over() {
     let server = MockServer::start(|_, _| MockResponse::text(200, "downloaded"));
@@ -238,7 +240,7 @@ fn a_setuid_bit_on_the_replaced_file_is_not_carried_over() {
         .download_to_path(&server.url("/f"), &dest, DownloadOptions::default())
         .unwrap();
     assert_eq!(fs::read(&dest).unwrap(), b"downloaded");
-    assert_eq!(mode_of(&dest), 0o755);
+    assert_eq!(mode_of(&dest), 0o600);
 }
 
 /// A destination that is a link is replaced by a regular file, as before; the link's target
@@ -364,9 +366,9 @@ fn a_resumed_world_readable_partial_is_narrowed_before_use() {
     assert!(during_body.iter().all(|m| *m == 0o600), "{during_body:?}");
 }
 
-/// A resumed partial that is replacing a `0600` destination: the published file is `0600`.
+/// A resumed 0644 partial replacing a 0644 destination: the published file is `0600`.
 #[test]
-fn a_resumed_download_over_a_private_destination_stays_private() {
+fn a_resumed_download_over_a_world_readable_destination_publishes_0600() {
     let data = b"0123456789".to_vec();
     let served = data.clone();
     let server = MockServer::start(move |req, _| {
@@ -381,7 +383,7 @@ fn a_resumed_download_over_a_private_destination_stays_private() {
     let dir = scratch("resume-private");
     let dest = dir.join("out.bin");
     fs::write(&dest, b"old secret").unwrap();
-    set_mode(&dest, 0o600);
+    set_mode(&dest, 0o644);
     plant_part(&dest, &data[..4]);
     set_mode(&part_of(&dest), 0o644);
     let report = Client::new(cfg())

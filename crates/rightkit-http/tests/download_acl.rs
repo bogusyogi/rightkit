@@ -7,7 +7,10 @@
 //! which refuses on macOS a parent whose ACL would give them an `allow` entry, and creates with an
 //! owner-only protected DACL on Windows. The macOS tests make ACLs with `/bin/chmod +a` as
 //! `crates/rightkit-fs/tests/acl_macos.rs` does and need a volume that holds ACLs (APFS does).
-//! The Windows test reads access lists with `icacls`. Neither has been run where it was written.
+//! The Windows tests read access lists with `icacls`. Neither has been run where it was written.
+//!
+//! The rule under test: a download is always private and nothing is copied from the file it
+//! replaces or from a leftover partial; the published file is the staged file as it is.
 #![allow(dead_code)]
 
 #[cfg(any(target_os = "macos", windows))]
@@ -159,6 +162,32 @@ mod macos {
         assert!(!has_allow_entry(&coord_dir(&dest)));
     }
 
+    /// Publication copies nothing from the file it replaces. An existing destination with a deny
+    /// entry is replaced by a file with no ACL and mode `0600`. The deny entry is not preserved,
+    /// and that is safe: the new file is `0600` and carries no `allow` entry, so nobody but its
+    /// owner can read it, with or without the deny entry. (The deny entry used is the one
+    /// `crates/rightkit-fs/tests/acl_macos.rs` uses because it is harmless to the owner.)
+    #[test]
+    fn replacing_a_destination_with_a_deny_entry_publishes_a_private_file_without_an_acl() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = scratch("replace-deny");
+        let dest = dir.join("out.bin");
+        fs::write(&dest, b"old").unwrap();
+        fs::set_permissions(&dest, fs::Permissions::from_mode(0o644)).unwrap();
+        add_acl(&dest, "everyone deny writeextattr");
+        assert!(!acl_entries(&dest).is_empty(), "precondition");
+        let server = MockServer::start(|_, _| MockResponse::text(200, "payload"));
+        Client::new(cfg())
+            .download_to_path(&server.url("/f"), &dest, DownloadOptions::default())
+            .unwrap();
+        assert_eq!(fs::read(&dest).unwrap(), b"payload");
+        assert_eq!(
+            fs::metadata(&dest).unwrap().permissions().mode() & 0o7777,
+            0o600
+        );
+        assert!(acl_entries(&dest).is_empty(), "{:?}", acl_entries(&dest));
+    }
+
     /// An existing download directory that carries an `allow` entry is refused, not repaired.
     #[test]
     fn an_existing_download_directory_with_an_allow_entry_is_refused() {
@@ -176,8 +205,10 @@ mod macos {
         assert!(has_allow_entry(&coord_dir(&dest)), "the ACL is left alone");
     }
 
-    /// A leftover partial that is `0600` but carries an `allow` entry is not private. It is not
-    /// appended to, not deleted, and no request is sent.
+    /// A leftover partial that is `0600` but carries an `allow` entry is made private by this
+    /// call or refused: on macOS `restrict_owner_only` does not remove an ACL entry (that could
+    /// not revoke a descriptor somebody holds), it refuses. The file is not appended to, not
+    /// deleted, and no request is sent.
     #[test]
     fn a_resumed_partial_with_an_allow_entry_is_refused_and_left_alone() {
         use std::os::unix::fs::PermissionsExt;
@@ -203,7 +234,7 @@ mod macos {
             )
             .expect_err("a partial readable through an ACL must not be used");
         assert!(
-            matches!(&err, DownloadError::PartialNotPrivate { path } if path == &part),
+            matches!(&err, DownloadError::UnsafeAcl { path } if path == &part),
             "{err:?}"
         );
         assert_eq!(server.request_count(), 0, "no request may be sent");
@@ -223,8 +254,12 @@ mod windows {
     use std::process::Command;
     use std::time::Duration;
 
+    use std::sync::{Arc, Mutex};
+
+    use super::common::{part_of, plant_part};
     use rightkit_http::testing::{loopback_config, MockResponse, MockServer};
     use rightkit_http::*;
+    use sha2::{Digest, Sha256};
 
     fn cfg() -> ClientConfig {
         ClientConfig {
@@ -240,6 +275,13 @@ mod windows {
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(&dir).unwrap();
         dir
+    }
+
+    fn sha_hex(bytes: &[u8]) -> String {
+        Sha256::digest(bytes)
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect()
     }
 
     /// `icacls <path>`: one line per ACE, an inherited ACE marked `(I)`.
@@ -288,6 +330,75 @@ mod windows {
         assert!(
             !published.contains("(I)") && !published.contains("Everyone"),
             "the downloaded file must not carry the parent's grant: {published}"
+        );
+    }
+    /// A leftover partial that carries an explicit (not inherited) Everyone read entry is made
+    /// private by the resumed call before the request and before any byte is appended:
+    /// `restrict_owner_only` replaces the whole DACL. `is_owner_only` cannot test on Windows, so
+    /// this replacement is the whole defence. The published file then carries no Everyone entry
+    /// either.
+    #[test]
+    fn a_resumed_partial_with_an_explicit_everyone_entry_is_made_private() {
+        let data = b"0123456789".to_vec();
+        let dir = scratch("resume-everyone");
+        let dest = dir.join("out.bin");
+        plant_part(&dest, &data[..4]);
+        let part = part_of(&dest);
+        // Explicit entry: stop inheriting first (keeping copies), then grant Everyone read.
+        for args in [vec!["/inheritance:d"], vec!["/grant", "*S-1-1-0:(R)"]] {
+            let status = Command::new("icacls")
+                .arg(&part)
+                .args(&args)
+                .stdout(std::process::Stdio::null())
+                .status()
+                .unwrap();
+            assert!(status.success(), "icacls {args:?}");
+        }
+        assert!(
+            icacls(&part).contains("Everyone"),
+            "precondition: {}",
+            icacls(&part)
+        );
+
+        let at_request: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
+        let (seen, watched, served) = (at_request.clone(), part.clone(), data.clone());
+        let server = MockServer::start(move |req, _| {
+            seen.lock().unwrap().push(icacls(&watched));
+            if req.header("range") == Some("bytes=4-") {
+                MockResponse::new(206)
+                    .header("Content-Range", "bytes 4-9/10")
+                    .body(served[4..].to_vec())
+            } else {
+                MockResponse::new(200).body(served.clone())
+            }
+        });
+        let report = Client::new(cfg())
+            .download_to_path(
+                &server.url("/f"),
+                &dest,
+                DownloadOptions {
+                    resume: true,
+                    expected_sha256: Some(sha_hex(&data)),
+                    ..DownloadOptions::default()
+                },
+            )
+            .unwrap();
+        assert_eq!(
+            report.resumed_from, 4,
+            "the leftover partial must be resumed"
+        );
+        assert_eq!(fs::read(&dest).unwrap(), data);
+        let at_request = at_request.lock().unwrap();
+        assert_eq!(at_request.len(), 1);
+        assert!(
+            !at_request[0].contains("Everyone"),
+            "the partial must be private when the request arrives: {}",
+            at_request[0]
+        );
+        let published = icacls(&dest);
+        assert!(
+            !published.contains("Everyone") && !published.contains("(I)"),
+            "{published}"
         );
     }
 }

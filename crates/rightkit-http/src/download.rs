@@ -38,33 +38,32 @@
 //!
 //! # Privacy
 //!
-//! The mode bits alone do not keep the bytes private: on macOS an ACL `allow` entry inherited
-//! from the parent directory is evaluated before them, and on Windows a new file inherits the
-//! parent's access rules. So the download's directory and partial file are created through
-//! rightkit-fs (`ensure_private_dir`, `create_private_new`): owner-only from the first instant
-//! (`0700`/`0600` on Unix, a protected owner-only DACL on Windows), and on macOS never under a
-//! parent whose ACL would hand them an inheritable `allow` entry. That case is refused with
-//! [`DownloadError::UnsafeAcl`] before anything is created or requested; an ACL made only of
-//! `deny` entries is accepted. Other Unixes are mode-only.
+//! One rule: a download is always private, and it is the one file this call created or made
+//! private. The mode bits alone do not keep bytes private (on macOS an ACL `allow` entry
+//! inherited from the parent is evaluated before them, on Windows a new file inherits the
+//! parent's access), so the directory and the partial file are created through rightkit-fs
+//! (`ensure_private_dir`, `create_private_new`): owner-only from the first instant (`0700`/`0600`
+//! on Unix, a protected owner-only DACL on Windows), and on macOS never under a parent whose ACL
+//! would hand them an inheritable `allow` entry, which is refused with
+//! [`DownloadError::UnsafeAcl`] before anything is created or requested (an ACL made only of
+//! `deny` entries is accepted). Other Unixes are mode-only.
 //!
-//! A partial left by an earlier call is first set to `0600` (Unix), then used only if
-//! rightkit-fs `is_owner_only` says it is private, which is read by path (the file is not opened
-//! to look). Otherwise the call fails with [`DownloadError::PartialNotPrivate`]: the file is not
-//! appended to and not deleted, and no request is sent. On Windows `is_owner_only` cannot test
-//! and reports true, so a leftover partial there is trusted as it was.
+//! A new partial is the file this call created: its creation handle is kept until it has been
+//! compared with the handle the download writes through, and a different file there fails the
+//! call. A partial left by an earlier call is made private by this call before any byte is
+//! appended (rightkit-fs `restrict_owner_only`, by path: on Unix the mode is narrowed to `0600`
+//! and, on macOS, an ACL `allow` entry is refused with [`DownloadError::UnsafeAcl`]; on Windows
+//! the whole DACL is replaced by one protected entry for the current user). If that fails, the
+//! call fails before any request and the file is neither appended to nor deleted. On Unix
+//! `is_owner_only` is then checked as well ([`DownloadError::PartialNotPrivate`] if it still
+//! disagrees); on Windows it cannot test, so only the replacement is relied on.
 //!
-//! Publication (Unix): just before the rename a regular file already at `dest` passes its
-//! permission bits, masked to `0o777`, to the partial: replacing a `0600` file leaves a `0600`
-//! file, and a setuid, setgid or sticky bit is never carried onto downloaded bytes. For any
-//! other destination (none, a link that the rename replaces, or another kind of entry) the
-//! partial keeps `0600`, so a new file is published owner-only whatever the umask. Ownership is
-//! not carried over. The destination's own ACL is not carried over either (macOS): the
-//! published file is the staged one.
+//! Publication copies nothing from the file it replaces: the staged file is renamed into place
+//! as it is, owner-only, so the published file is `0600` on Unix and carries the owner-only
+//! DACL on Windows, whatever mode, ACL or owner the replaced file had. A caller that wants
+//! other access sets it after the call.
 //!
-//! Windows: the published file is the staged file, so it carries the owner-only access it was
-//! staged with, not the parent's inherited access and not the replaced file's. A caller that
-//! wants a shared file changes its access, or its mode on Unix, after the call. The
-//! destination's parent is resolved on every platform (on Windows the resolved path has the
+//! The destination's parent is resolved on every platform (on Windows the resolved path has the
 //! `\\?\` form and is used only inside this module; a junction in the parent is resolved too).
 //!
 //! Limits, stated rather than hidden:
@@ -212,16 +211,17 @@ pub enum DownloadError {
     },
     /// The download's own directory or partial file cannot be made owner-only, because an
     /// access list entry that grants access to others would be inherited from the directory
-    /// that holds it (or is on `path` itself). `path` is the `.rk-download` directory or the
-    /// partial file inside it; the grant is on it or on its parent. Nothing was written. macOS:
+    /// that holds it (or is on `path` itself, as on a leftover partial, which is not repaired).
+    /// `path` is the `.rk-download` directory or the partial file inside it. Nothing was
+    /// written. macOS:
     /// extended ACL `allow` entries (a `deny`-only list never causes this). The error is
     /// raised before any request when the directory is the cause.
     UnsafeAcl {
         path: PathBuf,
     },
-    /// A partial file left by an earlier call is readable by group or others (mode bits, or on
-    /// macOS an ACL `allow` entry). It was neither used nor deleted: nothing was appended to
-    /// it and no request was sent. Remove it, or fix its access, and call again.
+    /// Unix: a partial file left by an earlier call still reads as readable by group or others
+    /// after this call narrowed it (the check that follows `restrict_owner_only`). It was
+    /// neither used nor deleted: nothing was appended to it and no request was sent.
     PartialNotPrivate {
         path: PathBuf,
     },
@@ -346,9 +346,9 @@ impl Client {
     /// its last component is `.` or `..`). The directory and the partial file are owner-only
     /// from creation and, on macOS, never under a parent whose ACL would give them an `allow`
     /// entry ([`DownloadError::UnsafeAcl`]); a leftover partial that is not private is not used
-    /// ([`DownloadError::PartialNotPrivate`]). On Unix the published file keeps the permission
-    /// bits, masked to `0o777`, of a regular file it replaces and is `0600` otherwise; on
-    /// Windows it carries the owner-only access it was staged with (see the module docs).
+    /// ([`DownloadError::PartialNotPrivate`]). The published file is the staged file as it is:
+    /// `0600` on Unix, the owner-only DACL on Windows. Nothing is copied from a destination it
+    /// replaces (mode, ACL, owner); set other access after the call (see the module docs).
     ///
     /// Safety rules: the URL is checked against the address policy before any file is
     /// opened. The destination is then claimed: an exclusive OS lock on the destination's claim
@@ -479,19 +479,9 @@ impl Client {
             }
         }
         ensure_same_file(&file, part).map_err(io_error("check partial file"))?;
-        // The partial file is owner-only. Before it replaces `target` it takes the mode the
-        // published file is documented to have (see `set_published_mode`).
-        #[cfg(unix)]
-        set_published_mode(&file, &target)?;
-        if let Err(e) = fs::rename(part, &target) {
-            // The partial file stays for a resume, which opens it for writing: put its
-            // owner-only mode back so a mode copied from the destination cannot lock it out.
-            #[cfg(unix)]
-            {
-                let _ = restrict_part(&file);
-            }
-            return Err(io_error("rename into place")(e));
-        }
+        // The staged file is published exactly as staged: owner-only, nothing copied from the
+        // file it replaces (mode, ACL, owner).
+        fs::rename(part, &target).map_err(io_error("rename into place"))?;
         drop(file);
         sync_parent(&target);
         Ok(DownloadReport {
@@ -802,16 +792,16 @@ fn open_part_with(
             "partial path is a hard link to another file".into(),
         ));
     }
-    // Owner-only before any byte is appended, a partial from an earlier call included (it
-    // may have been made by an older version or another tool with the default mode). After
-    // the hard-link check, so another name for the same inode is never changed. A failure is
-    // an error: the file is not used.
+    // Made private by this call before any byte is appended, a partial from an earlier call
+    // included (it may have been made by an older version or another tool): on Unix the mode is
+    // narrowed to `0600` and, on macOS, an ACL `allow` entry is refused (`UnsafeAcl`, the
+    // file is neither used nor deleted); on Windows the whole DACL is replaced by one protected
+    // entry for the current user. After the hard-link check, so another name for the same inode
+    // is never changed. By path: nothing is opened here. A failure is an error before any
+    // request.
+    rightkit_fs::restrict_owner_only(part).map_err(fs_error("make partial file private"))?;
+    // Then the proof, on Unix (rightkit-fs cannot test for it on Windows and reports true).
     #[cfg(unix)]
-    restrict_part(&file).map_err(io_error("restrict partial file"))?;
-    // Then the proof. A partial that is still readable by others (on macOS: through an ACL
-    // `allow` entry, which the mode step cannot remove) is not used and not deleted. Read by
-    // path, so nothing is opened here (rightkit-fs `is_owner_only`). On Windows rightkit-fs
-    // cannot test for it and reports true: see the README.
     if !rightkit_fs::private::is_owner_only(part).map_err(fs_error("check partial file"))? {
         return Err(DownloadError::PartialNotPrivate {
             path: part.to_path_buf(),
@@ -852,49 +842,23 @@ fn append_part(file: &mut File, bytes: &[u8]) -> io::Result<()> {
 /// Create the partial file: exclusively, owner-only from the first instant and refusing an
 /// ACL that would hand it access (rightkit-fs `create_private_new`), then open it for reading
 /// and appending. `create_private_new` fails on any existing entry, a link included, and
-/// never follows one (`O_EXCL | O_NOFOLLOW` on Unix, `CREATE_NEW` on Windows), as the
-/// exclusive create this replaces did. Its handle is write-only, so it is dropped (the file
-/// is empty and no lock is held on it) and the file is opened again by path without following
-/// a link, which also gives the handle the read access the hash needs.
+/// never follows one (`O_EXCL | O_NOFOLLOW` on Unix, `CREATE_NEW` on Windows). Its handle is
+/// write-only, so the file is opened again by path without following a link, which gives the
+/// read access the hash needs. The creation handle stays open until the two handles are
+/// compared ([`same_open_file`]): if another process renamed a different file over the empty
+/// partial in between, the reopened handle is a different file and the call fails, writing to
+/// nothing and deleting nothing.
 fn create_new(part: &Path) -> Result<File, DownloadError> {
     let created = rightkit_fs::create_private_new(part).map_err(fs_error("create partial file"))?;
+    let file =
+        open_nofollow(&mut part_options(), part).map_err(io_error("open new partial file"))?;
+    if !same_open_file(&created, &file).map_err(io_error("compare new partial file"))? {
+        return Err(DownloadError::Io(
+            "the partial file was replaced during creation; nothing was written to it".into(),
+        ));
+    }
     drop(created);
-    open_nofollow(&mut part_options(), part).map_err(io_error("open new partial file"))
-}
-
-/// Mode of a partial file on Unix: owner read and write only. Creation gets it from
-/// rightkit-fs; this is the mode step for a partial that already existed.
-#[cfg(unix)]
-const PART_MODE: u32 = 0o600;
-
-/// Set the open partial file to [`PART_MODE`] through its handle.
-#[cfg(unix)]
-fn restrict_part(file: &File) -> io::Result<()> {
-    use std::os::unix::fs::PermissionsExt;
-    file.set_permissions(fs::Permissions::from_mode(PART_MODE))
-}
-
-/// Give the partial file the mode the published file will have, just before the rename.
-///
-/// - A regular file already at `dest`: its permission bits masked to `0o777` (taken without
-///   following a link), so replacing a `0600` file does not make it `0644` and a setuid,
-///   setgid or sticky bit is never carried onto the downloaded bytes.
-/// - Anything else (no file, a link, which the rename replaces without touching its target, or
-///   another kind of entry): nothing changes, and the partial stays [`PART_MODE`].
-///
-/// Ownership is not carried over. The destination can change between this read and the
-/// rename; the mode is then the one the file had a moment earlier.
-#[cfg(unix)]
-fn set_published_mode(file: &File, dest: &Path) -> Result<(), DownloadError> {
-    use std::os::unix::fs::{MetadataExt, PermissionsExt};
-    let mode = match fs::symlink_metadata(dest) {
-        Ok(meta) if meta.file_type().is_file() => meta.mode() & 0o777,
-        Ok(_) => return Ok(()),
-        Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(()),
-        Err(e) => return Err(io_error("inspect destination")(e)),
-    };
-    file.set_permissions(fs::Permissions::from_mode(mode))
-        .map_err(io_error("set the mode of the published file"))
+    Ok(file)
 }
 
 /// Name of the hidden directory, in the destination's parent, that holds the claim and the
@@ -1405,6 +1369,27 @@ fn ensure_same_file(file: &File, path: &Path) -> io::Result<()> {
     #[cfg(not(any(unix, windows)))]
     let _ = file;
     Ok(())
+}
+
+/// Whether two open handles are the same file: device and inode on Unix, volume serial number
+/// and file index on Windows. [`ensure_same_file`] compares a handle with a path; this compares
+/// two handles.
+fn same_open_file(a: &File, b: &File) -> io::Result<bool> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        let (a, b) = (a.metadata()?, b.metadata()?);
+        Ok(a.dev() == b.dev() && a.ino() == b.ino())
+    }
+    #[cfg(windows)]
+    {
+        Ok(file_key(a)? == file_key(b)?)
+    }
+    #[cfg(not(any(unix, windows)))]
+    {
+        let _ = (a, b);
+        Ok(true)
+    }
 }
 
 /// Flush the directory entry of the renamed file, where the platform allows it.
@@ -2018,6 +2003,46 @@ mod tests {
         file.write_all(b"def").unwrap();
         drop(file);
         assert_eq!(fs::read(&part).unwrap(), b"abcdef");
+        // The leftover partial was made with the default mode; opening it made it private.
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            assert_eq!(
+                fs::metadata(&part).unwrap().permissions().mode() & 0o777,
+                0o600
+            );
+        }
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn two_handles_compare_by_file_identity_not_by_name() {
+        let dir = scratch("same-open");
+        let (a, b) = (dir.join("a.bin"), dir.join("b.bin"));
+        fs::write(&a, b"one").unwrap();
+        fs::write(&b, b"one").unwrap();
+        let (a1, a2, b1) = (
+            File::open(&a).unwrap(),
+            File::open(&a).unwrap(),
+            File::open(&b).unwrap(),
+        );
+        assert!(same_open_file(&a1, &a2).unwrap());
+        assert!(!same_open_file(&a1, &b1).unwrap());
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_new_part_is_created_empty_and_private_through_both_handles() {
+        let dir = scratch("create-new");
+        let part = dir.join("x.part");
+        let mut file = create_new(&part).unwrap();
+        assert_eq!(file.metadata().unwrap().len(), 0);
+        file.write_all(b"abc").unwrap();
+        drop(file);
+        assert_eq!(fs::read(&part).unwrap(), b"abc");
+        // An existing entry is never created over.
+        assert!(create_new(&part).is_err());
+        assert_eq!(fs::read(&part).unwrap(), b"abc");
         let _ = fs::remove_dir_all(&dir);
     }
 
