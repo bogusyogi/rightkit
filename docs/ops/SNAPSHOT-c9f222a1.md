@@ -10,7 +10,7 @@ Nothing here is published. Copy crates into the app's `rk-snapshot/` and keep th
 
 ## Version numbers do not tell snapshots apart
 
-Twenty crates changed since 626d27e3 and NONE changed its version number. Patch by path and record the snapshot commit beside each override. Changed: fs, http, pdf, process, secrets, settings, service, jobs, daemon, qa, db, shell, search, embed, models, llm, license, sandbox, tts, ort, media, overlay, contracts. Unchanged: crash, control, logs, cache, hotkeys, tauri, review, channel-memory.
+Twenty crates changed since 626d27e3 and NONE changed its version number. Patch by path and record the snapshot commit beside each override. Changed: fs, http, pdf, process, secrets, settings, service, jobs, daemon, qa, db, shell, search, embed, models, llm, license, sandbox, tts, ort, media, overlay, contracts, browser. Unchanged: crash, control, logs, cache, hotkeys, tauri, review, channel-memory.
 
 ## Evidence
 
@@ -61,6 +61,8 @@ Not reviewed: the five reduced crates (fs, http, pdf, process, secrets) have not
 **rightkit-search**: per-character folding (`FOLD_VERSION` 2). An index built on the 626d27e3 copy must be rebuilt.
 
 **rightkit-service**: `Client::connect_expecting(&ClientConfig, &HostExpectation)` verifies the host executable before any byte is sent, on macOS, Linux and Windows.
+
+**rightkit-browser** (added to this note 2026-10-12 06:45 IST; it was missing, and GenRight met it on the Dell): on Windows a launcher refuses, with `BrowserError::ChromeSandboxAccess` and the `icacls` command that fixes it, a Chrome whose folder does not grant read and execute to `ALL APPLICATION PACKAGES` (`S-1-15-2-1`) and `ALL RESTRICTED APPLICATION PACKAGES` (`S-1-15-2-2`). A Chrome unpacked into a user folder (Playwright's `ms-playwright\chromium-*`) has neither grant; before this check its network service crashed at start and the first navigation hung or aborted intermittently. The Chrome for Testing that `@rightkit/qa-chrome` installs is granted at install. Same version number, 0.2.4. Consumers whose Windows browser tests used a Playwright Chromium now fail deterministically where they used to pass or stall: use the managed Chrome for Testing; do not change the folder's access list by hand on a shared machine.
 
 **rightkit-daemon**: `DeviceSession::send_unsigned` and `send_with_nonce` under the `testing` feature.
 
