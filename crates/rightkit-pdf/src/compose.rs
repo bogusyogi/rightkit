@@ -1091,7 +1091,7 @@ fn apply_local_text_object_rewrite(
     let operations =
         build_text_object_operations(&resource_name, &after.appearance, placement, &cid_codes);
     // A run with no text shows no glyph, so there is no first glyph to find on read-back.
-    let run = (!after.text.is_empty()).then(|| AppendedRun {
+    let run = (!after.text.is_empty()).then_some(AppendedRun {
         page,
         stream: None,
         placement,
@@ -4388,6 +4388,40 @@ mod tests {
         assert_eq!(ef(&before), ef(&after));
     }
 
+    // A replacement is drawn on the source run's own baseline, so a replacement beside a neighbour
+    // of the same colour is grouped with it by the walker ("Hi" and "CA" 3 pt apart read as
+    // "HiCA"), as a reader of the page sees them. The finding12 tests are about the batch: every
+    // command resolves and is applied, in whatever order, and the page reads right. They therefore
+    // look at the glyphs' origins and at the page's text, not at how many islands the walker forms.
+
+    /// Device-space origin of every shown glyph reading `glyph`, across all islands, in order.
+    fn glyph_origins(islands: &[crate::model::PdfTextIsland], glyph: &str) -> Vec<(f64, f64)> {
+        islands
+            .iter()
+            .flat_map(|island| island.run.iter())
+            .filter(|item| item.glyph.is_some() && item.text == glyph)
+            .filter_map(|item| item.placement)
+            .map(|(matrix, _)| (matrix.e, matrix.f))
+            .collect()
+    }
+
+    /// Whether some origin in `origins` is within 0.5 pt of the first two numbers of `at`.
+    fn has_origin(origins: &[(f64, f64)], at: [f64; 4]) -> bool {
+        origins
+            .iter()
+            .any(|origin| (origin.0 - at[0]).hypot(origin.1 - at[1]) <= 0.5)
+    }
+
+    /// The text of every island of the page, one string, with the walker's synthesised spaces and
+    /// island boundaries left out.
+    fn page_text(islands: &[crate::model::PdfTextIsland]) -> String {
+        islands
+            .iter()
+            .flat_map(|island| island.text.chars())
+            .filter(|c| *c != ' ')
+            .collect()
+    }
+
     #[test]
     fn finding12_add_text_and_two_replacements_on_one_page_all_resolve_in_one_batch() {
         let source = doc_bytes(&build_pdf(THREE_COLOURS));
@@ -4404,10 +4438,23 @@ mod tests {
         assert_eq!(candidate.affected_pages, [1]);
         let after = page_islands(&candidate.bytes);
         let texts: Vec<&str> = after.iter().map(|i| i.text.as_str()).collect();
-        for wanted in ["CD", "Hi", "CA", "HH"] {
+        // The untouched and the added islands are islands of their own; the two replacements sit
+        // on the page's baseline 3 pt apart in one colour and read as one island, "HiCA".
+        for wanted in ["CD", "HH"] {
             assert!(texts.contains(&wanted), "{wanted}: {texts:?}");
         }
-        assert!(!texts.contains(&"AB"), "{texts:?}");
+        let text = page_text(&after);
+        assert!(
+            text.contains("Hi") && text.contains("CA") && !text.contains("AB"),
+            "{texts:?}"
+        );
+        // Each replacement is at the origin of the run it replaced (the H of "Hi", the C of "CA").
+        assert!(has_origin(&glyph_origins(&after, "H"), before[0].baseline));
+        assert!(has_origin(&glyph_origins(&after, "C"), before[2].baseline));
+        assert!(has_origin(
+            &glyph_origins(&after, "H"),
+            [100.0, 100.0, 0.0, 0.0]
+        ));
 
         // The untouched middle island did not move.
         let red = after.iter().find(|i| i.text == "CD").expect("CD");
@@ -4438,11 +4485,17 @@ mod tests {
             let candidate = compose_candidate(&source, &commands, &test_resolver())
                 .unwrap_or_else(|e| panic!("{order:?}: {e:?}"));
             let after = page_islands(&candidate.bytes);
-            assert_eq!(
-                after.iter().filter(|i| i.text == "Hi").count(),
-                2,
-                "{order:?}"
-            );
+            // Both commands were applied: two "Hi", no "AB" left, each at its run's own origin.
+            // Whether they read as one island ("HiHi", applied 0 then 2) or two (2 then 0: the
+            // second starts left of where the first ends) depends on the order of the appended
+            // streams, which is the order of the commands, so the island count is not asserted.
+            let text = page_text(&after);
+            assert_eq!(text.matches("Hi").count(), 2, "{order:?}: {text}");
+            assert!(!text.contains("AB"), "{order:?}: {text}");
+            let origins = glyph_origins(&after, "H");
+            assert_eq!(origins.len(), 2, "{order:?}");
+            assert!(has_origin(&origins, before[0].baseline), "{order:?}");
+            assert!(has_origin(&origins, before[2].baseline), "{order:?}");
             let red = after.iter().find(|i| i.text == "CD").expect("CD");
             assert_eq!(red.quads, before[1].quads, "{order:?}");
         }
@@ -4468,7 +4521,12 @@ mod tests {
             .expect("both islands of the array resolve");
         let after = page_islands(&candidate.bytes);
         let texts: Vec<&str> = after.iter().map(|i| i.text.as_str()).collect();
-        assert!(texts.contains(&"Hi") && texts.contains(&"CA"), "{texts:?}");
+        // The replacements are on the baseline 11 pt apart in one colour: "Hi CA" is one island.
+        // What matters is that both resolved and sit where their runs were.
+        let text = page_text(&after);
+        assert!(text.contains("Hi") && text.contains("CA"), "{texts:?}");
+        assert!(has_origin(&glyph_origins(&after, "H"), before[0].baseline));
+        assert!(has_origin(&glyph_origins(&after, "C"), before[1].baseline));
         // The run after the array kept its place through both removals.
         let tail = after
             .iter()
@@ -4774,16 +4832,18 @@ mod tests {
         content.into_bytes()
     }
 
-    /// The three-run page with the middle run (`BC`) placed by `middle_cm`.
-    fn three_cm_runs(middle_cm: &str) -> Vec<u8> {
+    /// The three-run page with the middle run (`middle_text`) placed by `middle_cm`.
+    fn three_cm_runs(middle_cm: &str, middle_text: &str) -> Vec<u8> {
         cm_positioned_page(&[
             ("1 0 0 1 1000 -1000", "0 0 0", "AB"),
-            (middle_cm, "1 0 0", "BC"),
+            (middle_cm, "1 0 0", middle_text),
             ("1 0 0 1 3000 -1000", "0 0 1", "CA"),
         ])
     }
 
     struct ReplacedMiddle {
+        target: String,
+        replacement: String,
         before: Vec<crate::model::PdfTextIsland>,
         after: Vec<crate::model::PdfTextIsland>,
         appended: Vec<Operation>,
@@ -4793,16 +4853,27 @@ mod tests {
     /// Replaces `BC` of `content` with `Hi` in the catalog font (`Tf` 100, the source run's own
     /// text-space size) and reads the saved bytes back.
     fn replace_middle_run_in_a_new_font(content: &[u8]) -> ReplacedMiddle {
+        replace_run_in_a_new_font(content, "BC", "Hi")
+    }
+
+    /// The same for any island of `content` reading `target`, replaced by `replacement`. Text
+    /// turned a quarter is grouped by page axes (see the README's limits): it falls apart into one
+    /// island per glyph, so the rotated fixtures use single-glyph runs.
+    fn replace_run_in_a_new_font(
+        content: &[u8],
+        target: &str,
+        replacement: &str,
+    ) -> ReplacedMiddle {
         let source = doc_bytes(&build_pdf(content));
         let before = page_islands(&source);
-        let target = before
+        let found = before
             .iter()
-            .find(|island| island.text == "BC")
+            .find(|island| island.text == target)
             .expect("the middle run is an island of its own");
         let command = replace_cmd(
             "middle",
-            target,
-            "Hi",
+            found,
+            replacement,
             appearance("test-font", 100.0),
             PdfRect {
                 x: 190.0,
@@ -4814,6 +4885,8 @@ mod tests {
         let candidate = compose_candidate(&source, &[command], &test_resolver()).expect("composes");
         let (out, graph) = reinspect(&candidate, 1);
         ReplacedMiddle {
+            target: target.to_string(),
+            replacement: replacement.to_string(),
             before,
             after: graph.islands,
             appended: appended_operations(&out, 1),
@@ -4861,8 +4934,8 @@ mod tests {
 
     /// What both placement tests assert once the appended `Tm` and `Tf` are checked.
     fn assert_replacement_sits_on_the_source_run(run: &ReplacedMiddle) {
-        let source = island_named(&run.before, "BC");
-        let written = island_named(&run.after, "Hi");
+        let source = island_named(&run.before, &run.target);
+        let written = island_named(&run.after, &run.replacement);
         // (c) The saved page, read back with the crate's own walker: same glyph origin, same
         // size in device space.
         let origin_error = (written.baseline[0] - source.baseline[0])
@@ -4890,12 +4963,12 @@ mod tests {
                 "{neighbour}"
             );
         }
-        assert!(!run.after.iter().any(|island| island.text == "BC"));
+        assert!(!run.after.iter().any(|island| island.text == run.target));
     }
 
     #[test]
     fn a_changed_font_replacement_on_a_cm_positioned_page_carries_the_runs_placement() {
-        let run = replace_middle_run_in_a_new_font(&three_cm_runs("1 0 0 1 2000 -1000"));
+        let run = replace_middle_run_in_a_new_font(&three_cm_runs("1 0 0 1 2000 -1000", "BC"));
         // (a) Tm_source (the identity: `0 0 Td`) x CTM_source, row vectors. The CTM of the middle
         // run is `[1 0 0 1 2000 -1000] x [1 0 0 1 0 7920] x [0.1 0 0 0.1 0 0]`: a text-space point
         // (x, y) lands at (0.1 x + 0.1 * 2000, 0.1 y + 0.1 * (7920 - 1000)) = (0.1 x + 200,
@@ -4914,7 +4987,8 @@ mod tests {
     fn a_changed_font_replacement_keeps_the_rotation_of_a_cm_positioned_run() {
         // `0 1 -1 0 2000 -1000 cm` turns the run a quarter turn. Its CTM is
         // `[0 1 -1 0 2000 -1000] x [0.1 0 0 0.1 0 792]` = [0 0.1 -0.1 0 200 692].
-        let run = replace_middle_run_in_a_new_font(&three_cm_runs("0 1 -1 0 2000 -1000"));
+        // One glyph in, one glyph out: a quarter-turned run of two or more glyphs is not one island.
+        let run = replace_run_in_a_new_font(&three_cm_runs("0 1 -1 0 2000 -1000", "B"), "B", "H");
         assert_numbers(
             "Tm",
             &operands_of(&run.appended, "Tm"),
@@ -4922,12 +4996,15 @@ mod tests {
         );
         assert_numbers("Tf", &operands_of(&run.appended, "Tf"), &[100.0]);
         assert_replacement_sits_on_the_source_run(&run);
-        // The new glyphs run up the page like the old ones did.
-        let written = island_named(&run.after, "Hi");
-        let baseline = written.baseline;
-        assert!(
-            (baseline[2] - baseline[0]).abs() < 1e-6 && baseline[3] > baseline[1],
-            "{baseline:?}"
+        // The walker reads the new glyph's whole matrix back, rotation included.
+        let placement = island_named(&run.after, "H")
+            .layout
+            .expect("layout")
+            .placement;
+        assert_numbers(
+            "read back",
+            &[placement.a, placement.b, placement.c, placement.d],
+            &[0.0, 0.1, -0.1, 0.0],
         );
     }
 
@@ -4936,9 +5013,9 @@ mod tests {
         // Both carry placement: `Tm` turns and moves the run, the `cm` scales it.
         let content = b"0.1 0 0 0.1 0 0 cm\n1 0 0 1 0 7920 cm\n\
             q 1 0 0 1 1000 -1000 cm BT /F1 100 Tf 0 0 0 rg 0 0 Td (AB) Tj ET Q\n\
-            q 1 0 0 1 2000 -1000 cm BT /F1 100 Tf 1 0 0 rg 0 1 -1 0 30 40 Tm (BC) Tj ET Q\n\
+            q 1 0 0 1 2000 -1000 cm BT /F1 100 Tf 1 0 0 rg 0 1 -1 0 30 40 Tm (B) Tj ET Q\n\
             q 1 0 0 1 3000 -1000 cm BT /F1 100 Tf 0 0 1 rg 0 0 Td (CA) Tj ET Q\n";
-        let run = replace_middle_run_in_a_new_font(content);
+        let run = replace_run_in_a_new_font(content, "B", "H");
         // Tm [0 1 -1 0 30 40] x CTM [0.1 0 0 0.1 200 692]: a = 0, b = 0.1, c = -0.1, d = 0,
         // e = 30 * 0.1 + 40 * 0 + 200 = 203, f = 30 * 0 + 40 * 0.1 + 692 = 696.
         assert_numbers(
@@ -4952,7 +5029,7 @@ mod tests {
 
     #[test]
     fn add_text_on_a_page_with_a_leading_scale_stays_an_upright_point_in_page_space() {
-        let source = doc_bytes(&build_pdf(&three_cm_runs("1 0 0 1 2000 -1000")));
+        let source = doc_bytes(&build_pdf(&three_cm_runs("1 0 0 1 2000 -1000", "BC")));
         let command = PdfEditCommand::AddText {
             id: "add".to_string(),
             page: 1,
@@ -4979,7 +5056,7 @@ mod tests {
 
     #[test]
     fn the_composer_read_back_refuses_a_replacement_drawn_away_from_the_source_run() {
-        let run = replace_middle_run_in_a_new_font(&three_cm_runs("1 0 0 1 2000 -1000"));
+        let run = replace_middle_run_in_a_new_font(&three_cm_runs("1 0 0 1 2000 -1000", "BC"));
         let placement = island_named(&run.before, "BC")
             .layout
             .expect("layout")
@@ -5165,6 +5242,74 @@ mod tests {
             "the fixture must group the two replacements: {:?}",
             after.iter().map(|i| i.text.as_str()).collect::<Vec<_>>()
         );
+    }
+
+    #[test]
+    fn replacements_located_in_the_pristine_file_compose_in_one_call_in_either_order() {
+        // The consumer's invariant: every locator of a page comes from one inspection of the
+        // file on disk and all of them go to one call. "AB" and "CA" are separate islands (34 pt
+        // apart at 12 pt, join window 18); replaced at 24 pt, the results sit in one island
+        // (about 21 pt apart, window 36) - in the output only. Resolution happens before anything
+        // is appended, so a merge in the output cannot touch a later command's locator, and the
+        // order of the list changes only the order of the appended streams.
+        let source = doc_bytes(&build_pdf(
+            b"BT /F1 12 Tf 0 g 100 700 Td (AB) Tj 1 0 0 1 150 700 Tm (CA) Tj \
+              1 0 0 rg 1 0 0 1 400 700 Tm (CD) Tj ET",
+        ));
+        let before = page_islands(&source);
+        assert_eq!(
+            before.iter().map(|i| i.text.as_str()).collect::<Vec<_>>(),
+            ["AB", "CA", "CD"]
+        );
+        let bounds = PdfRect {
+            x: 100.0,
+            y: 690.0,
+            width: 100.0,
+            height: 40.0,
+        };
+        let command = |id: &str, text: &str| {
+            replace_cmd(
+                id,
+                island_named(&before, text),
+                "Hi",
+                appearance("test-font", 24.0),
+                bounds,
+            )
+        };
+        for order in [["AB", "CA"], ["CA", "AB"]] {
+            let commands = [command("one", order[0]), command("two", order[1])];
+            let candidate = compose_candidate(&source, &commands, &test_resolver())
+                .unwrap_or_else(|e| panic!("{order:?}: {e:?}"));
+            let after = page_islands(&candidate.bytes);
+            let texts: Vec<&str> = after.iter().map(|i| i.text.as_str()).collect();
+
+            // Both applied, each at the origin of its own source run, and the old text is gone.
+            let text = page_text(&after);
+            assert_eq!(text.matches("Hi").count(), 2, "{order:?}: {texts:?}");
+            assert!(
+                !text.contains("AB") && !text.contains("CA"),
+                "{order:?}: {texts:?}"
+            );
+            let origins = glyph_origins(&after, "H");
+            assert_eq!(origins.len(), 2, "{order:?}");
+            assert!(has_origin(&origins, island_named(&before, "AB").baseline));
+            assert!(has_origin(&origins, island_named(&before, "CA").baseline));
+
+            // The untouched run is intact, bit for bit.
+            assert_eq!(
+                island_named(&after, "CD").quads,
+                island_named(&before, "CD").quads,
+                "{order:?}"
+            );
+            // In the order of the page the two results are neighbours of one colour and read as
+            // one island; given the other way round the second starts left of the first's end.
+            if order[0] == "AB" {
+                assert!(
+                    after.iter().any(|i| i.text.matches("Hi").count() == 2),
+                    "{texts:?}"
+                );
+            }
+        }
     }
 
     /// The object of the last `/Contents` stream of page 1 of `bytes`, as the walker names it.
