@@ -456,8 +456,8 @@ pub fn sweep_homes(parent: &Path, policy: HomePolicy, dry_run: bool) -> HomeSwee
             continue;
         }
         if !dry_run {
-            if let Err(error) = fs::remove_dir_all(&e.dir) {
-                report.retained.push((e.dir.clone(), error.to_string()));
+            if let Err(error) = remove_home_tree(&canonical_parent, &e.dir) {
+                report.retained.push((e.dir.clone(), error));
                 continue;
             }
         }
@@ -678,14 +678,120 @@ pub fn qa_root() -> PathBuf {
 }
 
 /// Remove `dir` only when it is a plain directory directly inside `canonical_parent`. Never
-/// follows a symlink out of the root (`remove_dir_all` unlinks symlinks it meets).
+/// follows a link out of the root ([`remove_home_tree`] removes a link as itself).
 fn remove_home_dir(dir: &Path, canonical_parent: &Path) -> std::result::Result<(), String> {
     let plain = safe_dir(dir)
         && fs::canonicalize(dir).is_ok_and(|c| c == dir && c.parent() == Some(canonical_parent));
     if !plain {
         return Err("path is not a plain home directory".into());
     }
-    fs::remove_dir_all(dir).map_err(|e| e.to_string())
+    remove_home_tree(canonical_parent, dir)
+}
+
+/// Remove the QA home `home` and everything in it. `qa_root` is the `rightkit-qa` directory the
+/// caller may delete under: a `home` that is not a real directory strictly inside it, after both
+/// paths are resolved, is refused and nothing is touched.
+///
+/// A link met in the tree (a symlink, or on Windows a junction) is removed as itself. It is never
+/// listed and never followed, so what it points at stays, inside the home or outside it. The
+/// binding file goes last, just before the home directory: a removal that stops part way leaves a
+/// home that [`is_owned_home`] and the sweeps can still prove ours, so a later run finishes it.
+/// The error names the entry that could not be removed.
+///
+/// `std::fs::remove_dir_all` is not used here. On Windows it fails with "Access is denied" on a
+/// home whose app used WinINet, because WinINet leaves the junction
+/// `AppData\Local\Microsoft\Windows\INetCache\Content.IE5` with an entry that denies listing to
+/// everyone, and it removes entries in directory order, so the binding file (its name sorts first)
+/// was already gone when it failed (gap ledger 216). The test
+/// `std_remove_dir_all_stops_at_a_junction_that_denies_listing` shows the failure; that the cause
+/// inside the standard library is an open of the junction with list access is our reading of it.
+pub(crate) fn remove_home_tree(qa_root: &Path, home: &Path) -> std::result::Result<(), String> {
+    let (Ok(root), Ok(real)) = (fs::canonicalize(qa_root), fs::canonicalize(home)) else {
+        return Err(format!("{}: cannot be resolved", home.display()));
+    };
+    if root.file_name().is_none_or(|n| n != "rightkit-qa")
+        || !safe_dir(home)
+        || !is_inside(&root, &real)
+    {
+        return Err(format!(
+            "{}: not a directory inside the QA root {}",
+            home.display(),
+            root.display()
+        ));
+    }
+    let binding = std::ffi::OsStr::new(BINDING_FILE);
+    remove_children(&real, Some(binding))?;
+    remove_children(&real, None)?;
+    fs::remove_dir(&real).map_err(|e| removal_error(&real, &e))
+}
+
+fn removal_error(path: &Path, error: &std::io::Error) -> String {
+    format!("{}: {error}", path.display())
+}
+
+/// Remove everything in `dir` except the entry named `keep`. Links are removed as themselves.
+fn remove_children(dir: &Path, keep: Option<&std::ffi::OsStr>) -> std::result::Result<(), String> {
+    for entry in fs::read_dir(dir).map_err(|e| removal_error(dir, &e))? {
+        let entry = entry.map_err(|e| removal_error(dir, &e))?;
+        if keep == Some(entry.file_name().as_os_str()) {
+            continue;
+        }
+        let path = entry.path();
+        // From the directory listing: the entry itself is not opened, so a link is not followed.
+        let kind = entry.file_type().map_err(|e| removal_error(&path, &e))?;
+        let outcome = if kind.is_symlink() {
+            remove_link(&entry)
+        } else if kind.is_dir() {
+            remove_children(&path, None)?;
+            fs::remove_dir(&path)
+        } else {
+            remove_plain_file(&path)
+        };
+        match outcome {
+            Ok(()) => {}
+            // Someone else removed it first: gone is what was wanted.
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+            Err(e) => return Err(removal_error(&path, &e)),
+        }
+    }
+    Ok(())
+}
+
+/// Remove a link itself. Windows removes a link to a directory (a junction included) as a
+/// directory and a link to a file as a file; which one it is comes from the listing.
+fn remove_link(entry: &fs::DirEntry) -> std::io::Result<()> {
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::MetadataExt;
+        const FILE_ATTRIBUTE_DIRECTORY: u32 = 0x10;
+        if entry.metadata()?.file_attributes() & FILE_ATTRIBUTE_DIRECTORY != 0 {
+            return fs::remove_dir(entry.path());
+        }
+    }
+    fs::remove_file(entry.path())
+}
+
+/// Remove a file. Windows refuses a read-only file, so that attribute is cleared and the removal
+/// tried once more; elsewhere the attribute of the file does not decide.
+fn remove_plain_file(path: &Path) -> std::io::Result<()> {
+    let first = match fs::remove_file(path) {
+        Ok(()) => return Ok(()),
+        Err(e) => e,
+    };
+    #[cfg(windows)]
+    if first.kind() == std::io::ErrorKind::PermissionDenied {
+        if let Ok(meta) = fs::symlink_metadata(path) {
+            let mut permissions = meta.permissions();
+            if permissions.readonly() {
+                #[allow(clippy::permissions_set_readonly_false)]
+                permissions.set_readonly(false);
+                if fs::set_permissions(path, permissions).is_ok() {
+                    return fs::remove_file(path);
+                }
+            }
+        }
+    }
+    Err(first)
 }
 
 /// True when `dir` itself or anything under it was modified after `cutoff_ms` (milliseconds since
@@ -1141,7 +1247,12 @@ fn owned_app_root(root: &Path, marker: &RunMarker) -> Result<Option<PathBuf>> {
 
 pub(crate) fn remove_app_root(root: &Path, marker: &RunMarker) -> Result<()> {
     if let Some(home) = owned_app_root(root, marker)? {
-        fs::remove_dir_all(home)?;
+        let Some(qa_root) = home.parent() else {
+            return err("invalid QA app temp root");
+        };
+        if let Err(why) = remove_home_tree(qa_root, &home) {
+            return err(why);
+        }
     }
     Ok(())
 }
@@ -1608,6 +1719,71 @@ fn pid_live(pid: u32) -> bool {
     rightkit_process::AdoptedProcess::new(pid)
         .is_running()
         .unwrap_or(true)
+}
+
+/// Windows links for tests, made with the system's own tools.
+#[cfg(all(test, windows))]
+pub(crate) mod test_links {
+    use std::path::Path;
+    use std::process::Command;
+
+    /// `path` without the `\\?\` prefix, which `cmd` and `icacls` do not take.
+    fn plain(path: &Path) -> String {
+        let text = path.to_string_lossy().into_owned();
+        match text.strip_prefix(r"\\?\") {
+            Some(rest) => rest.to_owned(),
+            None => text,
+        }
+    }
+
+    /// A junction at `link` that points at the directory `target`.
+    pub(crate) fn junction(link: &Path, target: &Path) {
+        let out = Command::new("cmd")
+            .args(["/C", "mklink", "/J", &plain(link), &plain(target)])
+            .output()
+            .unwrap();
+        assert!(
+            out.status.success(),
+            "mklink: {}{}",
+            String::from_utf8_lossy(&out.stdout),
+            String::from_utf8_lossy(&out.stderr)
+        );
+    }
+
+    /// Deny everyone the listing of the link itself (`/L`), as WinINet leaves `Content.IE5`.
+    pub(crate) fn deny_listing(link: &Path) {
+        let out = Command::new("icacls")
+            .args([&plain(link), "/L", "/deny", "*S-1-1-0:(RD)"])
+            .output()
+            .unwrap();
+        assert!(
+            out.status.success(),
+            "icacls: {}{}",
+            String::from_utf8_lossy(&out.stdout),
+            String::from_utf8_lossy(&out.stderr)
+        );
+    }
+
+    /// The shape WinINet leaves in a redirected profile: `INetCache\IE` with a file, and beside
+    /// it the junction `Content.IE5` to it that nobody may list. Returns the junction.
+    pub(crate) fn wininet_cache(home: &Path) -> std::path::PathBuf {
+        let cache = home
+            .join("AppData")
+            .join("Local")
+            .join("Microsoft")
+            .join("Windows")
+            .join("INetCache");
+        std::fs::create_dir_all(cache.join("IE")).unwrap();
+        std::fs::write(cache.join("IE").join("container.dat"), b"cache").unwrap();
+        let link = cache.join("Content.IE5");
+        junction(&link, &cache.join("IE"));
+        deny_listing(&link);
+        assert!(
+            std::fs::read_dir(&link).is_err(),
+            "the junction must refuse listing for this test to mean anything"
+        );
+        link
+    }
 }
 
 #[cfg(test)]
@@ -2699,6 +2875,193 @@ mod tests {
             .retained
             .iter()
             .any(|(p, why)| p == &link && why.contains("symlink")));
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    // ---- home removal (gap ledger 216) ----
+
+    #[cfg(windows)]
+    #[test]
+    fn a_home_with_a_junction_that_denies_listing_is_removed() {
+        let (root, parent) = homes_parent("rm-deny");
+        let (_r, home) = home_for(&root, &parent, "deny", 10);
+        let link = test_links::wininet_cache(&home);
+        let target = link.parent().unwrap().join("IE");
+        assert!(target.join("container.dat").exists());
+        remove_home_tree(&parent, &home).unwrap();
+        assert!(!home.exists());
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn std_remove_dir_all_stops_at_a_junction_that_denies_listing() {
+        // Why `remove_home_tree` exists. If this starts to fail because the standard library
+        // learned to remove such a tree, the comment on `remove_home_tree` is out of date; the
+        // routine is still needed for the binding-file order and the root check.
+        let (root, parent) = homes_parent("rm-std");
+        let (_r, home) = home_for(&root, &parent, "std", 10);
+        test_links::wininet_cache(&home);
+        let outcome = fs::remove_dir_all(&home);
+        eprintln!("[qa-home-removal] std::fs::remove_dir_all on the WinINet shape: {outcome:?}");
+        assert!(outcome.is_err(), "{outcome:?}");
+        assert!(home.exists());
+        // The routine finishes what the standard library left.
+        remove_home_tree(&parent, &home).unwrap();
+        assert!(!home.exists());
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn a_junction_out_of_the_home_is_removed_and_what_it_points_at_stays() {
+        let (root, parent) = homes_parent("rm-models");
+        // Outside the home and outside the QA root, as the shared models cache is.
+        let models = root.join("models-cache");
+        fs::create_dir_all(models.join("whisper")).unwrap();
+        let weights: Vec<u8> = (0..=255u8).cycle().take(70_000).collect();
+        fs::write(models.join("whisper").join("model.bin"), &weights).unwrap();
+        fs::write(models.join("index.json"), b"{\"models\":1}").unwrap();
+        let (_r, home) = home_for(&root, &parent, "models", 10);
+        fs::create_dir_all(home.join("data").join("shared")).unwrap();
+        test_links::junction(&home.join("data").join("shared").join("models"), &models);
+        assert_eq!(
+            fs::read(
+                home.join("data")
+                    .join("shared")
+                    .join("models")
+                    .join("index.json")
+            )
+            .unwrap(),
+            b"{\"models\":1}"
+        );
+        remove_home_tree(&parent, &home).unwrap();
+        assert!(!home.exists());
+        assert_eq!(
+            fs::read(models.join("whisper").join("model.bin")).unwrap(),
+            weights
+        );
+        assert_eq!(
+            fs::read(models.join("index.json")).unwrap(),
+            b"{\"models\":1}"
+        );
+        // The same through the start-of-run cleaning.
+        let (_r, doomed) = home_for(&root, &parent, "models2", 10);
+        set_home_marker(&doomed, 0, 1);
+        fs::create_dir_all(doomed.join("data").join("shared")).unwrap();
+        test_links::junction(&doomed.join("data").join("shared").join("models"), &models);
+        test_links::wininet_cache(&doomed);
+        let report = clean_homes(&parent, Duration::ZERO, false);
+        assert!(!doomed.exists(), "{report:?}");
+        assert_eq!(
+            fs::read(models.join("whisper").join("model.bin")).unwrap(),
+            weights
+        );
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn a_read_only_file_in_a_home_is_removed() {
+        let (root, parent) = homes_parent("rm-readonly");
+        let (_r, home) = home_for(&root, &parent, "ro", 10);
+        let file = home.join("locked.txt");
+        fs::write(&file, b"read only").unwrap();
+        let mut permissions = fs::metadata(&file).unwrap().permissions();
+        permissions.set_readonly(true);
+        fs::set_permissions(&file, permissions).unwrap();
+        remove_home_tree(&parent, &home).unwrap();
+        assert!(!home.exists());
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_symlink_out_of_the_home_is_removed_and_what_it_points_at_stays() {
+        let (root, parent) = homes_parent("rm-symlink");
+        let outside = root.join("outside");
+        fs::create_dir_all(outside.join("sub")).unwrap();
+        fs::write(outside.join("sub").join("precious"), b"keep").unwrap();
+        fs::write(outside.join("file"), b"keep too").unwrap();
+        let (_r, home) = home_for(&root, &parent, "links", 10);
+        fs::create_dir_all(home.join("data")).unwrap();
+        std::os::unix::fs::symlink(&outside, home.join("data").join("dir-link")).unwrap();
+        std::os::unix::fs::symlink(outside.join("file"), home.join("file-link")).unwrap();
+        std::os::unix::fs::symlink(root.join("nowhere"), home.join("dangling")).unwrap();
+        remove_home_tree(&parent, &home).unwrap();
+        assert!(!home.exists());
+        assert_eq!(
+            fs::read(outside.join("sub").join("precious")).unwrap(),
+            b"keep"
+        );
+        assert_eq!(fs::read(outside.join("file")).unwrap(), b"keep too");
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn a_removal_that_stops_names_the_entry_and_keeps_the_binding_file() {
+        let (root, parent) = homes_parent("rm-held");
+        let (_r, home) = home_for(&root, &parent, "held", 10);
+        fs::create_dir_all(home.join("data").join("busy")).unwrap();
+        let stuck = home.join("data").join("busy").join("held.db");
+        fs::write(&stuck, b"in use").unwrap();
+        // Windows: a handle that shares nothing. Unix: a directory that may not be changed.
+        #[cfg(windows)]
+        let hold = {
+            use std::os::windows::fs::OpenOptionsExt;
+            OpenOptions::new()
+                .read(true)
+                .share_mode(0)
+                .open(&stuck)
+                .unwrap()
+        };
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            fs::set_permissions(
+                home.join("data").join("busy"),
+                fs::Permissions::from_mode(0o555),
+            )
+            .unwrap();
+        }
+        let why = remove_home_tree(&parent, &home).unwrap_err();
+        assert!(why.contains("held.db"), "{why}");
+        assert!(home.join(BINDING_FILE).is_file());
+        assert!(is_owned_home(&home));
+        #[cfg(windows)]
+        drop(hold);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            fs::set_permissions(
+                home.join("data").join("busy"),
+                fs::Permissions::from_mode(0o755),
+            )
+            .unwrap();
+        }
+        // A later pass finishes it.
+        remove_home_tree(&parent, &home).unwrap();
+        assert!(!home.exists());
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn removal_refuses_a_path_that_is_not_strictly_inside_the_qa_root() {
+        let (root, parent) = homes_parent("rm-outside");
+        let (_r, home) = home_for(&root, &parent, "inside", 10);
+        let outside = root.join("outside");
+        fs::create_dir_all(&outside).unwrap();
+        fs::write(outside.join("precious"), b"keep").unwrap();
+        // Beside the root, the root itself, a path that climbs out, and a root of another name.
+        assert!(remove_home_tree(&parent, &outside).is_err());
+        assert!(remove_home_tree(&parent, &parent).is_err());
+        assert!(remove_home_tree(&parent, &home.join("..").join("..").join("outside")).is_err());
+        assert!(remove_home_tree(&root, &outside).is_err());
+        assert!(remove_home_tree(&parent, &parent.join("missing")).is_err());
+        assert_eq!(fs::read(outside.join("precious")).unwrap(), b"keep");
+        assert!(home.join(BINDING_FILE).is_file());
+        remove_home_tree(&parent, &home).unwrap();
+        assert!(!home.exists());
         let _ = fs::remove_dir_all(&root);
     }
 
