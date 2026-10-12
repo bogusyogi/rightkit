@@ -6,6 +6,17 @@
 
 - **A refused lock file is never unlinked (comparative review, 2026-10-12).** `open_lock_file` looked for the name, then opened it with a non-exclusive create, and on macOS removed the file when it carried an ACL `allow` entry. Between the look and the open another process can create and lock that name; unlinking it let a third process lock a new file at the same name while the first still held the old one, so two holders ran at once. The file is now refused (`UnsafeAcl`) and left in place. 0.3.3 never removed a lock file; this restores that.
 
+- **Windows: a reader can be refused for a moment while another process replaces the file. Documented; test fixed.**
+  `tests/e2e.rs::concurrent_processes_never_expose_a_mixed_file` failed on the windows-2025 CI leg: the parent's
+  `std::fs::read` of the shared file returned access denied (error 5) while three child processes replaced it in a
+  loop. The writers use the default mode, which is `std::fs::rename` (`plan_replace_on`, `replace_step`), the same call
+  0.3.3 made in `AtomicWriter::commit`, so this is not new with the reduction below. The test asserted more than the
+  contract: it now retries a refused open (errors 5 and 32, Windows only, at most 200 tries, no sleep), still asserts
+  that no read is truncated or mixed, and prints how many opens were refused. Its first CI run on Windows printed
+  0 refused opens in 8,816 and 5,194 reads: it shows that readers are not broken by the writers on that runner, and
+  it does not exercise the retry. README and PLATFORM-MATRIX state the
+  reader behaviour. No product change: this crate's reads do not retry.
+
 **Reduction before the 0.3.4 publication (2026-10-12, `docs/audits/2026-10-11-astra-publication-path-consult.md`).** Five review rounds did not converge: each added platform mechanisms that had never compiled, and the next read found new defects inside them. This release removes those mechanisms and keeps the proven fixes. Nothing removed here was ever published (0.3.3 has none of it), and no new mechanism or platform call was added. Nothing was compiled or run locally; verification is the CI run. This entry supersedes every entry below that describes a removed item.
 
 - **`ReplaceFileW` is gone.** Removed: `ReplaceMode::ReplaceFile`, `ReplaceApi::ReplaceFile`, `atomic::REPLACEFILE_WRITE_THROUGH`, `FsError::ReplaceInterrupted`, `PostPublishStep::OwnerOnlyAcl`, `HardenStage::{DestinationBeforeReplace, DestinationAfterReplace}` (both already inert), `atomic::testing::fail_recovery_move`, the `ReplaceFileW` call, the `.<name>.rktbak-` backup file, the `.<name>.rktnew-` recovery rename and their tests. Why: `ReplaceFileW` can fail after it has removed the destination (error 1176), and moving the new bytes to a protected name *afterwards* cannot cover a crash before that move, so a restart sweep could delete the only copy. Windows publication is `std::fs::rename` (`Rename`), or `MoveFileExW` with `MOVEFILE_REPLACE_EXISTING` (`MoveWriteThrough`, write-through) and without it (`NoReplace`): the calls the crate already made, unchanged. `publication_durability(options, destination_exists)` keeps its signature; no mode's answer depends on `destination_exists` now.
