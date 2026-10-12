@@ -1948,6 +1948,18 @@ mod tests {
         }
     }
 
+    /// A test here registers a profile and only then takes its holder, or takes none at all. A
+    /// sweep run by another test of this binary in that gap removes the profile, as it should:
+    /// nothing holds it. So the tests that register scratch profiles or sweep run one at a time.
+    /// (A real spawn takes the mark inside the profile's lock before it creates the profile.)
+    static SWEEP_TESTS: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    fn one_sweep_test_at_a_time() -> std::sync::MutexGuard<'static, ()> {
+        SWEEP_TESTS
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+
     fn registered(name: &str) -> bool {
         ancestors::registered_profiles()
             .unwrap()
@@ -1962,6 +1974,7 @@ mod tests {
         ) {
             return;
         }
+        let _alone = one_sweep_test_at_a_time();
         let (used, unused) = (scratch_profile("used"), scratch_profile("unused"));
         let _cleanup = Profiles(vec![used.clone(), unused.clone()]);
         let _used = AppContainerProfile::ensure(&used).unwrap();
@@ -1969,8 +1982,7 @@ mod tests {
         assert!(registered(&used) && registered(&unused));
         let holder = ancestors::ProfileHolder::create(&used).unwrap();
 
-        // Another test's sweep may run at the same moment and remove the unused one first, so
-        // the registry is what is asserted; the report is checked for what only this call can say.
+        // The registry is what is asserted; the report is checked for what only this call can say.
         let report = remove_unused_appcontainer_profiles().unwrap();
         assert!(!report.removed.contains(&used), "{report:?}");
         assert!(
@@ -1996,6 +2008,7 @@ mod tests {
         if !real_user_stores_allowed("a_profile_this_crate_did_not_name_is_never_touched") {
             return;
         }
+        let _alone = one_sweep_test_at_a_time();
         let foreign = format!(
             "rightkit-test.foreign.{:016x}",
             fnv1a(&scratch_profile("x"))
@@ -2039,6 +2052,7 @@ mod tests {
         ) {
             return;
         }
+        let _alone = one_sweep_test_at_a_time();
         let name = scratch_profile("order");
         let _cleanup = Profiles(vec![name.clone()]);
         let _ = AppContainerProfile::ensure(&name).unwrap();
@@ -2067,6 +2081,7 @@ mod tests {
         if !real_user_stores_allowed("two_processes_removing_at_once_do_not_fail") {
             return;
         }
+        let _alone = one_sweep_test_at_a_time();
         let names: Vec<String> = (0..6)
             .map(|i| scratch_profile(&format!("both{i}")))
             .collect();
