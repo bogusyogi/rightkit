@@ -229,11 +229,20 @@ fn owned_profile_sids(prefix: &str) -> io::Result<Vec<String>> {
         .collect())
 }
 
-fn profile_object_name(kind: &str, profile: &str) -> Vec<u16> {
-    wide(format!(
-        r"Local\rightkit-profile-{kind}-{}",
+/// The name of a profile's `holder` or `guard` object. It is in the `Global` namespace, so every
+/// logon session of the machine sees it (fast user switching, Remote Desktop), and it carries the
+/// user's SID, so two users with the same grant set do not share one. An ordinary user may create
+/// mutexes there; the create-global privilege is for sections and symbolic links.
+pub(super) fn profile_object_text(kind: &str, profile: &str) -> io::Result<String> {
+    Ok(format!(
+        r"Global\rightkit-profile-{kind}-{}-{}",
+        current_user_sid()?,
         profile.to_ascii_lowercase()
     ))
+}
+
+fn profile_object_name(kind: &str, profile: &str) -> io::Result<Vec<u16>> {
+    Ok(wide(profile_object_text(kind, profile)?))
 }
 
 /// Marks a profile as in use for as long as it lives. It is a named kernel object, so it is
@@ -248,7 +257,7 @@ impl Drop for ProfileHolder {
 
 impl ProfileHolder {
     pub(super) fn create(profile: &str) -> io::Result<Self> {
-        let name = profile_object_name("holder", profile);
+        let name = profile_object_name("holder", profile)?;
         let handle = unsafe { CreateMutexW(std::ptr::null(), 0, name.as_ptr()) };
         if handle.is_null() {
             Err(io::Error::last_os_error())
@@ -260,7 +269,7 @@ impl ProfileHolder {
 
 /// Whether any process holds a [`ProfileHolder`] for `profile`.
 pub(super) fn profile_holder_exists(profile: &str) -> io::Result<bool> {
-    let name = profile_object_name("holder", profile);
+    let name = profile_object_name("holder", profile)?;
     let handle = unsafe { OpenMutexW(0x0010_0000, 0, name.as_ptr()) }; // SYNCHRONIZE
     if !handle.is_null() {
         unsafe { CloseHandle(handle) };
@@ -292,7 +301,7 @@ impl Drop for ProfileGuard {
 impl ProfileGuard {
     /// `None` when another process kept it for longer than `wait_ms`.
     pub(super) fn acquire(profile: &str, wait_ms: u32) -> io::Result<Option<Self>> {
-        let name = profile_object_name("guard", profile);
+        let name = profile_object_name("guard", profile)?;
         let handle = unsafe { CreateMutexW(std::ptr::null(), 0, name.as_ptr()) };
         if handle.is_null() {
             return Err(io::Error::last_os_error());

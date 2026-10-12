@@ -1553,6 +1553,8 @@ pub enum ProfileKept {
     InUse,
     /// Another process was creating or deleting it at that moment.
     Busy,
+    /// Its lock or its in-use mark could not be created or read, so it was not proved unused.
+    CouldNotProveUnused(String),
     /// Windows refused the deletion; the text is the HRESULT.
     DeleteFailed(String),
 }
@@ -1580,20 +1582,40 @@ pub struct ProfileSweepReport {
 /// safe to call at application start and while other RightKit processes run, and two calls at
 /// once do not fail: one of them reports the profile as busy or already gone.
 ///
-/// Limits. The in-use mark is visible within one logon session: a process of the same user in
-/// another session is not seen. A deleted profile's SID is no longer recognised as this crate's,
-/// so run [`sweep_stale_appcontainer_ancestor_aces`] for the paths you grant *before* this call:
-/// afterwards, entries a crashed process left on those paths for a deleted profile stay.
+/// The lock and the mark are in the machine-wide object namespace and carry the user's SID, so a
+/// process of the same user in another logon session is seen. A profile whose lock or mark
+/// cannot be created or read is kept and reported as [`ProfileKept::CouldNotProveUnused`].
+///
+/// Order. Run [`sweep_stale_appcontainer_ancestor_aces`] for the paths you grant *before* this
+/// call. A deleted profile's SID is no longer recognised as this crate's, so the sweep run
+/// afterwards is harmless but leaves the entries a crashed process left on those paths for it.
 pub fn remove_unused_appcontainer_profiles() -> Result<ProfileSweepReport, SandboxError> {
     let mut report = ProfileSweepReport::default();
     for (name, _sid) in ancestors::owned_profiles(PROFILE_PREFIX)? {
-        let Some(_guard) = ancestors::ProfileGuard::acquire(&name, 0)? else {
-            report.kept.push((name, ProfileKept::Busy));
-            continue;
+        // Anything that stops the proof keeps the profile: a failure here never deletes.
+        let _guard = match ancestors::ProfileGuard::acquire(&name, 0) {
+            Ok(Some(guard)) => guard,
+            Ok(None) => {
+                report.kept.push((name, ProfileKept::Busy));
+                continue;
+            }
+            Err(error) => {
+                let why = ProfileKept::CouldNotProveUnused(format!("lock: {error}"));
+                report.kept.push((name, why));
+                continue;
+            }
         };
-        if ancestors::profile_holder_exists(&name)? {
-            report.kept.push((name, ProfileKept::InUse));
-            continue;
+        match ancestors::profile_holder_exists(&name) {
+            Ok(false) => {}
+            Ok(true) => {
+                report.kept.push((name, ProfileKept::InUse));
+                continue;
+            }
+            Err(error) => {
+                let why = ProfileKept::CouldNotProveUnused(format!("in-use mark: {error}"));
+                report.kept.push((name, why));
+                continue;
+            }
         }
         let wide_name = wide(&name);
         // SAFETY: a NUL-terminated name that outlives the call.
@@ -1987,6 +2009,46 @@ mod tests {
         assert!(registered(&foreign));
         // The test-support delete refuses it too.
         assert!(delete_appcontainer_profile_for_test(&foreign).is_err());
+    }
+
+    #[test]
+    fn the_in_use_mark_is_machine_wide_and_names_the_user() {
+        // No object is created: only the name is built.
+        let name =
+            ancestors::profile_object_text("holder", "RightKit.Sandbox.0123456789ABCDEF").unwrap();
+        let rest = name
+            .strip_prefix(r"Global\rightkit-profile-holder-S-1-")
+            .unwrap_or_else(|| panic!("{name}"));
+        assert!(
+            rest.ends_with("-rightkit.sandbox.0123456789abcdef"),
+            "{name}"
+        );
+        assert_ne!(
+            name,
+            ancestors::profile_object_text("guard", "rightkit.sandbox.0123456789abcdef").unwrap()
+        );
+    }
+
+    /// The documented order is the ancestor sweep first, then profile removal. The other order
+    /// is harmless: the sweep after a removal fails nothing and removes nothing it does not own.
+    /// What it cannot do is clean up after the deleted profile, which the docs say.
+    #[test]
+    fn sweeping_ancestor_entries_after_removing_profiles_is_harmless() {
+        if !real_user_stores_allowed(
+            "sweeping_ancestor_entries_after_removing_profiles_is_harmless",
+        ) {
+            return;
+        }
+        let name = scratch_profile("order");
+        let _cleanup = Profiles(vec![name.clone()]);
+        let _ = AppContainerProfile::ensure(&name).unwrap();
+        let dir = std::env::temp_dir().join(format!("rk-profile-order-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        remove_unused_appcontainer_profiles().unwrap();
+        assert!(!registered(&name));
+        let swept = sweep_stale_appcontainer_ancestor_aces(&dir);
+        let _ = std::fs::remove_dir_all(&dir);
+        assert_eq!(swept.unwrap(), 0);
     }
 
     const SWEEP_CHILD: &str = "RIGHTKIT_SANDBOX_PROFILE_SWEEP_CHILD";
