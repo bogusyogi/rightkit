@@ -145,8 +145,8 @@ fn looks_like_absolute_path(word: &str) -> bool {
     if let Some(rest) = word.strip_prefix("~/") {
         return !rest.is_empty();
     }
-    if word.starts_with("\\\\") {
-        return word[2..].chars().next().is_some_and(|c| c != '\\');
+    if let Some(rest) = word.strip_prefix("\\\\") {
+        return rest.chars().next().is_some_and(|c| c != '\\');
     }
     if word.starts_with('/') {
         return word.len() > 1 && !word.starts_with("//");
