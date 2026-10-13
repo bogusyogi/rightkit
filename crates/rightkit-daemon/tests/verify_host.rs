@@ -7,6 +7,7 @@ mod unix_tests {
     use rightkit_daemon::*;
     use serde_json::{json, Value};
     use std::io::{BufRead, BufReader, Write};
+    #[cfg(feature = "test-mode")]
     use std::os::unix::net::UnixStream;
     use std::path::{Path, PathBuf};
     use std::process::{Child, Command, Stdio};

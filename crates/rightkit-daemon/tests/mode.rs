@@ -116,7 +116,7 @@ fn n1_release_reads_nothing() {
     fake.panic_on_read = true;
     let mode = decide(&APP, &fake).expect("release decision");
     assert!(matches!(mode, Mode::Release));
-    assert!(!rightkit_daemon::mode::TEST_CAPABILITY);
+    const { assert!(!rightkit_daemon::mode::TEST_CAPABILITY) };
 
     let roots = roots_with(&APP, &mode, &fake).unwrap();
     assert_eq!(roots.suite.root(), w.real_suite);
