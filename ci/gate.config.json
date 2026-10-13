@@ -107,6 +107,15 @@
           "bundled,statement-cache"
         ]
       ]
+    },
+    "rightkit-service": {
+      "featureSets": [
+        [],
+        [
+          "--features",
+          "test-mode"
+        ]
+      ]
     }
   }
 }
