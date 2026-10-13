@@ -98,6 +98,21 @@
         }
       }
     }
+    ,"checkout": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Opt-in options for every actions/checkout step. longPaths renders a Windows-only step before each checkout running `git config --system core.longpaths true` (fixes 'Filename too long' on windows runners). sparse renders `sparse-checkout` (cone mode) with these directories into each checkout of the repository itself. Unset renders nothing.",
+      "properties": {
+        "longPaths": { "type": "boolean" },
+        "sparse": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 64,
+          "uniqueItems": true,
+          "items": { "type": "string", "pattern": "^(?!.*\\.\\.)(?!\\.?/)[A-Za-z0-9._][A-Za-z0-9._/-]*$" }
+        }
+      }
+    }
     ,"swift": {
       "type": "object",
       "additionalProperties": false,

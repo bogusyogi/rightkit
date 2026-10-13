@@ -470,3 +470,11 @@ test("devArtifact validates keys, paths, and runner coverage", () => {
   assert.equal(bad({ mac: "sign", macAppPath: "target/Pulse.app", dispatch: true }), false, "dispatch never reaches the signing leg");
   assert.equal(validateManifest({ ...base, devArtifact: { ...full, dispatch: true } }).valid, true, "dispatch with a windows unsigned leg beside mac sign");
 });
+
+test("checkout is an optional object with boolean longPaths and safe sparse directories", () => {
+  assert.equal(validateManifest({ ...VALID_MINIMAL, checkout: { longPaths: true, sparse: ["packages/", "examples/SliceApp"] } }).valid, true);
+  assert.equal(validateManifest({ ...VALID_MINIMAL, checkout: {} }).valid, true);
+  for (const checkout of [null, [], "x", { longPaths: "yes" }, { sparse: [] }, { sparse: ["../x"] }, { sparse: ["/abs"] }, { sparse: ["a b"] }, { sparse: ["${{ x }}"] }, { sparse: ["a", "a"] }, { other: 1 }]) {
+    assert.equal(validateManifest({ ...VALID_MINIMAL, checkout }).valid, false, JSON.stringify(checkout));
+  }
+});

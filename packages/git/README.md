@@ -20,6 +20,17 @@ Public-repository-only GitHub Actions workflow layer for Right Suite products. T
 
 `install` and `sync` refuse private, internal and unconfirmed-visibility repositories. There is no override flag.
 
+## Checkout options (all lanes)
+
+Opt-in `checkout` block applied to every `actions/checkout` step the manifest renders. Unset, `{}` or `longPaths: false` with no `sparse`, the rendered workflows are byte-identical.
+
+```json
+{ "checkout": { "longPaths": true, "sparse": ["packages/", "examples/SliceApp"] } }
+```
+
+- `longPaths: true` renders a step directly before each checkout: `if: runner.os == 'Windows'`, `shell: bash`, `git config --system core.longpaths true`. It is the documented workaround for `Filename too long` on Windows runners (actions/checkout issue 242 recommends setting `core.longpaths` before the checkout step). Linux and macOS legs skip it, so matrix jobs stay one definition.
+- `sparse` renders `sparse-checkout: |` (one directory per line) and `sparse-checkout-cone-mode: true` into each checkout of the repository itself, merged with any existing `with:` inputs. Cone mode always keeps root-level files. Entries are unique safe relative directory paths (no `..`, whitespace, leading `/` or expression syntax). Use it when only part of the tree is needed, or to skip paths that cannot exist on Windows at all. Checkouts of another repository (such as the Homebrew tap) are never sparse.
+
 ## Optional QA evidence upload (rust-hybrid)
 
 Set `qaEvidencePath` in `.rightgit.json` to upload the gate's QA output as a workflow artifact. The path is relative to `$RUNNER_TEMP`; the rendered step uses `${{ runner.temp }}/<path>`. Absolute paths and expression syntax are rejected.

@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- New optional manifest block `checkout { longPaths, sparse }`. `longPaths: true` renders a Windows-only `git config --system core.longpaths true` step before every `actions/checkout`; `sparse` renders `sparse-checkout` (cone mode) into each checkout of the repository itself. Applied after template rendering (`checkout.mjs`, called from `renderLanes`), so every lane and generated job is covered. Unset, output is byte-identical.
+
 ## 0.2.42
 
 - Node `release-candidate`: the ownership step compared `git rev-parse HEAD` with `inputs.source_revision`, but the workflow declared no inputs, so the comparison was always against an empty string. `workflow_dispatch` now declares a required `source_revision` input (as the rust-hybrid lane does), the checkout uses `ref: ${{ inputs.source_revision || github.sha }}`, and the step compares against the same expression. A dispatch builds and verifies the commit it names; a `v*` tag push has no input and compares against the pushed commit. rust-hybrid and every other lane render unchanged.

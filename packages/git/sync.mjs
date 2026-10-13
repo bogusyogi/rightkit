@@ -7,6 +7,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { assertPublic } from "./policy/visibility-gate.mjs";
 import { loadManifest, LANE_FILENAMES, buildRenderContext } from "./manifest.mjs";
+import { applyCheckoutOptions } from "./checkout.mjs";
 import { renderTemplate, MANAGED_MARKER } from "./render.mjs";
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)));
@@ -38,7 +39,7 @@ export function renderLanes(manifest, repoPath) {
       ? path.join(TEMPLATES_DIR, "profiles", "rust-hybrid", filename)
       : path.join(TEMPLATES_DIR, filename);
     const templateText = fs.readFileSync(templatePath, "utf8");
-    return { lane, filename, content: renderTemplate(templateText, context) };
+    return { lane, filename, content: applyCheckoutOptions(renderTemplate(templateText, context), manifest) };
   });
 }
 

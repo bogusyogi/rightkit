@@ -4,6 +4,7 @@
 
 import fs from "node:fs";
 import path from "node:path";
+import { validateCheckout } from "./checkout.mjs";
 
 export const MANIFEST_FILENAME = ".rightgit.json";
 
@@ -71,6 +72,7 @@ const TOP_LEVEL_KEYS = new Set([
   "candidate",
   "ownership",
   "swift",
+  "checkout",
 ]);
 // Optional QA evidence upload (rust-hybrid ci only). qaEvidencePath is a safe
 // relative path under $RUNNER_TEMP; it renders as `${{ runner.temp }}/<path>`.
@@ -178,6 +180,8 @@ export function validateManifest(manifest) {
   } else if (manifest.gate !== undefined) {
     errors.push("gate is only valid for profile 'rust-hybrid'");
   }
+
+  validateCheckout(manifest.checkout, errors);
 
   if (manifest.qaEvidencePath !== undefined) {
     if (profile !== "rust-hybrid") {
