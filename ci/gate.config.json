@@ -1,5 +1,13 @@
 {
   "rust": {
+    "rightkit-agents": {
+      "featureSets": [
+        [
+          "--all-features"
+        ],
+        []
+      ]
+    },
     "rightkit-contracts": {
       "paths": [
         "contracts"

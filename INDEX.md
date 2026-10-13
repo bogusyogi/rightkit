@@ -8,15 +8,16 @@ Version columns: **Source** is the manifest version. **Published** is the latest
 
 Flags: `ok` means source, published and staged agree. `staged, not yet published` is in-flight work. `private` has no registry record by design. `MISMATCH` needs a release decision.
 
-Flagged mismatches: 49.
+Flagged mismatches: 50.
 
 The build broker is the Rust RustRight product (`bogusyogi/rustright`, binary `rustright`, alias `rightkit`); it is not part of this inventory. `packages/build-control-policy` keeps the agent permission hooks.
 
-## Rust crates (55)
+## Rust crates (56)
 
 | Crate | Registry | Source | Published | Staged | Flag | Owns | What it is |
 |---|---|---|---|---|---|---|---|
 | `rightkit-agent-tools` | crates.io | 0.1.2 | none recorded | 0.1.2 | staged, never published | agent-tools | One typed tool interface for agents over rightkit-automation, rightkit-control, rightkit-browser and each app's engine commands (via rightkit-daemon), plus the `right-ctl <app> <command>` CLI. |
+| `rightkit-agents` | crates.io | 0.1.0 | none recorded |  | **MISMATCH public package has no release record** | agent-sessions | Supervised vendor agent sessions for Right Suite apps: shared agent event model, Claude Code stream-json and Codex app-server protocol clients, recorded fixtures. No SDK, no HTTP, no MCP. |
 | `rightkit-align` | private | 0.1.0 | none recorded |  | private | script-alignment | Product-neutral script-to-ASR word alignment: pronunciation normalisation, edit-distance alignment with lexical and timing confidence, ambiguity and mismatch rejection, and control-name coverage |
 | `rightkit-asr` | crates.io | 0.2.0 | 0.1.0 | 0.1.0 | **MISMATCH staged 0.1.0 != source 0.2.0** | speech-recognition | Parakeet ONNX + Whisper (CoreML / whisper.cpp) speech decoding runtime for Right Suite applications |
 | `rightkit-audio` | crates.io | 0.2.2 | 0.2.1 | 0.2.1 | **MISMATCH staged 0.2.1 != source 0.2.2** | audio | Shared audio for Right Suite apps: typed FFmpeg filter graphs, loudness gates, room tone, ducking, WAV I/O, and cpal capture with resample/downmix/recovery. |

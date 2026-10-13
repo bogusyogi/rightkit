@@ -14,6 +14,17 @@
       ]
     },
     {
+      "package": "rightkit-agents",
+      "capability": "agent-sessions",
+      "summary": "Supervised vendor agent sessions for Right Suite apps: shared agent event model, Claude Code stream-json and Codex app-server protocol clients, recorded fixtures. No SDK, no HTTP, no MCP.",
+      "fingerprints": [],
+      "detection": "declaration-only",
+      "policyNotes": [
+        "Declaration-only: vendor CLI protocol handling is not a dependency fingerprint.",
+        "Lane 1 ships protocol clients and fixtures only; session lifecycle, approvals and the API backend land in later releases."
+      ]
+    },
+    {
       "package": "rightkit-align",
       "capability": "script-alignment",
       "summary": "Local script-to-ASR word alignment for Right Suite narration: pronunciation normalisation, edit-distance alignment with per-token lexical and timing confidence, rejection of mismatched and ambiguous anchors, and control-name coverage floors",
