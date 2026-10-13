@@ -91,7 +91,7 @@ The build broker is the Rust RustRight product (`bogusyogi/rustright`, binary `r
 | `@rightkit/license` | npm | 0.2.0 | 0.1.8 | 0.1.8 | **MISMATCH staged 0.1.8 != source 0.2.0** |  | licensing | The one license client for every Right Suite app (online token-exchange against the unified RightApps backend, with per-kind offline grace). |
 | `@rightkit/logs` | npm | 0.1.4 | 0.1.4 | 0.1.4 | ok |  | structured-logging | Local-only structured logging and diagnostics client for Right Suite apps. |
 | `@rightkit/media-ui` | npm | 0.3.4 | 0.3.4 | 0.3.4 | ok |  | media-ui | Brand-neutral media player and image viewer/editor for Right Suite apps. |
-| `@rightkit/onboarding` | npm | 0.3.2 | 0.3.2 | 0.3.2 | ok |  | onboarding-ui | First-run onboarding framework: ordered steps, progress, skip/resume, legal gate first, permissions, model download and licence/trial steps. |
+| `@rightkit/onboarding` | npm | 0.3.3 | 0.3.2 | 0.3.3 | staged, not yet published |  | onboarding-ui | First-run onboarding framework: ordered steps, progress, skip/resume, legal gate first, permissions, model download and licence/trial steps. |
 | `@rightkit/pdf-ui` | npm | 0.1.6 | 0.1.6 | 0.1.6 | ok |  | pdf-ui | Brand-neutral read-only PDF viewer (pdf.js) for Right Suite apps. |
 | `@rightkit/platform-ui` | npm | 0.2.8 | 0.2.7 | 0.2.7 | **MISMATCH staged 0.2.7 != source 0.2.8** |  | platform-ui | Brand-neutral platform, shortcut, and window-control primitives for Right Suite apps. |
 | `@rightkit/qa` | npm | 0.4.8 | 0.4.7 | 0.4.7 | **MISMATCH staged 0.4.7 != source 0.4.8** |  | qa-evidence | Shared QA evidence, ownership, browser helpers, and release-backdoor guards for Right Suite apps. |

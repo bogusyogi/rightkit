@@ -1,6 +1,8 @@
 # Changelog
 
-## Unreleased
+## 0.3.3
+
+Republish. 0.3.2 is on npm without the change below; a consumer on 0.3.2 cannot reach it.
 
 - Fixed: `isLegalAccepted` compared only the version, so a legal text that changed without a version bump never re-prompted. New optional `requiredDocumentsHash` (prop on `Onboarding`, fourth argument of `isLegalAccepted`): when given, the stored acceptance must carry the same hash. `documentsHash` stays record-only. Not built or run locally.
 
