@@ -298,3 +298,4 @@ export {
   type UpdateChannelMap,
   type UpdateChannelName,
 } from './channels.js';
+export { createCheckGate, type CheckGate, type CheckGateOptions } from './check-gate.js';
