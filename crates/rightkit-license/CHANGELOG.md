@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.2.0
 
 Additive (M13, engine-side entitlement). Default behaviour and existing signatures unchanged. Not compiled when written; verification is the CI run.
 
@@ -49,8 +49,6 @@ them). No existing signature, field or match changes. The version number is not 
 
 - `tests/file_store.rs` already spawns with `move` closures in the current file (no E0373 found by
   inspection); closure-store tests added in the same style.
-
-## 0.2.0
 
 - **Test coverage (third Astra read, note 7).** No library change. The concurrent-clock test in
   `tests/clock.rs` no longer ignores every failed `trusted_now`: it accepts only a rollback or a

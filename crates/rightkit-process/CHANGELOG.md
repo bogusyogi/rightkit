@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.4.0
 
 - **M3 environment policy (additive).** `OwnedCommand::env_allowlist_with_defaults(extra)` clears the inherited environment and keeps `DEFAULT_ENV_ALLOWLIST` plus the consumer's own names (a model-cache location, for instance); `OwnedCommand::env_is_cleared()` reports whether an allowlist cleared it (on every platform; the field was Windows-only). Gotcha now documented: `env_allowlist` starts from an empty environment, so call it once. Tests: `tests/env_policy.rs`. Not compiled when written (CI-only).
 - **M3 restart policy: consecutive-failure cap and reset-on-ready (additive).** `RestartPolicy::with_consecutive_failures(cap, cooldown)`
@@ -38,8 +38,6 @@ Additive; no version bump. Owner-gap lane M5 (items M5-O1, M5-O4, M5-O5, M5-O7).
   Tests: `tests/drop_bounded.rs`.
 - Not done, by decision: M5-O2 (Swift owner), M5-O6 (OS-tool wrappers), M5-O8 (release-time executable pinning); M5-O3
   (macOS parent-death) is a design note only, see the lane evidence file.
-
-## 0.4.0
 
 Published version number: this release changes or removes public items, so it is a breaking release under Cargo's rules for 0.x versions. It was developed as 0.3.4, which was never published; everything under the 0.3.4 heading below ships in 0.4.0. `PidProof` and the Windows tolerant-detach API are gone, `OwnedChild::child()` returns `UnixChild` on Unix, and `kill_on_parent_exit` is refused at spawn off Linux.
 
