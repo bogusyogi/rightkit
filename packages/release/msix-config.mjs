@@ -12,7 +12,7 @@
 //     virtualization: { fileSystemWrite: "enabled|disabled", registryWrite: "enabled|disabled" },  // explicit, required
 //     assets: { storeLogo, square150, square44 },
 //     runtime: { dlls: ["swiftCore.dll", ...], systemDlls?: [], dependencies?: [{ name, minVersion, provides: [] }] },
-//     appInstaller?: { uri, msixUri, out, hoursBetweenUpdateChecks?, showPrompt?, updateBlocksActivation? },
+//     appInstaller?: { uri, msixUri, out, hoursBetweenUpdateChecks?, showPrompt?, updateBlocksActivation? (needs showPrompt), automaticBackgroundTask? (default true) },
 //   },
 //   updater?: { kind: "tauri" | "appinstaller", artifacts: [...] },   // tauri stays the default
 //   installer: { artifacts: [{ file: "<out>.msix", key }] },
@@ -26,6 +26,8 @@ export const isMsixTarget = (target) => target?.signingContract === MSIX_SIGNING
 export const updaterKind = (target) => target?.updater?.kind ?? "tauri";
 
 const isHttps = (value) => { try { return new URL(value).protocol === "https:"; } catch { return false; } };
+
+const versionedUri = (value, version) => { try { return decodeURIComponent(new URL(value).pathname).includes(version); } catch { return false; } };
 
 /** Returns an array of human-readable problems (empty when valid). */
 export function validateMsixTarget(target, app = "app") {
@@ -56,6 +58,8 @@ export function validateMsixTarget(target, app = "app") {
     else {
       if (!isHttps(a.uri)) at("msix.appInstaller.uri must be an https URL");
       if (!isHttps(a.msixUri)) at("msix.appInstaller.msixUri must be an https URL");
+      else if (id.version && !versionedUri(a.msixUri, id.version)) at(`msix.appInstaller.msixUri must contain the package version ${id.version} in its path so each release keeps its own install source`);
+      if (a.updateBlocksActivation && !a.showPrompt) at("msix.appInstaller.updateBlocksActivation requires showPrompt: true");
       if (!/\.appinstaller$/i.test(a.out ?? "")) at("msix.appInstaller.out must end with .appinstaller");
     }
   }
