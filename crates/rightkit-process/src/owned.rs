@@ -369,6 +369,7 @@ impl OwnedCommand {
                 pid,
                 detached,
                 terminate_on_drop: !detached,
+                drop_reap_timeout: DEFAULT_DROP_REAP_TIMEOUT,
                 tree_terminated: false,
                 assignment_failures: Vec::new(),
                 #[cfg(windows)]
@@ -401,6 +402,10 @@ impl OwnedCommand {
     }
 }
 
+/// How long `Drop` waits for a killed leader to be reaped before handing the reap to a
+/// background thread.
+pub const DEFAULT_DROP_REAP_TIMEOUT: Duration = Duration::from_secs(2);
+
 pub const DEFAULT_ENV_ALLOWLIST: &[&str] = &[
     "PATH",
     "HOME",
@@ -431,6 +436,7 @@ pub struct OwnedChild {
     pid: u32,
     detached: bool,
     terminate_on_drop: bool,
+    drop_reap_timeout: Duration,
     tree_terminated: bool,
     assignment_failures: Vec<JobAssignmentFailure>,
     #[cfg(windows)]
@@ -691,10 +697,62 @@ impl OwnedChild {
         Ok(())
     }
 }
+impl OwnedChild {
+    /// How long dropping this child waits for the killed leader to be reaped (default
+    /// [`DEFAULT_DROP_REAP_TIMEOUT`]). `Drop` sends the kill at once and never waits longer than
+    /// this: a leader that has not been reaped by then (it is in an uninterruptible state, for
+    /// instance) is reaped later by a background thread on Unix, and on Windows the process
+    /// handle is closed. `Duration::ZERO` means "do not wait". Does not affect
+    /// [`terminate_tree`](Self::terminate_tree), which still waits for the reap.
+    pub fn set_drop_reap_timeout(&mut self, timeout: Duration) -> &mut Self {
+        self.drop_reap_timeout = timeout;
+        self
+    }
+    /// The bound `Drop` applies to the reap.
+    pub fn drop_reap_timeout(&self) -> Duration {
+        self.drop_reap_timeout
+    }
+    /// Reaps the leader on a thread of its own, so an unbounded wait never blocks the caller.
+    fn reap_in_background(&self) {
+        #[cfg(unix)]
+        if let Ok(reader) = self.handle.try_clone() {
+            let _ = thread::Builder::new()
+                .name("rightkit-drop-reap".into())
+                .spawn(move || {
+                    let _ = reader.wait();
+                });
+        }
+    }
+    /// Identities of this child's descendants (see [`crate::AdoptedIdentity::descendants`]), taken
+    /// while the leader is proven to be this child. Empty once the leader has been reaped:
+    /// its children are re-parented then and can no longer be found by their parent.
+    pub fn descendant_identities(&self) -> io::Result<Vec<crate::AdoptedIdentity>> {
+        let root = self.while_unreaped(|pid| match NonZeroU32::new(pid) {
+            Some(pid) => crate::AdoptedIdentity::capture(pid),
+            None => Ok(None),
+        })?;
+        match root {
+            Some(Ok(Some(root))) => root.descendants(),
+            Some(Err(error)) => Err(error),
+            _ => Ok(Vec::new()),
+        }
+    }
+}
 impl Drop for OwnedChild {
     fn drop(&mut self) {
         if self.terminate_on_drop {
-            let _ = self.terminate_tree();
+            // Bounded: the kill is sent at once, the reap is awaited for at most
+            // `drop_reap_timeout`, and a child that has not been reaped by then is reaped by
+            // a background thread. Dropping never waits on a process that will not die.
+            if self.force_kill(1).is_ok() {
+                drop(self.child().stdin.take());
+                if !matches!(
+                    self.handle.wait_timeout(self.drop_reap_timeout),
+                    Ok(Some(_))
+                ) {
+                    self.reap_in_background();
+                }
+            }
         } else if self.detached {
             #[cfg(unix)]
             {
@@ -809,6 +867,13 @@ impl AdoptedProcess {
     }
     pub fn is_running(&self) -> io::Result<bool> {
         process_is_running(self.pid)
+    }
+    /// The identity (start time and executable) of the process behind this pid now, for
+    /// identity-checked signalling through [`AdoptedIdentity`](crate::AdoptedIdentity).
+    /// `Ok(None)` when no process has the pid. Capture it only when the pid is known to name
+    /// the intended process.
+    pub fn identity(&self) -> io::Result<Option<crate::AdoptedIdentity>> {
+        crate::AdoptedIdentity::capture(self.pid)
     }
 }
 #[cfg(test)]

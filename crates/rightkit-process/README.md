@@ -7,7 +7,7 @@ It contains no app protocol, probe implementation, or business message.
 
 **Use it** wherever an app starts a child process that must not outlive the app, or must be restarted by policy.
 
-**Do not use it** to sandbox a process (use `rightkit-sandbox`), to adopt and kill arbitrary PIDs, or to define an app's health probe.
+**Do not use it** to sandbox a process (use `rightkit-sandbox`), to adopt and kill arbitrary PIDs without an identity check, or to define an app's health probe.
 
 ## Features
 
@@ -27,6 +27,13 @@ Published version: see `INDEX.md` at the repository root. Release notes: `CHANGE
   their tree; explicitly detached spawns leave lifetime with the caller.
 - `AdoptedProcess` can only report an existing PID and whether it is running.
   It deliberately has no terminate method. There is no public `kill_pid` API.
+  `AdoptedProcess::identity` yields an `AdoptedIdentity` (pid, start time, executable)
+  whose `signal` verifies the pid still names that process before acting and refuses
+  otherwise; `sweep` and `sweep_descendants` apply the same rule to descendants.
+- `reveal` shows or opens a file in the system file manager, only inside caller-supplied
+  roots (`PathScope`); it refuses escapes and runnable files.
+- Dropping an `OwnedChild` kills at once and waits for the reap for at most
+  `drop_reap_timeout` (default 2 s), then reaps in the background.
 - Dropping an ordinary `OwnedChild` terminates and reaps its tree. A failure
   after OS spawn also cleans up the partial child.
 

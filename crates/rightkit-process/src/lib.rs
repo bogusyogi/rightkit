@@ -2,6 +2,7 @@
 
 #[cfg(unix)]
 mod exit_watch;
+mod foreign;
 mod health;
 #[cfg(unix)]
 mod identity;
@@ -14,6 +15,7 @@ mod process_unix;
 #[cfg(windows)]
 mod process_windows;
 mod restart;
+pub mod reveal;
 #[cfg(windows)]
 mod spawn_windows;
 mod stall;
@@ -24,11 +26,15 @@ mod usage;
 #[cfg(windows)]
 pub mod windows_job;
 
+pub use foreign::{
+    sweep, sweep_descendants, AdoptedIdentity, AdoptedSignal, IdentityCheck, SignalResult,
+    StartToken, SweepReport,
+};
 pub use health::{HealthOutcome, HealthPolicy, HealthProbe, HealthTracker};
 pub use owned::{
     AdoptedProcess, JobAssignmentFailure, JobAssignmentMode, OwnedChild, OwnedCommand,
     RawHandleOrFd, ReapOutcome, TerminationOptions, UnixContainment, WaitOutcome,
-    DEFAULT_ENV_ALLOWLIST,
+    DEFAULT_DROP_REAP_TIMEOUT, DEFAULT_ENV_ALLOWLIST,
 };
 pub use process_handle::ProcessHandle;
 pub use restart::{

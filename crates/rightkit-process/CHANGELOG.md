@@ -1,5 +1,34 @@
 # Changelog
 
+## Unreleased
+
+Additive; no version bump. Owner-gap lane M5 (items M5-O1, M5-O4, M5-O5, M5-O7). Written without running Cargo
+(CI-only); the new code and tests were read for macOS and Windows cfgs but have not been compiled or run.
+
+- **`reveal` module (M5-O1): reveal or open a file or folder through `OwnedCommand`, inside caller-supplied roots.**
+  `reveal::reveal` / `reveal::open` (and `launch`, `launch_command`, the pure `plan`) start `open -R` (macOS),
+  `explorer.exe /select,"<path>"` (Windows) or `xdg-open` on the parent folder (other Unix). The path is
+  canonicalised and must lie inside a `PathScope` root (symlink, `..` and prefix-sibling escapes are refused with
+  `PermissionDenied`; an empty scope is refused at construction). `open` also refuses files the system would run
+  (executable bit, `.app`, `.bat`, `.lnk`, `.sh`, and similar). The helper is detached, with a null stdio and an
+  allowlisted environment. Tests: scope and escape refusals (`tests/reveal_scope.rs`, unit tests).
+- **`AdoptedIdentity` (M5-O4): identity for a pid this crate did not spawn.** Remembers pid, start time
+  (`StartToken`) and executable path; `verify` and `signal(AdoptedSignal)` refuse a pid that now names another
+  process (`SignalResult::IdentityMismatch`, nothing sent), report `Gone`, and never signal this process.
+  `from_recorded` rebuilds a persisted identity; `AdoptedProcess::identity` bridges from the existing type, which still
+  has no terminate method. Windows checks and terminates through one handle. Tests: identity-mismatch refusal by start
+  time and by executable (`tests/adopted_identity.rs`).
+- **Descendant enumeration and sweep (M5-O5).** `AdoptedIdentity::descendants`, `OwnedChild::descendant_identities`,
+  `sweep(&[AdoptedIdentity], grace)` and `sweep_descendants(root, grace)` (graceful signal, bounded wait, forced
+  signal; a target whose identity changed is `refused`). Descendants must be listed while their parent is alive.
+- **Bounded termination on `Drop` (M5-O7).** Dropping an owned `OwnedChild` used to run the unbounded
+  `terminate_tree`. It now kills at once and waits for the reap at most `drop_reap_timeout` (default
+  `DEFAULT_DROP_REAP_TIMEOUT`, 2 s; `set_drop_reap_timeout`, `Duration::ZERO` for no wait); an unreaped leader is
+  reaped by a background thread on Unix. Behaviour change only for a leader that does not die within the bound.
+  Tests: `tests/drop_bounded.rs`.
+- Not done, by decision: M5-O2 (Swift owner), M5-O6 (OS-tool wrappers), M5-O8 (release-time executable pinning); M5-O3
+  (macOS parent-death) is a design note only, see the lane evidence file.
+
 ## 0.4.0
 
 Published version number: this release changes or removes public items, so it is a breaking release under Cargo's rules for 0.x versions. It was developed as 0.3.4, which was never published; everything under the 0.3.4 heading below ships in 0.4.0. `PidProof` and the Windows tolerant-detach API are gone, `OwnedChild::child()` returns `UnixChild` on Unix, and `kill_on_parent_exit` is refused at spawn off Linux.
