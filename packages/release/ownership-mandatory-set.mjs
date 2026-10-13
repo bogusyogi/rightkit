@@ -193,6 +193,12 @@ export function checkApp(root, { data = loadData(), profile, amendments = [] } =
   for (const m of manifests) if (m.error) problems.push(`${m.rel}: ${m.error}`);
   const facts = manifests.flatMap((m) => m.facts);
   const owners = [...requirements(applicable).values()].map((req) => judge(req, facts));
+  // A profile that is unknown, marked unratified, or has no rows checks nothing; an app may not select it, so it fails rather than passing empty.
+  const profileStatus = !data.profiles[active] ? "unknown-profile" : (data.profiles[active].ratified === false || !data.rows.some((r) => r.profile === active)) ? "unratified" : null;
+  if (profileStatus) {
+    problems.push(`profile "${active}" is ${profileStatus === "unratified" ? "unratified or has no rows" : "unknown"}; no mandatory set is checked`);
+    owners.push({ owner: `profile:${active}`, ecosystem: "profile", rows: [], required: "ratified profile", status: profileStatus, declared: null, evidence: ["an app may not select a profile that is not ratified"] });
+  }
   const violations = owners.filter((o) => o.status !== "ok").length;
   return { app: name, root, scanned: true, profile: active, manifests: manifests.length, owners, pending, notApplicable, problems, violations };
 }

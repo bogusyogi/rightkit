@@ -109,7 +109,7 @@ test("app-side N/A needs a reason; rightkit-daemon (publish=false) may be path-c
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
-test("amendment v2.1 adds @rightkit/shell to M1 only when requested; apple profile has no rows", () => {
+test("amendment v2.1 adds @rightkit/shell to M1 only when requested; an unratified or unknown profile fails", () => {
   const root = tmp();
   try {
     goodApp(root);
@@ -118,7 +118,14 @@ test("amendment v2.1 adds @rightkit/shell to M1 only when requested; apple profi
     assert.equal(byOwner(amended, "@rightkit/shell").status, "missing");
     assert.equal(checkApp(root, { data }).violations, 0);
     const apple = checkApp(root, { data, profile: "apple" });
-    assert.deepEqual([apple.owners.length, apple.violations], [0, 0]);
+    assert.deepEqual([apple.owners.length, apple.violations], [1, 1]);
+    assert.equal(apple.owners[0].status, "unratified");
+    const unknown = checkApp(root, { data, profile: "nope" });
+    assert.equal(unknown.violations, 1);
+    assert.equal(unknown.owners[0].status, "unknown-profile");
+    put(root, "rightkit-mandatory.json", { profile: "apple" });
+    const selected = checkApps([root], { data, enforce: true });
+    assert.equal(selected.failed, true);
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
