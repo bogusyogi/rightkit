@@ -208,17 +208,6 @@ unsafe extern "system" {
     fn GetAppContainerFolderPath(sid: *const u16, path: *mut *mut u16) -> i32;
 }
 
-#[link(name = "kernelbase")]
-unsafe extern "system" {
-    fn DeriveCapabilitySidsFromName(
-        name: *const u16,
-        group_sids: *mut *mut *mut c_void,
-        group_count: *mut u32,
-        sids: *mut *mut *mut c_void,
-        sid_count: *mut u32,
-    ) -> i32;
-}
-
 #[link(name = "ole32")]
 unsafe extern "system" {
     fn CoTaskMemFree(value: *const c_void);
@@ -596,16 +585,17 @@ impl DerivedCapabilitySids {
             sid_count: 0,
         };
         // SAFETY: NUL-terminated name and valid out-pointers; results freed in Drop.
-        let ok = unsafe {
-            DeriveCapabilitySidsFromName(
-                wname.as_ptr(),
-                &mut derived.group_array,
+        // Bound via the `windows` crate (api-ms-win-security-base), not a kernelbase.lib link.
+        let result = unsafe {
+            windows::Win32::Security::DeriveCapabilitySidsFromName(
+                PCWSTR(wname.as_ptr()),
+                (&mut derived.group_array as *mut *mut *mut c_void).cast(),
                 &mut derived.group_count,
-                &mut derived.sid_array,
+                (&mut derived.sid_array as *mut *mut *mut c_void).cast(),
                 &mut derived.sid_count,
             )
         };
-        if ok == 0 {
+        if result.is_err() {
             return Err(last_error(&format!("derive capability SID {name}")));
         }
         Ok(derived)
