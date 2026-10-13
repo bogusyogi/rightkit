@@ -154,6 +154,7 @@ pub struct FileBackend {
     quarantine_name: QuarantineName,
     trailing_newline: bool,
     key_order: KeyOrder,
+    max_bytes: Option<u64>,
 }
 
 /// Serialises writers of sidecar-free backends within this process.
@@ -174,6 +175,28 @@ impl FileBackend {
             quarantine_name: QuarantineName::Timestamped,
             trailing_newline: false,
             key_order: KeyOrder::Preserve,
+            max_bytes: None,
+        }
+    }
+
+    /// Refuse to read the file when it is larger than `limit` bytes. See
+    /// [`StoreOptions::max_bytes`].
+    pub fn max_bytes(mut self, limit: u64) -> Self {
+        self.max_bytes = Some(limit);
+        self
+    }
+
+    fn check_size(&self) -> Result<(), Error> {
+        let Some(limit) = self.max_bytes else {
+            return Ok(());
+        };
+        match fs::metadata(&self.path) {
+            Ok(meta) if meta.len() > limit => Err(Error::Invalid(format!(
+                "{} is {} bytes, over the {limit} byte limit",
+                self.path.display(),
+                meta.len()
+            ))),
+            _ => Ok(()),
         }
     }
 
@@ -231,6 +254,7 @@ impl FileBackend {
             quarantine_name: options.quarantine_name.clone(),
             trailing_newline: options.trailing_newline,
             key_order: options.key_order,
+            max_bytes: options.max_bytes,
         }
     }
 
@@ -321,6 +345,7 @@ impl FileBackend {
         // The stored text the edit's document came from, for the key order to keep.
         let mut reference: Option<Vec<u8>> = None;
         let mut main_good = false;
+        self.check_size()?;
         let main = read_bytes(&self.path)?;
         let doc = match &main {
             Some(bytes) => parse_doc(&self.path, self.format, bytes)?,
@@ -363,6 +388,7 @@ impl FileBackend {
 
 impl SettingsBackend for FileBackend {
     fn load(&self) -> Result<Option<Stored>, Error> {
+        self.check_size()?;
         match read_file(&self.path, self.format)? {
             Doc::Stored(s) => Ok(Some(s)),
             Doc::Corrupt => self.refuse_if_strict().and_then(|()| self.backup()),

@@ -193,6 +193,7 @@ pub struct StoreOptions {
     pub(crate) trailing_newline: bool,
     pub(crate) flat_migration: Option<FlatMigration>,
     pub(crate) key_order: KeyOrder,
+    pub(crate) max_bytes: Option<u64>,
 }
 
 impl StoreOptions {
@@ -219,6 +220,7 @@ impl StoreOptions {
             trailing_newline: false,
             flat_migration: None,
             key_order: KeyOrder::Preserve,
+            max_bytes: None,
         }
     }
 
@@ -292,6 +294,16 @@ impl StoreOptions {
     /// [`StoreOptions::pretty_sorted_newline`], which also sorts keys.
     pub fn trailing_newline(mut self, yes: bool) -> Self {
         self.trailing_newline = yes;
+        self
+    }
+
+    /// Refuse to read a settings file larger than `limit` bytes. The check is on the file length
+    /// before it is read, so an oversized file is never loaded into memory. `open` and writes fail
+    /// with [`crate::Error::Invalid`]; the file is left byte for byte as it was (not quarantined,
+    /// not overwritten); `get` keeps returning the last known value. Applies to the main file
+    /// of a `Store` (not to [`crate::read_with_options`]). Default: no limit.
+    pub fn max_bytes(mut self, limit: u64) -> Self {
+        self.max_bytes = Some(limit);
         self
     }
 
