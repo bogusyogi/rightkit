@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- New optional manifest key `defaultBranch` (default `main`) for the push triggers of `ci`, `qualification`, `package-smoke` and the rust-hybrid `release-candidate` admission check. Unset, output is byte-identical.
 - New optional manifest block `checkout { longPaths, sparse }`. `longPaths: true` renders a Windows-only `git config --system core.longpaths true` step before every `actions/checkout`; `sparse` renders `sparse-checkout` (cone mode) into each checkout of the repository itself. Applied after template rendering (`checkout.mjs`, called from `renderLanes`), so every lane and generated job is covered. Unset, output is byte-identical.
 
 ## 0.2.42

@@ -4,7 +4,7 @@ name: qualification
 on:
   pull_request:
   push:
-    branches: [main]
+    branches: [${DEFAULT_BRANCH}]
 permissions:
   contents: read
 # F5 fix: see ci.yml for why the guard is its own always-runs job rather

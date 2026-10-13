@@ -478,3 +478,10 @@ test("checkout is an optional object with boolean longPaths and safe sparse dire
     assert.equal(validateManifest({ ...VALID_MINIMAL, checkout }).valid, false, JSON.stringify(checkout));
   }
 });
+
+test("defaultBranch is an optional safe branch name", () => {
+  assert.equal(validateManifest({ ...VALID_MINIMAL, defaultBranch: "master" }).valid, true);
+  for (const defaultBranch of ["", "a/b", "a b", "..x", "${{ x }}", 1, null]) {
+    assert.equal(validateManifest({ ...VALID_MINIMAL, defaultBranch }).valid, false, String(defaultBranch));
+  }
+});

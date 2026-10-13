@@ -98,6 +98,12 @@
         }
       }
     }
+    ,"defaultBranch": {
+      "type": "string",
+      "default": "main",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$",
+      "description": "Branch the ci, qualification and package-smoke push triggers and the rust-hybrid release-candidate admission use. Default main."
+    }
     ,"checkout": {
       "type": "object",
       "additionalProperties": false,

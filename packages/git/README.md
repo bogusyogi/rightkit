@@ -20,6 +20,10 @@ Public-repository-only GitHub Actions workflow layer for Right Suite products. T
 
 `install` and `sync` refuse private, internal and unconfirmed-visibility repositories. There is no override flag.
 
+## Default branch
+
+`"defaultBranch": "master"` renders the `push` trigger of the `ci`, `qualification` and `package-smoke` lanes, and the rust-hybrid `release-candidate` admission check (`refs/heads/<branch>`), for a repository whose default branch is not `main`. Unset, it is `main` and output is byte-identical.
+
 ## Checkout options (all lanes)
 
 Opt-in `checkout` block applied to every `actions/checkout` step the manifest renders. Unset, `{}` or `longPaths: false` with no `sparse`, the rendered workflows are byte-identical.

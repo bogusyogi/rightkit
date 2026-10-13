@@ -77,3 +77,15 @@ test("applyCheckoutOptions adds with: when the step has none", () => {
   const out = applyCheckoutOptions("jobs:\n  a:\n    steps:\n      - uses: actions/checkout@v5\n      - run: x\n", { checkout: { sparse: ["a"] } });
   assert.equal(out, "jobs:\n  a:\n    steps:\n      - uses: actions/checkout@v5\n        with:\n          sparse-checkout: |\n            a\n          sparse-checkout-cone-mode: true\n      - run: x\n");
 });
+
+test("defaultBranch renders into push triggers; unset stays main", () => {
+  const r = repo();
+  const base = { ...BASE, lanes: ["ci", "qualification", "package-smoke"] };
+  for (const { content } of renderLanes(base, r)) assert.match(content, /branches: \[main\]/);
+  for (const { content } of renderLanes({ ...base, defaultBranch: "master" }, r)) {
+    assert.match(content, /branches: \[master\]/);
+    assert.doesNotMatch(content, /branches: \[main\]/);
+  }
+  const rh = { ...BASE, lanes: ["ci"], profile: "rust-hybrid", gate: { path: "scripts/gate.sh" }, templateVersion: "1.1.0", defaultBranch: "master" };
+  assert.match(renderLanes(rh, r)[0].content, /branches: \[master\]/);
+});

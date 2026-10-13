@@ -73,6 +73,7 @@ const TOP_LEVEL_KEYS = new Set([
   "ownership",
   "swift",
   "checkout",
+  "defaultBranch",
 ]);
 // Optional QA evidence upload (rust-hybrid ci only). qaEvidencePath is a safe
 // relative path under $RUNNER_TEMP; it renders as `${{ runner.temp }}/<path>`.
@@ -182,6 +183,11 @@ export function validateManifest(manifest) {
   }
 
   validateCheckout(manifest.checkout, errors);
+  // defaultBranch: the branch the push triggers and the release-candidate admission use. Default "main".
+  if (manifest.defaultBranch !== undefined
+    && (typeof manifest.defaultBranch !== "string" || !/^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$/.test(manifest.defaultBranch) || manifest.defaultBranch.includes(".."))) {
+    errors.push("defaultBranch must be one safe branch name (letters, digits, '.', '_', '-'; no '/', whitespace, '..' or expression syntax)");
+  }
 
   if (manifest.qaEvidencePath !== undefined) {
     if (profile !== "rust-hybrid") {
@@ -1772,6 +1778,7 @@ export function buildRenderContext(manifest, repoPath, lane = "ci") {
     PM_RUN: pm.runPrefix,
     PACKAGE_MANAGER_SETUP: pm.setup,
     ARTIFACT_PREFIX: artifactPrefix,
+    DEFAULT_BRANCH: manifest.defaultBranch ?? "main",
     TEMPLATE_VERSION: manifest.templateVersion,
     RUST_CACHE_WORKSPACES: rustWorkspaces.map((workspace) => `            ${workspace} -> target`).join("\n"),
     RUST_REQUIRED_FOR_GATE: manifest.rustCache?.requiredForGate === true ? "true" : "false",

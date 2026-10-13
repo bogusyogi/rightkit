@@ -4,7 +4,7 @@ name: ${ARTIFACT_PREFIX}-ci
 on:
   pull_request:
   push:
-    branches: [main]
+    branches: [${DEFAULT_BRANCH}]
 ${CI_DISPATCH_TRIGGER}permissions:
   contents: read
 concurrency:
