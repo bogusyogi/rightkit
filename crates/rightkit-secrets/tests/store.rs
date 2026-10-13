@@ -1570,3 +1570,60 @@ fn import_env_without_overwrite_keeps_a_credential_saved_just_before_its_write()
         "the import overwrote a concurrently saved credential"
     );
 }
+
+#[test]
+fn rotation_survives_a_crash_between_begin_and_commit() {
+    let store = memory_store("dev.rightkit.secrets.test.rotation");
+    store.set_str("db", "old").unwrap();
+    assert!(store.pending_rotation("db").unwrap().is_none());
+    assert!(!store.commit_rotation("db").unwrap());
+    assert!(store
+        .begin_rotation("db", &Secret::from_string("new"))
+        .unwrap());
+    // A second begin never overwrites the pending value.
+    assert!(!store
+        .begin_rotation("db", &Secret::from_string("other"))
+        .unwrap());
+    // "Crash": the primary still holds the old value, the marker holds the new one.
+    assert_eq!(
+        store.get("db").unwrap().unwrap().expose_str().unwrap(),
+        "old"
+    );
+    assert_eq!(
+        store
+            .pending_rotation("db")
+            .unwrap()
+            .unwrap()
+            .expose_str()
+            .unwrap(),
+        "new"
+    );
+    assert!(store.commit_rotation("db").unwrap());
+    assert_eq!(
+        store.get("db").unwrap().unwrap().expose_str().unwrap(),
+        "new"
+    );
+    assert!(store.pending_rotation("db").unwrap().is_none());
+    assert!(!store.commit_rotation("db").unwrap());
+}
+
+#[test]
+fn rotation_abort_keeps_the_credential_and_markers_are_not_accounts() {
+    let store = memory_store("dev.rightkit.secrets.test.rotation-abort");
+    store.set_str("db", "old").unwrap();
+    store
+        .begin_rotation("db", &Secret::from_string("new"))
+        .unwrap();
+    assert!(store.abort_rotation("db").unwrap());
+    assert!(!store.abort_rotation("db").unwrap());
+    assert_eq!(
+        store.get("db").unwrap().unwrap().expose_str().unwrap(),
+        "old"
+    );
+    assert!(store
+        .begin_rotation("db.rotation-pending", &Secret::from_string("x"))
+        .is_err());
+    assert!(store
+        .begin_rotation("db", &Secret::from_string(""))
+        .is_err());
+}
