@@ -4,7 +4,7 @@
 // lipo architectures. Asserts only what the caller declares; it never signs.
 // Usage: right-release identity-scan --target <path> [--identifier <id>] [--team <OU>]
 //          [--cdhash <hex>] [--arch <arch>]... [--allow-adhoc]
-import { spawnSync } from "node:child_process";
+import { spawnSync } from "./background-process.mjs";
 import { fileURLToPath } from "node:url";
 
 /** Parse `codesign -dv --verbose=4` output (stderr text) into fields. */

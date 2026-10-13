@@ -24,7 +24,7 @@
     "@rightkit/license": "0.1.8",
     "@rightkit/logs": "0.1.4",
     "@rightkit/media-ui": "0.3.4",
-    "@rightkit/onboarding": "0.3.2",
+    "@rightkit/onboarding": "0.3.3",
     "@rightkit/pdf-ui": "0.1.6",
     "@rightkit/platform-ui": "0.2.7",
     "@rightkit/qa": "0.4.7",
@@ -271,7 +271,8 @@
       "0.2.2",
       "0.2.3",
       "0.3.0",
-      "0.3.1"
+      "0.3.1",
+      "0.3.2"
     ],
     "@rightkit/doc-render": [
       "0.1.0",

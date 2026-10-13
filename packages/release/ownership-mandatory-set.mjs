@@ -69,10 +69,12 @@ export function readManifest(file, root) {
   const rel = path.relative(root, file).split(path.sep).join("/");
   const text = readFileSync(file, "utf8");
   const facts = [];
+  let workspaceDeps;
   if (path.basename(file) === "Cargo.toml") {
     let doc;
     try { doc = parseToml(text); } catch (error) { return { rel, facts, error: `unparseable Cargo.toml: ${error.message}` }; }
-    const workspaceDeps = doc.workspace?.dependencies ?? {};
+    workspaceDeps = doc.workspace?.dependencies;
+    const wsTable = workspaceDeps ?? {};
     const sections = (table, dev) => {
       for (const [section, isDev] of [["dependencies", dev], ["build-dependencies", dev], ["dev-dependencies", true]]) {
         for (const [key, raw] of Object.entries(table?.[section] ?? {})) add(key, raw, isDev);
@@ -80,14 +82,15 @@ export function readManifest(file, root) {
     };
     const add = (key, raw, dev) => {
       let value = raw;
-      if (value && typeof value === "object" && value.workspace === true && workspaceDeps[key] !== undefined) value = { ...(typeof workspaceDeps[key] === "object" ? workspaceDeps[key] : { version: workspaceDeps[key] }), ...value };
+      if (value && typeof value === "object" && value.workspace === true && wsTable[key] !== undefined) value = { ...(typeof wsTable[key] === "object" ? wsTable[key] : { version: wsTable[key] }), ...value };
       const name = typeof value === "object" && typeof value.package === "string" ? value.package : key;
       const spec = typeof value === "string" ? value : value?.version;
-      facts.push({ owner: name, ecosystem: "cargo", kind: isNonRegistry(value) ? "override" : "registry", dev, spec: spec ?? null, via: isNonRegistry(value) ? ("path" in value ? "path dependency" : "git dependency") : "dependency", file: rel });
+      const unresolved = raw && typeof raw === "object" && raw.workspace === true && wsTable[key] === undefined;
+      facts.push({ owner: name, ecosystem: "cargo", kind: isNonRegistry(value) ? "override" : "registry", dev, spec: spec ?? null, via: isNonRegistry(value) ? ("path" in value ? "path dependency" : "git dependency") : "dependency", file: rel, ...(unresolved ? { inheritsWorkspace: key } : {}) });
     };
     sections(doc, false);
     for (const target of Object.values(doc.target ?? {})) sections(target, false);
-    for (const [key, raw] of Object.entries(workspaceDeps)) {
+    for (const [key, raw] of Object.entries(wsTable)) {
       // workspace.dependencies only counts through members that opt in (above); record path/git overrides here.
       if (isNonRegistry(raw)) facts.push({ owner: typeof raw.package === "string" ? raw.package : key, ecosystem: "cargo", kind: "override", dev: false, spec: raw.version ?? null, via: "workspace.dependencies path/git", file: rel, declarationOnly: true });
     }
@@ -115,7 +118,29 @@ export function readManifest(file, root) {
       }
     }
   }
-  return { rel, facts };
+  return { rel, facts, workspaceDeps };
+}
+
+/** A member's `{ workspace = true }` names a table in an ancestor manifest's [workspace.dependencies]; resolve it across files. */
+export function resolveWorkspaceInheritance(manifests) {
+  const roots = manifests.filter((m) => m.workspaceDeps && Object.keys(m.workspaceDeps).length);
+  for (const m of manifests) {
+    for (const fact of m.facts) {
+      if (!fact.inheritsWorkspace) continue;
+      const dir = path.posix.dirname(m.rel);
+      const owner = roots
+        .filter((r) => r.workspaceDeps[fact.inheritsWorkspace] !== undefined)
+        .filter((r) => { const rd = path.posix.dirname(r.rel); return rd === "." || dir === rd || dir.startsWith(`${rd}/`); })
+        .sort((a, b) => path.posix.dirname(b.rel).length - path.posix.dirname(a.rel).length)[0];
+      if (!owner) continue;
+      const declared = owner.workspaceDeps[fact.inheritsWorkspace];
+      const table = declared && typeof declared === "object" ? declared : { version: declared };
+      fact.spec = table.version ?? null;
+      fact.kind = isNonRegistry(table) ? "override" : "registry";
+      if (isNonRegistry(table)) fact.via = "path" in table ? "path dependency" : "git dependency";
+      if (typeof table.package === "string") fact.owner = table.package;
+    }
+  }
 }
 
 // ---- evaluation --------------------------------------------------------------------------
@@ -190,6 +215,7 @@ export function checkApp(root, { data = loadData(), profile, amendments = [] } =
   const applicable = rows.filter((r) => !(r.id in declaration.notApplicable));
   const pending = data.pendingRows.filter((r) => r.profile === active).map((r) => ({ row: r.id, name: r.name, status: "owner-pending", note: r.ownerPending }));
   const manifests = findManifests(root).map((f) => readManifest(f, root));
+  resolveWorkspaceInheritance(manifests);
   for (const m of manifests) if (m.error) problems.push(`${m.rel}: ${m.error}`);
   const facts = manifests.flatMap((m) => m.facts);
   const owners = [...requirements(applicable).values()].map((req) => judge(req, facts));
