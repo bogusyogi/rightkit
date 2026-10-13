@@ -61,6 +61,17 @@ export interface AutoUpdateClientConfig {
     version: string,
     context: { headers?: UpdateHeaders },
   ) => Promise<UpdateTier | null> | UpdateTier | null;
+  /**
+   * Optional app-side validation of the signed update metadata (for example an
+   * extra signature or digest check over `update.rawJson`). Return false or throw
+   * to reject the update; it then surfaces as an `error` status and is never
+   * offered. Tauri's updater plugin still verifies the artifact signature against
+   * the configured pubkey; this hook is additional and defaults to none.
+   */
+  verifyMetadata?: (
+    update: RuntimeUpdate,
+    context: { headers?: UpdateHeaders },
+  ) => Promise<boolean | void> | boolean | void;
   canInstall?: () => Promise<boolean> | boolean;
   isEligible?: (
     tier: UpdateTier | null,
@@ -184,6 +195,12 @@ export function createAutoUpdateClient(config: AutoUpdateClientConfig): AutoUpda
       if (staleAfterTier) return staleAfterTier;
       if (tier !== 'patch' && tier !== 'update') {
         throw new Error('update manifest tier must be "patch" or "update"');
+      }
+      if (config.verifyMetadata) {
+        const verified = await config.verifyMetadata(update, { headers });
+        const staleAfterVerify = idleWhenStale(checkGeneration);
+        if (staleAfterVerify) return staleAfterVerify;
+        if (verified === false) throw new Error('update metadata verification failed');
       }
       const eligible = await isEligible(tier, { headers });
       const staleAfterEligibility = idleWhenStale(checkGeneration);
