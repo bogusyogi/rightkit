@@ -12,6 +12,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 const LIMIT: usize = 64 * 1024 * 1024;
+const BIG: usize = 8 * 1024 * 1024;
 
 #[derive(Default)]
 struct Big {
@@ -27,8 +28,10 @@ impl Handler for Big {
         _emit: &Emit,
     ) -> Result<Value, ServiceError> {
         match method {
-            // Far more than any socket buffer holds.
-            "big" => Ok(Value::String("x".repeat(32 * 1024 * 1024))),
+            // Far more than any socket buffer holds (macOS: 8 KiB), under the client's 16 MiB limit.
+            "big" => Ok(Value::String("x".repeat(BIG))),
+            // Over the client's own frame limit, within the host's.
+            "huge" => Ok(Value::String("x".repeat(32 * 1024 * 1024))),
             _ => Err(ServiceError::new("unknown_method", method)),
         }
     }
@@ -45,7 +48,7 @@ fn start(options: HostOptions) -> (tempfile::TempDir, Suite, Arc<Big>, Hosted) {
         "test",
         5,
         "test",
-        Allowlist::new().allow("*", ["big"]),
+        Allowlist::new().allow("*", ["big", "huge"]),
     );
     cfg.frame_limit = LIMIT;
     let handler = Arc::new(Big::default());
@@ -106,9 +109,27 @@ fn a_reader_that_keeps_up_within_the_bound_gets_the_whole_response() {
         start(HostOptions::new().write_timeout(Some(Duration::from_secs(20))));
     let client = Client::connect(&suite, "wb", "reader").unwrap();
     let v = client.call("big", json!({})).unwrap();
-    assert_eq!(v.as_str().map(str::len), Some(32 * 1024 * 1024));
+    assert_eq!(v.as_str().map(str::len), Some(BIG));
     assert!(!handler.closed.load(Ordering::SeqCst));
     // The connection is still usable.
+    assert_eq!(
+        client.call("nope", json!({})).unwrap_err().code,
+        "unknown_method"
+    );
+}
+
+#[test]
+fn a_reply_over_the_clients_frame_limit_is_a_typed_error_not_a_deadline() {
+    let (_d, suite, _handler, _hosted) =
+        start(HostOptions::new().write_timeout(Some(Duration::from_secs(20))));
+    let client = Client::connect(&suite, "wb", "reader").unwrap();
+    client.set_deadline(Some(Duration::from_secs(60)));
+    let started = Instant::now();
+    let e = client.call("huge", json!({})).unwrap_err();
+    assert_eq!(e.code, ERROR_RESPONSE_TOO_LARGE, "{e:?}");
+    assert!(!e.retryable);
+    assert!(started.elapsed() < Duration::from_secs(50));
+    // The oversized frame was drained: the connection is still on a frame boundary.
     assert_eq!(
         client.call("nope", json!({})).unwrap_err().code,
         "unknown_method"

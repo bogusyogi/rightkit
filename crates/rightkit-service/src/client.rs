@@ -509,6 +509,15 @@ impl Client {
                     },
                     Ok(Some(_)) => {} // frame for another request or a connection-level error
                     Ok(None) | Err(FrameError::Io(_)) => return Err(closed()),
+                    // The frame was drained through its newline, so the stream is still on a
+                    // frame boundary and the connection stays usable. Skipping it silently left
+                    // the caller waiting for the full deadline for a reply that already came.
+                    Err(FrameError::TooLarge { .. }) => {
+                        return Err(ServiceError::new(
+                            ERROR_RESPONSE_TOO_LARGE,
+                            "the host's reply exceeds the client's frame limit",
+                        ));
+                    }
                     Err(_) => {}
                 }
             }
