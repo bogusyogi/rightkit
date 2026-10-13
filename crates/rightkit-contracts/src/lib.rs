@@ -105,17 +105,17 @@ impl Contract {
     pub fn schema_source(self) -> &'static str {
         match self {
             Contract::ContentBrief => {
-                include_str!("../../../contracts/content-brief.v1.schema.json")
+                include_str!("../schemas/content-brief.v1.schema.json")
             }
             Contract::DeliveryEnvelope => {
-                include_str!("../../../contracts/delivery-envelope.v1.schema.json")
+                include_str!("../schemas/delivery-envelope.v1.schema.json")
             }
             Contract::RecordSession => {
-                include_str!("../../../contracts/record-session.v1.schema.json")
+                include_str!("../schemas/record-session.v1.schema.json")
             }
-            Contract::RecordEvent => include_str!("../../../contracts/record-event.v1.schema.json"),
-            Contract::DemoPlan => include_str!("../../../contracts/demo-plan.v1.schema.json"),
-            Contract::DaemonApi => include_str!("../../../contracts/daemon-api.v1.schema.json"),
+            Contract::RecordEvent => include_str!("../schemas/record-event.v1.schema.json"),
+            Contract::DemoPlan => include_str!("../schemas/demo-plan.v1.schema.json"),
+            Contract::DaemonApi => include_str!("../schemas/daemon-api.v1.schema.json"),
         }
     }
 

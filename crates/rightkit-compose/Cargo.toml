@@ -3,10 +3,12 @@ name = "rightkit-compose"
 version = "0.1.0"
 edition = "2021"
 rust-version = "1.98.0"
-publish = false
 license = "MIT OR Apache-2.0"
 description = "Product-neutral evaluated composition model: layered video, stills, cursor sprites, backgrounds, clipping, shadows, motion blur, overlays and keyframed tracks, with one pure per-frame evaluation shared by preview and export"
+readme = "README.md"
 repository = "https://github.com/Orthic-Labs/rightkit"
+keywords = ["composition", "video", "keyframes", "timeline"]
+categories = ["multimedia::video", "data-structures"]
 include = ["src/**", "tests/**", "Cargo.toml", "README.md", "CHANGELOG.md", "LICENSE-MIT", "LICENSE-APACHE"]
 
 [lib]

@@ -8,7 +8,7 @@ Version columns: **Source** is the manifest version. **Published** is the latest
 
 Flags: `ok` means source, published and staged agree. `staged, not yet published` is in-flight work. `private` has no registry record by design. `MISMATCH` needs a release decision.
 
-Flagged mismatches: 49.
+Flagged mismatches: 51.
 
 The build broker is the Rust RustRight product (`bogusyogi/rustright`, binary `rustright`, alias `rightkit`); it is not part of this inventory. `packages/build-control-policy` keeps the agent permission hooks.
 
@@ -24,9 +24,9 @@ The build broker is the Rust RustRight product (`bogusyogi/rustright`, binary `r
 | `rightkit-automation` | private | 0.3.0 | none recorded | 0.1.0 | **MISMATCH staged 0.1.0 != source 0.3.0** | desktop-automation | Brand-neutral desktop automation: observe and act on any app (macOS AX, Windows UIA) through a four-tier input ladder with safety, focus guard, and evidence receipts. |
 | `rightkit-browser` | crates.io | 0.3.0 | 0.2.4 | 0.2.4 | **MISMATCH staged 0.2.4 != source 0.3.0** | browser-automation | Shared Chrome DevTools Protocol browser runtime for Right Suite: multi-page sessions, named profiles, real CDP input, observations with stale-ref checks. |
 | `rightkit-cache` | crates.io | 0.2.0 | 0.1.0 | 0.1.0 | **MISMATCH staged 0.1.0 != source 0.2.0** | disk-cache | Disk cache primitive with a hard size cap, LRU eviction that survives restarts, atomic writes and group invalidation, plus stable-prefix prompt-cache keys. |
-| `rightkit-channel-memory` | private | 0.1.0 | none recorded |  | private | channel-memory | Channel memory for the content pipeline: the channel-memory.v1 schema with serde types, validation, version gate, proof citation rules, and scope checks for PostRight P3 and GenRight G7. |
-| `rightkit-compose` | private | 0.1.0 | none recorded |  | private | composition-model | Product-neutral evaluated composition model: layered video, stills, cursor sprites, backgrounds, clipping, shadows, motion blur, overlays and keyframed tracks, with one pure per-frame evaluation shared by preview and export |
-| `rightkit-contracts` | private | 0.1.5 | none recorded | 0.1.2 | **MISMATCH staged 0.1.2 != source 0.1.5** | content-contracts | Versioned content-pipeline contracts for the Right Suite: content brief, delivery envelope, record session and event, demo plan and daemon API. JSON Schema validation, serde types, and major-version negotiation. |
+| `rightkit-channel-memory` | crates.io | 0.1.0 | none recorded |  | **MISMATCH public package has no release record** | channel-memory | Channel memory for the content pipeline: the channel-memory.v1 schema with serde types, validation, version gate, proof citation rules, and scope checks for PostRight P3 and GenRight G7. |
+| `rightkit-compose` | crates.io | 0.1.0 | none recorded |  | **MISMATCH public package has no release record** | composition-model | Product-neutral evaluated composition model: layered video, stills, cursor sprites, backgrounds, clipping, shadows, motion blur, overlays and keyframed tracks, with one pure per-frame evaluation shared by preview and export |
+| `rightkit-contracts` | crates.io | 0.1.5 | none recorded | 0.1.2 | **MISMATCH staged 0.1.2 != source 0.1.5** | content-contracts | Versioned content-pipeline contracts for the Right Suite: content brief, delivery envelope, record session and event, demo plan and daemon API. JSON Schema validation, serde types, and major-version negotiation. |
 | `rightkit-control` | crates.io | 0.3.0 | 0.1.11 | 0.3.0 | staged, not yet published | desktop-control | Background native input, accessibility reads, and a WebDriver bridge for driving real desktop apps without stealing focus. |
 | `rightkit-crash` | crates.io | 0.2.2 | 0.2.1 | 0.2.1 | **MISMATCH staged 0.2.1 != source 0.2.2** | crash-reporting | Privacy-first panic capture, redacted crash reports, native dumps and support bundles for Right Suite apps. |
 | `rightkit-daemon` | private | 0.1.3 | none recorded |  | private | daemon-host | Daemon host capability for the Right Suite: HTTPS listener, device enrolment and signed requests, OAuth callback and signed webhook route classes, bounded blake3-keyed resumable uploads, compare-and-swap mutations, durable state and lifecycle events. |

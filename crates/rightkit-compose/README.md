@@ -4,7 +4,7 @@ The evaluated composition model for Right Suite video (RK9). A `Composition` is 
 
 `evaluate(composition, t)` is pure. It maps a composition and a time in `Ticks` (705,600,000 per second, the CutRight clock) to a `FrameDescription` with no renderer attached. `evaluate_ms` is a thin wrapper for millisecond times. CutRight's native compositor and its typed FFmpeg export are meant to consume that description, so preview and export agree by design. This repository does not show either consuming it: `docs/audits/2026-10-10-audit-evidence/apps-g2.md:86` lists the CutRight mapper as a target, not a consumer.
 
-Catalog capability: `composition-model`. Not published (`publish = false`, version `0.1.0`). See [CHANGELOG.md](CHANGELOG.md) for the 0.1.0 time, retime and easing changes.
+Catalog capability: `composition-model`. Publishable on crates.io (wave 2.8), version `0.1.0`. See [CHANGELOG.md](CHANGELOG.md) for the 0.1.0 time, retime and easing changes.
 
 ## What it owns
 
@@ -49,4 +49,4 @@ Pure Rust. No platform-specific code.
 
 ## Version and changes
 
-Not published. See [CHANGELOG.md](CHANGELOG.md) and [INDEX.md](../../INDEX.md).
+See [CHANGELOG.md](CHANGELOG.md) and [INDEX.md](../../INDEX.md).

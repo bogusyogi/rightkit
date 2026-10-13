@@ -1,6 +1,6 @@
 # Changelog
 
-The crate is not published (`publish = false`). The schema is pending in
+Publishable (wave 2.8): `publish = false` is removed; the schema is copied into the crate (`schemas/`, checked by `tests/schema_copy.rs`) and embedded from there; the manifest gains `readme`, `keywords`, `categories` and `include`. The schema is pending in
 `contracts-pending/channel-memory/` and its contract version stays `1.0.0`
 under the `v1` file name and `$id`. Nothing outside this repository reads it,
 so the revisions below are made in place; they are recorded here so that the
@@ -8,7 +8,7 @@ contract's change history is visible. If the owner wants a published contract
 to start from this state, bump the major (`2.0.0`, file `channel-memory.v2`)
 at that point.
 
-## Unreleased: proof semantics revision (contract p3-proof-semantics §2, §3, §5.3, §6, §9, §10)
+## 0.1.0: proof semantics revision (contract p3-proof-semantics §2, §3, §5.3, §6, §9, §10)
 
 ### Breaking changes to the schema and typed model
 

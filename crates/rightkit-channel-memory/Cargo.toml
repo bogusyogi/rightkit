@@ -5,8 +5,11 @@ edition = "2021"
 rust-version = "1.98.0"
 description = "Channel memory for the content pipeline: the channel-memory.v1 schema with serde types, validation, version gate, proof citation rules, and scope checks for PostRight P3 and GenRight G7."
 license = "MIT OR Apache-2.0"
+readme = "README.md"
 repository = "https://github.com/Orthic-Labs/rightkit"
-publish = false
+keywords = ["json-schema", "memory", "validation", "content-pipeline"]
+categories = ["data-structures", "development-tools"]
+include = ["src/**", "schemas/**", "Cargo.toml", "README.md", "CHANGELOG.md", "LICENSE-MIT", "LICENSE-APACHE"]
 
 [lib]
 path = "src/lib.rs"

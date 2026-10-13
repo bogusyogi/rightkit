@@ -1,0 +1,1372 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:rightkit:contract:channel-memory:v1",
+  "title": "RightKit channel memory (v1)",
+  "description": "Channel memory for one venture, channel and account: voice, visual system, pillars, cadence, banned moves (with matchable phrases), do and don't guidance, licence scope, proof bank, open proof conflicts, external observations, lessons, performance notes, reference style notes, model defaults and identity bindings. Each revision is immutable; a correction is a new revision whose supersedes names the revision it replaces. Proofs are the only authoritative facts. A proof carries an exact decimal value, a status (collected, approved, withdrawn, superseded), structured permitted claims and a validity window separate from the period its value describes. Observations (website or platform text) are stored separately with authoritative fixed to false, so they can never enter the proof bank. Semantic rules that JSON Schema cannot express (revision ordering, unique ids, date order, claim mirroring, conflict bodies) are enforced by rightkit-channel-memory. Sources: PostRight execution plan P3 (lines 80 to 85), P4 (lines 98 to 100), P6 (line 113) and line 33 (daemon authority); GenRight execution plan G7 (lines 82 to 89, including licence scope on line 83); PostRight docs/contracts/p3-proof-semantics.md sections 2, 3, 5.3, 6, 9 and 10. The schema is pending RightKit's contracts crate until RK6 is accepted into contracts/.",
+  "version": "1.0.0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "contract",
+    "contractVersion",
+    "memoryId",
+    "revision",
+    "createdAt",
+    "scope",
+    "brandCode",
+    "voice",
+    "visualSystem",
+    "pillars",
+    "cadence",
+    "guidance",
+    "bannedMoves",
+    "bannedPhrases",
+    "licenceScope",
+    "proofs",
+    "conflicts",
+    "observations",
+    "lessons",
+    "performanceNotes",
+    "references",
+    "provenance"
+  ],
+  "properties": {
+    "contract": {
+      "const": "channel-memory"
+    },
+    "contractVersion": {
+      "$ref": "#/$defs/contractVersion"
+    },
+    "memoryId": {
+      "$ref": "#/$defs/id"
+    },
+    "revision": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "supersedes": {
+      "type": [
+        "integer",
+        "null"
+      ],
+      "minimum": 1
+    },
+    "createdAt": {
+      "$ref": "#/$defs/timestamp"
+    },
+    "scope": {
+      "$ref": "#/$defs/scope"
+    },
+    "brandCode": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9-]{1,31}$"
+    },
+    "voice": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "tone",
+        "audience"
+      ],
+      "properties": {
+        "tone": {
+          "$ref": "#/$defs/text"
+        },
+        "audience": {
+          "$ref": "#/$defs/text"
+        },
+        "narration": {
+          "$ref": "#/$defs/text"
+        },
+        "personaNotes": {
+          "$ref": "#/$defs/text"
+        }
+      }
+    },
+    "visualSystem": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "style",
+        "layout",
+        "captionStyle",
+        "pacing",
+        "sound"
+      ],
+      "properties": {
+        "style": {
+          "$ref": "#/$defs/text"
+        },
+        "layout": {
+          "$ref": "#/$defs/text"
+        },
+        "captionStyle": {
+          "$ref": "#/$defs/text"
+        },
+        "pacing": {
+          "$ref": "#/$defs/text"
+        },
+        "sound": {
+          "$ref": "#/$defs/text"
+        },
+        "typography": {
+          "$ref": "#/$defs/text"
+        },
+        "palette": {
+          "type": "array",
+          "maxItems": 12,
+          "items": {
+            "$ref": "#/$defs/hex"
+          }
+        }
+      }
+    },
+    "pillars": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 12,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "name",
+          "description"
+        ],
+        "properties": {
+          "id": {
+            "$ref": "#/$defs/id"
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 120
+          },
+          "description": {
+            "$ref": "#/$defs/text"
+          }
+        }
+      }
+    },
+    "cadence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "postsPerDay",
+        "timezone",
+        "batch"
+      ],
+      "properties": {
+        "postsPerDay": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 50
+        },
+        "timezone": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "batch": {
+          "enum": [
+            "overnight",
+            "daytime",
+            "none"
+          ]
+        },
+        "batchWindow": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "start",
+            "end"
+          ],
+          "properties": {
+            "start": {
+              "$ref": "#/$defs/clock"
+            },
+            "end": {
+              "$ref": "#/$defs/clock"
+            }
+          }
+        }
+      }
+    },
+    "guidance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "doList",
+        "dontList"
+      ],
+      "properties": {
+        "doList": {
+          "type": "array",
+          "maxItems": 100,
+          "items": {
+            "$ref": "#/$defs/text"
+          }
+        },
+        "dontList": {
+          "type": "array",
+          "maxItems": 100,
+          "items": {
+            "$ref": "#/$defs/text"
+          }
+        }
+      }
+    },
+    "bannedMoves": {
+      "type": "array",
+      "maxItems": 200,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "description",
+          "appliesTo",
+          "phrases"
+        ],
+        "properties": {
+          "id": {
+            "$ref": "#/$defs/id"
+          },
+          "description": {
+            "$ref": "#/$defs/text"
+          },
+          "appliesTo": {
+            "enum": [
+              "hook",
+              "script",
+              "caption",
+              "carousel",
+              "any"
+            ]
+          },
+          "phrases": {
+            "type": "array",
+            "maxItems": 50,
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 80
+            }
+          }
+        }
+      }
+    },
+    "bannedPhrases": {
+      "type": "array",
+      "maxItems": 500,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 80
+      }
+    },
+    "licenceScope": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "monetised",
+        "assetRights"
+      ],
+      "properties": {
+        "monetised": {
+          "type": "boolean"
+        },
+        "assetRights": {
+          "enum": [
+            "commercial_safe",
+            "licensed",
+            "editorial_only"
+          ]
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "monetised": {
+                "const": true
+              }
+            },
+            "required": [
+              "monetised"
+            ]
+          },
+          "then": {
+            "properties": {
+              "assetRights": {
+                "const": "commercial_safe"
+              }
+            }
+          }
+        }
+      ]
+    },
+    "proofs": {
+      "type": "array",
+      "maxItems": 5000,
+      "items": {
+        "$ref": "#/$defs/proof"
+      }
+    },
+    "conflicts": {
+      "type": "array",
+      "maxItems": 500,
+      "items": {
+        "$ref": "#/$defs/conflict"
+      }
+    },
+    "observations": {
+      "type": "array",
+      "maxItems": 5000,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "origin",
+          "text",
+          "observedAt",
+          "authoritative",
+          "source"
+        ],
+        "properties": {
+          "id": {
+            "$ref": "#/$defs/id"
+          },
+          "origin": {
+            "enum": [
+              "website",
+              "platform_text",
+              "scrape"
+            ]
+          },
+          "text": {
+            "$ref": "#/$defs/text"
+          },
+          "observedAt": {
+            "$ref": "#/$defs/timestamp"
+          },
+          "authoritative": {
+            "const": false
+          },
+          "source": {
+            "$ref": "#/$defs/source"
+          }
+        }
+      }
+    },
+    "lessons": {
+      "type": "array",
+      "maxItems": 1000,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "text",
+          "recordedAt",
+          "source"
+        ],
+        "properties": {
+          "id": {
+            "$ref": "#/$defs/id"
+          },
+          "text": {
+            "$ref": "#/$defs/text"
+          },
+          "recordedAt": {
+            "$ref": "#/$defs/timestamp"
+          },
+          "source": {
+            "$ref": "#/$defs/source"
+          }
+        }
+      }
+    },
+    "performanceNotes": {
+      "type": "array",
+      "maxItems": 1000,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "platform",
+          "metric",
+          "window",
+          "sampleSize",
+          "summary",
+          "caveat",
+          "source"
+        ],
+        "properties": {
+          "id": {
+            "$ref": "#/$defs/id"
+          },
+          "platform": {
+            "$ref": "#/$defs/id"
+          },
+          "metric": {
+            "enum": [
+              "views",
+              "retention_30s",
+              "average_view_duration",
+              "saves",
+              "shares",
+              "comments",
+              "follows",
+              "link_clicks",
+              "other"
+            ]
+          },
+          "window": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "from",
+              "to"
+            ],
+            "properties": {
+              "from": {
+                "$ref": "#/$defs/date"
+              },
+              "to": {
+                "$ref": "#/$defs/date"
+              }
+            }
+          },
+          "sampleSize": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "summary": {
+            "$ref": "#/$defs/text"
+          },
+          "caveat": {
+            "$ref": "#/$defs/text"
+          },
+          "source": {
+            "$ref": "#/$defs/source"
+          }
+        }
+      }
+    },
+    "references": {
+      "type": "array",
+      "maxItems": 500,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "kind",
+          "styleNotes",
+          "source"
+        ],
+        "properties": {
+          "id": {
+            "$ref": "#/$defs/id"
+          },
+          "kind": {
+            "enum": [
+              "reel",
+              "screenshot",
+              "website",
+              "ad"
+            ]
+          },
+          "styleNotes": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "type",
+              "captionStyle",
+              "layout",
+              "pacing",
+              "sound"
+            ],
+            "properties": {
+              "type": {
+                "$ref": "#/$defs/text"
+              },
+              "captionStyle": {
+                "$ref": "#/$defs/text"
+              },
+              "layout": {
+                "$ref": "#/$defs/text"
+              },
+              "pacing": {
+                "$ref": "#/$defs/text"
+              },
+              "sound": {
+                "$ref": "#/$defs/text"
+              },
+              "palette": {
+                "type": "array",
+                "maxItems": 12,
+                "items": {
+                  "$ref": "#/$defs/hex"
+                }
+              }
+            }
+          },
+          "source": {
+            "$ref": "#/$defs/source"
+          }
+        }
+      }
+    },
+    "modelDefaults": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "image": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "video": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "voice": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "music": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        }
+      }
+    },
+    "identityBindings": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "characters": {
+          "type": "array",
+          "maxItems": 50,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "id",
+              "anchorAssetId",
+              "status"
+            ],
+            "properties": {
+              "id": {
+                "$ref": "#/$defs/id"
+              },
+              "anchorAssetId": {
+                "$ref": "#/$defs/assetId"
+              },
+              "status": {
+                "enum": [
+                  "active",
+                  "retired"
+                ]
+              }
+            }
+          }
+        },
+        "productReferences": {
+          "type": "array",
+          "maxItems": 200,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "id",
+              "assetId"
+            ],
+            "properties": {
+              "id": {
+                "$ref": "#/$defs/id"
+              },
+              "assetId": {
+                "$ref": "#/$defs/assetId"
+              }
+            }
+          }
+        },
+        "voice": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "voiceId",
+            "provider"
+          ],
+          "properties": {
+            "voiceId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            },
+            "provider": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64
+            },
+            "pronunciation": {
+              "type": "array",
+              "maxItems": 500,
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "term",
+                  "respelling"
+                ],
+                "properties": {
+                  "term": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 120
+                  },
+                  "respelling": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 120
+                  }
+                }
+              }
+            }
+          }
+        },
+        "brandAssets": {
+          "type": "array",
+          "maxItems": 200,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "id",
+              "assetId",
+              "role"
+            ],
+            "properties": {
+              "id": {
+                "$ref": "#/$defs/id"
+              },
+              "assetId": {
+                "$ref": "#/$defs/assetId"
+              },
+              "role": {
+                "enum": [
+                  "logo",
+                  "font",
+                  "colour_reference",
+                  "other"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "provenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "authoredBy",
+        "sources"
+      ],
+      "properties": {
+        "authoredBy": {
+          "enum": [
+            "adrian",
+            "seed",
+            "decoder",
+            "skill",
+            "daemon"
+          ]
+        },
+        "sources": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 500,
+          "items": {
+            "$ref": "#/$defs/source"
+          }
+        }
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "revision": {
+            "const": 1
+          }
+        },
+        "required": [
+          "revision"
+        ]
+      },
+      "then": {
+        "not": {
+          "required": [
+            "supersedes"
+          ]
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "contractVersion": {
+      "type": "string",
+      "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$"
+    },
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9._-]{0,63}$"
+    },
+    "assetId": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9._:-]{0,127}$"
+    },
+    "timestamp": {
+      "type": "string",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d+)?(Z|[+-]\\d{2}:\\d{2})$"
+    },
+    "date": {
+      "type": "string",
+      "pattern": "^\\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\\d|3[01])$"
+    },
+    "clock": {
+      "type": "string",
+      "pattern": "^([01]\\d|2[0-3]):[0-5]\\d$"
+    },
+    "hex": {
+      "type": "string",
+      "pattern": "^#[0-9A-Fa-f]{6}$"
+    },
+    "text": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 2000
+    },
+    "scope": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "venture",
+        "channel",
+        "account"
+      ],
+      "properties": {
+        "venture": {
+          "$ref": "#/$defs/id"
+        },
+        "channel": {
+          "$ref": "#/$defs/id"
+        },
+        "account": {
+          "$ref": "#/$defs/id"
+        }
+      }
+    },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "ref"
+      ],
+      "properties": {
+        "kind": {
+          "enum": [
+            "roadmap_file",
+            "hook_bank",
+            "ad_pattern",
+            "website",
+            "connected_account",
+            "interview",
+            "analytics_export",
+            "reel_decoder",
+            "adrian_correction",
+            "daemon"
+          ]
+        },
+        "ref": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 500
+        }
+      }
+    },
+    "proof": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "revision",
+        "supersedesRevision",
+        "subject",
+        "value",
+        "units",
+        "period",
+        "observedAt",
+        "validFrom",
+        "validUntil",
+        "sourceExcerpt",
+        "source",
+        "observationRefs",
+        "status",
+        "permittedClaims",
+        "provenance",
+        "updatedAt"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/proofId"
+        },
+        "revision": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "supersedesRevision": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 1
+        },
+        "subject": {
+          "$ref": "#/$defs/subjectId"
+        },
+        "value": {
+          "$ref": "#/$defs/decimal"
+        },
+        "units": {
+          "$ref": "#/$defs/units"
+        },
+        "period": {
+          "$ref": "#/$defs/period"
+        },
+        "observedAt": {
+          "$ref": "#/$defs/timestamp"
+        },
+        "validFrom": {
+          "$ref": "#/$defs/date"
+        },
+        "validUntil": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/date"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "sourceExcerpt": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 500
+        },
+        "source": {
+          "$ref": "#/$defs/proofSource"
+        },
+        "observationRefs": {
+          "type": "array",
+          "maxItems": 100,
+          "items": {
+            "$ref": "#/$defs/id"
+          }
+        },
+        "status": {
+          "enum": [
+            "collected",
+            "approved",
+            "withdrawn",
+            "superseded"
+          ]
+        },
+        "approval": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "approvedBy",
+            "approvedAt"
+          ],
+          "properties": {
+            "approvedBy": {
+              "const": "adrian"
+            },
+            "approvedAt": {
+              "$ref": "#/$defs/timestamp"
+            }
+          }
+        },
+        "withdrawal": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "withdrawnBy",
+            "withdrawnAt",
+            "reason"
+          ],
+          "properties": {
+            "withdrawnBy": {
+              "const": "adrian"
+            },
+            "withdrawnAt": {
+              "$ref": "#/$defs/timestamp"
+            },
+            "reason": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 500
+            }
+          }
+        },
+        "supersededBy": {
+          "$ref": "#/$defs/proofId"
+        },
+        "permittedClaims": {
+          "type": "array",
+          "maxItems": 20,
+          "items": {
+            "$ref": "#/$defs/permittedClaim"
+          }
+        },
+        "provenance": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "authoredBy",
+            "sourceRecordIds"
+          ],
+          "properties": {
+            "authoredBy": {
+              "enum": [
+                "adrian",
+                "skill",
+                "daemon"
+              ]
+            },
+            "sourceRecordIds": {
+              "type": "array",
+              "maxItems": 100,
+              "items": {
+                "$ref": "#/$defs/id"
+              }
+            }
+          }
+        },
+        "updatedAt": {
+          "$ref": "#/$defs/timestamp"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "revision": {
+                "const": 1
+              }
+            },
+            "required": [
+              "revision"
+            ]
+          },
+          "then": {
+            "properties": {
+              "supersedesRevision": {
+                "type": "null"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "status": {
+                "const": "collected"
+              }
+            },
+            "required": [
+              "status"
+            ]
+          },
+          "then": {
+            "not": {
+              "anyOf": [
+                {
+                  "required": [
+                    "approval"
+                  ]
+                },
+                {
+                  "required": [
+                    "withdrawal"
+                  ]
+                },
+                {
+                  "required": [
+                    "supersededBy"
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "status": {
+                "const": "approved"
+              }
+            },
+            "required": [
+              "status"
+            ]
+          },
+          "then": {
+            "required": [
+              "approval"
+            ],
+            "not": {
+              "anyOf": [
+                {
+                  "required": [
+                    "withdrawal"
+                  ]
+                },
+                {
+                  "required": [
+                    "supersededBy"
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "status": {
+                "const": "withdrawn"
+              }
+            },
+            "required": [
+              "status"
+            ]
+          },
+          "then": {
+            "required": [
+              "withdrawal"
+            ],
+            "not": {
+              "anyOf": [
+                {
+                  "required": [
+                    "approval"
+                  ]
+                },
+                {
+                  "required": [
+                    "supersededBy"
+                  ]
+                }
+              ]
+            },
+            "properties": {
+              "permittedClaims": {
+                "maxItems": 0
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "status": {
+                "const": "superseded"
+              }
+            },
+            "required": [
+              "status"
+            ]
+          },
+          "then": {
+            "required": [
+              "supersededBy"
+            ],
+            "not": {
+              "anyOf": [
+                {
+                  "required": [
+                    "approval"
+                  ]
+                },
+                {
+                  "required": [
+                    "withdrawal"
+                  ]
+                }
+              ]
+            },
+            "properties": {
+              "permittedClaims": {
+                "maxItems": 0
+              }
+            }
+          }
+        }
+      ]
+    },
+    "proofId": {
+      "type": "string",
+      "pattern": "^proof\\.[a-z0-9][a-z0-9._-]{0,58}$"
+    },
+    "subjectId": {
+      "type": "string",
+      "pattern": "^subject\\.[a-z0-9][a-z0-9._-]{0,56}$"
+    },
+    "claimId": {
+      "type": "string",
+      "pattern": "^claim\\.[a-z0-9][a-z0-9._-]{0,57}$"
+    },
+    "decimal": {
+      "type": "string",
+      "maxLength": 40,
+      "pattern": "^-?(0|[1-9][0-9]*)(\\.[0-9]+)?$"
+    },
+    "units": {
+      "type": "string",
+      "anyOf": [
+        {
+          "pattern": "^[A-Z]{3}$"
+        },
+        {
+          "enum": [
+            "percent",
+            "count",
+            "days",
+            "seconds"
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "pattern": "^[a-z][a-z0-9_]{0,31}(_per_(day|week|month|year))?$"
+            },
+            {
+              "anyOf": [
+                {
+                  "allOf": [
+                    {
+                      "not": {
+                        "pattern": "_per_"
+                      }
+                    },
+                    {
+                      "not": {
+                        "pattern": "_per$"
+                      }
+                    }
+                  ]
+                },
+                {
+                  "allOf": [
+                    {
+                      "pattern": "_per_(day|week|month|year)$"
+                    },
+                    {
+                      "not": {
+                        "pattern": "_per_.*_per_"
+                      }
+                    },
+                    {
+                      "not": {
+                        "pattern": "_per_per_"
+                      }
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    "period": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "from",
+        "to"
+      ],
+      "properties": {
+        "from": {
+          "$ref": "#/$defs/date"
+        },
+        "to": {
+          "$ref": "#/$defs/date"
+        }
+      }
+    },
+    "proofSource": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "ref"
+      ],
+      "properties": {
+        "kind": {
+          "enum": [
+            "interview",
+            "connected_account_export",
+            "roadmap_file",
+            "adrian_correction"
+          ]
+        },
+        "ref": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 500
+        }
+      }
+    },
+    "permittedClaim": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "claimId",
+        "text",
+        "value",
+        "units",
+        "subject",
+        "period"
+      ],
+      "properties": {
+        "claimId": {
+          "$ref": "#/$defs/claimId"
+        },
+        "text": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 280
+        },
+        "value": {
+          "$ref": "#/$defs/decimal"
+        },
+        "units": {
+          "$ref": "#/$defs/units"
+        },
+        "subject": {
+          "$ref": "#/$defs/subjectId"
+        },
+        "period": {
+          "$ref": "#/$defs/period"
+        }
+      }
+    },
+    "conflict": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "proofId",
+        "baseRevision",
+        "bodies",
+        "status"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/id"
+        },
+        "proofId": {
+          "$ref": "#/$defs/proofId"
+        },
+        "baseRevision": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "bodies": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 2,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "device",
+              "proof"
+            ],
+            "properties": {
+              "device": {
+                "$ref": "#/$defs/id"
+              },
+              "proof": {
+                "$ref": "#/$defs/proof"
+              }
+            }
+          }
+        },
+        "status": {
+          "enum": [
+            "open",
+            "resolved"
+          ]
+        },
+        "chosenDevice": {
+          "$ref": "#/$defs/id"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "status": {
+                "const": "resolved"
+              }
+            },
+            "required": [
+              "status"
+            ]
+          },
+          "then": {
+            "required": [
+              "chosenDevice"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "status": {
+                "const": "open"
+              }
+            },
+            "required": [
+              "status"
+            ]
+          },
+          "then": {
+            "not": {
+              "required": [
+                "chosenDevice"
+              ]
+            }
+          }
+        }
+      ]
+    }
+  }
+}
