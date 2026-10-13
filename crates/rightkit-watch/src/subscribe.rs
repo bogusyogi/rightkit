@@ -755,17 +755,23 @@ impl FileWatcher {
 
             // The native watch is now armed on the new directory. Anything
             // created in the window between the ancestor event and the arm
-            // produces no native event. First re-resolve each moved watch: an
-            // intermediate directory created before the arm would otherwise
-            // leave the watch one level short, so move and arm again until
-            // stable (bounded by the path depth). Then stat each target and
-            // report it if it exists, recording that it exists so a later
-            // parent deletion without a file event is reported as removal. A
-            // racing native event may report it again; the receiver coalesces
-            // paths within a batch, so a duplicate is only possible across two
-            // separate `recv` calls.
+            // produces no native event. For each moved watch, re-resolve the
+            // deepest existing directory and arm it, looping until stable
+            // (bounded by the path depth): an intermediate directory created
+            // before an arm would otherwise leave the watch one level short.
+            // Only after the final arm, stat the target and report it if it
+            // exists, recording that it exists so a later parent deletion
+            // without a file event is reported as removal. A racing native
+            // event may report it again; the receiver coalesces paths within
+            // a batch, so a duplicate is only possible across two separate
+            // `recv` calls.
+            let WatchState {
+                subscribers,
+                path_ref_counts,
+                ..
+            } = &mut *state;
             for (subscriber_id, key, reported) in arm_checks {
-                let Some(subscriber) = state.subscribers.get_mut(&subscriber_id) else {
+                let Some(subscriber) = subscribers.get_mut(&subscriber_id) else {
                     continue;
                 };
                 let Some(watch_state) = subscriber.watched_paths.get_mut(&key) else {
@@ -773,28 +779,26 @@ impl FileWatcher {
                 };
                 let tx = subscriber.tx.clone();
                 let max_moves = key.requested.path.components().count();
-                let mut re_moves = Vec::new();
                 for _ in 0..max_moves {
                     let (new_actual, _matched, _fallback) = actual_watch_path(&key.requested);
                     if watch_state.actual == new_actual {
                         break;
                     }
                     let old_actual = std::mem::replace(&mut watch_state.actual, new_actual.clone());
-                    re_moves.push((old_actual, new_actual, watch_state.count));
+                    #[cfg(test)]
+                    tests::run_loop_arm_hook();
+                    Self::apply_actual_watch_move(
+                        path_ref_counts,
+                        old_actual,
+                        new_actual,
+                        watch_state.count,
+                        inner,
+                        &mut inner_guard,
+                    );
                 }
                 let exists = key.requested.path.exists();
                 if exists {
                     watch_state.last_exists = true;
-                }
-                for (old_actual, new_actual, count) in re_moves {
-                    Self::apply_actual_watch_move(
-                        &mut state.path_ref_counts,
-                        old_actual,
-                        new_actual,
-                        count,
-                        inner,
-                        &mut inner_guard,
-                    );
                 }
                 if reported || !exists {
                     continue;
@@ -976,6 +980,17 @@ mod tests {
         static ARM_HOOK: RefCell<Option<ArmHook>> = const { RefCell::new(None) };
     }
 
+    thread_local! {
+        static LOOP_ARM_HOOK: RefCell<Option<ArmHook>> = const { RefCell::new(None) };
+    }
+
+    /// Runs the one-shot hook (if set) just before an in-loop re-arm.
+    pub(super) fn run_loop_arm_hook() {
+        if let Some(hook) = LOOP_ARM_HOOK.with(|h| h.borrow_mut().take()) {
+            hook();
+        }
+    }
+
     /// Runs the one-shot hook (if set) between the watch-move decision and the native arm.
     pub(super) fn run_arm_hook() {
         if let Some(hook) = ARM_HOOK.with(|h| h.borrow_mut().take()) {
@@ -997,6 +1012,40 @@ mod tests {
         std::fs::create_dir_all(target.parent().unwrap()).unwrap();
         let hook_target = target.clone();
         ARM_HOOK.with(|h| {
+            *h.borrow_mut() = Some(Box::new(move || {
+                std::fs::write(&hook_target, "x").unwrap();
+            }));
+        });
+        FileWatcher::notify_subscribers(&watcher.state, None, &[root.join("later")]).await;
+
+        let ev = tokio::time::timeout(Duration::from_secs(2), rx.recv())
+            .await
+            .expect("creation event delivered")
+            .expect("receiver open");
+        assert_eq!(ev.paths, vec![target]);
+    }
+
+    #[tokio::test]
+    async fn target_created_just_before_rearm_is_reported() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let root = dir.path().canonicalize().unwrap();
+        let target = root.join("later/deeper/file.txt");
+        let watcher = Arc::new(FileWatcher::noop());
+        let (sub, mut rx) = watcher.add_subscriber();
+        let _reg = sub.register_path(target.clone(), false);
+
+        std::fs::create_dir_all(root.join("later")).unwrap();
+        // First hook creates the intermediate directory, forcing an in-loop re-arm.
+        let deeper = root.join("later/deeper");
+        let hook_deeper = deeper.clone();
+        ARM_HOOK.with(|h| {
+            *h.borrow_mut() = Some(Box::new(move || {
+                std::fs::create_dir_all(&hook_deeper).unwrap();
+            }));
+        });
+        // Second hook creates the target after the re-resolve, before that arm.
+        let hook_target = target.clone();
+        LOOP_ARM_HOOK.with(|h| {
             *h.borrow_mut() = Some(Box::new(move || {
                 std::fs::write(&hook_target, "x").unwrap();
             }));
