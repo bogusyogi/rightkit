@@ -44,6 +44,36 @@ final class AppleCredentialTests: XCTestCase {
         XCTAssertThrowsError(try store.write("", account: "alpha", scope: .device).get())
     }
 
+    /// M11-O1: scope semantics the direct SecItem callers rely on.
+    func testCopySyncedToDeviceOnlyLeavesTheSyncedCopyAndReportsAbsence() throws {
+        let (store, _) = store()
+        XCTAssertEqual(try store.copySyncedToDeviceOnly("alpha").get(), false)
+        XCTAssertFalse(try store.exists("alpha", scope: .device).get())
+        try store.write("synced-fixture", account: "alpha", scope: .synced).get()
+        try store.write("stale-device", account: "alpha", scope: .device).get()
+        XCTAssertEqual(try store.copySyncedToDeviceOnly("alpha").get(), true)
+        XCTAssertEqual(try store.read("alpha", scope: .synced).get(), "synced-fixture")
+        XCTAssertEqual(try store.read("alpha", scope: .device).get(), "synced-fixture")
+    }
+
+    func testDeleteEverywhereIsIdempotentAndTouchesOnlyThatAccount() throws {
+        let (store, _) = store()
+        try store.write("fixture", account: "alpha", scope: .synced).get()
+        try store.write("fixture", account: "beta", scope: .device).get()
+        try store.deleteEverywhere("alpha").get()
+        try store.deleteEverywhere("alpha").get()
+        try store.deleteEverywhere("never-existed").get()
+        XCTAssertFalse(try store.exists("alpha", scope: .synced).get())
+        XCTAssertTrue(try store.exists("beta", scope: .device).get())
+    }
+
+    func testDeleteEverywhereRemovesAnItemPresentInOnlyOneScope() throws {
+        let (store, _) = store()
+        try store.write("fixture", account: "alpha", scope: .device).get()
+        try store.deleteEverywhere("alpha").get()
+        XCTAssertFalse(try store.exists("alpha", scope: .device).get())
+    }
+
 #if canImport(Security)
     func testProbePreservesEveryRawStatus() {
         let cases: [(OSStatus, CredentialProbe)] = [

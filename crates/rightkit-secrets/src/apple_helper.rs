@@ -866,4 +866,39 @@ mod process_tests {
             .success();
         assert!(!alive, "helper {} is still running", pid.trim());
     }
+
+    /// M11-O1: the wire requests for the two scope-changing calls, and the reading of `copied`.
+    /// The Swift side of the same semantics is `AppleCredentialTests` in RightKitSwift.
+    #[test]
+    fn scope_changing_calls_send_the_documented_command_and_read_copied() {
+        let dir = tempfile::tempdir().unwrap();
+        let log = dir.path().join("req");
+        let script = "cat > \"$1\"; printf '%s\\n' \"$2\"";
+        let run = |reply: &str, f: &dyn Fn(&AppleHelper) -> Result<bool>| {
+            let helper = AppleHelper::new("/bin/sh")
+                .args(["-c", script, "sh"])
+                .args([log.as_os_str(), std::ffi::OsStr::new(reply)])
+                .timeout(Duration::from_secs(10));
+            let out = f(&helper);
+            (out, std::fs::read_to_string(&log).unwrap())
+        };
+        let (out, req) = run("{\"ok\":true,\"copied\":true}", &|h| {
+            h.copy_synced_to_device_only("acct")
+        });
+        assert_eq!(out, Ok(true));
+        let v: Value = serde_json::from_str(req.lines().next().unwrap()).unwrap();
+        assert_eq!(v["command"], "copy_synced_to_device_only");
+        assert_eq!(v["account"], "acct");
+        let (out, _) = run("{\"ok\":true,\"copied\":false}", &|h| {
+            h.copy_synced_to_device_only("acct")
+        });
+        assert_eq!(out, Ok(false));
+        let (out, req) = run("{\"ok\":true}", &|h| {
+            h.delete_everywhere("acct").map(|()| true)
+        });
+        assert_eq!(out, Ok(true));
+        let v: Value = serde_json::from_str(req.lines().next().unwrap()).unwrap();
+        assert_eq!(v["command"], "delete_everywhere");
+        assert_eq!(v["account"], "acct");
+    }
 }

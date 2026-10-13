@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Tests only (M11-O1): `scope_changing_calls_send_the_documented_command_and_read_copied` pins the wire request and `copied` reply of `AppleHelper::delete_everywhere` and `copy_synced_to_device_only`; the matching semantics are tested in RightKitSwift `AppleCredentialTests`. No product change.
+
 ## 0.2.0
 
 Published version number: this release changes or removes public items, so it is a breaking release under Cargo's rules for 0.x versions. It was developed as 0.1.4, which was never published. `migrate_plaintext_file`, `FileMigration`, the `settings-probe` trait version and the CLI `set` behaviour all changed.
