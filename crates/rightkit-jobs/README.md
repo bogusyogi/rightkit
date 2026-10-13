@@ -29,10 +29,12 @@ Do not use it for one-shot calls that need no persistence. Do not use it to stor
 
 ## Cargo features
 
-Default features are `service` and `supervisor`. `default-features = false` builds the store, runner, locks, recovery classes, pruning and progress policy only.
+Default features are `store`, `service` and `supervisor`. `default-features = false` builds only the error types; select what you use.
 
-- `contract`: the stdio/CLI command contract (`Dispatcher`, `serve`, `run_cli`, `JobCommands`); pulls `rightkit-framed-sidecar`.
-- `supervisor` (implies `contract`): `EngineSupervisor`, `EngineClient` and the `rightkit-process` re-exports; pulls `rightkit-process`.
+- `store`: the job store, runner, locks, recovery classes, pruning, scheduler, pool and progress policy; pulls `rightkit-db`, `rightkit-fs` and `uuid`.
+- `protocol`: the wire constants (`CONTRACT_VERSION`, `DEFAULT_FRAME_LIMIT`); pulls `rightkit-framed-sidecar`.
+- `contract` (implies `store` and `protocol`): the stdio/CLI command contract (`Dispatcher`, `serve`, `run_cli`, `JobCommands`).
+- `supervisor` (implies `protocol`): `EngineSupervisor`, `EngineClient` and the `rightkit-process` re-exports; pulls `rightkit-process`, not `rightkit-db`.
 - `service` (implies `contract`): `DispatcherHandler` over `rightkit-service`.
 
 Per-job `Recovery::Never` (destructive jobs are failed as `interrupted` after a crash, never re-run), `JobStore::prune`, `JobStore::delete`, `JobStore::submit_rejected`, `ProgressPolicy`, `CancelToken`, single-flight submit (`SubmitOptions::single_flight`), the staged pool and held jobs are documented on their types and in the changelog. The staged pool (`pool` module) and held state are ungated and build with `default-features = false`.
