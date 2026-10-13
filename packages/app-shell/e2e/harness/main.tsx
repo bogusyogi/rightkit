@@ -155,6 +155,14 @@ createRoot(document.getElementById("root")!).render(
       <DefaultLayout />
     )}
     <pre id="log" style={{ position: "fixed", left: -9999, top: 0 }} />
+    <Ready />
   </StrictMode>,
 );
-(window as unknown as { __ready: boolean }).__ready = true;
+
+/** Rendered last: its effect runs after every sibling's effects (shortcut listeners, focus), so `__ready` means the page can take input. */
+function Ready() {
+  useEffect(() => {
+    (window as unknown as { __ready: boolean }).__ready = true;
+  }, []);
+  return null;
+}

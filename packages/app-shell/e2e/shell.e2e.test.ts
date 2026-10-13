@@ -86,8 +86,17 @@ describe.skipIf(!chrome)("app-shell in real headless Chrome (muted)", () => {
   it("opens the command palette with Cmd+K, filters, runs a command with Enter, and restores focus", async () => {
     await open("p=macos&t=light");
     await page.eval("document.querySelector('[data-nav-id=home]').focus()");
-    await page.press("k", ["meta"]);
-    await page.waitFor("document.querySelector('.rk-palette')");
+    // Bounded open: a retry only happens while the palette is still closed, so a second press never toggles it shut.
+    for (let attempt = 1; ; attempt++) {
+      await page.press("k", ["meta"]);
+      try {
+        await page.waitFor("document.querySelector('.rk-palette')", 1500);
+        break;
+      } catch (err) {
+        if (attempt >= 3) throw err;
+      }
+    }
+    await page.waitFor("document.activeElement === document.querySelector('input[role=combobox]')");
     expect(await page.eval<string>("document.activeElement.getAttribute('role')")).toBe("combobox");
     await page.type("greet");
     await page.waitFor("document.querySelectorAll('[role=option]').length === 1");
@@ -101,6 +110,7 @@ describe.skipIf(!chrome)("app-shell in real headless Chrome (muted)", () => {
     // Nav destinations are palette commands too (default layout registers them).
     await page.press("k", ["meta"]);
     await page.waitFor("document.querySelector('.rk-palette')");
+    await page.waitFor("document.activeElement === document.querySelector('input[role=combobox]')");
     await page.type("movie");
     await page.waitFor("document.querySelectorAll('[role=option]').length === 1");
     expect(await page.eval<string>("document.querySelector('[role=option]').dataset.command")).toBe("nav:video");
