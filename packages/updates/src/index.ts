@@ -289,3 +289,5 @@ function isProgressEvent(event: UpdateDownloadEvent): event is { event: 'Progres
     && typeof event.data.chunkLength === 'number'
   );
 }
+
+export { compareVersions, isNewerVersion, parseVersion, type ParsedVersion } from './version.js';
