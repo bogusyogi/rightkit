@@ -19,6 +19,7 @@ pub fn scrub_text(input: &str) -> String {
     for home in home_dirs() {
         text = text.replace(&home, "~");
     }
+    let text = redact_bearer(&text);
     let mut out = String::with_capacity(text.len());
     let mut word = String::new();
     for ch in text.chars() {
@@ -133,11 +134,64 @@ fn looks_like_email(word: &str) -> bool {
             .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '%' | '+' | '-'))
 }
 
+/// `Bearer <credential>` (case-insensitive, whole-word marker): the token after
+/// the marker is a credential whatever its shape, so it is dropped and the
+/// marker stays. A marker with no token after it is left alone.
+fn redact_bearer(text: &str) -> String {
+    const MARKER: &str = "bearer";
+    // ASCII lowercasing keeps every byte offset of `text`.
+    let lower = text.to_ascii_lowercase();
+    let mut out = String::with_capacity(text.len());
+    let mut cursor = 0;
+    let mut search = 0;
+    while let Some(found) = lower[search..].find(MARKER) {
+        let start = search + found;
+        let end = start + MARKER.len();
+        search = end;
+        let whole_word = text[..start]
+            .chars()
+            .next_back()
+            .is_none_or(|c| !is_word_char(c))
+            && text[end..].chars().next().is_none_or(|c| !is_word_char(c));
+        if !whole_word {
+            continue;
+        }
+        let mut token_start = end;
+        if text[token_start..].starts_with(':') {
+            token_start += 1;
+        }
+        let tail = &text[token_start..];
+        let gap = tail.len() - tail.trim_start().len();
+        if gap == 0 {
+            continue;
+        }
+        token_start += gap;
+        let token_len = text[token_start..]
+            .find(char::is_whitespace)
+            .unwrap_or(text.len() - token_start);
+        if token_len == 0 {
+            continue;
+        }
+        let token_end = token_start + token_len;
+        out.push_str(&text[cursor..token_start]);
+        out.push_str("[redacted:credential]");
+        cursor = token_end;
+        search = token_end;
+    }
+    out.push_str(&text[cursor..]);
+    out
+}
+
+fn is_word_char(ch: char) -> bool {
+    ch.is_alphanumeric() || ch == '_'
+}
+
 fn looks_like_credential(word: &str) -> bool {
     const PREFIXES: &[&str] = &[
         "sk-",
         "sk_",
         "gsk_",
+        "csk-",
         "ghp_",
         "gho_",
         "github_pat_",
@@ -151,6 +205,14 @@ fn looks_like_credential(word: &str) -> bool {
     if word.len() >= 12 && PREFIXES.iter().any(|prefix| word.starts_with(prefix)) {
         return true;
     }
+    // Short `or-` prefix: a digit and a length floor keep ordinary hyphenated
+    // words out.
+    if word.len() >= 20 && word.starts_with("or-") && word.chars().any(|c| c.is_ascii_digit()) {
+        return true;
+    }
+    if looks_like_telegram_token(word) {
+        return true;
+    }
     // Long opaque blobs: hex or base64-ish runs of 32+ characters.
     word.len() >= 32
         && word
@@ -158,6 +220,19 @@ fn looks_like_credential(word: &str) -> bool {
             .all(|c| c.is_ascii_alphanumeric() || matches!(c, '+' | '/' | '-' | '_' | '='))
         && word.chars().any(|c| c.is_ascii_digit())
         && word.chars().any(|c| c.is_ascii_alphabetic())
+}
+
+/// Bot token shape `<numeric id>:<secret>`, as issued for Telegram bots.
+fn looks_like_telegram_token(word: &str) -> bool {
+    let Some((id, secret)) = word.split_once(':') else {
+        return false;
+    };
+    id.len() >= 6
+        && id.chars().all(|c| c.is_ascii_digit())
+        && secret.len() >= 20
+        && secret
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
 }
 
 fn looks_like_ipv4(word: &str) -> bool {
