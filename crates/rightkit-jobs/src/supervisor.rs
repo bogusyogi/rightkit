@@ -50,7 +50,7 @@ use serde_json::{json, Value};
 
 use crate::client::{
     merge_event_callbacks, ChildExit, ClientOptions, ContractRequirement, EngineClient,
-    OnEventFrame, ProtocolErrorSink, DEFAULT_HELLO_TIMEOUT,
+    OnEventFrame, ProgressDeadline, ProtocolErrorSink, DEFAULT_HELLO_TIMEOUT,
 };
 use crate::error::{JobError, JobResult, CONTRACT_VERSION_MISMATCH};
 use crate::wire::{CONTRACT_VERSION, DEFAULT_FRAME_LIMIT};
@@ -670,16 +670,62 @@ impl EngineSupervisor {
         let (client, generation) = self.ready_client()?;
         let timeout = options.timeout.unwrap_or(self.sh.cfg.rpc_timeout);
         let on_frame = merge_event_callbacks(options.on_event, options.on_frame);
-        match client.call_timeout_frames(method, params, on_frame, timeout) {
+        let result = client.call_timeout_frames(method, params, on_frame, timeout);
+        self.finish_call(
+            result,
+            &client,
+            generation,
+            method,
+            options.keep_alive_on_timeout,
+            &format!("within {timeout:?}"),
+        )
+    }
+
+    /// As [`Self::call_with`], but the call's budget is a [`ProgressDeadline`]: it fails with
+    /// `timeout` after `idle` without an event tagged with this call's request id (and, when set,
+    /// after `max_total`), instead of after one absolute deadline. `options.timeout` is ignored
+    /// (the deadline replaces it); the callbacks and `keep_alive_on_timeout` apply as in `call_with`.
+    /// Unsolicited events and other calls' events never count as progress. The absolute deadline of
+    /// [`Self::call`] stays the default; use this only for a call that reports its own progress.
+    pub fn call_with_progress_deadline(
+        &self,
+        method: &str,
+        params: Value,
+        options: CallOptions,
+        deadline: ProgressDeadline,
+    ) -> JobResult<Value> {
+        let (client, generation) = self.ready_client()?;
+        let on_frame = merge_event_callbacks(options.on_event, options.on_frame);
+        let result = client.call_progress_frames(method, params, on_frame, deadline);
+        self.finish_call(
+            result,
+            &client,
+            generation,
+            method,
+            options.keep_alive_on_timeout,
+            &format!("(idle {:?})", deadline.idle),
+        )
+    }
+
+    fn finish_call(
+        &self,
+        result: JobResult<Value>,
+        client: &Arc<EngineClient>,
+        generation: u64,
+        method: &str,
+        keep_alive: bool,
+        bound: &str,
+    ) -> JobResult<Value> {
+        match result {
             Err(e) if e.code == "timeout" => {
-                if !options.keep_alive_on_timeout {
-                    kill_wedged(&self.sh, generation, &client, ExitReason::RpcTimeoutKill);
+                if !keep_alive {
+                    kill_wedged(&self.sh, generation, client, ExitReason::RpcTimeoutKill);
                 }
                 Err(JobError::supervisor_retryable(
                     "timeout",
                     format!(
-                        "engine did not answer {method} within {timeout:?}{}",
-                        if options.keep_alive_on_timeout {
+                        "engine did not answer {method} {bound}{}",
+                        if keep_alive {
                             ""
                         } else {
                             "; it will be restarted"

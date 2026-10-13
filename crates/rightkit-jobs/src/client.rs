@@ -29,6 +29,55 @@ pub struct EventFrame<'a> {
 /// the calling thread, like the payload-only callback it complements.
 pub type OnEventFrame = Box<dyn for<'a> Fn(&EventFrame<'a>) + Send>;
 
+/// A call's time budget when it is not one absolute deadline: the call fails with `timeout` when
+/// the engine has sent no event *tagged with this call's request id* for `idle`, or (when set) when
+/// `max_total` has passed since the request was sent. Only events correlated to the call count as
+/// progress: unsolicited events, and events of other requests, never extend it. Use it for a call
+/// that is long by design and reports progress; the default for every other call stays one
+/// absolute deadline.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ProgressDeadline {
+    /// Longest silence tolerated between progress events (and before the first one).
+    pub idle: Duration,
+    /// Optional absolute cap on the whole call.
+    pub max_total: Option<Duration>,
+}
+
+impl ProgressDeadline {
+    pub fn new(idle: Duration) -> Self {
+        Self {
+            idle,
+            max_total: None,
+        }
+    }
+    pub fn with_max_total(mut self, max_total: Duration) -> Self {
+        self.max_total = Some(max_total);
+        self
+    }
+}
+
+/// Internal: how long a call may wait.
+#[derive(Clone, Copy)]
+pub(crate) struct Budget {
+    absolute: Option<Duration>,
+    idle: Option<Duration>,
+}
+
+impl Budget {
+    pub(crate) fn absolute(timeout: Option<Duration>) -> Self {
+        Self {
+            absolute: timeout,
+            idle: None,
+        }
+    }
+    fn progress(p: ProgressDeadline) -> Self {
+        Self {
+            absolute: p.max_total,
+            idle: Some(p.idle),
+        }
+    }
+}
+
 /// What the reader thread hands a waiting caller. Callbacks run on the
 /// caller's own thread, never on the reader and never under a lock.
 enum Msg {
@@ -602,6 +651,19 @@ impl EngineClient {
         self.core.call(method, params, on_frame, Some(timeout))
     }
 
+    /// As [`Self::call_timeout_frames`], with a [`ProgressDeadline`] instead of one absolute
+    /// timeout. `on_frame` still receives each event; the call's own events keep it alive.
+    pub fn call_progress_frames(
+        &self,
+        method: &str,
+        params: Value,
+        on_frame: Option<OnEventFrame>,
+        deadline: ProgressDeadline,
+    ) -> JobResult<Value> {
+        self.core
+            .call_budget(method, params, on_frame, Budget::progress(deadline))
+    }
+
     /// Ask the engine to stop, then terminate an owned child that outlives
     /// `grace`. Bounded regardless of engine behaviour: the shutdown request is
     /// sent and awaited on a helper thread for at most `grace` (a hung engine
@@ -678,7 +740,20 @@ impl Core {
         on_event: Option<OnEventFrame>,
         timeout: Option<Duration>,
     ) -> JobResult<Value> {
-        let deadline = timeout.map(|t| Instant::now() + t);
+        self.call_budget(method, params, on_event, Budget::absolute(timeout))
+    }
+
+    fn call_budget(
+        &self,
+        method: &str,
+        params: Value,
+        on_event: Option<OnEventFrame>,
+        budget: Budget,
+    ) -> JobResult<Value> {
+        let timeout = budget.absolute.or(budget.idle);
+        let started = Instant::now();
+        let mut deadline = timeout.map(|t| started + t);
+        let hard_deadline = budget.absolute.map(|t| started + t);
         let id = self.next_id.fetch_add(1, Ordering::SeqCst);
         let (tx, rx) = channel();
         self.pending
@@ -688,7 +763,7 @@ impl Core {
                 id,
                 Pending {
                     tx,
-                    wants_events: on_event.is_some(),
+                    wants_events: on_event.is_some() || budget.idle.is_some(),
                 },
             );
         let frame = json!({"type": "request", "id": id, "method": method, "params": params});
@@ -743,6 +818,10 @@ impl Core {
                 .remove(&id);
             return Err(e);
         }
+        if let Some(idle) = budget.idle {
+            // The wait for the reply starts a fresh silence window; the write is done.
+            deadline = Some(soonest(Instant::now() + idle, hard_deadline));
+        }
         loop {
             let msg = match deadline {
                 None => rx
@@ -752,6 +831,10 @@ impl Core {
             };
             match msg {
                 Ok(Msg::Event(id, event)) => {
+                    if let Some(idle) = budget.idle {
+                        // Progress of this call (the reader only forwards events carrying its id).
+                        deadline = Some(soonest(Instant::now() + idle, hard_deadline));
+                    }
                     if let Some(cb) = &on_event {
                         cb(&EventFrame { id, event: &event });
                     }
@@ -762,13 +845,16 @@ impl Core {
                         .lock()
                         .unwrap_or_else(|e| e.into_inner())
                         .remove(&id);
-                    return Err(JobError::supervisor(
-                        "timeout",
-                        format!(
+                    let message = match budget.idle {
+                        Some(idle) if hard_deadline.is_none_or(|h| Instant::now() < h) => {
+                            format!("engine sent no progress for {method} within {idle:?}")
+                        }
+                        _ => format!(
                             "engine did not answer {method} within {:?}",
-                            timeout.unwrap_or_default()
+                            budget.absolute.or(budget.idle).unwrap_or_default()
                         ),
-                    ));
+                    };
+                    return Err(JobError::supervisor("timeout", message));
                 }
                 Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
                     return Err(JobError::supervisor(
@@ -779,6 +865,10 @@ impl Core {
             }
         }
     }
+}
+
+fn soonest(a: Instant, b: Option<Instant>) -> Instant {
+    b.map_or(a, |b| a.min(b))
 }
 
 /// Adapts a payload-only callback to the frame form every call runs.

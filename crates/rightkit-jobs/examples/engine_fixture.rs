@@ -9,7 +9,7 @@
 //! hello), `crash_on_call` (exit 9 on method `work`), `wedge:<ms>` (stops reading
 //! after the delay; the process stays alive), `reject_set` (refuses `set_*`), `wrong_contract` (advertises contract_version 2).
 //! `slow_set:<ms>` (every `set_*` takes that long to answer).
-//! Methods: `env` (the engine's environment as `{"vars": {..}}`), `slow_progress{n,ms}` (n events tagged with the
+//! Methods: `env` (the engine's environment as `{"vars": {..}}`), `chatter{n,ms}` (n rounds, `ms` apart, of one unsolicited event and one event tagged with another request's id, then the result), `slow_progress{n,ms}` (n events tagged with the
 //! request id, `ms` apart, then the result), `ping`, `echo`, `pid`, `gen`, `set_*` (remembered), `get_state`,
 //! `big` (3 MiB result), `notify{n}` (n unsolicited events), `progress{n}`
 //! (n events tagged with the request id; result `{"id"}`), `sleep{ms}`,
@@ -125,6 +125,16 @@ fn main() {
             }
             "env" => {
                 ok(json!({"vars": std::env::vars().collect::<std::collections::BTreeMap<_, _>>()}))
+            }
+            "chatter" => {
+                for i in 0..params["n"].as_u64().unwrap_or(1) {
+                    std::thread::sleep(Duration::from_millis(params["ms"].as_u64().unwrap_or(0)));
+                    put(json!({"type":"event","session_id":"s1","event":{"i": i}}));
+                    put(
+                        json!({"type":"event","id":id.as_u64().unwrap_or(0) + 1_000_000,"event":{"i": i}}),
+                    );
+                }
+                ok(json!({"id": id}))
             }
             "slow_progress" => {
                 for i in 0..params["n"].as_u64().unwrap_or(1) {

@@ -3,15 +3,14 @@
 //! launches the real scriptable `engine_fixture` child.
 
 use rightkit_jobs::{
-    CallOptions, EngineSupervisor, ErrorOrigin, EventFrame, InitialFailure, Lifecycle,
-    ProtocolError, ShutdownOutcome, SupervisorConfig, Terminal, CONTRACT_VERSION,
-    CONTRACT_VERSION_MISMATCH,
+    CallOptions, EngineSupervisor, EventFrame, Lifecycle, ProgressDeadline, SupervisorConfig,
+    Terminal, CONTRACT_VERSION, CONTRACT_VERSION_MISMATCH,
 };
 use rightkit_process::{OwnedCommand, RestartMode, RestartPolicy};
 use serde_json::json;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 fn fixture() -> PathBuf {
@@ -248,5 +247,111 @@ fn an_unscrubbed_command_is_refused_when_scrubbing_is_required_and_inherits_othe
     s.start().unwrap();
     let vars = s.call("env", json!({})).unwrap()["vars"].clone();
     assert_eq!(vars["RK_M3_JOBS_SECRET"], "no");
+    s.shutdown();
+}
+
+fn keep_alive() -> CallOptions {
+    CallOptions {
+        keep_alive_on_timeout: true,
+        ..CallOptions::default()
+    }
+}
+
+#[test]
+fn progress_of_the_call_extends_an_inactivity_deadline_that_an_absolute_one_would_not() {
+    let (_d, cfg) = rig("ok");
+    let s = EngineSupervisor::new(cfg);
+    s.start().unwrap();
+    // 5 events 200 ms apart: a second of work, never more than 200 ms of silence.
+    let seen = Arc::new(AtomicUsize::new(0));
+    let counter = Arc::clone(&seen);
+    let progress = s
+        .call_with_progress_deadline(
+            "slow_progress",
+            json!({"n": 5, "ms": 200}),
+            CallOptions {
+                on_frame: Some(Box::new(move |_: &EventFrame<'_>| {
+                    counter.fetch_add(1, Ordering::SeqCst);
+                })),
+                ..keep_alive()
+            },
+            ProgressDeadline::new(Duration::from_millis(600)),
+        )
+        .unwrap();
+    assert!(progress["id"].is_u64());
+    assert_eq!(seen.load(Ordering::SeqCst), 5);
+    // Negative: the default is still one absolute deadline, which the same call misses.
+    let err = s
+        .call_with(
+            "slow_progress",
+            json!({"n": 5, "ms": 200}),
+            CallOptions {
+                timeout: Some(Duration::from_millis(600)),
+                ..keep_alive()
+            },
+        )
+        .unwrap_err();
+    assert_eq!(err.code, "timeout");
+    s.shutdown();
+}
+
+#[test]
+fn silence_past_the_idle_bound_times_out_and_max_total_still_caps_a_chatty_call() {
+    let (_d, cfg) = rig("ok");
+    let s = EngineSupervisor::new(cfg);
+    s.start().unwrap();
+    let started = Instant::now();
+    let err = s
+        .call_with_progress_deadline(
+            "sleep",
+            json!({"ms": 3000}),
+            keep_alive(),
+            ProgressDeadline::new(Duration::from_millis(300)),
+        )
+        .unwrap_err();
+    assert_eq!(err.code, "timeout");
+    assert!(started.elapsed() < Duration::from_millis(2000));
+    // The engine was kept alive (the sleep still runs); wait it out for the next call.
+    std::thread::sleep(Duration::from_millis(3000));
+    let started = Instant::now();
+    let err = s
+        .call_with_progress_deadline(
+            "slow_progress",
+            json!({"n": 50, "ms": 100}),
+            keep_alive(),
+            ProgressDeadline::new(Duration::from_millis(500))
+                .with_max_total(Duration::from_millis(700)),
+        )
+        .unwrap_err();
+    assert_eq!(err.code, "timeout");
+    assert!(
+        started.elapsed() < Duration::from_millis(2000),
+        "{:?}",
+        started.elapsed()
+    );
+    s.shutdown();
+}
+
+#[test]
+fn events_that_do_not_belong_to_the_call_are_not_progress() {
+    let (_d, cfg) = rig("ok");
+    let s = EngineSupervisor::new(cfg);
+    s.start().unwrap();
+    // 8 rounds of unsolicited and other-request events, 100 ms apart; this call's own id never appears.
+    let started = Instant::now();
+    let err = s
+        .call_with_progress_deadline(
+            "chatter",
+            json!({"n": 8, "ms": 100}),
+            keep_alive(),
+            ProgressDeadline::new(Duration::from_millis(300)),
+        )
+        .unwrap_err();
+    assert_eq!(err.code, "timeout");
+    assert!(
+        started.elapsed() < Duration::from_millis(750),
+        "unrelated chatter must not extend the deadline: {:?}",
+        started.elapsed()
+    );
     s.shutdown();
 }

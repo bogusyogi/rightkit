@@ -26,7 +26,7 @@ mod wire;
 #[cfg(feature = "supervisor")]
 pub use client::{
     ChildExit, ClientOptions, ContractRequirement, EngineClient, EventFrame, OnEventFrame,
-    ProtocolError, ProtocolErrorSink, DEFAULT_HELLO_TIMEOUT,
+    ProgressDeadline, ProtocolError, ProtocolErrorSink, DEFAULT_HELLO_TIMEOUT,
 };
 #[cfg(feature = "store")]
 pub use config::{
