@@ -29,6 +29,8 @@ const commands = new Map([
   ["ownership-report", "ownership-report-command.mjs"],
   ["ownership-mandatory", "ownership-mandatory-set.mjs"],
   ["swift-package", "swift-package-command.mjs"],
+  ["bundle-scan", "runtime-bundle-scan.mjs"],
+  ["identity-scan", "packaged-app-identity.mjs"],
 ]);
 
 const args = process.argv.slice(2);
@@ -183,6 +185,10 @@ Commands:
                                                       Incremental unsigned build & optional local install
   swift-package <windows-stage|msix|mac-app> --config <swift-package.json> [--dry-run] [--no-sign] [--sign] [--notarize] [--profile <name>]
                                                       Stage SwiftPM app; build+sign MSIX (Windows) or assemble+sign+notarize .app (macOS); never uploads
+  bundle-scan [--allow-name <basename>]... <bundle-root>...
+                                                      Fail when a bundle carries Node/Python runtimes or script sources
+  identity-scan --target <path> [--identifier <id>] [--team <OU>] [--cdhash <hex>] [--arch <arch>]...
+                                                      Assert codesign Identifier/Team/cdhash/lipo archs; reject ad-hoc
   upload --release <id> --platform mac|win --tier patch|update
                                                       Upload one sealed release; never builds
   qa --stage source|installed --platform mac|win [--release <id>]   Run rightkit-qa and write the sealed QA receipt (a missing receipt warns and is recorded; it never blocks)
