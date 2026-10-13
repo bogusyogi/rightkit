@@ -27,6 +27,7 @@ const commands = new Map([
   ["ownership", "ownership-command.mjs"],
   ["ownership-approval", "ownership-approval-command.mjs"],
   ["ownership-report", "ownership-report-command.mjs"],
+  ["ownership-mandatory", "ownership-mandatory-set.mjs"],
   ["swift-package", "swift-package-command.mjs"],
 ]);
 
@@ -224,6 +225,8 @@ Commands:
                                                       Verify exact signed exception coverage
   ownership-report --workspace <dir> [--markdown <file>] [--json-out <file>]
                                                       Report cross-app ownership & pending requests
+  ownership-mandatory [--workspace <dir>] [--app <name>]... [--amendment v2.1] [--enforce] [--json]
+                                                      Check each app declares every Table 1 owner at its required version (report by default)
   cache status [--json]                              Inspect the shared local build cache
   cache prune [--dry-run|--apply] [--json]           Plan or apply safe shared-target pruning
   cache migrate --config <file> [--dry-run|--apply] [--json]
