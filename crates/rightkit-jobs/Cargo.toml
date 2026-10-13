@@ -12,8 +12,8 @@ categories = ["asynchronous"]
 include = ["src/**", "tests/**", "README.md", "LICENSE-MIT", "LICENSE-APACHE"]
 
 [features]
-# The default build compiles everything 0.2.7 did: every optional layer is on.
-default = ["store", "service", "supervisor"]
+# Default is empty (0.3.0, breaking): name `store`, `supervisor`, `contract` or `service`.
+default = []
 # The persistent job layer: `JobStore`, `Runner`, `StagedPool`, the scheduler gate, `StoreConfig`,
 # locks, recovery, pruning and the `rusqlite`/`db` re-exports (gates `rightkit-db`, `rightkit-fs`,
 # `uuid`). Without it the crate is only the engine supervision and wire layers: `JobError`,
@@ -42,7 +42,7 @@ ffi = ["supervisor", "dep:rightkit-service"]
 
 [dependencies]
 rightkit-fs = { version = "0.4.0", path = "../rightkit-fs", default-features = false, features = ["digest", "lock"], optional = true }
-rightkit-db = { version = "0.4.0", path = "../rightkit-db", optional = true }
+rightkit-db = { version = "0.4.0", path = "../rightkit-db", features = ["bundled", "statement-cache"], optional = true }
 rightkit-framed-sidecar = { version = "0.2.0", path = "../rightkit-framed-sidecar", optional = true }
 rightkit-process = { version = "0.4.0", path = "../rightkit-process", optional = true }
 rightkit-crash = { version = "0.2.2", path = "../rightkit-crash", default-features = false, optional = true }

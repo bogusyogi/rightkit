@@ -12,7 +12,7 @@ categories = ["database"]
 include = ["src/**", "tests/**", "README.md", "LICENSE-MIT", "LICENSE-APACHE"]
 
 [features]
-default = ["bundled", "statement-cache"]
+default = []
 bundled = ["rusqlite/bundled"]
 # Prepared-statement cache (`prepare_cached`) through the rusqlite re-export. On by default.
 statement-cache = ["rusqlite/cache"]

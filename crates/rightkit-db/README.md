@@ -21,10 +21,12 @@ The default writer and legacy reader open select WAL with rollback fallback, a b
 
 ## Cargo features
 
+No feature is on by default (0.4.0). Name `bundled` (otherwise the system SQLite is linked) and `statement-cache` to get what 0.3.x built.
+
 | Feature | Default | Pulls in | Enables |
 |---|---|---|---|
-| `bundled` | yes | `rusqlite/bundled` | Bundled plain SQLite. |
-| `statement-cache` | yes | `rusqlite/cache` | Prepared-statement cache (`prepare_cached`) through the rusqlite re-export. |
+| `bundled` | no | `rusqlite/bundled` | Bundled plain SQLite. |
+| `statement-cache` | no | `rusqlite/cache` | Prepared-statement cache (`prepare_cached`) through the rusqlite re-export. |
 | `sqlcipher` | no | `cipher`, `rusqlite/bundled-sqlcipher-vendored-openssl` | SQLCipher with vendored OpenSSL, the same crypto provider on every OS. |
 | `sqlcipher-system` | no | `cipher`, `rusqlite/bundled-sqlcipher` | SQLCipher with the system crypto provider: CommonCrypto on Apple, libcrypto elsewhere. Use it where existing encrypted databases were created with system crypto. Switching providers is not a silent refactor. |
 | `cipher` | no | none | Internal gate for keyed open and `rekey`. Enabled by either SQLCipher feature. Do not name it directly. |

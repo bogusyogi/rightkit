@@ -37,7 +37,7 @@ dev-inspect = ["tauri/devtools"]
 [dependencies]
 tauri = { version = "2", features = ["tray-icon", "image-png"] }
 rightkit-service = { version = "0.1.0", path = "../rightkit-service" }
-rightkit-jobs = { version = "0.3.0", path = "../rightkit-jobs", optional = true }
+rightkit-jobs = { version = "0.3.0", path = "../rightkit-jobs", default-features = false, features = ["supervisor"], optional = true }
 rightkit-process = { version = "0.4.0", path = "../rightkit-process" }
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.150"

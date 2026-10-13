@@ -2,6 +2,8 @@
 
 ## 0.3.0 (Breaking: `default-features = false` no longer includes the store)
 
+- **Breaking: default features are now empty (`default = []`).** 0.2.x built `store`, `service` and `supervisor` by default. Name what you use: `store` (job store, runner, pool; pulls `rightkit-db`, `rightkit-fs`, `uuid`), `supervisor` (`EngineSupervisor` / `EngineClient`), `contract` (dispatcher; implies `store` and `protocol`), `service` (`DispatcherHandler`; implies `contract`). `rightkit-shell`'s `engine` feature now names `supervisor`. `rightkit-db` is now pulled with `bundled` and `statement-cache` named here, because that crate's default is empty too.
+
 (Unpublished; entries below were previously listed under Unreleased. Pulse Swift facade and M3/M4 items were written without running Cargo, CI-only.)
 
 - **Reaper-thread spawn failure is `Unconfirmed`, not reaped.** When the reaper thread cannot be spawned, the exit record now stays `reaped: false` and the token stays held (it was recorded as reaped). Not testable without forcing thread-spawn failure; reviewed by reading.

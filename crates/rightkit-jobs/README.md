@@ -29,7 +29,7 @@ Do not use it for one-shot calls that need no persistence. Do not use it to stor
 
 ## Cargo features
 
-Default features are `store`, `service` and `supervisor`. `default-features = false` builds only the error types; select what you use.
+No feature is on by default (0.3.0): a bare dependency builds only the error types. Select what you use; `store`, `supervisor`, `contract` and `service` together restore the 0.2.x default.
 
 - `store`: the job store, runner, locks, recovery classes, pruning, scheduler, pool and progress policy; pulls `rightkit-db`, `rightkit-fs` and `uuid`.
 - `protocol`: the wire constants (`CONTRACT_VERSION`, `DEFAULT_FRAME_LIMIT`); pulls `rightkit-framed-sidecar`.
