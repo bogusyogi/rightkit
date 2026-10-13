@@ -16,9 +16,10 @@ use ring::hmac;
 use serde_json::{json, Value};
 
 use crate::record::write_atomic;
+use crate::remote::call::DeviceCalls;
 use crate::remote::config::DaemonConfig;
 use crate::remote::events::EventLog;
-use crate::remote::routes::{match_route, Matched, RouteDef};
+use crate::remote::routes::{match_route, Matched, RouteDef, CALL_ROUTE_ID};
 use crate::remote::signing::{
     chunk_digest, object_digest, object_hasher, parse_digest_key, verify_request, H_NONCE,
     H_PROVIDER_SIGNATURE, H_PROVIDER_TIMESTAMP, H_SIGNATURE, H_TIMESTAMP,
@@ -152,6 +153,7 @@ pub struct Daemon {
     clock: Arc<dyn Clock>,
     events: Arc<EventLog>,
     oauth: Option<Arc<dyn OAuthCallbackHandler>>,
+    calls: Option<DeviceCalls>,
     inner: Mutex<Inner>,
     counters: Counters,
 }
@@ -216,6 +218,7 @@ impl Daemon {
             clock,
             events,
             oauth,
+            calls: None,
             inner: Mutex::new(Inner {
                 state,
                 uploads,
@@ -231,6 +234,13 @@ impl Daemon {
         }
         d.recover()?;
         Ok(d)
+    }
+
+    /// Serve `POST /v1/call/{method}` from `calls`. Without it the route answers 404, as a 1.0.0
+    /// daemon does.
+    pub fn with_calls(mut self, calls: DeviceCalls) -> Self {
+        self.calls = Some(calls);
+        self
     }
 
     /// Finish interrupted commits and drop expired or unbacked sessions.
@@ -451,6 +461,7 @@ impl Daemon {
             AuthClassId::DeviceAuthenticatedMutation => self.handle_device(route, params, &req),
             AuthClassId::OauthCallback => self.handle_oauth(route, params, &req),
             AuthClassId::SignedWebhook => self.handle_webhook(route, params, &req),
+            AuthClassId::DeviceCall => self.handle_device(route, params, &req),
         }
     }
 
@@ -479,11 +490,28 @@ impl Daemon {
         if route.id == "device.enrol" {
             return self.enrol(&mut g, route, req, now);
         }
+        if route.id == CALL_ROUTE_ID && self.calls.is_none() {
+            return Response::err(404, "not_found");
+        }
         let device = match self.authenticate(&mut g, route, req, now) {
             Ok(d) => d,
             Err(r) => return r,
         };
         match route.id {
+            // The nonce is made durable, then the lock is released before the handler runs.
+            CALL_ROUTE_ID => match self.flush(&mut g) {
+                Ok(()) => {
+                    let scopes = g
+                        .state
+                        .devices
+                        .get(&device)
+                        .map(|d| d.scopes.clone())
+                        .unwrap_or_default();
+                    drop(g);
+                    self.device_call(&device, scopes, &params, req)
+                }
+                Err(e) => self.storage_error(e),
+            },
             // Hashing runs outside the lock, so the nonce must be on disk before the lock is given up.
             "upload.complete" => match self.flush(&mut g) {
                 Ok(()) => self.upload_complete(g, &device, &params, req, now),
@@ -609,10 +637,12 @@ impl Daemon {
             return Err(self.reject(route, "bad_signature", 401, "unauthenticated"));
         }
         let granted: Vec<String> = device.scopes.clone();
-        let allowed = route
-            .scopes
-            .iter()
-            .any(|s| granted.iter().any(|g| Some(g.as_str()) == scope_name(*s)));
+        // A device call's scope is checked per method against the method table instead.
+        let allowed = route.id == CALL_ROUTE_ID
+            || route
+                .scopes
+                .iter()
+                .any(|s| granted.iter().any(|g| Some(g.as_str()) == scope_name(*s)));
         if !allowed {
             return Err(self.reject(route, "insufficient_scope", 403, "forbidden"));
         }
@@ -629,6 +659,32 @@ impl Daemon {
         // handler's own change, before the answer leaves.
         g.dirty = true;
         Ok(device_id)
+    }
+
+    /// Run `POST /v1/call/{method}` for an authenticated device. A refusal by the method table
+    /// is reported like any auth rejection (event `AUTH_REJECTED`), with the error-object body.
+    fn device_call(
+        &self,
+        device: &str,
+        scopes: Vec<String>,
+        params: &[String],
+        req: &Request,
+    ) -> Response {
+        let Some(calls) = self.calls.as_ref() else {
+            return Response::err(404, "not_found");
+        };
+        let (status, body) = calls.run(device, scopes, &params[0], &req.body);
+        if status == 403 && body["error"]["code"] == "forbidden" {
+            self.emit(
+                "AUTH_REJECTED",
+                json!({
+                    "reason": "method_not_permitted",
+                    "routeId": CALL_ROUTE_ID,
+                    "class": AuthClassId::DeviceCall,
+                }),
+            );
+        }
+        Response::new(status, body)
     }
 
     fn enrol(&self, g: &mut Inner, route: &RouteDef, req: &Request, now: u64) -> Response {

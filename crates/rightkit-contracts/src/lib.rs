@@ -84,7 +84,9 @@ impl Contract {
         match self {
             Contract::RecordEvent => Version::new(1, 2, 0),
             Contract::RecordSession => Version::new(1, 2, 0),
-            Contract::ContentBrief | Contract::DeliveryEnvelope => Version::new(1, 1, 0),
+            Contract::ContentBrief | Contract::DeliveryEnvelope | Contract::DaemonApi => {
+                Version::new(1, 1, 0)
+            }
             _ => Version::new(1, 0, 0),
         }
     }

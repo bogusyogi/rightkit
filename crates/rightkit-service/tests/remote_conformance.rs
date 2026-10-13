@@ -8,7 +8,7 @@ use common::*;
 use rightkit_contracts::types::daemon_api::{AuthClassId, DaemonApi, Method};
 use rightkit_contracts::{parse, Contract};
 use rightkit_service::remote::events::contract_name;
-use rightkit_service::remote::routes::ROUTES;
+use rightkit_service::remote::routes::{routes_v1_1, CALL_ROUTE, ROUTES};
 use rightkit_service::remote::{DaemonConfig, Request, UploadLimits};
 use serde_json::{json, Value};
 
@@ -639,4 +639,78 @@ fn job_update_documents_every_status_it_returns() {
         (no_if_match.status, &no_if_match.body["error"]),
         (422, &json!("idempotency_key_reuse"))
     );
+}
+
+/// daemon-api 1.1.0 adds the `device_call` class. The v1 fixture and `ROUTES` stay exactly the
+/// 1.0.0 table (tests above); the 1.1.0 fixture is that table plus the call route, and the code
+/// serves exactly those.
+#[test]
+fn schema_1_1_adds_device_call_without_touching_v1() {
+    let v1 = api();
+    assert_eq!(v1.contract_version, "1.0.0");
+    assert!(v1.auth_classes.device_call.is_none());
+    assert!(v1
+        .routes
+        .iter()
+        .all(|r| r.auth_class != AuthClassId::DeviceCall));
+
+    let text = std::fs::read_to_string(FIXTURE_V1_1).unwrap();
+    let v11: DaemonApi = parse(Contract::DaemonApi, &text).unwrap();
+    assert_eq!(v11.contract_version, "1.1.0");
+    let class = v11
+        .auth_classes
+        .device_call
+        .as_ref()
+        .expect("device_call class");
+    assert!(class.mutation_allowed);
+    assert_eq!(class.required_headers, ["Authorization"]);
+
+    // 1.1.0 routes = the 1.0.0 routes unchanged, then the call route.
+    assert_eq!(v11.routes.len(), ROUTES.len() + 1);
+    assert_eq!(v11.routes[..ROUTES.len()], v1.routes[..]);
+    assert_eq!(v11.routes.len(), routes_v1_1().count());
+    let c = v11.routes.last().unwrap();
+    assert_eq!(c.route_id, CALL_ROUTE.id);
+    assert_eq!(method_str(c.method), CALL_ROUTE.method);
+    assert_eq!(c.path, CALL_ROUTE.pattern);
+    assert_eq!(c.auth_class, CALL_ROUTE.class);
+    assert_eq!(c.mutation, CALL_ROUTE.mutation);
+    assert_eq!(c.cas_required, CALL_ROUTE.cas);
+    assert_eq!(c.scopes, CALL_ROUTE.scopes);
+    assert_eq!(c.responses, CALL_ROUTE.responses);
+    // Handler errors surface through the status table; each status is declared.
+    for s in [200u16, 400, 401, 403, 409, 500, 502, 503, 504] {
+        assert!(CALL_ROUTE.responses.contains(&s), "{s}");
+    }
+}
+
+#[test]
+fn schema_1_1_device_call_rules_are_enforced() {
+    let base: Value =
+        serde_json::from_str(&std::fs::read_to_string(FIXTURE_V1_1).unwrap()).unwrap();
+    let check = |edit: &dyn Fn(&mut Value)| {
+        let mut doc = base.clone();
+        edit(&mut doc);
+        parse::<DaemonApi>(Contract::DaemonApi, &doc.to_string())
+    };
+    assert!(check(&|_| {}).is_ok());
+    // A call route must be POST on /v1/call/{name} without compare-and-swap.
+    assert!(check(&|d| d["routes"][8]["method"] = json!("PATCH")).is_err());
+    assert!(check(&|d| d["routes"][8]["path"] = json!("/v1/elsewhere/{method}")).is_err());
+    assert!(check(&|d| d["routes"][8]["casRequired"] = json!(true)).is_err());
+    // The class entry is optional, but when present it carries a device token only.
+    assert!(check(&|d| {
+        d["authClasses"]
+            .as_object_mut()
+            .unwrap()
+            .remove("device_call");
+    })
+    .is_ok());
+    assert!(
+        check(&|d| d["authClasses"]["device_call"]["credentials"] = json!(["hmac_sha256"]))
+            .is_err()
+    );
+    assert!(check(&|d| d["authClasses"]["device_call"]["mutationAllowed"] = json!(false)).is_err());
+    // device_call does not widen the other classes: a webhook still may not mutate.
+    assert!(check(&|d| d["routes"][7]["mutation"] = json!(true)).is_err());
 }

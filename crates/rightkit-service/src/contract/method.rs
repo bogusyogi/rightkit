@@ -20,7 +20,9 @@ pub struct MethodPolicy {
     transport: Transport,
     /// Local apps allowed; `"*"` means any app the table knows.
     apps: BTreeSet<String>,
-    /// A device needs at least one of these scopes (empty: any enrolled device).
+    /// A device needs at least one of these scopes. Empty means no device: a policy that opens
+    /// the method to devices without naming a scope is refused by [`MethodTable::try_method`],
+    /// and if one is built anyway no device passes it.
     scopes: BTreeSet<Scope>,
 }
 
@@ -84,9 +86,62 @@ impl MethodPolicy {
     }
 
     fn permits_scopes(&self, held: &BTreeSet<Scope>) -> bool {
-        self.transport != Transport::Local
-            && (self.scopes.is_empty() || self.scopes.iter().any(|s| held.contains(s)))
+        // An empty scope set admits nobody: "no scope named" must never read as "any device".
+        self.transport != Transport::Local && self.scopes.iter().any(|s| held.contains(s))
     }
+
+    /// Whether a device may reach the method at all (it names at least one scope).
+    fn device_scopes_named(&self) -> bool {
+        !self.scopes.is_empty()
+    }
+}
+
+/// Why a method id or its policy was refused at table construction.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum TableError {
+    /// The id is empty.
+    EmptyMethod,
+    /// The id holds a glob character (`*`, `?`, `[`, `]`, `{`, `}`), whitespace, a control
+    /// character, or a path/URL delimiter (`/`, `%`, `#`). `*` is the allowlist wildcard for
+    /// apps, never a method.
+    BadMethod(String),
+    /// A policy reachable by devices names no scope (`and_remote([])`, `remote([])`).
+    NoDeviceScopes(String),
+}
+
+impl std::fmt::Display for TableError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            TableError::EmptyMethod => f.write_str("method id is empty"),
+            TableError::BadMethod(m) => write!(f, "method id {m:?} is not a plain method name"),
+            TableError::NoDeviceScopes(m) => write!(
+                f,
+                "method {m:?} is reachable by devices but names no scope (an empty scope set admits no device)"
+            ),
+        }
+    }
+}
+
+impl std::error::Error for TableError {}
+
+/// A method id must be a plain name: non-empty, no glob characters, whitespace, control
+/// characters, `/`, `%` or `#`.
+pub fn validate_method_id(id: &str) -> Result<(), TableError> {
+    if id.is_empty() {
+        return Err(TableError::EmptyMethod);
+    }
+    let bad = |c: char| {
+        c.is_whitespace()
+            || c.is_control()
+            || matches!(
+                c,
+                '*' | '?' | '[' | ']' | '{' | '}' | '/' | '%' | '#' | '\\'
+            )
+    };
+    if id.chars().any(bad) {
+        return Err(TableError::BadMethod(id.to_string()));
+    }
+    Ok(())
 }
 
 /// Local-transport authorization against an [`Allowlist`] (the form the host config carries and
@@ -122,10 +177,30 @@ impl MethodTable {
         Self::default()
     }
 
-    /// Add or replace a method.
-    pub fn method(mut self, id: impl Into<String>, policy: MethodPolicy) -> Self {
-        self.methods.insert(id.into(), policy);
-        self
+    /// Add or replace a method, refusing a bad id or a device-reachable policy with no scope
+    /// ([`TableError`]).
+    pub fn try_method(
+        mut self,
+        id: impl Into<String>,
+        policy: MethodPolicy,
+    ) -> Result<Self, TableError> {
+        let id = id.into();
+        validate_method_id(&id)?;
+        if policy.transport != Transport::Local && !policy.device_scopes_named() {
+            return Err(TableError::NoDeviceScopes(id));
+        }
+        self.methods.insert(id, policy);
+        Ok(self)
+    }
+
+    /// [`try_method`](Self::try_method) for a table built in code: a bad id or an unscoped
+    /// device policy is a programming error and panics at construction, never later at a call.
+    #[track_caller]
+    pub fn method(self, id: impl Into<String>, policy: MethodPolicy) -> Self {
+        match self.try_method(id, policy) {
+            Ok(t) => t,
+            Err(e) => panic!("MethodTable::method: {e}"),
+        }
     }
 
     pub fn get(&self, id: &str) -> Option<&MethodPolicy> {
@@ -150,6 +225,23 @@ impl MethodTable {
             }
         }
         a
+    }
+
+    /// Whether a device may call `method` through `POST /v1/call/{method}`: only a method
+    /// reachable on both transports, by a device holding one of its scopes. Anything else,
+    /// including an unknown method, is `forbidden`, so a device cannot probe which ids exist.
+    pub fn authorize_device_call(&self, caller: &Caller, method: &str) -> Result<(), ServiceError> {
+        let both = self
+            .methods
+            .get(method)
+            .is_some_and(|p| p.transport == Transport::Both);
+        if method != "ping" && !both {
+            return Err(ServiceError::new(
+                ERROR_FORBIDDEN,
+                format!("{} may not call {method}", caller.label()),
+            ));
+        }
+        self.authorize(caller, method)
     }
 
     /// Whether `caller` may call `method`. `ping` is always allowed. A local app is refused with
@@ -195,6 +287,35 @@ mod tests {
         assert!(!a.permits("b", "both"));
         assert!(!a.permits("a", "up"));
         assert!(a.permits("b", "ping"));
+    }
+
+    #[test]
+    fn an_empty_scope_set_admits_no_device() {
+        let p = MethodPolicy::remote(Vec::<String>::new());
+        let held: BTreeSet<Scope> = ["s1".to_string(), "any".to_string()].into();
+        assert!(!p.permits_scopes(&held));
+        assert!(!p.permits_scopes(&BTreeSet::new()));
+        let q = MethodPolicy::local(["a"]).and_remote(Vec::<String>::new());
+        assert!(!q.permits_scopes(&held));
+    }
+
+    #[test]
+    fn device_call_needs_both_transports() {
+        let t = table();
+        let dev = Caller::device("dev_1", ["s1", "s2"]);
+        assert!(t.authorize_device_call(&dev, "both").is_ok());
+        for m in ["up", "echo", "missing"] {
+            assert_eq!(
+                t.authorize_device_call(&dev, m).unwrap_err().code,
+                ERROR_FORBIDDEN,
+                "{m}"
+            );
+        }
+        let no_scope = Caller::device("dev_2", ["other"]);
+        assert_eq!(
+            t.authorize_device_call(&no_scope, "both").unwrap_err().code,
+            ERROR_FORBIDDEN
+        );
     }
 
     #[test]

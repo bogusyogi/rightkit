@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- **`daemon-api` 1.1.0 (minor, additive).** New optional auth class `device_call` (`POST /v1/call/{method}`, the transport-neutral request contract of `rightkit-service`): `authClasses.device_call` is optional, a route may use `authClass: "device_call"` (POST, `/v1/call/{name}`, no compare-and-swap), and a `device_call` route may mutate. `Contract::supported_version` returns 1.1.0 for `daemon-api`. `types::daemon_api::AuthClasses` gains `device_call: Option<AuthClass>` (struct literals need `device_call: None`) and `AuthClassId` gains `DeviceCall` (a downstream exhaustive `match` needs the new arm). Documents at 1.0.0 stay valid; new fixture `valid/api-v1-1-device-call.json`.
+
 ## 0.1.5
 
 - **Publishable.** `publish = false` is removed. The six schemas are copied into the crate (`schemas/`) and embedded from there, so `cargo package` ships them; `tests/schema_copy.rs` checks each copy against `contracts/`. The manifest gains `readme`, `keywords`, `categories` and `include`, and the crate carries `LICENSE-MIT` and `LICENSE-APACHE`.

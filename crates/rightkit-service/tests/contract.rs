@@ -4,7 +4,7 @@
 //! `--features test-mode`): nothing here depends on the override switches.
 
 use rightkit_service::contract::{
-    status_for_code, status_for_error, Caller, MethodPolicy, MethodTable, Transport,
+    status_for_code, status_for_error, Caller, MethodPolicy, MethodTable, TableError, Transport,
 };
 use rightkit_service::*;
 use serde_json::{json, Value};
@@ -139,4 +139,60 @@ fn error_codes_map_to_statuses() {
     assert_eq!(status_for_code(ERROR_FORBIDDEN), Some(403));
     assert_eq!(status_for_code(ERROR_REVISION_CONFLICT), Some(409));
     assert_eq!(status_for_error(&ServiceError::handoff()), 503);
+}
+
+#[test]
+fn wildcard_glob_and_empty_method_names_are_refused_at_construction() {
+    for bad in [
+        "*", "", "a*", "a?", "[a]", "{a}", "a b", "a/b", "a%2Fb", "a#b", "a\\b", "a\n",
+    ] {
+        let r = MethodTable::new().try_method(bad, MethodPolicy::local(["*"]));
+        assert!(
+            matches!(r, Err(TableError::EmptyMethod | TableError::BadMethod(_))),
+            "{bad:?} accepted"
+        );
+    }
+    for ok in ["echo", "job.update", "a-b_c:d", "speech.transcribe"] {
+        assert!(MethodTable::new()
+            .try_method(ok, MethodPolicy::local(["a"]))
+            .is_ok());
+    }
+    // A table cannot carry a `*` method, so the allowlist cannot grow a method wildcard from it.
+    let t = MethodTable::new().method("echo", MethodPolicy::local(["a"]));
+    assert!(!t.allowlist().permits("a", "anything"));
+}
+
+#[test]
+#[should_panic(expected = "MethodTable::method")]
+fn the_infallible_builder_panics_on_a_wildcard_method() {
+    let _ = MethodTable::new().method("*", MethodPolicy::local(["a"]));
+}
+
+#[test]
+fn and_remote_with_no_scope_is_an_error_not_any_device() {
+    for policy in [
+        MethodPolicy::local(["a"]).and_remote(Vec::<String>::new()),
+        MethodPolicy::remote(Vec::<String>::new()),
+        MethodPolicy::local(["a"]).and_remote([] as [&str; 0]),
+    ] {
+        assert_eq!(
+            MethodTable::new()
+                .try_method("m", policy.clone())
+                .unwrap_err(),
+            TableError::NoDeviceScopes("m".into())
+        );
+    }
+    // A local-only method needs no scope.
+    assert!(MethodTable::new()
+        .try_method("m", MethodPolicy::local(["a"]))
+        .is_ok());
+}
+
+#[test]
+#[should_panic(expected = "names no scope")]
+fn the_infallible_builder_panics_on_an_unscoped_device_policy() {
+    let _ = MethodTable::new().method(
+        "m",
+        MethodPolicy::local(["a"]).and_remote(Vec::<String>::new()),
+    );
 }

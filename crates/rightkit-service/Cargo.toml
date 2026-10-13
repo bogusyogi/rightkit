@@ -110,6 +110,11 @@ name = "remote_daemon"
 path = "tests/remote_daemon.rs"
 required-features = ["testing"]
 
+[[test]]
+name = "dual_transport"
+path = "tests/dual_transport.rs"
+required-features = ["testing"]
+
 [dev-dependencies]
 tempfile = "3"
 rightkit-contracts = { version = "0.1.5", path = "../rightkit-contracts", features = ["schema"] }

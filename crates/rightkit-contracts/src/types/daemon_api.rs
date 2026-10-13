@@ -36,6 +36,9 @@ pub struct AuthClasses {
     pub device_authenticated_mutation: AuthClass,
     pub oauth_callback: AuthClass,
     pub signed_webhook: AuthClass,
+    /// Added in 1.1.0: `POST /v1/call/{method}`. Absent in a 1.0.0 document.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub device_call: Option<AuthClass>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -47,13 +50,14 @@ pub struct AuthClass {
     pub summary: String,
 }
 
-/// The three authorisation classes a route can use.
+/// The authorisation classes a route can use: three in 1.0.0, plus `device_call` from 1.1.0.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum AuthClassId {
     DeviceAuthenticatedMutation,
     OauthCallback,
     SignedWebhook,
+    DeviceCall,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

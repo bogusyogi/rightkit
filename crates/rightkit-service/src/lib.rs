@@ -53,13 +53,14 @@ mod host_identity;
 pub mod mode;
 mod peer;
 mod record;
-mod server;
-mod suite;
-mod takeover_watch;
-mod transport;
 /// Daemon host (`remote` feature) and device client (`link` feature); see the module docs.
 #[cfg(any(feature = "remote", feature = "link"))]
 pub mod remote;
+mod server;
+mod service;
+mod suite;
+mod takeover_watch;
+mod transport;
 
 pub use client::{Client, ClientConfig, RetryPolicy, DEFAULT_DEADLINE};
 pub use discovery::{
@@ -102,6 +103,7 @@ pub use server::{
     host, host_with_options, CallContext, Emit, Handler, HostError, HostOptions, Hosted,
     ServiceConfig, ServiceEvent, ServiceStatus, DEFAULT_FRAME_LIMIT, DEFAULT_WRITE_TIMEOUT,
 };
+pub use service::{BuildError, Service, ServiceBuilder};
 pub use suite::{
     valid_service_name, Suite, SuiteError, ENV_SUITE_ROOT, MAX_SERVICE_NAME_LEN, SHARED_DIR_NAME,
     SUITE_DIR_NAME,

@@ -17,7 +17,7 @@ pub struct RouteDef {
 }
 
 use AuthClassId::{
-    DeviceAuthenticatedMutation as Dev, OauthCallback as Oauth, SignedWebhook as Hook,
+    DeviceAuthenticatedMutation as Dev, DeviceCall, OauthCallback as Oauth, SignedWebhook as Hook,
 };
 use Scope::{Account, Channel, Venture};
 
@@ -119,6 +119,28 @@ pub const ROUTES: &[RouteDef] = &[
     ),
 ];
 
+/// Route id of `POST /v1/call/{method}` (daemon-api 1.1.0, class `device_call`).
+pub const CALL_ROUTE_ID: &str = "device.call";
+
+/// The additive 1.1.0 route. Not in [`ROUTES`], which stays the exact 1.0.0 table the v1
+/// fixture pins; [`ROUTES_V1_1`] is both. Its scopes name the scopes the contract knows; which
+/// scope a method needs is the service's method table, which the daemon checks per call.
+pub static CALL_ROUTE: RouteDef = RouteDef {
+    id: CALL_ROUTE_ID,
+    method: "POST",
+    pattern: "/v1/call/{method}",
+    class: DeviceCall,
+    mutation: true,
+    cas: false,
+    scopes: &[Venture, Channel, Account],
+    responses: &[200, 400, 401, 403, 409, 500, 502, 503, 504],
+};
+
+/// Every route a 1.1.0 daemon serves: [`ROUTES`] then [`CALL_ROUTE`].
+pub fn routes_v1_1() -> impl Iterator<Item = &'static RouteDef> {
+    ROUTES.iter().chain(std::iter::once(&CALL_ROUTE))
+}
+
 pub enum Matched {
     Route(&'static RouteDef, Vec<String>),
     MethodNotAllowed,
@@ -161,7 +183,7 @@ fn capture(pattern: &str, path: &str) -> Option<Vec<String>> {
 
 pub fn match_route(method: &str, path: &str) -> Matched {
     let mut path_known = false;
-    for r in ROUTES {
+    for r in routes_v1_1() {
         if let Some(params) = capture(r.pattern, path) {
             if r.method == method {
                 return Matched::Route(r, params);

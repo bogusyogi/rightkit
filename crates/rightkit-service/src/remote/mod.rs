@@ -15,6 +15,8 @@
 //!   durable state and events.
 //! * `testing` (implies `remote`) - a run-time test certificate and in-process host ([`testing`]).
 
+#[cfg(feature = "remote")]
+pub mod call;
 #[cfg(feature = "link")]
 pub mod client;
 #[cfg(feature = "remote")]
@@ -38,6 +40,8 @@ pub mod testing;
 #[cfg(feature = "link")]
 mod util;
 
+#[cfg(feature = "remote")]
+pub use self::call::DeviceCalls;
 #[cfg(feature = "remote")]
 pub use self::config::{DaemonConfig, UploadLimits};
 #[cfg(feature = "remote")]
