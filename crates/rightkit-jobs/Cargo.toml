@@ -36,6 +36,9 @@ service = ["contract", "dep:rightkit-service"]
 # `rightkit_crash::record_helper_exit` (gates `rightkit-crash`, without its support bundle).
 # Implies `supervisor`.
 crash = ["supervisor", "dep:rightkit-crash"]
+# Off by default. `ffi` module: the C ABI a Swift host (`RightKitPulse`) calls over
+# `EngineSupervisor` and `rightkit-service`. The only `unsafe` in the crate. Implies `supervisor`.
+ffi = ["supervisor", "dep:rightkit-service"]
 
 [dependencies]
 rightkit-fs = { version = "0.4.0", path = "../rightkit-fs", default-features = false, features = ["digest", "lock"], optional = true }
@@ -84,8 +87,16 @@ name = "supervisor"
 required-features = ["supervisor"]
 
 [[test]]
+name = "m4_contract"
+required-features = ["contract"]
+
+[[test]]
 name = "m3_supervision"
 required-features = ["supervisor"]
+
+[[test]]
+name = "ffi"
+required-features = ["ffi"]
 
 [[test]]
 name = "crash_hook"

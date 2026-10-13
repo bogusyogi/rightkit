@@ -701,3 +701,41 @@ fn dead_primary_is_taken_over_by_a_simultaneous_race_with_one_winner() {
     std::fs::write(d.path().join("stop"), b"1").unwrap();
     assert!(racers[owner_idx].child.wait().unwrap().success());
 }
+
+/// One monotonic deadline covers waiting for the connection: a call queued behind a request that
+/// never answers times out at its own deadline instead of waiting for the holder's, and it does
+/// not abort the connection the holder is still using.
+#[test]
+fn queued_call_deadline_includes_the_mutex_wait() {
+    let (d, suite) = setup();
+    let h = Host::start(suite.root(), "headless", 2, d.path());
+    assert!(h.line(20).starts_with("READY"));
+
+    let c = std::sync::Arc::new(
+        Client::connect_with(&suite, "demo", "alpha", Some(Duration::from_secs(6))).unwrap(),
+    );
+    let holder = {
+        let c = c.clone();
+        std::thread::spawn(move || c.call("hang", json!({})))
+    };
+    // Let the holder take the connection and write its request.
+    std::thread::sleep(Duration::from_millis(500));
+    let t = Instant::now();
+    let err = c
+        .call_events_until(
+            "echo",
+            json!({"a": 1}),
+            Some(Instant::now() + Duration::from_millis(400)),
+            &mut |_| {},
+        )
+        .unwrap_err();
+    assert_eq!(err.code, ERROR_TIMEOUT, "{err}");
+    assert!(
+        t.elapsed() < Duration::from_secs(3),
+        "bounded by the queued call's own deadline, not the holder's 6 s: {:?}",
+        t.elapsed()
+    );
+    // The holder still owns a live connection: its own deadline ends it, not the queued call.
+    let held = holder.join().unwrap().unwrap_err();
+    assert_eq!(held.code, ERROR_TIMEOUT, "{held}");
+}

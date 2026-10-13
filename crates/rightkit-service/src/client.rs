@@ -54,6 +54,29 @@ fn timed_out(what: &str, d: Option<Duration>) -> ServiceError {
     )
 }
 
+/// Lock `m`, giving up at `deadline` (`None` = wait without bound). Polls with a short sleep:
+/// `std::sync::Mutex` has no timed lock, and the wait is bounded by the deadline.
+fn lock_until<T>(m: &Mutex<T>, deadline: Option<Instant>) -> Option<std::sync::MutexGuard<'_, T>> {
+    use std::sync::TryLockError;
+    let Some(deadline) = deadline else {
+        return Some(m.lock().unwrap_or_else(|e| e.into_inner()));
+    };
+    let mut pause = Duration::from_micros(200);
+    loop {
+        match m.try_lock() {
+            Ok(g) => return Some(g),
+            Err(TryLockError::Poisoned(e)) => return Some(e.into_inner()),
+            Err(TryLockError::WouldBlock) => {}
+        }
+        let left = deadline.saturating_duration_since(Instant::now());
+        if left.is_zero() {
+            return None;
+        }
+        std::thread::sleep(pause.min(left));
+        pause = (pause * 2).min(Duration::from_millis(5));
+    }
+}
+
 struct Io {
     reader: BufReader<Box<dyn Read + Send>>,
     writer: Box<dyn Write + Send>,
@@ -411,22 +434,52 @@ impl Client {
     }
 
     /// Like [`Client::call`], streaming the request's `event` frames to `on_event`.
+    ///
+    /// The per-request deadline starts when this method is entered and covers waiting for the
+    /// connection (another call in flight), the write, and the reply: one monotonic deadline.
     pub fn call_events(
         &self,
         method: &str,
         params: Value,
         on_event: &mut dyn FnMut(&Value),
     ) -> Result<Value, ServiceError> {
+        let deadline = match self.deadline_ms.load(Ordering::SeqCst) {
+            0 => None,
+            ms => Some(Instant::now() + Duration::from_millis(ms)),
+        };
+        self.call_events_until(method, params, deadline, on_event)
+    }
+
+    /// Like [`Client::call_events`], bounded by an absolute monotonic `deadline` (`None` =
+    /// unbounded) that the caller fixed earlier. Waiting for a request already in flight on this
+    /// connection counts against it: when it passes first, this returns the typed timeout without
+    /// aborting the connection, because the request that holds it is not this one's.
+    pub fn call_events_until(
+        &self,
+        method: &str,
+        params: Value,
+        deadline: Option<Instant>,
+        on_event: &mut dyn FnMut(&Value),
+    ) -> Result<Value, ServiceError> {
+        let started = Instant::now();
+        let total = deadline.map(|d| d.saturating_duration_since(started));
         if self.dead.load(Ordering::SeqCst) {
             return Err(closed());
         }
         let id = self.next_id.fetch_add(1, Ordering::SeqCst);
-        let mut io = self.io.lock().unwrap_or_else(|e| e.into_inner());
-        let deadline = match self.deadline_ms.load(Ordering::SeqCst) {
-            0 => None,
-            ms => Some(Duration::from_millis(ms)),
+        let Some(mut io) = lock_until(&self.io, deadline) else {
+            return Err(timed_out(
+                &format!("request `{method}` waiting for the connection"),
+                total,
+            ));
         };
-        let wd = Watchdog::arm(deadline, self.shutdown.clone());
+        if self.dead.load(Ordering::SeqCst) {
+            return Err(closed());
+        }
+        let wd = Watchdog::arm(
+            deadline.map(|d| d.saturating_duration_since(Instant::now())),
+            self.shutdown.clone(),
+        );
         let res = (|| {
             write_json_line(
                 &mut io.writer,
@@ -462,7 +515,7 @@ impl Client {
         })();
         if wd.fired() && res.is_err() {
             self.dead.store(true, Ordering::SeqCst);
-            return Err(timed_out(&format!("request `{method}`"), deadline));
+            return Err(timed_out(&format!("request `{method}`"), total));
         }
         if matches!(&res, Err(e) if e.code == ERROR_CONNECTION_CLOSED) {
             self.dead.store(true, Ordering::SeqCst);

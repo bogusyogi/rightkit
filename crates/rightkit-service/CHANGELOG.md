@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Fix: the per-request deadline of `Client::call_events` (and so `call`) now starts before the wait for the connection, not after it. A call queued behind a request still in flight used to wait for the holder with no bound and only then arm its deadline; it now times out at its own deadline (`request_timeout`) without aborting the connection the holder is using. Additive: `Client::call_events_until(method, params, deadline: Option<Instant>, on_event)` takes an absolute monotonic deadline fixed by the caller. Not compiled or run locally; verification is the CI run. Test: `tests/e2e.rs` `queued_call_deadline_includes_the_mutex_wait`. The server-side write that can block on a stalled peer is unchanged.
+
 ## 0.1.5
 
 - Fix: a `service.json` or `takeover.json` that cannot be read (Windows `ERROR_ACCESS_DENIED` or `ERROR_SHARING_VIOLATION` while another process replaces it, a permission error, an I/O error) is no longer read as "absent". Only `NotFound` means absent. Not compiled or run locally; verification is the CI run. No version bump, nothing retried or slept here, and the writer-side retry in `write_atomic` is unchanged.
