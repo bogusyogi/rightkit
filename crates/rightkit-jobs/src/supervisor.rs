@@ -52,11 +52,14 @@ use crate::client::{
     merge_event_callbacks, ChildExit, ClientOptions, ContractRequirement, EngineClient,
     OnEventFrame, ProgressDeadline, ProtocolErrorSink, DEFAULT_HELLO_TIMEOUT,
 };
-use crate::error::{JobError, JobResult, CONTRACT_VERSION_MISMATCH};
+use crate::error::{JobError, JobResult, CONTRACT_VERSION_MISMATCH, DELIVERY_UNKNOWN};
 use crate::wire::{CONTRACT_VERSION, DEFAULT_FRAME_LIMIT};
 
 /// Code of the boot failure raised by [`SupervisorConfig::require_scrubbed_env`].
 const ENV_NOT_SCRUBBED: &str = "env_not_scrubbed";
+
+/// Default for [`SupervisorConfig::with_max_unreaped_children`].
+const DEFAULT_MAX_UNREAPED: usize = 4;
 
 type SpawnFn = dyn Fn() -> io::Result<OwnedCommand> + Send + Sync;
 type Redactor = dyn Fn(&str) -> Option<String> + Send + Sync;
@@ -298,6 +301,7 @@ pub struct SupervisorConfig {
     contract_version: Option<ContractRequirement>,
     contract_check_required: bool,
     env_scrub_required: bool,
+    max_unreaped: usize,
     initial_failure: InitialFailure,
     protocol_error_sink: Option<ProtocolErrorSink>,
     fallback_error_code: String,
@@ -328,6 +332,7 @@ impl SupervisorConfig {
             contract_version: None,
             contract_check_required: false,
             env_scrub_required: false,
+            max_unreaped: DEFAULT_MAX_UNREAPED,
             initial_failure: InitialFailure::Retry,
             protocol_error_sink: None,
             fallback_error_code: "engine_error".into(),
@@ -386,6 +391,14 @@ impl SupervisorConfig {
     /// `command_mut().env_clear()` is not recognised (see `OwnedCommand::env_is_cleared`).
     pub fn require_scrubbed_env(mut self) -> Self {
         self.env_scrub_required = true;
+        self
+    }
+    /// Most engine processes that may be spawned and not yet waited when another boot starts
+    /// (default 4). A child the OS did not report gone within its kill bound is kept by a reaper
+    /// until it is, and counts here; at this many a boot is refused (`unreaped_children`, spends
+    /// restart budget) instead of piling more behind a stuck one.
+    pub fn with_max_unreaped_children(mut self, max: usize) -> Self {
+        self.max_unreaped = max;
         self
     }
     fn contract_gate(&self) -> JobResult<()> {
@@ -732,6 +745,14 @@ impl EngineSupervisor {
                         }
                     ),
                 ))
+            }
+            // The write stalled: the client already killed (bounded) the engine that was not reading.
+            // Record it as a wedge so the lifecycle says why, and do not suggest a blind retry:
+            // the engine may have received the request.
+            Err(e) if e.code == DELIVERY_UNKNOWN => {
+                *self.sh.wedge.lock().unwrap_or_else(|e| e.into_inner()) =
+                    Some((generation, ExitReason::RpcTimeoutKill));
+                Err(e)
             }
             // The engine went away under this call; a restart (if the policy allows) makes a retry meaningful.
             Err(e) if e.code == "engine_exited" || e.code == "engine_write" => {
@@ -1257,6 +1278,17 @@ fn boot(sh: &Arc<Shared>, initial: bool) -> JobResult<()> {
         Err(err)
     };
 
+    let unreaped = *sh.live.lock().unwrap_or_else(|e| e.into_inner());
+    if unreaped > sh.cfg.max_unreaped {
+        return fail(
+            ExitReason::SpawnFailed("unreaped engines".into()),
+            "unreaped_children",
+            format!(
+                "{unreaped} engine processes are still not confirmed gone; not starting another"
+            ),
+            String::new(),
+        );
+    }
     let mut command = match (sh.cfg.spawn)() {
         Ok(c) => c,
         Err(e) => {
@@ -1366,6 +1398,7 @@ fn boot(sh: &Arc<Shared>, initial: bool) -> JobResult<()> {
             );
         }
     };
+    client.set_kill_bound(sh.cfg.shutdown_grace);
     // Hand the child to the client, unless `shutdown` already took and killed it.
     {
         let mut g = sh.lock();
@@ -1667,4 +1700,49 @@ fn schedule_restart(sh: &Arc<Shared>, permit: RestartPermit) {
             }
             let _ = boot(&shared, false);
         });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_boot_is_refused_while_too_many_engines_are_unreaped() {
+        let cfg = SupervisorConfig::new("gate", || -> io::Result<OwnedCommand> {
+            panic!("the gate must refuse before the spawn closure runs")
+        })
+        .with_max_unreaped_children(1)
+        .with_restart(
+            RestartPolicy::new(
+                RestartMode::Disabled,
+                0,
+                Duration::from_secs(1),
+                Duration::from_millis(1),
+                Duration::from_millis(1),
+            )
+            .unwrap(),
+        );
+        let s = EngineSupervisor::new(cfg);
+        // Two engines that were killed but not yet confirmed gone (one more than the cap).
+        let held = [LiveChild::new(&s.sh), LiveChild::new(&s.sh)];
+        assert_eq!(s.unreaped_children(), 2);
+        let err = s.start().unwrap_err();
+        assert_eq!(err.code, "unreaped_children");
+        drop(held);
+        assert_eq!(s.unreaped_children(), 0);
+    }
+
+    #[test]
+    fn the_cap_is_inclusive_so_a_single_unreaped_engine_still_allows_a_boot_attempt() {
+        let cfg = SupervisorConfig::new("gate", || -> io::Result<OwnedCommand> {
+            Err(io::Error::new(io::ErrorKind::NotFound, "no engine here"))
+        })
+        .with_max_unreaped_children(1)
+        .with_initial_failure(InitialFailure::Terminal);
+        let s = EngineSupervisor::new(cfg);
+        let _held = LiveChild::new(&s.sh);
+        // One unreaped child is within the cap: the gate passes and the spawn closure's own error
+        // is what comes back.
+        assert_eq!(s.start().unwrap_err().code, "spawn_failed");
+    }
 }

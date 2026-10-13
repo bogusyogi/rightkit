@@ -137,6 +137,10 @@ pub const INTERRUPTED: &str = "interrupted";
 pub const SUPERSEDED: &str = "superseded";
 /// Stable wire code for [`JobError::contract_mismatch`].
 pub const CONTRACT_VERSION_MISMATCH: &str = "contract_version_mismatch";
+/// Stable code: a request's write to the engine stalled past its deadline, so the engine may have
+/// received none, part, or all of it. The engine was killed (bounded) and will be restarted by its
+/// policy. Not retryable on its own: resubmit only an operation that is safe to run twice.
+pub const DELIVERY_UNKNOWN: &str = "delivery_unknown";
 /// Stable code: a paging [`crate::Cursor`] is malformed, truncated or from an unknown version.
 pub const INVALID_CURSOR: &str = "invalid_cursor";
 /// Stable code: a paging [`crate::Cursor`] was issued for a different filter or sort order than

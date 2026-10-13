@@ -11,7 +11,7 @@ use rightkit_framed_sidecar::{
 use rightkit_process::{OwnedChild, OwnedCommand, ReapOutcome, WaitOutcome};
 use serde_json::{json, Value};
 
-use crate::error::{ErrorOrigin, JobError, JobResult};
+use crate::error::{ErrorOrigin, JobError, JobResult, DELIVERY_UNKNOWN};
 use crate::wire::DEFAULT_FRAME_LIMIT;
 
 type OnEvent = Box<dyn Fn(&Value) + Send>;
@@ -237,6 +237,8 @@ struct Core {
     release: Mutex<Option<Box<dyn Send>>>,
     exit: Mutex<ChildExit>,
     exit_cv: Condvar,
+    /// Bound, in milliseconds, on the kill of a child whose request write stalled.
+    kill_bound_ms: AtomicU64,
 }
 
 /// What is known about the engine process an [`EngineClient`] owns.
@@ -266,6 +268,10 @@ pub struct EngineClient {
     core: Arc<Core>,
     hello: Value,
 }
+
+/// How long a stalled request write waits for the owned child to be reaped after it is killed,
+/// unless [`EngineClient::set_kill_bound`] says otherwise.
+pub const DEFAULT_KILL_BOUND: Duration = Duration::from_secs(2);
 
 /// How long `spawn`/`connect` wait for the engine's hello frame by default.
 pub const DEFAULT_HELLO_TIMEOUT: Duration = Duration::from_secs(30);
@@ -427,6 +433,7 @@ impl EngineClient {
                 release: Mutex::new(None),
                 exit: Mutex::new(ChildExit::default()),
                 exit_cv: Condvar::new(),
+                kill_bound_ms: AtomicU64::new(DEFAULT_KILL_BOUND.as_millis() as u64),
             }),
             hello,
         })
@@ -515,6 +522,15 @@ impl EngineClient {
             .wait_timeout_while(g, timeout, |e| e.pid.is_some() && !e.reaped)
             .unwrap_or_else(|e| e.into_inner());
         g.pid.is_none() || g.reaped
+    }
+
+    /// Bound the kill of an owned child whose request write stalled (default
+    /// [`DEFAULT_KILL_BOUND`]). The supervisor sets it to its `shutdown_grace`.
+    pub fn set_kill_bound(&self, bound: Duration) {
+        self.core.kill_bound_ms.store(
+            bound.as_millis().min(u64::MAX as u128) as u64,
+            Ordering::Relaxed,
+        );
     }
 
     /// PID of the attached engine process, if any.
@@ -706,16 +722,53 @@ impl EngineClient {
 }
 
 impl Core {
-    /// Wait for `child` to be gone (a still-live one is killed by its drop), record how it
-    /// ended, release the owner's token, and wake `wait_reaped`.
+    /// Record how `child` ended and release the owner's token. The child is confirmed gone only
+    /// when a status was observed (`status`, or a `try_wait` now): then it is dropped and recorded
+    /// `reaped`. Otherwise the kill went out but the OS has not reported the exit within the
+    /// caller's bound; the child moves to a reaper thread, the record says `reaped: false` (so
+    /// `shutdown_detailed` reports `Unconfirmed`) and the token is held until that thread has
+    /// waited it. A stuck process never blocks the caller and is never reported gone.
     fn retire(
-        &self,
+        self: &Arc<Self>,
         mut child: OwnedChild,
         status: Option<std::process::ExitStatus>,
         killed: bool,
     ) {
         let status = status.or_else(|| child.try_wait().ok().flatten());
-        drop(child);
+        if status.is_some() {
+            drop(child);
+            self.finish_exit(status, killed);
+            return;
+        }
+        {
+            let mut e = self.exit.lock().unwrap_or_else(|e| e.into_inner());
+            e.killed = killed;
+        }
+        let core = Arc::clone(self);
+        let spawned = std::thread::Builder::new()
+            .name("rightkit-jobs-reaper".into())
+            .spawn(move || {
+                let status = loop {
+                    match child.wait_timeout(Duration::from_millis(250)) {
+                        Ok(Some(status)) => break Some(status),
+                        Ok(None) => {
+                            // The kill may have been refused before; ask again, never wait unbounded here.
+                            let _ = child.terminate_tree_bounded(Duration::from_millis(250));
+                        }
+                        Err(_) => break None,
+                    }
+                };
+                drop(child);
+                core.finish_exit(status, killed);
+            });
+        if spawned.is_err() {
+            // No thread to hand it to: the child was moved into the closure that was never run, so
+            // it is dropped (kill sent, bounded reap, background reaper) and the token is released.
+            self.finish_exit(None, killed);
+        }
+    }
+
+    fn finish_exit(&self, status: Option<std::process::ExitStatus>, killed: bool) {
         {
             let mut e = self.exit.lock().unwrap_or_else(|e| e.into_inner());
             e.reaped = true;
@@ -734,7 +787,7 @@ impl Core {
     }
 
     fn call(
-        &self,
+        self: &Arc<Self>,
         method: &str,
         params: Value,
         on_event: Option<OnEventFrame>,
@@ -744,7 +797,7 @@ impl Core {
     }
 
     fn call_budget(
-        &self,
+        self: &Arc<Self>,
         method: &str,
         params: Value,
         on_event: Option<OnEventFrame>,
@@ -795,16 +848,23 @@ impl Core {
                 Ok(Ok(())) => Ok(()),
                 Ok(Err(e)) => Err(JobError::from(e).with_origin(ErrorOrigin::Supervisor)),
                 Err(()) => {
-                    // Pipe full / engine not reading: kill the owned child so the
-                    // blocked write fails and the writer thread exits.
-                    if let Some(mut c) = self.child.lock().unwrap_or_else(|e| e.into_inner()).take()
-                    {
-                        let _ = c.terminate_tree();
+                    // Pipe full / engine not reading: kill the owned child so the blocked write
+                    // fails and the writer thread exits. The kill and reap are bounded; a child
+                    // the OS has not reported gone moves to the reaper (see `retire`). The
+                    // request may have been partly or wholly delivered: say so.
+                    let bound = Duration::from_millis(self.kill_bound_ms.load(Ordering::Relaxed));
+                    let taken = self.child.lock().unwrap_or_else(|e| e.into_inner()).take();
+                    if let Some(mut c) = taken {
+                        let status = match c.terminate_tree_bounded(bound) {
+                            Ok(ReapOutcome::Exited(status)) => Some(status),
+                            _ => None,
+                        };
+                        self.retire(c, status, true);
                     }
                     Err(JobError::supervisor(
-                        "timeout",
+                        DELIVERY_UNKNOWN,
                         format!(
-                            "engine did not accept {method} within {:?}",
+                            "engine did not accept {method} within {:?}; whether it received the request is unknown",
                             timeout.unwrap_or_default()
                         ),
                     ))

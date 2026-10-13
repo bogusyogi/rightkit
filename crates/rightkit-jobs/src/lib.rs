@@ -8,6 +8,9 @@ mod config;
 #[cfg(feature = "contract")]
 mod contract;
 mod error;
+#[cfg(feature = "ffi")]
+#[allow(unsafe_code)]
+pub mod ffi;
 #[cfg(feature = "store")]
 pub mod pool;
 #[cfg(feature = "store")]
@@ -41,8 +44,8 @@ pub use contract::{
 pub use error::OpenFailure;
 pub use error::{
     ErrorOrigin, JobError, JobResult, CONTRACT_VERSION_MISMATCH, CURSOR_MISMATCH, DB_UNREADABLE,
-    HANDLER_UNSETTLED, HOST_HANDOFF, INTERRUPTED, INVALID_CURSOR, JOB_EXISTS, STALE_ATTEMPT,
-    STALLED, SUPERSEDED,
+    DELIVERY_UNKNOWN, HANDLER_UNSETTLED, HOST_HANDOFF, INTERRUPTED, INVALID_CURSOR, JOB_EXISTS,
+    STALE_ATTEMPT, STALLED, SUPERSEDED,
 };
 #[cfg(feature = "store")]
 pub use pool::{OutcomeFn, PoolConfig, Staged, StagedHandler, StagedPool};

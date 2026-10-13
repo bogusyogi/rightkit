@@ -8,7 +8,7 @@
 //! Modes: `ok`, `slow_hello:<ms>`, `no_hello`, `crash:<ms>` (exit 9 shortly after
 //! hello), `crash_on_call` (exit 9 on method `work`), `wedge:<ms>` (stops reading
 //! after the delay; the process stays alive), `reject_set` (refuses `set_*`), `wrong_contract` (advertises contract_version 2).
-//! `slow_set:<ms>` (every `set_*` takes that long to answer).
+//! `deaf` (never reads stdin after hello), `slow_set:<ms>` (every `set_*` takes that long to answer).
 //! Methods: `env` (the engine's environment as `{"vars": {..}}`), `chatter{n,ms}` (n rounds, `ms` apart, of one unsolicited event and one event tagged with another request's id, then the result), `slow_progress{n,ms}` (n events tagged with the
 //! request id, `ms` apart, then the result), `ping`, `echo`, `pid`, `gen`, `set_*` (remembered), `get_state`,
 //! `big` (3 MiB result), `notify{n}` (n unsolicited events), `progress{n}`
@@ -59,6 +59,12 @@ fn main() {
         std::process::exit(9);
     }
 
+    if name == "deaf" {
+        // Never reads stdin: a large request fills the pipe and the shell's write blocks.
+        loop {
+            std::thread::sleep(Duration::from_secs(3600));
+        }
+    }
     // Reads happen on this thread; `wedge` stops after the delay.
     let (tx, rx) = std::sync::mpsc::channel::<String>();
     std::thread::spawn(move || {

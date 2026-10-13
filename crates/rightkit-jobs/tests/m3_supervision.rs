@@ -3,8 +3,8 @@
 //! launches the real scriptable `engine_fixture` child.
 
 use rightkit_jobs::{
-    CallOptions, EngineSupervisor, EventFrame, Lifecycle, ProgressDeadline, SupervisorConfig,
-    Terminal, CONTRACT_VERSION, CONTRACT_VERSION_MISMATCH,
+    CallOptions, EngineSupervisor, EventFrame, Lifecycle, ProgressDeadline, ShutdownOutcome,
+    SupervisorConfig, Terminal, CONTRACT_VERSION, CONTRACT_VERSION_MISMATCH, DELIVERY_UNKNOWN,
 };
 use rightkit_process::{OwnedCommand, RestartMode, RestartPolicy};
 use serde_json::json;
@@ -354,4 +354,112 @@ fn events_that_do_not_belong_to_the_call_are_not_progress() {
         started.elapsed()
     );
     s.shutdown();
+}
+
+/// `ps` state of `pid`: `None` when no such process exists, else its STAT column (a zombie
+/// shows `Z`; `kill -0` cannot tell a zombie from a live process).
+#[cfg(unix)]
+fn ps_state(pid: u32) -> Option<String> {
+    let out = std::process::Command::new("ps")
+        .args(["-o", "stat=", "-p", &pid.to_string()])
+        .output()
+        .unwrap();
+    let text = String::from_utf8_lossy(&out.stdout).trim().to_string();
+    (!text.is_empty()).then_some(text)
+}
+
+#[test]
+fn a_stalled_request_write_is_bounded_and_reported_as_unknown_delivery() {
+    // Generation 1 never reads stdin after hello; a 4 MiB request fills the pipe and the write blocks.
+    let (_d, cfg) = rig("deaf,ok");
+    let s = EngineSupervisor::new(cfg);
+    s.start().unwrap();
+    let first_pid = s.status().pid.expect("pid");
+    let started = Instant::now();
+    let err = s
+        .call_with(
+            "echo",
+            json!({"blob": "x".repeat(4 << 20)}),
+            CallOptions {
+                timeout: Some(Duration::from_millis(500)),
+                keep_alive_on_timeout: true,
+                ..CallOptions::default()
+            },
+        )
+        .unwrap_err();
+    assert_eq!(err.code, DELIVERY_UNKNOWN, "{err:?}");
+    assert!(
+        !err.retryable,
+        "an ambiguous delivery is never a blind retry"
+    );
+    assert!(
+        started.elapsed() < Duration::from_secs(5),
+        "the stall must be bounded: {:?}",
+        started.elapsed()
+    );
+    // keep_alive does not keep an engine that is not reading: it was killed and is replaced.
+    wait_generation(&s, 2);
+    wait_until(&s, Lifecycle::Ready);
+    assert_ne!(s.status().pid.expect("pid"), first_pid);
+    assert_eq!(
+        s.status().last_exit_reason.as_deref(),
+        Some("rpc_timeout_kill")
+    );
+    #[cfg(unix)]
+    assert_eq!(ps_state(first_pid), None, "the stalled engine is reaped");
+    s.shutdown();
+}
+
+#[test]
+fn a_response_timeout_after_a_successful_write_keeps_the_engine_alive_when_asked() {
+    let (_d, cfg) = rig("ok");
+    let s = EngineSupervisor::new(cfg);
+    s.start().unwrap();
+    let pid = s.status().pid.expect("pid");
+    let err = s
+        .call_with(
+            "sleep",
+            json!({"ms": 800}),
+            CallOptions {
+                timeout: Some(Duration::from_millis(200)),
+                keep_alive_on_timeout: true,
+                ..CallOptions::default()
+            },
+        )
+        .unwrap_err();
+    // The write succeeded, so this is an ordinary timeout, not an ambiguous delivery.
+    assert_eq!(err.code, "timeout");
+    assert!(err.retryable);
+    assert_eq!(s.call("pid", json!({})).unwrap()["pid"], pid);
+    assert_eq!(s.status().generation, 1);
+    s.shutdown();
+}
+
+#[cfg(unix)]
+#[test]
+fn a_kill_the_os_has_not_confirmed_at_its_bound_is_never_reported_gone_and_is_reaped_later() {
+    // A zero grace gives the kill no time to be confirmed: the outcome is `Killed` if the OS
+    // reported the exit in that instant and `Unconfirmed` otherwise. Either way the process ends
+    // up reaped (by the supervisor's reaper, not by blocking the caller) and never a zombie.
+    let (_d, cfg) = rig("deaf");
+    let s = EngineSupervisor::new(cfg.with_shutdown_grace(Duration::ZERO));
+    s.start().unwrap();
+    let pid = s.status().pid.expect("pid");
+    let report = s.shutdown_detailed();
+    assert!(
+        matches!(
+            report.outcome,
+            ShutdownOutcome::Killed | ShutdownOutcome::Unconfirmed
+        ),
+        "{report:?}"
+    );
+    if report.outcome == ShutdownOutcome::Unconfirmed {
+        assert!(!report.reaped || report.unreaped == 0, "{report:?}");
+    }
+    let until = Instant::now() + Duration::from_secs(5);
+    while s.unreaped_children() != 0 && Instant::now() < until {
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    assert_eq!(s.unreaped_children(), 0, "the reaper must finish the wait");
+    assert_eq!(ps_state(pid), None, "no zombie behind the reaper");
 }
