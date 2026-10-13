@@ -2203,6 +2203,8 @@ fn create_suspended(
         } else {
             None
         };
+        crate::policy::validate_named_capabilities(named_capabilities)
+            .map_err(|e| io::Error::new(io::ErrorKind::InvalidInput, e.to_string()))?;
         let derived = named_capabilities
             .iter()
             .map(|name| DerivedCapabilitySids::derive(name))
