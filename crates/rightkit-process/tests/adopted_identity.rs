@@ -125,24 +125,17 @@ fn a_different_start_time_is_refused_and_the_process_keeps_running() {
 }
 
 #[test]
-fn a_different_executable_is_refused_and_the_process_keeps_running() {
-    let mut child = sleeper();
+fn a_changed_executable_with_the_same_start_time_is_still_the_same_process() {
+    // A process that execs keeps its pid and start time (macOS `/bin/sh` re-execs the real
+    // shell), so only the start time decides; a recycled pid is covered by the start-time test.
+    let child = sleeper();
     let real = identity(&child);
-    if real.exe().is_none() {
-        stop(child);
-        return; // the host does not reveal executables to this user
-    }
-    let wrong = AdoptedIdentity::from_recorded(
+    let after_exec = AdoptedIdentity::from_recorded(
         pid(&child),
         real.start_token(),
         Some("/definitely/not/this/program".into()),
     );
-    assert_eq!(wrong.verify().unwrap(), IdentityCheck::Replaced);
-    assert_eq!(
-        wrong.signal(AdoptedSignal::Force).unwrap(),
-        SignalResult::IdentityMismatch
-    );
-    assert!(child.try_wait().unwrap().is_none());
+    assert_eq!(after_exec.verify().unwrap(), IdentityCheck::Same);
     stop(child);
 }
 

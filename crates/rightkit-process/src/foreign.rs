@@ -3,12 +3,12 @@
 //!
 //! [`AdoptedProcess`](crate::AdoptedProcess) can only say a pid is running. A pid alone is a
 //! name the kernel reuses, so signalling a remembered number can reach an unrelated process.
-//! [`AdoptedIdentity`] remembers the pid together with the process's start time and executable
-//! path, read while the process was known to be the right one, and every signal first checks
-//! that the pid still names that process:
+//! [`AdoptedIdentity`] remembers the pid together with the process's start time (and its
+//! executable path, informational), read while the process was known to be the right one, and
+//! every signal first checks that the pid still names that process:
 //!
-//! * a pid that now names a different process (other start time, or a different executable
-//!   when both are known) is refused with [`SignalResult::IdentityMismatch`] and nothing is
+//! * a pid that now names a different process (other start time; the executable path is not
+//!   compared because a process that `exec`s keeps its pid and start time) is refused with [`SignalResult::IdentityMismatch`] and nothing is
 //!   sent;
 //! * a pid that names nothing is [`SignalResult::Gone`];
 //! * this process is never signalled, and neither is a pid that cannot be described.
@@ -133,13 +133,11 @@ impl AdoptedIdentity {
     }
 
     fn matches(&self, seen: &sys::Seen) -> bool {
-        // The executable is compared only when both sides know it: a zombie or a process of
-        // another user may not reveal it, and the start time has already matched.
+        // pid plus start time is the identity. A process keeps both across `exec`, and the
+        // executable path changes then (on macOS `/bin/sh` and other launchers re-exec the
+        // real program after the pid was captured), so the path is recorded for the caller
+        // but never compared: a recycled pid has a different start time.
         seen.start == self.start
-            && match (&self.exe, &seen.exe) {
-                (Some(remembered), Some(found)) => remembered == found,
-                _ => true,
-            }
     }
 
     /// Whether the pid still names the remembered process.
