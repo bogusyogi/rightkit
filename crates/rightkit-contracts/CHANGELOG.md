@@ -1,10 +1,8 @@
 # Changelog
 
-## Unreleased
+## 0.1.5
 
 - **`daemon-api` 1.1.0 (minor, additive).** New optional auth class `device_call` (`POST /v1/call/{method}`, the transport-neutral request contract of `rightkit-service`): `authClasses.device_call` is optional, a route may use `authClass: "device_call"` (POST, `/v1/call/{name}`, no compare-and-swap), and a `device_call` route may mutate. `Contract::supported_version` returns 1.1.0 for `daemon-api`. `types::daemon_api::AuthClasses` gains `device_call: Option<AuthClass>` (struct literals need `device_call: None`) and `AuthClassId` gains `DeviceCall` (a downstream exhaustive `match` needs the new arm). Documents at 1.0.0 stay valid; new fixture `valid/api-v1-1-device-call.json`.
-
-## 0.1.5
 
 - **Publishable.** `publish = false` is removed. The six schemas are copied into the crate (`schemas/`) and embedded from there, so `cargo package` ships them; `tests/schema_copy.rs` checks each copy against `contracts/`. The manifest gains `readme`, `keywords`, `categories` and `include`, and the crate carries `LICENSE-MIT` and `LICENSE-APACHE`.
 - **Optional fields are omitted, not written as `null`.** Every `Option` field on the typed structs in `types` now carries `skip_serializing_if = "Option::is_none"`, so a typed value serialises to JSON that the crate's schemas accept. Before, an absent optional such as `ruleRevision`, `copy`, `audio`, `captions`, `thumbnail` or `loudnessLufs` was written as `null`, which the schemas reject. The schemas are unchanged, and an explicit `null` still deserialises to `None`.
