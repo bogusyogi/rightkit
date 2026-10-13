@@ -696,10 +696,14 @@ impl FileWatcher {
                 .write()
                 .unwrap_or_else(std::sync::PoisonError::into_inner);
             let mut actual_watch_moves = Vec::new();
-            let mut subscribers_to_notify = Vec::new();
+            let mut subscribers_to_notify: Vec<(WatchSender, Vec<PathBuf>)> = Vec::new();
+            // Fallback watches that moved to a closer ancestor during this
+            // pass: (sender, requested path, already reported this pass).
+            let mut arm_checks: Vec<(WatchSender, PathBuf, bool)> = Vec::new();
 
             for subscriber in state.subscribers.values_mut() {
                 let mut changed_paths = Vec::new();
+                let mut moved_requested: Vec<PathBuf> = Vec::new();
                 for event_path in event_paths {
                     for (subscriber_watch, subscriber_watch_state) in &mut subscriber.watched_paths
                     {
@@ -719,13 +723,23 @@ impl FileWatcher {
                             let count = subscriber_watch_state.count;
                             subscriber_watch_state.actual = new_actual.clone();
                             actual_watch_moves.push((old_actual, new_actual, count));
+                            if subscriber_watch_state.fallback {
+                                moved_requested.push(subscriber_watch.requested.path.clone());
+                            }
                         }
                     }
+                }
+                for requested in moved_requested {
+                    let reported = changed_paths.contains(&requested);
+                    arm_checks.push((subscriber.tx.clone(), requested, reported));
                 }
                 if !changed_paths.is_empty() {
                     subscribers_to_notify.push((subscriber.tx.clone(), changed_paths));
                 }
             }
+
+            #[cfg(test)]
+            tests::run_arm_hook();
 
             let mut inner_guard: Option<std::sync::MutexGuard<'_, FileWatcherInner>> = None;
             for (old_actual, new_actual, count) in actual_watch_moves {
@@ -737,6 +751,19 @@ impl FileWatcher {
                     inner,
                     &mut inner_guard,
                 );
+            }
+
+            // The native watch is now armed on the new directory. Anything
+            // created in the window between the ancestor event and the arm
+            // produces no native event, so stat each moved target and report
+            // it if it exists. A racing native event may report it again; the
+            // receiver coalesces paths within a batch, so a duplicate is only
+            // possible across two separate `recv` calls.
+            for (tx, requested, reported) in arm_checks {
+                if reported || !requested.exists() {
+                    continue;
+                }
+                subscribers_to_notify.push((tx, vec![requested]));
             }
 
             subscribers_to_notify
@@ -900,4 +927,50 @@ fn changed_path_for_matched_path(
             .map(|suffix| requested.path.join(suffix))
             .unwrap_or_else(|_| event_path.to_path_buf()),
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::cell::RefCell;
+
+    type ArmHook = Box<dyn FnOnce()>;
+
+    thread_local! {
+        static ARM_HOOK: RefCell<Option<ArmHook>> = const { RefCell::new(None) };
+    }
+
+    /// Runs the one-shot hook (if set) between the watch-move decision and the native arm.
+    pub(super) fn run_arm_hook() {
+        if let Some(hook) = ARM_HOOK.with(|h| h.borrow_mut().take()) {
+            hook();
+        }
+    }
+
+    #[tokio::test]
+    async fn target_created_between_ancestor_event_and_arm_is_reported() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let root = dir.path().canonicalize().unwrap();
+        let target = root.join("later/file.txt");
+        let watcher = Arc::new(FileWatcher::noop());
+        let (sub, mut rx) = watcher.add_subscriber();
+        let _reg = sub.register_path(target.clone(), false);
+
+        // The directory exists when the ancestor event is handled, but the target does not;
+        // the hook creates it after that decision and before the arm.
+        std::fs::create_dir_all(target.parent().unwrap()).unwrap();
+        let hook_target = target.clone();
+        ARM_HOOK.with(|h| {
+            *h.borrow_mut() = Some(Box::new(move || {
+                std::fs::write(&hook_target, "x").unwrap();
+            }));
+        });
+        FileWatcher::notify_subscribers(&watcher.state, None, &[root.join("later")]).await;
+
+        let ev = tokio::time::timeout(Duration::from_secs(2), rx.recv())
+            .await
+            .expect("creation event delivered")
+            .expect("receiver open");
+        assert_eq!(ev.paths, vec![target]);
+    }
 }
