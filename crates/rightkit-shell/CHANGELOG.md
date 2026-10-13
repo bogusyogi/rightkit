@@ -5,6 +5,13 @@ version is `0.x`, a minor bump may carry breaking changes.
 
 ## Unreleased
 
+- **Window state: `WindowStateStore::import_legacy` migrates an app's own geometry store once (owner gap M1-G5).**
+  Reads a legacy flat `label -> state` JSON file (CodeRight `window_state/mod.rs:92,110-118` shape; `version` 0 means
+  physical pixels), runs the same v0 -> v1 migration the store applies on load, maps labels with `(legacy, owner)` pairs
+  (empty map keeps all), never overwrites an existing owner entry, and writes a `window-state.imported-<source_id>`
+  marker so later calls return `LegacyImport::AlreadyImported`. A missing file is not marked. Additive; the store file
+  format is unchanged. Tests: `tests/window_state_store.rs`.
+
 - Tests: the two Windows tests that write under `HKEY_CURRENT_USER` (`devtools_policy.rs` real key, all of
   `autostart_registry_windows.rs`) run only on CI (`GITHUB_ACTIONS=true`) or with `RIGHTKIT_TEST_REAL_USER_STORES=1`, and otherwise print why and pass;
   each asserts its key starts with its test prefix, and the DevTools key is removed however the test ends. The HTTP

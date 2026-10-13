@@ -6,8 +6,8 @@
 use std::path::PathBuf;
 
 use rightkit_shell::window_state::{
-    apply_restore, next_state, LogicalRect, MonitorSnapshot, RestoreOptions, RestoreTarget,
-    WindowState, WindowStateStore,
+    apply_restore, next_state, LegacyImport, LogicalRect, MonitorSnapshot, RestoreOptions,
+    RestoreTarget, WindowState, WindowStateStore,
 };
 
 fn monitor() -> MonitorSnapshot {
@@ -198,4 +198,83 @@ fn restore_against_a_runtime_with_no_shell_state_is_a_clean_no() {
     };
     assert_eq!(store.restore_with(app.handle(), "main", &show), Ok(false));
     assert_eq!(store.restore(app.handle(), "absent"), Ok(false));
+}
+
+fn tmp(name: &str) -> PathBuf {
+    let d = std::env::temp_dir().join(format!("rk-ws-legacy-{name}-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&d);
+    std::fs::create_dir_all(&d).unwrap();
+    d
+}
+
+const LEGACY_V0: &str = r#"{"main":{"x":200.0,"y":100.0,"width":2400.0,"height":1600.0,"maximized":true,
+"monitor":{"x":0.0,"y":0.0,"width":1440.0,"height":900.0,"scale":2.0}},
+"settings":{"x":10.0,"y":10.0,"width":700.0,"height":500.0,"maximized":false,"version":1,
+"monitor":{"x":0.0,"y":0.0,"width":1440.0,"height":900.0,"scale":2.0}}}"#;
+
+#[test]
+fn import_legacy_migrates_v0_maps_labels_and_is_idempotent() {
+    let dir = tmp("import");
+    let legacy = dir.join("legacy.json");
+    std::fs::write(&legacy, LEGACY_V0).unwrap();
+    let store = WindowStateStore::new(dir.join("shell"));
+    let r = store
+        .import_legacy("coderight", &legacy, &[("main", "main")])
+        .unwrap();
+    assert_eq!(r, LegacyImport::Imported { entries: 1 });
+    let main = store.saved("main").unwrap();
+    // v0 physical pixels divided by the scale; version stamped; unmapped label skipped.
+    assert_eq!(
+        (main.x, main.y, main.width, main.height),
+        (100.0, 50.0, 1200.0, 800.0)
+    );
+    assert!(main.maximized && !main.minimized);
+    assert_eq!(main.version, 1);
+    assert!(store.saved("settings").is_none());
+    // Second call changes nothing, even if the legacy file changed.
+    std::fs::write(&legacy, "{}").unwrap();
+    assert_eq!(
+        store.import_legacy("coderight", &legacy, &[]).unwrap(),
+        LegacyImport::AlreadyImported
+    );
+    assert_eq!(store.saved("main").unwrap().width, 1200.0);
+}
+
+#[test]
+fn import_legacy_never_overwrites_and_empty_map_keeps_all_labels() {
+    let dir = tmp("keep");
+    let legacy = dir.join("legacy.json");
+    std::fs::write(&legacy, LEGACY_V0).unwrap();
+    let store = WindowStateStore::new(dir.join("shell"));
+    store.save_state("main", saved(false)).unwrap();
+    let r = store.import_legacy("cr", &legacy, &[]).unwrap();
+    assert_eq!(r, LegacyImport::Imported { entries: 1 });
+    assert_eq!(store.saved("main").unwrap().width, 1000.0);
+    assert_eq!(store.saved("settings").unwrap().width, 700.0);
+}
+
+#[test]
+fn import_legacy_missing_file_is_not_marked_and_bad_input_errors() {
+    let dir = tmp("missing");
+    let legacy = dir.join("legacy.json");
+    let store = WindowStateStore::new(dir.join("shell"));
+    assert_eq!(
+        store.import_legacy("cr", &legacy, &[]).unwrap(),
+        LegacyImport::NoLegacyFile
+    );
+    std::fs::write(&legacy, LEGACY_V0).unwrap();
+    assert_eq!(
+        store.import_legacy("cr", &legacy, &[]).unwrap(),
+        LegacyImport::Imported { entries: 2 }
+    );
+    assert!(store.import_legacy("../x", &legacy, &[]).is_err());
+    let bad = dir.join("bad.json");
+    std::fs::write(&bad, "{not json").unwrap();
+    assert!(store.import_legacy("other", &bad, &[]).is_err());
+    assert_eq!(
+        store
+            .import_legacy("other", &dir.join("none.json"), &[])
+            .unwrap(),
+        LegacyImport::NoLegacyFile
+    );
 }

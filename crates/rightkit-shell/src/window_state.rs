@@ -209,6 +209,17 @@ pub fn restoreable_state(state: &WindowState, monitors: &[MonitorSnapshot]) -> L
     }
 }
 
+/// Result of [`WindowStateStore::import_legacy`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LegacyImport {
+    /// The legacy file was read; `entries` were added (0 when every label already existed).
+    Imported { entries: usize },
+    /// An earlier call already imported this source.
+    AlreadyImported,
+    /// No legacy file exists (nothing marked; a later call may still import).
+    NoLegacyFile,
+}
+
 /// Per-app store with debounced saves.
 pub struct WindowStateStore {
     dir: PathBuf,
@@ -238,6 +249,73 @@ impl WindowStateStore {
     /// The state saved for `label`, if any. Reads the file; applies nothing to any window.
     pub fn saved(&self, label: &str) -> Option<WindowState> {
         load_store(&self.dir).states.remove(label)
+    }
+
+    /// Import a legacy per-app geometry store once (M1-G5; CodeRight `window_state/mod.rs:92,110-118`
+    /// shape: a flat `label -> state` JSON object, `version` 0 meaning physical pixels).
+    ///
+    /// Each legacy entry runs through the same v0 -> v1 migration the store applies on load, then is
+    /// added under its owner label (`label_map` is `(legacy, owner)` pairs; an empty map keeps every
+    /// label). An owner entry that already exists is never overwritten. Idempotent: a marker file
+    /// `window-state.imported-<source_id>` is written after the first attempt that found the legacy
+    /// file (a missing file is not marked, so a later-appearing file still imports), and later
+    /// calls return [`LegacyImport::AlreadyImported`]. The legacy file is left in place. A legacy
+    /// file that does not parse is reported as an error and not marked.
+    pub fn import_legacy(
+        &self,
+        source_id: &str,
+        legacy_file: &Path,
+        label_map: &[(&str, &str)],
+    ) -> Result<LegacyImport, String> {
+        if source_id.is_empty()
+            || !source_id
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_'))
+        {
+            return Err("invalid import source id".into());
+        }
+        let marker = self.dir.join(format!("window-state.imported-{source_id}"));
+        if marker.exists() {
+            return Ok(LegacyImport::AlreadyImported);
+        }
+        let raw = match std::fs::read_to_string(legacy_file) {
+            Ok(raw) => raw,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                return Ok(LegacyImport::NoLegacyFile)
+            }
+            Err(e) => return Err(format!("read {}: {e}", legacy_file.display())),
+        };
+        let legacy: PersistedStore = if raw.trim().is_empty() {
+            PersistedStore::default()
+        } else {
+            serde_json::from_str(&raw)
+                .map(migrate)
+                .map_err(|e| format!("parse {}: {e}", legacy_file.display()))?
+        };
+        let mut store = load_store(&self.dir);
+        let mut imported = 0;
+        for (label, state) in legacy.states {
+            let target = if label_map.is_empty() {
+                label
+            } else {
+                match label_map.iter().find(|(from, _)| *from == label) {
+                    Some((_, to)) => (*to).to_owned(),
+                    None => continue,
+                }
+            };
+            if store.states.contains_key(&target) {
+                continue;
+            }
+            store.states.insert(target, state);
+            imported += 1;
+        }
+        if imported > 0 {
+            save_store(&self.dir, &store)?;
+        }
+        std::fs::create_dir_all(&self.dir)
+            .map_err(|e| format!("create {}: {e}", self.dir.display()))?;
+        std::fs::write(&marker, b"1").map_err(|e| format!("write {}: {e}", marker.display()))?;
+        Ok(LegacyImport::Imported { entries: imported })
     }
 
     /// Record `state` for `label` without touching a window (a host that tracks its own geometry,
