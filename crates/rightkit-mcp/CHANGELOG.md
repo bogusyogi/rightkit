@@ -10,6 +10,11 @@
   &TrustStore::new()` for a user-configured server. Call sites in apps: CodeRight
   `engine/crates/mcp/src/transport.rs:130` and `engine/crates/engine/src/sentinel_client.rs:56`
   (`connect_with_extensions`). Not built or run locally (compile unverified, CI pending).
+- **Protocol 2025-06-18 is accepted (99724405).** `SUPPORTED_VERSIONS` now lists `2025-06-18` first. `PROTOCOL_VERSION`,
+  the default and the fallback, stays `2025-03-26`.
+- **Opt-in mutating-tool check (aced383e).** `ToolDescriptor::is_mutating()` is true unless the tool is annotated
+  `readOnlyHint: true` (matching `ReadOnlyPolicy`). `mutating_tools(&[ToolDescriptor]) -> Vec<String>` lists the
+  mutating tool names for an adopter's test. Nothing in the server calls it, so existing providers are unchanged.
 - **Trust store: `TrustStore::try_load`, and `save` is atomic.** `load` returned an empty store for a missing file and
   for any other failure: a file that could not be read (on Windows an open can be refused for a moment while another
   process replaces the file) or did not parse. The caller's next `save` then wrote that empty store over every

@@ -21,12 +21,13 @@ Additive; no version bump. Owner-gap lane M5 (items M5-O1, M5-O4, M5-O5, M5-O7).
   `PermissionDenied`; an empty scope is refused at construction). `open` also refuses files the system would run
   (executable bit, `.app`, `.bat`, `.lnk`, `.sh`, and similar). The helper is detached, with a null stdio and an
   allowlisted environment. Tests: scope and escape refusals (`tests/reveal_scope.rs`, unit tests).
-- **`AdoptedIdentity` (M5-O4): identity for a pid this crate did not spawn.** Remembers pid, start time
-  (`StartToken`) and executable path; `verify` and `signal(AdoptedSignal)` refuse a pid that now names another
+- **`AdoptedIdentity` (M5-O4): identity for a pid this crate did not spawn.** Identity is pid plus start time
+  (`StartToken`); the executable path is recorded for the caller but not compared, because a process that `exec`s keeps
+  its pid and start time (commit b698ff37). `verify` and `signal(AdoptedSignal)` refuse a pid that now names another
   process (`SignalResult::IdentityMismatch`, nothing sent), report `Gone`, and never signal this process.
   `from_recorded` rebuilds a persisted identity; `AdoptedProcess::identity` bridges from the existing type, which still
   has no terminate method. Windows checks and terminates through one handle. Tests: identity-mismatch refusal by start
-  time and by executable (`tests/adopted_identity.rs`).
+  time; a changed executable with the same start time is still the same process (`tests/adopted_identity.rs`).
 - **Descendant enumeration and sweep (M5-O5).** `AdoptedIdentity::descendants`, `OwnedChild::descendant_identities`,
   `sweep(&[AdoptedIdentity], grace)` and `sweep_descendants(root, grace)` (graceful signal, bounded wait, forced
   signal; a target whose identity changed is `refused`). Descendants must be listed while their parent is alive.

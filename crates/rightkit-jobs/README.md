@@ -4,7 +4,7 @@ Shared engine base for Right Suite apps: a persistent SQLite job store (on `righ
 
 Product work plugs in through `JobHandler` (what a job does) and `CommandSet` (extra commands). Apps with their own wire protocol can use only the store (see below).
 
-Catalog capability: `persistent-jobs`. Published to crates.io at 0.2.7 (registry record); the source is 0.2.9, which [INDEX.md](../../INDEX.md) flags as a mismatch. Version history: [CHANGELOG.md](CHANGELOG.md).
+Catalog capability: `persistent-jobs`. Published to crates.io at 0.2.7 (registry record); the source is 0.3.0, which [INDEX.md](../../INDEX.md) flags as a mismatch. Version history: [CHANGELOG.md](CHANGELOG.md).
 
 ## What it owns
 

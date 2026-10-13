@@ -1,6 +1,10 @@
 # Changelog
 
-## Unreleased (M3/M4 owner gaps, additive; written without running Cargo, CI-only)
+## Unreleased
+
+- Additive: `ExitObserver` callback and `SupervisorConfig::with_exit_observer`; `EngineSupervisor` reports abnormal engine exits (not shutdown) with the restart decision and count. Off-by-default `crash` feature adds `CrashExitObserver`, forwarding to `rightkit_crash::record_helper_exit`.
+
+### M3/M4 owner gaps, additive; written without running Cargo, CI-only
 
 Locked M3/M4 design (READINESS "LEGION CHOSEN M3/M4 DESIGN"), implemented one design point at a time. All additions are opt-in; no default changes.
 
@@ -9,22 +13,14 @@ Locked M3/M4 design (READINESS "LEGION CHOSEN M3/M4 DESIGN"), implemented one de
 - **Child environment (M3).** `SupervisorConfig::require_scrubbed_env()`: a spawn closure whose command did not clear the inherited environment (`OwnedCommand::env_allowlist` / `env_allowlist_with_defaults`) fails the boot with `env_not_scrubbed`, terminal, nothing spawned. Off by default; the default still inherits. Tests: `tests/m3_supervision.rs` (engine sees only the allowlist plus explicit variables; unscrubbed command refused; inherited without the requirement).
 - **Deadlines (M3).** The default is unchanged: one absolute deadline per call. New opt-in `EngineSupervisor::call_with_progress_deadline` / `EngineClient::call_progress_frames` take a `ProgressDeadline { idle, max_total }`: the call times out after `idle` without an event tagged with *its own* request id (unsolicited events and other requests' events never count), and `max_total`, when set, still caps it. Replaces ScrapeRight's app-side inactivity reset for calls that report their own progress. Tests: `tests/m3_supervision.rs` (own progress extends it; the same call misses an absolute deadline; silence and `max_total` time out; unrelated chatter does not extend it). Fixture gains `chatter`.
 
-## 0.3.0 (Breaking: `default-features = false` no longer includes the store)
-
-Version bump for the feature split (7775d90f), which changed what `default-features = false` selects without a version change. Nothing here was compiled or run locally; verification is the CI run.
-
-- **Breaking.** Before the split, a dependent that wrote `rightkit-jobs = { version = "0.2", default-features = false }` still got the persistent job layer (`JobStore`, `Runner`, `StagedPool`, `StoreConfig`, the `rusqlite`/`db` re-exports). The layer now sits behind the `store` feature, so that dependency loses those items and fails to compile. Migration: add `features = ["store"]` (`rightkit-jobs = { version = "0.3.0", default-features = false, features = ["store"] }`), or drop `default-features = false` to keep the default set (`store`, `service`, `supervisor`).
-- Dependents that use the default features are unaffected.
-- Additive: `ExitObserver` callback and `SupervisorConfig::with_exit_observer`; `EngineSupervisor` reports abnormal engine exits (not shutdown) with the restart decision and count. Off-by-default `crash` feature adds `CrashExitObserver`, forwarding to `rightkit_crash::record_helper_exit`.
-
-## Unreleased (a paused job stays paused; an unlistable journal fails the open)
+### a paused job stays paused; an unlistable journal fails the open
 
 Two fixes from a consumer's independent read of the runner and the journal (ScrapeRight, 2026-10-12). Nothing here was compiled or run locally; verification is the CI run.
 
 - **A retryable handler error keeps the job paused when its bookkeeping write is refused.** The runner recorded the error text (and, for a host hand-off, refunded the attempt) with `?`, so a storage error on that write (disk full, database locked) replaced `RunOutcome::Paused` with an `Err`, and a caller treated a resumable job as a hard failure. A storage error on the refund, on the diagnostic write or on the read-back is now tolerated and the run returns `Paused` with the job as it was read at the start; any other error (a lost fence) still ends the run.
 - **A settlement journal that exists and cannot be listed fails `JobStore::open`.** `replay_journal` returned silently when the directory could not be read and skipped entries whose listing failed, so after a crash a job with a durable Done or Cancelled in the journal was not held and recovery could run it again. Only a missing directory means "no journal" now; any other listing error is returned (code `io`) and the store does not open. This is a behaviour change: an application that ignored an unreadable `<db>.settlements` directory now gets an error at open.
 
-## Unreleased (settle-later: an owner settle cannot lose to a concurrent flush or runner)
+### settle-later: an owner settle cannot lose to a concurrent flush or runner
 
 Fix, found by ScrapeRight's review of `store/settle.rs` at snapshot c9f222a1. Nothing here was compiled or run locally; verification is the CI run. No signature or field changed.
 
@@ -33,7 +29,7 @@ Fix, found by ScrapeRight's review of `store/settle.rs` at snapshot c9f222a1. No
 - **Second pass, from an independent read of the fix above (`docs/audits/2026-10-12-astra-jobs-settle-9177feaa.md`).** The runner's settle takes the flush lock too, from its look at the held writes to its commit or hold: without it an owner whose write storage refused could hold its outcome in that window, and the runner's commit, then the flush after it, dropped the owner's accepted outcome. `discard_unclaimed_settlement` runs under the flush lock, so a flush cannot commit an entry after it was discarded, and a discard cannot remove the journal file of an owner settle held meanwhile. Lock order is flush, pending, connection, everywhere.
 - Known and not fixed here (ledger 207): two stores or two processes replaying one journal directory are not coordinated; a failed journal rewrite followed by a failed removal of the old file can replay the replaced outcome after a crash; a runner that adopts a held write and then attaches its event can attach it to an owner's replacement; a busy database stalls every settle of that store, because the flush lock is held across the database wait.
 
-## Unreleased (settle-later journal: an unreadable file is not a bad file)
+### settle-later journal: an unreadable file is not a bad file
 
 Fix. Nothing here was compiled or run locally; verification is the CI run. No signature or field changed.
 
@@ -41,7 +37,7 @@ Fix. Nothing here was compiled or run locally; verification is the CI run. No si
 - Limit: until the file reads, the store does not know the outcome, so a runner cannot be told to leave that job alone; `UnsettledRecovery` applies only to entries that were read.
 - Test: `tests/settle_unreadable_journal.rs` (a directory at `<job>.json` stands in for a read error that is not `NotFound` on every platform).
 
-## Unreleased (handler-owned outcomes, settle-later, claim scopes, open-failure classification, terminal-only keep_total)
+### handler-owned outcomes, settle-later, claim scopes, open-failure classification, terminal-only keep_total
 
 Nothing here was compiled or run locally; verification is the CI run. Four additions and one fix, written for an adopter whose handlers settle jobs themselves. Behaviour changes for existing callers are listed first.
 
@@ -84,7 +80,7 @@ Nothing here was compiled or run locally; verification is the CI run. Four addit
 
 **Tests.** `tests/handler_outcome.rs` (no second write: row, event log and hook count; a typed handler bug for `Settled` on a non-terminal row; `Pending` plain, held and `Never`; the pool), `tests/settle_later.rs` (injected failing terminal write held, retried by flush and by the next write, bounded, claim held, shutdown report, restart applies the journal, parked and `Rerun` recovery, handler-deferred write, non-storage errors not held, opt-out), `tests/terminal_announce.rs` (201 active rows with `keep_total(200)`: one terminal event, row readable from the sink; a prune from inside the sink skips the row being announced), `tests/claim_scope.rs`, `tests/open_failure.rs`; unit tests for the classification in `src/error.rs`; `tests/prune.rs` updated for the terminal-only bound.
 
-## Unreleased (keyset paging, atomic terminal import, rightkit-db re-exports)
+### keyset paging, atomic terminal import, rightkit-db re-exports
 
 Additive. Nothing here was compiled or run locally; verification is the CI run. No existing signature, field, wire frame or `JOB_METHODS` entry changed; `ListFilter` gained no field (apps build it as a full literal).
 
@@ -95,7 +91,7 @@ Additive. Nothing here was compiled or run locally; verification is the CI run. 
 - **`JobStore::open_recovering_unreadable(&DbOptions, StoreConfig, RecoveryPolicy, UnreadablePolicy) -> (JobStore, OpenRecovery { quarantined, action })`.** `open_recovering` plus the opt-in policy for a database that cannot be read (permission denied, I/O read failure). The default `UnreadablePolicy::Fail` fails with the new `db_unreadable` code (`DB_UNREADABLE`) and never touches the file; `QuarantineAfter { attempts }` moves it aside only after that many consecutive failed opens. A busy database is retried for up to 30 seconds, as in every open. `From<DbError> for JobError` maps `DbError::Unreadable` to `db_unreadable`; no existing open can produce that variant, so every existing error keeps its `db` code. **Needs the `rightkit-db` that ships `UnreadablePolicy`** (unreleased in the tree when written; this crate's `rightkit-db` requirement still reads `0.4.0`).
 - **Tests:** `tests/paging.rs` (2,500 rows with inserts, deletes and status changes between pages; ties; filters; cursor errors), `tests/import_terminal.rs` (atomicity, idempotence, validation, batch bound, hook), `tests/reexport.rs` (names only `rightkit_jobs` paths); unit tests for the cursor codec, the query plan (no sort, an `rk_jobs_` index) and the error mapping.
 
-## Unreleased (owned delete cleanup)
+### owned delete cleanup
 
 Additive. Nothing here was compiled or run locally; verification is the CI run. A store with no roots configured behaves exactly as 0.2.9.
 
@@ -104,6 +100,13 @@ Additive. Nothing here was compiled or run locally; verification is the CI run. 
 - **Crash-safe order.** `begin_delete` (validate, cancel a live job, write the mark in new crate-owned table `rk_job_deleting`), files removed, `complete_delete` (rows and mark removed in one transaction). New `JobStore::pending_deletions()` and `JobStore::finish_deletions()`: the recovery pass; call it at startup. The job row stays visible until the last step. `prune` still never deletes files.
 - **Schema:** `CREATE TABLE IF NOT EXISTS rk_job_deleting` at open (reserved name, `DELETING_TABLE`). No existing column changed.
 - **Tests:** `tests/delete_files.rs`.
+
+## 0.3.0 (Breaking: `default-features = false` no longer includes the store)
+
+Version bump for the feature split (7775d90f), which changed what `default-features = false` selects without a version change. Nothing here was compiled or run locally; verification is the CI run.
+
+- **Breaking.** Before the split, a dependent that wrote `rightkit-jobs = { version = "0.2", default-features = false }` still got the persistent job layer (`JobStore`, `Runner`, `StagedPool`, `StoreConfig`, the `rusqlite`/`db` re-exports). The layer now sits behind the `store` feature, so that dependency loses those items and fails to compile. Migration: add `features = ["store"]` (`rightkit-jobs = { version = "0.3.0", default-features = false, features = ["store"] }`), or drop `default-features = false` to keep the default set (`store`, `service`, `supervisor`).
+- Dependents that use the default features are unaffected.
 
 ## 0.2.9 (staged pool, delete and rejection, held jobs, per-job resume and sweep)
 
