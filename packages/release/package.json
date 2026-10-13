@@ -22,6 +22,8 @@
     "*.json",
     "*.sh",
     "*.py",
+    "LICENSE-MIT",
+    "LICENSE-APACHE",
     "!*.test.mjs",
     "!standalone-clone-evidence.json"
   ],
