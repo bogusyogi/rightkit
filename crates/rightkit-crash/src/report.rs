@@ -32,6 +32,10 @@ pub struct CrashReport {
     /// A fixed code, optionally followed by a leftover raw file's name; never a path or content.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub native_capture_note: Option<String>,
+    /// Which process boundary produced the report (`window`, `engine`, `helper`), when the host
+    /// declared one. A fixed code, never a path or content.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub process_kind: Option<String>,
 }
 
 pub(crate) struct RawCrash<'a> {
@@ -43,6 +47,7 @@ pub(crate) struct RawCrash<'a> {
     pub location: Option<&'a str>,
     pub message: &'a str,
     pub backtrace: &'a str,
+    pub process_kind: Option<&'a str>,
 }
 
 impl CrashReport {
@@ -76,6 +81,7 @@ impl CrashReport {
             backtrace,
             native_artifacts: Vec::new(),
             native_capture_note: None,
+            process_kind: raw.process_kind.map(sanitize_kind),
         }
     }
 
@@ -118,6 +124,7 @@ mod tests {
                 location: None,
                 message: "boom",
                 backtrace: "",
+                process_kind: None,
             },
             1,
         );

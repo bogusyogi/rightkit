@@ -24,6 +24,30 @@ impl fmt::Debug for ReportSink {
     }
 }
 
+/// The process boundary a host installs crash capture in. Every required process of an app (the
+/// webview window host, the engine, each supervised helper) installs through the same owner API
+/// and its reports say which boundary they came from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ProcessKind {
+    /// The window/webview host process, including renderer errors it forwards.
+    Window,
+    /// The app engine process.
+    Engine,
+    /// A supervised helper or sidecar process.
+    Helper,
+}
+
+impl ProcessKind {
+    /// Fixed code written to the report's `process_kind` field.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Window => "window",
+            Self::Engine => "engine",
+            Self::Helper => "helper",
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct CrashConfig {
     pub app_name: String,
@@ -39,6 +63,8 @@ pub struct CrashConfig {
     write_file: bool,
     /// Whether the panic hook captures a backtrace (default `true`; see [`CrashConfig::capture_backtrace`]).
     capture_backtrace: bool,
+    /// Declared process boundary (see [`CrashConfig::process_kind`]).
+    process_kind: Option<ProcessKind>,
 }
 
 impl CrashConfig {
@@ -57,7 +83,15 @@ impl CrashConfig {
             sink: None,
             write_file: true,
             capture_backtrace: true,
+            process_kind: None,
         }
+    }
+
+    /// Declare which process boundary this configuration belongs to; every report it records
+    /// carries the code in `process_kind`.
+    pub fn process_kind(mut self, kind: ProcessKind) -> Self {
+        self.process_kind = Some(kind);
+        self
     }
 
     /// Hand each redacted report to `sink` as a JSON value: the same value that would be written to
@@ -208,6 +242,30 @@ pub fn install_panic_hook(config: CrashConfig) {
     }));
 }
 
+/// Install the panic hook for one process boundary: the same as setting
+/// [`CrashConfig::process_kind`] and calling [`install_panic_hook`]. Each required process
+/// (window host, engine, every supervised helper) calls this once, early in its `main`.
+pub fn install_process_hook(kind: ProcessKind, config: CrashConfig) {
+    install_panic_hook(config.process_kind(kind));
+}
+
+/// Record that a supervised helper died. Called by the supervising process, which still has the
+/// restart context the dead helper cannot report. `exit` is a short fixed description such as an
+/// exit code or signal name; `restart_count` is how many restarts the supervisor has done.
+/// Returns what [`record_report`] returns; a helper that never got to install a hook is still
+/// covered because the supervisor's own config records the report.
+pub fn record_helper_exit(
+    config: &CrashConfig,
+    helper: &str,
+    exit: &str,
+    restart_count: u32,
+) -> Option<PathBuf> {
+    let mut config = config.clone();
+    config.process_kind = Some(ProcessKind::Helper);
+    let message = format!("helper {helper} exited: {exit}; restarts so far: {restart_count}");
+    record_report(&config, "sidecar_crash", &message, None, "supervisor", "")
+}
+
 /// Record one panic report, unless this thread is already inside a capture.
 fn capture_panic(config: &CrashConfig, message: &str, location: Option<&str>) -> Option<PathBuf> {
     let _guard = ReentryGuard::enter()?;
@@ -267,6 +325,7 @@ pub fn record_report(
             location,
             message,
             backtrace,
+            process_kind: config.process_kind.map(ProcessKind::as_str),
         },
         stamp,
     );
@@ -578,5 +637,34 @@ mod tests {
         assert!(recorded.is_some(), "the concurrent panic was recorded");
         assert_eq!(reports_in(&other_dir).len(), 1);
         let _ = std::fs::remove_dir_all(&other_dir);
+    }
+
+    #[test]
+    fn a_declared_process_kind_is_in_the_report_and_helper_exit_records_restart_context() {
+        let _lock = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
+        let dir = temp_dir("process-kind");
+        let config = CrashConfig::new("App", "1", &dir).process_kind(ProcessKind::Window);
+        let path = record_report(&config, "window_error", "renderer failed", None, "main", "")
+            .expect("report");
+        let value: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap();
+        assert_eq!(value["process_kind"], "window");
+
+        let supervisor = CrashConfig::new("App", "1", &dir).process_kind(ProcessKind::Engine);
+        let path = record_helper_exit(&supervisor, "indexer", "signal 11", 3).expect("report");
+        let value: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap();
+        assert_eq!(value["process_kind"], "helper");
+        assert_eq!(value["kind"], "sidecar_crash");
+        assert!(value["message"]
+            .as_str()
+            .unwrap()
+            .contains("restarts so far: 3"));
+
+        let plain = CrashConfig::new("App", "1", &dir);
+        let path = record_report(&plain, "panic", "x", None, "main", "").expect("report");
+        let value: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap();
+        assert!(value.get("process_kind").is_none());
     }
 }
