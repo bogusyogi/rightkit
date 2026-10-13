@@ -1,5 +1,6 @@
 import CryptoKit
 import Foundation
+import os
 import RightKitSecrets
 #if canImport(Combine)
 import Combine
@@ -322,13 +323,34 @@ public struct KeychainLicenseStore: LicenseStore, Sendable {
     /// again. Use ``requireDeviceID(account:)`` to have the failure surface.
     @available(*, deprecated, message: "Returns an unpersisted random id when the Keychain fails. Use requireDeviceID(account:), which throws, and fail closed.")
     public func deviceID(account: String = "device-id") -> String {
-        (try? requireDeviceID(account: account)) ?? UUID().uuidString
+        Self.lock.withLock {
+            guard let store = try? secrets() else { return UUID().uuidString }
+            return legacyDeviceIDLocked(account: account, store: store)
+        }
+    }
+
+    /// Under the lock. A corrupt stored id (empty or not UTF-8) is logged once and replaced in place, so the
+    /// identity settles on the new persisted value. Only when that replacement also fails does it return a
+    /// fallback, cached per process, so repeated calls agree instead of rotating per call.
+    func legacyDeviceIDLocked(account: String, store: SecretsStore) -> String {
+        do {
+            return try deviceIDLocked(account: account, store: store)
+        } catch LicenseError.corruptDeviceID {
+            if CorruptDeviceIDState.shared.claimReport() {
+                Self.log.error("stored license device id is corrupt; replacing it")
+            }
+            if let replaced = try? replaceCorruptDeviceIDLocked(account: account, store: store) { return replaced }
+            return CorruptDeviceIDState.shared.fallback(for: "\(service)\u{1f}\(account)")
+        } catch {
+            return UUID().uuidString
+        }
     }
 
     /// The persisted device id. Created and stored on first use (create-only, so two processes
     /// racing on first launch converge on one id). Throws ``LicenseStorageError/keychain(_:)`` when
     /// the Keychain read fails for any reason other than "not found" (a transient failure must not
     /// rotate the identity) or when the new id cannot be written (it would not survive the process).
+    /// Throws ``LicenseError/corruptDeviceID`` when the stored value is empty or not valid UTF-8; nothing is rewritten.
     public func requireDeviceID(account: String = "device-id") throws -> String {
         try Self.lock.withLock {
             do { return try deviceIDLocked(account: account, store: try secrets()) } catch { throw Self.map(error) }
@@ -336,16 +358,33 @@ public struct KeychainLicenseStore: LicenseStore, Sendable {
     }
 
     func deviceIDLocked(account: String, store: SecretsStore) throws -> String {
-        if let value = try store.getString(account), !value.isEmpty {
+        if let data = try store.get(account) {
+            let value = try Self.deviceIDText(data)
             _ = try? store.reapplyAccessibility(account)
             return value
         }
         let value = UUID().uuidString
         if try store.setIfAbsent(account, string: value) { return value }
         // Lost a cross-process race: the winner's id is the identity.
-        guard let winner = try store.getString(account), !winner.isEmpty else { throw SecretsError.keychain(errSecItemNotFound) }
-        return winner
+        guard let winner = try store.get(account) else { throw SecretsError.keychain(errSecItemNotFound) }
+        return try Self.deviceIDText(winner)
     }
+
+    /// Replaces a corrupt stored id: delete it, then a create-only write of a fresh id. Runs under the lock.
+    func replaceCorruptDeviceIDLocked(account: String, store: SecretsStore) throws -> String {
+        try store.delete(account)
+        let value = UUID().uuidString
+        if try store.setIfAbsent(account, string: value) { return value }
+        guard let winner = try store.get(account) else { throw SecretsError.keychain(errSecItemNotFound) }
+        return try Self.deviceIDText(winner)
+    }
+
+    private static func deviceIDText(_ data: Data) throws -> String {
+        guard let value = String(data: data, encoding: .utf8), !value.isEmpty else { throw LicenseError.corruptDeviceID }
+        return value
+    }
+
+    private static let log = Logger(subsystem: "org.rightkit.license", category: "device-id")
 
     /// Device-only accessibility: the item is excluded from backups and never migrates to another
     /// device, so a restored backup cannot carry a prior device binding.
@@ -353,6 +392,33 @@ public struct KeychainLicenseStore: LicenseStore, Sendable {
 
     func identity(service: String, account: String) -> [String: Any] {
         KeychainSecretsBackend().identity(namespace: service, key: account)
+    }
+}
+
+/// Process-wide state for the corrupt-device-id path: the one-time report and the per-process fallback ids.
+/// Guarded by its own lock; the callers also hold ``KeychainLicenseStore``'s lock.
+private final class CorruptDeviceIDState: @unchecked Sendable {
+    static let shared = CorruptDeviceIDState()
+    private let lock = NSLock()
+    private var reported = false
+    private var fallbacks: [String: String] = [:]
+
+    /// True exactly once per process.
+    func claimReport() -> Bool {
+        lock.withLock { () -> Bool in
+            if reported { return false }
+            reported = true
+            return true
+        }
+    }
+
+    func fallback(for key: String) -> String {
+        lock.withLock { () -> String in
+            if let existing = fallbacks[key] { return existing }
+            let fresh = UUID().uuidString
+            fallbacks[key] = fresh
+            return fresh
+        }
     }
 }
 

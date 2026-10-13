@@ -67,6 +67,25 @@ private func memoryStore(_ env: [String: String] = [:], guardEnv: [String] = [],
     #expect(SecretsAccessibility.afterFirstUnlockThisDeviceOnly.attribute as String == kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly as String)
 }
 
+@Test func everyKeychainQueryUsesTheDataProtectionKeychain() {
+    // Without the flag macOS ignores access groups and accessibility classes (file keychain).
+    let grouped = KeychainSecretsBackend(accessGroup: "group.org.rightkit.test")
+    #expect(grouped.identity(namespace: "svc", key: "acct")[kSecUseDataProtectionKeychain as String] as? Bool == true)
+    #expect(KeychainSecretsBackend().identity(namespace: "s", key: "a")[kSecUseDataProtectionKeychain as String] as? Bool == true)
+    #expect(KeychainSecretsBackend().identity(namespace: "s", key: "a")[kSecAttrSynchronizable as String] as? Bool == false)
+}
+
+@Test func legacyIdentityIsTheSameItemWithoutTheDataProtectionFlag() {
+    // Pre-M11 items were written without the flag; the one-time migration reads them through this query.
+    let backend = KeychainSecretsBackend(accessGroup: "group.org.rightkit.test")
+    let legacy = backend.legacyIdentity(namespace: "svc", key: "acct")
+    #expect(legacy[kSecUseDataProtectionKeychain as String] == nil)
+    #expect(legacy[kSecAttrService as String] as? String == "svc")
+    #expect(legacy[kSecAttrAccount as String] as? String == "acct")
+    #expect(legacy[kSecAttrSynchronizable as String] as? Bool == false)
+    #expect(legacy[kSecAttrAccessGroup as String] as? String == "group.org.rightkit.test")
+}
+
 /// Real Keychain round trip. Where the host denies Keychain access (no entitlement / locked) the
 /// typed `.keychain` error is the expected, non-plaintext outcome and the test records it.
 @Test func realKeychainRoundTripOrTypedFailure() throws {

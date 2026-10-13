@@ -57,19 +57,59 @@ public struct KeychainSecretsBackend: SecretsBackend {
         self.accessibility = accessibility
     }
 
-    /// Identity query: never synchronizable, scoped to the access group when one is configured.
+    /// Identity query: never synchronizable, scoped to the access group when one is configured, and
+    /// always on the data-protection keychain. On macOS the legacy file keychain ignores access groups and
+    /// accessibility classes, so the flag is required for both to take effect. Every platform this package
+    /// supports (macOS 14+, iOS 17+) has the flag, so it is set unconditionally.
     public func identity(namespace: String, key: String) -> [String: Any] {
         var q: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: namespace,
             kSecAttrAccount as String: key,
             kSecAttrSynchronizable as String: false,
+            kSecUseDataProtectionKeychain as String: true,
         ]
         if let accessGroup { q[kSecAttrAccessGroup as String] = accessGroup }
         return q
     }
 
+    /// Pre-M11 items were written without the data-protection flag, so they live in the legacy file keychain
+    /// (macOS only) where the flagged query cannot see them. Same attributes, flag removed.
+    func legacyIdentity(namespace: String, key: String) -> [String: Any] {
+        var q = identity(namespace: namespace, key: key)
+        q.removeValue(forKey: kSecUseDataProtectionKeychain as String)
+        return q
+    }
+
+    /// One-time migration of a legacy file-keychain item into the data-protection keychain (macOS only).
+    /// Runs before every operation, so a legacy copy can never shadow a newer value or come back after a
+    /// delete. The legacy item is removed only after the data-protection copy exists, or already held a value.
+    /// On iOS there is no separate legacy store, and the legacy query would hit the same items, so it is skipped.
+    func migrateLegacy(namespace: String, key: String) throws {
+        #if os(macOS)
+        var legacy = legacyIdentity(namespace: namespace, key: key)
+        legacy[kSecReturnData as String] = true
+        legacy[kSecMatchLimit as String] = kSecMatchLimitOne
+        var item: CFTypeRef?
+        let found = SecItemCopyMatching(legacy as CFDictionary, &item)
+        switch found {
+        case errSecItemNotFound: return
+        case errSecSuccess: break
+        default: throw SecretsError.keychain(found)
+        }
+        guard let data = item as? Data else { throw SecretsError.keychain(errSecDecode) }
+        var copy = identity(namespace: namespace, key: key)
+        copy[kSecValueData as String] = data
+        copy[kSecAttrAccessible as String] = accessibility.attribute
+        let added = SecItemAdd(copy as CFDictionary, nil)
+        guard added == errSecSuccess || added == errSecDuplicateItem else { throw SecretsError.keychain(added) }
+        let removed = SecItemDelete(legacyIdentity(namespace: namespace, key: key) as CFDictionary)
+        guard removed == errSecSuccess || removed == errSecItemNotFound else { throw SecretsError.keychain(removed) }
+        #endif
+    }
+
     public func get(namespace: String, key: String) throws -> Data? {
+        try migrateLegacy(namespace: namespace, key: key)
         var q = identity(namespace: namespace, key: key)
         q[kSecReturnData as String] = true
         q[kSecMatchLimit as String] = kSecMatchLimitOne
@@ -85,6 +125,7 @@ public struct KeychainSecretsBackend: SecretsBackend {
     }
 
     public func add(_ value: Data, namespace: String, key: String) throws -> Bool {
+        try migrateLegacy(namespace: namespace, key: key)
         var item = identity(namespace: namespace, key: key)
         item[kSecValueData as String] = value
         item[kSecAttrAccessible as String] = accessibility.attribute
@@ -97,6 +138,7 @@ public struct KeychainSecretsBackend: SecretsBackend {
     }
 
     public func update(_ value: Data, namespace: String, key: String) throws -> Bool {
+        try migrateLegacy(namespace: namespace, key: key)
         let attrs: [String: Any] = [
             kSecValueData as String: value,
             kSecAttrAccessible as String: accessibility.attribute,
@@ -110,6 +152,7 @@ public struct KeychainSecretsBackend: SecretsBackend {
     }
 
     public func delete(namespace: String, key: String) throws -> Bool {
+        try migrateLegacy(namespace: namespace, key: key)
         let status = SecItemDelete(identity(namespace: namespace, key: key) as CFDictionary)
         switch status {
         case errSecSuccess: return true
@@ -119,6 +162,7 @@ public struct KeychainSecretsBackend: SecretsBackend {
     }
 
     public func reapplyAccessibility(namespace: String, key: String) throws -> Bool {
+        try migrateLegacy(namespace: namespace, key: key)
         let attrs: [String: Any] = [kSecAttrAccessible as String: accessibility.attribute]
         let status = SecItemUpdate(identity(namespace: namespace, key: key) as CFDictionary, attrs as CFDictionary)
         switch status {

@@ -69,6 +69,8 @@ public enum LicenseError: Error, Equatable, Sendable {
     case invalidResponse
     case serverStatus(Int, String)
     case transport(String)
+    /// The stored device id is empty or not valid UTF-8. Raised by `requireDeviceID`; the legacy `deviceID()` replaces it.
+    case corruptDeviceID
 }
 
 extension LicenseError: LocalizedError {
@@ -86,6 +88,7 @@ extension LicenseError: LocalizedError {
         case .invalidResponse: return "License server returned an unreadable response."
         case let .serverStatus(status, message): return message.isEmpty ? "License server returned HTTP \(status)." : message
         case let .transport(message): return message
+        case .corruptDeviceID: return "The stored device identifier is corrupt."
         }
     }
 }
