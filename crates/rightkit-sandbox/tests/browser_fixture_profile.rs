@@ -3,7 +3,10 @@
 use rightkit_sandbox::seatbelt::{fixture_profile_for, BrowserFixturePolicy};
 use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
+
+static NEXT_TREE: AtomicU64 = AtomicU64::new(0);
 
 struct FixtureTree(PathBuf);
 
@@ -14,8 +17,9 @@ impl FixtureTree {
             .expect("system clock after epoch")
             .as_nanos();
         let root = std::env::temp_dir().join(format!(
-            "rightkit-browser-fixture-{}-{nonce}",
-            std::process::id()
+            "rightkit-browser-fixture-{}-{nonce}-{}",
+            std::process::id(),
+            NEXT_TREE.fetch_add(1, Ordering::Relaxed)
         ));
         std::fs::create_dir_all(&root).expect("create fixture test tree");
         Self(root)
