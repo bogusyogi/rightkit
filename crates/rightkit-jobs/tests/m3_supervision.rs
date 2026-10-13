@@ -473,8 +473,10 @@ fn a_response_timeout_after_a_successful_write_keeps_the_engine_alive_when_asked
 #[test]
 fn a_kill_the_os_has_not_confirmed_at_its_bound_is_never_reported_gone_and_is_reaped_later() {
     // A zero grace gives the kill no time to be confirmed: the outcome is `Killed` if the OS
-    // reported the exit in that instant and `Unconfirmed` otherwise. Either way the process ends
-    // up reaped (by the supervisor's reaper, not by blocking the caller) and never a zombie.
+    // reported the exit in that instant, `Unconfirmed` otherwise, or `Exited` when the fixture
+    // (deaf to stdin, not to signals) already died from the TERM before the kill escalated. In
+    // every case the process ends up reaped (by the supervisor's reaper, not by blocking the
+    // caller) and never a zombie.
     let (_d, cfg) = rig("deaf");
     let s = EngineSupervisor::new(cfg.with_shutdown_grace(Duration::ZERO));
     s.start().unwrap();
@@ -483,10 +485,15 @@ fn a_kill_the_os_has_not_confirmed_at_its_bound_is_never_reported_gone_and_is_re
     assert!(
         matches!(
             report.outcome,
-            rightkit_jobs::ShutdownOutcome::Killed | rightkit_jobs::ShutdownOutcome::Unconfirmed
+            rightkit_jobs::ShutdownOutcome::Killed
+                | rightkit_jobs::ShutdownOutcome::Unconfirmed
+                | rightkit_jobs::ShutdownOutcome::Exited
         ),
         "{report:?}"
     );
+    if report.outcome == rightkit_jobs::ShutdownOutcome::Exited {
+        assert!(report.reaped, "{report:?}");
+    }
     if report.outcome == rightkit_jobs::ShutdownOutcome::Unconfirmed {
         assert!(!report.reaped || report.unreaped == 0, "{report:?}");
     }
