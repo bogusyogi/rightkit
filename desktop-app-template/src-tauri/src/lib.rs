@@ -42,11 +42,24 @@ pub fn engine_config(engine: PathBuf) -> Result<SupervisorConfig, String> {
     .with_rpc_timeout(Duration::from_secs(30)))
 }
 
-/// Packaged: Tauri places `externalBin` next to the executable (triple suffix stripped). Dev and QA
-/// override the path with `RIGHTAPP_ENGINE_BIN`.
+/// Engine path override from `RIGHTAPP_ENGINE_BIN`, honoured only when `allowed`. A release build
+/// passes `false`, so a packaged app never launches an executable named by its environment.
+fn engine_override(value: Option<std::ffi::OsString>, allowed: bool) -> Option<PathBuf> {
+    if allowed {
+        value.map(PathBuf::from)
+    } else {
+        None
+    }
+}
+
+/// Packaged: Tauri places `externalBin` next to the executable (triple suffix stripped). Debug builds
+/// (dev and QA) may override the path with `RIGHTAPP_ENGINE_BIN`; release builds ignore it.
 fn engine_path(app: &tauri::AppHandle) -> Result<PathBuf, Box<dyn std::error::Error>> {
-    if let Some(p) = std::env::var_os("RIGHTAPP_ENGINE_BIN") {
-        return Ok(p.into());
+    if let Some(p) = engine_override(
+        std::env::var_os("RIGHTAPP_ENGINE_BIN"),
+        cfg!(debug_assertions),
+    ) {
+        return Ok(p);
     }
     let name = if cfg!(windows) {
         "rightapp-engine.exe"
@@ -168,4 +181,25 @@ pub fn run() {
                 }
             }
         });
+}
+
+#[cfg(test)]
+mod engine_override_tests {
+    use super::engine_override;
+    use std::ffi::OsString;
+    use std::path::PathBuf;
+
+    #[test]
+    fn a_release_build_ignores_the_engine_override() {
+        assert_eq!(engine_override(Some(OsString::from("/tmp/evil")), false), None);
+    }
+
+    #[test]
+    fn a_debug_build_honours_the_engine_override() {
+        assert_eq!(
+            engine_override(Some(OsString::from("/tmp/dev-engine")), true),
+            Some(PathBuf::from("/tmp/dev-engine"))
+        );
+        assert_eq!(engine_override(None, true), None);
+    }
 }
