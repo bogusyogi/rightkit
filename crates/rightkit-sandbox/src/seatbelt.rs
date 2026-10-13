@@ -197,10 +197,29 @@ fn validate_proxy(addr: SocketAddr) -> std::io::Result<u16> {
 /// allowance IPv4-only. The only listener allowance is a loopback TCP debugging socket. Reads
 /// and execution stay within the Chrome bundle and fixed runtime locations, while writes stay
 /// within the canonical fixture profile directory.
+/// CFBundleIdentifier from an XML `Contents/Info.plist`; `None` for binary/missing plists or
+/// identifiers with characters outside `[A-Za-z0-9.-]`.
+fn bundle_identifier(app_bundle: &Path) -> Option<String> {
+    let text = std::fs::read_to_string(app_bundle.join("Contents/Info.plist")).ok()?;
+    let rest = text.split("<key>CFBundleIdentifier</key>").nth(1)?;
+    let id = rest
+        .split("<string>")
+        .nth(1)?
+        .split("</string>")
+        .next()?
+        .trim();
+    (!id.is_empty()
+        && id
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '.' || c == '-'))
+    .then(|| id.to_string())
+}
+
 pub fn fixture_profile_for(policy: &BrowserFixturePolicy) -> std::io::Result<String> {
     let executable = canonical_existing(&policy.chrome_executable, "Chrome executable")?;
     let profile = canonical_existing(&policy.profile_dir, "profile directory")?;
     let app_bundle = browser_app_bundle(&executable)?;
+    let app_bundle_path = app_bundle.clone();
     if profile.starts_with(&app_bundle) || app_bundle.starts_with(&profile) {
         return Err(std::io::Error::new(
             std::io::ErrorKind::InvalidInput,
@@ -255,11 +274,19 @@ pub fn fixture_profile_for(policy: &BrowserFixturePolicy) -> std::io::Result<Str
     // crashpad handler handshake also needs a service. Validated with sandbox-exec against
     // Chrome for Testing: without these, children abort ("No rendezvous client") or crashpad
     // fails its check-in.
-    for name in [
-        "com.google.Chrome.MachPortRendezvousServer",
-        "com.google.chrome.for.testing.MachPortRendezvousServer",
-        "org.chromium.crashpad.child_port_handshake",
-    ] {
+    // Scope the rendezvous service to the launched bundle's CFBundleIdentifier when its
+    // Info.plist is readable XML; otherwise keep the three known names (residual risk: they also
+    // match a real user Chrome's services, documented in owner-fixes/sandbox-macos-fixture.md).
+    // The crashpad handshake prefix is not bundle-scoped and stays (same residual risk).
+    let mut names: Vec<String> = match bundle_identifier(&app_bundle_path) {
+        Some(id) => vec![format!("{id}.MachPortRendezvousServer")],
+        None => vec![
+            "com.google.Chrome.MachPortRendezvousServer".into(),
+            "com.google.chrome.for.testing.MachPortRendezvousServer".into(),
+        ],
+    };
+    names.push("org.chromium.crashpad.child_port_handshake".into());
+    for name in &names {
         p.push_str(&format!(
             "(allow mach-register (global-name-prefix \"{name}\"))\n\
              (allow mach-lookup (global-name-prefix \"{name}\"))\n"

@@ -132,3 +132,21 @@ fn fixture_profile_escapes_path_delimiters() {
 
     assert!(sbpl.contains("profile-\\\\-\\\"quoted\\\""));
 }
+
+#[test]
+fn fixture_profile_scopes_mach_services_to_the_bundle_identifier() {
+    let tree = FixtureTree::new();
+    let chrome = tree.chrome();
+    let contents = chrome.parent().unwrap().parent().unwrap();
+    std::fs::write(
+        contents.join("Info.plist"),
+        "<plist><dict><key>CFBundleIdentifier</key><string>com.example.fixturebrowser</string></dict></plist>",
+    )
+    .unwrap();
+    let sbpl =
+        rightkit_sandbox::seatbelt::fixture_profile_for(&tree.policy(chrome, tree.profile()))
+            .unwrap();
+    assert!(sbpl.contains("com.example.fixturebrowser.MachPortRendezvousServer"));
+    assert!(!sbpl.contains("com.google.Chrome.MachPortRendezvousServer"));
+    assert!(!sbpl.contains("com.google.chrome.for.testing.MachPortRendezvousServer"));
+}

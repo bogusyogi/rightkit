@@ -509,7 +509,6 @@ pub(crate) fn spawn_chrome_fixture_windows(
         .args(args.iter().cloned())
         .arg("--enable-logging=stderr")
         .arg("--v=0")
-        .arg("--enable-logging")
         .arg(log_arg);
     let launch_params = fixture_launch_params(exe, args, profile_dir);
     let sandbox = Sandbox::new(ResourceAuthority::new(ResourceProfile::Practical));
@@ -683,6 +682,9 @@ mod tests {
         let seen: Vec<_> = ordinary.command_mut().get_args().collect();
         assert!(!seen.iter().any(|a| *a == "--no-sandbox"), "{seen:?}");
         assert!(!seen.iter().any(|a| *a == "--disable-gpu"), "{seen:?}");
+        for flag in ["--disable-crash-reporter", "--disable-breakpad"] {
+            assert!(!seen.iter().any(|a| *a == flag), "{flag}: {seen:?}");
+        }
         // BrowserSession::launch's own source never names the flag.
         let session = include_str!("session.rs");
         assert!(!session.contains("\"--no-sandbox\""));
