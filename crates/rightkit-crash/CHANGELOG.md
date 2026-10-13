@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.2.2
 
 - Owner gap OG16-5, Rust side (additive, default off, no new dependency). Feature `window-errors`: `record_window_error(&CrashConfig, &WindowErrorGate, &WindowErrorReport)` records a renderer error forwarded by the webview as a `window_error` or `window_rejection` report with `process_kind = window`, through `record_report` (owner scrub, `redact_values`, retention, sink). The webview is an untrusted caller, so the message (1000 chars), stack (8 KiB) and source (query and fragment stripped) are bounded again, and `WindowErrorGate` allows at most 5 reports per minute and 25 per process by default. The app registers its own Tauri command that deserializes a `WindowErrorReport` and calls it; nothing is recorded until it does. The JavaScript half is `installWindowCrashCapture` in `@rightkit/logs`.
 

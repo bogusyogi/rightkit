@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.2.5
 
 - Tests: the three real-Chrome test files say in their headers that they run the installed Chrome for Testing on a
   temporary profile that is removed, and open no real browser profile.

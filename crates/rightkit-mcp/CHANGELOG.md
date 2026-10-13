@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.6.0
 
 - **BREAKING (0.6.0): `McpClient::connect`, `connect_with_extensions` and `connect_with_extensions_cancellable` are trust gated.**
   Each now takes `source: &ServerSource, trust: &TrustStore` after the server name. A `ServerSource::Workspace`
