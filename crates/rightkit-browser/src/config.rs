@@ -300,16 +300,16 @@ fn managed_chrome_for_testing_candidates(root: &Path) -> Vec<PathBuf> {
 
 /// Windows fixture only: `chrome-headless-shell` of the same Chrome for Testing version, which
 /// never starts the crashpad handler (see [`chrome_headless_shell_path`]).
-#[cfg(any(windows, test))]
+#[cfg(windows)]
 pub(crate) const HEADLESS_SHELL_ENV: &str = "RIGHTKIT_CHROME_HEADLESS_SHELL";
-#[cfg(any(windows, test))]
+#[cfg(windows)]
 const HEADLESS_SHELL_WIN64: &str = "chrome-headless-shell-win64/chrome-headless-shell.exe";
 
 /// Candidate `chrome-headless-shell.exe` paths for the Windows fixture, in resolution order: the
 /// sibling of the resolved Chrome (`<version>/chrome-win64/chrome.exe` ->
 /// `<version>/chrome-headless-shell-win64/`), then each RightKit-managed version, newest first
 /// (`RIGHTKIT_CHROME_FOR_TESTING_ROOT` overrides the root, as for Chrome).
-#[cfg(any(windows, test))]
+#[cfg(windows)]
 fn chrome_headless_shell_candidates(chrome: &Path, managed_root: &Path) -> Vec<PathBuf> {
     let mut out = Vec::new();
     if let Some(version_dir) = chrome.parent().and_then(Path::parent) {
@@ -327,7 +327,7 @@ fn chrome_headless_shell_candidates(chrome: &Path, managed_root: &Path) -> Vec<P
 /// (must exist), then [`chrome_headless_shell_candidates`]. Chrome's browser process starts the
 /// crashpad handler unconditionally, which cannot create its named pipe inside an AppContainer;
 /// the headless shell never starts it on Windows. Production launches never call this.
-#[cfg(any(windows, test))]
+#[cfg(windows)]
 pub(crate) fn chrome_headless_shell_path(chrome: &Path) -> Result<PathBuf> {
     let missing = |what: String| {
         BrowserError::ChromeForTestingNotFound(format!(
