@@ -1,0 +1,7 @@
+release-switch-fixture v0.0.0 (/work/app)
+├── release-switch-fixture feature "default"
+├── release-switch-fixture feature "test-mode"
+│   └── rightkit-service feature "test-mode"
+└── rightkit-service v0.1.5 (/work/rightkit/crates/rightkit-service)
+    ├── rightkit-service feature "default"
+    └── rightkit-service feature "test-mode" (*)

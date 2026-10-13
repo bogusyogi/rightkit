@@ -28,6 +28,37 @@ Not coverable after packing: an NSIS exe (LZMA payload) and a compressed DMG. Th
 
 Every Right app has absolutely NO access to DevTools; the single exception is ViewRight, which may inspect the HTML content it opens, never its own UI or shell. The rules above therefore refuse `devtools` (and rightkit-shell's `content-devtools`) for every app, with one narrow allowance (`devtools-policy.mjs`): an app whose right-release config declares `devtools: "content-only"`, **and** that is listed in `devtools-policy.json` (`contentOnlyApps`, today only `viewright`), **and** whose Cargo manifest depends on `rightkit-shell` with `content-devtools`, **and** whose `build.rs` declares an application ACL manifest. Then the source layer accepts `devtools` / `content-devtools`, and the binary layer accepts the `tauri-devtools` signatures only in a binary that also carries `RIGHTKIT-SHELL-DEVTOOLS-CONTENT-ONLY-COMPILED` (written by rightkit-shell when `content-devtools` is compiled). `--all-features`, `qa-native`, `qa-control`, `dev-native`, `dev-inspect` and every other rule stay refused. The allowance is recorded in the sealed manifest (`devtools`) and re-checked against the allow-list when a sealed file is verified. Any other app declaring it is refused (`devtools-policy.test.mjs`).
 
+## Release switch scan (M21/M23, owner decision D4, ratified)
+
+`release-switch-scan.mjs` proves that release code cannot use an environment variable, argument, settings key or build flag to select a test mode, data root, executable, library, model or identity. The runtime half is `rightkit_service::mode`: a build without the `test-mode` cargo feature reads no override selector at all. Registry: `release-switch-registry.json` (forbidden features, the `RIGHTKIT-TEST-MODE-COMPILED` marker, deny names with their class). Apps add their own deny names under `releaseSwitches.forbid`. Selector classes: S1 test activation, S2 authority or identity override, S3 executable/library/model, S4 internal state or data root (S1-S4: forbidden, no allow-list), S5 user-content location (allowed, user gesture), S6 diagnostics/tuning (allowed, bounded value).
+
+1. **Feature closure** - `featureClosureFindings(cargo tree -e features --target <triple> output)` and `commandSwitchFindings(argv)` refuse `test-mode`, `qa-native`, `dev-native`, `qa-control`, `dev-inspect` anywhere in the resolved graph (finding id `forbidden-feature <name>`). `qa-build-features.mjs` also lists `test-mode` as a forbidden feature, including on a non-optional `rightkit-service` dependency.
+2. **Inventory completeness** - `sourceSwitchFindings` walks app source (Rust, TS/JS, Swift, C; not tests, fixtures, `node_modules`, `target`) and rejects an environment read whose name is not in `switches.json` (`unregistered-read`), a non-literal read in a file not listed under `dynamicReads` (`dynamic-read`), an S1-S4 entry without `compiledOut` (`not-compiled-out`), and a malformed inventory (`inventory-invalid`). Argument flags are enforced for deny-listed flags only.
+3. **Binary** - `scanSwitchPaths` / `bufferSwitchFindings` over Mach-O, PE and ELF files: the marker (`test-mode-capability`) and any deny name from S1-S4 (`release-switch-names`), each as Latin-1 and UTF-16LE. The receipt holds the sha256 and size of every scanned file; the caller adds source commit, target triple and resolved features.
+
+`assertNoReleaseSwitches({ treeText, commands, sourceRoot, inventoryText, binaryPaths, appForbid })` runs every layer it is given input for. Limits: packed NSIS/DMG and compressed MSIX members are covered only by the pre-pack scan of the staged payload, symlinks are skipped, and browser JS is checked at the source layer only. `release.mjs` runs the source layer once before packaging (inventory at `releaseSwitches.inventory` or `switches.json`; a missing inventory fails a non-dry-run release) and the binary layer wherever it runs the QA-control binary scan; a finding stops the release. Trust model: a release build reads no override switch at all; the test capability is compiled out (`test-mode` cargo feature, refused by `qa-build-features.mjs`), never hidden behind a flag.
+
+### `switches.json` (one per app)
+
+```json
+{
+  "schema": 1,
+  "app": "viewright",
+  "switches": [
+    { "name": "HEARDRIGHT_ENGINE_TEST_MODE", "class": "S1", "channel": "env",
+      "anchor": "src/test_mode.rs:97", "compiledOut": "feature:test-mode", "note": "" },
+    { "name": "LIGHTCRAFT_LOG", "class": "S6", "channel": "env", "valueType": "enum" },
+    { "name": "--library", "class": "S5", "channel": "argv", "userGesture": true }
+  ],
+  "dynamicReads": [ { "file": "src/x.rs", "reason": "why a literal name is impossible" } ]
+}
+```
+
+- `name` (required, unique): environment variable, argument flag, settings key or `VITE_*` name.
+- `class` (required): `S1`..`S6`. `channel` (required): `env`, `argv`, `settings`, `preference` or `frontend`.
+- S1-S4 need `compiledOut`: `feature:<name>`, `cfg:test` or `cfg:debug_assertions` (the read exists only there). S5 needs `userGesture: true`. S6 needs `valueType` of `bool`, `int` or `enum`.
+- `anchor` and `note` are informational. Fixtures: `fixtures/release-switches/` (`app/` is a clean example).
+
 ## Commands
 
 `right-release` maps these subcommands to the modules in this package:

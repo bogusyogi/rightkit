@@ -1,0 +1,14 @@
+{
+  "schema": 1,
+  "app": "release-switch-fixture",
+  "switches": [
+    {
+      "name": "FIXTURE_QA_ROOT",
+      "class": "S4",
+      "channel": "env",
+      "anchor": "src/main.rs:5",
+      "compiledOut": "feature:test-mode",
+      "note": "test root; present only with the test-mode feature"
+    }
+  ]
+}
