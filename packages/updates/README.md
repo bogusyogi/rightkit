@@ -38,6 +38,15 @@ if (status.kind === "available") await client.installAvailable();
 
 Status flow: `checking`, then `available`, then `downloading`, then `ready`. `ready` is emitted only after `downloadAndInstall` resolves. A failed install emits `{ kind: "error" }` and never `ready`.
 
+## Opt-in additions (all default off)
+
+- `verifyMetadata(update, ctx)` config hook: reject update metadata before it is offered. Tauri's updater plugin still verifies the artifact signature against the app's configured pubkey; this package performs no signature verification itself (delegated, by design).
+- `relaunch` + `relaunchAfterInstall`: relaunch after `ready`.
+- `strictInstallHeaders`: never reuse manifest-check headers for the artifact download.
+- `createBootProbation`: boot-probation / rollback-decision state machine; the host supplies storage and performs the restore.
+- `createCheckGate`: check cache and debounce. `resolveChannel` / `validateChannels`: channel endpoint selection. `compareVersions` / `isNewerVersion`: semver compare. `assertSingleUpdatesVersion`: duplicate-copy guard.
+- `@rightkit/updates/contract-vectors`: test fixtures subpath (the main entry still re-exports them).
+
 ## Known issues
 
 - Omitting `getInstallHeaders` reuses the `getHeaders` result for the download. That can send a manifest credential to a different artifact origin. New apps should set `getInstallHeaders` explicitly, returning `undefined` for public patches.
