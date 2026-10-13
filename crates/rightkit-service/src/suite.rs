@@ -211,6 +211,20 @@ impl Suite {
         Ok(d)
     }
 
+    /// The directory that holds per-app roots: the sibling of `shared` when the suite root is the
+    /// canonical `.../Orthic Labs/shared`, otherwise `<root>/apps`, so an isolated test or
+    /// override root keeps every app root inside itself.
+    pub(crate) fn app_parent(&self) -> PathBuf {
+        let shared = self.root.file_name().is_some_and(|n| n == SHARED_DIR_NAME);
+        let parent = self.root.parent();
+        match parent {
+            Some(p) if shared && p.file_name().is_some_and(|n| n == SUITE_DIR_NAME) => {
+                p.to_path_buf()
+            }
+            _ => self.root.join("apps"),
+        }
+    }
+
     /// `<suite>/<area>`: shared app data that must not be relative to the cwd
     /// (screenshots, evidence, models). Created private to the user.
     pub fn data_dir(&self, area: &str) -> Result<PathBuf, SuiteError> {

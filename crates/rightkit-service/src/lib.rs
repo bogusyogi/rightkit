@@ -44,6 +44,7 @@
 //! as the `rightkit-jobs` engine contract:
 //! `hello`, `request{id,method,params}`, `event{id,event}`, `response{id,ok,result|error}`.
 
+mod app_root;
 mod client;
 mod discovery;
 mod error;
@@ -66,6 +67,10 @@ pub use discovery::{
 };
 // Deprecated items stay exported for existing callers; their deprecation is reported at the
 // caller's own use site, not on this re-export.
+pub use app_root::{
+    valid_app_name, AppRoot, AppRootError, MigrationOutcome, WriterLock, MAX_APP_NAME_LEN,
+    MIGRATION_MARKER,
+};
 #[allow(deprecated)]
 pub use discovery::{discover_apps, KNOWN_APPS};
 pub use error::{
