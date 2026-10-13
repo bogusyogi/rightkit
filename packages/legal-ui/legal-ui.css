@@ -25,3 +25,8 @@
 @media (max-width: 640px) {
   .rk-legal-gate__body { grid-template-columns: minmax(0, 1fr); row-gap: 26px; max-width: 420px; }
 }
+.rk-legal-gate__doc { margin: 8px 0 4px; padding: 10px 12px; max-height: 240px; overflow: auto; font-size: 12.5px; line-height: 1.5; border: 1px solid color-mix(in srgb, currentColor 25%, transparent); border-radius: 6px; }
+.rk-legal-gate__doc h2, .rk-legal-gate__doc h3, .rk-legal-gate__doc h4, .rk-legal-gate__doc h5, .rk-legal-gate__doc h6 { font-size: 13px; margin: 10px 0 4px; }
+.rk-legal-gate__doc p, .rk-legal-gate__doc ul, .rk-legal-gate__doc ol { margin: 0 0 8px; }
+.rk-legal-gate__doc ul, .rk-legal-gate__doc ol { padding-left: 20px; }
+.rk-legal-gate__doc-text { margin: 0; white-space: pre-wrap; font: inherit; }
