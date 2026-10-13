@@ -24,6 +24,7 @@ let package = Package(
         .library(name: "RightKitWatch", targets: ["RightKitWatch"]),
         .library(name: "RightKitUI", targets: ["RightKitUI"]),
         .library(name: "RightKitPulse", targets: ["RightKitPulse"]),
+        .library(name: "RightKitDB", targets: ["RightKitDB"]),
     ],
     targets: [
         .target(name: "RightKitLicense"),
@@ -73,5 +74,8 @@ let package = Package(
         // Pulse facade over the proposed rightkit-jobs C ABI seam (design selection, not a qualified adoption).
         .target(name: "RightKitPulse"),
         .testTarget(name: "RightKitPulseTests", dependencies: ["RightKitPulse"]),
+        // Read-only reader for rightkit-db databases (Rust is the only writer); system SQLite3.
+        .target(name: "RightKitDB", linkerSettings: [.linkedLibrary("sqlite3")]),
+        .testTarget(name: "RightKitDBTests", dependencies: ["RightKitDB"]),
     ],
 )
