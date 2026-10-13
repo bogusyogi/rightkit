@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+Added (M2-G1, CodeRight dark-default contract):
+- `themeAttributeValue`, `applyThemeAttribute` and `ThemeAttributeOptions { darkRemovesAttribute }`: with the option, a resolved dark theme removes `data-theme` and only light is written. `themeBootScript(storageKey, { darkRemovesAttribute })` follows the same rule. Default unchanged (`false`: dark writes `data-theme="dark"`; the boot script output is byte-identical without options).
+- The persisted store itself (`createThemeStore`) lives in `@rightkit/app-shell`, outside this package: wiring the same option into its `apply` is a separate app-shell change (see the M1-M2 owner-fix report).
+
 ## 0.2.3
 
 Added:
