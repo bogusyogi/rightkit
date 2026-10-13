@@ -4,7 +4,8 @@
 
 use rightkit_jobs::{
     CallOptions, EngineSupervisor, EventFrame, Lifecycle, ProgressDeadline, ShutdownOutcome,
-    SupervisorConfig, Terminal, CONTRACT_VERSION, CONTRACT_VERSION_MISMATCH, DELIVERY_UNKNOWN,
+    SupervisorConfig, Terminal, CONTRACT_VERSION, CONTRACT_VERSION_MISMATCH, DEFAULT_FRAME_LIMIT,
+    DELIVERY_UNKNOWN, MAX_FRAME_LIMIT,
 };
 use rightkit_process::{OwnedCommand, RestartMode, RestartPolicy};
 use serde_json::json;
@@ -462,4 +463,73 @@ fn a_kill_the_os_has_not_confirmed_at_its_bound_is_never_reported_gone_and_is_re
     }
     assert_eq!(s.unreaped_children(), 0, "the reaper must finish the wait");
     assert_eq!(ps_state(pid), None, "no zombie behind the reaper");
+}
+
+#[test]
+fn an_unbounded_frame_limit_is_bounded_to_the_ceiling_and_the_default_is_unchanged() {
+    let (_d, cfg) = rig("ok");
+    assert_eq!(cfg.effective_frame_limit(), DEFAULT_FRAME_LIMIT);
+    let cfg = cfg.with_frame_limit(usize::MAX);
+    assert_eq!(cfg.frame_limit, MAX_FRAME_LIMIT);
+    assert_eq!(cfg.effective_frame_limit(), MAX_FRAME_LIMIT);
+    // The field is public: setting it past the ceiling directly is bounded where it is used.
+    let (_d, mut cfg) = rig("ok");
+    cfg.frame_limit = usize::MAX;
+    assert_eq!(cfg.effective_frame_limit(), MAX_FRAME_LIMIT);
+    // A limit under the ceiling is kept exactly.
+    let (_d, cfg) = rig("ok");
+    assert_eq!(
+        cfg.with_frame_limit(1 << 20).effective_frame_limit(),
+        1 << 20
+    );
+}
+
+#[test]
+fn a_bounded_frame_limit_still_serves_large_frames_and_rejects_oversize_per_call() {
+    let (_d, cfg) = rig("ok");
+    let s = EngineSupervisor::new(cfg.with_frame_limit(usize::MAX));
+    s.start().unwrap();
+    // 3 MiB under the ceiling is delivered.
+    assert!(
+        s.call("big", json!({})).unwrap()["blob"]
+            .as_str()
+            .unwrap()
+            .len()
+            >= 3 << 20
+    );
+    s.shutdown();
+    // Negative: a tight limit answers that call with frame_too_large and keeps the engine.
+    let (_d, cfg) = rig("ok");
+    let s = EngineSupervisor::new(cfg.with_frame_limit(1 << 20));
+    s.start().unwrap();
+    assert_eq!(
+        s.call("big", json!({})).unwrap_err().code,
+        "frame_too_large"
+    );
+    assert_eq!(s.status().generation, 1);
+    s.shutdown();
+}
+
+#[test]
+fn progress_events_carry_the_request_id_of_the_call_that_produced_them() {
+    let (_d, cfg) = rig("ok");
+    let s = EngineSupervisor::new(cfg);
+    s.start().unwrap();
+    let ids = Arc::new(std::sync::Mutex::new(Vec::new()));
+    let sink = Arc::clone(&ids);
+    let result = s
+        .call_with(
+            "progress",
+            json!({"n": 3}),
+            CallOptions {
+                on_frame: Some(Box::new(move |f: &EventFrame<'_>| {
+                    sink.lock().unwrap().push(f.id);
+                })),
+                ..CallOptions::default()
+            },
+        )
+        .unwrap();
+    let id = result["id"].as_u64().unwrap();
+    assert_eq!(*ids.lock().unwrap(), vec![id, id, id]);
+    s.shutdown();
 }

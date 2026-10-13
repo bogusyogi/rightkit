@@ -37,8 +37,8 @@ pub use config::{
 };
 #[cfg(feature = "contract")]
 pub use contract::{
-    parse_flags, run_cli, serve, CommandSet, Dispatcher, DoctorFn, Flags, JobCommands, Outcome,
-    PayloadMapper, Sink, JOB_METHODS,
+    parse_flags, run_cli, serve, serve_report, CommandSet, Dispatcher, DoctorFn, Flags,
+    JobCommands, Outcome, PayloadMapper, ServeReport, Sink, JOB_METHODS,
 };
 #[cfg(feature = "store")]
 pub use error::OpenFailure;
@@ -86,7 +86,7 @@ mod crash_observer;
 #[cfg(feature = "crash")]
 pub use crash_observer::CrashExitObserver;
 #[cfg(feature = "protocol")]
-pub use wire::{CONTRACT_VERSION, DEFAULT_FRAME_LIMIT};
+pub use wire::{finite_frame_limit, CONTRACT_VERSION, DEFAULT_FRAME_LIMIT, MAX_FRAME_LIMIT};
 // Re-exported so a host that only depends on rightkit-jobs can build the policy and spawn command.
 #[cfg(feature = "supervisor")]
 pub use rightkit_process::{JobAssignmentMode, OwnedCommand, RestartMode, RestartPolicy};

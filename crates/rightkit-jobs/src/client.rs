@@ -12,7 +12,7 @@ use rightkit_process::{OwnedChild, OwnedCommand, ReapOutcome, WaitOutcome};
 use serde_json::{json, Value};
 
 use crate::error::{ErrorOrigin, JobError, JobResult, DELIVERY_UNKNOWN};
-use crate::wire::DEFAULT_FRAME_LIMIT;
+use crate::wire::{finite_frame_limit, DEFAULT_FRAME_LIMIT};
 
 type OnEvent = Box<dyn Fn(&Value) + Send>;
 
@@ -165,7 +165,7 @@ impl std::fmt::Debug for ProtocolErrorSink {
 pub struct ClientOptions {
     /// How long to wait for the engine's hello frame.
     pub hello_timeout: Duration,
-    /// Largest frame accepted in either direction. A larger *response* answers
+    /// Largest frame accepted in either direction (bounded to `MAX_FRAME_LIMIT`). A larger *response* answers
     /// the call it belongs to with `frame_too_large` instead of ending the session.
     pub frame_limit: usize,
     /// When set, a hello frame that does not advertise this contract version
@@ -316,6 +316,7 @@ impl EngineClient {
             fallback_error_code,
             protocol_error_sink,
         } = options;
+        let frame_limit = finite_frame_limit(frame_limit);
         let mut reader = reader;
         let pending: PendingMap = Arc::default();
         let map = Arc::clone(&pending);

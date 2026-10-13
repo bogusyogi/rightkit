@@ -28,7 +28,7 @@ use crate::error::{JobError, JobResult};
 use crate::runner::{EventSink, RunOutcome, Runner};
 use crate::store::{JobStore, ListFilter, NewJob};
 
-pub use crate::wire::{CONTRACT_VERSION, DEFAULT_FRAME_LIMIT};
+pub use crate::wire::{finite_frame_limit, CONTRACT_VERSION, DEFAULT_FRAME_LIMIT};
 
 /// Receives event values emitted while a command runs.
 pub type Sink = Arc<dyn Fn(Value) + Send + Sync>;
@@ -72,6 +72,7 @@ pub struct Dispatcher {
     doctor: Option<DoctorFn>,
     cli_targets: Vec<(String, String)>,
     error_retryable: bool,
+    drain_timeout: Option<Duration>,
 }
 
 pub struct Outcome {
@@ -112,6 +113,7 @@ impl Dispatcher {
             doctor: None,
             cli_targets: vec![],
             error_retryable: true,
+            drain_timeout: None,
         }
     }
     /// Drop a built-in (`ping`, `doctor`, `shutdown`) so an app command set
@@ -137,6 +139,15 @@ impl Dispatcher {
         self.error_retryable = yes;
         self
     }
+    /// Bound how long [`serve`] waits for running long requests after the connection ended (EOF
+    /// or `shutdown`): the connection-closed and shutdown hooks run first, then `serve` waits at
+    /// most `timeout` for the request threads and returns, leaving any still running detached
+    /// ([`serve_report`] says how many). Default: wait for all of them, however long. A detached
+    /// request keeps running; cancellation stays cooperative and is not proof it stopped.
+    pub fn with_drain_timeout(mut self, timeout: Duration) -> Self {
+        self.drain_timeout = Some(timeout);
+        self
+    }
     fn has_builtin(&self, m: &str) -> bool {
         self.builtins.contains(&m)
     }
@@ -144,9 +155,14 @@ impl Dispatcher {
         self.sets.push(set);
         self
     }
+    /// Largest frame read or written; bounded to `MAX_FRAME_LIMIT` (`usize::MAX` gives the ceiling).
     pub fn with_frame_limit(mut self, limit: usize) -> Self {
-        self.frame_limit = limit;
+        self.frame_limit = finite_frame_limit(limit);
         self
+    }
+    /// The frame limit this dispatcher serves with.
+    pub fn frame_limit(&self) -> usize {
+        self.frame_limit
     }
     pub fn hello(&self) -> Value {
         json!({"type": "hello", "engine": self.engine, "version": self.version,
@@ -283,9 +299,31 @@ impl Dispatcher {
     }
 }
 
+/// What [`serve_report`] saw when the connection ended.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct ServeReport {
+    /// Long requests still running when the bounded drain ([`Dispatcher::with_drain_timeout`])
+    /// passed; they were detached, not stopped. Always 0 without a drain timeout.
+    pub detached: usize,
+}
+
 /// Serve frames until `shutdown` or EOF. Long requests run on threads; all are
-/// joined before returning.
-pub fn serve<R, W>(d: Arc<Dispatcher>, mut reader: R, writer: W, dry_run: bool) -> io::Result<()>
+/// joined before returning, unless the dispatcher has a drain timeout.
+pub fn serve<R, W>(d: Arc<Dispatcher>, reader: R, writer: W, dry_run: bool) -> io::Result<()>
+where
+    R: BufRead,
+    W: Write + Send + 'static,
+{
+    serve_report(d, reader, writer, dry_run).map(|_| ())
+}
+
+/// As [`serve`], reporting how many long requests were left running by a bounded drain.
+pub fn serve_report<R, W>(
+    d: Arc<Dispatcher>,
+    mut reader: R,
+    writer: W,
+    dry_run: bool,
+) -> io::Result<ServeReport>
 where
     R: BufRead,
     W: Write + Send + 'static,
@@ -309,6 +347,7 @@ where
     emit(d.hello());
     let mut buf = Vec::new();
     let mut threads = Vec::new();
+    let running = Arc::new((Mutex::new(0usize), std::sync::Condvar::new()));
     loop {
         match read_json_line::<_, Value>(&mut reader, &mut buf, limit) {
             Ok(None) => break,
@@ -319,7 +358,10 @@ where
                         .is_some_and(|m| d.is_long(m, &req["params"]));
                 if long {
                     let (d, emit) = (Arc::clone(&d), Arc::clone(&emit));
+                    *running.0.lock().unwrap_or_else(|p| p.into_inner()) += 1;
+                    let done = RunningGuard(Arc::clone(&running));
                     threads.push(std::thread::spawn(move || {
+                        let _done = done;
                         // call_conn already converts handler panics; this also
                         // covers anything else on the thread so the request is answered.
                         let id = req["id"].as_u64().unwrap_or(0);
@@ -365,10 +407,47 @@ where
     // The client is gone (EOF) or asked to shut down: cancel jobs tied to this connection first.
     d.connection_closed(0);
     d.shutdown_all();
-    for t in threads {
-        let _ = t.join();
+    let Some(limit) = d.drain_timeout else {
+        for t in threads {
+            let _ = t.join();
+        }
+        return Ok(ServeReport::default());
+    };
+    let deadline = Instant::now() + limit;
+    let (count, cv) = &*running;
+    let mut n = count.lock().unwrap_or_else(|p| p.into_inner());
+    while *n > 0 {
+        let left = deadline.saturating_duration_since(Instant::now());
+        if left.is_zero() {
+            break;
+        }
+        n = cv
+            .wait_timeout(n, left)
+            .unwrap_or_else(|p| p.into_inner())
+            .0;
     }
-    Ok(())
+    let detached = *n;
+    drop(n);
+    if detached == 0 {
+        for t in threads {
+            let _ = t.join();
+        }
+    }
+    // Otherwise the handles drop here: the running requests are detached, finished ones are gone.
+    Ok(ServeReport { detached })
+}
+
+/// Counts a running long request; decrements (and wakes the drain) when the thread ends, however
+/// it ends.
+struct RunningGuard(Arc<(Mutex<usize>, std::sync::Condvar)>);
+
+impl Drop for RunningGuard {
+    fn drop(&mut self) {
+        let mut n = self.0 .0.lock().unwrap_or_else(|p| p.into_inner());
+        *n = n.saturating_sub(1);
+        drop(n);
+        self.0 .1.notify_all();
+    }
 }
 
 impl Dispatcher {

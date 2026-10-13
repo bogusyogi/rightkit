@@ -53,7 +53,7 @@ use crate::client::{
     OnEventFrame, ProgressDeadline, ProtocolErrorSink, DEFAULT_HELLO_TIMEOUT,
 };
 use crate::error::{JobError, JobResult, CONTRACT_VERSION_MISMATCH, DELIVERY_UNKNOWN};
-use crate::wire::{CONTRACT_VERSION, DEFAULT_FRAME_LIMIT};
+use crate::wire::{finite_frame_limit, CONTRACT_VERSION, DEFAULT_FRAME_LIMIT};
 
 /// Code of the boot failure raised by [`SupervisorConfig::require_scrubbed_env`].
 const ENV_NOT_SCRUBBED: &str = "env_not_scrubbed";
@@ -430,9 +430,16 @@ impl SupervisorConfig {
         self.ready_wait = d;
         self
     }
+    /// Largest frame accepted from the engine; bounded to [`crate::MAX_FRAME_LIMIT`], so passing
+    /// `usize::MAX` for "no limit" gives the ceiling, not an unbounded read.
     pub fn with_frame_limit(mut self, n: usize) -> Self {
-        self.frame_limit = n;
+        self.frame_limit = finite_frame_limit(n);
         self
+    }
+    /// The frame limit a boot uses: `frame_limit` bounded to [`crate::MAX_FRAME_LIMIT`] (the field
+    /// is public, so it can be set past the ceiling without `with_frame_limit`).
+    pub fn effective_frame_limit(&self) -> usize {
+        finite_frame_limit(self.frame_limit)
     }
     pub fn with_shutdown_grace(mut self, d: Duration) -> Self {
         self.shutdown_grace = d;
@@ -1371,7 +1378,7 @@ fn boot(sh: &Arc<Shared>, initial: bool) -> JobResult<()> {
     );
     let opts = ClientOptions {
         hello_timeout: sh.cfg.hello_timeout,
-        frame_limit: sh.cfg.frame_limit,
+        frame_limit: sh.cfg.effective_frame_limit(),
         contract_version: sh.cfg.contract_version.clone(),
         fallback_error_code: sh.cfg.fallback_error_code.clone(),
         protocol_error_sink: sh.cfg.protocol_error_sink.clone(),
