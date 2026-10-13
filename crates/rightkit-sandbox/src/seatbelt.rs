@@ -190,13 +190,6 @@ fn validate_proxy(addr: SocketAddr) -> std::io::Result<u16> {
     }
 }
 
-/// Build strict deny-default SBPL for a browser fixture lane.
-///
-/// Network authority is limited to `proxy_addr`: validated IPv4 loopback at one fixed TCP port.
-/// SBPL spells that host `localhost` (loopback, both families), while a later outbound AF_INET6 denial keeps the
-/// allowance IPv4-only. The only listener allowance is a loopback TCP debugging socket. Reads
-/// and execution stay within the Chrome bundle and fixed runtime locations, while writes stay
-/// within the canonical fixture profile directory.
 /// CFBundleIdentifier from an XML `Contents/Info.plist`; `None` for binary/missing plists or
 /// identifiers with characters outside `[A-Za-z0-9.-]`.
 fn bundle_identifier(app_bundle: &Path) -> Option<String> {
@@ -215,6 +208,13 @@ fn bundle_identifier(app_bundle: &Path) -> Option<String> {
     .then(|| id.to_string())
 }
 
+/// Build strict deny-default SBPL for a browser fixture lane.
+///
+/// Network authority is limited to `proxy_addr`: validated IPv4 loopback at one fixed TCP port.
+/// SBPL spells that host `localhost` (loopback, both families), while a later outbound AF_INET6 denial keeps the
+/// allowance IPv4-only. The only listener allowance is a loopback TCP debugging socket. Reads
+/// and execution stay within the Chrome bundle and fixed runtime locations, while writes stay
+/// within the canonical fixture profile directory.
 pub fn fixture_profile_for(policy: &BrowserFixturePolicy) -> std::io::Result<String> {
     let executable = canonical_existing(&policy.chrome_executable, "Chrome executable")?;
     let profile = canonical_existing(&policy.profile_dir, "profile directory")?;
