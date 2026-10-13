@@ -1,7 +1,10 @@
 # Changelog
 
-## Unreleased (Pulse Swift facade, Rust C ABI; written without running Cargo, CI-only)
+## 0.3.0 (Breaking: `default-features = false` no longer includes the store)
 
+(Unpublished; entries below were previously listed under Unreleased. Pulse Swift facade and M3/M4 items were written without running Cargo, CI-only.)
+
+- **Reaper-thread spawn failure is `Unconfirmed`, not reaped.** When the reaper thread cannot be spawned, the exit record now stays `reaped: false` and the token stays held (it was recorded as reaped). Not testable without forcing thread-spawn failure; reviewed by reading.
 - **Reaper wait errors are `Unconfirmed`, not reaped.** When the reaper thread's wait itself fails, the exit record stays `reaped: false` and the live token stays held (it keeps counting against `with_max_unreaped_children`); it was recorded as reaped.
 - `with_max_unreaped_children` docs now say what the code does: a boot is refused only when MORE than `n` are unconfirmed (`n` itself is allowed). Tests pin both sides of the boundary.
 - **ffi:** `rkp_host_start` reserves its host slot under the same lock as the `MAX_HOSTS` check (concurrent starts can no longer overshoot). The connection cap returns the new `RKP_TOO_MANY_CONNECTIONS` (12) instead of `RKP_TOO_MANY_HOSTS`; the Swift facade surfaces unknown codes as `PulseError.native(code:message:)`, so it needs no change. `out_host`, `out_conn` and out buffers are zeroed on entry. Documented: event callbacks must not block; the deadline cannot preempt a running callback.
@@ -14,7 +17,6 @@ Rust side of the locked "LEGION CHOSEN Pulse Swift facade" design. Off by defaul
 - **Bounded reaping.** A shutdown past its budget reports `Unconfirmed` with the unreaped count; the host stays counted and a reaper retries a fixed number of times. At most `MAX_HOSTS` live plus unconfirmed hosts: starting another is refused (`RKP_TOO_MANY_HOSTS`).
 - Tests: `tests/ffi.rs` (requires `ffi`) and `ffi::tests`. The service mutex-wait deadline fix is in `rightkit-service` (see its changelog); `rkp_service_call` uses `Client::call_events_until`.
 
-## Unreleased
 
 - Additive: `ExitObserver` callback and `SupervisorConfig::with_exit_observer`; `EngineSupervisor` reports abnormal engine exits (not shutdown) with the restart decision and count. Off-by-default `crash` feature adds `CrashExitObserver`, forwarding to `rightkit_crash::record_helper_exit`.
 
@@ -123,8 +125,6 @@ Additive. Nothing here was compiled or run locally; verification is the CI run. 
 - **Crash-safe order.** `begin_delete` (validate, cancel a live job, write the mark in new crate-owned table `rk_job_deleting`), files removed, `complete_delete` (rows and mark removed in one transaction). New `JobStore::pending_deletions()` and `JobStore::finish_deletions()`: the recovery pass; call it at startup. The job row stays visible until the last step. `prune` still never deletes files.
 - **Schema:** `CREATE TABLE IF NOT EXISTS rk_job_deleting` at open (reserved name, `DELETING_TABLE`). No existing column changed.
 - **Tests:** `tests/delete_files.rs`.
-
-## 0.3.0 (Breaking: `default-features = false` no longer includes the store)
 
 Version bump for the feature split (7775d90f), which changed what `default-features = false` selects without a version change. Nothing here was compiled or run locally; verification is the CI run.
 

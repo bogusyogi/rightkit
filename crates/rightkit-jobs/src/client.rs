@@ -767,7 +767,8 @@ impl Core {
         if spawned.is_err() {
             // No thread to hand it to: the child was moved into the closure that was never run, so
             // it is dropped (kill sent, bounded reap, background reaper) and the token is released.
-            self.finish_exit(None, killed);
+            // The exit is not observed, so it is not confirmed (same as a wait error).
+            self.finish_exit_with(None, killed, false);
         }
     }
 
