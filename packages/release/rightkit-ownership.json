@@ -3,17 +3,6 @@
   "version": "3.0.0",
   "capabilities": [
     {
-      "package": "agent-room-core",
-      "capability": "agent-room",
-      "summary": "Shared agent room state, events, turns and local HTTP host; declaration-only detection (no precise implementation fingerprint)",
-      "fingerprints": [],
-      "detection": "declaration-only",
-      "policyNotes": [
-        "Authenticated human-seat join repair remains P1.",
-        "No precise implementation fingerprint; declaration-only inventory, never enforced ownership or verified integration."
-      ]
-    },
-    {
       "package": "rightkit-agent-tools",
       "capability": "agent-tools",
       "summary": "One typed tool interface for agents over rightkit-automation, rightkit-control, rightkit-browser and each app's engine commands (via rightkit-daemon), plus the `right-ctl <app> <command>` CLI.; declaration-only detection (no precise implementation fingerprint)",
@@ -2826,17 +2815,6 @@
       "policyNotes": [
         "Package contract retained; dependency declarations do not verify integration.",
         "Fingerprints identify review candidates; published two-host replacement qualification is not recorded."
-      ]
-    },
-    {
-      "package": "@rightkit/agent-room-mcp",
-      "capability": "agent-room",
-      "summary": "Agent room MCP adapter; declaration-only detection (no precise implementation fingerprint)",
-      "fingerprints": [],
-      "detection": "declaration-only",
-      "policyNotes": [
-        "Package contract retained; dependency declarations do not verify integration.",
-        "No precise implementation fingerprint; declaration-only inventory, never enforced ownership or verified integration."
       ]
     },
     {

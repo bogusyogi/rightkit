@@ -336,7 +336,6 @@
     "rightkit-tauri": "0.1.0"
   },
   "stagedCargo": {
-    "agent-room-core": "0.3.0",
     "rightkit-agent-tools": "0.1.2",
     "rightkit-asr": "0.1.0",
     "rightkit-audio": "0.2.1",

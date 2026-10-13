@@ -5,9 +5,10 @@ Publication runs through `right-release publish cargo` after exact-commit native
 
 ## Previously disabled crates
 
+`agent-room-core` and `@rightkit/agent-room-mcp` left RightKit on 2026-10-14 (now under `legion/vendor/agent-room/`); they are not RightKit crates and appear in no catalog.
+
 | Crate | Decision | Release requirement |
 | --- | --- | --- |
-| agent-room-core | Keep private | UNLICENSED coordination implementation |
 | rightkit-computer | Keep private | Retired; replaced by rightkit-automation |
 | rightkit-browser | Public candidate | Native receipts; rightkit-process available |
 | rightkit-cache | Public candidate | Native receipts |
@@ -20,8 +21,8 @@ Publication runs through `right-release publish cargo` after exact-commit native
 | rightkit-daemon | Public candidate | Native receipts; rightkit-framed-sidecar available |
 | rightkit-shell | Public candidate | Native receipts; service & jobs available; native shell evidence |
 | rightkit-speech-client | Public candidate | Native receipts; service & framed-sidecar available |
-| rightkit-automation | Public; hold | Dedicated Windows input session |
-| rightkit-agent-tools | Public; hold | Automation & other optional registry dependencies available |
+| rightkit-automation | Public owner (D 2026-10-14); hold for first release | Dedicated Windows input session; publish before agent-tools |
+| rightkit-agent-tools | Public owner (D 2026-10-14); hold for first release | Automation & other optional registry dependencies available |
 | rightkit-media | Public candidate | Approved FFmpeg catalog; current native receipts; process available |
 | rightkit-playback | Public candidate | Media available; native remux & cancellation receipts |
 | rightkit-audio | Public candidate | Media available; native audio receipts |

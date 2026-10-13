@@ -27,7 +27,7 @@ const CRATES_API_INTERVAL_MS = 1000;
 const USER_AGENT = "rightkit-inventory-check/1 (+https://github.com/Orthic-Labs/rightkit)";
 const EXCLUDED_PREFIX = "build-control-";
 const OWNER_PROBE_CRATE = "rightkit-fs";
-const EXTRA_ACCOUNT_CRATES = Object.freeze(["agent-room-core"]);
+const EXTRA_ACCOUNT_CRATES = Object.freeze([]);
 const SWIFT_REPO = "Orthic-Labs/rightkit"; // RightKitSwift is tagged on the public repository itself
 const SWIFT_KEY = "rightkit-swift";
 const SWIFT_NAME = "RightKitSwift";
@@ -628,7 +628,7 @@ async function checkThirdParty({ repoRoot, records, live, findings }) {
   for (const { where, manifest } of cargoSources) {
     if (!manifest) continue;
     for (const dep of cargoDeclarations(manifest)) {
-      if (internalCargo.has(dep.name) || dep.name.startsWith("rightkit-") || dep.name.startsWith("agent-room")) continue;
+      if (internalCargo.has(dep.name) || dep.name.startsWith("rightkit-")) continue;
       add("cargo", dep.name, dep.req, where);
     }
   }

@@ -8,12 +8,11 @@ Owners come from `packages/release/rightkit-ownership.json`, which the ownership
 - Detection: `fingerprinted` when the owner declares dependency or source fingerprints; `declaration-only` when it declares ownership without a precise fingerprint. A declared dependency alone does not prove integration.
 - Published availability: `published` means a registry version is recorded. `staged` means a version is prepared and unverified on the registry.
 
-Capabilities: 72 (54 with fingerprints, 18 declaration-only). Internal owners that are not application capabilities are excluded.
+Capabilities: 71 (54 with fingerprints, 17 declaration-only). Internal owners that are not application capabilities are excluded.
 
 | Capability | Owner | Tier | Detection | Fingerprints | Published availability |
 |---|---|---|---|---|---|
 | agent-experience-gates | `@rightkit/ax` | none | declaration-only | 0 | @rightkit/ax: published 0.2.4 (npm) |
-| agent-room | `@rightkit/agent-room-mcp`, `agent-room-core` | none | declaration-only | 0 | @rightkit/agent-room-mcp: none recorded; agent-room-core: staged 0.3.0, not published |
 | agent-tools | `rightkit-agent-tools` | none | declaration-only | 0 | rightkit-agent-tools: staged 0.1.2, not published |
 | app-shell-ui | `@rightkit/app-shell` | advise | fingerprinted | 10 (0 block, 10 advise) | @rightkit/app-shell: published 0.6.2 (npm) |
 | audio | `rightkit-audio` | advise | fingerprinted | 3 (0 block, 3 advise) | rightkit-audio: published 0.2.1 (crates.io) |

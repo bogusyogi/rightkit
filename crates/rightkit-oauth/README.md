@@ -191,8 +191,7 @@ not standard refresh-token grants. LinkedIn programmatic refresh requires partne
 
 `examples/server_axum.rs` builds an Axum callback router using `spawn_blocking` & persists
 completed tokens. Host middleware must supply authenticated `CallbackBinding` extension;
-missing binding rejects callback before exchange. `server-example` enables its optional dependencies; Axum is already used
-by RightKit's `agent-room-core`. Host supplies listener, TLS, authenticated begin route,
+missing binding rejects callback before exchange. `server-example` enables its optional dependencies; Host supplies listener, TLS, authenticated begin route,
 tenant binding, callback rate limits & safe token-persistence recovery.
 
 From RightKit root, with managed broker available:

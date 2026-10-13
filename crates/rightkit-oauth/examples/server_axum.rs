@@ -1,4 +1,4 @@
-//! Route adapter using Axum, already used by RightKit's agent-room-core.
+//! Route adapter using Axum.
 //! Mount behind a TLS reverse proxy. Host owns authenticated begin routes, tenant/account
 //! mapping, CSRF protection, callback rate limits and redacted proxy/access logs.
 //! This example constructs routes only: no listener or credentials are provisioned here.

@@ -14,8 +14,6 @@ Plain-language features derived from the verified claim inventory. Each row poin
 - **characterization/asr/RECONCILIATION-2026-07-14.md** — Status: Phase 6 steps 1–3 complete on Windows. The reconciled internal _(source: characterization/asr/RECONCILIATION-2026-07-14.md:3)_
 - **characterization/media/README.md** — stage complete license/provenance materials through Right Release. _(source: characterization/media/README.md:53)_
 - **characterization/ocr/README.md** — Status: Phase 5 step 1 and internal pre-publication extraction complete on _(source: characterization/ocr/README.md:3)_
-- **crates/agent-room-core/artifacts/council-room/audit-visual.md** — The first read is now the discussion, with participant and decision context available without raw protocol JSON. _(source: crates/agent-room-core/artifacts/council-room/audit-visual.md:53)_
-- **crates/agent-room-core/artifacts/council-room/design-brief.md** — the left; decision/finding state stays visible on the right; intervention remains anchored below the _(source: crates/agent-room-core/artifacts/council-room/design-brief.md:28)_
 - **crates/rightkit-asr/THIRD_PARTY_NOTICES.md** — The complete upstream MIT license text is bundled as `LICENSE`. Local _(source: crates/rightkit-asr/THIRD_PARTY_NOTICES.md:13)_
 - **crates/rightkit-logs/README.md** — link. Until the publication/migration gate is complete, existing app-local _(source: crates/rightkit-logs/README.md:28)_
 - **crates/rightkit-ocr/README.md** — de-duplication, CTC decoding, typed errors, safe canonical artifact paths, and _(source: crates/rightkit-ocr/README.md:8)_

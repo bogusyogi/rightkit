@@ -15,17 +15,16 @@ Status values compare each pin with the latest published version (registry-recor
 
 ## Summary
 
-- Packages in RightKit: 81 (56 crates, 25 npm packages).
+- Packages in RightKit: 79 (55 crates, 24 npm packages).
 - Packages with at least one app pin: 66.
 - App pins: 770. Stale: 41. Ahead of published: 163. Unpublished: 11. Local: 443. Git: 0. Unparsed: 0.
-- Vendored copies of RightKit packages inside app repos: 237.
+- Vendored copies of RightKit packages inside app repos: 235.
 - App and package pairs with more than one requirement: 95.
 
 ## Packages
 
 | Package | Registry | Source | Latest published | Apps | App names | Notes |
 |---|---|---|---|---|---|---|
-| `agent-room-core` | private | 0.3.1 | none recorded | 0 | none | 2 vendored copies |
 | `rightkit-agent-tools` | crates.io | 0.1.2 | none recorded | 0 | none | 2 vendored copies |
 | `rightkit-align` | private | 0.1.0 | none recorded | 0 | none | 2 vendored copies |
 | `rightkit-asr` | crates.io | 0.2.0 | 0.1.0 | 3 | cutright, heardright, scraperight | 4 vendored copies; 5 ahead of published |
@@ -81,7 +80,6 @@ Status values compare each pin with the latest published version (registry-recor
 | `rightkit-tts` | crates.io | 0.2.0 | 0.1.1 | 1 | genright | 3 vendored copies; 1 ahead of published |
 | `rightkit-vad` | crates.io | 0.1.0 | 0.0.3 | 4 | cutright, heardright, scraperight, viewright | 4 vendored copies; 3 ahead of published |
 | `rightkit-watch` | crates.io | 0.4.0 | 0.3.1 | 2 | coderight, viewright | 4 vendored copies; 2 ahead of published |
-| `@rightkit/agent-room-mcp` | private | 0.1.0 | none recorded | 0 | none | - |
 | `@rightkit/app-shell` | npm | 0.6.4 | 0.6.2 | 7 | coderight, cutright, genright, heardright, postright, scraperight, viewright | 4 stale |
 | `@rightkit/ax` | npm | 0.3.2 | 0.2.4 | 2 | coderight, legion | - |
 | `@rightkit/build-control-policy` | private | 0.1.1-phase1 | none recorded | 0 | none | - |
@@ -888,8 +886,6 @@ Vendored copies are app-owned source trees that carry a RightKit package name. T
 
 | Package | App | Manifest | Version in tree | Latest published |
 |---|---|---|---|---|
-| `agent-room-core` | viewright | `viewright/tmp/rk-trial-2d1c2c02/crates/agent-room-core/Cargo.toml` | 0.3.1 | none recorded |
-| `agent-room-core` | heardright | `heardright/rk-snapshot/crates/agent-room-core/Cargo.toml` | 0.3.1 | none recorded |
 | `rightkit-agent-tools` | viewright | `viewright/tmp/rk-trial-2d1c2c02/crates/rightkit-agent-tools/Cargo.toml` | 0.1.2 | none recorded |
 | `rightkit-agent-tools` | heardright | `heardright/rk-snapshot/crates/rightkit-agent-tools/Cargo.toml` | 0.1.2 | none recorded |
 | `rightkit-align` | viewright | `viewright/tmp/rk-trial-2d1c2c02/crates/rightkit-align/Cargo.toml` | 0.1.0 | none recorded |
@@ -1243,4 +1239,4 @@ Split pins: one app names the same package with different requirements, possibly
 | sellright | yes | 6 | 0 | 1 |
 | rightsites | yes | 18 | 0 | 1 |
 | voiceright | yes | 2 | 0 | 1 |
-| legion | yes | 35 | 0 | 5 |
+| legion | yes | 37 | 0 | 5 |

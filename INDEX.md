@@ -8,15 +8,14 @@ Version columns: **Source** is the manifest version. **Published** is the latest
 
 Flags: `ok` means source, published and staged agree. `staged, not yet published` is in-flight work. `private` has no registry record by design. `MISMATCH` needs a release decision.
 
-Flagged mismatches: 50.
+Flagged mismatches: 49.
 
 The build broker is the Rust RustRight product (`bogusyogi/rustright`, binary `rustright`, alias `rightkit`); it is not part of this inventory. `packages/build-control-policy` keeps the agent permission hooks.
 
-## Rust crates (56)
+## Rust crates (55)
 
 | Crate | Registry | Source | Published | Staged | Flag | Owns | What it is |
 |---|---|---|---|---|---|---|---|
-| `agent-room-core` | private | 0.3.1 | none recorded | 0.3.0 | **MISMATCH staged 0.3.0 != source 0.3.1** | agent-room | Agent Room core: the state model and local host for a shared review room in which agent seats and a human seat exchange events, findings, dispositions and seal receipts. The crate is not published (`publish = false`, `license = "UNLICENSED"`). |
 | `rightkit-agent-tools` | crates.io | 0.1.2 | none recorded | 0.1.2 | staged, never published | agent-tools | One typed tool interface for agents over rightkit-automation, rightkit-control, rightkit-browser and each app's engine commands (via rightkit-daemon), plus the `right-ctl <app> <command>` CLI. |
 | `rightkit-align` | private | 0.1.0 | none recorded |  | private | script-alignment | Product-neutral script-to-ASR word alignment: pronunciation normalisation, edit-distance alignment with lexical and timing confidence, ambiguity and mismatch rejection, and control-name coverage |
 | `rightkit-asr` | crates.io | 0.2.0 | 0.1.0 | 0.1.0 | **MISMATCH staged 0.1.0 != source 0.2.0** | speech-recognition | Parakeet ONNX + Whisper (CoreML / whisper.cpp) speech decoding runtime for Right Suite applications |
@@ -73,11 +72,10 @@ The build broker is the Rust RustRight product (`bogusyogi/rustright`, binary `r
 | `rightkit-vad` | crates.io | 0.1.0 | 0.0.3 | 0.0.3 | **MISMATCH staged 0.0.3 != source 0.1.0** | voice-activity-detection | Product-neutral voice activity detection: Silero scorer, hysteresis/padding/chunking policy, streaming frame carry |
 | `rightkit-watch` | crates.io | 0.4.0 | 0.3.1 | 0.3.2 | **MISMATCH staged 0.3.2 != source 0.4.0** | file-watching | Filesystem watching for Right Suite apps: ref-counted async subscribers, debounced file-set and directory watchers, and rename-storm coalescing. |
 
-## npm packages (25)
+## npm packages (24)
 
 | Package | Registry | Source | Published | Staged | Flag | CLI | Owns | What it is |
 |---|---|---|---|---|---|---|---|---|
-| `@rightkit/agent-room-mcp` | private | 0.1.0 | none recorded |  | private |  | agent-room | Private MCP stdio server for the agent room: a typed coordination surface (join, post, raise, contest, rule, vote, tasks) that agents call to talk to a room service. This package is private and is not published to npm. |
 | `@rightkit/app-shell` | npm | 0.6.4 | 0.6.2 | 0.6.2 | **MISMATCH staged 0.6.2 != source 0.6.4** |  | app-shell-ui | Brand-neutral React frame for Right Suite desktop apps: optional fused sidebar+titlebar layout with slots, command palette, shortcut registry/help, toasts, modals, context menus, ui kit, theme hooks. |
 | `@rightkit/ax` | npm | 0.3.2 | 0.2.4 | 0.2.4 | **MISMATCH staged 0.2.4 != source 0.3.2** | right-ax | agent-experience-gates | Suite-wide agent-experience (AX) + agent-plugins.org conformance layer: plugin scaffolding/validation and AXA-1 static/conformance/behavioral gates over one product's MCP/CLI surface. |
 | `@rightkit/build-control-policy` | private | 0.1.1-phase1 | none recorded |  | private |  |  | `ownership-write-hook-cli.mjs` adds secondary feedback for Claude `Write`/`Edit`/`MultiEdit` and shell (`Bash`) calls, and for Codex `apply_patch` and shell (`exec_command`) calls. Both adapters deny writes targeting ownership exception or platform trust records. `ownership-session-hook-cli.mjs` adds the current RightKit ownership index at session start. Hook feedback is fail-open for ambiguous edits; build admission remains authoritative. |
