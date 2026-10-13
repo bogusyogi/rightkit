@@ -11,6 +11,9 @@ Breaking minor, published once. It folds the unreleased 0.1.5 entries (the sourc
 - `CallContext::peer()` now returns `Option<&PeerIdentity>` (`None` for a caller that is not a local app). A local caller always has `Some`; migrate with `cx.peer().cloned()` or `if let Some(p) = cx.peer()`.
 - Release builds read no override switch (see the folded entry below) and `HostOptions::write_timeout` defaults to 120 s (see 0.1.5 below). Both are behaviour changes for existing hosts.
 
+### Fixed
+- `mode`: a test root given as a Windows verbatim path (`\\?\…\..\…`) is refused as not absolute; `..` is matched as text as well as as a component, since verbatim paths keep it literal.
+
 ### Added (M7 lane D: outbound link and durable tasks)
 
 - **`rk-link/1`, the outbound link** (feature `link` for the device client, `remote` for the host). A machine with no inbound port opens TLS to the host and upgrades `GET /v1/link` (`Upgrade: rk-link/1`), signed with the device key like every other device request (signature, nonce, replay window; scope `link`). The connection then carries newline-delimited JSON frames in both directions: `hello{device, resume_seq}`, `welcome`, `task{id, seq, epoch, method, params, lease_ttl}`, `ack`, `result{id, epoch, ok|error}`, `settled`, `request`/`response` (a machine calling upward through the same device contract as `POST /v1/call/{method}`), `ping`, `close`. Each frame is `<tag> <json>`: the tag is the device's Ed25519 signature (machine to host) or an HMAC under a per-connection session key issued in the upgrade response (host to machine), bound to direction, connection id and exact payload bytes. Frames carry a sequence number that must be exactly the previous plus one, so a replayed, duplicated, reordered or dropped frame ends the connection. TLS only, pinned roots only, no plaintext fallback. 20 s heartbeat each way, dead after 60 s. One blocked reader per link, no polling thread.

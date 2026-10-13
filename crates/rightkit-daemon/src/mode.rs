@@ -461,7 +461,10 @@ mod capable {
 
     fn verify(app: &AppId, input: &dyn ModeInput, raw: &str) -> Result<TestRoot, Refusal> {
         let path = PathBuf::from(raw.trim());
-        if !path.is_absolute() || path.components().any(|c| matches!(c, Component::ParentDir)) {
+        // Verbatim Windows paths (`\\?\`) keep `..` as a literal component, so match the text too.
+        let parent_dir =
+            |c: &Component<'_>| matches!(c, Component::ParentDir) || c.as_os_str() == "..";
+        if !path.is_absolute() || path.components().any(|c| parent_dir(&c)) {
             return Err(Refusal::RootNotAbsolute);
         }
         let md = fs::symlink_metadata(&path).map_err(|_| Refusal::RootNotDirectory)?;
