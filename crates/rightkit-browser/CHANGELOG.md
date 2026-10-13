@@ -1,6 +1,8 @@
 # Changelog
 
-## 0.2.5
+## 0.3.0
+
+- **Breaking (0.x minor):** the public exhaustive `BrowserError` gained the `ChromeSandboxAccess` variant; exhaustive matches must handle it.
 
 - Tests: the three real-Chrome test files say in their headers that they run the installed Chrome for Testing on a
   temporary profile that is removed, and open no real browser profile.

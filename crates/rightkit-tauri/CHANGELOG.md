@@ -2,15 +2,13 @@
 
 Version dates are the dates of the version-bump commits. Publication dates are not recorded in git.
 
-## Unreleased
+## 0.1.3
 
 Added:
 - `AuthorizationService::authorize_with_clock` is public (M13-O2): hosts pass a trusted clock (for example `AntiRollbackClock::trusted_now`) instead of the wall clock. `authorize` is unchanged. Tests: valid time, time past `exp`, time before `iat`, and clock failure all deny or pass as expected. Not compiled locally; verification is the CI run.
 
 Fixed:
 - Device-ID creation is now create-only across processes: `DeviceService::with_lock_file` serializes creators with an exclusive file lock, and `SecureStore::set_if_absent` (default check-then-set; override with an atomic primitive) makes a losing creator adopt the winner's ID. `DeviceService::new` and existing stores are unchanged.
-
-## 0.1.3
 
 - Requires `rightkit-logs` 0.2.2 (tracing feature release); no API change.
 
