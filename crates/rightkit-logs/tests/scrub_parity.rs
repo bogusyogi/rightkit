@@ -7,7 +7,7 @@
 //! CodeRight covers but `scrub_text` deliberately does not (absolute paths
 //! outside a user directory) are pinned as shape-preserving.
 
-use rightkit_logs::scrub::scrub_text;
+use rightkit_logs::scrub::{scrub_text, scrub_text_with, ScrubOptions};
 
 // Bearer: CodeRight drops the token after a `Bearer` marker.
 
@@ -104,4 +104,51 @@ fn user_home_segment_is_masked() {
 fn non_user_absolute_path_keeps_shape() {
     let text = "open /Volumes/D/claude now";
     assert_eq!(scrub_text(text), text);
+}
+
+// Opt-in full-path redaction (`ScrubOptions::redact_paths`), CodeRight parity:
+// every absolute path token becomes `[path]`. The default keeps path shape.
+
+fn redact_paths() -> ScrubOptions {
+    ScrubOptions { redact_paths: true }
+}
+
+#[test]
+fn absolute_path_tokens_are_redacted_whole() {
+    assert_eq!(
+        scrub_text_with(
+            "open /Volumes/D/claude/app.rs:4 and C:\\Work\\x.txt and \\\\server\\share\\f.bin and ~/notes.txt",
+            &redact_paths()
+        ),
+        "open [path] and [path] and [path] and [path]"
+    );
+}
+
+#[test]
+fn quoted_or_bracketed_path_is_redacted() {
+    assert_eq!(
+        scrub_text_with("failed (\"/var/log/app.log\")", &redact_paths()),
+        "failed (\"[path]\")"
+    );
+}
+
+#[test]
+fn urls_ratios_and_comment_markers_are_kept_with_path_redaction() {
+    let text = "see https://x/y and ratio 1/2 and //comment here";
+    assert_eq!(scrub_text_with(text, &redact_paths()), text);
+}
+
+#[test]
+fn default_options_keep_path_shape() {
+    assert_eq!(
+        scrub_text_with("open /Volumes/D/claude now", &ScrubOptions::default()),
+        "open /Volumes/D/claude now"
+    );
+    assert_eq!(
+        scrub_text_with(
+            "crash at /Users/ada/app/src/main.rs:4",
+            &ScrubOptions::default()
+        ),
+        scrub_text("crash at /Users/ada/app/src/main.rs:4")
+    );
 }

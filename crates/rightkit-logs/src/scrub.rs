@@ -11,10 +11,25 @@ use serde_json::Value;
 const USER_DIR_MARKERS: &[&str] = &["/Users/", "/home/", "\\Users\\", "/Documents and Settings/"];
 const USER_PLACEHOLDER: &str = "<user>";
 
+/// Options for [`scrub_text_with`]. The default keeps path shape, as
+/// [`scrub_text`] does.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct ScrubOptions {
+    /// Replace every absolute path token (`/…`, `~/…`, `C:\…`, `\\server\…`)
+    /// with `[path]`, the way the CodeRight support bundle does. Off by default.
+    pub redact_paths: bool,
+}
+
 /// Replace identifying fragments in free text. Shape is preserved so reports
 /// stay diagnosable: `/Users/ada/app/src/main.rs:4` becomes
 /// `/Users/<user>/app/src/main.rs:4`.
 pub fn scrub_text(input: &str) -> String {
+    scrub_text_with(input, &ScrubOptions::default())
+}
+
+/// [`scrub_text`] with options. With `ScrubOptions::default()` the output is
+/// identical to `scrub_text`.
+pub fn scrub_text_with(input: &str, options: &ScrubOptions) -> String {
     let mut text = input.to_string();
     for home in home_dirs() {
         text = text.replace(&home, "~");
@@ -24,14 +39,14 @@ pub fn scrub_text(input: &str) -> String {
     let mut word = String::new();
     for ch in text.chars() {
         if is_delimiter(ch) {
-            out.push_str(&scrub_word(&word));
+            out.push_str(&scrub_word(&word, options));
             word.clear();
             out.push(ch);
         } else {
             word.push(ch);
         }
     }
-    out.push_str(&scrub_word(&word));
+    out.push_str(&scrub_word(&word, options));
     out
 }
 
@@ -103,7 +118,7 @@ fn is_delimiter(ch: char) -> bool {
         )
 }
 
-fn scrub_word(word: &str) -> String {
+fn scrub_word(word: &str, options: &ScrubOptions) -> String {
     if word.is_empty() {
         return String::new();
     }
@@ -116,7 +131,27 @@ fn scrub_word(word: &str) -> String {
     if looks_like_ipv4(word) {
         return "[redacted:ip]".into();
     }
+    if options.redact_paths && looks_like_absolute_path(word) {
+        return "[path]".into();
+    }
     mask_user_segment(word)
+}
+
+/// Whole-token path shapes: `/x` (not `//`, which is a comment or a URL
+/// tail), `~/x`, a Windows drive `C:\x`, and a UNC `\\server\x`. A URL such
+/// as `https://x/y` or a ratio such as `1/2` does not start with one of these.
+fn looks_like_absolute_path(word: &str) -> bool {
+    let bytes = word.as_bytes();
+    if let Some(rest) = word.strip_prefix("~/") {
+        return !rest.is_empty();
+    }
+    if word.starts_with("\\\\") {
+        return word[2..].chars().next().is_some_and(|c| c != '\\');
+    }
+    if word.starts_with('/') {
+        return word.len() > 1 && !word.starts_with("//");
+    }
+    bytes.len() > 3 && bytes[0].is_ascii_alphabetic() && bytes[1] == b':' && bytes[2] == b'\\'
 }
 
 fn looks_like_email(word: &str) -> bool {
