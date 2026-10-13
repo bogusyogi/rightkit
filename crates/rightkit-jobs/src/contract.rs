@@ -28,9 +28,7 @@ use crate::error::{JobError, JobResult};
 use crate::runner::{EventSink, RunOutcome, Runner};
 use crate::store::{JobStore, ListFilter, NewJob};
 
-/// Bumped on breaking changes to frames, built-ins, or `job.*` commands.
-pub const CONTRACT_VERSION: u32 = 1;
-pub const DEFAULT_FRAME_LIMIT: usize = 16 * 1024 * 1024;
+pub use crate::wire::{CONTRACT_VERSION, DEFAULT_FRAME_LIMIT};
 
 /// Receives event values emitted while a command runs.
 pub type Sink = Arc<dyn Fn(Value) + Send + Sync>;

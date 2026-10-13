@@ -12,29 +12,36 @@ categories = ["asynchronous"]
 include = ["src/**", "tests/**", "README.md", "LICENSE-MIT", "LICENSE-APACHE"]
 
 [features]
-# The default build compiles everything 0.2.7 did: all three optional layers are on.
-default = ["service", "supervisor"]
-# The stdio/CLI command contract: `Dispatcher`, `serve`, `run_cli`, `JobCommands`, `CommandSet`
-# (gates `rightkit-framed-sidecar`). A consumer that only needs `JobStore` and `Runner` (the
-# store, runner, locks, recovery classes, pruning, progress policy, cancel token) builds with
-# `default-features = false`; one that serves or speaks the contract adds `contract`.
-contract = ["dep:rightkit-framed-sidecar"]
+# The default build compiles everything 0.2.7 did: every optional layer is on.
+default = ["store", "service", "supervisor"]
+# The persistent job layer: `JobStore`, `Runner`, `StagedPool`, the scheduler gate, `StoreConfig`,
+# locks, recovery, pruning and the `rusqlite`/`db` re-exports (gates `rightkit-db`, `rightkit-fs`,
+# `uuid`). Without it the crate is only the engine supervision and wire layers: `JobError`,
+# and with `supervisor` the `EngineSupervisor` / `EngineClient`.
+store = ["dep:rightkit-db", "dep:rightkit-fs", "dep:uuid"]
+# The framed wire constants (`CONTRACT_VERSION`, `DEFAULT_FRAME_LIMIT`); store-free
+# (gates `rightkit-framed-sidecar`).
+protocol = ["dep:rightkit-framed-sidecar"]
+# The stdio/CLI command contract: `Dispatcher`, `serve`, `run_cli`, `JobCommands`, `CommandSet`.
+# Implies `store` (the dispatcher drives a `JobStore`/`Runner`) and `protocol`.
+contract = ["store", "protocol"]
 # `EngineSupervisor` / `EngineClient` and the `rightkit-process` re-exports (gates
-# `rightkit-process`). Implies `contract`.
-supervisor = ["contract", "dep:rightkit-process"]
+# `rightkit-process`). Implies `protocol` only: a shell that supervises an engine needs no
+# database. A consumer that also serves or speaks the dispatcher contract adds `contract`.
+supervisor = ["protocol", "dep:rightkit-process"]
 # `DispatcherHandler`: serve a `Dispatcher` over `rightkit-service` (gates `rightkit-service`).
 # Implies `contract`.
 service = ["contract", "dep:rightkit-service"]
 
 [dependencies]
-rightkit-fs = { version = "0.4.0", path = "../rightkit-fs", default-features = false, features = ["digest", "lock"] }
-rightkit-db = { version = "0.4.0", path = "../rightkit-db" }
+rightkit-fs = { version = "0.4.0", path = "../rightkit-fs", default-features = false, features = ["digest", "lock"], optional = true }
+rightkit-db = { version = "0.4.0", path = "../rightkit-db", optional = true }
 rightkit-framed-sidecar = { version = "0.2.0", path = "../rightkit-framed-sidecar", optional = true }
 rightkit-process = { version = "0.4.0", path = "../rightkit-process", optional = true }
 rightkit-service = { version = "0.1.0", path = "../rightkit-service", optional = true }
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.150"
-uuid = { version = "1", features = ["v4"] }
+uuid = { version = "1", features = ["v4"], optional = true }
 
 [dev-dependencies]
 # Independent SHA-256 reference for tests (the crate itself hashes via rightkit-fs).
@@ -74,3 +81,99 @@ required-features = ["supervisor"]
 [[example]]
 name = "job_engine"
 required-features = ["service"]
+
+[[test]]
+name = "cancel_signal"
+required-features = ["store"]
+
+[[test]]
+name = "claim_scope"
+required-features = ["store"]
+
+[[test]]
+name = "delete_files"
+required-features = ["store"]
+
+[[test]]
+name = "delete_reject"
+required-features = ["store"]
+
+[[test]]
+name = "fencing"
+required-features = ["store"]
+
+[[test]]
+name = "handler_outcome"
+required-features = ["store"]
+
+[[test]]
+name = "held"
+required-features = ["store"]
+
+[[test]]
+name = "import_terminal"
+required-features = ["store"]
+
+[[test]]
+name = "job_lock"
+required-features = ["store"]
+
+[[test]]
+name = "job_lock_process"
+required-features = ["store"]
+
+[[test]]
+name = "open_failure"
+required-features = ["store"]
+
+[[test]]
+name = "paging"
+required-features = ["store"]
+
+[[test]]
+name = "pool"
+required-features = ["store"]
+
+[[test]]
+name = "progress_policy"
+required-features = ["store"]
+
+[[test]]
+name = "prune"
+required-features = ["store"]
+
+[[test]]
+name = "recovery"
+required-features = ["store"]
+
+[[test]]
+name = "reexport"
+required-features = ["store"]
+
+[[test]]
+name = "resume_sweep"
+required-features = ["store"]
+
+[[test]]
+name = "settle_flush_order"
+required-features = ["store"]
+
+[[test]]
+name = "settle_later"
+required-features = ["store"]
+
+[[test]]
+name = "settle_owner"
+required-features = ["store"]
+
+[[test]]
+name = "settle_unreadable_journal"
+required-features = ["store"]
+
+[[test]]
+name = "single_flight"
+required-features = ["store"]
+
+[[test]]
+name = "terminal_announce"
+required-features = ["store"]

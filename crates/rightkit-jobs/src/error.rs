@@ -1,6 +1,8 @@
 use std::fmt;
+#[cfg(feature = "store")]
 use std::path::Path;
 
+#[cfg(feature = "store")]
 use rightkit_db::{StorageProblem, UnreadableCause};
 
 /// Where a [`JobError`] arose.
@@ -26,6 +28,7 @@ pub struct JobError {
     pub retryable: bool,
     pub origin: ErrorOrigin,
     /// What kind of database failure this error came from, when it came from one.
+    #[cfg(feature = "store")]
     db_failure: Option<OpenFailure>,
 }
 
@@ -40,6 +43,7 @@ impl PartialEq for JobError {
 
 impl Eq for JobError {}
 
+#[cfg(feature = "store")]
 /// What kind of database failure an open (or any other database call) ran into, so a consumer
 /// can react without matching message text. Read with [`JobError::open_failure`]; built from
 /// the underlying `rightkit_jobs::db::DbError`. The string `code` of the error (`db`,
@@ -64,6 +68,7 @@ pub enum OpenFailure {
     Other,
 }
 
+#[cfg(feature = "store")]
 impl OpenFailure {
     fn from_cause(cause: UnreadableCause) -> Self {
         match cause {
@@ -158,6 +163,7 @@ impl JobError {
             message: message.into(),
             retryable: false,
             origin: ErrorOrigin::Engine,
+            #[cfg(feature = "store")]
             db_failure: None,
         }
     }
@@ -167,6 +173,7 @@ impl JobError {
             message: message.into(),
             retryable: true,
             origin: ErrorOrigin::Engine,
+            #[cfg(feature = "store")]
             db_failure: None,
         }
     }
@@ -177,11 +184,13 @@ impl JobError {
     /// SQLite error. It is derived from the underlying error, never from the message, so a
     /// consumer can choose between "set the file aside", "ask the user to free space" and "try
     /// again" without parsing text. The `code` of the error is unchanged.
+    #[cfg(feature = "store")]
     pub fn open_failure(&self) -> Option<OpenFailure> {
         self.db_failure
     }
     /// An open-time database error: classified like any `DbError`, with `path` (the database
     /// file) probed to tell a permission failure from the other causes of "cannot open".
+    #[cfg(feature = "store")]
     pub(crate) fn from_open(e: rightkit_db::DbError, path: &Path) -> Self {
         let failure = OpenFailure::from_db(&e, Some(path));
         let mut err = Self::from(e);
@@ -189,6 +198,7 @@ impl JobError {
         err
     }
     /// A handler returned `Settled` but job `job_id` is still `status`.
+    #[cfg(feature = "store")]
     pub(crate) fn handler_unsettled(job_id: &str, status: &str) -> Self {
         Self::new(
             HANDLER_UNSETTLED,
@@ -199,6 +209,7 @@ impl JobError {
     }
     /// A handler returned `Pending` for a `Recovery::Never` job that is not held (`status`): the
     /// next recovery scan would fail it as `interrupted` and lose the pending outcome.
+    #[cfg(feature = "store")]
     pub(crate) fn handler_pending_unowned(job_id: &str, status: &str) -> Self {
         Self::new(
             HANDLER_UNSETTLED,
@@ -305,6 +316,7 @@ impl fmt::Display for JobError {
 }
 impl std::error::Error for JobError {}
 
+#[cfg(feature = "store")]
 impl From<rightkit_db::rusqlite::Error> for JobError {
     fn from(e: rightkit_db::rusqlite::Error) -> Self {
         let mut err = Self::new("db", format!("database error: {e}"));
@@ -312,6 +324,7 @@ impl From<rightkit_db::rusqlite::Error> for JobError {
         err
     }
 }
+#[cfg(feature = "store")]
 impl From<rightkit_db::DbError> for JobError {
     fn from(e: rightkit_db::DbError) -> Self {
         // `Unreadable` only comes from the opt-in unreadable-database open
@@ -331,7 +344,7 @@ impl From<std::io::Error> for JobError {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "store"))]
 mod tests {
     use super::*;
     use rightkit_db::{DbError, UnreadableCause};

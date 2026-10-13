@@ -3,50 +3,66 @@
 
 #[cfg(feature = "supervisor")]
 mod client;
+#[cfg(feature = "store")]
 mod config;
 #[cfg(feature = "contract")]
 mod contract;
 mod error;
+#[cfg(feature = "store")]
 pub mod pool;
+#[cfg(feature = "store")]
 mod runner;
+#[cfg(feature = "store")]
 mod sched;
 #[cfg(feature = "service")]
 mod service;
+#[cfg(feature = "store")]
 mod store;
 #[cfg(feature = "supervisor")]
 mod supervisor;
+#[cfg(feature = "protocol")]
+mod wire;
 
 #[cfg(feature = "supervisor")]
 pub use client::{
     ChildExit, ClientOptions, ContractRequirement, EngineClient, EventFrame, OnEventFrame,
     ProtocolError, ProtocolErrorSink, DEFAULT_HELLO_TIMEOUT,
 };
+#[cfg(feature = "store")]
 pub use config::{
     ArtifactNames, ColumnType, Ext, ExtColumn, ProgressPolicy, StatusModel, StoreConfig, StoreHook,
 };
 #[cfg(feature = "contract")]
 pub use contract::{
     parse_flags, run_cli, serve, CommandSet, Dispatcher, DoctorFn, Flags, JobCommands, Outcome,
-    PayloadMapper, Sink, CONTRACT_VERSION, DEFAULT_FRAME_LIMIT, JOB_METHODS,
+    PayloadMapper, Sink, JOB_METHODS,
 };
+#[cfg(feature = "store")]
+pub use error::OpenFailure;
 pub use error::{
-    ErrorOrigin, JobError, JobResult, OpenFailure, CONTRACT_VERSION_MISMATCH, CURSOR_MISMATCH,
-    DB_UNREADABLE, HANDLER_UNSETTLED, HOST_HANDOFF, INTERRUPTED, INVALID_CURSOR, JOB_EXISTS,
-    STALE_ATTEMPT, STALLED, SUPERSEDED,
+    ErrorOrigin, JobError, JobResult, CONTRACT_VERSION_MISMATCH, CURSOR_MISMATCH, DB_UNREADABLE,
+    HANDLER_UNSETTLED, HOST_HANDOFF, INTERRUPTED, INVALID_CURSOR, JOB_EXISTS, STALE_ATTEMPT,
+    STALLED, SUPERSEDED,
 };
+#[cfg(feature = "store")]
 pub use pool::{OutcomeFn, PoolConfig, Staged, StagedHandler, StagedPool};
+#[cfg(feature = "store")]
 /// The `rusqlite` this crate links (via `rightkit-db`); hooks receive its `Connection`.
 pub use rightkit_db::rusqlite;
+#[cfg(feature = "store")]
 /// Recovery policy for [`JobStore::open_recovering`] (re-exported from `rightkit-db`; also under
 /// [`db`]).
 pub use rightkit_db::RecoveryPolicy;
+#[cfg(feature = "store")]
 pub use runner::{
     AttemptPolicy, EventSink, HandlerOutcome, JobControl, JobHandler, JobLock, JobLocks,
     RunOutcome, Runner, UnsettledRecovery, DEFAULT_MAX_ATTEMPTS,
 };
+#[cfg(feature = "store")]
 pub use sched::{Gate, InteractiveGuard, Priority};
 #[cfg(feature = "service")]
 pub use service::DispatcherHandler;
+#[cfg(feature = "store")]
 pub use store::{
     Adoption, Artifact, CancelToken, ClaimScope, Cursor, DeleteOptions, DeleteReport, Event,
     FlushReport, ImportOptions, ImportRecord, Imported, Job, JobRecord, JobStore, ListFilter,
@@ -62,10 +78,13 @@ pub use supervisor::{
     LifecycleEvent, Readiness, ShutdownOutcome, ShutdownReport, SupervisorConfig, SupervisorStatus,
     Terminal,
 };
+#[cfg(feature = "protocol")]
+pub use wire::{CONTRACT_VERSION, DEFAULT_FRAME_LIMIT};
 // Re-exported so a host that only depends on rightkit-jobs can build the policy and spawn command.
 #[cfg(feature = "supervisor")]
 pub use rightkit_process::{JobAssignmentMode, OwnedCommand, RestartMode, RestartPolicy};
 
+#[cfg(feature = "store")]
 /// The `rightkit-db` types that appear in this crate's public API, so a consumer that only opens
 /// a [`JobStore`] needs no `rightkit-db` dependency of its own (and no version to keep in step
 /// with this crate's): the options and policies `JobStore::open_with`, `open_with_config`,

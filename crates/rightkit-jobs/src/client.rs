@@ -11,8 +11,8 @@ use rightkit_framed_sidecar::{
 use rightkit_process::{OwnedChild, OwnedCommand, ReapOutcome, WaitOutcome};
 use serde_json::{json, Value};
 
-use crate::contract::DEFAULT_FRAME_LIMIT;
 use crate::error::{ErrorOrigin, JobError, JobResult};
+use crate::wire::DEFAULT_FRAME_LIMIT;
 
 type OnEvent = Box<dyn Fn(&Value) + Send>;
 

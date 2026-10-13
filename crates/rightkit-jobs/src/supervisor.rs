@@ -52,8 +52,8 @@ use crate::client::{
     merge_event_callbacks, ChildExit, ClientOptions, ContractRequirement, EngineClient,
     OnEventFrame, ProtocolErrorSink, DEFAULT_HELLO_TIMEOUT,
 };
-use crate::contract::DEFAULT_FRAME_LIMIT;
 use crate::error::{JobError, JobResult, CONTRACT_VERSION_MISMATCH};
+use crate::wire::DEFAULT_FRAME_LIMIT;
 
 type SpawnFn = dyn Fn() -> io::Result<OwnedCommand> + Send + Sync;
 type Redactor = dyn Fn(&str) -> Option<String> + Send + Sync;
