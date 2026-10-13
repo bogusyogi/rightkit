@@ -171,6 +171,26 @@ fn tiny_model_runs_on_directml_and_cpu() {
         .with_cpu_fallback(true)
         .build_from_memory_reported(&add_model())
         .expect("directml session");
+    // A hosted runner has no GPU, so DirectML reports "No devices detected" and the session
+    // falls back to CPU. That one condition (not any error) skips the DirectML assertions; the
+    // CPU provider still runs. SKIP is a gate-counted marker (unproven on this runner), and
+    // RIGHTKIT_REQUIRE_ASSETS=1 turns it into a failure.
+    if reported.provider == ExecutionProvider::Cpu
+        && reported
+            .fallback
+            .as_deref()
+            .is_some_and(|f| f.contains("No devices detected"))
+    {
+        assert_eq!(
+            run_add(&SessionOptions::new(ExecutionProvider::Cpu)),
+            vec![11.0, 22.0, 33.0, 44.0]
+        );
+        common::skip_missing(
+            "a DirectML-capable GPU device (DirectML reported \"No devices detected\"); CPU provider checked",
+            "this host's DirectML devices",
+        );
+        return;
+    }
     assert_eq!(
         reported.provider,
         ExecutionProvider::DirectMl,
