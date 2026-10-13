@@ -1946,7 +1946,6 @@ pub(crate) fn spawn_with_pipe_pair(
 
 const FILE_SHARE_READ: u32 = 0x1;
 const FILE_ATTRIBUTE_REPARSE_POINT: u32 = 0x400;
-const FILE_FLAG_OPEN_REPARSE_POINT: u32 = 0x0020_0000;
 
 /// True when `path` equals or lies under `root` (component-wise, case-insensitive).
 fn path_within(path: &Path, root: &Path) -> bool {
