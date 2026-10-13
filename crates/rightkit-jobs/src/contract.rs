@@ -73,6 +73,8 @@ pub struct Dispatcher {
     cli_targets: Vec<(String, String)>,
     error_retryable: bool,
     drain_timeout: Option<Duration>,
+    aliases: Vec<(String, String)>,
+    method_meta: Vec<(String, Value)>,
 }
 
 pub struct Outcome {
@@ -114,6 +116,8 @@ impl Dispatcher {
             cli_targets: vec![],
             error_retryable: true,
             drain_timeout: None,
+            aliases: vec![],
+            method_meta: vec![],
         }
     }
     /// Drop a built-in (`ping`, `doctor`, `shutdown`) so an app command set
@@ -147,6 +151,45 @@ impl Dispatcher {
     pub fn with_drain_timeout(mut self, timeout: Duration) -> Self {
         self.drain_timeout = Some(timeout);
         self
+    }
+    /// Serve `alias` as another name of `method`, on the window frames and on the CLI alike (the
+    /// CLI joins words with `.`, so `alias` is the dotted form). The command table stays one:
+    /// the alias is not a second method, `methods()` does not list it, and a name that a command
+    /// set or built-in already serves is never shadowed by an alias. CodeRight's registry aliases map here.
+    pub fn with_alias(mut self, alias: impl Into<String>, method: impl Into<String>) -> Self {
+        self.aliases.push((alias.into(), method.into()));
+        self
+    }
+    /// Attach app-owned metadata (help text, categories, flags) to a method. It is served in the
+    /// built-in `doctor` payload under `method_meta` and read with [`Self::method_meta`]; the
+    /// dispatcher does not interpret it. Ember's command metadata maps here.
+    pub fn with_method_meta(mut self, method: impl Into<String>, meta: Value) -> Self {
+        self.method_meta.push((method.into(), meta));
+        self
+    }
+    /// Metadata attached to `method` by [`Self::with_method_meta`] (the latest, when set twice).
+    pub fn method_meta(&self, method: &str) -> Option<&Value> {
+        self.method_meta
+            .iter()
+            .rev()
+            .find(|(m, _)| m == method)
+            .map(|(_, v)| v)
+    }
+    /// `(alias, method)` pairs, in registration order.
+    pub fn aliases(&self) -> &[(String, String)] {
+        &self.aliases
+    }
+    /// The served method `name` stands for: itself when it is served, else the method an alias
+    /// names when that is served.
+    fn canonical(&self, name: &str) -> Option<String> {
+        if self.methods().iter().any(|m| m == name) {
+            return Some(name.to_string());
+        }
+        let (_, target) = self.aliases.iter().find(|(a, _)| a == name)?;
+        self.methods()
+            .iter()
+            .any(|m| m == target)
+            .then(|| target.clone())
     }
     fn has_builtin(&self, m: &str) -> bool {
         self.builtins.contains(&m)
@@ -188,6 +231,8 @@ impl Dispatcher {
             .find(|s| s.methods().iter().any(|m| m == method))
     }
     fn is_long(&self, method: &str, params: &Value) -> bool {
+        let canonical = self.canonical(method);
+        let method = canonical.as_deref().unwrap_or(method);
         self.set_for(method)
             .is_some_and(|s| s.is_long(method, params))
     }
@@ -244,6 +289,8 @@ impl Dispatcher {
         dry_run: bool,
         emit: &Sink,
     ) -> JobResult<Value> {
+        let canonical = self.canonical(method);
+        let method = canonical.as_deref().unwrap_or(method);
         if let Some(s) = self.set_for(method) {
             return s.call_conn(conn, method, params, dry_run, emit);
         }
@@ -252,8 +299,19 @@ impl Dispatcher {
             "shutdown" if self.has_builtin("shutdown") => Ok(json!({})),
             "doctor" if self.has_builtin("doctor") => Ok(match &self.doctor {
                 Some(f) => f(dry_run, &self.methods()),
-                None => json!({"engine": self.engine, "version": self.version,
-                "contract_version": CONTRACT_VERSION, "methods": self.methods(), "dry_run": dry_run}),
+                None => {
+                    let mut doctor = json!({"engine": self.engine, "version": self.version,
+                    "contract_version": CONTRACT_VERSION, "methods": self.methods(), "dry_run": dry_run});
+                    if !self.method_meta.is_empty() {
+                        let meta: serde_json::Map<String, Value> = self
+                            .method_meta
+                            .iter()
+                            .map(|(m, v)| (m.clone(), v.clone()))
+                            .collect();
+                        doctor["method_meta"] = Value::Object(meta);
+                    }
+                    doctor
+                }
             }),
             m => Err(JobError::new(
                 "unknown_method",
@@ -294,7 +352,8 @@ impl Dispatcher {
         };
         Outcome {
             response,
-            shutdown: method == "shutdown" && self.has_builtin("shutdown"),
+            shutdown: self.canonical(method).as_deref() == Some("shutdown")
+                && self.has_builtin("shutdown"),
         }
     }
 }
@@ -523,10 +582,9 @@ pub fn run_cli(
         print(out, &json!({"version": d.version}));
         return 0;
     }
-    let methods = d.methods();
     let Some((method, rest)) = (1..=f.words.len()).rev().find_map(|k| {
         let m = f.words[..k].join(".");
-        methods.contains(&m).then(|| (m, f.words[k..].to_vec()))
+        d.canonical(&m).map(|m| (m, f.words[k..].to_vec()))
     }) else {
         print(
             out,

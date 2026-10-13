@@ -178,3 +178,143 @@ fn the_dispatcher_frame_limit_is_bounded_and_a_finite_one_is_kept() {
         4096
     );
 }
+
+/// One command table: `search.files` is the method; `find` is an alias; `meta.doc` is metadata.
+struct Table;
+impl CommandSet for Table {
+    fn methods(&self) -> Vec<String> {
+        vec!["search.files".into(), "slow.thing".into()]
+    }
+    fn is_long(&self, method: &str, _: &Value) -> bool {
+        method == "slow.thing"
+    }
+    fn call(&self, method: &str, p: &Value, _: bool, _: &Sink) -> JobResult<Value> {
+        Ok(json!({"method": method, "params": p}))
+    }
+}
+
+fn table() -> Dispatcher {
+    Dispatcher::new("t", "1")
+        .with(Arc::new(Table))
+        .with_alias("find", "search.files")
+        .with_alias("slow", "slow.thing")
+        .with_alias("exit", "shutdown")
+        .with_alias("ping", "search.files")
+        .with_alias("ghost", "no.such.method")
+        .with_method_meta(
+            "search.files",
+            json!({"help": "find files", "group": "search"}),
+        )
+}
+
+fn window(d: Dispatcher, lines: &[&str]) -> Vec<Value> {
+    let out = SharedBuf::default();
+    serve(
+        Arc::new(d),
+        BufReader::new(Cursor::new(lines.join("\n"))),
+        out.clone(),
+        false,
+    )
+    .unwrap();
+    frames(&out)
+}
+
+fn cli(d: &Dispatcher, words: &[&str]) -> (i32, String) {
+    let mut out = Vec::new();
+    let mut err = Vec::new();
+    let code = run_cli(
+        d,
+        words.iter().map(|w| w.to_string()),
+        &mut std::io::empty(),
+        &mut out,
+        &mut err,
+    );
+    (code, String::from_utf8(out).unwrap())
+}
+
+#[test]
+fn an_alias_reaches_the_same_handler_from_window_frames_and_the_cli() {
+    let frames = window(
+        table(),
+        &[
+            r#"{"type":"request","id":1,"method":"find","params":{"q":"a"}}"#,
+            r#"{"type":"request","id":2,"method":"search.files","params":{"q":"a"}}"#,
+        ],
+    );
+    let by_alias = &frames.iter().find(|f| f["id"] == 1).unwrap()["result"];
+    let direct = &frames.iter().find(|f| f["id"] == 2).unwrap()["result"];
+    assert_eq!(
+        by_alias["method"], "search.files",
+        "the handler sees the canonical name"
+    );
+    assert_eq!(by_alias, direct);
+    let (code, text) = cli(&table(), &["find", "--input", r#"{"q":"a"}"#]);
+    assert_eq!(code, 0, "{text}");
+    let v: Value = serde_json::from_str(&text).unwrap();
+    assert_eq!(v["method"], "search.files");
+    assert_eq!(v["params"]["q"], "a");
+}
+
+#[test]
+fn an_alias_keeps_the_target_methods_long_and_shutdown_semantics() {
+    // `exit` is `shutdown`: the loop stops, so the request after it is never read.
+    let frames = window(
+        table(),
+        &[
+            r#"{"type":"request","id":1,"method":"exit"}"#,
+            r#"{"type":"request","id":2,"method":"search.files"}"#,
+        ],
+    );
+    assert!(frames.iter().any(|f| f["id"] == 1 && f["ok"] == true));
+    assert!(!frames.iter().any(|f| f["id"] == 2), "{frames:?}");
+    // `slow` is a long request: answered from its own thread, still exactly once.
+    let frames = window(
+        table(),
+        &[
+            r#"{"type":"request","id":1,"method":"slow"}"#,
+            r#"{"type":"request","id":2,"method":"shutdown"}"#,
+        ],
+    );
+    assert_eq!(
+        frames
+            .iter()
+            .filter(|f| f["type"] == "response" && f["id"] == 1)
+            .count(),
+        1
+    );
+}
+
+#[test]
+fn an_alias_never_shadows_a_served_name_and_a_dangling_alias_is_unknown() {
+    // `ping` is a built-in: the alias to `search.files` does not take it over.
+    let frames = window(table(), &[r#"{"type":"request","id":1,"method":"ping"}"#]);
+    assert_eq!(
+        frames.iter().find(|f| f["id"] == 1).unwrap()["result"]["pong"],
+        true
+    );
+    // An alias whose target is not served answers like any unknown method, on both transports.
+    let frames = window(table(), &[r#"{"type":"request","id":1,"method":"ghost"}"#]);
+    assert_eq!(
+        frames.iter().find(|f| f["id"] == 1).unwrap()["error"]["code"],
+        "unknown_method"
+    );
+    assert_eq!(cli(&table(), &["ghost"]).0, 2);
+    // Aliases are not methods.
+    assert!(!table().methods().iter().any(|m| m == "find"));
+}
+
+#[test]
+fn method_metadata_is_served_in_doctor_and_readable_and_absent_when_unset() {
+    let sink: Sink = Arc::new(|_| {});
+    let doctor = table().call("doctor", &json!({}), false, &sink).unwrap();
+    assert_eq!(doctor["method_meta"]["search.files"]["group"], "search");
+    assert_eq!(
+        table().method_meta("search.files").unwrap()["help"],
+        "find files"
+    );
+    assert!(table().method_meta("slow.thing").is_none());
+    let plain = Dispatcher::new("t", "1")
+        .call("doctor", &json!({}), false, &sink)
+        .unwrap();
+    assert!(plain.get("method_meta").is_none());
+}
