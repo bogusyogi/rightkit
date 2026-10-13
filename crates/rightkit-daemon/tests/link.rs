@@ -343,6 +343,38 @@ fn resume_seq_skips_tasks_the_device_already_holds() {
 }
 
 #[test]
+fn a_released_task_dropped_before_its_frame_is_sent_again_on_resume() {
+    let h = Harness::new();
+    let d = enrol_link_device(&h, 6);
+    let mut p = connect(&h, &d);
+    p.hello(&h, 0);
+    let id = work(&h, &d);
+    assert_eq!(types(&p.frames()), ["welcome", "task"]);
+    // The device holds seq 1 (epoch 1), goes offline past the lease ttl, and the lease lapses.
+    h.daemon.link_closed(&p.acc.session, "gone");
+    h.advance(200);
+    assert_eq!(h.daemon.tasks_sweep().unwrap(), 1);
+
+    // It reconnects and is leased epoch 2 (same seq 1), but the link drops before the frame
+    // reaches it.
+    let mut q = connect(&h, &d);
+    q.hello(&h, 1);
+    let frames = q.frames();
+    assert_eq!(types(&frames), ["welcome", "task"]);
+    assert_eq!(frames[1]["epoch"], json!(2));
+    h.daemon.link_closed(&q.acc.session, "dropped");
+
+    // Its journal still says resume_seq 1. The unacked epoch-2 lease is sent again anyway.
+    let mut r = connect(&h, &d);
+    r.hello(&h, 1);
+    let frames = r.frames();
+    assert_eq!(types(&frames), ["welcome", "task"]);
+    assert_eq!(frames[1]["id"], json!(id));
+    assert_eq!(frames[1]["epoch"], json!(2));
+    assert_eq!(frames[1]["seq"], json!(1));
+}
+
+#[test]
 fn unpinned_tasks_go_to_the_least_loaded_linked_device() {
     let h = Harness::new();
     let a = enrol_link_device(&h, 6);

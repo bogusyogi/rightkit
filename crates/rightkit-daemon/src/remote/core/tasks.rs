@@ -11,8 +11,10 @@
 //!   frame renews it). The sweep that lapses it changes the task to `queued` in the same step
 //!   it observes it as `leased`, so a lapse re-queues exactly once; the next grant bumps the
 //!   epoch, so the old holder's late result is fenced.
-//! * A disconnect releases nothing. The device resumes with `resume_seq` and gets the leased
-//!   tasks it has not durably accepted again.
+//! * A disconnect releases nothing. On `hello` the host sends again every task leased to the
+//!   device that the device has not acked, with the same epoch, whatever `resume_seq` says
+//!   (a re-lease reuses `seq`, so `resume_seq` cannot prove the device holds this epoch). The
+//!   device journal dedups by `(id, epoch)`.
 //!
 //! The lease is persisted (`state.json`) before the `task` frame is sent. Lease renewals are not
 //! persisted: after a host restart a lease is as old as its last write and lapses soon, which
@@ -306,12 +308,27 @@ impl Daemon {
                 json!({ "taskId": id, "deviceId": s.device(), "epoch": epoch }),
             );
             s.send(frame);
+            // The session may have been superseded or closed between `ready_links()` and the
+            // send, which drops the frame. The task stays leased and unacked (no release), and
+            // goes out again now on the device's current session if there is one, else on the
+            // next `hello`.
+            if !self.link_is_current(&s) {
+                if let Some(cur) = self
+                    .ready_links()
+                    .into_iter()
+                    .find(|c| c.device() == s.device())
+                {
+                    self.resume_tasks(&cur);
+                }
+            }
         }
     }
 
-    /// On `hello`: tasks this device holds with `seq <= resume_seq` are confirmed held (the device
-    /// durably accepted them); the others are sent again with the same epoch.
-    pub(super) fn resume_tasks(&self, s: &Arc<LinkSession>, resume_seq: u64) {
+    /// On `hello`: every task leased to this device that it has not acked is sent again with the
+    /// same epoch. `resume_seq` is not trusted for this: a re-lease reuses `seq`, so a high
+    /// `resume_seq` does not prove the device holds the current epoch. A task the device already
+    /// holds is deduplicated by its journal on `(id, epoch)` and acked again.
+    pub(super) fn resume_tasks(&self, s: &Arc<LinkSession>) {
         let now = self.clock.now_secs();
         let mut frames = Vec::new();
         let lapsed;
@@ -321,9 +338,7 @@ impl Daemon {
             for t in g.state.tasks.values_mut() {
                 if t.status == TaskStatus::Leased && t.owner.as_deref() == Some(s.device()) {
                     t.expires = now + t.lease_ttl;
-                    if t.seq <= resume_seq {
-                        t.acked = true;
-                    } else {
+                    if !t.acked {
                         frames.push(task_frame(t));
                     }
                 }

@@ -193,10 +193,13 @@ where
     let mut reader = tokio::io::BufReader::new(rd);
     let reason: String = loop {
         let mut buf: Vec<u8> = Vec::new();
+        // Bound before `select!`: the macro's temporaries would drop the `Take` while the
+        // `read_until` future still borrows it.
+        let mut limited = (&mut reader).take(MAX_LINE as u64 + 1);
         let read = tokio::select! {
             r = tokio::time::timeout(
                 Duration::from_secs(DEAD_AFTER_SECS),
-                (&mut reader).take(MAX_LINE as u64 + 1).read_until(b'\n', &mut buf),
+                limited.read_until(b'\n', &mut buf),
             ) => Some(r),
             _ = session.stop.notified() => None,
         };

@@ -266,6 +266,10 @@ impl Conn {
             }
             let mut tls = lock(&self.tls);
             let mut cur = io::Cursor::new(&raw[..n]);
+            let mut out = Vec::new();
+            let mut tmp = [0u8; 4096];
+            // Drain plaintext after every `read_tls`: rustls caps buffered plaintext at 16 KiB,
+            // so a chunk completing several records must not be fed in one go.
             while (cur.position() as usize) < n {
                 let m = tls.read_tls(&mut cur)?;
                 if m == 0 {
@@ -273,28 +277,30 @@ impl Conn {
                 }
                 tls.process_new_packets()
                     .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e.to_string()))?;
+                loop {
+                    match tls.reader().read(&mut tmp) {
+                        Ok(0) => {
+                            if out.is_empty() {
+                                return Ok(Plain::Eof);
+                            }
+                            break;
+                        }
+                        Ok(k) => out.extend_from_slice(&tmp[..k]),
+                        Err(e) if e.kind() == io::ErrorKind::WouldBlock => break,
+                        Err(e) if e.kind() == io::ErrorKind::UnexpectedEof => {
+                            if out.is_empty() {
+                                return Ok(Plain::Eof);
+                            }
+                            break;
+                        }
+                        Err(e) => return Err(e),
+                    }
+                }
             }
             {
                 let mut w = lock(&self.wsock);
                 while tls.wants_write() {
                     tls.write_tls(&mut *w)?;
-                }
-            }
-            let mut out = Vec::new();
-            let mut tmp = [0u8; 4096];
-            loop {
-                match tls.reader().read(&mut tmp) {
-                    Ok(0) => {
-                        return Ok(if out.is_empty() {
-                            Plain::Eof
-                        } else {
-                            Plain::Data(out)
-                        });
-                    }
-                    Ok(k) => out.extend_from_slice(&tmp[..k]),
-                    Err(e) if e.kind() == io::ErrorKind::WouldBlock => break,
-                    Err(e) if e.kind() == io::ErrorKind::UnexpectedEof => return Ok(Plain::Eof),
-                    Err(e) => return Err(e),
                 }
             }
             if !out.is_empty() {

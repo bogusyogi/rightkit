@@ -12,7 +12,7 @@ Local service discovery and authentication for Right Suite apps. It owns the con
 
 ### Outbound link (`link` / `remote`)
 
-A machine with no inbound port reaches the host over `rk-link/1`: a TLS connection upgraded with a device-signed `GET /v1/link`, then signed, numbered JSON-line frames in both directions. The host leases durable tasks to the device (`Daemon::enqueue_task`); exactly one device owns a task at a time, results are fenced by a lease epoch, a dropped link resumes with `resume_seq`, a lapsed lease re-queues once. The device side is `rightkit_daemon::link::client::LinkClient` (blocking, std and rustls only). See `CHANGELOG.md` (0.2.0) for the frame and lease rules.
+A machine with no inbound port reaches the host over `rk-link/1`: a TLS connection upgraded with a device-signed `GET /v1/link`, then signed, numbered JSON-line frames in both directions. The host leases durable tasks to the device (`Daemon::enqueue_task`); exactly one device owns a task at a time, results are fenced by a lease epoch, a dropped link resumes and the host sends again every leased task the device has not acked, a lapsed lease re-queues once. The device side is `rightkit_daemon::link::client::LinkClient` (blocking, std and rustls only). See `CHANGELOG.md` (0.2.0) for the frame and lease rules.
 
 ## Platform support
 

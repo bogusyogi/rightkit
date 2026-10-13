@@ -355,7 +355,7 @@ impl Daemon {
             "link_id": s.link_id,
             "heartbeat_secs": HEARTBEAT_SECS,
         }));
-        self.resume_tasks(s, resume_seq);
+        self.resume_tasks(s);
         self.dispatch();
         FrameOutcome::Continue
     }
