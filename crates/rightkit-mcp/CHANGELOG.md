@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- **BREAKING (0.6.0): `McpClient::connect`, `connect_with_extensions` and `connect_with_extensions_cancellable` are trust gated.**
+  Each now takes `source: &ServerSource, trust: &TrustStore` after the server name. A `ServerSource::Workspace`
+  server that is not `Approved` in `trust` for exactly that spec returns `McpError::NotApproved` / `McpError::Denied`
+  before anything is spawned or contacted; `ServerSource::User` is exempt, as in `ConnectionPool`. `ConnectionPool::get`
+  keeps its own gate and uses a crate-private ungated constructor. Migration: pass `&ServerSource::User,
+  &TrustStore::new()` for a user-configured server. Call sites in apps: CodeRight
+  `engine/crates/mcp/src/transport.rs:130` and `engine/crates/engine/src/sentinel_client.rs:56`
+  (`connect_with_extensions`). Not built or run locally (compile unverified, CI pending).
 - **Trust store: `TrustStore::try_load`, and `save` is atomic.** `load` returned an empty store for a missing file and
   for any other failure: a file that could not be read (on Windows an open can be refused for a moment while another
   process replaces the file) or did not parse. The caller's next `save` then wrote that empty store over every

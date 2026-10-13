@@ -87,7 +87,14 @@ fn assert_surface(c: &McpClient) {
 
 #[test]
 fn stdio_client_server_roundtrip() {
-    let c = McpClient::connect("demo", stdio_spec(&[]), opts_with(None)).unwrap();
+    let c = McpClient::connect(
+        "demo",
+        &rightkit_mcp::ServerSource::User,
+        &rightkit_mcp::TrustStore::new(),
+        stdio_spec(&[]),
+        opts_with(None),
+    )
+    .unwrap();
     assert_eq!(c.protocol_version(), "2025-03-26");
     assert_surface(&c);
     c.ping().unwrap();
@@ -154,6 +161,8 @@ fn http_loopback_roundtrip_and_gates() {
     let h = start_http("secret-e2e-123");
     let c = McpClient::connect(
         "demo",
+        &rightkit_mcp::ServerSource::User,
+        &rightkit_mcp::TrustStore::new(),
         ServerSpec::Http { url: h.1.clone() },
         opts_with(Some(Arc::new(Fixed("secret-e2e-123")))),
     )
@@ -163,6 +172,8 @@ fn http_loopback_roundtrip_and_gates() {
     // Wrong or missing credential is refused.
     let bad = McpClient::connect(
         "demo",
+        &rightkit_mcp::ServerSource::User,
+        &rightkit_mcp::TrustStore::new(),
         ServerSpec::Http { url: h.1.clone() },
         opts_with(Some(Arc::new(Fixed("nope")))),
     );
@@ -173,6 +184,8 @@ fn http_loopback_roundtrip_and_gates() {
     );
     let none = McpClient::connect(
         "demo",
+        &rightkit_mcp::ServerSource::User,
+        &rightkit_mcp::TrustStore::new(),
         ServerSpec::Http { url: h.1.clone() },
         opts_with(None),
     );
@@ -209,6 +222,8 @@ fn http_session_loss_reinitialises() {
     let h = start_http("s2");
     let c = McpClient::connect(
         "demo",
+        &rightkit_mcp::ServerSource::User,
+        &rightkit_mcp::TrustStore::new(),
         ServerSpec::Http { url: h.1.clone() },
         opts_with(Some(Arc::new(Fixed("s2")))),
     )
@@ -359,7 +374,14 @@ fn admission_denies_before_any_side_effect() {
     let marker = dir.path().join("write.marker");
     let args = json!({"path": marker.to_string_lossy(), "content": "payload"});
 
-    let c = McpClient::connect("demo", stdio_spec(&[]), opts_with(None)).unwrap();
+    let c = McpClient::connect(
+        "demo",
+        &rightkit_mcp::ServerSource::User,
+        &rightkit_mcp::TrustStore::new(),
+        stdio_spec(&[]),
+        opts_with(None),
+    )
+    .unwrap();
     let r = c.call_tool("write_marker", args.clone()).unwrap();
     assert!(r.is_error);
     assert!(
@@ -379,6 +401,8 @@ fn admission_denies_before_any_side_effect() {
     // Same server with mutation enabled: the hook (not the tool) was what stopped it.
     let c2 = McpClient::connect(
         "demo",
+        &rightkit_mcp::ServerSource::User,
+        &rightkit_mcp::TrustStore::new(),
         stdio_spec(&[("EXAMPLE_ALLOW_MUTATE", "1")]),
         opts_with(None),
     )
@@ -395,7 +419,14 @@ fn admission_denies_before_any_side_effect() {
 
 #[test]
 fn stdio_child_death_reconnects_and_pool_is_bounded() {
-    let c = McpClient::connect("demo", stdio_spec(&[]), opts_with(None)).unwrap();
+    let c = McpClient::connect(
+        "demo",
+        &rightkit_mcp::ServerSource::User,
+        &rightkit_mcp::TrustStore::new(),
+        stdio_spec(&[]),
+        opts_with(None),
+    )
+    .unwrap();
     // The tool kills the server mid-call; the client reconnects and retries once, which kills it again.
     assert!(c.call_tool("die", json!({})).is_err());
     // A later call transparently re-spawns.
@@ -447,4 +478,55 @@ fn stdio_child_death_reconnects_and_pool_is_bounded() {
             .text_content(),
         "echo: q"
     );
+}
+
+#[test]
+fn public_connect_refuses_untrusted_workspace_server_before_launch() {
+    // A command that cannot exist: if the gate let the call through we would see a transport/launch error,
+    // never NotApproved/Denied.
+    let spec = ServerSpec::Stdio {
+        command: "/nonexistent/rightkit-untrusted-server".into(),
+        args: vec![],
+        env: BTreeMap::new(),
+        cwd: None,
+    };
+    let source = ServerSource::Workspace("ws-1".into());
+    let mut trust = TrustStore::new();
+
+    let pending = McpClient::connect(
+        "evil",
+        &source,
+        &trust,
+        spec.clone(),
+        ClientOptions::default(),
+    );
+    assert!(matches!(pending, Err(McpError::NotApproved(_))));
+
+    let pending_ext = McpClient::connect_with_extensions(
+        "evil",
+        &source,
+        &trust,
+        spec.clone(),
+        ClientOptions::default(),
+        ClientExtensions::default(),
+    );
+    assert!(matches!(pending_ext, Err(McpError::NotApproved(_))));
+
+    trust.deny("ws-1", "evil", &spec);
+    let denied = McpClient::connect(
+        "evil",
+        &source,
+        &trust,
+        spec.clone(),
+        ClientOptions::default(),
+    );
+    assert!(matches!(denied, Err(McpError::Denied(_))));
+
+    // Once approved the gate passes, so the failure is the launch itself, not the trust gate.
+    trust.approve("ws-1", "evil", &spec);
+    let approved = McpClient::connect("evil", &source, &trust, spec, ClientOptions::default());
+    assert!(!matches!(
+        approved,
+        Err(McpError::NotApproved(_)) | Err(McpError::Denied(_))
+    ));
 }

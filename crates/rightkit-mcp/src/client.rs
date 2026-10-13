@@ -16,6 +16,7 @@ use crate::auth::AuthProvider;
 use crate::client_features::*;
 use crate::error::{McpError, Result};
 use crate::events::{emit, next_id, EventSink, LifecycleKind, McpEvent};
+use crate::trust::{pending_for, ServerSource, TrustDecision, TrustStore};
 use crate::types::*;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -993,8 +994,49 @@ pub struct McpClient {
 }
 
 impl McpClient {
-    /// Low level and ungated: spawns/connects immediately. Prefer `ConnectionPool` for config-sourced servers.
-    pub fn connect(server_name: &str, spec: ServerSpec, opts: ClientOptions) -> Result<McpClient> {
+    /// Trust gate shared by every public connect. `ServerSource::User` is exempt (user-configured);
+    /// a `Workspace` server must be `Approved` in `trust` for exactly this spec, otherwise nothing is spawned or contacted.
+    fn gate(
+        server_name: &str,
+        source: &ServerSource,
+        trust: &TrustStore,
+        spec: &ServerSpec,
+    ) -> Result<()> {
+        let ServerSource::Workspace(ws) = source else {
+            return Ok(());
+        };
+        match trust.decide(ws, server_name, spec) {
+            TrustDecision::Approved => Ok(()),
+            TrustDecision::Denied => Err(McpError::Denied(format!(
+                "server '{server_name}' was denied for this configuration"
+            ))),
+            TrustDecision::Pending => Err(McpError::NotApproved(Box::new(pending_for(
+                ws,
+                server_name,
+                spec,
+            )))),
+        }
+    }
+
+    /// Trust-gated connect: refuses with `Denied` / `NotApproved` before spawning or connecting when a
+    /// workspace-sourced server is not approved in `trust`. Prefer `ConnectionPool` for config-sourced servers.
+    pub fn connect(
+        server_name: &str,
+        source: &ServerSource,
+        trust: &TrustStore,
+        spec: ServerSpec,
+        opts: ClientOptions,
+    ) -> Result<McpClient> {
+        Self::gate(server_name, source, trust, &spec)?;
+        Self::connect_ungated(server_name, spec, opts)
+    }
+
+    /// Crate-internal: the caller (the pool) has already applied the trust gate.
+    pub(crate) fn connect_ungated(
+        server_name: &str,
+        spec: ServerSpec,
+        opts: ClientOptions,
+    ) -> Result<McpClient> {
         let c = McpClient {
             name: server_name.into(),
             spec,
@@ -1007,16 +1049,20 @@ impl McpClient {
         Ok(c)
     }
 
-    /// Opt into cancellable HTTP/SSE, custom launch, callbacks, versions & limits.
+    /// Trust-gated connect that opts into cancellable HTTP/SSE, custom launch, callbacks, versions & limits.
     /// New options can be supplied through builders or Default.
     pub fn connect_with_extensions(
         server_name: &str,
+        source: &ServerSource,
+        trust: &TrustStore,
         spec: ServerSpec,
         opts: ClientOptions,
         extensions: ClientExtensions,
     ) -> Result<McpClient> {
         Self::connect_with_extensions_cancellable(
             server_name,
+            source,
+            trust,
             spec,
             opts,
             extensions,
@@ -1027,6 +1073,8 @@ impl McpClient {
     /// Opens a cold connection with cancellation across launch, initialize & initialized; abort returns Cancelled & tears down transport.
     pub fn connect_with_extensions_cancellable(
         server_name: &str,
+        source: &ServerSource,
+        trust: &TrustStore,
         spec: ServerSpec,
         opts: ClientOptions,
         extensions: ClientExtensions,
@@ -1035,6 +1083,7 @@ impl McpClient {
         if cancellation.is_cancelled() {
             return Err(McpError::Cancelled);
         }
+        Self::gate(server_name, source, trust, &spec)?;
         if extensions
             .protocol_versions
             .as_ref()

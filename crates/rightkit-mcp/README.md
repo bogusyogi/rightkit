@@ -30,7 +30,7 @@ The snippets below are illustrative. They show the public API shape; they are no
 use rightkit_mcp::*;
 use serde_json::json;
 
-let client = McpClient::connect("filesystem", ServerSpec::Stdio {
+let client = McpClient::connect("filesystem", &ServerSource::User, &TrustStore::new(), ServerSpec::Stdio {
     command: "my-mcp-server".into(),
     args: vec![],
     env: Default::default(),
@@ -59,7 +59,7 @@ All additions are opt-in. Existing `ClientOptions`, `ServerOptions`, `ServerSpec
 use rightkit_mcp::*;
 # fn example() -> Result<()> {
 let client = McpClient::connect_with_extensions(
-    "legacy", ServerSpec::Http { url: "https://mcp.example/sse".into() },
+    "legacy", &ServerSource::User, &TrustStore::new(), ServerSpec::Http { url: "https://mcp.example/sse".into() },
     ClientOptions::default(), ClientExtensions {
         legacy_sse: true,
         endpoint_origin_policy: EndpointOriginPolicy {
@@ -101,7 +101,7 @@ let launcher = |request: &LaunchRequest| -> Result<LaunchedProcess> {
     // Replace with AppContainer/seatbelt launch; return child & wrapped pipes.
     DefaultProcessLauncher.launch(request)
 };
-let client = McpClient::connect_with_extensions("confined", spec,
+let client = McpClient::connect_with_extensions("confined", &ServerSource::User, &TrustStore::new(), spec,
     ClientOptions::default(), ClientExtensions {
         launcher: Some(Arc::new(launcher)), ..Default::default()
     })?;
@@ -155,7 +155,7 @@ use serde_json::json;
 let versions = vec!["2025-03-26".into(), "2025-11-25".into()];
 let limits = ResponseLimits { max_response_bytes: 1024 * 1024, max_frame_bytes: 64 * 1024 };
 let host = host.with_protocol_versions(versions.clone()).with_response_limits(limits);
-let client = McpClient::connect_with_extensions("versioned", spec,
+let client = McpClient::connect_with_extensions("versioned", &ServerSource::User, &TrustStore::new(), spec,
     ClientOptions::default(), ClientExtensions {
         protocol_versions: Some(versions), response_limits: limits, ..Default::default()
     })?;

@@ -71,6 +71,8 @@ fn stdio_client_graceful_start_stop() {
     let (log, sink) = recorder();
     let c = McpClient::connect(
         "demo",
+        &rightkit_mcp::ServerSource::User,
+        &rightkit_mcp::TrustStore::new(),
         stdio_spec(),
         ClientOptions::default().on_event(sink),
     )
@@ -99,6 +101,8 @@ fn stdio_server_death_is_a_crash_then_reconnect_starts_a_new_session() {
     let (log, sink) = recorder();
     let c = McpClient::connect(
         "demo",
+        &rightkit_mcp::ServerSource::User,
+        &rightkit_mcp::TrustStore::new(),
         stdio_spec(),
         ClientOptions::default().on_event(sink),
     )
