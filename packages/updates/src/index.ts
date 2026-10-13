@@ -57,6 +57,13 @@ export interface AutoUpdateClientConfig {
     tier: UpdateTier,
     context: { checkHeaders?: UpdateHeaders },
   ) => Promise<UpdateHeaders | undefined> | UpdateHeaders | undefined;
+  /**
+   * When true and no `getInstallHeaders` is set, the artifact download gets no
+   * headers instead of reusing the manifest-check headers. Default false keeps the
+   * legacy reuse; new apps should set this (or `getInstallHeaders`) so a manifest
+   * credential is never sent to a different artifact origin.
+   */
+  strictInstallHeaders?: boolean;
   getTier?: (
     version: string,
     context: { headers?: UpdateHeaders },
@@ -274,7 +281,7 @@ export function createAutoUpdateClient(config: AutoUpdateClientConfig): AutoUpda
 
       const installHeaders = config.getInstallHeaders
         ? await config.getInstallHeaders(tier, { checkHeaders })
-        : checkHeaders;
+        : config.strictInstallHeaders ? undefined : checkHeaders;
       if (generation !== installGeneration) return { kind: 'idle' };
       let total = 0;
       let received = 0;
