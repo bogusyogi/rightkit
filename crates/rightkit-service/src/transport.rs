@@ -155,6 +155,11 @@ fn legacy_unix_endpoint_in(suite: &Suite, service: &str, temp: &std::path::Path)
 pub fn try_endpoint_for(suite: &Suite, service: &str) -> Result<String, EndpointError> {
     if cfg!(windows) {
         let tag = suite_tag(suite);
+        // `USERNAME` stays: it is only a label in the pipe name (so two users' pipes do not
+        // collide), never a root, trust or mode selector. A launcher that changes it changes only
+        // the name host and client compute; the pipe's current-user DACL and the client's
+        // same-user check still decide who may connect. No API alternative in the current
+        // dependency features, and none is added.
         let user: String = std::env::var("USERNAME")
             .unwrap_or_default()
             .chars()

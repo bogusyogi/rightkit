@@ -228,6 +228,7 @@ fn stale_record_from_a_killed_host_is_replaced() {
     );
 }
 
+#[cfg(feature = "test-mode")]
 #[test]
 fn app_data_root_fails_closed_never_cwd_relative() {
     let cwd = tempfile::tempdir().unwrap();
@@ -375,7 +376,7 @@ fn request_deadline_aborts_and_never_replays() {
 
 /// The shared convention: HeardRight, ScrapeRight and CutRight already root their shared
 /// store and speech discovery at `<app data>/Orthic Labs/shared`.
-#[cfg(target_os = "macos")]
+#[cfg(all(target_os = "macos", feature = "test-mode"))]
 #[test]
 fn default_root_is_the_shared_directory_the_apps_already_use() {
     let out = Command::new(host_bin())
@@ -738,4 +739,36 @@ fn queued_call_deadline_includes_the_mutex_wait() {
     // The holder still owns a live connection: its own deadline ends it, not the queued call.
     let held = holder.join().unwrap().unwrap_err();
     assert_eq!(held.code, ERROR_TIMEOUT, "{held}");
+}
+
+/// Release build (no `test-mode`): `--resolve` reads no variable; an empty environment and a
+/// hostile one give the same account-database root.
+#[cfg(all(
+    any(target_os = "macos", target_os = "linux"),
+    not(feature = "test-mode")
+))]
+#[test]
+fn release_resolve_ignores_the_environment() {
+    let want = format!(
+        "ROOT {}",
+        Suite::per_user_default().unwrap().root().display()
+    );
+    for env in [
+        vec![],
+        vec![
+            (ENV_SUITE_ROOT, "/evil"),
+            ("RIGHT_SUITE_DIR", "/evil"),
+            ("ORTHIC_SHARED_DIR", "/evil"),
+            ("HOME", "/evil"),
+            ("XDG_DATA_HOME", "/evil"),
+        ],
+    ] {
+        let out = Command::new(host_bin())
+            .arg("--resolve")
+            .env_clear()
+            .envs(env)
+            .output()
+            .unwrap();
+        assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), want);
+    }
 }

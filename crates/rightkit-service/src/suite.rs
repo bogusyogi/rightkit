@@ -74,6 +74,7 @@ fn absolute(p: PathBuf) -> Result<PathBuf, SuiteError> {
     Ok(p)
 }
 
+#[cfg(feature = "test-mode")]
 fn env_nonempty(k: &str) -> Option<String> {
     std::env::var(k).ok().filter(|v| !v.trim().is_empty())
 }
@@ -90,10 +91,23 @@ impl Suite {
     /// release build that talks to its installed app: use [`Suite::per_user_default`] or
     /// [`Suite::resolve_ignoring_env_overrides`] there. The returned suite reports
     /// [`Suite::env_derived`] `true`.
+    ///
+    /// **Release builds (without the `test-mode` feature) read no override switch at all**: this
+    /// returns [`Suite::per_user_default`] (account database / known-folder table), reports
+    /// [`Suite::env_derived`] `false` because nothing came from the environment, and the binary
+    /// contains no code that reads the variables above. The environment paragraph applies only
+    /// to a build that compiles `test-mode`.
     pub fn resolve() -> Result<Suite, SuiteError> {
-        let mut suite = Self::resolve_from_env()?;
-        suite.env_derived = true;
-        Ok(suite)
+        #[cfg(feature = "test-mode")]
+        {
+            let mut suite = Self::resolve_from_env()?;
+            suite.env_derived = true;
+            Ok(suite)
+        }
+        #[cfg(not(feature = "test-mode"))]
+        {
+            Self::per_user_default()
+        }
     }
 
     /// The per-user default suite root from the operating system's account database, never from
@@ -131,11 +145,22 @@ impl Suite {
         since = "0.1.6",
         note = "use rightkit_service::mode::{decide, roots}: release builds read no override selector, test builds fail closed on a validated TestRoot"
     )]
+    ///
+    /// Without the `test-mode` feature the flag is ignored: this is an alias of
+    /// [`Suite::per_user_default`] and reads no environment.
     pub fn resolve_ignoring_env_overrides(ignore_env_overrides: bool) -> Result<Suite, SuiteError> {
-        if ignore_env_overrides {
+        #[cfg(feature = "test-mode")]
+        {
+            if ignore_env_overrides {
+                Self::per_user_default()
+            } else {
+                Self::resolve()
+            }
+        }
+        #[cfg(not(feature = "test-mode"))]
+        {
+            let _ = ignore_env_overrides;
             Self::per_user_default()
-        } else {
-            Self::resolve()
         }
     }
 
@@ -145,6 +170,7 @@ impl Suite {
         self.env_derived
     }
 
+    #[cfg(feature = "test-mode")]
     fn resolve_from_env() -> Result<Suite, SuiteError> {
         // Legacy aliases used by existing apps' isolated test runs (HeardRight e2e_engine).
         for key in [ENV_SUITE_ROOT, "RIGHT_SUITE_DIR", "ORTHIC_SHARED_DIR"] {
@@ -325,7 +351,7 @@ fn platform_default_base() -> Result<PathBuf, SuiteError> {
 
 /// The current user's home directory from `getpwuid_r(geteuid())`, ignoring `HOME`.
 #[cfg(any(target_os = "macos", target_os = "linux"))]
-fn passwd_home_dir() -> Result<PathBuf, SuiteError> {
+pub(crate) fn passwd_home_dir() -> Result<PathBuf, SuiteError> {
     use std::ffi::{c_char, c_int, CStr, OsStr};
     use std::os::unix::ffi::OsStrExt;
 
@@ -445,11 +471,19 @@ mod tests {
 
     #[test]
     fn only_resolve_is_marked_environment_derived() {
+        #[cfg(not(feature = "test-mode"))]
+        {
+            // Release: `resolve` is the canonical root and nothing in it came from the environment.
+            let suite = Suite::resolve().unwrap();
+            assert!(!suite.env_derived());
+            assert_eq!(suite.root(), Suite::per_user_default().unwrap().root());
+        }
         let dir = tempfile::tempdir().unwrap();
         assert!(!Suite::at(dir.path()).unwrap().env_derived());
         assert!(!Suite::per_run_temp("env-flag").unwrap().env_derived());
         // `resolve` fails only where the environment names no root at all; then there is no
         // suite to inspect.
+        #[cfg(feature = "test-mode")]
         if let Ok(suite) = Suite::resolve() {
             assert!(suite.env_derived());
             assert!(suite.clone().env_derived(), "the mark survives a clone");

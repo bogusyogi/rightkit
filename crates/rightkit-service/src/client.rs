@@ -676,6 +676,7 @@ mod tests {
             assert_eq!(cfg.resolve_suite().unwrap().root(), explicit.root());
         }
         // `Suite::resolve` fails only where the environment names no root at all.
+        #[cfg(feature = "test-mode")]
         if let Ok(from_env) = Suite::resolve() {
             let lenient = ClientConfig::new("svc", "app").suite(from_env);
             assert!(lenient.resolve_suite().is_ok());

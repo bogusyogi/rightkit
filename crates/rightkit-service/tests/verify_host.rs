@@ -320,7 +320,36 @@ mod unix_tests {
         String::from_utf8(out.stdout).unwrap().trim().to_string()
     }
 
-    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    /// Release build (no `test-mode`): no variable redirects the root, hardened or not.
+    #[cfg(all(
+        any(target_os = "macos", target_os = "linux"),
+        not(feature = "test-mode")
+    ))]
+    #[test]
+    fn a_release_client_reads_no_override_variable() {
+        let fx = Fixture::new();
+        let evil_root = fx.dir.path().join("evil-suite");
+        let evil_home = fx.dir.path().join("evil-home");
+        let default_root = Suite::per_user_default().unwrap().root().to_path_buf();
+        let want = format!("ROOT {}", default_root.display());
+        for key in [
+            "RIGHTKIT_SUITE_ROOT",
+            "RIGHT_SUITE_DIR",
+            "ORTHIC_SHARED_DIR",
+        ] {
+            let env = [(key, evil_root.as_path()), ("HOME", evil_home.as_path())];
+            assert_eq!(run_client("resolve", "demo", &[], &env), want, "{key}");
+            assert_eq!(
+                run_client("resolve-hardened", "demo", &[], &env),
+                want,
+                "{key}"
+            );
+        }
+        let env = [("HOME", evil_home.as_path())];
+        assert_eq!(run_client("resolve", "demo", &[], &env), want);
+    }
+
+    #[cfg(all(any(target_os = "macos", target_os = "linux"), feature = "test-mode"))]
     #[test]
     fn a_hardened_client_ignores_every_environment_redirect_of_the_suite_root() {
         let fx = Fixture::new();
@@ -364,6 +393,7 @@ mod unix_tests {
         );
     }
 
+    #[cfg(feature = "test-mode")]
     #[test]
     fn a_redirecting_launcher_never_receives_what_a_hardened_or_expecting_client_sends() {
         let fx = Fixture::new();

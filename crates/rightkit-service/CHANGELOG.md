@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Release builds read no override switch at all (D4 ratified, Opus residual; **behaviour change** for builds without `test-mode`): `Suite::resolve()` returns `Suite::per_user_default()` (account database / known-folder table) and `Suite::resolve_ignoring_env_overrides(_)` is a no-op alias of it; `RIGHTKIT_SUITE_ROOT`, `RIGHT_SUITE_DIR`, `ORTHIC_SHARED_DIR`, `HOME`, `XDG_DATA_HOME` and `LOCALAPPDATA` are read only under `#[cfg(feature = "test-mode")]`, so the release binary does not contain the code or the names. macOS app discovery takes the user's `~/Applications` from `getpwuid_r`, not `HOME`. `USERNAME` in the Windows pipe name stays: it is a label, not a selector; the pipe DACL and same-user check decide access. Tests run in both feature states (`cargo test -p rightkit-service` and `--features test-mode`). Not compiled or run locally; verification is the CI run.
+
 ## 0.1.5
 
 - Fix: `Client::call` returned `request_timeout` after the full deadline when the host's reply was larger than the client's 16 MiB frame limit (the host's `frame_limit` may be larger): the oversized frame was drained and then ignored while the client kept waiting for it. It now returns the non-retryable `response_too_large` at once, and the connection stays usable. Not compiled or run locally; verification is the CI run. `tests/write_bound.rs` `a_reply_over_the_clients_frame_limit_is_a_typed_error_not_a_deadline`; the keep-up test now moves 8 MiB (it asked for 32 MiB through a 16 MiB client, which is what timed out in CI).

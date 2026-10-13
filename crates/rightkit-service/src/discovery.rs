@@ -107,8 +107,11 @@ pub fn discover_apps_in_with(
 #[cfg(target_os = "macos")]
 fn default_macos_roots() -> Vec<PathBuf> {
     let mut roots = vec![PathBuf::from("/Applications")];
-    if let Some(home) = std::env::var_os("HOME") {
-        roots.push(PathBuf::from(home).join("Applications"));
+    // The user's own Applications folder comes from the account database (`getpwuid_r`), never
+    // from `HOME`: whoever launches the process controls `HOME`, and this root decides which
+    // installed apps are trusted as siblings.
+    if let Ok(home) = crate::suite::passwd_home_dir() {
+        roots.push(home.join("Applications"));
     }
     roots
 }
