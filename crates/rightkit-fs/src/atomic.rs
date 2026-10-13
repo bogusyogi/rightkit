@@ -1483,49 +1483,94 @@ mod sync_ladder_tests {
 /// path mutator can still replace the name after that check, so this is not an unlink-if-same-inode
 /// guarantee on Unix. Returns the number removed.
 pub fn sweep_stale_temps(dir: &Path, max_age: Duration) -> Result<usize> {
+    let _ = max_age;
+    sweep_stale_temps_report(dir).map(|report| report.removed)
+}
+
+/// What [`sweep_stale_temps_report`] found (M8-O7b): the removal count of [`sweep_stale_temps`] plus
+/// why each generated temp that was kept survived, so a caller can tell a writer confirmed dead
+/// from one whose liveness could not be established.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct SweepReport {
+    /// Generated temp files removed: their writer was confirmed dead.
+    pub removed: usize,
+    /// Kept because the writer is this process or confirmed alive.
+    pub retained_live: usize,
+    /// Kept because the writer's liveness could not be established (query failed, or the
+    /// platform has no probe). Never treated as dead.
+    pub retained_unknown: usize,
+    /// Kept although the writer is dead: the entry is not a regular file, vanished, or changed
+    /// identity between checks.
+    pub retained_other: usize,
+    /// False where the platform sweep reports only `removed` (Windows): the retained counts are
+    /// then zero because they were not measured, not because nothing was kept.
+    pub retained_counted: bool,
+}
+
+/// [`sweep_stale_temps`] with a [`SweepReport`]. The same rules: no age, only complete generated
+/// names, only regular files, only a confirmed-dead writer.
+pub fn sweep_stale_temps_report(dir: &Path) -> Result<SweepReport> {
     #[cfg(windows)]
     {
-        let _ = max_age;
-        crate::windows_temp_sweep::sweep_path(dir)
+        crate::windows_temp_sweep::sweep_path(dir).map(|removed| SweepReport {
+            removed,
+            ..SweepReport::default()
+        })
     }
     #[cfg(not(windows))]
     {
-        sweep_stale_temps_path(dir, max_age)
+        sweep_stale_temps_path(dir)
     }
 }
 
 #[cfg(not(windows))]
-fn sweep_stale_temps_path(dir: &Path, max_age: Duration) -> Result<usize> {
-    let _ = max_age;
+fn sweep_stale_temps_path(dir: &Path) -> Result<SweepReport> {
+    let mut report = SweepReport {
+        retained_counted: true,
+        ..SweepReport::default()
+    };
     let entries = match fs::read_dir(dir) {
         Ok(e) => e,
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(0),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(report),
         Err(e) => return Err(FsError::io(dir, e)),
     };
-    let mut removed = 0;
     for entry in entries.flatten() {
         let name = entry.file_name().to_string_lossy().into_owned();
         let Some(pid) = generated_temp_pid(&name) else {
             continue;
         };
-        if !confirmed_dead_writer(pid) {
+        if pid == std::process::id() {
+            report.retained_live += 1;
             continue;
+        }
+        match crate::process_liveness(pid) {
+            crate::ProcessLiveness::Alive => {
+                report.retained_live += 1;
+                continue;
+            }
+            crate::ProcessLiveness::Unknown => {
+                report.retained_unknown += 1;
+                continue;
+            }
+            crate::ProcessLiveness::Dead => {}
         }
         let path = entry.path();
         let Ok(meta) = fs::symlink_metadata(&path) else {
+            report.retained_other += 1;
             continue;
         };
-        if !meta.is_file() {
-            continue;
-        }
-        if !confirmed_dead_writer(pid) {
+        if !meta.is_file() || !confirmed_dead_writer(pid) {
+            report.retained_other += 1;
             continue;
         }
         if remove_same_regular_temp(&path, &meta) {
-            removed += 1;
+            report.removed += 1;
+        } else {
+            report.retained_other += 1;
         }
     }
-    Ok(removed)
+    Ok(report)
 }
 
 pub(crate) fn confirmed_dead_writer(pid: u32) -> bool {

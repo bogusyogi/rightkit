@@ -152,6 +152,11 @@ path = "tests/owner_executable.rs"
 required-features = ["fs"]
 
 [[test]]
+name = "owner_sweep"
+path = "tests/owner_sweep.rs"
+required-features = ["fs"]
+
+[[test]]
 name = "owner_verified"
 path = "tests/owner_verified.rs"
 required-features = ["fs", "digest"]
