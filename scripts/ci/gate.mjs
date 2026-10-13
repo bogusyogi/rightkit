@@ -248,7 +248,12 @@ async function rustGate(selection, config) {
 
   const formatted = rust.test.filter(applies);
   if (formatted.length) {
-    await run("fmt", "cargo", ["fmt", ...formatted.flatMap((name) => ["-p", name])], { timeoutMinutes: 10 });
+    // Batch the -p flags: one command line holding every crate overflows Windows' 32,767-char
+    // limit (os error 206). Every batch runs even if one fails; each failure is recorded by run().
+    const FMT_BATCH = 15;
+    for (let i = 0; i < formatted.length; i += FMT_BATCH) {
+      await run("fmt", "cargo", ["fmt", ...formatted.slice(i, i + FMT_BATCH).flatMap((name) => ["-p", name])], { timeoutMinutes: 10 });
+    }
     const dirty = git("diff", "--name-only").stdout.split("\n").filter((p) => p.endsWith(".rs"));
     if (dirty.length) {
       savePatch("fmt.patch", dirty);
