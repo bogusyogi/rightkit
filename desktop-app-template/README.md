@@ -23,7 +23,7 @@ and the updater endpoint/key).
 | E2E | `rightkit-qa.toml`, `tests/scenarios/`, `crates/engine/tests`, `src-tauri/tests` | Rust `rightkit-qa` engine black-box scenarios (real binary, isolated data dir, muted audio) plus real-process Rust tests of the supervisor; no Node harness |
 | Helpers + gate | `crates/tools` (`rightapp-tools brand-sync|stage-engine|check|init`) | Rust helpers; `check` rejects Node harnesses, loose or non-published pins, and any placeholder whose package is listed in `rightkit-versions.json` |
 
-Unlicensed: `@rightkit/license`, `@rightkit/legal`, `@rightkit/legal-ui` are an add-on (below).
+Licence and legal are mandatory (M12, M14): every app generated from this template adopts `@rightkit/license`, `@rightkit/legal`, `@rightkit/legal-ui` and `rightkit-license` (steps below). The template itself does not yet carry them; that gap is tracked, not optional.
 
 ## Who supervises, who hosts
 
@@ -96,7 +96,7 @@ before any Rust command.
    migration" in `docs/RIGHTKIT-SHARED-PLATFORM.md`. `pnpm check:release-pin` asserts the exact
    `@rightkit/release` pin matches the installed, registry-listed version. Run `pnpm release:doctor`.
    Signing/notarization is provisioned: never run `az login` or browser auth.
-9. **Licensed app add-on** (ScrapeRight/ViewRight/HeardRight pattern): add exact pins for
+9. **Licence and legal (mandatory, M12/M14; ScrapeRight/ViewRight/HeardRight pattern)**: add exact pins for
    `@rightkit/license`, `@rightkit/legal-ui`, dev `@rightkit/legal`, and crates `rightkit-license`;
    add `@tauri-apps/plugin-http`, `tauri-plugin-http` and the `http:default` capability scoped to the
    brand host; swap `FileDeviceStore` in `lib.rs` for a keyring-backed `SecureStore`; add

@@ -120,5 +120,5 @@ export default {
       updater: { artifacts: [] },
     },
   },
-  // Licensed apps add (see README add-on): legal: { manifest: "legal/legal-manifest.json", tauriConfig: "src-tauri/tauri.conf.json" }
+  // Legal is mandatory for every app (README step 9; M14). Add: legal: { manifest: "legal/legal-manifest.json", tauriConfig: "src-tauri/tauri.conf.json" }
 };
