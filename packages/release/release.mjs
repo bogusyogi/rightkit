@@ -443,7 +443,7 @@ if (opts.platform === "win" && target.signingContract === WINDOWS_NSIS_SIGNING_C
   if (target.postSign) await runCommand(target.postSign, root);
   const updaterFiles = [...new Set((target.updater?.artifacts ?? []).map((artifact) => resolveReleaseArtifactPath(root, artifact.file)))];
   if (!updaterFiles.length) fail(`${config.app} win must declare updater.artifacts for post-code-signing minisign`);
-  await run("node", [SIGN_UPDATER, ...(opts.dryRun ? ["--dry-run"] : []), ...updaterFiles.flatMap((file) => ["--file", file])], root);
+  await run("node", [SIGN_UPDATER, ...(opts.dryRun ? ["--dry-run"] : []), ...(target.updater?.keyFile ? ["--key-file", String(target.updater.keyFile)] : []), ...updaterFiles.flatMap((file) => ["--file", file])], root);
 }
 
 if (target.postSign && opts.platform !== "win" && (opts.platform !== "mac" || runMacPhase("post-sign"))) {
