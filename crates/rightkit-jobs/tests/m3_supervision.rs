@@ -202,3 +202,51 @@ fn a_mandatory_contract_check_with_the_current_version_boots_and_a_wrong_engine_
     );
     assert_eq!(s.start().unwrap_err().code, CONTRACT_VERSION_MISMATCH);
 }
+
+fn env_rig(scrub: bool) -> (tempfile::TempDir, SupervisorConfig) {
+    let dir = tempfile::tempdir().unwrap();
+    let state = dir.path().to_path_buf();
+    let cfg = SupervisorConfig::new("fixture", move || {
+        let mut c = OwnedCommand::new(fixture());
+        if scrub {
+            c.env_allowlist_with_defaults(["RK_M3_JOBS_KEEP"]);
+        }
+        c.command_mut().env("FX_DIR", &state).env("FX_PLAN", "ok");
+        Ok(c)
+    })
+    .with_hello_timeout(Duration::from_secs(10))
+    .with_shutdown_grace(Duration::from_millis(200));
+    (dir, cfg)
+}
+
+#[test]
+fn a_scrubbed_engine_sees_only_its_allowlist() {
+    std::env::set_var("RK_M3_JOBS_KEEP", "yes");
+    std::env::set_var("RK_M3_JOBS_SECRET", "no");
+    let (_d, cfg) = env_rig(true);
+    let s = EngineSupervisor::new(cfg.require_scrubbed_env());
+    s.start().unwrap();
+    let vars = s.call("env", json!({})).unwrap()["vars"].clone();
+    assert_eq!(vars["RK_M3_JOBS_KEEP"], "yes");
+    assert!(vars.get("RK_M3_JOBS_SECRET").is_none(), "{vars}");
+    assert_eq!(vars["FX_PLAN"], "ok", "explicit variables are still passed");
+    s.shutdown();
+}
+
+#[test]
+fn an_unscrubbed_command_is_refused_when_scrubbing_is_required_and_inherits_otherwise() {
+    std::env::set_var("RK_M3_JOBS_SECRET", "no");
+    let (dir, cfg) = env_rig(false);
+    let s = EngineSupervisor::new(cfg.require_scrubbed_env());
+    let err = s.start().unwrap_err();
+    assert_eq!(err.code, "env_not_scrubbed");
+    assert!(matches!(s.status().terminal, Some(Terminal::Failed { .. })));
+    assert!(!dir.path().join("gen").exists(), "nothing was spawned");
+    // Without the requirement the default is unchanged: the environment is inherited.
+    let (_d, cfg) = env_rig(false);
+    let s = EngineSupervisor::new(cfg);
+    s.start().unwrap();
+    let vars = s.call("env", json!({})).unwrap()["vars"].clone();
+    assert_eq!(vars["RK_M3_JOBS_SECRET"], "no");
+    s.shutdown();
+}

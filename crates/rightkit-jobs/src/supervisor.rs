@@ -55,6 +55,9 @@ use crate::client::{
 use crate::error::{JobError, JobResult, CONTRACT_VERSION_MISMATCH};
 use crate::wire::{CONTRACT_VERSION, DEFAULT_FRAME_LIMIT};
 
+/// Code of the boot failure raised by [`SupervisorConfig::require_scrubbed_env`].
+const ENV_NOT_SCRUBBED: &str = "env_not_scrubbed";
+
 type SpawnFn = dyn Fn() -> io::Result<OwnedCommand> + Send + Sync;
 type Redactor = dyn Fn(&str) -> Option<String> + Send + Sync;
 type LineSink = dyn Fn(&str) + Send + Sync;
@@ -294,6 +297,7 @@ pub struct SupervisorConfig {
     on_stderr: Option<Arc<LineSink>>,
     contract_version: Option<ContractRequirement>,
     contract_check_required: bool,
+    env_scrub_required: bool,
     initial_failure: InitialFailure,
     protocol_error_sink: Option<ProtocolErrorSink>,
     fallback_error_code: String,
@@ -323,6 +327,7 @@ impl SupervisorConfig {
             on_stderr: None,
             contract_version: None,
             contract_check_required: false,
+            env_scrub_required: false,
             initial_failure: InitialFailure::Retry,
             protocol_error_sink: None,
             fallback_error_code: "engine_error".into(),
@@ -371,6 +376,16 @@ impl SupervisorConfig {
     /// default, because the check itself is opt-in.
     pub fn with_mandatory_contract_check(mut self) -> Self {
         self.contract_check_required = true;
+        self
+    }
+    /// Refuse an engine command that did not clear the inherited environment. The spawn closure
+    /// must call `OwnedCommand::env_allowlist` or `env_allowlist_with_defaults` (the consumer's own
+    /// variables, such as a model-cache location, go in the allowlist); a command that did not
+    /// fails the boot with `env_not_scrubbed`, which is terminal like a contract mismatch: it is a
+    /// configuration error, not a crash to retry. Off by default. A command cleared through
+    /// `command_mut().env_clear()` is not recognised (see `OwnedCommand::env_is_cleared`).
+    pub fn require_scrubbed_env(mut self) -> Self {
+        self.env_scrub_required = true;
         self
     }
     fn contract_gate(&self) -> JobResult<()> {
@@ -1160,6 +1175,7 @@ fn boot(sh: &Arc<Shared>, initial: bool) -> JobResult<()> {
         // A contract mismatch is terminal on any boot; a first failure is terminal
         // only under `InitialFailure::Terminal`. Anything else spends restart budget.
         let terminal = code == CONTRACT_VERSION_MISMATCH
+            || code == ENV_NOT_SCRUBBED
             || (initial && sh.cfg.initial_failure == InitialFailure::Terminal);
         if !terminal {
             if initial {
@@ -1206,6 +1222,14 @@ fn boot(sh: &Arc<Shared>, initial: bool) -> JobResult<()> {
             )
         }
     };
+    if sh.cfg.env_scrub_required && !command.env_is_cleared() {
+        return fail(
+            ExitReason::SpawnFailed("environment not scrubbed".into()),
+            ENV_NOT_SCRUBBED,
+            "the engine command inherits the parent environment; call env_allowlist".into(),
+            String::new(),
+        );
+    }
     command
         .command_mut()
         .stdin(Stdio::piped())

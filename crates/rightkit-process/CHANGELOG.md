@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- **M3 environment policy (additive).** `OwnedCommand::env_allowlist_with_defaults(extra)` clears the inherited environment and keeps `DEFAULT_ENV_ALLOWLIST` plus the consumer's own names (a model-cache location, for instance); `OwnedCommand::env_is_cleared()` reports whether an allowlist cleared it (on every platform; the field was Windows-only). Gotcha now documented: `env_allowlist` starts from an empty environment, so call it once. Tests: `tests/env_policy.rs`. Not compiled when written (CI-only).
 - **M3 restart policy: consecutive-failure cap and reset-on-ready (additive).** `RestartPolicy::with_consecutive_failures(cap, cooldown)`
   limits restarts granted in a row without a ready: at the cap the next restart waits `cooldown` instead of the exponential backoff and a
   new count starts; a zero cooldown returns `Exhausted`. The rolling-window budget is still checked first. `RestartTracker::ready(generation)`

@@ -92,7 +92,6 @@ pub struct OwnedCommand {
     windows_spawn_config: Option<crate::WindowsSpawnConfig>,
     #[cfg(windows)]
     windows_spawn_config_auto: bool,
-    #[cfg(windows)]
     env_cleared: bool,
 }
 #[cfg(windows)]
@@ -133,7 +132,6 @@ impl OwnedCommand {
             windows_spawn_config: None,
             #[cfg(windows)]
             windows_spawn_config_auto: false,
-            #[cfg(windows)]
             env_cleared: false,
         }
     }
@@ -177,14 +175,33 @@ impl OwnedCommand {
             .filter_map(|k| std::env::var_os(k.as_ref()).map(|v| (k.as_ref().to_os_string(), v)))
             .collect();
         self.command.env_clear();
-        #[cfg(windows)]
-        {
-            self.env_cleared = true;
-        }
+        self.env_cleared = true;
         for (k, v) in kept {
             self.command.env(k, v);
         }
         self
+    }
+    /// [`Self::env_allowlist`] over [`DEFAULT_ENV_ALLOWLIST`] plus `extra` (a consumer's own
+    /// variables, for instance a model-cache location). Call it once: like `env_allowlist` it
+    /// starts from an empty environment, so a second call drops what the first kept.
+    pub fn env_allowlist_with_defaults<I, S>(&mut self, extra: I) -> &mut Self
+    where
+        I: IntoIterator<Item = S>,
+        S: AsRef<OsStr>,
+    {
+        let keys: Vec<std::ffi::OsString> = DEFAULT_ENV_ALLOWLIST
+            .iter()
+            .map(std::ffi::OsString::from)
+            .chain(extra.into_iter().map(|k| k.as_ref().to_os_string()))
+            .collect();
+        self.env_allowlist(keys)
+    }
+    /// True once [`Self::env_allowlist`] (or `env_allowlist_with_defaults`) cleared the inherited
+    /// environment on this command. A `Command` that was cleared with `env_clear` directly, or
+    /// wrapped by `from_command` after it was cleared, reads `false`: the state is not observable
+    /// from `std::process::Command`.
+    pub fn env_is_cleared(&self) -> bool {
+        self.env_cleared
     }
     pub fn env_strip<I, S>(&mut self, keys: I) -> &mut Self
     where
