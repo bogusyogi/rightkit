@@ -59,6 +59,24 @@ impl ToolDescriptor {
         self.annotations.read_only = Some(yes);
         self
     }
+    /// True unless the tool is explicitly annotated `readOnlyHint: true`.
+    /// An unannotated tool is treated as mutating, matching `ReadOnlyPolicy`.
+    pub fn is_mutating(&self) -> bool {
+        self.annotations.read_only != Some(true)
+    }
+}
+
+/// Owner check for adopters: names of tools that are not annotated read-only
+/// and so are reported (and gated by `ReadOnlyPolicy`) as mutating. Call it on
+/// `ToolProvider::list()` in a test to see exactly which tools need an explicit
+/// `.read_only(true)` or a deliberate mutation opt-in. Opt-in: nothing in the
+/// server calls it, so existing providers keep their behavior.
+pub fn mutating_tools(tools: &[ToolDescriptor]) -> Vec<String> {
+    tools
+        .iter()
+        .filter(|t| t.is_mutating())
+        .map(|t| t.name.clone())
+        .collect()
 }
 
 #[derive(Debug, Clone, PartialEq)]

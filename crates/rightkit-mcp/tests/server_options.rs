@@ -926,3 +926,16 @@ fn default_negotiation_accepts_2025_06_18_and_keeps_2025_03_26_fallback() {
     assert_eq!(reply["result"]["protocolVersion"], "2025-06-18");
     assert_eq!(PROTOCOL_VERSION, "2025-03-26");
 }
+
+#[test]
+fn unannotated_tools_are_reported_as_mutating() {
+    let schema = json!({"type":"object"});
+    let tools = vec![
+        ToolDescriptor::new("read", "r", schema.clone()).read_only(true),
+        ToolDescriptor::new("write", "w", schema.clone()).read_only(false),
+        ToolDescriptor::new("unannotated", "u", schema),
+    ];
+    assert_eq!(mutating_tools(&tools), vec!["write", "unannotated"]);
+    assert!(!tools[0].is_mutating());
+    assert!(tools[2].is_mutating());
+}
