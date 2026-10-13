@@ -167,7 +167,7 @@ path = "tests/owner_verified.rs"
 required-features = ["fs", "digest"]
 
 [features]
-default = ["fs", "lock", "json", "digest"]
+default = []
 # Atomic writes, owner-only files, StateDir, netfs, clonefile, and the error type. Pulls
 # libc (unix) and thiserror. `db` uses this layer and no more.
 fs = ["dep:libc", "dep:thiserror"]

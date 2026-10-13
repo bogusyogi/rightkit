@@ -2,6 +2,8 @@
 
 ## 0.4.0
 
+- **Breaking: default features are now empty (`default = []`).** 0.3.x built `fs`, `lock`, `json` and `digest` by default. Name what you use: `fs` (atomic writes, private files, `StateDir`, clone, `FsError`), `lock` (cross-process locks; implies `fs`), `json` (owner records, identity ledger, clonefile binary; implies `lock`), `digest` (SHA-256). `default-features = false` consumers are unaffected; a bare `rightkit-fs = "0.4"` now exposes no modules.
+
 - **Windows owner repair accepts only the token user or an enabled owner-capable group (security fix).** `owner_is_trusted` accepted any enabled, non-deny-only token group as owner, so Everyone, Authenticated Users, BUILTIN\\Users, INTERACTIVE or LOCAL passed; an owner holds implicit WRITE_DAC, so repair left a non-private file and `is_owner_only` could report a false owner-only. Now only the token user, or a group with `SE_GROUP_OWNER` and `SE_GROUP_ENABLED` and not deny-only (in practice Administrators in an elevated token), is accepted, and those five well-known SIDs are refused even if flagged. Unit tests cover each. CI-only, not compiled locally.
 
 Published version number: this release changes or removes public items, so it is a breaking release under Cargo's rules for 0.x versions. It was developed as 0.3.4, which was never published; everything under the 0.3.4 heading below ships in 0.4.0. `FsError` is non-exhaustive and `ReplaceMode::ReplaceFile`, `REPLACEFILE_WRITE_THROUGH` and `FsError::ReplaceInterrupted` are gone, so a 0.3.x number would have broken published crates that depend on `^0.3`.

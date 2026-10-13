@@ -21,7 +21,7 @@ Do not use it as a substitute for a database transaction. It guards single files
 
 ## Cargo features
 
-The default features are `fs`, `lock`, `json` and `digest`; `testing` is off by default. Opt out with `default-features = false` and name only what you use.
+No feature is on by default (0.4.0). Name `fs`, `lock`, `json` and `digest` as you use them (the 0.3.x default was all four); `testing` is never default.
 
 - `digest`: `digest` module (`sha256_bytes`, `sha256_reader`, `sha256_file`, `sha256_file_with_len`, `hex`). Depends only on `sha2`.
 - `fs`: atomic writes, owner-only files, `StateDir`, netfs checks, clonefile, path swap (and the `rightkit-swap` binary), and the error type. Depends on `libc` (unix) and `thiserror`.
