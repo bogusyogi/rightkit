@@ -307,3 +307,8 @@ export {
   type BootProbationRecord,
   type BootProbationStorage,
 } from './probation.js';
+export {
+  UPDATES_PACKAGE_VERSION,
+  assertSingleUpdatesVersion,
+  registerUpdatesInstance,
+} from './single-instance.js';
