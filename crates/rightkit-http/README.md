@@ -40,7 +40,7 @@ No feature is on by default (0.3.0). Name `gzip` and `untrusted` to get what 0.2
 | `async` | no | `reqwest` (rustls, no native-tls), `tokio` (time, net), `futures-util`, `bytes`, `rustls`, `rustls-platform-verifier`, `webpki-roots` | `AsyncClient`, `AsyncStreamResponse`, `BodyStream`, `SseStream`. Same `ClientConfig`, `Request`, `Response`, `HttpError` and policy as the blocking client. With `gzip`, also enables `reqwest/gzip`. |
 | `testing` | no | none | The `testing` module: `MockServer`, `MockResponse`, `MockBody`, `RecordedRequest`, `loopback_policy`, `loopback_config`. |
 
-To opt out of all default features (`gzip` and `untrusted`):
+Default features are empty since 0.3.0. Name what you use, e.g. `features = ["gzip", "untrusted"]`; with no features:
 
 ```toml
 rightkit-http = { version = "<exact published version from INDEX.md>", default-features = false }
