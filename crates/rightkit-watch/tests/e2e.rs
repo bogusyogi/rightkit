@@ -328,7 +328,14 @@ mod async_subscribe {
         fs::write(&target, "hello").unwrap();
         let mut seen = Vec::new();
         let deadline = tokio::time::Instant::now() + WAIT;
+        let mut rewrites = 0u32;
         while !seen.contains(&target) && tokio::time::Instant::now() < deadline {
+            // Under a loaded parallel run the fallback can re-arm on the new directory after the
+            // first write; keep touching the target so a late arm still sees a change.
+            if rewrites > 0 {
+                fs::write(&target, format!("hello {rewrites}")).unwrap();
+            }
+            rewrites += 1;
             if let Ok(Some(ev)) = tokio::time::timeout(Duration::from_millis(500), rx.recv()).await
             {
                 seen.extend(ev.paths);

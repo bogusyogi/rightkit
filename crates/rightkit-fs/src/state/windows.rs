@@ -459,8 +459,14 @@ impl Dir {
         }
         // Retain one CreateFileW handle for the state directory, checked against the
         // no-reparse component walk. Any ancestor swap during this final open fails closed.
+        // The walk's creation handle may carry DELETE access (private-descriptor cleanup rights),
+        // which would make this open a sharing violation without FILE_SHARE_DELETE. Record its
+        // identity and release it first; the identity comparison below still fails closed on
+        // any swap in between.
+        let walked = current.identity(path)?;
+        drop(current);
         let pinned = Self::open_path(&absolute, config, config.directory_share)?;
-        if current.identity(path)? != pinned.identity(path)? {
+        if walked != pinned.identity(path)? {
             return Err(FsError::IdentityChanged(path.to_path_buf()));
         }
         Ok(pinned)

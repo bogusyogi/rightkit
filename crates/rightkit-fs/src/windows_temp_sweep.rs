@@ -459,6 +459,9 @@ mod tests {
             .unwrap()
             .unwrap();
         assert!(dispose(&file).unwrap());
+        // Disposition completes when the last handle closes; until then the entry is
+        // delete-pending and may still be reported.
+        drop(file);
         assert!(!old.exists());
         assert_eq!(std::fs::read(replacement).unwrap(), b"old temp");
     }
