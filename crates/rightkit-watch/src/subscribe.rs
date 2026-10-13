@@ -699,11 +699,11 @@ impl FileWatcher {
             let mut subscribers_to_notify: Vec<(WatchSender, Vec<PathBuf>)> = Vec::new();
             // Fallback watches that moved to a closer ancestor during this
             // pass: (sender, requested path, already reported this pass).
-            let mut arm_checks: Vec<(WatchSender, PathBuf, bool)> = Vec::new();
+            let mut arm_checks: Vec<(SubscriberId, SubscriberWatchKey, bool)> = Vec::new();
 
-            for subscriber in state.subscribers.values_mut() {
+            for (subscriber_id, subscriber) in &mut state.subscribers {
                 let mut changed_paths = Vec::new();
-                let mut moved_requested: Vec<PathBuf> = Vec::new();
+                let mut moved_requested: Vec<SubscriberWatchKey> = Vec::new();
                 for event_path in event_paths {
                     for (subscriber_watch, subscriber_watch_state) in &mut subscriber.watched_paths
                     {
@@ -724,14 +724,14 @@ impl FileWatcher {
                             subscriber_watch_state.actual = new_actual.clone();
                             actual_watch_moves.push((old_actual, new_actual, count));
                             if subscriber_watch_state.fallback {
-                                moved_requested.push(subscriber_watch.requested.path.clone());
+                                moved_requested.push(subscriber_watch.clone());
                             }
                         }
                     }
                 }
-                for requested in moved_requested {
-                    let reported = changed_paths.contains(&requested);
-                    arm_checks.push((subscriber.tx.clone(), requested, reported));
+                for key in moved_requested {
+                    let reported = changed_paths.contains(&key.requested.path);
+                    arm_checks.push((*subscriber_id, key, reported));
                 }
                 if !changed_paths.is_empty() {
                     subscribers_to_notify.push((subscriber.tx.clone(), changed_paths));
@@ -755,15 +755,51 @@ impl FileWatcher {
 
             // The native watch is now armed on the new directory. Anything
             // created in the window between the ancestor event and the arm
-            // produces no native event, so stat each moved target and report
-            // it if it exists. A racing native event may report it again; the
-            // receiver coalesces paths within a batch, so a duplicate is only
-            // possible across two separate `recv` calls.
-            for (tx, requested, reported) in arm_checks {
-                if reported || !requested.exists() {
+            // produces no native event. First re-resolve each moved watch: an
+            // intermediate directory created before the arm would otherwise
+            // leave the watch one level short, so move and arm again until
+            // stable (bounded by the path depth). Then stat each target and
+            // report it if it exists, recording that it exists so a later
+            // parent deletion without a file event is reported as removal. A
+            // racing native event may report it again; the receiver coalesces
+            // paths within a batch, so a duplicate is only possible across two
+            // separate `recv` calls.
+            for (subscriber_id, key, reported) in arm_checks {
+                let Some(subscriber) = state.subscribers.get_mut(&subscriber_id) else {
+                    continue;
+                };
+                let Some(watch_state) = subscriber.watched_paths.get_mut(&key) else {
+                    continue;
+                };
+                let tx = subscriber.tx.clone();
+                let max_moves = key.requested.path.components().count();
+                let mut re_moves = Vec::new();
+                for _ in 0..max_moves {
+                    let (new_actual, _matched, _fallback) = actual_watch_path(&key.requested);
+                    if watch_state.actual == new_actual {
+                        break;
+                    }
+                    let old_actual = std::mem::replace(&mut watch_state.actual, new_actual.clone());
+                    re_moves.push((old_actual, new_actual, watch_state.count));
+                }
+                let exists = key.requested.path.exists();
+                if exists {
+                    watch_state.last_exists = true;
+                }
+                for (old_actual, new_actual, count) in re_moves {
+                    Self::apply_actual_watch_move(
+                        &mut state.path_ref_counts,
+                        old_actual,
+                        new_actual,
+                        count,
+                        inner,
+                        &mut inner_guard,
+                    );
+                }
+                if reported || !exists {
                     continue;
                 }
-                subscribers_to_notify.push((tx, vec![requested]));
+                subscribers_to_notify.push((tx, vec![key.requested.path.clone()]));
             }
 
             subscribers_to_notify
@@ -972,5 +1008,69 @@ mod tests {
             .expect("creation event delivered")
             .expect("receiver open");
         assert_eq!(ev.paths, vec![target]);
+    }
+
+    #[tokio::test]
+    async fn intermediate_directory_created_before_arm_moves_watch_again() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let root = dir.path().canonicalize().unwrap();
+        let target = root.join("later/deeper/file.txt");
+        let watcher = Arc::new(FileWatcher::noop());
+        let (sub, _rx) = watcher.add_subscriber();
+        let _reg = sub.register_path(target.clone(), false);
+
+        std::fs::create_dir_all(root.join("later")).unwrap();
+        let deeper = root.join("later/deeper");
+        let hook_deeper = deeper.clone();
+        ARM_HOOK.with(|h| {
+            *h.borrow_mut() = Some(Box::new(move || {
+                std::fs::create_dir_all(&hook_deeper).unwrap();
+            }));
+        });
+        FileWatcher::notify_subscribers(&watcher.state, None, &[root.join("later")]).await;
+
+        let state = watcher.state.read().unwrap();
+        let actuals: Vec<PathBuf> = state
+            .subscribers
+            .values()
+            .flat_map(|s| s.watched_paths.values())
+            .map(|w| w.actual.path.clone())
+            .collect();
+        assert_eq!(actuals, vec![deeper.clone()]);
+        assert!(state.path_ref_counts.contains_key(&deeper));
+        assert!(!state.path_ref_counts.contains_key(&root.join("later")));
+    }
+
+    #[tokio::test]
+    async fn target_found_at_arm_is_reported_removed_when_parent_deleted() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let root = dir.path().canonicalize().unwrap();
+        let target = root.join("later/file.txt");
+        let watcher = Arc::new(FileWatcher::noop());
+        let (sub, mut rx) = watcher.add_subscriber();
+        let _reg = sub.register_path(target.clone(), false);
+
+        std::fs::create_dir_all(target.parent().unwrap()).unwrap();
+        let hook_target = target.clone();
+        ARM_HOOK.with(|h| {
+            *h.borrow_mut() = Some(Box::new(move || {
+                std::fs::write(&hook_target, "x").unwrap();
+            }));
+        });
+        FileWatcher::notify_subscribers(&watcher.state, None, &[root.join("later")]).await;
+        let first = tokio::time::timeout(Duration::from_secs(2), rx.recv())
+            .await
+            .expect("creation delivered")
+            .expect("receiver open");
+        assert_eq!(first.paths, vec![target.clone()]);
+
+        // The parent disappears with no event for the file itself.
+        std::fs::remove_dir_all(root.join("later")).unwrap();
+        FileWatcher::notify_subscribers(&watcher.state, None, &[root.join("later")]).await;
+        let second = tokio::time::timeout(Duration::from_secs(2), rx.recv())
+            .await
+            .expect("removal delivered")
+            .expect("receiver open");
+        assert_eq!(second.paths, vec![target]);
     }
 }

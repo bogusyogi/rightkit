@@ -4,6 +4,7 @@
 
 ### Fixed
 
+- `FileWatcher` missing-path fallback arm race: a target found by the post-arm stat now also records `last_exists`, so a later parent deletion without a file event is reported as removal; and after arming, the watch is re-resolved and moved again (bounded by the path depth) if an intermediate directory appeared before the arm, so the watch no longer stays one level short.
 - `FileWatcher` missing-path fallback: when the watch moves to a newly created directory, the target is now stat'ed after the native watch is armed and reported if it already exists. Previously a file created between the ancestor event and the arm produced no event at all. A racing native event may deliver the same path again in a later `recv`; paths within one batch are coalesced.
 
 - `DirWatchSet::watch_records` docs state the existing delivery guarantee: eviction and `unwatch` join the watch thread, so the final flush (and FSEvents' history replay on arm) is delivered inside that call and no callback for the directory runs after it returns. `dir_watch_set_caps_evicts_oldest_and_unwatches` no longer treats that in-call flush as post-eviction emission (it failed once on macOS CI); it drains the backlog after eviction and then asserts that a write into the evicted directory produces no batch.
