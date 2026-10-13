@@ -1904,7 +1904,7 @@ pub(crate) fn spawn(
     policy: &SandboxPolicy,
     command: &SandboxCommand,
 ) -> Result<ConfinedSpawn, SandboxError> {
-    let launched = spawn_inner(policy, command, None)?;
+    let launched = spawn_inner(policy, command, None, None)?;
     let stdout = launched.stdout.ok_or_else(|| {
         SandboxError::InvalidPolicy("ordinary confined spawn did not create stdout capture".into())
     })?;
@@ -1924,13 +1924,14 @@ pub(crate) fn spawn_with_pipe_pair(
     policy: &SandboxPolicy,
     command: &SandboxCommand,
     handle_flag: &str,
+    stdio_file: Option<&Path>,
 ) -> Result<ConfinedPipeSpawn, SandboxError> {
     if policy.network != NetworkPolicy::Deny {
         return Err(SandboxError::InvalidPolicy(
             "pipe-pair sandbox requires NetworkPolicy::Deny".into(),
         ));
     }
-    let launched = spawn_inner(policy, command, Some(handle_flag))?;
+    let launched = spawn_inner(policy, command, Some(handle_flag), stdio_file)?;
     let (to_child, from_child) = launched.auxiliary.ok_or_else(|| {
         SandboxError::InvalidPolicy("pipe-pair launch did not create auxiliary handles".into())
     })?;
@@ -1947,6 +1948,7 @@ fn spawn_inner(
     policy: &SandboxPolicy,
     command: &SandboxCommand,
     handle_flag: Option<&str>,
+    stdio_file: Option<&Path>,
 ) -> Result<ConfinedLaunch, SandboxError> {
     // Launch and lease the real image: version managers (nvm-windows, volta, scoop) expose
     // tools through links whose link objects the container cannot use and the user cannot
@@ -2009,17 +2011,26 @@ fn spawn_inner(
         .open("NUL")?
         .into_raw_handle();
     let (stdout, stdout_child, stderr, stderr_child) = if handle_flag.is_some() {
-        // Pipe-pair callers drain Chrome DevTools I/O themselves. Keep stdio on NUL so this
-        // path has no reader threads whose ownership could outlive cancellation.
-        let stdout_child = match std::fs::OpenOptions::new().write(true).open("NUL") {
-            Ok(file) => file.into_raw_handle(),
+        // Pipe-pair callers drain Chrome DevTools I/O themselves. Keep stdio on NUL (or on an
+        // append-mode diagnostic file the caller named) so this path has no reader threads
+        // whose ownership could outlive cancellation. The parent opens the file, so the
+        // child needs no ACL on it; the handle rides the explicit inherit list.
+        let open_sink = || -> io::Result<RawHandle> {
+            let file = match stdio_file {
+                Some(path) => std::fs::OpenOptions::new().append(true).open(path)?,
+                None => std::fs::OpenOptions::new().write(true).open("NUL")?,
+            };
+            Ok(file.into_raw_handle())
+        };
+        let stdout_child = match open_sink() {
+            Ok(handle) => handle,
             Err(error) => {
                 close_raw(stdin);
                 return Err(error.into());
             }
         };
-        let stderr_child = match std::fs::OpenOptions::new().write(true).open("NUL") {
-            Ok(file) => file.into_raw_handle(),
+        let stderr_child = match open_sink() {
+            Ok(handle) => handle,
             Err(error) => {
                 close_raw(stdin);
                 close_raw(stdout_child);

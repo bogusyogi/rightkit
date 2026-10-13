@@ -235,11 +235,11 @@ impl ChromeProc {
             .fixture_log
             .as_ref()
             .and_then(|file| bounded_file_tail(file).ok())
-            .unwrap_or_else(|| "(retained fixture log unavailable)".into());
+            .unwrap_or_else(|| "(chrome stderr file unavailable)".into());
         format!(
             "windows fixture diagnostic chrome_exited={live_exit}; chrome_exit_code={exit_code}; \
-             {launch_params}; acls=[{acls}]; stderr=NUL (pipe-pair stdio is NUL; Chrome output \
-             is only in the retained log); retained_log_tail={log_tail}",
+             {launch_params}; acls=[{acls}]; chrome_stderr_tail (stdout+stderr inherited file \
+             chrome-stderr.txt)={log_tail}",
             launch_params = self.launch_params,
         )
     }
@@ -326,6 +326,15 @@ pub(crate) fn fixture_chrome_args(args: &[OsString]) -> Vec<OsString> {
         if !fixture_args.iter().any(|arg| arg == flag) {
             fixture_args.push(flag.into());
         }
+    }
+    // HYPOTHESIS (unproven): Chrome's renderer code-integrity mitigation needs process
+    // policy an AppContainer launch with --no-sandbox cannot grant, and CHECKs at startup.
+    // Fixture-only; read the captured stderr tail to confirm or discard.
+    if !fixture_args
+        .iter()
+        .any(|arg| arg.to_string_lossy().starts_with("--disable-features="))
+    {
+        fixture_args.push("--disable-features=RendererCodeIntegrity".into());
     }
     fixture_args
 }
@@ -469,7 +478,9 @@ pub(crate) fn spawn_chrome_fixture_windows(
     // Outer AppContainer confines the tree; Chrome's inner sandbox cannot nest inside it.
     let args = fixture_chrome_args(args);
     let args = args.as_slice();
-    let log_path = profile_dir.join("fixture-chrome.log");
+    // Chrome's stderr/stdout (the CHECK text) land here: the sandbox opens this file in the
+    // parent and inherits the handle, so it works before Chrome's own logging initialises.
+    let log_path = profile_dir.join("chrome-stderr.txt");
     // Open before the confined process starts so diagnostics read this exact handle, even if
     // Chrome later replaces its path. The profile is an owned temporary directory.
     let fixture_log = OpenOptions::new()
@@ -502,18 +513,18 @@ pub(crate) fn spawn_chrome_fixture_windows(
     let policy = FIXTURE_NAMED_CAPABILITIES
         .iter()
         .fold(policy, |policy, name| policy.named_capability(*name));
-    let mut log_arg = OsString::from("--log-file=");
-    log_arg.push(log_path.as_os_str());
     let command = SandboxCommand::new(exe)
         .args(args.iter().cloned())
-        // No `=stderr`: stderr is NUL here, so Chrome must write to --log-file.
-        .arg("--enable-logging")
-        .arg("--v=0")
-        .arg(log_arg);
+        .args(FIXTURE_LOGGING_ARGS);
     let launch_params = fixture_launch_params(exe, args, profile_dir);
     let sandbox = Sandbox::new(ResourceAuthority::new(ResourceProfile::Practical));
     let spawn = sandbox
-        .spawn_with_pipe_pair(&policy, command, "--remote-debugging-io-pipes")
+        .spawn_with_pipe_pair_stdio_file(
+            &policy,
+            command,
+            "--remote-debugging-io-pipes",
+            Some(&log_path),
+        )
         .map_err(|error| {
             BrowserError::Launch(format!(
                 "Windows fixture AppContainer: {error}; {launch_params}"
@@ -534,6 +545,10 @@ pub(crate) fn spawn_chrome_fixture_windows(
         ],
     })
 }
+
+/// Fixture-only logging: stderr is the retained `chrome-stderr.txt` handle.
+#[cfg(any(windows, test))]
+const FIXTURE_LOGGING_ARGS: [&str; 2] = ["--enable-logging=stderr", "--v=1"];
 
 /// Env vars kept from the parent, and vars pointed at the write grant, for the fixture.
 #[cfg(any(windows, test))]
@@ -627,7 +642,7 @@ fn bounded_file_tail(file: &File) -> std::io::Result<String> {
         .take(FIXTURE_LOG_TAIL_BYTES)
         .read_to_end(&mut bytes)?;
     if bytes.is_empty() {
-        Ok("(retained fixture log empty)".into())
+        Ok("(chrome stderr file empty: Chrome wrote nothing before dying)".into())
     } else {
         Ok(String::from_utf8_lossy(&bytes).into_owned())
     }
@@ -690,11 +705,24 @@ mod tests {
         ] {
             assert_eq!(fixture.iter().filter(|a| *a == flag).count(), 1, "{flag}");
         }
+        assert!(
+            fixture
+                .iter()
+                .any(|a| a == "--disable-features=RendererCodeIntegrity"),
+            "{fixture:?}"
+        );
+        assert_eq!(FIXTURE_LOGGING_ARGS, ["--enable-logging=stderr", "--v=1"]);
         // The ordinary path hands its args to Chrome unchanged.
         let mut ordinary = chrome_command(Path::new("chrome"), &base);
         let seen: Vec<_> = ordinary.command_mut().get_args().collect();
         assert!(!seen.iter().any(|a| *a == "--no-sandbox"), "{seen:?}");
         assert!(!seen.iter().any(|a| *a == "--disable-gpu"), "{seen:?}");
+        assert!(
+            !seen
+                .iter()
+                .any(|a| a.to_string_lossy().starts_with("--disable-features=")),
+            "{seen:?}"
+        );
         for flag in ["--disable-crash-reporter", "--disable-breakpad"] {
             assert!(!seen.iter().any(|a| *a == flag), "{flag}: {seen:?}");
         }

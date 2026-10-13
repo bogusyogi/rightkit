@@ -250,6 +250,19 @@ impl Sandbox {
         command: SandboxCommand,
         handle_flag: &str,
     ) -> Result<WindowsPipeSpawn, SandboxError> {
+        self.spawn_with_pipe_pair_stdio_file(policy, command, handle_flag, None)
+    }
+
+    /// As [`Self::spawn_with_pipe_pair`], but child stdout and stderr append to `stdio_file`
+    /// (opened by the parent, inherited by handle) instead of NUL. Diagnostics only.
+    #[cfg(windows)]
+    pub fn spawn_with_pipe_pair_stdio_file(
+        &self,
+        policy: &SandboxPolicy,
+        command: SandboxCommand,
+        handle_flag: &str,
+        stdio_file: Option<&std::path::Path>,
+    ) -> Result<WindowsPipeSpawn, SandboxError> {
         policy.validate()?;
         validate_command(&command)?;
         validate_handle_flag(&command, handle_flag)?;
@@ -259,8 +272,12 @@ impl Sandbox {
             ));
         }
         let reservation = self.authority.reserve(ResourceKind::ChildProcess)?;
-        let spawned =
-            crate::windows_appcontainer::spawn_with_pipe_pair(policy, &command, handle_flag)?;
+        let spawned = crate::windows_appcontainer::spawn_with_pipe_pair(
+            policy,
+            &command,
+            handle_flag,
+            stdio_file,
+        )?;
         Ok(WindowsPipeSpawn {
             child: SandboxedChild {
                 inner: Inner::Confined(spawned.child),
