@@ -74,10 +74,14 @@ pub use store::{
 };
 #[cfg(feature = "supervisor")]
 pub use supervisor::{
-    CallOptions, EngineSupervisor, ExitReason, HealthCheck, InitialFailure, Lifecycle,
-    LifecycleEvent, Readiness, ShutdownOutcome, ShutdownReport, SupervisorConfig, SupervisorStatus,
-    Terminal,
+    CallOptions, EngineSupervisor, ExitObserver, ExitReason, HealthCheck, InitialFailure,
+    Lifecycle, LifecycleEvent, Readiness, ShutdownOutcome, ShutdownReport, SupervisorConfig,
+    SupervisorStatus, Terminal,
 };
+#[cfg(feature = "crash")]
+mod crash_observer;
+#[cfg(feature = "crash")]
+pub use crash_observer::CrashExitObserver;
 #[cfg(feature = "protocol")]
 pub use wire::{CONTRACT_VERSION, DEFAULT_FRAME_LIMIT};
 // Re-exported so a host that only depends on rightkit-jobs can build the policy and spawn command.

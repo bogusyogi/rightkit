@@ -258,6 +258,18 @@ impl Default for HealthCheck {
     }
 }
 
+/// Receives every abnormal engine exit: a generation that ended (or failed to boot) while the
+/// supervisor was not shutting down. Jobs does not depend on a crash reporter; the `crash`
+/// feature ships `CrashExitObserver`, an adapter to `rightkit-crash::record_helper_exit`.
+/// Called on the supervisor's reader or restart thread with no supervisor lock held, so a slow
+/// observer delays only that thread. Keep it quick and never call back into the supervisor.
+pub trait ExitObserver: Send + Sync {
+    /// `helper` is [`SupervisorConfig::name`]; `exit` is a short description of the exit (reason,
+    /// exit code and the restart decision, never the stderr tail); `restart_count` is how many
+    /// restarts the supervisor has scheduled before this exit.
+    fn engine_exited(&self, helper: &str, exit: &str, restart_count: u32);
+}
+
 /// How to run and recover one engine.
 pub struct SupervisorConfig {
     /// Names threads and diagnostics.
@@ -284,6 +296,7 @@ pub struct SupervisorConfig {
     initial_failure: InitialFailure,
     protocol_error_sink: Option<ProtocolErrorSink>,
     fallback_error_code: String,
+    exit_observer: Option<Arc<dyn ExitObserver>>,
 }
 
 impl SupervisorConfig {
@@ -311,7 +324,14 @@ impl SupervisorConfig {
             initial_failure: InitialFailure::Retry,
             protocol_error_sink: None,
             fallback_error_code: "engine_error".into(),
+            exit_observer: None,
         }
+    }
+    /// Report every abnormal engine exit (not an intentional shutdown) to `observer`, with the
+    /// restart count at that point. Off by default.
+    pub fn with_exit_observer(mut self, observer: Arc<dyn ExitObserver>) -> Self {
+        self.exit_observer = Some(observer);
+        self
     }
     /// What a failed first boot does; default [`InitialFailure::Retry`].
     pub fn with_initial_failure(mut self, policy: InitialFailure) -> Self {
@@ -1422,7 +1442,20 @@ fn on_end(
         Some(c) => format!("engine exited ({reason}, code {c})"),
         None => format!("engine ended ({reason})"),
     };
-    match g.tracker.exited(token, now) {
+    let restarts_before = g.restarts;
+    let outcome = g.tracker.exited(token, now);
+    let decision = match &outcome {
+        RestartOutcome::Restart(_) => "restarting",
+        RestartOutcome::AwaitingDemand => "restart on next call",
+        RestartOutcome::Exhausted => "restart budget exhausted",
+        RestartOutcome::Stopped | RestartOutcome::IgnoredStale => "restart disabled",
+    };
+    let observed = sh
+        .cfg
+        .exit_observer
+        .clone()
+        .map(|o| (o, format!("{exit_msg}; {decision}")));
+    match outcome {
         RestartOutcome::Restart(permit) => {
             g.lifecycle = Lifecycle::Recovering;
             g.terminal = None;
@@ -1466,6 +1499,9 @@ fn on_end(
             sh.emit(&g, text, None);
             drop(g);
         }
+    }
+    if let Some((observer, text)) = observed {
+        observer.engine_exited(&sh.cfg.name, &text, restarts_before);
     }
     sh.cv.notify_all();
 }
