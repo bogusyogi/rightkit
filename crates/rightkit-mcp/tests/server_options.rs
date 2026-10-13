@@ -904,3 +904,25 @@ fn stdio_frame_at_default_limit_is_served_and_one_byte_over_is_rejected() {
     assert_eq!(replies[0], json!({"id":5,"jsonrpc":"2.0","result":{}}));
     assert_eq!(replies[1]["error"]["code"], json!(-32600));
 }
+
+#[test]
+fn default_negotiation_accepts_2025_06_18_and_keeps_2025_03_26_fallback() {
+    for (requested, negotiated) in [
+        ("2025-06-18", "2025-06-18"),
+        ("2025-03-26", "2025-03-26"),
+        ("future", "2025-03-26"),
+    ] {
+        let reply = host()
+            .dispatch(&request("initialize", json!({"protocolVersion":requested})))
+            .expect("response");
+        assert_eq!(reply["result"]["protocolVersion"], negotiated);
+    }
+    let reply = host()
+        .dispatch(&request(
+            "initialize",
+            json!({"protocolVersion":"2024-11-05","supportedProtocolVersions":["2024-11-05","2025-06-18"]}),
+        ))
+        .expect("response");
+    assert_eq!(reply["result"]["protocolVersion"], "2025-06-18");
+    assert_eq!(PROTOCOL_VERSION, "2025-03-26");
+}

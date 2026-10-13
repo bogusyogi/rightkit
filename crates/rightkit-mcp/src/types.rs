@@ -227,4 +227,4 @@ impl PromptMessage {
 }
 
 pub const PROTOCOL_VERSION: &str = "2025-03-26";
-pub const SUPPORTED_VERSIONS: &[&str] = &["2025-03-26", "2024-11-05"];
+pub const SUPPORTED_VERSIONS: &[&str] = &["2025-06-18", "2025-03-26", "2024-11-05"];
