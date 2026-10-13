@@ -3,7 +3,7 @@
   "capabilities": [
     {
       "capability": "shared-speech-service",
-      "summary": "Client and contract for the Orthic Labs shared speech service (one resident engine per machine), built on rightkit-service. Wire-compatible with HeardRight's v1 host.",
+      "summary": "Client and contract for the Orthic Labs shared speech service (one resident engine per machine), built on rightkit-daemon. Wire-compatible with HeardRight's v1 host.",
       "fingerprints": [
         {
           "id": "speech.protocol.schema-name",

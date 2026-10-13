@@ -1,12 +1,12 @@
 //! Tools for one Right Suite app, reached through its in-app control service
-//! (`rightkit-control`'s `embedded` server, a `rightkit-service` host named
+//! (`rightkit-control`'s `embedded` server, a `rightkit-daemon` host named
 //! `control-<app>`). Real webview input, DOM/AX query, screenshot, and the app's
 //! own typed commands (`command{name,args}`), all over the user-only socket/pipe
 //! with the service's per-app request allowlist on the far side.
 
 use crate::exposure::{self, GENERIC_READ_METHODS};
 use crate::spec::*;
-use rightkit_service::{Client, ServiceError, Suite};
+use rightkit_daemon::{Client, ServiceError, Suite};
 use serde_json::{json, Value};
 use std::sync::Arc;
 use std::time::Duration;

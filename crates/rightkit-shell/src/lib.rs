@@ -156,7 +156,7 @@ pub struct ShellState {
     pub on_menu: Option<MenuCallback>,
     #[cfg(feature = "engine")]
     pub engine: Option<Arc<engine::EngineHost>>,
-    pub hosted: Mutex<Option<rightkit_service::Hosted>>,
+    pub hosted: Mutex<Option<rightkit_daemon::Hosted>>,
     pub single_instance: Mutex<String>,
     /// Grants for files the person handed to the app (see [`broker`]).
     pub broker: Arc<PathBroker>,

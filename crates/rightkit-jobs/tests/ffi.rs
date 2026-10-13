@@ -1,5 +1,5 @@
 //! C ABI coverage (`ffi` feature): drives the `extern "C"` entry points the way a Swift host
-//! would, against the real scriptable `engine_fixture` child and a real `rightkit-service` host.
+//! would, against the real scriptable `engine_fixture` child and a real `rightkit-daemon` host.
 //! The ABI keeps process-global state (factory, registered snapshot, handle table), so every case
 //! takes `SERIAL`.
 
@@ -65,8 +65,8 @@ impl HostFactory for Fx {
     fn connect_service(
         &self,
         _timeout: Duration,
-    ) -> Result<rightkit_service::Client, rightkit_service::ServiceError> {
-        Err(rightkit_service::ServiceError::new(
+    ) -> Result<rightkit_daemon::Client, rightkit_daemon::ServiceError> {
+        Err(rightkit_daemon::ServiceError::new(
             "service_unavailable",
             "no service in this fixture",
         ))

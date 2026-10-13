@@ -98,10 +98,10 @@ fi
 printf 'ASSERT\tjobs-supervisor-excludes-rightkit-db-and-libsqlite3-sys\t%s\n' "$v" >> "$OUT/summary.tsv"
 echo "owner-dep-graphs: optional-storage assertion: $v"
 
-# Lean-service assertion (M7 lane E): the default and link builds of rightkit-service carry no async server stack.
+# Lean-service assertion (M7 lane E): the default and link builds of rightkit-daemon carry no async server stack.
 # The remote, remote,testing rows may contain tokio/axum/hyper and are not asserted.
-svd="$OUT/rightkit-service-default.txt"
-svl="$OUT/rightkit-service-nodefault-link.txt"
+svd="$OUT/rightkit-daemon-default.txt"
+svl="$OUT/rightkit-daemon-nodefault-link.txt"
 if [ -s "$svd" ] && [ -s "$svl" ]; then
   if awk '$1 == "tokio" || $1 == "axum" || $1 == "hyper" { f = 1 } END { exit !f }' "$svd" "$svl"; then v=FAIL; else v=PASS; fi
 else

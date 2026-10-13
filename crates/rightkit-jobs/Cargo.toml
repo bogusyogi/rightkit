@@ -29,16 +29,16 @@ contract = ["store", "protocol"]
 # `rightkit-process`). Implies `protocol` only: a shell that supervises an engine needs no
 # database. A consumer that also serves or speaks the dispatcher contract adds `contract`.
 supervisor = ["protocol", "dep:rightkit-process"]
-# `DispatcherHandler`: serve a `Dispatcher` over `rightkit-service` (gates `rightkit-service`).
+# `DispatcherHandler`: serve a `Dispatcher` over `rightkit-daemon` (gates `rightkit-daemon`).
 # Implies `contract`.
-service = ["contract", "dep:rightkit-service"]
+service = ["contract", "dep:rightkit-daemon"]
 # Off by default. `CrashExitObserver`: record abnormal engine exits through
 # `rightkit_crash::record_helper_exit` (gates `rightkit-crash`, without its support bundle).
 # Implies `supervisor`.
 crash = ["supervisor", "dep:rightkit-crash"]
 # Off by default. `ffi` module: the C ABI a Swift host (`RightKitPulse`) calls over
-# `EngineSupervisor` and `rightkit-service`. The only `unsafe` in the crate. Implies `supervisor`.
-ffi = ["supervisor", "dep:rightkit-service"]
+# `EngineSupervisor` and `rightkit-daemon`. The only `unsafe` in the crate. Implies `supervisor`.
+ffi = ["supervisor", "dep:rightkit-daemon"]
 
 [dependencies]
 rightkit-fs = { version = "0.4.0", path = "../rightkit-fs", default-features = false, features = ["digest", "lock"], optional = true }
@@ -46,7 +46,7 @@ rightkit-db = { version = "0.4.0", path = "../rightkit-db", features = ["bundled
 rightkit-framed-sidecar = { version = "0.2.0", path = "../rightkit-framed-sidecar", optional = true }
 rightkit-process = { version = "0.4.0", path = "../rightkit-process", optional = true }
 rightkit-crash = { version = "0.2.2", path = "../rightkit-crash", default-features = false, optional = true }
-rightkit-service = { version = "0.2.0", path = "../rightkit-service", optional = true }
+rightkit-daemon = { version = "0.2.0", path = "../rightkit-daemon", optional = true }
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.150"
 uuid = { version = "1", features = ["v4"], optional = true }

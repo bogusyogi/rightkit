@@ -9,7 +9,7 @@ use std::process::Command;
 use std::sync::mpsc;
 use std::time::Duration;
 
-use rightkit_service::{Client, Suite};
+use rightkit_daemon::{Client, Suite};
 use rightkit_shell::single_instance::MESSAGE_METHOD;
 use rightkit_shell::{ClaimFailure, ClaimOutcome, InstanceMessage, SingleInstance};
 use serde_json::json;

@@ -14,7 +14,7 @@ import path from "node:path";
 export const FORBIDDEN_FEATURES = Object.freeze(["devtools", "content-devtools", "qa-native", "qa-control", "dev-native", "dev-inspect",
   // Per-app test-automation features (M20 owner gap): HeardRight `qa-shot`/`qa-tools`, ViewRight `dev-control`/`bench-native`.
   "qa-shot", "qa-tools", "dev-control", "bench-native",
-  // D4 (M21/M23): rightkit-service `test-mode` compiles the override selectors; never in a release build.
+  // D4 (M21/M23): rightkit-daemon `test-mode` compiles the override selectors; never in a release build.
   "test-mode"]);
 // The only forbidden features an allow-listed app may enable: rightkit-shell's `content-devtools` (and the Tauri
 // `devtools` it switches on). See devtools-policy.mjs; every other app is refused them.
@@ -162,8 +162,8 @@ export function cargoManifestIssues(manifestText, label = "Cargo.toml", { allowD
   if (control && !control.optional && control.features.includes("qa-control")) issues.push(`${label}: dependency \`rightkit-control\` lists \`qa-control\` unconditionally`);
   const shell = dependencies.get("rightkit-shell");
   if (shell && !shell.optional && shell.features.includes("dev-inspect")) issues.push(`${label}: dependency \`rightkit-shell\` lists \`dev-inspect\` unconditionally (developer inspection ships in release builds)`);
-  const service = dependencies.get("rightkit-service");
-  if (service && !service.optional && service.features.includes("test-mode")) issues.push(`${label}: dependency \`rightkit-service\` lists \`test-mode\` unconditionally (test-mode capability ships in release builds)`);
+  const service = dependencies.get("rightkit-daemon");
+  if (service && !service.optional && service.features.includes("test-mode")) issues.push(`${label}: dependency \`rightkit-daemon\` lists \`test-mode\` unconditionally (test-mode capability ships in release builds)`);
   const wdio = dependencies.get(FORBIDDEN_DEPENDENCY);
   if (wdio && !wdio.optional) issues.push(`${label}: dependency \`${FORBIDDEN_DEPENDENCY}\` is not optional`);
   const reached = new Set(); const stack = [...(features.get("default") ?? [])];

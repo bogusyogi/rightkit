@@ -11,7 +11,7 @@
 use std::sync::mpsc;
 use std::time::Duration;
 
-use rightkit_service::Suite;
+use rightkit_daemon::Suite;
 use rightkit_shell::{ClaimOptions, ClaimOutcome, InstanceMessage, SingleInstance};
 
 const ID: &str = "test-shell-hold";

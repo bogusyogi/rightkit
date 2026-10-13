@@ -108,7 +108,7 @@
         ]
       ]
     },
-    "rightkit-service": {
+    "rightkit-daemon": {
       "featureSets": [
         [],
         [

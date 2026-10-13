@@ -136,10 +136,9 @@
       "profile": "desktop",
       "owners": [
         {
-          "name": "rightkit-service",
+          "name": "rightkit-daemon",
           "ecosystem": "cargo",
-          "min": "0.1.5",
-          "registryMax": "0.1.4"
+          "min": "0.2.0"
         }
       ]
     },
@@ -149,10 +148,9 @@
       "profile": "desktop",
       "owners": [
         {
-          "name": "rightkit-service",
+          "name": "rightkit-daemon",
           "ecosystem": "cargo",
-          "min": "0.1.5",
-          "registryMax": "0.1.4"
+          "min": "0.2.0"
         }
       ]
     },

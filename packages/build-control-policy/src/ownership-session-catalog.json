@@ -16,7 +16,7 @@
     {
       "package": "rightkit-agent-tools",
       "capability": "agent-tools",
-      "summary": "One typed tool interface for agents over rightkit-automation, rightkit-control, rightkit-browser and each app's engine commands (via rightkit-service), plus the `right-ctl <app> <command>` CLI.; declaration-only detection (no precise implementation fingerprint)",
+      "summary": "One typed tool interface for agents over rightkit-automation, rightkit-control, rightkit-browser and each app's engine commands (via rightkit-daemon), plus the `right-ctl <app> <command>` CLI.; declaration-only detection (no precise implementation fingerprint)",
       "fingerprints": [],
       "detection": "declaration-only",
       "policyNotes": [
@@ -620,9 +620,9 @@
       ]
     },
     {
-      "package": "rightkit-service",
+      "package": "rightkit-daemon",
       "capability": "daemon-host",
-      "summary": "Daemon host: HTTPS listener, device enrolment and signed requests, OAuth callback and signed webhook route classes, bounded blake3-keyed resumable uploads, compare-and-swap mutations, durable state and lifecycle events (daemon-api v1); the `remote` feature of rightkit-service.",
+      "summary": "Daemon host: HTTPS listener, device enrolment and signed requests, OAuth callback and signed webhook route classes, bounded blake3-keyed resumable uploads, compare-and-swap mutations, durable state and lifecycle events (daemon-api v1); the `remote` feature of rightkit-daemon.",
       "fingerprints": [],
       "detection": "declaration-only",
       "policyNotes": [
@@ -2370,7 +2370,7 @@
       ]
     },
     {
-      "package": "rightkit-service",
+      "package": "rightkit-daemon",
       "capability": "local-services",
       "summary": "One discovery/auth convention for Right Suite local services: service.json, ranking and takeover, current-user-only Unix socket / named pipe, per-app request allowlist.",
       "fingerprints": [
@@ -2585,7 +2585,7 @@
     {
       "package": "rightkit-speech-client",
       "capability": "shared-speech-service",
-      "summary": "Client and contract for the Orthic Labs shared speech service (one resident engine per machine), built on rightkit-service. Wire-compatible with HeardRight's v1 host.",
+      "summary": "Client and contract for the Orthic Labs shared speech service (one resident engine per machine), built on rightkit-daemon. Wire-compatible with HeardRight's v1 host.",
       "fingerprints": [
         {
           "id": "speech.protocol.schema-name",

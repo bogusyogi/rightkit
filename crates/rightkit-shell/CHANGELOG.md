@@ -109,7 +109,7 @@ version is `0.x`, a minor bump may carry breaking changes.
   still reports the fixed value.
 
 Single-instance naming defect (found by MailRight): `instance::arbitrate("app.mailright", ..)` returned
-`Unavailable("invalid service name ..")` because `rightkit-service` names allow only `[a-z0-9-]`, so a
+`Unavailable("invalid service name ..")` because `rightkit-daemon` names allow only `[a-z0-9-]`, so a
 dotted bundle identifier ran with single-instance protection off.
 
 - **Service names are derived from the app id by a documented normalisation**: ASCII lowercase, every
@@ -372,4 +372,4 @@ Additive except where marked **Breaking**. Each item has a test in `tests/`.
   `Shell::builder(..).engine(..)`, `shell::engine`, or `Shell::engine` now enable
   it: `features = ["engine"]`. `default` is now `["wv2-0_38"]`.
 - The example app opts in to `engine` explicitly, and drops its unused
-  `rightkit-service` dev-dependency and duplicate `rightkit-control` dev entry.
+  `rightkit-daemon` dev-dependency and duplicate `rightkit-control` dev entry.

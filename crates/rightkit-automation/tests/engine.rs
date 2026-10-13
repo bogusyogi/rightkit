@@ -518,7 +518,7 @@ fn type_text_falls_back_to_targeted_text_events() {
 #[cfg(feature = "in-app")]
 #[test]
 fn keys_use_in_app_channel_when_available() {
-    use rightkit_service::{
+    use rightkit_daemon::{
         host, Allowlist, CallContext, Emit, Handler, ServiceConfig, ServiceError, Suite,
     };
     use std::sync::Mutex;

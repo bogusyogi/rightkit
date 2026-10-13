@@ -1,6 +1,6 @@
 //! Content-free lifecycle events for the caller's journal.
 //!
-//! Mirrors `rightkit_service::ServiceEvent` / `EventFn`: one `Arc<dyn Fn>` sink
+//! Mirrors `rightkit_daemon::ServiceEvent` / `EventFn`: one `Arc<dyn Fn>` sink
 //! the host installs. Events never carry request payloads (typed text, JS,
 //! coordinates); only ids, kinds, method names, outcomes and lease numbers.
 use std::sync::Arc;

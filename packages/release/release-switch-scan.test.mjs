@@ -20,7 +20,7 @@ const ids = (findings) => findings.map((f) => f.rule);
 test("the marker matches the Rust constant and the registry", () => {
   assert.equal(TEST_MODE_MARKER, "RIGHTKIT-TEST-MODE-COMPILED");
   assert.equal(REGISTRY.testModeMarker, TEST_MODE_MARKER);
-  const rust = readFileSync(new URL("../../crates/rightkit-service/src/mode.rs", import.meta.url), "utf8");
+  const rust = readFileSync(new URL("../../crates/rightkit-daemon/src/mode.rs", import.meta.url), "utf8");
   assert.ok(rust.includes(`"${TEST_MODE_MARKER}"`), "mode.rs TEST_MODE_MARKER_TEXT must match");
 });
 
@@ -37,9 +37,9 @@ test("N6 source layer: a release build with test-mode on is refused in every for
   const closure = featureClosureFindings(fixture("tree-with-test-mode.txt"));
   assert.ok(closure.length >= 1);
   assert.ok(ids(closure).every((id) => id === "forbidden-feature test-mode"));
-  assert.ok(closure.some((f) => /rightkit-service/.test(f.reason)));
+  assert.ok(closure.some((f) => /rightkit-daemon/.test(f.reason)));
 
-  for (const argv of [["cargo", "build", "--release", "--features", "test-mode"], ["cargo", "build", "-F", "rightkit-service/test-mode"], ["cargo", "build", "--features=custom-protocol,test-mode"], ["cargo", "build", "-Ftest-mode"]]) {
+  for (const argv of [["cargo", "build", "--release", "--features", "test-mode"], ["cargo", "build", "-F", "rightkit-daemon/test-mode"], ["cargo", "build", "--features=custom-protocol,test-mode"], ["cargo", "build", "-Ftest-mode"]]) {
     assert.deepEqual(ids(commandSwitchFindings(argv)), ["forbidden-feature test-mode"], argv.join(" "));
   }
   assert.deepEqual(ids(commandSwitchFindings(["cargo", "build", "--all-features"])), ["forbidden-feature all-features"]);
@@ -50,8 +50,8 @@ test("N6 source layer: a release build with test-mode on is refused in every for
   assert.deepEqual(cargoManifestIssues(manifest, "fixture"), []);
   const enabledByDefault = manifest.replace('default = []', 'default = ["test-mode"]');
   assert.ok(cargoManifestIssues(enabledByDefault, "fixture").some((i) => /test-mode/.test(i)));
-  const dep = `${manifest}\n[dependencies]\nrightkit-service = { version = "0.1", features = ["test-mode"] }\n`;
-  assert.ok(cargoManifestIssues(dep, "fixture").some((i) => /rightkit-service.*test-mode/.test(i)));
+  const dep = `${manifest}\n[dependencies]\nrightkit-daemon = { version = "0.1", features = ["test-mode"] }\n`;
+  assert.ok(cargoManifestIssues(dep, "fixture").some((i) => /rightkit-daemon.*test-mode/.test(i)));
 });
 
 test("N6 binary layer: with the source check bypassed, a binary carrying the marker is refused; the clean twin passes", () => {
@@ -293,9 +293,9 @@ test("closure: identical feature combinations run cargo tree once; feature order
   assert.equal(split.trees.length, 2);
 });
 
-// M7 lane E: rightkit-service `remote` is refused in a release graph unless the app declares releaseSwitches.remoteHost: true.
-const REMOTE_TREE = 'app v0.0.0 (/work/app)\n└── rightkit-service v0.2.0 (/work/rightkit/crates/rightkit-service)\n    ├── rightkit-service feature "link"\n    └── rightkit-service feature "remote"\n';
-const LINK_ONLY_TREE = 'app v0.0.0 (/work/app)\n└── rightkit-service v0.2.0 (/work/rightkit/crates/rightkit-service)\n    └── rightkit-service feature "link"\n';
+// M7 lane E: rightkit-daemon `remote` is refused in a release graph unless the app declares releaseSwitches.remoteHost: true.
+const REMOTE_TREE = 'app v0.0.0 (/work/app)\n└── rightkit-daemon v0.2.0 (/work/rightkit/crates/rightkit-daemon)\n    ├── rightkit-daemon feature "link"\n    └── rightkit-daemon feature "remote"\n';
+const LINK_ONLY_TREE = 'app v0.0.0 (/work/app)\n└── rightkit-daemon v0.2.0 (/work/rightkit/crates/rightkit-daemon)\n    └── rightkit-daemon feature "link"\n';
 const OTHER_CRATE_TREE = 'app v0.0.0 (/work/app)\n└── other-crate v1.0.0\n    └── other-crate feature "remote"\n';
 
 test("remote feature in a release graph is refused unless the app declares remoteHost true", () => {

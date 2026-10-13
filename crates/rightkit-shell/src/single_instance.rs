@@ -9,7 +9,7 @@
 //! * [`ClaimOutcome::Failed`]: arbitration could not be decided. The caller must not continue as a
 //!   second primary; it should report the reason and exit.
 //!
-//! Arbitration runs over `rightkit-service` (current-user socket or named pipe, a probed endpoint and
+//! Arbitration runs over `rightkit-daemon` (current-user socket or named pipe, a probed endpoint and
 //! a live pid), so a crashed primary never blocks the next launch. The shell plugin's own
 //! arbitration (`instance`, method `second-instance`) is separate; an app uses one or the other.
 //!
@@ -21,7 +21,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use rightkit_service::{
+use rightkit_daemon::{
     host, Allowlist, CallContext, Client, Emit, Handler, HostError, Hosted, ServiceConfig,
     ServiceError, Suite,
 };
@@ -331,7 +331,7 @@ impl SingleInstance {
     ///
     /// What it releases:
     ///
-    /// * every claim made through this type (the rightkit-service endpoint), and
+    /// * every claim made through this type (the rightkit-daemon endpoint), and
     /// * every release registered with [`SingleInstance::on_destroy`], each run exactly once.
     ///
     /// It is idempotent: a second call finds nothing left and does nothing. It does not touch any

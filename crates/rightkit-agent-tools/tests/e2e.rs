@@ -1,7 +1,7 @@
-//! Real right-ctl -> MCP stdio -> rightkit-service control-service round trip.
+//! Real right-ctl -> MCP stdio -> rightkit-daemon control-service round trip.
 
 use rightkit_agent_tools::CTL_CALLER;
-use rightkit_service::{
+use rightkit_daemon::{
     host, Allowlist, CallContext, Emit, Handler, ServiceConfig, ServiceError, Suite,
 };
 use serde_json::{json, Value};
@@ -101,7 +101,7 @@ fn right_ctl_mcp_drives_service_app() {
     });
 
     let deadline = Instant::now() + Duration::from_secs(5);
-    while rightkit_service::read_live_record(&suite, "control-demo").is_none() {
+    while rightkit_daemon::read_live_record(&suite, "control-demo").is_none() {
         assert!(
             Instant::now() < deadline,
             "service host did not publish discovery"

@@ -1,7 +1,7 @@
 //! Test engine: `job_engine <suite-root> <data-dir> <role> <rank> <stall-ms>`.
 //! Hosts the `job.*` contract on service `jobs-demo` with demo job kinds.
+use rightkit_daemon::*;
 use rightkit_jobs::*;
-use rightkit_service::*;
 use serde_json::{json, Value};
 use std::io::Write;
 use std::path::PathBuf;

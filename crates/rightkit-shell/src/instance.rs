@@ -1,4 +1,4 @@
-//! Single-instance arbitration over `rightkit-service` (no extra plugin, no lock file).
+//! Single-instance arbitration over `rightkit-daemon` (no extra plugin, no lock file).
 //!
 //! The first process hosts the `<service-id>-shell` service (see [`service_name`] for how an app id
 //! becomes `<service-id>`) on the suite's current-user-only socket /
@@ -11,7 +11,7 @@
 
 use std::sync::Arc;
 
-use rightkit_service::{
+use rightkit_daemon::{
     host, valid_service_name, Allowlist, CallContext, Client, Emit, Handler, HostError, Hosted,
     ServiceConfig, ServiceError, Suite, MAX_SERVICE_NAME_LEN,
 };
@@ -45,11 +45,11 @@ pub enum InvalidAppIdReason {
     Empty,
     /// The derived service name exceeds [`MAX_SERVICE_NAME_LEN`] bytes.
     TooLong { name_len: usize, max: usize },
-    /// `rightkit-service` refused the derived name for a reason this crate did not predict.
+    /// `rightkit-daemon` refused the derived name for a reason this crate did not predict.
     Rejected(String),
 }
 
-/// An app id that cannot be turned into a valid `rightkit-service` name.
+/// An app id that cannot be turned into a valid `rightkit-daemon` name.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct InvalidAppId {
     /// The id as the caller passed it.
@@ -74,7 +74,7 @@ impl std::fmt::Display for InvalidAppId {
             ),
             InvalidAppIdReason::Rejected(name) => write!(
                 f,
-                "app id {:?} gives service name {name:?}, which rightkit-service refused",
+                "app id {:?} gives service name {name:?}, which rightkit-daemon refused",
                 self.app_id
             ),
         }
@@ -98,7 +98,7 @@ pub(crate) fn normalize_app_id(app_id: &str) -> String {
         .collect()
 }
 
-/// `<normalised app id><suffix>`, validated against `rightkit-service`'s rule.
+/// `<normalised app id><suffix>`, validated against `rightkit-daemon`'s rule.
 pub(crate) fn derive_service_name(app_id: &str, suffix: &str) -> Result<String, InvalidAppId> {
     let name = format!("{}{suffix}", normalize_app_id(app_id));
     let fail = |reason| InvalidAppId {
@@ -149,7 +149,7 @@ impl Handler for Forward {
 
 /// The service name arbitration hosts for `app_id`: the normalised id plus `-shell`,
 /// so an id that is already `[a-z0-9-]` gives exactly `<id>-shell` (running instances keep being
-/// found across upgrades) and `"app.mailright"` gives `"app-mailright-shell"`. `rightkit-service`
+/// found across upgrades) and `"app.mailright"` gives `"app-mailright-shell"`. `rightkit-daemon`
 /// allows only 1 to 48 bytes of `[a-z0-9-]`, so an empty id or one longer than 42 bytes is refused.
 pub fn try_service_name(app_id: &str) -> Result<String, InvalidAppId> {
     derive_service_name(app_id, "-shell")

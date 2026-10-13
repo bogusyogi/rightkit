@@ -6,7 +6,7 @@ publish = false
 [workspace]
 [[bin]]
 name = "svc_call"
-path = "../../../crates/rightkit-service/examples/svc_call.rs"
+path = "../../../crates/rightkit-daemon/examples/svc_call.rs"
 [dependencies]
-rightkit-service = { path = "../../../crates/rightkit-service" }
+rightkit-daemon = { path = "../../../crates/rightkit-daemon" }
 serde_json = "1"

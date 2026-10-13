@@ -8,7 +8,7 @@
 //! Act through an input ladder that never goes up a tier unless the caller
 //! allowed it and records which tier ran:
 //!   1. semantic AX / UIA action (no input events)
-//!   2. in-app control channel (`rightkit-control`, over `rightkit-service`)
+//!   2. in-app control channel (`rightkit-control`, over `rightkit-daemon`)
 //!   3. per-pid / per-window addressed events (never the global queue)
 //!   4. foreground input, only with explicit opt-in
 //!

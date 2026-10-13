@@ -16,7 +16,7 @@
 //! Result JSON goes to stdout; errors are `{"error":{code,message,retryable}}` on stderr.
 
 use rightkit_agent_tools::*;
-use rightkit_service::Suite;
+use rightkit_daemon::Suite;
 use serde_json::{json, Value};
 use std::io::Read;
 use std::process::ExitCode;
@@ -139,7 +139,7 @@ fn main() -> ExitCode {
         if let Ok(rd) = std::fs::read_dir(suite.root().join("runtime")) {
             for e in rd.flatten() {
                 let name = e.file_name().to_string_lossy().to_string();
-                if let Some(r) = rightkit_service::read_live_record(&suite, &name) {
+                if let Some(r) = rightkit_daemon::read_live_record(&suite, &name) {
                     out.push(json!({"service": name, "role": r.role, "pid": r.pid, "version": r.version}));
                 }
             }

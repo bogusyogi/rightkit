@@ -1,9 +1,9 @@
 #!/bin/sh
-# Real native fixture proof: hidden control-test-app -> rightkit-service -> right-ctl CLI, then optional MCP.
+# Real native fixture proof: hidden control-test-app -> rightkit-daemon -> right-ctl CLI, then optional MCP.
 # Build first through RightKit, then run with TARGET=<managed target>/debug:
 #   rightkit cargo build -p rightkit-agent-tools --features mcp
 #   rightkit cargo build --manifest-path crates/rightkit-control/examples/control-test-app/Cargo.toml
-#   rightkit cargo build -p rightkit-service --examples -p rightkit-control
+#   rightkit cargo build -p rightkit-daemon --examples -p rightkit-control
 #   TARGET=... sh crates/rightkit-agent-tools/tests/native_mcp_e2e.sh
 set -eu
 
@@ -82,7 +82,7 @@ PY
 printf '%s\n' "$PID" > "$PID_FILE"
 check_hidden
 
-# Preferred surface: direct right-ctl CLI over the same rightkit-service socket.
+# Preferred surface: direct right-ctl CLI over the same rightkit-daemon socket.
 CLI_HEALTH=$("$CTL" --suite-root "$SUITE" ct health)
 CLI_ECHO=$("$CTL" --suite-root "$SUITE" ct command echo hello)
 CLI_PING=$("$CTL" --suite-root "$SUITE" ct command ping)

@@ -17,7 +17,7 @@ Rust side of the locked "LEGION CHOSEN Pulse Swift facade" design. Off by defaul
 - **`ffi` feature (`rightkit_jobs::ffi`).** `extern "C"` entry points matching `PulseNativeABI` (`rkp_versions`, `rkp_register_snapshot`, `rkp_host_start` / `_snapshot` / `_call` / `_lifecycle` / `_shutdown`, `rkp_service_connect` / `_call`, `rkp_release_host` / `_connection`, `rkp_buf_free`). Opaque never-reused `u64` handles, Rust-owned buffers, one monotonic deadline per call (`timeout_ms` fixed at entry), borrowed event bytes with callback quiescence at return, `Resume` (keep the engine when only the wait times out) / `Never` (timeout kills as wedged). The embedding library installs a `HostFactory` (engine command, snapshot method, service connect); none of that is in the ABI.
 - **Generation fencing.** A registered snapshot older than the current one is refused; a host started under an older generation reports `recovering` and refuses calls (`RKP_STALE_GENERATION`) once a newer one is registered.
 - **Bounded reaping.** A shutdown past its budget reports `Unconfirmed` with the unreaped count; the host stays counted and a reaper retries a fixed number of times. At most `MAX_HOSTS` live plus unconfirmed hosts: starting another is refused (`RKP_TOO_MANY_HOSTS`).
-- Tests: `tests/ffi.rs` (requires `ffi`) and `ffi::tests`. The service mutex-wait deadline fix is in `rightkit-service` (see its changelog); `rkp_service_call` uses `Client::call_events_until`.
+- Tests: `tests/ffi.rs` (requires `ffi`) and `ffi::tests`. The service mutex-wait deadline fix is in `rightkit-daemon` (see its changelog); `rkp_service_call` uses `Client::call_events_until`.
 
 
 - Additive: `ExitObserver` callback and `SupervisorConfig::with_exit_observer`; `EngineSupervisor` reports abnormal engine exits (not shutdown) with the restart decision and count. Off-by-default `crash` feature adds `CrashExitObserver`, forwarding to `rightkit_crash::record_helper_exit`.
@@ -267,7 +267,7 @@ only, no `ALTER` or `CREATE`). A 0.2.8 database opens unchanged.
   Windows, process-wide registry). The crate no longer contains `unsafe` or a direct `libc`
   dependency. No owner side file is written (`rightkit-fs` `json` feature is not used by this
   crate). Behaviour is unchanged.
-- New default-on feature `service` gates `DispatcherHandler` and the `rightkit-service`
+- New default-on feature `service` gates `DispatcherHandler` and the `rightkit-daemon`
   dependency. Engines that only speak stdio/CLI can build with `default-features = false`.
 - `store::now()` formats the UTC timestamp with std; the `time` dependency is gone. Output
   (`YYYY-MM-DDTHH:MM:SSZ`) is unchanged.

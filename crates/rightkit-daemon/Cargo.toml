@@ -1,0 +1,129 @@
+[package]
+name = "rightkit-daemon"
+version = "0.2.0"
+edition = "2021"
+rust-version = "1.98.0"
+description = "One discovery/auth convention for Right Suite local services: service.json, ranking and takeover, current-user-only Unix socket / named pipe, per-app request allowlist."
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/Orthic-Labs/rightkit"
+readme = "README.md"
+include = ["src/**", "schemas/**", "tests/**", "README.md", "CHANGELOG.md", "LICENSE-MIT", "LICENSE-APACHE"]
+
+[dependencies]
+rightkit-framed-sidecar = { version = "0.2.0", path = "../rightkit-framed-sidecar" }
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = "1.0.150"
+rightkit-fs = { version = "0.4.0", path = "../rightkit-fs", default-features = false, features = ["fs"] }
+rightkit-process = { version = "0.4.0", path = "../rightkit-process" }
+
+# `link` (device client) and `remote` (daemon host) dependencies, all optional. Copied from the
+# retired standalone daemon crate (M7 merge). `link` carries no tokio, axum or hyper.
+base64 = { version = "0.22", optional = true }
+blake3 = { version = "1", optional = true }
+form_urlencoded = { version = "1", optional = true }
+ring = { version = "0.17", optional = true }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"], optional = true }
+subtle = { version = "2.6", optional = true }
+# `remote` only.
+rightkit-contracts = { version = "0.1.5", path = "../rightkit-contracts", default-features = false, optional = true }
+rightkit-oauth = { version = "0.4.0", path = "../rightkit-oauth", default-features = false, features = ["server"], optional = true }
+axum = { version = "0.8", default-features = false, features = ["http1", "tokio"], optional = true }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "sync", "time", "io-util"], optional = true }
+tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "tls12"], optional = true }
+hyper = { version = "1", features = ["http1", "server"], optional = true }
+hyper-util = { version = "0.1", features = ["tokio", "service", "server-graceful"], optional = true }
+# `testing` only.
+rcgen = { version = "0.13", optional = true }
+tempfile = { version = "3", optional = true }
+
+# Windows named pipes with a current-user-only DACL. cfg(windows) only: this
+# backend compiles on the Windows host (see API.md for the exact command).
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.62", features = [
+  "Win32_Foundation",
+  "Win32_Security",
+  "Win32_Security_Authorization",
+  "Win32_Storage_FileSystem",
+  "Win32_System_IO",
+  "Win32_System_Pipes",
+  "Win32_System_Threading",
+] }
+
+[features]
+default = ["local"]
+# The same-user local transport (service.json, Unix socket or named pipe, framed JSON). Today this
+# marker feature compiles nothing extra: the local modules are always built.
+local = []
+# Blocking device client (enrol, signed requests, resumable upload) pinned to caller-supplied roots.
+# No tokio, axum or hyper. Enables `remote::client` and `remote::signing`.
+link = ["dep:base64", "dep:blake3", "dep:ring", "dep:rustls", "dep:subtle"]
+# Daemon host: HTTPS listener, device enrolment and signed requests, OAuth callback and signed
+# webhook route classes, durable state and lifecycle events (daemon-api v1). Implies `link`.
+remote = [
+  "link",
+  "dep:axum",
+  "dep:form_urlencoded",
+  "dep:hyper",
+  "dep:hyper-util",
+  "dep:rightkit-contracts",
+  "dep:rightkit-oauth",
+  "dep:tokio",
+  "dep:tokio-rustls",
+]
+# Run-time test certificate and an in-process daemon for client tests. Implies `remote` (the test
+# host is the server), and so `link`.
+testing = ["remote", "dep:rcgen", "dep:tempfile"]
+# Compiles the test-mode capability (`mode::Mode::Test`, the override selectors and the
+# `RIGHTKIT-TEST-MODE-COMPILED` marker). Off by default. Apps expose their own `test-mode` feature that
+# enables it, only from qa-native/dev-native; `@rightkit/release` refuses a release build that has it.
+test-mode = []
+
+[[bench]]
+name = "budget"
+harness = false
+
+[[bench]]
+name = "remote_budget"
+path = "benches/remote_budget.rs"
+harness = false
+required-features = ["remote"]
+
+# The daemon's conformance, TLS, device-client and daemon tests ran with `testing` enabled through a
+# self dev-dependency; required-features gives the same gate without the self-reference.
+[[test]]
+name = "remote_conformance"
+path = "tests/remote_conformance.rs"
+required-features = ["testing"]
+
+[[test]]
+name = "remote_tls"
+path = "tests/remote_tls.rs"
+required-features = ["testing"]
+
+[[test]]
+name = "remote_client"
+path = "tests/remote_client.rs"
+required-features = ["testing"]
+
+[[test]]
+name = "remote_daemon"
+path = "tests/remote_daemon.rs"
+required-features = ["testing"]
+
+[[test]]
+name = "dual_transport"
+path = "tests/dual_transport.rs"
+required-features = ["testing"]
+
+# Outbound link and durable tasks (M7 lane D): host logic driven in process, and a real
+# client over TLS. `link_features` has no gate: it reads this manifest and sources.
+[[test]]
+name = "link"
+path = "tests/link.rs"
+required-features = ["testing"]
+
+[dev-dependencies]
+tempfile = "3"
+rightkit-contracts = { version = "0.1.5", path = "../rightkit-contracts", features = ["schema"] }
+tower = { version = "0.5", features = ["util"] }
+rightkit-http = { version = "0.3.0", path = "../rightkit-http", features = ["testing"] }

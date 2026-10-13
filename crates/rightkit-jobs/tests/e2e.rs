@@ -1,10 +1,10 @@
 //! End-to-end: a real engine process hosts the `job.*` contract on a
-//! `rightkit-service` endpoint; the test is a real client over the socket.
+//! `rightkit-daemon` endpoint; the test is a real client over the socket.
 //! Covers: interactive preempts batch at step boundaries, progress events,
 //! cancel on disconnect, stall timeout without a total limit, and retryable
 //! handoff to a higher-ranked host.
 
-use rightkit_service::*;
+use rightkit_daemon::*;
 use serde_json::{json, Value};
 use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};

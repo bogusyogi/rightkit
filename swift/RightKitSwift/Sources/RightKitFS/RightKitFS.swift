@@ -25,7 +25,7 @@ public struct RightKitAppRoot: Sendable {
         "COM9", "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9",
     ]
 
-    /// Mirrors `valid_app_name` in rightkit-service: `[A-Za-z0-9._-]`, alphanumeric at both ends,
+    /// Mirrors `valid_app_name` in rightkit-daemon: `[A-Za-z0-9._-]`, alphanumeric at both ends,
     /// no `..`, at most 64 bytes, not `shared`, not a Windows reserved device stem.
     public static func isValidAppName(_ s: String) -> Bool {
         let b = Array(s.utf8)

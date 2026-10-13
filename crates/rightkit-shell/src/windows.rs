@@ -369,7 +369,7 @@ impl RevealTarget for WindowReveal<'_> {
     }
     fn order_back(&mut self) -> Result<(), String> {
         // Native AppKit ordering must run on the Tauri main thread. Window commands
-        // arrive on rightkit-service connection threads; dispatch synchronously there
+        // arrive on rightkit-daemon connection threads; dispatch synchronously there
         // so errors are returned to the caller after WindowServer applies the order.
         #[cfg(target_os = "macos")]
         {

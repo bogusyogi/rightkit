@@ -1,4 +1,4 @@
-//! C ABI over [`EngineSupervisor`] and `rightkit-service`, for a Swift host (`PulseNativeABI` in
+//! C ABI over [`EngineSupervisor`] and `rightkit-daemon`, for a Swift host (`PulseNativeABI` in
 //! `swift/RightKitSwift/Sources/RightKitPulse/PulseABI.swift`). Compiled with the `ffi` feature;
 //! nothing links it into Swift yet.
 //!
@@ -152,7 +152,7 @@ pub trait HostFactory: Send + Sync {
     fn connect_service(
         &self,
         timeout: Duration,
-    ) -> Result<rightkit_service::Client, rightkit_service::ServiceError>;
+    ) -> Result<rightkit_daemon::Client, rightkit_daemon::ServiceError>;
 }
 
 struct Fail {
@@ -182,7 +182,7 @@ struct ConnEntry {
     client: Client,
 }
 
-type Client = rightkit_service::Client;
+type Client = rightkit_daemon::Client;
 
 #[derive(Default)]
 struct Global {
@@ -382,8 +382,8 @@ fn job_fail(e: JobError) -> Fail {
     }
 }
 
-fn service_fail(e: rightkit_service::ServiceError) -> Fail {
-    if e.code == rightkit_service::ERROR_TIMEOUT {
+fn service_fail(e: rightkit_daemon::ServiceError) -> Fail {
+    if e.code == rightkit_daemon::ERROR_TIMEOUT {
         return Fail::new(RKP_DEADLINE, e.message);
     }
     Fail::new(

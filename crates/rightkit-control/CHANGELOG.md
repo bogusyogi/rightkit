@@ -6,7 +6,7 @@
 
 Breaking (pre-1.0 minor). QA control can no longer ship by accident.
 
-- **New feature `qa-control` gates `embedded::Control`.** `tauri-plugin` no longer compiles the control server; it keeps only `tauri` and the `offscreen::start_for_window` / `start_from_env` window helpers. `rightkit-service` and `serde_json` moved from `tauri-plugin` to `qa-control`. Migrate: `features = ["tauri-plugin", "wv2-0_39"]` becomes `features = ["qa-control", "wv2-0_39"]`, inside an app feature (`qa-native`) that is off by default with an optional dependency. With the feature off, `embedded` is not compiled.
+- **New feature `qa-control` gates `embedded::Control`.** `tauri-plugin` no longer compiles the control server; it keeps only `tauri` and the `offscreen::start_for_window` / `start_from_env` window helpers. `rightkit-daemon` and `serde_json` moved from `tauri-plugin` to `qa-control`. Migrate: `features = ["tauri-plugin", "wv2-0_39"]` becomes `features = ["qa-control", "wv2-0_39"]`, inside an app feature (`qa-native`) that is off by default with an optional dependency. With the feature off, `embedded` is not compiled.
 - Every binary with `embedded` compiled in contains `RIGHTKIT-QA-CONTROL-SERVER-PRESENT` (`embedded::QA_CONTROL_MARKER`; `#[used]` static, also read by `Control::build`). `right-release` fails a release or update seal or upload that contains it.
 - The server logs one stderr line, `RIGHTKIT QA CONTROL SERVER ACTIVE: ...`, when `RIGHTKIT_CONTROL_SERVICE` is set and it starts.
 - README: new section "QA control never ships".

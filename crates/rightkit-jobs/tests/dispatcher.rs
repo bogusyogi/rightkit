@@ -98,7 +98,7 @@ fn handler_panics_always_get_an_internal_error_and_serving_continues() {
     // Exactly one response per request.
     assert_eq!(frames.iter().filter(|f| f["type"] == "response").count(), 6);
 
-    // The same holds for direct calls (CLI and rightkit-service transports).
+    // The same holds for direct calls (CLI and rightkit-daemon transports).
     let d = Dispatcher::new("t", "1").with(Arc::new(Panicky));
     let sink: Sink = Arc::new(|_| {});
     assert_eq!(

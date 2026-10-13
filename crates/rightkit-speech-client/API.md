@@ -21,7 +21,7 @@ Contents: [Discovery](#discovery-and-roles) · [Connecting and transcribing](#co
 | `HostRole::rank`, `outranks` | Rank 0 (shell) to 3 (CutRight); a lower rank outranks a higher one. | — |
 | `HostRole::as_str`, `from_wire` | Wire name (`heard_right_shell`, `heard_right_headless`, `scrape_right`, `cut_right`) and its inverse; `from_wire` returns `None` for other names. | — |
 | `HostRole::parse_env` | Parses `HR_SPEECH_SERVICE_ROLE` values, case-insensitively, including `heardright`. | — (returns `None`) |
-| `HostRole::rank_table` | Role-name to rank map for `rightkit_service::ServiceConfig::known_roles`. | — |
+| `HostRole::rank_table` | Role-name to rank map for `rightkit_daemon::ServiceConfig::known_roles`. | — |
 | `ServiceRecord` | Fields of `service.json`: `protocol_major`, `protocol_minor`, `role`, `pid`, `endpoint`, `engine_version`. | — |
 | `TakeoverRequest` | Fields of `takeover.json`: `role`, `pid`, `requested_at_ms`. | — |
 | `InstalledEngine` | Fields of `installed/heardright.json`: `engine_path`, `engine_version`. | — |

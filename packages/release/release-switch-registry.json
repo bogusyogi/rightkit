@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "owner": "rightkit-service::mode (D4, ratified)",
+  "owner": "rightkit-daemon::mode (D4, ratified)",
   "forbiddenFeatures": ["test-mode", "qa-native", "dev-native", "qa-control", "dev-inspect"],
   "testModeMarker": "RIGHTKIT-TEST-MODE-COMPILED",
   "denyNames": [

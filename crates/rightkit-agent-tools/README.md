@@ -8,7 +8,7 @@ Catalog capability: `agent-tools`. Not published (`publish = false`).
 
 | Tool family | Backend | Feature |
 |---|---|---|
-| `<app>.*` | Each app's in-app control service, over `rightkit-service` (always compiled) | none |
+| `<app>.*` | Each app's in-app control service, over `rightkit-daemon` (always compiled) | none |
 | `desktop.*` | `rightkit-automation` (macOS accessibility tree, Windows UI Automation) | `automation` |
 | `browser.*` | `rightkit-browser` (Chrome DevTools Protocol) | `browser` |
 | `speech.*` | `rightkit-speech-client` (shared speech service) | `speech` |

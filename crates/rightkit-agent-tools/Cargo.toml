@@ -3,7 +3,7 @@ name = "rightkit-agent-tools"
 version = "0.1.2"
 edition = "2021"
 rust-version = "1.98.0"
-description = "One typed tool interface for agents over rightkit-automation, rightkit-control, rightkit-browser and each app's engine commands (via rightkit-service), plus the `right-ctl <app> <command>` CLI."
+description = "One typed tool interface for agents over rightkit-automation, rightkit-control, rightkit-browser and each app's engine commands (via rightkit-daemon), plus the `right-ctl <app> <command>` CLI."
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/Orthic-Labs/rightkit"
 publish = false
@@ -17,7 +17,7 @@ speech = ["dep:rightkit-speech-client"]
 mcp = ["dep:rightkit-mcp"]
 
 [dependencies]
-rightkit-service = { version = "0.2.0", path = "../rightkit-service" }
+rightkit-daemon = { version = "0.2.0", path = "../rightkit-daemon" }
 rightkit-automation = { version = "0.3.0", path = "../rightkit-automation", optional = true }
 rightkit-browser = { version = "0.3.0", path = "../rightkit-browser", optional = true }
 rightkit-speech-client = { version = "0.3.0", path = "../rightkit-speech-client", optional = true }

@@ -7,7 +7,7 @@
 //!
 //! Started only when the launcher sets `RIGHTKIT_CONTROL_SERVICE=<name>`
 //! (a lowercase service name such as `control-genright`); normal user launches
-//! never set it, so nothing listens. The server is a `rightkit-service` host:
+//! never set it, so nothing listens. The server is a `rightkit-daemon` host:
 //! discovery file `<suite>/runtime/<name>/service.json`, a current-user-only
 //! Unix socket (macOS) or named pipe (Windows), and a per-app request
 //! allowlist. There is no TCP listener and no bearer token. The suite root is
@@ -57,7 +57,7 @@ use crate::admission::{
 use crate::json::esc;
 use crate::keys;
 use crate::lease::{InputError, InputLease, InputOutcome, UnacknowledgedInputDecision};
-use rightkit_service::{
+use rightkit_daemon::{
     host, Allowlist, CallContext, Emit, Handler, ServiceConfig, ServiceError, Suite,
 };
 use serde_json::{json, Value};

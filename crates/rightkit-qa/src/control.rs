@@ -1,7 +1,7 @@
 //! Drive the real Tauri app through the in-app `rightkit-control` server.
 //!
 //! The app is launched hidden or backgrounded with `RIGHTKIT_CONTROL_SERVICE` and an
-//! isolated `RIGHTKIT_SUITE_ROOT`, discovers the `rightkit-service` record
+//! isolated `RIGHTKIT_SUITE_ROOT`, discovers the `rightkit-daemon` record
 //! (`service.json`), and talks over the current-user-only socket / named pipe as the
 //! allowlisted app `right-qa`. No TCP and no shared secrets. The harness never searches for
 //! processes by name to kill them: it records the pid it started and kills that
@@ -9,10 +9,10 @@
 use crate::process::{is_alive, kill_tree, Tracker};
 use crate::util::{err, new_id, sleep_ms, Error, Result};
 use crate::workspace::QaWorkspace;
+use rightkit_daemon::{Client, ServiceError, Suite};
 use rightkit_process::OwnedChild;
 #[cfg(not(target_os = "macos"))]
 use rightkit_process::OwnedCommand;
-use rightkit_service::{Client, ServiceError, Suite};
 use serde_json::{json, Value};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -86,7 +86,7 @@ impl StopReport {
 
 pub struct Control {
     pub pid: u32,
-    /// `rightkit-service` name the app serves (`control-xxxxxxxx`).
+    /// `rightkit-daemon` name the app serves (`control-xxxxxxxx`).
     pub service: String,
     pub log_path: PathBuf,
     raw_log: PathBuf,
@@ -164,7 +164,7 @@ fn bounded_connect_health(suite: &Suite, service: &str, timeout: Duration) -> Op
 }
 
 fn endpoint_open(endpoint: &str) -> bool {
-    rightkit_service::probe_endpoint(endpoint)
+    rightkit_daemon::probe_endpoint(endpoint)
 }
 
 /// Foreground app as `name` (macOS) or `pid:hwnd` (Windows). `None` means the
@@ -1318,7 +1318,7 @@ mod launch_path_tests {
         assert_eq!(env["RIGHTKIT_SUITE_ROOT"], suite.root().to_string_lossy());
         assert_eq!(env["RIGHTKIT_QA_HIDDEN"], "1");
         assert_eq!(env["RIGHTKIT_QA_BACKGROUND"], "1");
-        // rightkit-service falls back to TMPDIR/rk-<suite-hash>-<service>.sock
+        // rightkit-daemon falls back to TMPDIR/rk-<suite-hash>-<service>.sock
         // when its runtime socket exceeds 100 bytes. App TMPDIR must fit too.
         #[cfg(target_os = "macos")]
         assert!(

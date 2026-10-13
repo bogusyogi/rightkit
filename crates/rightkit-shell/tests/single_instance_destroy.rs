@@ -7,7 +7,7 @@
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 
-use rightkit_service::Suite;
+use rightkit_daemon::Suite;
 use rightkit_shell::{ClaimOutcome, InstanceMessage, SingleInstance};
 
 const ID: &str = "test-shell-destroy";
@@ -24,7 +24,7 @@ fn claim(suite: &Suite) -> ClaimOutcome {
 
 /// A primary whose accept loop is provably running: a second claim forwards to it. A claim released
 /// before its accept thread has taken the first pipe instance keeps the pipe name until that thread
-/// runs (a race in `rightkit-service`'s Windows listener, reported separately), which would make the
+/// runs (a race in `rightkit-daemon`'s Windows listener, reported separately), which would make the
 /// immediate re-claim below wait out the 60 s takeover timeout. A real relaunch holds its claim for
 /// the life of the process, so the settled primary is the case that matters.
 fn settled_primary(suite: &Suite) -> ClaimOutcome {

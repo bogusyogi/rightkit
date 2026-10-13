@@ -344,7 +344,7 @@ try {
     if (!opts.dryRun) throw error;
     console.log(`right-release: dry run: ${error.message}`);
   }
-  // remoteHost: rightkit-service `remote` is refused in the closure unless the app declares releaseSwitches.remoteHost: true.
+  // remoteHost: rightkit-daemon `remote` is refused in the closure unless the app declares releaseSwitches.remoteHost: true.
   const closureInput = { treeText, remoteHost: config.releaseSwitches?.remoteHost, commands: [target.prePackage, target.package, nativeAssembly?.packageHook, nativeFinalizer, target.postSign].filter(Boolean).map((c) => commandTokens(c)) };
   if (releaseSwitchInventoryText != null) {
     assertNoReleaseSwitches({ ...closureInput, sourceRoot: root, inventoryText: releaseSwitchInventoryText, appForbid: config.releaseSwitches?.forbid ?? [] }, "source switch inventory");

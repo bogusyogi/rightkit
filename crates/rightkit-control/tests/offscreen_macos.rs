@@ -92,7 +92,7 @@ fn identity_cross_check_survives_after_end() {
 #[cfg(feature = "qa-control")]
 mod hidden_press {
     use rightkit_control::mac;
-    use rightkit_service::{Client, Suite};
+    use rightkit_daemon::{Client, Suite};
     use serde_json::{json, Value};
     use std::path::Path;
     use std::process::Command;

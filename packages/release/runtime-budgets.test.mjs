@@ -621,7 +621,7 @@ test("the scanner finds each long-lived construct the classification found it wa
     "event-loop": ["pub fn go() { let k = unsafe { kqueue() }; }", "pub fn go() { epoll_wait(fd, ev, 8, -1); }", "pub fn go() { CreateIoCompletionPort(h, 0, 0, 0); }"],
     "conn-pool": ["pub fn go() { let p = r2d2::Pool::builder(); }", "pub fn go() { let c = reqwest::Client::new(); }"],
     "resident-static": ["static CACHE: OnceLock<HashMap<String, u32>> = OnceLock::new();", "static MODELS: Mutex<Vec<Model>> = Mutex::new(Vec::new());", "lazy_static! { static ref X: u8 = 1; }"],
-    "detached-child": ["pub fn go() { rightkit_service::spawn_detached(p, a, e); }", "pub fn go() { cmd.process_group(0); }"],
+    "detached-child": ["pub fn go() { rightkit_daemon::spawn_detached(p, a, e); }", "pub fn go() { cmd.process_group(0); }"],
   };
   for (const [id, snippets] of Object.entries(cases)) {
     for (const code of snippets) {
@@ -692,7 +692,7 @@ test("held-resource: a process-wide static needs a static_note, and a detached c
   const withStatic = "pub struct Engine;\nimpl Engine { pub fn open() -> Engine { Engine } }\nstatic CATALOG: OnceLock<HashMap<String, Font>> = OnceLock::new();\n";
   heldRefusal(held(t, { toml: resourceToml(entry({ holds: "memory" })), files: { "src/engine.rs": withStatic } }), /matches resident-static: a resource entry for it needs a static_note/);
   assert.equal(heldCheck(held(t, { toml: resourceToml(entry({ holds: "memory", static_note: "catalog is built on first use and bounded at 40 fonts" })), files: { "src/engine.rs": withStatic } })).status, "ok");
-  const detached = "pub struct Engine;\nimpl Engine { pub fn open() { rightkit_service::spawn_detached(p, a, e); } }\n";
+  const detached = "pub struct Engine;\nimpl Engine { pub fn open() { rightkit_daemon::spawn_detached(p, a, e); } }\n";
   heldRefusal(held(t, { toml: resourceToml(entry({ holds: "child" })), files: { "src/engine.rs": detached } }), /starts a detached child, which outlives any held value; the crate is always-on/);
 });
 

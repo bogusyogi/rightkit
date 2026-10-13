@@ -24,7 +24,7 @@ act       ->  kill switch -> allowlist -> lease fence -> freshness -> secure/cre
 | Allowlist, deny list, kill switch, risk classes, credential gates | `src/policy.rs` |
 | Screenshot redaction, PNG decode | `src/redact.rs`, `src/png.rs` |
 | Text delivery with read-back proof | `src/delivery.rs`, `src/proof.rs` |
-| Fail-closed app-data root | `src/paths.rs` (via `rightkit-service::Suite`) |
+| Fail-closed app-data root | `src/paths.rs` (via `rightkit-daemon::Suite`) |
 
 ## When to use it
 
@@ -35,7 +35,7 @@ Do not use it for Right Suite apps that expose their own in-app control service:
 
 ## Cargo features
 
-`in-app` (off by default): the tier-2 `in_app::ServiceBridge` client and the `paths` module, which pull in `rightkit-service` and `serde_json`. The `in_app::InApp` trait is always available. The Windows backend is compiled with `cfg(windows)` and depends on the `windows` crate. Without `in-app` the crate has no third-party dependencies on macOS.
+`in-app` (off by default): the tier-2 `in_app::ServiceBridge` client and the `paths` module, which pull in `rightkit-daemon` and `serde_json`. The `in_app::InApp` trait is always available. The Windows backend is compiled with `cfg(windows)` and depends on the `windows` crate. Without `in-app` the crate has no third-party dependencies on macOS.
 
 ## Usage
 

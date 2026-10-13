@@ -5149,8 +5149,8 @@ version = "0.1.2"
 dependencies = [
  "rightkit-automation",
  "rightkit-browser",
+ "rightkit-daemon",
  "rightkit-mcp",
- "rightkit-service",
  "rightkit-speech-client",
  "serde",
  "serde_json",
@@ -5213,7 +5213,7 @@ dependencies = [
 name = "rightkit-automation"
 version = "0.3.0"
 dependencies = [
- "rightkit-service",
+ "rightkit-daemon",
  "serde_json",
  "tempfile",
  "windows 0.62.2",
@@ -5279,7 +5279,7 @@ dependencies = [
 name = "rightkit-control"
 version = "0.3.0"
 dependencies = [
- "rightkit-service",
+ "rightkit-daemon",
  "serde_json",
  "tauri",
  "webview2-com 0.38.2",
@@ -5298,6 +5298,35 @@ dependencies = [
  "serde_json",
  "windows-sys 0.61.2",
  "zip",
+]
+
+[[package]]
+name = "rightkit-daemon"
+version = "0.2.0"
+dependencies = [
+ "axum",
+ "base64 0.22.1",
+ "blake3",
+ "form_urlencoded",
+ "hyper",
+ "hyper-util",
+ "rcgen",
+ "rightkit-contracts",
+ "rightkit-framed-sidecar",
+ "rightkit-fs",
+ "rightkit-http",
+ "rightkit-oauth",
+ "rightkit-process",
+ "ring",
+ "rustls",
+ "serde",
+ "serde_json",
+ "subtle",
+ "tempfile",
+ "tokio",
+ "tokio-rustls",
+ "tower",
+ "windows 0.62.2",
 ]
 
 [[package]]
@@ -5391,11 +5420,11 @@ name = "rightkit-jobs"
 version = "0.3.0"
 dependencies = [
  "rightkit-crash",
+ "rightkit-daemon",
  "rightkit-db",
  "rightkit-framed-sidecar",
  "rightkit-fs",
  "rightkit-process",
- "rightkit-service",
  "serde",
  "serde_json",
  "sha2 0.10.9",
@@ -5621,10 +5650,10 @@ dependencies = [
  "png 0.18.1",
  "rightkit-browser",
  "rightkit-control",
+ "rightkit-daemon",
  "rightkit-framed-sidecar",
  "rightkit-fs",
  "rightkit-process",
- "rightkit-service",
  "serde",
  "serde_json",
  "tokio",
@@ -5742,35 +5771,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "rightkit-service"
-version = "0.2.0"
-dependencies = [
- "axum",
- "base64 0.22.1",
- "blake3",
- "form_urlencoded",
- "hyper",
- "hyper-util",
- "rcgen",
- "rightkit-contracts",
- "rightkit-framed-sidecar",
- "rightkit-fs",
- "rightkit-http",
- "rightkit-oauth",
- "rightkit-process",
- "ring",
- "rustls",
- "serde",
- "serde_json",
- "subtle",
- "tempfile",
- "tokio",
- "tokio-rustls",
- "tower",
- "windows 0.62.2",
-]
-
-[[package]]
 name = "rightkit-settings"
 version = "0.2.0"
 dependencies = [
@@ -5790,9 +5790,9 @@ dependencies = [
  "objc2-app-kit",
  "objc2-foundation",
  "objc2-user-notifications",
+ "rightkit-daemon",
  "rightkit-jobs",
  "rightkit-process",
- "rightkit-service",
  "serde",
  "serde_json",
  "tauri",
@@ -5808,8 +5808,8 @@ dependencies = [
 name = "rightkit-speech-client"
 version = "0.3.4"
 dependencies = [
+ "rightkit-daemon",
  "rightkit-framed-sidecar",
- "rightkit-service",
  "rightkit-transcript",
  "serde",
  "serde_json",

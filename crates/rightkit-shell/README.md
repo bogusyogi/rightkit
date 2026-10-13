@@ -39,7 +39,7 @@ Illustrative; not compiled as a doctest. The compiled references are `tests/poli
 - Clipboard (`src/clipboard.rs`): `OpenClipboard` with 10 retries at 20 ms. Reads `CF_UNICODETEXT`, `HTML Format`, `PNG`, `CF_HDROP` (file lists through `DragQueryFileW`) and `CF_DIB`. A write owns the clipboard through a message-only window, because `SetClipboardData` fails after `EmptyClipboard` with a NULL owner. `ClipboardOptions::image_preference` chooses `PNG` first (default) or `CF_DIB` first for the typed image.
 - Notifications: WinRT toasts through `tauri-winrt-notification` 0.7, as described below.
 - Registry and shell: autostart reads and writes `HKCU\...\CurrentVersion\Run` through `reg.exe`. Scheme registration writes under `HKCU\Software\Classes` through `reg.exe`. Both use `CREATE_NO_WINDOW`. `opener` launches `rundll32.exe url.dll,FileProtocolHandler`.
-- Single instance uses the rightkit-service named pipe (`src/instance.rs`). Broker entropy comes from `SystemFunction036` in advapi32 (`src/broker.rs`).
+- Single instance uses the rightkit-daemon named pipe (`src/instance.rs`). Broker entropy comes from `SystemFunction036` in advapi32 (`src/broker.rs`).
 - Dependencies: `windows_061`/`windows_062` and `webview2_com_038`/`webview2_com_039` are optional. They enable Win32 features `Win32_Foundation`, `Win32_System_Com`, `Win32_System_DataExchange`, `Win32_System_Memory`, `Win32_System_Ole`, `Win32_UI_Shell` and `Win32_UI_WindowsAndMessaging`. Consumers select only a `wv2-*` feature.
 - Caveat: `harden.rs`, `clipboard.rs` and `idle.rs` are `cfg(windows)` code and are not compiled or exercised on the macOS host (`src/idle.rs:9`). The clipboard backend has not been run against a live Windows clipboard, so verify copy and paste on a Windows machine before relying on it.
 
@@ -268,7 +268,7 @@ character outside `[a-z0-9-]` becomes `-`, one for one, nothing collapsed or tri
 identifier works: `app.mailright` becomes `app-mailright`, `Mail_Right` becomes `mail-right`. An id that
 is already `[a-z0-9-]` is unchanged, so running instances are still found across an upgrade. Distinct
 ids can normalise to one name (`a.b` and `a-b`), which makes them the same app for this purpose.
-`rightkit-service` allows 1 to 48 bytes of `[a-z0-9-]`, so an empty id, or one longer than 42 bytes
+`rightkit-daemon` allows 1 to 48 bytes of `[a-z0-9-]`, so an empty id, or one longer than 42 bytes
 (`-shell`) or 39 bytes (`-instance`), is refused with `Arbitration::InvalidAppId(InvalidAppId)` or
 `ClaimFailure::InvalidId`, never with `Unavailable` or `Host`. `instance::try_service_name(id)` returns the
 name or the typed error. `ShellBuilder::build` still panics on any id outside `[a-z0-9-]` and 40 bytes.

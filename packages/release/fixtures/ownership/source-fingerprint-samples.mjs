@@ -114,7 +114,7 @@ export const FINGERPRINT_SAMPLES = {
       "let opt = SO_PEERCRED;"
     ],
     "negative": [
-      "let server = rightkit_service::Server::bind(&suite, \"engine\", handler)?;",
+      "let server = rightkit_daemon::Server::bind(&suite, \"engine\", handler)?;",
       "// getpeereid is checked inside the service crate"
     ]
   },
@@ -124,7 +124,7 @@ export const FINGERPRINT_SAMPLES = {
     ],
     "negative": [
       "let h = CreateNamedPipeW(name.as_ptr(), PIPE_ACCESS_DUPLEX, 0, 1, 4096, 4096, 0, &sa);",
-      "use rightkit_service::Client;",
+      "use rightkit_daemon::Client;",
       "let pipe = ClientOptions::new().open(name)?;"
     ]
   },
@@ -134,7 +134,7 @@ export const FINGERPRINT_SAMPLES = {
       "const record = path.join(runtimeDir, 'service.json');"
     ],
     "negative": [
-      "let record = rightkit_service::service_record_path(&suite, \"engine\");",
+      "let record = rightkit_daemon::service_record_path(&suite, \"engine\");",
       "let log = dir.join(\"service.jsonl\");"
     ]
   },

@@ -128,7 +128,7 @@ impl HostRole {
             _ => None,
         }
     }
-    /// Role -> rank table for `rightkit_service::ServiceConfig::known_roles`.
+    /// Role -> rank table for `rightkit_daemon::ServiceConfig::known_roles`.
     pub fn rank_table() -> std::collections::BTreeMap<String, u8> {
         [
             Self::HeardRightShell,

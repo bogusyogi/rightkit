@@ -1,6 +1,6 @@
 // Release-time enforcement of M23 ("release code cannot use env/settings to select a test, data-root,
 // executable, library or identity") and of the release half of M21 ("exclude the test switch from release
-// builds"). Provisional owner decision D4: `rightkit_service::mode` is the runtime decision (a release build
+// builds"). Provisional owner decision D4: `rightkit_daemon::mode` is the runtime decision (a release build
 // reads no override selector at all); this module is the proof, at release time, outside the app.
 //
 // Three layers, one vocabulary (selector classes S1-S6, see `README.md` "Release switch scan"):
@@ -49,7 +49,7 @@ import { spawnSync } from "./background-process.mjs";
 import { featuresInTokens, resolveCargoManifestPath, scriptTarget, tokenize } from "./qa-build-features.mjs";
 import { isNativeBinaryHeader } from "./qa-control-scan.mjs";
 
-export const TEST_MODE_MARKER = "RIGHTKIT-TEST-MODE-COMPILED"; // identical to `TEST_MODE_MARKER_TEXT` in rightkit-service/src/mode.rs
+export const TEST_MODE_MARKER = "RIGHTKIT-TEST-MODE-COMPILED"; // identical to `TEST_MODE_MARKER_TEXT` in rightkit-daemon/src/mode.rs
 const CHUNK = 4 * 1024 * 1024;
 const FORBIDDEN_CLASSES = new Set(["S1", "S2", "S3", "S4"]);
 const CLASSES = new Set(["S1", "S2", "S3", "S4", "S5", "S6"]);
@@ -61,7 +61,7 @@ export const REGISTRY = JSON.parse(readFileSync(new URL("./release-switch-regist
 // ---------------------------------------------------------------------------------------------------------------------
 // Layer 1: feature closure.
 
-// `cargo tree -e features` lines look like: `├── rightkit-service feature "test-mode"` (possibly `(*)` suffixed).
+// `cargo tree -e features` lines look like: `├── rightkit-daemon feature "test-mode"` (possibly `(*)` suffixed).
 const FEATURE_LINE = /^[\s│├└─|`+\\-]*([A-Za-z0-9_][A-Za-z0-9_-]*)(?: v[^\s]+)? feature "([^"]+)"/;
 
 export function featureClosureFindings(treeText, { forbidden = REGISTRY.forbiddenFeatures } = {}) {
@@ -79,10 +79,10 @@ export function featureClosureFindings(treeText, { forbidden = REGISTRY.forbidde
   return findings;
 }
 
-// M7 lane E: rightkit-service `remote` (the HTTPS host with tokio, axum and hyper) may enter a release graph only for an app
+// M7 lane E: rightkit-daemon `remote` (the HTTPS host with tokio, axum and hyper) may enter a release graph only for an app
 // that declares `releaseSwitches.remoteHost: true` (the Hetzner Pulse and PostRight server builds). `testing` implies `remote`,
 // so it is caught by the same line. Fail-closed: a value other than a boolean throws, and `false` or an absent key refuses.
-export const REMOTE_SERVICE_CRATE = "rightkit-service";
+export const REMOTE_SERVICE_CRATE = "rightkit-daemon";
 export const REMOTE_SERVICE_FEATURE = "remote";
 export function remoteServiceFindings(treeText, { remoteHost = false } = {}) {
   if (typeof remoteHost !== "boolean") throw new Error(`releaseSwitches.remoteHost must be true or false, got ${JSON.stringify(remoteHost)}`);

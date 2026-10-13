@@ -1,6 +1,6 @@
 # rightkit-jobs
 
-Shared engine base for Right Suite apps: a persistent SQLite job store (on `rightkit-db`), `request_id` de-duplication, a bounded progress-event log, cancel, crash recovery, sha256-addressed result artifacts, and the engine stdio and CLI command contract. The contract uses `rightkit-framed-sidecar` frames and `rightkit-process` child ownership, and can be served over `rightkit-service`.
+Shared engine base for Right Suite apps: a persistent SQLite job store (on `rightkit-db`), `request_id` de-duplication, a bounded progress-event log, cancel, crash recovery, sha256-addressed result artifacts, and the engine stdio and CLI command contract. The contract uses `rightkit-framed-sidecar` frames and `rightkit-process` child ownership, and can be served over `rightkit-daemon`.
 
 Product work plugs in through `JobHandler` (what a job does) and `CommandSet` (extra commands). Apps with their own wire protocol can use only the store (see below).
 
@@ -13,7 +13,7 @@ Catalog capability: `persistent-jobs`. Published to crates.io at 0.2.7 (registry
 - `JobHandler` and `JobControl`: the handler trait and the control object (`step_boundary`, `progress`, `is_cancelled`, `generation`).
 - `Dispatcher`, `CommandSet`, `JobCommands`, `PayloadMapper`: the stdio and CLI contract, with the built-in `job.*` methods.
 - `EngineClient`: client for a running engine.
-- `DispatcherHandler` and `Gate`: serve a `Dispatcher` on `rightkit-service`, and hand off to a new host.
+- `DispatcherHandler` and `Gate`: serve a `Dispatcher` on `rightkit-daemon`, and hand off to a new host.
 - `StagedPool`, `PoolConfig`, `StagedHandler`: admission-limited parallel prepare with one thread-affine compute lane (see below).
 - `HandlerOutcome`: a handler that settles its own jobs (or hands them on) says so, and the runner writes nothing more (see "Handler-owned outcomes").
 - Settle-later (`JobStore::settle_terminal`, `flush_pending_settlements`, `shutdown_detailed`, `RunOutcome::Unsettled`): a terminal write that storage refuses is held and retried, not lost (see "Settle later").
@@ -35,7 +35,7 @@ No feature is on by default (0.3.0): a bare dependency builds only the error typ
 - `protocol`: the wire constants (`CONTRACT_VERSION`, `DEFAULT_FRAME_LIMIT`); pulls `rightkit-framed-sidecar`.
 - `contract` (implies `store` and `protocol`): the stdio/CLI command contract (`Dispatcher`, `serve`, `run_cli`, `JobCommands`).
 - `supervisor` (implies `protocol`): `EngineSupervisor`, `EngineClient` and the `rightkit-process` re-exports; pulls `rightkit-process`, not `rightkit-db`.
-- `service` (implies `contract`): `DispatcherHandler` over `rightkit-service`.
+- `service` (implies `contract`): `DispatcherHandler` over `rightkit-daemon`.
 
 Per-job `Recovery::Never` (destructive jobs are failed as `interrupted` after a crash, never re-run), `JobStore::prune`, `JobStore::delete`, `JobStore::submit_rejected`, `ProgressPolicy`, `CancelToken`, single-flight submit (`SubmitOptions::single_flight`), the staged pool and held jobs are documented on their types and in the changelog. The staged pool (`pool` module) and held state are ungated and build with `default-features = false`.
 
@@ -76,10 +76,10 @@ Modelled on HeardRight's speech service (`src/sched.rs`, `src/runner.rs`):
 
 - **Interactive preempts batch at step boundaries.** `request.priority: "interactive"` holds the runner's `Gate` for the whole run. A batch handler calling `ctl.step_boundary()?` blocks while interactive work is active. It emits `preempted` and `resumed` events, and the job is not retried.
 - **Progress.** `ctl.progress(stage, fraction, message)` stores an event and streams it to the requesting client as an `event` frame.
-- **Cancel on disconnect.** `job.submit` or `job.run` with `cancel_on_disconnect: true` cancels the job if the client connection closes while it runs (`CommandSet::connection_closed`). This works on stdio EOF and on `rightkit-service`.
-- **Retryable handoff.** `Gate::request_handoff()`, wired to `rightkit-service` takeover by `DispatcherHandler::with_gate`, makes `step_boundary` return `JobError::handoff()`. The job pauses without spending an attempt. The wire error is `host_handoff` with `retryable: true`, and the client resubmits to the new host.
+- **Cancel on disconnect.** `job.submit` or `job.run` with `cancel_on_disconnect: true` cancels the job if the client connection closes while it runs (`CommandSet::connection_closed`). This works on stdio EOF and on `rightkit-daemon`.
+- **Retryable handoff.** `Gate::request_handoff()`, wired to `rightkit-daemon` takeover by `DispatcherHandler::with_gate`, makes `step_boundary` return `JobError::handoff()`. The job pauses without spending an attempt. The wire error is `host_handoff` with `retryable: true`, and the client resubmits to the new host.
 - **Stall timeout, no fixed total.** `Runner::with_stall_timeout(d)` abandons an attempt that shows no sign of life (`progress`, `step_boundary`, `heartbeat`) for `d`, and pauses the job as retryable `stalled`. A long job that keeps making progress is never cut off.
-- **Dispatcher over the service convention.** `DispatcherHandler` serves a `Dispatcher` on `rightkit-service` (service.json, a user-only socket or pipe, a per-app allowlist, and ranking).
+- **Dispatcher over the service convention.** `DispatcherHandler` serves a `Dispatcher` on `rightkit-daemon` (service.json, a user-only socket or pipe, a per-app allowlist, and ranking).
 
 ## Staged pool
 
@@ -266,7 +266,7 @@ Apps that already have a stdio or CLI protocol can adopt `JobStore` with `StoreC
 
 ## Platform support
 
-The crate depends on `rightkit-process` and `rightkit-service`, which have their own per-OS behaviour. `src/` has no `cfg(unix)` or `cfg(windows)` code; the job lock comes from `rightkit_fs::FileLock` (POSIX record lock on Unix, `LockFileEx` elsewhere, `src/runner.rs:7` and `src/runner.rs:38`), and only some tests are `cfg(unix)` (`tests/job_lock_process.rs:1`). Windows behaviour is not otherwise documented in this crate.
+The crate depends on `rightkit-process` and `rightkit-daemon`, which have their own per-OS behaviour. `src/` has no `cfg(unix)` or `cfg(windows)` code; the job lock comes from `rightkit_fs::FileLock` (POSIX record lock on Unix, `LockFileEx` elsewhere, `src/runner.rs:7` and `src/runner.rs:38`), and only some tests are `cfg(unix)` (`tests/job_lock_process.rs:1`). Windows behaviour is not otherwise documented in this crate.
 
 ## Version and changes
 

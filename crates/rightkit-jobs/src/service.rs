@@ -1,16 +1,16 @@
-//! Serve a [`Dispatcher`] over `rightkit-service`: the same commands, now on the
+//! Serve a [`Dispatcher`] over `rightkit-daemon`: the same commands, now on the
 //! discovery/auth convention (service.json, current-user-only pipe/socket,
 //! per-app allowlist, ranking and takeover) instead of stdio.
 
 use std::sync::Arc;
 
-use rightkit_service::{CallContext, Emit, Handler, ServiceError};
+use rightkit_daemon::{CallContext, Emit, Handler, ServiceError};
 use serde_json::Value;
 
 use crate::contract::Dispatcher;
 use crate::sched::Gate;
 
-/// Adapter: `Dispatcher` -> `rightkit_service::Handler`. Pass the runner's
+/// Adapter: `Dispatcher` -> `rightkit_daemon::Handler`. Pass the runner's
 /// [`Gate`] so a takeover pauses batch work at its next step boundary.
 pub struct DispatcherHandler {
     dispatcher: Arc<Dispatcher>,

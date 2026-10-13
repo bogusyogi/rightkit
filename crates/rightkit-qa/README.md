@@ -12,7 +12,7 @@ Rust QA harness for Right Suite applications. It owns declarative scenarios (`ha
 |---|---|---|---|
 | `browser` | off | `rightkit-browser`, `tokio` | Chrome (CDP) targets for browser scenarios. Off by default because it pulls `tokio` and `chromiumoxide`. |
 
-Other dependencies include `rightkit-framed-sidecar`, `rightkit-service`, `rightkit-process`, `getrandom`, and `png`. `rightkit-control` is a macOS-only target dependency (foreground-app reads only); on Windows, `windows-sys` is a target dependency. On Windows the app under test links `rightkit-control`, not the harness (see the Windows section).
+Other dependencies include `rightkit-framed-sidecar`, `rightkit-daemon`, `rightkit-process`, `getrandom`, and `png`. `rightkit-control` is a macOS-only target dependency (foreground-app reads only); on Windows, `windows-sys` is a target dependency. On Windows the app under test links `rightkit-control`, not the harness (see the Windows section).
 
 ## Platform support
 
@@ -139,7 +139,7 @@ if let Some(plugin) = rightkit_control::embedded::Control::<tauri::Wry>::new().b
 
 **Contract check.** `rightkit-qa guard [--backend control|wdio]` (`src/guard.rs`) reads the app's `Cargo.toml` and Rust sources and fails on: a registration with no `qa-native` gate (`use` lines and comments are ignored); a `rightkit-control` dependency that is not optional, or that enables `qa-control` without being optional; a missing `qa-native` feature, or one that does not enable `dep:rightkit-control` and `rightkit-control/qa-control` (or list `qa-control` in the dependency's features); `qa-native` reachable from `default`, directly or through another feature; any other feature that enables the dependency; a missing runtime flag; and a release or build package script that enables `qa-native`. It also rejects rightkit-shell developer inspection in a shipped build: `dev-inspect`, `rightkit-shell/dev-inspect` or `dev-native` reachable from `default`, a non-optional `rightkit-shell` dependency that lists `dev-inspect`, and a release-named package script that enables `dev-inspect` or `dev-native`. Each message names the file and the change to make. The check cannot prove that a release build lacks the server; `right-release`'s marker scan does that.
 
-- `build_if_enabled()` returns `None` unless the launcher sets `RIGHTKIT_CONTROL_SERVICE`, so a normal launch of a debug build does not listen. When enabled, the server is a `rightkit-service` host: a discovery record at `<suite>/runtime/<name>/service.json`, a current-user named pipe on Windows, no TCP listener and no bearer token. It fails closed when no absolute suite root exists.
+- `build_if_enabled()` returns `None` unless the launcher sets `RIGHTKIT_CONTROL_SERVICE`, so a normal launch of a debug build does not listen. When enabled, the server is a `rightkit-daemon` host: a discovery record at `<suite>/runtime/<name>/service.json`, a current-user named pipe on Windows, no TCP listener and no bearer token. It fails closed when no absolute suite root exists.
 - Input goes to the webview from inside the process (on Windows through WebView2's `Input.dispatch*`), not through OS input events.
 - Pulse pins `rightkit-control = "=0.1.11"`, while this repository's crate is 0.3.0. Check the feature names against the version the app pins.
 

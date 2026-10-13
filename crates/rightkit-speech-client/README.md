@@ -1,6 +1,6 @@
 # rightkit-speech-client
 
-Client and protocol contract for the Orthic Labs shared speech service, which runs one resident speech engine per machine. It owns endpoint discovery (`connect`, `read_live_record`, `plan_host`), bounded v1 JSON frames for health, capabilities, and transcription, the job queue status (`job_status`, `Progress`), and the takeover request helpers. It is built on `rightkit-service` and is wire-compatible with HeardRight's v1 host.
+Client and protocol contract for the Orthic Labs shared speech service, which runs one resident speech engine per machine. It owns endpoint discovery (`connect`, `read_live_record`, `plan_host`), bounded v1 JSON frames for health, capabilities, and transcription, the job queue status (`job_status`, `Progress`), and the takeover request helpers. It is built on `rightkit-daemon` and is wire-compatible with HeardRight's v1 host.
 
 **Use it** in a Right Suite app that needs speech transcription from the shared service, or that must act as a compatible host.
 
@@ -19,11 +19,11 @@ path. `API.md`, "Staging" and "Input contract", has the rule and the host's own 
 
 ## Features
 
-None. The crate has no Cargo features. Dependencies: `rightkit-service`, `rightkit-framed-sidecar`, `rightkit-transcript`, `serde`, `serde_json` (`Cargo.toml:13-17`).
+None. The crate has no Cargo features. Dependencies: `rightkit-daemon`, `rightkit-framed-sidecar`, `rightkit-transcript`, `serde`, `serde_json` (`Cargo.toml:13-17`).
 
 ## Platform support
 
-`src/lib.rs` has no `cfg` gates. `endpoint_for` in `src/protocol.rs:183-194` picks a named pipe on Windows (`cfg!(windows)`) and a Unix socket elsewhere; the `cfg(windows)` and `cfg(unix)` transport gates are in `rightkit-service` (`src/transport.rs`). Transport details are defined by `rightkit-service`.
+`src/lib.rs` has no `cfg` gates. `endpoint_for` in `src/protocol.rs:183-194` picks a named pipe on Windows (`cfg!(windows)`) and a Unix socket elsewhere; the `cfg(windows)` and `cfg(unix)` transport gates are in `rightkit-daemon` (`src/transport.rs`). Transport details are defined by `rightkit-daemon`.
 
 Published version: see the generated `INDEX.md` at the repository root. Reference: [API.md](API.md) (every public item, its errors, and the host's input contract); file map: [INDEX.md](INDEX.md). Release notes: [CHANGELOG.md](CHANGELOG.md).
 

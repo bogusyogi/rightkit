@@ -2,10 +2,10 @@
 //! `rightkit-control`'s server (launched with `RIGHTKIT_CONTROL_SERVICE=<name>`)
 //! accepts trusted input injected straight into its webview, with no focus and
 //! no AX grant. This module is the client: it speaks the shared
-//! `rightkit-service` convention (discovery file, current-user-only Unix socket
+//! `rightkit-daemon` convention (discovery file, current-user-only Unix socket
 //! or named pipe, per-app request allowlist). There is no TCP and no bearer token.
 //!
-//! The [`InApp`] trait is always available. The `rightkit-service` client
+//! The [`InApp`] trait is always available. The `rightkit-daemon` client
 //! ([`ServiceBridge`]) is behind the `in-app` feature.
 
 #[cfg(feature = "in-app")]
@@ -13,7 +13,7 @@ use crate::keys::{Chord, Key, Named};
 use crate::model::*;
 use crate::platform::InputEvent;
 #[cfg(feature = "in-app")]
-use rightkit_service::{Client, ServiceError, Suite, ERROR_NOT_ALLOWED};
+use rightkit_daemon::{Client, ServiceError, Suite, ERROR_NOT_ALLOWED};
 #[cfg(feature = "in-app")]
 use serde_json::{json, Value};
 
@@ -140,7 +140,7 @@ impl InApp for ServiceBridge {
 mod tests {
     use super::*;
     use crate::keys;
-    use rightkit_service::{host, Allowlist, CallContext, Emit, Handler, ServiceConfig};
+    use rightkit_daemon::{host, Allowlist, CallContext, Emit, Handler, ServiceConfig};
     use std::sync::{Arc, Mutex};
     use std::time::Duration;
 
@@ -159,7 +159,7 @@ mod tests {
     }
 
     /// A real service host (socket/pipe + service.json) that the bridge reaches by discovery.
-    fn start(allow: Allowlist) -> (Suite, Arc<Rec>, rightkit_service::Hosted) {
+    fn start(allow: Allowlist) -> (Suite, Arc<Rec>, rightkit_daemon::Hosted) {
         let suite = Suite::per_run_temp("inapp").unwrap();
         let rec = Arc::new(Rec(Mutex::new(vec![])));
         let mut cfg = ServiceConfig::new("control-fake", "control:main", 0, "test", allow);
