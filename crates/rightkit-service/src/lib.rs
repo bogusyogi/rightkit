@@ -50,6 +50,8 @@ pub mod contract;
 mod discovery;
 mod error;
 mod host_identity;
+#[cfg(feature = "link")]
+pub mod link;
 pub mod mode;
 mod peer;
 mod record;

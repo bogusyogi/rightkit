@@ -13,6 +13,8 @@
 //!   and hashing helpers it needs. No tokio, axum or hyper.
 //! * `remote` (implies `link`) - the server stack: core, HTTP listener, routes, OAuth adapter,
 //!   durable state and events.
+//! * The outbound link (`rk-link/1`, see [`crate::link`]): the host side is in [`core`]
+//!   (`Daemon::link_accept`, `enqueue_task`, durable leases) and [`http`] (the upgrade).
 //! * `testing` (implies `remote`) - a run-time test certificate and in-process host ([`testing`]).
 
 #[cfg(feature = "remote")]
@@ -46,11 +48,14 @@ pub use self::call::DeviceCalls;
 pub use self::config::{DaemonConfig, UploadLimits};
 #[cfg(feature = "remote")]
 pub use self::core::{
-    Daemon, DaemonMetrics, DaemonStatus, OAuthCallbackHandler, OAuthOutcome, Request, Response,
+    Accepted, Daemon, DaemonMetrics, DaemonStatus, FrameOutcome, LinkSession, OAuthCallbackHandler,
+    OAuthOutcome, Out, Request, Response, TaskInfo, TaskSpec,
 };
 #[cfg(feature = "remote")]
 pub use self::events::{Event, EventLog};
 #[cfg(feature = "remote")]
 pub use self::http::{load_tls, router, serve, serve_blocking, StopHandle};
+#[cfg(feature = "remote")]
+pub use self::state::TaskStatus;
 #[cfg(feature = "link")]
 pub use self::util::{hex, sha256_hex, unhex, Clock, SystemClock};

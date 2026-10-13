@@ -146,6 +146,11 @@ impl DeviceKey {
             .map_err(|e| Error::Key(format!("Ed25519 seed: {e}")))
     }
 
+    /// Raw Ed25519 signature over `msg` (the link layer signs frames with the device key).
+    pub(crate) fn sign(&self, msg: &[u8]) -> Vec<u8> {
+        self.pair.sign(msg).as_ref().to_vec()
+    }
+
     /// Raw 32-byte public key.
     pub fn public_key(&self) -> Vec<u8> {
         self.pair.public_key().as_ref().to_vec()
@@ -458,6 +463,39 @@ impl DeviceSession {
 
     fn authorization(&self) -> String {
         format!("RK-Device {}", self.id)
+    }
+
+    /// The device key, for signing link frames.
+    pub(crate) fn device_key(&self) -> Arc<DeviceKey> {
+        self.key.clone()
+    }
+
+    /// Open the outbound link: TLS to the pinned host, then the signed `rk-link/1` upgrade.
+    /// Returns the upgraded stream and the `101` reply (it carries the connection id and the
+    /// session key). Any other status is an [`Error::Refused`]; there is no plaintext fallback
+    /// and no downgrade to plain requests.
+    pub(crate) fn open_link(&self) -> Result<(transport::TlsStream, Reply), Error> {
+        use crate::link::frame::{LINK_PATH, UPGRADE_TOKEN};
+        let headers =
+            self.client
+                .signed_headers(&self.key, self.authorization(), "GET", LINK_PATH, &[]);
+        let (stream, reply) = self
+            .client
+            .transport
+            .upgrade(LINK_PATH, UPGRADE_TOKEN, &headers)?;
+        if reply.status != 101 {
+            return Err(match check(reply) {
+                Err(e) => e,
+                Ok(r) => Error::Protocol(format!("expected 101, got {}", r.status)),
+            });
+        }
+        if !reply
+            .header("upgrade")
+            .is_some_and(|v| v.eq_ignore_ascii_case(UPGRADE_TOKEN))
+        {
+            return Err(Error::Protocol("101 without the rk-link/1 upgrade".into()));
+        }
+        Ok((stream, reply))
     }
 
     /// Append the caller's headers to the credential `headers` and run the exchange. Any non-2xx

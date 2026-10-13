@@ -15,11 +15,17 @@ use rightkit_contracts::types::daemon_api::AuthClassId;
 use ring::hmac;
 use serde_json::{json, Value};
 
+mod link;
+mod tasks;
+
+pub use self::link::{Accepted, FrameOutcome, LinkSession, Out};
+pub use self::tasks::{TaskInfo, TaskSpec};
+
 use crate::record::write_atomic;
 use crate::remote::call::DeviceCalls;
 use crate::remote::config::DaemonConfig;
 use crate::remote::events::EventLog;
-use crate::remote::routes::{match_route, Matched, RouteDef, CALL_ROUTE_ID};
+use crate::remote::routes::{match_route, Matched, RouteDef, CALL_ROUTE_ID, LINK_ROUTE_ID};
 use crate::remote::signing::{
     chunk_digest, object_digest, object_hasher, parse_digest_key, verify_request, H_NONCE,
     H_PROVIDER_SIGNATURE, H_PROVIDER_TIMESTAMP, H_SIGNATURE, H_TIMESTAMP,
@@ -137,6 +143,12 @@ pub struct DaemonMetrics {
     pub events_retained: u64,
     /// Replay-table nonces retained across all devices (pruned after `replay_window_secs`).
     pub nonce_records: u64,
+    /// Live link connections.
+    pub links: u64,
+    /// Link tasks waiting for a device.
+    pub tasks_queued: u64,
+    /// Link tasks currently leased to a device.
+    pub tasks_leased: u64,
 }
 
 #[derive(Debug, Default)]
@@ -154,6 +166,8 @@ pub struct Daemon {
     events: Arc<EventLog>,
     oauth: Option<Arc<dyn OAuthCallbackHandler>>,
     calls: Option<DeviceCalls>,
+    /// Live `rk-link/1` connections by device id (at most one per device).
+    links: Mutex<BTreeMap<String, Arc<LinkSession>>>,
     inner: Mutex<Inner>,
     counters: Counters,
 }
@@ -219,6 +233,7 @@ impl Daemon {
             events,
             oauth,
             calls: None,
+            links: Mutex::new(BTreeMap::new()),
             inner: Mutex::new(Inner {
                 state,
                 uploads,
@@ -328,6 +343,8 @@ impl Daemon {
         self.save(&mut g)?;
         drop(g);
         self.emit("DEVICE_REVOKED", json!({ "deviceId": device_id }));
+        // A revoked device keeps no link; its leases lapse and re-queue.
+        self.close_link(device_id, "revoked");
         Ok(true)
     }
 
@@ -402,6 +419,7 @@ impl Daemon {
 
     /// Request, write and retained-state figures for this daemon instance.
     pub fn metrics(&self) -> DaemonMetrics {
+        let (links, tasks_queued, tasks_leased) = self.link_counts();
         let g = self.lock();
         let c = &self.counters;
         DaemonMetrics {
@@ -415,6 +433,9 @@ impl Daemon {
             idempotency_records: g.state.idempotency.len() as u64,
             nonce_records: g.state.nonces.values().map(|m| m.len() as u64).sum(),
             events_retained: self.events.retained() as u64,
+            links,
+            tasks_queued,
+            tasks_leased,
         }
     }
 
@@ -639,6 +660,7 @@ impl Daemon {
         let granted: Vec<String> = device.scopes.clone();
         // A device call's scope is checked per method against the method table instead.
         let allowed = route.id == CALL_ROUTE_ID
+            || route.id == LINK_ROUTE_ID
             || route
                 .scopes
                 .iter()

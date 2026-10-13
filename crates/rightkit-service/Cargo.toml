@@ -115,6 +115,13 @@ name = "dual_transport"
 path = "tests/dual_transport.rs"
 required-features = ["testing"]
 
+# Outbound link and durable tasks (M7 lane D): host logic driven in process, and a real
+# client over TLS. `link_features` has no gate: it reads this manifest and sources.
+[[test]]
+name = "link"
+path = "tests/link.rs"
+required-features = ["testing"]
+
 [dev-dependencies]
 tempfile = "3"
 rightkit-contracts = { version = "0.1.5", path = "../rightkit-contracts", features = ["schema"] }

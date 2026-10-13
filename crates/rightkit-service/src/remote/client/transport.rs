@@ -56,7 +56,69 @@ fn clean(s: &str) -> bool {
     !s.bytes().any(|b| b == b'\r' || b == b'\n' || b == 0)
 }
 
+/// A completed TLS client connection over a std socket.
+pub(crate) type TlsStream = rustls::StreamOwned<rustls::ClientConnection, TcpStream>;
+
 impl Transport {
+    /// Connect and complete the TLS handshake against the pinned roots.
+    pub(super) fn connect(&self) -> Result<TlsStream, Error> {
+        let mut sock = TcpStream::connect_timeout(&self.addr, self.timeout)?;
+        sock.set_read_timeout(Some(self.timeout))?;
+        sock.set_write_timeout(Some(self.timeout))?;
+        sock.set_nodelay(true)?;
+        let mut conn = rustls::ClientConnection::new(self.tls.clone(), self.server_name.clone())
+            .map_err(|e| Error::Tls(e.to_string()))?;
+        while conn.is_handshaking() {
+            conn.complete_io(&mut sock).map_err(tls_or_io)?;
+        }
+        Ok(rustls::StreamOwned::new(conn, sock))
+    }
+
+    /// Send a `GET` that asks to upgrade to `protocol` and read the reply head. The connection is
+    /// kept open: on a `101` the caller owns the stream afterwards. The reply is read with the
+    /// ordinary reply reader, which keeps no bytes past the head for a 1xx status; the host sends
+    /// nothing on an upgraded link before the client's first frame.
+    pub(super) fn upgrade(
+        &self,
+        path_and_query: &str,
+        protocol: &str,
+        headers: &[(String, String)],
+    ) -> Result<(TlsStream, Reply), Error> {
+        if !path_and_query.starts_with('/') || !path_and_query.bytes().all(|b| b.is_ascii_graphic())
+        {
+            return Err(Error::Config(format!(
+                "bad request target {path_and_query:?}"
+            )));
+        }
+        if protocol.is_empty() || !protocol.bytes().all(|b| b.is_ascii_graphic()) {
+            return Err(Error::Config("bad upgrade protocol token".into()));
+        }
+        if headers
+            .iter()
+            .any(|(k, v)| !clean(k) || !clean(v) || k.is_empty() || k.contains(':'))
+        {
+            return Err(Error::Config(
+                "header name or value holds a line break".into(),
+            ));
+        }
+        let mut stream = self.connect()?;
+        let mut head = format!(
+            "GET {path_and_query} HTTP/1.1\r\nHost: {}\r\nConnection: Upgrade\r\nUpgrade: {protocol}\r\n",
+            self.host_header
+        );
+        for (k, v) in headers {
+            head.push_str(k);
+            head.push_str(": ");
+            head.push_str(v);
+            head.push_str("\r\n");
+        }
+        head.push_str("\r\n");
+        stream.write_all(head.as_bytes()).map_err(tls_or_io)?;
+        stream.flush().map_err(tls_or_io)?;
+        let reply = read_reply(&mut stream)?;
+        Ok((stream, reply))
+    }
+
     pub fn exchange(
         &self,
         method: &str,
@@ -82,16 +144,7 @@ impl Transport {
             ));
         }
 
-        let mut sock = TcpStream::connect_timeout(&self.addr, self.timeout)?;
-        sock.set_read_timeout(Some(self.timeout))?;
-        sock.set_write_timeout(Some(self.timeout))?;
-        sock.set_nodelay(true)?;
-        let mut conn = rustls::ClientConnection::new(self.tls.clone(), self.server_name.clone())
-            .map_err(|e| Error::Tls(e.to_string()))?;
-        while conn.is_handshaking() {
-            conn.complete_io(&mut sock).map_err(tls_or_io)?;
-        }
-        let mut stream = rustls::StreamOwned::new(conn, sock);
+        let mut stream = self.connect()?;
 
         let mut head = format!(
             "{method} {path_and_query} HTTP/1.1\r\nHost: {}\r\nConnection: close\r\nContent-Length: {}\r\n",

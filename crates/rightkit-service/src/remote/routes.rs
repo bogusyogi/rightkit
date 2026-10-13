@@ -136,6 +136,24 @@ pub static CALL_ROUTE: RouteDef = RouteDef {
     responses: &[200, 400, 401, 403, 409, 500, 502, 503, 504],
 };
 
+/// Route id of the outbound-link upgrade `GET /v1/link` (`rk-link/1`, scope `link`).
+pub const LINK_ROUTE_ID: &str = "device.link";
+
+/// The link upgrade. Like [`CALL_ROUTE`] it is not in [`ROUTES`] and is not matched by
+/// [`match_route`]: the HTTP adapter routes `GET /v1/link` to the link handshake before the
+/// route table is consulted, so the daemon-api route lists and the conformance fixtures are
+/// unchanged. It exists to name the route in `AUTH_REJECTED` events.
+pub static LINK_ROUTE: RouteDef = RouteDef {
+    id: LINK_ROUTE_ID,
+    method: "GET",
+    pattern: "/v1/link",
+    class: DeviceCall,
+    mutation: false,
+    cas: false,
+    scopes: &[],
+    responses: &[101, 400, 401, 403],
+};
+
 /// Every route a 1.1.0 daemon serves: [`ROUTES`] then [`CALL_ROUTE`].
 pub fn routes_v1_1() -> impl Iterator<Item = &'static RouteDef> {
     ROUTES.iter().chain(std::iter::once(&CALL_ROUTE))

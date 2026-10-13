@@ -22,6 +22,45 @@ pub struct State {
     /// provider + signature digest -> accepted-at seconds.
     pub webhook_seen: BTreeMap<String, u64>,
     pub webhook_inbox: Vec<InboxItem>,
+    /// Durable link tasks (`queued -> leased -> done|failed`), by task id.
+    #[serde(default)]
+    pub tasks: BTreeMap<String, Task>,
+    /// Last task sequence number handed out; strictly increasing, never reused.
+    #[serde(default)]
+    pub task_seq: u64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TaskStatus {
+    Queued,
+    Leased,
+    Done,
+    Failed,
+}
+
+/// One unit of work for a linked device. Exactly one device holds the lease at a time; `epoch`
+/// grows by one on every lease grant and fences results from an earlier holder.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Task {
+    pub id: String,
+    pub seq: u64,
+    /// Device the task is pinned to; `None` picks the least loaded linked device.
+    pub target: Option<String>,
+    pub method: String,
+    pub params: Value,
+    /// Lease length in seconds, renewed by every frame the owner sends.
+    pub lease_ttl: u64,
+    pub status: TaskStatus,
+    pub owner: Option<String>,
+    pub epoch: u64,
+    /// While leased: the second the lease lapses. Once done or failed: the completion second.
+    pub expires: u64,
+    /// The owner confirmed it durably holds the task.
+    pub acked: bool,
+    pub created_at: u64,
+    /// `{"ok":true,"result":..}` or `{"ok":false,"error":..}` once finished.
+    pub outcome: Option<Value>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
