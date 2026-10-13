@@ -2,7 +2,7 @@
   "schema": 1,
   "source": {
     "table": "private-audits/TABLE1-MANDATORY.md:56-78 (M1-M23 requirement catalog)",
-    "versions": "private-audits/inventory/REQUIRED-VERSIONS.md (source versions at rightkit HEAD acf778ff, registry readback 2026-10-13)",
+    "versions": "private-audits/inventory/REQUIRED-VERSIONS.md (source versions at rightkit HEAD a15e62fd, registry readback 2026-10-13)",
     "note": "min = required version (source version at P1.7 HEAD). registryMax = highest registry version at readback; where registryMax < min the required version is not yet published, so every consumer fails until it ships."
   },
   "defaultProfile": "desktop",
@@ -87,7 +87,7 @@
         {
           "name": "rightkit-jobs",
           "ecosystem": "cargo",
-          "min": "0.2.9",
+          "min": "0.3.0",
           "registryMax": "0.2.7"
         },
         {
@@ -106,7 +106,7 @@
         {
           "name": "rightkit-jobs",
           "ecosystem": "cargo",
-          "min": "0.2.9",
+          "min": "0.3.0",
           "registryMax": "0.2.7"
         },
         {
@@ -279,7 +279,7 @@
         {
           "name": "@rightkit/onboarding",
           "ecosystem": "npm",
-          "min": "0.3.2",
+          "min": "0.3.3",
           "registryMax": "0.3.2"
         }
       ]
@@ -311,7 +311,7 @@
         {
           "name": "rightkit-crash",
           "ecosystem": "cargo",
-          "min": "0.2.1",
+          "min": "0.2.2",
           "registryMax": "0.2.1"
         }
       ]
@@ -399,7 +399,7 @@
         {
           "name": "rightkit-mcp",
           "ecosystem": "cargo",
-          "min": "0.5.3",
+          "min": "0.6.0",
           "registryMax": "0.5.3"
         }
       ]
