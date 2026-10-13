@@ -309,7 +309,7 @@ let devtoolsAllowance = { mode: "denied" };
 try {
   devtoolsAllowance = resolveDevtoolsAllowance({ config, root });
   if (devtoolsAllowance.mode === "content-only") console.log(`right-release: devtools allowance recorded: ${JSON.stringify(devtoolsEvidence(devtoolsAllowance))}`);
-  assertNoForbiddenBuildFeatures({ root, tier: "release/update", devtools: devtoolsAllowance, commands: [
+  assertNoForbiddenBuildFeatures({ root, tier: "release/update", devtools: devtoolsAllowance, cargoManifest: target.cargoManifest, manifest: config.releaseSwitches?.manifest, commands: [
     { label: "target.prePackage", command: target.prePackage },
     { label: "target.package", command: target.package },
     { label: "nativeAssembly.packageHook", command: nativeAssembly?.packageHook },

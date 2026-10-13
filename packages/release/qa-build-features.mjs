@@ -179,21 +179,28 @@ export function cargoManifestIssues(manifestText, label = "Cargo.toml", { allowD
 
 // commands: [{ label, command }]. Reads package.json scripts and the app Cargo manifests under `root`.
 // `devtools`: the allowance resolved by devtools-policy.mjs (mode "content-only") for an allow-listed app, else undefined.
-export function buildFeatureIssues({ root, commands, devtools }) {
+// Single manifest resolver shared by the closure gate (release-switch-scan.mjs) and the default-feature check below:
+// targets.<os>.cargoManifest -> releaseSwitches.manifest -> src-tauri/Cargo.toml -> Cargo.toml. `rel` is the first
+// candidate that exists (undefined when none does); `declared` are the configured paths.
+export function resolveCargoManifestPath({ root, cargoManifest, manifest } = {}) {
+  const declared = [cargoManifest, manifest].filter(Boolean);
+  const candidates = [...declared, path.join("src-tauri", "Cargo.toml"), "Cargo.toml"];
+  return { rel: candidates.find((c) => existsSync(path.join(root, c))), declared, candidates };
+}
+
+export function buildFeatureIssues({ root, commands, devtools, cargoManifest, manifest }) {
   const allowDevtools = devtools?.mode === "content-only";
   let scripts = {};
   try { scripts = JSON.parse(readFileSync(path.join(root, "package.json"), "utf8")).scripts ?? {}; } catch { /* no package.json */ }
   const issues = [];
   for (const { label, command } of commands) if (command) issues.push(...commandFeatureIssues(command, { label, scripts, allowDevtools }));
-  for (const rel of [path.join("src-tauri", "Cargo.toml"), "Cargo.toml"]) {
-    const manifest = path.join(root, rel);
-    if (existsSync(manifest)) issues.push(...cargoManifestIssues(readFileSync(manifest, "utf8"), rel, { allowDevtools }));
-  }
+  const { rel } = resolveCargoManifestPath({ root, cargoManifest, manifest });
+  if (rel) issues.push(...cargoManifestIssues(readFileSync(path.join(root, rel), "utf8"), rel, { allowDevtools }));
   return issues;
 }
 
-export function assertNoForbiddenBuildFeatures({ root, commands, tier = "release", devtools }) {
-  const issues = buildFeatureIssues({ root, commands, devtools });
+export function assertNoForbiddenBuildFeatures({ root, commands, tier = "release", devtools, cargoManifest, manifest }) {
+  const issues = buildFeatureIssues({ root, commands, devtools, cargoManifest, manifest });
   if (issues.length === 0) return;
   throw new Error(
     `${tier} build refused: it enables a test-automation or debugging feature (${FORBIDDEN_FEATURES.join(", ")}); none may ship:\n- ${issues.join("\n- ")}\n`
