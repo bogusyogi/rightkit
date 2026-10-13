@@ -364,3 +364,52 @@ impl LogHost<String, Vec<String>> for FailingLogs {
         Err("failed".into())
     }
 }
+
+fn pro_authorization<'a>(
+    licenses: &'a MemoryStore<StoredLicense>,
+    devices: &'a DeviceService<MemoryStore<String>>,
+) -> AuthorizationService<'a, StoredLicense, MemoryStore<StoredLicense>, MemoryStore<String>> {
+    AuthorizationService::new(licenses, devices, &PUBKEY, "heardright")
+}
+
+#[test]
+fn injected_trusted_clock_decides_authorization() {
+    let licenses = MemoryStore::with(StoredLicense(Some(TOKEN.into())));
+    let devices = DeviceService::new(MemoryStore::with("dev-1".into()));
+    let authorization = pro_authorization(&licenses, &devices);
+
+    assert!(authorization
+        .authorize_with_clock(LicenseRequirement::pro(), || Ok(2_000))
+        .is_ok());
+    // A trusted clock past exp denies even though the wall clock would accept.
+    assert!(matches!(
+        authorization.authorize_with_clock(LicenseRequirement::pro(), || Ok(9_999_999_999)),
+        Err(AuthorizationError::Denied(
+            AuthorizationDenial::InvalidToken(rightkit_license::VerifyError::Expired { .. })
+        ))
+    ));
+    // A trusted clock far before iat denies.
+    assert!(matches!(
+        authorization.authorize_with_clock(LicenseRequirement::pro(), || Ok(0)),
+        Err(AuthorizationError::Denied(
+            AuthorizationDenial::InvalidToken(_)
+        ))
+    ));
+}
+
+#[test]
+fn trusted_clock_failure_denies_before_touching_stores() {
+    let licenses = MemoryStore::with(StoredLicense(Some(TOKEN.into())));
+    let devices = DeviceService::new(MemoryStore::with("dev-1".into()));
+    let authorization = pro_authorization(&licenses, &devices);
+
+    assert_eq!(
+        authorization
+            .authorize_with_clock(
+                LicenseRequirement::pro(),
+                || Err("rollback detected".into())
+            )
+            .unwrap_err(),
+        AuthorizationError::Clock("rollback detected".into())
+    );
+}

@@ -303,7 +303,11 @@ where
         self.authorize_with_clock(requirement, current_unix_time)
     }
 
-    fn authorize_with_clock(
+    /// Like [`authorize`](Self::authorize) with the host's trusted time source
+    /// (for example `AntiRollbackClock::trusted_now`) in place of the wall
+    /// clock. A clock failure is `AuthorizationError::Clock` and denies; the
+    /// clock is read once, before any store is touched.
+    pub fn authorize_with_clock(
         &self,
         requirement: LicenseRequirement,
         clock: impl FnOnce() -> Result<i64, String>,
