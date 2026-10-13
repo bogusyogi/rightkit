@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
-# Best-effort: record the normal-dependency graph of each RightKit owner crate, with default features
-# and with --no-default-features, into the QA evidence directory (uploaded as qa-evidence-<runner>-<attempt>).
-# Output: <evidence>/owner-dep-graphs/<crate>-{default,nodefault}.txt and summary.tsv.
+# Best-effort: record the normal-dependency graph of each RightKit owner crate, with default features,
+# with --no-default-features, and with the required consumer feature sets (FEATURE_SETS below; names checked
+# against each crate's [features]), into the QA evidence directory (uploaded as qa-evidence-<runner>-<attempt>).
+# Output: <evidence>/owner-dep-graphs/<crate>-<mode>.txt and summary.tsv (plus an ASSERT row for optional storage).
 # Never fails the gate. cargo tree only resolves; --locked keeps it from rewriting Cargo.lock.
 set -uo pipefail
 cd "$(dirname "$0")/../.."
@@ -11,6 +12,38 @@ OUT="$EVIDENCE/owner-dep-graphs"
 CRATES="shell tauri jobs process framed-sidecar service daemon fs db settings secrets license logs crash http qa control mcp"
 WATCH="tokio axum hyper ring cc openssl-sys reqwest libsqlite3-sys"
 
+# crate|mode-name|cargo feature args. default/nodefault run for every crate in CRATES; these add consumer sets.
+FEATURE_SETS="
+shell|nodefault-wv2-0_39|--no-default-features --features wv2-0_39
+shell|nodefault-wv2-0_39-engine|--no-default-features --features wv2-0_39,engine
+jobs|nodefault-store|--no-default-features --features store
+jobs|nodefault-protocol|--no-default-features --features protocol
+jobs|nodefault-supervisor|--no-default-features --features supervisor
+jobs|nodefault-contract|--no-default-features --features contract
+jobs|nodefault-service|--no-default-features --features service
+jobs|nodefault-supervisor-crash|--no-default-features --features supervisor,crash
+daemon|nodefault-oauth|--no-default-features --features oauth
+daemon|nodefault-client|--no-default-features --features client
+fs|nodefault-json|--no-default-features --features json
+fs|nodefault-digest|--no-default-features --features digest
+db|nodefault-bundled|--no-default-features --features bundled
+secrets|nodefault-settings-probe|--no-default-features --features settings-probe
+logs|nodefault-http|--no-default-features --features http
+logs|nodefault-log-bridge|--no-default-features --features log-bridge
+crash|nodefault-support-bundle|--no-default-features --features support-bundle
+http|nodefault-gzip|--no-default-features --features gzip
+http|nodefault-async|--no-default-features --features async
+http|nodefault-gzip-untrusted|--no-default-features --features gzip,untrusted
+qa|nodefault-browser|--no-default-features --features browser
+control|nodefault-qa-control|--no-default-features --features qa-control
+mcp|nodefault-advanced-http|--no-default-features --features advanced-http
+"
+
+# Guard against a hung resolve: use GNU timeout only when it really is GNU (git-bash has it; macOS usually does not;
+# Windows timeout.exe has different syntax and is ignored).
+TO=""
+if command -v timeout >/dev/null 2>&1 && timeout --version 2>/dev/null | grep -qi 'gnu\|coreutils'; then TO="timeout 300"; fi
+
 mkdir -p "$OUT" || { echo "owner-dep-graphs: warning: cannot create $OUT"; exit 0; }
 {
   printf 'crate\tmode\tunique_packages'
@@ -18,28 +51,50 @@ mkdir -p "$OUT" || { echo "owner-dep-graphs: warning: cannot create $OUT"; exit 
   printf '\n'
 } > "$OUT/summary.tsv"
 
+run_tree() { # crate mode [cargo flags...]
+  local crate="$1" mode="$2"
+  shift 2
+  local file="$OUT/$crate-$mode.txt"
+  # shellcheck disable=SC2086
+  if $TO cargo tree --locked -e normal -p "$crate" --prefix none "$@" > "$file" 2> "$file.err"; then
+    rm -f "$file.err"
+    local count
+    count=$(awk 'NF { print $1 " " $2 }' "$file" | sort -u | wc -l | tr -d ' ')
+    {
+      printf '%s\t%s\t%s' "$crate" "$mode" "$count"
+      for w in $WATCH; do
+        if awk -v w="$w" '$1 == w { f = 1 } END { exit !f }' "$file"; then printf '\tyes'; else printf '\tno'; fi
+      done
+      printf '\n'
+    } >> "$OUT/summary.tsv"
+  else
+    echo "owner-dep-graphs: warning: cargo tree failed for $crate ($mode); see $file.err"
+    printf '%s\t%s\terror\n' "$crate" "$mode" >> "$OUT/summary.tsv"
+  fi
+}
+
 for short in $CRATES; do
   crate="rightkit-$short"
-  for mode in default nodefault; do
-    flags=""
-    [ "$mode" = "nodefault" ] && flags="--no-default-features"
-    file="$OUT/$crate-$mode.txt"
-    # shellcheck disable=SC2086
-    if cargo tree --locked -e normal -p "$crate" --prefix none $flags > "$file" 2> "$file.err"; then
-      rm -f "$file.err"
-      count=$(awk 'NF { print $1 " " $2 }' "$file" | sort -u | wc -l | tr -d ' ')
-      {
-        printf '%s\t%s\t%s' "$crate" "$mode" "$count"
-        for w in $WATCH; do
-          if awk -v w="$w" '$1 == w { f = 1 } END { exit !f }' "$file"; then printf '\tyes'; else printf '\tno'; fi
-        done
-        printf '\n'
-      } >> "$OUT/summary.tsv"
-    else
-      echo "owner-dep-graphs: warning: cargo tree failed for $crate ($mode); see $file.err"
-      printf '%s\t%s\terror\n' "$crate" "$mode" >> "$OUT/summary.tsv"
-    fi
-  done
+  run_tree "$crate" default
+  run_tree "$crate" nodefault --no-default-features
 done
+
+while IFS='|' read -r short mode args; do
+  [ -n "$short" ] || continue
+  # shellcheck disable=SC2086
+  run_tree "rightkit-$short" "$mode" $args
+done <<TABLE
+$FEATURE_SETS
+TABLE
+
+# Optional-storage validation: jobs with only `supervisor` must not pull rightkit-db / libsqlite3-sys (expected absent).
+sg="$OUT/rightkit-jobs-nodefault-supervisor.txt"
+if [ -s "$sg" ]; then
+  if awk '$1 == "rightkit-db" || $1 == "libsqlite3-sys" { f = 1 } END { exit !f }' "$sg"; then v=FAIL; else v=PASS; fi
+else
+  v=SKIP
+fi
+printf 'ASSERT\tjobs-supervisor-excludes-rightkit-db-and-libsqlite3-sys\t%s\n' "$v" >> "$OUT/summary.tsv"
+echo "owner-dep-graphs: optional-storage assertion: $v"
 echo "owner-dep-graphs: wrote $OUT"
 exit 0
