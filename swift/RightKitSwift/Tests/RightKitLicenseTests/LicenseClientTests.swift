@@ -4,6 +4,7 @@ import CryptoKit
 import Network
 import Security
 import Testing
+import RightKitSecrets
 @testable import RightKitLicense
 
 @Test func storedLicenseDropsRawKeyAfterTokenActivation() {
@@ -262,39 +263,46 @@ private func signedToken(_ key: Curve25519.Signing.PrivateKey, app: String = "co
     #expect(KeychainLicenseStore.deviceOnlyAccessibility as String == kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly as String)
 }
 
-@Test func deviceIDSurfacesAKeychainWriteFailureInsteadOfReturningAnUnsavedID() {
+private struct FailingBackend: SecretsBackend {
+    var readStatus: OSStatus? = nil
+    var addStatus: OSStatus? = nil
+    func get(namespace: String, key: String) throws -> Data? {
+        if let readStatus { throw SecretsError.keychain(readStatus) }
+        return nil
+    }
+    func add(_ value: Data, namespace: String, key: String) throws -> Bool {
+        if let addStatus { throw SecretsError.keychain(addStatus) }
+        return true
+    }
+    func update(_ value: Data, namespace: String, key: String) throws -> Bool { false }
+    func delete(namespace: String, key: String) throws -> Bool { false }
+    func reapplyAccessibility(namespace: String, key: String) throws -> Bool { false }
+}
+
+private func secrets(_ backend: SecretsBackend) throws -> SecretsStore {
+    try SecretsStore(namespace: "test.\(UUID().uuidString)", environment: [:], backend: backend)
+}
+
+@Test func deviceIDSurfacesAKeychainWriteFailureInsteadOfReturningAnUnsavedID() throws {
     let store = KeychainLicenseStore(service: "test.\(UUID().uuidString)", account: "activation")
-    #expect(throws: LicenseStorageError.keychain(errSecInteractionNotAllowed)) {
-        _ = try store.deviceIDLocked(
-            account: "device-id",
-            readItem: { _, _ in (errSecItemNotFound, nil) },
-            writeItem: { _, _, _ in throw LicenseStorageError.keychain(errSecInteractionNotAllowed) })
+    #expect(throws: SecretsError.keychain(errSecInteractionNotAllowed)) {
+        _ = try store.deviceIDLocked(account: "device-id", store: try secrets(FailingBackend(addStatus: errSecInteractionNotAllowed)))
     }
 }
 
-@Test func deviceIDDoesNotRotateOnATransientKeychainReadFailure() {
+@Test func deviceIDDoesNotRotateOnATransientKeychainReadFailure() throws {
     let store = KeychainLicenseStore(service: "test.\(UUID().uuidString)", account: "activation")
-    var wrote = false
-    #expect(throws: LicenseStorageError.keychain(errSecInteractionNotAllowed)) {
-        _ = try store.deviceIDLocked(
-            account: "device-id",
-            readItem: { _, _ in (errSecInteractionNotAllowed, nil) },
-            writeItem: { _, _, _ in wrote = true })
+    #expect(throws: SecretsError.keychain(errSecInteractionNotAllowed)) {
+        _ = try store.deviceIDLocked(account: "device-id", store: try secrets(FailingBackend(readStatus: errSecInteractionNotAllowed, addStatus: errSecSuccess)))
     }
-    #expect(!wrote)
 }
 
 @Test func deviceIDIsCreatedOnceWhenAbsentAndReusedWhenPresent() throws {
     let store = KeychainLicenseStore(service: "test.\(UUID().uuidString)", account: "activation")
-    var saved: Data?
-    let created = try store.deviceIDLocked(
-        account: "device-id",
-        readItem: { _, _ in (errSecItemNotFound, nil) },
-        writeItem: { data, _, _ in saved = data })
-    #expect(saved == Data(created.utf8))
-    let again = try store.deviceIDLocked(
-        account: "device-id", readItem: { _, _ in (errSecSuccess, saved) }, writeItem: { _, _, _ in })
-    #expect(again == created)
+    let memory = try secrets(MemorySecretsBackend())
+    let created = try store.deviceIDLocked(account: "device-id", store: memory)
+    #expect(try memory.getString("device-id") == created)
+    #expect(try store.deviceIDLocked(account: "device-id", store: memory) == created)
 }
 
 @Test func inMemoryStoreRoundTripsAndRemoves() async throws {
