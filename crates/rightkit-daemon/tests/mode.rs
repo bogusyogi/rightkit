@@ -97,6 +97,16 @@ impl World {
     }
 }
 
+/// An absolute path with a literal `..` component. On Windows, `join("..")` on a verbatim
+/// (`\\?\`) path collapses the component away, so the verbatim prefix is stripped first and the
+/// component written as text.
+fn parent_dir_case(qa: &Path) -> String {
+    let raw = s(qa);
+    let raw = raw.strip_prefix(r"\\?\").unwrap_or(raw);
+    let sep = std::path::MAIN_SEPARATOR;
+    format!("{raw}{sep}..{sep}qa")
+}
+
 fn s(p: &Path) -> &str {
     p.to_str().unwrap()
 }
@@ -234,7 +244,7 @@ mod capable {
             (
                 w.fake()
                     .set(ACTIVATION, "1")
-                    .set(ROOT, s(&w.qa.join("..").join("qa"))),
+                    .set(ROOT, &parent_dir_case(&w.qa)),
                 Refusal::RootNotAbsolute,
             ),
             (
