@@ -24,7 +24,7 @@ futures-util = { version = "0.3", optional = true }
 url = "2"
 
 [features]
-default = ["advanced-http"]
+default = []
 # Opt-in HTTP transport (streamable HTTP with extensions, legacy SSE): tokio runtime,
 # rightkit-http async client, http, futures-util. Stdio-only consumers can build with
 # `default-features = false`; `ServerSpec::Http` with `ClientExtensions` then fails with
