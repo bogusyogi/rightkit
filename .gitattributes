@@ -11,3 +11,5 @@ packages/ax/plugin/schemas/*.json -text
 packages/release/fixtures/ownership/** -text
 # The EmbeddingGemma 2 export scripts are listed with SHA-256 in their FILES.txt: never convert their line endings.
 scripts/embed-export/** -text
+# The MSIX repair guard is pinned by sha256 in consumers (SwiftRightBridge): always LF, never converted.
+packages/release/msix-repair-guard.ps1 text eol=lf

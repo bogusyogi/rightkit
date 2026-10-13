@@ -21,6 +21,7 @@
     "*.mjs",
     "*.json",
     "*.sh",
+    "msix-repair-guard.ps1",
     "*.py",
     "LICENSE-MIT",
     "LICENSE-APACHE",
