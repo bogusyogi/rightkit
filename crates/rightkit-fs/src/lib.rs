@@ -72,7 +72,7 @@ pub use netfs::is_network_filesystem;
 #[cfg(feature = "fs")]
 pub use private::{
     create_private_new, ensure_private_dir, restrict_owner_only, sweep_owner_only,
-    write_private_file, write_private_text,
+    write_private_executable, write_private_file, write_private_text,
 };
 #[cfg(feature = "fs")]
 pub use state::{DirEntry, EntryKind, EntryStat, StateDir, StateOptions};

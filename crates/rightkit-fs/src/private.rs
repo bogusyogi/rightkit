@@ -11,6 +11,8 @@ use std::path::{Path, PathBuf};
 
 pub const FILE_MODE_OWNER_ONLY: u32 = 0o600;
 pub const DIR_MODE_OWNER_ONLY: u32 = 0o700;
+/// Mode of an owner-only executable file on Unix (owner read, write and execute).
+pub const EXECUTABLE_MODE_OWNER_ONLY: u32 = 0o700;
 
 /// Narrow an existing file or directory to owner-only. A missing path is a no-op.
 /// Symlinks are never followed on unix: a symlink is refused rather than chmod-ing its target.
@@ -184,6 +186,30 @@ pub fn write_private_file(path: &Path, bytes: &[u8]) -> Result<()> {
 
 pub fn write_private_text(path: &Path, text: &str) -> Result<()> {
     write_private_file(path, text.as_bytes())
+}
+
+/// Atomically write an owner-only executable file (M8-O10: helper and askpass scripts).
+///
+/// Unix: the published file is mode `0700` ([`EXECUTABLE_MODE_OWNER_ONLY`]). The temp inode is
+/// created `0600` and set to `0700` through its descriptor before it is published, so the file
+/// never exists under the destination name with a broader mode, and never without its execute
+/// bit. Windows: there is no execute bit; the file gets the same owner-only DACL as
+/// [`write_private_file`] and is executable by file type, so the caller picks the extension.
+/// Like every atomic write here the destination is replaced as a whole, and a name shaped like
+/// a generated temp name is refused ([`FsError::BadName`]).
+pub fn write_private_executable(path: &Path, bytes: &[u8]) -> Result<()> {
+    let mut writer = crate::atomic::AtomicWriter::create(path, AtomicOptions::private())?;
+    writer.write_all(bytes)?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let permissions = std::fs::Permissions::from_mode(EXECUTABLE_MODE_OWNER_ONLY);
+        if let Err(e) = writer.file_mut().set_permissions(permissions) {
+            let temp = writer.temp_path().to_path_buf();
+            return Err(FsError::io(temp, e));
+        }
+    }
+    writer.commit()
 }
 
 /// Exclusively create an owner-only file, never following a symlink at `path`.

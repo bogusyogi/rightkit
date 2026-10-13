@@ -140,6 +140,12 @@ name = "state_ancestors"
 path = "tests/state_ancestors.rs"
 required-features = ["testing"]
 
+# M8 owner-gap additions (append, executable, reporting, verified copy).
+[[test]]
+name = "owner_executable"
+path = "tests/owner_executable.rs"
+required-features = ["fs"]
+
 [features]
 default = ["fs", "lock", "json", "digest"]
 # Atomic writes, owner-only files, StateDir, netfs, clonefile, and the error type. Pulls
