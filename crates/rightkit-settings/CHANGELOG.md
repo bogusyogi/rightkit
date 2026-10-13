@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+Additive; defaults unchanged. Nothing compiled locally; verification is the CI run.
+
+- **New: `Store::poll_external() -> Result<Change, Error>`** (M10-O3). Cross-process change had no signal beyond re-reading in `get`. This compares the backend stamp, re-reads when it differs, refreshes the cache and delivers one `Change` to this store's subscribers. The caller decides when to call it (timer or file watcher); the crate starts no thread. A read failure is an `Err` and leaves the cache as it was. Own writes are not re-reported. Tests: `tests/poll_external.rs`.
+- **New: `StoreOptions::max_bytes(limit)` and `FileBackend::max_bytes`** (M10-O5). A settings file longer than `limit` bytes is refused before it is read (`Error::Invalid`); the file is not quarantined or overwritten, `get` keeps the last value, writes fail. Default: no limit. The free `read_with_*` functions are not limited. Tests: `tests/max_bytes.rs`.
+- Not implemented, design decisions: layered/TOML loader (O2), SQLite backend (O4), Swift store (O1), Windows ACL profile (O6); see the M10 design note.
+
 ## 0.2.0
 
 Durability claims corrected: on Windows only `ReplaceMode::MoveWriteThrough` is write-through; `Rename` is not. Nothing here was compiled or run locally; verification is the CI run.
