@@ -135,55 +135,52 @@ fn main() -> ExitCode {
         }
     };
 
-    match argv[0].as_str() {
-        "run" => {
-            let mut input = String::new();
-            if std::io::stdin().read_to_string(&mut input).is_err() {
-                return usage();
-            }
-            let calls: Vec<Value> = match serde_json::from_str(&input) {
-                Ok(c) => c,
-                Err(e) => {
-                    return fail(&ToolError::new(
-                        ERR_INVALID_ARGS,
-                        format!("stdin must be a JSON array of {{tool,args}}: {e}"),
-                    ))
-                }
-            };
-            let apps: Vec<String> = calls
-                .iter()
-                .filter_map(|c| c["tool"].as_str())
-                .filter_map(|t| t.split('.').next())
-                .filter(|f| !matches!(*f, "desktop" | "browser" | "speech"))
-                .map(str::to_string)
-                .collect::<std::collections::BTreeSet<_>>()
-                .into_iter()
-                .collect();
-            let mut tb = match full_toolbox(&suite, &apps) {
-                Ok(t) => t,
-                Err(e) => return fail(&e),
-            };
-            attach(&mut tb);
-            let mut results = vec![];
-            let mut code = ExitCode::SUCCESS;
-            for c in &calls {
-                match tb.call(
-                    &caller,
-                    c["tool"].as_str().unwrap_or_default(),
-                    c["args"].clone(),
-                ) {
-                    Ok(v) => results.push(json!({"ok": true, "result": v})),
-                    Err(e) => {
-                        results.push(json!({"ok": false, "error": e.to_value()}));
-                        code = fail(&e);
-                        break;
-                    }
-                }
-            }
-            print(&json!(results));
-            return code;
+    if argv[0] == "run" {
+        let mut input = String::new();
+        if std::io::stdin().read_to_string(&mut input).is_err() {
+            return usage();
         }
-        _ => {}
+        let calls: Vec<Value> = match serde_json::from_str(&input) {
+            Ok(c) => c,
+            Err(e) => {
+                return fail(&ToolError::new(
+                    ERR_INVALID_ARGS,
+                    format!("stdin must be a JSON array of {{tool,args}}: {e}"),
+                ))
+            }
+        };
+        let apps: Vec<String> = calls
+            .iter()
+            .filter_map(|c| c["tool"].as_str())
+            .filter_map(|t| t.split('.').next())
+            .filter(|f| !matches!(*f, "desktop" | "browser" | "speech"))
+            .map(str::to_string)
+            .collect::<std::collections::BTreeSet<_>>()
+            .into_iter()
+            .collect();
+        let mut tb = match full_toolbox(&suite, &apps) {
+            Ok(t) => t,
+            Err(e) => return fail(&e),
+        };
+        attach(&mut tb);
+        let mut results = vec![];
+        let mut code = ExitCode::SUCCESS;
+        for c in &calls {
+            match tb.call(
+                &caller,
+                c["tool"].as_str().unwrap_or_default(),
+                c["args"].clone(),
+            ) {
+                Ok(v) => results.push(json!({"ok": true, "result": v})),
+                Err(e) => {
+                    results.push(json!({"ok": false, "error": e.to_value()}));
+                    code = fail(&e);
+                    break;
+                }
+            }
+        }
+        print(&json!(results));
+        return code;
     }
 
     // right-ctl <app> ...
