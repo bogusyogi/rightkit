@@ -392,12 +392,14 @@ describe.skipIf(!chrome)("opt-in options in real headless Chrome", () => {
 
     it("enterDelayMs delays running the command", async () => {
       await open("demo=palette&delay=400");
+      await page.waitFor("document.activeElement === document.querySelector('input[role=combobox]')");
       await page.type("theme");
       await page.press("Enter");
       const t = Date.now();
       await page.waitFor("document.getElementById('log').textContent.includes('cmd:theme')");
       expect(Date.now() - t).toBeGreaterThanOrEqual(300);
       await open("demo=palette&delay=0");
+      await page.waitFor("document.activeElement === document.querySelector('input[role=combobox]')");
       await page.type("theme");
       await page.press("Enter");
       await page.waitFor("document.getElementById('log').textContent.includes('cmd:theme')", 1000);
