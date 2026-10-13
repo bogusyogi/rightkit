@@ -21,6 +21,9 @@ testing = []
 # Daily-rolling JSONL file logs for `tracing`: `install_tracing`, `tracing_layer`,
 # and the diagnostics helpers that collect the daily files.
 tracing = ["dep:tracing", "dep:tracing-subscriber"]
+# Forward `log`-crate records (for example from dependencies and apps that use `log::`) into
+# `tracing`, so they reach the `install_tracing` file logs: `init_log_bridge`.
+log-bridge = ["tracing", "dep:tracing-log"]
 
 [dependencies]
 rightkit-fs = { version = "0.4.0", path = "../rightkit-fs", default-features = false, features = ["fs"] }
@@ -31,6 +34,7 @@ getrandom = "0.4"
 rightkit-process = { version = "0.4.0", path = "../rightkit-process" }
 tracing = { version = "0.1", default-features = false, features = ["std"], optional = true }
 tracing-subscriber = { version = "0.3", default-features = false, features = ["std", "registry", "fmt", "json", "env-filter"], optional = true }
+tracing-log = { version = "0.2", default-features = false, features = ["std", "log-tracer"], optional = true }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 libc = "0.2"

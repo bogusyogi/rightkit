@@ -1,6 +1,6 @@
+use crate::rotate;
 use crate::EventRecord;
 use serde_json::Value;
-use std::ffi::OsString;
 use std::fs::{self, OpenOptions};
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
@@ -23,6 +23,7 @@ pub struct StoreStatus {
 pub struct JsonlStore {
     path: PathBuf,
     max_file_bytes: u64,
+    generations: u32,
     append_lock: Mutex<()>,
     failures: Mutex<StoreStatus>,
 }
@@ -38,9 +39,17 @@ impl JsonlStore {
         Self {
             path: path.into(),
             max_file_bytes,
+            generations: 1,
             append_lock: Mutex::new(()),
             failures: Mutex::new(StoreStatus::default()),
         }
+    }
+
+    /// Keep `generations` rotated predecessors (`.1` newest through `.N` oldest) instead of one.
+    /// Default is 1, which is the behaviour before this option existed; `0` behaves as 1.
+    pub fn with_generations(mut self, generations: u32) -> Self {
+        self.generations = generations.max(1);
+        self
     }
 
     /// Counts and last-error for failures this store has absorbed. Never blocks on a write.
@@ -97,7 +106,10 @@ impl JsonlStore {
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
         remove_if_present(&self.path)?;
-        remove_if_present(&rotated_path(&self.path))
+        for n in 1..=self.generations {
+            remove_if_present(&rotate::generation_path(&self.path, n, DEFAULT_NAME))?;
+        }
+        Ok(())
     }
 
     fn append_value_locked(&self, value: &Value) -> io::Result<()> {
@@ -124,50 +136,23 @@ impl JsonlStore {
 
     /// After a failed rotation: refuse the append once the current file is at the hard cap.
     fn refuse_at_hard_cap(&self) -> io::Result<()> {
-        if self.max_file_bytes == 0 {
-            return Ok(());
-        }
-        let hard_cap = self.max_file_bytes.saturating_mul(2);
-        let len = fs::metadata(&self.path).map(|m| m.len()).unwrap_or(0);
-        if len < hard_cap {
-            return Ok(());
-        }
-        Err(io::Error::other(format!(
-            "rotation failed and {} reached its hard cap of {hard_cap} bytes",
-            self.path.display()
-        )))
+        rotate::refuse_at_hard_cap(&self.path, self.max_file_bytes)
     }
 
     fn rotate_if_needed(&self) -> io::Result<()> {
-        if self.max_file_bytes == 0 {
-            return Ok(());
-        }
-        let Ok(metadata) = fs::metadata(&self.path) else {
-            return Ok(());
-        };
-        if metadata.len() < self.max_file_bytes {
-            return Ok(());
-        }
-
-        let predecessor = rotated_path(&self.path);
-        remove_if_present(&predecessor)?;
-        fs::rename(&self.path, predecessor)
+        rotate::rotate_if_needed(
+            &self.path,
+            self.max_file_bytes,
+            self.generations,
+            DEFAULT_NAME,
+        )
     }
 }
+
+const DEFAULT_NAME: &str = "events.jsonl";
 
 pub(crate) fn rotated_path(path: &Path) -> PathBuf {
-    let mut filename = path
-        .file_name()
-        .map(OsString::from)
-        .unwrap_or_else(|| OsString::from("events.jsonl"));
-    filename.push(".1");
-    path.with_file_name(filename)
+    rotate::generation_path(path, 1, DEFAULT_NAME)
 }
 
-fn remove_if_present(path: &Path) -> io::Result<()> {
-    match fs::remove_file(path) {
-        Ok(()) => Ok(()),
-        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
-        Err(error) => Err(error),
-    }
-}
+use rotate::remove_if_present;

@@ -5,13 +5,17 @@ mod collect;
 mod consent;
 mod event;
 pub mod identity;
+#[cfg(feature = "log-bridge")]
+mod log_bridge;
 mod outbox;
 mod redact;
+mod rotate;
 pub mod scrub;
 mod store;
 pub mod system;
 #[cfg(feature = "testing")]
 pub mod testing;
+mod textlog;
 #[cfg(feature = "tracing")]
 mod tracing_file;
 mod upload;
@@ -23,10 +27,13 @@ pub use collect::{
 };
 pub use consent::{Consent, ConsentStore};
 pub use event::{EventRecord, Level};
+#[cfg(feature = "log-bridge")]
+pub use log_bridge::init_log_bridge;
 pub use outbox::{EnqueueError, Outbox, OutboxConfig, OutboxEvent, OutboxHealth, OutboxStatus};
 pub use redact::RedactionPolicy;
 pub use scrub::{redact_quoted, scrub_text, scrub_value};
 pub use store::{JsonlStore, StoreStatus};
+pub use textlog::{capture_stderr, RotatingTextWriter, StderrCapture};
 #[cfg(feature = "tracing")]
 pub use tracing_file::{
     collect_tracing_diagnostics, install_tracing, tracing_layer, tracing_layer_checked,
