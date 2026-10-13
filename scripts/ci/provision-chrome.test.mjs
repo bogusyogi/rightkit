@@ -4,7 +4,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { executable, grantSandboxRead, needsChrome, provision, provisionForTests } from "./provision-chrome.mjs";
+import { executable, grantSandboxRead, needsChrome, provision, provisionForTests, provisionHeadlessShell, shellExecutable, shellPinFor } from "./provision-chrome.mjs";
 
 const KEY = "mac-arm64";
 const PINS = (sha256) => ({ version: "1.2.3.4", platforms: { [KEY]: { sha256 } } });
@@ -66,4 +66,21 @@ test("on Windows the install is granted to Chrome's sandbox, and a failed grant 
   assert.throws(() => grantSandboxRead("C:\\x", { platform: "win32", run: () => ({ status: 5 }) }), /icacls exit 5/);
   // Other systems have no AppContainer: nothing runs.
   assert.equal(grantSandboxRead("/x", { platform: "darwin", run: () => { throw new Error("must not run"); } }), false);
+});
+
+test("the headless shell pin is optional per platform and reused when its marker matches", async () => {
+  assert.equal(shellPinFor(PINS("a".repeat(64)), KEY), null);
+  assert.equal(await provisionHeadlessShell({ root: tmp(), pins: PINS("a".repeat(64)), key: KEY, fetchImpl: noFetch, log: () => {} }), null);
+  const root = tmp();
+  try {
+    const sha = "c".repeat(64);
+    const pins = { version: "1.2.3.4", platforms: {}, headlessShell: { "win64": { sha256: sha } } };
+    assert.match(shellPinFor(pins, "win64").url, /\/1\.2\.3\.4\/win64\/chrome-headless-shell-win64\.zip$/);
+    const dir = path.join(root, "1.2.3.4");
+    const exe = shellExecutable(dir, "win64");
+    fs.mkdirSync(path.dirname(exe), { recursive: true });
+    fs.writeFileSync(exe, "");
+    fs.writeFileSync(path.join(dir, "install-headless-shell.json"), JSON.stringify({ sha256: sha }));
+    assert.deepEqual(await provisionHeadlessShell({ root, pins, key: "win64", fetchImpl: noFetch, log: () => {} }), { exe, downloaded: false });
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });

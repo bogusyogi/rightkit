@@ -612,11 +612,15 @@ impl BrowserSession {
                             .starts_with("--remote-debugging-port=")
                     });
                     args.push("--remote-debugging-pipe".into());
-                    crate::proc::spawn_chrome_fixture_windows(
-                        &exe,
-                        &args,
-                        fixture_profile_dir.as_deref().expect("fixture profile"),
-                    )
+                    // Chrome's browser process always starts the crashpad handler, which cannot
+                    // create its pipe in an AppContainer; the fixture runs the headless shell.
+                    crate::config::chrome_headless_shell_path(&exe).and_then(|shell| {
+                        crate::proc::spawn_chrome_fixture_windows(
+                            &shell,
+                            &args,
+                            fixture_profile_dir.as_deref().expect("fixture profile"),
+                        )
+                    })
                 }
                 #[cfg(not(windows))]
                 unreachable!("windows fixture is cfg-gated")

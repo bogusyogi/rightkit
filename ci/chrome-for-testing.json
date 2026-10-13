@@ -1,8 +1,11 @@
 {
-  "_comment": "Pinned Chrome for Testing for the publish verify job. Set version (e.g. from Google's last-known-good-versions JSON); URLs derive as https://storage.googleapis.com/chrome-for-testing-public/<version>/<platform>/chrome-<platform>.zip. An empty sha256 makes a DRY RUN print 'CHROME_PIN <platform> <version> <sha256> <bytes>' and fail the step; copy the value here. A real publish refuses an empty sha256. Hosts: win64 (windows-2025) and mac-arm64 (xcode-27).",
+  "_comment": "Pinned Chrome for Testing for the publish verify job. Set version (e.g. from Google's last-known-good-versions JSON); URLs derive as https://storage.googleapis.com/chrome-for-testing-public/<version>/<platform>/chrome-<platform>.zip. An empty sha256 makes a DRY RUN print 'CHROME_PIN <platform> <version> <sha256> <bytes>' and fail the step; copy the value here. A real publish refuses an empty sha256. Hosts: win64 (windows-2025) and mac-arm64 (xcode-27). \"headlessShell\" pins the chrome-headless-shell-<platform>.zip of the same version (URL .../<version>/<platform>/chrome-headless-shell-<platform>.zip), win64 only: the Windows rightkit-browser fixture runs it because chrome.exe unconditionally starts the crashpad handler, which cannot create its pipe inside an AppContainer.",
   "version": "155.0.8059.39",
   "platforms": {
     "win64": { "sha256": "59ab2a6e99bde9c0bc180414988394f9f5355a0d3764c704151ee8ecea235c7e" },
     "mac-arm64": { "sha256": "529a71bd61aaa2ef266a4d4bd300ae9572ba6a3468a8d55c3023ffeffb5b6b4e" }
+  },
+  "headlessShell": {
+    "win64": { "sha256": "20798f7c51a22def0b3d02e526a8f52e7ee2c7eddcde9d81a4c23f618e8b5436" }
   }
 }

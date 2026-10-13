@@ -477,7 +477,15 @@ pub(crate) fn spawn_chrome_fixture_windows(
     profile_dir: &Path,
 ) -> Result<ChromeProc> {
     // Outer AppContainer confines the tree; Chrome's inner sandbox cannot nest inside it.
-    let args = fixture_chrome_args(args);
+    // `exe` is chrome-headless-shell.exe: headless by construction, so `--headless=new` (a
+    // chrome.exe mode switch) is dropped. chrome.exe is not used here because its browser
+    // process unconditionally starts the crashpad handler, whose CreateNamedPipe is denied in an
+    // AppContainer (components/crash/core/app/crashpad_win.cc,
+    // headless/lib/headless_content_main_delegate.cc).
+    let args: Vec<OsString> = fixture_chrome_args(args)
+        .into_iter()
+        .filter(|arg| !arg.to_string_lossy().starts_with("--headless"))
+        .collect();
     let args = args.as_slice();
     // Chrome's stderr/stdout (the CHECK text) land here: the sandbox opens this file in the
     // parent and inherits the handle, so it works before Chrome's own logging initialises.
@@ -567,7 +575,8 @@ fn describe_exit_code(code: u32) -> String {
     format!("{code} (0x{code:08X}, {meaning})")
 }
 
-/// The launch parameters of the Windows fixture, as the AppContainer launcher applies them:
+/// The launch parameters of the Windows fixture (`exe` and `exec_grant` are `chrome-headless-shell.exe`,
+/// headless by construction), as the AppContainer launcher applies them:
 /// grants come from `spawn_chrome_fixture_windows`'s policy, capabilities from the sandbox crate
 /// (`NetworkPolicy::Deny` requests no `internetClient`; the fixture adds only the named Chrome
 /// LPAC capabilities).
@@ -596,7 +605,10 @@ fn fixture_launch_params(exe: &Path, args: &[OsString], profile_dir: &Path) -> S
         FIXTURE_ENV_SET.join(","),
         has("--no-sandbox"),
         has("--disable-gpu"),
-        flags.iter().any(|flag| flag.starts_with("--headless")),
+        flags.iter().any(|flag| flag.starts_with("--headless"))
+            || exe
+                .file_name()
+                .is_some_and(|name| name.to_string_lossy().contains("headless-shell")),
         flags.join(" "),
     )
 }
@@ -810,6 +822,15 @@ mod fixture_diagnostics_tests {
             "{text}"
         );
         assert!(text.contains("TEMP,TMP,LOCALAPPDATA"), "{text}");
+        // The fixture runs the headless shell: no `--headless` flag, still reported headless.
+        let shell = Path::new(r"v\chrome-headless-shell-win64\chrome-headless-shell.exe");
+        let text = fixture_launch_params(shell, &[], Path::new("profile"));
+        assert!(
+            text.contains("exe=v\\chrome-headless-shell-win64")
+                && text.contains("exec_grant=v\\chrome-headless-shell-win64")
+                && text.contains("headless=true"),
+            "{text}"
+        );
         let args: Vec<OsString> = ["--no-sandbox", "--disable-gpu"]
             .iter()
             .map(OsString::from)

@@ -258,8 +258,9 @@ fn managed_chrome_for_testing_root(
     app_data.join("Orthic Labs/shared/chrome-for-testing")
 }
 
-fn managed_chrome_for_testing_candidates(root: &Path) -> Vec<PathBuf> {
-    // Match qa-chrome's dotted numeric version folders; ignore staging/metadata entries.
+/// Dotted numeric version folders of the managed root, newest first (qa-chrome's layout);
+/// staging/metadata entries are ignored.
+fn managed_version_dirs(root: &Path) -> Vec<PathBuf> {
     versioned_children(root, &[""])
         .into_iter()
         .filter(|dir| {
@@ -274,6 +275,12 @@ fn managed_chrome_for_testing_candidates(root: &Path) -> Vec<PathBuf> {
                             })
                     })
         })
+        .collect()
+}
+
+fn managed_chrome_for_testing_candidates(root: &Path) -> Vec<PathBuf> {
+    managed_version_dirs(root)
+        .into_iter()
         .map(|dir| {
             if cfg!(target_os = "macos") {
                 let sub = if cfg!(target_arch = "aarch64") {
@@ -289,6 +296,75 @@ fn managed_chrome_for_testing_candidates(root: &Path) -> Vec<PathBuf> {
             }
         })
         .collect()
+}
+
+/// Windows fixture only: `chrome-headless-shell` of the same Chrome for Testing version, which
+/// never starts the crashpad handler (see [`chrome_headless_shell_path`]).
+#[cfg(any(windows, test))]
+pub(crate) const HEADLESS_SHELL_ENV: &str = "RIGHTKIT_CHROME_HEADLESS_SHELL";
+#[cfg(any(windows, test))]
+const HEADLESS_SHELL_WIN64: &str = "chrome-headless-shell-win64/chrome-headless-shell.exe";
+
+/// Candidate `chrome-headless-shell.exe` paths for the Windows fixture, in resolution order: the
+/// sibling of the resolved Chrome (`<version>/chrome-win64/chrome.exe` ->
+/// `<version>/chrome-headless-shell-win64/`), then each RightKit-managed version, newest first
+/// (`RIGHTKIT_CHROME_FOR_TESTING_ROOT` overrides the root, as for Chrome).
+#[cfg(any(windows, test))]
+fn chrome_headless_shell_candidates(chrome: &Path, managed_root: &Path) -> Vec<PathBuf> {
+    let mut out = Vec::new();
+    if let Some(version_dir) = chrome.parent().and_then(Path::parent) {
+        out.push(version_dir.join(HEADLESS_SHELL_WIN64));
+    }
+    out.extend(
+        managed_version_dirs(managed_root)
+            .into_iter()
+            .map(|dir| dir.join(HEADLESS_SHELL_WIN64)),
+    );
+    out
+}
+
+/// Resolve `chrome-headless-shell.exe` for the Windows fixture: `RIGHTKIT_CHROME_HEADLESS_SHELL`
+/// (must exist), then [`chrome_headless_shell_candidates`]. Chrome's browser process starts the
+/// crashpad handler unconditionally, which cannot create its named pipe inside an AppContainer;
+/// the headless shell never starts it on Windows. Production launches never call this.
+#[cfg(any(windows, test))]
+pub(crate) fn chrome_headless_shell_path(chrome: &Path) -> Result<PathBuf> {
+    let missing = |what: String| {
+        BrowserError::ChromeForTestingNotFound(format!(
+            "{what}\nThe Windows fixture runs chrome-headless-shell from the same Chrome for Testing \
+             version (chrome-headless-shell-win64.zip, unpacked beside chrome-win64, or {HEADLESS_SHELL_ENV})"
+        ))
+    };
+    if let Some(p) = std::env::var_os(HEADLESS_SHELL_ENV).filter(|v| !v.is_empty()) {
+        let p = PathBuf::from(p);
+        return if p.exists() {
+            Ok(p)
+        } else {
+            Err(missing(format!(
+                "{HEADLESS_SHELL_ENV} points at a missing file: {}",
+                p.display()
+            )))
+        };
+    }
+    let home = home_dir().unwrap_or_default();
+    let env_path = |k: &str| {
+        std::env::var_os(k)
+            .filter(|v| !v.is_empty())
+            .map(PathBuf::from)
+    };
+    let root = managed_chrome_for_testing_root(&home, &env_path);
+    let candidates = chrome_headless_shell_candidates(chrome, &root);
+    if let Some(p) = candidates.iter().find(|p| p.exists()) {
+        return Ok(p.clone());
+    }
+    let searched: Vec<String> = candidates
+        .iter()
+        .map(|p| format!("  {}", p.display()))
+        .collect();
+    Err(missing(format!(
+        "chrome-headless-shell is not installed; searched:\n{}",
+        searched.join("\n")
+    )))
 }
 
 /// Known Chrome for Testing install locations, in resolution order: RightKit-managed
@@ -615,6 +691,26 @@ mod tests {
             )
             .unwrap(),
             system
+        );
+    }
+
+    #[test]
+    fn headless_shell_candidates_are_the_sibling_then_managed_versions() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("root");
+        for v in ["154.0.1.1", "155.0.8059.39"] {
+            std::fs::create_dir_all(root.join(v)).unwrap();
+        }
+        let chrome = root.join("155.0.8059.39/chrome-win64/chrome.exe");
+        let got = chrome_headless_shell_candidates(&chrome, &root);
+        let shell = "chrome-headless-shell-win64/chrome-headless-shell.exe";
+        assert_eq!(
+            got,
+            vec![
+                root.join("155.0.8059.39").join(shell),
+                root.join("155.0.8059.39").join(shell),
+                root.join("154.0.1.1").join(shell),
+            ]
         );
     }
 

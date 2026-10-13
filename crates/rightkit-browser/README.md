@@ -60,6 +60,7 @@ Launch resolves Chrome for Testing (`chrome_for_testing_path`) in this order: `L
 - `LaunchOptions::system_chrome()` keeps the Chrome for Testing preference and falls back to `find_chrome()` only when that resolution fails.
 - `LaunchOptions::system_chrome_only()` resolves only through `find_chrome()`, including its `CHROME` override. It ignores `chrome_path` and Chrome for Testing discovery. If no system Chrome, Chromium or Edge exists, it returns `BrowserError::ChromeNotFound`.
 - The last selection builder wins.
+- The Windows fixture (AppContainer) launches `chrome-headless-shell.exe` from `<version>/chrome-headless-shell-win64/` beside the resolved Chrome (else any managed version; `RIGHTKIT_CHROME_HEADLESS_SHELL` names it explicitly), not `chrome.exe`: Chrome's browser process always starts the crashpad handler, which cannot create its named pipe inside an AppContainer. Fixture only.
 - On macOS, a killed Chrome instance can leave a code-sign clone of its bundle behind when it does not shut down cleanly (`src/config.rs`).
 
 ## Profiles

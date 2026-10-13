@@ -167,6 +167,9 @@ Stated as configured, not as hoped:
   `CHROME_PIN <platform> <version> <sha256> <bytes>` to the log and job summary, deletes the file and fails with
   "pin recorded above". An unpinned download is never installed or run, and a real publish refuses an empty
   sha256 (the contract ties the step's `PUBLISH_DRY_RUN` to the plan's `dry_run`).
+  `ci/chrome-for-testing.json` also pins `headlessShell.win64` (`chrome-headless-shell-win64.zip` of the same version);
+  `provisionHeadlessShell` unpacks it beside `chrome-win64` on Windows for the `rightkit-browser` fixture, which cannot
+  run `chrome.exe` inside an AppContainer (its crashpad handler cannot create a named pipe there).
 - **Chrome for Testing in ordinary CI.** The ci gate (`scripts/ci/gate.mjs`, `chromeGate`) calls the same module
   (`provisionForTests` in `scripts/ci/provision-chrome.mjs`) before any unit runs whenever the selection includes
   `packages/qa`, `packages/qa-chrome`, `rightkit-browser`, `rightkit-qa` or `rightkit-pdf`, on both legs, so Mac and
