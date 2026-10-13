@@ -99,7 +99,7 @@ before any Rust command.
 9. **Licence and legal (mandatory, M12/M14; ScrapeRight/ViewRight/HeardRight pattern)**: add exact pins for
    `@rightkit/license`, `@rightkit/legal-ui`, dev `@rightkit/legal`, and crates `rightkit-license`;
    add `@tauri-apps/plugin-http`, `tauri-plugin-http` and the `http:default` capability scoped to the
-   brand host; swap `FileDeviceStore` in `lib.rs` for a keyring-backed `SecureStore`; add
+   brand host; bind the licence to the existing `KeyringDeviceStore` device identity in `lib.rs`; add
    `legal/legal-manifest.json` and the `legal` block in `right-release.config.mjs`.
 10. **Media app add-on**: add `@rightkit/media-ui` (listed in `rightkit-versions.json`, 0.3.2) at its exact
     version, import `@rightkit/media-ui/styles.css`, and mount the player or viewer in a view. Native
