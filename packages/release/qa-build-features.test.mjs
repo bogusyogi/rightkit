@@ -1,10 +1,10 @@
 import assert from "node:assert/strict";
 import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import test from "node:test";
 import {
-  assertNoForbiddenBuildFeatures, buildFeatureIssues, cargoManifestIssues, commandFeatureIssues, isForbiddenFeature, tokenize,
+  assertNoForbiddenBuildFeatures, buildFeatureIssues, cargoManifestIssues, commandFeatureIssues, isForbiddenFeature, resolveCargoManifestPath, tokenize,
 } from "./qa-build-features.mjs";
 
 const issues = (command, scripts = {}) => commandFeatureIssues(command, { label: "target.prePackage", scripts });
@@ -109,4 +109,47 @@ test("M20: qa-shot, qa-tools, dev-control and bench-native are refused in build 
     assert.match(cargoManifestIssues(manifest(`default = ["${f}"]\n${f} = []`, 'tauri = "2"')).join("\n"), new RegExp(`reaches \`${f}\``), f);
   }
   assert.deepEqual(cargoManifestIssues(manifest('default = []\nqa-shot = []\nbench-native = []', 'tauri = "2"')), []);
+});
+
+test("buildFeatureIssues checks a declared cargoManifest in a non-standard directory; default test-mode there is reported", () => {
+  const root = mkdtempSync(join(tmpdir(), "rk-qa-features-"));
+  mkdirSync(join(root, "engine", "app"), { recursive: true });
+  writeFileSync(join(root, "engine", "app", "Cargo.toml"), manifest('default = ["test-mode"]\ntest-mode = []', 'tauri = "2"'));
+  const found = buildFeatureIssues({ root, commands: [], cargoManifest: "engine/app/Cargo.toml" });
+  assert.deepEqual(found, ["engine/app/Cargo.toml: default feature set reaches `test-mode`"]);
+  assert.throws(() => assertNoForbiddenBuildFeatures({ root, commands: [], cargoManifest: "engine/app/Cargo.toml", tier: "release" }), /release build refused[\s\S]*test-mode/);
+  assert.deepEqual(buildFeatureIssues({ root, commands: [], manifest: "engine/app/Cargo.toml" }), found);
+});
+
+test("buildFeatureIssues reads the declared manifest, not src-tauri/Cargo.toml, when both exist", () => {
+  const root = mkdtempSync(join(tmpdir(), "rk-qa-features-"));
+  mkdirSync(join(root, "src-tauri"));
+  mkdirSync(join(root, "engine"));
+  writeFileSync(join(root, "src-tauri", "Cargo.toml"), manifest('default = ["test-mode"]\ntest-mode = []', 'tauri = "2"'));
+  writeFileSync(join(root, "engine", "Cargo.toml"), manifest('default = []', 'tauri = "2"'));
+  assert.deepEqual(buildFeatureIssues({ root, commands: [], cargoManifest: "engine/Cargo.toml" }), []);
+  assert.match(buildFeatureIssues({ root, commands: [] }).join("\n"), /src-tauri\/Cargo.toml: default feature set reaches `test-mode`/);
+});
+
+test("resolveCargoManifestPath order: cargoManifest, releaseSwitches.manifest, src-tauri/Cargo.toml, Cargo.toml", () => {
+  const rootWith = (...rels) => {
+    const root = mkdtempSync(join(tmpdir(), "rk-qa-resolve-"));
+    for (const rel of rels) {
+      mkdirSync(join(root, dirname(rel)), { recursive: true });
+      writeFileSync(join(root, rel), '[package]\nname = "x"\n');
+    }
+    return root;
+  };
+  const all = ["Cargo.toml", join("src-tauri", "Cargo.toml"), join("rs", "Cargo.toml"), join("engine", "Cargo.toml")];
+  assert.equal(resolveCargoManifestPath({ root: rootWith(...all), cargoManifest: "engine/Cargo.toml", manifest: "rs/Cargo.toml" }).rel, "engine/Cargo.toml");
+  assert.equal(resolveCargoManifestPath({ root: rootWith(...all), manifest: "rs/Cargo.toml" }).rel, "rs/Cargo.toml");
+  assert.equal(resolveCargoManifestPath({ root: rootWith(...all) }).rel, join("src-tauri", "Cargo.toml"));
+  assert.equal(resolveCargoManifestPath({ root: rootWith("Cargo.toml") }).rel, "Cargo.toml");
+  // A declared path that is missing falls through to the next existing candidate; the closure gate separately refuses a missing declared manifest.
+  const fallthrough = resolveCargoManifestPath({ root: rootWith(join("src-tauri", "Cargo.toml")), cargoManifest: "gone/Cargo.toml" });
+  assert.equal(fallthrough.rel, join("src-tauri", "Cargo.toml"));
+  assert.deepEqual(fallthrough.declared, ["gone/Cargo.toml"]);
+  const none = resolveCargoManifestPath({ root: rootWith(), cargoManifest: "gone/Cargo.toml" });
+  assert.equal(none.rel, undefined);
+  assert.deepEqual(none.candidates, ["gone/Cargo.toml", join("src-tauri", "Cargo.toml"), "Cargo.toml"]);
 });

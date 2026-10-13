@@ -246,3 +246,49 @@ test("closure: features come from package.json scripts a hook runs, and from rel
   const joined = seen[seen.indexOf("--features") + 1].split(",");
   for (const f of ["shell", "test-mode", "extra"]) assert.ok(joined.includes(f), f);
 });
+
+test("closure: a --no-default-features command and a default-feature command are each checked; test-mode in the default graph fails the gate", () => {
+  const root = tmp();
+  writeFileSync(join(root, "Cargo.toml"), '[package]\nname = "x"\n[features]\ndefault = ["test-mode"]\ntest-mode = []\n');
+  const calls = [];
+  // Models cargo: the default feature set (which reaches test-mode in this manifest) applies unless --no-default-features is passed.
+  const run = (command, args) => {
+    calls.push(args);
+    const defaults = !args.includes("--no-default-features");
+    return { status: 0, stdout: fixture(defaults ? "tree-with-test-mode.txt" : "tree-clean.txt"), stderr: "" };
+  };
+  const mixed = resolveFeatureClosure({
+    root, scripts: {}, triple: "aarch64-apple-darwin",
+    commandTexts: ["cargo build --release --no-default-features --features custom-protocol", "cargo build --release --features custom-protocol"],
+    run,
+  });
+  assert.equal(calls.length, 2);
+  assert.equal(calls.filter((a) => a.includes("--no-default-features")).length, 1);
+  assert.ok(featureClosureFindings(mixed.treeText).length >= 1);
+  assert.throws(() => assertNoReleaseSwitches({ treeText: mixed.treeText }), /forbidden-feature test-mode/);
+
+  calls.length = 0;
+  const onlyNoDefault = resolveFeatureClosure({ root, scripts: {}, commandTexts: ["cargo build --release --no-default-features"], run });
+  assert.equal(calls.length, 1);
+  assert.deepEqual(featureClosureFindings(onlyNoDefault.treeText), []);
+});
+
+test("closure: identical feature combinations run cargo tree once; feature order and script-expanded flags do not split them", () => {
+  const root = tmp();
+  writeFileSync(join(root, "Cargo.toml"), '[package]\nname = "x"\n');
+  const calls = [];
+  const run = (command, args) => { calls.push(args); return { status: 0, stdout: "x v1\n", stderr: "" }; };
+  const got = resolveFeatureClosure({
+    root, scripts: { "tauri:build": "tauri build --features custom-protocol,shell" },
+    commandTexts: ["cargo build --release --features shell,custom-protocol", "pnpm run tauri:build", "cargo build --features custom-protocol --features shell"],
+    run,
+  });
+  assert.equal(calls.length, 1);
+  assert.equal(got.trees.length, 1);
+  assert.equal(calls[0][calls[0].indexOf("--features") + 1], "custom-protocol,shell");
+
+  calls.length = 0;
+  const split = resolveFeatureClosure({ root, scripts: {}, commandTexts: ["cargo build --release", "cargo build --release --no-default-features"], run });
+  assert.equal(calls.length, 2);
+  assert.equal(split.trees.length, 2);
+});
