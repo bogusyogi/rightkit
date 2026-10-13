@@ -305,11 +305,17 @@ fn restrict_owner_only_impl(path: &Path) -> crate::error::Result<()> {
 
 #[cfg(windows)]
 fn current_process_token_user(path: &Path) -> crate::error::Result<Vec<usize>> {
+    current_process_token_info(path, 1) // TokenUser
+}
+
+/// Raw `GetTokenInformation` buffer for the current process token (pointer-aligned storage).
+#[cfg(windows)]
+fn current_process_token_info(path: &Path, class: u32) -> crate::error::Result<Vec<usize>> {
     use std::ffi::c_void;
 
     type Handle = *mut c_void;
     const TOKEN_QUERY: u32 = 0x0008;
-    const TOKEN_USER: u32 = 1;
+    let class_id = class;
 
     #[link(name = "advapi32")]
     unsafe extern "system" {
@@ -337,7 +343,7 @@ fn current_process_token_user(path: &Path) -> crate::error::Result<Vec<usize>> {
             ));
         }
         let mut needed = 0;
-        let _ = GetTokenInformation(token, TOKEN_USER, std::ptr::null_mut(), 0, &mut needed);
+        let _ = GetTokenInformation(token, class_id, std::ptr::null_mut(), 0, &mut needed);
         if needed == 0 {
             let error = std::io::Error::last_os_error();
             let _ = CloseHandle(token);
@@ -347,7 +353,7 @@ fn current_process_token_user(path: &Path) -> crate::error::Result<Vec<usize>> {
         let mut token_info = vec![0usize; words];
         if GetTokenInformation(
             token,
-            TOKEN_USER,
+            class_id,
             token_info.as_mut_ptr().cast(),
             needed,
             &mut needed,
@@ -360,6 +366,77 @@ fn current_process_token_user(path: &Path) -> crate::error::Result<Vec<usize>> {
         let _ = CloseHandle(token);
         Ok(token_info)
     }
+}
+
+/// `SE_GROUP_ENABLED`: the group is active for access checks in this token. An elevated
+/// administrator holds BUILTIN\\Administrators enabled; a filtered (non-elevated) token holds it
+/// deny-only, which is not enabled.
+#[cfg(any(windows, test))]
+const SE_GROUP_ENABLED: u32 = 0x0000_0004;
+#[cfg(any(windows, test))]
+const SE_GROUP_USE_FOR_DENY_ONLY: u32 = 0x0000_0010;
+
+/// Decides whether an existing object's owner may be repaired to owner-only. Accepts the current
+/// user, or a group that is enabled (and not deny-only) in the current process token. Objects
+/// created by an elevated process are owned by BUILTIN\\Administrators, not by the user account.
+/// Accepting an enabled token group does not widen access: the repair replaces the DACL with one
+/// protected ACE for the current user, and a process whose token holds that group could already
+/// take or use that ownership. A group the token does not hold (or holds deny-only) is rejected.
+#[cfg(any(windows, test))]
+fn owner_is_trusted<S: PartialEq>(owner: &S, user: &S, groups: &[(S, u32)]) -> bool {
+    owner == user
+        || groups.iter().any(|(sid, attributes)| {
+            sid == owner
+                && attributes & SE_GROUP_ENABLED != 0
+                && attributes & SE_GROUP_USE_FOR_DENY_ONLY == 0
+        })
+}
+
+/// True when `owner` is the current user or an enabled group of the current process token.
+#[cfg(windows)]
+fn owner_matches_token(
+    owner: *mut std::ffi::c_void,
+    user: *mut std::ffi::c_void,
+    path: &Path,
+) -> crate::error::Result<bool> {
+    use std::ffi::c_void;
+    #[repr(C)]
+    struct SidAndAttributes {
+        sid: *mut c_void,
+        attributes: u32,
+    }
+    #[repr(C)]
+    struct TokenGroups {
+        count: u32,
+        groups: [SidAndAttributes; 1],
+    }
+    #[link(name = "advapi32")]
+    unsafe extern "system" {
+        fn EqualSid(left: *mut c_void, right: *mut c_void) -> i32;
+    }
+    const TOKEN_GROUPS_CLASS: u32 = 2;
+    if owner.is_null() {
+        return Ok(false);
+    }
+    // SAFETY: both SIDs are live and validated by the callers' queries.
+    if unsafe { EqualSid(owner, user) } != 0 {
+        return Ok(true);
+    }
+    let buffer = current_process_token_info(path, TOKEN_GROUPS_CLASS)?;
+    let header = buffer.as_ptr().cast::<TokenGroups>();
+    // SAFETY: a TOKEN_GROUPS buffer starts with its count followed by that many entries, all
+    // inside the retained allocation.
+    let (count, first) = unsafe { ((*header).count as usize, (*header).groups.as_ptr()) };
+    // Reduce each group to "is it the owner" (1) or not (2) so the shared rule decides.
+    let groups: Vec<(u8, u32)> = (0..count)
+        .map(|index| {
+            // SAFETY: index < GroupCount; group SIDs live in `buffer`, owner is live.
+            let entry = unsafe { &*first.add(index) };
+            let same = unsafe { EqualSid(owner, entry.sid) } != 0;
+            (if same { 1 } else { 2 }, entry.attributes)
+        })
+        .collect();
+    Ok(owner_is_trusted(&1u8, &0u8, &groups))
 }
 
 #[cfg(windows)]
@@ -631,8 +708,9 @@ pub(crate) fn is_owner_only_handle(
         if control & SE_DACL_PROTECTED == 0 {
             return Ok(false);
         }
-        // SAFETY: owner and token SID remain valid for this comparison.
-        if unsafe { EqualSid(owner, sid) } == 0 {
+        // The owner is the current user, or an enabled token group (Administrators when
+        // elevated). The single ACE below still has to name the current user.
+        if !owner_matches_token(owner, sid, shown)? {
             return Ok(false);
         }
         // SAFETY: native validator rejects malformed ACL data before indexed access.
@@ -747,7 +825,6 @@ fn native_restrict_owner_only(file: &std::fs::File, path: &Path) -> crate::error
             sacl: *mut *mut c_void,
             descriptor: *mut *mut c_void,
         ) -> u32;
-        fn EqualSid(left: *mut c_void, right: *mut c_void) -> i32;
         fn SetSecurityInfo(
             object: *mut c_void,
             object_type: u32,
@@ -796,8 +873,12 @@ fn native_restrict_owner_only(file: &std::fs::File, path: &Path) -> crate::error
                 std::io::Error::from_raw_os_error(owner_result as i32),
             ));
         }
-        let owned = !owner.is_null() && EqualSid(owner, sid) != 0;
+        // Accept the current user or an enabled token group: elevated processes create objects
+        // owned by BUILTIN\\Administrators. Ownership is not rewritten (WRITE_OWNER may be
+        // denied); the DACL replacement below leaves one protected ACE for the current user.
+        let owned = owner_matches_token(owner, sid, path);
         LocalFree(descriptor);
+        let owned = owned?;
         if !owned {
             return Err(FsError::NotOwned(path.to_path_buf()));
         }
@@ -811,8 +892,8 @@ fn native_restrict_owner_only(file: &std::fs::File, path: &Path) -> crate::error
         if present == 0 || dacl.is_null() {
             return Err(FsError::Unavailable("owner-only descriptor lacks DACL"));
         }
-        // This handle was opened with MAXIMUM_ALLOWED; Microsoft documents that SetSecurityInfo
-        // then does not propagate inheritable ACEs to existing children.
+        // Inheritable ACEs on a directory are propagated by SetSecurityInfo to existing children
+        // that inherit; this call only guarantees the pinned object itself ends owner-only.
         let result = SetSecurityInfo(
             file.as_raw_handle(),
             SE_FILE_OBJECT,
@@ -1195,4 +1276,41 @@ fn create_dir_owner_only(path: &Path) -> std::io::Result<()> {
         return Err(error.into());
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod owner_policy_tests {
+    use super::*;
+
+    const USER: &str = "S-1-5-21-1-2-3-1001";
+    const ADMINS: &str = "S-1-5-32-544";
+    const SYSTEM: &str = "S-1-5-18";
+    const OTHER_USER: &str = "S-1-5-21-1-2-3-1002";
+
+    #[test]
+    fn current_user_owner_is_trusted() {
+        assert!(owner_is_trusted(&USER, &USER, &[]));
+    }
+
+    #[test]
+    fn administrators_owner_is_trusted_only_when_enabled_in_the_token() {
+        // Elevated token: Administrators enabled.
+        let elevated = [(ADMINS, SE_GROUP_ENABLED)];
+        assert!(owner_is_trusted(&ADMINS, &USER, &elevated));
+        // Filtered token: Administrators present but deny-only (and not enabled).
+        let filtered = [(ADMINS, SE_GROUP_USE_FOR_DENY_ONLY)];
+        assert!(!owner_is_trusted(&ADMINS, &USER, &filtered));
+        // Both bits set is still deny-only.
+        let both = [(ADMINS, SE_GROUP_ENABLED | SE_GROUP_USE_FOR_DENY_ONLY)];
+        assert!(!owner_is_trusted(&ADMINS, &USER, &both));
+        // No group at all.
+        assert!(!owner_is_trusted(&ADMINS, &USER, &[]));
+    }
+
+    #[test]
+    fn foreign_owner_is_rejected() {
+        let groups = [(ADMINS, SE_GROUP_ENABLED)];
+        assert!(!owner_is_trusted(&OTHER_USER, &USER, &groups));
+        assert!(!owner_is_trusted(&SYSTEM, &USER, &groups));
+    }
 }

@@ -300,3 +300,62 @@ fn owner_only_probe_reads_real_windows_security_metadata() {
         "a missing path is not proof of owner-only state"
     );
 }
+
+#[link(name = "advapi32")]
+unsafe extern "system" {
+    fn ConvertStringSidToSidW(string_sid: *const u16, sid: *mut *mut c_void) -> i32;
+    fn SetNamedSecurityInfoW(
+        path: *const u16,
+        object_type: u32,
+        information: u32,
+        owner: *mut c_void,
+        group: *mut c_void,
+        dacl: *mut c_void,
+        sacl: *mut c_void,
+    ) -> u32;
+}
+
+/// An elevated process creates files owned by BUILTIN\Administrators, not by its user account.
+/// Repair (`restrict_owner_only`) and the probe must accept that owner, because the Administrators
+/// group is enabled in the elevated token. The old rule demanded the user SID and failed with
+/// `NotOwned`. Needs an elevated token to hand the file to Administrators; otherwise the case is
+/// covered by the pure `owner_is_trusted` unit tests and this test returns early.
+#[test]
+fn administrators_owned_object_is_repaired_when_elevated() {
+    let dir = tempfile::tempdir().unwrap();
+    let file = dir.path().join("admin-owned.bin");
+    std::fs::write(&file, b"x").unwrap();
+    let wide: Vec<u16> = file.as_os_str().encode_wide().chain(Some(0)).collect();
+    let sid_text: Vec<u16> = "S-1-5-32-544\0".encode_utf16().collect();
+    let mut admins = std::ptr::null_mut();
+    // SAFETY: NUL-terminated SID string; the returned SID is freed below.
+    assert_ne!(
+        unsafe { ConvertStringSidToSidW(sid_text.as_ptr(), &mut admins) },
+        0
+    );
+    const OWNER_SECURITY_INFORMATION: u32 = 0x1;
+    // SAFETY: NUL-terminated path and a valid SID.
+    let set = unsafe {
+        SetNamedSecurityInfoW(
+            wide.as_ptr(),
+            SE_FILE_OBJECT,
+            OWNER_SECURITY_INFORMATION,
+            admins,
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+        )
+    };
+    // SAFETY: allocated by ConvertStringSidToSidW.
+    unsafe { LocalFree(admins) };
+    if set != 0 {
+        eprintln!(
+            "not elevated (SetNamedSecurityInfoW owner = {set}); Administrators-owner case skipped"
+        );
+        return;
+    }
+    rightkit_fs::private::restrict_owner_only(&file).expect(
+        "Administrators-owned object must be repairable when the token holds Administrators",
+    );
+    assert!(rightkit_fs::private::is_owner_only(&file).unwrap());
+}
