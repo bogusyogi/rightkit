@@ -3,7 +3,7 @@
 All notable changes to `rightkit-shell`. Versions follow Cargo semver; while the
 version is `0.x`, a minor bump may carry breaking changes.
 
-## Unreleased
+## 0.3.0
 
 - **`WindowSpec` per-window options (owner gap M1-G1), all additive and optional.** New fields `minWidth` / `minHeight`
   (default stays 320 x 240; invalid values fall back; the initial size is raised to the minimum), `decorations`
@@ -223,8 +223,6 @@ Additive otherwise. The one behaviour change is `lifecycle_only` only, and is ca
   `ClaimFailure`). No public type changed. Windows and Linux unchanged. Written, unverified: nothing was
   compiled or run; the `LOCAL_PEERPID` answer for a connection the listener has not accepted yet is the
   uncertain part.
-
-## 0.3.0
 
 Additive except where marked **Breaking**. Each item has a test in `tests/`.
 

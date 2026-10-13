@@ -5221,7 +5221,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-browser"
-version = "0.2.4"
+version = "0.2.5"
 dependencies = [
  "async-tungstenite",
  "chromiumoxide",
@@ -5290,7 +5290,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-crash"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "rightkit-fs",
  "rightkit-logs",
@@ -5523,7 +5523,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-oauth"
-version = "0.3.1"
+version = "0.3.2"
 dependencies = [
  "axum",
  "base64 0.22.1",
@@ -5711,7 +5711,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-sandbox"
-version = "0.3.4"
+version = "0.3.5"
 dependencies = [
  "libc",
  "portable-pty",

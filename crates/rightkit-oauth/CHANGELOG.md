@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.3.2
 
 - **Fixed:** token-endpoint and device-poll provider errors no longer repeat credentials the client submitted. The refresh token, device code, authorization code, PKCE verifier and client secret are registered as secrets on the request (`Request::secret_form`), and the provider's `error` and `error_description` are scrubbed to `[redacted]` before `OAuthError::Provider` is built, on both the non-2xx and the HTTP 200 provider-error paths. Requires the unreleased `rightkit-http` additions (`secret_form`, `scrub`).
 
