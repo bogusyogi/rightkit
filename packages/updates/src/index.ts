@@ -299,3 +299,11 @@ export {
   type UpdateChannelName,
 } from './channels.js';
 export { createCheckGate, type CheckGate, type CheckGateOptions } from './check-gate.js';
+export {
+  createBootProbation,
+  type BootProbation,
+  type BootProbationConfig,
+  type BootProbationDecision,
+  type BootProbationRecord,
+  type BootProbationStorage,
+} from './probation.js';
