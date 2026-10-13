@@ -5,7 +5,11 @@
 //
 // Three layers, one vocabulary (selector classes S1-S6, see `README.md` "Release switch scan"):
 //
-//   1. Feature closure (source layer). `cargo tree -e features --target <triple>` output must not enable a
+//   1. Feature closure (source layer, AUTHORITATIVE). release.mjs runs `cargo tree -e features,no-dev --locked` in the
+//      app repository (`resolveFeatureClosure`) and fails closed when it cannot, so a build whose graph enables a
+//      forbidden feature anywhere, including by a dependent's feature unification, is refused. The binary marker below
+//      is secondary evidence only (a linker may discard unreferenced data).
+//      Original description: `cargo tree -e features --target <triple>` output must not enable a
 //      forbidden feature anywhere in the resolved graph (`featureClosureFindings`). Declared feature names alone
 //      are not enough: a transitive crate can switch `test-mode` on. Finding id: `forbidden-feature <name>`.
 //   2. Inventory completeness (source layer). Every app commits `switches.json` (schema below). The source walker
@@ -39,8 +43,10 @@
 //     "dynamicReads": [ { "file": "src/x.rs", "reason": "..." } ]   // optional: files allowed a non-literal read
 //   }
 import { createHash } from "node:crypto";
-import { closeSync, lstatSync, openSync, readFileSync, readSync, readdirSync } from "node:fs";
+import { closeSync, existsSync, lstatSync, openSync, readFileSync, readSync, readdirSync } from "node:fs";
 import path from "node:path";
+import { spawnSync } from "./background-process.mjs";
+import { featuresInTokens, tokenize } from "./qa-build-features.mjs";
 import { isNativeBinaryHeader } from "./qa-control-scan.mjs";
 
 export const TEST_MODE_MARKER = "RIGHTKIT-TEST-MODE-COMPILED"; // identical to `TEST_MODE_MARKER_TEXT` in rightkit-service/src/mode.rs
@@ -71,6 +77,44 @@ export function featureClosureFindings(treeText, { forbidden = REGISTRY.forbidde
     findings.push({ layer: "feature-closure", rule: id, file: `<cargo tree>`, reason: `${id}: crate \`${m[1]}\` has feature \`${m[2]}\` enabled in the resolved graph` });
   }
   return findings;
+}
+
+// A build command (shell string or { cmd, args }) as one flat token list, whole arguments plus their shell re-tokenisation.
+export function commandTokens(command) {
+  const parts = typeof command === "string" ? [command] : [command?.cmd, ...(command?.args ?? [])].filter((v) => v !== undefined).map(String);
+  return [...parts, ...parts.flatMap((p) => tokenize(p))];
+}
+
+// Run `cargo tree -e features,no-dev --locked` for the release target in the app repository (cargo is permitted in app
+// repos; right-release runs there). `commandTexts` are the build commands: their `--features`/`--no-default-features`
+// are forwarded so the closure is the one the command builds. Returns { treeText, manifest } or { skipped } when the
+// app has no Cargo manifest (a non-Rust app has no Rust closure). Throws when cargo fails: the caller fails closed.
+// `run` is injectable for tests: (command, args, options) => { status, stdout, stderr, error }.
+export function resolveFeatureClosure({ root, manifest, triple, commandTexts = [], run = spawnSync } = {}) {
+  const candidates = manifest ? [manifest] : [path.join("src-tauri", "Cargo.toml"), "Cargo.toml"];
+  const rel = candidates.find((c) => existsSync(path.join(root, c)));
+  if (!rel) return { skipped: "no Cargo.toml" };
+  const args = ["tree", "-e", "features,no-dev", "--locked", "--manifest-path", path.join(root, rel), "--target", triple || "all"];
+  for (const text of commandTexts) {
+    const tokens = commandTokens(text);
+    if (tokens.includes("--no-default-features") && !args.includes("--no-default-features")) args.push("--no-default-features");
+    const { enabled } = featuresInTokens(tokens);
+    if (enabled.length) args.push("--features", enabled.join(","));
+  }
+  const result = run("cargo", args, { cwd: root, encoding: "utf8", maxBuffer: 256 * 1024 * 1024 });
+  if (result.error || result.status !== 0) {
+    throw new Error(`feature closure: \`cargo ${args.join(" ")}\` failed (${result.error?.message ?? `exit ${result.status}`}): ${String(result.stderr ?? "").trim().slice(0, 600)}. The resolved feature graph is the authoritative test-mode check, so a release cannot continue without it.`);
+  }
+  const treeText = String(result.stdout ?? "");
+  if (!treeText.trim()) throw new Error("feature closure: `cargo tree` printed nothing; cannot verify");
+  return { treeText, manifest: rel };
+}
+
+// S1-S4 names an app declares in its switches.json; the binary scan refuses every one (compiledOut claims are
+// verified against the built binary, not trusted).
+export function inventoryDenyNames(inventoryText) {
+  const { doc } = parseInventory(inventoryText);
+  return (doc?.switches ?? []).filter((e) => FORBIDDEN_CLASSES.has(e?.class) && typeof e?.name === "string" && e.name).map((e) => ({ name: e.name, class: e.class }));
 }
 
 // Findings for a build command (`--features test-mode`, `-F`, `--all-features`, ...). Uses the existing tokenizer.
@@ -141,7 +185,15 @@ const LITERAL_READS = [
   /import\.meta\.env\.([A-Za-z_][A-Za-z0-9_]*)/g,
   /import\.meta\.env\[\s*["']([^"']+)["']\s*\]/g,
   /environment\[\s*"([^"]+)"\s*\]/g,
+  // clap: `#[arg(env = "X")]`, `#[clap(env = "X")]`, `Arg::new(..).env("X")`.
+  /\benv\s*=\s*"([^"]+)"/g,
+  /\.env\(\s*"([^"]+)"\s*\)/g,
 ];
+// Bare `var("X")` / `var_os("X")` after `use std::env::var;` or `use std::env::{var, ..}` (also `as` renames are
+// caught by the import test below); applied only to files that import them.
+const BARE_IMPORT = /\buse\s+(?:std|core)::env::(?:var(?:_os)?\b|\{[^}]*\bvar(?:_os)?\b[^}]*\})/;
+const BARE_LITERAL = /(?<![\w:.])var(?:_os)?\(\s*"([^"]+)"\s*\)/g;
+const BARE_DYNAMIC = /(?<![\w:.])var(?:_os)?\(\s*[^")\s]/g;
 // Reads whose name is not a literal.
 const DYNAMIC_READS = [
   /\b(?:std::)?env::var(?:_os)?\(\s*[^")\s]/g,
@@ -183,7 +235,8 @@ export function sourceSwitchFindings({ sourceRoot, inventoryText, inventoryLabel
     let text;
     try { text = readFileSync(file, "utf8"); } catch { continue; }
     const rel = path.relative(sourceRoot, file);
-    for (const pattern of LITERAL_READS) {
+    const bare = BARE_IMPORT.test(text) && /\.rs$/.test(file);
+    for (const pattern of bare ? [...LITERAL_READS, BARE_LITERAL] : LITERAL_READS) {
       pattern.lastIndex = 0;
       for (let m = pattern.exec(text); m; m = pattern.exec(text)) {
         const name = m[1];
@@ -193,7 +246,7 @@ export function sourceSwitchFindings({ sourceRoot, inventoryText, inventoryLabel
       }
     }
     if (!dynamicAllowed.has(path.normalize(rel))) {
-      for (const pattern of DYNAMIC_READS) {
+      for (const pattern of bare ? [...DYNAMIC_READS, BARE_DYNAMIC] : DYNAMIC_READS) {
         pattern.lastIndex = 0;
         for (let m = pattern.exec(text); m; m = pattern.exec(text)) {
           findings.push({ layer: "inventory", rule: "dynamic-read", file: `${rel}:${lineOf(text, m.index)}`, reason: `dynamic-read: an environment read with a non-literal name cannot be inventoried; list the file under \`dynamicReads\` in ${inventoryLabel} with a reason, or use a literal name` });
@@ -307,7 +360,7 @@ export function scanSwitchPaths(paths, { denyMap = denyNamesFor() } = {}) {
 export function releaseSwitchFindings({ treeText, commands = [], sourceRoot, inventoryText, binaryPaths = [], appForbid = [], requireBinary = true, bypass = [] } = {}) {
   const findings = [];
   const bypassed = new Set(bypass);
-  const denyMap = denyNamesFor({ appForbid });
+  const denyMap = denyNamesFor({ appForbid: [...appForbid, ...(inventoryText != null ? inventoryDenyNames(inventoryText) : [])] });
   if (!bypassed.has("feature-closure")) {
     if (treeText != null) findings.push(...featureClosureFindings(treeText));
     for (const argv of commands) findings.push(...commandSwitchFindings(argv));

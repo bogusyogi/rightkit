@@ -40,7 +40,7 @@ import { DEFAULT_STORAGE_THRESHOLD_BYTES, findInstallerCopyScripts, findLargeRep
 import { macosCodesignEnvironment } from "./codesign-environment.mjs";
 import { assertNoQaControl, assertNoWebBundleMocks } from "./qa-control-scan.mjs";
 import { assertNoForbiddenBuildFeatures } from "./qa-build-features.mjs";
-import { assertNoReleaseSwitches } from "./release-switch-scan.mjs";
+import { assertNoReleaseSwitches, commandTokens, resolveFeatureClosure } from "./release-switch-scan.mjs";
 import { devtoolsEvidence, resolveDevtoolsAllowance } from "./devtools-policy.mjs";
 
 const TOOL_ROOT = path.dirname(fileURLToPath(import.meta.url));
@@ -321,12 +321,34 @@ try {
 // D4 (M21/M23) source layer: every environment/argument read in app source is registered in the app's switches.json and
 // every S1-S4 selector is compiled out of release. The inventory is `config.releaseSwitches.inventory` (relative to the
 // app root) or `switches.json`; a release without one fails (a dry run only checks one that exists).
+// The resolved feature graph (`cargo tree -e features`) is the AUTHORITATIVE test-mode check: it runs here, in the app
+// repository, for the release target, and a release that cannot run it fails (a dry run reports and continues).
+// The binary marker/name scan below is secondary evidence.
+const releaseSwitchInventoryPath = path.resolve(root, config.releaseSwitches?.inventory ?? "switches.json");
+const releaseSwitchInventoryText = existsSync(releaseSwitchInventoryPath) ? readFileSync(releaseSwitchInventoryPath, "utf8") : null;
 try {
-  const inventoryPath = path.resolve(root, config.releaseSwitches?.inventory ?? "switches.json");
-  if (existsSync(inventoryPath)) {
-    assertNoReleaseSwitches({ sourceRoot: root, inventoryText: readFileSync(inventoryPath, "utf8"), appForbid: config.releaseSwitches?.forbid ?? [] }, "source switch inventory");
-  } else if (!opts.dryRun) {
-    throw new Error(`source switch inventory: ${path.relative(root, inventoryPath) || inventoryPath} is missing; a release build needs the app's switches.json (see packages/release/README.md, "switches.json")`);
+  let treeText;
+  try {
+    const closure = resolveFeatureClosure({
+      root,
+      manifest: config.releaseSwitches?.manifest,
+      triple: target.cargoTarget ?? target.targetTriple ?? target.rustTarget,
+      commandTexts: [target.prePackage, target.package, nativeAssembly?.packageHook, nativeFinalizer, target.postSign],
+    });
+    if (closure.skipped) console.log(`right-release: feature closure skipped (${closure.skipped})`);
+    else treeText = closure.treeText;
+  } catch (error) {
+    if (!opts.dryRun) throw error;
+    console.log(`right-release: dry run: ${error.message}`);
+  }
+  const closureInput = { treeText, commands: [target.prePackage, target.package, nativeAssembly?.packageHook, nativeFinalizer, target.postSign].filter(Boolean).map((c) => commandTokens(c)) };
+  if (releaseSwitchInventoryText != null) {
+    assertNoReleaseSwitches({ ...closureInput, sourceRoot: root, inventoryText: releaseSwitchInventoryText, appForbid: config.releaseSwitches?.forbid ?? [] }, "source switch inventory");
+  } else if (treeText != null || closureInput.commands.length) {
+    assertNoReleaseSwitches({ ...closureInput, appForbid: config.releaseSwitches?.forbid ?? [] }, "feature closure");
+  }
+  if (releaseSwitchInventoryText == null && !opts.dryRun) {
+    throw new Error(`source switch inventory: ${path.relative(root, releaseSwitchInventoryPath) || releaseSwitchInventoryPath} is missing; a release build needs the app's switches.json (see packages/release/README.md, "switches.json")`);
   }
 } catch (error) { fail(error.message); }
 
@@ -536,7 +558,7 @@ function assertNoQaControlBinaries(label, files, { requireBinary = false, prePac
   try {
     const stats = assertNoQaControl(files, label, { requireBinary, allowContentOnlyDevtools: devtoolsAllowance.mode === "content-only" });
     // D4 binary layer, same inputs: no test-mode marker and no S1-S4 selector name in any native binary.
-    assertNoReleaseSwitches({ binaryPaths: files, appForbid: config.releaseSwitches?.forbid ?? [], requireBinary: false }, `${label} (release switches)`);
+    assertNoReleaseSwitches({ binaryPaths: files, inventoryText: releaseSwitchInventoryText ?? undefined, appForbid: config.releaseSwitches?.forbid ?? [], requireBinary: false }, `${label} (release switches)`);
     if (prePack && stats.binaries > 0) prePackScanned = true;
     for (const opaque of stats.opaque) {
       console.log(`right-release: ${label}: ${opaque.kind.toUpperCase()} payload is compressed and cannot be scanned (${opaque.file}); the raw payload was scanned before packing`);

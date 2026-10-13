@@ -6,7 +6,7 @@ import test from "node:test";
 import { cargoManifestIssues, commandFeatureIssues } from "./qa-build-features.mjs";
 import {
   REGISTRY, TEST_MODE_MARKER, assertNoReleaseSwitches, bufferSwitchFindings, commandSwitchFindings, denyNamesFor,
-  featureClosureFindings, parseInventory, releaseSwitchFindings, scanSwitchPaths, sourceSwitchFindings,
+  featureClosureFindings, inventoryDenyNames, parseInventory, resolveFeatureClosure, releaseSwitchFindings, scanSwitchPaths, sourceSwitchFindings,
 } from "./release-switch-scan.mjs";
 
 const FIX = new URL("./fixtures/release-switches/", import.meta.url);
@@ -172,4 +172,52 @@ test("a clean feature tree, clean command and missing optional layers produce no
   assert.deepEqual(featureClosureFindings(fixture("tree-clean.txt")), []);
   assert.deepEqual(commandSwitchFindings(["cargo", "build", "--release", "--features", "custom-protocol"]), []);
   assert.deepEqual(releaseSwitchFindings({}).findings, []);
+});
+
+test("closure: resolveFeatureClosure runs cargo tree for the target, forwards features, and fails closed", () => {
+  const root = tmp();
+  mkdirSync(join(root, "src-tauri"));
+  writeFileSync(join(root, "src-tauri", "Cargo.toml"), "[package]\nname=\"x\"\n");
+  let seen;
+  const ok = (command, args) => { seen = { command, args }; return { status: 0, stdout: fixture("tree-with-test-mode.txt"), stderr: "" }; };
+  const got = resolveFeatureClosure({ root, triple: "aarch64-apple-darwin", commandTexts: ["cargo build --release --no-default-features --features custom-protocol"], run: ok });
+  assert.equal(seen.command, "cargo");
+  for (const a of ["tree", "features,no-dev", "--locked", "aarch64-apple-darwin", "--no-default-features", "custom-protocol"]) assert.ok(seen.args.includes(a), a);
+  assert.ok(featureClosureFindings(got.treeText).length >= 1);
+  assert.throws(() => resolveFeatureClosure({ root, run: () => ({ status: 101, stdout: "", stderr: "lock needs update" }) }), /feature closure.*failed/s);
+  assert.throws(() => resolveFeatureClosure({ root, run: () => ({ status: null, error: new Error("ENOENT") }) }), /ENOENT/);
+  assert.throws(() => resolveFeatureClosure({ root, run: () => ({ status: 0, stdout: "  " }) }), /printed nothing/);
+  assert.deepEqual(resolveFeatureClosure({ root: tmp() }), { skipped: "no Cargo.toml" });
+});
+
+test("closure is the authoritative gate: a clean binary with test-mode in the tree is still refused", () => {
+  const { findings } = releaseSwitchFindings({ treeText: fixture("tree-with-test-mode.txt") });
+  assert.ok(ids(findings).includes("forbidden-feature test-mode"));
+  assert.throws(() => assertNoReleaseSwitches({ treeText: fixture("tree-with-test-mode.txt") }), /forbidden-feature test-mode/);
+});
+
+test("the binary scan refuses the app's own S1-S4 names from switches.json, not S5/S6", () => {
+  const inventoryText = JSON.stringify({ schema: 1, app: "x", switches: [
+    { name: "APPX_FAKE_KEYCHAIN", class: "S2", channel: "env", compiledOut: "feature:test-mode" },
+    { name: "APPX_PICKED_DIR", class: "S5", channel: "env", userGesture: true },
+  ] });
+  assert.deepEqual(inventoryDenyNames(inventoryText), [{ name: "APPX_FAKE_KEYCHAIN", class: "S2" }]);
+  const root = tmp();
+  const bin = join(root, "app");
+  writeFileSync(bin, Buffer.concat([MACHO, filler(64), Buffer.from("APPX_FAKE_KEYCHAIN"), filler(64)]));
+  assert.deepEqual(ids(releaseSwitchFindings({ binaryPaths: [bin], inventoryText }).findings), ["release-switch-names"]);
+  writeFileSync(bin, Buffer.concat([MACHO, filler(64), Buffer.from("APPX_PICKED_DIR"), filler(64)]));
+  assert.deepEqual(releaseSwitchFindings({ binaryPaths: [bin], inventoryText }).findings, []);
+});
+
+test("source walker catches imported var()/var_os(), env::var_os and clap env attributes", () => {
+  const root = tmp();
+  mkdirSync(join(root, "src"));
+  writeFileSync(join(root, "src", "a.rs"), 'use std::env::var;\nfn f() { let _ = var("IMPORTED_ONE"); }\n');
+  writeFileSync(join(root, "src", "b.rs"), 'use std::env::{self, var_os};\nfn f() { let _ = var_os("IMPORTED_TWO"); let _ = env::var_os("QUALIFIED_OS"); }\n');
+  writeFileSync(join(root, "src", "c.rs"), '#[derive(Parser)]\nstruct A {\n  #[arg(long, env = "CLAP_ENV_NAME")]\n  x: String,\n}\nfn g() { Arg::new("y").env("CLAP_BUILDER"); }\n');
+  writeFileSync(join(root, "src", "d.rs"), 'fn var(_: &str) {}\nfn h() { var("NOT_AN_ENV_READ"); }\n');
+  const reasons = sourceSwitchFindings({ sourceRoot: root, inventoryText: JSON.stringify({ schema: 1, app: "x", switches: [] }) }).map((f) => f.reason).join("\n");
+  for (const name of ["IMPORTED_ONE", "IMPORTED_TWO", "QUALIFIED_OS", "CLAP_ENV_NAME", "CLAP_BUILDER"]) assert.match(reasons, new RegExp(name), name);
+  assert.doesNotMatch(reasons, /NOT_AN_ENV_READ/);
 });
