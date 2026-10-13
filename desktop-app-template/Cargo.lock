@@ -2951,6 +2951,7 @@ dependencies = [
  "rightkit-jobs",
  "rightkit-logs",
  "rightkit-process",
+ "rightkit-secrets",
  "rightkit-shell",
  "rightkit-tauri",
  "serde_json",
@@ -3073,6 +3074,20 @@ checksum = "5fcabeaab96b14e3f0ce9afadb7e6c5f045be76dfb3d81c1ec276687765bc561"
 dependencies = [
  "libc",
  "windows 0.62.2",
+]
+
+[[package]]
+name = "rightkit-secrets"
+version = "0.1.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "eb55a8c4158215a83ed097495adeba36cf12a915d9b250b5ab361dd3c921a7ee"
+dependencies = [
+ "getrandom 0.3.4",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.21",
+ "windows-sys 0.61.2",
+ "zeroize",
 ]
 
 [[package]]
