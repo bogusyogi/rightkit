@@ -46,7 +46,7 @@ import { createHash } from "node:crypto";
 import { closeSync, existsSync, lstatSync, openSync, readFileSync, readSync, readdirSync } from "node:fs";
 import path from "node:path";
 import { spawnSync } from "./background-process.mjs";
-import { featuresInTokens, tokenize } from "./qa-build-features.mjs";
+import { featuresInTokens, scriptTarget, tokenize } from "./qa-build-features.mjs";
 import { isNativeBinaryHeader } from "./qa-control-scan.mjs";
 
 export const TEST_MODE_MARKER = "RIGHTKIT-TEST-MODE-COMPILED"; // identical to `TEST_MODE_MARKER_TEXT` in rightkit-service/src/mode.rs
@@ -85,22 +85,49 @@ export function commandTokens(command) {
   return [...parts, ...parts.flatMap((p) => tokenize(p))];
 }
 
+function readPackageScripts(root) {
+  try { return JSON.parse(readFileSync(path.join(root, "package.json"), "utf8")).scripts ?? {}; } catch { return {}; }
+}
+
 // Run `cargo tree -e features,no-dev --locked` for the release target in the app repository (cargo is permitted in app
-// repos; right-release runs there). `commandTexts` are the build commands: their `--features`/`--no-default-features`
-// are forwarded so the closure is the one the command builds. Returns { treeText, manifest } or { skipped } when the
-// app has no Cargo manifest (a non-Rust app has no Rust closure). Throws when cargo fails: the caller fails closed.
+// repos; right-release runs there). The build commands' `--features`/`--no-default-features` are forwarded so the closure
+// is the one the command builds; features are also taken from package.json scripts a command runs (`pnpm run <script>`,
+// up to three levels, the same walk as `commandFeatureIssues`), so a hook that is only `pnpm tauri:build` still counts.
+// Choice: parse the resolved script bodies (not a mandatory `releaseSwitches.features`); a feature list hidden in a script
+// shape this walker cannot read (a shell script file) is still caught by the binary layer, and an app may declare extra
+// features in `releaseSwitches.features`, which are always forwarded.
+// Manifest: `cargoManifest` (targets.<os>.cargoManifest) -> `manifest` (releaseSwitches.manifest) -> src-tauri/Cargo.toml
+// -> Cargo.toml. A declared path must exist. With no manifest the gate FAILS (`release-switch-manifest-missing`); the only
+// skip is `rust === false` (releaseSwitches.rust: false, an explicit "this app has no Rust") and only when no candidate
+// manifest exists. Returns { treeText, manifest } or { skipped: <reason> }. Throws when cargo fails: the caller fails closed.
 // `run` is injectable for tests: (command, args, options) => { status, stdout, stderr, error }.
-export function resolveFeatureClosure({ root, manifest, triple, commandTexts = [], run = spawnSync } = {}) {
-  const candidates = manifest ? [manifest] : [path.join("src-tauri", "Cargo.toml"), "Cargo.toml"];
+export function resolveFeatureClosure({ root, manifest, cargoManifest, rust, features = [], scripts, triple, commandTexts = [], run = spawnSync } = {}) {
+  const declared = [cargoManifest, manifest].filter(Boolean);
+  const candidates = [...declared, path.join("src-tauri", "Cargo.toml"), "Cargo.toml"];
   const rel = candidates.find((c) => existsSync(path.join(root, c)));
-  if (!rel) return { skipped: "no Cargo.toml" };
+  if (!rel) {
+    if (rust === false) return { skipped: "releaseSwitches.rust is false: the app declares no Rust" };
+    throw new Error(`release-switch-manifest-missing: no Cargo manifest found for ${root} (tried ${candidates.join(", ")}${declared.length ? `; declared: ${declared.join(", ")}` : ""}). A Rust app must resolve its manifest via targets.<os>.cargoManifest or releaseSwitches.manifest; an app with no Rust must set releaseSwitches.rust: false.`);
+  }
+  if (declared.length && !declared.some((c) => existsSync(path.join(root, c)))) {
+    throw new Error(`release-switch-manifest-missing: declared manifest ${declared.join(", ")} does not exist under ${root}`);
+  }
   const args = ["tree", "-e", "features,no-dev", "--locked", "--manifest-path", path.join(root, rel), "--target", triple || "all"];
-  for (const text of commandTexts) {
+  const pkgScripts = scripts ?? readPackageScripts(root);
+  const expanded = [];
+  const expand = (text, depth, seen) => {
+    expanded.push(text);
+    const script = scriptTarget(commandTokens(text));
+    if (script && depth < 3 && Object.hasOwn(pkgScripts, script) && !seen.has(script)) expand(String(pkgScripts[script]), depth + 1, new Set([...seen, script]));
+  };
+  for (const text of commandTexts) if (text) expand(text, 0, new Set());
+  const enabledAll = [...features];
+  for (const text of expanded) {
     const tokens = commandTokens(text);
     if (tokens.includes("--no-default-features") && !args.includes("--no-default-features")) args.push("--no-default-features");
-    const { enabled } = featuresInTokens(tokens);
-    if (enabled.length) args.push("--features", enabled.join(","));
+    enabledAll.push(...featuresInTokens(tokens).enabled);
   }
+  if (enabledAll.length) args.push("--features", [...new Set(enabledAll)].join(","));
   const result = run("cargo", args, { cwd: root, encoding: "utf8", maxBuffer: 256 * 1024 * 1024 });
   if (result.error || result.status !== 0) {
     throw new Error(`feature closure: \`cargo ${args.join(" ")}\` failed (${result.error?.message ?? `exit ${result.status}`}): ${String(result.stderr ?? "").trim().slice(0, 600)}. The resolved feature graph is the authoritative test-mode check, so a release cannot continue without it.`);

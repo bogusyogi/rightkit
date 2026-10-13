@@ -52,7 +52,7 @@ export function featuresInTokens(tokens) {
   return { enabled, allFeatures };
 }
 
-function scriptTarget(tokens) {
+export function scriptTarget(tokens) {
   const first = tokens.findIndex((t) => MANAGERS.has(path.basename(t).replace(/\.(cmd|exe)$/i, "")));
   if (first < 0) return null;
   let i = first + 1;

@@ -187,7 +187,7 @@ test("closure: resolveFeatureClosure runs cargo tree for the target, forwards fe
   assert.throws(() => resolveFeatureClosure({ root, run: () => ({ status: 101, stdout: "", stderr: "lock needs update" }) }), /feature closure.*failed/s);
   assert.throws(() => resolveFeatureClosure({ root, run: () => ({ status: null, error: new Error("ENOENT") }) }), /ENOENT/);
   assert.throws(() => resolveFeatureClosure({ root, run: () => ({ status: 0, stdout: "  " }) }), /printed nothing/);
-  assert.deepEqual(resolveFeatureClosure({ root: tmp() }), { skipped: "no Cargo.toml" });
+  assert.throws(() => resolveFeatureClosure({ root: tmp() }), /release-switch-manifest-missing/);
 });
 
 test("closure is the authoritative gate: a clean binary with test-mode in the tree is still refused", () => {
@@ -220,4 +220,29 @@ test("source walker catches imported var()/var_os(), env::var_os and clap env at
   const reasons = sourceSwitchFindings({ sourceRoot: root, inventoryText: JSON.stringify({ schema: 1, app: "x", switches: [] }) }).map((f) => f.reason).join("\n");
   for (const name of ["IMPORTED_ONE", "IMPORTED_TWO", "QUALIFIED_OS", "CLAP_ENV_NAME", "CLAP_BUILDER"]) assert.match(reasons, new RegExp(name), name);
   assert.doesNotMatch(reasons, /NOT_AN_ENV_READ/);
+});
+
+test("closure: a missing manifest is a hard failure; only an explicit rust:false skips", () => {
+  const bare = tmp();
+  assert.throws(() => resolveFeatureClosure({ root: bare }), /release-switch-manifest-missing/);
+  assert.throws(() => resolveFeatureClosure({ root: bare, manifest: "engine/Cargo.toml" }), /release-switch-manifest-missing.*engine\/Cargo.toml/s);
+  assert.throws(() => resolveFeatureClosure({ root: bare, rust: true }), /release-switch-manifest-missing/);
+  assert.match(resolveFeatureClosure({ root: bare, rust: false }).skipped, /rust is false/);
+  const root = tmp();
+  mkdirSync(join(root, "engine"));
+  writeFileSync(join(root, "engine", "Cargo.toml"), "[package]\nname=\"x\"\n");
+  let seen;
+  resolveFeatureClosure({ root, cargoManifest: "engine/Cargo.toml", run: (c, a) => { seen = a; return { status: 0, stdout: "x v1\n", stderr: "" }; } });
+  assert.ok(seen.includes(join(root, "engine/Cargo.toml")));
+});
+
+test("closure: features come from package.json scripts a hook runs, and from releaseSwitches.features", () => {
+  const root = tmp();
+  writeFileSync(join(root, "Cargo.toml"), "[package]\nname=\"x\"\n");
+  writeFileSync(join(root, "package.json"), JSON.stringify({ scripts: { "tauri:build": "tauri build -- --features shell,test-mode" } }));
+  let seen;
+  const run = (c, a) => { seen = a; return { status: 0, stdout: "x v1\n", stderr: "" }; };
+  resolveFeatureClosure({ root, commandTexts: ["pnpm run tauri:build"], features: ["extra"], run });
+  const joined = seen[seen.indexOf("--features") + 1].split(",");
+  for (const f of ["shell", "test-mode", "extra"]) assert.ok(joined.includes(f), f);
 });

@@ -332,6 +332,9 @@ try {
     const closure = resolveFeatureClosure({
       root,
       manifest: config.releaseSwitches?.manifest,
+      cargoManifest: target.cargoManifest,
+      rust: config.releaseSwitches?.rust,
+      features: config.releaseSwitches?.features ?? [],
       triple: target.cargoTarget ?? target.targetTriple ?? target.rustTarget,
       commandTexts: [target.prePackage, target.package, nativeAssembly?.packageHook, nativeFinalizer, target.postSign],
     });
