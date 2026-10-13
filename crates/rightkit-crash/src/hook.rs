@@ -1,4 +1,6 @@
-use crate::report::{sanitize_kind, CrashReport, RawCrash};
+use crate::report::{
+    redact_known, redact_known_value, sanitize_kind, CrashReport, RawCrash, SecretList,
+};
 use crate::{native, retention, NativeCapture, Retention};
 use std::fmt;
 use std::io::Write;
@@ -65,6 +67,9 @@ pub struct CrashConfig {
     capture_backtrace: bool,
     /// Declared process boundary (see [`CrashConfig::process_kind`]).
     process_kind: Option<ProcessKind>,
+    /// Known secrets removed from every report and native text artifact (see
+    /// [`CrashConfig::redact_values`]).
+    redact_values: SecretList,
 }
 
 impl CrashConfig {
@@ -84,7 +89,19 @@ impl CrashConfig {
             write_file: true,
             capture_backtrace: true,
             process_kind: None,
+            redact_values: SecretList::default(),
         }
+    }
+
+    /// Add secret strings (API keys, database keys, tokens the app holds) that are removed from
+    /// every report and from the macOS native sample text, replaced with `[redacted]`. This is in
+    /// addition to the built-in pattern scrub, and catches formats no pattern knows. Empty strings
+    /// are ignored. Same contract as `rightkit-http`'s `ClientConfig::redact_values`. A Windows
+    /// minidump is binary and is not scrubbed (see the README). The values are never printed by
+    /// `Debug`.
+    pub fn redact_values(mut self, values: Vec<String>) -> Self {
+        self.redact_values.extend(values);
+        self
     }
 
     /// Declare which process boundary this configuration belongs to; every report it records
@@ -266,6 +283,94 @@ pub fn record_helper_exit(
     record_report(&config, "sidecar_crash", &message, None, "supervisor", "")
 }
 
+/// Where reports go when `crash_dir` cannot be created or written to: a private (`0700` on Unix)
+/// per-app folder in the OS temp directory. An app that uses the fallback lists it at next launch
+/// with `list_pending(&fallback_crash_dir(app_name))`. Reports there are redacted and owner-only
+/// like any other; the folder is temporary storage the OS may clear.
+pub fn fallback_crash_dir(app_name: &str) -> PathBuf {
+    let name: String = app_name
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric() || *c == '-' || *c == '_')
+        .take(48)
+        .collect();
+    let name = if name.is_empty() {
+        "app".to_string()
+    } else {
+        name
+    };
+    std::env::temp_dir().join(format!("rightkit-crash-{name}"))
+}
+
+/// True when `dir` exists (created if needed) and a file can be created in it.
+fn dir_is_writable(dir: &Path) -> bool {
+    if std::fs::create_dir_all(dir).is_err() {
+        return false;
+    }
+    let probe = dir.join(format!(".rightkit_probe_{}", std::process::id()));
+    let ok = std::fs::OpenOptions::new()
+        .write(true)
+        .create(true)
+        .truncate(true)
+        .open(&probe)
+        .is_ok();
+    let _ = std::fs::remove_file(&probe);
+    ok
+}
+
+/// The directory a report is written to: `crash_dir` when it is usable, else the private
+/// [`fallback_crash_dir`] (announced on stderr as one `rightkit-crash:` line), else `None`.
+/// The fallback is refused when it is a symlink or not ours (the private-dir hardening fails).
+fn resolve_crash_dir(config: &CrashConfig) -> Option<PathBuf> {
+    if dir_is_writable(&config.crash_dir) {
+        return Some(config.crash_dir.clone());
+    }
+    let fallback = fallback_crash_dir(&config.app_name);
+    if rightkit_fs::ensure_private_dir(&fallback).is_ok() && dir_is_writable(&fallback) {
+        let _ = writeln!(
+            std::io::stderr(),
+            "rightkit-crash: crash_dir unavailable; using the private fallback folder"
+        );
+        return Some(fallback);
+    }
+    let _ = writeln!(
+        std::io::stderr(),
+        "rightkit-crash: crash_dir and fallback folder unavailable; no report file written"
+    );
+    None
+}
+
+/// Native sample (macOS) or minidump (Windows) of another process, `pid`, that the caller names:
+/// a supervised helper that hangs or misbehaves while still alive. Call it before killing the
+/// helper; a process that already exited cannot be sampled. It runs the same tools as
+/// [`capture_native`] into `config.crash_dir` (or the fallback folder), under the same
+/// single-flight guard, and the macOS sample text goes through the same scrub-before-publish path
+/// (pattern scrub plus [`CrashConfig::redact_values`]). A Windows minidump stays unscrubbed and
+/// local, as for the panic hook. Returns `None` when recording is off, `pid` is zero, the
+/// platform has no capture, or the capture failed. Not subject to
+/// [`CrashConfig::native_capture`], which governs only the automatic capture. Older artifacts are
+/// pruned under `config.retention`.
+pub fn capture_native_for_pid(config: &CrashConfig, kind: &str, pid: u32) -> Option<PathBuf> {
+    if !recording_enabled() || pid == 0 {
+        return None;
+    }
+    let dir = resolve_crash_dir(config)?;
+    let stamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    let outcome = native::capture_pid_detailed(
+        &dir,
+        &sanitize_kind(kind),
+        stamp,
+        pid,
+        config.redact_values.as_slice(),
+    );
+    if outcome.artifact.is_some() {
+        retention::prune(&dir, config.retention);
+    }
+    outcome.artifact
+}
+
 /// Record one panic report, unless this thread is already inside a capture.
 fn capture_panic(config: &CrashConfig, message: &str, location: Option<&str>) -> Option<PathBuf> {
     let _guard = ReentryGuard::enter()?;
@@ -304,8 +409,11 @@ pub fn record_report(
         return None;
     }
     // Only create the directory when something will be written there.
-    let dir_ready = (config.write_file || config.native_capture == NativeCapture::Auto)
-        && std::fs::create_dir_all(&config.crash_dir).is_ok();
+    let dir = if config.write_file || config.native_capture == NativeCapture::Auto {
+        resolve_crash_dir(config)
+    } else {
+        None
+    };
     #[cfg(test)]
     if FAIL_NEXT_WRITE.swap(false, Ordering::SeqCst) {
         panic!("injected report writer failure");
@@ -315,22 +423,31 @@ pub fn record_report(
         .map(|d| d.as_secs())
         .unwrap_or(0);
     let kind = sanitize_kind(kind);
+    // Known secrets first, on the raw text, so truncation cannot leave half of one behind.
+    let secrets = config.redact_values.as_slice();
+    let message = redact_known(message, secrets);
+    let backtrace = redact_known(backtrace, secrets);
+    let thread = redact_known(thread, secrets);
+    let location = location.map(|l| redact_known(l, secrets));
     let mut report = CrashReport::redacted(
         RawCrash {
             kind: &kind,
             app_name: &config.app_name,
             app_version: &config.app_version,
             build: config.build.as_deref(),
-            thread,
-            location,
-            message,
-            backtrace,
+            thread: &thread,
+            location: location.as_deref(),
+            message: &message,
+            backtrace: &backtrace,
             process_kind: config.process_kind.map(ProcessKind::as_str),
         },
         stamp,
     );
-    if dir_ready && config.native_capture == NativeCapture::Auto {
-        let outcome = native::capture_detailed(&config.crash_dir, &kind, stamp);
+    if config.native_capture == NativeCapture::Auto {
+        let outcome = dir
+            .as_deref()
+            .map(|d| native::capture_detailed(d, &kind, stamp, secrets))
+            .unwrap_or_default();
         if let Some(path) = outcome.artifact {
             if let Some(name) = path.file_name() {
                 report
@@ -340,16 +457,16 @@ pub fn record_report(
         }
         report.native_capture_note = outcome.note;
     }
-    let value = report.to_scrubbed_value();
+    let mut value = report.to_scrubbed_value();
+    redact_known_value(&mut value, secrets);
     // File first: under `panic = "abort"` a panicking sink aborts the process, and the file record
     // must already be on disk by then. A failed file never skips the sink.
-    let written = if config.write_file && dir_ready {
-        let path = config
-            .crash_dir
-            .join(format!("crash_{kind}_{stamp}_{}.json", std::process::id()));
-        persist_report(config, &path, &value)
-    } else {
-        None
+    let written = match (&dir, config.write_file) {
+        (Some(dir), true) => {
+            let path = dir.join(format!("crash_{kind}_{stamp}_{}.json", std::process::id()));
+            persist_report(config, dir, &path, &value)
+        }
+        _ => None,
     };
     if let Some(sink) = &config.sink {
         run_sink(sink, value);
@@ -358,7 +475,12 @@ pub fn record_report(
 }
 
 /// Write the report file atomically and prune old reports.
-fn persist_report(config: &CrashConfig, path: &Path, value: &serde_json::Value) -> Option<PathBuf> {
+fn persist_report(
+    config: &CrashConfig,
+    dir: &Path,
+    path: &Path,
+    value: &serde_json::Value,
+) -> Option<PathBuf> {
     let bytes = serde_json::to_vec_pretty(value).ok()?;
     // Owner-only and write-then-rename: a crash while writing never leaves a truncated report
     // that the next launch would mis-parse, and no other local user can read the report.
@@ -367,7 +489,7 @@ fn persist_report(config: &CrashConfig, path: &Path, value: &serde_json::Value) 
         ..rightkit_fs::AtomicWriteOptions::default()
     };
     rightkit_fs::atomic_write_with_options(path, options, |file| file.write_all(&bytes)).ok()?;
-    retention::prune(&config.crash_dir, config.retention);
+    retention::prune(dir, config.retention);
     Some(path.to_path_buf())
 }
 
@@ -666,5 +788,143 @@ mod tests {
         let value: serde_json::Value =
             serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap();
         assert!(value.get("process_kind").is_none());
+    }
+
+    const KEY_A: &str = "zq-live-4F9x7TnoPatternMatches";
+    const KEY_B: &str = "db-key-0xFEEDFACE-1234";
+
+    #[test]
+    fn known_secrets_are_scrubbed_from_every_field_file_and_sink() {
+        let _lock = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
+        let dir = temp_dir("secrets");
+        let received = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let seen = Arc::clone(&received);
+        let config = CrashConfig::new("App", "1", &dir)
+            .redact_values(vec![KEY_A.into(), String::new(), KEY_B.into()])
+            .with_sink(move |value| seen.lock().unwrap().push(value));
+        assert!(
+            !format!("{config:?}").contains(KEY_A),
+            "Debug must not print secrets"
+        );
+        let path = record_report(
+            &config,
+            "panic",
+            &format!("auth failed with {KEY_A} and {KEY_B}"),
+            Some(&format!("src/{KEY_B}.rs:1:1")),
+            &format!("worker-{KEY_A}"),
+            &format!("frame key={KEY_A}\nframe db={KEY_B}"),
+        )
+        .expect("report");
+        let text = std::fs::read_to_string(&path).unwrap();
+        assert!(!text.contains(KEY_A) && !text.contains(KEY_B), "{text}");
+        assert!(text.contains("[redacted]"));
+        let sunk = received.lock().unwrap();
+        let sunk = serde_json::to_string(&sunk[0]).unwrap();
+        assert!(!sunk.contains(KEY_A) && !sunk.contains(KEY_B), "{sunk}");
+
+        // Common key formats are scrubbed with no configuration at all.
+        let plain = CrashConfig::new("App", "1", &dir);
+        let path = record_report(
+            &plain,
+            "panic",
+            "aws AKIAIOSFODNN7EXAMPLE hex 0123456789abcdef0123456789abcdef01234567 \
+             token sk-ant-api03-abcdefghijklmnopqrstuvwxyz",
+            None,
+            "t",
+            "",
+        )
+        .expect("report");
+        let text = std::fs::read_to_string(&path).unwrap();
+        for raw in [
+            "AKIAIOSFODNN7EXAMPLE",
+            "0123456789abcdef0123456789abcdef01234567",
+            "sk-ant-api03-abcdefghijklmnopqrstuvwxyz",
+        ] {
+            assert!(!text.contains(raw), "{raw} leaked: {text}");
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn an_unusable_crash_dir_falls_back_to_a_private_temp_folder() {
+        let _lock = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
+        let base = temp_dir("fallback");
+        std::fs::create_dir_all(&base).unwrap();
+        // A regular file where the parent directory should be: crash_dir cannot be created.
+        let blocker = base.join("not-a-dir");
+        std::fs::write(&blocker, b"x").unwrap();
+        let app = format!("RkCrashFallbackTest{}", std::process::id());
+        let config = CrashConfig::new(&app, "1", blocker.join("crash"));
+        let fallback = fallback_crash_dir(&app);
+        let _ = std::fs::remove_dir_all(&fallback);
+
+        let path = record_report(&config, "panic", "boom", None, "t", "").expect("fallback report");
+        assert_eq!(path.parent(), Some(fallback.as_path()));
+        assert!(!blocker.join("crash").exists());
+        let value: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+        assert_eq!(value["message"], "boom");
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mode = std::fs::metadata(&fallback).unwrap().permissions().mode() & 0o777;
+            assert_eq!(mode, 0o700, "the fallback folder is owner-only");
+        }
+        assert_eq!(crate::list_pending(&fallback).len(), 1);
+        let _ = std::fs::remove_dir_all(&fallback);
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn a_usable_crash_dir_is_not_replaced_by_the_fallback() {
+        let _lock = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
+        let dir = temp_dir("no-fallback");
+        let app = format!("RkCrashNoFallbackTest{}", std::process::id());
+        let config = CrashConfig::new(&app, "1", &dir);
+        let path = record_report(&config, "panic", "boom", None, "t", "").expect("report");
+        assert_eq!(path.parent(), Some(dir.as_path()));
+        assert!(!fallback_crash_dir(&app).exists());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn child_capture_refuses_pid_zero_and_respects_the_recording_switch() {
+        let _lock = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
+        let dir = temp_dir("child-zero");
+        let config = CrashConfig::new("App", "1", &dir);
+        assert!(capture_native_for_pid(&config, "hang", 0).is_none());
+        set_recording_enabled(false);
+        assert!(capture_native_for_pid(&config, "hang", 1234).is_none());
+        set_recording_enabled(true);
+        assert!(
+            !dir.exists(),
+            "nothing is created when the capture is refused"
+        );
+    }
+
+    /// Environment-dependent: `sample` may be refused for a child under some sandboxes, so a
+    /// `None` is tolerated; a kept sample must name the child and be scrubbed of known secrets.
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn a_named_child_is_sampled_through_the_scrubbing_path_on_macos() {
+        let _lock = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
+        let dir = temp_dir("child-sample");
+        let config = CrashConfig::new("App", "1", &dir).redact_values(vec!["sleep".into()]);
+        let mut child = std::process::Command::new("/bin/sleep")
+            .arg("8")
+            .spawn()
+            .expect("spawn sleep");
+        let pid = child.id();
+        let sample = capture_native_for_pid(&config, "helper hang", pid);
+        let _ = child.kill();
+        let _ = child.wait();
+        if let Some(path) = sample {
+            let name = path.file_name().unwrap().to_string_lossy().into_owned();
+            assert!(name.starts_with("sample_helperhang_"), "{name}");
+            assert!(name.ends_with(&format!("_{pid}.txt")), "{name}");
+            let text = std::fs::read_to_string(&path).unwrap();
+            assert!(!text.contains("sleep"), "known secret survived: {text}");
+        }
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

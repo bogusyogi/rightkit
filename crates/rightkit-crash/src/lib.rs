@@ -28,8 +28,9 @@ pub use archive::create_zip;
 #[cfg(feature = "support-bundle")]
 pub use bundle::{build_support_bundle, BundleManifest, SupportBundleOptions};
 pub use hook::{
-    install_panic_hook, install_process_hook, record_helper_exit, record_report, recording_enabled,
-    set_recording_enabled, CrashConfig, ProcessKind,
+    capture_native_for_pid, fallback_crash_dir, install_panic_hook, install_process_hook,
+    record_helper_exit, record_report, recording_enabled, set_recording_enabled, CrashConfig,
+    ProcessKind,
 };
 pub use native::{capture_native, set_dump_helper, NativeCapture, DEFAULT_DUMP_HELPER};
 pub use pending::{enqueue_pending, list_pending, EnqueueSummary, CRASH_EVENT_TYPE};

@@ -46,6 +46,8 @@ fn main() {
 `capture_native(dir, kind)` takes the same native capture on demand, for hang, UI-stall or
 sidecar-crash paths that are not panics, and returns the artifact path.
 
+`capture_native_for_pid(&config, kind, pid)` does the same for a child process the parent names (call it while the helper is still alive, before killing it). Known app secrets set with `CrashConfig::redact_values` are removed from reports and from the macOS sample text. When `crash_dir` is unusable, reports go to the private folder at `fallback_crash_dir(app_name)` in the OS temp directory; list it with `list_pending`.
+
 ### What a native artifact contains, and what is scrubbed
 
 - **macOS sample** (`sample_<kind>_<stamp>_<pid>.txt`): the call stacks and loaded binary image paths of the process, as text. Image paths include the user's home folder name, so the text is scrubbed (home folder names, emails, credentials) before it can be bundled. `sample` writes to a hidden, owner-only raw file (`.sample_raw_<kind>_<stamp>_<pid>.raw`) that the support bundle, `prune` retention and `list_pending` never list. The scrubbed bytes are then published atomically, owner-only, under the `sample_*.txt` name, and only then does the capture return the path and the report name the file in `native_artifacts`. The raw file is deleted in every case.
