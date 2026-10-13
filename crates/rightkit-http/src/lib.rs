@@ -48,7 +48,10 @@ pub use retry::{parse_retry_after, RetryPolicy};
 pub use secret::{MemorySecretStore, Secret, SecretError, SecretStore};
 pub use sse::{SseDecoder, SseEvent, SseReader};
 #[cfg(feature = "untrusted")]
-pub use untrusted::{wrap_untrusted_web_text, wrap_untrusted_web_text_with, WrapOptions};
+pub use untrusted::{
+    wrap_untrusted_web_text, wrap_untrusted_web_text_coderight, wrap_untrusted_web_text_with,
+    WrapOptions,
+};
 
 #[cfg(feature = "async")]
 pub use async_client::{AsyncClient, AsyncStreamResponse, BodyStream, SseStream};
