@@ -17,6 +17,18 @@ pub trait SecureStore<T> {
     fn get(&self) -> Result<Option<T>, String>;
     fn set(&self, value: &T) -> Result<(), String>;
     fn delete(&self) -> Result<(), String>;
+
+    /// Stores `value` only when nothing is stored yet; returns whether it did.
+    /// Stores with a native create-new primitive (O_EXCL, keyring add) should
+    /// override this so creation is atomic across processes. The default is
+    /// check-then-set and relies on the caller's cross-process lock.
+    fn set_if_absent(&self, value: &T) -> Result<bool, String> {
+        if self.get()?.is_some() {
+            return Ok(false);
+        }
+        self.set(value)?;
+        Ok(true)
+    }
 }
 
 /// Post-commit notifications are deliberately infallible: storage has already
@@ -116,6 +128,7 @@ where
 pub struct DeviceService<S> {
     store: S,
     creation: Mutex<()>,
+    lock_path: Option<std::path::PathBuf>,
 }
 
 impl<S> DeviceService<S> {
@@ -123,6 +136,16 @@ impl<S> DeviceService<S> {
         Self {
             store,
             creation: Mutex::new(()),
+            lock_path: None,
+        }
+    }
+
+    /// Like `new`, and also serializes creation across processes (window +
+    /// engine, repeated launches) with an exclusive advisory lock on `lock_path`.
+    pub fn with_lock_file(store: S, lock_path: impl Into<std::path::PathBuf>) -> Self {
+        Self {
+            lock_path: Some(lock_path.into()),
+            ..Self::new(store)
         }
     }
 }
@@ -152,14 +175,38 @@ where
             .creation
             .lock()
             .map_err(|_| StorageError::new(StorageOperation::DeviceLock, "device lock poisoned"))?;
+        let _file_lock = match &self.lock_path {
+            Some(path) => Some(
+                std::fs::OpenOptions::new()
+                    .create(true)
+                    .truncate(false)
+                    .write(true)
+                    .open(path)
+                    .and_then(|file| file.lock().map(|()| file))
+                    .map_err(|error| {
+                        StorageError::new(StorageOperation::DeviceLock, error.to_string())
+                    })?,
+            ),
+            None => None,
+        };
         if let Some(existing) = self.get()? {
             return Ok(existing);
         }
         let created = generate_device_id(fill_random)?;
-        self.store
-            .set(&created)
+        let stored = self
+            .store
+            .set_if_absent(&created)
             .map_err(|error| StorageError::new(StorageOperation::Set, error))?;
-        Ok(created)
+        if stored {
+            return Ok(created);
+        }
+        // Another creator won: adopt its ID rather than overwrite it.
+        self.get()?.ok_or_else(|| {
+            StorageError::new(
+                StorageOperation::Get,
+                "device id vanished after create race",
+            )
+        })
     }
 }
 
@@ -528,5 +575,62 @@ mod tests {
                 VerifyError::Expired { .. }
             ))
         ));
+    }
+
+    struct FileStore(std::path::PathBuf);
+
+    impl SecureStore<String> for FileStore {
+        fn get(&self) -> Result<Option<String>, String> {
+            match std::fs::read_to_string(&self.0) {
+                Ok(text) if text.is_empty() => Ok(None),
+                Ok(text) => Ok(Some(text)),
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+                Err(error) => Err(error.to_string()),
+            }
+        }
+
+        fn set(&self, value: &String) -> Result<(), String> {
+            // Widen the check-then-set window so an unlocked race is visible.
+            std::thread::sleep(std::time::Duration::from_millis(20));
+            std::fs::write(&self.0, value).map_err(|error| error.to_string())
+        }
+
+        fn delete(&self) -> Result<(), String> {
+            std::fs::remove_file(&self.0).map_err(|error| error.to_string())
+        }
+    }
+
+    #[test]
+    fn concurrent_creators_across_service_instances_agree_on_one_device_id() {
+        let dir = std::env::temp_dir().join(
+            format!(
+                "rightkit-tauri-device-{}-{:?}",
+                std::process::id(),
+                std::time::SystemTime::now()
+            )
+            .replace([' ', ':', '{', '}', '"'], "_"),
+        );
+        std::fs::create_dir_all(&dir).unwrap();
+        let (id_path, lock_path) = (dir.join("device-id"), dir.join("device-id.lock"));
+
+        // Separate services stand in for separate processes: each has its own
+        // in-process mutex, so only the file lock can serialize them.
+        let ids: Vec<String> = (0..8)
+            .map(|_| {
+                let (id_path, lock_path) = (id_path.clone(), lock_path.clone());
+                std::thread::spawn(move || {
+                    DeviceService::with_lock_file(FileStore(id_path), lock_path)
+                        .get_or_create()
+                        .unwrap()
+                })
+            })
+            .collect::<Vec<_>>()
+            .into_iter()
+            .map(|handle| handle.join().unwrap())
+            .collect();
+
+        assert!(ids.windows(2).all(|pair| pair[0] == pair[1]), "{ids:?}");
+        assert_eq!(std::fs::read_to_string(&id_path).unwrap(), ids[0]);
+        std::fs::remove_dir_all(&dir).ok();
     }
 }

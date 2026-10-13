@@ -2,6 +2,11 @@
 
 Version dates are the dates of the version-bump commits. Publication dates are not recorded in git.
 
+## Unreleased
+
+Fixed:
+- Device-ID creation is now create-only across processes: `DeviceService::with_lock_file` serializes creators with an exclusive file lock, and `SecureStore::set_if_absent` (default check-then-set; override with an atomic primitive) makes a losing creator adopt the winner's ID. `DeviceService::new` and existing stores are unchanged.
+
 ## 0.1.3
 
 - Requires `rightkit-logs` 0.2.2 (tracing feature release); no API change.
