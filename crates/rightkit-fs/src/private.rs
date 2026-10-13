@@ -509,9 +509,11 @@ pub(crate) fn current_process_sid_string(path: &Path) -> crate::error::Result<St
     }
 }
 
-/// Read or repair only through this no-reparse handle. `MAXIMUM_ALLOWED` is intentional: Windows
-/// suppresses inherited-ACE propagation for `SetSecurityInfo` when the handle has this access,
-/// so narrowing one directory cannot rewrite unknown descendants.
+/// Read or repair only through this no-reparse handle. Repair asks for `READ_CONTROL | WRITE_DAC`
+/// and shares read, write and delete, so hardening a file another handle holds open (SQLite)
+/// neither fails with a sharing violation nor releases that handle's locks. (An earlier
+/// `MAXIMUM_ALLOWED` open added DELETE and broke that; its claimed inherited-ACE propagation
+/// effect was never verified.)
 #[cfg(windows)]
 fn open_owner_only_handle(path: &Path, repair: bool) -> crate::error::Result<std::fs::File> {
     use std::ffi::c_void;
@@ -542,7 +544,11 @@ fn open_owner_only_handle(path: &Path, repair: bool) -> crate::error::Result<std
         ) -> i32;
     }
 
-    const MAXIMUM_ALLOWED: u32 = 0x0200_0000;
+    // Repair replaces only the DACL (ownership is never rewritten), so READ_CONTROL | WRITE_DAC is
+    // enough; MAXIMUM_ALLOWED would add DELETE and conflict with a holder (SQLite) that did not
+    // share delete. Share read, write and delete so this handle never blocks or is blocked.
+    const WRITE_DAC: u32 = 0x0004_0000;
+    const FILE_SHARE_READ_WRITE_DELETE: u32 = 0x7;
     const READ_CONTROL: u32 = 0x0002_0000;
     const FILE_READ_ATTRIBUTES: u32 = 0x80;
     const OPEN_EXISTING: u32 = 3;
@@ -560,11 +566,11 @@ fn open_owner_only_handle(path: &Path, repair: bool) -> crate::error::Result<std
         CreateFileW(
             wide.as_ptr(),
             if repair {
-                MAXIMUM_ALLOWED
+                READ_CONTROL | WRITE_DAC | FILE_READ_ATTRIBUTES
             } else {
                 READ_CONTROL | FILE_READ_ATTRIBUTES
             },
-            3,
+            FILE_SHARE_READ_WRITE_DELETE,
             std::ptr::null(),
             OPEN_EXISTING,
             FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT,
@@ -1141,7 +1147,7 @@ fn create_dir_owner_only(path: &Path) -> std::io::Result<()> {
     }
     #[repr(C)]
     struct IoStatusBlock {
-        status: i32,
+        status: usize, // NTSTATUS / pointer union; matches the other NtCreateFile declarations.
         information: usize,
     }
     #[link(name = "kernel32")]
@@ -1169,7 +1175,7 @@ fn create_dir_owner_only(path: &Path) -> std::io::Result<()> {
             access: u32,
             attributes: *mut ObjectAttributes,
             status: *mut IoStatusBlock,
-            allocation_size: *const c_void,
+            allocation_size: *const i64,
             file_attributes: u32,
             share: u32,
             disposition: u32,

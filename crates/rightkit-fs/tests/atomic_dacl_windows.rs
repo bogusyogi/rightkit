@@ -359,3 +359,25 @@ fn administrators_owned_object_is_repaired_when_elevated() {
     );
     assert!(rightkit_fs::private::is_owner_only(&file).unwrap());
 }
+
+/// Hardening a file that another handle holds open without `FILE_SHARE_DELETE` (what SQLite does
+/// to a live database) must succeed: the repair handle asks only for DACL access and shares
+/// read, write and delete, so neither side hits a sharing violation.
+#[test]
+fn restrict_owner_only_succeeds_while_another_handle_holds_the_file_without_delete_share() {
+    use std::os::windows::fs::OpenOptionsExt;
+
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("live.sqlite");
+    let held = std::fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create_new(true)
+        .share_mode(0x3) // FILE_SHARE_READ | FILE_SHARE_WRITE, no FILE_SHARE_DELETE
+        .open(&path)
+        .unwrap();
+    rightkit_fs::private::restrict_owner_only(&path)
+        .expect("hardening must not hit a sharing violation on a held file");
+    assert!(rightkit_fs::private::is_owner_only(&path).unwrap());
+    drop(held);
+}

@@ -56,6 +56,14 @@ impl AppendOptions {
             ..Self::default()
         }
     }
+
+    /// Set whether the append flushes (default `true`). The struct is `#[non_exhaustive]`, so
+    /// callers outside this crate choose it here instead of with a struct expression.
+    #[must_use]
+    pub fn durable(mut self, durable: bool) -> Self {
+        self.durable = durable;
+        self
+    }
 }
 
 /// Append `bytes` to `path`, creating the file when it is missing. Returns the [`SyncLevel`] the

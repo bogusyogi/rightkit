@@ -19,10 +19,7 @@ fn creates_then_appends_in_order_and_reports_the_sync_level() {
 fn non_durable_append_reports_no_sync_level() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("log");
-    let options = AppendOptions {
-        durable: false,
-        ..AppendOptions::default()
-    };
+    let options = AppendOptions::default().durable(false);
     assert_eq!(append_record(&path, b"x", options).unwrap(), None);
     assert_eq!(std::fs::read(&path).unwrap(), b"x");
 }
@@ -82,10 +79,7 @@ fn a_directory_a_generated_temp_name_and_a_missing_parent_are_refused() {
 fn concurrent_appenders_never_split_a_record() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("shared");
-    let options = AppendOptions {
-        durable: false,
-        ..AppendOptions::default()
-    };
+    let options = AppendOptions::default().durable(false);
     std::thread::scope(|scope| {
         for t in 0..8 {
             let path = &path;
