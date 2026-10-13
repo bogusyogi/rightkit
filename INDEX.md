@@ -8,7 +8,7 @@ Version columns: **Source** is the manifest version. **Published** is the latest
 
 Flags: `ok` means source, published and staged agree. `staged, not yet published` is in-flight work. `private` has no registry record by design. `MISMATCH` needs a release decision.
 
-Flagged mismatches: 44.
+Flagged mismatches: 45.
 
 The build broker is the Rust RustRight product (`bogusyogi/rustright`, binary `rustright`, alias `rightkit`); it is not part of this inventory. `packages/build-control-policy` keeps the agent permission hooks.
 
@@ -41,7 +41,7 @@ The build broker is the Rust RustRight product (`bogusyogi/rustright`, binary `r
 | `rightkit-license` | crates.io | 0.2.0 | 0.1.3 | 0.1.3 | **MISMATCH staged 0.1.3 != source 0.2.0** | licensing | Right Suite license enforcement primitive — offline verification of server-signed Ed25519 entitlement tokens. The Rust (security) half of @rightkit/license. |
 | `rightkit-llm` | crates.io | 0.2.0 | 0.1.0 | 0.2.0 | staged, not yet published | llm-providers | Brand-neutral BYOK LLM clients: Anthropic Messages and OpenAI-compatible chat, streaming, tool use, route failover with circuit breaker, pricing, and prompt-cache discipline, plus an opt-in provider for installed command-line assistants. |
 | `rightkit-logs` | crates.io | 0.2.2 | 0.2.1 | 0.2.1 | **MISMATCH staged 0.2.1 != source 0.2.2** | structured-logging | Privacy-safe local JSONL logging and diagnostics for Right Suite desktop apps. |
-| `rightkit-mcp` | crates.io | 0.5.3 | 0.5.3 | 0.5.3 | ok | mcp | Shared MCP client (stdio + streamable HTTP, trust gate, pool, OAuth hook) and server host (stdio + loopback HTTP, per-tool admission) for Right Suite apps. |
+| `rightkit-mcp` | crates.io | 0.6.0 | 0.5.3 | 0.5.3 | **MISMATCH staged 0.5.3 != source 0.6.0** | mcp | Shared MCP client (stdio + streamable HTTP, trust gate, pool, OAuth hook) and server host (stdio + loopback HTTP, per-tool admission) for Right Suite apps. |
 | `rightkit-media` | crates.io | 0.2.6 | 0.2.5 | 0.2.5 | **MISMATCH staged 0.2.5 != source 0.2.6** | media-pipelines | Verified FFmpeg artifact and lifecycle primitives for Right Suite media pipelines. |
 | `rightkit-models` | crates.io | 0.3.0 | 0.2.8 | 0.2.8 | **MISMATCH staged 0.2.8 != source 0.3.0** | model-installation | Shared local-model manifest and installer for Right Suite apps: revisions and quantizations, resumable verified downloads, archive extraction, atomic activation, rollback, and hardware fit. |
 | `rightkit-oauth` | crates.io | 0.3.1 | 0.3.1 | 0.3.1 | ok | oauth-sign-in | Shared OAuth 2.0 sign-in for Right Suite apps: loopback PKCE, RFC 8628 device flow, provider presets, encrypted daemon persistence, and stored, refreshing credentials. |
