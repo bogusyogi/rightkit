@@ -159,6 +159,7 @@ impl ClientConfig {
     }
 
     /// The suite this configuration connects through, per the rules on [`ClientConfig`].
+    #[allow(deprecated)] // kept on the legacy switch until hosts adopt `mode::roots`
     pub fn resolve_suite(&self) -> Result<Suite, SuiteError> {
         match (&self.suite, self.ignore_env_overrides) {
             (Some(suite), true) if suite.env_derived() => Err(SuiteError::Insecure(format!(

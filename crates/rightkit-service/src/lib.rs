@@ -49,6 +49,7 @@ mod client;
 mod discovery;
 mod error;
 mod host_identity;
+pub mod mode;
 mod peer;
 mod record;
 mod server;

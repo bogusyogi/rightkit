@@ -29,6 +29,13 @@ windows = { version = "0.62", features = [
   "Win32_System_Threading",
 ] }
 
+[features]
+default = []
+# Compiles the test-mode capability (`mode::Mode::Test`, the override selectors and the
+# `RIGHTKIT-TEST-MODE-COMPILED` marker). Off by default. Apps expose their own `test-mode` feature that
+# enables it, only from qa-native/dev-native; `@rightkit/release` refuses a release build that has it.
+test-mode = []
+
 [[bench]]
 name = "budget"
 harness = false

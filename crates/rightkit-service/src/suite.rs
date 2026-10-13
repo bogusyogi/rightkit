@@ -120,6 +120,17 @@ impl Suite {
     /// [`Suite::per_user_default`], otherwise [`Suite::resolve`]. A release build passes `true`,
     /// a QA build `false`; wire the flag to a cargo feature or `cfg!(debug_assertions)` in the
     /// app, not to the environment.
+    ///
+    /// **Deprecated.** This is one boolean the caller must remember to pass; nothing checks that it
+    /// did, and a build that passes `false` still contains the code that reads the override
+    /// variables. [`crate::mode::roots`] with a [`crate::mode::Mode`] from [`crate::mode::decide`]
+    /// replaces it: a release build (without the `test-mode` feature) reads no override selector at
+    /// all, and a test-capable build fails closed on a validated test root. Kept, unchanged, for
+    /// existing HeardRight and CodeRight callers.
+    #[deprecated(
+        since = "0.1.6",
+        note = "use rightkit_service::mode::{decide, roots}: release builds read no override selector, test builds fail closed on a validated TestRoot"
+    )]
     pub fn resolve_ignoring_env_overrides(ignore_env_overrides: bool) -> Result<Suite, SuiteError> {
         if ignore_env_overrides {
             Self::per_user_default()
@@ -428,6 +439,7 @@ pub(crate) fn make_private_dir(dir: &Path) -> Result<(), SuiteError> {
 }
 
 #[cfg(test)]
+#[allow(deprecated)] // exercises the deprecated legacy switch
 mod tests {
     use super::*;
 
