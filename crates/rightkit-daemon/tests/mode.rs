@@ -234,7 +234,7 @@ mod capable {
             (
                 w.fake()
                     .set(ACTIVATION, "1")
-                    .set(ROOT, format!("{}/../qa", s(&w.qa))),
+                    .set(ROOT, s(&w.qa.join("..").join("qa"))),
                 Refusal::RootNotAbsolute,
             ),
             (
@@ -244,7 +244,7 @@ mod capable {
             (
                 w.fake()
                     .set(ACTIVATION, "1")
-                    .set(ROOT, format!("{}/no-parent/qa", s(w.tmp.path()))),
+                    .set(ROOT, s(&w.tmp.path().join("no-parent").join("qa"))),
                 Refusal::RootNotDirectory,
             ),
             // A root without activation is just as partial.

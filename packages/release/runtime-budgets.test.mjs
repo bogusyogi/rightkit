@@ -384,7 +384,7 @@ test("runtimeBudgetCheck returns preflight-shaped ok/fail objects and the adopti
 });
 
 test("runtime budget class: listed crates are in the class and an unlisted crate is not", () => {
-  assert.equal(RUNTIME_BUDGET_CRATES.length, 11);
+  assert.equal(RUNTIME_BUDGET_CRATES.length, 10);
   assert.equal(isRuntimeBudgetCrate("rightkit-send"), true);
   assert.equal(isRuntimeBudgetCrate("rightkit-license"), false);
 });

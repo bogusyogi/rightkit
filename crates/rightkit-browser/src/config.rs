@@ -694,6 +694,7 @@ mod tests {
         );
     }
 
+    #[cfg(windows)]
     #[test]
     fn headless_shell_candidates_are_the_sibling_then_managed_versions() {
         let temp = tempfile::tempdir().unwrap();

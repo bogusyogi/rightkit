@@ -2,7 +2,7 @@
 //! current-user-only socket, discovery through service.json.
 
 use rightkit_daemon::*;
-use serde_json::{json, Value};
+use serde_json::json;
 use std::io::{BufRead, BufReader};
 use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};
@@ -262,7 +262,6 @@ fn app_data_root_fails_closed_never_cwd_relative() {
         let s = Suite::per_run_temp("e2e").unwrap();
         kept = s.root().to_path_buf();
         assert!(kept.is_absolute() && kept.exists());
-        let _: Value = json!(null);
     }
     assert!(!kept.exists());
 }

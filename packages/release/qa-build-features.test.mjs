@@ -128,7 +128,7 @@ test("buildFeatureIssues reads the declared manifest, not src-tauri/Cargo.toml, 
   writeFileSync(join(root, "src-tauri", "Cargo.toml"), manifest('default = ["test-mode"]\ntest-mode = []', 'tauri = "2"'));
   writeFileSync(join(root, "engine", "Cargo.toml"), manifest('default = []', 'tauri = "2"'));
   assert.deepEqual(buildFeatureIssues({ root, commands: [], cargoManifest: "engine/Cargo.toml" }), []);
-  assert.match(buildFeatureIssues({ root, commands: [] }).join("\n"), /src-tauri\/Cargo.toml: default feature set reaches `test-mode`/);
+  assert.match(buildFeatureIssues({ root, commands: [] }).join("\n"), /src-tauri[\\/]Cargo\.toml: default feature set reaches `test-mode`/);
 });
 
 test("resolveCargoManifestPath order: cargoManifest, releaseSwitches.manifest, src-tauri/Cargo.toml, Cargo.toml", () => {

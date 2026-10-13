@@ -7,7 +7,7 @@
 //   * `[package.metadata.rightkit] continuous = false` plus a one-line `continuous_reason`.
 // A crate with neither is refused. A crate declared `continuous = false` is refused when its non-test
 // `src` matches a continuous-work pattern (CONTINUOUS_PATTERNS) that the reason does not name, so a
-// false positive is a reviewed decision, never a silent one. The 11 crates in RUNTIME_BUDGET_CRATES
+// false positive is a reviewed decision, never a silent one. The 10 crates in RUNTIME_BUDGET_CRATES
 // can never declare `continuous = false`.
 //
 // runtime-budget.json (schema 1):
