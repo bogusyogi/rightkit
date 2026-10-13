@@ -6,6 +6,7 @@ Version bump for the feature split (7775d90f), which changed what `default-featu
 
 - **Breaking.** Before the split, a dependent that wrote `rightkit-jobs = { version = "0.2", default-features = false }` still got the persistent job layer (`JobStore`, `Runner`, `StagedPool`, `StoreConfig`, the `rusqlite`/`db` re-exports). The layer now sits behind the `store` feature, so that dependency loses those items and fails to compile. Migration: add `features = ["store"]` (`rightkit-jobs = { version = "0.3.0", default-features = false, features = ["store"] }`), or drop `default-features = false` to keep the default set (`store`, `service`, `supervisor`).
 - Dependents that use the default features are unaffected.
+- Additive: `ExitObserver` callback and `SupervisorConfig::with_exit_observer`; `EngineSupervisor` reports abnormal engine exits (not shutdown) with the restart decision and count. Off-by-default `crash` feature adds `CrashExitObserver`, forwarding to `rightkit_crash::record_helper_exit`.
 
 ## Unreleased (a paused job stays paused; an unlistable journal fails the open)
 
