@@ -1944,6 +1944,106 @@ pub(crate) fn spawn_with_pipe_pair(
     })
 }
 
+const FILE_SHARE_READ: u32 = 0x1;
+const FILE_ATTRIBUTE_REPARSE_POINT: u32 = 0x400;
+const FILE_FLAG_OPEN_REPARSE_POINT: u32 = 0x0020_0000;
+
+/// True when `path` equals or lies under `root` (component-wise, case-insensitive).
+fn path_within(path: &Path, root: &Path) -> bool {
+    let key = lexical_path_key(path);
+    let root = lexical_path_key(root);
+    key == root || key.starts_with(&format!("{root}\\"))
+}
+
+fn is_reparse(metadata: &std::fs::Metadata) -> bool {
+    use std::os::windows::fs::MetadataExt;
+    metadata.file_type().is_symlink()
+        || metadata.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0
+}
+
+/// Check that `path` names a plain file directly inside a writable grant and return the
+/// parent-canonicalized target. The child inherits the opened handle, so an unchecked path
+/// would let it append to any file the parent can write.
+fn validate_stdio_path(path: &Path, grants: &[(PathBuf, bool)]) -> Result<PathBuf, SandboxError> {
+    use std::path::Component;
+    let bad = |why: &str| {
+        SandboxError::InvalidPolicy(format!("stdio file {} refused: {why}", path.display()))
+    };
+    if !path.is_absolute() {
+        return Err(bad("path must be absolute"));
+    }
+    for component in path.components() {
+        match component {
+            Component::ParentDir | Component::CurDir => {
+                return Err(bad("`.` and `..` components are not allowed"))
+            }
+            Component::Prefix(prefix) => {
+                use std::path::Prefix;
+                if !matches!(prefix.kind(), Prefix::Disk(_) | Prefix::UNC(..)) {
+                    return Err(bad("verbatim and device paths are not allowed"));
+                }
+            }
+            _ => {}
+        }
+    }
+    let name = path.file_name().ok_or_else(|| bad("no file name"))?;
+    let text = name.to_string_lossy();
+    if text.contains([':', '/', '\\', '*', '?', '"', '<', '>', '|'])
+        || text.ends_with('.')
+        || text.ends_with(' ')
+    {
+        return Err(bad("file name is not a plain name"));
+    }
+    let stem = text.split('.').next().unwrap_or("").to_ascii_uppercase();
+    let reserved = matches!(
+        stem.as_str(),
+        "CON" | "PRN" | "AUX" | "NUL" | "CONIN$" | "CONOUT$"
+    ) || ((stem.starts_with("COM") || stem.starts_with("LPT"))
+        && stem.len() == 4
+        && stem.as_bytes()[3].is_ascii_digit());
+    if reserved {
+        return Err(bad("reserved device name"));
+    }
+    let parent = path.parent().ok_or_else(|| bad("no parent directory"))?;
+    let parent = std::fs::canonicalize(parent)
+        .map(|p| plain_path(&p))
+        .map_err(|e| bad(&format!("parent directory does not resolve: {e}")))?;
+    if !grants
+        .iter()
+        .any(|(root, writable)| *writable && path_within(&parent, root))
+    {
+        return Err(bad("outside the policy's write_paths"));
+    }
+    let target = parent.join(name);
+    match std::fs::symlink_metadata(&target) {
+        Ok(metadata) if is_reparse(&metadata) => Err(bad("target is a symlink or reparse point")),
+        Ok(metadata) if !metadata.is_file() => Err(bad("target is not a regular file")),
+        Ok(_) => Ok(target),
+        Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(target),
+        Err(e) => Err(e.into()),
+    }
+}
+
+/// Validate and open the diagnostic stdio file: append, no other writer, never following a
+/// reparse point.
+fn open_stdio_file(path: &Path, grants: &[(PathBuf, bool)]) -> Result<std::fs::File, SandboxError> {
+    use std::os::windows::fs::OpenOptionsExt;
+    let target = validate_stdio_path(path, grants)?;
+    let file = std::fs::OpenOptions::new()
+        .append(true)
+        .create(true)
+        .share_mode(FILE_SHARE_READ)
+        .custom_flags(FILE_FLAG_OPEN_REPARSE_POINT)
+        .open(&target)?;
+    if is_reparse(&file.metadata()?) {
+        return Err(SandboxError::InvalidPolicy(format!(
+            "stdio file {} refused: target is a symlink or reparse point",
+            path.display()
+        )));
+    }
+    Ok(file)
+}
+
 fn spawn_inner(
     policy: &SandboxPolicy,
     command: &SandboxCommand,
@@ -2015,9 +2115,21 @@ fn spawn_inner(
         // append-mode diagnostic file the caller named) so this path has no reader threads
         // whose ownership could outlive cancellation. The parent opens the file, so the
         // child needs no ACL on it; the handle rides the explicit inherit list.
+        // The diagnostic file is validated against the policy's write grants and opened once
+        // (no other writer may share it); stdout and stderr get duplicates of that handle.
+        let sink_file = match stdio_file {
+            Some(path) => match open_stdio_file(path, &grants) {
+                Ok(file) => Some(file),
+                Err(error) => {
+                    close_raw(stdin);
+                    return Err(error);
+                }
+            },
+            None => None,
+        };
         let open_sink = || -> io::Result<RawHandle> {
-            let file = match stdio_file {
-                Some(path) => std::fs::OpenOptions::new().append(true).open(path)?,
+            let file = match &sink_file {
+                Some(file) => file.try_clone()?,
                 None => std::fs::OpenOptions::new().write(true).open("NUL")?,
             };
             Ok(file.into_raw_handle())
@@ -2312,6 +2424,90 @@ mod tests {
              on CI (GITHUB_ACTIONS=true) or with RIGHTKIT_TEST_REAL_USER_STORES=1"
         );
         false
+    }
+
+    fn scratch_dir(tag: &str) -> PathBuf {
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let dir =
+            std::env::temp_dir().join(format!("rk-stdio-{tag}-{}-{nanos}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::canonicalize(&dir).map(|p| plain_path(&p)).unwrap()
+    }
+
+    #[test]
+    fn stdio_file_inside_write_grant_is_accepted() {
+        let root = scratch_dir("ok");
+        let grants = vec![(root.clone(), true)];
+        let file = open_stdio_file(&root.join("chrome-stderr.txt"), &grants).unwrap();
+        drop(file);
+        assert!(root.join("chrome-stderr.txt").exists());
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn stdio_file_outside_write_grant_is_rejected() {
+        let root = scratch_dir("in");
+        let other = scratch_dir("out");
+        let grants = vec![(root.clone(), true)];
+        assert!(open_stdio_file(&other.join("x.txt"), &grants).is_err());
+        // a read-only grant does not authorize it either
+        let read_only = vec![(other.clone(), false)];
+        assert!(open_stdio_file(&other.join("x.txt"), &read_only).is_err());
+        assert!(!other.join("x.txt").exists());
+        let _ = std::fs::remove_dir_all(&root);
+        let _ = std::fs::remove_dir_all(&other);
+    }
+
+    #[test]
+    fn stdio_file_dotdot_escape_is_rejected() {
+        let root = scratch_dir("dd");
+        let other = scratch_dir("dd-out");
+        std::fs::create_dir_all(root.join("sub")).unwrap();
+        let grants = vec![(root.clone(), true)];
+        let escape = root
+            .join("sub")
+            .join("..")
+            .join("..")
+            .join(other.file_name().unwrap())
+            .join("x.txt");
+        assert!(open_stdio_file(&escape, &grants).is_err());
+        assert!(open_stdio_file(Path::new("relative.txt"), &grants).is_err());
+        assert!(open_stdio_file(&root.join("a:stream"), &grants).is_err());
+        assert!(!other.join("x.txt").exists());
+        let _ = std::fs::remove_dir_all(&root);
+        let _ = std::fs::remove_dir_all(&other);
+    }
+
+    #[test]
+    fn stdio_file_junction_or_symlink_out_of_grant_is_rejected() {
+        let root = scratch_dir("jn");
+        let other = scratch_dir("jn-out");
+        let grants = vec![(root.clone(), true)];
+        // directory junction inside the grant pointing outside
+        let junction = root.join("link");
+        let status = std::process::Command::new("cmd")
+            .args(["/C", "mklink", "/J"])
+            .arg(&junction)
+            .arg(&other)
+            .output()
+            .unwrap();
+        assert!(status.status.success(), "mklink /J failed");
+        assert!(open_stdio_file(&junction.join("x.txt"), &grants).is_err());
+        assert!(!other.join("x.txt").exists());
+        // file symlink inside the grant pointing at an outside file (needs symlink privilege)
+        let victim = other.join("victim.txt");
+        std::fs::write(&victim, b"keep").unwrap();
+        let link = root.join("file-link.txt");
+        if std::os::windows::fs::symlink_file(&victim, &link).is_ok() {
+            assert!(open_stdio_file(&link, &grants).is_err());
+            assert_eq!(std::fs::read(&victim).unwrap(), b"keep");
+        }
+        let _ = std::fs::remove_dir(&junction);
+        let _ = std::fs::remove_dir_all(&root);
+        let _ = std::fs::remove_dir_all(&other);
     }
 
     /// A profile name in this crate's format that no grant set of another test produces.
