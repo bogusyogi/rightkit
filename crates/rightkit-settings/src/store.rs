@@ -379,6 +379,49 @@ impl<T: Serialize + DeserializeOwned + Default + Clone> Store<T> {
         .ok()
     }
 
+    /// Checks for a change committed by another store or process and tells this store's
+    /// subscribers. Cross-process change has no push signal: the backend's stamp is compared with
+    /// the one the cache was read under (as in [`Store::get`]); when it differs, the document is
+    /// re-read, the cache is replaced, and one [`Change`] naming the top-level keys whose value
+    /// differs is delivered to every subscriber, outside the lock. Call it on a timer or from a
+    /// file watcher of the app's choosing; the crate starts no thread. Returns the change (empty
+    /// when nothing differs, no event fires). Unlike `get`, a read failure is an `Err` and leaves
+    /// the cache and stamp as they were, so the next call retries. Writes made through this store
+    /// refresh the cache themselves and are not reported again.
+    pub fn poll_external(&self) -> Result<Change, Error> {
+        let change = {
+            let mut g = lock(&self.inner);
+            let stamp = self.backend.stamp()?;
+            if stamp.is_some() && stamp == g.stamp {
+                return Ok(Change { keys: Vec::new() });
+            }
+            let snapshot = self.backend.load()?;
+            let Some(snapshot) = snapshot else {
+                g.stamp = stamp;
+                return Ok(Change { keys: Vec::new() });
+            };
+            if snapshot.needs_rewrite || snapshot.version.is_some_and(|v| v != self.schema.version)
+            {
+                // A document this build must migrate or repair: `get` keeps the last value too.
+                g.stamp = stamp;
+                return Ok(Change { keys: Vec::new() });
+            }
+            let loaded = decode::<T>(
+                Some(&snapshot),
+                &self.schema,
+                self.defaults.as_ref(),
+                self.fill_optional,
+            )?;
+            let change = diff(&to_object(&g.value)?, &to_object(&loaded.value)?);
+            g.value = loaded.value;
+            g.revision = loaded.revision;
+            g.stamp = stamp;
+            change
+        };
+        self.emit(change.clone());
+        Ok(change)
+    }
+
     /// Mutate through a closure. This is a cross-process transaction: take the
     /// backend's exclusion, reload the committed settings, apply `f` to that fresh value,
     /// save atomically, release. Concurrent updates to different keys from
