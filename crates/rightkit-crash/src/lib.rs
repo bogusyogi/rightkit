@@ -22,6 +22,8 @@ mod native;
 mod pending;
 mod report;
 mod retention;
+#[cfg(feature = "window-errors")]
+mod window;
 
 #[cfg(feature = "support-bundle")]
 pub use archive::create_zip;
@@ -36,3 +38,8 @@ pub use native::{capture_native, set_dump_helper, NativeCapture, DEFAULT_DUMP_HE
 pub use pending::{enqueue_pending, list_pending, EnqueueSummary, CRASH_EVENT_TYPE};
 pub use report::{CrashReport, CRASH_SCHEMA_VERSION};
 pub use retention::{prune, Retention};
+#[cfg(feature = "window-errors")]
+pub use window::{
+    record_window_error, WindowErrorGate, WindowErrorReport, MAX_WINDOW_MESSAGE_CHARS,
+    MAX_WINDOW_STACK_BYTES,
+};

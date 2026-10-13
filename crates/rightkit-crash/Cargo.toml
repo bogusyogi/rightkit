@@ -24,6 +24,9 @@ default = ["support-bundle"]
 # User-initiated redacted support ZIP: `build_support_bundle`, `SupportBundleOptions`,
 # `BundleManifest`, `create_zip` and the `zip` dependency. Off for apps that only capture crashes.
 support-bundle = ["dep:zip"]
+# Renderer/webview error capture: `record_window_error`, `WindowErrorGate`, `WindowErrorReport`.
+# Off by default; adds no dependency.
+window-errors = []
 
 [dependencies]
 rightkit-fs = { version = "0.4.0", path = "../rightkit-fs", default-features = false, features = ["fs"] }

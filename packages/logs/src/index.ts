@@ -188,3 +188,4 @@ export function createLogsClient(config: LogsClientConfig): LogsClient {
     clear,
   };
 }
+export * from './crash.js';
