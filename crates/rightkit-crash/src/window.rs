@@ -137,7 +137,9 @@ pub fn record_window_error(
         .source
         .as_deref()
         .map(|s| truncate_chars(s.split(['?', '#']).next().unwrap_or(""), MAX_SOURCE_CHARS));
-    let config = config.clone().process_kind(ProcessKind::Window);
+    let mut config = config.clone().process_kind(ProcessKind::Window);
+    // A JS error is not a process crash: never take a native sample/minidump per renderer error.
+    config.native_capture = crate::NativeCapture::Off;
     record_report(
         &config,
         kind,
@@ -208,6 +210,24 @@ mod tests {
             1,
             "second report is rate limited"
         );
+    }
+
+    #[test]
+    fn window_error_never_captures_native() {
+        let out = Arc::new(Mutex::new(Vec::new()));
+        let mut config = config_with_sink(out.clone());
+        config.native_capture = crate::NativeCapture::Auto;
+        record_window_error(
+            &config,
+            &WindowErrorGate::default(),
+            &WindowErrorReport::default(),
+        );
+        let got = out.lock().unwrap();
+        assert_eq!(got.len(), 1);
+        assert!(got[0]["native_artifacts"]
+            .as_array()
+            .map_or(true, |a| a.is_empty()));
+        assert!(got[0]["native_capture_note"].is_null());
     }
 
     #[test]
