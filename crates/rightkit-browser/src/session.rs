@@ -694,8 +694,16 @@ impl BrowserSession {
             .map_err(|e| {
                 #[cfg(windows)]
                 if windows_fixture {
+                    let diagnostics = proc
+                        .lock()
+                        .unwrap_or_else(|error| error.into_inner())
+                        .as_ref()
+                        .map(ChromeProc::fixture_diagnostics)
+                        .unwrap_or_else(|| {
+                            "windows fixture diagnostic process ownership absent".into()
+                        });
                     return BrowserError::Launch(format!(
-                        "Windows fixture CDP connection failed: {e}"
+                        "Windows fixture CDP connection failed: {e}; {diagnostics}"
                     ));
                 }
                 BrowserError::Launch(e.to_string())

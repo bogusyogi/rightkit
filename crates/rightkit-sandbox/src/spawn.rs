@@ -479,6 +479,19 @@ impl SandboxedChild {
         self.inner.terminate_tree_bounded(timeout)
     }
 
+    /// Observe the exit code of a confined Windows child without reaping it (raw `u32`, so an
+    /// NTSTATUS such as `0xC0000005` stays readable). `Ok(None)` while it still runs.
+    #[cfg(windows)]
+    pub fn observed_exit_code(&self) -> std::io::Result<Option<u32>> {
+        match &self.inner {
+            Inner::Confined(c) => c.observed_exit_code(),
+            Inner::Owned(_) => Err(std::io::Error::new(
+                std::io::ErrorKind::Unsupported,
+                "exit code observation is only for the confined Windows child",
+            )),
+        }
+    }
+
     pub fn try_wait(&mut self) -> std::io::Result<Option<ExitStatus>> {
         match &mut self.inner {
             Inner::Owned(c) => c.try_wait(),

@@ -1514,6 +1514,14 @@ impl ConfinedChild {
         }
     }
 
+    /// Observe the leader's exit code without reaping or releasing AppContainer leases.
+    /// `Ok(None)` while it still runs; raw NTSTATUS-style codes survive as `u32`.
+    pub(crate) fn observed_exit_code(&self) -> io::Result<Option<u32>> {
+        Ok(self
+            .wait_ms(0)?
+            .map(|status| status.code().unwrap_or(0) as u32))
+    }
+
     /// Observe leader exit without reaping or releasing AppContainer leases.
     pub(crate) fn has_exited(&self) -> io::Result<bool> {
         Ok(self.wait_ms(0)?.is_some())

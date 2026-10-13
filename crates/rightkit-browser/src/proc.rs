@@ -39,6 +39,13 @@ pub(crate) struct ChromeProc {
     /// never a path the confined child could replace with a reparse point.
     #[cfg(windows)]
     fixture_log: Option<File>,
+    /// Exact AppContainer launch parameters (grants, capabilities, Chrome flags), recorded at
+    /// spawn so a failed launch can say what was actually requested.
+    #[cfg(windows)]
+    launch_params: String,
+    /// Profile dir and Chrome image dir, for the failure-time ACL dump.
+    #[cfg(windows)]
+    acl_targets: Vec<std::path::PathBuf>,
 }
 
 /// Process ownership stays explicit: fixture Windows children live in their
@@ -73,6 +80,14 @@ impl ChromeChild {
             Self::Owned(child) => child.process_handle()?.wait_exited_timeout(Duration::ZERO),
             #[cfg(windows)]
             Self::Confined(child) => child.has_exited(),
+        }
+    }
+
+    #[cfg(windows)]
+    fn observed_exit_code(&self) -> std::io::Result<Option<u32>> {
+        match self {
+            Self::Owned(_) => Ok(None),
+            Self::Confined(child) => child.observed_exit_code(),
         }
     }
 
@@ -204,13 +219,28 @@ impl ChromeProc {
             Ok(exited) => exited.to_string(),
             Err(error) => format!("unavailable ({error})"),
         };
+        let exit_code = match self.child.observed_exit_code() {
+            Ok(Some(code)) => describe_exit_code(code),
+            Ok(None) => "running".into(),
+            Err(error) => format!("unavailable ({error})"),
+        };
+        let acls = self
+            .acl_targets
+            .iter()
+            .filter(|path| !path.as_os_str().is_empty())
+            .map(|path| format!("{} => {}", path.display(), icacls_summary(path)))
+            .collect::<Vec<_>>()
+            .join(" | ");
         let log_tail = self
             .fixture_log
             .as_ref()
             .and_then(|file| bounded_file_tail(file).ok())
             .unwrap_or_else(|| "(retained fixture log unavailable)".into());
         format!(
-            "windows fixture diagnostic chrome_exited={live_exit}; retained_log_tail={log_tail}"
+            "windows fixture diagnostic chrome_exited={live_exit}; chrome_exit_code={exit_code}; \
+             {launch_params}; acls=[{acls}]; stderr=NUL (pipe-pair stdio is NUL; Chrome output \
+             is only in the retained log); retained_log_tail={log_tail}",
+            launch_params = self.launch_params,
         )
     }
 
@@ -381,6 +411,10 @@ fn spawn_chrome_command(
         pipe_bridge: None,
         #[cfg(windows)]
         fixture_log: None,
+        #[cfg(windows)]
+        launch_params: String::new(),
+        #[cfg(windows)]
+        acl_targets: Vec::new(),
     })
 }
 
@@ -421,10 +455,15 @@ pub(crate) fn spawn_chrome_fixture_windows(
         .args(args.iter().cloned())
         .arg("--enable-logging")
         .arg(log_arg);
+    let launch_params = fixture_launch_params(exe, args, profile_dir);
     let sandbox = Sandbox::new(ResourceAuthority::new(ResourceProfile::Practical));
     let spawn = sandbox
         .spawn_with_pipe_pair(&policy, command, "--remote-debugging-io-pipes")
-        .map_err(|error| BrowserError::Launch(format!("Windows fixture AppContainer: {error}")))?;
+        .map_err(|error| {
+            BrowserError::Launch(format!(
+                "Windows fixture AppContainer: {error}; {launch_params}"
+            ))
+        })?;
     Ok(ChromeProc {
         child: ChromeChild::Confined(spawn.child),
         _watchdog: None,
@@ -433,7 +472,77 @@ pub(crate) fn spawn_chrome_fixture_windows(
         pipe_io: Some(spawn.io),
         pipe_bridge: None,
         fixture_log: Some(fixture_log),
+        launch_params,
+        acl_targets: vec![
+            profile_dir.to_path_buf(),
+            exe.parent().map(Path::to_path_buf).unwrap_or_default(),
+        ],
     })
+}
+
+/// Hex exit code plus the well-known meaning of the NTSTATUS values a failed Chrome start
+/// produces, so a CI log names the cause without a lookup.
+#[cfg(any(windows, test))]
+fn describe_exit_code(code: u32) -> String {
+    let meaning = match code {
+        0 => "success",
+        0xC000_0005 => "STATUS_ACCESS_VIOLATION",
+        0xC000_0022 => "STATUS_ACCESS_DENIED",
+        0xC000_0135 => "STATUS_DLL_NOT_FOUND",
+        0xC000_0142 => "STATUS_DLL_INIT_FAILED",
+        0xC000_0409 => "STATUS_STACK_BUFFER_OVERRUN (fast-fail)",
+        0xC000_041D => "STATUS_FATAL_USER_CALLBACK_EXCEPTION",
+        0x8000_0003 => "breakpoint (Chrome CHECK/fatal)",
+        _ => "unclassified",
+    };
+    format!("{code} (0x{code:08X}, {meaning})")
+}
+
+/// The launch parameters of the Windows fixture, as the AppContainer launcher applies them:
+/// grants come from `spawn_chrome_fixture_windows`'s policy, capabilities from the sandbox crate
+/// (`NetworkPolicy::Deny` requests none, so no `internetClient`, `lpacChromeInstallFiles` or
+/// `registryRead`).
+#[cfg(any(windows, test))]
+fn fixture_launch_params(exe: &Path, args: &[OsString], profile_dir: &Path) -> String {
+    let flags: Vec<String> = args
+        .iter()
+        .map(|arg| arg.to_string_lossy().into_owned())
+        .filter(|arg| arg.starts_with("--") && !arg.starts_with("--user-data-dir"))
+        .collect();
+    let has = |name: &str| {
+        flags
+            .iter()
+            .any(|flag| flag == name || flag.starts_with(&format!("{name}=")))
+    };
+    format!(
+        "launch_params{{exe={}, exec_grant={}, write_grant={}, network=Deny, \
+         capabilities=[] (no internetClient, lpacChromeInstallFiles or registryRead), \
+         env=cleared, no_sandbox={}, disable_gpu={}, headless={}, flags=[{}]}}",
+        exe.display(),
+        exe.display(),
+        profile_dir.display(),
+        has("--no-sandbox"),
+        has("--disable-gpu"),
+        flags.iter().any(|flag| flag.starts_with("--headless")),
+        flags.join(" "),
+    )
+}
+
+/// Bounded `icacls` dump of one path for failure evidence; observe only.
+#[cfg(windows)]
+fn icacls_summary(path: &Path) -> String {
+    match std::process::Command::new("icacls")
+        .arg(path)
+        .stdin(Stdio::null())
+        .output()
+    {
+        Ok(output) => {
+            let text = String::from_utf8_lossy(&output.stdout);
+            let joined = text.split_whitespace().collect::<Vec<_>>().join(" ");
+            joined.chars().take(1500).collect()
+        }
+        Err(error) => format!("icacls unavailable ({error})"),
+    }
 }
 
 #[cfg(windows)]
@@ -521,5 +630,39 @@ mod tests {
         expected.extend_from_slice(path.as_os_str().as_bytes());
         let argv: Vec<_> = cmd.command_mut().get_args().map(|a| a.as_bytes()).collect();
         assert_eq!(argv, vec![expected.as_slice()]);
+    }
+}
+
+#[cfg(test)]
+mod fixture_diagnostics_tests {
+    use super::*;
+
+    #[test]
+    fn exit_code_names_the_ntstatus() {
+        let text = describe_exit_code(0xC000_0022);
+        assert!(text.contains("0xC0000022") && text.contains("STATUS_ACCESS_DENIED"));
+        assert!(describe_exit_code(7).contains("unclassified"));
+    }
+
+    #[test]
+    fn launch_params_report_sandbox_and_gpu_flags() {
+        let args: Vec<OsString> = ["--headless=new", "--remote-debugging-pipe", "about:blank"]
+            .iter()
+            .map(OsString::from)
+            .collect();
+        let text = fixture_launch_params(Path::new("chrome.exe"), &args, Path::new("profile"));
+        assert!(text.contains("no_sandbox=false"), "{text}");
+        assert!(text.contains("disable_gpu=false"), "{text}");
+        assert!(text.contains("headless=true"), "{text}");
+        assert!(text.contains("capabilities=[]"), "{text}");
+        let args: Vec<OsString> = ["--no-sandbox", "--disable-gpu"]
+            .iter()
+            .map(OsString::from)
+            .collect();
+        let text = fixture_launch_params(Path::new("chrome.exe"), &args, Path::new("profile"));
+        assert!(
+            text.contains("no_sandbox=true") && text.contains("disable_gpu=true"),
+            "{text}"
+        );
     }
 }
