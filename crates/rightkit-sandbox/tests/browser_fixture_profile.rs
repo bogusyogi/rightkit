@@ -69,15 +69,16 @@ fn fixture_profile_confines_paths_network_and_writes() {
         canonical_profile.display()
     )));
     assert!(sbpl.contains("(deny network-outbound)"));
-    assert!(sbpl.contains("127.0.0.1:38081"));
+    assert!(sbpl.contains("localhost:38081"));
     assert!(
-        sbpl.contains("(require-all (remote ip \"127.0.0.1:38081\") (socket-type SOCK_STREAM))")
+        sbpl.contains("(require-all (remote ip \"localhost:38081\") (socket-type SOCK_STREAM))")
     );
+    assert!(sbpl.contains("(deny network-outbound (socket-domain AF_INET6))"));
     assert!(sbpl.contains("(deny network-inbound)"));
     assert!(sbpl.contains(
-        "(allow network-bind (require-all (local ip \"127.0.0.1:*\") (socket-type SOCK_STREAM)))"
+        "(allow network-bind (require-all (local ip \"localhost:*\") (socket-type SOCK_STREAM)))"
     ));
-    assert!(sbpl.contains("(require-all (local ip \"127.0.0.1:*\") (remote ip \"127.0.0.1:*\") (socket-type SOCK_STREAM))"));
+    assert!(sbpl.contains("(require-all (local ip \"localhost:*\") (remote ip \"localhost:*\") (socket-type SOCK_STREAM))"));
     assert!(!sbpl.contains("(allow network*)"));
     assert!(!sbpl.contains("remote unix-socket"));
     assert!(!sbpl.contains("SOCK_DGRAM"));

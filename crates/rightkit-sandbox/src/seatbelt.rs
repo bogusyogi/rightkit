@@ -166,9 +166,11 @@ fn validate_proxy(addr: SocketAddr) -> std::io::Result<u16> {
 
 /// Build strict deny-default SBPL for a browser fixture lane.
 ///
-/// Network access is limited to TCP at `proxy_addr`; the only listener allowance is a loopback
-/// TCP debugging socket. Reads and execution stay within the Chrome bundle and fixed runtime
-/// locations, while writes stay within the canonical fixture profile directory.
+/// Network authority is limited to `proxy_addr`: validated IPv4 loopback at one fixed TCP port.
+/// SBPL spells that host `localhost` (loopback, both families), while a later outbound AF_INET6 denial keeps the
+/// allowance IPv4-only. The only listener allowance is a loopback TCP debugging socket. Reads
+/// and execution stay within the Chrome bundle and fixed runtime locations, while writes stay
+/// within the canonical fixture profile directory.
 pub fn fixture_profile_for(policy: &BrowserFixturePolicy) -> std::io::Result<String> {
     let executable = canonical_existing(&policy.chrome_executable, "Chrome executable")?;
     let profile = canonical_existing(&policy.profile_dir, "profile directory")?;
@@ -199,15 +201,19 @@ pub fn fixture_profile_for(policy: &BrowserFixturePolicy) -> std::io::Result<Str
     p.push_str(
         "(allow file-read-metadata)\n(allow file-read* (literal \"/\"))\n\
          (deny network-outbound)\n\
-         (allow network-outbound (require-all (remote ip \"127.0.0.1:",
+         (allow network-outbound (require-all (remote ip \"localhost:",
     );
     p.push_str(&proxy_port.to_string());
-    p.push_str("\") (socket-type SOCK_STREAM)))\n");
+    // `localhost` also matches ::1, and a system-socket deny does not gate connect(2);
+    // this later outbound deny is what blocks same-port IPv6 (validated with sandbox-exec).
+    p.push_str(
+        "\") (socket-type SOCK_STREAM)))\n(deny network-outbound (socket-domain AF_INET6))\n",
+    );
     p.push_str(
         "(deny network-inbound)\n\
          (deny network-bind)\n\
-         (allow network-bind (require-all (local ip \"127.0.0.1:*\") (socket-type SOCK_STREAM)))\n\
-         (allow network-inbound (require-all (local ip \"127.0.0.1:*\") (remote ip \"127.0.0.1:*\") (socket-type SOCK_STREAM)))\n",
+         (allow network-bind (require-all (local ip \"localhost:*\") (socket-type SOCK_STREAM)))\n\
+         (allow network-inbound (require-all (local ip \"localhost:*\") (remote ip \"localhost:*\") (socket-type SOCK_STREAM)))\n",
     );
     Ok(p)
 }
