@@ -13,7 +13,7 @@ pub type Emit = Arc<dyn Fn(Value) + Send + Sync>;
 pub struct CallContext {
     conn: u64,
     caller: Caller,
-    closed: Arc<AtomicBool>,
+    pub(crate) closed: Arc<AtomicBool>,
     handoff: Arc<AtomicBool>,
 }
 
