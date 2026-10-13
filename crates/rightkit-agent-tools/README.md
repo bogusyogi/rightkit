@@ -2,7 +2,7 @@
 
 One typed tool interface for agents over the Right Suite. A `Toolbox` registers named tools with JSON argument schemas and an effect class, and every call passes one gate: the hard exposure rules, a per-caller allowlist, argument validation, the caller's admission hook, and a journal. The crate also builds the `right-ctl` CLI on the same toolbox.
 
-Catalog capability: `agent-tools`. Not published (`publish = false`).
+Catalog capability: `agent-tools`.
 
 ## What it owns
 
@@ -77,4 +77,4 @@ Desktop tools need macOS Accessibility. No test in this crate calls a `desktop.*
 
 ## Version and changes
 
-Published version: not published. See [INDEX.md](../../INDEX.md). No CHANGELOG.md in this crate.
+Published version: see [INDEX.md](../../INDEX.md). Changes are listed in [CHANGELOG.md](CHANGELOG.md).

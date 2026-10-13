@@ -7,10 +7,9 @@ description = "Nearby file and text sharing over the open LocalSend v2 protocol,
 license = "MIT OR Apache-2.0"
 readme = "README.md"
 repository = "https://github.com/Orthic-Labs/rightkit"
-publish = false
 keywords = ["localsend", "file-sharing", "tls", "bonjour", "mdns"]
 categories = ["network-programming"]
-include = ["src/**", "tests/**", "README.md", "CHANGELOG.md", "LICENSE-MIT", "LICENSE-APACHE"]
+include = ["src/**", "tests/**", "benches/**", "README.md", "CHANGELOG.md", "LICENSE-MIT", "LICENSE-APACHE"]
 
 [features]
 default = []

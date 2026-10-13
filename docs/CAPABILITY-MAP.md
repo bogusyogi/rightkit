@@ -14,7 +14,7 @@ Capabilities: 72 (54 with fingerprints, 18 declaration-only). Internal owners th
 |---|---|---|---|---|---|
 | agent-experience-gates | `@rightkit/ax` | none | declaration-only | 0 | @rightkit/ax: published 0.2.4 (npm) |
 | agent-room | `@rightkit/agent-room-mcp`, `agent-room-core` | none | declaration-only | 0 | @rightkit/agent-room-mcp: none recorded; agent-room-core: staged 0.3.0, not published |
-| agent-tools | `rightkit-agent-tools` | none | declaration-only | 0 | rightkit-agent-tools: none recorded |
+| agent-tools | `rightkit-agent-tools` | none | declaration-only | 0 | rightkit-agent-tools: staged 0.1.2, not published |
 | app-shell-ui | `@rightkit/app-shell` | advise | fingerprinted | 10 (0 block, 10 advise) | @rightkit/app-shell: published 0.6.2 (npm) |
 | audio | `rightkit-audio` | advise | fingerprinted | 3 (0 block, 3 advise) | rightkit-audio: published 0.2.1 (crates.io) |
 | browser-automation | `rightkit-browser` | block | fingerprinted | 11 (5 block, 6 advise) | rightkit-browser: published 0.2.4 (crates.io) |
@@ -26,7 +26,7 @@ Capabilities: 72 (54 with fingerprints, 18 declaration-only). Internal owners th
 | content-review | `rightkit-review` | none | declaration-only | 0 | rightkit-review: staged 0.1.0, not published |
 | crash-reporting | `rightkit-crash` | advise | fingerprinted | 1 (0 block, 1 advise) | rightkit-crash: published 0.2.1 (crates.io) |
 | dependency-updates | `@rightkit/update` | none | declaration-only | 0 | @rightkit/update: none recorded |
-| desktop-automation | `rightkit-automation` | advise | fingerprinted | 4 (0 block, 4 advise) | rightkit-automation: staged 0.1.0, not published |
+| desktop-automation | `rightkit-automation` | advise | fingerprinted | 4 (0 block, 4 advise) | rightkit-automation: staged 0.3.0, not published |
 | desktop-control | `rightkit-control` | advise | fingerprinted | 6 (0 block, 6 advise) | rightkit-control: published 0.1.11 (crates.io) |
 | desktop-overlay | `rightkit-overlay` | advise | fingerprinted | 2 (0 block, 2 advise) | rightkit-overlay: staged 0.1.1, not published |
 | desktop-qa | `rightkit-qa` | advise | fingerprinted | 4 (0 block, 4 advise) | rightkit-qa: published 0.2.14 (crates.io) |
@@ -52,7 +52,7 @@ Capabilities: 72 (54 with fingerprints, 18 declaration-only). Internal owners th
 | media-playback | `rightkit-playback` | advise | fingerprinted | 1 (0 block, 1 advise) | rightkit-playback: published 0.1.1 (crates.io) |
 | media-ui | `@rightkit/media-ui` | advise | fingerprinted | 1 (0 block, 1 advise) | @rightkit/media-ui: published 0.3.4 (npm) |
 | model-installation | `rightkit-models` | advise | fingerprinted | 1 (0 block, 1 advise) | rightkit-models: published 0.2.8 (crates.io) |
-| nearby-sharing | `rightkit-send` | none | declaration-only | 0 | rightkit-send: none recorded |
+| nearby-sharing | `rightkit-send` | none | declaration-only | 0 | rightkit-send: staged 0.1.0, not published |
 | oauth-sign-in | `rightkit-oauth` | advise | fingerprinted | 5 (0 block, 5 advise) | rightkit-oauth: published 0.3.1 (crates.io) |
 | ocr | `rightkit-ocr` | advise | fingerprinted | 3 (0 block, 3 advise) | rightkit-ocr: published 0.2.0 (crates.io) |
 | onboarding-ui | `@rightkit/onboarding` | advise | fingerprinted | 7 (0 block, 7 advise) | @rightkit/onboarding: published 0.3.2 (npm) |

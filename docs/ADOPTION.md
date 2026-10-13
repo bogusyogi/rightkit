@@ -26,11 +26,11 @@ Status values compare each pin with the latest published version (registry-recor
 | Package | Registry | Source | Latest published | Apps | App names | Notes |
 |---|---|---|---|---|---|---|
 | `agent-room-core` | private | 0.3.1 | none recorded | 0 | none | 2 vendored copies |
-| `rightkit-agent-tools` | private | 0.1.2 | none recorded | 0 | none | 2 vendored copies |
+| `rightkit-agent-tools` | crates.io | 0.1.2 | none recorded | 0 | none | 2 vendored copies |
 | `rightkit-align` | private | 0.1.0 | none recorded | 0 | none | 2 vendored copies |
 | `rightkit-asr` | crates.io | 0.2.0 | 0.1.0 | 3 | cutright, heardright, scraperight | 4 vendored copies; 5 ahead of published |
 | `rightkit-audio` | crates.io | 0.2.2 | 0.2.1 | 4 | cutright, genright, heardright, scraperight | 5 vendored copies; 4 ahead of published |
-| `rightkit-automation` | private | 0.3.0 | none recorded | 2 | heardright, viewright | 2 vendored copies |
+| `rightkit-automation` | crates.io | 0.3.0 | none recorded | 2 | heardright, viewright | 2 vendored copies |
 | `rightkit-browser` | crates.io | 0.3.0 | 0.2.4 | 8 | coderight, cutright, genright, heardright, legion, postright, scraperight, viewright | 6 vendored copies |
 | `rightkit-cache` | crates.io | 0.2.0 | 0.1.0 | 3 | coderight, cutright, mailright | 4 vendored copies; 2 ahead of published |
 | `rightkit-channel-memory` | crates.io | 0.1.0 | none recorded | 1 | postright | 3 vendored copies |
@@ -71,7 +71,7 @@ Status values compare each pin with the latest published version (registry-recor
 | `rightkit-scenario` | crates.io | 0.1.0 | none recorded | 0 | none | 2 vendored copies |
 | `rightkit-search` | crates.io | 0.2.1 | 0.2.0 | 2 | genright, scraperight | 4 vendored copies; 2 ahead of published |
 | `rightkit-secrets` | crates.io | 0.2.0 | 0.1.3 | 8 | coderight, cutright, genright, heardright, mailright, postright, scraperight, viewright | 6 vendored copies; 3 stale; 4 ahead of published |
-| `rightkit-send` | private | 0.1.0 | none recorded | 0 | none | 2 vendored copies |
+| `rightkit-send` | crates.io | 0.1.0 | none recorded | 0 | none | 2 vendored copies |
 | `rightkit-settings` | crates.io | 0.2.0 | 0.1.1 | 7 | coderight, cutright, genright, heardright, postright, scraperight, viewright | 8 vendored copies; 7 ahead of published |
 | `rightkit-shell` | crates.io | 0.3.0 | 0.2.0 | 7 | coderight, cutright, heardright, mailright, postright, scraperight, viewright | 6 vendored copies; 1 stale; 4 ahead of published |
 | `rightkit-speech-client` | crates.io | 0.3.4 | 0.3.3 | 4 | cutright, heardright, scraperight, viewright | 4 vendored copies; 2 ahead of published |

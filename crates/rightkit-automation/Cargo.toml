@@ -5,7 +5,11 @@ edition = "2021"
 rust-version = "1.98.0"
 description = "Brand-neutral desktop automation: observe and act on any app (macOS AX, Windows UIA) through a four-tier input ladder with safety, focus guard, and evidence receipts."
 license = "MIT OR Apache-2.0"
-publish = false
+readme = "README.md"
+repository = "https://github.com/Orthic-Labs/rightkit"
+keywords = ["automation", "accessibility", "uia", "desktop", "input"]
+categories = ["os", "accessibility"]
+include = ["src/**", "tests/**", "examples/**", "docs/**", "README.md", "CHANGELOG.md", "LICENSE-MIT", "LICENSE-APACHE"]
 
 # No third-party dependencies by default on macOS (direct framework FFI). Windows uses the
 # `windows` crate already pinned in the workspace lock (UI Automation, GDI,

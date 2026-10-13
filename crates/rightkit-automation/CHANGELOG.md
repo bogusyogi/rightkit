@@ -2,6 +2,8 @@
 
 ## 0.3.0
 
+First published release (0.1.x and 0.2.x were internal to the repository).
+
 Additive. No existing signature or default changes. Gap ledger #63 (macOS AX) and #64 (Windows raw input).
 
 - **macOS: public `macos::ax` surface.** `ax::system_wide()` (`AXUIElementCreateSystemWide`) and `ax::element_at_position(x, y)` (`AXUIElementCopyElementAtPosition`, global top-left display points, `Result<Option<El>>`: `None` when nothing accessible is there, an error for a hung app, missing permission or any other AX failure). `ax::system_wide_with(&AxOptions)`, `ax::element_at_position_with(x, y, &AxOptions)`, `El::app_with(pid, &AxOptions)` and `El::set_timeout(Duration)` take a per-call `AxOptions { timeout: Duration }` (`AXUIElementSetMessagingTimeout`). The default stays 1.5 s (`ax::AX_TIMEOUT`, `ax::DEFAULT_TIMEOUT`); `El::app(pid)` is unchanged. The module was private; only the new entry points and `El` are public, the other `ax` helpers stay crate-internal.

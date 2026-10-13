@@ -2,7 +2,7 @@
 
 Brand-neutral desktop automation for macOS and Windows, in Rust only. It observes apps, windows and accessibility trees, and acts on them through an input ladder that never goes to a higher tier unless the caller allows it, recording which tier ran. It replaces `rightkit-computer` (retired; see `docs/CARGO-PUBLICATION.md`). Generic parts of HeardRight's `heardright_platform` and `heardright-command-host` moved here; see `docs/MOVED_FROM.md`. HeardRight's locked rules travel with it (`docs/LOCKED_RULES.md`).
 
-Catalog capability: `desktop-automation`. Not published (`publish = false`).
+Catalog capability: `desktop-automation`.
 
 ```text
 snapshot  ->  stable element ids (AX / UIA), freshness guard
@@ -75,7 +75,7 @@ let snap = automation.snapshot(Target::app(pid), Limits { max_depth: 14, max_nod
 
 ## Version and changes
 
-Published version: not published. See [INDEX.md](../../INDEX.md). Changes are listed in [CHANGELOG.md](CHANGELOG.md).
+Published version: see [INDEX.md](../../INDEX.md). Changes are listed in [CHANGELOG.md](CHANGELOG.md).
 
 ## Windows
 
