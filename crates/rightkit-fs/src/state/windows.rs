@@ -2,7 +2,7 @@
 use super::{DirEntry, EntryKind, EntryStat, StateOptions};
 use crate::atomic::{SyncLevel, SyncPolicy};
 use crate::error::{FsError, Result};
-use crate::private::SecurityDescriptor;
+use crate::private::{discard_unverified_owner_only, verify_owner_only_handle, SecurityDescriptor};
 use std::ffi::{c_void, OsStr};
 use std::fs::File;
 use std::io;
@@ -15,6 +15,7 @@ use std::sync::Mutex;
 
 type Handle = *mut c_void;
 const READ_ATTRIBUTES: u32 = 0x80;
+const READ_CONTROL: u32 = 0x0002_0000;
 const SYNCHRONIZE: u32 = 0x0010_0000;
 const DELETE: u32 = 0x0001_0000;
 // Files are opened without FILE_SHARE_DELETE on purpose: removal and publication go through
@@ -282,9 +283,15 @@ impl Dir {
         })
     }
 
-    fn open_at(&self, name: &OsStr, access: u32, disposition: u32, options: u32) -> Result<File> {
-        let shown = Path::new(name);
-        let mut wide = component(name)?;
+    fn open_at(
+        &self,
+        entry_name: &OsStr,
+        access: u32,
+        disposition: u32,
+        options: u32,
+    ) -> Result<File> {
+        let shown = Path::new(entry_name);
+        let mut wide = component(entry_name)?;
         let len = u16::try_from(wide.len() * 2)
             .map_err(|_| FsError::BadName(shown.display().to_string()))?;
         let mut name = UnicodeString {
@@ -293,10 +300,27 @@ impl Dir {
             buffer: wide.as_mut_ptr(),
         };
         let directory = options & DIRECTORY_FILE != 0;
-        let security = if disposition != FILE_OPEN && !self.config.inherit_acl {
+        // `FILE_OPEN_IF` cannot request verification/cleanup rights from an already-existing
+        // ancestor. Create privately first; an actual collision reopens with original minimal
+        // rights. A collision followed by disappearance is an error, never a broad retry.
+        let create_only = disposition == FILE_OPEN_IF && !self.config.inherit_acl;
+        let native_disposition = if create_only {
+            FILE_CREATE
+        } else {
+            disposition
+        };
+        let security = if native_disposition != FILE_OPEN && !self.config.inherit_acl {
             Some(SecurityDescriptor::owner_only(shown, directory)?)
         } else {
             None
+        };
+        // A descriptor-bearing creation is verified and, on failure, removed through this same
+        // handle before callers can write bytes. Existing/inherited-policy opens retain exactly
+        // their requested rights.
+        let creation_security_access = if security.is_some() {
+            READ_CONTROL | DELETE
+        } else {
+            0
         };
         let mut object = ObjectAttributes {
             length: size_of::<ObjectAttributes>() as u32,
@@ -316,7 +340,7 @@ impl Dir {
         let result = unsafe {
             NtCreateFile(
                 &mut raw,
-                access | READ_ATTRIBUTES | SYNCHRONIZE,
+                access | READ_ATTRIBUTES | SYNCHRONIZE | creation_security_access,
                 &mut object,
                 &mut status,
                 null(),
@@ -326,7 +350,7 @@ impl Dir {
                 } else {
                     SHARE_READ_WRITE
                 },
-                disposition,
+                native_disposition,
                 options | OPEN_REPARSE_POINT | SYNCHRONOUS_IO_NONALERT,
                 null(),
                 0,
@@ -336,6 +360,9 @@ impl Dir {
             // SAFETY: translates NTSTATUS, not thread-local GetLastError.
             let error =
                 io::Error::from_raw_os_error(unsafe { RtlNtStatusToDosError(result) } as i32);
+            if create_only && error.kind() == io::ErrorKind::AlreadyExists {
+                return self.open_at(entry_name, access, FILE_OPEN, options);
+            }
             return Err(if error.kind() == io::ErrorKind::AlreadyExists {
                 FsError::AlreadyExists(shown.to_path_buf())
             } else {
@@ -347,9 +374,29 @@ impl Dir {
                 "NtCreateFile returned no child handle",
             ));
         }
+        const FILE_CREATED: usize = 2;
         // SAFETY: successful NtCreateFile transfers ownership of this handle.
         let file = unsafe { File::from_raw_handle(raw) };
-        attributes(&file, shown)?;
+        if let Err(error) = attributes(&file, shown) {
+            if security.is_some() && status.information == FILE_CREATED {
+                let _ = discard_unverified_owner_only(&file, shown);
+            }
+            return Err(error);
+        }
+        // A descriptor is only supplied for FILE_CREATE, so this retained handle is new. Check
+        // before StateDir writes bytes; any failure disposes this exact empty object.
+        if security.is_some() {
+            if status.information != FILE_CREATED {
+                let _ = discard_unverified_owner_only(&file, shown);
+                return Err(FsError::Unavailable(
+                    "NtCreateFile did not report a new private entry",
+                ));
+            }
+            if let Err(error) = verify_owner_only_handle(&file, shown) {
+                let _ = discard_unverified_owner_only(&file, shown);
+                return Err(error);
+            }
+        }
         Ok(file)
     }
 
@@ -661,6 +708,17 @@ impl Dir {
                 offset += next;
             }
         }
+    }
+
+    /// Reclaim only generated temps whose enumerated full file identity still matches the
+    /// opened no-reparse handle. Public listings keep using `FILE_ID_BOTH_DIR_INFO`; cleanup uses
+    /// its private extended-ID path so it never truncates an identity to 64 bits.
+    pub(super) fn sweep_temps(&self) -> Result<usize> {
+        let _guard = self
+            .enumeration
+            .lock()
+            .map_err(|_| FsError::Unavailable("directory enumeration lock poisoned"))?;
+        crate::windows_temp_sweep::sweep(&self.file)
     }
 }
 

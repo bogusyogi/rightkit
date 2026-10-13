@@ -1473,13 +1473,30 @@ mod sync_ladder_tests {
     }
 }
 
-/// Remove orphaned temp files in `dir` left by crashed writers. A temp file is reclaimed when
-/// the process that created it is gone, or when it is older than `max_age` (pid reuse guard).
-/// Only complete generated temp names are ever considered (`.<name>.rktmp-<pid>-<n>-<nanos in
-/// hex>-<attempt>`, or the `StateDir` form `.<name>.rktmp-<pid>-<n>-<attempt>`): a committed file
-/// that merely contains [`TEMP_MARKER`] (`invoice.rktmp-1-final`) is left alone, and public
-/// writes refuse targets with a generated temp name. Returns the number removed.
+/// Remove generated regular temp files in `dir` left by writers confirmed dead. `max_age` remains
+/// for source compatibility but cannot override liveness: a current, live, or unqueryable PID
+/// always survives, however old its metadata is. Only complete generated temp names are ever
+/// considered (`.<name>.rktmp-<pid>-<n>-<nanos in hex>-<attempt>`, or the `StateDir` form
+/// `.<name>.rktmp-<pid>-<n>-<attempt>`): a committed file that merely contains [`TEMP_MARKER`]
+/// (`invoice.rktmp-1-final`) is left alone, and public writes refuse targets with a generated temp
+/// name. Metadata, identity, and liveness are rechecked before removal; a concurrent arbitrary
+/// path mutator can still replace the name after that check, so this is not an unlink-if-same-inode
+/// guarantee on Unix. Returns the number removed.
 pub fn sweep_stale_temps(dir: &Path, max_age: Duration) -> Result<usize> {
+    #[cfg(windows)]
+    {
+        let _ = max_age;
+        crate::windows_temp_sweep::sweep_path(dir)
+    }
+    #[cfg(not(windows))]
+    {
+        sweep_stale_temps_path(dir, max_age)
+    }
+}
+
+#[cfg(not(windows))]
+fn sweep_stale_temps_path(dir: &Path, max_age: Duration) -> Result<usize> {
+    let _ = max_age;
     let entries = match fs::read_dir(dir) {
         Ok(e) => e,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(0),
@@ -1491,22 +1508,47 @@ pub fn sweep_stale_temps(dir: &Path, max_age: Duration) -> Result<usize> {
         let Some(pid) = generated_temp_pid(&name) else {
             continue;
         };
-        let Ok(meta) = entry.metadata() else { continue };
+        if !confirmed_dead_writer(pid) {
+            continue;
+        }
+        let path = entry.path();
+        let Ok(meta) = fs::symlink_metadata(&path) else {
+            continue;
+        };
         if !meta.is_file() {
             continue;
         }
-        let old = meta
-            .modified()
-            .ok()
-            .and_then(|m| m.elapsed().ok())
-            .is_some_and(|age| age >= max_age);
-        if ((pid != std::process::id() && !crate::process_alive(pid)) || old)
-            && fs::remove_file(entry.path()).is_ok()
-        {
+        if !confirmed_dead_writer(pid) {
+            continue;
+        }
+        if remove_same_regular_temp(&path, &meta) {
             removed += 1;
         }
     }
     Ok(removed)
+}
+
+pub(crate) fn confirmed_dead_writer(pid: u32) -> bool {
+    pid != std::process::id()
+        && matches!(crate::process_liveness(pid), crate::ProcessLiveness::Dead)
+}
+
+#[cfg(unix)]
+fn remove_same_regular_temp(path: &Path, before: &fs::Metadata) -> bool {
+    use std::os::unix::fs::MetadataExt;
+
+    let Ok(after) = fs::symlink_metadata(path) else {
+        return false;
+    };
+    after.is_file()
+        && before.dev() == after.dev()
+        && before.ino() == after.ino()
+        && fs::remove_file(path).is_ok()
+}
+
+#[cfg(not(any(unix, windows)))]
+fn remove_same_regular_temp(path: &Path, _before: &fs::Metadata) -> bool {
+    fs::remove_file(path).is_ok()
 }
 
 #[cfg(test)]

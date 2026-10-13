@@ -80,19 +80,24 @@ fn a_refused_write_creates_no_parent_directories() {
 }
 
 #[test]
-fn a_genuine_orphan_is_still_swept() {
+fn current_and_unqueryable_writer_temps_survive_a_zero_age_sweep() {
     let dir = tempfile::tempdir().unwrap();
     let pid = std::process::id();
     // Both generated forms: atomic writes (with the nanosecond field) and `StateDir`.
     let atomic_form = dir.path().join(format!(".state.json.rktmp-{pid}-7-1f4a-0"));
     let state_form = dir.path().join(format!(".state.json.rktmp-{pid}-8-1"));
-    std::fs::write(&atomic_form, b"orphan").unwrap();
-    std::fs::write(&state_form, b"orphan").unwrap();
+    // PID zero is a complete generated shape but has no process-liveness meaning.
+    let unknown_atomic = dir.path().join(".unknown.rktmp-0-9-1f4a-0");
+    let unknown_state = dir.path().join(".unknown.rktmp-0-10-0");
+    for temp in [&atomic_form, &state_form, &unknown_atomic, &unknown_state] {
+        std::fs::write(temp, b"in-flight").unwrap();
+    }
     let keeper = dir.path().join("state.json");
     std::fs::write(&keeper, b"committed").unwrap();
     let removed = sweep_stale_temps(dir.path(), Duration::ZERO).unwrap();
-    assert_eq!(removed, 2);
-    assert!(!atomic_form.exists() && !state_form.exists());
+    assert_eq!(removed, 0);
+    assert!(atomic_form.exists() && state_form.exists());
+    assert!(unknown_atomic.exists() && unknown_state.exists());
     assert_eq!(std::fs::read(&keeper).unwrap(), b"committed");
 }
 
@@ -124,11 +129,14 @@ fn state_dir_refuses_and_never_sweeps_the_reserved_namespace() {
     );
     assert_eq!(state.read("report.rktmp-9-9", 100).unwrap(), b"committed");
 
-    // A real orphan (a `StateDir` temp name from this process) is still reclaimed.
-    let orphan = format!(".state.rktmp-{}-5-0", std::process::id());
-    std::fs::write(root.join("s").join(&orphan), b"orphan").unwrap();
-    assert_eq!(state.sweep_temps(Duration::ZERO).unwrap(), 1);
-    assert!(!state.exists(&orphan).unwrap());
+    // A current writer's generated name stays even at zero age.
+    let current = format!(".state.rktmp-{}-5-0", std::process::id());
+    let unknown = ".state.rktmp-0-6-0";
+    std::fs::write(root.join("s").join(&current), b"in-flight").unwrap();
+    std::fs::write(root.join("s").join(unknown), b"unqueryable").unwrap();
+    assert_eq!(state.sweep_temps(Duration::ZERO).unwrap(), 0);
+    assert!(state.exists(&current).unwrap());
+    assert!(state.exists(unknown).unwrap());
 }
 
 #[test]

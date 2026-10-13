@@ -108,6 +108,13 @@ fn kill9(mut child: Child) {
     let _ = child.wait();
 }
 
+/// Wait for termination while retaining this process's child handle through a liveness sweep.
+/// Windows can then distinguish a terminated process from an unavailable `OpenProcess` result.
+fn kill_for_sweep(child: &mut Child) {
+    child.kill().unwrap();
+    child.wait().unwrap();
+}
+
 fn ready() {
     println!("READY");
     std::io::stdout().flush().unwrap();
@@ -286,14 +293,14 @@ fn killed_mid_write_leaves_the_old_file_and_a_sweepable_orphan() {
     atomic_write(&p, b"old contents").unwrap();
 
     let mut child = spawn_role("crash_write", &[p.to_str().unwrap()]);
+    #[cfg(unix)]
+    let pid = child.id();
     wait_ready(&mut child);
     assert_eq!(temps_in(&dir).len(), 1, "the in-flight temp file exists");
-    // A live writer's temp file is not reclaimed by a sweep.
-    assert_eq!(
-        sweep_stale_temps(&dir, Duration::from_secs(3600)).unwrap(),
-        0
-    );
-    kill9(child);
+    let orphan = temps_in(&dir).pop().expect("the writer created one temp");
+    // Age never overrides a live writer, even at a zero threshold.
+    assert_eq!(sweep_stale_temps(&dir, Duration::ZERO).unwrap(), 0);
+    kill_for_sweep(&mut child);
 
     assert_eq!(
         std::fs::read(&p).unwrap(),
@@ -301,12 +308,32 @@ fn killed_mid_write_leaves_the_old_file_and_a_sweepable_orphan() {
         "destination never saw a partial write"
     );
     assert_eq!(temps_in(&dir).len(), 1, "SIGKILL leaves the orphan");
+    #[cfg(unix)]
+    let (outside, trap) = {
+        let outside = dir.join("outside.txt");
+        std::fs::write(&outside, b"do not unlink").unwrap();
+        let trap = dir.join(format!(".trap.rktmp-{pid}-9-0"));
+        std::os::unix::fs::symlink(&outside, &trap).unwrap();
+        (outside, trap)
+    };
     assert_eq!(
-        sweep_stale_temps(&dir, Duration::from_secs(3600)).unwrap(),
+        sweep_stale_temps(&dir, Duration::ZERO).unwrap(),
         1,
         "dead pid => reclaimed"
     );
+    #[cfg(not(unix))]
     assert!(temps_in(&dir).is_empty());
+    #[cfg(unix)]
+    assert!(std::fs::symlink_metadata(trap)
+        .unwrap()
+        .file_type()
+        .is_symlink());
+    #[cfg(unix)]
+    assert_eq!(std::fs::read(outside).unwrap(), b"do not unlink");
+    assert!(
+        !dir.join(orphan).exists(),
+        "the confirmed-dead orphan was removed"
+    );
     assert_eq!(std::fs::read(&p).unwrap(), b"old contents");
 }
 
@@ -648,11 +675,36 @@ fn state_dir_sweeps_orphans_from_killed_writers() {
     let state = StateDir::create(&p).unwrap();
     state.write("keep", b"1").unwrap();
     let mut child = spawn_role("crash_write", &[p.join("keep").to_str().unwrap()]);
+    #[cfg(unix)]
+    let pid = child.id();
     wait_ready(&mut child);
-    kill9(child);
-    assert_eq!(state.sweep_temps(Duration::from_secs(3600)).unwrap(), 1);
+    let orphan = temps_in(&p).pop().expect("the writer created one temp");
+    // `StateDir` also leaves a live writer's zero-age temp in place.
+    assert_eq!(state.sweep_temps(Duration::ZERO).unwrap(), 0);
+    kill_for_sweep(&mut child);
+    #[cfg(unix)]
+    let (outside, trap) = {
+        let outside = dir.join("state-outside.txt");
+        std::fs::write(&outside, b"do not unlink").unwrap();
+        let trap = p.join(format!(".trap.rktmp-{pid}-9-0"));
+        std::os::unix::fs::symlink(&outside, &trap).unwrap();
+        (outside, trap)
+    };
+    assert_eq!(state.sweep_temps(Duration::ZERO).unwrap(), 1);
+    #[cfg(not(unix))]
     assert_eq!(state.list(10).unwrap(), vec!["keep"]);
+    #[cfg(unix)]
+    assert!(std::fs::symlink_metadata(trap)
+        .unwrap()
+        .file_type()
+        .is_symlink());
     assert_eq!(state.read("keep", 10).unwrap(), b"1");
+    #[cfg(unix)]
+    assert_eq!(std::fs::read(outside).unwrap(), b"do not unlink");
+    assert!(
+        !p.join(orphan).exists(),
+        "the confirmed-dead orphan was removed"
+    );
 }
 
 // ---------------------------------------------------------------- file identity

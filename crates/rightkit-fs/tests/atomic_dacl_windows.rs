@@ -273,3 +273,30 @@ fn privacy_variants_on_windows() {
         );
     }
 }
+
+/// The owner-only probe must inspect owner and DACL on Windows; it cannot be the former
+/// unconditional success stub. A broad DACL is false, a missing object is an I/O error, and a
+/// native private creation verifies both before returning a writable handle.
+#[test]
+fn owner_only_probe_reads_real_windows_security_metadata() {
+    let dir = tempfile::tempdir().unwrap();
+    let private = dir.path().join("private.bin");
+    rightkit_fs::private::write_private_file(&private, b"secret").unwrap();
+    assert!(
+        rightkit_fs::private::is_owner_only(&private).unwrap(),
+        "fresh private file must have current TokenUser owner and protected owner-only DACL"
+    );
+
+    let broad = dir.path().join("broad.bin");
+    make_broad(&broad);
+    assert!(
+        !rightkit_fs::private::is_owner_only(&broad).unwrap(),
+        "an explicit Everyone read ACE is not owner-only"
+    );
+
+    let missing = dir.path().join("missing.bin");
+    assert!(
+        rightkit_fs::private::is_owner_only(&missing).is_err(),
+        "a missing path is not proof of owner-only state"
+    );
+}

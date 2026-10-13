@@ -491,11 +491,28 @@ impl StateDir {
         self.dir.entries(limit)
     }
 
-    /// Remove temp files left by writers that were killed mid-write (pid gone, or older than
-    /// `max_age`). Only complete generated temp names (`.<name>.rktmp-<pid>-<n>-<attempt>`, or
-    /// the longer form `atomic_write` makes) are considered, and `write`/`write_new` refuse such
-    /// names as targets, so a committed record is never swept. Returns how many were removed.
+    /// Remove generated regular temp files left by writers confirmed dead. `max_age` remains for
+    /// source compatibility but cannot override liveness: current, live, and unqueryable PIDs
+    /// survive regardless of age. Only complete generated temp names
+    /// (`.<name>.rktmp-<pid>-<n>-<attempt>`, or the longer `atomic_write` form) are considered,
+    /// and `write`/`write_new` refuse those names as targets, so a committed record is never
+    /// swept. The pinned directory rechecks the observed regular-file identity before removal;
+    /// Unix cannot make that comparison and `unlinkat` one operation against arbitrary concurrent
+    /// path replacement. Returns how many were removed.
     pub fn sweep_temps(&self, max_age: std::time::Duration) -> Result<usize> {
+        let _ = max_age;
+        #[cfg(windows)]
+        {
+            self.dir.sweep_temps()
+        }
+        #[cfg(not(windows))]
+        {
+            self.sweep_temps_path()
+        }
+    }
+
+    #[cfg(not(windows))]
+    fn sweep_temps_path(&self) -> Result<usize> {
         let mut removed = 0;
         for DirEntry { name, .. } in self.dir.entries(usize::MAX)? {
             // Only a complete generated temp name is ever reclaimed; a committed record that
@@ -503,16 +520,13 @@ impl StateDir {
             let Some(pid) = crate::atomic::generated_temp_pid(&name) else {
                 continue;
             };
-            let Some(stat) = self.dir.stat(&name)? else {
-                continue;
-            };
-            if stat.kind != EntryKind::File {
+            if !crate::atomic::confirmed_dead_writer(pid) {
                 continue;
             }
-            let age_ms = now_ms().saturating_sub(stat.modified_unix_ms);
-            let old = age_ms >= max_age.as_millis() as u64;
-            if ((pid != std::process::id() && !crate::process_alive(pid)) || old)
-                && self.dir.unlink(&name).is_ok()
+            // Check again directly before descriptor-relative deletion. A failed query is not
+            // proof of death, even if the generated name is old.
+            if crate::atomic::confirmed_dead_writer(pid)
+                && self.dir.unlink_regular(&name).unwrap_or(false)
             {
                 removed += 1;
             }
@@ -619,13 +633,6 @@ pub mod testing {
     pub(super) fn full_sync_unavailable() -> bool {
         FULL_SYNC_UNAVAILABLE.with(Cell::get)
     }
-}
-
-fn now_ms() -> u64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_millis() as u64)
-        .unwrap_or(0)
 }
 
 #[cfg(unix)]
@@ -1008,6 +1015,71 @@ mod sys {
             Ok(())
         }
 
+        /// Remove `name` only after comparing the descriptor opened without following links to
+        /// the name immediately before `unlinkat`. POSIX has no unlink-if-same-inode primitive,
+        /// so an arbitrary mutator can still exchange the name after this comparison.
+        pub fn unlink_regular(&self, name: &str) -> Result<bool> {
+            let c = cname(name)?;
+            // SAFETY: valid directory fd and NUL-terminated child name. O_NONBLOCK prevents a
+            // planted FIFO from stalling cleanup before its type is rejected.
+            let fd = unsafe {
+                libc::openat(
+                    self.fd(),
+                    c.as_ptr(),
+                    libc::O_RDONLY | libc::O_NONBLOCK | libc::O_NOFOLLOW | libc::O_CLOEXEC,
+                )
+            };
+            if fd < 0 {
+                let error = io::Error::last_os_error();
+                return if errno_is(&error, libc::ENOENT) || errno_is(&error, libc::ELOOP) {
+                    Ok(false)
+                } else {
+                    Err(FsError::io(name, error))
+                };
+            }
+            // SAFETY: `fd` was just returned by openat and is owned by this File.
+            let file = unsafe { File::from_raw_fd(fd) };
+            let opened = fstat(&file).map_err(|error| FsError::io(name, error))?;
+            if kind_of(opened.st_mode as u32) != EntryKind::File {
+                return Ok(false);
+            }
+            // SAFETY: valid directory fd, child name, and stat out-parameter.
+            let mut current: libc::stat = unsafe { std::mem::zeroed() };
+            if unsafe {
+                libc::fstatat(
+                    self.fd(),
+                    c.as_ptr(),
+                    &mut current,
+                    libc::AT_SYMLINK_NOFOLLOW,
+                )
+            } != 0
+            {
+                let error = io::Error::last_os_error();
+                return if errno_is(&error, libc::ENOENT) {
+                    Ok(false)
+                } else {
+                    Err(FsError::io(name, error))
+                };
+            }
+            if kind_of(current.st_mode as u32) != EntryKind::File
+                || opened.st_dev != current.st_dev
+                || opened.st_ino != current.st_ino
+            {
+                return Ok(false);
+            }
+            // SAFETY: valid directory fd and child name. The comparison above narrows, but does
+            // not eliminate, an unlink race with an arbitrary external path mutator.
+            if unsafe { libc::unlinkat(self.fd(), c.as_ptr(), 0) } != 0 {
+                let error = io::Error::last_os_error();
+                return if errno_is(&error, libc::ENOENT) {
+                    Ok(false)
+                } else {
+                    Err(FsError::io(name, error))
+                };
+            }
+            Ok(true)
+        }
+
         /// Flush this directory's entries. Unlike a file `fsync`, a failure is returned.
         pub fn sync(&self, policy: SyncPolicy) -> io::Result<Option<SyncLevel>> {
             sync_dir_file(&self.0, policy)
@@ -1217,6 +1289,17 @@ mod sys {
         }
         pub fn unlink(&self, name: &str) -> Result<()> {
             fs::remove_file(self.0.join(name)).map_err(|e| FsError::io(self.0.join(name), e))
+        }
+        pub fn unlink_regular(&self, name: &str) -> Result<bool> {
+            let path = self.0.join(name);
+            match fs::symlink_metadata(&path) {
+                Ok(meta) if meta.is_file() => match fs::remove_file(&path) {
+                    Ok(()) => Ok(true),
+                    Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(false),
+                    Err(error) => Err(FsError::io(path, error)),
+                },
+                Ok(_) | Err(_) => Ok(false),
+            }
         }
         pub fn sync(&self, _policy: SyncPolicy) -> std::io::Result<Option<SyncLevel>> {
             Ok(None)
