@@ -620,9 +620,9 @@
       ]
     },
     {
-      "package": "rightkit-daemon",
+      "package": "rightkit-service",
       "capability": "daemon-host",
-      "summary": "Daemon host: HTTPS listener, device enrolment and signed requests, OAuth callback and signed webhook route classes, bounded blake3-keyed resumable uploads, compare-and-swap mutations, durable state and lifecycle events (daemon-api v1).",
+      "summary": "Daemon host: HTTPS listener, device enrolment and signed requests, OAuth callback and signed webhook route classes, bounded blake3-keyed resumable uploads, compare-and-swap mutations, durable state and lifecycle events (daemon-api v1); the `remote` feature of rightkit-service.",
       "fingerprints": [],
       "detection": "declaration-only",
       "policyNotes": [

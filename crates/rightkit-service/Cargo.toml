@@ -7,7 +7,7 @@ description = "One discovery/auth convention for Right Suite local services: ser
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/Orthic-Labs/rightkit"
 readme = "README.md"
-include = ["src/**", "tests/**", "README.md", "CHANGELOG.md", "LICENSE-MIT", "LICENSE-APACHE"]
+include = ["src/**", "schemas/**", "tests/**", "README.md", "CHANGELOG.md", "LICENSE-MIT", "LICENSE-APACHE"]
 
 [dependencies]
 rightkit-framed-sidecar = { version = "0.2.0", path = "../rightkit-framed-sidecar" }
@@ -112,5 +112,6 @@ required-features = ["testing"]
 
 [dev-dependencies]
 tempfile = "3"
+rightkit-contracts = { version = "0.1.5", path = "../rightkit-contracts", features = ["schema"] }
 tower = { version = "0.5", features = ["util"] }
 rightkit-http = { version = "0.3.0", path = "../rightkit-http", features = ["testing"] }

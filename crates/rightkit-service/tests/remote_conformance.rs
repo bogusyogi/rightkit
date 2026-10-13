@@ -16,10 +16,22 @@ const FIXTURE: &str = concat!(
     env!("CARGO_MANIFEST_DIR"),
     "/../../contracts/fixtures/daemon-api/valid/api-v1.json"
 );
-const SCHEMA: &str = concat!(
+/// The crate's embedded copy (ships with `cargo package`); `embedded_schema_equals_repository_contract`
+/// fails when it drifts from the repository-root `contracts/` source.
+const SCHEMA_TEXT: &str = include_str!("../schemas/daemon-api.v1.schema.json");
+const SCHEMA_SOURCE: &str = concat!(
     env!("CARGO_MANIFEST_DIR"),
     "/../../contracts/daemon-api.v1.schema.json"
 );
+
+#[test]
+fn embedded_schema_equals_repository_contract() {
+    let source = std::fs::read_to_string(SCHEMA_SOURCE).expect("contracts/ schema");
+    assert!(
+        SCHEMA_TEXT == source,
+        "schemas/daemon-api.v1.schema.json differs from contracts/daemon-api.v1.schema.json; copy it over"
+    );
+}
 
 fn api() -> DaemonApi {
     parse(
@@ -140,7 +152,7 @@ fn defaults_follow_the_contract_limits() {
 
 #[test]
 fn lifecycle_event_names_are_in_the_schema_enum() {
-    let schema: Value = serde_json::from_str(&std::fs::read_to_string(SCHEMA).unwrap()).unwrap();
+    let schema: Value = serde_json::from_str(SCHEMA_TEXT).unwrap();
     let allowed: Vec<&str> = schema["properties"]["lifecycleEvents"]["items"]["enum"]
         .as_array()
         .unwrap()
@@ -394,12 +406,12 @@ fn every_valid_and_invalid_fixture_still_checks() {
 // ---- contract/code drift guards ----------------------------------------------
 
 const DAEMON_SRC: &[(&str, &str)] = &[
-    ("daemon.rs", include_str!("../src/daemon.rs")),
-    ("http.rs", include_str!("../src/http.rs")),
+    ("remote/core.rs", include_str!("../src/remote/core.rs")),
+    ("remote/http.rs", include_str!("../src/remote/http.rs")),
 ];
 
 fn schema() -> Value {
-    serde_json::from_str(&std::fs::read_to_string(SCHEMA).unwrap()).unwrap()
+    serde_json::from_str(SCHEMA_TEXT).unwrap()
 }
 
 /// The first string literal in `s`, if any.
