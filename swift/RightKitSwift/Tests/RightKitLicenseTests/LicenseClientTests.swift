@@ -262,6 +262,41 @@ private func signedToken(_ key: Curve25519.Signing.PrivateKey, app: String = "co
     #expect(KeychainLicenseStore.deviceOnlyAccessibility as String == kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly as String)
 }
 
+@Test func deviceIDSurfacesAKeychainWriteFailureInsteadOfReturningAnUnsavedID() {
+    let store = KeychainLicenseStore(service: "test.\(UUID().uuidString)", account: "activation")
+    #expect(throws: LicenseStorageError.keychain(errSecInteractionNotAllowed)) {
+        _ = try store.deviceIDLocked(
+            account: "device-id",
+            readItem: { _, _ in (errSecItemNotFound, nil) },
+            writeItem: { _, _, _ in throw LicenseStorageError.keychain(errSecInteractionNotAllowed) })
+    }
+}
+
+@Test func deviceIDDoesNotRotateOnATransientKeychainReadFailure() {
+    let store = KeychainLicenseStore(service: "test.\(UUID().uuidString)", account: "activation")
+    var wrote = false
+    #expect(throws: LicenseStorageError.keychain(errSecInteractionNotAllowed)) {
+        _ = try store.deviceIDLocked(
+            account: "device-id",
+            readItem: { _, _ in (errSecInteractionNotAllowed, nil) },
+            writeItem: { _, _, _ in wrote = true })
+    }
+    #expect(!wrote)
+}
+
+@Test func deviceIDIsCreatedOnceWhenAbsentAndReusedWhenPresent() throws {
+    let store = KeychainLicenseStore(service: "test.\(UUID().uuidString)", account: "activation")
+    var saved: Data?
+    let created = try store.deviceIDLocked(
+        account: "device-id",
+        readItem: { _, _ in (errSecItemNotFound, nil) },
+        writeItem: { data, _, _ in saved = data })
+    #expect(saved == Data(created.utf8))
+    let again = try store.deviceIDLocked(
+        account: "device-id", readItem: { _, _ in (errSecSuccess, saved) }, writeItem: { _, _, _ in })
+    #expect(again == created)
+}
+
 @Test func inMemoryStoreRoundTripsAndRemoves() async throws {
     let store = InMemoryLicenseStore()
     let license = StoredLicense(status: "active", deviceId: "d")

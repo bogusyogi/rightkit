@@ -297,18 +297,47 @@ public struct KeychainLicenseStore: LicenseStore, Sendable {
         try Self.lock.withLock { try delete(service: service, account: account) }
     }
 
+    /// Legacy non-throwing form. A Keychain failure cannot be reported through this signature, so
+    /// it returns a value that may not have been persisted (the identity would then change on the
+    /// next launch). Use ``requireDeviceID(account:)`` to have the failure surface.
     public func deviceID(account: String = "device-id") -> String {
-        Self.lock.withLock { deviceIDLocked(account: account) }
+        (try? requireDeviceID(account: account)) ?? UUID().uuidString
     }
 
-    private func deviceIDLocked(account: String) -> String {
-        if let data = read(service: service, account: account), let value = String(data: data, encoding: .utf8), !value.isEmpty {
+    /// The persisted device id. Created and stored on first use. Throws
+    /// ``LicenseStorageError/keychain(_:)`` when the Keychain read fails for any reason other than
+    /// "not found" (a transient failure must not rotate the identity) or when the new id cannot be
+    /// written (it would not survive the process).
+    public func requireDeviceID(account: String = "device-id") throws -> String {
+        try Self.lock.withLock {
+            try deviceIDLocked(account: account, readItem: readStatus, writeItem: write)
+        }
+    }
+
+    func deviceIDLocked(
+        account: String,
+        readItem: (String, String) -> (OSStatus, Data?),
+        writeItem: (Data, String, String) throws -> Void
+    ) throws -> String {
+        let (status, data) = readItem(service, account)
+        if status == errSecSuccess, let data, let value = String(data: data, encoding: .utf8), !value.isEmpty {
             migrateAccessibility(service: service, account: account)
             return value
         }
+        guard status == errSecSuccess || status == errSecItemNotFound else {
+            throw LicenseStorageError.keychain(status)
+        }
         let value = UUID().uuidString
-        try? write(Data(value.utf8), service: service, account: account)
+        try writeItem(Data(value.utf8), service, account)
         return value
+    }
+
+    private func readStatus(service: String, account: String) -> (OSStatus, Data?) {
+        var query = identity(service: service, account: account)
+        query[kSecReturnData as String] = true; query[kSecMatchLimit as String] = kSecMatchLimitOne
+        var item: CFTypeRef?
+        let status = SecItemCopyMatching(query as CFDictionary, &item)
+        return (status, status == errSecSuccess ? item as? Data : nil)
     }
 
     /// Rewrites only the accessibility attribute of an existing item (update-only, never add), so a
