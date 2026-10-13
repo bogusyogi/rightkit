@@ -291,3 +291,10 @@ function isProgressEvent(event: UpdateDownloadEvent): event is { event: 'Progres
 }
 
 export { compareVersions, isNewerVersion, parseVersion, type ParsedVersion } from './version.js';
+export {
+  resolveChannel,
+  validateChannels,
+  type UpdateChannelConfig,
+  type UpdateChannelMap,
+  type UpdateChannelName,
+} from './channels.js';
