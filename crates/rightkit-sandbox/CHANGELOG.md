@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.3.5
 
 - **Windows: the ancestor-ACE sweep sees leases held in another logon session.** The lease mutex was in the
   session-local object namespace, so a sweep run in a second logon session of the same user (fast user switching,

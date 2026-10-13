@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.3.0
 
 - **Added (opt-in, no change to existing behaviour; preserve M17 OG17-6):** `wrap_untrusted_web_text_coderight(source, text, &WrapOptions)` wraps text in CodeRight's `<coderight-untrusted-context ...>` envelope (`trust="toolUntrusted"`, `source="tool:<source>"`, `approval_authority="false"`). `wrap_untrusted_web_text` and `_with` still produce the `<<<UNTRUSTED_CONTENT` format. Documented differences: `content_hash` is the body SHA-256 (CodeRight leaves it empty) and a body containing the closing tag is escaped. Tests: `tests/untrusted_coderight.rs`.
 
@@ -61,8 +61,6 @@ Fixes from the third read (docs/audits/2026-10-11-astra-http-third-read.md):
 - **`ClientConfig::legacy_ureq_parity(user_agent)`** (additive) returns the settings of a plain `ureq`
   agent: environment proxies, `TrustRoots::Bundled`, 10 redirects, `RetryPolicy::none()` and the given user
   agent. All other fields keep their defaults, and private-address resolution stays off.
-
-## 0.3.0
 
 This is the 0.2.6 work renumbered: it carries source-visible breaks (`HttpError` variants and shapes, new
 `ClientConfig` fields, the default address policy), so sibling crates' requirements on `rightkit-http`

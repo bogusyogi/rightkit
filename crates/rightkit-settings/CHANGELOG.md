@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.2.0
 
 Durability claims corrected: on Windows only `ReplaceMode::MoveWriteThrough` is write-through; `Rename` is not. Nothing here was compiled or run locally; verification is the CI run.
 
@@ -22,8 +22,6 @@ Data loss and key order (two findings from HeardRight, read against 0.2.0 and ve
 - **New: `StoreOptions::achieved_durability(destination_exists) -> PublicationDurability`** (re-exported from rightkit-fs). States what a write with the options gets on this platform: `None`, `FileFlushedOnly`, `DirectoryFlushed`, or `WriteThroughMove`.
 - `tests/writer.rs`: the replace-call table covers `Rename` and `MoveWriteThrough`; new tests for `achieved_durability` and for `Error::Replaced` (Unix, injected directory-sync failure).
 - Docs (README, rustdoc on `ReplaceMode`, `durable`, `atomic_write`): the durability statements now give the per-platform, per-mode answer.
-
-## 0.2.0
 
 Existing callers keep today's behavior: `Store::open(root, schema)` still writes the namespaced envelope at `<root>/<namespace>/settings.json`. Changes:
 

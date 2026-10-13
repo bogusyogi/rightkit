@@ -2,7 +2,7 @@
 
 Version dates are the dates of the version-bump commits. Publication dates are not recorded in git.
 
-## 0.1.3 — unreleased
+## 0.1.3
 
 - Requires `rightkit-logs` 0.2.2 (tracing feature release); no API change.
 

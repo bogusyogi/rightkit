@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.1.5
 
 - Fix: a `service.json` or `takeover.json` that cannot be read (Windows `ERROR_ACCESS_DENIED` or `ERROR_SHARING_VIOLATION` while another process replaces it, a permission error, an I/O error) is no longer read as "absent". Only `NotFound` means absent. Not compiled or run locally; verification is the CI run. No version bump, nothing retried or slept here, and the writer-side retry in `write_atomic` is unchanged.
   - Additive: `try_read_record`, `try_read_takeover`, `try_read_live_record` (`io::Result<Option<_>>`: `Ok(None)` absent or unparseable, `Err` unreadable), `try_adopt_or_spawn` and `try_plan_host` (`io::Result` of the existing enums). `read_record`, `read_takeover`, `read_live_record`, `adopt_or_spawn` and `plan_host` keep their signatures and still answer as if absent for an unreadable file (their return types cannot say "unknown"); prefer the `try_` forms.
@@ -76,8 +76,6 @@
 - Additive: `valid_service_name(&str) -> bool` and `MAX_SERVICE_NAME_LEN` (48) are now public, so callers
   can check a derived name against the exact rule `host` enforces (non-empty, <= 48 bytes, ASCII
   `[a-z0-9-]`). The rule itself is unchanged.
-
-## 0.1.5
 
 Peer authentication hardening (gap ledger #59). Public API is additive, with two caveats:
 `ServiceEvent` gains a variant (`PeerRejected`) and `InstalledApp` gains a field
