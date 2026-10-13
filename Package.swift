@@ -30,6 +30,8 @@ let package = Package(
         .library(name: "RightKitOverlay", targets: ["RightKitOverlay"]),
         .library(name: "RightKitWatch", targets: ["RightKitWatch"]),
         .library(name: "RightKitUI", targets: ["RightKitUI"]),
+        .library(name: "RightKitPulse", targets: ["RightKitPulse"]),
+        .library(name: "RightKitDB", targets: ["RightKitDB"]),
     ],
     targets: [
         .target(name: "RightKitLicense", path: "swift/RightKitSwift/Sources/RightKitLicense"),
@@ -78,5 +80,11 @@ let package = Package(
         .testTarget(name: "RightKitWatchTests", dependencies: ["RightKitWatch"], path: "swift/RightKitSwift/Tests/RightKitWatchTests"),
         .target(name: "RightKitUI", path: "swift/RightKitSwift/Sources/RightKitUI"),
         .testTarget(name: "RightKitUITests", dependencies: ["RightKitUI"], path: "swift/RightKitSwift/Tests/RightKitUITests"),
+        // Pulse facade over the proposed rightkit-jobs C ABI seam (design selection, not a qualified adoption).
+        .target(name: "RightKitPulse", path: "swift/RightKitSwift/Sources/RightKitPulse"),
+        .testTarget(name: "RightKitPulseTests", dependencies: ["RightKitPulse"], path: "swift/RightKitSwift/Tests/RightKitPulseTests"),
+        // Read-only reader for rightkit-db databases (Rust is the only writer); system SQLite3.
+        .target(name: "RightKitDB", path: "swift/RightKitSwift/Sources/RightKitDB", linkerSettings: [.linkedLibrary("sqlite3")]),
+        .testTarget(name: "RightKitDBTests", dependencies: ["RightKitDB"], path: "swift/RightKitSwift/Tests/RightKitDBTests"),
     ],
 )
