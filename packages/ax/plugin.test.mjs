@@ -193,3 +193,46 @@ test("a skills/<name>/ directory missing SKILL.md is a fatal finding", () => {
   assert.equal(valid, false);
   assert.ok(findings.some((f) => f.ruleId === "plugin-skill-file"));
 });
+
+// Plugin metadata lint: loopback endpoints and literal bearer secrets.
+function repoWithMcp(server) {
+  const repo = tempRepo();
+  writeFileSync(path.join(repo, "plugin.json"), JSON.stringify({ $schema: "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json", name: "ok-name" }));
+  writeFileSync(path.join(repo, "mcp.json"), JSON.stringify(mcpManifestWithServer(server)));
+  return repo;
+}
+
+test("metadata lint: a hard-coded loopback endpoint in mcp.json is fatal", () => {
+  for (const value of ["http://127.0.0.1:8123/mcp", "http://localhost:3000", "127.0.0.1:9000", "ws://[::1]:4000/x"]) {
+    const { valid, findings } = validateRepoLayout(repoWithMcp({ args: ["--endpoint", value] }));
+    assert.equal(valid, false, value);
+    assert.ok(findings.some((f) => f.ruleId === "plugin-metadata-loopback-endpoint"), value);
+  }
+});
+
+test("metadata lint: a literal bearer token or secret env value is fatal and never echoed", () => {
+  const literal = "sk-live-abcdef123456";
+  for (const server of [{ env: { MEMBRANE_TOKEN: literal } }, { env: { AUTH_HEADER: `Bearer ${literal}` } }]) {
+    const { valid, findings } = validateRepoLayout(repoWithMcp(server));
+    assert.equal(valid, false);
+    const hit = findings.find((f) => f.ruleId === "plugin-metadata-literal-secret");
+    assert.ok(hit);
+    assert.ok(!JSON.stringify(hit).includes(literal));
+  }
+});
+
+test("metadata lint: environment references and prose are accepted", () => {
+  const repo = repoWithMcp({ env: { MEMBRANE_TOKEN: "${MEMBRANE_TOKEN}", AUTH_HEADER: "Bearer ${MEMBRANE_TOKEN}", API_KEY: "MEMBRANE_API_KEY", ENDPOINT: "${MEMBRANE_ENDPOINT}" } });
+  writeFileSync(path.join(repo, "plugin.json"), JSON.stringify({ $schema: "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json", name: "ok-name", description: "Talks to the local app on localhost at runtime." }));
+  const { valid, findings } = validateRepoLayout(repo);
+  assert.equal(valid, true, JSON.stringify(findings));
+});
+
+test("metadata lint: host-native manifests are linted too", () => {
+  const repo = tempRepo();
+  mkdirSync(path.join(repo, ".claude-plugin"), { recursive: true });
+  writeFileSync(path.join(repo, ".claude-plugin", "plugin.json"), JSON.stringify({ name: "ok-name", mcpServers: { m: { url: "http://localhost:8080/mcp" } } }));
+  const { valid, findings } = validateRepoLayout(repo);
+  assert.equal(valid, false);
+  assert.ok(findings.some((f) => f.ruleId === "plugin-metadata-loopback-endpoint"));
+});

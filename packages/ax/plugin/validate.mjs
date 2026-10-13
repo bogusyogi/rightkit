@@ -123,6 +123,50 @@ function validateMcpPathSafety(mcpManifest, pluginRoot) {
   return findings;
 }
 
+// Plugin metadata must not pin a loopback endpoint or carry a literal bearer
+// secret: ports are per-machine and secrets belong in the environment, never in
+// a checked-in manifest. Every string value in mcp.json and the plugin/host
+// manifests is walked; ${VAR} / $VAR references are the sanctioned form.
+const LOOPBACK_HOST = "(?:127(?:\\.\\d{1,3}){3}|localhost|0\\.0\\.0\\.0|\\[::1\\])";
+// A loopback host used as an endpoint: after a scheme (`http://localhost`) or with a port (`127.0.0.1:8080`). Bare prose mentions do not match.
+const LOOPBACK_PATTERN = new RegExp(`://(?:[^/@\\s]*@)?${LOOPBACK_HOST}(?![a-z0-9.-])|(?:^|[^a-z0-9.-])${LOOPBACK_HOST}:\\d{2,5}(?!\\d)`, "i");
+const SECRET_KEY_PATTERN = /(bearer|secret|token|password|passwd|api[_-]?key|authorization)/i;
+const ENV_REFERENCE = /^\s*(Bearer\s+)?(\$\{[A-Za-z_][A-Za-z0-9_]*(:-[^}]*)?\}|\$[A-Za-z_][A-Za-z0-9_]*)\s*$/;
+
+function* walkStrings(value, path) {
+  if (typeof value === "string") yield [path, value];
+  else if (Array.isArray(value)) for (const [i, item] of value.entries()) yield* walkStrings(item, `${path}[${i}]`);
+  else if (value && typeof value === "object") for (const [key, item] of Object.entries(value)) yield* walkStrings(item, path ? `${path}.${key}` : key);
+}
+
+export function lintPluginMetadata(manifest, label) {
+  const findings = [];
+  for (const [path, value] of walkStrings(manifest, "")) {
+    const leaf = path.replace(/\[\d+\]$/, "").split(".").pop() ?? "";
+    if (LOOPBACK_PATTERN.test(value)) {
+      findings.push(finding(
+        "plugin-metadata-loopback-endpoint",
+        "error",
+        `${label} hard-codes a loopback endpoint`,
+        `${label}:${path} = ${JSON.stringify(value)}`,
+        "resolve the endpoint at runtime (environment variable or discovery) instead of writing a loopback host or port into plugin metadata",
+      ));
+    }
+    const literalBearer = /^\s*Bearer\s+\S+/i.test(value) && !ENV_REFERENCE.test(value);
+    const literalSecret = SECRET_KEY_PATTERN.test(leaf) && value.trim() !== "" && !ENV_REFERENCE.test(value) && !HAS_PLACEHOLDER.test(value) && !/^[A-Z][A-Z0-9_]*$/.test(value);
+    if (literalBearer || literalSecret) {
+      findings.push(finding(
+        "plugin-metadata-literal-secret",
+        "error",
+        `${label} carries a literal bearer token or secret`,
+        `${label}:${path} = <redacted>`,
+        "reference the secret as ${ENV_VAR} (or a bare environment variable name) and read it at runtime; never commit the value",
+      ));
+    }
+  }
+  return findings;
+}
+
 function listSkillDirs(repoPath) {
   const skillsDir = join(repoPath, "skills");
   if (!existsSync(skillsDir) || !statSync(skillsDir).isDirectory()) return [];
@@ -170,6 +214,7 @@ function validateHostManifest(repoPath, host, rel, portableName) {
       findings.push(finding("plugin-host-manifest", "error", `${rel} ${field} must be a non-empty string`, field, `set ${field} to a string or remove it`));
     }
   }
+  findings.push(...lintPluginMetadata(manifest, rel));
   return findings;
 }
 
@@ -193,6 +238,7 @@ export function validateRepoLayout(repoPath, options = {}) {
       const { errors } = validateAgainstSchema(manifest, pluginSchema);
       findings.push(...classifySchemaErrors("plugin-json-schema", errors));
       if (typeof manifest.name === "string") portableName = manifest.name;
+      findings.push(...lintPluginMetadata(manifest, "plugin.json"));
     }
   }
   if (layout !== "none") {
@@ -229,6 +275,7 @@ export function validateRepoLayout(repoPath, options = {}) {
       const { errors } = validateAgainstSchema(mcpManifest, mcpSchema);
       findings.push(...classifySchemaErrors("mcp-json-schema", errors));
       findings.push(...validateMcpPathSafety(mcpManifest, repoPath));
+      findings.push(...lintPluginMetadata(mcpManifest, "mcp.json"));
     }
   }
 
