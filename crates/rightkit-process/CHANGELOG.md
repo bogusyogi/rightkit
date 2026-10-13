@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- **M3 restart policy: consecutive-failure cap and reset-on-ready (additive).** `RestartPolicy::with_consecutive_failures(cap, cooldown)`
+  limits restarts granted in a row without a ready: at the cap the next restart waits `cooldown` instead of the exponential backoff and a
+  new count starts; a zero cooldown returns `Exhausted`. The rolling-window budget is still checked first. `RestartTracker::ready(generation)`
+  clears the consecutive count (a stale generation changes nothing); `RestartPolicy::with_reset_budget_on_ready()` makes it also clear the
+  rolling budget (HeardRight's reset-on-ready). Defaults are unchanged, so existing policies behave as before. New `ConsecutiveFailures`,
+  `RestartTracker::consecutive_failures`. Tests: `tests/restart_health.rs` (cooldown, zero-cooldown end, ready reset, stale-generation
+  ready, zero cap refused). Not compiled when written (CI-only).
+
 Additive; no version bump. Owner-gap lane M5 (items M5-O1, M5-O4, M5-O5, M5-O7). Written without running Cargo
 (CI-only); the new code and tests were read for macOS and Windows cfgs but have not been compiled or run.
 

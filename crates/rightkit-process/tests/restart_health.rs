@@ -184,3 +184,111 @@ fn health_threshold_and_startup_timeout_are_deterministic() {
         HealthOutcome::StartupTimedOut
     );
 }
+
+fn crash_once(tracker: &mut RestartTracker, at: Duration) -> RestartOutcome {
+    let generation = tracker.started(at);
+    tracker.exited(generation, at)
+}
+
+#[test]
+fn consecutive_cap_applies_the_cooldown_then_starts_a_new_count() {
+    let policy = RestartPolicy::new(
+        RestartMode::Automatic,
+        100,
+        Duration::from_secs(1_000),
+        Duration::from_millis(10),
+        Duration::from_millis(40),
+    )
+    .unwrap()
+    .with_consecutive_failures(2, Duration::from_secs(30))
+    .unwrap();
+    let mut tracker = RestartTracker::new(policy);
+    let delays: Vec<_> = (1..=5)
+        .map(|i| match crash_once(&mut tracker, Duration::from_secs(i)) {
+            RestartOutcome::Restart(p) => p.delay(),
+            other => panic!("expected a restart, got {other:?}"),
+        })
+        .collect();
+    assert_eq!(delays[0], Duration::from_millis(10));
+    assert_eq!(delays[1], Duration::from_millis(20));
+    // Two restarts in a row without a ready: the third waits out the cooldown.
+    assert_eq!(delays[2], Duration::from_secs(30));
+    // A new consecutive count started (the rolling window still sets the backoff); the cap then
+    // applies again after two more.
+    assert_eq!(delays[3], Duration::from_millis(40));
+    assert_eq!(delays[4], Duration::from_secs(30));
+}
+
+#[test]
+fn consecutive_cap_with_zero_cooldown_ends_the_run_and_ready_prevents_it() {
+    let policy = RestartPolicy::new(
+        RestartMode::Automatic,
+        100,
+        Duration::from_secs(1_000),
+        Duration::from_millis(10),
+        Duration::from_millis(40),
+    )
+    .unwrap()
+    .with_consecutive_failures(2, Duration::ZERO)
+    .unwrap();
+    // Failing without ever reaching ready: the third crash is refused.
+    let mut tracker = RestartTracker::new(policy);
+    assert!(matches!(
+        crash_once(&mut tracker, Duration::from_secs(1)),
+        RestartOutcome::Restart(_)
+    ));
+    assert!(matches!(
+        crash_once(&mut tracker, Duration::from_secs(2)),
+        RestartOutcome::Restart(_)
+    ));
+    assert_eq!(
+        crash_once(&mut tracker, Duration::from_secs(3)),
+        RestartOutcome::Exhausted
+    );
+    // Reaching ready between crashes resets the count: the same crash count is never refused.
+    let mut tracker = RestartTracker::new(policy);
+    for i in 1..=6 {
+        let generation = tracker.started(Duration::from_secs(i));
+        tracker.ready(generation);
+        assert!(matches!(
+            tracker.exited(generation, Duration::from_secs(i)),
+            RestartOutcome::Restart(_)
+        ));
+        assert_eq!(tracker.consecutive_failures(), 1);
+    }
+}
+
+#[test]
+fn ready_of_a_stale_generation_changes_nothing_and_budget_reset_is_opt_in() {
+    let base = automatic_policy(2);
+    let mut tracker = RestartTracker::new(base);
+    let old = tracker.started(Duration::ZERO);
+    assert!(matches!(
+        tracker.exited(old, Duration::from_secs(1)),
+        RestartOutcome::Restart(_)
+    ));
+    let _current = tracker.started(Duration::from_secs(2));
+    tracker.ready(old);
+    assert_eq!(tracker.restarts_in_window(Duration::from_secs(2)), 1);
+    // Default: ready keeps the rolling budget.
+    let g = tracker.started(Duration::from_secs(3));
+    tracker.ready(g);
+    assert_eq!(tracker.restarts_in_window(Duration::from_secs(3)), 1);
+    // Opt-in: ready forgets it.
+    let mut tracker = RestartTracker::new(base.with_reset_budget_on_ready());
+    let g = tracker.started(Duration::ZERO);
+    assert!(matches!(
+        tracker.exited(g, Duration::from_secs(1)),
+        RestartOutcome::Restart(_)
+    ));
+    let g = tracker.started(Duration::from_secs(2));
+    tracker.ready(g);
+    assert_eq!(tracker.restarts_in_window(Duration::from_secs(2)), 0);
+}
+
+#[test]
+fn a_zero_cap_is_rejected() {
+    assert!(automatic_policy(1)
+        .with_consecutive_failures(0, Duration::ZERO)
+        .is_err());
+}

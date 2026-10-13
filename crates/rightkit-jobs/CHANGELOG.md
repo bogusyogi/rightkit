@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased (M3/M4 owner gaps, additive; written without running Cargo, CI-only)
+
+Locked M3/M4 design (READINESS "LEGION CHOSEN M3/M4 DESIGN"), implemented one design point at a time. All additions are opt-in; no default changes.
+
+- **Restart policy (M3).** The supervisor reports each generation that reaches `Ready` to `RestartTracker::ready`, so `rightkit-process`'s new `RestartPolicy::with_consecutive_failures(cap, cooldown)` and `with_reset_budget_on_ready()` take effect: a replacement that fails before ready counts toward the cap, a ready generation resets it. Policies built without those calls behave as before. Tests: `tests/m3_supervision.rs` (cap ends a never-ready run before the rolling budget; a crash after ready does not count).
+
 ## 0.3.0 (Breaking: `default-features = false` no longer includes the store)
 
 Version bump for the feature split (7775d90f), which changed what `default-features = false` selects without a version change. Nothing here was compiled or run locally; verification is the CI run.

@@ -1296,6 +1296,10 @@ fn boot(sh: &Arc<Shared>, initial: bool) -> JobResult<()> {
             "engine was shut down while starting",
         ));
     }
+    if let Some(token) = g.token {
+        // Reaching ready ends the consecutive-failure run (and, by policy, the rolling budget).
+        g.tracker.ready(token);
+    }
     g.hello = Some(client.hello().clone());
     g.booting = None;
     g.client = Some(Arc::clone(&client));

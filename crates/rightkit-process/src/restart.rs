@@ -14,9 +14,49 @@ pub struct RestartPolicy {
     window: Duration,
     base_backoff: Duration,
     max_backoff: Duration,
+    consecutive: Option<ConsecutiveFailures>,
+    reset_budget_on_ready: bool,
+}
+
+/// Cap on restarts granted in a row without the replacement ever reporting ready.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct ConsecutiveFailures {
+    /// Restarts in a row (no `RestartTracker::ready` between them) after which the cap applies.
+    pub cap: u32,
+    /// What the cap does: the next restart waits this long instead of the exponential backoff and a
+    /// new consecutive count starts. `Duration::ZERO` ends the run (`RestartOutcome::Exhausted`).
+    pub cooldown: Duration,
 }
 
 impl RestartPolicy {
+    /// Add a consecutive-failure cap on top of the rolling-window budget (HeardRight's rule: a
+    /// replacement that never becomes ready is not retried at backoff speed forever). The rolling
+    /// budget still applies first: when it is spent the outcome is `Exhausted` whatever the cap says.
+    /// `cap` must be at least 1.
+    pub fn with_consecutive_failures(
+        mut self,
+        cap: u32,
+        cooldown: Duration,
+    ) -> Result<Self, InvalidRestartPolicy> {
+        if cap == 0 {
+            return Err(InvalidRestartPolicy);
+        }
+        self.consecutive = Some(ConsecutiveFailures { cap, cooldown });
+        Ok(self)
+    }
+    /// When a generation reports ready ([`RestartTracker::ready`]), also forget the restarts counted
+    /// in the rolling window, so the next crash starts again at the base backoff with a full budget.
+    /// Off by default: a crash loop that reaches ready each time is then still limited by the window.
+    pub fn with_reset_budget_on_ready(mut self) -> Self {
+        self.reset_budget_on_ready = true;
+        self
+    }
+    pub fn consecutive_failures(&self) -> Option<ConsecutiveFailures> {
+        self.consecutive
+    }
+    pub fn resets_budget_on_ready(&self) -> bool {
+        self.reset_budget_on_ready
+    }
     pub fn mode(&self) -> RestartMode {
         self.mode
     }
@@ -44,6 +84,8 @@ impl Default for RestartPolicy {
             window: Duration::from_secs(60),
             base_backoff: Duration::from_millis(250),
             max_backoff: Duration::from_secs(5),
+            consecutive: None,
+            reset_budget_on_ready: false,
         }
     }
 }
@@ -53,7 +95,7 @@ pub struct InvalidRestartPolicy;
 
 impl fmt::Display for InvalidRestartPolicy {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str("restart window must be non-zero and max backoff must cover base backoff")
+        f.write_str("restart window must be non-zero, max backoff must cover base backoff, and a consecutive-failure cap must be at least 1")
     }
 }
 
@@ -76,6 +118,8 @@ impl RestartPolicy {
             window,
             base_backoff,
             max_backoff,
+            consecutive: None,
+            reset_budget_on_ready: false,
         })
     }
 }
@@ -111,6 +155,7 @@ pub struct RestartTracker {
     active: Option<Generation>,
     next_generation: u64,
     restart_times: VecDeque<Duration>,
+    consecutive: u32,
     permit_epoch: u64,
     awaiting_demand: bool,
     shutdown: bool,
@@ -123,6 +168,7 @@ impl RestartTracker {
             active: None,
             next_generation: 0,
             restart_times: VecDeque::new(),
+            consecutive: 0,
             permit_epoch: 0,
             awaiting_demand: false,
             shutdown: false,
@@ -167,6 +213,24 @@ impl RestartTracker {
         self.schedule(at)
     }
 
+    /// The running `generation` reported ready: the consecutive-failure count restarts from zero
+    /// and, when the policy says so ([`RestartPolicy::with_reset_budget_on_ready`]), so does the
+    /// rolling budget. A stale generation changes nothing.
+    pub fn ready(&mut self, generation: Generation) {
+        if self.active != Some(generation) {
+            return;
+        }
+        self.consecutive = 0;
+        if self.policy.reset_budget_on_ready {
+            self.restart_times.clear();
+        }
+    }
+
+    /// Restarts granted in a row since the last [`Self::ready`] (diagnostics).
+    pub fn consecutive_failures(&self) -> u32 {
+        self.consecutive
+    }
+
     /// Restarts granted inside the rolling window ending at `at` (diagnostics).
     pub fn restarts_in_window(&self, at: Duration) -> u32 {
         let window_start = at.saturating_sub(self.policy.window);
@@ -179,6 +243,7 @@ impl RestartTracker {
     /// Forget the restart budget (a user-initiated start after a terminal stop).
     pub fn reset_budget(&mut self) {
         self.restart_times.clear();
+        self.consecutive = 0;
         self.awaiting_demand = false;
         self.shutdown = false;
     }
@@ -207,14 +272,32 @@ impl RestartTracker {
             return RestartOutcome::Exhausted;
         }
 
-        let exponent = u32::try_from(self.restart_times.len()).unwrap_or(u32::MAX);
-        let multiplier = 1_u32.checked_shl(exponent.min(31)).unwrap_or(u32::MAX);
-        let delay = self
-            .policy
-            .base_backoff
-            .checked_mul(multiplier)
-            .unwrap_or(self.policy.max_backoff)
-            .min(self.policy.max_backoff);
+        let capped = match self.policy.consecutive {
+            Some(c) if self.consecutive >= c.cap => {
+                if c.cooldown.is_zero() {
+                    return RestartOutcome::Exhausted;
+                }
+                Some(c.cooldown)
+            }
+            _ => None,
+        };
+        let delay = match capped {
+            Some(cooldown) => {
+                // The cap was served by this cooldown; a new consecutive count starts.
+                self.consecutive = 0;
+                cooldown
+            }
+            None => {
+                let exponent = u32::try_from(self.restart_times.len()).unwrap_or(u32::MAX);
+                let multiplier = 1_u32.checked_shl(exponent.min(31)).unwrap_or(u32::MAX);
+                self.policy
+                    .base_backoff
+                    .checked_mul(multiplier)
+                    .unwrap_or(self.policy.max_backoff)
+                    .min(self.policy.max_backoff)
+            }
+        };
+        self.consecutive = self.consecutive.saturating_add(1);
         self.restart_times.push_back(at);
         self.permit_epoch = self.permit_epoch.saturating_add(1);
         let permit = RestartPermit {

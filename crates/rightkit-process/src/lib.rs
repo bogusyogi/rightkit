@@ -38,7 +38,8 @@ pub use owned::{
 };
 pub use process_handle::ProcessHandle;
 pub use restart::{
-    Generation, RestartMode, RestartOutcome, RestartPermit, RestartPolicy, RestartTracker,
+    ConsecutiveFailures, Generation, RestartMode, RestartOutcome, RestartPermit, RestartPolicy,
+    RestartTracker,
 };
 #[cfg(windows)]
 pub use spawn_windows::{with_windows_spawn_lock, WindowsChild, WindowsSpawnConfig, WindowsStdio};
