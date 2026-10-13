@@ -1,6 +1,3 @@
-use std::fs::{self, File};
-use std::io::Write;
-use std::path::Path;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use ring::rand::{SecureRandom, SystemRandom};
@@ -60,24 +57,7 @@ pub fn sha256_hex(data: &[u8]) -> String {
     hex(ring::digest::digest(&ring::digest::SHA256, data).as_ref())
 }
 
+#[cfg_attr(not(feature = "remote"), allow(dead_code))]
 pub fn ct_eq(a: &[u8], b: &[u8]) -> bool {
     subtle::ConstantTimeEq::ct_eq(a, b).into()
-}
-
-/// Write `data` to `path` atomically: temp file, fsync, rename, best-effort
-/// directory fsync.
-pub fn atomic_write(path: &Path, data: &[u8]) -> std::io::Result<()> {
-    let tmp = path.with_extension("tmp");
-    {
-        let mut f = File::create(&tmp)?;
-        f.write_all(data)?;
-        f.sync_all()?;
-    }
-    fs::rename(&tmp, path)?;
-    if let Some(dir) = path.parent() {
-        if let Ok(d) = File::open(dir) {
-            let _ = d.sync_all();
-        }
-    }
-    Ok(())
 }

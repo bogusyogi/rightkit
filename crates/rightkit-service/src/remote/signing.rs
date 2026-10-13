@@ -7,7 +7,7 @@ use base64::Engine as _;
 use ring::hmac;
 use ring::signature::{Ed25519KeyPair, UnparsedPublicKey, ED25519};
 
-use crate::util::{hex, sha256_hex, unhex};
+use crate::remote::util::{hex, sha256_hex, unhex};
 
 pub const H_TIMESTAMP: &str = "x-rk-timestamp";
 pub const H_NONCE: &str = "x-rk-nonce";

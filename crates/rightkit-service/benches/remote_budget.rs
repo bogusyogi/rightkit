@@ -1,4 +1,4 @@
-//! Runtime budget for rightkit-daemon (macOS and Windows).
+//! Runtime budget for rightkit-service (remote profile) (macOS and Windows).
 //!
 //! Scenario: one in-process `Daemon` driven through `Daemon::handle` (no transport). One
 //! device is enrolled through the real enrolment route, then N device-signed
@@ -14,7 +14,7 @@
 //! `state.json` write (`Daemon::metrics`), and the retained-state counts. The transport (HTTPS
 //! listener) is not exercised: the idle figures are the daemon state and runtime without a listener.
 //!
-//! Run: `rightkit cargo bench -p rightkit-daemon --bench budget`
+//! Run: `rightkit cargo bench -p rightkit-service --features remote --bench remote_budget`
 //! Optional: `-- <submissions> <idle_seconds>` (defaults 10000 and 30).
 
 #[path = "../tests/common/mod.rs"]
@@ -116,7 +116,7 @@ fn main() {
         idle.result_lines(
             &p_after,
             &BudgetLabels {
-                krate: "rightkit-daemon",
+                krate: "rightkit-service",
                 version: env!("CARGO_PKG_VERSION"),
                 scale_unit: "submissions",
                 scale: n,

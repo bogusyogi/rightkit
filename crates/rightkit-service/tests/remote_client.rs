@@ -3,9 +3,11 @@
 
 use std::sync::Arc;
 
-use rightkit_daemon::client::{Client, ClientConfig, DeviceKey, Error, ErrorCode, Refusal};
-use rightkit_daemon::signing::{chunk_digest, object_hasher, parse_digest_key};
-use rightkit_daemon::testing::{TestCertificate, TestDaemon};
+use rightkit_service::remote::client::{
+    Client, ClientConfig, DeviceKey, Error, ErrorCode, Refusal,
+};
+use rightkit_service::remote::signing::{chunk_digest, object_hasher, parse_digest_key};
+use rightkit_service::remote::testing::{TestCertificate, TestDaemon};
 use serde_json::{json, Map, Value};
 
 fn key() -> Arc<DeviceKey> {
@@ -340,7 +342,8 @@ fn interrupted_upload_resumes_and_commits_the_right_bytes_and_hash() {
 
     // A new client resumes from the persisted session record.
     let saved = serde_json::to_string(&session).unwrap();
-    let session: rightkit_daemon::client::UploadSession = serde_json::from_str(&saved).unwrap();
+    let session: rightkit_service::remote::client::UploadSession =
+        serde_json::from_str(&saved).unwrap();
     let dev = d.client().unwrap().session(session_device(&d), k);
     let status = dev.upload_status(&session.upload_id).unwrap();
     assert_eq!(status.received, vec![0, 1, 2, 3]);

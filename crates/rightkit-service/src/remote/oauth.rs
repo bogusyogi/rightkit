@@ -7,7 +7,7 @@ use std::sync::Arc;
 
 use rightkit_oauth::server::{CallbackQuery, ServerAuthError, ServerAuthFlow, TokenStore};
 
-use crate::daemon::{OAuthCallbackHandler, OAuthOutcome};
+use crate::remote::core::{OAuthCallbackHandler, OAuthOutcome};
 
 pub struct FlowOAuthHandler {
     pub flow: Arc<ServerAuthFlow>,

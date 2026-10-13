@@ -15,15 +15,18 @@ use rightkit_contracts::types::daemon_api::AuthClassId;
 use ring::hmac;
 use serde_json::{json, Value};
 
-use crate::config::DaemonConfig;
-use crate::events::EventLog;
-use crate::routes::{match_route, Matched, RouteDef};
-use crate::signing::{
+use crate::record::write_atomic;
+use crate::remote::config::DaemonConfig;
+use crate::remote::events::EventLog;
+use crate::remote::routes::{match_route, Matched, RouteDef};
+use crate::remote::signing::{
     chunk_digest, object_digest, object_hasher, parse_digest_key, verify_request, H_NONCE,
     H_PROVIDER_SIGNATURE, H_PROVIDER_TIMESTAMP, H_SIGNATURE, H_TIMESTAMP,
 };
-use crate::state::{Device, EnrolCode, IdemRecord, InboxItem, Job, State, Upload, UploadDone};
-use crate::util::{atomic_write, ct_eq, hex, random_bytes, sha256_hex, unhex, Clock};
+use crate::remote::state::{
+    Device, EnrolCode, IdemRecord, InboxItem, Job, State, Upload, UploadDone,
+};
+use crate::remote::util::{ct_eq, hex, random_bytes, sha256_hex, unhex, Clock};
 
 /// A fully read request. Header names are lower-case.
 #[derive(Debug, Clone, Default)]
@@ -82,7 +85,7 @@ pub enum OAuthOutcome {
 }
 
 /// Completes an OAuth authorization-code callback. The shipped implementation
-/// wraps `rightkit-oauth`'s server flow ([`crate::oauth::FlowOAuthHandler`]).
+/// wraps `rightkit-oauth`'s server flow ([`crate::remote::oauth::FlowOAuthHandler`]).
 pub trait OAuthCallbackHandler: Send + Sync {
     fn complete(
         &self,
@@ -350,7 +353,7 @@ impl Daemon {
     fn save(&self, g: &mut Inner) -> std::io::Result<()> {
         let bytes = serde_json::to_vec(&g.state)
             .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
-        atomic_write(&self.cfg.state_dir.join("state.json"), &bytes)?;
+        write_atomic(&self.cfg.state_dir.join("state.json"), &bytes)?;
         g.dirty = false;
         let n = bytes.len() as u64;
         self.counters.state_saves.fetch_add(1, Ordering::Relaxed);
@@ -408,7 +411,7 @@ impl Daemon {
     fn save_upload(&self, up: &Upload) -> std::io::Result<()> {
         let bytes = serde_json::to_vec(up)
             .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
-        atomic_write(&self.meta_path(&up.id), &bytes)
+        write_atomic(&self.meta_path(&up.id), &bytes)
     }
 
     fn storage_error(&self, e: std::io::Error) -> Response {

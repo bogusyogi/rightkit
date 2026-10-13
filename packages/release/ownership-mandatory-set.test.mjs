@@ -95,17 +95,16 @@ test("workspace.dependencies resolve for members; rk-snapshot is not scanned", (
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
-test("app-side N/A needs a reason; rightkit-daemon (publish=false) may be path-consumed", () => {
+test("app-side N/A needs a reason", () => {
   const root = tmp();
   try {
-    goodApp(root, { drop: ["rightkit-crash", "rightkit-daemon"], extraCargo: "rightkit-daemon = { path = \"../rk-snapshot/crates/rightkit-daemon\" }\n" });
+    goodApp(root, { drop: ["rightkit-crash"] });
     put(root, "rightkit-mandatory.json", { notApplicable: { M16: "CLI-only helper app has no crash-reporting process boundary", M18: "n/a" } });
     const report = checkApp(root, { data });
     assert.equal(byOwner(report, "rightkit-crash"), undefined);
     assert.deepEqual(report.notApplicable.map((n) => n.row), ["M16"]);
     assert.ok(report.problems.some((p) => p.startsWith("M18")));
     assert.equal(byOwner(report, "@rightkit/updates").status, "ok");
-    assert.equal(byOwner(report, "rightkit-daemon").status, "ok");
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 

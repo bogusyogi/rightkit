@@ -4,8 +4,10 @@ use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex};
 
 use common::*;
-use rightkit_daemon::signing::{H_NONCE, H_PROVIDER_SIGNATURE, H_PROVIDER_TIMESTAMP, H_SIGNATURE};
-use rightkit_daemon::{OAuthCallbackHandler, OAuthOutcome, Request};
+use rightkit_service::remote::signing::{
+    H_NONCE, H_PROVIDER_SIGNATURE, H_PROVIDER_TIMESTAMP, H_SIGNATURE,
+};
+use rightkit_service::remote::{OAuthCallbackHandler, OAuthOutcome, Request};
 use serde_json::{json, Value};
 
 // ---- enrolment ---------------------------------------------------------------
@@ -415,13 +417,13 @@ fn oauth_class_refuses_other_credentials() {
 
 mod real_flow {
     use super::*;
-    use rightkit_daemon::oauth::FlowOAuthHandler;
     use rightkit_http::testing::{loopback_config, MockResponse, MockServer};
     use rightkit_http::Client;
     use rightkit_oauth::server::{
         MemoryPendingStateStore, SealedFileTokenStore, ServerAuthFlow, ServerProvider, TokenStore,
     };
     use rightkit_oauth::OAuthConfig;
+    use rightkit_service::remote::oauth::FlowOAuthHandler;
     use std::time::Duration;
 
     #[test]

@@ -26,7 +26,7 @@ use tokio::net::TcpListener;
 use tokio::sync::{Notify, Semaphore};
 use tokio_rustls::TlsAcceptor;
 
-use crate::daemon::{Daemon, Request, Response};
+use crate::remote::core::{Daemon, Request, Response};
 
 pub fn router(daemon: Arc<Daemon>) -> Router {
     Router::new().fallback(entry).with_state(daemon)

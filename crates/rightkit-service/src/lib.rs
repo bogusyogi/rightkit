@@ -57,6 +57,9 @@ mod server;
 mod suite;
 mod takeover_watch;
 mod transport;
+/// Daemon host (`remote` feature) and device client (`link` feature); see the module docs.
+#[cfg(any(feature = "remote", feature = "link"))]
+pub mod remote;
 
 pub use client::{Client, ClientConfig, RetryPolicy, DEFAULT_DEADLINE};
 pub use discovery::{

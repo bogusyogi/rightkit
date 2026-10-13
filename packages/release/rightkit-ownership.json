@@ -620,17 +620,6 @@
       ]
     },
     {
-      "package": "rightkit-daemon",
-      "capability": "daemon-host",
-      "summary": "Daemon host: HTTPS listener, device enrolment and signed requests, OAuth callback and signed webhook route classes, bounded blake3-keyed resumable uploads, compare-and-swap mutations, durable state and lifecycle events (daemon-api v1).",
-      "fingerprints": [],
-      "detection": "declaration-only",
-      "policyNotes": [
-        "Package contract retained; dependency declarations do not verify integration.",
-        "No precise implementation fingerprint; declaration-only inventory, never enforced ownership or verified integration."
-      ]
-    },
-    {
       "package": "rightkit-db",
       "capability": "sqlite-storage",
       "summary": "SQLite open profiles, WAL with verified fallback, keys, migrations, backup, recovery",

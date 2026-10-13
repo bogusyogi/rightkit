@@ -6,7 +6,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use common::*;
-use rightkit_daemon::{load_tls, router, serve, serve_blocking, StopHandle};
+use rightkit_service::remote::{load_tls, router, serve, serve_blocking, StopHandle};
 use serde_json::{json, Value};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};

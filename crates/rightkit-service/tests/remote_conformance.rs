@@ -7,9 +7,9 @@ use std::collections::BTreeMap;
 use common::*;
 use rightkit_contracts::types::daemon_api::{AuthClassId, DaemonApi, Method};
 use rightkit_contracts::{parse, Contract};
-use rightkit_daemon::events::contract_name;
-use rightkit_daemon::routes::ROUTES;
-use rightkit_daemon::{DaemonConfig, Request, UploadLimits};
+use rightkit_service::remote::events::contract_name;
+use rightkit_service::remote::routes::ROUTES;
+use rightkit_service::remote::{DaemonConfig, Request, UploadLimits};
 use serde_json::{json, Value};
 
 const FIXTURE: &str = concat!(

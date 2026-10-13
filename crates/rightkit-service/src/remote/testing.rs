@@ -1,4 +1,4 @@
-//! Test fixtures for consumers of the [`client`](crate::client): a TLS test
+//! Test fixtures for consumers of the [`client`](crate::remote::client): a TLS test
 //! certificate generated at run time (no private key is ever committed) and an
 //! in-process daemon on `127.0.0.1:0`. Behind the `testing` feature; not for
 //! production use.
@@ -9,8 +9,8 @@ use std::sync::Arc;
 use std::thread::JoinHandle;
 use std::time::Duration;
 
-use crate::client::{Client, ClientConfig, Error};
-use crate::{load_tls, serve_blocking, Daemon, DaemonConfig, StopHandle, SystemClock};
+use crate::remote::client::{Client, ClientConfig, Error};
+use crate::remote::{load_tls, serve_blocking, Daemon, DaemonConfig, StopHandle, SystemClock};
 
 /// A fresh self-signed certificate for `localhost` and `127.0.0.1`, generated with rcgen on
 /// every call. The certificate PEM doubles as the root a client pins.

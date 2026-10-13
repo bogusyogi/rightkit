@@ -4,14 +4,14 @@
 //! updates. Behind the `client` feature; needs no async runtime.
 //!
 //! Signing and hashing are the server's own functions
-//! ([`crate::signing::sign_request`] / [`verify_request`](crate::signing::verify_request),
-//! [`chunk_digest`](crate::signing::chunk_digest), [`object_hasher`](crate::signing::object_hasher)),
+//! ([`crate::remote::signing::sign_request`] / [`verify_request`](crate::remote::signing::verify_request),
+//! [`chunk_digest`](crate::remote::signing::chunk_digest), [`object_hasher`](crate::remote::signing::object_hasher)),
 //! so client and server cannot drift. TLS trusts only the root certificates
 //! the caller supplies: there is no system-root fallback.
 //!
 //! ```no_run
-//! use rightkit_daemon::client::{Client, ClientConfig, DeviceKey};
-//! # fn run(addr: std::net::SocketAddr, root_pem: &[u8], code: &str) -> Result<(), rightkit_daemon::client::Error> {
+//! use rightkit_service::remote::client::{Client, ClientConfig, DeviceKey};
+//! # fn run(addr: std::net::SocketAddr, root_pem: &[u8], code: &str) -> Result<(), rightkit_service::remote::client::Error> {
 //! let client = Client::new(ClientConfig::new(addr).root_pem(root_pem)?)?;
 //! let pkcs8 = DeviceKey::generate_pkcs8()?; // the caller stores these bytes
 //! let device = client.enrol(code, DeviceKey::from_pkcs8(&pkcs8)?, Some("ci"))?;
@@ -41,11 +41,11 @@ pub use error::{Error, ErrorCode, Refusal};
 pub use transport::Reply;
 use transport::Transport;
 
-use crate::signing::{
+use crate::remote::signing::{
     chunk_digest, object_digest, object_hasher, parse_digest_key, sign_request, H_NONCE,
     H_SIGNATURE, H_TIMESTAMP,
 };
-use crate::util::{hex, random_bytes, Clock, SystemClock};
+use crate::remote::util::{hex, random_bytes, Clock, SystemClock};
 
 /// Headers `send` owns: framing and the device credentials.
 const RESERVED_HEADERS: [&str; 8] = [

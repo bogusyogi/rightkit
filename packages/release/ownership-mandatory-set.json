@@ -153,13 +153,6 @@
           "ecosystem": "cargo",
           "min": "0.1.5",
           "registryMax": "0.1.4"
-        },
-        {
-          "name": "rightkit-daemon",
-          "ecosystem": "cargo",
-          "min": "0.1.3",
-          "registry": false,
-          "note": "publish=false at source; path/git consumption is expected, so never reported as not-on-registry"
         }
       ]
     },

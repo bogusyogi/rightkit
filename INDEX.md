@@ -12,7 +12,7 @@ Flagged mismatches: 51.
 
 The build broker is the Rust RustRight product (`bogusyogi/rustright`, binary `rustright`, alias `rightkit`); it is not part of this inventory. `packages/build-control-policy` keeps the agent permission hooks.
 
-## Rust crates (57)
+## Rust crates (56)
 
 | Crate | Registry | Source | Published | Staged | Flag | Owns | What it is |
 |---|---|---|---|---|---|---|---|
@@ -29,7 +29,6 @@ The build broker is the Rust RustRight product (`bogusyogi/rustright`, binary `r
 | `rightkit-contracts` | crates.io | 0.1.5 | none recorded | 0.1.2 | **MISMATCH staged 0.1.2 != source 0.1.5** | content-contracts | Versioned content-pipeline contracts for the Right Suite: content brief, delivery envelope, record session and event, demo plan and daemon API. JSON Schema validation, serde types, and major-version negotiation. |
 | `rightkit-control` | crates.io | 0.3.0 | 0.1.11 | 0.3.0 | staged, not yet published | desktop-control | Background native input, accessibility reads, and a WebDriver bridge for driving real desktop apps without stealing focus. |
 | `rightkit-crash` | crates.io | 0.2.2 | 0.2.1 | 0.2.1 | **MISMATCH staged 0.2.1 != source 0.2.2** | crash-reporting | Privacy-first panic capture, redacted crash reports, native dumps and support bundles for Right Suite apps. |
-| `rightkit-daemon` | private | 0.1.3 | none recorded |  | private | daemon-host | Daemon host capability for the Right Suite: HTTPS listener, device enrolment and signed requests, OAuth callback and signed webhook route classes, bounded blake3-keyed resumable uploads, compare-and-swap mutations, durable state and lifecycle events. |
 | `rightkit-db` | crates.io | 0.4.0 | 0.3.2 | 0.3.2 | **MISMATCH staged 0.3.2 != source 0.4.0** | sqlite-storage | Correct-by-default SQLite and SQLCipher connection bootstrap for Right Suite apps. |
 | `rightkit-embed` | crates.io | 0.3.2 | 0.3.2 | 0.3.2 | ok | embeddings | Product-neutral local text embeddings and persistent cosine vector store. |
 | `rightkit-framed-sidecar` | crates.io | 0.2.0 | 0.1.0 | 0.1.0 | **MISMATCH staged 0.1.0 != source 0.2.0** | framed-sidecar | Bounded JSON-lines transport primitives for Right Suite sidecars. |
@@ -63,7 +62,7 @@ The build broker is the Rust RustRight product (`bogusyogi/rustright`, binary `r
 | `rightkit-search` | crates.io | 0.2.1 | 0.2.0 | 0.2.0 | **MISMATCH staged 0.2.0 != source 0.2.1** | search | Product-neutral search query language: lexer, AST, operator values, SQL/FTS5 predicate compiler, snippets, and an in-memory filename index. |
 | `rightkit-secrets` | crates.io | 0.2.0 | 0.1.3 | 0.1.3 | **MISMATCH staged 0.1.3 != source 0.2.0** | os-credential-store | Per-app OS credential storage for Right Suite apps: Keychain / Credential Manager, passive presence checks, non-interactive mode, test guards, DB-key provisioning, and migration. |
 | `rightkit-send` | private | 0.1.0 | none recorded |  | private | nearby-sharing | Nearby file and text sharing over the open LocalSend v2 protocol, with Pulse extensions: TLS identity pinning, per-device trust, and macOS Bonjour discovery. Product-neutral; the host supplies identity, paths and policy. |
-| `rightkit-service` | crates.io | 0.1.5 | 0.1.4 | 0.1.4 | **MISMATCH staged 0.1.4 != source 0.1.5** | local-services | One discovery/auth convention for Right Suite local services: service.json, ranking and takeover, current-user-only Unix socket / named pipe, per-app request allowlist. |
+| `rightkit-service` | crates.io | 0.2.0 | 0.1.4 | 0.1.4 | **MISMATCH staged 0.1.4 != source 0.2.0** | local-services | One discovery/auth convention for Right Suite local services: service.json, ranking and takeover, current-user-only Unix socket / named pipe, per-app request allowlist. |
 | `rightkit-settings` | crates.io | 0.2.0 | 0.1.1 | 0.1.1 | **MISMATCH staged 0.1.1 != source 0.2.0** | settings-persistence | Versioned per-app settings persistence: migrations, typed defaults, atomic writes, corruption recovery, change events. |
 | `rightkit-shell` | crates.io | 0.3.0 | 0.2.0 | 0.2.0 | **MISMATCH staged 0.2.0 != source 0.3.0** | desktop-shell | Shared Tauri desktop shell for Right Suite apps: webview hardening, window state, native menu, tray, single instance, deep links, autostart, rich clipboard, watchdog and engine wiring. |
 | `rightkit-speech-client` | crates.io | 0.3.4 | 0.3.3 | 0.3.3 | **MISMATCH staged 0.3.3 != source 0.3.4** | shared-speech-service | Client and contract for the Orthic Labs shared speech service (one resident engine per machine), built on rightkit-service. Wire-compatible with HeardRight's v1 host. |
