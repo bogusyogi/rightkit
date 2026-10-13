@@ -142,6 +142,11 @@ required-features = ["testing"]
 
 # M8 owner-gap additions (append, executable, reporting, verified copy).
 [[test]]
+name = "owner_append"
+path = "tests/owner_append.rs"
+required-features = ["fs"]
+
+[[test]]
 name = "owner_executable"
 path = "tests/owner_executable.rs"
 required-features = ["fs"]

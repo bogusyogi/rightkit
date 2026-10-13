@@ -840,7 +840,7 @@ pub fn sync_dir(dir: &Path) {
 /// Directory `fsync`, reporting failure. A no-op off unix: Windows has no directory flush (a
 /// directory handle opened for listing cannot be flushed), so the strongest publication there is
 /// a write-through move; see [`publication_durability`].
-fn try_sync_dir(dir: &Path) -> std::io::Result<()> {
+pub(crate) fn try_sync_dir(dir: &Path) -> std::io::Result<()> {
     #[cfg(unix)]
     {
         #[cfg(feature = "testing")]

@@ -25,6 +25,8 @@ compile_error!(
 #[cfg(all(feature = "fs", unix))]
 pub(crate) mod acl;
 #[cfg(feature = "fs")]
+pub mod append;
+#[cfg(feature = "fs")]
 pub mod atomic;
 #[cfg(feature = "fs")]
 pub mod clone;
@@ -49,6 +51,8 @@ mod windows_temp_sweep;
 
 #[cfg(all(feature = "fs", feature = "digest"))]
 pub use atomic::atomic_write_with_digest;
+#[cfg(feature = "fs")]
+pub use append::{append_record, AppendOptions};
 #[cfg(feature = "fs")]
 pub use atomic::{
     atomic_write, atomic_write_private, atomic_write_with, atomic_write_with_options, durable_sync,
