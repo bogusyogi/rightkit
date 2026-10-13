@@ -145,3 +145,17 @@ test("CLI: report mode exits 0 on a bad app, --enforce exits 1, missing app root
     assert.match(renderText(checkApps([path.join(workspace, "bad")], {})), /1\/1 apps fail/);
   } finally { rmSync(workspace, { recursive: true, force: true }); }
 });
+
+test("CLI: an unknown --amendment exits 2 like an unknown --profile, even with --enforce", async () => {
+  const workspace = tmp();
+  try {
+    goodApp(path.join(workspace, "good"));
+    const errors = [];
+    const run = (args) => main(["--workspace", workspace, ...args], { stdout: { write() {} }, stderr: { write: (s) => { errors.push(s); } } });
+    assert.equal(await run(["--app", "good", "--amendment", "v2.2", "--enforce"]), 2);
+    assert.match(errors.join(""), /unknown amendment "v2.2"/);
+    assert.equal(await run(["--app", "good", "--amendment", "2.2"]), 2);
+    assert.equal(await run(["--app", "good", "--profile", "nope", "--enforce"]), 2);
+    assert.equal(await run(["--app", "good", "--amendment", "v2.1"]), 0);
+  } finally { rmSync(workspace, { recursive: true, force: true }); }
+});

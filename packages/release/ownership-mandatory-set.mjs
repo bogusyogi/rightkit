@@ -233,6 +233,8 @@ export async function main(args, io = {}) {
   const amendments = flags(args, "--amendment").map((a) => a.replace(/^v?/, "v"));
   const profile = flags(args, "--profile")[0];
   if (profile && !data.profiles[profile]) { stderr.write(`[right-release] ownership-mandatory: unknown profile "${profile}"\n`); return 2; }
+  const unknownAmendment = amendments.find((a) => !data.amendments?.[a]);
+  if (unknownAmendment) { stderr.write(`[right-release] ownership-mandatory: unknown amendment "${unknownAmendment}"\n`); return 2; }
   const report = checkApps(roots, { data, profile, amendments, enforce: args.includes("--enforce") });
   stdout.write(args.includes("--json") ? `${JSON.stringify(report, null, 2)}\n` : renderText(report));
   return args.includes("--enforce") && report.failed ? 1 : 0;
