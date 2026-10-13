@@ -2,7 +2,7 @@
 
 mod common;
 
-use std::io::{BufRead, BufReader, Write};
+use std::io::{BufRead, Write};
 
 use rightkit_agents::claude::{
     build_args, interrupt_frame, user_turn_frame, ClaudeOptions, ConfigMode, StreamParser,
@@ -215,17 +215,14 @@ fn argv_rejects_session_id_with_resume() {
 
 #[test]
 fn fake_cli_replays_a_fixture_over_stdio() {
-    let mut child = common::spawn_fake("claude", "claude/subagent.ndjson");
+    let (mut child, stdout) = common::spawn_fake("claude", "claude/subagent.ndjson");
     let mut stdin = child.stdin.take().unwrap();
     stdin.write_all(user_turn_frame("go").as_bytes()).unwrap();
     stdin.flush().unwrap();
     let mut parser = StreamParser::new();
     let mut events = Vec::new();
-    for line in BufReader::new(child.stdout.take().unwrap()).lines() {
-        let line = line.unwrap();
-        if common::is_wire_line(&line) {
-            events.extend(parser.parse_line(&line).unwrap());
-        }
+    for line in stdout.lines() {
+        events.extend(parser.parse_line(&line.unwrap()).unwrap());
     }
     drop(stdin);
     child.wait().unwrap();

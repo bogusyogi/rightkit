@@ -2,8 +2,6 @@
 
 mod common;
 
-use std::io::BufReader;
-
 use rightkit_agents::codex::{
     parse_line, CodexClient, Decision, Incoming, APPROVAL_REQUESTS, KNOWN_NOTIFICATIONS,
     PINNED_CODEX_VERSION,
@@ -106,9 +104,8 @@ fn approval_server_requests_carry_an_event() {
 
 #[test]
 fn client_runs_a_recorded_conversation_with_approvals_end_to_end() {
-    let mut child = common::spawn_fake("codex", "codex/approvals.ndjson");
+    let (mut child, stdout) = common::spawn_fake("codex", "codex/approvals.ndjson");
     let stdin = child.stdin.take().unwrap();
-    let stdout = BufReader::new(child.stdout.take().unwrap());
     let mut client = CodexClient::new(stdout, stdin);
 
     client.initialize("rightkit-agents-test", "0.0.0").unwrap();

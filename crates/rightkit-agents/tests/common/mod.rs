@@ -4,14 +4,18 @@
 
 #![allow(dead_code)]
 
-use std::io::{BufRead, Write};
+use std::io::{BufRead, BufReader, Write};
 use std::path::PathBuf;
-use std::process::{Child, Command, Stdio};
+use std::process::{Child, ChildStdout, Command, Stdio};
 
 /// Name of the `#[test]` fn each test file defines to host the child mode.
 pub const CHILD_TEST: &str = "fake_cli_child";
 const KIND_ENV: &str = "RK_FAKE_CLI_KIND";
 const FIXTURE_ENV: &str = "RK_FAKE_CLI_FIXTURE";
+/// Line the child prints after libtest's own banner (`running 1 test`, and `test NAME ... `
+/// with no newline under `--nocapture`). The parent discards everything up to it, so the
+/// protocol parsers under test still see only the replayed frames and stay strict.
+const SENTINEL: &str = "@@rightkit-fake-cli-begin@@";
 
 pub fn fixture_path(relative: &str) -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -27,9 +31,10 @@ pub fn fixture_lines(relative: &str) -> Vec<String> {
         .collect()
 }
 
-/// Spawn this test binary as a fake `claude` or `codex` replaying `fixture`.
-pub fn spawn_fake(kind: &str, fixture: &str) -> Child {
-    Command::new(std::env::current_exe().expect("current exe"))
+/// Spawn this test binary as a fake `claude` or `codex` replaying `fixture`. Returns the
+/// child and its stdout positioned at the first replayed frame.
+pub fn spawn_fake(kind: &str, fixture: &str) -> (Child, BufReader<ChildStdout>) {
+    let mut child = Command::new(std::env::current_exe().expect("current exe"))
         .args([CHILD_TEST, "--exact", "--nocapture", "--test-threads=1"])
         .env(KIND_ENV, kind)
         .env(FIXTURE_ENV, fixture_path(fixture))
@@ -37,12 +42,18 @@ pub fn spawn_fake(kind: &str, fixture: &str) -> Child {
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
         .spawn()
-        .expect("spawn fake cli")
-}
-
-/// The libtest harness prints its own banner lines on stdout; only JSON objects count.
-pub fn is_wire_line(line: &str) -> bool {
-    line.trim_start().starts_with('{')
+        .expect("spawn fake cli");
+    let mut stdout = BufReader::new(child.stdout.take().expect("piped stdout"));
+    let mut line = String::new();
+    loop {
+        line.clear();
+        let read = stdout.read_line(&mut line).expect("read harness preamble");
+        assert!(read > 0, "fake cli exited before its sentinel");
+        if line.trim_end() == SENTINEL {
+            break;
+        }
+    }
+    (child, stdout)
 }
 
 /// Body of each file's `fake_cli_child` test. A no-op unless spawned by [`spawn_fake`].
@@ -60,6 +71,8 @@ pub fn run_child_if_requested() {
     let mut input = stdin.lock();
     let stdout = std::io::stdout();
     let mut out = stdout.lock();
+    writeln!(out, "\n{SENTINEL}").unwrap();
+    out.flush().unwrap();
     if kind == "claude" {
         let mut first = String::new();
         let _ = input.read_line(&mut first);

@@ -141,3 +141,23 @@ fn default_features_enable_nothing() {
     let text = manifest();
     assert!(text.contains("default = []"));
 }
+
+#[test]
+fn no_fake_cli_ships_in_the_default_build() {
+    let text = manifest();
+    assert!(!text.contains("[[bin]]") && !text.contains("[[example]]"));
+    assert!(!text.contains("fake"), "no fake-cli feature or target");
+    let mut files = Vec::new();
+    rs_files(
+        &Path::new(env!("CARGO_MANIFEST_DIR")).join("src"),
+        &mut files,
+    );
+    for file in files {
+        let source = fs::read_to_string(&file).unwrap();
+        assert!(
+            !source.contains("RK_FAKE_CLI") && !source.contains("fake_cli"),
+            "{} names the test-only fake CLI",
+            file.display()
+        );
+    }
+}
