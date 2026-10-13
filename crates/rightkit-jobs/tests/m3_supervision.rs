@@ -155,7 +155,7 @@ fn a_snapshot_updated_while_a_generation_replays_reaches_it_before_ready() {
 fn a_snapshot_that_keeps_changing_cannot_extend_the_handshake_forever() {
     // Every replay call takes 100 ms and an updater changes the snapshot every 30 ms, so each
     // pass finds a newer revision. The boot must fail instead of replaying without end.
-    let (_d, cfg) = rig("slow_set:100");
+    let (_d, cfg) = rig("slow_set:150");
     let s = Arc::new(EngineSupervisor::new(
         cfg.with_initial_failure(rightkit_jobs::InitialFailure::Terminal),
     ));
@@ -168,7 +168,7 @@ fn a_snapshot_that_keeps_changing_cannot_extend_the_handshake_forever() {
             while !stop.load(Ordering::SeqCst) {
                 let _ = s.set_snapshot("a", "set_a", json!({ "v": v }));
                 v += 1;
-                std::thread::sleep(Duration::from_millis(30));
+                std::thread::sleep(Duration::from_millis(5));
             }
         })
     };

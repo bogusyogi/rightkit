@@ -473,7 +473,7 @@ fn call_timeout_covers_a_write_blocked_on_a_full_pipe() {
             Duration::from_millis(400),
         )
         .unwrap_err();
-    assert_eq!(err.code, "timeout");
+    assert_eq!(err.code, "delivery_unknown");
     assert!(
         t.elapsed() < Duration::from_secs(5),
         "took {:?}",

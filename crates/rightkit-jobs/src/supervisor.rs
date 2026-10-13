@@ -1595,6 +1595,10 @@ fn monitor(sh: Arc<Shared>, generation: u64, client: Arc<EngineClient>, mut tail
         let mut w = sh.wedge.lock().unwrap_or_else(|e| e.into_inner());
         match w.take() {
             Some((g, r)) if g == generation => r,
+            other if client.write_stalled() => {
+                *w = other;
+                ExitReason::RpcTimeoutKill
+            }
             other => {
                 *w = other;
                 if code.is_some() {

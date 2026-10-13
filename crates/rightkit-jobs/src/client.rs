@@ -239,6 +239,9 @@ struct Core {
     exit_cv: Condvar,
     /// Bound, in milliseconds, on the kill of a child whose request write stalled.
     kill_bound_ms: AtomicU64,
+    /// Set before the child is killed for a stalled request write, so whoever observes the exit
+    /// can tell it from a plain EOF.
+    stalled_write: std::sync::atomic::AtomicBool,
 }
 
 /// What is known about the engine process an [`EngineClient`] owns.
@@ -435,6 +438,7 @@ impl EngineClient {
                 exit: Mutex::new(ChildExit::default()),
                 exit_cv: Condvar::new(),
                 kill_bound_ms: AtomicU64::new(DEFAULT_KILL_BOUND.as_millis() as u64),
+                stalled_write: std::sync::atomic::AtomicBool::new(false),
             }),
             hello,
         })
@@ -547,6 +551,11 @@ impl EngineClient {
     /// Kill the attached engine tree now and wait at most `bound` for the OS to
     /// report it. Returns the exit status when observed. Used to recover from a
     /// wedged engine; the connection then closes and waiters are released.
+    /// True once a stalled request write made this client kill its engine.
+    pub fn write_stalled(&self) -> bool {
+        self.core.stalled_write.load(Ordering::SeqCst)
+    }
+
     pub fn kill(&self, bound: Duration) -> Option<std::process::ExitStatus> {
         let mut child = self
             .core
@@ -871,6 +880,7 @@ impl Core {
                     // the OS has not reported gone moves to the reaper (see `retire`). The
                     // request may have been partly or wholly delivered: say so.
                     let bound = Duration::from_millis(self.kill_bound_ms.load(Ordering::Relaxed));
+                    self.stalled_write.store(true, Ordering::SeqCst);
                     let taken = self.child.lock().unwrap_or_else(|e| e.into_inner()).take();
                     if let Some(mut c) = taken {
                         let status = match c.terminate_tree_bounded(bound) {
@@ -1044,6 +1054,7 @@ mod exit_record_tests {
             exit: Mutex::new(ChildExit::default()),
             exit_cv: Condvar::new(),
             kill_bound_ms: AtomicU64::new(100),
+            stalled_write: std::sync::atomic::AtomicBool::new(false),
         })
     }
 
