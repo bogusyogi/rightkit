@@ -46,6 +46,7 @@
 
 mod app_root;
 mod client;
+pub mod contract;
 mod discovery;
 mod error;
 mod host_identity;
@@ -75,9 +76,9 @@ pub use app_root::{
 #[allow(deprecated)]
 pub use discovery::{discover_apps, KNOWN_APPS};
 pub use error::{
-    ConnectError, ServiceError, ERROR_CONNECTION_CLOSED, ERROR_HOST_HANDOFF, ERROR_HOST_IDENTITY,
-    ERROR_NOT_ALLOWED, ERROR_RESPONSE_TOO_LARGE, ERROR_SUITE_UNRESOLVED, ERROR_TIMEOUT,
-    ERROR_UNAVAILABLE,
+    ConnectError, ServiceError, ERROR_CONNECTION_CLOSED, ERROR_FORBIDDEN, ERROR_HOST_HANDOFF,
+    ERROR_HOST_IDENTITY, ERROR_NOT_ALLOWED, ERROR_RESPONSE_TOO_LARGE, ERROR_REVISION_CONFLICT,
+    ERROR_SUITE_UNRESOLVED, ERROR_TIMEOUT, ERROR_UNAUTHENTICATED, ERROR_UNAVAILABLE,
 };
 pub use host_identity::{HostExpectation, HostIdentityError, HostIdentityReason, HostProcess};
 #[cfg(unix)]

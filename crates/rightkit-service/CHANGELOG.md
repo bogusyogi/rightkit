@@ -1,10 +1,26 @@
 # Changelog
 
-## Unreleased
+## 0.2.0
+
+Breaking minor, published once. It folds the unreleased 0.1.5 entries (the source was 0.1.5 while crates.io has 0.1.4) and the unreleased changes below into one release; nothing was published as 0.1.5.
+
+### Breaking
+
+- `CallContext::peer()` now returns `Option<&PeerIdentity>` (`None` for a caller that is not a local app). A local caller always has `Some`; migrate with `cx.peer().cloned()` or `if let Some(p) = cx.peer()`.
+- Release builds read no override switch (see the folded entry below) and `HostOptions::write_timeout` defaults to 120 s (see 0.1.5 below). Both are behaviour changes for existing hosts.
+
+### Added
+
+- `rightkit_service::contract`, the transport-free request contract: `Caller` (`LocalApp{app, peer}` | `Device{id, scopes}`), `MethodTable` and `MethodPolicy` (one policy per method id: local apps, device scopes, `Transport::{Local, Remote, Both}`), `MethodTable::allowlist()` (the local allowlist derived from the table) and `MethodTable::authorize(&Caller, method)`, and `status_for_code`/`status_for_error` (error code -> HTTP-style status table). `ServiceConfig::with_methods(&MethodTable)` takes the allowlist from a table. `CallContext::origin() -> &Caller`; `CallContext::app()` returns the device id for a device caller.
+- Error codes `ERROR_UNAUTHENTICATED` (`unauthenticated`), `ERROR_FORBIDDEN` (`forbidden`), `ERROR_REVISION_CONFLICT` (`revision_conflict`).
+- `Handler`, `CallContext` and `Emit` now live in `contract` and are still exported at the crate root (the old paths keep compiling). The local server adapts to the contract with no wire or behaviour change: the same `request_not_allowed` answer, the same hello `methods`, `Allowlist` unchanged.
+- Tests: `tests/contract.rs` (method table drives the allowlist end to end, table/allowlist agreement, device scopes, status table), run in both feature states.
+
+### Unreleased entries folded in
 
 - Release builds read no override switch at all (D4 ratified, Opus residual; **behaviour change** for builds without `test-mode`): `Suite::resolve()` returns `Suite::per_user_default()` (account database / known-folder table) and `Suite::resolve_ignoring_env_overrides(_)` is a no-op alias of it; `RIGHTKIT_SUITE_ROOT`, `RIGHT_SUITE_DIR`, `ORTHIC_SHARED_DIR`, `HOME`, `XDG_DATA_HOME` and `LOCALAPPDATA` are read only under `#[cfg(feature = "test-mode")]`, so the release binary does not contain the code or the names. macOS app discovery takes the user's `~/Applications` from `getpwuid_r`, not `HOME`. `USERNAME` in the Windows pipe name stays: it is a label, not a selector; the pipe DACL and same-user check decide access. Tests run in both feature states (`cargo test -p rightkit-service` and `--features test-mode`). Not compiled or run locally; verification is the CI run.
 
-## 0.1.5
+### 0.1.5 entries folded in
 
 - Fix: `Client::call` returned `request_timeout` after the full deadline when the host's reply was larger than the client's 16 MiB frame limit (the host's `frame_limit` may be larger): the oversized frame was drained and then ignored while the client kept waiting for it. It now returns the non-retryable `response_too_large` at once, and the connection stays usable. Not compiled or run locally; verification is the CI run. `tests/write_bound.rs` `a_reply_over_the_clients_frame_limit_is_a_typed_error_not_a_deadline`; the keep-up test now moves 8 MiB (it asked for 32 MiB through a 16 MiB client, which is what timed out in CI).
 - Fix: the host bounds each frame write to a client (M3/M4 design: service call bounds). A client that stopped reading used to fill the transport buffer and block the host's response (or event) write forever, holding that connection's thread; the host now closes the connection when one frame's write+flush exceeds `HostOptions::write_timeout` (default `DEFAULT_WRITE_TIMEOUT`, 120 s, the same as the client's default deadline). The client sees `connection_closed`; the handler's `connection_closed` hook runs. The bound is per frame, so a slow reader that keeps making progress is not cut off. Additive: `HostOptions::write_timeout(Option<Duration>)` (`None` = unbounded, zero raised to 1 ms), `HostOptions::get_write_timeout`, `DEFAULT_WRITE_TIMEOUT`. **Behaviour change:** hosts that never set the option now have the 120 s bound (before: none); set `None` to keep the old behaviour. No new error code and no new `ServiceEvent` variant (the stalled peer cannot receive a reply, and a new variant would break exhaustive matches). Not compiled or run locally; verification is the CI run. Tests: `tests/write_bound.rs` (stalled reader cut off; prompt reader unaffected; `None` stays open; defaults), Unix only.

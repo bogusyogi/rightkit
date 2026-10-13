@@ -26,6 +26,13 @@ pub const ERROR_TIMEOUT: &str = "request_timeout";
 /// No live host for the service. Retryable.
 pub const ERROR_UNAVAILABLE: &str = "service_unavailable";
 
+/// The caller presented no valid credential (a device that is unknown, or whose signature failed).
+pub const ERROR_UNAUTHENTICATED: &str = "unauthenticated";
+/// The caller is known but lacks the scope for this method.
+pub const ERROR_FORBIDDEN: &str = "forbidden";
+/// A write named a stale revision.
+pub const ERROR_REVISION_CONFLICT: &str = "revision_conflict";
+
 /// Typed wire error. `retryable` means resubmitting the request can succeed.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ServiceError {

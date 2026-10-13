@@ -1,6 +1,7 @@
+use crate::contract::{new_context, Caller};
+pub use crate::contract::{CallContext, Emit, Handler};
 use crate::discovery::{record_process_matches, try_lock_exclusive};
-use crate::error::{ServiceError, ERROR_NOT_ALLOWED, ERROR_RESPONSE_TOO_LARGE};
-use crate::peer::PeerIdentity;
+use crate::error::{ServiceError, ERROR_RESPONSE_TOO_LARGE};
 use crate::record::*;
 use crate::suite::{make_private_dir, valid_service_name, Suite, SuiteError};
 use crate::takeover_watch::{self, Bell, Wake, TAKEOVER_CHECK_INTERVAL};
@@ -21,68 +22,6 @@ pub const DEFAULT_FRAME_LIMIT: usize = 16 * 1024 * 1024;
 /// Default for [`HostOptions::write_timeout`]: how long one frame write plus flush to a client may
 /// take before the host closes that connection. Matches the client's default call deadline.
 pub const DEFAULT_WRITE_TIMEOUT: Duration = Duration::from_secs(120);
-
-/// Sends an `event` frame for the request being handled.
-pub type Emit = Arc<dyn Fn(Value) + Send + Sync>;
-
-/// What a handler knows about the request it is serving.
-#[derive(Clone)]
-pub struct CallContext {
-    conn: u64,
-    app: String,
-    peer: PeerIdentity,
-    closed: Arc<AtomicBool>,
-    handoff: Arc<AtomicBool>,
-}
-
-impl CallContext {
-    pub fn conn_id(&self) -> u64 {
-        self.conn
-    }
-    /// The app label the client declared in `hello` (already allowlisted).
-    ///
-    /// The label is a claim: any process of the current user can declare any allowlisted
-    /// label. Use it to choose what a caller may ask for, never as proof of who is asking.
-    /// [`peer`](Self::peer) is what the OS verified.
-    pub fn app(&self) -> &str {
-        &self.app
-    }
-    /// Who the OS says is on the other end of this connection, from the peer check that ran
-    /// before any byte was read: the uid on Unix, the user SID on Windows, and the process id
-    /// where the platform reports it (Linux, macOS and Windows).
-    ///
-    /// This is the fact, as opposed to the [`app`](Self::app) label. The user is always the
-    /// current user, since any other peer was refused. A pid identifies the process only while
-    /// it runs: record it for an audit trail, do not authorise by it later.
-    pub fn peer(&self) -> &PeerIdentity {
-        &self.peer
-    }
-    /// The client went away while this request was running.
-    pub fn peer_closed(&self) -> bool {
-        self.closed.load(Ordering::SeqCst)
-    }
-    /// A higher-ranked host asked for the service: return
-    /// [`ServiceError::handoff`] at the next safe boundary.
-    pub fn handoff_requested(&self) -> bool {
-        self.handoff.load(Ordering::SeqCst)
-    }
-}
-
-pub trait Handler: Send + Sync + 'static {
-    /// Serve one allowlisted request. Events go to `emit`; a returned
-    /// retryable error is sent to the client as-is.
-    fn call(
-        &self,
-        cx: &CallContext,
-        method: &str,
-        params: &Value,
-        emit: &Emit,
-    ) -> Result<Value, ServiceError>;
-    /// A takeover was accepted: stop starting new steps, finish at a boundary.
-    fn on_handoff(&self) {}
-    /// A connection closed (also fired mid-request when the peer drops).
-    fn connection_closed(&self, _conn: u64) {}
-}
 
 /// Content-free lifecycle events for the host's journal.
 #[derive(Debug, Clone, PartialEq)]
@@ -166,6 +105,13 @@ impl ServiceConfig {
             known_roles: Default::default(),
             endpoint: None,
         }
+    }
+
+    /// Take the allowlist from a [`MethodTable`](crate::contract::MethodTable), the single source
+    /// of method policy.
+    pub fn with_methods(mut self, table: &crate::contract::MethodTable) -> Self {
+        self.allowlist = table.allowlist();
+        self
     }
 }
 
@@ -905,7 +851,7 @@ fn serve_conn(s: Arc<Shared>, conn: Conn) {
     if !s.cfg.allowlist.app_known(&app) {
         return reject(
             "app is not on the service allowlist",
-            ERROR_NOT_ALLOWED,
+            crate::error::ERROR_NOT_ALLOWED,
             false,
         );
     }
@@ -924,6 +870,7 @@ fn serve_conn(s: Arc<Shared>, conn: Conn) {
         "methods": s.cfg.allowlist.methods_for(&app),
     }));
 
+    let caller = Caller::local_app(app.clone(), peer.clone());
     let closed_notified = Arc::new(AtomicBool::new(false));
     let notify_closed = {
         let (s, flag) = (s.clone(), closed_notified.clone());
@@ -959,16 +906,13 @@ fn serve_conn(s: Arc<Shared>, conn: Conn) {
             respond_err(ServiceError::handoff());
             continue;
         }
-        if !s.cfg.allowlist.permits(&app, &method) {
+        if let Err(e) = crate::contract::authorize_allowlist(&s.cfg.allowlist, &caller, &method) {
             s.event(ServiceEvent::Denied {
                 conn: id,
                 app: app.clone(),
                 method: method.clone(),
             });
-            respond_err(ServiceError::new(
-                ERROR_NOT_ALLOWED,
-                format!("{app} may not call {method}"),
-            ));
+            respond_err(e);
             continue;
         }
         if method == "ping" {
@@ -978,13 +922,12 @@ fn serve_conn(s: Arc<Shared>, conn: Conn) {
             continue;
         }
         let params = req.get("params").cloned().unwrap_or_else(|| json!({}));
-        let cx = CallContext {
-            conn: id,
-            app: app.clone(),
-            peer: peer.clone(),
-            closed: Arc::new(AtomicBool::new(false)),
-            handoff: s.handoff.clone(),
-        };
+        let cx = new_context(
+            id,
+            caller.clone(),
+            Arc::new(AtomicBool::new(false)),
+            s.handoff.clone(),
+        );
         let emit: Emit = {
             let (write, s, method) = (write.clone(), s.clone(), method.clone());
             Arc::new(move |ev| {

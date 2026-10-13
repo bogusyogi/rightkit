@@ -30,7 +30,7 @@ impl Handler for Probe {
                 Ok(json!("done"))
             }
             "peer" => {
-                *self.peer.lock().unwrap() = Some(cx.peer().clone());
+                *self.peer.lock().unwrap() = cx.peer().cloned();
                 Ok(json!({ "app": cx.app() }))
             }
             _ => Err(ServiceError::new("unknown_method", method)),

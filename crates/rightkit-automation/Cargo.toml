@@ -19,7 +19,7 @@ default = []
 in-app = ["dep:rightkit-service", "dep:serde_json"]
 
 [dependencies]
-rightkit-service = { version = "0.1.0", path = "../rightkit-service", optional = true }
+rightkit-service = { version = "0.2.0", path = "../rightkit-service", optional = true }
 serde_json = { version = "1.0.150", optional = true }
 
 [dev-dependencies]
