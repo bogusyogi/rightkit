@@ -51,16 +51,17 @@ pub mod verified;
 #[cfg(all(feature = "fs", windows))]
 mod windows_temp_sweep;
 
+#[cfg(feature = "fs")]
+pub use append::{append_record, AppendOptions};
 #[cfg(all(feature = "fs", feature = "digest"))]
 pub use atomic::atomic_write_with_digest;
 #[cfg(feature = "fs")]
-pub use append::{append_record, AppendOptions};
-#[cfg(feature = "fs")]
 pub use atomic::{
-    atomic_write, atomic_write_private, atomic_write_with, atomic_write_with_options, durable_sync,
-    durable_sync_with, publication_durability, rename_exclusive, sweep_stale_temps, AtomicOptions,
+    atomic_write, atomic_write_private, atomic_write_reporting, atomic_write_with,
+    atomic_write_with_options, durable_sync, durable_sync_with, publication_durability,
+    rename_exclusive, sweep_stale_temps, sweep_stale_temps_report, AtomicOptions,
     AtomicWriteOptions, AtomicWriter, Privacy, PublicationDurability, ReplaceMode, RetryPolicy,
-    SyncLevel, SyncPolicy,
+    SweepReport, SyncLevel, SyncPolicy, WriteReport,
 };
 #[cfg(feature = "fs")]
 pub use clone::{
@@ -84,9 +85,9 @@ pub use private::{
 pub use state::{DirEntry, EntryKind, EntryStat, StateDir, StateOptions};
 #[cfg(feature = "fs")]
 pub use swap::{is_swap_unsupported, swap_paths};
-
 #[cfg(all(feature = "fs", feature = "digest"))]
 pub use verified::{copy_verified, VerifiedCopy};
+
 /// Conservative liveness result used by crash recovery.
 ///
 /// `Unknown` is deliberately distinct from `Alive`: permission and query failures do not prove

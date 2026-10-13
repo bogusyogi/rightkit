@@ -566,6 +566,19 @@ impl AtomicWriter {
         self.commit_inner(false, false, |_| Ok(())).map(|_| ())
     }
 
+    /// [`AtomicWriter::commit`], returning what was actually achieved (M8-O4): the flush level the
+    /// temp file reached ([`WriteReport::sync_level`], so an Apple volume that could not
+    /// `F_FULLFSYNC` is visible instead of silently weaker) and what publishing with these options
+    /// guarantees on this platform ([`WriteReport::publication`]). Errors are those of `commit`.
+    pub fn commit_reporting(self) -> Result<WriteReport> {
+        let publication = publication_durability(&self.options, true);
+        let (_, sync_level) = self.commit_inner_level(false, false, |_| Ok(()))?;
+        Ok(WriteReport {
+            sync_level,
+            publication,
+        })
+    }
+
     /// [`AtomicWriter::commit`] with a check that runs on the synced temp file before anything is
     /// published.
     ///
@@ -598,11 +611,21 @@ impl AtomicWriter {
     }
 
     fn commit_inner(
-        mut self,
+        self,
         want_digest: bool,
         checked: bool,
         check: impl FnOnce(&Path) -> std::io::Result<()>,
     ) -> Result<Option<String>> {
+        self.commit_inner_level(want_digest, checked, check)
+            .map(|(digest, _)| digest)
+    }
+
+    fn commit_inner_level(
+        mut self,
+        want_digest: bool,
+        checked: bool,
+        check: impl FnOnce(&Path) -> std::io::Result<()>,
+    ) -> Result<(Option<String>, Option<SyncLevel>)> {
         let file = self.file.take().expect("writer is open until commit");
         let result = self.finish(file, want_digest, checked, check);
         // Unpublished: the temp is all there is to clean. Published with a later error: the
@@ -623,9 +646,13 @@ impl AtomicWriter {
         want_digest: bool,
         checked: bool,
         check: impl FnOnce(&Path) -> std::io::Result<()>,
-    ) -> Result<Option<String>> {
+    ) -> Result<(Option<String>, Option<SyncLevel>)> {
+        let mut sync_level = None;
         if self.options.durable {
-            durable_sync(&file).map_err(|e| FsError::io(&self.temp, e))?;
+            sync_level = Some(
+                durable_sync_with(&file, SyncPolicy::Fallback)
+                    .map_err(|e| FsError::io(&self.temp, e))?,
+            );
             #[cfg(feature = "testing")]
             testing::record(testing::Step::TempFlushed);
         } else if checked {
@@ -676,8 +703,46 @@ impl AtomicWriter {
                 source,
             });
         }
-        Ok(digest)
+        Ok((digest, sync_level))
     }
+}
+
+/// What a write achieved, as [`AtomicWriter::commit_reporting`] and [`atomic_write_reporting`]
+/// return it (M8-O4).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct WriteReport {
+    /// The flush level the temp file reached before publication; `None` when the write was not
+    /// `durable` (nothing was flushed). Only Apple targets ever report less than
+    /// [`SyncLevel::Full`].
+    pub sync_level: Option<SyncLevel>,
+    /// What publishing guarantees on this platform for these options
+    /// ([`publication_durability`]).
+    pub publication: PublicationDurability,
+}
+
+impl WriteReport {
+    /// True when the write was durable and every step reached the strongest level this
+    /// platform offers: the flush was [`SyncLevel::Full`] and publication is not
+    /// [`PublicationDurability::FileFlushedOnly`] or [`PublicationDurability::None`].
+    pub fn is_fully_durable(&self) -> bool {
+        self.sync_level == Some(SyncLevel::Full)
+            && matches!(
+                self.publication,
+                PublicationDurability::DirectoryFlushed | PublicationDurability::WriteThroughMove
+            )
+    }
+}
+
+/// [`atomic_write_with_options`] that returns the [`WriteReport`] of what the write achieved.
+pub fn atomic_write_reporting(
+    path: &Path,
+    bytes: &[u8],
+    options: AtomicWriteOptions,
+) -> Result<WriteReport> {
+    let mut writer = AtomicWriter::create_with(path, options)?;
+    writer.write_all(bytes)?;
+    writer.commit_reporting()
 }
 
 impl Drop for AtomicWriter {
