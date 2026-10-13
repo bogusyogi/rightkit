@@ -208,6 +208,17 @@ unsafe extern "system" {
     fn GetAppContainerFolderPath(sid: *const u16, path: *mut *mut u16) -> i32;
 }
 
+#[link(name = "kernelbase")]
+unsafe extern "system" {
+    fn DeriveCapabilitySidsFromName(
+        name: *const u16,
+        group_sids: *mut *mut *mut c_void,
+        group_count: *mut u32,
+        sids: *mut *mut *mut c_void,
+        sid_count: *mut u32,
+    ) -> i32;
+}
+
 #[link(name = "ole32")]
 unsafe extern "system" {
     fn CoTaskMemFree(value: *const c_void);
@@ -564,6 +575,70 @@ impl LocalSid {
             return Err(last_error("parse SID"));
         }
         Ok(Self(sid))
+    }
+}
+
+/// Capability SIDs derived from a capability name; freed on drop.
+struct DerivedCapabilitySids {
+    group_array: *mut *mut c_void,
+    group_count: u32,
+    sid_array: *mut *mut c_void,
+    sid_count: u32,
+}
+
+impl DerivedCapabilitySids {
+    fn derive(name: &str) -> io::Result<Self> {
+        let wname = wide(name);
+        let mut derived = Self {
+            group_array: std::ptr::null_mut(),
+            group_count: 0,
+            sid_array: std::ptr::null_mut(),
+            sid_count: 0,
+        };
+        // SAFETY: NUL-terminated name and valid out-pointers; results freed in Drop.
+        let ok = unsafe {
+            DeriveCapabilitySidsFromName(
+                wname.as_ptr(),
+                &mut derived.group_array,
+                &mut derived.group_count,
+                &mut derived.sid_array,
+                &mut derived.sid_count,
+            )
+        };
+        if ok == 0 {
+            return Err(last_error(&format!("derive capability SID {name}")));
+        }
+        Ok(derived)
+    }
+
+    fn sids(&self) -> Vec<*mut c_void> {
+        if self.sid_array.is_null() {
+            return Vec::new();
+        }
+        // SAFETY: the API returned `sid_count` entries.
+        (0..self.sid_count as usize)
+            .map(|i| unsafe { *self.sid_array.add(i) })
+            .collect()
+    }
+}
+
+impl Drop for DerivedCapabilitySids {
+    fn drop(&mut self) {
+        // SAFETY: every array and SID was allocated by the derive call (LocalAlloc).
+        unsafe {
+            for (array, count) in [
+                (self.group_array, self.group_count),
+                (self.sid_array, self.sid_count),
+            ] {
+                if array.is_null() {
+                    continue;
+                }
+                for i in 0..count as usize {
+                    LocalFree(*array.add(i));
+                }
+                LocalFree(array.cast());
+            }
+        }
     }
 }
 
@@ -1631,6 +1706,7 @@ struct SuspendedLaunchParams<'a> {
     cwd: &'a Path,
     environment: &'a [u16],
     network: bool,
+    named_capabilities: &'a [String],
     stdio: [RawHandle; 3],
     auxiliary: &'a [RawHandle],
 }
@@ -2052,6 +2128,7 @@ fn spawn_inner(
                 cwd: &cwd,
                 environment: &environment,
                 network: policy.network == NetworkPolicy::Allow,
+                named_capabilities: &policy.named_capabilities,
                 stdio: [stdin, stdout_child, stderr_child],
                 auxiliary: &auxiliary_child_handles,
             },
@@ -2099,6 +2176,7 @@ fn create_suspended(
         cwd,
         environment,
         network,
+        named_capabilities,
         stdio,
         auxiliary,
     } = params;
@@ -2125,10 +2203,16 @@ fn create_suspended(
         } else {
             None
         };
+        let derived = named_capabilities
+            .iter()
+            .map(|name| DerivedCapabilitySids::derive(name))
+            .collect::<io::Result<Vec<_>>>()?;
         let mut capabilities: Vec<SidAndAttributes> = internet
             .iter()
+            .map(|sid| sid.0)
+            .chain(derived.iter().flat_map(DerivedCapabilitySids::sids))
             .map(|sid| SidAndAttributes {
-                sid: sid.0,
+                sid,
                 attributes: SE_GROUP_ENABLED,
             })
             .collect();

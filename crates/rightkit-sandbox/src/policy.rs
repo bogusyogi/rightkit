@@ -50,6 +50,10 @@ pub struct SandboxPolicy {
     pub exec_paths: Vec<PathBuf>,
     pub network: NetworkPolicy,
     pub env: EnvPolicy,
+    /// Windows named AppContainer capabilities (for example `registryRead`), derived with
+    /// `DeriveCapabilitySidsFromName`. Ignored on other platforms. Never grants network:
+    /// `internetClient` is controlled only by `network`.
+    pub named_capabilities: Vec<String>,
 }
 
 impl SandboxPolicy {
@@ -74,6 +78,10 @@ impl SandboxPolicy {
     }
     pub fn env(mut self, e: EnvPolicy) -> Self {
         self.env = e;
+        self
+    }
+    pub fn named_capability(mut self, name: impl Into<String>) -> Self {
+        self.named_capabilities.push(name.into());
         self
     }
 

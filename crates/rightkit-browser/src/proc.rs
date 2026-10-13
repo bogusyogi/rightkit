@@ -491,23 +491,23 @@ pub(crate) fn spawn_chrome_fixture_windows(
             inherit: false,
             // Chrome CHECKs when SystemRoot/windir are missing; everything else that Chrome
             // reads for scratch or profile state points into the write grant.
-            keep: vec!["SystemRoot".into(), "windir".into()],
-            set: [
-                ("TEMP", profile_dir),
-                ("TMP", profile_dir),
-                ("LOCALAPPDATA", profile_dir),
-                ("APPDATA", profile_dir),
-                ("USERPROFILE", profile_dir),
-            ]
-            .into_iter()
-            .map(|(k, v)| (k.to_string(), v.to_string_lossy().into_owned()))
-            .collect(),
+            keep: FIXTURE_ENV_KEEP.iter().map(|k| k.to_string()).collect(),
+            set: FIXTURE_ENV_SET
+                .iter()
+                .map(|k| (k.to_string(), profile_dir.to_string_lossy().into_owned()))
+                .collect(),
         });
+    // Fixture-only (never network): Chrome under LPAC reads its install dir and the registry
+    // policy keys; without these it can CHECK during startup.
+    let policy = FIXTURE_NAMED_CAPABILITIES
+        .iter()
+        .fold(policy, |policy, name| policy.named_capability(*name));
     let mut log_arg = OsString::from("--log-file=");
     log_arg.push(log_path.as_os_str());
     let command = SandboxCommand::new(exe)
         .args(args.iter().cloned())
-        .arg("--enable-logging=stderr")
+        // No `=stderr`: stderr is NUL here, so Chrome must write to --log-file.
+        .arg("--enable-logging")
         .arg("--v=0")
         .arg(log_arg);
     let launch_params = fixture_launch_params(exe, args, profile_dir);
@@ -535,6 +535,15 @@ pub(crate) fn spawn_chrome_fixture_windows(
     })
 }
 
+/// Env vars kept from the parent, and vars pointed at the write grant, for the fixture.
+#[cfg(any(windows, test))]
+const FIXTURE_ENV_KEEP: [&str; 2] = ["SystemRoot", "windir"];
+#[cfg(any(windows, test))]
+const FIXTURE_ENV_SET: [&str; 5] = ["TEMP", "TMP", "LOCALAPPDATA", "APPDATA", "USERPROFILE"];
+/// Chrome LPAC capabilities requested for the fixture only. `internetClient` is never one.
+#[cfg(any(windows, test))]
+const FIXTURE_NAMED_CAPABILITIES: [&str; 2] = ["lpacChromeInstallFiles", "registryRead"];
+
 /// Hex exit code plus the well-known meaning of the NTSTATUS values a failed Chrome start
 /// produces, so a CI log names the cause without a lookup.
 #[cfg(any(windows, test))]
@@ -555,8 +564,8 @@ fn describe_exit_code(code: u32) -> String {
 
 /// The launch parameters of the Windows fixture, as the AppContainer launcher applies them:
 /// grants come from `spawn_chrome_fixture_windows`'s policy, capabilities from the sandbox crate
-/// (`NetworkPolicy::Deny` requests none, so no `internetClient`, `lpacChromeInstallFiles` or
-/// `registryRead`).
+/// (`NetworkPolicy::Deny` requests no `internetClient`; the fixture adds only the named Chrome
+/// LPAC capabilities).
 #[cfg(any(windows, test))]
 fn fixture_launch_params(exe: &Path, args: &[OsString], profile_dir: &Path) -> String {
     let flags: Vec<String> = args
@@ -571,11 +580,15 @@ fn fixture_launch_params(exe: &Path, args: &[OsString], profile_dir: &Path) -> S
     };
     format!(
         "launch_params{{exe={}, exec_grant={}, write_grant={}, network=Deny, \
-         capabilities=[] (no internetClient, lpacChromeInstallFiles or registryRead), \
-         env=cleared, no_sandbox={}, disable_gpu={}, headless={}, flags=[{}]}}",
+         capabilities=[{}] (no internetClient), \
+         env=[inherit=false; kept {}; set to write grant {}; sandbox adds ComSpec Path SystemDrive \
+         SystemRoot windir LOCALAPPDATA TEMP TMP NODE_OPTIONS], no_sandbox={}, disable_gpu={}, headless={}, flags=[{}]}}",
         exe.display(),
         exe.display(),
         profile_dir.display(),
+        FIXTURE_NAMED_CAPABILITIES.join(", "),
+        FIXTURE_ENV_KEEP.join(","),
+        FIXTURE_ENV_SET.join(","),
         has("--no-sandbox"),
         has("--disable-gpu"),
         flags.iter().any(|flag| flag.starts_with("--headless")),
@@ -743,7 +756,12 @@ mod fixture_diagnostics_tests {
         assert!(text.contains("no_sandbox=false"), "{text}");
         assert!(text.contains("disable_gpu=false"), "{text}");
         assert!(text.contains("headless=true"), "{text}");
-        assert!(text.contains("capabilities=[]"), "{text}");
+        assert!(
+            text.contains("capabilities=[lpacChromeInstallFiles, registryRead]")
+                && !text.contains("internetClient]"),
+            "{text}"
+        );
+        assert!(text.contains("TEMP,TMP,LOCALAPPDATA"), "{text}");
         let args: Vec<OsString> = ["--no-sandbox", "--disable-gpu"]
             .iter()
             .map(OsString::from)
