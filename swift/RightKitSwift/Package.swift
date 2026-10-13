@@ -23,6 +23,7 @@ let package = Package(
         .library(name: "RightKitOverlay", targets: ["RightKitOverlay"]),
         .library(name: "RightKitWatch", targets: ["RightKitWatch"]),
         .library(name: "RightKitUI", targets: ["RightKitUI"]),
+        .library(name: "RightKitPulse", targets: ["RightKitPulse"]),
     ],
     targets: [
         .target(name: "RightKitLicense"),
@@ -69,5 +70,8 @@ let package = Package(
         .testTarget(name: "RightKitWatchTests", dependencies: ["RightKitWatch"]),
         .target(name: "RightKitUI"),
         .testTarget(name: "RightKitUITests", dependencies: ["RightKitUI"]),
+        // Pulse facade over the proposed rightkit-jobs C ABI seam (design selection, not a qualified adoption).
+        .target(name: "RightKitPulse"),
+        .testTarget(name: "RightKitPulseTests", dependencies: ["RightKitPulse"]),
     ],
 )
