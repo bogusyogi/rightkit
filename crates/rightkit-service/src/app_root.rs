@@ -50,6 +50,10 @@ pub fn valid_app_name(s: &str) -> bool {
     {
         return false;
     }
+    // `shared` is the suite's shared-resources directory, a sibling of every app root.
+    if s.eq_ignore_ascii_case("shared") {
+        return false;
+    }
     let stem = s.split('.').next().unwrap_or(s).to_ascii_uppercase();
     !WINDOWS_RESERVED.contains(&stem.as_str())
 }
@@ -411,7 +415,7 @@ mod tests {
         let long = "a".repeat(MAX_APP_NAME_LEN + 1);
         for bad in [
             "", ".", "..", "a/b", "a\\b", "../x", "x..y", ".hidden", "trail.", "con", "NUL.txt",
-            "com1", "sp ace", "a:b", "é", &long,
+            "com1", "sp ace", "a:b", "é", "shared", "Shared", &long,
         ] {
             assert!(!valid_app_name(bad), "{bad:?}");
         }
@@ -458,12 +462,15 @@ mod tests {
     fn subpath_traversal_is_refused() {
         let (_d, s) = suite();
         let a = s.app_root("App").unwrap();
-        for bad in ["", ".", "..", "../x", "a/../../x", "/etc", "a\\b", "a:b"] {
+        for bad in ["", ".", "..", "../x", "a/../../x", "/etc", "a:b"] {
             assert!(
                 matches!(a.path(bad), Err(AppRootError::PathEscape(_))),
                 "{bad:?}"
             );
         }
+        // On Windows `\\` is a separator, so `a\\b` is the ordinary subpath `a/b`.
+        #[cfg(unix)]
+        assert!(matches!(a.path("a\\b"), Err(AppRootError::PathEscape(_))));
         let d = a.data_dir("logs/today").unwrap();
         assert!(d.is_dir() && d.starts_with(a.root()));
     }

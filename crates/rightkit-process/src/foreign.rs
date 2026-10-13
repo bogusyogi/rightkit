@@ -279,8 +279,12 @@ fn drain(
 }
 
 mod sys {
-    use super::{AdoptedIdentity, AdoptedSignal, SignalResult, StartToken};
-    use std::{io, path::PathBuf};
+    use super::StartToken;
+    #[cfg(not(windows))]
+    use super::{AdoptedIdentity, AdoptedSignal, SignalResult};
+    #[cfg(not(windows))]
+    use std::io;
+    use std::path::PathBuf;
 
     /// One look at a process.
     pub(super) struct Seen {

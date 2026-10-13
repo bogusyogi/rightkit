@@ -99,7 +99,7 @@ fn capture_survives_invalid_utf8_and_overlong_lines() {
     let dir = temp_dir("bytes");
     let writer = Arc::new(RotatingTextWriter::new(dir.join("x.log"), 0));
     let mut stream = vec![0xff, 0xfe, b'\n'];
-    stream.extend(std::iter::repeat(b'a').take(70 * 1024));
+    stream.extend(std::iter::repeat_n(b'a', 70 * 1024));
     stream.push(b'\n');
     let capture = capture_stderr(Cursor::new(stream), writer, "> ").unwrap();
     assert_eq!(capture.join(), 3);
