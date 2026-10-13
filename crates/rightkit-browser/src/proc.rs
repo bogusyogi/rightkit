@@ -315,6 +315,18 @@ pub(crate) fn fixture_chrome_args(args: &[OsString]) -> Vec<OsString> {
     if !fixture_args.iter().any(|arg| arg == "--no-sandbox") {
         fixture_args.push("--no-sandbox".into());
     }
+    // The GPU process and the crashpad handler are not needed for the CDP fixture and fail to
+    // start under the outer confinement (crashpad close_stdio CHECK on macOS; GPU/handler
+    // CHECK, exit 0x80000003, in the Windows AppContainer).
+    for flag in [
+        "--disable-gpu",
+        "--disable-crash-reporter",
+        "--disable-breakpad",
+    ] {
+        if !fixture_args.iter().any(|arg| arg == flag) {
+            fixture_args.push(flag.into());
+        }
+    }
     fixture_args
 }
 
@@ -477,13 +489,26 @@ pub(crate) fn spawn_chrome_fixture_windows(
         .network(SandboxNetworkPolicy::Deny)
         .env(EnvPolicy {
             inherit: false,
-            keep: Vec::new(),
-            set: std::collections::BTreeMap::new(),
+            // Chrome CHECKs when SystemRoot/windir are missing; everything else that Chrome
+            // reads for scratch or profile state points into the write grant.
+            keep: vec!["SystemRoot".into(), "windir".into()],
+            set: [
+                ("TEMP", profile_dir),
+                ("TMP", profile_dir),
+                ("LOCALAPPDATA", profile_dir),
+                ("APPDATA", profile_dir),
+                ("USERPROFILE", profile_dir),
+            ]
+            .into_iter()
+            .map(|(k, v)| (k.to_string(), v.to_string_lossy().into_owned()))
+            .collect(),
         });
     let mut log_arg = OsString::from("--log-file=");
     log_arg.push(log_path.as_os_str());
     let command = SandboxCommand::new(exe)
         .args(args.iter().cloned())
+        .arg("--enable-logging=stderr")
+        .arg("--v=0")
         .arg("--enable-logging")
         .arg(log_arg);
     let launch_params = fixture_launch_params(exe, args, profile_dir);
@@ -646,10 +671,18 @@ mod tests {
         );
         // Idempotent.
         assert_eq!(fixture_chrome_args(&fixture), fixture);
+        for flag in [
+            "--disable-gpu",
+            "--disable-crash-reporter",
+            "--disable-breakpad",
+        ] {
+            assert_eq!(fixture.iter().filter(|a| *a == flag).count(), 1, "{flag}");
+        }
         // The ordinary path hands its args to Chrome unchanged.
         let mut ordinary = chrome_command(Path::new("chrome"), &base);
         let seen: Vec<_> = ordinary.command_mut().get_args().collect();
         assert!(!seen.iter().any(|a| *a == "--no-sandbox"), "{seen:?}");
+        assert!(!seen.iter().any(|a| *a == "--disable-gpu"), "{seen:?}");
         // BrowserSession::launch's own source never names the flag.
         let session = include_str!("session.rs");
         assert!(!session.contains("\"--no-sandbox\""));

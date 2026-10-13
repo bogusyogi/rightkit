@@ -248,23 +248,42 @@ pub fn fixture_profile_for(policy: &BrowserFixturePolicy) -> std::io::Result<Str
     p.push_str(
         "(allow mach-lookup (global-name \"com.apple.coreservices.launchservicesd\"))\n\
          (allow mach-lookup (global-name \"com.apple.bsd.dirhelper\"))\n\
-         (allow mach-register (global-name-prefix \"com.google.Chrome.MachPortRendezvousServer\"))\n\
          (allow iokit-open (iokit-registry-entry-class \"RootDomainUserClient\"))\n",
     );
-    // ProcessSingleton binds `SingletonSocket` in a mkdtemp directory
-    // (`<prefix>.<6 alnum>`) under the per-user temporary directory (confstr, not $TMPDIR).
-    // Grant only that directory shape and its socket file, never the whole Chrome-named tree.
+    // The mach port rendezvous service is named after the bundle id: `com.google.Chrome` for
+    // Chrome, `com.google.chrome.for.testing` for Chrome for Testing (the CI browser). The
+    // crashpad handler handshake also needs a service. Validated with sandbox-exec against
+    // Chrome for Testing: without these, children abort ("No rendezvous client") or crashpad
+    // fails its check-in.
+    for name in [
+        "com.google.Chrome.MachPortRendezvousServer",
+        "com.google.chrome.for.testing.MachPortRendezvousServer",
+        "org.chromium.crashpad.child_port_handshake",
+    ] {
+        p.push_str(&format!(
+            "(allow mach-register (global-name-prefix \"{name}\"))\n\
+             (allow mach-lookup (global-name-prefix \"{name}\"))\n"
+        ));
+    }
+    // Crashpad's handler runs close_stdio, which reopens /dev/null for writing; /dev is
+    // otherwise read-only here.
+    p.push_str("(allow file-write* (literal \"/dev/null\"))\n");
+    // ProcessSingleton binds `SingletonSocket` (and creates `SingletonCookie`) in a mkdtemp
+    // directory (`<bundle id>.<6 alnum>`) under the per-user temporary directory (confstr,
+    // not $TMPDIR). The bundle id is `com.google.Chrome` (Chrome), `org.chromium.Chromium`, or
+    // `com.google.chrome.for.testing` (Chrome for Testing). Grant only that directory shape and
+    // its two files, never the whole Chrome-named tree.
     // U: a real user Chrome's singleton dirs share this shape; a per-session prefix is not
     // possible because Chrome picks the name (see owner-fixes/sandbox-macos-fixture.md).
     if let Some(temp) = user_temp_dir() {
         let temp = regex_escape(&temp.to_string_lossy());
         // SBPL regex has no `{n}` repetition (validated with sandbox-exec): spell out six.
         let dir = format!(
-            "(com\\.google\\.Chrome|org\\.chromium\\.Chromium)\\.{}",
+            "(com\\.google\\.Chrome|org\\.chromium\\.Chromium|com\\.google\\.chrome\\.for\\.testing)\\.{}",
             "[A-Za-z0-9]".repeat(6)
         );
         p.push_str(&format!(
-            "(allow file-read* file-write* (regex #\"^{temp}/{dir}(/SingletonSocket)?$\"))\n\
+            "(allow file-read* file-write* (regex #\"^{temp}/{dir}(/Singleton(Socket|Cookie))?$\"))\n\
              (allow network-bind (local unix-socket (regex #\"^{temp}/{dir}/SingletonSocket$\")))\n"
         ));
     }
