@@ -251,13 +251,21 @@ pub fn fixture_profile_for(policy: &BrowserFixturePolicy) -> std::io::Result<Str
          (allow mach-register (global-name-prefix \"com.google.Chrome.MachPortRendezvousServer\"))\n\
          (allow iokit-open (iokit-registry-entry-class \"RootDomainUserClient\"))\n",
     );
-    // ProcessSingleton binds a unix socket in a per-launch directory under the per-user
-    // temporary directory (confstr, not $TMPDIR). Grant only that Chrome-named directory.
+    // ProcessSingleton binds `SingletonSocket` in a mkdtemp directory
+    // (`<prefix>.<6 alnum>`) under the per-user temporary directory (confstr, not $TMPDIR).
+    // Grant only that directory shape and its socket file, never the whole Chrome-named tree.
+    // U: a real user Chrome's singleton dirs share this shape; a per-session prefix is not
+    // possible because Chrome picks the name (see owner-fixes/sandbox-macos-fixture.md).
     if let Some(temp) = user_temp_dir() {
         let temp = regex_escape(&temp.to_string_lossy());
+        // SBPL regex has no `{n}` repetition (validated with sandbox-exec): spell out six.
+        let dir = format!(
+            "(com\\.google\\.Chrome|org\\.chromium\\.Chromium)\\.{}",
+            "[A-Za-z0-9]".repeat(6)
+        );
         p.push_str(&format!(
-            "(allow file-read* file-write* (regex #\"^{temp}/(com\\.google\\.Chrome|org\\.chromium\\.Chromium)[^/]*(/.*)?$\"))\n\
-             (allow network-bind (local unix-socket (regex #\"^{temp}/(com\\.google\\.Chrome|org\\.chromium\\.Chromium)[^/]*/.*$\")))\n"
+            "(allow file-read* file-write* (regex #\"^{temp}/{dir}(/SingletonSocket)?$\"))\n\
+             (allow network-bind (local unix-socket (regex #\"^{temp}/{dir}/SingletonSocket$\")))\n"
         ));
     }
     Ok(p)

@@ -306,6 +306,18 @@ fn chrome_command(exe: &Path, args: &[OsString]) -> OwnedCommand {
     cmd
 }
 
+/// The only place `--no-sandbox` is added. Chrome's inner sandbox cannot nest inside the
+/// fixture's outer confinement (macOS Seatbelt, Windows AppContainer), which confines the whole
+/// process tree instead. `BrowserSession::launch` never calls this (test-asserted).
+#[cfg_attr(not(any(target_os = "macos", windows)), allow(dead_code))]
+pub(crate) fn fixture_chrome_args(args: &[OsString]) -> Vec<OsString> {
+    let mut fixture_args = args.to_vec();
+    if !fixture_args.iter().any(|arg| arg == "--no-sandbox") {
+        fixture_args.push("--no-sandbox".into());
+    }
+    fixture_args
+}
+
 pub(crate) fn spawn_chrome(
     exe: &Path,
     args: &[OsString],
@@ -339,8 +351,7 @@ pub(crate) fn spawn_chrome_fixture(
     })?;
     // Chrome's own helper sandbox calls sandbox_init, which the enclosing Seatbelt profile
     // refuses; the profile confines the whole process tree instead.
-    let mut fixture_args = args.to_vec();
-    fixture_args.push("--no-sandbox".into());
+    let fixture_args = fixture_chrome_args(args);
     let mut cmd = chrome_command(exe, &fixture_args);
     cmd.env_allowlist(std::iter::empty::<&str>());
     cmd.command_mut()
@@ -443,6 +454,9 @@ pub(crate) fn spawn_chrome_fixture_windows(
     args: &[OsString],
     profile_dir: &Path,
 ) -> Result<ChromeProc> {
+    // Outer AppContainer confines the tree; Chrome's inner sandbox cannot nest inside it.
+    let args = fixture_chrome_args(args);
+    let args = args.as_slice();
     let log_path = profile_dir.join("fixture-chrome.log");
     // Open before the confined process starts so diagnostics read this exact handle, even if
     // Chrome later replaces its path. The profile is an owned temporary directory.
@@ -618,6 +632,27 @@ fn spawn_watchdog(_chrome_pid: u32) -> Option<OwnedChild> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn no_sandbox_is_added_only_by_the_fixture_arg_builder() {
+        let base: Vec<OsString> = vec!["--headless=new".into(), "about:blank".into()];
+        let fixture = fixture_chrome_args(&base);
+        assert_eq!(
+            fixture.iter().filter(|a| *a == "--no-sandbox").count(),
+            1,
+            "{fixture:?}"
+        );
+        // Idempotent.
+        assert_eq!(fixture_chrome_args(&fixture), fixture);
+        // The ordinary path hands its args to Chrome unchanged.
+        let mut ordinary = chrome_command(Path::new("chrome"), &base);
+        let seen: Vec<_> = ordinary.command_mut().get_args().collect();
+        assert!(!seen.iter().any(|a| *a == "--no-sandbox"), "{seen:?}");
+        // BrowserSession::launch's own source never names the flag.
+        let session = include_str!("session.rs");
+        assert!(!session.contains("\"--no-sandbox\""));
+        assert!(!session.contains("fixture_chrome_args"));
+    }
 
     #[test]
     fn profile_path_is_one_native_argv_element() {

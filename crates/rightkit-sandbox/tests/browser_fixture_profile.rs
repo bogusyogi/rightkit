@@ -86,6 +86,11 @@ fn fixture_profile_confines_paths_network_and_writes() {
     // Writes: the profile directory, plus (when the per-user temp dir resolves) Chrome's own
     // ProcessSingleton directory under it.
     assert!(sbpl.matches("file-write*").count() <= 2);
+    // The singleton grant is the mkdtemp shape plus SingletonSocket, not the whole Chrome tree.
+    if sbpl.contains("SingletonSocket") {
+        assert!(!sbpl.contains("[^/]*"), "{sbpl}");
+        assert!(sbpl.contains("(/SingletonSocket)?$"), "{sbpl}");
+    }
     assert!(!sbpl.contains("(allow mach-lookup)"));
     assert!(!sbpl.contains("(allow iokit*)"));
     assert!(!sbpl.contains("(allow network-bind)"));

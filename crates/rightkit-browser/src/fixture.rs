@@ -339,6 +339,10 @@ impl FixtureMonitor {
 }
 
 /// Opaque execution authority for one immutable source bundle and one closed action list.
+///
+/// Test/QA only: not for shipped app sessions. Its Chrome runs with `--no-sandbox` because the
+/// outer confinement (Seatbelt on macOS, AppContainer on Windows) confines the whole tree;
+/// ordinary `BrowserSession::launch` never does.
 pub struct FixtureSession {
     server: Arc<tokio::sync::Mutex<Option<FixtureServer>>>,
     browser: Arc<BrowserSession>,
