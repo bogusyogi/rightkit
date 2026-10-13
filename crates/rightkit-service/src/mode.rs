@@ -42,10 +42,16 @@ pub const TEST_CAPABILITY: bool = cfg!(feature = "test-mode");
 pub const TEST_MODE_MARKER_TEXT: &str = "RIGHTKIT-TEST-MODE-COMPILED";
 
 /// Present in the binary only when `test-mode` is compiled; the release scan refuses any binary
-/// that contains it.
+/// that contains it. Secondary evidence: the authoritative gate is the resolved feature closure
+/// (`cargo tree -e features`) checked by `@rightkit/release`. The bytes are inline in a named
+/// section, exported, and `#[used]`, so a linker's section garbage collection keeps them.
 #[cfg(feature = "test-mode")]
 #[used]
-pub static TEST_MODE_MARKER: &str = TEST_MODE_MARKER_TEXT;
+#[no_mangle]
+#[cfg_attr(target_os = "macos", link_section = "__DATA,__rkit_tm")]
+#[cfg_attr(windows, link_section = ".rkittm")]
+#[cfg_attr(not(any(target_os = "macos", windows)), link_section = ".rkit_tm")]
+pub static TEST_MODE_MARKER: [u8; 27] = *b"RIGHTKIT-TEST-MODE-COMPILED";
 
 /// Activation selector (class S1). Test-capable builds only.
 #[cfg(feature = "test-mode")]

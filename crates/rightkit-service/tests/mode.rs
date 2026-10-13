@@ -420,8 +420,8 @@ mod capable {
     fn the_capability_marker_is_present() {
         assert!(rightkit_service::mode::TEST_CAPABILITY);
         assert_eq!(
-            rightkit_service::mode::TEST_MODE_MARKER,
-            "RIGHTKIT-TEST-MODE-COMPILED"
+            &rightkit_service::mode::TEST_MODE_MARKER[..],
+            rightkit_service::mode::TEST_MODE_MARKER_TEXT.as_bytes()
         );
     }
 }
