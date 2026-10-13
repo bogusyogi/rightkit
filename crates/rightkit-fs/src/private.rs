@@ -376,23 +376,50 @@ const SE_GROUP_ENABLED: u32 = 0x0000_0004;
 #[cfg(any(windows, test))]
 const SE_GROUP_USE_FOR_DENY_ONLY: u32 = 0x0000_0010;
 
-/// Decides whether an existing object's owner may be repaired to owner-only. Accepts the current
-/// user, or a group that is enabled (and not deny-only) in the current process token. Objects
-/// created by an elevated process are owned by BUILTIN\\Administrators, not by the user account.
-/// Accepting an enabled token group does not widen access: the repair replaces the DACL with one
-/// protected ACE for the current user, and a process whose token holds that group could already
-/// take or use that ownership. A group the token does not hold (or holds deny-only) is rejected.
+/// `SE_GROUP_OWNER`: the group may be assigned as the owner of objects the token creates.
 #[cfg(any(windows, test))]
-fn owner_is_trusted<S: PartialEq>(owner: &S, user: &S, groups: &[(S, u32)]) -> bool {
-    owner == user
-        || groups.iter().any(|(sid, attributes)| {
-            sid == owner
-                && attributes & SE_GROUP_ENABLED != 0
-                && attributes & SE_GROUP_USE_FOR_DENY_ONLY == 0
-        })
+const SE_GROUP_OWNER: u32 = 0x0000_0008;
+
+/// True for the well-known broad SIDs that must never be accepted as an owner: Everyone
+/// (S-1-1-0), LOCAL (S-1-2-0), INTERACTIVE (S-1-5-4), Authenticated Users (S-1-5-11) and
+/// BUILTIN\Users (S-1-5-32-545). `authority` is the 48-bit identifier authority.
+#[cfg(any(windows, test))]
+fn sid_is_broad(authority: u64, sub_authorities: &[u32]) -> bool {
+    matches!(
+        (authority, sub_authorities),
+        (1, [0]) | (2, [0]) | (5, [4]) | (5, [11]) | (5, [32, 545])
+    )
 }
 
-/// True when `owner` is the current user or an enabled group of the current process token.
+/// Decides whether an existing object's owner may be repaired to owner-only. Accepts only the
+/// token user, or a group that is flagged `SE_GROUP_OWNER` and `SE_GROUP_ENABLED` and is not
+/// deny-only (in practice BUILTIN\Administrators in an elevated token, which is where objects
+/// created by an elevated process are owned). An owner implicitly holds WRITE_DAC, so a broad
+/// owner would leave the object writable by others after repair; an ordinary enabled group
+/// (Everyone, Users, Authenticated Users, INTERACTIVE, LOCAL, ...) is therefore never accepted,
+/// and `is_broad` hard-denies those well-known SIDs even if a token flags them as owner groups.
+#[cfg(any(windows, test))]
+fn owner_is_trusted<S: PartialEq>(
+    owner: &S,
+    user: &S,
+    groups: &[(S, u32)],
+    is_broad: &dyn Fn(&S) -> bool,
+) -> bool {
+    if owner == user {
+        return true;
+    }
+    if is_broad(owner) {
+        return false;
+    }
+    groups.iter().any(|(sid, attributes)| {
+        sid == owner
+            && attributes & SE_GROUP_ENABLED != 0
+            && attributes & SE_GROUP_OWNER != 0
+            && attributes & SE_GROUP_USE_FOR_DENY_ONLY == 0
+    })
+}
+
+/// True when `owner` is the current user or an enabled owner-capable, non-broad group of the token.
 #[cfg(windows)]
 fn owner_matches_token(
     owner: *mut std::ffi::c_void,
@@ -436,7 +463,21 @@ fn owner_matches_token(
             (if same { 1 } else { 2 }, entry.attributes)
         })
         .collect();
-    Ok(owner_is_trusted(&1u8, &0u8, &groups))
+    // SAFETY: the owner SID is live and valid (checked non-null above); a SID is revision,
+    // sub-authority count (<= 15), 6 big-endian authority bytes, then that many u32 values.
+    let owner_broad = unsafe {
+        let bytes = owner.cast::<u8>();
+        let count = (*bytes.add(1)).min(15) as usize;
+        let mut authority = 0u64;
+        for i in 0..6 {
+            authority = (authority << 8) | u64::from(*bytes.add(2 + i));
+        }
+        let subs: Vec<u32> = (0..count)
+            .map(|i| std::ptr::read_unaligned(bytes.add(8 + 4 * i).cast::<u32>()))
+            .collect();
+        sid_is_broad(authority, &subs)
+    };
+    Ok(owner_is_trusted(&1u8, &0u8, &groups, &|_| owner_broad))
 }
 
 #[cfg(windows)]
@@ -1287,30 +1328,79 @@ mod owner_policy_tests {
     const SYSTEM: &str = "S-1-5-18";
     const OTHER_USER: &str = "S-1-5-21-1-2-3-1002";
 
-    #[test]
-    fn current_user_owner_is_trusted() {
-        assert!(owner_is_trusted(&USER, &USER, &[]));
+    const EVERYONE: &str = "S-1-1-0";
+    const LOCAL: &str = "S-1-2-0";
+    const INTERACTIVE: &str = "S-1-5-4";
+    const AUTH_USERS: &str = "S-1-5-11";
+    const USERS: &str = "S-1-5-32-545";
+    const ENABLED_GROUP: u32 = SE_GROUP_ENABLED | 0x1; // ENABLED | MANDATORY
+
+    fn broad(sid: &&str) -> bool {
+        match *sid {
+            "S-1-1-0" => sid_is_broad(1, &[0]),
+            "S-1-2-0" => sid_is_broad(2, &[0]),
+            "S-1-5-4" => sid_is_broad(5, &[4]),
+            "S-1-5-11" => sid_is_broad(5, &[11]),
+            "S-1-5-32-545" => sid_is_broad(5, &[32, 545]),
+            _ => false,
+        }
+    }
+
+    fn trusted(owner: &&str, groups: &[(&str, u32)]) -> bool {
+        owner_is_trusted(owner, &USER, groups, &broad)
     }
 
     #[test]
-    fn administrators_owner_is_trusted_only_when_enabled_in_the_token() {
-        // Elevated token: Administrators enabled.
-        let elevated = [(ADMINS, SE_GROUP_ENABLED)];
-        assert!(owner_is_trusted(&ADMINS, &USER, &elevated));
-        // Filtered token: Administrators present but deny-only (and not enabled).
-        let filtered = [(ADMINS, SE_GROUP_USE_FOR_DENY_ONLY)];
-        assert!(!owner_is_trusted(&ADMINS, &USER, &filtered));
-        // Both bits set is still deny-only.
-        let both = [(ADMINS, SE_GROUP_ENABLED | SE_GROUP_USE_FOR_DENY_ONLY)];
-        assert!(!owner_is_trusted(&ADMINS, &USER, &both));
-        // No group at all.
-        assert!(!owner_is_trusted(&ADMINS, &USER, &[]));
+    fn current_user_owner_is_trusted() {
+        assert!(trusted(&USER, &[]));
+    }
+
+    #[test]
+    fn administrators_owner_needs_owner_and_enabled_flags() {
+        assert!(trusted(
+            &ADMINS,
+            &[(ADMINS, SE_GROUP_OWNER | SE_GROUP_ENABLED)]
+        ));
+        // Enabled but not an owner group: rejected.
+        assert!(!trusted(&ADMINS, &[(ADMINS, SE_GROUP_ENABLED)]));
+        // Owner but not enabled (filtered token, deny-only): rejected.
+        assert!(!trusted(
+            &ADMINS,
+            &[(ADMINS, SE_GROUP_OWNER | SE_GROUP_USE_FOR_DENY_ONLY)]
+        ));
+        assert!(!trusted(
+            &ADMINS,
+            &[(
+                ADMINS,
+                SE_GROUP_OWNER | SE_GROUP_ENABLED | SE_GROUP_USE_FOR_DENY_ONLY
+            )]
+        ));
+        assert!(!trusted(&ADMINS, &[]));
+    }
+
+    #[test]
+    fn broad_groups_are_never_trusted_owners() {
+        for sid in [EVERYONE, LOCAL, INTERACTIVE, AUTH_USERS, USERS] {
+            // Enabled and mandatory, not an owner group.
+            assert!(!trusted(&sid, &[(sid, ENABLED_GROUP)]), "{sid}");
+            // Hard-deny holds even when the token flags the group as an owner.
+            assert!(
+                !trusted(&sid, &[(sid, ENABLED_GROUP | SE_GROUP_OWNER)]),
+                "{sid}"
+            );
+        }
+    }
+
+    #[test]
+    fn broad_sid_shapes() {
+        assert!(sid_is_broad(1, &[0]) && sid_is_broad(5, &[32, 545]));
+        assert!(!sid_is_broad(5, &[32, 544]) && !sid_is_broad(5, &[18]));
     }
 
     #[test]
     fn foreign_owner_is_rejected() {
-        let groups = [(ADMINS, SE_GROUP_ENABLED)];
-        assert!(!owner_is_trusted(&OTHER_USER, &USER, &groups));
-        assert!(!owner_is_trusted(&SYSTEM, &USER, &groups));
+        let groups = [(ADMINS, SE_GROUP_OWNER | SE_GROUP_ENABLED)];
+        assert!(!trusted(&OTHER_USER, &groups));
+        assert!(!trusted(&SYSTEM, &groups));
     }
 }
