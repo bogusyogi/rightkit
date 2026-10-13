@@ -46,6 +46,8 @@ pub mod private;
 pub mod state;
 #[cfg(feature = "fs")]
 pub mod swap;
+#[cfg(all(feature = "fs", feature = "digest"))]
+pub mod verified;
 #[cfg(all(feature = "fs", windows))]
 mod windows_temp_sweep;
 
@@ -83,6 +85,8 @@ pub use state::{DirEntry, EntryKind, EntryStat, StateDir, StateOptions};
 #[cfg(feature = "fs")]
 pub use swap::{is_swap_unsupported, swap_paths};
 
+#[cfg(all(feature = "fs", feature = "digest"))]
+pub use verified::{copy_verified, VerifiedCopy};
 /// Conservative liveness result used by crash recovery.
 ///
 /// `Unknown` is deliberately distinct from `Alive`: permission and query failures do not prove

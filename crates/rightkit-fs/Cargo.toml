@@ -151,6 +151,11 @@ name = "owner_executable"
 path = "tests/owner_executable.rs"
 required-features = ["fs"]
 
+[[test]]
+name = "owner_verified"
+path = "tests/owner_verified.rs"
+required-features = ["fs", "digest"]
+
 [features]
 default = ["fs", "lock", "json", "digest"]
 # Atomic writes, owner-only files, StateDir, netfs, clonefile, and the error type. Pulls

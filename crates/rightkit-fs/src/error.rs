@@ -75,6 +75,15 @@ pub enum FsError {
     TooManyEntries(usize),
     #[error("corrupt record {path}: {reason}")]
     Corrupt { path: PathBuf, reason: String },
+    /// A copy's digest did not match: the source did not hash to the expected value, or the
+    /// written copy did not hash to what was read (see [`crate::copy_verified`]). Nothing was
+    /// published.
+    #[error("digest mismatch for {path}: expected {expected}, got {actual}")]
+    DigestMismatch {
+        path: PathBuf,
+        expected: String,
+        actual: String,
+    },
     #[error("unknown stable id {0}")]
     UnknownId(String),
     #[error("platform primitive unavailable: {0}")]
@@ -162,7 +171,7 @@ impl FsError {
             Self::Locked { .. } => K::WouldBlock,
             Self::LockTimeout { .. } => K::TimedOut,
             Self::TooManyEntries(_) => K::Other,
-            Self::Corrupt { .. } => K::InvalidData,
+            Self::Corrupt { .. } | Self::DigestMismatch { .. } => K::InvalidData,
             Self::UnknownId(_) => K::NotFound,
             Self::Unavailable(_) => K::Unsupported,
         }
@@ -268,6 +277,14 @@ mod tests {
                 FsError::Corrupt {
                     path: p.clone(),
                     reason: "bad".into(),
+                },
+                io::ErrorKind::InvalidData,
+            ),
+            (
+                FsError::DigestMismatch {
+                    path: p.clone(),
+                    expected: "a".into(),
+                    actual: "b".into(),
                 },
                 io::ErrorKind::InvalidData,
             ),
