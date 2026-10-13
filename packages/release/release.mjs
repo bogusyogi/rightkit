@@ -344,7 +344,8 @@ try {
     if (!opts.dryRun) throw error;
     console.log(`right-release: dry run: ${error.message}`);
   }
-  const closureInput = { treeText, commands: [target.prePackage, target.package, nativeAssembly?.packageHook, nativeFinalizer, target.postSign].filter(Boolean).map((c) => commandTokens(c)) };
+  // remoteHost: rightkit-service `remote` is refused in the closure unless the app declares releaseSwitches.remoteHost: true.
+  const closureInput = { treeText, remoteHost: config.releaseSwitches?.remoteHost, commands: [target.prePackage, target.package, nativeAssembly?.packageHook, nativeFinalizer, target.postSign].filter(Boolean).map((c) => commandTokens(c)) };
   if (releaseSwitchInventoryText != null) {
     assertNoReleaseSwitches({ ...closureInput, sourceRoot: root, inventoryText: releaseSwitchInventoryText, appForbid: config.releaseSwitches?.forbid ?? [] }, "source switch inventory");
   } else if (treeText != null || closureInput.commands.length) {

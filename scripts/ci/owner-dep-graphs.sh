@@ -31,6 +31,9 @@ secrets|nodefault-settings-probe|--no-default-features --features settings-probe
 logs|nodefault-http|--no-default-features --features http
 logs|nodefault-log-bridge|--no-default-features --features log-bridge
 crash|nodefault-support-bundle|--no-default-features --features support-bundle
+service|nodefault-link|--no-default-features --features link
+service|nodefault-remote|--no-default-features --features remote
+service|nodefault-remote-testing|--no-default-features --features remote,testing
 http|nodefault-gzip|--no-default-features --features gzip
 http|nodefault-async|--no-default-features --features async
 http|nodefault-gzip-untrusted|--no-default-features --features gzip,untrusted
@@ -96,5 +99,17 @@ else
 fi
 printf 'ASSERT\tjobs-supervisor-excludes-rightkit-db-and-libsqlite3-sys\t%s\n' "$v" >> "$OUT/summary.tsv"
 echo "owner-dep-graphs: optional-storage assertion: $v"
+
+# Lean-service assertion (M7 lane E): the default and link builds of rightkit-service carry no async server stack.
+# The remote, remote,testing rows may contain tokio/axum/hyper and are not asserted.
+svd="$OUT/rightkit-service-default.txt"
+svl="$OUT/rightkit-service-nodefault-link.txt"
+if [ -s "$svd" ] && [ -s "$svl" ]; then
+  if awk '$1 == "tokio" || $1 == "axum" || $1 == "hyper" { f = 1 } END { exit !f }' "$svd" "$svl"; then v=FAIL; else v=PASS; fi
+else
+  v=SKIP
+fi
+printf 'ASSERT\tservice-default-and-link-exclude-tokio-axum-hyper\t%s\n' "$v" >> "$OUT/summary.tsv"
+echo "owner-dep-graphs: service lean assertion: $v"
 echo "owner-dep-graphs: wrote $OUT"
 exit 0

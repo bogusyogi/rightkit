@@ -6,7 +6,7 @@ import test from "node:test";
 import { cargoManifestIssues, commandFeatureIssues } from "./qa-build-features.mjs";
 import {
   REGISTRY, TEST_MODE_MARKER, assertNoReleaseSwitches, bufferSwitchFindings, commandSwitchFindings, denyNamesFor,
-  featureClosureFindings, inventoryDenyNames, parseInventory, resolveFeatureClosure, releaseSwitchFindings, scanSwitchPaths, sourceSwitchFindings,
+  featureClosureFindings, inventoryDenyNames, parseInventory, remoteServiceFindings, resolveFeatureClosure, releaseSwitchFindings, scanSwitchPaths, sourceSwitchFindings,
 } from "./release-switch-scan.mjs";
 
 const FIX = new URL("./fixtures/release-switches/", import.meta.url);
@@ -291,4 +291,35 @@ test("closure: identical feature combinations run cargo tree once; feature order
   const split = resolveFeatureClosure({ root, scripts: {}, commandTexts: ["cargo build --release", "cargo build --release --no-default-features"], run });
   assert.equal(calls.length, 2);
   assert.equal(split.trees.length, 2);
+});
+
+// M7 lane E: rightkit-service `remote` is refused in a release graph unless the app declares releaseSwitches.remoteHost: true.
+const REMOTE_TREE = 'app v0.0.0 (/work/app)\n└── rightkit-service v0.2.0 (/work/rightkit/crates/rightkit-service)\n    ├── rightkit-service feature "link"\n    └── rightkit-service feature "remote"\n';
+const LINK_ONLY_TREE = 'app v0.0.0 (/work/app)\n└── rightkit-service v0.2.0 (/work/rightkit/crates/rightkit-service)\n    └── rightkit-service feature "link"\n';
+const OTHER_CRATE_TREE = 'app v0.0.0 (/work/app)\n└── other-crate v1.0.0\n    └── other-crate feature "remote"\n';
+
+test("remote feature in a release graph is refused unless the app declares remoteHost true", () => {
+  const refused = remoteServiceFindings(REMOTE_TREE);
+  assert.deepEqual(ids(refused), ["remote-feature-undeclared"]);
+  assert.deepEqual(ids(remoteServiceFindings(REMOTE_TREE, { remoteHost: false })), ["remote-feature-undeclared"]);
+  assert.deepEqual(remoteServiceFindings(REMOTE_TREE, { remoteHost: true }), []);
+});
+
+test("link-only graphs and other crates' remote features are not refused", () => {
+  assert.deepEqual(remoteServiceFindings(LINK_ONLY_TREE), []);
+  assert.deepEqual(remoteServiceFindings(OTHER_CRATE_TREE), []);
+  assert.deepEqual(remoteServiceFindings(fixture("tree-clean.txt")), []);
+});
+
+test("remoteHost that is not a boolean fails closed instead of enabling remote", () => {
+  assert.throws(() => remoteServiceFindings(REMOTE_TREE, { remoteHost: "true" }), /releaseSwitches\.remoteHost must be true or false/);
+  assert.throws(() => remoteServiceFindings(REMOTE_TREE, { remoteHost: 1 }), /must be true or false/);
+});
+
+test("releaseSwitchFindings applies the remote check through the feature-closure layer", () => {
+  const refused = releaseSwitchFindings({ treeText: REMOTE_TREE, requireBinary: false });
+  assert.deepEqual(ids(refused.findings), ["remote-feature-undeclared"]);
+  assert.equal(refused.findings[0].layer, "feature-closure");
+  assert.deepEqual(releaseSwitchFindings({ treeText: REMOTE_TREE, remoteHost: true, requireBinary: false }).findings, []);
+  assert.deepEqual(releaseSwitchFindings({ treeText: REMOTE_TREE, remoteHost: true, bypass: ["feature-closure"], requireBinary: false }).findings, []);
 });

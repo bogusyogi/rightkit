@@ -79,6 +79,25 @@ export function featureClosureFindings(treeText, { forbidden = REGISTRY.forbidde
   return findings;
 }
 
+// M7 lane E: rightkit-service `remote` (the HTTPS host with tokio, axum and hyper) may enter a release graph only for an app
+// that declares `releaseSwitches.remoteHost: true` (the Hetzner Pulse and PostRight server builds). `testing` implies `remote`,
+// so it is caught by the same line. Fail-closed: a value other than a boolean throws, and `false` or an absent key refuses.
+export const REMOTE_SERVICE_CRATE = "rightkit-service";
+export const REMOTE_SERVICE_FEATURE = "remote";
+export function remoteServiceFindings(treeText, { remoteHost = false } = {}) {
+  if (typeof remoteHost !== "boolean") throw new Error(`releaseSwitches.remoteHost must be true or false, got ${JSON.stringify(remoteHost)}`);
+  if (remoteHost) return [];
+  const findings = []; const seen = new Set();
+  for (const line of String(treeText).split(/\r?\n/)) {
+    const m = FEATURE_LINE.exec(line);
+    if (!m || m[1] !== REMOTE_SERVICE_CRATE || m[2] !== REMOTE_SERVICE_FEATURE || seen.has(m[1])) continue;
+    seen.add(m[1]);
+    const id = "remote-feature-undeclared";
+    findings.push({ layer: "feature-closure", rule: id, file: "<cargo tree>", reason: `${id}: crate \`${REMOTE_SERVICE_CRATE}\` has feature \`${REMOTE_SERVICE_FEATURE}\` enabled in the resolved graph, but the app does not declare releaseSwitches.remoteHost: true (only Pulse and PostRight server builds may enable it)` });
+  }
+  return findings;
+}
+
 // A build command (shell string or { cmd, args }) as one flat token list, whole arguments plus their shell re-tokenisation.
 export function commandTokens(command) {
   const parts = typeof command === "string" ? [command] : [command?.cmd, ...(command?.args ?? [])].filter((v) => v !== undefined).map(String);
@@ -401,12 +420,15 @@ export function scanSwitchPaths(paths, { denyMap = denyNamesFor() } = {}) {
 // Every layer is optional input; a layer given no input is skipped, except that `requireBinary` fails a scan that
 // found no native binary. `bypass: ["feature-closure"]` exists only for the negative fixtures that prove the binary
 // layer independently; release.mjs never passes it.
-export function releaseSwitchFindings({ treeText, commands = [], sourceRoot, inventoryText, binaryPaths = [], appForbid = [], requireBinary = true, bypass = [] } = {}) {
+export function releaseSwitchFindings({ treeText, commands = [], sourceRoot, inventoryText, binaryPaths = [], appForbid = [], requireBinary = true, bypass = [], remoteHost } = {}) {
   const findings = [];
   const bypassed = new Set(bypass);
   const denyMap = denyNamesFor({ appForbid: [...appForbid, ...(inventoryText != null ? inventoryDenyNames(inventoryText) : [])] });
   if (!bypassed.has("feature-closure")) {
-    if (treeText != null) findings.push(...featureClosureFindings(treeText));
+    if (treeText != null) {
+      findings.push(...featureClosureFindings(treeText));
+      findings.push(...remoteServiceFindings(treeText, { remoteHost }));
+    }
     for (const argv of commands) findings.push(...commandSwitchFindings(argv));
   }
   if (sourceRoot && inventoryText != null) findings.push(...sourceSwitchFindings({ sourceRoot, inventoryText, extraDeny: appForbid }));

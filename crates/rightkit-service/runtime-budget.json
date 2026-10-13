@@ -29,5 +29,31 @@
     "note": "The status call returns rightkit_process::ProcessUsage (resident and footprint bytes, cumulative CPU seconds, wake-up and disk-operation totals where the host reports them) beside the crate's own queue figures; the rates come from two calls (ProcessUsage::rates_since). Wake-ups are macOS only; disk operations are Windows and Linux only."
   },
   "measurements": [],
-  "notes": "Ceilings come from the recorded measurements by stated rules (ceilingSources); a ceiling left null names its reason below. wakeupsPerSecond left null: measured 7.4 and 11.3 per second against 0.03 for blocking crates: takeover_monitor sleeps 25 ms and reads takeover.json each pass (src/server.rs takeover_monitor); a polling loop is a defect, not a budget."
+  "profiles": {
+    "remote": {
+      "description": "rightkit-service built with the remote feature (the Hetzner Pulse/PostRight HTTPS host, formerly rightkit-daemon). Top-level ceilings above are the default (local) profile.",
+      "features": ["remote"],
+      "ceilings": {
+        "residentMemoryBytes": 99614720,
+        "idleCpuPercent": 1,
+        "wakeupsPerSecond": 1,
+        "diskOpsPerSecond": 1
+      },
+      "ceilingSources": {
+        "residentMemoryBytes": "carried from rightkit-daemon 0.1.3 (M7 lane B removed the crate; ceilings at git show ad136ddf^:crates/rightkit-daemon/runtime-budget.json): 2x the larger measured resident set (49430528 B), rounded up to a whole MiB; evidence ad136ddf^:crates/rightkit-daemon/runtime-budget.evidence/ (macos-arm64-0.1.3.txt, windows-x86_64-0.1.3.txt)",
+        "idleCpuPercent": "carried from rightkit-daemon 0.1.3: 1 percent absolute for an idle crate; measured at most 0.052 percent",
+        "wakeupsPerSecond": "carried from rightkit-daemon 0.1.3: max(1, 2x measured) per second; macOS measured 0.033; Windows exposes no wake-up counter",
+        "diskOpsPerSecond": "carried from rightkit-daemon 0.1.3: max(1, 2x measured) per second; Windows measured 0.0; macOS exposes no per-process disk-operation counter"
+      },
+      "requiredScale": {
+        "unit": "submissions",
+        "minCount": 10000,
+        "source": "crates/rightkit-service/benches/remote_budget.rs:49"
+      },
+      "measurementsEvidenceDir": "runtime-budget.evidence/",
+      "measurements": [],
+      "measurementsPending": "No remote-profile measurement is recorded yet. The remote bench (benches/remote_budget.rs, required-features remote) writes its RESULT line to runtime-budget.evidence/remote-<os>-<arch>-<version>-synthetic.txt on the Mac and Windows CI or native hosts; the figures are compared to these ceilings by measurement (no gate reads profiles yet, see the lane E report)."
+    }
+  },
+  "notes": "Ceilings come from the recorded measurements by stated rules (ceilingSources); a ceiling left null names its reason below. wakeupsPerSecond left null: measured 7.4 and 11.3 per second against 0.03 for blocking crates: takeover_monitor sleeps 25 ms and reads takeover.json each pass (src/server.rs takeover_monitor); a polling loop is a defect, not a budget. The remote profile keeps the daemon's 1 wake-up per second; the wake-up figure is unmeasured for the remote profile until a remote RESULT line exists."
 }
