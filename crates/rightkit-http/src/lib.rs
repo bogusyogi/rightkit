@@ -7,7 +7,7 @@
 //!   classify every address, connect only to checked addresses, on every redirect hop.
 //! - [`CancelToken`]: cooperative cancellation for calls and streams.
 //! - [`sse`]: WHATWG-compliant Server-Sent Events decoding.
-//! - `untrusted` (feature, default on): tamper-evident wrapping of external text for model input.
+//! - `untrusted` (feature, off by default): tamper-evident wrapping of external text for model input.
 //! - [`secret`]: redacted [`Secret`] and the [`SecretStore`] interface that
 //!   `rightkit-secrets` implements.
 //! - `async_client` (feature `async`): [`AsyncClient`], the same policy layer on

@@ -22,7 +22,10 @@
           "--features",
           "async"
         ],
-        []
+        [
+          "--features",
+          "gzip,untrusted"
+        ]
       ]
     },
     "rightkit-jobs": {
@@ -86,6 +89,22 @@
         [
           "--features",
           "isolated-test-keychain"
+        ]
+      ]
+    },
+    "rightkit-mcp": {
+      "featureSets": [
+        [
+          "--features",
+          "advanced-http"
+        ]
+      ]
+    },
+    "rightkit-db": {
+      "featureSets": [
+        [
+          "--features",
+          "bundled,statement-cache"
         ]
       ]
     }

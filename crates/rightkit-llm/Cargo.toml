@@ -17,13 +17,13 @@ default = []
 cli = ["dep:rightkit-process"]
 
 [dependencies]
-rightkit-http = { version = "0.3.0", path = "../rightkit-http" }
+rightkit-http = { version = "0.3.0", path = "../rightkit-http", features = ["gzip"] }
 rightkit-process = { version = "0.4.0", path = "../rightkit-process", optional = true }
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.150"
 
 [dev-dependencies]
-rightkit-http = { version = "0.3.0", path = "../rightkit-http", features = ["testing"] }
+rightkit-http = { version = "0.3.0", path = "../rightkit-http", features = ["gzip", "testing"] }
 
 [package.metadata.rightkit]
 continuous = false
