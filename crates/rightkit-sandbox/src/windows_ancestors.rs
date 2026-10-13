@@ -25,7 +25,12 @@ const INHERITED_ACE: u8 = 0x10;
 
 #[link(name = "kernel32")]
 unsafe extern "system" {
-    fn GetFinalPathNameByHandleW(handle: *mut c_void, path: *mut u16, len: u32, flags: u32) -> u32;
+    pub(super) fn GetFinalPathNameByHandleW(
+        handle: *mut c_void,
+        path: *mut u16,
+        len: u32,
+        flags: u32,
+    ) -> u32;
     fn CreateMutexW(attributes: *const c_void, initial_owner: i32, name: *const u16)
         -> *mut c_void;
     fn CreateMutexExW(

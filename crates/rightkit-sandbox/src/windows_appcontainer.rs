@@ -2047,7 +2047,63 @@ fn open_stdio_file(path: &Path, grants: &[(PathBuf, bool)]) -> Result<std::fs::F
             path.display()
         )));
     }
+    // Re-check the object actually opened: the parent could have been swapped (junction,
+    // mount) between validation and open. VOLUME_NAME_DOS (0) names the final location.
+    let final_path = final_path_of_handle(&file)?;
+    let final_text = normalize_final_path(&final_path.to_string_lossy());
+    let inside = grants.iter().any(|(root, writable)| {
+        *writable
+            && path_within(
+                Path::new(&final_text),
+                Path::new(&normalize_final_path(&root.to_string_lossy())),
+            )
+    });
+    if !inside {
+        drop(file);
+        return Err(SandboxError::InvalidPolicy(format!(
+            "stdio file {} refused: opened file resolves outside the policy's write_paths",
+            path.display()
+        )));
+    }
     Ok(file)
+}
+
+/// Final DOS path of an open file (GetFinalPathNameByHandleW, VOLUME_NAME_DOS).
+fn final_path_of_handle(file: &std::fs::File) -> io::Result<PathBuf> {
+    use std::os::windows::ffi::OsStringExt;
+    let mut buffer = vec![0u16; 512];
+    loop {
+        // SAFETY: the handle is valid for the borrow; the buffer length is passed exactly.
+        let len = unsafe {
+            ancestors::GetFinalPathNameByHandleW(
+                file.as_raw_handle(),
+                buffer.as_mut_ptr(),
+                buffer.len() as u32,
+                0,
+            )
+        };
+        if len == 0 {
+            return Err(io::Error::last_os_error());
+        }
+        if (len as usize) < buffer.len() {
+            return Ok(PathBuf::from(std::ffi::OsString::from_wide(
+                &buffer[..len as usize],
+            )));
+        }
+        buffer.resize(len as usize + 1, 0);
+    }
+}
+
+/// Strip the `\\?\` / `\\?\UNC\` verbatim prefixes so a final path and a grant compare in
+/// one spelling (`\\?\UNC\srv\share` becomes `\\srv\share`).
+fn normalize_final_path(text: &str) -> String {
+    if let Some(rest) = text.strip_prefix("\\\\?\\UNC\\") {
+        format!("\\\\{rest}")
+    } else if let Some(rest) = text.strip_prefix("\\\\?\\") {
+        rest.to_string()
+    } else {
+        text.to_string()
+    }
 }
 
 #[repr(C)]
@@ -2485,6 +2541,29 @@ mod tests {
         drop(file);
         assert!(root.join("chrome-stderr.txt").exists());
         let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn stdio_file_preexisting_empty_file_without_open_handle_is_accepted() {
+        // Mirrors the browser fixture: the file exists (created and closed), nothing holds it.
+        let root = scratch_dir("pre");
+        let grants = vec![(root.clone(), true)];
+        let path = root.join("chrome-stderr.txt");
+        drop(std::fs::File::create(&path).unwrap());
+        let file = open_stdio_file(&path, &grants).unwrap();
+        drop(file);
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn normalize_final_path_strips_verbatim_prefixes() {
+        assert_eq!(normalize_final_path(r"\\?\C:\a\b.txt"), r"C:\a\b.txt");
+        assert_eq!(
+            normalize_final_path(r"\\?\UNC\srv\share\a.txt"),
+            r"\\srv\share\a.txt"
+        );
+        assert_eq!(normalize_final_path(r"C:\plain"), r"C:\plain");
+        assert_eq!(normalize_final_path(r"\\srv\share"), r"\\srv\share");
     }
 
     #[test]

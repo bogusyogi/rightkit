@@ -17,7 +17,7 @@ use std::process::Stdio;
 use std::time::Duration;
 #[cfg(windows)]
 use std::{
-    fs::{File, OpenOptions},
+    fs::File,
     io::{Read, Seek, SeekFrom},
 };
 
@@ -35,10 +35,11 @@ pub(crate) struct ChromeProc {
     pipe_io: Option<WindowsAuxiliaryIo>,
     #[cfg(windows)]
     pipe_bridge: Option<crate::pipe_transport::PipeBridge>,
-    /// Parent-created before Chrome launches. Diagnostics only ever read this retained handle,
-    /// never a path the confined child could replace with a reparse point.
+    /// Path of the stdio file the sandbox opens (and validates) for Chrome. No parent handle is
+    /// held across the spawn: the sandbox opens it share-read-only, so a lingering write handle
+    /// here would be a sharing violation. Diagnostics read it by path after the fact.
     #[cfg(windows)]
-    fixture_log: Option<File>,
+    fixture_log: Option<std::path::PathBuf>,
     /// Exact AppContainer launch parameters (grants, capabilities, Chrome flags), recorded at
     /// spawn so a failed launch can say what was actually requested.
     #[cfg(windows)]
@@ -234,7 +235,7 @@ impl ChromeProc {
         let log_tail = self
             .fixture_log
             .as_ref()
-            .and_then(|file| bounded_file_tail(file).ok())
+            .and_then(|path| bounded_file_tail(path).ok())
             .unwrap_or_else(|| "(chrome stderr file unavailable)".into());
         format!(
             "windows fixture diagnostic chrome_exited={live_exit}; chrome_exit_code={exit_code}; \
@@ -481,19 +482,8 @@ pub(crate) fn spawn_chrome_fixture_windows(
     // Chrome's stderr/stdout (the CHECK text) land here: the sandbox opens this file in the
     // parent and inherits the handle, so it works before Chrome's own logging initialises.
     let log_path = profile_dir.join("chrome-stderr.txt");
-    // Open before the confined process starts so diagnostics read this exact handle, even if
-    // Chrome later replaces its path. The profile is an owned temporary directory.
-    let fixture_log = OpenOptions::new()
-        .read(true)
-        .write(true)
-        .create_new(true)
-        .open(&log_path)
-        .map_err(|error| {
-            BrowserError::Launch(format!(
-                "create Windows fixture diagnostic log {}: {error}",
-                log_path.display()
-            ))
-        })?;
+    // The sandbox creates/opens this file itself (append, FILE_SHARE_READ only, validated against
+    // the write grant); this function must not hold a handle to it across the spawn.
     let policy = SandboxPolicy::new()
         .allow_exec(exe)
         .allow_write(profile_dir)
@@ -537,7 +527,7 @@ pub(crate) fn spawn_chrome_fixture_windows(
         stderr_tail: StderrTail::default(),
         pipe_io: Some(spawn.io),
         pipe_bridge: None,
-        fixture_log: Some(fixture_log),
+        fixture_log: Some(log_path),
         launch_params,
         acl_targets: vec![
             profile_dir.to_path_buf(),
@@ -631,8 +621,8 @@ fn icacls_summary(path: &Path) -> String {
 }
 
 #[cfg(windows)]
-fn bounded_file_tail(file: &File) -> std::io::Result<String> {
-    let mut reader = file.try_clone()?;
+fn bounded_file_tail(path: &Path) -> std::io::Result<String> {
+    let mut reader = File::open(path)?;
     let length = reader.metadata()?.len();
     reader.seek(SeekFrom::Start(
         length.saturating_sub(FIXTURE_LOG_TAIL_BYTES),
@@ -681,6 +671,36 @@ exit 0"#;
 #[cfg(not(unix))]
 fn spawn_watchdog(_chrome_pid: u32) -> Option<OwnedChild> {
     None
+}
+
+#[cfg(all(test, windows))]
+mod fixture_log_windows_tests {
+    use super::*;
+    use std::fs::OpenOptions;
+    use std::os::windows::fs::OpenOptionsExt;
+
+    /// Mirrors the fixture sequence: the log file pre-exists, nothing here holds a handle, the
+    /// sandbox-style open (append, FILE_SHARE_READ only) succeeds, and the tail is then read
+    /// by path while that writer is still open.
+    #[test]
+    fn fixture_log_opens_share_read_only_and_tails_by_path() {
+        let dir = std::env::temp_dir().join(format!("rk-fixlog-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("chrome-stderr.txt");
+        drop(File::create(&path).unwrap());
+        let mut writer = OpenOptions::new()
+            .append(true)
+            .create(true)
+            .share_mode(0x1)
+            .open(&path)
+            .expect("share-read-only open of a pre-existing, unheld file");
+        use std::io::Write;
+        writer.write_all(b"CHECK failed").unwrap();
+        writer.flush().unwrap();
+        assert_eq!(bounded_file_tail(&path).unwrap(), "CHECK failed");
+        drop(writer);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }
 
 #[cfg(test)]
