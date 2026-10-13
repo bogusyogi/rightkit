@@ -60,10 +60,9 @@ describe("package.json", () => {
   it("exposes ., ./core, ./standard and ./headless (added in 0.4.2) and keeps the existing subpaths", () => {
     expect(Object.keys(pkg.exports).sort()).toEqual([".", "./core", "./headless", "./settings.css", "./shell-adapter", "./standard"]);
   });
-  it("marks license, logs, theme and updates optional peers", () => {
-    for (const peer of ["@rightkit/license", "@rightkit/logs", "@rightkit/theme", "@rightkit/updates"]) {
-      expect(pkg.peerDependencies[peer]).toBeDefined();
-      expect(pkg.peerDependenciesMeta[peer]).toEqual({ optional: true });
-    }
+  it("marks logs and updates optional peers; license and theme are required (sections.tsx and hooks.ts import them at runtime)", () => {
+    for (const peer of ["@rightkit/license", "@rightkit/logs", "@rightkit/theme", "@rightkit/updates"]) expect(pkg.peerDependencies[peer]).toBeDefined();
+    for (const peer of ["@rightkit/logs", "@rightkit/updates"]) expect(pkg.peerDependenciesMeta[peer]).toEqual({ optional: true });
+    for (const peer of ["@rightkit/license", "@rightkit/theme"]) expect(pkg.peerDependenciesMeta?.[peer]?.optional).not.toBe(true);
   });
 });

@@ -84,13 +84,7 @@
   },
   "packageManager": "pnpm@11.24.0",
   "peerDependenciesMeta": {
-    "@rightkit/license": {
-      "optional": true
-    },
     "@rightkit/logs": {
-      "optional": true
-    },
-    "@rightkit/theme": {
       "optional": true
     },
     "@rightkit/updates": {
