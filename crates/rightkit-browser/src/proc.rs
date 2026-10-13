@@ -562,7 +562,9 @@ fn fixture_launch_params(exe: &Path, args: &[OsString], profile_dir: &Path) -> S
 /// Bounded `icacls` dump of one path for failure evidence; observe only.
 #[cfg(windows)]
 fn icacls_summary(path: &Path) -> String {
+    use std::os::windows::process::CommandExt;
     match std::process::Command::new("icacls")
+        .creation_flags(0x0800_0000) // CREATE_NO_WINDOW
         .arg(path)
         .stdin(Stdio::null())
         .output()
