@@ -3,9 +3,9 @@
 //! launches the real scriptable `engine_fixture` child.
 
 use rightkit_jobs::{
-    CallOptions, EngineSupervisor, EventFrame, Lifecycle, ProgressDeadline, ShutdownOutcome,
-    SupervisorConfig, Terminal, CONTRACT_VERSION, CONTRACT_VERSION_MISMATCH, DEFAULT_FRAME_LIMIT,
-    DELIVERY_UNKNOWN, MAX_FRAME_LIMIT,
+    CallOptions, EngineSupervisor, EventFrame, Lifecycle, ProgressDeadline, SupervisorConfig,
+    Terminal, CONTRACT_VERSION, CONTRACT_VERSION_MISMATCH, DEFAULT_FRAME_LIMIT, DELIVERY_UNKNOWN,
+    MAX_FRAME_LIMIT,
 };
 use rightkit_process::{OwnedCommand, RestartMode, RestartPolicy};
 use serde_json::json;
@@ -450,11 +450,11 @@ fn a_kill_the_os_has_not_confirmed_at_its_bound_is_never_reported_gone_and_is_re
     assert!(
         matches!(
             report.outcome,
-            ShutdownOutcome::Killed | ShutdownOutcome::Unconfirmed
+            rightkit_jobs::ShutdownOutcome::Killed | rightkit_jobs::ShutdownOutcome::Unconfirmed
         ),
         "{report:?}"
     );
-    if report.outcome == ShutdownOutcome::Unconfirmed {
+    if report.outcome == rightkit_jobs::ShutdownOutcome::Unconfirmed {
         assert!(!report.reaped || report.unreaped == 0, "{report:?}");
     }
     let until = Instant::now() + Duration::from_secs(5);
