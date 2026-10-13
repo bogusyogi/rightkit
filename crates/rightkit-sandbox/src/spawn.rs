@@ -255,6 +255,12 @@ impl Sandbox {
 
     /// As [`Self::spawn_with_pipe_pair`], but child stdout and stderr append to `stdio_file`
     /// (opened by the parent, inherited by handle) instead of NUL. Diagnostics only.
+    ///
+    /// `stdio_file` must lie inside a writable grant of `policy`: an absolute path with no
+    /// `..`/`.`, relative, ADS (`:`) or reserved device-name components; it and its parent
+    /// must not be reparse points (symlinks/junctions); it must not have more than one hard
+    /// link; and it is opened append-only with `FILE_SHARE_READ`, so no other writer can share
+    /// it. Any violation returns `SandboxError::InvalidPolicy`.
     #[cfg(windows)]
     pub fn spawn_with_pipe_pair_stdio_file(
         &self,

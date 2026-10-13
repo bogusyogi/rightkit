@@ -2041,7 +2041,47 @@ fn open_stdio_file(path: &Path, grants: &[(PathBuf, bool)]) -> Result<std::fs::F
             path.display()
         )));
     }
+    if file_link_count(&file)? > 1 {
+        return Err(SandboxError::InvalidPolicy(format!(
+            "stdio file {} refused: target has more than one hard link",
+            path.display()
+        )));
+    }
     Ok(file)
+}
+
+#[repr(C)]
+struct ByHandleFileInformation {
+    file_attributes: u32,
+    creation_time: [u32; 2],
+    last_access_time: [u32; 2],
+    last_write_time: [u32; 2],
+    volume_serial_number: u32,
+    file_size_high: u32,
+    file_size_low: u32,
+    number_of_links: u32,
+    file_index_high: u32,
+    file_index_low: u32,
+}
+
+#[link(name = "kernel32")]
+extern "system" {
+    fn GetFileInformationByHandle(
+        handle: *mut std::ffi::c_void,
+        info: *mut ByHandleFileInformation,
+    ) -> i32;
+}
+
+/// Hard-link count of an open file (nNumberOfLinks from GetFileInformationByHandle).
+fn file_link_count(file: &std::fs::File) -> io::Result<u32> {
+    let mut info = std::mem::MaybeUninit::<ByHandleFileInformation>::zeroed();
+    // SAFETY: the handle is valid for the borrow and `info` is a correctly sized out buffer.
+    let ok = unsafe { GetFileInformationByHandle(file.as_raw_handle(), info.as_mut_ptr()) };
+    if ok == 0 {
+        return Err(io::Error::last_os_error());
+    }
+    // SAFETY: the call succeeded and initialised the structure.
+    Ok(unsafe { info.assume_init() }.number_of_links)
 }
 
 fn spawn_inner(
@@ -2506,6 +2546,28 @@ mod tests {
             assert_eq!(std::fs::read(&victim).unwrap(), b"keep");
         }
         let _ = std::fs::remove_dir(&junction);
+        let _ = std::fs::remove_dir_all(&root);
+        let _ = std::fs::remove_dir_all(&other);
+    }
+
+    #[test]
+    fn stdio_file_hard_link_to_outside_file_is_rejected() {
+        let root = scratch_dir("hl");
+        let other = scratch_dir("hl-out");
+        let grants = vec![(root.clone(), true)];
+        let victim = other.join("victim.txt");
+        std::fs::write(&victim, b"keep").unwrap();
+        let link = root.join("hard.txt");
+        std::fs::hard_link(&victim, &link).unwrap();
+        assert!(matches!(
+            open_stdio_file(&link, &grants),
+            Err(SandboxError::InvalidPolicy(_))
+        ));
+        assert_eq!(std::fs::read(&victim).unwrap(), b"keep");
+        // a freshly created file has exactly one link
+        let fresh = open_stdio_file(&root.join("fresh.txt"), &grants).unwrap();
+        assert_eq!(file_link_count(&fresh).unwrap(), 1);
+        drop(fresh);
         let _ = std::fs::remove_dir_all(&root);
         let _ = std::fs::remove_dir_all(&other);
     }
