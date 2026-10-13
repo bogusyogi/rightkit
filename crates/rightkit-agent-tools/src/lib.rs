@@ -30,9 +30,6 @@ pub use toolbox::{
     Verdict,
 };
 
-#[cfg(feature = "mcp")]
-pub mod mcp;
-
 use rightkit_daemon::Suite;
 use std::sync::Arc;
 

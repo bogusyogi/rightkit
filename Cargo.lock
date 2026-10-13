@@ -5134,7 +5134,6 @@ dependencies = [
  "rightkit-automation",
  "rightkit-browser",
  "rightkit-daemon",
- "rightkit-mcp",
  "rightkit-speech-client",
  "serde",
  "serde_json",

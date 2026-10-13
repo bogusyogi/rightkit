@@ -17,7 +17,7 @@ HeardRight's rules are built in and cannot be configured: no dictation, text del
 
 ## When to use it
 
-- Use it when an agent must drive an installed, signed Right Suite app in the background, by process id, through `right-ctl` or the MCP host.
+- Use it when an agent must drive an installed, signed Right Suite app in the background, by process id, through `right-ctl`.
 - Use it when a caller needs one allowlisted, journaled tool surface across apps.
 
 Do not use it to take foreground input or to click the screen with computer-use tools on Right Suite apps. Do not use it for dictation or text delivery; the exposure rules block those.
@@ -29,7 +29,6 @@ Do not use it to take foreground input or to click the screen with computer-use 
 | `automation` | yes | `rightkit-automation` | `desktop.*` tools |
 | `browser` | yes | `rightkit-browser`, `tokio` (`rt-multi-thread`, `time`) | `browser.*` tools |
 | `speech` | yes | `rightkit-speech-client` | `speech.*` tools |
-| `mcp` | no | `rightkit-mcp` | Hosts the toolbox over MCP (`right-ctl mcp-serve`). The `e2e` test requires it. |
 
 ## Usage
 

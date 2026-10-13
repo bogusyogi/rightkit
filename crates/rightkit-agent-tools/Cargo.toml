@@ -7,7 +7,7 @@ description = "One typed tool interface for agents over rightkit-automation, rig
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/Orthic-Labs/rightkit"
 readme = "README.md"
-keywords = ["agents", "automation", "cli", "mcp", "tools"]
+keywords = ["agents", "automation", "cli", "tools"]
 categories = ["command-line-utilities", "development-tools"]
 include = ["src/**", "tests/**", "README.md", "CHANGELOG.md", "LICENSE-MIT", "LICENSE-APACHE"]
 
@@ -16,26 +16,18 @@ default = ["automation", "browser", "speech"]
 automation = ["dep:rightkit-automation"]
 browser = ["dep:rightkit-browser", "dep:tokio"]
 speech = ["dep:rightkit-speech-client"]
-# Host the toolbox over MCP (needs rightkit-mcp; see API.md).
-mcp = ["dep:rightkit-mcp"]
 
 [dependencies]
 rightkit-daemon = { version = "0.2.0", path = "../rightkit-daemon" }
 rightkit-automation = { version = "0.3.0", path = "../rightkit-automation", optional = true }
 rightkit-browser = { version = "0.3.0", path = "../rightkit-browser", optional = true }
 rightkit-speech-client = { version = "0.3.0", path = "../rightkit-speech-client", optional = true }
-rightkit-mcp = { version = "0.6.0", path = "../rightkit-mcp", optional = true }
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.150"
 tokio = { version = "1", features = ["rt-multi-thread", "time"], optional = true }
 
 [dev-dependencies]
 tempfile = "3"
-
-[[test]]
-name = "e2e"
-path = "tests/e2e.rs"
-required-features = ["mcp"]
 
 [[bin]]
 name = "right-ctl"

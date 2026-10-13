@@ -8,7 +8,6 @@
 //!   right-ctl heardright transcribe <file> [language=xx]   file transcription via the speech service
 //!   right-ctl run                                  JSON array [{"tool","args"}] on stdin, one session
 //!                                                  (desktop.*, browser.*, <app>.*, speech.*)
-//!   right-ctl mcp-serve                            host the toolbox over MCP stdio (feature `mcp`)
 //!
 //! Options: --suite-root <abs path> (else RIGHTKIT_SUITE_ROOT / per-user default, fail-closed),
 //!          --journal <file> (content-free JSONL of started/denied/settled).
@@ -23,7 +22,7 @@ use std::process::ExitCode;
 use std::sync::Arc;
 
 fn usage() -> ExitCode {
-    eprintln!("usage: right-ctl [--suite-root DIR] [--journal FILE] (--list | <app> --tools | <app> <command> [args] | run | mcp-serve)");
+    eprintln!("usage: right-ctl [--suite-root DIR] [--journal FILE] (--list | <app> --tools | <app> <command> [args] | run)");
     ExitCode::from(2)
 }
 
@@ -62,26 +61,7 @@ fn print(v: &Value) {
     println!("{v}");
 }
 
-#[cfg(feature = "mcp")]
-fn mcp_serve(tb: Arc<Toolbox>) -> ExitCode {
-    match rightkit_agent_tools::mcp::serve_stdio(tb, CTL_CALLER) {
-        Ok(()) => ExitCode::SUCCESS,
-        Err(e) => {
-            eprintln!(
-                "{}",
-                json!({"error": {"code": "mcp_error", "message": e.to_string(), "retryable": false}})
-            );
-            ExitCode::from(1)
-        }
-    }
-}
-#[cfg(not(feature = "mcp"))]
-fn mcp_serve(_: Arc<Toolbox>) -> ExitCode {
-    eprintln!("right-ctl was built without the `mcp` feature");
-    ExitCode::from(2)
-}
-
-/// Toolbox for `run`/`mcp-serve`: control tools for `apps`, plus desktop and browser.
+/// Toolbox for `run`: control tools for `apps`, plus desktop and browser.
 fn full_toolbox(suite: &Suite, apps: &[String]) -> Result<Toolbox, ToolError> {
     let names: Vec<&str> = apps.iter().map(String::as_str).collect();
     #[allow(unused_mut)]
@@ -202,15 +182,6 @@ fn main() -> ExitCode {
             }
             print(&json!(results));
             return code;
-        }
-        "mcp-serve" => {
-            let apps: Vec<String> = argv[1..].to_vec();
-            let mut tb = match full_toolbox(&suite, &apps) {
-                Ok(t) => t,
-                Err(e) => return fail(&e),
-            };
-            attach(&mut tb);
-            return mcp_serve(Arc::new(tb));
         }
         _ => {}
     }
