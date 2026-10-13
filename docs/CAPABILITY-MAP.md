@@ -45,7 +45,7 @@ Capabilities: 72 (54 with fingerprints, 18 declaration-only). Internal owners th
 | licensing | `@rightkit/license`, `rightkit-license` | advise | fingerprinted | 6 (0 block, 6 advise) | @rightkit/license: published 0.1.8 (npm); rightkit-license: published 0.1.3 (crates.io) |
 | lifecycle-hooks | `@rightkit/hooks` | none | declaration-only | 0 | @rightkit/hooks: published 0.1.2 (npm) |
 | llm-providers | `rightkit-llm` | advise | fingerprinted | 6 (0 block, 6 advise) | rightkit-llm: published 0.1.0 (crates.io) |
-| local-services | `rightkit-service` | advise | fingerprinted | 3 (0 block, 3 advise) | rightkit-service: published 0.1.4 (crates.io) |
+| local-services | `rightkit-daemon` | advise | fingerprinted | 3 (0 block, 3 advise) | rightkit-daemon: none recorded |
 | localization | `@rightkit/i18n` | advise | fingerprinted | 2 (0 block, 2 advise) | @rightkit/i18n: published 0.1.0 (npm) |
 | mcp | `rightkit-mcp` | advise | fingerprinted | 2 (0 block, 2 advise) | rightkit-mcp: published 0.5.3 (crates.io) |
 | media-pipelines | `rightkit-media` | advise | fingerprinted | 2 (0 block, 2 advise) | rightkit-media: published 0.2.5 (crates.io) |

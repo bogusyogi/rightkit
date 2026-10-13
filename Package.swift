@@ -32,9 +32,14 @@ let package = Package(
         .library(name: "RightKitUI", targets: ["RightKitUI"]),
         .library(name: "RightKitPulse", targets: ["RightKitPulse"]),
         .library(name: "RightKitDB", targets: ["RightKitDB"]),
+        .library(name: "RightKitFS", targets: ["RightKitFS"]),
+        .library(name: "RightKitSecrets", targets: ["RightKitSecrets"]),
     ],
     targets: [
-        .target(name: "RightKitLicense", path: "swift/RightKitSwift/Sources/RightKitLicense"),
+        // Keychain-backed secret store (namespace = service, key = account); RightKitLicense persists through it.
+        .target(name: "RightKitSecrets", path: "swift/RightKitSwift/Sources/RightKitSecrets"),
+        .testTarget(name: "RightKitSecretsTests", dependencies: ["RightKitSecrets"], path: "swift/RightKitSwift/Tests/RightKitSecretsTests"),
+        .target(name: "RightKitLicense", dependencies: ["RightKitSecrets"], path: "swift/RightKitSwift/Sources/RightKitLicense"),
         .target(name: "RightKitDiagnostics", path: "swift/RightKitSwift/Sources/RightKitDiagnostics"),
         .testTarget(name: "RightKitDiagnosticsTests", dependencies: ["RightKitDiagnostics"], path: "swift/RightKitSwift/Tests/RightKitDiagnosticsTests"),
         // zlib comes from the platform SDK; no third-party dependency enters the registry archive.
@@ -42,7 +47,7 @@ let package = Package(
         .testTarget(name: "RightKitArtifactsTests", dependencies: ["RightKitArtifacts"], path: "swift/RightKitSwift/Tests/RightKitArtifactsTests"),
         .testTarget(
             name: "RightKitLicenseTests",
-            dependencies: ["RightKitLicense"],
+            dependencies: ["RightKitLicense", "RightKitSecrets"],
             path: "swift/RightKitSwift/Tests/RightKitLicenseTests",
             resources: [.process("Contracts")],
         ),
@@ -86,5 +91,8 @@ let package = Package(
         // Read-only reader for rightkit-db databases (Rust is the only writer); system SQLite3.
         .target(name: "RightKitDB", path: "swift/RightKitSwift/Sources/RightKitDB", linkerSettings: [.linkedLibrary("sqlite3")]),
         .testTarget(name: "RightKitDBTests", dependencies: ["RightKitDB"], path: "swift/RightKitSwift/Tests/RightKitDBTests"),
+        // Data root (Orthic Labs/<App>), escape-safe dataDir, atomic write, verified copy, append. Foundation/CryptoKit only.
+        .target(name: "RightKitFS", path: "swift/RightKitSwift/Sources/RightKitFS"),
+        .testTarget(name: "RightKitFSTests", dependencies: ["RightKitFS"], path: "swift/RightKitSwift/Tests/RightKitFSTests"),
     ],
 )

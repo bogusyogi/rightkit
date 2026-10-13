@@ -621,13 +621,86 @@
     },
     {
       "package": "rightkit-daemon",
-      "capability": "daemon-host",
-      "summary": "Daemon host: HTTPS listener, device enrolment and signed requests, OAuth callback and signed webhook route classes, bounded blake3-keyed resumable uploads, compare-and-swap mutations, durable state and lifecycle events (daemon-api v1); the `remote` feature of rightkit-daemon.",
-      "fingerprints": [],
-      "detection": "declaration-only",
+      "capability": "local-services",
+      "summary": "One discovery/auth convention for Right Suite local services: service.json, ranking and takeover, current-user-only Unix socket / named pipe, per-app request allowlist.",
+      "fingerprints": [
+        {
+          "id": "service.api.peer-credentials",
+          "type": "source",
+          "pattern": "\\bgetpeereid\\s*\\(|\\b(?:LOCAL_PEERCRED|SO_PEERCRED)\\b",
+          "codeOnly": true,
+          "extensions": [
+            ".rs",
+            ".c",
+            ".cc",
+            ".cpp",
+            ".h",
+            ".m",
+            ".mm",
+            ".swift"
+          ],
+          "tier": "advise",
+          "usageContext": {
+            "hosts": [
+              "macos",
+              "windows"
+            ],
+            "scope": "Executable code only; authenticated owner provenance required for exclusions"
+          },
+          "tierReason": "No recorded published-version qualification for this usage context on both macOS & Windows."
+        },
+        {
+          "id": "service.api.owner-only-pipe-sddl",
+          "type": "source",
+          "pattern": "\\b(?:format!|format|sprintf)\\s*\\(\\s*[\"']D:P\\(A;;GA;;;",
+          "codeOnly": true,
+          "extensions": [
+            ".rs",
+            ".c",
+            ".cc",
+            ".cpp",
+            ".h",
+            ".cs"
+          ],
+          "tier": "advise",
+          "usageContext": {
+            "hosts": [
+              "macos",
+              "windows"
+            ],
+            "scope": "Executable code only; authenticated owner provenance required for exclusions"
+          },
+          "tierReason": "No recorded published-version qualification for this usage context on both macOS & Windows."
+        },
+        {
+          "id": "service.discovery.service-json",
+          "type": "source",
+          "pattern": "\\b(?:join|push)\\s*\\([^()]{0,100}[\"']service\\.json[\"']\\s*\\)",
+          "codeOnly": true,
+          "extensions": [
+            ".rs",
+            ".ts",
+            ".tsx",
+            ".js",
+            ".mjs",
+            ".cjs",
+            ".jsx"
+          ],
+          "tier": "advise",
+          "usageContext": {
+            "hosts": [
+              "macos",
+              "windows"
+            ],
+            "scope": "Executable code only; authenticated owner provenance required for exclusions"
+          },
+          "tierReason": "No recorded published-version qualification for this usage context on both macOS & Windows."
+        }
+      ],
+      "detection": "fingerprinted",
       "policyNotes": [
         "Package contract retained; dependency declarations do not verify integration.",
-        "No precise implementation fingerprint; declaration-only inventory, never enforced ownership or verified integration."
+        "Fingerprints identify review candidates (competing dependencies and distinctive implementation code); published two-host replacement qualification is not recorded."
       ]
     },
     {
@@ -2367,90 +2440,6 @@
       "policyNotes": [
         "Package contract retained; dependency declarations do not verify integration.",
         "No precise implementation fingerprint; declaration-only inventory, never enforced ownership or verified integration."
-      ]
-    },
-    {
-      "package": "rightkit-daemon",
-      "capability": "local-services",
-      "summary": "One discovery/auth convention for Right Suite local services: service.json, ranking and takeover, current-user-only Unix socket / named pipe, per-app request allowlist.",
-      "fingerprints": [
-        {
-          "id": "service.api.peer-credentials",
-          "type": "source",
-          "pattern": "\\bgetpeereid\\s*\\(|\\b(?:LOCAL_PEERCRED|SO_PEERCRED)\\b",
-          "codeOnly": true,
-          "extensions": [
-            ".rs",
-            ".c",
-            ".cc",
-            ".cpp",
-            ".h",
-            ".m",
-            ".mm",
-            ".swift"
-          ],
-          "tier": "advise",
-          "usageContext": {
-            "hosts": [
-              "macos",
-              "windows"
-            ],
-            "scope": "Executable code only; authenticated owner provenance required for exclusions"
-          },
-          "tierReason": "No recorded published-version qualification for this usage context on both macOS & Windows."
-        },
-        {
-          "id": "service.api.owner-only-pipe-sddl",
-          "type": "source",
-          "pattern": "\\b(?:format!|format|sprintf)\\s*\\(\\s*[\"']D:P\\(A;;GA;;;",
-          "codeOnly": true,
-          "extensions": [
-            ".rs",
-            ".c",
-            ".cc",
-            ".cpp",
-            ".h",
-            ".cs"
-          ],
-          "tier": "advise",
-          "usageContext": {
-            "hosts": [
-              "macos",
-              "windows"
-            ],
-            "scope": "Executable code only; authenticated owner provenance required for exclusions"
-          },
-          "tierReason": "No recorded published-version qualification for this usage context on both macOS & Windows."
-        },
-        {
-          "id": "service.discovery.service-json",
-          "type": "source",
-          "pattern": "\\b(?:join|push)\\s*\\([^()]{0,100}[\"']service\\.json[\"']\\s*\\)",
-          "codeOnly": true,
-          "extensions": [
-            ".rs",
-            ".ts",
-            ".tsx",
-            ".js",
-            ".mjs",
-            ".cjs",
-            ".jsx"
-          ],
-          "tier": "advise",
-          "usageContext": {
-            "hosts": [
-              "macos",
-              "windows"
-            ],
-            "scope": "Executable code only; authenticated owner provenance required for exclusions"
-          },
-          "tierReason": "No recorded published-version qualification for this usage context on both macOS & Windows."
-        }
-      ],
-      "detection": "fingerprinted",
-      "policyNotes": [
-        "Package contract retained; dependency declarations do not verify integration.",
-        "Fingerprints identify review candidates (competing dependencies and distinctive implementation code); published two-host replacement qualification is not recorded."
       ]
     },
     {
