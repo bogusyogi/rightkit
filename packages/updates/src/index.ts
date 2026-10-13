@@ -72,6 +72,13 @@ export interface AutoUpdateClientConfig {
     update: RuntimeUpdate,
     context: { headers?: UpdateHeaders },
   ) => Promise<boolean | void> | boolean | void;
+  /**
+   * Host relaunch action (for example `@tauri-apps/plugin-process` `relaunch`).
+   * Only invoked when `relaunchAfterInstall` is true.
+   */
+  relaunch?: () => Promise<void> | void;
+  /** Relaunch automatically after `ready`. Default false: the host shows its own restart prompt. */
+  relaunchAfterInstall?: boolean;
   canInstall?: () => Promise<boolean> | boolean;
   isEligible?: (
     tier: UpdateTier | null,
@@ -282,7 +289,11 @@ export function createAutoUpdateClient(config: AutoUpdateClientConfig): AutoUpda
         }
       }, installHeaders ? { headers: installHeaders } : undefined);
 
-      return emitForGeneration({ kind: 'ready', version: update.version, tier }, installGeneration);
+      const ready = emitForGeneration({ kind: 'ready', version: update.version, tier }, installGeneration);
+      if (config.relaunchAfterInstall && config.relaunch && generation === installGeneration) {
+        await config.relaunch();
+      }
+      return ready;
     } catch (error) {
       const errorStatus: AutoUpdateStatus = { kind: 'error', message: String(error) };
       if (generation !== installGeneration) return errorStatus;
