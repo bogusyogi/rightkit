@@ -100,6 +100,33 @@ function fixture({ signed = true, publish = false, signingContract = "windows-ra
   return config;
 }
 
+function addFrontendDist(config, files, targetExtra) {
+  const dir = path.dirname(config);
+  const dist = path.join(dir, "dist");
+  mkdirSync(path.join(dist, "assets"), { recursive: true });
+  for (const [name, text] of Object.entries(files)) writeFileSync(path.join(dist, name), text, "utf8");
+  mkdirSync(path.join(dir, "src-tauri"), { recursive: true });
+  writeFileSync(path.join(dir, "src-tauri", "tauri.conf.json"), JSON.stringify({ build: { frontendDist: "../dist" } }), "utf8");
+  git(dir, "add", ".");
+  git(dir, "commit", "-m", "frontend dist");
+  return config;
+}
+
+test("release fails closed when the frontend dist carries a browser-QA mock marker", () => {
+  const config = addFrontendDist(fixture({ platform: "win" }), { "index.html": "<html></html>", "assets/app.js": "const x=window.__tauriQaMock;" });
+  const result = run(config);
+  assert.notEqual(result.status, 0, `${result.stdout}\n${result.stderr}`);
+  assert.match(`${result.stdout}\n${result.stderr}`, /pre-package frontend bundle: a release web bundle must not contain browser-QA mocks/);
+  assert.match(`${result.stdout}\n${result.stderr}`, /tauriQaMock/);
+});
+
+test("release accepts a clean frontend dist and logs the web scan", () => {
+  const config = addFrontendDist(fixture({ platform: "win" }), { "index.html": "<html></html>", "assets/app.js": "console.log(1)" });
+  const result = run(config);
+  assert.doesNotMatch(`${result.stdout}\n${result.stderr}`, /browser-QA mocks/);
+  assert.match(result.stdout, /pre-package frontend bundle: 2 web file\(s\) scanned/);
+});
+
 function lockFixture() {
   const dir = mkdtempSync(path.join(os.tmpdir(), "right-release-lock-test-"));
   const config = path.join(dir, "right-release.config.mjs");

@@ -38,7 +38,7 @@ import { runConfiguredChecks } from "./release-checks.mjs";
 import { resolveMacosDeveloperIdIdentity } from "./macos-signing-identity.mjs";
 import { DEFAULT_STORAGE_THRESHOLD_BYTES, findInstallerCopyScripts, findLargeRepositorySubdirectories } from "./installer-storage-doctor.mjs";
 import { macosCodesignEnvironment } from "./codesign-environment.mjs";
-import { assertNoQaControl } from "./qa-control-scan.mjs";
+import { assertNoQaControl, assertNoWebBundleMocks } from "./qa-control-scan.mjs";
 import { assertNoForbiddenBuildFeatures } from "./qa-build-features.mjs";
 import { devtoolsEvidence, resolveDevtoolsAllowance } from "./devtools-policy.mjs";
 
@@ -416,6 +416,9 @@ if (opts.platform === "win" && target.signingContract === MSIX_SIGNING_CONTRACT)
 // Extra files or directories the app declares (for example the unpacked bundle or a staged payload).
 assertNoQaControlBinaries("target.qaControlScan", (target.qaControlScan ?? []).map((p) => resolveReleaseArtifactPath(root, p)), { requireBinary: (target.qaControlScan ?? []).length > 0, prePack: true });
 
+// Frontend bundle: no browser-QA mock may ship. Read-only, so it also runs under --dry-run (against a dist that already exists).
+assertNoWebBundleMocksInFrontend("pre-package", { required: false });
+
 if (opts.platform === "mac" && runMacPhase("package")) {
   // SwiftPM + appBeforePackage: the .app is stapled by now, so right-release packs it into the DMG itself.
   const swiftDmg = swiftMacDmgPlan({ target, projectType: resolveProjectType({ appRoot: root, config, target }), appName: config.app ?? path.basename(root), resolve: (p) => resolveReleaseArtifactPath(root, p) });
@@ -425,6 +428,8 @@ if (opts.platform === "mac" && runMacPhase("package")) {
   }
 }
 if (command && (opts.platform !== "mac" || runMacPhase("package"))) await runCommand(command, root);
+// The package command builds the frontend; a real run must now find and clean it.
+assertNoWebBundleMocksInFrontend("post-package", { required: !opts.dryRun });
 
 for (const rel of target.artifacts ?? []) {
   await mustExist(resolveReleaseArtifactPath(root, rel), `missing release artifact: ${rel}`);
@@ -524,6 +529,31 @@ function assertNoQaControlBinaries(label, files, { requireBinary = false, prePac
   } catch (error) {
     fail(error.message);
   }
+}
+
+// Frontend dist directories to scan: `target.webBundleScan` (explicit, relative to the app root) or, when absent, the
+// Tauri `build.frontendDist` / `build.distDir` of src-tauri/tauri.conf.json. A URL (dev server) is not a bundle.
+function frontendBundleDirs() {
+  if (Array.isArray(target.webBundleScan)) return target.webBundleScan.map((p) => path.resolve(root, p));
+  const confPath = path.join(root, "src-tauri", "tauri.conf.json");
+  if (!existsSync(confPath)) return [];
+  try {
+    const build = JSON.parse(readFileSync(confPath, "utf8")).build ?? {};
+    const dist = build.frontendDist ?? build.distDir;
+    if (typeof dist !== "string" || /^[a-z][a-z0-9+.-]*:\/\//i.test(dist)) return [];
+    return [path.resolve(root, "src-tauri", dist)];
+  } catch (error) { fail(`src-tauri/tauri.conf.json is unreadable, so the frontend bundle cannot be located for the mock scan: ${error.message}`); }
+}
+
+function assertNoWebBundleMocksInFrontend(phase, { required }) {
+  const dirs = frontendBundleDirs() ?? [];
+  const present = dirs.filter((dir) => existsSync(dir));
+  if (!required && present.length === 0) return;
+  if (dirs.length === 0) return;
+  try {
+    const { files } = assertNoWebBundleMocks(required ? dirs : present, `${phase} frontend bundle`, { requireFiles: true });
+    console.log(`right-release: ${phase} frontend bundle: ${files} web file(s) scanned, no browser-QA mock marker`);
+  } catch (error) { fail(error.message); }
 }
 
 function resolveReleaseArtifactPath(root, declared) {
