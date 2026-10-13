@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- `wrap_untrusted_web_text_coderight` escapes the closing `</coderight-untrusted-context` tag case-insensitively (mixed-case closers can no longer end the block early).
+
 ## 0.3.0
 
 - **Added (opt-in, no change to existing behaviour; preserve M17 OG17-6):** `wrap_untrusted_web_text_coderight(source, text, &WrapOptions)` wraps text in CodeRight's `<coderight-untrusted-context ...>` envelope (`trust="toolUntrusted"`, `source="tool:<source>"`, `approval_authority="false"`). `wrap_untrusted_web_text` and `_with` still produce the `<<<UNTRUSTED_CONTENT` format. Documented differences: `content_hash` is the body SHA-256 (CodeRight leaves it empty) and a body containing the closing tag is escaped. Tests: `tests/untrusted_coderight.rs`.
