@@ -18,6 +18,10 @@ use std::time::{Duration, Instant, SystemTime};
 
 pub const DEFAULT_FRAME_LIMIT: usize = 16 * 1024 * 1024;
 
+/// Default for [`HostOptions::write_timeout`]: how long one frame write plus flush to a client may
+/// take before the host closes that connection. Matches the client's default call deadline.
+pub const DEFAULT_WRITE_TIMEOUT: Duration = Duration::from_secs(120);
+
 /// Sends an `event` frame for the request being handled.
 pub type Emit = Arc<dyn Fn(Value) + Send + Sync>;
 
@@ -170,12 +174,14 @@ impl ServiceConfig {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct HostOptions {
     max_pipe_instances: u32,
+    write_timeout: Option<Duration>,
 }
 
 impl Default for HostOptions {
     fn default() -> Self {
         Self {
             max_pipe_instances: DEFAULT_MAX_PIPE_INSTANCES,
+            write_timeout: Some(DEFAULT_WRITE_TIMEOUT),
         }
     }
 }
@@ -200,6 +206,25 @@ impl HostOptions {
     /// The effective (clamped) cap.
     pub fn get_max_pipe_instances(&self) -> u32 {
         self.max_pipe_instances
+    }
+
+    /// Longest one frame (hello, event, or response) may take to write and flush to a client.
+    /// A client that stops reading fills the transport buffer and would otherwise block the
+    /// writing thread, and the connection with it, forever; when the bound passes the host closes
+    /// that connection (the client sees `connection_closed`, never a partial frame it could
+    /// mistake for a reply), and the connection's `connection_closed` handler hook runs. The
+    /// bound is per frame, so a slow but progressing reader of a stream of events is not cut off
+    /// unless a single frame stalls. Default [`DEFAULT_WRITE_TIMEOUT`] (120 s); `None` restores
+    /// the earlier unbounded write. A zero duration is raised to 1 ms.
+    #[must_use]
+    pub fn write_timeout(mut self, bound: Option<Duration>) -> Self {
+        self.write_timeout = bound.map(|d| d.max(Duration::from_millis(1)));
+        self
+    }
+
+    /// The effective write bound (`None` = unbounded).
+    pub fn get_write_timeout(&self) -> Option<Duration> {
+        self.write_timeout
     }
 }
 
@@ -265,6 +290,77 @@ struct Shared {
     /// What the takeover monitor blocks on; `release` stops it.
     bell: Arc<Bell>,
     watch: WatchTuning,
+    write_timeout: Option<Duration>,
+}
+
+/// Bounds each frame write on one connection. The writer calls [`begin`](Self::begin) before and
+/// [`end`](Self::end) after a write+flush; a watcher thread closes the connection through the
+/// transport `shutdown` (which wakes a blocked Unix write and cancels pending Windows pipe I/O)
+/// when one write outlasts `bound`. Only the oldest unfinished write is timed, so a stream of
+/// writes that each finish in time is never cut.
+struct WriteBound {
+    state: Mutex<WriteState>,
+    cv: Condvar,
+}
+
+struct WriteState {
+    /// Deadline of the write in progress.
+    until: Option<Instant>,
+    done: bool,
+}
+
+struct FinishOnDrop(Arc<WriteBound>);
+impl Drop for FinishOnDrop {
+    fn drop(&mut self) {
+        self.0.finish();
+    }
+}
+
+impl WriteBound {
+    fn start(shutdown: Arc<dyn Fn() + Send + Sync>) -> Arc<WriteBound> {
+        let w = Arc::new(WriteBound {
+            state: Mutex::new(WriteState {
+                until: None,
+                done: false,
+            }),
+            cv: Condvar::new(),
+        });
+        let watcher = w.clone();
+        std::thread::spawn(move || {
+            let mut g = watcher.state.lock().unwrap_or_else(|e| e.into_inner());
+            loop {
+                if g.done {
+                    return;
+                }
+                match g.until {
+                    None => g = watcher.cv.wait(g).unwrap_or_else(|e| e.into_inner()),
+                    Some(t) => {
+                        let left = t.saturating_duration_since(Instant::now());
+                        if left.is_zero() {
+                            g.until = None;
+                            drop(g);
+                            shutdown();
+                            return;
+                        }
+                        g = watcher
+                            .cv
+                            .wait_timeout(g, left)
+                            .unwrap_or_else(|e| e.into_inner())
+                            .0;
+                    }
+                }
+            }
+        });
+        w
+    }
+    fn set(&self, until: Option<Instant>) {
+        self.state.lock().unwrap_or_else(|e| e.into_inner()).until = until;
+        self.cv.notify_all();
+    }
+    fn finish(&self) {
+        self.state.lock().unwrap_or_else(|e| e.into_inner()).done = true;
+        self.cv.notify_all();
+    }
 }
 
 /// How the takeover monitor waits and how it tells that a requester is alive. Production uses
@@ -543,6 +639,7 @@ fn start_host(
         conns: Mutex::new(HashMap::new()),
         bell: Arc::new(Bell::new()),
         watch,
+        write_timeout: options.write_timeout,
     });
     takeover_watch::register(
         takeover_path(&shared.suite, &shared.cfg.service),
@@ -732,21 +829,34 @@ fn serve_conn(s: Arc<Shared>, conn: Conn) {
     let mut reader = BufReader::new(reader);
     let writer = Arc::new(Mutex::new(writer));
     let limit = s.cfg.frame_limit;
+    let bound = s
+        .write_timeout
+        .map(|d| (d, WriteBound::start(shutdown.clone())));
+    // Ends the watcher on every way out of this function, early returns included.
+    let _watcher_ends = bound.as_ref().map(|(_, b)| FinishOnDrop(b.clone()));
     // Write one frame. `false` only when the frame is larger than the limit: nothing was
     // written, so the stream is still on a frame boundary. An I/O failure means the peer is
     // gone, which the read loop and the peer watch already report.
     let write = {
         let w = writer.clone();
+        let bound = bound.clone();
         move |v: &Value| -> bool {
             let mut w = w.lock().unwrap_or_else(|e| e.into_inner());
-            match write_json_line(&mut *w, v, limit) {
+            if let Some((d, b)) = &bound {
+                b.set(Some(Instant::now() + *d));
+            }
+            let r = match write_json_line(&mut *w, v, limit) {
                 Ok(()) => {
                     let _ = w.flush();
                     true
                 }
                 Err(FrameError::TooLarge { .. }) => false,
                 Err(_) => true,
+            };
+            if let Some((_, b)) = &bound {
+                b.set(None);
             }
+            r
         }
     };
     let send = {

@@ -95,7 +95,7 @@ pub use record::{
 };
 pub use server::{
     host, host_with_options, CallContext, Emit, Handler, HostError, HostOptions, Hosted,
-    ServiceConfig, ServiceEvent, ServiceStatus, DEFAULT_FRAME_LIMIT,
+    ServiceConfig, ServiceEvent, ServiceStatus, DEFAULT_FRAME_LIMIT, DEFAULT_WRITE_TIMEOUT,
 };
 pub use suite::{
     valid_service_name, Suite, SuiteError, ENV_SUITE_ROOT, MAX_SERVICE_NAME_LEN, SHARED_DIR_NAME,
