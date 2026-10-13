@@ -337,7 +337,11 @@ pub(crate) fn spawn_chrome_fixture(
     let prepared = Prepared::for_browser_fixture(&policy).map_err(|error| {
         BrowserError::Launch(format!("fixture confinement unavailable: {error}"))
     })?;
-    let mut cmd = chrome_command(exe, args);
+    // Chrome's own helper sandbox calls sandbox_init, which the enclosing Seatbelt profile
+    // refuses; the profile confines the whole process tree instead.
+    let mut fixture_args = args.to_vec();
+    fixture_args.push("--no-sandbox".into());
+    let mut cmd = chrome_command(exe, &fixture_args);
     cmd.env_allowlist(std::iter::empty::<&str>());
     cmd.command_mut()
         .env("HOME", profile_dir)
@@ -396,9 +400,22 @@ fn spawn_chrome_command(
             }
         }
     });
-    let ws_url = rx
-        .recv_timeout(timeout)
-        .map_err(|_| BrowserError::Launch("chrome did not report a DevTools endpoint".into()))?;
+    let ws_url = match rx.recv_timeout(timeout) {
+        Ok(url) => url,
+        Err(_) => {
+            // Let the stderr drain deliver Chrome's final lines before reporting them.
+            std::thread::sleep(Duration::from_millis(200));
+            let exit = match child.try_wait() {
+                Ok(Some(status)) => format!("exited with {status}"),
+                Ok(None) => "still running".to_string(),
+                Err(error) => format!("status unavailable: {error}"),
+            };
+            return Err(BrowserError::Launch(format!(
+                "chrome did not report a DevTools endpoint; process {exit}; stderr: {}",
+                stderr_tail.text()
+            )));
+        }
+    };
     let watchdog = spawn_watchdog(child.id());
     Ok(ChromeProc {
         child: ChromeChild::Owned(child),

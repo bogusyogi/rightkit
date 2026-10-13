@@ -78,13 +78,17 @@ fn fixture_profile_confines_paths_network_and_writes() {
     assert!(sbpl.contains(
         "(allow network-bind (require-all (local ip \"localhost:*\") (socket-type SOCK_STREAM)))"
     ));
-    assert!(sbpl.contains("(require-all (local ip \"localhost:*\") (remote ip \"localhost:*\") (socket-type SOCK_STREAM))"));
+    assert!(sbpl.contains("(allow network-inbound (local ip \"localhost:*\"))"));
     assert!(!sbpl.contains("(allow network*)"));
     assert!(!sbpl.contains("remote unix-socket"));
     assert!(!sbpl.contains("SOCK_DGRAM"));
     assert!(!sbpl.contains("(allow process-exec* (subpath \"/usr\"))"));
-    assert_eq!(sbpl.matches("file-write*").count(), 1);
-    assert!(!sbpl.contains("mach-lookup"));
+    // Writes: the profile directory, plus (when the per-user temp dir resolves) Chrome's own
+    // ProcessSingleton directory under it.
+    assert!(sbpl.matches("file-write*").count() <= 2);
+    assert!(!sbpl.contains("(allow mach-lookup)"));
+    assert!(!sbpl.contains("(allow iokit*)"));
+    assert!(!sbpl.contains("(allow network-bind)"));
     assert!(!sbpl.contains("ipc-posix"));
 }
 

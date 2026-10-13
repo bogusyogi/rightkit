@@ -135,6 +135,32 @@ fn quote_fixture_path(path: &Path) -> std::io::Result<String> {
     Ok(quote(path))
 }
 
+/// Canonical per-user temporary directory (`confstr(_CS_DARWIN_USER_TEMP_DIR)`).
+fn user_temp_dir() -> Option<PathBuf> {
+    let mut buf = [0 as libc::c_char; 1024];
+    // SAFETY: buf is valid for buf.len() bytes; confstr NUL-terminates within that length.
+    let len = unsafe { libc::confstr(libc::_CS_DARWIN_USER_TEMP_DIR, buf.as_mut_ptr(), buf.len()) };
+    if len == 0 || len > buf.len() {
+        return None;
+    }
+    // SAFETY: confstr wrote a NUL-terminated string within buf.
+    let raw = unsafe { std::ffi::CStr::from_ptr(buf.as_ptr()) }
+        .to_str()
+        .ok()?;
+    std::fs::canonicalize(raw).ok()
+}
+
+fn regex_escape(value: &str) -> String {
+    let mut out = String::new();
+    for c in value.chars() {
+        if !c.is_ascii_alphanumeric() && c != '/' && c != '_' && c != '-' {
+            out.push('\\');
+        }
+        out.push(c);
+    }
+    out
+}
+
 fn browser_app_bundle(executable: &Path) -> std::io::Result<PathBuf> {
     executable
         .ancestors()
@@ -213,8 +239,27 @@ pub fn fixture_profile_for(policy: &BrowserFixturePolicy) -> std::io::Result<Str
         "(deny network-inbound)\n\
          (deny network-bind)\n\
          (allow network-bind (require-all (local ip \"localhost:*\") (socket-type SOCK_STREAM)))\n\
-         (allow network-inbound (require-all (local ip \"localhost:*\") (remote ip \"localhost:*\") (socket-type SOCK_STREAM)))\n",
+         (allow network-inbound (local ip \"localhost:*\"))\n",
     );
+    // Chrome browser process on macOS, validated with sandbox-exec against Chrome 155: removing
+    // any rule below made Chrome fail to report its DevTools endpoint (abort, SIGSEGV in
+    // IONotificationPortGetRunLoopSource, or no ProcessSingleton). Helpers run with
+    // `--no-sandbox` because a nested sandbox_init is refused here; this profile confines the tree.
+    p.push_str(
+        "(allow mach-lookup (global-name \"com.apple.coreservices.launchservicesd\"))\n\
+         (allow mach-lookup (global-name \"com.apple.bsd.dirhelper\"))\n\
+         (allow mach-register (global-name-prefix \"com.google.Chrome.MachPortRendezvousServer\"))\n\
+         (allow iokit-open (iokit-registry-entry-class \"RootDomainUserClient\"))\n",
+    );
+    // ProcessSingleton binds a unix socket in a per-launch directory under the per-user
+    // temporary directory (confstr, not $TMPDIR). Grant only that Chrome-named directory.
+    if let Some(temp) = user_temp_dir() {
+        let temp = regex_escape(&temp.to_string_lossy());
+        p.push_str(&format!(
+            "(allow file-read* file-write* (regex #\"^{temp}/(com\\.google\\.Chrome|org\\.chromium\\.Chromium)[^/]*(/.*)?$\"))\n\
+             (allow network-bind (local unix-socket (regex #\"^{temp}/(com\\.google\\.Chrome|org\\.chromium\\.Chromium)[^/]*/.*$\")))\n"
+        ));
+    }
     Ok(p)
 }
 
