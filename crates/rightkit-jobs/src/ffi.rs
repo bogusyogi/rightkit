@@ -14,7 +14,12 @@
 //! * **Event callbacks** receive borrowed bytes valid for the callback only. A call is
 //!   quiescent when [`rkp_host_call`] returns: the callback slot is closed under the same lock a
 //!   callback runs under, so no callback is running or can start afterwards and the caller's
-//!   context may be freed. A callback must not call back into this ABI.
+//!   context may be freed. A callback must not call back into this ABI and must not block: the
+//!   deadline cannot preempt a callback that is already running, so a blocked callback holds
+//!   [`rkp_host_call`] past its deadline until the callback returns.
+//! * **Out parameters** (`out_host`, `out_conn`, `out` buffers) are zeroed on entry once their
+//!   pointer is validated, so a failed call never leaves a stale handle or buffer behind; a prior
+//!   value is overwritten, not freed.
 //! * **Generation fencing.** The snapshot registered with [`rkp_register_snapshot`] carries the
 //!   caller's generation. A host records the generation it started with; once a newer one is
 //!   registered the host reports `recovering` and refuses calls (`RKP_STALE_GENERATION`) until it is
@@ -76,6 +81,8 @@ pub const RKP_PANIC: i32 = 8;
 pub const RKP_NOT_CONFIGURED: i32 = 9;
 pub const RKP_STALE_GENERATION: i32 = 10;
 pub const RKP_TOO_MANY_HOSTS: i32 = 11;
+/// Service connection cap ([`MAX_CONNECTIONS`]) reached.
+pub const RKP_TOO_MANY_CONNECTIONS: i32 = 12;
 
 /// `PulseResumePolicy`: the job survives a detached wait.
 pub const RKP_RESUME: u32 = 0;
@@ -186,6 +193,8 @@ struct Global {
     conns: HashMap<u64, Arc<ConnEntry>>,
     /// Released hosts whose engine process was not confirmed reaped.
     retained: Vec<Arc<HostEntry>>,
+    /// `rkp_host_start` calls that passed admission and have not yet inserted (or given up).
+    starting: usize,
 }
 
 fn global() -> MutexGuard<'static, Global> {
@@ -200,6 +209,19 @@ impl Global {
         self.next_id += 1;
         self.next_id
     }
+    /// Reserve a start slot under the same lock that checks the cap, so concurrent starts cannot
+    /// all pass admission and then all insert.
+    fn reserve_start(&mut self) -> Result<(), Fail> {
+        self.prune_retained();
+        if !admit(self.hosts.len() + self.starting, self.retained.len()) {
+            return Err(Fail::new(
+                RKP_TOO_MANY_HOSTS,
+                "too many hosts, or engines not yet confirmed reaped",
+            ));
+        }
+        self.starting += 1;
+        Ok(())
+    }
     fn prune_retained(&mut self) {
         self.retained.retain(|e| e.sup.unreaped_children() > 0);
     }
@@ -208,6 +230,17 @@ impl Global {
 /// Whether one more host fits: live hosts plus unconfirmed released ones stay under the cap.
 fn admit(hosts: usize, retained: usize) -> bool {
     hosts + retained < MAX_HOSTS
+}
+
+/// Marks one reserved start slot. Dropped on any early exit it releases the reservation; the
+/// success path releases it under the insert lock and forgets it.
+struct StartSlot;
+
+impl Drop for StartSlot {
+    fn drop(&mut self) {
+        let mut g = global();
+        g.starting = g.starting.saturating_sub(1);
+    }
 }
 
 /// Install the factory the next `rkp_host_start` uses. Replaces an earlier one.
@@ -449,7 +482,8 @@ pub unsafe extern "C" fn rkp_register_snapshot(
 pub unsafe extern "C" fn rkp_host_start(out_host: *mut u64, err: *mut RkpError) -> i32 {
     run(err, || {
         let out = out_ref(out_host, "out_host")?;
-        let (factory, generation, snapshot) = {
+        *out = 0;
+        let (factory, generation, snapshot, _slot) = {
             let mut g = global();
             g.prune_retained();
             let factory = g
@@ -460,13 +494,8 @@ pub unsafe extern "C" fn rkp_host_start(out_host: *mut u64, err: *mut RkpError) 
                 .registered
                 .clone()
                 .ok_or_else(|| Fail::new(RKP_NOT_READY, "register the snapshot before starting"))?;
-            if !admit(g.hosts.len(), g.retained.len()) {
-                return Err(Fail::new(
-                    RKP_TOO_MANY_HOSTS,
-                    "too many hosts, or engines not yet confirmed reaped",
-                ));
-            }
-            (factory, generation, bytes)
+            g.reserve_start()?;
+            (factory, generation, bytes, StartSlot)
         };
         let params = json_params(&snapshot)?;
         let sup = EngineSupervisor::new(factory.supervisor_config());
@@ -496,6 +525,10 @@ pub unsafe extern "C" fn rkp_host_start(out_host: *mut u64, err: *mut RkpError) 
         let mut g = global();
         let id = g.fresh_id();
         g.hosts.insert(id, entry);
+        // The slot moves from "starting" to "inserted" under this one lock; `_slot` then drops
+        // without releasing again.
+        g.starting = g.starting.saturating_sub(1);
+        std::mem::forget(_slot);
         *out = id;
         Ok(())
     })
@@ -601,6 +634,7 @@ pub unsafe extern "C" fn rkp_host_call(
     run(err, || {
         let deadline = deadline_in(timeout_ms);
         let out = out_ref(out, "out")?;
+        *out = RkpBuf::EMPTY;
         let method = utf8(input(method, method_len, "method")?, "method")?;
         let params = json_params(input(params, params_len, "params")?)?;
         if resume != RKP_RESUME && resume != RKP_NEVER {
@@ -800,6 +834,7 @@ pub unsafe extern "C" fn rkp_service_connect(
     run(err, || {
         let deadline = deadline_in(timeout_ms);
         let out = out_ref(out_conn, "out_conn")?;
+        *out = 0;
         let e = lookup_host(host)?;
         if e.shut.load(Ordering::SeqCst) {
             return Err(Fail::new(RKP_SHUTTING_DOWN, "host is shutting down"));
@@ -810,7 +845,7 @@ pub unsafe extern "C" fn rkp_service_connect(
             .ok_or_else(|| Fail::new(RKP_NOT_CONFIGURED, "no host factory installed"))?;
         if global().conns.len() >= MAX_CONNECTIONS {
             return Err(Fail::new(
-                RKP_TOO_MANY_HOSTS,
+                RKP_TOO_MANY_CONNECTIONS,
                 "too many service connections",
             ));
         }
@@ -842,6 +877,13 @@ pub unsafe extern "C" fn rkp_service_connect(
                 "host was released during connect",
             ));
         }
+        // Re-check under the insert lock: the early check above is only a fast refusal.
+        if g.conns.len() >= MAX_CONNECTIONS {
+            return Err(Fail::new(
+                RKP_TOO_MANY_CONNECTIONS,
+                "too many service connections",
+            ));
+        }
         let id = g.fresh_id();
         g.conns.insert(id, Arc::new(ConnEntry { host, client }));
         *out = id;
@@ -869,6 +911,7 @@ pub unsafe extern "C" fn rkp_service_call(
     run(err, || {
         let deadline = deadline_in(timeout_ms);
         let out = out_ref(out, "out")?;
+        *out = RkpBuf::EMPTY;
         let method = utf8(input(method, method_len, "method")?, "method")?;
         let params = json_params(input(params, params_len, "params")?)?;
         let c =
@@ -934,6 +977,23 @@ mod tests {
         assert!(!admit(MAX_HOSTS, 0));
         assert!(!admit(MAX_HOSTS - 2, 2));
         assert!(admit(3, 2));
+    }
+
+    #[test]
+    fn concurrent_starts_cannot_overshoot_the_host_cap() {
+        let mut g = Global::default();
+        // Reservations count before any host is inserted.
+        for _ in 0..MAX_HOSTS {
+            assert!(g.reserve_start().is_ok());
+        }
+        let err = g.reserve_start().unwrap_err();
+        assert_eq!(err.code, RKP_TOO_MANY_HOSTS);
+        assert_eq!(g.starting, MAX_HOSTS);
+    }
+
+    #[test]
+    fn connection_cap_has_its_own_code() {
+        assert_ne!(RKP_TOO_MANY_CONNECTIONS, RKP_TOO_MANY_HOSTS);
     }
 
     #[test]

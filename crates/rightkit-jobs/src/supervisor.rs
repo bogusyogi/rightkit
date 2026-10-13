@@ -61,6 +61,11 @@ const ENV_NOT_SCRUBBED: &str = "env_not_scrubbed";
 /// Default for [`SupervisorConfig::with_max_unreaped_children`].
 const DEFAULT_MAX_UNREAPED: usize = 4;
 
+/// Most handshake replay passes one boot makes. A `set_snapshot` that keeps landing while a
+/// generation replays would otherwise extend the handshake without bound; past this the boot
+/// fails (`handshake_failed`) and the restart policy decides what happens next.
+pub const MAX_REPLAY_PASSES: u32 = 8;
+
 type SpawnFn = dyn Fn() -> io::Result<OwnedCommand> + Send + Sync;
 type Redactor = dyn Fn(&str) -> Option<String> + Send + Sync;
 type LineSink = dyn Fn(&str) + Send + Sync;
@@ -395,8 +400,9 @@ impl SupervisorConfig {
     }
     /// Most engine processes that may be spawned and not yet waited when another boot starts
     /// (default 4). A child the OS did not report gone within its kill bound is kept by a reaper
-    /// until it is, and counts here; at this many a boot is refused (`unreaped_children`, spends
-    /// restart budget) instead of piling more behind a stuck one.
+    /// until it is, and counts here. A boot is refused (`unreaped_children`, spends restart
+    /// budget) only when MORE than `max` are unconfirmed; exactly `max` still allows one, so
+    /// `max` is the number of stuck children tolerated, not the refusal threshold.
     pub fn with_max_unreaped_children(mut self, max: usize) -> Self {
         self.max_unreaped = max;
         self
@@ -1438,6 +1444,7 @@ fn boot(sh: &Arc<Shared>, initial: bool) -> JobResult<()> {
     // while this generation is replaying is picked up by the next pass; the pass that finds
     // nothing new keeps the lock through the switch to `Ready`, so no update falls in the gap.
     let mut sent: Vec<(String, u64)> = Vec::new();
+    let mut passes: u32 = 0;
     let mut g = loop {
         let g = sh.lock();
         let todo: Vec<Snapshot> = g
@@ -1450,6 +1457,19 @@ fn boot(sh: &Arc<Shared>, initial: bool) -> JobResult<()> {
             break g;
         }
         drop(g);
+        passes += 1;
+        if passes > MAX_REPLAY_PASSES {
+            client.kill(sh.cfg.shutdown_grace);
+            let text = tail.finish_within(Duration::from_millis(500));
+            return fail(
+                ExitReason::HandshakeFailed("snapshot replay did not settle".into()),
+                "handshake_failed",
+                format!(
+                    "snapshots kept changing: replay did not settle within {MAX_REPLAY_PASSES} passes"
+                ),
+                text,
+            );
+        }
         for e in todo {
             if let Err(err) =
                 client.call_timeout(&e.method, e.params.clone(), None, sh.cfg.rpc_timeout)

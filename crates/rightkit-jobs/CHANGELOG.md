@@ -2,6 +2,11 @@
 
 ## Unreleased (Pulse Swift facade, Rust C ABI; written without running Cargo, CI-only)
 
+- **Reaper wait errors are `Unconfirmed`, not reaped.** When the reaper thread's wait itself fails, the exit record stays `reaped: false` and the live token stays held (it keeps counting against `with_max_unreaped_children`); it was recorded as reaped.
+- `with_max_unreaped_children` docs now say what the code does: a boot is refused only when MORE than `n` are unconfirmed (`n` itself is allowed). Tests pin both sides of the boundary.
+- **ffi:** `rkp_host_start` reserves its host slot under the same lock as the `MAX_HOSTS` check (concurrent starts can no longer overshoot). The connection cap returns the new `RKP_TOO_MANY_CONNECTIONS` (12) instead of `RKP_TOO_MANY_HOSTS`; the Swift facade surfaces unknown codes as `PulseError.native(code:message:)`, so it needs no change. `out_host`, `out_conn` and out buffers are zeroed on entry. Documented: event callbacks must not block; the deadline cannot preempt a running callback.
+- **Handshake replay is bounded** to `MAX_REPLAY_PASSES` (8) passes; a snapshot that keeps changing during boot now fails the boot with `handshake_failed` instead of replaying forever.
+
 Rust side of the locked "LEGION CHOSEN Pulse Swift facade" design. Off by default; no default changes. Not linked into Swift or adopted by Pulse.
 
 - **`ffi` feature (`rightkit_jobs::ffi`).** `extern "C"` entry points matching `PulseNativeABI` (`rkp_versions`, `rkp_register_snapshot`, `rkp_host_start` / `_snapshot` / `_call` / `_lifecycle` / `_shutdown`, `rkp_service_connect` / `_call`, `rkp_release_host` / `_connection`, `rkp_buf_free`). Opaque never-reused `u64` handles, Rust-owned buffers, one monotonic deadline per call (`timeout_ms` fixed at entry), borrowed event bytes with callback quiescence at return, `Resume` (keep the engine when only the wait times out) / `Never` (timeout kills as wedged). The embedding library installs a `HostFactory` (engine command, snapshot method, service connect); none of that is in the ABI.

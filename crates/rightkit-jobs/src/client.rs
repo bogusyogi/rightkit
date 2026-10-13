@@ -756,11 +756,13 @@ impl Core {
                             // The kill may have been refused before; ask again, never wait unbounded here.
                             let _ = child.terminate_tree_bounded(Duration::from_millis(250));
                         }
+                        // The wait itself failed: the exit is not observed, so it is not confirmed.
                         Err(_) => break None,
                     }
                 };
+                let confirmed = status.is_some();
                 drop(child);
-                core.finish_exit(status, killed);
+                core.finish_exit_with(status, killed, confirmed);
             });
         if spawned.is_err() {
             // No thread to hand it to: the child was moved into the closure that was never run, so
@@ -770,20 +772,34 @@ impl Core {
     }
 
     fn finish_exit(&self, status: Option<std::process::ExitStatus>, killed: bool) {
+        self.finish_exit_with(status, killed, true);
+    }
+
+    /// Record the exit. With `confirmed == false` (the wait failed, no status seen) the record
+    /// says `reaped: false` (so shutdown reports `Unconfirmed`) and the live token stays held, so
+    /// the process keeps counting against the unreaped cap instead of being reported gone.
+    fn finish_exit_with(
+        &self,
+        status: Option<std::process::ExitStatus>,
+        killed: bool,
+        confirmed: bool,
+    ) {
         {
             let mut e = self.exit.lock().unwrap_or_else(|e| e.into_inner());
-            e.reaped = true;
+            e.reaped = confirmed;
             e.killed = killed;
             if e.status.is_none() {
                 e.status = status;
             }
         }
-        drop(
-            self.release
-                .lock()
-                .unwrap_or_else(|e| e.into_inner())
-                .take(),
-        );
+        if confirmed {
+            drop(
+                self.release
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .take(),
+            );
+        }
         self.exit_cv.notify_all();
     }
 
@@ -1005,5 +1021,56 @@ fn dispatch(map: &PendingMap, subs: &Subscribers, v: &Value, fallback_code: &str
             }
         }
         _ => {}
+    }
+}
+
+#[cfg(test)]
+mod exit_record_tests {
+    use super::*;
+    use std::sync::mpsc::channel;
+
+    fn core() -> Arc<Core> {
+        let (wtx, _wrx) = channel::<WriteRequest>();
+        Arc::new(Core {
+            frame_limit: 1024,
+            closed: Arc::default(),
+            subscribers: Arc::default(),
+            writes: Mutex::new(wtx),
+            pending: Arc::default(),
+            next_id: AtomicU64::new(1),
+            child: Mutex::new(None),
+            release: Mutex::new(None),
+            exit: Mutex::new(ChildExit::default()),
+            exit_cv: Condvar::new(),
+            kill_bound_ms: AtomicU64::new(100),
+        })
+    }
+
+    struct Flag(Arc<std::sync::atomic::AtomicBool>);
+    impl Drop for Flag {
+        fn drop(&mut self) {
+            self.0.store(true, std::sync::atomic::Ordering::SeqCst);
+        }
+    }
+
+    #[test]
+    fn a_failed_wait_is_recorded_unconfirmed_and_keeps_its_token() {
+        let c = core();
+        let released = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        *c.release.lock().unwrap() = Some(Box::new(Flag(released.clone())));
+        c.exit.lock().unwrap().pid = Some(4242);
+        c.finish_exit_with(None, true, false);
+        let e = c.exit.lock().unwrap();
+        assert!(
+            !e.reaped,
+            "a wait that errored must not be recorded as reaped"
+        );
+        assert!(e.killed);
+        drop(e);
+        assert!(!released.load(std::sync::atomic::Ordering::SeqCst));
+
+        c.finish_exit_with(None, true, true);
+        assert!(c.exit.lock().unwrap().reaped);
+        assert!(released.load(std::sync::atomic::Ordering::SeqCst));
     }
 }

@@ -152,6 +152,39 @@ fn a_snapshot_updated_while_a_generation_replays_reaches_it_before_ready() {
 }
 
 #[test]
+fn a_snapshot_that_keeps_changing_cannot_extend_the_handshake_forever() {
+    // Every replay call takes 100 ms and an updater changes the snapshot every 30 ms, so each
+    // pass finds a newer revision. The boot must fail instead of replaying without end.
+    let (_d, cfg) = rig("slow_set:100");
+    let s = Arc::new(EngineSupervisor::new(
+        cfg.with_initial_failure(rightkit_jobs::InitialFailure::Terminal),
+    ));
+    s.set_snapshot("a", "set_a", json!({"v": 0})).unwrap();
+    let stop = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let updater = {
+        let (s, stop) = (Arc::clone(&s), Arc::clone(&stop));
+        std::thread::spawn(move || {
+            let mut v = 1;
+            while !stop.load(Ordering::SeqCst) {
+                let _ = s.set_snapshot("a", "set_a", json!({ "v": v }));
+                v += 1;
+                std::thread::sleep(Duration::from_millis(30));
+            }
+        })
+    };
+    let started = Instant::now();
+    let err = s.start().unwrap_err();
+    stop.store(true, Ordering::SeqCst);
+    updater.join().unwrap();
+    assert_eq!(err.code, "handshake_failed", "{err}");
+    assert!(
+        started.elapsed() < Duration::from_secs(8),
+        "the boot must give up within a bounded time"
+    );
+    s.shutdown();
+}
+
+#[test]
 fn an_update_during_a_replay_is_not_replayed_twice_when_nothing_moved() {
     // Negative: with no update the replay is one call per snapshot, in registration order.
     let (_d, cfg) = rig("ok");
