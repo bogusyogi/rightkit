@@ -11,7 +11,9 @@
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 
-export const FORBIDDEN_FEATURES = Object.freeze(["devtools", "content-devtools", "qa-native", "qa-control", "dev-native", "dev-inspect"]);
+export const FORBIDDEN_FEATURES = Object.freeze(["devtools", "content-devtools", "qa-native", "qa-control", "dev-native", "dev-inspect",
+  // Per-app test-automation features (M20 owner gap): HeardRight `qa-shot`/`qa-tools`, ViewRight `dev-control`/`bench-native`.
+  "qa-shot", "qa-tools", "dev-control", "bench-native"]);
 // The only forbidden features an allow-listed app may enable: rightkit-shell's `content-devtools` (and the Tauri
 // `devtools` it switches on). See devtools-policy.mjs; every other app is refused them.
 const DEVTOOLS_FEATURES = Object.freeze(["devtools", "content-devtools"]);

@@ -5,7 +5,7 @@ import { join } from "node:path";
 import test from "node:test";
 import { deflateRawSync } from "node:zlib";
 import {
-  DEV_INSPECT_MARKER, QA_CONTROL_MARKER, assertNoQaControl, bufferHasQaControlMarker, bufferQaFindings, fileHasQaControlMarker, isNativeBinaryHeader, scanForQaControl, scanWithStats,
+  DEV_INSPECT_MARKER, QA_CONTROL_MARKER, assertNoQaControl, bufferHasQaControlMarker, bufferQaFindings, fileHasQaControlMarker, isNativeBinaryHeader, scanForQaControl, scanWithStats, WEB_MOCK_MARKERS, assertNoWebBundleMocks, scanWebBundle, webBundleMockFindings,
 } from "./qa-control-scan.mjs";
 
 const MACHO = Buffer.from([0xcf, 0xfa, 0xed, 0xfe]);
@@ -287,4 +287,48 @@ test("a sealed MSIX with a marked PE inside fails verification", async () => {
   assert.doesNotThrow(() => verifySealedRelease(make(zip([{ name: "App.exe", data: without(PE), method: 8 }]))));
   assert.throws(() => verifySealedRelease(make(zip([{ name: "App.exe", data: marked, method: 8 }]))), /QA control server/);
   assert.throws(() => verifySealedRelease(make(zip([{ name: "a.dll", data: wdio, method: 8 }]))), /wdio-webdriver/);
+});
+
+const GOOD_BUNDLE = 'import{a as b}from"./vendor-1a2b.js";const q=new URLSearchParams(location.search);export function init(){return b("engine")}';
+const BAD_BUNDLES = {
+  "browser-qa-fake": 'const id="browser-qa-fake";',
+  "browser-mock-api": 'import("./browser-mock-api-9f.js")',
+  "browser-qa-mock-scheme": 'src="browser-qa-mock://img/1.png"',
+  qaMock: 'const m=await import("./qaMock-3c.js")',
+  tauriQaMock: "function tauriQaMock(){}",
+  isBrowserQaMode: "if(isBrowserQaMode())install()",
+  MockDataSource: "class MockDataSource{}",
+  "qa-build-flag": 'const on=import.meta.env.VITE_MAILRIGHT_QA==="1";',
+};
+
+test("web bundle scan: known-good bundle passes, every known-bad marker fails", () => {
+  const root = mkdtempSync(join(tmpdir(), "rk-web-scan-"));
+  const good = join(root, "good"); mkdirSync(join(good, "assets"), { recursive: true });
+  writeFileSync(join(good, "index.html"), '<!doctype html><script type="module" src="/assets/index.js"></script>');
+  writeFileSync(join(good, "assets", "index.js"), GOOD_BUNDLE);
+  assert.deepEqual(scanWebBundle([good], { requireFiles: true }).findings, []);
+  assert.doesNotThrow(() => assertNoWebBundleMocks([good], "release", { requireFiles: true }));
+  assert.deepEqual(Object.keys(BAD_BUNDLES).sort(), WEB_MOCK_MARKERS.map((m) => m.id).sort());
+  for (const [id, body] of Object.entries(BAD_BUNDLES)) {
+    const bad = join(root, `bad-${id}`); mkdirSync(join(bad, "assets"), { recursive: true });
+    writeFileSync(join(bad, "assets", "index.js"), GOOD_BUNDLE + body);
+    const findings = scanWebBundle([bad]).findings;
+    assert.deepEqual(findings.map((f) => f.marker), [id], id);
+    assert.throws(() => assertNoWebBundleMocks([bad], "release"), /browser-QA mocks or test-mode markers/);
+  }
+});
+
+test("web bundle scan: html, css and source maps count; other files and symlinks do not; failures are closed", () => {
+  const root = mkdtempSync(join(tmpdir(), "rk-web-scan-"));
+  writeFileSync(join(root, "a.html"), "<script>window.MockDataSource=1</script>");
+  writeFileSync(join(root, "b.js.map"), '{"sources":["../src/lib/ipc/qaMock.ts"]}');
+  writeFileSync(join(root, "notes.txt"), "qaMock");
+  assert.deepEqual(scanWebBundle([root]).findings.map((f) => f.marker).sort(), ["MockDataSource", "qaMock"]);
+  const outside = mkdtempSync(join(tmpdir(), "rk-web-out-"));
+  writeFileSync(join(outside, "x.js"), "qaMock");
+  const dir = join(root, "d"); mkdirSync(dir); symlinkSync(join(outside, "x.js"), join(dir, "l.js"));
+  assert.deepEqual(scanWebBundle([dir]).findings, []);
+  assert.equal(scanWebBundle([join(tmpdir(), "rk-web-scan-missing")]).findings[0].rule, "unscannable");
+  assert.equal(scanWebBundle([outside.replace(/x$/, "")].slice(0, 0), { requireFiles: true }).findings[0].rule, "unscannable");
+  assert.deepEqual(webBundleMockFindings("nothing here"), []);
 });

@@ -16,7 +16,7 @@
 //   remote-debugging   `--remote-debugging-port` / `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS` baked into a binary.
 //   tauri-devtools     Tauri's `devtools` feature (or a debug build): the toggle-devtools init script. Accepted only for an
 //                      allow-listed app (devtools-policy.json) whose binary carries CONTENT_ONLY_MARKER.
-import { closeSync, lstatSync, openSync, readSync, readdirSync } from "node:fs";
+import { closeSync, lstatSync, openSync, readFileSync, readSync, readdirSync } from "node:fs";
 import path from "node:path";
 import { inflateRawSync } from "node:zlib";
 
@@ -369,5 +369,67 @@ export function assertNoQaControl(paths, label = "release", { requireBinary = fa
     `${label}: the QA control server and every other test-automation or debugging surface must never ship (wdio WebDriver plugin, remote debugging, Tauri devtools); `
     + `${findings.length} finding(s):\n${findings.map((f) => `- ${f.file}: ${f.reason}`).join("\n")}\n`
     + "Build release and update tiers without the app's qa-native, dev-native, qa-control and devtools features.",
+  );
+}
+
+// ---- web-bundle mock scan (M20 owner gap) ----------------------------------------------------------------------
+// The binary scan above is blind to the frontend bundle (a Vite `dist/`, a Tauri `frontendDist`, an installer
+// payload folder). An app's in-page QA mock (HeardRight tauriQaMock, GenRight browser-mock-api, ScrapeRight and
+// MailRight qaMock, PostRight MockDataSource) must never be reachable from a release bundle. Each marker is a
+// string that survives minification (an identifier that is also a string literal, a file/chunk name, a protocol or
+// a build-flag name). Source maps are scanned too: a map that names qaMock.ts proves the module was bundled.
+export const WEB_MOCK_MARKERS = Object.freeze([
+  { id: "browser-qa-fake", pattern: /browser-qa-fake/ },
+  { id: "browser-mock-api", pattern: /browser-mock-api/ },
+  { id: "browser-qa-mock-scheme", pattern: /browser-qa-mock:/ },
+  { id: "qaMock", pattern: /qaMock/ },
+  { id: "tauriQaMock", pattern: /tauriQaMock/ },
+  { id: "isBrowserQaMode", pattern: /isBrowserQaMode/ },
+  { id: "MockDataSource", pattern: /MockDataSource/ },
+  { id: "qa-build-flag", pattern: /\bVITE_[A-Z0-9_]*_QA\b/ },
+]);
+const WEB_EXTENSIONS = /\.(?:m?js|cjs|html?|css|map)$/i;
+
+export function webBundleMockFindings(text) {
+  const out = [];
+  for (const marker of WEB_MOCK_MARKERS) {
+    const match = marker.pattern.exec(text);
+    if (match) out.push({ rule: "web-bundle-mock", marker: marker.id, reason: `web bundle carries browser-QA mock marker \`${match[0]}\`` });
+  }
+  return out;
+}
+
+// Walks files and directories (symlinks not followed, as in the binary scan). Fails closed on an unreadable path
+// and, with `requireFiles`, on an input that holds no scannable web file at all.
+export function scanWebBundle(paths, { requireFiles = false } = {}) {
+  const findings = []; let files = 0;
+  const visit = (target) => {
+    let stat;
+    try { stat = lstatSync(target); } catch (error) { findings.push({ file: target, rule: "unscannable", reason: `could not scan: ${error.code ?? error.message}` }); return; }
+    if (stat.isSymbolicLink()) return;
+    if (stat.isDirectory()) {
+      let names;
+      try { names = readdirSync(target); } catch (error) { findings.push({ file: target, rule: "unscannable", reason: `could not list: ${error.code ?? error.message}` }); return; }
+      for (const name of names.sort()) visit(path.join(target, name));
+      return;
+    }
+    if (!stat.isFile() || !WEB_EXTENSIONS.test(target)) return;
+    files += 1;
+    try {
+      for (const finding of webBundleMockFindings(readFileSync(target, "utf8"))) findings.push({ file: target, ...finding });
+    } catch (error) { findings.push({ file: target, rule: "unscannable", reason: `could not scan: ${error.code ?? error.message}` }); }
+  };
+  for (const target of paths) visit(path.resolve(target));
+  if (requireFiles && files === 0 && findings.length === 0) findings.push({ file: paths.join(", ") || "<none>", rule: "unscannable", reason: "no web bundle file (.js, .html, .css) found to scan; cannot verify" });
+  return { findings, files };
+}
+
+export function assertNoWebBundleMocks(paths, label = "release", { requireFiles = false } = {}) {
+  const { findings, files } = scanWebBundle(paths, { requireFiles });
+  if (findings.length === 0) return { files };
+  throw new Error(
+    `${label}: a release web bundle must not contain browser-QA mocks or test-mode markers; ${findings.length} finding(s):\n`
+    + `${findings.map((f) => `- ${f.file}: ${f.reason}`).join("\n")}\n`
+    + "Exclude the mock from the production build (dynamic import behind a build-time constant that tree-shakes, or a separate entry).",
   );
 }

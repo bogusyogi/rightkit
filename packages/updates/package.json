@@ -11,6 +11,10 @@
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
+    },
+    "./contract-vectors": {
+      "types": "./dist/contract-vectors.d.ts",
+      "import": "./dist/contract-vectors.js"
     }
   },
   "files": ["dist", "README.md", "LICENSE-MIT", "LICENSE-APACHE"],

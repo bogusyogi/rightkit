@@ -10,7 +10,7 @@ import {
 const issues = (command, scripts = {}) => commandFeatureIssues(command, { label: "target.prePackage", scripts });
 
 test("forbidden feature names, including dep:, crate/ and crate?/ forms", () => {
-  for (const f of ["devtools", "qa-native", "qa-control", "dev-native", "dev-inspect", "rightkit-shell/dev-inspect", "rightkit-shell?/dev-inspect", "tauri/devtools", "tauri?/devtools", "rightkit-control/qa-control", "dep:tauri-plugin-wdio-webdriver"]) assert.equal(isForbiddenFeature(f), true, f);
+  for (const f of ["devtools", "qa-native", "qa-control", "dev-native", "dev-inspect", "qa-shot", "qa-tools", "dev-control", "bench-native", "heardright/qa-shot", "dep:qa-tools", "rightkit-shell/dev-inspect", "rightkit-shell?/dev-inspect", "tauri/devtools", "tauri?/devtools", "rightkit-control/qa-control", "dep:tauri-plugin-wdio-webdriver"]) assert.equal(isForbiddenFeature(f), true, f);
   for (const f of ["custom-protocol", "tauri-shell", "dep:rightkit-control", "wv2-0_39", "tauri/custom-protocol"]) assert.equal(isForbiddenFeature(f), false, f);
 });
 
@@ -98,4 +98,15 @@ test("buildFeatureIssues reads package.json scripts and src-tauri/Cargo.toml; th
 
 test("tokenize keeps quoted groups together", () => {
   assert.deepEqual(tokenize("a --features 'b c' \"d\""), ["a", "--features", "b c", "d"]);
+});
+
+test("M20: qa-shot, qa-tools, dev-control and bench-native are refused in build commands and default closures", () => {
+  for (const f of ["qa-shot", "qa-tools", "dev-control", "bench-native"]) {
+    assert.ok(issues(`cargo tauri build --features ${f}`).length > 0, f);
+    assert.ok(issues(`cargo build -F ${f}`).length > 0, f);
+  }
+  for (const f of ["qa-shot", "qa-tools", "dev-control", "bench-native"]) {
+    assert.match(cargoManifestIssues(manifest(`default = ["${f}"]\n${f} = []`, 'tauri = "2"')).join("\n"), new RegExp(`reaches \`${f}\``), f);
+  }
+  assert.deepEqual(cargoManifestIssues(manifest('default = []\nqa-shot = []\nbench-native = []', 'tauri = "2"')), []);
 });
