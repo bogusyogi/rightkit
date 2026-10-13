@@ -1,5 +1,9 @@
 # RightKitSwift changelog
 
+## Unreleased
+
+- `RightKitLicense` (M12-O2): `LicenseKeychainStore.deviceID(account:)` is deprecated. It returns a random, unpersisted id when the Keychain fails, so a token bound to it never verifies again. Use `requireDeviceID(account:)` (throws) and fail closed. README example updated. No behaviour change; callers get a deprecation warning.
+
 ## 0.7.0 - 2026-10-11
 
 Audit S01-S06 (fresh-2026-10-11), the RightKitOverlay panel work, and the move to URL distribution from `Orthic-Labs/rightkit`. Source compatible except where marked.

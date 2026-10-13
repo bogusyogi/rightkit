@@ -299,7 +299,9 @@ public struct KeychainLicenseStore: LicenseStore, Sendable {
 
     /// Legacy non-throwing form. A Keychain failure cannot be reported through this signature, so
     /// it returns a value that may not have been persisted (the identity would then change on the
-    /// next launch). Use ``requireDeviceID(account:)`` to have the failure surface.
+    /// next launch). Unsafe as licence identity: a token bound to a throw-away id never verifies
+    /// again. Use ``requireDeviceID(account:)`` to have the failure surface.
+    @available(*, deprecated, message: "Returns an unpersisted random id when the Keychain fails. Use requireDeviceID(account:), which throws, and fail closed.")
     public func deviceID(account: String = "device-id") -> String {
         (try? requireDeviceID(account: account)) ?? UUID().uuidString
     }
