@@ -48,7 +48,7 @@ fn start(options: HostOptions) -> (tempfile::TempDir, Suite, Arc<Big>, Hosted) {
         "test",
         5,
         "test",
-        Allowlist::new().allow("*", ["big", "huge"]),
+        Allowlist::new().allow("*", ["big", "huge", "nope"]),
     );
     cfg.frame_limit = LIMIT;
     let handler = Arc::new(Big::default());
