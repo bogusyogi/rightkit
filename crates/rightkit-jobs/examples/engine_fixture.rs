@@ -8,7 +8,9 @@
 //! Modes: `ok`, `slow_hello:<ms>`, `no_hello`, `crash:<ms>` (exit 9 shortly after
 //! hello), `crash_on_call` (exit 9 on method `work`), `wedge:<ms>` (stops reading
 //! after the delay; the process stays alive), `reject_set` (refuses `set_*`), `wrong_contract` (advertises contract_version 2).
-//! Methods: `ping`, `echo`, `pid`, `gen`, `set_*` (remembered), `get_state`,
+//! `slow_set:<ms>` (every `set_*` takes that long to answer).
+//! Methods: `env` (the engine's environment as `{"vars": {..}}`), `slow_progress{n,ms}` (n events tagged with the
+//! request id, `ms` apart, then the result), `ping`, `echo`, `pid`, `gen`, `set_*` (remembered), `get_state`,
 //! `big` (3 MiB result), `notify{n}` (n unsolicited events), `progress{n}`
 //! (n events tagged with the request id; result `{"id"}`), `sleep{ms}`,
 //! `hang` (never answered), `work`, `junk` (writes a non-JSON stdout line, then
@@ -96,6 +98,9 @@ fn main() {
                 if name == "reject_set" {
                     json!({"type":"response","id":id,"ok":false,"error":{"code":"refused","message":"no settings accepted","retryable":false}})
                 } else {
+                    if name == "slow_set" {
+                        std::thread::sleep(Duration::from_millis(arg));
+                    }
                     state.insert(m.to_string(), params);
                     ok(json!({}))
                 }
@@ -114,6 +119,16 @@ fn main() {
             }
             "progress" => {
                 for i in 0..params["n"].as_u64().unwrap_or(1) {
+                    put(json!({"type":"event","id":id,"event":{"i": i}}));
+                }
+                ok(json!({"id": id}))
+            }
+            "env" => {
+                ok(json!({"vars": std::env::vars().collect::<std::collections::BTreeMap<_, _>>()}))
+            }
+            "slow_progress" => {
+                for i in 0..params["n"].as_u64().unwrap_or(1) {
+                    std::thread::sleep(Duration::from_millis(params["ms"].as_u64().unwrap_or(0)));
                     put(json!({"type":"event","id":id,"event":{"i": i}}));
                 }
                 ok(json!({"id": id}))

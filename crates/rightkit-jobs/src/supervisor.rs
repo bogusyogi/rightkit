@@ -53,7 +53,7 @@ use crate::client::{
     OnEventFrame, ProtocolErrorSink, DEFAULT_HELLO_TIMEOUT,
 };
 use crate::error::{JobError, JobResult, CONTRACT_VERSION_MISMATCH};
-use crate::wire::DEFAULT_FRAME_LIMIT;
+use crate::wire::{CONTRACT_VERSION, DEFAULT_FRAME_LIMIT};
 
 type SpawnFn = dyn Fn() -> io::Result<OwnedCommand> + Send + Sync;
 type Redactor = dyn Fn(&str) -> Option<String> + Send + Sync;
@@ -293,6 +293,7 @@ pub struct SupervisorConfig {
     redact: Option<Arc<Redactor>>,
     on_stderr: Option<Arc<LineSink>>,
     contract_version: Option<ContractRequirement>,
+    contract_check_required: bool,
     initial_failure: InitialFailure,
     protocol_error_sink: Option<ProtocolErrorSink>,
     fallback_error_code: String,
@@ -321,6 +322,7 @@ impl SupervisorConfig {
             redact: None,
             on_stderr: None,
             contract_version: None,
+            contract_check_required: false,
             initial_failure: InitialFailure::Retry,
             protocol_error_sink: None,
             fallback_error_code: "engine_error".into(),
@@ -357,6 +359,28 @@ impl SupervisorConfig {
     pub fn require_contract_version(mut self, version: impl Into<ContractRequirement>) -> Self {
         self.contract_version = Some(version.into());
         self
+    }
+    /// Require this wire contract's own version ([`CONTRACT_VERSION`]) from the engine; shorthand
+    /// for `require_contract_version(CONTRACT_VERSION)`.
+    pub fn require_current_contract_version(self) -> Self {
+        self.require_contract_version(CONTRACT_VERSION)
+    }
+    /// Make contract-version checking mandatory: `start` and `start_background` refuse to boot
+    /// (`contract_check_required`, not retryable, nothing spawned) unless a version was set with
+    /// [`Self::require_contract_version`] or [`Self::require_current_contract_version`]. Off by
+    /// default, because the check itself is opt-in.
+    pub fn with_mandatory_contract_check(mut self) -> Self {
+        self.contract_check_required = true;
+        self
+    }
+    fn contract_gate(&self) -> JobResult<()> {
+        if self.contract_check_required && self.contract_version.is_none() {
+            return Err(JobError::supervisor(
+                "contract_check_required",
+                "this supervisor requires a contract version but none was configured",
+            ));
+        }
+        Ok(())
     }
     pub fn with_restart(mut self, restart: RestartPolicy) -> Self {
         self.restart = restart;
@@ -402,6 +426,16 @@ impl SupervisorConfig {
     }
 }
 
+/// One registered snapshot. `rev` changes whenever the value (or method) does, so a boot that
+/// replays from a copy can tell which entries moved on while it was replaying.
+#[derive(Clone)]
+struct Snapshot {
+    key: String,
+    method: String,
+    params: Value,
+    rev: u64,
+}
+
 struct LastExit {
     code: Option<i32>,
     reason: String,
@@ -418,7 +452,9 @@ struct State {
     tracker: RestartTracker,
     attempt: u64,
     shutting_down: bool,
-    replay: Vec<(String, String, Value)>,
+    replay: Vec<Snapshot>,
+    /// Counter behind [`Snapshot::rev`]; bumped on every `set_snapshot`.
+    replay_rev: u64,
     hello: Option<Value>,
     last_exit: Option<LastExit>,
     recovery_from: Option<Instant>,
@@ -550,6 +586,7 @@ impl EngineSupervisor {
                 attempt: 0,
                 shutting_down: false,
                 replay: Vec::new(),
+                replay_rev: 0,
                 hello: None,
                 last_exit: None,
                 recovery_from: None,
@@ -575,6 +612,7 @@ impl EngineSupervisor {
     /// A failed first boot is retried within the budget unless the config says
     /// [`InitialFailure::Terminal`]; this returns once the boot is `Ready` or `Down`.
     pub fn start(&self) -> JobResult<()> {
+        self.sh.cfg.contract_gate()?;
         run_start(&self.sh, begin_start(&self.sh))
     }
 
@@ -583,6 +621,11 @@ impl EngineSupervisor {
     /// [`Readiness`] handle reports how it ended. When the engine is already
     /// `Ready` there is nothing to boot and the handle is resolved before this returns.
     pub fn start_background(&self) -> Readiness {
+        if let Err(e) = self.sh.cfg.contract_gate() {
+            let readiness = Readiness::default();
+            readiness.finish(Err(e));
+            return readiness;
+        }
         let plan = begin_start(&self.sh);
         let readiness = Readiness::default();
         if plan == StartPlan::Ready {
@@ -640,13 +683,22 @@ impl EngineSupervisor {
     /// Record the latest state of `key` and replay it, in registration order, to
     /// every future engine generation before it is reported `Ready` (the
     /// `Init`/`SetSettings`/entitlements/auth snapshots of ScrapeRight). When the
-    /// engine is `Ready` it is also sent now; when it is not, it is queued.
+    /// engine is `Ready` it is also sent now; when it is not, it is queued. An update that arrives
+    /// while a generation is booting, after its replay started, is replayed to that generation
+    /// before it is reported `Ready` (it never boots on a value that was already superseded).
     pub fn set_snapshot(&self, key: &str, method: &str, params: Value) -> JobResult<()> {
         let live = {
             let mut g = self.sh.lock();
-            match g.replay.iter_mut().find(|(k, _, _)| k == key) {
-                Some(slot) => *slot = (key.into(), method.into(), params.clone()),
-                None => g.replay.push((key.into(), method.into(), params.clone())),
+            g.replay_rev += 1;
+            let entry = Snapshot {
+                key: key.into(),
+                method: method.into(),
+                params: params.clone(),
+                rev: g.replay_rev,
+            };
+            match g.replay.iter_mut().find(|e| e.key == key) {
+                Some(slot) => *slot = entry,
+                None => g.replay.push(entry),
             }
             (g.lifecycle == Lifecycle::Ready)
                 .then(|| g.client.clone())
@@ -1272,22 +1324,39 @@ fn boot(sh: &Arc<Shared>, initial: bool) -> JobResult<()> {
     }
     spawn_event_forwarder(sh, &client);
 
-    // Handshake: replay the latest snapshots, in registration order.
-    let replay = sh.lock().replay.clone();
-    for (_, method, params) in replay {
-        if let Err(e) = client.call_timeout(&method, params, None, sh.cfg.rpc_timeout) {
-            client.kill(sh.cfg.shutdown_grace);
-            let text = tail.finish_within(Duration::from_millis(500));
-            return fail(
-                ExitReason::HandshakeFailed(format!("{method}: {}", e.code)),
-                "handshake_failed",
-                format!("{method} failed during handshake: {e}"),
-                text,
-            );
+    // Handshake: replay the latest snapshots, in registration order. A `set_snapshot` that lands
+    // while this generation is replaying is picked up by the next pass; the pass that finds
+    // nothing new keeps the lock through the switch to `Ready`, so no update falls in the gap.
+    let mut sent: Vec<(String, u64)> = Vec::new();
+    let mut g = loop {
+        let g = sh.lock();
+        let todo: Vec<Snapshot> = g
+            .replay
+            .iter()
+            .filter(|e| !sent.iter().any(|(k, rev)| *k == e.key && *rev == e.rev))
+            .cloned()
+            .collect();
+        if todo.is_empty() {
+            break g;
         }
-    }
-
-    let mut g = sh.lock();
+        drop(g);
+        for e in todo {
+            if let Err(err) =
+                client.call_timeout(&e.method, e.params.clone(), None, sh.cfg.rpc_timeout)
+            {
+                client.kill(sh.cfg.shutdown_grace);
+                let text = tail.finish_within(Duration::from_millis(500));
+                return fail(
+                    ExitReason::HandshakeFailed(format!("{}: {}", e.method, err.code)),
+                    "handshake_failed",
+                    format!("{} failed during handshake: {err}", e.method),
+                    text,
+                );
+            }
+            sent.retain(|(k, _)| *k != e.key);
+            sent.push((e.key, e.rev));
+        }
+    };
     if g.generation != generation || g.shutting_down {
         drop(g);
         client.kill(sh.cfg.shutdown_grace);

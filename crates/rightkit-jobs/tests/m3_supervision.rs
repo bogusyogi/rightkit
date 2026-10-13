@@ -131,3 +131,74 @@ fn a_crash_after_ready_does_not_count_as_a_consecutive_failure() {
     assert!(s.status().terminal.is_none(), "{:?}", s.status());
     s.shutdown();
 }
+
+#[test]
+fn a_snapshot_updated_while_a_generation_replays_reaches_it_before_ready() {
+    // The first replay call takes 600 ms; the update lands inside it, after the replay was copied.
+    let (_d, cfg) = rig("slow_set:600");
+    let s = EngineSupervisor::new(cfg);
+    s.set_snapshot("a", "set_a", json!({"v": 1})).unwrap();
+    let ready = s.start_background();
+    std::thread::sleep(Duration::from_millis(200));
+    assert_ne!(
+        s.lifecycle(),
+        Lifecycle::Ready,
+        "the boot must still be replaying"
+    );
+    s.set_snapshot("a", "set_a", json!({"v": 2})).unwrap();
+    ready.ready().unwrap();
+    assert_eq!(s.call("get_state", json!({})).unwrap()["set_a"]["v"], 2);
+    s.shutdown();
+}
+
+#[test]
+fn an_update_during_a_replay_is_not_replayed_twice_when_nothing_moved() {
+    // Negative: with no update the replay is one call per snapshot, in registration order.
+    let (_d, cfg) = rig("ok");
+    let s = EngineSupervisor::new(cfg);
+    s.set_snapshot("a", "set_a", json!({"v": 1})).unwrap();
+    s.set_snapshot("b", "set_b", json!({"v": 2})).unwrap();
+    s.start().unwrap();
+    let state = s.call("get_state", json!({})).unwrap();
+    assert_eq!(state["set_a"]["v"], 1);
+    assert_eq!(state["set_b"]["v"], 2);
+    s.shutdown();
+}
+
+#[test]
+fn a_mandatory_contract_check_refuses_to_boot_without_a_version() {
+    let (dir, cfg) = rig("ok");
+    let s = EngineSupervisor::new(cfg.with_mandatory_contract_check());
+    let err = s.start().unwrap_err();
+    assert_eq!(err.code, "contract_check_required");
+    assert!(!err.retryable);
+    assert_eq!(s.lifecycle(), Lifecycle::Down);
+    let background = s.start_background().ready().unwrap_err();
+    assert_eq!(background.code, "contract_check_required");
+    assert!(
+        !dir.path().join("gen").exists(),
+        "nothing may be spawned when the gate refuses"
+    );
+}
+
+#[test]
+fn a_mandatory_contract_check_with_the_current_version_boots_and_a_wrong_engine_is_refused() {
+    let (_d, cfg) = rig("ok");
+    let s = EngineSupervisor::new(
+        cfg.with_mandatory_contract_check()
+            .require_current_contract_version(),
+    );
+    s.start().unwrap();
+    assert_eq!(
+        s.status().hello.unwrap()["contract_version"],
+        CONTRACT_VERSION
+    );
+    s.shutdown();
+
+    let (_d, cfg) = rig("wrong_contract");
+    let s = EngineSupervisor::new(
+        cfg.with_mandatory_contract_check()
+            .require_current_contract_version(),
+    );
+    assert_eq!(s.start().unwrap_err().code, CONTRACT_VERSION_MISMATCH);
+}
