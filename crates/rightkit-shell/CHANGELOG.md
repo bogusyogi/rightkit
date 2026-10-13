@@ -5,6 +5,13 @@ version is `0.x`, a minor bump may carry breaking changes.
 
 ## Unreleased
 
+- **`WindowSpec` per-window options (owner gap M1-G1), all additive and optional.** New fields `minWidth` / `minHeight`
+  (default stays 320 x 240; invalid values fall back; the initial size is raised to the minimum), `decorations`
+  (override after the frameless policy), `center` (wins over `x` / `y`), `fullscreen`, `skipTaskbar`, and `x` / `y`
+  (initial logical position, corrected onto a visible monitor when it would be off-screen). New pure helpers
+  `windows::spec_min_size` and `windows::correct_offscreen`. Without the new fields `windows::open` builds the same window as
+  before. Tests: `tests/window_spec.rs`.
+
 - **Window state: `WindowStateStore::import_legacy` migrates an app's own geometry store once (owner gap M1-G5).**
   Reads a legacy flat `label -> state` JSON file (CodeRight `window_state/mod.rs:92,110-118` shape; `version` 0 means
   physical pixels), runs the same v0 -> v1 migration the store applies on load, maps labels with `(legacy, owner)` pairs

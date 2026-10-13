@@ -58,6 +58,24 @@ pub struct WindowSpec {
     pub focused: Option<bool>,
     /// Always on top (mini windows, pills).
     pub always_on_top: Option<bool>,
+    /// Minimum inner width in logical pixels. Default 320 (unchanged); a non-finite or non-positive
+    /// value is ignored. The initial width is raised to at least this.
+    pub min_width: Option<f64>,
+    /// Minimum inner height in logical pixels. Default 240 (unchanged).
+    pub min_height: Option<f64>,
+    /// Override native decorations after the shell's frameless policy (`Some(false)` for a
+    /// borderless pill or onboarding window on a framed shell, `Some(true)` for the reverse).
+    pub decorations: Option<bool>,
+    /// Centre on the primary/current monitor. Wins over `x` / `y`.
+    pub center: Option<bool>,
+    /// Open fullscreen.
+    pub fullscreen: Option<bool>,
+    /// Keep the window out of the taskbar / Dock-switcher where the platform supports it.
+    pub skip_taskbar: Option<bool>,
+    /// Initial outer position in logical pixels (needs both `x` and `y`). It is corrected to a
+    /// visible monitor when it would leave the window off-screen.
+    pub x: Option<f64>,
+    pub y: Option<f64>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -89,6 +107,72 @@ fn app_path(path: Option<&str>) -> String {
     } else {
         raw.to_owned()
     }
+}
+
+/// The effective minimum inner size of `spec`: its own values, else the shell default.
+pub fn spec_min_size(spec: &WindowSpec) -> (f64, f64) {
+    let pick = |v: Option<f64>, default: f64| {
+        v.filter(|v| v.is_finite() && *v > 0.0)
+            .map_or(default, |v| v.min(16_384.0))
+    };
+    (
+        pick(spec.min_width, MIN_WIDTH),
+        pick(spec.min_height, MIN_HEIGHT),
+    )
+}
+
+/// Move a window rectangle (logical pixels) back on-screen. A rectangle whose title strip is
+/// reachable on some monitor (at least `CLAMP_MARGIN_X` wide, `CLAMP_MARGIN_Y` tall inside it)
+/// is returned unchanged; otherwise it is clamped onto the monitor nearest its centre. No monitors:
+/// unchanged.
+pub fn correct_offscreen(
+    x: f64,
+    y: f64,
+    width: f64,
+    height: f64,
+    monitors: &[crate::window_state::MonitorSnapshot],
+) -> (f64, f64) {
+    use crate::window_state::{CLAMP_MARGIN_X, CLAMP_MARGIN_Y};
+    if monitors.is_empty() || !x.is_finite() || !y.is_finite() {
+        return match (monitors.first(), x.is_finite() && y.is_finite()) {
+            (Some(m), false) => (m.x, m.y),
+            _ => (x, y),
+        };
+    }
+    let reachable = |m: &crate::window_state::MonitorSnapshot| {
+        x + width > m.x + CLAMP_MARGIN_X
+            && x < m.x + m.width - CLAMP_MARGIN_X
+            && y >= m.y
+            && y < m.y + m.height - CLAMP_MARGIN_Y
+    };
+    if monitors.iter().any(reachable) {
+        return (x, y);
+    }
+    let (cx, cy) = (x + width / 2.0, y + height / 2.0);
+    let target = monitors
+        .iter()
+        .min_by(|a, b| {
+            let d = |m: &crate::window_state::MonitorSnapshot| {
+                (m.x + m.width / 2.0 - cx).powi(2) + (m.y + m.height / 2.0 - cy).powi(2)
+            };
+            d(a).total_cmp(&d(b))
+        })
+        .expect("non-empty monitors");
+    let min_x = target.x - (width - CLAMP_MARGIN_X).max(0.0);
+    let max_x = target.x + target.width - CLAMP_MARGIN_X;
+    let max_y = target.y + target.height - CLAMP_MARGIN_Y;
+    (
+        if min_x <= max_x {
+            x.clamp(min_x, max_x)
+        } else {
+            target.x
+        },
+        if target.y <= max_y {
+            y.clamp(target.y, max_y)
+        } else {
+            target.y
+        },
+    )
 }
 
 fn dim(v: Option<f64>, default: f64, min: f64) -> f64 {
@@ -145,21 +229,45 @@ pub fn open(app: &AppHandle<Wry>, spec: &WindowSpec) -> Result<String, String> {
         .to_owned();
     let focused = reveal_mode(app, RevealSource::OpenWindow) == RevealMode::Foreground
         && spec.focused.unwrap_or(true);
-    let window = builder(
+    let (min_w, min_h) = spec_min_size(spec);
+    let (width, height) = (
+        dim(spec.width, 900.0, min_w),
+        dim(spec.height, 640.0, min_h),
+    );
+    let mut b = builder(
         app,
         &label,
         WebviewUrl::App(app_path(spec.path.as_deref()).into()),
     )
     .title(title)
-    .inner_size(
-        dim(spec.width, 900.0, MIN_WIDTH),
-        dim(spec.height, 640.0, MIN_HEIGHT),
-    )
-    .min_inner_size(MIN_WIDTH, MIN_HEIGHT)
+    .inner_size(width, height)
+    .min_inner_size(min_w, min_h)
     .always_on_top(spec.always_on_top.unwrap_or(false))
-    .focused(focused)
-    .build()
-    .map_err(|e| format!("create window {label}: {e}"))?;
+    .focused(focused);
+    if let Some(d) = spec.decorations {
+        b = b.decorations(d);
+    }
+    if let Some(f) = spec.fullscreen {
+        b = b.fullscreen(f);
+    }
+    if let Some(s) = spec.skip_taskbar {
+        b = b.skip_taskbar(s);
+    }
+    if spec.center == Some(true) {
+        b = b.center();
+    } else if let (Some(x), Some(y)) = (spec.x, spec.y) {
+        let monitors: Vec<_> = app
+            .available_monitors()
+            .unwrap_or_default()
+            .iter()
+            .map(crate::window_state::MonitorSnapshot::from_monitor)
+            .collect();
+        let (x, y) = correct_offscreen(x, y, width, height, &monitors);
+        b = b.position(x, y);
+    }
+    let window = b
+        .build()
+        .map_err(|e| format!("create window {label}: {e}"))?;
     let _ = app.emit(
         EVENT_WINDOW,
         serde_json::json!({"label": label, "kind": "created"}),

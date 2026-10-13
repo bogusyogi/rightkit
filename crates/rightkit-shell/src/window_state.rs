@@ -18,8 +18,8 @@ const CURRENT_VERSION: u32 = 1;
 const STATE_FILE: &str = "window-state.json";
 const MIN_WIDTH: f64 = 600.0;
 const MIN_HEIGHT: f64 = 400.0;
-const CLAMP_MARGIN_X: f64 = 80.0;
-const CLAMP_MARGIN_Y: f64 = 40.0;
+pub(crate) const CLAMP_MARGIN_X: f64 = 80.0;
+pub(crate) const CLAMP_MARGIN_Y: f64 = 40.0;
 const SAVE_DEBOUNCE_MS: u64 = 250;
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
@@ -32,7 +32,7 @@ pub struct MonitorSnapshot {
 }
 
 impl MonitorSnapshot {
-    fn from_monitor(m: &Monitor) -> Self {
+    pub(crate) fn from_monitor(m: &Monitor) -> Self {
         let scale = m.scale_factor();
         let scale = if scale.is_finite() && scale > 0.0 {
             scale
