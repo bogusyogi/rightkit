@@ -9,7 +9,7 @@ cd "$(dirname "$0")/../.."
 
 EVIDENCE="${RUNNER_TEMP:-${TMPDIR:-/tmp}}/rightkit-ci"
 OUT="$EVIDENCE/owner-dep-graphs"
-CRATES="shell tauri jobs process framed-sidecar service daemon fs db settings secrets license logs crash http qa control mcp"
+CRATES="shell tauri jobs process framed-sidecar service fs db settings secrets license logs crash http qa control mcp"
 WATCH="tokio axum hyper ring cc openssl-sys reqwest libsqlite3-sys"
 
 # crate|mode-name|cargo feature args. default/nodefault run for every crate in CRATES; these add consumer sets.
@@ -22,8 +22,6 @@ jobs|nodefault-supervisor|--no-default-features --features supervisor
 jobs|nodefault-contract|--no-default-features --features contract
 jobs|nodefault-service|--no-default-features --features service
 jobs|nodefault-supervisor-crash|--no-default-features --features supervisor,crash
-daemon|nodefault-oauth|--no-default-features --features oauth
-daemon|nodefault-client|--no-default-features --features client
 fs|nodefault-json|--no-default-features --features json
 fs|nodefault-digest|--no-default-features --features digest
 db|nodefault-bundled|--no-default-features --features bundled
