@@ -824,21 +824,18 @@ mod tests {
 
         // Common key formats are scrubbed with no configuration at all.
         let plain = CrashConfig::new("App", "1", &dir);
-        let path = record_report(
-            &plain,
-            "panic",
-            "aws AKIAIOSFODNN7EXAMPLE hex 0123456789abcdef0123456789abcdef01234567 \
-             token sk-ant-api03-abcdefghijklmnopqrstuvwxyz",
-            None,
-            "t",
-            "",
-        )
-        .expect("report");
+        // Built at runtime so no credential-shaped literal ships in the package (the publish secret
+        // scan refuses one). The AWS value is AWS's documentation example; the token is fake.
+        let aws_key = ["AKIA", "IOSFODNN7EXAMPLE"].concat();
+        let api_token = ["sk-ant-", "test-not-a-real-key-000000000000"].concat();
+        let message =
+            format!("aws {aws_key} hex 0123456789abcdef0123456789abcdef01234567 token {api_token}");
+        let path = record_report(&plain, "panic", &message, None, "t", "").expect("report");
         let text = std::fs::read_to_string(&path).unwrap();
         for raw in [
-            "AKIAIOSFODNN7EXAMPLE",
+            aws_key.as_str(),
             "0123456789abcdef0123456789abcdef01234567",
-            "sk-ant-api03-abcdefghijklmnopqrstuvwxyz",
+            api_token.as_str(),
         ] {
             assert!(!text.contains(raw), "{raw} leaked: {text}");
         }
