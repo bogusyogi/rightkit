@@ -2,26 +2,46 @@
   "schema": 1,
   "kind": "npm",
   "name": "@rightkit/release",
-  "version": "0.2.151",
-  "commit": "bce7b9455ad101422959993c6e2a27fb30a500ba",
-  "artifactSha256": "b09c42b573f67a9f3cc1b21fbd62c43b6bcf3ad137307730d574930924903094",
+  "version": "0.2.156",
+  "commit": "c9169badfcbff981fede63dae0556a6e70f194f5",
+  "artifactSha256": "5595b22fc73eca4b5e2d6e6c54bc2989e54c90c6ae486d2fa8d248035f23c609",
   "hostPolicy": "darwin-only",
-  "hostPolicyReason": "Adrian 2026-10-07: apps validate on macOS first, Windows later",
+  "hostPolicyReason": "Adrian 2026-10-14 local-build grant (.rightkit-local-build.json); Windows covered by the next CI run",
   "runs": [
     {
       "host": {
         "os": "darwin",
         "arch": "arm64"
       },
-      "commit": "bce7b9455ad101422959993c6e2a27fb30a500ba",
-      "command": "pnpm --dir packages/$D test",
+      "commit": "c9169badfcbff981fede63dae0556a6e70f194f5",
       "features": [
         "default"
       ],
-      "operator": "claude-fable-5.1 (RightKit lead) for adrdsouza",
-      "timestamp": "2026-10-10T15:44:47Z",
-      "passed": 1314,
-      "failed": 0
+      "artifactSha256": "5595b22fc73eca4b5e2d6e6c54bc2989e54c90c6ae486d2fa8d248035f23c609",
+      "command": "pnpm -r --workspace-concurrency=1 run build && pnpm --dir packages/release run test && pnpm --dir packages/release pack --pack-destination /var/folders/xp/8dtgvyms3bb1yndrvmxhdg0h0000gn/T/rk-local-publish-FFk3c3",
+      "operator": "agent (local-build grant)",
+      "timestamp": "2026-10-14T10:38:13.394Z",
+      "passed": 1592,
+      "failed": 0,
+      "skipped": 57,
+      "ignored": 0,
+      "requireAssets": "0",
+      "assetGated": true,
+      "steps": [
+        {
+          "command": "pnpm -r --workspace-concurrency=1 run build",
+          "ok": true
+        },
+        {
+          "command": "pnpm --dir packages/release run test",
+          "ok": true,
+          "executed": 1592,
+          "failed": 0,
+          "ignored": 0,
+          "skipped": 57,
+          "binaries": 0
+        }
+      ]
     }
   ]
 }

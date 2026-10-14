@@ -66,7 +66,7 @@ Capabilities: 72 (54 with fingerprints, 18 declaration-only). Internal owners th
 | persistent-jobs | `rightkit-job-queue` | advise | fingerprinted | 10 (0 block, 10 advise) | rightkit-job-queue: none recorded |
 | platform-ui | `@rightkit/platform-ui` | advise | fingerprinted | 1 (0 block, 1 advise) | @rightkit/platform-ui: published 0.2.7 (npm) |
 | qa-evidence | `@rightkit/qa` | advise | fingerprinted | 2 (0 block, 2 advise) | @rightkit/qa: published 0.4.7 (npm) |
-| release-tooling | `@rightkit/release` | advise | fingerprinted | 10 (0 block, 10 advise) | @rightkit/release: published 0.2.151 (npm) |
+| release-tooling | `@rightkit/release` | advise | fingerprinted | 10 (0 block, 10 advise) | @rightkit/release: published 0.2.156 (npm) |
 | safe-filesystem | `rightkit-fs` | advise | fingerprinted | 3 (0 block, 3 advise) | rightkit-fs: published 0.3.3 (crates.io) |
 | scenario-runtime | `rightkit-workflow` | none | declaration-only | 0 | rightkit-workflow: none recorded |
 | screen-recording | `rightkit-record` | none | declaration-only | 0 | rightkit-record: none recorded |
