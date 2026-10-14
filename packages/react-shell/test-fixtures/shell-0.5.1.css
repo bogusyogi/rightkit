@@ -1,4 +1,4 @@
-/* @rightkit/app-shell — fused sidebar + titlebar on one --rk-chrome surface.
+/* @rightkit/react-shell — fused sidebar + titlebar on one --rk-chrome surface.
    The active nav row joins the --rk-plane content surface through 12px concave
    radial-mask corners. Apps supply brand colour only:
 

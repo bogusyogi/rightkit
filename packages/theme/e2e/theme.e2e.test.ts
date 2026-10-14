@@ -10,7 +10,7 @@ import { findChrome, launch, serveDir, type Page } from "./browser.js";
 const here = dirname(fileURLToPath(import.meta.url));
 const pkgRoot = join(here, "..");
 const cli = join(pkgRoot, "bin", "rightkit-theme.mjs");
-const shellCss = join(pkgRoot, "..", "app-shell", "shell.css");
+const shellCss = join(pkgRoot, "..", "react-shell", "shell.css");
 const chrome = findChrome();
 const shotsDir = process.env.RK_SHOTS_DIR ?? mkdtempSync(join(tmpdir(), "rk-theme-shots-"));
 

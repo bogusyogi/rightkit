@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
-import { Badge, Button, Input, SegmentedControl, Toggle, createThemeStore, useMediaQuery, useShellOptional, type ThemeChoice, type ThemeStore } from "@rightkit/app-shell/react";
+import { Badge, Button, Input, SegmentedControl, Toggle, createThemeStore, useMediaQuery, useShellOptional, type ThemeChoice, type ThemeStore } from "@rightkit/react-shell/react";
 import { isLicensed, type StoredLicense } from "@rightkit/license";
 import type { LogsClient } from "@rightkit/logs";
 import { applyBrand, brandFromAccent } from "@rightkit/theme";

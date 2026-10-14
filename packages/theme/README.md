@@ -49,7 +49,7 @@ undo(); // restores the previous inline value of each name it set
 ```
 
 - `applyTokens(record, root?)` writes custom properties on `root`'s inline style, skips `undefined` values and returns an undo function. Names must match `--name`.
-- `aliasTokens(map)` returns `var(--target)` references for unprefixed names. `SUITE_ALIASES` is the same map as `@rightkit/app-shell/suite-aliases.css`; a test in this package keeps them in step.
+- `aliasTokens(map)` returns `var(--target)` references for unprefixed names. `SUITE_ALIASES` is the same map as `@rightkit/react-shell/suite-aliases.css`; a test in this package keeps them in step.
 - `presetTokens(preset, accentId?)` merges an accent over a preset's base tokens.
 - `fontTokens({ mono, wordmark })` maps font stacks onto `--rk-font-mono` and `--rk-wordmark-font`.
 

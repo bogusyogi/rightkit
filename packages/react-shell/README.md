@@ -1,4 +1,4 @@
-# @rightkit/app-shell
+# @rightkit/react-shell
 
 Brand-neutral React frame for Right Suite desktop apps: fused sidebar and titlebar layout, command palette, shortcut registry and help, toasts, dialogs, context menus, UI primitives and theme hooks. Every region is optional and can be replaced by a slot.
 
@@ -13,14 +13,14 @@ Brand-neutral React frame for Right Suite desktop apps: fused sidebar and titleb
 
 | Import | Contents |
 |---|---|
-| `@rightkit/app-shell` | Navigation, theme, match, geometry, toast, shortcut, bridge and command modules (`dist/index.js`) |
-| `@rightkit/app-shell/headless` | `useToggle` and `useSegmentedControl`: switch and segmented-control behaviour and ARIA as props for your own markup. Imports only `react`. See [Headless toggle and segmented control](#headless-toggle-and-segmented-control). |
-| `@rightkit/app-shell/react` | `ShellProvider`, `AppShell`, `AppFrame`, `Titlebar`, `Plane`, `NavList`, `PageShell`, palette, toasts, overlays, context menu, hooks (`useShell`, `useCommands`, `useShortcuts`, `useToast`, `useTheme`) and UI primitives |
-| `@rightkit/app-shell/shell.css` | Stylesheet, unlayered (the 0.5.x behaviour). Tokens are `--rk-*`. |
-| `@rightkit/app-shell/shell.layered.css` | The same rules inside the cascade layer `rk`, so host utilities and unlayered host CSS override them. See [Adopting with a locked UI](#adopting-with-a-locked-ui). |
-| `@rightkit/app-shell/shell.structure.css` | Only the rules the frame, overlays, menu and toasts need to function: position, z-index, layout, overflow, pointer-events. No colour, type, radius or decoration. |
-| `@rightkit/app-shell/shell.visual.css` | Colour, type, radius, spacing, shadows and motion. Pairs with the structure file. |
-| `@rightkit/app-shell/suite-aliases.css` | Optional unprefixed token aliases for apps that need the old names |
+| `@rightkit/react-shell` | Navigation, theme, match, geometry, toast, shortcut, bridge and command modules (`dist/index.js`) |
+| `@rightkit/react-shell/headless` | `useToggle` and `useSegmentedControl`: switch and segmented-control behaviour and ARIA as props for your own markup. Imports only `react`. See [Headless toggle and segmented control](#headless-toggle-and-segmented-control). |
+| `@rightkit/react-shell/react` | `ShellProvider`, `AppShell`, `AppFrame`, `Titlebar`, `Plane`, `NavList`, `PageShell`, palette, toasts, overlays, context menu, hooks (`useShell`, `useCommands`, `useShortcuts`, `useToast`, `useTheme`) and UI primitives |
+| `@rightkit/react-shell/shell.css` | Stylesheet, unlayered (the 0.5.x behaviour). Tokens are `--rk-*`. |
+| `@rightkit/react-shell/shell.layered.css` | The same rules inside the cascade layer `rk`, so host utilities and unlayered host CSS override them. See [Adopting with a locked UI](#adopting-with-a-locked-ui). |
+| `@rightkit/react-shell/shell.structure.css` | Only the rules the frame, overlays, menu and toasts need to function: position, z-index, layout, overflow, pointer-events. No colour, type, radius or decoration. |
+| `@rightkit/react-shell/shell.visual.css` | Colour, type, radius, spacing, shadows and motion. Pairs with the structure file. |
+| `@rightkit/react-shell/suite-aliases.css` | Optional unprefixed token aliases for apps that need the old names |
 
 ## Peer dependencies
 
@@ -36,8 +36,8 @@ Brand-neutral React frame for Right Suite desktop apps: fused sidebar and titleb
 Illustrative. Import the stylesheet once and mount the provider near the root.
 
 ```tsx
-import "@rightkit/app-shell/shell.css";
-import { ShellProvider, AppShell } from "@rightkit/app-shell/react";
+import "@rightkit/react-shell/shell.css";
+import { ShellProvider, AppShell } from "@rightkit/react-shell/react";
 
 export function Root() {
   return (
@@ -133,8 +133,8 @@ For a fully custom titlebar, pass `titlebar={<YourBar />}` (or `titlebar={false}
 Use this to match an app's titlebar pixel for pixel. `AppShell` builds its own titlebar, so pass a `Titlebar` through its `titlebar` prop.
 
 ```tsx
-import "@rightkit/app-shell/shell.css";
-import { AppFrame, Plane, Titlebar, NavList } from "@rightkit/app-shell/react";
+import "@rightkit/react-shell/shell.css";
+import { AppFrame, Plane, Titlebar, NavList } from "@rightkit/react-shell/react";
 
 // 1. Copy the measurements from the old titlebar onto :root (or .rk-shell).
 //    Keep the old values for anything you do not change.
@@ -165,10 +165,10 @@ Check the result against the old app in light and dark. Each value that differs 
 
 ### Headless toggle and segmented control
 
-`@rightkit/app-shell/headless` gives the behaviour of `Toggle` and `SegmentedControl` for a host whose markup, classes and styles are fixed. The hooks render nothing and return props for an element you render.
+`@rightkit/react-shell/headless` gives the behaviour of `Toggle` and `SegmentedControl` for a host whose markup, classes and styles are fixed. The hooks render nothing and return props for an element you render.
 
 ```tsx
-import { useToggle, useSegmentedControl } from "@rightkit/app-shell/headless";
+import { useToggle, useSegmentedControl } from "@rightkit/react-shell/headless";
 
 function Wifi({ on, setOn }: { on: boolean; setOn: (v: boolean) => void }) {
   const p = useToggle({ checked: on, onChange: setOn, label: "Wi-Fi" });
@@ -233,7 +233,7 @@ The options below are for apps that take the shell's components with small chang
 @layer theme, base, rk, components, utilities;
 @import "tailwindcss/theme.css" layer(theme);
 @import "tailwindcss/preflight.css" layer(base);
-@import "@rightkit/app-shell/shell.layered.css";
+@import "@rightkit/react-shell/shell.layered.css";
 @import "tailwindcss/utilities.css" layer(utilities);
 ```
 
@@ -242,7 +242,7 @@ Or, with the all-in-one entry, put the order line first and keep the rest:
 ```css
 @layer theme, base, rk, components, utilities;
 @import "tailwindcss";
-@import "@rightkit/app-shell/shell.layered.css";
+@import "@rightkit/react-shell/shell.layered.css";
 ```
 
 Rules:

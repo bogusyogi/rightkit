@@ -1,5 +1,5 @@
 /**
- * Palette / Jump-to ranking (moved from @rightkit/app-shell 0.6.0, behaviour unchanged). Merges ViewRight's
+ * Palette / Jump-to ranking (moved from @rightkit/react-shell 0.6.0, behaviour unchanged). Merges ViewRight's
  * subsequence scorer (typo-tolerant, rewards early hits) with HeardRight/CodeRight's substring + keyword matching.
  * Higher score is better; null is no match.
  */

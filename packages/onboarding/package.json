@@ -24,12 +24,12 @@
     "*.css"
   ],
   "peerDependencies": {
-    "@rightkit/app-shell": ">=0.2.0 <1",
+    "@rightkit/react-shell": ">=0.2.0 <1",
     "@rightkit/legal-ui": ">=0.1.2 <1",
     "react": ">=18 <21"
   },
   "devDependencies": {
-    "@rightkit/app-shell": "workspace:*",
+    "@rightkit/react-shell": "workspace:*",
     "@rightkit/legal-ui": "workspace:*",
     "@rightkit/qa-chrome": "workspace:*",
     "@testing-library/jest-dom": "^6.6.3",

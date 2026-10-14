@@ -8,13 +8,13 @@ export default {
   define: { "process.env.NODE_ENV": '"production"' },
   resolve: {
     alias: {
-      "@rightkit/app-shell/react": path.join(pk, "app-shell/dist/react.js"),
-      "@rightkit/app-shell": path.join(pk, "app-shell/dist/index.js"),
+      "@rightkit/react-shell/react": path.join(pk, "react-shell/dist/react.js"),
+      "@rightkit/react-shell": path.join(pk, "react-shell/dist/index.js"),
       "@rightkit/platform-ui/react": path.join(pk, "platform-ui/dist/react.js"),
       "@rightkit/platform-ui": path.join(pk, "platform-ui/dist/index.js"),
       "@rightkit/tauri-shell": path.join(pk, "tauri-shell/dist/index.js"),
-      react: path.join(pk, "app-shell/node_modules/react"),
-      "react-dom": path.join(pk, "app-shell/node_modules/react-dom"),
+      react: path.join(pk, "react-shell/node_modules/react"),
+      "react-dom": path.join(pk, "react-shell/node_modules/react-dom"),
     },
   },
   build: {

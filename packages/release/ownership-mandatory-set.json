@@ -58,10 +58,9 @@
       "profile": "desktop",
       "owners": [
         {
-          "name": "@rightkit/app-shell",
+          "name": "@rightkit/react-shell",
           "ecosystem": "npm",
-          "min": "0.6.4",
-          "registryMax": "0.6.2"
+          "min": "0.6.4"
         },
         {
           "name": "@rightkit/platform-ui",

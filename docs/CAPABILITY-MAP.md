@@ -15,7 +15,7 @@ Capabilities: 72 (54 with fingerprints, 18 declaration-only). Internal owners th
 | agent-experience-gates | `@rightkit/ax` | none | declaration-only | 0 | @rightkit/ax: published 0.2.4 (npm) |
 | agent-sessions | `rightkit-agents` | none | declaration-only | 0 | rightkit-agents: none recorded |
 | agent-tools | `rightkit-agent-tools` | none | declaration-only | 0 | rightkit-agent-tools: staged 0.1.2, not published |
-| app-shell-ui | `@rightkit/app-shell` | advise | fingerprinted | 10 (0 block, 10 advise) | @rightkit/app-shell: published 0.6.2 (npm) |
+| app-shell-ui | `@rightkit/react-shell` | advise | fingerprinted | 10 (0 block, 10 advise) | @rightkit/react-shell: none recorded |
 | audio | `rightkit-audio` | advise | fingerprinted | 3 (0 block, 3 advise) | rightkit-audio: published 0.2.1 (crates.io) |
 | browser-automation | `rightkit-browser` | block | fingerprinted | 11 (5 block, 6 advise) | rightkit-browser: published 0.2.4 (crates.io) |
 | browser-qa | `@rightkit/qa-chrome` | advise | fingerprinted | 5 (0 block, 5 advise) | @rightkit/qa-chrome: published 0.1.5 (npm) |

@@ -1,5 +1,5 @@
 {
-  "name": "@rightkit/app-shell",
+  "name": "@rightkit/react-shell",
   "version": "0.6.4",
   "description": "Brand-neutral React frame for Right Suite desktop apps: optional fused sidebar+titlebar layout with slots, command palette, shortcut registry/help, toasts, modals, context menus, ui kit, theme hooks.",
   "license": "MIT OR Apache-2.0",
@@ -61,7 +61,7 @@
     "build": "tsc -p tsconfig.json && node scripts/build-shell-css.mjs",
     "prepack": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\" && pnpm run build",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "pretest": "pnpm --filter \"@rightkit/app-shell^...\" run build",
+    "pretest": "pnpm --filter \"@rightkit/react-shell^...\" run build",
     "test": "vitest run",
     "build:css": "node scripts/build-shell-css.mjs",
     "check:css": "node scripts/build-shell-css.mjs --check"
@@ -73,7 +73,7 @@
   "repository": {
     "type": "git",
     "url": "git+https://github.com/Orthic-Labs/rightkit.git",
-    "directory": "packages/app-shell"
+    "directory": "packages/react-shell"
   },
   "packageManager": "pnpm@11.24.0",
   "peerDependenciesMeta": {

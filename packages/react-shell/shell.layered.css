@@ -1,4 +1,4 @@
-/* @rightkit/app-shell — the whole stylesheet inside the named cascade layer `rk`.
+/* @rightkit/react-shell — the whole stylesheet inside the named cascade layer `rk`.
    Same rules as shell.css; because they sit in a layer, any unlayered host CSS and any later layer
    (Tailwind `utilities`, `components`) overrides them regardless of specificity or source order.
 
@@ -8,7 +8,7 @@
      @layer theme, base, rk, components, utilities;
      @import "tailwindcss/theme.css" layer(theme);
      @import "tailwindcss/preflight.css" layer(base);
-     @import "@rightkit/app-shell/shell.layered.css";
+     @import "@rightkit/react-shell/shell.layered.css";
      @import "tailwindcss/utilities.css" layer(utilities);
 
    Set brand tokens (`--rk-brand`, ...) in unlayered CSS or in a layer after `rk`; a `:root` rule in

@@ -79,7 +79,7 @@ export function applyThemeAttribute(
 /**
  * Inline script text for `<head>`: applies the stored light/dark choice to `data-theme` before first paint so the window never
  * flashes the wrong theme. `system` (or nothing stored) leaves the attribute off and the OS decides. Pair with
- * `@rightkit/app-shell`'s theme store, which owns the same storage key afterwards.
+ * `@rightkit/react-shell`'s theme store, which owns the same storage key afterwards.
  */
 export function themeBootScript(storageKey: string, options: ThemeAttributeOptions = {}): string {
   const key = JSON.stringify(storageKey);

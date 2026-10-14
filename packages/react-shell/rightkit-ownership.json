@@ -1,5 +1,5 @@
 {
-  "package": "@rightkit/app-shell",
+  "package": "@rightkit/react-shell",
   "capabilities": [
     {
       "capability": "app-shell-ui",

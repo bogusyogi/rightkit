@@ -1,5 +1,5 @@
 //! Frameless window chrome. macOS keeps the native traffic lights over an overlay title bar;
-//! Windows/Linux drop decorations and the app draws its own title bar (the `@rightkit/app-shell`
+//! Windows/Linux drop decorations and the app draws its own title bar (the `@rightkit/react-shell`
 //! TitleBar) using the `rk_shell_window` controls and `data-tauri-drag-region`.
 //!
 //! Donor: ViewRight `traffic_lights` (capture the macOS-default button origins once, apply a

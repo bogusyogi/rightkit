@@ -1,7 +1,7 @@
-// Real @rightkit/app-shell running on the real @rightkit/tauri-shell bridge, inside the example webview.
+// Real @rightkit/react-shell running on the real @rightkit/tauri-shell bridge, inside the example webview.
 import { createRoot } from "react-dom/client";
-import { AppShell } from "@rightkit/app-shell/react";
-import type { AppShellBridge } from "@rightkit/app-shell";
+import { AppShell } from "@rightkit/react-shell/react";
+import type { AppShellBridge } from "@rightkit/react-shell";
 import { createShell } from "@rightkit/tauri-shell";
 
 const shell = createShell();

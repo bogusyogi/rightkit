@@ -41,7 +41,7 @@
     "*.css"
   ],
   "peerDependencies": {
-    "@rightkit/app-shell": ">=0.2.0 <1",
+    "@rightkit/react-shell": ">=0.2.0 <1",
     "@rightkit/license": ">=0.1.0",
     "@rightkit/logs": ">=0.1.0",
     "@rightkit/theme": ">=0.2.0 <1",

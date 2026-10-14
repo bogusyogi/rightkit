@@ -3,7 +3,7 @@
 //! What every desktop app needs around its own UI: a hardened webview, window state, a native
 //! menu, a tray, single instance, deep links, autostart, a rich clipboard, a hang watchdog and
 //! the window-to-engine seam. Layout is NOT part of the shell (the sidebar/titlebar layout lives
-//! in `@rightkit/app-shell`, optional and replaceable); this crate is the behaviour underneath.
+//! in `@rightkit/react-shell`, optional and replaceable); this crate is the behaviour underneath.
 //!
 //! ```ignore
 //! tauri::Builder::default()

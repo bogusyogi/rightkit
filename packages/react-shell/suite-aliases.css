@@ -1,4 +1,4 @@
-/* @rightkit/app-shell — optional unprefixed aliases for the suite tokens.
+/* @rightkit/react-shell — optional unprefixed aliases for the suite tokens.
    shell.css defines only --rk-* names so it never collides with an app's own variables.
    Apps whose view CSS was written against the old flat names (--ink, --accent, ...) may import
    this file after shell.css. Do not import it if your app already uses any of these names. */

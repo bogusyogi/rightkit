@@ -257,7 +257,7 @@ const toBase64 = (b: Uint8Array): string => {
 const fromBase64 = (s: string): Uint8Array => Uint8Array.from(atob(s), (c) => c.charCodeAt(0));
 
 /**
- * Structural twin of `@rightkit/app-shell`'s `AppShellBridge` (and `@rightkit/platform-ui`'s
+ * Structural twin of `@rightkit/react-shell`'s `AppShellBridge` (and `@rightkit/platform-ui`'s
  * `WindowControlAdapter`). Declared here so this package stays dependency-free; the example app
  * type-checks and runs the real `ShellProvider` against `shell.bridge()`.
  */

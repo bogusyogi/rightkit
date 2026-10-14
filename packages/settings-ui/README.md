@@ -26,7 +26,7 @@ The persistence port is the `SettingsBackend` interface (`load`, `patch` with `e
 
 | Peer | Range | Note |
 |---|---|---|
-| `@rightkit/app-shell` | `>=0.2.0 <1` | Not optional. `/standard` and the root entry import `@rightkit/app-shell/react`; `/core` does not import it. |
+| `@rightkit/react-shell` | `>=0.2.0 <1` | Not optional. `/standard` and the root entry import `@rightkit/react-shell/react`; `/core` does not import it. |
 | `@rightkit/license` | `>=0.1.0` | Optional. Needed by `/standard` and the root entry only. No upper bound. |
 | `@rightkit/logs` | `>=0.1.0` | Optional. Needed by `/standard` and the root entry only (type use). No upper bound. |
 | `@rightkit/theme` | `>=0.2.0 <1` | Optional. Needed by `/standard` and the root entry only. |
@@ -56,7 +56,7 @@ const sections = standardSections();
 
 ### Using only the panel and the primitives
 
-`@rightkit/settings-ui/core` is the panel shell, `SettingRow`, `SettingsGroup`, search and the backends. It imports `react` and nothing else, so an app that draws its own sections installs none of `@rightkit/license`, `logs`, `theme` or `updates` (they are optional peers). `@rightkit/app-shell` remains a peer for the stylesheet tokens (`settings.css` reads `--rk-*`); `/core` does not import it. The root entry still includes the standard sections, so importing from `@rightkit/settings-ui` needs all peers installed, as in 0.3.x. `src/core-entry.test.ts` walks the import graph of `/core` (source and `dist`) and fails if any of the four appears.
+`@rightkit/settings-ui/core` is the panel shell, `SettingRow`, `SettingsGroup`, search and the backends. It imports `react` and nothing else, so an app that draws its own sections installs none of `@rightkit/license`, `logs`, `theme` or `updates` (they are optional peers). `@rightkit/react-shell` remains a peer for the stylesheet tokens (`settings.css` reads `--rk-*`); `/core` does not import it. The root entry still includes the standard sections, so importing from `@rightkit/settings-ui` needs all peers installed, as in 0.3.x. `src/core-entry.test.ts` walks the import graph of `/core` (source and `dist`) and fails if any of the four appears.
 
 ## Search
 
@@ -184,7 +184,7 @@ Set on `:root` or `.rk-settings`. Every default is today's built-in value.
 | `--rk-settings-padding` | `24px 32px 40px` | Body padding. A value set here applies at every width. Unset, the narrow screen (640px and under) uses `18px 16px 32px`. |
 | `--rk-settings-font-size` | `13.5px` | Base font size of the panel |
 
-The panel reads the suite colour tokens from `@rightkit/app-shell/shell.css` (`--rk-plane`, `--rk-chrome`, `--rk-ink` and the rest). It brings no colours of its own.
+The panel reads the suite colour tokens from `@rightkit/react-shell/shell.css` (`--rk-plane`, `--rk-chrome`, `--rk-ink` and the rest). It brings no colours of its own.
 
 ## Headless search
 
@@ -217,7 +217,7 @@ Rules that keep the stable tree correct:
 This is the shape of Pulse's `settingsKit.tsx`, which uses these hooks (Pulse's `Row` returns `null` when hidden; the `Row` below keeps its element and sets `hidden`):
 
 ```tsx
-import { Button } from "@rightkit/app-shell/react";
+import { Button } from "@rightkit/react-shell/react";
 import {
   SettingsGroupScope, SettingsSearchProvider, SettingsSectionScope, useSearchKeys, useSettingsGroup,
   useSettingsRow, useSettingsSearch, useSettingsSearchField, useSettingsSection,
@@ -292,7 +292,7 @@ function SearchField({ query, setQuery, inputRef }: { query: string; setQuery(q:
 </SettingsSearchProvider>
 ```
 
-The `Button` is from `@rightkit/app-shell/react`, as Pulse uses it. A host without `@rightkit/app-shell` uses its own `<button>` in the same place.
+The `Button` is from `@rightkit/react-shell/react`, as Pulse uses it. A host without `@rightkit/react-shell` uses its own `<button>` in the same place.
 
 The `.ck-set[hidden]` rule and the `ck-search-section` class are the host's own CSS. `mark()` wraps every occurrence of every term.
 

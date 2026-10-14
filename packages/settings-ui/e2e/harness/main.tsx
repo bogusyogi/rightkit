@@ -14,7 +14,7 @@ import {
   type EngineShell,
   type SettingsSection,
 } from "../../src/index.js";
-import "../../../app-shell/shell.css";
+import "../../../react-shell/shell.css";
 import "../../settings.css";
 
 const q = new URLSearchParams(location.search);

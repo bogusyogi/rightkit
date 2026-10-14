@@ -1,5 +1,5 @@
 /**
- * The TS bridge contract between `@rightkit/app-shell` (React frame) and the native shell
+ * The TS bridge contract between `@rightkit/react-shell` (React frame) and the native shell
  * (`@rightkit/tauri-shell` + Tauri). app-shell never imports Tauri: apps pass whatever implements these
  * structural interfaces. Every member is optional so a browser preview or a test needs none of it.
  *

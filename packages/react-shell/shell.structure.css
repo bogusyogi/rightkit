@@ -1,4 +1,4 @@
-/* @rightkit/app-shell — structure: the rules the frame, overlays, menu and toasts need to function.
+/* @rightkit/react-shell — structure: the rules the frame, overlays, menu and toasts need to function.
    Position, z-index, display/flex/grid layout, overflow, pointer-events, the sidebar/titlebar/lights
    box sizes and the layout variables (--rk-sidebar-width, --rk-titlebar-height, --rk-toast-offset ...).
    No colour, radius, type or decoration. Take this file alone to restyle everything yourself; it is

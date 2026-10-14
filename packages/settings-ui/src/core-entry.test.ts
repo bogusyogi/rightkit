@@ -45,7 +45,7 @@ describe("@rightkit/settings-ui/core import graph", () => {
     const built = bareImports(join(root, "dist/core.js"), [".js"]);
     expect([...built.bare].sort()).toEqual(["react", "react/jsx-runtime"]);
     const types = bareImports(join(root, "dist/core.d.ts"), [".d.ts"]);
-    for (const peer of ["@rightkit/license", "@rightkit/theme", "@rightkit/logs", "@rightkit/app-update", "@rightkit/app-shell"]) expect(types.bare.has(peer)).toBe(false);
+    for (const peer of ["@rightkit/license", "@rightkit/theme", "@rightkit/logs", "@rightkit/app-update", "@rightkit/react-shell"]) expect(types.bare.has(peer)).toBe(false);
   });
   it("the root entry still re-exports the whole 0.3.x surface", async () => {
     const [root_, core, std] = await Promise.all([import("./index.js"), import("./core.js"), import("./standard-entry.js")]);

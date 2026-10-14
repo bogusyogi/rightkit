@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { LegalGate } from "@rightkit/legal-ui";
-import { Button } from "@rightkit/app-shell/react";
+import { Button } from "@rightkit/react-shell/react";
 import { cx } from "./ui.js";
 import { licenseStep, modelsStep, permissionsStep } from "./steps.js";
 import type { LegalAcceptanceRecord, OnboardingProps, OnboardingStep, OnboardingStepContext, PersistedOnboardingState } from "./types.js";

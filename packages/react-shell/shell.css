@@ -1,5 +1,5 @@
 /* GENERATED from shell.structure.css + shell.visual.css by scripts/build-shell-css.mjs. Edit those files, then run the script. */
-/* @rightkit/app-shell — structure: the rules the frame, overlays, menu and toasts need to function.
+/* @rightkit/react-shell — structure: the rules the frame, overlays, menu and toasts need to function.
    Position, z-index, display/flex/grid layout, overflow, pointer-events, the sidebar/titlebar/lights
    box sizes and the layout variables (--rk-sidebar-width, --rk-titlebar-height, --rk-toast-offset ...).
    No colour, radius, type or decoration. Take this file alone to restyle everything yourself; it is
@@ -112,7 +112,7 @@
 .rk-toast__msg { flex: 1; min-width: 0; overflow: hidden; }
 .rk-toast__x { flex: none; }
 
-/* @rightkit/app-shell — visual: colour, radius, type, spacing, sizes, shadows and motion.
+/* @rightkit/react-shell — visual: colour, radius, type, spacing, sizes, shadows and motion.
    Pair with shell.structure.css. shell.css is both files in one; shell.layered.css imports both
    into the `rk` cascade layer.
 
