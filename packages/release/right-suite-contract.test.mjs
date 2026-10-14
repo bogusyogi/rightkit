@@ -116,6 +116,13 @@ function assertBuildInputs(config, target, label) {
   resolveConfiguredBuildInputs(config, target, label);
 }
 
+// Crates renamed in the owner naming batch (2026-10-14). The old names stay in `cargo` as published history that apps
+// still pin until they migrate, but the tree has only the new directory and the old name is never staged again.
+// Remove an entry here when the last app pin moves and `cargo` drops the old name.
+const RENAMED_AWAY = new Map([
+  ["rightkit-qts-ggml", null],
+]);
+
 function resolveCargoVersionContract(versionManifest, canonicalVersions) {
   const consumer = new Map(Object.entries(versionManifest.cargo ?? {}));
   const staged = new Map(Object.entries(versionManifest.stagedCargo ?? {}));
@@ -132,6 +139,11 @@ function resolveCargoVersionContract(versionManifest, canonicalVersions) {
   }
 
   for (const [crate, version] of consumer) {
+    if (RENAMED_AWAY.has(crate) && !canonicalVersions.has(crate)) {
+      const successor = RENAMED_AWAY.get(crate);
+      if (successor && !canonicalVersions.has(successor)) throw new Error(`${crate} was renamed to ${successor}, which is missing from the tree`);
+      continue;
+    }
     if (!canonicalVersions.has(crate)) throw new Error(`unknown published Cargo crate: ${crate}`);
     const expected = staged.get(crate) ?? version;
     const actual = canonicalVersions.get(crate);

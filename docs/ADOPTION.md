@@ -15,10 +15,10 @@ Status values compare each pin with the latest published version (registry-recor
 
 ## Summary
 
-- Packages in RightKit: 80 (56 crates, 24 npm packages).
+- Packages in RightKit: 79 (55 crates, 24 npm packages).
 - Packages with at least one app pin: 66.
 - App pins: 770. Stale: 41. Ahead of published: 163. Unpublished: 11. Local: 443. Git: 0. Unparsed: 0.
-- Vendored copies of RightKit packages inside app repos: 235.
+- Vendored copies of RightKit packages inside app repos: 233.
 - App and package pairs with more than one requirement: 95.
 
 ## Packages
@@ -63,7 +63,6 @@ Status values compare each pin with the latest published version (registry-recor
 | `rightkit-process` | crates.io | 0.4.0 | 0.3.3 | 7 | coderight, cutright, genright, heardright, postright, scraperight, viewright | 8 vendored copies; 10 ahead of published |
 | `rightkit-qa` | crates.io | 0.2.16 | 0.2.14 | 6 | cutright, genright, heardright, postright, scraperight, viewright | 7 vendored copies; 5 ahead of published |
 | `rightkit-qts` | crates.io | 0.2.6 | 0.2.5 | 3 | genright, heardright, viewright | 3 vendored copies |
-| `rightkit-qts-ggml` | crates.io | 0.1.2 | 0.1.2 | 0 | none | 2 vendored copies |
 | `rightkit-qts-ggml-sys` | crates.io | 0.1.2 | 0.1.2 | 3 | genright, heardright, viewright | 3 vendored copies |
 | `rightkit-record` | private | 0.2.0 | none recorded | 0 | none | 2 vendored copies |
 | `rightkit-review` | crates.io | 0.2.0 | none recorded | 2 | cutright, postright | 4 vendored copies |
@@ -1053,8 +1052,6 @@ Vendored copies are app-owned source trees that carry a RightKit package name. T
 | `rightkit-qts` | genright | `genright/rk-snapshot/crates/rightkit-qts/Cargo.toml` | 0.2.6 | 0.2.5 |
 | `rightkit-qts` | viewright | `viewright/tmp/rk-trial-2d1c2c02/crates/rightkit-qts/Cargo.toml` | 0.2.6 | 0.2.5 |
 | `rightkit-qts` | heardright | `heardright/rk-snapshot/crates/rightkit-qts/Cargo.toml` | 0.2.6 | 0.2.5 |
-| `rightkit-qts-ggml` | viewright | `viewright/tmp/rk-trial-2d1c2c02/crates/rightkit-qts-ggml/Cargo.toml` | 0.1.2 | 0.1.2 |
-| `rightkit-qts-ggml` | heardright | `heardright/rk-snapshot/crates/rightkit-qts-ggml/Cargo.toml` | 0.1.2 | 0.1.2 |
 | `rightkit-qts-ggml-sys` | genright | `genright/rk-snapshot/crates/rightkit-qts-ggml-sys/Cargo.toml` | 0.1.2 | 0.1.2 |
 | `rightkit-qts-ggml-sys` | viewright | `viewright/tmp/rk-trial-2d1c2c02/crates/rightkit-qts-ggml-sys/Cargo.toml` | 0.1.2 | 0.1.2 |
 | `rightkit-qts-ggml-sys` | heardright | `heardright/rk-snapshot/crates/rightkit-qts-ggml-sys/Cargo.toml` | 0.1.2 | 0.1.2 |

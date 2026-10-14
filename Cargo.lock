@@ -5666,13 +5666,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "rightkit-qts-ggml"
-version = "0.1.2"
-dependencies = [
- "rightkit-qts-ggml-sys",
-]
-
-[[package]]
 name = "rightkit-qts-ggml-sys"
 version = "0.1.2"
 dependencies = [

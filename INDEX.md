@@ -12,7 +12,7 @@ Flagged mismatches: 50.
 
 The build broker is the Rust RustRight product (`bogusyogi/rustright`, binary `rustright`, alias `rightkit`); it is not part of this inventory. `packages/build-control-policy` keeps the agent permission hooks.
 
-## Rust crates (56)
+## Rust crates (55)
 
 | Crate | Registry | Source | Published | Staged | Flag | Owns | What it is |
 |---|---|---|---|---|---|---|---|
@@ -54,7 +54,6 @@ The build broker is the Rust RustRight product (`bogusyogi/rustright`, binary `r
 | `rightkit-process` | crates.io | 0.4.0 | 0.3.3 | 0.3.3 | **MISMATCH staged 0.3.3 != source 0.4.0** | owned-processes | Ownership-safe child lifecycle, restart, and health primitives for Right Suite apps. |
 | `rightkit-qa` | crates.io | 0.2.16 | 0.2.14 | 0.2.15 | **MISMATCH staged 0.2.15 != source 0.2.16** | desktop-qa | Rust QA harness for Right Suite apps: engine black-box scenarios, hidden native UI driving through rightkit-control, Rust-test scenario wrapper, dynamic paid-provider mocks, loudness/WAV/PNG/frame validators, run lock, orphan sweep, hashed evidence. |
 | `rightkit-qts` | crates.io | 0.2.6 | 0.2.5 | 0.2.5 | **MISMATCH staged 0.2.5 != source 0.2.6** | text-to-speech | Qwen3 TTS inference (GGUF + GGML), vendored from yet-another-ai/qts v0.2.0 for RightKit |
-| `rightkit-qts-ggml` | crates.io | 0.1.2 | 0.1.2 | 0.1.2 | ok | text-to-speech | DEPRECATED: use rightkit-qts-ggml-sys directly. Thin safe wrappers over rightkit-qts-ggml-sys for rightkit-qts, vendored from yet-another-ai/qts v0.2.0 |
 | `rightkit-qts-ggml-sys` | crates.io | 0.1.2 | 0.1.2 | 0.1.2 | ok | text-to-speech | Low-level FFI bindings to ggml (CPU, Metal, Vulkan, BLAS) for rightkit-qts, vendored from yet-another-ai/qts v0.2.0 |
 | `rightkit-record` | private | 0.2.0 | none recorded |  | private | screen-recording | Platform-neutral core of the RightKit recorder (RK3): record lifecycle, quarantine and recovery, session bundle writer, per-field redaction, bundle verification and frame reader. OS capture lives in per-platform helpers behind the Backend trait. |
 | `rightkit-review` | crates.io | 0.2.0 | none recorded | 0.1.0 | **MISMATCH staged 0.1.0 != source 0.2.0** | content-review | Shared review capability for the content pipeline: deterministic checks over a media or text description, declared holds, a capped repair loop, an advisory judge interface, and versioned verdict records. |
@@ -104,4 +103,4 @@ The build broker is the Rust RustRight product (`bogusyogi/rustright`, binary `r
 
 ## Version records without a manifest
 
-rightkit-service (cargo).
+rightkit-qts-ggml (cargo), rightkit-service (cargo).

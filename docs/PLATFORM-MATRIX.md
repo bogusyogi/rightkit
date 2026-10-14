@@ -250,7 +250,7 @@ Swift S01 to S06 were fixed by one lane, uncommitted; its tests pass on macOS (*
 | Release gates: publication receipts, runtime-budget gate, continuous-crate budgets | **Open**: receipts do not qualify the source revision (P01); the gate was a README regex (P02; the tree now holds a structured `runtime-budget.json` gate, written, unverified, `packages/release/runtime-budgets.mjs:1-20`); all 11 continuous crates lack measured budgets (P03; fsindex's CHANGELOG points to a README section that does not exist) | `packages/release/publication-gate.mjs:34`, `docs/RUNTIME-BUDGETS.md:7` | P01, P02, P03 (ledger #80, #97) |
 | `rightkit-send` partial path can truncate an existing file | **Open** in the audit; the tree now creates the partial with `create_new` | `crates/rightkit-send/src/receive.rs:493-497` | F01 |
 | QA ownership comment contradicts the Node/browser and native QA split | **Open** in the audit; `src/lib.rs:1-6` now says the runners coexist | `crates/rightkit-qa/src/lib.rs:1-6` | A01 |
-| Deprecated `rightkit-qts-ggml` wrapper | **Open** (no new API; retire after a consumer check) | `crates/rightkit-qts-ggml/src/lib.rs:1` | A02 |
+| Deprecated `rightkit-qts-ggml` wrapper | **Retired** (crate directory deleted; 0.1.2 stays published; depend on `rightkit-qts-ggml-sys`) | none | A02 |
 | `rightkit-send` trust-store writer overlaps `rightkit-fs` | **Open** (compare owner permissions, durability, Windows replacement before delegating) | `crates/rightkit-send/src/lib.rs:213` | A03 |
 | `@rightkit/media-ui` image stage not focusable | **Open** in the audit; the tree now sets `tabIndex={0}` on the stage | `packages/media-ui/src/image/ImageViewerStage.tsx:114` | U01 |
 
