@@ -30,7 +30,7 @@ The persistence port is the `SettingsBackend` interface (`load`, `patch` with `e
 | `@rightkit/license` | `>=0.1.0` | Optional. Needed by `/standard` and the root entry only. No upper bound. |
 | `@rightkit/logs` | `>=0.1.0` | Optional. Needed by `/standard` and the root entry only (type use). No upper bound. |
 | `@rightkit/theme` | `>=0.2.0 <1` | Optional. Needed by `/standard` and the root entry only. |
-| `@rightkit/updates` | `>=0.2.0` | Optional. Needed by `/standard` and the root entry only (type use). No upper bound. |
+| `@rightkit/app-update` | `>=0.2.0` | Optional. Needed by `/standard` and the root entry only (type use). No upper bound. |
 | `react` | `>=18 <21` | |
 
 ## Example
@@ -314,5 +314,5 @@ Outside a provider every hook is inert: rows render, nothing is hidden, groups a
 
 ## Known issues
 
-- Three peers have no upper bound: `@rightkit/license`, `@rightkit/logs` and `@rightkit/updates` (npm audit 2026-10-08, settings-ui finding).
+- Three peers have no upper bound: `@rightkit/license`, `@rightkit/logs` and `@rightkit/app-update` (npm audit 2026-10-08, settings-ui finding).
 - Peer React is `<21`, the same range as `doc-render`, `i18n`, `media-ui` and `pdf-ui` (`package.json:49`).

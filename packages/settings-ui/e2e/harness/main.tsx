@@ -1,7 +1,7 @@
 import { StrictMode, useLayoutEffect, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { AppShell, PageShell, Toggle, createThemeStore, type NavGroup } from "./shell.js";
-import { createAutoUpdateClient } from "@rightkit/updates";
+import { createAutoUpdateClient } from "@rightkit/app-update";
 import { createLicenseClient, type StoredLicense } from "@rightkit/license";
 import { createLogsClient } from "@rightkit/logs";
 import {

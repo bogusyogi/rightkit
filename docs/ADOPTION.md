@@ -16,8 +16,8 @@ Status values compare each pin with the latest published version (registry-recor
 ## Summary
 
 - Packages in RightKit: 79 (55 crates, 24 npm packages).
-- Packages with at least one app pin: 52.
-- App pins: 461. Stale: 34. Ahead of published: 90. Unpublished: 11. Local: 228. Git: 0. Unparsed: 0.
+- Packages with at least one app pin: 51.
+- App pins: 454. Stale: 33. Ahead of published: 90. Unpublished: 11. Local: 228. Git: 0. Unparsed: 0.
 - Vendored copies of RightKit packages inside app repos: 155.
 - App and package pairs with more than one requirement: 52.
 
@@ -81,6 +81,7 @@ Status values compare each pin with the latest published version (registry-recor
 | `rightkit-vad` | crates.io | 0.1.0 | 0.0.3 | 4 | cutright, heardright, scraperight, viewright | 4 vendored copies; 3 ahead of published |
 | `rightkit-workflow` | crates.io | 0.1.0 | none recorded | 0 | none | - |
 | `@rightkit/app-shell` | npm | 0.6.4 | 0.6.2 | 7 | coderight, cutright, genright, heardright, postright, scraperight, viewright | 4 stale |
+| `@rightkit/app-update` | npm | 0.2.5 | none recorded | 0 | none | - |
 | `@rightkit/ax` | npm | 0.3.2 | 0.2.4 | 2 | coderight, legion | - |
 | `@rightkit/build-control-policy` | private | 0.1.1-phase1 | none recorded | 0 | none | - |
 | `@rightkit/ci` | npm | 0.2.42 | none recorded | 0 | none | - |
@@ -103,7 +104,6 @@ Status values compare each pin with the latest published version (registry-recor
 | `@rightkit/shell` | npm | 0.1.1 | 0.1.1 | 2 | coderight, cutright | 2 stale |
 | `@rightkit/tauri` | npm | 0.2.0 | 0.2.0 | 6 | coderight, heardright, mailright, postright, scraperight, viewright | 1 stale |
 | `@rightkit/theme` | npm | 0.2.3 | 0.2.3 | 5 | cutright, genright, heardright, scraperight, viewright | - |
-| `@rightkit/updates` | npm | 0.2.5 | 0.2.5 | 7 | coderight, cutright, heardright, mailright, postright, scraperight, viewright | 1 stale |
 
 ## Pins
 
@@ -563,13 +563,6 @@ Status values compare each pin with the latest published version (registry-recor
 | `@rightkit/theme` | heardright | `heardright/tauri-app-next/package.json` | dependencies | `0.2.3` | 0.2.3 | current |
 | `@rightkit/theme` | scraperight | `scraperight/package.json` | dependencies | `0.2.3` | 0.2.3 | current |
 | `@rightkit/theme` | viewright | `viewright/package.json` | dependencies | `0.2.3` | 0.2.3 | current |
-| `@rightkit/updates` | coderight | `coderight/apps/coderight-tauri/package.json` | dependencies | `0.2.5` | 0.2.5 | current |
-| `@rightkit/updates` | cutright | `cutright/apps/cutright/package.json` | dependencies | `0.2.4` | 0.2.5 | stale |
-| `@rightkit/updates` | heardright | `heardright/tauri-app-next/package.json` | dependencies | `0.2.5` | 0.2.5 | current |
-| `@rightkit/updates` | mailright | `mailright/package.json` | dependencies | `0.2.5` | 0.2.5 | current |
-| `@rightkit/updates` | postright | `postright/package.json` | dependencies | `0.2.5` | 0.2.5 | current |
-| `@rightkit/updates` | scraperight | `scraperight/package.json` | dependencies | `0.2.5` | 0.2.5 | current |
-| `@rightkit/updates` | viewright | `viewright/package.json` | dependencies | `0.2.5` | 0.2.5 | current |
 
 ## Duplicate copies and split pins
 
@@ -794,14 +787,14 @@ Split pins: one app names the same package with different requirements, possibly
 
 | App | Present | Manifests read | Parse errors | RightKit pins matched |
 |---|---|---|---|---|
-| cutright | yes | 55 | 0 | 53 |
+| cutright | yes | 55 | 0 | 52 |
 | genright | yes | 35 | 0 | 48 |
-| scraperight | yes | 44 | 0 | 64 |
-| viewright | yes | 95 | 0 | 104 |
-| heardright | yes | 79 | 0 | 94 |
-| coderight | yes | 101 | 0 | 39 |
-| mailright | yes | 3 | 0 | 13 |
-| postright | yes | 30 | 0 | 39 |
+| scraperight | yes | 44 | 0 | 63 |
+| viewright | yes | 95 | 0 | 103 |
+| heardright | yes | 79 | 0 | 93 |
+| coderight | yes | 101 | 0 | 38 |
+| mailright | yes | 3 | 0 | 12 |
+| postright | yes | 30 | 0 | 38 |
 | cockpit | **missing** | 0 | 0 | 0 |
 | workright | yes | 16 | 0 | 0 |
 | sellright | yes | 6 | 0 | 1 |

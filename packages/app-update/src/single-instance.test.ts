@@ -7,7 +7,7 @@ import {
 } from './single-instance.js';
 
 afterEach(() => {
-  delete (globalThis as Record<symbol, unknown>)[Symbol.for('@rightkit/updates.instances')];
+  delete (globalThis as Record<symbol, unknown>)[Symbol.for('@rightkit/app-update.instances')];
 });
 
 describe('single instance guard', () => {

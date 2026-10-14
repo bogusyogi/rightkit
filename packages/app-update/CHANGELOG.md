@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Renamed from @rightkit/updates; @rightkit/updates@0.2.5 remains published under the old name.
 - Add optional `verifyMetadata` hook for signed-metadata validation; default off, Breaking: none.
 - Add `relaunch` and `relaunchAfterInstall` (default false) for host-driven relaunch after install; default off, Breaking: none.
 - Add `src/probation.ts` boot probation state machine with host-injected storage and `onRollback`; default off, Breaking: none.

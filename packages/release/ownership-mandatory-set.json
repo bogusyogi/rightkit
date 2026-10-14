@@ -316,10 +316,9 @@
       "profile": "desktop",
       "owners": [
         {
-          "name": "@rightkit/updates",
+          "name": "@rightkit/app-update",
           "ecosystem": "npm",
-          "min": "0.2.5",
-          "registryMax": "0.2.5"
+          "min": "0.2.5"
         }
       ]
     },

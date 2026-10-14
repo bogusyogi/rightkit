@@ -82,5 +82,5 @@ Capabilities: 72 (54 with fingerprints, 18 declaration-only). Internal owners th
 | text-to-speech | `rightkit-tts`, `rightkit-tts-qwen`, `rightkit-tts-qwen-sys` | advise | fingerprinted | 3 (0 block, 3 advise) | rightkit-tts: published 0.1.1 (crates.io); rightkit-tts-qwen: none recorded; rightkit-tts-qwen-sys: none recorded |
 | theme-ui | `@rightkit/theme` | advise | fingerprinted | 7 (0 block, 7 advise) | @rightkit/theme: published 0.2.3 (npm) |
 | timed-transcripts | `rightkit-transcript` | advise | fingerprinted | 2 (0 block, 2 advise) | rightkit-transcript: published 0.2.0 (crates.io) |
-| update-policy | `@rightkit/updates` | advise | fingerprinted | 1 (0 block, 1 advise) | @rightkit/updates: published 0.2.5 (npm) |
+| update-policy | `@rightkit/app-update` | advise | fingerprinted | 1 (0 block, 1 advise) | @rightkit/app-update: none recorded |
 | voice-activity-detection | `rightkit-vad` | advise | fingerprinted | 2 (0 block, 2 advise) | rightkit-vad: published 0.0.3 (crates.io) |

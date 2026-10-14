@@ -3,7 +3,7 @@ import { Badge, Button, Input, SegmentedControl, Toggle, createThemeStore, useMe
 import { isLicensed, type StoredLicense } from "@rightkit/license";
 import type { LogsClient } from "@rightkit/logs";
 import { applyBrand, brandFromAccent } from "@rightkit/theme";
-import type { AutoUpdateClient, AutoUpdateStatus } from "@rightkit/updates";
+import type { AutoUpdateClient, AutoUpdateStatus } from "@rightkit/app-update";
 import { errText } from "./errors.js";
 import { useDoctor, useLicenseSection, type DoctorCheck, type DoctorResult, type DoctorStatus, type LicenseClientLike } from "./hooks.js";
 import { sectionIcons } from "./icons.js";

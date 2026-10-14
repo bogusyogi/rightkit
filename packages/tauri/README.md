@@ -9,7 +9,7 @@ Typed renderer-side adapters for the shared Right Suite Tauri command surface. T
 | Version | see INDEX.md |
 | License | MIT OR Apache-2.0 |
 
-Updater behavior comes from `@rightkit/updates`: an `AutoUpdateClient` passed as `updates` is exposed unchanged as `client.updates`, and this package implements none.
+Updater behavior comes from `@rightkit/app-update`: an `AutoUpdateClient` passed as `updates` is exposed unchanged as `client.updates`, and this package implements none.
 
 ## Entry points
 
@@ -27,7 +27,7 @@ The client exposes `license.get/set/delete`, `device.getOrCreate`, `logs.write/c
 |---|---|---|
 | `@rightkit/logs` | `^0.1.4` | Runtime import of the `rightkit_logs_*` command-name constants |
 
-Peer dependencies: `@rightkit/updates` `^0.2.5`, used only as a type (`AutoUpdateClient`). Install it alongside this package in the app.
+Peer dependencies: `@rightkit/app-update` `^0.2.5`, used only as a type (`AutoUpdateClient`). Install it alongside this package in the app.
 
 ## Example
 

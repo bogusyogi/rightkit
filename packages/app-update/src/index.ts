@@ -1,6 +1,6 @@
 import type { UpdateTier } from './contract-vectors.js';
 export type { UpdateTier, UpdateHostContractVector } from './contract-vectors.js';
-/** Kept on the main entry for compatibility; prefer `@rightkit/updates/contract-vectors` in tests. */
+/** Kept on the main entry for compatibility; prefer `@rightkit/app-update/contract-vectors` in tests. */
 export { UPDATE_HOST_CONTRACT_VECTORS } from './contract-vectors.js';
 
 export type UpdateHeaders = Record<string, string>;

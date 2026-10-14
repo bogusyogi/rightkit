@@ -8,7 +8,7 @@ Version columns: **Source** is the manifest version. **Published** is the latest
 
 Flags: `ok` means source, published and staged agree. `staged, not yet published` is in-flight work. `private` has no registry record by design. `MISMATCH` needs a release decision.
 
-Flagged mismatches: 54.
+Flagged mismatches: 55.
 
 The build broker is the Rust RustRight product (`bogusyogi/rustright`, binary `rustright`, alias `rightkit`); it is not part of this inventory. `packages/build-control-policy` keeps the agent permission hooks.
 
@@ -77,6 +77,7 @@ The build broker is the Rust RustRight product (`bogusyogi/rustright`, binary `r
 | Package | Registry | Source | Published | Staged | Flag | CLI | Owns | What it is |
 |---|---|---|---|---|---|---|---|---|
 | `@rightkit/app-shell` | npm | 0.6.4 | 0.6.2 | 0.6.2 | **MISMATCH staged 0.6.2 != source 0.6.4** |  | app-shell-ui | Brand-neutral React frame for Right Suite desktop apps: optional fused sidebar+titlebar layout with slots, command palette, shortcut registry/help, toasts, modals, context menus, ui kit, theme hooks. |
+| `@rightkit/app-update` | npm | 0.2.5 | none recorded |  | **MISMATCH public package has no release record** |  | update-policy | Shared runtime update policy helper for Right Suite Tauri apps. |
 | `@rightkit/ax` | npm | 0.3.2 | 0.2.4 | 0.2.4 | **MISMATCH staged 0.2.4 != source 0.3.2** | right-ax | agent-experience-gates | Suite-wide agent-experience (AX) + agent-plugins.org conformance layer: plugin scaffolding/validation and AXA-1 static/conformance/behavioral gates over one product's MCP/CLI surface. |
 | `@rightkit/build-control-policy` | private | 0.1.1-phase1 | none recorded |  | private |  |  | `ownership-write-hook-cli.mjs` adds secondary feedback for Claude `Write`/`Edit`/`MultiEdit` and shell (`Bash`) calls, and for Codex `apply_patch` and shell (`exec_command`) calls. Both adapters deny writes targeting ownership exception or platform trust records. `ownership-session-hook-cli.mjs` adds the current RightKit ownership index at session start. Hook feedback is fail-open for ambiguous edits; build admission remains authoritative. |
 | `@rightkit/ci` | npm | 0.2.42 | none recorded |  | **MISMATCH public package has no release record** | right-git | github-workflows | Public-repo-only GitHub Actions workflow layer: templates, visibility gate, sync/drift/adopt/uninstall for right-git. |
@@ -99,8 +100,7 @@ The build broker is the Rust RustRight product (`bogusyogi/rustright`, binary `r
 | `@rightkit/shell` | npm | 0.1.1 | 0.1.1 | 0.1.1 | ok |  | desktop-shell | Typed renderer bridge for the rightkit-tauri-shell Tauri crate: window controls, menu/tray events, deep links, autostart, rich clipboard, engine calls. |
 | `@rightkit/tauri` | npm | 0.2.0 | 0.2.0 | 0.2.0 | ok |  | tauri-host-adapters | Typed host adapters for shared Right Suite Tauri commands. |
 | `@rightkit/theme` | npm | 0.2.3 | 0.2.3 | 0.2.3 | ok | rightkit-theme | theme-ui | Brand file to CSS tokens generator for Right Suite apps: light/dark/system, derived dark accent, WCAG contrast and hard-coded-colour checks, runtime brand application. |
-| `@rightkit/updates` | npm | 0.2.5 | 0.2.5 | 0.2.5 | ok |  | update-policy | Shared runtime update policy helper for Right Suite Tauri apps. |
 
 ## Version records without a manifest
 
-rightkit-control (cargo), rightkit-framed-sidecar (cargo), rightkit-jobs (cargo), rightkit-media (cargo), rightkit-ort (cargo), rightkit-process (cargo), rightkit-qts (cargo), rightkit-qts-ggml (cargo), rightkit-qts-ggml-sys (cargo), rightkit-secrets (cargo), rightkit-service (cargo), rightkit-settings (cargo), rightkit-shell (cargo), rightkit-tauri (cargo), rightkit-watch (cargo), @rightkit/git (npm).
+rightkit-control (cargo), rightkit-framed-sidecar (cargo), rightkit-jobs (cargo), rightkit-media (cargo), rightkit-ort (cargo), rightkit-process (cargo), rightkit-qts (cargo), rightkit-qts-ggml (cargo), rightkit-qts-ggml-sys (cargo), rightkit-secrets (cargo), rightkit-service (cargo), rightkit-settings (cargo), rightkit-shell (cargo), rightkit-tauri (cargo), rightkit-watch (cargo), @rightkit/git (npm), @rightkit/updates (npm).

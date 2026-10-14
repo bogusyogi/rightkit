@@ -52,6 +52,15 @@ importers:
         specifier: ^2.1.8
         version: 2.1.9(@types/node@24.13.3)(jsdom@26.1.0(canvas@3.2.3)(supports-color@8.1.1))(supports-color@8.1.1)
 
+  packages/app-update:
+    devDependencies:
+      typescript:
+        specifier: ^5.7.0
+        version: 5.9.3
+      vitest:
+        specifier: ^2.1.8
+        version: 2.1.9(@types/node@22.20.0)(jsdom@26.1.0(canvas@3.2.3)(supports-color@8.1.1))(supports-color@8.1.1)
+
   packages/ax: {}
 
   packages/build-control-policy: {}
@@ -427,9 +436,9 @@ importers:
       '@rightkit/theme':
         specifier: workspace:*
         version: link:../theme
-      '@rightkit/updates':
+      '@rightkit/app-update':
         specifier: workspace:*
-        version: link:../updates
+        version: link:../app-update
       '@testing-library/jest-dom':
         specifier: ^6.6.3
         version: 6.9.1
@@ -475,9 +484,9 @@ importers:
       '@rightkit/logs':
         specifier: ^0.1.4
         version: link:../logs
-      '@rightkit/updates':
+      '@rightkit/app-update':
         specifier: ^0.2.5
-        version: link:../updates
+        version: link:../app-update
     devDependencies:
       typescript:
         specifier: ^5.7.0
@@ -500,15 +509,6 @@ importers:
       vitest:
         specifier: ^2.1.8
         version: 2.1.9(@types/node@24.13.3)(jsdom@26.1.0(canvas@3.2.3)(supports-color@8.1.1))(supports-color@8.1.1)
-
-  packages/updates:
-    devDependencies:
-      typescript:
-        specifier: ^5.7.0
-        version: 5.9.3
-      vitest:
-        specifier: ^2.1.8
-        version: 2.1.9(@types/node@22.20.0)(jsdom@26.1.0(canvas@3.2.3)(supports-color@8.1.1))(supports-color@8.1.1)
 
 packages:
 

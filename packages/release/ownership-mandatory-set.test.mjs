@@ -53,7 +53,7 @@ test("known-bad: missing, below-required, path/patch overrides and dev-only are 
   try {
     goodApp(root, {
       drop: ["rightkit-crash", "@rightkit/legal"],
-      version: { "rightkit-db": "0.3.2", "@rightkit/updates": "0.2.4" },
+      version: { "rightkit-db": "0.3.2", "@rightkit/app-update": "0.2.4" },
       extraCargo: "[patch.crates-io]\nrightkit-fs = { path = \"../rk-snapshot/crates/rightkit-fs\" }\n",
       extraPackage: { "@rightkit/theme": "file:../rk-snapshot/theme" },
     });
@@ -63,7 +63,7 @@ test("known-bad: missing, below-required, path/patch overrides and dev-only are 
     assert.match(byOwner(report, "rightkit-crash").evidence[0], /dev-dependencies/);
     assert.equal(byOwner(report, "@rightkit/legal").status, "missing");
     assert.equal(byOwner(report, "rightkit-db").status, "below-required");
-    assert.equal(byOwner(report, "@rightkit/updates").status, "below-required");
+    assert.equal(byOwner(report, "@rightkit/app-update").status, "below-required");
     assert.equal(byOwner(report, "rightkit-fs").status, "not-on-registry");
     assert.match(byOwner(report, "rightkit-fs").evidence[0], /patch\.crates-io/);
     assert.equal(byOwner(report, "@rightkit/theme").status, "not-on-registry");
@@ -104,7 +104,7 @@ test("app-side N/A needs a reason", () => {
     assert.equal(byOwner(report, "rightkit-crash"), undefined);
     assert.deepEqual(report.notApplicable.map((n) => n.row), ["M16"]);
     assert.ok(report.problems.some((p) => p.startsWith("M18")));
-    assert.equal(byOwner(report, "@rightkit/updates").status, "ok");
+    assert.equal(byOwner(report, "@rightkit/app-update").status, "ok");
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 

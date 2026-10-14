@@ -1,5 +1,5 @@
 {
-  "name": "@rightkit/updates",
+  "name": "@rightkit/app-update",
   "version": "0.2.5",
   "description": "Shared runtime update policy helper for Right Suite Tauri apps.",
   "license": "MIT OR Apache-2.0",
@@ -36,6 +36,6 @@
   "repository": {
     "type": "git",
     "url": "git+https://github.com/Orthic-Labs/rightkit.git",
-    "directory": "packages/updates"
+    "directory": "packages/app-update"
   }
 }

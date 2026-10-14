@@ -4,7 +4,7 @@ import { cleanup, render, screen, waitFor, within } from "@testing-library/react
 import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { AutoUpdateClient, AutoUpdateStatus } from "@rightkit/updates";
+import type { AutoUpdateClient, AutoUpdateStatus } from "@rightkit/app-update";
 import type { StoredLicense } from "@rightkit/license";
 import { SettingsPanel, UpdatesControls, aboutSection, createMemorySettings, doctorSection, licenseSection, standardSections, updatesSection, useUpdates } from "./index.js";
 import type { DoctorCheck, LicenseClientLike, SettingsContext, SettingsSection, UpdatesAdapter } from "./index.js";

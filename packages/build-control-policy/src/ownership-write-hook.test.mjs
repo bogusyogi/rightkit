@@ -403,7 +403,7 @@ const deny = (decision) => decision.hookSpecificOutput?.permissionDecision === '
 
 test('allowlist: baseline, global, RightKit and first-party path dependencies are allowed; a new dependency is denied from trusted copy', () => {
   useAllowlist({ trust: trustWith() });
-  for (const dependencies of [{ lodash: '4' }, { typescript: '5' }, { '@rightkit/updates': '1' }, { 'rightkit-thing': '1' }, { local: 'file:../local' }, { shared: 'workspace:*' }]) {
+  for (const dependencies of [{ lodash: '4' }, { typescript: '5' }, { '@rightkit/app-update': '1' }, { 'rightkit-thing': '1' }, { local: 'file:../local' }, { shared: 'workspace:*' }]) {
     assert.deepEqual(writePackage(dependencies), { decision: 'allow' }, JSON.stringify(dependencies));
   }
   const denied = writePackage({ lodash: '4', leftpad: '1' });

@@ -689,7 +689,7 @@ for (const app of apps) {
       pkg.dependencies?.["@rightkit/updates"],
       versions.npm["@rightkit/updates"] === pkg.dependencies?.["@rightkit/updates"]
         ? versions.npm["@rightkit/updates"]
-        : versions.stagedNpm?.["@rightkit/updates"],
+        : versions.registry?.npm?.["@rightkit/updates"],
       `${app.key} must consume the exact published shared updater runtime`,
     );
     assert(!JSON.stringify(pkg).includes("github:adrdsouza/claude#main&path:/tools/right-release"));

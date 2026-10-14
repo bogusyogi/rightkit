@@ -34,7 +34,7 @@ test("allowlist decisions: baseline, global, RightKit and path allowed; new, wro
   const ask = (dependency, identity = IDENTITY) => evaluateDependency(allowlist, identity, dependency).allowed;
   assert.equal(ask({ ecosystem: "npm", name: "lodash" }), true);
   assert.equal(ask({ ecosystem: "npm", name: "typescript" }), true);
-  assert.equal(ask({ ecosystem: "npm", name: "@rightkit/updates" }), true);
+  assert.equal(ask({ ecosystem: "npm", name: "@rightkit/app-update" }), true);
   assert.equal(ask({ ecosystem: "cargo", name: "anything", kind: "path" }), true);
   assert.equal(ask({ ecosystem: "cargo", name: "gitdep", kind: "git" }), true);
   assert.equal(ask({ ecosystem: "cargo", name: "serde", kind: "git" }), false);
@@ -162,7 +162,7 @@ const trustState = ({ pending = false, withAllowlist = true } = {}) => ({ enroll
 const notAllowlisted = (result) => result.violations.filter((f) => f.fingerprint === "dependency-not-allowlisted");
 
 test("scan: allowlisted dependencies pass; a new dependency is a blocking dependency-not-allowlisted finding", () => {
-  const clean = repo({ "package.json": pkg({ lodash: "4", typescript: "5", "@rightkit/updates": "1", shared: "workspace:*" }) });
+  const clean = repo({ "package.json": pkg({ lodash: "4", typescript: "5", "@rightkit/app-update": "1", shared: "workspace:*" }) });
   const dirty = repo({ "package.json": pkg({ lodash: "4", leftpad: "1" }) });
   try {
     const ok = checkApp(clean, catalog, { trust: trustState() });

@@ -32,8 +32,7 @@
     "@rightkit/settings-ui": "0.4.3",
     "@rightkit/shell": "0.1.1",
     "@rightkit/tauri": "0.2.0",
-    "@rightkit/theme": "0.2.3",
-    "@rightkit/updates": "0.2.5"
+    "@rightkit/theme": "0.2.3"
   },
   "legacyNpm": {
     "@rightkit/ax": [

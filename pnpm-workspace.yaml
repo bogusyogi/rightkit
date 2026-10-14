@@ -19,5 +19,5 @@ allowBuilds:
   geckodriver: false
 
 minimumReleaseAgeExclude:
-  - '@rightkit/updates@0.2.2 || 0.2.3'
+  - '@rightkit/app-update@0.2.2 || 0.2.3'
   - '@rightkit/ci@0.2.37'

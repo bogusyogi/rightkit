@@ -23,7 +23,7 @@ Current versions and the full crate and package inventory are in [INDEX.md](INDE
 | [`@rightkit/qa`](packages/qa) | TypeScript (Node) | Shared QA evidence, ownership, browser helpers, and release-backdoor guards |
 | [`@rightkit/release`](packages/release) | Node CLI | Native-host signed release, hardening, explicit GitHub/R2 distribution, and add-on adoption |
 | [`@rightkit/tauri`](packages/tauri) | TypeScript | Typed Tauri host adapters for license, device, log, and diagnostics commands |
-| [`@rightkit/updates`](packages/updates) | TypeScript | Runtime update policy helper |
+| [`@rightkit/app-update`](packages/app-update) | TypeScript | Runtime update policy helper |
 | [`RightKitSwift`](swift/RightKitSwift) | Swift package | Apple-platform license, diagnostics, artifacts, purchases, sync, store, speech, and UI primitives (15 library products) |
 
 This repository (`Orthic-Labs/rightkit`) is the only source home for shared RightKit crates, npm packages, and the Swift package. Apps consume the published crates and npm packages, and the Swift package by exact tag. Consumers must not depend on this checkout, a sibling path, or a Git URL for crates or npm packages; `right-release` checks refuse such dependencies.

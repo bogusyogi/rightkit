@@ -2972,6 +2972,42 @@
       ]
     },
     {
+      "package": "@rightkit/app-update",
+      "capability": "update-policy",
+      "summary": "Shared runtime update policy helper for Right Suite Tauri apps.",
+      "fingerprints": [
+        {
+          "id": "updates.api.download-and-install",
+          "type": "source",
+          "pattern": "\\.\\s*(?:downloadAndInstall|download_and_install)\\s*\\(",
+          "codeOnly": true,
+          "extensions": [
+            ".ts",
+            ".tsx",
+            ".js",
+            ".mjs",
+            ".cjs",
+            ".jsx",
+            ".rs"
+          ],
+          "tier": "advise",
+          "usageContext": {
+            "hosts": [
+              "macos",
+              "windows"
+            ],
+            "scope": "Executable code only; authenticated owner provenance required for exclusions"
+          },
+          "tierReason": "No recorded published-version qualification for this usage context on both macOS & Windows."
+        }
+      ],
+      "detection": "fingerprinted",
+      "policyNotes": [
+        "Package contract retained; dependency declarations do not verify integration.",
+        "Fingerprints identify review candidates (competing dependencies and distinctive implementation code); published two-host replacement qualification is not recorded."
+      ]
+    },
+    {
       "package": "@rightkit/ax",
       "capability": "agent-experience-gates",
       "summary": "Suite-wide agent-experience (AX) + agent-plugins.org conformance layer: plugin scaffolding/validation and AXA-1 static/conformance/behavioral gates over one product's MCP/CLI surface.; declaration-only detection (no precise implementation fingerprint)",
@@ -4019,42 +4055,6 @@
             ".mjs",
             ".cjs",
             ".jsx"
-          ],
-          "tier": "advise",
-          "usageContext": {
-            "hosts": [
-              "macos",
-              "windows"
-            ],
-            "scope": "Executable code only; authenticated owner provenance required for exclusions"
-          },
-          "tierReason": "No recorded published-version qualification for this usage context on both macOS & Windows."
-        }
-      ],
-      "detection": "fingerprinted",
-      "policyNotes": [
-        "Package contract retained; dependency declarations do not verify integration.",
-        "Fingerprints identify review candidates (competing dependencies and distinctive implementation code); published two-host replacement qualification is not recorded."
-      ]
-    },
-    {
-      "package": "@rightkit/updates",
-      "capability": "update-policy",
-      "summary": "Shared runtime update policy helper for Right Suite Tauri apps.",
-      "fingerprints": [
-        {
-          "id": "updates.api.download-and-install",
-          "type": "source",
-          "pattern": "\\.\\s*(?:downloadAndInstall|download_and_install)\\s*\\(",
-          "codeOnly": true,
-          "extensions": [
-            ".ts",
-            ".tsx",
-            ".js",
-            ".mjs",
-            ".cjs",
-            ".jsx",
-            ".rs"
           ],
           "tier": "advise",
           "usageContext": {

@@ -1,6 +1,6 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
-import type { AutoUpdateClient } from "@rightkit/updates";
+import type { AutoUpdateClient } from "@rightkit/app-update";
 import { SectionFrame, SettingsPanel, aboutSection, appearanceSection, createMemorySettings, legalSection, licenseSection, standardSections, updatesSection } from "./index.js";
 import type { SettingsContext, SettingsSection } from "./index.js";
 

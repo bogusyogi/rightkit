@@ -19,7 +19,7 @@
     "@rightkit/logs": "^0.1.4"
   },
   "peerDependencies": {
-    "@rightkit/updates": "^0.2.5"
+    "@rightkit/app-update": "^0.2.5"
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
