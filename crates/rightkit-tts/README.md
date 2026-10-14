@@ -44,7 +44,7 @@ Model modes: `SynthOptions::mode` selects `Base` (0.6B, the default), `CustomVoi
 ## Platform support
 
 - macOS: `system` uses `say` and `afconvert`. `metal` applies to Apple targets.
-- Windows: `system` uses SAPI. `vulkan` is not target-gated: its build needs a Vulkan SDK or loader and `glslc` (`rightkit-qts-ggml-sys/build.rs:26-28`).
+- Windows: `system` uses SAPI. `vulkan` is not target-gated: its build needs a Vulkan SDK or loader and `glslc` (`rightkit-tts-qwen-sys/build.rs:26-28`).
 - Unix: `cfg(unix)` code is in `src/worker.rs`.
 
 Release notes: see `CHANGELOG.md` in this crate.

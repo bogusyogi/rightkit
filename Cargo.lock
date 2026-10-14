@@ -5660,17 +5660,9 @@ dependencies = [
  "hound",
  "prost",
  "rightkit-ort",
- "rightkit-qts-ggml-sys",
+ "rightkit-tts-qwen-sys",
  "rustfft",
  "thiserror 2.0.21",
-]
-
-[[package]]
-name = "rightkit-qts-ggml-sys"
-version = "0.1.2"
-dependencies = [
- "bindgen",
- "cmake",
 ]
 
 [[package]]
@@ -5841,6 +5833,14 @@ dependencies = [
  "serde",
  "serde_json",
  "thiserror 2.0.21",
+]
+
+[[package]]
+name = "rightkit-tts-qwen-sys"
+version = "0.1.2"
+dependencies = [
+ "bindgen",
+ "cmake",
 ]
 
 [[package]]

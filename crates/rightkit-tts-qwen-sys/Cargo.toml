@@ -1,5 +1,5 @@
 [package]
-name = "rightkit-qts-ggml-sys"
+name = "rightkit-tts-qwen-sys"
 version = "0.1.2"
 edition = "2021"
 license = "Apache-2.0 AND MIT"

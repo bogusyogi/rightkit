@@ -1,5 +1,5 @@
 {
-  "package": "rightkit-qts-ggml-sys",
+  "package": "rightkit-tts-qwen-sys",
   "capabilities": [
     {
       "capability": "text-to-speech",

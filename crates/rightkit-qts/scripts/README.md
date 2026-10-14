@@ -129,7 +129,7 @@ Upstream's missing-special-token behavior appears unsuitable for these inputs;
 its intent is uncertain. Loader defaults corroborate exported boundary IDs.
 
 GGUF v3 streaming layout follows vendored
-`crates/rightkit-qts-ggml-sys/vendor/ggml/include/gguf.h:1` &
+`crates/rightkit-tts-qwen-sys/vendor/ggml/include/gguf.h:1` &
 `src/gguf.cpp:1279`; metadata/tensor descriptors use little endian & 32-byte
 alignment. `gguf` supplies enums & quantization; streaming serializer keeps
 conversion memory bounded without Torch or an additional tensor spool.

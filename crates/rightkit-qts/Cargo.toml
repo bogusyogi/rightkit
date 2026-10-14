@@ -14,10 +14,10 @@ name = "qts"
 
 [features]
 default = []  # GenRight: backends are selected by genright-qts features
-metal = ["rightkit-qts-ggml-sys/metal"]
-vulkan = ["rightkit-qts-ggml-sys/vulkan"]
-blas = ["rightkit-qts-ggml-sys/blas"]
-native = ["rightkit-qts-ggml-sys/native"]
+metal = ["rightkit-tts-qwen-sys/metal"]
+vulkan = ["rightkit-tts-qwen-sys/vulkan"]
+blas = ["rightkit-tts-qwen-sys/blas"]
+native = ["rightkit-tts-qwen-sys/native"]
 acl = ["rightkit-ort/acl"]
 armnn = ["rightkit-ort/armnn"]
 azure = ["rightkit-ort/azure"]
@@ -39,7 +39,7 @@ webgpu = ["rightkit-ort/webgpu"]
 xnnpack = ["rightkit-ort/xnnpack"]
 
 [dependencies]
-rightkit-qts-ggml-sys = { path = "../rightkit-qts-ggml-sys", version = "0.1.0", default-features = false }
+rightkit-tts-qwen-sys = { path = "../rightkit-tts-qwen-sys", version = "0.1.0", default-features = false }
 thiserror = "2"
 getrandom = "0.3"
 hound = "3.5.1"

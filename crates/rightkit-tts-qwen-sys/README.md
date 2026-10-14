@@ -1,4 +1,4 @@
-# rightkit-qts-ggml-sys
+# rightkit-tts-qwen-sys
 
 Low-level FFI bindings to ggml for `rightkit-qts`. It is vendored from QTS v0.2.0 (see [PINNED.md](PINNED.md)); ggml is vendored as plain files at `vendor/ggml`, not as a git submodule. Its `CMakeLists.txt` reports version 0.9.8. [VERSIONS.md](VERSIONS.md) gives the correct vendored path and version, but its build matrix lists backends this crate does not declare (`cuda`, `hip`, and others) and says default features enable Metal and Vulkan, while `Cargo.toml:18` sets `default = []`. The feature table below and `Cargo.toml` are the reference. The crate builds ggml as a static library with CMake (through the `cmake` build dependency) and copies checked-in bindings. The Cargo `links` key is `rightkit_ggml`.
 
