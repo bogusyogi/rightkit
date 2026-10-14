@@ -37,9 +37,25 @@ export function releaseExecutionPolicy(cwd = process.cwd()) {
   }
 }
 
+export const LOCAL_BUILD_FILE = ".rightkit-local-build.json";
+
+// Adrian's local-build opt-in (2026-10-14): a committed .rightkit-local-build.json naming this exact
+// repository allows local build, test and publish. Mirrors the build-control hook's check.
+function localBuildGranted(root) {
+  if (!root) return false;
+  try {
+    const grant = JSON.parse(readFileSync(path.join(root, LOCAL_BUILD_FILE), "utf8"));
+    if (grant?.allow !== "build-test-publish" || typeof grant.repository !== "string") return false;
+    const config = readFileSync(path.join(root, ".git", "config"), "utf8");
+    const origin = /\[remote "origin"\][^\[]*?url\s*=\s*(\S+)/i.exec(config)?.[1] ?? "";
+    const repo = /github\.com[:/]([^/]+\/[^/.\s]+?)(?:\.git)?\/?$/i.exec(origin)?.[1];
+    return !!repo && repo.toLowerCase() === grant.repository.toLowerCase();
+  } catch { return false; }
+}
+
 export function assertReleaseExecutionAllowed({ cwd = process.cwd(), environment = process.env, command = "build" } = {}) {
   const policy = releaseExecutionPolicy(cwd);
-  if (policy.compile === GITHUB_ACTIONS_ONLY && environment.GITHUB_ACTIONS !== "true") {
+  if (policy.compile === GITHUB_ACTIONS_ONLY && environment.GITHUB_ACTIONS !== "true" && !localBuildGranted(policy.root)) {
     throw Object.assign(new Error(`${command} is GitHub Actions only for ${policy.root}; push changes & use managed CI`), { code: GITHUB_ACTIONS_ONLY_ERROR });
   }
   return policy;
