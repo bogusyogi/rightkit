@@ -16,8 +16,8 @@ Status values compare each pin with the latest published version (registry-recor
 ## Summary
 
 - Packages in RightKit: 79 (55 crates, 24 npm packages).
-- Packages with at least one app pin: 53.
-- App pins: 463. Stale: 36. Ahead of published: 90. Unpublished: 11. Local: 228. Git: 0. Unparsed: 0.
+- Packages with at least one app pin: 52.
+- App pins: 461. Stale: 34. Ahead of published: 90. Unpublished: 11. Local: 228. Git: 0. Unparsed: 0.
 - Vendored copies of RightKit packages inside app repos: 155.
 - App and package pairs with more than one requirement: 52.
 
@@ -83,8 +83,8 @@ Status values compare each pin with the latest published version (registry-recor
 | `@rightkit/app-shell` | npm | 0.6.4 | 0.6.2 | 7 | coderight, cutright, genright, heardright, postright, scraperight, viewright | 4 stale |
 | `@rightkit/ax` | npm | 0.3.2 | 0.2.4 | 2 | coderight, legion | - |
 | `@rightkit/build-control-policy` | private | 0.1.1-phase1 | none recorded | 0 | none | - |
+| `@rightkit/ci` | npm | 0.2.42 | none recorded | 0 | none | - |
 | `@rightkit/doc-render` | npm | 0.1.6 | 0.1.6 | 1 | viewright | - |
-| `@rightkit/git` | npm | 0.2.42 | 0.2.42 | 2 | coderight, legion | 2 stale |
 | `@rightkit/hooks` | npm | 0.1.2 | 0.1.2 | 1 | legion | - |
 | `@rightkit/i18n` | npm | 0.1.0 | 0.1.0 | 0 | none | - |
 | `@rightkit/legal` | npm | 0.3.1 | 0.3.1 | 8 | coderight, cutright, heardright, mailright, rightsites, scraperight, sellright, viewright | - |
@@ -486,8 +486,6 @@ Status values compare each pin with the latest published version (registry-recor
 | `@rightkit/ax` | coderight | `coderight/context/package.json` | devDependencies | `0.2.4` | 0.2.4 | current |
 | `@rightkit/ax` | legion | `legion/package.json` | devDependencies | `0.2.4` | 0.2.4 | current |
 | `@rightkit/doc-render` | viewright | `viewright/package.json` | dependencies | `0.1.6` | 0.1.6 | current |
-| `@rightkit/git` | coderight | `coderight/context/package.json` | devDependencies | `0.2.39` | 0.2.42 | stale |
-| `@rightkit/git` | legion | `legion/package.json` | devDependencies | `0.2.40` | 0.2.42 | stale |
 | `@rightkit/hooks` | legion | `legion/package.json` | dependencies | `0.1.2` | 0.1.2 | current |
 | `@rightkit/legal` | coderight | `coderight/apps/coderight-tauri/package.json` | dependencies | `0.3.1` | 0.3.1 | current |
 | `@rightkit/legal` | cutright | `cutright/apps/cutright/package.json` | devDependencies | `0.3.1` | 0.3.1 | current |
@@ -801,7 +799,7 @@ Split pins: one app names the same package with different requirements, possibly
 | scraperight | yes | 44 | 0 | 64 |
 | viewright | yes | 95 | 0 | 104 |
 | heardright | yes | 79 | 0 | 94 |
-| coderight | yes | 101 | 0 | 40 |
+| coderight | yes | 101 | 0 | 39 |
 | mailright | yes | 3 | 0 | 13 |
 | postright | yes | 30 | 0 | 39 |
 | cockpit | **missing** | 0 | 0 | 0 |
@@ -809,4 +807,4 @@ Split pins: one app names the same package with different requirements, possibly
 | sellright | yes | 6 | 0 | 1 |
 | rightsites | yes | 18 | 0 | 1 |
 | voiceright | yes | 2 | 0 | 1 |
-| legion | yes | 37 | 0 | 5 |
+| legion | yes | 37 | 0 | 4 |

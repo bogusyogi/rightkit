@@ -11,9 +11,9 @@ importers:
 
   .:
     devDependencies:
-      '@rightkit/git':
+      '@rightkit/ci':
         specifier: workspace:*
-        version: link:packages/git
+        version: link:packages/ci
       '@rightkit/release':
         specifier: workspace:*
         version: link:packages/release
@@ -55,6 +55,8 @@ importers:
   packages/ax: {}
 
   packages/build-control-policy: {}
+
+  packages/ci: {}
 
   packages/doc-render:
     dependencies:
@@ -113,8 +115,6 @@ importers:
       vitest:
         specifier: ^2.1.8
         version: 2.1.9(@types/node@24.13.3)(jsdom@26.1.0(canvas@3.2.3)(supports-color@8.1.1))(supports-color@8.1.1)
-
-  packages/git: {}
 
   packages/hooks: {}
 
@@ -484,9 +484,9 @@ importers:
 
   packages/update:
     dependencies:
-      '@rightkit/git':
+      '@rightkit/ci':
         specifier: workspace:^
-        version: link:../git
+        version: link:../ci
       smol-toml:
         specifier: 1.9.0
         version: 1.9.0

@@ -1,5 +1,5 @@
 {
-  "name": "@rightkit/git",
+  "name": "@rightkit/ci",
   "version": "0.2.42",
   "description": "Public-repo-only GitHub Actions workflow layer: templates, visibility gate, sync/drift/adopt/uninstall for right-git.",
   "license": "MIT OR Apache-2.0",
@@ -34,7 +34,7 @@
   "repository": {
     "type": "git",
     "url": "git+https://github.com/Orthic-Labs/rightkit.git",
-    "directory": "packages/git"
+    "directory": "packages/ci"
   },
   "packageManager": "pnpm@11.24.0"
 }

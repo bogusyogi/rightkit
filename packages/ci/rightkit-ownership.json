@@ -1,5 +1,5 @@
 {
-  "package": "@rightkit/git",
+  "package": "@rightkit/ci",
   "capabilities": [
     {
       "capability": "github-workflows",

@@ -325,7 +325,7 @@ export async function runLand(options: { repo: string }, deps: LandDeps = {}): P
 
   if ((manifest.policy.land ?? "commit") === "push") {
     if (fs.existsSync(path.join(repo, ".rightgit.json"))) {
-      out.notes.push(".rightgit.json is present; @rightkit/git exposes no lane-trigger API, so a plain `git push` was used and the CI lanes run from the push");
+      out.notes.push(".rightgit.json is present; @rightkit/ci exposes no lane-trigger API, so a plain `git push` was used and the CI lanes run from the push");
     }
     const pushed = await pushCurrent(git);
     if (pushed.code !== 0) {

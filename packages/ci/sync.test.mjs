@@ -83,14 +83,14 @@ test("sync rejects a Membrane-like release chain without root @rightkit/release"
       },
     },
   };
-  const dir = makeTempRepo(manifest, { packageJson: { name: "membrane", devDependencies: { "@rightkit/git": "0.2.13" } } });
+  const dir = makeTempRepo(manifest, { packageJson: { name: "membrane", devDependencies: { "@rightkit/ci": "0.2.13" } } });
   const missing = await syncCommand(dir, { deps: PUBLIC_DEPS });
   assert.equal(missing.ok, false);
   assert.equal(missing.stage, "dependency");
   assert.match(missing.errors[0], /direct devDependency @rightkit\/release/);
   assert.equal(fs.existsSync(path.join(dir, ".github", "workflows")), false);
 
-  fs.writeFileSync(path.join(dir, "package.json"), JSON.stringify({ name: "membrane", devDependencies: { "@rightkit/git": "0.2.13", "@rightkit/release": "0.2.84" } }), "utf8");
+  fs.writeFileSync(path.join(dir, "package.json"), JSON.stringify({ name: "membrane", devDependencies: { "@rightkit/ci": "0.2.13", "@rightkit/release": "0.2.84" } }), "utf8");
   const present = await syncCommand(dir, { deps: PUBLIC_DEPS });
   assert.equal(present.ok, true);
   assert.ok(fs.existsSync(path.join(dir, ".github", "workflows", "release-candidate.yml")));

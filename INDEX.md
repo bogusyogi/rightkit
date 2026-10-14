@@ -8,7 +8,7 @@ Version columns: **Source** is the manifest version. **Published** is the latest
 
 Flags: `ok` means source, published and staged agree. `staged, not yet published` is in-flight work. `private` has no registry record by design. `MISMATCH` needs a release decision.
 
-Flagged mismatches: 53.
+Flagged mismatches: 54.
 
 The build broker is the Rust RustRight product (`bogusyogi/rustright`, binary `rustright`, alias `rightkit`); it is not part of this inventory. `packages/build-control-policy` keeps the agent permission hooks.
 
@@ -79,8 +79,8 @@ The build broker is the Rust RustRight product (`bogusyogi/rustright`, binary `r
 | `@rightkit/app-shell` | npm | 0.6.4 | 0.6.2 | 0.6.2 | **MISMATCH staged 0.6.2 != source 0.6.4** |  | app-shell-ui | Brand-neutral React frame for Right Suite desktop apps: optional fused sidebar+titlebar layout with slots, command palette, shortcut registry/help, toasts, modals, context menus, ui kit, theme hooks. |
 | `@rightkit/ax` | npm | 0.3.2 | 0.2.4 | 0.2.4 | **MISMATCH staged 0.2.4 != source 0.3.2** | right-ax | agent-experience-gates | Suite-wide agent-experience (AX) + agent-plugins.org conformance layer: plugin scaffolding/validation and AXA-1 static/conformance/behavioral gates over one product's MCP/CLI surface. |
 | `@rightkit/build-control-policy` | private | 0.1.1-phase1 | none recorded |  | private |  |  | `ownership-write-hook-cli.mjs` adds secondary feedback for Claude `Write`/`Edit`/`MultiEdit` and shell (`Bash`) calls, and for Codex `apply_patch` and shell (`exec_command`) calls. Both adapters deny writes targeting ownership exception or platform trust records. `ownership-session-hook-cli.mjs` adds the current RightKit ownership index at session start. Hook feedback is fail-open for ambiguous edits; build admission remains authoritative. |
+| `@rightkit/ci` | npm | 0.2.42 | none recorded |  | **MISMATCH public package has no release record** | right-git | github-workflows | Public-repo-only GitHub Actions workflow layer: templates, visibility gate, sync/drift/adopt/uninstall for right-git. |
 | `@rightkit/doc-render` | npm | 0.1.6 | 0.1.6 | 0.1.6 | ok |  | document-rendering | Brand-neutral, read-only document renderer (Markdown, sanitized HTML, safe email frame) for Right Suite readers. |
-| `@rightkit/git` | npm | 0.2.42 | 0.2.42 | 0.2.42 | ok | right-git | github-workflows | Public-repo-only GitHub Actions workflow layer: templates, visibility gate, sync/drift/adopt/uninstall for right-git. |
 | `@rightkit/hooks` | npm | 0.1.2 | 0.1.2 | 0.1.2 | ok | rightkit-hooks | lifecycle-hooks | Neutral lifecycle runtime shared by independently installable agent systems. |
 | `@rightkit/i18n` | npm | 0.1.0 | 0.1.0 | 0.1.0 | ok |  | localization | Shared locale catalog and React provider for Right Suite apps. |
 | `@rightkit/legal` | npm | 0.3.1 | 0.3.1 | 0.3.1 | ok |  | legal-assent | Legal manifest, assent receipt, and release-contract primitives for proprietary Right Suite desktop apps. |
@@ -103,4 +103,4 @@ The build broker is the Rust RustRight product (`bogusyogi/rustright`, binary `r
 
 ## Version records without a manifest
 
-rightkit-control (cargo), rightkit-framed-sidecar (cargo), rightkit-jobs (cargo), rightkit-media (cargo), rightkit-ort (cargo), rightkit-process (cargo), rightkit-qts (cargo), rightkit-qts-ggml (cargo), rightkit-qts-ggml-sys (cargo), rightkit-secrets (cargo), rightkit-service (cargo), rightkit-settings (cargo), rightkit-shell (cargo), rightkit-tauri (cargo), rightkit-watch (cargo).
+rightkit-control (cargo), rightkit-framed-sidecar (cargo), rightkit-jobs (cargo), rightkit-media (cargo), rightkit-ort (cargo), rightkit-process (cargo), rightkit-qts (cargo), rightkit-qts-ggml (cargo), rightkit-qts-ggml-sys (cargo), rightkit-secrets (cargo), rightkit-service (cargo), rightkit-settings (cargo), rightkit-shell (cargo), rightkit-tauri (cargo), rightkit-watch (cargo), @rightkit/git (npm).

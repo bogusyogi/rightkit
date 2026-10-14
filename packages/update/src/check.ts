@@ -6,7 +6,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { execFile as execFileCb } from "node:child_process";
 import { parse as parseToml } from "smol-toml";
-import { driftCommand } from "@rightkit/git/drift.mjs";
+import { driftCommand } from "@rightkit/ci/drift.mjs";
 import { RIGHTKIT_VERSIONS_DEFAULT } from "./manifest.js";
 import { compareVersions, isRegistryVersion, parseLatest, resolvePolicy } from "./compare.js";
 import { fetchJson, fetchText, mapLimit, type FetchLike } from "./http.js";

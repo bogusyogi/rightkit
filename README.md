@@ -11,7 +11,7 @@ Current versions and the full crate and package inventory are in [INDEX.md](INDE
 | Package | Runtime | Responsibility |
 |---|---|---|
 | [`@rightkit/ax`](packages/ax) | Node CLI | Agent-experience, plugin, conformance, behavioral, and adversarial gates (`right-ax`) |
-| [`@rightkit/git`](packages/git) | Node CLI | Public-repository GitHub Actions workflow templates and visibility gate (`right-git`) |
+| [`@rightkit/ci`](packages/ci) | Node CLI | Public-repository GitHub Actions workflow templates and visibility gate (`right-git`) |
 | [`@rightkit/legal`](packages/legal) | TypeScript | Legal manifest schema 2, assent receipt, and release-contract primitives |
 | [`@rightkit/legal-ui`](packages/legal-ui) | TypeScript + React | Shared desktop legal acceptance gate |
 | [`@rightkit/license`](packages/license) | TypeScript | License network, storage, and UX client |

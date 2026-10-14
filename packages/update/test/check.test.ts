@@ -138,7 +138,7 @@ let package = Package(
 describe("rightkit source", () => {
   it("compares the registry section of the versions file and reads drift only for right-git repos", async () => {
     const repo = mkRepo({
-      "versions/pins.json": { npm: { "@rightkit/git": "0.2.0", "@rightkit/release": "0.2.151" }, stagedNpm: {} },
+      "versions/pins.json": { npm: { "@rightkit/ci": "0.2.0", "@rightkit/release": "0.2.151" }, stagedNpm: {} },
     });
     const { fetch, calls } = mockFetch({
       "https://registry.npmjs.org/%40rightkit%2Fgit/latest": { version: "0.2.37" },
@@ -149,7 +149,7 @@ describe("rightkit source", () => {
 
     const without = await checkSources(repo, m, { fetch, drift });
     expect(without.map((e) => [e.name, e.status])).toEqual([
-      ["@rightkit/git", "outdated"],
+      ["@rightkit/ci", "outdated"],
       ["@rightkit/release", "current"],
     ]);
     expect(calls).toHaveLength(2);

@@ -486,7 +486,7 @@ test("accepts the current @rightkit/git 0.2.21 release-chain consumer", () => {
 
 test("rejects an unlisted future @rightkit/git release-chain consumer", () => {
   // One patch past the staged version, so the test never goes stale when git publishes.
-  const [major, minor, patch] = versions.stagedNpm["@rightkit/git"].split(".").map(Number);
+  const [major, minor, patch] = versions.registry.npm["@rightkit/git"].split(".").map(Number);
   const future = `${major}.${minor}.${patch + 1}`;
   const result = run(fixture({
     packageJson: {
@@ -502,7 +502,7 @@ test("rejects an unlisted future @rightkit/git release-chain consumer", () => {
 });
 
 test("accepts an unlisted @rightkit/git patch inside the recorded range, rejects one below the minimum", () => {
-  const recorded = new Set([versions.npm["@rightkit/git"], versions.stagedNpm["@rightkit/git"], ...(versions.legacyNpm["@rightkit/git"] ?? []), versions.registry?.npm?.["@rightkit/git"]].filter(Boolean));
+  const recorded = new Set([versions.npm["@rightkit/git"], versions.registry.npm["@rightkit/git"], ...(versions.legacyNpm["@rightkit/git"] ?? []), versions.registry?.npm?.["@rightkit/git"]].filter(Boolean));
   const triples = [...recorded].map((v) => v.split(".").map(Number)).sort((a, b) => a[0] - b[0] || a[1] - b[1] || a[2] - b[2]);
   const [lo, hi] = [triples[0], triples.at(-1)];
   // An unlisted version strictly between the lowest and highest recorded version.

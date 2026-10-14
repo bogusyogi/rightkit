@@ -1,5 +1,5 @@
-// Ambient types for the JavaScript drift check shipped by @rightkit/git.
-declare module "@rightkit/git/drift.mjs" {
+// Ambient types for the JavaScript drift check shipped by @rightkit/ci.
+declare module "@rightkit/ci/drift.mjs" {
   export function driftCommand(
     repoPath: string,
     deps?: Record<string, unknown>,

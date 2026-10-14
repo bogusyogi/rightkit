@@ -78,7 +78,7 @@ test("npm selection follows dependents; path suites match by directory", () => {
   const packages = [
     { name: "@rightkit/ui", dir: "packages/ui", deps: [] },
     { name: "@rightkit/shell", dir: "packages/shell", deps: ["@rightkit/ui"] },
-    { name: "@rightkit/git", dir: "packages/git", deps: [] },
+    { name: "@rightkit/ci", dir: "packages/ci", deps: [] },
   ];
   assert.deepEqual(selectNpm({ changedPaths: ["packages/ui/src/a.ts"], packages }).test, ["packages/shell", "packages/ui"]);
   assert.deepEqual(selectNpm({ changedPaths: ["docs/x.md"], packages }).test, []);

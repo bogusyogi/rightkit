@@ -114,7 +114,7 @@ Source kinds:
 - `cargo`: `[dependencies]`, `[dev-dependencies]`, `[build-dependencies]`, `[workspace.dependencies]` and `[target.*]` tables, compared with crates.io `max_stable_version` (falling back to `max_version`). Path and git dependencies are `unknown`, including a path dependency that also carries a `version` (that version is the publish-time requirement, owned by the release tooling).
 - `pnpm`: `dependencies`, `devDependencies` and `optionalDependencies`. `pnpm outdated --json` supplies latest where it reports one; the npm registry (`/<name>/latest`) is the fallback. `workspace:`, `file:`, `link:` and other non-registry specs are `unknown`.
 - `swiftpm`: `Package.swift` (`exact:`, `from:`) or `project.yml` (`from`, `exactVersion`, `exact`, `version`, `minorVersion`, `majorVersion`). Latest comes from the GitHub tags API. Branch and revision pins, and package URLs that are not on github.com, are `unknown`.
-- `rightkit`: the `npm` section of the versions file, compared with the registry. When `<repo>/.rightgit.json` exists, the workflow drift check from `@rightkit/git` adds a `rightgit-workflows` entry. `apply` skips these rows (they move through `right-release`).
+- `rightkit`: the `npm` section of the versions file, compared with the registry. When `<repo>/.rightgit.json` exists, the workflow drift check from `@rightkit/ci` adds a `rightgit-workflows` entry. `apply` skips these rows (they move through `right-release`).
 - `tool`: an external binary. `github-release` reads `releases/latest` and verifies that each platform asset is published. `url` reads a plain-text version from `latest`.
 
 `cargo` and `pnpm` sources take exactly one of `manifest` (a path) or `glob`. A glob uses `*` inside one path segment, skips dot-directories (unless the pattern segment itself starts with a dot), must end in `Cargo.toml` or `package.json`, and an empty match is an error. Registry answers are cached across all manifests in a run.
@@ -195,7 +195,7 @@ Co-Authored-By: right-update <noreply@rightkit.dev>
 
 If the commit fails (for example a hook rejects it), the manifest edit is restored and the index reset; a rerun picks up where it stopped. `needsMigration` and `held` rows go to `held.json` and are never committed.
 
-`policy.land` is `"commit"` (default: the commit stays local) or `"push"` (a plain `git push` with no arguments, never forced). `@rightkit/git` exposes no importable API for triggering a CI lane, so a repo with `.rightgit.json` is also pushed with plain `git push`; its CI lanes run from the push. The land result says so in `notes`.
+`policy.land` is `"commit"` (default: the commit stays local) or `"push"` (a plain `git push` with no arguments, never forced). `@rightkit/ci` exposes no importable API for triggering a CI lane, so a repo with `.rightgit.json` is also pushed with plain `git push`; its CI lanes run from the push. The land result says so in `notes`.
 
 ### Delivery
 

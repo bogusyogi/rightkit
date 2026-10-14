@@ -2983,6 +2983,17 @@
       ]
     },
     {
+      "package": "@rightkit/ci",
+      "capability": "github-workflows",
+      "summary": "Public-repo-only GitHub Actions workflow layer: templates, visibility gate, sync/drift/adopt/uninstall for right-git.; declaration-only detection (no precise implementation fingerprint)",
+      "fingerprints": [],
+      "detection": "declaration-only",
+      "policyNotes": [
+        "Package contract retained; dependency declarations do not verify integration.",
+        "No precise implementation fingerprint; declaration-only inventory, never enforced ownership or verified integration."
+      ]
+    },
+    {
       "package": "@rightkit/doc-render",
       "capability": "document-rendering",
       "summary": "Brand-neutral, read-only document renderer (Markdown, sanitized HTML, safe email frame) for Right Suite readers.",
@@ -3007,17 +3018,6 @@
       "policyNotes": [
         "Package contract retained; dependency declarations do not verify integration.",
         "Fingerprints identify review candidates; published two-host replacement qualification is not recorded."
-      ]
-    },
-    {
-      "package": "@rightkit/git",
-      "capability": "github-workflows",
-      "summary": "Public-repo-only GitHub Actions workflow layer: templates, visibility gate, sync/drift/adopt/uninstall for right-git.; declaration-only detection (no precise implementation fingerprint)",
-      "fingerprints": [],
-      "detection": "declaration-only",
-      "policyNotes": [
-        "Package contract retained; dependency declarations do not verify integration.",
-        "No precise implementation fingerprint; declaration-only inventory, never enforced ownership or verified integration."
       ]
     },
     {

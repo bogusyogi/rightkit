@@ -71,7 +71,7 @@ const APPLE_RELEASE_SECRETS = ["APPLE_CERTIFICATE_BASE64", "APPLE_CERTIFICATE_PA
 // Package-manager publication tokens of the managed publish-package-managers lane.
 const PACKAGE_MANAGER_PUBLISH_SECRETS = ["HOMEBREW_TAP_TOKEN", "WINGET_CREATE_GITHUB_TOKEN"];
 
-// @rightkit/git `swift.privatePackages` (0.2.41) renders one configure step and one cleanup step, with the
+// @rightkit/ci `swift.privatePackages` (0.2.41) renders one configure step and one cleanup step, with the
 // token passed through step `env` as `RIGHT_GIT_PRIVATE_TOKEN_<n>: ${{ secrets.<NAME> }}`, into exactly these
 // workflow/job pairs. Nothing else may reference the declared secret: not another job of these workflows, not
 // package-smoke, publish-npm or publish-package-managers, and not a signing, qualification or publish job.
@@ -1006,7 +1006,7 @@ async function validateHostedWorkflows(root, appName, workflows, policy) {
     fail(`${appName} right-git-ci-only policy requires a valid .rightgit.json`);
   }
   const lanes = manifest?.lanes;
-  // Mirrors the `lanes` enum in @rightkit/git manifest.schema.json.
+  // Mirrors the `lanes` enum in @rightkit/ci manifest.schema.json.
   const safeLanes = new Set(["ci", "qualification", "package-smoke", "release-candidate", "publish-npm", "publish-package-managers", "regenerate"]);
   if (manifest?.schemaVersion !== 1
     || manifest?.compile !== "github-actions-only"
@@ -1063,10 +1063,10 @@ async function validateHostedWorkflows(root, appName, workflows, policy) {
     const protectedMacosSigning = workflow === "release-candidate.yml"
       && manifest?.candidate?.signMacos === true
       && (legacySigningGate("macos-sign").test(macosSource) || admittedSigningGate("macos-sign").test(macosSource));
-    // @rightkit/git `devArtifact.mac: "sign"` renders a `dev-mac-sign` job into
+    // @rightkit/ci `devArtifact.mac: "sign"` renders a `dev-mac-sign` job into
     // the managed ci.yml: push to the default branch only, release environment,
     // Developer ID certificate secrets only (no notarization keys).
-    // @rightkit/git `regenerate` lane: manual-only, opens a pull request from a
+    // @rightkit/ci `regenerate` lane: manual-only, opens a pull request from a
     // right-git/regenerate-<run> branch and never writes to the default branch.
     // `contents: write` and `pull-requests: write` are accepted only inside that
     // job, only when the manifest declares `regenerate`, and only when the
@@ -1092,7 +1092,7 @@ async function validateHostedWorkflows(root, appName, workflows, policy) {
     const protectedDevMacSigning = workflow === "ci.yml"
       && (manifest?.devArtifact?.mac === "sign" || manifest?.devArtifact?.mac === "notarize")
       && /dev-mac-sign:\n(?:    #[^\n]*\n)*    needs: \[ci\]\n    if: \$\{\{ github\.event_name == 'push' && github\.ref_name == github\.event\.repository\.default_branch \}\}\n    environment: /.test(devMacSource);
-    // @rightkit/git `swift.privatePackages` credential: allowed only in the workflow/job pairs and on the
+    // @rightkit/ci `swift.privatePackages` credential: allowed only in the workflow/job pairs and on the
     // env lines listed with SWIFT_PRIVATE_JOBS; swiftPrivateSecretRefusal explains every other reference.
     const releaseChain = workflow === "release-candidate.yml" ? manifest?.candidate?.releaseChain : undefined;
     const allowedReleaseSecrets = new Set(releaseChain?.publishSecrets ?? []);

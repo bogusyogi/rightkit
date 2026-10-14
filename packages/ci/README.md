@@ -1,4 +1,4 @@
-# @rightkit/git
+# @rightkit/ci
 
 Public-repository-only GitHub Actions workflow layer for Right Suite products. The CLI `right-git` renders and installs CI lanes into `.github/workflows/` from a `.rightgit.json` manifest.
 
@@ -166,7 +166,7 @@ None. No runtime dependencies (Node builtins only).
 ## Example
 
 ```sh
-pnpm add -D @rightkit/git
+pnpm add -D @rightkit/ci
 pnpm exec right-git install . --lanes ci
 pnpm exec right-git drift --all
 ```
