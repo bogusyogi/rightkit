@@ -12,11 +12,12 @@ RightKit owns shared packages, crates, QA, licensing, logging, & release tooling
 - Read signing, distribution, & licensing runbooks before publication.
 
 ## Commands
-- Compile and test nothing locally: RightKit is public and every build and test runs in GitHub Actions; see `docs/CI.md`.
+- Compile, test & publish locally on the Mac and the Dell: Adrian granted RightKit a local-build exception on 2026-10-14 in `.rightkit-local-build.json`; CI still runs on every push; see `docs/CI.md`.
 - Run `node scripts/ci/gate.mjs --plan --base <sha>` to preview what a push will verify.
 - Push to `main` in batches & read the `ci` run; apply its `fmt.patch` or `Cargo.lock.patch`, never hand-format.
 - Run `rustfmt --edition <edition> --check <file>` on each changed Rust file before pushing.
 - Record a red unit in `ci/known-red.json` with its reason; never publish a unit listed there.
+- Publish packages & crates with `right-release publish <npm|cargo> --local` (Keychain token, darwin-only evidence); dispatch `.github/workflows/publish.yml` only as fallback; see `docs/CI.md` "Publishing".
 
 ## Locked invariants
 - Keep shared source only under `rightkit/`.
@@ -28,7 +29,6 @@ RightKit owns shared packages, crates, QA, licensing, logging, & release tooling
 - Require explicit `distribution.provider`: public products use `github-releases`; private products use `r2`.
 - Keep add-on adoption bound to version, full manifest SHA-256, immutable URL, and target-qualified aliases.
 - Never run browser login, `az login`, Azure enrollment, or signing setup; use native-host provisioned signers.
-- Publish Cargo crates only through the RightKit release command.
 - Upload no unsigned or test artifact.
 - Activate enforcement policy & verifier changes only through Adrian-authenticated trust-sync; see `docs/OWNERSHIP-ENFORCEMENT.md`.
 - Apply identical qualification requirements across distribution providers; see `../../docs/rules/release-signing.md`.
