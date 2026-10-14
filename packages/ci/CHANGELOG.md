@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.43
+
+- Release candidate (non-chain mode): the Windows and macOS sign steps now set `RIGHT_GIT_SOURCE_REVISION` (and `LEGION_SOURCE_REVISION`) from the admission job's output. Before, `LEGION_SOURCE_REVISION` read an undefined workflow variable and right-release's admitted-dispatch exemption could not fire, so signing refused the detached HEAD.
+
 ## Unreleased
 
 - Renamed from @rightkit/git; @rightkit/git@0.2.42 remains published under the old name.

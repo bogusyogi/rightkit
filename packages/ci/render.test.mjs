@@ -304,7 +304,9 @@ test("rust-hybrid release candidate can opt into OIDC Windows signing without lo
   // ref-triggered checkout.
   assert.match(content, /windows-sign:[\s\S]*?ref: \$\{\{ needs\.admission\.outputs\.source_revision \}\}\n\s+fetch-depth: 0\n\s+persist-credentials: false/);
   assert.match(content, /git rev-parse HEAD.*inputs\.source_revision/);
-  assert.ok(content.includes("LEGION_SOURCE_REVISION: ${{ env.RIGHT_GIT_SOURCE_REVISION }}"));
+  assert.ok(content.includes("LEGION_SOURCE_REVISION: ${{ needs.admission.outputs.source_revision }}"));
+  assert.ok(content.includes("RIGHT_GIT_SOURCE_REVISION: ${{ needs.admission.outputs.source_revision }}"));
+  assert.doesNotMatch(content, /env\.RIGHT_GIT_SOURCE_REVISION/);
   assert.doesNotMatch(content, /LEGION_SOURCE_REVISION: \$\{\{ github\.sha \}\}/);
   assert.doesNotMatch(content, /secrets\.|client-secret|private.key/i);
   assert.doesNotMatch(content, /run: (?:pnpm|npm|yarn) run undefined\b/);
@@ -343,7 +345,9 @@ test("rust-hybrid release candidate can opt into protected macOS signing & notar
   assert.match(content, /secrets\.APPLE_API_KEY_BASE64/);
   assert.match(content, /macos-sign:[\s\S]*?ref: \$\{\{ needs\.admission\.outputs\.source_revision \}\}\n\s+fetch-depth: 0\n\s+persist-credentials: false/);
   assert.match(content, /git rev-parse HEAD.*inputs\.source_revision/);
-  assert.ok(content.includes("LEGION_SOURCE_REVISION: ${{ env.RIGHT_GIT_SOURCE_REVISION }}"));
+  assert.ok(content.includes("LEGION_SOURCE_REVISION: ${{ needs.admission.outputs.source_revision }}"));
+  assert.ok(content.includes("RIGHT_GIT_SOURCE_REVISION: ${{ needs.admission.outputs.source_revision }}"));
+  assert.doesNotMatch(content, /env\.RIGHT_GIT_SOURCE_REVISION/);
   assert.doesNotMatch(content, /LEGION_SOURCE_REVISION: \$\{\{ github\.sha \}\}/);
   assert.match(content, /security delete-keychain/);
   assert.doesNotMatch(content, /pull_request_target/);

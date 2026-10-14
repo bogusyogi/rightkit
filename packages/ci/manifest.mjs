@@ -1128,7 +1128,8 @@ function windowsSigningJob(manifest, pm, artifactPrefix) {
           RIGHT_GIT_FINALIZED_WINDOWS_ROOT: \${{ runner.temp }}/finalized-windows
           RIGHT_GIT_SOURCE_REVISION: \${{ needs.admission.outputs.source_revision }}`
     : `          LEGION_UNSIGNED_CANDIDATE_ROOT: \${{ runner.temp }}/unsigned-windows-candidate
-          LEGION_SOURCE_REVISION: \${{ env.RIGHT_GIT_SOURCE_REVISION }}`;
+          RIGHT_GIT_SOURCE_REVISION: \${{ needs.admission.outputs.source_revision }}
+          LEGION_SOURCE_REVISION: \${{ needs.admission.outputs.source_revision }}`;
   const uploadPath = releaseChain
     ? "            ${{ runner.temp }}/finalized-windows/**"
     : "            dist/releases/windows/**\n            .right-release/receipts/windows-*.json";
@@ -1257,7 +1258,8 @@ function macosSigningJob(manifest, pm, artifactPrefix) {
           RIGHT_GIT_FINALIZED_MACOS_ROOT: \${{ runner.temp }}/finalized-macos
           RIGHT_GIT_SOURCE_REVISION: \${{ needs.admission.outputs.source_revision }}`
     : `          LEGION_UNSIGNED_CANDIDATE_ROOT: \${{ runner.temp }}/unsigned-macos-candidate
-          LEGION_SOURCE_REVISION: \${{ env.RIGHT_GIT_SOURCE_REVISION }}`;
+          RIGHT_GIT_SOURCE_REVISION: \${{ needs.admission.outputs.source_revision }}
+          LEGION_SOURCE_REVISION: \${{ needs.admission.outputs.source_revision }}`;
   const uploadPath = releaseChain
     ? "            ${{ runner.temp }}/finalized-macos/**"
     : "            dist/releases/mac/**\n            .right-release/receipts/macos-*.json";
