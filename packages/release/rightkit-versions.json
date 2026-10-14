@@ -27,7 +27,7 @@
     "@rightkit/platform-ui": "0.2.7",
     "@rightkit/qa": "0.4.7",
     "@rightkit/qa-chrome": "0.1.5",
-    "@rightkit/release": "0.2.155",
+    "@rightkit/release": "0.2.156",
     "@rightkit/settings-ui": "0.4.3",
     "@rightkit/tauri": "0.2.0",
     "@rightkit/theme": "0.2.3"

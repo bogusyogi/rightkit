@@ -19,8 +19,19 @@
 # (logged; a retry is scheduled).
 #
 # Retry: after a failed repair (exit 1 or 4) the script gives the task a one-shot time trigger at +2, +5, +15, +60 minutes and then
-# hourly, for at most 24 hours from the first failure; the trigger is removed on success, when the package is healthy, or when the
-# app is uninstalled. State: retry.json. A later logon or event 751 run still starts a repair at any time.
+# hourly, for the first 24 hours from the first failure. After that it does NOT stop: it keeps exactly one attempt per 24 h window
+# (a one-shot trigger 24 h after the previous attempt; retry.json records dailyMode, windowStartEpoch and windowAttempts), never a
+# tight loop. The trigger is removed on success, when the package is healthy, or when the app is uninstalled. A later logon or
+# event 751 run still starts a repair at any time.
+#
+# Event 751: the task's event trigger fires for every package's 751, and Windows event XPath has no contains(), so the task passes the
+# event's EventRecordID ($(EventRecordID) value query) as -EventRecordID and the script reads that event and exits quietly (no
+# repair, last-result.json untouched) unless it names this app's package (Name_ and the publisher id of the family). Logon and
+# retry runs carry no record id and are never filtered; an unreadable event fails open (the repair proceeds).
+#
+# Receipts: last-result.json / install-result.json carry guardSha256 (sha256 of this script file as it is on disk, computed at run
+# time) and guardSha256Lf (same over the LF-normalised text; equals msixRepairGuard().sha256 only when the deployed copy is byte-exact, including the final newline), plus attemptLaunched (an
+# Add-AppxPackage was actually started this run), launchFailure (why none was started) and lastLaunchEpoch (retry.json).
 #
 # Uninstall cleanup: a run that finds the package absent (twice, 10 s apart) removes this folder and the task. It runs at the next
 # logon, the next event 751, or the next retry tick; Windows has no "package removed" trigger for a per-user task.
@@ -31,7 +42,7 @@
 # Requirement: the app's data directory must be physical (MSIX fileSystemWrite virtualization disabled), otherwise the packaged app
 # writes this folder into its private LocalCache and the task cannot see it.
 [CmdletBinding()]
-param([switch]$Install, [string]$Pfn = '', [string]$Feed = '')
+param([switch]$Install, [string]$Pfn = '', [string]$Feed = '', [string]$EventRecordID = '')
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'   # Windows PowerShell 5.1 renders a progress bar per downloaded chunk: a 30 MB Invoke-WebRequest -OutFile then takes minutes
 $GuardVersion = 2
@@ -44,8 +55,24 @@ $ResultPath = Join-Path $Dir $(if ($Install) { 'install-result.json' } else { 'l
 $Mode = $(if ($Install) { 'install' } else { 'repair' })
 $RetryDelaysMinutes = @(2, 5, 15, 60)   # then hourly
 $RetryWindowHours = 24
+$DailyWindowHours = 24   # after the first window: one attempt per window
+$script:Launched = $false
+$script:LaunchFailure = ''
 $PfnPattern = '^[A-Za-z0-9][A-Za-z0-9.\-]*_[a-z0-9]{13}$'
 $script:Ctx = ''
+
+function Get-ScriptHashes {
+    $h = [ordered]@{ guardSha256 = ''; guardSha256Lf = '' }
+    try {
+        $bytes = [IO.File]::ReadAllBytes($PSCommandPath)
+        $sha = [Security.Cryptography.SHA256]::Create()
+        $h.guardSha256 = ([BitConverter]::ToString($sha.ComputeHash($bytes)) -replace '-', '').ToLowerInvariant()
+        $lf = (New-Object Text.UTF8Encoding($false)).GetString($bytes).Replace("`r`n", "`n")
+        $h.guardSha256Lf = ([BitConverter]::ToString($sha.ComputeHash((New-Object Text.UTF8Encoding($false)).GetBytes($lf))) -replace '-', '').ToLowerInvariant()
+    } catch { }
+    return $h
+}
+$ScriptHashes = Get-ScriptHashes
 
 function Log([string]$m) {
     try {
@@ -61,8 +88,11 @@ function Write-Json([string]$path, $obj) {
     } catch { Log ('could not write ' + $path + ': ' + $_.Exception.Message) }
 }
 function Write-Result([string]$status, [int]$code, [string]$detail) {
-    $r = [ordered]@{ status = $status; code = $code; mode = $Mode; timeUtc = (Get-Date).ToUniversalTime().ToString('o'); guardVersion = $GuardVersion; detail = $detail }
+    $r = [ordered]@{ status = $status; code = $code; mode = $Mode; timeUtc = (Get-Date).ToUniversalTime().ToString('o'); guardVersion = $GuardVersion; guardSha256 = $ScriptHashes.guardSha256; guardSha256Lf = $ScriptHashes.guardSha256Lf; detail = $detail }
+    if (-not $Install) { $r.attemptLaunched = [bool]$script:Launched; $r.launchFailure = [string]$script:LaunchFailure }
     $st = Read-Json $RetryPath
+    if ($st -and $st.lastLaunchEpoch) { $r.lastLaunchUtc = ([datetime]'1970-01-01T00:00:00Z').ToUniversalTime().AddSeconds([double]$st.lastLaunchEpoch).ToString('o') }
+    if ($st -and $st.dailyMode) { $r.retryDailyMode = $true }
     if ($st -and $st.nextEpoch) { $r.nextRetryUtc = ([datetime]'1970-01-01T00:00:00Z').ToUniversalTime().AddSeconds([double]$st.nextEpoch).ToString('o'); $r.retryAttempt = [int]$st.attempt }
     Write-Json $ResultPath $r
 }
@@ -79,7 +109,7 @@ function Get-TaskXml([string]$family, $retryLocal) {
     $id = [Security.Principal.WindowsIdentity]::GetCurrent()
     $esc = { param($s) [Security.SecurityElement]::Escape([string]$s) }
     $sub = '<QueryList><Query Id="0" Path="Microsoft-Windows-AppXDeploymentServer/Operational"><Select Path="Microsoft-Windows-AppXDeploymentServer/Operational">*[System[(EventID=751)]]</Select></Query></QueryList>'
-    $taskArgs = '--headless powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -WindowStyle Hidden -File "' + $PSCommandPath + '"'
+    $taskArgs = '--headless powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -WindowStyle Hidden -File "' + $PSCommandPath + '" -EventRecordID $(EventRecordID)'
     $retryXml = ''
     if ($retryLocal) { $retryXml = '<TimeTrigger><StartBoundary>' + ([datetime]$retryLocal).ToString('yyyy-MM-ddTHH:mm:ss') + '</StartBoundary><Enabled>true</Enabled></TimeTrigger>' }
     return @"
@@ -87,7 +117,7 @@ function Get-TaskXml([string]$family, $retryLocal) {
 <Task version="1.4" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
   <RegistrationInfo><Description>Repair guard for $(& $esc $family): re-adds the app from its App Installer feed when an interrupted update leaves it NeedsRemediation; retries after a failure. Removes itself when the app is uninstalled.</Description></RegistrationInfo>
   <Triggers>
-    <EventTrigger><Enabled>true</Enabled><Subscription>$(& $esc $sub)</Subscription></EventTrigger>
+    <EventTrigger><Enabled>true</Enabled><Subscription>$(& $esc $sub)</Subscription><ValueQueries><Value name="EventRecordID">Event/System/EventRecordID</Value></ValueQueries></EventTrigger>
     <LogonTrigger><Enabled>true</Enabled><UserId>$(& $esc $id.Name)</UserId></LogonTrigger>
     $retryXml
   </Triggers>
@@ -127,19 +157,41 @@ function Set-Retry([string]$family, [string]$why) {
     $now = [datetime]::UtcNow
     $nowEpoch = [math]::Floor(($now - $epoch0.ToUniversalTime()).TotalSeconds)
     $st = Read-Json $RetryPath
-    $attempt = 1; $first = $nowEpoch
-    if ($st -and $st.firstFailureEpoch -and (($nowEpoch - [double]$st.firstFailureEpoch) -lt ($RetryWindowHours * 3600))) { $attempt = [int]$st.attempt + 1; $first = [double]$st.firstFailureEpoch }
+    $attempt = 1; $first = $nowEpoch; $daily = $false; $windowStart = $null; $windowAttempts = 0; $lastLaunch = $null
+    if ($st -and $st.firstFailureEpoch) {
+        $attempt = [int]$st.attempt + 1; $first = [double]$st.firstFailureEpoch
+        if ($st.dailyMode) { $daily = $true; if ($st.windowStartEpoch) { $windowStart = [double]$st.windowStartEpoch }; if ($st.windowAttempts) { $windowAttempts = [int]$st.windowAttempts } }
+    }
+    # only a started installer counts as a launch; a failure before that (feed down, refused, corrupt) keeps the previous value
+    if ($st -and $st.lastLaunchEpoch) { $lastLaunch = [double]$st.lastLaunchEpoch }
+    if ($script:Launched) { $lastLaunch = $nowEpoch }
+    if (-not $daily -and (($nowEpoch - $first) -ge ($RetryWindowHours * 3600))) { $daily = $true }
     $delay = $(if ($attempt -le $RetryDelaysMinutes.Count) { $RetryDelaysMinutes[$attempt - 1] } else { 60 })
     $next = $nowEpoch + ($delay * 60)
-    if (($next - $first) -gt ($RetryWindowHours * 3600)) {
-        Write-Json $RetryPath ([ordered]@{ attempt = $attempt; firstFailureEpoch = $first; gaveUp = $true; reason = $why })
-        try { Register-GuardTask $family $null } catch { }
-        Log ('retry window of ' + $RetryWindowHours + ' h used up after ' + ($attempt - 1) + ' retries; no further automatic retry (next logon / event 751 starts again)')
-        return
+    if (-not $daily -and (($next - $first) -gt ($RetryWindowHours * 3600))) { $daily = $true }
+    if ($daily) {
+        # first 24 h used up: one attempt per window, the next one a full window after this attempt (never a tight loop)
+        $windowStart = $nowEpoch; $windowAttempts += 1
+        $delay = $DailyWindowHours * 60
+        $next = $nowEpoch + ($delay * 60)
     }
-    Write-Json $RetryPath ([ordered]@{ attempt = $attempt; firstFailureEpoch = $first; nextEpoch = $next; delayMinutes = $delay; reason = $why })
+    $o = [ordered]@{ attempt = $attempt; firstFailureEpoch = $first; nextEpoch = $next; delayMinutes = $delay; reason = $why }
+    if ($daily) { $o.dailyMode = $true; $o.windowStartEpoch = $windowStart; $o.windowAttempts = $windowAttempts }
+    if ($lastLaunch) { $o.lastLaunchEpoch = $lastLaunch }
+    Write-Json $RetryPath $o
     $local = $epoch0.ToUniversalTime().AddSeconds($next).ToLocalTime()
-    try { Register-GuardTask $family $local; Log ('retry ' + $attempt + ' scheduled in ' + $delay + ' min at ' + $local.ToString('s')) } catch { Log ('could not schedule the retry: ' + $_.Exception.Message) }
+    try { Register-GuardTask $family $local; Log ('retry ' + $attempt + ' scheduled in ' + $delay + ' min at ' + $local.ToString('s') + $(if ($daily) { ' (daily window ' + $windowAttempts + ')' } else { '' })) } catch { Log ('could not schedule the retry: ' + $_.Exception.Message) }
+}
+function Test-ForeignEvent([string]$family, [string]$recordId) {
+    # '' = proceed (not an event run, or the event names this package, or it could not be read); else why the event is not ours
+    if (-not $recordId -or $recordId -notmatch '^\d{1,20}$') { return '' }
+    try {
+        $e = Get-WinEvent -LogName 'Microsoft-Windows-AppXDeploymentServer/Operational' -FilterXPath ('*[System[EventID=751 and EventRecordID=' + $recordId + ']]') -MaxEvents 1 -ErrorAction Stop
+        $text = [string]$e.Message + ' ' + [string]$e.ToXml()
+        $name = $family.Substring(0, $family.LastIndexOf('_')); $pub = $family.Substring($family.LastIndexOf('_') + 1)
+        if (($text.IndexOf($name + '_', [StringComparison]::OrdinalIgnoreCase) -ge 0) -and ($text.IndexOf($pub, [StringComparison]::OrdinalIgnoreCase) -ge 0)) { return '' }
+        return ('event 751 record ' + $recordId + ' does not name ' + $family)
+    } catch { Log ('event ' + $recordId + ' unreadable, proceeding: ' + $_.Exception.Message); return '' }
 }
 
 # ------------------------------------------------------------------ package state
@@ -264,6 +316,9 @@ if ((Split-Path -Leaf $Dir) -ne 'repair') { Finish 'refused' 2 ('script folder i
 if ($feedUri -and -not (Test-AllowedUri $feedUri)) { Finish 'refused' 2 ('guard.json feed uri is not https (or http to loopback): ' + $feedUri) }
 if ($msix -and -not (Test-AllowedUri $msix)) { Finish 'refused' 2 ('guard.json msix uri is not https (or http to loopback): ' + $msix) }
 $script:Ctx = $family
+$foreign = Test-ForeignEvent $family $EventRecordID
+if ($foreign) { Log ('ignored: ' + $foreign); exit 0 }
+Log ('guard sha256 ' + $ScriptHashes.guardSha256 + ' (lf ' + $ScriptHashes.guardSha256Lf + ')')
 $mutex = [Threading.Mutex]::new($false, ('Local\' + $family + '-Repair'))
 if (-not $mutex.WaitOne(0)) { Log 'another repair run is active; exiting (last-result.json left to that run)'; exit 0 }
 $tmpMsix = ''
@@ -295,6 +350,7 @@ try {
     }
     if (-not $expect.name -or -not $expect.publisher) {
         Log 'FAILED: expected package identity unknown; refusing to install anything'
+        $script:LaunchFailure = 'identity unknown: no installer started'
         Set-Retry $family 'identity unknown'
         Write-Result 'failed' 1 'expected package identity unknown'
         exit 1
@@ -312,6 +368,7 @@ try {
                 $feedOk = $true
                 if ($fi.uri) { $msix = $fi.uri }   # newer than the one recorded
                 Log ('Add-AppxPackage -AppInstallerFile ' + $feedUri + ' (declares ' + $fi.version + ')')
+                $script:Launched = $true
                 try { Add-AppxPackage -AppInstallerFile $feedUri -ErrorAction Stop } catch { Log ('-AppInstallerFile failed: ' + $_.Exception.Message + ' | ' + $_.FullyQualifiedErrorId); $why += ('-AppInstallerFile failed: ' + $_.Exception.Message) }
                 if (Test-Healthy $family) {
                     $now = @(Get-Family $family) | Select-Object -First 1
@@ -334,6 +391,7 @@ try {
                 if ($bad) { Log ('REFUSED msix ' + $msix + ': ' + $bad); $why += ('msix refused: ' + $bad) }
                 else {
                     Log ('Add-AppxPackage -Path ' + $msix + ' (' + $mi.kind + ' ' + $mi.version + ')')
+                    $script:Launched = $true
                     try { Add-AppxPackage -Path $tmpMsix -ErrorAction Stop } catch { Log ('-Path failed: ' + $_.Exception.Message + ' | ' + $_.FullyQualifiedErrorId); $why += ('-Path failed: ' + $_.Exception.Message) }
                     if (Test-Healthy $family) {
                         $now = @(Get-Family $family) | Select-Object -First 1
@@ -345,6 +403,7 @@ try {
             }
         }
     } else { $why += 'no msix uri recorded' }
+    if (-not $script:Launched) { $script:LaunchFailure = 'no installer started: ' + ($why -join ' | ') }
     $detail = 'FAILED: package still ' + (Get-StateText $family) + '. Reasons: ' + ($why -join ' | ')
     Set-Retry $family 'repair failed'
     Write-Result 'failed' 1 $detail

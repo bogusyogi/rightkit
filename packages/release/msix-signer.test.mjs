@@ -10,7 +10,7 @@ import { parseSignedData, readMsixSignerSubject, renderSubject, signerCertificat
 
 // Fixture: PKCX + CMS SignedData made with openssl; certificates are [decoy "CN=Decoy Issuer", signer], SignerInfo names the second.
 const P7X = Buffer.from(readFileSync(new URL("./fixtures/msix-signer.p7x.b64", import.meta.url), "utf8"), "base64");
-const SIGNER = "C=US, ST=Test State, L=Testville, O=Fixture Signer LLC, CN=Fixture Signer LLC";
+const SIGNER = "CN=Fixture Signer LLC, O=Fixture Signer LLC, L=Testville, S=Test State, C=US";
 const crc = (b) => { let c; let r = 0xffffffff; for (const x of b) { c = (r ^ x) & 0xff; for (let k = 0; k < 8; k += 1) c = c & 1 ? (c >>> 1) ^ 0xedb88320 : c >>> 1; r = (r >>> 8) ^ c; } return (r ^ 0xffffffff) >>> 0; };
 
 function zip(entries) {
@@ -36,8 +36,8 @@ for (const method of [0, 8]) {
       const subject = readMsixSignerSubject(file);
       assert.equal(subject, SIGNER);
       // Publisher comparison is order-insensitive (normalizeDn sorts), so a reordered Publisher still matches.
-      assertPublisherMatchesSigner("CN=Fixture Signer LLC, O=Fixture Signer LLC, L=Testville, ST=Test State, C=US", subject);
-      assert.throws(() => assertPublisherMatchesSigner("CN=Other LLC, O=Fixture Signer LLC, L=Testville, ST=Test State, C=US", subject), { code: "MSIX_PUBLISHER_MISMATCH" });
+      assertPublisherMatchesSigner("CN=Fixture Signer LLC, O=Fixture Signer LLC, L=Testville, S=Test State, C=US", subject);
+      assert.throws(() => assertPublisherMatchesSigner("CN=Other LLC, O=Fixture Signer LLC, L=Testville, S=Test State, C=US", subject), { code: "MSIX_PUBLISHER_MISMATCH" });
     } finally { rmSync(dir, { recursive: true }); }
   });
 }
@@ -50,7 +50,7 @@ test("SignerInfo issuer+serial picks the certificate; an unknown signer fails cl
 });
 
 test("subject values with separators are quoted", () => {
-  assert.equal(renderSubject({ subject: "CN=Acme, Inc.\nC=US" }), 'CN="Acme, Inc.", C=US');
+  assert.equal(renderSubject({ subject: "C=US\nCN=Acme, Inc." }), 'CN="Acme, Inc.", C=US');
 });
 
 test("missing, headerless and unparsable signatures fail closed with MSIX_PUBLISHER_MISMATCH", () => {
@@ -94,4 +94,15 @@ test("buildMsix default reader reads the p7x; mismatch fails; override wins", ()
   assert.throws(() => build({}, publisher), (e) => e.code === "MSIX_PUBLISHER_MISMATCH" && e.message.includes("Fixture Signer LLC"));
   assert.ok(build({ readSubject: () => publisher }, publisher));
   assert.throws(() => build({ readSubject: () => "CN=Wrong" }, publisher), { code: "MSIX_PUBLISHER_MISMATCH" });
+});
+
+// Real Azure Artifact Signing signature (SwiftRight run 38535084834, SliceApp_0.1.0.0_x64.msix): the
+// signer certificate is embedded twice beside Microsoft intermediates; the reader must still resolve it.
+test("a real Azure Artifact Signing p7x with a duplicated signer certificate resolves to the publisher", () => {
+  const raw = Buffer.from(readFileSync(new URL("./fixtures/msix-signer-azure-artifact-signing.p7x.b64", import.meta.url), "utf8"), "base64");
+  const parsed = parseSignedData(raw.subarray(4));
+  assert.equal(parsed.certificates.length, 5);
+  const subject = renderSubject(signerCertificate(parsed));
+  assert.equal(subject, "CN=Damned Ventures LLC, O=Damned Ventures LLC, L=new york, S=New York, C=US");
+  assert.doesNotThrow(() => assertPublisherMatchesSigner("CN=Damned Ventures LLC, O=Damned Ventures LLC, L=new york, S=New York, C=US", subject));
 });

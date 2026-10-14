@@ -182,19 +182,26 @@ export function signerCertificate(parsed) {
       return id.serial === parsed.signer.serial && id.issuer.equals(parsed.signer.issuer);
     } catch { return false; }
   });
-  if (match.length !== 1) throw new Error(`signer certificate not found in the signature (${match.length} matches)`);
-  return new X509Certificate(match[0]);
+  // Real Azure Artifact Signing packages embed the signer certificate more than once: drop byte-identical
+  // duplicates, then, if distinct certificates still match, keep the one that is not a CA.
+  const distinct = [...new Map(match.map((c) => [c.toString("hex"), c])).values()];
+  const leaves = distinct.length > 1 ? distinct.filter((c) => { try { return !new X509Certificate(c).ca; } catch { return false; } }) : distinct;
+  if (leaves.length !== 1) throw new Error(`signer certificate not found in the signature (${match.length} matches, ${distinct.length} distinct, ${leaves.length} non-CA)`);
+  return new X509Certificate(leaves[0]);
 }
 
 // --- subject rendering ---------------------------------------------------------------------------
 const needsQuote = (v) => /[,+"\\<>;=\r\n]/.test(v) || /^[ #]|\s$/.test(v);
-/** Node renders subject as "K=V" lines; join as an RFC 2253-style display string like .NET Subject ("CN=a, O=b"). */
+// Windows (.NET X500DistinguishedName, Get-AuthenticodeSignature, MSIX Identity/@Publisher) names these
+// attributes differently from OpenSSL/Node.
+const WINDOWS_ATTRIBUTE = { ST: "S", emailAddress: "E" };
+/** Render the subject exactly as Windows does: most specific RDN first ("CN=a, O=b, L=c, S=d, C=e"), Windows attribute names. */
 export function renderSubject(x509) {
   return String(x509.subject).split("\n").filter(Boolean).map((line) => {
     const at = line.indexOf("=");
     const key = line.slice(0, at); const value = line.slice(at + 1);
-    return `${key}=${needsQuote(value) ? `"${value.replace(/"/g, '""')}"` : value}`;
-  }).join(", ");
+    return `${WINDOWS_ATTRIBUTE[key] ?? key}=${needsQuote(value) ? `"${value.replace(/"/g, '""')}"` : value}`;
+  }).reverse().join(", ");
 }
 
 /** Read the signer certificate subject of a signed .msix / .msixbundle from AppxSignature.p7x. Throws MSIX_PUBLISHER_MISMATCH. */
