@@ -2,27 +2,47 @@
   "schema": 1,
   "kind": "cargo",
   "name": "rightkit-browser",
-  "version": "0.2.2",
-  "commit": "25b724d88a1a58ee573fe3539b06ecad92133ec7",
-  "artifactSha256": "3cd114c870b0f5e2584d456a0691a3b8e4378c35bb708ba2c971e09d450e2e33",
-  "artifactBasis": "git archive HEAD crates/rightkit-browser",
+  "version": "0.3.1",
+  "commit": "1d5e66f83c28a6a222fb537ea89df74a58c1a63c",
+  "artifactSha256": "70b05c3287450f39797504dd8313b38f0529c5679c445458aa2bc29d93c0b61d",
   "hostPolicy": "darwin-only",
-  "hostPolicyReason": "Adrian 2026-10-07: publish crates from the Mac (crates.io auth here); Windows qualification follows",
+  "hostPolicyReason": "Adrian 2026-10-14 local-build grant (.rightkit-local-build.json); Windows covered by the next CI run",
   "runs": [
     {
       "host": {
         "os": "darwin",
         "arch": "arm64"
       },
-      "commit": "25b724d88a1a58ee573fe3539b06ecad92133ec7",
-      "command": "right-release publish cargo --crate rightkit-browser --dry-run (secret scan, fmt, tests, clippy, package, registry dry-run)",
+      "commit": "1d5e66f83c28a6a222fb537ea89df74a58c1a63c",
       "features": [
         "default"
       ],
-      "operator": "claude-opus-5.5 (RightKit lead) for adrdsouza",
-      "timestamp": "2026-10-08T01:41:13Z",
-      "passed": 36,
-      "failed": 0
+      "artifactSha256": "70b05c3287450f39797504dd8313b38f0529c5679c445458aa2bc29d93c0b61d",
+      "command": "cargo test -p rightkit-browser --no-fail-fast -- --show-output && cargo clippy -p rightkit-browser --no-deps --all-targets -- -D warnings && cargo package --locked -p rightkit-browser && cargo metadata --format-version 1 --no-deps",
+      "operator": "agent (local-build grant)",
+      "timestamp": "2026-10-14T17:39:57.521Z",
+      "passed": 63,
+      "failed": 0,
+      "skipped": 0,
+      "ignored": 1,
+      "allowIgnored": true,
+      "requireAssets": "0",
+      "assetGated": true,
+      "steps": [
+        {
+          "command": "cargo test -p rightkit-browser --no-fail-fast -- --show-output",
+          "ok": true,
+          "executed": 63,
+          "failed": 0,
+          "ignored": 1,
+          "skipped": 0,
+          "binaries": 6
+        },
+        {
+          "command": "cargo clippy -p rightkit-browser --no-deps --all-targets -- -D warnings",
+          "ok": true
+        }
+      ]
     }
   ]
 }

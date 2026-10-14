@@ -2,27 +2,47 @@
   "schema": 1,
   "kind": "cargo",
   "name": "rightkit-crash",
-  "version": "0.2.0",
-  "commit": "45fb3f73f2a304d87cc82ced22020d22c2f51546",
-  "artifactSha256": "e0665fe9298b8f57da9d904315b9975150b2db6d16e19dfb1cb5296fbd7e86be",
-  "artifactBasis": "cargo package rightkit-crash-0.2.0.crate",
+  "version": "0.3.0",
+  "commit": "f430c408ee3f3d0e0642fce408c87240b9308d01",
+  "artifactSha256": "21e4d9ff4bf4885535e2f5eeb6bf9cc274afe3bbc158de24cd98b64c37802dce",
   "hostPolicy": "darwin-only",
-  "hostPolicyReason": "Adrian 2026-10-07: publish crates from the Mac (crates.io auth here); Windows qualification follows",
+  "hostPolicyReason": "Adrian 2026-10-14 local-build grant (.rightkit-local-build.json); Windows covered by the next CI run",
   "runs": [
     {
       "host": {
         "os": "darwin",
         "arch": "arm64"
       },
-      "commit": "45fb3f73f2a304d87cc82ced22020d22c2f51546",
-      "command": "right-release publish cargo --crate rightkit-crash --dry-run (secret scan, fmt, tests, clippy, package, registry dry-run)",
+      "commit": "f430c408ee3f3d0e0642fce408c87240b9308d01",
       "features": [
         "default"
       ],
-      "operator": "claude-opus-5.5 (RightKit lead) for adrdsouza",
-      "timestamp": "2026-10-09T01:01:28Z",
-      "passed": 5,
-      "failed": 0
+      "artifactSha256": "21e4d9ff4bf4885535e2f5eeb6bf9cc274afe3bbc158de24cd98b64c37802dce",
+      "command": "cargo test -p rightkit-crash --no-fail-fast -- --show-output && cargo clippy -p rightkit-crash --no-deps --all-targets -- -D warnings && cargo package --locked -p rightkit-crash && cargo metadata --format-version 1 --no-deps",
+      "operator": "agent (local-build grant)",
+      "timestamp": "2026-10-14T17:48:22.229Z",
+      "passed": 33,
+      "failed": 0,
+      "skipped": 0,
+      "ignored": 0,
+      "allowIgnored": false,
+      "requireAssets": "1",
+      "assetGated": false,
+      "steps": [
+        {
+          "command": "cargo test -p rightkit-crash --no-fail-fast -- --show-output",
+          "ok": true,
+          "executed": 33,
+          "failed": 0,
+          "ignored": 0,
+          "skipped": 0,
+          "binaries": 4
+        },
+        {
+          "command": "cargo clippy -p rightkit-crash --no-deps --all-targets -- -D warnings",
+          "ok": true
+        }
+      ]
     }
   ]
 }

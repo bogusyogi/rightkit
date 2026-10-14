@@ -1,0 +1,47 @@
+{
+  "schema": 1,
+  "kind": "cargo",
+  "name": "rightkit-llm",
+  "version": "0.2.1",
+  "commit": "7338e0c4f0558847680d8e8b4be226f37d06dea7",
+  "artifactSha256": "5ff36c0e2f637fa43ba8da823b8357957d188fafb8236ad4613b12922dd6722a",
+  "hostPolicy": "darwin-only",
+  "hostPolicyReason": "Adrian 2026-10-14 local-build grant (.rightkit-local-build.json); Windows covered by the next CI run",
+  "runs": [
+    {
+      "host": {
+        "os": "darwin",
+        "arch": "arm64"
+      },
+      "commit": "7338e0c4f0558847680d8e8b4be226f37d06dea7",
+      "features": [
+        "default"
+      ],
+      "artifactSha256": "5ff36c0e2f637fa43ba8da823b8357957d188fafb8236ad4613b12922dd6722a",
+      "command": "cargo test -p rightkit-llm --no-fail-fast -- --show-output && cargo clippy -p rightkit-llm --no-deps --all-targets -- -D warnings && cargo package --locked -p rightkit-llm && cargo metadata --format-version 1 --no-deps",
+      "operator": "agent (local-build grant)",
+      "timestamp": "2026-10-14T17:08:35.203Z",
+      "passed": 101,
+      "failed": 0,
+      "skipped": 0,
+      "ignored": 0,
+      "requireAssets": "1",
+      "assetGated": false,
+      "steps": [
+        {
+          "command": "cargo test -p rightkit-llm --no-fail-fast -- --show-output",
+          "ok": true,
+          "executed": 101,
+          "failed": 0,
+          "ignored": 0,
+          "skipped": 0,
+          "binaries": 9
+        },
+        {
+          "command": "cargo clippy -p rightkit-llm --no-deps --all-targets -- -D warnings",
+          "ok": true
+        }
+      ]
+    }
+  ]
+}

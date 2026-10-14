@@ -1,0 +1,58 @@
+{
+  "schema": 1,
+  "kind": "cargo",
+  "name": "rightkit-daemon",
+  "version": "0.2.1",
+  "commit": "f430c408ee3f3d0e0642fce408c87240b9308d01",
+  "artifactSha256": "e0c422ec159866b72a4fa6bcb4276cd0713066a6947467da38aac84e6c86a203",
+  "hostPolicy": "darwin-only",
+  "hostPolicyReason": "Adrian 2026-10-14 local-build grant (.rightkit-local-build.json); Windows covered by the next CI run",
+  "runs": [
+    {
+      "host": {
+        "os": "darwin",
+        "arch": "arm64"
+      },
+      "commit": "f430c408ee3f3d0e0642fce408c87240b9308d01",
+      "features": [
+        "default",
+        "--features test-mode"
+      ],
+      "artifactSha256": "e0c422ec159866b72a4fa6bcb4276cd0713066a6947467da38aac84e6c86a203",
+      "command": "cargo test -p rightkit-daemon --no-fail-fast -- --show-output && cargo test -p rightkit-daemon --features test-mode --no-fail-fast -- --show-output && cargo clippy -p rightkit-daemon --no-deps --all-targets -- -D warnings && cargo package --locked -p rightkit-daemon && cargo metadata --format-version 1 --no-deps",
+      "operator": "agent (local-build grant)",
+      "timestamp": "2026-10-14T17:55:09.524Z",
+      "passed": 239,
+      "failed": 0,
+      "skipped": 0,
+      "ignored": 4,
+      "allowIgnored": true,
+      "requireAssets": "1",
+      "assetGated": false,
+      "steps": [
+        {
+          "command": "cargo test -p rightkit-daemon --no-fail-fast -- --show-output",
+          "ok": true,
+          "executed": 113,
+          "failed": 0,
+          "ignored": 2,
+          "skipped": 0,
+          "binaries": 10
+        },
+        {
+          "command": "cargo test -p rightkit-daemon --features test-mode --no-fail-fast -- --show-output",
+          "ok": true,
+          "executed": 126,
+          "failed": 0,
+          "ignored": 2,
+          "skipped": 0,
+          "binaries": 10
+        },
+        {
+          "command": "cargo clippy -p rightkit-daemon --no-deps --all-targets -- -D warnings",
+          "ok": true
+        }
+      ]
+    }
+  ]
+}

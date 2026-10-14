@@ -2,27 +2,47 @@
   "schema": 1,
   "kind": "cargo",
   "name": "rightkit-models",
-  "version": "0.2.7",
-  "commit": "04a56006af4adfeafd73fd696f7764029534173e",
-  "artifactSha256": "3b3a42d1ee5f30744ead92edebba8df3f15d274e72685b232b300b57f27fb29b",
-  "artifactBasis": "cargo package rightkit-models-0.2.7.crate",
+  "version": "0.3.1",
+  "commit": "f430c408ee3f3d0e0642fce408c87240b9308d01",
+  "artifactSha256": "73531d25714ea061bf3ef3e228bf27b8db94f95dd57dbedbedab7d41733dc28c",
   "hostPolicy": "darwin-only",
-  "hostPolicyReason": "Adrian 2026-10-07: publish crates from the Mac (crates.io auth here); Windows qualification follows",
+  "hostPolicyReason": "Adrian 2026-10-14 local-build grant (.rightkit-local-build.json); Windows covered by the next CI run",
   "runs": [
     {
       "host": {
         "os": "darwin",
         "arch": "arm64"
       },
-      "commit": "04a56006af4adfeafd73fd696f7764029534173e",
-      "command": "right-release publish cargo --crate rightkit-models --dry-run (secret scan, fmt, tests, clippy, package, registry dry-run)",
+      "commit": "f430c408ee3f3d0e0642fce408c87240b9308d01",
       "features": [
         "default"
       ],
-      "operator": "claude-opus-5.5 (RightKit lead) for adrdsouza",
-      "timestamp": "2026-10-09T01:47:50Z",
-      "passed": 77,
-      "failed": 0
+      "artifactSha256": "73531d25714ea061bf3ef3e228bf27b8db94f95dd57dbedbedab7d41733dc28c",
+      "command": "cargo test -p rightkit-models --no-fail-fast -- --show-output && cargo clippy -p rightkit-models --no-deps --all-targets -- -D warnings && cargo package --locked -p rightkit-models && cargo metadata --format-version 1 --no-deps",
+      "operator": "agent (local-build grant)",
+      "timestamp": "2026-10-14T18:24:33.970Z",
+      "passed": 153,
+      "failed": 0,
+      "skipped": 0,
+      "ignored": 0,
+      "allowIgnored": false,
+      "requireAssets": "1",
+      "assetGated": false,
+      "steps": [
+        {
+          "command": "cargo test -p rightkit-models --no-fail-fast -- --show-output",
+          "ok": true,
+          "executed": 153,
+          "failed": 0,
+          "ignored": 0,
+          "skipped": 0,
+          "binaries": 21
+        },
+        {
+          "command": "cargo clippy -p rightkit-models --no-deps --all-targets -- -D warnings",
+          "ok": true
+        }
+      ]
     }
   ]
 }

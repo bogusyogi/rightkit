@@ -2,27 +2,46 @@
   "schema": 1,
   "kind": "cargo",
   "name": "rightkit-audio",
-  "version": "0.2.0",
-  "commit": "2b8a7cd4837efd994bf410b02193625cb9bab2a2",
-  "artifactSha256": "04b8ccf1bf3f20ce3d0b00d9da2d303279424cb08033ff56b0f8780d8058ef2e",
-  "artifactBasis": "cargo package rightkit-audio-0.2.0.crate",
+  "version": "0.2.3",
+  "commit": "7338e0c4f0558847680d8e8b4be226f37d06dea7",
+  "artifactSha256": "74bdddf12b4e729abed45b0577d0cf974a376fe914153f9eda6cfdddd8450882",
   "hostPolicy": "darwin-only",
-  "hostPolicyReason": "Adrian 2026-10-07: publish crates from the Mac (crates.io auth here); Windows qualification follows",
+  "hostPolicyReason": "Adrian 2026-10-14 local-build grant (.rightkit-local-build.json); Windows covered by the next CI run",
   "runs": [
     {
       "host": {
         "os": "darwin",
         "arch": "arm64"
       },
-      "commit": "2b8a7cd4837efd994bf410b02193625cb9bab2a2",
-      "command": "right-release publish cargo --crate rightkit-audio --dry-run (secret scan, fmt, tests, clippy, package, registry dry-run)",
+      "commit": "7338e0c4f0558847680d8e8b4be226f37d06dea7",
       "features": [
         "default"
       ],
-      "operator": "claude-opus-5.5 (RightKit lead) for adrdsouza",
-      "timestamp": "2026-10-08T21:48:25Z",
-      "passed": 3,
-      "failed": 0
+      "artifactSha256": "74bdddf12b4e729abed45b0577d0cf974a376fe914153f9eda6cfdddd8450882",
+      "command": "cargo test -p rightkit-audio --no-fail-fast -- --show-output && cargo clippy -p rightkit-audio --no-deps --all-targets -- -D warnings && cargo package --locked -p rightkit-audio && cargo metadata --format-version 1 --no-deps",
+      "operator": "agent (local-build grant)",
+      "timestamp": "2026-10-14T17:01:36.341Z",
+      "passed": 4,
+      "failed": 0,
+      "skipped": 1,
+      "ignored": 0,
+      "requireAssets": "0",
+      "assetGated": true,
+      "steps": [
+        {
+          "command": "cargo test -p rightkit-audio --no-fail-fast -- --show-output",
+          "ok": true,
+          "executed": 4,
+          "failed": 0,
+          "ignored": 0,
+          "skipped": 1,
+          "binaries": 3
+        },
+        {
+          "command": "cargo clippy -p rightkit-audio --no-deps --all-targets -- -D warnings",
+          "ok": true
+        }
+      ]
     }
   ]
 }

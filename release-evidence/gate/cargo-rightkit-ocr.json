@@ -2,27 +2,47 @@
   "schema": 1,
   "kind": "cargo",
   "name": "rightkit-ocr",
-  "version": "0.1.2",
-  "commit": "b38bcd250ab510444bfb7a205a6e90ba86614a34",
-  "artifactSha256": "b846ee802edb3edc1bdbea50d7d0146a427c6ced752f2f71a1f067974d980011",
-  "artifactBasis": "cargo package rightkit-ocr-0.1.2.crate",
+  "version": "0.2.2",
+  "commit": "ded1ec276402a093e4004be925595666ef609402",
+  "artifactSha256": "d818b5504298ea7eaf0e0f8ead0b220267abb13950b1d8551f2120f61ac5e453",
   "hostPolicy": "darwin-only",
-  "hostPolicyReason": "Adrian 2026-10-07: publish crates from the Mac (crates.io auth here); Windows qualification follows",
+  "hostPolicyReason": "Adrian 2026-10-14 local-build grant (.rightkit-local-build.json); Windows covered by the next CI run",
   "runs": [
     {
       "host": {
         "os": "darwin",
         "arch": "arm64"
       },
-      "commit": "b38bcd250ab510444bfb7a205a6e90ba86614a34",
-      "command": "right-release publish cargo --crate rightkit-ocr --dry-run (secret scan, fmt, tests, clippy, package, registry dry-run)",
+      "commit": "ded1ec276402a093e4004be925595666ef609402",
       "features": [
         "default"
       ],
-      "operator": "claude-opus-5.5 (RightKit lead) for adrdsouza",
-      "timestamp": "2026-10-09T02:08:40Z",
-      "passed": 24,
-      "failed": 0
+      "artifactSha256": "d818b5504298ea7eaf0e0f8ead0b220267abb13950b1d8551f2120f61ac5e453",
+      "command": "cargo test -p rightkit-ocr --no-fail-fast -- --show-output && cargo clippy -p rightkit-ocr --no-deps --all-targets -- -D warnings && cargo package --locked -p rightkit-ocr && cargo metadata --format-version 1 --no-deps",
+      "operator": "agent (local-build grant)",
+      "timestamp": "2026-10-14T17:20:45.143Z",
+      "passed": 48,
+      "failed": 0,
+      "skipped": 4,
+      "ignored": 1,
+      "allowIgnored": true,
+      "requireAssets": "0",
+      "assetGated": true,
+      "steps": [
+        {
+          "command": "cargo test -p rightkit-ocr --no-fail-fast -- --show-output",
+          "ok": true,
+          "executed": 48,
+          "failed": 0,
+          "ignored": 1,
+          "skipped": 4,
+          "binaries": 8
+        },
+        {
+          "command": "cargo clippy -p rightkit-ocr --no-deps --all-targets -- -D warnings",
+          "ok": true
+        }
+      ]
     }
   ]
 }
