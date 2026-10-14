@@ -6,7 +6,7 @@
 //     script it runs (`pnpm run <script>`, followed up to three levels);
 //   - an app Cargo.toml whose DEFAULT feature closure reaches one of them, or that lists `devtools` on `tauri`,
 //     (`devtools` and rightkit-shell's `content-devtools` are accepted only for an allow-listed app, see devtools-policy.mjs)
-//     `qa-control` on `rightkit-control`, `dev-inspect` on `rightkit-shell`, or `tauri-plugin-wdio-webdriver` as a non-optional dependency.
+//     `qa-control` on `rightkit-qa-driver`, `dev-inspect` on `rightkit-shell`, or `tauri-plugin-wdio-webdriver` as a non-optional dependency.
 // Dev builds are unaffected: `development.mjs` never calls this.
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
@@ -158,8 +158,11 @@ export function cargoManifestIssues(manifestText, label = "Cargo.toml", { allowD
   const issues = [];
   const tauri = dependencies.get("tauri");
   if (!allowDevtools && tauri?.features.includes("devtools")) issues.push(`${label}: dependency \`tauri\` lists feature \`devtools\` unconditionally (inspector ships in release builds)`);
-  const control = dependencies.get("rightkit-control");
-  if (control && !control.optional && control.features.includes("qa-control")) issues.push(`${label}: dependency \`rightkit-control\` lists \`qa-control\` unconditionally`);
+  // The crate was renamed from rightkit-control; apps still on the old published name must stay covered.
+  for (const name of ["rightkit-qa-driver", "rightkit-control"]) {
+    const control = dependencies.get(name);
+    if (control && !control.optional && control.features.includes("qa-control")) issues.push(`${label}: dependency \`${name}\` lists \`qa-control\` unconditionally`);
+  }
   const shell = dependencies.get("rightkit-shell");
   if (shell && !shell.optional && shell.features.includes("dev-inspect")) issues.push(`${label}: dependency \`rightkit-shell\` lists \`dev-inspect\` unconditionally (developer inspection ships in release builds)`);
   const service = dependencies.get("rightkit-daemon");

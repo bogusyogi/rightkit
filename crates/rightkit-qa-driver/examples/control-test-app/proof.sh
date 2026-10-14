@@ -1,9 +1,9 @@
 #!/bin/sh
 # Manual end-to-end proof of the in-app control server over rightkit-daemon (macOS).
 # Build first (from rightkit):
-#   rightkit cargo test -p rightkit-control --features qa-control --lib
-#   rightkit cargo build --manifest-path crates/rightkit-control/examples/control-test-app/Cargo.toml
-#   rightkit cargo build -p rightkit-control -p rightkit-daemon -p rightkit-qa --bins --example svc_call
+#   rightkit cargo test -p rightkit-qa-driver --features qa-control --lib
+#   rightkit cargo build --manifest-path crates/rightkit-qa-driver/examples/control-test-app/Cargo.toml
+#   rightkit cargo build -p rightkit-qa-driver -p rightkit-daemon -p rightkit-qa --bins --example svc_call
 # Then: TARGET=<workspace managed target>/debug APP_TARGET=<fixture managed target>/debug sh proof.sh
 # Launches the app hidden (open -g -j -n), calls it as the allowlisted app `right-qa`
 # through the service socket, checks the frontmost app never changed, kills it.
@@ -24,11 +24,11 @@ mkdir -p "$APP/Contents/MacOS"; cp "$APP_BIN/control-test-app" "$APP/Contents/Ma
 cat > "$APP/Contents/Info.plist" <<PL
 <?xml version="1.0" encoding="UTF-8"?><plist version="1.0"><dict><key>CFBundleExecutable</key><string>control-test-app</string><key>CFBundleIdentifier</key><string>app.rightkit.ct</string><key>CFBundleName</key><string>ct</string><key>CFBundlePackageType</key><string>APPL</string><key>CFBundleVersion</key><string>1</string></dict></plist>
 PL
-CALL="$BIN/examples/svc_call"; FRONT0=$("$BIN/rightkit-control" frontmost)
+CALL="$BIN/examples/svc_call"; FRONT0=$("$BIN/rightkit-qa-driver" frontmost)
 case "$FRONT0" in '0 '*|'') echo FRONTMOST_UNMEASURABLE; exit 1;; esac
 (
   while [ ! -f "$T/stop-monitor" ]; do
-    [ "$FRONT0" = "$("$BIN/rightkit-control" frontmost)" ] || touch "$T/frontmost-changed"
+    [ "$FRONT0" = "$("$BIN/rightkit-qa-driver" frontmost)" ] || touch "$T/frontmost-changed"
     sleep 0.05
   done
 ) & MONITOR=$!
@@ -105,6 +105,6 @@ echo "named keys: $KEYS"
 echo "$KEYS" | grep -q "ArrowUp ArrowDown ArrowLeft ArrowRight Home End PageUp PageDown Delete F1 F12 , ,+cmd" && echo NAMED_KEYS_OK || { echo NAMED_KEYS_WRONG; exit 1; }
 echo "unlisted app:$("$CALL" "$T/suite" control-ct someone-else health || true)"
 echo "unlisted method: $("$CALL" "$T/suite" control-ct right-qa nope || true)"
-[ "$FRONT0" = "$("$BIN/rightkit-control" frontmost)" ] && [ ! -f "$T/frontmost-changed" ] && echo FRONTMOST_UNCHANGED || { echo FRONTMOST_CHANGED; exit 1; }
+[ "$FRONT0" = "$("$BIN/rightkit-qa-driver" frontmost)" ] && [ ! -f "$T/frontmost-changed" ] && echo FRONTMOST_UNCHANGED || { echo FRONTMOST_CHANGED; exit 1; }
 kill "$PID"; PID=; sleep 1
 "$CALL" "$T/suite" control-ct right-qa health || true

@@ -5,7 +5,7 @@
 //!   rules, per-caller allowlist, argument schema, the caller's admission hook,
 //!   journal).
 //! * Backends: `<app>.*` over each app's in-app control service
-//!   (`rightkit-control` on `rightkit-daemon`, including the app's own typed
+//!   (`rightkit-qa-driver` on `rightkit-daemon`, including the app's own typed
 //!   commands), `desktop.*` over `rightkit-automation`, `browser.*` over
 //!   `rightkit-browser`, `speech.*` over the shared speech service
 //!   (`rightkit-speech-client`, the first client).

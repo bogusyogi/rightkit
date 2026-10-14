@@ -17,20 +17,20 @@ test("versions compare numerically, not lexically", () => {
 });
 
 test("newer published versions become staged; the replaced staged version stays allowed", () => {
-  const versions = { npm: { "@rightkit/qa": "0.1.0" }, stagedNpm: { "@rightkit/qa": "0.2.3" }, cargo: { "rightkit-db": "0.1.0" }, stagedCargo: { "rightkit-db": "0.2.1", "rightkit-control": "0.1.5" }, registry: { npm: { "@rightkit/qa": "0.2.3" }, cargo: { "rightkit-control": "0.1.5" } } };
+  const versions = { npm: { "@rightkit/qa": "0.1.0" }, stagedNpm: { "@rightkit/qa": "0.2.3" }, cargo: { "rightkit-db": "0.1.0" }, stagedCargo: { "rightkit-db": "0.2.1", "rightkit-qa-driver": "0.1.5" }, registry: { npm: { "@rightkit/qa": "0.2.3" }, cargo: { "rightkit-qa-driver": "0.1.5" } } };
   const { versions: next, changes } = applyRegistryLatest(versions, [
     { registry: "npm", name: "@rightkit/qa", version: "0.2.4" },
-    { registry: "cargo", name: "rightkit-control", version: "0.1.6" },
+    { registry: "cargo", name: "rightkit-qa-driver", version: "0.1.6" },
     { registry: "cargo", name: "rightkit-db", version: "0.2.1" },
     { registry: "cargo", name: "rightkit-embed", version: "0.2.0" },
     { registry: "cargo", name: "rightkit-llm", version: null },
   ]);
   assert.equal(next.stagedNpm["@rightkit/qa"], "0.2.4"); assert.deepEqual(next.legacyNpm["@rightkit/qa"], ["0.2.3"]);
-  assert.equal(next.stagedCargo["rightkit-control"], "0.1.6"); assert.deepEqual(next.legacyCargo["rightkit-control"], ["0.1.5"]);
+  assert.equal(next.stagedCargo["rightkit-qa-driver"], "0.1.6"); assert.deepEqual(next.legacyCargo["rightkit-qa-driver"], ["0.1.5"]);
   assert.equal(next.stagedCargo["rightkit-embed"], "0.2.0"); assert.equal(next.legacyCargo["rightkit-embed"], undefined);
   assert.equal(next.stagedCargo["rightkit-llm"], undefined);
-  assert.deepEqual(changes.map((c) => `${c.name}:${c.from}->${c.to}`), ["@rightkit/qa:0.2.3->0.2.4", "rightkit-control:0.1.5->0.1.6", "rightkit-embed:null->0.2.0"]);
-  assert.equal(versions.stagedCargo["rightkit-control"], "0.1.5", "input is not mutated");
+  assert.deepEqual(changes.map((c) => `${c.name}:${c.from}->${c.to}`), ["@rightkit/qa:0.2.3->0.2.4", "rightkit-qa-driver:0.1.5->0.1.6", "rightkit-embed:null->0.2.0"]);
+  assert.equal(versions.stagedCargo["rightkit-qa-driver"], "0.1.5", "input is not mutated");
 });
 
 test("a registry never downgrades staged, and a published floor is retained in legacy", () => {

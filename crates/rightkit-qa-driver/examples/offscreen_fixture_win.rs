@@ -19,7 +19,7 @@
 //! Built only with the `wv2-0_38` feature (declared with `required-features` in Cargo.toml).
 #[cfg(windows)]
 mod fixture {
-    use rightkit_control::offscreen::{self, OffscreenError};
+    use rightkit_qa_driver::offscreen::{self, OffscreenError};
     use std::cell::RefCell;
     use std::ffi::c_void;
     use std::path::{Path, PathBuf};

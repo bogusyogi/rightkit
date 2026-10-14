@@ -2,6 +2,8 @@
 
 ## 0.3.0
 
+Renamed from rightkit-control; 0.1.11 remains published under the old name.
+
 - README "QA control never ships" now lists all four layers (feature, binary scan, source layer, environment) and the known limits. `right-release` also refuses wdio WebDriver plugin, remote-debugging and Tauri devtools strings in a release binary, scans MSIX/ZIP containers and staged payloads before packing, and refuses release builds that enable `devtools`, `qa-native`, `qa-control` or `dev-native`. No crate code changed.
 
 Breaking (pre-1.0 minor). QA control can no longer ship by accident.

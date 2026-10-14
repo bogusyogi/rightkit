@@ -3,7 +3,7 @@
   "capabilities": [
     {
       "capability": "agent-tools",
-      "summary": "One typed tool interface for agents over rightkit-automation, rightkit-control, rightkit-browser and each app's engine commands (via rightkit-daemon), plus the `right-ctl <app> <command>` CLI.; declaration-only detection (no precise implementation fingerprint)",
+      "summary": "One typed tool interface for agents over rightkit-automation, rightkit-qa-driver, rightkit-browser and each app's engine commands (via rightkit-daemon), plus the `right-ctl <app> <command>` CLI.; declaration-only detection (no precise implementation fingerprint)",
       "fingerprints": [],
       "detection": "declaration-only",
       "policyNotes": [

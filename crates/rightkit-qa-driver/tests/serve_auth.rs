@@ -1,4 +1,4 @@
-//! The WebDriver bridge is an authenticated adapter: a real `rightkit-control serve`
+//! The WebDriver bridge is an authenticated adapter: a real `rightkit-qa-driver serve`
 //! process must refuse every request that lacks the per-launch credential or carries
 //! a foreign Host/Origin, and answer one that has them.
 #![cfg(target_os = "macos")]
@@ -31,7 +31,7 @@ fn bridge_requires_credential_host_and_no_origin() {
     std::fs::create_dir_all(&dir).unwrap();
     let cred_file = dir.join("bridge.cred");
     let _ = std::fs::remove_file(&cred_file);
-    let mut child = Command::new(env!("CARGO_BIN_EXE_rightkit-control"))
+    let mut child = Command::new(env!("CARGO_BIN_EXE_rightkit-qa-driver"))
         .args([
             "serve",
             &std::process::id().to_string(),

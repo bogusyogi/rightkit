@@ -44,9 +44,9 @@ const SAMPLES = {
 // Removed catalog patterns stay removed; these fixtures exercise cache/provenance.
 const SAMPLE_OWNERS = {
   "browser.source.chrome-discovery": "rightkit-browser",
-  "control.api.cgevent-post": "rightkit-control",
-  "control.api.ax-element": "rightkit-control",
-  "control.api.sendinput": "rightkit-control",
+  "control.api.cgevent-post": "rightkit-qa-driver",
+  "control.api.ax-element": "rightkit-qa-driver",
+  "control.api.sendinput": "rightkit-qa-driver",
   "mcp.protocol.initialized": "rightkit-mcp",
   "oauth.endpoint.github": "rightkit-oauth",
   "oauth.endpoint.google": "rightkit-oauth",

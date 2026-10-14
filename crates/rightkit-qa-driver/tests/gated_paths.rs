@@ -1,11 +1,11 @@
 //! EFF-001 on every CLI and raw macOS path: each effectful entry point settles
 //! through the gate, and a deny hook causes no side effect.
 #![cfg(target_os = "macos")]
-use rightkit_control::admission::{
+use rightkit_qa_driver::admission::{
     AdmissionDecision, EffectGate, EffectKind, EffectRequest, SettleOutcome,
 };
-use rightkit_control::cli;
-use rightkit_control::mac::{Gated, Node};
+use rightkit_qa_driver::cli;
+use rightkit_qa_driver::mac::{Gated, Node};
 use std::path::PathBuf;
 use std::process::Command;
 use std::sync::Arc;
@@ -191,7 +191,7 @@ fn binary_admits_through_configured_policy() {
     let policy = dir.join("policy.txt");
     std::fs::write(&policy, "default allow\ndeny input\ndeny capture\n").unwrap();
     let shot = dir.join("shot.png");
-    let bin = env!("CARGO_BIN_EXE_rightkit-control");
+    let bin = env!("CARGO_BIN_EXE_rightkit-qa-driver");
 
     let run = |args: &[&str], env: Option<&PathBuf>| {
         let mut c = Command::new(bin);

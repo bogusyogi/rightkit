@@ -27,7 +27,7 @@ Capabilities: 72 (54 with fingerprints, 18 declaration-only). Internal owners th
 | crash-reporting | `rightkit-crash` | advise | fingerprinted | 1 (0 block, 1 advise) | rightkit-crash: published 0.2.1 (crates.io) |
 | dependency-updates | `@rightkit/update` | none | declaration-only | 0 | @rightkit/update: none recorded |
 | desktop-automation | `rightkit-automation` | advise | fingerprinted | 4 (0 block, 4 advise) | rightkit-automation: staged 0.3.0, not published |
-| desktop-control | `rightkit-control` | advise | fingerprinted | 6 (0 block, 6 advise) | rightkit-control: published 0.1.11 (crates.io) |
+| desktop-control | `rightkit-qa-driver` | advise | fingerprinted | 6 (0 block, 6 advise) | rightkit-qa-driver: none recorded |
 | desktop-overlay | `rightkit-overlay` | advise | fingerprinted | 2 (0 block, 2 advise) | rightkit-overlay: staged 0.1.1, not published |
 | desktop-qa | `rightkit-qa` | advise | fingerprinted | 4 (0 block, 4 advise) | rightkit-qa: published 0.2.14 (crates.io) |
 | desktop-shell | `@rightkit/shell`, `rightkit-shell` | advise | declaration-only, fingerprinted | 6 (0 block, 6 advise) | @rightkit/shell: published 0.1.1 (npm); rightkit-shell: published 0.2.0 (crates.io) |

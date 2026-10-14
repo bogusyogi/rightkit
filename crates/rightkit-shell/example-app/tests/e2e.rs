@@ -149,16 +149,16 @@ fn gone(pid: u32) -> bool {
     st.trim().is_empty() || st.trim().starts_with('Z')
 }
 
-fn pid_windows(pid: u32) -> Vec<rightkit_control::mac::Win> {
-    rightkit_control::mac::windows(pid as i32)
+fn pid_windows(pid: u32) -> Vec<rightkit_qa_driver::mac::Win> {
+    rightkit_qa_driver::mac::windows(pid as i32)
 }
 
 fn assert_window_server_background(pid: u32) {
-    let foreground = rightkit_control::mac::frontmost_pid().expect("WindowServer foreground pid");
+    let foreground = rightkit_qa_driver::mac::frontmost_pid().expect("WindowServer foreground pid");
     assert_ne!(foreground, pid as i32, "QA app became foreground");
-    // rightkit-control's CGWindowList wrapper documents front-to-back order; native
+    // rightkit-qa-driver's CGWindowList wrapper documents front-to-back order; native
     // level is the stable below-normal proof, so do not infer z-order from indices.
-    let fixture_windows: Vec<_> = rightkit_control::mac::windows(0)
+    let fixture_windows: Vec<_> = rightkit_qa_driver::mac::windows(0)
         .into_iter()
         .filter(|w| w.pid == pid as i32 && w.onscreen)
         .collect();
@@ -439,7 +439,7 @@ fn positive_control_native_menu_is_detectable_where_the_shell_allows_it() {
 #[test]
 #[ignore = "background-only QA forbids global menu activation"]
 fn native_menu_bar_matches_the_spec_through_accessibility() {
-    if !rightkit_control::mac::accessibility_trusted() {
+    if !rightkit_qa_driver::mac::accessibility_trusted() {
         println!("native menu bar AX check NOT RUN: this process has no Accessibility permission (run the test binary from an interactive terminal)");
         return;
     }
@@ -451,7 +451,7 @@ fn native_menu_bar_matches_the_spec_through_accessibility() {
     run.c.wait_eval("return window.__ready;", Duration::from_secs(20)).unwrap();
     let mut ax = String::new();
     wait_for("native menu bar visible to Accessibility", 20, || {
-        ax = rightkit_control::mac::ax_dump(pid as i32, 6, 5000).join("\n");
+        ax = rightkit_qa_driver::mac::ax_dump(pid as i32, 6, 5000).join("\n");
         ax.contains("AXMenuItem \"Documentation\"")
     });
     for want in ["AXMenuBarItem \"Edit\"", "AXMenuBarItem \"View\"", "AXMenuBarItem \"Demo\"", "AXMenuBarItem \"Window\"", "AXMenuBarItem \"Help\"", "AXMenuItem \"Ping\"", "AXMenuItem \"Settings", "AXMenuItem \"Cut\"", "AXMenuItem \"Paste\""] {
@@ -462,11 +462,11 @@ fn native_menu_bar_matches_the_spec_through_accessibility() {
     }
     println!("AX native menu bar verified");
     // Native menu item: open the Demo menu and press Ping through the OS, then read the event back.
-    let demo = rightkit_control::mac::ax_find(pid as i32, "Demo", true).expect("Demo menu bar item");
-    assert!(rightkit_control::mac::unsafe_ungated::ax_press(&demo));
+    let demo = rightkit_qa_driver::mac::ax_find(pid as i32, "Demo", true).expect("Demo menu bar item");
+    assert!(rightkit_qa_driver::mac::unsafe_ungated::ax_press(&demo));
     std::thread::sleep(Duration::from_millis(600));
-    let ping = rightkit_control::mac::ax_find(pid as i32, "Ping", true).expect("Ping menu item");
-    assert!(rightkit_control::mac::unsafe_ungated::ax_press(&ping));
+    let ping = rightkit_qa_driver::mac::ax_find(pid as i32, "Ping", true).expect("Ping menu item");
+    assert!(rightkit_qa_driver::mac::unsafe_ungated::ax_press(&ping));
     wait_for("native menu click event in the webview", 10, || run.c.eval("return window.__events.some(function(e){return e.kind==='menu'&&e.p==='demo.ping';});").unwrap() == json!(true));
     // Regression: Tauri hands every menu event to a tray's handler; the shell must not re-emit an
     // app-menu click as a tray action.

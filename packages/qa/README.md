@@ -5,7 +5,7 @@ Shared browser and QA primitives for Right Suite apps: run storage and evidence 
 | Item | Value |
 |---|---|
 | Where it runs | Dev and test tooling (Node, and browser-driven test harnesses) |
-| Rust pair | None declared. For native desktop QA use the Rust `rightkit-qa` crate with `rightkit-control`. |
+| Rust pair | None declared. For native desktop QA use the Rust `rightkit-qa` crate with `rightkit-qa-driver`. |
 | Version | see INDEX.md |
 | License | MIT OR Apache-2.0 |
 
@@ -209,7 +209,7 @@ Both runners stay. Pick by what the test drives.
 |---|---|---|
 | Browser page (any web app in Chrome for Testing) | `@rightkit/qa` and `@rightkit/qa-chrome` | `src/page.ts` (`QaBrowserSession`, `QaPage`), `@rightkit/qa-chrome` `launchChromeForTesting` |
 | Pane, frame and paint checks on a browser page | `@rightkit/qa` | `src/panes.ts`, `src/frames.ts`, `src/paint.ts` |
-| macOS native app | Rust `rightkit-qa` (`control::launch`, in-app `rightkit-control` server) | `crates/rightkit-qa/src/control.rs` |
+| macOS native app | Rust `rightkit-qa` (`control::launch`, in-app `rightkit-qa-driver` server) | `crates/rightkit-qa/src/control.rs` |
 | Windows WebView2 (Tauri) app | Rust `rightkit-qa` (embedded control server on a named pipe) | `crates/rightkit-qa/src/control.rs`, `suite.rs` |
 | Engine (CLI words, framed stdio sidecar) | Rust `rightkit-qa` (`engine::EngineTarget`) | `crates/rightkit-qa/src/engine.rs` |
 
@@ -217,7 +217,7 @@ The pane, frame and paint helpers take a driver object with `execute` (paint als
 
 This package drives no native app and no WebView2 window (`spawnQaApp` only starts a guarded process in a QA workspace); it never replaces the Rust crate for them.
 
-**QA is a development tool, not a user automation surface.** The native rows drive only builds compiled with `rightkit-control`'s `qa-control` feature (the app's `qa-native` build). A shipped app contains no such server and `right-release` refuses to seal or upload one that does; this package's `QaBrowserSession.attach` connects only to a debugging port that the browser or app was already started with. The only supported automation surface for users is an app's own command line or plugin. See `crates/rightkit-control/README.md`, "QA control never ships".
+**QA is a development tool, not a user automation surface.** The native rows drive only builds compiled with `rightkit-qa-driver`'s `qa-control` feature (the app's `qa-native` build). A shipped app contains no such server and `right-release` refuses to seal or upload one that does; this package's `QaBrowserSession.attach` connects only to a debugging port that the browser or app was already started with. The only supported automation surface for users is an app's own command line or plugin. See `crates/rightkit-qa-driver/README.md`, "QA control never ships".
 
 ## Known issues
 

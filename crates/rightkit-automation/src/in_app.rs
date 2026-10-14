@@ -1,5 +1,5 @@
 //! Tier 2: the in-app control channel. A Tauri app that embeds
-//! `rightkit-control`'s server (launched with `RIGHTKIT_CONTROL_SERVICE=<name>`)
+//! `rightkit-qa-driver`'s server (launched with `RIGHTKIT_CONTROL_SERVICE=<name>`)
 //! accepts trusted input injected straight into its webview, with no focus and
 //! no AX grant. This module is the client: it speaks the shared
 //! `rightkit-daemon` convention (discovery file, current-user-only Unix socket

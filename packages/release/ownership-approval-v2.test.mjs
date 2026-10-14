@@ -56,7 +56,7 @@ test("dependency declaration fields and resolved version bind identity", () => {
   assert.throws(() => occurrenceHash({ ...base, source: undefined }), /malformed dependency/);
 });
 test("per-entry policy digest survives other fingerprint edits and rejects own policy edits", () => {
-  const manifest = { capabilities: [{ capability: "input", package: "rightkit-control", tier: "block", fingerprints: [{ id: finding.fingerprint, type: "source", pattern: "SendInput" }, { id: "control.macos.cgevent", type: "source", pattern: "CGEvent" }] }] };
+  const manifest = { capabilities: [{ capability: "input", package: "rightkit-qa-driver", tier: "block", fingerprints: [{ id: finding.fingerprint, type: "source", pattern: "SendInput" }, { id: "control.macos.cgevent", type: "source", pattern: "CGEvent" }] }] };
   const digest = policyEntryDigest(manifest, finding.fingerprint), record = signed({ ...baseline, payload: { ...payload, policyDigest: digest } });
   manifest.capabilities[0].fingerprints[1].pattern = "OtherEvent";
   assert.deepEqual(verifyException(record, { ...context, policyDigest: policyEntryDigest(manifest, finding.fingerprint) }), { ok: true, problems: [] });

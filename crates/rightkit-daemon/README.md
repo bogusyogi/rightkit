@@ -31,7 +31,7 @@ The compiled examples live in `examples/` (`svc_host.rs`, `svc_call.rs`, `svc_cl
 
 ## Convention
 
-The one discovery and authentication convention for local Right Suite services: the shared speech service, the in-app `rightkit-control` server, `right-ctl`, and any future one.
+The one discovery and authentication convention for local Right Suite services: the shared speech service, the in-app `rightkit-qa-driver` server, `right-ctl`, and any future one.
 
 | Concern | Convention |
 |---|---|

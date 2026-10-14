@@ -10,8 +10,8 @@ import {
 const issues = (command, scripts = {}) => commandFeatureIssues(command, { label: "target.prePackage", scripts });
 
 test("forbidden feature names, including dep:, crate/ and crate?/ forms", () => {
-  for (const f of ["devtools", "qa-native", "qa-control", "dev-native", "dev-inspect", "qa-shot", "qa-tools", "dev-control", "bench-native", "heardright/qa-shot", "dep:qa-tools", "rightkit-shell/dev-inspect", "rightkit-shell?/dev-inspect", "tauri/devtools", "tauri?/devtools", "rightkit-control/qa-control", "dep:tauri-plugin-wdio-webdriver"]) assert.equal(isForbiddenFeature(f), true, f);
-  for (const f of ["custom-protocol", "tauri-shell", "dep:rightkit-control", "wv2-0_39", "tauri/custom-protocol"]) assert.equal(isForbiddenFeature(f), false, f);
+  for (const f of ["devtools", "qa-native", "qa-control", "dev-native", "dev-inspect", "qa-shot", "qa-tools", "dev-control", "bench-native", "heardright/qa-shot", "dep:qa-tools", "rightkit-shell/dev-inspect", "rightkit-shell?/dev-inspect", "tauri/devtools", "tauri?/devtools", "rightkit-qa-driver/qa-control", "dep:tauri-plugin-wdio-webdriver"]) assert.equal(isForbiddenFeature(f), true, f);
+  for (const f of ["custom-protocol", "tauri-shell", "dep:rightkit-qa-driver", "wv2-0_39", "tauri/custom-protocol"]) assert.equal(isForbiddenFeature(f), false, f);
 });
 
 test("a build command that enables a forbidden feature is refused in every spelling", () => {
@@ -53,9 +53,10 @@ test("a package script that the build runs is followed up to three levels", () =
 
 const manifest = (features, dependencies) => `[package]\nname = "app"\n[features]\n${features}\n[dependencies]\n${dependencies}\n`;
 
-test("Cargo.toml: devtools on tauri, qa-control on rightkit-control, non-optional wdio plugin, forbidden default closure", () => {
+test("Cargo.toml: devtools on tauri, qa-control on rightkit-qa-driver, non-optional wdio plugin, forbidden default closure", () => {
   assert.match(cargoManifestIssues(manifest('default = []', 'tauri = { version = "2.11.5", features = ["devtools"] }'))[0], /devtools/);
-  assert.match(cargoManifestIssues(manifest('default = []', 'rightkit-control = { version = "0.3", features = ["qa-control", "wv2-0_39"] }'))[0], /qa-control/);
+  assert.match(cargoManifestIssues(manifest('default = []', 'rightkit-qa-driver = { version = "0.3", features = ["qa-control", "wv2-0_39"] }'))[0], /qa-control/);
+  assert.match(cargoManifestIssues(manifest('default = []', 'rightkit-control = { version = "0.3", features = ["qa-control", "wv2-0_39"] }'))[0], /rightkit-control.*qa-control/);
   assert.match(cargoManifestIssues(manifest('default = []', 'tauri-plugin-wdio-webdriver = "1.4.0"'))[0], /not optional/);
   assert.match(cargoManifestIssues(manifest('default = ["shell"]\nshell = ["qa-native"]\nqa-native = ["dep:tauri-plugin-wdio-webdriver"]', 'tauri-plugin-wdio-webdriver = { version = "1.4.0", optional = true }'))[0], /default feature set reaches `qa-native`/);
   assert.match(cargoManifestIssues(manifest('default = ["tauri/devtools"]', 'tauri = "2"')).join("\n"), /reaches `tauri\/devtools`/);
@@ -80,7 +81,7 @@ test("Cargo.toml: an optional dev-native = [rightkit-shell/dev-inspect] feature 
 
 test("Cargo.toml: the optional, off-by-default qa-native layout used by the apps is accepted", () => {
   const ok = manifest('default = ["tauri-shell"]\nqa-native = ["tauri-shell", "dep:tauri-plugin-wdio-webdriver", "tauri/custom-protocol"]\ntauri-shell = []',
-    'tauri = { version = "2.11.5", features = ["custom-protocol"] }\n# tauri = { features = ["devtools"] }\ntauri-plugin-wdio-webdriver = { version = "1.2.0", optional = true }\nrightkit-control = { version = "0.3", optional = true }');
+    'tauri = { version = "2.11.5", features = ["custom-protocol"] }\n# tauri = { features = ["devtools"] }\ntauri-plugin-wdio-webdriver = { version = "1.2.0", optional = true }\nrightkit-qa-driver = { version = "0.3", optional = true }\nrightkit-control = { version = "0.3", optional = true }');
   assert.deepEqual(cargoManifestIssues(ok), []);
 });
 

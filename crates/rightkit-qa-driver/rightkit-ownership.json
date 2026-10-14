@@ -1,5 +1,5 @@
 {
-  "package": "rightkit-control",
+  "package": "rightkit-qa-driver",
   "capabilities": [
     {
       "capability": "desktop-control",

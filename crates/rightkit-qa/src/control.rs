@@ -1,4 +1,4 @@
-//! Drive the real Tauri app through the in-app `rightkit-control` server.
+//! Drive the real Tauri app through the in-app `rightkit-qa-driver` server.
 //!
 //! The app is launched hidden or backgrounded with `RIGHTKIT_CONTROL_SERVICE` and an
 //! isolated `RIGHTKIT_SUITE_ROOT`, discovers the `rightkit-daemon` record
@@ -172,7 +172,7 @@ fn endpoint_open(endpoint: &str) -> bool {
 pub fn frontmost() -> Option<String> {
     #[cfg(target_os = "macos")]
     {
-        rightkit_control::mac::frontmost_name()
+        rightkit_qa_driver::mac::frontmost_name()
     }
     #[cfg(windows)]
     {
@@ -309,7 +309,7 @@ impl FocusMonitor {
             }
             #[cfg(target_os = "macos")]
             if enforce_owned {
-                match rightkit_control::mac::frontmost_pid() {
+                match rightkit_qa_driver::mac::frontmost_pid() {
                     Some(pid) => {
                         let (primary, prefix) =
                             _owned.lock().unwrap_or_else(|e| e.into_inner()).clone();

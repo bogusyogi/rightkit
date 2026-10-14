@@ -5287,19 +5287,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "rightkit-control"
-version = "0.3.0"
-dependencies = [
- "rightkit-daemon",
- "serde_json",
- "tauri",
- "webview2-com 0.38.2",
- "webview2-com 0.39.1",
- "windows 0.61.1",
- "windows 0.62.2",
-]
-
-[[package]]
 name = "rightkit-crash"
 version = "0.2.2"
 dependencies = [
@@ -5669,15 +5656,28 @@ dependencies = [
  "png 0.18.1",
  "rightkit-browser",
  "rightkit-child-process",
- "rightkit-control",
  "rightkit-daemon",
  "rightkit-fs",
+ "rightkit-qa-driver",
  "rightkit-sidecar",
  "serde",
  "serde_json",
  "tokio",
  "toml 0.8.2",
  "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "rightkit-qa-driver"
+version = "0.3.0"
+dependencies = [
+ "rightkit-daemon",
+ "serde_json",
+ "tauri",
+ "webview2-com 0.38.2",
+ "webview2-com 0.39.1",
+ "windows 0.61.1",
+ "windows 0.62.2",
 ]
 
 [[package]]

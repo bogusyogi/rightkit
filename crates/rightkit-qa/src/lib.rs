@@ -11,7 +11,7 @@
 //! * engine: [`engine::EngineTarget`] drives the app engine over CLI words and the
 //!   framed stdio sidecar.
 //! * app UI: [`control::Control`] launches the real Tauri app hidden/backgrounded
-//!   and drives it through the in-app `rightkit-control` server.
+//!   and drives it through the in-app `rightkit-qa-driver` server.
 //! * Chrome: `browser` feature, through `rightkit-browser`.
 //!
 //! Scenarios are declarative TOML ([`scenario`]) run by the CLI, or plain Rust

@@ -3,7 +3,7 @@
 //! / `Page.captureScreenshot`). No `SendInput`, no window activation.
 //!
 //! Verified on Windows by Pulse's hub journey, which drives a hidden WebView2 through this
-//! module on a `windows-2025` GitHub runner (rightkit-control 0.1.11 with `wv2-0_39`; the
+//! module on a `windows-2025` GitHub runner (rightkit-qa-driver 0.1.11 with `wv2-0_39`; the
 //! passing run is Pulse CI 38084463429). That run covers move, down/up, click, eval and
 //! screenshot; it does not cover every method here (for example wheel and key paths are
 //! exercised only where the journey uses them).
@@ -16,7 +16,7 @@ use std::sync::{Arc, OnceLock};
 use std::time::{Duration, Instant};
 use tauri::{Runtime, WebviewWindow};
 #[cfg(not(any(feature = "wv2-0_38", feature = "wv2-0_39")))]
-compile_error!("rightkit-control's Windows plugin needs one of `wv2-0_38` (Tauri 2.11) or `wv2-0_39` (Tauri 2.12+); neither is a default feature");
+compile_error!("rightkit-qa-driver's Windows plugin needs one of `wv2-0_38` (Tauri 2.11) or `wv2-0_39` (Tauri 2.12+); neither is a default feature");
 use webview2_com::CallDevToolsProtocolMethodCompletedHandler;
 use windows::core::HSTRING;
 #[cfg(all(feature = "wv2-0_38", not(feature = "wv2-0_39")))]

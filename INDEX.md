@@ -8,7 +8,7 @@ Version columns: **Source** is the manifest version. **Published** is the latest
 
 Flags: `ok` means source, published and staged agree. `staged, not yet published` is in-flight work. `private` has no registry record by design. `MISMATCH` needs a release decision.
 
-Flagged mismatches: 52.
+Flagged mismatches: 53.
 
 The build broker is the Rust RustRight product (`bogusyogi/rustright`, binary `rustright`, alias `rightkit`); it is not part of this inventory. `packages/build-control-policy` keeps the agent permission hooks.
 
@@ -16,7 +16,7 @@ The build broker is the Rust RustRight product (`bogusyogi/rustright`, binary `r
 
 | Crate | Registry | Source | Published | Staged | Flag | Owns | What it is |
 |---|---|---|---|---|---|---|---|
-| `rightkit-agent-tools` | crates.io | 0.1.2 | none recorded | 0.1.2 | staged, never published | agent-tools | One typed tool interface for agents over rightkit-automation, rightkit-control, rightkit-browser and each app's engine commands (via rightkit-daemon), plus the `right-ctl <app> <command>` CLI. |
+| `rightkit-agent-tools` | crates.io | 0.1.2 | none recorded | 0.1.2 | staged, never published | agent-tools | One typed tool interface for agents over rightkit-automation, rightkit-qa-driver, rightkit-browser and each app's engine commands (via rightkit-daemon), plus the `right-ctl <app> <command>` CLI. |
 | `rightkit-agents` | crates.io | 0.1.0 | none recorded |  | **MISMATCH public package has no release record** | agent-sessions | Supervised vendor agent sessions for Right Suite apps: shared agent event model, Claude Code stream-json and Codex app-server protocol clients, recorded fixtures. No SDK, no HTTP, no MCP. |
 | `rightkit-align` | private | 0.1.0 | none recorded |  | private | script-alignment | Product-neutral script-to-ASR word alignment: pronunciation normalisation, edit-distance alignment with lexical and timing confidence, ambiguity and mismatch rejection, and control-name coverage |
 | `rightkit-app-settings` | crates.io | 0.2.0 | none recorded |  | **MISMATCH public package has no release record** | settings-persistence | Versioned per-app settings persistence: migrations, typed defaults, atomic writes, corruption recovery, change events. |
@@ -29,7 +29,6 @@ The build broker is the Rust RustRight product (`bogusyogi/rustright`, binary `r
 | `rightkit-child-process` | crates.io | 0.4.0 | none recorded |  | **MISMATCH public package has no release record** | owned-processes | Ownership-safe child lifecycle, restart, and health primitives for Right Suite apps. |
 | `rightkit-compose` | crates.io | 0.1.0 | none recorded |  | **MISMATCH public package has no release record** | composition-model | Product-neutral evaluated composition model: layered video, stills, cursor sprites, backgrounds, clipping, shadows, motion blur, overlays and keyframed tracks, with one pure per-frame evaluation shared by preview and export |
 | `rightkit-contracts` | crates.io | 0.1.5 | none recorded | 0.1.2 | **MISMATCH staged 0.1.2 != source 0.1.5** | content-contracts | Versioned content-pipeline contracts for the Right Suite: content brief, delivery envelope, record session and event, demo plan and daemon API. JSON Schema validation, serde types, and major-version negotiation. |
-| `rightkit-control` | crates.io | 0.3.0 | 0.1.11 | 0.3.0 | staged, not yet published | desktop-control | Background native input, accessibility reads, and a WebDriver bridge for driving real desktop apps without stealing focus. |
 | `rightkit-crash` | crates.io | 0.2.2 | 0.2.1 | 0.2.1 | **MISMATCH staged 0.2.1 != source 0.2.2** | crash-reporting | Privacy-first panic capture, redacted crash reports, native dumps and support bundles for Right Suite apps. |
 | `rightkit-credentials` | crates.io | 0.2.0 | none recorded |  | **MISMATCH public package has no release record** | os-credential-store | Per-app OS credential storage for Right Suite apps: Keychain / Credential Manager, passive presence checks, non-interactive mode, test guards, DB-key provisioning, and migration. |
 | `rightkit-daemon` | crates.io | 0.2.0 | none recorded |  | **MISMATCH public package has no release record** | local-services | One discovery/auth convention for Right Suite local services: service.json, ranking and takeover, current-user-only Unix socket / named pipe, per-app request allowlist. |
@@ -54,7 +53,8 @@ The build broker is the Rust RustRight product (`bogusyogi/rustright`, binary `r
 | `rightkit-ownership` | crates.io | 0.2.1 | 0.2.1 | 0.2.1 | ok | ownership-scanner | RightKit ownership scanner, verdict and admission: the single Rust implementation the RustRight broker links. |
 | `rightkit-pdf` | crates.io | 0.3.0 | 0.2.0 | 0.2.0 | **MISMATCH staged 0.2.0 != source 0.3.0** | pdf-engine | Product-neutral PDF engine: inspect, compose (source-text replace / add text / OCR correction), font subsetting, staged atomic save, plus optional page merge/select and text extraction |
 | `rightkit-playback` | crates.io | 0.2.0 | 0.1.1 | 0.1.2 | **MISMATCH staged 0.1.2 != source 0.2.0** | media-playback | Source-preserving FFmpeg compatibility playback preparation for Right Suite media apps. |
-| `rightkit-qa` | crates.io | 0.2.16 | 0.2.14 | 0.2.15 | **MISMATCH staged 0.2.15 != source 0.2.16** | desktop-qa | Rust QA harness for Right Suite apps: engine black-box scenarios, hidden native UI driving through rightkit-control, Rust-test scenario wrapper, dynamic paid-provider mocks, loudness/WAV/PNG/frame validators, run lock, orphan sweep, hashed evidence. |
+| `rightkit-qa` | crates.io | 0.2.16 | 0.2.14 | 0.2.15 | **MISMATCH staged 0.2.15 != source 0.2.16** | desktop-qa | Rust QA harness for Right Suite apps: engine black-box scenarios, hidden native UI driving through rightkit-qa-driver, Rust-test scenario wrapper, dynamic paid-provider mocks, loudness/WAV/PNG/frame validators, run lock, orphan sweep, hashed evidence. |
+| `rightkit-qa-driver` | crates.io | 0.3.0 | none recorded |  | **MISMATCH public package has no release record** | desktop-control | Background native input, accessibility reads, and a WebDriver bridge for driving real desktop apps without stealing focus. |
 | `rightkit-record` | private | 0.2.0 | none recorded |  | private | screen-recording | Platform-neutral core of the RightKit recorder (RK3): record lifecycle, quarantine and recovery, session bundle writer, per-field redaction, bundle verification and frame reader. OS capture lives in per-platform helpers behind the Backend trait. |
 | `rightkit-review` | crates.io | 0.2.0 | none recorded | 0.1.0 | **MISMATCH staged 0.1.0 != source 0.2.0** | content-review | Shared review capability for the content pipeline: deterministic checks over a media or text description, declared holds, a capped repair loop, an advisory judge interface, and versioned verdict records. |
 | `rightkit-sandbox` | crates.io | 0.3.5 | 0.3.4 | 0.3.4 | **MISMATCH staged 0.3.4 != source 0.3.5** | os-sandbox | Shared OS sandbox, PTY lease, process-tree, and reserve-before-spawn resource authority for Right Suite apps. |
@@ -103,4 +103,4 @@ The build broker is the Rust RustRight product (`bogusyogi/rustright`, binary `r
 
 ## Version records without a manifest
 
-rightkit-framed-sidecar (cargo), rightkit-jobs (cargo), rightkit-media (cargo), rightkit-ort (cargo), rightkit-process (cargo), rightkit-qts (cargo), rightkit-qts-ggml (cargo), rightkit-qts-ggml-sys (cargo), rightkit-secrets (cargo), rightkit-service (cargo), rightkit-settings (cargo), rightkit-watch (cargo).
+rightkit-control (cargo), rightkit-framed-sidecar (cargo), rightkit-jobs (cargo), rightkit-media (cargo), rightkit-ort (cargo), rightkit-process (cargo), rightkit-qts (cargo), rightkit-qts-ggml (cargo), rightkit-qts-ggml-sys (cargo), rightkit-secrets (cargo), rightkit-service (cargo), rightkit-settings (cargo), rightkit-watch (cargo).

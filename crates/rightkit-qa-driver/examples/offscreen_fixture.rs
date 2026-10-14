@@ -5,7 +5,7 @@
 //! Fatal signals exit silently so no crash dialog can appear on a shared desktop (process-scoped).
 #[cfg(target_os = "macos")]
 mod fixture {
-    use rightkit_control::offscreen;
+    use rightkit_qa_driver::offscreen;
     use std::ffi::c_void;
     type Id = *mut c_void;
     #[repr(C)]

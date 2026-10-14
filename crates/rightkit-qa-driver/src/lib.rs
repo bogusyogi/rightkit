@@ -1,4 +1,4 @@
-//! rightkit-control: drive a real desktop app like a human, in the background.
+//! rightkit-qa-driver: drive a real desktop app like a human, in the background.
 //!
 //! macOS: embedded targets receive main-thread AppKit `NSEvent`s through the
 //! WKWebView responder, including hidden, non-key windows. Non-embedded targets
@@ -23,7 +23,7 @@
 //!   atomic file store), execution identity and `Running | Exited | Unknown`.
 //!
 //! Every effectful entry point routes through the gate: `webdriver::Server`,
-//! the `qa-control` server, `mac::Gated` and the `rightkit-control` CLI
+//! the `qa-control` server, `mac::Gated` and the `rightkit-qa-driver` CLI
 //! ([`cli`]). The raw macOS primitives are reachable only through the
 //! explicitly named `mac::unsafe_ungated` opt-in.
 pub mod admission;

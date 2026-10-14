@@ -17,7 +17,7 @@ use crate::{ShellState, EVENT_WINDOW};
 
 /// App event announcing initial window placement (`phase` `"begin"` / `"done"`), so a
 /// control server can hold viewport requests until placement and state restore have
-/// landed instead of racing them. Same name `rightkit-control` listens on. Announcing
+/// landed instead of racing them. Same name `rightkit-qa-driver` listens on. Announcing
 /// never shows, orders or focuses a window.
 pub const EVENT_PLACEMENT: &str = "rk-shell:placement";
 

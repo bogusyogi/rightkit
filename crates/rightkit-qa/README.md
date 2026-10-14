@@ -1,6 +1,6 @@
 # rightkit-qa
 
-Rust QA harness for Right Suite applications. It owns declarative scenarios (`harness::Harness::scenario`), engine and app control (`control`, through `rightkit-control`), run locking and orphan sweeps, isolated app profiles and temp companions (`storage`), process handling, paid-provider mocks (`mock`), loudness, WAV, and PNG validators, and hashed evidence.
+Rust QA harness for Right Suite applications. It owns declarative scenarios (`harness::Harness::scenario`), engine and app control (`control`, through `rightkit-qa-driver`), run locking and orphan sweeps, isolated app profiles and temp companions (`storage`), process handling, paid-provider mocks (`mock`), loudness, WAV, and PNG validators, and hashed evidence.
 
 **Use it** in an app's end-to-end and UI tests, through `rightkit cargo test`, when the test must run the real engine or the installed app and record evidence.
 
@@ -12,12 +12,12 @@ Rust QA harness for Right Suite applications. It owns declarative scenarios (`ha
 |---|---|---|---|
 | `browser` | off | `rightkit-browser`, `tokio` | Chrome (CDP) targets for browser scenarios. Off by default because it pulls `tokio` and `chromiumoxide`. |
 
-Other dependencies include `rightkit-sidecar`, `rightkit-daemon`, `rightkit-child-process`, `getrandom`, and `png`. `rightkit-control` is a macOS-only target dependency (foreground-app reads only); on Windows, `windows-sys` is a target dependency. On Windows the app under test links `rightkit-control`, not the harness (see the Windows section).
+Other dependencies include `rightkit-sidecar`, `rightkit-daemon`, `rightkit-child-process`, `getrandom`, and `png`. `rightkit-qa-driver` is a macOS-only target dependency (foreground-app reads only); on Windows, `windows-sys` is a target dependency. On Windows the app under test links `rightkit-qa-driver`, not the harness (see the Windows section).
 
 ## Platform support
 
 - macOS: UI launch through `open`, and companions under `/private/tmp/rightkit-qa/`. The `cfg(target_os = "macos")` branches are in `src/audio.rs`, `src/control.rs`, `src/storage.rs`, `src/util.rs`, `src/workspace.rs`, and `src/bin/rightkit-qa.rs`.
-- Windows: real Tauri app UI driving through the app's embedded control server, with `rightkit-control` linked into the app. See [Windows: driving a real Tauri app](#windows-driving-a-real-tauri-app). The `cfg(windows)` branches are in `src/control.rs`, `src/process.rs`, `src/suite.rs`, `src/storage.rs`, `src/workspace.rs`, `src/scenario.rs`.
+- Windows: real Tauri app UI driving through the app's embedded control server, with `rightkit-qa-driver` linked into the app. See [Windows: driving a real Tauri app](#windows-driving-a-real-tauri-app). The `cfg(windows)` branches are in `src/control.rs`, `src/process.rs`, `src/suite.rs`, `src/storage.rs`, `src/workspace.rs`, `src/scenario.rs`.
 - Unix: `cfg(unix)` branches are in `src/process.rs`, `src/storage.rs`, and `src/userdata.rs`. Companions use the system temp directory.
 
 Published version: see `INDEX.md` at the repository root. Release notes are in `CHANGELOG.md`.
@@ -28,7 +28,7 @@ Both runners stay. Pick by what the test drives.
 
 | Surface | Owner | Evidence in code |
 |---|---|---|
-| macOS native app (a real `.app` launched from the login session) | `rightkit-qa` (`control::launch`, via `open` and the in-app `rightkit-control` server) | `cfg(target_os = "macos")` in `src/control.rs`, `src/storage.rs`, `src/audio.rs` |
+| macOS native app (a real `.app` launched from the login session) | `rightkit-qa` (`control::launch`, via `open` and the in-app `rightkit-qa-driver` server) | `cfg(target_os = "macos")` in `src/control.rs`, `src/storage.rs`, `src/audio.rs` |
 | Windows WebView2 (Tauri) app | `rightkit-qa` (`control::launch` against the app's embedded control server on a named pipe; foreground checks via `GetForegroundWindow`) | `cfg(windows)` in `src/control.rs`, `src/process.rs`, `src/suite.rs`; the Windows section below |
 | Engine (CLI words, framed stdio sidecar) | `rightkit-qa` (`engine::EngineTarget`) | `src/engine.rs` |
 | Browser page (any web app in Chrome for Testing) | `@rightkit/qa` and `@rightkit/qa-chrome` (`launchChromeForTesting`, `QaBrowserSession`, `QaPage`). This crate reaches Chrome only through the optional `browser` feature (`rightkit-browser`, CDP), for Rust tests that need a page. | `packages/qa/src/page.ts`, `packages/qa-chrome/src/index.ts`; `src/browser.rs` |
@@ -74,7 +74,7 @@ Migration for callers that launched an engine with no data dir: pass an isolated
 
 **Seed state with generated fixtures.** That is the default and needs nothing. When a scenario needs existing state, `userdata::seed_from(ws, app, source, dest_rel, transform, scrub)` runs the caller's `transform(source, dest)` into `<data_dir>/<dest_rel>`. A `source` that is the real per-user data of `app` (or in any refused location) is refused unless `scrub` is `Some(ScrubDeclaration { declared_scrubbed: true, verify })` and `verify(dest)` returns true on the copy before launch ("zero user rows, else no launch"). A false result deletes the copy and fails the seed.
 
-**Permission dialogs.** `StopReport::permission_dialog()` reports a macOS dialog agent (`UserNotificationCenter`, `CoreServicesUIAgent`, ...) seen in the sampled foreground names: positive evidence only. `Control::assert_no_permission_dialog()` is a **no-op today**: `rightkit-control` lists windows per pid, not by owner name, so there is no reliable live detector (TODO in `userdata::live_permission_dialog_check`).
+**Permission dialogs.** `StopReport::permission_dialog()` reports a macOS dialog agent (`UserNotificationCenter`, `CoreServicesUIAgent`, ...) seen in the sampled foreground names: positive evidence only. `Control::assert_no_permission_dialog()` is a **no-op today**: `rightkit-qa-driver` lists windows per pid, not by owner name, so there is no reliable live detector (TODO in `userdata::live_permission_dialog_check`).
 
 ### QA home hygiene
 
@@ -113,7 +113,7 @@ On macOS, `control::launch` stages raw binaries & supplied `.app` bundles under 
 
 Caller-supplied `LaunchSpec::env` still rejects credential keys & allows only `RIGHTKIT_*` keys on macOS. Absolute caller paths must live inside `appRoot`; callers cannot replace suite/service identity or move isolation paths outside it. `${data_dir}` & `${evidence_dir}` scenario templates use internal companion paths; artifacts are copied into managed evidence before hashing so disposal cannot invalidate them. App-specific QA knobs should use `RIGHTKIT_<APP>_*` keys honoured only in debug QA builds.
 
-Hidden launches: the app must not take focus itself. When `RIGHTKIT_QA_HIDDEN=1`, skip any `set_focus()`/`show()` on startup, and build with `activate_ignoring_other_apps(false)` on macOS (see `crates/rightkit-control/examples/control-test-app/src/main.rs`). Compare paths with `std::fs::canonicalize`: the QA data dir lives under `/var/folders`, which macOS resolves to `/private/var/folders`.
+Hidden launches: the app must not take focus itself. When `RIGHTKIT_QA_HIDDEN=1`, skip any `set_focus()`/`show()` on startup, and build with `activate_ignoring_other_apps(false)` on macOS (see `crates/rightkit-qa-driver/examples/control-test-app/src/main.rs`). Compare paths with `std::fs::canonicalize`: the QA data dir lives under `/var/folders`, which macOS resolves to `/private/var/folders`.
 
 `Control::wait_for_text(Some("#status"), "Ready", timeout)` waits for visible text (`None` searches the whole body).
 
@@ -123,25 +123,25 @@ The Windows leg drives a real Tauri app through the app's own in-app control ser
 
 ### App side: the `qa-native` feature
 
-**The harness drives only builds compiled with `qa-control`.** `rightkit-qa` is an internal development tool, not a user automation surface. The app-side half is `rightkit-control`'s embedded server, which exists only in a binary built with the explicit `rightkit-control/qa-control` feature, which only an app's `qa-native` feature may enable. A normal build has no server, so this harness can neither launch-and-control it nor attach to it, and `right-release` refuses to seal or upload a release or update build that carries one. The only supported automation surface for users is the app's own command line or plugin. See `crates/rightkit-control/README.md`, "QA control never ships".
+**The harness drives only builds compiled with `qa-control`.** `rightkit-qa` is an internal development tool, not a user automation surface. The app-side half is `rightkit-qa-driver`'s embedded server, which exists only in a binary built with the explicit `rightkit-qa-driver/qa-control` feature, which only an app's `qa-native` feature may enable. A normal build has no server, so this harness can neither launch-and-control it nor attach to it, and `right-release` refuses to seal or upload a release or update build that carries one. The only supported automation surface for users is the app's own command line or plugin. See `crates/rightkit-qa-driver/README.md`, "QA control never ships".
 
 Pulse's hub uses this pattern (`hub/src-tauri/Cargo.toml`, `hub/src-tauri/src/lib.rs`):
 
-- A feature, `qa-native = ["dep:rightkit-control", "rightkit-control/qa-control"]`, with `rightkit-control` optional and declared with `default-features = false`. It is off by default, and no default feature may reach it. Dev lanes enable it explicitly (`--features qa-native`); release and update lanes never do. A dev build may contain the server, including a release-derived profile such as `release-iterate`, so the registration needs no `debug_assertions` condition.
-- `rightkit-control` gets the `qa-control` feature (since 0.3.0; `tauri-plugin` alone no longer exposes the server) and exactly one `wv2-*` feature on Windows. Use `wv2-0_38` for Tauri 2.11 and `wv2-0_39` for Tauri 2.12+. The crate's `compile_error!` in `src/embedded/win_view.rs` rejects a build with neither. The `wv2-*` feature must match the `windows` and `webview2-com` generation the app's Tauri resolves, so WebView2 types cross the Tauri boundary. Pulse selects `wv2-0_39`.
+- A feature, `qa-native = ["dep:rightkit-qa-driver", "rightkit-qa-driver/qa-control"]`, with `rightkit-qa-driver` optional and declared with `default-features = false`. It is off by default, and no default feature may reach it. Dev lanes enable it explicitly (`--features qa-native`); release and update lanes never do. A dev build may contain the server, including a release-derived profile such as `release-iterate`, so the registration needs no `debug_assertions` condition.
+- `rightkit-qa-driver` gets the `qa-control` feature (since 0.3.0; `tauri-plugin` alone no longer exposes the server) and exactly one `wv2-*` feature on Windows. Use `wv2-0_38` for Tauri 2.11 and `wv2-0_39` for Tauri 2.12+. The crate's `compile_error!` in `src/embedded/win_view.rs` rejects a build with neither. The `wv2-*` feature must match the `windows` and `webview2-com` generation the app's Tauri resolves, so WebView2 types cross the Tauri boundary. Pulse selects `wv2-0_39`.
 - The plugin is registered only inside a `#[cfg(feature = "qa-native")]` block (the older `#[cfg(all(debug_assertions, feature = "qa-native"))]` form is still accepted). The gate may sit on the statement or on the function or block that contains it:
 
 ```rust
-if let Some(plugin) = rightkit_control::embedded::Control::<tauri::Wry>::new().build_if_enabled() {
+if let Some(plugin) = rightkit_qa_driver::embedded::Control::<tauri::Wry>::new().build_if_enabled() {
     builder = builder.plugin(plugin);
 }
 ```
 
-**Contract check.** `rightkit-qa guard [--backend control|wdio]` (`src/guard.rs`) reads the app's `Cargo.toml` and Rust sources and fails on: a registration with no `qa-native` gate (`use` lines and comments are ignored); a `rightkit-control` dependency that is not optional, or that enables `qa-control` without being optional; a missing `qa-native` feature, or one that does not enable `dep:rightkit-control` and `rightkit-control/qa-control` (or list `qa-control` in the dependency's features); `qa-native` reachable from `default`, directly or through another feature; any other feature that enables the dependency; a missing runtime flag; and a release or build package script that enables `qa-native`. It also rejects rightkit-shell developer inspection in a shipped build: `dev-inspect`, `rightkit-shell/dev-inspect` or `dev-native` reachable from `default`, a non-optional `rightkit-shell` dependency that lists `dev-inspect`, and a release-named package script that enables `dev-inspect` or `dev-native`. Each message names the file and the change to make. The check cannot prove that a release build lacks the server; `right-release`'s marker scan does that.
+**Contract check.** `rightkit-qa guard [--backend control|wdio]` (`src/guard.rs`) reads the app's `Cargo.toml` and Rust sources and fails on: a registration with no `qa-native` gate (`use` lines and comments are ignored); a `rightkit-qa-driver` dependency that is not optional, or that enables `qa-control` without being optional; a missing `qa-native` feature, or one that does not enable `dep:rightkit-qa-driver` and `rightkit-qa-driver/qa-control` (or list `qa-control` in the dependency's features); `qa-native` reachable from `default`, directly or through another feature; any other feature that enables the dependency; a missing runtime flag; and a release or build package script that enables `qa-native`. It also rejects rightkit-shell developer inspection in a shipped build: `dev-inspect`, `rightkit-shell/dev-inspect` or `dev-native` reachable from `default`, a non-optional `rightkit-shell` dependency that lists `dev-inspect`, and a release-named package script that enables `dev-inspect` or `dev-native`. Each message names the file and the change to make. The check cannot prove that a release build lacks the server; `right-release`'s marker scan does that.
 
 - `build_if_enabled()` returns `None` unless the launcher sets `RIGHTKIT_CONTROL_SERVICE`, so a normal launch of a debug build does not listen. When enabled, the server is a `rightkit-daemon` host: a discovery record at `<suite>/runtime/<name>/service.json`, a current-user named pipe on Windows, no TCP listener and no bearer token. It fails closed when no absolute suite root exists.
 - Input goes to the webview from inside the process (on Windows through WebView2's `Input.dispatch*`), not through OS input events.
-- Pulse pins `rightkit-control = "=0.1.11"`, while this repository's crate is 0.3.0. Check the feature names against the version the app pins.
+- Pulse pins `rightkit-qa-driver = "=0.1.11"`, while this repository's crate is 0.3.0. Check the feature names against the version the app pins.
 
 ### Harness side
 

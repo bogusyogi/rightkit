@@ -1,9 +1,9 @@
 // Denies shell commands that intrude on the user's live desktop (raise windows,
 // capture the screen, synthesize input). Agents must use RightKit hidden QA
-// (`rightkit-qa` hidden mode) or `right-ctl` / `rightkit-control` instead.
+// (`rightkit-qa` hidden mode) or `right-ctl` / `rightkit-qa-driver` instead.
 import { basename } from 'node:path';
 
-const SANCTIONED = new Set(['rightkit-qa', 'right-ctl', 'rightkit-control']);
+const SANCTIONED = new Set(['rightkit-qa', 'right-ctl', 'rightkit-qa-driver']);
 const WRAPPERS = new Set(['sudo', 'doas', 'env', 'command', 'exec', 'nohup', 'time', 'nice', 'caffeinate', 'builtin', 'arch', 'xcrun', 'stdbuf', 'timeout']);
 const WRAPPER_ARG_FLAGS = new Set(['-u', '-g', '-h', '-p', '-C', '-n', '-s', '-k']);
 const SHELLS = new Set(['bash', 'sh', 'zsh', 'dash', 'ksh', 'fish']);
@@ -11,7 +11,7 @@ const ALWAYS = new Set(['cliclick', 'xdotool', 'ydotool']);
 const MAC = new Set(['screencapture', 'osascript', 'open']);
 const WINDOWS_TEXT = /SetForegroundWindow|SendKeys|CopyFromScreen/i;
 
-export const DESKTOP_INTRUSION_REASON = 'Blocked: this would intrude on Adrian\'s live desktop (raise a window, capture his screen, or synthesize input). Use RightKit hidden mode instead: `rightkit-qa` (hidden mode) for app QA, or `right-ctl` / `rightkit-control` to drive installed apps in the background.';
+export const DESKTOP_INTRUSION_REASON = 'Blocked: this would intrude on Adrian\'s live desktop (raise a window, capture his screen, or synthesize input). Use RightKit hidden mode instead: `rightkit-qa` (hidden mode) for app QA, or `right-ctl` / `rightkit-qa-driver` to drive installed apps in the background.';
 
 // Quote-aware split into segments (on ; & | newline, ( ) and `) of word tokens.
 // $( ... ) and backtick bodies become their own segments.

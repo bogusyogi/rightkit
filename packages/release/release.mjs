@@ -552,7 +552,7 @@ function usage(code, message) {
 // Product package scripts may emit final installer bytes directly into the
 // managed artifact directory. Keep legacy target-relative paths working while
 // preferring managed output when the local path does not exist.
-// Release and update builds never contain the QA control server (rightkit-control `qa-control`).
+// Release and update builds never contain the QA control server (rightkit-qa-driver `qa-control`).
 // The development lane (development.mjs) does not run this file and is allowed to contain it.
 // `requireBinary`: an input holding no native binary (missing or empty staging dir) is a failure, not a pass.
 // `prePack`: marks that the raw payload was scanned before packing. What stays unscannable after packing

@@ -18,7 +18,7 @@ Catalog capability: `browser-automation`.
 - Use it to drive a real Chromium page from Rust with trusted input, for QA, scraping or product automation.
 - Use it when pages must be reached through an SSRF-safe network policy.
 
-Do not use it for Safari or Firefox, or for desktop apps (see `rightkit-automation` and `rightkit-control`).
+Do not use it for Safari or Firefox, or for desktop apps (see `rightkit-automation` and `rightkit-qa-driver`).
 
 ## Cargo features
 

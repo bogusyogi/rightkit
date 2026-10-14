@@ -1,4 +1,4 @@
-//! `rightkit-control` command-line dispatch. Every effectful subcommand is
+//! `rightkit-qa-driver` command-line dispatch. Every effectful subcommand is
 //! admitted through one [`EffectGate`] (EFF-001); read-only subcommands
 //! (`trusted`, `frontmost`, `windows`, `ax`, `find`) are not effects.
 //!
@@ -175,7 +175,7 @@ pub fn parse_global(
 }
 
 fn stderr_sink() -> EventSink {
-    Arc::new(|e: &ControlEvent| eprintln!("rightkit-control event: {e:?}"))
+    Arc::new(|e: &ControlEvent| eprintln!("rightkit-qa-driver event: {e:?}"))
 }
 
 /// Build the CLI gate: allow-all unless a policy is configured.
@@ -211,7 +211,7 @@ pub fn exit_code<T>(effect: &Effect<T>) -> i32 {
     }
 }
 
-pub const USAGE: &str = "usage: rightkit-control [--policy FILE] [--events] trusted|frontmost|launch|windows|ax|find|click|click-text|press|keywin|keyraw|hover|drag|scroll|type|key|shot|serve <pid> ...";
+pub const USAGE: &str = "usage: rightkit-qa-driver [--policy FILE] [--events] trusted|frontmost|launch|windows|ax|find|click|click-text|press|keywin|keyraw|hover|drag|scroll|type|key|shot|serve <pid> ...";
 
 /// Run one subcommand (`args` excludes global options). Returns the process
 /// exit code. Effects go through `gate`; nothing effectful bypasses it.
@@ -393,7 +393,7 @@ fn serve(args: &[String], pid: i32, gate: Arc<EffectGate>) -> i32 {
     let port: u16 = arg(2).parse().unwrap_or(0);
     let cred_path = arg(3);
     if cred_path.is_empty() {
-        eprintln!("usage: rightkit-control serve <pid> <port|0> <credential-file>");
+        eprintln!("usage: rightkit-qa-driver serve <pid> <port|0> <credential-file>");
         return 2;
     }
     let mut raw = [0u8; 32];
@@ -425,7 +425,7 @@ fn serve(args: &[String], pid: i32, gate: Arc<EffectGate>) -> i32 {
     let bound = listener.local_addr().map(|a| a.port()).unwrap_or(0);
     let mut s = webdriver::Server::new(webdriver::macos::AxBackend::new(pid)).with_gate(gate);
     eprintln!(
-        "rightkit-control WebDriver bridge on 127.0.0.1:{bound} -> pid {pid} (bearer credential in {cred_path})"
+        "rightkit-qa-driver WebDriver bridge on 127.0.0.1:{bound} -> pid {pid} (bearer credential in {cred_path})"
     );
     if let Err(e) = s.serve(listener, &cred) {
         eprintln!("{e}");

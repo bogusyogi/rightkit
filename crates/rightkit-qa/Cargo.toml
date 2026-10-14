@@ -3,7 +3,7 @@ name = "rightkit-qa"
 version = "0.2.16"
 edition = "2021"
 rust-version = "1.98.0"
-description = "Rust QA harness for Right Suite apps: engine black-box scenarios, hidden native UI driving through rightkit-control, Rust-test scenario wrapper, dynamic paid-provider mocks, loudness/WAV/PNG/frame validators, run lock, orphan sweep, hashed evidence."
+description = "Rust QA harness for Right Suite apps: engine black-box scenarios, hidden native UI driving through rightkit-qa-driver, Rust-test scenario wrapper, dynamic paid-provider mocks, loudness/WAV/PNG/frame validators, run lock, orphan sweep, hashed evidence."
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/Orthic-Labs/rightkit"
 readme = "README.md"
@@ -41,7 +41,7 @@ path = "src/bin/rightkit-qa.rs"
 
 # Only `mac::frontmost_name` / `mac::frontmost_pid` are used; the default feature set is empty.
 [target.'cfg(target_os = "macos")'.dependencies]
-rightkit-control = { version = "0.3.0", path = "../rightkit-control", default-features = false }
+rightkit-qa-driver = { version = "0.3.0", path = "../rightkit-qa-driver", default-features = false }
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.61.2", features = ["Win32_Foundation", "Win32_UI_WindowsAndMessaging"] }

@@ -195,7 +195,7 @@ impl Default for Limits {
 pub enum Tier {
     /// AX/UIA semantic action or value write: no input events at all.
     Semantic = 1,
-    /// In-app control channel (rightkit-control loopback server).
+    /// In-app control channel (rightkit-qa-driver loopback server).
     InApp = 2,
     /// Per-pid / per-window addressed events. Never moves the user's pointer.
     Targeted = 3,

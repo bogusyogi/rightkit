@@ -353,10 +353,9 @@
           "allowDev": true
         },
         {
-          "name": "rightkit-control",
+          "name": "rightkit-qa-driver",
           "ecosystem": "cargo",
           "min": "0.3.0",
-          "registryMax": "0.1.11",
           "allowDev": true
         },
         {

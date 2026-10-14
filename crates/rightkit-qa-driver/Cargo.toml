@@ -1,5 +1,5 @@
 [package]
-name = "rightkit-control"
+name = "rightkit-qa-driver"
 version = "0.3.0"
 edition = "2021"
 rust-version = "1.98.0"
@@ -19,7 +19,7 @@ default = []
 tauri-plugin = ["dep:tauri"]
 # QA ONLY, NEVER SHIPPED. The embedded Tauri control server (`embedded` module): input injection, DOM and
 # accessibility reads, screenshots, JS evaluate. Name it only from an app feature that is off by default
-# (`qa-native = ["rightkit-control/qa-control", ...]`). A binary that carries it contains the marker
+# (`qa-native = ["rightkit-qa-driver/qa-control", ...]`). A binary that carries it contains the marker
 # `RIGHTKIT-QA-CONTROL-SERVER-PRESENT`, and `right-release` refuses to seal or upload a release or update
 # tier build that contains it. On Windows it also needs exactly one `wv2-*` feature (enforced by a
 # compile_error in `embedded/win_view.rs`); macOS needs none. Tauri 2.11: `features = ["qa-control", "wv2-0_38"]`.
@@ -44,7 +44,7 @@ webview2_com_038 = { package = "webview2-com", version = "0.38", optional = true
 windows_062 = { package = "windows", version = "0.62", optional = true }
 webview2_com_039 = { package = "webview2-com", version = "0.39", optional = true }
 [lib]
-name = "rightkit_control"
+name = "rightkit_qa_driver"
 path = "src/lib.rs"
 
 [[example]]
@@ -52,5 +52,5 @@ name = "offscreen_fixture_win"
 required-features = ["wv2-0_38"]
 
 [[bin]]
-name = "rightkit-control"
-path = "src/bin/rightkit-control.rs"
+name = "rightkit-qa-driver"
+path = "src/bin/rightkit-qa-driver.rs"

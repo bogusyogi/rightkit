@@ -1,5 +1,5 @@
 //! Tools for one Right Suite app, reached through its in-app control service
-//! (`rightkit-control`'s `embedded` server, a `rightkit-daemon` host named
+//! (`rightkit-qa-driver`'s `embedded` server, a `rightkit-daemon` host named
 //! `control-<app>`). Real webview input, DOM/AX query, screenshot, and the app's
 //! own typed commands (`command{name,args}`), all over the user-only socket/pipe
 //! with the service's per-app request allowlist on the far side.
@@ -11,7 +11,7 @@ use serde_json::{json, Value};
 use std::sync::Arc;
 use std::time::Duration;
 
-/// The control methods of the in-app server (`rightkit_control::embedded::METHODS`).
+/// The control methods of the in-app server (`rightkit_qa_driver::embedded::METHODS`).
 pub const CONTROL_METHODS: &[&str] = &[
     "health",
     "click",

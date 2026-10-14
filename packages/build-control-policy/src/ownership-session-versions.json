@@ -343,7 +343,6 @@
     "rightkit-browser": "0.2.4",
     "rightkit-cache": "0.1.0",
     "rightkit-contracts": "0.1.2",
-    "rightkit-control": "0.3.0",
     "rightkit-crash": "0.2.1",
     "rightkit-db": "0.3.2",
     "rightkit-embed": "0.3.2",
