@@ -2,9 +2,9 @@
 
 Low-level FFI bindings to ggml for `rightkit-tts-qwen`. It is vendored from QTS v0.2.0 (see [PINNED.md](PINNED.md)); ggml is vendored as plain files at `vendor/ggml`, not as a git submodule. Its `CMakeLists.txt` reports version 0.9.8. [VERSIONS.md](VERSIONS.md) gives the correct vendored path and version, but its build matrix lists backends this crate does not declare (`cuda`, `hip`, and others) and says default features enable Metal and Vulkan, while `Cargo.toml:18` sets `default = []`. The feature table below and `Cargo.toml` are the reference. The crate builds ggml as a static library with CMake (through the `cmake` build dependency) and copies checked-in bindings. The Cargo `links` key is `rightkit_ggml`.
 
-**Use it** only as a dependency of `rightkit-qts-ggml`.
+**Use it** only as a dependency of `rightkit-tts-qwen`.
 
-**Do not use it** directly in app code. The API is raw FFI. Use `rightkit-qts-ggml` for safe wrappers.
+**Do not use it** directly in app code. The API is raw FFI. Use `rightkit-tts-qwen` for the safe API.
 
 ## Features
 
@@ -31,4 +31,4 @@ Published version: see `INDEX.md` at the repository root. Release history is in 
 
 ## Example
 
-Not an app-facing API. The crate has a bindings-stamp test (`tests/bindings_match.rs`) and two unit smoke tests in `src/lib.rs`, and no examples. Use it through `rightkit-qts-ggml`.
+Not an app-facing API. The crate has a bindings-stamp test (`tests/bindings_match.rs`) and two unit smoke tests in `src/lib.rs`, and no examples. Use it through `rightkit-tts-qwen`.
