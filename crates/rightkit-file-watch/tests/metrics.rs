@@ -2,7 +2,7 @@
 
 use std::time::Duration;
 
-use rightkit_watch::TypedWatcher;
+use rightkit_file_watch::TypedWatcher;
 
 #[test]
 fn metrics_count_queued_received_and_backlog() {

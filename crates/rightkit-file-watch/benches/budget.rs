@@ -1,4 +1,4 @@
-//! Runtime budget for rightkit-watch (docs/RUNTIME-BUDGETS.md), macOS and Windows.
+//! Runtime budget for rightkit-file-watch (docs/RUNTIME-BUDGETS.md), macOS and Windows.
 //!
 //! Scenario, through the public runtime-free API `TypedWatcher::watch(root)`:
 //! * a real tree of 50,000 files in 1,000 directories is built under a temp root, plus a
@@ -15,11 +15,11 @@
 //! file operations in the same process, so churn-window disk figures include them; only the idle
 //! window is a budget figure.
 //!
-//! Run: `rightkit cargo bench -p rightkit-watch --bench budget`
+//! Run: `rightkit cargo bench -p rightkit-file-watch --bench budget`
 //! Optional: `-- <static_files> <churn_seconds> <idle_seconds>` (defaults 50000, 60 and 30).
 
+use rightkit_file_watch::{TypedWatcher, WatchEvent};
 use rightkit_process::{observe_idle, process_usage, BudgetLabels, ProcessUsage};
-use rightkit_watch::{TypedWatcher, WatchEvent};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
@@ -176,7 +176,7 @@ fn main() {
         idle.result_lines(
             &warm,
             &BudgetLabels {
-                krate: "rightkit-watch",
+                krate: "rightkit-file-watch",
                 version: env!("CARGO_PKG_VERSION"),
                 scale_unit: "files",
                 scale: total,

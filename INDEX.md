@@ -32,6 +32,7 @@ The build broker is the Rust RustRight product (`bogusyogi/rustright`, binary `r
 | `rightkit-daemon` | crates.io | 0.2.0 | none recorded |  | **MISMATCH public package has no release record** | local-services | One discovery/auth convention for Right Suite local services: service.json, ranking and takeover, current-user-only Unix socket / named pipe, per-app request allowlist. |
 | `rightkit-db` | crates.io | 0.4.0 | 0.3.2 | 0.3.2 | **MISMATCH staged 0.3.2 != source 0.4.0** | sqlite-storage | Correct-by-default SQLite and SQLCipher connection bootstrap for Right Suite apps. |
 | `rightkit-embed` | crates.io | 0.3.2 | 0.3.2 | 0.3.2 | ok | embeddings | Product-neutral local text embeddings and persistent cosine vector store. |
+| `rightkit-file-watch` | crates.io | 0.4.0 | none recorded |  | **MISMATCH public package has no release record** | file-watching | Filesystem watching for Right Suite apps: ref-counted async subscribers, debounced file-set and directory watchers, and rename-storm coalescing. |
 | `rightkit-framed-sidecar` | crates.io | 0.2.0 | 0.1.0 | 0.1.0 | **MISMATCH staged 0.1.0 != source 0.2.0** | framed-sidecar | Bounded JSON-lines transport primitives for Right Suite sidecars. |
 | `rightkit-fs` | crates.io | 0.4.0 | 0.3.3 | 0.3.3 | **MISMATCH staged 0.3.3 != source 0.4.0** | safe-filesystem | Safe state directories, atomic writes, cross-process locks, owner-only files, and stable file identity for Right Suite apps. |
 | `rightkit-fsindex` | crates.io | 0.2.0 | 0.1.1 | 0.1.1 | **MISMATCH staged 0.1.1 != source 0.2.0** | file-index | Live whole-disk file index: fuzzy name search plus clone- and hard-link-aware folder size rollups on memory-mapped columns |
@@ -69,7 +70,6 @@ The build broker is the Rust RustRight product (`bogusyogi/rustright`, binary `r
 | `rightkit-tts-qwen` | crates.io | 0.2.6 | none recorded |  | **MISMATCH public package has no release record** | text-to-speech | Qwen3 TTS inference (GGUF + GGML), vendored from yet-another-ai/qts v0.2.0 for RightKit |
 | `rightkit-tts-qwen-sys` | crates.io | 0.1.2 | none recorded |  | **MISMATCH public package has no release record** | text-to-speech | Low-level FFI bindings to ggml (CPU, Metal, Vulkan, BLAS) for rightkit-tts-qwen, vendored from yet-another-ai/qts v0.2.0 |
 | `rightkit-vad` | crates.io | 0.1.0 | 0.0.3 | 0.0.3 | **MISMATCH staged 0.0.3 != source 0.1.0** | voice-activity-detection | Product-neutral voice activity detection: Silero scorer, hysteresis/padding/chunking policy, streaming frame carry |
-| `rightkit-watch` | crates.io | 0.4.0 | 0.3.1 | 0.3.2 | **MISMATCH staged 0.3.2 != source 0.4.0** | file-watching | Filesystem watching for Right Suite apps: ref-counted async subscribers, debounced file-set and directory watchers, and rename-storm coalescing. |
 | `rightkit-workflow` | crates.io | 0.1.0 | none recorded |  | **MISMATCH public package has no release record** | scenario-runtime | Shared scenario interpreter and durable state machine for the RightKit scenario runtime (RK8): perform separated from observe_until, idempotency keys, append-only fsync journal, leases with fencing tokens, cooperative cancellation, retake replay, and a remote worker transport trait boundary |
 
 ## npm packages (24)
@@ -103,4 +103,4 @@ The build broker is the Rust RustRight product (`bogusyogi/rustright`, binary `r
 
 ## Version records without a manifest
 
-rightkit-qts (cargo), rightkit-qts-ggml (cargo), rightkit-qts-ggml-sys (cargo), rightkit-service (cargo).
+rightkit-qts (cargo), rightkit-qts-ggml (cargo), rightkit-qts-ggml-sys (cargo), rightkit-service (cargo), rightkit-watch (cargo).

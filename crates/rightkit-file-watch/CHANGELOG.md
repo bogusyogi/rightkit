@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+Renamed from rightkit-watch; 0.3.1 remains published under the old name.
+
 ### Fixed
 
 - `FileWatcher` missing-path fallback arm race: a target found by the post-arm stat now also records `last_exists`, so a later parent deletion without a file event is reported as removal; and after arming, the watch is re-resolved and moved again (bounded by the path depth) if an intermediate directory appeared before the arm, so the watch no longer stays one level short.

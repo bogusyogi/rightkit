@@ -6,8 +6,8 @@ use std::num::NonZeroUsize;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
-use rightkit_watch::notify::EventKind;
-use rightkit_watch::{TypedOptions, TypedWatcher, WatchBackend, WatchEvent, WatchEventRecord};
+use rightkit_file_watch::notify::EventKind;
+use rightkit_file_watch::{TypedOptions, TypedWatcher, WatchBackend, WatchEvent, WatchEventRecord};
 
 const WAIT: Duration = Duration::from_secs(30);
 
@@ -192,5 +192,8 @@ fn native_backend_on_an_unsupported_host_is_an_error_not_a_fallback() {
     )
     .err()
     .expect("Native must not silently fall back");
-    assert!(matches!(error, rightkit_watch::WatchError::Backend { .. }));
+    assert!(matches!(
+        error,
+        rightkit_file_watch::WatchError::Backend { .. }
+    ));
 }

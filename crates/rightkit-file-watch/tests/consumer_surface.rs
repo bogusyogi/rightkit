@@ -1,4 +1,4 @@
-//! Source-compatibility guard: the exact `rightkit-watch` usages of the apps that pin earlier
+//! Source-compatibility guard: the exact `rightkit-file-watch` usages of the apps that pin earlier
 //! versions must keep compiling. Apps cannot take a path dependency, so this file mirrors them.
 //!
 //! * ViewRight `=0.3.1`: `src-tauri/src/watcher.rs` (full `WatchOptions` literal, `FileSetWatcher`,
@@ -10,10 +10,10 @@ use std::time::Duration;
 
 #[cfg(feature = "async")]
 #[allow(unused_imports)]
-use rightkit_watch::{
+use rightkit_file_watch::{
     DebouncedWatchReceiver, FileWatcher, FileWatcherSubscriber, WatchPath, WatchRegistration,
 };
-use rightkit_watch::{
+use rightkit_file_watch::{
     DirWatchSet, EventFilter, FileChangeKind, FileSetWatcher, TypedWatcher,
     WatchEvent as BackendWatchEvent, WatchEventKind, WatchOptions, EXPLORER_DEBOUNCE,
     EXPLORER_WATCH_CAP,

@@ -1,4 +1,4 @@
-//! `rightkit-watch`: one filesystem-watching foundation for every Right Suite app.
+//! `rightkit-file-watch`: one filesystem-watching foundation for every Right Suite app.
 //!
 //! Three layers, all on `notify`:
 //! * `subscribe` (feature `async`, default) — async multi-subscriber watcher (CodeRight donor): reference-counted OS

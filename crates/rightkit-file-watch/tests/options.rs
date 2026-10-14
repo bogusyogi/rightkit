@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 use std::sync::mpsc::RecvTimeoutError;
 use std::time::{Duration, Instant};
 
-use rightkit_watch::{
+use rightkit_file_watch::{
     EventFilter, FileSetReceiver, FileSetWatcher, TypedWatcher, WatchEvent, WatchEventKind,
     WatchEventRecord, WatchOptions,
 };
@@ -145,7 +145,7 @@ fn native_arm_failure_is_reported_while_other_parent_stays_watched() {
             .any(|record| matches!(record.event, WatchEvent::Error(_)))
     });
     assert!(failures.iter().any(|record| match &record.event {
-        WatchEvent::Error(rightkit_watch::WatchError::Backend { paths, .. }) =>
+        WatchEvent::Error(rightkit_file_watch::WatchError::Backend { paths, .. }) =>
             paths.contains(&bad_parent),
         _ => false,
     }));

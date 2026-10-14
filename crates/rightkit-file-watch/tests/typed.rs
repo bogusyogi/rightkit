@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 use std::sync::mpsc::{self, RecvTimeoutError};
 use std::time::{Duration, Instant};
 
-use rightkit_watch::{ChangeBatch, DirWatchSet, TypedWatcher, WatchEvent};
+use rightkit_file_watch::{ChangeBatch, DirWatchSet, TypedWatcher, WatchEvent};
 
 const WAIT: Duration = Duration::from_secs(20);
 const POLL: Duration = Duration::from_millis(100);
@@ -213,6 +213,6 @@ fn typed_start_returns_failure_for_unavailable_root() {
 #[test]
 fn file_watcher_watch_typed_delegates_to_typed_watcher() {
     let dir = tempfile::tempdir().unwrap();
-    assert!(rightkit_watch::FileWatcher::watch_typed(dir.path()).is_ok());
-    assert!(rightkit_watch::FileWatcher::watch_typed(dir.path().join("missing")).is_err());
+    assert!(rightkit_file_watch::FileWatcher::watch_typed(dir.path()).is_ok());
+    assert!(rightkit_file_watch::FileWatcher::watch_typed(dir.path().join("missing")).is_err());
 }

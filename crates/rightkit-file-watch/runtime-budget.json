@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "crate": "rightkit-watch",
+  "crate": "rightkit-file-watch",
   "ceilings": {
     "residentMemoryBytes": 13631488,
     "idleCpuPercent": 1,
@@ -15,7 +15,7 @@
   "requiredScale": {
     "unit": "files",
     "minCount": 50000,
-    "source": "crates/rightkit-watch/benches/budget.rs:81"
+    "source": "crates/rightkit-file-watch/benches/budget.rs:81"
   },
   "status": {
     "api": "TypedWatcher::status()",

@@ -56,7 +56,7 @@ export const RUNTIME_BUDGET_SCHEMA = 1;
 
 export const RUNTIME_BUDGET_CRATES = Object.freeze([
   "rightkit-fsindex",
-  "rightkit-watch",
+  "rightkit-file-watch",
   "rightkit-jobs",
   "rightkit-daemon",
   "rightkit-cache",

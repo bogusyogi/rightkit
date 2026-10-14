@@ -9,9 +9,9 @@ use std::sync::mpsc;
 use std::sync::Arc;
 use std::time::Duration;
 
-use rightkit_watch::{ChangeBatch, DirWatchSet, FileChange, FileChangeKind, FileSetWatcher};
+use rightkit_file_watch::{ChangeBatch, DirWatchSet, FileChange, FileChangeKind, FileSetWatcher};
 #[cfg(feature = "async")]
-use rightkit_watch::{DebouncedWatchReceiver, FileWatcher, WatchPath};
+use rightkit_file_watch::{DebouncedWatchReceiver, FileWatcher, WatchPath};
 use tempfile::TempDir;
 
 const WAIT: Duration = Duration::from_secs(10);

@@ -1,4 +1,4 @@
-rightkit-watch adapts approach and code from the following MIT-licensed project.
+rightkit-file-watch adapts approach and code from the following MIT-licensed project.
 
 fsearch (https://github.com/noahdunnagan/fsearch), by way of rightkit-fsindex
   Adapted: the FSEvents stream binding (src/native/macos.rs): the extern

@@ -5347,6 +5347,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "rightkit-file-watch"
+version = "0.4.0"
+dependencies = [
+ "notify",
+ "rightkit-process",
+ "tempfile",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
 name = "rightkit-framed-sidecar"
 version = "0.2.0"
 dependencies = [
@@ -5840,17 +5851,6 @@ dependencies = [
  "hound",
  "rightkit-media",
  "rightkit-ort",
-]
-
-[[package]]
-name = "rightkit-watch"
-version = "0.4.0"
-dependencies = [
- "notify",
- "rightkit-process",
- "tempfile",
- "tokio",
- "tracing",
 ]
 
 [[package]]

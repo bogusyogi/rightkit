@@ -528,7 +528,7 @@ const keywordOwners = {
   supervisor: ['rightkit-process'], ocr: ['rightkit-ocr'], speech: ['rightkit-speech-client'],
   asr: ['rightkit-asr'], tts: ['rightkit-tts'], sync: ['rightkit-sync'],
   secrets: ['rightkit-secrets'], credential: ['rightkit-secrets', 'RightKitSwift'], keychain: ['rightkit-secrets', 'RightKitSwift'],
-  watcher: ['rightkit-watch'], updater: ['@rightkit/updates'], onboarding: ['@rightkit/onboarding'],
+  watcher: ['rightkit-file-watch'], updater: ['@rightkit/updates'], onboarding: ['@rightkit/onboarding'],
   settings: ['rightkit-settings', '@rightkit/settings-ui'], telemetry: ['rightkit-logs', '@rightkit/logs'],
   logs: ['rightkit-logs', '@rightkit/logs'], crash: ['rightkit-crash'], sandbox: ['rightkit-sandbox'],
   browser: ['rightkit-browser'], mcp: ['rightkit-mcp'], pdf: ['rightkit-pdf'],

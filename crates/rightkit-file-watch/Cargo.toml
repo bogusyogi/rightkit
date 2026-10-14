@@ -1,5 +1,5 @@
 [package]
-name = "rightkit-watch"
+name = "rightkit-file-watch"
 version = "0.4.0"
 edition = "2021"
 rust-version = "1.98.0"

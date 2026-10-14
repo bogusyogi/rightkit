@@ -100,7 +100,7 @@ test("refuses when runtime-budget.json is missing, unreadable, the wrong schema 
   refused(evaluate(crate(t, { file: false })), /runtime-budget\.json is missing/);
   refused(evaluate(crate(t, { budget: "{nope", readme: null })), /not valid JSON/);
   refused(evaluate(crate(t, { budget: budgetFor({ schema: 2 }) })), /schema must be 1/);
-  refused(evaluate(crate(t, { budget: budgetFor({ crate: "rightkit-watch" }) })), /is for rightkit-watch, expected rightkit-fsindex/);
+  refused(evaluate(crate(t, { budget: budgetFor({ crate: "rightkit-file-watch" }) })), /is for rightkit-file-watch, expected rightkit-fsindex/);
 });
 
 test("refuses an undeclared or non-positive ceiling, naming it", (t) => {
@@ -224,13 +224,13 @@ test("evidence for another crate or version is refused", (t) => {
   const dir = crate(t);
   const written = JSON.parse(readFileSync(path.join(dir, "runtime-budget.json"), "utf8"));
   const file = path.join(dir, written.measurements[1].evidence.file);
-  const raw = `${resultLine(OBSERVED, { crate: "rightkit-watch", version: "0.1.0" })}\n`;
+  const raw = `${resultLine(OBSERVED, { crate: "rightkit-file-watch", version: "0.1.0" })}\n`;
   writeFileSync(file, raw);
   written.measurements[1].evidence.sha256 = crypto.createHash("sha256").update(raw).digest("hex");
   writeFileSync(path.join(dir, "runtime-budget.json"), JSON.stringify(written));
   writeFileSync(path.join(dir, "README.md"), `## Runtime budget\n\n${renderRuntimeBudgetBody(written).join("\n")}\n`);
   const result = evaluate(dir);
-  refused(result, /evidence is for rightkit-watch, not rightkit-fsindex/);
+  refused(result, /evidence is for rightkit-file-watch, not rightkit-fsindex/);
   refused(result, /evidence version 0\.1\.0 != recorded 0\.2\.0/);
 });
 

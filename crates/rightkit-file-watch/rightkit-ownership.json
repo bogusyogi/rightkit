@@ -1,5 +1,5 @@
 {
-  "package": "rightkit-watch",
+  "package": "rightkit-file-watch",
   "capabilities": [
     {
       "capability": "file-watching",

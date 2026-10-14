@@ -3,7 +3,7 @@
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
-use rightkit_watch::{DirWatchSet, EventFilter, WatchEvent, WatchEventKind, WatchOptions};
+use rightkit_file_watch::{DirWatchSet, EventFilter, WatchEvent, WatchEventKind, WatchOptions};
 
 #[test]
 fn directory_arm_failures_are_strict_by_default_or_delivered_when_tolerated() {
@@ -30,7 +30,7 @@ fn directory_arm_failures_are_strict_by_default_or_delivered_when_tolerated() {
         .unwrap();
     let records = rx.recv_timeout(Duration::from_secs(20)).unwrap();
     assert!(records.iter().any(|record| match &record.event {
-        WatchEvent::Error(rightkit_watch::WatchError::Backend { paths, .. }) =>
+        WatchEvent::Error(rightkit_file_watch::WatchError::Backend { paths, .. }) =>
             paths.contains(&missing),
         _ => false,
     }));

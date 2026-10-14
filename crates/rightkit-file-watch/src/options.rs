@@ -553,14 +553,14 @@ pub(crate) fn run_callback<G: GrantCheck>(
             return true;
         }
         if !discard {
-            tracing::warn!("rightkit-watch consumer disconnected");
+            tracing::warn!("rightkit-file-watch consumer disconnected");
         }
         false
     };
     loop {
         if !alive.load(Ordering::Acquire) {
             if !discard {
-                tracing::warn!("rightkit-watch consumer disconnected");
+                tracing::warn!("rightkit-file-watch consumer disconnected");
             }
             return;
         }

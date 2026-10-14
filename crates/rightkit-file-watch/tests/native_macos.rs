@@ -5,8 +5,8 @@
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
-use rightkit_watch::notify::EventKind;
-use rightkit_watch::{
+use rightkit_file_watch::notify::EventKind;
+use rightkit_file_watch::{
     Granularity, TypedOptions, TypedWatcher, WatchBackend, WatchCursor, WatchEvent,
     WatchEventRecord,
 };

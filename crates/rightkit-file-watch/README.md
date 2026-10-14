@@ -1,4 +1,4 @@
-# rightkit-watch
+# rightkit-file-watch
 
 Filesystem watching for Right Suite apps. It is built on `notify` and has three layers:
 
@@ -33,7 +33,7 @@ filters, tolerated arm failures, discard on disconnect & snapshot reconciliation
 
 ```rust,ignore
 use std::{path::Path, time::Duration};
-use rightkit_watch::{DirWatchSet, EventFilter, WatchEventKind, WatchOptions};
+use rightkit_file_watch::{DirWatchSet, EventFilter, WatchEventKind, WatchOptions};
 
 let dirs = DirWatchSet::with_options(32, false, WatchOptions {
     quiet: Duration::from_millis(200),
@@ -81,7 +81,7 @@ without depending directly on `notify`.
    250 ms. FSEvents supplies unpaired rename hints as Modify events.
 
    ```rust,ignore
-   use rightkit_watch::{FileWatcher, WatchEvent};
+   use rightkit_file_watch::{FileWatcher, WatchEvent};
 
    let watch = FileWatcher::watch_typed(".")?;
    match watch.recv()? {
@@ -98,7 +98,7 @@ without depending directly on `notify`.
    unbounded; drain it regularly.
 
    ```rust,ignore
-   use rightkit_watch::{FileWatcher, WatchEvent};
+   use rightkit_file_watch::{FileWatcher, WatchEvent};
 
    let watch = FileWatcher::watch_typed(".")?; // registration errors propagate
    match watch.try_recv() {
@@ -113,7 +113,7 @@ without depending directly on `notify`.
 
    ```rust,ignore
    use std::{path::Path, time::Duration};
-   use rightkit_watch::DirWatchSet;
+   use rightkit_file_watch::DirWatchSet;
 
    let dirs = DirWatchSet::with_recursive(32, Duration::from_millis(200), true);
    dirs.watch(Path::new("."), |batch| println!("{batch:?}"))?;
@@ -124,7 +124,7 @@ without depending directly on `notify`.
    retaining pending changes so callers can reconcile explicitly.
 
    ```rust,ignore
-   use rightkit_watch::{ChangeCoalescer, FileWatcher};
+   use rightkit_file_watch::{ChangeCoalescer, FileWatcher};
 
    let watch = FileWatcher::watch_typed(".")?;
    let mut changes = ChangeCoalescer::new();
@@ -157,7 +157,7 @@ Streams are unbounded; drain regularly. Errors & overflow always bypass filters.
 
    ```rust,ignore
    use std::{path::Path, path::PathBuf};
-   use rightkit_watch::{EventFilter, FileSetWatcher, WatchEventKind, WatchOptions};
+   use rightkit_file_watch::{EventFilter, FileSetWatcher, WatchEventKind, WatchOptions};
 
    let paths = vec![PathBuf::from("./doc.md")];
    let options = WatchOptions {
@@ -178,7 +178,7 @@ Streams are unbounded; drain regularly. Errors & overflow always bypass filters.
 
    ```rust,ignore
    use std::{path::{Path, PathBuf}, time::Duration};
-   use rightkit_watch::{FileSetWatcher, WatchOptions};
+   use rightkit_file_watch::{FileSetWatcher, WatchOptions};
 
    let paths = vec![PathBuf::from("./doc.md")];
    let options = WatchOptions {
@@ -197,7 +197,7 @@ Streams are unbounded; drain regularly. Errors & overflow always bypass filters.
 
    ```rust,ignore
    use std::path::{Path, PathBuf};
-   use rightkit_watch::{FileSetWatcher, WatchEvent, WatchOptions};
+   use rightkit_file_watch::{FileSetWatcher, WatchEvent, WatchOptions};
 
    let paths = vec![PathBuf::from("./doc.md"), PathBuf::from("./unavailable/doc.md")];
    let options = WatchOptions { tolerate_arm_failures: true, ..WatchOptions::default() };
@@ -216,7 +216,7 @@ Streams are unbounded; drain regularly. Errors & overflow always bypass filters.
 
    ```rust,ignore
    use std::path::{Path, PathBuf};
-   use rightkit_watch::{FileSetWatcher, WatchOptions};
+   use rightkit_file_watch::{FileSetWatcher, WatchOptions};
 
    let paths = vec![PathBuf::from("./doc.md")];
    let options = WatchOptions { discard_on_disconnect: true, ..WatchOptions::default() };
@@ -233,7 +233,7 @@ Streams are unbounded; drain regularly. Errors & overflow always bypass filters.
 
    ```rust,ignore
    use std::path::{Path, PathBuf};
-   use rightkit_watch::{FileSetWatcher, WatchOptions};
+   use rightkit_file_watch::{FileSetWatcher, WatchOptions};
 
    let paths = vec![PathBuf::from("./doc.md")];
    let options = WatchOptions { reconcile: false, ..WatchOptions::default() };
@@ -249,7 +249,7 @@ Streams are unbounded; drain regularly. Errors & overflow always bypass filters.
 
    ```rust,ignore
    use std::path::{Path, PathBuf};
-   use rightkit_watch::{FileSetWatcher, WatchOptions};
+   use rightkit_file_watch::{FileSetWatcher, WatchOptions};
 
    let paths = vec![PathBuf::from("./doc.md")];
    let options = WatchOptions { coalesce: false, reconcile: false, ..WatchOptions::default() };
@@ -261,7 +261,7 @@ Streams are unbounded; drain regularly. Errors & overflow always bypass filters.
    `notify` dependency (currently the `8.2.0` requirement), without adding their own.
 
    ```rust,ignore
-   use rightkit_watch::{notify, WatchEventRecord};
+   use rightkit_file_watch::{notify, WatchEventRecord};
 
    fn raw_kind(record: &WatchEventRecord) -> Option<notify::EventKind> {
        record.raw_kind

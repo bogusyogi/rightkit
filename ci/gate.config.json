@@ -83,7 +83,7 @@
         ]
       ]
     },
-    "rightkit-watch": {
+    "rightkit-file-watch": {
       "featureSets": [
         [
           "--all-features"

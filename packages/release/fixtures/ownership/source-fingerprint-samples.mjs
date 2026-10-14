@@ -17,7 +17,7 @@ export const FINGERPRINT_SAMPLES = {
       "let stream = FSEventStreamCreate(kCFAllocatorDefault, callback, &context, paths, kFSEventStreamEventIdSinceNow, 0.3, flags);"
     ],
     "negative": [
-      "let mut watcher = rightkit_watch::Watcher::new(&root)?;",
+      "let mut watcher = rightkit_file_watch::Watcher::new(&root)?;",
       "// FSEventStreamCreate is wrapped by the crate"
     ]
   },
