@@ -41,7 +41,7 @@ export const LOCAL_BUILD_FILE = ".rightkit-local-build.json";
 
 // Adrian's local-build opt-in (2026-10-14): a committed .rightkit-local-build.json naming this exact
 // repository allows local build, test and publish. Mirrors the build-control hook's check.
-function localBuildGranted(root) {
+export function localBuildGranted(root) {
   if (!root) return false;
   try {
     const grant = JSON.parse(readFileSync(path.join(root, LOCAL_BUILD_FILE), "utf8"));

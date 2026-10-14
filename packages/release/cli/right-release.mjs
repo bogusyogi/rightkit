@@ -86,7 +86,9 @@ if (first === "--version" || first === "-v") {
   run("apple-profile-renew.mjs", args.slice(1));
 } else if (first === "publish") {
   const rest = args.slice(1);
-  if (rest[0] === "cargo") {
+  if ((rest[0] === "cargo" || rest[0] === "npm") && rest.includes("--local")) {
+    run("local-publish.mjs", rest);
+  } else if (rest[0] === "cargo") {
     run("publish-cargo.mjs", rest.slice(1));
   } else if (rest[0] === "npm") {
     run("publication-gate.mjs", rest.slice(1));
@@ -202,6 +204,9 @@ Commands:
                                                       Publish the gated tarball with the Keychain token
                                                       (npm-rightkit-publish) and verify registry bytes
   publish cargo --crate <name> [--dry-run]           Test, inspect, scan, and publish one crates.io package
+  publish npm --package @rightkit/<name> --local     Mac-only local publish under the committed local-build grant
+  publish cargo --crate <name> --local               (.rightkit-local-build.json): runs the unit's CI tests, packs, writes darwin-only
+                                                      evidence, then the same publication gate and publisher; refuses without the grant
   publish swift [--dry-run] [--evidence <file>] [--workspace <dir>]
                                                       Check main, a clean tree, and the publication evidence, then tag RightKitSwift at its VERSION on origin
   inventory check [--json] [--warn-only] [--md <file>] [--no-cache]

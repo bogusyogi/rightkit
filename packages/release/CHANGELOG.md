@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.155
+
+- `right-release publish npm --package @rightkit/<name> --local` and `publish cargo --crate <name> --local` (new `local-publish.mjs`): a Mac-only local publish under Adrian's 2026-10-14 local-build grant. It refuses unless the committed `.rightkit-local-build.json` grants this workspace (`localBuildGranted` is now exported from `execution-policy.mjs`), the host is darwin, the unit directory is clean at a resolvable HEAD, and the version is not on the registry. It runs the unit's CI test commands from `ci/gate.config.json` (feature sets, serial run, clippy; `ci/asset-gated.json` units run with `RIGHTKIT_REQUIRE_ASSETS=0` and the skipped count is recorded), judges them with `scripts/ci/test-results.mjs`, packs the artifact, writes schema-1 evidence with one darwin receipt (`hostPolicy: "darwin-only"`), then calls the existing `enforcePublicationGate` and the existing publisher (`publishGatedTarball` / `runCargoPublish`). No flag skips tests or evidence; the gate itself is unchanged. Written, unverified until its tests run: nothing was run by the author.
+
 ## Unreleased
 
 - MSIX signer subject: `buildMsix` now reads the signer certificate subject from the package's `AppxSignature.p7x` by default (new `msix-signer.mjs`: zip entry, PKCS#7 SignedData, certificate chosen by SignerInfo issuer+serial, subject rendered `K=V, ...`; pure Node, no dependency; works on any host) instead of PowerShell `Get-AuthenticodeSignature`, which returns nothing for `.msix` on hosted windows-2025 runners (`MSIX_PUBLISHER_MISMATCH`, SwiftRight run 38535084834). Works for `.msix` and `.msixbundle`. A missing or unparsable signature still fails with `MSIX_PUBLISHER_MISMATCH`; the `readSubject` option still overrides. The Publisher comparison is unchanged. Written, unverified on a real signed MSIX on Windows (tests use an openssl-built PKCS#7 fixture).

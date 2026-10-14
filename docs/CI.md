@@ -91,6 +91,19 @@ run is the same dispatch with `dry_run=false`. **Nothing waits for approval**: t
 environment has no required reviewers, so a real run uploads as soon as its checks pass (see "What
 protects a publication" below).
 
+**Local publish (Mac, under the local-build grant).** Adrian's 2026-10-14 decision lets agents publish one
+`@rightkit/*` package or one crate from the Mac, without `publish.yml`:
+`right-release publish npm --package @rightkit/<name> --local` or
+`right-release publish cargo --crate <name> --local`. `--local` refuses unless the committed
+`.rightkit-local-build.json` (repository `Orthic-Labs/rightkit`, `allow: "build-test-publish"`) is present, the host is
+macOS, the unit's directory is clean at a resolvable HEAD, and the version is not yet on the registry. It then runs the
+unit's own CI commands from `ci/gate.config.json` (a unit in `ci/asset-gated.json` runs with
+`RIGHTKIT_REQUIRE_ASSETS=0` and its skipped count is recorded; any other unit runs strict), packs the artifact
+(`pnpm pack` / `cargo package --locked`), and writes the normal gate evidence to `release-evidence/gate/`: one darwin
+receipt (operator `agent (local-build grant)`) with `hostPolicy: "darwin-only"` and the grant as the reason. The existing
+`enforcePublicationGate` and the existing publisher (`publishGatedTarball`, or the `publish cargo` flow) then run on that
+evidence. No test or evidence step can be skipped, and Windows is covered by the next CI run.
+
 Four optional inputs make a skip explicit instead of silent; each name must be a unit of the request:
 
 - `allow_host_exclusion`: crates that `ci/gate.config.json` keeps off one verify host.
