@@ -88,7 +88,8 @@ fn windows_credential_manager_real_round_trip() {
     let service = format!("dev.rightkit.secrets.e2e.{}", std::process::id());
     common::assert_test_name(&service, "dev.rightkit.secrets.e2e.");
     let store = Store::open(
-        Config::new(Namespace::new(&service).unwrap()).backend(rightkit_credentials::system_backend()),
+        Config::new(Namespace::new(&service).unwrap())
+            .backend(rightkit_credentials::system_backend()),
     );
     /// Removes the test credential however the test ends.
     struct Cleanup<'a>(&'a Store);

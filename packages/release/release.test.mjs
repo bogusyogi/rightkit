@@ -6,8 +6,8 @@ import { execFileSync, spawnSync } from "./background-process.mjs";
 import { brokerManagedHost } from "./cargo-contract.mjs";
 import { fileURLToPath } from "node:url";
 import { signingReceiptPath } from "./signing-receipts.mjs";
-import { swiftPrivatePackagesCleanupStep, swiftPrivatePackagesConfigureStep, validateManifest } from "../git/manifest.mjs";
-import { renderLanes } from "../git/sync.mjs";
+import { swiftPrivatePackagesCleanupStep, swiftPrivatePackagesConfigureStep, validateManifest } from "../ci/manifest.mjs";
+import { renderLanes } from "../ci/sync.mjs";
 import test from "node:test";
 
 const release = fileURLToPath(new URL("./release.mjs", import.meta.url));

@@ -24,8 +24,8 @@ use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::time::Duration;
 
-use rightkit_contracts::types::record_session::RecorderOs;
 use rightkit_child_process::{OwnedChild, OwnedCommand, StderrTail};
+use rightkit_contracts::types::record_session::RecorderOs;
 
 use crate::backend::{
     Backend, BackendPlan, Finished, HelperEvent, HelperIdentity, Permission, Source, StartInfo,

@@ -8,7 +8,7 @@
 //! The codec is selected by the namespace, never by looking at the bytes: a blob is UTF-16LE
 //! text or it is an error. Guessing between UTF-16LE and UTF-8 cannot be made reliable, because
 //! some text is the same bytes either way (U+4142 is `42 41`, which is also the UTF-8 text
-//! "BA"). Blobs that rightkit-credentials 0.1.1 and 0.1.2 wrote as raw UTF-8 are read through the
+//! "BA"). Blobs that 0.1.1 and 0.1.2 (published as rightkit-secrets) wrote as raw UTF-8 are read through the
 //! separate [`WindowsTarget::KeyringCompatLegacyUtf8`](crate::WindowsTarget::KeyringCompatLegacyUtf8)
 //! namespace, as an explicit migration step.
 

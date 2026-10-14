@@ -99,7 +99,7 @@ for (const mode of ['unsealed', 'mismatch', 'swap', 'happy', 'readback error']) 
   });
 }
 test('CI npm template captures hash before publish and requires shared readback after publish', () => {
-  const source = fs.readFileSync(new URL('../git/templates/publish-npm.yml', import.meta.url), 'utf8');
+  const source = fs.readFileSync(new URL('../ci/templates/publish-npm.yml', import.meta.url), 'utf8');
   assert.ok(source.indexOf('prepareNpmPublication({') < source.indexOf('- run: npm publish'));
   assert.ok(source.indexOf('verifyNpmRegistryBytes({') > source.indexOf('- run: npm publish'));
   assert.match(source, /evidencePath:.*publication-evidence.json/);

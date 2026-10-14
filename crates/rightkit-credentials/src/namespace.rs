@@ -27,7 +27,7 @@ pub enum WindowsTarget {
     /// [`WindowsTarget::KeyringCompatLegacyUtf8`].
     KeyringCompat,
     /// The same target name as [`WindowsTarget::KeyringCompat`], but the blob is the raw bytes
-    /// that rightkit-credentials 0.1.1 and 0.1.2 stored (UTF-8 text, or binary). Explicit migration
+    /// that 0.1.1 and 0.1.2 (published as rightkit-secrets) stored (UTF-8 text, or binary). Explicit migration
     /// path only: it is read and delete only (`set` and `add_if_absent` are refused), and a
     /// caller migrates an item it knows is legacy by reading it through a store that uses this
     /// variant and writing it through a store that uses [`WindowsTarget::KeyringCompat`]. There
