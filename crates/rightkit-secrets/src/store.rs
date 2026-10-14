@@ -543,9 +543,12 @@ impl Store {
 }
 
 #[cfg(feature = "settings-probe")]
-impl rightkit_settings::SecretProbe for Store {
-    fn presence(&self, secret: &rightkit_settings::SecretRef) -> rightkit_settings::Presence {
-        use rightkit_settings::Presence;
+impl rightkit_app_settings::SecretProbe for Store {
+    fn presence(
+        &self,
+        secret: &rightkit_app_settings::SecretRef,
+    ) -> rightkit_app_settings::Presence {
+        use rightkit_app_settings::Presence;
         let Ok(ns) = Namespace::new(secret.service.clone()) else {
             return Presence::Unknown;
         };

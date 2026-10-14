@@ -1,7 +1,7 @@
 //! Table of repair / `read_with_defaults` cases. Every case runs through the three entry points
 //! that must agree: `read_with_options`, `Store::open_read_only`, and `Store::open_path` (plus a
 //! reopen of what `open_path` left on disk).
-use rightkit_settings::{
+use rightkit_app_settings::{
     read_with_defaults, read_with_options, Error, FileFormat, NullMeans, OnCorrupt, ReadOptions,
     Schema, Store, StoreOptions,
 };
@@ -653,7 +653,7 @@ fn case_9_explicit_remove_is_independent_of_null_means() {
 
 #[test]
 fn case_9_remove_through_the_backend_trait() {
-    use rightkit_settings::{Edit, FileBackend, SettingsBackend};
+    use rightkit_app_settings::{Edit, FileBackend, SettingsBackend};
     let d = tempfile::tempdir().unwrap();
     let p = cfg_file(d.path());
     let b = FileBackend::new(&p, FileFormat::Envelope);

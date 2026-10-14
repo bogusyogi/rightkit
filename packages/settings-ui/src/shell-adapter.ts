@@ -1,5 +1,5 @@
 /**
- * Shell-backed adapters: `rightkit-settings` / `rightkit-models` / credential store reached through the
+ * Shell-backed adapters: `rightkit-app-settings` / `rightkit-models` / credential store reached through the
  * `@rightkit/shell` engine bridge. Import from `@rightkit/settings-ui/shell-adapter`. The engine is
  * described structurally, so this module needs no runtime or type import from `@rightkit/shell`; any
  * object with the same `engine.call` / `engine.onEvent` shape works.
@@ -26,7 +26,7 @@ export interface EngineShell {
 /** Native shell bridge accepted by createShellBackends (structurally `Pick<Shell, "engine">`). */
 export type SettingsShell = { engine: EngineShell["engine"] };
 
-/** Engine method names: the wire contract between this package and the host's `rightkit-settings` / `rightkit-models` handlers. */
+/** Engine method names: the wire contract between this package and the host's `rightkit-app-settings` / `rightkit-models` handlers. */
 export const METHODS = {
   settingsGet: "rightkit.settings.get",
   settingsPatch: "rightkit.settings.patch",

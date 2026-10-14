@@ -36,6 +36,33 @@
       ]
     },
     {
+      "package": "rightkit-app-settings",
+      "capability": "settings-persistence",
+      "summary": "Versioned per-app settings persistence: migrations, typed defaults, atomic writes, corruption recovery, change events.",
+      "fingerprints": [
+        {
+          "id": "settings.cargo.tauri-plugin-store",
+          "type": "dependency",
+          "ecosystem": "cargo",
+          "name": "tauri-plugin-store",
+          "tier": "advise",
+          "usageContext": {
+            "hosts": [
+              "macos",
+              "windows"
+            ],
+            "scope": "cargo direct competing dependency; transitive findings require authenticated reachability"
+          },
+          "tierReason": "No recorded published-version qualification for this usage context on both macOS & Windows."
+        }
+      ],
+      "detection": "fingerprinted",
+      "policyNotes": [
+        "Package contract retained; dependency declarations do not verify integration.",
+        "Fingerprints identify review candidates; published two-host replacement qualification is not recorded."
+      ]
+    },
+    {
       "package": "rightkit-asr",
       "capability": "speech-recognition",
       "summary": "Internal reconciled Parakeet ONNX + Whisper (CoreML / whisper.cpp) decoding runtime for Right Suite applications",
@@ -2408,33 +2435,6 @@
       ]
     },
     {
-      "package": "rightkit-settings",
-      "capability": "settings-persistence",
-      "summary": "Versioned per-app settings persistence: migrations, typed defaults, atomic writes, corruption recovery, change events.",
-      "fingerprints": [
-        {
-          "id": "settings.cargo.tauri-plugin-store",
-          "type": "dependency",
-          "ecosystem": "cargo",
-          "name": "tauri-plugin-store",
-          "tier": "advise",
-          "usageContext": {
-            "hosts": [
-              "macos",
-              "windows"
-            ],
-            "scope": "cargo direct competing dependency; transitive findings require authenticated reachability"
-          },
-          "tierReason": "No recorded published-version qualification for this usage context on both macOS & Windows."
-        }
-      ],
-      "detection": "fingerprinted",
-      "policyNotes": [
-        "Package contract retained; dependency declarations do not verify integration.",
-        "Fingerprints identify review candidates; published two-host replacement qualification is not recorded."
-      ]
-    },
-    {
       "package": "rightkit-shell",
       "capability": "desktop-shell",
       "summary": "Tauri shell: tray, autostart, deep links, single instance, window state, notifications",
@@ -3837,7 +3837,7 @@
     {
       "package": "@rightkit/settings-ui",
       "capability": "settings-ui",
-      "summary": "Settings panel frame and standard sections (appearance, updates, license, legal, diagnostics, models, API keys, about) persisted through rightkit-settings.; declaration-only detection (no precise implementation fingerprint)",
+      "summary": "Settings panel frame and standard sections (appearance, updates, license, legal, diagnostics, models, API keys, about) persisted through rightkit-app-settings.; declaration-only detection (no precise implementation fingerprint)",
       "fingerprints": [],
       "detection": "declaration-only",
       "policyNotes": [

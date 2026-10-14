@@ -529,7 +529,7 @@ const keywordOwners = {
   asr: ['rightkit-asr'], tts: ['rightkit-tts'], sync: ['rightkit-sync'],
   secrets: ['rightkit-secrets'], credential: ['rightkit-secrets', 'RightKitSwift'], keychain: ['rightkit-secrets', 'RightKitSwift'],
   watcher: ['rightkit-file-watch'], updater: ['@rightkit/updates'], onboarding: ['@rightkit/onboarding'],
-  settings: ['rightkit-settings', '@rightkit/settings-ui'], telemetry: ['rightkit-logs', '@rightkit/logs'],
+  settings: ['rightkit-app-settings', '@rightkit/settings-ui'], telemetry: ['rightkit-logs', '@rightkit/logs'],
   logs: ['rightkit-logs', '@rightkit/logs'], crash: ['rightkit-crash'], sandbox: ['rightkit-sandbox'],
   browser: ['rightkit-browser'], mcp: ['rightkit-mcp'], pdf: ['rightkit-pdf'],
   media: ['rightkit-ffmpeg'], audio: ['rightkit-audio'], hotkeys: ['rightkit-hotkeys'],

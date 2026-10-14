@@ -4,13 +4,13 @@ Per-app OS credential storage for Right Suite applications. It provides macOS Ke
 
 **Use it** to store per-app secrets such as API tokens, refresh tokens, and database keys in the OS credential store.
 
-**Do not use it** for secrets that must be shared between apps (use the per-app namespace) or for non-secret settings (use `rightkit-settings`, which holds only `SecretRef`s).
+**Do not use it** for secrets that must be shared between apps (use the per-app namespace) or for non-secret settings (use `rightkit-app-settings`, which holds only `SecretRef`s).
 
 ## Features
 
 | Feature | Default | Pulls in | Effect |
 |---|---|---|---|
-| `settings-probe` | off | `rightkit-settings` | Enables the `rightkit-settings` presence adapter (`SecretProbe`). |
+| `settings-probe` | off | `rightkit-app-settings` | Enables the `rightkit-app-settings` presence adapter (`SecretProbe`). |
 | `isolated-test-keychain` | off | none | TEST ONLY. Compiles the throwaway macOS test keychain (`IsolatedKeychain`, `KeychainBackend::open_isolated_file`) and the CLI's `--isolated-keychain`. Without it there is no write path to an explicit keychain. Enable it only as `cargo test --features isolated-test-keychain` for `tests/e2e.rs`; never in a shipped build. The crate has no `default` feature, no other feature enables it, and no dependent in this repository names it; only `ci/gate.config.json` passes it, to `cargo test -p rightkit-secrets`. |
 
 ## Platform support

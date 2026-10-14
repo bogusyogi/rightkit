@@ -72,7 +72,7 @@ Capabilities: 72 (54 with fingerprints, 18 declaration-only). Internal owners th
 | screen-recording | `rightkit-record` | none | declaration-only | 0 | rightkit-record: none recorded |
 | script-alignment | `rightkit-align` | none | declaration-only | 0 | rightkit-align: none recorded |
 | search | `rightkit-search` | advise | fingerprinted | 9 (0 block, 9 advise) | rightkit-search: published 0.2.0 (crates.io) |
-| settings-persistence | `rightkit-settings` | advise | fingerprinted | 1 (0 block, 1 advise) | rightkit-settings: published 0.1.1 (crates.io) |
+| settings-persistence | `rightkit-app-settings` | advise | fingerprinted | 1 (0 block, 1 advise) | rightkit-app-settings: none recorded |
 | settings-ui | `@rightkit/settings-ui` | none | declaration-only | 0 | @rightkit/settings-ui: published 0.4.3 (npm) |
 | shared-speech-service | `rightkit-speech-client` | advise | fingerprinted | 2 (0 block, 2 advise) | rightkit-speech-client: published 0.3.3 (crates.io) |
 | speech-recognition | `rightkit-asr` | advise | fingerprinted | 2 (0 block, 2 advise) | rightkit-asr: published 0.1.0 (crates.io) |

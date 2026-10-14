@@ -1,6 +1,6 @@
 //! M10-O5: `StoreOptions::max_bytes` read size cap.
 
-use rightkit_settings::{Error, Schema, Store, StoreOptions};
+use rightkit_app_settings::{Error, Schema, Store, StoreOptions};
 use serde::{Deserialize, Serialize};
 use std::fs;
 

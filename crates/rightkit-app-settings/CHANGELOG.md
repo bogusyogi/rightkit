@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+Renamed from rightkit-settings; 0.1.1 remains published under the old name.
+
 Additive; defaults unchanged. Nothing compiled locally; verification is the CI run.
 
 - **New: `Store::poll_external() -> Result<Change, Error>`** (M10-O3). Cross-process change had no signal beyond re-reading in `get`. This compares the backend stamp, re-reads when it differs, refreshes the cache and delivers one `Change` to this store's subscribers. The caller decides when to call it (timer or file watcher); the crate starts no thread. A read failure is an `Err` and leaves the cache as it was. Own writes are not re-reported. Tests: `tests/poll_external.rs`.

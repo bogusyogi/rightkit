@@ -4,11 +4,11 @@ export type SettingsValues = Record<string, unknown>;
 
 export interface SettingsSnapshot {
   values: SettingsValues;
-  /** Monotonic revision from `rightkit-settings`; used for compare-and-set. */
+  /** Monotonic revision from `rightkit-app-settings`; used for compare-and-set. */
   revision: number;
 }
 
-/** Persistence port. The shell adapter talks to `rightkit-settings`; tests and previews use the memory adapter. */
+/** Persistence port. The shell adapter talks to `rightkit-app-settings`; tests and previews use the memory adapter. */
 export interface SettingsBackend {
   load(): Promise<SettingsSnapshot>;
   /** Merge top-level keys. `null` removes a key. Rejects with `code: "revision_conflict"` when `expectedRevision` is stale. */
@@ -50,7 +50,7 @@ export interface ModelsBackend {
   subscribe?(handler: (entry: ModelEntry) => void): Promise<() => void>;
 }
 
-/** Pointer to a secret in the platform credential store; the same shape as `rightkit-settings::SecretRef`. */
+/** Pointer to a secret in the platform credential store; the same shape as `rightkit-app-settings::SecretRef`. */
 export interface SecretRef {
   service: string;
   account: string;

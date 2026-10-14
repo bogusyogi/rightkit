@@ -1,4 +1,4 @@
-use rightkit_settings::{
+use rightkit_app_settings::{
     Edit, Error, FileBackend, FileFormat, NullMeans, Schema, SettingsBackend, Store, StoreOptions,
     Stored,
 };

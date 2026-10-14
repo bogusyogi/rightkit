@@ -55,5 +55,5 @@ windows-sys = { version = "0.61.2", features = ["Win32_Foundation", "Win32_Stora
 serde_json = "1.0.150"
 image = { version = "0.25", default-features = false, features = ["png"] }
 # Fault seam around the replace call (debug and test builds only; a release build with it fails to
-# compile): proves a failed publish leaves the original file. Same pattern as rightkit-settings.
+# compile): proves a failed publish leaves the original file. Same pattern as rightkit-app-settings.
 rightkit-fs = { version = "0.4.0", path = "../rightkit-fs", default-features = false, features = ["fs", "testing"] }

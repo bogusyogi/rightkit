@@ -1,14 +1,14 @@
 //! Replace mode / durability, overwrite-on-corrupt, quarantine naming, trailing newline, and the
 //! flat migration hook.
+use rightkit_app_settings::{
+    Error, FileFormat, OnCorrupt, PublicationDurability, QuarantineName, ReplaceMode, Schema,
+    Store, StoreOptions,
+};
 #[cfg(not(windows))]
 use rightkit_fs::atomic::testing::fail_dir_sync;
 use rightkit_fs::atomic::testing::on_replace;
 use rightkit_fs::atomic::{
     ReplaceApi, ReplaceCall, MOVEFILE_REPLACE_EXISTING, MOVEFILE_WRITE_THROUGH,
-};
-use rightkit_settings::{
-    Error, FileFormat, OnCorrupt, PublicationDurability, QuarantineName, ReplaceMode, Schema,
-    Store, StoreOptions,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};

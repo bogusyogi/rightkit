@@ -1,11 +1,11 @@
 # @rightkit/settings-ui
 
-Settings panel frame and standard sections for Right Suite apps: appearance, updates, models, license, legal, API keys, diagnostics, doctor and about. Apps keep their own design through props, slots and `--rk-*` tokens. The panel persists through an app-supplied backend. The host-side store is `rightkit-settings` (named in the package's backend docs).
+Settings panel frame and standard sections for Right Suite apps: appearance, updates, models, license, legal, API keys, diagnostics, doctor and about. Apps keep their own design through props, slots and `--rk-*` tokens. The panel persists through an app-supplied backend. The host-side store is `rightkit-app-settings` (named in the package's backend docs).
 
 | Item | Value |
 |---|---|
 | Where it runs | App webview UI (React) |
-| Rust pair | `rightkit-settings` is the host persistence store (named in the backend docs). The app supplies the backend adapter. |
+| Rust pair | `rightkit-app-settings` is the host persistence store (named in the backend docs). The app supplies the backend adapter. |
 | Version | see INDEX.md |
 | License | MIT OR Apache-2.0 |
 
@@ -18,7 +18,7 @@ Settings panel frame and standard sections for Right Suite apps: appearance, upd
 | `@rightkit/settings-ui/standard` | `standardSections`, the section factories, `useLicenseSection`, `useDoctor`. Needs the optional peers below. |
 | `@rightkit/settings-ui/headless` | The search state as hooks and no-DOM providers, for a host with its own markup: `SettingsSearchProvider`, `useSettingsSearch`, `useSettingsRow`, `useSettingsItem`, `useSettingsHit`, `useSettingsGroup`, `useSettingsSection`, `useSettingsSearchField`, `useSettingsSearchStatus`, `useSearchKeys`, `highlightText`, `parseSearchTerms`, `defaultAnnouncement`, `SettingsGroupScope`, `SettingsSectionScope`. Imports only `react`; no stylesheet. See [Headless search](#headless-search). |
 | `@rightkit/settings-ui/settings.css` | Stylesheet |
-| `@rightkit/settings-ui/shell-adapter` | `createShellBackends` (settings, models and secrets backends) and the engine wire constants `METHODS` and `EVENTS` for `rightkit-settings` / `rightkit-models`, over the `@rightkit/shell` engine bridge. The engine is described structurally, so this subpath needs no import of `@rightkit/shell`. |
+| `@rightkit/settings-ui/shell-adapter` | `createShellBackends` (settings, models and secrets backends) and the engine wire constants `METHODS` and `EVENTS` for `rightkit-app-settings` / `rightkit-models`, over the `@rightkit/shell` engine bridge. The engine is described structurally, so this subpath needs no import of `@rightkit/shell`. |
 
 The persistence port is the `SettingsBackend` interface (`load`, `patch` with `expectedRevision`, optional `subscribe`). Use the shell adapter in a Tauri app, or implement the interface over your own store. For example, a blob-backed adapter keeps the whole settings object in one JSON string, bumps a revision on each patch and throws `code: "revision_conflict"` on a stale write. `useSettings(backend)` takes any `SettingsBackend`. `createMemorySettings` is the in-memory reference implementation. The root and `/core` also export `createMemorySecrets` (an in-memory `SecretsBackend`), `RevisionConflict`, and `createShellBackends`, `METHODS` and `EVENTS` as deprecated re-exports of `/shell-adapter`.
 

@@ -5,7 +5,7 @@
 //! Every expected file is spelled out as text. None is built with `serde_json::to_string_pretty`
 //! or `json!`, because the order those produce depends on whether another crate in the build
 //! enables serde_json's `preserve_order`.
-use rightkit_settings::{FileBackend, FileFormat, KeyOrder, Schema, Store, StoreOptions};
+use rightkit_app_settings::{FileBackend, FileFormat, KeyOrder, Schema, Store, StoreOptions};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::fs;

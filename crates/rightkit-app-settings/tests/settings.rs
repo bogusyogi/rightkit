@@ -1,4 +1,4 @@
-use rightkit_settings::{atomic_write_with, Error, Schema, Store, StoreOptions};
+use rightkit_app_settings::{atomic_write_with, Error, Schema, Store, StoreOptions};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::sync::{Arc, Mutex};

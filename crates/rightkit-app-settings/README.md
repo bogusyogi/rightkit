@@ -1,4 +1,4 @@
-# rightkit-settings
+# rightkit-app-settings
 
 Versioned settings persistence for Right Suite apps. It owns one JSON document per app (or one explicit file), typed with the app's own `serde` struct (defaults come from `Default` or `#[serde(default)]`), with migrations, atomic writes, corruption recovery, cross-process transactions, and change events.
 
@@ -18,7 +18,7 @@ Behavior:
 ## Opening a store
 
 ```rust,ignore
-use rightkit_settings::{FileFormat, Schema, Store, StoreOptions};
+use rightkit_app_settings::{FileFormat, Schema, Store, StoreOptions};
 
 // Default: <root>/<namespace>/settings.json, versioned envelope.
 let store: Store<Settings> = Store::open(&root, Schema::new("my-app", 2))?;

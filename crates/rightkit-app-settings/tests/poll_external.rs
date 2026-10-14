@@ -1,6 +1,6 @@
 //! M10-O3: cross-instance change notification (`Store::poll_external`).
 
-use rightkit_settings::{Schema, Store, StoreOptions};
+use rightkit_app_settings::{Schema, Store, StoreOptions};
 use serde::{Deserialize, Serialize};
 use std::sync::{Arc, Mutex};
 

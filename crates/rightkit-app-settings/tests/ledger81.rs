@@ -1,4 +1,4 @@
-use rightkit_settings::{
+use rightkit_app_settings::{
     read_with_defaults, Error, FileFormat, NullMeans, OnCorrupt, Schema, Store, StoreOptions,
 };
 use serde::{Deserialize, Serialize};
@@ -292,10 +292,10 @@ fn read_with_options_fill_optional_takes_omitted_fields_from_the_defaults_not_ty
         },
         "omitted optional stays serde's"
     );
-    let v: Prefs = rightkit_settings::read_with_options(
+    let v: Prefs = rightkit_app_settings::read_with_options(
         &p,
         &defaults,
-        rightkit_settings::ReadOptions::new(FileFormat::Envelope).fill_optional(true),
+        rightkit_app_settings::ReadOptions::new(FileFormat::Envelope).fill_optional(true),
     )
     .unwrap();
     assert_eq!(

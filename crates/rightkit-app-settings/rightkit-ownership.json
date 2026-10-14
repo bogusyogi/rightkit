@@ -1,5 +1,5 @@
 {
-  "package": "rightkit-settings",
+  "package": "rightkit-app-settings",
   "capabilities": [
     {
       "capability": "settings-persistence",

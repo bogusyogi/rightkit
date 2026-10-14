@@ -186,10 +186,9 @@
       "profile": "desktop",
       "owners": [
         {
-          "name": "rightkit-settings",
+          "name": "rightkit-app-settings",
           "ecosystem": "cargo",
-          "min": "0.2.0",
-          "registryMax": "0.1.1"
+          "min": "0.2.0"
         },
         {
           "name": "@rightkit/settings-ui",

@@ -4,7 +4,7 @@
 //!
 //! The failures here are real file-system ones (a directory sits where a file must go), so they
 //! run on every platform. `src/backend.rs` has the injected-failure variants.
-use rightkit_settings::{
+use rightkit_app_settings::{
     Error, OnCorrupt, PreserveStep, QuarantineName, Schema, Store, StoreOptions,
 };
 use serde::{Deserialize, Serialize};

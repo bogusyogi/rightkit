@@ -5159,6 +5159,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "rightkit-app-settings"
+version = "0.2.0"
+dependencies = [
+ "rightkit-fs",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror 2.0.21",
+]
+
+[[package]]
 name = "rightkit-asr"
 version = "0.2.0"
 dependencies = [
@@ -5710,7 +5721,7 @@ version = "0.2.0"
 dependencies = [
  "getrandom 0.3.4",
  "keyring-core",
- "rightkit-settings",
+ "rightkit-app-settings",
  "serde",
  "serde_json",
  "tempfile",
@@ -5732,17 +5743,6 @@ dependencies = [
  "serde_json",
  "sha2 0.10.9",
  "sysinfo",
-]
-
-[[package]]
-name = "rightkit-settings"
-version = "0.2.0"
-dependencies = [
- "rightkit-fs",
- "serde",
- "serde_json",
- "tempfile",
- "thiserror 2.0.21",
 ]
 
 [[package]]
