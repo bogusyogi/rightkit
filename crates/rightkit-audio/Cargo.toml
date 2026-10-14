@@ -45,3 +45,35 @@ windows-core = { version = "0.62.2", optional = true }
 
 [dev-dependencies]
 tempfile = "3"
+
+[package.metadata.rightkit]
+continuous = "held-resource"
+
+[[package.metadata.rightkit.resources]]
+api = "CaptureSession::open_paused"
+file = "src/capture/session.rs"
+holds = ["thread", "memory"]
+scale = "one open cpal input stream: the OS audio callback thread, a 4 s mono f32 ring buffer at the device rate (about 768 KB at 48 kHz), the resample and staging buffers and one Metrics block; fixed per session, independent of recording length. stop() only pauses it"
+release = "Drop"
+
+[[package.metadata.rightkit.resources]]
+api = "list_input_devices"
+file = "src/capture/device.rs"
+holds = ["memory"]
+scale = "one cpal host enumeration per call: a Vec of DeviceInfo returned to the caller; no stream is opened and nothing is retained after the call"
+release = "function return"
+
+[[package.metadata.rightkit.resources]]
+api = "MonoDownmix::new"
+file = "src/capture/downmix.rs"
+holds = ["memory"]
+scale = "per-channel energy accumulators sized by the device channel count; created and used only inside one CaptureSession's data callback, no allocation per callback"
+release = "Drop of the CaptureSession that owns it"
+
+[[package.metadata.rightkit.resources]]
+api = "Metrics::new"
+file = "src/capture/metrics.rs"
+holds = ["memory"]
+scale = "one block of atomic counters per CaptureSession, shared with its callback; fixed size"
+release = "Drop of the CaptureSession that owns it"
+static_note = "METRICS_CLOCK_ORIGIN is one OnceLock<Instant> (metrics.rs:8) set at the first callback: a single timestamp, not a collection, so it cannot grow; it holds no thread and no stream"

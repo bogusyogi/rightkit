@@ -50,3 +50,13 @@ download-binaries = ["silero", "rightkit-onnx/download-binaries"]
 tls-native = ["silero", "rightkit-onnx/tls-native"]
 # Opt-in: copy the ONNX Runtime dylibs next to the build output.
 copy-dylibs = ["silero", "rightkit-onnx/copy-dylibs"]
+
+[package.metadata.rightkit]
+continuous = "held-resource"
+
+[[package.metadata.rightkit.resources]]
+api = "Silero::load"
+file = "src/silero.rs"
+holds = ["memory", "thread"]
+scale = "one ONNX session: model weights, ORT arenas and its own intra-op and inter-op thread pools (SileroOptions, default one each), plus the [2,1,128] recurrent state and a 64-sample context; fixed per Silero value, independent of audio length"
+release = "Drop"

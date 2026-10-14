@@ -28,3 +28,13 @@ tokenizers = { version = "0.22.2", default-features = false, features = ["onig"]
 [dev-dependencies]
 rusqlite = { version = "0.40.1", features = ["bundled"] }
 tempfile = "3"
+
+[package.metadata.rightkit]
+continuous = "held-resource"
+
+[[package.metadata.rightkit.resources]]
+api = "Embedder::load"
+file = "src/embedder.rs"
+holds = ["memory", "thread"]
+scale = "one ONNX session: model weights, ORT arenas and intra_threads intra-op threads (default 1), plus a tokenizer and a OnceLock pipeline id; fixed per Embedder, independent of how many texts are embedded"
+release = "Drop"
