@@ -1,5 +1,5 @@
 {
-  "name": "@rightkit/update",
+  "name": "@rightkit/outdated",
   "version": "0.2.0",
   "description": "Per-repo dependency updater: check, apply, gate and land for cargo, pnpm, swiftpm and external-tool pins, plus a scheduled run (launchd, Task Scheduler).",
   "license": "MIT OR Apache-2.0",
@@ -60,6 +60,6 @@
   "repository": {
     "type": "git",
     "url": "git+https://github.com/Orthic-Labs/rightkit.git",
-    "directory": "packages/update"
+    "directory": "packages/outdated"
   }
 }

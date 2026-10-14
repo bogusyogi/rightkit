@@ -1,5 +1,5 @@
 {
-  "package": "@rightkit/update",
+  "package": "@rightkit/outdated",
   "capabilities": [
     {
       "capability": "dependency-updates",

@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/Orthic-Labs/rightkit/packages/update/update.schema.json",
+  "$id": "https://github.com/Orthic-Labs/rightkit/packages/outdated/update.schema.json",
   "title": "right-update manifest (.rightkit/update.json)",
   "type": "object",
   "additionalProperties": false,

@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Renamed from @rightkit/update; it was never published under the old name.
+
 ## 0.2.0
 
 - `right-update apply [--repo] [--only <name>...] [--dry-run] [--json]`: rewrites pins for outdated, non-held rows and writes `.rightkit/update/apply-report.json`. Cargo versions are edited in place (comments, tables, features and formatting preserved; the result is re-parsed and compared) and the lockfile is refreshed with `rightkit cargo update -p <crate> --precise <ver>`. pnpm uses `pnpm add` with `-D`/`-O`/`-w`, a kept range style and `--ignore-scripts`. SwiftPM rewrites `Package.swift` and `project.yml`. Tools are downloaded for the host platform to `.rightkit/update/candidates/<name>/<version>/` with a size bound and an observed sha256. Each row is a transaction and is rolled back on failure. Breaking bumps (major, 0.x minor, 0.0.x patch) and `agent-pr` rows are reported as `needsMigration`, held rows as `held`.

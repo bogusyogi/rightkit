@@ -21,6 +21,6 @@
     { "kind": "pnpm", "glob": "packages/*/package.json" }
   ],
   "gates": [
-    { "name": "update-tests", "command": ["pnpm", "--dir", "packages/update", "test"] }
+    { "name": "update-tests", "command": ["pnpm", "--dir", "packages/outdated", "test"] }
   ]
 }

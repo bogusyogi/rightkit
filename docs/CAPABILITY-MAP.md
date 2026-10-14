@@ -25,7 +25,7 @@ Capabilities: 72 (54 with fingerprints, 18 declaration-only). Internal owners th
 | content-contracts | `rightkit-contracts` | none | declaration-only | 0 | rightkit-contracts: staged 0.1.2, not published |
 | content-review | `rightkit-review` | none | declaration-only | 0 | rightkit-review: staged 0.1.0, not published |
 | crash-reporting | `rightkit-crash` | advise | fingerprinted | 1 (0 block, 1 advise) | rightkit-crash: published 0.2.1 (crates.io) |
-| dependency-updates | `@rightkit/update` | none | declaration-only | 0 | @rightkit/update: none recorded |
+| dependency-updates | `@rightkit/outdated` | none | declaration-only | 0 | @rightkit/outdated: none recorded |
 | desktop-automation | `rightkit-automation` | advise | fingerprinted | 4 (0 block, 4 advise) | rightkit-automation: staged 0.3.0, not published |
 | desktop-control | `rightkit-qa-driver` | advise | fingerprinted | 6 (0 block, 6 advise) | rightkit-qa-driver: none recorded |
 | desktop-overlay | `rightkit-overlay` | advise | fingerprinted | 2 (0 block, 2 advise) | rightkit-overlay: staged 0.1.1, not published |

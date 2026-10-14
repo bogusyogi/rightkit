@@ -20,7 +20,7 @@ const spec = (overrides: Partial<ScheduleSpec> = {}): ScheduleSpec => ({
   repo: "/work/rightkit",
   intervalMinutes: 1440,
   nodePath: "/usr/local/bin/node",
-  binPath: "/usr/local/lib/node_modules/@rightkit/update/dist/bin.js",
+  binPath: "/usr/local/lib/node_modules/@rightkit/outdated/dist/bin.js",
   pathEnv: "/usr/local/bin:/usr/bin:/bin",
   home: "/Users/dev",
   platform: "darwin",
@@ -36,7 +36,7 @@ describe("launchd plist", () => {
     expect(plist).toContain(
       [
         "    <string>/usr/local/bin/node</string>",
-        "    <string>/usr/local/lib/node_modules/@rightkit/update/dist/bin.js</string>",
+        "    <string>/usr/local/lib/node_modules/@rightkit/outdated/dist/bin.js</string>",
         "    <string>run</string>",
         "    <string>--repo</string>",
         "    <string>/work/rightkit</string>",

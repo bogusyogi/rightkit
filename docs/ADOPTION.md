@@ -93,6 +93,7 @@ Status values compare each pin with the latest published version (registry-recor
 | `@rightkit/logs` | npm | 0.1.4 | 0.1.4 | 7 | coderight, cutright, heardright, mailright, postright, scraperight, viewright | - |
 | `@rightkit/media-ui` | npm | 0.3.4 | 0.3.4 | 4 | cutright, genright, scraperight, viewright | 3 stale |
 | `@rightkit/onboarding` | npm | 0.3.3 | 0.3.2 | 4 | cutright, genright, heardright, scraperight | - |
+| `@rightkit/outdated` | npm | 0.2.0 | none recorded | 0 | none | - |
 | `@rightkit/pdf-ui` | npm | 0.1.6 | 0.1.6 | 1 | viewright | - |
 | `@rightkit/platform-ui` | npm | 0.2.8 | 0.2.7 | 7 | coderight, cutright, genright, heardright, postright, scraperight, viewright | 4 stale |
 | `@rightkit/qa` | npm | 0.4.8 | 0.4.7 | 2 | heardright, scraperight | 2 stale |
@@ -102,7 +103,6 @@ Status values compare each pin with the latest published version (registry-recor
 | `@rightkit/shell` | npm | 0.1.1 | 0.1.1 | 2 | coderight, cutright | 2 stale |
 | `@rightkit/tauri` | npm | 0.2.0 | 0.2.0 | 6 | coderight, heardright, mailright, postright, scraperight, viewright | 1 stale |
 | `@rightkit/theme` | npm | 0.2.3 | 0.2.3 | 5 | cutright, genright, heardright, scraperight, viewright | - |
-| `@rightkit/update` | npm | 0.2.0 | none recorded | 0 | none | - |
 | `@rightkit/updates` | npm | 0.2.5 | 0.2.5 | 7 | coderight, cutright, heardright, mailright, postright, scraperight, viewright | 1 stale |
 
 ## Pins

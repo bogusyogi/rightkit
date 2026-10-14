@@ -1,4 +1,4 @@
-# @rightkit/update
+# @rightkit/outdated
 
 Per-repo dependency updater. `right-update` compares every pinned dependency in a repository with its upstream latest, applies the safe bumps, runs the repository gates and tool journeys, and lands the result as one commit, with no agent in the loop.
 
@@ -59,7 +59,7 @@ right-update schedule install|remove|status [--repo <path>] [--interval <minutes
     "tier": { "held": ["/^ffmpeg/"] }
   },
   "gates": [
-    { "name": "update-tests", "command": ["pnpm", "--dir", "packages/update", "test"], "cwd": ".", "timeoutSec": 1800 }
+    { "name": "update-tests", "command": ["pnpm", "--dir", "packages/outdated", "test"], "cwd": ".", "timeoutSec": 1800 }
   ],
   "sources": [
     {
