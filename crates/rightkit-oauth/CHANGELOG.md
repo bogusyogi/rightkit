@@ -1,5 +1,10 @@
 # Changelog
 
+
+## 0.5.0
+
+- Republished on the renamed dependencies: `rightkit-child-process` (was `rightkit-process`), `rightkit-credentials` (was `rightkit-secrets`). The 0.4.0 on crates.io was packaged before the renames and still named the old crates.
+- **Breaking (0.x minor):** `SecretTokenStore::new` takes a `rightkit_credentials::Store`.
 ## 0.4.0
 
 - **Breaking (0.x minor):** public dependencies raised: `rightkit-http` 0.3, `rightkit-secrets` 0.2 and `rightkit-process` 0.4. `OAuthError::Http(HttpError)` and `CredentialStore::new(rightkit_secrets::Store)` expose them, so callers must use matching versions.

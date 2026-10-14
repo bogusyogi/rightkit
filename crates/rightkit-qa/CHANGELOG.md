@@ -1,5 +1,10 @@
 # Changelog
 
+
+## 0.3.0
+
+- Republished on the renamed dependencies: `rightkit-qa-driver` (was `rightkit-control`), `rightkit-sidecar` (was `rightkit-framed-sidecar`), `rightkit-child-process` (was `rightkit-process`). The 0.2.16 on crates.io was packaged before the renames and still named the old crates.
+- **Breaking (0.x minor):** the engine record's `process` field is now `rightkit_child_process::ProcessUsage`.
 ## 0.2.16 - 2026-10-11
 
 - Windows: the home of an app that used WinINet is removed when its run ends, and a removal that stops part way can be finished later (gap ledger 216). WinINet leaves the junction `AppData\Local\Microsoft\Windows\INetCache\Content.IE5` in the redirected profile, with an entry that denies listing to everyone. `workspace::dispose` and the sweeps removed a home with `std::fs::remove_dir_all`, which failed there with "Access is denied. (os error 5)" after it had already deleted `.rightkit-app.json`; without that binding file no sweep can prove the home ours, so it stayed for good (176 CutRight homes, 1.86 GiB, on one machine in a day). Not compiled or run locally.

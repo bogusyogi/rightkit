@@ -1,5 +1,9 @@
 # Changelog
 
+
+## 0.2.1
+
+- Requires `rightkit-oauth` 0.5.0 (was 0.4.0), so a fresh resolution no longer reaches a release that names renamed-away crates.
 ## 0.2.0
 
 Renamed from rightkit-service; 0.1.x remains published under the old name.

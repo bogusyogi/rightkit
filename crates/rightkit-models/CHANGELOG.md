@@ -1,7 +1,8 @@
 # Changelog
 
-## Unreleased
+## 0.3.1
 
+- Requires `rightkit-qa` 0.3.0 (was 0.2.8), so a fresh resolution no longer reaches a release that names renamed-away crates.
 - `http::ModelHttpOptions` gains, all additive with the previous behaviour as the default (`ModelHttpOptions` is built with `..Default::default()` in every caller in this repository; a struct literal without it needs the new fields):
   - `trust: TrustRoots` (default `Platform`, the operating system's store; `Bundled` is `rightkit-http`'s Mozilla set). `TrustRoots`, `HttpError` and `DEFAULT_RETRIES` are exported from `http`. `rightkit-http` has no caller-supplied-roots option, so an app's own roots are not possible here.
   - `header_timeout: Option<Duration>` (default 60 s, which `rightkit-http` already applied; it is now settable). The existing `connect_timeout` (30 s) and `read_timeout` (the idle limit, 120 s) are unchanged.

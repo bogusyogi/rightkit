@@ -1,7 +1,9 @@
 # Changelog
 
-## Unreleased
+## 0.3.0
 
+- Requires `rightkit-logs` 0.3.0 (was 0.2.2), so a fresh resolution no longer reaches a release that names renamed-away crates.
+- **Breaking (0.x minor):** `SupportBundleOptions::policy` is `rightkit_logs::CollectionPolicy` from rightkit-logs 0.3.
 - `record_window_error` forces native capture off for the report it writes: a renderer (JS) error never triggers a native sample or minidump, whatever `CrashConfig::native_capture` says. Test: `window_error_never_captures_native`.
 
 ## 0.2.2

@@ -1,5 +1,9 @@
 # Changelog
 
+
+## 0.2.1
+
+- Republished on the renamed dependencies: `rightkit-child-process` (was `rightkit-process`, dev). The 0.2.0 on crates.io was packaged before the renames and still named the old crates.
 ## 0.2.0
 
 - macOS: `list_dir_fd(fd, ListOptions { limit, want_creation_time, refuse_dataless }) -> Listing { entries, truncated }`. One `getattrlistbulk` pass over an open directory. `Entry` carries the data-fork size (equal to `st_size`; the resource fork is excluded), `allocated` across all forks, device and inode, modification time, optional creation time, and `EntrySize::Dataless` when a dataless file's size is refused. Entries with a kernel error are omitted.

@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-logs"
-version = "0.2.2"
+version = "0.3.0"
 edition = "2021"
 rust-version = "1.98.0"
 description = "Privacy-safe local JSONL logging and diagnostics for Right Suite desktop apps."

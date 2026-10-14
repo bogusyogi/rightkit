@@ -1,5 +1,9 @@
 # Changelog
 
+
+## 0.3.1
+
+- Requires `rightkit-crash` 0.3.0 (was 0.2.2), so a fresh resolution no longer reaches a release that names renamed-away crates.
 ## 0.3.0 (Breaking: `default-features = false` no longer includes the store)
 
 Renamed from rightkit-jobs; 0.2.7 remains published under the old name.

@@ -5171,7 +5171,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-asr"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "half",
  "hound",
@@ -5193,7 +5193,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-audio"
-version = "0.2.2"
+version = "0.2.3"
 dependencies = [
  "cpal",
  "hound",
@@ -5223,7 +5223,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-browser"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "async-tungstenite",
  "chromiumoxide",
@@ -5288,7 +5288,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-crash"
-version = "0.2.2"
+version = "0.3.0"
 dependencies = [
  "rightkit-fs",
  "rightkit-logs",
@@ -5316,7 +5316,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-daemon"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "axum",
  "base64 0.22.1",
@@ -5365,7 +5365,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-embed"
-version = "0.3.2"
+version = "0.4.0"
 dependencies = [
  "rightkit-db",
  "rightkit-fs",
@@ -5413,7 +5413,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-fsindex"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "libc",
  "memchr",
@@ -5451,7 +5451,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-job-queue"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "rightkit-child-process",
  "rightkit-crash",
@@ -5479,7 +5479,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-llm"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "rightkit-child-process",
  "rightkit-http",
@@ -5489,7 +5489,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-logs"
-version = "0.2.2"
+version = "0.3.0"
 dependencies = [
  "getrandom 0.4.3",
  "libc",
@@ -5526,7 +5526,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-models"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "base64 0.22.1",
  "chrono",
@@ -5549,7 +5549,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-oauth"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "axum",
  "base64 0.22.1",
@@ -5570,7 +5570,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-ocr"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "base64 0.22.1",
  "image",
@@ -5648,7 +5648,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-playback"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "rightkit-child-process",
  "rightkit-ffmpeg",
@@ -5658,7 +5658,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-qa"
-version = "0.2.16"
+version = "0.3.0"
 dependencies = [
  "getrandom 0.3.4",
  "png 0.18.1",
@@ -5713,7 +5713,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-sandbox"
-version = "0.3.5"
+version = "0.4.0"
 dependencies = [
  "libc",
  "portable-pty",
@@ -5755,7 +5755,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-speech-client"
-version = "0.3.4"
+version = "0.3.5"
 dependencies = [
  "rightkit-daemon",
  "rightkit-sidecar",
@@ -5810,7 +5810,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-tts"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "libc",
  "rightkit-child-process",
@@ -5846,7 +5846,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-vad"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "hound",
  "rightkit-ffmpeg",

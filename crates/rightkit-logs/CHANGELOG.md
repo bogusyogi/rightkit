@@ -1,5 +1,10 @@
 # Changelog
 
+
+## 0.3.0
+
+- Republished on the renamed dependencies: `rightkit-child-process` (was `rightkit-process`). The 0.2.2 on crates.io was packaged before the renames and still named the old crates.
+- **Breaking (0.x minor):** the `process` field of the outbox and file-writer usage records is now `rightkit_child_process::ProcessUsage`.
 ## 0.2.2
 
 - Added: opt-in full-path redaction. New `scrub::ScrubOptions { redact_paths: bool }` (default `false`) and `scrub::scrub_text_with(&str, &ScrubOptions)`; with `redact_paths` every absolute path token (`/…`, `~/…`, `C:\…`, `\\server\…`) becomes `[path]`, matching the CodeRight support bundle. URLs and ratios such as `1/2` are kept. `scrub_text` is unchanged and keeps the shape-preserving default. Tests: `tests/scrub_parity.rs`. Not compiled or run locally; verification is the CI run.

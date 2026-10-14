@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-browser"
-version = "0.3.0"
+version = "0.3.1"
 edition = "2021"
 rust-version = "1.98.0"
 description = "Shared Chrome DevTools Protocol browser runtime for Right Suite: multi-page sessions, named profiles, real CDP input, observations with stale-ref checks."
@@ -24,7 +24,7 @@ rightkit-child-process = { path = "../rightkit-child-process", version = "0.4.0"
 sha2 = "0.10"
 
 [target.'cfg(any(target_os = "macos", windows))'.dependencies]
-rightkit-sandbox = { path = "../rightkit-sandbox", version = "0.3.5", default-features = false }
+rightkit-sandbox = { path = "../rightkit-sandbox", version = "0.4.0", default-features = false }
 
 [target.'cfg(windows)'.dependencies]
 async-tungstenite = { version = "=0.32.1", default-features = false, features = ["tokio-runtime"] }

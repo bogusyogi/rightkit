@@ -3,8 +3,9 @@
 All notable changes to `rightkit-tts`. Versions follow Cargo semver; while the
 version is `0.x`, a minor bump may carry breaking changes.
 
-## Unreleased
+## 0.2.1
 
+- Republished on the renamed dependencies: `rightkit-onnx` (was `rightkit-ort`), `rightkit-child-process` (was `rightkit-process`), `rightkit-tts-qwen` (was `rightkit-qts`). The 0.2.0 on crates.io was packaged before the renames and still named the old crates.
 - Fixed: model verification rewrote `.verified.json` on every successful check, even when nothing was hashed and the cache was unchanged, so a read-only check modified the model folder. It now writes only when the cache content changes (found by GenRight, whose unit tests touched a real model folder this way). Not built or run locally.
 
 ## 0.2.0 - 2026-10-11

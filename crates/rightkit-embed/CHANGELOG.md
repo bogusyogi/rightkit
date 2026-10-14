@@ -1,7 +1,9 @@
 # Changelog
 
-## Unreleased
+## 0.4.0
 
+- Republished on the renamed dependencies: `rightkit-onnx` (was `rightkit-ort`). The 0.3.2 on crates.io was packaged before the renames and still named the old crates.
+- **Breaking (0.x minor):** `ExecutionProvider` converts from `rightkit_onnx::ExecutionProvider`.
 - **An accelerator is used only if it reproduces the CPU provider's vectors at load.** DirectML
   (ONNX Runtime 1.24.4) returns wrong EmbeddingGemma 2 Q4 vectors (cosine to CPU 0.58-0.72) that are
   finite, non-zero and faster than CPU, which the probe and any speed check accept. Whenever the

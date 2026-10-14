@@ -1,5 +1,9 @@
 # Changelog
 
+
+## 0.3.5
+
+- Republished on the renamed dependencies: `rightkit-sidecar` (was `rightkit-framed-sidecar`). The 0.3.4 on crates.io was packaged before the renames and still named the old crates.
 All notable changes to `rightkit-speech-client`. Versions follow Cargo semver; while the
 version is `0.x`, a minor bump may carry breaking changes.
 
