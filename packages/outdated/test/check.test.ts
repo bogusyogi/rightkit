@@ -141,7 +141,7 @@ describe("rightkit source", () => {
       "versions/pins.json": { npm: { "@rightkit/ci": "0.2.0", "@rightkit/release": "0.2.151" }, stagedNpm: {} },
     });
     const { fetch, calls } = mockFetch({
-      "https://registry.npmjs.org/%40rightkit%2Fgit/latest": { version: "0.2.37" },
+      "https://registry.npmjs.org/%40rightkit%2Fci/latest": { version: "0.2.37" },
       "https://registry.npmjs.org/%40rightkit%2Frelease/latest": { version: "0.2.151" },
     });
     const drift = async () => ({ ok: true, driftDetected: true, visibility: { allowed: true }, errors: [] });
