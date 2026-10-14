@@ -10,6 +10,7 @@ import { fileURLToPath } from "node:url";
 import { spawnSync } from "./background-process.mjs";
 import { findWindowsSdkTool } from "./preflight.mjs";
 import { generateAppInstaller } from "./msix-appinstaller.mjs";
+import { readMsixSignerSubject } from "./msix-signer.mjs";
 import { assertPublisherMatchesSigner, planMsixSigning, verifyPayloadInventory } from "./msix-plan.mjs";
 import { createHash } from "node:crypto";
 
@@ -102,20 +103,16 @@ export function peFilesIn(root) {
 
 const sha256 = (file) => createHash("sha256").update(readFileSync(file)).digest("hex");
 
-function readSignerSubject(file, run) {
-  const r = run("powershell", ["-NoProfile", "-Command", `(Get-AuthenticodeSignature -LiteralPath '${file.replace(/'/g, "''")}').SignerCertificate.Subject`], { encoding: "utf8", windowsHide: true });
-  return r.status === 0 ? String(r.stdout ?? "").trim() : "";
-}
-
 /**
  * Pack + sign. `run` is injectable for tests. Ordered per planMsixSigning():
  *  assemble, verify-inventory, sign-pe (DLLs then EXEs, raw bytes), pack, sign-msix, verify-msix,
  *  verify-publisher, appinstaller, seal. Windows-only unless dryRun.
+ * readSubject(file) defaults to reading AppxSignature.p7x (msix-signer.mjs) and may be overridden.
  * options.runtime = { dlls, systemDlls, dependencies } (declared inventory, verified fail-closed);
  * options.appInstaller = { uri, msixUri, out, ... } generates the update route after the package is signed.
  */
 export function buildMsix({ stageDir, out, workDir, manifest, assets, runtime, appInstaller, sign = true, dryRun = false, receiptDir, peReceipt, msixReceipt },
-  { platform = process.platform, run = spawnSync, findTool = findWindowsSdkTool, env = process.env, log = (e) => console.error(JSON.stringify(e)), readSubject = (file) => readSignerSubject(file, run) } = {}) {
+  { platform = process.platform, run = spawnSync, findTool = findWindowsSdkTool, env = process.env, log = (e) => console.error(JSON.stringify(e)), readSubject = readMsixSignerSubject } = {}) {
   out = path.resolve(out);
   if (!out.endsWith(".msix")) throw fail("MSIX_INVALID_OPTIONS", "out must end with .msix");
   validateMsixIdentity(manifest);
