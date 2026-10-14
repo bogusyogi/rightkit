@@ -11,7 +11,7 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 // heardright and scraperight are sibling checkouts of the owner's workspace, and this suite characterizes their source.
 // A hosted CI checkout holds rightkit alone, so the suite skips with that reason; RIGHTKIT_REQUIRE_ASSETS=1 runs it so the missing source fails.
 const siblingSources = ["heardright/tauri-app-next/heardright-inference/src/file_transcribe.rs", "scraperight/crates/audio/src/args.rs"].map((file) => path.resolve(here, "../../..", file));
-const siblingSkip = siblingSources.every((file) => existsSync(file)) || process.env.RIGHTKIT_REQUIRE_ASSETS === "1" ? false : "heardright and scraperight are not checked out beside rightkit";
+const siblingSkip = (process.env.RIGHTKIT_ISOLATED_CHECKOUT !== "1" && siblingSources.every((file) => existsSync(file))) || process.env.RIGHTKIT_REQUIRE_ASSETS === "1" ? false : "heardright and scraperight are not checked out beside rightkit";
 
 test("records the approved Windows artifact and both staged copies", { skip: siblingSkip }, async () => {
   const result = await characterizeMedia();

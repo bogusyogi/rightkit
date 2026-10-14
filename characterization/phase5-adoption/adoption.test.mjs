@@ -10,7 +10,7 @@ import { inspectMedia, inspectPhase5Adoption } from "./adoption.mjs";
 // scan reads them, so only the crate gate skips without them; a hosted CI checkout holds rightkit alone.
 // RIGHTKIT_REQUIRE_ASSETS=1 runs the gate anyway, so a missing checkout fails it.
 const consumerRepos = ["coderight", "scraperight", "heardright"].map((repo) => path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..", repo));
-const consumersSkip = consumerRepos.every((dir) => existsSync(dir)) || process.env.RIGHTKIT_REQUIRE_ASSETS === "1" ? false : "coderight, scraperight and heardright are not checked out beside rightkit";
+const consumersSkip = (process.env.RIGHTKIT_ISOLATED_CHECKOUT !== "1" && consumerRepos.every((dir) => existsSync(dir))) || process.env.RIGHTKIT_REQUIRE_ASSETS === "1" ? false : "coderight, scraperight and heardright are not checked out beside rightkit";
 
 test("Mac gates keep all Phase 5 crates internal", { skip: consumersSkip }, async () => {
   const report = await inspectPhase5Adoption();

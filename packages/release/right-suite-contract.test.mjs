@@ -35,7 +35,7 @@ const siteRepoDir = existsSync(path.join(workspace, "rightsites")) ? "rightsites
 // checkouts skip their tests with the reason. RIGHTKIT_REQUIRE_ASSETS=1 runs them anyway, so the missing path fails them.
 const checkoutSkip = (paths, what) => {
   const missing = paths.filter((file) => !existsSync(file)).map((file) => path.relative(workspace, file));
-  return missing.length === 0 || process.env.RIGHTKIT_REQUIRE_ASSETS === "1" ? false : `${what} not checked out beside rightkit (missing ${missing.join(", ")})`;
+  return (missing.length === 0 && process.env.RIGHTKIT_ISOLATED_CHECKOUT !== "1") || process.env.RIGHTKIT_REQUIRE_ASSETS === "1" ? false : `${what} not checked out beside rightkit (missing ${missing.join(", ")})`;
 };
 const versionsPath = path.join(path.dirname(fileURLToPath(import.meta.url)), "rightkit-versions.json");
 const versions = JSON.parse(readFileSync(versionsPath, "utf8"));

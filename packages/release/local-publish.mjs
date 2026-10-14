@@ -147,7 +147,10 @@ export async function runLocalPublish(kind, argv, deps = {}) {
   const plan = localTestPlan({ kind, unit, dir, config: gateConfig, manifest });
   const modules = await (deps.loadWorkspaceModules ?? defaultLoadWorkspaceModules)(workspaceRoot);
   const { ResultScanner, TEST_COMMAND, judgeUnit } = modules.results;
-  const env = { ...(deps.env ?? process.env), RIGHTKIT_REQUIRE_ASSETS: isAssetGated ? "0" : "1", CARGO_TERM_COLOR: "never" };
+  // Run the unit's tests under hosted-CI conditions: no inherited credentials (a managed host refuses a
+  // token from the environment) and no sibling product checkouts (CI holds rightkit alone).
+  const inherited = Object.fromEntries(Object.entries(deps.env ?? process.env).filter(([key]) => !/(TOKEN|SECRET|PASSWORD|API_KEY|PRIVATE_KEY)/i.test(key)));
+  const env = { ...inherited, RIGHTKIT_REQUIRE_ASSETS: isAssetGated ? "0" : "1", RIGHTKIT_ISOLATED_CHECKOUT: "1", CARGO_TERM_COLOR: "never" };
   const steps = [];
   for (const step of plan.steps) {
     const commandText = `${step.command} ${step.args.join(" ")}`;
