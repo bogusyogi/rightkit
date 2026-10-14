@@ -11,7 +11,7 @@
 //   wdio-webdriver     `tauri-plugin-wdio-webdriver` (HeardRight/MailRight/ViewRight `qa-native`): needs 2 of 3
 //                      independent signatures. WEAKER than the marker: the plugin source was not on disk when
 //                      the signatures were chosen, they come from Rust path/module/permission naming rules.
-//   shell-dev-inspect  `rightkit-shell` feature `dev-inspect` (developer inspection of an app's own webviews): every
+//   shell-dev-inspect  `rightkit-tauri-shell` feature `dev-inspect` (developer inspection of an app's own webviews): every
 //                      binary built with it carries DEV_INSPECT_MARKER. Refused in every tier this module scans.
 //   remote-debugging   `--remote-debugging-port` / `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS` baked into a binary.
 //   tauri-devtools     Tauri's `devtools` feature (or a debug build): the toggle-devtools init script. Accepted only for an
@@ -22,8 +22,8 @@ import { inflateRawSync } from "node:zlib";
 
 // Keep identical to `QA_CONTROL_MARKER` in crates/rightkit-qa-driver/src/embedded/mod.rs.
 export const QA_CONTROL_MARKER = "RIGHTKIT-QA-CONTROL-SERVER-PRESENT";
-// Keep identical to `DEV_INSPECT_MARKER` in crates/rightkit-shell/src/devtools.rs (a `#[used]` static compiled only
-// with rightkit-shell's `dev-inspect` feature and read by the process guard). No allow-list lifts this rule.
+// Keep identical to `DEV_INSPECT_MARKER` in crates/rightkit-tauri-shell/src/devtools.rs (a `#[used]` static compiled only
+// with rightkit-tauri-shell's `dev-inspect` feature and read by the process guard). No allow-list lifts this rule.
 export const DEV_INSPECT_MARKER = "RIGHTKIT-SHELL-DEV-INSPECT-COMPILED";
 const MARKER = Buffer.from(QA_CONTROL_MARKER, "latin1");
 const CHUNK = 4 * 1024 * 1024;
@@ -33,7 +33,7 @@ const CHUNK = 4 * 1024 * 1024;
 export const QA_RULES = Object.freeze([
   { id: "qa-control-server", min: 1, label: "RightKit QA control server (rightkit-qa-driver qa-control)",
     signatures: [{ id: "marker", text: QA_CONTROL_MARKER }] },
-  { id: "shell-dev-inspect", min: 1, marker: DEV_INSPECT_MARKER, label: "rightkit-shell developer inspection (rightkit-shell dev-inspect)",
+  { id: "shell-dev-inspect", min: 1, marker: DEV_INSPECT_MARKER, label: "rightkit-tauri-shell developer inspection (rightkit-tauri-shell dev-inspect)",
     signatures: [{ id: "marker", text: DEV_INSPECT_MARKER }] },
   { id: "wdio-webdriver", min: 2, label: "tauri-plugin-wdio-webdriver test driver (app qa-native/dev-native)",
     signatures: [
@@ -53,8 +53,8 @@ export const QA_RULES = Object.freeze([
     ] },
 ]);
 
-// Keep identical to `CONTENT_ONLY_MARKER` in crates/rightkit-shell/src/devtools.rs. A binary carries it when it was
-// built with rightkit-shell's `content-devtools` feature. It is not a finding; it is the evidence that lets an
+// Keep identical to `CONTENT_ONLY_MARKER` in crates/rightkit-tauri-shell/src/devtools.rs. A binary carries it when it was
+// built with rightkit-tauri-shell's `content-devtools` feature. It is not a finding; it is the evidence that lets an
 // allow-listed app (devtools-policy.json) ship Tauri's devtools code for ViewRight-style content inspection.
 export const CONTENT_ONLY_MARKER = "RIGHTKIT-SHELL-DEVTOOLS-CONTENT-ONLY-COMPILED";
 const CONTENT_ONLY_KEY = "content-only-marker/marker";
@@ -80,7 +80,7 @@ export class RuleScanner {
     }
     this.tail = Buffer.from(window.subarray(Math.max(0, window.length - (MAX_NEEDLE - 1))));
   }
-  // `allowContentOnlyDevtools`: the app is allow-listed for rightkit-shell's ContentOnly DevTools policy. Then Tauri's
+  // `allowContentOnlyDevtools`: the app is allow-listed for rightkit-tauri-shell's ContentOnly DevTools policy. Then Tauri's
   // devtools signatures are accepted only in a binary that also carries CONTENT_ONLY_MARKER; one without it is still
   // a finding (devtools compiled in by some other route).
   findings({ allowContentOnlyDevtools = false } = {}) {

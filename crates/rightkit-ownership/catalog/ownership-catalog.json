@@ -2417,108 +2417,6 @@
       ]
     },
     {
-      "package": "rightkit-shell",
-      "capability": "desktop-shell",
-      "summary": "Tauri shell: tray, autostart, deep links, single instance, window state, notifications",
-      "fingerprints": [
-        {
-          "id": "shell.cargo.tauri-plugin-autostart",
-          "type": "dependency",
-          "ecosystem": "cargo",
-          "name": "tauri-plugin-autostart",
-          "tier": "advise",
-          "usageContext": {
-            "hosts": [
-              "macos",
-              "windows"
-            ],
-            "scope": "cargo direct competing dependency; transitive findings require authenticated reachability"
-          },
-          "tierReason": "No recorded published-version qualification for this usage context on both macOS & Windows."
-        },
-        {
-          "id": "shell.cargo.tauri-plugin-deep-link",
-          "type": "dependency",
-          "ecosystem": "cargo",
-          "name": "tauri-plugin-deep-link",
-          "tier": "advise",
-          "usageContext": {
-            "hosts": [
-              "macos",
-              "windows"
-            ],
-            "scope": "cargo direct competing dependency; transitive findings require authenticated reachability"
-          },
-          "tierReason": "No recorded published-version qualification for this usage context on both macOS & Windows."
-        },
-        {
-          "id": "shell.cargo.tauri-plugin-single-instance",
-          "type": "dependency",
-          "ecosystem": "cargo",
-          "name": "tauri-plugin-single-instance",
-          "tier": "advise",
-          "usageContext": {
-            "hosts": [
-              "macos",
-              "windows"
-            ],
-            "scope": "cargo direct competing dependency; transitive findings require authenticated reachability"
-          },
-          "tierReason": "No recorded published-version qualification for this usage context on both macOS & Windows."
-        },
-        {
-          "id": "shell.cargo.tauri-plugin-window-state",
-          "type": "dependency",
-          "ecosystem": "cargo",
-          "name": "tauri-plugin-window-state",
-          "tier": "advise",
-          "usageContext": {
-            "hosts": [
-              "macos",
-              "windows"
-            ],
-            "scope": "cargo direct competing dependency; transitive findings require authenticated reachability"
-          },
-          "tierReason": "No recorded published-version qualification for this usage context on both macOS & Windows."
-        },
-        {
-          "id": "shell.cargo.tauri-plugin-notification",
-          "type": "dependency",
-          "ecosystem": "cargo",
-          "name": "tauri-plugin-notification",
-          "tier": "advise",
-          "usageContext": {
-            "hosts": [
-              "macos",
-              "windows"
-            ],
-            "scope": "cargo direct competing dependency; transitive findings require authenticated reachability"
-          },
-          "tierReason": "No recorded published-version qualification for this usage context on both macOS & Windows."
-        },
-        {
-          "id": "shell.cargo.auto-launch",
-          "type": "dependency",
-          "ecosystem": "cargo",
-          "name": "auto-launch",
-          "tier": "advise",
-          "usageContext": {
-            "hosts": [
-              "macos",
-              "windows"
-            ],
-            "scope": "cargo direct competing dependency; transitive findings require authenticated reachability"
-          },
-          "tierReason": "No recorded published-version qualification for this usage context on both macOS & Windows."
-        }
-      ],
-      "detection": "fingerprinted",
-      "policyNotes": [
-        "Package contract retained; dependency declarations do not verify integration.",
-        "Fingerprints identify review candidates; published two-host replacement qualification is not recorded."
-      ]
-    },
-    {
       "package": "rightkit-sidecar",
       "capability": "framed-sidecar",
       "summary": "Bounded JSON-lines transport primitives for Right Suite sidecars.",
@@ -2623,6 +2521,108 @@
       "policyNotes": [
         "Package contract retained; dependency declarations do not verify integration.",
         "No precise implementation fingerprint; declaration-only inventory, never enforced ownership or verified integration."
+      ]
+    },
+    {
+      "package": "rightkit-tauri-shell",
+      "capability": "desktop-shell",
+      "summary": "Tauri shell: tray, autostart, deep links, single instance, window state, notifications",
+      "fingerprints": [
+        {
+          "id": "shell.cargo.tauri-plugin-autostart",
+          "type": "dependency",
+          "ecosystem": "cargo",
+          "name": "tauri-plugin-autostart",
+          "tier": "advise",
+          "usageContext": {
+            "hosts": [
+              "macos",
+              "windows"
+            ],
+            "scope": "cargo direct competing dependency; transitive findings require authenticated reachability"
+          },
+          "tierReason": "No recorded published-version qualification for this usage context on both macOS & Windows."
+        },
+        {
+          "id": "shell.cargo.tauri-plugin-deep-link",
+          "type": "dependency",
+          "ecosystem": "cargo",
+          "name": "tauri-plugin-deep-link",
+          "tier": "advise",
+          "usageContext": {
+            "hosts": [
+              "macos",
+              "windows"
+            ],
+            "scope": "cargo direct competing dependency; transitive findings require authenticated reachability"
+          },
+          "tierReason": "No recorded published-version qualification for this usage context on both macOS & Windows."
+        },
+        {
+          "id": "shell.cargo.tauri-plugin-single-instance",
+          "type": "dependency",
+          "ecosystem": "cargo",
+          "name": "tauri-plugin-single-instance",
+          "tier": "advise",
+          "usageContext": {
+            "hosts": [
+              "macos",
+              "windows"
+            ],
+            "scope": "cargo direct competing dependency; transitive findings require authenticated reachability"
+          },
+          "tierReason": "No recorded published-version qualification for this usage context on both macOS & Windows."
+        },
+        {
+          "id": "shell.cargo.tauri-plugin-window-state",
+          "type": "dependency",
+          "ecosystem": "cargo",
+          "name": "tauri-plugin-window-state",
+          "tier": "advise",
+          "usageContext": {
+            "hosts": [
+              "macos",
+              "windows"
+            ],
+            "scope": "cargo direct competing dependency; transitive findings require authenticated reachability"
+          },
+          "tierReason": "No recorded published-version qualification for this usage context on both macOS & Windows."
+        },
+        {
+          "id": "shell.cargo.tauri-plugin-notification",
+          "type": "dependency",
+          "ecosystem": "cargo",
+          "name": "tauri-plugin-notification",
+          "tier": "advise",
+          "usageContext": {
+            "hosts": [
+              "macos",
+              "windows"
+            ],
+            "scope": "cargo direct competing dependency; transitive findings require authenticated reachability"
+          },
+          "tierReason": "No recorded published-version qualification for this usage context on both macOS & Windows."
+        },
+        {
+          "id": "shell.cargo.auto-launch",
+          "type": "dependency",
+          "ecosystem": "cargo",
+          "name": "auto-launch",
+          "tier": "advise",
+          "usageContext": {
+            "hosts": [
+              "macos",
+              "windows"
+            ],
+            "scope": "cargo direct competing dependency; transitive findings require authenticated reachability"
+          },
+          "tierReason": "No recorded published-version qualification for this usage context on both macOS & Windows."
+        }
+      ],
+      "detection": "fingerprinted",
+      "policyNotes": [
+        "Package contract retained; dependency declarations do not verify integration.",
+        "Fingerprints identify review candidates; published two-host replacement qualification is not recorded."
       ]
     },
     {
@@ -3848,7 +3848,7 @@
     {
       "package": "@rightkit/shell",
       "capability": "desktop-shell",
-      "summary": "Typed renderer bridge for the rightkit-shell Tauri crate: window controls, menu/tray events, deep links, autostart, rich clipboard, engine calls.; declaration-only detection (no precise implementation fingerprint)",
+      "summary": "Typed renderer bridge for the rightkit-tauri-shell Tauri crate: window controls, menu/tray events, deep links, autostart, rich clipboard, engine calls.; declaration-only detection (no precise implementation fingerprint)",
       "fingerprints": [],
       "detection": "declaration-only",
       "policyNotes": [

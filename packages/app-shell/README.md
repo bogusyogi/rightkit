@@ -5,7 +5,7 @@ Brand-neutral React frame for Right Suite desktop apps: fused sidebar and titleb
 | Item | Value |
 |---|---|
 | Where it runs | App webview UI (React) |
-| Rust pair | None directly. The native side is reached through `@rightkit/shell`, which implements this package's bridge contract and pairs with `rightkit-shell`. |
+| Rust pair | None directly. The native side is reached through `@rightkit/shell`, which implements this package's bridge contract and pairs with `rightkit-tauri-shell`. |
 | Version | see INDEX.md |
 | License | MIT OR Apache-2.0 |
 

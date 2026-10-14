@@ -5,8 +5,8 @@
 //     features, directly (`--features`, `-F`, `-f`, `--features=`, `--all-features`) or through a package.json
 //     script it runs (`pnpm run <script>`, followed up to three levels);
 //   - an app Cargo.toml whose DEFAULT feature closure reaches one of them, or that lists `devtools` on `tauri`,
-//     (`devtools` and rightkit-shell's `content-devtools` are accepted only for an allow-listed app, see devtools-policy.mjs)
-//     `qa-control` on `rightkit-qa-driver`, `dev-inspect` on `rightkit-shell`, or `tauri-plugin-wdio-webdriver` as a non-optional dependency.
+//     (`devtools` and rightkit-tauri-shell's `content-devtools` are accepted only for an allow-listed app, see devtools-policy.mjs)
+//     `qa-control` on `rightkit-qa-driver`, `dev-inspect` on `rightkit-tauri-shell`, or `tauri-plugin-wdio-webdriver` as a non-optional dependency.
 // Dev builds are unaffected: `development.mjs` never calls this.
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
@@ -16,7 +16,7 @@ export const FORBIDDEN_FEATURES = Object.freeze(["devtools", "content-devtools",
   "qa-shot", "qa-tools", "dev-control", "bench-native",
   // D4 (M21/M23): rightkit-daemon `test-mode` compiles the override selectors; never in a release build.
   "test-mode"]);
-// The only forbidden features an allow-listed app may enable: rightkit-shell's `content-devtools` (and the Tauri
+// The only forbidden features an allow-listed app may enable: rightkit-tauri-shell's `content-devtools` (and the Tauri
 // `devtools` it switches on). See devtools-policy.mjs; every other app is refused them.
 const DEVTOOLS_FEATURES = Object.freeze(["devtools", "content-devtools"]);
 const FORBIDDEN_DEPENDENCY = "tauri-plugin-wdio-webdriver";
@@ -163,8 +163,11 @@ export function cargoManifestIssues(manifestText, label = "Cargo.toml", { allowD
     const control = dependencies.get(name);
     if (control && !control.optional && control.features.includes("qa-control")) issues.push(`${label}: dependency \`${name}\` lists \`qa-control\` unconditionally`);
   }
-  const shell = dependencies.get("rightkit-shell");
-  if (shell && !shell.optional && shell.features.includes("dev-inspect")) issues.push(`${label}: dependency \`rightkit-shell\` lists \`dev-inspect\` unconditionally (developer inspection ships in release builds)`);
+  // The crate was renamed from rightkit-shell; apps still on the old published name must stay covered.
+  for (const name of ["rightkit-tauri-shell", "rightkit-shell"]) {
+    const shell = dependencies.get(name);
+    if (shell && !shell.optional && shell.features.includes("dev-inspect")) issues.push(`${label}: dependency \`${name}\` lists \`dev-inspect\` unconditionally (developer inspection ships in release builds)`);
+  }
   const service = dependencies.get("rightkit-daemon");
   if (service && !service.optional && service.features.includes("test-mode")) issues.push(`${label}: dependency \`rightkit-daemon\` lists \`test-mode\` unconditionally (test-mode capability ships in release builds)`);
   const wdio = dependencies.get(FORBIDDEN_DEPENDENCY);
@@ -208,6 +211,6 @@ export function assertNoForbiddenBuildFeatures({ root, commands, tier = "release
   throw new Error(
     `${tier} build refused: it enables a test-automation or debugging feature (${FORBIDDEN_FEATURES.join(", ")}); none may ship:\n- ${issues.join("\n- ")}\n`
     + "Remove the feature from the release build command, the app's default features and its tauri dependency; dev builds (`right-release dev`) may keep it. "
-    + "No app may ship devtools unless it is on the allow-list in devtools-policy.json and declares `devtools: \"content-only\"` (rightkit-shell DevToolsPolicy::ContentOnly).",
+    + "No app may ship devtools unless it is on the allow-list in devtools-policy.json and declares `devtools: \"content-only\"` (rightkit-tauri-shell DevToolsPolicy::ContentOnly).",
   );
 }

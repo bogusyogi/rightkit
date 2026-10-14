@@ -35,10 +35,9 @@
       "profile": "desktop",
       "owners": [
         {
-          "name": "rightkit-shell",
+          "name": "rightkit-tauri-shell",
           "ecosystem": "cargo",
-          "min": "0.3.0",
-          "registryMax": "0.2.0"
+          "min": "0.3.0"
         },
         {
           "name": "rightkit-device",

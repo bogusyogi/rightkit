@@ -30,7 +30,7 @@ Capabilities: 72 (54 with fingerprints, 18 declaration-only). Internal owners th
 | desktop-control | `rightkit-qa-driver` | advise | fingerprinted | 6 (0 block, 6 advise) | rightkit-qa-driver: none recorded |
 | desktop-overlay | `rightkit-overlay` | advise | fingerprinted | 2 (0 block, 2 advise) | rightkit-overlay: staged 0.1.1, not published |
 | desktop-qa | `rightkit-qa` | advise | fingerprinted | 4 (0 block, 4 advise) | rightkit-qa: published 0.2.14 (crates.io) |
-| desktop-shell | `@rightkit/shell`, `rightkit-shell` | advise | declaration-only, fingerprinted | 6 (0 block, 6 advise) | @rightkit/shell: published 0.1.1 (npm); rightkit-shell: published 0.2.0 (crates.io) |
+| desktop-shell | `@rightkit/shell`, `rightkit-tauri-shell` | advise | declaration-only, fingerprinted | 6 (0 block, 6 advise) | @rightkit/shell: published 0.1.1 (npm); rightkit-tauri-shell: none recorded |
 | disk-cache | `rightkit-cache` | advise | fingerprinted | 1 (0 block, 1 advise) | rightkit-cache: published 0.1.0 (crates.io) |
 | document-rendering | `@rightkit/doc-render` | advise | fingerprinted | 1 (0 block, 1 advise) | @rightkit/doc-render: published 0.1.6 (npm) |
 | embeddings | `rightkit-embed` | advise | fingerprinted | 1 (0 block, 1 advise) | rightkit-embed: published 0.3.2 (crates.io) |

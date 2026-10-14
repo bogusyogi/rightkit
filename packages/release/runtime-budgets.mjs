@@ -62,7 +62,7 @@ export const RUNTIME_BUDGET_CRATES = Object.freeze([
   "rightkit-cache",
   "rightkit-sync",
   "rightkit-logs",
-  "rightkit-shell",
+  "rightkit-tauri-shell",
   "rightkit-qa",
   "rightkit-send",
 ]);

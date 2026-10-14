@@ -1,5 +1,5 @@
 /**
- * Renderer bridge for the `rightkit-shell` Tauri crate.
+ * Renderer bridge for the `rightkit-tauri-shell` Tauri crate.
  *
  * Dependency-free: by default it talks to Tauri through `window.__TAURI_INTERNALS__` (what
  * `@tauri-apps/api` itself uses), so the same file runs under a bundler or as a plain ES module.
@@ -236,7 +236,7 @@ interface TauriInternals {
 /** Transport over `window.__TAURI_INTERNALS__`. */
 export function tauriTransport(): ShellTransport {
   const internals = (globalThis as unknown as { __TAURI_INTERNALS__?: TauriInternals }).__TAURI_INTERNALS__;
-  if (!internals) throw new Error('rightkit-shell: not running inside a Tauri webview');
+  if (!internals) throw new Error('rightkit-tauri-shell: not running inside a Tauri webview');
   return {
     invoke: (command, args) => internals.invoke(command, args),
     listen: async (event, handler) => {
@@ -283,7 +283,7 @@ export function createShell(transport: ShellTransport = tauriTransport(), option
   const { invoke, listen } = transport;
   const defaultTimeout = options.quitTimeoutMs ?? DEFAULT_QUIT_TIMEOUT_MS;
   checkTimeout(defaultTimeout, 'quitTimeoutMs');
-  const reportQuit = options.onQuitReport ?? ((r: QuitReport) => console.error('rightkit-shell: quit drain', r));
+  const reportQuit = options.onQuitReport ?? ((r: QuitReport) => console.error('rightkit-tauri-shell: quit drain', r));
 
   // Probed once per shell. A host that predates `rk_shell_capabilities` reports no capabilities.
   let capsCache: Promise<ShellCapabilities> | null = null;
@@ -300,7 +300,7 @@ export function createShell(transport: ShellTransport = tauriTransport(), option
     return capsCache;
   };
   const requireCapability = async (key: keyof ShellCapabilities, what: string): Promise<void> => {
-    if (!(await capabilities())[key]) throw typed('unsupported', `rightkit-shell host lacks ${what}; see the rightkit-shell crate README`);
+    if (!(await capabilities())[key]) throw typed('unsupported', `rightkit-tauri-shell host lacks ${what}; see the rightkit-tauri-shell crate README`);
   };
 
   // Before-quit drain. Subscribers run concurrently; one quit runs at a time.

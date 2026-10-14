@@ -59,7 +59,7 @@ test("an app on a different allow-list entry is refused unless the list says so"
 });
 
 test("content-only without the shell feature or without the ACL manifest is refused", () => {
-  assert.throws(() => resolveDevtoolsAllowance({ config: { app: "viewright", devtools: "content-only" }, root: app({ manifest: SHELL_PLAIN }) }), /does not depend on rightkit-shell with the `content-devtools` feature/);
+  assert.throws(() => resolveDevtoolsAllowance({ config: { app: "viewright", devtools: "content-only" }, root: app({ manifest: SHELL_PLAIN }) }), /does not depend on rightkit-tauri-shell with the `content-devtools` feature/);
   assert.throws(() => resolveDevtoolsAllowance({ config: { app: "viewright", devtools: "content-only" }, root: app({ buildRs: "fn main() { tauri_build::build() }" }) }), /no application ACL manifest/);
   assert.throws(() => resolveDevtoolsAllowance({ config: { app: "viewright", devtools: "content-only" }, root: app({ buildRs: null }) }), /no application ACL manifest/);
 });
@@ -126,4 +126,11 @@ test("sealed manifest: the allowance is honoured only for an allow-listed app th
   assert.equal(sealedManifestAllowsContentDevtools({ app: "viewright", devtools: { mode: "denied" } }), false);
   assert.equal(sealedManifestAllowsContentDevtools({ app: "viewright" }), false);
   assert.equal(sealedManifestAllowsContentDevtools({ app: "viewright", devtools: { mode: "content-only", app: "mailright" } }), false);
+});
+
+test("the renamed rightkit-tauri-shell crate is covered the same as the old rightkit-shell name", () => {
+  const renamed = '[package]\nname = "app"\n[features]\ndefault = []\ncontent-devtools = ["rightkit-tauri-shell/content-devtools"]\n[dependencies]\nrightkit-tauri-shell = "0.4"\n';
+  assert.equal(manifestSelectsContentDevtools(renamed), true);
+  assert.equal(manifestSelectsContentDevtools('[package]\nname = "app"\n[dependencies]\nrightkit-tauri-shell = { version = "0.4", features = ["content-devtools"] }\n'), true);
+  assert.equal(manifestSelectsContentDevtools('[package]\nname = "app"\n[dependencies]\nrightkit-tauri-shell = "0.4"\n'), false);
 });

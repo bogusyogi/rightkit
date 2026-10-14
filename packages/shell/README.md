@@ -1,11 +1,11 @@
 # @rightkit/shell
 
-Typed renderer bridge for the `rightkit-shell` Tauri crate. It exposes window controls, menu and tray events, deep links, autostart, rich clipboard, notifications, presence and idle state, quit drain, and engine calls. The package has no runtime dependencies.
+Typed renderer bridge for the `rightkit-tauri-shell` Tauri crate. It exposes window controls, menu and tray events, deep links, autostart, rich clipboard, notifications, presence and idle state, quit drain, and engine calls. The package has no runtime dependencies.
 
 | Item | Value |
 |---|---|
 | Where it runs | App webview UI (renderer side of the Tauri IPC) |
-| Rust pair | `rightkit-shell` (webview hardening, window state, native menu, tray, single instance, deep links, autostart, clipboard, engine wiring) |
+| Rust pair | `rightkit-tauri-shell` (webview hardening, window state, native menu, tray, single instance, deep links, autostart, clipboard, engine wiring) |
 | Version | 0.1.1 (see CHANGELOG.md) |
 | License | MIT OR Apache-2.0 |
 
@@ -31,12 +31,12 @@ await shell.openExternal("https://example.com");
 
 ## Host requirement: register the shell commands (Rust apps)
 
-The `rightkit-shell` crate does not register its own `rk_shell_*` commands. Tauri takes one invoke handler per builder, so the app must register them in its builder with `rightkit_shell::handler!`, which includes the shell commands plus the app's own:
+The `rightkit-tauri-shell` crate does not register its own `rk_shell_*` commands. Tauri takes one invoke handler per builder, so the app must register them in its builder with `rightkit_tauri_shell::handler!`, which includes the shell commands plus the app's own:
 
 ```rust
 tauri::Builder::default()
-    .plugin(rightkit_shell::Shell::builder("myapp").app_name("MyApp").build().plugin())
-    .invoke_handler(rightkit_shell::handler![my_app_command])
+    .plugin(rightkit_tauri_shell::Shell::builder("myapp").app_name("MyApp").build().plugin())
+    .invoke_handler(rightkit_tauri_shell::handler![my_app_command])
     .run(tauri::generate_context!())
 ```
 
@@ -89,20 +89,20 @@ await shell.notifications.post({ title: "Send failed", body: "Retry from the out
 
 - Default `false`: the request is sent exactly as in 0.1.0.
 - Requires the `notifyBypassDnd` capability. Without it the call rejects with `unsupported` and nothing is posted. Check with `(await shell.capabilities()).notifyBypassDnd`.
-- Platforms: rightkit-shell posts notifications natively on macOS and Windows; other platforms report `unsupported`. The bypass applies on those native platforms only.
+- Platforms: rightkit-tauri-shell posts notifications natively on macOS and Windows; other platforms report `unsupported`. The bypass applies on those native platforms only.
 - The bypass covers the shell's Do-Not-Disturb. It does not override the OS Focus mode, which can still hold banners.
 
 ## Capabilities and host support
 
 `shell.capabilities()` returns `{ quitDrain, notifyBypassDnd }`. A host without `rk_shell_capabilities` reports both as `false`. Features gated by a capability fail with a typed `unsupported` error that names what is missing.
 
-| Feature | Renderer side (this package) | Host support needed in `rightkit-shell` |
+| Feature | Renderer side (this package) | Host support needed in `rightkit-tauri-shell` |
 |---|---|---|
 | Quit drain | `onQuitRequested`, `quit`, `quitTimeoutMs` | `rk_shell_capabilities` returns `quitDrain: true` (only when the app opts in with `ShellBuilder::quit_drain(true)` or `quit_drain_bound(d)`); `rk_shell_finish_quit` command (sets exiting, then `app.exit(0)`); `rightkit-shell://quit-requested` event emitted on a host quit request instead of exiting, with `prevent_exit`; the host exits after its own bound (default 15 s, at most 120 s) if the renderer never calls finish |
 | Notification bypass | `notifications.post({ bypassDoNotDisturb })` | `rk_shell_capabilities` returns `notifyBypassDnd: true`; `rk_shell_notify` request field `bypassDoNotDisturb` (serde default `false`) skips the `effective_dnd()` check |
 | Custom tray events | `tray.onCustom` | none |
 
-`rk_shell_capabilities` is read-only and returns `{ quitDrain: bool, notifyBypassDnd: bool }`. The `rightkit-shell` crate implements both; it always reports `notifyBypassDnd: true` and reports `quitDrain: true` only when the app opts in. On a host without the support, the capability-gated calls reject with `unsupported`.
+`rk_shell_capabilities` is read-only and returns `{ quitDrain: bool, notifyBypassDnd: bool }`. The `rightkit-tauri-shell` crate implements both; it always reports `notifyBypassDnd: true` and reports `quitDrain: true` only when the app opts in. On a host without the support, the capability-gated calls reject with `unsupported`.
 
 ## Known issues
 

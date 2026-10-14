@@ -3,7 +3,7 @@
   "capabilities": [
     {
       "capability": "desktop-shell",
-      "summary": "Typed renderer bridge for the rightkit-shell Tauri crate: window controls, menu/tray events, deep links, autostart, rich clipboard, engine calls.; declaration-only detection (no precise implementation fingerprint)",
+      "summary": "Typed renderer bridge for the rightkit-tauri-shell Tauri crate: window controls, menu/tray events, deep links, autostart, rich clipboard, engine calls.; declaration-only detection (no precise implementation fingerprint)",
       "fingerprints": [],
       "detection": "declaration-only",
       "policyNotes": [

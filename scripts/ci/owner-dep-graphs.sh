@@ -9,13 +9,13 @@ cd "$(dirname "$0")/../.."
 
 EVIDENCE="${RUNNER_TEMP:-${TMPDIR:-/tmp}}/rightkit-ci"
 OUT="$EVIDENCE/owner-dep-graphs"
-CRATES="shell device job-queue child-process sidecar daemon fs db app-settings credentials license logs crash http qa control mcp"
+CRATES="tauri-shell device job-queue child-process sidecar daemon fs db app-settings credentials license logs crash http qa qa-driver mcp"
 WATCH="tokio axum hyper ring cc openssl-sys reqwest libsqlite3-sys"
 
 # crate|mode-name|cargo feature args. default/nodefault run for every crate in CRATES; these add consumer sets.
 FEATURE_SETS="
-shell|nodefault-wv2-0_39|--no-default-features --features wv2-0_39
-shell|nodefault-wv2-0_39-engine|--no-default-features --features wv2-0_39,engine
+tauri-shell|nodefault-wv2-0_39|--no-default-features --features wv2-0_39
+tauri-shell|nodefault-wv2-0_39-engine|--no-default-features --features wv2-0_39,engine
 job-queue|nodefault-store|--no-default-features --features store
 job-queue|nodefault-protocol|--no-default-features --features protocol
 job-queue|nodefault-supervisor|--no-default-features --features supervisor
@@ -36,7 +36,7 @@ http|nodefault-gzip|--no-default-features --features gzip
 http|nodefault-async|--no-default-features --features async
 http|nodefault-gzip-untrusted|--no-default-features --features gzip,untrusted
 qa|nodefault-browser|--no-default-features --features browser
-control|nodefault-qa-control|--no-default-features --features qa-control
+qa-driver|nodefault-qa-control|--no-default-features --features qa-control
 mcp|nodefault-advanced-http|--no-default-features --features advanced-http
 "
 

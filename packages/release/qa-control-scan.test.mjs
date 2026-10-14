@@ -145,9 +145,9 @@ test("remote-debugging and tauri-devtools strings are findings; a clean binary w
   assert.deepEqual(rules(bytesWith(PE, QA_CONTROL_MARKER, "--remote-debugging-port")).sort(), ["qa-control-server", "remote-debugging"]);
 });
 
-test("dev-inspect marker: the fixed string rightkit-shell emits, a finding in any encoding, never lifted by the devtools allow-list", () => {
+test("dev-inspect marker: the fixed string rightkit-tauri-shell emits, a finding in any encoding, never lifted by the devtools allow-list", () => {
   assert.equal(DEV_INSPECT_MARKER, "RIGHTKIT-SHELL-DEV-INSPECT-COMPILED");
-  const rust = readFileSync(join(import.meta.dirname, "..", "..", "crates", "rightkit-shell", "src", "devtools.rs"), "utf8");
+  const rust = readFileSync(join(import.meta.dirname, "..", "..", "crates", "rightkit-tauri-shell", "src", "devtools.rs"), "utf8");
   assert.ok(rust.includes(`"${DEV_INSPECT_MARKER}"`), "devtools.rs must define the same marker");
   assert.deepEqual(rules(bytesWith(MACHO, DEV_INSPECT_MARKER)), ["shell-dev-inspect"]);
   assert.deepEqual(rules(bytesWith(PE, DEV_INSPECT_MARKER)), ["shell-dev-inspect"]);

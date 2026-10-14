@@ -140,7 +140,7 @@ Nine other crates declare `continuous = false` with a reason and pass the scan: 
 
 ## Crates in this class today
 
-rightkit-fsindex, rightkit-file-watch, rightkit-job-queue (supervisor), rightkit-daemon (incl. `remote`), rightkit-cache, rightkit-sync, rightkit-logs (tracing worker), rightkit-shell (watchdog, idle), rightkit-qa (harness), rightkit-send.
+rightkit-fsindex, rightkit-file-watch, rightkit-job-queue (supervisor), rightkit-daemon (incl. `remote`), rightkit-cache, rightkit-sync, rightkit-logs (tracing worker), rightkit-tauri-shell (watchdog, idle), rightkit-qa (harness), rightkit-send.
 
 ## Why the audits missed it
 

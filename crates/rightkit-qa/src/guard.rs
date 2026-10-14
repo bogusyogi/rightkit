@@ -61,10 +61,13 @@ const QA_NATIVE_GATES: [&str; 3] = [
     r#"#[cfg(all(feature="qa-native",debug_assertions))]"#,
 ];
 
-/// Feature items that switch on rightkit-shell developer inspection. None may be reachable from
+/// Feature items that switch on rightkit-tauri-shell developer inspection. None may be reachable from
 /// `default`: a release build must never contain it (`packages/release` refuses it as well).
-const DEV_INSPECT_FEATURES: [&str; 4] = [
+const DEV_INSPECT_FEATURES: [&str; 6] = [
     "dev-inspect",
+    "rightkit-tauri-shell/dev-inspect",
+    "rightkit-tauri-shell?/dev-inspect",
+    // Apps still on the old published name (rightkit-shell) stay covered until they migrate.
     "rightkit-shell/dev-inspect",
     "rightkit-shell?/dev-inspect",
     "dev-native",
@@ -274,20 +277,22 @@ pub fn validate(input: &ContractInput) -> Vec<String> {
         if default_reaches(&entries, target) {
             issues.push(format!(
                 "{target} must not be enabled by default: it compiles developer inspection \
-                 (rightkit-shell dev-inspect) into the app, and right-release refuses to seal \
+                 (rightkit-tauri-shell dev-inspect) into the app, and right-release refuses to seal \
                  or upload such a build. Remove it from `default` (directly or through another \
                  default feature) so that only an explicit dev build contains it"
             ));
         }
     }
-    if let Some(body) = dependency_body(input.cargo_toml, "rightkit-shell").map(|b| compact(&b)) {
-        if body.contains("\"dev-inspect\"") && !body.contains("optional=true") {
-            issues.push(
-                "rightkit-shell lists the dev-inspect feature without optional = true, so \
-                 developer inspection compiles into every build: enable it only from an \
-                 optional dev feature such as `dev-native = [\"rightkit-shell/dev-inspect\"]`"
-                    .into(),
-            );
+    // The crate was renamed from rightkit-shell; apps still on the old published name stay covered.
+    for shell_crate in ["rightkit-tauri-shell", "rightkit-shell"] {
+        if let Some(body) = dependency_body(input.cargo_toml, shell_crate).map(|b| compact(&b)) {
+            if body.contains("\"dev-inspect\"") && !body.contains("optional=true") {
+                issues.push(format!(
+                    "{shell_crate} lists the dev-inspect feature without optional = true, so \
+                     developer inspection compiles into every build: enable it only from an \
+                     optional dev feature such as `dev-native = [\"{shell_crate}/dev-inspect\"]`"
+                ));
+            }
         }
     }
     for (name, list) in &entries {
@@ -532,15 +537,15 @@ fn run() { b = b.plugin(tauri_plugin_wdio_webdriver::init()); }
         assert_eq!(issues, Vec::<String>::new());
     }
 
-    /// The optional dev feature that selects rightkit-shell developer inspection.
+    /// The optional dev feature that selects rightkit-tauri-shell developer inspection.
     const CARGO_DEV_INSPECT: &str = r##"
 [features]
 default = []
 qa-native = ["dep:rightkit-qa-driver", "rightkit-qa-driver/qa-control"]
-dev-native = ["rightkit-shell/dev-inspect"]
+dev-native = ["rightkit-tauri-shell/dev-inspect"]
 [dependencies]
 rightkit-qa-driver = { version = "0.3", optional = true, default-features = false }
-rightkit-shell = { version = "0.4", default-features = false }
+rightkit-tauri-shell = { version = "0.4", default-features = false }
 "##;
 
     #[test]
@@ -559,7 +564,7 @@ rightkit-shell = { version = "0.4", default-features = false }
     fn rejects_dev_inspect_in_default_features() {
         for default in [
             "default = [\"dev-native\"]",
-            "default = [\"rightkit-shell/dev-inspect\"]",
+            "default = [\"rightkit-tauri-shell/dev-inspect\"]",
             "default = [\"dev-inspect\"]",
             "default = [\"shell\"]\nshell = [\"dev-native\"]",
         ] {
@@ -575,8 +580,8 @@ rightkit-shell = { version = "0.4", default-features = false }
     #[test]
     fn rejects_non_optional_dev_inspect_dependency_and_release_scripts() {
         let cargo = CARGO_DEV_INSPECT.replace(
-            "rightkit-shell = { version = \"0.4\", default-features = false }",
-            "rightkit-shell = { version = \"0.4\", features = [\"dev-inspect\"] }",
+            "rightkit-tauri-shell = { version = \"0.4\", default-features = false }",
+            "rightkit-tauri-shell = { version = \"0.4\", features = [\"dev-inspect\"] }",
         );
         let issues = control(&cargo, RUST_GATED, &[]);
         assert!(

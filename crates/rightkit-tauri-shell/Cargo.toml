@@ -1,0 +1,82 @@
+[package]
+name = "rightkit-tauri-shell"
+version = "0.3.0"
+edition = "2021"
+rust-version = "1.98.0"
+description = "Shared Tauri desktop shell for Right Suite apps: webview hardening, window state, native menu, tray, single instance, deep links, autostart, rich clipboard, watchdog and engine wiring."
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/Orthic-Labs/rightkit"
+readme = "README.md"
+include = ["build.rs", "src/**", "tests/**", "README.md", "LICENSE-MIT", "LICENSE-APACHE", "CHANGELOG.md"]
+
+[features]
+default = ["wv2-0_38"]
+# Windows: which `windows` + `webview2-com` generation the app's Tauri resolves, so types cross the
+# boundary (Tauri 2.11: 0.61/0.38, the default, which every Right Suite app locks; Tauri 2.12: 0.62/0.39).
+# An app on Tauri 2.12 uses default-features = false, features = ["wv2-0_39"] (add "engine" for the sidecar).
+# Enabling both selects 0.39.
+wv2-0_38 = ["dep:windows_061", "dep:webview2_com_038"]
+wv2-0_39 = ["dep:windows_062", "dep:webview2_com_039"]
+# Engine sidecar wiring over rightkit-job-queue EngineClient + rightkit-child-process. Off by default: it pulls
+# rightkit-job-queue (db, time, uuid); apps that run an engine sidecar opt in.
+engine = ["dep:rightkit-job-queue"]
+# Required by `DevToolsPolicy::ContentOnly`: compiles Tauri's devtools in so a registered content
+# webview can be inspected. Every other webview stays non-inspectable. Only an app on the
+# `right-release` allow-list (`packages/release/devtools-policy.json`, today only ViewRight) may
+# ship a build with it; every other app must leave it off. Never a default feature.
+content-devtools = ["tauri/devtools"]
+# DEVELOPMENT BUILDS ONLY. Developer inspection of every webview of the app (UI included): enables Tauri's
+# devtools, leaves debugging switches and WebView2 environment overrides alone, skips the registry-policy
+# refusal and the DevToolsActivePort tripwire, prints one loud stderr line at startup, and embeds the marker
+# `RIGHTKIT-SHELL-DEV-INSPECT-COMPILED`. An app selects it from an optional dev feature
+# (`dev-native = ["rightkit-tauri-shell/dev-inspect"]`) that its default features never reach. Three layers keep it out
+# of a release: `right-release` refuses the feature in a release or update build command or Cargo manifest, scans
+# every binary for the marker, and the rightkit-qa guard rejects it in default features. Never a default feature.
+dev-inspect = ["tauri/devtools"]
+
+[dependencies]
+tauri = { version = "2", features = ["tray-icon", "image-png"] }
+rightkit-daemon = { version = "0.2.0", path = "../rightkit-daemon" }
+rightkit-job-queue = { version = "0.3.0", path = "../rightkit-job-queue", default-features = false, features = ["supervisor"], optional = true }
+rightkit-child-process = { version = "0.4.0", path = "../rightkit-child-process" }
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = "1.0.150"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6"
+objc2-foundation = { version = "0.3", features = ["NSArray", "NSData", "NSString", "NSURL", "NSValue", "NSGeometry", "NSObject", "NSBundle", "NSDictionary", "NSError"] }
+objc2-user-notifications = "0.3"
+block2 = "0.6"
+objc2-app-kit = { version = "0.3", features = ["NSWindow", "NSButton", "NSControl", "NSView", "NSResponder", "NSPasteboard", "NSPasteboardItem"] }
+
+[target.'cfg(windows)'.dependencies]
+# Same toast backend as tauri-plugin-notification (via notify-rust): WinRT ToastNotificationManager.
+tauri-winrt-notification = "0.7"
+windows_061 = { package = "windows", version = "0.61", optional = true, features = [
+  "Win32_Foundation",
+  "Win32_System_Com",
+  "Win32_System_DataExchange",
+  "Win32_System_Memory",
+  "Win32_System_Ole",
+  "Win32_UI_Shell",
+  "Win32_UI_WindowsAndMessaging",
+] }
+webview2_com_038 = { package = "webview2-com", version = "0.38", optional = true }
+windows_062 = { package = "windows", version = "0.62", optional = true, features = [
+  "Win32_Foundation",
+  "Win32_System_Com",
+  "Win32_System_DataExchange",
+  "Win32_System_Memory",
+  "Win32_System_Ole",
+  "Win32_UI_Shell",
+  "Win32_UI_WindowsAndMessaging",
+] }
+webview2_com_039 = { package = "webview2-com", version = "0.39", optional = true }
+
+[[bench]]
+name = "budget"
+harness = false
+
+[dev-dependencies]
+tempfile = "3"
+tauri = { version = "2", features = ["test"] }

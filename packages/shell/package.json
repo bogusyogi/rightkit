@@ -1,7 +1,7 @@
 {
   "name": "@rightkit/shell",
   "version": "0.1.1",
-  "description": "Typed renderer bridge for the rightkit-shell Tauri crate: window controls, menu/tray events, deep links, autostart, rich clipboard, engine calls.",
+  "description": "Typed renderer bridge for the rightkit-tauri-shell Tauri crate: window controls, menu/tray events, deep links, autostart, rich clipboard, engine calls.",
   "license": "MIT OR Apache-2.0",
   "packageManager": "pnpm@11.24.0",
   "type": "module",

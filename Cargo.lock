@@ -5744,29 +5744,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "rightkit-shell"
-version = "0.3.0"
-dependencies = [
- "block2",
- "objc2",
- "objc2-app-kit",
- "objc2-foundation",
- "objc2-user-notifications",
- "rightkit-child-process",
- "rightkit-daemon",
- "rightkit-job-queue",
- "serde",
- "serde_json",
- "tauri",
- "tauri-winrt-notification",
- "tempfile",
- "webview2-com 0.38.2",
- "webview2-com 0.39.1",
- "windows 0.61.1",
- "windows 0.62.2",
-]
-
-[[package]]
 name = "rightkit-sidecar"
 version = "0.2.0"
 dependencies = [
@@ -5797,6 +5774,29 @@ dependencies = [
  "rightkit-fs",
  "serde",
  "serde_json",
+]
+
+[[package]]
+name = "rightkit-tauri-shell"
+version = "0.3.0"
+dependencies = [
+ "block2",
+ "objc2",
+ "objc2-app-kit",
+ "objc2-foundation",
+ "objc2-user-notifications",
+ "rightkit-child-process",
+ "rightkit-daemon",
+ "rightkit-job-queue",
+ "serde",
+ "serde_json",
+ "tauri",
+ "tauri-winrt-notification",
+ "tempfile",
+ "webview2-com 0.38.2",
+ "webview2-com 0.39.1",
+ "windows 0.61.1",
+ "windows 0.62.2",
 ]
 
 [[package]]

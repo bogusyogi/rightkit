@@ -19,7 +19,7 @@ Publication runs through `right-release publish cargo` after exact-commit native
 | rightkit-sandbox | Public candidate | Native receipts; versioned process dependency |
 | rightkit-search | Public candidate | Native receipts |
 | rightkit-daemon | Public candidate | Native receipts; rightkit-sidecar available |
-| rightkit-shell | Public candidate | Native receipts; service & jobs available; native shell evidence |
+| rightkit-tauri-shell | Public candidate | Native receipts; service & jobs available; native shell evidence |
 | rightkit-speech-client | Public candidate | Native receipts; service & framed-sidecar available |
 | rightkit-automation | Public owner (D 2026-10-14); hold for first release | Dedicated Windows input session; publish before agent-tools |
 | rightkit-agent-tools | Public owner (D 2026-10-14); hold for first release | Automation & other optional registry dependencies available |
@@ -43,7 +43,7 @@ For enabled candidates & their shared prerequisites:
 1. `rightkit-fs`, `rightkit-sidecar`, `rightkit-child-process`, `rightkit-logs`, `rightkit-cache`, `rightkit-pdf`, `rightkit-search`.
 2. `rightkit-db`, `rightkit-daemon`, `rightkit-browser`, `rightkit-sandbox`, `rightkit-crash`, `rightkit-ffmpeg`.
 3. `rightkit-job-queue`, `rightkit-qa-driver`, `rightkit-speech-client`, `rightkit-playback`, `rightkit-audio`.
-4. `rightkit-shell`, `rightkit-qa`.
+4. `rightkit-tauri-shell`, `rightkit-qa`.
 
 Every group waits for its own dependencies to exist in crates.io. Optional runtime dependencies also need published registry versions. Package dry-runs verify registry dependencies rather than sibling source.
 

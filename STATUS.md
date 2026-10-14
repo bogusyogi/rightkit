@@ -39,7 +39,7 @@ P3 version pins (source versions in `Cargo.toml`, not yet published unless noted
 | Crate | Target | Source version | Commit |
 |---|---|---|---|
 | rightkit-db | 0.3 | 0.3.1 | `a52f6d076` |
-| rightkit-shell | 0.1.3 | 0.1.4 | `473f64cb2` |
+| rightkit-tauri-shell | 0.1.3 | 0.1.4 | `473f64cb2` |
 | rightkit-logs | 0.2 | 0.2.0 | not traced |
 | rightkit-file-watch | 0.3.1 | 0.3.1 | `473f64cb2` |
 | rightkit-oauth | 0.3 | 0.3.0 (server mode) | `74d34beed` |

@@ -8,7 +8,7 @@
 //!
 //! Late shell placement: a shell that restores or fits a window after the webview
 //! is ready announces `rk-shell:placement` `{label, phase: "begin"|"done"}` on the
-//! app event bus (`rightkit-shell` does). [`PlacementGate`] records that, and a
+//! app event bus (`rightkit-tauri-shell` does). [`PlacementGate`] records that, and a
 //! viewport request waits (bounded) for `done` before it applies, so placement can
 //! never land after the request and undo it. No shell, or a shell that never
 //! announced, means no wait.
