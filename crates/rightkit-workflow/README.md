@@ -1,4 +1,4 @@
-# rightkit-scenario
+# rightkit-workflow
 
 Shared scenario interpreter and durable state machine for the RightKit scenario runtime (RK8). `perform` runs separately from `observe_until`. Each step has an idempotency key. An append-only, fsynced journal records every transition. Leases carry fencing tokens. Cancellation is cooperative and has a deadline. A retake replays a step and compares its postcondition.
 
@@ -33,7 +33,7 @@ None. The crate has no `[features]` table.
 Taken from `tests/machine.rs`. The test uses `ManualClock` so time can be controlled. Production code can use `SystemClock`.
 
 ```rust
-use rightkit_scenario::{
+use rightkit_workflow::{
     CancelToken, ExecContext, ManualClock, ObservePolicy, Run, StepRef, StepSpec,
 };
 use serde_json::Value;
@@ -61,7 +61,7 @@ let spec = StepSpec {
 let phase = run.execute(&lease, &spec, &mut driver, &ctx)?;
 ```
 
-`driver` is any value that implements `StepDriver`. The test defines a scripted `FakeDriver`. A production `Run::open` returns `Result` from `rightkit_scenario::Result`.
+`driver` is any value that implements `StepDriver`. The test defines a scripted `FakeDriver`. A production `Run::open` returns `Result` from `rightkit_workflow::Result`.
 
 ## Tests
 

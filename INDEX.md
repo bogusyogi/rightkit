@@ -8,7 +8,7 @@ Version columns: **Source** is the manifest version. **Published** is the latest
 
 Flags: `ok` means source, published and staged agree. `staged, not yet published` is in-flight work. `private` has no registry record by design. `MISMATCH` needs a release decision.
 
-Flagged mismatches: 51.
+Flagged mismatches: 52.
 
 The build broker is the Rust RustRight product (`bogusyogi/rustright`, binary `rustright`, alias `rightkit`); it is not part of this inventory. `packages/build-control-policy` keeps the agent permission hooks.
 
@@ -56,7 +56,6 @@ The build broker is the Rust RustRight product (`bogusyogi/rustright`, binary `r
 | `rightkit-record` | private | 0.2.0 | none recorded |  | private | screen-recording | Platform-neutral core of the RightKit recorder (RK3): record lifecycle, quarantine and recovery, session bundle writer, per-field redaction, bundle verification and frame reader. OS capture lives in per-platform helpers behind the Backend trait. |
 | `rightkit-review` | crates.io | 0.2.0 | none recorded | 0.1.0 | **MISMATCH staged 0.1.0 != source 0.2.0** | content-review | Shared review capability for the content pipeline: deterministic checks over a media or text description, declared holds, a capped repair loop, an advisory judge interface, and versioned verdict records. |
 | `rightkit-sandbox` | crates.io | 0.3.5 | 0.3.4 | 0.3.4 | **MISMATCH staged 0.3.4 != source 0.3.5** | os-sandbox | Shared OS sandbox, PTY lease, process-tree, and reserve-before-spawn resource authority for Right Suite apps. |
-| `rightkit-scenario` | crates.io | 0.1.0 | none recorded | 0.1.0 | staged, never published | scenario-runtime | Shared scenario interpreter and durable state machine for the RightKit scenario runtime (RK8): perform separated from observe_until, idempotency keys, append-only fsync journal, leases with fencing tokens, cooperative cancellation, retake replay, and a remote worker transport trait boundary |
 | `rightkit-search` | crates.io | 0.2.1 | 0.2.0 | 0.2.0 | **MISMATCH staged 0.2.0 != source 0.2.1** | search | Product-neutral search query language: lexer, AST, operator values, SQL/FTS5 predicate compiler, snippets, and an in-memory filename index. |
 | `rightkit-secrets` | crates.io | 0.2.0 | 0.1.3 | 0.1.3 | **MISMATCH staged 0.1.3 != source 0.2.0** | os-credential-store | Per-app OS credential storage for Right Suite apps: Keychain / Credential Manager, passive presence checks, non-interactive mode, test guards, DB-key provisioning, and migration. |
 | `rightkit-send` | crates.io | 0.1.0 | none recorded | 0.1.0 | staged, never published | nearby-sharing | Nearby file and text sharing over the open LocalSend v2 protocol, with Pulse extensions: TLS identity pinning, per-device trust, and macOS Bonjour discovery. Product-neutral; the host supplies identity, paths and policy. |
@@ -71,6 +70,7 @@ The build broker is the Rust RustRight product (`bogusyogi/rustright`, binary `r
 | `rightkit-tts-qwen-sys` | crates.io | 0.1.2 | none recorded |  | **MISMATCH public package has no release record** | text-to-speech | Low-level FFI bindings to ggml (CPU, Metal, Vulkan, BLAS) for rightkit-tts-qwen, vendored from yet-another-ai/qts v0.2.0 |
 | `rightkit-vad` | crates.io | 0.1.0 | 0.0.3 | 0.0.3 | **MISMATCH staged 0.0.3 != source 0.1.0** | voice-activity-detection | Product-neutral voice activity detection: Silero scorer, hysteresis/padding/chunking policy, streaming frame carry |
 | `rightkit-watch` | crates.io | 0.4.0 | 0.3.1 | 0.3.2 | **MISMATCH staged 0.3.2 != source 0.4.0** | file-watching | Filesystem watching for Right Suite apps: ref-counted async subscribers, debounced file-set and directory watchers, and rename-storm coalescing. |
+| `rightkit-workflow` | crates.io | 0.1.0 | none recorded |  | **MISMATCH public package has no release record** | scenario-runtime | Shared scenario interpreter and durable state machine for the RightKit scenario runtime (RK8): perform separated from observe_until, idempotency keys, append-only fsync journal, leases with fencing tokens, cooperative cancellation, retake replay, and a remote worker transport trait boundary |
 
 ## npm packages (24)
 

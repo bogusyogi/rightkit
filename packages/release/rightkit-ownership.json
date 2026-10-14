@@ -2141,17 +2141,6 @@
       ]
     },
     {
-      "package": "rightkit-scenario",
-      "capability": "scenario-runtime",
-      "summary": "Shared scenario interpreter and durable state machine for the RightKit scenario runtime: perform separated from observe_until, idempotency keys, append-only fsync step journal with resume into observe, leases with fencing tokens, cooperative cancellation with a deadline, retake replay with postcondition comparison, and the remote worker transport trait boundary",
-      "fingerprints": [],
-      "detection": "declaration-only",
-      "policyNotes": [
-        "Declaration-only: the interpreter, journal, lease and retake machinery are not an ownership fingerprint.",
-        "No networking, GUI driving or capture lives in this crate; workers implement StepDriver and remote transport implements WorkerTransport in later slices."
-      ]
-    },
-    {
       "package": "rightkit-search",
       "capability": "search",
       "summary": "Product-neutral search query language: lexer, AST, operator values, SQL/FTS5 predicate compiler, snippets, and an in-memory filename index.",
@@ -2799,6 +2788,17 @@
       "policyNotes": [
         "Package contract retained; dependency declarations do not verify integration.",
         "Fingerprints identify review candidates; published two-host replacement qualification is not recorded."
+      ]
+    },
+    {
+      "package": "rightkit-workflow",
+      "capability": "scenario-runtime",
+      "summary": "Shared scenario interpreter and durable state machine for the RightKit scenario runtime: perform separated from observe_until, idempotency keys, append-only fsync step journal with resume into observe, leases with fencing tokens, cooperative cancellation with a deadline, retake replay with postcondition comparison, and the remote worker transport trait boundary",
+      "fingerprints": [],
+      "detection": "declaration-only",
+      "policyNotes": [
+        "Declaration-only: the interpreter, journal, lease and retake machinery are not an ownership fingerprint.",
+        "No networking, GUI driving or capture lives in this crate; workers implement StepDriver and remote transport implements WorkerTransport in later slices."
       ]
     },
     {

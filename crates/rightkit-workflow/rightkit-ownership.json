@@ -1,5 +1,5 @@
 {
-  "package": "rightkit-scenario",
+  "package": "rightkit-workflow",
   "capabilities": [
     {
       "capability": "scenario-runtime",

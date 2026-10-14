@@ -120,6 +120,7 @@ function assertBuildInputs(config, target, label) {
 // still pin until they migrate, but the tree has only the new directory and the old name is never staged again.
 // Remove an entry here when the last app pin moves and `cargo` drops the old name.
 const RENAMED_AWAY = new Map([
+  ["rightkit-scenario", "rightkit-workflow"],
   ["rightkit-qts", "rightkit-tts-qwen"],
   ["rightkit-qts-ggml-sys", "rightkit-tts-qwen-sys"],
   ["rightkit-qts-ggml", null],

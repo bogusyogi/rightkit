@@ -4,7 +4,7 @@ use std::io::Write;
 use std::panic::AssertUnwindSafe;
 use std::path::PathBuf;
 
-use rightkit_scenario::{
+use rightkit_workflow::{
     CancelToken, DriverError, Error, ExecContext, IdempotencyKey, ManualClock, Observation,
     ObservePolicy, Phase, Run, Scenario, StepDriver, StepRef, StepSpec,
 };

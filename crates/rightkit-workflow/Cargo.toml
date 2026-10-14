@@ -1,5 +1,5 @@
 [package]
-name = "rightkit-scenario"
+name = "rightkit-workflow"
 version = "0.1.0"
 edition = "2021"
 rust-version = "1.98.0"
@@ -12,7 +12,7 @@ categories = ["development-tools"]
 include = ["src/**", "tests/**", "README.md", "CHANGELOG.md", "LICENSE-MIT", "LICENSE-APACHE"]
 
 [lib]
-name = "rightkit_scenario"
+name = "rightkit_workflow"
 path = "src/lib.rs"
 
 [dependencies]

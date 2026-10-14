@@ -10,8 +10,8 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
 
-use rightkit_scenario::worker::BundleStore;
-use rightkit_scenario::{
+use rightkit_workflow::worker::BundleStore;
+use rightkit_workflow::{
     BundleRef, CancelToken, Capability, Controller, ControllerLink, DriverError, EnrolmentRequest,
     ExecContext, IdempotencyKey, ManualClock, Observation, ObservePolicy, Phase, ReconnectState,
     RemoteDriver, Run, StepDriver, StepRef, StepSpec, TransportError, WorkerEndpoint,
@@ -176,7 +176,7 @@ fn policy() -> ObservePolicy {
     }
 }
 
-fn enrolment_request(issued: &rightkit_scenario::IssuedEnrolment) -> EnrolmentRequest {
+fn enrolment_request(issued: &rightkit_workflow::IssuedEnrolment) -> EnrolmentRequest {
     EnrolmentRequest {
         worker_label: "gui-worker".into(),
         enrolment_id: issued.enrolment_id.clone(),

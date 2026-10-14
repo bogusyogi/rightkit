@@ -18,7 +18,7 @@ Status values compare each pin with the latest published version (registry-recor
 - Packages in RightKit: 79 (55 crates, 24 npm packages).
 - Packages with at least one app pin: 64.
 - App pins: 762. Stale: 41. Ahead of published: 163. Unpublished: 11. Local: 435. Git: 0. Unparsed: 0.
-- Vendored copies of RightKit packages inside app repos: 227.
+- Vendored copies of RightKit packages inside app repos: 225.
 - App and package pairs with more than one requirement: 95.
 
 ## Packages
@@ -65,7 +65,6 @@ Status values compare each pin with the latest published version (registry-recor
 | `rightkit-record` | private | 0.2.0 | none recorded | 0 | none | 2 vendored copies |
 | `rightkit-review` | crates.io | 0.2.0 | none recorded | 2 | cutright, postright | 4 vendored copies |
 | `rightkit-sandbox` | crates.io | 0.3.5 | 0.3.4 | 1 | coderight | 2 vendored copies |
-| `rightkit-scenario` | crates.io | 0.1.0 | none recorded | 0 | none | 2 vendored copies |
 | `rightkit-search` | crates.io | 0.2.1 | 0.2.0 | 2 | genright, scraperight | 4 vendored copies; 2 ahead of published |
 | `rightkit-secrets` | crates.io | 0.2.0 | 0.1.3 | 8 | coderight, cutright, genright, heardright, mailright, postright, scraperight, viewright | 6 vendored copies; 3 stale; 4 ahead of published |
 | `rightkit-send` | crates.io | 0.1.0 | none recorded | 0 | none | 2 vendored copies |
@@ -80,6 +79,7 @@ Status values compare each pin with the latest published version (registry-recor
 | `rightkit-tts-qwen-sys` | crates.io | 0.1.2 | none recorded | 0 | none | - |
 | `rightkit-vad` | crates.io | 0.1.0 | 0.0.3 | 4 | cutright, heardright, scraperight, viewright | 4 vendored copies; 3 ahead of published |
 | `rightkit-watch` | crates.io | 0.4.0 | 0.3.1 | 2 | coderight, viewright | 4 vendored copies; 2 ahead of published |
+| `rightkit-workflow` | crates.io | 0.1.0 | none recorded | 0 | none | - |
 | `@rightkit/app-shell` | npm | 0.6.4 | 0.6.2 | 7 | coderight, cutright, genright, heardright, postright, scraperight, viewright | 4 stale |
 | `@rightkit/ax` | npm | 0.3.2 | 0.2.4 | 2 | coderight, legion | - |
 | `@rightkit/build-control-policy` | private | 0.1.1-phase1 | none recorded | 0 | none | - |
@@ -1049,8 +1049,6 @@ Vendored copies are app-owned source trees that carry a RightKit package name. T
 | `rightkit-review` | postright | `postright/rk-snapshot/crates/rightkit-review/Cargo.toml` | 0.2.0 | none recorded |
 | `rightkit-sandbox` | viewright | `viewright/tmp/rk-trial-2d1c2c02/crates/rightkit-sandbox/Cargo.toml` | 0.3.4 | 0.3.4 |
 | `rightkit-sandbox` | heardright | `heardright/rk-snapshot/crates/rightkit-sandbox/Cargo.toml` | 0.3.4 | 0.3.4 |
-| `rightkit-scenario` | viewright | `viewright/tmp/rk-trial-2d1c2c02/crates/rightkit-scenario/Cargo.toml` | 0.1.0 | none recorded |
-| `rightkit-scenario` | heardright | `heardright/rk-snapshot/crates/rightkit-scenario/Cargo.toml` | 0.1.0 | none recorded |
 | `rightkit-search` | genright | `genright/rk-snapshot/crates/rightkit-search/Cargo.toml` | 0.2.1 | 0.2.0 |
 | `rightkit-search` | scraperight | `scraperight/rk-snapshot/crates/rightkit-search/Cargo.toml` | 0.2.1 | 0.2.0 |
 | `rightkit-search` | viewright | `viewright/tmp/rk-trial-2d1c2c02/crates/rightkit-search/Cargo.toml` | 0.2.1 | 0.2.0 |

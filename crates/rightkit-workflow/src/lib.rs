@@ -1,4 +1,4 @@
-//! `rightkit-scenario`: the shared scenario interpreter and state machine (RK8).
+//! `rightkit-workflow`: the shared scenario interpreter and state machine (RK8).
 //!
 //! A scenario is an ordered list of [`StepSpec`]s. A [`Run`] executes each step
 //! under a [`Lease`] and records every transition in an append-only, fsynced
