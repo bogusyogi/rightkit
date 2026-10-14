@@ -1,4 +1,4 @@
-# rightkit-tauri
+# rightkit-device
 
 Framework-agnostic native host services for Right Suite Tauri applications. The crate has no direct `tauri` dependency.
 

@@ -1,5 +1,5 @@
 {
-  "package": "rightkit-tauri",
+  "package": "rightkit-device",
   "capabilities": [
     {
       "capability": "tauri-host-adapters",
@@ -8,7 +8,7 @@
         {
           "id": "tauri.rs.standard-command-fn",
           "type": "source",
-          "pattern": "\\bfn\\s+(?:secure_update_license_(?:get|set|delete)|secure_device_id_get_or_create)\\s*\\((?![\\s\\S]{0,800}?\\b(?:rightkit_tauri|SecureService|DeviceService|AuthorizationService)\\b)",
+          "pattern": "\\bfn\\s+(?:secure_update_license_(?:get|set|delete)|secure_device_id_get_or_create)\\s*\\((?![\\s\\S]{0,800}?\\b(?:rightkit_device|rightkit_tauri|SecureService|DeviceService|AuthorizationService)\\b)",
           "codeOnly": true,
           "extensions": [
             ".rs"

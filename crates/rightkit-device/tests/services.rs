@@ -1,4 +1,4 @@
-use rightkit_tauri::{
+use rightkit_device::{
     guard_paid_command, AuthorizationDenial, AuthorizationError, AuthorizationService,
     DeviceService, DiagnosticHost, DiagnosticService, HostOperation, LicenseRecord,
     LicenseRequirement, LogHost, LogService, MutationHook, PaidCommandError, SecureService,

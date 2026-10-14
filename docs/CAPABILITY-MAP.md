@@ -78,7 +78,7 @@ Capabilities: 72 (54 with fingerprints, 18 declaration-only). Internal owners th
 | speech-recognition | `rightkit-asr` | advise | fingerprinted | 2 (0 block, 2 advise) | rightkit-asr: published 0.1.0 (crates.io) |
 | sqlite-storage | `rightkit-db` | advise | fingerprinted | 2 (0 block, 2 advise) | rightkit-db: published 0.3.2 (crates.io) |
 | structured-logging | `@rightkit/logs`, `rightkit-logs` | advise | fingerprinted | 8 (0 block, 8 advise) | @rightkit/logs: published 0.1.4 (npm); rightkit-logs: published 0.2.1 (crates.io) |
-| tauri-host-adapters | `@rightkit/tauri`, `rightkit-tauri` | advise | fingerprinted | 2 (0 block, 2 advise) | @rightkit/tauri: published 0.2.0 (npm); rightkit-tauri: published 0.1.2 (crates.io) |
+| tauri-host-adapters | `@rightkit/tauri`, `rightkit-device` | advise | fingerprinted | 2 (0 block, 2 advise) | @rightkit/tauri: published 0.2.0 (npm); rightkit-device: none recorded |
 | text-to-speech | `rightkit-tts`, `rightkit-tts-qwen`, `rightkit-tts-qwen-sys` | advise | fingerprinted | 3 (0 block, 3 advise) | rightkit-tts: published 0.1.1 (crates.io); rightkit-tts-qwen: none recorded; rightkit-tts-qwen-sys: none recorded |
 | theme-ui | `@rightkit/theme` | advise | fingerprinted | 7 (0 block, 7 advise) | @rightkit/theme: published 0.2.3 (npm) |
 | timed-transcripts | `rightkit-transcript` | advise | fingerprinted | 2 (0 block, 2 advise) | rightkit-transcript: published 0.2.0 (crates.io) |

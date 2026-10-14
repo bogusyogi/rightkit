@@ -7,7 +7,7 @@ It does not build, sign, publish or upload anything. `@rightkit/release` owns th
 | Item | Value |
 |---|---|
 | Where it runs | App webview UI (Tauri apps) |
-| Rust pair | None. No Rust crate in `crates/` implements the updater. `rightkit-tauri` has no updater code. |
+| Rust pair | None. No Rust crate in `crates/` implements the updater. `rightkit-device` has no updater code. |
 | Version | see INDEX.md |
 | License | MIT OR Apache-2.0 |
 

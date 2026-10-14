@@ -76,7 +76,7 @@ export const FINGERPRINT_SAMPLES = {
       "#[tauri::command]\nfn secure_update_license_get(app: AppHandle) -> Result<Option<String>, String> {\n    let entry = keyring::Entry::new(\"app\", \"license\").map_err(|e| e.to_string())?;\n    entry.get_password().map(Some).map_err(|e| e.to_string())\n}"
     ],
     "negative": [
-      "#[tauri::command]\nfn secure_update_license_get(state: State<Host>) -> Result<Option<License>, String> {\n    rightkit_tauri::SecureService::new(&state.store, &NoopHook).get().map_err(|e| e.to_string())\n}",
+      "#[tauri::command]\nfn secure_update_license_get(state: State<Host>) -> Result<Option<License>, String> {\n    rightkit_device::SecureService::new(&state.store, &NoopHook).get().map_err(|e| e.to_string())\n}",
       "fn open_settings_window(app: AppHandle) {}"
     ]
   },

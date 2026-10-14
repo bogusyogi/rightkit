@@ -120,6 +120,7 @@ function assertBuildInputs(config, target, label) {
 // still pin until they migrate, but the tree has only the new directory and the old name is never staged again.
 // Remove an entry here when the last app pin moves and `cargo` drops the old name.
 const RENAMED_AWAY = new Map([
+  ["rightkit-tauri", "rightkit-device"],
   ["rightkit-control", "rightkit-qa-driver"],
   ["rightkit-jobs", "rightkit-job-queue"],
   ["rightkit-process", "rightkit-child-process"],
@@ -351,16 +352,16 @@ test("direct Cargo dependency contract accepts only published exact RightKit pin
   const published = new Map([
     ["rightkit-license", "0.1.2"],
     ["rightkit-logs", "0.1.0"],
-    ["rightkit-tauri", "0.1.0"],
+    ["rightkit-device", "0.1.0"],
   ]);
   const manifest = `
 [ package ]
-name = "rightkit-tauri"
-# rightkit-tauri = "=0.1.0"
+name = "rightkit-device"
+# rightkit-device = "=0.1.0"
 
 [ dependencies ]
 "rightkit-license" = "=0.1.2" # published exact pin
-"rightkit-tauri" = "=0.1.0"
+"rightkit-device" = "=0.1.0"
 
 [ target . 'cfg(windows)' . dependencies . "rightkit-logs" ]
 version = "=0.1.0"
@@ -376,21 +377,21 @@ test("direct Cargo dependency contract rejects staged-only RightKit crates", () 
   const { consumer } = resolveCargoVersionContract(
     {
       cargo: { "rightkit-license": "0.1.2" },
-      stagedCargo: { "rightkit-tauri": "0.1.0" },
+      stagedCargo: { "rightkit-device": "0.1.0" },
     },
     new Map([
       ["rightkit-license", "0.1.2"],
-      ["rightkit-tauri", "0.1.0"],
+      ["rightkit-device", "0.1.0"],
     ]),
   );
-  assert.equal(consumer.has("rightkit-tauri"), false);
+  assert.equal(consumer.has("rightkit-device"), false);
   assert.throws(
     () => assertCargoFixture(
-      `dependencies . "rightkit-tauri" = "=0.1.0" # staged only`,
+      `dependencies . "rightkit-device" = "=0.1.0" # staged only`,
       consumer,
       "fixture/Cargo.toml",
     ),
-    /fixture\/Cargo\.toml rightkit-tauri is not a published RightKit crate/,
+    /fixture\/Cargo\.toml rightkit-device is not a published RightKit crate/,
   );
 });
 
@@ -547,7 +548,7 @@ test("RightKit exposes one current version manifest", () => {
   }
   assert.equal(versions.cargo["rightkit-license"], "0.1.2");
   assert.equal(versions.cargo["rightkit-logs"], "0.1.0");
-  assert.equal(versions.cargo["rightkit-tauri"], "0.1.0");
+  assert.equal(versions.cargo["rightkit-tauri"], "0.1.0"); // published registry state keeps the old name until rightkit-device is first published
   // recordPublished rewrites the staged table on every publish; assert its shape, not a snapshot.
   for (const [name, version] of Object.entries(versions.stagedCargo)) assert.match(version, /^\d+\.\d+\.\d+$/, `stagedCargo ${name}`);
   for (const [name, list] of Object.entries(versions.legacyCargo ?? {})) for (const version of list) assert.match(version, /^\d+\.\d+\.\d+$/, `legacyCargo ${name}`);

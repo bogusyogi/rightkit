@@ -4,6 +4,8 @@ Version dates are the dates of the version-bump commits. Publication dates are n
 
 ## 0.1.3
 
+Renamed from rightkit-tauri; 0.1.2 remains published under the old name.
+
 Added:
 - `AuthorizationService::authorize_with_clock` is public (M13-O2): hosts pass a trusted clock (for example `AntiRollbackClock::trusted_now`) instead of the wall clock. `authorize` is unchanged. Tests: valid time, time past `exp`, time before `iat`, and clock failure all deny or pass as expected. Not compiled locally; verification is the CI run.
 

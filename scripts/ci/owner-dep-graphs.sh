@@ -9,7 +9,7 @@ cd "$(dirname "$0")/../.."
 
 EVIDENCE="${RUNNER_TEMP:-${TMPDIR:-/tmp}}/rightkit-ci"
 OUT="$EVIDENCE/owner-dep-graphs"
-CRATES="shell tauri job-queue child-process sidecar daemon fs db app-settings credentials license logs crash http qa control mcp"
+CRATES="shell device job-queue child-process sidecar daemon fs db app-settings credentials license logs crash http qa control mcp"
 WATCH="tokio axum hyper ring cc openssl-sys reqwest libsqlite3-sys"
 
 # crate|mode-name|cargo feature args. default/nodefault run for every crate in CRATES; these add consumer sets.

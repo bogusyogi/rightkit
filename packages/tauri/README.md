@@ -5,7 +5,7 @@ Typed renderer-side adapters for the shared Right Suite Tauri command surface. T
 | Item | Value |
 |---|---|
 | Where it runs | App webview UI (renderer side of Tauri IPC) |
-| Rust pair | `rightkit-tauri` (native Tauri license, device, authorization and diagnostics services) |
+| Rust pair | `rightkit-device` (native Tauri license, device, authorization and diagnostics services) |
 | Version | see INDEX.md |
 | License | MIT OR Apache-2.0 |
 
