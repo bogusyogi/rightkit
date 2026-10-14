@@ -2,12 +2,12 @@
 //! contract requirement, environment policy, deadlines, write stalls and shutdown bounds. Every case
 //! launches the real scriptable `engine_fixture` child.
 
+use rightkit_child_process::{OwnedCommand, RestartMode, RestartPolicy};
 use rightkit_jobs::{
     CallOptions, EngineSupervisor, EventFrame, Lifecycle, ProgressDeadline, SupervisorConfig,
     Terminal, CONTRACT_VERSION, CONTRACT_VERSION_MISMATCH, DEFAULT_FRAME_LIMIT, DELIVERY_UNKNOWN,
     MAX_FRAME_LIMIT,
 };
-use rightkit_process::{OwnedCommand, RestartMode, RestartPolicy};
 use serde_json::json;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicUsize, Ordering};

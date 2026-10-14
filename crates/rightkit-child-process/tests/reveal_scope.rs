@@ -1,7 +1,7 @@
 //! The public reveal and open helpers refuse paths outside the caller's roots before starting
 //! anything.
 
-use rightkit_process::reveal::{self, PathScope, RevealAction};
+use rightkit_child_process::reveal::{self, PathScope, RevealAction};
 use std::{fs, io::ErrorKind, path::PathBuf};
 
 fn dir(tag: &str) -> PathBuf {

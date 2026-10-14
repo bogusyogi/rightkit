@@ -9,7 +9,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use rightkit_process::{AdoptedProcess, OwnedCommand, WaitOutcome};
+use rightkit_child_process::{AdoptedProcess, OwnedCommand, WaitOutcome};
 
 fn powershell(script: &str) -> Command {
     let mut command = Command::new("powershell.exe");
@@ -131,7 +131,7 @@ fn dropping_owned_child_leaves_no_orphan() {
 /// `assign_process_id` + `terminate` kill on demand; a zero cap is refused.
 #[test]
 fn windows_job_kills_an_already_spawned_tree_on_drop_and_terminate() {
-    use rightkit_process::{WindowsJob, DEFAULT_ACTIVE_PROCESS_LIMIT};
+    use rightkit_child_process::{WindowsJob, DEFAULT_ACTIVE_PROCESS_LIMIT};
 
     assert!(WindowsJob::new(Some(0)).is_err());
 

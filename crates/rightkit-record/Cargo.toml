@@ -26,9 +26,9 @@ blake3 = "1.8"
 hmac-sha256 = "1.1.14"
 rightkit-credentials = { path = "../rightkit-credentials" }
 
-# The macOS backend launches its Swift helper through rightkit-process.
+# The macOS backend launches its Swift helper through rightkit-child-process.
 [target.'cfg(target_os = "macos")'.dependencies]
-rightkit-process = { path = "../rightkit-process" }
+rightkit-child-process = { path = "../rightkit-child-process" }
 
 # WGC + Media Foundation capture; folded in from the retired helpers/record-windows (RK3).
 [target.'cfg(windows)'.dependencies]

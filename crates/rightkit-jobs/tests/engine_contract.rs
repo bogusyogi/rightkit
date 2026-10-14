@@ -344,7 +344,7 @@ fn event_callback_can_reenter_the_client() {
 #[cfg(all(unix, feature = "supervisor"))]
 #[test]
 fn shutdown_of_a_hung_engine_is_bounded_and_kills_the_child() {
-    use rightkit_process::OwnedCommand;
+    use rightkit_child_process::OwnedCommand;
     use std::time::{Duration, Instant};
     let dir = tempfile::tempdir().unwrap();
     let pidfile = dir.path().join("pid");
@@ -412,7 +412,7 @@ fn alive(pid: i32) -> bool {
 #[cfg(all(unix, feature = "supervisor"))]
 #[test]
 fn spawn_bounds_the_hello_wait_and_kills_a_silent_child() {
-    use rightkit_process::OwnedCommand;
+    use rightkit_child_process::OwnedCommand;
     use std::time::{Duration, Instant};
     let dir = tempfile::tempdir().unwrap();
     let pidfile = dir.path().join("pid");
@@ -447,7 +447,7 @@ fn spawn_bounds_the_hello_wait_and_kills_a_silent_child() {
 #[cfg(all(unix, feature = "supervisor"))]
 #[test]
 fn call_timeout_covers_a_write_blocked_on_a_full_pipe() {
-    use rightkit_process::OwnedCommand;
+    use rightkit_child_process::OwnedCommand;
     use std::time::{Duration, Instant};
     let dir = tempfile::tempdir().unwrap();
     let pidfile = dir.path().join("pid");

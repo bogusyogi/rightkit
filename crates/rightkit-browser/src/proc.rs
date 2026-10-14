@@ -1,10 +1,10 @@
-//! Chrome as an owned child. Spawned through `rightkit-process` so it is a
+//! Chrome as an owned child. Spawned through `rightkit-child-process` so it is a
 //! process-group leader on Unix and a Windows job object member
 //! (KILL_ON_JOB_CLOSE, no breakaway), bound first to the caller's own job when one
 //! is supplied; a parent-death watchdog covers a host that dies without running
 //! destructors on Unix.
 use crate::error::{BrowserError, Result};
-use rightkit_process::{OwnedChild, OwnedCommand};
+use rightkit_child_process::{OwnedChild, OwnedCommand};
 #[cfg(windows)]
 use rightkit_sandbox::{
     EnvPolicy, NetworkPolicy as SandboxNetworkPolicy, ResourceAuthority, ResourceProfile, Sandbox,
@@ -95,7 +95,7 @@ impl ChromeChild {
     fn terminate_tree_bounded(
         &mut self,
         timeout: Duration,
-    ) -> std::io::Result<rightkit_process::ReapOutcome> {
+    ) -> std::io::Result<rightkit_child_process::ReapOutcome> {
         match self {
             Self::Owned(child) => child.terminate_tree_bounded(timeout),
             #[cfg(windows)]
@@ -109,8 +109,8 @@ impl ChromeChild {
             Self::Owned(child) => child.wait_or_kill(grace).map(|_| ()),
             #[cfg(windows)]
             Self::Confined(child) => match child.terminate_tree_bounded(grace)? {
-                rightkit_process::ReapOutcome::Exited(_) => Ok(()),
-                rightkit_process::ReapOutcome::TimedOut => Err(std::io::Error::new(
+                rightkit_child_process::ReapOutcome::Exited(_) => Ok(()),
+                rightkit_child_process::ReapOutcome::TimedOut => Err(std::io::Error::new(
                     std::io::ErrorKind::TimedOut,
                     "confined browser process tree did not exit",
                 )),
@@ -168,8 +168,8 @@ impl ChromeProc {
         {
             let _ = grace;
             match self.child.terminate_tree_bounded(Duration::from_secs(2))? {
-                rightkit_process::ReapOutcome::Exited(_) => {}
-                rightkit_process::ReapOutcome::TimedOut => {
+                rightkit_child_process::ReapOutcome::Exited(_) => {}
+                rightkit_child_process::ReapOutcome::TimedOut => {
                     return Err(std::io::Error::new(
                         std::io::ErrorKind::TimedOut,
                         "browser process tree did not exit after termination",
@@ -186,8 +186,8 @@ impl ChromeProc {
     /// Fixture cleanup keeps the process-group leader unreaped until its whole tree is dead.
     pub(crate) fn terminate_fixture_tree(&mut self) -> std::io::Result<()> {
         match self.child.terminate_tree_bounded(Duration::from_secs(5))? {
-            rightkit_process::ReapOutcome::Exited(_) => {}
-            rightkit_process::ReapOutcome::TimedOut => {
+            rightkit_child_process::ReapOutcome::Exited(_) => {}
+            rightkit_child_process::ReapOutcome::TimedOut => {
                 return Err(std::io::Error::new(
                     std::io::ErrorKind::TimedOut,
                     "fixture browser process tree did not stop",

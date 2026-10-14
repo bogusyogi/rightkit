@@ -12,7 +12,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use rightkit_process::{AdoptedProcess, OwnedCommand, WaitOutcome};
+use rightkit_child_process::{AdoptedProcess, OwnedCommand, WaitOutcome};
 
 fn shell(script: &str) -> Command {
     let mut command = Command::new("/bin/sh");

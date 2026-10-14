@@ -1,12 +1,12 @@
 //! Supervisor end-to-end coverage. Every case launches the real scriptable
 //! `engine_fixture` child and checks observable frames, lifecycle, or files.
 
+use rightkit_child_process::{OwnedCommand, RestartMode, RestartPolicy};
 use rightkit_jobs::{
     CallOptions, EngineSupervisor, ErrorOrigin, EventFrame, InitialFailure, Lifecycle,
     ProtocolError, ShutdownOutcome, SupervisorConfig, Terminal, CONTRACT_VERSION,
     CONTRACT_VERSION_MISMATCH,
 };
-use rightkit_process::{OwnedCommand, RestartMode, RestartPolicy};
 use serde_json::json;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicUsize, Ordering};

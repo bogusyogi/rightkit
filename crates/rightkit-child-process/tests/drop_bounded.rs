@@ -2,13 +2,13 @@
 
 //! Dropping an `OwnedChild` kills at once and waits for the reap only for a bounded time.
 
-use rightkit_process::{OwnedCommand, DEFAULT_DROP_REAP_TIMEOUT};
+use rightkit_child_process::{OwnedCommand, DEFAULT_DROP_REAP_TIMEOUT};
 use std::{
     process::Stdio,
     time::{Duration, Instant},
 };
 
-fn sleeper() -> rightkit_process::OwnedChild {
+fn sleeper() -> rightkit_child_process::OwnedChild {
     let mut command = OwnedCommand::new("/bin/sleep");
     command
         .command_mut()

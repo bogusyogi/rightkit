@@ -124,9 +124,9 @@ rules, or whose `schema` is not `rightkit.record.cursor-assets.v1`.
 
 - `rightkit-record-macos-helper` (Swift, `helpers/macos`): the macOS capture helper that `src/macos/mod.rs` launches.
 - `rightkit-record-helper capture ...`: a one-shot Windows take that prints a JSON summary.
-- `rightkit-record-helper serve`: the protocol over stdin and stdout, for rightkit-process. Windows only; other platforms print an `unsupported` result (`src/bin/rightkit-record-helper/main.rs:212`).
+- `rightkit-record-helper serve`: the protocol over stdin and stdout, for rightkit-child-process. Windows only; other platforms print an `unsupported` result (`src/bin/rightkit-record-helper/main.rs:212`).
 
-Process ownership (spawn, supervise, restart) belongs to rightkit-process. A
+Process ownership (spawn, supervise, restart) belongs to rightkit-child-process. A
 helper that dies mid-take is reported as `helper_lost` and the take is
 quarantined, never completed.
 

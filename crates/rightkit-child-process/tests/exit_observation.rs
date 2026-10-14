@@ -22,7 +22,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use rightkit_process::{OwnedChild, OwnedCommand};
+use rightkit_child_process::{OwnedChild, OwnedCommand};
 
 const LONG: Duration = Duration::from_secs(20);
 

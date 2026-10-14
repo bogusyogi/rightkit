@@ -12,7 +12,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use rightkit_process::OwnedCommand;
+use rightkit_child_process::OwnedCommand;
 use serde::{Deserialize, Serialize};
 
 // Runner / probe / progress / cancel / loudness modules (media-runner lane). Kept in
@@ -42,10 +42,10 @@ pub use command::{
 pub use content_digest::{
     content_identity, content_identity_file, ContentFormat, ContentIdentity, SliceDigest,
 };
-/// Re-exports of the `rightkit-process` types that appear in this crate's public signatures
+/// Re-exports of the `rightkit-child-process` types that appear in this crate's public signatures
 /// ([`runner::spawn_streaming`] returns an [`OwnedChild`]; its wait methods return
 /// [`WaitOutcome`] and [`ReapOutcome`]), so consumers need no direct dependency to name them.
-pub use rightkit_process::{OwnedChild, ReapOutcome, TerminationOptions, WaitOutcome};
+pub use rightkit_child_process::{OwnedChild, ReapOutcome, TerminationOptions, WaitOutcome};
 pub use runner::{
     run_capture, run_checked, run_with_progress, spawn_streaming, spawn_streaming_in, Captured,
     ProgressEvent, ProgressParser, RunError, RunOptions, RunReport, StdioMode, StdioPolicy,
@@ -1258,16 +1258,16 @@ fn run_owned_process(
             LifecycleDecision::Cancel => {
                 let status = child.wait_or_kill(policy.kill_grace)?;
                 let status = match status {
-                    rightkit_process::WaitOutcome::Exited(status)
-                    | rightkit_process::WaitOutcome::Terminated(status) => status,
+                    rightkit_child_process::WaitOutcome::Exited(status)
+                    | rightkit_child_process::WaitOutcome::Terminated(status) => status,
                 };
                 return Ok(ProcessOutcome::Cancelled { status });
             }
             LifecycleDecision::Timeout => {
                 let status = child.wait_or_kill(policy.kill_grace)?;
                 let status = match status {
-                    rightkit_process::WaitOutcome::Exited(status)
-                    | rightkit_process::WaitOutcome::Terminated(status) => status,
+                    rightkit_child_process::WaitOutcome::Exited(status)
+                    | rightkit_child_process::WaitOutcome::Terminated(status) => status,
                 };
                 return Ok(ProcessOutcome::TimedOut { status });
             }

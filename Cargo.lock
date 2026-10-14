@@ -5229,7 +5229,7 @@ dependencies = [
  "chromiumoxide",
  "futures",
  "getrandom 0.3.4",
- "rightkit-process",
+ "rightkit-child-process",
  "rightkit-sandbox",
  "serde",
  "serde_json",
@@ -5244,8 +5244,8 @@ dependencies = [
 name = "rightkit-cache"
 version = "0.2.0"
 dependencies = [
+ "rightkit-child-process",
  "rightkit-fs",
- "rightkit-process",
  "sha2 0.11.0",
  "tempfile",
 ]
@@ -5257,6 +5257,15 @@ dependencies = [
  "jsonschema",
  "serde",
  "serde_json",
+]
+
+[[package]]
+name = "rightkit-child-process"
+version = "0.4.0"
+dependencies = [
+ "libc",
+ "trybuild",
+ "windows 0.62.2",
 ]
 
 [[package]]
@@ -5329,11 +5338,11 @@ dependencies = [
  "hyper",
  "hyper-util",
  "rcgen",
+ "rightkit-child-process",
  "rightkit-contracts",
  "rightkit-fs",
  "rightkit-http",
  "rightkit-oauth",
- "rightkit-process",
  "rightkit-sidecar",
  "ring",
  "rustls",
@@ -5377,8 +5386,8 @@ dependencies = [
 name = "rightkit-ffmpeg"
 version = "0.2.6"
 dependencies = [
+ "rightkit-child-process",
  "rightkit-fs",
- "rightkit-process",
  "serde",
  "serde_json",
  "tempfile",
@@ -5389,7 +5398,7 @@ name = "rightkit-file-watch"
 version = "0.4.0"
 dependencies = [
  "notify",
- "rightkit-process",
+ "rightkit-child-process",
  "tempfile",
  "tokio",
  "tracing",
@@ -5414,7 +5423,7 @@ dependencies = [
  "libc",
  "memchr",
  "memmap2",
- "rightkit-process",
+ "rightkit-child-process",
  "tempfile",
 ]
 
@@ -5449,11 +5458,11 @@ dependencies = [
 name = "rightkit-jobs"
 version = "0.3.0"
 dependencies = [
+ "rightkit-child-process",
  "rightkit-crash",
  "rightkit-daemon",
  "rightkit-db",
  "rightkit-fs",
- "rightkit-process",
  "rightkit-sidecar",
  "serde",
  "serde_json",
@@ -5477,8 +5486,8 @@ dependencies = [
 name = "rightkit-llm"
 version = "0.2.0"
 dependencies = [
+ "rightkit-child-process",
  "rightkit-http",
- "rightkit-process",
  "serde",
  "serde_json",
 ]
@@ -5489,9 +5498,9 @@ version = "0.2.2"
 dependencies = [
  "getrandom 0.4.3",
  "libc",
+ "rightkit-child-process",
  "rightkit-fs",
  "rightkit-logs",
- "rightkit-process",
  "serde",
  "serde_json",
  "tempfile",
@@ -5551,9 +5560,9 @@ dependencies = [
  "base64 0.22.1",
  "getrandom 0.3.4",
  "libc",
+ "rightkit-child-process",
  "rightkit-credentials",
  "rightkit-http",
- "rightkit-process",
  "ring",
  "serde",
  "serde_json",
@@ -5646,19 +5655,10 @@ dependencies = [
 name = "rightkit-playback"
 version = "0.2.0"
 dependencies = [
+ "rightkit-child-process",
  "rightkit-ffmpeg",
  "rightkit-fs",
- "rightkit-process",
  "tauri",
-]
-
-[[package]]
-name = "rightkit-process"
-version = "0.4.0"
-dependencies = [
- "libc",
- "trybuild",
- "windows 0.62.2",
 ]
 
 [[package]]
@@ -5668,10 +5668,10 @@ dependencies = [
  "getrandom 0.3.4",
  "png 0.18.1",
  "rightkit-browser",
+ "rightkit-child-process",
  "rightkit-control",
  "rightkit-daemon",
  "rightkit-fs",
- "rightkit-process",
  "rightkit-sidecar",
  "serde",
  "serde_json",
@@ -5686,9 +5686,9 @@ version = "0.2.0"
 dependencies = [
  "blake3",
  "hmac-sha256",
+ "rightkit-child-process",
  "rightkit-contracts",
  "rightkit-credentials",
- "rightkit-process",
  "rightkit-sidecar",
  "serde",
  "serde_json",
@@ -5709,7 +5709,7 @@ version = "0.3.5"
 dependencies = [
  "libc",
  "portable-pty",
- "rightkit-process",
+ "rightkit-child-process",
  "windows 0.62.2",
 ]
 
@@ -5727,7 +5727,7 @@ version = "0.1.0"
 dependencies = [
  "libc",
  "rcgen",
- "rightkit-process",
+ "rightkit-child-process",
  "rustls",
  "serde",
  "serde_json",
@@ -5744,9 +5744,9 @@ dependencies = [
  "objc2-app-kit",
  "objc2-foundation",
  "objc2-user-notifications",
+ "rightkit-child-process",
  "rightkit-daemon",
  "rightkit-jobs",
- "rightkit-process",
  "serde",
  "serde_json",
  "tauri",
@@ -5785,8 +5785,8 @@ dependencies = [
 name = "rightkit-sync"
 version = "0.1.1"
 dependencies = [
+ "rightkit-child-process",
  "rightkit-fs",
- "rightkit-process",
  "serde",
  "serde_json",
 ]
@@ -5813,9 +5813,9 @@ name = "rightkit-tts"
 version = "0.2.0"
 dependencies = [
  "libc",
+ "rightkit-child-process",
  "rightkit-fs",
  "rightkit-onnx",
- "rightkit-process",
  "rightkit-transcript",
  "rightkit-tts-qwen",
  "serde",

@@ -2,7 +2,7 @@
 //! sees them as foreign. Covers capture, verification, mismatch refusal, the never-signal-self
 //! rule, descendant enumeration and the identity-checked sweep.
 
-use rightkit_process::{
+use rightkit_child_process::{
     sweep, AdoptedIdentity, AdoptedProcess, AdoptedSignal, IdentityCheck, SignalResult, StartToken,
 };
 use std::{
@@ -180,7 +180,7 @@ fn a_sweep_refuses_a_stale_target_and_stops_a_genuine_one() {
 #[cfg(unix)]
 mod descendants {
     use super::*;
-    use rightkit_process::sweep_descendants;
+    use rightkit_child_process::sweep_descendants;
     use std::{path::Path, thread, time::Instant};
 
     /// A shell that keeps two `sleep` children and waits on them.
@@ -267,7 +267,7 @@ mod descendants {
 
     #[test]
     fn an_owned_child_lists_its_descendants_and_none_once_reaped() {
-        let mut command = rightkit_process::OwnedCommand::new("/bin/sh");
+        let mut command = rightkit_child_process::OwnedCommand::new("/bin/sh");
         command
             .command_mut()
             .args(["-c", "sleep 600 & sleep 600 & wait"])

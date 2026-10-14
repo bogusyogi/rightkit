@@ -10,7 +10,7 @@
 //!   held idle (tree watched, nothing changing) for the idle window.
 //!
 //! Reports process resident memory, CPU, wake-ups and disk operations through
-//! `rightkit_process::process_usage` (the one shared source), delivered record rates from
+//! `rightkit_child_process::process_usage` (the one shared source), delivered record rates from
 //! `TypedWatcher::metrics()`, and the maximum backlog observed. The churn writes are the bench's own
 //! file operations in the same process, so churn-window disk figures include them; only the idle
 //! window is a budget figure.
@@ -18,8 +18,8 @@
 //! Run: `rightkit cargo bench -p rightkit-file-watch --bench budget`
 //! Optional: `-- <static_files> <churn_seconds> <idle_seconds>` (defaults 50000, 60 and 30).
 
+use rightkit_child_process::{observe_idle, process_usage, BudgetLabels, ProcessUsage};
 use rightkit_file_watch::{TypedWatcher, WatchEvent};
-use rightkit_process::{observe_idle, process_usage, BudgetLabels, ProcessUsage};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
@@ -187,7 +187,7 @@ fn main() {
     );
 }
 
-fn churn_rates_line(r: &rightkit_process::UsageRates) -> String {
+fn churn_rates_line(r: &rightkit_child_process::UsageRates) -> String {
     let f = |v: Option<f64>| v.map_or("n/a".to_string(), |v| format!("{v:.1}"));
     format!(
         "wakeups_per_s={} disk_ops_per_s={}",

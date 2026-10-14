@@ -658,8 +658,8 @@ pub struct SendStatus {
     pub scanning: bool,
     /// Resident memory, CPU time and I/O counters of the whole process (the acceptor, discovery and
     /// liveness threads run in it), or `None` when the host cannot report them. See
-    /// `rightkit_process::ProcessUsage`.
-    pub process: Option<rightkit_process::ProcessUsage>,
+    /// `rightkit_child_process::ProcessUsage`.
+    pub process: Option<rightkit_child_process::ProcessUsage>,
 }
 
 /// A running sharing service. Dropping it stops it.
@@ -840,7 +840,7 @@ impl Service {
             connections: inner.connections.load(Ordering::Relaxed),
             warnings: lock(&inner.warnings).len(),
             scanning: inner.scanning.load(Ordering::Relaxed),
-            process: rightkit_process::process_usage().ok(),
+            process: rightkit_child_process::process_usage().ok(),
         }
     }
 

@@ -496,6 +496,48 @@
       ]
     },
     {
+      "package": "rightkit-child-process",
+      "capability": "owned-processes",
+      "summary": "Child processes owned as a tree: process groups / kill-on-close jobs, hidden windows",
+      "fingerprints": [
+        {
+          "id": "process.cargo.process-wrap",
+          "type": "dependency",
+          "ecosystem": "cargo",
+          "name": "process-wrap",
+          "tier": "advise",
+          "usageContext": {
+            "hosts": [
+              "macos",
+              "windows"
+            ],
+            "scope": "cargo direct competing dependency; transitive findings require authenticated reachability"
+          },
+          "tierReason": "No recorded published-version qualification for this usage context on both macOS & Windows."
+        },
+        {
+          "id": "process.cargo.command-group",
+          "type": "dependency",
+          "ecosystem": "cargo",
+          "name": "command-group",
+          "tier": "advise",
+          "usageContext": {
+            "hosts": [
+              "macos",
+              "windows"
+            ],
+            "scope": "cargo direct competing dependency; transitive findings require authenticated reachability"
+          },
+          "tierReason": "No recorded published-version qualification for this usage context on both macOS & Windows."
+        }
+      ],
+      "detection": "fingerprinted",
+      "policyNotes": [
+        "Package contract retained; dependency declarations do not verify integration.",
+        "Fingerprints identify review candidates; published two-host replacement qualification is not recorded."
+      ]
+    },
+    {
       "package": "rightkit-compose",
       "capability": "composition-model",
       "summary": "Evaluated composition model for Right Suite video: layered video, stills, cursor sprites with hotspots, procedural backgrounds, rounded clipping, shadows, motion blur, canvas-space overlays and an independently timed webcam, with keyframed transforms, crops and opacity; pure per-frame evaluation shared by preview and export",
@@ -2040,48 +2082,6 @@
       ]
     },
     {
-      "package": "rightkit-process",
-      "capability": "owned-processes",
-      "summary": "Child processes owned as a tree: process groups / kill-on-close jobs, hidden windows",
-      "fingerprints": [
-        {
-          "id": "process.cargo.process-wrap",
-          "type": "dependency",
-          "ecosystem": "cargo",
-          "name": "process-wrap",
-          "tier": "advise",
-          "usageContext": {
-            "hosts": [
-              "macos",
-              "windows"
-            ],
-            "scope": "cargo direct competing dependency; transitive findings require authenticated reachability"
-          },
-          "tierReason": "No recorded published-version qualification for this usage context on both macOS & Windows."
-        },
-        {
-          "id": "process.cargo.command-group",
-          "type": "dependency",
-          "ecosystem": "cargo",
-          "name": "command-group",
-          "tier": "advise",
-          "usageContext": {
-            "hosts": [
-              "macos",
-              "windows"
-            ],
-            "scope": "cargo direct competing dependency; transitive findings require authenticated reachability"
-          },
-          "tierReason": "No recorded published-version qualification for this usage context on both macOS & Windows."
-        }
-      ],
-      "detection": "fingerprinted",
-      "policyNotes": [
-        "Package contract retained; dependency declarations do not verify integration.",
-        "Fingerprints identify review candidates; published two-host replacement qualification is not recorded."
-      ]
-    },
-    {
       "package": "rightkit-qa",
       "capability": "desktop-qa",
       "summary": "Desktop app QA engine: launch, drive, assert and capture installed apps (with rightkit-control)",
@@ -2162,7 +2162,7 @@
       "policyNotes": [
         "Declaration-only: the lifecycle, bundle writer, redaction, protocol and reader are not an ownership fingerprint.",
         "Windows capture lives in this crate (src/windows, cfg(windows)) and is served out of process by rightkit-record-helper in serve mode.",
-        "rightkit-process owns helper spawning, supervision and restart; this crate only speaks the protocol over the streams it is given.",
+        "rightkit-child-process owns helper spawning, supervision and restart; this crate only speaks the protocol over the streams it is given.",
         "The macOS helper is not in this crate. It will implement Backend in its own helper and serve the same protocol."
       ]
     },

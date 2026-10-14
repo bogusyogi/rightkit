@@ -22,7 +22,7 @@ Do not use it as an in-memory cache. Data that must never be evicted belongs in 
 
 ## Cargo features
 
-None. The crate has no `[features]` table. Its dependencies are `sha2`, `rightkit-fs` (`fs` feature, default features off) and `rightkit-process` (`Cargo.toml:13-16`).
+None. The crate has no `[features]` table. Its dependencies are `sha2`, `rightkit-fs` (`fs` feature, default features off) and `rightkit-child-process` (`Cargo.toml:13-16`).
 
 ## Usage
 

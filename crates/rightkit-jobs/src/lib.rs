@@ -89,7 +89,7 @@ pub use crash_observer::CrashExitObserver;
 pub use wire::{finite_frame_limit, CONTRACT_VERSION, DEFAULT_FRAME_LIMIT, MAX_FRAME_LIMIT};
 // Re-exported so a host that only depends on rightkit-jobs can build the policy and spawn command.
 #[cfg(feature = "supervisor")]
-pub use rightkit_process::{JobAssignmentMode, OwnedCommand, RestartMode, RestartPolicy};
+pub use rightkit_child_process::{JobAssignmentMode, OwnedCommand, RestartMode, RestartPolicy};
 
 #[cfg(feature = "store")]
 /// The `rightkit-db` types that appear in this crate's public API, so a consumer that only opens

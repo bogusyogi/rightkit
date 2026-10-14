@@ -14,7 +14,7 @@ rightkit-sidecar = { version = "0.2.0", path = "../rightkit-sidecar" }
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.150"
 rightkit-fs = { version = "0.4.0", path = "../rightkit-fs", default-features = false, features = ["fs"] }
-rightkit-process = { version = "0.4.0", path = "../rightkit-process" }
+rightkit-child-process = { version = "0.4.0", path = "../rightkit-child-process" }
 
 # `link` (device client) and `remote` (daemon host) dependencies, all optional. Copied from the
 # retired standalone daemon crate (M7 merge). `link` carries no tokio, axum or hyper.

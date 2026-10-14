@@ -160,11 +160,11 @@ pub struct WatchdogStatus {
 /// Runtime figures of the shell: the watchdog, plus the resident memory, CPU time and I/O counters
 /// of the whole process (the watchdog's two threads and the shell run in it), or `None` when the
 /// host cannot report them. Computed on call; no polling thread runs for this. See
-/// `rightkit_process::ProcessUsage`.
+/// `rightkit_child_process::ProcessUsage`.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct ShellRuntimeStatus {
     pub watchdog: WatchdogStatus,
-    pub process: Option<rightkit_process::ProcessUsage>,
+    pub process: Option<rightkit_child_process::ProcessUsage>,
 }
 
 /// Watchdog state and process resource usage, read now.
@@ -181,7 +181,7 @@ pub fn status() -> ShellRuntimeStatus {
             stalls_total: COUNTERS.stalls.load(Ordering::Relaxed),
             emit_failures: COUNTERS.emit_failures.load(Ordering::Relaxed),
         },
-        process: rightkit_process::process_usage().ok(),
+        process: rightkit_child_process::process_usage().ok(),
     }
 }
 

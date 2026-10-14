@@ -9,10 +9,10 @@
 use crate::process::{is_alive, kill_tree, Tracker};
 use crate::util::{err, new_id, sleep_ms, Error, Result};
 use crate::workspace::QaWorkspace;
-use rightkit_daemon::{Client, ServiceError, Suite};
-use rightkit_process::OwnedChild;
+use rightkit_child_process::OwnedChild;
 #[cfg(not(target_os = "macos"))]
-use rightkit_process::OwnedCommand;
+use rightkit_child_process::OwnedCommand;
+use rightkit_daemon::{Client, ServiceError, Suite};
 use serde_json::{json, Value};
 use std::fs;
 use std::path::{Path, PathBuf};

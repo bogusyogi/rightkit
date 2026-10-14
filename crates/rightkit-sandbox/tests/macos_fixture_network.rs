@@ -3,7 +3,7 @@
 
 #![cfg(target_os = "macos")]
 
-use rightkit_process::OwnedCommand;
+use rightkit_child_process::OwnedCommand;
 use rightkit_sandbox::seatbelt::{BrowserFixturePolicy, Prepared};
 use std::fs;
 use std::io;

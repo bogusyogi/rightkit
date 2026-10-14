@@ -11,7 +11,7 @@ _ = NSApplication.shared  // connects to the window server for ScreenCaptureKit;
 
 let server = Server()
 
-// SIGTERM (rightkit-process termination): finalize the take, then exit.
+// SIGTERM (rightkit-child-process termination): finalize the take, then exit.
 signal(SIGTERM, SIG_IGN)
 let terminate = DispatchSource.makeSignalSource(signal: SIGTERM, queue: .global())
 terminate.setEventHandler { server.abortAndExit(code: 0) }

@@ -1,4 +1,4 @@
-//! Names every re-exported `rightkit-process` type through `rightkit_ffmpeg::` only.
+//! Names every re-exported `rightkit-child-process` type through `rightkit_ffmpeg::` only.
 
 use rightkit_ffmpeg::{
     spawn_streaming, OwnedChild, ReapOutcome, StdioMode, StdioPolicy, TerminationOptions,

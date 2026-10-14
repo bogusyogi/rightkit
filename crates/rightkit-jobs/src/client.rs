@@ -5,7 +5,7 @@ use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::{Arc, Condvar, Mutex};
 use std::time::{Duration, Instant};
 
-use rightkit_process::{OwnedChild, OwnedCommand, ReapOutcome, WaitOutcome};
+use rightkit_child_process::{OwnedChild, OwnedCommand, ReapOutcome, WaitOutcome};
 use rightkit_sidecar::{
     read_json_line_or_oversized, write_json_line, FrameError, Incoming, ReadLimits,
 };
@@ -266,7 +266,7 @@ pub struct ChildExit {
 /// Shell-side client for an engine speaking the stdio contract. Multiplexes
 /// concurrent calls; events of a call stream to its callback (on the calling
 /// thread) before it returns. Restart/health policy stays with
-/// `rightkit-process`; this only talks frames.
+/// `rightkit-child-process`; this only talks frames.
 pub struct EngineClient {
     core: Arc<Core>,
     hello: Value,

@@ -11,7 +11,7 @@ Shared OAuth 2.0 sign-in for Right Suite apps. It owns loopback S256 PKCE for de
 | Feature | Default | Pulls in | Effect |
 |---|---|---|---|
 | `secrets` | on | `rightkit-credentials` | Desktop token storage in the OS credential store. |
-| `system-sources` | on | `rightkit-process` | Reads credentials from system sources (`src/system.rs`). |
+| `system-sources` | on | `rightkit-child-process` | Reads credentials from system sources (`src/system.rs`). |
 | `server` | off | `ring`, `url`, `zeroize`, `serde`, `libc` (`Cargo.toml:22`) | Server mode: `rightkit_oauth::server` (begin/complete/refresh, sealed file store, OIDC hooks). |
 | `server-example` | off | `server`, `axum`, `tokio` | Builds `examples/server_axum.rs` (required feature for that example). |
 

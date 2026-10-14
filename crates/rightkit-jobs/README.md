@@ -1,6 +1,6 @@
 # rightkit-jobs
 
-Shared engine base for Right Suite apps: a persistent SQLite job store (on `rightkit-db`), `request_id` de-duplication, a bounded progress-event log, cancel, crash recovery, sha256-addressed result artifacts, and the engine stdio and CLI command contract. The contract uses `rightkit-sidecar` frames and `rightkit-process` child ownership, and can be served over `rightkit-daemon`.
+Shared engine base for Right Suite apps: a persistent SQLite job store (on `rightkit-db`), `request_id` de-duplication, a bounded progress-event log, cancel, crash recovery, sha256-addressed result artifacts, and the engine stdio and CLI command contract. The contract uses `rightkit-sidecar` frames and `rightkit-child-process` child ownership, and can be served over `rightkit-daemon`.
 
 Product work plugs in through `JobHandler` (what a job does) and `CommandSet` (extra commands). Apps with their own wire protocol can use only the store (see below).
 
@@ -34,7 +34,7 @@ No feature is on by default (0.3.0): a bare dependency builds only the error typ
 - `store`: the job store, runner, locks, recovery classes, pruning, scheduler, pool and progress policy; pulls `rightkit-db`, `rightkit-fs` and `uuid`.
 - `protocol`: the wire constants (`CONTRACT_VERSION`, `DEFAULT_FRAME_LIMIT`); pulls `rightkit-sidecar`.
 - `contract` (implies `store` and `protocol`): the stdio/CLI command contract (`Dispatcher`, `serve`, `run_cli`, `JobCommands`).
-- `supervisor` (implies `protocol`): `EngineSupervisor`, `EngineClient` and the `rightkit-process` re-exports; pulls `rightkit-process`, not `rightkit-db`.
+- `supervisor` (implies `protocol`): `EngineSupervisor`, `EngineClient` and the `rightkit-child-process` re-exports; pulls `rightkit-child-process`, not `rightkit-db`.
 - `service` (implies `contract`): `DispatcherHandler` over `rightkit-daemon`.
 
 Per-job `Recovery::Never` (destructive jobs are failed as `interrupted` after a crash, never re-run), `JobStore::prune`, `JobStore::delete`, `JobStore::submit_rejected`, `ProgressPolicy`, `CancelToken`, single-flight submit (`SubmitOptions::single_flight`), the staged pool and held jobs are documented on their types and in the changelog. The staged pool (`pool` module) and held state are ungated and build with `default-features = false`.
@@ -266,7 +266,7 @@ Apps that already have a stdio or CLI protocol can adopt `JobStore` with `StoreC
 
 ## Platform support
 
-The crate depends on `rightkit-process` and `rightkit-daemon`, which have their own per-OS behaviour. `src/` has no `cfg(unix)` or `cfg(windows)` code; the job lock comes from `rightkit_fs::FileLock` (POSIX record lock on Unix, `LockFileEx` elsewhere, `src/runner.rs:7` and `src/runner.rs:38`), and only some tests are `cfg(unix)` (`tests/job_lock_process.rs:1`). Windows behaviour is not otherwise documented in this crate.
+The crate depends on `rightkit-child-process` and `rightkit-daemon`, which have their own per-OS behaviour. `src/` has no `cfg(unix)` or `cfg(windows)` code; the job lock comes from `rightkit_fs::FileLock` (POSIX record lock on Unix, `LockFileEx` elsewhere, `src/runner.rs:7` and `src/runner.rs:38`), and only some tests are `cfg(unix)` (`tests/job_lock_process.rs:1`). Windows behaviour is not otherwise documented in this crate.
 
 ## Version and changes
 

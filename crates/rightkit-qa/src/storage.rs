@@ -1722,7 +1722,7 @@ fn pid_live(pid: u32) -> bool {
         return false;
     };
     // An unmeasurable process counts as live: a sweep must never reap a run it cannot prove dead.
-    rightkit_process::AdoptedProcess::new(pid)
+    rightkit_child_process::AdoptedProcess::new(pid)
         .is_running()
         .unwrap_or(true)
 }

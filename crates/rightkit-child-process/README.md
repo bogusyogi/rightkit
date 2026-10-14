@@ -1,4 +1,4 @@
-# rightkit-process
+# rightkit-child-process
 
 Ownership-safe process lifecycle, restart, and health primitives for Right
 Suite desktop apps. It owns child spawn with tree ownership, tree termination,
@@ -212,7 +212,7 @@ Illustrative; not compiled as a doctest. The compiled checks are `tests/api.rs`,
 
 ```rust,ignore
 use std::{process::Stdio, time::Duration};
-use rightkit_process::{OwnedCommand, WaitOutcome};
+use rightkit_child_process::{OwnedCommand, WaitOutcome};
 
 let mut command = OwnedCommand::new("my-engine");
 command.command_mut().stdout(Stdio::piped());
@@ -249,10 +249,10 @@ Run through the RightKit wrapper, per the workspace's `docs/rules/rightkit.md`
 (run the Unix suites in both thread modes: default and `RUST_TEST_THREADS=1`):
 
 ```text
-rightkit cargo test -p rightkit-process --all-targets
+rightkit cargo test -p rightkit-child-process --all-targets
 rightkit cargo fmt --check
-rightkit cargo clippy -p rightkit-process --all-targets -- -D warnings
-rightkit cargo package -p rightkit-process --allow-dirty --no-verify --list
+rightkit cargo clippy -p rightkit-child-process --all-targets -- -D warnings
+rightkit cargo package -p rightkit-child-process --allow-dirty --no-verify --list
 ```
 
 `tests/windows_process_tree.rs` covers parent and grandchild termination, sibling

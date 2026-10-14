@@ -8,7 +8,7 @@
 //! Optional: `-- <entries> <idle_seconds>` (defaults 100000 and 30).
 
 use rightkit_cache::{Config, DiskCache, Key};
-use rightkit_process::{observe_idle, process_usage, BudgetLabels};
+use rightkit_child_process::{observe_idle, process_usage, BudgetLabels};
 use std::time::{Duration, Instant};
 
 fn main() {

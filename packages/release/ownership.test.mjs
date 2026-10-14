@@ -54,7 +54,7 @@ const SAMPLE_OWNERS = {
   "oauth.endpoint.apple": "rightkit-oauth",
   "oauth.endpoint.cloudflare": "rightkit-oauth",
   "oauth.device-grant": "rightkit-oauth",
-  "process.api.kill-on-job-close": "rightkit-process",
+  "process.api.kill-on-job-close": "rightkit-child-process",
   "sandbox.api.appcontainer": "rightkit-sandbox",
   "sandbox.api.seatbelt": "rightkit-sandbox",
   "secrets.api.wincred": "rightkit-credentials",

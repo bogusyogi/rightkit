@@ -4,7 +4,7 @@
 //! requests on one stream and reads responses and events from the other.
 //! [`serve_backend`] is the helper's side, serving any [`Backend`] over the same
 //! two streams. Spawning, killing and restarting helpers belong to
-//! rightkit-process. This module speaks the protocol over the streams it is given.
+//! rightkit-child-process. This module speaks the protocol over the streams it is given.
 //!
 //! A helper that dies, closes its stream without `bye`, or sends a frame that
 //! breaks the protocol is reported as a [`HelperEvent::Failed`]. The recorder then

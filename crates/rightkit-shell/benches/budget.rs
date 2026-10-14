@@ -11,7 +11,7 @@
 //! Run: `rightkit cargo bench -p rightkit-shell --bench budget`
 //! Optional: `-- <idle_seconds>` (default 30).
 
-use rightkit_process::{observe_idle, process_usage, BudgetLabels};
+use rightkit_child_process::{observe_idle, process_usage, BudgetLabels};
 use rightkit_shell::watchdog;
 use rightkit_shell::WatchdogConfig;
 use std::time::Duration;

@@ -19,7 +19,7 @@ use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
 use std::time::{Duration, Instant, SystemTime};
 
 use rightkit_ffmpeg::CancellationToken;
-use rightkit_process::{OwnedCommand, WaitOutcome};
+use rightkit_child_process::{OwnedCommand, WaitOutcome};
 
 pub mod source;
 pub use source::{allowed_roots, Authoriser, SourceId, SourceRegistry};

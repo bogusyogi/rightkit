@@ -1597,7 +1597,7 @@ impl ConfinedChild {
     pub(crate) fn terminate_tree_bounded(
         &mut self,
         timeout: Duration,
-    ) -> io::Result<rightkit_process::ReapOutcome> {
+    ) -> io::Result<rightkit_child_process::ReapOutcome> {
         let started = Instant::now();
         if let Some(job) = &self.job {
             job.terminate()?;
@@ -1606,16 +1606,16 @@ impl ConfinedChild {
             unsafe { TerminateProcess(HANDLE(self.process), 1) }.map_err(io::Error::other)?;
         }
         let Some(status) = self.wait_timeout(timeout.saturating_sub(started.elapsed()))? else {
-            return Ok(rightkit_process::ReapOutcome::TimedOut);
+            return Ok(rightkit_child_process::ReapOutcome::TimedOut);
         };
         let empty = match &self.job {
             Some(job) => job.wait_empty(timeout.saturating_sub(started.elapsed()))?,
             None => true,
         };
         if empty {
-            Ok(rightkit_process::ReapOutcome::Exited(status))
+            Ok(rightkit_child_process::ReapOutcome::Exited(status))
         } else {
-            Ok(rightkit_process::ReapOutcome::TimedOut)
+            Ok(rightkit_child_process::ReapOutcome::TimedOut)
         }
     }
 

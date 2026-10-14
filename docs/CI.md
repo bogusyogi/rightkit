@@ -83,7 +83,7 @@ RightKit cannot publish from a local machine. `publish.yml` is the only route: m
 
 ```bash
 gh workflow run publish.yml -f registry=npm -f units="@rightkit/logs @rightkit/qa" -f dry_run=true
-gh workflow run publish.yml -f registry=crates -f units="rightkit-fs rightkit-process" -f dry_run=false
+gh workflow run publish.yml -f registry=crates -f units="rightkit-fs rightkit-child-process" -f dry_run=false
 ```
 
 `units` is a space-separated list of package or crate names. Do a `dry_run=true` run first; the real

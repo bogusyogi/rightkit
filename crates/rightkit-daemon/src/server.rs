@@ -374,8 +374,8 @@ pub struct ServiceStatus {
     /// The host has released the service.
     pub released: bool,
     /// Resident memory, CPU time and I/O counters of the whole process (the host runs in it), or
-    /// `None` when the host cannot report them. See `rightkit_process::ProcessUsage`.
-    pub process: Option<rightkit_process::ProcessUsage>,
+    /// `None` when the host cannot report them. See `rightkit_child_process::ProcessUsage`.
+    pub process: Option<rightkit_child_process::ProcessUsage>,
 }
 
 /// A running host. Dropping it releases the service.
@@ -410,7 +410,7 @@ impl Hosted {
                 .released
                 .lock()
                 .unwrap_or_else(|e| e.into_inner()),
-            process: rightkit_process::process_usage().ok(),
+            process: rightkit_child_process::process_usage().ok(),
         }
     }
     /// Block until the host has released (clean shutdown or takeover).

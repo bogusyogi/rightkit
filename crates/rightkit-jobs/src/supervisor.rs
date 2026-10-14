@@ -1,6 +1,6 @@
 //! Engine sidecar supervision: spawn, hello, handshake replay, restart budget,
 //! health pings, wedge recovery and lifecycle diagnostics, on top of
-//! [`EngineClient`] (frames) and `rightkit-process` (child ownership, restart
+//! [`EngineClient`] (frames) and `rightkit-child-process` (child ownership, restart
 //! and health state machines).
 //!
 //! This is the shared form of five live copies: ScrapeRight's
@@ -41,7 +41,7 @@ use std::sync::{Arc, Condvar, Mutex, MutexGuard};
 use std::thread;
 use std::time::{Duration, Instant};
 
-use rightkit_process::{
+use rightkit_child_process::{
     Generation, HealthOutcome, HealthPolicy, HealthProbe, HealthTracker, OwnedChild, OwnedCommand,
     RestartMode, RestartOutcome, RestartPermit, RestartPolicy, RestartTracker, StderrTail,
 };
@@ -241,9 +241,9 @@ pub struct SupervisorStatus {
     pub event_subscribers: usize,
     /// Resident memory, CPU time and I/O counters of this process (the supervisor and its client
     /// threads run in it), computed on call, or `None` when the host cannot report them. The engine
-    /// child is a separate process; read it with `rightkit_process::process_usage` inside the engine.
-    /// See `rightkit_process::ProcessUsage`.
-    pub process: Option<rightkit_process::ProcessUsage>,
+    /// child is a separate process; read it with `rightkit_child_process::process_usage` inside the engine.
+    /// See `rightkit_child_process::ProcessUsage`.
+    pub process: Option<rightkit_child_process::ProcessUsage>,
 }
 
 /// Periodic liveness ping.
@@ -859,7 +859,7 @@ impl EngineSupervisor {
                 .lock()
                 .unwrap_or_else(|e| e.into_inner())
                 .len(),
-            process: rightkit_process::process_usage().ok(),
+            process: rightkit_child_process::process_usage().ok(),
         }
     }
 
@@ -968,7 +968,7 @@ impl EngineSupervisor {
         if let Some((mut child, live)) = slot {
             let pid = child.id();
             let status = match child.terminate_tree_bounded(grace) {
-                Ok(rightkit_process::ReapOutcome::Exited(s)) => Some(s),
+                Ok(rightkit_child_process::ReapOutcome::Exited(s)) => Some(s),
                 _ => None,
             };
             drop(child);

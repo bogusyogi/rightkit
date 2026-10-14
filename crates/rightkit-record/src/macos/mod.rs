@@ -1,5 +1,5 @@
 //! The macOS side of the [`Backend`] seam: [`MacBackend`] is a [`ProcessBackend`] over the
-//! `rightkit-record-macos-helper` binary, launched and reaped through `rightkit-process`.
+//! `rightkit-record-macos-helper` binary, launched and reaped through `rightkit-child-process`.
 //!
 //! The helper is a signed Swift binary owned by this crate (`helpers/macos`, a SwiftPM
 //! package). It captures one window with ScreenCaptureKit (`SCStream` with an `SCStreamOutput`
@@ -25,7 +25,7 @@ use std::process::Stdio;
 use std::time::Duration;
 
 use rightkit_contracts::types::record_session::RecorderOs;
-use rightkit_process::{OwnedChild, OwnedCommand, StderrTail};
+use rightkit_child_process::{OwnedChild, OwnedCommand, StderrTail};
 
 use crate::backend::{
     Backend, BackendPlan, Finished, HelperEvent, HelperIdentity, Permission, Source, StartInfo,

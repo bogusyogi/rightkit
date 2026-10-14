@@ -10,7 +10,7 @@
 //!
 //! After the submissions the daemon is held idle (state resident, no request in flight) for the idle
 //! window. Reports resident memory, CPU, wake-ups and disk operations through
-//! `rightkit_process::process_usage` (the one shared source), submission latency, the size of each
+//! `rightkit_child_process::process_usage` (the one shared source), submission latency, the size of each
 //! `state.json` write (`Daemon::metrics`), and the retained-state counts. The transport (HTTPS
 //! listener) is not exercised: the idle figures are the daemon state and runtime without a listener.
 //!
@@ -21,7 +21,7 @@
 mod common;
 
 use common::Harness;
-use rightkit_process::{observe_idle, process_usage, BudgetLabels, ProcessUsage};
+use rightkit_child_process::{observe_idle, process_usage, BudgetLabels, ProcessUsage};
 use serde_json::json;
 use std::time::{Duration, Instant};
 

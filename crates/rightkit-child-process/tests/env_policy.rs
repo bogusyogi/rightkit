@@ -1,4 +1,4 @@
-use rightkit_process::{OwnedCommand, DEFAULT_ENV_ALLOWLIST};
+use rightkit_child_process::{OwnedCommand, DEFAULT_ENV_ALLOWLIST};
 
 #[test]
 fn a_fresh_command_does_not_report_a_cleared_environment() {

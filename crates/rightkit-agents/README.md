@@ -16,7 +16,7 @@ Catalog capability: `agent-sessions`. Release versions are tracked in [INDEX.md]
 ## What it does not own
 
 - One-shot model calls and BYOK HTTP clients: `rightkit-llm`.
-- Process spawning and tree ownership, working-directory pinning, job records: `rightkit-process`, `rightkit-fs`, `rightkit-jobs` (wired in a later lane).
+- Process spawning and tree ownership, working-directory pinning, job records: `rightkit-child-process`, `rightkit-fs`, `rightkit-jobs` (wired in a later lane).
 - Send, publish and spend decisions: the owning app, through `rightkit-agent-tools` effects. The vendor permission mode is defence in depth only.
 - Provider registries, profiles and editor protocols (ACP): the apps.
 

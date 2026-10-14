@@ -1,9 +1,9 @@
 //! `EngineSupervisor` reports abnormal engine exits through `CrashExitObserver`, and an
 //! intentional shutdown reports nothing.
 
+use rightkit_child_process::{OwnedCommand, RestartMode, RestartPolicy};
 use rightkit_crash::CrashConfig;
 use rightkit_jobs::{CrashExitObserver, EngineSupervisor, ExitObserver, SupervisorConfig};
-use rightkit_process::{OwnedCommand, RestartMode, RestartPolicy};
 use serde_json::json;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};

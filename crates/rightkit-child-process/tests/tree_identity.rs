@@ -15,7 +15,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use rightkit_process::{OwnedChild, OwnedCommand, TerminationOptions, WaitOutcome};
+use rightkit_child_process::{OwnedChild, OwnedCommand, TerminationOptions, WaitOutcome};
 
 fn pid_file(tag: &str) -> PathBuf {
     let path = std::env::temp_dir().join(format!("rightkit-identity-{tag}-{}", std::process::id()));

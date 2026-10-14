@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use rightkit_process::{
+use rightkit_child_process::{
     HealthOutcome, HealthPolicy, HealthProbe, HealthTracker, RestartMode, RestartOutcome,
     RestartPolicy, RestartTracker,
 };

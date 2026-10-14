@@ -14,7 +14,7 @@ Generic cloud sync engine for Right Suite apps. It owns change cursors, tombston
 
 ## Features
 
-None. The crate has no Cargo features. Dependencies: `serde`, `serde_json`, `rightkit-process` (process usage in `SyncEngine::status()`, `src/engine.rs`), and `rightkit-fs` (`fs` feature, for the durable ledger write, `src/storage.rs`).
+None. The crate has no Cargo features. Dependencies: `serde`, `serde_json`, `rightkit-child-process` (process usage in `SyncEngine::status()`, `src/engine.rs`), and `rightkit-fs` (`fs` feature, for the durable ledger write, `src/storage.rs`).
 
 ## Platform support
 

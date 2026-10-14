@@ -12,7 +12,7 @@ Rust QA harness for Right Suite applications. It owns declarative scenarios (`ha
 |---|---|---|---|
 | `browser` | off | `rightkit-browser`, `tokio` | Chrome (CDP) targets for browser scenarios. Off by default because it pulls `tokio` and `chromiumoxide`. |
 
-Other dependencies include `rightkit-sidecar`, `rightkit-daemon`, `rightkit-process`, `getrandom`, and `png`. `rightkit-control` is a macOS-only target dependency (foreground-app reads only); on Windows, `windows-sys` is a target dependency. On Windows the app under test links `rightkit-control`, not the harness (see the Windows section).
+Other dependencies include `rightkit-sidecar`, `rightkit-daemon`, `rightkit-child-process`, `getrandom`, and `png`. `rightkit-control` is a macOS-only target dependency (foreground-app reads only); on Windows, `windows-sys` is a target dependency. On Windows the app under test links `rightkit-control`, not the harness (see the Windows section).
 
 ## Platform support
 

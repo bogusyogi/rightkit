@@ -15,7 +15,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use rightkit_process::OwnedCommand;
+use rightkit_child_process::OwnedCommand;
 
 const ROLE_ENV: &str = "RIGHTKIT_PROCESS_PARENT_DEATH_ROLE";
 const MARKER: &str = "CHILD_PID=";

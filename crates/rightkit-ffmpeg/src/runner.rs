@@ -2,7 +2,7 @@
 //!
 //! Donors: CutRight `cutright-project/src/worker.rs` (progress parser, stderr tail,
 //! channel-fed progress loop) and `cutright-timeline/src/ffmpeg.rs`. Reconciled with
-//! this crate's `rightkit-process` ownership: every FFmpeg runs as an owned child
+//! this crate's `rightkit-child-process` ownership: every FFmpeg runs as an owned child
 //! tree, so cancellation/timeout/drop reap descendants (CutRight used bare
 //! `Child::kill`).
 
@@ -15,7 +15,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use rightkit_process::{OwnedChild, OwnedCommand, StderrTail, WaitOutcome};
+use rightkit_child_process::{OwnedChild, OwnedCommand, StderrTail, WaitOutcome};
 use std::path::{Path, PathBuf};
 
 use crate::{CancellationToken, FfmpegBinary, FfmpegCommand};

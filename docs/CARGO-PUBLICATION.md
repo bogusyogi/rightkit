@@ -10,7 +10,7 @@ Publication runs through `right-release publish cargo` after exact-commit native
 | Crate | Decision | Release requirement |
 | --- | --- | --- |
 | rightkit-computer | Keep private | Retired; replaced by rightkit-automation |
-| rightkit-browser | Public candidate | Native receipts; rightkit-process available |
+| rightkit-browser | Public candidate | Native receipts; rightkit-child-process available |
 | rightkit-cache | Public candidate | Native receipts |
 | rightkit-control | Public candidate | Native receipts; rightkit-daemon available |
 | rightkit-crash | Public candidate | Native receipts; new rightkit-logs API available |
@@ -40,13 +40,13 @@ Publication runs through `right-release publish cargo` after exact-commit native
 
 For enabled candidates & their shared prerequisites:
 
-1. `rightkit-fs`, `rightkit-sidecar`, `rightkit-process`, `rightkit-logs`, `rightkit-cache`, `rightkit-pdf`, `rightkit-search`.
+1. `rightkit-fs`, `rightkit-sidecar`, `rightkit-child-process`, `rightkit-logs`, `rightkit-cache`, `rightkit-pdf`, `rightkit-search`.
 2. `rightkit-db`, `rightkit-daemon`, `rightkit-browser`, `rightkit-sandbox`, `rightkit-crash`, `rightkit-ffmpeg`.
 3. `rightkit-jobs`, `rightkit-control`, `rightkit-speech-client`, `rightkit-playback`, `rightkit-audio`.
 4. `rightkit-shell`, `rightkit-qa`.
 
 Every group waits for its own dependencies to exist in crates.io. Optional runtime dependencies also need published registry versions. Package dry-runs verify registry dependencies rather than sibling source.
 
-Registry inspection found `rightkit-process 0.1.0` lacks APIs consumed by jobs, & `rightkit-logs 0.1.0` lacks APIs consumed by crash. Stage both expanded APIs at `0.2.0`, with matching internal path dependency pins. Keep adopted consumer pins until publication is verified.
+Registry inspection found `rightkit-child-process 0.1.0` lacks APIs consumed by jobs, & `rightkit-logs 0.1.0` lacks APIs consumed by crash. Stage both expanded APIs at `0.2.0`, with matching internal path dependency pins. Keep adopted consumer pins until publication is verified.
 
 Source inventory: `crates/*/Cargo.toml`; publication policy: `packages/release/publication-gate.mjs`; staged versions: `packages/release/rightkit-versions.json`.

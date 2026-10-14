@@ -525,7 +525,7 @@ function dependencyDecision(dependencies, dir) {
 // Fixed discovery synonyms are bound to owners, rather than every capability.
 const keywordOwners = {
   oauth: ['rightkit-oauth'], 'model-store': ['rightkit-models'], models: ['rightkit-models'],
-  supervisor: ['rightkit-process'], ocr: ['rightkit-ocr'], speech: ['rightkit-speech-client'],
+  supervisor: ['rightkit-child-process'], ocr: ['rightkit-ocr'], speech: ['rightkit-speech-client'],
   asr: ['rightkit-asr'], tts: ['rightkit-tts'], sync: ['rightkit-sync'],
   secrets: ['rightkit-credentials'], credential: ['rightkit-credentials', 'RightKitSwift'], keychain: ['rightkit-credentials', 'RightKitSwift'],
   watcher: ['rightkit-file-watch'], updater: ['@rightkit/updates'], onboarding: ['@rightkit/onboarding'],

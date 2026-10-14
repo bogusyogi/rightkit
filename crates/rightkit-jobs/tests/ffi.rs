@@ -3,9 +3,9 @@
 //! The ABI keeps process-global state (factory, registered snapshot, handle table), so every case
 //! takes `SERIAL`.
 
+use rightkit_child_process::OwnedCommand;
 use rightkit_jobs::ffi::*;
 use rightkit_jobs::SupervisorConfig;
-use rightkit_process::OwnedCommand;
 use std::ffi::c_void;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicUsize, Ordering};

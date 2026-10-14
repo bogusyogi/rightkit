@@ -2,7 +2,7 @@
 import PackageDescription
 
 // rightkit-record macOS helper: a signed Swift binary owned by rightkit-record and launched
-// through rightkit-process. It speaks the rightkit-record helper wire protocol (4-byte big-endian
+// through rightkit-child-process. It speaks the rightkit-record helper wire protocol (4-byte big-endian
 // length, then one JSON object) on stdin/stdout and captures one window with ScreenCaptureKit.
 // `build.sh` builds and ad-hoc signs it for tests. Production signing belongs to the release tooling.
 let package = Package(

@@ -125,8 +125,8 @@ pub struct WatchStatus {
     /// Cumulative counters and the unread backlog (`queue_depth`).
     pub metrics: WatchMetrics,
     /// Resident memory, CPU time and I/O counters of the whole process (the watcher runs in it),
-    /// or `None` when the host cannot report them. See `rightkit_process::ProcessUsage`.
-    pub process: Option<rightkit_process::ProcessUsage>,
+    /// or `None` when the host cannot report them. See `rightkit_child_process::ProcessUsage`.
+    pub process: Option<rightkit_child_process::ProcessUsage>,
 }
 
 #[derive(Debug, Default)]
@@ -270,7 +270,7 @@ impl TypedWatcher {
     pub fn status(&self) -> WatchStatus {
         WatchStatus {
             metrics: self.metrics(),
-            process: rightkit_process::process_usage().ok(),
+            process: rightkit_child_process::process_usage().ok(),
         }
     }
 

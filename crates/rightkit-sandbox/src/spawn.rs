@@ -5,7 +5,7 @@ use crate::{
     classify_denial, DenialSignature, DenialSource, EnvPolicy, Reservation, ResourceAuthority,
     ResourceKind, SandboxCommand, SandboxError, SandboxPolicy,
 };
-use rightkit_process::OwnedCommand;
+use rightkit_child_process::OwnedCommand;
 use std::io::Read;
 #[cfg(windows)]
 use std::os::windows::io::OwnedHandle;
@@ -26,7 +26,7 @@ pub struct Sandbox {
 }
 
 /// A supervised child: its resource reservation is held until drop, and drop
-/// kills the whole process tree (via `rightkit-process` ownership).
+/// kills the whole process tree (via `rightkit-child-process` ownership).
 pub struct SandboxedChild {
     inner: Inner,
     stdout: Option<Box<dyn Read + Send>>,
@@ -68,7 +68,7 @@ impl WindowsAuxiliaryIo {
 /// Supervised children are std processes; confined Windows children are created directly
 /// through `CreateProcessW` (the only way to enter an AppContainer).
 enum Inner {
-    Owned(rightkit_process::OwnedChild),
+    Owned(rightkit_child_process::OwnedChild),
     #[cfg(windows)]
     Confined(crate::windows_appcontainer::ConfinedChild),
 }
@@ -460,7 +460,7 @@ impl Inner {
     fn terminate_tree_bounded(
         &mut self,
         timeout: Duration,
-    ) -> std::io::Result<rightkit_process::ReapOutcome> {
+    ) -> std::io::Result<rightkit_child_process::ReapOutcome> {
         match self {
             Self::Owned(child) => child.terminate_tree_bounded(timeout),
             #[cfg(windows)]
@@ -498,7 +498,7 @@ impl SandboxedChild {
     pub fn terminate_tree_bounded(
         &mut self,
         timeout: Duration,
-    ) -> std::io::Result<rightkit_process::ReapOutcome> {
+    ) -> std::io::Result<rightkit_child_process::ReapOutcome> {
         self.inner.terminate_tree_bounded(timeout)
     }
 

@@ -1,8 +1,8 @@
-//! Owned processes: every child is spawned through `rightkit-process` (process
+//! Owned processes: every child is spawned through `rightkit-child-process` (process
 //! group / Job Object), registered with a [`Tracker`], and killed by recorded pid
 //! only. Nothing here ever matches processes by name for killing.
 use crate::util::{err, Result};
-use rightkit_process::OwnedCommand;
+use rightkit_child_process::OwnedCommand;
 use std::collections::BTreeMap;
 use std::io::Read;
 use std::path::PathBuf;

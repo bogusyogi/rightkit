@@ -1,6 +1,6 @@
 //! A child spawned through the media runner has no console window on Windows.
 //!
-//! The runner spawns through `rightkit-process`, which sets `CREATE_NO_WINDOW` by
+//! The runner spawns through `rightkit-child-process`, which sets `CREATE_NO_WINDOW` by
 //! default. The probe is the technique HeardRight's `background_decoder_child_has_no_console`
 //! test uses: a PowerShell child reads `GetConsoleWindow()`. The call returns null when the
 //! process has no visible console window, which is what hidden spawning must produce.

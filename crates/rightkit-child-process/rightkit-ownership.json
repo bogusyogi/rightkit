@@ -1,5 +1,5 @@
 {
-  "package": "rightkit-process",
+  "package": "rightkit-child-process",
   "capabilities": [
     {
       "capability": "owned-processes",

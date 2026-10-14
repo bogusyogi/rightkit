@@ -3,7 +3,7 @@
 //! `rightkit-sidecar`). Nothing mocks the engine.
 use crate::process::{run_owned, RunOptions, Tracker};
 use crate::util::{err, Error, Result};
-use rightkit_process::{OwnedChild, OwnedCommand};
+use rightkit_child_process::{OwnedChild, OwnedCommand};
 use rightkit_sidecar::{read_json_line, write_json_line, FrameError};
 use serde_json::{json, Value};
 use std::io::{BufReader, Write};
@@ -273,8 +273,8 @@ pub struct SidecarStatus {
     pub stderr_dropped_bytes: u64,
     /// Resident memory, CPU time and I/O counters of the harness process (the sidecar's reader
     /// threads run in it; the engine child is a separate process), or `None` when the host cannot
-    /// report them. See `rightkit_process::ProcessUsage`.
-    pub process: Option<rightkit_process::ProcessUsage>,
+    /// report them. See `rightkit_child_process::ProcessUsage`.
+    pub process: Option<rightkit_child_process::ProcessUsage>,
 }
 
 /// Frame shape a sidecar's hello announces. rightkit-jobs' `Dispatcher::hello()` always carries
@@ -535,7 +535,7 @@ impl Sidecar {
             events_dropped: self.events_dropped,
             stderr_bytes,
             stderr_dropped_bytes,
-            process: rightkit_process::process_usage().ok(),
+            process: rightkit_child_process::process_usage().ok(),
         }
     }
 

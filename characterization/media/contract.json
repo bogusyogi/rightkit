@@ -160,7 +160,7 @@
     {
       "id": "scraperight-no-timeout-or-process-tree-kill",
       "evidence": "ScrapeRight polls cancellation and kill/waits the direct child, but has no deadline and no process-tree/group termination.",
-      "closure": "Adopt rightkit-process deadline and tree/group termination semantics."
+      "closure": "Adopt rightkit-child-process deadline and tree/group termination semantics."
     },
     {
       "id": "macos-approved-artifacts-missing",

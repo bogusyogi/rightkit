@@ -59,7 +59,7 @@ Capabilities: 72 (54 with fingerprints, 18 declaration-only). Internal owners th
 | onnx-runtime | `rightkit-onnx` | advise | fingerprinted | 4 (0 block, 4 advise) | rightkit-onnx: none recorded |
 | os-credential-store | `RightKitSwift`, `rightkit-credentials` | advise | fingerprinted | 7 (0 block, 7 advise) | RightKitSwift: published 0.4.0 (SwiftPM); rightkit-credentials: none recorded |
 | os-sandbox | `rightkit-sandbox` | advise | fingerprinted | 2 (0 block, 2 advise) | rightkit-sandbox: published 0.3.4 (crates.io) |
-| owned-processes | `rightkit-process` | advise | fingerprinted | 2 (0 block, 2 advise) | rightkit-process: published 0.3.3 (crates.io) |
+| owned-processes | `rightkit-child-process` | advise | fingerprinted | 2 (0 block, 2 advise) | rightkit-child-process: none recorded |
 | ownership-scanner | `rightkit-ownership` | none | declaration-only | 0 | rightkit-ownership: published 0.2.1 (crates.io) |
 | pdf-engine | `rightkit-pdf` | advise | fingerprinted | 3 (0 block, 3 advise) | rightkit-pdf: published 0.2.0 (crates.io) |
 | pdf-ui | `@rightkit/pdf-ui` | advise | fingerprinted | 1 (0 block, 1 advise) | @rightkit/pdf-ui: published 0.1.6 (npm) |

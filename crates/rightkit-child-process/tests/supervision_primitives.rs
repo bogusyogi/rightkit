@@ -7,12 +7,12 @@ use std::sync::mpsc::{channel, Sender};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use rightkit_process::{Ack, Cooldown, StallConfig, StallEvent, StallWatchdog};
+use rightkit_child_process::{Ack, Cooldown, StallConfig, StallEvent, StallWatchdog};
 
 #[cfg(unix)]
 mod child {
     use super::*;
-    use rightkit_process::{OwnedCommand, ReapOutcome, StderrTail, DEFAULT_ENV_ALLOWLIST};
+    use rightkit_child_process::{OwnedCommand, ReapOutcome, StderrTail, DEFAULT_ENV_ALLOWLIST};
     use std::io::Read;
     use std::process::Stdio;
 

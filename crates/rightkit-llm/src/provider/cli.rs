@@ -1,6 +1,6 @@
 //! Provider for an already-installed, already-signed-in command-line assistant
 //! (Claude Code `claude -p`, OpenAI `codex exec`), run as a bounded child process
-//! through `rightkit-process`. No API key is stored, read or passed by this crate:
+//! through `rightkit-child-process`. No API key is stored, read or passed by this crate:
 //! the tool authenticates itself from its own credential store.
 //!
 //! Text completion only. Tool use and forced-tool structured output are rejected
@@ -15,7 +15,7 @@
 //!
 //! Every run is bounded by a wall-clock timeout, an idle (no output) timeout and
 //! stdout/stderr byte caps. Any bound kills the child and its descendants through
-//! `rightkit-process` and returns a typed [`CliError`].
+//! `rightkit-child-process` and returns a typed [`CliError`].
 
 use std::collections::BTreeSet;
 use std::io::{Read, Write};
@@ -27,7 +27,7 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 
-use rightkit_process::{OwnedCommand, ReapOutcome, TerminationOptions};
+use rightkit_child_process::{OwnedCommand, ReapOutcome, TerminationOptions};
 use serde_json::Value;
 
 use crate::error::{Attempt, LlmError};

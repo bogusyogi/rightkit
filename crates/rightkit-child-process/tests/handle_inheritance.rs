@@ -1,6 +1,6 @@
 #![cfg(any(unix, windows))]
 
-use rightkit_process::OwnedCommand;
+use rightkit_child_process::OwnedCommand;
 use std::{
     io::{BufRead, BufReader, Read},
     process::{Command, Stdio},
@@ -39,7 +39,7 @@ fn command() -> OwnedCommand {
     let owned = OwnedCommand::from_command(command);
     #[cfg(windows)]
     let owned = {
-        use rightkit_process::{WindowsSpawnConfig, WindowsStdio};
+        use rightkit_child_process::{WindowsSpawnConfig, WindowsStdio};
         let mut owned = owned;
         owned.windows_spawn_config(WindowsSpawnConfig {
             stdin: WindowsStdio::Piped,
@@ -129,7 +129,7 @@ fn listed_noninheritable_pipe_is_inherited_without_changing_parent_flags() {
 }
 
 #[cfg(unix)]
-fn raw(file: &std::fs::File) -> rightkit_process::RawHandleOrFd {
+fn raw(file: &std::fs::File) -> rightkit_child_process::RawHandleOrFd {
     use std::os::fd::AsRawFd;
     file.as_raw_fd()
 }
@@ -164,7 +164,7 @@ fn pipe(cloexec: bool) -> (std::fs::File, std::fs::File) {
 }
 
 #[cfg(windows)]
-fn raw(file: &std::fs::File) -> rightkit_process::RawHandleOrFd {
+fn raw(file: &std::fs::File) -> rightkit_child_process::RawHandleOrFd {
     use std::os::windows::io::AsRawHandle;
     file.as_raw_handle()
 }

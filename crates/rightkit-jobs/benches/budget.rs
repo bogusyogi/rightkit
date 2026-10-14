@@ -10,8 +10,8 @@
 //! Run: `rightkit cargo bench -p rightkit-jobs --bench budget`
 //! Optional: `-- <calls> <idle_seconds>` (defaults 10000 and 30).
 
+use rightkit_child_process::{observe_idle, process_usage, BudgetLabels, OwnedCommand};
 use rightkit_jobs::{EngineSupervisor, HealthCheck, SupervisorConfig};
-use rightkit_process::{observe_idle, process_usage, BudgetLabels, OwnedCommand};
 use serde_json::{json, Value};
 use std::io::{BufRead, Write};
 use std::sync::Arc;

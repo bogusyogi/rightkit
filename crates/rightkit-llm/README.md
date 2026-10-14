@@ -28,7 +28,7 @@ Do not use it to store keys. Keys come from a `CredentialSource`, and production
 
 ## Cargo features
 
-- `cli` (default off): `provider::cli`, which adds the optional dependency `rightkit-process`.
+- `cli` (default off): `provider::cli`, which adds the optional dependency `rightkit-child-process`.
 
 Always-on dependencies: `rightkit-http`, `serde`, `serde_json`.
 
@@ -77,7 +77,7 @@ let reply = provider.complete(&request)?; // reply.usage_known == false unless t
 - Program path: must be absolute and executable. Resolve a bare name once at start-up with `resolve_program`; there is no call-time PATH search.
 - Environment: cleared, then only the names in `env_allow` (default `HOME`, `PATH`, plus the tool's config-dir variable) and `env_set` are given to the child. Names that look like credentials (`KEY`, `TOKEN`, `SECRET`, `PASSWORD`, `AUTH`, `COOKIE`, ...) are rejected when the spec is validated. The crate never reads, copies, logs or passes API keys or tokens, and never touches the tool's credential files; `credentials` is unused by this provider.
 - Working directory: an empty, absolute scratch directory the host supplies. Do not point it at app data or a repository. Claude Code runs with all built-in tools disabled and no MCP servers. Codex has no tools-off switch, so the preset uses its read-only sandbox, which still allows reads outside the scratch directory; add an OS sandbox (`rightkit-sandbox`) when that matters.
-- Bounds: any exceeded bound kills the child and its descendants through `rightkit-process` and returns a typed error; the child is reaped before the call returns. If the tree cannot be confirmed dead, the error is `CliError::Kill`.
+- Bounds: any exceeded bound kills the child and its descendants through `rightkit-child-process` and returns a typed error; the child is reaped before the call returns. If the tree cannot be confirmed dead, the error is `CliError::Kill`.
 - Output is untrusted data. It is size-capped, must be UTF-8, JSON is parsed strictly, and nothing in it is executed or used as a path. A non-empty answer is required.
 - Errors include stderr only truncated to 512 bytes, with control characters removed and credential-shaped tokens redacted. Redaction is best effort.
 - Not-signed-in detection runs only on a failed run (non-zero exit or the tool's JSON error flag), so an answer that mentions "not logged in" is never misread.
@@ -157,7 +157,7 @@ Network defaults (no change in this version):
 
 ## Platform support
 
-Pure Rust over `rightkit-http` (`ureq` with `rustls`). `provider::cli` has `cfg(windows)` and `cfg(unix)` branches (`src/provider/cli.rs:145` and `:362`) and inherits `rightkit-process` platform behavior.
+Pure Rust over `rightkit-http` (`ureq` with `rustls`). `provider::cli` has `cfg(windows)` and `cfg(unix)` branches (`src/provider/cli.rs:145` and `:362`) and inherits `rightkit-child-process` platform behavior.
 
 ## Tests
 

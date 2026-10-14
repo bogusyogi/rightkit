@@ -91,10 +91,9 @@
           "registryMax": "0.2.7"
         },
         {
-          "name": "rightkit-process",
+          "name": "rightkit-child-process",
           "ecosystem": "cargo",
-          "min": "0.4.0",
-          "registryMax": "0.3.3"
+          "min": "0.4.0"
         }
       ]
     },
@@ -122,10 +121,9 @@
       "profile": "desktop",
       "owners": [
         {
-          "name": "rightkit-process",
+          "name": "rightkit-child-process",
           "ecosystem": "cargo",
-          "min": "0.4.0",
-          "registryMax": "0.3.3"
+          "min": "0.4.0"
         }
       ]
     },

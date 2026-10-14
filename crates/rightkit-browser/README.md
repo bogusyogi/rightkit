@@ -22,7 +22,7 @@ Do not use it for Safari or Firefox, or for desktop apps (see `rightkit-automati
 
 ## Cargo features
 
-None. The crate has no `[features]` table. Dependencies include `chromiumoxide` 0.9, `tokio`, `url`, and `rightkit-process` for owned child processes.
+None. The crate has no `[features]` table. Dependencies include `chromiumoxide` 0.9, `tokio`, `url`, and `rightkit-child-process` for owned child processes.
 
 ## Usage
 

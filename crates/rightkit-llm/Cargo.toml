@@ -14,11 +14,11 @@ include = ["src/**", "tests/**", "assets/**", "README.md", "CHANGELOG.md", "LICE
 [features]
 default = []
 # Provider that drives an installed, signed-in CLI assistant as a bounded child process.
-cli = ["dep:rightkit-process"]
+cli = ["dep:rightkit-child-process"]
 
 [dependencies]
 rightkit-http = { version = "0.3.0", path = "../rightkit-http", features = ["gzip"] }
-rightkit-process = { version = "0.4.0", path = "../rightkit-process", optional = true }
+rightkit-child-process = { version = "0.4.0", path = "../rightkit-child-process", optional = true }
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.150"
 

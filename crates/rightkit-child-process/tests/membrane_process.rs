@@ -1,4 +1,4 @@
-use rightkit_process::{
+use rightkit_child_process::{
     OwnedChild, OwnedCommand, ReapOutcome, TerminationOptions, UnixContainment,
 };
 #[cfg(unix)]
@@ -222,7 +222,7 @@ fn process_handle_that_is_not_a_job() -> std::os::windows::io::OwnedHandle {
 #[cfg(windows)]
 #[test]
 fn best_effort_reports_real_assignment_failure_without_failing_spawn() {
-    use rightkit_process::JobAssignmentMode;
+    use rightkit_child_process::JobAssignmentMode;
     use std::os::windows::io::AsHandle;
     // A process handle is valid and duplicable, but cannot be used as a job.
     // This deterministically fails assignment without requiring special host jobs.
@@ -230,7 +230,7 @@ fn best_effort_reports_real_assignment_failure_without_failing_spawn() {
         let not_a_job = process_handle_that_is_not_a_job();
         let mut command = sleeper();
         if allowlisted {
-            use rightkit_process::{WindowsSpawnConfig, WindowsStdio};
+            use rightkit_child_process::{WindowsSpawnConfig, WindowsStdio};
             command
                 .inherit_handles_only([])
                 .windows_spawn_config(WindowsSpawnConfig {
@@ -266,7 +266,7 @@ fn strict_assignment_failure_is_still_fatal() {
         let not_a_job = process_handle_that_is_not_a_job();
         let mut command = sleeper();
         if allowlisted {
-            use rightkit_process::{WindowsSpawnConfig, WindowsStdio};
+            use rightkit_child_process::{WindowsSpawnConfig, WindowsStdio};
             command
                 .inherit_handles_only([])
                 .windows_spawn_config(WindowsSpawnConfig {
@@ -299,7 +299,7 @@ fn custom_windows_exit_code_is_visible_to_independent_waiter() {
 #[cfg(windows)]
 #[test]
 fn retained_job_terminates_descendant_after_parent_was_reaped() {
-    use rightkit_process::AdoptedProcess;
+    use rightkit_child_process::AdoptedProcess;
     use std::num::NonZeroU32;
     let mut child = helper("unused",
         "$p = Start-Process powershell.exe -WindowStyle Hidden -ArgumentList '-NoLogo','-NoProfile','-NonInteractive','-Command','Start-Sleep -Seconds 5' -PassThru; Write-Output $p.Id; exit 0",

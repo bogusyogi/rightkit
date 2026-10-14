@@ -12,7 +12,7 @@ use crate::protocol::{Mode, Reply, Request, REPLY_PREFIX};
 use crate::wav;
 use crate::worker_args::WorkerArgs;
 use crate::SAMPLE_RATE_HZ;
-use rightkit_process::{OwnedChild, OwnedCommand};
+use rightkit_child_process::{OwnedChild, OwnedCommand};
 use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
 use std::process::{ChildStdin, Command, Stdio};

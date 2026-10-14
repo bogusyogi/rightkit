@@ -115,12 +115,12 @@ mod mac {
             mb(start.external)
         );
 
-        let warm = rightkit_process::process_usage().expect("process usage");
+        let warm = rightkit_child_process::process_usage().expect("process usage");
         let idle_started = Instant::now();
         std::thread::sleep(Duration::from_secs(35));
-        let idle_end = rightkit_process::process_usage().expect("process usage");
+        let idle_end = rightkit_child_process::process_usage().expect("process usage");
         let idle_elapsed = idle_started.elapsed();
-        let idle = rightkit_process::IdleObservation {
+        let idle = rightkit_child_process::IdleObservation {
             elapsed: idle_elapsed,
             start: warm,
             end: idle_end,
@@ -147,7 +147,7 @@ mod mac {
             "{}",
             idle.result_lines(
                 &warm,
-                &rightkit_process::BudgetLabels {
+                &rightkit_child_process::BudgetLabels {
                     krate: "rightkit-fsindex",
                     version: env!("CARGO_PKG_VERSION"),
                     scale_unit: "entries",

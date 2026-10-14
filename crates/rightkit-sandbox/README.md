@@ -14,7 +14,7 @@ Shared sandbox, PTY, process-tree, and resource-authority primitives for Right S
 
 ## Features
 
-`pty` (default): `Sandbox::spawn_pty`, `PtySession`, `PtySize`, `PtyError`, and the lease-epoch input fence, over `portable-pty`. With `default-features = false` those items and `portable-pty` are gone. Other dependencies: `rightkit-process`, `libc` (Unix), and `windows` (Windows).
+`pty` (default): `Sandbox::spawn_pty`, `PtySession`, `PtySize`, `PtyError`, and the lease-epoch input fence, over `portable-pty`. With `default-features = false` those items and `portable-pty` are gone. Other dependencies: `rightkit-child-process`, `libc` (Unix), and `windows` (Windows).
 
 ## Platform support
 

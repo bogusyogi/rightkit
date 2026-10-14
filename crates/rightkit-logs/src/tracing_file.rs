@@ -106,8 +106,8 @@ pub struct LogWriterStatus {
     /// The queue limit the writer was configured with.
     pub queue_lines: usize,
     /// Resident memory, CPU time and I/O counters of the whole process (the writer shares it),
-    /// or `None` when the host cannot report them. See `rightkit_process::ProcessUsage`.
-    pub process: Option<rightkit_process::ProcessUsage>,
+    /// or `None` when the host cannot report them. See `rightkit_child_process::ProcessUsage`.
+    pub process: Option<rightkit_child_process::ProcessUsage>,
 }
 
 impl TracingGuard {
@@ -117,7 +117,7 @@ impl TracingGuard {
             pending_lines: self.pending.load(Ordering::Relaxed),
             dropped_lines: self.dropped.load(Ordering::Relaxed),
             queue_lines: self.queue_lines,
-            process: rightkit_process::process_usage().ok(),
+            process: rightkit_child_process::process_usage().ok(),
         }
     }
 

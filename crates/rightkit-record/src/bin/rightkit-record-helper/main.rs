@@ -3,10 +3,10 @@
 //! Two modes over `rightkit_record::windows::WindowsBackend`:
 //! - `capture`: a one-shot take. The helper writes only the media file and prints
 //!   one JSON summary on stdout.
-//! - `serve`: the helper protocol over stdin and stdout, for rightkit-process. The
+//! - `serve`: the helper protocol over stdin and stdout, for rightkit-child-process. The
 //!   core owns the bundle; nothing else may write to stdout in this mode.
 //!
-//! rightkit-process will own this helper later.
+//! rightkit-child-process will own this helper later.
 
 #[cfg(windows)]
 mod args;

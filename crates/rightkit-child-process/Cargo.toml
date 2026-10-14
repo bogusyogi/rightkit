@@ -1,5 +1,5 @@
 [package]
-name = "rightkit-process"
+name = "rightkit-child-process"
 version = "0.4.0"
 edition = "2021"
 rust-version = "1.98.0"

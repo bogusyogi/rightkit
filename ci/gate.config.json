@@ -71,7 +71,7 @@
         ]
       ]
     },
-    "rightkit-process": {
+    "rightkit-child-process": {
       "alsoSerial": true
     },
     "rightkit-tts": {

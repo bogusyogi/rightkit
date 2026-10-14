@@ -9,8 +9,8 @@
 //! Run: `rightkit cargo bench -p rightkit-daemon --bench budget`
 //! Optional: `-- <connections> <requests> <idle_seconds>` (defaults 64, 20000 and 30).
 
+use rightkit_child_process::{observe_idle, process_usage, BudgetLabels};
 use rightkit_daemon::*;
-use rightkit_process::{observe_idle, process_usage, BudgetLabels};
 use serde_json::{json, Value};
 use std::sync::Arc;
 use std::time::{Duration, Instant};

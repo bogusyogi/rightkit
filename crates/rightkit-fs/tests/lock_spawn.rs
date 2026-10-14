@@ -12,7 +12,7 @@ use std::time::Duration;
 use rightkit_fs::{FileLock, LockKind, LockOptions};
 
 /// Spawns children from a sibling thread. `pre_exec` forces a plain fork (as
-/// `rightkit-process` does), so each child exists with the parent's descriptors open until
+/// `rightkit-child-process` does), so each child exists with the parent's descriptors open until
 /// it execs, and the sleep widens that window.
 fn spawner(stop: Arc<AtomicBool>) -> std::thread::JoinHandle<()> {
     use std::os::unix::process::CommandExt;

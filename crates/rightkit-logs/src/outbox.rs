@@ -101,8 +101,8 @@ pub struct OutboxHealth {
     /// Why the ledger could not load, if it could not.
     pub error: Option<String>,
     /// Resident memory, CPU time and I/O counters of the whole process, or `None` when the host
-    /// cannot report them. See `rightkit_process::ProcessUsage`.
-    pub process: Option<rightkit_process::ProcessUsage>,
+    /// cannot report them. See `rightkit_child_process::ProcessUsage`.
+    pub process: Option<rightkit_child_process::ProcessUsage>,
 }
 
 #[derive(Debug)]
@@ -247,7 +247,7 @@ impl Outbox {
             events: state.ledger.events.len(),
             max_events: self.config.max_events,
             error: state.load_error.clone(),
-            process: rightkit_process::process_usage().ok(),
+            process: rightkit_child_process::process_usage().ok(),
         }
     }
 

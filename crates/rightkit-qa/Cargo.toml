@@ -18,7 +18,7 @@ browser = ["dep:rightkit-browser", "dep:tokio"]
 rightkit-fs = { version = "0.4.0", path = "../rightkit-fs", default-features = false, features = ["digest", "fs"] }
 rightkit-sidecar = { version = "0.2.0", path = "../rightkit-sidecar" }
 rightkit-daemon = { version = "0.2.0", path = "../rightkit-daemon" }
-rightkit-process = { version = "0.4.0", path = "../rightkit-process" }
+rightkit-child-process = { version = "0.4.0", path = "../rightkit-child-process" }
 rightkit-browser = { version = "0.3.0", path = "../rightkit-browser", optional = true }
 tokio = { version = "1", features = ["rt", "time"], optional = true }
 png = "0.18"

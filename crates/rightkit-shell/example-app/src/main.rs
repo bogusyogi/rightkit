@@ -6,8 +6,8 @@ use std::io::Write;
 use std::path::PathBuf;
 use std::time::Duration;
 
+use rightkit_child_process::OwnedCommand;
 use rightkit_control::embedded::Control;
-use rightkit_process::OwnedCommand;
 use rightkit_shell::engine::EngineSpec;
 use rightkit_shell::{
     ExternalOpener, MenuEntry, MenuGroup, MenuSpec, RecoverySpec, Shell, StreamPolicy, TraySpec,

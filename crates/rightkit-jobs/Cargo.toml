@@ -25,10 +25,10 @@ protocol = ["dep:rightkit-sidecar"]
 # The stdio/CLI command contract: `Dispatcher`, `serve`, `run_cli`, `JobCommands`, `CommandSet`.
 # Implies `store` (the dispatcher drives a `JobStore`/`Runner`) and `protocol`.
 contract = ["store", "protocol"]
-# `EngineSupervisor` / `EngineClient` and the `rightkit-process` re-exports (gates
-# `rightkit-process`). Implies `protocol` only: a shell that supervises an engine needs no
+# `EngineSupervisor` / `EngineClient` and the `rightkit-child-process` re-exports (gates
+# `rightkit-child-process`). Implies `protocol` only: a shell that supervises an engine needs no
 # database. A consumer that also serves or speaks the dispatcher contract adds `contract`.
-supervisor = ["protocol", "dep:rightkit-process"]
+supervisor = ["protocol", "dep:rightkit-child-process"]
 # `DispatcherHandler`: serve a `Dispatcher` over `rightkit-daemon` (gates `rightkit-daemon`).
 # Implies `contract`.
 service = ["contract", "dep:rightkit-daemon"]
@@ -44,7 +44,7 @@ ffi = ["supervisor", "dep:rightkit-daemon"]
 rightkit-fs = { version = "0.4.0", path = "../rightkit-fs", default-features = false, features = ["digest", "lock"], optional = true }
 rightkit-db = { version = "0.4.0", path = "../rightkit-db", features = ["bundled", "statement-cache"], optional = true }
 rightkit-sidecar = { version = "0.2.0", path = "../rightkit-sidecar", optional = true }
-rightkit-process = { version = "0.4.0", path = "../rightkit-process", optional = true }
+rightkit-child-process = { version = "0.4.0", path = "../rightkit-child-process", optional = true }
 rightkit-crash = { version = "0.2.2", path = "../rightkit-crash", default-features = false, optional = true }
 rightkit-daemon = { version = "0.2.0", path = "../rightkit-daemon", optional = true }
 serde = { version = "1.0.228", features = ["derive"] }
