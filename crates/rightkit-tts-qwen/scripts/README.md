@@ -1,7 +1,7 @@
 # Qwen3-TTS 1.7B → QTS GGUF
 
 `export_1p7b.py` exports official local **12Hz 1.7B CustomVoice or VoiceDesign**
-checkpoints for rightkit-qts 0.2.0. Requires Python ≥3.10, NumPy & `gguf>=0.18.0`
+checkpoints for rightkit-tts-qwen 0.2.0. Requires Python ≥3.10, NumPy & `gguf>=0.18.0`
 in caller's Python environment. No Torch, Transformers, safetensors Python
 package, model downloads or ONNX export are needed. BF16 safetensors decode
 directly through NumPy; `gguf.quants.quantize` supplies upstream Q8_0 conversion.
@@ -11,13 +11,13 @@ directly through NumPy; `gguf.quants.quantize` supplies upstream Q8_0 conversion
 Header-only inventory requires Python standard library only; reads no weights:
 
 ```sh
-python3 crates/rightkit-qts/scripts/inspect_safetensors_header.py /path/to/model.safetensors
+python3 crates/rightkit-tts-qwen/scripts/inspect_safetensors_header.py /path/to/model.safetensors
 ```
 
 From RightKit checkout:
 
 ```sh
-python3 crates/rightkit-qts/scripts/export_1p7b.py \
+python3 crates/rightkit-tts-qwen/scripts/export_1p7b.py \
   --model-dir /path/to/Qwen3-TTS-12Hz-1.7B-CustomVoice \
   --weights /Volumes/D/.cache/qts-1p7b/Qwen3-TTS-12Hz-1.7B-CustomVoice/model.safetensors \
   --mode customvoice \
@@ -57,7 +57,7 @@ Summary prints per-file tensor/storage counts, exact bytes/MiB, projection
 
 ## Loader contract
 
-References below name functions & source lines in rightkit-qts 0.2.0.
+References below name functions & source lines in rightkit-tts-qwen 0.2.0.
 Metadata integers use **U32**, scalars use **F32**, dialects/identity use
 **STRING** & tokenizer token/merge lists use **ARRAY of STRING**.
 

@@ -115,7 +115,7 @@ test("provider request fingerprint ignores comments, examples, unrelated domains
   try {
     assert.equal(spawnSync("git", ["-C", root, "init", "-q"], { windowsHide: true }).status, 0);
     mkdirSync(path.join(root, "src"));
-    writeFileSync(path.join(root, "Cargo.toml"), '[package]\nname = "consumer"\nversion = "0.1.0"\n[dependencies]\nqts = { package = "rightkit-qts", version = "0.2.1" }\n');
+    writeFileSync(path.join(root, "Cargo.toml"), '[package]\nname = "consumer"\nversion = "0.1.0"\n[dependencies]\nqts = { package = "rightkit-tts-qwen", version = "0.2.1" }\n');
     writeFileSync(path.join(root, "src/main.rs"), [
       '// client.post("https://api.anthropic.com/v1/messages");',
       'let example = r#"client.post("https://api.openai.com/v1/responses")"#;',

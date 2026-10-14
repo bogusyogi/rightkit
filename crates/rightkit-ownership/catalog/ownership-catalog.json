@@ -2076,33 +2076,6 @@
       ]
     },
     {
-      "package": "rightkit-qts",
-      "capability": "text-to-speech",
-      "summary": "Qwen3 TTS inference (GGUF + GGML), vendored from yet-another-ai/qts v0.2.0 for RightKit",
-      "fingerprints": [
-        {
-          "id": "qts.cargo.qts",
-          "type": "dependency",
-          "ecosystem": "cargo",
-          "name": "qts",
-          "tier": "advise",
-          "usageContext": {
-            "hosts": [
-              "macos",
-              "windows"
-            ],
-            "scope": "cargo direct competing dependency; transitive findings require authenticated reachability"
-          },
-          "tierReason": "No recorded published-version qualification for this usage context on both macOS & Windows."
-        }
-      ],
-      "detection": "fingerprinted",
-      "policyNotes": [
-        "Rust library alias qts is adoption, not competing dependency when package is rightkit-qts.",
-        "Fingerprints identify review candidates; published two-host replacement qualification is not recorded."
-      ]
-    },
-    {
       "package": "rightkit-record",
       "capability": "screen-recording",
       "summary": "Platform-neutral recorder core: start/stop/status lifecycle with partial-bundle quarantine and stale-session recovery, immutable hashed session bundles (record-session v1 manifest, record-event v1 telemetry), per-field redaction before persistence, bundle verification, the step-to-frame reader, and the helper wire protocol (length-prefixed JSON via rightkit-framed-sidecar) with ProcessBackend and serve_backend. Windows capture (Windows.Graphics.Capture and Media Foundation, src/windows, cfg(windows)) and the rightkit-record-helper binary live in this crate.",
@@ -2676,9 +2649,36 @@
       ]
     },
     {
+      "package": "rightkit-tts-qwen",
+      "capability": "text-to-speech",
+      "summary": "Qwen3 TTS inference (GGUF + GGML), vendored from yet-another-ai/qts v0.2.0 for RightKit",
+      "fingerprints": [
+        {
+          "id": "qts.cargo.qts",
+          "type": "dependency",
+          "ecosystem": "cargo",
+          "name": "qts",
+          "tier": "advise",
+          "usageContext": {
+            "hosts": [
+              "macos",
+              "windows"
+            ],
+            "scope": "cargo direct competing dependency; transitive findings require authenticated reachability"
+          },
+          "tierReason": "No recorded published-version qualification for this usage context on both macOS & Windows."
+        }
+      ],
+      "detection": "fingerprinted",
+      "policyNotes": [
+        "Rust library alias qts is adoption, not competing dependency when package is rightkit-tts-qwen.",
+        "Fingerprints identify review candidates; published two-host replacement qualification is not recorded."
+      ]
+    },
+    {
       "package": "rightkit-tts-qwen-sys",
       "capability": "text-to-speech",
-      "summary": "Low-level FFI bindings to ggml (CPU, Metal, Vulkan, BLAS) for rightkit-qts, vendored from yet-another-ai/qts v0.2.0",
+      "summary": "Low-level FFI bindings to ggml (CPU, Metal, Vulkan, BLAS) for rightkit-tts-qwen, vendored from yet-another-ai/qts v0.2.0",
       "fingerprints": [
         {
           "id": "qts-ggml-sys.cargo.qts-ggml-sys",

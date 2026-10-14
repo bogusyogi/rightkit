@@ -1,4 +1,4 @@
-# rightkit-qts
+# rightkit-tts-qwen
 
 Native Qwen3-TTS inference for Right Suite apps: GGUF and GGML talker and code-predictor models, a tokenizer GGUF, and a shared 12 Hz ONNX vocoder. It is vendored from QTS v0.2.0 (see [PINNED.md](PINNED.md)). The Rust library name is `qts`. It owns synthesis (base, custom voice, and voice design modes), streaming, model-path resolution, and the GGUF export contract. It does not own voice selection UX, model downloads, or worker lifetime. `rightkit-tts` wraps this crate in a worker with idle unload.
 
@@ -189,7 +189,7 @@ metadata. New contract:
 
 ## Synthetic tests
 
-These are the crate's unit tests in `src/`. Run them with `rightkit cargo test -p rightkit-qts`.
+These are the crate's unit tests in `src/`. Run them with `rightkit cargo test -p rightkit-tts-qwen`.
 
 Unit fixtures use tiny local GGUFs & tensors. Coverage includes independent
 2048/1024 metadata, 4→2 projection math/bias, cached/recompute equivalence for

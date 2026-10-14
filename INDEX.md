@@ -53,7 +53,6 @@ The build broker is the Rust RustRight product (`bogusyogi/rustright`, binary `r
 | `rightkit-playback` | crates.io | 0.2.0 | 0.1.1 | 0.1.2 | **MISMATCH staged 0.1.2 != source 0.2.0** | media-playback | Source-preserving FFmpeg compatibility playback preparation for Right Suite media apps. |
 | `rightkit-process` | crates.io | 0.4.0 | 0.3.3 | 0.3.3 | **MISMATCH staged 0.3.3 != source 0.4.0** | owned-processes | Ownership-safe child lifecycle, restart, and health primitives for Right Suite apps. |
 | `rightkit-qa` | crates.io | 0.2.16 | 0.2.14 | 0.2.15 | **MISMATCH staged 0.2.15 != source 0.2.16** | desktop-qa | Rust QA harness for Right Suite apps: engine black-box scenarios, hidden native UI driving through rightkit-control, Rust-test scenario wrapper, dynamic paid-provider mocks, loudness/WAV/PNG/frame validators, run lock, orphan sweep, hashed evidence. |
-| `rightkit-qts` | crates.io | 0.2.6 | 0.2.5 | 0.2.5 | **MISMATCH staged 0.2.5 != source 0.2.6** | text-to-speech | Qwen3 TTS inference (GGUF + GGML), vendored from yet-another-ai/qts v0.2.0 for RightKit |
 | `rightkit-record` | private | 0.2.0 | none recorded |  | private | screen-recording | Platform-neutral core of the RightKit recorder (RK3): record lifecycle, quarantine and recovery, session bundle writer, per-field redaction, bundle verification and frame reader. OS capture lives in per-platform helpers behind the Backend trait. |
 | `rightkit-review` | crates.io | 0.2.0 | none recorded | 0.1.0 | **MISMATCH staged 0.1.0 != source 0.2.0** | content-review | Shared review capability for the content pipeline: deterministic checks over a media or text description, declared holds, a capped repair loop, an advisory judge interface, and versioned verdict records. |
 | `rightkit-sandbox` | crates.io | 0.3.5 | 0.3.4 | 0.3.4 | **MISMATCH staged 0.3.4 != source 0.3.5** | os-sandbox | Shared OS sandbox, PTY lease, process-tree, and reserve-before-spawn resource authority for Right Suite apps. |
@@ -68,7 +67,8 @@ The build broker is the Rust RustRight product (`bogusyogi/rustright`, binary `r
 | `rightkit-tauri` | crates.io | 0.1.3 | 0.1.2 | 0.1.2 | **MISMATCH staged 0.1.2 != source 0.1.3** | tauri-host-adapters | Native host services for Right Suite Tauri license and device adapters. |
 | `rightkit-transcript` | crates.io | 0.3.0 | 0.2.0 | 0.2.0 | **MISMATCH staged 0.2.0 != source 0.3.0** | timed-transcripts | Product-neutral word-timed transcript contract, cue segmentation, and SRT/VTT/JSON import and export for Right Suite applications |
 | `rightkit-tts` | crates.io | 0.2.0 | 0.1.1 | 0.1.1 | **MISMATCH staged 0.1.1 != source 0.2.0** | text-to-speech | Shared local text-to-speech for Right Suite apps: OS voices (say / SAPI) and a Qwen3-TTS QTS worker client |
-| `rightkit-tts-qwen-sys` | crates.io | 0.1.2 | none recorded |  | **MISMATCH public package has no release record** | text-to-speech | Low-level FFI bindings to ggml (CPU, Metal, Vulkan, BLAS) for rightkit-qts, vendored from yet-another-ai/qts v0.2.0 |
+| `rightkit-tts-qwen` | crates.io | 0.2.6 | none recorded |  | **MISMATCH public package has no release record** | text-to-speech | Qwen3 TTS inference (GGUF + GGML), vendored from yet-another-ai/qts v0.2.0 for RightKit |
+| `rightkit-tts-qwen-sys` | crates.io | 0.1.2 | none recorded |  | **MISMATCH public package has no release record** | text-to-speech | Low-level FFI bindings to ggml (CPU, Metal, Vulkan, BLAS) for rightkit-tts-qwen, vendored from yet-another-ai/qts v0.2.0 |
 | `rightkit-vad` | crates.io | 0.1.0 | 0.0.3 | 0.0.3 | **MISMATCH staged 0.0.3 != source 0.1.0** | voice-activity-detection | Product-neutral voice activity detection: Silero scorer, hysteresis/padding/chunking policy, streaming frame carry |
 | `rightkit-watch` | crates.io | 0.4.0 | 0.3.1 | 0.3.2 | **MISMATCH staged 0.3.2 != source 0.4.0** | file-watching | Filesystem watching for Right Suite apps: ref-counted async subscribers, debounced file-set and directory watchers, and rename-storm coalescing. |
 
@@ -103,4 +103,4 @@ The build broker is the Rust RustRight product (`bogusyogi/rustright`, binary `r
 
 ## Version records without a manifest
 
-rightkit-qts-ggml (cargo), rightkit-qts-ggml-sys (cargo), rightkit-service (cargo).
+rightkit-qts (cargo), rightkit-qts-ggml (cargo), rightkit-qts-ggml-sys (cargo), rightkit-service (cargo).

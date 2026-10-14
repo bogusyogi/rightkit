@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Export local Qwen3-TTS 12Hz 1.7B weights for rightkit-qts 0.2.0.
+"""Export local Qwen3-TTS 12Hz 1.7B weights for rightkit-tts-qwen 0.2.0.
 
 Requires Python >=3.10, numpy & gguf>=0.18.0; no Torch or network access.
 GGUF serialization follows vendored ggml/include/gguf.h. Quantization uses

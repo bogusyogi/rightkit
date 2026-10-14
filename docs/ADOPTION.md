@@ -16,9 +16,9 @@ Status values compare each pin with the latest published version (registry-recor
 ## Summary
 
 - Packages in RightKit: 79 (55 crates, 24 npm packages).
-- Packages with at least one app pin: 65.
-- App pins: 765. Stale: 41. Ahead of published: 163. Unpublished: 11. Local: 438. Git: 0. Unparsed: 0.
-- Vendored copies of RightKit packages inside app repos: 230.
+- Packages with at least one app pin: 64.
+- App pins: 762. Stale: 41. Ahead of published: 163. Unpublished: 11. Local: 435. Git: 0. Unparsed: 0.
+- Vendored copies of RightKit packages inside app repos: 227.
 - App and package pairs with more than one requirement: 95.
 
 ## Packages
@@ -62,7 +62,6 @@ Status values compare each pin with the latest published version (registry-recor
 | `rightkit-playback` | crates.io | 0.2.0 | 0.1.1 | 2 | cutright, scraperight | 4 vendored copies; 2 ahead of published |
 | `rightkit-process` | crates.io | 0.4.0 | 0.3.3 | 7 | coderight, cutright, genright, heardright, postright, scraperight, viewright | 8 vendored copies; 10 ahead of published |
 | `rightkit-qa` | crates.io | 0.2.16 | 0.2.14 | 6 | cutright, genright, heardright, postright, scraperight, viewright | 7 vendored copies; 5 ahead of published |
-| `rightkit-qts` | crates.io | 0.2.6 | 0.2.5 | 3 | genright, heardright, viewright | 3 vendored copies |
 | `rightkit-record` | private | 0.2.0 | none recorded | 0 | none | 2 vendored copies |
 | `rightkit-review` | crates.io | 0.2.0 | none recorded | 2 | cutright, postright | 4 vendored copies |
 | `rightkit-sandbox` | crates.io | 0.3.5 | 0.3.4 | 1 | coderight | 2 vendored copies |
@@ -77,6 +76,7 @@ Status values compare each pin with the latest published version (registry-recor
 | `rightkit-tauri` | crates.io | 0.1.3 | 0.1.2 | 6 | coderight, heardright, mailright, postright, scraperight, viewright | 5 vendored copies; 1 stale; 2 ahead of published |
 | `rightkit-transcript` | crates.io | 0.3.0 | 0.2.0 | 5 | cutright, genright, heardright, scraperight, viewright | 5 vendored copies; 5 ahead of published |
 | `rightkit-tts` | crates.io | 0.2.0 | 0.1.1 | 1 | genright | 3 vendored copies; 1 ahead of published |
+| `rightkit-tts-qwen` | crates.io | 0.2.6 | none recorded | 0 | none | - |
 | `rightkit-tts-qwen-sys` | crates.io | 0.1.2 | none recorded | 0 | none | - |
 | `rightkit-vad` | crates.io | 0.1.0 | 0.0.3 | 4 | cutright, heardright, scraperight, viewright | 4 vendored copies; 3 ahead of published |
 | `rightkit-watch` | crates.io | 0.4.0 | 0.3.1 | 2 | coderight, viewright | 4 vendored copies; 2 ahead of published |
@@ -677,9 +677,6 @@ Status values compare each pin with the latest published version (registry-recor
 | `rightkit-qa` | viewright | `viewright/src-tauri/qa-e2e/Cargo.toml` | dev-dependencies | `=0.2.16` | 0.2.14 | ahead |
 | `rightkit-qa` | viewright | `viewright/tmp/rk-trial-2d1c2c02/crates/rightkit-models/Cargo.toml` | dev-dependencies | `0.2.8` | 0.2.14 | local |
 | `rightkit-qa` | viewright | `viewright/tmp/rk-trial-2d1c2c02/crates/rightkit-shell/example-app/Cargo.toml` | dev-dependencies | `*` | 0.2.14 | local |
-| `rightkit-qts` | genright | `genright/rk-snapshot/crates/rightkit-tts/Cargo.toml` | dependencies | `0.2.6` | 0.2.5 | local |
-| `rightkit-qts` | heardright | `heardright/rk-snapshot/crates/rightkit-tts/Cargo.toml` | dependencies | `0.2.6` | 0.2.5 | local |
-| `rightkit-qts` | viewright | `viewright/tmp/rk-trial-2d1c2c02/crates/rightkit-tts/Cargo.toml` | dependencies | `0.2.6` | 0.2.5 | local |
 | `rightkit-review` | cutright | `cutright/crates/cutright-qa/Cargo.toml` | dependencies | `=0.2.0` | none recorded | unpublished |
 | `rightkit-review` | postright | `postright/crates/engine/Cargo.toml` | dependencies | `=0.2.0` | none recorded | unpublished |
 | `rightkit-sandbox` | coderight | `coderight/engine/crates/tools/Cargo.toml` | dependencies | `=0.3.4` | 0.3.4 | current |
@@ -1044,9 +1041,6 @@ Vendored copies are app-owned source trees that carry a RightKit package name. T
 | `rightkit-qa` | viewright | `viewright/tmp/rk-trial-2d1c2c02/crates/rightkit-qa/Cargo.toml` | 0.2.16 | 0.2.14 |
 | `rightkit-qa` | heardright | `heardright/rk-snapshot/crates/rightkit-qa/Cargo.toml` | 0.2.16 | 0.2.14 |
 | `rightkit-qa` | postright | `postright/rk-snapshot/crates/rightkit-qa/Cargo.toml` | 0.2.16 | 0.2.14 |
-| `rightkit-qts` | genright | `genright/rk-snapshot/crates/rightkit-qts/Cargo.toml` | 0.2.6 | 0.2.5 |
-| `rightkit-qts` | viewright | `viewright/tmp/rk-trial-2d1c2c02/crates/rightkit-qts/Cargo.toml` | 0.2.6 | 0.2.5 |
-| `rightkit-qts` | heardright | `heardright/rk-snapshot/crates/rightkit-qts/Cargo.toml` | 0.2.6 | 0.2.5 |
 | `rightkit-record` | viewright | `viewright/tmp/rk-trial-2d1c2c02/crates/rightkit-record/Cargo.toml` | 0.2.0 | none recorded |
 | `rightkit-record` | heardright | `heardright/rk-snapshot/crates/rightkit-record/Cargo.toml` | 0.2.0 | none recorded |
 | `rightkit-review` | cutright | `cutright/rk-snapshot/crates/rightkit-review/Cargo.toml` | 0.2.0 | none recorded |
@@ -1217,10 +1211,10 @@ Split pins: one app names the same package with different requirements, possibly
 | App | Present | Manifests read | Parse errors | RightKit pins matched |
 |---|---|---|---|---|
 | cutright | yes | 55 | 0 | 93 |
-| genright | yes | 35 | 0 | 83 |
+| genright | yes | 35 | 0 | 82 |
 | scraperight | yes | 44 | 0 | 112 |
-| viewright | yes | 95 | 0 | 175 |
-| heardright | yes | 79 | 0 | 154 |
+| viewright | yes | 95 | 0 | 174 |
+| heardright | yes | 79 | 0 | 153 |
 | coderight | yes | 101 | 0 | 58 |
 | mailright | yes | 3 | 0 | 16 |
 | postright | yes | 30 | 0 | 66 |

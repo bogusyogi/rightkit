@@ -2,6 +2,8 @@
 
 ## 0.2.6 - 2026-10-11
 
+Renamed from rightkit-qts; 0.2.5 remains published under the old name.
+
 - Add `PresetSpeaker::parse(&str) -> Option<PresetSpeaker>`: trims whitespace, ignores ASCII case,
   and accepts only the `as_str` names (`"uncle_fu"`, not `"uncle-fu"`).
 - Add `ModeModelPaths::with_vocoder` and `Qwen3TtsEngine::from_model_dir_for_mode_with_vocoder(dir,

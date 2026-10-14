@@ -38,7 +38,7 @@ pub const HF_REPO: &str = "dsh0416/Qwen3-TTS-12Hz-0.6B-Base-QTS";
 /// Total download size of the two model files.
 pub const DOWNLOAD_BYTES: u64 = 1_325_190_016 + 459_514_304;
 
-/// One file of a 1.7B mode export, named as `rightkit-qts`'s exporter writes it (q8_0).
+/// One file of a 1.7B mode export, named as `rightkit-tts-qwen`'s exporter writes it (q8_0).
 /// `bytes` and `sha256` stay `None` until an export is pinned; an unpinned file is not
 /// verified here, and the worker's path resolution reports it as `model_missing`.
 pub struct ModeManifestFile {
@@ -252,7 +252,7 @@ pub fn base_files_present(dir: &Path, vocoder: &Path) -> bool {
     sized_file(&dir.join(MANIFEST[0].name), MANIFEST[0].bytes) && vocoder_ok(dir, vocoder)
 }
 
-/// GGUF files a 1.7B mode needs in `dir`, named as `rightkit-qts` resolves them: a bundled
+/// GGUF files a 1.7B mode needs in `dir`, named as `rightkit-tts-qwen` resolves them: a bundled
 /// `qwen3-tts-1.7b-<mode>-<quant>.gguf` if one exists, else the per-component files
 /// `-talker-`, `-code-predictor-` and `-tokenizer`. Quantizations are tried in qts order
 /// (f16, q8_0, q6_k, q5_k, q4_k); a component with none present is reported under its f16 name,
@@ -450,7 +450,7 @@ pub fn verify_base(dir: &Path, vocoder: &Path, full: bool) -> Result<(), String>
 }
 
 /// Verify the pinned files of a 1.7B mode export. Unpinned entries are skipped: their presence is
-/// checked by the worker through `rightkit-qts` path resolution, which also accepts other
+/// checked by the worker through `rightkit-tts-qwen` path resolution, which also accepts other
 /// quantizations. Base has no mode manifest and always passes.
 pub fn verify_mode(dir: &Path, mode: Mode, full: bool) -> Result<(), String> {
     let Some(manifest) = mode_manifest(mode) else {

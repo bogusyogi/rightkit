@@ -3,7 +3,7 @@
 Shared local text-to-speech for Right Suite apps. It owns two backends and the worker that runs one of them:
 
 - `system`: renders to an isolated WAV file through macOS `say` and `afconvert`, or Windows SAPI (`src/system.rs`). It never plays audio.
-- `engine`: the Qwen3-TTS QTS worker, through `rightkit-qts`. `QtsClient` owns the worker lifetime and its idle unload policy (`QtsClient::new(idle_secs)`). The worker is the `rightkit-tts-worker` binary.
+- `engine`: the Qwen3-TTS QTS worker, through `rightkit-tts-qwen`. `QtsClient` owns the worker lifetime and its idle unload policy (`QtsClient::new(idle_secs)`). The worker is the `rightkit-tts-worker` binary.
 
 The `system` backend returns a PCM WAV, a word-timed `Transcript` from `rightkit-transcript`, and a manifest (`SystemTtsResult`, `src/system.rs:128-133`). The `engine` backend returns a PCM WAV and timing totals (`SynthResult`, `src/client.rs:718-727`) with no word timings.
 
@@ -17,7 +17,7 @@ The `system` backend returns a PCM WAV, a word-timed `Transcript` from `rightkit
 |---|---|---|---|
 | `system` | on | `rightkit-transcript`, `thiserror` | The OS voice backend (`say`/`afconvert` on macOS, SAPI on Windows) and the word-timed transcript. |
 | `client` | on | `rightkit-ort`, `rightkit-process`, `rightkit-fs` (`digest`), `serde`, `serde_json` | QTS worker client (`QtsClient`, chunking, model manifest checks). |
-| `engine` | off | `client`, `qts` (`rightkit-qts`), `libc` on Unix | The Qwen3-TTS QTS worker backend and the `rightkit-tts-worker` binary. |
+| `engine` | off | `client`, `qts` (`rightkit-tts-qwen`), `libc` on Unix | The Qwen3-TTS QTS worker backend and the `rightkit-tts-worker` binary. |
 | `metal` | off | `engine`, `qts/metal` | QTS with the Metal backend (Apple). |
 | `vulkan` | off | `engine`, `qts/vulkan` | QTS with the Vulkan backend. |
 

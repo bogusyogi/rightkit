@@ -1,5 +1,5 @@
 {
-  "package": "rightkit-qts",
+  "package": "rightkit-tts-qwen",
   "capabilities": [
     {
       "capability": "text-to-speech",
@@ -23,7 +23,7 @@
       ],
       "detection": "fingerprinted",
       "policyNotes": [
-        "Rust library alias qts is adoption, not competing dependency when package is rightkit-qts.",
+        "Rust library alias qts is adoption, not competing dependency when package is rightkit-tts-qwen.",
         "Fingerprints identify review candidates; published two-host replacement qualification is not recorded."
       ]
     }

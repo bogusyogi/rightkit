@@ -3,7 +3,7 @@
   "capabilities": [
     {
       "capability": "text-to-speech",
-      "summary": "Low-level FFI bindings to ggml (CPU, Metal, Vulkan, BLAS) for rightkit-qts, vendored from yet-another-ai/qts v0.2.0",
+      "summary": "Low-level FFI bindings to ggml (CPU, Metal, Vulkan, BLAS) for rightkit-tts-qwen, vendored from yet-another-ai/qts v0.2.0",
       "fingerprints": [
         {
           "id": "qts-ggml-sys.cargo.qts-ggml-sys",

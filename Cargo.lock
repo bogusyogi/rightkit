@@ -5653,19 +5653,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "rightkit-qts"
-version = "0.2.6"
-dependencies = [
- "getrandom 0.3.4",
- "hound",
- "prost",
- "rightkit-ort",
- "rightkit-tts-qwen-sys",
- "rustfft",
- "thiserror 2.0.21",
-]
-
-[[package]]
 name = "rightkit-record"
 version = "0.2.0"
 dependencies = [
@@ -5828,10 +5815,23 @@ dependencies = [
  "rightkit-fs",
  "rightkit-ort",
  "rightkit-process",
- "rightkit-qts",
  "rightkit-transcript",
+ "rightkit-tts-qwen",
  "serde",
  "serde_json",
+ "thiserror 2.0.21",
+]
+
+[[package]]
+name = "rightkit-tts-qwen"
+version = "0.2.6"
+dependencies = [
+ "getrandom 0.3.4",
+ "hound",
+ "prost",
+ "rightkit-ort",
+ "rightkit-tts-qwen-sys",
+ "rustfft",
  "thiserror 2.0.21",
 ]
 
