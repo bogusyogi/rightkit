@@ -30,18 +30,20 @@ const refuse = (message) => { throw new LocalPublishError(message); };
 
 export function parseLocalPublishArgs(kind, argv, cwd = process.cwd()) {
   const flag = kind === "npm" ? "--package" : "--crate";
-  let unit; let workspace; let local = false;
+  let unit; let workspace; let local = false; let allowIgnored = false;
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i];
     if (arg === "--local") local = true;
     else if (arg === flag) unit = argv[++i];
     else if (arg === "--workspace") workspace = argv[++i];
-    else refuse(`unknown publish ${kind} --local option: ${arg} (accepted: ${flag} <name>, --workspace <dir>, --local)`);
+    // Same meaning as publish.yml's allow_ignored: this unit may have ignored tests; the count is recorded.
+    else if (arg === "--allow-ignored") allowIgnored = true;
+    else refuse(`unknown publish ${kind} --local option: ${arg} (accepted: ${flag} <name>, --workspace <dir>, --allow-ignored, --local)`);
   }
   if (!local) refuse("--local is required");
   if (kind === "npm" && !/^@rightkit\/[a-z0-9-]+$/.test(unit ?? "")) refuse("publish npm --local requires --package @rightkit/<name>");
   if (kind === "cargo" && !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(unit ?? "")) refuse("publish cargo --local requires --crate <name>");
-  return { kind, unit, workspaceRoot: path.resolve(workspace ?? cwd) };
+  return { kind, unit, allowIgnored, workspaceRoot: path.resolve(workspace ?? cwd) };
 }
 
 function defaultGit(args, cwd) {
@@ -107,7 +109,7 @@ const tail = (text, lines = 40) => String(text ?? "").split(/\r?\n/).slice(-line
 
 export async function runLocalPublish(kind, argv, deps = {}) {
   const log = deps.log ?? ((line) => process.stdout.write(`${line}\n`));
-  const { unit, workspaceRoot } = parseLocalPublishArgs(kind, argv, deps.cwd);
+  const { unit, allowIgnored, workspaceRoot } = parseLocalPublishArgs(kind, argv, deps.cwd);
   const platform = deps.platform ?? process.platform;
   const git = deps.git ?? defaultGit;
   const readJson = deps.readJson ?? defaultReadJson;
@@ -170,7 +172,7 @@ export async function runLocalPublish(kind, argv, deps = {}) {
     }
     steps.push(row);
   }
-  const verdict = judgeUnit({ name: unit, steps: steps.map((s) => ({ ...s, unit: plan.id })), allowIgnored: [], allowMissingAssets: isAssetGated ? [unit] : [] });
+  const verdict = judgeUnit({ name: unit, steps: steps.map((s) => ({ ...s, unit: plan.id })), allowIgnored: allowIgnored ? [unit] : [], allowMissingAssets: isAssetGated ? [unit] : [] });
   if (verdict.status === "fail" || steps.some((s) => s.failed > 0)) refuse(`${plan.id} not qualified: ${verdict.problems.join("; ") || "failed tests reported"}`);
   if (!(verdict.executed > 0)) refuse(`${plan.id} executed no test`);
   log(`[right-release] ${plan.id}: ${verdict.executed} passed, 0 failed, ${verdict.skipped} skipped, ${verdict.ignored} ignored${isAssetGated ? " (asset-gated: RIGHTKIT_REQUIRE_ASSETS=0, skips recorded)" : ""}`);
@@ -212,7 +214,7 @@ export async function runLocalPublish(kind, argv, deps = {}) {
       runs: [{
         host: { os: "darwin", arch: deps.arch ?? process.arch }, commit: head, features: plan.featureLabels, artifactSha256,
         command: commands.join(" && "), operator: LOCAL_OPERATOR, timestamp,
-        passed: verdict.executed, failed: 0, skipped: verdict.skipped, ignored: verdict.ignored,
+        passed: verdict.executed, failed: 0, skipped: verdict.skipped, ignored: verdict.ignored, allowIgnored,
         requireAssets: env.RIGHTKIT_REQUIRE_ASSETS, assetGated: isAssetGated,
         steps: steps.map(({ command, ok, executed, failed, ignored, skipped, binaries }) => ({ command, ok, ...(executed === undefined ? {} : { executed, failed, ignored, skipped, binaries }) })),
       }],
