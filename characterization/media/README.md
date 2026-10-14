@@ -1,7 +1,7 @@
 # RightKit media characterization
 
 This is the Phase 5 pre-extraction record for HeardRight and ScrapeRight. It
-does **not** publish `rightkit-media` or migrate either app. It freezes what the
+does **not** publish `rightkit-ffmpeg` or migrate either app. It freezes what the
 two implementations do today and names every gap that must close before the
 shared crate can publish.
 
@@ -45,7 +45,7 @@ these hashes are evidence only and do not satisfy the shared-artifact gate.
 
 ## Extraction rule
 
-`contract.json` is the gate. `rightkit-media` remains unpublished and apps stay
+`contract.json` is the gate. `rightkit-ffmpeg` remains unpublished and apps stay
 unmigrated until all listed gaps close. The eventual shared implementation must
 use an immutable signed artifact catalog, verify SHA-256 before staging and
 execution, fail closed in installed builds, reject forbidden configuration,

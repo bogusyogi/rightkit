@@ -1,5 +1,5 @@
 #!/bin/bash
-# Reproducible LGPL FFmpeg/FFprobe builds for the rightkit-media artifact catalog (Windows x64).
+# Reproducible LGPL FFmpeg/FFprobe builds for the rightkit-ffmpeg artifact catalog (Windows x64).
 # Windows twin of build-ffmpeg-macos.sh: same pinned sources, same LGPL-only posture.
 #
 # Toolchain: MSYS2 MINGW64 shell (MSYSTEM=MINGW64; msvcrt runtime, the one the approved decode

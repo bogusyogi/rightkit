@@ -8,7 +8,7 @@ Purpose: Right Suite export pipelines in one binary:
   - zlib (PNG), h264_videotoolbox + AAC encode,
 keeping the catalog's LGPL-only, no-autodetect posture (no --enable-gpl, no --enable-nonfree).
 
-Recipe: crates/rightkit-media/recipes/build-ffmpeg-macos.sh (pinned sources and their
+Recipe: crates/rightkit-ffmpeg/recipes/build-ffmpeg-macos.sh (pinned sources and their
         upstream evidence in recipes/ffmpeg-sources.json; the build refuses unpinned or
         mismatched sources).
 
@@ -155,7 +155,7 @@ ship the notices plus a written source offer covering their complete sources and
 recipe so a recipient can rebuild/relink. FreeType's FTL requires the credit line in
 product documentation.
 
-To reproduce (from rightkit/crates/rightkit-media on a macOS build host):
+To reproduce (from rightkit/crates/rightkit-ffmpeg on a macOS build host):
   recipes/build-ffmpeg-macos.sh fetch --variant export-ass --sources <src-dir>
   MESON=<venv>/bin/meson NINJA=<venv>/bin/ninja recipes/build-ffmpeg-macos.sh build \
     --variant export-ass --arch arm64|x86_64 --tool ffmpeg \

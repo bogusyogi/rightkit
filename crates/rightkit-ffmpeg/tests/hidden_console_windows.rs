@@ -9,7 +9,7 @@
 
 #![cfg(windows)]
 
-use rightkit_media::{
+use rightkit_ffmpeg::{
     runner::{run_capture_with, RunOptions},
     CancellationToken, DevFfmpeg, FfmpegCommand,
 };

@@ -5,7 +5,7 @@
     "rightkit-audio": "FFmpeg development build",
     "rightkit-automation": "desktop session for the end-to-end tests (e2e_mac, e2e_win)",
     "rightkit-browser": "Chrome for Testing for the end-to-end tests",
-    "rightkit-media": "FFmpeg and ffprobe development builds",
+    "rightkit-ffmpeg": "FFmpeg and ffprobe development builds",
     "rightkit-ocr": "OCR models and the OS recognizer",
     "rightkit-ort": "ONNX Runtime and model files",
     "rightkit-tts": "TTS engine models",

@@ -19,7 +19,7 @@ test("Mac gates keep all Phase 5 crates internal", { skip: consumersSkip }, asyn
   assert.deepEqual(report.crates, {
     "rightkit-ort": { publish: false },
     "rightkit-ocr": { publish: false },
-    "rightkit-media": { publish: false },
+    "rightkit-ffmpeg": { publish: false },
   });
   assert.deepEqual(report.prematureDependencies, []);
 });

@@ -24,7 +24,7 @@ The crate accepts ordered absolute candidates from the app. It validates the pla
 
 - Apple targets: CoreML provider enabled by the crate (`cfg(target_vendor = "apple")`).
 - Windows: DirectML provider enabled by the crate (`cfg(target_os = "windows")`), plus `windows-sys` as a Windows-only dependency.
-- The approved ONNX Runtime shared library for macOS arm64 is `1.24.4`. It is recorded in `rightkit-media`'s `catalog/native-libraries.json`, not in this crate. Runtime upgrades need a catalog row and real native-host verification.
+- The approved ONNX Runtime shared library for macOS arm64 is `1.24.4`. It is recorded in `rightkit-ffmpeg`'s `catalog/native-libraries.json`, not in this crate. Runtime upgrades need a catalog row and real native-host verification.
 
 Published version: see `INDEX.md` at the repository root. Release notes are in `CHANGELOG.md`.
 
@@ -141,7 +141,7 @@ Rules:
 On success it returns `VerifiedRuntime { dir, platform, onnxruntime, files }`, with `dir`
 canonicalised. `onnxruntime_library_path()` gives `<dir>/<runtime filename>` when that library is
 listed, and `None` otherwise. Verification loads no library and creates no session. The catalog row
-is recorded, not checked; catalog checks belong to the native-library catalog in `rightkit-media`.
+is recorded, not checked; catalog checks belong to the native-library catalog in `rightkit-ffmpeg`.
 
 ## Version policy
 
@@ -149,7 +149,7 @@ The suite pins the Rust `ort` crate to `=2.0.0-rc.13` with `load-dynamic` and
 API 24 enabled in `Cargo.toml`. Upstream `ort` declares `links = "onnxruntime"`, so every crate in one
 build must agree; this repository does not check that upstream metadata. Do not enable `ort/default`; this crate's
 `Cargo.toml` sets `api-24` on its `ort` dependency. The upstream default API floor is not checked here. The approved macOS arm64 ONNX Runtime shared library is
-`1.24.4`, recorded in `rightkit-media`'s native catalog. Runtime upgrades need
+`1.24.4`, recorded in `rightkit-ffmpeg`'s native catalog. Runtime upgrades need
 one catalog row, real native-host verification, and coordinated app migration;
 this crate does not download or silently select a different runtime.
 
@@ -192,4 +192,4 @@ alone records nothing; this diagnostic does not validate or load a library.
 A hosted runner has none of these assets, so each test prints `SKIP <test>: ...` and passes. Set `RIGHTKIT_REQUIRE_ASSETS=1` on a host that must have them, and the test fails instead.
 
 - macOS, `tests/e2e_runtime.rs`, `tests/default_loader.rs`, `tests/session_first.rs`, `tests/explicit_runtime_versioned.rs`: the approved ONNX Runtime 1.24.4 dylib, enabled by `RIGHTKIT_ORT_TEST_DYLIB=<path>` or the `genright/.cache/.../libonnxruntime.1.24.4.dylib` download, found by walking up from the crate.
-- Windows, `tests/e2e_runtime_windows.rs`, `tests/default_loader_windows.rs`, `tests/session_first_windows.rs`, `tests/explicit_runtime_versioned_windows.rs`: the `onnxruntime.dll` and `DirectML.dll` files (catalog row `onnxruntime-1.24.4-windows-x64-directml` is `pinned`, not `approved`, in `rightkit-media/catalog/native-libraries.json`), enabled by `RIGHTKIT_ORT_TEST_DLL_DIR=<dir>` or the HeardRight staging folder `heardright/tauri-app-next/src-tauri/resources/runtime`.
+- Windows, `tests/e2e_runtime_windows.rs`, `tests/default_loader_windows.rs`, `tests/session_first_windows.rs`, `tests/explicit_runtime_versioned_windows.rs`: the `onnxruntime.dll` and `DirectML.dll` files (catalog row `onnxruntime-1.24.4-windows-x64-directml` is `pinned`, not `approved`, in `rightkit-ffmpeg/catalog/native-libraries.json`), enabled by `RIGHTKIT_ORT_TEST_DLL_DIR=<dir>` or the HeardRight staging folder `heardright/tauri-app-next/src-tauri/resources/runtime`.

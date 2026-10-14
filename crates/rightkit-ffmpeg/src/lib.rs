@@ -2236,7 +2236,7 @@ mod tests {
         else {
             crate::test_support::skip_missing(
                 "approved vendor/ffmpeg-lgpl/ffmpeg-win-x64.exe",
-                "vendor/ffmpeg-lgpl under ../../../ or ../../../../ from crates/rightkit-media",
+                "vendor/ffmpeg-lgpl under ../../../ or ../../../../ from crates/rightkit-ffmpeg",
             );
             return;
         };

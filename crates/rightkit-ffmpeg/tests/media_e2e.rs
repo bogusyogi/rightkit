@@ -14,7 +14,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use rightkit_media::{
+use rightkit_ffmpeg::{
     dev_resolve::{resolve_for_development, DevResolved, ResolutionKind},
     loudnorm::{
         measure_loudness, normalize_file, ConvergeOptions, ExportEncoding, LoudnessError,
@@ -186,7 +186,7 @@ fn transcode_reports_progress_and_produces_the_requested_format() {
     let seen = Arc::new(AtomicUsize::new(0));
     let last_ms = Arc::new(AtomicUsize::new(0));
     let (s2, l2) = (Arc::clone(&seen), Arc::clone(&last_ms));
-    let mut cb = move |ev: &rightkit_media::ProgressEvent| {
+    let mut cb = move |ev: &rightkit_ffmpeg::ProgressEvent| {
         s2.fetch_add(1, Ordering::SeqCst);
         l2.store(ev.out_time_ms as usize, Ordering::SeqCst);
     };
@@ -257,7 +257,7 @@ fn cancel_mid_run_stops_ffmpeg_promptly_and_reaps_the_process() {
     let cancel = CancellationToken::new();
     let c2 = cancel.clone();
     let started = Instant::now();
-    let mut cb = move |_: &rightkit_media::ProgressEvent| c2.cancel();
+    let mut cb = move |_: &rightkit_ffmpeg::ProgressEvent| c2.cancel();
     let mut opts = RunOptions::new(Duration::from_secs(300), cancel);
     opts.on_progress = Some(&mut cb);
     let res = run_with_progress(&bin, &cmd, opts);
@@ -334,7 +334,7 @@ fn normalize(
     input: &Path,
     output: &Path,
     encoding: &ExportEncoding,
-) -> Result<rightkit_media::loudnorm::LoudnessReport, LoudnessError> {
+) -> Result<rightkit_ffmpeg::loudnorm::LoudnessReport, LoudnessError> {
     normalize_file(
         bin,
         input,
@@ -371,7 +371,7 @@ fn normalize_converges_within_half_an_lu_keeps_a_measured_render_and_is_confirme
         );
         let out = p(dir.path(), &format!("{name}-norm.wav"));
         let mut events = 0;
-        let mut on_progress = |_: &rightkit_media::ProgressEvent| events += 1;
+        let mut on_progress = |_: &rightkit_ffmpeg::ProgressEvent| events += 1;
         let (report, run) = normalize_file(
             &bin,
             input,

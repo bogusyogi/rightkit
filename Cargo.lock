@@ -5170,7 +5170,7 @@ dependencies = [
  "objc2-core-ml",
  "objc2-foundation",
  "realfft",
- "rightkit-media",
+ "rightkit-ffmpeg",
  "rightkit-ort",
  "rightkit-speech-client",
  "rightkit-transcript",
@@ -5188,7 +5188,7 @@ dependencies = [
  "hound",
  "objc2-core-audio",
  "objc2-core-foundation",
- "rightkit-media",
+ "rightkit-ffmpeg",
  "ringbuf",
  "rubato",
  "serde",
@@ -5347,6 +5347,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "rightkit-ffmpeg"
+version = "0.2.6"
+dependencies = [
+ "rightkit-fs",
+ "rightkit-process",
+ "serde",
+ "serde_json",
+ "tempfile",
+]
+
+[[package]]
 name = "rightkit-file-watch"
 version = "0.4.0"
 dependencies = [
@@ -5493,17 +5504,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "rightkit-media"
-version = "0.2.6"
-dependencies = [
- "rightkit-fs",
- "rightkit-process",
- "serde",
- "serde_json",
- "tempfile",
-]
-
-[[package]]
 name = "rightkit-models"
 version = "0.3.0"
 dependencies = [
@@ -5572,7 +5572,7 @@ dependencies = [
  "half",
  "ndarray",
  "ort",
- "rightkit-media",
+ "rightkit-ffmpeg",
  "serde",
  "serde_json",
  "sha2 0.10.9",
@@ -5629,8 +5629,8 @@ dependencies = [
 name = "rightkit-playback"
 version = "0.2.0"
 dependencies = [
+ "rightkit-ffmpeg",
  "rightkit-fs",
- "rightkit-media",
  "rightkit-process",
  "tauri",
 ]
@@ -5849,7 +5849,7 @@ name = "rightkit-vad"
 version = "0.1.0"
 dependencies = [
  "hound",
- "rightkit-media",
+ "rightkit-ffmpeg",
  "rightkit-ort",
 ]
 

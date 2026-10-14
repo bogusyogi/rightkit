@@ -7,10 +7,10 @@ mod common;
 use std::path::{Path, PathBuf};
 
 #[cfg(target_os = "macos")]
-use rightkit_media::{
+use rightkit_ffmpeg::{
     content_identity_file, resolve_ffmpeg, verify_cache_clear, ContentFormat, ResolutionRequest,
 };
-use rightkit_media::{sha256_file, verify_content, ArtifactCatalog, MediaError, Tool};
+use rightkit_ffmpeg::{sha256_file, verify_content, ArtifactCatalog, MediaError, Tool};
 
 const PUBLISH: &str = "/Volumes/D/rightkit-publish/artifacts";
 

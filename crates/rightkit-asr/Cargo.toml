@@ -51,7 +51,7 @@ objc2-foundation = "0.3"
 [dev-dependencies]
 # The e2e_whisper test drives the Silero scorer, which rightkit-vad now gates behind `silero`.
 rightkit-vad = { version = "0.1.0", path = "../rightkit-vad", features = ["silero"] }
-rightkit-media = { path = "../rightkit-media", version = "0.2.3" }
+rightkit-ffmpeg = { path = "../rightkit-ffmpeg", version = "0.2.3" }
 rightkit-speech-client = { path = "../rightkit-speech-client", version = "0.3.3" }
 
 [features]

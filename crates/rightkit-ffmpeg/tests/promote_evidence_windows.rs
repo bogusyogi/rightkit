@@ -16,7 +16,7 @@
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use rightkit_media::{content_identity_file, sha256_file};
+use rightkit_ffmpeg::{content_identity_file, sha256_file};
 
 const FFMPEG_ENV: &str = "RIGHTKIT_MEDIA_PROMOTE_FFMPEG";
 const FFPROBE_ENV: &str = "RIGHTKIT_MEDIA_PROMOTE_FFPROBE";
@@ -93,7 +93,7 @@ fn check_identity(evidence: &mut Evidence, exe: &Path, id: &str) {
     evidence.line(format!("sha256: {sha256}"));
     evidence.line(format!("size: {size}"));
     evidence.line(format!(
-        "contentSha256 (rightkit_media::content_identity_file, {:?}): {content}",
+        "contentSha256 (rightkit_ffmpeg::content_identity_file, {:?}): {content}",
         identity.format
     ));
 

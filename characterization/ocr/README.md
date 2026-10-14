@@ -27,7 +27,7 @@ file.
 | Detector SHA-256 | `eb13b44b25bb36f89528b68720af8a61d9cf381176107f465db1757b65d086e1` |
 | Recognizer SHA-256 | `5435fd747c9e0efe15a96d0b378d5bd157e9492ed8fd80edf08f30d02fa24634` |
 | Dictionary SHA-256 | `b5f2bfe2bdd9448429e3e82b51c789775d9b42f2403d082b00662eb77e401c5d` |
-| Windows ORT SHA-256 | the `onnxruntime` Windows x86_64 record of `crates/rightkit-media/catalog/native-libraries.json` (the single source; the first characterization run used the `onnxruntime-directml` 1.24.4 PyPI wheel file, which the catalog pin replaces) |
+| Windows ORT SHA-256 | the `onnxruntime` Windows x86_64 record of `crates/rightkit-ffmpeg/catalog/native-libraries.json` (the single source; the first characterization run used the `onnxruntime-directml` 1.24.4 PyPI wheel file, which the catalog pin replaces) |
 | CodeRight output | `RIGHTKIT OCR 2026\nShared parity fixture` |
 | ScrapeRight output | exact match |
 

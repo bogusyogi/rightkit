@@ -150,8 +150,8 @@ fn find_real_runtime_dir() -> Option<PathBuf> {
 /// The catalog record of the Windows x64 runtime, the single source of its digest: the approved
 /// record, or the pinned one while it awaits promotion.
 #[cfg(windows)]
-pub fn windows_runtime_record() -> rightkit_media::native::NativeRecord {
-    use rightkit_media::native::{NativeCatalog, NativeLibrary, NativeStatus};
+pub fn windows_runtime_record() -> rightkit_ffmpeg::native::NativeRecord {
+    use rightkit_ffmpeg::native::{NativeCatalog, NativeLibrary, NativeStatus};
     let catalog = NativeCatalog::embedded().unwrap();
     let mut records = catalog
         .records(NativeLibrary::Onnxruntime)

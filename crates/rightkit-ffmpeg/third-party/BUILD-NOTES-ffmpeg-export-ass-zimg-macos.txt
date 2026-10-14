@@ -12,7 +12,7 @@ meson cross file, same private prefix, same pkg-config confinement); this file r
 what zimg adds. `export-ass` itself is untouched: its rows, digests and licence set keep their
 meaning, and this build is a separate variant id.
 
-Recipe: crates/rightkit-media/recipes/build-ffmpeg-macos.sh --variant export-ass-zimg
+Recipe: crates/rightkit-ffmpeg/recipes/build-ffmpeg-macos.sh --variant export-ass-zimg
         (source pin and evidence in recipes/ffmpeg-sources.json, key "zimg").
 
 FFmpeg configure (exact; arm64): the export-ass line followed by --enable-libzimg
@@ -95,9 +95,9 @@ Catalog: WTFPL was approved as a component licence on 2026-10-11 (ALLOWED_COMPON
 src/lib.rs, CHANGELOG Unreleased). Rows: ffmpeg-7.1.5-export-ass-zimg-macos-arm64 and
 -x86_64, both pending. The variant is new, so the export-ass rows are unchanged and export-ass
 consumers see no difference; consumers that need zscale select variant export-ass-zimg
-(rightkit_media::EXPORT_ASS_ZIMG_VARIANT, or verify_bundled_ffmpeg).
+(rightkit_ffmpeg::EXPORT_ASS_ZIMG_VARIANT, or verify_bundled_ffmpeg).
 
-To reproduce (from rightkit/crates/rightkit-media on a macOS build host):
+To reproduce (from rightkit/crates/rightkit-ffmpeg on a macOS build host):
   recipes/build-ffmpeg-macos.sh fetch --variant export-ass-zimg --sources <src-dir>
   MESON=<venv>/bin/meson NINJA=<venv>/bin/ninja recipes/build-ffmpeg-macos.sh build \
     --variant export-ass-zimg --arch arm64|x86_64 --tool ffmpeg \

@@ -18,7 +18,7 @@ default = ["capture"]
 capture = ["dep:tracing", "dep:cpal", "dep:rubato", "dep:ringbuf", "dep:objc2-core-audio", "dep:objc2-core-foundation", "dep:windows", "dep:windows-core"]
 
 [dependencies]
-rightkit-media = { path = "../rightkit-media", version = "0.2.3", default-features = false }
+rightkit-ffmpeg = { path = "../rightkit-ffmpeg", version = "0.2.3", default-features = false }
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.150"
 thiserror = "2"

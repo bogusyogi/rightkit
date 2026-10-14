@@ -23,7 +23,7 @@ Publication runs through `right-release publish cargo` after exact-commit native
 | rightkit-speech-client | Public candidate | Native receipts; service & framed-sidecar available |
 | rightkit-automation | Public owner (D 2026-10-14); hold for first release | Dedicated Windows input session; publish before agent-tools |
 | rightkit-agent-tools | Public owner (D 2026-10-14); hold for first release | Automation & other optional registry dependencies available |
-| rightkit-media | Public candidate | Approved FFmpeg catalog; current native receipts; process available |
+| rightkit-ffmpeg | Public candidate | Approved FFmpeg catalog; current native receipts; process available |
 | rightkit-playback | Public candidate | Media available; native remux & cancellation receipts |
 | rightkit-audio | Public candidate | Media available; native audio receipts |
 | rightkit-ort | Public; hold | Native runtime/artifact catalog gate |
@@ -41,7 +41,7 @@ Publication runs through `right-release publish cargo` after exact-commit native
 For enabled candidates & their shared prerequisites:
 
 1. `rightkit-fs`, `rightkit-framed-sidecar`, `rightkit-process`, `rightkit-logs`, `rightkit-cache`, `rightkit-pdf`, `rightkit-search`.
-2. `rightkit-db`, `rightkit-daemon`, `rightkit-browser`, `rightkit-sandbox`, `rightkit-crash`, `rightkit-media`.
+2. `rightkit-db`, `rightkit-daemon`, `rightkit-browser`, `rightkit-sandbox`, `rightkit-crash`, `rightkit-ffmpeg`.
 3. `rightkit-jobs`, `rightkit-control`, `rightkit-speech-client`, `rightkit-playback`, `rightkit-audio`.
 4. `rightkit-shell`, `rightkit-qa`.
 

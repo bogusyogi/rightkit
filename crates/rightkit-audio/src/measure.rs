@@ -2,15 +2,15 @@
 //! astats, band energy, room-tone step, chain/bus/ducking renders).
 //!
 //! Donor: CutRight `cutright-audio/src/tools.rs`. Reconciled onto the shared
-//! `rightkit-media` runner (owned child tree, cancellation, timeout, bounded stderr)
+//! `rightkit-ffmpeg` runner (owned child tree, cancellation, timeout, bounded stderr)
 //! instead of CutRight's private `Command` runner; FFmpeg is any
-//! [`rightkit_media::FfmpegBinary`] (catalog-verified in production).
+//! [`rightkit_ffmpeg::FfmpegBinary`] (catalog-verified in production).
 
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use rightkit_media::{runner::run_checked, CancellationToken, FfmpegBinary};
+use rightkit_ffmpeg::{runner::run_checked, CancellationToken, FfmpegBinary};
 
 use crate::chain::DialogueChain;
 use crate::ducking::Ducking;
@@ -91,8 +91,8 @@ impl<'a> AudioTools<'a> {
 
     /// Run FFmpeg with `args` through the shared runner. Arguments are never joined
     /// into a shell string.
-    fn run(&self, args: &[OsString]) -> Result<rightkit_media::Captured, AudioError> {
-        let mut cmd = rightkit_media::FfmpegCommand::new();
+    fn run(&self, args: &[OsString]) -> Result<rightkit_ffmpeg::Captured, AudioError> {
+        let mut cmd = rightkit_ffmpeg::FfmpegCommand::new();
         for a in args {
             // Keep OsString bytes intact while adapting to FfmpegCommand's
             // path-oriented argument type; flags are represented identically.

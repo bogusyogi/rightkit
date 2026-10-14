@@ -7,7 +7,7 @@ mod common;
 
 use std::{path::PathBuf, time::Duration};
 
-use rightkit_media::{
+use rightkit_ffmpeg::{
     resolve_ffmpeg, resolve_ffmpeg_or_unverified, resolve_unverified, sha256_file,
     stage_external_bin, tauri_target_triple, verify_ffmpeg, verify_ffprobe, AnyFfmpeg,
     ArtifactCatalog, BuildMode, ConfigLicense, MediaError, ResolutionRequest, Tool,

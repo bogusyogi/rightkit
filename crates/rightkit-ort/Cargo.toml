@@ -74,4 +74,4 @@ windows-sys = { version = "0.61.2", features = ["Win32_System_SystemInformation"
 
 [dev-dependencies]
 # E2E checks the real runtime file against the approved native-library catalog.
-rightkit-media = { path = "../rightkit-media", version = "0.2.3" }
+rightkit-ffmpeg = { path = "../rightkit-ffmpeg", version = "0.2.3" }

@@ -19,7 +19,7 @@ use std::{
     time::Duration,
 };
 
-use rightkit_media::{
+use rightkit_ffmpeg::{
     digest_computations, run_checked, sha256_file, verify_bundled_ffmpeg, verify_bundled_ffmpeg_in,
     verify_bundled_ffprobe, verify_bundled_ffprobe_in, ArtifactCatalog, CancellationToken,
     FfmpegBinary, FfmpegCommand, MediaError, DECODE_VARIANT, EXPORT_ASS_ZIMG_VARIANT,
@@ -144,7 +144,7 @@ fn probe_runs(marker: &Path) -> usize {
 fn one_call_returns_handles_that_the_run_calls_accept_and_verification_happens_once() {
     let _serial = serial();
     let f = fixture();
-    rightkit_media::verify_cache_clear();
+    rightkit_ffmpeg::verify_cache_clear();
 
     let before = digest_computations();
     let ffmpeg = verify_bundled_ffmpeg_in(

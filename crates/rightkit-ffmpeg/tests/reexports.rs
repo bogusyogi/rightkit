@@ -1,6 +1,6 @@
-//! Names every re-exported `rightkit-process` type through `rightkit_media::` only.
+//! Names every re-exported `rightkit-process` type through `rightkit_ffmpeg::` only.
 
-use rightkit_media::{
+use rightkit_ffmpeg::{
     spawn_streaming, OwnedChild, ReapOutcome, StdioMode, StdioPolicy, TerminationOptions,
     WaitOutcome,
 };
@@ -8,10 +8,10 @@ use rightkit_media::{
 #[test]
 fn process_types_are_nameable_without_a_rightkit_process_dependency() {
     let _spawn: fn(
-        &dyn rightkit_media::FfmpegBinary,
-        &rightkit_media::FfmpegCommand,
+        &dyn rightkit_ffmpeg::FfmpegBinary,
+        &rightkit_ffmpeg::FfmpegCommand,
         StdioPolicy,
-    ) -> Result<OwnedChild, rightkit_media::RunError> = spawn_streaming;
+    ) -> Result<OwnedChild, rightkit_ffmpeg::RunError> = spawn_streaming;
     let _wait: fn(&mut OwnedChild, std::time::Duration) -> std::io::Result<WaitOutcome> =
         OwnedChild::wait_or_kill;
     let _reap: Option<ReapOutcome> = None;

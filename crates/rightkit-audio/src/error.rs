@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use rightkit_media::runner::RunError;
+use rightkit_ffmpeg::runner::RunError;
 
 #[derive(Debug, thiserror::Error)]
 pub enum AudioError {

@@ -18,7 +18,7 @@ use rightkit_audio::{
     room_tone::{find_room_tone, GapSpan, RoomToneParams},
     wav::{read_wav_16k_mono, read_wav_mono_f32, write_wav_mono_i16},
 };
-use rightkit_media::{
+use rightkit_ffmpeg::{
     dev_resolve::{resolve_for_development, DevResolved},
     run_checked, CancellationToken, FfmpegBinary, FfmpegCommand,
 };

@@ -12,7 +12,7 @@ use std::{
     time::Duration,
 };
 
-use rightkit_media::{
+use rightkit_ffmpeg::{
     resolve_ffmpeg, run_checked, verify_ffmpeg, ArtifactCatalog, CancellationToken, FfmpegCommand,
     ResolutionRequest, Tool, VerifiedFfmpeg, EXPORT_ASS_VARIANT,
 };

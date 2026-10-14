@@ -32,6 +32,7 @@ The build broker is the Rust RustRight product (`bogusyogi/rustright`, binary `r
 | `rightkit-daemon` | crates.io | 0.2.0 | none recorded |  | **MISMATCH public package has no release record** | local-services | One discovery/auth convention for Right Suite local services: service.json, ranking and takeover, current-user-only Unix socket / named pipe, per-app request allowlist. |
 | `rightkit-db` | crates.io | 0.4.0 | 0.3.2 | 0.3.2 | **MISMATCH staged 0.3.2 != source 0.4.0** | sqlite-storage | Correct-by-default SQLite and SQLCipher connection bootstrap for Right Suite apps. |
 | `rightkit-embed` | crates.io | 0.3.2 | 0.3.2 | 0.3.2 | ok | embeddings | Product-neutral local text embeddings and persistent cosine vector store. |
+| `rightkit-ffmpeg` | crates.io | 0.2.6 | none recorded |  | **MISMATCH public package has no release record** | media-pipelines | Verified FFmpeg artifact and lifecycle primitives for Right Suite media pipelines. |
 | `rightkit-file-watch` | crates.io | 0.4.0 | none recorded |  | **MISMATCH public package has no release record** | file-watching | Filesystem watching for Right Suite apps: ref-counted async subscribers, debounced file-set and directory watchers, and rename-storm coalescing. |
 | `rightkit-framed-sidecar` | crates.io | 0.2.0 | 0.1.0 | 0.1.0 | **MISMATCH staged 0.1.0 != source 0.2.0** | framed-sidecar | Bounded JSON-lines transport primitives for Right Suite sidecars. |
 | `rightkit-fs` | crates.io | 0.4.0 | 0.3.3 | 0.3.3 | **MISMATCH staged 0.3.3 != source 0.4.0** | safe-filesystem | Safe state directories, atomic writes, cross-process locks, owner-only files, and stable file identity for Right Suite apps. |
@@ -43,7 +44,6 @@ The build broker is the Rust RustRight product (`bogusyogi/rustright`, binary `r
 | `rightkit-llm` | crates.io | 0.2.0 | 0.1.0 | 0.2.0 | staged, not yet published | llm-providers | Brand-neutral BYOK LLM clients: Anthropic Messages and OpenAI-compatible chat, streaming, tool use, route failover with circuit breaker, pricing, and prompt-cache discipline, plus an opt-in provider for installed command-line assistants. |
 | `rightkit-logs` | crates.io | 0.2.2 | 0.2.1 | 0.2.1 | **MISMATCH staged 0.2.1 != source 0.2.2** | structured-logging | Privacy-safe local JSONL logging and diagnostics for Right Suite desktop apps. |
 | `rightkit-mcp` | crates.io | 0.6.0 | 0.5.3 | 0.5.3 | **MISMATCH staged 0.5.3 != source 0.6.0** | mcp | Shared MCP client (stdio + streamable HTTP, trust gate, pool, OAuth hook) and server host (stdio + loopback HTTP, per-tool admission) for Right Suite apps. |
-| `rightkit-media` | crates.io | 0.2.6 | 0.2.5 | 0.2.5 | **MISMATCH staged 0.2.5 != source 0.2.6** | media-pipelines | Verified FFmpeg artifact and lifecycle primitives for Right Suite media pipelines. |
 | `rightkit-models` | crates.io | 0.3.0 | 0.2.8 | 0.2.8 | **MISMATCH staged 0.2.8 != source 0.3.0** | model-installation | Shared local-model manifest and installer for Right Suite apps: revisions and quantizations, resumable verified downloads, archive extraction, atomic activation, rollback, and hardware fit. |
 | `rightkit-oauth` | crates.io | 0.4.0 | 0.3.1 | 0.3.1 | **MISMATCH staged 0.3.1 != source 0.4.0** | oauth-sign-in | Shared OAuth 2.0 sign-in for Right Suite apps: loopback PKCE, RFC 8628 device flow, provider presets, encrypted daemon persistence, and stored, refreshing credentials. |
 | `rightkit-ocr` | crates.io | 0.2.1 | 0.2.0 | 0.2.0 | **MISMATCH staged 0.2.0 != source 0.2.1** | ocr | Product-neutral OCR: Apple Vision / Windows.Media.Ocr native backends with per-line geometry, isolated worker, and verified two-stage ONNX fallback |
@@ -103,4 +103,4 @@ The build broker is the Rust RustRight product (`bogusyogi/rustright`, binary `r
 
 ## Version records without a manifest
 
-rightkit-qts (cargo), rightkit-qts-ggml (cargo), rightkit-qts-ggml-sys (cargo), rightkit-service (cargo), rightkit-watch (cargo).
+rightkit-media (cargo), rightkit-qts (cargo), rightkit-qts-ggml (cargo), rightkit-qts-ggml-sys (cargo), rightkit-service (cargo), rightkit-watch (cargo).

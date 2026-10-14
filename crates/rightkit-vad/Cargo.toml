@@ -29,7 +29,7 @@ rightkit-ort = { path = "../rightkit-ort", version = "0.2.2", optional = true }
 
 [dev-dependencies]
 hound = "3.5"
-rightkit-media = { path = "../rightkit-media", version = "0.2.3" }
+rightkit-ffmpeg = { path = "../rightkit-ffmpeg", version = "0.2.3" }
 
 [features]
 # Default: the Silero scorer over ONNX Runtime. The crate fetches and copies no

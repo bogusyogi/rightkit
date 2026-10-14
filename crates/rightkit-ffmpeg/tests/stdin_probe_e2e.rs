@@ -12,7 +12,7 @@ use std::{
     time::Duration,
 };
 
-use rightkit_media::{
+use rightkit_ffmpeg::{
     dev_resolve::{resolve_for_development, DevResolved},
     loudnorm::{measure_loudness_verified, LoudnessAcceptance, LoudnessError, LoudnessTarget},
     probe::run_ffprobe_json,

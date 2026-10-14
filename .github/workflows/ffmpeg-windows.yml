@@ -1,4 +1,4 @@
-# Windows x64 LGPL FFmpeg/FFprobe builds for the rightkit-media artifact catalog.
+# Windows x64 LGPL FFmpeg/FFprobe builds for the rightkit-ffmpeg artifact catalog.
 # Manual dispatch only: a push never starts it, so pushes do not queue builds.
 # The recipe verifies every pinned source digest, gates the linkage and licence, and writes the
 # evidence files; this workflow only provides the toolchain and keeps the outputs as an artifact.
@@ -70,12 +70,12 @@ jobs:
           venv="$temp/venv"
           export PYTHON="$venv/Scripts/python.exe" MESON="$venv/Scripts/meson.exe" NINJA="$venv/Scripts/ninja.exe"
           export PKG_CONFIG="$venv/Lib/site-packages/pkgconf/.bin/pkgconf.exe"
-          recipe=crates/rightkit-media/recipes/build-ffmpeg-windows.sh
+          recipe=crates/rightkit-ffmpeg/recipes/build-ffmpeg-windows.sh
           bash "$recipe" fetch --variant "$VARIANT" --sources "$temp/sources"
           bash "$recipe" build --variant "$VARIANT" --tool "$TOOL" \
             --sources "$temp/sources" --work "$temp/work" --out "$(pwd)/ffmpeg-out"
 
-      # Promotion evidence for the catalogue row (crates/rightkit-media/tests/promote_evidence_windows.rs):
+      # Promotion evidence for the catalogue row (crates/rightkit-ffmpeg/tests/promote_evidence_windows.rs):
       # the crate's own content identity, sha256 and size of the built binary; ffprobe reads a committed
       # fixture; ffmpeg runs the h264_mf, subtitles, drawtext and zscale+tonemap smokes. Evidence lands in
       # the .evidence folder that the artifact already uploads. A hosted runner has only the software MFT.
@@ -89,7 +89,7 @@ jobs:
         run: |
           $exe = Join-Path $env:GITHUB_WORKSPACE "ffmpeg-out\$env:TOOL-$env:VARIANT-windows-x64.exe"
           if ($env:TOOL -eq 'ffprobe') { $env:RIGHTKIT_MEDIA_PROMOTE_FFPROBE = $exe } else { $env:RIGHTKIT_MEDIA_PROMOTE_FFMPEG = $exe }
-          cargo test -p rightkit-media --test promote_evidence_windows -- --nocapture
+          cargo test -p rightkit-ffmpeg --test promote_evidence_windows -- --nocapture
 
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:

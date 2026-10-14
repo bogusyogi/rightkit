@@ -37,7 +37,7 @@ fn ort_runtime_file() -> Option<PathBuf> {
 fn init_ort_runtime() {
     static READY: OnceLock<()> = OnceLock::new();
     READY.get_or_init(|| {
-        use rightkit_media::native::{NativeCatalog, NativeLibrary};
+        use rightkit_ffmpeg::native::{NativeCatalog, NativeLibrary};
         use rightkit_ort::{
             init_environment, resolve_runtime, CandidateSource, EnvironmentOptions, GlobalPool,
             RuntimeCandidate, runtime_filename,

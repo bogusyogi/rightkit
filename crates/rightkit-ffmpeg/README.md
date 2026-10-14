@@ -1,4 +1,4 @@
-# rightkit-media
+# rightkit-ffmpeg
 
 FFmpeg safety primitives for Right Suite desktop apps. The crate owns the catalog of approved FFmpeg and ffprobe builds, the checks that decide whether a binary may run, the argument builders, the process runner, and the loudness normalization loop. It contains no FFmpeg binary, no app policy, no model, and no shell invocation.
 
@@ -35,7 +35,7 @@ The artifact catalog (`catalog/artifacts.json`) records binary and source digest
 Illustrative; not compiled by the crate. The types and functions named here exist in `src/lib.rs`. For compiled usage, see `tests/media_e2e.rs` and `tests/catalog_tools_e2e.rs`.
 
 ```rust,ignore
-use rightkit_media::{
+use rightkit_ffmpeg::{
     resolve_ffmpeg, verify_ffmpeg, ArtifactCatalog, ResolutionRequest, APPROVED_CATALOG_JSON,
 };
 use std::time::Duration;
@@ -70,10 +70,10 @@ Availability is defined by `catalog/artifacts.json`, not by this README. Check t
 Run through the RightKit wrapper, per the workspace's `docs/rules/rightkit.md`:
 
 ```text
-rightkit cargo test -p rightkit-media --all-targets
+rightkit cargo test -p rightkit-ffmpeg --all-targets
 rightkit cargo fmt --check
-rightkit cargo clippy -p rightkit-media --all-targets -- -D warnings
-rightkit cargo package -p rightkit-media --allow-dirty --no-verify --list
+rightkit cargo clippy -p rightkit-ffmpeg --all-targets -- -D warnings
+rightkit cargo package -p rightkit-ffmpeg --allow-dirty --no-verify --list
 ```
 
 ## Publication
@@ -104,7 +104,7 @@ defects a fallback would hide. A release build must not fall back silently; it r
 
 A hosted runner has none of these assets, so each test prints `SKIP <test>: ...` and passes. Set `RIGHTKIT_REQUIRE_ASSETS=1` on a host that must have them, and the test fails instead.
 
-- `tests/media_e2e.rs` (probe, transcode, cancel and loudness tests) and `tests/stdin_probe_e2e.rs`: a development FFmpeg, enabled by `RIGHTKIT_FFMPEG=<path>` or one of the candidate paths listed by `rightkit_media::dev_resolve::development_candidates`. `stdin_probe_e2e.rs` also needs an `ffprobe` beside that binary.
+- `tests/media_e2e.rs` (probe, transcode, cancel and loudness tests) and `tests/stdin_probe_e2e.rs`: a development FFmpeg, enabled by `RIGHTKIT_FFMPEG=<path>` or one of the candidate paths listed by `rightkit_ffmpeg::dev_resolve::development_candidates`. `stdin_probe_e2e.rs` also needs an `ffprobe` beside that binary.
 - `tests/media_e2e.rs`, `aac_m4a_export_normalizes_through_the_built_in_encoder`: an FFmpeg on `PATH` with the built-in `aac` encoder.
 - `tests/catalog_tools_e2e.rs` and `tests/export_ass_e2e.rs`: approved FFmpeg and ffprobe artifacts in `vendor/ffmpeg-lgpl` at the workspace root (found by walking up from the crate). Enabled by placing the artifacts there. `catalog_tools_e2e.rs` also needs an FFmpeg on `PATH`.
 - `tests/bundled_handle_e2e.rs`, `the_export_ass_zimg_binary_verifies_in_one_call_and_converts_hdr_to_sdr` (macOS aarch64): `ffmpeg-export-ass-zimg-macos-arm64` and `ffprobe-decode-macos-arm64` in `vendor/ffmpeg-lgpl`.

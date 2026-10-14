@@ -121,6 +121,6 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
     (location) => location.exists && location.sha256 === windows.sha256,
   );
   console.log(`media characterization: Windows copies ${matching ? "MATCH" : "MISMATCH"} ${windows.sha256}`);
-  console.log(`media characterization: gaps=${result.gaps.length}; rightkit-media publish=BLOCKED`);
+  console.log(`media characterization: gaps=${result.gaps.length}; rightkit-ffmpeg publish=BLOCKED`);
   if (!matching) process.exitCode = 1;
 }

@@ -4,7 +4,7 @@ build on 2026-10-11 (Dell, Windows 11 Pro 10.0.26300). The catalog binary is to 
 GitHub Actions workflow .github/workflows/ffmpeg-windows.yml, which has not run yet; its
 toolchain packages may differ in version, so its digest may differ from the one below.
 
-Purpose: CutRight (and GenRight) export on Windows through rightkit-media VerifiedFfmpeg, with
+Purpose: CutRight (and GenRight) export on Windows through rightkit-ffmpeg VerifiedFfmpeg, with
 the same library set as the macOS export-ass-zimg variant:
   - libass `subtitles` / `ass` filters (system fonts through DirectWrite)
   - FreeType + HarfBuzz `drawtext`, FriBidi
@@ -12,7 +12,7 @@ the same library set as the macOS export-ass-zimg variant:
   - zlib (PNG), Media Foundation encoders (h264_mf, hevc_mf, aac_mf), built-in AAC encoder
 keeping the catalog's LGPL-only, no-autodetect posture.
 
-Recipe: crates/rightkit-media/recipes/build-ffmpeg-windows.sh (pinned sources in
+Recipe: crates/rightkit-ffmpeg/recipes/build-ffmpeg-windows.sh (pinned sources in
         recipes/ffmpeg-sources.json and recipes/ffmpeg-sources-windows.json; the build refuses
         unpinned or mismatched sources).
 
@@ -184,7 +184,7 @@ CI builds (ffmpeg-windows workflow, windows-2025)
 LGPL obligations: FFmpeg and FriBidi are statically linked into one executable; ship the
 notices plus a written source offer covering their complete sources and this recipe.
 
-To reproduce (MSYS2 MINGW64 shell, from rightkit/crates/rightkit-media):
+To reproduce (MSYS2 MINGW64 shell, from rightkit/crates/rightkit-ffmpeg):
   recipes/build-ffmpeg-windows.sh fetch --variant export-ass-zimg --sources <src-dir>
   PYTHON=<venv>/Scripts/python.exe MESON=<venv>/Scripts/meson.exe NINJA=<venv>/Scripts/ninja.exe \
     PKG_CONFIG=<venv>/Lib/site-packages/pkgconf/.bin/pkgconf.exe \

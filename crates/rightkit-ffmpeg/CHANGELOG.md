@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+Renamed from rightkit-media; 0.2.5 remains published under the old name.
+
 - Catalogue: `ffmpeg-7.1.5-export-ass-zimg-macos-arm64` is approved (sha256 `52f81f26277dce071cecae6c00555aac4b7d132a17a7e5016b7423942e78594d`, 16,346,792 bytes, content digest `4fa975dac6830e5b3346b2056323912fb4cdc5b5062e4577658bdb8f83e8ca92`, slice aarch64). The row's condition was that the crate's own `content_identity_file` confirm the digest; CutRight ran `sha256_file` and `content_identity_file` from this crate (snapshot c9f222a1) on the vendored binary on 2026-10-12 and both matched, with `-buildconf` showing `--disable-gpl --disable-nonfree --enable-libzimg` and `-filters` listing `zscale` and `tonemap`. Evidence is a consumer's run on the build host, not a CI run of this repository. The x86_64 row stays pending: its probes need an x86_64-capable macOS host.
 - Catalog: the two Windows x86_64 rows are approved. `ffmpeg-7.1.5-export-ass-zimg-windows-x64`: sha256
   `2ecd3ab3d313f1a09ad29491979f806faf98c38d150ab37ec2978627fcb9cdb9`, contentSha256

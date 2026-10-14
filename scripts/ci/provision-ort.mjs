@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Provision the catalog-pinned Windows ONNX Runtime for the real-runtime tests of rightkit-ort.
 //
-// The single source is crates/rightkit-media/catalog/native-libraries.json: the Windows x86_64 `onnxruntime`
+// The single source is crates/rightkit-ffmpeg/catalog/native-libraries.json: the Windows x86_64 `onnxruntime`
 // record names the archive (URL + sha256) and the shipped file (name + sha256). This script downloads that
 // archive, refuses a digest mismatch, takes out the one member with the pinned name AND the pinned digest, and
 // leaves it in `<root>/<record id>/`. A `directml` record for the platform, once the catalog has one, is
@@ -18,7 +18,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
-export const CATALOG = path.join(ROOT, "crates", "rightkit-media", "catalog", "native-libraries.json");
+export const CATALOG = path.join(ROOT, "crates", "rightkit-ffmpeg", "catalog", "native-libraries.json");
 /** Statuses that carry a verified or donor-pinned digest. `planned` and `stale-unverified` never resolve. */
 const RESOLVABLE = new Set(["approved", "pinned"]);
 const HEX = /^[0-9a-f]{64}$/;

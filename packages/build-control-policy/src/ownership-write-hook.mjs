@@ -532,7 +532,7 @@ const keywordOwners = {
   settings: ['rightkit-settings', '@rightkit/settings-ui'], telemetry: ['rightkit-logs', '@rightkit/logs'],
   logs: ['rightkit-logs', '@rightkit/logs'], crash: ['rightkit-crash'], sandbox: ['rightkit-sandbox'],
   browser: ['rightkit-browser'], mcp: ['rightkit-mcp'], pdf: ['rightkit-pdf'],
-  media: ['rightkit-media'], audio: ['rightkit-audio'], hotkeys: ['rightkit-hotkeys'],
+  media: ['rightkit-ffmpeg'], audio: ['rightkit-audio'], hotkeys: ['rightkit-hotkeys'],
   overlay: ['rightkit-overlay'], license: ['rightkit-license', '@rightkit/license'],
 };
 

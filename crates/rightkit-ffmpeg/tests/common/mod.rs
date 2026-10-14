@@ -22,7 +22,7 @@ pub fn skip_missing(what: &str, looked_at: &str) {
 /// Where the FFmpeg lookup looked (the same candidates `resolve_for_development` tries), for the
 /// SKIP line.
 pub fn ffmpeg_looked_at() -> String {
-    let candidates: Vec<String> = rightkit_media::dev_resolve::development_candidates()
+    let candidates: Vec<String> = rightkit_ffmpeg::dev_resolve::development_candidates()
         .iter()
         .map(|path| path.display().to_string())
         .collect();

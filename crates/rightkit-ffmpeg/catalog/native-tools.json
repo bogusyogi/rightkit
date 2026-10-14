@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "note": "Non-FFmpeg native helper executables shipped as separate programs. Same record shape as artifacts.json; kept in its own file because artifacts.json is parsed by FFmpeg-specific rules (ffmpeg.org source, LGPL flags). Not read by rightkit-media code.",
+  "note": "Non-FFmpeg native helper executables shipped as separate programs. Same record shape as artifacts.json; kept in its own file because artifacts.json is parsed by FFmpeg-specific rules (ffmpeg.org source, LGPL flags). Not read by rightkit-ffmpeg code.",
   "artifacts": [
     {
       "id": "smartctl-7.5-macos-arm64",

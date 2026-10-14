@@ -23,7 +23,7 @@ No rendering, codec or I/O lives here.
 
 - Use it to describe a video composition as data and evaluate it per frame, for both preview and export.
 
-Do not use it to render pixels or to write media files. Those belong to the compositor and to `rightkit-media`.
+Do not use it to render pixels or to write media files. Those belong to the compositor and to `rightkit-ffmpeg`.
 
 ## Cargo features
 

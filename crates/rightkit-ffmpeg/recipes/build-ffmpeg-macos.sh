@@ -1,5 +1,5 @@
 #!/bin/bash
-# Reproducible LGPL FFmpeg/FFprobe builds for the rightkit-media artifact catalog (macOS).
+# Reproducible LGPL FFmpeg/FFprobe builds for the rightkit-ffmpeg artifact catalog (macOS).
 #
 #   build-ffmpeg-macos.sh fetch --variant <variant> --sources <dir>
 #       Download every source the variant needs into <dir> and print its sha256.

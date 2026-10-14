@@ -1,5 +1,5 @@
 [package]
-name = "rightkit-media"
+name = "rightkit-ffmpeg"
 version = "0.2.6"
 edition = "2021"
 rust-version = "1.98.0"

@@ -6,7 +6,7 @@ mod common;
 
 use std::path::{Path, PathBuf};
 
-use rightkit_media::native::*;
+use rightkit_ffmpeg::native::*;
 
 /// The claude workspace root: three levels above `crates/<crate>` in this checkout layout.
 fn root() -> PathBuf {
@@ -41,11 +41,11 @@ fn embedded_catalog_pins_one_version_per_library_and_covers_all_eight_libraries(
     );
     // FFmpeg is derived from the legacy catalog: same ids and digests.
     let legacy =
-        rightkit_media::ArtifactCatalog::parse(rightkit_media::APPROVED_CATALOG_JSON).unwrap();
+        rightkit_ffmpeg::ArtifactCatalog::parse(rightkit_ffmpeg::APPROVED_CATALOG_JSON).unwrap();
     // Only decode-variant ffmpeg records are derived; ffprobe and feature variants are
     // selected through the FFmpeg catalog by tool and variant.
     for a in legacy.artifacts.iter().filter(|a| {
-        a.tool == rightkit_media::Tool::Ffmpeg && a.variant == rightkit_media::DECODE_VARIANT
+        a.tool == rightkit_ffmpeg::Tool::Ffmpeg && a.variant == rightkit_ffmpeg::DECODE_VARIANT
     }) {
         let r = catalog
             .approved(NativeLibrary::Ffmpeg, &a.os, &a.arch)
@@ -58,7 +58,7 @@ fn embedded_catalog_pins_one_version_per_library_and_covers_all_eight_libraries(
     assert!(legacy
         .artifacts
         .iter()
-        .any(|a| a.tool == rightkit_media::Tool::Ffprobe));
+        .any(|a| a.tool == rightkit_ffmpeg::Tool::Ffprobe));
     assert!(catalog
         .records(NativeLibrary::Ffmpeg)
         .all(|r| !r.id.starts_with("ffprobe") && !r.id.contains("export")));
@@ -316,7 +316,7 @@ fn whisper_and_ggml_dylibs_are_catalogued_by_file_and_verify_by_content() {
         }
         record.verify_file(&path).unwrap();
         assert_eq!(
-            rightkit_media::sha256_file(&path).unwrap(),
+            rightkit_ffmpeg::sha256_file(&path).unwrap(),
             record.sha256.clone().unwrap()
         );
         // A different file is refused by content.

@@ -8,7 +8,7 @@ mod common;
 use std::path::PathBuf;
 use std::sync::OnceLock;
 
-use rightkit_media::native::{NativeCatalog, NativeLibrary};
+use rightkit_ffmpeg::native::{NativeCatalog, NativeLibrary};
 use rightkit_ort::ort::value::Tensor;
 use rightkit_ort::{
     configure_runtime, init_environment, installed_runtime_candidate, probe_providers,
