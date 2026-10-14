@@ -11,7 +11,7 @@ use std::sync::Arc;
 
 use image::RgbImage;
 #[cfg(feature = "onnx")]
-use rightkit_ort::{configure_runtime, CandidateSource, RuntimeCandidate};
+use rightkit_onnx::{configure_runtime, CandidateSource, RuntimeCandidate};
 use serde::Serialize;
 
 use crate::native;
@@ -90,7 +90,7 @@ pub struct OnnxConfig {
     pub model_dir: PathBuf,
     pub manifest: OcrArtifactManifest,
     /// Absolute ONNX Runtime library; `None` keeps whatever the caller already
-    /// configured through `rightkit-ort` / `ORT_DYLIB_PATH`.
+    /// configured through `rightkit-onnx` / `ORT_DYLIB_PATH`.
     pub ort_runtime: Option<PathBuf>,
     /// Optional app model-store lease, held while the engine is loaded.
     pub lease_hook: Option<Arc<dyn ModelLeaseHook>>,

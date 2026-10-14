@@ -1,20 +1,20 @@
 //! ONNX Runtime vocoder wrapper for exported Qwen3-TTS speech tokenizer decoder.
 
-use rightkit_ort::ort;
+use rightkit_onnx::ort;
 use std::collections::HashMap;
 use std::env;
 use std::path::{Path, PathBuf};
 use std::slice;
 use std::sync::{Mutex, OnceLock};
 
-use rightkit_ort::ort::ep::ExecutionProvider;
-use rightkit_ort::ort::memory::{AllocationDevice, AllocatorType, MemoryInfo, MemoryType};
-use rightkit_ort::ort::session::IoBinding;
-use rightkit_ort::ort::session::{
+use rightkit_onnx::ort::ep::ExecutionProvider;
+use rightkit_onnx::ort::memory::{AllocationDevice, AllocatorType, MemoryInfo, MemoryType};
+use rightkit_onnx::ort::session::IoBinding;
+use rightkit_onnx::ort::session::{
     builder::{GraphOptimizationLevel, SessionBuilder},
     Session,
 };
-use rightkit_ort::ort::value::Tensor;
+use rightkit_onnx::ort::value::Tensor;
 
 use super::backend::BackendKind;
 use crate::Qwen3TtsError;

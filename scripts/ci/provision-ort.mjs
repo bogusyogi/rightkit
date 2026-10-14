@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Provision the catalog-pinned Windows ONNX Runtime for the real-runtime tests of rightkit-ort.
+// Provision the catalog-pinned Windows ONNX Runtime for the real-runtime tests of rightkit-onnx.
 //
 // The single source is crates/rightkit-ffmpeg/catalog/native-libraries.json: the Windows x86_64 `onnxruntime`
 // record names the archive (URL + sha256) and the shipped file (name + sha256). This script downloads that

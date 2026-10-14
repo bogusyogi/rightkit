@@ -1,9 +1,9 @@
-use rightkit_ort::ort;
+use rightkit_onnx::ort;
 use crate::config::ModelConfig;
 use crate::error::{Error, Result};
 use crate::execution::ModelConfig as ExecutionConfig;
 use ndarray::Array2;
-use rightkit_ort::ort::session::Session;
+use rightkit_onnx::ort::session::Session;
 use std::path::Path;
 
 pub struct ParakeetModel {

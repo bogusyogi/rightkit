@@ -18,25 +18,25 @@ metal = ["rightkit-tts-qwen-sys/metal"]
 vulkan = ["rightkit-tts-qwen-sys/vulkan"]
 blas = ["rightkit-tts-qwen-sys/blas"]
 native = ["rightkit-tts-qwen-sys/native"]
-acl = ["rightkit-ort/acl"]
-armnn = ["rightkit-ort/armnn"]
-azure = ["rightkit-ort/azure"]
-cann = ["rightkit-ort/cann"]
-coreml = ["rightkit-ort/coreml"]
-cuda = ["rightkit-ort/cuda"]
-directml = ["rightkit-ort/directml"]
-migraphx = ["rightkit-ort/migraphx"]
-nnapi = ["rightkit-ort/nnapi"]
-nvrtx = ["rightkit-ort/nvrtx"]
-onednn = ["rightkit-ort/onednn"]
-openvino = ["rightkit-ort/openvino"]
-qnn = ["rightkit-ort/qnn"]
-rknpu = ["rightkit-ort/rknpu"]
-tensorrt = ["rightkit-ort/tensorrt"]
-tvm = ["rightkit-ort/tvm"]
-vitis = ["rightkit-ort/vitis"]
-webgpu = ["rightkit-ort/webgpu"]
-xnnpack = ["rightkit-ort/xnnpack"]
+acl = ["rightkit-onnx/acl"]
+armnn = ["rightkit-onnx/armnn"]
+azure = ["rightkit-onnx/azure"]
+cann = ["rightkit-onnx/cann"]
+coreml = ["rightkit-onnx/coreml"]
+cuda = ["rightkit-onnx/cuda"]
+directml = ["rightkit-onnx/directml"]
+migraphx = ["rightkit-onnx/migraphx"]
+nnapi = ["rightkit-onnx/nnapi"]
+nvrtx = ["rightkit-onnx/nvrtx"]
+onednn = ["rightkit-onnx/onednn"]
+openvino = ["rightkit-onnx/openvino"]
+qnn = ["rightkit-onnx/qnn"]
+rknpu = ["rightkit-onnx/rknpu"]
+tensorrt = ["rightkit-onnx/tensorrt"]
+tvm = ["rightkit-onnx/tvm"]
+vitis = ["rightkit-onnx/vitis"]
+webgpu = ["rightkit-onnx/webgpu"]
+xnnpack = ["rightkit-onnx/xnnpack"]
 
 [dependencies]
 rightkit-tts-qwen-sys = { path = "../rightkit-tts-qwen-sys", version = "0.1.0", default-features = false }
@@ -45,6 +45,6 @@ getrandom = "0.3"
 hound = "3.5.1"
 rustfft = "6.4.1"
 prost = "0.14"
-rightkit-ort = { path = "../rightkit-ort", version = "0.2.2", features = ["tracing"] }
+rightkit-onnx = { path = "../rightkit-onnx", version = "0.2.2", features = ["tracing"] }
 
 

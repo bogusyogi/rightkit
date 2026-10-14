@@ -1,9 +1,9 @@
-use rightkit_ort::ort;
+use rightkit_onnx::ort;
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, OnceLock};
 
-use rightkit_ort::ort::session::Session;
-use rightkit_ort::{
+use rightkit_onnx::ort::session::Session;
+use rightkit_onnx::{
     configure_runtime, init_environment, CandidateSource, EnvironmentOptions, GlobalPool,
     RuntimeCandidate, SessionOptions,
 };
@@ -128,35 +128,35 @@ pub enum ExecutionProvider {
     CoreMl,
 }
 
-impl From<rightkit_ort::ExecutionProvider> for ExecutionProvider {
-    fn from(value: rightkit_ort::ExecutionProvider) -> Self {
+impl From<rightkit_onnx::ExecutionProvider> for ExecutionProvider {
+    fn from(value: rightkit_onnx::ExecutionProvider) -> Self {
         match value {
-            rightkit_ort::ExecutionProvider::Cpu => Self::Cpu,
-            rightkit_ort::ExecutionProvider::DirectMl => Self::DirectMl,
-            rightkit_ort::ExecutionProvider::CoreMl => Self::CoreMl,
+            rightkit_onnx::ExecutionProvider::Cpu => Self::Cpu,
+            rightkit_onnx::ExecutionProvider::DirectMl => Self::DirectMl,
+            rightkit_onnx::ExecutionProvider::CoreMl => Self::CoreMl,
         }
     }
 }
 
 impl ExecutionProvider {
-    fn requested(self) -> (rightkit_ort::ExecutionProvider, bool) {
+    fn requested(self) -> (rightkit_onnx::ExecutionProvider, bool) {
         match self {
-            Self::Cpu => (rightkit_ort::ExecutionProvider::Cpu, false),
+            Self::Cpu => (rightkit_onnx::ExecutionProvider::Cpu, false),
             Self::Auto => (
-                rightkit_ort::ExecutionProvider::platform_accelerator(),
+                rightkit_onnx::ExecutionProvider::platform_accelerator(),
                 true,
             ),
-            Self::DirectMl => (rightkit_ort::ExecutionProvider::DirectMl, false),
-            Self::CoreMl => (rightkit_ort::ExecutionProvider::CoreMl, false),
+            Self::DirectMl => (rightkit_onnx::ExecutionProvider::DirectMl, false),
+            Self::CoreMl => (rightkit_onnx::ExecutionProvider::CoreMl, false),
         }
     }
 }
 
-fn provider_name(provider: rightkit_ort::ExecutionProvider) -> &'static str {
+fn provider_name(provider: rightkit_onnx::ExecutionProvider) -> &'static str {
     match provider {
-        rightkit_ort::ExecutionProvider::Cpu => "cpu",
-        rightkit_ort::ExecutionProvider::DirectMl => "directml",
-        rightkit_ort::ExecutionProvider::CoreMl => "coreml",
+        rightkit_onnx::ExecutionProvider::Cpu => "cpu",
+        rightkit_onnx::ExecutionProvider::DirectMl => "directml",
+        rightkit_onnx::ExecutionProvider::CoreMl => "coreml",
     }
 }
 
@@ -232,13 +232,13 @@ pub struct Embedder {
 
 struct BuiltEmbedSession {
     session: Session,
-    provider: rightkit_ort::ExecutionProvider,
+    provider: rightkit_onnx::ExecutionProvider,
     fallback: Option<String>,
 }
 
 fn build_session(
     config: &EmbedderConfig,
-    provider: rightkit_ort::ExecutionProvider,
+    provider: rightkit_onnx::ExecutionProvider,
     cpu_fallback: bool,
 ) -> Result<BuiltEmbedSession, EmbedError> {
     let built = SessionOptions::new(provider)
@@ -295,9 +295,9 @@ impl Embedder {
         let built = build_session(&config, requested, auto)?;
         let accelerator = built.provider;
         let mut embedder = Self::from_session(&config, tokenizer, pad_id, gemma2, built);
-        if auto && accelerator != rightkit_ort::ExecutionProvider::Cpu {
+        if auto && accelerator != rightkit_onnx::ExecutionProvider::Cpu {
             if let Err(reason) = embedder.probe() {
-                let cpu = build_session(&config, rightkit_ort::ExecutionProvider::Cpu, false)?;
+                let cpu = build_session(&config, rightkit_onnx::ExecutionProvider::Cpu, false)?;
                 embedder.takes_token_type_ids = takes_token_type_ids(&cpu.session);
                 embedder.session = Mutex::new(cpu.session);
                 embedder.provider_used = provider_name(cpu.provider);
@@ -356,7 +356,7 @@ impl Embedder {
     ) -> Result<Self, EmbedError> {
         let provider = self.provider_used;
         let (tokenizer, pad_id) = load_tokenizer(&config.model_dir)?;
-        let cpu_built = build_session(config, rightkit_ort::ExecutionProvider::Cpu, false)?;
+        let cpu_built = build_session(config, rightkit_onnx::ExecutionProvider::Cpu, false)?;
         let mut cpu = Self::from_session(config, tokenizer, pad_id, self.gemma2, cpu_built);
         let prompts = cpu.parity_prompts();
         let tokens: Vec<usize> = cpu
@@ -1380,7 +1380,7 @@ mod tests {
         assert_eq!((c.max_batch, c.intra_threads), (4, 3));
         assert_eq!(c.provider, ExecutionProvider::Auto);
         let legacy =
-            EmbedderConfig::new("m", "r").with_provider(rightkit_ort::ExecutionProvider::DirectMl);
+            EmbedderConfig::new("m", "r").with_provider(rightkit_onnx::ExecutionProvider::DirectMl);
         assert_eq!(legacy.provider, ExecutionProvider::DirectMl);
     }
 }

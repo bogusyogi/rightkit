@@ -479,16 +479,16 @@ pub fn bind_ort_runtime(explicit: Option<&Path>) {
     }
     if let Some(path) = explicit {
         std::env::set_var("ORT_DYLIB_PATH", path);
-        rightkit_ort::prepend_runtime_dir_to_path(path);
+        rightkit_onnx::prepend_runtime_dir_to_path(path);
     }
 }
 
 pub fn runtime_lib_name() -> &'static str {
-    rightkit_ort::runtime_filename()
+    rightkit_onnx::runtime_filename()
 }
 
 /// Developer override for ONNX Runtime: `ORT_DYLIB_PATH` is read only in debug builds, the same
-/// gate `rightkit-ort` applies to its developer override. Release builds never consult it.
+/// gate `rightkit-onnx` applies to its developer override. Release builds never consult it.
 fn developer_env_runtime() -> Option<PathBuf> {
     if cfg!(debug_assertions) {
         env_nonempty("ORT_DYLIB_PATH")
@@ -501,7 +501,7 @@ fn developer_env_runtime() -> Option<PathBuf> {
 /// beside the running exe, then `<dir>/<runtime file>` for each absolute directory in `dirs`.
 /// Reads no environment itself. Windows-ML copies under `System32` are skipped.
 fn select_runtime(developer: Option<PathBuf>, dirs: Vec<PathBuf>) -> Option<PathBuf> {
-    let name = rightkit_ort::runtime_filename();
+    let name = rightkit_onnx::runtime_filename();
     let mut candidates: Vec<PathBuf> = developer.into_iter().collect();
     if let Some(exe_dir) = std::env::current_exe()
         .ok()
@@ -517,7 +517,7 @@ fn select_runtime(developer: Option<PathBuf>, dirs: Vec<PathBuf>) -> Option<Path
     );
     candidates
         .into_iter()
-        .find(|path| path.is_file() && !rightkit_ort::is_system_runtime(path))
+        .find(|path| path.is_file() && !rightkit_onnx::is_system_runtime(path))
 }
 
 /// Find ONNX Runtime for a worker of `model_dir` under the caller's data root: the directory
@@ -627,7 +627,7 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("gqts-ort-select-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
-        let file = dir.join(rightkit_ort::runtime_filename());
+        let file = dir.join(rightkit_onnx::runtime_filename());
         std::fs::write(&file, b"x").unwrap();
         // Explicit inputs only: no developer override, one installed directory.
         assert_eq!(

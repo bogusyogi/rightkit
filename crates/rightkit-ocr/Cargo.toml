@@ -25,7 +25,7 @@ include = [
 
 [dependencies]
 image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
-rightkit-ort = { version = "0.2.2", path = "../rightkit-ort", optional = true }
+rightkit-onnx = { version = "0.2.2", path = "../rightkit-onnx", optional = true }
 sha2 = { version = "0.10", optional = true }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
@@ -39,8 +39,8 @@ path = "src/bin/rightkit-ocr.rs"
 default = ["native", "onnx"]
 # OS-native backend: Apple Vision (macOS) or Windows.Media.Ocr (Windows). Pulls the objc2 / windows bindings.
 native = ["dep:objc2", "dep:objc2-foundation", "dep:objc2-core-graphics", "dep:objc2-vision", "dep:objc2-core-foundation", "dep:windows"]
-# Two-stage ONNX fallback (det + rec) through ort and rightkit-ort, with SHA-256 artifact verification.
-onnx = ["dep:rightkit-ort", "dep:sha2"]
+# Two-stage ONNX fallback (det + rec) through ort and rightkit-onnx, with SHA-256 artifact verification.
+onnx = ["dep:rightkit-onnx", "dep:sha2"]
 
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = { version = "0.6", optional = true }

@@ -26,7 +26,7 @@ Publication runs through `right-release publish cargo` after exact-commit native
 | rightkit-ffmpeg | Public candidate | Approved FFmpeg catalog; current native receipts; process available |
 | rightkit-playback | Public candidate | Media available; native remux & cancellation receipts |
 | rightkit-audio | Public candidate | Media available; native audio receipts |
-| rightkit-ort | Public; hold | Native runtime/artifact catalog gate |
+| rightkit-onnx | Public; hold | Native runtime/artifact catalog gate |
 | rightkit-embed | Public; hold | ORT gate |
 | rightkit-ocr | Public; hold | Signed model/runtime catalogs & migrated adapter parity |
 | rightkit-vad | Public; hold | ASR stack versioning & model/runtime gates |

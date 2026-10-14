@@ -217,7 +217,7 @@ const assetEnv = (selection, name) => (UNIT_MODE && selection.unitRequest?.allow
 
 // ORT-PROVISION (the single call site): the catalog-pinned Windows ONNX Runtime for the real-runtime
 // tests, provisioned once and only when a unit that uses it is tested. A failed provision is a red row.
-const ORT_UNITS = new Set(["rightkit-ort"]);
+const ORT_UNITS = new Set(["rightkit-onnx"]);
 let ortEnv;
 async function ortEnvFor(name) {
   if (!ORT_UNITS.has(name)) return {};

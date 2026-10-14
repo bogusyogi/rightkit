@@ -56,7 +56,7 @@ Capabilities: 72 (54 with fingerprints, 18 declaration-only). Internal owners th
 | oauth-sign-in | `rightkit-oauth` | advise | fingerprinted | 5 (0 block, 5 advise) | rightkit-oauth: published 0.3.1 (crates.io) |
 | ocr | `rightkit-ocr` | advise | fingerprinted | 3 (0 block, 3 advise) | rightkit-ocr: published 0.2.0 (crates.io) |
 | onboarding-ui | `@rightkit/onboarding` | advise | fingerprinted | 7 (0 block, 7 advise) | @rightkit/onboarding: published 0.3.2 (npm) |
-| onnx-runtime | `rightkit-ort` | advise | fingerprinted | 4 (0 block, 4 advise) | rightkit-ort: published 0.2.2 (crates.io) |
+| onnx-runtime | `rightkit-onnx` | advise | fingerprinted | 4 (0 block, 4 advise) | rightkit-onnx: none recorded |
 | os-credential-store | `RightKitSwift`, `rightkit-secrets` | advise | fingerprinted | 7 (0 block, 7 advise) | RightKitSwift: published 0.4.0 (SwiftPM); rightkit-secrets: published 0.1.3 (crates.io) |
 | os-sandbox | `rightkit-sandbox` | advise | fingerprinted | 2 (0 block, 2 advise) | rightkit-sandbox: published 0.3.4 (crates.io) |
 | owned-processes | `rightkit-process` | advise | fingerprinted | 2 (0 block, 2 advise) | rightkit-process: published 0.3.3 (crates.io) |

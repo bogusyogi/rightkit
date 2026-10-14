@@ -113,10 +113,10 @@ test("every source fingerprint has a realistic positive and neutral negative sam
   }
 });
 
-test("rightkit-ort adoption permits ORT mentions, reads, docs, logs and comments", () => {
+test("rightkit-onnx adoption permits ORT mentions, reads, docs, logs and comments", () => {
   const root = app({
-    "Cargo.toml": '[package]\nname = "ort-consumer"\nversion = "0.1.0"\n[dependencies]\nrightkit-ort = "0.1.0"\n',
-    "Cargo.lock": 'version=4\n[[package]]\nname="ort-consumer"\nversion="0.1.0"\ndependencies=["rightkit-ort"]\n[[package]]\nname="rightkit-ort"\nversion="0.1.0"\nsource="registry+https://github.com/rust-lang/crates.io-index"\n',
+    "Cargo.toml": '[package]\nname = "ort-consumer"\nversion = "0.1.0"\n[dependencies]\nrightkit-onnx = "0.1.0"\n',
+    "Cargo.lock": 'version=4\n[[package]]\nname="ort-consumer"\nversion="0.1.0"\ndependencies=["rightkit-onnx"]\n[[package]]\nname="rightkit-onnx"\nversion="0.1.0"\nsource="registry+https://github.com/rust-lang/crates.io-index"\n',
     "src/doctor.rs": [
       'let doctor = "Set ORT_DYLIB_PATH to select a runtime";',
       'let runtime = std::env::var("ORT_DYLIB_PATH");',
@@ -186,7 +186,7 @@ test("ORT source findings require env mutation or direct Rust initialization", (
     const expected = cases.map(([file, , fingerprint, line]) => ({ file: `src/${file}`, fingerprint, line }));
     const summarize = (items) => items.map(({ file, fingerprint, line }) => ({ file, fingerprint, line })).sort((a, b) => a.file.localeCompare(b.file));
     assert.deepEqual(summarize(findings), summarize(expected));
-    assert.ok(findings.every((finding) => finding.package === "rightkit-ort" && finding.capability === "onnx-runtime"));
+    assert.ok(findings.every((finding) => finding.package === "rightkit-onnx" && finding.capability === "onnx-runtime"));
     assert.deepEqual(scanApp(root, shipped), findings, "warm cache preserves code-only findings");
   } finally { rmSync(root, { recursive: true, force: true }); }
 });

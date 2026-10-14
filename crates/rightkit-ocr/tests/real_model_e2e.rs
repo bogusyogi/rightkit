@@ -10,7 +10,7 @@ mod common;
 
 use base64::Engine;
 use rightkit_ocr::{OcrArtifactManifest, OcrEngine};
-use rightkit_ort::{configure_runtime, CandidateSource, RuntimeCandidate};
+use rightkit_onnx::{configure_runtime, CandidateSource, RuntimeCandidate};
 
 #[test]
 fn bundled_runtime_reproduces_the_characterized_fixture_output() {

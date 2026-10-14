@@ -17,7 +17,7 @@ Plain-language features derived from the verified claim inventory. Each row poin
 - **crates/rightkit-asr/THIRD_PARTY_NOTICES.md** — The complete upstream MIT license text is bundled as `LICENSE`. Local _(source: crates/rightkit-asr/THIRD_PARTY_NOTICES.md:13)_
 - **crates/rightkit-logs/README.md** — link. Until the publication/migration gate is complete, existing app-local _(source: crates/rightkit-logs/README.md:28)_
 - **crates/rightkit-ocr/README.md** — de-duplication, CTC decoding, typed errors, safe canonical artifact paths, and _(source: crates/rightkit-ocr/README.md:8)_
-- **crates/rightkit-ort/README.md** — legacy environment variables and canonical app-data locations into explicit _(source: crates/rightkit-ort/README.md:10)_
+- **crates/rightkit-onnx/README.md** — legacy environment variables and canonical app-data locations into explicit _(source: crates/rightkit-onnx/README.md:10)_
 - **crates/rightkit-process/README.md** — but before wrapper completion also cleans up the partial child. _(source: crates/rightkit-process/README.md:14)_
 
 ## Entry points

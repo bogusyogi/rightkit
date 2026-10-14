@@ -19,11 +19,11 @@
 //! EMB_DIM = 512
 //! Note, my stft code is adapted from: https://librosa.org/doc/main/generated/librosa.stft.html
 
-use rightkit_ort::ort;
+use rightkit_onnx::ort;
 use crate::error::{Error, Result};
 use crate::execution::ModelConfig;
 use ndarray::{s, Array1, Array2, Array3, Axis};
-use rightkit_ort::ort::session::Session;
+use rightkit_onnx::ort::session::Session;
 use realfft::RealFftPlanner;
 use std::f32::consts::PI;
 use std::path::Path;

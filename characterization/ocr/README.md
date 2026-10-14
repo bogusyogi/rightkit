@@ -1,7 +1,7 @@
 # ORT/OCR characterization — CodeRight and ScrapeRight
 
 Status: Phase 5 step 1 and internal pre-publication extraction complete on
-Windows (2026-07-14). `rightkit-ort` and `rightkit-ocr` are `publish = false`;
+Windows (2026-07-14). `rightkit-onnx` and `rightkit-ocr` are `publish = false`;
 this does not publish or migrate either app.
 
 ## Reproduce
@@ -74,7 +74,7 @@ selection are otherwise the same.
 
 ## Extraction contract
 
-`rightkit-ort` should own only:
+`rightkit-onnx` should own only:
 
 - configure-once dynamic-library selection;
 - platform library filename;

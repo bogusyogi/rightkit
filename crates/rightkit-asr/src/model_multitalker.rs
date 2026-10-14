@@ -1,8 +1,8 @@
-use rightkit_ort::ort;
+use rightkit_onnx::ort;
 use crate::error::{Error, Result};
 use crate::execution::ModelConfig as ExecutionConfig;
 use ndarray::{Array1, Array2, Array3, Array4};
-use rightkit_ort::ort::session::Session;
+use rightkit_onnx::ort::session::Session;
 use std::path::Path;
 
 /// Encoder cache for the multitalker model.

@@ -7,7 +7,7 @@
     "rightkit-browser": "Chrome for Testing for the end-to-end tests",
     "rightkit-ffmpeg": "FFmpeg and ffprobe development builds",
     "rightkit-ocr": "OCR models and the OS recognizer",
-    "rightkit-ort": "ONNX Runtime and model files",
+    "rightkit-onnx": "ONNX Runtime and model files",
     "rightkit-tts": "TTS engine models",
     "rightkit-vad": "ONNX Runtime and the Silero model"
   },

@@ -9,7 +9,7 @@ import { promisify } from "node:util";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const WORKSPACE = path.resolve(HERE, "../../..");
-const PHASE5_CRATES = ["rightkit-ort", "rightkit-ocr", "rightkit-ffmpeg"];
+const PHASE5_CRATES = ["rightkit-onnx", "rightkit-ocr", "rightkit-ffmpeg"];
 const execFileAsync = promisify(execFile);
 
 // null = not on this machine. The Windows runtime copies are staged only on Windows and the mac

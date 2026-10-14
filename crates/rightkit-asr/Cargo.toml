@@ -36,7 +36,7 @@ realfft = "3"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 libloading = "0.9"
-rightkit-ort = { path = "../rightkit-ort", version = "0.2.2", features = ["ndarray", "half"] }
+rightkit-onnx = { path = "../rightkit-onnx", version = "0.2.2", features = ["ndarray", "half"] }
 rightkit-transcript = { version = "0.3.0", path = "../rightkit-transcript" }
 rightkit-vad = { version = "0.1.0", path = "../rightkit-vad", default-features = false }
 # Optional since 0.2.0: only the `whisper-tokenizers` feature pulls the HF tokenizers
@@ -68,20 +68,20 @@ whisper-tokenizers = ["dep:tokenizers"]
 ort-defaults = []
 # Opt-in: forward ONNX Runtime's own log lines into `tracing` (process-wide through feature
 # unification; thousands of INFO lines per model load).
-ort-tracing = ["rightkit-ort/tracing"]
-# Build-time ONNX Runtime fetch is opt-in (inventory 1.1); the suite loads ORT through rightkit-ort.
-ort-download = ["rightkit-ort/download-binaries", "rightkit-ort/tls-native", "rightkit-ort/copy-dylibs"]
-cuda = ["rightkit-ort/cuda"]
-tensorrt = ["rightkit-ort/tensorrt"]
-coreml = ["rightkit-ort/coreml"]
-directml = ["rightkit-ort/directml"]
-migraphx = ["rightkit-ort/migraphx"]
-openvino = ["rightkit-ort/openvino"]
-webgpu = ["rightkit-ort/webgpu"]
-nnapi = ["rightkit-ort/nnapi"]
+ort-tracing = ["rightkit-onnx/tracing"]
+# Build-time ONNX Runtime fetch is opt-in (inventory 1.1); the suite loads ORT through rightkit-onnx.
+ort-download = ["rightkit-onnx/download-binaries", "rightkit-onnx/tls-native", "rightkit-onnx/copy-dylibs"]
+cuda = ["rightkit-onnx/cuda"]
+tensorrt = ["rightkit-onnx/tensorrt"]
+coreml = ["rightkit-onnx/coreml"]
+directml = ["rightkit-onnx/directml"]
+migraphx = ["rightkit-onnx/migraphx"]
+openvino = ["rightkit-onnx/openvino"]
+webgpu = ["rightkit-onnx/webgpu"]
+nnapi = ["rightkit-onnx/nnapi"]
 sortformer = []
 multitalker = ["sortformer"]
 cohere = ["whisper-tokenizers"]
-# rightkit-ort always loads ONNX Runtime dynamically; kept so existing feature lists resolve.
+# rightkit-onnx always loads ONNX Runtime dynamically; kept so existing feature lists resolve.
 load-dynamic = []
-preload-dylibs = ["rightkit-ort/preload-dylibs"]
+preload-dylibs = ["rightkit-onnx/preload-dylibs"]

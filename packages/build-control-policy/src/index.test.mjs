@@ -290,8 +290,8 @@ test('Membrane local declaration admits only its unsigned Windows installer entr
   } finally { await rm(root, { recursive: true, force: true }); }
 });
 
-for (const command of ['rightkit remote windows cargo clippy --workspace --all-targets -- -D warnings', 'rightkit remote windows cargo test -p rightkit-ort --all-targets', 'rightkit remote mac rustc --version', 'cd /workspace && rightkit remote windows cargo check 2>&1 | tail -5']) test(`allows documented remote lane ${command}`, () => assert.equal(managedBuildViolation(command), null));
+for (const command of ['rightkit remote windows cargo clippy --workspace --all-targets -- -D warnings', 'rightkit remote windows cargo test -p rightkit-onnx --all-targets', 'rightkit remote mac rustc --version', 'cd /workspace && rightkit remote windows cargo check 2>&1 | tail -5']) test(`allows documented remote lane ${command}`, () => assert.equal(managedBuildViolation(command), null));
 for (const command of ['rightkit remote windows cargo test && cargo test', 'rightkit remote evil cargo test', 'rightkit remote windows cargo test; rustc x.rs', 'env PATH=/tmp rightkit remote windows cargo test']) test(`rejects remote lane bypass ${command}`, () => assert.ok(managedBuildViolation(command)));
 
-for (const command of ['node packages/release/cli/right-release.mjs publish cargo --crate rightkit-ort', 'right-release publish cargo --crate rightkit-ort --dry-run']) test(`allows right-release cargo publication ${command}`, () => assert.equal(managedBuildViolation(command), null));
+for (const command of ['node packages/release/cli/right-release.mjs publish cargo --crate rightkit-onnx', 'right-release publish cargo --crate rightkit-onnx --dry-run']) test(`allows right-release cargo publication ${command}`, () => assert.equal(managedBuildViolation(command), null));
 for (const command of ['right-release publish cargo --crate x && cargo publish', 'right-release publish cargo; cargo test']) test(`rejects right-release publication bypass ${command}`, () => assert.ok(managedBuildViolation(command)));

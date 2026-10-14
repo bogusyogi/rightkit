@@ -47,7 +47,7 @@ The build broker is the Rust RustRight product (`bogusyogi/rustright`, binary `r
 | `rightkit-models` | crates.io | 0.3.0 | 0.2.8 | 0.2.8 | **MISMATCH staged 0.2.8 != source 0.3.0** | model-installation | Shared local-model manifest and installer for Right Suite apps: revisions and quantizations, resumable verified downloads, archive extraction, atomic activation, rollback, and hardware fit. |
 | `rightkit-oauth` | crates.io | 0.4.0 | 0.3.1 | 0.3.1 | **MISMATCH staged 0.3.1 != source 0.4.0** | oauth-sign-in | Shared OAuth 2.0 sign-in for Right Suite apps: loopback PKCE, RFC 8628 device flow, provider presets, encrypted daemon persistence, and stored, refreshing credentials. |
 | `rightkit-ocr` | crates.io | 0.2.1 | 0.2.0 | 0.2.0 | **MISMATCH staged 0.2.0 != source 0.2.1** | ocr | Product-neutral OCR: Apple Vision / Windows.Media.Ocr native backends with per-line geometry, isolated worker, and verified two-stage ONNX fallback |
-| `rightkit-ort` | crates.io | 0.2.3 | 0.2.2 | 0.2.2 | **MISMATCH staged 0.2.2 != source 0.2.3** | onnx-runtime | Product-neutral ONNX Runtime dynamic-library resolution, environment, execution-provider and session setup (single suite ort pin) |
+| `rightkit-onnx` | crates.io | 0.2.3 | none recorded |  | **MISMATCH public package has no release record** | onnx-runtime | Product-neutral ONNX Runtime dynamic-library resolution, environment, execution-provider and session setup (single suite ort pin) |
 | `rightkit-overlay` | crates.io | 0.1.1 | none recorded | 0.1.1 | staged, never published | desktop-overlay | Shared overlay state, hit testing, and placement policy for Right Suite apps |
 | `rightkit-ownership` | crates.io | 0.2.1 | 0.2.1 | 0.2.1 | ok | ownership-scanner | RightKit ownership scanner, verdict and admission: the single Rust implementation the RustRight broker links. |
 | `rightkit-pdf` | crates.io | 0.3.0 | 0.2.0 | 0.2.0 | **MISMATCH staged 0.2.0 != source 0.3.0** | pdf-engine | Product-neutral PDF engine: inspect, compose (source-text replace / add text / OCR correction), font subsetting, staged atomic save, plus optional page merge/select and text extraction |
@@ -103,4 +103,4 @@ The build broker is the Rust RustRight product (`bogusyogi/rustright`, binary `r
 
 ## Version records without a manifest
 
-rightkit-media (cargo), rightkit-qts (cargo), rightkit-qts-ggml (cargo), rightkit-qts-ggml-sys (cargo), rightkit-service (cargo), rightkit-watch (cargo).
+rightkit-media (cargo), rightkit-ort (cargo), rightkit-qts (cargo), rightkit-qts-ggml (cargo), rightkit-qts-ggml-sys (cargo), rightkit-service (cargo), rightkit-watch (cargo).

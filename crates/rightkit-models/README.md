@@ -4,7 +4,7 @@ Shared local-model manifest and installer for Right Suite apps. It owns model re
 
 **Use it** when an app must download, verify, adopt, activate, or garbage-collect local model or runtime files, and needs the same install semantics as other Right Suite apps.
 
-**Do not use it** to run models, to choose which model an app should use, or to fetch arbitrary files. Inference lives in the app or in crates such as `rightkit-tts-qwen`, `rightkit-ort`, and `rightkit-ocr`.
+**Do not use it** to run models, to choose which model an app should use, or to fetch arbitrary files. Inference lives in the app or in crates such as `rightkit-tts-qwen`, `rightkit-onnx`, and `rightkit-ocr`.
 
 ## Features
 

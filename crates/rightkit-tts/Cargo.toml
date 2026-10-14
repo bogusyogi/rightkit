@@ -24,7 +24,7 @@ path = "src/lib.rs"
 # Qwen3-TTS worker, which implies `client`. Default keeps both pre-existing surfaces.
 default = ["system", "client"]
 system = ["dep:rightkit-transcript", "dep:thiserror"]
-client = ["dep:rightkit-ort", "dep:rightkit-process", "dep:rightkit-fs", "dep:serde", "dep:serde_json"]
+client = ["dep:rightkit-onnx", "dep:rightkit-process", "dep:rightkit-fs", "dep:serde", "dep:serde_json"]
 engine = ["client", "dep:qts", "dep:libc"]
 metal = ["engine", "qts/metal"]
 vulkan = ["engine", "qts/vulkan"]
@@ -34,7 +34,7 @@ serde = { version = "1.0.228", features = ["derive"], optional = true }
 serde_json = { version = "1.0.150", optional = true }
 thiserror = { version = "2", optional = true }
 rightkit-fs = { version = "0.4.0", path = "../rightkit-fs", default-features = false, features = ["digest"], optional = true }
-rightkit-ort = { version = "0.2.3", path = "../rightkit-ort", default-features = false, optional = true }
+rightkit-onnx = { version = "0.2.3", path = "../rightkit-onnx", default-features = false, optional = true }
 rightkit-process = { version = "0.4.0", path = "../rightkit-process", optional = true }
 rightkit-transcript = { version = "0.3.0", path = "../rightkit-transcript", optional = true }
 qts = { package = "rightkit-tts-qwen", version = "0.2.6", path = "../rightkit-tts-qwen", optional = true }

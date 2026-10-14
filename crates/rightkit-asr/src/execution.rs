@@ -1,10 +1,10 @@
-use rightkit_ort::ort;
+use rightkit_onnx::ort;
 use std::path::PathBuf;
 use std::{fmt, rc::Rc};
 
 use crate::error::Result;
-use rightkit_ort::ort::session::builder::SessionBuilder;
-use rightkit_ort::ort::session::builder::GraphOptimizationLevel;
+use rightkit_onnx::ort::session::builder::SessionBuilder;
+use rightkit_onnx::ort::session::builder::GraphOptimizationLevel;
 
 #[cfg(feature = "directml")]
 fn directml_execution_provider(device_id: Option<i32>) -> ort::ep::DirectML {
@@ -171,7 +171,7 @@ impl ModelConfig {
             feature = "webgpu",
             feature = "nnapi"
         ))]
-        use rightkit_ort::ort::ep::CPU as CPUExecutionProvider;
+        use rightkit_onnx::ort::ep::CPU as CPUExecutionProvider;
         let mut builder = builder
             .with_optimization_level(self.optimization_level)?
             .with_intra_threads(self.intra_threads)?
@@ -194,7 +194,7 @@ impl ModelConfig {
 
             #[cfg(feature = "coreml")]
             ExecutionProvider::CoreML => {
-                use rightkit_ort::ort::ep::coreml::{ComputeUnits, CoreML};
+                use rightkit_onnx::ort::ep::coreml::{ComputeUnits, CoreML};
                 let mut coreml = CoreML::default().with_compute_units(ComputeUnits::CPUAndGPU);
 
                 if let Some(cache_dir) = &self.coreml_cache_dir {

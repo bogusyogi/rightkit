@@ -1776,7 +1776,7 @@
       ]
     },
     {
-      "package": "rightkit-ort",
+      "package": "rightkit-onnx",
       "capability": "onnx-runtime",
       "summary": "ONNX Runtime selection, execution providers, dylib resolution and global pools",
       "fingerprints": [

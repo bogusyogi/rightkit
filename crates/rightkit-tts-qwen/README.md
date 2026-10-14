@@ -14,15 +14,15 @@ Native Qwen3-TTS inference for Right Suite apps: GGUF and GGML talker and code-p
 | `vulkan` | off | `rightkit-tts-qwen-sys/vulkan` | ggml Vulkan backend. |
 | `blas` | off | `rightkit-tts-qwen-sys/blas` | ggml BLAS backend. |
 | `native` | off | `rightkit-tts-qwen-sys/native` | Builds ggml for the host CPU. |
-| `acl`, `armnn`, `azure`, `cann`, `coreml`, `cuda`, `directml`, `migraphx`, `nnapi`, `nvrtx`, `onednn`, `openvino`, `qnn`, `rknpu`, `tensorrt`, `tvm`, `vitis`, `webgpu`, `xnnpack` | off | `rightkit-ort/<name>` | Execution-provider features for the vocoder's ONNX Runtime session. Each forwards to the same-named `rightkit-ort` feature (`Cargo.toml:21`). |
+| `acl`, `armnn`, `azure`, `cann`, `coreml`, `cuda`, `directml`, `migraphx`, `nnapi`, `nvrtx`, `onednn`, `openvino`, `qnn`, `rknpu`, `tensorrt`, `tvm`, `vitis`, `webgpu`, `xnnpack` | off | `rightkit-onnx/<name>` | Execution-provider features for the vocoder's ONNX Runtime session. Each forwards to the same-named `rightkit-onnx` feature (`Cargo.toml:21`). |
 
-The default feature set is empty. This crate has no direct `ort` dependency; the ONNX Runtime pin (`=2.0.0-rc.13`, `load-dynamic`, API 24) is owned by `rightkit-ort` (`crates/rightkit-ort/Cargo.toml:59`).
+The default feature set is empty. This crate has no direct `ort` dependency; the ONNX Runtime pin (`=2.0.0-rc.13`, `load-dynamic`, API 24) is owned by `rightkit-onnx` (`crates/rightkit-onnx/Cargo.toml:59`).
 
 ## Platform support
 
 - `metal` applies to Apple targets. `rightkit-tts-qwen-sys` ignores it with a build warning on other targets.
 - `vulkan` is for hosts with a Vulkan SDK.
-- The vocoder runs through ONNX Runtime. The execution provider is chosen by feature and by the `rightkit-ort` binding that the app configures.
+- The vocoder runs through ONNX Runtime. The execution provider is chosen by feature and by the `rightkit-onnx` binding that the app configures.
 - `cfg(target_vendor = "apple")` branches exist in `src/pipeline/backend.rs` and `src/pipeline/vocoder.rs`.
 
 Published version: see `INDEX.md` at the repository root. Release notes: see [CHANGELOG.md](CHANGELOG.md).
