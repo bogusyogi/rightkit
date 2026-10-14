@@ -16,10 +16,10 @@ Status values compare each pin with the latest published version (registry-recor
 ## Summary
 
 - Packages in RightKit: 79 (55 crates, 24 npm packages).
-- Packages with at least one app pin: 59.
-- App pins: 654. Stale: 38. Ahead of published: 121. Unpublished: 11. Local: 380. Git: 0. Unparsed: 0.
-- Vendored copies of RightKit packages inside app repos: 195.
-- App and package pairs with more than one requirement: 78.
+- Packages with at least one app pin: 58.
+- App pins: 616. Stale: 38. Ahead of published: 116. Unpublished: 11. Local: 347. Git: 0. Unparsed: 0.
+- Vendored copies of RightKit packages inside app repos: 188.
+- App and package pairs with more than one requirement: 72.
 
 ## Packages
 
@@ -45,7 +45,6 @@ Status values compare each pin with the latest published version (registry-recor
 | `rightkit-embed` | crates.io | 0.3.2 | 0.3.2 | 2 | coderight, mailright | 2 vendored copies; 1 stale |
 | `rightkit-ffmpeg` | crates.io | 0.2.6 | none recorded | 0 | none | - |
 | `rightkit-file-watch` | crates.io | 0.4.0 | none recorded | 0 | none | - |
-| `rightkit-framed-sidecar` | crates.io | 0.2.0 | 0.1.0 | 6 | cutright, genright, heardright, postright, scraperight, viewright | 7 vendored copies; 5 ahead of published |
 | `rightkit-fs` | crates.io | 0.4.0 | 0.3.3 | 7 | coderight, cutright, genright, heardright, postright, scraperight, viewright | 9 vendored copies; 13 ahead of published |
 | `rightkit-fsindex` | crates.io | 0.2.0 | 0.1.1 | 0 | none | 2 vendored copies |
 | `rightkit-hotkeys` | crates.io | 0.1.0 | none recorded | 0 | none | 2 vendored copies |
@@ -71,6 +70,7 @@ Status values compare each pin with the latest published version (registry-recor
 | `rightkit-search` | crates.io | 0.2.1 | 0.2.0 | 2 | genright, scraperight | 4 vendored copies; 2 ahead of published |
 | `rightkit-send` | crates.io | 0.1.0 | none recorded | 0 | none | 2 vendored copies |
 | `rightkit-shell` | crates.io | 0.3.0 | 0.2.0 | 7 | coderight, cutright, heardright, mailright, postright, scraperight, viewright | 6 vendored copies; 1 stale; 4 ahead of published |
+| `rightkit-sidecar` | crates.io | 0.2.0 | none recorded | 0 | none | - |
 | `rightkit-speech-client` | crates.io | 0.3.4 | 0.3.3 | 4 | cutright, heardright, scraperight, viewright | 4 vendored copies; 2 ahead of published |
 | `rightkit-sync` | crates.io | 0.1.1 | none recorded | 1 | scraperight | 3 vendored copies |
 | `rightkit-tauri` | crates.io | 0.1.3 | 0.1.2 | 6 | coderight, heardright, mailright, postright, scraperight, viewright | 5 vendored copies; 1 stale; 2 ahead of published |
@@ -212,44 +212,6 @@ Status values compare each pin with the latest published version (registry-recor
 | `rightkit-db` | viewright | `viewright/tmp/rk-trial-2d1c2c02/crates/rightkit-jobs/Cargo.toml` | dependencies | `0.4.0` | 0.3.2 | local |
 | `rightkit-embed` | coderight | `coderight/context/engine/crates/membrane-blueprint/Cargo.toml` | dependencies | `=0.3.2` | 0.3.2 | current |
 | `rightkit-embed` | mailright | `mailright/src-tauri/Cargo.toml` | dependencies | `=0.2.1` | 0.3.2 | stale |
-| `rightkit-framed-sidecar` | cutright | `cutright/rk-snapshot/crates/rightkit-jobs/Cargo.toml` | dependencies | `0.2.0` | 0.1.0 | local |
-| `rightkit-framed-sidecar` | cutright | `cutright/rk-snapshot/crates/rightkit-qa/Cargo.toml` | dependencies | `0.2.0` | 0.1.0 | local |
-| `rightkit-framed-sidecar` | cutright | `cutright/rk-snapshot/crates/rightkit-service/Cargo.toml` | dependencies | `0.2.0` | 0.1.0 | local |
-| `rightkit-framed-sidecar` | cutright | `cutright/rk-snapshot/crates/rightkit-shell/example-app/Cargo.toml` | dependencies | `*` | 0.1.0 | local |
-| `rightkit-framed-sidecar` | cutright | `cutright/rk-snapshot/crates/rightkit-speech-client/Cargo.toml` | dependencies | `0.2.0` | 0.1.0 | local |
-| `rightkit-framed-sidecar` | genright | `genright/rk-snapshot/crates/rightkit-jobs/Cargo.toml` | dependencies | `0.2.0` | 0.1.0 | local |
-| `rightkit-framed-sidecar` | genright | `genright/rk-snapshot/crates/rightkit-qa/Cargo.toml` | dependencies | `0.2.0` | 0.1.0 | local |
-| `rightkit-framed-sidecar` | genright | `genright/rk-snapshot/crates/rightkit-service/Cargo.toml` | dependencies | `0.2.0` | 0.1.0 | local |
-| `rightkit-framed-sidecar` | genright | `genright/src-tauri/Cargo.toml` | dependencies | `=0.2.0` | 0.1.0 | ahead |
-| `rightkit-framed-sidecar` | heardright | `heardright/rk-snapshot/crates/rightkit-jobs/Cargo.toml` | dependencies | `0.2.0` | 0.1.0 | local |
-| `rightkit-framed-sidecar` | heardright | `heardright/rk-snapshot/crates/rightkit-qa/Cargo.toml` | dependencies | `0.2.0` | 0.1.0 | local |
-| `rightkit-framed-sidecar` | heardright | `heardright/rk-snapshot/crates/rightkit-record/Cargo.toml` | dependencies | `*` | 0.1.0 | local |
-| `rightkit-framed-sidecar` | heardright | `heardright/rk-snapshot/crates/rightkit-service/Cargo.toml` | dependencies | `0.2.0` | 0.1.0 | local |
-| `rightkit-framed-sidecar` | heardright | `heardright/rk-snapshot/crates/rightkit-shell/example-app/Cargo.toml` | dependencies | `*` | 0.1.0 | local |
-| `rightkit-framed-sidecar` | heardright | `heardright/rk-snapshot/crates/rightkit-speech-client/Cargo.toml` | dependencies | `0.2.0` | 0.1.0 | local |
-| `rightkit-framed-sidecar` | heardright | `heardright/tauri-app-next/heardright-app-runtime/Cargo.toml` | dependencies | `=0.2.0` | 0.1.0 | ahead |
-| `rightkit-framed-sidecar` | heardright | `heardright/tauri-app-next/heardright-runtime/Cargo.toml` | dependencies | `=0.2.0` | 0.1.0 | ahead |
-| `rightkit-framed-sidecar` | postright | `postright/rk-snapshot/crates/rightkit-jobs/Cargo.toml` | dependencies | `0.2.0` | 0.1.0 | local |
-| `rightkit-framed-sidecar` | postright | `postright/rk-snapshot/crates/rightkit-qa/Cargo.toml` | dependencies | `0.2.0` | 0.1.0 | local |
-| `rightkit-framed-sidecar` | postright | `postright/rk-snapshot/crates/rightkit-service/Cargo.toml` | dependencies | `0.2.0` | 0.1.0 | local |
-| `rightkit-framed-sidecar` | postright | `postright/rk-snapshot/crates/rightkit-shell/example-app/Cargo.toml` | dependencies | `*` | 0.1.0 | local |
-| `rightkit-framed-sidecar` | scraperight | `scraperight/crates/engine/Cargo.toml` | dependencies | `=0.2.0` | 0.1.0 | ahead |
-| `rightkit-framed-sidecar` | scraperight | `scraperight/rk-snapshot/crates/rightkit-jobs/Cargo.toml` | dependencies | `0.2.0` | 0.1.0 | local |
-| `rightkit-framed-sidecar` | scraperight | `scraperight/rk-snapshot/crates/rightkit-qa/Cargo.toml` | dependencies | `0.2.0` | 0.1.0 | local |
-| `rightkit-framed-sidecar` | scraperight | `scraperight/rk-snapshot/crates/rightkit-service/Cargo.toml` | dependencies | `0.2.0` | 0.1.0 | local |
-| `rightkit-framed-sidecar` | scraperight | `scraperight/rk-snapshot/crates/rightkit-shell/example-app/Cargo.toml` | dependencies | `*` | 0.1.0 | local |
-| `rightkit-framed-sidecar` | scraperight | `scraperight/rk-snapshot/crates/rightkit-speech-client/Cargo.toml` | dependencies | `0.2.0` | 0.1.0 | local |
-| `rightkit-framed-sidecar` | scraperight | `scraperight/src-tauri/Cargo.toml` | dependencies | `=0.2.0` | 0.1.0 | ahead |
-| `rightkit-framed-sidecar` | viewright | `viewright/rk-snapshot/crates/rightkit-jobs/Cargo.toml` | dependencies | `0.2.0` | 0.1.0 | local |
-| `rightkit-framed-sidecar` | viewright | `viewright/rk-snapshot/crates/rightkit-qa/Cargo.toml` | dependencies | `0.2.0` | 0.1.0 | local |
-| `rightkit-framed-sidecar` | viewright | `viewright/rk-snapshot/crates/rightkit-service/Cargo.toml` | dependencies | `0.2.0` | 0.1.0 | local |
-| `rightkit-framed-sidecar` | viewright | `viewright/rk-snapshot/crates/rightkit-shell/example-app/Cargo.toml` | dependencies | `*` | 0.1.0 | local |
-| `rightkit-framed-sidecar` | viewright | `viewright/tmp/rk-trial-2d1c2c02/crates/rightkit-jobs/Cargo.toml` | dependencies | `0.2.0` | 0.1.0 | local |
-| `rightkit-framed-sidecar` | viewright | `viewright/tmp/rk-trial-2d1c2c02/crates/rightkit-qa/Cargo.toml` | dependencies | `0.2.0` | 0.1.0 | local |
-| `rightkit-framed-sidecar` | viewright | `viewright/tmp/rk-trial-2d1c2c02/crates/rightkit-record/Cargo.toml` | dependencies | `*` | 0.1.0 | local |
-| `rightkit-framed-sidecar` | viewright | `viewright/tmp/rk-trial-2d1c2c02/crates/rightkit-service/Cargo.toml` | dependencies | `0.2.0` | 0.1.0 | local |
-| `rightkit-framed-sidecar` | viewright | `viewright/tmp/rk-trial-2d1c2c02/crates/rightkit-shell/example-app/Cargo.toml` | dependencies | `*` | 0.1.0 | local |
-| `rightkit-framed-sidecar` | viewright | `viewright/tmp/rk-trial-2d1c2c02/crates/rightkit-speech-client/Cargo.toml` | dependencies | `0.2.0` | 0.1.0 | local |
 | `rightkit-fs` | coderight | `coderight/engine/Cargo.toml` | workspace.dependencies | `=0.3.4` | 0.3.3 | ahead |
 | `rightkit-fs` | coderight | `coderight/rk-snapshot/rightkit-cache/Cargo.toml` | dependencies | `0.3.4` | 0.3.3 | local |
 | `rightkit-fs` | coderight | `coderight/rk-snapshot/rightkit-db/Cargo.toml` | dependencies | `0.3.0` | 0.3.3 | local |
@@ -829,13 +791,6 @@ Vendored copies are app-owned source trees that carry a RightKit package name. T
 | `rightkit-db` | postright | `postright/rk-snapshot/crates/rightkit-db/Cargo.toml` | 0.4.0 | 0.3.2 |
 | `rightkit-embed` | viewright | `viewright/tmp/rk-trial-2d1c2c02/crates/rightkit-embed/Cargo.toml` | 0.3.2 | 0.3.2 |
 | `rightkit-embed` | heardright | `heardright/rk-snapshot/crates/rightkit-embed/Cargo.toml` | 0.3.2 | 0.3.2 |
-| `rightkit-framed-sidecar` | cutright | `cutright/rk-snapshot/crates/rightkit-framed-sidecar/Cargo.toml` | 0.2.0 | 0.1.0 |
-| `rightkit-framed-sidecar` | genright | `genright/rk-snapshot/crates/rightkit-framed-sidecar/Cargo.toml` | 0.2.0 | 0.1.0 |
-| `rightkit-framed-sidecar` | scraperight | `scraperight/rk-snapshot/crates/rightkit-framed-sidecar/Cargo.toml` | 0.2.0 | 0.1.0 |
-| `rightkit-framed-sidecar` | viewright | `viewright/rk-snapshot/crates/rightkit-framed-sidecar/Cargo.toml` | 0.2.0 | 0.1.0 |
-| `rightkit-framed-sidecar` | viewright | `viewright/tmp/rk-trial-2d1c2c02/crates/rightkit-framed-sidecar/Cargo.toml` | 0.2.0 | 0.1.0 |
-| `rightkit-framed-sidecar` | heardright | `heardright/rk-snapshot/crates/rightkit-framed-sidecar/Cargo.toml` | 0.2.0 | 0.1.0 |
-| `rightkit-framed-sidecar` | postright | `postright/rk-snapshot/crates/rightkit-framed-sidecar/Cargo.toml` | 0.2.0 | 0.1.0 |
 | `rightkit-fs` | cutright | `cutright/rk-snapshot/crates/rightkit-fs/Cargo.toml` | 0.3.4 | 0.3.3 |
 | `rightkit-fs` | genright | `genright/rk-snapshot/crates/rightkit-fs/Cargo.toml` | 0.3.4 | 0.3.3 |
 | `rightkit-fs` | scraperight | `scraperight/rk-snapshot/crates/rightkit-fs/Cargo.toml` | 0.3.4 | 0.3.3 |
@@ -986,12 +941,6 @@ Split pins: one app names the same package with different requirements, possibly
 | `rightkit-db` | cargo | postright | =0.4.0; local 0.4.0 |
 | `rightkit-db` | cargo | scraperight | =0.4.0; local 0.4.0 |
 | `rightkit-db` | cargo | viewright | =0.4.0; local 0.4; local 0.4.0 |
-| `rightkit-framed-sidecar` | cargo | cutright | local *; local 0.2.0 |
-| `rightkit-framed-sidecar` | cargo | genright | =0.2.0; local 0.2.0 |
-| `rightkit-framed-sidecar` | cargo | heardright | =0.2.0; local *; local 0.2.0 |
-| `rightkit-framed-sidecar` | cargo | postright | local *; local 0.2.0 |
-| `rightkit-framed-sidecar` | cargo | scraperight | =0.2.0; local *; local 0.2.0 |
-| `rightkit-framed-sidecar` | cargo | viewright | local *; local 0.2.0 |
 | `rightkit-fs` | cargo | coderight | =0.3.4; local 0.3; local 0.3.0; local 0.3.4 |
 | `rightkit-fs` | cargo | cutright | =0.3.4; local 0.3; local 0.3.0; local 0.3.3; local 0.3.4 |
 | `rightkit-fs` | cargo | genright | =0.3.4; local 0.3; local 0.3.0; local 0.3.3; local 0.3.4 |
@@ -1053,14 +1002,14 @@ Split pins: one app names the same package with different requirements, possibly
 
 | App | Present | Manifests read | Parse errors | RightKit pins matched |
 |---|---|---|---|---|
-| cutright | yes | 55 | 0 | 77 |
-| genright | yes | 35 | 0 | 68 |
-| scraperight | yes | 44 | 0 | 91 |
-| viewright | yes | 95 | 0 | 156 |
-| heardright | yes | 79 | 0 | 129 |
+| cutright | yes | 55 | 0 | 72 |
+| genright | yes | 35 | 0 | 64 |
+| scraperight | yes | 44 | 0 | 84 |
+| viewright | yes | 95 | 0 | 146 |
+| heardright | yes | 79 | 0 | 121 |
 | coderight | yes | 101 | 0 | 48 |
 | mailright | yes | 3 | 0 | 15 |
-| postright | yes | 30 | 0 | 62 |
+| postright | yes | 30 | 0 | 58 |
 | cockpit | **missing** | 0 | 0 | 0 |
 | workright | yes | 16 | 0 | 0 |
 | sellright | yes | 6 | 0 | 1 |

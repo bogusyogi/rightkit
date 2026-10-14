@@ -1,6 +1,6 @@
 //! Engine command contract: one dispatcher serves both transports.
 //!
-//! stdio (`serve`): JSON-lines frames (`rightkit-framed-sidecar`).
+//! stdio (`serve`): JSON-lines frames (`rightkit-sidecar`).
 //!   out once: `{"type":"hello","engine","version","contract_version"}`
 //!   in:  `{"type":"request","id":<u64>,"method":"..","params":{..}}`
 //!   out: `{"type":"event","id":<request id>,"event":{..}}` zero or more, then exactly one
@@ -20,7 +20,7 @@ use std::io::{self, BufRead, Read, Write};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use rightkit_framed_sidecar::{read_json_line, write_json_line, FrameError};
+use rightkit_sidecar::{read_json_line, write_json_line, FrameError};
 use serde_json::{json, Value};
 
 use crate::config::Ext;

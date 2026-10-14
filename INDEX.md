@@ -36,7 +36,6 @@ The build broker is the Rust RustRight product (`bogusyogi/rustright`, binary `r
 | `rightkit-embed` | crates.io | 0.3.2 | 0.3.2 | 0.3.2 | ok | embeddings | Product-neutral local text embeddings and persistent cosine vector store. |
 | `rightkit-ffmpeg` | crates.io | 0.2.6 | none recorded |  | **MISMATCH public package has no release record** | media-pipelines | Verified FFmpeg artifact and lifecycle primitives for Right Suite media pipelines. |
 | `rightkit-file-watch` | crates.io | 0.4.0 | none recorded |  | **MISMATCH public package has no release record** | file-watching | Filesystem watching for Right Suite apps: ref-counted async subscribers, debounced file-set and directory watchers, and rename-storm coalescing. |
-| `rightkit-framed-sidecar` | crates.io | 0.2.0 | 0.1.0 | 0.1.0 | **MISMATCH staged 0.1.0 != source 0.2.0** | framed-sidecar | Bounded JSON-lines transport primitives for Right Suite sidecars. |
 | `rightkit-fs` | crates.io | 0.4.0 | 0.3.3 | 0.3.3 | **MISMATCH staged 0.3.3 != source 0.4.0** | safe-filesystem | Safe state directories, atomic writes, cross-process locks, owner-only files, and stable file identity for Right Suite apps. |
 | `rightkit-fsindex` | crates.io | 0.2.0 | 0.1.1 | 0.1.1 | **MISMATCH staged 0.1.1 != source 0.2.0** | file-index | Live whole-disk file index: fuzzy name search plus clone- and hard-link-aware folder size rollups on memory-mapped columns |
 | `rightkit-hotkeys` | crates.io | 0.1.0 | none recorded | 0.1.0 | staged, never published | global-hotkeys | Global shortcuts and low-level input hooks for Right Suite apps: chord parsing, conflict detection, CGEventTap/WH_KEYBOARD_LL primitives, push-to-talk state. |
@@ -62,6 +61,7 @@ The build broker is the Rust RustRight product (`bogusyogi/rustright`, binary `r
 | `rightkit-search` | crates.io | 0.2.1 | 0.2.0 | 0.2.0 | **MISMATCH staged 0.2.0 != source 0.2.1** | search | Product-neutral search query language: lexer, AST, operator values, SQL/FTS5 predicate compiler, snippets, and an in-memory filename index. |
 | `rightkit-send` | crates.io | 0.1.0 | none recorded | 0.1.0 | staged, never published | nearby-sharing | Nearby file and text sharing over the open LocalSend v2 protocol, with Pulse extensions: TLS identity pinning, per-device trust, and macOS Bonjour discovery. Product-neutral; the host supplies identity, paths and policy. |
 | `rightkit-shell` | crates.io | 0.3.0 | 0.2.0 | 0.2.0 | **MISMATCH staged 0.2.0 != source 0.3.0** | desktop-shell | Shared Tauri desktop shell for Right Suite apps: webview hardening, window state, native menu, tray, single instance, deep links, autostart, rich clipboard, watchdog and engine wiring. |
+| `rightkit-sidecar` | crates.io | 0.2.0 | none recorded |  | **MISMATCH public package has no release record** | framed-sidecar | Bounded JSON-lines transport primitives for Right Suite sidecars. |
 | `rightkit-speech-client` | crates.io | 0.3.4 | 0.3.3 | 0.3.3 | **MISMATCH staged 0.3.3 != source 0.3.4** | shared-speech-service | Client and contract for the Orthic Labs shared speech service (one resident engine per machine), built on rightkit-daemon. Wire-compatible with HeardRight's v1 host. |
 | `rightkit-sync` | crates.io | 0.1.1 | none recorded | 0.1.0 | **MISMATCH staged 0.1.0 != source 0.1.1** | cloud-sync | Brand-neutral desktop/mobile cloud sync engine: change tokens, tombstones, last-writer-wins conflicts, resumable batches, offline queue, retry/backoff. |
 | `rightkit-tauri` | crates.io | 0.1.3 | 0.1.2 | 0.1.2 | **MISMATCH staged 0.1.2 != source 0.1.3** | tauri-host-adapters | Native host services for Right Suite Tauri license and device adapters. |
@@ -103,4 +103,4 @@ The build broker is the Rust RustRight product (`bogusyogi/rustright`, binary `r
 
 ## Version records without a manifest
 
-rightkit-media (cargo), rightkit-ort (cargo), rightkit-qts (cargo), rightkit-qts-ggml (cargo), rightkit-qts-ggml-sys (cargo), rightkit-secrets (cargo), rightkit-service (cargo), rightkit-settings (cargo), rightkit-watch (cargo).
+rightkit-framed-sidecar (cargo), rightkit-media (cargo), rightkit-ort (cargo), rightkit-qts (cargo), rightkit-qts-ggml (cargo), rightkit-qts-ggml-sys (cargo), rightkit-secrets (cargo), rightkit-service (cargo), rightkit-settings (cargo), rightkit-watch (cargo).

@@ -31,7 +31,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use rightkit_daemon::{HostPlan as ServicePlan, Suite};
-use rightkit_framed_sidecar::{read_json_line, FrameError};
+use rightkit_sidecar::{read_json_line, FrameError};
 
 pub use protocol::{
     endpoint_for, installed_heardright_path, is_allowed_schema, service_dir, service_record_path,

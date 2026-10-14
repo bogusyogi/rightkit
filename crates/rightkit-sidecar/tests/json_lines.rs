@@ -1,6 +1,6 @@
 use std::io::{BufReader, Cursor};
 
-use rightkit_framed_sidecar::{read_json_line, write_json_line, FrameError};
+use rightkit_sidecar::{read_json_line, write_json_line, FrameError};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
@@ -96,7 +96,7 @@ fn malformed_frame_does_not_desynchronize_the_next_frame() {
     assert_eq!(valid.id, 4);
 }
 
-use rightkit_framed_sidecar::{read_json_line_with, ReadLimits};
+use rightkit_sidecar::{read_json_line_with, ReadLimits};
 use std::io::{Read, Write};
 use std::process::{Command, Stdio};
 

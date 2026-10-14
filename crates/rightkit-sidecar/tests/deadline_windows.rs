@@ -10,9 +10,7 @@ use std::ptr::{null, null_mut};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
 
-use rightkit_framed_sidecar::{
-    read_frame_deadline, write_frame_deadline, DeadlineFramed, FrameError,
-};
+use rightkit_sidecar::{read_frame_deadline, write_frame_deadline, DeadlineFramed, FrameError};
 use windows_sys::Win32::Foundation::{GENERIC_READ, GENERIC_WRITE, INVALID_HANDLE_VALUE};
 use windows_sys::Win32::Storage::FileSystem::{
     CreateFileW, FILE_FLAG_OVERLAPPED, OPEN_EXISTING, PIPE_ACCESS_DUPLEX,

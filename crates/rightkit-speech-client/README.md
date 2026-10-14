@@ -19,7 +19,7 @@ path. `API.md`, "Staging" and "Input contract", has the rule and the host's own 
 
 ## Features
 
-None. The crate has no Cargo features. Dependencies: `rightkit-daemon`, `rightkit-framed-sidecar`, `rightkit-transcript`, `serde`, `serde_json` (`Cargo.toml:13-17`).
+None. The crate has no Cargo features. Dependencies: `rightkit-daemon`, `rightkit-sidecar`, `rightkit-transcript`, `serde`, `serde_json` (`Cargo.toml:13-17`).
 
 ## Platform support
 

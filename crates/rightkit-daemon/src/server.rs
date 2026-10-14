@@ -9,7 +9,7 @@ use crate::transport::{
     self, pid_alive, probe_endpoint, try_endpoint_for, Accepted, Conn, Listener,
     DEFAULT_MAX_PIPE_INSTANCES,
 };
-use rightkit_framed_sidecar::{read_json_line, write_json_line, FrameError};
+use rightkit_sidecar::{read_json_line, write_json_line, FrameError};
 use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::io::{BufReader, Write};

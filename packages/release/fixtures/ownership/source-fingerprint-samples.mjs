@@ -95,7 +95,7 @@ export const FINGERPRINT_SAMPLES = {
       "reader.read_line(&mut line)?;\nlet msg: Request = serde_json::from_str(&line)?;"
     ],
     "negative": [
-      "let msg: Request = rightkit_framed_sidecar::read_json_line(&mut reader, &mut buf, LIMIT)?.unwrap();",
+      "let msg: Request = rightkit_sidecar::read_json_line(&mut reader, &mut buf, LIMIT)?.unwrap();",
       "reader.read_line(&mut line)?;\nprintln!(\"{line}\");"
     ]
   },
@@ -104,7 +104,7 @@ export const FINGERPRINT_SAMPLES = {
       "stream.read_exact(&mut len)?;\nlet n = u32::from_be_bytes(len) as usize;"
     ],
     "negative": [
-      "let (frame, _) = rightkit_framed_sidecar::length_prefixed::read_frame(&mut r, MAX)?;",
+      "let (frame, _) = rightkit_sidecar::length_prefixed::read_frame(&mut r, MAX)?;",
       "let n = u32::from_be_bytes(raw);"
     ]
   },

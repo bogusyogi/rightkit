@@ -5,11 +5,11 @@
 use std::io::{BufReader, Read, Write};
 use std::process::{Command, Stdio};
 
-use rightkit_framed_sidecar::length_prefixed::{
+use rightkit_sidecar::length_prefixed::{
     read_frame, read_frame_bytes, write_frame, write_frame_bytes,
 };
-use rightkit_framed_sidecar::wire::{Frame, WireError};
-use rightkit_framed_sidecar::{read_json_line_or_oversized, FrameError, Incoming, ReadLimits};
+use rightkit_sidecar::wire::{Frame, WireError};
+use rightkit_sidecar::{read_json_line_or_oversized, FrameError, Incoming, ReadLimits};
 use serde_json::{json, Value};
 
 fn spawn(test: &str, mode: &str) -> std::process::Child {

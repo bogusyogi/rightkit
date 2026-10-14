@@ -16,7 +16,7 @@ browser = ["dep:rightkit-browser", "dep:tokio"]
 
 [dependencies]
 rightkit-fs = { version = "0.4.0", path = "../rightkit-fs", default-features = false, features = ["digest", "fs"] }
-rightkit-framed-sidecar = { version = "0.2.0", path = "../rightkit-framed-sidecar" }
+rightkit-sidecar = { version = "0.2.0", path = "../rightkit-sidecar" }
 rightkit-daemon = { version = "0.2.0", path = "../rightkit-daemon" }
 rightkit-process = { version = "0.4.0", path = "../rightkit-process" }
 rightkit-browser = { version = "0.3.0", path = "../rightkit-browser", optional = true }

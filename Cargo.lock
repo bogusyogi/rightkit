@@ -5330,11 +5330,11 @@ dependencies = [
  "hyper-util",
  "rcgen",
  "rightkit-contracts",
- "rightkit-framed-sidecar",
  "rightkit-fs",
  "rightkit-http",
  "rightkit-oauth",
  "rightkit-process",
+ "rightkit-sidecar",
  "ring",
  "rustls",
  "serde",
@@ -5396,16 +5396,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "rightkit-framed-sidecar"
-version = "0.2.0"
-dependencies = [
- "libc",
- "serde",
- "serde_json",
- "windows-sys 0.61.2",
-]
-
-[[package]]
 name = "rightkit-fs"
 version = "0.4.0"
 dependencies = [
@@ -5462,9 +5452,9 @@ dependencies = [
  "rightkit-crash",
  "rightkit-daemon",
  "rightkit-db",
- "rightkit-framed-sidecar",
  "rightkit-fs",
  "rightkit-process",
+ "rightkit-sidecar",
  "serde",
  "serde_json",
  "sha2 0.10.9",
@@ -5680,9 +5670,9 @@ dependencies = [
  "rightkit-browser",
  "rightkit-control",
  "rightkit-daemon",
- "rightkit-framed-sidecar",
  "rightkit-fs",
  "rightkit-process",
+ "rightkit-sidecar",
  "serde",
  "serde_json",
  "tokio",
@@ -5698,8 +5688,8 @@ dependencies = [
  "hmac-sha256",
  "rightkit-contracts",
  "rightkit-credentials",
- "rightkit-framed-sidecar",
  "rightkit-process",
+ "rightkit-sidecar",
  "serde",
  "serde_json",
  "windows 0.62.2",
@@ -5769,11 +5759,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "rightkit-sidecar"
+version = "0.2.0"
+dependencies = [
+ "libc",
+ "serde",
+ "serde_json",
+ "windows-sys 0.61.2",
+]
+
+[[package]]
 name = "rightkit-speech-client"
 version = "0.3.4"
 dependencies = [
  "rightkit-daemon",
- "rightkit-framed-sidecar",
+ "rightkit-sidecar",
  "rightkit-transcript",
  "serde",
  "serde_json",

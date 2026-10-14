@@ -3,7 +3,7 @@ use crate::host_identity::{HostConnectError, HostExpectation, HostProcess};
 use crate::record::{try_read_record, ServiceRecord, PROTOCOL_MAJOR};
 use crate::suite::{Suite, SuiteError};
 use crate::transport::{connect, connect_expecting, Conn};
-use rightkit_framed_sidecar::{read_json_line, write_json_line, FrameError};
+use rightkit_sidecar::{read_json_line, write_json_line, FrameError};
 use serde_json::{json, Value};
 use std::io::{BufReader, Read, Write};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};

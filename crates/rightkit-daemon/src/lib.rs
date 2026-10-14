@@ -40,7 +40,7 @@
 //!   app-data root can be determined; it never falls back to the working
 //!   directory. [`Suite::per_run_temp`] is the explicit opt-in alternative.
 //!
-//! Wire format: bounded JSON lines (`rightkit-framed-sidecar`), the same frames
+//! Wire format: bounded JSON lines (`rightkit-sidecar`), the same frames
 //! as the `rightkit-jobs` engine contract:
 //! `hello`, `request{id,method,params}`, `event{id,event}`, `response{id,ok,result|error}`.
 

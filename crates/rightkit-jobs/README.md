@@ -1,6 +1,6 @@
 # rightkit-jobs
 
-Shared engine base for Right Suite apps: a persistent SQLite job store (on `rightkit-db`), `request_id` de-duplication, a bounded progress-event log, cancel, crash recovery, sha256-addressed result artifacts, and the engine stdio and CLI command contract. The contract uses `rightkit-framed-sidecar` frames and `rightkit-process` child ownership, and can be served over `rightkit-daemon`.
+Shared engine base for Right Suite apps: a persistent SQLite job store (on `rightkit-db`), `request_id` de-duplication, a bounded progress-event log, cancel, crash recovery, sha256-addressed result artifacts, and the engine stdio and CLI command contract. The contract uses `rightkit-sidecar` frames and `rightkit-process` child ownership, and can be served over `rightkit-daemon`.
 
 Product work plugs in through `JobHandler` (what a job does) and `CommandSet` (extra commands). Apps with their own wire protocol can use only the store (see below).
 
@@ -32,7 +32,7 @@ Do not use it for one-shot calls that need no persistence. Do not use it to stor
 No feature is on by default (0.3.0): a bare dependency builds only the error types. Select what you use; `store`, `supervisor`, `contract` and `service` together restore the 0.2.x default.
 
 - `store`: the job store, runner, locks, recovery classes, pruning, scheduler, pool and progress policy; pulls `rightkit-db`, `rightkit-fs` and `uuid`.
-- `protocol`: the wire constants (`CONTRACT_VERSION`, `DEFAULT_FRAME_LIMIT`); pulls `rightkit-framed-sidecar`.
+- `protocol`: the wire constants (`CONTRACT_VERSION`, `DEFAULT_FRAME_LIMIT`); pulls `rightkit-sidecar`.
 - `contract` (implies `store` and `protocol`): the stdio/CLI command contract (`Dispatcher`, `serve`, `run_cli`, `JobCommands`).
 - `supervisor` (implies `protocol`): `EngineSupervisor`, `EngineClient` and the `rightkit-process` re-exports; pulls `rightkit-process`, not `rightkit-db`.
 - `service` (implies `contract`): `DispatcherHandler` over `rightkit-daemon`.

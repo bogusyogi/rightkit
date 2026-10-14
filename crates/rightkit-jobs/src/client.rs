@@ -5,10 +5,10 @@ use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::{Arc, Condvar, Mutex};
 use std::time::{Duration, Instant};
 
-use rightkit_framed_sidecar::{
+use rightkit_process::{OwnedChild, OwnedCommand, ReapOutcome, WaitOutcome};
+use rightkit_sidecar::{
     read_json_line_or_oversized, write_json_line, FrameError, Incoming, ReadLimits,
 };
-use rightkit_process::{OwnedChild, OwnedCommand, ReapOutcome, WaitOutcome};
 use serde_json::{json, Value};
 
 use crate::error::{ErrorOrigin, JobError, JobResult, DELIVERY_UNKNOWN};

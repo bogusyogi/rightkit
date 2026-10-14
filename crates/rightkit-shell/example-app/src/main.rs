@@ -29,7 +29,7 @@ impl ExternalOpener for LogOpener {
 }
 
 fn engine_main() {
-    use rightkit_framed_sidecar::{read_json_line, write_json_line};
+    use rightkit_sidecar::{read_json_line, write_json_line};
     use serde_json::Value;
     let stdin = std::io::stdin();
     let mut reader = stdin.lock();

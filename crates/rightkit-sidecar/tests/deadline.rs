@@ -7,10 +7,8 @@ use std::io::{ErrorKind, Read, Write};
 use std::os::unix::net::UnixStream;
 use std::time::{Duration, Instant};
 
-use rightkit_framed_sidecar::length_prefixed;
-use rightkit_framed_sidecar::{
-    read_frame_deadline, write_frame_deadline, DeadlineFramed, FrameError,
-};
+use rightkit_sidecar::length_prefixed;
+use rightkit_sidecar::{read_frame_deadline, write_frame_deadline, DeadlineFramed, FrameError};
 
 const LIMIT: usize = 8 << 20;
 

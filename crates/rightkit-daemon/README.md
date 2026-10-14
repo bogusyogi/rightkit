@@ -1,6 +1,6 @@
 # rightkit-daemon
 
-Local service discovery and authentication for Right Suite apps. It owns the convention for `service.json` discovery, a current-user-only transport (Unix socket on macOS and Unix, named pipe on Windows), per-app request allowlists, rank-based takeover, and the framed request, response, and event protocol built on `rightkit-framed-sidecar`.
+Local service discovery and authentication for Right Suite apps. It owns the convention for `service.json` discovery, a current-user-only transport (Unix socket on macOS and Unix, named pipe on Windows), per-app request allowlists, rank-based takeover, and the framed request, response, and event protocol built on `rightkit-sidecar`.
 
 **Use it** when two or more local processes must share one resident service on a machine, or when a local service must accept calls only from known apps running as the current user.
 
@@ -37,13 +37,13 @@ The one discovery and authentication convention for local Right Suite services: 
 |---|---|
 | Discovery | `<suite>/runtime/<service>/service.json` (atomic, owner-only). Stale when its endpoint does not answer. Only a missing file means no service: a record or `takeover.json` that cannot be read (a permission error, a sharing violation while another process replaces it) is "unknown, try again". `Client::connect` reports it as the retryable `service_unavailable` (`could not read service.json`), host election does not replace the record, and the takeover monitor reads the request again on its next pass. The `try_read_*`, `try_adopt_or_spawn` and `try_plan_host` functions return the distinction as an `io::Error`; the older infallible readers still answer "absent" for it. |
 | Transport | macOS/Unix: socket in a 0700 dir, mode 0600, peer uid checked (`getpeereid`). Windows: named pipe, DACL = current user SID only, remote clients rejected, first-instance flag. No TCP, no tokens. |
-| Frames | `rightkit-framed-sidecar` JSON lines: `hello`, `request`, `event`, `response`; errors carry `retryable`. |
+| Frames | `rightkit-sidecar` JSON lines: `hello`, `request`, `event`, `response`; errors carry `retryable`. |
 | Allowlist | Per calling app: which methods it may call. Unknown app rejected at `hello`. `ping` always allowed. |
 | Ranking | Lower rank wins. A higher-ranked host writes `takeover.json`; the incumbent stops admitting work, lets in-flight requests reach a boundary (they return the retryable `host_handoff`), releases, and the requester binds. Clients re-read discovery and resubmit (`Client::call_retrying`). The incumbent looks for a request from another process once a second (a stat of `takeover.json`, no faster polling), so a takeover starts up to about a second after the request is written; a request written in the incumbent's own process wakes it at once. |
 | Roots | `Suite::resolve()` fails closed when no absolute app-data root exists; `Suite::per_run_temp()` is the explicit alternative. Never the working directory. Default `<app data>/Orthic Labs/shared` (the root HeardRight, ScrapeRight and CutRight already use); `RIGHTKIT_SUITE_ROOT`, `RIGHT_SUITE_DIR`, `ORTHIC_SHARED_DIR` override. Those variables and `HOME` are chosen by whoever launches the process: release builds use `Suite::per_user_default()` / `ClientConfig::ignore_env_overrides(true)` instead (see "Verifying the host"). |
 | Host identity | `Client::connect` checks that the host runs as you, not which program it is. `Client::connect_expecting` also requires the host's executable to be one you name, before any byte is written. |
 
-Why a crate of its own and not a module of `rightkit-framed-sidecar`: the sidecar crate is a published, dependency-light, `unsafe`-free framing library. The service needs OS FFI (`getpeereid`, named pipes, SDDL), threads and a filesystem convention. Keeping them apart lets stdio-only consumers stay minimal; the service depends on the sidecar for its frames.
+Why a crate of its own and not a module of `rightkit-sidecar`: the sidecar crate is a published, dependency-light, `unsafe`-free framing library. The service needs OS FFI (`getpeereid`, named pipes, SDDL), threads and a filesystem convention. Keeping them apart lets stdio-only consumers stay minimal; the service depends on the sidecar for its frames.
 
 Tests are end-to-end: real host processes, real clients over the real socket. The `examples/` directory has `svc_host.rs` (host), `svc_fakehost.rs`, `svc_call.rs` and `svc_claim.rs` (clients), `svc_verify_client.rs`, `svc_mute.rs`, and `svc_race.rs`. `RIGHTKIT_SUITE_ROOT` (aliases `RIGHT_SUITE_DIR`, `ORTHIC_SHARED_DIR`) isolates a run from the user's installed apps.
 

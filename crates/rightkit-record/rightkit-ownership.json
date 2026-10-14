@@ -3,7 +3,7 @@
   "capabilities": [
     {
       "capability": "screen-recording",
-      "summary": "Platform-neutral recorder core: start/stop/status lifecycle with partial-bundle quarantine and stale-session recovery, immutable hashed session bundles (record-session v1 manifest, record-event v1 telemetry), per-field redaction before persistence, bundle verification, the step-to-frame reader, and the helper wire protocol (length-prefixed JSON via rightkit-framed-sidecar) with ProcessBackend and serve_backend. Windows capture (Windows.Graphics.Capture and Media Foundation, src/windows, cfg(windows)) and the rightkit-record-helper binary live in this crate.",
+      "summary": "Platform-neutral recorder core: start/stop/status lifecycle with partial-bundle quarantine and stale-session recovery, immutable hashed session bundles (record-session v1 manifest, record-event v1 telemetry), per-field redaction before persistence, bundle verification, the step-to-frame reader, and the helper wire protocol (length-prefixed JSON via rightkit-sidecar) with ProcessBackend and serve_backend. Windows capture (Windows.Graphics.Capture and Media Foundation, src/windows, cfg(windows)) and the rightkit-record-helper binary live in this crate.",
       "fingerprints": [],
       "detection": "declaration-only",
       "policyNotes": [

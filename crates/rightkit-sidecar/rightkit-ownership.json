@@ -1,5 +1,5 @@
 {
-  "package": "rightkit-framed-sidecar",
+  "package": "rightkit-sidecar",
   "capabilities": [
     {
       "capability": "framed-sidecar",

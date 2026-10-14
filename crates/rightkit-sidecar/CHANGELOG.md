@@ -2,6 +2,8 @@
 
 ## 0.2.0 — 2026-10-11
 
+Renamed from rightkit-framed-sidecar; 0.1.0 remains published under the old name.
+
 - Additive: `FrameError::json_error(&self) -> Option<&serde_json::Error>` and
   `FrameError::json_message(&self) -> Option<String>` return the serde error and its bare message
   (no "json frame failed to deserialize:" prefix) for `FrameError::Json`, and `None` for other variants.

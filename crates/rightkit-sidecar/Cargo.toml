@@ -1,5 +1,5 @@
 [package]
-name = "rightkit-framed-sidecar"
+name = "rightkit-sidecar"
 version = "0.2.0"
 edition = "2021"
 rust-version = "1.98.0"

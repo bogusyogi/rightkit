@@ -941,54 +941,6 @@
       ]
     },
     {
-      "package": "rightkit-framed-sidecar",
-      "capability": "framed-sidecar",
-      "summary": "Bounded JSON-lines transport primitives for Right Suite sidecars.",
-      "fingerprints": [
-        {
-          "id": "sidecar.rs.json-line-read",
-          "type": "source",
-          "pattern": "\\.\\s*read_line\\s*\\(\\s*&mut\\s+\\w+\\s*\\)[^;]*;[\\s\\S]{0,160}?\\bserde_json\\s*::\\s*from_str\\s*\\(",
-          "codeOnly": true,
-          "extensions": [
-            ".rs"
-          ],
-          "tier": "advise",
-          "usageContext": {
-            "hosts": [
-              "macos",
-              "windows"
-            ],
-            "scope": "Executable code only; authenticated owner provenance required for exclusions"
-          },
-          "tierReason": "No recorded published-version qualification for this usage context on both macOS & Windows."
-        },
-        {
-          "id": "sidecar.rs.length-prefix",
-          "type": "source",
-          "pattern": "\\bread_exact\\s*\\([^;]{0,60}\\)[^;]*;[\\s\\S]{0,120}?\\bu32\\s*::\\s*from_be_bytes\\s*\\(",
-          "codeOnly": true,
-          "extensions": [
-            ".rs"
-          ],
-          "tier": "advise",
-          "usageContext": {
-            "hosts": [
-              "macos",
-              "windows"
-            ],
-            "scope": "Executable code only; authenticated owner provenance required for exclusions"
-          },
-          "tierReason": "No recorded published-version qualification for this usage context on both macOS & Windows."
-        }
-      ],
-      "detection": "fingerprinted",
-      "policyNotes": [
-        "Package contract retained; dependency declarations do not verify integration.",
-        "Fingerprints identify review candidates (competing dependencies and distinctive implementation code); published two-host replacement qualification is not recorded."
-      ]
-    },
-    {
       "package": "rightkit-fs",
       "capability": "safe-filesystem",
       "summary": "Safe state directories, atomic writes, cross-process locks, owner-only files, and stable file identity for Right Suite apps.",
@@ -2204,7 +2156,7 @@
     {
       "package": "rightkit-record",
       "capability": "screen-recording",
-      "summary": "Platform-neutral recorder core: start/stop/status lifecycle with partial-bundle quarantine and stale-session recovery, immutable hashed session bundles (record-session v1 manifest, record-event v1 telemetry), per-field redaction before persistence, bundle verification, the step-to-frame reader, and the helper wire protocol (length-prefixed JSON via rightkit-framed-sidecar) with ProcessBackend and serve_backend. Windows capture (Windows.Graphics.Capture and Media Foundation, src/windows, cfg(windows)) and the rightkit-record-helper binary live in this crate.",
+      "summary": "Platform-neutral recorder core: start/stop/status lifecycle with partial-bundle quarantine and stale-session recovery, immutable hashed session bundles (record-session v1 manifest, record-event v1 telemetry), per-field redaction before persistence, bundle verification, the step-to-frame reader, and the helper wire protocol (length-prefixed JSON via rightkit-sidecar) with ProcessBackend and serve_backend. Windows capture (Windows.Graphics.Capture and Media Foundation, src/windows, cfg(windows)) and the rightkit-record-helper binary live in this crate.",
       "fingerprints": [],
       "detection": "declaration-only",
       "policyNotes": [
@@ -2534,6 +2486,54 @@
       "policyNotes": [
         "Package contract retained; dependency declarations do not verify integration.",
         "Fingerprints identify review candidates; published two-host replacement qualification is not recorded."
+      ]
+    },
+    {
+      "package": "rightkit-sidecar",
+      "capability": "framed-sidecar",
+      "summary": "Bounded JSON-lines transport primitives for Right Suite sidecars.",
+      "fingerprints": [
+        {
+          "id": "sidecar.rs.json-line-read",
+          "type": "source",
+          "pattern": "\\.\\s*read_line\\s*\\(\\s*&mut\\s+\\w+\\s*\\)[^;]*;[\\s\\S]{0,160}?\\bserde_json\\s*::\\s*from_str\\s*\\(",
+          "codeOnly": true,
+          "extensions": [
+            ".rs"
+          ],
+          "tier": "advise",
+          "usageContext": {
+            "hosts": [
+              "macos",
+              "windows"
+            ],
+            "scope": "Executable code only; authenticated owner provenance required for exclusions"
+          },
+          "tierReason": "No recorded published-version qualification for this usage context on both macOS & Windows."
+        },
+        {
+          "id": "sidecar.rs.length-prefix",
+          "type": "source",
+          "pattern": "\\bread_exact\\s*\\([^;]{0,60}\\)[^;]*;[\\s\\S]{0,120}?\\bu32\\s*::\\s*from_be_bytes\\s*\\(",
+          "codeOnly": true,
+          "extensions": [
+            ".rs"
+          ],
+          "tier": "advise",
+          "usageContext": {
+            "hosts": [
+              "macos",
+              "windows"
+            ],
+            "scope": "Executable code only; authenticated owner provenance required for exclusions"
+          },
+          "tierReason": "No recorded published-version qualification for this usage context on both macOS & Windows."
+        }
+      ],
+      "detection": "fingerprinted",
+      "policyNotes": [
+        "Package contract retained; dependency declarations do not verify integration.",
+        "Fingerprints identify review candidates (competing dependencies and distinctive implementation code); published two-host replacement qualification is not recorded."
       ]
     },
     {

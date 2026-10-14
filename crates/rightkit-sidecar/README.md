@@ -1,4 +1,4 @@
-# rightkit-framed-sidecar
+# rightkit-sidecar
 
 Bounded transport primitives for Right Suite sidecars: newline-delimited JSON frames with a size limit, strict decode errors, and resynchronisation on a clean line boundary. Length-prefixed frames can also be bounded by an absolute deadline. The crate is product-neutral and has no app dependencies. It is a transport layer only; product schemas and behaviour stay in the owning app.
 
@@ -31,7 +31,7 @@ None. The crate has no `[features]` table. Dependencies: `serde` and `serde_json
 Taken from `tests/json_lines.rs`. `Frame` is a test struct with `id: u64` and `value: String`:
 
 ```rust
-use rightkit_framed_sidecar::{read_json_line, write_json_line, FrameError};
+use rightkit_sidecar::{read_json_line, write_json_line, FrameError};
 
 let mut output = Vec::new();
 write_json_line(&mut output, &Frame { id: 7, value: "ok".into() }, 128)?;

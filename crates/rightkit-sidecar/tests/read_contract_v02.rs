@@ -3,7 +3,7 @@
 
 use std::io::{BufReader, Cursor};
 
-use rightkit_framed_sidecar::{
+use rightkit_sidecar::{
     read_json_line_or_oversized_observed, read_line_bytes_observed, FrameError, Incoming,
     LimitCounts, ReadOptions, ReceivedLine, Terminator, WhitespaceSet,
 };

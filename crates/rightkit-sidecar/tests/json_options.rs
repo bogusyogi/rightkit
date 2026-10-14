@@ -4,7 +4,7 @@
 
 use std::io::{BufReader, Cursor, Read, Write};
 
-use rightkit_framed_sidecar::{
+use rightkit_sidecar::{
     into_inner_with_remainder, read_json_line, read_json_line_opts, read_json_line_or_oversized,
     read_line_bytes, write_json_line, write_json_line_flush, FrameError, Incoming, ReadLimits,
     ReadOptions, WhitespaceSet, UNCAPPED,

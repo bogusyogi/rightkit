@@ -36,7 +36,7 @@ Capabilities: 72 (54 with fingerprints, 18 declaration-only). Internal owners th
 | embeddings | `rightkit-embed` | advise | fingerprinted | 1 (0 block, 1 advise) | rightkit-embed: published 0.3.2 (crates.io) |
 | file-index | `rightkit-fsindex` | advise | fingerprinted | 4 (0 block, 4 advise) | rightkit-fsindex: published 0.1.1 (crates.io) |
 | file-watching | `rightkit-file-watch` | advise | fingerprinted | 3 (0 block, 3 advise) | rightkit-file-watch: none recorded |
-| framed-sidecar | `rightkit-framed-sidecar` | advise | fingerprinted | 2 (0 block, 2 advise) | rightkit-framed-sidecar: published 0.1.0 (crates.io) |
+| framed-sidecar | `rightkit-sidecar` | advise | fingerprinted | 2 (0 block, 2 advise) | rightkit-sidecar: none recorded |
 | github-workflows | `@rightkit/git` | none | declaration-only | 0 | @rightkit/git: published 0.2.42 (npm) |
 | global-hotkeys | `rightkit-hotkeys` | advise | fingerprinted | 2 (0 block, 2 advise) | rightkit-hotkeys: staged 0.1.0, not published |
 | http-client | `rightkit-http` | advise | fingerprinted | 2 (0 block, 2 advise) | rightkit-http: published 0.2.5 (crates.io) |

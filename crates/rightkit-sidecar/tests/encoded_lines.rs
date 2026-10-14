@@ -1,6 +1,6 @@
 use std::io::{self, Write};
 
-use rightkit_framed_sidecar::{
+use rightkit_sidecar::{
     encode_json_line, write_encoded_line, write_encoded_line_flush, write_json_line, FrameError,
 };
 use serde::Serialize;

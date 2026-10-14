@@ -1,10 +1,10 @@
 //! Black-box driving of an app's engine binary: one-shot CLI words and the
 //! framed stdio sidecar protocol (newline-delimited JSON through
-//! `rightkit-framed-sidecar`). Nothing mocks the engine.
+//! `rightkit-sidecar`). Nothing mocks the engine.
 use crate::process::{run_owned, RunOptions, Tracker};
 use crate::util::{err, Error, Result};
-use rightkit_framed_sidecar::{read_json_line, write_json_line, FrameError};
 use rightkit_process::{OwnedChild, OwnedCommand};
+use rightkit_sidecar::{read_json_line, write_json_line, FrameError};
 use serde_json::{json, Value};
 use std::io::{BufReader, Write};
 use std::path::{Path, PathBuf};

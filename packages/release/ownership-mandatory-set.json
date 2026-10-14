@@ -110,10 +110,9 @@
           "registryMax": "0.2.7"
         },
         {
-          "name": "rightkit-framed-sidecar",
+          "name": "rightkit-sidecar",
           "ecosystem": "cargo",
-          "min": "0.2.0",
-          "registryMax": "0.1.0"
+          "min": "0.2.0"
         }
       ]
     },

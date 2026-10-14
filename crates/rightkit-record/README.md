@@ -10,7 +10,7 @@ and reports frames, geometry, losses and failures as `HelperEvent`s.
 - `backend`: the `Backend` seam, `BackendPlan`, `StartInfo`, `HelperEvent`, `Failure`, `Permission`, `Codec`.
 - `recorder`: the public take lifecycle over a `Backend`. A take ends `complete`, `quarantined` or `invalid`; `complete` needs a clean stop and an accepted readiness marker.
 - `plan`, `redact`, `verify`, `reader`: the request, per-field redaction, bundle verification, and the bundle reader (step and target to frame, scenario, events, clock map, cursor assets).
-- `protocol`: the helper wire protocol. Length-prefixed JSON frames (`rightkit-framed-sidecar`) with `request`, `response`, `event` and `bye` kinds.
+- `protocol`: the helper wire protocol. Length-prefixed JSON frames (`rightkit-sidecar`) with `request`, `response`, `event` and `bye` kinds.
 - `process`: `ProcessBackend`, the core's `Backend` over a helper's stdio, and `serve_backend`, which lets a helper serve any `Backend`.
 - `windows` (Windows only): Windows.Graphics.Capture and Media Foundation capture for one HWND (`src/lib.rs:47-49`).
 - `macos` (macOS only): ScreenCaptureKit capture through the Swift helper in `helpers/macos`; the module launches it and speaks the helper protocol (`src/lib.rs:50-53`).
