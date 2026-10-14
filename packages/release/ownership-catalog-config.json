@@ -7,7 +7,7 @@
     { "capability": "structured-logging", "packages": ["rightkit-logs", "@rightkit/logs"], "reason": "Native JSONL writer & typed renderer invoke adapter" },
     { "capability": "text-to-speech", "packages": ["rightkit-tts-qwen", "rightkit-tts-qwen-sys", "rightkit-tts"], "reason": "Speech facade & its QTS inference, safe-wrapper & FFI layers" },
     { "capability": "os-credential-store", "packages": ["rightkit-credentials", "RightKitSwift"], "reason": "Cross-platform Rust & Apple-native Swift credential APIs" },
-    { "capability": "desktop-shell", "packages": ["rightkit-tauri-shell", "@rightkit/shell"], "reason": "Native Tauri shell & typed renderer bridge" },
+    { "capability": "desktop-shell", "packages": ["rightkit-tauri-shell", "@rightkit/tauri-shell"], "reason": "Native Tauri shell & typed renderer bridge" },
     { "capability": "tauri-host-adapters", "packages": ["rightkit-device", "@rightkit/tauri"], "reason": "Native license/device services & renderer command adapters" }
   ],
   "testOwners": [

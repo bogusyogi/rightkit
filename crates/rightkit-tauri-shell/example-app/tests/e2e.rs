@@ -508,7 +508,7 @@ fn closing_the_window_keeps_a_tray_app_running_and_a_second_launch_brings_it_bac
 }
 
 /// `@rightkit/app-shell` (React, real `ShellProvider`) running in the example webview on the real
-/// `@rightkit/shell` bridge (`shell.bridge()` is type-checked against `AppShellBridge` when the
+/// `@rightkit/tauri-shell` bridge (`shell.bridge()` is type-checked against `AppShellBridge` when the
 /// bundle is built): theme mirrored natively, link routing, and native actions run commands.
 #[test]
 fn app_shell_runs_on_the_real_shell_bridge() {

@@ -1,5 +1,5 @@
 {
-  "name": "@rightkit/shell",
+  "name": "@rightkit/tauri-shell",
   "version": "0.1.1",
   "description": "Typed renderer bridge for the rightkit-tauri-shell Tauri crate: window controls, menu/tray events, deep links, autostart, rich clipboard, engine calls.",
   "license": "MIT OR Apache-2.0",
@@ -32,6 +32,6 @@
   "repository": {
     "type": "git",
     "url": "git+https://github.com/Orthic-Labs/rightkit.git",
-    "directory": "packages/shell"
+    "directory": "packages/tauri-shell"
   }
 }

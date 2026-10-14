@@ -1,4 +1,4 @@
-# @rightkit/shell
+# @rightkit/tauri-shell
 
 Typed renderer bridge for the `rightkit-tauri-shell` Tauri crate. It exposes window controls, menu and tray events, deep links, autostart, rich clipboard, notifications, presence and idle state, quit drain, and engine calls. The package has no runtime dependencies.
 
@@ -13,14 +13,14 @@ Typed renderer bridge for the `rightkit-tauri-shell` Tauri crate. It exposes win
 
 | Import | Contents |
 |---|---|
-| `@rightkit/shell` | `createShell(transport?, options?)`, `tauriTransport()`, `EVENTS`, `asShellError`, `DEFAULT_QUIT_TIMEOUT_MS`; types `ShellBridge`, `ShellTransport`, `ShellStatus`, `ShellCapabilities`, `QuitHandler`, `QuitOptions`, `QuitReport`, `ShellOptions`, `DeepLink`, `WindowSpec`, `MenuEntry`, `NotificationRequest`, `NotifyOutcome`, `PresenceState`, `IdleStatus`, `EngineEvent`, and others |
+| `@rightkit/tauri-shell` | `createShell(transport?, options?)`, `tauriTransport()`, `EVENTS`, `asShellError`, `DEFAULT_QUIT_TIMEOUT_MS`; types `ShellBridge`, `ShellTransport`, `ShellStatus`, `ShellCapabilities`, `QuitHandler`, `QuitOptions`, `QuitReport`, `ShellOptions`, `DeepLink`, `WindowSpec`, `MenuEntry`, `NotificationRequest`, `NotifyOutcome`, `PresenceState`, `IdleStatus`, `EngineEvent`, and others |
 
 `createShell()` returns an object with `ready()`, `status()`, `capabilities()`, `quit(options?)`, `onQuitRequested(handler)`, `openExternal(url)`, `window.do(action)`, `menu`, `tray`, `deepLinks`, `onSecondInstance`, `onStall`, `autostart`, `clipboard`, `notifications`, `presence`, `idle`, `paths`, `recovery`, `engine`, and `bridge()`. `bridge()` returns a `ShellBridge` with `window.minimize()`, `window.toggleMaximize()`, `window.close()`, `openExternal(url)`, `onMenuAction(handler)` and `setNativeTheme(theme)`; `onMenuAction` and `setNativeTheme` are not on the `createShell()` object itself.
 
 ## Example
 
 ```ts
-import { createShell } from "@rightkit/shell";
+import { createShell } from "@rightkit/tauri-shell";
 
 const shell = createShell(); // throws outside a Tauri webview
 await shell.ready();         // call once after subscribing; queued deep links are delivered

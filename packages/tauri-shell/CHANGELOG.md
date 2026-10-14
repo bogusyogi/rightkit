@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Renamed from @rightkit/shell; @rightkit/shell@0.1.1 remains published under the old name.
+
 ## 0.1.1
 
 Additive. Existing API and wire behaviour are unchanged unless a new option is used.

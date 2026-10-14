@@ -34,7 +34,7 @@ test("data file: rows M1-M23 are covered, M21/M23 are owner-pending, Apple ships
   assert.ok(data.pendingRows.every((r) => r.owners.length === 0));
   assert.equal(data.rows.filter((r) => r.profile === "apple").length, 0);
   assert.equal(data.profiles.apple.ratified, false);
-  assert.ok(!owners().some((o) => o.name === "@rightkit/shell"), "amendment owner stays behind its flag");
+  assert.ok(!owners().some((o) => o.name === "@rightkit/tauri-shell"), "amendment owner stays behind its flag");
 });
 
 test("known-good: all owners at required version pass, pending rows never fail", () => {
@@ -108,13 +108,13 @@ test("app-side N/A needs a reason", () => {
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
-test("amendment v2.1 adds @rightkit/shell to M1 only when requested; an unratified or unknown profile fails", () => {
+test("amendment v2.1 adds @rightkit/tauri-shell to M1 only when requested; an unratified or unknown profile fails", () => {
   const root = tmp();
   try {
     goodApp(root);
     const amended = checkApp(root, { data, amendments: ["v2.1"] });
     assert.equal(amended.violations, 1);
-    assert.equal(byOwner(amended, "@rightkit/shell").status, "missing");
+    assert.equal(byOwner(amended, "@rightkit/tauri-shell").status, "missing");
     assert.equal(checkApp(root, { data }).violations, 0);
     const apple = checkApp(root, { data, profile: "apple" });
     assert.deepEqual([apple.owners.length, apple.violations], [1, 1]);

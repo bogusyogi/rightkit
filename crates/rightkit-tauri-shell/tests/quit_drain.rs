@@ -1,5 +1,5 @@
 //! Opt-in quit drain: the host's decision logic, the bound after which it exits anyway, and the
-//! capability probe the `@rightkit/shell` npm package reads. The Tauri event loop is not started
+//! capability probe the `@rightkit/tauri-shell` npm package reads. The Tauri event loop is not started
 //! here; `QuitGate` is the whole decision, and `lifecycle` only wires it to `RunEvent`s.
 
 use std::sync::atomic::{AtomicBool, Ordering};

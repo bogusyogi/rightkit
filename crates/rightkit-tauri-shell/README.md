@@ -121,7 +121,7 @@ The owner's rule for shipped apps is unchanged: no DevTools, ViewRight's content
 
 ## Also (0.3.0, host-decided lifecycle)
 
-- Quit drain: `quit_drain(true)` / `quit_drain_bound(d)`; the renderer (`@rightkit/shell` 0.1.1) answers
+- Quit drain: `quit_drain(true)` / `quit_drain_bound(d)`; the renderer (`@rightkit/tauri-shell` 0.1.1) answers
   `rightkit-shell://quit-requested` and calls `rk_shell_finish_quit`. Default bound 15 s, max 120 s; off by default.
 - `close_behavior(CloseBehavior::HideToBackground)`, `on_visibility`, `qa_instance_exempt`,
   `second_instance_reveal`, `show_on_ready` (explicit beats `RIGHTKIT_QA_HIDDEN`), `internal_scheme`.

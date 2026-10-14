@@ -1,5 +1,5 @@
 {
-  "package": "@rightkit/shell",
+  "package": "@rightkit/tauri-shell",
   "capabilities": [
     {
       "capability": "desktop-shell",

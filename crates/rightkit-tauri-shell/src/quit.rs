@@ -8,7 +8,7 @@
 //! ([`DEFAULT_QUIT_DRAIN_BOUND`] unless the host sets one, never above [`MAX_QUIT_DRAIN_BOUND`]) the
 //! app exits anyway.
 //!
-//! `@rightkit/shell` drains its handlers for 10 s by default, so the 15 s default host bound leaves
+//! `@rightkit/tauri-shell` drains its handlers for 10 s by default, so the 15 s default host bound leaves
 //! room for the renderer's own timeout to fire first and report.
 //!
 //! [`QuitGate`] is the whole decision and has no Tauri dependency, so the order of events is tested

@@ -6,7 +6,7 @@
       "@rightkit/app-shell/react": ["../../../../packages/app-shell/dist/react.d.ts"],
       "@rightkit/app-shell": ["../../../../packages/app-shell/dist/index.d.ts"],
       "@rightkit/platform-ui": ["../../../../packages/platform-ui/dist/index.d.ts"],
-      "@rightkit/shell": ["../../../../packages/shell/dist/index.d.ts"],
+      "@rightkit/tauri-shell": ["../../../../packages/tauri-shell/dist/index.d.ts"],
       "react": ["../../../../packages/app-shell/node_modules/@types/react"],
       "react/*": ["../../../../packages/app-shell/node_modules/@types/react/*"],
       "react-dom/client": ["../../../../packages/app-shell/node_modules/@types/react-dom/client"]

@@ -402,17 +402,16 @@
   ],
   "amendments": {
     "v2.1": {
-      "description": "TABLE1-AMENDMENT-v2.1 (draft): @rightkit/shell joins M1. Opt-in via --amendment v2.1.",
+      "description": "TABLE1-AMENDMENT-v2.1 (draft): @rightkit/tauri-shell joins M1. Opt-in via --amendment v2.1.",
       "rows": [
         {
           "id": "M1",
           "profile": "desktop",
           "owners": [
             {
-              "name": "@rightkit/shell",
+              "name": "@rightkit/tauri-shell",
               "ecosystem": "npm",
-              "min": "0.1.1",
-              "registryMax": "0.1.1"
+              "min": "0.1.1"
             }
           ]
         }

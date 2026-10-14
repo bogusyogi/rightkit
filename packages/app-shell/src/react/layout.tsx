@@ -404,7 +404,7 @@ export interface AppShellProps {
   onSidebarCollapsedChange?: (collapsed: boolean) => void;
   /** Show the titlebar sidebar toggle and bind the sidebar chord (`keybindings.sidebar`, default `mod+\`). Default true. */
   sidebarToggle?: boolean;
-  /** Native bridge (`@rightkit/shell`); `window` supplies caption buttons. */
+  /** Native bridge (`@rightkit/tauri-shell`); `window` supplies caption buttons. */
   bridge?: AppShellBridge;
   /** @deprecated Use `bridge.window`. */
   windowControls?: WindowControlAdapter;

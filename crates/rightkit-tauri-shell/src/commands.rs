@@ -1,4 +1,4 @@
-//! Tauri commands the frontend bridge (`@rightkit/shell`) calls. Register them with
+//! Tauri commands the frontend bridge (`@rightkit/tauri-shell`) calls. Register them with
 //! [`crate::handler!`]. They are application commands, so they need no ACL capability entry.
 
 use std::collections::BTreeMap;

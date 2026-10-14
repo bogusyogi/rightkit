@@ -1,7 +1,7 @@
 /**
  * Shell-backed adapters: `rightkit-app-settings` / `rightkit-models` / credential store reached through the
- * `@rightkit/shell` engine bridge. Import from `@rightkit/settings-ui/shell-adapter`. The engine is
- * described structurally, so this module needs no runtime or type import from `@rightkit/shell`; any
+ * `@rightkit/tauri-shell` engine bridge. Import from `@rightkit/settings-ui/shell-adapter`. The engine is
+ * described structurally, so this module needs no runtime or type import from `@rightkit/tauri-shell`; any
  * object with the same `engine.call` / `engine.onEvent` shape works.
  */
 import type {
@@ -15,7 +15,7 @@ import type {
   SettingsValues,
 } from "./types.js";
 
-/** The slice of `@rightkit/shell`'s `createShell()` these adapters need (structural, so no import cycle). */
+/** The slice of `@rightkit/tauri-shell`'s `createShell()` these adapters need (structural, so no import cycle). */
 export interface EngineShell {
   engine: {
     call<T = unknown>(method: string, params?: unknown): Promise<T>;
@@ -50,7 +50,7 @@ export interface ShellBackends {
   secrets: SecretsBackend;
 }
 
-/** Backends over the `@rightkit/shell` engine bridge. */
+/** Backends over the `@rightkit/tauri-shell` engine bridge. */
 export function createShellBackends(shell: EngineShell | SettingsShell): ShellBackends {
   const call = shell.engine.call;
   const on = <T>(name: string, pick: (event: unknown) => T | null, handler: (v: T) => void) =>

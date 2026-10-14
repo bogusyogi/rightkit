@@ -424,6 +424,9 @@ importers:
         specifier: '>=0.2.0 <1'
         version: link:../app-shell
     devDependencies:
+      '@rightkit/app-update':
+        specifier: workspace:*
+        version: link:../app-update
       '@rightkit/license':
         specifier: workspace:*
         version: link:../license
@@ -436,9 +439,6 @@ importers:
       '@rightkit/theme':
         specifier: workspace:*
         version: link:../theme
-      '@rightkit/app-update':
-        specifier: workspace:*
-        version: link:../app-update
       '@testing-library/jest-dom':
         specifier: ^6.6.3
         version: 6.9.1
@@ -473,20 +473,15 @@ importers:
         specifier: ^2.1.8
         version: 2.1.9(@types/node@24.13.3)(jsdom@25.0.1(supports-color@8.1.1))(supports-color@8.1.1)
 
-  packages/shell:
-    devDependencies:
-      typescript:
-        specifier: ^5.7.0
-        version: 5.9.3
-
   packages/tauri:
     dependencies:
-      '@rightkit/logs':
-        specifier: ^0.1.4
-        version: link:../logs
       '@rightkit/app-update':
         specifier: ^0.2.5
         version: link:../app-update
+      '@rightkit/logs':
+        specifier: ^0.1.4
+        version: link:../logs
+
     devDependencies:
       typescript:
         specifier: ^5.7.0
@@ -494,6 +489,12 @@ importers:
       vitest:
         specifier: ^2.1.8
         version: 2.1.9(@types/node@24.13.3)(jsdom@26.1.0(canvas@3.2.3)(supports-color@8.1.1))(supports-color@8.1.1)
+
+  packages/tauri-shell:
+    devDependencies:
+      typescript:
+        specifier: ^5.7.0
+        version: 5.9.3
 
   packages/theme:
     devDependencies:

@@ -1,10 +1,10 @@
 /**
  * The TS bridge contract between `@rightkit/app-shell` (React frame) and the native shell
- * (`@rightkit/shell` + Tauri). app-shell never imports Tauri: apps pass whatever implements these
+ * (`@rightkit/tauri-shell` + Tauri). app-shell never imports Tauri: apps pass whatever implements these
  * structural interfaces. Every member is optional so a browser preview or a test needs none of it.
  *
- * Coordination rules with `@rightkit/shell`:
- *  - window controls: `WindowControlAdapter` is owned by `@rightkit/platform-ui`; `@rightkit/shell`
+ * Coordination rules with `@rightkit/tauri-shell`:
+ *  - window controls: `WindowControlAdapter` is owned by `@rightkit/platform-ui`; `@rightkit/tauri-shell`
  *    returns an object that satisfies it. app-shell only calls minimize / toggleMaximize / close.
  *  - links: `openExternal` is how the shell broker routes http(s) to the system browser.
  *  - menus: native menu items arrive as `onMenuAction(id)`; app-shell routes an id that matches a

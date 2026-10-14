@@ -8,7 +8,7 @@ Version columns: **Source** is the manifest version. **Published** is the latest
 
 Flags: `ok` means source, published and staged agree. `staged, not yet published` is in-flight work. `private` has no registry record by design. `MISMATCH` needs a release decision.
 
-Flagged mismatches: 55.
+Flagged mismatches: 56.
 
 The build broker is the Rust RustRight product (`bogusyogi/rustright`, binary `rustright`, alias `rightkit`); it is not part of this inventory. `packages/build-control-policy` keeps the agent permission hooks.
 
@@ -97,10 +97,10 @@ The build broker is the Rust RustRight product (`bogusyogi/rustright`, binary `r
 | `@rightkit/qa-chrome` | npm | 0.1.6 | 0.1.5 | 0.1.5 | **MISMATCH staged 0.1.5 != source 0.1.6** | rightkit-qa-chrome | browser-qa | Zero-dependency Chrome for Testing resolver, launcher and graceful close for Right Suite QA harnesses. |
 | `@rightkit/release` | npm | 0.2.153 | 0.2.151 | 0.2.153 | staged, not yet published | right-release | release-tooling | Portable release CLI/SDK with fail-closed public GitHub Releases and private R2 + RightApps distribution. |
 | `@rightkit/settings-ui` | npm | 0.4.4 | 0.4.3 | 0.4.3 | **MISMATCH staged 0.4.3 != source 0.4.4** |  | settings-ui | Settings panel frame, search and standard sections (appearance, updates, license, legal, diagnostics, models, API keys, about) persisted through rightkit-app-settings. The panel shell and primitives (/core) need only React. |
-| `@rightkit/shell` | npm | 0.1.1 | 0.1.1 | 0.1.1 | ok |  | desktop-shell | Typed renderer bridge for the rightkit-tauri-shell Tauri crate: window controls, menu/tray events, deep links, autostart, rich clipboard, engine calls. |
 | `@rightkit/tauri` | npm | 0.2.0 | 0.2.0 | 0.2.0 | ok |  | tauri-host-adapters | Typed host adapters for shared Right Suite Tauri commands. |
+| `@rightkit/tauri-shell` | npm | 0.1.1 | none recorded |  | **MISMATCH public package has no release record** |  | desktop-shell | Typed renderer bridge for the rightkit-tauri-shell Tauri crate: window controls, menu/tray events, deep links, autostart, rich clipboard, engine calls. |
 | `@rightkit/theme` | npm | 0.2.3 | 0.2.3 | 0.2.3 | ok | rightkit-theme | theme-ui | Brand file to CSS tokens generator for Right Suite apps: light/dark/system, derived dark accent, WCAG contrast and hard-coded-colour checks, runtime brand application. |
 
 ## Version records without a manifest
 
-rightkit-control (cargo), rightkit-framed-sidecar (cargo), rightkit-jobs (cargo), rightkit-media (cargo), rightkit-ort (cargo), rightkit-process (cargo), rightkit-qts (cargo), rightkit-qts-ggml (cargo), rightkit-qts-ggml-sys (cargo), rightkit-secrets (cargo), rightkit-service (cargo), rightkit-settings (cargo), rightkit-shell (cargo), rightkit-tauri (cargo), rightkit-watch (cargo), @rightkit/git (npm), @rightkit/updates (npm).
+rightkit-control (cargo), rightkit-framed-sidecar (cargo), rightkit-jobs (cargo), rightkit-media (cargo), rightkit-ort (cargo), rightkit-process (cargo), rightkit-qts (cargo), rightkit-qts-ggml (cargo), rightkit-qts-ggml-sys (cargo), rightkit-secrets (cargo), rightkit-service (cargo), rightkit-settings (cargo), rightkit-shell (cargo), rightkit-tauri (cargo), rightkit-watch (cargo), @rightkit/git (npm), @rightkit/shell (npm), @rightkit/updates (npm).

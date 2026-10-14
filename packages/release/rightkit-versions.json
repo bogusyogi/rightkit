@@ -30,7 +30,6 @@
     "@rightkit/qa-chrome": "0.1.5",
     "@rightkit/release": "0.2.153",
     "@rightkit/settings-ui": "0.4.3",
-    "@rightkit/shell": "0.1.1",
     "@rightkit/tauri": "0.2.0",
     "@rightkit/theme": "0.2.3"
   },
