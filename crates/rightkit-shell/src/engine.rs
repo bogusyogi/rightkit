@@ -1,4 +1,4 @@
-//! Engine sidecar wiring over `rightkit-jobs::EngineClient` and `rightkit-child-process`.
+//! Engine sidecar wiring over `rightkit-job-queue::EngineClient` and `rightkit-child-process`.
 //!
 //! The shell owns only the window-side seam: start the engine off the UI thread, expose typed
 //! calls to the webview (`rk_shell_engine_call`), stream engine events to the webview, restart on
@@ -10,7 +10,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use rightkit_child_process::OwnedCommand;
-use rightkit_jobs::{EngineClient, JobError};
+use rightkit_job_queue::{EngineClient, JobError};
 use serde_json::Value;
 use tauri::{AppHandle, Emitter, Wry};
 

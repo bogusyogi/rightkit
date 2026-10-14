@@ -41,7 +41,7 @@ The build broker is the Rust RustRight product (`bogusyogi/rustright`, binary `r
 | `rightkit-fsindex` | crates.io | 0.2.0 | 0.1.1 | 0.1.1 | **MISMATCH staged 0.1.1 != source 0.2.0** | file-index | Live whole-disk file index: fuzzy name search plus clone- and hard-link-aware folder size rollups on memory-mapped columns |
 | `rightkit-hotkeys` | crates.io | 0.1.0 | none recorded | 0.1.0 | staged, never published | global-hotkeys | Global shortcuts and low-level input hooks for Right Suite apps: chord parsing, conflict detection, CGEventTap/WH_KEYBOARD_LL primitives, push-to-talk state. |
 | `rightkit-http` | crates.io | 0.3.0 | 0.2.5 | 0.2.5 | **MISMATCH staged 0.2.5 != source 0.3.0** | http-client | Brand-neutral blocking HTTP client for Right Suite apps: timeouts, retry/backoff with Retry-After, SSE streaming, multipart bodies, redacted secrets, and untrusted web-text wrapping. |
-| `rightkit-jobs` | crates.io | 0.3.0 | 0.2.7 | 0.2.7 | **MISMATCH staged 0.2.7 != source 0.3.0** | persistent-jobs | Persistent job store, runner, and stdio/CLI command contract for Right Suite engines. |
+| `rightkit-job-queue` | crates.io | 0.3.0 | none recorded |  | **MISMATCH public package has no release record** | persistent-jobs | Persistent job store, runner, and stdio/CLI command contract for Right Suite engines. |
 | `rightkit-license` | crates.io | 0.2.0 | 0.1.3 | 0.1.3 | **MISMATCH staged 0.1.3 != source 0.2.0** | licensing | Right Suite license enforcement primitive — offline verification of server-signed Ed25519 entitlement tokens. The Rust (security) half of @rightkit/license. |
 | `rightkit-llm` | crates.io | 0.2.0 | 0.1.0 | 0.2.0 | staged, not yet published | llm-providers | Brand-neutral BYOK LLM clients: Anthropic Messages and OpenAI-compatible chat, streaming, tool use, route failover with circuit breaker, pricing, and prompt-cache discipline, plus an opt-in provider for installed command-line assistants. |
 | `rightkit-logs` | crates.io | 0.2.2 | 0.2.1 | 0.2.1 | **MISMATCH staged 0.2.1 != source 0.2.2** | structured-logging | Privacy-safe local JSONL logging and diagnostics for Right Suite desktop apps. |
@@ -103,4 +103,4 @@ The build broker is the Rust RustRight product (`bogusyogi/rustright`, binary `r
 
 ## Version records without a manifest
 
-rightkit-framed-sidecar (cargo), rightkit-media (cargo), rightkit-ort (cargo), rightkit-process (cargo), rightkit-qts (cargo), rightkit-qts-ggml (cargo), rightkit-qts-ggml-sys (cargo), rightkit-secrets (cargo), rightkit-service (cargo), rightkit-settings (cargo), rightkit-watch (cargo).
+rightkit-framed-sidecar (cargo), rightkit-jobs (cargo), rightkit-media (cargo), rightkit-ort (cargo), rightkit-process (cargo), rightkit-qts (cargo), rightkit-qts-ggml (cargo), rightkit-qts-ggml-sys (cargo), rightkit-secrets (cargo), rightkit-service (cargo), rightkit-settings (cargo), rightkit-watch (cargo).

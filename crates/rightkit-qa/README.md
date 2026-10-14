@@ -41,7 +41,7 @@ A test chooses its runner by its target.
 
 `examples/control-test-app` and `examples/genright` are compiled examples. Run them through `rightkit cargo run -p rightkit-qa --example <name>`.
 
-`sidecar_command` picks its frame shape from the sidecar's hello. A `contract_version` field means the rightkit-jobs contract (`request {id, method, params}` → `response {id, ok, result | error}`); an `rpc_version` field means GenRight's legacy frames (`method:{method:"command", params:{name,input}}`, answered by `status: ok|err`). A hello with neither uses the jobs contract, and a silent engine then gets an error that names the shape. Set `legacy_status_frames = true` on `sidecar_start` or on one `sidecar_command` to force the legacy frames, or `legacy_status_frames = false` on either to force the jobs contract.
+`sidecar_command` picks its frame shape from the sidecar's hello. A `contract_version` field means the rightkit-job-queue contract (`request {id, method, params}` → `response {id, ok, result | error}`); an `rpc_version` field means GenRight's legacy frames (`method:{method:"command", params:{name,input}}`, answered by `status: ok|err`). A hello with neither uses the jobs contract, and a silent engine then gets an error that names the shape. Set `legacy_status_frames = true` on `sidecar_start` or on one `sidecar_command` to force the legacy frames, or `legacy_status_frames = false` on either to force the jobs contract.
 
 ## Run storage
 

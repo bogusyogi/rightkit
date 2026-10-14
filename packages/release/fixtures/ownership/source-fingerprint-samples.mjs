@@ -28,7 +28,7 @@ export const FINGERPRINT_SAMPLES = {
     "negative": [
       "conn.execute_batch(\"CREATE TABLE IF NOT EXISTS notes (id TEXT PRIMARY KEY, status TEXT, attempts INTEGER)\")?;",
       "conn.execute(\"CREATE TABLE jobs (id TEXT, title TEXT, status TEXT)\", [])?;",
-      "let store = rightkit_jobs::JobStore::open(&db)?;"
+      "let store = rightkit_job_queue::JobStore::open(&db)?;"
     ]
   },
   "jobs.sql.claim-next": {

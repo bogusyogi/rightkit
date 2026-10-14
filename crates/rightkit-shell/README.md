@@ -10,7 +10,7 @@ Shared Tauri desktop shell for Right Suite applications. It owns hardened webvie
 
 | Feature | Default | Pulls in | Effect |
 |---|---|---|---|
-| `engine` | off | `rightkit-jobs` (optional; `rightkit-child-process` is an unconditional dependency) | Engine sidecar wiring over `rightkit-jobs` `EngineClient`. Opt in; it pulls `rightkit-jobs` (db, time, uuid). |
+| `engine` | off | `rightkit-job-queue` (optional; `rightkit-child-process` is an unconditional dependency) | Engine sidecar wiring over `rightkit-job-queue` `EngineClient`. Opt in; it pulls `rightkit-job-queue` (db, time, uuid). |
 | `wv2-0_38` | on | `windows` 0.61, `webview2-com` 0.38 | Windows types for Tauri 2.11 (the default). Must match the app's Tauri. |
 | `wv2-0_39` | off | `windows` 0.62, `webview2-com` 0.39 | Windows types for Tauri 2.12. With `default-features = false`, enable `wv2-0_39` (plus `engine` if used). Enabling both selects 0.39. |
 | `content-devtools` | off | `tauri/devtools` | Required by `DevToolsPolicy::ContentOnly`. Only an app on the `right-release` allow-list (today ViewRight) may ship it; see "DevTools policy". Never a default feature. |

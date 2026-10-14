@@ -130,7 +130,7 @@ The publish gate refuses when any of these holds:
 | rightkit-file-watch | 50,000 files (`benches/budget.rs`) | the largest watched repository in the installed app |
 | rightkit-sync | 100,000 records (`benches/budget.rs`) | the largest real zone in the installed app |
 | rightkit-daemon `remote` | 10,000 signed submissions (`benches/budget.rs`) | the installed host's real job volume |
-| rightkit-jobs, -service, -cache, -logs, -shell, -qa, -send | not declared: no bench or doc states a scale; `requiredScale` is `null` and refused until declared with a source | installed app under its own production load |
+| rightkit-job-queue, -service, -cache, -logs, -shell, -qa, -send | not declared: no bench or doc states a scale; `requiredScale` is `null` and refused until declared with a source | installed app under its own production load |
 
 ## Declared state (2026-10-11)
 
@@ -140,7 +140,7 @@ Nine other crates declare `continuous = false` with a reason and pass the scan: 
 
 ## Crates in this class today
 
-rightkit-fsindex, rightkit-file-watch, rightkit-jobs (supervisor), rightkit-daemon (incl. `remote`), rightkit-cache, rightkit-sync, rightkit-logs (tracing worker), rightkit-shell (watchdog, idle), rightkit-qa (harness), rightkit-send.
+rightkit-fsindex, rightkit-file-watch, rightkit-job-queue (supervisor), rightkit-daemon (incl. `remote`), rightkit-cache, rightkit-sync, rightkit-logs (tracing worker), rightkit-shell (watchdog, idle), rightkit-qa (harness), rightkit-send.
 
 ## Why the audits missed it
 

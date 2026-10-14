@@ -5,7 +5,7 @@
 //! `request_id`, `session_id`, `trace_id`, `payload`, `error`) wrapped again
 //! by its speech-service `ServiceEnvelope`, CutRight/GenRight their own
 //! protocol crates. They all reduce to this set of JSON-lines frames, which is
-//! also what `rightkit-jobs` engines and `rightkit-daemon` hosts speak:
+//! also what `rightkit-job-queue` engines and `rightkit-daemon` hosts speak:
 //!
 //! ```text
 //! {"type":"hello","engine":"x","version":"1","contract_version":1}

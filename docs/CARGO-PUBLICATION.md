@@ -42,7 +42,7 @@ For enabled candidates & their shared prerequisites:
 
 1. `rightkit-fs`, `rightkit-sidecar`, `rightkit-child-process`, `rightkit-logs`, `rightkit-cache`, `rightkit-pdf`, `rightkit-search`.
 2. `rightkit-db`, `rightkit-daemon`, `rightkit-browser`, `rightkit-sandbox`, `rightkit-crash`, `rightkit-ffmpeg`.
-3. `rightkit-jobs`, `rightkit-control`, `rightkit-speech-client`, `rightkit-playback`, `rightkit-audio`.
+3. `rightkit-job-queue`, `rightkit-control`, `rightkit-speech-client`, `rightkit-playback`, `rightkit-audio`.
 4. `rightkit-shell`, `rightkit-qa`.
 
 Every group waits for its own dependencies to exist in crates.io. Optional runtime dependencies also need published registry versions. Package dry-runs verify registry dependencies rather than sibling source.

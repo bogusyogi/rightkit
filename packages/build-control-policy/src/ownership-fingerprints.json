@@ -1216,7 +1216,7 @@
       ]
     },
     {
-      "package": "rightkit-jobs",
+      "package": "rightkit-job-queue",
       "capability": "persistent-jobs",
       "summary": "Persistent job store, runner, and stdio/CLI command contract for Right Suite engines.",
       "fingerprints": [

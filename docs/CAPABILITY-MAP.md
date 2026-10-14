@@ -63,7 +63,7 @@ Capabilities: 72 (54 with fingerprints, 18 declaration-only). Internal owners th
 | ownership-scanner | `rightkit-ownership` | none | declaration-only | 0 | rightkit-ownership: published 0.2.1 (crates.io) |
 | pdf-engine | `rightkit-pdf` | advise | fingerprinted | 3 (0 block, 3 advise) | rightkit-pdf: published 0.2.0 (crates.io) |
 | pdf-ui | `@rightkit/pdf-ui` | advise | fingerprinted | 1 (0 block, 1 advise) | @rightkit/pdf-ui: published 0.1.6 (npm) |
-| persistent-jobs | `rightkit-jobs` | advise | fingerprinted | 10 (0 block, 10 advise) | rightkit-jobs: published 0.2.7 (crates.io) |
+| persistent-jobs | `rightkit-job-queue` | advise | fingerprinted | 10 (0 block, 10 advise) | rightkit-job-queue: none recorded |
 | platform-ui | `@rightkit/platform-ui` | advise | fingerprinted | 1 (0 block, 1 advise) | @rightkit/platform-ui: published 0.2.7 (npm) |
 | qa-evidence | `@rightkit/qa` | advise | fingerprinted | 2 (0 block, 2 advise) | @rightkit/qa: published 0.4.7 (npm) |
 | release-tooling | `@rightkit/release` | advise | fingerprinted | 10 (0 block, 10 advise) | @rightkit/release: published 0.2.151 (npm) |

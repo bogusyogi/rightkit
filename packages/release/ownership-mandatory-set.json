@@ -85,10 +85,9 @@
       "profile": "desktop",
       "owners": [
         {
-          "name": "rightkit-jobs",
+          "name": "rightkit-job-queue",
           "ecosystem": "cargo",
-          "min": "0.3.0",
-          "registryMax": "0.2.7"
+          "min": "0.3.0"
         },
         {
           "name": "rightkit-child-process",
@@ -103,10 +102,9 @@
       "profile": "desktop",
       "owners": [
         {
-          "name": "rightkit-jobs",
+          "name": "rightkit-job-queue",
           "ecosystem": "cargo",
-          "min": "0.3.0",
-          "registryMax": "0.2.7"
+          "min": "0.3.0"
         },
         {
           "name": "rightkit-sidecar",

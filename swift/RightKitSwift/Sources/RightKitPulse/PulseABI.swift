@@ -1,12 +1,12 @@
 import Foundation
 
-// Swift side of the proposed C ABI over `rightkit-jobs` (design: READINESS "LEGION CHOSEN Pulse
+// Swift side of the proposed C ABI over `rightkit-job-queue` (design: READINESS "LEGION CHOSEN Pulse
 // Swift facade"). The ABI is a seam: a native binding implements `PulseNativeABI`; Rust owns
 // allocation and release of every handle, Swift only holds opaque tokens. No engine-kit crate and
 // no Pulse supervisor live here. Native linking and version qualification remain open.
 
 public enum PulseCompat {
-    /// ABI of this facade, contract version of `rightkit-jobs` (wire.rs CONTRACT_VERSION), and the
+    /// ABI of this facade, contract version of `rightkit-job-queue` (wire.rs CONTRACT_VERSION), and the
     /// Pulse schema this facade was written against.
     public static let abiVersion: UInt32 = 1
     public static let contractVersion: UInt32 = 1

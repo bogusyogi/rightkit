@@ -17,9 +17,9 @@ default = ["wv2-0_38"]
 # Enabling both selects 0.39.
 wv2-0_38 = ["dep:windows_061", "dep:webview2_com_038"]
 wv2-0_39 = ["dep:windows_062", "dep:webview2_com_039"]
-# Engine sidecar wiring over rightkit-jobs EngineClient + rightkit-child-process. Off by default: it pulls
-# rightkit-jobs (db, time, uuid); apps that run an engine sidecar opt in.
-engine = ["dep:rightkit-jobs"]
+# Engine sidecar wiring over rightkit-job-queue EngineClient + rightkit-child-process. Off by default: it pulls
+# rightkit-job-queue (db, time, uuid); apps that run an engine sidecar opt in.
+engine = ["dep:rightkit-job-queue"]
 # Required by `DevToolsPolicy::ContentOnly`: compiles Tauri's devtools in so a registered content
 # webview can be inspected. Every other webview stays non-inspectable. Only an app on the
 # `right-release` allow-list (`packages/release/devtools-policy.json`, today only ViewRight) may
@@ -37,7 +37,7 @@ dev-inspect = ["tauri/devtools"]
 [dependencies]
 tauri = { version = "2", features = ["tray-icon", "image-png"] }
 rightkit-daemon = { version = "0.2.0", path = "../rightkit-daemon" }
-rightkit-jobs = { version = "0.3.0", path = "../rightkit-jobs", default-features = false, features = ["supervisor"], optional = true }
+rightkit-job-queue = { version = "0.3.0", path = "../rightkit-job-queue", default-features = false, features = ["supervisor"], optional = true }
 rightkit-child-process = { version = "0.4.0", path = "../rightkit-child-process" }
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.150"

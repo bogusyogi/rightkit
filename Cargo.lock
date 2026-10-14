@@ -5455,7 +5455,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "rightkit-jobs"
+name = "rightkit-job-queue"
 version = "0.3.0"
 dependencies = [
  "rightkit-child-process",
@@ -5746,7 +5746,7 @@ dependencies = [
  "objc2-user-notifications",
  "rightkit-child-process",
  "rightkit-daemon",
- "rightkit-jobs",
+ "rightkit-job-queue",
  "serde",
  "serde_json",
  "tauri",

@@ -20,7 +20,7 @@ Catalog capability: `framed-sidecar`. crates.io has 0.1.0; the source is 0.2.0, 
 
 - Use it for a child process or sidecar that speaks JSON lines over stdio and must not allocate without bound.
 
-Do not use it for schemas or request routing. Those belong to the app or to `rightkit-jobs`.
+Do not use it for schemas or request routing. Those belong to the app or to `rightkit-job-queue`.
 
 ## Cargo features
 

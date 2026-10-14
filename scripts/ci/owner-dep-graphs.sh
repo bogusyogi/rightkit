@@ -9,29 +9,29 @@ cd "$(dirname "$0")/../.."
 
 EVIDENCE="${RUNNER_TEMP:-${TMPDIR:-/tmp}}/rightkit-ci"
 OUT="$EVIDENCE/owner-dep-graphs"
-CRATES="shell tauri jobs process framed-sidecar service fs db settings secrets license logs crash http qa control mcp"
+CRATES="shell tauri job-queue child-process sidecar daemon fs db app-settings credentials license logs crash http qa control mcp"
 WATCH="tokio axum hyper ring cc openssl-sys reqwest libsqlite3-sys"
 
 # crate|mode-name|cargo feature args. default/nodefault run for every crate in CRATES; these add consumer sets.
 FEATURE_SETS="
 shell|nodefault-wv2-0_39|--no-default-features --features wv2-0_39
 shell|nodefault-wv2-0_39-engine|--no-default-features --features wv2-0_39,engine
-jobs|nodefault-store|--no-default-features --features store
-jobs|nodefault-protocol|--no-default-features --features protocol
-jobs|nodefault-supervisor|--no-default-features --features supervisor
-jobs|nodefault-contract|--no-default-features --features contract
-jobs|nodefault-service|--no-default-features --features service
-jobs|nodefault-supervisor-crash|--no-default-features --features supervisor,crash
+job-queue|nodefault-store|--no-default-features --features store
+job-queue|nodefault-protocol|--no-default-features --features protocol
+job-queue|nodefault-supervisor|--no-default-features --features supervisor
+job-queue|nodefault-contract|--no-default-features --features contract
+job-queue|nodefault-service|--no-default-features --features service
+job-queue|nodefault-supervisor-crash|--no-default-features --features supervisor,crash
 fs|nodefault-json|--no-default-features --features json
 fs|nodefault-digest|--no-default-features --features digest
 db|nodefault-bundled|--no-default-features --features bundled
-secrets|nodefault-settings-probe|--no-default-features --features settings-probe
+credentials|nodefault-settings-probe|--no-default-features --features settings-probe
 logs|nodefault-http|--no-default-features --features http
 logs|nodefault-log-bridge|--no-default-features --features log-bridge
 crash|nodefault-support-bundle|--no-default-features --features support-bundle
-service|nodefault-link|--no-default-features --features link
-service|nodefault-remote|--no-default-features --features remote
-service|nodefault-remote-testing|--no-default-features --features remote,testing
+daemon|nodefault-link|--no-default-features --features link
+daemon|nodefault-remote|--no-default-features --features remote
+daemon|nodefault-remote-testing|--no-default-features --features remote,testing
 http|nodefault-gzip|--no-default-features --features gzip
 http|nodefault-async|--no-default-features --features async
 http|nodefault-gzip-untrusted|--no-default-features --features gzip,untrusted
@@ -89,7 +89,7 @@ $FEATURE_SETS
 TABLE
 
 # Optional-storage validation: jobs with only `supervisor` must not pull rightkit-db / libsqlite3-sys (expected absent).
-sg="$OUT/rightkit-jobs-nodefault-supervisor.txt"
+sg="$OUT/rightkit-job-queue-nodefault-supervisor.txt"
 if [ -s "$sg" ]; then
   if awk '$1 == "rightkit-db" || $1 == "libsqlite3-sys" { f = 1 } END { exit !f }' "$sg"; then v=FAIL; else v=PASS; fi
 else

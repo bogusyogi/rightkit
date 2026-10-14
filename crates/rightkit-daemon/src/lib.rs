@@ -41,7 +41,7 @@
 //!   directory. [`Suite::per_run_temp`] is the explicit opt-in alternative.
 //!
 //! Wire format: bounded JSON lines (`rightkit-sidecar`), the same frames
-//! as the `rightkit-jobs` engine contract:
+//! as the `rightkit-job-queue` engine contract:
 //! `hello`, `request{id,method,params}`, `event{id,event}`, `response{id,ok,result|error}`.
 
 mod app_root;
