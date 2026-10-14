@@ -3,7 +3,7 @@
 //! prefix containing one must never reach the OS. Uses uniquely named test credentials that the
 //! test creates and removes.
 
-use rightkit_secrets::{system_backend, Error, Interaction, Namespace, Secret, WindowsTarget};
+use rightkit_credentials::{system_backend, Error, Interaction, Namespace, Secret, WindowsTarget};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 mod common;
@@ -110,13 +110,13 @@ fn services_sharing_a_prefix_see_one_credential_and_conditional_delete_is_atomic
         backend
             .delete_if_equals(&b, "acct", &Secret::from_string("stale"), ni)
             .unwrap(),
-        rightkit_secrets::ConditionalDelete::Changed
+        rightkit_credentials::ConditionalDelete::Changed
     );
     assert_eq!(
         backend
             .delete_if_equals(&b, "acct", &Secret::from_string("first"), ni)
             .unwrap(),
-        rightkit_secrets::ConditionalDelete::Deleted
+        rightkit_credentials::ConditionalDelete::Deleted
     );
     assert!(backend.get(&a, "acct", ni).unwrap().is_none());
 }

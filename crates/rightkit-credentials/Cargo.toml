@@ -1,5 +1,5 @@
 [package]
-name = "rightkit-secrets"
+name = "rightkit-credentials"
 version = "0.2.0"
 edition = "2021"
 rust-version = "1.98.0"
@@ -21,8 +21,8 @@ settings-probe = ["dep:rightkit-app-settings"]
 isolated-test-keychain = []
 
 [[bin]]
-name = "rightkit-secrets"
-path = "src/bin/rightkit-secrets.rs"
+name = "rightkit-credentials"
+path = "src/bin/rightkit-credentials.rs"
 
 [dependencies]
 serde = { version = "1.0.228", features = ["derive"] }

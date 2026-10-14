@@ -11,7 +11,7 @@ Catalog capability: `llm-providers`. Release versions are tracked in [INDEX.md](
 - `failover::FailoverChain`, `Route`, `FailoverPolicy`, `FailoverOn`: route failover, a first-token timeout, and a circuit breaker. `FailoverEvent` reports each switch. The default trigger is retryable errors only; `FailoverOn::AnyError` and `FailoverOn::custom` widen it.
 - `pricing::PriceTable`: per-model prices.
 - `cache`: prompt-cache breakpoint planning (`plan_breakpoints`, `CacheBreakpointPlanner`) and a `CacheLedger`.
-- `credentials`: `CredentialSource`, with `StaticCredentials` and `SecretStoreCredentials`. `SecretStoreCredentials` takes any `SecretStore`. The source comment names `rightkit-secrets` as the production binding (`src/credentials.rs:10`), but `rightkit-secrets` has no `SecretStore` implementation in this repository.
+- `credentials`: `CredentialSource`, with `StaticCredentials` and `SecretStoreCredentials`. `SecretStoreCredentials` takes any `SecretStore`. The source comment names `rightkit-credentials` as the production binding (`src/credentials.rs:10`), but `rightkit-credentials` has no `SecretStore` implementation in this repository.
 - `types`, `error`: `ChatRequest`, `Message`, `StreamEvent`, `LlmError`.
 - `raw`: opt-in capture of the provider's raw response bytes, status and request id for non-streaming calls (`RawExchange`, `RawHandle`). See "Raw response capture".
 
@@ -24,7 +24,7 @@ HTTP comes from `rightkit-http`. With feature `cli`:
 - Use it when an app brings the user's own API key and calls a model directly.
 - Use it when calls must fail over between routes on retryable errors.
 
-Do not use it to store keys. Keys come from a `CredentialSource`, and production keys live in `rightkit-secrets`.
+Do not use it to store keys. Keys come from a `CredentialSource`, and production keys live in `rightkit-credentials`.
 
 ## Cargo features
 

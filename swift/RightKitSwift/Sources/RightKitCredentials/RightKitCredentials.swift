@@ -1,7 +1,7 @@
 import Foundation
 import Security
 
-// Keychain-backed secret store: the Swift counterpart of the Rust owner `rightkit-secrets`.
+// Keychain-backed secret store: the Swift counterpart of the Rust owner `rightkit-credentials`.
 // namespace = kSecAttrService, key = kSecAttrAccount. There is no plaintext or file fallback:
 // a store that cannot reach the Keychain throws, or (only when a guard variable trips) uses a
 // process-wide in-memory store that never touches disk.

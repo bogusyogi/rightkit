@@ -26,13 +26,13 @@ let package = Package(
         .library(name: "RightKitPulse", targets: ["RightKitPulse"]),
         .library(name: "RightKitDB", targets: ["RightKitDB"]),
         .library(name: "RightKitFS", targets: ["RightKitFS"]),
-        .library(name: "RightKitSecrets", targets: ["RightKitSecrets"]),
+        .library(name: "RightKitCredentials", targets: ["RightKitCredentials"]),
     ],
     targets: [
         // Keychain-backed secret store (namespace = service, key = account); RightKitLicense persists through it.
-        .target(name: "RightKitSecrets"),
-        .testTarget(name: "RightKitSecretsTests", dependencies: ["RightKitSecrets"]),
-        .target(name: "RightKitLicense", dependencies: ["RightKitSecrets"]),
+        .target(name: "RightKitCredentials"),
+        .testTarget(name: "RightKitCredentialsTests", dependencies: ["RightKitCredentials"]),
+        .target(name: "RightKitLicense", dependencies: ["RightKitCredentials"]),
         .target(name: "RightKitDiagnostics"),
         .testTarget(name: "RightKitDiagnosticsTests", dependencies: ["RightKitDiagnostics"]),
         // zlib comes from the platform SDK; no third-party dependency enters the registry archive.
@@ -40,7 +40,7 @@ let package = Package(
         .testTarget(name: "RightKitArtifactsTests", dependencies: ["RightKitArtifacts"]),
         .testTarget(
             name: "RightKitLicenseTests",
-            dependencies: ["RightKitLicense", "RightKitSecrets"],
+            dependencies: ["RightKitLicense", "RightKitCredentials"],
             resources: [.process("Contracts")],
         ),
         // StoreKit 2 purchases, entitlement ledger, and the bridge into RightKitLicense access.

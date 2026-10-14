@@ -13,7 +13,7 @@
 //! - `cli` feature: [`provider::cli::CliProvider`] drives an installed, signed-in
 //!   assistant CLI (Claude Code, Codex) as a bounded child process; no API key.
 //! - Credentials come from a [`credentials::CredentialSource`]; production wiring
-//!   uses `rightkit-secrets` through the `SecretStore` trait.
+//!   uses `rightkit-credentials` through the `SecretStore` trait.
 
 pub mod anthropic;
 pub mod cache;

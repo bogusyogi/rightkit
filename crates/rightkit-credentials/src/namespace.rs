@@ -22,12 +22,12 @@ pub enum WindowsTarget {
     /// The blob encoding is selected by this variant and nothing else: UTF-16LE text with no
     /// terminator, for reads and writes alike, exactly as `keyring` stores it. A secret that is
     /// not valid UTF-8 text cannot be stored (`Error::NotUtf8`), and a stored blob that is not
-    /// valid UTF-16LE is `Error::NotUtf8`; neither is guessed at. Items that rightkit-secrets
+    /// valid UTF-16LE is `Error::NotUtf8`; neither is guessed at. Items that rightkit-credentials
     /// 0.1.1 and 0.1.2 wrote as raw UTF-8 are read through
     /// [`WindowsTarget::KeyringCompatLegacyUtf8`].
     KeyringCompat,
     /// The same target name as [`WindowsTarget::KeyringCompat`], but the blob is the raw bytes
-    /// that rightkit-secrets 0.1.1 and 0.1.2 stored (UTF-8 text, or binary). Explicit migration
+    /// that rightkit-credentials 0.1.1 and 0.1.2 stored (UTF-8 text, or binary). Explicit migration
     /// path only: it is read and delete only (`set` and `add_if_absent` are refused), and a
     /// caller migrates an item it knows is legacy by reading it through a store that uses this
     /// variant and writing it through a store that uses [`WindowsTarget::KeyringCompat`]. There

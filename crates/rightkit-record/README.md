@@ -34,7 +34,7 @@ reason (`helper_lost; recovered_media frames=118/149 duration_ms=4006`) and retu
 ## Redaction hashes
 
 A `hash` field stores HMAC-SHA256 keyed by a per-installation secret that never enters the bundle. The
-secret lives in the OS credential store (`rightkit-secrets`, service `dev.rightkit.record`, account
+secret lives in the OS credential store (`rightkit-credentials`, service `dev.rightkit.record`, account
 `record.redaction-key.v1`, minted on first use). `StartRequest::key_source` (a `KeyHandle` wrapping a `KeySource`, `src/plan.rs:64`) supplies it;
 tests inject `FixedKeySource`. A take that hashes a field and cannot read the key is refused before
 anything is written. The bundle records only the key id (`scenario.json` `redaction.keyId`, plus

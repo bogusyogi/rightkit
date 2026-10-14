@@ -91,7 +91,7 @@
       ],
       "alsoSerial": true
     },
-    "rightkit-secrets": {
+    "rightkit-credentials": {
       "featureSets": [
         [],
         [

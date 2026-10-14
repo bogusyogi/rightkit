@@ -57,8 +57,8 @@ const SAMPLE_OWNERS = {
   "process.api.kill-on-job-close": "rightkit-process",
   "sandbox.api.appcontainer": "rightkit-sandbox",
   "sandbox.api.seatbelt": "rightkit-sandbox",
-  "secrets.api.wincred": "rightkit-secrets",
-  "secrets.api.secitem": "rightkit-secrets",
+  "secrets.api.wincred": "rightkit-credentials",
+  "secrets.api.secitem": "rightkit-credentials",
   "secrets.swift.scoped-migration": "RightKitSwift"
 };
 for (const [id, owner] of Object.entries(SAMPLE_OWNERS)) {

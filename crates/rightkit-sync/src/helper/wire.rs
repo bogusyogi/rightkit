@@ -12,7 +12,7 @@ use crate::record::{FieldValue, RawRecord};
 pub const PROTOCOL_VERSION: u32 = 1;
 
 /// Standard base64 (RFC 4648, padded). Tokens and byte fields cross the wire
-/// as base64 text. Kept in-crate on purpose: no workspace crate owns base64, and `rightkit-secrets`
+/// as base64 text. Kept in-crate on purpose: no workspace crate owns base64, and `rightkit-credentials`
 /// and `rightkit-shell` carry their own small copies; the next owner of a shared helper replaces all three.
 pub fn b64_encode(bytes: &[u8]) -> String {
     const T: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";

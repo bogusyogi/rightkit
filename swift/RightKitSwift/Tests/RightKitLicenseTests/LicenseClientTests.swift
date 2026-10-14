@@ -4,7 +4,7 @@ import CryptoKit
 import Network
 import Security
 import Testing
-import RightKitSecrets
+import RightKitCredentials
 @testable import RightKitLicense
 
 @Test func storedLicenseDropsRawKeyAfterTokenActivation() {

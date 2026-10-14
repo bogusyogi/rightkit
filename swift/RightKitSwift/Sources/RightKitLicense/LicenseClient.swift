@@ -1,7 +1,7 @@
 import CryptoKit
 import Foundation
 import os
-import RightKitSecrets
+import RightKitCredentials
 #if canImport(Combine)
 import Combine
 #endif
@@ -278,7 +278,7 @@ public struct KeychainLicenseStore: LicenseStore, Sendable {
     /// read-then-rewrite window in which a concurrent `remove()` could be undone.
     private static let lock = NSLock()
 
-    /// The shared Keychain store (RightKitSecrets); `service` is the namespace, the account the key.
+    /// The shared Keychain store (RightKitCredentials); `service` is the namespace, the account the key.
     /// Honours no guard variable: licence identity must never silently move to memory.
     private func secrets() throws -> SecretsStore {
         try SecretsStore(namespace: service, environment: [:], backend: KeychainSecretsBackend())

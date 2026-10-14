@@ -2,7 +2,7 @@
 
 Versioned settings persistence for Right Suite apps. It owns one JSON document per app (or one explicit file), typed with the app's own `serde` struct (defaults come from `Default` or `#[serde(default)]`), with migrations, atomic writes, corruption recovery, cross-process transactions, and change events.
 
-**Use it** for an app's settings file. **Do not use it** to store secret values (use `rightkit-secrets`; settings hold only a `SecretRef`).
+**Use it** for an app's settings file. **Do not use it** to store secret values (use `rightkit-credentials`; settings hold only a `SecretRef`).
 
 Behavior:
 

@@ -45,12 +45,12 @@ also apply when broker is unavailable; missing service must not permit fallback.
 - `crates/rightkit-mcp/examples/example_server.rs:115` reads `EXAMPLE_TOKEN` for
   demonstration HTTP server auth. Example-only, not established managed-host
   production integration. If deployed on managed host, refuse env token & inject
-  credential retrieved by host from `rightkit-secrets`; do not silently start
+  credential retrieved by host from `rightkit-credentials`; do not silently start
   unauthenticated HTTP server after refusal.
 - No production Rust literal secret-name reads were found. Dynamic Rust reads
-  examined included `rightkit-secrets/src/store.rs:80`; its guard names control
+  examined included `rightkit-credentials/src/store.rs:80`; its guard names control
   credential-store access rather than supply secrets.
-- Rust secret-store test fixtures (`crates/rightkit-secrets/tests/e2e.rs:170`,
+- Rust secret-store test fixtures (`crates/rightkit-credentials/tests/e2e.rs:170`,
   `:171`) read child test keychain/password selectors; excluded from production
   findings.
 - `RIGHTKIT_RUNTIME_ARTIFACT_KEY_ID`

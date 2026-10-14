@@ -33,13 +33,13 @@ let package = Package(
         .library(name: "RightKitPulse", targets: ["RightKitPulse"]),
         .library(name: "RightKitDB", targets: ["RightKitDB"]),
         .library(name: "RightKitFS", targets: ["RightKitFS"]),
-        .library(name: "RightKitSecrets", targets: ["RightKitSecrets"]),
+        .library(name: "RightKitCredentials", targets: ["RightKitCredentials"]),
     ],
     targets: [
         // Keychain-backed secret store (namespace = service, key = account); RightKitLicense persists through it.
-        .target(name: "RightKitSecrets", path: "swift/RightKitSwift/Sources/RightKitSecrets"),
-        .testTarget(name: "RightKitSecretsTests", dependencies: ["RightKitSecrets"], path: "swift/RightKitSwift/Tests/RightKitSecretsTests"),
-        .target(name: "RightKitLicense", dependencies: ["RightKitSecrets"], path: "swift/RightKitSwift/Sources/RightKitLicense"),
+        .target(name: "RightKitCredentials", path: "swift/RightKitSwift/Sources/RightKitCredentials"),
+        .testTarget(name: "RightKitCredentialsTests", dependencies: ["RightKitCredentials"], path: "swift/RightKitSwift/Tests/RightKitCredentialsTests"),
+        .target(name: "RightKitLicense", dependencies: ["RightKitCredentials"], path: "swift/RightKitSwift/Sources/RightKitLicense"),
         .target(name: "RightKitDiagnostics", path: "swift/RightKitSwift/Sources/RightKitDiagnostics"),
         .testTarget(name: "RightKitDiagnosticsTests", dependencies: ["RightKitDiagnostics"], path: "swift/RightKitSwift/Tests/RightKitDiagnosticsTests"),
         // zlib comes from the platform SDK; no third-party dependency enters the registry archive.
@@ -47,7 +47,7 @@ let package = Package(
         .testTarget(name: "RightKitArtifactsTests", dependencies: ["RightKitArtifacts"], path: "swift/RightKitSwift/Tests/RightKitArtifactsTests"),
         .testTarget(
             name: "RightKitLicenseTests",
-            dependencies: ["RightKitLicense", "RightKitSecrets"],
+            dependencies: ["RightKitLicense", "RightKitCredentials"],
             path: "swift/RightKitSwift/Tests/RightKitLicenseTests",
             resources: [.process("Contracts")],
         ),

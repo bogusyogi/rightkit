@@ -204,10 +204,9 @@
       "profile": "desktop",
       "owners": [
         {
-          "name": "rightkit-secrets",
+          "name": "rightkit-credentials",
           "ecosystem": "cargo",
-          "min": "0.2.0",
-          "registryMax": "0.1.3"
+          "min": "0.2.0"
         }
       ]
     },

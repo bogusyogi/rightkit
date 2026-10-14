@@ -1,5 +1,5 @@
 #[cfg(all(target_os = "macos", feature = "isolated-test-keychain"))]
-use rightkit_secrets::{migrate_between, Config, Error, Namespace, Store};
+use rightkit_credentials::{migrate_between, Config, Error, Namespace, Store};
 #[cfg(all(target_os = "macos", feature = "isolated-test-keychain"))]
 use std::process::{Command, Stdio};
 #[cfg(all(target_os = "macos", feature = "isolated-test-keychain"))]
@@ -8,7 +8,7 @@ use std::sync::Arc;
 #[cfg(all(target_os = "macos", feature = "isolated-test-keychain"))]
 #[test]
 fn isolated_keychain_real_process_api_round_trip() {
-    let isolated = rightkit_secrets::macos::IsolatedKeychain::create().unwrap();
+    let isolated = rightkit_credentials::macos::IsolatedKeychain::create().unwrap();
     let ns = Namespace::new("rightkit.test.isolated").unwrap();
     let store = Store::open(Config::new(ns).backend(Arc::new(isolated.backend())));
     store.set_str("account", "isolated-fixture").unwrap();
@@ -24,7 +24,7 @@ fn isolated_keychain_real_process_api_round_trip() {
 #[cfg(all(target_os = "macos", feature = "isolated-test-keychain"))]
 #[test]
 fn isolated_keychain_migration_locked_presence_and_cli_redaction() {
-    let isolated = rightkit_secrets::macos::IsolatedKeychain::create().unwrap();
+    let isolated = rightkit_credentials::macos::IsolatedKeychain::create().unwrap();
     let from = Store::open(
         Config::new(Namespace::new("rightkit.test.process.legacy").unwrap())
             .backend(Arc::new(isolated.backend())),
@@ -65,8 +65,8 @@ fn isolated_keychain_migration_locked_presence_and_cli_redaction() {
     let path = tempfile::NamedTempFile::new().unwrap().into_temp_path();
     std::fs::write(&path, b" file-fixture \n").unwrap();
     assert_eq!(
-        rightkit_secrets::migrate_plaintext_file(&to, "file-account", &path).unwrap(),
-        rightkit_secrets::FileMigration::Retained
+        rightkit_credentials::migrate_plaintext_file(&to, "file-account", &path).unwrap(),
+        rightkit_credentials::FileMigration::Retained
     );
     // The file is only copied from, never removed: that is the app's separate step.
     assert_eq!(std::fs::read(&path).unwrap(), b" file-fixture \n");
@@ -80,7 +80,7 @@ fn isolated_keychain_migration_locked_presence_and_cli_redaction() {
     );
     let env = |name: &str| (name == "PRIMARY").then(|| "env-fixture".to_string());
     let resolved = to.resolve("missing", &["PRIMARY"], &env).unwrap().unwrap();
-    assert_eq!(resolved.1, rightkit_secrets::Source::Environment);
+    assert_eq!(resolved.1, rightkit_credentials::Source::Environment);
 
     from.set_str("locked", "locked-fixture").unwrap();
     isolated.lock().unwrap();
@@ -96,7 +96,7 @@ fn isolated_keychain_migration_locked_presence_and_cli_redaction() {
     );
     isolated.unlock().unwrap();
 
-    let mut set = Command::new(env!("CARGO_BIN_EXE_rightkit-secrets"));
+    let mut set = Command::new(env!("CARGO_BIN_EXE_rightkit-credentials"));
     set.args([
         "set",
         "--namespace",
@@ -125,7 +125,7 @@ fn isolated_keychain_migration_locked_presence_and_cli_redaction() {
     assert!(stdout.contains("\"stored\":true"));
     assert!(!stdout.contains("cli-secret-fixture"));
 
-    let status = Command::new(env!("CARGO_BIN_EXE_rightkit-secrets"))
+    let status = Command::new(env!("CARGO_BIN_EXE_rightkit-credentials"))
         .args([
             "status",
             "--namespace",
@@ -148,13 +148,13 @@ fn isolated_keychain_migration_locked_presence_and_cli_redaction() {
 #[cfg(all(target_os = "macos", feature = "isolated-test-keychain"))]
 #[test]
 fn concurrent_isolated_processes_create_one_key() {
-    let isolated = rightkit_secrets::macos::IsolatedKeychain::create().unwrap();
+    let isolated = rightkit_credentials::macos::IsolatedKeychain::create().unwrap();
     let mut children = Vec::new();
     for _ in 0..4 {
         let child = Command::new(std::env::current_exe().unwrap())
             .args(["--exact", "child_ensure_key", "--nocapture"])
-            .env("RIGHTKIT_SECRETS_CHILD_KEYCHAIN", isolated.path())
-            .env("RIGHTKIT_SECRETS_CHILD_PASSWORD", isolated.password())
+            .env("RIGHTKIT_CREDENTIALS_CHILD_KEYCHAIN", isolated.path())
+            .env("RIGHTKIT_CREDENTIALS_CHILD_PASSWORD", isolated.password())
             .stdout(Stdio::piped())
             .stderr(Stdio::null())
             .spawn()
@@ -184,15 +184,16 @@ fn concurrent_isolated_processes_create_one_key() {
 #[test]
 fn child_ensure_key() {
     let (Some(path), Some(password)) = (
-        std::env::var_os("RIGHTKIT_SECRETS_CHILD_KEYCHAIN"),
-        std::env::var_os("RIGHTKIT_SECRETS_CHILD_PASSWORD"),
+        std::env::var_os("RIGHTKIT_CREDENTIALS_CHILD_KEYCHAIN"),
+        std::env::var_os("RIGHTKIT_CREDENTIALS_CHILD_PASSWORD"),
     ) else {
         return;
     };
     let path = std::path::PathBuf::from(path);
     let password = password.to_string_lossy().into_owned();
-    let kc = rightkit_secrets::macos::KeychainBackend::open_isolated_file(&path, Some(&password))
-        .unwrap();
+    let kc =
+        rightkit_credentials::macos::KeychainBackend::open_isolated_file(&path, Some(&password))
+            .unwrap();
     let store = Store::open(
         Config::new(Namespace::new("rightkit.test.concurrent").unwrap()).backend(Arc::new(kc)),
     );

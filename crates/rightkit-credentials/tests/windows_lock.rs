@@ -1,6 +1,6 @@
 #![cfg(windows)]
 
-use rightkit_secrets::{
+use rightkit_credentials::{
     system_backend, Config, Interaction, Namespace, Store, UNIVERSAL_GUARD_ENV,
 };
 use std::io::Write;
@@ -12,7 +12,7 @@ mod common;
 /// Every credential this file writes is named under this prefix.
 const SERVICE_PREFIX: &str = "dev.rightkit.secrets.lock.";
 
-const ROLE: &str = "RIGHTKIT_SECRETS_LOCK_CHILD";
+const ROLE: &str = "RIGHTKIT_CREDENTIALS_LOCK_CHILD";
 const ACCOUNT: &str = "db-key";
 
 struct Children(Vec<Child>);
@@ -56,8 +56,8 @@ fn eight_processes_observe_one_key() {
             Command::new(std::env::current_exe().unwrap())
                 .args(["--exact", "child_get_or_create", "--nocapture"])
                 .env(ROLE, index.to_string())
-                .env("RIGHTKIT_SECRETS_LOCK_NAMESPACE", &service)
-                .env("RIGHTKIT_SECRETS_LOCK_DIR", dir.path())
+                .env("RIGHTKIT_CREDENTIALS_LOCK_NAMESPACE", &service)
+                .env("RIGHTKIT_CREDENTIALS_LOCK_DIR", dir.path())
                 .env_remove(UNIVERSAL_GUARD_ENV)
                 .stdin(Stdio::piped())
                 .stdout(Stdio::piped())
@@ -137,11 +137,11 @@ fn child_get_or_create() {
     };
     assert!(index < 8, "unknown child index");
     let service =
-        std::env::var("RIGHTKIT_SECRETS_LOCK_NAMESPACE").expect("missing child namespace");
+        std::env::var("RIGHTKIT_CREDENTIALS_LOCK_NAMESPACE").expect("missing child namespace");
     // The child writes only the credential its parent named, and the parent ran the gate.
     common::assert_test_name(&service, SERVICE_PREFIX);
     let dir = std::path::PathBuf::from(
-        std::env::var_os("RIGHTKIT_SECRETS_LOCK_DIR").expect("missing child directory"),
+        std::env::var_os("RIGHTKIT_CREDENTIALS_LOCK_DIR").expect("missing child directory"),
     );
     let store =
         Store::open(Config::new(Namespace::new(service).unwrap()).timeout(Duration::from_secs(20)));

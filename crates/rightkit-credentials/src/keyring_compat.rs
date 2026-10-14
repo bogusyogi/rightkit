@@ -2,13 +2,13 @@
 //!
 //! The `keyring` crate's windows-native store writes the credential blob as UTF-16LE with no
 //! terminator and reads it back with `String::from_utf16`. These pure functions keep
-//! `rightkit-secrets` byte-compatible with it. They compile on every platform; only the
+//! `rightkit-credentials` byte-compatible with it. They compile on every platform; only the
 //! Windows backend calls them.
 //!
 //! The codec is selected by the namespace, never by looking at the bytes: a blob is UTF-16LE
 //! text or it is an error. Guessing between UTF-16LE and UTF-8 cannot be made reliable, because
 //! some text is the same bytes either way (U+4142 is `42 41`, which is also the UTF-8 text
-//! "BA"). Blobs that rightkit-secrets 0.1.1 and 0.1.2 wrote as raw UTF-8 are read through the
+//! "BA"). Blobs that rightkit-credentials 0.1.1 and 0.1.2 wrote as raw UTF-8 are read through the
 //! separate [`WindowsTarget::KeyringCompatLegacyUtf8`](crate::WindowsTarget::KeyringCompatLegacyUtf8)
 //! namespace, as an explicit migration step.
 

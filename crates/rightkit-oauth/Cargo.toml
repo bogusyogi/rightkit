@@ -14,7 +14,7 @@ include = ["src/**", "tests/**", "examples/**", "README.md", "CHANGELOG.md", "LI
 [features]
 default = ["secrets", "system-sources"]
 # Stored, refreshing credentials in the OS credential store.
-secrets = ["dep:rightkit-secrets"]
+secrets = ["dep:rightkit-credentials"]
 # Fall back to sign-ins the GitHub CLI / Git credential helper already hold.
 system-sources = ["dep:rightkit-process"]
 
@@ -37,7 +37,7 @@ required-features = ["system-sources"]
 
 [dependencies]
 rightkit-http = { path = "../rightkit-http", version = "0.3.0", features = ["gzip"] }
-rightkit-secrets = { path = "../rightkit-secrets", version = "0.2.0", optional = true }
+rightkit-credentials = { path = "../rightkit-credentials", version = "0.2.0", optional = true }
 rightkit-process = { path = "../rightkit-process", version = "0.4.0", optional = true }
 getrandom = "0.3"
 serde_json = "1.0.150"

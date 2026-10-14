@@ -1,4 +1,4 @@
-# rightkit-secrets
+# rightkit-credentials
 
 Per-app OS credential storage for Right Suite applications. It provides macOS Keychain and Windows Credential Manager access behind one `Store`, with a per-app `Namespace`. It also provides passive presence checks (`Store::exists` never requests secret bytes or prompts), non-interactive runtime behavior by default, test and development guards, DB-key provisioning (`Store::get_or_create_key`), and migration of legacy items (`migrate_between`).
 
@@ -11,7 +11,7 @@ Per-app OS credential storage for Right Suite applications. It provides macOS Ke
 | Feature | Default | Pulls in | Effect |
 |---|---|---|---|
 | `settings-probe` | off | `rightkit-app-settings` | Enables the `rightkit-app-settings` presence adapter (`SecretProbe`). |
-| `isolated-test-keychain` | off | none | TEST ONLY. Compiles the throwaway macOS test keychain (`IsolatedKeychain`, `KeychainBackend::open_isolated_file`) and the CLI's `--isolated-keychain`. Without it there is no write path to an explicit keychain. Enable it only as `cargo test --features isolated-test-keychain` for `tests/e2e.rs`; never in a shipped build. The crate has no `default` feature, no other feature enables it, and no dependent in this repository names it; only `ci/gate.config.json` passes it, to `cargo test -p rightkit-secrets`. |
+| `isolated-test-keychain` | off | none | TEST ONLY. Compiles the throwaway macOS test keychain (`IsolatedKeychain`, `KeychainBackend::open_isolated_file`) and the CLI's `--isolated-keychain`. Without it there is no write path to an explicit keychain. Enable it only as `cargo test --features isolated-test-keychain` for `tests/e2e.rs`; never in a shipped build. The crate has no `default` feature, no other feature enables it, and no dependent in this repository names it; only `ci/gate.config.json` passes it, to `cargo test -p rightkit-credentials`. |
 
 ## Platform support
 
@@ -54,4 +54,4 @@ Illustrative; not compiled as a doctest. For compiled usage, see `tests/store.rs
 
 ## Verification
 
-Run through the RightKit wrapper: `rightkit cargo test -p rightkit-secrets`; add `--features isolated-test-keychain` on macOS for `tests/e2e.rs`.
+Run through the RightKit wrapper: `rightkit cargo test -p rightkit-credentials`; add `--features isolated-test-keychain` on macOS for `tests/e2e.rs`.

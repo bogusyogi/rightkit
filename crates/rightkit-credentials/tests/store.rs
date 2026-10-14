@@ -5,7 +5,7 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{mpsc, Arc, Mutex};
 use std::time::Duration;
 
-use rightkit_secrets::{
+use rightkit_credentials::{
     macos_credential_identity, windows_credential_identity, Backend, ConditionalDelete, Config,
     Error, GuardMode, Interaction, MemoryBackend, MigrationReport, Namespace, Secret, Store,
     WindowsTarget, WriteIntent,
@@ -88,7 +88,7 @@ fn windows_credential_manager_real_round_trip() {
     let service = format!("dev.rightkit.secrets.e2e.{}", std::process::id());
     common::assert_test_name(&service, "dev.rightkit.secrets.e2e.");
     let store = Store::open(
-        Config::new(Namespace::new(&service).unwrap()).backend(rightkit_secrets::system_backend()),
+        Config::new(Namespace::new(&service).unwrap()).backend(rightkit_credentials::system_backend()),
     );
     /// Removes the test credential however the test ends.
     struct Cleanup<'a>(&'a Store);
@@ -119,7 +119,7 @@ fn windows_credential_manager_real_round_trip() {
 /// Reads back only the first 32 bytes, as a lossy destination would.
 struct TruncatingBackend(MemoryBackend);
 
-impl rightkit_secrets::Backend for TruncatingBackend {
+impl rightkit_credentials::Backend for TruncatingBackend {
     fn name(&self) -> &'static str {
         "truncating-test"
     }
@@ -131,8 +131,8 @@ impl rightkit_secrets::Backend for TruncatingBackend {
         &self,
         ns: &Namespace,
         account: &str,
-        mode: rightkit_secrets::Interaction,
-    ) -> rightkit_secrets::Result<Option<Secret>> {
+        mode: rightkit_credentials::Interaction,
+    ) -> rightkit_credentials::Result<Option<Secret>> {
         Ok(self
             .0
             .get(ns, account, mode)?
@@ -142,8 +142,8 @@ impl rightkit_secrets::Backend for TruncatingBackend {
         &self,
         ns: &Namespace,
         account: &str,
-        mode: rightkit_secrets::Interaction,
-    ) -> rightkit_secrets::Result<bool> {
+        mode: rightkit_credentials::Interaction,
+    ) -> rightkit_credentials::Result<bool> {
         self.0.exists(ns, account, mode)
     }
     fn set(
@@ -151,8 +151,8 @@ impl rightkit_secrets::Backend for TruncatingBackend {
         ns: &Namespace,
         account: &str,
         secret: &Secret,
-        mode: rightkit_secrets::Interaction,
-    ) -> rightkit_secrets::Result<()> {
+        mode: rightkit_credentials::Interaction,
+    ) -> rightkit_credentials::Result<()> {
         self.0.set(ns, account, secret, mode)
     }
     fn add_if_absent(
@@ -160,16 +160,16 @@ impl rightkit_secrets::Backend for TruncatingBackend {
         ns: &Namespace,
         account: &str,
         secret: &Secret,
-        mode: rightkit_secrets::Interaction,
-    ) -> rightkit_secrets::Result<bool> {
+        mode: rightkit_credentials::Interaction,
+    ) -> rightkit_credentials::Result<bool> {
         self.0.add_if_absent(ns, account, secret, mode)
     }
     fn delete(
         &self,
         ns: &Namespace,
         account: &str,
-        mode: rightkit_secrets::Interaction,
-    ) -> rightkit_secrets::Result<bool> {
+        mode: rightkit_credentials::Interaction,
+    ) -> rightkit_credentials::Result<bool> {
         self.0.delete(ns, account, mode)
     }
 }
@@ -183,7 +183,7 @@ fn migration_does_not_accept_a_destination_that_returns_a_32_byte_prefix_of_a_28
     );
     from.set("acct", &Secret::from_bytes(vec![7u8; 288]))
         .unwrap();
-    let report = rightkit_secrets::migrate_between(&from, &to, &["acct"]);
+    let report = rightkit_credentials::migrate_between(&from, &to, &["acct"]);
     assert!(report.moved.is_empty(), "{report:?}");
     assert_eq!(report.failed, vec!["acct"]);
     assert_eq!(
@@ -195,7 +195,7 @@ fn migration_does_not_accept_a_destination_that_returns_a_32_byte_prefix_of_a_28
 
 #[test]
 fn memory_and_unavailable_backends_reject_invalid_accounts_at_the_boundary() {
-    use rightkit_secrets::UnavailableBackend;
+    use rightkit_credentials::UnavailableBackend;
     let ns = Namespace::new("dev.rightkit.secrets.test.boundary").unwrap();
     let ni = Interaction::NonInteractive;
     let mem = MemoryBackend::new();
@@ -339,7 +339,7 @@ impl Backend for GatedBackend {
         ns: &Namespace,
         account: &str,
         mode: Interaction,
-    ) -> rightkit_secrets::Result<Option<Secret>> {
+    ) -> rightkit_credentials::Result<Option<Secret>> {
         self.inner.get(ns, account, mode)
     }
     fn exists(
@@ -347,7 +347,7 @@ impl Backend for GatedBackend {
         ns: &Namespace,
         account: &str,
         mode: Interaction,
-    ) -> rightkit_secrets::Result<bool> {
+    ) -> rightkit_credentials::Result<bool> {
         self.inner.exists(ns, account, mode)
     }
     fn set(
@@ -356,7 +356,7 @@ impl Backend for GatedBackend {
         account: &str,
         secret: &Secret,
         mode: Interaction,
-    ) -> rightkit_secrets::Result<()> {
+    ) -> rightkit_credentials::Result<()> {
         let gate = self.gate.lock().unwrap().take();
         let held = gate.is_some();
         if let Some(release) = gate {
@@ -379,7 +379,7 @@ impl Backend for GatedBackend {
         account: &str,
         secret: &Secret,
         mode: Interaction,
-    ) -> rightkit_secrets::Result<bool> {
+    ) -> rightkit_credentials::Result<bool> {
         self.inner.add_if_absent(ns, account, secret, mode)
     }
     fn delete(
@@ -387,7 +387,7 @@ impl Backend for GatedBackend {
         ns: &Namespace,
         account: &str,
         mode: Interaction,
-    ) -> rightkit_secrets::Result<bool> {
+    ) -> rightkit_credentials::Result<bool> {
         self.inner.delete(ns, account, mode)
     }
 }
@@ -527,7 +527,7 @@ impl Backend for SameStore {
         ns: &Namespace,
         account: &str,
         mode: Interaction,
-    ) -> rightkit_secrets::Result<Option<Secret>> {
+    ) -> rightkit_credentials::Result<Option<Secret>> {
         self.0.get(ns, account, mode)
     }
     fn exists(
@@ -535,7 +535,7 @@ impl Backend for SameStore {
         ns: &Namespace,
         account: &str,
         mode: Interaction,
-    ) -> rightkit_secrets::Result<bool> {
+    ) -> rightkit_credentials::Result<bool> {
         self.0.exists(ns, account, mode)
     }
     fn set(
@@ -544,7 +544,7 @@ impl Backend for SameStore {
         account: &str,
         secret: &Secret,
         mode: Interaction,
-    ) -> rightkit_secrets::Result<()> {
+    ) -> rightkit_credentials::Result<()> {
         self.0.set(ns, account, secret, mode)
     }
     fn add_if_absent(
@@ -553,7 +553,7 @@ impl Backend for SameStore {
         account: &str,
         secret: &Secret,
         mode: Interaction,
-    ) -> rightkit_secrets::Result<bool> {
+    ) -> rightkit_credentials::Result<bool> {
         self.0.add_if_absent(ns, account, secret, mode)
     }
     fn delete(
@@ -561,7 +561,7 @@ impl Backend for SameStore {
         ns: &Namespace,
         account: &str,
         mode: Interaction,
-    ) -> rightkit_secrets::Result<bool> {
+    ) -> rightkit_credentials::Result<bool> {
         self.0.delete(ns, account, mode)
     }
 }
@@ -627,7 +627,7 @@ impl Backend for OverlapBackend {
         ns: &Namespace,
         account: &str,
         mode: Interaction,
-    ) -> rightkit_secrets::Result<Option<Secret>> {
+    ) -> rightkit_credentials::Result<Option<Secret>> {
         self.inner.get(ns, account, mode)
     }
     fn exists(
@@ -635,7 +635,7 @@ impl Backend for OverlapBackend {
         ns: &Namespace,
         account: &str,
         mode: Interaction,
-    ) -> rightkit_secrets::Result<bool> {
+    ) -> rightkit_credentials::Result<bool> {
         self.inner.exists(ns, account, mode)
     }
     fn set(
@@ -644,7 +644,7 @@ impl Backend for OverlapBackend {
         account: &str,
         secret: &Secret,
         mode: Interaction,
-    ) -> rightkit_secrets::Result<()> {
+    ) -> rightkit_credentials::Result<()> {
         self.mutate(|| self.inner.set(ns, account, secret, mode))
     }
     fn add_if_absent(
@@ -653,7 +653,7 @@ impl Backend for OverlapBackend {
         account: &str,
         secret: &Secret,
         mode: Interaction,
-    ) -> rightkit_secrets::Result<bool> {
+    ) -> rightkit_credentials::Result<bool> {
         self.mutate(|| self.inner.add_if_absent(ns, account, secret, mode))
     }
     fn delete(
@@ -661,7 +661,7 @@ impl Backend for OverlapBackend {
         ns: &Namespace,
         account: &str,
         mode: Interaction,
-    ) -> rightkit_secrets::Result<bool> {
+    ) -> rightkit_credentials::Result<bool> {
         self.mutate(|| self.inner.delete(ns, account, mode))
     }
 }
@@ -719,7 +719,7 @@ impl Backend for ReplacedAfterRead {
         ns: &Namespace,
         account: &str,
         mode: Interaction,
-    ) -> rightkit_secrets::Result<Option<Secret>> {
+    ) -> rightkit_credentials::Result<Option<Secret>> {
         let read = self.inner.get(ns, account, mode)?;
         if self.armed.swap(false, Ordering::SeqCst) {
             self.inner.set(ns, account, &self.replacement, mode)?;
@@ -731,7 +731,7 @@ impl Backend for ReplacedAfterRead {
         ns: &Namespace,
         account: &str,
         mode: Interaction,
-    ) -> rightkit_secrets::Result<bool> {
+    ) -> rightkit_credentials::Result<bool> {
         self.inner.exists(ns, account, mode)
     }
     fn set(
@@ -740,7 +740,7 @@ impl Backend for ReplacedAfterRead {
         account: &str,
         secret: &Secret,
         mode: Interaction,
-    ) -> rightkit_secrets::Result<()> {
+    ) -> rightkit_credentials::Result<()> {
         self.inner.set(ns, account, secret, mode)
     }
     fn add_if_absent(
@@ -749,7 +749,7 @@ impl Backend for ReplacedAfterRead {
         account: &str,
         secret: &Secret,
         mode: Interaction,
-    ) -> rightkit_secrets::Result<bool> {
+    ) -> rightkit_credentials::Result<bool> {
         self.inner.add_if_absent(ns, account, secret, mode)
     }
     fn delete(
@@ -757,7 +757,7 @@ impl Backend for ReplacedAfterRead {
         ns: &Namespace,
         account: &str,
         mode: Interaction,
-    ) -> rightkit_secrets::Result<bool> {
+    ) -> rightkit_credentials::Result<bool> {
         self.inner.delete(ns, account, mode)
     }
     fn delete_if_equals(
@@ -766,7 +766,7 @@ impl Backend for ReplacedAfterRead {
         account: &str,
         expected: &Secret,
         mode: Interaction,
-    ) -> rightkit_secrets::Result<ConditionalDelete> {
+    ) -> rightkit_credentials::Result<ConditionalDelete> {
         if self.conditional_delete {
             self.inner.delete_if_equals(ns, account, expected, mode)
         } else {
@@ -802,7 +802,7 @@ fn migrate_one(conditional_delete: bool, replace_after_read: bool) -> Migrated {
         Namespace::new("dev.rightkit.secrets.test.mig-race-to").unwrap(),
         Arc::new(MemoryBackend::simulating_durable()),
     );
-    let report = rightkit_secrets::migrate_between(&from, &to, &["acct"]);
+    let report = rightkit_credentials::migrate_between(&from, &to, &["acct"]);
     let text = |s: Option<Secret>| s.map(|s| s.expose_str().unwrap().to_string());
     Migrated {
         report,
@@ -859,7 +859,7 @@ fn the_default_conditional_delete_removes_nothing() {
             ns: &Namespace,
             a: &str,
             m: Interaction,
-        ) -> rightkit_secrets::Result<Option<Secret>> {
+        ) -> rightkit_credentials::Result<Option<Secret>> {
             self.0.get(ns, a, m)
         }
         fn exists(
@@ -867,7 +867,7 @@ fn the_default_conditional_delete_removes_nothing() {
             ns: &Namespace,
             a: &str,
             m: Interaction,
-        ) -> rightkit_secrets::Result<bool> {
+        ) -> rightkit_credentials::Result<bool> {
             self.0.exists(ns, a, m)
         }
         fn set(
@@ -876,7 +876,7 @@ fn the_default_conditional_delete_removes_nothing() {
             a: &str,
             s: &Secret,
             m: Interaction,
-        ) -> rightkit_secrets::Result<()> {
+        ) -> rightkit_credentials::Result<()> {
             self.0.set(ns, a, s, m)
         }
         fn add_if_absent(
@@ -885,7 +885,7 @@ fn the_default_conditional_delete_removes_nothing() {
             a: &str,
             s: &Secret,
             m: Interaction,
-        ) -> rightkit_secrets::Result<bool> {
+        ) -> rightkit_credentials::Result<bool> {
             self.0.add_if_absent(ns, a, s, m)
         }
         fn delete(
@@ -893,7 +893,7 @@ fn the_default_conditional_delete_removes_nothing() {
             ns: &Namespace,
             a: &str,
             m: Interaction,
-        ) -> rightkit_secrets::Result<bool> {
+        ) -> rightkit_credentials::Result<bool> {
             self.0.delete(ns, a, m)
         }
     }
@@ -954,7 +954,7 @@ impl Backend for MacNamed {
         &self,
         ns: &Namespace,
         account: &str,
-    ) -> rightkit_secrets::Result<String> {
+    ) -> rightkit_credentials::Result<String> {
         macos_credential_identity(ns, account)
     }
     fn get(
@@ -962,7 +962,7 @@ impl Backend for MacNamed {
         ns: &Namespace,
         account: &str,
         mode: Interaction,
-    ) -> rightkit_secrets::Result<Option<Secret>> {
+    ) -> rightkit_credentials::Result<Option<Secret>> {
         self.0.get(ns, account, mode)
     }
     fn exists(
@@ -970,7 +970,7 @@ impl Backend for MacNamed {
         ns: &Namespace,
         account: &str,
         mode: Interaction,
-    ) -> rightkit_secrets::Result<bool> {
+    ) -> rightkit_credentials::Result<bool> {
         self.0.exists(ns, account, mode)
     }
     fn set(
@@ -979,7 +979,7 @@ impl Backend for MacNamed {
         account: &str,
         secret: &Secret,
         mode: Interaction,
-    ) -> rightkit_secrets::Result<()> {
+    ) -> rightkit_credentials::Result<()> {
         self.0.set(ns, account, secret, mode)
     }
     fn add_if_absent(
@@ -988,7 +988,7 @@ impl Backend for MacNamed {
         account: &str,
         secret: &Secret,
         mode: Interaction,
-    ) -> rightkit_secrets::Result<bool> {
+    ) -> rightkit_credentials::Result<bool> {
         self.0.add_if_absent(ns, account, secret, mode)
     }
     fn delete(
@@ -996,7 +996,7 @@ impl Backend for MacNamed {
         ns: &Namespace,
         account: &str,
         mode: Interaction,
-    ) -> rightkit_secrets::Result<bool> {
+    ) -> rightkit_credentials::Result<bool> {
         self.0.delete(ns, account, mode)
     }
 }
@@ -1150,7 +1150,7 @@ impl Backend for View {
         }
         self.fixed.map(|i| format!("two-stores-test:{i}"))
     }
-    fn pinned(&self) -> rightkit_secrets::Result<Option<Arc<dyn Backend>>> {
+    fn pinned(&self) -> rightkit_credentials::Result<Option<Arc<dyn Backend>>> {
         if self.fixed.is_some() {
             return Ok(None);
         }
@@ -1169,7 +1169,7 @@ impl Backend for View {
         ns: &Namespace,
         account: &str,
         mode: Interaction,
-    ) -> rightkit_secrets::Result<Option<Secret>> {
+    ) -> rightkit_credentials::Result<Option<Secret>> {
         self.shared.stores[self.index()].get(ns, account, mode)
     }
     fn exists(
@@ -1177,7 +1177,7 @@ impl Backend for View {
         ns: &Namespace,
         account: &str,
         mode: Interaction,
-    ) -> rightkit_secrets::Result<bool> {
+    ) -> rightkit_credentials::Result<bool> {
         self.shared.stores[self.index()].exists(ns, account, mode)
     }
     fn set(
@@ -1186,7 +1186,7 @@ impl Backend for View {
         account: &str,
         secret: &Secret,
         mode: Interaction,
-    ) -> rightkit_secrets::Result<()> {
+    ) -> rightkit_credentials::Result<()> {
         let stalled = self.shared.stall();
         // An unbound view resolves the default only now, after the stall.
         let result = self.shared.stores[self.index()].set(ns, account, secret, mode);
@@ -1201,7 +1201,7 @@ impl Backend for View {
         account: &str,
         secret: &Secret,
         mode: Interaction,
-    ) -> rightkit_secrets::Result<bool> {
+    ) -> rightkit_credentials::Result<bool> {
         self.shared.stores[self.index()].add_if_absent(ns, account, secret, mode)
     }
     fn delete(
@@ -1209,7 +1209,7 @@ impl Backend for View {
         ns: &Namespace,
         account: &str,
         mode: Interaction,
-    ) -> rightkit_secrets::Result<bool> {
+    ) -> rightkit_credentials::Result<bool> {
         self.shared.stores[self.index()].delete(ns, account, mode)
     }
 }
@@ -1351,7 +1351,7 @@ fn migrating_into_a_guarded_destination_never_removes_the_persistent_source() {
                 .guard_when(true, mode),
         );
         assert!(!to.is_durable());
-        let report = rightkit_secrets::migrate_between(&from, &to, &["acct"]);
+        let report = rightkit_credentials::migrate_between(&from, &to, &["acct"]);
         assert_eq!(report.refused, vec!["acct"], "{mode:?}: {report:?}");
         assert!(
             report.moved.is_empty() && report.retained.is_empty() && report.failed.is_empty(),
@@ -1373,7 +1373,7 @@ fn migrating_into_a_backend_that_does_not_report_durability_removes_nothing() {
     let from = durable_source("dev.rightkit.secrets.test.nondurable-dest-from");
     let to = memory_store("dev.rightkit.secrets.test.nondurable-dest-to");
     assert!(!to.is_durable());
-    let report = rightkit_secrets::migrate_between(&from, &to, &["acct", "other"]);
+    let report = rightkit_credentials::migrate_between(&from, &to, &["acct", "other"]);
     assert_eq!(report.refused, vec!["acct", "other"]);
     assert!(from.exists("acct").unwrap() && !to.exists("acct").unwrap());
 }
@@ -1402,7 +1402,7 @@ fn a_durable_destination_still_moves_the_source() {
         Arc::new(MemoryBackend::simulating_durable()),
     );
     assert!(to.is_durable());
-    let report = rightkit_secrets::migrate_between(&from, &to, &["acct"]);
+    let report = rightkit_credentials::migrate_between(&from, &to, &["acct"]);
     assert_eq!(report.moved, vec!["acct"], "{report:?}");
     assert!(report.refused.is_empty());
     assert!(from.get("acct").unwrap().is_none());
@@ -1511,10 +1511,10 @@ impl Backend for SavedBetweenCheckAndWrite {
         ns: &Namespace,
         account: &str,
         mode: Interaction,
-    ) -> rightkit_secrets::Result<Option<Secret>> {
+    ) -> rightkit_credentials::Result<Option<Secret>> {
         self.inner.get(ns, account, mode)
     }
-    fn exists(&self, _: &Namespace, _: &str, _: Interaction) -> rightkit_secrets::Result<bool> {
+    fn exists(&self, _: &Namespace, _: &str, _: Interaction) -> rightkit_credentials::Result<bool> {
         Ok(false)
     }
     fn set(
@@ -1523,7 +1523,7 @@ impl Backend for SavedBetweenCheckAndWrite {
         account: &str,
         secret: &Secret,
         mode: Interaction,
-    ) -> rightkit_secrets::Result<()> {
+    ) -> rightkit_credentials::Result<()> {
         // An unconditional write lands on top of the user's value.
         self.inner.set(ns, account, &self.concurrent, mode)?;
         self.inner.set(ns, account, secret, mode)
@@ -1534,7 +1534,7 @@ impl Backend for SavedBetweenCheckAndWrite {
         account: &str,
         secret: &Secret,
         mode: Interaction,
-    ) -> rightkit_secrets::Result<bool> {
+    ) -> rightkit_credentials::Result<bool> {
         self.inner.set(ns, account, &self.concurrent, mode)?;
         self.inner.add_if_absent(ns, account, secret, mode)
     }
@@ -1543,7 +1543,7 @@ impl Backend for SavedBetweenCheckAndWrite {
         ns: &Namespace,
         account: &str,
         mode: Interaction,
-    ) -> rightkit_secrets::Result<bool> {
+    ) -> rightkit_credentials::Result<bool> {
         self.inner.delete(ns, account, mode)
     }
 }
@@ -1558,7 +1558,7 @@ fn import_env_without_overwrite_keeps_a_credential_saved_just_before_its_write()
         }),
     );
     let env = |name: &str| (name == "KEY").then(|| "A-stale-from-env".to_string());
-    let map: rightkit_secrets::EnvMap = &[("acct", &["KEY"])];
+    let map: rightkit_credentials::EnvMap = &[("acct", &["KEY"])];
     let report = store
         .import_env(map, WriteIntent::CreateOnly, &env)
         .unwrap();

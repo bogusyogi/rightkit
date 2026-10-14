@@ -7,7 +7,7 @@ use rightkit_http::{Secret, SecretStore};
 use crate::error::LlmError;
 
 /// Source of provider credentials, queried on every call so rotation takes effect
-/// immediately. Production binding: [`SecretStoreCredentials`] over `rightkit-secrets`.
+/// immediately. Production binding: [`SecretStoreCredentials`] over `rightkit-credentials`.
 pub trait CredentialSource: Send + Sync {
     fn credential(&self, provider: &str) -> Result<Option<Secret>, LlmError>;
 }

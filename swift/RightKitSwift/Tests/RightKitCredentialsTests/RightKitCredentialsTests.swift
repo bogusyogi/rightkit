@@ -1,7 +1,7 @@
 import Foundation
 import Security
 import Testing
-@testable import RightKitSecrets
+@testable import RightKitCredentials
 
 private func memoryStore(_ env: [String: String] = [:], guardEnv: [String] = [], mode: SecretsGuardMode = .memory) throws -> SecretsStore {
     try SecretsStore(namespace: "test.\(UUID().uuidString)", guardEnv: guardEnv, guardMode: mode, environment: env, backend: MemorySecretsBackend())

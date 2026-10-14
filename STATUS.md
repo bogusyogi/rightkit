@@ -94,7 +94,7 @@ Already approved, no action needed: the Windows class-1 copy cost bound of 2 GiB
 | Owner | Scope |
 |---|---|
 | RightKit Mac lead (this host) | Crate and npm publishing, ownership and enforcement system, inventory, content pipeline RK0, RK4, RK5, RK6, RK7, RK9, RK1, RK3, RK8, RK10 (the Mac parts), P0 Mac items, P1 publication binding, P2 Mac gate, P4 cleanup. |
-| RightKit Windows lead (XPS, "Rightkit" session) | Windows class-1 pieces, P1 broker admission and approval contracts, `rightkit-secrets` `windows.rs`, Windows hooks, RK2 B (done), RK3 Windows helper. |
+| RightKit Windows lead (XPS, "Rightkit" session) | Windows class-1 pieces, P1 broker admission and approval contracts, `rightkit-credentials` `windows.rs`, Windows hooks, RK2 B (done), RK3 Windows helper. |
 | RustRight (broker) | Owns the RustRight broker, `rustright` CLI (alias `rightkit`) and shims, installer `rustright-install` (the Node `build-control-{core,broker,clients,staging}` packages were deleted; `packages/build-control-policy` remains Node), `packages/release/managed-cargo.mjs`, `packages/release/managed-roots.mjs`. Only the RustRight chat edits these. Open broker list: `tasks/handoffs/2026-10-08-rustright-handoff.md` items 1 to 12. |
 
 Rules for all three: one integration owner per repository. Only the owner changes HEAD, index, receipts or remote. Rust commands go through `rightkit cargo` (and `rustright cargo` once renamed). Change the live broker only through `rustright-install stage`, `approve`, `cutover --apply`; never hand-edit live config.

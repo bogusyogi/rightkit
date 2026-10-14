@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+Renamed from rightkit-secrets; 0.1.3 remains published under the old name.
+
 - Added (M11-O3): pending-rotation recovery on `Store`: `begin_rotation`, `pending_rotation`, `commit_rotation`, `abort_rotation` (marker item `<account>.rotation-pending` holds the new value; commit is idempotent). Additive; replaces an app-owned pending-key item.
 - Tests only (M11-O1): `scope_changing_calls_send_the_documented_command_and_read_copied` pins the wire request and `copied` reply of `AppleHelper::delete_everywhere` and `copy_synced_to_device_only`; the matching semantics are tested in RightKitSwift `AppleCredentialTests`. No product change.
 

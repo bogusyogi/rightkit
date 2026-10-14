@@ -55,7 +55,7 @@ right-update schedule install|remove|status [--repo <path>] [--interval <minutes
   "policy": {
     "default": "auto-land",
     "land": "commit",
-    "held": ["rightkit-license", "rightkit-secrets"],
+    "held": ["rightkit-license", "rightkit-credentials"],
     "tier": { "held": ["/^ffmpeg/"] }
   },
   "gates": [

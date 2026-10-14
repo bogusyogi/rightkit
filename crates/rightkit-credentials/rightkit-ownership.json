@@ -1,5 +1,5 @@
 {
-  "package": "rightkit-secrets",
+  "package": "rightkit-credentials",
   "capabilities": [
     {
       "capability": "os-credential-store",

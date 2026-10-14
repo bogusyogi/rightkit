@@ -5,7 +5,7 @@
     "land": "commit",
     "held": [
       "rightkit-license",
-      "rightkit-secrets",
+      "rightkit-credentials",
       "rightkit-sandbox",
       "@rightkit/build-control-policy",
       "@rightkit/legal"

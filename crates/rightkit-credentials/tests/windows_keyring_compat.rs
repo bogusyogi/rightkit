@@ -3,7 +3,7 @@
 
 use keyring_core::api::CredentialStoreApi;
 use keyring_core::Entry;
-use rightkit_secrets::{system_backend, Error, Interaction, Namespace, Secret, WindowsTarget};
+use rightkit_credentials::{system_backend, Error, Interaction, Namespace, Secret, WindowsTarget};
 
 mod common;
 
@@ -123,7 +123,7 @@ fn legacy_utf8_blobs_are_read_through_the_explicit_migration_namespace_only() {
         .unwrap()
         .windows_target(WindowsTarget::KeyringCompatLegacyUtf8);
     let ni = Interaction::NonInteractive;
-    // A raw UTF-8 blob of odd length, as rightkit-secrets 0.1.1 and 0.1.2 stored text.
+    // A raw UTF-8 blob of odd length, as rightkit-credentials 0.1.1 and 0.1.2 stored text.
     keyring_entry(&compat)
         .set_secret(b"legacy-utf8-key")
         .unwrap();

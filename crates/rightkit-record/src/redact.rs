@@ -4,7 +4,7 @@
 //! default fails closed.
 //!
 //! A `hash` field stores HMAC-SHA256 under a per-installation key that lives
-//! outside the bundle (`rightkit-secrets`: OS credential store). The bundle
+//! outside the bundle (`rightkit-credentials`: OS credential store). The bundle
 //! records only the key id. Equal values hash equal within one installation, and
 //! a reader without the key cannot confirm a guess. Bundles written before keyed
 //! hashing carry label-salted digests (`saltId` `label:<field>`); they are still
@@ -114,7 +114,7 @@ impl KeySource for FixedKeySource {
     }
 }
 
-/// The installation's key in the OS credential store (`rightkit-secrets`), minted
+/// The installation's key in the OS credential store (`rightkit-credentials`), minted
 /// on first use. Fails closed: if the store is unavailable the take is refused
 /// rather than hashed under a weaker key.
 #[derive(Debug, Clone, Default)]
@@ -130,9 +130,9 @@ impl KeySource for SecretsKeySource {
                 ),
             )
         };
-        let namespace = rightkit_secrets::Namespace::new(KEY_SERVICE)
+        let namespace = rightkit_credentials::Namespace::new(KEY_SERVICE)
             .map_err(|e| unavailable("namespace", &e))?;
-        let store = rightkit_secrets::Store::open(rightkit_secrets::Config::new(namespace));
+        let store = rightkit_credentials::Store::open(rightkit_credentials::Config::new(namespace));
         let (secret, _) = store
             .get_or_create_key(KEY_ACCOUNT, 32)
             .map_err(|e| unavailable("credential store", &e))?;

@@ -9,7 +9,7 @@
 //! - [`sse`]: WHATWG-compliant Server-Sent Events decoding.
 //! - `untrusted` (feature, off by default): tamper-evident wrapping of external text for model input.
 //! - [`secret`]: redacted [`Secret`] and the [`SecretStore`] interface that
-//!   `rightkit-secrets` implements.
+//!   `rightkit-credentials` implements.
 //! - `async_client` (feature `async`): [`AsyncClient`], the same policy layer on
 //!   reqwest/tokio, with a body [`BodyStream`] and an async [`SseStream`].
 //! - `testing` (feature): in-process mock server that records exact requests.
