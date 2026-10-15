@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- QA adoption is now a release gate (`assertQaAdoption` in `qa-contract.mjs`, called from `release.mjs`): an app with no QA lane (`right-qa.config.mjs`, `@rightkit/qa`, or `rightkit-qa`) is refused; a lagging `@rightkit/qa`, `@rightkit/qa-chrome` or `rightkit-qa` pin warns and a breaking-bump lag refuses. Only non-app repositories are exempt, via `qa-adoption-exemptions.json`. See the README section "QA adoption (mandatory)".
+
 ## 0.2.162
 
 - `ownership trust-sync` is retired (Adrian's decision, recorded in `decisions.md`): no release, ownership, admission, sealed-evidence or QA check refuses on a missing or stale pinned policy bundle. `validateOwnershipFloor` now returns `warnings`; a pinned `policyBundle` that differs from the running bundle (or a bundle that cannot be computed) is a warning (`ownership policy bundle ... differs from the bundle pinned in protected trust`), printed as `WARNING` and in the JSON `warnings` field, and never changes `ok`, `floorOk` or the exit code. Scanner and catalog minimum floors, key-log, registration and coverage checks are unchanged. The bundle is still computed and pinned-compared; `ownership trust-compare` adds the drift warning with a semantic diff (scanner version, scanner files added/removed/changed, catalog, registry, allowlist and QA floor digests) and still exits 0. `right-release ownership trust-sync [--check]` is a no-op that prints why and exits 0, before taking any lock or running anything; the desktop delegation, approval dialog and `trustSync`/`trustSyncGate` code are gone from `ownership-key-command.mjs` (the confirm/summary/presence helper modules remain, now unused). QA receipts still bind to the running bundle digest at write time, which does not involve trust. Consequence: nothing now copies a proposed dependency allowlist into protected trust, so proposals stay advisory; the write-hook and scan messages say so.
