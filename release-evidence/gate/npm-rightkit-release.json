@@ -2,9 +2,9 @@
   "schema": 1,
   "kind": "npm",
   "name": "@rightkit/release",
-  "version": "0.2.156",
-  "commit": "c9169badfcbff981fede63dae0556a6e70f194f5",
-  "artifactSha256": "5595b22fc73eca4b5e2d6e6c54bc2989e54c90c6ae486d2fa8d248035f23c609",
+  "version": "0.2.158",
+  "commit": "ca9132ca572193ce93e9aa4d687366f68d9f1e02",
+  "artifactSha256": "c4d71296bf4877e4f4f3fa1f95d19d089133f2332f036194d94b9cd24d2bae3b",
   "hostPolicy": "darwin-only",
   "hostPolicyReason": "Adrian 2026-10-14 local-build grant (.rightkit-local-build.json); Windows covered by the next CI run",
   "runs": [
@@ -13,18 +13,19 @@
         "os": "darwin",
         "arch": "arm64"
       },
-      "commit": "c9169badfcbff981fede63dae0556a6e70f194f5",
+      "commit": "ca9132ca572193ce93e9aa4d687366f68d9f1e02",
       "features": [
         "default"
       ],
-      "artifactSha256": "5595b22fc73eca4b5e2d6e6c54bc2989e54c90c6ae486d2fa8d248035f23c609",
-      "command": "pnpm -r --workspace-concurrency=1 run build && pnpm --dir packages/release run test && pnpm --dir packages/release pack --pack-destination /var/folders/xp/8dtgvyms3bb1yndrvmxhdg0h0000gn/T/rk-local-publish-FFk3c3",
+      "artifactSha256": "c4d71296bf4877e4f4f3fa1f95d19d089133f2332f036194d94b9cd24d2bae3b",
+      "command": "pnpm -r --workspace-concurrency=1 run build && pnpm --dir packages/release run test && pnpm --dir packages/release pack --pack-destination /var/folders/xp/8dtgvyms3bb1yndrvmxhdg0h0000gn/T/rk-local-publish-ARuwtp",
       "operator": "agent (local-build grant)",
-      "timestamp": "2026-10-14T10:38:13.394Z",
-      "passed": 1592,
+      "timestamp": "2026-10-15T10:15:22.970Z",
+      "passed": 1608,
       "failed": 0,
       "skipped": 57,
       "ignored": 0,
+      "allowIgnored": false,
       "requireAssets": "0",
       "assetGated": true,
       "steps": [
@@ -35,7 +36,7 @@
         {
           "command": "pnpm --dir packages/release run test",
           "ok": true,
-          "executed": 1592,
+          "executed": 1608,
           "failed": 0,
           "ignored": 0,
           "skipped": 57,
