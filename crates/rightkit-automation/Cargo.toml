@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-automation"
-version = "0.3.0"
+version = "0.4.0"
 edition = "2021"
 rust-version = "1.98.0"
 description = "Brand-neutral desktop automation: observe and act on any app (macOS AX, Windows UIA) through a four-tier input ladder with safety, focus guard, and evidence receipts."
@@ -15,16 +15,20 @@ include = ["src/**", "tests/**", "examples/**", "docs/**", "README.md", "CHANGEL
 # `windows` crate already pinned in the workspace lock (UI Automation, GDI,
 # clipboard, SendInput). No Python or Node at runtime. The `windows` crate is
 # cfg(windows) only, so the Windows backend compiles on the Windows host.
-# The optional `in-app` feature adds `rightkit-daemon` and `serde_json`.
+# The optional `paths` feature adds `rightkit-daemon`. There is no dependency on any QA
+# crate: tier 2 is the `in_app::InApp` trait, implemented by the caller.
 [features]
 default = []
-# Tier 2 client (`in_app::ServiceBridge`) over `rightkit-daemon`, and the fail-closed app-data
-# root helpers in `paths`. The `in_app::InApp` trait itself is always available.
-in-app = ["dep:rightkit-daemon", "dep:serde_json"]
+# The fail-closed app-data root helpers in `paths` (resolved through `rightkit-daemon::Suite`).
+paths = ["dep:rightkit-daemon"]
+# macOS only: lets `offscreen` call the WKWebView private SPI
+# `_setWindowOcclusionDetectionEnabled:` so an off-screen window keeps animating. Default off, so
+# shipping apps opt in explicitly; without it `offscreen` fails with a typed
+# `OcclusionSpiNotCompiled` error on macOS.
+offscreen-private-spi = []
 
 [dependencies]
 rightkit-daemon = { version = "0.2.0", path = "../rightkit-daemon", optional = true }
-serde_json = { version = "1.0.150", optional = true }
 
 [dev-dependencies]
 tempfile = "3"
@@ -57,4 +61,4 @@ harness = false
 
 [package.metadata.rightkit]
 continuous = false
-continuous_reason = "sleep: fixed settle and key-delay pauses inside one automation action (engine.rs, delivery.rs, macos/events.rs, macos/appkit.rs, win/sys.rs); thread-spawn: FocusWatch sampler (focus.rs) started and joined by finish() around one action, caller-bounded but it has no Drop stop so a forgotten finish() would leak a sampler; element store is capped at STORE_CAP 8; no listener, timer or watcher (reviewed 2026-10-11)"
+continuous_reason = "sleep: fixed settle and key-delay pauses inside one automation action (engine.rs, delivery.rs, macos/events.rs, macos/appkit.rs, win/sys.rs); thread-spawn: FocusWatch sampler (focus.rs) started and joined by finish() around one action, caller-bounded but it has no Drop stop so a forgotten finish() would leak a sampler; element store is capped at STORE_CAP 8; offscreen.rs: launch_offscreen spawns the driven app as a child owned by OffscreenLaunch (killed by end() and on Drop, and on a failed launch) and polls its report file with 50 ms sleeps until the caller timeout; macos/background.rs: waited short-lived lsappinfo, open, pgrep and screencapture children plus fixed event pauses; control/lease_store.rs: one small atomic file write per lease state change; no listener, timer or watcher (reviewed 2026-10-11, moved-in code reviewed 2026-10-15)"

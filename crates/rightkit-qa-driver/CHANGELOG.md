@@ -1,5 +1,18 @@
 # Changelog
 
+## Unreleased
+
+Not yet versioned; publish as 0.4.1 (the paths below are unchanged, so `rightkit-qa`'s `0.4.0` requirement still resolves). Needs `rightkit-automation` 0.4.0 published first.
+
+The generic input code moved to `rightkit-automation` 0.4.0 and this crate re-exports it under the old paths. No duplicate implementation remains here.
+
+- `admission`, `events`, `lease`, `lease_store` are `rightkit_automation::control::*`. `mac` is `rightkit_automation::macos::background`. `offscreen` is `rightkit_automation::offscreen`, with `start_for_window` and `start_from_env` (the Tauri helpers) still defined in this crate. `json` is `rightkit_automation::json`. `keys` is `rightkit_automation::keys::appkit`. Every path a caller used keeps resolving.
+- The WebDriver bridge, the CLI and the `qa-control` embedded server stay here. Their calls to the raw macOS primitives now go through `mac::unsafe_ungated` (inside executors the gate already admitted).
+- New dependency: `rightkit-automation` 0.4.0. `offscreen-private-spi` now forwards to `rightkit-automation/offscreen-private-spi`. On Windows the crate now pulls the `windows` 0.62 crate through automation; macOS stays free of third-party crates.
+- Behaviour that changed with the move (all stricter): the process-wide kill switch (`rightkit_automation::policy::kill`) now denies every effect admitted through an `EffectGate` (stage `Policy`, reason `kill switch engaged`) and `launch_offscreen` returns `OffscreenError::KillSwitch`; `mac::unsafe_ungated` does nothing while it is engaged. No caller in this repository engages the switch, so nothing changes until a host does.
+- Removed: `impl Default for mac::Gated` (use `Gated::allow_all()` to opt out of an admission hook explicitly, or `Gated::new(gate)`). Added: `OffscreenError::KillSwitch`.
+- The unit tests for admission, lease, lease store, events, offscreen geometry and the macOS reader moved with the code. `tests/control_plane.rs`, `tests/durable_lease.rs` and `tests/frontmost_macos.rs` now live in `rightkit-automation`; `tests/reexports.rs` here pins the old paths.
+
 ## 0.4.0
 
 QA runs many times faster than real time. Every new parameter is optional and a request without them behaves as before, apart from the removed fixed pauses.

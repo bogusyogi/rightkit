@@ -5,10 +5,10 @@
 //! coordinates); only ids, kinds, method names, outcomes and lease numbers.
 use std::sync::Arc;
 
-use crate::admission::{EffectAdmissionStage, EffectKind, SettleOutcome};
+use crate::control::admission::{EffectAdmissionStage, EffectKind, SettleOutcome};
 
-/// Lifecycle event emitted by [`crate::admission::EffectGate`] and
-/// [`crate::lease::InputLease`].
+/// Lifecycle event emitted by [`crate::control::admission::EffectGate`] and
+/// [`crate::control::lease::InputLease`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ControlEvent {
     /// The request passed admission and its executor is about to run.

@@ -5213,10 +5213,9 @@ dependencies = [
 
 [[package]]
 name = "rightkit-automation"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "rightkit-daemon",
- "serde_json",
  "tempfile",
  "windows 0.62.2",
 ]
@@ -5680,6 +5679,7 @@ dependencies = [
 name = "rightkit-qa-driver"
 version = "0.4.0"
 dependencies = [
+ "rightkit-automation",
  "rightkit-daemon",
  "serde_json",
  "tauri",
