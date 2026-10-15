@@ -11,6 +11,50 @@ pub const DEFAULT_KEEP_COUNT: usize = 5;
 pub const DEFAULT_YOUNG_MS: u128 = 24 * 60 * 60 * 1000;
 pub const DEFAULT_MAX_BYTES: u64 = 20_000_000_000;
 
+/// What a run is for. A `functional` run checks clicks, state and text and takes no screenshots
+/// and no screen recordings; a `visual` run is the audit-visual run that captures screens.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum RunKind {
+    Functional,
+    Visual,
+}
+
+impl RunKind {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            RunKind::Functional => "functional",
+            RunKind::Visual => "visual",
+        }
+    }
+
+    /// `functional` or `visual`; anything else is an error that names both.
+    pub fn parse(text: &str) -> Result<Self> {
+        match text.trim() {
+            "functional" => Ok(RunKind::Functional),
+            "visual" => Ok(RunKind::Visual),
+            other => err(format!("unknown run kind '{other}' (functional|visual)")),
+        }
+    }
+}
+
+impl std::fmt::Display for RunKind {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+/// How a finished run ended, as recorded in its marker. Retention reads only this.
+/// `Skipped` is a run in which nothing executed (every scenario skipped): it holds no evidence,
+/// so retention removes it and it never counts as the newest pass.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum RunOutcome {
+    Passed,
+    Failed,
+    Skipped,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RunMarker {
@@ -24,6 +68,13 @@ pub struct RunMarker {
     pub completed_at: Option<u128>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub app_root: Option<PathBuf>,
+    /// Run kind. Absent in markers written before 0.5.0; retention treats those as `functional`
+    /// but never prunes them, because they carry no recorded outcome either.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub kind: Option<RunKind>,
+    /// Pass or fail, set when the job ends. `None` while running and in pre-0.5.0 markers.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub outcome: Option<RunOutcome>,
 }
 
 #[derive(Debug, Clone)]
@@ -164,9 +215,30 @@ pub fn create(
         lease_until: now.saturating_add(lease.as_millis().max(1)),
         completed_at: None,
         app_root: None,
+        kind: Some(RunKind::Functional),
+        outcome: None,
     };
     write_marker(&run, &marker)?;
     Ok(ManagedRun { root: run, marker })
+}
+
+/// Rewrite the marker of the run at `run_root` through `change`. Fails when the marker is missing
+/// or malformed; the run directory is never created or guessed.
+pub(crate) fn update_marker(run_root: &Path, change: impl FnOnce(&mut RunMarker)) -> Result<()> {
+    let mut marker = read_marker(&run_root.join(RUN_MARKER))
+        .ok_or_else(|| crate::util::Error("QA run marker is missing or malformed".into()))?;
+    change(&mut marker);
+    write_marker(run_root, &marker)
+}
+
+/// Record the kind of the run at `run_root` in its marker.
+pub fn set_run_kind(run_root: &Path, kind: RunKind) -> Result<()> {
+    update_marker(run_root, |m| m.kind = Some(kind))
+}
+
+/// Record how the run at `run_root` ended in its marker. [`finish`] keeps it.
+pub fn set_run_outcome(run_root: &Path, outcome: RunOutcome) -> Result<()> {
+    update_marker(run_root, |m| m.outcome = Some(outcome))
 }
 
 pub fn finish(run: &ManagedRun) -> Result<RunMarker> {
@@ -736,7 +808,7 @@ fn removal_error(path: &Path, error: &std::io::Error) -> String {
 }
 
 /// Remove everything in `dir` except the entry named `keep`. Links are removed as themselves.
-fn remove_children(dir: &Path, keep: Option<&std::ffi::OsStr>) -> std::result::Result<(), String> {
+pub(crate) fn remove_children(dir: &Path, keep: Option<&std::ffi::OsStr>) -> std::result::Result<(), String> {
     for entry in fs::read_dir(dir).map_err(|e| removal_error(dir, &e))? {
         let entry = entry.map_err(|e| removal_error(dir, &e))?;
         if keep == Some(entry.file_name().as_os_str()) {
@@ -1454,12 +1526,20 @@ fn prune_unlocked(
         .into_iter()
         .chain(caller_protected.iter().map(|x| (*x).to_string()))
         .collect();
+    // A failed run is kept by the count rule too; only the byte cap, a disk-safety limit, can
+    // still evict one (oldest first).
+    let failed: std::collections::HashSet<String> = runs
+        .iter()
+        .filter(|x| x.1.outcome == Some(RunOutcome::Failed))
+        .map(|x| x.1.run_id.clone())
+        .collect();
     let mut total: u64 = runs.iter().map(|x| x.2).sum();
     let mut old: Vec<_> = runs
         .iter()
         .filter(|x| {
             !protected.contains(&x.1.run_id)
-                && (total > cap || !count_protected.contains(&x.1.run_id))
+                && (total > cap
+                    || (!count_protected.contains(&x.1.run_id) && !failed.contains(&x.1.run_id)))
         })
         .collect();
     old.sort_by(|a, b| {
@@ -1469,7 +1549,9 @@ fn prune_unlocked(
     });
     let mut removed = std::collections::HashSet::new();
     for item in old {
-        if total <= cap && count_protected.contains(&item.1.run_id) {
+        if total <= cap
+            && (count_protected.contains(&item.1.run_id) || failed.contains(&item.1.run_id))
+        {
             continue;
         }
         if !safe_dir(&item.0) {
@@ -1491,7 +1573,9 @@ fn prune_unlocked(
         .filter(|x| {
             !removed.contains(&x.1.run_id)
                 && (protected.contains(&x.1.run_id)
-                    || (total <= cap && count_protected.contains(&x.1.run_id)))
+                    || (total <= cap
+                        && (count_protected.contains(&x.1.run_id)
+                            || failed.contains(&x.1.run_id))))
         })
         .map(|x| x.2)
         .sum();
@@ -1500,7 +1584,8 @@ fn prune_unlocked(
     for item in runs.iter().filter(|x| {
         !removed.contains(&x.1.run_id)
             && (protected.contains(&x.1.run_id)
-                || (total <= cap && count_protected.contains(&x.1.run_id)))
+                || (total <= cap
+                    && (count_protected.contains(&x.1.run_id) || failed.contains(&x.1.run_id))))
     }) {
         report.retained.push((
             item.0.clone(),
@@ -1508,6 +1593,8 @@ fn prune_unlocked(
                 "active run".into()
             } else if now.saturating_sub(item.1.created_at) < young_ms {
                 "younger than retention window".into()
+            } else if failed.contains(&item.1.run_id) {
+                "failed run kept".into()
             } else {
                 "newest protected run".into()
             },
@@ -1530,7 +1617,7 @@ pub fn is_lock_held(error: &crate::util::Error) -> bool {
 }
 
 /// The retention lock, released on drop (including a panic in the prune).
-struct LockGuard(PathBuf);
+pub(crate) struct LockGuard(PathBuf);
 
 impl Drop for LockGuard {
     fn drop(&mut self) {
@@ -1540,7 +1627,7 @@ impl Drop for LockGuard {
 
 /// Take the lock, waiting up to `wait`. `None` means a live owner still held it.
 /// A lock whose owner process is dead, or that never got an owner file, is recovered.
-fn try_lock(app_root: &Path, wait: Duration) -> Result<Option<LockGuard>> {
+pub(crate) fn try_lock(app_root: &Path, wait: Duration) -> Result<Option<LockGuard>> {
     ensure_dir(app_root)?;
     let lock = app_root.join(".retention-lock");
     let owner = lock.join("owner.json");
@@ -1606,7 +1693,7 @@ fn lock_or_wait(app_root: &Path, wait: Duration) -> Result<LockGuard> {
     })
 }
 
-fn write_marker(root: &Path, marker: &RunMarker) -> Result<()> {
+pub(crate) fn write_marker(root: &Path, marker: &RunMarker) -> Result<()> {
     let target = root.join(RUN_MARKER);
     let temp = root.join(format!(".{RUN_MARKER}.{}.tmp", std::process::id()));
     let mut file = OpenOptions::new()
@@ -1636,7 +1723,7 @@ pub(crate) fn marker_active(marker: &RunMarker, now: u128) -> bool {
     (marker.owner_pid > 0 && pid_live(marker.owner_pid)) || marker.lease_until > now
 }
 
-fn directory_bytes(root: &Path) -> Option<u64> {
+pub(crate) fn directory_bytes(root: &Path) -> Option<u64> {
     let mut total = 0u64;
     fn walk(dir: &Path, total: &mut u64) -> bool {
         let entries = match fs::read_dir(dir) {
@@ -1686,12 +1773,12 @@ fn ensure_dir(dir: &Path) -> Result<()> {
     fs::create_dir_all(dir)?;
     Ok(())
 }
-fn safe_dir(dir: &Path) -> bool {
+pub(crate) fn safe_dir(dir: &Path) -> bool {
     fs::symlink_metadata(dir)
         .map(|m| m.is_dir() && !m.file_type().is_symlink())
         .unwrap_or(false)
 }
-fn safe_key(value: &str, name: &str) -> Result<String> {
+pub(crate) fn safe_key(value: &str, name: &str) -> Result<String> {
     if !value.is_empty()
         && value
             .chars()
@@ -1706,7 +1793,7 @@ fn safe_key(value: &str, name: &str) -> Result<String> {
         err(format!("unsafe QA {name}: {value}"))
     }
 }
-fn is_inside(root: &Path, candidate: &Path) -> bool {
+pub(crate) fn is_inside(root: &Path, candidate: &Path) -> bool {
     candidate
         .strip_prefix(root)
         .map(|r| {

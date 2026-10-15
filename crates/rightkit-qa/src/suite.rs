@@ -7,9 +7,10 @@ use crate::evidence::{Bundle, CheckStatus, RunStatus};
 use crate::lock::{self, LockOptions};
 use crate::process::{sweep_registries, Tracker};
 use crate::scenario::{
-    discover, run_step, tier_selected, unmet_requirement, Ctx, Scenario, StepRecord,
+    discover, resolve_run_kind, run_step, scenario_kind, tier_selected, unmet_requirement, Ctx,
+    Scenario, StepRecord,
 };
-use crate::storage;
+use crate::storage::{self, RunKind, RunOutcome};
 use crate::util::{err, now_iso, platform, Result};
 use crate::workspace;
 use serde_json::{json, Value};
@@ -25,6 +26,10 @@ pub struct SuiteOptions {
     pub build_engine: bool,
     pub build_ui: bool,
     pub keep_data: bool,
+    /// Run kind: `functional` (clicks, state, text; no screenshots or recordings) or `visual`.
+    /// `None` lets the scenarios decide ([`resolve_run_kind`]); with none declaring `visual` the
+    /// run is functional.
+    pub kind: Option<RunKind>,
     /// Explicit scenario files (override discovery).
     pub files: Vec<PathBuf>,
 }
@@ -198,6 +203,7 @@ fn run_suite_at(
                 .unwrap_or_default()
         ));
     }
+    let run_kind = resolve_run_kind(opts.kind, &scenarios);
     let managed_root = managed_override
         .map(Path::to_path_buf)
         .unwrap_or_else(|| crate::storage::managed_root(None));
@@ -216,6 +222,10 @@ fn run_suite_at(
     // Earlier crashed runs: kill survivors by recorded pid + command line, then drop their dirs.
     let swept = sweep_registries(&managed_app_root, &run_id);
     let ws = workspace::create(&managed_root, Some(&run_id), &cfg.app)?;
+    if let Err(e) = ws.set_kind(run_kind) {
+        ownership.release();
+        return Err(e);
+    }
     let tracker = Tracker::with_registry(ws.root.join("pids.json"));
     let mut bundle = Bundle::new(&cfg.app, platform, &run_id)?;
     let _mute = cfg.audio.system_mute.then(SystemMute::engage);
@@ -243,7 +253,12 @@ fn run_suite_at(
         needs_engine,
         false,
     ) {
-        Ok(i) => i,
+        Ok(mut i) => {
+            if let Some(o) = i.as_object_mut() {
+                o.insert("runKind".into(), json!(run_kind.as_str()));
+            }
+            i
+        }
         Err(e) => {
             ownership.release();
             return Err(e);
@@ -251,7 +266,7 @@ fn run_suite_at(
     };
     bundle.set_identity(identity)?;
     println!(
-        "[qa] app={} platform={platform} tier={tier} scenarios={} run={run_id}",
+        "[qa] app={} platform={platform} tier={tier} kind={run_kind} scenarios={} run={run_id}",
         cfg.app,
         scenarios.len()
     );
@@ -322,7 +337,25 @@ fn run_suite_at(
             });
             continue;
         }
+        let kind = match scenario_kind(run_kind, sc.kind, &name) {
+            Ok(k) => k,
+            Err(e) => {
+                println!("[qa] FAIL  {name}: {e}");
+                bundle.add_check(&name, CheckStatus::Failed, json!({"error": e.0}), &[])?;
+                outcomes.push(Outcome {
+                    name,
+                    file: sc.file.clone(),
+                    tier: sc.tier.clone(),
+                    status: CheckStatus::Failed,
+                    reason: Some(e.0),
+                    ms: 0,
+                    steps: vec![],
+                });
+                continue;
+            }
+        };
         let mut ctx = Ctx::new(cfg, engine.clone(), ui.clone(), &ws, &tracker, &name)?;
+        ctx.kind = kind;
         let mut steps = vec![];
         let mut failure: Option<String> = None;
         let limit = Duration::from_secs(sc.timeout_s.unwrap_or(600));
@@ -360,7 +393,8 @@ fn run_suite_at(
                 }
             }
         }
-        if failure.is_some() {
+        // The failure capture is a screenshot: only a visual scenario takes one.
+        if failure.is_some() && ctx.kind == RunKind::Visual {
             if let Some((c, _)) = &ctx.ui {
                 let p = ctx.log_dir.join("failure.png");
                 if c.screenshot_to(&p).is_ok() {
@@ -444,7 +478,7 @@ fn run_suite_at(
     std::fs::write(
         &results_path,
         serde_json::to_vec_pretty(&json!({
-            "app": cfg.app, "platform": platform, "runId": run_id, "tier": tier, "finishedAt": now_iso(),
+            "app": cfg.app, "platform": platform, "runId": run_id, "tier": tier, "kind": run_kind.as_str(), "finishedAt": now_iso(),
             "passed": passed, "failed": failed, "skipped": outcomes.len() - passed - failed,
             "scenarios": outcomes.iter().map(Outcome::to_value).collect::<Vec<_>>(),
         }))?,
@@ -456,6 +490,12 @@ fn run_suite_at(
             &json!({"runId": run_id, "evidence": evidence_path.to_string_lossy(), "results": results_path.to_string_lossy()}),
         )?,
     );
+    // Record pass or fail in the run marker before it is completed: retention reads only this.
+    let _ = ws.set_outcome(if failed == 0 && passed > 0 {
+        RunOutcome::Passed
+    } else {
+        RunOutcome::Failed
+    });
     ws.finish()?;
     if !opts.keep_data && failed > 0 && storage::keep_failed_home_requested() {
         println!(
@@ -474,6 +514,13 @@ fn run_suite_at(
         evidence_path.display()
     );
     ownership.release();
+    // Retention right after the job: failed runs and the newest pass per kind stay, the rest of
+    // the passing runs of this app go. It never fails the job.
+    let pruned = crate::retention::prune_runs_after_job(&managed_root, &cfg.app);
+    println!("[qa] run retention: {}", pruned.summary());
+    for (path, why) in pruned.kept.iter().filter(|(_, why)| why.starts_with("not removed")) {
+        println!("[qa] WARN {}: {why}", path.display());
+    }
     Ok(SuiteReport {
         exit_code: if failed == 0 && passed > 0 { 0 } else { 1 },
         run_id,

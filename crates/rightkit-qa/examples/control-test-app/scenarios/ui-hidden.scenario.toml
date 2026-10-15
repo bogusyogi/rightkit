@@ -4,6 +4,8 @@
 name = "control-test-app hidden UI"
 tier = "fast"
 target = "ui"
+# Takes screenshots, so it is a visual scenario (functional is the default and refuses them).
+kind = "visual"
 
 [[step]]
 kind = "ui_launch"

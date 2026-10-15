@@ -276,6 +276,7 @@ pub fn exec(ctx: &mut Ctx, kind: &str, p: &Map<String, Value>) -> Result<Value> 
         }
         "browser_text" => json!({"text": b.rt.block_on(page.text()).map_err(e)?}),
         "browser_screenshot" => {
+            crate::scenario::ensure_capture_allowed(ctx.kind, &ctx.scenario, "browser_screenshot")?;
             let name = ps_opt(p, "name").unwrap_or_else(|| "browser".into());
             let path = shot_dir.join(format!("{name}.png"));
             b.rt.block_on(page.screenshot_to(&path)).map_err(e)?;
