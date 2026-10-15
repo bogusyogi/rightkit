@@ -2,9 +2,9 @@
   "schema": 1,
   "kind": "npm",
   "name": "@rightkit/release",
-  "version": "0.2.158",
-  "commit": "ca9132ca572193ce93e9aa4d687366f68d9f1e02",
-  "artifactSha256": "c4d71296bf4877e4f4f3fa1f95d19d089133f2332f036194d94b9cd24d2bae3b",
+  "version": "0.2.159",
+  "commit": "913e7fb69511519abe46a39d0fefbb6f5b2a9ad2",
+  "artifactSha256": "c544374a09800053b10f826212fd164cc156d5e6d9dec6f23cb0f02b56772971",
   "hostPolicy": "darwin-only",
   "hostPolicyReason": "Adrian 2026-10-14 local-build grant (.rightkit-local-build.json); Windows covered by the next CI run",
   "runs": [
@@ -13,15 +13,15 @@
         "os": "darwin",
         "arch": "arm64"
       },
-      "commit": "ca9132ca572193ce93e9aa4d687366f68d9f1e02",
+      "commit": "913e7fb69511519abe46a39d0fefbb6f5b2a9ad2",
       "features": [
         "default"
       ],
-      "artifactSha256": "c4d71296bf4877e4f4f3fa1f95d19d089133f2332f036194d94b9cd24d2bae3b",
-      "command": "pnpm -r --workspace-concurrency=1 run build && pnpm --dir packages/release run test && pnpm --dir packages/release pack --pack-destination /var/folders/xp/8dtgvyms3bb1yndrvmxhdg0h0000gn/T/rk-local-publish-ARuwtp",
+      "artifactSha256": "c544374a09800053b10f826212fd164cc156d5e6d9dec6f23cb0f02b56772971",
+      "command": "pnpm -r --workspace-concurrency=1 run build && pnpm --dir packages/release run test && pnpm --dir packages/release pack --pack-destination /var/folders/xp/8dtgvyms3bb1yndrvmxhdg0h0000gn/T/rk-local-publish-QcfPVE",
       "operator": "agent (local-build grant)",
-      "timestamp": "2026-10-15T10:15:22.970Z",
-      "passed": 1608,
+      "timestamp": "2026-10-15T11:06:08.567Z",
+      "passed": 1613,
       "failed": 0,
       "skipped": 57,
       "ignored": 0,
@@ -36,7 +36,7 @@
         {
           "command": "pnpm --dir packages/release run test",
           "ok": true,
-          "executed": 1608,
+          "executed": 1613,
           "failed": 0,
           "ignored": 0,
           "skipped": 57,
