@@ -1,9 +1,39 @@
 # rightkit-record
 
-The platform-neutral core of the RightKit recorder (RK3). It owns the recording
-lifecycle, the session bundle, redaction, bundle verification, and the frame
-reader. It never captures pixels: a per-OS helper implements the `Backend` trait
-and reports frames, geometry, losses and failures as `HelperEvent`s.
+Per-window screen capture for any app, plus the recorder core that turns a capture into a verified
+session bundle. A request names only a `window_id` and a `pid` (`src/plan.rs`), so any visible window
+can be recorded, including apps this suite does not own. The recorder never sends input: it does not
+click, type, scroll or move the pointer. Driving an app is `rightkit-automation`'s job.
+
+| OS | Capture API | Where it lives |
+|---|---|---|
+| macOS | ScreenCaptureKit | Swift helper `helpers/macos` (`rightkit-record-macos-helper`), launched by `src/macos` |
+| Windows | Windows.Graphics.Capture + Media Foundation | `src/windows`, in process or via `rightkit-record-helper serve` |
+
+## Permissions
+
+Capturing another app's window needs the operating system's consent. The crate never prompts and never
+bypasses it; with no grant, start fails closed with `Code::PermissionDenied`, and `Backend::permission()` reports it up front.
+
+- **macOS: Screen Recording permission is required.** It is granted per signing identity and
+  responsible process, in System Settings > Privacy & Security > Screen & System Audio Recording. The
+  helper reads it with `CGPreflightScreenCaptureAccess`, which never prompts. The identity that needs the
+  grant is the helper (`dev.rightkit.record.macos-helper`) as launched by the host app (its responsible
+  process), so a host must request the grant itself and a re-signed helper starts with none. After the user
+  grants it, macOS may require the host app to restart before it takes effect.
+- **Windows:** Windows.Graphics.Capture needs no permission prompt for a window capture, but a yellow
+  capture border is shown unless borderless access is granted (see "Windows borderless capture").
+
+Callers must obtain the user's informed consent before recording another app, and should keep bundles
+local. See `rightkit-credentials` for the per-installation redaction key.
+
+## Scope
+
+The macOS helper sources ship in this crate (`helpers/macos`, built with `build.sh`; a release
+must be Developer-ID signed and notarized, an ad-hoc build must never ship). Find it with
+`RIGHTKIT_RECORD_MACOS_HELPER` or place it next to the running executable. The record core itself never
+captures pixels: a per-OS helper implements the `Backend` trait and reports frames, geometry, losses and
+failures as `HelperEvent`s.
 
 ## Modules
 

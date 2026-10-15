@@ -10,7 +10,7 @@
         "Declaration-only: the lifecycle, bundle writer, redaction, protocol and reader are not an ownership fingerprint.",
         "Windows capture lives in this crate (src/windows, cfg(windows)) and is served out of process by rightkit-record-helper in serve mode.",
         "rightkit-child-process owns helper spawning, supervision and restart; this crate only speaks the protocol over the streams it is given.",
-        "The macOS helper is not in this crate. It will implement Backend in its own helper and serve the same protocol."
+        "The macOS ScreenCaptureKit helper (helpers/macos, Swift) ships with this crate sources and implements the same protocol; the crate never sends input. Capturing needs the OS Screen Recording permission on macOS."
       ]
     }
   ]
