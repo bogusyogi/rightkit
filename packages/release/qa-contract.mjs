@@ -117,7 +117,7 @@ export function cargoQaPins(text, crate = CARGO_QA) {
   let section = null;
   let table = null;
   const push = (body) => {
-    const version = body.match(/\bversion\s*=\s*"[=^~<>\s]*(\d+\.\d+\.\d+)/)?.[1] ?? null;
+    const version = (body.match(/\bversion\s*=\s*"[=^~<>\s]*(\d+\.\d+\.\d+)/) ?? body.match(/^"[=^~<>\s]*(\d+\.\d+\.\d+)/))?.[1] ?? null;
     pins.push({ version: /\bpath\s*=|\bgit\s*=/.test(body) ? null : version });
   };
   for (const raw of text.split(/\r?\n/)) {
@@ -238,8 +238,6 @@ export function assertQaAdoption(opts, deps = {}) {
   const { warn = (line) => console.error(line) } = deps;
   const result = evaluateQaAdoption(opts, deps);
   for (const line of result.warnings) warn(`[right-release] QA warning: ${line}`);
-  if (result.refusals.length) throw new Error(`QA adoption contract failed:
-- ${result.refusals.join("
-- ")}`);
+  if (result.refusals.length) throw new Error(`QA adoption contract failed:\n- ${result.refusals.join("\n- ")}`);
   return result;
 }
