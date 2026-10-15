@@ -184,68 +184,6 @@ fn cdp<R: Runtime>(win: &WebviewWindow<R>, method: &str, params: String) -> Resu
     }
 }
 
-/// Issue several devtools calls from ONE UI-thread hop and wait for all of them. WebView2
-/// starts them in order and input events are delivered in order; the first failure (in call order)
-/// is returned. Use for input sequences only: a call that must see the effect of an earlier one
-/// (hide, capture, restore) is made with separate [`cdp`] calls.
-fn cdp_many<R: Runtime>(
-    win: &WebviewWindow<R>,
-    calls: Vec<(String, String)>,
-) -> Result<(), String> {
-    if calls.is_empty() {
-        return Ok(());
-    }
-    let n = calls.len();
-    let (tx, rx) = channel::<(usize, Result<(), String>)>();
-    win.with_webview(move |pv| unsafe {
-        let core = match pv.controller().CoreWebView2() {
-            Ok(c) => c,
-            Err(e) => {
-                let _ = tx.send((0, Err(e.to_string())));
-                return;
-            }
-        };
-        for (i, (method, params)) in calls.into_iter().enumerate() {
-            let tx2 = tx.clone();
-            let handler =
-                CallDevToolsProtocolMethodCompletedHandler::create(Box::new(move |res, _| {
-                    let _ = tx2.send((i, res.map_err(|e| e.to_string())));
-                    Ok(())
-                }));
-            if let Err(e) = core.CallDevToolsProtocolMethod(
-                &HSTRING::from(method),
-                &HSTRING::from(params),
-                &handler,
-            ) {
-                let _ = tx.send((i, Err(e.to_string())));
-            }
-        }
-    })
-    .map_err(|e| e.to_string())?;
-    let deadline = Instant::now() + CDP_TIMEOUT + Duration::from_millis(50 * n as u64);
-    let mut first_err: Option<(usize, String)> = None;
-    let mut seen = 0;
-    while seen < n {
-        let left = deadline.saturating_duration_since(Instant::now());
-        match rx.recv_timeout(left) {
-            Ok((i, r)) => {
-                seen += 1;
-                if let Err(e) = r {
-                    if first_err.as_ref().is_none_or(|(j, _)| i < *j) {
-                        first_err = Some((i, e));
-                    }
-                }
-            }
-            Err(_) => {
-                return Err(format!(
-                    "devtools call timed out: {seen} of {n} batched calls completed"
-                ))
-            }
-        }
-    }
-    first_err.map_or(Ok(()), |(_, e)| Err(e))
-}
-
 /// Stack capture on a devtools timeout is on with `RIGHTKIT_CONTROL_TRACE` or
 /// `RIGHTKIT_CONTROL_STACK_ON_TIMEOUT=1`. It enables the V8 debugger at webview creation
 /// (`Debugger.enable` is not an interrupting command, so it would queue behind a busy script if
@@ -649,14 +587,13 @@ pub fn mouse<R: Runtime>(
     .map(|_| ())
 }
 
-/// Pointer events in order from one UI-thread hop.
+/// Pointer events in order, with no pause between them. Each is one devtools call that completes
+/// when the event has been handled, so the page has seen event N before event N+1 is sent.
 pub fn mouse_batch<R: Runtime>(win: &WebviewWindow<R>, evs: &[MouseEv]) -> Result<(), String> {
-    cdp_many(
-        win,
-        evs.iter()
-            .map(|e| ("Input.dispatchMouseEvent".to_string(), mouse_params(e)))
-            .collect(),
-    )
+    for e in evs {
+        cdp(win, "Input.dispatchMouseEvent", mouse_params(e))?;
+    }
+    Ok(())
 }
 
 pub fn wheel<R: Runtime>(
@@ -824,28 +761,29 @@ pub fn insert_text<R: Runtime>(win: &WebviewWindow<R>, text: &str) -> Result<(),
     .map(|_| ())
 }
 
-/// Key events (and text insertions for characters with no virtual key) in order, one UI-thread hop.
+/// Key events (and text insertions for characters with no virtual key) in order, with no pause
+/// between them; each devtools call completes when the event has been handled.
 pub fn keys<R: Runtime>(win: &WebviewWindow<R>, evs: &[KeyEv]) -> Result<(), String> {
-    cdp_many(
-        win,
-        evs.iter()
-            .map(|e| match e {
-                KeyEv::Key {
-                    down,
-                    code,
-                    chars,
-                    flags,
-                } => (
-                    "Input.dispatchKeyEvent".to_string(),
-                    key_event_params(*down, *code, chars, *flags),
-                ),
-                KeyEv::Text(t) => (
-                    "Input.insertText".to_string(),
-                    serde_json::json!({ "text": t }).to_string(),
-                ),
-            })
-            .collect(),
-    )
+    for e in evs {
+        match e {
+            KeyEv::Key {
+                down,
+                code,
+                chars,
+                flags,
+            } => cdp(
+                win,
+                "Input.dispatchKeyEvent",
+                key_event_params(*down, *code, chars, *flags),
+            )?,
+            KeyEv::Text(t) => cdp(
+                win,
+                "Input.insertText",
+                serde_json::json!({ "text": t }).to_string(),
+            )?,
+        };
+    }
+    Ok(())
 }
 
 /// Evaluate a JS expression that yields a Promise and wait for its string result
