@@ -354,7 +354,7 @@
     "rightkit-tauri": "0.1.0"
   },
   "stagedCargo": {
-    "rightkit-agent-tools": "0.1.2",
+    "rightkit-agent-tools": "0.1.3",
     "rightkit-agents": "0.1.0",
     "rightkit-app-settings": "0.2.0",
     "rightkit-asr": "0.2.1",
@@ -423,7 +423,7 @@
   },
   "registry": {
     "cargo": {
-      "rightkit-agent-tools": "0.1.2",
+      "rightkit-agent-tools": "0.1.3",
       "rightkit-agents": "0.1.0",
       "rightkit-app-settings": "0.2.0",
       "rightkit-asr": "0.2.1",
@@ -756,6 +756,9 @@
     "rightkit-qa-driver": [
       "0.3.0",
       "0.3.1"
+    ],
+    "rightkit-agent-tools": [
+      "0.1.2"
     ]
   }
 }
