@@ -11,6 +11,7 @@
     "rightkit-logs",
     "rightkit-playback",
     "rightkit-qa",
+    "rightkit-qa-driver",
     "rightkit-speech-client",
     "rightkit-tts"
   ]
