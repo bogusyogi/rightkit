@@ -24,7 +24,7 @@ engine = ["dep:rightkit-job-queue"]
 # webview can be inspected. Every other webview stays non-inspectable. Only an app on the
 # `right-release` allow-list (`packages/release/devtools-policy.json`, today only ViewRight) may
 # ship a build with it; every other app must leave it off. Never a default feature.
-content-devtools = ["tauri/devtools"]
+content-devtools = ["tauri/devtools", "tauri/unstable"]
 # DEVELOPMENT BUILDS ONLY. Developer inspection of every webview of the app (UI included): enables Tauri's
 # devtools, leaves debugging switches and WebView2 environment overrides alone, skips the registry-policy
 # refusal and the DevToolsActivePort tripwire, prints one loud stderr line at startup, and embeds the marker
@@ -32,7 +32,7 @@ content-devtools = ["tauri/devtools"]
 # (`dev-native = ["rightkit-tauri-shell/dev-inspect"]`) that its default features never reach. Three layers keep it out
 # of a release: `right-release` refuses the feature in a release or update build command or Cargo manifest, scans
 # every binary for the marker, and the rightkit-qa guard rejects it in default features. Never a default feature.
-dev-inspect = ["tauri/devtools"]
+dev-inspect = ["tauri/devtools", "tauri/unstable"]
 
 [dependencies]
 tauri = { version = "2", features = ["tray-icon", "image-png"] }
