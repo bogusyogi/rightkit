@@ -1,9 +1,5 @@
 # Changelog
 
-## 0.2.2
-
-- Safety: a debug build without the `test-mode` feature now refuses `Suite::resolve()` (and `resolve_ignoring_env_overrides(false)`) with `SuiteError::Insecure` while `RIGHTKIT_SUITE_ROOT`, `RIGHT_SUITE_DIR` or `ORTHIC_SHARED_DIR` is set. Since 0.2.0 such a build silently returned the real per-user folder, so an app test that set the override for isolation wrote real user data. Release builds are unchanged and read no override variable.
-
 
 ## 0.2.1
 

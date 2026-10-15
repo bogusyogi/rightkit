@@ -79,24 +79,6 @@ fn env_nonempty(k: &str) -> Option<String> {
     std::env::var(k).ok().filter(|v| !v.trim().is_empty())
 }
 
-/// Debug builds without `test-mode` refuse to resolve while an override switch is set: the caller
-/// asked for an isolated root that this build cannot honour, and falling back to the real per-user
-/// folder would let a test or dev run write user data. Release builds compile no environment read.
-#[cfg(not(feature = "test-mode"))]
-fn refuse_unhonoured_override() -> Result<(), SuiteError> {
-    #[cfg(debug_assertions)]
-    for key in [ENV_SUITE_ROOT, "RIGHT_SUITE_DIR", "ORTHIC_SHARED_DIR"] {
-        if std::env::var_os(key).is_some_and(|v| !v.is_empty()) {
-            return Err(SuiteError::Insecure(format!(
-                "{key} is set but this build does not compile rightkit-daemon's `test-mode` feature, \
-                 so the override cannot be honoured; enable the app's test-mode feature for tests \
-                 instead of falling back to the real per-user folder"
-            )));
-        }
-    }
-    Ok(())
-}
-
 impl Suite {
     /// `RIGHTKIT_SUITE_ROOT` if set, else the platform per-user default
     /// (`~/Library/Application Support/Orthic Labs/shared`, `%LOCALAPPDATA%\Orthic Labs\shared`).
@@ -124,7 +106,6 @@ impl Suite {
         }
         #[cfg(not(feature = "test-mode"))]
         {
-            refuse_unhonoured_override()?;
             Self::per_user_default()
         }
     }
@@ -178,9 +159,7 @@ impl Suite {
         }
         #[cfg(not(feature = "test-mode"))]
         {
-            if !ignore_env_overrides {
-                refuse_unhonoured_override()?;
-            }
+            let _ = ignore_env_overrides;
             Self::per_user_default()
         }
     }
