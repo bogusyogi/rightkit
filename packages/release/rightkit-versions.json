@@ -365,7 +365,7 @@
     "rightkit-contracts": "0.1.5",
     "rightkit-crash": "0.3.0",
     "rightkit-credentials": "0.2.0",
-    "rightkit-daemon": "0.2.2",
+    "rightkit-daemon": "0.2.3",
     "rightkit-db": "0.4.0",
     "rightkit-device": "0.1.3",
     "rightkit-embed": "0.4.0",
@@ -388,8 +388,8 @@
     "rightkit-ownership": "0.2.1",
     "rightkit-pdf": "0.3.0",
     "rightkit-playback": "0.2.1",
-    "rightkit-qa": "0.3.0",
-    "rightkit-qa-driver": "0.3.1",
+    "rightkit-qa": "0.4.0",
+    "rightkit-qa-driver": "0.4.0",
     "rightkit-review": "0.2.0",
     "rightkit-sandbox": "0.4.0",
     "rightkit-search": "0.2.1",
@@ -435,7 +435,7 @@
       "rightkit-control": "0.3.0",
       "rightkit-crash": "0.3.0",
       "rightkit-credentials": "0.2.0",
-      "rightkit-daemon": "0.2.2",
+      "rightkit-daemon": "0.2.3",
       "rightkit-db": "0.4.0",
       "rightkit-device": "0.1.3",
       "rightkit-embed": "0.4.0",
@@ -463,8 +463,8 @@
       "rightkit-pdf": "0.3.0",
       "rightkit-playback": "0.2.1",
       "rightkit-process": "0.4.0",
-      "rightkit-qa": "0.3.0",
-      "rightkit-qa-driver": "0.3.1",
+      "rightkit-qa": "0.4.0",
+      "rightkit-qa-driver": "0.4.0",
       "rightkit-qts": "0.2.6",
       "rightkit-qts-ggml": "0.1.2",
       "rightkit-qts-ggml-sys": "0.1.2",
@@ -610,7 +610,8 @@
       "0.2.11",
       "0.2.12",
       "0.2.14",
-      "0.2.16"
+      "0.2.16",
+      "0.3.0"
     ],
     "rightkit-sandbox": [
       "0.1.0",
@@ -743,13 +744,15 @@
     ],
     "rightkit-daemon": [
       "0.2.0",
-      "0.2.1"
+      "0.2.1",
+      "0.2.2"
     ],
     "rightkit-job-queue": [
       "0.3.0"
     ],
     "rightkit-qa-driver": [
-      "0.3.0"
+      "0.3.0",
+      "0.3.1"
     ]
   }
 }

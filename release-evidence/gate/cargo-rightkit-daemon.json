@@ -2,9 +2,9 @@
   "schema": 1,
   "kind": "cargo",
   "name": "rightkit-daemon",
-  "version": "0.2.2",
-  "commit": "dd9e6610238cb2ccebd4bf0dc17be66652aec074",
-  "artifactSha256": "9e678fc24b036533a887ce4750aa932278a865d486ce39ec432757eae57a24be",
+  "version": "0.2.3",
+  "commit": "18b29202b4db2103c29e60ae6f0dff2de5e5ca40",
+  "artifactSha256": "654016e0cda8f4919831e7ebf5002fd9318acd4f3d24729d9ad4c02b84f83346",
   "hostPolicy": "darwin-only",
   "hostPolicyReason": "Adrian 2026-10-14 local-build grant (.rightkit-local-build.json); Windows covered by the next CI run",
   "runs": [
@@ -13,15 +13,15 @@
         "os": "darwin",
         "arch": "arm64"
       },
-      "commit": "dd9e6610238cb2ccebd4bf0dc17be66652aec074",
+      "commit": "18b29202b4db2103c29e60ae6f0dff2de5e5ca40",
       "features": [
         "default",
         "--features test-mode"
       ],
-      "artifactSha256": "9e678fc24b036533a887ce4750aa932278a865d486ce39ec432757eae57a24be",
+      "artifactSha256": "654016e0cda8f4919831e7ebf5002fd9318acd4f3d24729d9ad4c02b84f83346",
       "command": "cargo test -p rightkit-daemon --no-fail-fast -- --show-output && cargo test -p rightkit-daemon --features test-mode --no-fail-fast -- --show-output && cargo clippy -p rightkit-daemon --no-deps --all-targets -- -D warnings && cargo package --locked -p rightkit-daemon && cargo metadata --format-version 1 --no-deps",
       "operator": "agent (local-build grant)",
-      "timestamp": "2026-10-15T02:12:20.107Z",
+      "timestamp": "2026-10-15T14:27:04.813Z",
       "passed": 239,
       "failed": 0,
       "skipped": 0,
