@@ -495,7 +495,7 @@
       "@rightkit/app-shell": "0.6.2",
       "@rightkit/app-update": "0.2.5",
       "@rightkit/ax": "0.3.2",
-      "@rightkit/ci": "0.2.44",
+      "@rightkit/ci": "0.2.45",
       "@rightkit/doc-render": "0.1.6",
       "@rightkit/git": "0.2.42",
       "@rightkit/hooks": "0.1.2",
