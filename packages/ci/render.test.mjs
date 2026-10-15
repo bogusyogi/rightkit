@@ -180,6 +180,11 @@ test("rust-hybrid release candidate renders product scripts, artifact handoff, a
   assert.match(content, /pnpm run ci:candidate-check/);
   assert.match(content, /pnpm run release:admit/);
   assert.match(content, /pnpm run release:stage-summary/);
+  // Ownership approval supports only macOS and Windows: the admission job (which runs the ownership step) never renders on Linux.
+  const admission = content.match(/^ {2}admission:\n([\s\S]*?)^ {2}\S/m)?.[1] ?? "";
+  assert.match(admission, /RightKit ownership/);
+  assert.match(admission, /runs-on: macos-15\n/);
+  assert.doesNotMatch(admission, /runs-on: ubuntu|runs-on: \$\{\{[^}]*linux/i);
   assert.match(content, /Mozilla-Actions\/sccache-action@fc920bf0ec8de6ee65d409111f7ec508035751ba/);
   assert.match(content, /shared-key: widgets-rust/);
   assert.doesNotMatch(content, /bash \.\/scripts\/gate\.sh/);
@@ -1488,10 +1493,11 @@ const SW_BASELINE = {
   "node/publish-npm": "50882207659dfb6e0207fc0d9b33d86b7c10a2d2e3e6c65b2db05d5261982834",
   "node/publish-package-managers": "106b8d28ed76d916afe68808388cd5dc0de0ddd719b566832a6e8280410f9d7f",
   "rust-hybrid/ci": "9652939dae20655f893694e6ef59b521c1c8805817a9048f1347e128ffa5cefb",
-  "rust-hybrid/release-candidate": "a0405dd2d6df8cfe2909fe8b371a068838617174e0d591b367b9dc5866400348",
+  // 0.2.44: the 0.2.41 render with the admission job on macos-15 (ownership approval does not run on Linux).
+  "rust-hybrid/release-candidate": "2a8b8acb5844c244e220f996aac22d35cdd7df1dc9a83e88a9ca71cb80c6e208",
   "rust-hybrid/regenerate": "14b7adfb5839df53f53bfe9599ef1358ff51d160a21b9ce1ca5d843a87156b36",
   "rust-hybrid-chain/ci": "413071a268dfa3b72a5b483173551f5e56818ed60f0cd6b15cd5a730584d8a6e",
-  "rust-hybrid-chain/release-candidate": "0dc667ce2c399f87b962d31752980b87eb83b3becc9c05ca076ecdf6a0fc7b02",
+  "rust-hybrid-chain/release-candidate": "56faea1858944a9bf92f93370ec4a26d3c3360b2adc17588f6c6a93f1875546e",
 };
 
 // Each lane that builds Swift renders the shared configure and cleanup steps into exactly these jobs.

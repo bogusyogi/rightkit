@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.44
+
+- rust-hybrid release candidate: the `admission` job runs on `macos-15`, not `ubuntu-24.04`. Its ownership step (`right-release ownership`) fails on Linux with "ownership approval unsupported platform: linux" (Ember run 38715042025), because ownership approval supports only macOS and Windows. A render test asserts admission never renders on a Linux runner. The `ci` and `regenerate` jobs of this profile still render `ubuntu-24.04` with the same ownership step; they were not part of this fix.
+
 ## 0.2.43
 
 - Release candidate (non-chain mode): the Windows and macOS sign steps now set `RIGHT_GIT_SOURCE_REVISION` (and `LEGION_SOURCE_REVISION`) from the admission job's output. Before, `LEGION_SOURCE_REVISION` read an undefined workflow variable and right-release's admitted-dispatch exemption could not fire, so signing refused the detached HEAD.
