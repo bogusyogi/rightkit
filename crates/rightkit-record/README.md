@@ -160,6 +160,20 @@ Process ownership (spawn, supervise, restart) belongs to rightkit-child-process.
 helper that dies mid-take is reported as `helper_lost` and the take is
 quarantined, never completed.
 
+## Windows capture notes
+
+- **On-screen and off-screen windows both work.** `rightkit-record-helper capture` declares the window's real
+  visibility (`windows::observed_visibility`). Off-screen capture only delivers frames when the target
+  renders while off-monitor: a GPU-composited renderer does, a GDI or WinForms window does not (its paint
+  is clipped, so WGC delivers about one frame). Capture a visible window when in doubt.
+- **`boundsPt` is window pixels divided by the window's DPI / 96.** For a DPI-unaware window Windows reports
+  96, so the numbers are physical pixels on a scaled display (a 640x360 window on a 250% display reports
+  1600x900). Frame size is the capture item's size, which excludes the window shadow.
+- **Build the helper with the optimised profile for real use.** The per-frame work (readback, BLAKE3,
+  BGRA to NV12) is per-pixel; the workspace builds this crate at opt-level 3 even in dev profiles.
+- The one-shot `capture` subcommand writes only `clean.mp4`; a manifest and bundle come from the
+  `Recorder` path (`serve`).
+
 ## Windows borderless capture
 
 The helper requests borderless access and calls `SetIsBorderRequired(false)` only when that

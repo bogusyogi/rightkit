@@ -270,9 +270,8 @@ fn a_terminated_helper_leaves_quarantined_media_that_decodes() {
     let media = outcome
         .recovered_media
         .expect("the quarantined media must be playable and recorded");
-    // A 5 s take, killed: the last open fragment (about 0.5 s) and encoder latency are lost.
     assert!(
-        media.duration_ms >= 3_000,
+        media.duration_ms >= 4_000,
         "recovered only {} ms of media",
         media.duration_ms
     );
