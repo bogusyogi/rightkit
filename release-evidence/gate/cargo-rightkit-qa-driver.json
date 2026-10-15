@@ -1,0 +1,48 @@
+{
+  "schema": 1,
+  "kind": "cargo",
+  "name": "rightkit-qa-driver",
+  "version": "0.3.1",
+  "commit": "b7fe7518970e5a7b85943ce88aa83d2be3db02d2",
+  "artifactSha256": "c3e607235190197cc98827e8c24d013dab2adfb7916c914159146c3760a18886",
+  "hostPolicy": "darwin-only",
+  "hostPolicyReason": "Adrian 2026-10-14 local-build grant (.rightkit-local-build.json); Windows covered by the next CI run",
+  "runs": [
+    {
+      "host": {
+        "os": "darwin",
+        "arch": "arm64"
+      },
+      "commit": "b7fe7518970e5a7b85943ce88aa83d2be3db02d2",
+      "features": [
+        "default"
+      ],
+      "artifactSha256": "c3e607235190197cc98827e8c24d013dab2adfb7916c914159146c3760a18886",
+      "command": "cargo test -p rightkit-qa-driver --no-fail-fast -- --show-output && cargo clippy -p rightkit-qa-driver --no-deps --all-targets -- -D warnings && cargo package --locked -p rightkit-qa-driver && cargo metadata --format-version 1 --no-deps",
+      "operator": "agent (local-build grant)",
+      "timestamp": "2026-10-15T04:13:51.696Z",
+      "passed": 53,
+      "failed": 0,
+      "skipped": 0,
+      "ignored": 0,
+      "allowIgnored": true,
+      "requireAssets": "1",
+      "assetGated": false,
+      "steps": [
+        {
+          "command": "cargo test -p rightkit-qa-driver --no-fail-fast -- --show-output",
+          "ok": true,
+          "executed": 53,
+          "failed": 0,
+          "ignored": 0,
+          "skipped": 0,
+          "binaries": 9
+        },
+        {
+          "command": "cargo clippy -p rightkit-qa-driver --no-deps --all-targets -- -D warnings",
+          "ok": true
+        }
+      ]
+    }
+  ]
+}
