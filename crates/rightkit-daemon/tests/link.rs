@@ -529,6 +529,7 @@ fn leases_and_the_queue_survive_a_host_restart() {
     p.hello(&h, 0);
     let leased = work(&h, &d);
     p.frames();
+    p.send(&h, json!({ "t": "ack", "id": leased, "epoch": 1 }));
     h.daemon.close_all_links("restart");
     h.restart();
     let t = h.daemon.task(&leased).unwrap();
@@ -537,7 +538,13 @@ fn leases_and_the_queue_survive_a_host_restart() {
     // The device reconnects to the new host and finishes the lease it already held.
     let mut q = connect(&h, &d);
     q.hello(&h, 1);
-    assert_eq!(types(&q.frames()), ["welcome"]);
+    // An ack is not persisted (`ack_task` does not flush), so after a restart the host sends the
+    // lease again with the same id and epoch: documented at-least-once delivery
+    // (src/remote/core/tasks.rs:14-17). The device journal dedups on `(id, epoch)`.
+    let frames = q.frames();
+    assert_eq!(types(&frames), ["welcome", "task"]);
+    assert_eq!(frames[1]["id"], json!(leased));
+    assert_eq!(frames[1]["epoch"], json!(1));
     q.result(&h, &leased, 1);
     assert_eq!(settled(&q.frames()), [(1, "accepted".to_string(), None)]);
     // Sequence numbers keep growing after a restart.

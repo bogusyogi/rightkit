@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Tests: the 0.2.2 "Known issue" was a test defect, not a host bug. `leases_and_the_queue_survive_a_host_restart` never acked the leased task, and resending unacked leases on `hello` is the documented at-least-once behaviour. The test now acks, and expects the lease to be sent again with the same id and epoch after a restart (acks are not persisted). No library code changed.
+
 ## 0.2.2
 
 - Fixed: 0.2.1 did not compile with the `link`, `remote` or `testing` features (`link::client` imported the private `remote::util`, E0603). Found by PostRight's Phase 3 build; the publish gate tested only default features.
