@@ -3,7 +3,8 @@
 //! bucket for subtree re-lists. Every time-dependent type takes `now` as an argument, so the
 //! tests inject a clock and never sleep.
 
-#![allow(dead_code)] // Some accessors are only used by the tests or by one platform.
+// Some accessors are only used by the tests. Off macOS, lib.rs already allows dead code here.
+#![cfg_attr(target_os = "macos", allow(dead_code))]
 
 use std::collections::BTreeSet;
 use std::sync::{Condvar, Mutex, MutexGuard};
@@ -389,7 +390,8 @@ mod tests {
         g.finish(t0 + s(30), true);
         assert!(!g.pending(), "one run answered every request");
         assert_eq!(g.coalesced(), 2);
-        assert_eq!(g.applied_ms(), 30_000);
+        // The cooldown applied after the second run has doubled.
+        assert_eq!(g.applied_ms(), 60_000);
     }
 
     #[test]
