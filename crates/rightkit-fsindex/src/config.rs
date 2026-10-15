@@ -66,7 +66,28 @@ pub const DEFAULT_EXCLUDE_PATTERNS: &[&str] = &[
     ".cache",
     ".git/objects",
     "Library/Caches",
+    // Package-manager, toolchain and build-tool trees that churn during builds.
+    "node_modules.*",
+    ".venv",
+    "__pycache__",
+    ".gradle",
+    "Pods",
+    ".turbo",
+    ".next",
+    "sccache",
+    ".sccache",
+    ".rightkit-managed",
+    ".git/logs",
+    ".git/lfs",
 ];
+
+/// Absolute scratch roots excluded by default on macOS, matched as path prefixes (not names).
+/// Dropped by `Config::include_build_output`.
+pub const DEFAULT_EXCLUDE_ROOTS_MACOS: &[&str] = &["/Volumes/D/scratch"];
+
+/// Absolute scratch roots excluded by default on Windows, matched as path prefixes,
+/// ASCII case-insensitively. Dropped by `Config::include_build_output`.
+pub const DEFAULT_EXCLUDE_ROOTS_WINDOWS: &[&str] = &[r"D:\scratch"];
 
 /// Folders that raise a consent prompt when opened without Full Disk Access.
 pub const CONSENT_HOME_RELATIVE: &[&str] = &["Desktop", "Documents", "Downloads"];
@@ -109,7 +130,8 @@ pub struct Config {
     pub max_change_paths: usize,
     /// Max rollup updates per batch.
     pub max_change_rollups: usize,
-    /// Crawl worker threads.
+    /// Crawl worker threads. Clamped to 1..=8 at use, and the threads are drawn from one
+    /// process-wide budget of 8, so concurrent crawls queue instead of multiplying threads.
     pub crawl_threads: usize,
     /// A snapshot older than this is discarded for a full crawl.
     pub snapshot_max_age: Duration,
@@ -141,6 +163,74 @@ impl Config {
             snapshot_max_age: Duration::from_secs(3 * 24 * 3600),
             #[cfg(feature = "content")]
             content: ContentConfig::default(),
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::backend::Excludes;
+
+    fn defaults() -> Excludes {
+        Excludes {
+            patterns: DEFAULT_EXCLUDE_PATTERNS
+                .iter()
+                .map(|p| {
+                    p.split('/')
+                        .filter(|s| !s.is_empty())
+                        .map(|s| s.as_bytes().to_vec())
+                        .collect()
+                })
+                .collect(),
+            roots: vec![b"/work".to_vec()],
+            ..Excludes::default()
+        }
+    }
+
+    #[test]
+    fn the_new_default_excludes_match() {
+        let ex = defaults();
+        for p in [
+            "node_modules",
+            "node_modules.medium-20261009",
+            "pkg/node_modules",
+            "pkg/node_modules/a/b",
+            ".venv",
+            "svc/__pycache__",
+            ".gradle",
+            "ios/Pods",
+            "web/.turbo",
+            "web/.next",
+            "sccache",
+            ".sccache",
+            ".rightkit-managed",
+            "repo/.git/objects",
+            "repo/.git/logs",
+            "repo/.git/lfs",
+        ] {
+            let full = format!("/work/{p}");
+            assert!(ex.matches(full.as_bytes()), "{p} should be excluded");
+        }
+    }
+
+    #[test]
+    fn generic_names_and_the_rest_of_git_stay_indexed() {
+        let ex = defaults();
+        for p in [
+            "scratch",
+            "tmp",
+            "dist",
+            "build",
+            "repo/.git",
+            "repo/.git/config",
+            "repo/.git/refs",
+            "node_modulesX",
+            "my_node_modules",
+            "src",
+        ] {
+            let full = format!("/work/{p}");
+            assert!(!ex.matches(full.as_bytes()), "{p} should be indexed");
         }
     }
 }

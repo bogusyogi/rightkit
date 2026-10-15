@@ -6,6 +6,7 @@ use crate::config::*;
 use crate::error::Error;
 use crate::error::Result;
 use crate::gate::{Decision, Rate, RelistGate};
+use crate::limits::{RelistBudget, RescanGovernor};
 use crate::query::Query;
 use crate::store::{now_secs, Store};
 use std::borrow::Cow;
@@ -150,6 +151,11 @@ pub struct Status {
     /// Folders currently backing off: changing so often that their re-list interval is above
     /// `Config::relist_min_interval`.
     pub backoff_folders: usize,
+    /// Dropped-event reports absorbed into an already pending full rescan (not run on their own).
+    pub rescans_coalesced: u64,
+    /// Cooldown applied after the last full rescan, in milliseconds (0 before any). It doubles
+    /// from 30 s to 10 min while drops keep coming and resets after a quiet period.
+    pub rescan_backoff_ms: u64,
     /// Resident memory of the index: `mapped` is file-backed column and name pages currently
     /// in memory (measured with `mincore`; reclaimable, see `Index::shrink`); `heap` is the
     /// tracked anonymous allocations the index owns (estimate).
@@ -299,6 +305,24 @@ fn exclude_pattern_list(cfg: &Config) -> Vec<Vec<Vec<u8>>> {
         })
         .filter(|segs| !segs.is_empty())
         .collect()
+}
+
+/// Whether `path` is, or lies below, a directory the store holds as an excluded entry.
+fn under_excluded_entry(store: &Store, path: &[u8]) -> bool {
+    let mut cur = Some(path);
+    while let Some(p) = cur {
+        if let Some(slot) = store.lookup(p) {
+            return store.entry(slot).d.flags & FLAG_EXCLUDED != 0;
+        }
+        cur = parent_of(p);
+    }
+    false
+}
+
+/// Whether `path` is `dir` or below it, on a component boundary. `dir` may be `/`.
+fn within_dir(path: &[u8], dir: &[u8]) -> bool {
+    let d = trim_trailing_slash(dir);
+    path.starts_with(&d) && (path.len() == d.len() || path[d.len()] == b'/')
 }
 
 fn trim_trailing_slash(p: &[u8]) -> Vec<u8> {
@@ -517,7 +541,33 @@ impl Index {
             prefixes: skipped.iter().map(|p| pb(p).into_owned()).collect(),
             patterns: exclude_pattern_list(&cfg),
             roots: roots.iter().map(|r| trim_trailing_slash(&pb(r))).collect(),
+            ..Excludes::default()
         };
+        if !cfg.include_build_output {
+            #[cfg(target_os = "macos")]
+            excludes
+                .prefixes
+                .extend(DEFAULT_EXCLUDE_ROOTS_MACOS.iter().map(|r| r.as_bytes().to_vec()));
+            #[cfg(windows)]
+            excludes.ci_prefixes.extend(
+                DEFAULT_EXCLUDE_ROOTS_WINDOWS
+                    .iter()
+                    .map(|r| r.as_bytes().to_vec()),
+            );
+            excludes.honor_cachedir_tag = true;
+        }
+        // The index's own state directory never feeds back into the index.
+        let mut state_dir_in_root: Option<Vec<u8>> = None;
+        if let Some(sd) = &cfg.state_dir {
+            // Created now (best effort; the open below reports a real failure) so the
+            // canonical path matches the one events will carry.
+            let _ = std::fs::create_dir_all(sd);
+            let sd = trim_trailing_slash(&pb(&canon(sd)));
+            if !sd.is_empty() && roots.iter().any(|r| within_dir(&sd, &pb(r))) {
+                excludes.prefixes.push(sd.clone());
+                state_dir_in_root = Some(sd);
+            }
+        }
         excludes.prefixes.sort();
         excludes.prefixes.dedup();
 
@@ -536,6 +586,12 @@ impl Index {
         }
         for e in &excludes.prefixes {
             fnv(&mut fp, e);
+        }
+        for e in &excludes.ci_prefixes {
+            fnv(&mut fp, &e.to_ascii_lowercase());
+        }
+        if excludes.honor_cachedir_tag {
+            fnv(&mut fp, b"cachedir-tag");
         }
         for pattern in &excludes.patterns {
             for seg in pattern {
@@ -639,6 +695,9 @@ impl Index {
             last_commit: Instant::now(),
             last_compact: Instant::now(),
             last_trim: Instant::now(),
+            rescans: RescanGovernor::with_defaults(),
+            relists: RelistBudget::with_defaults(Instant::now()),
+            state_dir: state_dir_in_root,
         };
         let worker = std::thread::Builder::new()
             .name("rightkit-fsindex".into())
@@ -1100,6 +1159,12 @@ struct Worker {
     last_commit: Instant,
     last_compact: Instant,
     last_trim: Instant,
+    /// Coalesces dropped-event full rescans behind a cooldown with exponential backoff.
+    rescans: RescanGovernor,
+    /// Global budget for subtree re-lists; the excess waits here, never dropped.
+    relists: RelistBudget,
+    /// Canonical state directory, when it lies under a root; events below it are skipped.
+    state_dir: Option<Vec<u8>>,
 }
 
 impl Worker {
@@ -1118,6 +1183,12 @@ impl Worker {
                 .unwrap_or_else(|e| e.into_inner())
                 .next_due()
             {
+                wake = wake.min(d);
+            }
+            if let Some(d) = self.rescans.next_due() {
+                wake = wake.min(d);
+            }
+            if let Some(d) = self.relists.next_due() {
                 wake = wake.min(d);
             }
             let msg = match rx.recv_timeout(wake.saturating_duration_since(now)) {
@@ -1177,14 +1248,17 @@ impl Worker {
         let mut dirs: Vec<Vec<u8>> = Vec::new();
         let mut seen: HashSet<Vec<u8>> = HashSet::new();
         let mut subtrees: Vec<Vec<u8>> = Vec::new();
-        let mut full = false;
         let mut max_id = sh.last_event_id.load(Ordering::Relaxed);
         for ev in events {
             if ev.id != 0 {
                 max_id = max_id.max(ev.id);
             }
             if ev.flags & (EV_USER_DROPPED | EV_KERNEL_DROPPED) != 0 {
-                full = true;
+                // Only marks a rescan wanted; it runs below when the cooldown allows.
+                self.rescans.request();
+                continue;
+            }
+            if self.under_state_dir(&ev.path) {
                 continue;
             }
             if ev.flags == EV_HISTORY_DONE || ev.path.is_empty() {
@@ -1200,12 +1274,14 @@ impl Worker {
                 dirs.push(p);
             }
         }
-        if full {
-            self.full_rescan();
+        let now = Instant::now();
+        if self.run_full_rescan_if_ready(now) {
+            // A full rescan covers every subtree and folder in this batch.
         } else {
             for p in subtrees {
-                self.rescan_subtree(&p);
+                self.relists.submit(p);
             }
+            self.run_relists(now);
             for p in dirs {
                 if self.gate_request(&p) == Decision::Run {
                     let mut done = HashSet::new();
@@ -1217,16 +1293,70 @@ impl Worker {
         if !self.gate_busy() {
             sh.last_event_id.store(self.max_seen, Ordering::Relaxed);
         }
+        self.publish_limits();
         self.after_apply();
+    }
+
+    /// Whether `path` is the index's own state directory or below it.
+    fn under_state_dir(&self, path: &[u8]) -> bool {
+        self.state_dir
+            .as_deref()
+            .is_some_and(|sd| within_dir(path, sd))
+    }
+
+    /// Runs the coalesced full rescan if one is wanted and its cooldown has passed. Returns
+    /// whether it ran. Subtree re-lists waiting for budget are covered by it and cleared.
+    fn run_full_rescan_if_ready(&mut self, now: Instant) -> bool {
+        if !self.rescans.try_begin(now) {
+            return false;
+        }
+        let ok = self.full_rescan();
+        self.rescans.finish(Instant::now(), ok);
+        if ok {
+            self.relists.clear_pending();
+        }
+        true
+    }
+
+    /// Re-lists the subtrees the global budget allows now; the rest stay pending.
+    fn run_relists(&mut self, now: Instant) -> usize {
+        let due = self.relists.drain(now);
+        for p in &due {
+            self.rescan_subtree(p);
+        }
+        due.len()
+    }
+
+    fn publish_limits(&self) {
+        let mut st = self
+            .shared
+            .status
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        st.rescans_coalesced = self.rescans.coalesced();
+        st.rescan_backoff_ms = self.rescans.applied_ms();
     }
 
     /// Runs deferred folder re-lists that are due, then emits pending changes or commits.
     fn on_tick(&mut self) {
         let now = Instant::now();
+        let mut applied = self.run_full_rescan_if_ready(now);
+        if !applied {
+            applied = self.run_relists(now) > 0;
+        }
+        self.publish_limits();
         let due = {
             let mut gate = self.shared.gate.lock().unwrap_or_else(|e| e.into_inner());
             gate.take_due(now)
         };
+        if applied {
+            if !self.gate_busy() {
+                self.shared
+                    .last_event_id
+                    .store(self.max_seen, Ordering::Relaxed);
+            }
+            self.after_apply();
+        }
         if !due.is_empty() {
             let mut done = HashSet::new();
             for p in &due {
@@ -1255,12 +1385,16 @@ impl Worker {
             .request(path, Instant::now())
     }
 
+    /// Work is still waiting (folder re-lists, a coalesced rescan, or budgeted subtree
+    /// re-lists), so the persisted event id must not advance past it.
     fn gate_busy(&self) -> bool {
         self.shared
             .gate
             .lock()
             .unwrap_or_else(|e| e.into_inner())
             .has_deferred()
+            || self.rescans.pending()
+            || self.relists.pending() > 0
     }
 
     fn maybe_commit(&mut self) {
@@ -1295,9 +1429,13 @@ impl Worker {
         let _ = (removed, touched);
     }
 
-    fn full_rescan(&mut self) {
+    /// Rebuilds the whole index. Returns false when the rebuild failed (it is then retried
+    /// after the cooldown).
+    fn full_rescan(&mut self) -> bool {
         let sh = self.shared.clone();
-        let Ok(fresh) = sh.build_fresh() else { return };
+        let Ok(fresh) = sh.build_fresh() else {
+            return false;
+        };
         sh.swap_store(fresh);
         sh.status
             .lock()
@@ -1310,6 +1448,7 @@ impl Worker {
         self.pending.touch();
         #[cfg(feature = "content")]
         sh.content_rebuild();
+        true
     }
 
     fn rescan_subtree(&mut self, path: &[u8]) {
@@ -1317,7 +1456,13 @@ impl Worker {
         if sh.excludes.matches(path) {
             return;
         }
-        let slot = rd(&sh).lookup(path);
+        let slot = {
+            let st = rd(&sh);
+            if under_excluded_entry(&st, path) {
+                return;
+            }
+            st.lookup(path)
+        };
         let Some(slot) = slot else {
             if let Some(p) = parent_of(path) {
                 let mut done = HashSet::new();
@@ -1343,6 +1488,11 @@ impl Worker {
     fn sync_path(&mut self, path: &[u8], done: &mut HashSet<Vec<u8>>) {
         let sh = self.shared.clone();
         if !done.insert(path.to_vec()) || sh.excludes.matches(path) {
+            return;
+        }
+        // Directories excluded by a CACHEDIR.TAG are flagged in the store, not matched by
+        // name: skip them and everything below.
+        if under_excluded_entry(&rd(&sh), path) {
             return;
         }
         sh.reads

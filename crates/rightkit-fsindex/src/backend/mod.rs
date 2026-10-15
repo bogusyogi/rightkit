@@ -85,6 +85,57 @@ pub struct Excludes {
     pub patterns: Vec<Vec<Vec<u8>>>,
     /// Roots, without a trailing slash (`/` is stored as the empty string).
     pub roots: Vec<Vec<u8>>,
+    /// Absolute prefixes compared ASCII case-insensitively, with `/` and `\` equal (Windows
+    /// paths). Same component-boundary rule as `prefixes`.
+    pub ci_prefixes: Vec<Vec<u8>>,
+    /// Skip directories that contain a `CACHEDIR.TAG` file with the standard signature.
+    /// The check reads at most 43 bytes of that one file and happens in the platform crawl
+    /// (`matches` does no I/O).
+    pub honor_cachedir_tag: bool,
+}
+
+/// First bytes of a valid `CACHEDIR.TAG` (https://bford.info/cachedir/).
+pub const CACHEDIR_TAG_SIGNATURE: &[u8] = b"Signature: 8a477f597d28d172789f06886806bc55";
+
+/// Whether `content` (the start of a `CACHEDIR.TAG` file) carries the standard signature.
+pub fn cachedir_tag_matches(content: &[u8]) -> bool {
+    content.starts_with(CACHEDIR_TAG_SIGNATURE)
+}
+
+/// Whether `dir` holds a regular `CACHEDIR.TAG` file with the standard signature.
+pub fn dir_has_cachedir_tag(dir: &Path) -> bool {
+    use std::io::Read;
+    let tag = dir.join("CACHEDIR.TAG");
+    match std::fs::symlink_metadata(&tag) {
+        Ok(m) if m.file_type().is_file() => {}
+        _ => return false,
+    }
+    let Ok(f) = std::fs::File::open(&tag) else {
+        return false;
+    };
+    let mut buf = Vec::with_capacity(CACHEDIR_TAG_SIGNATURE.len());
+    if f.take(CACHEDIR_TAG_SIGNATURE.len() as u64)
+        .read_to_end(&mut buf)
+        .is_err()
+    {
+        return false;
+    }
+    cachedir_tag_matches(&buf)
+}
+
+fn is_sep(b: u8) -> bool {
+    b == b'/' || b == b'\\'
+}
+
+fn ci_prefix_match(path: &[u8], prefix: &[u8]) -> bool {
+    if path.len() < prefix.len() {
+        return false;
+    }
+    let same = path
+        .iter()
+        .zip(prefix)
+        .all(|(&a, &b)| (is_sep(a) && is_sep(b)) || a.eq_ignore_ascii_case(&b));
+    same && (path.len() == prefix.len() || is_sep(path[prefix.len()]))
 }
 
 impl Excludes {
@@ -94,6 +145,9 @@ impl Excludes {
             .iter()
             .any(|s| path.starts_with(s) && (path.len() == s.len() || path[s.len()] == b'/'))
         {
+            return true;
+        }
+        if self.ci_prefixes.iter().any(|s| ci_prefix_match(path, s)) {
             return true;
         }
         if self.patterns.is_empty() {
@@ -272,6 +326,52 @@ mod tests {
         assert!(!ex.matches(b"/work/target/proj"));
         assert!(!ex.matches(b"/work/target/proj/src"));
         assert!(ex.matches(b"/work/target/proj/x/target"));
+    }
+
+    #[test]
+    fn absolute_roots_match_as_prefixes_not_as_names() {
+        let ex = Excludes {
+            prefixes: vec![b"/Volumes/D/scratch".to_vec()],
+            ..Excludes::default()
+        };
+        assert!(ex.matches(b"/Volumes/D/scratch"));
+        assert!(ex.matches(b"/Volumes/D/scratch/a/b"));
+        assert!(!ex.matches(b"/Volumes/D/scratch2"));
+        assert!(!ex.matches(b"/Volumes/E/scratch"));
+        assert!(!ex.matches(b"/home/me/scratch"), "not a name pattern");
+    }
+
+    #[test]
+    fn windows_roots_compare_case_insensitively() {
+        let ex = Excludes {
+            ci_prefixes: vec![br"D:\scratch".to_vec()],
+            ..Excludes::default()
+        };
+        assert!(ex.matches(br"D:\scratch"));
+        assert!(ex.matches(br"d:\SCRATCH\x\y"));
+        assert!(ex.matches(b"d:/Scratch/x"));
+        assert!(!ex.matches(br"D:\scratch2"));
+        assert!(!ex.matches(br"E:\scratch"));
+        assert!(!ex.matches(br"D:\work\scratch"));
+    }
+
+    #[test]
+    fn cachedir_tag_needs_the_standard_signature() {
+        assert!(cachedir_tag_matches(
+            b"Signature: 8a477f597d28d172789f06886806bc55\n# comment"
+        ));
+        assert!(!cachedir_tag_matches(b"Signature: 0000"));
+        assert!(!cachedir_tag_matches(b""));
+        let d = tempfile::tempdir().unwrap();
+        assert!(!dir_has_cachedir_tag(d.path()));
+        std::fs::write(d.path().join("CACHEDIR.TAG"), b"nope").unwrap();
+        assert!(!dir_has_cachedir_tag(d.path()));
+        std::fs::write(
+            d.path().join("CACHEDIR.TAG"),
+            b"Signature: 8a477f597d28d172789f06886806bc55\n# Created by cargo.\n",
+        )
+        .unwrap();
+        assert!(dir_has_cachedir_tag(d.path()));
     }
 
     #[test]

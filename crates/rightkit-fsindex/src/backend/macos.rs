@@ -212,14 +212,23 @@ fn parse_entry(b: &[u8], l: &mut Listing) {
 }
 
 fn mark_excluded(l: &mut Listing, dir: &[u8], excludes: &Excludes) {
-    if excludes.prefixes.is_empty() && excludes.patterns.is_empty() {
+    if excludes.prefixes.is_empty()
+        && excludes.patterns.is_empty()
+        && excludes.ci_prefixes.is_empty()
+        && !excludes.honor_cachedir_tag
+    {
         return;
     }
     for i in 0..l.ents.len() {
         if l.ents[i].data.kind == KIND_DIR {
             let name = &l.names[l.ents[i].name_off as usize
                 ..l.ents[i].name_off as usize + l.ents[i].name_len as usize];
-            if excludes.matches(&join(dir, name)) {
+            let full = join(dir, name);
+            if excludes.matches(&full)
+                || (excludes.honor_cachedir_tag
+                    && l.ents[i].data.flags & FLAG_MOUNT == 0
+                    && dir_has_cachedir_tag(Path::new(std::ffi::OsStr::from_bytes(&full))))
+            {
                 l.ents[i].data.flags |= FLAG_EXCLUDED;
             }
         }
@@ -287,7 +296,10 @@ impl Backend for MacBackend {
         sink: &mut dyn FnMut(Listing),
     ) {
         raise_fd_limit();
-        let threads = threads.max(1);
+        // Workers come from one process-wide budget (at most MAX_CRAWL_THREADS in total), so
+        // concurrent crawls queue here instead of multiplying threads.
+        let permits = crate::limits::acquire_crawl_threads(threads);
+        let threads = permits.count();
         let q = (
             Mutex::new(Queue {
                 stack: vec![Job {
@@ -383,6 +395,8 @@ impl Backend for MacBackend {
             roots,
             since.unwrap_or(SINCE_NOW),
             latency.as_secs_f64(),
+            // No IgnoreSelf: the host app's own file writes must still reach the index. The
+            // index's own state_dir writes are dropped by the state_dir exclude instead.
             CREATE_FLAG_NO_DEFER | CREATE_FLAG_WATCH_ROOT,
             sink,
         )?))
@@ -546,7 +560,6 @@ impl Stream {
                 release: std::ptr::null(),
                 copy_description: std::ptr::null(),
             };
-            // Not IgnoreSelf: the host app's own renames and moves must reach the index.
             let s = FSEventStreamCreate(
                 std::ptr::null(),
                 on_events,
