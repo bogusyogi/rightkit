@@ -3,7 +3,8 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, 
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { execFileSync } from "node:child_process";
+import { spawnSync } from "./background-process.mjs";
+const execFileSync = (cmd, args) => { const r = spawnSync(cmd, args, { encoding: "utf8" }); if (r.status !== 0) throw new Error(`${cmd} failed: ${r.stderr}`); };
 import { insideGitCheckout, resolveInstalledCli, runDiskCommand, scheduleSpec, renderSweep } from "./disk-command.mjs";
 import { HOLDING_MARKER, applySweep, checkDisk, deviceOf, evaluateFloor, expandGlob, inUseByOpenPaths, literalRoot, pickHolding, planSweep, purgeHoldings, readDiskPolicy, volumeRoot } from "./disk-policy.mjs";
 
@@ -356,8 +357,8 @@ test("real second volume (macOS disk image): the item is renamed within its own 
   const mount = path.join(dir, "mnt");
   mkdirSync(mount);
   try {
-    execFileSync("hdiutil", ["create", "-size", "16m", "-fs", "HFS+", "-volname", "rkvol", image], { stdio: "ignore" });
-    execFileSync("hdiutil", ["attach", image, "-mountpoint", mount, "-nobrowse", "-quiet"], { stdio: "ignore" });
+    execFileSync("hdiutil", ["create", "-size", "16m", "-fs", "HFS+", "-volname", "rkvol", image]);
+    execFileSync("hdiutil", ["attach", image, "-mountpoint", mount, "-nobrowse", "-quiet"]);
   } catch { t.skip("cannot create a disk image here"); return; }
   try {
     const { policy } = fixture();
@@ -376,7 +377,7 @@ test("real second volume (macOS disk image): the item is renamed within its own 
     assert.equal(purgeHoldings({ policy, platform: "darwin", now: Date.parse("2026-10-30T00:00:00Z"), bases: [path.join(mount, ".rightkit-swept")] }).results.length, 1);
     assert.equal(existsSync(path.join(mount, ".rightkit-swept", "2026-10-15")), false);
   } finally {
-    try { execFileSync("hdiutil", ["detach", mount, "-force", "-quiet"], { stdio: "ignore" }); } catch { /* ignore */ }
+    try { execFileSync("hdiutil", ["detach", mount, "-force", "-quiet"]); } catch { /* ignore */ }
     rmSync(dir, { recursive: true, force: true });
   }
 });
