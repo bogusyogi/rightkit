@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- QA adoption is now a release gate (`assertQaAdoption` in `qa-contract.mjs`, called from `release.mjs`): an app with no QA lane (`right-qa.config.mjs`, `@rightkit/qa`, or `rightkit-qa`) is refused; a lagging `@rightkit/qa`, `@rightkit/qa-chrome` or `rightkit-qa` pin warns and a breaking-bump lag refuses. Only non-app repositories are exempt, via `qa-adoption-exemptions.json`. See the README section "QA adoption (mandatory)".
+
 ## 0.2.165
 
 - Safety: the `workspace-unknown` sweep is report-only by default on every host. `disk check` still warns on unknown top-level entries, but `disk sweep` and the daily `disk run` move none of them (`report-only` in the skipped counts) until a host opts in with `right-release disk allow-workspace-sweep` (writes a host-local flag under `Orthic Labs/rightkit-release/`; `--off` revokes it). Review `disk sweep --dry-run --all` before opting in. The Mac is not opted in. 0.2.164 would have moved the untracked workspace `CLAUDE.md`, `.agent`, `.membrane`, `cockpit` and `contributions` on the Dell.
