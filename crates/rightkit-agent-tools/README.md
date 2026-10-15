@@ -50,12 +50,16 @@ A single `right-ctl <app> <method>` call is one round trip, and an agent that is
 - The in-app `batch` method takes `steps:[{method,params}]` and runs them inside the app in one round trip, stopping at the first failure. Each step is still checked against the caller's allowlist and effect gate; a method the app's profile does not expose cannot ride in a batch.
 
 ```sh
-echo '[{"tool":"demo.batch","args":{"steps":[
+right-ctl run <<'JSON'
+[{"tool":"demo.batch","args":{"steps":[
   {"method":"click","params":{"x":120,"y":40}},
   {"method":"type","params":{"text":"hello"}},
   {"method":"wait","params":{"js":"return document.title==='Done';","timeoutMs":5000}},
-  {"method":"screenshot","params":{"inline":true}}]}}]' | right-ctl run
+  {"method":"screenshot","params":{"inline":true}}]}}]
+JSON
 ```
+
+A quoted heredoc (`<<'JSON'`) keeps single quotes inside the JavaScript intact; inside a single-quoted `echo '...'` they end the string.
 
 Use `wait` (one call that waits in the page until a JavaScript function body returns something truthy) instead of polling `eval`, and `screenshot` with `inline:true` to get the PNG as base64 in the reply instead of a file to read. Input events are sent back to back; pass `paceMs` on `click`, `drag`, `key` or `type` only for a page that needs real time between events.
 

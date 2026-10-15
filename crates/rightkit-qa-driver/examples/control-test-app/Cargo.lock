@@ -342,7 +342,7 @@ dependencies = [
 name = "control-test-app"
 version = "0.1.0"
 dependencies = [
- "rightkit-control",
+ "rightkit-qa-driver",
  "tauri",
  "tauri-build",
 ]
@@ -2474,10 +2474,38 @@ dependencies = [
 ]
 
 [[package]]
-name = "rightkit-control"
-version = "0.1.9"
+name = "rightkit-child-process"
+version = "0.4.0"
 dependencies = [
- "rightkit-service",
+ "libc",
+ "windows 0.62.2",
+]
+
+[[package]]
+name = "rightkit-daemon"
+version = "0.2.3"
+dependencies = [
+ "rightkit-child-process",
+ "rightkit-fs",
+ "rightkit-sidecar",
+ "serde",
+ "serde_json",
+ "windows 0.62.2",
+]
+
+[[package]]
+name = "rightkit-fs"
+version = "0.4.0"
+dependencies = [
+ "libc",
+ "thiserror 2.0.18",
+]
+
+[[package]]
+name = "rightkit-qa-driver"
+version = "0.4.0"
+dependencies = [
+ "rightkit-daemon",
  "serde_json",
  "tauri",
  "webview2-com 0.38.2",
@@ -2485,22 +2513,13 @@ dependencies = [
 ]
 
 [[package]]
-name = "rightkit-framed-sidecar"
-version = "0.1.0"
-dependencies = [
- "serde",
- "serde_json",
-]
-
-[[package]]
-name = "rightkit-service"
-version = "0.1.1"
+name = "rightkit-sidecar"
+version = "0.2.0"
 dependencies = [
  "libc",
- "rightkit-framed-sidecar",
  "serde",
  "serde_json",
- "windows 0.61.1",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
