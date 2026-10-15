@@ -187,14 +187,25 @@ export function windowsLockProbe(candidate) {
   return false;
 }
 
-export function planSweep({ policy, platform = process.platform, env = process.env, home = os.homedir(), now = Date.now(), staleDays = policy.staleDays, openPaths, inUse, size = (p) => pathSize(p, { platform }) } = {}) {
+// True when git tracks anything at or under `target` (a tracked file is never swept). Not in a repository: not tracked.
+export function gitTracksPath(target) {
+  const top = spawnSync("git", ["-C", path.dirname(target), "rev-parse", "--show-toplevel"], { encoding: "utf8" });
+  if (top.status !== 0) return false;
+  const listed = spawnSync("git", ["-C", String(top.stdout).trim(), "ls-files", "-z", "--", target], { encoding: "utf8" });
+  if (listed.status !== 0) return true; // cannot prove untracked: keep it
+  return String(listed.stdout).length > 0;
+}
+
+export function planSweep({ policy, platform = process.platform, env = process.env, home = os.homedir(), now = Date.now(), staleDays, openPaths, inUse, tracked = gitTracksPath, size = (p) => pathSize(p, { platform }) } = {}) {
   const key = platformKey(platform);
-  const cutoff = now - staleDays * 86400_000;
+  const effectiveDays = staleDays ?? policy.staleDays;
   const candidates = [];
   const skipped = [];
   const seen = new Set();
   const lockCheck = inUse ?? (key === "win" ? windowsLockProbe : (p) => inUseByOpenPaths(p, openPaths));
   for (const writer of policy.writers.filter((w) => w.platform === key && w.action === "sweep")) {
+    // `--days N` overrides every writer; otherwise a writer may carry its own window (QA evidence: 3 days).
+    const cutoff = now - (staleDays ?? writer.staleDays ?? policy.staleDays) * 86400_000;
     let roots; let literal;
     try { roots = writerMatches(writer, { env, home }); literal = literalRoot(expandPolicyPath(writer.path, { env, home })); } catch { continue; }
     const units = [];
@@ -216,12 +227,13 @@ export function planSweep({ policy, platform = process.platform, env = process.e
       if (st.isSymbolicLink()) { skipped.push({ ...base, reason: "symlink" }); continue; }
       if (!isInsideRoot(unit, root)) { skipped.push({ ...base, reason: "outside-root" }); continue; }
       if (isProtectedPath(unit, policy)) { skipped.push({ ...base, reason: "protected" }); continue; }
+      if (writer.skipTracked && tracked(unit)) { skipped.push({ ...base, reason: "tracked" }); continue; }
       if (hasFreshContent(unit, cutoff)) { skipped.push({ ...base, reason: "fresh" }); continue; }
       if (lockCheck(unit)) { skipped.push({ ...base, reason: "in-use" }); continue; }
       candidates.push({ ...base, root, bytes: size(unit), mtime: new Date(st.mtimeMs).toISOString() });
     }
   }
-  return { schema: 1, platform: key, staleDays, candidates, skipped, totalBytes: candidates.reduce((s, c) => s + c.bytes, 0) };
+  return { schema: 1, platform: key, staleDays: effectiveDays, candidates, skipped, totalBytes: candidates.reduce((s, c) => s + c.bytes, 0) };
 }
 
 export const HOLDING_DIR = ".rightkit-swept";

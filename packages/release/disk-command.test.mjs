@@ -441,3 +441,42 @@ test("the right-release bin on PATH is followed to its target mjs, before any gl
   symlinkSync(coCli, path.join(cobin, "right-release"));
   assert.equal(resolveInstalledCli({ env: { PATH: cobin }, globalRoots: () => [root] }), other);
 });
+
+test("QA evidence runs: per-writer 3-day window, tracked files never swept, --days overrides", () => {
+  const { root, policy } = fixture();
+  const repo = path.join(root, "ws", "app");
+  mkdirSync(repo, { recursive: true });
+  const git = (...args) => { const r = spawnSync("git", ["-C", repo, ...args], { encoding: "utf8" }); assert.equal(r.status, 0, r.stderr); };
+  git("init", "-q");
+  const DAY = 86400_000;
+  const run = (name, ageDays, body = "x") => file(path.join(repo, ".cache", "rightkit-qa", name, "evidence.json"), 10, Date.now() - ageDays * DAY);
+  run("run-old", 5); run("run-new", 1); run("run-tracked", 5); run("run-edge", 5);
+  git("add", "-f", ".cache/rightkit-qa/run-tracked/evidence.json");
+  git("-c", "user.email=a@b", "-c", "user.name=n", "commit", "-qm", "track one");
+  policy.writers = [{ id: "qa", platform: "mac", path: path.join(root, "ws", "*", ".cache", "rightkit-qa", "*"), capBytes: 1, action: "sweep", unit: "self", staleDays: 3, skipTracked: true }];
+  const plan = planSweep({ policy, platform: "darwin", openPaths: [], size: () => 10 });
+  assert.equal(plan.staleDays, 7, "the plan reports the policy default; the writer window is its own");
+  assert.deepEqual(plan.candidates.map((c) => path.basename(c.path)).sort(), ["run-edge", "run-old"]);
+  const reasons = Object.fromEntries(plan.skipped.map((x) => [path.basename(x.path), x.reason]));
+  assert.equal(reasons["run-tracked"], "tracked");
+  assert.equal(reasons["run-new"], "fresh");
+  // --days 0 applies to every writer, but a tracked run is still kept
+  const all = planSweep({ policy, platform: "darwin", openPaths: [], staleDays: 0, size: () => 10 });
+  assert.deepEqual(all.candidates.map((c) => path.basename(c.path)).sort(), ["run-edge", "run-new", "run-old"]);
+  // applying only moves untracked stale runs; the tracked file is intact
+  policy.holding = { mac: [{ prefix: root, path: path.join(root, "hold") }] };
+  const applied = applySweep({ plan, policy, platform: "darwin", date: new Date("2026-10-15T12:00:00Z") });
+  assert.ok(applied.results.every((r) => r.ok));
+  assert.equal(existsSync(path.join(repo, ".cache", "rightkit-qa", "run-old")), false);
+  assert.equal(existsSync(path.join(repo, ".cache", "rightkit-qa", "run-tracked", "evidence.json")), true);
+  assert.equal(existsSync(path.join(repo, ".cache", "rightkit-qa", "run-new", "evidence.json")), true);
+});
+
+test("committed policy: QA evidence run dirs sweep at 3 days on both hosts and skip tracked files", () => {
+  const { writers } = readDiskPolicy();
+  const mac = writers.find((w) => w.id === "qa-evidence-runs" && w.platform === "mac");
+  const win = writers.find((w) => w.id === "qa-evidence-runs" && w.platform === "win");
+  for (const w of [mac, win]) assert.deepEqual([w.action, w.unit, w.staleDays, w.skipTracked], ["sweep", "self", 3, true]);
+  assert.equal(mac.path, "/Volumes/D/claude/*/.cache/rightkit-qa/*");
+  assert.equal(win.path, "D:\\claude\\*\\.cache\\rightkit-qa\\*");
+});

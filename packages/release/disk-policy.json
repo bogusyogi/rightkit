@@ -47,7 +47,9 @@
     {"id": "leftover-node-modules-medium-packages", "platform": "mac", "path": "/Volumes/D/claude/rightkit/packages/*/node_modules.medium-*", "capBytes": 1073741824, "action": "sweep", "unit": "self"},
     {"id": "leftover-legion-snap", "platform": "mac", "path": "/Volumes/D/claude/legion-snap-*", "capBytes": 1073741824, "action": "sweep", "unit": "self"},
     {"id": "leftover-legion-final", "platform": "mac", "path": "/Volumes/D/claude/legion-final-*", "capBytes": 1073741824, "action": "sweep", "unit": "self"},
-    {"id": "leftover-pulse-bak", "platform": "win", "path": "${LOCALAPPDATA}\\Programs\\Pulse.bak-*", "capBytes": 1073741824, "action": "sweep", "unit": "self"}
+    {"id": "leftover-pulse-bak", "platform": "win", "path": "${LOCALAPPDATA}\\Programs\\Pulse.bak-*", "capBytes": 1073741824, "action": "sweep", "unit": "self"},
+    {"id": "qa-evidence-runs", "platform": "mac", "path": "/Volumes/D/claude/*/.cache/rightkit-qa/*", "capBytes": 5368709120, "action": "sweep", "unit": "self", "staleDays": 3, "skipTracked": true},
+    {"id": "qa-evidence-runs", "platform": "win", "path": "D:\\claude\\*\\.cache\\rightkit-qa\\*", "capBytes": 5368709120, "action": "sweep", "unit": "self", "staleDays": 3, "skipTracked": true}
   ],
   "protectedSegments": ["Application Support", "Keychains", "Keychain", "HeardRightNext", "Credentials", ".ssh", ".rightkit-managed", ".rightkit-swept"]
 }
