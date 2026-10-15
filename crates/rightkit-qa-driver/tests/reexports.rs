@@ -15,8 +15,7 @@ fn the_gate_is_the_automation_gate() {
     let log: Arc<Mutex<Vec<ControlEvent>>> = Arc::default();
     let l = log.clone();
     let sink: EventSink = Arc::new(move |e: &ControlEvent| l.lock().unwrap().push(e.clone()));
-    let gate =
-        EffectGate::new(|_: &EffectRequest| AdmissionDecision::deny("no")).with_events(sink);
+    let gate = EffectGate::new(|_: &EffectRequest| AdmissionDecision::deny("no")).with_events(sink);
     let e = gate.admit(
         EffectRequest::new(EffectKind::Input, "click", "main"),
         &CancelToken::new(),
@@ -45,6 +44,10 @@ fn small_helpers_keep_their_paths() {
     assert_eq!(json::str_field(r#"{"k":"v"}"#, "k").as_deref(), Some("v"));
     assert_eq!(json::base64_encode(b"foo"), "Zm9v");
     assert_eq!(keys::chord("cmd+a"), Some((0, keys::FLAG_CMD)));
-    assert_eq!(keys::chord("delete"), Some((0x33, 0)), "Delete stays backspace");
+    assert_eq!(
+        keys::chord("delete"),
+        Some((0x33, 0)),
+        "Delete stays backspace"
+    );
     assert_eq!(offscreen::ENV_OFFSCREEN, "RIGHTKIT_OFFSCREEN");
 }

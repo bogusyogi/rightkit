@@ -78,7 +78,7 @@ pub fn str_field(body: &str, key: &str) -> Option<String> {
                 while let Some(c) = it.next() {
                     match c {
                         '"' => return Some(out),
-                        '\' => match it.next()? {
+                        '\\' => match it.next()? {
                             'n' => out.push('\n'),
                             't' => out.push('\t'),
                             'r' => out.push('\r'),

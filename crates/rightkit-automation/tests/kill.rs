@@ -62,7 +62,10 @@ fn kill_switch_fails_closed_everywhere_and_resets() {
     );
     assert_eq!(denied.settlement.outcome, SettleOutcome::Denied);
     assert!(!denied.settlement.executed);
-    assert_eq!(denied.settlement.reason.as_deref(), Some(KILL_SWITCH_REASON));
+    assert_eq!(
+        denied.settlement.reason.as_deref(),
+        Some(KILL_SWITCH_REASON)
+    );
     assert!(!ran.load(Ordering::SeqCst));
     assert_eq!(
         launch_offscreen(&LaunchSpec::new("rightkit-never-started")).err(),
