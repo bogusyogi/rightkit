@@ -56,7 +56,9 @@ export function walkSize(root) {
     const dir = stack.pop();
     let st;
     try { st = lstatSync(dir); } catch { continue; }
-    total += st.blocks !== undefined ? st.blocks * 512 : st.size;
+    // Allocated bytes; where the filesystem reports none for a non-empty file (NTFS keeps small files resident
+    // in the MFT, so Windows reports 0 blocks) the logical size is the best estimate.
+    total += st.blocks ? st.blocks * 512 : st.size;
     if (!st.isDirectory()) continue;
     let handle;
     try { handle = opendirSync(dir); } catch { continue; }
@@ -128,7 +130,8 @@ export function workspaceTracked(root, { platform = process.platform, git = spaw
   const top = git("git", ["-C", root, "rev-parse", "--show-toplevel"], { encoding: "utf8" });
   if (top.status !== 0) return null;
   try {
-    if (fold(realpathSync(String(top.stdout).trim()), key) !== fold(realpathSync(root), key)) return null;
+    // The native form resolves Windows 8.3 short names (C:\Users\RUNNER~1) to the long names git prints.
+    if (fold(realpathSync.native(String(top.stdout).trim()), key) !== fold(realpathSync.native(root), key)) return null;
   } catch { return null; }
   const listed = git("git", ["-C", root, "ls-files", "-z"], { encoding: "utf8", maxBuffer: 1 << 28 });
   if (listed.status !== 0) return null;

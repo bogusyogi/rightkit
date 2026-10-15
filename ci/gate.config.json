@@ -81,6 +81,33 @@
           "--features",
           "engine"
         ]
+      ],
+      "checkFeatureSets": []
+    },
+    "rightkit-tts-qwen": {
+      "checkFeatureSets": []
+    },
+    "rightkit-tts-qwen-sys": {
+      "checkFeatureSets": []
+    },
+    "rightkit-qa-driver": {
+      "checkFeatureSets": [
+        [
+          "--features",
+          "qa-control,wv2-0_38,offscreen-private-spi"
+        ]
+      ]
+    },
+    "rightkit-tauri-shell": {
+      "checkFeatureSets": [
+        [
+          "--features",
+          "engine,content-devtools"
+        ],
+        [
+          "--features",
+          "engine,dev-inspect"
+        ]
       ]
     },
     "rightkit-file-watch": {
@@ -113,6 +140,12 @@
         [
           "--features",
           "bundled,statement-cache"
+        ]
+      ],
+      "checkFeatureSets": [
+        [
+          "--features",
+          "bundled,statement-cache,hooks"
         ]
       ]
     },
