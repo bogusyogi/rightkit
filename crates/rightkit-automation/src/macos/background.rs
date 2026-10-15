@@ -10,6 +10,10 @@
 //! [`Gated`], which admits each call through an [`EffectGate`] (EFF-001), or
 //! through the explicitly named [`unsafe_ungated`] opt-in.
 #![allow(non_snake_case, non_camel_case_types, clippy::missing_safety_doc)]
+// Moved from rightkit-qa-driver with its own CoreFoundation/AX/CGEvent declarations; they are
+// ABI-identical to `super::ffi` but spelled with different Rust types. Folding them onto
+// `super::ffi` is a follow-up (see CHANGELOG 0.4.0).
+#![allow(clashing_extern_declarations)]
 
 use std::ffi::{c_char, c_void, CStr, CString};
 use std::process::Command;
