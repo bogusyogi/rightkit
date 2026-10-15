@@ -78,6 +78,8 @@ if (first === "--version" || first === "-v") {
   );
 } else if (first === "cache") {
   run("cache-command.mjs", args.slice(1));
+} else if (first === "disk") {
+  run("disk-command.mjs", args.slice(1));
 } else if (first === "install-app") {
   run("install-app.mjs", args.slice(1));
 } else if (first === "dmg") {
@@ -242,6 +244,11 @@ Commands:
   cache prune [--dry-run|--apply] [--json]           Plan or apply safe shared-target pruning
   cache migrate --config <file> [--dry-run|--apply] [--json]
                                                       Move a same-volume legacy target without copying
+  disk check [--json]                                Per-writer sizes vs caps and free-space floor (exit 3 on warning)
+  disk sweep [--dry-run] [--days N] [--delete] [--json]
+                                                      Move stale idle heavy data to the heavy volume (delete only with --delete)
+  disk run                                           check, dry-run sweep, move sweep, warn (the scheduled job)
+  disk schedule install|uninstall|status             Daily launchd job (Mac) / hidden Task Scheduler entry (Windows)
   deps --check|--audit|--update                      Shared dependency lane
   hardening <artifact...>                            Run the Right Suite hardening scan
   lsclean <AppName.app>                              Clear macOS LaunchServices duplicates

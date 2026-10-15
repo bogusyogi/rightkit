@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.157
+
+- `right-release disk check|sweep|run|schedule` (new `disk-policy.mjs`, `disk-command.mjs`, committed `disk-policy.json`): the shared disk-hygiene owner behind `docs/rules/disk-hygiene.md`. `check` is read-only: per-writer size against its cap and a free-space floor (Mac internal 40 GB; Dell D: the larger of 400 GB or 10%), exit 3 on any warning. `sweep` moves stale (default 7 days, `--days N`), idle items of `sweep` writers to the heavy volume (`/Volumes/D/claude/tmp/swept/<date>/` or `D:\claude\tmp\swept\<date>\`) and logs to `disk-hygiene.jsonl`; `--dry-run` plans only; removal happens only with an explicit `--delete`. It skips symlinks, protected segments (Application Support, Keychains, HeardRightNext, credentials), fresh content, and anything a live process holds (one `lsof` listing on macOS, which fails closed if unavailable; a rename probe on Windows). `run` is the scheduled job (check, dry-run plan, move sweep, re-check, warn event and exit 3); `schedule install|uninstall|status` manages a daily 03:30 launchd agent or a hidden S4U Task Scheduler entry. Mac verified; the Windows scheduler registration and lock probe are written and unproven.
+
 ## 0.2.156
 
 - MSIX signer reader handles real Azure Artifact Signing signatures: byte-identical duplicate signer certificates are collapsed, a non-CA certificate is preferred, and subjects render in Windows form (`S=`/`E=`, most specific first) so they compare with Identity/@Publisher. Regression fixture from a real signed package.
