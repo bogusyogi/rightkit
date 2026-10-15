@@ -8,7 +8,7 @@
 //! interception. Both hooks delegate unchanged outside that thread-local scope.
 #![allow(non_snake_case, clippy::missing_safety_doc)]
 
-use super::{Button, Mouse};
+use super::{Button, KeyEv, Mouse, MouseEv};
 use std::cell::Cell;
 use std::ffi::{c_char, c_void, CStr, CString};
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -469,6 +469,31 @@ fn on_view<R: Runtime, T: Send + 'static>(
         .map_err(|_| "webview call timed out".to_string())?
 }
 
+/// One pointer event on the main thread.
+unsafe fn dispatch_mouse(wk: Id, viewport: Option<(f64, f64)>, e: &MouseEv) -> Result<(), String> {
+    let window = msg!(Id; wk, "window");
+    if window.is_null() {
+        return Err("webview has no window".to_string());
+    }
+    let wp = window_point(wk, viewport, e.x, e.y);
+    // Hover is delivered as a button-less `mouseDragged:` on the WKWebView itself:
+    // WebKit gates `mouseMoved:` (tracking-area path) on an active window, but the
+    // WKWebView responder path works in an inactive window and the page still sees
+    // a plain `mousemove` with `buttons == 0`, so `:hover` and `mouseenter` update.
+    // NSEventType: 1/2 left down/up, 3/4 right down/up, 5 moved, 6/7 left/right dragged.
+    let (ty, handler, pressure, buttons) = mouse_spec(e.kind, e.button);
+    let ev = msg!(Id; class("NSEvent"),
+        "mouseEventWithType:location:modifierFlags:timestamp:windowNumber:context:eventNumber:clickCount:pressure:",
+        u64 = ty, NSPoint = wp, u64 = e.flags, f64 = uptime(), i64 = msg!(i64; window, "windowNumber"),
+        Id = std::ptr::null_mut(), i64 = 0, i64 = e.clicks, f32 = pressure);
+    if ev.is_null() {
+        return Err("NSEvent creation failed".to_string());
+    }
+    let _buttons = PointerButtons::enter(wk, buttons)?;
+    msg!((); wk, handler, Id = ev);
+    Ok(())
+}
+
 pub fn mouse<R: Runtime>(
     win: &WebviewWindow<R>,
     kind: Mouse,
@@ -478,54 +503,71 @@ pub fn mouse<R: Runtime>(
     clicks: i64,
     flags: u64,
 ) -> Result<(), String> {
+    mouse_batch(
+        win,
+        &[MouseEv {
+            kind,
+            button,
+            x,
+            y,
+            clicks,
+            flags,
+        }],
+    )
+}
+
+/// Several pointer events back to back: one CSS viewport measurement and one main-thread hop
+/// for the whole sequence (the events are delivered in order, none is dropped on a failure
+/// before it).
+pub fn mouse_batch<R: Runtime>(win: &WebviewWindow<R>, evs: &[MouseEv]) -> Result<(), String> {
     let viewport = css_viewport(win);
+    let evs = evs.to_vec();
     on_view(win, move |wk| unsafe {
-        let window = msg!(Id; wk, "window");
-        if window.is_null() {
-            return Err("webview has no window".to_string());
+        for e in &evs {
+            dispatch_mouse(wk, viewport, e)?;
         }
-        let wp = window_point(wk, viewport, x, y);
-        // Hover is delivered as a button-less `mouseDragged:` on the WKWebView itself:
-        // WebKit gates `mouseMoved:` (tracking-area path) on an active window, but the
-        // WKWebView responder path works in an inactive window and the page still sees
-        // a plain `mousemove` with `buttons == 0`, so `:hover` and `mouseenter` update.
-        // NSEventType: 1/2 left down/up, 3/4 right down/up, 5 moved, 6/7 left/right dragged.
-        let (ty, handler, pressure, buttons) = mouse_spec(kind, button);
-        let ev = msg!(Id; class("NSEvent"),
-            "mouseEventWithType:location:modifierFlags:timestamp:windowNumber:context:eventNumber:clickCount:pressure:",
-            u64 = ty, NSPoint = wp, u64 = flags, f64 = uptime(), i64 = msg!(i64; window, "windowNumber"),
-            Id = std::ptr::null_mut(), i64 = 0, i64 = clicks, f32 = pressure);
-        if ev.is_null() {
-            return Err("NSEvent creation failed".to_string());
-        }
-        let _buttons = PointerButtons::enter(wk, buttons)?;
-        msg!((); wk, handler, Id = ev);
         Ok(())
     })?
 }
 
-pub fn key<R: Runtime>(
-    win: &WebviewWindow<R>,
+unsafe fn dispatch_key(
+    wk: Id,
     down: bool,
     code: u16,
     chars: &str,
     flags: u64,
 ) -> Result<(), String> {
-    let chars = chars.to_string();
+    let window = msg!(Id; wk, "window");
+    if window.is_null() {
+        return Err("webview has no window".to_string());
+    }
+    let s = nsstring(chars);
+    let ev = msg!(Id; class("NSEvent"),
+        "keyEventWithType:location:modifierFlags:timestamp:windowNumber:context:characters:charactersIgnoringModifiers:isARepeat:keyCode:",
+        u64 = if down { 10 } else { 11 }, NSPoint = NSPoint { x: 0.0, y: 0.0 }, u64 = flags, f64 = uptime(),
+        i64 = msg!(i64; window, "windowNumber"), Id = std::ptr::null_mut(), Id = s, Id = s, u8 = 0, u16 = code);
+    if ev.is_null() {
+        return Err("NSEvent creation failed".to_string());
+    }
+    msg!((); wk, if down { "keyDown:" } else { "keyUp:" }, Id = ev);
+    Ok(())
+}
+
+/// Key events in order, one main-thread hop for the whole sequence.
+pub fn keys<R: Runtime>(win: &WebviewWindow<R>, evs: &[KeyEv]) -> Result<(), String> {
+    let evs = evs.to_vec();
     on_view(win, move |wk| unsafe {
-        let window = msg!(Id; wk, "window");
-        if window.is_null() {
-            return Err("webview has no window".to_string());
+        for e in &evs {
+            match e {
+                KeyEv::Key {
+                    down,
+                    code,
+                    chars,
+                    flags,
+                } => dispatch_key(wk, *down, *code, chars, *flags)?,
+                KeyEv::Text(_) => return Err("text insertion is not used on macOS".to_string()),
+            }
         }
-        let s = nsstring(&chars);
-        let ev = msg!(Id; class("NSEvent"),
-            "keyEventWithType:location:modifierFlags:timestamp:windowNumber:context:characters:charactersIgnoringModifiers:isARepeat:keyCode:",
-            u64 = if down { 10 } else { 11 }, NSPoint = NSPoint { x: 0.0, y: 0.0 }, u64 = flags, f64 = uptime(),
-            i64 = msg!(i64; window, "windowNumber"), Id = std::ptr::null_mut(), Id = s, Id = s, u8 = 0, u16 = code);
-        if ev.is_null() {
-            return Err("NSEvent creation failed".to_string());
-        }
-        msg!((); wk, if down { "keyDown:" } else { "keyUp:" }, Id = ev);
         Ok(())
     })?
 }
@@ -619,28 +661,6 @@ extern "C" fn eval_done(blk: *mut Blk, result: Id, err: Id) {
     }
 }
 
-extern "C" fn shot_done(blk: *mut Blk, image: Id, err: Id) {
-    unsafe {
-        let tx = Box::from_raw((*blk).data as *mut Sender<Result<Vec<u8>, String>>);
-        let out = (|| {
-            if image.is_null() || !err.is_null() {
-                return Err(utf8(msg!(Id; err, "localizedDescription"))
-                    .unwrap_or_else(|| "snapshot failed".into()));
-            }
-            let tiff = msg!(Id; image, "TIFFRepresentation");
-            let rep = msg!(Id; class("NSBitmapImageRep"), "imageRepWithData:", Id = tiff);
-            let png = msg!(Id; rep, "representationUsingType:properties:", u64 = 4, Id = std::ptr::null_mut());
-            if png.is_null() {
-                return Err("png encode failed".to_string());
-            }
-            let len = msg!(usize; png, "length");
-            let p = msg!(*const u8; png, "bytes");
-            Ok(std::slice::from_raw_parts(p, len).to_vec())
-        })();
-        let _ = tx.send(out);
-    }
-}
-
 /// Evaluate JS in the page; the script must already produce a string.
 pub fn eval<R: Runtime>(win: &WebviewWindow<R>, js: &str) -> Result<String, String> {
     eval_with_timeout(win, js, Duration::from_secs(15))
@@ -664,30 +684,153 @@ fn eval_with_timeout<R: Runtime>(
         .map_err(|_| "eval timed out".to_string())?
 }
 
-/// A never-shown window's page is not visible to WebKit, so it runs no rendering updates:
-/// `requestAnimationFrame` never fires and `document.timeline` never advances. Style changes
-/// from `:hover`/`:active` still apply immediately (matches() is true, snapshots show them),
-/// but a CSS transition on the changed property stays pinned at its start value, so a
-/// press looks identical to a hover. Finishing animations is the deterministic equivalent
-/// of letting the frozen clock run out; infinite animations throw from `finish()` and are
-/// left alone. Visible pages animate normally and are never touched.
-const SETTLE_HIDDEN_ANIMATIONS: &str = "(()=>{if(document.visibilityState!=='hidden')return '0';let n=0;for(const a of document.getAnimations()){try{a.finish();n++}catch(e){}}return String(n)})()";
-
-/// PNG of the webview contents via `takeSnapshotWithConfiguration:`.
-pub fn screenshot<R: Runtime>(win: &WebviewWindow<R>) -> Result<Vec<u8>, String> {
-    // Best effort: a page that cannot run the script is still captured as-is.
-    let _ = eval_with_timeout(win, SETTLE_HIDDEN_ANIMATIONS, Duration::from_secs(2));
-    let (tx, rx) = channel::<Result<Vec<u8>, String>>();
-    on_view(win, move |wk| unsafe {
-        let config = msg!(Id; class("WKSnapshotConfiguration"), "new");
-        let bounds = msg!(NSRect; wk, "bounds");
-        msg!((); config, "setRect:", NSRect = bounds);
+/// Evaluate a script body that returns a Promise (or value) with `callAsyncJavaScript` in the page
+/// world and wait for its string result; `expr` is a JS expression, evaluated as `return <expr>;`.
+pub fn wait_slice<R: Runtime>(
+    win: &WebviewWindow<R>,
+    expr: &str,
+    timeout: Duration,
+) -> Result<String, String> {
+    let (tx, rx) = channel::<Result<String, String>>();
+    let body = format!("return {expr};");
+    win.with_webview(move |pv| unsafe {
+        let wk = pv.inner();
         let data = Box::into_raw(Box::new(tx)) as *mut c_void;
-        let mut b = block(shot_done as *const c_void, data);
-        msg!((); wk, "takeSnapshotWithConfiguration:completionHandler:", Id = config, *mut Blk = &mut b);
+        let mut b = block(eval_done as *const c_void, data);
+        let world = msg!(Id; class("WKContentWorld"), "pageWorld");
+        let args = msg!(Id; class("NSDictionary"), "dictionary");
+        msg!((); wk, "callAsyncJavaScript:arguments:inFrame:inContentWorld:completionHandler:",
+            Id = nsstring(&body), Id = args, Id = std::ptr::null_mut(), Id = world, *mut Blk = &mut b);
+    })
+    .map_err(|e| e.to_string())?;
+    rx.recv_timeout(timeout)
+        .map_err(|_| "wait slice timed out".to_string())?
+}
+
+/// State of one masked capture, carried through the three completion handlers. It lives from
+/// the main-thread hop until `chain_finish` sends the result.
+struct Chain {
+    tx: Sender<Result<(Vec<u8>, u64), String>>,
+    wk: Id,
+    restore: String,
+    masked: Result<u64, String>,
+    png: Option<Result<Vec<u8>, String>>,
+}
+
+unsafe fn chain_eval(chain: *mut Chain, js: &str, done: extern "C" fn(*mut Blk, Id, Id)) {
+    let mut b = block(done as *const c_void, chain as *mut c_void);
+    msg!((); (*chain).wk, "evaluateJavaScript:completionHandler:", Id = nsstring(js), *mut Blk = &mut b);
+}
+
+fn eval_outcome(result: Id, err: Id) -> Result<String, String> {
+    unsafe {
+        if !err.is_null() {
+            Err(utf8(msg!(Id; err, "localizedDescription"))
+                .unwrap_or_else(|| "javascript error".into()))
+        } else if !result.is_null() && msg!(bool; result, "isKindOfClass:", Id = class("NSString"))
+        {
+            Ok(utf8(result).unwrap_or_default())
+        } else {
+            Ok(String::new())
+        }
+    }
+}
+
+/// Step 1 finished: the secret elements are hidden (or hiding failed). Capture, or go straight
+/// to the restore when masking failed so the capture is never taken.
+extern "C" fn chain_hidden(blk: *mut Blk, result: Id, err: Id) {
+    unsafe {
+        let chain = (*blk).data as *mut Chain;
+        let out = eval_outcome(result, err);
+        // The hide script returns JSON.stringify(String(n)) so the count arrives as a string.
+        (*chain).masked = out.map(|s| s.trim().trim_matches('"').parse().unwrap_or(0));
+        if (*chain).masked.is_err() {
+            let restore = (*chain).restore.clone();
+            chain_eval(chain, &restore, chain_restored);
+            return;
+        }
+        let config = msg!(Id; class("WKSnapshotConfiguration"), "new");
+        let bounds = msg!(NSRect; (*chain).wk, "bounds");
+        msg!((); config, "setRect:", NSRect = bounds);
+        let mut b = block(chain_shot as *const c_void, chain as *mut c_void);
+        msg!((); (*chain).wk, "takeSnapshotWithConfiguration:completionHandler:", Id = config, *mut Blk = &mut b);
         msg!((); config, "release");
-    })?;
-    rx.recv_timeout(Duration::from_secs(15))
+    }
+}
+
+fn encode_png(image: Id, err: Id) -> Result<Vec<u8>, String> {
+    unsafe {
+        if image.is_null() || !err.is_null() {
+            return Err(utf8(msg!(Id; err, "localizedDescription"))
+                .unwrap_or_else(|| "snapshot failed".into()));
+        }
+        let tiff = msg!(Id; image, "TIFFRepresentation");
+        let rep = msg!(Id; class("NSBitmapImageRep"), "imageRepWithData:", Id = tiff);
+        let png = msg!(Id; rep, "representationUsingType:properties:", u64 = 4, Id = std::ptr::null_mut());
+        if png.is_null() {
+            return Err("png encode failed".to_string());
+        }
+        let len = msg!(usize; png, "length");
+        let p = msg!(*const u8; png, "bytes");
+        Ok(std::slice::from_raw_parts(p, len).to_vec())
+    }
+}
+
+/// Step 2 finished: the pixels are in hand (or the snapshot failed). Always restore next.
+extern "C" fn chain_shot(blk: *mut Blk, image: Id, err: Id) {
+    unsafe {
+        let chain = (*blk).data as *mut Chain;
+        (*chain).png = Some(encode_png(image, err));
+        let restore = (*chain).restore.clone();
+        chain_eval(chain, &restore, chain_restored);
+    }
+}
+
+/// Step 3 finished: the page is back as it was. Report.
+extern "C" fn chain_restored(blk: *mut Blk, result: Id, err: Id) {
+    unsafe {
+        let chain = Box::from_raw((*blk).data as *mut Chain);
+        let restored = eval_outcome(result, err);
+        let Chain {
+            tx, masked, png, ..
+        } = *chain;
+        let out = match (masked, png, restored) {
+            (Err(e), _, _) => Err(format!("screenshot masking failed ({e}); capture refused")),
+            (Ok(_), _, Err(e)) => Err(format!("could not restore masked elements: {e}")),
+            (Ok(_), Some(Err(e)), _) => Err(e),
+            (Ok(n), Some(Ok(png)), Ok(_)) => Ok((png, n)),
+            (Ok(_), None, _) => Err("snapshot never ran".to_string()),
+        };
+        let _ = tx.send(out);
+    }
+}
+
+/// PNG of the webview via `takeSnapshotWithConfiguration:`, with the secret elements hidden for
+/// exactly the capture: `hide_js` (finishes pending animations on a hidden page, then hides the
+/// secrets; must produce the count as a string), the snapshot and `restore_js` run as one chain of
+/// completion handlers on the main thread, with no thread hop between them. A page that cannot
+/// run `hide_js` is never captured. A never-shown window runs no rendering updates, so CSS
+/// transitions stay pinned at their start value until the animations are finished; infinite
+/// animations throw from `finish()` and are left alone.
+pub fn screenshot_masked<R: Runtime>(
+    win: &WebviewWindow<R>,
+    hide_js: &str,
+    restore_js: &str,
+) -> Result<(Vec<u8>, u64), String> {
+    let (tx, rx) = channel::<Result<(Vec<u8>, u64), String>>();
+    let (hide, restore) = (hide_js.to_string(), restore_js.to_string());
+    win.with_webview(move |pv| unsafe {
+        let chain = Box::into_raw(Box::new(Chain {
+            tx,
+            wk: pv.inner(),
+            restore,
+            masked: Ok(0),
+            png: None,
+        }));
+        chain_eval(chain, &hide, chain_hidden);
+    })
+    .map_err(|e| e.to_string())?;
+    rx.recv_timeout(Duration::from_secs(30))
         .map_err(|_| "screenshot timed out".to_string())?
 }
 

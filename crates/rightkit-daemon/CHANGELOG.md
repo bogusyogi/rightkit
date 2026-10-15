@@ -1,6 +1,8 @@
 # Changelog
 
-## Unreleased
+## 0.2.3
+
+- Fixed: every request paid up to 40 ms after its handler had finished. The per-request thread that watches for a vanished peer slept 40 ms between checks and the request scope joined it, so a call that took microseconds returned after a sleep (about 44 ms per call measured through the in-app control server, for `ping` as much as for `eval`). The watcher now parks with a 40 ms timeout and is woken the moment the handler returns. Same behaviour otherwise: a closed peer is still noticed within 40 ms while the handler runs.
 
 - Tests: the 0.2.2 "Known issue" was a test defect, not a host bug. `leases_and_the_queue_survive_a_host_restart` never acked the leased task, and resending unacked leases on `hello` is the documented at-least-once behaviour. The test now acks, and expects the lease to be sent again with the same id and epoch after a restart (acks are not persisted). No library code changed.
 

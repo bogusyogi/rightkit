@@ -8,6 +8,10 @@
 //!   right-ctl heardright transcribe <file> [language=xx]   file transcription via the speech service
 //!   right-ctl run                                  JSON array [{"tool","args"}] on stdin, one session
 //!                                                  (desktop.*, browser.*, <app>.*, speech.*)
+//!   right-ctl <app> batch '{"steps":[{"method","params"}]}'   many control steps, one round trip
+//!
+//! Drive an app with `run` or `batch`, not one command per step: every separate call pays a
+//! process start and a connection, and a model turn between them.
 //!
 //! Options: --suite-root <abs path> (else RIGHTKIT_SUITE_ROOT / per-user default, fail-closed),
 //!          --journal <file> (content-free JSONL of started/denied/settled).

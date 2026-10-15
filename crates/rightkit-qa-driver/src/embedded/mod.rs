@@ -26,6 +26,16 @@
 //!   drag{x1,y1,x2,y2,steps?,button?,modifiers?}
 //!   pointer{phase:"down"|"drag"|"up"|"move",x,y,button?,modifiers?}
 //!   wheel{x,y,dx,dy}  key{key:"cmd+k"}  type{text}  eval{js}  dom{selector}
+//!   wait{js,timeoutMs?,intervalMs?} -> {matched,value|last,error?,elapsedMs}: one round trip that waits
+//!   in the page (MutationObserver, events, a short timer, rAF when visible) until the function body `js`
+//!   returns something truthy or `timeoutMs` (default 10000) passes. The predicate text is inlined into
+//!   the evaluated script, never `new Function`, so page CSP cannot block it.
+//!   batch{steps:[{method,params}]} -> {completed,results,stepMs} or {ok:false,failedStep,error,results}:
+//!   N steps in one round trip, stopped at the first failure; every step is checked against the caller's
+//!   allowlist and passes the effect gate / input lease on its own; `batch` cannot nest.
+//!   Pacing: click, drag, key and type send their native events back to back. The optional `paceMs`
+//!   (default 0, at most 5000) restores a gap between events; the former fixed pauses were about
+//!   click 40-50, drag 16, key 20, type 8. `type` dispatches real key down/up events per character.
 //!   set_viewport{width,height,settleMs?} -> {innerWidth,innerHeight,requestedWidth,requestedHeight,
 //!   settled,clamped,placementTimedOut,reason?} (CSS pixels; no activation). innerWidth/innerHeight
 //!   are READ BACK from the page after the request, once two consecutive readings agree (bound
@@ -37,9 +47,11 @@
 //!   a viewport taller than that comes back smaller with `clamped:true`. macOS control sizes the
 //!   frame without the visible-screen constraint (`UnconstrainedWindow`), so a window that stays
 //!   hidden usually reaches the request; do not rely on it, read `clamped`.
-//!   ax  screenshot{mask?:[selector]} -> {path,bytes,masked} (PNG in `<service dir>/shots/`,
-//!   owner-only; password/one-time-code/data-rk-secret elements and `mask` selectors are
-//!   hidden during capture so secrets never reach the file)
+//!   ax  screenshot{mask?:[selector],inline?:bool} -> {path,bytes,masked} (PNG in `<service dir>/shots/`,
+//!   owner-only) or, with `inline:true`, {bytes,masked,encoding:"base64",data} and no file;
+//!   password/one-time-code/data-rk-secret elements and `mask` selectors are
+//!   hidden during capture so secrets never reach the image (macOS hides, captures and restores in one
+//!   main-thread operation)
 //!   command{name,args}  typed app commands registered with `Control::command`
 //!   lease_acquire{reconcile?:"delivered"|"lost"}  lease_release{leaseEpoch}
 //!   lease_reconcile{leaseEpoch,decision}  lease_status
@@ -93,13 +105,27 @@ mod native {
     ) -> Result<(), String> {
         Err(NO.into())
     }
-    pub fn key<R: Runtime>(
+    pub fn mouse_batch<R: Runtime>(
         _: &WebviewWindow<R>,
-        _: bool,
-        _: u16,
-        _: &str,
-        _: u64,
+        _: &[super::MouseEv],
     ) -> Result<(), String> {
+        Err(NO.into())
+    }
+    pub fn keys<R: Runtime>(_: &WebviewWindow<R>, _: &[super::KeyEv]) -> Result<(), String> {
+        Err(NO.into())
+    }
+    pub fn wait_slice<R: Runtime>(
+        _: &WebviewWindow<R>,
+        _: &str,
+        _: std::time::Duration,
+    ) -> Result<String, String> {
+        Err(NO.into())
+    }
+    pub fn screenshot_masked<R: Runtime>(
+        _: &WebviewWindow<R>,
+        _: &str,
+        _: &str,
+    ) -> Result<(Vec<u8>, u64), String> {
         Err(NO.into())
     }
     pub fn wheel<R: Runtime>(
@@ -114,9 +140,6 @@ mod native {
     pub fn eval<R: Runtime>(_: &WebviewWindow<R>, _: &str) -> Result<String, String> {
         Err(NO.into())
     }
-    pub fn screenshot<R: Runtime>(_: &WebviewWindow<R>) -> Result<Vec<u8>, String> {
-        Err(NO.into())
-    }
     pub fn apply_viewport<R: Runtime>(_: &WebviewWindow<R>, _: u32, _: u32) -> Result<(), String> {
         Err(NO.into())
     }
@@ -127,39 +150,195 @@ mod native {
         Err(NO.into())
     }
 }
-/// Windows inserts characters with no virtual key through `Input.insertText`.
-#[cfg(windows)]
-fn type_char<R: Runtime>(win: &WebviewWindow<R>, c: char) -> Result<(), String> {
+/// One native keyboard step. Windows inserts characters with no virtual key through
+/// `Input.insertText` (`Text`); macOS only produces `Key`.
+#[derive(Clone, Debug, PartialEq)]
+pub enum KeyEv {
+    Key {
+        down: bool,
+        code: u16,
+        chars: String,
+        flags: u64,
+    },
+    #[cfg_attr(not(windows), allow(dead_code))]
+    Text(String),
+}
+
+/// One native pointer step.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct MouseEv {
+    pub kind: Mouse,
+    pub button: Button,
+    pub x: f64,
+    pub y: f64,
+    pub clicks: i64,
+    pub flags: u64,
+}
+
+/// The key down/up pair (or one text insertion) that types `c`.
+fn type_events(c: char) -> Vec<KeyEv> {
     let s = c.to_string();
+    #[cfg(windows)]
     if !c.is_ascii() {
-        return native::insert_text(win, &s);
+        return vec![KeyEv::Text(s)];
     }
     let code = keys::chord(&s.to_lowercase())
         .map(|(k, _)| k)
         .unwrap_or(0xFF);
-    let fl = if c.is_uppercase() {
+    let flags = if c.is_uppercase() {
         keys::FLAG_SHIFT
     } else {
         0
     };
-    key(win, true, code, &s, fl)?;
-    key(win, false, code, &s, fl)
+    vec![
+        KeyEv::Key {
+            down: true,
+            code,
+            chars: s.clone(),
+            flags,
+        },
+        KeyEv::Key {
+            down: false,
+            code,
+            chars: s,
+            flags,
+        },
+    ]
 }
-#[cfg(not(windows))]
-fn type_char<R: Runtime>(win: &WebviewWindow<R>, c: char) -> Result<(), String> {
-    let s = c.to_string();
-    let code = keys::chord(&s.to_lowercase())
-        .map(|(k, _)| k)
-        .unwrap_or(0xFF);
-    let fl = if c.is_uppercase() {
-        keys::FLAG_SHIFT
-    } else {
-        0
+
+/// Dispatch pointer events back to back (one native hop), or with `pace` ms between them.
+fn mouse_seq<R: Runtime>(win: &WebviewWindow<R>, evs: &[MouseEv], pace: u64) -> Result<(), String> {
+    if pace == 0 {
+        return native::mouse_batch(win, evs);
+    }
+    for (i, e) in evs.iter().enumerate() {
+        if i > 0 {
+            pause(pace);
+        }
+        mouse(win, e.kind, e.button, e.x, e.y, e.clicks, e.flags)?;
+    }
+    Ok(())
+}
+
+/// Dispatch key events back to back (one native hop), or `pace` ms apart.
+fn key_seq<R: Runtime>(win: &WebviewWindow<R>, evs: &[KeyEv], pace: u64) -> Result<(), String> {
+    if pace == 0 {
+        return native::keys(win, evs);
+    }
+    for (i, e) in evs.iter().enumerate() {
+        if i > 0 {
+            pause(pace);
+        }
+        native::keys(win, std::slice::from_ref(e))?;
+    }
+    Ok(())
+}
+
+/// Run `dispatch` (native events sent back to back) and return only once the page has handled
+/// them. WKWebView queues pointer and key events and handles each in a web-process round trip, so
+/// when they have all been dispatched they are not yet applied: a read right after would see the
+/// old page. On macOS this installs a counting capture listener for `event` (the DOM event the LAST
+/// native event produces), dispatches, and waits in the page until `expected` were counted; the queue
+/// is FIFO, so that proves the earlier ones were handled. The wait is bounded and silent when the
+/// page never counts them. Elsewhere the native call itself completes when the event is handled.
+#[cfg_attr(not(target_os = "macos"), allow(unused_variables))]
+fn settled<R: Runtime>(
+    win: &WebviewWindow<R>,
+    event: &str,
+    expected: usize,
+    dispatch: impl FnOnce() -> Result<(), String>,
+) -> Result<(), String> {
+    // A pointer move to where the pointer already is may produce no DOM event: do not wait long for it.
+    let base_bound = if event == "mousemove" { 300 } else { 2_000 };
+    #[cfg(target_os = "macos")]
+    {
+        eval(
+            win,
+            &format!("(function(){{window.__rkEvN=0;if(window.__rkEvH)removeEventListener(window.__rkEvT,window.__rkEvH,true);window.__rkEvT='{event}';window.__rkEvH=function(){{window.__rkEvN++}};addEventListener('{event}',window.__rkEvH,true);return '1'}})()"),
+        )?;
+        let sent = dispatch();
+        if sent.is_ok() {
+            let bound = base_bound + 20 * expected as u64;
+            let _ = wait_route(
+                win,
+                &format!("return window.__rkEvN>={expected};"),
+                bound,
+                5,
+            );
+        }
+        let _ = eval(
+            win,
+            "(function(){if(window.__rkEvH){removeEventListener(window.__rkEvT,window.__rkEvH,true);window.__rkEvH=null}return '1'})()",
+        );
+        sent
+    }
+    #[cfg(not(target_os = "macos"))]
+    dispatch()
+}
+
+/// Pointer events settled (see [`settled`]); with `pace` they are sent one at a time, spaced.
+fn mouse_settled<R: Runtime>(
+    win: &WebviewWindow<R>,
+    evs: &[MouseEv],
+    pace: u64,
+) -> Result<(), String> {
+    let Some(last) = evs.last() else {
+        return Ok(());
     };
-    key(win, true, code, &s, fl)?;
-    key(win, false, code, &s, fl)
+    if pace > 0 {
+        return mouse_seq(win, evs, pace);
+    }
+    let event = match last.kind {
+        Mouse::Down => "mousedown",
+        Mouse::Up => "mouseup",
+        Mouse::Move | Mouse::Drag => "mousemove",
+    };
+    let expected = evs
+        .iter()
+        .filter(|e| {
+            e.kind == last.kind
+                || (event == "mousemove" && matches!(e.kind, Mouse::Move | Mouse::Drag))
+        })
+        .count();
+    settled(win, event, expected, || mouse_seq(win, evs, 0))
 }
-use native::{apply_viewport, eval, key, mouse, read_viewport, screenshot, wheel};
+
+/// Dispatch key events and return only once the page has handled them. With `pace` the events are
+/// sent one at a time with that gap (the former behaviour); otherwise back to back in chunks, then
+/// settled on one `keyup` per key sent (see [`settled`]).
+fn keys_settled<R: Runtime>(
+    win: &WebviewWindow<R>,
+    evs: &[KeyEv],
+    pace: u64,
+) -> Result<(), String> {
+    if pace > 0 {
+        return key_seq(win, evs, pace);
+    }
+    let ups = evs
+        .iter()
+        .filter(|e| matches!(e, KeyEv::Key { down: false, .. }))
+        .count();
+    settled(win, "keyup", ups, || {
+        for chunk in evs.chunks(TYPE_CHUNK_EVENTS) {
+            key_seq(win, chunk, 0)?;
+        }
+        Ok(())
+    })
+}
+
+/// Optional per-request gap between native events; default 0.
+fn pace_ms(params: &Value) -> Result<u64, String> {
+    match params.get("paceMs") {
+        None | Some(Value::Null) => Ok(0),
+        Some(v) => v
+            .as_u64()
+            .filter(|n| *n <= MAX_PACE_MS)
+            .ok_or_else(|| format!("'paceMs' must be an integer in 0..={MAX_PACE_MS}")),
+    }
+}
+const MAX_PACE_MS: u64 = 5000;
+
+use native::{apply_viewport, eval, mouse, read_viewport, wheel};
 
 /// The real window behind the viewport core.
 struct NativeWindow<'a, R: Runtime>(&'a WebviewWindow<R>);
@@ -247,6 +426,8 @@ pub const METHODS: &[&str] = &[
     "screenshot",
     "set_viewport",
     "command",
+    "wait",
+    "batch",
     "lease_acquire",
     "lease_release",
     "lease_reconcile",
@@ -257,7 +438,7 @@ pub const METHODS: &[&str] = &[
 pub fn effect_kind(method: &str) -> Option<EffectKind> {
     match method {
         "click" | "move" | "drag" | "pointer" | "wheel" | "key" | "type" => Some(EffectKind::Input),
-        "eval" => Some(EffectKind::Script),
+        "eval" | "wait" => Some(EffectKind::Script),
         "screenshot" => Some(EffectKind::Capture),
         "command" | "set_viewport" => Some(EffectKind::Command),
         _ => None,
@@ -419,6 +600,7 @@ struct ControlHandler<R: Runtime> {
     shot_seq: AtomicU64,
     guards: Guards,
     viewport: ViewportCtx,
+    allow: Allowlist,
 }
 
 #[derive(Clone)]
@@ -444,7 +626,7 @@ fn serve<R: Runtime>(
         &format!("control:{label}"),
         0,
         env!("CARGO_PKG_VERSION"),
-        allow,
+        allow.clone(),
     );
     let handler = Arc::new(ControlHandler {
         app,
@@ -454,6 +636,7 @@ fn serve<R: Runtime>(
         shot_seq: AtomicU64::new(0),
         guards,
         viewport,
+        allow,
     });
     let hosted = host(&suite, cfg, handler)?;
     // Hosted releases on drop; the plugin keeps it for the life of the process.
@@ -464,13 +647,16 @@ fn serve<R: Runtime>(
 impl<R: Runtime> Handler for ControlHandler<R> {
     fn call(
         &self,
-        _cx: &CallContext,
+        cx: &CallContext,
         method: &str,
         params: &Value,
-        _emit: &Emit,
+        emit: &Emit,
     ) -> Result<Value, ServiceError> {
         if method == "health" {
             return Ok(json!({"ok": true, "service": "rightkit-control"}));
+        }
+        if method == "batch" {
+            return self.batch(cx, params, emit);
         }
         if let Some(r) = self.lease_method(method, params) {
             return r;
@@ -553,6 +739,9 @@ impl<R: Runtime> Handler for ControlHandler<R> {
     }
 }
 
+/// Most steps one `batch` may carry.
+pub const MAX_BATCH_STEPS: usize = 256;
+
 fn u64_param(params: &Value, key: &str) -> Result<u64, ServiceError> {
     params.get(key).and_then(Value::as_u64).ok_or_else(|| {
         ServiceError::new("lease_required", format!("input requires integer '{key}'"))
@@ -580,6 +769,72 @@ fn snapshot_json(s: crate::lease::LeaseSnapshot) -> Value {
 }
 
 impl<R: Runtime> ControlHandler<R> {
+    /// `batch{steps:[{method,params}]}`: run the steps in order, in one round trip, and stop at
+    /// the first failure. Each step is checked against the caller's allowlist and goes through
+    /// [`Handler::call`], so the effect gate and the input lease apply to it exactly as to a
+    /// single request. A failed step is reported in the (successful) reply with the results so far.
+    fn batch(&self, cx: &CallContext, params: &Value, emit: &Emit) -> Result<Value, ServiceError> {
+        let steps = params
+            .get("steps")
+            .and_then(Value::as_array)
+            .ok_or_else(|| ServiceError::new("bad_request", "batch needs a 'steps' array"))?;
+        if steps.len() > MAX_BATCH_STEPS {
+            return Err(ServiceError::new(
+                "bad_request",
+                format!("batch has {} steps; at most {MAX_BATCH_STEPS}", steps.len()),
+            ));
+        }
+        let mut plan = Vec::with_capacity(steps.len());
+        for (i, step) in steps.iter().enumerate() {
+            let m = step.get("method").and_then(Value::as_str).ok_or_else(|| {
+                ServiceError::new("bad_request", format!("step {i}: missing 'method'"))
+            })?;
+            if m == "batch" {
+                return Err(ServiceError::new(
+                    "bad_request",
+                    format!("step {i}: batch cannot nest"),
+                ));
+            }
+            if !self.allow.permits(cx.app(), m) {
+                return Err(ServiceError::new(
+                    "request_not_allowed",
+                    format!("step {i}: app '{}' may not call {m}", cx.app()),
+                ));
+            }
+            let mut p = step.get("params").cloned().unwrap_or_else(|| json!({}));
+            if m == "screenshot" && p.get("inline").is_none() {
+                p["inline"] = json!(true);
+            }
+            plan.push((m.to_string(), p));
+        }
+        let (mut results, mut step_ms) = (
+            Vec::with_capacity(plan.len()),
+            Vec::with_capacity(plan.len()),
+        );
+        for (i, (m, p)) in plan.iter().enumerate() {
+            let t = std::time::Instant::now();
+            match self.call(cx, m, p, emit) {
+                Ok(v) => {
+                    results.push(v);
+                    step_ms.push(t.elapsed().as_millis() as u64);
+                }
+                Err(e) => {
+                    return Ok(json!({
+                        "ok": false,
+                        "completed": i,
+                        "failedStep": i,
+                        "failedMethod": m,
+                        "errorCode": e.code,
+                        "error": format!("step {i} ({m}): {}: {}", e.code, e.message),
+                        "results": results,
+                        "stepMs": step_ms,
+                    }));
+                }
+            }
+        }
+        Ok(json!({"ok": true, "completed": results.len(), "results": results, "stepMs": step_ms}))
+    }
+
     /// `lease_*` methods; `None` when `method` is not one of them.
     fn lease_method(&self, method: &str, params: &Value) -> Option<Result<Value, ServiceError>> {
         if !method.starts_with("lease_") {
@@ -651,6 +906,9 @@ impl<R: Runtime> ControlHandler<R> {
             &self.viewport,
         ) {
             Ok(Out::Json(j)) => Ok(serde_json::from_str(&j).unwrap_or(Value::Null)),
+            Ok(Out::Png(p)) if params.get("inline").and_then(Value::as_bool) == Some(true) => Ok(
+                json!({"ok": true, "bytes": p.len(), "masked": MASKED_LAST.load(Ordering::SeqCst), "encoding": "base64", "data": crate::json::base64_encode(&p)}),
+            ),
             Ok(Out::Png(p)) => {
                 let n = self.shot_seq.fetch_add(1, Ordering::SeqCst);
                 let path = self.shots.join(format!("shot-{n}.png"));
@@ -672,6 +930,9 @@ fn ok() -> Result<Out, String> {
     Ok(Out::Json(r#"{"ok":true}"#.into()))
 }
 fn pause(ms: u64) {
+    if ms == 0 {
+        return;
+    }
     std::thread::sleep(Duration::from_millis(ms));
 }
 fn js_json<R: Runtime>(win: &WebviewWindow<R>, body: &str) -> Result<String, String> {
@@ -765,30 +1026,31 @@ fn route<R: Runtime>(
             Ok(Out::Json(outcome.to_json().to_string()))
         }
         "move" => {
-            mouse(
-                win,
-                Mouse::Move,
-                Button::Left,
-                n("x")?,
-                n("y")?,
-                0,
-                pointer_flags(params)?,
-            )?;
+            let flags = pointer_flags(params)?;
+            let ev = MouseEv {
+                kind: Mouse::Move,
+                button: Button::Left,
+                x: n("x")?,
+                y: n("y")?,
+                clicks: 0,
+                flags,
+            };
+            mouse_settled(win, &[ev], pace_ms(params)?)?;
             ok()
         }
         "pointer" => {
             let phase = pointer_phase(params)?;
             let button = pointer_button(params)?;
             let flags = pointer_flags(params)?;
-            mouse(
-                win,
-                phase,
+            let ev = MouseEv {
+                kind: phase,
                 button,
-                n("x")?,
-                n("y")?,
-                if phase == Mouse::Move { 0 } else { 1 },
+                x: n("x")?,
+                y: n("y")?,
+                clicks: if phase == Mouse::Move { 0 } else { 1 },
                 flags,
-            )?;
+            };
+            mouse_settled(win, &[ev], pace_ms(params)?)?;
             ok()
         }
         "click" => {
@@ -798,14 +1060,20 @@ fn route<R: Runtime>(
             // Optional held modifiers, e.g. {"modifiers":["shift"]}: carried on every
             // native mouse event, so the page sees e.shiftKey/metaKey/altKey/ctrlKey.
             let flags = pointer_flags(params)?;
-            mouse(win, Mouse::Move, Button::Left, x, y, 0, flags)?;
-            pause(50);
+            let ev = |kind, button, clicks| MouseEv {
+                kind,
+                button,
+                x,
+                y,
+                clicks,
+                flags,
+            };
+            let mut evs = vec![ev(Mouse::Move, Button::Left, 0)];
             for c in 1..=count {
-                mouse(win, Mouse::Down, btn, x, y, c, flags)?;
-                pause(40);
-                mouse(win, Mouse::Up, btn, x, y, c, flags)?;
-                pause(40);
+                evs.push(ev(Mouse::Down, btn, c));
+                evs.push(ev(Mouse::Up, btn, c));
             }
+            mouse_settled(win, &evs, pace_ms(params)?)?;
             ok()
         }
         "drag" => {
@@ -813,34 +1081,37 @@ fn route<R: Runtime>(
             let steps = num_field(b, "steps").unwrap_or(12.0).clamp(1.0, 200.0) as u32;
             let btn = pointer_button(params)?;
             let flags = pointer_flags(params)?;
-            mouse(win, Mouse::Move, Button::Left, x1, y1, 0, flags)?;
-            pause(50);
-            mouse(win, Mouse::Down, btn, x1, y1, 1, flags)?;
-            pause(50);
+            let ev = |kind, button, x, y| MouseEv {
+                kind,
+                button,
+                x,
+                y,
+                clicks: if kind == Mouse::Move { 0 } else { 1 },
+                flags,
+            };
+            let mut evs = vec![
+                ev(Mouse::Move, Button::Left, x1, y1),
+                ev(Mouse::Down, btn, x1, y1),
+            ];
             for i in 1..=steps {
                 let t = i as f64 / steps as f64;
-                mouse(
-                    win,
-                    Mouse::Drag,
-                    btn,
-                    x1 + (x2 - x1) * t,
-                    y1 + (y2 - y1) * t,
-                    1,
-                    flags,
-                )?;
-                pause(16);
+                evs.push(ev(Mouse::Drag, btn, x1 + (x2 - x1) * t, y1 + (y2 - y1) * t));
             }
-            mouse(win, Mouse::Up, btn, x2, y2, 1, flags)?;
+            evs.push(ev(Mouse::Up, btn, x2, y2));
+            mouse_settled(win, &evs, pace_ms(params)?)?;
             ok()
         }
         "wheel" => {
-            wheel(
-                win,
-                n("x")?,
-                n("y")?,
+            let (x, y) = (n("x")?, n("y")?);
+            let (dx, dy) = (
                 num_field(b, "dx").unwrap_or(0.0),
                 num_field(b, "dy").unwrap_or(0.0),
-            )?;
+            );
+            if dx == 0.0 && dy == 0.0 {
+                wheel(win, x, y, dx, dy)?;
+            } else {
+                settled(win, "wheel", 1, || wheel(win, x, y, dx, dy))?;
+            }
             ok()
         }
         "key" => {
@@ -871,18 +1142,37 @@ fn route<R: Runtime>(
                 ch = c.to_string();
                 flags |= extra;
             }
-            key(win, true, code, &ch, flags)?;
-            pause(20);
-            key(win, false, code, &ch, flags)?;
+            let evs = [
+                KeyEv::Key {
+                    down: true,
+                    code,
+                    chars: ch.clone(),
+                    flags,
+                },
+                KeyEv::Key {
+                    down: false,
+                    code,
+                    chars: ch,
+                    flags,
+                },
+            ];
+            keys_settled(win, &evs, pace_ms(params)?)?;
             ok()
         }
         "type" => {
             let text = str_field(b, "text").ok_or("missing 'text'")?;
-            for c in text.chars() {
-                type_char(win, c)?;
-                pause(8);
-            }
+            let pace = pace_ms(params)?;
+            // Real key down/up events per character (keydown/keypress/keyup listeners fire), sent
+            // back to back: one native hop per chunk, not two round trips per character.
+            let evs: Vec<KeyEv> = text.chars().flat_map(type_events).collect();
+            keys_settled(win, &evs, pace)?;
             ok()
+        }
+        "wait" => {
+            let js = str_field(b, "js").ok_or("missing 'js'")?;
+            let timeout = bounded_ms(params, "timeoutMs", 10_000, 1, MAX_WAIT_MS)?;
+            let interval = bounded_ms(params, "intervalMs", 20, 1, 5_000)?;
+            wait_route(win, &js, timeout, interval)
         }
         "eval" => {
             let js = str_field(b, "js").ok_or("missing 'js'")?;
@@ -925,17 +1215,17 @@ fn route<R: Runtime>(
                 .collect::<Vec<_>>()
                 .join(",");
             let sel_json = serde_json::to_string(&selectors).map_err(|e| e.to_string())?;
+            // Hide, capture and restore as one operation (one main-thread operation on macOS).
+            // Masking failure discards the capture; a restore failure is an error.
             let hide = format!(
-                "const els=Array.from(document.querySelectorAll({sel_json}));window.__rkMasked=els.map(e=>[e,e.style.getPropertyValue('visibility'),e.style.getPropertyPriority('visibility')]);for(const e of els)e.style.setProperty('visibility','hidden','important');return els.length;"
+                "try{{if(document.visibilityState==='hidden')for(const a of document.getAnimations()){{try{{a.finish()}}catch(e){{}}}}}}catch(e){{}}const els=Array.from(document.querySelectorAll({sel_json}));window.__rkMasked=els.map(e=>[e,e.style.getPropertyValue('visibility'),e.style.getPropertyPriority('visibility')]);for(const e of els)e.style.setProperty('visibility','hidden','important');return String(els.length);"
             );
-            let masked = js_json(win, &hide)
-                .map_err(|e| format!("screenshot masking failed ({e}); capture refused"))?;
-            let shot = screenshot(win);
-            let restore = "for(const [e,v,p] of (window.__rkMasked||[])){if(v)e.style.setProperty('visibility',v,p);else e.style.removeProperty('visibility');}window.__rkMasked=[];return true;";
-            let restored = js_json(win, restore);
-            let png = shot?;
-            restored.map_err(|e| format!("could not restore masked elements: {e}"))?;
-            MASKED_LAST.store(masked.trim().parse().unwrap_or(0), Ordering::SeqCst);
+            let (png, masked) = native::screenshot_masked(
+                win,
+                &format!("JSON.stringify((function(){{{hide}}})())"),
+                SCREENSHOT_RESTORE,
+            )?;
+            MASKED_LAST.store(masked, Ordering::SeqCst);
             Ok(Out::Png(png))
         }
         "command" => {
@@ -950,6 +1240,91 @@ fn route<R: Runtime>(
             )))
         }
         _ => Err(format!("unknown method {method}")),
+    }
+}
+
+/// Key events (down and up count separately) sent per native hop by a paceless `type`.
+const TYPE_CHUNK_EVENTS: usize = 128;
+/// Largest `timeoutMs` for `wait`.
+const MAX_WAIT_MS: u64 = 600_000;
+/// One in-page wait slice; the route loops slices up to the total timeout.
+const WAIT_SLICE_MS: u64 = 5_000;
+/// Restores what the screenshot hide script changed; idempotent.
+const SCREENSHOT_RESTORE: &str = "JSON.stringify((function(){for(const [e,v,p] of (window.__rkMasked||[])){if(v)e.style.setProperty('visibility',v,p);else e.style.removeProperty('visibility');}window.__rkMasked=[];return true;})())";
+
+fn bounded_ms(params: &Value, key: &str, default: u64, min: u64, max: u64) -> Result<u64, String> {
+    match params.get(key) {
+        None | Some(Value::Null) => Ok(default),
+        Some(v) => v
+            .as_u64()
+            .filter(|n| (min..=max).contains(n))
+            .ok_or_else(|| format!("'{key}' must be an integer in {min}..={max}")),
+    }
+}
+
+/// The in-page waiter for one slice: a Promise that resolves with a JSON string
+/// `{"done":true,"value":..,"ms":..}` as soon as the predicate is truthy, or
+/// `{"done":false,"last":..,"err":..,"ms":..}` at `slice_ms`. The predicate body is inlined here,
+/// never built with `new Function`, so a strict page CSP cannot block it. Re-evaluated on DOM
+/// mutations, common UI events, a short interval and (when visible) every frame; a hidden page
+/// runs no rAF and may throttle timers, so mutations and events carry it there.
+fn wait_script(body: &str, slice_ms: u64, interval_ms: u64) -> String {
+    const TEMPLATE: &str = r#"(function(){return new Promise(function(__res){
+var __t0=performance.now(),__done=false,__last=null,__err=null,__obs=null,__iv=0,__to=0,__raf=0;
+var __evs=['input','change','click','keyup','keydown','transitionend','animationend','load','focusin','focusout','scroll','pointerup'];
+var __pred=function(){__BODY__
+};
+function __ok(v){return v!==null&&v!==undefined&&v!==false&&v!==0&&v!==''&&!(typeof v==='number'&&isNaN(v));}
+function __fin(done){if(__done)return;__done=true;try{if(__obs)__obs.disconnect();}catch(e){}clearInterval(__iv);clearTimeout(__to);if(__raf)cancelAnimationFrame(__raf);for(var i=0;i<__evs.length;i++)document.removeEventListener(__evs[i],__chk,true);var key=done?'value':'last';var o={done:done,ms:performance.now()-__t0,err:__err};o[key]=__last;var out;try{out=JSON.stringify(o);}catch(e){o[key]=String(__last);out=JSON.stringify(o);}__res(out);}
+function __chk(){if(__done)return;try{var v=__pred();if(__ok(v)){__last=v;__fin(true);return;}__last=v===undefined?null:v;__err=null;}catch(e){__err=String(e&&e.message||e);}}
+__chk();if(__done)return;
+try{__obs=new MutationObserver(__chk);__obs.observe(document,{subtree:true,childList:true,attributes:true,characterData:true});}catch(e){}
+for(var i=0;i<__evs.length;i++)document.addEventListener(__evs[i],__chk,true);
+__iv=setInterval(__chk,__INTERVAL__);
+if(document.visibilityState==='visible'){var __f=function(){if(__done)return;__chk();__raf=requestAnimationFrame(__f);};__raf=requestAnimationFrame(__f);}
+__to=setTimeout(function(){__chk();__fin(false);},__SLICE__);
+});})()"#;
+    TEMPLATE
+        .replace("__INTERVAL__", &interval_ms.to_string())
+        .replace("__SLICE__", &slice_ms.to_string())
+        .replace("__BODY__", body)
+}
+
+/// Wait in the page for `js` to return something truthy; slices of at most [`WAIT_SLICE_MS`]
+/// until `timeout_ms`. Reports what it saw; a timeout is a result (`matched:false`), not an error.
+fn wait_route<R: Runtime>(
+    win: &WebviewWindow<R>,
+    js: &str,
+    timeout_ms: u64,
+    interval_ms: u64,
+) -> Result<Out, String> {
+    let start = std::time::Instant::now();
+    let mut last = Value::Null;
+    let mut err;
+    loop {
+        let remaining = timeout_ms.saturating_sub(start.elapsed().as_millis() as u64);
+        let slice = remaining.clamp(1, WAIT_SLICE_MS);
+        let script = wait_script(js, slice, interval_ms);
+        match native::wait_slice(win, &script, Duration::from_millis(slice + 3_000)) {
+            Ok(raw) => {
+                let v: Value =
+                    serde_json::from_str(&raw).map_err(|e| format!("wait reply: {e}"))?;
+                if v["done"] == json!(true) {
+                    return Ok(Out::Json(
+                        json!({"ok": true, "matched": true, "value": v["value"], "elapsedMs": start.elapsed().as_millis() as u64}).to_string(),
+                    ));
+                }
+                last = v["last"].clone();
+                err = v["err"].clone();
+            }
+            // A slice the page never completed (script error, throttled timers): report it.
+            Err(e) => err = json!(e),
+        }
+        if start.elapsed().as_millis() as u64 >= timeout_ms {
+            return Ok(Out::Json(
+                json!({"ok": true, "matched": false, "last": last, "error": err, "elapsedMs": start.elapsed().as_millis() as u64}).to_string(),
+            ));
+        }
     }
 }
 
@@ -993,6 +1368,48 @@ mod tests {
         for m in ["health", "dom", "ax", "lease_status", "lease_acquire"] {
             assert_eq!(effect_kind(m), None, "{m}");
         }
+    }
+    #[test]
+    fn pace_defaults_to_zero_and_is_bounded() {
+        assert_eq!(pace_ms(&json!({})).unwrap(), 0);
+        assert_eq!(pace_ms(&json!({"paceMs": null})).unwrap(), 0);
+        assert_eq!(pace_ms(&json!({"paceMs": 40})).unwrap(), 40);
+        for bad in [json!(-1), json!(5001), json!("8"), json!(1.5)] {
+            assert!(pace_ms(&json!({"paceMs": bad})).is_err(), "{bad}");
+        }
+    }
+    #[test]
+    fn new_methods_are_listed_and_classified() {
+        assert!(METHODS.contains(&"wait") && METHODS.contains(&"batch"));
+        // `wait` runs page script: gated like eval. `batch` gates each step itself.
+        assert_eq!(effect_kind("wait"), Some(EffectKind::Script));
+        assert_eq!(effect_kind("batch"), None);
+    }
+    #[test]
+    fn wait_script_inlines_the_predicate_and_never_uses_new_function() {
+        let s = wait_script("return window.__x === 1; // note", 4000, 15);
+        assert!(s.contains("return window.__x === 1; // note\n}"), "{s}");
+        assert!(s.contains("setInterval(__chk,15)") && s.contains("},4000);"));
+        assert!(!s.contains("new Function") && !s.contains("eval("));
+        assert!(!s.contains("__BODY__") && !s.contains("__SLICE__") && !s.contains("__INTERVAL__"));
+    }
+    #[test]
+    fn type_events_are_a_key_down_up_pair() {
+        let evs = type_events('a');
+        assert_eq!(evs.len(), 2);
+        assert!(matches!(&evs[0], KeyEv::Key { down: true, chars, .. } if chars == "a"));
+        assert!(matches!(&evs[1], KeyEv::Key { down: false, .. }));
+    }
+    #[test]
+    fn secret_selectors_cover_credentials() {
+        for s in ["input[type=password]", "one-time-code", "data-rk-secret"] {
+            assert!(SECRET_SELECTORS.contains(s), "{s}");
+        }
+        // The restore script undoes exactly what the hide script records, and is idempotent.
+        assert!(
+            SCREENSHOT_RESTORE.contains("__rkMasked")
+                && SCREENSHOT_RESTORE.contains("removeProperty('visibility')")
+        );
     }
     #[test]
     fn viewport_dimensions_are_bounded_integers() {

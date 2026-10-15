@@ -172,3 +172,47 @@ mod tests {
         assert_ne!(id, new_id());
     }
 }
+
+/// Decode standard base64 (padding optional, whitespace ignored); `None` on any other byte.
+pub fn base64_decode(s: &str) -> Option<Vec<u8>> {
+    let mut out = Vec::with_capacity(s.len() * 3 / 4);
+    let (mut acc, mut bits) = (0u32, 0u32);
+    for c in s.bytes() {
+        let v = match c {
+            b'A'..=b'Z' => c - b'A',
+            b'a'..=b'z' => c - b'a' + 26,
+            b'0'..=b'9' => c - b'0' + 52,
+            b'+' => 62,
+            b'/' => 63,
+            b'=' | b'\n' | b'\r' | b' ' => continue,
+            _ => return None,
+        } as u32;
+        acc = (acc << 6) | v;
+        bits += 6;
+        if bits >= 8 {
+            bits -= 8;
+            out.push((acc >> bits) as u8);
+            acc &= (1 << bits) - 1;
+        }
+    }
+    Some(out)
+}
+
+#[cfg(test)]
+mod base64_tests {
+    use super::base64_decode;
+    #[test]
+    fn decodes_rfc4648_vectors_and_rejects_junk() {
+        for (i, o) in [
+            ("", ""),
+            ("Zg==", "f"),
+            ("Zm8=", "fo"),
+            ("Zm9v", "foo"),
+            ("Zm9vYg==", "foob"),
+            ("Zm9vYmFy", "foobar"),
+        ] {
+            assert_eq!(base64_decode(i).unwrap(), o.as_bytes());
+        }
+        assert!(base64_decode("Zm9v!").is_none());
+    }
+}

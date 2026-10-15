@@ -285,8 +285,11 @@ impl<'a> Ctx<'a> {
                     }
                     if mode != Mode::Visible && !r.owned_never_frontmost {
                         problems.push(format!(
-                            "owned UI process reached foreground: {:?}",
-                            r.owned_frontmost_pids
+                            "background proof failed: {} (states {:?}, owned frontmost pids {:?}, pid unreadable in {} sample(s))",
+                            r.owned_never_frontmost_failure.as_deref().unwrap_or("unknown"),
+                            r.frontmost_states,
+                            r.owned_frontmost_pids,
+                            r.frontmost_pid_unavailable_samples
                         ));
                     }
                 }
@@ -436,12 +439,16 @@ pub struct StepRecord {
     pub error: Option<String>,
 }
 
+/// Default gap between `until` retries. The retried check is local to the harness (a UI read or an
+/// engine call), so a long gap is dead time; override per step with `interval_ms`.
+pub const DEFAULT_UNTIL_INTERVAL_MS: u64 = 25;
+
 /// Run one step including retry-until-expectations-hold.
 pub fn run_step(ctx: &mut Ctx, step: &Step) -> Result<Value> {
     ctx.step_no += 1;
     let started = Instant::now();
     let until = step.until_timeout_s.map(Duration::from_secs);
-    let interval = Duration::from_millis(step.interval_ms.unwrap_or(500));
+    let interval = Duration::from_millis(step.interval_ms.unwrap_or(DEFAULT_UNTIL_INTERVAL_MS));
     loop {
         let attempt: Result<Value> = (|| {
             let resolved = interpolate(
@@ -702,12 +709,15 @@ fn exec(ctx: &mut Ctx, kind: &str, p: &Map<String, Value>) -> Result<Value> {
             }
             if mode != Mode::Visible && !r.owned_never_frontmost {
                 return err(format!(
-                    "owned UI process reached foreground: {:?}",
-                    r.owned_frontmost_pids
+                    "background proof failed: {} (states {:?}, owned frontmost pids {:?}, pid unreadable in {} sample(s))",
+                    r.owned_never_frontmost_failure.as_deref().unwrap_or("unknown"),
+                    r.frontmost_states,
+                    r.owned_frontmost_pids,
+                    r.frontmost_pid_unavailable_samples
                 ));
             }
             Ok(
-                json!({"pid": r.pid, "endpoint_closed": r.endpoint_closed, "process_gone": r.process_gone, "frontmost_unchanged": r.frontmost_unchanged, "owned_never_frontmost": r.owned_never_frontmost, "owned_frontmost_pids": r.owned_frontmost_pids}),
+                json!({"pid": r.pid, "endpoint_closed": r.endpoint_closed, "process_gone": r.process_gone, "frontmost_unchanged": r.frontmost_unchanged, "owned_never_frontmost": r.owned_never_frontmost, "owned_frontmost_pids": r.owned_frontmost_pids, "frontmost_pid_unavailable_samples": r.frontmost_pid_unavailable_samples, "owned_never_frontmost_failure": r.owned_never_frontmost_failure}),
             )
         }
         "ui_auth_probe" => {
@@ -776,10 +786,39 @@ fn exec(ctx: &mut Ctx, kind: &str, p: &Map<String, Value>) -> Result<Value> {
         "ui_screenshot" => {
             let name = ps_opt(p, "name").unwrap_or_else(|| format!("shot-{:02}", ctx.step_no));
             let path = ctx.log_dir.join(format!("{name}.png"));
-            ctx.ui()?.screenshot_to(&path)?;
-            let size = media::png_size(&path)?;
-            ctx.artifact(&format!("{name}.png"), path.clone());
+            let png = ctx.ui()?.screenshot_png()?;
+            let size = media::png_size_bytes(&png, &path)?;
+            if let Some(dir) = path.parent() {
+                std::fs::create_dir_all(dir)?;
+            }
+            std::fs::write(&path, &png)?;
+            // Only evidence is hashed into the bundle; `evidence = false` keeps a working capture out of it.
+            if pv(p, "evidence").and_then(Value::as_bool) != Some(false) {
+                ctx.artifact(&format!("{name}.png"), path.clone());
+            }
             Ok(json!({"path": path.to_string_lossy(), "size": size}))
+        }
+        "ui_batch" => {
+            // `steps = [{method = "click", params = {x = 1, y = 2}}, ...]`: one round trip.
+            let steps: Vec<(String, Value)> = pv(p, "steps")
+                .and_then(Value::as_array)
+                .ok_or_else(|| Error("ui_batch needs a `steps` array".into()))?
+                .iter()
+                .map(|s| {
+                    let m = s
+                        .get("method")
+                        .and_then(Value::as_str)
+                        .ok_or_else(|| Error("ui_batch step needs a `method`".into()))?;
+                    Ok((
+                        m.to_string(),
+                        s.get("params").cloned().unwrap_or_else(|| json!({})),
+                    ))
+                })
+                .collect::<Result<_>>()?;
+            let refs: Vec<(&str, Value)> =
+                steps.iter().map(|(m, p)| (m.as_str(), p.clone())).collect();
+            let results = ctx.ui()?.batch(&refs)?;
+            Ok(json!({"results": results}))
         }
         "ui_measure_paint" => {
             let c = ctx.ui()?;

@@ -161,6 +161,7 @@ fn px(v: f64) -> u32 {
 /// reading at all the last error is returned.
 pub fn settle(
     cfg: &ViewportCfg,
+    target: Option<(u32, u32)>,
     mut read: impl FnMut(Duration) -> Result<(f64, f64), String>,
     mut elapsed: impl FnMut() -> Duration,
     mut wait: impl FnMut(Duration),
@@ -176,7 +177,8 @@ pub fn settle(
         ) {
             Ok((w, h)) if w > 0.0 && h > 0.0 => {
                 let size = (px(w), px(h));
-                if last == Some(size) {
+                // A reading equal to the request is the answer: nothing left to wait for.
+                if last == Some(size) || target == Some(size) {
                     return Ok((size, true));
                 }
                 last = Some(size);
@@ -208,9 +210,27 @@ pub fn set_viewport<W: ViewportWindow>(
     cfg: &ViewportCfg,
 ) -> Result<ViewportOutcome, String> {
     let placed = gate.wait(label, cfg.placement_wait);
+    let target = (width, height);
+    // Already at the requested size (after any shell placement): report it, apply nothing.
+    if let Ok((w, h)) = win.read(Duration::from_millis(250)) {
+        if w > 0.0 && h > 0.0 && (px(w), px(h)) == target {
+            return Ok(ViewportOutcome {
+                requested: target,
+                size: target,
+                settled: true,
+                placement_timed_out: !placed,
+            });
+        }
+    }
     win.apply(width, height)?;
     let start = Instant::now();
-    let (size, settled) = settle(cfg, |t| win.read(t), || start.elapsed(), std::thread::sleep)?;
+    let (size, settled) = settle(
+        cfg,
+        Some(target),
+        |t| win.read(t),
+        || start.elapsed(),
+        std::thread::sleep,
+    )?;
     Ok(ViewportOutcome {
         requested: (width, height),
         size,
@@ -354,6 +374,7 @@ mod tests {
         let cfg = ViewportCfg::default();
         let r = settle(
             &cfg,
+            None,
             |_| it.next().unwrap(),
             || clock.get(),
             |d| clock.set(clock.get() + d),
@@ -364,10 +385,41 @@ mod tests {
     }
 
     #[test]
+    fn a_reading_equal_to_the_request_returns_at_once() {
+        let win = Fake::new(None, false);
+        win.place(1440.0, 900.0);
+        let t = Instant::now();
+        let out =
+            set_viewport(&win, &PlacementGate::default(), "main", 1440, 900, &fast()).unwrap();
+        assert_eq!(out.size, (1440, 900));
+        assert!(out.settled && !out.clamped());
+        assert_eq!(
+            win.reads.load(Ordering::SeqCst),
+            1,
+            "one read, no apply, no confirm"
+        );
+        assert!(t.elapsed() < Duration::from_millis(200));
+        // After an apply that lands on the request, the first reading ends the wait.
+        let win = Fake::new(None, false);
+        let clock = Cell::new(Duration::ZERO);
+        let r = settle(
+            &fast(),
+            Some((800, 600)),
+            |_| win.read(Duration::ZERO),
+            || clock.get(),
+            |d| clock.set(clock.get() + d),
+        )
+        .unwrap();
+        assert_eq!(r, ((800, 600), true));
+        assert_eq!(clock.get(), Duration::ZERO);
+    }
+
+    #[test]
     fn settle_without_any_reading_reports_the_error() {
         let clock = Cell::new(Duration::ZERO);
         let e = settle(
             &ViewportCfg::default(),
+            None,
             |_| Err("eval timed out".to_string()),
             || clock.get(),
             |d| clock.set(clock.get() + d),

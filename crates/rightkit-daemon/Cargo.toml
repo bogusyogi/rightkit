@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-daemon"
-version = "0.2.2"
+version = "0.2.3"
 edition = "2021"
 rust-version = "1.98.0"
 description = "One discovery/auth convention for Right Suite local services: service.json, ranking and takeover, current-user-only Unix socket / named pipe, per-app request allowlist."

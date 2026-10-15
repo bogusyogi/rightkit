@@ -74,6 +74,14 @@ pub struct StopReport {
     pub owned_never_frontmost: bool,
     /// Owned fixture PIDs observed in foreground, if any.
     pub owned_frontmost_pids: Vec<u32>,
+    /// Foreground samples whose owner pid could not be read (macOS: the frontmost application;
+    /// Windows: the foreground window's owner). Any such sample makes `owned_never_frontmost`
+    /// false: an unread owner proves nothing.
+    pub frontmost_pid_unavailable_samples: usize,
+    /// Why `owned_never_frontmost` is false, in words that tell "an owned app WAS frontmost"
+    /// from "the frontmost pid could not be read" and from "the owned executable was never
+    /// registered". `None` when the guard holds or was not enforced.
+    pub owned_never_frontmost_failure: Option<String>,
 }
 
 impl StopReport {
@@ -98,6 +106,9 @@ pub struct Control {
     frontmost_before: Option<String>,
     focus: Option<FocusMonitor>,
     request_timeout: Duration,
+    worker: Mutex<Option<Worker>>,
+    /// Gap between native input events asked of the app (`paceMs`); 0 sends none.
+    pace_ms: u64,
     stopped: bool,
 }
 
@@ -125,21 +136,71 @@ fn bounded<T: Send + 'static>(
     rx.recv_timeout(timeout).ok()
 }
 
+type Job = Box<dyn FnOnce() + Send>;
+
+/// A reused call thread: requests are handed to it instead of spawning a thread per call. A
+/// call that times out abandons it (the abort ends its call, then it exits) and the next call
+/// starts a fresh one.
+struct Worker {
+    jobs: std::sync::mpsc::Sender<Job>,
+}
+
+impl Worker {
+    fn spawn() -> Self {
+        let (jobs, rx) = std::sync::mpsc::channel::<Job>();
+        std::thread::spawn(move || {
+            for job in rx {
+                job();
+            }
+        });
+        Worker { jobs }
+    }
+}
+
 fn call_bounded(
     client: &Arc<Client>,
+    slot: &Mutex<Option<Worker>>,
     method: &str,
     params: Value,
     timeout: Duration,
 ) -> std::result::Result<Value, CallError> {
-    let c = client.clone();
-    let m = method.to_string();
-    match bounded(timeout, move || c.call(&m, params)) {
-        Some(r) => r.map_err(CallError::Service),
-        None => {
+    let (tx, rx) = std::sync::mpsc::channel();
+    let (c, m) = (client.clone(), method.to_string());
+    let mut job: Option<Job> = Some(Box::new(move || {
+        let _ = tx.send(c.call(&m, params));
+    }));
+    {
+        let mut w = slot.lock().unwrap();
+        for _ in 0..2 {
+            let worker = w.get_or_insert_with(Worker::spawn);
+            match worker.jobs.send(job.take().unwrap()) {
+                Ok(()) => break,
+                Err(e) => {
+                    // The thread is gone: take the job back and start another.
+                    job = Some(e.0);
+                    *w = None;
+                }
+            }
+        }
+        if job.is_some() {
+            return Err(CallError::TimedOut);
+        }
+    }
+    match rx.recv_timeout(timeout) {
+        Ok(r) => r.map_err(CallError::Service),
+        Err(_) => {
             client.abort();
+            *slot.lock().unwrap() = None;
             Err(CallError::TimedOut)
         }
     }
+}
+
+/// The app's driver predates the `wait` method (or does not allow it).
+fn wait_unsupported(msg: &str) -> bool {
+    msg.contains("unknown method")
+        || msg.contains("request_not_allowed")
+        || msg.contains("not allowed")
 }
 
 fn connect_bounded(suite: &Suite, service: &str, timeout: Duration) -> Result<Client> {
@@ -251,6 +312,28 @@ fn windows_owned_never_frontmost(
     !enforce_owned || (unreadable_owners == 0 && observed.is_empty())
 }
 
+/// Why the background proof failed, most specific first: an owned process WAS in front, the
+/// foreground owner could not be read, the owned executable was never registered, or other samples
+/// were unmeasurable. It is only called when the proof already failed, so it never relaxes it.
+fn owned_failure_reason(
+    observed: &[u32],
+    unavailable: usize,
+    registered: bool,
+    unmeasured: usize,
+) -> String {
+    if !observed.is_empty() {
+        format!("an owned app process was frontmost (pid {observed:?})")
+    } else if unavailable > 0 {
+        format!("the foreground owner's pid could not be read in {unavailable} sample(s); the background proof fails closed")
+    } else if !registered {
+        "the owned executable was never registered before launch, so startup samples could not be attributed".to_string()
+    } else if unmeasured > 0 {
+        format!("{unmeasured} foreground sample(s) were unmeasurable (name or owned-process inventory unavailable); the background proof fails closed")
+    } else {
+        "the background proof did not hold".to_string()
+    }
+}
+
 /// Samples the foreground on its own thread for the whole life of a control session, so
 /// a transient steal (focus leaves and returns) is caught, and an unmeasurable
 /// foreground is reported as such instead of comparing equal.
@@ -335,6 +418,7 @@ impl FocusMonitor {
                     }
                     None => {
                         // An unmeasurable PID makes the strict background proof fail.
+                        _unreadable.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
                         let mut g = seen.lock().unwrap_or_else(|e| e.into_inner());
                         g.1 += 1;
                     }
@@ -376,8 +460,9 @@ impl FocusMonitor {
     fn track_prefix(&self, prefix: String) {
         self.owned.lock().unwrap_or_else(|e| e.into_inner()).1 = Some(prefix);
     }
-    /// `(unchanged, states, owned_never_frontmost, owned_frontmost_pids)`.
-    fn finish(&mut self) -> (bool, Vec<String>, bool, Vec<u32>) {
+    /// `(unchanged, states, owned_never_frontmost, owned_frontmost_pids, pid_unavailable_samples,
+    /// failure reason)`.
+    fn finish(&mut self) -> (bool, Vec<String>, bool, Vec<u32>, usize, Option<String>) {
         self.stop.store(true, std::sync::atomic::Ordering::SeqCst);
         if let Some(t) = self.thread.take() {
             let _ = t.join();
@@ -412,7 +497,23 @@ impl FocusMonitor {
         // No native foreground-PID sampler exists on this target; background claims fail
         // closed instead of treating name-only sampling as proof.
         let owned_never_frontmost = !self.enforce_owned;
-        (unchanged, g.2.clone(), owned_never_frontmost, observed)
+        let unavailable = self
+            .unreadable_owners
+            .load(std::sync::atomic::Ordering::SeqCst);
+        #[cfg(target_os = "macos")]
+        let registered = identity_registered;
+        #[cfg(not(target_os = "macos"))]
+        let registered = true;
+        let failure = (!owned_never_frontmost)
+            .then(|| owned_failure_reason(&observed, unavailable, registered, g.1));
+        (
+            unchanged,
+            g.2.clone(),
+            owned_never_frontmost,
+            observed,
+            unavailable,
+            failure,
+        )
     }
 }
 
@@ -709,6 +810,11 @@ pub fn launch(spec: &LaunchSpec, ws: &QaWorkspace, tracker: &Tracker) -> Result<
         frontmost_before,
         focus: Some(focus),
         request_timeout: Duration::from_secs(20),
+        worker: Mutex::new(None),
+        pace_ms: std::env::var("RIGHTKIT_QA_PACE_MS")
+            .ok()
+            .and_then(|v| v.trim().parse().ok())
+            .unwrap_or(0),
         stopped: false,
     };
     loop {
@@ -741,8 +847,12 @@ pub fn launch(spec: &LaunchSpec, ws: &QaWorkspace, tracker: &Tracker) -> Result<
     // The server comes up before the window exists (hidden launch): wait until the page
     // itself answers, so the first scenario step never races window creation.
     loop {
-        if let Ok(Value::String(state)) = control.eval("return document.readyState;") {
-            if state == "complete" || state == "interactive" {
+        // `about:blank` reports "complete" before the app's page has even started loading.
+        if let Ok(Value::String(state)) =
+            control.eval("return document.readyState + ' ' + location.href;")
+        {
+            let (ready, href) = state.split_once(' ').unwrap_or((&state, ""));
+            if (ready == "complete" || ready == "interactive") && href != "about:blank" {
                 break;
             }
         }
@@ -756,7 +866,7 @@ pub fn launch(spec: &LaunchSpec, ws: &QaWorkspace, tracker: &Tracker) -> Result<
                 non_interactive_hint()
             ));
         }
-        sleep_ms(100);
+        sleep_ms(20);
     }
     Ok(control)
 }
@@ -925,6 +1035,10 @@ impl Control {
     /// reached the app is replayed only when the method is a pure read; effects
     /// (click, key, type, command, eval, ...) are never silently executed twice.
     fn rpc(&self, method: &str, params: Value) -> Result<Value> {
+        self.rpc_within(method, params, self.request_timeout)
+    }
+
+    fn rpc_within(&self, method: &str, params: Value, request_timeout: Duration) -> Result<Value> {
         let replayable = matches!(method, "health" | "dom" | "ax" | "screenshot" | "move");
         let mut g = self.client.lock().unwrap();
         for attempt in 0..2 {
@@ -935,19 +1049,25 @@ impl Control {
                     let c = Arc::new(connect_bounded(
                         &self.suite,
                         &self.service,
-                        self.request_timeout,
+                        request_timeout,
                     )?);
                     *g = Some(c.clone());
                     c
                 }
             };
-            match call_bounded(&client, method, params.clone(), self.request_timeout) {
+            match call_bounded(
+                &client,
+                &self.worker,
+                method,
+                params.clone(),
+                request_timeout,
+            ) {
                 Ok(v) => return Ok(v),
                 Err(CallError::TimedOut) => {
                     *g = None;
                     return err(format!(
                         "{method}: no reply within {}ms; connection aborted",
-                        self.request_timeout.as_millis()
+                        request_timeout.as_millis()
                     ));
                 }
                 Err(CallError::Service(e)) if e.retryable && replayable && attempt == 0 => {
@@ -970,6 +1090,10 @@ impl Control {
 
     fn json(&self, method: &str, params: Value) -> Result<Value> {
         let v = self.rpc(method, params)?;
+        Self::ok_or_error(method, v)
+    }
+
+    fn ok_or_error(method: &str, v: Value) -> Result<Value> {
         if v.get("ok") == Some(&Value::Bool(false)) {
             return err(format!(
                 "{method}: {}",
@@ -979,6 +1103,44 @@ impl Control {
             ));
         }
         Ok(v)
+    }
+
+    /// Add the session's input pacing (`paceMs`), when one is set, to an input request.
+    fn paced(&self, mut p: Value) -> Value {
+        if self.pace_ms > 0 {
+            p["paceMs"] = json!(self.pace_ms);
+        }
+        p
+    }
+    /// Gap between native input events the app inserts (default 0, no gap). Also set from
+    /// `RIGHTKIT_QA_PACE_MS` at launch. The former fixed pauses were about click 40-50, drag 16,
+    /// key 20, type 8 ms; use this for a page that needs real time between events.
+    pub fn set_pace_ms(&mut self, ms: u64) {
+        self.pace_ms = ms;
+    }
+    /// Run `steps` (`(method, params)`) in ONE round trip, stopping at the first failure. Every step is
+    /// checked against this app's allowlist and passes the effect gate and input lease on its own.
+    /// Returns each step's result; the error names the failing step. A batch is never replayed.
+    pub fn batch(&self, steps: &[(&str, Value)]) -> Result<Vec<Value>> {
+        let steps: Vec<Value> = steps
+            .iter()
+            .map(|(m, p)| {
+                let p = if matches!(*m, "click" | "drag" | "key" | "type") {
+                    self.paced(p.clone())
+                } else {
+                    p.clone()
+                };
+                json!({"method": m, "params": p})
+            })
+            .collect();
+        // Allow the whole sequence: the per-request bound applies to each step, not the sum.
+        let budget = self.request_timeout * (steps.len().max(1) as u32).min(30);
+        let v = self.rpc_within("batch", json!({"steps": steps}), budget)?;
+        let v = Self::ok_or_error("batch", v)?;
+        Ok(v.get("results")
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default())
     }
 
     pub fn health(&self) -> Result<Value> {
@@ -1007,7 +1169,7 @@ impl Control {
     pub fn click(&self, x: f64, y: f64, button: &str, count: u32) -> Result<()> {
         self.json(
             "click",
-            json!({"x": x, "y": y, "button": button, "count": count}),
+            self.paced(json!({"x": x, "y": y, "button": button, "count": count})),
         )
         .map(|_| ())
     }
@@ -1023,7 +1185,9 @@ impl Control {
     ) -> Result<()> {
         self.json(
             "click",
-            json!({"x": x, "y": y, "button": button, "count": count, "modifiers": modifiers}),
+            self.paced(
+                json!({"x": x, "y": y, "button": button, "count": count, "modifiers": modifiers}),
+            ),
         )
         .map(|_| ())
     }
@@ -1050,7 +1214,7 @@ impl Control {
     pub fn drag(&self, from: (f64, f64), to: (f64, f64), steps: u32) -> Result<()> {
         self.json(
             "drag",
-            json!({"x1": from.0, "y1": from.1, "x2": to.0, "y2": to.1, "steps": steps}),
+            self.paced(json!({"x1": from.0, "y1": from.1, "x2": to.0, "y2": to.1, "steps": steps})),
         )
         .map(|_| ())
     }
@@ -1059,10 +1223,12 @@ impl Control {
             .map(|_| ())
     }
     pub fn key(&self, spec: &str) -> Result<()> {
-        self.json("key", json!({"key": spec})).map(|_| ())
+        self.json("key", self.paced(json!({"key": spec})))
+            .map(|_| ())
     }
     pub fn type_text(&self, text: &str) -> Result<()> {
-        self.json("type", json!({"text": text})).map(|_| ())
+        self.json("type", self.paced(json!({"text": text})))
+            .map(|_| ())
     }
     /// Evaluate a JS function body (`return ...`) in the page; returns its JSON value.
     pub fn eval(&self, js: &str) -> Result<Value> {
@@ -1087,19 +1253,27 @@ impl Control {
             .unwrap_or_default())
     }
     pub fn screenshot_png(&self) -> Result<Vec<u8>> {
-        let v = self.json("screenshot", json!({}))?;
-        // The server masks credential elements before writing; a server that does not
-        // report `masked` predates redaction and its captures are refused.
+        let v = self.json("screenshot", json!({"inline": true}))?;
+        // The server masks credential elements before the image leaves the page; a server that
+        // does not report `masked` predates redaction and its captures are refused.
         if v.get("masked").and_then(Value::as_u64).is_none() {
             return err("control server does not redact screenshots; capture refused");
         }
-        let path = PathBuf::from(
-            v.get("path")
-                .and_then(Value::as_str)
-                .ok_or_else(|| Error("screenshot returned no path".into()))?,
-        );
-        let body = fs::read(&path)?;
-        let _ = fs::remove_file(&path);
+        let body = match v.get("data").and_then(Value::as_str) {
+            Some(b64) => crate::util::base64_decode(b64)
+                .ok_or_else(|| Error("screenshot data is not valid base64".into()))?,
+            // A server older than the inline reply writes the PNG and returns its path.
+            None => {
+                let path = PathBuf::from(
+                    v.get("path")
+                        .and_then(Value::as_str)
+                        .ok_or_else(|| Error("screenshot returned no data or path".into()))?,
+                );
+                let body = fs::read(&path)?;
+                let _ = fs::remove_file(&path);
+                body
+            }
+        };
         if body.len() < 8 || &body[1..4] != b"PNG" {
             return err("screenshot method did not return a PNG");
         }
@@ -1145,8 +1319,34 @@ impl Control {
         self.click(x, y, "left", 1)
     }
 
-    /// Poll a JS function body until it returns something truthy; bounded.
+    /// Wait until a JS function body returns something truthy; bounded. One round trip: the app
+    /// waits in the page (DOM mutations, events, a short timer) and replies the moment it holds.
+    /// An app on an older driver without the `wait` method is polled every 25 ms instead.
     pub fn wait_eval(&self, js: &str, timeout: Duration) -> Result<Value> {
+        let ms = timeout.as_millis().clamp(1, 600_000) as u64;
+        let reply = self.rpc_within(
+            "wait",
+            json!({"js": js, "timeoutMs": ms}),
+            timeout + self.request_timeout,
+        );
+        match reply {
+            Ok(v) => {
+                let v = Self::ok_or_error("wait", v)?;
+                if v.get("matched") == Some(&Value::Bool(true)) {
+                    return Ok(v.get("value").cloned().unwrap_or(Value::Null));
+                }
+                let last = match v.get("error") {
+                    Some(e) if !e.is_null() => e.clone(),
+                    _ => v.get("last").cloned().unwrap_or(Value::Null),
+                };
+                err(format!("timeout waiting for `{js}` (last: {last})"))
+            }
+            Err(e) if wait_unsupported(&e.0) => self.wait_eval_polling(js, timeout),
+            Err(e) => Err(e),
+        }
+    }
+
+    fn wait_eval_polling(&self, js: &str, timeout: Duration) -> Result<Value> {
         let deadline = Instant::now() + timeout;
         let mut last;
         loop {
@@ -1165,12 +1365,12 @@ impl Control {
             if Instant::now() >= deadline {
                 return err(format!("timeout waiting for `{js}` (last: {last})"));
             }
-            sleep_ms(100);
+            sleep_ms(25);
         }
     }
 
     /// Wait until `text` appears in the visible text (`innerText`) of the first element
-    /// matching `selector` (`None` = the whole body). Polls every 100 ms until `timeout`.
+    /// matching `selector` (`None` = the whole body); see [`wait_eval`](Self::wait_eval).
     pub fn wait_for_text(
         &self,
         selector: Option<&str>,
@@ -1204,11 +1404,21 @@ impl Control {
         // must not destroy the only readable startup diagnostics.
         let log_copy = fs::copy(&self.raw_log, &self.log_path);
         let after = frontmost();
-        let (steady, states, owned_never_frontmost, owned_frontmost_pids) = self
-            .focus
-            .take()
-            .map(|mut f| f.finish())
-            .unwrap_or((false, vec![], false, vec![]));
+        let (
+            steady,
+            states,
+            owned_never_frontmost,
+            owned_frontmost_pids,
+            frontmost_pid_unavailable_samples,
+            owned_never_frontmost_failure,
+        ) = self.focus.take().map(|mut f| f.finish()).unwrap_or((
+            false,
+            vec![],
+            false,
+            vec![],
+            0,
+            Some("no focus monitor ran".to_string()),
+        ));
         let process_gone = !is_alive(self.pid);
         let endpoint_closed = self.endpoint.is_empty() || !endpoint_open(&self.endpoint);
         if process_gone {
@@ -1232,6 +1442,8 @@ impl Control {
             frontmost_after: after,
             owned_never_frontmost,
             owned_frontmost_pids,
+            frontmost_pid_unavailable_samples,
+            owned_never_frontmost_failure,
         })
     }
 }
@@ -1256,6 +1468,17 @@ mod launch_path_tests {
         assert_eq!(classify_foreground(true, 0, 0), Foreground::Unreadable);
         assert_eq!(classify_foreground(true, 7, 0), Foreground::Unreadable);
         assert_eq!(classify_foreground(true, 0, 4242), Foreground::Unreadable);
+    }
+
+    #[test]
+    fn background_failure_reason_tells_frontmost_from_unreadable() {
+        let r = owned_failure_reason(&[42], 3, true, 3);
+        assert!(r.contains("was frontmost") && r.contains("42"), "{r}");
+        let r = owned_failure_reason(&[], 2, true, 2);
+        assert!(r.contains("pid could not be read in 2"), "{r}");
+        assert!(!r.contains("was frontmost"), "{r}");
+        assert!(owned_failure_reason(&[], 0, false, 0).contains("never registered"));
+        assert!(owned_failure_reason(&[], 0, true, 4).contains("unmeasurable"));
     }
 
     #[test]

@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.4.0
+
+Depends on `rightkit-qa-driver` ^0.4. UI QA latency: a click step went from about 230 ms to about 1 ms, 200 typed characters from 2.3 s to about 0.12 s, a condition wait returns when the page is ready (no polling tax).
+
+- `Control::wait_eval` and `wait_for_text` use the driver's new `wait` method: one round trip, the page reports the moment the predicate holds. An app on an older driver is polled every 25 ms (was 100 ms). The timeout error text is unchanged.
+- New `Control::batch(&[(method, params)])` and scenario step `ui_batch` (`steps = [{method, params}]`): many steps in one round trip, stopped at the first failure.
+- `Control::screenshot_png` asks for the image inline (base64 in the reply) instead of write-read-delete; an older driver's `path` reply is still read. The scenario `ui_screenshot` takes the size from the bytes it already has, and `evidence = false` keeps a working capture out of the evidence bundle (only bundled artifacts are hashed).
+- A reused call thread replaces a thread per request; a timed-out call abandons it and the next call starts a new one.
+- Input pacing: `Control::set_pace_ms` or `RIGHTKIT_QA_PACE_MS` sends `paceMs` with click, drag, key and type; default none.
+- The scenario `until` retry interval defaults to 25 ms (was 500 ms); set `interval_ms` per step to change it.
+- `control::launch` waits for the app's own page (not `about:blank`, which reports `complete`) before returning, and checks every 20 ms.
+- **Background proof diagnostics.** `StopReport` gains `frontmost_pid_unavailable_samples` and `owned_never_frontmost_failure`, so "an owned app process was frontmost (pid [..])" is told apart from "the foreground owner's pid could not be read in N sample(s)" and from "the owned executable was never registered". `ui_stop` and scenario teardown print that reason. The guard itself is unchanged and still fails closed: an unreadable pid, an unregistered executable or an unmeasurable sample leaves `owned_never_frontmost` false. Works with the driver's fixed macOS frontmost reader (see rightkit-qa-driver 0.4.0), which is what Ember's CI needed.
+- Benchmark scenarios `examples/control-test-app/bench/ui-bench.scenario.toml` and `ui-bench-batch.scenario.toml` (20 clicks, 200 typed characters, 10 screenshots, 5 waits).
+
 
 ## 0.3.0
 

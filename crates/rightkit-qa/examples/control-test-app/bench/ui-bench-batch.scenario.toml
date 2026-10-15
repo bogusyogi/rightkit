@@ -1,0 +1,142 @@
+# Same action mix as ui-bench.scenario.toml (20 clicks, 200 typed characters, 10 screenshots,
+# 5 condition waits) sent as ONE `batch` round trip. Compare its single step against the sum of the
+# per-action steps of ui-bench.scenario.toml. Run like that file does.
+name = "control-test-app UI latency bench (batch)"
+tier = "fast"
+target = "ui"
+
+[[step]]
+kind = "ui_launch"
+mode = "hidden"
+
+[[step]]
+kind = "ui_batch"
+  [[step.steps]]
+  method = "click"
+  params = { x = 40, y = 30 }
+  [[step.steps]]
+  method = "click"
+  params = { x = 40, y = 30 }
+  [[step.steps]]
+  method = "click"
+  params = { x = 40, y = 30 }
+  [[step.steps]]
+  method = "click"
+  params = { x = 40, y = 30 }
+  [[step.steps]]
+  method = "click"
+  params = { x = 40, y = 30 }
+  [[step.steps]]
+  method = "click"
+  params = { x = 40, y = 30 }
+  [[step.steps]]
+  method = "click"
+  params = { x = 40, y = 30 }
+  [[step.steps]]
+  method = "click"
+  params = { x = 40, y = 30 }
+  [[step.steps]]
+  method = "click"
+  params = { x = 40, y = 30 }
+  [[step.steps]]
+  method = "click"
+  params = { x = 40, y = 30 }
+  [[step.steps]]
+  method = "click"
+  params = { x = 40, y = 30 }
+  [[step.steps]]
+  method = "click"
+  params = { x = 40, y = 30 }
+  [[step.steps]]
+  method = "click"
+  params = { x = 40, y = 30 }
+  [[step.steps]]
+  method = "click"
+  params = { x = 40, y = 30 }
+  [[step.steps]]
+  method = "click"
+  params = { x = 40, y = 30 }
+  [[step.steps]]
+  method = "click"
+  params = { x = 40, y = 30 }
+  [[step.steps]]
+  method = "click"
+  params = { x = 40, y = 30 }
+  [[step.steps]]
+  method = "click"
+  params = { x = 40, y = 30 }
+  [[step.steps]]
+  method = "click"
+  params = { x = 40, y = 30 }
+  [[step.steps]]
+  method = "click"
+  params = { x = 40, y = 30 }
+  [[step.steps]]
+  method = "click"
+  params = { x = 300, y = 30 }
+  [[step.steps]]
+  method = "type"
+  params = { text = "The quick brown fox jumps over the lazy dog 0123456789. The quick brown fox jumps over the lazy dog 0123456789. The quick brown fox jumps over the lazy dog 0123456789. The quick brown fox jumps over t" }
+  [[step.steps]]
+  method = "screenshot"
+  params = {  }
+  [[step.steps]]
+  method = "screenshot"
+  params = {  }
+  [[step.steps]]
+  method = "screenshot"
+  params = {  }
+  [[step.steps]]
+  method = "screenshot"
+  params = {  }
+  [[step.steps]]
+  method = "screenshot"
+  params = {  }
+  [[step.steps]]
+  method = "screenshot"
+  params = {  }
+  [[step.steps]]
+  method = "screenshot"
+  params = {  }
+  [[step.steps]]
+  method = "screenshot"
+  params = {  }
+  [[step.steps]]
+  method = "screenshot"
+  params = {  }
+  [[step.steps]]
+  method = "screenshot"
+  params = {  }
+  [[step.steps]]
+  method = "eval"
+  params = { js = "window.__w=0;setTimeout(function(){window.__w=1},30);return true;" }
+  [[step.steps]]
+  method = "wait"
+  params = { js = "return window.__w===1;", timeoutMs = 10000 }
+  [[step.steps]]
+  method = "eval"
+  params = { js = "window.__w=0;setTimeout(function(){window.__w=2},30);return true;" }
+  [[step.steps]]
+  method = "wait"
+  params = { js = "return window.__w===2;", timeoutMs = 10000 }
+  [[step.steps]]
+  method = "eval"
+  params = { js = "window.__w=0;setTimeout(function(){window.__w=3},30);return true;" }
+  [[step.steps]]
+  method = "wait"
+  params = { js = "return window.__w===3;", timeoutMs = 10000 }
+  [[step.steps]]
+  method = "eval"
+  params = { js = "window.__w=0;setTimeout(function(){window.__w=4},30);return true;" }
+  [[step.steps]]
+  method = "wait"
+  params = { js = "return window.__w===4;", timeoutMs = 10000 }
+  [[step.steps]]
+  method = "eval"
+  params = { js = "window.__w=0;setTimeout(function(){window.__w=5},30);return true;" }
+  [[step.steps]]
+  method = "wait"
+  params = { js = "return window.__w===5;", timeoutMs = 10000 }
+
+[[step]]
+kind = "ui_stop"

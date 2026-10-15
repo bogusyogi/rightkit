@@ -158,6 +158,82 @@ pub fn main_window(pid: i32) -> Option<Win> {
         .max_by(|a, b| (a.w * a.h).total_cmp(&(b.w * b.h)))
 }
 
+#[repr(C)]
+#[derive(Default)]
+struct ProcessSerialNumber {
+    high: u32,
+    low: u32,
+}
+#[link(name = "ApplicationServices", kind = "framework")]
+extern "C" {
+    // Process Manager (deprecated, still exported): answers from LaunchServices on every call, with no
+    // run loop needed. `NSWorkspace.frontmostApplication` is only refreshed by the main run loop, so a
+    // sampling thread in a test or CLI process would read a stale snapshot and could miss an owned app
+    // coming to the front.
+    fn GetFrontProcess(psn: *mut ProcessSerialNumber) -> i32;
+    fn GetProcessPID(psn: *const ProcessSerialNumber, pid: *mut i32) -> i32;
+}
+#[link(name = "objc")]
+extern "C" {
+    fn objc_getClass(name: *const c_char) -> *mut c_void;
+    fn sel_registerName(name: *const c_char) -> *const c_void;
+    fn objc_msgSend();
+}
+#[link(name = "AppKit", kind = "framework")]
+extern "C" {}
+
+/// The localized name of the running application `pid` (`NSRunningApplication`), looked up by
+/// pid at call time.
+fn app_name_for_pid(pid: i32) -> Option<String> {
+    unsafe {
+        let cls = objc_getClass(c"NSRunningApplication".as_ptr());
+        if cls.is_null() {
+            return None;
+        }
+        let by_pid: unsafe extern "C" fn(*mut c_void, *const c_void, i32) -> *mut c_void =
+            std::mem::transmute(objc_msgSend as *const c_void);
+        let app = by_pid(
+            cls,
+            sel_registerName(c"runningApplicationWithProcessIdentifier:".as_ptr()),
+            pid,
+        );
+        if app.is_null() {
+            return None;
+        }
+        let get: unsafe extern "C" fn(*mut c_void, *const c_void) -> *mut c_void =
+            std::mem::transmute(objc_msgSend as *const c_void);
+        let name = get(app, sel_registerName(c"localizedName".as_ptr()));
+        if name.is_null() {
+            return None;
+        }
+        let utf8: unsafe extern "C" fn(*mut c_void, *const c_void) -> *const c_char =
+            std::mem::transmute(objc_msgSend as *const c_void);
+        let p = utf8(name, sel_registerName(c"UTF8String".as_ptr()));
+        (!p.is_null())
+            .then(|| CStr::from_ptr(p).to_string_lossy().into_owned())
+            .filter(|s| !s.is_empty())
+    }
+}
+
+/// `lsappinfo` prints `"key"=value`, `"key"="value"` or `key = value` depending on the field and the
+/// macOS version. Take the text AFTER the `=` of the line whose key is one of `keys`, never the key.
+pub fn parse_lsappinfo(text: &str, keys: &[&str]) -> Option<String> {
+    for line in text.lines() {
+        let Some((k, v)) = line.split_once('=') else {
+            continue;
+        };
+        let k = k.trim().trim_matches('"').trim();
+        if !keys.iter().any(|want| k.eq_ignore_ascii_case(want)) {
+            continue;
+        }
+        let v = v.trim().trim_matches('"').trim();
+        if !v.is_empty() {
+            return Some(v.to_string());
+        }
+    }
+    None
+}
+
 fn front_info(field: &str) -> Option<String> {
     let asn = Command::new("lsappinfo").arg("front").output().ok()?;
     let asn = String::from_utf8_lossy(&asn.stdout)
@@ -171,20 +247,71 @@ fn front_info(field: &str) -> Option<String> {
     Some(String::from_utf8_lossy(&info.stdout).to_string())
 }
 
-/// Pid of the frontmost application (no permissions required).
+/// Pid of the frontmost application (no permissions required), or `None` when it cannot be read:
+/// callers that prove a background run must treat `None` as unproven, never as "not frontmost".
 pub fn frontmost_pid() -> Option<i32> {
-    let t = front_info("pid")?;
-    t.split("pid =")
-        .nth(1)?
-        .split_whitespace()
-        .next()?
-        .parse()
-        .ok()
+    unsafe {
+        let mut psn = ProcessSerialNumber::default();
+        let mut pid = 0i32;
+        if GetFrontProcess(&mut psn) == 0 && GetProcessPID(&psn, &mut pid) == 0 && pid > 0 {
+            return Some(pid);
+        }
+    }
+    // Fallback: lsappinfo, tolerant of both output formats.
+    parse_lsappinfo(&front_info("pid")?, &["pid"])?.parse().ok()
 }
 
+/// Localized name of the frontmost application, or `None` when it cannot be read.
 pub fn frontmost_name() -> Option<String> {
-    let t = front_info("name")?;
-    Some(t.split('"').nth(1)?.to_string())
+    if let Some(name) = frontmost_pid().and_then(app_name_for_pid) {
+        return Some(name);
+    }
+    parse_lsappinfo(&front_info("name")?, &["name", "LSDisplayName"])
+}
+
+#[cfg(test)]
+mod frontmost_tests {
+    use super::*;
+
+    #[test]
+    fn lsappinfo_value_is_the_text_after_the_equals_in_every_format() {
+        // CI (macos-15) printed the quoted key and value; the old parser returned the key.
+        assert_eq!(
+            parse_lsappinfo("\"LSDisplayName\"=\"Ember\"\n", &["name", "LSDisplayName"]).as_deref(),
+            Some("Ember")
+        );
+        assert_eq!(
+            parse_lsappinfo("\"name\"=\"Ember Beta\"", &["name", "LSDisplayName"]).as_deref(),
+            Some("Ember Beta")
+        );
+        assert_eq!(
+            parse_lsappinfo("name = \"Ember\"", &["name"]).as_deref(),
+            Some("Ember")
+        );
+        assert_eq!(
+            parse_lsappinfo("\"pid\"=4242\n", &["pid"]).as_deref(),
+            Some("4242")
+        );
+        assert_eq!(
+            parse_lsappinfo("pid = 4242\n", &["pid"]).as_deref(),
+            Some("4242")
+        );
+        assert_eq!(
+            parse_lsappinfo("pid=4242", &["pid"]).as_deref(),
+            Some("4242")
+        );
+        // A key is never returned as the value; other keys and empty values are skipped.
+        assert_eq!(
+            parse_lsappinfo("\"bundleID\"=\"x\"\n\"pid\"=7\n", &["pid"]).as_deref(),
+            Some("7")
+        );
+        assert_eq!(parse_lsappinfo("\"pid\"=\n", &["pid"]), None);
+        assert_eq!(parse_lsappinfo("", &["pid"]), None);
+        assert_eq!(
+            parse_lsappinfo("\"LSDisplayName\"", &["name", "LSDisplayName"]),
+            None
+        );
+    }
 }
 
 // ---------- input (per-pid, no focus change) ----------

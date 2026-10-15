@@ -8,7 +8,7 @@
 //! screenshot; it does not cover every method here (for example wheel and key paths are
 //! exercised only where the journey uses them).
 
-use super::{Button, Mouse};
+use super::{Button, KeyEv, Mouse, MouseEv};
 use crate::json::str_field;
 use std::sync::atomic::{AtomicU64, AtomicU8, Ordering};
 use std::sync::mpsc::channel;
@@ -182,6 +182,68 @@ fn cdp<R: Runtime>(win: &WebviewWindow<R>, method: &str, params: String) -> Resu
         }
         other => other,
     }
+}
+
+/// Issue several devtools calls from ONE UI-thread hop and wait for all of them. WebView2
+/// starts them in order and input events are delivered in order; the first failure (in call order)
+/// is returned. Use for input sequences only: a call that must see the effect of an earlier one
+/// (hide, capture, restore) is made with separate [`cdp`] calls.
+fn cdp_many<R: Runtime>(
+    win: &WebviewWindow<R>,
+    calls: Vec<(String, String)>,
+) -> Result<(), String> {
+    if calls.is_empty() {
+        return Ok(());
+    }
+    let n = calls.len();
+    let (tx, rx) = channel::<(usize, Result<(), String>)>();
+    win.with_webview(move |pv| unsafe {
+        let core = match pv.controller().CoreWebView2() {
+            Ok(c) => c,
+            Err(e) => {
+                let _ = tx.send((0, Err(e.to_string())));
+                return;
+            }
+        };
+        for (i, (method, params)) in calls.into_iter().enumerate() {
+            let tx2 = tx.clone();
+            let handler =
+                CallDevToolsProtocolMethodCompletedHandler::create(Box::new(move |res, _| {
+                    let _ = tx2.send((i, res.map_err(|e| e.to_string())));
+                    Ok(())
+                }));
+            if let Err(e) = core.CallDevToolsProtocolMethod(
+                &HSTRING::from(method),
+                &HSTRING::from(params),
+                &handler,
+            ) {
+                let _ = tx.send((i, Err(e.to_string())));
+            }
+        }
+    })
+    .map_err(|e| e.to_string())?;
+    let deadline = Instant::now() + CDP_TIMEOUT + Duration::from_millis(50 * n as u64);
+    let mut first_err: Option<(usize, String)> = None;
+    let mut seen = 0;
+    while seen < n {
+        let left = deadline.saturating_duration_since(Instant::now());
+        match rx.recv_timeout(left) {
+            Ok((i, r)) => {
+                seen += 1;
+                if let Err(e) = r {
+                    if first_err.as_ref().is_none_or(|(j, _)| i < *j) {
+                        first_err = Some((i, e));
+                    }
+                }
+            }
+            Err(_) => {
+                return Err(format!(
+                    "devtools call timed out: {seen} of {n} batched calls completed"
+                ))
+            }
+        }
+    }
+    first_err.map_or(Ok(()), |(_, e)| Err(e))
 }
 
 /// Stack capture on a devtools timeout is on with `RIGHTKIT_CONTROL_TRACE` or
@@ -535,15 +597,8 @@ fn cdp_mods(flags: u64) -> u32 {
         | (if flags & FLAG_SHIFT != 0 { 8 } else { 0 })
 }
 
-pub fn mouse<R: Runtime>(
-    win: &WebviewWindow<R>,
-    kind: Mouse,
-    button: Button,
-    x: f64,
-    y: f64,
-    clicks: i64,
-    flags: u64,
-) -> Result<(), String> {
+fn mouse_params(e: &MouseEv) -> String {
+    let (kind, button, x, y, clicks, flags) = (e.kind, e.button, e.x, e.y, e.clicks, e.flags);
     // CDP modifiers: Alt=1, Ctrl=2, Meta=4, Shift=8.
     let modifiers = [
         (crate::keys::FLAG_ALT, 1),
@@ -565,7 +620,43 @@ pub fn mouse<R: Runtime>(
         Mouse::Move => ("mouseMoved", "none", 0),
         Mouse::Drag => ("mouseMoved", b, mask),
     };
-    cdp(win, "Input.dispatchMouseEvent", format!(r#"{{"type":"{ty}","x":{x},"y":{y},"button":"{button}","buttons":{buttons},"clickCount":{clicks},"modifiers":{modifiers}}}"#)).map(|_| ())
+    format!(
+        r#"{{"type":"{ty}","x":{x},"y":{y},"button":"{button}","buttons":{buttons},"clickCount":{clicks},"modifiers":{modifiers}}}"#
+    )
+}
+
+pub fn mouse<R: Runtime>(
+    win: &WebviewWindow<R>,
+    kind: Mouse,
+    button: Button,
+    x: f64,
+    y: f64,
+    clicks: i64,
+    flags: u64,
+) -> Result<(), String> {
+    cdp(
+        win,
+        "Input.dispatchMouseEvent",
+        mouse_params(&MouseEv {
+            kind,
+            button,
+            x,
+            y,
+            clicks,
+            flags,
+        }),
+    )
+    .map(|_| ())
+}
+
+/// Pointer events in order from one UI-thread hop.
+pub fn mouse_batch<R: Runtime>(win: &WebviewWindow<R>, evs: &[MouseEv]) -> Result<(), String> {
+    cdp_many(
+        win,
+        evs.iter()
+            .map(|e| ("Input.dispatchMouseEvent".to_string(), mouse_params(e)))
+            .collect(),
+    )
 }
 
 pub fn wheel<R: Runtime>(
@@ -705,6 +796,7 @@ fn key_event_params(down: bool, code: u16, chars: &str, flags: u64) -> String {
     v.to_string()
 }
 
+#[allow(dead_code)]
 pub fn key<R: Runtime>(
     win: &WebviewWindow<R>,
     down: bool,
@@ -722,6 +814,7 @@ pub fn key<R: Runtime>(
 
 /// Insert text exactly as given (any Unicode, emoji, newlines) with `Input.insertText`;
 /// per-character key events cannot express characters with no virtual key.
+#[allow(dead_code)]
 pub fn insert_text<R: Runtime>(win: &WebviewWindow<R>, text: &str) -> Result<(), String> {
     cdp(
         win,
@@ -729,6 +822,76 @@ pub fn insert_text<R: Runtime>(win: &WebviewWindow<R>, text: &str) -> Result<(),
         serde_json::json!({ "text": text }).to_string(),
     )
     .map(|_| ())
+}
+
+/// Key events (and text insertions for characters with no virtual key) in order, one UI-thread hop.
+pub fn keys<R: Runtime>(win: &WebviewWindow<R>, evs: &[KeyEv]) -> Result<(), String> {
+    cdp_many(
+        win,
+        evs.iter()
+            .map(|e| match e {
+                KeyEv::Key {
+                    down,
+                    code,
+                    chars,
+                    flags,
+                } => (
+                    "Input.dispatchKeyEvent".to_string(),
+                    key_event_params(*down, *code, chars, *flags),
+                ),
+                KeyEv::Text(t) => (
+                    "Input.insertText".to_string(),
+                    serde_json::json!({ "text": t }).to_string(),
+                ),
+            })
+            .collect(),
+    )
+}
+
+/// Evaluate a JS expression that yields a Promise and wait for its string result
+/// (`awaitPromise`); the caller keeps `timeout` under [`CDP_TIMEOUT`].
+pub fn wait_slice<R: Runtime>(
+    win: &WebviewWindow<R>,
+    expr: &str,
+    _timeout: Duration,
+) -> Result<String, String> {
+    let r = cdp(
+        win,
+        "Runtime.evaluate",
+        serde_json::json!({ "expression": expr, "returnByValue": true, "awaitPromise": true })
+            .to_string(),
+    )?;
+    if r.contains("\"exceptionDetails\"") {
+        return Err(format!(
+            "wait script failed: {}",
+            r.chars().take(300).collect::<String>()
+        ));
+    }
+    Ok(str_field(&r, "value").unwrap_or_default())
+}
+
+/// PNG with the secret elements hidden for exactly the capture. Hide, capture and restore are
+/// issued strictly one after another: each completes before the next starts, so the restore can
+/// never overtake the capture. A page that cannot run `hide_js` is never captured; the restore runs
+/// whatever the capture did.
+pub fn screenshot_masked<R: Runtime>(
+    win: &WebviewWindow<R>,
+    hide_js: &str,
+    restore_js: &str,
+) -> Result<(Vec<u8>, u64), String> {
+    let masked = eval(win, hide_js).map(|s| s.trim().trim_matches('"').parse::<u64>().unwrap_or(0));
+    let png = match &masked {
+        Ok(_) => Some(screenshot(win)),
+        Err(_) => None,
+    };
+    let restored = eval(win, restore_js);
+    match (masked, png, restored) {
+        (Err(e), _, _) => Err(format!("screenshot masking failed ({e}); capture refused")),
+        (Ok(_), _, Err(e)) => Err(format!("could not restore masked elements: {e}")),
+        (Ok(_), Some(Err(e)), _) => Err(e),
+        (Ok(n), Some(Ok(png)), Ok(_)) => Ok((png, n)),
+        (Ok(_), None, _) => Err("capture never ran".to_string()),
+    }
 }
 
 pub fn eval<R: Runtime>(win: &WebviewWindow<R>, js: &str) -> Result<String, String> {
@@ -796,6 +959,9 @@ pub fn apply_viewport<R: Runtime>(
         ))
     };
     let mut viewport = measure()?;
+    if viewport == target {
+        return Ok(());
+    }
     for _ in 0..3 {
         if viewport.0 <= 0.0 || viewport.1 <= 0.0 {
             return Err("CSS viewport is empty".into());
@@ -830,18 +996,18 @@ pub fn apply_viewport<R: Runtime>(
         .map_err(|e| e.to_string())?;
         rx.recv_timeout(Duration::from_secs(10))
             .map_err(|_| "window resize timed out")??;
-        for _ in 0..10 {
+        for _ in 0..40 {
             viewport = measure()?;
             if viewport == target {
                 return Ok(());
             }
-            std::thread::sleep(Duration::from_millis(20));
+            std::thread::sleep(Duration::from_millis(5));
         }
     }
     Ok(())
 }
 
-pub fn screenshot<R: Runtime>(win: &WebviewWindow<R>) -> Result<Vec<u8>, String> {
+fn screenshot<R: Runtime>(win: &WebviewWindow<R>) -> Result<Vec<u8>, String> {
     let r = cdp(win, "Page.captureScreenshot", r#"{"format":"png"}"#.into())?;
     let b64 = str_field(&r, "data").ok_or("no screenshot data")?;
     let mut out = Vec::with_capacity(b64.len() * 3 / 4);

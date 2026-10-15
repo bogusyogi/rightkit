@@ -944,14 +944,16 @@ fn serve_conn(s: Arc<Shared>, conn: Conn) {
         s.inflight.fetch_add(1, Ordering::SeqCst);
         let done = AtomicBool::new(false);
         let result = std::thread::scope(|sc| {
-            sc.spawn(|| {
+            // Parked, not slept: the scope joins this thread, so a plain 40 ms sleep added up to
+            // 40 ms to every request after its handler had already finished.
+            let watcher = sc.spawn(|| {
                 while !done.load(Ordering::SeqCst) {
                     if peer_closed() {
                         cx.closed.store(true, Ordering::SeqCst);
                         notify_closed();
                         return;
                     }
-                    std::thread::sleep(Duration::from_millis(40));
+                    std::thread::park_timeout(Duration::from_millis(40));
                 }
             });
             let r = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
@@ -959,6 +961,7 @@ fn serve_conn(s: Arc<Shared>, conn: Conn) {
             }))
             .unwrap_or_else(|_| Err(ServiceError::new("panic", "handler panicked")));
             done.store(true, Ordering::SeqCst);
+            watcher.thread().unpark();
             r
         });
         s.inflight.fetch_sub(1, Ordering::SeqCst);

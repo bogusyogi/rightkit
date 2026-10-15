@@ -8,7 +8,7 @@ use crate::exposure::{self, GENERIC_READ_METHODS};
 use crate::spec::*;
 use rightkit_daemon::{Client, ServiceError, Suite};
 use serde_json::{json, Value};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 /// The control methods of the in-app server (`rightkit_qa_driver::embedded::METHODS`).
@@ -24,6 +24,8 @@ pub const CONTROL_METHODS: &[&str] = &[
     "dom",
     "ax",
     "screenshot",
+    "wait",
+    "batch",
     "command",
 ];
 
@@ -136,9 +138,9 @@ fn method_schema(method: &str) -> (&'static str, Effect, Value) {
     match method {
         "health" => ("Is the app's control server up? Returns its status.", Effect::Observe, json!({"type": "object", "properties": {}})),
         "click" => (
-            "Real click in the webview (viewport CSS pixels, origin top-left).",
+            "Real click in the webview (viewport CSS pixels, origin top-left). Optional paceMs spaces the native events (default 0).",
             Effect::Act,
-            json!({"type": "object", "properties": {"x": num("x"), "y": num("y"), "button": {"type": "string", "enum": ["left", "right"]}, "count": {"type": "integer"}}, "required": ["x", "y"]}),
+            json!({"type": "object", "properties": {"x": num("x"), "y": num("y"), "button": {"type": "string", "enum": ["left", "right"]}, "count": {"type": "integer"}, "paceMs": {"type": "integer"}}, "required": ["x", "y"]}),
         ),
         "move" => ("Move the pointer to x,y (hover).", Effect::Act, json!({"type": "object", "properties": {"x": num("x"), "y": num("y")}, "required": ["x", "y"]})),
         "drag" => (
@@ -153,9 +155,19 @@ fn method_schema(method: &str) -> (&'static str, Effect, Value) {
         "dom" => ("Query DOM nodes by CSS selector.", Effect::Observe, json!({"type": "object", "properties": {"selector": {"type": "string"}}, "required": ["selector"]})),
         "ax" => ("Accessibility tree of the app window.", Effect::Observe, json!({"type": "object", "properties": {}})),
         "screenshot" => (
-            "Screenshot of the webview (password and secret elements are masked). Returns {path,bytes,masked}.",
+            "Screenshot of the webview (password and secret elements are masked). Returns {path,bytes,masked}, or with inline=true {bytes,masked,encoding:\"base64\",data} and no file.",
             Effect::Capture,
-            json!({"type": "object", "properties": {"mask": {"type": "array"}}}),
+            json!({"type": "object", "properties": {"mask": {"type": "array"}, "inline": {"type": "boolean"}}}),
+        ),
+        "wait" => (
+            "Wait in the page, in ONE call, until a JavaScript function body returns something truthy (or timeoutMs, default 10000). Returns {matched,value|last,error,elapsedMs}. Prefer this to polling eval.",
+            Effect::Act,
+            json!({"type": "object", "properties": {"js": {"type": "string"}, "timeoutMs": {"type": "integer"}, "intervalMs": {"type": "integer"}}, "required": ["js"]}),
+        ),
+        "batch" => (
+            "Run many control steps in ONE call and stop at the first failure: steps=[{method,params}] with any of this app's methods except batch. Returns {completed,results,stepMs} or {ok:false,failedStep,error,results}. The way to drive an app: one call per step is slow.",
+            Effect::Act,
+            json!({"type": "object", "properties": {"steps": {"type": "array", "items": {"type": "object", "properties": {"method": {"type": "string"}, "params": {"type": "object"}}, "required": ["method"]}}}, "required": ["steps"]}),
         ),
         "command" => (
             "Run one of the app's own typed commands by name; `args` is the command's argument string.",
@@ -171,6 +183,8 @@ struct ControlTool {
     suite: Suite,
     profile: AppProfile,
     method: String,
+    /// One connection shared by every tool of the profile (connecting costs a handshake per call).
+    client: Arc<Mutex<Option<Arc<Client>>>>,
 }
 
 fn map_err(e: ServiceError) -> ToolError {
@@ -191,6 +205,9 @@ impl Tool for ControlTool {
     }
 
     fn call(&self, _ctx: &CallCtx, args: Value) -> Result<Value, ToolError> {
+        if self.method == "batch" {
+            check_batch(&self.profile, &args)?;
+        }
         let params = if self.method == "command" {
             let name = args["name"].as_str().unwrap_or_default();
             let allowed = match &self.profile.commands {
@@ -212,19 +229,97 @@ impl Tool for ControlTool {
         } else {
             args
         };
-        let client = Client::connect_with(
-            &self.suite,
-            &self.profile.service,
-            CLIENT_APP,
-            Some(Duration::from_secs(30)),
-        )
-        .map_err(map_err)?;
-        client.call(&self.method, params).map_err(map_err)
+        // `batch` and `wait` run longer than one step: give them the time they ask for.
+        let long = match self.method.as_str() {
+            "wait" => Some(
+                Duration::from_millis(args_timeout(&params, "timeoutMs", 10_000))
+                    + Duration::from_secs(10),
+            ),
+            "batch" => Some(Duration::from_secs(
+                30 * params["steps"]
+                    .as_array()
+                    .map_or(1, |s| s.len().clamp(1, 20)) as u64,
+            )),
+            _ => None,
+        };
+        if let Some(t) = long {
+            let client =
+                Client::connect_with(&self.suite, &self.profile.service, CLIENT_APP, Some(t))
+                    .map_err(map_err)?;
+            return client.call(&self.method, params).map_err(map_err);
+        }
+        let client = {
+            let mut slot = self.client.lock().unwrap_or_else(|e| e.into_inner());
+            match slot.as_ref() {
+                Some(c) => c.clone(),
+                None => {
+                    let c = Arc::new(
+                        Client::connect_with(
+                            &self.suite,
+                            &self.profile.service,
+                            CLIENT_APP,
+                            Some(Duration::from_secs(30)),
+                        )
+                        .map_err(map_err)?,
+                    );
+                    *slot = Some(c.clone());
+                    c
+                }
+            }
+        };
+        match client.call(&self.method, params) {
+            Ok(v) => Ok(v),
+            Err(e) => {
+                // Reconnect next time: the connection may be the thing that failed.
+                *self.client.lock().unwrap_or_else(|e| e.into_inner()) = None;
+                Err(map_err(e))
+            }
+        }
     }
+}
+
+fn args_timeout(params: &Value, key: &str, default: u64) -> u64 {
+    params[key].as_u64().unwrap_or(default).min(600_000)
+}
+
+/// `batch` is one call carrying many methods, so the profile's limits apply to each step: a
+/// method the profile does not enable (a sensitive app's `eval`/`dom`/`ax`/`screenshot`), a
+/// nested `batch`, or a `command` the command policy refuses is rejected before anything runs.
+fn check_batch(profile: &AppProfile, args: &Value) -> Result<(), ToolError> {
+    let steps = args["steps"]
+        .as_array()
+        .ok_or_else(|| ToolError::new(ERR_INVALID_ARGS, "batch needs a `steps` array"))?;
+    for (i, step) in steps.iter().enumerate() {
+        let m = step["method"].as_str().unwrap_or_default();
+        if m == "batch" || !profile.method_enabled(m) {
+            return Err(ToolError::new(
+                ERR_NOT_ALLOWED,
+                format!("batch step {i}: `{m}` is not exposed for {}", profile.app),
+            ));
+        }
+        if m == "command" {
+            let name = step["params"]["name"].as_str().unwrap_or_default();
+            let allowed = match &profile.commands {
+                CommandPolicy::Any => true,
+                CommandPolicy::Only(l) => l.iter().any(|c| c == name),
+            };
+            if !allowed || exposure::forbidden(name).is_some() {
+                return Err(ToolError::new(
+                    ERR_NOT_ALLOWED,
+                    format!(
+                        "batch step {i}: command `{name}` is not exposed for {}",
+                        profile.app
+                    ),
+                ));
+            }
+        }
+    }
+    Ok(())
 }
 
 /// Tools for `profile` on `suite`: one per enabled control method, named `<app>.<method>`.
 pub fn control_tools(suite: &Suite, profile: &AppProfile) -> Vec<Arc<dyn Tool>> {
+    let client: Arc<Mutex<Option<Arc<Client>>>> = Arc::new(Mutex::new(None));
     CONTROL_METHODS
         .iter()
         .filter(|m| profile.method_enabled(m))
@@ -236,7 +331,39 @@ pub fn control_tools(suite: &Suite, profile: &AppProfile) -> Vec<Arc<dyn Tool>> 
                 suite: suite.clone(),
                 profile: profile.clone(),
                 method: m.to_string(),
+                client: client.clone(),
             }) as Arc<dyn Tool>
         })
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn steps(methods: &[&str]) -> Value {
+        json!({"steps": methods.iter().map(|m| json!({"method": m, "params": {}})).collect::<Vec<_>>()})
+    }
+
+    #[test]
+    fn standard_profile_may_batch_its_methods_but_not_nest() {
+        let p = AppProfile::standard("demo");
+        assert!(p.methods.iter().any(|m| m == "batch") && p.methods.iter().any(|m| m == "wait"));
+        assert!(check_batch(&p, &steps(&["click", "type", "screenshot", "wait"])).is_ok());
+        assert!(check_batch(&p, &steps(&["batch"])).is_err());
+        assert!(check_batch(&p, &json!({})).is_err());
+    }
+
+    #[test]
+    fn a_batch_cannot_smuggle_generic_reads_past_a_sensitive_profile() {
+        let p = AppProfile::for_app("heardright");
+        for m in ["eval", "dom", "ax", "screenshot", "wait", "batch", "click"] {
+            assert!(!p.method_enabled(m), "{m}");
+            assert!(check_batch(&p, &steps(&[m])).is_err(), "{m}");
+        }
+        let ok = json!({"steps": [{"method": "command", "params": {"name": "version"}}]});
+        assert!(check_batch(&p, &ok).is_ok());
+        let bad = json!({"steps": [{"method": "command", "params": {"name": "transcribe_all"}}]});
+        assert!(check_batch(&p, &bad).is_err());
+    }
 }
