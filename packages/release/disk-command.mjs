@@ -5,7 +5,7 @@ import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { spawnSync } from "./background-process.mjs";
 import {
-  DISK_EXIT_WARNING, applySweep, checkDisk, formatBytes, listOpenPaths, logEvent, planSweep, platformKey, readDiskPolicy,
+  DISK_EXIT_WARNING, applySweep, checkDisk, formatBytes, listOpenPaths, logEvent, planSweep, platformKey, purgeHoldings, readDiskPolicy,
 } from "./disk-policy.mjs";
 
 export const LAUNCHD_LABEL = "dev.rightkit.disk-hygiene";
@@ -54,8 +54,6 @@ function parse(rest) {
   return opts;
 }
 
-const CHECKOUT_FILE = fileURLToPath(import.meta.url);
-
 // A path inside any git checkout (a `.git` entry on an ancestor) is development code, never an installed package.
 export function insideGitCheckout(file, exists = existsSync) {
   let dir = path.dirname(file);
@@ -68,18 +66,17 @@ export function insideGitCheckout(file, exists = existsSync) {
 }
 
 /** Installed @rightkit/release CLI for the Windows task: explicit --cli / RIGHT_RELEASE_INSTALLED_CLI, else the global
- * node_modules (`npm root -g`, `pnpm root -g`). A checkout, including the one running install, is refused. */
-export function resolveInstalledCli({ explicit, env = process.env, globalRoots = defaultGlobalRoots, exists = existsSync, checkoutFile = CHECKOUT_FILE } = {}) {
+ * node_modules (`npm root -g`, `pnpm root -g`). Only a candidate inside a git checkout is refused; the installed package may itself run install. */
+export function resolveInstalledCli({ explicit, env = process.env, globalRoots = defaultGlobalRoots, exists = existsSync } = {}) {
   const rel = path.join("@rightkit", "release", "cli", "right-release.mjs");
   const candidates = explicit || env.RIGHT_RELEASE_INSTALLED_CLI
     ? [explicit || env.RIGHT_RELEASE_INSTALLED_CLI]
     : globalRoots({ env }).map((root) => path.join(root, rel));
-  const checkoutCli = path.join(path.dirname(checkoutFile), "cli", "right-release.mjs");
   for (const candidate of candidates) {
     if (!exists(candidate)) continue;
     let real = candidate;
     try { real = realpathSync(candidate); } catch { /* keep lexical */ }
-    if (real === checkoutCli || insideGitCheckout(real, exists)) continue;
+    if (insideGitCheckout(real, exists)) continue;
     return candidate;
   }
   throw new Error("disk schedule install needs the installed @rightkit/release (not a checkout): install it globally or pass --cli <path to the installed cli/right-release.mjs>");
@@ -183,6 +180,11 @@ export async function runDiskCommand(args = process.argv.slice(2), { env = proce
     out({ ...p, applied }, renderSweep(p, applied));
     return { exitCode: applied.results.some((r) => !r.ok) ? 1 : 0, plan: p, applied };
   }
+  if (command === "purge") {
+    const purged = purgeHoldings({ policy, platform, env, days: opts.days, dryRun: opts.dryRun, ...deps.purge });
+    out(purged, `${opts.dryRun ? "Dry run: would purge" : "Purged"} ${purged.results.length} holding dir(s)${purged.results.map((r) => `\n  ${formatBytes(r.bytes).padStart(9)}  ${r.path}${r.ok ? "" : `  FAILED: ${r.error}`}`).join("")}`);
+    return { exitCode: purged.results.some((r) => !r.ok) ? 1 : 0, purged };
+  }
   if (command === "run") {
     const before = check();
     stdout(renderCheck(before));
@@ -190,13 +192,15 @@ export async function runDiskCommand(args = process.argv.slice(2), { env = proce
     stdout(renderSweep(p));
     const applied = applySweep({ plan: p, policy, platform, ...deps.apply });
     stdout(`moved ${formatBytes(applied.movedBytes)} (${applied.results.filter((r) => r.ok).length}/${applied.results.length})`);
+    const purged = purgeHoldings({ policy, platform, env, ...deps.purge });
+    stdout(`purged ${purged.results.filter((r) => r.ok).length} holding dir(s), ${formatBytes(purged.purgedBytes)}`);
     const after = check();
     const warn = after.warn;
     logEvent(logFile, { event: warn ? "disk.floor.warn" : "disk.run.ok", warnings: after.warnings, freeBytes: after.floor.freeBytes, movedBytes: applied.movedBytes });
     if (warn) stdout(`WARNING: ${after.warnings.join("; ")}`);
-    return { exitCode: warn ? DISK_EXIT_WARNING : 0, before, after, applied };
+    return { exitCode: warn ? DISK_EXIT_WARNING : 0, before, after, applied, purged };
   }
-  throw new Error("disk usage: check|sweep [--dry-run|--delete] [--days N]|run|schedule install|uninstall|status  [--json]");
+  throw new Error("disk usage: check|sweep [--dry-run|--delete] [--days N]|purge [--dry-run] [--days N]|run|schedule install|uninstall|status  [--json]");
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {

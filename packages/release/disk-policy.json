@@ -5,6 +5,11 @@
     "mac": {"path": "/System/Volumes/Data", "label": "Mac internal", "warnFreeBytes": 42949672960},
     "win": {"path": "D:\\", "label": "Dell D:", "warnFreeBytes": 429496729600, "warnFreePercent": 10}
   },
+  "holdingDays": 3,
+  "holding": {
+    "mac": [{"prefix": "/", "path": "~/.rightkit-swept"}],
+    "win": [{"prefix": "C:\\", "path": "${LOCALAPPDATA}\\Orthic Labs\\.rightkit-swept"}]
+  },
   "heavyVolume": {
     "mac": "/Volumes/D/claude/tmp/swept",
     "win": "D:\\claude\\tmp\\swept"
@@ -44,5 +49,5 @@
     {"id": "leftover-legion-final", "platform": "mac", "path": "/Volumes/D/claude/legion-final-*", "capBytes": 1073741824, "action": "sweep", "unit": "self"},
     {"id": "leftover-pulse-bak", "platform": "win", "path": "${LOCALAPPDATA}\\Programs\\Pulse.bak-*", "capBytes": 1073741824, "action": "sweep", "unit": "self"}
   ],
-  "protectedSegments": ["Application Support", "Keychains", "Keychain", "HeardRightNext", "Credentials", ".ssh", ".rightkit-managed"]
+  "protectedSegments": ["Application Support", "Keychains", "Keychain", "HeardRightNext", "Credentials", ".ssh", ".rightkit-managed", ".rightkit-swept"]
 }

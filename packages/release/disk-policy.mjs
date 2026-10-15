@@ -1,4 +1,4 @@
-import { closeSync, cpSync, existsSync, lstatSync, mkdirSync, opendirSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, statSync, statfsSync, appendFileSync } from "node:fs";
+import { closeSync, cpSync, existsSync, lstatSync, mkdirSync, opendirSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, statSync, statfsSync, appendFileSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -224,9 +224,68 @@ export function planSweep({ policy, platform = process.platform, env = process.e
   return { schema: 1, platform: key, staleDays, candidates, skipped, totalBytes: candidates.reduce((s, c) => s + c.bytes, 0) };
 }
 
-export function sweptDestination({ policy, platform = process.platform, date = new Date() }) {
+export const HOLDING_DIR = ".rightkit-swept";
+export const HOLDING_MARKER = ".rightkit-release-holding";
+const DATE_DIR = /^\d{4}-\d{2}-\d{2}$/;
+
+// Device id of a path, or of its nearest existing ancestor (null when none can be read).
+export function deviceOf(target) {
+  let cur = target;
+  for (;;) {
+    try { return statSync(cur).dev; } catch {
+      const up = path.dirname(cur);
+      if (up === cur) return null;
+      cur = up;
+    }
+  }
+}
+
+// Highest ancestor of `target` still on the same device: the mount point (or drive root) holding it.
+export function volumeRoot(target) {
+  const dev = deviceOf(target);
+  let cur = target;
+  for (;;) {
+    const up = path.dirname(cur);
+    if (up === cur || deviceOf(up) !== dev) return cur;
+    cur = up;
+  }
+}
+
+const isUnder = (candidate, prefix, win) => {
+  const norm = (v) => (win ? v.toLowerCase() : v);
+  const c = norm(candidate); const p = norm(prefix);
+  const withSep = p.endsWith(path.sep) || p.endsWith("/") || p.endsWith("\\") ? p : p + path.sep;
+  return c === p || c.startsWith(withSep);
+};
+
+// Candidate holding bases for an item, best first: policy per-volume rules (longest prefix), then the item's own volume root.
+export function holdingBases(candidate, { policy, platform = process.platform, env = process.env, home = os.homedir() } = {}) {
   const key = platformKey(platform);
-  return path.join(policy.heavyVolume[key], date.toISOString().slice(0, 10));
+  const out = [];
+  const rules = (policy.holding?.[key] ?? []).flatMap((r) => {
+    try { return [{ prefix: expandPolicyPath(r.prefix, { env, home }), path: expandPolicyPath(r.path, { env, home }) }]; } catch { return []; }
+  }).filter((r) => isUnder(candidate, r.prefix, key === "win")).sort((a, b) => b.prefix.length - a.prefix.length);
+  for (const r of rules) out.push(r.path);
+  out.push(path.join(volumeRoot(path.dirname(candidate)), HOLDING_DIR));
+  return out;
+}
+
+// Create (and mark) today's holding dir on the item's own volume; null when no holding dir on that volume is possible.
+export function pickHolding(candidate, { policy, platform = process.platform, env = process.env, home = os.homedir(), date = new Date(), bases } = {}) {
+  const dev = deviceOf(path.dirname(candidate));
+  for (const base of bases ?? holdingBases(candidate, { policy, platform, env, home })) {
+    try {
+      if (deviceOf(base) !== dev) continue; // checked before creating anything: a base on another volume would free nothing
+      mkdirSync(base, { recursive: true });
+      if (deviceOf(base) !== dev || lstatSync(base).isSymbolicLink()) continue;
+      const marker = path.join(base, HOLDING_MARKER);
+      if (!existsSync(marker)) writeFileSync(marker, "created by right-release disk; date-named children are purged after the retention window\n");
+      const dir = path.join(base, date.toISOString().slice(0, 10));
+      mkdirSync(dir, { recursive: true });
+      return dir;
+    } catch { /* try the next base */ }
+  }
+  return null;
 }
 
 export function moveEntry(source, destination) {
@@ -248,23 +307,76 @@ export function logEvent(logFile, event) {
   } catch { /* logging must never fail the sweep */ }
 }
 
-export function applySweep({ plan, policy, platform = process.platform, deleteMode = false, date = new Date(), move = moveEntry, remove = (p) => rmSync(p, { recursive: true, force: true }) }) {
-  const destRoot = sweptDestination({ policy, platform, date });
+export function applySweep({ plan, policy, platform = process.platform, deleteMode = false, date = new Date(), env = process.env, home = os.homedir(), move = moveEntry, pick = pickHolding, remove = (p) => rmSync(p, { recursive: true, force: true }) }) {
   const logFile = path.join(policy.heavyVolume[platformKey(platform)], "disk-hygiene.jsonl");
   const results = [];
   for (const c of plan.candidates) {
-    const rel = path.join(c.writer, path.basename(c.path));
-    let destination = path.join(destRoot, rel);
-    if (existsSync(destination)) destination = `${destination}.${date.getTime()}`;
     try {
       // Re-verify at apply time: still the planned unit, not a symlink, still inside its root.
       if (!c.root || lstatSync(c.path).isSymbolicLink() || !isInsideRoot(c.path, c.root)) throw new Error("refused: path is not a sweepable unit inside its target root");
-      if (deleteMode) { remove(c.path); results.push({ ...c, action: "delete", ok: true }); logEvent(logFile, { event: "disk.sweep.delete", ...c }); }
-      else { const how = move(c.path, destination); results.push({ ...c, action: "move", destination, how, ok: true }); logEvent(logFile, { event: "disk.sweep.move", ...c, destination, how }); }
+      if (deleteMode) { remove(c.path); results.push({ ...c, action: "delete", ok: true }); logEvent(logFile, { event: "disk.sweep.delete", ...c }); continue; }
+      // An item stays on its own volume: moving it elsewhere frees nothing on the volume that is short of space.
+      const holding = pick(c.path, { policy, platform, env, home, date });
+      if (!holding) {
+        remove(c.path);
+        results.push({ ...c, action: "delete", how: "no-holding-on-volume", ok: true });
+        logEvent(logFile, { event: "disk.sweep.delete", reason: "no holding dir possible on the item's volume", ...c });
+        continue;
+      }
+      let destination = path.join(holding, c.writer, path.basename(c.path));
+      if (existsSync(destination)) destination = `${destination}.${date.getTime()}`;
+      const how = move(c.path, destination);
+      results.push({ ...c, action: "move", destination, how, ok: true });
+      logEvent(logFile, { event: "disk.sweep.move", ...c, destination, how });
     } catch (error) {
       results.push({ ...c, action: deleteMode ? "delete" : "move", ok: false, error: error.message });
       logEvent(logFile, { event: "disk.sweep.error", ...c, error: error.message });
     }
   }
   return { logFile, results, movedBytes: results.filter((r) => r.ok).reduce((s, r) => s + r.bytes, 0) };
+}
+
+// Holding bases that may exist: policy rule paths, each drive root (Windows) or /Volumes/* and the legacy heavy dir (Mac).
+export function knownHoldingBases({ policy, platform = process.platform, env = process.env, home = os.homedir() } = {}) {
+  const key = platformKey(platform);
+  const bases = new Set();
+  for (const r of policy.holding?.[key] ?? []) { try { bases.add(expandPolicyPath(r.path, { env, home })); } catch { /* unset variable */ } }
+  if (key === "win") for (const letter of "ABCDEFGHIJKLMNOPQRSTUVWXYZ") { const root = `${letter}:\\`; if (existsSync(root)) bases.add(path.join(root, HOLDING_DIR)); }
+  else { bases.add(path.join(path.sep, HOLDING_DIR)); try { for (const v of readdirSync("/Volumes")) bases.add(path.join("/Volumes", v, HOLDING_DIR)); } catch { /* no /Volumes */ } }
+  return [...bases];
+}
+
+/** Remove date-named holding dirs older than `days`. Only dirs this tool created: the base must carry the holding marker
+ * (or, for the legacy heavy dir, the tool's own log), the child must be a real directory named YYYY-MM-DD, never a symlink. */
+export function purgeHoldings({ policy, platform = process.platform, env = process.env, home = os.homedir(), now = Date.now(), days = policy.holdingDays ?? 3, dryRun = false, bases, remove = (p) => rmSync(p, { recursive: true, force: true }), size = walkSize } = {}) {
+  const key = platformKey(platform);
+  const legacy = policy.heavyVolume?.[key];
+  const list = bases ?? [...knownHoldingBases({ policy, platform, env, home }), ...(legacy ? [legacy] : [])];
+  const logFile = legacy ? path.join(legacy, "disk-hygiene.jsonl") : null;
+  const cutoff = now - days * 86400_000;
+  const results = [];
+  for (const base of new Set(list)) {
+    let st;
+    try { st = lstatSync(base); } catch { continue; }
+    if (!st.isDirectory() || st.isSymbolicLink()) continue;
+    const owned = existsSync(path.join(base, HOLDING_MARKER)) || (base === legacy && existsSync(path.join(base, "disk-hygiene.jsonl")));
+    if (!owned) continue;
+    let names = [];
+    try { names = readdirSync(base); } catch { continue; }
+    for (const name of names) {
+      if (!DATE_DIR.test(name)) continue;
+      const dir = path.join(base, name);
+      let dst;
+      try { dst = lstatSync(dir); } catch { continue; }
+      if (!dst.isDirectory() || dst.isSymbolicLink()) continue;
+      const stamp = Date.parse(`${name}T00:00:00Z`);
+      if (!Number.isFinite(stamp) || stamp + 86400_000 > cutoff) continue; // the whole day must be older than the window
+      const bytes = size(dir);
+      try {
+        if (!dryRun) { remove(dir); if (logFile) logEvent(logFile, { event: "disk.purge", path: dir, bytes }); }
+        results.push({ path: dir, bytes, ok: true, dryRun });
+      } catch (error) { results.push({ path: dir, bytes, ok: false, error: error.message }); }
+    }
+  }
+  return { results, purgedBytes: results.filter((r) => r.ok && !r.dryRun).reduce((a, r) => a + r.bytes, 0) };
 }

@@ -1,10 +1,11 @@
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, utimesSync, writeFileSync, lstatSync, readdirSync, realpathSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { execFileSync } from "node:child_process";
 import { insideGitCheckout, resolveInstalledCli, runDiskCommand, scheduleSpec, renderSweep } from "./disk-command.mjs";
-import { applySweep, checkDisk, evaluateFloor, expandGlob, inUseByOpenPaths, literalRoot, planSweep, readDiskPolicy, sweptDestination } from "./disk-policy.mjs";
+import { HOLDING_MARKER, applySweep, checkDisk, deviceOf, evaluateFloor, expandGlob, inUseByOpenPaths, literalRoot, pickHolding, planSweep, purgeHoldings, readDiskPolicy, volumeRoot } from "./disk-policy.mjs";
 
 const OLD = Date.now() - 30 * 86400_000;
 
@@ -15,6 +16,7 @@ function fixture() {
     schema: 1, staleDays: 7,
     floors: { mac: { path: root, label: "fixture", warnFreeBytes: 1000 } },
     heavyVolume: { mac: heavy },
+    holding: { mac: [{ prefix: root, path: path.join(root, "hold") }] },
     protectedSegments: ["Application Support"],
     writers: [
       { id: "scratch", platform: "mac", path: path.join(root, "tmp", "*", "scratch"), capBytes: 100, action: "sweep", unit: "self" },
@@ -117,7 +119,8 @@ test("sweep moves by default, logs, and never deletes without --delete", () => {
   assert.equal(applied.results[0].action, "move");
   assert.equal(removed.length, 0);
   assert.equal(existsSync(path.join(root, "cache", "old")), false);
-  assert.equal(existsSync(path.join(sweptDestination({ policy, platform: "darwin", date }), "kids", "old", "f")), true);
+  assert.equal(existsSync(path.join(root, "hold", "2026-10-15", "kids", "old", "f")), true);
+  assert.equal(existsSync(path.join(root, "hold", HOLDING_MARKER)), true);
   assert.match(readFileSync(path.join(heavy, "disk-hygiene.jsonl"), "utf8"), /disk.sweep.move/);
 });
 
@@ -262,4 +265,118 @@ test("schedule install binds the installed package, never a checkout", () => {
   assert.equal(resolveInstalledCli({ env: {}, globalRoots: () => ["/g"], exists, checkoutFile }), installed);
   assert.throws(() => resolveInstalledCli({ env: {}, globalRoots: () => ["/none"], exists, checkoutFile }), /installed @rightkit\/release/);
   assert.throws(() => resolveInstalledCli({ explicit: checkoutCli, env: {}, globalRoots: () => [], exists, checkoutFile }), /not a checkout/);
+  // Running install from the installed (non-git) package is allowed, with --cli or by global-root discovery.
+  assert.equal(resolveInstalledCli({ explicit: installed, env: {}, globalRoots: () => [], exists }), installed);
+  assert.equal(resolveInstalledCli({ env: { RIGHT_RELEASE_INSTALLED_CLI: installed }, globalRoots: () => [], exists }), installed);
+  // A real checkout directory (with .git above) is refused; an installed copy without one is accepted (real filesystem).
+  const base = mkdtempSync(path.join(os.tmpdir(), "rk-cli-"));
+  const mk = (dir) => { const f = path.join(dir, "cli", "right-release.mjs"); mkdirSync(path.dirname(f), { recursive: true }); writeFileSync(f, ""); return f; };
+  mkdirSync(path.join(base, "checkout", ".git"), { recursive: true });
+  assert.throws(() => resolveInstalledCli({ explicit: mk(path.join(base, "checkout", "packages", "release")), env: {} }), /not a checkout/);
+  const copy = mk(path.join(base, "global", "node_modules", "@rightkit", "release"));
+  assert.equal(resolveInstalledCli({ explicit: copy, env: {} }), copy);
+});
+
+test("holding: an item stays on its own volume; the volume root default applies without a rule", () => {
+  const { root, policy } = fixture();
+  file(path.join(root, "cache", "old", "f"), 10, OLD);
+  const item = path.join(root, "cache", "old");
+  const date = new Date("2026-10-15T12:00:00Z");
+  const dir = pickHolding(item, { policy, platform: "darwin", date });
+  assert.equal(dir, path.join(root, "hold", "2026-10-15"));
+  assert.equal(deviceOf(dir), deviceOf(item));
+  const vr = volumeRoot(path.dirname(item));
+  assert.ok(item.startsWith(vr));
+  assert.equal(deviceOf(vr), deviceOf(item));
+  // A rule base on another device is skipped before anything is created there.
+  if (process.platform !== "win32" && deviceOf("/dev") !== deviceOf(item)) {
+    const elsewhere = pickHolding(item, { policy, platform: "darwin", date, bases: ["/dev/.rightkit-swept"] });
+    assert.equal(elsewhere, null);
+    assert.equal(existsSync("/dev/.rightkit-swept"), false);
+  }
+});
+
+test("no holding dir possible on the volume: the item is deleted directly, and that is logged", () => {
+  const { root, heavy, policy } = fixture();
+  file(path.join(root, "cache", "old", "f"), 10, OLD);
+  const plan = planSweep({ policy, platform: "darwin", openPaths: [], size: () => 10 });
+  const moved = [];
+  const applied = applySweep({ plan, policy, platform: "darwin", pick: () => null, move: (a, b) => moved.push([a, b]) });
+  assert.equal(moved.length, 0);
+  assert.equal(applied.results[0].action, "delete");
+  assert.equal(applied.results[0].how, "no-holding-on-volume");
+  assert.equal(existsSync(path.join(root, "cache", "old")), false);
+  assert.match(readFileSync(path.join(heavy, "disk-hygiene.jsonl"), "utf8"), /no holding dir possible/);
+});
+
+test("purge: only tool-created, date-named, older-than-3-day holding dirs go", () => {
+  const { root, policy } = fixture();
+  const now = Date.parse("2026-10-15T12:00:00Z");
+  const base = path.join(root, "hold");
+  mkdirSync(base, { recursive: true });
+  writeFileSync(path.join(base, HOLDING_MARKER), "");
+  for (const name of ["2026-10-01", "2026-10-11", "2026-10-12", "2026-10-15", "not-a-date", "2026-10-02.tail"]) file(path.join(base, name, "f"), 10);
+  const keepTarget = path.join(root, "precious");
+  file(path.join(keepTarget, "f"), 10);
+  symlinkSync(keepTarget, path.join(base, "2026-09-30"));
+  // an unmarked sibling base with an old date dir is untouched
+  const stranger = path.join(root, "stranger");
+  file(path.join(stranger, "2026-01-01", "f"), 10);
+  const dry = purgeHoldings({ policy, platform: "darwin", now, bases: [base, stranger], dryRun: true });
+  assert.deepEqual(dry.results.map((r) => path.basename(r.path)).sort(), ["2026-10-01", "2026-10-11"]);
+  assert.equal(existsSync(path.join(base, "2026-10-01")), true);
+  const res = purgeHoldings({ policy, platform: "darwin", now, bases: [base, stranger] });
+  assert.deepEqual(res.results.map((r) => path.basename(r.path)).sort(), ["2026-10-01", "2026-10-11"]);
+  assert.equal(res.purgedBytes > 0, true);
+  assert.deepEqual(readdirSync(base).sort(), [HOLDING_MARKER, "2026-09-30", "2026-10-02.tail", "2026-10-12", "2026-10-15", "not-a-date"].sort());
+  assert.equal(existsSync(path.join(keepTarget, "f")), true);
+  assert.equal(existsSync(path.join(stranger, "2026-01-01", "f")), true);
+  assert.equal(lstatSync(path.join(base, "2026-09-30")).isSymbolicLink(), true);
+});
+
+test("run purges old holding dirs after sweeping", async () => {
+  const { root, policy } = fixture();
+  const pf = path.join(root, "policy.json");
+  writeFileSync(pf, JSON.stringify(policy));
+  const base = path.join(root, "hold");
+  mkdirSync(path.join(base, "2020-01-01"), { recursive: true });
+  writeFileSync(path.join(base, HOLDING_MARKER), "");
+  const lines = [];
+  const r = await runDiskCommand(["run", "--policy", pf], { platform: "darwin", stdout: (l) => lines.push(l), deps: { openPaths: [], plan: { size: () => 10 }, check: { size: () => 0, space: () => ({ freeBytes: 5000, totalBytes: 10000 }) }, purge: { bases: [base] } } });
+  assert.equal(existsSync(path.join(base, "2020-01-01")), false);
+  assert.equal(r.purged.results.length, 1);
+  assert.ok(lines.some((l) => /purged 1 holding dir/.test(l)));
+  const standalone = await runDiskCommand(["purge", "--dry-run", "--policy", pf], { platform: "darwin", stdout: () => {}, deps: { purge: { bases: [base] } } });
+  assert.equal(standalone.exitCode, 0);
+});
+
+test("real second volume (macOS disk image): the item is renamed within its own volume", { skip: process.platform !== "darwin" }, (t) => {
+  const dir = mkdtempSync(path.join(os.tmpdir(), "rk-dmg-"));
+  const image = path.join(dir, "vol.dmg");
+  const mount = path.join(dir, "mnt");
+  mkdirSync(mount);
+  try {
+    execFileSync("hdiutil", ["create", "-size", "16m", "-fs", "HFS+", "-volname", "rkvol", image], { stdio: "ignore" });
+    execFileSync("hdiutil", ["attach", image, "-mountpoint", mount, "-nobrowse", "-quiet"], { stdio: "ignore" });
+  } catch { t.skip("cannot create a disk image here"); return; }
+  try {
+    const { policy } = fixture();
+    policy.holding = { mac: [{ prefix: "/", path: path.join(os.homedir(), ".rightkit-swept-test-never-created") }] }; // another volume: must be skipped
+    file(path.join(mount, "cache", "old", "f"), 10, OLD);
+    policy.writers = [{ id: "kids", platform: "mac", path: path.join(mount, "cache"), capBytes: 1, action: "sweep", unit: "children" }];
+    policy.heavyVolume.mac = path.join(dir, "heavy");
+    const plan = planSweep({ policy, platform: "darwin", openPaths: [], size: () => 10 });
+    assert.equal(plan.candidates.length, 1);
+    const applied = applySweep({ plan, policy, platform: "darwin", date: new Date("2026-10-15T12:00:00Z") });
+    assert.equal(applied.results[0].ok, true);
+    assert.equal(applied.results[0].how, "rename");
+    const mountReal = realpathSync(mount);
+    assert.ok(realpathSync(applied.results[0].destination).startsWith(mountReal + path.sep), applied.results[0].destination);
+    assert.equal(existsSync(path.join(os.homedir(), ".rightkit-swept-test-never-created")), false);
+    assert.equal(purgeHoldings({ policy, platform: "darwin", now: Date.parse("2026-10-30T00:00:00Z"), bases: [path.join(mount, ".rightkit-swept")] }).results.length, 1);
+    assert.equal(existsSync(path.join(mount, ".rightkit-swept", "2026-10-15")), false);
+  } finally {
+    try { execFileSync("hdiutil", ["detach", mount, "-force", "-quiet"], { stdio: "ignore" }); } catch { /* ignore */ }
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
