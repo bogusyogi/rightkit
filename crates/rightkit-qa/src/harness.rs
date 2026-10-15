@@ -83,6 +83,11 @@ pub struct Harness {
     root_limits: crate::storage::RootLimits,
     /// Set once the QA root limits passed; shared by clones, which share one run.
     root_limits_checked: Arc<AtomicBool>,
+    kind: crate::storage::RunKind,
+    /// Set by any scenario that ran (passed or failed); shared by clones, which share one run.
+    ran: Arc<AtomicBool>,
+    /// Set by any scenario that failed.
+    failed: Arc<AtomicBool>,
 }
 
 impl Drop for Harness {
@@ -92,6 +97,16 @@ impl Drop for Harness {
         }
         if let Ok(mut run) = self.run.lock() {
             if let Some(ws) = run.take() {
+                // The marker records how the run ended; retention reads only this. A run in
+                // which every scenario was skipped executed nothing and is recorded as such.
+                let outcome = if std::thread::panicking() || self.failed.load(Ordering::Acquire) {
+                    crate::storage::RunOutcome::Failed
+                } else if self.ran.load(Ordering::Acquire) {
+                    crate::storage::RunOutcome::Passed
+                } else {
+                    crate::storage::RunOutcome::Skipped
+                };
+                let _ = ws.set_outcome(outcome);
                 if self.keep_failed_home && std::thread::panicking() {
                     let _ = ws.finish();
                     eprintln!(
@@ -101,6 +116,13 @@ impl Drop for Harness {
                     );
                 } else {
                     let _ = crate::workspace::dispose(&ws, true, 3, 10);
+                }
+                // Retention right after the job: failed runs and the newest pass per kind stay.
+                if let Some(managed) = crate::retention::managed_root_of_run(&ws.root) {
+                    let pruned = crate::retention::prune_runs_after_job(&managed, &self.app);
+                    if !pruned.removed.is_empty() {
+                        println!("{} run retention: {}", self.prefix, pruned.summary());
+                    }
                 }
             }
         }
@@ -183,7 +205,27 @@ impl Harness {
             keep_failed_home: crate::storage::keep_failed_home_requested(),
             root_limits: crate::storage::RootLimits::default(),
             root_limits_checked: Arc::new(AtomicBool::new(false)),
+            kind: crate::storage::RunKind::Functional,
+            ran: Arc::new(AtomicBool::new(false)),
+            failed: Arc::new(AtomicBool::new(false)),
         }
+    }
+
+    /// The run kind recorded in this harness run's marker. Default `functional`.
+    ///
+    /// The harness itself never takes a screenshot or a recording: files a scenario keeps with
+    /// [`Scenario::keep`] are whatever the test wrote. The kind is what retention groups by, so a
+    /// test crate that produces screens (an audit-visual run) declares `RunKind::Visual` and its
+    /// newest passing run is kept separately from the functional one.
+    pub fn with_run_kind(mut self, kind: crate::storage::RunKind) -> Self {
+        crate::storage::set_run_kind(&self.run_root, kind)
+            .unwrap_or_else(|e| panic!("cannot record QA run kind: {e}"));
+        self.kind = kind;
+        self
+    }
+
+    pub fn run_kind(&self) -> crate::storage::RunKind {
+        self.kind
     }
 
     /// Keep the QA home when the run fails (the thread is panicking as the harness drops); its path
@@ -228,6 +270,7 @@ impl Harness {
     fn release_refused_run(&self) {
         if let Ok(mut run) = self.run.lock() {
             if let Some(ws) = run.take() {
+                let _ = ws.set_outcome(crate::storage::RunOutcome::Failed);
                 let _ = crate::workspace::dispose(&ws, true, 3, 10);
             }
         }
@@ -526,6 +569,14 @@ impl Harness {
         started: Instant,
     ) {
         let ms = started.elapsed().as_millis() as u64;
+        match status {
+            CheckStatus::Passed => self.ran.store(true, Ordering::Release),
+            CheckStatus::Failed => {
+                self.ran.store(true, Ordering::Release);
+                self.failed.store(true, Ordering::Release);
+            }
+            CheckStatus::Skipped => {}
+        }
         let (word, reason) = match status {
             CheckStatus::Passed => ("PASS", None),
             CheckStatus::Skipped => ("SKIP", details["reason"].as_str().map(String::from)),

@@ -51,6 +51,36 @@ Run roots, harness evidence, captures & summaries remain under `<managed>/runs/<
 
 Finish copies app logs to managed `evidence/`, app-written evidence to `evidence/app/` & app captures to `captures/` before releasing ownership. Disposal removes temp companions; failed copies or cleanup preserve ownership metadata for recovery. Retention & orphan pruning validate companion bindings & protect live runs.
 
+## Run kinds, evidence location and retention
+
+**Two run kinds.** A run is `functional` or `visual`.
+
+* `functional` is the default. It checks clicks, state and text and takes **no screenshots and no screen recordings**. A scenario step that would capture (`ui_screenshot`, `browser_screenshot`, a `screenshot` or `record*`/`capture*`/`video*` method inside `ui_batch`) is **refused** with an error that names the step, the scenario and how to change the kind; nothing is skipped silently, so the evidence never changes behind the author's back. The failure screenshot the suite used to take when a UI scenario failed is a capture too: functional runs do not take it.
+* `visual` is the audit-visual run that captures screens (`ui_screenshot`, `browser_screenshot`, the failure screenshot).
+
+Choose the kind per scenario with `kind = "functional"|"visual"` at the top of the `.scenario.toml`, or for the run with `rightkit-qa run --kind functional|visual` (`SuiteOptions::kind`). Resolution: `--kind` wins; without it the run is `visual` when any selected scenario declares `kind = "visual"`, else `functional`. A scenario that declares nothing takes the run's kind; one that declares `functional` stays functional inside a visual run; one that declares `visual` inside an explicit `--kind functional` run fails with a clear error (the explicit request is not widened). The kind is printed in the run header, written to `results.json`, bound into the evidence identity (`identity.runKind`) and recorded in the run marker. Plain Rust tests: `Harness::with_run_kind` records the kind (default `functional`); the harness itself never captures anything. Direct API calls (`Control::screenshot_png`, `Control::batch`) are not gated: the rule belongs to the scenario runner.
+
+**Where evidence lives.** Each run writes only into its own directory `<managed root>/runs/<app>/<run-id>/` (the managed root is `RIGHTKIT_MANAGED_ROOT` or the platform default, never the app checkout). The `evidence_dir` key of `rightkit-qa.toml` and `QaConfig::evidence_root`, which pointed into the app checkout (`<app>/.cache/rightkit-qa`) and were not used for suite or harness evidence, are removed in 0.5.0; an old `evidence_dir` key is ignored. The paths the crate still touches inside an app repo are read-only inputs and ordinary build output: `.cache/qa/settings.env`, `.cache/e2e/settings.env` and `rightkit-qa.settings.env` (settings files, see below), and `target/` from `--build`/`--build-ui`. Apps must git-ignore them. Add this to the app's `.gitignore`:
+
+```gitignore
+# rightkit-qa: local settings and build output, never committed
+/.cache/
+/target/
+/rightkit-qa.settings.env
+```
+
+**The run marker.** Every run directory carries `.rightkit-run.json`: `app`, `runId`, `kind` (`functional|visual`), `createdAt` (start, ms), `completedAt` (end, ms), `outcome` (`passed|failed`; `skipped` for a harness run in which every scenario skipped), plus the lease fields the run lock uses. Markers written before 0.5.0 have no kind and no outcome.
+
+**Retention.** `retention::prune_runs(managed_root, app, dry_run)` applies one rule to `<managed root>/runs`, and `rightkit-qa prune-runs [--app KEY] [--root DIR] [--dry-run]` is the same call for a schedule (no `--app` prunes every app; no `--root` uses the managed root default):
+
+* only a directory that carries a valid marker naming its own app and run id is ever considered; nothing else is touched or deleted, whatever it holds;
+* every failed run is kept, a run with no recorded outcome (still running, or an older marker) and an active run are kept;
+* of the passing runs, the newest per app and kind is kept, the other passing runs are deleted;
+* a `skipped` run holds no evidence and is deleted;
+* nothing outside `<managed root>/runs` is touched, a `runs` directory that is a link (or resolves elsewhere) is refused, an app or run directory that is a link is skipped and never followed, and a link inside a run is removed as itself.
+
+The suite (`run_suite`) and the Rust harness run `retention::prune_runs_after_job` right after each job ends; it never fails the job. The older count and byte-cap prune at run start (`storage::prune*`, the `sweep` command) stays as the disk-safety valve, but it now keeps failed runs by the count rule too: only the byte cap can still evict one, oldest first.
+
 ## QA runs never touch real user data
 
 A test run may never start an app on the user's real data or on a location that can raise a system dialog. `userdata::Guard` is evaluated by `control::launch` before anything is created or started, and every engine launch (`EngineTarget::cli`, `run`, `start_sidecar`, and the scenario `cli` / `sidecar_start` steps) goes through `userdata::check_engine_launch`. There is no flag to turn the app guard off; the one engine opt-out is the refusal probe below.
@@ -155,7 +185,7 @@ if let Some(plugin) = rightkit_qa_driver::embedded::Control::<tauri::Wry>::new()
 ### Running
 
 - CI (Pulse `scripts/gate.sh`, `run_hub_qa`): build the debug app with `cargo build --features qa-native,custom-protocol` in `hub/src-tauri`, then run `cargo test --test ui -- --nocapture` in `hub/qa-e2e` with `RIGHTKIT_MANAGED_ROOT`, `PULSE_QA_SHOTS` and `RIGHTKIT_QA_EVIDENCE` set. The gate calls plain `cargo` because its runner has no `rightkit` CLI. That is the gate's stated exception, not the local rule.
-- The gate does not accept a silent pass. A skipped scenario exits `ok` (see Rust integration tests), so the gate also requires a `"passed"` receipt in `evidence.json` and at least eight screenshots.
+- The gate does not accept a silent pass. A skipped scenario exits `ok` (see Rust integration tests), so the gate also requires a `"passed"` receipt in `evidence.json` and at least eight screenshots (so those scenarios are `kind = "visual"`; a functional run takes none).
 - A hidden WebView2 app cannot be launched from a non-interactive session (SSH, a service, session 0 or a non-visible window station). The app process starts and the control server may answer, but the webview never produces a ready window, so `control::launch` ends with `app window never became ready` after `startup_timeout`. On Windows that error now says when the harness itself is in such a session. Start the run from the logged-in user's desktop session instead, for example a one-shot scheduled task created with `schtasks /create /it` (interactive token), run once, and deleted afterwards. Do not read the timeout as an app defect before checking the session.
 - Local host: start the run from the user's interactive desktop session, not over SSH. An SSH-started run is the open gap below.
 
