@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.2.2
+
+- Fixed: 0.2.1 did not compile with the `link`, `remote` or `testing` features (`link::client` imported the private `remote::util`, E0603). Found by PostRight's Phase 3 build; the publish gate tested only default features.
+- Tests: restored the `FIXTURE_V1_1` path in `tests/remote_conformance.rs`, so the `testing` feature's test suite compiles again.
+- Known issue (fix in progress): with `testing`, `tests/link.rs` `leases_and_the_queue_survive_a_host_restart` fails: a device that reconnects after a host restart is sent its already-leased task again (`["welcome", "task"]`, expected `["welcome"]`). This code first compiles in this release; the behaviour is unchanged from 0.2.1.
+
 
 ## 0.2.1
 

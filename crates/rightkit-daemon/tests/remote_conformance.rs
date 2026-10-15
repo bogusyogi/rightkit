@@ -16,6 +16,10 @@ const FIXTURE: &str = concat!(
     env!("CARGO_MANIFEST_DIR"),
     "/../../contracts/fixtures/daemon-api/valid/api-v1.json"
 );
+const FIXTURE_V1_1: &str = concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../../contracts/fixtures/daemon-api/valid/api-v1-1-device-call.json"
+);
 /// The crate's embedded copy (ships with `cargo package`); `embedded_schema_equals_repository_contract`
 /// fails when it drifts from the repository-root `contracts/` source.
 const SCHEMA_TEXT: &str = include_str!("../schemas/daemon-api.v1.schema.json");

@@ -40,7 +40,7 @@ mod state;
 #[cfg(feature = "testing")]
 pub mod testing;
 #[cfg(feature = "link")]
-mod util;
+pub(crate) mod util;
 
 #[cfg(feature = "remote")]
 pub use self::call::DeviceCalls;
