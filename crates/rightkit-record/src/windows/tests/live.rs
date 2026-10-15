@@ -97,8 +97,7 @@ struct Target {
 
 impl Target {
     fn launch(dir: &Path) -> Target {
-        let exe =
-            env_path("RK_RECORD_WINDOWS_TARGET").unwrap_or_else(|| DEFAULT_TARGET.into());
+        let exe = env_path("RK_RECORD_WINDOWS_TARGET").unwrap_or_else(|| DEFAULT_TARGET.into());
         let (hwnd_file, ready, control) = (
             dir.join("hwnd.txt"),
             dir.join("ready.txt"),
