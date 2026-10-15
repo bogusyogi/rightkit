@@ -1,9 +1,10 @@
 #!/usr/bin/env node
-import { existsSync, mkdirSync, realpathSync, unlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, unlinkSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { spawnSync } from "./background-process.mjs";
+import { compareVersions } from "./rightkit-sync.mjs";
 import {
   DISK_EXIT_WARNING, applySweep, checkDisk, formatBytes, listOpenPaths, logEvent, planSweep, platformKey, purgeHoldings, readDiskPolicy,
 } from "./disk-policy.mjs";
@@ -65,13 +66,57 @@ export function insideGitCheckout(file, exists = existsSync) {
   }
 }
 
-/** Installed @rightkit/release CLI for the Windows task: explicit --cli / RIGHT_RELEASE_INSTALLED_CLI, else the global
- * node_modules (`npm root -g`, `pnpm root -g`). Only a candidate inside a git checkout is refused; the installed package may itself run install. */
-export function resolveInstalledCli({ explicit, env = process.env, globalRoots = defaultGlobalRoots, exists = existsSync } = {}) {
-  const rel = path.join("@rightkit", "release", "cli", "right-release.mjs");
-  const candidates = explicit || env.RIGHT_RELEASE_INSTALLED_CLI
-    ? [explicit || env.RIGHT_RELEASE_INSTALLED_CLI]
-    : globalRoots({ env }).map((root) => path.join(root, rel));
+const CLI_TAIL = path.join("@rightkit", "release", "cli", "right-release.mjs");
+const SHIM_TARGET = /(%~dp0|%dp0%|\$basedir|\$PSScriptRoot)?([^\s"'%$=;~]*node_modules[\\/]@rightkit[\\/]release[\\/]cli[\\/]right-release\.mjs)/;
+
+/** Target `cli/right-release.mjs` behind the `right-release` bin on PATH: the realpath of the bin when it is the script
+ * itself, otherwise the path a pnpm/npm shim (.cmd, .ps1 or sh script) names, resolved against the shim's directory. */
+export function cliFromPathBin({ env = process.env, exists = existsSync, readFile = (f) => readFileSync(f, "utf8") } = {}) {
+  const found = [];
+  for (const dir of String(env.PATH ?? env.Path ?? "").split(path.delimiter).filter(Boolean)) {
+    for (const name of ["right-release", "right-release.cmd", "right-release.ps1", "right-release.mjs"]) {
+      const bin = path.join(dir, name);
+      if (!exists(bin)) continue;
+      let real = bin;
+      try { real = realpathSync(bin); } catch { /* keep lexical */ }
+      if (real.endsWith(path.join("cli", "right-release.mjs"))) { found.push(real); continue; }
+      try {
+        const m = SHIM_TARGET.exec(readFile(real));
+        if (m) found.push(path.resolve(dir, (m[1] ? m[2].replace(/^[\\/]+/, "") : m[2]).split(/[\\/]/).join(path.sep)));
+      } catch { /* unreadable shim */ }
+    }
+  }
+  return found;
+}
+
+const versionOf = (cli, readFile) => {
+  try { return JSON.parse(readFile(path.join(path.dirname(cli), "..", "package.json"))).version; } catch { return "0.0.0"; }
+};
+
+/** Global-root candidates: `<root>/@rightkit/release/...` (npm, pnpm <= 10) and `<root>/<hash>/node_modules/@rightkit/release/...`
+ * (pnpm 11 global layout), highest installed version first. */
+export function cliFromGlobalRoots(roots, { exists = existsSync, readdir = (d) => readdirSync(d), readFile = (f) => readFileSync(f, "utf8") } = {}) {
+  const found = [];
+  for (const root of roots) {
+    found.push(path.join(root, CLI_TAIL));
+    let names = [];
+    try { names = readdir(root); } catch { /* root absent */ }
+    for (const name of names) found.push(path.join(root, name, "node_modules", CLI_TAIL));
+  }
+  return found.filter((f) => exists(f))
+    .map((f) => ({ f, v: versionOf(f, readFile) }))
+    .sort((x, y) => { try { return compareVersions(y.v, x.v); } catch { return 0; } })
+    .map((x) => x.f);
+}
+
+/** Installed @rightkit/release CLI for the Windows task: explicit --cli / RIGHT_RELEASE_INSTALLED_CLI, else the target of the
+ * `right-release` bin on PATH, else the global package roots (`npm root -g`, `pnpm root -g`, hashed pnpm 11 layout included).
+ * Only a candidate inside a git checkout is refused; the installed package may itself run install. */
+export function resolveInstalledCli({ explicit, env = process.env, globalRoots = defaultGlobalRoots, exists = existsSync, readFile, readdir, pathBin = cliFromPathBin } = {}) {
+  const fixed = explicit || env.RIGHT_RELEASE_INSTALLED_CLI;
+  const candidates = fixed
+    ? [fixed]
+    : [...pathBin({ env, exists, ...(readFile ? { readFile } : {}) }), ...cliFromGlobalRoots(globalRoots({ env }), { exists, ...(readFile ? { readFile } : {}), ...(readdir ? { readdir } : {}) })];
   for (const candidate of candidates) {
     if (!exists(candidate)) continue;
     let real = candidate;

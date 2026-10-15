@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.160
+
+- `disk schedule install` without `--cli` finds the installed package on Windows pnpm 11. `resolveInstalledCli` now looks, in order, at `--cli` / `RIGHT_RELEASE_INSTALLED_CLI`; the target of the `right-release` bin on PATH (realpath when the bin is the script, otherwise the `node_modules/@rightkit/release/cli/right-release.mjs` path named by the `.cmd`, `.ps1` or sh shim, resolved against the shim's directory); then the global roots (`npm root -g`, `pnpm root -g`) as `<root>/@rightkit/release`, and `<root>/<hash>/node_modules/@rightkit/release` (pnpm 11), highest installed version first. A candidate inside a git checkout is still refused. Tests cover the hashed layout, version ordering, both shim kinds, a symlinked bin and checkout refusal on real temp dirs; the Windows shim text is modelled, not captured from a real pnpm 11 install.
+
 ## 0.2.159
 
 - `disk schedule install` no longer refuses the installed package itself: `resolveInstalledCli` rejects a candidate only when it sits inside a git checkout (a `.git` entry on an ancestor of its real path). The comparison with the running module's own CLI is gone, so install works from the pnpm-global copy, with or without `--cli`.

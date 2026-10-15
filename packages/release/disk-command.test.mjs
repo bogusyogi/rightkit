@@ -5,7 +5,7 @@ import path from "node:path";
 import test from "node:test";
 import { spawnSync } from "./background-process.mjs";
 const execFileSync = (cmd, args) => { const r = spawnSync(cmd, args, { encoding: "utf8" }); if (r.status !== 0) throw new Error(`${cmd} failed: ${r.stderr}`); };
-import { insideGitCheckout, resolveInstalledCli, runDiskCommand, scheduleSpec, renderSweep } from "./disk-command.mjs";
+import { cliFromGlobalRoots, cliFromPathBin, insideGitCheckout, resolveInstalledCli, runDiskCommand, scheduleSpec, renderSweep } from "./disk-command.mjs";
 import { HOLDING_MARKER, applySweep, checkDisk, deviceOf, evaluateFloor, expandGlob, inUseByOpenPaths, literalRoot, pickHolding, planSweep, purgeHoldings, readDiskPolicy, volumeRoot } from "./disk-policy.mjs";
 
 const OLD = Date.now() - 30 * 86400_000;
@@ -380,4 +380,64 @@ test("real second volume (macOS disk image): the item is renamed within its own 
     try { execFileSync("hdiutil", ["detach", mount, "-force", "-quiet"]); } catch { /* ignore */ }
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+function installedPackage(root, version, ...layout) {
+  const pkgDir = path.join(root, ...layout, "node_modules", "@rightkit", "release");
+  mkdirSync(path.join(pkgDir, "cli"), { recursive: true });
+  writeFileSync(path.join(pkgDir, "package.json"), JSON.stringify({ name: "@rightkit/release", version }));
+  const cli = path.join(pkgDir, "cli", "right-release.mjs");
+  writeFileSync(cli, "");
+  return cli;
+}
+
+test("pnpm 11 hashed global layout: <root>/<hash>/node_modules is found, highest version wins", () => {
+  const base = mkdtempSync(path.join(os.tmpdir(), "rk-pnpm11-"));
+  const root = path.join(base, "global", "v11");
+  const older = installedPackage(root, "0.2.158", "aaaa1111");
+  const newer = installedPackage(root, "0.2.160", "bbbb2222");
+  installedPackage(root, "0.2.99", "cccc3333");
+  mkdirSync(path.join(root, "dddd4444"), { recursive: true }); // a hash dir without the package
+  assert.deepEqual(cliFromGlobalRoots([root]).slice(0, 2), [newer, older]);
+  assert.equal(resolveInstalledCli({ env: { PATH: "" }, globalRoots: () => [root] }), newer);
+  // flat npm layout still works
+  const flat = installedPackage(path.join(base, "npmroot"), "0.2.50");
+  assert.equal(resolveInstalledCli({ env: { PATH: "" }, globalRoots: () => [path.join(base, "npmroot", "node_modules")] }), flat);
+  // a hashed copy inside a git checkout is refused
+  const gitRoot = path.join(base, "co");
+  mkdirSync(path.join(gitRoot, ".git"), { recursive: true });
+  installedPackage(path.join(gitRoot, "global"), "9.9.9", "hash");
+  assert.throws(() => resolveInstalledCli({ env: { PATH: "" }, globalRoots: () => [path.join(gitRoot, "global")] }), /not a checkout/);
+});
+
+test("the right-release bin on PATH is followed to its target mjs, before any global root", () => {
+  const base = mkdtempSync(path.join(os.tmpdir(), "rk-pathbin-"));
+  const root = path.join(base, "global", "v11");
+  const target = installedPackage(root, "0.2.159", "h1");
+  const other = installedPackage(root, "0.2.160", "h2");
+  const bin = path.join(base, "bin");
+  mkdirSync(bin, { recursive: true });
+  // .cmd shim naming its target relative to %~dp0
+  const rel = path.relative(bin, target).split(path.sep).join("\\");
+  writeFileSync(path.join(bin, "right-release.cmd"), `@ECHO off\r\nnode "%~dp0\\${rel}" %*\r\n`);
+  assert.deepEqual(cliFromPathBin({ env: { PATH: bin } }), [target]);
+  assert.equal(resolveInstalledCli({ env: { PATH: bin }, globalRoots: () => [root] }), target);
+  // sh shim with $basedir
+  const sh = path.join(base, "sh");
+  mkdirSync(sh);
+  writeFileSync(path.join(sh, "right-release"), `#!/bin/sh\nexec node "$basedir/${path.relative(sh, other).split(path.sep).join("/")}" "$@"\n`);
+  assert.deepEqual(cliFromPathBin({ env: { PATH: sh } }), [other]);
+  // a symlinked bin resolves to the script itself
+  const ln = path.join(base, "ln");
+  mkdirSync(ln);
+  symlinkSync(target, path.join(ln, "right-release"));
+  assert.deepEqual(cliFromPathBin({ env: { PATH: ln } }).map((f) => realpathSync(f)), [realpathSync(target)]);
+  // a bin whose target lives in a checkout is refused, falling through to the global root
+  const co = path.join(base, "co");
+  mkdirSync(path.join(co, ".git"), { recursive: true });
+  const coCli = installedPackage(co, "0.2.200", "x");
+  const cobin = path.join(base, "cobin");
+  mkdirSync(cobin);
+  symlinkSync(coCli, path.join(cobin, "right-release"));
+  assert.equal(resolveInstalledCli({ env: { PATH: cobin }, globalRoots: () => [root] }), other);
 });
