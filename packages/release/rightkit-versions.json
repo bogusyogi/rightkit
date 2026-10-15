@@ -31,7 +31,7 @@
     "@rightkit/qa": "0.4.8",
     "@rightkit/qa-chrome": "0.1.6",
     "@rightkit/react-shell": "0.6.4",
-    "@rightkit/release": "0.2.163",
+    "@rightkit/release": "0.2.164",
     "@rightkit/settings-ui": "0.4.4",
     "@rightkit/tauri": "0.2.1",
     "@rightkit/tauri-shell": "0.1.1",
@@ -204,7 +204,8 @@
       "0.2.159",
       "0.2.160",
       "0.2.161",
-      "0.2.162"
+      "0.2.162",
+      "0.2.163"
     ],
     "@rightkit/qa": [
       "0.1.0",
@@ -516,7 +517,7 @@
       "@rightkit/qa": "0.4.8",
       "@rightkit/qa-chrome": "0.1.6",
       "@rightkit/react-shell": "0.6.4",
-      "@rightkit/release": "0.2.163",
+      "@rightkit/release": "0.2.164",
       "@rightkit/settings-ui": "0.4.4",
       "@rightkit/shell": "0.1.1",
       "@rightkit/tauri": "0.2.1",
