@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-qa-driver"
-version = "0.4.0"
+version = "0.4.1"
 edition = "2021"
 rust-version = "1.98.0"
 description = "Background native input, accessibility reads, and a WebDriver bridge for driving real desktop apps without stealing focus."

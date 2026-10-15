@@ -554,8 +554,16 @@ impl<R: Runtime> Control<R> {
         // RIGHTKIT_CONTROL_TRACE: log WebView2 events from webview creation on (Windows only).
         #[cfg(windows)]
         let builder = builder.on_webview_ready(|webview| native::install_trace(&webview));
+        // Hidden launches must never activate the app: re-assert the policy as each webview is
+        // ready (an app's own setup may have reset it after plugin setup).
+        #[cfg(target_os = "macos")]
+        let builder = builder.on_webview_ready(|webview| {
+            enforce_hidden_activation(webview.app_handle());
+        });
         builder
             .setup(move |app, _| {
+                // Before any window exists (plugin setup precedes the app's own setup).
+                enforce_hidden_activation(app);
                 if let Some(service) = service_from_env() {
                     // One loud line, always, before the socket exists: a QA control server must never
                     // run unnoticed. stderr, not the app log, so it cannot be filtered or redirected away.
@@ -583,6 +591,28 @@ impl<R: Runtime> Control<R> {
                 Ok(())
             })
             .build()
+    }
+}
+
+/// Env flag the QA launcher sets for a hidden launch (`rightkit-qa` `Mode::Hidden`).
+const ENV_HIDDEN: &str = "RIGHTKIT_QA_HIDDEN";
+
+/// Pure decision: a hidden QA launch (`RIGHTKIT_QA_HIDDEN=1`) must run non-activating. Visible and
+/// background launches are left to the app.
+fn hidden_requested(value: Option<&std::ffi::OsStr>) -> bool {
+    value == Some(std::ffi::OsStr::new("1"))
+}
+
+/// macOS: during a hidden QA launch make the app an Accessory (never frontmost, no Dock icon,
+/// no menu bar) so a later `show()`, reopen or AppKit launch activation cannot bring it to the
+/// front. Idempotent; a no-op for every other launch and on other platforms. This cannot undo an
+/// activation the app already requested before plugin setup (tao's
+/// `activate_ignoring_other_apps`, which an app must switch off in hidden runs).
+#[cfg_attr(not(target_os = "macos"), allow(unused_variables))]
+fn enforce_hidden_activation<R: Runtime>(app: &AppHandle<R>) {
+    #[cfg(target_os = "macos")]
+    if hidden_requested(std::env::var_os(ENV_HIDDEN).as_deref()) {
+        let _ = app.set_activation_policy(tauri::ActivationPolicy::Accessory);
     }
 }
 
@@ -1343,6 +1373,15 @@ fn key_char(name: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn hidden_activation_only_for_the_hidden_flag() {
+        use std::ffi::OsStr;
+        assert!(hidden_requested(Some(OsStr::new("1"))));
+        assert!(!hidden_requested(Some(OsStr::new("0"))));
+        assert!(!hidden_requested(Some(OsStr::new(""))));
+        assert!(!hidden_requested(None));
+        assert_eq!(ENV_HIDDEN, "RIGHTKIT_QA_HIDDEN");
+    }
     #[test]
     fn qa_marker_is_the_fixed_scanned_string() {
         // `packages/release/qa-control-scan.mjs` scans for exactly these bytes.
