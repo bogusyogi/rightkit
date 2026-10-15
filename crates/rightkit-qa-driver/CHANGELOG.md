@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.1
+
+- Fixed: `qa-control` now enables `rightkit-daemon/test-mode`. The control server resolves its suite root with `Suite::resolve()`, which honours `RIGHTKIT_SUITE_ROOT` only when the daemon compiles `test-mode` (since rightkit-daemon 0.2.0). Without it the server ignored the isolated root `rightkit-qa` gives it: on Windows it failed at plugin start (`no app-data root ... SHGetKnownFolderPath: 0x80070003`) under the QA profile, and on macOS it registered in the real per-user suite, so the harness never found it (`control service did not answer`). Found by the Pulse hub QA journey. `qa-control` never ships: `right-release` refuses release builds that enable it.
+
 ## 0.3.0
 
 Renamed from rightkit-control; 0.1.11 remains published under the old name.

@@ -5677,7 +5677,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-qa-driver"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "rightkit-daemon",
  "serde_json",

@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-qa-driver"
-version = "0.3.0"
+version = "0.3.1"
 edition = "2021"
 rust-version = "1.98.0"
 description = "Background native input, accessibility reads, and a WebDriver bridge for driving real desktop apps without stealing focus."
@@ -23,7 +23,7 @@ tauri-plugin = ["dep:tauri"]
 # `RIGHTKIT-QA-CONTROL-SERVER-PRESENT`, and `right-release` refuses to seal or upload a release or update
 # tier build that contains it. On Windows it also needs exactly one `wv2-*` feature (enforced by a
 # compile_error in `embedded/win_view.rs`); macOS needs none. Tauri 2.11: `features = ["qa-control", "wv2-0_38"]`.
-qa-control = ["tauri-plugin", "dep:rightkit-daemon", "dep:serde_json"]
+qa-control = ["tauri-plugin", "dep:rightkit-daemon", "rightkit-daemon?/test-mode", "dep:serde_json"]
 # Windows: the `windows` + `webview2-com` generation the app's Tauri resolves, so WebView2 types cross the
 # Tauri boundary. Tauri 2.11 (wry 0.55) = wv2-0_38; Tauri 2.12+ = wv2-0_39. Neither is default: enable one together with `qa-control`.
 # macOS only: calls WKWebView `_setWindowOcclusionDetectionEnabled:` (private SPI) for off-screen
