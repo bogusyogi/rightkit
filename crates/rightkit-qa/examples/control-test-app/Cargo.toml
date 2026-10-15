@@ -12,4 +12,5 @@ tauri-build = "2"
 
 [dependencies]
 tauri = "2"
-rightkit-qa-driver = { path = "../..", features = ["qa-control", "wv2-0_39"] }
+rightkit-qa = { path = "../..", features = ["control", "wv2-0_39"] }
+rightkit-automation = { path = "../../../rightkit-automation" }

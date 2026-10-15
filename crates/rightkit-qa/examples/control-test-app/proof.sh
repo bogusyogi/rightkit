@@ -1,9 +1,9 @@
 #!/bin/sh
 # Manual end-to-end proof of the in-app control server over rightkit-daemon (macOS).
 # Build first (from rightkit):
-#   rightkit cargo test -p rightkit-qa-driver --features qa-control --lib
-#   rightkit cargo build --manifest-path crates/rightkit-qa-driver/examples/control-test-app/Cargo.toml
-#   rightkit cargo build -p rightkit-qa-driver -p rightkit-daemon -p rightkit-qa --bins --example svc_call
+#   rightkit cargo test -p rightkit-qa --features control --lib
+#   rightkit cargo build --manifest-path crates/rightkit-qa/examples/control-test-app/Cargo.toml
+#   rightkit cargo build -p rightkit-qa-driver -p rightkit-daemon -p rightkit-qa --bins --example svc_call   (rightkit-qa-driver is only the `frontmost` CLI here)
 # Then: TARGET=<workspace managed target>/debug APP_TARGET=<fixture managed target>/debug sh proof.sh
 # Launches the app hidden (open -g -j -n), calls it as the allowlisted app `right-qa`
 # through the service socket, checks the frontmost app never changed, kills it.

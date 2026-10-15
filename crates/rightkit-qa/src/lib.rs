@@ -11,7 +11,7 @@
 //! * engine: [`engine::EngineTarget`] drives the app engine over CLI words and the
 //!   framed stdio sidecar.
 //! * app UI: [`control::Control`] launches the real Tauri app hidden/backgrounded
-//!   and drives it through the in-app `rightkit-qa-driver` server.
+//!   and drives it through the in-app server (`embedded`, feature `control`).
 //! * Chrome: `browser` feature, through `rightkit-browser`.
 //!
 //! Scenarios are declarative TOML ([`scenario`]) run by the CLI, or plain Rust
@@ -33,8 +33,15 @@ pub mod browser;
 pub mod check;
 pub mod config;
 pub mod control;
+/// QA-only in-app control server. Compiled only with the explicit `control` feature, which no
+/// shipped build may enable (see the README section "Migrating from rightkit-qa-driver").
+#[cfg(feature = "control")]
+pub mod embedded;
 pub mod engine;
 pub mod evidence;
+/// Tier-2 `InApp` client for the embedded control server (`control` feature only).
+#[cfg(feature = "control")]
+pub mod in_app;
 pub mod guard;
 pub mod harness;
 pub mod http;

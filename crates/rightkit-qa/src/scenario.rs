@@ -2,7 +2,7 @@
 //!
 //! A scenario is a tier, optional requirements, and an ordered list of steps.
 //! Steps drive the engine (CLI and framed sidecar), the real app through
-//! `rightkit-qa-driver`, paid-provider mocks, media validators, and (feature
+//! the in-app control server, paid-provider mocks, media validators, and (feature
 //! `browser`) Chrome. Each step may `save` its JSON result under a name for
 //! later `${name.path}` interpolation and carries `[[step.expect]]` assertions.
 use crate::check::{check_all, interpolate, Expect};

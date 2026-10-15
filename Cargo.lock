@@ -5658,30 +5658,34 @@ dependencies = [
 
 [[package]]
 name = "rightkit-qa"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "getrandom 0.3.4",
  "png 0.18.1",
+ "rightkit-automation",
  "rightkit-browser",
  "rightkit-child-process",
  "rightkit-daemon",
  "rightkit-fs",
- "rightkit-qa-driver",
  "rightkit-sidecar",
  "serde",
  "serde_json",
+ "tauri",
  "tokio",
  "toml 0.8.2",
+ "webview2-com 0.38.2",
+ "webview2-com 0.39.1",
+ "windows 0.61.1",
+ "windows 0.62.2",
  "windows-sys 0.61.2",
 ]
 
 [[package]]
 name = "rightkit-qa-driver"
-version = "0.4.1"
+version = "0.5.0"
 dependencies = [
  "rightkit-automation",
- "rightkit-daemon",
- "serde_json",
+ "rightkit-qa",
  "tauri",
  "webview2-com 0.38.2",
  "webview2-com 0.39.1",

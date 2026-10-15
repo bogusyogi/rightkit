@@ -1,6 +1,6 @@
 //! The guard that keeps the in-app QA control surface out of builds that must not carry it.
 //!
-//! Two backends are understood: `control` (the in-app `rightkit-qa-driver` server,
+//! Two backends are understood: `control` (the in-app `rightkit-qa` `control` server (or the legacy `rightkit-qa-driver` shim),
 //! the default) and `wdio` (the legacy `tauri-plugin-wdio-webdriver`, kept so an
 //! app mid-migration still validates).
 //!
@@ -208,14 +208,39 @@ fn is_gated(src: &str, at: usize) -> bool {
     false
 }
 
+/// The control-server dependency an app uses: `(dependency, feature, registration path)`.
+/// An app on `rightkit-qa` (feature `control`) is validated against that shape; the legacy
+/// `rightkit-qa-driver` (feature `qa-control`) shape stays accepted for apps not yet migrated.
+fn control_target(cargo: &str) -> (&'static str, &'static str, &'static str) {
+    if dependency_body(cargo, "rightkit-qa-driver").is_none()
+        && dependency_body(cargo, "rightkit-qa").is_some()
+    {
+        ("rightkit-qa", "control", "rightkit_qa::embedded::Control")
+    } else {
+        (
+            "rightkit-qa-driver",
+            "qa-control",
+            "rightkit_qa_driver::embedded::Control",
+        )
+    }
+}
+
 pub fn validate(input: &ContractInput) -> Vec<String> {
     let mut issues = vec![];
-    let dep = input.backend.dependency();
     let control = input.backend == Backend::Control;
+    let (dep, qa_feat, registration) = if control {
+        control_target(input.cargo_toml)
+    } else {
+        (
+            input.backend.dependency(),
+            "qa-control",
+            input.backend.registration(),
+        )
+    };
     let dep_body = dependency_body(input.cargo_toml, dep).map(|b| compact(&b));
     let dep_enables_qa_control = dep_body
         .as_deref()
-        .is_some_and(|b| b.contains("\"qa-control\""));
+        .is_some_and(|b| b.contains(&format!("\"{qa_feat}\"")));
     match &dep_body {
         None => issues.push(format!(
             "Cargo.toml must declare {dep} under [dependencies] as an optional dependency: \
@@ -240,13 +265,12 @@ pub fn validate(input: &ContractInput) -> Vec<String> {
 
     let entries = feature_entries(input.cargo_toml);
     let dep_feature = format!("dep:{dep}");
-    let qa_control_feature = format!("{dep}/qa-control");
+    let qa_control_feature = format!("{dep}/{qa_feat}");
     match entries.iter().find(|(k, _)| k.as_str() == "qa-native") {
-        None => issues.push(
+        None => issues.push(format!(
             "Cargo.toml must define the qa-native feature under [features], for example \
-             `qa-native = [\"dep:rightkit-qa-driver\", \"rightkit-qa-driver/qa-control\"]`"
-                .into(),
-        ),
+             `qa-native = [\"dep:{dep}\", \"{dep}/{qa_feat}\"]`"
+        )),
         Some((_, list)) => {
             let items = list_items(list);
             if !items.iter().any(|i| i.as_str() == dep_feature.as_str()) {
@@ -256,12 +280,11 @@ pub fn validate(input: &ContractInput) -> Vec<String> {
                 .iter()
                 .any(|i| i.as_str() == qa_control_feature.as_str());
             if control && !enables_control_qa && !dep_enables_qa_control {
-                issues.push(
-                    "qa-native must enable rightkit-qa-driver/qa-control (add it to the qa-native \
-                     list, or list qa-control in the rightkit-qa-driver dependency's features); \
+                issues.push(format!(
+                    "qa-native must enable {qa_control_feature} (add it to the qa-native \
+                     list, or list {qa_feat} in the {dep} dependency's features); \
                      without it the embedded server is not compiled"
-                        .into(),
-                );
+                ));
             }
         }
     }
@@ -310,7 +333,6 @@ pub fn validate(input: &ContractInput) -> Vec<String> {
         }
     }
 
-    let registration = input.backend.registration();
     let sites: Vec<usize> = input
         .rust_source
         .match_indices(registration)
@@ -600,6 +622,25 @@ rightkit-tauri-shell = { version = "0.4", default-features = false }
             ),
             "{issues:?}"
         );
+    }
+
+    #[test]
+    fn accepts_and_checks_the_rightkit_qa_control_shape() {
+        let cargo = CARGO
+            .replace("rightkit-qa-driver", "rightkit-qa")
+            .replace("qa-control", "control");
+        let rust = RUST_GATED.replace("rightkit_qa_driver", "rightkit_qa");
+        assert_eq!(control(&cargo, &rust, &[]), Vec::<String>::new());
+        let without = cargo.replace(", \"rightkit-qa/control\"", "");
+        assert!(any_contains(
+            &control(&without, &rust, &[]),
+            "rightkit-qa/control"
+        ));
+        let eager = cargo.replace("optional = true, ", "");
+        assert!(any_contains(
+            &control(&eager, &rust, &[]),
+            "must be optional"
+        ));
     }
 
     #[test]

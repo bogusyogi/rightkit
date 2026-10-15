@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.5.0
+
+**Deprecated: this crate is now a shim.** Use `rightkit-qa` 0.6.0 (feature `control`) for the in-app control server and `rightkit-automation` 0.4.0 for background input. Needs `rightkit-qa` 0.6.0 published first. Existing code compiles unchanged after a version bump; the crate is yanked after one release.
+
+- The embedded control server, with its admission, lease and protocol code and its unit tests, moved to `rightkit-qa` (`embedded`, feature `control`). `rightkit_qa_driver::embedded` is now `pub use rightkit_qa::embedded`, present only with `qa-control`.
+- Features are unchanged and mapped: `qa-control` = `tauri-plugin` + `rightkit-qa/control`; `wv2-0_38` and `wv2-0_39` also enable `rightkit-qa/wv2-*` (when `qa-control` is on); `offscreen-private-spi` and `tauri-plugin` as before. The release marker `RIGHTKIT-QA-CONTROL-SERVER-PRESENT` is the same bytes, emitted from `rightkit-qa`, so `right-release` refuses these builds exactly as before.
+- Removed dependencies: `rightkit-daemon`, `serde_json` (the server needed them). New optional dependency: `rightkit-qa` 0.6.0.
+- Stays here: the WebDriver bridge, the macOS CLI and the Tauri offscreen helpers. The `control-test-app` example moved to `rightkit-qa`.
+- README rewritten as a deprecation notice; the server documentation moved to `rightkit-qa/docs/CONTROL-SERVER.md`.
+
 ## 0.4.1
 
 The paths below are unchanged, so `rightkit-qa`'s `0.4.0` requirement still resolves. Needs `rightkit-automation` 0.4.0 published first.

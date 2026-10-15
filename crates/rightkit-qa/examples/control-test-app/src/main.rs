@@ -1,6 +1,6 @@
-//! Tiny standalone Tauri app proving the rightkit-qa-driver in-app server.
+//! Tiny standalone Tauri app proving the rightkit-qa `control` in-app server.
 //! The control plugin is only added when the launcher enables it by env.
-use rightkit_qa_driver::embedded::Control;
+use rightkit_qa::embedded::Control;
 
 // Native readback for proof: page focus alone cannot prove NSWindow key state.
 #[cfg(target_os = "macos")]
@@ -58,8 +58,8 @@ fn main() {
         .command("echo", |_app, body| {
             Ok(format!(
                 "{{\"echo\":\"{}\"}}",
-                rightkit_qa_driver::json::esc(
-                    &rightkit_qa_driver::json::str_field(body, "args").unwrap_or_default()
+                rightkit_automation::json::esc(
+                    &rightkit_automation::json::str_field(body, "args").unwrap_or_default()
                 )
             ))
         });

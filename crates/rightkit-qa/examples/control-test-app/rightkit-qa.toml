@@ -1,4 +1,4 @@
-# Config for rightkit-qa-driver's standalone test app (the UI proof target).
+# Config for rightkit-qa's standalone test app (the UI proof target).
 app = "control-test-app"
 app_root = "."
 scenarios = ["scenarios"]

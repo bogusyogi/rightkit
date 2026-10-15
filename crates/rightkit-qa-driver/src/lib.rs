@@ -1,4 +1,7 @@
-//! rightkit-qa-driver: drive a real desktop app like a human, in the background.
+//! rightkit-qa-driver 0.5.0, DEPRECATED: use `rightkit-qa` (feature `control`) for the in-app control server and
+//! `rightkit-automation` for background input. This crate is a shim that keeps the old paths.
+//!
+//! drive a real desktop app like a human, in the background.
 //!
 //! The generic input code lives in `rightkit-automation` and is re-exported here under its
 //! old paths, so existing callers keep compiling: `admission`, `events`, `lease` and
@@ -6,7 +9,7 @@
 //! `rightkit_automation::macos::background`, `offscreen` is `rightkit_automation::offscreen`
 //! (plus the Tauri window helpers kept here), `json` is `rightkit_automation::json` and
 //! `keys` is `rightkit_automation::keys::appkit`. What stays in this crate is the
-//! WebDriver bridge, the macOS CLI and the `qa-control` embedded server.
+//! WebDriver bridge and the macOS CLI; `embedded` is re-exported from `rightkit-qa` under `qa-control`.
 //!
 //! macOS: embedded targets receive main-thread AppKit `NSEvent`s through the
 //! WKWebView responder, including hidden, non-key windows. Non-embedded targets
@@ -37,11 +40,12 @@
 //! `rightkit-automation` (`policy::kill`) stops every gated effect.
 pub use rightkit_automation::control::{admission, events, lease, lease_store};
 pub mod cli;
-/// QA-only in-app control server. Compiled only with the explicit `qa-control` feature, which no shipped
-/// build may enable (see the README section "QA control never ships"). `tauri-plugin` alone does not
-/// expose it.
+/// QA-only in-app control server, now `rightkit_qa::embedded` (feature `rightkit-qa/control`).
+/// Re-exported under its old path; compiled only with the explicit `qa-control` feature, which no
+/// shipped build may enable (see the README section "QA control never ships"). `tauri-plugin` alone
+/// does not expose it.
 #[cfg(feature = "qa-control")]
-pub mod embedded;
+pub use rightkit_qa::embedded;
 pub use rightkit_automation::json;
 /// US-layout virtual keycodes and AppKit function-key data (`rightkit_automation::keys::appkit`).
 pub use rightkit_automation::keys::appkit as keys;

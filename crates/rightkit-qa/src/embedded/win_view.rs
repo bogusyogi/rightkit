@@ -3,20 +3,20 @@
 //! / `Page.captureScreenshot`). No `SendInput`, no window activation.
 //!
 //! Verified on Windows by Pulse's hub journey, which drives a hidden WebView2 through this
-//! module on a `windows-2025` GitHub runner (rightkit-qa-driver 0.1.11 with `wv2-0_39`; the
+//! module on a `windows-2025` GitHub runner (rightkit-qa-driver 0.1.11, now rightkit-qa, with `wv2-0_39`; the
 //! passing run is Pulse CI 38084463429). That run covers move, down/up, click, eval and
 //! screenshot; it does not cover every method here (for example wheel and key paths are
 //! exercised only where the journey uses them).
 
 use super::{Button, KeyEv, Mouse, MouseEv};
-use crate::json::str_field;
+use rightkit_automation::json::str_field;
 use std::sync::atomic::{AtomicU64, AtomicU8, Ordering};
 use std::sync::mpsc::channel;
 use std::sync::{Arc, OnceLock};
 use std::time::{Duration, Instant};
 use tauri::{Runtime, WebviewWindow};
 #[cfg(not(any(feature = "wv2-0_38", feature = "wv2-0_39")))]
-compile_error!("rightkit-qa-driver's Windows plugin needs one of `wv2-0_38` (Tauri 2.11) or `wv2-0_39` (Tauri 2.12+); neither is a default feature");
+compile_error!("rightkit-qa's Windows control server needs one of `wv2-0_38` (Tauri 2.11) or `wv2-0_39` (Tauri 2.12+); neither is a default feature");
 use webview2_com::CallDevToolsProtocolMethodCompletedHandler;
 use windows::core::HSTRING;
 #[cfg(all(feature = "wv2-0_38", not(feature = "wv2-0_39")))]
@@ -590,7 +590,7 @@ pub fn install_trace<R: Runtime>(webview: &tauri::Webview<R>) {
 }
 
 fn cdp_mods(flags: u64) -> u32 {
-    use crate::keys::*;
+    use rightkit_automation::keys::appkit::*;
     (if flags & FLAG_ALT != 0 { 1 } else { 0 })
         | (if flags & FLAG_CTRL != 0 { 2 } else { 0 })
         | (if flags & FLAG_CMD != 0 { 4 } else { 0 })
@@ -601,10 +601,10 @@ fn mouse_params(e: &MouseEv) -> String {
     let (kind, button, x, y, clicks, flags) = (e.kind, e.button, e.x, e.y, e.clicks, e.flags);
     // CDP modifiers: Alt=1, Ctrl=2, Meta=4, Shift=8.
     let modifiers = [
-        (crate::keys::FLAG_ALT, 1),
-        (crate::keys::FLAG_CTRL, 2),
-        (crate::keys::FLAG_CMD, 4),
-        (crate::keys::FLAG_SHIFT, 8),
+        (rightkit_automation::keys::appkit::FLAG_ALT, 1),
+        (rightkit_automation::keys::appkit::FLAG_CTRL, 2),
+        (rightkit_automation::keys::appkit::FLAG_CMD, 4),
+        (rightkit_automation::keys::appkit::FLAG_SHIFT, 8),
     ]
     .iter()
     .filter(|(f, _)| flags & f != 0)
@@ -736,7 +736,7 @@ fn vk(code: u16, chars: &str) -> u32 {
         0x6D => 121,
         0x67 => 122,
         0x6F => 123,
-        _ => crate::keys::ansi_char(code)
+        _ => rightkit_automation::keys::appkit::ansi_char(code)
             .map(char_vk)
             .filter(|v| *v != 0)
             .unwrap_or_else(|| chars.chars().next().map(char_vk).unwrap_or(0)),
@@ -1073,7 +1073,7 @@ mod tests {
 #[cfg(test)]
 mod vk_tests {
     use super::*;
-    use crate::keys::{chord, named};
+    use rightkit_automation::keys::appkit::{chord, named};
 
     fn vk_of(spec: &str) -> u32 {
         let (code, _) = chord(spec).unwrap();
@@ -1082,7 +1082,7 @@ mod vk_tests {
             .next()
             .filter(|l| !l.is_empty())
             .unwrap_or("+");
-        let ch = crate::keys::named_char(last)
+        let ch = rightkit_automation::keys::appkit::named_char(last)
             .map(String::from)
             .or_else(|| (last.chars().count() == 1).then(|| last.to_string()))
             .unwrap_or_default();
@@ -1159,7 +1159,7 @@ mod vk_tests {
     #[test]
     fn cmd_plus_is_shifted_oem_plus() {
         let (code, flags) = chord("cmd++").unwrap();
-        assert_eq!(flags, crate::keys::FLAG_CMD | crate::keys::FLAG_SHIFT);
+        assert_eq!(flags, rightkit_automation::keys::appkit::FLAG_CMD | rightkit_automation::keys::appkit::FLAG_SHIFT);
         assert_eq!(vk(code, "+"), 187);
         assert_eq!(cdp_mods(flags), 4 | 8);
     }
@@ -1176,7 +1176,7 @@ mod vk_tests {
 
     #[test]
     fn modifier_flags_map_to_cdp_modifiers() {
-        use crate::keys::*;
+        use rightkit_automation::keys::appkit::*;
         assert_eq!(cdp_mods(FLAG_ALT), 1);
         assert_eq!(cdp_mods(FLAG_CTRL), 2);
         assert_eq!(cdp_mods(FLAG_CMD), 4);
@@ -1188,7 +1188,7 @@ mod vk_tests {
     #[test]
     fn key_event_payload_is_valid_json_with_oem_vk() {
         let v: serde_json::Value =
-            serde_json::from_str(&key_event_params(true, 0x2B, ",", crate::keys::FLAG_CMD))
+            serde_json::from_str(&key_event_params(true, 0x2B, ",", rightkit_automation::keys::appkit::FLAG_CMD))
                 .unwrap();
         assert_eq!(v["windowsVirtualKeyCode"], 188);
         assert_eq!(v["modifiers"], 4);
