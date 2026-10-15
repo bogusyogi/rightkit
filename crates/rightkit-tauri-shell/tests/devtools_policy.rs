@@ -848,9 +848,10 @@ fn dev_inspect_is_never_a_default_feature_and_is_independent_of_content_devtools
     );
     assert!(!line_of("default").contains("content-devtools"));
     assert!(!line_of("content-devtools").contains("dev-inspect"));
+    // tauri/unstable carries `get_webview`, which the inspector needs; it adds no feature of ours.
     assert_eq!(
         line_of("dev-inspect").replace(' ', ""),
-        "dev-inspect=[\"tauri/devtools\"]"
+        "dev-inspect=[\"tauri/devtools\",\"tauri/unstable\"]"
     );
     // No other feature enables dev-inspect.
     for line in features.lines() {

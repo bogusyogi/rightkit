@@ -14,6 +14,16 @@
     "mac": "/Volumes/D/claude/tmp/swept",
     "win": "D:\\claude\\tmp\\swept"
   },
+  "unknownStaleDays": 3,
+  "workspaceRoots": {
+    "mac": [{"path": "/Volumes/D/claude"}],
+    "win": [{"path": "D:\\claude"}]
+  },
+  "workspaceAllowlist": [".DS_Store", ".git", "node_modules", "tmp", "reports", "tasks", ".cache", "bin", "repos", "packages", "tests", "schemas", "assets", "migration", "archive", "catalog.db", "catalog.db-shm", "catalog.db-wal", "apple-skill-sources", "foundation-runs", "SEO", ".audit", ".commandcode", ".fastembed_cache", ".legion", ".model-bench", ".pnpm-store", ".pytest_cache", ".research", ".right-release", ".rightkit-managed", ".tether", ".venv-tools", ".vite"],
+  "scratchRoots": {
+    "mac": ["/Volumes/D/scratch"],
+    "win": ["D:\\scratch"]
+  },
   "writers": [
     {"id": "claude-session-dirs", "platform": "mac", "path": "/private/tmp/claude-501/*/*", "capBytes": 2147483648, "action": "sweep", "unit": "self"},
     {"id": "rightkit-qa-tmp", "platform": "mac", "path": "/private/tmp/rightkit-qa", "capBytes": 2147483648, "action": "sweep", "unit": "children"},
