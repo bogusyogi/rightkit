@@ -36,6 +36,7 @@ use crate::process::ProcessBackend;
 #[cfg(test)]
 mod golden;
 #[cfg(test)]
+#[path = "tests/live.rs"]
 mod live;
 
 /// File name of the helper binary.

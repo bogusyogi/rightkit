@@ -57,3 +57,36 @@ windows = { version = "0.62", features = [
     "Win32_UI_HiDpi",
     "Win32_UI_WindowsAndMessaging",
 ] }
+
+# Class: held-resource (docs/RUNTIME-BUDGETS.md). A take exists only between Backend::start and
+# Backend::stop or abort; nothing runs while the host holds no take.
+[package.metadata.rightkit]
+continuous = "held-resource"
+
+[[package.metadata.rightkit.resources]]
+api = "WindowsBackend"
+file = "src/windows/mod.rs"
+holds = ["thread", "memory"]
+scale = "one take: a Windows.Graphics.Capture session and frame pool on one HWND, SLOTS = 6 staging slots, one Media Foundation MP4 writer and one worker thread; fixed per take, independent of take length because frames are paced, hashed, encoded and dropped (backpressure counted), not retained"
+release = "Backend::stop or Backend::abort (stop joins the worker)"
+
+[[package.metadata.rightkit.resources]]
+api = "ProcessBackend::connect"
+file = "src/process.rs"
+holds = ["thread", "memory"]
+scale = "one reader thread and two channels per helper connection (the helper process itself is launched and owned by the host through rightkit-child-process, not here); the thread ends when the helper's stream closes on stop, abort or helper loss; queued events grow only with undrained helper events"
+release = "helper stream closes (stop, abort or helper exit); the host owns the child"
+
+[[package.metadata.rightkit.resources]]
+api = "serve_backend"
+file = "src/process.rs"
+holds = ["thread"]
+scale = "helper side: one request-reader thread for the duration of one serve call, ended when the input closes"
+release = "function return (stop, abort or input closed)"
+
+[[package.metadata.rightkit.resources]]
+api = "run"
+file = "src/bin/rightkit-record-helper/main.rs"
+holds = ["memory"]
+scale = "one-shot capture CLI: polls a WindowsBackend every 100 ms until the --seconds deadline, then stops it; bounded by the requested duration"
+release = "function return"
