@@ -3,6 +3,7 @@
 
 mod appkit;
 pub mod ax;
+pub mod background;
 mod capture;
 mod events;
 mod ffi;

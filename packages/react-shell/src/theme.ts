@@ -22,7 +22,12 @@ export interface ThemeStoreOptions {
   /** Defaults to `window.localStorage` when available. */
   storage?: ThemeStorage | null;
   /** Element receiving `data-theme`; defaults to `document.documentElement`. */
-  root?: { setAttribute(n: string, v: string): void; removeAttribute(n: string): void } | null;
+  root?: {
+    setAttribute(n: string, v: string): void;
+    removeAttribute(n: string): void;
+    /** Optional; when present, applying a `data-theme` the element already has is a no-op. */
+    getAttribute?(n: string): string | null;
+  } | null;
   /** Browser-QA override: `?<qaParam>=light|dark` beats storage. */
   qaOverride?: ThemeChoice;
   /**
@@ -96,8 +101,15 @@ export function createThemeStore(options: ThemeStoreOptions) {
   function apply(choice: ThemeChoice): void {
     const el = root();
     if (!el) return;
-    if (choice === "system" && !paint) el.removeAttribute("data-theme");
-    else el.setAttribute("data-theme", choice === "system" ? resolved(choice) : choice);
+    if (choice === "system" && !paint) {
+      if (el.getAttribute && el.getAttribute("data-theme") === null) return;
+      el.removeAttribute("data-theme");
+      return;
+    }
+    const value = choice === "system" ? resolved(choice) : choice;
+    // Already applied (for example by `applyStoredThemeSync` before first render): no second write.
+    if (el.getAttribute && el.getAttribute("data-theme") === value) return;
+    el.setAttribute("data-theme", value);
   }
 
   function readStored(): ThemeChoice {
@@ -152,3 +164,47 @@ export function createThemeStore(options: ThemeStoreOptions) {
 }
 
 export type ThemeStore = ReturnType<typeof createThemeStore>;
+
+/**
+ * Synchronous boot step: apply the stored theme to the root element before the first render, so a
+ * saved dark theme never paints light first. Call it in the entry module before `createRoot(...).render`.
+ * Same storage key, choices, system resolution and `data-theme` semantics as `createThemeStore`
+ * (it uses one internally and disposes it, leaving no listener). The store created later by the
+ * provider finds `data-theme` already correct and does not write it again. Never throws; with
+ * unavailable or throwing storage it applies the default choice. Returns the applied theme, or
+ * `null` when nothing was set (no root, or `system` with `alwaysPaintDataTheme: false`).
+ */
+export function applyStoredThemeSync(options: ThemeStoreOptions): ResolvedTheme | null {
+  try {
+    const store = createThemeStore(options);
+    try {
+      const choice = store.read();
+      store.apply(choice);
+      if (choice === "system" && options.alwaysPaintDataTheme === false) return null;
+      return store.resolved(choice);
+    } finally {
+      store.dispose();
+    }
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * A tiny self-contained inline script for `index.html` (`<script>${themeBootScript({...})}</script>`
+ * in `<head>`) that applies the stored theme before any bundle loads. It mirrors `applyStoredThemeSync`
+ * (storage key, light/dark/system, `qaOverride`, `defaultChoice`, `alwaysPaintDataTheme`) and never throws.
+ * A strict CSP must allow it with a `'sha256-...'` hash of the exact script text or a nonce on the tag.
+ */
+export function themeBootScript(options: Pick<ThemeStoreOptions, "storageKey" | "qaOverride" | "defaultChoice" | "alwaysPaintDataTheme">): string {
+  const json = (v: unknown) => JSON.stringify(v).replace(/</g, "\\u003c").replace(/\u2028/g, "\\u2028").replace(/\u2029/g, "\\u2029");
+  const qa = options.qaOverride === "light" || options.qaOverride === "dark" ? options.qaOverride : null;
+  return (
+    `(function(){try{var k=${json(options.storageKey)},c=${json(options.defaultChoice ?? "system")},p=${options.alwaysPaintDataTheme === false ? "false" : "true"},q=${json(qa)};` +
+    `if(q){c=q}else{try{var v=localStorage.getItem(k);if(v==="light"||v==="dark"||v==="system")c=v}catch(_){}}` +
+    `var r=document.documentElement;` +
+    `if(c==="system"){if(!p){r.removeAttribute("data-theme");return}` +
+    `c=matchMedia("(prefers-color-scheme: dark)").matches?"dark":"light"}` +
+    `r.setAttribute("data-theme",c)}catch(_){}})();`
+  );
+}

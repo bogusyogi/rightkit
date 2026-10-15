@@ -4,6 +4,10 @@
 
 - QA adoption is now a release gate (`assertQaAdoption` in `qa-contract.mjs`, called from `release.mjs`): an app with no QA lane (`right-qa.config.mjs`, `@rightkit/qa`, or `rightkit-qa`) is refused; a lagging `@rightkit/qa`, `@rightkit/qa-chrome` or `rightkit-qa` pin warns and a breaking-bump lag refuses. Only non-app repositories are exempt, via `qa-adoption-exemptions.json`. See the README section "QA adoption (mandatory)".
 
+## 0.2.164
+
+- `disk schedule install` accepts a pnpm store as an install location. A package path with a `.pnpm-store` or `.pnpm` segment is never treated as a git checkout, even when the store lives inside a workspace that is itself a checkout (the Mac keeps `.pnpm-store` under `/Volumes/D/claude`); 0.2.163 refused such an install with "not a checkout" unless run from a checkout with `--cli`.
+
 ## 0.2.163
 
 - Disk schedule binds to a stable per-user root. `disk schedule install` copies the installed `@rightkit/release` package and its runtime dependencies (symlinks dereferenced, so pnpm layouts copy cleanly) into `%LOCALAPPDATA%\Orthic Labs\rightkit-release\current` (Windows) or `~/Library/Application Support/Orthic Labs/rightkit-release/current` (Mac), smoke-tests the staged copy (`--version`), swaps it in by rename (the previous `current` is restored if the swap fails; a staged copy that does not run never replaces a working one), and binds the launchd job or Task Scheduler entry to `current/node_modules/@rightkit/release/cli/right-release.mjs`, never to a pnpm store, pnpm global hash directory or checkout. The source is `--cli`/`RIGHT_RELEASE_INSTALLED_CLI`, else the running package when it is not a checkout, else the discovered installed package. `disk schedule status` reads the registered target and reports a missing or non-stable target (`PROBLEM: ... MISSING`, exit 1) instead of crashing. `disk run` opens with a self-check (own package and dependencies intact, registered schedule bound to the stable root): a failure is printed, logged as `disk.run.selfcheck.fail`, and the run still sweeps but exits 2.

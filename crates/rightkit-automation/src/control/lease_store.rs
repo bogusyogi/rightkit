@@ -22,11 +22,11 @@
 //! A store that cannot be read, or holds a corrupt record, fails closed: the
 //! lease does not open, and nothing resets to epoch 0.
 //!
-//! [`InputLease`]: crate::lease::InputLease
-//! [`InputLease::open`]: crate::lease::InputLease::open
-//! [`InputLease::acknowledge_input`]: crate::lease::InputLease::acknowledge_input
-//! [`InputLease::reconcile`]: crate::lease::InputLease::reconcile
-//! [`InputLease::acquire_reconciling`]: crate::lease::InputLease::acquire_reconciling
+//! [`InputLease`]: crate::control::lease::InputLease
+//! [`InputLease::open`]: crate::control::lease::InputLease::open
+//! [`InputLease::acknowledge_input`]: crate::control::lease::InputLease::acknowledge_input
+//! [`InputLease::reconcile`]: crate::control::lease::InputLease::reconcile
+//! [`InputLease::acquire_reconciling`]: crate::control::lease::InputLease::acquire_reconciling
 use std::collections::hash_map::RandomState;
 use std::hash::{BuildHasher, Hasher};
 use std::io::Write;
@@ -35,7 +35,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use crate::admission::lock;
+use crate::control::admission::lock;
 
 /// Typed execution state (CodeRight `Running | Exited | Unknown`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -46,7 +46,7 @@ pub enum ExecutionState {
     Exited,
     /// The host restarted and cannot prove the target survived. Input is
     /// refused until the host resolves it with
-    /// [`crate::lease::InputLease::set_execution_state`].
+    /// [`crate::control::lease::InputLease::set_execution_state`].
     Unknown,
 }
 
@@ -183,7 +183,7 @@ impl std::fmt::Display for StoreError {
 
 impl std::error::Error for StoreError {}
 
-/// Durable backing for one [`crate::lease::InputLease`]. `save` must be
+/// Durable backing for one [`crate::control::lease::InputLease`]. `save` must be
 /// atomic: after a crash, `load` returns either the previous or the new
 /// record, never a mix. The lease serializes calls to one store.
 pub trait LeaseStore: Send + Sync {

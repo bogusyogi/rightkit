@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { createThemeStore, resolveTheme, type SystemThemeMedia, type ThemeStorage } from "./theme.js";
+import { applyStoredThemeSync, createThemeStore, resolveTheme, themeBootScript, type SystemThemeMedia, type ThemeStorage } from "./theme.js";
 
 function memoryStorage(initial: Record<string, string> = {}): ThemeStorage & { data: Map<string, string> } {
   const data = new Map(Object.entries(initial));
@@ -40,6 +40,101 @@ describe("resolveTheme", () => {
     expect(resolveTheme("system", true)).toBe("dark");
     expect(resolveTheme("system", false)).toBe("light");
     expect(resolveTheme("light", true)).toBe("light");
+  });
+});
+
+function countingRoot() {
+  const attrs = new Map<string, string>();
+  const writes: string[] = [];
+  return {
+    attrs,
+    writes,
+    setAttribute: (n: string, v: string) => {
+      writes.push(v);
+      attrs.set(n, v);
+    },
+    removeAttribute: (n: string) => void attrs.delete(n),
+    getAttribute: (n: string) => attrs.get(n) ?? null,
+  };
+}
+
+describe("applyStoredThemeSync", () => {
+  it("applies a stored dark theme before any store or render exists, and the store then does not flip", () => {
+    const root = countingRoot();
+    const storage = memoryStorage({ t: "dark" });
+    expect(applyStoredThemeSync({ storageKey: "t", storage, root, systemMedia: null })).toBe("dark");
+    expect(root.attrs.get("data-theme")).toBe("dark");
+    expect(root.writes).toEqual(["dark"]);
+
+    const store = createThemeStore({ storageKey: "t", storage, root, systemMedia: null });
+    store.apply(store.read());
+    expect(root.writes).toEqual(["dark"]);
+    store.dispose();
+  });
+
+  it("resolves system through matchMedia and leaves no listener behind", () => {
+    const root = countingRoot();
+    const media = fakeMedia(true);
+    expect(applyStoredThemeSync({ storageKey: "t", storage: memoryStorage({ t: "system" }), root, systemMedia: media })).toBe("dark");
+    expect(root.attrs.get("data-theme")).toBe("dark");
+    expect(media.listeners.size).toBe(0);
+  });
+
+  it("falls back to the default choice when storage throws, and never throws", () => {
+    const root = countingRoot();
+    const storage: ThemeStorage = {
+      getItem: () => {
+        throw new Error("blocked");
+      },
+      setItem: () => {},
+      removeItem: () => {},
+    };
+    expect(applyStoredThemeSync({ storageKey: "t", storage, root, systemMedia: null, defaultChoice: "dark" })).toBe("dark");
+    expect(root.attrs.get("data-theme")).toBe("dark");
+    const badRoot = {
+      setAttribute: () => {
+        throw new Error("boom");
+      },
+      removeAttribute: () => {},
+    };
+    expect(applyStoredThemeSync({ storageKey: "t", storage, root: badRoot, systemMedia: null })).toBeNull();
+  });
+
+  it("returns null for system with alwaysPaintDataTheme: false and removes data-theme", () => {
+    const root = countingRoot();
+    root.attrs.set("data-theme", "dark");
+    expect(applyStoredThemeSync({ storageKey: "t", storage: memoryStorage(), root, systemMedia: fakeMedia(true), alwaysPaintDataTheme: false })).toBeNull();
+    expect(root.attrs.has("data-theme")).toBe(false);
+  });
+});
+
+describe("themeBootScript", () => {
+  function run(script: string, stored: string | null | "throw", dark: boolean) {
+    const root = countingRoot();
+    const localStorage = {
+      getItem: () => {
+        if (stored === "throw") throw new Error("blocked");
+        return stored;
+      },
+    };
+    new Function("localStorage", "document", "matchMedia", script)(localStorage, { documentElement: root }, () => ({ matches: dark }));
+    return root.attrs.get("data-theme");
+  }
+
+  it("applies the stored choice, resolves system, and falls back on throwing storage", () => {
+    const script = themeBootScript({ storageKey: "t" });
+    expect(run(script, "dark", false)).toBe("dark");
+    expect(run(script, "system", true)).toBe("dark");
+    expect(run(script, null, false)).toBe("light");
+    expect(run(script, "throw", true)).toBe("dark");
+    expect(run(themeBootScript({ storageKey: "t", defaultChoice: "dark" }), "throw", false)).toBe("dark");
+    expect(run(themeBootScript({ storageKey: "t", qaOverride: "light" }), "dark", true)).toBe("light");
+  });
+
+  it("matches applyStoredThemeSync and is safe to inline", () => {
+    const script = themeBootScript({ storageKey: 'a</script>"' });
+    expect(script).not.toContain("</script>");
+    expect(() => run(script, "light", false)).not.toThrow();
   });
 });
 

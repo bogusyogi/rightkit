@@ -62,6 +62,9 @@ function parse(rest) {
 
 // A path inside any git checkout (a `.git` entry on an ancestor) is development code, never an installed package.
 export function insideGitCheckout(file, exists = existsSync) {
+  // A pnpm store is an install location even when it sits inside a workspace that is itself a git checkout (the Mac keeps
+  // .pnpm-store under /Volumes/D/claude).
+  if (file.split(/[\\/]+/).some((seg) => seg === ".pnpm-store" || seg === ".pnpm")) return false;
   let dir = path.dirname(file);
   for (;;) {
     if (exists(path.join(dir, ".git"))) return true;

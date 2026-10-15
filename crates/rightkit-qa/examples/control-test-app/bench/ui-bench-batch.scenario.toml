@@ -4,6 +4,8 @@
 name = "control-test-app UI latency bench (batch)"
 tier = "fast"
 target = "ui"
+# Screenshots inside the batch: a visual scenario. (ui-bench.scenario.toml has the same steps; run it with --kind visual.)
+kind = "visual"
 
 [[step]]
 kind = "ui_launch"

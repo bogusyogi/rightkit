@@ -1,232 +1,83 @@
-//! Tier 2: the in-app control channel. A Tauri app that embeds
-//! `rightkit-qa-driver`'s server (launched with `RIGHTKIT_CONTROL_SERVICE=<name>`)
-//! accepts trusted input injected straight into its webview, with no focus and
-//! no AX grant. This module is the client: it speaks the shared
-//! `rightkit-daemon` convention (discovery file, current-user-only Unix socket
-//! or named pipe, per-app request allowlist). There is no TCP and no bearer token.
+//! Tier 2: the in-app control channel, as a trait.
 //!
-//! The [`InApp`] trait is always available. The `rightkit-daemon` client
-//! ([`ServiceBridge`]) is behind the `in-app` feature.
+//! Some apps can take trusted input straight into their own UI layer (for a webview app,
+//! injected into the webview) with no focus change and no accessibility grant. This crate
+//! does not know how: it only defines what the ladder needs from such a channel. The
+//! implementation belongs to whoever owns the channel (the dev-only control server in
+//! `rightkit-qa`, behind its `control` feature), and is registered with
+//! [`Automation::add_in_app`](crate::Automation::add_in_app). No production build of this
+//! crate links any such server.
+//!
+//! The engine, not the channel, enforces policy. Before tier 2 is tried the engine has
+//! already passed the kill switch, the allowlist and deny list, the lease fence, the
+//! freshness guard, the secure-field, credential and risk gates and the caller's admission
+//! hook, and it records the tier in the receipt. A channel must not widen what it is asked
+//! to do and must not be reachable except through [`Automation`](crate::Automation).
+//!
+//! Contract for an implementation:
+//!
+//! - [`InApp::handles`] is cheap, side-effect free and exact: `true` only for a pid whose
+//!   app this channel really controls. With no channel for a pid the ladder moves on.
+//! - [`InApp::perform`] delivers one [`InputEvent`] to that app and must not activate it,
+//!   raise its window, move the user's cursor or post to the global input queue.
+//! - An event the channel cannot express (a key it has no name for, a pointer event with
+//!   no viewport mapping) returns [`Error::Unsupported`], so the ladder moves to tier 3
+//!   instead of failing the action.
+//! - A refusal by the app's own policy returns [`Error::Blocked`]; an app that is not
+//!   reachable returns [`Error::NotFound`]. Anything else is a hard failure of this tier.
+//! - The returned string is a short, content-free note for the receipt (a method name, never
+//!   typed text, coordinates of a secret field or a payload).
 
-#[cfg(feature = "in-app")]
-use crate::keys::{Chord, Key, Named};
 use crate::model::*;
 use crate::platform::InputEvent;
-#[cfg(feature = "in-app")]
-use rightkit_daemon::{Client, ServiceError, Suite, ERROR_NOT_ALLOWED};
-#[cfg(feature = "in-app")]
-use serde_json::{json, Value};
 
-/// A per-process in-app channel. `perform` returns `Unsupported` for anything
-/// the channel cannot do, so the ladder moves on to tier 3.
+/// A per-process in-app channel.
 pub trait InApp: Send + Sync {
+    /// Whether this channel controls the app with this process id.
     fn handles(&self, pid: i32) -> bool;
+    /// Deliver one input event to the app. See the module contract for the error kinds.
     fn perform(&self, pid: i32, ev: &InputEvent) -> Result<String>;
 }
 
-/// Client for one launched app instance, reached through its control service.
-#[cfg(feature = "in-app")]
-pub struct ServiceBridge {
-    pub pid: i32,
-    suite: Suite,
-    service: String,
-    app: String,
-}
-
-#[cfg(feature = "in-app")]
-impl ServiceBridge {
-    /// `service` is the lowercase name the launcher gave the app in
-    /// `RIGHTKIT_CONTROL_SERVICE`; `app` is this caller's allowlist label
-    /// (`right-qa` or `right-ctl` unless the app allowed another).
-    pub fn new(pid: i32, suite: Suite, service: &str, app: &str) -> Result<Self> {
-        if service.is_empty()
-            || !service
-                .chars()
-                .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
-        {
-            return Err(Error::Invalid(
-                "control service name must be lowercase [a-z0-9-]".into(),
-            ));
-        }
-        Ok(ServiceBridge {
-            pid,
-            suite,
-            service: service.into(),
-            app: app.into(),
-        })
-    }
-
-    fn call(&self, method: &str, params: Value) -> Result<String> {
-        let client = Client::connect(&self.suite, &self.service, &self.app).map_err(map_err)?;
-        client.call(method, params).map_err(map_err)?;
-        Ok(format!("service {method}"))
-    }
-}
-
-#[cfg(feature = "in-app")]
-fn map_err(e: ServiceError) -> Error {
-    if e.code == ERROR_NOT_ALLOWED {
-        Error::Blocked(format!("control service refused: {}", e.message))
-    } else if e.retryable {
-        Error::NotFound(format!("control service unavailable: {}", e.message))
-    } else {
-        Error::Platform(-1, "in_app request")
-    }
-}
-
-#[cfg(feature = "in-app")]
-fn key_name(c: Chord) -> Option<String> {
-    let mut parts: Vec<String> = vec![];
-    if c.mods.meta {
-        parts.push("cmd".into());
-    }
-    if c.mods.ctrl {
-        parts.push("ctrl".into());
-    }
-    if c.mods.alt {
-        parts.push("alt".into());
-    }
-    if c.mods.shift {
-        parts.push("shift".into());
-    }
-    parts.push(match c.key {
-        Key::Named(n) => match n {
-            Named::Return => "return",
-            Named::Tab => "tab",
-            Named::Space => "space",
-            Named::Backspace => "backspace",
-            Named::Escape => "escape",
-            Named::Left => "left",
-            Named::Right => "right",
-            Named::Up => "up",
-            Named::Down => "down",
-            Named::Home => "home",
-            Named::End => "end",
-            Named::PageUp => "pageup",
-            Named::PageDown => "pagedown",
-            Named::Delete => return None,
-        }
-        .to_string(),
-        Key::Char(c) => c.to_string(),
-        Key::F(_) => return None,
-    });
-    Some(parts.join("+"))
-}
-
-#[cfg(feature = "in-app")]
-impl InApp for ServiceBridge {
-    fn handles(&self, pid: i32) -> bool {
-        pid == self.pid
-    }
-    fn perform(&self, pid: i32, ev: &InputEvent) -> Result<String> {
-        if !self.handles(pid) {
-            return Err(Error::Unsupported("bridge belongs to another pid"));
-        }
-        match ev {
-            InputEvent::Text(t) => self.call("type", json!({"text": t})),
-            InputEvent::Key(c) => {
-                let name = key_name(*c).ok_or(Error::Unsupported("key not expressible in control channel"))?;
-                self.call("key", json!({"key": name}))
-            }
-            InputEvent::Click { x, y, button, count } => {
-                self.call("click", json!({"x": x, "y": y, "button": if *button == Button::Right { "right" } else { "left" }, "count": count}))
-            }
-            InputEvent::Scroll { x, y, dx, dy } => self.call("wheel", json!({"x": x, "y": y, "dx": dx, "dy": dy})),
-        }
-    }
-}
-
-#[cfg(all(test, feature = "in-app"))]
+#[cfg(test)]
 mod tests {
     use super::*;
-    use crate::keys;
-    use rightkit_daemon::{host, Allowlist, CallContext, Emit, Handler, ServiceConfig};
+    use crate::keys::parse_chord;
     use std::sync::{Arc, Mutex};
-    use std::time::Duration;
 
-    struct Rec(Mutex<Vec<(String, Value)>>);
-    impl Handler for Rec {
-        fn call(
-            &self,
-            _cx: &CallContext,
-            method: &str,
-            params: &Value,
-            _e: &Emit,
-        ) -> std::result::Result<Value, ServiceError> {
-            self.0.lock().unwrap().push((method.into(), params.clone()));
-            Ok(json!({"ok": true}))
+    struct Fake {
+        pid: i32,
+        seen: Mutex<Vec<InputEvent>>,
+    }
+
+    impl InApp for Fake {
+        fn handles(&self, pid: i32) -> bool {
+            pid == self.pid
+        }
+        fn perform(&self, pid: i32, ev: &InputEvent) -> Result<String> {
+            if !self.handles(pid) {
+                return Err(Error::Unsupported("channel belongs to another pid"));
+            }
+            self.seen.lock().unwrap().push(ev.clone());
+            Ok("fake".into())
         }
     }
 
-    /// A real service host (socket/pipe + service.json) that the bridge reaches by discovery.
-    fn start(allow: Allowlist) -> (Suite, Arc<Rec>, rightkit_daemon::Hosted) {
-        let suite = Suite::per_run_temp("inapp").unwrap();
-        let rec = Arc::new(Rec(Mutex::new(vec![])));
-        let mut cfg = ServiceConfig::new("control-fake", "control:main", 0, "test", allow);
-        cfg.takeover_timeout = Duration::from_secs(5);
-        let hosted = host(&suite, cfg, rec.clone()).unwrap();
-        (suite, rec, hosted)
-    }
-
     #[test]
-    fn type_reaches_the_service_with_exact_json() {
-        let (suite, rec, hosted) = start(Allowlist::new().allow("right-qa", ["type", "key"]));
-        let b = ServiceBridge::new(7, suite, "control-fake", "right-qa").unwrap();
-        b.perform(7, &InputEvent::Text("hi \"there\" \\ \u{1f600}".into()))
-            .unwrap();
-        let seen = rec.0.lock().unwrap().clone();
-        assert_eq!(
-            seen,
-            vec![(
-                "type".to_string(),
-                json!({"text": "hi \"there\" \\ \u{1f600}"})
-            )]
-        );
-        hosted.shutdown();
-    }
-
-    #[test]
-    fn unlisted_app_is_blocked_and_wrong_pid_unsupported() {
-        let (suite, rec, hosted) = start(Allowlist::new().allow("right-qa", ["type"]));
-        let chord = keys::parse_chord("cmd+k", true).unwrap();
-        let denied = ServiceBridge::new(7, suite.clone(), "control-fake", "right-qa").unwrap();
-        assert!(
-            matches!(
-                denied.perform(7, &InputEvent::Key(chord)),
-                Err(Error::Blocked(_))
-            ),
-            "method outside allowlist"
-        );
-        let stranger = ServiceBridge::new(7, suite, "control-fake", "someone-else").unwrap();
+    fn the_trait_is_object_safe_and_shareable() {
+        let f = Arc::new(Fake {
+            pid: 7,
+            seen: Mutex::new(vec![]),
+        });
+        let dynamic: Arc<dyn InApp> = f.clone();
+        assert!(dynamic.handles(7));
+        assert!(!dynamic.handles(8));
+        let chord = parse_chord("cmd+k", true).unwrap();
+        assert_eq!(dynamic.perform(7, &InputEvent::Key(chord)).unwrap(), "fake");
         assert!(matches!(
-            stranger.perform(7, &InputEvent::Text("x".into())),
-            Err(Error::Blocked(_))
-        ));
-        assert!(matches!(
-            denied.perform(8, &InputEvent::Text("x".into())),
+            dynamic.perform(8, &InputEvent::Text("x".into())),
             Err(Error::Unsupported(_))
         ));
-        assert!(
-            rec.0.lock().unwrap().is_empty(),
-            "nothing reached the handler"
-        );
-        assert!(
-            ServiceBridge::new(1, Suite::per_run_temp("x").unwrap(), "Bad Name", "right-qa")
-                .is_err()
-        );
-        hosted.shutdown();
-    }
-
-    #[test]
-    fn key_names_follow_control_channel_grammar() {
-        assert_eq!(
-            key_name(keys::parse_chord("cmd+shift+k", true).unwrap()).unwrap(),
-            "cmd+shift+k"
-        );
-        assert_eq!(
-            key_name(keys::parse_chord("return", true).unwrap()).unwrap(),
-            "return"
-        );
-        assert!(key_name(keys::parse_chord("f5", true).unwrap()).is_none());
+        assert_eq!(f.seen.lock().unwrap().len(), 1);
     }
 }

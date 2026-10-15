@@ -265,6 +265,8 @@ test("schedule install binds the installed package, never a checkout", () => {
   const exists = (p) => [installed, checkoutCli].includes(p) || p === path.join("/ws/rightkit", ".git");
   assert.equal(insideGitCheckout(checkoutCli, exists), true);
   assert.equal(insideGitCheckout(installed, exists), false);
+  // a pnpm store that sits inside a workspace checkout is still an installed package
+  assert.equal(insideGitCheckout("/ws/.pnpm-store/v11/links/@rightkit/release/1/h/node_modules/@rightkit/release/cli/right-release.mjs", (f) => f === "/ws/.git"), false);
   assert.equal(resolveInstalledCli({ env: {}, globalRoots: () => ["/g"], exists, checkoutFile }), installed);
   assert.throws(() => resolveInstalledCli({ env: {}, globalRoots: () => ["/none"], exists, checkoutFile }), /installed @rightkit\/release/);
   assert.throws(() => resolveInstalledCli({ explicit: checkoutCli, env: {}, globalRoots: () => [], exists, checkoutFile }), /not a checkout/);

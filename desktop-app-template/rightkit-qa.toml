@@ -3,7 +3,6 @@
 # per-scenario data dir, with system audio muted and no network.
 app = "rightapp"
 app_root = "."
-evidence_dir = ".cache/rightkit-qa"
 scenarios = ["tests/scenarios"]
 default_tier = "fast"
 

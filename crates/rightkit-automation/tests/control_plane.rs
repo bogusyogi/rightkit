@@ -1,10 +1,10 @@
 //! EFF-001 admission and PTY-002 lease fencing guarantees.
-use rightkit_qa_driver::admission::{
+use rightkit_automation::control::admission::{
     AdmissionDecision, AdmissionHook, CancelToken, EffectAdmissionStage as Stage, EffectGate,
     EffectKind, EffectRequest, ExecError, SettleOutcome,
 };
-use rightkit_qa_driver::events::{ControlEvent, EventSink};
-use rightkit_qa_driver::lease::{
+use rightkit_automation::control::events::{ControlEvent, EventSink};
+use rightkit_automation::control::lease::{
     ControlSession, InputError, InputFailure, InputLease, InputOutcome, LeaseError,
     UnacknowledgedInputDecision,
 };
@@ -389,7 +389,7 @@ fn sequences_are_acked_deduplicated_and_ordered() {
     assert_eq!(
         send(0).unwrap(),
         InputOutcome::Applied {
-            ack: rightkit_qa_driver::lease::InputAck {
+            ack: rightkit_automation::control::lease::InputAck {
                 epoch: 1,
                 sequence: 0
             },

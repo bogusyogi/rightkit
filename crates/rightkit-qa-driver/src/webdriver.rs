@@ -344,15 +344,15 @@ pub mod macos {
             let n = self.get(id)?.clone();
             // AXPress first: works on inactive apps whose WKWebView swallows
             // first-mouse clicks. Fall back to a real per-pid mouse click.
-            if mac::ax_press(&n) {
+            if mac::unsafe_ungated::ax_press(&n) {
                 return Ok(());
             }
-            mac::click_node(self.pid, &n)
+            mac::unsafe_ungated::click_node(self.pid, &n)
         }
         fn send_keys(&mut self, id: &str, text: &str) -> Result<(), String> {
             let n = self.get(id)?.clone();
-            mac::click_node(self.pid, &n)?; // focus inside the app, not the OS
-            mac::type_text(self.pid, text);
+            mac::unsafe_ungated::click_node(self.pid, &n)?; // focus inside the app, not the OS
+            mac::unsafe_ungated::type_text(self.pid, text);
             Ok(())
         }
         fn text(&mut self, id: &str) -> Result<String, String> {
@@ -361,7 +361,7 @@ pub mod macos {
         fn screenshot_png_b64(&mut self) -> Result<String, String> {
             let w = mac::main_window(self.pid).ok_or("no window")?;
             let p = std::env::temp_dir().join(format!("rkc-{}.png", std::process::id()));
-            if !mac::capture_window(w.id, &p.to_string_lossy()) {
+            if !mac::unsafe_ungated::capture_window(w.id, &p.to_string_lossy()) {
                 return Err("screencapture failed".into());
             }
             let bytes = std::fs::read(&p).map_err(|e| e.to_string())?;

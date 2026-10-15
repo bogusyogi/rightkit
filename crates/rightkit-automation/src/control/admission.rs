@@ -8,8 +8,11 @@
 //! "denied path never executes". Stage names and order mirror CodeRight's
 //! `EffectAdmissionStage`. A surface may skip a stage that does not apply but
 //! may never reorder them or reach `Execute` after a denial. This crate
-//! traverses `Validate`, `Approval`, `Execute`, `Settle`; transform/normalize/
-//! policy/resource/verify belong to the caller (its hook can implement policy).
+//! traverses `Validate`, `Policy` (only the process-wide kill switch,
+//! `policy::kill`, checked before and after approval), `Approval`, `Execute`
+//! and `Settle`; transform/normalize/resource/verify belong to the caller (its
+//! hook can implement policy; see [`super::policy_hook::PolicyAdmission`] for
+//! the allowlist).
 //!
 //! The executor is a closure handed to [`EffectGate::admit`]; it is only ever
 //! invoked after the host's [`AdmissionHook`] returned
@@ -19,7 +22,7 @@ use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
-use crate::events::{emit, ControlEvent, EventSink};
+use crate::control::events::{emit, ControlEvent, EventSink};
 
 /// EFF-001 admission stages in canonical order (identical to CodeRight's
 /// `EffectAdmissionStage`).
@@ -265,6 +268,9 @@ impl<T> Effect<T> {
     }
 }
 
+/// Denial reason when the process-wide kill switch (`policy::kill`) is engaged.
+pub const KILL_SWITCH_REASON: &str = "kill switch engaged";
+
 /// Default number of settlements retained by [`EffectGate::settlements`].
 pub const DEFAULT_JOURNAL_CAPACITY: usize = 1024;
 
@@ -351,12 +357,34 @@ impl EffectGate {
             return self.deny(request, stages, EffectAdmissionStage::Validate, reason);
         }
 
+        // Kill switch (`policy::kill`, process-wide): refused before the host hook runs.
+        if crate::policy::killed() {
+            stages.push(EffectAdmissionStage::Policy);
+            return self.deny(
+                request,
+                stages,
+                EffectAdmissionStage::Policy,
+                KILL_SWITCH_REASON.into(),
+            );
+        }
+
         // Approval.
         stages.push(EffectAdmissionStage::Approval);
         let decision = guarded(|| self.hook.approve(&request))
             .unwrap_or_else(|| AdmissionDecision::deny("admission hook panicked during approval"));
         if let AdmissionDecision::Deny { reason } = decision {
             return self.deny(request, stages, EffectAdmissionStage::Approval, reason);
+        }
+
+        // Kill switch (`policy::kill`, process-wide): checked again after approval, which a
+        // host hook may have held for a while, and before any side effect.
+        if crate::policy::killed() {
+            return self.deny(
+                request,
+                stages,
+                EffectAdmissionStage::Policy,
+                KILL_SWITCH_REASON.into(),
+            );
         }
 
         // Cancelled after approval but before any side effect.

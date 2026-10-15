@@ -2,7 +2,6 @@
 # Copy to /Volumes/D/claude/genright/rightkit-qa.toml; scenarios live in tests/e2e/.
 app = "genright"
 app_root = "."
-evidence_dir = ".cache/rightkit-qa"
 scenarios = ["tests/e2e"]
 default_tier = "fast"
 

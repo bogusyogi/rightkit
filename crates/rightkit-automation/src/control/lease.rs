@@ -45,7 +45,7 @@
 //! it is durable, and an input sequence is reserved durably before its
 //! executor runs, so a crash at any point leaves either the old state or an
 //! honest unacknowledged range. Recovery semantics are in
-//! [`crate::lease_store`]. If saving the post-execute acknowledgement fails,
+//! [`crate::control::lease_store`]. If saving the post-execute acknowledgement fails,
 //! the live lease keeps the acknowledgement and the durable record stays
 //! conservative (that input recovers as `Unknown`);
 //! [`InputLease::store_degraded`] reports it until the next successful save.
@@ -53,9 +53,11 @@ use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
-use crate::admission::{lock, CancelToken, EffectGate, EffectRequest, ExecError, SettleOutcome};
-use crate::events::{emit, ControlEvent, EventSink};
-pub use crate::lease_store::{
+use crate::control::admission::{
+    lock, CancelToken, EffectGate, EffectRequest, ExecError, SettleOutcome,
+};
+use crate::control::events::{emit, ControlEvent, EventSink};
+pub use crate::control::lease_store::{
     ExecutionIdentity, ExecutionState, FileLeaseStore, LeaseRecord, LeaseStore, MemoryLeaseStore,
     StoreError,
 };
@@ -417,7 +419,7 @@ impl InputLease {
 
     /// Durable lease backed by `store`. A first open creates a fresh record
     /// (new [`ExecutionIdentity`], `Running`, epoch 0); a later open recovers
-    /// it (see [`crate::lease_store`]): epoch fenced forward, detached,
+    /// it (see [`crate::control::lease_store`]): epoch fenced forward, detached,
     /// `Running` becomes `Unknown`, unacknowledged input becomes `Unknown`
     /// input. Fails closed on an unreadable/corrupt record, a record for a
     /// different lease name, or a failed save.

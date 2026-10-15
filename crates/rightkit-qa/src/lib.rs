@@ -19,6 +19,11 @@
 //! per-scenario evidence, orphan check). Knobs reach managed (`rightkit cargo`) test runs
 //! through cargo features plus a [`settings::Settings`] file, never the caller's environment.
 //!
+//! Run kinds and evidence: a run is `functional` (the default: clicks, state and text, no
+//! screenshots, no recordings) or `visual` (the audit-visual run that captures screens), see
+//! [`storage::RunKind`]. Each run writes into its own directory under the managed runs root and
+//! [`retention`] prunes only directories that carry the run marker.
+//!
 //! Validators: [`media`] (WAV stats, PNG/frame non-uniformity) and [`loudness`]
 //! (BS.1770 integrated loudness, range, true peak), pure Rust except where a compressed
 //! container needs a caller-supplied ffmpeg. [`mock::MockServer`] stands in for paid providers.
@@ -39,6 +44,7 @@ pub mod media;
 pub mod mock;
 pub mod page;
 pub mod process;
+pub mod retention;
 pub mod scenario;
 pub mod settings;
 pub mod storage;

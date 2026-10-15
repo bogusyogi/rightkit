@@ -7,6 +7,8 @@
 name = "control-test-app UI latency bench"
 tier = "fast"
 target = "ui"
+# Takes screenshots: a visual scenario.
+kind = "visual"
 
 [[step]]
 kind = "ui_launch"
@@ -102,9 +104,9 @@ text = "The quick brown fox jumps over the lazy dog 0123456789. The quick brown 
 
 [[step]]
 kind = "ui_eval"
-js = "return document.getElementById('inp').value.length;"
+js = "return document.getElementById('inp').value;"
   [[step.expect]]
-  eq = 200
+  eq = "The quick brown fox jumps over the lazy dog 0123456789. The quick brown fox jumps over the lazy dog 0123456789. The quick brown fox jumps over the lazy dog 0123456789. The quick brown fox jumps over t"
 
 [[step]]
 kind = "ui_screenshot"

@@ -1,5 +1,30 @@
 # Changelog
 
+## 0.4.0
+
+Breaking (pre-1.0 minor). The generic input code that lived in `rightkit-qa-driver` moved here, so production no longer reaches QA code. Tier 2 is now a trait only.
+
+Removed:
+
+- **`in_app::ServiceBridge`, the `in-app` feature and the `serde_json` dependency.** The client of the QA control server is gone. `in_app::InApp` stays and is now documented as the whole tier-2 contract (what `handles` and `perform` must do, which `Error` kinds mean what, and that policy is the engine's job, not the channel's). The channel that used to be `ServiceBridge` is implemented outside this crate (planned: `rightkit-qa`, behind its `control` feature). Migrate: implement `InApp` and call `Automation::add_in_app`.
+- **`in-app` feature renamed `paths`.** It now gates only the `paths` module and pulls only `rightkit-daemon`.
+
+Added (moved from `rightkit-qa-driver` 0.4.0, behaviour kept except where listed under "Stricter"):
+
+- **`control`**: `control::admission` (EFF-001 `EffectGate`, `AdmissionHook`, `EffectRequest`, `Settlement`, `CancelToken`), `control::lease` (PTY-002 `InputLease`, `ControlSession`), `control::lease_store` (`LeaseStore`, `MemoryLeaseStore`, atomic `FileLeaseStore`, execution identity and state) and `control::events` (`ControlEvent`, `EventSink`). These are separate from the engine's typed `admission`, `lease` and `events` modules on purpose: different model (a single lease object with durable state and an unacknowledged range, against the engine's per-pid in-memory registry).
+- **`control::policy_hook::PolicyAdmission`**: a `Policy` as an `AdmissionHook`. Deny by default; the target must be `pid:<n>` resolving (through the caller's resolver) to an allowed app; launches are checked by executable name; the built-in deny list and host-process protection apply.
+- **`macos::background`** (macOS): per-pid CGEvent input, AX reads (`ax_dump`, `ax_find`, `ax_text`), window listing, the frontmost-app reader, hidden launch and window capture. Effects go through `Gated` (EFF-001) or the named `unsafe_ungated` opt-out.
+- **`offscreen`**: `launch_offscreen`, `launch_offscreen_gated`, `start_native`, qualification and the session report. The Tauri window helpers (`start_for_window`, `start_from_env`) stay in `rightkit-qa-driver` because they need `tauri`. Cargo feature `offscreen-private-spi` moved with it.
+- **`keys::appkit`**: raw AppKit keycodes and `CGEvent` flag bits (`named`, `chord`, `function_char`, `named_char`, `ansi_char`, `FLAG_*`). Every keycode is derived from `keys::mac_keycode`, so there is one table. Its name grammar differs from `parse_chord` by design: `delete` is the macOS Delete key (backspace), punctuation has names, `cmd++` is cmd+shift+`=`.
+- **`json`**: `str_field`, `num_field`, `base64_encode` (flat extraction for the WebDriver wire and screenshot replies). `esc` was identical in both crates.
+
+Stricter than either crate before (the kill switch and allowlist now reach everything that moved in):
+
+- `policy::kill()` denies every effect admitted through an `EffectGate` (stage `Policy`, reason `kill switch engaged`, checked before the hook and again before execute), makes `launch_offscreen` return the new `OffscreenError::KillSwitch`, and turns every `macos::background::unsafe_ungated` function into a no-op that reports failure.
+- `Gated` has no `Default`. Building one means passing a gate or calling `Gated::allow_all()`, a named opt-out of the allowlist.
+
+Tests moved with the code: admission, lease and event tests (`tests/control_plane.rs`), the durable lease store (`tests/durable_lease.rs`), the macOS frontmost reader (`tests/frontmost_macos.rs`), and the unit tests of `json`, `keys::appkit`, `offscreen` geometry and `control`. New: `PolicyAdmission`, key-table equivalence against the retired `rightkit-qa-driver` table, the kill switch across the control plane, and `InApp` through a fake channel in `tests/engine.rs`. All use temp directories and fake targets.
+
 ## 0.3.0
 
 First published release (0.1.x and 0.2.x were internal to the repository).

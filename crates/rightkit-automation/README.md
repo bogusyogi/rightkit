@@ -18,13 +18,18 @@ act       ->  kill switch -> allowlist -> lease fence -> freshness -> secure/cre
 | macOS system-wide AX element, hit test at a point, per-call AX timeout | `macos::ax` (`system_wide`, `element_at_position`, `AxOptions`) |
 | Windows raw `SendInput` batch (any VK incl. `0xE8`, scan codes, extended bit, Unicode, mouse, `dwExtraInfo` tag), modifier snapshot and restore | `win::input` (`send_input_batch`, `RawInput`, `ModifierSnapshot`) |
 | Engine: ids, freshness guard, ladder, receipts | `src/engine.rs` |
-| Control lease, epoch fencing, acknowledged input sequence | `src/lease.rs` |
-| Admission pre-action hook | `src/admission.rs` |
+| Per-app control lease, epoch fencing, acknowledged input sequence (the engine's typed layer) | `src/lease.rs` |
+| Admission pre-action hook (typed, engine layer) | `src/admission.rs` |
 | Lifecycle events, content-free metrics | `src/events.rs` |
 | Allowlist, deny list, kill switch, risk classes, credential gates | `src/policy.rs` |
 | Screenshot redaction, PNG decode | `src/redact.rs`, `src/png.rs` |
 | Text delivery with read-back proof | `src/delivery.rs`, `src/proof.rs` |
-| Fail-closed app-data root | `src/paths.rs` (via `rightkit-daemon::Suite`) |
+| Fail-closed app-data root | `src/paths.rs` (feature `paths`, via `rightkit-daemon::Suite`) |
+| Tier 2 channel contract | `src/in_app.rs` (`InApp` trait; implemented by the caller, no server here) |
+| EFF-001 effect gate, PTY-002 input lease with durable store, allowlist as an admission hook, content-free control events | `src/control/` (`admission`, `lease`, `lease_store`, `events`, `policy_hook`) |
+| macOS raw per-pid input, AX reads and window capture behind that gate (`Gated`; `unsafe_ungated` is the named opt-out) | `src/macos/background.rs` |
+| Off-screen launch and qualification of a window placed outside every display | `src/offscreen.rs` (`launch_offscreen`, `launch_offscreen_gated`, `start_native`) |
+| Key chords, plus raw AppKit keycodes and flags | `src/keys.rs` (`keys::appkit`) |
 
 ## When to use it
 
@@ -35,7 +40,20 @@ Do not use it for Right Suite apps that expose their own in-app control service:
 
 ## Cargo features
 
-`in-app` (off by default): the tier-2 `in_app::ServiceBridge` client and the `paths` module, which pull in `rightkit-daemon` and `serde_json`. The `in_app::InApp` trait is always available. The Windows backend is compiled with `cfg(windows)` and depends on the `windows` crate. Without `in-app` the crate has no third-party dependencies on macOS.
+| Feature | Default | Pulls in | Enables |
+|---|---|---|---|
+| `paths` | no | `rightkit-daemon` | The `paths` module (`evidence_dir`, `per_run_evidence_dir`). |
+| `offscreen-private-spi` | no | none | macOS only: the WKWebView `_setWindowOcclusionDetectionEnabled:` private SPI used by `offscreen`. Without it `offscreen` fails with `OcclusionSpiNotCompiled`. |
+
+The `in_app::InApp` trait is always available. The crate has no dependency on `rightkit-qa-driver`, `rightkit-qa` or any control server. The Windows backend is compiled with `cfg(windows)` and depends on the `windows` crate. Without `paths` the crate has no third-party dependencies on macOS.
+
+## Tier 2 (`InApp`)
+
+Tier 2 is a trait, not a client. A caller that owns an in-app control channel implements `in_app::InApp` (`handles(pid)`, `perform(pid, &InputEvent)`) and registers it with `Automation::add_in_app`. The engine has already applied the kill switch, allowlist, lease fence and gates before it asks the channel, and a channel answers `Unsupported` for anything it cannot express so the ladder moves to tier 3. The dev-only control server that implements it lives in `rightkit-qa` behind its `control` feature and is refused in release builds.
+
+## Control plane and background input
+
+`control` is for effects that do not go through `Automation`: `EffectGate` (validate, approve through a host hook, execute, settle), `InputLease` and `ControlSession` (epoch fencing, acknowledged sequence, optional durable `FileLeaseStore`), content-free `ControlEvent`s, and `PolicyAdmission`, which applies a `Policy` as the admission hook (deny by default; a target that is not `pid:<n>` for a resolvable, allowed app is refused). `macos::background::Gated` and `offscreen::launch_offscreen_gated` run through that gate. These gate types are separate from the engine's `lease`, `admission` and `events` modules (per-pid, in-memory, tied to receipts); see `control/mod.rs`.
 
 ## Usage
 
@@ -63,14 +81,17 @@ let snap = automation.snapshot(Target::app(pid), Limits { max_depth: 14, max_nod
 - Evidence never lands relative to the working directory. `JsonlEvidence::open` and `screenshot` require absolute paths, and `paths::evidence_dir()` fails closed.
 - Screenshots are redacted before they are returned. If a region must be masked and the file cannot be rewritten, the capture is deleted and the call errors.
 - The per-app allowlist (`Policy`) is checked before launch when the spec names the app, and again on the launched process.
-- The kill switch (`kill()`) fails every act, snapshot and batch step closed.
+- The kill switch (`kill()`) fails every act, snapshot and batch step closed. It also denies every effect admitted through a `control::admission::EffectGate`, makes `offscreen::launch_offscreen` return `OffscreenError::KillSwitch`, and turns `macos::background::unsafe_ungated` into a no-op.
+- `macos::background::Gated` has no `Default`: building one is an explicit choice of gate. `Gated::allow_all()` opts out of the allowlist by name; a host should pass a gate built on `PolicyAdmission`. `unsafe_ungated` bypasses the gate and the allowlist (not the kill switch) and is named so it can be grepped for.
 
 ## Tests and examples
 
 - `tests/e2e_mac.rs`: real TextEdit and Calculator, launched in the background. The frontmost app is verified unchanged, and everything opened is closed afterwards. `harness = false`, so it runs on the main thread. It needs Accessibility and Screen Recording for the test host. Without them it prints `SKIP e2e_mac` and returns; `RIGHTKIT_REQUIRE_ASSETS=1` makes it fail instead (`tests/e2e_mac.rs:4-5`, `:177-183`). A managed-broker run lacks both, so run the built binary from a granted shell.
 - `tests/e2e_win.rs`: real Notepad on Windows. It is type-checked on every OS.
 - `tests/engine.rs`: the engine against a simulated desktop (`mock::MockPlatform`). It covers states that no harmless real app exposes: secure field, recreated editor, lossy clipboard, and a native write that reports success falsely.
-- `tests/kill.rs`: kill-switch behaviour.
+- `tests/kill.rs`: kill-switch behaviour, including the control plane and `launch_offscreen`.
+- `tests/control_plane.rs`, `tests/durable_lease.rs`: the EFF-001 gate and the PTY-002 lease (in-memory and file-backed). They use fake targets and temp directories only.
+- `tests/frontmost_macos.rs`: the macOS frontmost-application reader (macOS only).
 - `examples/mac_proof.rs` and `examples/win_smoke.rs`: evidence-producing proofs.
 
 ## Version and changes

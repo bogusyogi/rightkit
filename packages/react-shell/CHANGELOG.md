@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Additive (0.6.5): `applyStoredThemeSync(options)` applies the stored theme synchronously before first render, and `themeBootScript(options)` returns an inline `<head>` script doing the same before any bundle loads (needs a CSP hash or nonce). Both use the theme store's storage key, choices, system resolution and `data-theme` rules and never throw. `createThemeStore`'s apply now skips writing a `data-theme` the root already has (when the root offers `getAttribute`), so the provider does not flip a boot-applied theme. Fixes the light flash on restart with a saved dark theme.
 - Renamed from @rightkit/app-shell; @rightkit/app-shell@0.6.2 remains published under the old name.
 - Shortcut labels take the platform from `ShellProvider`. `ContextMenu` drew its `Kbd` for the host browser even inside a provider given another `platform`; `JumpTo`, `PaletteTrigger`, `CommandPalette` (without a registry), `Titlebar`, `AppFrame` and the `AppShell` layout fell back to host detection the same way when not given their own `platform` prop. Order is now: the component's `platform` prop, then the provider's platform, then host detection (the provider's own default, and the fallback outside a provider).
 
