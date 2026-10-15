@@ -247,8 +247,8 @@ Commands:
   disk check [--json]                                Per-writer sizes vs caps and free-space floor (exit 3 on warning)
   disk sweep [--dry-run] [--days N] [--delete] [--json]
                                                       Move stale idle heavy data to the heavy volume (delete only with --delete)
-  disk run                                           check, dry-run sweep, move sweep, warn (the scheduled job)
-  disk schedule install|uninstall|status             Daily launchd job (Mac) / hidden Task Scheduler entry (Windows)
+  disk run                                           self-check, check, dry-run sweep, move sweep, warn (the scheduled job)
+  disk schedule install|uninstall|status             Daily launchd job (Mac) / hidden Task Scheduler entry (Windows), bound to the stable per-user copy
   deps --check|--audit|--update                      Shared dependency lane
   hardening <artifact...>                            Run the Right Suite hardening scan
   lsclean <AppName.app>                              Clear macOS LaunchServices duplicates
