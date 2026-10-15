@@ -341,7 +341,7 @@
     "rightkit-cache": "0.1.0",
     "rightkit-contracts": "0.1.2",
     "rightkit-crash": "0.3.0",
-    "rightkit-daemon": "0.2.1",
+    "rightkit-daemon": "0.2.2",
     "rightkit-db": "0.3.2",
     "rightkit-embed": "0.4.0",
     "rightkit-fs": "0.3.3",
@@ -401,7 +401,7 @@
       "rightkit-control": "0.3.0",
       "rightkit-crash": "0.3.0",
       "rightkit-credentials": "0.2.0",
-      "rightkit-daemon": "0.2.1",
+      "rightkit-daemon": "0.2.2",
       "rightkit-db": "0.4.0",
       "rightkit-device": "0.1.3",
       "rightkit-embed": "0.4.0",
@@ -703,7 +703,8 @@
       "0.2.0"
     ],
     "rightkit-daemon": [
-      "0.2.0"
+      "0.2.0",
+      "0.2.1"
     ],
     "rightkit-job-queue": [
       "0.3.0"
