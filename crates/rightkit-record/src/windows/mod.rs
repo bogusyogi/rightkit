@@ -450,6 +450,19 @@ fn check_plan(plan: &BackendPlan) -> Result<(), RecordError> {
     }
 }
 
+/// The visibility a take of `window_id` would observe right now: on screen when the window overlaps
+/// a monitor, off-screen (but visible) otherwise. Callers declare this in the plan instead of
+/// hard-coding a state, so any window, on screen or off, can be captured.
+pub fn observed_visibility(window_id: u64) -> Result<VisibilityState, RecordError> {
+    let hwnd = hwnd_of(window_id)?;
+    let _ = unsafe { SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2) };
+    Ok(if window::check(hwnd)?.on_monitor {
+        VisibilityState::OnScreenVisible
+    } else {
+        VisibilityState::OffScreenVisible
+    })
+}
+
 fn hwnd_of(window_id: u64) -> Result<HWND, RecordError> {
     if window_id == 0 || window_id > isize::MAX as u64 {
         return Err(RecordError::new(

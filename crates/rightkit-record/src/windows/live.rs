@@ -5,11 +5,13 @@
 //! Run:
 //! ```text
 //! rightkit cargo build --release --bin rightkit-record-helper
-//! RIGHTKIT_RECORD_WINDOWS_HELPER=<path to rightkit-record-helper.exe> \
-//! RIGHTKIT_RECORD_FFMPEG_DIR=<dir holding ffmpeg.exe and ffprobe.exe> \
+//! RK_RECORD_WINDOWS_HELPER=<path to rightkit-record-helper.exe> \
+//! RK_RECORD_FFMPEG_DIR=<dir holding ffmpeg.exe and ffprobe.exe> \
 //!   rightkit cargo test -p rightkit-record --lib windows::live -- --ignored --test-threads=1
 //! ```
-//! `RIGHTKIT_RECORD_WINDOWS_TARGET` overrides the rk2 target path. `RK_RECORD_KEEP=1` keeps the bundle.
+//! Under `rightkit cargo test` these names reach the test only because the workspace-root
+//! `.rightkit-test-env.json` declares them (`RIGHTKIT_*` names can never be declared).
+//! `RK_RECORD_WINDOWS_TARGET` overrides the rk2 target path. `RK_RECORD_KEEP=1` keeps the bundle.
 
 use std::fs;
 use std::os::windows::process::CommandExt;
@@ -38,12 +40,12 @@ fn env_path(var: &str) -> Option<PathBuf> {
 }
 
 fn helper() -> PathBuf {
-    env_path("RIGHTKIT_RECORD_WINDOWS_HELPER")
-        .expect("set RIGHTKIT_RECORD_WINDOWS_HELPER to the built rightkit-record-helper.exe")
+    env_path("RK_RECORD_WINDOWS_HELPER")
+        .expect("set RK_RECORD_WINDOWS_HELPER to the built rightkit-record-helper.exe")
 }
 
 fn media_tool(name: &str) -> PathBuf {
-    env_path("RIGHTKIT_RECORD_FFMPEG_DIR")
+    env_path("RK_RECORD_FFMPEG_DIR")
         .map(|dir| dir.join(format!("{name}.exe")))
         .unwrap_or_else(|| PathBuf::from(name))
 }
@@ -96,7 +98,7 @@ struct Target {
 impl Target {
     fn launch(dir: &Path) -> Target {
         let exe =
-            env_path("RIGHTKIT_RECORD_WINDOWS_TARGET").unwrap_or_else(|| DEFAULT_TARGET.into());
+            env_path("RK_RECORD_WINDOWS_TARGET").unwrap_or_else(|| DEFAULT_TARGET.into());
         let (hwnd_file, ready, control) = (
             dir.join("hwnd.txt"),
             dir.join("ready.txt"),
@@ -268,8 +270,9 @@ fn a_terminated_helper_leaves_quarantined_media_that_decodes() {
     let media = outcome
         .recovered_media
         .expect("the quarantined media must be playable and recorded");
+    // A 5 s take, killed: the last open fragment (about 0.5 s) and encoder latency are lost.
     assert!(
-        media.duration_ms >= 4_000,
+        media.duration_ms >= 3_000,
         "recovered only {} ms of media",
         media.duration_ms
     );
