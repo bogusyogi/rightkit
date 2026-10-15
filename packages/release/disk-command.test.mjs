@@ -260,7 +260,7 @@ test("schedule install binds the installed package, never a checkout", () => {
   const checkoutFile = "/ws/rightkit/packages/release/disk-command.mjs";
   const installed = path.join("/g", "@rightkit", "release", "cli", "right-release.mjs");
   const checkoutCli = path.join("/ws/rightkit/packages/release", "cli", "right-release.mjs");
-  const exists = (p) => [installed, checkoutCli].includes(p) || p === "/ws/rightkit/.git";
+  const exists = (p) => [installed, checkoutCli].includes(p) || p === path.join("/ws/rightkit", ".git");
   assert.equal(insideGitCheckout(checkoutCli, exists), true);
   assert.equal(insideGitCheckout(installed, exists), false);
   assert.equal(resolveInstalledCli({ env: {}, globalRoots: () => ["/g"], exists, checkoutFile }), installed);

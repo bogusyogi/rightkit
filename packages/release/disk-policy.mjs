@@ -56,7 +56,9 @@ export function walkSize(root) {
     const dir = stack.pop();
     let st;
     try { st = lstatSync(dir); } catch { continue; }
-    total += st.blocks !== undefined ? st.blocks * 512 : st.size;
+    // Allocated bytes; where the filesystem reports none for a non-empty file (NTFS keeps small files resident
+    // in the MFT, so Windows reports 0 blocks) the logical size is the best estimate.
+    total += st.blocks ? st.blocks * 512 : st.size;
     if (!st.isDirectory()) continue;
     let handle;
     try { handle = opendirSync(dir); } catch { continue; }
