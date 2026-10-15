@@ -5,7 +5,7 @@ import path from "node:path";
 import test from "node:test";
 import { spawnSync } from "./background-process.mjs";
 const execFileSync = (cmd, args) => { const r = spawnSync(cmd, args, { encoding: "utf8" }); if (r.status !== 0) throw new Error(`${cmd} failed: ${r.stderr}`); };
-import { ensureScratchRoots, scanWorkspaceRoots, workspaceTracked } from "./disk-policy.mjs";
+import { ensureScratchRoots, scanWorkspaceRoots, workspaceSweepAllowed, workspaceTracked } from "./disk-policy.mjs";
 import { collectDependencies, evaluateBinding, installStableRoot, isUnderStable, readScheduleBinding, selfCheck, stableCliPath, stableRootPath } from "./disk-stable-root.mjs";
 import { cliFromGlobalRoots, cliFromPathBin, insideGitCheckout, renderCheck, resolveInstalledCli, runDiskCommand, scheduleSpec, renderSweep } from "./disk-command.mjs";
 import { HOLDING_MARKER, applySweep, checkDisk, deviceOf, evaluateFloor, expandGlob, inUseByOpenPaths, literalRoot, pickHolding, planSweep, purgeHoldings, readDiskPolicy, volumeRoot } from "./disk-policy.mjs";
@@ -517,7 +517,7 @@ function workspaceFixture() {
 test("workspace allowlist: only a stale, idle, unknown dir is swept", () => {
   const { ws, policy, outside } = workspaceFixture();
   file(path.join(ws, "young", "f"), 10, Date.now() - 2 * DAY); // inside the 3-day window
-  const plan = planSweep({ policy, platform: "darwin", openPaths: [], size: () => 10 });
+  const plan = planSweep({ policy, platform: "darwin", openPaths: [], size: () => 10, workspaceSweep: true });
   assert.deepEqual(plan.candidates.map((c) => c.path), [path.join(ws, "stale")]);
   const reason = Object.fromEntries(plan.skipped.map((x) => [path.basename(x.path), x.reason]));
   assert.equal(reason.fresh, "fresh");
@@ -530,14 +530,14 @@ test("workspace allowlist: only a stale, idle, unknown dir is swept", () => {
 
 test("workspace allowlist: an open handle blocks a stale unknown dir", () => {
   const { ws, policy } = workspaceFixture();
-  const plan = planSweep({ policy, platform: "darwin", openPaths: [path.join(ws, "stale", "f")], size: () => 10 });
+  const plan = planSweep({ policy, platform: "darwin", openPaths: [path.join(ws, "stale", "f")], size: () => 10, workspaceSweep: true });
   assert.equal(plan.candidates.length, 0);
   assert.equal(plan.skipped.find((x) => path.basename(x.path) === "stale").reason, "in-use");
 });
 
 test("workspace allowlist: apply moves the stale entry to same-volume holding, keeps everything else, refuses a late-appearing checkout", () => {
   const { ws, policy, base } = workspaceFixture();
-  const plan = planSweep({ policy, platform: "darwin", openPaths: [], size: () => 10 });
+  const plan = planSweep({ policy, platform: "darwin", openPaths: [], size: () => 10, workspaceSweep: true });
   const applied = applySweep({ plan, policy, platform: "darwin", date: new Date("2026-10-15T12:00:00Z") });
   assert.ok(applied.results.every((r) => r.ok));
   assert.equal(existsSync(path.join(ws, "stale")), false);
@@ -545,7 +545,7 @@ test("workspace allowlist: apply moves the stale entry to same-volume holding, k
   for (const kept of ["trk", "nested", "keep", "fresh", "deep", "link"]) assert.equal(existsSync(path.join(ws, kept)), true, kept);
   // a nested checkout that appears between plan and apply is refused
   file(path.join(ws, "late", "f"), 10, OLD);
-  const plan2 = planSweep({ policy, platform: "darwin", openPaths: [], size: () => 10 });
+  const plan2 = planSweep({ policy, platform: "darwin", openPaths: [], size: () => 10, workspaceSweep: true });
   mkdirSync(path.join(ws, "late", ".git"));
   const refused = applySweep({ plan: plan2, policy, platform: "darwin" });
   assert.equal(refused.results[0].ok, false);
@@ -559,7 +559,7 @@ test("workspace root that is not a repository root is never swept and check says
   file(path.join(plain, "stale", "f"), 10, OLD);
   policy.workspaceRoots = { mac: [{ path: plain }] };
   assert.equal(workspaceTracked(plain, { platform: "darwin" }), null);
-  const plan = planSweep({ policy, platform: "darwin", openPaths: [], size: () => 10 });
+  const plan = planSweep({ policy, platform: "darwin", openPaths: [], size: () => 10, workspaceSweep: true });
   assert.equal(plan.candidates.length, 0);
   assert.equal(plan.skipped[0].reason, "git-unavailable");
   const check = checkDisk({ policy, platform: "darwin", size: () => 0, space: () => ({ freeBytes: 5000, totalBytes: 10000 }) });
@@ -600,6 +600,45 @@ test("scratch root: every stale idle child moves to holding, fresh and symlink c
   assert.ok(applied.results.every((r) => r.ok));
   assert.equal(existsSync(path.join(root, "hold", "2026-10-15", "scratch-root", "old-file.txt")), true);
   assert.equal(existsSync(path.join(scratch, "new")), true);
+});
+
+test("workspace-unknown is report-only without the host opt-in, and CLAUDE.md or *.md or project dirs are never unknown", () => {
+  const { ws, policy } = workspaceFixture();
+  file(path.join(ws, "CLAUDE.md"), 10, OLD); // untracked instructions entry point
+  file(path.join(ws, "notes.MD"), 10, OLD);
+  for (const n of [".agent", ".membrane", "cockpit", "contributions", ".claude", ".codex", ".agents"]) file(path.join(ws, n, "f"), 10, OLD);
+  file(path.join(ws, "proj-node", "package.json"), 10, OLD);
+  file(path.join(ws, "proj-rust", "Cargo.toml"), 10, OLD);
+  const off = planSweep({ policy, platform: "darwin", openPaths: [], size: () => 10, workspaceSweep: false });
+  assert.equal(off.candidates.length, 0, "nothing moves without the opt-in");
+  assert.equal(off.skipped.find((x) => path.basename(x.path) === "stale").reason, "report-only");
+  const on = planSweep({ policy, platform: "darwin", openPaths: [], size: () => 10, workspaceSweep: true });
+  assert.deepEqual(on.candidates.map((c) => path.basename(c.path)), ["stale"]);
+  const known = scanWorkspaceRoots({ policy, platform: "darwin" }).unknown.map((u) => u.name);
+  for (const n of ["CLAUDE.md", "notes.MD", ".agent", ".membrane", "cockpit", "contributions", ".claude", ".codex", ".agents", "proj-node", "proj-rust"]) assert.equal(known.includes(n), false, n);
+  const applied = applySweep({ plan: on, policy, platform: "darwin", date: new Date("2026-10-16T12:00:00Z") });
+  assert.ok(applied.results.every((r) => r.ok));
+  assert.equal(existsSync(path.join(ws, "CLAUDE.md")), true);
+});
+
+test("the host-local opt-in flag turns the workspace sweep on and --off revokes it", async () => {
+  const home = mkdtempSync(path.join(os.tmpdir(), "rk-flag-"));
+  const opts = { platform: "darwin", home };
+  assert.equal(workspaceSweepAllowed(opts), false);
+  const lines = [];
+  await runDiskCommand(["allow-workspace-sweep"], { platform: "darwin", stdout: (l) => lines.push(l), env: {}, deps: { flagHome: home } });
+  assert.equal(workspaceSweepAllowed(opts), true);
+  await runDiskCommand(["allow-workspace-sweep", "--off"], { platform: "darwin", stdout: (l) => lines.push(l), env: {}, deps: { flagHome: home } });
+  assert.equal(workspaceSweepAllowed(opts), false);
+});
+
+test("sweep --dry-run --all lists every item, the default keeps the top 5", () => {
+  const items = Array.from({ length: 8 }, (_, i) => ({ writer: "w", path: `/p/${i}`, bytes: 100 - i }));
+  const plan = { candidates: items, skipped: [], totalBytes: 1, staleDays: 7 };
+  assert.match(renderSweep(plan), /3 more/);
+  const all = renderSweep(plan, undefined, { all: true });
+  assert.doesNotMatch(all, /more/);
+  assert.equal((all.match(/\/p\//g) ?? []).length, 8);
 });
 
 test("committed policy: workspace allowlist, scratch roots and the 3-day window", () => {

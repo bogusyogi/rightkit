@@ -1401,9 +1401,8 @@ test("doctor passes a clean selected target", () => {
   const result = runDoctor(fixture({ platform: hostPlatform, macSigning: hostPlatform === "mac" }));
   assertDoctorFailsClosedOnlyOnOwnership(result);
   assert.match(result.stdout, /\[ok\s+\] target-bridge:/);
-  // Derived from the version manifest, not hardcoded: a literal here has to be
-  // hand-edited on every bump and fails the suite when someone forgets.
-  const expected = versions.stagedNpm?.["@rightkit/release"] ?? versions.npm["@rightkit/release"];
+  // The running package's own version (package.json), not the feed, which names the previous release.
+  const expected = JSON.parse(readFileSync(new URL("./package.json", import.meta.url), "utf8")).version;
   assert.match(result.stdout, new RegExp(`right-release ${expected.replace(/\./g, "\\.")}`));
 });
 
