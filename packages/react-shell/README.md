@@ -101,6 +101,19 @@ Visual components take `className` for their root and `slots` for named regions.
 - `alwaysPaintDataTheme` (default `true`): `system` resolves to `light` or `dark` and `data-theme` is always set to that value. Pass `false` to keep the old behaviour, where `system` removes `data-theme` and CSS alone decides.
 - `systemMedia`: the OS colour-scheme query. The store listens to it itself, so `data-theme` follows the OS even with no React mounted. `store.resolved()` returns the current light or dark value, and `store.dispose()` detaches the listener.
 
+#### Avoid the light flash: call `applyStoredThemeSync` before render
+
+The provider applies the stored theme in an effect, after the first paint, so a saved dark theme would show light first. In the entry module, before `createRoot(...).render(...)`:
+
+```ts
+import { applyStoredThemeSync } from "@rightkit/react-shell";
+applyStoredThemeSync({ storageKey: "myapp.theme" }); // same options as createThemeStore
+```
+
+It uses the store's own storage key, `light`/`dark`/`system` values, system resolution and `data-theme` rules, never throws, and falls back to `defaultChoice` when storage is unavailable. The store created afterwards sees `data-theme` already correct and does not write it again. It returns the applied `light`/`dark`, or `null` if nothing was set.
+
+To run before any bundle loads, put `themeBootScript({ storageKey: "myapp.theme" })` (same `storageKey`, `defaultChoice`, `alwaysPaintDataTheme`, `qaOverride`) inside an inline `<script>` in `<head>`. Under a strict CSP the inline script needs a `'sha256-...'` hash of its exact text or a nonce on the tag. Custom `storage`, `root` or `systemMedia` are only supported by `applyStoredThemeSync`.
+
 ### Titlebar recipe (matching an existing titlebar)
 
 The default titlebar is sized by tokens, so an app can reproduce its own titlebar without forking the markup. Set these on `:root` (or on `.rk-shell`):
