@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.45
+
+- rust-hybrid regenerate: the `regenerate` job runs on `macos-15`, not `ubuntu-24.04`. It renders the `right-release ownership` step, which fails on Linux with "ownership approval unsupported platform: linux" (the same defect 0.2.44 fixed for `admission`). The step is not redundant here: the pull request this job opens is created with the workflow token and so triggers no `pull_request` workflow, which makes this run the only gate on the regenerated tree. The `ci` job is unchanged: it renders the app's own `matrix.os` (one runner, preferring `windows-*`, or every entry with `ciAllOs`), so it runs ownership on Linux only when an app declares a Linux runner there; a render test pins that the profile never hard-codes a Linux runner for ownership. The `private-repo-guard` jobs stay on ubuntu and run no ownership step.
+
 ## 0.2.44
 
 - rust-hybrid release candidate: the `admission` job runs on `macos-15`, not `ubuntu-24.04`. Its ownership step (`right-release ownership`) fails on Linux with "ownership approval unsupported platform: linux" (Ember run 38715042025), because ownership approval supports only macOS and Windows. A render test asserts admission never renders on a Linux runner. The `ci` and `regenerate` jobs of this profile still render `ubuntu-24.04` with the same ownership step; they were not part of this fix.

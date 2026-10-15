@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.2.161
+
+- Ownership catalog regenerated from the package declarations (`rightkit-ownership.json` and its byte copies in `build-control-policy` and the `rightkit-ownership` crate), so the one drifted line (rightkit-record's macOS helper note) matches its declaration. The catalog and versions feed carry no pre-Phase-3 names; the old names remain only as `RENAMED_AWAY` published history in `rightkit-versions.json`, which apps still pin. The stale index a session sees came from an old installed `agent-policy/content-*` copy, not from the source: re-run `install-agent-policy.mjs` after a release to refresh it (`rightkit owns` reads the newest installed `content-*` directory).
+- Contract scan exclusions (`cargo-contract.mjs`): SwiftPM `.build`, probe dirs (`*-probe`, `pdfprobe2`), `tmp` and `tasks/handoffs` are not product code and are no longer gated; new `cargo-scan-exclusions.test.mjs` pins the discovery rules on a temp tree (`findCargoManifests` and `isExcludedScanDirectory` are exported).
+- Mandatory set M22 (Agent surface) names `rightkit-agent-tools` (cargo, min and registryMax 0.1.2) instead of `rightkit-mcp >=0.6.0`, matching DECISION-13; `ownership-mandatory-set.test.mjs` follows.
+
 ## 0.2.160
 
 - `disk schedule install` without `--cli` finds the installed package on Windows pnpm 11. `resolveInstalledCli` now looks, in order, at `--cli` / `RIGHT_RELEASE_INSTALLED_CLI`; the target of the `right-release` bin on PATH (realpath when the bin is the script, otherwise the `node_modules/@rightkit/release/cli/right-release.mjs` path named by the `.cmd`, `.ps1` or sh shim, resolved against the shim's directory); then the global roots (`npm root -g`, `pnpm root -g`) as `<root>/@rightkit/release`, and `<root>/<hash>/node_modules/@rightkit/release` (pnpm 11), highest installed version first. A candidate inside a git checkout is still refused. Tests cover the hashed layout, version ordering, both shim kinds, a symlinked bin and checkout refusal on real temp dirs; the Windows shim text is modelled, not captured from a real pnpm 11 install.

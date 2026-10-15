@@ -15,7 +15,7 @@
   "stagedNpm": {
     "@rightkit/app-update": "0.2.5",
     "@rightkit/ax": "0.3.2",
-    "@rightkit/ci": "0.2.44",
+    "@rightkit/ci": "0.2.45",
     "@rightkit/doc-render": "0.1.6",
     "@rightkit/hooks": "0.1.2",
     "@rightkit/i18n": "0.1.0",
@@ -31,7 +31,7 @@
     "@rightkit/qa": "0.4.8",
     "@rightkit/qa-chrome": "0.1.6",
     "@rightkit/react-shell": "0.6.4",
-    "@rightkit/release": "0.2.160",
+    "@rightkit/release": "0.2.161",
     "@rightkit/settings-ui": "0.4.4",
     "@rightkit/tauri": "0.2.1",
     "@rightkit/tauri-shell": "0.1.1",
@@ -201,7 +201,8 @@
       "0.2.155",
       "0.2.156",
       "0.2.158",
-      "0.2.159"
+      "0.2.159",
+      "0.2.160"
     ],
     "@rightkit/qa": [
       "0.1.0",
@@ -330,7 +331,8 @@
       "0.1.0"
     ],
     "@rightkit/ci": [
-      "0.2.43"
+      "0.2.43",
+      "0.2.44"
     ]
   },
   "cargo": {

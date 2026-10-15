@@ -375,10 +375,10 @@
       "profile": "desktop",
       "owners": [
         {
-          "name": "rightkit-mcp",
+          "name": "rightkit-agent-tools",
           "ecosystem": "cargo",
-          "min": "0.6.0",
-          "registryMax": "0.5.3"
+          "min": "0.1.2",
+          "registryMax": "0.1.2"
         }
       ]
     }

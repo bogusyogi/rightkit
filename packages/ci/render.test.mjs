@@ -1493,9 +1493,9 @@ const SW_BASELINE = {
   "node/publish-npm": "50882207659dfb6e0207fc0d9b33d86b7c10a2d2e3e6c65b2db05d5261982834",
   "node/publish-package-managers": "106b8d28ed76d916afe68808388cd5dc0de0ddd719b566832a6e8280410f9d7f",
   "rust-hybrid/ci": "9652939dae20655f893694e6ef59b521c1c8805817a9048f1347e128ffa5cefb",
-  // 0.2.44: the 0.2.41 render with the admission job on macos-15 (ownership approval does not run on Linux).
+  // 0.2.44/0.2.45: the 0.2.41 render with the admission and regenerate jobs on macos-15 (ownership approval does not run on Linux).
   "rust-hybrid/release-candidate": "2a8b8acb5844c244e220f996aac22d35cdd7df1dc9a83e88a9ca71cb80c6e208",
-  "rust-hybrid/regenerate": "14b7adfb5839df53f53bfe9599ef1358ff51d160a21b9ce1ca5d843a87156b36",
+  "rust-hybrid/regenerate": "88763b9254bb94d893d927e8d8b7458b57afee36f27d618df4b36e8c8ca55842",
   "rust-hybrid-chain/ci": "413071a268dfa3b72a5b483173551f5e56818ed60f0cd6b15cd5a730584d8a6e",
   "rust-hybrid-chain/release-candidate": "56faea1858944a9bf92f93370ec4a26d3c3360b2adc17588f6c6a93f1875546e",
 };
@@ -1725,4 +1725,18 @@ test("node release-candidate ownership step passes on both triggers and fails on
   } finally {
     fs.rmSync(scratch, { recursive: true, force: true });
   }
+});
+
+test("rust-hybrid: no job that runs the ownership step is hard-coded to a Linux runner", () => {
+  const rendered = [];
+  const candidate = { ...FULL_MANIFEST, lanes: ["ci", "release-candidate", "regenerate"], profile: "rust-hybrid", gate: { path: "scripts/gate.sh" }, regenerate: { script: "regenerate" }, candidate: { buildScript: "ci:candidate", checkScript: "ci:candidate-check", admissionScript: "release:admit", stageSummaryScript: "release:stage-summary", artifactRoot: "widgets-unsigned", os: ["macos-latest", "windows-latest"] }, templateVersion: "1.2.0" };
+  for (const [lane, template] of [["ci", "ci.yml"], ["release-candidate", "release-candidate.yml"], ["regenerate", "regenerate.yml"]]) {
+    const content = renderTemplate(fs.readFileSync(path.join(templatesDir, "profiles/rust-hybrid", template), "utf8"), buildRenderContext(candidate, "/repos/widgets", lane));
+    const jobs = content.split(/^jobs:\n/m)[1].split(/^ {2}(?=[a-z][\w-]*:\n)/m).filter(Boolean);
+    for (const job of jobs.filter((j) => /RightKit ownership/.test(j))) {
+      rendered.push(`${lane}/${job.split(":")[0]}`);
+      assert.doesNotMatch(job, /runs-on: ubuntu|runs-on: \$\{\{[^}]*(ubuntu|linux)/i, `${lane}: a job with the ownership step must not run on Linux`);
+    }
+  }
+  assert.deepEqual(rendered.sort(), ["ci/ci", "regenerate/regenerate", "release-candidate/admission"]);
 });

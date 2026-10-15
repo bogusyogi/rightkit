@@ -132,13 +132,13 @@ test("CLI: report mode exits 0 on a bad app, --enforce exits 1, missing app root
   const workspace = tmp();
   try {
     goodApp(path.join(workspace, "good"));
-    goodApp(path.join(workspace, "bad"), { drop: ["rightkit-mcp"] });
+    goodApp(path.join(workspace, "bad"), { drop: ["rightkit-agent-tools"] });
     const run = async (args) => { let out = ""; const code = await main(["--workspace", workspace, ...args], { stdout: { write: (s) => { out += s; } }, stderr: { write() {} } }); return { code, out }; };
     assert.equal((await run(["--app", "good", "--app", "bad"])).code, 0);
     assert.equal((await run(["--app", "good", "--enforce"])).code, 0);
     const bad = await run(["--app", "good", "--app", "bad", "--enforce"]);
     assert.equal(bad.code, 1);
-    assert.match(bad.out, /missing\s+rightkit-mcp/);
+    assert.match(bad.out, /missing\s+rightkit-agent-tools/);
     assert.equal((await run(["--app", "nope", "--enforce"])).code, 1);
     assert.equal(JSON.parse((await run(["--app", "bad", "--json"])).out).apps[0].violations, 1);
     assert.match(renderText(checkApps([path.join(workspace, "bad")], {})), /1\/1 apps fail/);
