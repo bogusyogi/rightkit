@@ -46,7 +46,11 @@ impl RunsRetentionReport {
     pub fn summary(&self) -> String {
         format!(
             "{} {} run dir(s) ({} bytes), kept {}",
-            if self.dry_run { "would remove" } else { "removed" },
+            if self.dry_run {
+                "would remove"
+            } else {
+                "removed"
+            },
             self.removed.len(),
             self.removed_bytes,
             self.kept.len()
@@ -195,7 +199,9 @@ fn prune_app(
         let name = entry.file_name().to_string_lossy().into_owned();
         let Ok(ft) = entry.file_type() else { continue };
         if ft.is_symlink() {
-            report.kept.push((dir, "link skipped, never followed".into()));
+            report
+                .kept
+                .push((dir, "link skipped, never followed".into()));
             continue;
         }
         if !ft.is_dir() || name.starts_with('.') {
@@ -362,15 +368,36 @@ mod tests {
         let f = RunKind::Functional;
         let v = RunKind::Visual;
         let pass = Some(RunOutcome::Passed);
-        let fail_old = run(&root, "app", "fail-old", Some(f), Some(RunOutcome::Failed), 1);
+        let fail_old = run(
+            &root,
+            "app",
+            "fail-old",
+            Some(f),
+            Some(RunOutcome::Failed),
+            1,
+        );
         let f1 = run(&root, "app", "f1", Some(f), pass, 10);
         let f2 = run(&root, "app", "f2", Some(f), pass, 20);
         let f3 = run(&root, "app", "f3", Some(f), pass, 30);
         let v1 = run(&root, "app", "v1", Some(v), pass, 5);
         let v2 = run(&root, "app", "v2", Some(v), pass, 6);
-        let fail_visual = run(&root, "app", "fail-visual", Some(v), Some(RunOutcome::Failed), 2);
+        let fail_visual = run(
+            &root,
+            "app",
+            "fail-visual",
+            Some(v),
+            Some(RunOutcome::Failed),
+            2,
+        );
         let running = run(&root, "app", "running", Some(f), None, 40);
-        let nothing = run(&root, "app", "nothing", Some(f), Some(RunOutcome::Skipped), 50);
+        let nothing = run(
+            &root,
+            "app",
+            "nothing",
+            Some(f),
+            Some(RunOutcome::Skipped),
+            50,
+        );
         let legacy = run(&root, "app", "legacy", None, pass, 3);
         let other = run(&root, "other", "o1", Some(f), pass, 1);
         let other2 = run(&root, "other", "o2", Some(f), pass, 2);
@@ -494,7 +521,10 @@ mod tests {
         // 2. An app directory is a link to outside.
         let root = temp_root("links2");
         fs::create_dir_all(root.join("runs")).unwrap();
-        assert!(try_symlink_dir(&outside.join("runs").join("app"), &root.join("runs").join("app")));
+        assert!(try_symlink_dir(
+            &outside.join("runs").join("app"),
+            &root.join("runs").join("app")
+        ));
         let r = prune_runs(&root, Some("app"), false).unwrap();
         assert!(r.removed.is_empty());
         assert!(r.kept.iter().any(|(_, why)| why.contains("link")));
@@ -505,15 +535,24 @@ mod tests {
         //    removed as itself and what it points at stays.
         let root = temp_root("links3");
         let newest = run(&root, "app", "newest", f, pass, 100);
-        assert!(try_symlink_dir(&victim_old, &root.join("runs").join("app").join("linked")));
+        assert!(try_symlink_dir(
+            &victim_old,
+            &root.join("runs").join("app").join("linked")
+        ));
         let doomed = run(&root, "app", "doomed", f, pass, 1);
         let precious = temp_root("precious");
         fs::write(precious.join("keep.txt"), "x").unwrap();
-        assert!(try_symlink_dir(&precious, &doomed.join("evidence").join("escape")));
+        assert!(try_symlink_dir(
+            &precious,
+            &doomed.join("evidence").join("escape")
+        ));
         let r = prune_runs(&root, Some("app"), false).unwrap();
         assert!(exists(&newest));
         assert!(!exists(&doomed));
-        assert!(exists(&precious.join("keep.txt")), "link target was followed");
+        assert!(
+            exists(&precious.join("keep.txt")),
+            "link target was followed"
+        );
         assert!(exists(&victim_old) && exists(&victim_new));
         assert!(r
             .kept

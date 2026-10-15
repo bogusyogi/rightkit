@@ -518,7 +518,11 @@ fn run_suite_at(
     // the passing runs of this app go. It never fails the job.
     let pruned = crate::retention::prune_runs_after_job(&managed_root, &cfg.app);
     println!("[qa] run retention: {}", pruned.summary());
-    for (path, why) in pruned.kept.iter().filter(|(_, why)| why.starts_with("not removed")) {
+    for (path, why) in pruned
+        .kept
+        .iter()
+        .filter(|(_, why)| why.starts_with("not removed"))
+    {
         println!("[qa] WARN {}: {why}", path.display());
     }
     Ok(SuiteReport {

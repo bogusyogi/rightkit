@@ -1009,7 +1009,11 @@ pub fn apply_viewport<R: Runtime>(
 }
 
 fn screenshot<R: Runtime>(win: &WebviewWindow<R>) -> Result<Vec<u8>, String> {
-    let r = cdp(win, "Page.captureScreenshot", r#"{"format":"png","optimizeForSpeed":true}"#.into())?;
+    let r = cdp(
+        win,
+        "Page.captureScreenshot",
+        r#"{"format":"png","optimizeForSpeed":true}"#.into(),
+    )?;
     let b64 = str_field(&r, "data").ok_or("no screenshot data")?;
     let mut out = Vec::with_capacity(b64.len() * 3 / 4);
     let (mut acc, mut bits) = (0u32, 0);

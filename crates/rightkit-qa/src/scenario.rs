@@ -874,7 +874,11 @@ fn exec(ctx: &mut Ctx, kind: &str, p: &Map<String, Value>) -> Result<Value> {
                 .collect::<Result<_>>()?;
             for (m, _) in &steps {
                 if is_capture_method(m) {
-                    ensure_capture_allowed(ctx.kind, &ctx.scenario, &format!("ui_batch method '{m}'"))?;
+                    ensure_capture_allowed(
+                        ctx.kind,
+                        &ctx.scenario,
+                        &format!("ui_batch method '{m}'"),
+                    )?;
                 }
             }
             let refs: Vec<(&str, Value)> =
@@ -1022,13 +1026,21 @@ input = { a = 1 }
     }
 
     fn scenario_with_kind(kind: Option<&str>) -> Scenario {
-        let header = kind.map(|k| format!("kind = \"{k}\"
-")).unwrap_or_default();
-        let text = format!("name = \"k\"
+        let header = kind
+            .map(|k| {
+                format!(
+                    "kind = \"{k}\"
+"
+                )
+            })
+            .unwrap_or_default();
+        let text = format!(
+            "name = \"k\"
 {header}[[step]]
 kind = \"cli\"
 command = \"x\"
-");
+"
+        );
         let path = std::env::temp_dir().join(format!("rkqa-kind-{}.scenario.toml", util::new_id()));
         std::fs::write(&path, text).unwrap();
         let s = Scenario::load(&path);
@@ -1039,8 +1051,14 @@ command = \"x\"
     #[test]
     fn a_scenario_declares_its_kind_or_leaves_it_to_the_run() {
         assert_eq!(scenario_with_kind(None).kind, None);
-        assert_eq!(scenario_with_kind(Some("visual")).kind, Some(RunKind::Visual));
-        assert_eq!(scenario_with_kind(Some("functional")).kind, Some(RunKind::Functional));
+        assert_eq!(
+            scenario_with_kind(Some("visual")).kind,
+            Some(RunKind::Visual)
+        );
+        assert_eq!(
+            scenario_with_kind(Some("functional")).kind,
+            Some(RunKind::Functional)
+        );
         let path = std::env::temp_dir().join(format!("rkqa-kind-{}.scenario.toml", util::new_id()));
         std::fs::write(
             &path,
@@ -1059,13 +1077,22 @@ command = \"x\"
 
     #[test]
     fn run_kind_defaults_to_functional_and_follows_scenarios_unless_requested() {
-        let none = [scenario_with_kind(None), scenario_with_kind(Some("functional"))];
+        let none = [
+            scenario_with_kind(None),
+            scenario_with_kind(Some("functional")),
+        ];
         assert_eq!(resolve_run_kind(None, &none), RunKind::Functional);
         let some = [scenario_with_kind(None), scenario_with_kind(Some("visual"))];
         assert_eq!(resolve_run_kind(None, &some), RunKind::Visual);
         // An explicit request wins over what the scenarios declare, both ways.
-        assert_eq!(resolve_run_kind(Some(RunKind::Functional), &some), RunKind::Functional);
-        assert_eq!(resolve_run_kind(Some(RunKind::Visual), &none), RunKind::Visual);
+        assert_eq!(
+            resolve_run_kind(Some(RunKind::Functional), &some),
+            RunKind::Functional
+        );
+        assert_eq!(
+            resolve_run_kind(Some(RunKind::Visual), &none),
+            RunKind::Visual
+        );
         assert_eq!(resolve_run_kind(None, &[]), RunKind::Functional);
         assert_eq!(RunKind::parse("visual").unwrap(), RunKind::Visual);
         assert_eq!(RunKind::parse(" functional ").unwrap(), RunKind::Functional);
@@ -1082,7 +1109,10 @@ command = \"x\"
         assert_eq!(scenario_kind(v, Some(v), "s").unwrap(), v);
         assert_eq!(scenario_kind(f, Some(f), "s").unwrap(), f);
         let e = scenario_kind(f, Some(v), "login").unwrap_err();
-        assert!(e.0.contains("login") && e.0.contains("--kind visual"), "{e}");
+        assert!(
+            e.0.contains("login") && e.0.contains("--kind visual"),
+            "{e}"
+        );
     }
 
     #[test]
@@ -1127,12 +1157,20 @@ command = \"x\"
     fn a_functional_scenario_refuses_screenshot_steps_and_a_visual_one_does_not() {
         let root = std::env::temp_dir().join(format!("rkqa-kind-ws-{}", util::new_id()));
         std::fs::create_dir_all(&root).unwrap();
-        let cfg = QaConfig::parse("app = \"kindtest\"
-", &root.join("rightkit-qa.toml")).unwrap();
+        let cfg = QaConfig::parse(
+            "app = \"kindtest\"
+",
+            &root.join("rightkit-qa.toml"),
+        )
+        .unwrap();
         let ws = crate::workspace::create(&root.join("managed"), None, "kindtest").unwrap();
         let tracker = Tracker::new();
         let mut ctx = Ctx::new(&cfg, None, None, &ws, &tracker, "s").unwrap();
-        assert_eq!(ctx.kind, RunKind::Functional, "a scenario is functional unless told otherwise");
+        assert_eq!(
+            ctx.kind,
+            RunKind::Functional,
+            "a scenario is functional unless told otherwise"
+        );
 
         let shot = bare_step("ui_screenshot", json!({}));
         let batch = bare_step(
@@ -1142,7 +1180,10 @@ command = \"x\"
         let e = run_step(&mut ctx, &shot).unwrap_err();
         assert!(e.0.contains("refused in functional scenario"), "{e}");
         let e = run_step(&mut ctx, &batch).unwrap_err();
-        assert!(e.0.contains("ui_batch method 'screenshot'") && e.0.contains("functional"), "{e}");
+        assert!(
+            e.0.contains("ui_batch method 'screenshot'") && e.0.contains("functional"),
+            "{e}"
+        );
 
         ctx.kind = RunKind::Visual;
         let e = run_step(&mut ctx, &shot).unwrap_err();

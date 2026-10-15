@@ -808,7 +808,10 @@ fn removal_error(path: &Path, error: &std::io::Error) -> String {
 }
 
 /// Remove everything in `dir` except the entry named `keep`. Links are removed as themselves.
-pub(crate) fn remove_children(dir: &Path, keep: Option<&std::ffi::OsStr>) -> std::result::Result<(), String> {
+pub(crate) fn remove_children(
+    dir: &Path,
+    keep: Option<&std::ffi::OsStr>,
+) -> std::result::Result<(), String> {
     for entry in fs::read_dir(dir).map_err(|e| removal_error(dir, &e))? {
         let entry = entry.map_err(|e| removal_error(dir, &e))?;
         if keep == Some(entry.file_name().as_os_str()) {
@@ -1574,8 +1577,7 @@ fn prune_unlocked(
             !removed.contains(&x.1.run_id)
                 && (protected.contains(&x.1.run_id)
                     || (total <= cap
-                        && (count_protected.contains(&x.1.run_id)
-                            || failed.contains(&x.1.run_id))))
+                        && (count_protected.contains(&x.1.run_id) || failed.contains(&x.1.run_id))))
         })
         .map(|x| x.2)
         .sum();
