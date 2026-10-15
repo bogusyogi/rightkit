@@ -1,0 +1,52 @@
+{
+  "schema": 1,
+  "kind": "cargo",
+  "name": "rightkit-record",
+  "version": "0.3.0",
+  "commit": "8642b0346ba02ca284986d81111634e82a3654d8",
+  "artifactSha256": "39572f1bc58a0551ee20719a5768580557f30844f7fc857c84a15d35f31d6124",
+  "hostPolicy": "darwin-only",
+  "hostPolicyReason": "Adrian 2026-10-14 local-build grant (.rightkit-local-build.json); Windows covered by the next CI run",
+  "runs": [
+    {
+      "host": {
+        "os": "darwin",
+        "arch": "arm64"
+      },
+      "commit": "8642b0346ba02ca284986d81111634e82a3654d8",
+      "features": [
+        "default"
+      ],
+      "artifactSha256": "39572f1bc58a0551ee20719a5768580557f30844f7fc857c84a15d35f31d6124",
+      "command": "cargo test -p rightkit-record --no-fail-fast -- --show-output && cargo clippy -p rightkit-record --no-deps --all-targets -- -D warnings && cargo check -p rightkit-record --all-targets --all-features && cargo package --locked -p rightkit-record && cargo metadata --format-version 1 --no-deps",
+      "operator": "agent (local-build grant)",
+      "timestamp": "2026-10-15T22:37:57.158Z",
+      "passed": 147,
+      "failed": 0,
+      "skipped": 0,
+      "ignored": 8,
+      "allowIgnored": true,
+      "requireAssets": "1",
+      "assetGated": false,
+      "steps": [
+        {
+          "command": "cargo test -p rightkit-record --no-fail-fast -- --show-output",
+          "ok": true,
+          "executed": 147,
+          "failed": 0,
+          "ignored": 8,
+          "skipped": 0,
+          "binaries": 9
+        },
+        {
+          "command": "cargo clippy -p rightkit-record --no-deps --all-targets -- -D warnings",
+          "ok": true
+        },
+        {
+          "command": "cargo check -p rightkit-record --all-targets --all-features",
+          "ok": true
+        }
+      ]
+    }
+  ]
+}
