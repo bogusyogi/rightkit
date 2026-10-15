@@ -108,13 +108,14 @@ test("bundle diff names changed, added and removed scanner files and changed dat
 // ---- protected trust: floor, validation, pinning, comparison ----------------------------------------
 const trustBase = { schema: 1, revokedKeyIds: [], verifiedTrackingEvidence: [], minimumScannerVersion: "1.0.0", minimumCatalogVersion: "1.0.0", provenance: [], repositories: [{ repositoryIdentity: IDENTITY, roots: ["."], visibility: "private" }] };
 
-test("floor refuses a different running bundle; trust without a pinned bundle stays unpinned", () => {
+test("floor only warns on a different running bundle; trust without a pinned bundle stays unpinned", () => {
   const bundle = computePolicyBundle({ manifest: catalog, registry: null, allowlist, scannerVersion: SCANNER_VERSION, files: [] });
   const inputs = { scannerVersion: SCANNER_VERSION, catalogVersion: "9", catalogDigest: "x" };
   assert.equal(validateOwnershipFloor({ ...trustBase, policyBundle: bundle }, { ...inputs, policyBundleDigest: bundle.digest }).ok, true);
-  const refused = validateOwnershipFloor({ ...trustBase, policyBundle: bundle }, { ...inputs, policyBundleDigest: "f".repeat(64) });
-  assert.equal(refused.ok, false);
-  assert.match(refused.problems.join(), /policy bundle .*differs from the protected pinned bundle/);
+  const drifted = validateOwnershipFloor({ ...trustBase, policyBundle: bundle }, { ...inputs, policyBundleDigest: "f".repeat(64) });
+  assert.equal(drifted.ok, true, "a stale pinned bundle never blocks (trust-sync is retired)");
+  assert.deepEqual(drifted.problems, []);
+  assert.match(drifted.warnings.join(), /policy bundle .*differs from the bundle pinned in protected trust/);
   assert.equal(validateOwnershipFloor(trustBase, { ...inputs, policyBundleDigest: "f".repeat(64) }).ok, true, "absent policyBundle is unpinned");
   assert.equal(validateOwnershipFloor({ ...trustBase, policyBundle: bundle }, inputs).ok, true, "callers that do not compute the bundle are unaffected");
 });
@@ -174,7 +175,7 @@ test("scan: allowlisted dependencies pass; a new dependency is a blocking depend
     assert.equal(finding.name, "leftpad");
     assert.equal(finding.file, "package.json");
     assert.equal(finding.tier, "block");
-    assert.match(finding.text, /propose it there and Adrian activates it via trust-sync/);
+    assert.match(finding.text, /propose it there \(advisory until protected trust carries the allowlist; trust-sync is retired\)/);
     assert.equal(bad.ok, false);
   } finally { rmSync(clean, { recursive: true, force: true }); rmSync(dirty, { recursive: true, force: true }); }
 });
@@ -200,7 +201,7 @@ test("scan: pending enrollment makes the allowlist finding advisory", () => {
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
-test("scan: before trust-sync only the shipped proposal applies, advisory, and only for repositories it has a baseline for", () => {
+test("scan: with no protected trust copy only the shipped proposal applies, advisory, and only for repositories it has a baseline for", () => {
   const root = repo({ "package.json": pkg({ leftpad: "1" }) });
   const stranger = repo({ "package.json": pkg({ leftpad: "1" }) }, "https://github.com/org/unlisted.git");
   try {

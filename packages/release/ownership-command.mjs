@@ -4,20 +4,22 @@
 //
 //   right-release ownership [--app <dir>] [--json]
 //   right-release ownership [--app <dir>] --audit-json   (Legion governance.capability-ownership provider)
-//   right-release ownership trust-compare [--json]   (print this host's protected-trust digest)
+//   right-release ownership trust-compare [--json]   (print this host's protected-trust digest; policy-bundle drift is a warning, never a block)
+//   right-release ownership trust-sync               (retired: prints why and exits 0)
 //   right-release ownership --write-manifest [--rightkit <rightkit>] [--approve-new-capabilities]
 // --approve-new-capabilities permits new ids during local generation only.
 // Existing owner changes are always refused; installation needs protected authorization.
 import { realpathSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { formatTable } from "./ownership.mjs";
+import { SCANNER_VERSION, formatTable } from "./ownership.mjs";
 import { writeOwnershipCatalog } from "./ownership-catalog.mjs";
 import { createOwnershipEvidence } from "./ownership-evidence.mjs";
 import { spawnSync } from "./background-process.mjs";
 import { main as stagedMain } from "./ownership-staged.mjs";
 import { loadTrustedExternal } from "./ownership-approval.mjs";
-import { trustComparison } from "./ownership-policy-bundle.mjs";
+import { diffPolicyBundles, runningPolicyBundle, trustComparison } from "./ownership-policy-bundle.mjs";
+import { POLICY_BUNDLE_DRIFT_WARNING, TRUST_SYNC_RETIRED } from "./ownership-approval.mjs";
 import { isBlockingFinding } from "./ownership-verdict.mjs";
 
 const packageRoot = path.dirname(fileURLToPath(import.meta.url));
@@ -27,14 +29,41 @@ function flag(args, name) {
   return i >= 0 ? args[i + 1] : undefined;
 }
 
+/** Semantic drift of the bundle pinned in protected trust against the bundle this checkout runs; null when none is pinned or they match. */
+export function policyBundleDrift(trust, { runningBundle = () => runningPolicyBundle({ scannerVersion: SCANNER_VERSION }) } = {}) {
+  const pinned = trust?.policyBundle;
+  if (!pinned?.digest) return null;
+  let running;
+  try { running = runningBundle(); } catch (error) { return { warning: `policy bundle could not be computed: ${error.message}`, diff: null }; }
+  if (running.digest === pinned.digest) return null;
+  return { warning: POLICY_BUNDLE_DRIFT_WARNING, pinnedDigest: pinned.digest, runningDigest: running.digest, diff: diffPolicyBundles(pinned, running) };
+}
+
+function driftLines(drift) {
+  const lines = [`WARNING: ${drift.warning}`];
+  if (drift.diff) {
+    const { filesAdded, filesRemoved, filesChanged, scannerVersion, catalogChanged, registryChanged, allowlistChanged, qaFloorChanged } = drift.diff;
+    if (scannerVersion) lines.push(`  scanner version: ${scannerVersion.from} -> ${scannerVersion.to}`);
+    for (const [label, list] of [["files added", filesAdded], ["files removed", filesRemoved], ["files changed", filesChanged]]) if (list.length) lines.push(`  ${label}: ${list.join(", ")}`);
+    const moved = Object.entries({ catalog: catalogChanged, registry: registryChanged, allowlist: allowlistChanged, "qa floor": qaFloorChanged }).filter(([, changed]) => changed).map(([name]) => name);
+    if (moved.length) lines.push(`  changed digests: ${moved.join(", ")}`);
+  }
+  return lines;
+}
+
 /** Print this host's protected-trust digest. The Mac's digest is the reference; see docs/OWNERSHIP-ENFORCEMENT.md. */
-export function trustCompare(args, { print, trustLoader = loadTrustedExternal } = {}) {
+export function trustCompare(args, { print, trustLoader = loadTrustedExternal, runningBundle } = {}) {
   let state;
   try { state = trustLoader(); } catch (error) { print(`[right-release] trust-compare: protected trust unreadable (${error.message})`); return 1; }
   if (!state?.trust) { print("[right-release] trust-compare: no protected trust on this host (not enrolled)"); return 1; }
   const { digest, components } = trustComparison(state.trust);
-  if (args.includes("--json")) print(JSON.stringify({ platform: process.platform, digest, components }, null, 2));
-  else { print(`trust digest (${process.platform}): ${digest}`); for (const [name, value] of Object.entries(components)) print(`  ${name}: ${typeof value === "object" && value !== null ? JSON.stringify(value) : value ?? "none"}`); }
+  const drift = policyBundleDrift(state.trust, runningBundle ? { runningBundle } : undefined);
+  if (args.includes("--json")) print(JSON.stringify({ platform: process.platform, digest, components, ...(drift ? { warnings: [drift] } : {}) }, null, 2));
+  else {
+    print(`trust digest (${process.platform}): ${digest}`);
+    for (const [name, value] of Object.entries(components)) print(`  ${name}: ${typeof value === "object" && value !== null ? JSON.stringify(value) : value ?? "none"}`);
+    if (drift) for (const line of driftLines(drift)) print(line);
+  }
   return 0;
 }
 
@@ -45,7 +74,8 @@ export async function main(args, { evidenceFactory = createOwnershipEvidence, gi
   }
   if (args[0] === "trust-compare") return trustCompare(args, { print, trustLoader });
   if (args.includes("--staged")) return stagedMain(args, { print });
-  if (["enroll", "approve-key", "revoke-key", "trust-sync"].includes(args[0])) {
+  if (args[0] === "trust-sync") { print(`[right-release] ${TRUST_SYNC_RETIRED}`); return 0; }
+  if (["enroll", "approve-key", "revoke-key"].includes(args[0])) {
     const { main: keyMain } = await import("./ownership-key-command.mjs");
     return keyMain(args, { runner: gitRunner, print });
   }
@@ -79,7 +109,7 @@ export async function main(args, { evidenceFactory = createOwnershipEvidence, gi
       : result.coverage.length
         ? { type: "ownership-coverage", message: `${result.coverage.length} ownership coverage gap(s)` }
         : undefined;
-    print(JSON.stringify({ ok: checked.ok, ...(checked.enrollmentPending ? { enrollmentPending: true, warning: checked.warning } : {}), ...(error ? { error } : {}), ...(blocked ? { blocked } : {}), rows: result.rows, violations: result.violations, covered: result.covered, problems: [...result.problems, ...checked.floor.problems], coverage: result.coverage, metadata: result.metadata }, null, 2));
+    print(JSON.stringify({ ok: checked.ok, ...(checked.enrollmentPending ? { enrollmentPending: true, warning: checked.warning } : {}), ...(error ? { error } : {}), ...(blocked ? { blocked } : {}), rows: result.rows, violations: result.violations, covered: result.covered, problems: [...result.problems, ...checked.floor.problems], ...(checked.warnings ? { warnings: checked.warnings } : {}), coverage: result.coverage, metadata: result.metadata }, null, 2));
   } else {
     print(`RightKit ownership: ${path.basename(app)}`);
     print(formatTable(result.rows));
@@ -88,6 +118,7 @@ export async function main(args, { evidenceFactory = createOwnershipEvidence, gi
     }
     for (const p of result.problems) print(`  ${checked.enrollmentPending ? "DIAGNOSTIC" : "EXCEPTION"} ${p}`);
     print(verdictLine(checked, result, blocked));
+    for (const warning of checked.warnings ?? []) print(`  WARNING ${warning}`);
   }
   // CI lanes may pass `--advisory-when-pending`: before approval keys are enrolled the scan asserts
   // nothing, so findings print as diagnostics and the step exits 0. Release lanes never pass it.

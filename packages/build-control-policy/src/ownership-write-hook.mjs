@@ -509,8 +509,8 @@ function allowlistFeedback(dependencies, dir) {
   const unlisted = dependencies.filter((dependency) => !evaluateDependency(active.allowlist, identity, dependency, { owners }).allowed);
   if (!unlisted.length) return null;
   const reason = `New dependency ${unlisted.map((dependency) => `${dependency.ecosystem}:${dependency.name}`).join(', ')} is not in the ownership dependency allowlist for ${identity}.`;
-  const required = 'propose it in ownership-dependency-allowlist.json; Adrian activates it via trust-sync.';
-  return active.trusted ? denial(reason, required) : advice(`${reason} Propose it in ownership-dependency-allowlist.json; Adrian activates it via trust-sync (advisory until then).`);
+  const required = 'propose it in ownership-dependency-allowlist.json (advisory until protected trust carries it; trust-sync is retired).';
+  return active.trusted ? denial(reason, required) : advice(`${reason} Propose it in ownership-dependency-allowlist.json; it stays advisory until protected trust carries the allowlist (trust-sync is retired).`);
 }
 /** Catalog capability screening first (block-tier always wins), then the allowlist. */
 function dependencyDecision(dependencies, dir) {

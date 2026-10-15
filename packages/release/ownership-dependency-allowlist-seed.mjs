@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // Propose or regenerate dependency-allowlist baselines from each registered repository's CURRENT direct
-// dependencies. This only edits the committed proposal file; it takes effect solely through Adrian's trust-sync.
+// dependencies. This only edits the committed proposal file; it is advisory until a protected trust copy carries it (trust-sync is retired).
 //   node ownership-dependency-allowlist-seed.mjs --workspace <dir> [--write]
 // Existing approvals are never removed (union with the current file); block-tier catalog dependencies
 // and RightKit packages are never recorded as approvals.

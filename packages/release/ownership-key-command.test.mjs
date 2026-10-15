@@ -544,30 +544,19 @@ test("installed Legion review, receipt, and real pre-commit verification accept 
   } finally { f.cleanup(); }
 });
 
-test("trust-sync delegates to the desktop session before taking the command lock", async () => {
-  const lockPath = path.join(mkdtempSync(path.join(os.tmpdir(), "rk-lock-")), "held.lock");
-  writeFileSync(lockPath, "held by the delegated child");
-  const lines = [];
-  const code = await main(["trust-sync"], { runner: () => ({ status: 0, stdout: "" }), print: (t) => lines.push(t), root: "/nonexistent", helper: "h", lockPath, hostPlatform: "win32", env: { SSH_CONNECTION: "1" }, desktopCommand: ["node", "x"], desktopOptions: { sleep() {}, tmp: os.tmpdir() } }).catch((e) => e);
-  // The held lock must not be hit: failure may only come from the (fake) desktop task, never the lock.
-  assert.ok(!lines.some((l) => /another ownership key command is active/.test(l)));
-  rmSync(path.dirname(lockPath), { recursive: true, force: true });
-  void code;
-});
-
-test("trust-sync --check never delegates to the desktop session (read-only, asks nothing)", async () => {
+test("trust-sync is retired: prints why, exits 0, never reaches the lock, a runner or the desktop", async () => {
   const lockPath = path.join(mkdtempSync(path.join(os.tmpdir(), "rk-lock-")), "held.lock");
   writeFileSync(lockPath, String(process.pid));
-  const lines = [];
-  let delegated = false;
-  let message = "";
   try {
-    await main(["trust-sync", "--check"], { runner: () => { delegated = true; return { status: 0, stdout: "" }; }, print: (t) => lines.push(t), root: "/nonexistent", helper: "h", lockPath, hostPlatform: "win32", env: { SSH_CONNECTION: "1" }, desktopCommand: ["node", "x"] });
-  } catch (error) { message = String(error?.message ?? error); }
-  // Not delegated, so it reaches the command lock held by this live process.
-  assert.match(`${message}\n${lines.join("\n")}`, /another ownership key command is active/);
-  assert.equal(delegated, false);
-  rmSync(path.dirname(lockPath), { recursive: true, force: true });
+    for (const args of [["trust-sync"], ["trust-sync", "--check"]]) {
+      const lines = [];
+      let ran = false;
+      const code = await main(args, { runner: () => { ran = true; return { status: 0, stdout: "" }; }, print: (t) => lines.push(t), root: "/nonexistent", helper: "h", lockPath, hostPlatform: "win32", env: { SSH_CONNECTION: "1" } });
+      assert.equal(code, 0);
+      assert.equal(ran, false);
+      assert.match(lines.join("\n"), /trust-sync is retired/);
+    }
+  } finally { rmSync(path.dirname(lockPath), { recursive: true, force: true }); }
 });
 
 test("command lock records its pid and reclaims a lock whose pid is dead", () => {

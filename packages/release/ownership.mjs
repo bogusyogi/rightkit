@@ -562,7 +562,7 @@ function scanInternal(appRoot, manifest, { inventory = fileInventory(appRoot), t
       if (blocked.has(`${d.ecosystem}:${d.name}`) || evaluateDependency(allowlistPolicy.allowlist, repositoryIdentity, { ecosystem: d.ecosystem, name: d.name, kind: sourceKind(d.source) }, { owners }).allowed) continue;
       findings.push({ fingerprint: ALLOWLIST_FINDING_ID, capability: "dependency-allowlist", package: "RightKit dependency allowlist", tier: allowlistPolicy.tier, file: d.file, line: 0, kind: "dependency", ecosystem: d.ecosystem, name: d.name,
         alias: d.alias, section: d.section, requirement: d.requirement, features: d.features, defaultFeatures: d.defaultFeatures, local: d.local, source: d.source, resolvedVersion: d.resolvedVersion,
-        text: `${d.ecosystem} dependency ${d.name} is not in ${ALLOWLIST_FILE}; propose it there and Adrian activates it via trust-sync`, provenance: d.source });
+        text: `${d.ecosystem} dependency ${d.name} is not in ${ALLOWLIST_FILE}; propose it there (advisory until protected trust carries the allowlist; trust-sync is retired)`, provenance: d.source });
     }
   }
   const blockRules = manifest.capabilities.flatMap((c) => c.fingerprints.filter((f) => f.type === "dependency" && findingPolicy(c, f).tier === "block").map((f) => ({ c, f })));
@@ -598,8 +598,8 @@ function shippedAllowlist() {
   try { const parsed = JSON.parse(readFileSync(shippedAllowlistFile, "utf8")); return validateAllowlist(parsed).ok ? parsed : null; } catch { return null; }
 }
 /**
- * Which allowlist applies and how hard. The protected trust copy (activated by trust-sync) governs every repository
- * registered in trust and blocks. Before trust-sync, or while approval enrollment is pending, the shipped proposal
+ * Which allowlist applies and how hard. The protected trust copy governs every repository
+ * registered in trust and blocks. When no trust copy applies, or while approval enrollment is pending, the shipped proposal
  * is advisory and only for repositories it has a baseline for.
  */
 export function dependencyAllowlistPolicy(trust, repositoryIdentity, { pending = false, shipped } = {}) {

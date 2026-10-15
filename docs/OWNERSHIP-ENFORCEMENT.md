@@ -84,23 +84,22 @@ evidence at the exact publication commit.
 
 ## Protected policy bundle
 
-Protected trust pins more than the catalog digest. `trust-sync` writes a `policyBundle` into protected trust:
+Protected trust can pin more than the catalog digest: a `policyBundle` (written by the now-retired `trust-sync`):
 one digest over the ownership catalog, the repository registry file, the dependency allowlist, the scanner
 version, and the SHA-256 of every scanner/verifier source file in the import closure of the enforcement entry
 points (`ownership-policy-bundle.mjs`: scan worker, evidence, verdict, admission, staged/hook gates, trust
 updater, plus pinned third-party parsers such as `smol-toml`). CRLF is normalized, so a checkout's line-ending
 policy does not change the digest.
 
-`ownership-evidence.mjs` computes the running bundle and compares it with the pinned digest through the floor
-check. A mismatch sets `floorOk: false`, adds an `ownership policy bundle ... differs` problem, and refuses
-release/admission and sealed-evidence verification, so editing scanner code or the allowlist while keeping the
-catalog no longer passes. Trust written before the bundle existed has no `policyBundle` and is treated as
-unpinned until the next `trust-sync`. While approval enrollment is pending the mismatch is a diagnostic only,
-as for every other floor problem. Any change to a pinned file (a normal RightKit release that touches the
-scanner) therefore needs a `trust-sync` before protected release gates pass again; that is intentional.
-
-The `trust-sync` approval summary shows a semantic diff: bundle digest change, scanner version, scanner files
-changed/added/removed, catalog and registry changes, and allowlist entries added/removed per repository.
+`ownership-evidence.mjs` still computes the running bundle and compares it with a pinned digest, but a difference is
+a **warning**, never a block. `trust-sync`, the human-approved way to re-pin the bundle, is retired (Adrian,
+`decisions.md`): no release, ownership, admission, sealed-evidence or QA check refuses on a missing or stale pinned
+bundle. The drift is reported as `ownership policy bundle ... differs from the bundle pinned in protected trust` in
+the scan output (`WARNING` line and the JSON `warnings` field) and by `right-release ownership trust-compare`, which
+adds a semantic diff (scanner version, scanner files added/removed/changed, catalog, registry, allowlist and QA floor
+digests). Trust with no `policyBundle` has nothing to compare. `right-release ownership trust-sync` is a no-op that
+prints why and exits 0. A QA receipt still records the bundle digest it was written under; that binds the receipt to
+the code that produced it and does not depend on trust.
 
 ## Default-deny dependency allowlist
 
@@ -116,16 +115,16 @@ In a guarded repository a new direct dependency is allowed only if it is a Right
 dependencies override any allowlisting.
 
 - **Write hook** (`ownership-write-hook.mjs`): denies a new dependency (manifest edit or `cargo/npm/pnpm add`)
-  that is not allowlisted: "propose it in ownership-dependency-allowlist.json; Adrian activates it via
-  trust-sync". It reads the activated copy from protected trust (`dependencyAllowlist`, guarded repositories from
+  that is not allowlisted: "propose it in ownership-dependency-allowlist.json (advisory until protected trust
+  carries it; trust-sync is retired)". It reads the copy from protected trust (`dependencyAllowlist`, guarded repositories from
   trust `repositories`); when trust has no allowlist yet it uses the shipped byte copy in advisory mode. The
   shipped files travel with the other consumer copies (`rightkit-sync` and `install-policy-assets`).
 - **Release/committed scan** (`ownership.mjs`): reports `dependency-not-allowlisted` as a blocking finding when
   the protected copy governs the repository; advisory while approval enrollment is pending, and advisory from the
-  shipped proposal before `trust-sync`.
+  shipped proposal when no trust copy applies.
 
-Agents can propose edits to the file; it takes effect only when Adrian runs `trust-sync`, which copies it into
-protected trust (an invalid proposal leaves trust untouched).
+Agents can propose edits to the file. With `trust-sync` retired, nothing copies a proposal into protected trust, so
+a proposal stays advisory until a protected trust copy carries the allowlist.
 
 ## Cross-host trust comparison
 
@@ -134,5 +133,5 @@ trust excluding only the per-host key-authority checkout path) and its component
 allowlist, registry, floors, key checkpoint, root). There is no signature on the trust file and no automation.
 Treat the Mac's digest as the reference: agents on the Mac have no root, so its trust cannot be rewritten by an
 agent. After both hosts have synced the same release, a Dell digest that differs from the Mac's means the Dell
-trust file was tampered with (or is stale: re-run `trust-sync` there and compare again). Compare the component
+trust file was tampered with or is stale (a drifted policy bundle is reported as a warning, not a block). Compare the component
 lines to see which part differs.

@@ -78,7 +78,8 @@ function createEvidence(repoRoot, {
   // When a protected registry exists, key enrollment controls signing
   // authority; scanner and catalog floors still apply during pending enrollment.
   // Step 2: the protected trust pins the policy bundle (catalog + registry + dependency allowlist + scanner version +
-  // scanner source digests). Trust without a pinned bundle (written before it existed) is unpinned until trust-sync.
+  // scanner source digests). It is fingerprinted and compared for drift only: a pin that differs, or a bundle that cannot be
+  // computed, is a warning, never a block (trust-sync is retired).
   let policyBundleDigest;
   let bundleProblem = null;
   if (trustState.trust?.policyBundle?.digest) {
@@ -88,7 +89,7 @@ function createEvidence(repoRoot, {
   const floor = trustState.trust
     ? validateOwnershipFloor(trustState.trust, { scannerVersion, catalogVersion, catalogDigest, ...(policyBundleDigest !== undefined ? { policyBundleDigest } : {}) })
     : { ok: false, problems: ["protected ownership floor is unavailable until trust registry enrollment"] };
-  if (bundleProblem) { floor.ok = false; floor.problems = [bundleProblem, ...floor.problems.filter((problem) => !problem.startsWith("ownership policy bundle"))]; }
+  floor.warnings = [...(floor.warnings ?? []), ...(bundleProblem ? [bundleProblem] : [])];
   // Real paths on both sides: Git's root is resolved (macOS /private/var), callers may pass /var or /tmp.
   const real = (p) => { try { return realpathSync.native(p); } catch { return path.resolve(p); } };
   const requestedRoot = path.relative(real(root), real(scanRoot)).replaceAll("\\", "/") || ".";
@@ -152,7 +153,7 @@ function createEvidence(repoRoot, {
     ok: scans.every(({ scanned }) => scanned.ok),
     findings: scans.flatMap(({ scanned, prefix }) => (scanned.findings ?? []).map((entry) => rebase(entry, prefix))),
     violations: scans.flatMap(({ scanned, prefix }) => (scanned.violations ?? []).map((entry) => rebase(entry, prefix))),
-    problems: [...scans.flatMap(({ scanned }) => scanned.problems ?? []), ...evidenceDiagnostics, ...(enrollmentPending ? floor.problems : floor.problems.filter((problem) => problem.startsWith("ownership policy bundle")))],
+    problems: [...scans.flatMap(({ scanned }) => scanned.problems ?? []), ...evidenceDiagnostics, ...(enrollmentPending ? floor.problems : [])],
     rows: scans.flatMap(({ scanned, root: registered }) => (scanned.rows ?? []).map((row) => ({ ...row, root: registered }))),
     covered: scans.flatMap(({ scanned, prefix }) => (scanned.covered ?? []).map((entry) => rebase(entry, prefix))),
     coverage: contentCoverage,
@@ -182,7 +183,7 @@ function createEvidence(repoRoot, {
     checkedAt: new Date().toISOString(),
   };
   const warning = enrollmentPending ? "WARNING: ownership approval enrollment is pending; findings remain backlog diagnostics and no protected evidence or approvals are asserted" : undefined;
-  return { ok: !enrollmentPending && result.ok && floor.ok && contentCoverage.length === 0, ...(enrollmentPending ? { enrollmentPending: true, warning } : {}), evidence, result, floor, contentCoverage };
+  return { ok: !enrollmentPending && result.ok && floor.ok && contentCoverage.length === 0, ...(enrollmentPending ? { enrollmentPending: true, warning } : {}), ...(floor.warnings.length ? { warnings: floor.warnings } : {}), evidence, result, floor, contentCoverage };
 }
 
 /** Create scan evidence bound to committed source, catalog, and signed exceptions. */
