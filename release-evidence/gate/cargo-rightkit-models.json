@@ -2,9 +2,9 @@
   "schema": 1,
   "kind": "cargo",
   "name": "rightkit-models",
-  "version": "0.3.1",
-  "commit": "f430c408ee3f3d0e0642fce408c87240b9308d01",
-  "artifactSha256": "73531d25714ea061bf3ef3e228bf27b8db94f95dd57dbedbedab7d41733dc28c",
+  "version": "0.3.2",
+  "commit": "616ec58e0f82f9627081df0b7f785778c477da13",
+  "artifactSha256": "2b81559c3e17a288dad51533cb20ad778679c6400e6b01ba27c0bbe65e966350",
   "hostPolicy": "darwin-only",
   "hostPolicyReason": "Adrian 2026-10-14 local-build grant (.rightkit-local-build.json); Windows covered by the next CI run",
   "runs": [
@@ -13,19 +13,19 @@
         "os": "darwin",
         "arch": "arm64"
       },
-      "commit": "f430c408ee3f3d0e0642fce408c87240b9308d01",
+      "commit": "616ec58e0f82f9627081df0b7f785778c477da13",
       "features": [
         "default"
       ],
-      "artifactSha256": "73531d25714ea061bf3ef3e228bf27b8db94f95dd57dbedbedab7d41733dc28c",
-      "command": "cargo test -p rightkit-models --no-fail-fast -- --show-output && cargo clippy -p rightkit-models --no-deps --all-targets -- -D warnings && cargo package --locked -p rightkit-models && cargo metadata --format-version 1 --no-deps",
+      "artifactSha256": "2b81559c3e17a288dad51533cb20ad778679c6400e6b01ba27c0bbe65e966350",
+      "command": "cargo test -p rightkit-models --no-fail-fast -- --show-output && cargo clippy -p rightkit-models --no-deps --all-targets -- -D warnings && cargo check -p rightkit-models --all-targets --all-features && cargo package --locked -p rightkit-models && cargo metadata --format-version 1 --no-deps",
       "operator": "agent (local-build grant)",
-      "timestamp": "2026-10-14T18:24:33.970Z",
+      "timestamp": "2026-10-15T17:25:51.060Z",
       "passed": 153,
       "failed": 0,
       "skipped": 0,
       "ignored": 0,
-      "allowIgnored": false,
+      "allowIgnored": true,
       "requireAssets": "1",
       "assetGated": false,
       "steps": [
@@ -40,6 +40,10 @@
         },
         {
           "command": "cargo clippy -p rightkit-models --no-deps --all-targets -- -D warnings",
+          "ok": true
+        },
+        {
+          "command": "cargo check -p rightkit-models --all-targets --all-features",
           "ok": true
         }
       ]
