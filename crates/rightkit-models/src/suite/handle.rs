@@ -135,18 +135,14 @@ impl std::fmt::Debug for ModelStore {
 
 /// Parakeet copies installed by sibling Orthic apps in their own stores.
 pub fn sibling_parakeet_dirs() -> Vec<PathBuf> {
-    let base = if cfg!(windows) {
-        dirs::data_local_dir()
-    } else {
-        dirs::data_dir()
-    };
-    base.map(|b| {
-        ["HeardRightNext", "HeardRight"]
-            .iter()
-            .map(|app| b.join(app).join("models").join("parakeet-tdt-v3"))
-            .collect()
-    })
-    .unwrap_or_default()
+    crate::suite::paths::app_data_base()
+        .map(|b| {
+            ["HeardRightNext", "HeardRight"]
+                .iter()
+                .map(|app| b.join(app).join("models").join("parakeet-tdt-v3"))
+                .collect()
+        })
+        .unwrap_or_default()
 }
 
 impl ModelStore {

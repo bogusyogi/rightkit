@@ -67,14 +67,7 @@ pub struct ExistingCopy {
 }
 
 fn data_root() -> Option<PathBuf> {
-    #[cfg(windows)]
-    {
-        dirs::data_local_dir()
-    }
-    #[cfg(not(windows))]
-    {
-        dirs::data_dir()
-    }
+    crate::suite::paths::app_data_base()
 }
 
 /// Whether `dir` holds every file `spec` loads and matches trusted catalog

@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.3.2
+
+- Suite root resolves through `rightkit_daemon::Suite::resolve`, the rule every Right Suite crate uses, instead of its own copy. `RIGHTKIT_SUITE_ROOT` (what an app's test-mode build sets) is now honoured, as are `RIGHT_SUITE_DIR` and `ORTHIC_SHARED_DIR`; before, only the last two were, so models code could reach the real per-user folder while the rest of an isolated test run was redirected. Empty or whitespace-only values count as unset.
+- Behaviour change: the overrides apply only to builds with the new `test-mode` cargo feature (forwards `rightkit-daemon/test-mode`). A build without it reads no override variable; `suite::paths::suite_root()` is the account-database per-user default. A caller that set `RIGHT_SUITE_DIR` or `ORTHIC_SHARED_DIR` in a release build must enable `test-mode` in its test build or pass an explicit root (`ModelStore::at_models_root`).
+- In `test-mode`, a root that cannot be resolved (for example a relative override) panics rather than falling back to the real folder.
+- `legacy_suite_root()` returns the redirected root in `test-mode` with an override, otherwise `RightSuite` beside `Orthic Labs` as before.
+- New dependency `rightkit-daemon` 0.2.3 (`default-features = false`), new constant `suite::paths::RIGHTKIT_SUITE_ROOT_ENV`.
+- Tests: `tests/suite_paths.rs` covers both modes.
+
 ## 0.3.1
 
 - Requires `rightkit-qa` 0.3.0 (was 0.2.8), so a fresh resolution no longer reaches a release that names renamed-away crates.
