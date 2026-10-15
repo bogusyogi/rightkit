@@ -1,4 +1,4 @@
-import { closeSync, cpSync, existsSync, lstatSync, mkdirSync, opendirSync, readFileSync, readdirSync, renameSync, rmSync, statSync, statfsSync, appendFileSync } from "node:fs";
+import { closeSync, cpSync, existsSync, lstatSync, mkdirSync, opendirSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, statSync, statfsSync, appendFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -91,6 +91,25 @@ export function evaluateFloor(floor, space) {
   return { label: floor.label, path: floor.path, ...space, thresholdBytes, warn: space.freeBytes < thresholdBytes };
 }
 
+// Literal directory prefix of a policy path: everything before the first wildcard segment
+// (for a wildcard-free path, its parent). A sweep unit must resolve inside it.
+export function literalRoot(expanded) {
+  const parts = expanded.split(/[\\/]/);
+  const firstWild = parts.findIndex((p) => p.includes("*"));
+  const keep = firstWild === -1 ? parts.slice(0, -1) : parts.slice(0, firstWild);
+  const joined = keep.join(path.sep);
+  return joined === "" || /^[A-Za-z]:$/.test(joined) ? `${joined}${path.sep}` : joined;
+}
+
+export function isInsideRoot(candidate, root) {
+  try {
+    const realRoot = realpathSync(root);
+    const realCandidate = realpathSync(candidate);
+    const prefix = realRoot.endsWith(path.sep) ? realRoot : realRoot + path.sep;
+    return realCandidate !== realRoot && realCandidate.startsWith(prefix);
+  } catch { return false; }
+}
+
 export function writerMatches(writer, ctx) {
   const pattern = expandPolicyPath(writer.path, ctx);
   return expandGlob(pattern);
@@ -176,22 +195,30 @@ export function planSweep({ policy, platform = process.platform, env = process.e
   const seen = new Set();
   const lockCheck = inUse ?? (key === "win" ? windowsLockProbe : (p) => inUseByOpenPaths(p, openPaths));
   for (const writer of policy.writers.filter((w) => w.platform === key && w.action === "sweep")) {
-    let roots;
-    try { roots = writerMatches(writer, { env, home }); } catch { continue; }
-    const units = writer.unit === "children"
-      ? roots.flatMap((r) => { try { return readdirSync(r).map((n) => path.join(r, n)); } catch { return []; } })
-      : roots;
-    for (const unit of units) {
+    let roots; let literal;
+    try { roots = writerMatches(writer, { env, home }); literal = literalRoot(expandPolicyPath(writer.path, { env, home })); } catch { continue; }
+    const units = [];
+    for (const r of roots) {
+      if (writer.unit !== "children") { units.push({ unit: r, root: literal }); continue; }
+      let rst;
+      try { rst = lstatSync(r); } catch { continue; }
+      if (rst.isSymbolicLink()) { skipped.push({ writer: writer.id, path: r, reason: "symlink-root" }); continue; }
+      let names = [];
+      try { names = readdirSync(r); } catch { continue; }
+      for (const n of names) units.push({ unit: path.join(r, n), root: r });
+    }
+    for (const { unit, root } of units) {
       if (seen.has(unit)) continue;
       seen.add(unit);
       const base = { writer: writer.id, path: unit };
       let st;
       try { st = lstatSync(unit); } catch { continue; }
       if (st.isSymbolicLink()) { skipped.push({ ...base, reason: "symlink" }); continue; }
+      if (!isInsideRoot(unit, root)) { skipped.push({ ...base, reason: "outside-root" }); continue; }
       if (isProtectedPath(unit, policy)) { skipped.push({ ...base, reason: "protected" }); continue; }
       if (hasFreshContent(unit, cutoff)) { skipped.push({ ...base, reason: "fresh" }); continue; }
       if (lockCheck(unit)) { skipped.push({ ...base, reason: "in-use" }); continue; }
-      candidates.push({ ...base, bytes: size(unit), mtime: new Date(st.mtimeMs).toISOString() });
+      candidates.push({ ...base, root, bytes: size(unit), mtime: new Date(st.mtimeMs).toISOString() });
     }
   }
   return { schema: 1, platform: key, staleDays, candidates, skipped, totalBytes: candidates.reduce((s, c) => s + c.bytes, 0) };
@@ -230,6 +257,8 @@ export function applySweep({ plan, policy, platform = process.platform, deleteMo
     let destination = path.join(destRoot, rel);
     if (existsSync(destination)) destination = `${destination}.${date.getTime()}`;
     try {
+      // Re-verify at apply time: still the planned unit, not a symlink, still inside its root.
+      if (!c.root || lstatSync(c.path).isSymbolicLink() || !isInsideRoot(c.path, c.root)) throw new Error("refused: path is not a sweepable unit inside its target root");
       if (deleteMode) { remove(c.path); results.push({ ...c, action: "delete", ok: true }); logEvent(logFile, { event: "disk.sweep.delete", ...c }); }
       else { const how = move(c.path, destination); results.push({ ...c, action: "move", destination, how, ok: true }); logEvent(logFile, { event: "disk.sweep.move", ...c, destination, how }); }
     } catch (error) {

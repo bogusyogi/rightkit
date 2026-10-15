@@ -1,10 +1,10 @@
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { runDiskCommand, scheduleSpec, renderSweep } from "./disk-command.mjs";
-import { applySweep, checkDisk, evaluateFloor, expandGlob, inUseByOpenPaths, planSweep, readDiskPolicy, sweptDestination } from "./disk-policy.mjs";
+import { insideGitCheckout, resolveInstalledCli, runDiskCommand, scheduleSpec, renderSweep } from "./disk-command.mjs";
+import { applySweep, checkDisk, evaluateFloor, expandGlob, inUseByOpenPaths, literalRoot, planSweep, readDiskPolicy, sweptDestination } from "./disk-policy.mjs";
 
 const OLD = Date.now() - 30 * 86400_000;
 
@@ -140,7 +140,7 @@ test("committed policy parses, has floors and no writer inside a protected segme
   const policy = readDiskPolicy();
   assert.equal(policy.floors.mac.warnFreeBytes, 40 * 1024 ** 3);
   assert.equal(policy.floors.win.warnFreePercent, 10);
-  for (const w of policy.writers) assert.equal(policy.protectedSegments.some((s) => w.path.split(/[\\/]/).includes(s)), false, w.id);
+  for (const w of policy.writers.filter((x) => x.action === "sweep")) assert.equal(policy.protectedSegments.some((s) => w.path.split(/[\\/]/).includes(s)), false, w.id);
   assert.match(renderSweep({ staleDays: 7, candidates: [], skipped: [], totalBytes: 0 }), /Dry run/);
 });
 
@@ -150,7 +150,9 @@ test("schedule specs: launchd daily plist and hidden Windows task", () => {
   assert.match(mac.plist, /<string>disk<\/string><string>run<\/string>/);
   const win = scheduleSpec({ platform: "win32", nodePath: "C:\\n.exe", cli: "C:\\c.mjs" });
   assert.match(win.script, /-Hidden/);
-  assert.match(win.script, /S4U/);
+  assert.match(win.script, /-LogonType Interactive/);
+  assert.doesNotMatch(win.script, /S4U/);
+  assert.match(win.script, /C:\\c\.mjs/);
   assert.match(win.script, /-Daily/);
 });
 
@@ -163,4 +165,101 @@ test("run: check, dry plan, move, then warns when still under the floor", async 
   assert.equal(r.exitCode, 3);
   assert.equal(existsSync(path.join(root, "cache", "old")), false);
   assert.match(readFileSync(path.join(heavy, "disk-hygiene.jsonl"), "utf8"), /disk.floor.warn/);
+});
+
+test("committed policy: Dell paths, win-temp sweep, backup leftovers, .rightkit-managed report-only", () => {
+  const { writers, protectedSegments } = readDiskPolicy();
+  const win = (id) => writers.find((w) => w.id === id && w.platform === "win");
+  assert.equal(win("win-sccache").path, "D:\\.rightkit-managed\\rightkit-build-control\\global");
+  assert.equal(win("win-shared-models").path, "${LOCALAPPDATA}\\Orthic Labs\\shared\\models");
+  assert.deepEqual([win("win-temp").action, win("win-temp").unit, win("win-temp").path], ["sweep", "children", "${TEMP}"]);
+  for (const w of writers.filter((x) => x.path.includes(".rightkit-managed"))) assert.equal(w.action, "report", w.id);
+  assert.ok(win("win-remote-inputs"));
+  for (const platform of ["win", "mac"]) {
+    for (const id of ["leftover-delete-me", "leftover-node-modules-medium-rightkit", "leftover-node-modules-medium-packages", "leftover-legion-snap", "leftover-legion-final"]) {
+      const w = writers.find((x) => x.id === id && x.platform === platform);
+      assert.ok(w && w.action === "sweep" && w.unit === "self", `${platform} ${id}`);
+    }
+  }
+  assert.ok(win("leftover-pulse-bak").path.endsWith("Programs\\Pulse.bak-*"));
+  assert.equal(writers.some((w) => w.id === "leftover-pulse-bak" && w.platform === "mac"), false);
+  assert.ok(protectedSegments.includes(".rightkit-managed"));
+});
+
+test("backup-named leftovers: only matching, stale names are swept; non-matching siblings stay", () => {
+  const { root, policy } = fixture();
+  policy.writers = [
+    { id: "dm", platform: "mac", path: path.join(root, "ws", "*-DELETE-ME"), capBytes: 1, action: "sweep", unit: "self" },
+    { id: "nm", platform: "mac", path: path.join(root, "ws", "rk", "packages", "*", "node_modules.medium-*"), capBytes: 1, action: "sweep", unit: "self" },
+  ];
+  file(path.join(root, "ws", "a-DELETE-ME", "f"), 10, OLD);
+  file(path.join(root, "ws", "a-keep", "f"), 10, OLD);
+  file(path.join(root, "ws", "new-DELETE-ME", "f"), 10);
+  file(path.join(root, "ws", "rk", "packages", "p1", "node_modules.medium-1", "f"), 10, OLD);
+  file(path.join(root, "ws", "rk", "packages", "p1", "node_modules", "f"), 10, OLD);
+  const plan = planSweep({ policy, platform: "darwin", openPaths: [], size: () => 10 });
+  assert.deepEqual(plan.candidates.map((c) => path.relative(root, c.path)).sort(), [path.join("ws", "a-DELETE-ME"), path.join("ws", "rk", "packages", "p1", "node_modules.medium-1")]);
+  assert.equal(plan.skipped.find((s) => s.path.endsWith("new-DELETE-ME")).reason, "fresh");
+  assert.equal(literalRoot(policy.writers[1].path), path.join(root, "ws", "rk", "packages"));
+});
+
+test("sweep never follows a symlink out of its root", () => {
+  const { root, policy } = fixture();
+  const outside = path.join(root, "outside");
+  file(path.join(outside, "victim", "f"), 10, OLD);
+  file(path.join(root, "cache", "ok", "f"), 10, OLD);
+  symlinkSync(outside, path.join(root, "cache", "escape"));          // child symlink
+  mkdirSync(path.join(root, "tmp"), { recursive: true });
+  symlinkSync(outside, path.join(root, "tmp", "linkdir"));            // wildcard segment is a symlink: tmp/linkdir/scratch
+  file(path.join(outside, "scratch", "f"), 10, OLD);
+  const plan = planSweep({ policy, platform: "darwin", openPaths: [], size: () => 10 });
+  assert.deepEqual(plan.candidates.map((c) => path.relative(root, c.path)), [path.join("cache", "ok")]);
+  assert.equal(plan.skipped.find((s) => s.path === path.join(root, "tmp", "linkdir", "scratch")).reason, "outside-root");
+  // a children root that is itself a symlink is skipped whole
+  const linked = fixture();
+  file(path.join(linked.root, "real", "old", "f"), 10, OLD);
+  mkdirSync(path.join(linked.root, "elsewhere"), { recursive: true });
+  symlinkSync(path.join(linked.root, "real"), path.join(linked.root, "cache2"));
+  linked.policy.writers = [{ id: "kids2", platform: "mac", path: path.join(linked.root, "cache2"), capBytes: 1, action: "sweep", unit: "children" }];
+  const p2 = planSweep({ policy: linked.policy, platform: "darwin", openPaths: [], size: () => 10 });
+  assert.equal(p2.candidates.length, 0);
+  assert.equal(p2.skipped[0].reason, "symlink-root");
+  // apply-time guard: a planned unit swapped for a symlink is refused, target untouched
+  const guard = fixture();
+  file(path.join(guard.root, "cache", "old", "f"), 10, OLD);
+  const gplan = planSweep({ policy: guard.policy, platform: "darwin", openPaths: [], size: () => 10 });
+  const keep = path.join(guard.root, "keep");
+  file(path.join(keep, "f"), 10, OLD);
+  rmSync(path.join(guard.root, "cache", "old"), { recursive: true });
+  symlinkSync(keep, path.join(guard.root, "cache", "old"));
+  const applied = applySweep({ plan: gplan, policy: guard.policy, platform: "darwin", deleteMode: true });
+  assert.equal(applied.results[0].ok, false);
+  assert.equal(existsSync(path.join(keep, "f")), true);
+  // a candidate not produced by a plan (no root) is refused
+  const forged = applySweep({ plan: { candidates: [{ writer: "x", path: path.join(guard.root, "keep"), bytes: 1 }] }, policy: guard.policy, platform: "darwin", deleteMode: true });
+  assert.equal(forged.results[0].ok, false);
+  assert.equal(existsSync(path.join(keep, "f")), true);
+});
+
+test("Windows %TEMP% children sweep: only entries older than 7 days", () => {
+  const { root, policy } = fixture();
+  policy.floors.win = policy.floors.mac; policy.heavyVolume.win = policy.heavyVolume.mac;
+  policy.writers = [{ id: "win-temp", platform: "win", path: "${TEMP}", capBytes: 1, action: "sweep", unit: "children" }];
+  const temp = path.join(root, "Temp");
+  file(path.join(temp, "old", "f"), 10, OLD);
+  file(path.join(temp, "new", "f"), 10);
+  const plan = planSweep({ policy, platform: "win32", env: { TEMP: temp }, inUse: () => false, size: () => 10 });
+  assert.deepEqual(plan.candidates.map((c) => path.basename(c.path)), ["old"]);
+});
+
+test("schedule install binds the installed package, never a checkout", () => {
+  const checkoutFile = "/ws/rightkit/packages/release/disk-command.mjs";
+  const installed = path.join("/g", "@rightkit", "release", "cli", "right-release.mjs");
+  const checkoutCli = path.join("/ws/rightkit/packages/release", "cli", "right-release.mjs");
+  const exists = (p) => [installed, checkoutCli].includes(p) || p === "/ws/rightkit/.git";
+  assert.equal(insideGitCheckout(checkoutCli, exists), true);
+  assert.equal(insideGitCheckout(installed, exists), false);
+  assert.equal(resolveInstalledCli({ env: {}, globalRoots: () => ["/g"], exists, checkoutFile }), installed);
+  assert.throws(() => resolveInstalledCli({ env: {}, globalRoots: () => ["/none"], exists, checkoutFile }), /installed @rightkit\/release/);
+  assert.throws(() => resolveInstalledCli({ explicit: checkoutCli, env: {}, globalRoots: () => [], exists, checkoutFile }), /not a checkout/);
 });

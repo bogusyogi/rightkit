@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { existsSync, mkdirSync, unlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, realpathSync, unlinkSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -54,6 +54,47 @@ function parse(rest) {
   return opts;
 }
 
+const CHECKOUT_FILE = fileURLToPath(import.meta.url);
+
+// A path inside any git checkout (a `.git` entry on an ancestor) is development code, never an installed package.
+export function insideGitCheckout(file, exists = existsSync) {
+  let dir = path.dirname(file);
+  for (;;) {
+    if (exists(path.join(dir, ".git"))) return true;
+    const up = path.dirname(dir);
+    if (up === dir) return false;
+    dir = up;
+  }
+}
+
+/** Installed @rightkit/release CLI for the Windows task: explicit --cli / RIGHT_RELEASE_INSTALLED_CLI, else the global
+ * node_modules (`npm root -g`, `pnpm root -g`). A checkout, including the one running install, is refused. */
+export function resolveInstalledCli({ explicit, env = process.env, globalRoots = defaultGlobalRoots, exists = existsSync, checkoutFile = CHECKOUT_FILE } = {}) {
+  const rel = path.join("@rightkit", "release", "cli", "right-release.mjs");
+  const candidates = explicit || env.RIGHT_RELEASE_INSTALLED_CLI
+    ? [explicit || env.RIGHT_RELEASE_INSTALLED_CLI]
+    : globalRoots({ env }).map((root) => path.join(root, rel));
+  const checkoutCli = path.join(path.dirname(checkoutFile), "cli", "right-release.mjs");
+  for (const candidate of candidates) {
+    if (!exists(candidate)) continue;
+    let real = candidate;
+    try { real = realpathSync(candidate); } catch { /* keep lexical */ }
+    if (real === checkoutCli || insideGitCheckout(real, exists)) continue;
+    return candidate;
+  }
+  throw new Error("disk schedule install needs the installed @rightkit/release (not a checkout): install it globally or pass --cli <path to the installed cli/right-release.mjs>");
+}
+
+function defaultGlobalRoots() {
+  const roots = [];
+  for (const tool of ["npm", "pnpm"]) {
+    const r = spawnSync(tool, ["root", "-g"], { encoding: "utf8", shell: process.platform === "win32" });
+    const line = String(r.stdout ?? "").trim().split(/\r?\n/).pop();
+    if (r.status === 0 && line) roots.push(line);
+  }
+  return roots;
+}
+
 export function scheduleSpec({ platform = process.platform, nodePath = process.execPath, cli = path.join(path.dirname(fileURLToPath(import.meta.url)), "cli", "right-release.mjs"), home = os.homedir(), hour = 3, minute = 30 } = {}) {
   if (platform === "darwin") {
     const logDir = "/Volumes/D/claude/tmp/swept";
@@ -74,14 +115,14 @@ export function scheduleSpec({ platform = process.platform, nodePath = process.e
   const script = `$a = New-ScheduledTaskAction -Execute '${nodePath}' -Argument '"${cli}" disk run'
 $t = New-ScheduledTaskTrigger -Daily -At ${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}
 $s = New-ScheduledTaskSettingsSet -Hidden -StartWhenAvailable -ExecutionTimeLimit (New-TimeSpan -Hours 2)
-$p = New-ScheduledTaskPrincipal -UserId "$env:USERDOMAIN\\$env:USERNAME" -LogonType S4U -RunLevel Limited
+$p = New-ScheduledTaskPrincipal -UserId "$env:USERDOMAIN\\$env:USERNAME" -LogonType Interactive -RunLevel Limited
 Register-ScheduledTask -TaskName '${WINDOWS_TASK}' -Action $a -Trigger $t -Settings $s -Principal $p -Force | Out-Null`;
   return { platform: "win", script };
 }
 
-function schedule(sub, { json, stdout }) {
+function schedule(sub, { stdout, cli }) {
   const platform = process.platform;
-  const spec = scheduleSpec({ platform });
+  const spec = scheduleSpec(platform === "darwin" || sub !== "install" ? { platform } : { platform, cli: resolveInstalledCli({ explicit: cli }) });
   if (platform === "darwin") {
     const uid = String(process.getuid());
     if (sub === "install") {
@@ -117,7 +158,11 @@ function schedule(sub, { json, stdout }) {
 
 export async function runDiskCommand(args = process.argv.slice(2), { env = process.env, stdout = console.log, platform = process.platform, deps = {} } = {}) {
   const [command, ...rest] = args;
-  if (command === "schedule") { schedule(rest[0], { stdout }); return { exitCode: 0 }; }
+  if (command === "schedule") {
+    const at = rest.indexOf("--cli");
+    schedule(rest[0], { stdout, cli: at === -1 ? undefined : rest[at + 1] });
+    return { exitCode: 0 };
+  }
   const opts = parse(rest);
   const policy = readDiskPolicy(opts.policy);
   const key = platformKey(platform);

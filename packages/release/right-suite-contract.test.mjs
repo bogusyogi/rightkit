@@ -666,10 +666,10 @@ for (const app of apps) {
       ]).has(pkg.devDependencies?.["@rightkit/release"]),
     );
     assert.equal(
-      pkg.dependencies?.["@rightkit/updates"],
-      versions.npm["@rightkit/updates"] === pkg.dependencies?.["@rightkit/updates"]
-        ? versions.npm["@rightkit/updates"]
-        : versions.registry?.npm?.["@rightkit/updates"],
+      pkg.dependencies?.["@rightkit/app-update"],
+      versions.npm["@rightkit/app-update"] === pkg.dependencies?.["@rightkit/app-update"]
+        ? versions.npm["@rightkit/app-update"]
+        : versions.registry?.npm?.["@rightkit/app-update"],
       `${app.key} must consume the exact published shared updater runtime`,
     );
     assert(!JSON.stringify(pkg).includes("github:adrdsouza/claude#main&path:/tools/right-release"));
