@@ -10,16 +10,21 @@ use std::sync::{Mutex, MutexGuard, OnceLock};
 /// The tests mutate process environment, so they run one at a time, each from a clean slate.
 static ENV_LOCK: Mutex<()> = Mutex::new(());
 static REAL_HOME: OnceLock<Option<std::ffi::OsString>> = OnceLock::new();
+/// The variable the per-user default root follows: `%LOCALAPPDATA%` on Windows, `$HOME` elsewhere.
+#[cfg(windows)]
+const HOME_VAR: &str = "LOCALAPPDATA";
+#[cfg(not(windows))]
+const HOME_VAR: &str = "HOME";
 fn env_guard() -> MutexGuard<'static, ()> {
     let guard = ENV_LOCK
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
     // Second guard: even a path that wrongly ignored the override lands in a temp HOME, not the
     // real one. Tests that need the real HOME restore it from REAL_HOME.
-    REAL_HOME.get_or_init(|| std::env::var_os("HOME"));
+    REAL_HOME.get_or_init(|| std::env::var_os(HOME_VAR));
     static TEMP_HOME: OnceLock<tempfile::TempDir> = OnceLock::new();
     let temp = TEMP_HOME.get_or_init(|| tempfile::tempdir().unwrap());
-    std::env::set_var("HOME", temp.path());
+    std::env::set_var(HOME_VAR, temp.path());
     for k in [
         paths::RIGHTKIT_SUITE_ROOT_ENV,
         paths::SUITE_ROOT_ENV,
@@ -79,15 +84,27 @@ fn test_mode_honours_overrides_in_order_and_trims_empty() {
 }
 
 /// No override and the real HOME: a test-mode build refuses (reads nothing, writes nothing).
+/// Without the variable at all (a test runner that passes no environment) it refuses as well.
 #[cfg(feature = "test-mode")]
 #[test]
-#[should_panic(expected = "refusing the real per-user suite root")]
 fn test_mode_without_override_and_real_home_fails_closed() {
     let _env = env_guard();
-    if let Some(Some(home)) = REAL_HOME.get() {
-        std::env::set_var("HOME", home);
+    match REAL_HOME.get() {
+        Some(Some(home)) => std::env::set_var(HOME_VAR, home),
+        _ => std::env::remove_var(HOME_VAR),
     }
-    let _ = paths::suite_root();
+    let err = std::panic::catch_unwind(paths::suite_root)
+        .expect_err("a test-mode build must refuse the real per-user suite root");
+    let msg = err
+        .downcast_ref::<String>()
+        .cloned()
+        .or_else(|| err.downcast_ref::<&str>().map(|s| s.to_string()))
+        .unwrap_or_default();
+    assert!(
+        msg.contains("refusing the real per-user suite root")
+            || msg.contains("cannot resolve the suite root"),
+        "unexpected refusal: {msg}"
+    );
 }
 
 /// With HOME redirected and no override, the root is under that HOME, never the real folder.
@@ -95,7 +112,7 @@ fn test_mode_without_override_and_real_home_fails_closed() {
 #[test]
 fn test_mode_without_override_follows_the_redirected_home() {
     let _env = env_guard();
-    let home = std::path::PathBuf::from(std::env::var_os("HOME").unwrap());
+    let home = std::path::PathBuf::from(std::env::var_os(HOME_VAR).unwrap());
     assert!(paths::suite_root().starts_with(&home));
     assert!(paths::app_data_base().unwrap().starts_with(&home));
 }
