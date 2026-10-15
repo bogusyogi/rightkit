@@ -51,7 +51,8 @@ const SIGN_MACOS = path.resolve(TOOL_ROOT, "sign-macos.mjs");
 const NOTARIZE_MACOS = path.resolve(TOOL_ROOT, "notarize-macos.mjs");
 const SIGN_UPDATER = path.resolve(TOOL_ROOT, "sign-updater.mjs");
 const RIGHTKIT_VERSIONS = JSON.parse(readFileSync(path.resolve(TOOL_ROOT, "rightkit-versions.json"), "utf8"));
-const VERSION = RIGHTKIT_VERSIONS.stagedNpm?.["@rightkit/release"] ?? RIGHTKIT_VERSIONS.npm["@rightkit/release"];
+// The running package's own version: the bundled feed lags by one release (it is written after the publish).
+const VERSION = JSON.parse(readFileSync(path.resolve(TOOL_ROOT, "package.json"), "utf8")).version;
 const TIERS = new Set(["patch", "update"]);
 const RIGHTKIT_ALLOWED = buildAllowedVersions(
   RIGHTKIT_VERSIONS.npm,

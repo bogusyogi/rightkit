@@ -6,7 +6,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { spawnSync } from "./background-process.mjs";
 import { compareVersions } from "./rightkit-sync.mjs";
 import {
-  DISK_EXIT_WARNING, applySweep, checkDisk, ensureScratchRoots, formatBytes, listOpenPaths, logEvent, planSweep, platformKey, purgeHoldings, readDiskPolicy,
+  DISK_EXIT_WARNING, applySweep, checkDisk, ensureScratchRoots, formatBytes, listOpenPaths, logEvent, planSweep, platformKey, purgeHoldings, readDiskPolicy, setWorkspaceSweepAllowed,
 } from "./disk-policy.mjs";
 import { evaluateBinding, installStableRoot, readScheduleBinding, selfCheck } from "./disk-stable-root.mjs";
 
@@ -27,7 +27,7 @@ export function renderCheck(result) {
   return lines.join("\n");
 }
 
-export function renderSweep(plan, applied) {
+export function renderSweep(plan, applied, { all = false } = {}) {
   const lines = [`${applied ? "Swept" : "Dry run: would move"} ${plan.candidates.length} item(s), ${formatBytes(plan.totalBytes)} (stale > ${plan.staleDays} days)`];
   const rows = applied ? applied.results : plan.candidates;
   const byWriter = new Map();
@@ -35,24 +35,27 @@ export function renderSweep(plan, applied) {
   for (const [writer, items] of byWriter) {
     const total = items.reduce((s, r) => s + r.bytes, 0);
     lines.push(`  ${writer.padEnd(26)} ${String(items.length).padStart(4)} item(s) ${formatBytes(total).padStart(9)}`);
-    for (const r of [...items].sort((a, b) => b.bytes - a.bytes).slice(0, 5)) lines.push(`      ${formatBytes(r.bytes).padStart(9)}  ${r.path}${r.destination ? ` -> ${r.destination}` : ""}${r.ok === false ? `  FAILED: ${r.error}` : ""}`);
-    if (items.length > 5) lines.push(`      ... ${items.length - 5} more`);
+    for (const r of [...items].sort((a, b) => b.bytes - a.bytes).slice(0, all ? Infinity : 5)) lines.push(`      ${formatBytes(r.bytes).padStart(9)}  ${r.path}${r.destination ? ` -> ${r.destination}` : ""}${r.ok === false ? `  FAILED: ${r.error}` : ""}`);
+    if (!all && items.length > 5) lines.push(`      ... ${items.length - 5} more`);
   }
   const counts = {};
   for (const s of plan.skipped) counts[s.reason] = (counts[s.reason] ?? 0) + 1;
+  const reportOnly = plan.skipped.filter((s) => s.reason === "report-only");
+  if (reportOnly.length) lines.push(`  workspace-unknown is report-only on this host: ${reportOnly.length} unknown entr${reportOnly.length === 1 ? "y" : "ies"} will not be moved (opt in with: right-release disk allow-workspace-sweep)`);
   if (plan.skipped.length) lines.push(`  skipped: ${Object.entries(counts).map(([k, v]) => `${v} ${k}`).join(", ")}`);
   return lines.join("\n");
 }
 
 function parse(rest) {
-  const known = new Set(["--json", "--dry-run", "--delete", "--days", "--policy"]);
-  const opts = { json: false, dryRun: false, deleteMode: false, days: undefined, policy: undefined };
+  const known = new Set(["--json", "--dry-run", "--delete", "--all", "--days", "--policy"]);
+  const opts = { json: false, dryRun: false, deleteMode: false, all: false, days: undefined, policy: undefined };
   for (let i = 0; i < rest.length; i += 1) {
     const a = rest[i];
     if (!known.has(a)) throw new Error(`disk: unknown option ${a}`);
     if (a === "--json") opts.json = true;
     else if (a === "--dry-run") opts.dryRun = true;
     else if (a === "--delete") opts.deleteMode = true;
+    else if (a === "--all") opts.all = true;
     else { const v = rest[++i]; if (!v) throw new Error(`disk: ${a} needs a value`); if (a === "--days") opts.days = Number(v); else opts.policy = v; }
   }
   if (opts.days !== undefined && !(opts.days >= 0)) throw new Error("disk: --days must be a non-negative number");
@@ -246,6 +249,12 @@ export async function runDiskCommand(args = process.argv.slice(2), { env = proce
     const exitCode = schedule(rest[0], { stdout, cli: at === -1 ? undefined : rest[at + 1], platform, env });
     return { exitCode };
   }
+  if (command === "allow-workspace-sweep") {
+    const off = rest.includes("--off");
+    const file = setWorkspaceSweepAllowed(!off, { platform, env, ...(deps.flagHome ? { home: deps.flagHome } : {}) });
+    stdout(off ? `workspace-unknown sweep revoked on this host (${file}.revoked)` : `workspace-unknown sweep allowed on this host (${file}); review \`disk sweep --dry-run --all\` first, revoke with --off`);
+    return { exitCode: 0 };
+  }
   const opts = parse(rest);
   const policy = readDiskPolicy(opts.policy);
   const key = platformKey(platform);
@@ -262,9 +271,9 @@ export async function runDiskCommand(args = process.argv.slice(2), { env = proce
   if (command === "sweep") {
     if (!opts.dryRun) ensureScratchRoots({ policy, platform, env });
     const p = plan();
-    if (opts.dryRun) { out(p, renderSweep(p)); return { exitCode: 0, plan: p }; }
+    if (opts.dryRun) { out(p, renderSweep(p, undefined, { all: opts.all })); return { exitCode: 0, plan: p }; }
     const applied = applySweep({ plan: p, policy, platform, deleteMode: opts.deleteMode, ...deps.apply });
-    out({ ...p, applied }, renderSweep(p, applied));
+    out({ ...p, applied }, renderSweep(p, applied, { all: opts.all }));
     return { exitCode: applied.results.some((r) => !r.ok) ? 1 : 0, plan: p, applied };
   }
   if (command === "purge") {
@@ -294,7 +303,7 @@ export async function runDiskCommand(args = process.argv.slice(2), { env = proce
     if (warn) stdout(`WARNING: ${after.warnings.join("; ")}`);
     return { exitCode: !self.ok ? 2 : warn ? DISK_EXIT_WARNING : 0, before, after, applied, purged, selfCheck: self };
   }
-  throw new Error("disk usage: check|sweep [--dry-run|--delete] [--days N]|purge [--dry-run] [--days N]|run|schedule install|uninstall|status  [--json]");
+  throw new Error("disk usage: check|sweep [--dry-run|--delete] [--all]|allow-workspace-sweep [--off] [--days N]|purge [--dry-run] [--days N]|run|schedule install|uninstall|status  [--json]");
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {

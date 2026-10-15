@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.2.165
+
+- Safety: the `workspace-unknown` sweep is report-only by default on every host. `disk check` still warns on unknown top-level entries, but `disk sweep` and the daily `disk run` move none of them (`report-only` in the skipped counts) until a host opts in with `right-release disk allow-workspace-sweep` (writes a host-local flag under `Orthic Labs/rightkit-release/`; `--off` revokes it). Review `disk sweep --dry-run --all` before opting in. The Mac is not opted in. 0.2.164 would have moved the untracked workspace `CLAUDE.md`, `.agent`, `.membrane`, `cockpit` and `contributions` on the Dell.
+- Always known at a workspace root, regardless of policy: `CLAUDE.md`, `AGENTS.md`, `CLAUDE.local.md`, `.claude`, `.codex`, `.agent`, `.agents`, `.membrane`, `cockpit`, `contributions`, any `*.md` file, and any directory that holds its own `.git`, `package.json` or `Cargo.toml` (re-checked at apply time).
+- `disk sweep --dry-run --all` prints every item instead of the top 5 per writer (`--json` always did).
+- `right-release --version` now reads the running package's own `package.json`; it used to read the bundled feed, which names the previous release.
+
 ## 0.2.164
 
 - `disk schedule install` accepts a pnpm store as an install location. A package path with a `.pnpm-store` or `.pnpm` segment is never treated as a git checkout, even when the store lives inside a workspace that is itself a checkout (the Mac keeps `.pnpm-store` under `/Volumes/D/claude`); 0.2.163 refused such an install with "not a checkout" unless run from a checkout with `--cli`.
