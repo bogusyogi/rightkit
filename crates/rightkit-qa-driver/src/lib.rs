@@ -1,5 +1,13 @@
 //! rightkit-qa-driver: drive a real desktop app like a human, in the background.
 //!
+//! The generic input code lives in `rightkit-automation` and is re-exported here under its
+//! old paths, so existing callers keep compiling: `admission`, `events`, `lease` and
+//! `lease_store` are `rightkit_automation::control::*`, `mac` is
+//! `rightkit_automation::macos::background`, `offscreen` is `rightkit_automation::offscreen`
+//! (plus the Tauri window helpers kept here), `json` is `rightkit_automation::json` and
+//! `keys` is `rightkit_automation::keys::appkit`. What stays in this crate is the
+//! WebDriver bridge, the macOS CLI and the `qa-control` embedded server.
+//!
 //! macOS: embedded targets receive main-thread AppKit `NSEvent`s through the
 //! WKWebView responder, including hidden, non-key windows. Non-embedded targets
 //! use per-pid `CGEventPostToPid` (never the global HID tap); inactive-window
@@ -25,20 +33,19 @@
 //! Every effectful entry point routes through the gate: `webdriver::Server`,
 //! the `qa-control` server, `mac::Gated` and the `rightkit-qa-driver` CLI
 //! ([`cli`]). The raw macOS primitives are reachable only through the
-//! explicitly named `mac::unsafe_ungated` opt-in.
-pub mod admission;
+//! explicitly named `mac::unsafe_ungated` opt-in. The process-wide kill switch of
+//! `rightkit-automation` (`policy::kill`) stops every gated effect.
+pub use rightkit_automation::control::{admission, events, lease, lease_store};
 pub mod cli;
 /// QA-only in-app control server. Compiled only with the explicit `qa-control` feature, which no shipped
 /// build may enable (see the README section "QA control never ships"). `tauri-plugin` alone does not
 /// expose it.
 #[cfg(feature = "qa-control")]
 pub mod embedded;
-pub mod events;
-pub mod json;
-pub mod keys;
-pub mod lease;
-pub mod lease_store;
+pub use rightkit_automation::json;
+/// US-layout virtual keycodes and AppKit function-key data (`rightkit_automation::keys::appkit`).
+pub use rightkit_automation::keys::appkit as keys;
 #[cfg(target_os = "macos")]
-pub mod mac;
+pub use rightkit_automation::macos::background as mac;
 pub mod offscreen;
 pub mod webdriver;

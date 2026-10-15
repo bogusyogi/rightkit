@@ -1,6 +1,6 @@
 //! PTY-002 durable lease state: restart recovery, crash-safe writes, fencing
 //! after reload, execution identity and `Running | Exited | Unknown`.
-use rightkit_qa_driver::lease::{
+use rightkit_automation::control::lease::{
     ExecutionIdentity, ExecutionState, FileLeaseStore, InputError, InputFailure, InputLease,
     InputOutcome, InputStatus, LeaseError, LeaseRecord, LeaseStore, MemoryLeaseStore, StoreError,
     UnacknowledgedInputDecision,
