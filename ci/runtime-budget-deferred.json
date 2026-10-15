@@ -4,6 +4,7 @@
   "approved": "2026-10-14",
   "reason": "Runtime budgets deferred until the apps are cut over to the renamed crates, or measured in parallel; the P-g republish on renamed dependencies must not wait on them",
   "crates": [
+    "rightkit-agent-tools",
     "rightkit-crash",
     "rightkit-daemon",
     "rightkit-fsindex",
