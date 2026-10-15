@@ -117,6 +117,13 @@ test('the test plan mirrors scripts/ci/gate.mjs (feature sets, serial run, clipp
   assert.throws(() => localTestPlan({ kind: 'npm', unit: '@rightkit/demo', dir: 'packages/demo', manifest: { scripts: {} } }), /no test script/);
 });
 
+test('the plan compiles every feature: --all-features by default, explicit sets for exclusive features, none when already tested', () => {
+  const plan = (entry) => localTestPlan({ kind: 'cargo', unit: 'rightkit-demo', dir: 'crates/rightkit-demo', config: { rust: { 'rightkit-demo': entry } } }).steps.map((s) => s.args.join(' ')).filter((a) => a.startsWith('check'));
+  assert.deepEqual(plan({}), ['check -p rightkit-demo --all-targets --all-features']);
+  assert.deepEqual(plan({ checkFeatureSets: [['--features', 'a'], ['--features', 'b']] }), ['check -p rightkit-demo --all-targets --features a', 'check -p rightkit-demo --all-targets --features b']);
+  assert.deepEqual(plan({ featureSets: [['--all-features']] }), []);
+});
+
 test('npm: writes schema-valid darwin-only evidence the gate accepts and publishes the packed tarball', async () => {
   const root = workspace();
   const h = harness(root, 'npm');

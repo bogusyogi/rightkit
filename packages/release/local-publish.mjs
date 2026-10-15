@@ -79,6 +79,17 @@ async function defaultLoadWorkspaceModules(workspaceRoot) {
   return { results, checkNpmTarball: upload.checkNpmTarball };
 }
 
+/**
+ * Feature sets that must at least compile, beyond the tested ones. A crate whose tested sets already
+ * include `--all-features` needs none. `checkFeatureSets` (ci/gate.config.json) lists them explicitly for
+ * crates with mutually exclusive features; otherwise one `--all-features` check runs. Mirrored in scripts/ci/gate.mjs.
+ */
+export function allFeatureCheckSets(entry = {}) {
+  const tested = entry.featureSets ?? [[]];
+  if (tested.some((features) => features.includes("--all-features"))) return [];
+  return entry.checkFeatureSets ?? [["--all-features"]];
+}
+
 /** The CI gate's commands for one unit (scripts/ci/gate.mjs npmGate/rustGate), mirrored exactly. */
 export function localTestPlan({ kind, unit, dir, config, manifest }) {
   if (kind === "npm") {
@@ -100,6 +111,7 @@ export function localTestPlan({ kind, unit, dir, config, manifest }) {
     if (entry.alsoSerial) steps.push({ command: "cargo", args: ["test", "-p", unit, ...features, "--no-fail-fast", "--", "--test-threads=1", "--show-output"], test: true });
   }
   steps.push({ command: "cargo", args: ["clippy", "-p", unit, "--no-deps", "--all-targets", ...featureSets[0], "--", "-D", "warnings"], test: false });
+  for (const features of allFeatureCheckSets(entry)) steps.push({ command: "cargo", args: ["check", "-p", unit, "--all-targets", ...features], test: false });
   return { id: `rust:${unit}`, featureLabels: featureSets.map((features) => features.join(" ") || "default"), steps };
 }
 

@@ -272,6 +272,9 @@ async function rustGate(selection, config) {
       if (entry.alsoSerial) await run(`rust:${name}`, "cargo", ["test", "-p", name, ...features, "--no-fail-fast", "--", "--test-threads=1", "--show-output"], { timeoutMinutes, env });
     }
     await run(`rust:${name}`, "cargo", ["clippy", "-p", name, "--no-deps", "--all-targets", ...featureSets[0], "--", "-D", "warnings"], { timeoutMinutes });
+    // Features the tests do not enable must still compile; keep in step with packages/release/local-publish.mjs.
+    const checkSets = featureSets.some((features) => features.includes("--all-features")) ? [] : (entry.checkFeatureSets ?? [["--all-features"]]);
+    for (const features of checkSets) await run(`rust:${name}`, "cargo", ["check", "-p", name, "--all-targets", ...features], { timeoutMinutes });
   }
   for (const name of rust.check) {
     if (applies(name)) await run(`rust:${name}`, "cargo", ["check", "-p", name, "--all-targets"], { timeoutMinutes: 30 });
