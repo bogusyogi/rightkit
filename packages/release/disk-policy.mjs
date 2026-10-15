@@ -130,7 +130,8 @@ export function workspaceTracked(root, { platform = process.platform, git = spaw
   const top = git("git", ["-C", root, "rev-parse", "--show-toplevel"], { encoding: "utf8" });
   if (top.status !== 0) return null;
   try {
-    if (fold(realpathSync(String(top.stdout).trim()), key) !== fold(realpathSync(root), key)) return null;
+    // The native form resolves Windows 8.3 short names (C:\Users\RUNNER~1) to the long names git prints.
+    if (fold(realpathSync.native(String(top.stdout).trim()), key) !== fold(realpathSync.native(root), key)) return null;
   } catch { return null; }
   const listed = git("git", ["-C", root, "ls-files", "-z"], { encoding: "utf8", maxBuffer: 1 << 28 });
   if (listed.status !== 0) return null;
