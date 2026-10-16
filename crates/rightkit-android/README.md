@@ -20,7 +20,7 @@ Status: written without compiling or running anything (design: heardright `docs/
 
 ## Using it from an app
 
-Kotlin, in `Application.onCreate` of every process (app, IME or service process each load their own copy):
+Kotlin, in `Application.onCreate` of every process (the app process and any service process each load their own copy):
 
 ```kotlin
 RightKit.init(this, debugLogging = BuildConfig.DEBUG)

@@ -8,7 +8,7 @@ import android.content.Context
  *
  * `init` loads the native library, hands the application [Context], `filesDir`, `cacheDir` and
  * `nativeLibraryDir` to Rust, and installs the Keystore-backed credential store. It is idempotent
- * for the same paths and safe to call from several processes (an IME or service process calls it
+ * for the same paths and safe to call from several processes (a service process calls it
  * in its own process; each process has its own native library instance).
  */
 object RightKit {

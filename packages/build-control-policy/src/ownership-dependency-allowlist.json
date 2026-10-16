@@ -1,6 +1,9 @@
 {
   "schema": 1,
   "global": [
+    "cargo:blake3",
+    "cargo:clap",
+    "cargo:getrandom",
     "npm:@types/node",
     "npm:typescript",
     "npm:vitest"
