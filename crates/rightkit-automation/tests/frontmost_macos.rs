@@ -1,6 +1,6 @@
 //! Live check of the macOS frontmost-application reader the QA background proof stands on.
 #![cfg(target_os = "macos")]
-use rightkit_qa_driver::mac;
+use rightkit_automation::macos::background as mac;
 
 #[test]
 fn frontmost_pid_and_name_are_readable_and_agree_with_the_process_table() {

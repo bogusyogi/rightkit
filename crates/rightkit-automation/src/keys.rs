@@ -293,6 +293,280 @@ pub fn inserted_char(c: Chord) -> Option<char> {
     }
 }
 
+/// Raw AppKit / `CGEvent` key data for callers that post native events directly (the
+/// QA driver and its embedded server): a name or spec becomes a macOS virtual keycode
+/// plus `CGEventFlags`/`NSEventModifierFlags` bits, with no [`Chord`] in between.
+///
+/// The code tables are not repeated here: every keycode comes from [`mac_keycode`], so
+/// this module and the typed chords cannot drift. What differs from [`parse_chord`] is
+/// the name grammar, kept as the QA driver had it:
+/// - `delete` is the macOS Delete key (backspace, `0x33`); `forwarddelete` is forward
+///   delete. [`parse_chord`] reads `delete` as forward delete.
+/// - punctuation has names (`comma`, `period`, `slash`, ...), and `cmd++` is cmd+shift+`=`.
+/// - no `meta`/`super`/`win`/`mod`/`primary` modifier aliases, and no `del`/`pgup`/`pgdn`.
+pub mod appkit {
+    use super::{mac_keycode, Key, Named};
+
+    /// Characters with an ANSI keycode, in the order `ansi_char` searches them.
+    const ANSI_CHARS: &str = "abcdefghijklmnopqrstuvwxyz0123456789=-][';\\,/.`";
+
+    /// Keycode for a named key (`return`, `left`, `f5`, `comma`, ...). Case-insensitive.
+    pub fn named(name: &str) -> Option<u16> {
+        let n = name.to_ascii_lowercase();
+        let key = match n.as_str() {
+            "return" | "enter" => Key::Named(Named::Return),
+            "tab" => Key::Named(Named::Tab),
+            "space" => Key::Named(Named::Space),
+            "delete" | "backspace" => Key::Named(Named::Backspace),
+            "escape" | "esc" => Key::Named(Named::Escape),
+            "left" => Key::Named(Named::Left),
+            "right" => Key::Named(Named::Right),
+            "down" => Key::Named(Named::Down),
+            "up" => Key::Named(Named::Up),
+            "home" => Key::Named(Named::Home),
+            "end" => Key::Named(Named::End),
+            "pageup" => Key::Named(Named::PageUp),
+            "pagedown" => Key::Named(Named::PageDown),
+            "forwarddelete" => Key::Named(Named::Delete),
+            other => {
+                let f = other
+                    .strip_prefix('f')
+                    .and_then(|d| d.parse::<u8>().ok())
+                    .filter(|k| (1..=12).contains(k) && other == format!("f{k}"));
+                match f {
+                    Some(k) => Key::F(k),
+                    None => Key::Char(named_char(other)?),
+                }
+            }
+        };
+        mac_keycode(key)
+    }
+
+    /// AppKit `NSEventModifierFlagNumericPad` / `NSEventModifierFlagFunction`.
+    pub const FLAG_NUMPAD: u64 = 0x200000;
+    pub const FLAG_FUNCTION: u64 = 0x800000;
+
+    /// AppKit delivers navigation and F-keys as private-use function characters with
+    /// `NSEventModifierFlagFunction` (arrows also with `NumericPad`). WebKit derives
+    /// `KeyboardEvent.key` from those characters; without them it reports "Unidentified".
+    pub fn function_char(name: &str) -> Option<(char, u64)> {
+        let arrow = FLAG_FUNCTION | FLAG_NUMPAD;
+        let (c, f) = match name.to_ascii_lowercase().as_str() {
+            "up" => ('\u{F700}', arrow),
+            "down" => ('\u{F701}', arrow),
+            "left" => ('\u{F702}', arrow),
+            "right" => ('\u{F703}', arrow),
+            "forwarddelete" => ('\u{F728}', FLAG_FUNCTION),
+            "home" => ('\u{F729}', FLAG_FUNCTION),
+            "end" => ('\u{F72B}', FLAG_FUNCTION),
+            "pageup" => ('\u{F72C}', FLAG_FUNCTION),
+            "pagedown" => ('\u{F72D}', FLAG_FUNCTION),
+            f if f.len() >= 2 && f.starts_with('f') => {
+                let n: u32 = f[1..].parse().ok().filter(|n| (1..=12).contains(n))?;
+                (char::from_u32(0xF703 + n)?, FLAG_FUNCTION)
+            }
+            _ => return None,
+        };
+        Some((c, f))
+    }
+
+    /// The printed character of a named punctuation key (`comma` -> `,`).
+    pub fn named_char(name: &str) -> Option<char> {
+        Some(match name.to_ascii_lowercase().as_str() {
+            "comma" => ',',
+            "period" | "dot" => '.',
+            "slash" => '/',
+            "backslash" => '\\',
+            "semicolon" => ';',
+            "quote" | "apostrophe" => '\'',
+            "minus" => '-',
+            "equal" | "equals" => '=',
+            "leftbracket" => '[',
+            "rightbracket" => ']',
+            "grave" | "backtick" => '`',
+            _ => return None,
+        })
+    }
+
+    pub const FLAG_SHIFT: u64 = 0x20000;
+    pub const FLAG_CTRL: u64 = 0x40000;
+    pub const FLAG_ALT: u64 = 0x80000;
+    pub const FLAG_CMD: u64 = 0x100000;
+
+    /// Parse "cmd+shift+return" into (keycode, flags). Single letters, digits and
+    /// punctuation (`cmd+,`, `cmd+/`, `cmd+[`) use ANSI codes; a trailing `+` is the
+    /// plus key (`cmd++` = cmd+shift+equal).
+    pub fn chord(spec: &str) -> Option<(u16, u64)> {
+        let mut flags = 0;
+        let mut key = None;
+        let spec = match spec.strip_suffix("++") {
+            Some(rest) => {
+                flags |= FLAG_SHIFT;
+                key = Some(0x18);
+                rest
+            }
+            None if spec == "+" => return Some((0x18, FLAG_SHIFT)),
+            None => spec,
+        };
+        let plus_key = key.is_some();
+        for part in spec.split('+').filter(|p| !p.is_empty() || !plus_key) {
+            match part.to_ascii_lowercase().as_str() {
+                "cmd" | "command" => flags |= FLAG_CMD,
+                "shift" => flags |= FLAG_SHIFT,
+                "ctrl" | "control" => flags |= FLAG_CTRL,
+                "alt" | "option" => flags |= FLAG_ALT,
+                other => key = Some(named(other).or_else(|| letter(other))?),
+            }
+        }
+        key.map(|k| (k, flags))
+    }
+
+    /// The unshifted character a US-layout ANSI keycode produces (letters, digits, punctuation).
+    pub fn ansi_char(code: u16) -> Option<char> {
+        ANSI_CHARS
+            .chars()
+            .find(|c| mac_keycode(Key::Char(*c)) == Some(code))
+    }
+
+    fn letter(s: &str) -> Option<u16> {
+        let c = s.chars().next().filter(|_| s.chars().count() == 1)?;
+        if ANSI_CHARS.contains(c) {
+            mac_keycode(Key::Char(c))
+        } else {
+            None
+        }
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+        use crate::keys::{mac_flags, parse_chord, Mods};
+
+        #[test]
+        fn parses_chords() {
+            assert_eq!(chord("cmd+a"), Some((0, FLAG_CMD)));
+            assert_eq!(chord("shift+tab"), Some((0x30, FLAG_SHIFT)));
+            assert_eq!(chord("nope"), None);
+            assert_eq!(chord("cmd+,"), Some((0x2B, FLAG_CMD)));
+            assert_eq!(chord("cmd+comma"), Some((0x2B, FLAG_CMD)));
+            assert_eq!(chord("cmd+shift+/"), Some((0x2C, FLAG_CMD | FLAG_SHIFT)));
+            assert_eq!(chord("cmd+["), Some((0x21, FLAG_CMD)));
+            assert_eq!(chord("cmd+1"), Some((18, FLAG_CMD)));
+            assert_eq!(chord("cmd++"), Some((0x18, FLAG_CMD | FLAG_SHIFT)));
+            assert_eq!(chord("f5"), Some((0x60, 0)));
+            assert_eq!(chord("cmd+."), Some((0x2F, FLAG_CMD)));
+        }
+
+        #[test]
+        fn function_keys_carry_appkit_characters() {
+            let arrow = FLAG_FUNCTION | FLAG_NUMPAD;
+            assert_eq!(function_char("right"), Some(('\u{F703}', arrow)));
+            assert_eq!(function_char("Up"), Some(('\u{F700}', arrow)));
+            assert_eq!(function_char("home"), Some(('\u{F729}', FLAG_FUNCTION)));
+            assert_eq!(function_char("pagedown"), Some(('\u{F72D}', FLAG_FUNCTION)));
+            assert_eq!(
+                function_char("forwarddelete"),
+                Some(('\u{F728}', FLAG_FUNCTION))
+            );
+            assert_eq!(function_char("f1"), Some(('\u{F704}', FLAG_FUNCTION)));
+            assert_eq!(function_char("f12"), Some(('\u{F70F}', FLAG_FUNCTION)));
+            assert_eq!(function_char("f13"), None);
+            assert_eq!(function_char("a"), None);
+            assert_eq!(named_char("comma"), Some(','));
+        }
+
+        /// The values the QA driver's own table used to hold: deriving them from
+        /// `mac_keycode` must not have moved a single code.
+        #[test]
+        fn named_codes_match_the_retired_qa_driver_table() {
+            let table: &[(&str, u16)] = &[
+                ("return", 0x24),
+                ("enter", 0x24),
+                ("tab", 0x30),
+                ("space", 0x31),
+                ("delete", 0x33),
+                ("backspace", 0x33),
+                ("escape", 0x35),
+                ("esc", 0x35),
+                ("left", 0x7B),
+                ("right", 0x7C),
+                ("down", 0x7D),
+                ("up", 0x7E),
+                ("home", 0x73),
+                ("end", 0x77),
+                ("pageup", 0x74),
+                ("pagedown", 0x79),
+                ("forwarddelete", 0x75),
+                ("comma", 0x2B),
+                ("period", 0x2F),
+                ("dot", 0x2F),
+                ("slash", 0x2C),
+                ("backslash", 0x2A),
+                ("semicolon", 0x29),
+                ("quote", 0x27),
+                ("apostrophe", 0x27),
+                ("minus", 0x1B),
+                ("equal", 0x18),
+                ("equals", 0x18),
+                ("leftbracket", 0x21),
+                ("rightbracket", 0x1E),
+                ("grave", 0x32),
+                ("backtick", 0x32),
+                ("f1", 0x7A),
+                ("f2", 0x78),
+                ("f3", 0x63),
+                ("f4", 0x76),
+                ("f5", 0x60),
+                ("f6", 0x61),
+                ("f7", 0x62),
+                ("f8", 0x64),
+                ("f9", 0x65),
+                ("f10", 0x6D),
+                ("f11", 0x67),
+                ("f12", 0x6F),
+            ];
+            for (name, code) in table {
+                assert_eq!(named(name), Some(*code), "{name}");
+                assert_eq!(named(&name.to_ascii_uppercase()), Some(*code), "{name}");
+            }
+            for bad in ["f0", "f13", "f01", "fx", "nope", "a", ""] {
+                assert_eq!(named(bad), None, "{bad}");
+            }
+        }
+
+        #[test]
+        fn ansi_letters_round_trip() {
+            for c in "abcdefghijklmnopqrstuvwxyz0123456789=-][';\\,/.`".chars() {
+                let code = mac_keycode(Key::Char(c)).unwrap();
+                assert_eq!(ansi_char(code), Some(c));
+                assert_eq!(chord(&c.to_string()), Some((code, 0)), "{c}");
+            }
+            assert_eq!(ansi_char(0x24), None, "return is not an ANSI character key");
+        }
+
+        #[test]
+        fn flags_agree_with_the_typed_chord_flags() {
+            let all = Mods {
+                meta: true,
+                ctrl: true,
+                alt: true,
+                shift: true,
+            };
+            assert_eq!(mac_flags(all), FLAG_CMD | FLAG_CTRL | FLAG_ALT | FLAG_SHIFT);
+        }
+
+        #[test]
+        fn delete_differs_from_the_typed_grammar_by_design() {
+            assert_eq!(named("delete"), Some(0x33), "macOS Delete key is backspace");
+            assert_eq!(
+                parse_chord("delete", true).unwrap().key,
+                Key::Named(Named::Delete),
+                "the typed grammar reads delete as forward delete"
+            );
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

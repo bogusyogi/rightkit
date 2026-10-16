@@ -2,9 +2,9 @@
   "schema": 1,
   "kind": "cargo",
   "name": "rightkit-qa-driver",
-  "version": "0.4.0",
-  "commit": "18b29202b4db2103c29e60ae6f0dff2de5e5ca40",
-  "artifactSha256": "aa04b94dbf995e35dcfe8678404c7e62a4d798167d6b316cb696483b1f414f46",
+  "version": "0.4.1",
+  "commit": "04b10ca04473a4514977ea61f1ccf3fea59d940a",
+  "artifactSha256": "94836298206bc15e279d5f689b603a7ccaa7f46710982d5efc94c36aae4606b6",
   "hostPolicy": "darwin-only",
   "hostPolicyReason": "Adrian 2026-10-14 local-build grant (.rightkit-local-build.json); Windows covered by the next CI run",
   "runs": [
@@ -13,15 +13,15 @@
         "os": "darwin",
         "arch": "arm64"
       },
-      "commit": "18b29202b4db2103c29e60ae6f0dff2de5e5ca40",
+      "commit": "04b10ca04473a4514977ea61f1ccf3fea59d940a",
       "features": [
         "default"
       ],
-      "artifactSha256": "aa04b94dbf995e35dcfe8678404c7e62a4d798167d6b316cb696483b1f414f46",
-      "command": "cargo test -p rightkit-qa-driver --no-fail-fast -- --show-output && cargo clippy -p rightkit-qa-driver --no-deps --all-targets -- -D warnings && cargo package --locked -p rightkit-qa-driver && cargo metadata --format-version 1 --no-deps",
+      "artifactSha256": "94836298206bc15e279d5f689b603a7ccaa7f46710982d5efc94c36aae4606b6",
+      "command": "cargo test -p rightkit-qa-driver --no-fail-fast -- --show-output && cargo clippy -p rightkit-qa-driver --no-deps --all-targets -- -D warnings && cargo check -p rightkit-qa-driver --all-targets --features qa-control,wv2-0_38,offscreen-private-spi && cargo package --locked -p rightkit-qa-driver && cargo metadata --format-version 1 --no-deps",
       "operator": "agent (local-build grant)",
-      "timestamp": "2026-10-15T14:38:15.070Z",
-      "passed": 56,
+      "timestamp": "2026-10-16T00:42:10.753Z",
+      "passed": 15,
       "failed": 0,
       "skipped": 0,
       "ignored": 0,
@@ -32,14 +32,18 @@
         {
           "command": "cargo test -p rightkit-qa-driver --no-fail-fast -- --show-output",
           "ok": true,
-          "executed": 56,
+          "executed": 15,
           "failed": 0,
           "ignored": 0,
           "skipped": 0,
-          "binaries": 10
+          "binaries": 8
         },
         {
           "command": "cargo clippy -p rightkit-qa-driver --no-deps --all-targets -- -D warnings",
+          "ok": true
+        },
+        {
+          "command": "cargo check -p rightkit-qa-driver --all-targets --features qa-control,wv2-0_38,offscreen-private-spi",
           "ok": true
         }
       ]

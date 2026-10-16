@@ -2,9 +2,9 @@
   "schema": 1,
   "kind": "cargo",
   "name": "rightkit-qa",
-  "version": "0.4.0",
-  "commit": "18b29202b4db2103c29e60ae6f0dff2de5e5ca40",
-  "artifactSha256": "b1c82c2edd359746be7df7b56156490c1bb2e564c85c735fbded3270c7f16e6f",
+  "version": "0.5.0",
+  "commit": "746b4b79a3877a71fd4f54a09361e6bd028bcff6",
+  "artifactSha256": "2813963d63623a1ed2b4f75269a352990ad750110e3b38761f7f010060433d4e",
   "hostPolicy": "darwin-only",
   "hostPolicyReason": "Adrian 2026-10-14 local-build grant (.rightkit-local-build.json); Windows covered by the next CI run",
   "runs": [
@@ -13,15 +13,15 @@
         "os": "darwin",
         "arch": "arm64"
       },
-      "commit": "18b29202b4db2103c29e60ae6f0dff2de5e5ca40",
+      "commit": "746b4b79a3877a71fd4f54a09361e6bd028bcff6",
       "features": [
         "default"
       ],
-      "artifactSha256": "b1c82c2edd359746be7df7b56156490c1bb2e564c85c735fbded3270c7f16e6f",
-      "command": "cargo test -p rightkit-qa --no-fail-fast -- --show-output && cargo clippy -p rightkit-qa --no-deps --all-targets -- -D warnings && cargo package --locked -p rightkit-qa && cargo metadata --format-version 1 --no-deps",
+      "artifactSha256": "2813963d63623a1ed2b4f75269a352990ad750110e3b38761f7f010060433d4e",
+      "command": "cargo test -p rightkit-qa --no-fail-fast -- --show-output && cargo clippy -p rightkit-qa --no-deps --all-targets -- -D warnings && cargo check -p rightkit-qa --all-targets --all-features && cargo package --locked -p rightkit-qa && cargo metadata --format-version 1 --no-deps",
       "operator": "agent (local-build grant)",
-      "timestamp": "2026-10-15T14:52:09.149Z",
-      "passed": 169,
+      "timestamp": "2026-10-16T00:45:16.727Z",
+      "passed": 182,
       "failed": 0,
       "skipped": 4,
       "ignored": 0,
@@ -32,7 +32,7 @@
         {
           "command": "cargo test -p rightkit-qa --no-fail-fast -- --show-output",
           "ok": true,
-          "executed": 169,
+          "executed": 182,
           "failed": 0,
           "ignored": 0,
           "skipped": 4,
@@ -40,6 +40,10 @@
         },
         {
           "command": "cargo clippy -p rightkit-qa --no-deps --all-targets -- -D warnings",
+          "ok": true
+        },
+        {
+          "command": "cargo check -p rightkit-qa --all-targets --all-features",
           "ok": true
         }
       ]

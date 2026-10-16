@@ -15,3 +15,20 @@ HeardRight's `heardright_platform` (8,040 lines) and `heardright-command-host` (
 | `command_host app_data_root()` (cwd fallback when env vars are missing) | **Fixed, not moved**: `paths::evidence_dir()` fails closed; evidence and screenshot paths must be absolute. |
 
 Known gaps against HeardRight, all generic and all candidates for follow-up: AXObserver-based focus/settle notifications; screenshot-excluding-an-app; a single persistent UIA MTA worker; the Alt-nullifier input modes; the web-area ancestor walk (rule 2); Windows `menu_press`.
+
+## Moved in from `rightkit-qa-driver` 0.4.0 (automation 0.4.0)
+
+Same rule as above: the code has one maintained home, here, and `rightkit-qa-driver` re-exports it under its old paths instead of keeping a copy.
+
+| `rightkit-qa-driver` source | Now |
+|---|---|
+| `src/admission.rs`, `src/events.rs`, `src/lease.rs`, `src/lease_store.rs` | `src/control/{admission,events,lease,lease_store}.rs` (kill switch added to the gate). Not merged with the engine's `admission`, `lease`, `events`: a different model. |
+| `src/mac.rs` | `src/macos/background.rs` (kill switch added to `unsafe_ungated`; `Gated` lost its `Default`). |
+| `src/offscreen.rs`, `offscreen_mac.rs`, `offscreen_win.rs` | `src/offscreen.rs`, `offscreen_mac.rs`, `offscreen_win.rs`, minus the two Tauri helpers (they need `tauri` and stay in `rightkit-qa-driver`). `launch_offscreen` obeys the kill switch. |
+| `src/keys.rs` | `src/keys.rs::appkit`, with the keycodes derived from `keys::mac_keycode` (no second table). |
+| `src/json.rs` | `src/json.rs` (`str_field`, `num_field`, `base64_encode` added; `esc` was identical). |
+| `tests/control_plane.rs`, `tests/durable_lease.rs`, `tests/frontmost_macos.rs` | the same file names under `tests/`. |
+| `src/embedded/*`, `src/webdriver.rs`, `src/cli.rs`, `tests/{gated_paths,offscreen_macos,offscreen_windows,serve_auth}.rs`, the control-test-app fixture | **Not moved.** The embedded server goes to `rightkit-qa` behind `control` in a later step; the WebDriver bridge and CLI wait for that decision. |
+| `src/in_app.rs` `ServiceBridge` (automation's own client of that server) | **Deleted.** `in_app::InApp` is the contract; the implementation will live next to the server. |
+
+Known gaps against `rightkit-qa-driver`, left on purpose: `macos::background` still declares its own CoreFoundation, CoreGraphics and AX externs next to `macos::{ffi,ax,events}` (macOS code cannot be compiled or compared on the Windows host that did this move); the raw `Gated` primitives are not re-expressed over `Platform`; the engine's typed lease and the PTY-002 `InputLease` are two implementations of one idea.

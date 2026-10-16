@@ -10,6 +10,10 @@
 //! [`Gated`], which admits each call through an [`EffectGate`] (EFF-001), or
 //! through the explicitly named [`unsafe_ungated`] opt-in.
 #![allow(non_snake_case, non_camel_case_types, clippy::missing_safety_doc)]
+// Moved from rightkit-qa-driver with its own CoreFoundation/AX/CGEvent declarations; they are
+// ABI-identical to `super::ffi` but spelled with different Rust types. Folding them onto
+// `super::ffi` is a follow-up (see CHANGELOG 0.4.0).
+#![allow(clashing_extern_declarations)]
 
 use std::ffi::{c_char, c_void, CStr, CString};
 use std::process::Command;
@@ -749,7 +753,9 @@ pub(crate) fn key_without_raise(pid: i32, win: u32) -> bool {
 
 // ---------- EFF-001 gated entry points ----------
 
-use crate::admission::{CancelToken, Effect, EffectGate, EffectKind, EffectRequest, ExecError};
+use crate::control::admission::{
+    CancelToken, Effect, EffectGate, EffectKind, EffectRequest, ExecError,
+};
 use std::sync::Arc;
 
 /// Every effectful macOS primitive, admitted through one [`EffectGate`]:
@@ -762,12 +768,6 @@ pub struct Gated {
     gate: Arc<EffectGate>,
 }
 
-impl Default for Gated {
-    fn default() -> Self {
-        Self::allow_all()
-    }
-}
-
 fn pid_target(pid: i32) -> String {
     format!("pid:{pid}")
 }
@@ -776,7 +776,9 @@ impl Gated {
     pub fn new(gate: Arc<EffectGate>) -> Self {
         Self { gate }
     }
-    /// [`EffectGate::allow_all`]: unchanged behaviour, still settled.
+    /// [`EffectGate::allow_all`]: every effect is admitted (still settled, still stopped by
+    /// the kill switch). This is an explicit opt-out of the allowlist; there is no `Default`.
+    /// Hosts should pass a gate built on `control::policy_hook::PolicyAdmission` instead.
     pub fn allow_all() -> Self {
         Self::new(Arc::new(EffectGate::allow_all()))
     }
@@ -915,37 +917,58 @@ impl Gated {
 }
 
 /// **Ungated** effectful primitives: these bypass [`EffectGate`] admission
-/// entirely: no validation, no host approval, no settlement, no events.
+/// entirely: no validation, no host approval, no settlement, no events. The
+/// process-wide kill switch (`policy::kill`) still applies: while it is
+/// engaged every effectful function here does nothing and reports failure
+/// (`false`, an empty list or an `Err`).
 ///
-/// Use only where admission is provably handled by the caller (e.g. inside an
-/// executor already admitted by a gate) or in fixtures that drive a test app
-/// directly. Host-facing code must use [`Gated`]. Calling anything here is an
+/// They also bypass the allowlist (`Policy`): nothing here knows which app a
+/// pid is. Use only where admission is provably handled by the caller (e.g.
+/// inside an executor already admitted by a gate) or in fixtures that drive a
+/// test app directly. Host-facing code must use [`Gated`] with a
+/// `control::policy_hook::PolicyAdmission` hook. Calling anything here is an
 /// explicit, greppable opt-out of EFF-001.
 pub mod unsafe_ungated {
     use super::Node;
+    use crate::policy::killed;
 
     pub fn click(pid: i32, win: u32, x: f64, y: f64) {
-        super::click(pid, win, x, y)
+        if !killed() {
+            super::click(pid, win, x, y)
+        }
     }
     pub fn hover(pid: i32, win: u32, x: f64, y: f64) {
-        super::hover(pid, win, x, y)
+        if !killed() {
+            super::hover(pid, win, x, y)
+        }
     }
     pub fn drag(pid: i32, win: u32, from: (f64, f64), to: (f64, f64), steps: u32) {
-        super::drag(pid, win, from, to, steps)
+        if !killed() {
+            super::drag(pid, win, from, to, steps)
+        }
     }
     pub fn scroll(pid: i32, win: u32, x: f64, y: f64, dy: i32) {
-        super::scroll(pid, win, x, y, dy)
+        if !killed() {
+            super::scroll(pid, win, x, y, dy)
+        }
     }
     pub fn type_text(pid: i32, text: &str) {
-        super::type_text(pid, text)
+        if !killed() {
+            super::type_text(pid, text)
+        }
     }
     pub fn key(pid: i32, keycode: u16, flags: u64) {
-        super::key(pid, keycode, flags)
+        if !killed() {
+            super::key(pid, keycode, flags)
+        }
     }
     pub fn ax_press(node: &Node) -> bool {
-        super::ax_press(node)
+        !killed() && super::ax_press(node)
     }
     pub fn click_node(pid: i32, node: &Node) -> Result<(), String> {
+        if killed() {
+            return Err("kill switch engaged".into());
+        }
         super::click_node(pid, node)
     }
     pub fn launch_hidden(
@@ -953,15 +976,21 @@ pub mod unsafe_ungated {
         exe_name: &str,
         env: &[(String, String)],
     ) -> Result<i32, String> {
+        if killed() {
+            return Err("kill switch engaged".into());
+        }
         super::launch_hidden(app, exe_name, env)
     }
     pub fn capture_window(win: u32, out: &str) -> bool {
-        super::capture_window(win, out)
+        !killed() && super::capture_window(win, out)
     }
     pub fn ax_make_key(pid: i32, attrs: &[&str]) -> Vec<(String, i32)> {
+        if killed() {
+            return Vec::new();
+        }
         super::ax_make_key(pid, attrs)
     }
     pub fn key_without_raise(pid: i32, win: u32) -> bool {
-        super::key_without_raise(pid, win)
+        !killed() && super::key_without_raise(pid, win)
     }
 }

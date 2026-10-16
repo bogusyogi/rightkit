@@ -2,6 +2,9 @@
 //! events and windows), ImageIO, and the Objective-C runtime. No third-party crates.
 
 #![allow(
+    // `super::background` (moved from rightkit-qa-driver) declares some of these with other
+    // Rust types; same ABI. Unifying them is a follow-up.
+    clashing_extern_declarations,
     non_snake_case,
     non_upper_case_globals,
     dead_code,

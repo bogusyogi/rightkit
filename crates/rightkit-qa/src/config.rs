@@ -3,8 +3,9 @@
 //! ```toml
 //! app = "genright"
 //! app_root = "."                         # relative to this file
-//! # Legacy compatibility key; harness/suite evidence is always under managed storage.
-//! evidence_dir = ".cache/rightkit-qa"
+//! # `evidence_dir` is no longer read (0.5.0): evidence is always written under the managed runs
+//! # root, `<managed root>/runs/<app>/<run-id>/`, never inside the app checkout. An old key is
+//! # ignored.
 //! scenarios = ["tests/scenarios"]        # dirs scanned for *.scenario.toml
 //!
 //! [env]                                  # every process the harness starts
@@ -138,7 +139,6 @@ struct Raw {
     app: String,
     #[serde(default = "dot")]
     app_root: String,
-    evidence_dir: Option<String>,
     #[serde(default)]
     scenarios: Vec<String>,
     #[serde(default)]
@@ -164,7 +164,6 @@ fn dot() -> String {
 pub struct QaConfig {
     pub app: String,
     pub app_root: PathBuf,
-    pub evidence_root: PathBuf,
     pub scenario_dirs: Vec<PathBuf>,
     pub env: BTreeMap<String, String>,
     pub engine: EngineConfig,
@@ -208,8 +207,6 @@ impl QaConfig {
         let default_tier = raw.default_tier.unwrap_or_else(|| "fast".into());
         validate_tier_list(&default_tier)?;
         Ok(Self {
-            evidence_root: app_root
-                .join(raw.evidence_dir.as_deref().unwrap_or(".cache/rightkit-qa")),
             scenario_dirs: raw.scenarios.iter().map(|s| app_root.join(s)).collect(),
             app,
             app_root,

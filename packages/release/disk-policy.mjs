@@ -56,7 +56,9 @@ export function walkSize(root) {
     const dir = stack.pop();
     let st;
     try { st = lstatSync(dir); } catch { continue; }
-    total += st.blocks !== undefined ? st.blocks * 512 : st.size;
+    // Allocated bytes; where the filesystem reports none for a non-empty file (NTFS keeps small files resident
+    // in the MFT, so Windows reports 0 blocks) the logical size is the best estimate.
+    total += st.blocks ? st.blocks * 512 : st.size;
     if (!st.isDirectory()) continue;
     let handle;
     try { handle = opendirSync(dir); } catch { continue; }
@@ -115,7 +117,103 @@ export function writerMatches(writer, ctx) {
   return expandGlob(pattern);
 }
 
-export function checkDisk({ policy, platform = process.platform, env = process.env, home = os.homedir(), size = (p) => pathSize(p, { platform }), space = freeSpace } = {}) {
+
+// ---- Workspace roots (allowlist) and scratch roots ------------------------------------------------------------------
+
+const isWin = (key) => key === "win";
+const fold = (value, key) => (isWin(key) ? value.toLowerCase() : value);
+
+/** Top-level names git tracks in the repository rooted exactly at `root`; null when that cannot be proven
+ * (not a repository root, git missing or failing). Callers must then leave the root alone. */
+export function workspaceTracked(root, { platform = process.platform, git = spawnSync } = {}) {
+  const key = platformKey(platform);
+  const top = git("git", ["-C", root, "rev-parse", "--show-toplevel"], { encoding: "utf8" });
+  if (top.status !== 0) return null;
+  try {
+    // The native form resolves Windows 8.3 short names (C:\Users\RUNNER~1) to the long names git prints.
+    if (fold(realpathSync.native(String(top.stdout).trim()), key) !== fold(realpathSync.native(root), key)) return null;
+  } catch { return null; }
+  const listed = git("git", ["-C", root, "ls-files", "-z"], { encoding: "utf8", maxBuffer: 1 << 28 });
+  if (listed.status !== 0) return null;
+  const names = new Set();
+  for (const file of String(listed.stdout).split("\0")) if (file) names.add(fold(file.split("/")[0], key));
+  return names;
+}
+
+export function scratchRoots(policy, { platform = process.platform, env = process.env, home = os.homedir() } = {}) {
+  const out = [];
+  for (const p of policy.scratchRoots?.[platformKey(platform)] ?? []) { try { out.push(expandPolicyPath(p, { env, home })); } catch { /* unset variable */ } }
+  return out;
+}
+
+/** Create missing scratch roots (only when their parent volume exists). Returns the roots that exist afterwards. */
+export function ensureScratchRoots({ policy, platform = process.platform, env = process.env, home = os.homedir() } = {}) {
+  const ready = [];
+  for (const root of scratchRoots(policy, { platform, env, home })) {
+    try {
+      if (!existsSync(root) && existsSync(path.dirname(root))) mkdirSync(root);
+      if (existsSync(root)) ready.push(root);
+    } catch { /* volume not writable: the next run retries */ }
+  }
+  return ready;
+}
+
+/** Top-level entries of each workspace root that are neither tracked by the workspace repo, nested git checkouts,
+ * nor on the allowlist. Symlinks are listed (`symlink: true`) but sweep never touches them. */
+// Names that are always known at a workspace root, whatever the policy file says: agent instructions and agent state.
+export const WORKSPACE_ALWAYS_ALLOWED = ["CLAUDE.md", "AGENTS.md", "CLAUDE.local.md", ".claude", ".codex", ".agent", ".agents", ".membrane", "cockpit", "contributions"];
+const PROJECT_MARKERS = [".git", "package.json", "Cargo.toml"];
+
+/** Host-local opt-in for moving workspace-unknown entries. Without it the target is report-only on every host. */
+export function workspaceSweepFlagPath({ platform = process.platform, env = process.env, home = os.homedir() } = {}) {
+  if (platform === "win32" || platform === "win") {
+    if (!env.LOCALAPPDATA) return null;
+    return path.win32.join(env.LOCALAPPDATA, "Orthic Labs", "rightkit-release", "workspace-sweep-allowed");
+  }
+  return path.posix.join(home, "Library", "Application Support", "Orthic Labs", "rightkit-release", "workspace-sweep-allowed");
+}
+export function workspaceSweepAllowed(options = {}) {
+  const file = workspaceSweepFlagPath(options);
+  return Boolean(file) && existsSync(file);
+}
+export function setWorkspaceSweepAllowed(on, options = {}) {
+  const file = workspaceSweepFlagPath(options);
+  if (!file) throw new Error("disk: cannot place the host-local flag (LOCALAPPDATA is not set)");
+  if (on) { mkdirSync(path.dirname(file), { recursive: true }); writeFileSync(file, `workspace-unknown sweep allowed on this host ${new Date().toISOString()}\n`); }
+  else renameSync(file, `${file}.revoked`);
+  return file;
+}
+
+export function scanWorkspaceRoots({ policy, platform = process.platform, env = process.env, home = os.homedir(), tracked = (r) => workspaceTracked(r, { platform }) } = {}) {
+  const key = platformKey(platform);
+  const allow = new Set([...WORKSPACE_ALWAYS_ALLOWED, ...(policy.workspaceAllowlist ?? [])].map((n) => fold(n, key)));
+  const unknown = [];
+  const skipped = [];
+  for (const entry of policy.workspaceRoots?.[key] ?? []) {
+    let root;
+    try { root = expandPolicyPath(entry.path, { env, home }); } catch { continue; }
+    if (!existsSync(root)) continue;
+    const trackedNames = tracked(root);
+    if (!trackedNames) { skipped.push({ writer: "workspace-unknown", path: root, reason: "git-unavailable" }); continue; }
+    let names = [];
+    try { names = readdirSync(root); } catch { continue; }
+    const extra = new Set((entry.allow ?? []).map((n) => fold(n, key)));
+    for (const name of names) {
+      const folded = fold(name, key);
+      if (allow.has(folded) || extra.has(folded) || trackedNames.has(folded)) continue;
+      if (/\.md$/i.test(name)) continue; // any markdown file at the root is documentation
+      const full = path.join(root, name);
+      let st;
+      try { st = lstatSync(full); } catch { continue; }
+      // a nested git checkout or any project directory (own package.json / Cargo.toml) is known
+      if (!st.isSymbolicLink() && st.isDirectory() && PROJECT_MARKERS.some((m) => existsSync(path.join(full, m)))) continue;
+      unknown.push({ root, name, path: full, symlink: st.isSymbolicLink(), mtimeMs: st.mtimeMs });
+    }
+  }
+  return { unknown, skipped };
+}
+
+export function checkDisk({ policy, platform = process.platform, env = process.env, home = os.homedir(), size = (p) => pathSize(p, { platform }), space = freeSpace, now = Date.now(), scan = scanWorkspaceRoots } = {}) {
   const key = platformKey(platform);
   const floorPolicy = policy.floors[key];
   const floor = evaluateFloor(floorPolicy, space(floorPolicy.path));
@@ -132,7 +230,11 @@ export function checkDisk({ policy, platform = process.platform, env = process.e
   const warnings = [];
   if (floor.warn) warnings.push(`${floor.label} free ${formatBytes(floor.freeBytes)} is below the ${formatBytes(floor.thresholdBytes)} floor`);
   for (const w of writers) if (w.over) warnings.push(`${w.id} holds ${formatBytes(w.bytes)} over its ${formatBytes(w.capBytes)} cap`);
-  return { schema: 1, platform: key, floor, writers, warnings, warn: warnings.length > 0 };
+  const scanned = scan({ policy, platform, env, home });
+  const unknown = scanned.unknown.map((u) => ({ root: u.root, name: u.name, path: u.path, symlink: u.symlink, bytes: u.symlink ? 0 : size(u.path), ageDays: Math.max(0, Math.floor((now - u.mtimeMs) / 86400_000)) }));
+  for (const u of unknown) warnings.push(`unknown top-level entry ${u.path} (${u.symlink ? "symlink" : formatBytes(u.bytes)}, ${u.ageDays}d old): track it or add it to workspaceAllowlist (sweep only moves it on a host that ran \`disk allow-workspace-sweep\`)`);
+  for (const s of scanned.skipped) warnings.push(`workspace root ${s.path}: tracked paths cannot be read from git, so unknown entries are not evaluated or swept`);
+  return { schema: 1, platform: key, floor, writers, unknown, warnings, warn: warnings.length > 0 };
 }
 
 export function formatBytes(n) {
@@ -196,7 +298,7 @@ export function gitTracksPath(target) {
   return String(listed.stdout).length > 0;
 }
 
-export function planSweep({ policy, platform = process.platform, env = process.env, home = os.homedir(), now = Date.now(), staleDays, openPaths, inUse, tracked = gitTracksPath, size = (p) => pathSize(p, { platform }) } = {}) {
+export function planSweep({ policy, platform = process.platform, env = process.env, home = os.homedir(), now = Date.now(), staleDays, openPaths, inUse, tracked = gitTracksPath, size = (p) => pathSize(p, { platform }), scan = scanWorkspaceRoots, workspaceSweep = workspaceSweepAllowed({ platform, env, home }) } = {}) {
   const key = platformKey(platform);
   const effectiveDays = staleDays ?? policy.staleDays;
   const candidates = [];
@@ -232,6 +334,37 @@ export function planSweep({ policy, platform = process.platform, env = process.e
       if (lockCheck(unit)) { skipped.push({ ...base, reason: "in-use" }); continue; }
       candidates.push({ ...base, root, bytes: size(unit), mtime: new Date(st.mtimeMs).toISOString() });
     }
+  }
+  // Allowlisted workspace roots: unknown top-level entries older than 3 days and idle.
+  const scanned = scan({ policy, platform, env, home });
+  skipped.push(...scanned.skipped);
+  const unknownCutoff = now - (staleDays ?? policy.unknownStaleDays ?? 3) * 86400_000;
+  const consider = (writerId, unit, root, cutoff) => {
+    if (seen.has(unit)) return;
+    seen.add(unit);
+    const base = { writer: writerId, path: unit };
+    let st;
+    try { st = lstatSync(unit); } catch { return; }
+    if (st.isSymbolicLink()) { skipped.push({ ...base, reason: "symlink" }); return; }
+    if (!isInsideRoot(unit, root)) { skipped.push({ ...base, reason: "outside-root" }); return; }
+    if (isProtectedPath(unit, policy)) { skipped.push({ ...base, reason: "protected" }); return; }
+    if (hasFreshContent(unit, cutoff)) { skipped.push({ ...base, reason: "fresh" }); return; }
+    if (lockCheck(unit)) { skipped.push({ ...base, reason: "in-use" }); return; }
+    candidates.push({ ...base, root, bytes: size(unit), mtime: new Date(st.mtimeMs).toISOString() });
+  };
+  // Report-only unless this host opted in (`disk allow-workspace-sweep`): unknown entries are warned about, never moved.
+  for (const u of scanned.unknown) {
+    if (!workspaceSweep) { skipped.push({ writer: "workspace-unknown", path: u.path, reason: "report-only" }); continue; }
+    consider("workspace-unknown", u.path, u.root, unknownCutoff);
+  }
+  // Scratch roots: every child older than 3 days and idle (the same window).
+  for (const root of scratchRoots(policy, { platform, env, home })) {
+    let rst;
+    try { rst = lstatSync(root); } catch { continue; }
+    if (rst.isSymbolicLink()) { skipped.push({ writer: "scratch-root", path: root, reason: "symlink-root" }); continue; }
+    let names = [];
+    try { names = readdirSync(root); } catch { continue; }
+    for (const n of names) consider("scratch-root", path.join(root, n), root, unknownCutoff);
   }
   return { schema: 1, platform: key, staleDays: effectiveDays, candidates, skipped, totalBytes: candidates.reduce((s, c) => s + c.bytes, 0) };
 }
@@ -326,6 +459,7 @@ export function applySweep({ plan, policy, platform = process.platform, deleteMo
     try {
       // Re-verify at apply time: still the planned unit, not a symlink, still inside its root.
       if (!c.root || lstatSync(c.path).isSymbolicLink() || !isInsideRoot(c.path, c.root)) throw new Error("refused: path is not a sweepable unit inside its target root");
+      if (c.writer === "workspace-unknown" && PROJECT_MARKERS.some((m) => existsSync(path.join(c.path, m)))) throw new Error("refused: a nested git checkout or project directory is never swept");
       if (deleteMode) { remove(c.path); results.push({ ...c, action: "delete", ok: true }); logEvent(logFile, { event: "disk.sweep.delete", ...c }); continue; }
       // An item stays on its own volume: moving it elsewhere frees nothing on the volume that is short of space.
       const holding = pick(c.path, { policy, platform, env, home, date });

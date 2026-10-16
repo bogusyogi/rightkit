@@ -8,14 +8,15 @@ Catalog capability: `desktop-control`. The latest crates.io release is 0.1.11; s
 
 | Module | Owns |
 |---|---|
-| `admission` | `EffectGate`, `AdmissionHook` (trait or closure), `AllowAll`, `Effect` and `Settlement`. Every effect is validated, admitted, executed and settled as `ok`, `denied`, `failed` or `cancelled`. |
-| `lease`, `lease_store` | `InputLease` and `ControlSession`: input carries `(epoch, sequence)`. Optional durable state through `FileLeaseStore`. |
-| `events` | `ControlEvent` lifecycle events (start, stop, crash, denied, lease acquired, fenced, released, rejected) via an `EventSink`. Content-free. |
-| `mac` | macOS primitives. Effectful ones are reachable only through `mac::Gated`; `mac::unsafe_ungated` is the explicit opt-in. |
+| `admission` | Re-export of `rightkit_automation::control::admission`: `EffectGate`, `AdmissionHook` (trait or closure), `AllowAll`, `Effect` and `Settlement`. Every effect is validated, admitted, executed and settled as `ok`, `denied`, `failed` or `cancelled`. |
+| `lease`, `lease_store` | Re-exports of `rightkit_automation::control`: `InputLease` and `ControlSession`: input carries `(epoch, sequence)`. Optional durable state through `FileLeaseStore`. |
+| `events` | Re-export of `rightkit_automation::control::events`: `ControlEvent` lifecycle events (start, stop, crash, denied, lease acquired, fenced, released, rejected) via an `EventSink`. Content-free. |
+| `mac` | Re-export of `rightkit_automation::macos::background` (macOS only): primitives. Effectful ones are reachable only through `mac::Gated`; `mac::unsafe_ungated` is the explicit opt-in. |
 | `webdriver` | `webdriver::Server` with `with_gate`, plus `webdriver::macos::AxBackend`. |
 | `embedded` | The QA-only Tauri control server behind the `qa-control` feature. Never ships; see "QA control never ships". |
 | `cli` | `rightkit-qa-driver` command parsing and the `Policy` file. |
-| `keys`, `json` | Key chord mapping and small JSON helpers. |
+| `offscreen` | Re-export of `rightkit_automation::offscreen`, plus the Tauri helpers `start_for_window` and `start_from_env`. |
+| `keys`, `json` | Re-exports of `rightkit_automation::keys::appkit` and `rightkit_automation::json`. |
 
 ## When to use it
 
@@ -32,7 +33,7 @@ Do not use it for a web page that a headless browser can drive (see `rightkit-br
 | `wv2-0_39` | no | `windows` 0.62, `webview2-com` 0.39 (Windows only) | WebView2 types for Tauri 2.12 and later. |
 | `tauri-plugin` | no | `tauri` 2 | Tauri window helpers only (`offscreen::start_for_window`, `offscreen::start_from_env`). Does not compile the control server. |
 | `qa-control` | no | `tauri-plugin`, `rightkit-daemon`, `serde_json` | QA ONLY, NEVER SHIPPED. The embedded Tauri control server (`embedded` module). Since 0.3.0 this is the only way to get `embedded::Control`. |
-| `offscreen-private-spi` | no | none | macOS only: WKWebView `_setWindowOcclusionDetectionEnabled:` private SPI for `offscreen` launch; without it `offscreen` fails with `OcclusionSpiNotCompiled` (`Cargo.toml:29-32`). |
+| `offscreen-private-spi` | no | `rightkit-automation/offscreen-private-spi` | macOS only: WKWebView `_setWindowOcclusionDetectionEnabled:` private SPI for `offscreen` launch; without it `offscreen` fails with `OcclusionSpiNotCompiled` (`Cargo.toml:29-32`). |
 
 There are no default features. On Windows the `qa-control` feature requires one WebView2 generation (enable exactly one; if both are enabled `wv2-0_39` wins, `src/embedded/win_view.rs:18-25`): `features = ["qa-control", "wv2-0_38"]` for Tauri 2.11, or `features = ["qa-control", "wv2-0_39"]` for Tauri 2.12 and later (a Windows build with neither fails with a `compile_error!`). macOS and builds without `qa-control` need neither.
 
@@ -129,7 +130,7 @@ Without a policy, the gate is allow-all and output is unchanged. With `--policy 
 
 ## Tests and examples
 
-- `tests/control_plane.rs`, `tests/durable_lease.rs`, `tests/gated_paths.rs`, `tests/serve_auth.rs`.
+- `tests/gated_paths.rs`, `tests/serve_auth.rs`, `tests/offscreen_macos.rs`, `tests/offscreen_windows.rs`, and `tests/reexports.rs` (pins the re-exported paths). `control_plane`, `durable_lease` and `frontmost_macos` moved to `rightkit-automation`.
 - `examples/control-test-app/` with `proof.sh` (see above).
 - `registration.patch` at the crate root.
 

@@ -277,7 +277,7 @@ pub fn run(args: &[String], gate: Arc<EffectGate>) -> i32 {
         "click" => {
             let (x, y) = (num(2), num(3));
             let e = g.admit(EffectKind::Input, "click", target, coords(2, 2), || {
-                mac::click(pid, window(pid)?.id, x, y);
+                mac::unsafe_ungated::click(pid, window(pid)?.id, x, y);
                 Ok(())
             });
             return exit_code(&e);
@@ -285,7 +285,7 @@ pub fn run(args: &[String], gate: Arc<EffectGate>) -> i32 {
         "hover" => {
             let (x, y) = (num(2), num(3));
             let e = g.admit(EffectKind::Input, "hover", target, coords(2, 2), || {
-                mac::hover(pid, window(pid)?.id, x, y);
+                mac::unsafe_ungated::hover(pid, window(pid)?.id, x, y);
                 Ok(())
             });
             return exit_code(&e);
@@ -293,7 +293,7 @@ pub fn run(args: &[String], gate: Arc<EffectGate>) -> i32 {
         "drag" => {
             let (a, b) = ((num(2), num(3)), (num(4), num(5)));
             let e = g.admit(EffectKind::Input, "drag", target, coords(2, 4), || {
-                mac::drag(pid, window(pid)?.id, a, b, 20);
+                mac::unsafe_ungated::drag(pid, window(pid)?.id, a, b, 20);
                 Ok(())
             });
             return exit_code(&e);
@@ -301,7 +301,7 @@ pub fn run(args: &[String], gate: Arc<EffectGate>) -> i32 {
         "scroll" => {
             let (x, y, dy) = (num(2), num(3), num(4) as i32);
             let e = g.admit(EffectKind::Input, "scroll", target, coords(2, 3), || {
-                mac::scroll(pid, window(pid)?.id, x, y, dy);
+                mac::unsafe_ungated::scroll(pid, window(pid)?.id, x, y, dy);
                 Ok(())
             });
             return exit_code(&e);
@@ -311,7 +311,7 @@ pub fn run(args: &[String], gate: Arc<EffectGate>) -> i32 {
             let p = format!("{{\"text\":\"{}\"}}", crate::json::esc(needle));
             let e = g.admit(EffectKind::Input, "click_text", target, p, || {
                 let n = mac::ax_find(pid, needle, false).ok_or_else(not_found)?;
-                mac::click_node(pid, &n)
+                mac::unsafe_ungated::click_node(pid, &n)
             });
             return exit_code(&e);
         }
@@ -320,7 +320,7 @@ pub fn run(args: &[String], gate: Arc<EffectGate>) -> i32 {
             let p = format!("{{\"text\":\"{}\"}}", crate::json::esc(needle));
             let e = g.admit(EffectKind::Action, "press", target, p, || {
                 let n = mac::ax_find(pid, needle, false).ok_or_else(not_found)?;
-                Ok(mac::ax_press(&n))
+                Ok(mac::unsafe_ungated::ax_press(&n))
             });
             if let Some(v) = e.value {
                 println!("{v}");
@@ -346,7 +346,7 @@ pub fn run(args: &[String], gate: Arc<EffectGate>) -> i32 {
                 "key_without_raise",
                 target,
                 String::new(),
-                || Ok(mac::key_without_raise(pid, window(pid)?.id)),
+                || Ok(mac::unsafe_ungated::key_without_raise(pid, window(pid)?.id)),
             );
             if let Some(v) = e.value {
                 println!("{v}");
@@ -365,7 +365,7 @@ pub fn run(args: &[String], gate: Arc<EffectGate>) -> i32 {
             let out = arg(2);
             let p = format!("{{\"out\":\"{}\"}}", crate::json::esc(out));
             let e = g.admit(EffectKind::Capture, "capture", target, p, || {
-                mac::capture_window(window(pid)?.id, out)
+                mac::unsafe_ungated::capture_window(window(pid)?.id, out)
                     .then_some(())
                     .ok_or_else(|| "screencapture failed".to_string())
             });

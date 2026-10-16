@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.4.1
+
+The paths below are unchanged, so `rightkit-qa`'s `0.4.0` requirement still resolves. Needs `rightkit-automation` 0.4.0 published first.
+
+The generic input code moved to `rightkit-automation` 0.4.0 and this crate re-exports it under the old paths. No duplicate implementation remains here.
+
+- `admission`, `events`, `lease`, `lease_store` are `rightkit_automation::control::*`. `mac` is `rightkit_automation::macos::background`. `offscreen` is `rightkit_automation::offscreen`, with `start_for_window` and `start_from_env` (the Tauri helpers) still defined in this crate. `json` is `rightkit_automation::json`. `keys` is `rightkit_automation::keys::appkit`. Every path a caller used keeps resolving.
+- The WebDriver bridge, the CLI and the `qa-control` embedded server stay here. Their calls to the raw macOS primitives now go through `mac::unsafe_ungated` (inside executors the gate already admitted).
+- New dependency: `rightkit-automation` 0.4.0. `offscreen-private-spi` now forwards to `rightkit-automation/offscreen-private-spi`. On Windows the crate now pulls the `windows` 0.62 crate through automation; macOS stays free of third-party crates.
+- Behaviour that changed with the move (all stricter): the process-wide kill switch (`rightkit_automation::policy::kill`) now denies every effect admitted through an `EffectGate` (stage `Policy`, reason `kill switch engaged`) and `launch_offscreen` returns `OffscreenError::KillSwitch`; `mac::unsafe_ungated` does nothing while it is engaged. No caller in this repository engages the switch, so nothing changes until a host does.
+- Removed: `impl Default for mac::Gated` (use `Gated::allow_all()` to opt out of an admission hook explicitly, or `Gated::new(gate)`). Added: `OffscreenError::KillSwitch`.
+- The unit tests for admission, lease, lease store, events, offscreen geometry and the macOS reader moved with the code. `tests/control_plane.rs`, `tests/durable_lease.rs` and `tests/frontmost_macos.rs` now live in `rightkit-automation`; `tests/reexports.rs` here pins the old paths.
+- **Hidden macOS launches never activate through the control server.** With `RIGHTKIT_QA_HIDDEN=1` the embedded `Control` plugin sets the app's activation policy to Accessory in plugin setup (before the app creates its windows) and again as each webview becomes ready, so a later `show()`, reopen or AppKit launch step cannot make the app frontmost. Visible and background launches are unchanged. Found by Ember's signed RC on macos-15 (run 38767131660): `hidden qualification must never activate app: states=[loginwindow, Ember, loginwindow]`.
+- The launchers already suppress LaunchServices activation (`open -g -j -n`, in `mac::launch_hidden` and `rightkit-qa` `open_command`). What QA cannot enforce: an activation the app itself requests before plugin setup (tao/Tauri `activate_ignoring_other_apps`, default on) and a pre-built signed `.app`'s `LSUIElement` (rewriting its Info.plist breaks the signature). The app must turn `activate_ignoring_other_apps` off when `RIGHTKIT_QA_HIDDEN=1` (see the `rightkit-qa` README, hidden launches). Ember fixed its remaining activations by setting the Accessory policy on the built app before `run()`; `setup()` runs only after the app is already running in Tauri 2.11.
+- New unit test for the hidden-flag decision (`hidden_requested`).
+
 ## 0.4.0
 
 QA runs many times faster than real time. Every new parameter is optional and a request without them behaves as before, apart from the removed fixed pauses.

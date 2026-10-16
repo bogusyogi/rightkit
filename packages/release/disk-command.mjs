@@ -6,8 +6,9 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { spawnSync } from "./background-process.mjs";
 import { compareVersions } from "./rightkit-sync.mjs";
 import {
-  DISK_EXIT_WARNING, applySweep, checkDisk, formatBytes, listOpenPaths, logEvent, planSweep, platformKey, purgeHoldings, readDiskPolicy,
+  DISK_EXIT_WARNING, applySweep, checkDisk, ensureScratchRoots, formatBytes, listOpenPaths, logEvent, planSweep, platformKey, purgeHoldings, readDiskPolicy, setWorkspaceSweepAllowed,
 } from "./disk-policy.mjs";
+import { evaluateBinding, installStableRoot, readScheduleBinding, selfCheck } from "./disk-stable-root.mjs";
 
 export const LAUNCHD_LABEL = "dev.rightkit.disk-hygiene";
 export const WINDOWS_TASK = "RightKit Disk Hygiene";
@@ -18,11 +19,15 @@ export function renderCheck(result) {
     const size = w.error ? `error: ${w.error}` : w.matches === 0 ? "absent" : `${formatBytes(w.bytes)} / cap ${formatBytes(w.capBytes)}`;
     lines.push(`  ${w.id.padEnd(28)} ${w.action.padEnd(6)} ${size}${w.over ? "  OVER CAP" : ""}`);
   }
+  if (result.unknown?.length) {
+    lines.push(`Unknown top-level entries (${result.unknown.length}):`);
+    for (const u of result.unknown) lines.push(`  ${(u.symlink ? "symlink" : formatBytes(u.bytes)).padStart(9)}  ${String(u.ageDays).padStart(4)}d  ${u.path}`);
+  }
   for (const w of result.warnings) lines.push(`WARNING: ${w}`);
   return lines.join("\n");
 }
 
-export function renderSweep(plan, applied) {
+export function renderSweep(plan, applied, { all = false } = {}) {
   const lines = [`${applied ? "Swept" : "Dry run: would move"} ${plan.candidates.length} item(s), ${formatBytes(plan.totalBytes)} (stale > ${plan.staleDays} days)`];
   const rows = applied ? applied.results : plan.candidates;
   const byWriter = new Map();
@@ -30,24 +35,27 @@ export function renderSweep(plan, applied) {
   for (const [writer, items] of byWriter) {
     const total = items.reduce((s, r) => s + r.bytes, 0);
     lines.push(`  ${writer.padEnd(26)} ${String(items.length).padStart(4)} item(s) ${formatBytes(total).padStart(9)}`);
-    for (const r of [...items].sort((a, b) => b.bytes - a.bytes).slice(0, 5)) lines.push(`      ${formatBytes(r.bytes).padStart(9)}  ${r.path}${r.destination ? ` -> ${r.destination}` : ""}${r.ok === false ? `  FAILED: ${r.error}` : ""}`);
-    if (items.length > 5) lines.push(`      ... ${items.length - 5} more`);
+    for (const r of [...items].sort((a, b) => b.bytes - a.bytes).slice(0, all ? Infinity : 5)) lines.push(`      ${formatBytes(r.bytes).padStart(9)}  ${r.path}${r.destination ? ` -> ${r.destination}` : ""}${r.ok === false ? `  FAILED: ${r.error}` : ""}`);
+    if (!all && items.length > 5) lines.push(`      ... ${items.length - 5} more`);
   }
   const counts = {};
   for (const s of plan.skipped) counts[s.reason] = (counts[s.reason] ?? 0) + 1;
+  const reportOnly = plan.skipped.filter((s) => s.reason === "report-only");
+  if (reportOnly.length) lines.push(`  workspace-unknown is report-only on this host: ${reportOnly.length} unknown entr${reportOnly.length === 1 ? "y" : "ies"} will not be moved (opt in with: right-release disk allow-workspace-sweep)`);
   if (plan.skipped.length) lines.push(`  skipped: ${Object.entries(counts).map(([k, v]) => `${v} ${k}`).join(", ")}`);
   return lines.join("\n");
 }
 
 function parse(rest) {
-  const known = new Set(["--json", "--dry-run", "--delete", "--days", "--policy"]);
-  const opts = { json: false, dryRun: false, deleteMode: false, days: undefined, policy: undefined };
+  const known = new Set(["--json", "--dry-run", "--delete", "--all", "--days", "--policy"]);
+  const opts = { json: false, dryRun: false, deleteMode: false, all: false, days: undefined, policy: undefined };
   for (let i = 0; i < rest.length; i += 1) {
     const a = rest[i];
     if (!known.has(a)) throw new Error(`disk: unknown option ${a}`);
     if (a === "--json") opts.json = true;
     else if (a === "--dry-run") opts.dryRun = true;
     else if (a === "--delete") opts.deleteMode = true;
+    else if (a === "--all") opts.all = true;
     else { const v = rest[++i]; if (!v) throw new Error(`disk: ${a} needs a value`); if (a === "--days") opts.days = Number(v); else opts.policy = v; }
   }
   if (opts.days !== undefined && !(opts.days >= 0)) throw new Error("disk: --days must be a non-negative number");
@@ -57,6 +65,9 @@ function parse(rest) {
 
 // A path inside any git checkout (a `.git` entry on an ancestor) is development code, never an installed package.
 export function insideGitCheckout(file, exists = existsSync) {
+  // A pnpm store is an install location even when it sits inside a workspace that is itself a git checkout (the Mac keeps
+  // .pnpm-store under /Volumes/D/claude).
+  if (file.split(/[\\/]+/).some((seg) => seg === ".pnpm-store" || seg === ".pnpm")) return false;
   let dir = path.dirname(file);
   for (;;) {
     if (exists(path.join(dir, ".git"))) return true;
@@ -162,47 +173,86 @@ Register-ScheduledTask -TaskName '${WINDOWS_TASK}' -Action $a -Trigger $t -Setti
   return { platform: "win", script };
 }
 
-function schedule(sub, { stdout, cli }) {
-  const platform = process.platform;
-  const spec = scheduleSpec(platform === "darwin" || sub !== "install" ? { platform } : { platform, cli: resolveInstalledCli({ explicit: cli }) });
+const here = path.dirname(fileURLToPath(import.meta.url));
+
+/** CLI to copy into the stable root: --cli / RIGHT_RELEASE_INSTALLED_CLI, else this very package when it is not a checkout
+ * (the usual `right-release disk schedule install` from the installed package), else the discovered installed package. */
+export function sourceCli({ explicit, env = process.env, self = path.join(here, "cli", "right-release.mjs"), resolve = resolveInstalledCli } = {}) {
+  if (explicit || env.RIGHT_RELEASE_INSTALLED_CLI) return resolve({ explicit, env });
+  let real = self;
+  try { real = realpathSync(self); } catch { /* keep lexical */ }
+  if (existsSync(self) && !insideGitCheckout(real)) return self;
+  return resolve({ explicit, env });
+}
+
+function scheduleStatus({ platform, stdout, env = process.env, home = os.homedir() }) {
+  let binding = null;
+  let loaded = false;
+  try { binding = readScheduleBinding({ platform, home }); } catch (error) { stdout(`status: cannot read the schedule (${error.message})`); return 1; }
+  if (platform === "darwin") {
+    const r = spawnSync("launchctl", ["print", `gui/${process.getuid()}/${LAUNCHD_LABEL}`], { encoding: "utf8" });
+    loaded = r.status === 0;
+  } else loaded = Boolean(binding);
+  if (!binding) { stdout("not installed"); return 0; }
+  const verdict = evaluateBinding(binding, { platform, env, home });
+  stdout(`${loaded ? "installed" : "plist present but not loaded"} (${binding.source})`);
+  stdout(`  target: ${binding.cli ?? "(none)"}`);
+  if (verdict.ok) { stdout("  binding ok: stable root, target present"); return loaded ? 0 : 1; }
+  for (const p of verdict.problems) stdout(`  PROBLEM: ${p}`);
+  return 1;
+}
+
+function schedule(sub, { stdout, cli, platform = process.platform, env = process.env }) {
+  if (!["install", "uninstall", "status"].includes(sub)) throw new Error("disk schedule install|uninstall|status");
+  if (sub === "status") return scheduleStatus({ platform, stdout, env });
+  const spec = scheduleSpec({ platform });
   if (platform === "darwin") {
     const uid = String(process.getuid());
     if (sub === "install") {
-      mkdirSync(path.dirname(spec.file), { recursive: true });
+      const installed = installStableRoot({ cli: sourceCli({ explicit: cli, env }), platform, env });
+      stdout(`${installed.unchanged ? "kept" : "installed"} @rightkit/release ${installed.version ?? "?"} in ${installed.stable}`);
+      const bound = scheduleSpec({ platform, cli: installed.cli });
+      mkdirSync(path.dirname(bound.file), { recursive: true });
       mkdirSync("/Volumes/D/claude/tmp/swept", { recursive: true });
-      writeFileSync(spec.file, spec.plist);
+      ensureScratchRoots({ policy: readDiskPolicy(), platform, env });
+      writeFileSync(bound.file, bound.plist);
       spawnSync("launchctl", ["bootout", `gui/${uid}/${LAUNCHD_LABEL}`], { encoding: "utf8" });
-      const r = spawnSync("launchctl", ["bootstrap", `gui/${uid}`, spec.file], { encoding: "utf8" });
+      const r = spawnSync("launchctl", ["bootstrap", `gui/${uid}`, bound.file], { encoding: "utf8" });
       if (r.status !== 0) throw new Error(`launchctl bootstrap failed: ${r.stderr}`);
-      stdout(`installed ${spec.file} (daily 03:30)`);
-    } else if (sub === "uninstall") {
+      stdout(`installed ${bound.file} (daily 03:30), bound to ${installed.cli}`);
+    } else {
       spawnSync("launchctl", ["bootout", `gui/${uid}/${LAUNCHD_LABEL}`], { encoding: "utf8" });
       if (existsSync(spec.file)) unlinkSync(spec.file);
       stdout("uninstalled");
-    } else if (sub === "status") {
-      const r = spawnSync("launchctl", ["print", `gui/${uid}/${LAUNCHD_LABEL}`], { encoding: "utf8" });
-      stdout(r.status === 0 ? `installed (${spec.file})` : "not installed");
-    } else throw new Error("disk schedule install|uninstall|status");
-    return;
+    }
+    return 0;
   }
   if (sub === "install") {
-    const r = spawnSync("powershell.exe", ["-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden", "-Command", spec.script], { encoding: "utf8" });
+    const installed = installStableRoot({ cli: sourceCli({ explicit: cli, env }), platform, env });
+    stdout(`${installed.unchanged ? "kept" : "installed"} @rightkit/release ${installed.version ?? "?"} in ${installed.stable}`);
+    ensureScratchRoots({ policy: readDiskPolicy(), platform, env });
+    const bound = scheduleSpec({ platform, cli: installed.cli });
+    const r = spawnSync("powershell.exe", ["-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden", "-Command", bound.script], { encoding: "utf8" });
     if (r.status !== 0) throw new Error(`Register-ScheduledTask failed: ${r.stderr || r.stdout}`);
-    stdout(`installed scheduled task "${WINDOWS_TASK}" (daily 03:30, hidden)`);
-  } else if (sub === "uninstall") {
+    stdout(`installed scheduled task "${WINDOWS_TASK}" (daily 03:30, hidden), bound to ${installed.cli}`);
+  } else {
     spawnSync("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", `Unregister-ScheduledTask -TaskName '${WINDOWS_TASK}' -Confirm:$false`], { encoding: "utf8" });
     stdout("uninstalled");
-  } else if (sub === "status") {
-    const r = spawnSync("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", `Get-ScheduledTask -TaskName '${WINDOWS_TASK}' | Select-Object -ExpandProperty State`], { encoding: "utf8" });
-    stdout(r.status === 0 ? `installed (${String(r.stdout).trim()})` : "not installed");
-  } else throw new Error("disk schedule install|uninstall|status");
+  }
+  return 0;
 }
 
 export async function runDiskCommand(args = process.argv.slice(2), { env = process.env, stdout = console.log, platform = process.platform, deps = {} } = {}) {
   const [command, ...rest] = args;
   if (command === "schedule") {
     const at = rest.indexOf("--cli");
-    schedule(rest[0], { stdout, cli: at === -1 ? undefined : rest[at + 1] });
+    const exitCode = schedule(rest[0], { stdout, cli: at === -1 ? undefined : rest[at + 1], platform, env });
+    return { exitCode };
+  }
+  if (command === "allow-workspace-sweep") {
+    const off = rest.includes("--off");
+    const file = setWorkspaceSweepAllowed(!off, { platform, env, ...(deps.flagHome ? { home: deps.flagHome } : {}) });
+    stdout(off ? `workspace-unknown sweep revoked on this host (${file}.revoked)` : `workspace-unknown sweep allowed on this host (${file}); review \`disk sweep --dry-run --all\` first, revoke with --off`);
     return { exitCode: 0 };
   }
   const opts = parse(rest);
@@ -219,10 +269,11 @@ export async function runDiskCommand(args = process.argv.slice(2), { env = proce
     return { exitCode: result.warn ? DISK_EXIT_WARNING : 0, result };
   }
   if (command === "sweep") {
+    if (!opts.dryRun) ensureScratchRoots({ policy, platform, env });
     const p = plan();
-    if (opts.dryRun) { out(p, renderSweep(p)); return { exitCode: 0, plan: p }; }
+    if (opts.dryRun) { out(p, renderSweep(p, undefined, { all: opts.all })); return { exitCode: 0, plan: p }; }
     const applied = applySweep({ plan: p, policy, platform, deleteMode: opts.deleteMode, ...deps.apply });
-    out({ ...p, applied }, renderSweep(p, applied));
+    out({ ...p, applied }, renderSweep(p, applied, { all: opts.all }));
     return { exitCode: applied.results.some((r) => !r.ok) ? 1 : 0, plan: p, applied };
   }
   if (command === "purge") {
@@ -231,6 +282,13 @@ export async function runDiskCommand(args = process.argv.slice(2), { env = proce
     return { exitCode: purged.results.some((r) => !r.ok) ? 1 : 0, purged };
   }
   if (command === "run") {
+    // Self-check first: a broken binding (non-stable target, missing package or dependency) is logged and fails the run.
+    const self = (deps.selfCheck ?? selfCheck)({ moduleDir: path.resolve(here, "."), platform, env, ...(deps.selfCheckOptions ?? {}) });
+    if (!self.ok) {
+      for (const problem of self.problems) stdout(`ERROR: disk run self-check: ${problem}`);
+      logEvent(logFile, { event: "disk.run.selfcheck.fail", problems: self.problems, version: self.version });
+    }
+    ensureScratchRoots({ policy, platform, env });
     const before = check();
     stdout(renderCheck(before));
     const p = plan();
@@ -243,9 +301,9 @@ export async function runDiskCommand(args = process.argv.slice(2), { env = proce
     const warn = after.warn;
     logEvent(logFile, { event: warn ? "disk.floor.warn" : "disk.run.ok", warnings: after.warnings, freeBytes: after.floor.freeBytes, movedBytes: applied.movedBytes });
     if (warn) stdout(`WARNING: ${after.warnings.join("; ")}`);
-    return { exitCode: warn ? DISK_EXIT_WARNING : 0, before, after, applied, purged };
+    return { exitCode: !self.ok ? 2 : warn ? DISK_EXIT_WARNING : 0, before, after, applied, purged, selfCheck: self };
   }
-  throw new Error("disk usage: check|sweep [--dry-run|--delete] [--days N]|purge [--dry-run] [--days N]|run|schedule install|uninstall|status  [--json]");
+  throw new Error("disk usage: check|sweep [--dry-run|--delete] [--all]|allow-workspace-sweep [--off] [--days N]|purge [--dry-run] [--days N]|run|schedule install|uninstall|status  [--json]");
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {

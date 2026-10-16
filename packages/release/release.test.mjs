@@ -20,7 +20,14 @@ function git(cwd, ...args) {
   return execFileSync("git", args, { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
 }
 
-function fixture({ signed = true, publish = false, signingContract = "windows-raw-exe-authenticode-before-nsis-v1", prePackageFiles = ["raw.exe"], signFiles = ["fixture.exe"], macSigning = false, macNotarize = { file: "fixture.zip" }, packageJson, packageCommand, cargoManifest, cargoConfig, repoCargoConfig, siblingCargoManifest, buildInputs = defaultBuildInputs, platform = "win", hostedWorkflows, includeCargoSources = true } = {}) {
+// RightKit QA is mandatory for every app: fixtures declare it at the latest published version unless a test opts out.
+function withQaAdoption(pkg, qa = true) {
+  if (!qa) return pkg;
+  const latest = versions.registry?.npm?.["@rightkit/qa"] ?? versions.stagedNpm["@rightkit/qa"];
+  return { ...pkg, devDependencies: { ...pkg.devDependencies, "@rightkit/qa": latest } };
+}
+
+function fixture({ signed = true, publish = false, signingContract = "windows-raw-exe-authenticode-before-nsis-v1", prePackageFiles = ["raw.exe"], signFiles = ["fixture.exe"], macSigning = false, macNotarize = { file: "fixture.zip" }, packageJson, packageCommand, cargoManifest, cargoConfig, repoCargoConfig, siblingCargoManifest, buildInputs = defaultBuildInputs, platform = "win", hostedWorkflows, includeCargoSources = true, qa = true } = {}) {
   const fixtureRoot = mkdtempSync(path.join(os.tmpdir(), "right-release-test-"));
   const dir = repoCargoConfig ? path.join(fixtureRoot, "apps", "fixture") : fixtureRoot;
   mkdirSync(dir, { recursive: true });
@@ -28,7 +35,7 @@ function fixture({ signed = true, publish = false, signingContract = "windows-ra
   writeFileSync(
     path.join(dir, "package.json"),
     JSON.stringify(
-      packageJson ?? {
+      withQaAdoption(packageJson ?? {
         name: "fixture",
         scripts: { [`release:patch:${platform}`]: `right-release --platform ${platform} --tier patch` },
         packageManager: versions.packageManager,
@@ -37,7 +44,7 @@ function fixture({ signed = true, publish = false, signingContract = "windows-ra
           "@rightkit/logs": versions.npm["@rightkit/logs"],
         },
         devDependencies: { "@rightkit/release": versions.npm["@rightkit/release"] },
-      },
+      }, qa),
       null,
       2,
     ),
@@ -133,7 +140,7 @@ function lockFixture() {
   writeFileSync(
     path.join(dir, "package.json"),
     JSON.stringify(
-      {
+      withQaAdoption({
         name: "fixture-lock",
         scripts: { "release:patch:mac": "right-release --platform mac --tier patch" },
         packageManager: versions.packageManager,
@@ -142,7 +149,7 @@ function lockFixture() {
           "@rightkit/logs": versions.npm["@rightkit/logs"],
         },
         devDependencies: { "@rightkit/release": versions.npm["@rightkit/release"] },
-      },
+      }),
       null,
       2,
     ),
@@ -1394,9 +1401,8 @@ test("doctor passes a clean selected target", () => {
   const result = runDoctor(fixture({ platform: hostPlatform, macSigning: hostPlatform === "mac" }));
   assertDoctorFailsClosedOnlyOnOwnership(result);
   assert.match(result.stdout, /\[ok\s+\] target-bridge:/);
-  // Derived from the version manifest, not hardcoded: a literal here has to be
-  // hand-edited on every bump and fails the suite when someone forgets.
-  const expected = versions.stagedNpm?.["@rightkit/release"] ?? versions.npm["@rightkit/release"];
+  // The running package's own version (package.json), not the feed, which names the previous release.
+  const expected = JSON.parse(readFileSync(new URL("./package.json", import.meta.url), "utf8")).version;
   assert.match(result.stdout, new RegExp(`right-release ${expected.replace(/\./g, "\\.")}`));
 });
 
@@ -1597,4 +1603,11 @@ test("native finalization is ordered after raw signing and before packaging", ()
   assert.ok(signing >= 0, source);
   assert.ok(finalization > signing, source);
   assert.ok(packaging > finalization, source);
+});
+
+test("a release is refused when the app has no QA lane, naming the rule and how to adopt it", () => {
+  const result = run(fixture({ qa: false }));
+  assert.notEqual(result.status, 0);
+  assert.match(`${result.stdout}
+${result.stderr}`, /RightKit QA is mandatory for every Orthic Labs app, and fixture has no QA lane/);
 });
