@@ -325,6 +325,7 @@ impl Harness {
 
     /// Hash a file (the binary under test) into the identity as `binaries.<label>`.
     pub fn with_identity_file(mut self, label: &str, path: &Path) -> Result<Self> {
+        crate::installed::refuse_installed(path, "binary under test")?;
         let digest = sha256_hex(&fs::read(path)?);
         if !self.identity.is_object() {
             self.identity = json!({});

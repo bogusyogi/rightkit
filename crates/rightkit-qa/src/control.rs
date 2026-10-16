@@ -839,6 +839,8 @@ fn pids_with_command_prefix(prefix: &str) -> std::result::Result<Vec<u32>, Strin
 }
 
 pub fn launch(spec: &LaunchSpec, ws: &QaWorkspace, tracker: &Tracker) -> Result<Control> {
+    // An installed app is never driven unless installed-QA mode is on (see `installed`).
+    crate::installed::refuse_installed(&spec.binary, "UI app binary")?;
     if !spec.binary.exists() {
         return err(format!(
             "UI app binary not found: {}",

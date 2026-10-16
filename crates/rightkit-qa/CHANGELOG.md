@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+Version 0.6.3. Not built or run locally; CI is the compiler.
+
+- **Installed apps are refused (Orthic-Labs/rightkit#235).** New `installed` module. `control::launch`, `Harness::with_identity_file` and `binary::validate` refuse any app bundle or executable under an installed-apps location: `/Applications` and `~/Applications` on macOS; `ProgramFiles`, `ProgramFiles(x86)`, `ProgramW6432` and `%LOCALAPPDATA%\Programs` on Windows (read from the environment, as rightkit-fs `AppDirs` reads its bases). The path is canonicalised first (symlinks, `..`, verbatim prefix) and compared case-insensitively. The opt-in is the installed-QA signal `right-release qa --stage installed` already sets, `RIGHT_RELEASE_QA_STAGE=installed` (`installed::STAGE_ENV`); there is no second switch. The refusal names the path, the matching location and that signal. Tests: `installed::tests` (classification on both OSes with injected roots, unset and relative values, the mode signal, refusal and opt-in).
+
 - **Interactive-session runs from SSH (Windows, #111).** New `interactive` module and `rightkit-qa-interactive` binary. When the harness is in session 0 (or on a non-visible window station) and the run is opted in (`--interactive` or `RIGHTKIT_QA_INTERACTIVE=1`), the whole journey command runs in the logged-on user's interactive session through a one-shot Task Scheduler task (`\RightKit\QA\<uuid>`, `InteractiveToken`, `LeastPrivilege`, same account, no password), with stdout and stderr streamed back and the exit code propagated. The task, its files and a still-running journey are always cleaned up (success, error, timeout, unwind). Without the opt-in a session-0 run keeps failing with the existing clear error. Refuses when the console user is a different account. Pure parts (decision, quoting, task XML, exit-code parsing, env selection) are unit-tested; not built or run locally, CI is the compiler. README, Windows section.
 
 ## 0.6.2

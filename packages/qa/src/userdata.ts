@@ -23,6 +23,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { appTempDir } from './storage.js';
 import { spawnOwnedProcess, type OwnedProcess, type SpawnOwnedProcessOptions } from './process.js';
+import { assertNotInstalledApp } from './installed.js';
 import type { QaWorkspace } from './workspace.js';
 
 export type UserDataRule =
@@ -212,6 +213,7 @@ export interface SpawnQaAppOptions extends Omit<SpawnOwnedProcessOptions, 'cwd' 
  */
 export function spawnQaApp(workspace: QaWorkspace, command: string, args: string[] = [], options: SpawnQaAppOptions = {}): OwnedProcess {
   const { cwd, env, dirs, app, userHomes, tempRoots, ...rest } = options;
+  assertNotInstalledApp(command, { what: 'app launch' });
   assertQaLaunchSafe(workspace, { cwd, env, dirs, app, userHomes, tempRoots });
   return spawnOwnedProcess(command, args, { ...rest, cwd: cwd ?? workspace.home, env: { ...process.env, ...workspace.env, ...(env ?? {}) } as NodeJS.ProcessEnv });
 }

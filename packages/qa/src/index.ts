@@ -3,6 +3,7 @@ export * from './evidence.js';
 export * from './devserver.js';
 export * from './frames.js';
 export * from './guard.js';
+export * from './installed.js';
 export * from './loopback.js';
 export * from './ownership.js';
 export * from './paint.js';

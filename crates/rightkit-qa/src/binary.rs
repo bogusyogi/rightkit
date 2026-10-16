@@ -225,6 +225,7 @@ pub fn has_qa_marker(path: &Path) -> std::io::Result<bool> {
 
 /// Exists, a regular file, named `<bin>` or `<bin>.exe`, and not in a `release` profile directory.
 pub fn validate(path: &Path, bin: &str) -> Result<()> {
+    crate::installed::refuse_installed(path, "app binary")?;
     let meta =
         std::fs::metadata(path).map_err(|_| Error(format!("{} does not exist", path.display())))?;
     if !meta.is_file() {
