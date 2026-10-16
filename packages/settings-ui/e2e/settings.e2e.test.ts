@@ -56,10 +56,14 @@ describe.skipIf(!chrome)("settings-ui in real headless Chrome (muted) against a 
   }, 120_000);
 
   afterAll(async () => {
-    await close?.();
-    host?.close();
-    for (const d of [build, work]) if (d) rmSync(d, { recursive: true, force: true });
-  });
+    // The bounded qa-chrome close reports a failure by throwing; host and temp dirs are still released.
+    try {
+      await close?.();
+    } finally {
+      host?.close();
+      for (const d of [build, work]) if (d) rmSync(d, { recursive: true, force: true });
+    }
+  }, 60_000);
 
   it("renders standard and app sections grouped and ordered, inside the app-shell frame", async () => {
     await open();

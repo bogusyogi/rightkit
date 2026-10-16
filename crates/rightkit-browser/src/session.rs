@@ -371,6 +371,38 @@ pub struct BrowserSession {
     fixture_backend: Option<FixtureBackend>,
 }
 
+/// Flags every session launch starts from, before profile, viewport, proxy and caller flags.
+const BASE_CHROME_ARGS: &[&str] = &[
+    "--remote-debugging-port=0",
+    "--no-first-run",
+    "--no-default-browser-check",
+    "--disable-background-networking",
+    // Chrome's own traffic: the component updater (clients2.google.com) still runs
+    // with background networking off, and a session must see only its pages' requests.
+    "--disable-component-update",
+    "--disable-domain-reliability",
+    "--no-pings",
+    "--disable-background-timer-throttling",
+    "--disable-backgrounding-occluded-windows",
+    "--disable-breakpad",
+    "--disable-client-side-phishing-detection",
+    "--disable-component-extensions-with-background-pages",
+    "--disable-default-apps",
+    "--disable-dev-shm-usage",
+    "--disable-extensions",
+    "--disable-hang-monitor",
+    "--disable-ipc-flooding-protection",
+    "--disable-prompt-on-repost",
+    "--disable-renderer-backgrounding",
+    "--disable-sync",
+    "--force-color-profile=srgb",
+    "--metrics-recording-only",
+    "--password-store=basic",
+    "--use-mock-keychain",
+    // No unmanaged windows: a pop-up would be a page the policy never saw.
+    "--block-new-web-contents",
+];
+
 impl BrowserSession {
     pub async fn launch(opts: LaunchOptions) -> Result<Self> {
         Self::launch_inner(opts, None).await
@@ -516,39 +548,7 @@ impl BrowserSession {
             Some(PinProxy::start(guard.clone()).await?)
         };
 
-        let mut args: Vec<OsString> = [
-            "--remote-debugging-port=0",
-            "--no-first-run",
-            "--no-default-browser-check",
-            "--disable-background-networking",
-            // Chrome's own traffic: the component updater (clients2.google.com) still runs
-            // with background networking off, and a session must see only its pages' requests.
-            "--disable-component-update",
-            "--disable-domain-reliability",
-            "--no-pings",
-            "--disable-background-timer-throttling",
-            "--disable-backgrounding-occluded-windows",
-            "--disable-breakpad",
-            "--disable-client-side-phishing-detection",
-            "--disable-component-extensions-with-background-pages",
-            "--disable-default-apps",
-            "--disable-dev-shm-usage",
-            "--disable-extensions",
-            "--disable-hang-monitor",
-            "--disable-ipc-flooding-protection",
-            "--disable-prompt-on-repost",
-            "--disable-renderer-backgrounding",
-            "--disable-sync",
-            "--force-color-profile=srgb",
-            "--metrics-recording-only",
-            "--password-store=basic",
-            "--use-mock-keychain",
-            // No unmanaged windows: a pop-up would be a page the policy never saw.
-            "--block-new-web-contents",
-        ]
-        .iter()
-        .map(|s| OsString::from(*s))
-        .collect();
+        let mut args: Vec<OsString> = BASE_CHROME_ARGS.iter().map(OsString::from).collect();
         args.push(crate::proc::profile_arg(&profile_dir));
         args.push(format!("--window-size={},{}", opts.viewport.0, opts.viewport.1).into());
         args.push(if opts.headless {
@@ -1425,6 +1425,14 @@ fn completed_files(dir: &Path) -> HashSet<PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn launch_args_disable_the_component_updater() {
+        // Chrome's component updater (clients2.google.com) runs even with background
+        // networking off; a session must see only its pages' requests.
+        assert!(BASE_CHROME_ARGS.contains(&"--disable-component-update"));
+        assert!(BASE_CHROME_ARGS.contains(&"--disable-background-networking"));
+    }
 
     #[test]
     fn profile_dir_accepts_spaces_and_preserves_caller_directory_on_cleanup() {

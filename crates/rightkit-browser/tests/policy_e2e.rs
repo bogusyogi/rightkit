@@ -16,12 +16,16 @@ use std::process::Command;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-/// Every test here drives a real Chrome for Testing. Without one the test prints a SKIP line
-/// and returns; `RIGHTKIT_REQUIRE_ASSETS=1` turns the gap into a failure.
+/// Every test here drives a real Chrome for Testing, resolved through the shared resolver.
+/// Locally, without one the test prints a SKIP line and returns; `RIGHTKIT_REQUIRE_ASSETS=1`
+/// or `GITHUB_ACTIONS=true` turns the gap into a failure.
 macro_rules! need_chrome {
     ($test:literal) => {
         if let Err(e) = rightkit_browser::chrome_for_testing_path(None) {
-            if std::env::var_os("RIGHTKIT_REQUIRE_ASSETS").is_some_and(|v| v == "1") {
+            let assets_required =
+                std::env::var_os("RIGHTKIT_REQUIRE_ASSETS").is_some_and(|v| v == "1");
+            let github_actions = std::env::var_os("GITHUB_ACTIONS").is_some_and(|v| v == "true");
+            if assets_required || github_actions {
                 panic!("{}: {e}", $test);
             }
             println!("[browser] SKIP {}: {e}", $test);

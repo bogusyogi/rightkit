@@ -198,8 +198,10 @@ async function attach(browser: Awaited<ReturnType<typeof launchChromeForTesting>
     page,
     async close() {
       ws.close();
-      // Bounded wait after Browser.close, then SIGTERM, then SIGKILL last; profile removed after exit.
-      const report = await browser.close();
+      // qa-chrome's bounded close: CDP Browser.close, SIGTERM, SIGKILL last, each step capped by
+      // graceMs, then a profile-process settle and a profile removal retry. Every bound is explicit so
+      // teardown never depends on a hook timeout (worst case is well under the 60 s hookTimeout).
+      const report = await browser.close({ graceMs: 5000, settleMs: 4000, profileRemoveMs: 10_000 });
       if (!report.exited || !report.profileRemoved) throw new Error(`Chrome for Testing did not close cleanly: ${JSON.stringify(report)}`);
     },
   };
