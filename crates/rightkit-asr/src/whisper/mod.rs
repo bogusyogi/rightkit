@@ -50,6 +50,12 @@
 //! - [`load_wav_mono_16k`] / [`load_audio`](crate::load_audio) read WAV input.
 
 pub(crate) mod control;
+// whisper.cpp (dynamic FFI over `libloading`) is not compiled for Android: the stub keeps the
+// `WhisperCpp` name and refuses `load` with a typed `Error::unsupported`.
+#[cfg(not(target_os = "android"))]
+pub(crate) mod cpp;
+#[cfg(target_os = "android")]
+#[path = "cpp_android.rs"]
 pub(crate) mod cpp;
 #[cfg(target_os = "macos")]
 pub mod coreml;

@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-asr"
-version = "0.2.3"
+version = "0.2.4"
 edition = "2021"
 rust-version = "1.98.0"
 publish = true
@@ -35,7 +35,6 @@ ndarray = "0.17"
 realfft = "3"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-libloading = "0.9"
 rightkit-onnx = { path = "../rightkit-onnx", version = "0.2.2", features = ["ndarray", "half"] }
 rightkit-transcript = { version = "0.3.0", path = "../rightkit-transcript" }
 rightkit-vad = { version = "0.1.0", path = "../rightkit-vad", default-features = false }
@@ -43,8 +42,12 @@ rightkit-vad = { version = "0.1.0", path = "../rightkit-vad", default-features =
 # crate (and its C regex build). Parakeet CoreML and ONNX TDT paths do not need it.
 tokenizers = { version = "0.22.2", default-features = false, features = ["onig"], optional = true }
 
+# whisper.cpp is bound through dlopen; it is not compiled for Android (see `src/whisper/cpp_android.rs`).
+[target.'cfg(not(target_os = "android"))'.dependencies]
+libloading = "0.9"
+
 [target.'cfg(target_os = "macos")'.dependencies]
-objc2 = { version = "0.6", features = ["exception"] }
+objc2 ={ version = "0.6", features = ["exception"] }
 objc2-core-ml = "0.3"
 objc2-foundation = "0.3"
 

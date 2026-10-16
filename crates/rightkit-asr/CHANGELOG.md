@@ -3,6 +3,15 @@
 All notable changes to `rightkit-asr`. Versions follow Cargo semver; while the
 version is `0.x`, a minor bump may carry breaking changes.
 
+## 0.2.4
+
+Patch for Orthic-Labs/rightkit#207 (Parakeet ONNX for Android). NOT COMPILED OR RUN when written, and never built for an Android target.
+
+- whisper.cpp is no longer compiled for `target_os = "android"`. `whisper/cpp.rs` (the `libloading` FFI) is replaced there by `whisper/cpp_android.rs`: `WhisperCpp` keeps its name and `load` signature but is uninhabited, and `WhisperCpp::load` (so `WhisperModel::Ggml`) returns the typed `Error::unsupported` refusal (`Error::is_unsupported()`), as before. `Whisper` and the other public types are unchanged.
+- `libloading` moved to `[target.'cfg(not(target_os = "android"))'.dependencies]`; no dlopen dependency remains in the Android build. `tests/e2e_whisper_ggml.rs` is `cfg(not(target_os = "android"))` because it uses `libloading`.
+- Review result, no change needed: Apple dependencies and modules were already `cfg(target_os = "macos")`; `ort` is reached only through `rightkit_onnx::ort` (no direct `ort` dependency), and this crate never loads ONNX Runtime itself, so on Android the app binds `libonnxruntime.so` through `rightkit_onnx::configure_android_runtime` (or `init_environment_default_loader`) before the first model load.
+- For an Android build use `default-features = false` (optionally `xnnpack`): the default `whisper-tokenizers` feature pulls the C `tokenizers`/`onig` build, which the Parakeet TDT path does not need. Without it `Parakeet` (CTC) and `ParakeetEOU` are absent; `ParakeetTDT` and `Transducer` remain. Not built for Android.
+
 ## 0.2.3
 
 Additive patch for Orthic-Labs/rightkit#196. NOT COMPILED OR RUN when written.

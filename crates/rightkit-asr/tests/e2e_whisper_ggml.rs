@@ -9,6 +9,8 @@
 //! - `RIGHTKIT_WHISPER_GGML`: a multilingual ggml model (detection needs one;
 //!   an English-only model fails the detection test by design).
 
+#![cfg(not(target_os = "android"))] // whisper.cpp and libloading are not built for Android
+
 #[macro_use]
 mod common;
 

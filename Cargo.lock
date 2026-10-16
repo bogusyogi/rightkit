@@ -5728,7 +5728,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-asr"
-version = "0.2.3"
+version = "0.2.4"
 dependencies = [
  "half",
  "hound",
@@ -6076,7 +6076,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-logs"
-version = "0.3.1"
+version = "0.3.2"
 dependencies = [
  "getrandom 0.4.3",
  "libc",

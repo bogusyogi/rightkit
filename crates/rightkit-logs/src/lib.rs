@@ -1,5 +1,6 @@
 #![deny(unsafe_code)]
 
+pub mod android;
 mod atomic;
 mod collect;
 mod consent;

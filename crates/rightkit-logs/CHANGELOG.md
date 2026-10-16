@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.3.2
+
+- **Android log directory and logcat mirror (rightkit#204).** New `rightkit_logs::android`: `android_logs_dir(files_dir)` returns `<files_dir>/logs` from the injected app files directory (no `HOME`/`XDG`/environment lookup, no filesystem access; `None` for an empty path), matching `rightkit_android::AppPaths::logs_dir`; pass the result as `TracingFileConfig::dir`. Also `LogcatPriority` (maps to `ANDROID_LOG_*` 2 to 6) and `logcat_tag` (23-character cut, `RightKit` default). With the `tracing` feature: `LogcatLayer::new(tag, sink)`, a `tracing_subscriber` layer that mirrors each event, passed through `scrub_text`, to a `LogcatSink`, and `priority_for_level` (TRACE verbose, then DEBUG, INFO, WARN, ERROR).
+- Design: no second liblog binding. `rightkit-android` already owns `__android_log_write` and the debug-only switch (`rightkit_android::logcat::write`); an Android app builds the sink as a closure over it, so logcat stays off unless `RightKit.init(debugLogging = true)`. This crate gained no dependency and no `cfg(target_os = "android")` code.
+- Tests: `android::tests` and `android::layer::tests` (path injection, priority and level mapping, tag cut, sink receives tag and priority). Not compiled or run; not built for an Android target.
+
 ## 0.3.1
 
 - **Android compile pass (rightkit#152).** No source path selects a macOS-only or Linux-only API for `target_os = "android"`: the macOS (`libc` `sysctl`, mach) and Windows (`windows-sys`) code is gated by `target_os` and Android takes the portable fallback in `system/identity.rs` and `system/metrics.rs`; there is no syslog, `os_log`, xattr, keychain or `getpwuid` use. Log directories are always passed in by the caller (the crate has no path discovery), so an Android app passes `Context.getFilesDir()`-based paths. `ureq` is built with `rustls` and no platform verifier, so uploads use the bundled web PKI roots and need no JNI.
