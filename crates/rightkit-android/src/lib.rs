@@ -42,20 +42,22 @@ pub fn link_anchor() -> usize {
 /// Initialises `rustls-platform-verifier` (the root store `rightkit-http` uses on Android) from the
 /// captured context. Called by `init` when the `platform-verifier` feature is on.
 ///
-/// UNVERIFIED: written against `rustls_platform_verifier::android::init_with_env(&mut JNIEnv,
-/// JObject)` of the 0.5/0.6 line and the `jni` 0.21 types; confirm against the version
-/// `rightkit-http` pins before enabling. The verifier's own Kotlin component must also be on the
-/// app's classpath (see README).
+/// UNVERIFIED on a device: written against `rustls_platform_verifier::android::init_with_env(&mut
+/// Env, JObject)` of the 0.7 line and the `jni` 0.22 types (the same `jni` major the verifier
+/// depends on, so the `Env` and `JObject` passed here are the verifier's own types). The
+/// verifier's own Kotlin component must also be on the app's classpath (see README).
 #[cfg(all(feature = "platform-verifier", target_os = "android"))]
 pub fn init_platform_verifier(
-    env: &mut jni::JNIEnv<'_>,
+    env: &mut jni::Env<'_>,
     context: &jni::objects::JObject<'_>,
 ) -> Result<(), AndroidError> {
-    // SAFETY: the raw reference stays owned by the caller; the new `JObject` has no destructor.
-    let context = unsafe { jni::objects::JObject::from_raw(context.as_raw()) };
-    rustls_platform_verifier::android::init_with_env(env, context).map_err(|e| AndroidError::Jni {
-        code: error::jni_error_code(&e),
-    })
+    // The verifier takes the `JObject` by value, so hand it its own local reference and leave the
+    // caller's untouched.
+    let to_error = |e: &jni::errors::Error| AndroidError::Jni {
+        code: error::jni_error_code(e),
+    };
+    let context = env.new_local_ref(context).map_err(|e| to_error(&e))?;
+    rustls_platform_verifier::android::init_with_env(env, context).map_err(|e| to_error(&e))
 }
 
 /// Version of this bridge (the crate version).

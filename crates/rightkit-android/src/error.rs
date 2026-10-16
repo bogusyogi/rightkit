@@ -34,7 +34,9 @@ pub const JNI_OTHER: i32 = 19;
 /// Maps a `jni` crate error to a small stable code.
 pub fn jni_error_code(e: &jni::errors::Error) -> i32 {
     match e {
-        jni::errors::Error::JavaException => JNI_EXCEPTION,
+        jni::errors::Error::JavaException | jni::errors::Error::CaughtJavaException { .. } => {
+            JNI_EXCEPTION
+        }
         jni::errors::Error::NullPtr(_) => JNI_NULL,
         _ => JNI_OTHER,
     }

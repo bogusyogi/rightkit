@@ -12,8 +12,8 @@
 
 use crate::error::{jni_error_code, AndroidError, JNI_NO_VM};
 use crate::paths::AppPaths;
-use jni::objects::{GlobalRef, JObject};
-use jni::{JNIEnv, JavaVM};
+use jni::objects::{Global, JClass, JObject};
+use jni::{Env, JavaVM};
 use std::sync::OnceLock;
 
 /// Read-only access to the captured Android context. Object safe; `Send + Sync`.
@@ -29,7 +29,7 @@ pub trait ContextHandle: Send + Sync {
     /// Prefer [`ContextHandleExt::with_env`], which returns a value.
     fn with_env_dyn(
         &self,
-        f: &mut dyn FnMut(&mut JNIEnv<'_>, &JObject<'_>) -> jni::errors::Result<()>,
+        f: &mut dyn FnMut(&mut Env<'_>, &JObject<'_>) -> jni::errors::Result<()>,
     ) -> Result<(), AndroidError>;
 }
 
@@ -37,7 +37,7 @@ pub trait ContextHandle: Send + Sync {
 pub trait ContextHandleExt: ContextHandle {
     fn with_env<R>(
         &self,
-        f: impl FnOnce(&mut JNIEnv<'_>, &JObject<'_>) -> jni::errors::Result<R>,
+        f: impl FnOnce(&mut Env<'_>, &JObject<'_>) -> jni::errors::Result<R>,
     ) -> Result<R, AndroidError> {
         let mut f = Some(f);
         let mut out: Option<R> = None;
@@ -56,8 +56,8 @@ impl<T: ContextHandle + ?Sized> ContextHandleExt for T {}
 /// The real context, built by `init`.
 pub struct AndroidContext {
     vm: JavaVM,
-    app_context: GlobalRef,
-    keystore_class: GlobalRef,
+    app_context: Global<JObject<'static>>,
+    keystore_class: Global<JClass<'static>>,
     paths: AppPaths,
 }
 
@@ -66,8 +66,8 @@ static CONTEXT: OnceLock<AndroidContext> = OnceLock::new();
 impl AndroidContext {
     pub(crate) fn new(
         vm: JavaVM,
-        app_context: GlobalRef,
-        keystore_class: GlobalRef,
+        app_context: Global<JObject<'static>>,
+        keystore_class: Global<JClass<'static>>,
         paths: AppPaths,
     ) -> Self {
         AndroidContext {
@@ -88,11 +88,11 @@ impl AndroidContext {
     }
 
     /// A global reference to the application `Context`.
-    pub fn application_context(&self) -> &GlobalRef {
+    pub fn application_context(&self) -> &Global<JObject<'static>> {
         &self.app_context
     }
 
-    pub(crate) fn keystore_class(&self) -> &GlobalRef {
+    pub(crate) fn keystore_class(&self) -> &Global<JClass<'static>> {
         &self.keystore_class
     }
 
@@ -125,22 +125,33 @@ impl ContextHandle for AndroidContext {
 
     fn with_env_dyn(
         &self,
-        f: &mut dyn FnMut(&mut JNIEnv<'_>, &JObject<'_>) -> jni::errors::Result<()>,
+        f: &mut dyn FnMut(&mut Env<'_>, &JObject<'_>) -> jni::errors::Result<()>,
     ) -> Result<(), AndroidError> {
-        let mut guard = self
-            .vm
-            .attach_current_thread()
-            .map_err(|_| AndroidError::Jni { code: JNI_NO_VM })?;
-        match f(&mut guard, self.app_context.as_obj()) {
-            Ok(()) => Ok(()),
-            Err(e) => {
-                if guard.exception_check().unwrap_or(false) {
-                    let _ = guard.exception_clear();
+        // `attach_current_thread` runs `f` in a fresh local frame, so local references made by `f`
+        // are released on return. The inner result carries `f`'s own error; the outer one is an
+        // attach or detach failure.
+        let attached = self.vm.attach_current_thread(
+            |env| -> jni::errors::Result<jni::errors::Result<()>> {
+                match f(env, self.app_context.as_obj()) {
+                    Ok(()) => Ok(Ok(())),
+                    Err(e) => {
+                        if env.exception_check() {
+                            env.exception_clear();
+                        }
+                        Ok(Err(e))
+                    }
                 }
-                Err(AndroidError::Jni {
-                    code: jni_error_code(&e),
-                })
-            }
+            },
+        );
+        match attached {
+            Ok(Ok(())) => Ok(()),
+            Ok(Err(e)) => Err(AndroidError::Jni {
+                code: jni_error_code(&e),
+            }),
+            Err(e @ jni::errors::Error::CaughtJavaException { .. }) => Err(AndroidError::Jni {
+                code: jni_error_code(&e),
+            }),
+            Err(_) => Err(AndroidError::Jni { code: JNI_NO_VM }),
         }
     }
 }
@@ -169,7 +180,7 @@ impl ContextHandle for StaticContext {
 
     fn with_env_dyn(
         &self,
-        _f: &mut dyn FnMut(&mut JNIEnv<'_>, &JObject<'_>) -> jni::errors::Result<()>,
+        _f: &mut dyn FnMut(&mut Env<'_>, &JObject<'_>) -> jni::errors::Result<()>,
     ) -> Result<(), AndroidError> {
         Err(AndroidError::Jni { code: JNI_NO_VM })
     }

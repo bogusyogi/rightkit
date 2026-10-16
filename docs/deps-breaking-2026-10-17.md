@@ -12,7 +12,6 @@ Compatible bumps were applied to the manifests (lockfiles refreshed separately).
 | ed25519-dalek | 2 | 3.0.0 | models | Moves to the newer `signature`/`rand_core` traits; align with sha2 0.11 |
 | getrandom | 0.3 | 0.4.3 | credentials, device, mcp, models, oauth, qa, sync-keys, tts-qwen, workflow | `getrandom::fill` is the entry point; browser pins `=0.3.4` on purpose |
 | hkdf | 0.12 | 0.13.0 | sync-keys | RustCrypto `digest` 0.11 line; move with sha2 0.11 |
-| jni | 0.21.1 | 0.22.4 | android | Reworked `JNIEnv`/attach APIs; plan with the uniffi bump |
 | lopdf | 0.44.0 | 0.45.0 | docs, pdf | Pre-1.0, read the changelog for object API changes |
 | p256 | 0.13 | 0.14.0 | ownership | RustCrypto `elliptic-curve` line; move with spki and sha2 |
 | rcgen | 0.13 | 0.14.10 | daemon, http, send | Certificate params and key-pair API reshaped |
@@ -67,12 +66,11 @@ Note: pnpm's `minimumReleaseAge` setting may refuse very recent releases when th
 
 ## Deferred
 
-### jni 0.21.1 to 0.22.4 (rightkit-android)
-
-Not bumped. `jni` 0.22 reworks `JNIEnv`, the attach API and the native-method entry points, and about 70 call sites in `rightkit-android` (`context.rs`, `keystore.rs`, `jni_entry.rs`, `lib.rs`) use the 0.21 types (`JNIEnv<'_>`, `JavaVM::attach_current_thread`, `JValue`, `JClass::from(JObject::from_raw(..))`, `call_static_method`, `exception_*`). It also cannot move alone: `lib.rs::init_platform_verifier` hands `jni::JNIEnv` and `jni::objects::JObject` to `rustls_platform_verifier::android::init_with_env`, so the `jni` major must match the one `rustls-platform-verifier` 0.7 depends on (0.21). `rightkit-credentials` reaches JNI only through the `KeystoreBridge` trait that `rightkit-android` installs, so its code does not change. Plan: (1) wait for a `rustls-platform-verifier` release built on jni 0.22 (or drop the `platform-verifier` feature's JNI hand-off by initialising the verifier from Kotlin); (2) rewrite `ContextHandle::with_env_dyn` on the new attach closure API and keep `with_env` as the public seam; (3) port `keystore.rs` (`new_string`, `byte_array_from_slice`, `call_static_method`, exception reading) and `jni_entry.rs` (`nativeInit`) to the 0.22 equivalents; (4) test on a device, because nothing in this crate has run yet (README "UNVERIFIED").
+Nothing deferred in the Rust crates (jni 0.22 moved with rightkit-android 0.2.0, see the notes below).
 
 ### Notes on bumps done in this pass (verify on first build)
 
+- jni 0.22.4 (rightkit-android 0.2.0): `rustls-platform-verifier` 0.7.0 and 0.7.1 already depend on `jni` ^0.22 (the earlier note that 0.7 was on jni 0.21 was wrong; 0.6.x is the jni 0.21 line), so the verifier hand-off in `init_platform_verifier` and the crate moved together. `rightkit-http` pins the same `rustls-platform-verifier = "0.7"` (Cargo.lock has 0.7.1) and `rustls` 0.23, so there is no extra coupling: one verifier version across both crates. Call sites ported: `JNIEnv` to `Env`/`EnvUnowned`, `GlobalRef` to `Global<..>`, `attach_current_thread` to the closure form, string method names and signatures to `jni_str!`/`jni_sig!`, `get_string` to `try_to_string`, `exception_*` now infallible. Never compiled or run on a device.
 - reqwest 0.13 (rightkit-http): feature `rustls-tls` is now `rustls-no-provider`, which keeps the ring provider that `build_tls` installs through `use_preconfigured_tls` (plain `rustls` would pull in aws-lc). `use_preconfigured_tls` still exists in 0.13 (soft-deprecated alias of `tls_backend_preconfigured`); rename it when convenient.
 - rcgen 0.14: `CertifiedKey` field `key_pair` is now `signing_key`; `signed_by` takes an `Issuer` (the test CA in `rightkit-http/tests/tls_local.rs` now holds a `CertifiedIssuer`).
 - uniffi 0.32 (rightkit-android): Rust surface unchanged. Regenerate the Kotlin with `scripts/build-android.*`; the JNA pin (`5.14.0@aar`) in `android/build.gradle.kts` was not checked against the 0.30+ direct-mapping requirement.

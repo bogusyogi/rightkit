@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+## 0.2.0
+
+- `jni` 0.21.1 to 0.22.4, together with `rustls-platform-verifier` 0.7.x (its `platform-verifier` feature; 0.7 depends on `jni` 0.22, so the `Env` and `JObject` handed to `init_with_env` are the verifier's own types). Exported JNI symbol names and signatures are unchanged: `Java_com_orthiclabs_rightkit_android_RightKitNative_nativeInit` takes `(EnvUnowned, JClass, JObject, JString, JString, JString, jboolean)`, the same native signature as before, and the Kotlin side and the `RightKitKeystore` contract did not change.
+- Breaking (Rust API): `ContextHandle::with_env_dyn` and `ContextHandleExt::with_env` take `&mut jni::Env<'_>` instead of `&mut JNIEnv<'_>`; `AndroidContext::application_context` returns `&Global<JObject<'static>>` instead of `&GlobalRef`; `jni_entry::initialise` and `init_platform_verifier` take `&mut jni::Env<'_>`. `jni_error_code` also maps `Error::CaughtJavaException` to `JNI_EXCEPTION`.
+- Behaviour kept: `with_env` attaches through `JavaVM::attach_current_thread` (permanent attach, one local frame per call), clears a pending exception when the closure fails and reports it as `AndroidError::Jni`. The Keystore bridge still reads only `RightKitBridgeException.getCode()` and never the message.
+- Still unverified: not compiled or run here; needs the first CI build and an emulator pass.
+
 ## 0.1.0
 
 - New crate (rightkit#149, rightkit#148). UniFFI 0.29 proc-macro surface (`bridge_version`, `is_initialised`, `app_dirs`, `supported_abis`, `min_sdk`, `log_debug`; records `AppDirs`, enum `LogLevel`, error `AndroidError`), JNI init (`RightKitNative.nativeInit`: captures the `JavaVM`, application `Context` and app paths once), the `ContextHandle` / `ContextHandleExt` / `StaticContext` handle for crates above this one, the JNI `KeystoreBridge` installed into `rightkit-credentials` at init, a debug-only logcat sink, an optional `platform-verifier` feature, the Gradle library module under `android/` (Kotlin `RightKit.init`, `RightKitKeystore`, packaging of `jniLibs/<abi>` and generated bindings, ABIs `arm64-v8a` and `x86_64`, minSdk 28), and the toolchain bootstrap and build scripts with a pins file.

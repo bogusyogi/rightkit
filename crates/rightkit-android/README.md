@@ -68,7 +68,7 @@ Host-runnable (no JVM): path validation, ABI and triple table, pin-file parsing 
 
 ## Unverified
 
-* Nothing here has been compiled, linted, packaged or run. UniFFI 0.29 attribute and `uniffi.toml` key spellings, `jni` 0.21.1 call signatures, the Gradle and AGP/Kotlin pins and the `platform-verifier` call against the version `rightkit-http` pins are from memory.
+* Nothing here has been compiled, linted, packaged or run. UniFFI 0.29 attribute and `uniffi.toml` key spellings, `jni` 0.22.4 call signatures (read from the crate source, not compiled), the Gradle and AGP/Kotlin pins and the `platform-verifier` call against `rustls-platform-verifier` 0.7 are from memory.
 * `#[no_mangle]` symbols from an rlib reaching an app cdylib (the `pub use rightkit_android::jni_entry::*` re-export), and several UniFFI components in one `.so`.
 * The Keystore path (key generation, IV handling, StrongBox, invalidation, multi-process locking) on a device or emulator; thread attach and detach from `rightkit-credentials` worker threads.
 * The secret passes through Java byte arrays that Rust cannot zero.

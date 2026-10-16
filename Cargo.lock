@@ -5706,9 +5706,9 @@ dependencies = [
 
 [[package]]
 name = "rightkit-android"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
- "jni 0.21.1",
+ "jni 0.22.4",
  "rightkit-credentials",
  "rustls-platform-verifier",
  "thiserror 2.0.21",

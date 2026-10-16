@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-android"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 rust-version = "1.98.0"
 description = "Android bridge for Right Suite apps: the UniFFI surface and JNI context capture (JavaVM, application Context, app-private paths), the Keystore bridge for rightkit-credentials, a debug logcat sink, and the Gradle library module that packages the native library and generated Kotlin bindings."
@@ -31,7 +31,7 @@ crate-type = ["lib", "cdylib"]
 # bindings. Never enable it in a shipped Android build.
 bindgen = ["uniffi/cli"]
 # Initialises rustls-platform-verifier (used by rightkit-http) from the captured JavaVM and
-# Context during `init`. UNVERIFIED against the pinned rustls-platform-verifier version; see README.
+# Context during `init`. UNVERIFIED on a device; shares the jni 0.22 major with rustls-platform-verifier 0.7; see README.
 platform-verifier = ["dep:rustls-platform-verifier"]
 
 [[bin]]
@@ -41,7 +41,7 @@ required-features = ["bindgen"]
 
 [dependencies]
 uniffi = "0.32"
-jni = "0.21.1"
+jni = "0.22.4"
 thiserror = "2"
 rightkit-credentials = { version = "0.2.1", path = "../rightkit-credentials" }
 rustls-platform-verifier = { version = "0.7", default-features = false, optional = true }

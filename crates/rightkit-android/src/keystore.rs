@@ -21,8 +21,9 @@
 //! thread cannot look up an app class later) and held as a global reference.
 
 use crate::context::{AndroidContext, ContextHandleExt};
-use jni::objects::{GlobalRef, JByteArray, JClass, JObject, JValue};
-use jni::JNIEnv;
+use jni::objects::{Global, JByteArray, JClass, JValue, Reference};
+use jni::strings::JNIStr;
+use jni::{jni_sig, jni_str, Env};
 use rightkit_credentials::android::{BridgeError, KeystoreBridge};
 
 /// JNI name of the Kotlin class (slash form, as `FindClass` takes it).
@@ -50,15 +51,15 @@ pub struct JniKeystoreBridge;
 
 impl KeystoreBridge for JniKeystoreBridge {
     fn encrypt(&self, alias: &str, plaintext: &[u8], aad: &[u8]) -> Result<Vec<u8>, BridgeError> {
-        call("encrypt", alias, plaintext, aad)
+        call(jni_str!("encrypt"), alias, plaintext, aad)
     }
 
     fn decrypt(&self, alias: &str, blob: &[u8], aad: &[u8]) -> Result<Vec<u8>, BridgeError> {
-        call("decrypt", alias, blob, aad)
+        call(jni_str!("decrypt"), alias, blob, aad)
     }
 }
 
-fn call(method: &str, alias: &str, data: &[u8], aad: &[u8]) -> Result<Vec<u8>, BridgeError> {
+fn call(method: &JNIStr, alias: &str, data: &[u8], aad: &[u8]) -> Result<Vec<u8>, BridgeError> {
     let ctx = AndroidContext::get().map_err(|_| BridgeError::NoContext)?;
     let mut outcome: Result<Vec<u8>, BridgeError> = Err(BridgeError::NoContext);
     ctx.with_env(|env, _app| {
@@ -74,22 +75,20 @@ fn jni_failed() -> BridgeError {
 }
 
 fn invoke(
-    env: &mut JNIEnv<'_>,
-    class: &GlobalRef,
-    method: &str,
+    env: &mut Env<'_>,
+    class: &Global<JClass<'static>>,
+    method: &JNIStr,
     alias: &str,
     data: &[u8],
     aad: &[u8],
 ) -> Result<Vec<u8>, BridgeError> {
-    // SAFETY: the raw reference belongs to a live `GlobalRef`; `JObject`/`JClass` do not delete it.
-    let class = JClass::from(unsafe { JObject::from_raw(class.as_obj().as_raw()) });
     let alias = env.new_string(alias).map_err(|_| jni_failed())?;
     let data = env.byte_array_from_slice(data).map_err(|_| jni_failed())?;
     let aad = env.byte_array_from_slice(aad).map_err(|_| jni_failed())?;
     let result = env.call_static_method(
-        &class,
+        class,
         method,
-        "(Ljava/lang/String;[B[B)[B",
+        jni_sig!("(Ljava/lang/String;[B[B)[B"),
         &[
             JValue::Object(&*alias),
             JValue::Object(&*data),
@@ -102,7 +101,7 @@ fn invoke(
             if obj.is_null() {
                 return Err(jni_failed());
             }
-            let array = JByteArray::from(obj);
+            let array = JByteArray::cast_local(env, obj).map_err(|_| jni_failed())?;
             env.convert_byte_array(&array).map_err(|_| jni_failed())
         }
         Err(jni::errors::Error::JavaException) => Err(read_exception(env)),
@@ -112,22 +111,19 @@ fn invoke(
 
 /// Reads `RightKitBridgeException.getCode()` from the pending exception and clears it. Never
 /// reads the message (it could carry provider text).
-fn read_exception(env: &mut JNIEnv<'_>) -> BridgeError {
-    let Ok(exception) = env.exception_occurred() else {
+fn read_exception(env: &mut Env<'_>) -> BridgeError {
+    let Some(exception) = env.exception_occurred() else {
         return jni_failed();
     };
-    let _ = env.exception_clear();
-    if exception.is_null() {
-        return jni_failed();
-    }
+    env.exception_clear();
     let code = env
-        .call_method(&exception, "getCode", "()I", &[])
+        .call_method(&exception, jni_str!("getCode"), jni_sig!("()I"), &[])
         .and_then(|v| v.i());
     match code {
         Ok(code) => code_to_bridge_error(code),
         Err(_) => {
-            if env.exception_check().unwrap_or(false) {
-                let _ = env.exception_clear();
+            if env.exception_check() {
+                env.exception_clear();
             }
             jni_failed()
         }
