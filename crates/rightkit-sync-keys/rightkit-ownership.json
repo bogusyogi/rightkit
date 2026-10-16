@@ -1,0 +1,15 @@
+{
+  "package": "rightkit-sync-keys",
+  "capabilities": [
+    {
+      "capability": "sync-key-management",
+      "summary": "End-to-end sync key management: account data key, versioned rotation, per-zone key derivation, OS credential storage and device-approval key transfer (X25519, short code, AEAD); declaration-only detection (no precise implementation fingerprint)",
+      "fingerprints": [],
+      "detection": "declaration-only",
+      "policyNotes": [
+        "Package contract retained; dependency declarations do not verify integration.",
+        "No precise implementation fingerprint; declaration-only inventory, never enforced ownership or verified integration."
+      ]
+    }
+  ]
+}
