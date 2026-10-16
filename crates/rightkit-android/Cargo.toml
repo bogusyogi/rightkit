@@ -1,0 +1,51 @@
+[package]
+name = "rightkit-android"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.98.0"
+description = "Android bridge for Right Suite apps: the UniFFI surface and JNI context capture (JavaVM, application Context, app-private paths), the Keystore bridge for rightkit-credentials, a debug logcat sink, and the Gradle library module that packages the native library and generated Kotlin bindings."
+license = "MIT OR Apache-2.0"
+readme = "README.md"
+repository = "https://github.com/Orthic-Labs/rightkit"
+keywords = ["android", "jni", "uniffi", "ffi"]
+categories = ["os", "api-bindings"]
+include = [
+    "src/**",
+    "scripts/**",
+    "android/**",
+    "uniffi.toml",
+    "README.md",
+    "TOOLCHAIN.md",
+    "CHANGELOG.md",
+    "LICENSE-MIT",
+    "LICENSE-APACHE",
+]
+
+[lib]
+# `lib` so an app's own cdylib can depend on this crate (one .so per app, several UniFFI
+# components in it); `cdylib` so the crate also builds a standalone `librightkit_android.so`.
+crate-type = ["lib", "cdylib"]
+
+[features]
+# Builds the `uniffi-bindgen` binary used by scripts/build-android.* to generate the Kotlin
+# bindings. Never enable it in a shipped Android build.
+bindgen = ["uniffi/cli"]
+# Initialises rustls-platform-verifier (used by rightkit-http) from the captured JavaVM and
+# Context during `init`. UNVERIFIED against the pinned rustls-platform-verifier version; see README.
+platform-verifier = ["dep:rustls-platform-verifier"]
+
+[[bin]]
+name = "uniffi-bindgen"
+path = "src/bin/uniffi-bindgen.rs"
+required-features = ["bindgen"]
+
+[dependencies]
+uniffi = "0.29"
+jni = "0.21.1"
+thiserror = "2"
+rightkit-credentials = { version = "0.2.1", path = "../rightkit-credentials" }
+rustls-platform-verifier = { version = "0.7", default-features = false, optional = true }
+
+[package.metadata.rightkit]
+continuous = false
+continuous_reason = "no thread-spawn, task-spawn, sleep, timer, listener or watcher in this crate: it holds one write-once process-wide static (the captured JavaVM, application Context global reference, Keystore class global reference and the app paths, set by init and kept for the life of the process) and one debug-logging flag; each Keystore call attaches the calling thread to the JavaVM for the call and detaches it on return, and the worker threads that make those calls belong to rightkit-credentials (reviewed 2026-10-16)"

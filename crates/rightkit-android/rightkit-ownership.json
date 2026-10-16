@@ -1,0 +1,47 @@
+{
+  "package": "rightkit-android",
+  "capabilities": [
+    {
+      "capability": "android-bridge",
+      "summary": "Android JNI context capture, UniFFI Kotlin bridge, Keystore credential bridge and Gradle library module for Right Suite apps",
+      "fingerprints": [
+        {
+          "id": "android.cargo.jni",
+          "type": "dependency",
+          "ecosystem": "cargo",
+          "name": "jni",
+          "tier": "advise",
+          "usageContext": {
+            "hosts": [
+              "macos",
+              "windows"
+            ],
+            "scope": "cargo direct competing dependency in an app crate; transitive findings require authenticated reachability"
+          },
+          "tierReason": "No recorded published-version qualification for this usage context on both macOS & Windows."
+        },
+        {
+          "id": "android.cargo.uniffi",
+          "type": "dependency",
+          "ecosystem": "cargo",
+          "name": "uniffi",
+          "tier": "advise",
+          "usageContext": {
+            "hosts": [
+              "macos",
+              "windows"
+            ],
+            "scope": "cargo direct competing dependency in an app crate; transitive findings require authenticated reachability"
+          },
+          "tierReason": "No recorded published-version qualification for this usage context on both macOS & Windows."
+        }
+      ],
+      "detection": "fingerprinted",
+      "policyNotes": [
+        "Apps reach the JavaVM, the application Context and Keystore through rightkit-android; app crates do not depend on jni directly for context capture.",
+        "App-specific UniFFI exports (model load, PCM sessions) belong in the app's own cdylib; the dependency allowlist decision for uniffi in app crates is made outside this file.",
+        "Fingerprints identify review candidates; published two-host replacement qualification is not recorded."
+      ]
+    }
+  ]
+}

@@ -1,0 +1,12 @@
+# Pinned Android toolchain for RightKit builds. Read by bootstrap-android.*, build-android.* and by
+# the drift tests in src/toolchain.rs. KEY=value, no quotes. Versions are UNVERIFIED until the first
+# run on the Dell (rightkit#148); change a pin here and in TOOLCHAIN.md together.
+NDK_VERSION=27.2.12479018
+NDK_RELEASE=r27c
+CARGO_NDK_VERSION=3.5.4
+PLATFORM_API=35
+BUILD_TOOLS_VERSION=35.0.0
+MIN_SDK=28
+JDK_MAJOR=17
+ABIS=arm64-v8a x86_64
+RUST_TARGETS=aarch64-linux-android x86_64-linux-android
