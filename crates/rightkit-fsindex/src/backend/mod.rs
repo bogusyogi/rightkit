@@ -104,23 +104,8 @@ pub fn cachedir_tag_matches(content: &[u8]) -> bool {
 
 /// Whether `dir` holds a regular `CACHEDIR.TAG` file with the standard signature.
 pub fn dir_has_cachedir_tag(dir: &Path) -> bool {
-    use std::io::Read;
-    let tag = dir.join("CACHEDIR.TAG");
-    match std::fs::symlink_metadata(&tag) {
-        Ok(m) if m.file_type().is_file() => {}
-        _ => return false,
-    }
-    let Ok(f) = std::fs::File::open(&tag) else {
-        return false;
-    };
-    let mut buf = Vec::with_capacity(CACHEDIR_TAG_SIGNATURE.len());
-    if f.take(CACHEDIR_TAG_SIGNATURE.len() as u64)
-        .read_to_end(&mut buf)
-        .is_err()
-    {
-        return false;
-    }
-    cachedir_tag_matches(&buf)
+    crate::names::read_file_head(&dir.join("CACHEDIR.TAG"), CACHEDIR_TAG_SIGNATURE.len())
+        .is_some_and(|head| cachedir_tag_matches(&head))
 }
 
 fn is_sep(b: u8) -> bool {

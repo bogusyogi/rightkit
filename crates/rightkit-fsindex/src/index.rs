@@ -695,7 +695,11 @@ impl Index {
             last_commit: Instant::now(),
             last_compact: Instant::now(),
             last_trim: Instant::now(),
-            rescans: RescanGovernor::with_defaults(),
+            rescans: RescanGovernor::new(
+                shared.cfg.rescan_cooldown,
+                crate::limits::RESCAN_COOLDOWN_MAX,
+                crate::limits::RESCAN_QUIET_RESET,
+            ),
             relists: RelistBudget::with_defaults(Instant::now()),
             state_dir: state_dir_in_root,
         };

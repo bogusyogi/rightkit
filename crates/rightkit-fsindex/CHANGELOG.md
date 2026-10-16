@@ -6,6 +6,7 @@ Churn limits, after a pulse-hub ran at ~700% CPU for 15 h on a busy USB APFS vol
 
 - Crawl threads: `Config::crawl_threads` is clamped to 1..=8, and crawls draw their workers from one process-wide budget of 8. Concurrent crawls queue instead of multiplying threads.
 - Full rescans are coalesced. FSEvents drop flags only mark a rescan wanted; it runs at once the first time, then at most once per cooldown (30 s, doubling to 10 min, back to 30 s after 30 quiet minutes). A failed rescan is retried after the cooldown. Incremental changes keep applying while one is waiting.
+- `Config::rescan_cooldown` (default 30 s) sets the base cooldown; zero disables it, so every drop rescans at once as before.
 - Subtree re-lists (must-scan, root-changed, mount, unmount) pass a global token bucket (burst 8, one more per 5 s). The excess waits in a pending set and drains under the budget; nothing is dropped. A pending folder absorbs pending folders below it.
 - `Status` gained `rescans_coalesced` and `rescan_backoff_ms` (`full_rescans` already existed).
 - Events under `Config::state_dir` are skipped, and the directory is excluded when it lies under a root. The typed `FsEventsWatcher` is unchanged.

@@ -120,6 +120,11 @@ pub struct Config {
     pub relist_min_interval: Duration,
     /// Upper bound for the re-list interval while a folder keeps changing. Default 60 s.
     pub relist_max_interval: Duration,
+    /// Cooldown after a full rescan triggered by dropped events. Further drops only mark a
+    /// rescan wanted; it runs when the cooldown ends. The cooldown doubles on each rescan up to
+    /// 10 min and resets after 30 quiet minutes. Zero disables the cooldown (every drop
+    /// rescans at once, as before 0.3.0). Default 30 s.
+    pub rescan_cooldown: Duration,
     /// Home directories used to place protected and consent-gated exclusions. `None`: $HOME and /Users/*.
     pub home_dirs: Option<Vec<PathBuf>>,
     /// FSEvents delivery latency. Default 500 ms.
@@ -154,6 +159,7 @@ impl Config {
             include_build_output: false,
             relist_min_interval: Duration::from_secs(5),
             relist_max_interval: Duration::from_secs(60),
+            rescan_cooldown: Duration::from_secs(30),
             home_dirs: None,
             watch_latency: Duration::from_millis(500),
             change_coalesce: Duration::from_secs(1),
