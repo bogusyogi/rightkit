@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { execFileSync, spawnSync } from "./background-process.mjs";
@@ -8,6 +9,7 @@ import { fileURLToPath } from "node:url";
 import { runInNewContext } from "node:vm";
 import { parseCpuSeconds, processGroupCpuSeconds } from "./process-liveness.mjs";
 import { brokerManagedHost } from "./cargo-contract.mjs";
+import { ANDROID_SIGNING_CONTRACT, androidSealEntry, verifyAndroidReceipt } from "./android-release.mjs";
 
 // LF whatever the checkout: the patterns below span lines.
 const source = readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), "build-release.mjs"), "utf8").replace(/\r\n/g, "\n");
@@ -135,7 +137,7 @@ test("sealing resolves installer and updater artifacts against the broker target
   assert.match(source, /function sealRelease\(\{ configRoot, managedCargoTarget,/);
   // Portable contracts declare bare archives under target.artifacts; the seal must read them.
   assert.match(source, /for \(const artifact of target\.artifacts \?\? \[\]\)/);
-  assert.match(source, /addSource\(resolveArtifactPath\(file\), "portable"\)/);
+  assert.match(source, /addSource\(source, source === aabSource \? "aab" : "portable"\)/);
   assert.match(source, /nothing to seal: declare installer\.artifacts, updater\.artifacts or artifacts/);
   assert.match(source, /const targetPrefix = "src-tauri\/target\/";/);
   assert.match(source, /if \(managedCargoTarget && normalized\.startsWith\(targetPrefix\)\) \{/);
@@ -321,4 +323,80 @@ test("the managed branch hands the Rust target directory to the broker while the
   assert.doesNotMatch(source, /function resolveManagedCargoTarget/);
   // Unmanaged (managedCargoTarget === null): Cache V2 still supplies CARGO_TARGET_DIR.
   assert.match(source, /\.\.\.releaseEnvironment\(\{ root: vaultRoot, cacheRoot: sharedCacheRoot,/);
+});
+
+// ---- android: the AAB is sealed from its verified build receipt ------------------------------------------------------
+// Execute the production android pre-seal block (receipt present, bytes re-hashed, signer pinned) without the CLI flow.
+function androidPreSeal({ sources, aabSource, signingIdentity }) {
+  const start = source.indexOf("  let androidReceipt = null;");
+  const end = source.indexOf("  const temp = `${sealedDir}.tmp-", start);
+  assert.ok(start >= 0 && end > start, "android pre-seal receipt block must exist before the temp seal directory");
+  return runInNewContext(`${source.slice(start, end)}\nandroidReceipt;`, {
+    platform: "android",
+    sources,
+    aabSource,
+    signingIdentity,
+    existsSync,
+    verifyAndroidReceipt,
+    fail: (message) => { throw new Error(message); },
+  });
+}
+
+function androidFixture() {
+  const dir = mkdtempSync(path.join(os.tmpdir(), "right-build-android-"));
+  const aabFile = path.join(dir, "app-release.aab");
+  const bytes = Buffer.from("PK fake aab bytes for sealing");
+  writeFileSync(aabFile, bytes);
+  const certSha256 = "ab".repeat(32);
+  const receiptPath = path.join(dir, "android-aab.json");
+  const receipt = {
+    schema: 1,
+    contract: ANDROID_SIGNING_CONTRACT,
+    app: "fixture",
+    file: { name: "app-release.aab", sha256: createHash("sha256").update(bytes).digest("hex"), sizeBytes: bytes.length },
+    signer: { alias: "upload", block: "META-INF/UPLOAD.RSA", certSha256, subject: "CN=Upload" },
+  };
+  writeFileSync(receiptPath, JSON.stringify(receipt));
+  const signingIdentity = { contract: ANDROID_SIGNING_CONTRACT, uploadCertSha256: certSha256, receiptInputs: [receiptPath] };
+  return { dir, aabFile, aabSource: aabFile, receiptPath, receipt, signingIdentity, sources: new Map([[aabFile, new Set(["aab"])]]) };
+}
+
+test("build accepts --platform android and keys its identity, state dir and receipt to the Android lane", () => {
+  assert.match(source, /platform !== "win" && platform !== "mac" && platform !== "android"/);
+  assert.match(source, /platform === "android" \? "android" : "mac"/);
+  assert.match(source, /platform === "android" \? \{\s*contract: target\.signingContract \?\? "<missing>",\s*pipeline: ANDROID_PIPELINE_FINGERPRINT,/);
+  assert.match(source, /uploadCertSha256: androidTarget\.signing\.expectedCertSha256/);
+  assert.match(source, /receiptInputs: \[path\.resolve\(stateRoot, ANDROID_RECEIPT_NAME\)\]/);
+  // Android builds with target.gradle, so a missing package command must not stop it; win/mac still require one.
+  assert.match(source, /platform !== "android" && !target\?\.package && !packageCommandOptional/);
+  // The sealed entry is the receipt's, and the receipt is a sealed signing receipt like win/mac ones.
+  assert.match(source, /androidSealEntry\(androidReceipt\)/);
+  assert.match(source, /present\.map\(\(file\) => \(\{ file, sha256: hashFile\(file\) \}\)\)/);
+});
+
+test("android seal verifies the receipt against the AAB bytes and returns it for the files entry", () => {
+  const fx = androidFixture();
+  const receipt = androidPreSeal(fx);
+  assert.deepEqual(androidSealEntry(receipt), { role: "aab", name: "app-release.aab", sha256: fx.receipt.file.sha256, sizeBytes: fx.receipt.file.sizeBytes });
+});
+
+test("android seal fails on a missing receipt, changed AAB bytes, another file name, or an unpinned signer", () => {
+  let fx = androidFixture();
+  rmSync(fx.receiptPath);
+  assert.throws(() => androidPreSeal(fx), /no signing receipts found to seal; expected at least .*android-aab\.json/);
+
+  fx = androidFixture();
+  writeFileSync(fx.aabFile, "PK different bytes, same length!!");
+  assert.throws(() => androidPreSeal(fx), /android AAB receipt rejected: AAB bytes differ from the build receipt/);
+
+  fx = androidFixture();
+  const other = path.join(fx.dir, "other.aab");
+  writeFileSync(other, readFileSync(fx.aabFile));
+  assert.throws(() => androidPreSeal({ ...fx, aabSource: other, sources: new Map([[other, new Set(["aab"])]]) }), /receipt names a different file/);
+
+  fx = androidFixture();
+  assert.throws(() => androidPreSeal({ ...fx, signingIdentity: { ...fx.signingIdentity, uploadCertSha256: "cd".repeat(32) } }), /not the pinned upload certificate/);
+
+  fx = androidFixture();
+  assert.throws(() => androidPreSeal({ ...fx, sources: new Map() }), /requires targets\.android\.artifacts to list aab\.file/);
 });
