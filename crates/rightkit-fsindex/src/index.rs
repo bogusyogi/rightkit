@@ -545,9 +545,11 @@ impl Index {
         };
         if !cfg.include_build_output {
             #[cfg(target_os = "macos")]
-            excludes
-                .prefixes
-                .extend(DEFAULT_EXCLUDE_ROOTS_MACOS.iter().map(|r| r.as_bytes().to_vec()));
+            excludes.prefixes.extend(
+                DEFAULT_EXCLUDE_ROOTS_MACOS
+                    .iter()
+                    .map(|r| r.as_bytes().to_vec()),
+            );
             #[cfg(windows)]
             excludes.ci_prefixes.extend(
                 DEFAULT_EXCLUDE_ROOTS_WINDOWS
@@ -1332,11 +1334,7 @@ impl Worker {
     }
 
     fn publish_limits(&self) {
-        let mut st = self
-            .shared
-            .status
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
+        let mut st = self.shared.status.lock().unwrap_or_else(|e| e.into_inner());
         st.rescans_coalesced = self.rescans.coalesced();
         st.rescan_backoff_ms = self.rescans.applied_ms();
     }
