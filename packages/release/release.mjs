@@ -43,6 +43,7 @@ import { assertNoQaControl, assertNoWebBundleMocks } from "./qa-control-scan.mjs
 import { assertNoForbiddenBuildFeatures } from "./qa-build-features.mjs";
 import { assertNoReleaseSwitches, commandTokens, resolveFeatureClosure } from "./release-switch-scan.mjs";
 import { devtoolsEvidence, resolveDevtoolsAllowance } from "./devtools-policy.mjs";
+import { runAndroidRelease, validateAndroidTarget } from "./android-release.mjs";
 
 const TOOL_ROOT = path.dirname(fileURLToPath(import.meta.url));
 const HARDENING_SCAN = path.resolve(TOOL_ROOT, "hardeningscan.mjs");
@@ -220,6 +221,10 @@ if (opts.platform === "mac") {
     } catch (error) { fail(`${config.app ?? "app"} mac targets.mac.dmg.spec: ${error.message}`); }
   }
 }
+let androidTarget; // validated Android AAB target (android only; see android-release.mjs)
+if (opts.platform === "android") {
+  try { androidTarget = validateAndroidTarget(target, { root }); } catch (error) { fail(`${config.app ?? "app"} android ${error.message}`); }
+}
 if (opts.upload && target.publishBlocked) fail(`${config.app ?? "app"} ${opts.platform} publish blocked: ${target.publishBlocked}`);
 /**
  * Assemble preflight inputs from the app's own files. Kept here (not in
@@ -322,6 +327,7 @@ try {
     { label: "nativeAssembly.packageHook", command: nativeAssembly?.packageHook },
     { label: "nativeAssembly.finalizer", command: nativeFinalizer },
     { label: "target.postSign", command: target.postSign },
+    { label: "target.gradle", command: target.gradle },
   ] });
 } catch (error) { fail(error.message); }
 
@@ -343,7 +349,7 @@ try {
       rust: config.releaseSwitches?.rust,
       features: config.releaseSwitches?.features ?? [],
       triple: target.cargoTarget ?? target.targetTriple ?? target.rustTarget,
-      commandTexts: [target.prePackage, target.package, nativeAssembly?.packageHook, nativeFinalizer, target.postSign],
+      commandTexts: [target.prePackage, target.package, nativeAssembly?.packageHook, nativeFinalizer, target.postSign, target.gradle],
     });
     if (closure.skipped) console.log(`right-release: feature closure skipped (${closure.skipped})`);
     else treeText = closure.treeText;
@@ -352,7 +358,7 @@ try {
     console.log(`right-release: dry run: ${error.message}`);
   }
   // remoteHost: rightkit-daemon `remote` is refused in the closure unless the app declares releaseSwitches.remoteHost: true.
-  const closureInput = { treeText, remoteHost: config.releaseSwitches?.remoteHost, commands: [target.prePackage, target.package, nativeAssembly?.packageHook, nativeFinalizer, target.postSign].filter(Boolean).map((c) => commandTokens(c)) };
+  const closureInput = { treeText, remoteHost: config.releaseSwitches?.remoteHost, commands: [target.prePackage, target.package, nativeAssembly?.packageHook, nativeFinalizer, target.postSign, target.gradle].filter(Boolean).map((c) => commandTokens(c)) };
   if (releaseSwitchInventoryText != null) {
     assertNoReleaseSwitches({ ...closureInput, sourceRoot: root, inventoryText: releaseSwitchInventoryText, appForbid: config.releaseSwitches?.forbid ?? [] }, "source switch inventory");
   } else if (treeText != null || closureInput.commands.length) {
@@ -366,7 +372,7 @@ try {
 const releaseLock = acquireReleaseLock(root, config.app ?? path.basename(root), opts.platform, opts.tier);
 const mode = "package";
 const command = target.package;
-if (!command && !packageCommandOptional(target, resolveProjectType({ appRoot: root, config, target }))) fail(`${config.app ?? "app"} has no ${opts.platform} ${mode} command`);
+if (!command && opts.platform !== "android" && !packageCommandOptional(target, resolveProjectType({ appRoot: root, config, target }))) fail(`${config.app ?? "app"} has no ${opts.platform} ${mode} command`);
 if (opts.upload && !target.publish && !target.upload) {
   fail(`${config.app ?? "app"} has no ${opts.platform} upload config`);
 }
@@ -446,6 +452,16 @@ if (opts.platform === "win" && target.signingContract === MSIX_SIGNING_CONTRACT)
     // Opt-in (notarize.appBeforePackage): staple the .app itself before the package step copies it into the DMG.
     if (target.notarize.appBeforePackage) await notarizeAppBeforePackage(root);
   }
+} else if (opts.platform === "android") {
+  // Gradle bundleRelease with upload-key signing (secrets by file path only), then the in-process AAB scan, signer pin and receipt.
+  await runAndroidRelease({
+    root, app: config.app ?? path.basename(root), target: androidTarget, dryRun: opts.dryRun,
+    runGradle: (gradle, env) => runCommand(gradle, root, { env }),
+    resolveArtifact: (declared) => resolveReleaseArtifactPath(root, declared),
+    scanFiles: (label, files, scanOptions) => assertNoQaControlBinaries(label, files, scanOptions),
+    receiptDir: path.resolve(process.env.RIGHT_RELEASE_STATE_ROOT ?? path.join(root, ".right-release", "receipts")),
+    allowContentOnlyDevtools: devtoolsAllowance.mode === "content-only",
+  });
 } else if (nativeAssembly) {
   if (nativeAssembly.packageHook) await runCommand(nativeAssembly.packageHook, root);
   if (nativeFinalizer) {
