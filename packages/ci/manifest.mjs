@@ -1794,7 +1794,13 @@ export function ownershipStep(manifest, lane = "ci") {
     : manifest.profile === "rust-hybrid"
       ? "\${{ inputs.source_revision }}"
       : "\${{ inputs.source_revision || github.sha }}";
-  return `\n      - name: RightKit ownership (protected registry roots)\n        shell: bash\n        run: test "$(git rev-parse HEAD)" = "${sourceRevision}" && ${ownershipCommand}`;
+  // Ownership approval supports only macOS and Windows (Orthic-Labs/rightkit#245). A rust-hybrid ci
+  // job that runs every matrix.os runner (ciAllOs) and declares a Linux runner skips the step there.
+  // Manifests with no Linux runner in that matrix render the step unchanged.
+  const skipOnLinux = lane === "ci" && manifest.profile === "rust-hybrid" && manifest.ciAllOs === true
+    && manifest.matrix.os.some((runner) => /^(ubuntu|linux)/i.test(runner));
+  const linuxGuard = skipOnLinux ? "        if: ${{ runner.os != 'Linux' }}\n" : "";
+  return `\n      - name: RightKit ownership (protected registry roots)\n${linuxGuard}        shell: bash\n        run: test "$(git rev-parse HEAD)" = "${sourceRevision}" && ${ownershipCommand}`;
 }
 
 /**

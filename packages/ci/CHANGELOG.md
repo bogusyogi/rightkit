@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.47
+
+- rust-hybrid ci: with `ciAllOs: true` and a Linux runner (`ubuntu-*` or `linux*`) in `matrix.os`, the `RightKit ownership` step renders `if: ${{ runner.os != 'Linux' }}`, so the Linux leg no longer fails with "ownership approval unsupported platform: linux" (Orthic-Labs/rightkit#245, option b; ownership approval supports only macOS and Windows). Every other leg still runs the step. Manifests without `ciAllOs`, or with no Linux runner in `matrix.os`, render byte-identically, as do the release-candidate `admission` job (macos-15) and `regenerate`. No Tauri apt dependencies are installed on the Linux leg: the app's gate script owns its system packages.
+
 ## 0.2.46
 
 - rust-hybrid release candidate: the `windows-sign` and `macos-sign` signing steps set `RIGHT_RELEASE_QA_RECEIPT` to `<runner.temp>/unsigned-<platform>-candidate/qa`, the `qa` directory of the downloaded candidate handoff, so `right-release build` reads a source QA receipt carried from the candidate job instead of recording `qa.status: missing` (Orthic-Labs/rightkit#183; needs @rightkit/release with `right-release qa --carry-to`). The app's candidate build writes the receipt to `<artifact root>/qa/source.receipt.json`; with no file there nothing changes. The signing job also needs the QA receipt MAC key (`RIGHTKIT_QA_RECEIPT_KEY` per-run secret).

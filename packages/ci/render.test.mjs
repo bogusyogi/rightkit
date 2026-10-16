@@ -157,6 +157,36 @@ test("rust-hybrid ci runs every matrix.os runner when ciAllOs is true, in declar
   assert.equal(render({ ...base, ciAllOs: false }), render(base));
 });
 
+test("rust-hybrid ci skips the ownership step on a Linux ciAllOs leg and is otherwise unchanged", () => {
+  const base = {
+    ...FULL_MANIFEST,
+    lanes: ["ci"],
+    profile: "rust-hybrid",
+    gate: { path: "scripts/gate.sh" },
+    matrix: { os: ["macos-15", "windows-2025", "ubuntu-24.04"], node: ["26.8.1"] },
+  };
+  const render = (manifest) => renderTemplate(
+    fs.readFileSync(path.join(templatesDir, "profiles/rust-hybrid/ci.yml"), "utf8"),
+    buildRenderContext(manifest, "/repos/ember"),
+  );
+  const guarded = "      - name: RightKit ownership (protected registry roots)\n        if: ${{ runner.os != 'Linux' }}\n        shell: bash\n";
+  const all = render({ ...base, ciAllOs: true });
+  assert.match(all, /^ {8}os: \["macos-15", "windows-2025", "ubuntu-24\.04"\]$/m);
+  assert.ok(all.includes(guarded));
+  // Not ciAllOs: single runner, step unguarded; the Linux guard never appears.
+  for (const manifest of [base, { ...base, ciAllOs: false }]) {
+    const single = render(manifest);
+    assert.doesNotMatch(single, /runner\.os != 'Linux'/);
+    assert.match(single, /RightKit ownership \(protected registry roots\)\n        shell: bash\n/);
+  }
+  // ciAllOs without a Linux runner renders byte-identically to before.
+  const noLinux = { ...base, matrix: { os: ["macos-15", "windows-2025"], node: ["26.8.1"] }, ciAllOs: true };
+  assert.doesNotMatch(render(noLinux), /runner\.os != 'Linux'/);
+  assert.match(render(noLinux), /RightKit ownership \(protected registry roots\)\n        shell: bash\n/);
+  // The guard is the only difference the Linux runner makes to the ownership step.
+  assert.equal(all.split(guarded).length, 2);
+});
+
 test("rust-hybrid release candidate renders product scripts, artifact handoff, and no signing secret", () => {
   const manifest = {
     ...FULL_MANIFEST,
