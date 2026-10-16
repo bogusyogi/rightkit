@@ -152,6 +152,8 @@ Limits of `System` in this version: on a default Windows install, where "Automat
 - **A bypass entry that is not a plain host.** A host name, an address and `*.example.com` are followed. `<local>` (names without a dot, set by "Don't use the proxy server for local addresses"), an entry limited to one scheme (`https://host`) and a wildcard elsewhere (`10.*`, `*`) are refused.
 - **A proxy auto-config script.** It chooses a proxy per URL.
 
+**`ProxyMode::SystemForUrl("https://host/path")`** (0.3.2) supports the automatic and PAC modes: it asks WinHTTP's resolver (`WinHttpGetProxyForUrl`) for that URL, and otherwise applies the static proxy and bypass list exactly for that URL, so none of the refusals below apply. The client uses the one resulting proxy (or none) for all its requests, so build one client per target host. A PAC script that cannot be evaluated is `SystemProxyUnsupported`; detection that finds nothing falls back to the static proxy, then the environment, then direct (reported by `proxy_mode_used()`).
+
 Many Windows machines also have `<local>` set next to a static proxy. An app that offers `System` catches `SystemProxyUnsupported` and chooses `ProxyMode::None` or an explicit proxy itself.
 **Proxy mode is weaker than a direct connection by construction.** The proxy resolves the destination name itself, so this crate cannot see or pin the address a proxied connection reaches. What it enforces is name- and literal-based:
 

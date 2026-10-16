@@ -15,6 +15,7 @@
 //!   exactly on a frame boundary is a clean `Ok(None)`.
 
 use std::io::{self, Read, Write};
+use std::time::{Duration, Instant};
 
 use serde::{de::DeserializeOwned, Serialize};
 
@@ -86,6 +87,182 @@ pub fn read_frame_bytes<R: Read>(
         return Err(FrameError::Io(io::ErrorKind::UnexpectedEof.into()));
     }
     Ok(Some(body))
+}
+
+/// Readiness callback for the `_deadline` functions below.
+///
+/// Called with the time left until the deadline (never zero). It waits up to that long for
+/// the stream to become readable (for a read) or writable (for a write) and returns
+/// `Ok(true)` when it is, `Ok(false)` when the wait ended first (the caller loop checks the
+/// deadline again), and `Err` to fail the call. A transport that is already nonblocking
+/// passes a `poll`/`WaitForSingleObject` wrapper; a transport whose reads and writes block
+/// with their own timeout can sleep zero and return `Ok(true)`.
+pub type Ready<'a> = &'a mut dyn FnMut(Duration) -> io::Result<bool>;
+
+fn timed_out(partial_bytes: usize) -> FrameError {
+    FrameError::TimedOut { partial_bytes }
+}
+
+fn eof(message: &'static str) -> FrameError {
+    FrameError::Io(io::Error::new(io::ErrorKind::UnexpectedEof, message))
+}
+
+/// Read exactly `buf.len()` bytes before `deadline`, waiting through `ready`. A stream that
+/// ends first is `Err(ReadStop::End(bytes_read))`.
+fn fill_deadline<R: Read>(
+    reader: &mut R,
+    buf: &mut [u8],
+    deadline: Instant,
+    ready: Ready<'_>,
+) -> Result<usize, ReadStop> {
+    let mut filled = 0;
+    while filled < buf.len() {
+        let now = Instant::now();
+        if now >= deadline {
+            return Err(ReadStop::Deadline(filled));
+        }
+        if !ready(deadline - now).map_err(|e| ReadStop::Failed(e))? {
+            continue;
+        }
+        match reader.read(&mut buf[filled..]) {
+            Ok(0) => return Err(ReadStop::End(filled)),
+            Ok(n) => filled += n,
+            Err(e)
+                if matches!(
+                    e.kind(),
+                    io::ErrorKind::Interrupted | io::ErrorKind::WouldBlock
+                ) => {}
+            Err(e) => return Err(ReadStop::Failed(e)),
+        }
+    }
+    Ok(filled)
+}
+
+enum ReadStop {
+    /// The deadline passed after this many bytes of the unit.
+    Deadline(usize),
+    /// The stream ended after this many bytes of the unit.
+    End(usize),
+    Failed(io::Error),
+}
+
+/// As [`read_frame_bytes`], bounded by the absolute `deadline`, over any `Read` that has
+/// a readiness wait (`ready`, see [`Ready`]).
+///
+/// Error mapping (the same as the descriptor-based `deadline::read_frame_deadline`):
+///
+/// - deadline reached: [`FrameError::TimedOut`] with the bytes of this frame (length
+///   prefix included) already consumed. `partial_bytes: 0` leaves the stream on a frame
+///   boundary; more than zero leaves it mid-frame and it must be closed;
+/// - end of stream, even exactly between frames: [`FrameError::Io`] of kind
+///   `UnexpectedEof` (this function returns a frame or an error, never `Ok(None)`; a caller
+///   that treats a clean close as normal checks the kind and that no bytes were consumed
+///   by seeing the message `peer closed before a frame header`);
+/// - declared length zero: `Io` of kind `InvalidData`;
+/// - declared length above `limit`: [`FrameError::TooLarge`], body not consumed, close the
+///   stream;
+/// - any `Io` error from `ready` or the read, other than `Interrupted`/`WouldBlock`
+///   (which retry until the deadline).
+pub fn read_frame_bytes_deadline<R: Read>(
+    reader: &mut R,
+    limit: usize,
+    deadline: Instant,
+    ready: Ready<'_>,
+) -> Result<Vec<u8>, FrameError> {
+    let mut header = [0u8; 4];
+    match fill_deadline(reader, &mut header, deadline, &mut *ready) {
+        Ok(_) => {}
+        Err(ReadStop::Deadline(n)) => return Err(timed_out(n)),
+        Err(ReadStop::End(0)) => return Err(eof("peer closed before a frame header")),
+        Err(ReadStop::End(_)) => return Err(eof("peer closed inside a frame header")),
+        Err(ReadStop::Failed(e)) => return Err(FrameError::Io(e)),
+    }
+    let length = u32::from_be_bytes(header) as usize;
+    if length == 0 {
+        return Err(FrameError::Io(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "zero-length frame",
+        )));
+    }
+    if length > limit {
+        return Err(FrameError::TooLarge { limit });
+    }
+    // Grow with the bytes that arrive, as `read_frame_bytes` does.
+    const CHUNK: usize = 64 * 1024;
+    let mut body: Vec<u8> = Vec::new();
+    while body.len() < length {
+        let start = body.len();
+        let want = (length - start).min(CHUNK);
+        body.resize(start + want, 0);
+        match fill_deadline(reader, &mut body[start..], deadline, &mut *ready) {
+            Ok(_) => {}
+            Err(ReadStop::Deadline(n)) => return Err(timed_out(header.len() + start + n)),
+            Err(ReadStop::End(_)) => return Err(eof("peer closed mid-frame")),
+            Err(ReadStop::Failed(e)) => return Err(FrameError::Io(e)),
+        }
+    }
+    Ok(body)
+}
+
+/// As [`write_frame_bytes`], bounded by the absolute `deadline`, over any `Write` that
+/// has a readiness wait (`ready`, see [`Ready`]; it waits for the stream to be writable).
+///
+/// Nothing is written for an empty body (`Io` of kind `InvalidData`) or one above `limit`
+/// ([`FrameError::TooLarge`]). A deadline reached mid-frame is [`FrameError::TimedOut`]
+/// with the bytes of the frame (prefix included) the peer already received; more than
+/// zero leaves the peer mid-frame and the stream must be closed. A write that accepts zero
+/// bytes is `Io` of kind `WriteZero`. `Interrupted` and `WouldBlock` retry until the
+/// deadline.
+pub fn write_frame_bytes_deadline<W: Write>(
+    writer: &mut W,
+    body: &[u8],
+    limit: usize,
+    deadline: Instant,
+    ready: Ready<'_>,
+) -> Result<(), FrameError> {
+    if body.is_empty() {
+        return Err(FrameError::Io(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "empty frame body",
+        )));
+    }
+    if body.len() > limit || u32::try_from(body.len()).is_err() {
+        return Err(FrameError::TooLarge { limit });
+    }
+    let mut frame = Vec::with_capacity(4 + body.len());
+    frame.extend_from_slice(&(body.len() as u32).to_be_bytes());
+    frame.extend_from_slice(body);
+    let mut sent = 0;
+    while sent < frame.len() {
+        let now = Instant::now();
+        if now >= deadline {
+            return Err(timed_out(sent));
+        }
+        if !ready(deadline - now)? {
+            continue;
+        }
+        match writer.write(&frame[sent..]) {
+            Ok(0) => {
+                return Err(FrameError::Io(io::Error::new(
+                    io::ErrorKind::WriteZero,
+                    "stream accepted zero bytes of a frame",
+                )))
+            }
+            Ok(n) => sent += n,
+            Err(e)
+                if matches!(
+                    e.kind(),
+                    io::ErrorKind::Interrupted | io::ErrorKind::WouldBlock
+                ) => {}
+            Err(e) => return Err(FrameError::Io(e)),
+        }
+    }
+    // Flushing a nonblocking stream may report WouldBlock; the bytes are already accepted.
+    match writer.flush() {
+        Ok(()) => Ok(()),
+        Err(e) if e.kind() == io::ErrorKind::WouldBlock => Ok(()),
+        Err(e) => Err(FrameError::Io(e)),
+    }
 }
 
 /// Read and deserialize one frame.

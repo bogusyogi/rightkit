@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-sidecar"
-version = "0.2.0"
+version = "0.2.1"
 edition = "2021"
 rust-version = "1.98.0"
 description = "Bounded JSON-lines transport primitives for Right Suite sidecars."

@@ -112,6 +112,24 @@ pub enum ProxyMode {
     /// app sets them. An app that must honour the device proxy passes it as
     /// [`ProxyMode::Explicit`].
     System,
+    /// The proxy the operating system routes this URL through, resolved per URL when the
+    /// client is built (since 0.3.2).
+    ///
+    /// Windows: uses WinHTTP's own resolver (`WinHttpGetProxyForUrl`) for the PAC script
+    /// and/or "Automatically detect settings" (WPAD), and otherwise the static proxy with its
+    /// bypass list evaluated exactly for this URL (`<local>`, wildcards, scheme-limited
+    /// entries, different proxies per scheme). Nothing is refused for being per-URL. The
+    /// result is one proxy (or none) for the client, so build one client per target host:
+    /// a redirect to another host reuses the decision made for this URL. A PAC script that
+    /// is set but cannot be evaluated is
+    /// [`HttpError::SystemProxyUnsupported`](crate::HttpError::SystemProxyUnsupported); a
+    /// failed automatic detection alone (no WPAD on the network) falls back to the static
+    /// proxy, then the environment proxy variables, then a direct connection. The URL must be
+    /// `http` or `https`, otherwise the client fails closed with
+    /// [`HttpError::InvalidRequest`](crate::HttpError::InvalidRequest). Reported through
+    /// `proxy_mode_used` as [`ProxyModeUsed::SystemForUrl`] (or a fallback). Other systems:
+    /// as [`ProxyMode::Environment`].
+    SystemForUrl(String),
 }
 
 impl fmt::Debug for ProxyMode {
@@ -121,6 +139,7 @@ impl fmt::Debug for ProxyMode {
             ProxyMode::Environment => f.write_str("Environment"),
             ProxyMode::Explicit(url) => write!(f, "Explicit({})", redact_url(url)),
             ProxyMode::System => f.write_str("System"),
+            ProxyMode::SystemForUrl(url) => write!(f, "SystemForUrl({})", redact_url(url)),
         }
     }
 }
@@ -224,6 +243,9 @@ pub enum ProxyModeUsed {
     SystemFallbackEnvironment { reason: String },
     /// As above, but no environment proxy is set: connections are direct.
     SystemFallbackDirect { reason: String },
+    /// `ProxyMode::SystemForUrl`: the route the operating system gave the URL, through its
+    /// automatic/PAC resolver or its static proxy settings (a proxy, or direct).
+    SystemForUrl,
 }
 
 /// What a client knows about the proxy it uses, for diagnostics. Credentials are never part
@@ -361,9 +383,73 @@ impl ClientConfig {
             ProxyMode::System => {
                 resolve_system(&crate::system_proxy::system_proxy_settings(), &env)
             }
+            ProxyMode::SystemForUrl(url) => resolve_system_for_url(
+                &crate::system_proxy::system_proxy_settings(),
+                url,
+                &crate::system_proxy::winhttp_route_for_url,
+                &env,
+            ),
         }
     }
 }
+
+/// `ProxyMode::SystemForUrl` for `settings`. `os` is the automatic/PAC resolver (WinHTTP on
+/// Windows), `None` when it failed; it is an input so tests need no network.
+pub(crate) fn resolve_system_for_url(
+    settings: &crate::system_proxy::SystemProxySettings,
+    url: &str,
+    os: &dyn Fn(&str, &crate::system_proxy::SystemProxySettings) -> Option<crate::system_proxy::UrlRoute>,
+    get: &dyn Fn(&str) -> Option<String>,
+) -> Result<(Option<ResolvedProxy>, ProxyModeUsed), HttpError> {
+    use crate::system_proxy::UrlRoute;
+    let Some((scheme, host)) = crate::system_proxy::scheme_and_host(url) else {
+        return Err(HttpError::InvalidRequest(
+            "invalid URL for system proxy resolution".into(),
+        ));
+    };
+    let from_route = |route: UrlRoute| -> Result<(Option<ResolvedProxy>, ProxyModeUsed), HttpError> {
+        match route {
+            UrlRoute::Direct => Ok((None, ProxyModeUsed::SystemForUrl)),
+            UrlRoute::Proxy(proxy_url) => {
+                let mut proxy = build_proxy(&proxy_url, &[])?;
+                proxy.from_env = true;
+                Ok((Some(proxy), ProxyModeUsed::SystemForUrl))
+            }
+        }
+    };
+    let automatic = settings.auto_config || settings.auto_detect;
+    if automatic {
+        if let Some(route) = os(url, settings) {
+            return from_route(route);
+        }
+        // A PAC script the user set that cannot be evaluated is not guessed around.
+        if settings.auto_config {
+            return Err(HttpError::SystemProxyUnsupported {
+                element: "the proxy auto-config script could not be evaluated for this URL"
+                    .into(),
+            });
+        }
+    }
+    if let Some(route) = crate::system_proxy::static_route_for_url(settings, &scheme, &host) {
+        return from_route(route);
+    }
+    let proxy = proxy_from_lookup(get)?;
+    let used = match (settings.auto_detect, proxy.is_some()) {
+        (true, true) => ProxyModeUsed::SystemFallbackEnvironment {
+            reason: AUTO_DETECT_FAILED_REASON.to_string(),
+        },
+        (true, false) => ProxyModeUsed::SystemFallbackDirect {
+            reason: AUTO_DETECT_FAILED_REASON.to_string(),
+        },
+        (false, true) => ProxyModeUsed::Environment,
+        (false, false) => ProxyModeUsed::Direct,
+    };
+    Ok((proxy, used))
+}
+
+/// Reason reported when `SystemForUrl` found no proxy through automatic detection.
+pub(crate) const AUTO_DETECT_FAILED_REASON: &str =
+    "automatic detection found no proxy for this URL; no static proxy or PAC configured";
 
 /// Reason reported when the only thing the system configures is automatic detection.
 pub(crate) const AUTO_DETECT_ONLY_REASON: &str =
@@ -2210,6 +2296,81 @@ mod tests {
         let (proxy, used) = resolve_system(&none, &env_proxy).unwrap();
         assert!(proxy.is_some());
         assert_eq!(used, ProxyModeUsed::Environment);
+    }
+
+    #[test]
+    fn system_for_url_follows_the_resolver_then_the_static_settings() {
+        use crate::system_proxy::{SystemProxySettings, UrlRoute};
+        let no_env = |_: &str| None::<String>;
+        let url = "https://updates.example.com/feed.json";
+        let never = |_: &str, _: &SystemProxySettings| None::<UrlRoute>;
+        let pac_says = |route: UrlRoute| move |_: &str, _: &SystemProxySettings| Some(route.clone());
+
+        // A PAC script (or detection) that resolves wins over the static proxy.
+        let pac = SystemProxySettings {
+            auto_config: true,
+            auto_config_url: Some("http://wpad.corp/proxy.pac".into()),
+            proxy: Some("static.corp:8080".into()),
+            ..SystemProxySettings::default()
+        };
+        let os = pac_says(UrlRoute::Proxy("http://pac.corp:3128".into()));
+        let (proxy, used) = resolve_system_for_url(&pac, url, &os, &no_env).unwrap();
+        assert_eq!(proxy.expect("PAC proxy").host, "pac.corp");
+        assert_eq!(used, ProxyModeUsed::SystemForUrl);
+        let os = pac_says(UrlRoute::Direct);
+        let (proxy, used) = resolve_system_for_url(&pac, url, &os, &no_env).unwrap();
+        assert!(proxy.is_none());
+        assert_eq!(used, ProxyModeUsed::SystemForUrl);
+
+        // A PAC script that cannot be evaluated fails closed.
+        let err = resolve_system_for_url(&pac, url, &never, &no_env).err().unwrap();
+        assert!(matches!(err, HttpError::SystemProxyUnsupported { .. }), "{err:?}");
+
+        // Detection that finds nothing falls back to the static proxy, per URL.
+        let detect = SystemProxySettings {
+            auto_detect: true,
+            proxy: Some("http=web.corp:8080;https=secure.corp:8443".into()),
+            bypass: Some("<local>;*.corp.example;http://plain.example".into()),
+            ..SystemProxySettings::default()
+        };
+        let routed = |target: &str| {
+            resolve_system_for_url(&detect, target, &never, &no_env)
+                .unwrap()
+                .0
+                .map(|p| p.host)
+        };
+        assert_eq!(routed("https://api.example.com/").as_deref(), Some("secure.corp"));
+        assert_eq!(routed("http://api.example.com/").as_deref(), Some("web.corp"));
+        assert_eq!(routed("https://intranet/").as_deref(), None);
+        assert_eq!(routed("https://a.corp.example/").as_deref(), None);
+        assert_eq!(routed("http://plain.example/").as_deref(), None);
+        assert_eq!(routed("https://plain.example/").as_deref(), Some("secure.corp"));
+
+        // Detection alone, nothing found: environment, then direct, and it says so.
+        let only = SystemProxySettings {
+            auto_detect: true,
+            ..SystemProxySettings::default()
+        };
+        let (proxy, used) = resolve_system_for_url(&only, url, &never, &no_env).unwrap();
+        assert!(proxy.is_none());
+        assert!(matches!(used, ProxyModeUsed::SystemFallbackDirect { .. }));
+        let env_proxy =
+            |name: &str| (name == "HTTPS_PROXY").then(|| "http://env.corp:3128".to_string());
+        let (proxy, used) = resolve_system_for_url(&only, url, &never, &env_proxy).unwrap();
+        assert_eq!(proxy.expect("environment proxy").host, "env.corp");
+        assert!(matches!(used, ProxyModeUsed::SystemFallbackEnvironment { .. }));
+
+        // A URL this mode cannot route fails closed.
+        for bad in ["not a url", "ftp://host/file", "/relative"] {
+            let err = resolve_system_for_url(&only, bad, &never, &no_env).err().unwrap();
+            assert!(matches!(err, HttpError::InvalidRequest(_)), "{bad}: {err:?}");
+        }
+    }
+
+    #[test]
+    fn system_for_url_debug_hides_credentials() {
+        let shown = format!("{:?}", ProxyMode::SystemForUrl("https://u:pw-9@host/p?k=v".into()));
+        assert!(!shown.contains("pw-9") && !shown.contains("k=v"), "{shown}");
     }
 
     #[test]
