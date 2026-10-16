@@ -28,7 +28,9 @@ fn default_build_lists_none_of_the_demo_tools() {
     // In a default build `demo` is an ordinary app name, so `--tools` lists control tools only.
     let out = right_ctl(&["demo", "--tools"]);
     let stdout = String::from_utf8_lossy(&out.stdout);
-    for name in DEMO_TOOLS {
+    // `<app>.batch` is an ordinary control tool for any app, including one named `demo`,
+    // so only the demo-only tool names prove absence.
+    for name in DEMO_TOOLS.iter().filter(|name| **name != "demo.batch") {
         assert!(
             !stdout.contains(&format!("\"{name}\"")),
             "{name} in default build: {stdout}"
