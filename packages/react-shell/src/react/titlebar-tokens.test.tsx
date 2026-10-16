@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { WindowControlAdapter } from "@rightkit/platform-ui";
-import { Titlebar } from "./layout.js";
+import { Titlebar, blurThen } from "./layout.js";
 
 const adapter: WindowControlAdapter = { minimize: async () => {}, toggleMaximize: async () => {}, close: async () => {} };
 const shellCss = readFileSync(new URL("../../shell.css", import.meta.url), "utf8");
@@ -67,5 +67,57 @@ describe("Titlebar end cluster", () => {
   });
   it("adds no wrapper when there is no end content", () => {
     expect(renderToStaticMarkup(<Titlebar platform="linux" title="x" />)).not.toContain("rk-top__end");
+  });
+});
+
+describe("Titlebar caption and root options (defaults unchanged)", () => {
+  const bar = (extra: object = {}) => renderToStaticMarkup(<Titlebar platform="windows" windowControls={adapter} title="Doc" {...extra} />);
+
+  it("default markup: header root, title equal to the label, bare button classes", () => {
+    const html = bar();
+    expect(html.startsWith('<header class="rk-top" data-tauri-drag-region="true">')).toBe(true);
+    expect(html).toContain('<button type="button" class="rk-caption__btn" title="Minimize window" aria-label="Minimize window">');
+    expect(html).toContain('class="rk-caption__btn rk-caption__close" title="Close window" aria-label="Close window"');
+  });
+  it("captionButtonClasses adds a class per button after the built-in ones", () => {
+    const html = bar({ captionButtonClasses: { minimize: "m", maximize: "x", close: "c" } });
+    expect(html).toContain('class="rk-caption__btn m"');
+    expect(html).toContain('class="rk-caption__btn x"');
+    expect(html).toContain('class="rk-caption__btn rk-caption__close c"');
+  });
+  it("captionTitles replaces, omits per button, or omits all; aria-label keeps the label", () => {
+    const html = bar({ captionTitles: { minimize: "Min", close: false } });
+    expect(html).toContain('title="Min" aria-label="Minimize window"');
+    expect(html).toContain('title="Maximize or restore window" aria-label="Maximize or restore window"');
+    expect(html).toMatch(/class="rk-caption__btn rk-caption__close" aria-label="Close window"/);
+    const none = bar({ captionTitles: false });
+    expect(none).not.toContain("title=");
+    expect(none).toContain('aria-label="Minimize window"');
+  });
+  it("as changes the root element and keeps its classes and drag attribute", () => {
+    const html = bar({ as: "div", className: "host" });
+    expect(html.startsWith('<div class="rk-top host" data-tauri-drag-region="true">')).toBe(true);
+    expect(html.endsWith("</div>")).toBe(true);
+    expect(html).not.toContain("<header");
+  });
+});
+
+describe("blurThen", () => {
+  const click = (blur?: boolean) => {
+    const calls: string[] = [];
+    const event = { currentTarget: { blur: () => calls.push("blur") } } as unknown as Parameters<ReturnType<typeof blurThen>>[0];
+    const handler = blur === undefined ? blurThen(async () => { calls.push("run"); }) : blurThen(async () => { calls.push("run"); }, blur);
+    handler(event);
+    return calls;
+  };
+  it("blurs then runs by default", () => expect(click()).toEqual(["blur", "run"]));
+  it("keeps focus when blur is false", () => expect(click(false)).toEqual(["run"]));
+});
+
+describe("caption cursor and outline tokens", () => {
+  it("fall back to today's values", () => {
+    expect(ruleOf(".rk-caption__btn")).toContain("cursor: var(--rk-caption-cursor, default)");
+    expect(ruleOf(".rk-caption__btn:focus-visible")).toContain("outline: var(--rk-caption-outline, 2px solid var(--rk-focus))");
+    expect(ruleOf(".rk-caption__btn:focus-visible")).toContain("outline-offset: var(--rk-caption-outline-offset, -2px)");
   });
 });

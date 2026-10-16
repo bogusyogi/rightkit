@@ -56,6 +56,10 @@ export interface PdfViewerProps {
   /** Render at most this many pages (from page 1). Later pages stay as empty placeholders, are
    *  never rendered, and are skipped by the thumbnails and find. Absent/invalid: unlimited. */
   maxRenderPages?: number;
+  /** Notice shown above the pages while `maxRenderPages` hides some of them (`shown` of `total`).
+   *  A node, or a function of `{ shown, total }`. Rendered in `<p class="rk-pdf-notice" role="status">`.
+   *  Absent: no notice, and the markup is exactly as before. */
+  truncationNotice?: ReactNode | ((info: { shown: number; total: number }) => ReactNode);
   /** pdf.js `getDocument` options passed beside the source, for example `wasmUrl`, `cMapUrl`,
    *  `standardFontDataUrl`. Read when loading starts, like `onPassword`: changing it does not reload
    *  a document already open. Absent: pdf.js defaults, exactly as before. */
@@ -177,6 +181,7 @@ export function PdfViewer({
   findBar = true,
   onPassword,
   maxRenderPages,
+  truncationNotice,
   documentOptions,
 }: PdfViewerProps) {
   const hostRef = useRef<HTMLDivElement>(null);
@@ -409,6 +414,7 @@ export function PdfViewer({
       {panel === "outline" && <OutlinePanel nodes={outline ?? []} onSelect={(dest) => void goToDest(dest)} />}
       {panel === "thumbs" && pdf && <ThumbnailPanel pdf={pdf} numPages={renderLimit} current={page} onSelect={goToPage} />}
       <div ref={scrollRef} className="rk-pdf-scroll" role="region" aria-label="PDF pages" tabIndex={0}>
+        <PdfTruncationNotice numPages={numPages} shown={renderLimit} notice={truncationNotice} />
         <div className="rk-pdf-pages">
           {Array.from({ length: numPages }, (_, index) => index + 1).map((pageNumber) => <div
             key={pageNumber} data-page={pageNumber} ref={(element) => { if (element) slotsRef.current.set(pageNumber, element); else slotsRef.current.delete(pageNumber); }}
@@ -418,6 +424,13 @@ export function PdfViewer({
       </div>
     </div>
   </div></PdfSearchContext.Provider>;
+}
+
+/** The "showing first N of M pages" slot. Renders nothing unless a notice is given and pages are hidden. */
+export function PdfTruncationNotice({ numPages, shown, notice }: { numPages: number; shown: number; notice: PdfViewerProps["truncationNotice"] }) {
+  if (notice === undefined || notice === null || notice === false || shown >= numPages) return null;
+  const content = typeof notice === "function" ? notice({ shown, total: numPages }) : notice;
+  return <p className="rk-pdf-notice" role="status">{content}</p>;
 }
 
 function OutlinePanel({ nodes, onSelect }: { nodes: OutlineNode[]; onSelect: (dest: string | unknown[] | null) => void }) {

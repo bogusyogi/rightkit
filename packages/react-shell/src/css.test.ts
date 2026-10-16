@@ -77,6 +77,8 @@ describe("shell.css split", () => {
         "| .rk-toggle__knob | height: 18px",
         "| .rk-toggle[aria-checked=\"true\"] .rk-toggle__knob | transform: translateX(14px)",
         "| .rk-seg | gap: 2px",
+        "| .rk-caption__btn:focus-visible | outline: 2px solid var(--rk-focus)",
+        "| .rk-caption__btn:focus-visible | outline-offset: -2px",
         "@media (prefers-reduced-motion: reduce) | .rk-modal, .rk-palette, .rk-menu, .rk-toast, .rk-overlay | animation: none !important",
         "@media (prefers-reduced-motion: reduce) | .rk-modal, .rk-palette, .rk-menu, .rk-toast, .rk-overlay | transition: none !important",
       ]),
@@ -91,6 +93,9 @@ describe("shell.css split", () => {
         "| .rk-toggle__knob | height: var(--rk-toggle-knob, 18px)",
         "| .rk-toggle[aria-checked=\"true\"] .rk-toggle__knob | transform: translateX(var(--rk-toggle-travel, 14px))",
         "| .rk-seg | gap: var(--rk-seg-gap, 2px)",
+        "| .rk-caption__btn:focus-visible | outline: var(--rk-caption-outline, 2px solid var(--rk-focus))",
+        "| .rk-caption__btn:focus-visible | outline-offset: var(--rk-caption-outline-offset, -2px)",
+        "| .rk-caption__btn | cursor: var(--rk-caption-cursor, default)",
         `| ${INK_ELEMENTS} | color: var(--rk-ink)`,
         "| .rk-menu-scrim.is-closing, .rk-menu.is-closing | pointer-events: none",
         "| .rk-menu.is-closing | animation: rk-pop-out var(--rk-menu-exit-ms, 80ms) ease-in forwards",
@@ -98,9 +103,9 @@ describe("shell.css split", () => {
         `@media (prefers-reduced-motion: reduce) | ${motionSelectors} | transition: none !important`,
       ]),
     );
-    // Same count of declarations apart from those: nothing duplicated or dropped. The net +3 is the two menu exit
-    // declarations plus the one (0.6.5) explicit-ink declaration; every other added line replaces a removed one.
-    expect(after.length - before.length).toBe(3);
+    // Same count of declarations apart from those: nothing duplicated or dropped. The net +4 is the two menu exit
+    // declarations, the one (0.6.5) explicit-ink declaration and the (0.6.7) `.rk-caption__btn` cursor declaration; every other added line replaces a removed one.
+    expect(after.length - before.length).toBe(4);
   });
 
   it("0.6.5: shell text elements carry an explicit zero-specificity `color: var(--rk-ink)`, so a data-theme switch restyles them directly instead of through inheritance (WKWebView stale-colour bug)", () => {
@@ -182,7 +187,7 @@ describe("shell.css split", () => {
   });
 
   it("package version, exports and files list the new stylesheets", () => {
-    expect(pkg.version).toBe("0.6.6");
+    expect(pkg.version).toBe("0.6.7");
     for (const name of ["shell.css", "shell.layered.css", "shell.structure.css", "shell.visual.css", "suite-aliases.css"]) {
       expect(pkg.exports[`./${name}`]).toBe(`./${name}`);
       expect(pkg.files).toContain(name);

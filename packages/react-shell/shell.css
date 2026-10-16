@@ -151,7 +151,8 @@
 .rk-caption { margin-right: var(--rk-caption-margin-end, calc(-1 * var(--rk-titlebar-pad-end))); margin-left: var(--rk-caption-margin-start, 6px); }
 .rk-caption__btn { width: var(--rk-caption-width); border: 0; background: transparent; color: var(--rk-ink-2); }
 .rk-caption__btn:hover { background: var(--rk-caption-hover-bg, var(--rk-fill-2)); color: var(--rk-ink); }
-.rk-caption__btn:focus-visible { outline: 2px solid var(--rk-focus); outline-offset: -2px; }
+.rk-caption__btn { cursor: var(--rk-caption-cursor, default); }
+.rk-caption__btn:focus-visible { outline: var(--rk-caption-outline, 2px solid var(--rk-focus)); outline-offset: var(--rk-caption-outline-offset, -2px); }
 .rk-caption__close:hover { background: var(--rk-caption-close-bg); color: var(--rk-caption-close-ink); }
 .rk-side { background: var(--rk-chrome); }
 .rk-plane { background: var(--rk-plane); border-top-left-radius: var(--rk-plane-radius); }

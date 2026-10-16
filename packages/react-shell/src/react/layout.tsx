@@ -3,6 +3,7 @@ import {
   useRef,
   useState,
   type CSSProperties,
+  type ElementType,
   type KeyboardEvent as ReactKeyboardEvent,
   type MouseEvent,
   type ReactElement,
@@ -87,8 +88,9 @@ export function FuseCurves({ fill, size = 12 }: { fill?: string; size?: number }
 }
 
 /** Blur first so the focus ring does not stick when the window re-activates. */
-const blurThen = (fn: () => Promise<void>) => (event: MouseEvent<HTMLButtonElement>) => {
-  event.currentTarget.blur();
+/** Click handler of a caption button: optionally blur, then run the window action, swallowing its rejection. Exported for tests. */
+export const blurThen = (fn: () => Promise<void>, blur = true) => (event: MouseEvent<HTMLButtonElement>) => {
+  if (blur) event.currentTarget.blur();
   void fn().catch(() => undefined);
 };
 
@@ -101,22 +103,60 @@ export interface CaptionGlyphs {
   close?: ReactNode;
 }
 
-export function CaptionControls({ adapter, labels = createWindowControlLabels(), className, glyphs, maximized = false }: { adapter: WindowControlAdapter; labels?: WindowControlLabels; className?: string; glyphs?: CaptionGlyphs; maximized?: boolean }) {
+/** Extra class per caption button, added after the built-in classes. */
+export interface CaptionButtonClasses {
+  minimize?: string;
+  maximize?: string;
+  close?: string;
+}
+
+/**
+ * Tooltip (`title`) per caption button. A string replaces the label as the tooltip, `false` omits the attribute on that
+ * button, and a button left out keeps its label. `false` for the whole object omits all three. `aria-label` is not
+ * affected: it always carries the label.
+ */
+export type CaptionTitles = false | { minimize?: string | false; maximize?: string | false; close?: string | false };
+
+export function CaptionControls({
+  adapter,
+  labels = createWindowControlLabels(),
+  className,
+  glyphs,
+  maximized = false,
+  buttonClasses,
+  titles,
+  blurOnClick = true,
+}: {
+  adapter: WindowControlAdapter;
+  labels?: WindowControlLabels;
+  className?: string;
+  glyphs?: CaptionGlyphs;
+  maximized?: boolean;
+  buttonClasses?: CaptionButtonClasses;
+  titles?: CaptionTitles;
+  blurOnClick?: boolean;
+}) {
   const controls = useMemo(() => createWindowControls(adapter), [adapter]);
+  const titleOf = (key: "minimize" | "maximize" | "close"): string | undefined => {
+    if (titles === false) return undefined;
+    const override = titles?.[key];
+    if (override === false) return undefined;
+    return override ?? labels[key];
+  };
   const maximizeGlyph = maximized ? (glyphs?.restore ?? glyphs?.maximize) : glyphs?.maximize;
   return (
     <div className={cx("rk-caption", className)}>
-      <button type="button" className="rk-caption__btn" title={labels.minimize} aria-label={labels.minimize} onClick={blurThen(controls.minimize)}>
+      <button type="button" className={cx("rk-caption__btn", buttonClasses?.minimize)} title={titleOf("minimize")} aria-label={labels.minimize} onClick={blurThen(controls.minimize, blurOnClick)}>
         {glyphs?.minimize ?? (
           <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true"><rect x="0" y="4.5" width="10" height="1" fill="currentColor" /></svg>
         )}
       </button>
-      <button type="button" className="rk-caption__btn" title={labels.maximize} aria-label={labels.maximize} onClick={blurThen(controls.toggleMaximize)}>
+      <button type="button" className={cx("rk-caption__btn", buttonClasses?.maximize)} title={titleOf("maximize")} aria-label={labels.maximize} onClick={blurThen(controls.toggleMaximize, blurOnClick)}>
         {maximizeGlyph ?? (
           <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true"><rect x="0.5" y="0.5" width="9" height="9" fill="none" stroke="currentColor" /></svg>
         )}
       </button>
-      <button type="button" className="rk-caption__btn rk-caption__close" title={labels.close} aria-label={labels.close} onClick={blurThen(controls.close)}>
+      <button type="button" className={cx("rk-caption__btn rk-caption__close", buttonClasses?.close)} title={titleOf("close")} aria-label={labels.close} onClick={blurThen(controls.close, blurOnClick)}>
         {glyphs?.close ?? (
           <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true"><path d="M0.5 0.5 9.5 9.5M9.5 0.5 0.5 9.5" stroke="currentColor" strokeWidth="1" /></svg>
         )}
@@ -142,6 +182,17 @@ export interface TitlebarProps {
    * report window state, so the app passes it. Default false.
    */
   maximized?: boolean;
+  /** Extra class per caption button (`minimize`, `maximize`, `close`), after the built-in classes. */
+  captionButtonClasses?: CaptionButtonClasses;
+  /** Tooltip per caption button, or `false` for none. Default: each button's label, as before. */
+  captionTitles?: CaptionTitles;
+  /**
+   * Blur a caption button after a click so its focus ring does not stick when the window re-activates.
+   * Default true. Pass false to keep focus on the button.
+   */
+  blurCaptionOnClick?: boolean;
+  /** Element type of the root. Default `"header"`. The element gets the same classes and `data-tauri-drag-region`. */
+  as?: ElementType;
   platform?: Platform;
   className?: string;
   /**
@@ -156,7 +207,7 @@ export interface TitlebarProps {
  * (Overlay title bar); Windows/Linux draw caption buttons from the adapter. Heights, paddings and
  * widths are `--rk-titlebar-*` / `--rk-lights-width` / `--rk-caption-*` tokens (see the README recipe).
  */
-export function Titlebar({ start, startWidth, title, end, windowControls, windowControlLabels, captionGlyphs, maximized, platform: platformProp, className, slots }: TitlebarProps) {
+export function Titlebar({ start, startWidth, title, end, windowControls, windowControlLabels, captionGlyphs, maximized, captionButtonClasses, captionTitles, blurCaptionOnClick, as: Root = "header", platform: platformProp, className, slots }: TitlebarProps) {
   const detected = usePlatform();
   // The provider's platform wins over host detection: one injected platform for the whole shell.
   const provided = useShellOptional()?.platform;
@@ -164,7 +215,7 @@ export function Titlebar({ start, startWidth, title, end, windowControls, window
   const caps = platformCapabilities(platform);
   const style = startWidth !== undefined ? ({ width: startWidth } as CSSProperties) : undefined;
   return (
-    <header className={cx("rk-top", className, slots?.root)} data-tauri-drag-region>
+    <Root className={cx("rk-top", className, slots?.root)} data-tauri-drag-region>
       <div className={cx("rk-top__side", slots?.side)} style={style} data-tauri-drag-region>
         {caps.nativeTrafficLights ? <span className={cx("rk-top__lights", slots?.lights)} data-tauri-drag-region /> : null}
         {start}
@@ -172,8 +223,8 @@ export function Titlebar({ start, startWidth, title, end, windowControls, window
       {title ? <div className={cx("rk-top__title", slots?.title)} data-tauri-drag-region>{title}</div> : null}
       <div className={cx("rk-top__drag", slots?.drag)} data-tauri-drag-region />
       {end ? <div className={cx("rk-top__end", slots?.end)} data-tauri-drag-region>{end}</div> : null}
-      {caps.customCaptionButtons && windowControls ? <CaptionControls adapter={windowControls} labels={windowControlLabels} className={slots?.caption} glyphs={captionGlyphs} maximized={maximized} /> : null}
-    </header>
+      {caps.customCaptionButtons && windowControls ? <CaptionControls adapter={windowControls} labels={windowControlLabels} className={slots?.caption} glyphs={captionGlyphs} maximized={maximized} buttonClasses={captionButtonClasses} titles={captionTitles} blurOnClick={blurCaptionOnClick} /> : null}
+    </Root>
   );
 }
 

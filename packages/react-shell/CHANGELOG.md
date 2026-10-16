@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.6.7
+
+Additive (#174). Defaults render the same markup and CSS values as 0.6.6.
+
+- `Titlebar` options: `captionButtonClasses` (extra class per caption button), `captionTitles` (tooltip per button, or `false`; `aria-label` keeps the label), `blurCaptionOnClick` (default true; false keeps focus on the button), and `as` (root element type, default `"header"`). `CaptionControls` takes `buttonClasses`, `titles` and `blurOnClick`. New types `CaptionButtonClasses`, `CaptionTitles`; `blurThen` is now exported.
+- Tokens `--rk-caption-cursor` (default `default`), `--rk-caption-outline` (default `2px solid var(--rk-focus)`) and `--rk-caption-outline-offset` (default `-2px`) on `.rk-caption__btn`. `shell.visual.css` and the generated `shell.css` carry them.
+- No `color-scheme` opt-out was added: no shell stylesheet or component sets `color-scheme` in this version, so there is nothing to opt out of.
+
 ## Unreleased
 
 - Fix (0.6.6): `CommandPalette` runs the chosen command once. A second Enter (or click) during the exit animation used to schedule the command again; now the palette ignores Enter, arrow keys and clicks once a command has committed or while it is closing, until it is reopened. Apps that had a once-per-open guard in their adapter can drop it. `e2e/options.e2e.test.ts` pins it in Chrome.

@@ -95,6 +95,18 @@ describe("LegalGate", () => {
     expect(screen.getByText("Licensee")).toBeInTheDocument();
   });
 
+  it("keeps the legend screen-reader only by default and shows it with legendVisible", () => {
+    const { container, rerender } = render(<LegalGate {...baseProps()} />);
+    expect(container.querySelector("legend")).toHaveClass("rk-sr-only");
+    rerender(<LegalGate {...baseProps({ eligibilityLabels: { legendVisible: true } })} />);
+    const legend = container.querySelector("legend");
+    expect(legend).toHaveClass("rk-legal-gate__legend");
+    expect(legend).not.toHaveClass("rk-sr-only");
+    expect(legend).toHaveTextContent("Who is this license for");
+    rerender(<LegalGate {...baseProps({ eligibilityLabels: { legendVisible: false } })} />);
+    expect(container.querySelector("legend")).toHaveClass("rk-sr-only");
+  });
+
   it("replaces the lockup with a host slot, or hides it with null", () => {
     const { container, rerender } = render(<LegalGate {...baseProps({ lockup: <span data-testid="mine">Acme</span> })} />);
     expect(screen.getByTestId("mine")).toBeInTheDocument();

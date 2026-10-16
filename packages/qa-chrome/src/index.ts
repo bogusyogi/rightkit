@@ -202,6 +202,8 @@ export interface CloseChromeOptions {
   settleMs?: number;
   /** Per-step grace before escalating. Default 5000 ms. */
   graceMs?: number;
+  /** Upper bound for retrying profile removal on EBUSY/EPERM (Windows). Default 10 s. */
+  profileRemoveMs?: number;
 }
 
 export interface ChromeForTestingBrowser {
@@ -450,6 +452,10 @@ export interface CloseSeams {
   killPid?: (pid: number) => void;
   /** Profile scan. `null` when the query failed or timed out. */
   scanProfile?: (profileDir: string) => number[] | null;
+  /** Removes the profile directory; may throw like `rmSync`. */
+  removeDir?: (dir: string) => void;
+  /** Whether a path exists. Default `existsSync`. */
+  exists?: (dir: string) => boolean;
   /** Clock. Default `Date.now`. */
   now?: () => number;
   /** Delay. Default `setTimeout`. */
@@ -464,6 +470,8 @@ interface CloseDriver {
   signal: (child: ChildProcess, signal: 'SIGTERM' | 'SIGKILL') => void;
   killPid: (pid: number) => void;
   scan: (profileDir: string) => number[] | null;
+  removeDir: (dir: string) => void;
+  exists: (dir: string) => boolean;
 }
 
 function closeDriver(seams: CloseSeams = {}): CloseDriver {
@@ -475,7 +483,33 @@ function closeDriver(seams: CloseSeams = {}): CloseDriver {
     signal: seams.signalTree ?? signalTree,
     killPid: seams.killPid ?? killPidForced,
     scan: seams.scanProfile ?? probeProfileProcesses,
+    removeDir: seams.removeDir ?? ((dir) => rmSync(dir, { recursive: true, force: true })),
+    exists: seams.exists ?? existsSync,
   };
+}
+
+/** Error codes that mean "a handle is still open, try again" (Windows holds a profile briefly after exit). */
+const RETRYABLE_REMOVE_CODES = new Set(['EBUSY', 'EPERM', 'EACCES', 'ENOTEMPTY', 'EMFILE']);
+
+/**
+ * Remove the harness-owned profile, retrying EBUSY/EPERM-class failures until `boundMs` passes. Between
+ * attempts on Windows, any process still carrying the profile is forced again. A non-retryable error stops
+ * the loop. Never throws: the result is whether the directory is gone.
+ */
+async function removeProfileDir(d: CloseDriver, profileDir: string, boundMs: number): Promise<boolean> {
+  const deadline = d.now() + boundMs;
+  for (;;) {
+    try {
+      d.removeDir(profileDir);
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException | undefined)?.code;
+      if (code === undefined || !RETRYABLE_REMOVE_CODES.has(code)) return !d.exists(profileDir);
+    }
+    if (!d.exists(profileDir)) return true;
+    if (d.now() >= deadline) return false;
+    if (d.platform === 'win32') for (const pid of scanOf(d, profileDir) ?? []) d.killPid(pid);
+    await d.sleep(Math.min(250, Math.max(1, deadline - d.now())));
+  }
 }
 
 /** A scan that throws is a failed query. */
@@ -556,6 +590,8 @@ export async function closeChromeGracefully(options: {
   killTimeoutMs?: number;
   /** Upper bound for the post-force settle. Default 4 s. */
   settleMs?: number;
+  /** Upper bound for retrying profile removal on EBUSY/EPERM. Default 10 s. */
+  profileRemoveMs?: number;
   /** Test seams. Every field defaults to the real implementation. */
   seams?: CloseSeams;
 }): Promise<ChromeCloseReport> {
@@ -584,15 +620,6 @@ export async function closeChromeGracefully(options: {
     // profile pid is forced too. Under load one round can leave a hung renderer, so this keeps re-issuing.
     await forceSettled(d, child, profileDir, killBound);
   }
-  let profileRemoved = true;
-  if (profileDir) {
-    try {
-      rmSync(profileDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
-    } catch {
-      // A held profile is reported through `profileRemoved`, never thrown from close().
-    }
-    profileRemoved = !existsSync(profileDir);
-  }
   // Settle: pids still exiting get a bounded wait, then the last scan decides. A pid still listed after the
   // bound is a leftover. A scan that never answers is unknown, not an empty profile.
   let leftoverPids: number[] = [];
@@ -608,6 +635,13 @@ export async function closeChromeGracefully(options: {
     leftoverPids = settle.leftoverPids;
     observedExitingPids = settle.observedExitingPids;
     scanUnknown = settle.unknown === true;
+  }
+  // The profile is removed after the settle, not before: on Windows a dying Chrome tree keeps handles open
+  // in the profile for a while, and one early delete attempt fails with EBUSY/EPERM. Removal retries inside
+  // its own bound and re-forces any pid still listed between attempts.
+  let profileRemoved = true;
+  if (profileDir) {
+    profileRemoved = await removeProfileDir(d, profileDir, options.profileRemoveMs ?? 10_000);
   }
   // One more fresh look at the launcher decides the verdict.
   const launcher = await observeLauncher(d, child);

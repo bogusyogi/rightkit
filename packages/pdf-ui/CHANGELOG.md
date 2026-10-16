@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.7
+
+Additive. Default markup is unchanged and every colour keeps its previous value when no variable is set.
+
+- Viewer surface colours are CSS variables with the old literals as fallbacks (#174): `--rk-pdf-ink`, `--rk-pdf-bg`, `--rk-pdf-chrome-bg` (toolbar, panels, notice), `--rk-pdf-page-bg`, `--rk-pdf-border`, `--rk-pdf-control-border`, `--rk-pdf-accent-bg`, `--rk-pdf-accent`, `--rk-pdf-error`, `--rk-pdf-muted`.
+- New optional `PdfViewer` prop `truncationNotice` (a node, or a function of `{ shown, total }`): rendered as `<p class="rk-pdf-notice" role="status">` above the pages while `maxRenderPages` hides some, for a "showing first N of M pages" line. Absent: nothing is rendered. New export `PdfTruncationNotice`, the same slot for hosts that lay out their own page list.
+
 ## 0.1.6
 
 Additive. Default `PdfViewer` output is intended to be unchanged. The characterization tests in `test/viewer-markup.test.tsx` pin only the initial rendered shell (no pages); the runtime `getDocument` call and text-layer render are not covered by tests.

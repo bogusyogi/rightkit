@@ -1,7 +1,10 @@
 # Changelog
 
-## Unreleased
+## 0.1.7 — 2026-10-16
 
+- Found by HeardRight (#167): on Windows `close()` failed teardown with `profileRemoved: false` ("Owned QA browser & profile must close"). The profile was deleted straight after the kill, while the dying Chrome tree still held handles in it, and `rmSync` gave up after about one second of EBUSY/EPERM retries. It was never tried again.
+- The profile is now removed after the process settle, in a bounded loop (`profileRemoveMs`, default 10 s) that retries EBUSY, EPERM, EACCES, ENOTEMPTY and EMFILE every 250 ms. On Windows each retry first forces any pid the profile scan still lists (`taskkill /T /F` per pid). Other errors stop the loop at once. `close()` still never throws; a profile that stays held reports `profileRemoved: false`.
+- `CloseChromeOptions.profileRemoveMs` and `CloseSeams.removeDir` / `CloseSeams.exists` (tests) are new and optional. Defaults leave other platforms unchanged.
 - Windows: `installChromeForTesting` grants Chrome's sandbox read and execute on the installed version folder (`ALL APPLICATION PACKAGES`, `S-1-15-2-1`, and `ALL RESTRICTED APPLICATION PACKAGES`, `S-1-15-2-2`) and checks the grant on the executable; an existing install is repaired the same way. A Chrome unpacked from the archive had neither grant, so Chrome logged "Sandbox cannot access executable", its network service crashed at startup, and a first navigation hung or failed with `net::ERR_ABORTED`. This was the main cause of that failure on the Windows runner.
 - Windows: `launchChromeForTesting` checks the grant before starting the browser and throws the new `ChromeSandboxAccessError` (`code: 'CHROME_SANDBOX_ACCESS'`, with `directory`, `principals` and the `fix` command) when it is missing. A launch with `--no-sandbox` is not checked, and an access list that cannot be read does not stop a launch.
 - New exports: `grantSandboxAccess`, `sandboxAccessProblem`, `missingSandboxGrants`, `sandboxGrantCommand`, `readAccessList`.

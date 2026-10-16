@@ -289,6 +289,82 @@ describe('closeChromeGracefully (injected launcher probe, profile scan and clock
     expect(report.durationMs).toBe(0);
   });
 
+  it('Windows: a profile held with EBUSY/EPERM right after the kill is removed on a later attempt, with the leftover pid re-forced', async () => {
+    const clock = fakeClock();
+    const dir = profile();
+    let attempts = 0;
+    const killed: number[] = [];
+    const report = await closeChromeGracefully({
+      child: fakeLauncher(4242, 1),
+      profileDir: dir,
+      seams: {
+        platform: 'win32',
+        launcherLiveness: () => 'gone',
+        signalTree: () => {},
+        killPid: (pid) => { killed.push(pid); },
+        scanProfile: () => (attempts >= 1 && attempts < 3 ? [777] : []),
+        removeDir: (target) => {
+          attempts += 1;
+          if (attempts === 1) throw Object.assign(new Error('busy'), { code: 'EBUSY' });
+          if (attempts === 2) throw Object.assign(new Error('perm'), { code: 'EPERM' });
+          rmSync(target, { recursive: true, force: true });
+        },
+        now: clock.now,
+        sleep: clock.sleep,
+      },
+    });
+    expect(attempts).toBe(3);
+    expect(killed).toContain(777);
+    expect(existsSync(dir)).toBe(false);
+  });
+
+  it('a profile that stays held reports profileRemoved: false after the bound, and never throws', async () => {
+    const clock = fakeClock();
+    const dir = profile();
+    let attempts = 0;
+    const report = await closeChromeGracefully({
+      child: fakeLauncher(4242, 1),
+      profileDir: dir,
+      profileRemoveMs: 1_000,
+      seams: {
+        platform: 'win32',
+        launcherLiveness: () => 'gone',
+        signalTree: () => {},
+        killPid: () => {},
+        scanProfile: () => [],
+        removeDir: () => { attempts += 1; throw Object.assign(new Error('busy'), { code: 'EBUSY' }); },
+        now: clock.now,
+        sleep: clock.sleep,
+      },
+    });
+    expect(attempts).toBeGreaterThan(1);
+    expect(report.profileRemoved).toBe(false);
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it('a non-retryable removal error stops at once', async () => {
+    const clock = fakeClock();
+    const dir = profile();
+    let attempts = 0;
+    const report = await closeChromeGracefully({
+      child: fakeLauncher(4242, 1),
+      profileDir: dir,
+      seams: {
+        platform: 'linux',
+        launcherLiveness: () => 'gone',
+        signalTree: () => {},
+        killPid: () => {},
+        scanProfile: () => [],
+        removeDir: () => { attempts += 1; throw Object.assign(new Error('nope'), { code: 'EINVAL' }); },
+        now: clock.now,
+        sleep: clock.sleep,
+      },
+    });
+    expect(attempts).toBe(1);
+    expect(report.profileRemoved).toBe(false);
+    rmSync(dir, { recursive: true, force: true });
+  });
+
   it('a kill that uses up the whole bound, with the exit recorded on the next loop turn, reads as exited', async () => {
     let t = 0;
     let exitPending = false;

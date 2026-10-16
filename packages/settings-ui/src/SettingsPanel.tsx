@@ -159,6 +159,23 @@ export interface SettingsPanelProps {
   /** Omit every section's `<h1>` (the nav still shows the label). A section's own `hideSectionHeading` overrides this. Default false. */
   hideSectionHeading?: boolean;
   /**
+   * Keep every section the user has opened mounted (hidden with the `hidden` attribute) when another one is selected, so
+   * section state (inputs, expanded rows, scroll inside a section) survives switching. Each kept section sits in a
+   * `<div class="rk-settings__kept">`. Default false: only the active section is mounted, as before.
+   */
+  keepMounted?: boolean;
+  /**
+   * Paint the panel with `--rk-plane` and `--rk-ink`. Default true. False adds `rk-settings--no-paint`: the frame keeps
+   * `color` and `background` from the host, for a panel embedded in a surface that already paints itself.
+   */
+  paint?: boolean;
+  /**
+   * Give section `<pre>` blocks the browser's own monospace size. `--rk-settings-font-size` set as a length is inherited by
+   * `<pre>` and turns off the UA default (13px for `monospace`); this adds `rk-settings--native-pre`, which sets
+   * `font-size: medium` on `pre` (not `.rk-diag`) so the default returns. Default false.
+   */
+  nativePreSize?: boolean;
+  /**
    * A snapshot already known to the caller (for example `createMemorySettings(...).snapshot()`). With it, the first render
    * shows the sections and never "Loading settings…".
    */
@@ -171,7 +188,7 @@ export interface SettingsPanelProps {
  * Persistence is the backend's; sections receive a `SettingsContext` and never touch storage themselves.
  */
 export function SettingsPanel(props: SettingsPanelProps) {
-  const { backend, sections, title = "Settings", navHeading, navFooter, renderNavItem, hideNav = false, defaultActiveId, search, hideSearch = false, searchLabel = "Search settings", loading, hideSectionHeading = false, initial, className } = props;
+  const { backend, sections, title = "Settings", navHeading, navFooter, renderNavItem, hideNav = false, defaultActiveId, search, hideSearch = false, searchLabel = "Search settings", loading, hideSectionHeading = false, initial, className, keepMounted = false, paint = true, nativePreSize = false } = props;
   const { searchMode = "navigate", highlight = false, openSectionLabel, resultHeadingLevel, findShortcut, escapeClears, formatAnnouncement } = props;
   const allSections = searchMode === "all-sections";
   const announce = props.announceResults ?? allSections;
@@ -193,6 +210,8 @@ export function SettingsPanel(props: SettingsPanelProps) {
   const visibleIds = matches.map((m) => m.section.id);
   const active = ordered.find((s) => s.id === current && (!query || visibleIds.includes(s.id))) ?? matches[0]?.section;
   const content = useRef<HTMLDivElement>(null);
+  const visited = useRef(new Set<string>());
+  if (keepMounted && active && !searching) visited.current.add(active.id);
   const searchInput = useRef<HTMLInputElement>(null);
   const pendingReveal = useRef<string | null>(null);
   const showSearch = !hideSearch && (hideNav ? search === true : search !== false);
@@ -265,7 +284,7 @@ export function SettingsPanel(props: SettingsPanelProps) {
   const navCount = matches.reduce((n, m) => n + (m.entryIds.length || 1), 0);
   return (
     <SettingsSearchProvider query={query} enabled={searchEnabled} filter={searching} highlight={highlight}>
-    <div className={cx("rk-settings", hideNav && "rk-settings--no-nav", className)} data-testid="settings-panel">
+    <div className={cx("rk-settings", hideNav && "rk-settings--no-nav", !paint && "rk-settings--no-paint", nativePreSize && "rk-settings--native-pre", className)} data-testid="settings-panel">
       {hideNav ? null : <nav className="rk-settings__nav" aria-label={typeof heading === "string" ? heading : typeof title === "string" ? title : "Settings"} onKeyDown={onNavKey}>
         {heading === false || heading === null ? null : <h2 className="rk-settings__title">{heading}</h2>}
         {searchField}
@@ -318,6 +337,15 @@ export function SettingsPanel(props: SettingsPanelProps) {
         ) : null}
         {!settings.loaded ? (
           <div className="rk-settings__loading" aria-busy="true">{loading ?? "Loading settings…"}</div>
+        ) : keepMounted ? (
+          <>
+            {searching ? <SearchResults sections={ordered} ctx={ctx} query={query} onOpen={openSection} openLabel={openSectionLabel} headingLevel={resultHeadingLevel} /> : null}
+            {ordered.filter((sec) => visited.current.has(sec.id)).map((sec) => (
+              <div key={sec.id} className="rk-settings__kept" hidden={searching || sec.id !== active?.id}>
+                <SectionFrame section={sec} ctx={ctx} hideSectionHeading={hideSectionHeading} />
+              </div>
+            ))}
+          </>
         ) : searching ? (
           <SearchResults sections={ordered} ctx={ctx} query={query} onOpen={openSection} openLabel={openSectionLabel} headingLevel={resultHeadingLevel} />
         ) : active ? (

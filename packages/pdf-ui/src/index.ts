@@ -1,4 +1,4 @@
-export { PdfViewer, PdfSearchContext, usePdfSearch, createPdfLinkService } from "./PdfViewer.js";
+export { PdfViewer, PdfSearchContext, PdfTruncationNotice, usePdfSearch, createPdfLinkService } from "./PdfViewer.js";
 export { isSafeExternalUrl } from "./linkService.js";
 export { configurePdfJs, ensurePdfWorker, pdfWasmUrl } from "./pdfJs.js";
 export { acquirePdfRenderKeepalive } from "./renderKeepalive.js";

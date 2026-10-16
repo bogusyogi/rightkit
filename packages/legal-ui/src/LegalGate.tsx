@@ -58,6 +58,11 @@ export interface LegalGateAgreement {
 export interface LegalGateEligibilityLabels {
   /** Screen-reader legend of the radio group. Default "Who is this license for". */
   legend?: string;
+  /**
+   * Show the legend as visible text above the radios (class `rk-legal-gate__legend`) instead of
+   * screen-reader only. Default false: the legend stays `rk-sr-only` and the markup is unchanged.
+   */
+  legendVisible?: boolean;
   individual?: { label?: string; description?: string };
   enterprise?: { label?: string; description?: string };
 }
@@ -311,6 +316,7 @@ export function LegalGate({
   const theme = resolveTheme(themeProp);
   const labels = {
     legend: eligibilityLabels?.legend ?? DEFAULT_ELIGIBILITY_LABELS.legend,
+    legendVisible: eligibilityLabels?.legendVisible === true,
     individual: { ...DEFAULT_ELIGIBILITY_LABELS.individual, ...stripUndefined(eligibilityLabels?.individual) },
     enterprise: { ...DEFAULT_ELIGIBILITY_LABELS.enterprise, ...stripUndefined(eligibilityLabels?.enterprise) },
   };
@@ -522,7 +528,16 @@ export function LegalGate({
         {/* Right rail: the decision itself. */}
         <div className="rk-legal-gate__rail">
         <fieldset style={{ border: "none", padding: 0, margin: "0 0 16px" }}>
-          <legend className="rk-sr-only">{labels.legend}</legend>
+          {labels.legendVisible ? (
+            <legend
+              className="rk-legal-gate__legend"
+              style={{ padding: 0, margin: "0 0 10px", fontSize: 13, fontWeight: 600, color: theme.text }}
+            >
+              {labels.legend}
+            </legend>
+          ) : (
+            <legend className="rk-sr-only">{labels.legend}</legend>
+          )}
           <div style={{ display: "flex", flexDirection: "column", gap: 11 }}>
             <label htmlFor={individualId} className="rk-legal-gate__radio-row">
               <input

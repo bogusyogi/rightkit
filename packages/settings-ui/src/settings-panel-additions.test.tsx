@@ -100,3 +100,52 @@ describe("settings.css tokens", () => {
     expect(settingsCss).toContain(".rk-settings__body { padding: var(--rk-settings-padding, 18px 16px 32px); }");
   });
 });
+
+describe("0.4.5 frame options (#174)", () => {
+  const stateful: SettingsSection[] = [
+    { id: "one", label: "One", order: 1, render: () => <input aria-label="draft" defaultValue="" /> },
+    { id: "two", label: "Two", order: 2, render: () => <p>Two body</p> },
+  ];
+  const mount = (props: Partial<React.ComponentProps<typeof SettingsPanel>> = {}) =>
+    render(<SettingsPanel backend={createMemorySettings()} sections={stateful} {...props} />);
+  const nav = (name: string) => document.querySelector<HTMLButtonElement>(`button[data-section-id="${name}"]`)!;
+
+  it("keepMounted keeps a visited section's state while another is shown", async () => {
+    mount({ keepMounted: true });
+    const input = (await screen.findByLabelText("draft", { selector: "input" })) as HTMLInputElement;
+    fireEvent.change(input, { target: { value: "typed" } });
+    fireEvent.click(nav("two"));
+    await screen.findByText("Two body");
+    const kept = document.querySelector<HTMLElement>(".rk-settings__kept")!;
+    expect(kept.hidden).toBe(true);
+    fireEvent.click(nav("one"));
+    expect(document.querySelector<HTMLElement>(".rk-settings__kept")!.hidden).toBe(false);
+    expect((screen.getByLabelText("draft") as HTMLInputElement).value).toBe("typed");
+  });
+  it("without keepMounted the section remounts and loses state, with no wrapper (default markup)", async () => {
+    mount();
+    const input = (await screen.findByLabelText("draft", { selector: "input" })) as HTMLInputElement;
+    fireEvent.change(input, { target: { value: "typed" } });
+    fireEvent.click(nav("two"));
+    await screen.findByText("Two body");
+    expect(document.querySelector(".rk-settings__kept")).toBeNull();
+    fireEvent.click(nav("one"));
+    expect((screen.getByLabelText("draft") as HTMLInputElement).value).toBe("");
+  });
+  it("paint={false} and nativePreSize add their classes; the defaults add neither", async () => {
+    const v = mount({ paint: false, nativePreSize: true });
+    await screen.findByLabelText("draft");
+    const root = v.container.querySelector(".rk-settings")!;
+    expect(root).toHaveProperty("className", "rk-settings rk-settings--no-paint rk-settings--native-pre");
+    v.unmount();
+    const d = mount();
+    await screen.findByLabelText("draft");
+    expect(d.container.querySelector(".rk-settings")!.className).toBe("rk-settings");
+  });
+  it("the stylesheet unpaints and restores the native pre size only under the new classes", () => {
+    expect(ruleOf(".rk-settings--no-paint")).toContain("color: inherit");
+    expect(ruleOf(".rk-settings--no-paint")).toContain("background: none");
+    expect(ruleOf(".rk-settings--native-pre pre:not(.rk-diag)")).toContain("font-size: medium");
+    expect(ruleOf(".rk-settings")).toContain("background: var(--rk-plane)");
+  });
+});

@@ -1,8 +1,10 @@
 # Changelog
 
-## Unreleased
+## 0.2.3 — 2026-10-16
 
-Additive (no version bump yet; bump in the release commit). Documents without `content` render identically.
+Additive. Documents without `content` render identically, and the default legend is unchanged.
+
+- `eligibilityLabels.legendVisible` (#174): shows the eligibility legend as visible text (class `rk-legal-gate__legend`, bold 13px, theme text colour) instead of screen-reader only. Default false keeps the `rk-sr-only` legend, byte-identical.
 
 - `LegalGateDocument.content` (string) and `contentFormat` (`"markdown"` default, or `"text"`): the gate renders a bundled document inline in an expandable region under its link. Precedence: `onOpen`, then `content`, then `url`. The built-in Markdown renderer covers headings, paragraphs, lists, rules, bold, italic, code and http(s)/mailto links, and never injects HTML.
 

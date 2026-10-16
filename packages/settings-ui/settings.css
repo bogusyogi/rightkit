@@ -2,6 +2,8 @@
    @rightkit/react-shell/shell.css (--rk-plane --rk-ink --rk-accent --rk-line ...); brings no colours of its own. */
 /* --rk-settings-font-size and --rk-settings-padding default to the built-in values; set them on .rk-settings or :root to match an app. */
 .rk-settings { display: grid; grid-template-columns: 232px minmax(0, 1fr); height: 100%; min-height: 0; color: var(--rk-ink); background: var(--rk-plane); font-size: var(--rk-settings-font-size, 13.5px); }
+.rk-settings--no-paint { color: inherit; background: none; }
+.rk-settings--native-pre pre:not(.rk-diag) { font-size: medium; }
 .rk-settings *, .rk-settings *::before, .rk-settings *::after { box-sizing: border-box; }
 .rk-settings__nav { display: flex; flex-direction: column; gap: 2px; padding: 18px 12px; border-right: .5px solid var(--rk-hairline); overflow-y: auto; background: var(--rk-chrome); }
 .rk-settings--no-nav { grid-template-columns: minmax(0, 1fr); }

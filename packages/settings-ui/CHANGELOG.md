@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.4.5
+
+Additive (#174). Defaults equal 0.4.4: the default DOM and classes are unchanged.
+
+- `SettingsPanel` `keepMounted`: sections the user has opened stay mounted, hidden, when another is selected, so their state survives switching. Kept sections sit in `<div class="rk-settings__kept">`.
+- `SettingsPanel` `paint={false}`: adds `rk-settings--no-paint` (`color: inherit; background: none`), so the frame no longer paints `--rk-ink` and `--rk-plane`.
+- `SettingsPanel` `nativePreSize`: adds `rk-settings--native-pre` (`font-size: medium` on `<pre>`, except `.rk-diag`), restoring the browser's monospace size that a length `--rk-settings-font-size` disables.
+
 ## 0.4.4
 
 Additive. Defaults equal 0.4.3; the default DOM, classes and search results are unchanged, pinned by the existing snapshot tests and by `src/primitives-hooks.test.tsx`.
