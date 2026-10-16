@@ -72,8 +72,31 @@ pub enum Binding {
         sql: &'static str,
         kinds: &'static [ValueKind],
     },
+    /// Like [`Binding::SqlMulti`], but the fragment is chosen from the shape of
+    /// the (trimmed) operator value, e.g. a recipient `@domain`, a full
+    /// `user@domain` address or a bare name. See [`ShapeSql`].
+    ///
+    /// Shape rules, applied to the trimmed value: starts with `@` -> `domain`;
+    /// otherwise contains `@` -> `address`; otherwise `bare`. The value is always
+    /// trimmed; with `lowercase` it is also lowercased (`str::to_lowercase`)
+    /// before conversion. The value keeps its `@` when converted, so
+    /// [`ValueKind::Suffix`] on a domain matches `%@corp.com`.
+    SqlByShape {
+        domain: ShapeSql,
+        address: ShapeSql,
+        bare: ShapeSql,
+        lowercase: bool,
+    },
     /// `value -> fragment` table without parameters (`is:unread`).
     Flags(&'static [(&'static str, &'static str)]),
+}
+
+/// One SQL fragment of a [`Binding::SqlByShape`] with one `?` per entry of
+/// `kinds` (same rules as [`Binding::SqlMulti`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ShapeSql {
+    pub sql: &'static str,
+    pub kinds: &'static [ValueKind],
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -154,6 +177,8 @@ pub struct ChildScope {
     pub link: &'static str,
     /// Columns a negated free-text term is `LIKE`-matched against in addition to FTS.
     pub negated_text_like: Vec<&'static str>,
+    /// Negated free text is matched verbatim: see [`ChildScope::negated_text_unescaped`].
+    pub negated_text_unescaped: bool,
     /// Operators evaluated over a different child source than `from`.
     pub op_sources: Vec<OpSource>,
 }
@@ -175,8 +200,23 @@ impl ChildScope {
             from,
             link,
             negated_text_like: Vec::new(),
+            negated_text_unescaped: false,
             op_sources: Vec::new(),
         }
+    }
+
+    /// Match negated free text against the [`negated_text_like`](Self::negated_text_like())
+    /// columns verbatim: the pattern is `%term%` with `%`, `_` and `\` in the term
+    /// left as `LIKE` metacharacters, and the SQL has no `ESCAPE` clause (a `\`
+    /// is then a plain character). A term with no alphanumeric character is kept
+    /// (matched by the LIKE columns only; it has no FTS form) instead of skipped.
+    /// Only has an effect together with `negated_text_like`; the term is still
+    /// a bound parameter. This reproduces an app's own unescaped contains match;
+    /// the default (escaped, alphanumeric terms only) is the intended product
+    /// behaviour.
+    pub fn negated_text_unescaped(mut self) -> Self {
+        self.negated_text_unescaped = true;
+        self
     }
 
     /// Negated free text also excludes a parent when any of `columns` `LIKE`s the
@@ -296,23 +336,40 @@ impl Schema {
             params.push(Param::Text(expr.clone()));
         }
         // `fts_negated` keeps exactly the terms with an alphanumeric character, in order.
-        let neg_raw = q
-            .negated_text
-            .iter()
-            .filter(|t| t.chars().any(char::is_alphanumeric));
-        for (raw, neg) in neg_raw.zip(q.fts_negated()) {
-            let fts = self.fts.as_ref().ok_or(CompileError::NoFtsTable)?;
+        let mut fts_neg = q.fts_negated().into_iter();
+        for raw in &q.negated_text {
+            let neg = if raw.chars().any(char::is_alphanumeric) {
+                fts_neg.next()
+            } else {
+                None
+            };
             if let Some(scope) = &self.scope {
+                // A term without an alphanumeric character has no FTS form. It is
+                // skipped (0.4.0 default) unless the scope keeps it for its LIKE columns.
+                if neg.is_none()
+                    && (!scope.negated_text_unescaped || scope.negated_text_like.is_empty())
+                {
+                    continue;
+                }
                 let mut parts: Vec<String> = Vec::new();
                 let mut p: Vec<Param> = Vec::new();
                 for col in &scope.negated_text_like {
-                    parts.push(format!("{col} LIKE ? ESCAPE '\\'"));
-                    p.push(Param::Text(format!("%{}%", escape_like(raw))));
+                    if scope.negated_text_unescaped {
+                        parts.push(format!("{col} LIKE ?"));
+                        p.push(Param::Text(format!("%{raw}%")));
+                    } else {
+                        parts.push(format!("{col} LIKE ? ESCAPE '\\'"));
+                        p.push(Param::Text(format!("%{}%", escape_like(raw))));
+                    }
                 }
-                parts.push(fts_clause(fts, false));
-                p.push(Param::Text(neg));
+                if let Some(neg) = neg {
+                    let fts = self.fts.as_ref().ok_or(CompileError::NoFtsTable)?;
+                    parts.push(fts_clause(fts, false));
+                    p.push(Param::Text(neg));
+                }
                 scoped_neg.push((None, parts.join(" OR "), p));
-            } else {
+            } else if let Some(neg) = neg {
+                let fts = self.fts.as_ref().ok_or(CompileError::NoFtsTable)?;
                 clauses.push(fts_clause(fts, true));
                 params.push(Param::Text(neg));
             }
@@ -435,20 +492,27 @@ impl Schema {
                 (*sql).to_string(),
                 vec![convert(*kind, &term.value, now).ok_or_else(bad)?],
             ),
-            Binding::SqlMulti { sql, kinds } => {
-                let found = sql.matches('?').count();
-                if found != kinds.len() {
-                    return Err(CompileError::BindCount {
-                        op: term.op.clone(),
-                        expected: kinds.len(),
-                        found,
-                    });
-                }
-                let mut ps = Vec::with_capacity(kinds.len());
-                for kind in *kinds {
-                    ps.push(convert(*kind, &term.value, now).ok_or_else(bad)?);
-                }
-                ((*sql).to_string(), ps)
+            Binding::SqlMulti { sql, kinds } => bind_multi(term, sql, kinds, &term.value, now)?,
+            Binding::SqlByShape {
+                domain,
+                address,
+                bare,
+                lowercase,
+            } => {
+                let trimmed = term.value.trim();
+                let value = if *lowercase {
+                    trimmed.to_lowercase()
+                } else {
+                    trimmed.to_string()
+                };
+                let shape = if value.starts_with('@') {
+                    domain
+                } else if value.contains('@') {
+                    address
+                } else {
+                    bare
+                };
+                bind_multi(term, shape.sql, shape.kinds, &value, now)?
             }
             Binding::Flags(table) => {
                 let lower = term.value.to_ascii_lowercase();
@@ -462,6 +526,34 @@ impl Schema {
         };
         Ok((sql, params))
     }
+}
+
+/// One `?` per kind (checked textually), each bound to `value` converted by that kind.
+fn bind_multi(
+    term: &OpTerm,
+    sql: &str,
+    kinds: &[ValueKind],
+    value: &str,
+    now: i64,
+) -> Result<(String, Vec<Param>), CompileError> {
+    let found = sql.matches('?').count();
+    if found != kinds.len() {
+        return Err(CompileError::BindCount {
+            op: term.op.clone(),
+            expected: kinds.len(),
+            found,
+        });
+    }
+    let mut ps = Vec::with_capacity(kinds.len());
+    for kind in kinds {
+        ps.push(
+            convert(*kind, value, now).ok_or_else(|| CompileError::BadValue {
+                op: term.op.clone(),
+                value: term.value.clone(),
+            })?,
+        );
+    }
+    Ok((sql.to_string(), ps))
 }
 
 fn fts_clause(fts: &Fts, negated: bool) -> String {

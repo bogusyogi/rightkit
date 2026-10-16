@@ -32,7 +32,7 @@ Illustrative; not compiled as a doctest. For compiled usage against a real SQLit
 
 ## Parent/child scope (threads over messages)
 
-`Schema::scope(ChildScope::new("messages m", "m.thread_id = t.id"))` makes bindings describe the child row while the `WHERE` body filters the parent: positive terms co-occur in one child (`EXISTS`), each negated term is its own `NOT EXISTS`. Refinements (0.4.0): `.negated_text_like(&["m.subject", "m.snippet"])` makes negated free text also `LIKE`-match those columns besides FTS; `.op_source("label", "thread_labels l", "l.thread_id = t.id")` evaluates an operator over another child table; `Binding::SqlMulti { sql, kinds }` binds one operator value to several `?` (with `ValueKind::Prefix`/`Suffix`). See `tests/scope_e2e.rs`.
+`Schema::scope(ChildScope::new("messages m", "m.thread_id = t.id"))` makes bindings describe the child row while the `WHERE` body filters the parent: positive terms co-occur in one child (`EXISTS`), each negated term is its own `NOT EXISTS`. Refinements (0.4.0): `.negated_text_like(&["m.subject", "m.snippet"])` makes negated free text also `LIKE`-match those columns besides FTS; `.op_source("label", "thread_labels l", "l.thread_id = t.id")` evaluates an operator over another child table; `Binding::SqlMulti { sql, kinds }` binds one operator value to several `?` (with `ValueKind::Prefix`/`Suffix`); `Binding::SqlByShape { domain, address, bare, lowercase }` picks the SQL from the value (`@domain`, contains `@`, bare); `.negated_text_unescaped()` makes negated text a verbatim `%term%` LIKE (no `ESCAPE`, no alphanumeric skip). See `tests/scope_e2e.rs`.
 
 ## Paging, substring matching and bounded scans
 

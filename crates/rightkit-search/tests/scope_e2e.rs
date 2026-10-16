@@ -1,6 +1,6 @@
 //! Parent/child match scope: threads (parent) over messages (child) in SQLite.
 
-use rightkit_search::{Binding, ChildScope, CompileError, Schema, ValueKind};
+use rightkit_search::{Binding, ChildScope, CompileError, Param, Schema, ShapeSql, ValueKind};
 use rusqlite::{params_from_iter, Connection};
 
 fn schema() -> Schema {
@@ -294,5 +294,242 @@ fn injection_shaped_values_stay_bound_parameters() {
         if input.starts_with('-') && !input.starts_with("-to:") && !input.starts_with("-label:") {
             assert_eq!(rows.len(), 5, "{input}");
         }
+    }
+}
+
+// ---- Value-shape SQL and verbatim negated text (#172) ----
+
+const RCPT_BY_ADDR: &str = "EXISTS (SELECT 1 FROM message_recipients r WHERE r.message_id = m.id AND r.addr = ?)";
+const RCPT_BY_DOMAIN: &str = "EXISTS (SELECT 1 FROM message_recipients r WHERE r.message_id = m.id AND r.addr LIKE ? ESCAPE '\\')";
+const RCPT_BY_BARE: &str = "EXISTS (SELECT 1 FROM message_recipients r WHERE r.message_id = m.id AND r.addr LIKE ? ESCAPE '\\')";
+
+fn shape_schema(lowercase: bool) -> Schema {
+    Schema::new()
+        .fts("fts_messages", "m.rowid")
+        .bind(
+            "to",
+            Binding::SqlByShape {
+                domain: ShapeSql {
+                    sql: RCPT_BY_DOMAIN,
+                    kinds: &[ValueKind::Suffix],
+                },
+                address: ShapeSql {
+                    sql: RCPT_BY_ADDR,
+                    kinds: &[ValueKind::Text],
+                },
+                bare: ShapeSql {
+                    sql: RCPT_BY_BARE,
+                    kinds: &[ValueKind::Contains],
+                },
+                lowercase,
+            },
+        )
+        .scope(ChildScope::new("messages m", "m.thread_id = t.id"))
+}
+
+#[test]
+fn shaped_binding_picks_sql_from_the_value() {
+    let conn = mail_fixture();
+    let s = shape_schema(true);
+    // @domain: suffix match (gina@sub.corp.com is not @corp.com).
+    assert_eq!(run_with(&conn, &s, "to:@corp.com"), vec!["t1", "t3", "t5"]);
+    // user@domain: exact equality.
+    assert_eq!(run_with(&conn, &s, "to:dana@corp.com"), vec!["t1"]);
+    assert_eq!(run_with(&conn, &s, "to:dana@corp"), Vec::<String>::new());
+    // bare: contains.
+    assert_eq!(run_with(&conn, &s, "to:rin"), vec!["t2"]);
+    // Negation drops the whole thread through the same shape.
+    assert_eq!(run_with(&conn, &s, "-to:@corp.com"), vec!["t2", "t4"]);
+    assert_eq!(
+        run_with(&conn, &s, "-to:erin@other.org"),
+        vec!["t1", "t3", "t4", "t5"]
+    );
+}
+
+#[test]
+fn shaped_binding_sql_and_params_per_shape() {
+    let s = shape_schema(true);
+    let compile = |input: &str| s.compile(&s.parse(input).unwrap()).unwrap();
+    let c = compile("to:@corp.com");
+    assert!(c.where_sql.contains("r.addr LIKE ? ESCAPE"));
+    assert_eq!(c.params, vec![Param::Text("%@corp.com".to_string())]);
+    let c = compile("to:dana@corp.com");
+    assert!(c.where_sql.contains("r.addr = ?"));
+    assert_eq!(c.params, vec![Param::Text("dana@corp.com".to_string())]);
+    let c = compile("to:rin");
+    assert_eq!(c.params, vec![Param::Text("%rin%".to_string())]);
+}
+
+#[test]
+fn shaped_binding_lowercases_only_when_asked() {
+    let conn = mail_fixture();
+    let on = shape_schema(true);
+    assert_eq!(run_with(&conn, &on, "to:Dana@Corp.COM"), vec!["t1"]);
+    assert_eq!(run_with(&conn, &on, "to:@CORP.com"), vec!["t1", "t3", "t5"]);
+    let c = on.compile(&on.parse("to:Dana@Corp.COM").unwrap()).unwrap();
+    assert_eq!(c.params, vec![Param::Text("dana@corp.com".to_string())]);
+    // Without lowercase the value is bound as typed; `=` is case-sensitive.
+    let off = shape_schema(false);
+    assert_eq!(
+        run_with(&conn, &off, "to:Dana@Corp.COM"),
+        Vec::<String>::new()
+    );
+    let c = off.compile(&off.parse("to:Dana@Corp.COM").unwrap()).unwrap();
+    assert_eq!(c.params, vec![Param::Text("Dana@Corp.COM".to_string())]);
+}
+
+#[test]
+fn shaped_binding_count_mismatch_is_an_error() {
+    let s = Schema::new()
+        .bind(
+            "to",
+            Binding::SqlByShape {
+                domain: ShapeSql {
+                    sql: "m.a LIKE ?",
+                    kinds: &[ValueKind::Suffix],
+                },
+                address: ShapeSql {
+                    sql: "m.a = ?",
+                    kinds: &[ValueKind::Text],
+                },
+                bare: ShapeSql {
+                    sql: "m.a LIKE ? OR m.b LIKE ?",
+                    kinds: &[ValueKind::Contains],
+                },
+                lowercase: true,
+            },
+        )
+        .scope(ChildScope::new("messages m", "m.thread_id = t.id"));
+    // Only the selected shape is checked.
+    assert!(s.compile(&s.parse("to:@x.org").unwrap()).is_ok());
+    let err = s.compile(&s.parse("to:x").unwrap()).unwrap_err();
+    assert!(matches!(
+        err,
+        CompileError::BindCount {
+            expected: 1,
+            found: 2,
+            ..
+        }
+    ));
+}
+
+#[test]
+fn shaped_binding_injection_shaped_values_stay_bound() {
+    let conn = mail_fixture();
+    let s = shape_schema(true);
+    // One input per shape, plus escaped wildcards.
+    for input in [
+        "to:x';DROP--",
+        "to:a@b';DROP--",
+        "to:@x';DROP--",
+        "to:%",
+        "to:_",
+        "to:@%",
+        "to:a_c@corp.com",
+    ] {
+        let c = s.compile(&s.parse(input).unwrap()).unwrap();
+        assert!(!c.where_sql.contains("DROP"), "{input}: value leaked");
+        assert_eq!(c.params.len(), 1, "{input}");
+        assert_eq!(c.where_sql.matches('?').count(), 1, "{input}");
+        assert!(
+            run_with(&conn, &s, input).is_empty(),
+            "{input}: matched rows"
+        );
+        let neg = format!("-{input}");
+        assert_eq!(run_with(&conn, &s, &neg).len(), 5, "{neg}");
+        let n: i64 = conn
+            .query_row("SELECT count(*) FROM messages", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(n, 5, "{input}");
+    }
+}
+
+fn verbatim_schema(unescaped: bool) -> Schema {
+    let mut scope =
+        ChildScope::new("messages m", "m.thread_id = t.id").negated_text_like(&["m.subject"]);
+    if unescaped {
+        scope = scope.negated_text_unescaped();
+    }
+    Schema::new().fts("fts_messages", "m.rowid").scope(scope)
+}
+
+fn verbatim_fixture() -> Connection {
+    let conn = Connection::open_in_memory().unwrap();
+    conn.execute_batch(
+        "CREATE TABLE threads(id TEXT PRIMARY KEY);
+         CREATE TABLE messages(id INTEGER PRIMARY KEY, thread_id TEXT, subject TEXT, body TEXT);
+         CREATE VIRTUAL TABLE fts_messages USING fts5(subject, body, content='messages', content_rowid='id');
+         INSERT INTO threads VALUES ('u1'),('u2'),('u3');
+         INSERT INTO messages VALUES (1,'u1','abc','x'),(2,'u2','a_c','x'),(3,'u3','axc','x');
+         INSERT INTO fts_messages(rowid, subject, body) SELECT id, subject, body FROM messages;",
+    )
+    .unwrap();
+    conn
+}
+
+#[test]
+fn negated_text_default_escapes_wildcards() {
+    let conn = verbatim_fixture();
+    // `_` is literal: only u2 holds `a_c`.
+    assert_eq!(
+        run_with(&conn, &verbatim_schema(false), "-a_c"),
+        vec!["u1", "u3"]
+    );
+}
+
+#[test]
+fn negated_text_unescaped_keeps_like_wildcards() {
+    let conn = verbatim_fixture();
+    let s = verbatim_schema(true);
+    // `_` is a LIKE wildcard: abc, a_c and axc all match, so every thread drops.
+    assert_eq!(run_with(&conn, &s, "-a_c"), Vec::<String>::new());
+    let c = s.compile(&s.parse("-a_c").unwrap()).unwrap();
+    assert!(!c.where_sql.contains("ESCAPE"));
+    assert_eq!(c.params[0], Param::Text("%a_c%".to_string()));
+    assert_eq!(c.params.len(), 2);
+}
+
+#[test]
+fn negated_text_without_alphanumerics_is_skipped_by_default_and_kept_when_unescaped() {
+    let conn = verbatim_fixture();
+    assert_eq!(
+        run_with(&conn, &verbatim_schema(false), "-_"),
+        vec!["u1", "u2", "u3"]
+    );
+    let s = verbatim_schema(true);
+    // Kept: `%_%` matches every non-empty subject. LIKE only, no FTS bind.
+    assert_eq!(run_with(&conn, &s, "-_"), Vec::<String>::new());
+    let c = s.compile(&s.parse("-_").unwrap()).unwrap();
+    assert_eq!(c.params, vec![Param::Text("%_%".to_string())]);
+    assert!(!c.where_sql.contains("MATCH"));
+    // Mixed with an alphanumeric negated term: the FTS binds stay aligned.
+    let c = s.compile(&s.parse("-_ -abc").unwrap()).unwrap();
+    assert_eq!(c.params.len(), 3);
+    assert_eq!(c.params[2], Param::Text("\"abc\"*".to_string()));
+}
+
+#[test]
+fn negated_text_unescaped_without_like_columns_changes_nothing() {
+    let conn = verbatim_fixture();
+    let s = Schema::new().fts("fts_messages", "m.rowid").scope(
+        ChildScope::new("messages m", "m.thread_id = t.id").negated_text_unescaped(),
+    );
+    assert_eq!(run_with(&conn, &s, "-_"), vec!["u1", "u2", "u3"]);
+    assert_eq!(run_with(&conn, &s, "-abc"), vec!["u2", "u3"]);
+}
+
+#[test]
+fn negated_text_unescaped_injection_shaped_values_stay_bound() {
+    let conn = verbatim_fixture();
+    let s = verbatim_schema(true);
+    for input in ["-x';DROP--", "-';DROP--", "-x%';DROP--"] {
+        let c = s.compile(&s.parse(input).unwrap()).unwrap();
+        assert!(!c.where_sql.contains("DROP"), "{input}: value leaked");
+        assert_eq!(c.where_sql.matches('?').count(), c.params.len(), "{input}");
+        assert_eq!(run_with(&conn, &s, input).len(), 3, "{input}");
+        let n: i64 = conn
+            .query_row("SELECT count(*) FROM messages", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(n, 3, "{input}");
     }
 }
