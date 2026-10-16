@@ -19,9 +19,10 @@
 //! `src/native/windows.rs` holds a native `ReadDirectoryChangesW` reader (`DirWatcher`) that,
 //! unlike notify's Windows backend, reports a buffer overflow. `DirWatchSet` (`watch_batches`,
 //! `watch_records`) uses it on Windows and falls back to notify if it cannot open the folder.
-//! The typed `watch_with` path is not wired to it yet: there `src/native/windows.rs` still
-//! returns [`WatchError::Backend`] for [`WatchBackend::Native`], and [`WatchBackend::Auto`]
-//! falls back to notify on Windows (flip [`AUTO_IS_NATIVE_ON_WINDOWS`] when that lands).
+//! The typed `watch_with` path uses it too: [`WatchBackend::Native`] and [`WatchBackend::Auto`]
+//! wrap a `DirWatcher` in a pump thread that feeds the [`BackendSink`], so a lost report becomes
+//! `WatchEvent::Overflow`. The buffer is `windows_buffer_bytes` clamped to [4 KiB, 64 KiB]. If the
+//! native open or first arm fails, `watch_with` falls back to notify on Windows.
 
 use std::fmt;
 use std::num::NonZeroUsize;
@@ -56,16 +57,15 @@ use unsupported as platform;
 pub(crate) use platform::Handle;
 pub(crate) use queue::{BoundedQueue, Entry};
 
-/// Whether [`WatchBackend::Auto`] picks the native backend on Windows. False until the Windows
-/// lane lands `src/native/windows.rs`; `Auto` then falls back to notify there.
-pub(crate) const AUTO_IS_NATIVE_ON_WINDOWS: bool = false;
+/// Whether [`WatchBackend::Auto`] picks the native backend on Windows (it does; a native open
+/// failure still falls back to notify).
+pub(crate) const AUTO_IS_NATIVE_ON_WINDOWS: bool = true;
 
 /// Which implementation `watch_with` uses.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 #[non_exhaustive]
 pub enum WatchBackend {
-    /// Native on Windows and macOS, notify elsewhere. While the Windows native arm is not
-    /// implemented, Windows uses notify.
+    /// Native on Windows and macOS, notify elsewhere.
     #[default]
     Auto,
     /// The platform's own API. On a host without one this is an error, never a fallback.
@@ -512,16 +512,27 @@ pub(crate) fn start(path: &Path, options: TypedOptions) -> Result<Started, Watch
     let queue = Arc::new(BoundedQueue::new(options.queue_capacity_get()));
     match resolve(options.backend)? {
         Resolved::Native => {
-            let sink = BackendSink::new(queue.clone(), &options, false);
-            let handle = platform::start(&root, &options, sink)?;
-            let volume = handle.volume();
-            Ok(Started {
-                watcher: None,
-                thread: None,
-                native: Some(handle),
-                queue,
-                volume,
-            })
+            // macOS folds directories natively; the Windows reader reports files, so its sink folds.
+            let fold_dirs = cfg!(windows) && options.granularity == Granularity::Directory;
+            let sink = BackendSink::new(queue.clone(), &options, fold_dirs);
+            match platform::start(&root, &options, sink) {
+                Ok(handle) => {
+                    let volume = handle.volume();
+                    Ok(Started {
+                        watcher: None,
+                        thread: None,
+                        native: Some(handle),
+                        queue,
+                        volume,
+                    })
+                }
+                // A failed native open or arm leaves the queue untouched, so notify can take over.
+                Err(error) if cfg!(windows) => {
+                    tracing::debug!(%error, path = %root.display(), "native typed watch unavailable; using notify");
+                    start_notify(root, &options, queue)
+                }
+                Err(error) => Err(error),
+            }
         }
         Resolved::Notify => start_notify(root, &options, queue),
     }

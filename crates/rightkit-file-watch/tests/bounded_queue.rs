@@ -68,7 +68,7 @@ fn run(backend: WatchBackend) {
         });
     let watch = TypedWatcher::watch_with(&root, options).unwrap();
     // Only the notify backend owns a translator thread; the native path translates inline.
-    let native = backend == WatchBackend::Auto && cfg!(target_os = "macos");
+    let native = backend == WatchBackend::Auto && cfg!(any(target_os = "macos", windows));
     assert_eq!(watch.translator_threads(), usize::from(!native));
     assert_eq!(watch.metrics().queue_capacity, 8);
 

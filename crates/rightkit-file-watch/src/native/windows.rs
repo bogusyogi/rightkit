@@ -31,11 +31,14 @@
 //! * Stop: [`DirWatcher::drop`] signals a stop event and joins the reader thread. The thread waits
 //!   on `[io event, stop event]`, so it wakes for either; on stop (or a failed wait) it returns,
 //!   dropping the `Reader`, which cancels and waits as above. No handle outlives the join.
-//! * The first request is armed synchronously in `start`, so changes after `start` returns are
+//! * The first request is armed on the reader thread and `start_with` waits for the result, so changes after `start` returns are
 //!   captured and an open or arm failure is returned to the caller (which falls back to notify).
 //!
-//! The typed `watch_with` stub (`Handle`, `start`) below is unchanged: `WatchBackend::Native` on
-//! the typed stream still returns [`WatchError::Backend`], and `Auto` uses notify.
+//! The typed `watch_with` stream (`Handle`, `start`) wraps a `DirWatcher` in a pump thread that
+//! runs `native::run_notify` over its events, so a lost report becomes `WatchEvent::Overflow`.
+//! Its buffer is `TypedOptions::windows_buffer_bytes` clamped to `[4 KiB, 64 KiB]`
+//! (`clamp_buffer`). The `Handle` drop stops the reader first (cancel-then-wait), then joins the
+//! pump; there is still one release point, `Reader::drop`.
 
 use std::ffi::{c_void, OsString};
 use std::fs::{File, OpenOptions};
@@ -53,7 +56,7 @@ use std::thread;
 use notify::event::{CreateKind, Flag, ModifyKind, RemoveKind, RenameMode};
 use notify::{Event, EventKind};
 
-use super::{BackendSink, TypedOptions, WatchCursor};
+use super::{BackendSink, Entry, TypedOptions, WatchCursor};
 use crate::WatchError;
 
 /// Win32 `OVERLAPPED`; the kernel reads and writes every field.
@@ -546,9 +549,26 @@ fn run(
     }
 }
 
-// ---- typed `watch_with` stub (unchanged behaviour) ----
+// ---- typed `watch_with` backend ----
 
-pub(crate) struct Handle;
+/// Smallest and largest `ReadDirectoryChangesW` buffer. 64 KiB is the most a request accepts on a
+/// network share (larger fails with `ERROR_INVALID_PARAMETER`), so it bounds every watch.
+const MIN_BUFFER_BYTES: u32 = 4 * 1024;
+const MAX_BUFFER_BYTES: u32 = 64 * 1024;
+
+/// The buffer actually used for a requested size: rounded down to a DWORD multiple, then clamped
+/// to `[4 KiB, 64 KiB]`.
+pub(crate) fn clamp_buffer(bytes: u32) -> u32 {
+    (bytes & !3).clamp(MIN_BUFFER_BYTES, MAX_BUFFER_BYTES)
+}
+
+/// A typed-stream watch: the native reader plus the thread that feeds its events through the
+/// `BackendSink`. Dropping it stops the reader (cancel-then-wait, see the safety argument), which
+/// closes the event channel; the pump then flushes, closes the queue and exits, and is joined.
+pub(crate) struct Handle {
+    watcher: Option<DirWatcher>,
+    pump: Option<thread::JoinHandle<()>>,
+}
 
 impl Handle {
     pub(crate) fn volume(&self) -> Option<[u8; 16]> {
@@ -556,22 +576,69 @@ impl Handle {
     }
 }
 
+impl Drop for Handle {
+    fn drop(&mut self) {
+        // Reader first: its thread owns the only sender the pump is waiting on.
+        self.watcher.take();
+        if let Some(pump) = self.pump.take() {
+            let _ = pump.join();
+        }
+    }
+}
+
+/// Opens the reader with the configured buffer; if that fails and the network buffer is smaller,
+/// retries once with it.
+fn open_watcher(
+    root: &Path,
+    options: &TypedOptions,
+    tx: &mpsc::Sender<notify::Result<Event>>,
+) -> io::Result<DirWatcher> {
+    let primary = clamp_buffer(options.windows_buffer());
+    match DirWatcher::start_with(root, true, primary, tx.clone()) {
+        Ok(watcher) => Ok(watcher),
+        Err(error) => {
+            let network = clamp_buffer(options.windows_network_buffer());
+            if network < primary {
+                DirWatcher::start_with(root, true, network, tx.clone())
+            } else {
+                Err(error)
+            }
+        }
+    }
+}
+
+/// Starts the native typed watch. An error here touches nothing the caller shares (the queue is
+/// untouched), so `native::start` can fall back to notify.
 pub(crate) fn start(
     root: &Path,
     options: &TypedOptions,
-    sink: BackendSink,
+    mut sink: BackendSink,
 ) -> Result<Handle, WatchError> {
-    // Referenced so the seam stays exercised by the compiler.
-    let _ = (
-        options.windows_buffer(),
-        options.windows_network_buffer(),
-        sink.queue(),
-    );
-    Err(WatchError::Backend {
-        message:
-            "the Windows native typed watch backend is not implemented yet; use WatchBackend::Notify"
-                .into(),
+    let backend_error = |message: String| WatchError::Backend {
+        message,
         paths: vec![root.to_path_buf()],
+    };
+    let (tx, rx) = mpsc::channel();
+    let watcher = open_watcher(root, options, &tx).map_err(|e| backend_error(e.to_string()))?;
+    // The reader thread holds its own sender; drop ours so the channel closes when it exits.
+    drop(tx);
+    let replay_requested = options.replay_cursor().is_some();
+    let pump = thread::Builder::new()
+        .name("rightkit-watch-typed-rdcw".into())
+        .spawn(move || {
+            if replay_requested {
+                // No replay on this backend: answer a cursor with a leading Overflow, as notify does.
+                sink.queue().push_all(
+                    vec![Entry::new(super::unusable_cursor_overflow(), None)],
+                    false,
+                );
+            }
+            super::run_notify(rx, sink)
+        })
+        .map_err(|e| backend_error(e.to_string()))?;
+    Ok(Handle {
+        watcher: Some(watcher),
+        pump: Some(pump),
     })
 }
 
@@ -847,5 +914,74 @@ mod tests {
         // unwatch joined the reader thread, so the folder is no longer held open.
         drop(set);
         dir.close().unwrap();
+    }
+
+    #[test]
+    fn buffer_is_dword_aligned_and_clamped() {
+        assert_eq!(clamp_buffer(0), 4096);
+        assert_eq!(clamp_buffer(4095), 4096);
+        assert_eq!(clamp_buffer(4099), 4096);
+        assert_eq!(clamp_buffer(10_001), 10_000);
+        assert_eq!(clamp_buffer(65_536), 65_536);
+        assert_eq!(clamp_buffer(65_539), 65_536);
+        assert_eq!(clamp_buffer(262_144), 65_536);
+        assert_eq!(clamp_buffer(u32::MAX), 65_536);
+        assert!((0..70_000u32).step_by(997).all(|n| clamp_buffer(n) % 4 == 0));
+    }
+
+    #[test]
+    fn typed_native_watch_receives_a_real_change_and_drops_cleanly() {
+        use crate::{TypedOptions, TypedWatcher, WatchBackend, WatchEvent};
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().canonicalize().unwrap();
+        let options = TypedOptions::new()
+            .backend(WatchBackend::Native)
+            .windows_buffer_bytes(8_000);
+        let watch = TypedWatcher::watch_with(&root, options).unwrap();
+        assert_eq!(watch.translator_threads(), 0);
+        std::fs::write(root.join("typed.txt"), b"x").unwrap();
+        let deadline = Instant::now() + Duration::from_secs(10);
+        let mut seen = false;
+        while let Some(left) = deadline.checked_duration_since(Instant::now()) {
+            match watch.recv_timeout(left) {
+                Ok(WatchEvent::Create(p) | WatchEvent::Modify(p))
+                    if p.file_name().is_some_and(|n| n == "typed.txt") =>
+                {
+                    seen = true;
+                    break;
+                }
+                Ok(_) => {}
+                Err(_) => break,
+            }
+        }
+        assert!(seen, "no typed event for typed.txt");
+        drop(watch);
+        // Drop joined the reader and the pump: no handle still holds the folder.
+        dir.close().unwrap();
+    }
+
+    #[test]
+    fn native_backend_no_longer_errors_and_auto_is_native() {
+        use crate::{TypedOptions, TypedWatcher, WatchBackend};
+        let dir = tempfile::tempdir().unwrap();
+        for backend in [WatchBackend::Native, WatchBackend::Auto] {
+            let watch =
+                TypedWatcher::watch_with(dir.path(), TypedOptions::new().backend(backend))
+                    .unwrap_or_else(|e| panic!("{backend:?}: {e}"));
+            // Native translates through the pump thread, not a notify translator thread.
+            assert_eq!(watch.translator_threads(), 0);
+        }
+    }
+
+    #[test]
+    fn typed_watch_maps_a_lost_report_to_overflow() {
+        use crate::{WatchEvent, WatchEventRecord};
+        use crate::native::{BackendSink, BoundedQueue, TypedOptions};
+        let queue = std::sync::Arc::new(BoundedQueue::new(16));
+        let mut sink = BackendSink::new(queue.clone(), &TypedOptions::new(), false);
+        sink.event(Ok(rescan_event()), None);
+        assert!(sink.commit());
+        let record: WatchEventRecord = queue.try_recv().unwrap().record;
+        assert_eq!(record.event, WatchEvent::Overflow);
     }
 }
