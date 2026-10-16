@@ -186,6 +186,13 @@ digest = ["dep:sha2"]
 # Fault injection around the replace call (`atomic::testing`), for consumer tests. Off by default;
 # a release build (no `debug_assertions`) with it enabled fails to compile.
 testing = ["fs"]
+# `app_dirs` module: one per-user data/local/cache/home resolver with a dev namespace and test
+# isolation. Pulls thiserror (through `fs`) and nothing else.
+app-dirs = ["fs"]
+# Lets `app_dirs` read the QA override variables (RIGHTKIT_QA_DATA_DIR, RIGHTKIT_QA_HOME). Same
+# feature name as rightkit-daemon: one switch isolates both. Off in release builds, which then
+# contain none of the variable names.
+test-mode = ["app-dirs"]
 
 [dependencies]
 serde = { version = "1", features = ["derive"], optional = true }

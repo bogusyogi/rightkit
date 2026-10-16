@@ -7,6 +7,8 @@
 //!   [`FileLock::acquire_shared`] takes a shared (reader) lock. [`LockKind`] picks POSIX record
 //!   locks (`Fcntl`, the default) or `flock(2)` (`Flock`) on Unix; [`probe_owner`] reads the
 //!   owner record without locking.
+//! - [`app_dirs`] (feature `app-dirs`): [`AppDirs`], one resolver for an app's data, local, cache and
+//!   home folders, with a dev namespace and test/QA isolation (QA overrides only with `test-mode`).
 //! - [`digest`] (feature `digest`): SHA-256 of bytes or files, and lowercase hex.
 //! - [`private`]: owner-only files and directories (0600/0700, Windows DACL).
 //! - [`state`]: [`StateDir`], a descriptor-pinned state directory (`O_NOFOLLOW`, fd-relative
@@ -24,6 +26,8 @@ compile_error!(
 
 #[cfg(all(feature = "fs", unix))]
 pub(crate) mod acl;
+#[cfg(feature = "app-dirs")]
+pub mod app_dirs;
 #[cfg(feature = "fs")]
 pub mod append;
 #[cfg(feature = "fs")]
@@ -51,6 +55,8 @@ pub mod verified;
 #[cfg(all(feature = "fs", windows))]
 mod windows_temp_sweep;
 
+#[cfg(feature = "app-dirs")]
+pub use app_dirs::{AppDirs, AppDirsError, AppId, Os as AppDirsOs, Options as AppDirsOptions};
 #[cfg(feature = "fs")]
 pub use append::{append_record, AppendOptions};
 #[cfg(all(feature = "fs", feature = "digest"))]
