@@ -23,6 +23,8 @@ pub fn config(root: &Path) -> Config {
     c.relist_min_interval = Duration::ZERO;
     // Likewise the rescan cooldown: a kernel drop under parallel test load must repair at once.
     c.rescan_cooldown = Duration::ZERO;
+    // And the relist budget: bursty test churn must relist at once.
+    c.relist_budget = None;
     c
 }
 
@@ -49,12 +51,35 @@ pub fn write(p: &Path, bytes: usize) {
     std::fs::write(p, data).unwrap();
 }
 
-/// Poll (flushing the change feed) until `f` holds or 20 s pass.
+/// True when no subtree re-list is pending or running and no full rescan is wanted or
+/// running. Call after `flush()`, which makes the worker apply everything delivered so far.
+pub fn settled(idx: &Index) -> bool {
+    let st = idx.status();
+    st.relists_pending == 0 && !st.rescan_pending
+}
+
+/// Flush and poll until the index is settled or 20 s pass.
+pub fn wait_settled(idx: &Index) {
+    let t = Instant::now();
+    loop {
+        idx.flush();
+        if settled(idx) {
+            return;
+        }
+        assert!(
+            t.elapsed() < Duration::from_secs(20),
+            "timed out waiting for pending relists or rescan"
+        );
+        std::thread::sleep(Duration::from_millis(50));
+    }
+}
+
+/// Poll (flushing the change feed) until `f` holds and the index is settled, or 20 s pass.
 pub fn wait_for(idx: &Index, what: &str, f: impl Fn(&Index) -> bool) {
     let t = Instant::now();
     loop {
         idx.flush();
-        if f(idx) {
+        if f(idx) && settled(idx) {
             return;
         }
         assert!(
@@ -82,6 +107,7 @@ pub fn dirs_under(idx: &Index, root: &Path) -> Vec<PathBuf> {
 
 /// Every folder's rollup in `live` must equal a fresh full crawl of the same root.
 pub fn assert_matches_fresh_crawl(live: &Index, root: &Path) {
+    wait_settled(live);
     let fresh = Index::open(static_config(root)).unwrap();
     let a = dirs_under(live, root);
     let b = dirs_under(&fresh, root);

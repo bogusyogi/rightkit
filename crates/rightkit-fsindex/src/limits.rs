@@ -232,6 +232,8 @@ fn within(path: &[u8], ancestor: &[u8]) -> bool {
 /// set that drains as tokens return; nothing is dropped. A pending folder absorbs pending
 /// folders below it, since re-listing the folder covers them.
 pub struct RelistBudget {
+    /// False: no limit, `drain` returns everything pending.
+    enabled: bool,
     burst: f64,
     interval: Duration,
     tokens: f64,
@@ -243,6 +245,7 @@ pub struct RelistBudget {
 impl RelistBudget {
     pub fn new(burst: u32, interval: Duration, now: Instant) -> RelistBudget {
         RelistBudget {
+            enabled: true,
             burst: f64::from(burst.max(1)),
             interval: interval.max(Duration::from_millis(1)),
             tokens: f64::from(burst.max(1)),
@@ -254,6 +257,20 @@ impl RelistBudget {
 
     pub fn with_defaults(now: Instant) -> RelistBudget {
         RelistBudget::new(RELIST_BUDGET_BURST, RELIST_BUDGET_INTERVAL, now)
+    }
+
+    /// Builds the budget from `Config::relist_budget`: `None`, a zero burst or a zero interval
+    /// means unlimited.
+    pub fn from_config(cfg: Option<(u32, Duration)>, now: Instant) -> RelistBudget {
+        match cfg {
+            Some((burst, interval)) if burst > 0 && !interval.is_zero() => {
+                RelistBudget::new(burst, interval, now)
+            }
+            _ => RelistBudget {
+                enabled: false,
+                ..RelistBudget::new(1, Duration::from_secs(1), now)
+            },
+        }
     }
 
     fn refill(&mut self, now: Instant) {
@@ -275,6 +292,9 @@ impl RelistBudget {
 
     /// Subtrees that fit the budget now, parents before children. The rest stay pending.
     pub fn drain(&mut self, now: Instant) -> Vec<Vec<u8>> {
+        if !self.enabled {
+            return std::mem::take(&mut self.pending).into_iter().collect();
+        }
         self.refill(now);
         let mut out = Vec::new();
         while self.tokens + 1e-6 >= 1.0 {
@@ -446,6 +466,36 @@ mod tests {
         assert_eq!(b.pending(), 0);
         assert!(b.next_due().is_none());
         assert!(b.deferred_total() > 0);
+    }
+
+    #[test]
+    fn a_disabled_budget_passes_everything_through() {
+        let t0 = Instant::now();
+        for cfg in [None, Some((0, s(5))), Some((8, Duration::ZERO))] {
+            let mut b = RelistBudget::from_config(cfg, t0);
+            for i in 0..50 {
+                b.submit(format!("/v/d{i}").into_bytes());
+            }
+            assert_eq!(b.drain(t0).len(), 50);
+            assert_eq!(b.pending(), 0);
+            assert!(b.next_due().is_none());
+        }
+    }
+
+    #[test]
+    fn a_deferred_relist_has_a_timer_even_with_no_new_events() {
+        let t0 = Instant::now();
+        let mut b = RelistBudget::from_config(Some((1, s(5))), t0);
+        b.submit(b"/a".to_vec());
+        b.submit(b"/b".to_vec());
+        assert_eq!(b.drain(t0).len(), 1);
+        // The worker sleeps until next_due and drains then, with nothing else arriving.
+        let due = b
+            .next_due()
+            .expect("a pending relist always has a wake time");
+        assert!(due > t0);
+        assert_eq!(b.drain(due).len(), 1);
+        assert!(b.next_due().is_none());
     }
 
     #[test]

@@ -156,6 +156,11 @@ pub struct Status {
     /// Cooldown applied after the last full rescan, in milliseconds (0 before any). It doubles
     /// from 30 s to 10 min while drops keep coming and resets after a quiet period.
     pub rescan_backoff_ms: u64,
+    /// Subtree re-lists waiting for the global budget or still running. The index is not
+    /// consistent with the disk until this is 0 (and `rescan_pending` is false).
+    pub relists_pending: usize,
+    /// A full rescan is wanted (waiting for its cooldown) or running.
+    pub rescan_pending: bool,
     /// Resident memory of the index: `mapped` is file-backed column and name pages currently
     /// in memory (measured with `mincore`; reclaimable, see `Index::shrink`); `heap` is the
     /// tracked anonymous allocations the index owns (estimate).
@@ -702,7 +707,7 @@ impl Index {
                 crate::limits::RESCAN_COOLDOWN_MAX,
                 crate::limits::RESCAN_QUIET_RESET,
             ),
-            relists: RelistBudget::with_defaults(Instant::now()),
+            relists: RelistBudget::from_config(shared.cfg.relist_budget, Instant::now()),
             state_dir: state_dir_in_root,
         };
         let worker = std::thread::Builder::new()
@@ -1288,6 +1293,7 @@ impl Worker {
                 self.relists.submit(p);
             }
             self.run_relists(now);
+            self.publish_limits();
             for p in dirs {
                 if self.gate_request(&p) == Decision::Run {
                     let mut done = HashSet::new();
@@ -1316,6 +1322,7 @@ impl Worker {
         if !self.rescans.try_begin(now) {
             return false;
         }
+        self.publish_busy(self.relists.pending(), true);
         let ok = self.full_rescan();
         self.rescans.finish(Instant::now(), ok);
         if ok {
@@ -1327,6 +1334,7 @@ impl Worker {
     /// Re-lists the subtrees the global budget allows now; the rest stay pending.
     fn run_relists(&mut self, now: Instant) -> usize {
         let due = self.relists.drain(now);
+        self.publish_busy(self.relists.pending() + due.len(), self.rescans.pending());
         for p in &due {
             self.rescan_subtree(p);
         }
@@ -1337,6 +1345,16 @@ impl Worker {
         let mut st = self.shared.status.lock().unwrap_or_else(|e| e.into_inner());
         st.rescans_coalesced = self.rescans.coalesced();
         st.rescan_backoff_ms = self.rescans.applied_ms();
+        st.relists_pending = self.relists.pending();
+        st.rescan_pending = self.rescans.pending();
+    }
+
+    /// Marks work as in flight before it starts, so `Index::status()` never reports "settled"
+    /// while the worker is busy with it. `publish_limits` writes the real values afterwards.
+    fn publish_busy(&self, relists: usize, rescan: bool) {
+        let mut st = self.shared.status.lock().unwrap_or_else(|e| e.into_inner());
+        st.relists_pending = relists;
+        st.rescan_pending = rescan;
     }
 
     /// Runs deferred folder re-lists that are due, then emits pending changes or commits.

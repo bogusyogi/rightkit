@@ -125,6 +125,12 @@ pub struct Config {
     /// 10 min and resets after 30 quiet minutes. Zero disables the cooldown (every drop
     /// rescans at once, as before 0.3.0). Default 30 s.
     pub rescan_cooldown: Duration,
+    /// Global budget for subtree re-lists (must-scan, root-changed, mount events) across all
+    /// folders, as `(burst, refill interval)`: up to `burst` at once, then one more per
+    /// interval. The excess waits in a pending set and drains from a timer; nothing is dropped.
+    /// `None`, a zero burst or a zero interval disables the budget. Default `Some((8, 5 s))`.
+    /// `Status::relists_pending` shows what is waiting.
+    pub relist_budget: Option<(u32, Duration)>,
     /// Home directories used to place protected and consent-gated exclusions. `None`: $HOME and /Users/*.
     pub home_dirs: Option<Vec<PathBuf>>,
     /// FSEvents delivery latency. Default 500 ms.
@@ -160,6 +166,7 @@ impl Config {
             relist_min_interval: Duration::from_secs(5),
             relist_max_interval: Duration::from_secs(60),
             rescan_cooldown: Duration::from_secs(30),
+            relist_budget: Some((8, Duration::from_secs(5))),
             home_dirs: None,
             watch_latency: Duration::from_millis(500),
             change_coalesce: Duration::from_secs(1),
