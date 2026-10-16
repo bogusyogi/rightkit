@@ -8,7 +8,7 @@ Version columns: **Source** is the manifest version. **Published** is the latest
 
 Flags: `ok` means source, published and staged agree. `staged, not yet published` is in-flight work. `private` has no registry record by design. `MISMATCH` needs a release decision.
 
-Flagged mismatches: 9.
+Flagged mismatches: 10.
 
 The build broker is the Rust RustRight product (`bogusyogi/rustright`, binary `rustright`, alias `rightkit`); it is not part of this inventory. `packages/build-control-policy` keeps the agent permission hooks.
 
@@ -41,7 +41,7 @@ The build broker is the Rust RustRight product (`bogusyogi/rustright`, binary `r
 | `rightkit-fs` | crates.io | 0.4.0 | 0.4.0 | 0.4.0 | ok | safe-filesystem | Safe state directories, atomic writes, cross-process locks, owner-only files, and stable file identity for Right Suite apps. |
 | `rightkit-fsindex` | crates.io | 0.3.0 | 0.3.0 | 0.3.0 | ok | file-index | Live whole-disk file index: fuzzy name search plus clone- and hard-link-aware folder size rollups on memory-mapped columns |
 | `rightkit-hooks` | crates.io | 0.1.0 | 0.1.0 | 0.1.0 | ok | lifecycle-hooks | Typed Claude Code and Codex hook payloads, a deadline-bound exit-0 dispatcher, exact output builders, and delivery receipts. |
-| `rightkit-hotkeys` | crates.io | 0.1.0 | 0.1.0 | 0.1.0 | ok | global-hotkeys | Global shortcuts and low-level input hooks for Right Suite apps: chord parsing, conflict detection, CGEventTap/WH_KEYBOARD_LL primitives, push-to-talk state. |
+| `rightkit-hotkeys` | crates.io | 0.1.1 | 0.1.0 | 0.1.0 | **MISMATCH staged 0.1.0 != source 0.1.1** | global-hotkeys | Global shortcuts and low-level input hooks for Right Suite apps: chord parsing, conflict detection, CGEventTap/WH_KEYBOARD_LL primitives, push-to-talk state. |
 | `rightkit-http` | crates.io | 0.3.1 | 0.3.0 | 0.3.0 | **MISMATCH staged 0.3.0 != source 0.3.1** | http-client | Brand-neutral blocking HTTP client for Right Suite apps: timeouts, retry/backoff with Retry-After, SSE streaming, multipart bodies, redacted secrets, and untrusted web-text wrapping. |
 | `rightkit-job-queue` | crates.io | 0.3.1 | 0.3.1 | 0.3.1 | ok | persistent-jobs | Persistent job store, runner, and stdio/CLI command contract for Right Suite engines. |
 | `rightkit-license` | crates.io | 0.2.0 | 0.2.0 | 0.2.0 | ok | licensing | Right Suite license enforcement primitive — offline verification of server-signed Ed25519 entitlement tokens. The Rust (security) half of @rightkit/license. |

@@ -126,6 +126,28 @@ struct Shared {
 }
 
 impl Shared {
+    fn new(callbacks: FnHotkeyCallbacks, arm_delay: Duration) -> Self {
+        Self {
+            cb: callbacks,
+            epoch: Instant::now(),
+            enabled: AtomicBool::new(true),
+            ptt_enabled: AtomicBool::new(false),
+            dictation_active: AtomicBool::new(false),
+            ptt_key: AtomicU8::new(PttKey::Control as u8),
+            ptt_key_down: AtomicBool::new(false),
+            left_option_down: AtomicBool::new(false),
+            right_option_down: AtomicBool::new(false),
+            hold_started_ms: AtomicU64::new(0),
+            send_pending: AtomicBool::new(false),
+            suppress_until_up: AtomicBool::new(false),
+            armed: AtomicBool::new(false),
+            generation: AtomicU64::new(0),
+            handoff: PttHandoff::new(),
+            fn_down: AtomicBool::new(false),
+            arm_delay,
+        }
+    }
+
     fn now_ms(&self) -> u64 {
         self.epoch.elapsed().as_millis().min(u128::from(u64::MAX)) as u64 + 1
     }
@@ -376,9 +398,19 @@ fn decide(s: &Arc<Shared>, ev: &TapEvent) -> TapDecision {
     let cached = s.fn_down.load(Ordering::SeqCst);
     if !should_accept_fn_chord(event_has_fn, cached, enabled) {
         if ev.kind == TapKind::KeyDown {
+            // Only Space and Escape reach this branch (see the keycode guard above), so the
+            // rejected chord key is always one of these two names.
+            let source = if keycode == KEYCODE_ESCAPE {
+                "fn_escape"
+            } else {
+                "fn_space"
+            };
+            let dictation = s.dictation_active.load(Ordering::SeqCst);
             (s.cb.diag)(
                 "fn_input_candidate",
-                &format!("disposition=rejected flags={flags:#x} cached_fn_down={cached} enabled={enabled}"),
+                &format!(
+                    "disposition=rejected flags={flags:#x} cached_fn_down={cached} enabled={enabled} source={source} dictation_active={dictation}"
+                ),
             );
         }
         return TapDecision::Pass;
@@ -411,25 +443,7 @@ impl FnHotkeyTap {
         callbacks: FnHotkeyCallbacks,
         arm_delay: Duration,
     ) -> Result<Self, TapError> {
-        let shared = Arc::new(Shared {
-            cb: callbacks,
-            epoch: Instant::now(),
-            enabled: AtomicBool::new(true),
-            ptt_enabled: AtomicBool::new(false),
-            dictation_active: AtomicBool::new(false),
-            ptt_key: AtomicU8::new(PttKey::Control as u8),
-            ptt_key_down: AtomicBool::new(false),
-            left_option_down: AtomicBool::new(false),
-            right_option_down: AtomicBool::new(false),
-            hold_started_ms: AtomicU64::new(0),
-            send_pending: AtomicBool::new(false),
-            suppress_until_up: AtomicBool::new(false),
-            armed: AtomicBool::new(false),
-            generation: AtomicU64::new(0),
-            handoff: PttHandoff::new(),
-            fn_down: AtomicBool::new(false),
-            arm_delay,
-        });
+        let shared = Arc::new(Shared::new(callbacks, arm_delay));
         let handler_state = shared.clone();
         let tap = EventTap::spawn(
             TapConfig {
@@ -480,6 +494,76 @@ impl FnHotkeyTap {
             s.handoff.reset();
             s.send_pending.store(false, Ordering::SeqCst);
             s.generation.fetch_add(1, Ordering::SeqCst);
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::Mutex;
+
+    type Lines = Arc<Mutex<Vec<(String, String)>>>;
+
+    fn shared_with_diag(dictation: bool) -> (Arc<Shared>, Lines) {
+        let lines: Lines = Arc::new(Mutex::new(Vec::new()));
+        let sink = lines.clone();
+        let mut callbacks = FnHotkeyCallbacks::noop();
+        callbacks.diag = Arc::new(move |kind: &str, detail: &str| {
+            sink.lock()
+                .unwrap()
+                .push((kind.to_string(), detail.to_string()));
+        });
+        let shared = Arc::new(Shared::new(
+            callbacks,
+            Duration::from_millis(PTT_ARM_DELAY_MS),
+        ));
+        shared.dictation_active.store(dictation, Ordering::SeqCst);
+        (shared, lines)
+    }
+
+    /// A Space or Escape key-down carrying the fn modifier, with no preceding fn transition
+    /// observed by the tap, so the chord is rejected and only diagnostics are emitted.
+    fn rejected_chord(keycode: u16) -> TapEvent {
+        TapEvent {
+            kind: TapKind::KeyDown,
+            keycode,
+            flags: FLAG_SECONDARY_FN,
+            button: -1,
+            location: (0.0, 0.0),
+            user_data: 0,
+        }
+    }
+
+    #[test]
+    fn fn_input_candidate_rejection_reports_chord_key_and_dictation_state() {
+        for (keycode, source, dictation) in [
+            (KEYCODE_SPACE, "fn_space", true),
+            (KEYCODE_ESCAPE, "fn_escape", false),
+        ] {
+            let (shared, lines) = shared_with_diag(dictation);
+            let decision = decide(&shared, &rejected_chord(keycode));
+            assert_eq!(decision, TapDecision::Pass);
+
+            let lines = lines.lock().unwrap();
+            assert_eq!(lines.len(), 1, "exactly one diagnostic per rejection");
+            let (kind, detail) = &lines[0];
+            assert_eq!(kind, "fn_input_candidate");
+            let source_field = format!("source={source}");
+            let dictation_field = format!("dictation_active={dictation}");
+            for field in [
+                "disposition=rejected",
+                "flags=",
+                "cached_fn_down=false",
+                "enabled=true",
+                source_field.as_str(),
+                dictation_field.as_str(),
+            ] {
+                assert!(
+                    detail.contains(field),
+                    "detail {detail:?} is missing {field:?}"
+                );
+            }
         }
     }
 }

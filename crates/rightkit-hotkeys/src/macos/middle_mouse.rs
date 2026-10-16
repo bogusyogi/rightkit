@@ -9,7 +9,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
 use super::ffi::*;
-use super::tap::{EventTap, TapConfig, TapDecision, TapError, TapKind, TapLocation};
+use super::tap::{EventTap, TapConfig, TapDecision, TapError, TapEvent, TapKind, TapLocation};
 use crate::decision::other_mouse_down_is_middle;
 
 const UTF8: u32 = 0x0800_0100;
@@ -76,6 +76,33 @@ pub fn ax_link_at(x: f64, y: f64) -> bool {
     }
 }
 
+/// Telemetry name for a non-middle `OtherMouseDown` that the tap passes through.
+pub const DIAG_OTHER_BUTTON: &str = "middle_mouse_other_button";
+
+/// Decision for one `OtherMouseDown`. Only the wheel button toggles; every other button is passed
+/// through and reported on the diagnostics hook as `button=<n>`.
+fn decide_other_mouse_down(
+    gate: &AtomicBool,
+    event: &TapEvent,
+    on_toggle: &Arc<dyn Fn() + Send + Sync + 'static>,
+    is_link: &dyn Fn(f64, f64) -> bool,
+    diag: &dyn Fn(&str, &str),
+) -> TapDecision {
+    if event.kind != TapKind::OtherMouseDown || !gate.load(Ordering::SeqCst) {
+        return TapDecision::Pass;
+    }
+    if !other_mouse_down_is_middle(event.button) {
+        diag(DIAG_OTHER_BUTTON, &format!("button={}", event.button));
+        return TapDecision::Pass;
+    }
+    if is_link(event.location.0, event.location.1) {
+        return TapDecision::Pass;
+    }
+    let cb = on_toggle.clone();
+    std::thread::spawn(move || cb());
+    TapDecision::Swallow
+}
+
 pub struct MiddleMouseTap {
     enabled: Arc<AtomicBool>,
     _tap: EventTap,
@@ -89,9 +116,21 @@ impl MiddleMouseTap {
         on_toggle: impl Fn() + Send + Sync + 'static,
         is_link: impl Fn(f64, f64) -> bool + Send + 'static,
     ) -> Result<Self, TapError> {
+        Self::spawn_with_diag(location, on_toggle, is_link, |_, _| {})
+    }
+
+    /// Like [`MiddleMouseTap::spawn`], and reports each passed-through non-middle button through
+    /// `diag` as `middle_mouse_other_button` with `button=<n>`. `diag` runs inside the tap callback,
+    /// so it must return quickly.
+    pub fn spawn_with_diag(
+        location: TapLocation,
+        on_toggle: impl Fn() + Send + Sync + 'static,
+        is_link: impl Fn(f64, f64) -> bool + Send + 'static,
+        diag: impl Fn(&str, &str) + Send + 'static,
+    ) -> Result<Self, TapError> {
         let enabled = Arc::new(AtomicBool::new(true));
         let gate = enabled.clone();
-        let on_toggle = Arc::new(on_toggle);
+        let on_toggle: Arc<dyn Fn() + Send + Sync + 'static> = Arc::new(on_toggle);
         let tap = EventTap::spawn(
             TapConfig {
                 name: "rightkit-middle-mouse-tap".into(),
@@ -99,25 +138,90 @@ impl MiddleMouseTap {
                 listen_only: false,
                 kinds: vec![TapKind::OtherMouseDown],
             },
-            move |event| {
-                if event.kind != TapKind::OtherMouseDown || !gate.load(Ordering::SeqCst) {
-                    return TapDecision::Pass;
-                }
-                if !other_mouse_down_is_middle(event.button) {
-                    return TapDecision::Pass;
-                }
-                if is_link(event.location.0, event.location.1) {
-                    return TapDecision::Pass;
-                }
-                let cb = on_toggle.clone();
-                std::thread::spawn(move || cb());
-                TapDecision::Swallow
-            },
+            move |event| decide_other_mouse_down(&gate, event, &on_toggle, &is_link, &diag),
         )?;
         Ok(Self { enabled, _tap: tap })
     }
 
     pub fn set_enabled(&self, enabled: bool) {
         self.enabled.store(enabled, Ordering::SeqCst);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::Mutex;
+
+    fn other_button(button: i64) -> TapEvent {
+        TapEvent {
+            kind: TapKind::OtherMouseDown,
+            keycode: 0,
+            flags: 0,
+            button,
+            location: (10.0, 20.0),
+            user_data: 0,
+        }
+    }
+
+    fn no_op_toggle() -> Arc<dyn Fn() + Send + Sync + 'static> {
+        Arc::new(|| {})
+    }
+
+    #[test]
+    fn non_middle_button_passes_and_reports_its_number() {
+        let gate = AtomicBool::new(true);
+        let lines: Mutex<Vec<(String, String)>> = Mutex::new(Vec::new());
+        let diag = |kind: &str, detail: &str| {
+            lines
+                .lock()
+                .unwrap()
+                .push((kind.to_string(), detail.to_string()));
+        };
+        let decision = decide_other_mouse_down(
+            &gate,
+            &other_button(3),
+            &no_op_toggle(),
+            &|_: f64, _: f64| false,
+            &diag,
+        );
+        assert_eq!(decision, TapDecision::Pass);
+
+        let lines = lines.lock().unwrap();
+        assert_eq!(lines.len(), 1, "exactly one diagnostic per passed button");
+        assert_eq!(lines[0].0, "middle_mouse_other_button");
+        assert_eq!(lines[0].1, "button=3");
+    }
+
+    #[test]
+    fn disabled_tap_passes_without_diagnostics() {
+        let gate = AtomicBool::new(false);
+        let calls = Mutex::new(0usize);
+        let diag = |_: &str, _: &str| *calls.lock().unwrap() += 1;
+        let decision = decide_other_mouse_down(
+            &gate,
+            &other_button(3),
+            &no_op_toggle(),
+            &|_: f64, _: f64| false,
+            &diag,
+        );
+        assert_eq!(decision, TapDecision::Pass);
+        assert_eq!(*calls.lock().unwrap(), 0);
+    }
+
+    #[test]
+    fn middle_click_toggles_without_diagnostics() {
+        let gate = AtomicBool::new(true);
+        let calls = Mutex::new(0usize);
+        let diag = |_: &str, _: &str| *calls.lock().unwrap() += 1;
+        let decision = decide_other_mouse_down(
+            &gate,
+            &other_button(2),
+            &no_op_toggle(),
+            &|_: f64, _: f64| false,
+            &diag,
+        );
+        assert_eq!(decision, TapDecision::Swallow);
+        assert_eq!(*calls.lock().unwrap(), 0);
     }
 }
