@@ -220,7 +220,7 @@ fn required(manifest_path: &Path, field: &str, value: String) -> Result<String, 
 }
 
 /// `<os>-<arch>` in lowercase ASCII letters, digits and `-`, with an inner `-`.
-fn valid_platform(raw: &str) -> bool {
+pub(crate) fn valid_platform(raw: &str) -> bool {
     raw.contains('-')
         && !raw.starts_with('-')
         && !raw.ends_with('-')

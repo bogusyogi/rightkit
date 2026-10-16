@@ -3,6 +3,32 @@
 All notable changes to `rightkit-asr`. Versions follow Cargo semver; while the
 version is `0.x`, a minor bump may carry breaking changes.
 
+## 0.2.2
+
+Additive patch for the Android plan (Orthic-Labs/rightkit#151). NOT COMPILED OR RUN, here or for Android: every
+`target_os = "android"` path below is unverified.
+
+- Static audit, no code change needed: every Apple dependency (`objc2`, `objc2-core-ml`, `objc2-foundation`) and every
+  Apple module (`parakeet_coreml`, `whisper::coreml`, `ComputeUnits`, `WhisperCoreMl`) is already behind
+  `cfg(target_os = "macos")`, so none of it is compiled for Android. The issue named `cfg(target_vendor = "apple")`; the
+  gates stay `macos` on purpose, because the CoreML modules and their dependencies are macOS-only today and widening to
+  iOS would compile code that is not built there. No AVFoundation or Speech code exists in this crate.
+- `platform::EngineSupport` (`parakeet_onnx`, `parakeet_coreml`, `whisper_coreml`, `whisper_cpp`; `current()` and the pure
+  `for_target(macos, android, whisper_tokenizers)`), re-exported as `rightkit_asr::EngineSupport`.
+- `Error::unsupported(what)` and `Error::is_unsupported()` (message prefix `UNSUPPORTED_PREFIX`). It is an `Error::Config`
+  carrying that prefix, so no `Error` variant was added and an exhaustive downstream `match` keeps compiling; a dedicated
+  variant waits for a breaking release.
+- Android refusals, clean `Error::unsupported` instead of a loader failure: `WhisperCpp::load` / `WhisperModel::Ggml` on
+  Android (Whisper on Android is deferred; whisper.cpp's build and ABI are not verified there). The CoreML Whisper refusal
+  off macOS now uses the same error (still an `Error::Config`; its text gains the `unsupported: ` prefix).
+- Opt-in feature `xnnpack` (forwards `rightkit-onnx/xnnpack`) adds `ExecutionProvider::Xnnpack`: ORT's XNNPACK provider
+  ahead of the CPU provider, session intra-op pool cut to one thread with spinning off, XNNPACK's pool sized from
+  `intra_threads`. Falls back to plain CPU when it cannot register, like the other accelerators. Needs a runtime that
+  contains XNNPACK; unmeasured. NNAPI is untouched and not claimed to work.
+- Left as is, to verify on a device: `DEFAULT_EMIT_REWARD` on every non-Windows target is the macOS-tuned value, so Android
+  decodes with the macOS beam reward; the `tokenizers` crate's `onig` C build under the NDK.
+- Host-runnable unit tests for the pure rules (`EngineSupport`, the Android refusal, the error tag, the XNNPACK pool size).
+
 ## 0.2.1
 
 - Republished on the renamed dependencies: `rightkit-ffmpeg` (was `rightkit-media`, dev), `rightkit-onnx` (was `rightkit-ort`). The 0.2.0 on crates.io was packaged before the renames and still named the old crates.

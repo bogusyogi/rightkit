@@ -164,6 +164,19 @@ impl ModelStore {
         }
     }
 
+    /// A store for an Android app: models in `<files_dir>/models`, where `files_dir` is
+    /// `Context.getFilesDir()` injected by the app. Pure: no global state, nothing created. A
+    /// relative path or one with `..` is `InvalidSpec`. Unverified on a device.
+    pub fn at_android_files_dir(
+        files_dir: &Path,
+        app_id: impl Into<String>,
+    ) -> crate::error::Result<Self> {
+        Ok(Self::at_models_root(
+            crate::android::android_models_root(files_dir)?,
+            app_id,
+        ))
+    }
+
     /// Send this store's downloads and grant requests through `client` instead of
     /// the default vetted ones (public-web downloads, grants pinned to the worker
     /// host over HTTPS). The caller owns that client's address policy.

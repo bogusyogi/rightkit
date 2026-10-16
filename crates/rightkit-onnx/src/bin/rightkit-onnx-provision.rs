@@ -1,5 +1,5 @@
 //! `rightkit-onnx-provision --dest <bundle dir> --cache <archive cache dir>
-//! [--target windows-x64|macos-arm64] [--catalog <native-libraries.json>]`
+//! [--target windows-x64|macos-arm64|android-arm64] [--catalog <native-libraries.json>]`
 //!
 //! Downloads the catalog ONNX Runtime archive (plus DirectML on Windows), verifies it, extracts
 //! the runtime files and writes `manifest.json`. Run once per build, not at app run time.
@@ -35,7 +35,7 @@ fn run() -> Result<(), String> {
             "--target" => {
                 let text = value("--target")?;
                 target = Some(ProvisionTarget::parse(&text).ok_or_else(|| {
-                    format!("unknown target {text:?}; use windows-x64 or macos-arm64")
+                    format!("unknown target {text:?}; use windows-x64, macos-arm64 or android-arm64")
                 })?);
             }
             "--catalog" => catalog = Some(PathBuf::from(value("--catalog")?)),

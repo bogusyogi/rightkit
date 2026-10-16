@@ -88,6 +88,19 @@ pub struct SessionOptions {
     /// (`with_memory_pattern(false)`). `true` applies it; `false` keeps the ORT
     /// default. Ignored for other providers. rightkit-ocr sets this for DirectML.
     pub directml_memory_pattern: bool,
+    /// Android only: serve the CPU provider through the XNNPACK execution provider (ARM NEON
+    /// kernels for Conv/Gemm/MatMul), with the ORT CPU provider taking every node XNNPACK does
+    /// not claim. Requires `provider == Cpu`; on any other OS, or with another provider, the
+    /// build fails (never silently ignored). Off by default. Whether the shipped
+    /// `libonnxruntime.so` contains the XNNPACK provider is not known until it is loaded; check
+    /// `probe_providers` first. NNAPI is a later step and is not offered here.
+    ///
+    /// XNNPACK runs its own thread pool, so the session's intra-op pool is reduced to one
+    /// thread with spinning off (see `xnnpack_threads`).
+    pub xnnpack: bool,
+    /// Threads for XNNPACK's own pool. `None` uses `threads`, else the `GlobalPool::from_budget`
+    /// thread budget. Ignored unless `xnnpack` is set.
+    pub xnnpack_threads: Option<usize>,
 }
 
 /// Session-builder calls that DirectML needs, derived from [`SessionOptions`].
@@ -141,6 +154,55 @@ impl SessionOptions {
         self
     }
 
+    /// Request the XNNPACK execution provider on the CPU provider (Android only; see
+    /// [`Self::xnnpack`]).
+    pub fn with_xnnpack(mut self, xnnpack: bool) -> Self {
+        self.xnnpack = xnnpack;
+        self
+    }
+
+    /// Threads for XNNPACK's own pool (see [`Self::xnnpack_threads`]).
+    pub fn with_xnnpack_threads(mut self, threads: Option<usize>) -> Self {
+        self.xnnpack_threads = threads;
+        self
+    }
+
+    /// Refuse an XNNPACK request this build or provider cannot serve. Pure: `android` is passed
+    /// in so the rule is testable on any host.
+    fn check_xnnpack(&self, android: bool) -> Result<(), String> {
+        if !self.xnnpack {
+            return Ok(());
+        }
+        if !android {
+            return Err("the XNNPACK option is only available on Android".into());
+        }
+        if self.provider != ExecutionProvider::Cpu {
+            return Err(format!(
+                "XNNPACK extends the CPU provider; provider is {:?}",
+                self.provider
+            ));
+        }
+        Ok(())
+    }
+
+    /// Intra-op thread count the session builder gets: one when XNNPACK owns the compute pool,
+    /// else the explicit request.
+    fn session_intra_threads(&self) -> Option<usize> {
+        if self.xnnpack {
+            Some(1)
+        } else {
+            self.threads
+        }
+    }
+
+    /// Threads for XNNPACK's own pool; never zero.
+    fn xnnpack_pool_threads(&self) -> usize {
+        self.xnnpack_threads
+            .or(self.threads)
+            .unwrap_or_else(|| environment::GlobalPool::from_budget().intra_threads)
+            .max(1)
+    }
+
     /// DirectML flags for this request: empty unless the DirectML provider is
     /// selected, so CPU stages and other accelerators keep ORT defaults.
     fn directml_session_flags(&self) -> DirectMlSessionFlags {
@@ -153,11 +215,23 @@ impl SessionOptions {
         }
     }
 
-    /// Same options forced to CPU, for dispatch-bound stages (mel, decoder/joint).
+    /// Same options forced to plain CPU (no XNNPACK), for dispatch-bound stages (mel,
+    /// decoder/joint) and for the accelerator fallback.
     pub fn cpu_for_stage(&self) -> Self {
         Self {
             provider: ExecutionProvider::Cpu,
+            xnnpack: false,
+            xnnpack_threads: None,
             ..self.clone()
+        }
+    }
+
+    /// Label for the requested provider in fallback reports.
+    fn requested_label(&self) -> String {
+        if self.xnnpack {
+            format!("{:?}+Xnnpack", self.provider)
+        } else {
+            format!("{:?}", self.provider)
         }
     }
 
@@ -196,12 +270,14 @@ impl SessionOptions {
                 fallback: None,
             }),
             Err(SessionError::MissingArtifact(p)) => Err(SessionError::MissingArtifact(p)),
-            Err(error) if self.cpu_fallback && self.provider != ExecutionProvider::Cpu => {
+            Err(error)
+                if self.cpu_fallback && (self.provider != ExecutionProvider::Cpu || self.xnnpack) =>
+            {
                 let session = self.cpu_for_stage().build(&commit, what)?;
                 Ok(BuiltSession {
                     session,
                     provider: ExecutionProvider::Cpu,
-                    fallback: Some(format!("{:?} -> Cpu: {error}", self.provider)),
+                    fallback: Some(format!("{} -> Cpu: {error}", self.requested_label())),
                 })
             }
             Err(error) => Err(error),
@@ -218,6 +294,8 @@ impl SessionOptions {
         if !self.provider.supported_on_this_os() {
             return Err(SessionError::ProviderUnsupported(self.provider));
         }
+        self.check_xnnpack(cfg!(target_os = "android"))
+            .map_err(SessionError::Runtime)?;
         // No session may exist before the environment carries this crate's options (telemetry
         // off): ort would otherwise create the environment with its defaults, telemetry on.
         environment::ensure_environment()
@@ -232,15 +310,24 @@ impl SessionOptions {
                 .map_err(|e| map_ort_error("independent DirectML pool", e))?;
         }
         // Explicit CPU threads need a private pool; ORT ignores them otherwise.
-        if self.provider == ExecutionProvider::Cpu && self.threads.is_some() && shared_pool {
+        if self.provider == ExecutionProvider::Cpu
+            && self.session_intra_threads().is_some()
+            && shared_pool
+        {
             builder = builder
                 .with_independent_thread_pool()
                 .map_err(|e| map_ort_error("independent CPU stage", e))?;
         }
-        if let Some(threads) = self.threads {
+        if let Some(threads) = self.session_intra_threads() {
             builder = builder
                 .with_intra_threads(threads)
                 .map_err(|e| map_ort_error("intra threads", e))?;
+        }
+        if self.xnnpack {
+            // XNNPACK's own pool does the work; an idle spinning intra-op pool only contends.
+            builder = builder
+                .with_intra_op_spinning(false)
+                .map_err(|e| map_ort_error("intra-op spinning", e))?;
         }
         let flags = self.directml_session_flags();
         if let Some(parallel) = flags.parallel_execution {
@@ -273,6 +360,7 @@ impl SessionOptions {
         builder: ort::session::builder::SessionBuilder,
     ) -> Result<ort::session::builder::SessionBuilder, SessionError> {
         match self.provider {
+            ExecutionProvider::Cpu if self.xnnpack => self.register_xnnpack(builder),
             ExecutionProvider::Cpu => Ok(builder),
             #[cfg(target_os = "windows")]
             ExecutionProvider::DirectMl => {
@@ -294,6 +382,38 @@ impl SessionOptions {
     }
 }
 
+impl SessionOptions {
+    /// UNVERIFIED (never compiled or run for Android): registers XNNPACK ahead of the ORT CPU
+    /// provider with `error_on_failure`, so a runtime without XNNPACK is an error that
+    /// `cpu_fallback` can catch, never a silent plain-CPU session.
+    #[cfg(target_os = "android")]
+    fn register_xnnpack(
+        &self,
+        builder: ort::session::builder::SessionBuilder,
+    ) -> Result<ort::session::builder::SessionBuilder, SessionError> {
+        let threads = std::num::NonZeroUsize::new(self.xnnpack_pool_threads())
+            .unwrap_or(std::num::NonZeroUsize::MIN);
+        builder
+            .with_execution_providers([ort::ep::XNNPACK::default()
+                .with_intra_op_num_threads(threads)
+                .build()
+                .error_on_failure()])
+            .map_err(|e| map_ort_error("xnnpack", e))
+    }
+
+    #[cfg(not(target_os = "android"))]
+    fn register_xnnpack(
+        &self,
+        _builder: ort::session::builder::SessionBuilder,
+    ) -> Result<ort::session::builder::SessionBuilder, SessionError> {
+        // `check_xnnpack` already refused this request off Android.
+        let _ = self.xnnpack_pool_threads();
+        Err(SessionError::Runtime(
+            "the XNNPACK option is only available on Android".into(),
+        ))
+    }
+}
+
 fn rt(label: &str) -> impl FnOnce(ort::Error) -> SessionError {
     let label = label.to_owned();
     move |error| SessionError::Runtime(format!("{label}: {error}"))
@@ -311,6 +431,44 @@ mod tests {
         SessionOptions::new(ExecutionProvider::DirectMl)
             .with_directml_sequential(sequential)
             .with_directml_memory_pattern(memory_pattern)
+    }
+
+    #[test]
+    fn xnnpack_is_off_by_default_and_refused_off_android_or_off_cpu() {
+        let options = SessionOptions::new(ExecutionProvider::Cpu);
+        assert!(!options.xnnpack);
+        assert_eq!(options.xnnpack_threads, None);
+        assert!(options.check_xnnpack(false).is_ok());
+        assert!(options.check_xnnpack(true).is_ok());
+        let xnn = options.clone().with_xnnpack(true);
+        assert!(xnn.check_xnnpack(true).is_ok());
+        assert!(xnn.check_xnnpack(false).unwrap_err().contains("Android"));
+        let wrong = SessionOptions::new(ExecutionProvider::DirectMl).with_xnnpack(true);
+        assert!(wrong.check_xnnpack(true).unwrap_err().contains("CPU"));
+        // The plain-CPU stage never inherits XNNPACK.
+        assert!(!xnn.cpu_for_stage().xnnpack);
+    }
+
+    #[test]
+    fn xnnpack_owns_the_pool_and_labels_fallbacks() {
+        let plain = SessionOptions::new(ExecutionProvider::Cpu).with_threads(Some(3));
+        assert_eq!(plain.session_intra_threads(), Some(3));
+        let xnn = plain
+            .clone()
+            .with_xnnpack(true)
+            .with_xnnpack_threads(Some(5));
+        assert_eq!(xnn.session_intra_threads(), Some(1));
+        assert_eq!(xnn.xnnpack_pool_threads(), 5);
+        assert_eq!(xnn.requested_label(), "Cpu+Xnnpack");
+        assert_eq!(plain.requested_label(), "Cpu");
+        // Falls back to `threads`, never to zero.
+        assert_eq!(plain.with_xnnpack(true).xnnpack_pool_threads(), 3);
+        let zero = SessionOptions::new(ExecutionProvider::Cpu)
+            .with_xnnpack(true)
+            .with_xnnpack_threads(Some(0));
+        assert_eq!(zero.xnnpack_pool_threads(), 1);
+        let unset = SessionOptions::new(ExecutionProvider::Cpu).with_xnnpack(true);
+        assert!(unset.xnnpack_pool_threads() >= 1);
     }
 
     #[test]

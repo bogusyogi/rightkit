@@ -101,3 +101,39 @@ impl From<hound::Error> for Error {
         Error::Audio(e.to_string())
     }
 }
+
+/// Prefix of the message of every [`Error::unsupported`] error.
+pub const UNSUPPORTED_PREFIX: &str = "unsupported: ";
+
+impl Error {
+    /// A capability this build target has no implementation of (for example CoreML or
+    /// whisper.cpp on Android). It is an [`Error::Config`] whose message starts with
+    /// [`UNSUPPORTED_PREFIX`], so adding it did not add an `Error` variant (an exhaustive
+    /// `match` downstream keeps compiling). A dedicated variant waits for the next breaking
+    /// release. Test with [`Error::is_unsupported`].
+    pub fn unsupported(what: impl std::fmt::Display) -> Self {
+        Error::Config(format!("{UNSUPPORTED_PREFIX}{what}"))
+    }
+
+    /// True for an error built by [`Error::unsupported`].
+    pub fn is_unsupported(&self) -> bool {
+        matches!(self, Error::Config(message) if message.starts_with(UNSUPPORTED_PREFIX))
+    }
+}
+
+#[cfg(test)]
+mod unsupported_tests {
+    use super::*;
+
+    #[test]
+    fn unsupported_is_a_tagged_config_error() {
+        let error = Error::unsupported("CoreML on Android");
+        assert!(error.is_unsupported());
+        assert_eq!(
+            error.to_string(),
+            "Config error: unsupported: CoreML on Android"
+        );
+        assert!(!Error::Config("bad".into()).is_unsupported());
+        assert!(!Error::Cancelled.is_unsupported());
+    }
+}

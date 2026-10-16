@@ -13,6 +13,12 @@
 //! |---|---|---|
 //! | `windows-x64` | NuGet `Microsoft.ML.OnnxRuntime.DirectML` and `Microsoft.AI.DirectML` (zip) | `onnxruntime.dll`, `DirectML.dll` |
 //! | `macos-arm64` | `onnxruntime-osx-arm64-<version>.tgz` | `libonnxruntime.dylib` |
+//! | `android-arm64` | `onnxruntime-android-<version>.aar` (zip), member `jni/arm64-v8a/libonnxruntime.so` | `libonnxruntime.so` |
+//!
+//! `android-arm64` needs an approved or pinned catalog row (`os` `android`, `arch` `aarch64`,
+//! `artifactFileName` `libonnxruntime.so`, the `.aar` as the archive). No such row ships today, so
+//! provisioning that target returns a `Row` error until the catalog gains one; the AAR member path
+//! is unverified against a real AAR.
 //!
 //! The bundle directory is owned by provisioning: any other content in it is removed when the
 //! bundle is replaced, because `verify_runtime_manifest` rejects unlisted files.
@@ -32,19 +38,24 @@ use crate::{verify_runtime_manifest, RuntimeError, VerifiedRuntime};
 
 /// Platforms with a catalog-pinned runtime archive.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum ProvisionTarget {
     /// ONNX Runtime with the DirectML execution provider, plus `DirectML.dll`.
     WindowsX64,
     /// ONNX Runtime for Apple silicon (CPU and CoreML in one dylib).
     MacosArm64,
+    /// ONNX Runtime for Android arm64-v8a, taken from the Maven AAR (UNVERIFIED: no catalog row
+    /// and no real AAR checked yet).
+    AndroidArm64,
 }
 
 impl ProvisionTarget {
-    /// Parse `windows-x64` or `macos-arm64`.
+    /// Parse `windows-x64`, `macos-arm64` or `android-arm64`.
     pub fn parse(text: &str) -> Option<Self> {
         match text {
             "windows-x64" => Some(Self::WindowsX64),
             "macos-arm64" => Some(Self::MacosArm64),
+            "android-arm64" => Some(Self::AndroidArm64),
             _ => None,
         }
     }
@@ -57,6 +68,7 @@ impl ProvisionTarget {
         match (os.as_str(), arch.as_str()) {
             ("windows", "x86_64") => Some(Self::WindowsX64),
             ("macos", "aarch64") => Some(Self::MacosArm64),
+            ("android", "aarch64") => Some(Self::AndroidArm64),
             _ => None,
         }
     }
@@ -66,6 +78,7 @@ impl ProvisionTarget {
         match (std::env::consts::OS, std::env::consts::ARCH) {
             ("windows", "x86_64") => Some(Self::WindowsX64),
             ("macos", "aarch64") => Some(Self::MacosArm64),
+            ("android", "aarch64") => Some(Self::AndroidArm64),
             _ => None,
         }
     }
@@ -75,6 +88,7 @@ impl ProvisionTarget {
         match self {
             Self::WindowsX64 => "windows-x64",
             Self::MacosArm64 => "macos-arm64",
+            Self::AndroidArm64 => "android-arm64",
         }
     }
 
@@ -82,6 +96,7 @@ impl ProvisionTarget {
         match self {
             Self::WindowsX64 => ("windows", "x86_64"),
             Self::MacosArm64 => ("macos", "aarch64"),
+            Self::AndroidArm64 => ("android", "aarch64"),
         }
     }
 
@@ -90,9 +105,15 @@ impl ProvisionTarget {
         match self {
             Self::WindowsX64 => "directml",
             Self::MacosArm64 => "coreml",
+            // Claims no accelerator: which providers the AAR build contains is checked at run time.
+            Self::AndroidArm64 => "cpu",
         }
     }
 }
+
+/// Member of the ONNX Runtime Android AAR (a zip) holding the arm64-v8a runtime. UNVERIFIED
+/// against a real AAR: confirm before relying on it.
+const ANDROID_ARM64_AAR_MEMBER: &str = "jni/arm64-v8a/libonnxruntime.so";
 
 /// Why provisioning failed. Nothing is left in the destination when an error returns, except that
 /// a previous bundle is kept as it was.
@@ -479,6 +500,22 @@ fn plan(catalog: &NativeCatalog, target: ProvisionTarget) -> Result<Vec<Planned>
             let member = format!("{wrapper}/lib/{file}");
             plan.push(planned(onnx, onnx_url, member, "libonnxruntime.dylib")?);
         }
+        ProvisionTarget::AndroidArm64 => {
+            expect_file_name(&onnx, "onnxruntime", "libonnxruntime.so")?;
+            let archive_name = file_name_of(&onnx_url.0);
+            if !archive_name.ends_with(".aar") {
+                return Err(row(
+                    "onnxruntime",
+                    format!("archive {archive_name:?} is not an .aar"),
+                ));
+            }
+            plan.push(planned(
+                onnx,
+                onnx_url,
+                ANDROID_ARM64_AAR_MEMBER.to_owned(),
+                "libonnxruntime.so",
+            )?);
+        }
     }
     Ok(plan)
 }
@@ -629,4 +666,21 @@ pub fn http_fetch(url: &str, sha256: &str, dest: &Path) -> Result<(), String> {
     )
     .map(|_| ())
     .map_err(|e| e.to_string())
+}
+
+#[cfg(test)]
+mod android_tests {
+    use super::*;
+
+    #[test]
+    fn android_arm64_target_parses_and_names_its_platform() {
+        let target = ProvisionTarget::parse("android-arm64").unwrap();
+        assert_eq!(target, ProvisionTarget::AndroidArm64);
+        assert_eq!(target.platform(), "android-arm64");
+        assert_eq!(target.os_arch(), ("android", "aarch64"));
+        assert_eq!(target.variant(), "cpu");
+        assert_eq!(ProvisionTarget::parse("android-x64"), None);
+        // The manifest platform string is accepted by the bundle verifier's platform rule.
+        assert!(crate::runtime_bundle::valid_platform(target.platform()));
+    }
 }

@@ -33,6 +33,7 @@ Do not put product policy (model selection, downloads, environment variables) in
 | `openvino` | no | `rightkit-onnx/openvino` execution provider. |
 | `webgpu` | no | `rightkit-onnx/webgpu` execution provider. |
 | `nnapi` | no | `rightkit-onnx/nnapi` execution provider. |
+| `xnnpack` | no | `rightkit-onnx/xnnpack`: adds `ExecutionProvider::Xnnpack` (Android; unverified). |
 | `sortformer` | no | Enables the `sortformer` module. |
 | `multitalker` | no | Enables the `multitalker` module. It requires `sortformer`. |
 | `cohere` | no | Enables the `cohere` module. It also enables `whisper-tokenizers` (`Cargo.toml:84`). |
@@ -109,6 +110,7 @@ This derivative is based on crates.io `parakeet-rs 0.3.5`, upstream commit `7d68
 
 - macOS: ONNX Runtime, and CoreML through `parakeet_coreml`. macOS parity is still a publication gate.
 - Windows: ONNX Runtime. The `directml` feature adds the DirectML path. Windows inference parity is recorded under `characterization/asr/` in the RightKit tools tree.
+- Android (planned, nothing compiled or run): the Parakeet ONNX engines only. All Apple code is behind `cfg(target_os = "macos")` and is not compiled; `EngineSupport::current()` reports what the build hosts. whisper.cpp (`WhisperCpp::load`, `WhisperModel::Ggml`) returns an `Error::unsupported` error on Android because Whisper on Android is deferred. Optional `xnnpack` feature for the CPU path. Decode policy defaults on Android are the macOS-tuned ones until measured.
 - Other platforms: not documented for this crate.
 
 ## Verification

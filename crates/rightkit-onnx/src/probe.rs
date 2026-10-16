@@ -1,12 +1,14 @@
 //! Execution-provider availability probe against the loaded runtime.
 
-#[cfg(any(target_vendor = "apple", target_os = "windows"))]
+#[cfg(any(target_vendor = "apple", target_os = "windows", target_os = "android"))]
 use ort::ep::ExecutionProvider as _;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ProviderKind {
     DirectMl,
     CoreMl,
+    /// XNNPACK, an extension of the CPU provider (Android).
+    Xnnpack,
     Cpu,
 }
 
@@ -40,6 +42,7 @@ pub fn probe_providers() -> Vec<ProviderDiagnostic> {
             detail: "always compiled in".into(),
         },
         diagnose(ProviderKind::CoreMl, coreml_probe()),
+        diagnose(ProviderKind::Xnnpack, xnnpack_probe()),
         directml_diagnostic(),
     ]
 }
@@ -176,6 +179,18 @@ fn coreml_probe() -> Probe {
     None
 }
 
+/// UNVERIFIED on a device: asks the loaded runtime for its XNNPACK provider. NNAPI is not probed:
+/// it is a later step and nothing here claims it works.
+#[cfg(target_os = "android")]
+fn xnnpack_probe() -> Probe {
+    Some(guarded(|| ort::ep::XNNPACK::default().is_available()))
+}
+
+#[cfg(not(target_os = "android"))]
+fn xnnpack_probe() -> Probe {
+    None
+}
+
 #[cfg(target_os = "windows")]
 fn directml_probe() -> Probe {
     Some(guarded(|| ort::ep::DirectML::default().is_available()))
@@ -186,7 +201,7 @@ fn directml_probe() -> Probe {
     None
 }
 
-#[cfg(any(target_vendor = "apple", target_os = "windows"))]
+#[cfg(any(target_vendor = "apple", target_os = "windows", target_os = "android"))]
 fn guarded(f: impl FnOnce() -> ort::Result<bool> + std::panic::UnwindSafe) -> Result<bool, String> {
     match std::panic::catch_unwind(f) {
         Ok(result) => result.map_err(|e| e.to_string()),
@@ -232,6 +247,19 @@ mod tests {
         let (available, detail) = verdict(Some(Ok(true)), ProviderLibrary::RuntimeUnknown);
         assert!(!available);
         assert!(detail.contains("no runtime path is configured"), "{detail}");
+    }
+
+    #[test]
+    fn xnnpack_is_reported_unsupported_off_android_and_never_claims_nnapi() {
+        let diagnostic = diagnose(ProviderKind::Xnnpack, None);
+        assert!(!diagnostic.available);
+        assert_eq!(diagnostic.detail, "not supported on this OS");
+        let compiled = diagnose(ProviderKind::Xnnpack, Some(Ok(true)));
+        assert!(compiled.available);
+        assert_eq!(compiled.provider, ProviderKind::Xnnpack);
+        if !cfg!(target_os = "android") {
+            assert!(xnnpack_probe().is_none());
+        }
     }
 
     #[test]

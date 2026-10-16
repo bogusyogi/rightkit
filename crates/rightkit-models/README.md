@@ -19,6 +19,10 @@ The default feature set is empty.
 
 Platform-specific code is gated with `cfg(windows)`, `cfg(target_os = "macos")`, and `cfg(unix)`, mainly in `alias.rs`, `disk.rs`, `hardware.rs`, and the `suite/` modules. The store layout, locking, and path validation are the same code on each platform. Symlink and hard-link behavior follows the host file system. `Hardware::probe_with` accepts an app-supplied override for hosts where the probe is unreliable.
 
+### Android (planned; nothing compiled or run on a device)
+
+Android has no `HOME`, no per-user suite folder and no shared store between apps. The app calls `init_android_files_dir(Context.getFilesDir())` once at startup (or builds a store with `ModelStore::at_android_files_dir(files_dir, app_id)`); models then live in `<filesDir>/models`. `Hardware::from_android(&AndroidFacts { total_ram_bytes, supported_abis, low_ram_device, sdk_int, cpu_cores })` builds the hardware profile from facts the app reads through the Android API (profile `android-<N>gb`, CPU only, usable pool half of RAM as for any host without a GPU). `Platform::matches` understands `android` and `aarch64-linux-android`. See the 0.4.1 changelog entry for what is unverified.
+
 Published version: see `INDEX.md` at the repository root. Release notes: see [CHANGELOG.md](CHANGELOG.md) and `INDEX.md`.
 
 ## Example

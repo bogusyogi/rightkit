@@ -57,6 +57,7 @@ mod model_transducer;
 mod onnx_beam;
 mod model_unified;
 mod nemotron;
+pub mod platform;
 // HF tokenizer users (CTC, EOU, Cohere, Whisper CoreML) are gated behind the
 // `whisper-tokenizers` feature so the Parakeet CoreML / ONNX TDT paths build
 // without the tokenizers C dependency.
@@ -91,7 +92,8 @@ pub mod longform;
 #[cfg(target_os = "macos")]
 pub mod parakeet_coreml;
 
-pub use error::{Error, Result};
+pub use error::{Error, Result, UNSUPPORTED_PREFIX};
+pub use platform::EngineSupport;
 pub use execution::{ExecutionProvider, ModelConfig as ExecutionConfig};
 #[cfg(feature = "whisper-tokenizers")]
 pub use parakeet::Parakeet;

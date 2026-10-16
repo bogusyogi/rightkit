@@ -12,6 +12,10 @@
 //! - `<root>/tools/<tool>/<version>/<files>` plus `manifest.json`
 //! - `<root>/tools/refs/<app>.json` — per-app tool usage registry
 //!
+//! Android uses none of the above: the app injects `Context.getFilesDir()` once
+//! (`crate::init_android_files_dir`) and that directory is the root (`<filesDir>/models`).
+//! Unverified on a device.
+//!
 //! In a `test-mode` build `RIGHTKIT_SUITE_ROOT`, `RIGHT_SUITE_DIR` or `ORTHIC_SHARED_DIR`
 //! overrides the root (dev/test), resolved through `rightkit_daemon::Suite::resolve`. It is read
 //! on every call — never cached. A build without `test-mode` reads none of them.
@@ -78,6 +82,11 @@ pub fn version_within(app_version: &str, max_version: &str) -> bool {
 /// - **Without it** (every release build) no override variable is read: the root is the operating
 ///   system's per-user default from the account database.
 pub fn suite_root() -> PathBuf {
+    // An app-injected files directory (Android) is the root outright: there is no per-user
+    // account folder to resolve, and nothing else may redirect it.
+    if let Some(files_dir) = crate::android::android_files_dir() {
+        return files_dir;
+    }
     let resolved = rightkit_daemon::Suite::resolve();
     // `TEST_CAPABILITY` is the daemon's own feature, so it is also true when an app enabled
     // `rightkit-daemon/test-mode` directly instead of this crate's `test-mode`.
@@ -112,6 +121,10 @@ pub fn suite_root() -> PathBuf {
 /// folder, as before.
 pub fn legacy_suite_root() -> PathBuf {
     let root = suite_root();
+    // No legacy tree exists inside an injected app directory: stay in it, like a redirected root.
+    if crate::android::android_files_dir().is_some() {
+        return root;
+    }
     match rightkit_daemon::Suite::per_user_default() {
         Ok(default) if default.root() != root => root,
         Ok(default) => default
@@ -133,6 +146,9 @@ pub fn legacy_suite_root() -> PathBuf {
 /// per-user folder from an isolated run (device ids, sibling-app discovery). Otherwise it is the
 /// platform directory, as before.
 pub fn app_data_base() -> Option<PathBuf> {
+    if crate::android::android_files_dir().is_some() {
+        return Some(suite_root().join("app-data"));
+    }
     let redirected = rightkit_daemon::Suite::per_user_default()
         .map(|default| default.root() != suite_root())
         .unwrap_or(false);

@@ -153,6 +153,7 @@ Enable the `provision` feature as a **build-dependency** so the app itself pulls
 |---|---|---|
 | `windows-x64` | `onnxruntime.dll`, `DirectML.dll` | `onnxruntime` + `directml`, windows / x86_64 |
 | `macos-arm64` | `libonnxruntime.dylib` (the versioned dylib, renamed) | `onnxruntime`, macos / aarch64 |
+| `android-arm64` | `libonnxruntime.so` (member `jni/arm64-v8a/libonnxruntime.so` of the `.aar`) | `onnxruntime`, android / aarch64. **No such catalog row ships yet**, so this target returns a `Row` error until one is added; UNVERIFIED against a real AAR. |
 
 `Cargo.toml` of the app:
 
@@ -183,7 +184,7 @@ fn main() {
 }
 ```
 
-The same from a shell or xtask: `rightkit-onnx-provision --dest resources/onnxruntime --cache target/onnxruntime-archives [--target windows-x64|macos-arm64] [--catalog native-libraries.json]`.
+The same from a shell or xtask: `rightkit-onnx-provision --dest resources/onnxruntime --cache target/onnxruntime-archives [--target windows-x64|macos-arm64|android-arm64] [--catalog native-libraries.json]`.
 
 Notes:
 
@@ -216,6 +217,15 @@ An accelerator that is unsupported, fails registration, or fails model load is
 an error unless `SessionOptions::with_cpu_fallback(true)` is set; then the
 `*_reported` builders return `BuiltSession { provider, fallback }` naming the
 CPU fallback and its reason.
+
+## Android (design stage, nothing verified on a device)
+
+Nothing in this section has been compiled for or run on Android; it was written without a toolchain.
+
+- **Runtime**: the crate stays `load-dynamic`. The app ships `libonnxruntime.so` (from the ONNX Runtime Android AAR, `jniLibs/arm64-v8a`) and Kotlin passes `ApplicationInfo.nativeLibraryDir` in. `android_runtime_candidate(dir)` / `configure_android_runtime(dir)` resolve `<dir>/libonnxruntime.so`. That file exists only when the APK extracts native libraries (`android:extractNativeLibs="true"`); with the AGP default for a recent `minSdk` it stays inside the APK, resolution reports `NotFound`, and the app calls `init_environment_default_loader`, whose bare `libonnxruntime.so` lets the platform linker find it. Which one a given packaging produces is unverified. `discovery_candidates` skips the executable-directory entries on Android (`current_exe` is the zygote's `app_process`).
+- **CPU and XNNPACK**: `SessionOptions::with_xnnpack(true)` (Android only, `provider` must be `Cpu`) registers ort's `XNNPACK` execution provider with `error_on_failure`, the ORT CPU provider keeps every node XNNPACK does not claim, the session intra-op pool drops to one thread with spinning off, and `with_xnnpack_threads` sizes XNNPACK's own pool. Elsewhere, or with another provider, the build fails. With `with_cpu_fallback(true)` a failure falls back to a plain CPU session and the report reads `Cpu+Xnnpack -> Cpu: ...`. `probe_providers()` gains `ProviderKind::Xnnpack` (supported only on Android). Whether the shipped runtime contains XNNPACK, and whether it is faster for Parakeet, is unmeasured.
+- **NNAPI is not supported here.** The `nnapi` feature remains a pass-through for consumers; this crate registers no NNAPI provider, probes none and claims none. It is a later, measured step.
+- **Provisioning**: `ProvisionTarget::AndroidArm64` (`android-arm64`) is parsed and planned, but needs a catalog row first (see the table above).
 
 Publication is gated on the macOS runtime and artifact catalog; see `INDEX.md`.
 

@@ -32,11 +32,20 @@ pub enum ExecutionProvider {
 }
 
 impl ExecutionProvider {
-    fn supported_on_this_os(self) -> bool {
+    /// Whether this build target can host the provider: CPU everywhere, CoreML on Apple
+    /// targets, DirectML on Windows. On Android only `Cpu` is hosted; the others are refused with
+    /// a "not available on this OS" error, never run on the CPU instead.
+    pub fn supported_on_this_os(self) -> bool {
+        self.supported_on(cfg!(target_vendor = "apple"), cfg!(target_os = "windows"))
+    }
+
+    /// The rule behind [`Self::supported_on_this_os`], with the target facts passed in so it is
+    /// testable on any host.
+    const fn supported_on(self, apple: bool, windows: bool) -> bool {
         match self {
             Self::Cpu => true,
-            Self::CoreMl => cfg!(target_vendor = "apple"),
-            Self::DirectMl => cfg!(target_os = "windows"),
+            Self::CoreMl => apple,
+            Self::DirectMl => windows,
         }
     }
 
@@ -372,5 +381,27 @@ mod tests {
             ..SileroOptions::default()
         };
         assert!(own_pool_enabled(&explicit));
+    }
+}
+
+#[cfg(test)]
+mod provider_support_tests {
+    use super::ExecutionProvider::{Cpu, CoreMl, DirectMl};
+
+    #[test]
+    fn android_like_targets_host_only_the_cpu_provider() {
+        // Neither Apple nor Windows: Android, Linux.
+        assert!(Cpu.supported_on(false, false));
+        assert!(!CoreMl.supported_on(false, false));
+        assert!(!DirectMl.supported_on(false, false));
+        assert!(CoreMl.supported_on(true, false) && !DirectMl.supported_on(true, false));
+        assert!(DirectMl.supported_on(false, true) && !CoreMl.supported_on(false, true));
+    }
+
+    #[test]
+    fn this_os_answer_follows_the_compile_target() {
+        assert!(Cpu.supported_on_this_os());
+        assert_eq!(CoreMl.supported_on_this_os(), cfg!(target_vendor = "apple"));
+        assert_eq!(DirectMl.supported_on_this_os(), cfg!(target_os = "windows"));
     }
 }

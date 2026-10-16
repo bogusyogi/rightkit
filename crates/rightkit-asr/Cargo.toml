@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-asr"
-version = "0.2.1"
+version = "0.2.2"
 edition = "2021"
 rust-version = "1.98.0"
 publish = true
@@ -79,6 +79,8 @@ migraphx = ["rightkit-onnx/migraphx"]
 openvino = ["rightkit-onnx/openvino"]
 webgpu = ["rightkit-onnx/webgpu"]
 nnapi = ["rightkit-onnx/nnapi"]
+# Android: ONNX Runtime XNNPACK provider on the CPU (`ExecutionProvider::Xnnpack`). Not verified on a device.
+xnnpack = ["rightkit-onnx/xnnpack"]
 sortformer = []
 multitalker = ["sortformer"]
 cohere = ["whisper-tokenizers"]

@@ -5,12 +5,14 @@
 //! - [`install`]: preflight, resumable verified download, extraction, atomic activation,
 //!   pause/resume vs cancel, adoption of existing installs ([`Store::adopt`]), progress events.
 //! - [`hardware`]: host probe and measured-vs-estimated fit.
+//! - [`android`]: Android device facts and the injected files directory (unverified on a device).
 //!
 //! - [`suite`]: the flat on-disk contract shared by ScrapeRight, HeardRight and CutRight
 //!   (trusted catalog, download grants, refs, runtime leases, migration journals, GC).
 //!
 //! Brand-neutral: callers choose the store root and lock-holder name.
 
+pub mod android;
 mod alias;
 mod archive_core;
 #[cfg(feature = "rightapps")]
@@ -32,6 +34,9 @@ pub mod spec;
 pub mod store;
 pub mod suite;
 
+pub use android::{
+    android_files_dir, android_models_root, init_android_files_dir, AndroidAbi, AndroidFacts,
+};
 pub use error::{Error, ErrorCode, Result};
 pub use hardware::{
     Fit, FitKind, Gpu, Hardware, HardwareOverride, Measurement, ProfileAlias, RemoteRoute,

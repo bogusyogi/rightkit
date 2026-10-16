@@ -496,6 +496,37 @@ pub fn installed_runtime_candidate(executable: &Path, subdir: &str) -> Option<Ru
     ))
 }
 
+/// Bundled-runtime candidate for Android: `<native_lib_dir>/libonnxruntime.so`.
+///
+/// `native_lib_dir` is `ApplicationInfo.nativeLibraryDir`, handed in from Kotlin (an absolute
+/// path; a relative one is `UnsafePath`). Android has no executable-relative resource layout, so
+/// this replaces [`installed_runtime_candidate`] there. Pure path logic: it compiles and runs on
+/// any host, but nothing here has been run on a device.
+///
+/// The file exists in `nativeLibraryDir` only when the APK extracts its native libraries
+/// (`android:extractNativeLibs="true"` / `useLegacyPackaging = true`). With the AGP default for a
+/// recent `minSdk` the library stays inside the APK and this path is not a file; then resolution
+/// reports `NotFound` and the app uses [`init_environment_default_loader`], whose bare
+/// `libonnxruntime.so` lets the platform linker find it in the APK. Which of the two a given
+/// packaging produces is unverified.
+pub fn android_runtime_candidate(native_lib_dir: &Path) -> Result<RuntimeCandidate, RuntimeError> {
+    if !native_lib_dir.is_absolute() {
+        return Err(RuntimeError::UnsafePath {
+            path: native_lib_dir.to_path_buf(),
+        });
+    }
+    Ok(RuntimeCandidate::new(
+        native_lib_dir.join("libonnxruntime.so"),
+        CandidateSource::Bundled,
+    ))
+}
+
+/// [`configure_runtime`] for an Android `nativeLibraryDir` (see [`android_runtime_candidate`]).
+/// Call before any ORT use and before threads start, like [`configure_runtime`].
+pub fn configure_android_runtime(native_lib_dir: &Path) -> Result<RuntimeSelection, RuntimeError> {
+    configure_runtime([android_runtime_candidate(native_lib_dir)?])
+}
+
 /// Explicit legacy candidate; never searched unless the caller supplies it.
 /// Relative roots are rejected rather than resolved against process cwd.
 pub fn legacy_runtime_candidate(workspace_root: &Path) -> Result<RuntimeCandidate, RuntimeError> {
@@ -602,10 +633,16 @@ pub fn discovery_candidates(
         out.push(RuntimeCandidate::new(path, CandidateSource::Explicit));
     }
     let name = runtime_filename();
-    if let Some(exe_dir) = std::env::current_exe()
+    // On Android `current_exe` is the zygote's `app_process`, not the app: its directory says
+    // nothing about where the app's libraries are. Android callers pass `nativeLibraryDir` in
+    // `extra_dirs` (or use `android_runtime_candidate`).
+    #[cfg(not(target_os = "android"))]
+    let exe_dir = std::env::current_exe()
         .ok()
-        .and_then(|exe| exe.parent().map(Path::to_path_buf))
-    {
+        .and_then(|exe| exe.parent().map(Path::to_path_buf));
+    #[cfg(target_os = "android")]
+    let exe_dir: Option<PathBuf> = None;
+    if let Some(exe_dir) = exe_dir {
         out.push(RuntimeCandidate::new(
             exe_dir.join("runtime").join(name),
             CandidateSource::Bundled,
@@ -1043,6 +1080,41 @@ mod binding_tests {
             resolve_runtime([explicit_file_candidate(&dir_link)]),
             Err(RuntimeError::NotFound { .. })
         ));
+    }
+
+    #[test]
+    fn android_candidate_is_the_native_lib_dir_file_and_refuses_relative_dirs() {
+        let dir = std::env::temp_dir().join("data").join("app").join("lib").join("arm64");
+        let candidate = android_runtime_candidate(&dir).unwrap();
+        assert_eq!(candidate.source, CandidateSource::Bundled);
+        assert_eq!(candidate.path, dir.join("libonnxruntime.so"));
+        assert!(matches!(
+            android_runtime_candidate(Path::new("lib/arm64")),
+            Err(RuntimeError::UnsafePath { .. })
+        ));
+        assert!(matches!(
+            configure_android_runtime(Path::new("")),
+            Err(RuntimeError::UnsafePath { .. })
+        ));
+    }
+
+    #[test]
+    fn android_candidate_resolves_when_the_library_is_extracted_and_not_found_otherwise() {
+        let fixture = Fixture::new();
+        let lib = fixture.0.join("lib").join("arm64");
+        // Not extracted (AGP default packaging): the path is not a file.
+        assert!(matches!(
+            resolve_runtime([android_runtime_candidate(&lib).unwrap()]),
+            Err(RuntimeError::NotFound { .. }) | Err(RuntimeError::UnexpectedFilename { .. })
+        ));
+        // Extracted: on an Android host the strict basename matches; elsewhere the file name
+        // is the host's, so only the candidate shape is asserted above.
+        if runtime_filename() == "libonnxruntime.so" {
+            std::fs::create_dir_all(&lib).unwrap();
+            std::fs::write(lib.join("libonnxruntime.so"), b"not a real ORT binary").unwrap();
+            let selected = resolve_runtime([android_runtime_candidate(&lib).unwrap()]).unwrap();
+            assert_eq!(selected.path, lib.join("libonnxruntime.so").canonicalize().unwrap());
+        }
     }
 
     #[test]

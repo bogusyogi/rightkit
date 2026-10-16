@@ -3,6 +3,19 @@
 All notable changes to `rightkit-vad`. Versions follow Cargo semver; while the
 version is `0.x`, a minor bump may carry breaking changes.
 
+## 0.1.2
+
+Additive patch for the Android plan (Orthic-Labs/rightkit#151). NOT COMPILED OR RUN, here or for Android.
+
+- Static audit, no gating change needed: the only Apple code (`register_coreml`, the CoreML provider) is already behind
+  `cfg(target_vendor = "apple")` and the only Windows code (`register_directml`) behind `cfg(target_os = "windows")`, with
+  refusing stubs elsewhere. The pure policy layers touch no platform API. On Android the Silero scorer therefore needs
+  nothing beyond `rightkit-onnx` binding a runtime (its Android path is in `rightkit-onnx` 0.2.5).
+- `ExecutionProvider::supported_on_this_os()` is now public. On Android only `Cpu` is hosted; `CoreMl` and `DirectMl`
+  return the existing "not available on this OS" `Error::Model` (and fall to the energy scorer when
+  `SileroOptions::energy_fallback` is set), never a silent CPU run.
+- Host-runnable unit tests for the provider-support rule.
+
 ## 0.1.1
 
 - Republished on the renamed dependencies: `rightkit-ffmpeg` (was `rightkit-media`, dev), `rightkit-onnx` (was `rightkit-ort`). The 0.1.0 on crates.io was packaged before the renames and still named the old crates.

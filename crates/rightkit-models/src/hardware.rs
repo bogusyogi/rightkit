@@ -445,14 +445,7 @@ fn platform_memory_bytes() -> Option<f64> {
 #[cfg(not(any(target_os = "macos", target_os = "windows")))]
 fn platform_memory_bytes() -> Option<f64> {
     let text = std::fs::read_to_string("/proc/meminfo").ok()?;
-    let kb: f64 = text
-        .lines()
-        .find(|l| l.starts_with("MemTotal:"))?
-        .split_whitespace()
-        .nth(1)?
-        .parse()
-        .ok()?;
-    Some(kb * 1024.0)
+    crate::android::meminfo_total_bytes(&text)
 }
 
 #[cfg(target_os = "macos")]
@@ -551,16 +544,23 @@ fn detect_gpus() -> Vec<Gpu> {
     gpus
 }
 
-#[cfg(not(any(target_os = "macos", target_os = "windows")))]
+#[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "android")))]
 fn detect_gpus() -> Vec<Gpu> {
     let mut gpus = Vec::new();
     apply_nvidia_smi(&mut gpus);
     gpus
 }
 
+/// Android has no discrete GPU to probe here (and no `nvidia-smi`); accelerated backends are not
+/// part of the fit rules yet. Facts from the Android API come through `Hardware::from_android`.
+#[cfg(target_os = "android")]
+fn detect_gpus() -> Vec<Gpu> {
+    Vec::new()
+}
+
 /// The registry qwMemorySize is capped for >4 GiB on some drivers; nvidia-smi
 /// is authoritative for NVIDIA cards and is added when no entry covers them.
-#[cfg(not(target_os = "macos"))]
+#[cfg(not(any(target_os = "macos", target_os = "android")))]
 fn apply_nvidia_smi(gpus: &mut Vec<Gpu>) {
     let mut nvidia_smi = std::process::Command::new("nvidia-smi");
     nvidia_smi.args([

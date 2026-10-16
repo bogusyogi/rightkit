@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.4.1
+
+Additive; Android groundwork (Orthic-Labs/rightkit#154). NOT COMPILED OR RUN, here or on a device: the Android-only call sites (Kotlin feeding real values, the `target_os = "android"` cfgs) are unverified. The logic is pure and its tests are written to run on any host.
+
+- New `android` module (re-exported: `AndroidAbi`, `AndroidFacts`, `init_android_files_dir`, `android_files_dir`, `android_models_root`).
+  - `Hardware::from_android(&AndroidFacts)`: an `os = "android"` profile from facts the app reads through the Android API (`Build.SUPPORTED_ABIS`, `ActivityManager.MemoryInfo.totalMem`, `isLowRamDevice`, `SDK_INT`, core count). `arch` is the first ABI the suite builds for (`arm64-v8a`, `x86_64`), else the first recognised ABI, else this build's. Profile id `android-<N>gb`, source `injected`, no GPU. The usable pool is the existing no-GPU rule (half of RAM); no Android-specific factor was invented without a measurement. `AndroidAbi::parse`/`arch`/`is_suite_target`.
+  - `Hardware::detect()` on Android reads `/proc/meminfo` (shared `meminfo_total_bytes`, same result as before on Linux) and reports no GPU instead of spawning `nvidia-smi`.
+  - Storage: `init_android_files_dir(Context.getFilesDir())` once at startup. After it `suite::paths::suite_root()` is that directory (models in `<filesDir>/models`, tools in `<filesDir>/tools`, `app_data_base` in `<filesDir>/app-data`, `legacy_suite_root` stays inside it), and no `dirs`/account-database lookup runs. The same path again is accepted, a different one is `Conflict`, a relative or `..`-bearing one is `InvalidSpec`. The injected root takes precedence over the `test-mode` overrides: do not call it from a test-mode build that expects redirection. `ModelStore::at_android_files_dir(files_dir, app_id)` gives a store with no global state.
+- `Platform::matches` accepts `android` (and the `aarch64-linux-android` triple: its `linux` token no longer vetoes an Android host when `android` is named). A bare `linux` filter still does not match Android. A filter that named neither before still fails closed; a filter naming `android` used to match nothing and now matches Android hosts.
+- Not changed, check before relying on it: `rightkit-daemon` (`Suite::resolve` is still called when no files directory is injected) and `rightkit-fs` features `fs`/`lock` have not been compiled for Android, and the catalog's non-macOS entries are the desktop ONNX bundles.
+- Host-runnable tests: ABI mapping, facts to profile and fit, `/proc/meminfo` parsing, files-directory validation, set-once semantics, Android platform filters, `ModelStore::at_android_files_dir`.
+
 ## 0.4.0
 
 - EmbeddingGemma 2 accelerator bundles (gap ledger rows 186, 209), both per-file, size and SHA-256 pinned, neither in `base_catalog()`, `add_ons()` or `all_models()`:

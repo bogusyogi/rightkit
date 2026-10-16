@@ -15,6 +15,12 @@ fn directml_execution_provider(device_id: Option<i32>) -> ort::ep::DirectML {
     }
 }
 
+/// XNNPACK pool size for a requested `intra_threads`: never zero.
+#[cfg(any(feature = "xnnpack", test))]
+fn xnnpack_pool_threads(intra_threads: usize) -> std::num::NonZeroUsize {
+    std::num::NonZeroUsize::new(intra_threads).unwrap_or(std::num::NonZeroUsize::MIN)
+}
+
 // Hardware acceleration options. CPU is default and most reliable.
 // GPU providers (CUDA, TensorRT, MIGraphX) offer 5-10x speedup but require specific hardware.
 // All GPU providers automatically fall back to CPU if they fail.
@@ -44,6 +50,13 @@ pub enum ExecutionProvider {
     WebGPU,
     #[cfg(feature = "nnapi")]
     NNAPI,
+    /// XNNPACK on top of the ORT CPU provider (ARM NEON kernels). Meant for Android; UNVERIFIED
+    /// there. Needs a runtime built with the XNNPACK provider (check `rightkit_onnx::probe_providers`);
+    /// when it cannot register, the session falls back to plain CPU like the other accelerators.
+    /// The session intra-op pool is cut to one thread (XNNPACK has its own pool, sized from
+    /// `intra_threads`).
+    #[cfg(feature = "xnnpack")]
+    Xnnpack,
 }
 
 #[derive(Clone)]
@@ -169,7 +182,8 @@ impl ModelConfig {
             feature = "migraphx",
             feature = "openvino",
             feature = "webgpu",
-            feature = "nnapi"
+            feature = "nnapi",
+            feature = "xnnpack"
         ))]
         use rightkit_onnx::ort::ep::CPU as CPUExecutionProvider;
         let mut builder = builder
@@ -236,6 +250,17 @@ impl ModelConfig {
                 ort::ep::NNAPI::default().build(),
                 CPUExecutionProvider::default().build().error_on_failure(),
             ])?,
+
+            #[cfg(feature = "xnnpack")]
+            ExecutionProvider::Xnnpack => builder
+                .with_intra_op_spinning(false)?
+                .with_intra_threads(1)?
+                .with_execution_providers([
+                    ort::ep::XNNPACK::default()
+                        .with_intra_op_num_threads(xnnpack_pool_threads(self.intra_threads))
+                        .build(),
+                    CPUExecutionProvider::default().build().error_on_failure(),
+                ])?,
         };
 
         if let Some(configure) = self.configure.as_ref() {
@@ -243,5 +268,17 @@ impl ModelConfig {
         }
 
         Ok(builder)
+    }
+}
+
+#[cfg(test)]
+mod xnnpack_tests {
+    use super::xnnpack_pool_threads;
+
+    #[test]
+    fn xnnpack_pool_is_never_zero() {
+        assert_eq!(xnnpack_pool_threads(0).get(), 1);
+        assert_eq!(xnnpack_pool_threads(1).get(), 1);
+        assert_eq!(xnnpack_pool_threads(4).get(), 4);
     }
 }

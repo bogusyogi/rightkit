@@ -5533,7 +5533,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-asr"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "half",
  "hound",
@@ -5917,7 +5917,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-models"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "base64 0.22.1",
  "chrono",
@@ -6250,7 +6250,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-vad"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "hound",
  "rightkit-ffmpeg",

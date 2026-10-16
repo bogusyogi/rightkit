@@ -221,6 +221,9 @@ impl WhisperCpp {
         threads: usize,
         deadline: Option<Duration>,
     ) -> Result<Self> {
+        if let Some(refusal) = crate::platform::whisper_cpp_refusal(cfg!(target_os = "android")) {
+            return Err(refusal);
+        }
         if !model.is_file() {
             return Err(Error::Model(format!(
                 "whisper ggml model not found: {}",

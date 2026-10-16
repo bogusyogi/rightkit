@@ -37,6 +37,8 @@ This crate has no direct `ort` dependency (`Cargo.toml:27-28`); the `ort` pin (`
 
 The only OS gates in `src/` are in `src/silero.rs`: the CoreML provider needs `target_vendor = "apple"` (`:38`) and the DirectML provider needs `target_os = "windows"` (`:39`); on other targets those providers return an error (`ensure_supported`, `:201-210`; the register fallbacks, `:277-281` and `:295-299`). ONNX Runtime support follows the `rightkit-onnx` features above. The Silero model file and the ONNX Runtime library are supplied by the app.
 
+Android (planned; nothing compiled or run): no Apple or Windows code is reached. Only `ExecutionProvider::Cpu` is hosted (`ExecutionProvider::supported_on_this_os()`); the app binds `libonnxruntime.so` through `rightkit-onnx` (`android_runtime_candidate`).
+
 Release notes: see `CHANGELOG.md` in this crate. The crate is published to crates.io.
 
 ## Example

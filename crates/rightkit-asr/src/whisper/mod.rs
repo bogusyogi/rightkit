@@ -477,8 +477,8 @@ impl Whisper {
             }
             #[cfg(not(all(target_os = "macos", feature = "whisper-tokenizers")))]
             WhisperModel::CoreMlDir { .. } => {
-                return Err(Error::Config(
-                    "the CoreML Whisper backend needs macOS and the `whisper-tokenizers` feature".into(),
+                return Err(Error::unsupported(
+                    "the CoreML Whisper backend needs macOS and the `whisper-tokenizers` feature",
                 ))
             }
             WhisperModel::Ggml { library, model } => {

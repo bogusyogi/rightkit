@@ -80,6 +80,13 @@ rightkit-models = { path = "../rightkit-models", version = "0.4.0", optional = t
 [target.'cfg(target_vendor = "apple")'.dependencies]
 ort = { version = "=2.0.0-rc.13", optional = true, default-features = false, features = ["std", "api-24", "load-dynamic", "coreml"] }
 
+# Android: the CPU provider with the XNNPACK extension (`SessionOptions::with_xnnpack`). The Cargo
+# feature only compiles ort's wrapper (load-dynamic links nothing); whether the shipped
+# `libonnxruntime.so` contains the XNNPACK provider is checked at run time by `probe_providers`.
+# NNAPI is deliberately not enabled here (later step, see README "Android").
+[target.'cfg(target_os = "android")'.dependencies]
+ort = { version = "=2.0.0-rc.13", optional = true, default-features = false, features = ["std", "api-24", "load-dynamic", "xnnpack"] }
+
 [target.'cfg(target_os = "windows")'.dependencies]
 ort = { version = "=2.0.0-rc.13", optional = true, default-features = false, features = ["std", "api-24", "load-dynamic", "directml"] }
 windows-sys = { version = "0.61.2", features = ["Win32_System_SystemInformation"] }
