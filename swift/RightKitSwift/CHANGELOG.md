@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- New products `RightKitAccessibility` and `RightKitHotkeys` (macOS only; both targets are empty on iOS), requested by Pulse (issue 189). `RightKitAccessibility`: `RightKitAXTrust`, `RightKitAXElement` (reads and writes), `RightKitAXWindowAction`, `RightKitAXObserver` (window-lifetime observation as an `AsyncStream`), `RightKitAXFailure`. `RightKitHotkeys`: `RightKitHotkeyRegistrar` over Carbon `RegisterEventHotKey`. Additive. Not covered: event-tap hot keys, Finder cut and paste, Dock-click minimise, app-quit policy (Pulse keeps those). Not yet released; the manifests list the products, the next tag carries them.
 - `RightKitAppleCredentials` tests only (M11-O1): `copySyncedToDeviceOnly` leaves the synced copy and reports absence; `deleteEverywhere` is idempotent, account-scoped and removes a single-scope item. No product change.
 - `RightKitLicense` (M12-O2): `LicenseKeychainStore.deviceID(account:)` is deprecated. It returns a random, unpersisted id when the Keychain fails, so a token bound to it never verifies again. Use `requireDeviceID(account:)` (throws) and fail closed. README example updated. No behaviour change; callers get a deprecation warning.
 

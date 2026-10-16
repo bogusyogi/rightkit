@@ -21,6 +21,8 @@ minimum deployment targets of iOS 17 and macOS 14.
 | `RightKitAppleCredentials` | Security.framework credential backend: raw-status probing (`probeStatus`), all-location deletion (`deleteAnyScope`), and `ForeignGenericPassword`, a read-only reader for another app's legacy file-Keychain item that does not prompt by default (macOS). |
 | `RightKitOverlay` | Overlay state, hit testing, and the non-activating overlay panel model (the panel is macOS only), with per-rectangle click-through (`setClickThrough`, `hitRegions`, `updateClickThrough(forMouseAt:)`). |
 | `RightKitWatch` | FSEvents file watcher (macOS): `RightKitWatcher` delivers typed item, root-changed, history-done and must-rescan events as an `AsyncStream`, with event IDs for replay. |
+| `RightKitAccessibility` | Accessibility API for macOS apps (empty on iOS): `RightKitAXTrust.isTrusted(prompt:)`, `RightKitAXElement` (typed reads of role, title, windows, frame; writes of position, size, frame, any attribute; `perform`), `RightKitAXWindowAction` (raise, minimise, full screen, close, zoom through the window's buttons), and `RightKitAXObserver`, an `AXObserver` with an `AsyncStream` of events that tracks window creation and destruction. Failures are `RightKitAXFailure`. Needs Accessibility permission; the library never prompts unless asked. |
+| `RightKitHotkeys` | Carbon `RegisterEventHotKey` global hot keys (macOS; empty on iOS): `RightKitHotkeyRegistrar` registers `RightKitHotkeyCombo` values (virtual key code plus `RightKitHotkeyModifiers`) and reports press and release on the main actor. No permission is needed. Event-tap hot keys are not included. |
 
 ## RightKitLicense configuration (0.3.5)
 

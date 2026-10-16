@@ -34,6 +34,8 @@ let package = Package(
         .library(name: "RightKitDB", targets: ["RightKitDB"]),
         .library(name: "RightKitFS", targets: ["RightKitFS"]),
         .library(name: "RightKitCredentials", targets: ["RightKitCredentials"]),
+        .library(name: "RightKitAccessibility", targets: ["RightKitAccessibility"]),
+        .library(name: "RightKitHotkeys", targets: ["RightKitHotkeys"]),
     ],
     targets: [
         // Keychain-backed secret store (namespace = service, key = account); RightKitLicense persists through it.
@@ -94,5 +96,10 @@ let package = Package(
         // Data root (Orthic Labs/<App>), escape-safe dataDir, atomic write, verified copy, append. Foundation/CryptoKit only.
         .target(name: "RightKitFS", path: "swift/RightKitSwift/Sources/RightKitFS"),
         .testTarget(name: "RightKitFSTests", dependencies: ["RightKitFS"], path: "swift/RightKitSwift/Tests/RightKitFSTests"),
+        // Accessibility (AXUIElement reads/writes, window actions, AXObserver) and Carbon hot keys (macOS only; both targets are empty on iOS).
+        .target(name: "RightKitAccessibility", path: "swift/RightKitSwift/Sources/RightKitAccessibility"),
+        .testTarget(name: "RightKitAccessibilityTests", dependencies: ["RightKitAccessibility"], path: "swift/RightKitSwift/Tests/RightKitAccessibilityTests"),
+        .target(name: "RightKitHotkeys", path: "swift/RightKitSwift/Sources/RightKitHotkeys"),
+        .testTarget(name: "RightKitHotkeysTests", dependencies: ["RightKitHotkeys"], path: "swift/RightKitSwift/Tests/RightKitHotkeysTests"),
     ],
 )
