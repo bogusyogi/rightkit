@@ -6,8 +6,8 @@
 //! slow callback, and tears the run loop down deterministically on drop.
 
 use std::ffi::c_void;
-use std::sync::atomic::{AtomicPtr, Ordering};
-use std::sync::mpsc;
+use std::sync::atomic::{AtomicPtr, AtomicU64, Ordering};
+use std::sync::{mpsc, Arc};
 use std::thread;
 
 use super::ffi::*;
@@ -28,6 +28,8 @@ pub enum TapKind {
     KeyUp,
     FlagsChanged,
     OtherMouseDown,
+    /// Release of an "other" button; lets a tap that swallowed a press account for its release.
+    OtherMouseUp,
 }
 
 impl TapKind {
@@ -37,6 +39,7 @@ impl TapKind {
             K_CG_EVENT_KEY_UP => TapKind::KeyUp,
             K_CG_EVENT_FLAGS_CHANGED => TapKind::FlagsChanged,
             K_CG_EVENT_OTHER_MOUSE_DOWN => TapKind::OtherMouseDown,
+            K_CG_EVENT_OTHER_MOUSE_UP => TapKind::OtherMouseUp,
             _ => return None,
         })
     }
@@ -47,6 +50,7 @@ impl TapKind {
             TapKind::KeyUp => K_CG_EVENT_KEY_UP,
             TapKind::FlagsChanged => K_CG_EVENT_FLAGS_CHANGED,
             TapKind::OtherMouseDown => K_CG_EVENT_OTHER_MOUSE_DOWN,
+            TapKind::OtherMouseUp => K_CG_EVENT_OTHER_MOUSE_UP,
         }
     }
 }
@@ -110,9 +114,14 @@ pub struct TapConfig {
 
 type Handler = Box<dyn Fn(&TapEvent) -> TapDecision + Send + 'static>;
 
+type OnReenable = Box<dyn Fn() + Send + 'static>;
+
 struct Ctx {
     handler: Handler,
     port: AtomicPtr<c_void>,
+    /// Times macOS disabled the tap (slow callback or user input) and it was switched back on.
+    reenables: Arc<AtomicU64>,
+    on_reenable: Option<OnReenable>,
 }
 
 unsafe extern "C" fn callback(
@@ -131,6 +140,11 @@ unsafe extern "C" fn callback(
         if !port.is_null() {
             CGEventTapEnable(port, true);
         }
+        ctx.reenables.fetch_add(1, Ordering::SeqCst);
+        // Events seen before the disable may have been lost; let the handler drop half-seen state.
+        if let Some(on_reenable) = &ctx.on_reenable {
+            on_reenable();
+        }
         return event;
     }
     let Some(kind) = TapKind::from_raw(etype) else {
@@ -139,7 +153,7 @@ unsafe extern "C" fn callback(
     if event.is_null() {
         return event;
     }
-    let is_mouse = kind == TapKind::OtherMouseDown;
+    let is_mouse = matches!(kind, TapKind::OtherMouseDown | TapKind::OtherMouseUp);
     let tap_event = TapEvent {
         kind,
         keycode: if is_mouse {
@@ -171,6 +185,7 @@ unsafe extern "C" fn callback(
 pub struct EventTap {
     run_loop: usize,
     thread: Option<thread::JoinHandle<()>>,
+    reenables: Arc<AtomicU64>,
 }
 
 impl EventTap {
@@ -178,16 +193,45 @@ impl EventTap {
         config: TapConfig,
         handler: impl Fn(&TapEvent) -> TapDecision + Send + 'static,
     ) -> Result<EventTap, TapError> {
+        Self::spawn_inner(config, handler, None)
+    }
+
+    /// Like [`EventTap::spawn`], and runs `on_reenable` (inside the tap callback, so it must be
+    /// quick) each time macOS disabled the tap and it was switched back on. Use it to drop any
+    /// state that depended on seeing every event.
+    pub fn spawn_with_recovery(
+        config: TapConfig,
+        handler: impl Fn(&TapEvent) -> TapDecision + Send + 'static,
+        on_reenable: impl Fn() + Send + 'static,
+    ) -> Result<EventTap, TapError> {
+        Self::spawn_inner(config, handler, Some(Box::new(on_reenable)))
+    }
+
+    /// How many times the OS disabled this tap and it was re-enabled.
+    pub fn reenable_count(&self) -> u64 {
+        self.reenables.load(Ordering::SeqCst)
+    }
+
+    fn spawn_inner(
+        config: TapConfig,
+        handler: impl Fn(&TapEvent) -> TapDecision + Send + 'static,
+        on_reenable: Option<OnReenable>,
+    ) -> Result<EventTap, TapError> {
+        let reenables = Arc::new(AtomicU64::new(0));
+        let thread_reenables = reenables.clone();
         let (ready_tx, ready_rx) = mpsc::channel::<Result<usize, TapError>>();
         let handler: Handler = Box::new(handler);
         let thread = thread::Builder::new()
             .name(config.name.clone())
-            .spawn(move || unsafe { run(config, handler, ready_tx) })
+            .spawn(move || unsafe {
+                run(config, handler, on_reenable, thread_reenables, ready_tx)
+            })
             .map_err(|e| TapError::Thread(e.to_string()))?;
         match ready_rx.recv() {
             Ok(Ok(run_loop)) => Ok(EventTap {
                 run_loop,
                 thread: Some(thread),
+                reenables,
             }),
             Ok(Err(error)) => {
                 let _ = thread.join();
@@ -214,10 +258,18 @@ impl Drop for EventTap {
     }
 }
 
-unsafe fn run(config: TapConfig, handler: Handler, ready: mpsc::Sender<Result<usize, TapError>>) {
+unsafe fn run(
+    config: TapConfig,
+    handler: Handler,
+    on_reenable: Option<OnReenable>,
+    reenables: Arc<AtomicU64>,
+    ready: mpsc::Sender<Result<usize, TapError>>,
+) {
     let ctx = Box::into_raw(Box::new(Ctx {
         handler,
         port: AtomicPtr::new(std::ptr::null_mut()),
+        reenables,
+        on_reenable,
     }));
     let mask = config.kinds.iter().fold(0u64, |m, k| m | k.mask_bit());
     let location = match config.location {

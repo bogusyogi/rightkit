@@ -4,6 +4,8 @@
 //! * [`conflict`] — conflict reporting for registration failures and an in-process registry.
 //! * [`hold`] — press/release pairing for press-only APIs; [`register_status`] — typed registration failures.
 //! * [`ptt`] — pure push-to-talk policy and the start/end handoff state machine.
+//! * [`ptt_timer`] — the single bounded, cancellable push-to-talk arm timer.
+//! * [`middle_click`] — pure state machine that keeps the AX link lookup off the event-tap callback.
 //! * [`decision`] — pure predicates shared by the platform hooks (fn chord gate, middle button).
 //! * [`hook_chord`] — pure chord matcher over raw key events, for chords the OS refuses to register.
 //! * [`macos`] — `CGEventTap` primitive, fn chord tap, middle-mouse tap, Carbon global hotkeys.
@@ -16,7 +18,9 @@ pub mod conflict;
 pub mod decision;
 pub mod hold;
 pub mod hook_chord;
+pub mod middle_click;
 pub mod ptt;
+pub mod ptt_timer;
 pub mod register_status;
 pub mod registration;
 

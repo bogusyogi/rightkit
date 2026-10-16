@@ -324,6 +324,15 @@ pub fn accessibility_trusted() -> bool {
     unsafe { AXIsProcessTrusted() }
 }
 
+/// Stamp the caller's marker (see [`crate::marker`]) into `kCGEventSourceUserData` so the
+/// caller's own event tap can tell this posted event from the user's.
+unsafe fn stamp(e: CFTypeRef) {
+    let marker = crate::marker::event_marker();
+    if marker != 0 {
+        CGEventSetIntegerValueField(e, 42, marker);
+    }
+}
+
 fn source() -> CFTypeRef {
     // -1 = kCGEventSourceStatePrivate: ignores the user's held modifiers/buttons.
     unsafe { CGEventSourceCreate(-1) }
@@ -339,6 +348,7 @@ fn mouse(pid: i32, win: u32, ty: u32, x: f64, y: f64, click_state: i64) {
         CGEventSetIntegerValueField(e, 3, click_state); // mouseEventClickState
         CGEventSetIntegerValueField(e, 91, win as i64); // window under pointer
         CGEventSetIntegerValueField(e, 92, win as i64); // window that can handle
+        stamp(e);
         CGEventPostToPid(pid, e);
         CFRelease(e);
         CFRelease(src);
@@ -389,6 +399,7 @@ pub(crate) fn scroll(pid: i32, win: u32, x: f64, y: f64, dy: i32) {
         if !e.is_null() {
             CGEventSetIntegerValueField(e, 91, win as i64);
             CGEventSetIntegerValueField(e, 92, win as i64);
+            stamp(e);
             CGEventPostToPid(pid, e);
             CFRelease(e);
         }
@@ -409,6 +420,7 @@ pub(crate) fn type_text(pid: i32, text: &str) {
                     continue;
                 }
                 CGEventKeyboardSetUnicodeString(e, u.len(), u.as_ptr());
+                stamp(e);
                 CGEventPostToPid(pid, e);
                 CFRelease(e);
             }
@@ -427,6 +439,7 @@ pub(crate) fn key(pid: i32, keycode: u16, flags: u64) {
                 continue;
             }
             CGEventSetFlags(e, flags);
+            stamp(e);
             CGEventPostToPid(pid, e);
             CFRelease(e);
             pause(10);

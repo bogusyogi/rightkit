@@ -11,12 +11,13 @@
 //! an optional callback.
 
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicU8, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock, Weak};
 use std::time::{Duration, Instant};
 
 use super::ffi::*;
 use super::tap::{EventTap, TapConfig, TapDecision, TapError, TapEvent, TapKind, TapLocation};
 use crate::decision::should_accept_fn_chord;
+use crate::ptt_timer::{ArmTimer, MAX_ARM_DELAY};
 use crate::ptt::{
     format_abort, should_abort_ptt_chord, should_arm_ptt, should_clear_ptt_hold_suppression,
     PttAbortCause, PttAbortKind, PttEnd, PttHandoff, PttModifiers, PttPhase,
@@ -123,6 +124,11 @@ struct Shared {
     handoff: PttHandoff,
     fn_down: AtomicBool,
     arm_delay: Duration,
+    /// The one arm timer (a single thread, one pending deadline). Set once by
+    /// [`Shared::start_timer`]; `None` only for a bare `Shared` in unit tests.
+    timer: OnceLock<ArmTimer>,
+    /// Set when the tap handle is dropped: nothing may start recording after that.
+    closed: AtomicBool,
 }
 
 impl Shared {
@@ -144,7 +150,63 @@ impl Shared {
             generation: AtomicU64::new(0),
             handoff: PttHandoff::new(),
             fn_down: AtomicBool::new(false),
-            arm_delay,
+            arm_delay: arm_delay.min(MAX_ARM_DELAY),
+            timer: OnceLock::new(),
+            closed: AtomicBool::new(false),
+        }
+    }
+
+    /// Start the arm timer. It holds only a weak reference, so it never keeps the tap state alive.
+    fn start_timer(self: &Arc<Self>) -> std::io::Result<()> {
+        let weak: Weak<Shared> = Arc::downgrade(self);
+        let timer = ArmTimer::spawn("rightkit-ptt-arm", move |generation| {
+            if let Some(shared) = weak.upgrade() {
+                shared.fire_arm(generation);
+            }
+        })?;
+        let _ = self.timer.set(timer);
+        Ok(())
+    }
+
+    /// Schedule the arm check for `generation`, replacing any pending one.
+    fn arm_timer(&self, generation: u64) {
+        if let Some(timer) = self.timer.get() {
+            timer.arm(generation, self.arm_delay);
+        }
+    }
+
+    /// Invalidate the current arm (release, abort, disable, teardown): bumps the generation and
+    /// drops the pending deadline so no sleeper outlives the press that created it.
+    fn cancel_arm(&self) {
+        self.generation.fetch_add(1, Ordering::SeqCst);
+        if let Some(timer) = self.timer.get() {
+            timer.cancel();
+        }
+    }
+
+    /// The arm delay elapsed for `generation`: start recording if the key is still held alone.
+    fn fire_arm(self: &Arc<Self>, generation: u64) {
+        if self.closed.load(Ordering::SeqCst)
+            || self.generation.load(Ordering::SeqCst) != generation
+            || !self.ptt_key_down.load(Ordering::SeqCst)
+            || !self.armed.load(Ordering::SeqCst)
+            || self.dictation_active.load(Ordering::SeqCst)
+        {
+            if self.generation.load(Ordering::SeqCst) == generation {
+                self.armed.store(false, Ordering::SeqCst);
+            }
+            return;
+        }
+        if !self.handoff.begin_start() {
+            return;
+        }
+        (self.cb.ptt_start)();
+        let still_valid = !self.closed.load(Ordering::SeqCst)
+            && self.generation.load(Ordering::SeqCst) == generation
+            && self.ptt_key_down.load(Ordering::SeqCst)
+            && self.armed.load(Ordering::SeqCst);
+        if let Some(end) = self.handoff.complete_start(still_valid) {
+            self.dispatch_end(end);
         }
     }
 
@@ -199,7 +261,7 @@ impl Shared {
         self.hold_started_ms.store(0, Ordering::SeqCst);
         self.armed.store(false, Ordering::SeqCst);
         self.send_pending.store(false, Ordering::SeqCst);
-        self.generation.fetch_add(1, Ordering::SeqCst);
+        self.cancel_arm();
     }
 
     fn other_modifiers(&self, keycode: u16, flags: u64) -> bool {
@@ -288,33 +350,12 @@ fn on_flags_changed(s: &Arc<Shared>, ev: &TapEvent) {
             s.hold_started_ms.store(s.now_ms(), Ordering::SeqCst);
             s.armed.store(true, Ordering::SeqCst);
             let generation = s.generation.fetch_add(1, Ordering::SeqCst) + 1;
-            let s2 = s.clone();
-            std::thread::spawn(move || {
-                std::thread::sleep(s2.arm_delay);
-                if s2.generation.load(Ordering::SeqCst) != generation
-                    || !s2.ptt_key_down.load(Ordering::SeqCst)
-                    || !s2.armed.load(Ordering::SeqCst)
-                    || s2.dictation_active.load(Ordering::SeqCst)
-                {
-                    s2.armed.store(false, Ordering::SeqCst);
-                    return;
-                }
-                if !s2.handoff.begin_start() {
-                    return;
-                }
-                (s2.cb.ptt_start)();
-                let still_valid = s2.generation.load(Ordering::SeqCst) == generation
-                    && s2.ptt_key_down.load(Ordering::SeqCst)
-                    && s2.armed.load(Ordering::SeqCst);
-                if let Some(end) = s2.handoff.complete_start(still_valid) {
-                    s2.dispatch_end(end);
-                }
-            });
+            s.arm_timer(generation);
         }
     } else if !ptt_now && was_ptt {
         s.hold_started_ms.store(0, Ordering::SeqCst);
-        s.generation.fetch_add(1, Ordering::SeqCst);
         s.armed.store(false, Ordering::SeqCst);
+        s.cancel_arm();
         let end = if s.send_pending.swap(false, Ordering::SeqCst) {
             PttEnd::Send
         } else {
@@ -337,7 +378,7 @@ fn on_flags_changed(s: &Arc<Shared>, ev: &TapEvent) {
         if should_abort_ptt_chord(elapsed) {
             s.hold_started_ms.store(0, Ordering::SeqCst);
             s.armed.store(false, Ordering::SeqCst);
-            s.generation.fetch_add(1, Ordering::SeqCst);
+            s.cancel_arm();
             s.request_abort(cause);
         } else {
             (s.cb.diag)(
@@ -355,7 +396,7 @@ fn decide(s: &Arc<Shared>, ev: &TapEvent) -> TapDecision {
             return TapDecision::Pass;
         }
         TapKind::KeyDown | TapKind::KeyUp => {}
-        TapKind::OtherMouseDown => return TapDecision::Pass,
+        TapKind::OtherMouseDown | TapKind::OtherMouseUp => return TapDecision::Pass,
     }
     let keycode = ev.keycode;
     let flags = ev.flags;
@@ -377,7 +418,7 @@ fn decide(s: &Arc<Shared>, ev: &TapEvent) -> TapDecision {
         if should_abort_ptt_chord(elapsed) {
             s.hold_started_ms.store(0, Ordering::SeqCst);
             s.armed.store(false, Ordering::SeqCst);
-            s.generation.fetch_add(1, Ordering::SeqCst);
+            s.cancel_arm();
             s.request_abort(cause);
         } else {
             (s.cb.diag)(
@@ -444,6 +485,9 @@ impl FnHotkeyTap {
         arm_delay: Duration,
     ) -> Result<Self, TapError> {
         let shared = Arc::new(Shared::new(callbacks, arm_delay));
+        shared
+            .start_timer()
+            .map_err(|e| TapError::Thread(e.to_string()))?;
         let handler_state = shared.clone();
         let tap = EventTap::spawn(
             TapConfig {
@@ -493,7 +537,20 @@ impl FnHotkeyTap {
             s.hold_started_ms.store(0, Ordering::SeqCst);
             s.handoff.reset();
             s.send_pending.store(false, Ordering::SeqCst);
-            s.generation.fetch_add(1, Ordering::SeqCst);
+            s.cancel_arm();
+        }
+    }
+}
+
+impl Drop for FnHotkeyTap {
+    /// Teardown cancels the arm timer and ends any recording this tap started, so no timer fires
+    /// and no recording is left running with nothing to stop it.
+    fn drop(&mut self) {
+        let s = &self.shared;
+        s.closed.store(true, Ordering::SeqCst);
+        s.reset_ptt();
+        if let Some(end) = s.handoff.request_end(PttEnd::Cancel, None) {
+            s.dispatch_end(end);
         }
     }
 }
@@ -565,5 +622,65 @@ mod tests {
                 );
             }
         }
+    }
+
+    fn ptt_shared(delay_ms: u64) -> (Arc<Shared>, Arc<std::sync::atomic::AtomicUsize>) {
+        let starts = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let counter = starts.clone();
+        let mut callbacks = FnHotkeyCallbacks::noop();
+        callbacks.ptt_start = Arc::new(move || {
+            counter.fetch_add(1, Ordering::SeqCst);
+        });
+        let shared = Arc::new(Shared::new(callbacks, Duration::from_millis(delay_ms)));
+        shared.ptt_enabled.store(true, Ordering::SeqCst);
+        shared.start_timer().unwrap();
+        (shared, starts)
+    }
+
+    fn control(down: bool) -> TapEvent {
+        TapEvent {
+            kind: TapKind::FlagsChanged,
+            keycode: KEYCODE_LEFT_CONTROL,
+            flags: if down { FLAG_CONTROL } else { 0 },
+            button: -1,
+            location: (0.0, 0.0),
+            user_data: 0,
+        }
+    }
+
+    #[test]
+    fn held_key_starts_ptt_once_after_the_arm_delay() {
+        let (shared, starts) = ptt_shared(30);
+        on_flags_changed(&shared, &control(true));
+        std::thread::sleep(Duration::from_millis(300));
+        assert_eq!(starts.load(Ordering::SeqCst), 1);
+    }
+
+    #[test]
+    fn release_before_the_delay_cancels_the_timer() {
+        let (shared, starts) = ptt_shared(150);
+        for _ in 0..20 {
+            on_flags_changed(&shared, &control(true));
+            on_flags_changed(&shared, &control(false));
+        }
+        std::thread::sleep(Duration::from_millis(450));
+        assert_eq!(starts.load(Ordering::SeqCst), 0, "tapped presses never start");
+    }
+
+    #[test]
+    fn dropping_the_state_stops_a_pending_timer() {
+        let (shared, starts) = ptt_shared(150);
+        on_flags_changed(&shared, &control(true));
+        shared.closed.store(true, Ordering::SeqCst);
+        shared.cancel_arm();
+        drop(shared);
+        std::thread::sleep(Duration::from_millis(400));
+        assert_eq!(starts.load(Ordering::SeqCst), 0);
+    }
+
+    #[test]
+    fn arm_delay_is_bounded() {
+        let shared = Shared::new(FnHotkeyCallbacks::noop(), Duration::from_secs(3600));
+        assert!(shared.arm_delay <= MAX_ARM_DELAY);
     }
 }

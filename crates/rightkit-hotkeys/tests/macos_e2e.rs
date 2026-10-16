@@ -43,6 +43,7 @@ mod mac {
         tap_pass_swallow_and_listen_only();
         fn_space_is_swallowed();
         middle_button_filters_non_middle();
+        middle_click_over_link_replays_instead_of_toggling();
         println!("rightkit-hotkeys macOS E2E: PASS");
     }
 
@@ -165,6 +166,28 @@ mod mac {
         assert!(post_other_mouse(TapLocation::Session, 2, 10.0, 10.0, true));
         pump_run_loop(0.2);
         wait(&rx);
+        drop(tap);
+    }
+
+    /// The lookup runs off the tap callback; a link answer must replay the click (no toggle) and a
+    /// slow lookup must not leave the tap disabled.
+    fn middle_click_over_link_replays_instead_of_toggling() {
+        let (tx, rx) = mpsc::channel();
+        let tap = MiddleMouseTap::spawn(
+            TapLocation::Session,
+            move || tx.send(()).unwrap(),
+            |_, _| {
+                std::thread::sleep(Duration::from_millis(150));
+                true
+            },
+        )
+        .unwrap();
+        assert!(post_other_mouse(TapLocation::Session, 2, 10.0, 10.0, true));
+        assert!(post_other_mouse(TapLocation::Session, 2, 10.0, 10.0, false));
+        pump_run_loop(0.6);
+        assert!(rx.try_recv().is_err(), "a link click must not toggle");
+        assert!(tap.is_idle(), "the click was fully replayed");
+        assert_eq!(tap.reenable_count(), 0, "a slow lookup must not disable the tap");
         drop(tap);
     }
 }

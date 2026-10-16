@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-automation"
-version = "0.4.1"
+version = "0.4.2"
 edition = "2021"
 rust-version = "1.98.0"
 description = "Brand-neutral desktop automation: observe and act on any app (macOS AX, Windows UIA) through a four-tier input ladder with safety, focus guard, and evidence receipts."

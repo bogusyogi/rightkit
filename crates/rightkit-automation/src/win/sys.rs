@@ -329,7 +329,7 @@ fn kb(vk: u16, scan: u16, flags: KEYBD_EVENT_FLAGS) -> INPUT {
                 wScan: scan,
                 dwFlags: flags,
                 time: 0,
-                dwExtraInfo: 0,
+                dwExtraInfo: crate::marker::event_marker() as usize,
             },
         },
     }
@@ -345,7 +345,7 @@ fn mouse(flags: MOUSE_EVENT_FLAGS, data: i32) -> INPUT {
                 mouseData: data as u32,
                 dwFlags: flags,
                 time: 0,
-                dwExtraInfo: 0,
+                dwExtraInfo: crate::marker::event_marker() as usize,
             },
         },
     }
@@ -878,4 +878,21 @@ pub fn process_alive(pid: i32) -> bool {
             Err(_) => false,
         }
     }
+}
+
+/// Move and resize a top-level window to `r` (physical pixels, the space [`window_rect`] reports)
+/// without changing its z-order or activating it.
+pub fn set_window_frame(h: isize, r: Rect) -> Result<()> {
+    unsafe {
+        SetWindowPos(
+            hwnd(h),
+            None,
+            r.x.round() as i32,
+            r.y.round() as i32,
+            r.w.round().max(1.0) as i32,
+            r.h.round().max(1.0) as i32,
+            SWP_NOZORDER | SWP_NOACTIVATE,
+        )
+    }
+    .map_err(|e| Error::Platform(i64::from(e.code().0), "SetWindowPos"))
 }

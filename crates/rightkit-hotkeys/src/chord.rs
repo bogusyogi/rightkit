@@ -223,7 +223,14 @@ impl Key {
             .map(|(name, _, _)| Key(name))
     }
 
-    /// macOS virtual keycode (ANSI layout, `kVK_*`).
+    /// macOS virtual keycode (ANSI layout, `kVK_*`), or `None` for keys macOS has no code for
+    /// (F21-F24). Use this to refuse such a chord before registering it.
+    pub fn mac_keycode_checked(self) -> Option<u16> {
+        Some(self.mac_keycode()).filter(|code| *code != NO_MAC_KEYCODE)
+    }
+
+    /// macOS virtual keycode (ANSI layout, `kVK_*`). Returns [`NO_MAC_KEYCODE`] (`0xFFFF`) for
+    /// F21-F24; prefer [`Key::mac_keycode_checked`].
     pub fn mac_keycode(self) -> u16 {
         TABLE
             .iter()
@@ -348,7 +355,15 @@ const TABLE: &[(&str, u16, u16)] = &[
     ("f18", 79, 0x81),
     ("f19", 80, 0x82),
     ("f20", 90, 0x83),
+    // F21-F24 exist as Windows virtual keys only; macOS has no virtual keycode for them.
+    ("f21", NO_MAC_KEYCODE, 0x84),
+    ("f22", NO_MAC_KEYCODE, 0x85),
+    ("f23", NO_MAC_KEYCODE, 0x86),
+    ("f24", NO_MAC_KEYCODE, 0x87),
 ];
+
+/// Sentinel in [`TABLE`] for a key with no macOS virtual keycode. Not a real `kVK_*` value.
+pub const NO_MAC_KEYCODE: u16 = 0xFFFF;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Platform {
@@ -571,6 +586,28 @@ mod tests {
         assert_eq!(space.mac_keycode(), 49);
         assert_eq!(space.windows_vk(), 0x20);
         assert!(Key::parse("nope").is_none());
+    }
+
+    #[test]
+    fn f21_to_f24_parse_with_windows_codes_and_no_mac_code() {
+        for (name, vk) in [("f21", 0x84), ("F22", 0x85), ("f23", 0x86), ("F24", 0x87)] {
+            let chord = parse_chord(&format!("Ctrl+{name}")).unwrap();
+            assert_eq!(chord.key.windows_vk(), vk, "{name}");
+            assert_eq!(chord.key.mac_keycode_checked(), None, "{name}");
+            assert_eq!(chord.key.mac_keycode(), NO_MAC_KEYCODE);
+            assert_eq!(parse_chord(&chord.canonical()).unwrap(), chord);
+        }
+        assert_eq!(parse_chord("Alt+F24").unwrap().canonical(), "Alt+F24");
+        assert!(parse_chord("F25").is_err());
+        assert_eq!(Key::parse("f20").unwrap().mac_keycode_checked(), Some(90));
+    }
+
+    #[test]
+    fn only_f21_to_f24_lack_a_mac_keycode() {
+        for (name, mac, _) in TABLE {
+            let lacks = *mac == NO_MAC_KEYCODE;
+            assert_eq!(lacks, matches!(*name, "f21" | "f22" | "f23" | "f24"), "{name}");
+        }
     }
 
     #[test]

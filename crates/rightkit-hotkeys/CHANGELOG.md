@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.1.2
+
+Code-only change; nothing in this section was compiled or run when written. The macOS parts need a Mac run of this crate's unit tests and the `macos_e2e` gate.
+
+- Fixed (macOS, Orthic-Labs/rightkit#181): `MiddleMouseTap` no longer runs the link lookup inside the `CGEventTap` callback, where a blocking Accessibility call got the tap disabled by the OS. A middle press is now swallowed at once and one worker thread runs the `is_link` lookup. Not a link: the toggle runs as before. A link: the click is replayed as a synthetic press and release marked with `middle_mouse::REPLAY_USER_DATA`, which the tap passes through, so the browser still opens the link in a new tab. The tap now also watches `OtherMouseUp` (new `TapKind::OtherMouseUp`) so it can swallow or replay the release that belongs to a swallowed press. While a lookup is outstanding a second middle press passes through, and a lookup that has not answered after 1.5 s is abandoned for the next press. If the lookup worker is gone the click passes through. `is_link` may now block. The state machine is the pure `middle_click` module (`MiddleClickGate`, `handle_other_mouse`, `run_job`), tested on every host.
+- Added (macOS, #181): tap-disable recovery. `EventTap::spawn_with_recovery` runs a hook each time the OS disabled the tap and it was re-enabled, and `EventTap::reenable_count` / `MiddleMouseTap::reenable_count` report how often. The middle-mouse tap drops any click in flight on recovery. New `synth::post_other_mouse_marked` posts a mouse event with a caller marker (`post_other_mouse` is unchanged).
+- Fixed (macOS, #180, L-09): push-to-talk timers are bounded and cancelled. The arm delay used one sleeping thread per press, only invalidated by a generation check; it is now one `ptt_timer::ArmTimer` thread per `FnHotkeyTap` with a single pending deadline. Release, an aborting key or modifier, `set_ptt_key`, `set_ptt_enabled(false)` and the end of dictation cancel it. Dropping `FnHotkeyTap` cancels the timer, blocks any later start, and ends a recording the tap started (through `ptt_cancel`). `spawn_with_arm_delay` clamps the delay to `ptt_timer::MAX_ARM_DELAY` (1 s).
+- Added (#180, L-18): `F21` to `F24` parse as chord keys (Windows `VK_F21` to `VK_F24`, 0x84 to 0x87). macOS has no virtual keycode for them: `Key::mac_keycode_checked()` returns `None`, `Key::mac_keycode()` returns the sentinel `chord::NO_MAC_KEYCODE` (0xFFFF), and macOS `GlobalHotkeys::register` returns `RegisterError::Unsupported` for such a chord instead of registering a wrong key.
+
 ## Unreleased
 
 Additive; nothing in this section was compiled or run when written.

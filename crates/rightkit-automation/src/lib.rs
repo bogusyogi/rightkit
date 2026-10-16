@@ -45,6 +45,7 @@ pub mod in_app;
 pub mod json;
 pub mod keys;
 pub mod lease;
+pub mod marker;
 pub mod mock;
 pub mod model;
 pub mod offscreen;

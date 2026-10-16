@@ -4,13 +4,29 @@
 //! back/forward, DPI, EasySwitch). Only the wheel button (2) may toggle; every other button passes
 //! through before any accessibility scan or callback. A middle click over a link also passes
 //! through so browsers still open it in a new tab.
+//!
+//! The tap callback never runs the accessibility lookup: AX calls can block, and macOS disables a
+//! tap whose callback is slow. A middle press is swallowed at once, one worker thread runs the
+//! lookup, and for a link the click is replayed as a marked synthetic press and release (see
+//! [`crate::middle_click`] for the state machine). If the OS disables the tap anyway, it is
+//! re-enabled and any click in flight is dropped.
 
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
+use std::sync::{mpsc, Arc};
+use std::time::Instant;
 
 use super::ffi::*;
-use super::tap::{EventTap, TapConfig, TapDecision, TapError, TapEvent, TapKind, TapLocation};
-use crate::decision::other_mouse_down_is_middle;
+use super::synth::post_other_mouse_marked;
+use super::tap::{EventTap, TapConfig, TapDecision, TapError, TapKind, TapLocation};
+use crate::middle_click::{
+    handle_other_mouse, run_job, Job, JobActions, MiddleClickGate, MouseEdge, Verdict,
+};
+
+pub use crate::middle_click::DIAG_OTHER_BUTTON;
+
+/// `kCGEventSourceUserData` stamped on the synthetic press and release that replay a click over a
+/// link. The tap passes events carrying it untouched.
+pub const REPLAY_USER_DATA: i64 = 0x5249_4748_544B_4D43;
 
 const UTF8: u32 = 0x0800_0100;
 
@@ -76,41 +92,16 @@ pub fn ax_link_at(x: f64, y: f64) -> bool {
     }
 }
 
-/// Telemetry name for a non-middle `OtherMouseDown` that the tap passes through.
-pub const DIAG_OTHER_BUTTON: &str = "middle_mouse_other_button";
-
-/// Decision for one `OtherMouseDown`. Only the wheel button toggles; every other button is passed
-/// through and reported on the diagnostics hook as `button=<n>`.
-fn decide_other_mouse_down(
-    gate: &AtomicBool,
-    event: &TapEvent,
-    on_toggle: &Arc<dyn Fn() + Send + Sync + 'static>,
-    is_link: &dyn Fn(f64, f64) -> bool,
-    diag: &dyn Fn(&str, &str),
-) -> TapDecision {
-    if event.kind != TapKind::OtherMouseDown || !gate.load(Ordering::SeqCst) {
-        return TapDecision::Pass;
-    }
-    if !other_mouse_down_is_middle(event.button) {
-        diag(DIAG_OTHER_BUTTON, &format!("button={}", event.button));
-        return TapDecision::Pass;
-    }
-    if is_link(event.location.0, event.location.1) {
-        return TapDecision::Pass;
-    }
-    let cb = on_toggle.clone();
-    std::thread::spawn(move || cb());
-    TapDecision::Swallow
-}
-
 pub struct MiddleMouseTap {
     enabled: Arc<AtomicBool>,
-    _tap: EventTap,
+    gate: Arc<MiddleClickGate>,
+    tap: EventTap,
 }
 
 impl MiddleMouseTap {
     /// `is_link` decides whether a click at a point should pass through (use [`ax_link_at`] in
-    /// production). `on_toggle` runs on a fresh thread so the tap callback stays fast.
+    /// production). It runs on a worker thread, never inside the tap callback, so it may block;
+    /// while it runs, further middle presses pass through. `on_toggle` runs on a fresh thread.
     pub fn spawn(
         location: TapLocation,
         on_toggle: impl Fn() + Send + Sync + 'static,
@@ -129,99 +120,79 @@ impl MiddleMouseTap {
         diag: impl Fn(&str, &str) + Send + 'static,
     ) -> Result<Self, TapError> {
         let enabled = Arc::new(AtomicBool::new(true));
-        let gate = enabled.clone();
-        let on_toggle: Arc<dyn Fn() + Send + Sync + 'static> = Arc::new(on_toggle);
-        let tap = EventTap::spawn(
+        let gate = Arc::new(MiddleClickGate::new());
+        let (jobs_tx, jobs_rx) = mpsc::channel::<Job>();
+
+        let worker_gate = gate.clone();
+        let mut actions = JobActions {
+            is_link: Box::new(is_link),
+            post: Box::new(move |down, x, y| {
+                post_other_mouse_marked(location, 2, x, y, down, REPLAY_USER_DATA);
+            }),
+            toggle: Arc::new(on_toggle),
+        };
+        // The worker ends when the tap (the only sender) is dropped.
+        std::thread::Builder::new()
+            .name("rightkit-middle-mouse-lookup".into())
+            .spawn(move || {
+                for job in jobs_rx {
+                    run_job(&worker_gate, job, &mut actions);
+                }
+            })
+            .map_err(|e| TapError::Thread(e.to_string()))?;
+
+        let handler_enabled = enabled.clone();
+        let handler_gate = gate.clone();
+        let recovery_gate = gate.clone();
+        let tap = EventTap::spawn_with_recovery(
             TapConfig {
                 name: "rightkit-middle-mouse-tap".into(),
                 location,
                 listen_only: false,
-                kinds: vec![TapKind::OtherMouseDown],
+                kinds: vec![TapKind::OtherMouseDown, TapKind::OtherMouseUp],
             },
-            move |event| decide_other_mouse_down(&gate, event, &on_toggle, &is_link, &diag),
+            move |event| {
+                if event.user_data == REPLAY_USER_DATA {
+                    return TapDecision::Pass;
+                }
+                let edge = match event.kind {
+                    TapKind::OtherMouseDown => MouseEdge::Down,
+                    TapKind::OtherMouseUp => MouseEdge::Up,
+                    _ => return TapDecision::Pass,
+                };
+                let verdict = handle_other_mouse(
+                    &handler_enabled,
+                    &handler_gate,
+                    edge,
+                    event.button,
+                    event.location,
+                    Instant::now(),
+                    &|job| jobs_tx.send(job).is_ok(),
+                    &diag,
+                );
+                match verdict {
+                    Verdict::Pass => TapDecision::Pass,
+                    Verdict::Swallow => TapDecision::Swallow,
+                }
+            },
+            move || recovery_gate.reset(),
         )?;
-        Ok(Self { enabled, _tap: tap })
+        Ok(Self { enabled, gate, tap })
     }
 
     pub fn set_enabled(&self, enabled: bool) {
-        self.enabled.store(enabled, Ordering::SeqCst);
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use std::sync::Mutex;
-
-    fn other_button(button: i64) -> TapEvent {
-        TapEvent {
-            kind: TapKind::OtherMouseDown,
-            keycode: 0,
-            flags: 0,
-            button,
-            location: (10.0, 20.0),
-            user_data: 0,
-        }
+        self.enabled
+            .store(enabled, std::sync::atomic::Ordering::SeqCst);
     }
 
-    fn no_op_toggle() -> Arc<dyn Fn() + Send + Sync + 'static> {
-        Arc::new(|| {})
+    /// How many times the OS disabled the tap and it was re-enabled (any click in flight is
+    /// dropped each time).
+    pub fn reenable_count(&self) -> u64 {
+        self.tap.reenable_count()
     }
 
-    #[test]
-    fn non_middle_button_passes_and_reports_its_number() {
-        let gate = AtomicBool::new(true);
-        let lines: Mutex<Vec<(String, String)>> = Mutex::new(Vec::new());
-        let diag = |kind: &str, detail: &str| {
-            lines
-                .lock()
-                .unwrap()
-                .push((kind.to_string(), detail.to_string()));
-        };
-        let decision = decide_other_mouse_down(
-            &gate,
-            &other_button(3),
-            &no_op_toggle(),
-            &|_: f64, _: f64| false,
-            &diag,
-        );
-        assert_eq!(decision, TapDecision::Pass);
-
-        let lines = lines.lock().unwrap();
-        assert_eq!(lines.len(), 1, "exactly one diagnostic per passed button");
-        assert_eq!(lines[0].0, "middle_mouse_other_button");
-        assert_eq!(lines[0].1, "button=3");
-    }
-
-    #[test]
-    fn disabled_tap_passes_without_diagnostics() {
-        let gate = AtomicBool::new(false);
-        let calls = Mutex::new(0usize);
-        let diag = |_: &str, _: &str| *calls.lock().unwrap() += 1;
-        let decision = decide_other_mouse_down(
-            &gate,
-            &other_button(3),
-            &no_op_toggle(),
-            &|_: f64, _: f64| false,
-            &diag,
-        );
-        assert_eq!(decision, TapDecision::Pass);
-        assert_eq!(*calls.lock().unwrap(), 0);
-    }
-
-    #[test]
-    fn middle_click_toggles_without_diagnostics() {
-        let gate = AtomicBool::new(true);
-        let calls = Mutex::new(0usize);
-        let diag = |_: &str, _: &str| *calls.lock().unwrap() += 1;
-        let decision = decide_other_mouse_down(
-            &gate,
-            &other_button(2),
-            &no_op_toggle(),
-            &|_: f64, _: f64| false,
-            &diag,
-        );
-        assert_eq!(decision, TapDecision::Swallow);
-        assert_eq!(*calls.lock().unwrap(), 0);
+    /// `true` when no middle click is waiting on a lookup.
+    pub fn is_idle(&self) -> bool {
+        self.gate.is_idle()
     }
 }

@@ -186,6 +186,10 @@ impl GlobalHotkeys {
                 Modifier::Meta | Modifier::Super | Modifier::Win => CARBON_CMD_KEY,
             };
         }
+        // F21-F24 have no macOS virtual keycode: refuse rather than register the wrong key.
+        let Some(keycode) = chord.key.mac_keycode_checked() else {
+            return Err(RegisterError::Unsupported(name));
+        };
         let id = HotkeyId(self.next_id);
         let hk = EventHotKeyID {
             signature: unsafe { (*self.inner).signature },
@@ -194,7 +198,7 @@ impl GlobalHotkeys {
         let mut out: *mut c_void = std::ptr::null_mut();
         let status = unsafe {
             RegisterEventHotKey(
-                chord.key.mac_keycode() as u32,
+                keycode as u32,
                 mods,
                 hk,
                 GetEventDispatcherTarget(),

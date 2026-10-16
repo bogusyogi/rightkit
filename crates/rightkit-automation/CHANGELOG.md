@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.4.2
+
+Code-only change; nothing in this section was compiled or run when written.
+
+Added (Orthic-Labs/rightkit#188):
+
+- **AX write of point and size (macOS).** `macos::ax::El::set_point(x, y)` writes `AXPosition`, `El::set_size(w, h)` writes `AXSize`, and `El::set_frame(Rect)` writes position then size (window move, maximise, restore). They build the `AXValue` with `AXValueCreate`, need the Accessibility grant (`PermissionDenied` otherwise) and map an unsupported attribute to `Unsupported`. The app may clamp the result; read `El::frame` back to confirm.
+- **Window frame write (Windows).** `win::set_window_frame(window_id, Rect)` moves and resizes a top-level window (`SetWindowPos`, no activation, no z-order change), in physical pixels.
+- **Caller marker on posted events.** New `marker` module: `set_event_marker(i64)`, `event_marker()`, `is_own_event(i64)` and `EVENT_SOURCE_USER_DATA_FIELD` (42). A non-zero marker is stamped on every event the crate posts: macOS `kCGEventSourceUserData` on the engine's tier 3 and tier 4 events (key chords, text, clicks, scroll) and on every `macos::background` event; Windows `dwExtraInfo` of the engine's tier 4 `SendInput` events. A caller's own `CGEventTap` reads field 42 and compares with `is_own_event`. The default is `0` (no marker), which posts exactly as before.
+
 ## 0.4.1
 
 Added `macos::ax::El::retain_raw`, `retain_raw_with` and `from_raw` (unsafe), and `El::as_raw`, to wrap an `AXUIElementRef` the caller already holds (for example a pinned focus element) so `set_str` and the other `El` methods work on it. `retain_raw` retains (caller keeps its reference); `from_raw` takes ownership of a +1 reference; `retain_raw_with` also applies an `AxOptions` timeout. Each returns `None` for null. macOS only; not compiled locally.

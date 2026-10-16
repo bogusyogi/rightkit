@@ -345,6 +345,38 @@ impl El {
             c => Err(ax_err(c, "set_number")),
         }
     }
+    fn set_ax_value(
+        &self,
+        attr: &str,
+        ty: i32,
+        value: *const c_void,
+        op: &'static str,
+    ) -> Result<()> {
+        require_trusted()?;
+        let k = Cf::string(attr);
+        let v = Cf::new(unsafe { AXValueCreate(ty, value) }).ok_or(Error::Unsupported("ax value"))?;
+        match unsafe { AXUIElementSetAttributeValue((self.0).0, k.0, v.0) } {
+            0 => Ok(()),
+            c => Err(ax_err(c, op)),
+        }
+    }
+    /// Write `AXPosition` (global display coordinates, top-left origin, points). Moves a window.
+    /// The app may clamp or refuse; read [`El::frame`] back to see what it did.
+    pub fn set_point(&self, x: f64, y: f64) -> Result<()> {
+        let pt = CGPoint { x, y };
+        self.set_ax_value("AXPosition", 1, &pt as *const _ as *const c_void, "set_point")
+    }
+    /// Write `AXSize` (points). Resizes a window. The app may clamp it to its own limits.
+    pub fn set_size(&self, w: f64, h: f64) -> Result<()> {
+        let sz = CGSize { w, h };
+        self.set_ax_value("AXSize", 2, &sz as *const _ as *const c_void, "set_size")
+    }
+    /// Write position then size: window maximise, move and restore. Stops at the first error, so
+    /// a failure on the size leaves the window moved. Read [`El::frame`] back to confirm.
+    pub fn set_frame(&self, r: Rect) -> Result<()> {
+        self.set_point(r.x, r.y)?;
+        self.set_size(r.w, r.h)
+    }
     fn text_marker_string(&self) -> Option<String> {
         let (k1, k2) = (
             Cf::string("AXTextMarkerRangeForUIElement"),
@@ -747,5 +779,29 @@ mod tests {
         ));
         // Restore the crate default so later tests in this process see 1.5 s again.
         let _ = system_wide();
+    }
+}
+
+#[cfg(test)]
+mod ax_value_tests {
+    use super::*;
+
+    /// `set_point` / `set_size` build their `AXValue` with these type codes and structs; check
+    /// they read back as the same values (no app or Accessibility grant needed).
+    #[test]
+    fn ax_point_and_size_values_round_trip() {
+        let pt = CGPoint { x: 12.5, y: -3.0 };
+        let v = Cf::new(unsafe { AXValueCreate(1, &pt as *const _ as *const c_void) })
+            .expect("point value");
+        let mut back = CGPoint { x: 0.0, y: 0.0 };
+        assert!(unsafe { AXValueGetValue(v.0, 1, &mut back as *mut _ as *mut c_void) } != 0);
+        assert_eq!((back.x, back.y), (12.5, -3.0));
+
+        let sz = CGSize { w: 800.0, h: 600.0 };
+        let v = Cf::new(unsafe { AXValueCreate(2, &sz as *const _ as *const c_void) })
+            .expect("size value");
+        let mut back = CGSize { w: 0.0, h: 0.0 };
+        assert!(unsafe { AXValueGetValue(v.0, 2, &mut back as *mut _ as *mut c_void) } != 0);
+        assert_eq!((back.w, back.h), (800.0, 600.0));
     }
 }

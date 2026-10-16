@@ -17,6 +17,11 @@ pub enum Dest {
 
 fn post(dest: Dest, ev: &Cf) {
     unsafe {
+        // The caller's marker (see `crate::marker`) rides on every posted event.
+        let marker = crate::marker::event_marker();
+        if marker != 0 {
+            CGEventSetIntegerValueField(ev.0, 42, marker);
+        }
         match dest {
             Dest::Pid(pid) => CGEventPostToPid(pid, ev.0),
             Dest::Hid => CGEventPost(0, ev.0),

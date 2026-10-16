@@ -17,6 +17,15 @@ pub use input::{
     RawKey, RawMouse, RawMouseButton, SendOptions,
 };
 
+/// Move and resize the top-level window `window_id` (the `window_id` of a [`WindowInfo`], an
+/// `HWND`) to `frame`, in physical pixels with a top-left origin, without activating it or
+/// changing its z-order: window maximise, move and restore. The window manager or the app may
+/// clamp the result; read [`WindowInfo::bounds`] back from a fresh listing to confirm. This is
+/// the Windows counterpart of the macOS `ax::El::set_frame`.
+pub fn set_window_frame(window_id: u64, frame: Rect) -> Result<()> {
+    sys::set_window_frame(window_id as isize, frame)
+}
+
 /// Windows backend. Every process it launches is owned: it lives in a kill-on-close
 /// job object held here, so dropping the platform (run end, cancel, crash) kills
 /// the launched apps and their helpers. Only owned processes can be terminated.

@@ -75,6 +75,19 @@ pub fn post_flags_changed(location: TapLocation, keycode: u16, flags: u64) -> bo
 
 /// Post an "other" mouse button press (button 2 = middle) at `(x, y)`.
 pub fn post_other_mouse(location: TapLocation, button: u32, x: f64, y: f64, down: bool) -> bool {
+    post_other_mouse_marked(location, button, x, y, down, SYNTHETIC_EVENT_USER_DATA)
+}
+
+/// Like [`post_other_mouse`] but stamps `marker` into the event's source user data, so the
+/// posting tap can recognise (and pass through) its own replayed events.
+pub fn post_other_mouse_marked(
+    location: TapLocation,
+    button: u32,
+    x: f64,
+    y: f64,
+    down: bool,
+    marker: i64,
+) -> bool {
     unsafe {
         let source = CGEventSourceCreate(K_CG_EVENT_SOURCE_STATE_PRIVATE);
         if source.is_null() {
@@ -94,11 +107,7 @@ pub fn post_other_mouse(location: TapLocation, button: u32, x: f64, y: f64, down
             CFRelease(source);
             return false;
         }
-        CGEventSetIntegerValueField(
-            event,
-            K_CG_EVENT_SOURCE_USER_DATA,
-            SYNTHETIC_EVENT_USER_DATA,
-        );
+        CGEventSetIntegerValueField(event, K_CG_EVENT_SOURCE_USER_DATA, marker);
         CGEventPost(tap_location(location), event);
         CFRelease(event);
         CFRelease(source);
