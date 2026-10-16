@@ -104,10 +104,15 @@ export interface WindowSpec {
 
 export type WindowAction = 'minimize' | 'maximize' | 'unmaximize' | 'toggle-maximize' | 'fullscreen' | 'hide' | 'show' | 'close' | 'start-drag';
 
+/** macOS `SMAppService` state (`autostart` with `macosBackend: ServiceManagement`). `unknown` values arrive as `{ unknown: n }`. */
+export type LoginItemStatus = 'notRegistered' | 'enabled' | 'requiresApproval' | 'notFound' | { unknown: number };
+
 export interface AutostartStatus {
   supported: boolean;
   enabled: boolean;
   entry: string | null;
+  /** Present only on the macOS SMAppService backend. `requiresApproval`: send the user to System Settings > Login Items (`rk_shell_open_login_items_settings`). */
+  loginItem?: LoginItemStatus;
 }
 
 export interface TrayUpdate {

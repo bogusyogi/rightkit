@@ -187,6 +187,14 @@ pub fn rk_shell_autostart(
     }
 }
 
+/// macOS: open System Settings > General > Login Items (`SMAppService.openSystemSettingsLoginItems`),
+/// where the user approves a login item whose autostart status is `requiresApproval`. Rejects off macOS
+/// and before macOS 13.
+#[tauri::command]
+pub fn rk_shell_open_login_items_settings() -> Result<(), String> {
+    crate::login_item::open_login_items_settings()
+}
+
 #[derive(Debug, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ClipboardPayload {

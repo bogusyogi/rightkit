@@ -31,6 +31,7 @@ pub mod instance;
 mod legacy_hold;
 mod legacy_instance;
 pub mod lifecycle;
+pub mod login_item;
 pub mod menu;
 pub mod modules;
 pub mod nav;
@@ -68,7 +69,8 @@ use tauri::menu::MenuItem;
 use tauri::plugin::{Builder as PluginBuilder, TauriPlugin};
 use tauri::{AppHandle, Manager, Wry};
 
-pub use autostart::{AutostartMigration, AutostartOptions, LegacyAutostartNames};
+pub use autostart::{AutostartMigration, AutostartOptions, LegacyAutostartNames, MacosBackend};
+pub use login_item::LoginItemStatus;
 pub use broker::PathBroker;
 pub use clipboard::{ClipboardItem, ClipboardOptions, ClipboardPolicy, ImagePreference};
 pub use devtools::{ContentWebview, DevToolsError, DevToolsGate, DevToolsPolicy, WebviewDecision};
@@ -1028,6 +1030,12 @@ fn setup(
             ),
         }
     }
+    if cfg.autostart.macos_backend == autostart::MacosBackend::ServiceManagement {
+        // Move the shell's own LaunchAgent plist to SMAppService (macOS 13+ in a bundle; a no-op elsewhere).
+        if let Err(e) = autostart::migrate_launch_agent(&autostart_spec) {
+            eprintln!("rightkit-tauri-shell: could not move the LaunchAgent login item to SMAppService: {e}");
+        }
+    }
     app.manage(ShellState {
         main_thread_id: std::thread::current().id(),
         app_id: cfg.app_id.clone(),
@@ -1164,6 +1172,7 @@ macro_rules! handler {
             $crate::commands::rk_shell_set_tray,
             $crate::commands::rk_shell_set_menu_item_enabled,
             $crate::commands::rk_shell_autostart,
+            $crate::commands::rk_shell_open_login_items_settings,
             $crate::commands::rk_shell_clipboard_read,
             $crate::commands::rk_shell_clipboard_write,
             $crate::commands::rk_shell_engine_call,

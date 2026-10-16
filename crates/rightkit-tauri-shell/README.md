@@ -129,6 +129,7 @@ The owner's rule for shipped apps is unchanged: no DevTools, ViewRight's content
   `second_instance_reveal`, `show_on_ready` (explicit beats `RIGHTKIT_QA_HIDDEN`), `internal_scheme`.
 - `Shell::lifecycle_plugin()`: the lifecycle without hardening, navigation policy, presence, watchdog or window state.
 - `WindowStateStore` standalone with `restore_with`; `AutostartOptions::{startup_wm_class, config_home, macos_unsupported}`.
+- macOS login item through `SMAppService.mainApp` (macOS 13+): `AutostartOptions::macos_backend(MacosBackend::ServiceManagement)` (default `LaunchAgent`, unchanged). `rk_shell_autostart` then returns `loginItem` (`notRegistered | enabled | requiresApproval | notFound`); on `requiresApproval` (`enabled` is false) call `rk_shell_open_login_items_settings` / `login_item::open_login_items_settings()` to send the user to System Settings > Login Items. Needs a signed `.app` bundle; carries no launch arguments (detect the login launch yourself) and no `LowPriorityIO` (use `login_item::set_background_io`). An existing LaunchAgent plist is removed and replaced at startup; macOS 12 and older, an unbundled executable and a redirected `RIGHTKIT_SHELL_HOME` / `config_home` keep the LaunchAgent. Mac-only behaviour is verified on a Mac.
 - `NotificationRequest.bypassDoNotDisturb`; `rk_shell_capabilities`.
 
 ## Also (0.3.0)

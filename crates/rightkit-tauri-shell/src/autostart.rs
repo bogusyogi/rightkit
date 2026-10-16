@@ -22,7 +22,28 @@ use serde::{Deserialize, Serialize};
 #[cfg(not(windows))]
 use std::fs;
 
+use crate::login_item::{self, LoginItemStatus};
+
 pub const BACKGROUND_ARG: &str = "--background";
+
+/// macOS: how the login entry is written.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum MacosBackend {
+    /// A LaunchAgent plist under `~/Library/LaunchAgents` (the 0.3.0 behaviour; the default). Carries
+    /// [`AutostartOptions::args`] and `LowPriorityIO`, but macOS 13+ lists it as a legacy background item.
+    #[default]
+    LaunchAgent,
+    /// `SMAppService.mainApp` (macOS 13+, see [`crate::login_item`]): a named item in System Settings >
+    /// General > Login Items, with a `requiresApproval` state. It needs a signed `.app` bundle and
+    /// carries no launch arguments and no `LowPriorityIO` (the app detects a login launch itself and
+    /// calls [`crate::login_item::set_background_io`]), so [`AutostartOptions::args`] and
+    /// [`AutostartOptions::low_priority_io`] are ignored. Where `SMAppService` is not usable (macOS
+    /// 12 or older, an executable outside a bundle, or a redirected `RIGHTKIT_SHELL_HOME` /
+    /// [`AutostartOptions::config_home`]) the shell falls back to the LaunchAgent. Enabling or
+    /// disabling removes the shell's old LaunchAgent plist, and [`migrate_launch_agent`] moves an
+    /// existing one over at startup.
+    ServiceManagement,
+}
 
 /// How the login entry launches the app.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -47,6 +68,8 @@ pub struct AutostartOptions {
     /// macOS: report login launch as unsupported and create no LaunchAgent, for an app that handles
     /// login items itself. Ignored elsewhere. Default: off.
     pub macos_unsupported: bool,
+    /// macOS: LaunchAgent plist (default) or `SMAppService.mainApp`. Ignored elsewhere.
+    pub macos_backend: MacosBackend,
 }
 
 /// True when `options` make login launch unsupported on the platform (`target_macos`).
@@ -63,6 +86,7 @@ impl Default for AutostartOptions {
             startup_wm_class: None,
             config_home: None,
             macos_unsupported: false,
+            macos_backend: MacosBackend::LaunchAgent,
         }
     }
 }
@@ -74,6 +98,11 @@ pub struct AutostartStatus {
     pub enabled: bool,
     /// Plist / desktop-entry path (None on Windows where the entry is a registry value).
     pub entry: Option<String>,
+    /// macOS `SMAppService` state when that backend is in use (`None` for every other backend). When it
+    /// is `requiresApproval`, `enabled` is false and the app should offer
+    /// [`crate::login_item::open_login_items_settings`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub login_item: Option<LoginItemStatus>,
 }
 
 pub struct AutostartSpec {
@@ -425,12 +454,78 @@ fn reg_write_binary(key: &str, name: &str, bytes: &[u8]) -> Result<(), String> {
     }
 }
 
+/// True when this call goes through `SMAppService` (see [`MacosBackend::ServiceManagement`]).
+pub fn uses_service_management(spec: &AutostartSpec) -> bool {
+    cfg!(target_os = "macos")
+        && login_item::service_management_selected(
+            spec.options.macos_backend == MacosBackend::ServiceManagement,
+            login_item::available(),
+            login_item::executable_in_app_bundle(&spec.executable),
+            spec.options.config_home.is_some()
+                || std::env::var_os("RIGHTKIT_SHELL_HOME").is_some_and(|v| !v.is_empty()),
+        )
+}
+
+/// Enable or disable through `SMAppService`, then remove the shell's old LaunchAgent plist so the user
+/// never has two login items.
+fn set_enabled_service_management(
+    spec: &AutostartSpec,
+    enabled: bool,
+) -> Result<AutostartStatus, String> {
+    if enabled {
+        login_item::register()?;
+    } else {
+        login_item::unregister()?;
+    }
+    remove_entry(spec)?;
+    Ok(status(spec))
+}
+
+/// Move the shell's own LaunchAgent login item to `SMAppService`: when the backend is
+/// [`MacosBackend::ServiceManagement`], usable here, and the shell's plist exists, register the app and
+/// remove the plist. A `requiresApproval` result still counts as migrated (the item is registered,
+/// pending the user's approval; read it with [`status`]). The plist file is removed; a job launchd
+/// already loaded stops at the next login. Call it once at startup; the shell does when the backend
+/// is on.
+pub fn migrate_launch_agent(spec: &AutostartSpec) -> Result<AutostartMigration, String> {
+    if reports_unsupported(&spec.options, cfg!(target_os = "macos")) || !uses_service_management(spec)
+    {
+        return Ok(AutostartMigration::NoLegacy);
+    }
+    let Some(path) = entry_path(spec) else {
+        return Ok(AutostartMigration::NoLegacy);
+    };
+    if !path.exists() {
+        return Ok(AutostartMigration::NoLegacy);
+    }
+    login_item::register()?;
+    remove_entry(spec)?;
+    Ok(AutostartMigration::Migrated)
+}
+
 pub fn status(spec: &AutostartSpec) -> AutostartStatus {
     if reports_unsupported(&spec.options, cfg!(target_os = "macos")) {
         return AutostartStatus {
             supported: false,
             enabled: false,
             entry: None,
+            login_item: None,
+        };
+    }
+    if uses_service_management(spec) {
+        return match login_item::status() {
+            Ok(item) => AutostartStatus {
+                supported: true,
+                enabled: item.is_enabled(),
+                entry: None,
+                login_item: Some(item),
+            },
+            Err(_) => AutostartStatus {
+                supported: false,
+                enabled: false,
+                entry: None,
+                login_item: None,
+            },
         };
     }
     #[cfg(windows)]
@@ -442,6 +537,7 @@ pub fn status(spec: &AutostartSpec) -> AutostartStatus {
             supported: true,
             enabled,
             entry: None,
+            login_item: None,
         }
     }
     #[cfg(not(windows))]
@@ -451,11 +547,13 @@ pub fn status(spec: &AutostartSpec) -> AutostartStatus {
                 supported: true,
                 enabled: p.is_file(),
                 entry: Some(p.to_string_lossy().into_owned()),
+                login_item: None,
             },
             None => AutostartStatus {
                 supported: false,
                 enabled: false,
                 entry: None,
+                login_item: None,
             },
         }
     }
@@ -472,7 +570,9 @@ pub fn set_enabled(spec: &AutostartSpec, enabled: bool) -> Result<AutostartStatu
             Ok(status(spec))
         };
     }
-    if enabled {
+    if uses_service_management(spec) {
+        set_enabled_service_management(spec, enabled)?;
+    } else if enabled {
         write_entry(&RegistryKeys::default(), spec)?;
     } else {
         remove_entry(spec)?;
@@ -518,7 +618,12 @@ pub fn migrate_plugin_entry_in(
     #[cfg(windows)]
     let carried = reg_read_binary(&keys.startup_approved, legacy_name)
         .filter(|bytes| startup_approved_is_disabled(bytes));
-    write_entry(keys, spec)?;
+    if uses_service_management(spec) {
+        login_item::register()?;
+        remove_entry(spec)?;
+    } else {
+        write_entry(keys, spec)?;
+    }
     #[cfg(windows)]
     if let Some(bytes) = carried {
         reg_write_binary(&keys.startup_approved, &spec.app_id, &bytes)?;

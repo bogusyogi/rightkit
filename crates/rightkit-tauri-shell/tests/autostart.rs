@@ -224,3 +224,24 @@ fn an_injected_config_home_places_the_entry_without_touching_the_environment() {
     autostart::set_enabled(&s, false).unwrap();
     assert!(!expected.exists());
 }
+
+#[test]
+fn service_management_is_opt_in_and_a_redirected_home_never_selects_it() {
+    use rightkit_tauri_shell::autostart::MacosBackend;
+    assert_eq!(
+        AutostartOptions::default().macos_backend,
+        MacosBackend::LaunchAgent
+    );
+    // A sandboxed run (config_home) must not register the real user's login item: it keeps the plist.
+    let home = tempfile::tempdir().unwrap();
+    let options = AutostartOptions {
+        macos_backend: MacosBackend::ServiceManagement,
+        config_home: Some(home.path().to_path_buf()),
+        ..AutostartOptions::default()
+    };
+    let s = spec("com.example.sm", options, None);
+    assert!(!autostart::uses_service_management(&s));
+    let status = autostart::set_enabled(&s, true).unwrap();
+    assert!(status.supported);
+    assert!(status.login_item.is_none());
+}
