@@ -48,6 +48,7 @@
 //! | U3 | Unix | `NoReplace` | yes | absent | temp before; dir after | `renameat2(RENAME_NOREPLACE)` (Linux), `renamex_np(RENAME_EXCL)` (Apple) | as U1 | as U1 | `atomic_publish.rs::no_replace_flushes_publishes_exclusively_then_syncs_the_directory`, `atomic_exclusive.rs::publishes_when_absent_and_refuses_when_present_without_touching_the_old_file` |
 //! | U4 | Unix | `NoReplace` | any | exists, or appears first | temp (durable) | the same call, which fails `EEXIST` | destination untouched, temp removed, no dir sync | `AlreadyExists` | `atomic_publish.rs::a_no_replace_loser_syncs_no_directory_and_leaves_the_winner`, `atomic_exclusive.rs::racing_publishers_have_exactly_one_winner_and_the_losers_leave_no_temp` |
 //! | U5 | Unix | `NoReplace`, kernel/filesystem without the exclusive rename | any | absent | as U3 | `link(2)` then `unlink(2)` of the temp name | between the two calls both names are one inode with the full content (published); a crash leaves the temp name for the sweep | `link` fails `EEXIST`: `AlreadyExists`. `unlink` fails: dir sync still runs, then `ReplacedButPostStepFailed(TempCleanup)` | `atomic_publish.rs::post_publication::the_link_fallback_publishes_cleanly_when_the_unlink_works`, `a_failed_unlink_after_the_link_is_a_typed_error_and_the_directory_is_still_synced`; the real ENOSYS/EINVAL fallback needs an old kernel: seam `force_link_fallback` |
+//! | U5b | Unix | `NoReplace`, no exclusive rename and `link(2)` fails (`EPERM`, `ENOTSUP`, `EMLINK`, `EINVAL`, `ENOSYS`: FAT, exFAT, some shares) | any | absent | as U3 | `open(O_CREAT\|O_EXCL)` of the destination name (an empty placeholder), then `rename(2)` of the temp over it | between the two calls the destination name holds an empty file; a crash there leaves that empty file at the destination | placeholder exists (or appears first): `AlreadyExists`, temp removed. The rename fails: the placeholder is removed, nothing published | `atomic_exclusive_nolink.rs::*`; seam `force_no_hard_links`; no FAT volume has been used |
 //! | U6 | Android | all | any | any | as U1 to U5 | `rename(2)` and `fsync(2)` as on Linux (`sync_all`, reported `SyncLevel::Full`; there is no `F_FULLFSYNC` and none is tried); `NoReplace` always takes the U5 `link` then `unlink` path (no raw `renameat2`) | as the row it follows | as the row it follows | host: `app_dirs` injected-root tests; device behaviour is unverified (needs an emulator run) |
 //! | W1 | Windows | `Rename` | yes | exists or not | temp (`FlushFileBuffers`) before the call; no dir sync exists | `std::fs::rename` (POSIX-semantics rename; not write-through) | before: destination as it was, orphan temp. After: old or new, never a mix, but the *swap itself* may be lost in a power failure (`FileFlushedOnly`) | `Io`, temp removed | `atomic_publish.rs::a_durable_write_on_windows_flushes_the_temp_and_claims_no_directory_sync`; plan: unit `plan_tests::publication_durability_states_what_each_windows_mode_gives` |
 //! | W2 | Windows | `Rename` | no | exists or not | nothing | `std::fs::rename` | as W1, without the temp flush | `Io` | `atomic_publish.rs::a_non_durable_write_flushes_and_syncs_nothing` |
@@ -207,6 +208,25 @@ pub enum ReplaceMode {
     /// returns [`FsError::ReplacedButPostStepFailed`] ([`crate::PostPublishStep::TempCleanup`]).
     /// Windows: `MoveFileExW` without `MOVEFILE_REPLACE_EXISTING` (write-through when `durable`).
     /// See also [`rename_exclusive`].
+    ///
+    /// **Volumes without hard links** (FAT, exFAT, some network shares), where `link(2)` fails
+    /// (`EPERM`, `ENOTSUP`, `EMLINK`, `EINVAL` or `ENOSYS`): a third step on Unix, after the exclusive
+    /// rename and the `link` have both been unavailable. The destination name is claimed with an
+    /// `O_EXCL` placeholder (`create_new`), then the finished temp file is renamed over it
+    /// ([`ExclusiveMethod::PlaceholderThenRename`]). Per platform, what is guaranteed:
+    ///
+    /// * Linux, Apple (exclusive rename works): atomic; the name is never visible empty.
+    /// * Unix without the exclusive rename, with hard links: exclusive; both names exist for an
+    ///   instant (`link` then `unlink`).
+    /// * Unix without either (FAT-class): exclusive against every other exclusive publisher
+    ///   (`O_EXCL` decides the winner; the loser gets [`FsError::AlreadyExists`] and its temp is
+    ///   removed). Not atomic for readers: the name holds an empty file between the claim and the
+    ///   rename, and a crash there leaves that empty file at the destination (the caller's next
+    ///   exclusive publish to it is refused). A writer that replaces without exclusivity
+    ///   (`ReplaceMode::Rename`) can overwrite the placeholder. If the rename fails, the placeholder
+    ///   is removed and nothing is published.
+    /// * Windows: `MoveFileExW` without replace, atomic where the volume supports it; no hard links
+    ///   are needed, so there is no fallback (not exercised on FAT or a network share by this crate).
     NoReplace,
 }
 
@@ -336,23 +356,34 @@ pub fn atomic_write_with_digest(
 
 /// Rename `from` to `to` only if `to` does not exist, atomically (never check-then-rename). Fails
 /// with [`FsError::AlreadyExists`] when `to` exists or appears first, leaving `from` in place.
-/// Mechanisms per platform are on [`ReplaceMode::NoReplace`].
+/// Mechanisms and guarantees per platform are on [`ReplaceMode::NoReplace`]; [`rename_exclusive_reporting`]
+/// says which one ran.
 ///
 /// `to` must not be shaped like a temp name this crate generates ([`FsError::BadName`]). Where the
-/// kernel has no exclusive rename the fallback is `link` then `unlink`; if the `unlink` fails,
+/// kernel has no exclusive rename the fallback is `link` then `unlink`, and where the volume has no
+/// hard links either (FAT, exFAT, some shares) an `O_EXCL` placeholder at `to` that `from` is then
+/// renamed over (see the guarantee there: not atomic for readers); if the `unlink` fails,
 /// `to` exists with the content and this returns [`FsError::ReplacedButPostStepFailed`]
 /// ([`crate::PostPublishStep::TempCleanup`]), with `from` still present as a second name.
 pub fn rename_exclusive(from: &Path, to: &Path) -> Result<()> {
+    rename_exclusive_reporting(from, to).map(|_| ())
+}
+
+/// [`rename_exclusive`], returning the [`ExclusiveMethod`] that published the file, so a caller
+/// (or a test) can see that a volume without hard links took the placeholder path.
+pub fn rename_exclusive_reporting(from: &Path, to: &Path) -> Result<ExclusiveMethod> {
     if let Some(name) = to.file_name() {
         reject_reserved_name(&name.to_string_lossy())?;
     }
     match rename_exclusive_io(from, to) {
-        Ok(None) => Ok(()),
-        Ok(Some(source)) => Err(FsError::ReplacedButPostStepFailed {
-            path: to.to_path_buf(),
-            step: crate::PostPublishStep::TempCleanup,
-            source,
-        }),
+        Ok(done) => match done.cleanup {
+            None => Ok(done.method),
+            Some(source) => Err(FsError::ReplacedButPostStepFailed {
+                path: to.to_path_buf(),
+                step: crate::PostPublishStep::TempCleanup,
+                source,
+            }),
+        },
         Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
             Err(FsError::AlreadyExists(to.to_path_buf()))
         }
@@ -395,6 +426,61 @@ pub fn publish_file(from: &Path, to: &Path) -> Result<()> {
 /// it; apply them before publishing if needed. `to` must not be shaped like a temp name this
 /// crate generates ([`FsError::BadName`]).
 pub fn publish_file_with(from: &Path, to: &Path, options: AtomicWriteOptions) -> Result<()> {
+    publish_file_impl(from, to, options, true)
+}
+
+/// Publish the finished file `from` at the first of `candidates` that is free, without rewriting
+/// it. For a caller that wants "`name.dng`, else `name-1.dng`, else ..." next to its inputs.
+///
+/// Each candidate is tried in order with an exclusive publish (as [`ReplaceMode::NoReplace`], so
+/// never check-then-rename): one that already exists, or that another process takes first, is
+/// skipped. The source is synced once (`durable`), not once per candidate. Returns the path that
+/// was published. Every other error ends the search at once and is returned as
+/// [`publish_file_with`] would return it, so a failure after the publish
+/// ([`FsError::ReplacedButDirSyncFailed`], [`FsError::ReplacedButPostStepFailed`]) names the
+/// winning candidate in its path and has [`FsError::target_replaced`] true. When every candidate
+/// exists the result is [`FsError::AlreadyExists`] for the last one; an empty list is an
+/// `InvalidInput` error. The mechanisms, including the one for filesystems without hard links, are
+/// those of [`rename_exclusive`]. `options.replace` is ignored (it is always `NoReplace`); the
+/// other options are honoured as in [`publish_file_with`], `create_parents` per candidate.
+pub fn publish_file_first_free(
+    from: &Path,
+    candidates: &[PathBuf],
+    options: AtomicWriteOptions,
+) -> Result<PathBuf> {
+    let options = AtomicWriteOptions {
+        replace: ReplaceMode::NoReplace,
+        ..options
+    };
+    let Some(last) = candidates.last() else {
+        return Err(FsError::io(
+            from,
+            std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "publish_file_first_free needs at least one candidate",
+            ),
+        ));
+    };
+    let mut sync_source = true;
+    for candidate in candidates {
+        match publish_file_impl(from, candidate, options, sync_source) {
+            Ok(()) => return Ok(candidate.clone()),
+            Err(FsError::AlreadyExists(_)) => {
+                // The first attempt synced the source before it reached the replace.
+                sync_source = false;
+            }
+            Err(e) => return Err(e),
+        }
+    }
+    Err(FsError::AlreadyExists(last.clone()))
+}
+
+fn publish_file_impl(
+    from: &Path,
+    to: &Path,
+    options: AtomicWriteOptions,
+    sync_source: bool,
+) -> Result<()> {
     if let Some(name) = to.file_name() {
         reject_reserved_name(&name.to_string_lossy())?;
     }
@@ -411,7 +497,7 @@ pub fn publish_file_with(from: &Path, to: &Path, options: AtomicWriteOptions) ->
     if options.create_parents {
         create_dir_all_durable(&parent_of(to), false)?;
     }
-    if options.durable {
+    if options.durable && sync_source {
         // Windows needs write access for FlushFileBuffers; Unix fsync works on a read-only fd.
         let mut open = OpenOptions::new();
         open.read(true);
@@ -448,22 +534,64 @@ pub fn publish_file_with(from: &Path, to: &Path, options: AtomicWriteOptions) ->
     Ok(())
 }
 
-/// Renames `from` to `to` only if `to` does not exist. `Ok(None)`: published, nothing left over.
-/// `Ok(Some(error))`: published (`to` exists with the content) but removing the `from` name failed
-/// (the `link` fallback). `Err`: nothing was published.
+/// How an exclusive publish ([`rename_exclusive`], [`ReplaceMode::NoReplace`]) claimed the name.
+/// See [`ReplaceMode::NoReplace`] for what each one guarantees per platform.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum ExclusiveMethod {
+    /// One atomic create-new rename: `renameat2(RENAME_NOREPLACE)` (Linux), `renamex_np(RENAME_EXCL)`
+    /// (Apple). The destination appears whole, or not at all, and the name is never visible empty.
+    ExclusiveRename,
+    /// `MoveFileExW` without `MOVEFILE_REPLACE_EXISTING` (Windows): fails if the name exists.
+    MoveFile,
+    /// `link(2)` then `unlink(2)` of the source name: exclusive, with both names for an instant.
+    LinkThenUnlink,
+    /// No exclusive rename and no hard links on this volume (FAT, exFAT, some network shares): the
+    /// destination name was claimed with an `O_EXCL` (`create_new`) placeholder, then the finished
+    /// file was renamed over the placeholder. The name is exclusive, but for the instant between
+    /// the two steps it holds an empty file, and a crash there leaves that empty file.
+    PlaceholderThenRename,
+}
+
+/// What an exclusive rename did: how it claimed the name, and the failure, if any, of removing a
+/// leftover second name for the published file (the `link` fallback). The content is in place
+/// either way.
+struct Exclusive {
+    method: ExclusiveMethod,
+    cleanup: Option<std::io::Error>,
+}
+
+impl Exclusive {
+    fn clean(method: ExclusiveMethod) -> Self {
+        Self {
+            method,
+            cleanup: None,
+        }
+    }
+}
+
+/// Renames `from` to `to` only if `to` does not exist. `Ok`: published; `cleanup` carries the
+/// failure of removing the `from` name when the `link` fallback was used. `Err`: nothing was
+/// published.
 #[cfg(windows)]
-fn rename_exclusive_io(from: &Path, to: &Path) -> std::io::Result<Option<std::io::Error>> {
-    move_file_ex(from, to, 0).map(|()| None)
+fn rename_exclusive_io(from: &Path, to: &Path) -> std::io::Result<Exclusive> {
+    move_file_ex(from, to, 0).map(|()| Exclusive::clean(ExclusiveMethod::MoveFile))
 }
 
 #[cfg(unix)]
-fn rename_exclusive_io(from: &Path, to: &Path) -> std::io::Result<Option<std::io::Error>> {
+fn rename_exclusive_io(from: &Path, to: &Path) -> std::io::Result<Exclusive> {
     use std::ffi::CString;
     use std::os::unix::ffi::OsStrExt;
 
     #[cfg(feature = "testing")]
     if let Some(unlink_fails) = testing::link_fallback() {
         return link_then_unlink(from, to, unlink_fails);
+    }
+    #[cfg(feature = "testing")]
+    if testing::no_hard_links() {
+        // A volume with neither an exclusive rename nor hard links: skip the exclusive rename; the
+        // `link` below then fails as it does there.
+        return link_then_unlink(from, to, false);
     }
     let cfrom = CString::new(from.as_os_str().as_bytes())
         .map_err(|_| std::io::Error::from(std::io::ErrorKind::InvalidInput))?;
@@ -489,7 +617,7 @@ fn rename_exclusive_io(from: &Path, to: &Path) -> std::io::Result<Option<std::io
             )
         };
         if rc == 0 {
-            return Ok(None);
+            return Ok(Exclusive::clean(ExclusiveMethod::ExclusiveRename));
         }
         let error = std::io::Error::last_os_error();
         match error.raw_os_error() {
@@ -503,7 +631,7 @@ fn rename_exclusive_io(from: &Path, to: &Path) -> std::io::Result<Option<std::io
         // SAFETY: both paths are NUL-terminated C strings that outlive the call.
         let rc = unsafe { libc::renamex_np(cfrom.as_ptr(), cto.as_ptr(), RENAME_EXCL) };
         if rc == 0 {
-            return Ok(None);
+            return Ok(Exclusive::clean(ExclusiveMethod::ExclusiveRename));
         }
         let error = std::io::Error::last_os_error();
         match error.raw_os_error() {
@@ -511,17 +639,35 @@ fn rename_exclusive_io(from: &Path, to: &Path) -> std::io::Result<Option<std::io
             _ => return Err(error),
         }
     }
+    let _ = (&cfrom, &cto);
     link_then_unlink(from, to, false)
 }
 
 #[cfg(not(any(unix, windows)))]
-fn rename_exclusive_io(from: &Path, to: &Path) -> std::io::Result<Option<std::io::Error>> {
+fn rename_exclusive_io(from: &Path, to: &Path) -> std::io::Result<Exclusive> {
     link_then_unlink(from, to, false)
 }
 
+/// Whether a failed `link(2)` means "this volume cannot make hard links" (as opposed to the name
+/// existing, the source missing, or any other real failure). `EPERM` is what Linux returns on FAT
+/// and exFAT, `ENOTSUP`/`EOPNOTSUPP` what macOS and some network shares return, `EMLINK` a volume
+/// with a link-count limit, `EINVAL` and `ENOSYS` a filesystem or kernel without the operation.
+#[cfg_attr(windows, allow(dead_code))]
+fn hard_links_unsupported(error: &std::io::Error) -> bool {
+    #[cfg(unix)]
+    if let Some(code) = error.raw_os_error() {
+        return matches!(
+            code,
+            libc::EPERM | libc::ENOTSUP | libc::ENOSYS | libc::EINVAL | libc::EMLINK
+        );
+    }
+    error.kind() == std::io::ErrorKind::Unsupported
+}
+
 /// No exclusive rename here: `link` fails with `EEXIST` if `to` exists, then drop the old name.
-/// Once the `link` succeeds `to` is published, so a failed `unlink` is returned as `Ok(Some(..))`
-/// (published, with a leftover second name for the same inode), never as an error. With
+/// Once the `link` succeeds `to` is published, so a failed `unlink` is returned in `cleanup`
+/// (published, with a leftover second name for the same inode), never as an error. A volume that
+/// cannot make hard links at all falls through to [`placeholder_then_rename`]. With
 /// `inject_unlink_failure` (the `testing` seam) the unlink is not attempted and an error stands in
 /// for its failure.
 #[cfg_attr(not(feature = "testing"), allow(unused_variables))]
@@ -530,13 +676,69 @@ fn link_then_unlink(
     from: &Path,
     to: &Path,
     inject_unlink_failure: bool,
-) -> std::io::Result<Option<std::io::Error>> {
-    fs::hard_link(from, to)?;
+) -> std::io::Result<Exclusive> {
+    #[cfg(all(feature = "testing", unix))]
+    let linked = if testing::no_hard_links() {
+        Err(std::io::Error::from_raw_os_error(libc::EPERM))
+    } else {
+        fs::hard_link(from, to)
+    };
+    #[cfg(not(all(feature = "testing", unix)))]
+    let linked = fs::hard_link(from, to);
+    match linked {
+        Ok(()) => {}
+        Err(e) if hard_links_unsupported(&e) => return placeholder_then_rename(from, to),
+        Err(e) => return Err(e),
+    }
     #[cfg(feature = "testing")]
     if inject_unlink_failure {
-        return Ok(Some(std::io::Error::other("injected unlink failure")));
+        return Ok(Exclusive {
+            method: ExclusiveMethod::LinkThenUnlink,
+            cleanup: Some(std::io::Error::other("injected unlink failure")),
+        });
     }
-    Ok(fs::remove_file(from).err())
+    Ok(Exclusive {
+        method: ExclusiveMethod::LinkThenUnlink,
+        cleanup: fs::remove_file(from).err(),
+    })
+}
+
+/// The third fallback, for a volume with neither an exclusive rename nor hard links (FAT, exFAT,
+/// some network shares): claim `to` with an `O_EXCL` placeholder (`create_new`, which fails with
+/// `AlreadyExists` if the name exists, atomically), then rename the finished `from` over the
+/// placeholder. Exclusive against every other exclusive publisher; but the name is visible as an
+/// empty file until the rename, a crash between the two leaves that empty file, and a writer that
+/// replaces without exclusivity can still overwrite the placeholder. If the rename fails the
+/// placeholder this call made is removed and the error returned, so nothing is published.
+#[cfg_attr(windows, allow(dead_code))]
+fn placeholder_then_rename(from: &Path, to: &Path) -> std::io::Result<Exclusive> {
+    let claim = OpenOptions::new().write(true).create_new(true).open(to)?;
+    drop(claim);
+    match fs::rename(from, to) {
+        Ok(()) => Ok(Exclusive::clean(ExclusiveMethod::PlaceholderThenRename)),
+        Err(e) => {
+            let _ = fs::remove_file(to);
+            Err(e)
+        }
+    }
+}
+
+/// The temp file of an [`AtomicWriter`] as an [`std::io::Write`]; see [`AtomicWriter::writer`].
+#[derive(Debug)]
+pub struct TempWriter<'a> {
+    file: &'a mut File,
+}
+
+impl Write for TempWriter<'_> {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        #[cfg(feature = "test-seams")]
+        let buf = &buf[..seams::admit_write(buf.len())?];
+        self.file.write(buf)
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        self.file.flush()
+    }
 }
 
 /// A streaming atomic write. Nothing is visible at the destination until [`commit`]; dropping
@@ -645,9 +847,19 @@ impl AtomicWriter {
 
     pub fn write_all(&mut self, bytes: &[u8]) -> Result<()> {
         let temp = self.temp.clone();
-        self.file_mut()
+        self.writer()
             .write_all(bytes)
             .map_err(|e| FsError::io(temp, e))
+    }
+
+    /// The temp file as an [`std::io::Write`], for code that streams into a writer (an encoder, a
+    /// `BufWriter`). Unlike [`AtomicWriter::file_mut`] it goes through the write seam of feature
+    /// `test-seams` (`seams::fail_write_after`); without that feature it is a plain pass-through
+    /// to the file.
+    pub fn writer(&mut self) -> TempWriter<'_> {
+        TempWriter {
+            file: self.file_mut(),
+        }
     }
 
     /// Publish: flush, `fsync`, replace the target, `fsync` the directory.
@@ -754,6 +966,8 @@ impl AtomicWriter {
         } else if checked {
             // A caller's check is about to vouch for these bytes: they must be on stable
             // storage (the file only, never the directory) before it reads them, in every mode.
+            #[cfg(feature = "test-seams")]
+            seams::count_file_sync();
             file.sync_all().map_err(|e| FsError::io(&self.temp, e))?;
             #[cfg(feature = "testing")]
             testing::record(testing::Step::TempFlushed);
@@ -1004,6 +1218,8 @@ pub fn sync_dir(dir: &Path) {
 pub(crate) fn try_sync_dir(dir: &Path) -> std::io::Result<()> {
     #[cfg(unix)]
     {
+        #[cfg(feature = "test-seams")]
+        seams::count_dir_sync();
         #[cfg(feature = "testing")]
         if let Some(error) = testing::before_dir_sync(dir) {
             return Err(error);
@@ -1017,7 +1233,8 @@ pub(crate) fn try_sync_dir(dir: &Path) -> std::io::Result<()> {
                 .custom_flags(libc::O_DIRECTORY | libc::O_CLOEXEC)
                 .open(dir)?
         };
-        durable_sync(&d)
+        // Not `durable_sync`: that would also count as a file sync in `seams`.
+        durable_sync_with_impl(&d, SyncPolicy::Fallback).map(|_| ())
     }
     #[cfg(not(unix))]
     {
@@ -1194,6 +1411,8 @@ fn flush_dir_windows(dir: &Path) -> std::io::Result<()> {
     const OPEN_EXISTING: u32 = 3;
     const FILE_FLAG_BACKUP_SEMANTICS: u32 = 0x0200_0000;
     const FILE_FLAG_OPEN_REPARSE_POINT: u32 = 0x0020_0000;
+    #[cfg(feature = "test-seams")]
+    seams::count_dir_sync();
     #[cfg(feature = "testing")]
     if let Some(error) = testing::before_dir_sync(dir) {
         return Err(error);
@@ -1436,7 +1655,7 @@ fn replace_step(
     }
     match api {
         ReplaceApi::Rename => fs::rename(temp, target).map(|()| None),
-        ReplaceApi::RenameExclusive => rename_exclusive_io(temp, target),
+        ReplaceApi::RenameExclusive => rename_exclusive_io(temp, target).map(|done| done.cleanup),
         ReplaceApi::MoveFileEx => move_file_ex(temp, target, flags).map(|()| None),
     }
 }
@@ -1508,6 +1727,7 @@ pub mod testing {
         static STEPS: RefCell<Vec<Step>> = const { RefCell::new(Vec::new()) };
         static DIR_SYNC_FAILURE: Cell<Option<std::io::ErrorKind>> = const { Cell::new(None) };
         static LINK_FALLBACK: Cell<Option<bool>> = const { Cell::new(None) };
+        static NO_HARD_LINKS: Cell<bool> = const { Cell::new(false) };
     }
 
     /// Removes the hook when dropped.
@@ -1552,6 +1772,16 @@ pub mod testing {
         HookGuard(|| LINK_FALLBACK.with(|f| f.set(None)))
     }
 
+    /// Make `rename_exclusive` and `ReplaceMode::NoReplace` on this thread behave as on a volume with
+    /// neither an exclusive rename nor hard links (FAT, exFAT, some shares): the exclusive rename is
+    /// skipped and `link(2)` fails with `EPERM`, so the publish takes the `O_EXCL` placeholder path
+    /// ([`super::ExclusiveMethod::PlaceholderThenRename`]). Unix only; a no-op on Windows, whose
+    /// exclusive move needs no hard links.
+    pub fn force_no_hard_links() -> HookGuard {
+        NO_HARD_LINKS.with(|f| f.set(true));
+        HookGuard(|| NO_HARD_LINKS.with(|f| f.set(false)))
+    }
+
     /// The flushes, replaces and directory syncs this thread's atomic writes made since the last
     /// call, in order. Empties the log.
     pub fn take_steps() -> Vec<Step> {
@@ -1587,6 +1817,112 @@ pub mod testing {
     #[cfg(unix)]
     pub(super) fn link_fallback() -> Option<bool> {
         LINK_FALLBACK.with(Cell::get)
+    }
+
+    #[cfg(unix)]
+    pub(super) fn no_hard_links() -> bool {
+        NO_HARD_LINKS.with(Cell::get)
+    }
+}
+
+/// Release-safe seams for consumer tests (feature `test-seams`). Unlike `testing` this compiles
+/// in a release build, so an engine's release-profile tests can reach it; it is inert until a test
+/// installs something, and costs one thread-local read per write and per counted sync. Everything
+/// is per thread: a write or sync made on another thread is neither failed nor counted.
+///
+/// - [`fail_write_after`]: writes made through [`AtomicWriter::write_all`] or
+///   [`AtomicWriter::writer`] on this thread succeed for the first `bytes` bytes in total, then
+///   fail with the chosen error kind. A write that straddles the limit writes the bytes up to it
+///   first (what a full disk does). It does not see bytes written through
+///   [`AtomicWriter::file_mut`], or through the `File` the `atomic_write_with*` closures receive.
+///   The failed write leaves the destination untouched and the temp removed once the writer is
+///   dropped or committed, as any write error does.
+/// - [`sync_counts`], [`take_sync_counts`], [`reset_sync_counts`]: how many file flushes
+///   ([`durable_sync_with`], [`durable_sync`], and the `sync_all` of a checked commit) and
+///   directory syncs (Unix `fsync` of a directory; on Windows the flush of a directory made by a
+///   durable `create_parents` write) this thread attempted, whether or not they succeeded.
+#[cfg(feature = "test-seams")]
+pub mod seams {
+    use std::cell::Cell;
+
+    thread_local! {
+        static WRITE_BUDGET: Cell<Option<(u64, std::io::ErrorKind)>> = const { Cell::new(None) };
+        static FILE_SYNCS: Cell<u64> = const { Cell::new(0) };
+        static DIR_SYNCS: Cell<u64> = const { Cell::new(0) };
+    }
+
+    /// Removes the seam when dropped.
+    #[derive(Debug)]
+    pub struct SeamGuard(fn());
+
+    impl Drop for SeamGuard {
+        fn drop(&mut self) {
+            (self.0)();
+        }
+    }
+
+    /// File and directory syncs attempted on this thread, see the module docs.
+    #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+    pub struct SyncCounts {
+        /// File flushes.
+        pub file_syncs: u64,
+        /// Directory syncs.
+        pub dir_syncs: u64,
+    }
+
+    /// Let the next `bytes` bytes written through this thread's [`super::AtomicWriter`] succeed,
+    /// then fail every further write with `kind` until the guard drops. The count is cumulative
+    /// across writers from the moment of this call; installing it again restarts the count.
+    pub fn fail_write_after(bytes: u64, kind: std::io::ErrorKind) -> SeamGuard {
+        WRITE_BUDGET.with(|b| b.set(Some((bytes, kind))));
+        SeamGuard(|| WRITE_BUDGET.with(|b| b.set(None)))
+    }
+
+    /// The counts since the last [`take_sync_counts`] or [`reset_sync_counts`] on this thread.
+    pub fn sync_counts() -> SyncCounts {
+        SyncCounts {
+            file_syncs: FILE_SYNCS.with(Cell::get),
+            dir_syncs: DIR_SYNCS.with(Cell::get),
+        }
+    }
+
+    /// [`sync_counts`], then zero them.
+    pub fn take_sync_counts() -> SyncCounts {
+        let counts = sync_counts();
+        reset_sync_counts();
+        counts
+    }
+
+    /// Zero this thread's counts.
+    pub fn reset_sync_counts() {
+        FILE_SYNCS.with(|c| c.set(0));
+        DIR_SYNCS.with(|c| c.set(0));
+    }
+
+    /// How many of `len` bytes this thread may write now; `Err` when the budget is spent.
+    pub(super) fn admit_write(len: usize) -> std::io::Result<usize> {
+        WRITE_BUDGET.with(|b| match b.get() {
+            None => Ok(len),
+            Some(_) if len == 0 => Ok(0),
+            Some((0, kind)) => Err(std::io::Error::new(
+                kind,
+                "injected write failure: byte budget spent",
+            )),
+            Some((left, kind)) => {
+                let n = usize::try_from(left).map_or(len, |left| left.min(len));
+                b.set(Some((left - n as u64, kind)));
+                Ok(n)
+            }
+        })
+    }
+
+    pub(super) fn count_file_sync() {
+        FILE_SYNCS.with(|c| c.set(c.get() + 1));
+    }
+
+    #[cfg_attr(not(any(unix, windows)), allow(dead_code))]
+    pub(super) fn count_dir_sync() {
+        DIR_SYNCS.with(|c| c.set(c.get() + 1));
     }
 }
 
@@ -1654,6 +1990,14 @@ pub fn durable_sync(file: &File) -> std::io::Result<()> {
 /// With [`SyncPolicy::Strict`] an Apple volume that cannot `F_FULLFSYNC` is an error (the
 /// `F_FULLFSYNC` error), not a weaker success. Other platforms report [`SyncLevel::Full`].
 pub fn durable_sync_with(file: &File, policy: SyncPolicy) -> std::io::Result<SyncLevel> {
+    #[cfg(feature = "test-seams")]
+    seams::count_file_sync();
+    durable_sync_with_impl(file, policy)
+}
+
+/// [`durable_sync_with`] without the `seams` file-sync count (directory syncs use it, and count
+/// themselves as directory syncs).
+fn durable_sync_with_impl(file: &File, policy: SyncPolicy) -> std::io::Result<SyncLevel> {
     #[cfg(target_vendor = "apple")]
     {
         use std::os::fd::AsRawFd;

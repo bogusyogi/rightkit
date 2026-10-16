@@ -11,6 +11,18 @@
 //!   `~/Library/Caches` (cache). Linux: `$XDG_DATA_HOME` (else `~/.local/share`) for data and
 //!   local, `$XDG_CACHE_HOME` (else `~/.cache`) for cache. Every base must be absolute; an unset or
 //!   relative base is an error, never the working directory.
+//! * **Config folder.** [`AppDirs::config`] is where the platform keeps per-user settings, apart
+//!   from data where it has a separate place: Linux `$XDG_CONFIG_HOME` (else `~/.config`); on
+//!   Windows (Roaming AppData) and macOS (`~/Library/Application Support`) the platform has no
+//!   separate base, so `config` is the same folder as `data`. A Linux process with no `HOME` and no
+//!   `XDG_CONFIG_HOME` gets `config` next to `data` rather than a new failure. Android: the
+//!   injected files folder. Under a test root or a QA override `config` is `<root>/config`.
+//! * **Legacy names.** [`AppId::with_legacy_names`] lists earlier app names whose folders must not
+//!   be abandoned. [`AppDirs::resolve`] (and [`AppDirs::resolve_with_legacy`], which takes the
+//!   existence test as a parameter) picks, for each of `data`, `local` and `config` separately,
+//!   the current name's folder if it exists, else the first legacy name's folder that exists, else
+//!   the current name. `cache` always uses the current name (it is re-creatable). Nothing is moved
+//!   or created. Test roots, QA overrides and injected folders ignore legacy names.
 //! * **App folder.** `<base>/<org>/<namespace>`, org defaulting to `Orthic Labs`
 //!   ([`AppId::without_org`] keeps an existing flat `<base>/<name>` install). Windows cache is
 //!   `<LOCALAPPDATA>/<org>/<namespace>/Cache` so it never shares a folder with state.
@@ -123,6 +135,9 @@ pub struct AppId {
     pub legacy_data_env: Option<&'static str>,
     /// Historical per-app home override variable, read only with feature `test-mode`.
     pub legacy_home_env: Option<&'static str>,
+    /// Earlier app names whose existing folders are still used, in order of preference (for
+    /// example `&["LightCraft"]` for an app renamed to `Ember`). See [`AppId::with_legacy_names`].
+    pub legacy_names: &'static [&'static str],
 }
 
 impl AppId {
@@ -133,7 +148,18 @@ impl AppId {
             org: Some(DEFAULT_ORG),
             legacy_data_env: None,
             legacy_home_env: None,
+            legacy_names: &[],
         }
+    }
+
+    /// Earlier names of this app, most preferred first. A folder under one of them that already
+    /// exists is used instead of a missing folder under the current name, so a renamed app keeps
+    /// its users' settings and data where they are. Applied to `data`, `local` and `config` (each
+    /// on its own) by [`AppDirs::resolve`] and [`AppDirs::resolve_with_legacy`]; the dev namespace
+    /// is applied to each legacy name too.
+    pub const fn with_legacy_names(mut self, names: &'static [&'static str]) -> AppId {
+        self.legacy_names = names;
+        self
     }
 
     /// A different organisation folder.
@@ -236,6 +262,9 @@ pub fn process_test_root() -> PathBuf {
 pub struct AppDirs {
     /// Roaming data (databases, settings).
     pub data: PathBuf,
+    /// Per-user configuration. A separate folder from `data` where the platform has one (Linux
+    /// `$XDG_CONFIG_HOME`); the same folder as `data` on Windows and macOS, and on Android.
+    pub config: PathBuf,
     /// Machine-local data (logs, WebView profile, large artifacts).
     pub local: PathBuf,
     /// Re-creatable cache.
@@ -250,7 +279,7 @@ pub struct AppDirs {
 impl AppDirs {
     /// Resolve for this build and this process's environment.
     pub fn resolve(app: AppId) -> Result<AppDirs> {
-        AppDirs::resolve_with(&app, &Options::current(), &process_env)
+        AppDirs::resolve_with_legacy(&app, &Options::current(), &process_env, &|p| p.is_dir())
     }
 
     /// Per-process temp folders in any build (consumer tests): never asks the OS.
@@ -259,11 +288,24 @@ impl AppDirs {
         AppDirs::resolve_with(&app, &opts, &|_| None)
     }
 
-    /// The pure resolver: `env` answers every variable lookup.
+    /// The pure resolver: `env` answers every variable lookup. It never looks at the disk, so
+    /// [`AppId::legacy_names`] are not applied; use [`AppDirs::resolve_with_legacy`] for that.
     pub fn resolve_with(
         app: &AppId,
         opts: &Options,
         env: &dyn Fn(&str) -> Option<OsString>,
+    ) -> Result<AppDirs> {
+        AppDirs::resolve_with_legacy(app, opts, env, &|_| false)
+    }
+
+    /// [`AppDirs::resolve_with`] that also applies [`AppId::legacy_names`]: `exists` answers
+    /// whether a candidate folder is already there ([`AppDirs::resolve`] passes `Path::is_dir`).
+    /// Pure when `exists` is.
+    pub fn resolve_with_legacy(
+        app: &AppId,
+        opts: &Options,
+        env: &dyn Fn(&str) -> Option<OsString>,
+        exists: &dyn Fn(&Path) -> bool,
     ) -> Result<AppDirs> {
         let ns = app.namespace(opts.dev);
         if let Some(root) = &opts.test_root {
@@ -271,6 +313,7 @@ impl AppDirs {
             let r = root.join(&ns);
             return Ok(AppDirs {
                 data: r.join("data"),
+                config: r.join("config"),
                 local: r.join("local"),
                 cache: r.join("cache"),
                 home: r.join("home"),
@@ -294,13 +337,14 @@ impl AppDirs {
             return Ok(AppDirs {
                 local: root.join("local"),
                 cache: root.join("cache"),
+                config: root.join("config"),
                 data: root,
                 home,
                 isolated: true,
             });
         }
 
-        let dirs = real_dirs(app, opts.os, &ns, env)?;
+        let dirs = real_dirs(app, opts, &ns, env, exists)?;
         Ok(match qa_home {
             Some(home) => AppDirs {
                 home,
@@ -350,6 +394,7 @@ impl AppDirs {
         }
         Ok(AppDirs {
             data: files_dir.clone(),
+            config: files_dir.clone(),
             local: files_dir.clone(),
             cache: cache_dir,
             home: files_dir,
@@ -357,9 +402,15 @@ impl AppDirs {
         })
     }
 
-    /// Create the four folders (plain `create_dir_all`; use `ensure_private_dir` for private state).
+    /// Create the folders (plain `create_dir_all`; use `ensure_private_dir` for private state).
     pub fn create_all(&self) -> io::Result<()> {
-        for d in [&self.data, &self.local, &self.cache, &self.home] {
+        for d in [
+            &self.data,
+            &self.config,
+            &self.local,
+            &self.cache,
+            &self.home,
+        ] {
             std::fs::create_dir_all(d)?;
         }
         Ok(())
@@ -369,6 +420,7 @@ impl AppDirs {
 /// The OS base folders, each `None` when unset, empty or not absolute.
 struct Bases {
     data: Option<PathBuf>,
+    config: Option<PathBuf>,
     local: Option<PathBuf>,
     cache: Option<PathBuf>,
     home: Option<PathBuf>,
@@ -492,6 +544,7 @@ impl Bases {
         match os {
             Os::Windows => Bases {
                 data: absolute_env(os, env, "APPDATA"),
+                config: absolute_env(os, env, "APPDATA"),
                 local: absolute_env(os, env, "LOCALAPPDATA"),
                 cache: absolute_env(os, env, "LOCALAPPDATA"),
                 home: absolute_env(os, env, "USERPROFILE"),
@@ -501,6 +554,7 @@ impl Bases {
                 let support = home.as_ref().map(|h| h.join("Library/Application Support"));
                 Bases {
                     data: support.clone(),
+                    config: support.clone(),
                     local: support,
                     cache: home.as_ref().map(|h| h.join("Library/Caches")),
                     home,
@@ -508,6 +562,7 @@ impl Bases {
             }
             Os::Android => Bases {
                 data: None,
+                config: None,
                 local: None,
                 cache: None,
                 home: None,
@@ -518,8 +573,12 @@ impl Bases {
                     .or_else(|| home.as_ref().map(|h| h.join(".local/share")));
                 let cache = absolute_env(os, env, "XDG_CACHE_HOME")
                     .or_else(|| home.as_ref().map(|h| h.join(".cache")));
+                let config = absolute_env(os, env, "XDG_CONFIG_HOME")
+                    .or_else(|| home.as_ref().map(|h| h.join(".config")))
+                    .or_else(|| data.clone());
                 Bases {
                     local: data.clone(),
+                    config,
                     data,
                     cache,
                     home,
@@ -539,7 +598,7 @@ fn app_dir(base: &Path, app: &AppId, ns: &str) -> PathBuf {
 fn missing(os: Os, what: &'static str) -> AppDirsError {
     let why = match os {
         Os::Windows => match what {
-            "data" => "APPDATA is not set to an absolute path",
+            "data" | "config" => "APPDATA is not set to an absolute path",
             "home" => "USERPROFILE is not set to an absolute path",
             _ => "LOCALAPPDATA is not set to an absolute path",
         },
@@ -551,14 +610,44 @@ fn missing(os: Os, what: &'static str) -> AppDirsError {
     }
 }
 
+/// `<base>/<org>/<ns>` for the current name, unless that folder is missing and a legacy name's
+/// folder (same base, org and dev rule) exists: then the first such legacy folder.
+fn pick_app_dir(
+    base: &Path,
+    app: &AppId,
+    opts: &Options,
+    ns: &str,
+    exists: &dyn Fn(&Path) -> bool,
+) -> PathBuf {
+    let current = app_dir(base, app, ns);
+    if exists(&current) {
+        return current;
+    }
+    for legacy in app.legacy_names {
+        let name = if opts.dev {
+            format!("{legacy}Dev")
+        } else {
+            (*legacy).to_string()
+        };
+        let candidate = app_dir(base, app, &name);
+        if exists(&candidate) {
+            return candidate;
+        }
+    }
+    current
+}
+
 fn real_dirs(
     app: &AppId,
-    os: Os,
+    opts: &Options,
     ns: &str,
     env: &dyn Fn(&str) -> Option<OsString>,
+    exists: &dyn Fn(&Path) -> bool,
 ) -> Result<AppDirs> {
+    let os = opts.os;
     let b = Bases::read(os, env);
     let data = b.data.ok_or_else(|| missing(os, "data"))?;
+    let config = b.config.ok_or_else(|| missing(os, "config"))?;
     let local = b.local.ok_or_else(|| missing(os, "local"))?;
     let cache = b.cache.ok_or_else(|| missing(os, "cache"))?;
     let home = b.home.ok_or_else(|| missing(os, "home"))?;
@@ -568,8 +657,9 @@ fn real_dirs(
         app_dir(&cache, app, ns)
     };
     Ok(AppDirs {
-        data: app_dir(&data, app, ns),
-        local: app_dir(&local, app, ns),
+        data: pick_app_dir(&data, app, opts, ns, exists),
+        config: pick_app_dir(&config, app, opts, ns, exists),
+        local: pick_app_dir(&local, app, opts, ns, exists),
         cache,
         home,
         isolated: false,
@@ -609,7 +699,7 @@ fn read_qa(
     // The real folders of this app, in both namespaces and with or without the org folder, and the
     // real home. An override at or inside the first group, or equal to the home, is refused.
     let mut inside: Vec<PathBuf> = Vec::new();
-    for base in [&bases.data, &bases.local, &bases.cache]
+    for base in [&bases.data, &bases.config, &bases.local, &bases.cache]
         .into_iter()
         .flatten()
     {
@@ -940,6 +1030,96 @@ mod tests {
         // A relative test root is refused.
         let bad = Options::new(Os::Linux).test_root(Some(p("rel")));
         assert!(AppDirs::resolve_with(&AppId::new("A"), &bad, &env_of(&[])).is_err());
+    }
+
+    #[test]
+    fn config_is_its_own_folder_on_linux_and_data_elsewhere() {
+        let app = AppId::new("Ember");
+        let linux = |pairs: &[(&'static str, &'static str)]| {
+            AppDirs::resolve_with(&app, &Options::new(Os::Linux), &env_of(pairs)).unwrap()
+        };
+        let d = linux(&[("HOME", "/home/a")]);
+        same(&d.config, "/home/a/.config/Orthic Labs/Ember");
+        same(&d.data, "/home/a/.local/share/Orthic Labs/Ember");
+        let d = linux(&[("HOME", "/home/a"), ("XDG_CONFIG_HOME", "/x/conf")]);
+        same(&d.config, "/x/conf/Orthic Labs/Ember");
+        // A relative XDG_CONFIG_HOME is ignored, like the other XDG bases.
+        let d = linux(&[("HOME", "/home/a"), ("XDG_CONFIG_HOME", "rel")]);
+        same(&d.config, "/home/a/.config/Orthic Labs/Ember");
+        // No HOME and no XDG_CONFIG_HOME: config sits next to data instead of failing.
+        let d = linux(&[("XDG_DATA_HOME", "/x/data")]);
+        same(&d.config, "/x/data/Orthic Labs/Ember");
+        assert_eq!(d.config, d.data);
+
+        let d = AppDirs::resolve_with(&app, &Options::new(Os::Windows), &env_of(WIN)).unwrap();
+        assert_eq!(d.config, d.data);
+        let d = AppDirs::resolve_with(
+            &app,
+            &Options::new(Os::MacOs),
+            &env_of(&[("HOME", "/Users/a")]),
+        )
+        .unwrap();
+        assert_eq!(d.config, d.data);
+        same(
+            &d.config,
+            "/Users/a/Library/Application Support/Orthic Labs/Ember",
+        );
+    }
+
+    #[test]
+    fn config_under_a_test_root_and_injected_folders() {
+        let d = AppDirs::for_test(AppId::new("Ember")).unwrap();
+        assert_eq!(d.config, d.data.parent().unwrap().join("config"));
+        let d = AppDirs::injected_for(Os::Linux, p("/files"), p("/cache")).unwrap();
+        assert_eq!(d.config, d.data);
+    }
+
+    #[test]
+    fn legacy_names_keep_an_existing_folder_per_directory() {
+        let app = AppId::new("Ember").with_legacy_names(&["LightCraft", "OldCraft"]);
+        let o = Options::new(Os::Linux);
+        let env = env_of(&[("HOME", "/home/a")]);
+        let resolve = |present: &'static [&'static str]| {
+            AppDirs::resolve_with_legacy(&app, &o, &env, &|path: &Path| {
+                let got = components(&path.to_string_lossy(), true, false);
+                present
+                    .iter()
+                    .any(|want| components(want, true, false) == got)
+            })
+            .unwrap()
+        };
+        // Nothing exists: the current name, everywhere.
+        let d = resolve(&[]);
+        same(&d.data, "/home/a/.local/share/Orthic Labs/Ember");
+        same(&d.config, "/home/a/.config/Orthic Labs/Ember");
+        // Only the old config exists: config stays on it, data starts under the new name.
+        let d = resolve(&["/home/a/.config/Orthic Labs/LightCraft"]);
+        same(&d.config, "/home/a/.config/Orthic Labs/LightCraft");
+        same(&d.data, "/home/a/.local/share/Orthic Labs/Ember");
+        // The current name wins when it exists, even if a legacy folder does too.
+        let d = resolve(&[
+            "/home/a/.config/Orthic Labs/Ember",
+            "/home/a/.config/Orthic Labs/LightCraft",
+        ]);
+        same(&d.config, "/home/a/.config/Orthic Labs/Ember");
+        // Legacy names are tried in order.
+        let d = resolve(&[
+            "/home/a/.config/Orthic Labs/OldCraft",
+            "/home/a/.config/Orthic Labs/LightCraft",
+        ]);
+        same(&d.config, "/home/a/.config/Orthic Labs/LightCraft");
+        // Cache is never moved to a legacy name.
+        let d = resolve(&["/home/a/.cache/Orthic Labs/LightCraft"]);
+        same(&d.cache, "/home/a/.cache/Orthic Labs/Ember");
+        // The pure resolver ignores legacy names; a dev build looks for `<legacy>Dev`.
+        let d = AppDirs::resolve_with(&app, &o, &env).unwrap();
+        same(&d.config, "/home/a/.config/Orthic Labs/Ember");
+        let dev = Options::new(Os::Linux).dev(true);
+        let d = AppDirs::resolve_with_legacy(&app, &dev, &env, &|path: &Path| {
+            path.to_string_lossy().ends_with("LightCraftDev")
+        })
+        .unwrap();
+        same(&d.data, "/home/a/.local/share/Orthic Labs/LightCraftDev");
     }
 
     #[test]

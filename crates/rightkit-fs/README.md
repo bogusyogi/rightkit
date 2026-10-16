@@ -29,7 +29,8 @@ No feature is on by default (0.4.0). Name `fs`, `lock`, `json` and `digest` as y
 - `json`: identity ledger (`IdentityStore`), lock owner records, and the `rightkit-clonefile` binary. Depends on `lock`, `serde`, and `serde_json`.
 
 Without `json`, locks write no owner file, so `recovered_stale` and `current_owner` return `None`. The lock itself behaves the same. `rightkit-db` uses `features = ["fs"]`. Digest-only callers use `features = ["digest"]`. Every integration test names the features it imports (`required-features`), so `--no-default-features` and each single feature compile.
-- `testing` (debug builds only): fault and event seams for consumer tests: `atomic::testing`, `state::testing`, `clone::testing`, `lock::testing`.
+- `testing` (debug builds only): fault and event seams for consumer tests: `atomic::testing`, `state::testing`, `clone::testing`, `lock::testing`. It implies `test-seams`.
+- `test-seams` (allowed in release builds): `atomic::seams`, for a consumer's tests that run in the release profile. `fail_write_after(bytes, kind)` makes this thread's `AtomicWriter::write_all` / `AtomicWriter::writer()` writes fail after `bytes` bytes (the bytes up to the limit are written first); `sync_counts()`, `take_sync_counts()` and `reset_sync_counts()` count the file flushes and directory syncs this thread attempted. Per thread, inert until installed. It does not see a write made through `AtomicWriter::file_mut()` or the `File` an `atomic_write_with*` closure receives.
 
 ## State directories (`StateDir`)
 
@@ -47,6 +48,18 @@ Without `json`, locks write no owner file, so `recovered_stale` and `current_own
 ## Atomic writes
 
 A write is two phases. Until the replace call succeeds nothing is published: a failure leaves the destination as it was and removes the temp file. After it, the content is in place; the required directory sync still runs, and a later failure is a typed error with `target_replaced()` true: `ReplacedButDirSyncFailed`, or `ReplacedButPostStepFailed { step }` (`TempCleanup`: a leftover second name after the `link` fallback). The most serious is reported: directory sync, then cleanup. `FsError` is `#[non_exhaustive]`. The `atomic` module docs hold a table of every publish path (`ReplaceMode` x `Privacy` x `durable` x platform x destination exists) with how the temp is created, what is synced when, which OS call publishes, what a crash at each step leaves, the error returned and the test that covers it (or the seam that stands in for the OS).
+
+**Exclusive publish (`ReplaceMode::NoReplace`, `rename_exclusive`), per platform.** `rename_exclusive_reporting` (and `ExclusiveMethod`) says which mechanism ran.
+
+| Platform and volume | Mechanism | Guarantee |
+|---|---|---|
+| Linux, Apple | `renameat2(RENAME_NOREPLACE)`, `renamex_np(RENAME_EXCL)` | One atomic create-new rename. The name is never visible empty. The loser gets `AlreadyExists`. |
+| Unix without the exclusive rename, with hard links | `link(2)` then `unlink(2)` | Exclusive. Both names exist for an instant; a crash between leaves the temp for the sweep. |
+| Unix without either (FAT, exFAT, some network shares: `link` fails with `EPERM`, `ENOTSUP`, `EMLINK`, `EINVAL` or `ENOSYS`) | An `O_EXCL` placeholder at the destination, then `rename(2)` of the finished file over it | Exclusive against every other exclusive publisher. **Not atomic for readers:** the name holds an empty file between the claim and the rename, and a crash there leaves that empty file. A non-exclusive replace can overwrite the placeholder. A failed rename removes the placeholder. Tested only through the `force_no_hard_links` seam; no FAT volume has been used. |
+| Android | `link` then `unlink`, then the placeholder | As the two rows above. |
+| Windows | `MoveFileExW` without `MOVEFILE_REPLACE_EXISTING` | Fails if the name exists; needs no hard links, so there is no fallback. Not exercised on FAT or a share by this crate. |
+
+`publish_file_first_free(from, &candidates, options)` publishes one finished file under the first free name of a candidate list (for example `a.dng`, `a-1.dng`, ...) without rewriting it: each name is tried with the exclusive publish above, a taken name is skipped, the source is synced once, and the published path is returned. Every candidate taken is `AlreadyExists` for the last one.
 
 To gate the content before it is published, use `AtomicWriter::commit_checked(|temp| ...)`: the check runs on the temp file just before the replace. The temp file is flushed first when the write is durable, and `commit_checked` always `sync_all`s it, in every mode, before the check. An error from the check aborts the write, leaves the destination as it was and removes the temp file.
 

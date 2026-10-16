@@ -71,6 +71,23 @@ name = "atomic_exclusive"
 path = "tests/atomic_exclusive.rs"
 required-features = ["fs"]
 
+# Exclusive publish on a filesystem without hard links (forced through the seam).
+[[test]]
+name = "atomic_exclusive_nolink"
+path = "tests/atomic_exclusive_nolink.rs"
+required-features = ["testing"]
+
+[[test]]
+name = "publish_first_free"
+path = "tests/publish_first_free.rs"
+required-features = ["fs"]
+
+# Release-safe seams: needs only `test-seams`, so it also runs in a release-profile test run.
+[[test]]
+name = "atomic_seams"
+path = "tests/atomic_seams.rs"
+required-features = ["test-seams"]
+
 [[test]]
 name = "atomic_options"
 path = "tests/atomic_options.rs"
@@ -185,7 +202,11 @@ json = ["lock", "dep:serde", "dep:serde_json"]
 digest = ["dep:sha2"]
 # Fault injection around the replace call (`atomic::testing`), for consumer tests. Off by default;
 # a release build (no `debug_assertions`) with it enabled fails to compile.
-testing = ["fs"]
+testing = ["fs", "test-seams"]
+# Release-safe seams for consumer tests (`atomic::seams`): fail a write after N bytes, count file and
+# directory syncs. Per thread, inert until a test installs one, allowed in release builds (unlike
+# `testing`, which refuses to compile there), so an engine's release-profile tests can use it.
+test-seams = ["fs"]
 # `app_dirs` module: one per-user data/local/cache/home resolver with a dev namespace and test
 # isolation. Pulls thiserror (through `fs`) and nothing else.
 app-dirs = ["fs"]
