@@ -40,16 +40,16 @@
 //! `rightkit-automation` (`policy::kill`) stops every gated effect.
 pub use rightkit_automation::control::{admission, events, lease, lease_store};
 pub mod cli;
+pub use rightkit_automation::json;
+/// US-layout virtual keycodes and AppKit function-key data (`rightkit_automation::keys::appkit`).
+pub use rightkit_automation::keys::appkit as keys;
+#[cfg(target_os = "macos")]
+pub use rightkit_automation::macos::background as mac;
 /// QA-only in-app control server, now `rightkit_qa::embedded` (feature `rightkit-qa/control`).
 /// Re-exported under its old path; compiled only with the explicit `qa-control` feature, which no
 /// shipped build may enable (see the README section "QA control never ships"). `tauri-plugin` alone
 /// does not expose it.
 #[cfg(feature = "qa-control")]
 pub use rightkit_qa::embedded;
-pub use rightkit_automation::json;
-/// US-layout virtual keycodes and AppKit function-key data (`rightkit_automation::keys::appkit`).
-pub use rightkit_automation::keys::appkit as keys;
-#[cfg(target_os = "macos")]
-pub use rightkit_automation::macos::background as mac;
 pub mod offscreen;
 pub mod webdriver;

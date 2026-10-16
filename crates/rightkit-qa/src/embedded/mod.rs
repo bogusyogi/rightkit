@@ -725,8 +725,10 @@ impl<R: Runtime> Handler for ControlHandler<R> {
         if let (EffectKind::Input, Some(lease)) = (kind, &self.guards.lease) {
             let epoch = u64_param(params, "leaseEpoch")?;
             let seq = u64_param(params, "inputSequence")?;
-            let session =
-                rightkit_automation::control::lease::ControlSession::new(lease.clone(), self.guards.gate.clone());
+            let session = rightkit_automation::control::lease::ControlSession::new(
+                lease.clone(),
+                self.guards.gate.clone(),
+            );
             return match session.input(epoch, seq, request, &cancel, exec) {
                 Ok(InputOutcome::Applied { ack, value }) => {
                     Ok(with_ack(value, ack.epoch, ack.sequence, false))

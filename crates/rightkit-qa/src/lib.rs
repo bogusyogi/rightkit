@@ -39,12 +39,12 @@ pub mod control;
 pub mod embedded;
 pub mod engine;
 pub mod evidence;
-/// Tier-2 `InApp` client for the embedded control server (`control` feature only).
-#[cfg(feature = "control")]
-pub mod in_app;
 pub mod guard;
 pub mod harness;
 pub mod http;
+/// Tier-2 `InApp` client for the embedded control server (`control` feature only).
+#[cfg(feature = "control")]
+pub mod in_app;
 pub mod lock;
 pub mod loudness;
 pub mod media;

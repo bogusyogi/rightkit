@@ -1159,7 +1159,11 @@ mod vk_tests {
     #[test]
     fn cmd_plus_is_shifted_oem_plus() {
         let (code, flags) = chord("cmd++").unwrap();
-        assert_eq!(flags, rightkit_automation::keys::appkit::FLAG_CMD | rightkit_automation::keys::appkit::FLAG_SHIFT);
+        assert_eq!(
+            flags,
+            rightkit_automation::keys::appkit::FLAG_CMD
+                | rightkit_automation::keys::appkit::FLAG_SHIFT
+        );
         assert_eq!(vk(code, "+"), 187);
         assert_eq!(cdp_mods(flags), 4 | 8);
     }
@@ -1187,9 +1191,13 @@ mod vk_tests {
 
     #[test]
     fn key_event_payload_is_valid_json_with_oem_vk() {
-        let v: serde_json::Value =
-            serde_json::from_str(&key_event_params(true, 0x2B, ",", rightkit_automation::keys::appkit::FLAG_CMD))
-                .unwrap();
+        let v: serde_json::Value = serde_json::from_str(&key_event_params(
+            true,
+            0x2B,
+            ",",
+            rightkit_automation::keys::appkit::FLAG_CMD,
+        ))
+        .unwrap();
         assert_eq!(v["windowsVirtualKeyCode"], 188);
         assert_eq!(v["modifiers"], 4);
         assert_eq!(v["key"], ",");
