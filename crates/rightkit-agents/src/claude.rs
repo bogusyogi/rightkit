@@ -42,7 +42,15 @@ pub struct ClaudeOptions {
     /// Path to a settings file passed with `--settings` (used later to register hooks).
     pub settings_path: Option<String>,
     pub include_partial_messages: bool,
+    /// Route tool-permission prompts to the host over stdin/stdout as `can_use_tool`
+    /// control requests (answered with [`permission_allow_frame`] / [`permission_deny_frame`])
+    /// instead of leaving them to the CLI's own non-interactive policy. `Session` sets this.
+    pub host_approvals: bool,
 }
+
+/// Flag and value that make Claude Code ask the host (the stdio control channel, not an MCP
+/// tool) about each tool permission. Spec status: see `CHANGELOG.md` 0.2.0, unverified.
+const HOST_PROMPT_ARG: (&str, &str) = ("--permission-prompt-tool", "stdio");
 
 /// Build the argv (without the program) for one headless stream-json session.
 pub fn build_args(options: &ClaudeOptions) -> Result<Vec<String>, String> {
@@ -92,6 +100,9 @@ pub fn build_args(options: &ClaudeOptions) -> Result<Vec<String>, String> {
     if let Some(prompt) = &options.append_system_prompt {
         args.extend(["--append-system-prompt".into(), prompt.clone()]);
     }
+    if options.host_approvals {
+        args.extend([HOST_PROMPT_ARG.0.into(), HOST_PROMPT_ARG.1.into()]);
+    }
     if let Some(path) = &options.settings_path {
         args.extend(["--settings".into(), path.clone()]);
     }
@@ -112,6 +123,34 @@ pub fn interrupt_frame(request_id: &str) -> String {
         "type": "control_request",
         "request_id": request_id,
         "request": {"subtype": "interrupt"}
+    })
+    .to_string();
+    line.push('\n');
+    line
+}
+
+/// One stdin frame answering a `can_use_tool` request with allow, newline-terminated.
+/// `updated_input` is the tool input to run with; echo the request's input to approve as-is.
+pub fn permission_allow_frame(request_id: &str, updated_input: &Value) -> String {
+    control_success_frame(
+        request_id,
+        json!({"behavior": "allow", "updatedInput": updated_input}),
+    )
+}
+
+/// One stdin frame answering a `can_use_tool` request with deny, newline-terminated.
+/// `interrupt` also stops the running turn.
+pub fn permission_deny_frame(request_id: &str, message: &str, interrupt: bool) -> String {
+    control_success_frame(
+        request_id,
+        json!({"behavior": "deny", "message": message, "interrupt": interrupt}),
+    )
+}
+
+fn control_success_frame(request_id: &str, response: Value) -> String {
+    let mut line = json!({
+        "type": "control_response",
+        "response": {"subtype": "success", "request_id": request_id, "response": response}
     })
     .to_string();
     line.push('\n');

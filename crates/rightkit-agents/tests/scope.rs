@@ -41,7 +41,6 @@ const FORBIDDEN_SOURCE_TOKENS: &[&str] = &[
     "OPENAI_API_KEY",
     "--mcp-config",
     "--strict-mcp-config",
-    "--permission-prompt-tool",
     "reqwest::",
     "tokio::",
     "hyper::",
@@ -157,6 +156,41 @@ fn no_fake_cli_ships_in_the_default_build() {
         assert!(
             !source.contains("RK_FAKE_CLI") && !source.contains("fake_cli"),
             "{} names the test-only fake CLI",
+            file.display()
+        );
+    }
+}
+
+/// `--permission-prompt-tool` normally names an MCP tool. The one use here passes the
+/// literal `stdio` (the control channel on the child's own stdin/stdout), never an MCP tool,
+/// and only `claude.rs` may spell it.
+#[test]
+fn permission_prompt_flag_is_only_the_stdio_control_channel() {
+    let mut files = Vec::new();
+    rs_files(
+        &Path::new(env!("CARGO_MANIFEST_DIR")).join("src"),
+        &mut files,
+    );
+    for file in files {
+        let source = fs::read_to_string(&file).unwrap();
+        let name = file.file_name().unwrap().to_string_lossy().into_owned();
+        if name == "claude.rs" {
+            assert_eq!(
+                source.matches("--permission-prompt-tool").count(),
+                1,
+                "claude.rs spells the flag exactly once"
+            );
+            assert!(source.contains("(\"--permission-prompt-tool\", \"stdio\")"));
+        } else {
+            assert!(
+                !source.contains("--permission-prompt-tool"),
+                "{} names the permission prompt flag",
+                file.display()
+            );
+        }
+        assert!(
+            !source.contains("mcp__"),
+            "{} names an MCP tool",
             file.display()
         );
     }

@@ -294,6 +294,70 @@ impl Decision {
     }
 }
 
+/// Newline-terminated JSON-RPC response answering an approval server request. `id` is the
+/// request's wire id exactly as received.
+pub fn approval_response_frame(id: &Value, decision: Decision) -> String {
+    let mut line =
+        json!({"jsonrpc": "2.0", "id": id, "result": {"decision": decision.wire()}}).to_string();
+    line.push('\n');
+    line
+}
+
+/// Newline-terminated JSON-RPC error response, used to refuse a server request this client
+/// does not implement so the server is never left waiting.
+pub fn error_response_frame(id: &Value, code: i64, message: &str) -> String {
+    let mut line =
+        json!({"jsonrpc": "2.0", "id": id, "error": {"code": code, "message": message}})
+            .to_string();
+    line.push('\n');
+    line
+}
+
+/// Inputs for a Codex session.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct CodexOptions {
+    pub model: Option<String>,
+    /// Defaults to `on-request` so approvals reach the host.
+    pub approval_policy: Option<String>,
+    pub sandbox: Option<String>,
+    /// Resume this thread (`thread/resume`) instead of starting a new one.
+    pub resume_thread_id: Option<String>,
+    /// Extra `thread/start` / `thread/resume` params merged over the ones built here.
+    pub thread_params: Option<Value>,
+}
+
+/// Argv (without the program) for the stdio app-server.
+pub fn build_args() -> Vec<String> {
+    vec!["app-server".to_string()]
+}
+
+/// `thread/start` or `thread/resume` params for `options` and an optional working directory.
+pub fn thread_params(options: &CodexOptions, cwd: Option<&str>) -> Value {
+    let mut params = serde_json::Map::new();
+    if let Some(model) = &options.model {
+        params.insert("model".into(), json!(model));
+    }
+    if let Some(cwd) = cwd {
+        params.insert("cwd".into(), json!(cwd));
+    }
+    params.insert(
+        "approvalPolicy".into(),
+        json!(options.approval_policy.as_deref().unwrap_or("on-request")),
+    );
+    if let Some(sandbox) = &options.sandbox {
+        params.insert("sandbox".into(), json!(sandbox));
+    }
+    if let Some(thread) = &options.resume_thread_id {
+        params.insert("threadId".into(), json!(thread));
+    }
+    if let Some(Value::Object(extra)) = &options.thread_params {
+        for (key, value) in extra {
+            params.insert(key.clone(), value.clone());
+        }
+    }
+    Value::Object(params)
+}
+
 /// JSON-RPC client over a reader and a writer (the child's stdout and stdin).
 ///
 /// Blocking and single-threaded: `call` writes one request and reads lines until its
@@ -462,7 +526,10 @@ impl<R: BufRead, W: Write> CodexClient<R, W> {
 
     /// Answer a server approval request.
     pub fn respond_approval(&mut self, id: &Value, decision: Decision) -> Result<(), ClientError> {
-        self.send(&json!({"jsonrpc": "2.0", "id": id, "result": {"decision": decision.wire()}}))
+        let frame = approval_response_frame(id, decision);
+        self.writer.write_all(frame.as_bytes())?;
+        self.writer.flush()?;
+        Ok(())
     }
 }
 

@@ -229,3 +229,41 @@ fn fake_cli_replays_a_fixture_over_stdio() {
     assert!(matches!(events.first(), Some(AgentEvent::Init { .. })));
     assert!(matches!(events.last(), Some(AgentEvent::Result { .. })));
 }
+
+#[test]
+fn host_approvals_adds_the_stdio_permission_prompt_pair_only_when_asked() {
+    let off = build_args(&ClaudeOptions::default()).unwrap();
+    assert!(!off.iter().any(|a| a == "--permission-prompt-tool"));
+    let on = build_args(&ClaudeOptions {
+        host_approvals: true,
+        ..ClaudeOptions::default()
+    })
+    .unwrap();
+    let at = on
+        .iter()
+        .position(|a| a == "--permission-prompt-tool")
+        .expect("flag present");
+    assert_eq!(on[at + 1], "stdio");
+}
+
+#[test]
+fn permission_frames_answer_the_request_id() {
+    use rightkit_agents::claude::{permission_allow_frame, permission_deny_frame};
+    let allow: serde_json::Value = serde_json::from_str(&permission_allow_frame(
+        "req_1",
+        &serde_json::json!({"file_path": "/w/a"}),
+    ))
+    .unwrap();
+    assert_eq!(allow["type"], "control_response");
+    assert_eq!(allow["response"]["request_id"], "req_1");
+    assert_eq!(allow["response"]["response"]["behavior"], "allow");
+    assert_eq!(
+        allow["response"]["response"]["updatedInput"]["file_path"],
+        "/w/a"
+    );
+    let deny: serde_json::Value =
+        serde_json::from_str(&permission_deny_frame("req_2", "no", true)).unwrap();
+    assert_eq!(deny["response"]["response"]["behavior"], "deny");
+    assert_eq!(deny["response"]["response"]["message"], "no");
+    assert_eq!(deny["response"]["response"]["interrupt"], true);
+}
