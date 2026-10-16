@@ -112,7 +112,10 @@ fn fetches_and_maps_the_entitlement_object() {
         requests[0].query_pairs(),
         vec![("app".to_string(), APP.to_string())]
     );
-    assert_eq!(requests[0].header("authorization"), Some("Bearer id-token-1"));
+    assert_eq!(
+        requests[0].header("authorization"),
+        Some("Bearer id-token-1")
+    );
 }
 
 #[test]
@@ -277,7 +280,10 @@ fn connection_refused_maps_to_offline() {
         .with_client(client())
         .with_clock(|| T0);
     let error = source.entitlement().unwrap_err();
-    assert!(matches!(error, SubjectEntitlementError::Offline(_)), "{error:?}");
+    assert!(
+        matches!(error, SubjectEntitlementError::Offline(_)),
+        "{error:?}"
+    );
     assert!(error.is_transient());
 }
 
@@ -355,7 +361,10 @@ fn a_second_401_is_unauthorized_and_clears_the_cache() {
         source.entitlement().unwrap_err(),
         SubjectEntitlementError::Unauthorized
     );
-    assert!(store.load().is_none(), "cache cleared, no grace on auth failure");
+    assert!(
+        store.load().is_none(),
+        "cache cleared, no grace on auth failure"
+    );
     assert!(!source.is_pro());
 }
 
@@ -441,7 +450,10 @@ fn from_play_posts_the_contract_body_and_primes_the_cache() {
     let requests = fake.server.requests();
     assert_eq!(requests[0].method, "POST");
     assert_eq!(requests[0].path(), "/v1/licenses/bridge/from-play");
-    assert_eq!(requests[0].header("authorization"), Some("Bearer id-token-1"));
+    assert_eq!(
+        requests[0].header("authorization"),
+        Some("Bearer id-token-1")
+    );
     assert_eq!(
         requests[0].body_json(),
         json!({
@@ -465,7 +477,10 @@ fn from_storekit_and_from_activation_use_the_bridge_paths() {
     source.link_activation("act-token", "dev-1").unwrap();
     let requests = fake.server.requests();
     assert_eq!(requests[0].path(), "/v1/licenses/bridge/from-storekit");
-    assert_eq!(requests[0].body_json(), json!({"app": APP, "jws": "jws.payload.sig"}));
+    assert_eq!(
+        requests[0].body_json(),
+        json!({"app": APP, "jws": "jws.payload.sig"})
+    );
     assert_eq!(requests[1].path(), "/v1/licenses/bridge/from-activation");
     assert_eq!(
         requests[1].body_json(),

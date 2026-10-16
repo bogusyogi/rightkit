@@ -7,8 +7,8 @@
 //! * [`ServerKeyCache`]: the offline cache of the server half, in the OS credential store.
 
 use base64::{engine::general_purpose::STANDARD as B64, Engine};
-use ring::rand::{SecureRandom, SystemRandom};
 use rightkit_credentials::{Secret, Store};
+use ring::rand::{SecureRandom, SystemRandom};
 use zeroize::Zeroizing;
 
 use crate::error::{Error, Result};
@@ -397,8 +397,11 @@ mod tests {
         assert!(got.keys.get("k3").is_none());
         cache.clear().unwrap();
         assert!(cache.load().unwrap().is_none());
-        st.set("vault-keys.app.sub", &Secret::from_string("not a cache entry"))
-            .unwrap();
+        st.set(
+            "vault-keys.app.sub",
+            &Secret::from_string("not a cache entry"),
+        )
+        .unwrap();
         assert!(cache.load().unwrap().is_none());
     }
 

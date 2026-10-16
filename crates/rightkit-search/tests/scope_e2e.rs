@@ -299,7 +299,8 @@ fn injection_shaped_values_stay_bound_parameters() {
 
 // ---- Value-shape SQL and verbatim negated text (#172) ----
 
-const RCPT_BY_ADDR: &str = "EXISTS (SELECT 1 FROM message_recipients r WHERE r.message_id = m.id AND r.addr = ?)";
+const RCPT_BY_ADDR: &str =
+    "EXISTS (SELECT 1 FROM message_recipients r WHERE r.message_id = m.id AND r.addr = ?)";
 const RCPT_BY_DOMAIN: &str = "EXISTS (SELECT 1 FROM message_recipients r WHERE r.message_id = m.id AND r.addr LIKE ? ESCAPE '\\')";
 const RCPT_BY_BARE: &str = "EXISTS (SELECT 1 FROM message_recipients r WHERE r.message_id = m.id AND r.addr LIKE ? ESCAPE '\\')";
 
@@ -374,7 +375,9 @@ fn shaped_binding_lowercases_only_when_asked() {
         run_with(&conn, &off, "to:Dana@Corp.COM"),
         Vec::<String>::new()
     );
-    let c = off.compile(&off.parse("to:Dana@Corp.COM").unwrap()).unwrap();
+    let c = off
+        .compile(&off.parse("to:Dana@Corp.COM").unwrap())
+        .unwrap();
     assert_eq!(c.params, vec![Param::Text("Dana@Corp.COM".to_string())]);
 }
 
@@ -511,9 +514,9 @@ fn negated_text_without_alphanumerics_is_skipped_by_default_and_kept_when_unesca
 #[test]
 fn negated_text_unescaped_without_like_columns_changes_nothing() {
     let conn = verbatim_fixture();
-    let s = Schema::new().fts("fts_messages", "m.rowid").scope(
-        ChildScope::new("messages m", "m.thread_id = t.id").negated_text_unescaped(),
-    );
+    let s = Schema::new()
+        .fts("fts_messages", "m.rowid")
+        .scope(ChildScope::new("messages m", "m.thread_id = t.id").negated_text_unescaped());
     assert_eq!(run_with(&conn, &s, "-_"), vec!["u1", "u2", "u3"]);
     assert_eq!(run_with(&conn, &s, "-abc"), vec!["u2", "u3"]);
 }

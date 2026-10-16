@@ -625,7 +625,10 @@ impl SubjectEntitlementSource {
         }
     }
 
-    fn convert(&self, wire: WireEntitlement) -> Result<SubjectEntitlement, SubjectEntitlementError> {
+    fn convert(
+        &self,
+        wire: WireEntitlement,
+    ) -> Result<SubjectEntitlement, SubjectEntitlementError> {
         if wire.app != self.config.app {
             return Err(SubjectEntitlementError::BadResponse(
                 "response is for a different app".to_string(),
@@ -676,7 +679,9 @@ fn map_transport_error(error: rightkit_http::HttpError) -> SubjectEntitlementErr
 }
 
 fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
-    mutex.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+    mutex
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
 /// RFC 3339 `date-time` to unix seconds. Accepts `Z` or a numeric offset and optional
@@ -693,7 +698,11 @@ fn parse_rfc3339(text: &str) -> Option<i64> {
         }
         std::str::from_utf8(part).ok()?.parse().ok()
     };
-    if b[4] != b'-' || b[7] != b'-' || !matches!(b[10], b'T' | b't') || b[13] != b':' || b[16] != b':'
+    if b[4] != b'-'
+        || b[7] != b'-'
+        || !matches!(b[10], b'T' | b't')
+        || b[13] != b':'
+        || b[16] != b':'
     {
         return None;
     }
@@ -761,7 +770,10 @@ mod tests {
         assert_eq!(parse_rfc3339("1970-01-01T00:00:00Z"), Some(0));
         assert_eq!(parse_rfc3339("2000-03-01T00:00:00Z"), Some(951_868_800));
         assert_eq!(parse_rfc3339("2024-02-29T12:00:00Z"), Some(1_709_208_000));
-        assert_eq!(parse_rfc3339("2026-10-16T00:00:00.123Z"), Some(1_792_108_800));
+        assert_eq!(
+            parse_rfc3339("2026-10-16T00:00:00.123Z"),
+            Some(1_792_108_800)
+        );
         assert_eq!(
             parse_rfc3339("2026-10-16T02:00:00+02:00"),
             parse_rfc3339("2026-10-16T00:00:00Z")

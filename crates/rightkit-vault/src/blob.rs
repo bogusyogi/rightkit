@@ -125,12 +125,7 @@ fn cipher(okm: &[u8; OKM_LEN]) -> Result<(LessSafeKey, Nonce)> {
 }
 
 /// `salt || ciphertext || tag`.
-fn seal_with(
-    ikm: &[u8],
-    info: &[u8],
-    aad: &[u8],
-    plaintext: &[u8],
-) -> Result<Vec<u8>> {
+fn seal_with(ikm: &[u8], info: &[u8], aad: &[u8], plaintext: &[u8]) -> Result<Vec<u8>> {
     let salt = random::<SALT_LEN>()?;
     let okm = derive(ikm, &salt, info)?;
     let (key, nonce) = cipher(&okm)?;
@@ -185,7 +180,11 @@ fn wrap_dek(
     Ok(B64.encode(envelope))
 }
 
-fn unwrap_dek(blob: &Blob, key: &ServerKey, client: &ClientSecret) -> Result<Zeroizing<[u8; KEY_LEN]>> {
+fn unwrap_dek(
+    blob: &Blob,
+    key: &ServerKey,
+    client: &ClientSecret,
+) -> Result<Zeroizing<[u8; KEY_LEN]>> {
     let envelope = B64
         .decode(&blob.wrapped_dek)
         .map_err(|_| Error::Format("wrapped_dek is not base64".into()))?;
@@ -373,13 +372,22 @@ mod tests {
         let good = seal_blob(b"s", &k, &c, "app", "sub").unwrap();
         let mut b = good.clone();
         b.wrapped_dek = "!!!".into();
-        assert!(matches!(open_blob(&b, &k, &c, "app", "sub"), Err(Error::Format(_))));
+        assert!(matches!(
+            open_blob(&b, &k, &c, "app", "sub"),
+            Err(Error::Format(_))
+        ));
         let mut b = good.clone();
         b.wrapped_dek = B64.encode([0u8; 10]);
-        assert!(matches!(open_blob(&b, &k, &c, "app", "sub"), Err(Error::Format(_))));
+        assert!(matches!(
+            open_blob(&b, &k, &c, "app", "sub"),
+            Err(Error::Format(_))
+        ));
         let mut b = good;
         b.data = B64.encode([0u8; 5]);
-        assert!(matches!(open_blob(&b, &k, &c, "app", "sub"), Err(Error::Format(_))));
+        assert!(matches!(
+            open_blob(&b, &k, &c, "app", "sub"),
+            Err(Error::Format(_))
+        ));
     }
 
     #[test]

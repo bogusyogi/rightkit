@@ -68,7 +68,10 @@ impl<'de> Deserialize<'de> for SecretValue {
             fn expecting(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
                 f.write_str("a string")
             }
-            fn visit_str<E: serde::de::Error>(self, s: &str) -> std::result::Result<SecretValue, E> {
+            fn visit_str<E: serde::de::Error>(
+                self,
+                s: &str,
+            ) -> std::result::Result<SecretValue, E> {
                 Ok(SecretValue(Secret::from_bytes(s.as_bytes())))
             }
         }
@@ -207,7 +210,13 @@ impl Vault {
             let key = keys.get(&old.key_id).ok_or(Error::KeyUnavailable)?;
             open_blob(old, key, &client, &self.cfg.app, &self.cfg.subject)?;
         }
-        let blob = seal_blob(&plain, &keys.current, &client, &self.cfg.app, &self.cfg.subject)?;
+        let blob = seal_blob(
+            &plain,
+            &keys.current,
+            &client,
+            &self.cfg.app,
+            &self.cfg.subject,
+        )?;
         self.blobs.write(&encode_blob(&blob)?)
     }
 
@@ -307,8 +316,8 @@ impl Vault {
     fn keys_for(&self, token: IdToken, want: Option<&str>) -> Result<ServerKeys> {
         if let Ok(Some(cached)) = self.cache.load() {
             let now = self.now();
-            let fresh = now >= cached.fetched_at
-                && now - cached.fetched_at <= self.cfg.offline_grace_secs;
+            let fresh =
+                now >= cached.fetched_at && now - cached.fetched_at <= self.cfg.offline_grace_secs;
             let has_wanted = match want {
                 Some(id) => cached.keys.get(id).is_some(),
                 None => true,
@@ -452,14 +461,8 @@ mod tests {
         blobs: Arc<MemBlob>,
         now: Arc<Mutex<u64>>,
     ) -> Vault {
-        Vault::new(
-            Config::new("heardright", sub),
-            src,
-            cache,
-            client,
-            blobs,
-        )
-        .with_clock(Arc::new(move || *now.lock().unwrap()))
+        Vault::new(Config::new("heardright", sub), src, cache, client, blobs)
+            .with_clock(Arc::new(move || *now.lock().unwrap()))
     }
 
     fn rig() -> Rig {
@@ -504,7 +507,10 @@ mod tests {
     fn payload_with_escapes_and_unicode_roundtrips() {
         let r = rig();
         let mut m = SecretMap::new();
-        m.insert("a\"b".into(), Secret::from_string("line1\nline2\t\u{1}é漢\"\\"));
+        m.insert(
+            "a\"b".into(),
+            Secret::from_string("line1\nline2\t\u{1}é漢\"\\"),
+        );
         r.vault.save(&tok, &m).unwrap();
         let got = r.vault.load(&tok).unwrap().unwrap();
         assert_eq!(
@@ -597,7 +603,10 @@ mod tests {
             r.blobs.clone(),
             r.now.clone(),
         );
-        assert!(matches!(no_client.load(&tok), Err(Error::ClientSecretMissing)));
+        assert!(matches!(
+            no_client.load(&tok),
+            Err(Error::ClientSecretMissing)
+        ));
         // Attacker with the blob and some other client secret.
         let other_client = Arc::new(MemClient::default());
         other_client.get_or_create().unwrap();
@@ -664,7 +673,10 @@ mod tests {
         let mut newer: Blob = serde_json::from_slice(&before).unwrap();
         newer.v = 2;
         r.blobs.write(&serde_json::to_vec(&newer).unwrap()).unwrap();
-        assert!(matches!(r.vault.save(&tok, &secrets()), Err(Error::Version(2))));
+        assert!(matches!(
+            r.vault.save(&tok, &secrets()),
+            Err(Error::Version(2))
+        ));
     }
 
     #[test]
@@ -682,7 +694,9 @@ mod tests {
             r.now.clone(),
         );
         assert_eq!(
-            second.load(&tok).unwrap().unwrap()["openai"].expose_str().unwrap(),
+            second.load(&tok).unwrap().unwrap()["openai"]
+                .expose_str()
+                .unwrap(),
             "sk-test-1"
         );
         let mut m = secrets();
@@ -780,7 +794,9 @@ mod tests {
         r.vault.reset(&tok).unwrap();
         r.vault.save(&tok, &secrets()).unwrap();
         assert_eq!(
-            r.vault.load(&tok).unwrap().unwrap()["openai"].expose_str().unwrap(),
+            r.vault.load(&tok).unwrap().unwrap()["openai"]
+                .expose_str()
+                .unwrap(),
             "sk-test-1"
         );
     }
@@ -808,7 +824,10 @@ mod tests {
         let r = rig();
         r.blobs.write(b"not json").unwrap();
         assert!(matches!(r.vault.load(&tok), Err(Error::Format(_))));
-        assert!(matches!(r.vault.save(&tok, &secrets()), Err(Error::Format(_))));
+        assert!(matches!(
+            r.vault.save(&tok, &secrets()),
+            Err(Error::Format(_))
+        ));
         r.vault.reset(&tok).unwrap();
         assert!(r.vault.load(&tok).unwrap().unwrap().is_empty());
     }

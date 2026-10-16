@@ -187,7 +187,8 @@ mod tests {
 
     #[test]
     fn bad_responses_are_service_errors_that_do_not_echo_the_body() {
-        let mut short = format!(r#"{{"key_id":"k1","key":"{}"}}"#, B64.encode([1u8; 16])).into_bytes();
+        let mut short =
+            format!(r#"{{"key_id":"k1","key":"{}"}}"#, B64.encode([1u8; 16])).into_bytes();
         assert!(matches!(parse_bundle(&mut short), Err(Error::Service(_))));
         let mut not_b64 = br#"{"key_id":"k1","key":"!!not-base64!!"}"#.to_vec();
         assert!(matches!(parse_bundle(&mut not_b64), Err(Error::Service(_))));
@@ -197,7 +198,10 @@ mod tests {
             Ok(_) => panic!("accepted garbage"),
         }
         let mut empty_id = format!(r#"{{"key_id":"","key":"{}"}}"#, b64(1)).into_bytes();
-        assert!(matches!(parse_bundle(&mut empty_id), Err(Error::Service(_))));
+        assert!(matches!(
+            parse_bundle(&mut empty_id),
+            Err(Error::Service(_))
+        ));
     }
 
     #[test]
