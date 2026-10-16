@@ -2,12 +2,14 @@
 
 mod atomic;
 mod backend;
+mod document;
 mod options;
 mod secret;
 mod store;
 
 pub use atomic::{atomic_write, atomic_write_with};
 pub use backend::{Edit, FileBackend, KeyLayout, SettingsBackend, Stored};
+pub use document::{Document, DocumentState};
 pub use options::{
     DefaultsProvider, FileFormat, FlatMigration, KeyOrder, KeyValidator, NullMeans, OnCorrupt,
     QuarantineName, ReadOptions, ReplaceMode, SharingRetry, StoreOptions, Validator,

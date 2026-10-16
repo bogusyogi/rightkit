@@ -92,6 +92,28 @@ helper. The ledger stores it (`Ledger.scope`) and the engine binds every pass to
   checks again after it, so a request that straddles an account change returns `scope_changed`
   (engine outcome `Cancelled`, no cursor progress committed).
 
+#### Consent gate (`SyncConfig::require_consent_on_scope_change`, default off)
+
+Apps syncing personal data should not publish local history into an account the user has not
+approved. With the option on, a scope that differs from the bound `Ledger.scope` does not reset the
+ledger. The pass reports `PassOutcome::ConsentRequired(ConsentRequest { from, to })` and does no
+backend I/O: no `prepare`, no download, no upload, no tombstone. The observer gets
+`consent_required` once per distinct request, and `SyncEngine::consent_request()` returns it (it is
+stored in the ledger, so it survives a restart; the bound identity is `Ledger.scope`). Offline
+queueing (`note_changed`, `note_deleted`) keeps working.
+
+The app records the user's answer with `SyncEngine::grant_consent(to, choice)`, `to` being the
+request's `to` (a stale or mismatched `to`, or none pending, is refused):
+
+- `ConsentChoice::Merge`: `on_account_switch(from, to)`, fresh ledger for the new scope; local items
+  publish into the new account and its content downloads.
+- `ConsentChoice::StartFresh`: same reset, but every item present locally at that moment is withheld
+  (`Ledger.withheld`) and never uploaded; nothing local is deleted. Items created afterwards sync
+  normally.
+
+Signing back in to the bound account clears the request without consent. A first bind (no prior
+scope) and pre-scope ledgers need no consent.
+
 ### Wire protocol `rightkit-sync-helper/1`
 
 Transport: child process, UTF-8, one JSON object per line on stdin (requests) and stdout (responses);

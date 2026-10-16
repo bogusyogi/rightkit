@@ -17,11 +17,25 @@ pub struct RemoteVersion {
     pub updated_at_ms: i64,
 }
 
+/// A change of the signed-in account or sync scope that the app has not yet consented to.
+/// `from` is the scope the local store last synced with; `to` is the scope now signed in.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ConsentRequest {
+    pub from: String,
+    pub to: String,
+}
+
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Ledger {
     /// Account scope this ledger belongs to (`AuthProvider::account_scope`).
     pub scope: Option<String>,
+    /// Set while sync is paused on a scope change awaiting consent
+    /// (`SyncConfig::require_consent_on_scope_change`). Durable with the bound `scope`.
+    pub pending_consent: Option<ConsentRequest>,
+    /// Item ids that existed locally when the user chose `ConsentChoice::StartFresh`: they stay
+    /// on this device and are never published to the new account.
+    pub withheld: BTreeSet<String>,
     pub change_token: Option<Vec<u8>>,
     pub has_synced: bool,
     /// Item id -> deletion time. Blocks re-import and re-upload forever.

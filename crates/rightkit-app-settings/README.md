@@ -109,6 +109,27 @@ let preview = store.patch_dry_run(&serde_json::json!({ "theme": "dark" }), None)
 - `pretty_sorted_newline(true)` always sorts, whatever `key_order` says.
 - **Flat migration**: `flat_migration(|map| ...)` returns `(migrated, changed)`; it runs once on open, before defaults and repair, never read-only.
 
+### Frontend-owned documents
+
+When the settings schema and its migrations live in the frontend (TypeScript), use `Document` instead of a typed `Store`: the crate persists one opaque JSON object plus a version number the frontend chooses, and never migrates or validates fields.
+
+```rust,ignore
+use rightkit_app_settings::Document;
+
+let doc = Document::open_path(&path, "view-right")?;
+match doc.get()? {
+    // Nothing yet, or older than the frontend's current version: the frontend migrates and writes back.
+    None => { doc.put(3, initial, Some(0))?; }
+    Some(s) if s.version < 3 => { doc.put(3, migrated(s.value), Some(s.revision))?; }
+    Some(s) => use_it(s.value),
+}
+doc.patch(3, &serde_json::json!({ "theme": "dark", "old_key": null }), None)?; // top-level merge, null removes
+// One-time import of a legacy store, race-free across processes:
+doc.import_if_missing(3, || Ok(read_legacy_sqlite()?.map(into_settings_value)))?;
+```
+
+`put` and `patch` take `expected_revision` for compare-and-swap (`Error::Conflict`), and refuse a `version` lower than the stored one (`Error::NewerSchema`) so an older frontend cannot overwrite a newer document. The app exposes `get`/`put`/`patch` to its frontend through its own commands.
+
 ### Custom backends
 
 `SettingsBackend` is the storage seam. The default is `FileBackend`. An app can plug in its own, for example an encrypted database. Implement `load` and `patch` (`patch` runs the edit under the backend's exclusion), then open with `Store::with_backend(backend, options)`. A backend that writes ordered text can also implement `patch_ordered`, whose edit returns the `KeyLayout` (the settings type's key order) beside its decision; the default drops the layout and calls `patch`, so existing backends need no change. The trait documentation carries an illustrative SQLCipher example. No SQLCipher implementation ships in this crate.

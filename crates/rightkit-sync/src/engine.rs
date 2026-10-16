@@ -7,7 +7,7 @@ use std::time::{Duration, Instant};
 
 use crate::backoff::BackoffPolicy;
 use crate::error::{SyncError, SyncResult};
-use crate::ledger::{LedgerStore, RemoteVersion};
+use crate::ledger::{ConsentRequest, LedgerStore, RemoteVersion};
 use crate::record::{field, read_tombstone, write_tombstone, FieldValue, RawRecord};
 use crate::storage::LedgerStorage;
 use crate::traits::*;
@@ -26,7 +26,24 @@ pub struct SyncConfig {
     /// local deletion (desktop). Apps with explicit `note_deleted` calls
     /// (iOS) leave this off.
     pub infer_local_deletions: bool,
+    /// When the signed-in account or scope differs from the one the ledger is bound to, pause
+    /// instead of resetting the ledger and publishing local history into the new account. The
+    /// pass reports [`PassOutcome::ConsentRequired`] and uploads, downloads and writes nothing
+    /// until the app calls [`SyncEngine::grant_consent`]. Default `false` (the earlier silent
+    /// reset), so existing apps keep their behaviour.
+    pub require_consent_on_scope_change: bool,
     pub backoff: BackoffPolicy,
+}
+
+/// The app's answer to a [`PassOutcome::ConsentRequired`] pause.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ConsentChoice {
+    /// Publish this device's local items into the new account (and download its content).
+    Merge,
+    /// Keep this device's existing local items local: they are never published to the new
+    /// account. The new account's content is still downloaded; items created or received after
+    /// consent sync normally. Nothing local is deleted.
+    StartFresh,
 }
 
 impl Default for SyncConfig {
@@ -36,6 +53,7 @@ impl Default for SyncConfig {
             tombstone_batch: 50,
             ordered_new_publication: true,
             infer_local_deletions: false,
+            require_consent_on_scope_change: false,
             backoff: BackoffPolicy::default(),
         }
     }
@@ -53,6 +71,9 @@ pub enum PassOutcome {
     },
     Unavailable(String),
     Disabled,
+    /// The signed-in account or scope changed and the app has not consented. Nothing was
+    /// uploaded, downloaded or written. Call [`SyncEngine::grant_consent`] with `to`.
+    ConsentRequired(ConsentRequest),
     /// Auth generation changed or sync was switched off mid-pass.
     Cancelled,
     Failed(String),
@@ -185,6 +206,8 @@ pub struct SyncEngine<M: RecordMapper> {
     store: LedgerStore,
     replay_flags: Vec<String>,
     counters: Counters,
+    /// Set by `bind_account` for the pass in flight when it stopped on a consent gate.
+    gate: Option<ConsentRequest>,
 }
 
 pub struct SyncEngineBuilder<M: RecordMapper> {
@@ -266,6 +289,7 @@ impl<M: RecordMapper + 'static> SyncEngineBuilder<M> {
             store,
             replay_flags: Vec::new(),
             counters: Counters::default(),
+            gate: None,
         })
     }
 }
@@ -282,6 +306,62 @@ where
 {
     pub fn ledger(&self) -> &crate::ledger::Ledger {
         self.store.ledger()
+    }
+
+    /// The scope change currently awaiting consent, if any. Durable: it survives a restart and
+    /// is also reported by [`PassOutcome::ConsentRequired`].
+    pub fn consent_request(&self) -> Option<ConsentRequest> {
+        self.store.ledger().pending_consent.clone()
+    }
+
+    /// Record explicit consent to sync into the new account `to` (the `to` of the pending
+    /// [`ConsentRequest`]). Resets the ledger for the new scope (the old account's cursor,
+    /// versions and queued deletions never reach it) and lets the next pass run. Refused when
+    /// nothing is pending, when `to` is not the pending target, or when the signed-in scope has
+    /// since moved on (the next pass then raises a fresh request).
+    pub fn grant_consent(&mut self, to: &str, choice: ConsentChoice) -> SyncResult<()> {
+        let Some(req) = self.store.ledger().pending_consent.clone() else {
+            return Err(SyncError::Transient(
+                "no scope change is awaiting consent".into(),
+            ));
+        };
+        if req.to != to {
+            return Err(SyncError::Transient(
+                "consent names a different account than the one pending".into(),
+            ));
+        }
+        if let Some(current) = self.auth.account_scope() {
+            if current != req.to {
+                return Err(SyncError::Transient(
+                    "the signed-in account changed again; consent is stale".into(),
+                ));
+            }
+        }
+        let withheld: BTreeSet<String> = match choice {
+            ConsentChoice::Merge => BTreeSet::new(),
+            ConsentChoice::StartFresh => self
+                .local
+                .all()?
+                .iter()
+                .map(|i| self.mapper.header(i).id)
+                .collect(),
+        };
+        self.hooks.on_account_switch(&req.from, &req.to);
+        let scope = req.to.clone();
+        self.store.mutate(|l| {
+            *l = crate::ledger::Ledger::default();
+            l.scope = Some(scope);
+            l.withheld = withheld;
+        })?;
+        self.gate = None;
+        self.observer.event(
+            "consent_granted",
+            match choice {
+                ConsentChoice::Merge => "merge",
+                ConsentChoice::StartFresh => "start_fresh",
+            },
+        );
+        Ok(())
     }
 
     /// Offline queue: record that `id` changed locally. Durable immediately.
@@ -380,7 +460,15 @@ where
             }
         }
         let generation = self.auth.generation();
-        match self.pass_inner(generation, &mut rep) {
+        self.gate = None;
+        let result = self.pass_inner(generation, &mut rep);
+        if let Some(req) = self.gate.take() {
+            if result.is_ok() {
+                rep.outcome = PassOutcome::ConsentRequired(req);
+                return rep;
+            }
+        }
+        match result {
             Ok(pending) => {
                 let result = self.store.mutate(|l| {
                     if pending.is_none() {
@@ -517,13 +605,37 @@ where
     /// Bind the ledger to the signed-in account scope; reset it when the
     /// scope changed so one account's cursor, versions and queued deletions
     /// are never applied to another.
+    ///
+    /// With `require_consent_on_scope_change` a switch from a bound scope is not applied: the
+    /// ledger is left untouched, the request is persisted and `self.gate` is set so the pass
+    /// stops before any I/O.
     fn bind_account(&mut self, generation: u64) -> SyncResult<()> {
         self.check_current(generation)?;
         let Some(scope) = self.auth.account_scope() else {
             return Ok(());
         };
         match self.store.ledger().scope.clone() {
-            Some(bound) if bound == scope => Ok(()),
+            Some(bound) if bound == scope => {
+                if self.store.ledger().pending_consent.is_some() {
+                    // The account went back to the bound one: the request is moot.
+                    self.store.mutate(|l| l.pending_consent = None)?;
+                }
+                Ok(())
+            }
+            Some(bound) if self.config.require_consent_on_scope_change => {
+                let req = ConsentRequest {
+                    from: bound,
+                    to: scope,
+                };
+                if self.store.ledger().pending_consent.as_ref() != Some(&req) {
+                    let stored = req.clone();
+                    self.store.mutate(|l| l.pending_consent = Some(stored))?;
+                    self.observer
+                        .event("consent_required", &format!("{} -> {}", req.from, req.to));
+                }
+                self.gate = Some(req);
+                Ok(())
+            }
             None => {
                 // Ledger from before scoping: keep tombstones (they only
                 // suppress local copies); never import its cursor, versions,
@@ -576,6 +688,9 @@ where
         // generation; the pass belongs to the generation observed after it.
         let generation = self.auth.generation().max(generation);
         self.bind_account(generation)?;
+        if self.gate.is_some() {
+            return Ok(None);
+        }
         self.backend.prepare()?;
         self.check_current(generation)?;
 
@@ -805,6 +920,9 @@ where
         for (header, item) in &locals {
             if blocked.contains(&header.id) {
                 rep.blocked_reuploads += 1;
+                continue;
+            }
+            if self.store.ledger().withheld.contains(&header.id) {
                 continue;
             }
             let queued = self.store.ledger().pending_uploads.contains(&header.id);

@@ -13,10 +13,10 @@ mod traits;
 
 pub use backoff::BackoffPolicy;
 pub use engine::{
-    PassOutcome, PassReport, SyncConfig, SyncEngine, SyncEngineBuilder, SyncMetrics, SyncStatus,
+    ConsentChoice, PassOutcome, PassReport, SyncConfig, SyncEngine, SyncEngineBuilder, SyncMetrics, SyncStatus,
 };
 pub use error::{SyncError, SyncResult};
-pub use ledger::{Ledger, LedgerStore, RemoteVersion};
+pub use ledger::{ConsentRequest, Ledger, LedgerStore, RemoteVersion};
 pub use memory::MemoryBackend;
 pub use record::{field, read_tombstone, write_tombstone, FieldValue, RawRecord};
 pub use storage::{FileStorage, LedgerStorage, MemoryStorage};
