@@ -21,16 +21,10 @@ fn spawn_acquire(
 ) -> mpsc::Receiver<Result<(), String>> {
     let (tx, rx) = mpsc::channel();
     std::thread::spawn(move || {
-        let result = acquire_at_root(
-            &root,
-            "speech",
-            "scraperight",
-            &|_| {},
-            &|| {
-                let n = polls.fetch_add(1, Ordering::SeqCst) + 1;
-                stop.load(Ordering::SeqCst) || give_up_after.is_some_and(|limit| n >= limit)
-            },
-        )
+        let result = acquire_at_root(&root, "speech", "scraperight", &|_| {}, &|| {
+            let n = polls.fetch_add(1, Ordering::SeqCst) + 1;
+            stop.load(Ordering::SeqCst) || give_up_after.is_some_and(|limit| n >= limit)
+        })
         .map(drop);
         let _ = tx.send(result);
     });
@@ -61,7 +55,11 @@ fn give_up_ends_an_unbounded_wait_on_a_live_holder() {
         3,
         "the wait consulted give_up on every failed attempt and stopped at the third"
     );
-    assert!(started.elapsed() < Duration::from_secs(10), "{:?}", started.elapsed());
+    assert!(
+        started.elapsed() < Duration::from_secs(10),
+        "{:?}",
+        started.elapsed()
+    );
 }
 
 #[test]
@@ -84,7 +82,10 @@ fn a_holder_releasing_before_give_up_lets_the_unbounded_wait_succeed() {
     while polls.load(Ordering::SeqCst) == 0 && Instant::now() < deadline {
         std::thread::sleep(Duration::from_millis(20));
     }
-    assert!(polls.load(Ordering::SeqCst) >= 1, "the waiter polled while held");
+    assert!(
+        polls.load(Ordering::SeqCst) >= 1,
+        "the waiter polled while held"
+    );
     drop(held);
     let outcome = rx.recv_timeout(GUARD);
     stop.store(true, Ordering::SeqCst);
