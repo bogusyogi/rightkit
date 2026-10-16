@@ -1,0 +1,27 @@
+[package]
+name = "rightkit-vault"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.98.0"
+description = "Split-key secret sync for Right Suite apps: a small secret map sealed under a random data key, the key wrapped under a server-held wrapping key combined with a client-held secret, the blob kept in the user's own cloud app folder."
+license = "MIT OR Apache-2.0"
+readme = "README.md"
+repository = "https://github.com/Orthic-Labs/rightkit"
+keywords = ["vault", "secrets", "encryption", "split-key"]
+categories = ["cryptography"]
+include = ["src/**", "README.md", "API.md", "CHANGELOG.md", "LICENSE-MIT", "LICENSE-APACHE"]
+
+[dependencies]
+rightkit-credentials = { version = "0.2.1", path = "../rightkit-credentials" }
+rightkit-http = { version = "0.3.1", path = "../rightkit-http" }
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = "1.0.150"
+thiserror = "2"
+# Same primitives as rightkit-sync's `cipher` module: ChaCha20-Poly1305 and HKDF-SHA256 from ring.
+ring = "0.17"
+zeroize = "1.8"
+base64 = "0.22"
+
+[package.metadata.rightkit]
+continuous = false
+continuous_reason = "none: no thread, task, sleep, timer, listener, watcher or resident static of this crate; every call is one synchronous fetch, seal or unseal and returns, key material lives only in values the caller holds and is zeroed on drop, and the OS credential and HTTP calls run inside rightkit-credentials and rightkit-http and end when they return (drafted 2026-10-16, not yet reviewed)"
