@@ -5,11 +5,16 @@ use std::{process::Stdio, time::Duration};
 
 /// A child that prints `{"a":1}` plus a newline, with no other output.
 fn json_child() -> OwnedCommand {
-    let mut command = if cfg!(windows) {
+    #[cfg(windows)]
+    let mut command = {
+        use std::os::windows::process::CommandExt;
+        // Raw, so std's argument quoting doesn't turn `"` into `\"` that cmd then echoes.
         let mut c = OwnedCommand::new("cmd");
-        c.command_mut().args(["/C", "echo {\"a\":1}"]);
+        c.command_mut().raw_arg("/C echo {\"a\":1}");
         c
-    } else {
+    };
+    #[cfg(not(windows))]
+    let mut command = {
         let mut c = OwnedCommand::new("/bin/sh");
         c.command_mut().args(["-c", "printf '{\"a\":1}\\n'"]);
         c
