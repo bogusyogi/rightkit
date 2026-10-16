@@ -89,3 +89,37 @@ export function themeBootScript(storageKey: string, options: ThemeAttributeOptio
   const set = options.darkRemovesAttribute ? `v==="light"` : `v==="light"||v==="dark"`;
   return `(function(){try{var v=localStorage.getItem(${key});${dark}if(${set})document.documentElement.setAttribute("data-theme",v);}catch(e){}})();`;
 }
+
+const PREFERS_DARK_QUERY = "(prefers-color-scheme: dark)";
+
+function prefersDarkList(): MediaQueryList | null {
+  if (typeof window === "undefined" || typeof window.matchMedia !== "function") return null;
+  try {
+    return window.matchMedia(PREFERS_DARK_QUERY);
+  } catch {
+    return null;
+  }
+}
+
+/** True when the OS asks for a dark colour scheme. `false` where there is no `window` or `matchMedia` (SSR, tests). */
+export function prefersDark(): boolean {
+  return prefersDarkList()?.matches ?? false;
+}
+
+/**
+ * Call `cb(isDark)` whenever the OS colour scheme changes. Returns an unsubscribe function (safe to call more than once).
+ * Does not call `cb` on subscribe: read `prefersDark()` for the current value. Where there is no `window` or `matchMedia`
+ * (SSR), nothing is subscribed and the returned function does nothing.
+ */
+export function onPrefersDarkChange(cb: (dark: boolean) => void): () => void {
+  const list = prefersDarkList();
+  if (!list) return () => {};
+  const handler = (e: MediaQueryListEvent) => cb(e.matches);
+  if (typeof list.addEventListener === "function") {
+    list.addEventListener("change", handler);
+    return () => list.removeEventListener("change", handler);
+  }
+  // Safari before 14 only has the deprecated addListener/removeListener.
+  list.addListener(handler);
+  return () => list.removeListener(handler);
+}

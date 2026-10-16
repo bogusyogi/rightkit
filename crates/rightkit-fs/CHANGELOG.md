@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.4.1
+
+- **`publish_file` and `publish_file_with` (feature `fs`): durably publish a file another process already wrote.** Syncs the finished source file, renames it over the destination (replace allowed; `ReplaceMode::NoReplace` refuses), then syncs the directory(ies) on Unix; on Windows `MoveFileExW` with `MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH` by default. Built on the existing atomic-write publish step, so retry and no-replace behave as in `atomic_write_with_options`. The source is never removed on failure; a failure after the replace is `FsError::ReplacedButDirSyncFailed`. Tests: `tests/publish_file.rs`. Not compiled locally; CI is the verification.
+
 ## 0.4.0
 
 - **Breaking: default features are now empty (`default = []`).** 0.3.x built `fs`, `lock`, `json` and `digest` by default. Name what you use: `fs` (atomic writes, private files, `StateDir`, clone, `FsError`), `lock` (cross-process locks; implies `fs`), `json` (owner records, identity ledger, clonefile binary; implies `lock`), `digest` (SHA-256). `default-features = false` consumers are unaffected; a bare `rightkit-fs = "0.4"` now exposes no modules.

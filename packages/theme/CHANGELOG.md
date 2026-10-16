@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.2.4
+
+Added:
+- `prefersDark()` and `onPrefersDarkChange(cb)`: read the OS dark preference (`(prefers-color-scheme: dark)`) and subscribe to its changes. `onPrefersDarkChange` returns an unsubscribe, falls back to `addListener` on old Safari, and both are SSR-safe (`false` and a no-op when `window` or `matchMedia` is missing). Apps can drop their own `matchMedia` copies (ownership fingerprint `theme.runtime.prefers-dark`).
+
 ## Unreleased
 
 Added (M2-G1, CodeRight dark-default contract):

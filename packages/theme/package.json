@@ -1,6 +1,6 @@
 {
   "name": "@rightkit/theme",
-  "version": "0.2.3",
+  "version": "0.2.4",
   "description": "Brand file to CSS tokens generator for Right Suite apps: light/dark/system, derived dark accent, WCAG contrast and hard-coded-colour checks, runtime brand application.",
   "license": "MIT OR Apache-2.0",
   "type": "module",

@@ -59,9 +59,9 @@ pub use atomic::atomic_write_with_digest;
 pub use atomic::{
     atomic_write, atomic_write_private, atomic_write_reporting, atomic_write_with,
     atomic_write_with_options, durable_sync, durable_sync_with, publication_durability,
-    rename_exclusive, sweep_stale_temps, sweep_stale_temps_report, AtomicOptions,
-    AtomicWriteOptions, AtomicWriter, Privacy, PublicationDurability, ReplaceMode, RetryPolicy,
-    SweepReport, SyncLevel, SyncPolicy, WriteReport,
+    publish_file, publish_file_with, rename_exclusive, sweep_stale_temps, sweep_stale_temps_report,
+    AtomicOptions, AtomicWriteOptions, AtomicWriter, Privacy, PublicationDurability, ReplaceMode,
+    RetryPolicy, SweepReport, SyncLevel, SyncPolicy, WriteReport,
 };
 #[cfg(feature = "fs")]
 pub use clone::{

@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-fs"
-version = "0.4.0"
+version = "0.4.1"
 edition = "2021"
 rust-version = "1.98.0"
 description = "Safe state directories, atomic writes, cross-process locks, owner-only files, and stable file identity for Right Suite apps."
@@ -60,6 +60,11 @@ required-features = ["testing"]
 name = "atomic_digest"
 path = "tests/atomic_digest.rs"
 required-features = ["fs", "digest"]
+
+[[test]]
+name = "publish_file"
+path = "tests/publish_file.rs"
+required-features = ["fs"]
 
 [[test]]
 name = "atomic_exclusive"

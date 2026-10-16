@@ -139,6 +139,54 @@ impl El {
         Ok(el)
     }
 
+    /// Wrap an `AXUIElementRef` the caller already holds, **retaining** it (`CFRetain`).
+    ///
+    /// The caller keeps its own reference and stays responsible for releasing it; the returned
+    /// `El` owns a separate +1 reference and releases it on drop. Returns `None` for a null
+    /// pointer. The element's messaging timeout is left as the caller set it (use
+    /// [`El::retain_raw_with`] to apply an [`AxOptions`] timeout). Does not check that the
+    /// process is Accessibility-trusted; AX calls on the element report that themselves.
+    ///
+    /// # Safety
+    ///
+    /// `ptr` must be null or a valid, live `AXUIElementRef` (not another CF type, not a
+    /// dangling or already-released pointer) for the duration of this call.
+    pub unsafe fn retain_raw(ptr: *const c_void) -> Option<El> {
+        Cf::retain(ptr).map(El)
+    }
+
+    /// [`El::retain_raw`], then set the element's messaging timeout from `opts`. Note that
+    /// this changes the timeout on the caller's element too, since both references name the
+    /// same AX object.
+    ///
+    /// # Safety
+    ///
+    /// Same contract as [`El::retain_raw`].
+    pub unsafe fn retain_raw_with(ptr: *const c_void, opts: &AxOptions) -> Option<El> {
+        let el = El::retain_raw(ptr)?;
+        el.set_timeout(opts.timeout);
+        Some(el)
+    }
+
+    /// Wrap an `AXUIElementRef` **taking ownership** of one reference (no `CFRetain`). Use it
+    /// for a +1 reference from a `Create`/`Copy` AX call; the returned `El` releases it on
+    /// drop, so the caller must not release it again. Returns `None` for a null pointer.
+    /// The element's messaging timeout is left unchanged.
+    ///
+    /// # Safety
+    ///
+    /// `ptr` must be null or a valid `AXUIElementRef` whose reference the caller owns and
+    /// gives up. Passing a borrowed (+0) reference causes an over-release.
+    pub unsafe fn from_raw(ptr: *const c_void) -> Option<El> {
+        Cf::new(ptr).map(El)
+    }
+
+    /// The underlying `AXUIElementRef`, borrowed: valid only while this `El` is alive, and
+    /// not retained. Retain it (`CFRetain`, or [`El::retain_raw`]) to keep it longer.
+    pub fn as_raw(&self) -> *const c_void {
+        (self.0).0
+    }
+
     /// Set this element's messaging timeout (`AXUIElementSetMessagingTimeout`). On the
     /// system-wide element this is the process-wide default; see [`AxOptions`].
     pub fn set_timeout(&self, timeout: Duration) {
@@ -588,6 +636,30 @@ pub(super) fn native_write(el: &El, text: &str) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn raw_constructors_refuse_null() {
+        unsafe {
+            assert!(El::retain_raw(std::ptr::null()).is_none());
+            assert!(El::retain_raw_with(std::ptr::null(), &AxOptions::default()).is_none());
+            assert!(El::from_raw(std::ptr::null()).is_none());
+        }
+    }
+
+    #[test]
+    fn retain_raw_leaves_the_callers_reference_valid() {
+        if !trusted() {
+            return;
+        }
+        let owned = El::app(std::process::id() as i32).expect("own app element");
+        let raw = owned.as_raw();
+        // retain_raw takes its own +1: dropping the wrapper must not release the caller's.
+        let wrapped = unsafe { El::retain_raw(raw) }.expect("wrap");
+        assert_eq!(wrapped.as_raw(), raw);
+        drop(wrapped);
+        // The caller's reference is still live: reads through it do not crash.
+        let _ = owned.str_attr("AXRole");
+    }
 
     fn trusted() -> bool {
         let t = unsafe { AXIsProcessTrusted() } != 0;

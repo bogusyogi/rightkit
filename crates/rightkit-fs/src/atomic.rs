@@ -357,6 +357,94 @@ pub fn rename_exclusive(from: &Path, to: &Path) -> Result<()> {
     }
 }
 
+/// Durably publish an already-written file at `to`, replacing `to` if it exists.
+///
+/// For files another process produced (an encoder's output, a download): `from` is synced to
+/// stable storage, renamed over `to`, and the directory is synced. `from` must be a regular file
+/// on the same filesystem as `to` and must be closed by its writer. Same as
+/// [`publish_file_with`] with [`ReplaceMode::MoveWriteThrough`], `durable: true`.
+///
+/// Per platform: Unix flushes `from` (`F_FULLFSYNC` first on Apple), `rename(2)`s, then `fsync`s
+/// the directory (both directories when they differ). Windows flushes `from`
+/// (`FlushFileBuffers`) and calls `MoveFileExW` with `MOVEFILE_REPLACE_EXISTING |
+/// MOVEFILE_WRITE_THROUGH`; there is no directory flush there.
+///
+/// Failure before the replace leaves `to` untouched and `from` in place (it is the caller's
+/// file; this never removes it). A failure after the replace is reported as
+/// [`FsError::ReplacedButDirSyncFailed`], with `to` holding the new content.
+pub fn publish_file(from: &Path, to: &Path) -> Result<()> {
+    publish_file_with(
+        from,
+        to,
+        AtomicWriteOptions {
+            replace: ReplaceMode::MoveWriteThrough,
+            ..AtomicWriteOptions::default()
+        },
+    )
+}
+
+/// [`publish_file`] with explicit [`AtomicWriteOptions`].
+///
+/// Honoured: `durable` (sync `from` first and the directory after; `false` does neither),
+/// `replace` (use [`ReplaceMode::NoReplace`] to refuse an existing `to` with
+/// [`FsError::AlreadyExists`]), `retry_sharing_violation` and `create_parents`. Ignored:
+/// `private` and `privacy`, because the file already exists with the permissions its writer gave
+/// it; apply them before publishing if needed. `to` must not be shaped like a temp name this
+/// crate generates ([`FsError::BadName`]).
+pub fn publish_file_with(from: &Path, to: &Path, options: AtomicWriteOptions) -> Result<()> {
+    if let Some(name) = to.file_name() {
+        reject_reserved_name(&name.to_string_lossy())?;
+    }
+    let meta = fs::symlink_metadata(from).map_err(|e| FsError::io(from, e))?;
+    if !meta.is_file() {
+        return Err(FsError::io(
+            from,
+            std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "publish_file source is not a regular file",
+            ),
+        ));
+    }
+    if options.create_parents {
+        create_dir_all_durable(&parent_of(to), false)?;
+    }
+    if options.durable {
+        // Windows needs write access for FlushFileBuffers; Unix fsync works on a read-only fd.
+        let mut open = OpenOptions::new();
+        open.read(true);
+        #[cfg(windows)]
+        open.write(true);
+        let file = open.open(from).map_err(|e| FsError::io(from, e))?;
+        durable_sync_with(&file, SyncPolicy::Fallback).map_err(|e| FsError::io(from, e))?;
+    }
+    let published = publish(from, to, options)?;
+    let dir_sync = if options.durable {
+        let (to_dir, from_dir) = (parent_of(to), parent_of(from));
+        let mut result = try_sync_dir(&to_dir);
+        if from_dir != to_dir {
+            let other = try_sync_dir(&from_dir);
+            result = result.and(other);
+        }
+        result.err()
+    } else {
+        None
+    };
+    if let Some(source) = dir_sync {
+        return Err(FsError::ReplacedButDirSyncFailed {
+            path: to.to_path_buf(),
+            source,
+        });
+    }
+    if let Some(source) = published.cleanup {
+        return Err(FsError::ReplacedButPostStepFailed {
+            path: to.to_path_buf(),
+            step: crate::PostPublishStep::TempCleanup,
+            source,
+        });
+    }
+    Ok(())
+}
+
 /// Renames `from` to `to` only if `to` does not exist. `Ok(None)`: published, nothing left over.
 /// `Ok(Some(error))`: published (`to` exists with the content) but removing the `from` name failed
 /// (the `link` fallback). `Err`: nothing was published.

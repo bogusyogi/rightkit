@@ -13,7 +13,7 @@ Brand file to CSS-token generator for Right Suite apps. It handles light, dark a
 
 | Import | Contents |
 |---|---|
-| `@rightkit/theme` | Browser-safe modules, including the token helpers `applyTokens`, `aliasTokens`, `SUITE_ALIASES`, `presetTokens`, `fontTokens` (see Token helpers below): colour helpers (`parseHex`, `contrastRatio`, `readableOn`, `ensureContrast`), brand (`parseBrand`, `resolveBrand`, `SUITE_DEFAULTS`), CSS (`generateCss`, `modeVars`), checks (`checkBrandContrast`, `scanHardcodedColors`, `checkGeneratedCss`), runtime (`applyBrand`, `brandFromAccent`, `themeBootScript`) |
+| `@rightkit/theme` | Browser-safe modules, including the token helpers `applyTokens`, `aliasTokens`, `SUITE_ALIASES`, `presetTokens`, `fontTokens` (see Token helpers below): colour helpers (`parseHex`, `contrastRatio`, `readableOn`, `ensureContrast`), brand (`parseBrand`, `resolveBrand`, `SUITE_DEFAULTS`), CSS (`generateCss`, `modeVars`), checks (`checkBrandContrast`, `scanHardcodedColors`, `checkGeneratedCss`), runtime (`applyBrand`, `brandFromAccent`, `themeBootScript`, `prefersDark`, `onPrefersDarkChange`) |
 | `@rightkit/theme/node` | Node-only: `readBrand`, `generateFile`, `checkBrandFile`, `checkLogo`, `scanFiles`, and a re-export of `checkGeneratedCss`. Uses `node:fs` and `node:path`. Do not import it in a browser bundle. |
 | `rightkit-theme` (bin) | `generate <brand.json> --out <file.css> [--format suite\|tailwind\|both] [--check] [--allow-contrast-failures]`, `contrast <brand.json>`, `tokens <file...>` (hard-coded colour scan) |
 

@@ -1,5 +1,5 @@
-import { describe, expect, it } from "vitest";
-import { applyThemeAttribute, themeAttributeValue, themeBootScript } from "./runtime.js";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { applyThemeAttribute, onPrefersDarkChange, prefersDark, themeAttributeValue, themeBootScript } from "./runtime.js";
 
 function fakeEl() {
   const attrs = new Map<string, string>();
@@ -57,5 +57,92 @@ describe("themeBootScript", () => {
       else if (want) expect(el.attrs.get("data-theme")).toBe(want);
       else expect(el.attrs.get("data-theme")).toBe("stale");
     }
+  });
+});
+
+function fakeMedia(initial: boolean) {
+  const handlers = new Set<(e: { matches: boolean }) => void>();
+  const queries: string[] = [];
+  const list = {
+    matches: initial,
+    addEventListener: (type: string, h: (e: { matches: boolean }) => void) => {
+      if (type === "change") handlers.add(h);
+    },
+    removeEventListener: (type: string, h: (e: { matches: boolean }) => void) => {
+      if (type === "change") handlers.delete(h);
+    },
+  };
+  vi.stubGlobal("window", {
+    matchMedia: (q: string) => {
+      queries.push(q);
+      return list;
+    },
+  });
+  return {
+    handlers,
+    queries,
+    set(matches: boolean) {
+      list.matches = matches;
+      for (const h of [...handlers]) h({ matches });
+    },
+  };
+}
+
+describe("prefersDark / onPrefersDarkChange", () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("is false and subscribes nothing when there is no window (SSR)", () => {
+    expect(typeof window).toBe("undefined");
+    expect(prefersDark()).toBe(false);
+    const cb = vi.fn();
+    const off = onPrefersDarkChange(cb);
+    expect(() => off()).not.toThrow();
+    expect(cb).not.toHaveBeenCalled();
+  });
+
+  it("is false when window has no matchMedia", () => {
+    vi.stubGlobal("window", {});
+    expect(prefersDark()).toBe(false);
+    expect(() => onPrefersDarkChange(() => {})()).not.toThrow();
+  });
+
+  it("reads the dark query", () => {
+    const m = fakeMedia(true);
+    expect(prefersDark()).toBe(true);
+    expect(m.queries).toEqual(["(prefers-color-scheme: dark)"]);
+    m.set(false);
+    expect(prefersDark()).toBe(false);
+  });
+
+  it("delivers changes and stops after unsubscribe", () => {
+    const m = fakeMedia(false);
+    const seen: boolean[] = [];
+    const off = onPrefersDarkChange((d) => seen.push(d));
+    expect(seen).toEqual([]);
+    m.set(true);
+    m.set(false);
+    expect(seen).toEqual([true, false]);
+    off();
+    off();
+    expect(m.handlers.size).toBe(0);
+    m.set(true);
+    expect(seen).toEqual([true, false]);
+  });
+
+  it("falls back to addListener/removeListener on old Safari", () => {
+    const handlers = new Set<(e: { matches: boolean }) => void>();
+    vi.stubGlobal("window", {
+      matchMedia: () => ({
+        matches: false,
+        addListener: (h: (e: { matches: boolean }) => void) => handlers.add(h),
+        removeListener: (h: (e: { matches: boolean }) => void) => handlers.delete(h),
+      }),
+    });
+    const seen: boolean[] = [];
+    const off = onPrefersDarkChange((d) => seen.push(d));
+    for (const h of handlers) h({ matches: true });
+    expect(seen).toEqual([true]);
+    off();
+    expect(handlers.size).toBe(0);
   });
 });

@@ -2,6 +2,8 @@
 
 ## 0.4.1
 
+Added `macos::ax::El::retain_raw`, `retain_raw_with` and `from_raw` (unsafe), and `El::as_raw`, to wrap an `AXUIElementRef` the caller already holds (for example a pinned focus element) so `set_str` and the other `El` methods work on it. `retain_raw` retains (caller keeps its reference); `from_raw` takes ownership of a +1 reference; `retain_raw_with` also applies an `AxOptions` timeout. Each returns `None` for null. macOS only; not compiled locally.
+
 Added `Policy::deny(app_id)`. A denied id is refused by `Policy::check` before the allow list, so it is refused even when it is also allowed. Deny is case-insensitive and returns `Error::Blocked` (`DeniedBy::Policy`).
 
 ## 0.4.0
