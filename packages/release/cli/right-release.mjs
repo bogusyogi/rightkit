@@ -31,6 +31,7 @@ const commands = new Map([
   ["swift-package", "swift-package-command.mjs"],
   ["bundle-scan", "runtime-bundle-scan.mjs"],
   ["identity-scan", "packaged-app-identity.mjs"],
+  ["apple-profile-create", "apple-profile-create.mjs"],
 ]);
 
 const args = process.argv.slice(2);
