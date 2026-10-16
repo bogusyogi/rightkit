@@ -3,6 +3,17 @@
 All notable changes to `rightkit-asr`. Versions follow Cargo semver; while the
 version is `0.x`, a minor bump may carry breaking changes.
 
+## 0.2.3
+
+Additive patch for Orthic-Labs/rightkit#196. NOT COMPILED OR RUN when written.
+
+- `ReportedLanguage { code: Option<String>, source: LanguageSource }` and `LanguageSource` (`Forced`, `Detected`,
+  `ModelFixed`, `Unknown`), a sibling of `TranscriptionResult` (its fields are unchanged, so struct literals keep compiling).
+- `CoreMlParakeet::language()` and `PipelineMeta::language()`: the fixed language a bundle declares through an optional
+  `"language"` key in `pipeline.json`, else `Unknown` with no code. Parakeet has no language input or output (the shipped v3
+  export is multilingual), so CoreML Parakeet never guesses; callers must not substitute `"en"`.
+- `Whisper::reported_language(&transcript)`: `Forced` when a code was set, `Detected` under `Auto`.
+
 ## 0.2.2
 
 Additive patch for the Android plan (Orthic-Labs/rightkit#151). NOT COMPILED OR RUN, here or for Android: every

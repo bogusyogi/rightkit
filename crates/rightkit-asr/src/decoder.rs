@@ -71,3 +71,59 @@ impl TimedPiece {
         self.start_sample + u64::from(self.dur_frames.max(1)) * u64::from(self.frame_samples)
     }
 }
+
+/// Where a [`ReportedLanguage`] came from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LanguageSource {
+    /// The caller forced this language for the decode.
+    Forced,
+    /// The engine identified the language from the audio (Whisper `Auto`).
+    Detected,
+    /// The model is single-language and its bundle config declares it.
+    ModelFixed,
+    /// The engine neither detects nor declares a language (multilingual
+    /// Parakeet): `code` is `None`. Never a guess.
+    Unknown,
+}
+
+/// Language an engine reports for its output, a sibling of
+/// [`TranscriptionResult`] so that struct keeps its fields. `code` is `None`
+/// exactly when `source` is [`LanguageSource::Unknown`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ReportedLanguage {
+    pub code: Option<String>,
+    pub source: LanguageSource,
+}
+
+impl ReportedLanguage {
+    pub fn new(code: impl Into<String>, source: LanguageSource) -> Self {
+        Self { code: Some(code.into()), source }
+    }
+
+    pub fn unknown() -> Self {
+        Self { code: None, source: LanguageSource::Unknown }
+    }
+
+    /// Reads an optional config string: a non-empty value is a fixed model
+    /// language, anything else is [`unknown`](Self::unknown).
+    pub fn from_model_config(code: Option<&str>) -> Self {
+        match code.map(str::trim).filter(|c| !c.is_empty()) {
+            Some(c) => Self::new(c.to_ascii_lowercase(), LanguageSource::ModelFixed),
+            None => Self::unknown(),
+        }
+    }
+}
+
+#[cfg(test)]
+mod language_tests {
+    use super::*;
+
+    #[test]
+    fn reported_language_sources() {
+        let fixed = ReportedLanguage::from_model_config(Some(" EN "));
+        assert_eq!(fixed, ReportedLanguage::new("en", LanguageSource::ModelFixed));
+        assert_eq!(ReportedLanguage::from_model_config(None), ReportedLanguage::unknown());
+        assert_eq!(ReportedLanguage::from_model_config(Some("")).code, None);
+        assert_eq!(ReportedLanguage::new("fr", LanguageSource::Forced).source, LanguageSource::Forced);
+    }
+}

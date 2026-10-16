@@ -533,6 +533,17 @@ impl Whisper {
         self.options.quality = quality;
     }
 
+    /// Language of a finished transcript: `Forced` when the options fixed a
+    /// code, `Detected` when `Auto` identified one.
+    pub fn reported_language(&self, t: &WhisperTranscript) -> crate::decoder::ReportedLanguage {
+        use crate::decoder::{LanguageSource, ReportedLanguage};
+        let src = match self.options.language {
+            Language::Auto => LanguageSource::Detected,
+            Language::Code(_) => LanguageSource::Forced,
+        };
+        ReportedLanguage::new(t.language.clone(), src)
+    }
+
     /// Language detected by the most recent `Auto` transcription.
     pub fn detected_language(&self) -> Option<&str> {
         self.detected.as_deref()

@@ -63,9 +63,17 @@ pub struct PipelineMeta {
     pub pred_hidden: usize,
     pub blank_id: i32,
     pub durations: Vec<i64>,
+    language: Option<String>,
 }
 
 impl PipelineMeta {
+    /// Fixed language the bundle declares via an optional `"language"` key in
+    /// `pipeline.json` (a single-language model such as an English-only export).
+    /// `None` for the multilingual v3 export, which carries no language output.
+    pub fn language(&self) -> Option<&str> {
+        self.language.as_deref()
+    }
+
     /// Parse `pipeline.json`. Every key falls back to the locked export's
     /// value, matching both donors; `validate` rejects geometry that cannot
     /// run so an incomplete file cannot load "successfully" with wrong shapes.
@@ -86,6 +94,7 @@ impl PipelineMeta {
             pred_hidden: v["pred_hidden"].as_u64().unwrap_or(640) as usize,
             blank_id: v["blank_id"].as_i64().unwrap_or(8192) as i32,
             durations: durations.clone(),
+            language: v["language"].as_str().map(str::to_owned),
         };
         meta.validate()?;
         Ok(meta)
@@ -312,6 +321,13 @@ impl CoreMlParakeet {
 
     pub fn pieces(&self) -> &[String] {
         &self.pieces
+    }
+
+    /// Language of this engine's output: the bundle's declared fixed language
+    /// (`ModelFixed`), else `Unknown` with no code. Parakeet has no language
+    /// input or output, so a language is never guessed or detected here.
+    pub fn language(&self) -> crate::decoder::ReportedLanguage {
+        crate::decoder::ReportedLanguage::from_model_config(self.meta.language())
     }
 
     /// Model window in samples (the static window; 15 s for the shipped export).
