@@ -12,7 +12,7 @@ Public-repository-only GitHub Actions workflow layer for Right Suite products. T
 ## Commands
 
 - `right-git install <repo> --lanes ci,...` writes `.rightgit.json` and renders workflows.
-- Lanes: `ci`, `qualification`, `package-smoke`, `release-candidate`, `publish-npm`, `publish-package-managers`, `regenerate`. The `regenerate` lane is manual-only: it runs `regenerate.script`, checks the result, and opens a pull request from a `right-git/regenerate-<run>` branch; it never writes to the default branch.
+- Lanes: `ci`, `qualification`, `package-smoke`, `release-candidate`, `publish-npm`, `publish-package-managers`, `regenerate`, `swift-check`. The `regenerate` lane is manual-only: it runs `regenerate.script`, checks the result, and opens a pull request from a `right-git/regenerate-<run>` branch; it never writes to the default branch.
 - `right-git sync` re-renders installed workflows from the manifest.
 - `right-git drift --all` checks installed workflows against templates and re-checks visibility. When the manifest declares the `regenerate` lane, drift also warns (never fails) if the repository's "Allow GitHub Actions to create and approve pull requests" setting is off. It reads `gh api repos/{owner}/{repo}/actions/permissions/workflow` and prints a note instead when gh is unavailable.
 - `right-git adopt` maps an existing repository's workflows onto lanes for review. With `--out <dir>` it writes the candidate templates to that directory.
@@ -180,3 +180,30 @@ pnpm exec right-git drift --all
 - The optional `publish-package-managers` lane needs two long-lived tokens in GitHub Actions secrets. Their names and scope are in the package templates, and they are not zero-exposure. Read `docs/rules/github-access.md` in the workspace before enabling it.
 - Manifest fields are charset-checked before they reach workflow YAML.
 - `swift.privatePackages` renders a secret reference into the workflows listed in its section. The `right-git-ci-only` policy in `@rightkit/release` refuses any reference outside the jobs listed under Release policy above.
+
+## Native iOS XCTest (`swift-check`)
+
+Use `lanes: ["swift-check"]` with default `node` profile for standalone Swift validation. Existing `ci` stays optional for this profile. Configure native tools & paths in `.rightgit.json`:
+
+```json
+{
+  "swift": {
+    "check": {
+      "runner": "macos-15",
+      "xcodeVersion": "16.4",
+      "projectDirectory": "ios",
+      "spec": "project.yml",
+      "project": "Widgets.xcodeproj",
+      "scheme": "Widgets",
+      "xcodegenVersion": "2.44.1"
+    },
+    "privatePackages": [{ "host": "github.com", "secret": "SWIFT_READ_TOKEN" }]
+  }
+}
+```
+
+Versions above illustrate configuration; choose exact versions provisioned on selected hosted runner. Xcode & XcodeGen must already match; missing tools or version drift fail before generation. This lane installs no native tools. `projectDirectory` is repository-relative; spec & project paths are relative to that directory. Scheme names permit letters, digits, `.`, `_` & `-`.
+
+Lane checks out without persisted GitHub credentials, installs pinned package-manager dependencies, runs shared ownership scan, verifies native tools, configures shared private-package access, generates project, discovers available iPhone simulator, then runs Debug XCTest with `-scmProvider system` & `CODE_SIGNING_ALLOWED=NO`. Repository must directly depend on published `@rightkit/release` for ownership scan. Credentials remain step-scoped & cleanup always runs before `.xcresult` upload. Fork pull requests fail closed when declared private-package secret is unavailable. Owner provisions a read-only credential limited to required private repositories.
+
+Only push to configured default branch & `pull_request` trigger this lane. Workflow requests `contents: read`, pins actions to full commit SHAs & includes public-repository refusal guard. `swift.privatePackages` is optional for public-only dependencies. Omit `swift.check` & lane to preserve existing workflow bytes.

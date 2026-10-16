@@ -1,0 +1,85 @@
+# Managed by right-git — do not hand-edit. Run `right-git sync` to update.
+# Template: swift-check.yml | Template version: ${TEMPLATE_VERSION}
+name: swift-check
+on:
+  pull_request:
+  push:
+    branches: [${DEFAULT_BRANCH}]
+permissions:
+  contents: read
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${CI_CANCEL_IN_PROGRESS}
+jobs:
+  private-repo-guard:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Refuse private repository
+        if: ${{ github.event.repository.private }}
+        run: |
+          echo "::error::right-git: repository is private; managed public-only workflows must not run here."
+          exit 1
+  swift-check:
+    needs: [private-repo-guard]
+    runs-on: ${SWIFT_CHECK_RUNNER}
+    timeout-minutes: 45
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_${SWIFT_CHECK_XCODE_VERSION}.app/Contents/Developer
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: ${NODE_PUBLISH_VERSION}
+          package-manager-cache: false
+${PACKAGE_MANAGER_SETUP}
+      - run: ${INSTALL_COMMAND}${OWNERSHIP_STEP}
+      - name: Verify pinned native tools
+        run: |
+          set -euo pipefail
+          test -d "$DEVELOPER_DIR" || { echo "::error::right-git: pinned Xcode is unavailable"; exit 1; }
+          test "$(xcodebuild -version | head -n 1)" = 'Xcode ${SWIFT_CHECK_XCODE_VERSION}' || { echo "::error::right-git: Xcode version mismatch"; exit 1; }
+          command -v xcodegen >/dev/null || { echo "::error::right-git: pinned XcodeGen must be provisioned on this runner"; exit 1; }
+          test "$(xcodegen --version)" = 'Version: ${SWIFT_CHECK_XCODEGEN_VERSION}' || { echo "::error::right-git: XcodeGen version mismatch"; exit 1; }${SWIFT_PRIVATE_CONFIGURE_STEP}
+      - name: Generate Xcode project
+        working-directory: ${SWIFT_CHECK_DIRECTORY}
+        run: xcodegen generate --spec '${SWIFT_CHECK_SPEC}'
+      - name: Discover available iOS simulator
+        id: simulator
+        run: |
+          set -euo pipefail
+          xcrun simctl list devices available --json > "$RUNNER_TEMP/right-git-simulators.json"
+          python3 - <<'PY'
+          import json, os
+          with open(os.path.join(os.environ['RUNNER_TEMP'], 'right-git-simulators.json')) as source:
+              devices = json.load(source)['devices']
+          candidates = sorted((runtime, device['udid']) for runtime, entries in devices.items()
+                              if runtime.startswith('com.apple.CoreSimulator.SimRuntime.iOS-')
+                              for device in entries if device.get('isAvailable') and device.get('name', '').startswith('iPhone'))
+          if not candidates:
+              raise SystemExit('right-git: no available iPhone simulator')
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
+              output.write('udid=' + candidates[-1][1] + '\n')
+          PY
+      - name: Run Debug XCTest
+        working-directory: ${SWIFT_CHECK_DIRECTORY}
+        env:
+          RIGHT_GIT_SIMULATOR_UDID: ${{ steps.simulator.outputs.udid }}
+        run: |
+          set -euo pipefail
+          xcodebuild test -project '${SWIFT_CHECK_PROJECT}' -scheme '${SWIFT_CHECK_SCHEME}' \
+            -configuration Debug -destination "platform=iOS Simulator,id=$RIGHT_GIT_SIMULATOR_UDID" \
+            -scmProvider system -derivedDataPath "$RUNNER_TEMP/right-git-swift-derived-data" \
+            -resultBundlePath "$RUNNER_TEMP/right-git-swift-tests.xcresult" CODE_SIGNING_ALLOWED=NO${SWIFT_PRIVATE_CLEANUP_STEP}
+      - name: Upload XCTest results
+        if: ${{ always() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: swift-check-xcresult-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/right-git-swift-tests.xcresult
+          retention-days: 7
+          if-no-files-found: ignore

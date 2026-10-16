@@ -32,7 +32,8 @@ function renderAllLanes(manifest, repoPath) {
   for (const lane of manifest.lanes) {
     const templatePath = path.join(templatesDir, LANE_FILENAMES[lane]);
     const templateText = fs.readFileSync(templatePath, "utf8");
-    rendered[lane] = renderTemplate(templateText, buildRenderContext(manifest, repoPath, lane));
+    const configured = lane === "swift-check" ? { ...manifest, swift: { ...manifest.swift, check: { runner: "macos-15", xcodeVersion: "16.4", projectDirectory: "ios", spec: "project.yml", project: "Widgets.xcodeproj", scheme: "Widgets", xcodegenVersion: "2.44.1" } } } : manifest;
+    rendered[lane] = renderTemplate(templateText, buildRenderContext(configured, repoPath, lane));
   }
   return rendered;
 }
@@ -1634,7 +1635,7 @@ test("every template's triggers are safe for the swift credential: none is pull_
     ...fs.readdirSync(templatesDir).filter((f) => f.endsWith(".yml")).map((f) => path.join(templatesDir, f)),
     ...fs.readdirSync(path.join(templatesDir, "profiles", "rust-hybrid")).filter((f) => f.endsWith(".yml")).map((f) => path.join(templatesDir, "profiles", "rust-hybrid", f)),
   ];
-  assert.equal(templates.length, 10);
+  assert.equal(templates.length, 11);
   for (const file of templates) {
     const onBlock = fs.readFileSync(file, "utf8").split("\njobs:")[0].split(/^on:/m)[1] ?? "";
     assert.doesNotMatch(onBlock.split(/^permissions:/m)[0], /pull_request_target|workflow_run/, path.relative(templatesDir, file));

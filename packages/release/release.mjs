@@ -88,6 +88,7 @@ const SWIFT_PRIVATE_PARALLEL_DEV_MAC = {
 };
 const SWIFT_PRIVATE_JOBS = new Map([
   ["ci.yml", new Map([["ci", SWIFT_PRIVATE_ANY_PROFILE], ["dev-artifact-mac", SWIFT_PRIVATE_PARALLEL_DEV_MAC], ["test", SWIFT_PRIVATE_NODE_PROFILE]])],
+  ["swift-check.yml", new Map([["swift-check", SWIFT_PRIVATE_ANY_PROFILE]])],
   ["qualification.yml", new Map([["qualification", SWIFT_PRIVATE_ANY_PROFILE]])],
   ["release-candidate.yml", new Map([["candidate", SWIFT_PRIVATE_ANY_PROFILE]])],
   ["regenerate.yml", new Map([["regenerate", SWIFT_PRIVATE_ANY_PROFILE]])],
@@ -1013,15 +1014,15 @@ async function validateHostedWorkflows(root, appName, workflows, policy) {
   }
   const lanes = manifest?.lanes;
   // Mirrors the `lanes` enum in @rightkit/ci manifest.schema.json.
-  const safeLanes = new Set(["ci", "qualification", "package-smoke", "release-candidate", "publish-npm", "publish-package-managers", "regenerate"]);
+  const safeLanes = new Set(["ci", "swift-check", "qualification", "package-smoke", "release-candidate", "publish-npm", "publish-package-managers", "regenerate"]);
   if (manifest?.schemaVersion !== 1
     || manifest?.compile !== "github-actions-only"
     || !Array.isArray(lanes)
     || lanes.length === 0
-    || !lanes.includes("ci")
+    || !(lanes.includes("ci") || lanes.includes("swift-check"))
     || new Set(lanes).size !== lanes.length
     || lanes.some((lane) => !safeLanes.has(lane))) {
-    fail(`${appName} right-git-ci-only policy requires compile=github-actions-only plus unique .rightgit.json lanes drawn from [${[...safeLanes].map((lane) => `"${lane}"`).join(", ")}] and including "ci"`);
+    fail(`${appName} right-git-ci-only policy requires compile=github-actions-only plus unique .rightgit.json lanes drawn from [${[...safeLanes].map((lane) => `"${lane}"`).join(", ")}] and including "ci" or "swift-check"`);
   }
   const expectedWorkflows = lanes.map((lane) => `${lane}.yml`).sort();
   if (JSON.stringify(workflows) !== JSON.stringify(expectedWorkflows)) {

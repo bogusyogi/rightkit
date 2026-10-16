@@ -10,6 +10,7 @@ export const MANIFEST_FILENAME = ".rightgit.json";
 
 export const KNOWN_LANES = Object.freeze([
   "ci",
+  "swift-check",
   "qualification",
   "package-smoke",
   "release-candidate",
@@ -21,6 +22,7 @@ export const KNOWN_LANES = Object.freeze([
 // Rendered filename for each lane, installed under <repo>/.github/workflows/.
 export const LANE_FILENAMES = Object.freeze({
   ci: "ci.yml",
+  "swift-check": "swift-check.yml",
   qualification: "qualification.yml",
   "package-smoke": "package-smoke.yml",
   "release-candidate": "release-candidate.yml",
@@ -423,6 +425,7 @@ export function validateManifest(manifest) {
     }
   }
   if (manifest.swift !== undefined) validateSwift(manifest, lanes, errors);
+  if (lanes.includes("swift-check") && manifest.swift?.check === undefined) errors.push("lane 'swift-check' requires swift.check");
   if (profile !== "rust-hybrid" && candidate !== undefined) {
     errors.push("candidate is only valid for profile 'rust-hybrid'");
   }
@@ -642,11 +645,32 @@ function validateRegenerate(manifest, lanes, errors) {
 const SWIFT_PRIVATE_MAX_ENTRIES = 4;
 // Lanes whose workflows carry the configure and cleanup steps. package-smoke,
 // publish-npm and publish-package-managers never do (clean-room or credentialed jobs).
-const SWIFT_PRIVATE_LANES = ["ci", "qualification", "release-candidate", "regenerate"];
+const SWIFT_PRIVATE_LANES = ["ci", "qualification", "release-candidate", "regenerate", "swift-check"];
 const SWIFT_PRIVATE_HOST_RE = /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,62})(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]{0,62}))*$/;
 
 function isSwiftPrivateSecretName(value) {
   return typeof value === "string" && /^[A-Za-z_][A-Za-z0-9_]{0,99}$/.test(value) && !/^github_/i.test(value);
+}
+
+// All fields reach shell/YAML literally: reject expressions, whitespace, traversal and option syntax.
+function validateSwiftCheck(check, lanes, errors) {
+  if (check === null || typeof check !== "object" || Array.isArray(check)) {
+    errors.push("swift.check must be an object");
+    return;
+  }
+  const fields = ["runner", "xcodeVersion", "projectDirectory", "spec", "project", "scheme", "xcodegenVersion"];
+  for (const key of Object.keys(check)) if (!fields.includes(key)) errors.push(`unknown swift.check field: ${key}`);
+  if (!lanes.includes("swift-check")) errors.push("swift.check requires lane 'swift-check'");
+  if (!["macos-15", "macos-15-intel", "macos-26"].includes(check.runner)) errors.push("swift.check.runner must be a pinned GitHub-hosted macOS runner: macos-15, macos-15-intel or macos-26");
+  for (const key of ["xcodeVersion", "xcodegenVersion"]) {
+    const pattern = key === "xcodegenVersion" ? /^\d+\.\d+\.\d+$/ : /^\d+\.\d+(?:\.\d+)?$/;
+    if (typeof check[key] !== "string" || !pattern.test(check[key])) errors.push(`swift.check.${key} must be an exact numeric version`);
+  }
+  if (typeof check.projectDirectory !== "string" || !RUST_WORKSPACE_PATH_RE.test(check.projectDirectory)) errors.push("swift.check.projectDirectory must be a safe relative directory or '.'");
+  for (const [key, extension] of [["spec", /\.ya?ml$/], ["project", /\.xcodeproj$/]]) {
+    if (typeof check[key] !== "string" || !GATE_PATH_RE.test(check[key]) || !extension.test(check[key])) errors.push(`swift.check.${key} must be a safe relative ${key === "spec" ? "YAML spec" : "xcodeproj"} path`);
+  }
+  if (typeof check.scheme !== "string" || !/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(check.scheme)) errors.push("swift.check.scheme must be one safe scheme name");
 }
 
 function validateSwift(manifest, lanes, errors) {
@@ -656,8 +680,10 @@ function validateSwift(manifest, lanes, errors) {
     return;
   }
   for (const key of Object.keys(swift)) {
-    if (key !== "privatePackages") errors.push(`unknown swift field: ${key}`);
+    if (key !== "privatePackages" && key !== "check") errors.push(`unknown swift field: ${key}`);
   }
+  if (swift.check !== undefined) validateSwiftCheck(swift.check, lanes, errors);
+  if (swift.privatePackages === undefined && swift.check !== undefined) return;
   const entries = swift.privatePackages;
   if (!Array.isArray(entries) || entries.length === 0 || entries.length > SWIFT_PRIVATE_MAX_ENTRIES) {
     errors.push(`swift.privatePackages must be an array of 1 to ${SWIFT_PRIVATE_MAX_ENTRIES} { host, secret } entries`);
@@ -1945,6 +1971,18 @@ export function buildRenderContext(manifest, repoPath, lane = "ci") {
   // simply ABSENT from the context rather than present-with-undefined, so
   // render.mjs's own `Object.hasOwn` check does the right thing if a
   // template ever references a token this manifest didn't opt into.
+  if (manifest.swift?.check) {
+    const check = manifest.swift.check;
+    Object.assign(context, {
+      SWIFT_CHECK_RUNNER: check.runner,
+      SWIFT_CHECK_XCODE_VERSION: check.xcodeVersion,
+      SWIFT_CHECK_DIRECTORY: check.projectDirectory,
+      SWIFT_CHECK_SPEC: check.spec,
+      SWIFT_CHECK_PROJECT: check.project,
+      SWIFT_CHECK_SCHEME: check.scheme,
+      SWIFT_CHECK_XCODEGEN_VERSION: check.xcodegenVersion,
+    });
+  }
   if (manifest.gate) {
     context.GATE_PATH = manifest.gate.path;
   }

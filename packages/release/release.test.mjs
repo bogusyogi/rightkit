@@ -1614,3 +1614,30 @@ test("a release is refused when the app has no QA lane, naming the rule and how 
   assert.match(`${result.stdout}
 ${result.stderr}`, /RightKit QA is mandatory for every Orthic Labs app, and fixture has no QA lane/);
 });
+
+const SWIFT_CHECK_ONLY = {
+  ...SWIFT_NODE_LANES,
+  lanes: ["swift-check"],
+  regenerate: undefined,
+  swift: { privatePackages: SWIFT_PRIVATE, check: { runner: "macos-15", xcodeVersion: "16.4", projectDirectory: "ios", spec: "project.yml", project: "Widgets.xcodeproj", scheme: "Widgets", xcodegenVersion: "2.44.1" } },
+};
+
+test("swift-check accepts standalone managed workflow with declared read-only Swift credential", () => {
+  assert.deepEqual(validateManifest(SWIFT_CHECK_ONLY).errors, []);
+  const workflows = renderedWorkflows(SWIFT_CHECK_ONLY);
+  assert.deepEqual(jobsNamingSwiftSecret(workflows["swift-check.yml"]), ["swift-check"]);
+  const result = releaseWithManagedWorkflows(SWIFT_CHECK_ONLY, workflows);
+  assert.equal(result.status, 0, result.stderr);
+});
+
+test("swift-check rejects private credential outside shared steps and on arbitrary-ref triggers", () => {
+  const workflows = renderedWorkflows(SWIFT_CHECK_ONLY);
+  for (const trigger of ["workflow_dispatch", "pull_request_target", "workflow_run"]) {
+    const changed = editText(workflows["swift-check.yml"], "  pull_request:", `  ${trigger}:`);
+    assertRefused(SWIFT_CHECK_ONLY, { "swift-check.yml": changed }, new RegExp(trigger), trigger);
+  }
+  const changed = editJob(workflows["swift-check.yml"], "swift-check", (source) => source + "\n      - run: echo ${{ secrets.SWIFT_PRIVATE_TOKEN }}\n");
+  assertRefused(SWIFT_CHECK_ONLY, { "swift-check.yml": changed }, SWIFT_ENV_LINE, "secret in run");
+  const extraJob = workflows["swift-check.yml"] + "\n  other:\n    runs-on: macos-15\n    steps:\n      - name: Configure private Swift package access\n        env:\n          RIGHT_GIT_PRIVATE_TOKEN_0: ${{ secrets.SWIFT_PRIVATE_TOKEN }}\n        run: true\n";
+  assertRefused(SWIFT_CHECK_ONLY, { "swift-check.yml": extraJob }, /job 'other'/, "wrong job");
+});

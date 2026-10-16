@@ -19,6 +19,7 @@
       "items": {
         "enum": [
           "ci",
+          "swift-check",
           "qualification",
           "package-smoke",
           "release-candidate",
@@ -122,9 +123,55 @@
     ,"swift": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["privatePackages"],
-      "description": "Opt-in read access to private Swift package mirrors. Renders a configure step before the first build or test step and an always-run cleanup step after the last one, in the ci job, the qualification job, the release-candidate candidate job, the regenerate job and the parallel dev-artifact-mac job. Needs at least one of the lanes ci, qualification, release-candidate or regenerate. Unset renders nothing.",
+      "anyOf": [{ "required": ["privatePackages"] }, { "required": ["check"] }],
+      "description": "Opt-in read access to private Swift package mirrors. Renders a configure step before the first build or test step and an always-run cleanup step after the last one, in the ci job, the qualification job, the release-candidate candidate job, the regenerate job and the parallel dev-artifact-mac job. Needs at least one of the lanes ci, qualification, release-candidate, regenerate or swift-check. swift.check configures native iOS XCTest in the swift-check lane. Unset renders nothing.",
       "properties": {
+        "check": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "runner",
+            "xcodeVersion",
+            "projectDirectory",
+            "spec",
+            "project",
+            "scheme",
+            "xcodegenVersion"
+          ],
+          "properties": {
+            "runner": {
+              "enum": [
+                "macos-15",
+                "macos-15-intel",
+                "macos-26"
+              ]
+            },
+            "xcodeVersion": {
+              "type": "string",
+              "pattern": "^\\d+\\.\\d+(?:\\.\\d+)?$"
+            },
+            "xcodegenVersion": {
+              "type": "string",
+              "pattern": "^\\d+\\.\\d+\\.\\d+$"
+            },
+            "projectDirectory": {
+              "type": "string",
+              "pattern": "^(?:\\.|(?!.*\\.\\.)(?!.*\\s)[A-Za-z0-9][A-Za-z0-9._/-]*)$"
+            },
+            "spec": {
+              "type": "string",
+              "pattern": "^(?!.*\\.\\.)(?!.*\\s)[A-Za-z0-9][A-Za-z0-9._/-]*\\.ya?ml$"
+            },
+            "project": {
+              "type": "string",
+              "pattern": "^(?!.*\\.\\.)(?!.*\\s)[A-Za-z0-9][A-Za-z0-9._/-]*\\.xcodeproj$"
+            },
+            "scheme": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
+            }
+          }
+        },
         "privatePackages": {
           "type": "array",
           "minItems": 1,

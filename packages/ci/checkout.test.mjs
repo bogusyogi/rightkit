@@ -11,6 +11,7 @@ const BASE = {
   schemaVersion: 1,
   compile: "github-actions-only",
   lanes: [...KNOWN_LANES],
+  swift: { check: { runner: "macos-15", xcodeVersion: "16.4", projectDirectory: "ios", spec: "project.yml", project: "Widgets.xcodeproj", scheme: "Widgets", xcodegenVersion: "2.44.1" } },
   matrix: { os: ["ubuntu-latest", "macos-latest", "windows-latest"], node: ["22.13", "24"] },
   packageManager: "pnpm@11.24.0",
   publish: {
