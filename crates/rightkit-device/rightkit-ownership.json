@@ -8,7 +8,7 @@
         {
           "id": "tauri.rs.standard-command-fn",
           "type": "source",
-          "pattern": "\\bfn\\s+(?:secure_update_license_(?:get|set|delete)|secure_device_id_get_or_create)\\s*\\((?![\\s\\S]{0,800}?\\b(?:rightkit_device|rightkit_tauri|SecureService|DeviceService|AuthorizationService)\\b)",
+          "pattern": "\\bfn\\s+(?:secure_update_license_(?:get|set|delete)|secure_device_id_get_or_create)\\s*\\((?![\\s\\S]{0,800}?\\b(?:rightkit_device|rightkit_tauri|SecureService|DeviceService|AuthorizationService)\\b|[\\s\\S]{0,800}?\\b[A-Z][A-Z0-9_]*SERVICE\\s*\\.\\s*(?:get_or_create|get|set|delete)\\s*\\()",
           "codeOnly": true,
           "extensions": [
             ".rs"
