@@ -699,6 +699,241 @@ pub fn embedding_gemma_q4_spec() -> ModelSpec {
     }
 }
 
+// ---------------------------------------------------------------------------
+// EmbeddingGemma 2, suite model: Core ML build (macOS) and E40 fp16 DirectML
+// export (Windows). Both are per-file bundles pinned by size and SHA-256.
+// ---------------------------------------------------------------------------
+
+/// Expands one table of `(path, url, sha256, bytes)` rows into the matching
+/// `SpecFile` and `RemoteFile` constants, so the two can never disagree.
+macro_rules! pinned_files {
+    ($spec:ident, $remote:ident; $(($path:literal, $url:expr, $sha:literal, $size:literal)),+ $(,)?) => {
+        pub const $spec: &[SpecFile] = &[
+            $(SpecFile { path: $path, sha256: Some($sha), size: Some($size) }),+
+        ];
+        pub const $remote: &[RemoteFile] = &[
+            $(RemoteFile { path: $path, url: Some($url), sha256: Some($sha), size: Some($size) }),+
+        ];
+    };
+}
+
+/// Store id and entry dir name of the Core ML build. Equal to
+/// `rightkit_embed::EMBEDDINGGEMMA2_COREML_MODEL_ID` (no dependency on rightkit-embed).
+pub const EMBEDDINGGEMMA2_COREML_ID: &str = "embeddinggemma2-coreml";
+
+/// Hugging Face commit of `FluidInference/embeddinggemma-2-coreml` every Core ML URL and
+/// pin below was taken from (repository `sha` and the tree listing at that commit, 2026-10-16).
+pub const EMBEDDINGGEMMA2_COREML_COMMIT: &str = "3f978ddf92cac9aa07eb2dcf6eb36cf450f3dba4";
+
+macro_rules! coreml_url {
+    ($path:literal) => {
+        concat!(
+            "https://huggingface.co/FluidInference/embeddinggemma-2-coreml/resolve/",
+            "3f978ddf92cac9aa07eb2dcf6eb36cf450f3dba4/",
+            $path
+        )
+    };
+}
+
+// The text encoder only. The repository also holds `EmbeddingGemma2Audio.mlpackage` (561 MB),
+// `EmbeddingGemma2Vision.mlpackage` (292 MB), `position_embeddings.f16` and a README; none is
+// needed for text embeddings and none is listed. An `.mlpackage` is a directory: its three
+// files are listed by their path inside it. LFS files carry the SHA-256 the Hub records
+// (`lfs.oid`); `Manifest.json` and `config.json` are not LFS, so their SHA-256 was computed
+// over the bytes served at the commit.
+// Total 584,748,275 bytes (557.7 MiB).
+pinned_files! {
+    EMBEDDINGGEMMA2_COREML_FILES, EMBEDDINGGEMMA2_COREML_REMOTE_FILES;
+    (
+        "EmbeddingGemma2Text.mlpackage/Manifest.json",
+        coreml_url!("EmbeddingGemma2Text.mlpackage/Manifest.json"),
+        "83eace80b69b46f8415af620ba1b40d7c490d00f7c00ba9dedd2e29da6e9ac19",
+        617
+    ),
+    (
+        "EmbeddingGemma2Text.mlpackage/Data/com.apple.CoreML/model.mlmodel",
+        coreml_url!("EmbeddingGemma2Text.mlpackage/Data/com.apple.CoreML/model.mlmodel"),
+        "0df9aca02807cf490db6d4f1c68607a8c7f486ad23b376d1968fd3be5eb14677",
+        7_323_423
+    ),
+    (
+        "EmbeddingGemma2Text.mlpackage/Data/com.apple.CoreML/weights/weight.bin",
+        coreml_url!("EmbeddingGemma2Text.mlpackage/Data/com.apple.CoreML/weights/weight.bin"),
+        "75b97ab036ca87eae60560c4034a63d604201498dc4b6f6971dd0b1e4558d61f",
+        276_815_424
+    ),
+    (
+        "embeddings.bf16",
+        coreml_url!("embeddings.bf16"),
+        "56ebbdbfd706c827f3fae1d97aa39135c7ddc0f1e6d9b12f8565f84bbfbda877",
+        268_435_456
+    ),
+    (
+        "tokenizer.json",
+        coreml_url!("tokenizer.json"),
+        "4d777ef5bdc1aa36227abdfb77c3e49e7b9c892d16e1b6bda41c393504828be4",
+        32_170_510
+    ),
+    (
+        "config.json",
+        coreml_url!("config.json"),
+        "30668aba89f54a200a3fa38913f21e2a2f18aba7215de67c1806542a75b9629b",
+        2_845
+    ),
+}
+
+/// Total bytes of [`EMBEDDINGGEMMA2_COREML_FILES`].
+pub const EMBEDDINGGEMMA2_COREML_SIZE: u64 = 584_748_275;
+
+/// EmbeddingGemma 2 Core ML shared-store spec (text encoder, macOS only; Apache-2.0 per the
+/// repository card). Reach it with this function: not in [`base_catalog`] or [`add_ons`].
+/// Download URLs are live (Hugging Face, pinned to a commit). Running the model needs a Core ML
+/// binding that `rightkit-embed` does not have yet (see its README), so this entry only
+/// stages the files.
+#[cfg(target_os = "macos")]
+pub fn embedding_gemma2_coreml_spec() -> ModelSpec {
+    ModelSpec {
+        id: EMBEDDINGGEMMA2_COREML_ID,
+        label: "EmbeddingGemma 2 Core ML embedding model",
+        tier: ModelTier::AddOn,
+        entitlement: false,
+        version: "3f978dd",
+        size_hint_bytes: EMBEDDINGGEMMA2_COREML_SIZE,
+        files: EMBEDDINGGEMMA2_COREML_FILES,
+        source: SpecSource::Files(EMBEDDINGGEMMA2_COREML_REMOTE_FILES),
+        legacy_dirs: &[],
+        retired_legacy_paths: &[],
+        retired_store_ids: &[],
+    }
+}
+
+/// Store id and entry dir name of the Windows E40 export. Equal to
+/// `rightkit_embed::EMBEDDINGGEMMA2_E40_MODEL_ID`.
+pub const EMBEDDINGGEMMA2_E40_DML_ID: &str = "embeddinggemma2-e40-dml";
+
+/// Revision label of the E40 export in the route path and the manifest version: the pinned
+/// upstream source revision (`onnx-community/embeddinggemma-2-ONNX` @ `daa72c5`) and the
+/// variant. Scripts: `scripts/embed-export/eg2-directml/README.md`.
+pub const EMBEDDINGGEMMA2_E40_DML_REVISION: &str = "e40-daa72c5";
+
+// ROUTE PENDING. The URLs below follow the Parakeet layout on the model worker
+// (`<MODEL_DOWNLOAD_BASE>/<model>/<...>/<file>`), here
+// `/embeddinggemma2-e40-dml/e40-daa72c5/<file>`. The worker
+// (`rightsites/workers/heardright-models`) has no such route and the files have not been
+// uploaded, so a download answers 404 until both exist. The pins are real: they are the
+// expected-output table of the export README (one reproducible build) plus the upstream
+// `tokenizer.json`. The route is public-read like the OCR files (no bearer), which is also
+// still to be decided with the worker.
+macro_rules! e40_url {
+    ($file:literal) => {
+        concat!(
+            "https://heardright-models.adrdsouza.workers.dev",
+            "/embeddinggemma2-e40-dml/e40-daa72c5/",
+            $file
+        )
+    };
+}
+
+// Five fixed-length graphs (batch 1) sharing `model.onnx_data`, the fp16 token table
+// for host-side lookup, and the tokenizer. `manifest.json` (build record, not byte-stable
+// because it holds the build time) is not part of the bundle contract and is not listed.
+// Total 592,894,933 bytes.
+pinned_files! {
+    EMBEDDINGGEMMA2_E40_DML_FILES, EMBEDDINGGEMMA2_E40_DML_REMOTE_FILES;
+    (
+        "model_32.onnx",
+        e40_url!("model_32.onnx"),
+        "8e1aaddd28ca5437e2da0da5f9dac5ea54766dc26b0bb760f104f5963c3bb418",
+        416_097
+    ),
+    (
+        "model_64.onnx",
+        e40_url!("model_64.onnx"),
+        "bcc8b63ea05c9963130cd2995be013f8dd516e40fc6bdac81b1313ea6ca5c2cc",
+        416_179
+    ),
+    (
+        "model_128.onnx",
+        e40_url!("model_128.onnx"),
+        "7afb92bf83831e3c496a993555f82f85afa9b107b77ef13297aa12d2f9d7e1f8",
+        417_636
+    ),
+    (
+        "model_256.onnx",
+        e40_url!("model_256.onnx"),
+        "1874b05842faf3c9b3badc6261765d95ad809a0ec2afc6f7dbb647aa161f8ce0",
+        417_638
+    ),
+    (
+        "model_512.onnx",
+        e40_url!("model_512.onnx"),
+        "f6fd91519cf1023da0adcedeab9fb7c77b01913f84ed647bb79d7f839994b741",
+        417_641
+    ),
+    (
+        "model.onnx_data",
+        e40_url!("model.onnx_data"),
+        "c398505134b2bb717becc109c00408ecd9faef0a8418981a549653aea6bb73ac",
+        290_203_648
+    ),
+    (
+        "embed_tokens.f16.npy",
+        e40_url!("embed_tokens.f16.npy"),
+        "b574d03a53a4cfbcf76d07dc291d2ffe614ca7720c79cb655ec338f583ee53e8",
+        268_435_584
+    ),
+    (
+        "tokenizer.json",
+        e40_url!("tokenizer.json"),
+        "4d777ef5bdc1aa36227abdfb77c3e49e7b9c892d16e1b6bda41c393504828be4",
+        32_170_510
+    ),
+}
+
+/// Total bytes of [`EMBEDDINGGEMMA2_E40_DML_FILES`].
+pub const EMBEDDINGGEMMA2_E40_DML_SIZE: u64 = 592_894_933;
+
+/// EmbeddingGemma 2 E40 fp16 DirectML shared-store spec (Windows only). Reach it with this
+/// function: not in [`base_catalog`] or [`add_ons`]. The download route is pending (see
+/// [`EMBEDDINGGEMMA2_E40_DML_REVISION`] and the comment on the URLs): `can_download()` is true
+/// because the URLs are set, but they are not served yet. Placing the eight files byte-identical
+/// in the entry dir adopts them without a download.
+#[cfg(windows)]
+pub fn embedding_gemma2_e40_dml_spec() -> ModelSpec {
+    ModelSpec {
+        id: EMBEDDINGGEMMA2_E40_DML_ID,
+        label: "EmbeddingGemma 2 DirectML embedding model",
+        tier: ModelTier::AddOn,
+        entitlement: false,
+        version: EMBEDDINGGEMMA2_E40_DML_REVISION,
+        size_hint_bytes: EMBEDDINGGEMMA2_E40_DML_SIZE,
+        files: EMBEDDINGGEMMA2_E40_DML_FILES,
+        source: SpecSource::Files(EMBEDDINGGEMMA2_E40_DML_REMOTE_FILES),
+        legacy_dirs: &[],
+        retired_legacy_paths: &[],
+        retired_store_ids: &[],
+    }
+}
+
+/// The EmbeddingGemma 2 accelerator-bundle specs this platform can hold: the Core ML build on
+/// macOS, the E40 DirectML export on Windows, none elsewhere.
+#[cfg(target_os = "macos")]
+pub fn embedding_gemma2_platform_specs() -> Vec<ModelSpec> {
+    vec![embedding_gemma2_coreml_spec()]
+}
+
+/// The EmbeddingGemma 2 accelerator-bundle specs this platform can hold (Windows: E40).
+#[cfg(windows)]
+pub fn embedding_gemma2_platform_specs() -> Vec<ModelSpec> {
+    vec![embedding_gemma2_e40_dml_spec()]
+}
+
+/// The EmbeddingGemma 2 accelerator-bundle specs this platform can hold (none here).
+#[cfg(not(any(target_os = "macos", windows)))]
+pub fn embedding_gemma2_platform_specs() -> Vec<ModelSpec> {
+    Vec::new()
+}
+
 /// What every install needs on this platform: the base set, in dependency-free order.
 /// Onboarding, setup-complete checks and size estimates iterate this. Every entry carries
 /// per-file size and SHA-256 pins (the `builtin_catalog_pins_every_file` test enforces it).

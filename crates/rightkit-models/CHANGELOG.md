@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.4.0
+
+- EmbeddingGemma 2 accelerator bundles (gap ledger rows 186, 209), both per-file, size and SHA-256 pinned, neither in `base_catalog()`, `add_ons()` or `all_models()`:
+  - `catalog::embedding_gemma2_coreml_spec()` (macOS only), store id `embeddinggemma2-coreml`: the text package of `FluidInference/embeddinggemma-2-coreml` at commit `3f978ddf92cac9aa07eb2dcf6eb36cf450f3dba4` (`EmbeddingGemma2Text.mlpackage` as its three files, `embeddings.bf16`, `tokenizer.json`, `config.json`; 584,748,275 bytes). URLs are Hugging Face `resolve/<commit>/<path>` and live. The audio and vision packages are not listed.
+  - `catalog::embedding_gemma2_e40_dml_spec()` (Windows only), store id `embeddinggemma2-e40-dml`, revision `e40-daa72c5`: the five fixed-length graphs, `model.onnx_data`, `embed_tokens.f16.npy` and `tokenizer.json` (592,894,933 bytes), pins from `scripts/embed-export/eg2-directml/README.md`. **Route pending:** URLs are `<MODEL_DOWNLOAD_BASE>/embeddinggemma2-e40-dml/e40-daa72c5/<file>`; the worker has no such route and nothing is uploaded, so a download fails until both exist. Adoption of hand-placed files works.
+  - The pin tables (`EMBEDDINGGEMMA2_COREML_FILES`, `..._REMOTE_FILES`, `EMBEDDINGGEMMA2_E40_DML_FILES`, `..._REMOTE_FILES`, sizes, ids, commit, revision) exist on every platform; `embedding_gemma2_platform_specs()` returns the spec for this platform (empty elsewhere).
+- Tests: `tests/embedding_gemma2_bundles.rs`.
+- Written, unverified: nothing was compiled or run for this change. The Core ML pins come from the Hub tree listing (LFS `oid` is SHA-256) except `Manifest.json` and `config.json`, hashed from the served bytes; no large file was downloaded and re-hashed.
+
 ## 0.3.2
 
 - Suite root resolves through `rightkit_daemon::Suite::resolve`, the rule every Right Suite crate uses, instead of its own copy. `RIGHTKIT_SUITE_ROOT` (what an app's test-mode build sets) is now honoured, as are `RIGHT_SUITE_DIR` and `ORTHIC_SHARED_DIR`; before, only the last two were, so models code could reach the real per-user folder while the rest of an isolated test run was redirected. Empty or whitespace-only values count as unset.
