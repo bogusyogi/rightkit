@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-asr"
-version = "0.2.0"
+version = "0.2.1"
 edition = "2021"
 rust-version = "1.98.0"
 publish = true
@@ -36,7 +36,7 @@ realfft = "3"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 libloading = "0.9"
-rightkit-ort = { path = "../rightkit-ort", version = "0.2.2", features = ["ndarray", "half"] }
+rightkit-onnx = { path = "../rightkit-onnx", version = "0.2.2", features = ["ndarray", "half"] }
 rightkit-transcript = { version = "0.3.0", path = "../rightkit-transcript" }
 rightkit-vad = { version = "0.1.0", path = "../rightkit-vad", default-features = false }
 # Optional since 0.2.0: only the `whisper-tokenizers` feature pulls the HF tokenizers
@@ -51,7 +51,7 @@ objc2-foundation = "0.3"
 [dev-dependencies]
 # The e2e_whisper test drives the Silero scorer, which rightkit-vad now gates behind `silero`.
 rightkit-vad = { version = "0.1.0", path = "../rightkit-vad", features = ["silero"] }
-rightkit-media = { path = "../rightkit-media", version = "0.2.3" }
+rightkit-ffmpeg = { path = "../rightkit-ffmpeg", version = "0.2.3" }
 rightkit-speech-client = { path = "../rightkit-speech-client", version = "0.3.3" }
 
 [features]
@@ -68,20 +68,100 @@ whisper-tokenizers = ["dep:tokenizers"]
 ort-defaults = []
 # Opt-in: forward ONNX Runtime's own log lines into `tracing` (process-wide through feature
 # unification; thousands of INFO lines per model load).
-ort-tracing = ["rightkit-ort/tracing"]
-# Build-time ONNX Runtime fetch is opt-in (inventory 1.1); the suite loads ORT through rightkit-ort.
-ort-download = ["rightkit-ort/download-binaries", "rightkit-ort/tls-native", "rightkit-ort/copy-dylibs"]
-cuda = ["rightkit-ort/cuda"]
-tensorrt = ["rightkit-ort/tensorrt"]
-coreml = ["rightkit-ort/coreml"]
-directml = ["rightkit-ort/directml"]
-migraphx = ["rightkit-ort/migraphx"]
-openvino = ["rightkit-ort/openvino"]
-webgpu = ["rightkit-ort/webgpu"]
-nnapi = ["rightkit-ort/nnapi"]
+ort-tracing = ["rightkit-onnx/tracing"]
+# Build-time ONNX Runtime fetch is opt-in (inventory 1.1); the suite loads ORT through rightkit-onnx.
+ort-download = ["rightkit-onnx/download-binaries", "rightkit-onnx/tls-native", "rightkit-onnx/copy-dylibs"]
+cuda = ["rightkit-onnx/cuda"]
+tensorrt = ["rightkit-onnx/tensorrt"]
+coreml = ["rightkit-onnx/coreml"]
+directml = ["rightkit-onnx/directml"]
+migraphx = ["rightkit-onnx/migraphx"]
+openvino = ["rightkit-onnx/openvino"]
+webgpu = ["rightkit-onnx/webgpu"]
+nnapi = ["rightkit-onnx/nnapi"]
 sortformer = []
 multitalker = ["sortformer"]
 cohere = ["whisper-tokenizers"]
-# rightkit-ort always loads ONNX Runtime dynamically; kept so existing feature lists resolve.
+# rightkit-onnx always loads ONNX Runtime dynamically; kept so existing feature lists resolve.
 load-dynamic = []
-preload-dylibs = ["rightkit-ort/preload-dylibs"]
+preload-dylibs = ["rightkit-onnx/preload-dylibs"]
+
+[package.metadata.rightkit]
+continuous = "held-resource"
+
+[[package.metadata.rightkit.resources]]
+api = "ModelConfig::new"
+file = "src/execution.rs"
+holds = ["thread", "memory"]
+scale = "no resource of its own: ModelConfig carries the intra-op and inter-op thread counts, execution provider and graph optimization level that apply_to_session_builder applies to every ORT session the model types in this crate build; the threads and arenas live in those sessions"
+release = "Drop of the model or engine that was built from it"
+
+[[package.metadata.rightkit.resources]]
+api = "ParakeetModel::from_pretrained"
+file = "src/model.rs"
+holds = ["memory", "thread"]
+scale = "one ONNX session: model weights, ORT arenas and the configured intra-op and inter-op threads; fixed per ParakeetModel, independent of audio length"
+release = "Drop"
+
+[[package.metadata.rightkit.resources]]
+api = "CohereModel::from_pretrained"
+file = "src/model_cohere.rs"
+holds = ["memory", "thread"]
+scale = "two ONNX sessions (encoder and merged decoder): weights, ORT arenas and the configured threads; fixed per model, independent of audio length. CohereModel is pub(crate); the public holder is CohereASR (cohere.rs)"
+release = "Drop of the CohereASR that owns it"
+
+[[package.metadata.rightkit.resources]]
+api = "ParakeetEOUModel::from_pretrained"
+file = "src/model_eou.rs"
+holds = ["memory", "thread"]
+scale = "two ONNX sessions (encoder and decoder-joint): weights, ORT arenas and the configured threads, plus a fixed-size EncoderCache per stream; fixed per model, independent of audio length"
+release = "Drop"
+
+[[package.metadata.rightkit.resources]]
+api = "MultitalkerModel::from_pretrained"
+file = "src/model_multitalker.rs"
+holds = ["memory", "thread"]
+scale = "two ONNX sessions (encoder with speaker-target inputs, and decoder-joint): weights, ORT arenas and the configured threads, plus a fixed-size MultitalkerEncoderCache; fixed per model, independent of audio length. MultitalkerModel is pub(crate); the public holder is MultitalkerASR (multitalker.rs)"
+release = "Drop of the MultitalkerASR that owns it"
+
+[[package.metadata.rightkit.resources]]
+api = "NemotronModel::from_pretrained"
+file = "src/model_nemotron.rs"
+holds = ["memory", "thread"]
+scale = "two ONNX sessions (encoder and decoder-joint): weights, ORT arenas and the configured threads, plus a fixed-size NemotronEncoderCache per stream; fixed per model, independent of audio length"
+release = "Drop"
+
+[[package.metadata.rightkit.resources]]
+api = "ParakeetTDTModel::from_pretrained"
+file = "src/model_tdt.rs"
+holds = ["memory", "thread"]
+scale = "two ONNX sessions (encoder and decoder-joint): weights, ORT arenas and the configured threads; fixed per model, independent of audio length"
+release = "Drop"
+
+[[package.metadata.rightkit.resources]]
+api = "TransducerModel"
+file = "src/model_transducer.rs"
+holds = ["memory", "thread"]
+scale = "two ONNX sessions (encoder and decoder-joint): weights, ORT arenas and the configured threads, plus optional context-bias tables; fixed per TransducerModel, independent of audio length"
+release = "Drop"
+
+[[package.metadata.rightkit.resources]]
+api = "ParakeetUnifiedModel::from_pretrained"
+file = "src/model_unified.rs"
+holds = ["memory", "thread"]
+scale = "two ONNX sessions (encoder and decoder-joint): weights, ORT arenas and the configured threads; fixed per model, independent of audio length"
+release = "Drop"
+
+[[package.metadata.rightkit.resources]]
+api = "Sortformer::new"
+file = "src/sortformer.rs"
+holds = ["memory", "thread"]
+scale = "one ONNX session plus streaming state: speaker cache, FIFO, silence embedding and mel basis sized by the model's chunk, FIFO and speaker-cache lengths, and an audio buffer that feed() drains to less than one window per call; fixed per Sortformer, independent of total audio fed"
+release = "Drop"
+
+[[package.metadata.rightkit.resources]]
+api = "Transducer::load"
+file = "src/transducer.rs"
+holds = ["memory", "thread"]
+scale = "the TransducerModel sessions (encoder and decoder-joint) plus an optional mel_nemo.onnx preprocessor session pinned to the CPU provider, with vocabulary and decoder tables; fixed per Transducer, independent of audio length"
+release = "Drop"

@@ -249,7 +249,7 @@ test('new-manifest keyword advice respects description, whole tokens, owner syno
   const options = { readFile: missingManifest, cwd: APPS_ROOT + '/acme' };
   assertAdvice(manifestWrite('package.json', '{"description":"OAuth client"}', '', options), /rightkit-oauth/);
   assertAdvice(manifestWrite('package.json', '{"name":"acme-model-store"}', '', options), /rightkit-models/);
-  assertAdvice(manifestWrite('package.json', '{"name":"acme-keychain"}', '', options), /rightkit-secrets/);
+  assertAdvice(manifestWrite('package.json', '{"name":"acme-keychain"}', '', options), /rightkit-credentials/);
   assert.deepEqual(manifestWrite('package.json', '{"name":"acme-oauthish"}', '', options), { decision: 'allow' });
   assert.deepEqual(manifestWrite('package.json', '{"name":"acme-oauth-client"}', '', { readFile: () => '{}' }), { decision: 'allow' });
   assert.deepEqual(manifestWrite('package.json', '{"name":"acme-oauth-client"}', '', { ...options, cwd: 'D:/Claude/rightkit/packages/new' }), { decision: 'allow' });
@@ -403,13 +403,13 @@ const deny = (decision) => decision.hookSpecificOutput?.permissionDecision === '
 
 test('allowlist: baseline, global, RightKit and first-party path dependencies are allowed; a new dependency is denied from trusted copy', () => {
   useAllowlist({ trust: trustWith() });
-  for (const dependencies of [{ lodash: '4' }, { typescript: '5' }, { '@rightkit/updates': '1' }, { 'rightkit-thing': '1' }, { local: 'file:../local' }, { shared: 'workspace:*' }]) {
+  for (const dependencies of [{ lodash: '4' }, { typescript: '5' }, { '@rightkit/app-update': '1' }, { 'rightkit-thing': '1' }, { local: 'file:../local' }, { shared: 'workspace:*' }]) {
     assert.deepEqual(writePackage(dependencies), { decision: 'allow' }, JSON.stringify(dependencies));
   }
   const denied = writePackage({ lodash: '4', leftpad: '1' });
   assert.ok(deny(denied));
   assert.match(denied.hookSpecificOutput.permissionDecisionReason, /leftpad/);
-  assert.match(denied.hookSpecificOutput.permissionDecisionReason, /ownership-dependency-allowlist\.json; Adrian activates it via trust-sync/);
+  assert.match(denied.hookSpecificOutput.permissionDecisionReason, /ownership-dependency-allowlist\.json \(advisory until protected trust carries it; trust-sync is retired\)/);
 });
 
 test('allowlist: source kind matters (git needs an explicit #git entry) and existing dependencies are never re-flagged', () => {
@@ -446,7 +446,7 @@ test('allowlist: shipped copy is advisory only; trust without an allowlist (unsy
     useAllowlist({ trust, shipped: allowlist });
     const advised = writePackage({ leftpad: '1' });
     assert.ok(!deny(advised));
-    assert.match(advised.hookSpecificOutput.additionalContext, /leftpad.*advisory until then/s);
+    assert.match(advised.hookSpecificOutput.additionalContext, /leftpad.*advisory until protected trust carries the allowlist/s);
     assert.deepEqual(writePackage({ lodash: '4' }), { decision: 'allow' });
   }
   useAllowlist({ trust: { schema: 1, repositories: [], dependencyAllowlist: { schema: 9 } }, shipped: allowlist });

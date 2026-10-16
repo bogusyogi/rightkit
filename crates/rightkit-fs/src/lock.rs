@@ -479,7 +479,7 @@ impl Drop for FileLock {
 /// Unix locks are POSIX record locks, not `flock`.
 ///
 /// `flock` belongs to the open file description. A child forked by another thread (for
-/// example a `rightkit-process` spawn with `pre_exec`) inherits the descriptor and keeps the
+/// example a `rightkit-child-process` spawn with `pre_exec`) inherits the descriptor and keeps the
 /// lock alive until it execs. Record locks belong to the process and are not inherited across
 /// `fork`.
 ///

@@ -62,12 +62,15 @@ public enum LicenseError: Error, Equatable, Sendable {
     case wrongApp(expected: String, actual: String)
     case wrongDevice(expected: String, actual: String)
     case expired(expiresAt: Int, now: Int)
+    case issuedInTheFuture(issuedAt: Int, now: Int)
     case unsupportedVersion(Int)
     case malformedLeaseSignature
     case badLeaseSignature
     case invalidResponse
     case serverStatus(Int, String)
     case transport(String)
+    /// The stored device id is empty or not valid UTF-8. Raised by `requireDeviceID`; the legacy `deviceID()` replaces it.
+    case corruptDeviceID
 }
 
 extension LicenseError: LocalizedError {
@@ -79,11 +82,13 @@ extension LicenseError: LocalizedError {
         case let .wrongApp(expected, actual): return "License belongs to \(actual), not \(expected)."
         case let .wrongDevice(expected, actual): return "License belongs to \(actual), not \(expected)."
         case let .expired(expiresAt, now): return "License expired at \(expiresAt) (now \(now))."
+        case .issuedInTheFuture: return "The license issue time is later than the device clock."
         case let .unsupportedVersion(version): return "License version \(version) is unsupported."
         case .malformedLeaseSignature: return "License lease signature is missing or malformed."
         case .invalidResponse: return "License server returned an unreadable response."
         case let .serverStatus(status, message): return message.isEmpty ? "License server returned HTTP \(status)." : message
         case let .transport(message): return message
+        case .corruptDeviceID: return "The stored device identifier is corrupt."
         }
     }
 }
@@ -101,6 +106,9 @@ public struct LicenseVerifier: Sendable {
             throw LicenseError.malformedPublicKey
         }
     }
+
+    /// Mirrors Rust `CLOCK_ROLLBACK_TOLERANCE_SECS`.
+    public static let clockSkewToleranceSeconds = 300
 
     /// Token schema versions accepted by default: only v2, the current signer's format.
     public static let defaultAcceptedVersions: Set<Int> = [2]
@@ -140,10 +148,13 @@ public struct LicenseVerifier: Sendable {
         guard payload.device_id == deviceId else {
             throw LicenseError.wrongDevice(expected: deviceId, actual: payload.device_id)
         }
-        // Behaviour extracted from HeardRight, deliberately: `exp` is inclusive, and `iat` is NOT
-        // enforced. Adding a not-yet-valid check here would reject, on a slightly fast clock, tokens
-        // the shipping app accepts — an extraction is not the place to change what a licence means.
-        guard now <= payload.exp else { throw LicenseError.expired(expiresAt: payload.exp, now: now) }
+        // Parity with Rust rightkit-license: `exp` is exclusive (`now < exp`, lifecycle.rs live check), and
+        // `iat` may lead the clock by at most CLOCK_ROLLBACK_TOLERANCE_SECS (300s, lifecycle.rs
+        // `now + tolerance < iat` rejects).
+        guard now < payload.exp else { throw LicenseError.expired(expiresAt: payload.exp, now: now) }
+        guard now + LicenseVerifier.clockSkewToleranceSeconds >= payload.iat else {
+            throw LicenseError.issuedInTheFuture(issuedAt: payload.iat, now: now)
+        }
 
         return LicenseClaims(
             version: payload.v,

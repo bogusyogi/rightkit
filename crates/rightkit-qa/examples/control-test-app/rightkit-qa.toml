@@ -1,7 +1,6 @@
-# Config for rightkit-control's standalone test app (the UI proof target).
+# Config for rightkit-qa's standalone test app (the UI proof target).
 app = "control-test-app"
 app_root = "."
-evidence_dir = ".cache/rightkit-qa"
 scenarios = ["scenarios"]
 
 [ui]

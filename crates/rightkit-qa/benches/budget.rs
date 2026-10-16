@@ -9,7 +9,7 @@
 //! Run: `rightkit cargo bench -p rightkit-qa --bench budget`
 //! Optional: `-- <commands> <idle_seconds>` (defaults 10000 and 30).
 
-use rightkit_process::{observe_idle, process_usage, BudgetLabels};
+use rightkit_child_process::{observe_idle, process_usage, BudgetLabels};
 use rightkit_qa::engine::{CliOptions, EngineTarget};
 use rightkit_qa::process::Tracker;
 use serde_json::{json, Value};

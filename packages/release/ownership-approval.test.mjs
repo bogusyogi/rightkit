@@ -100,7 +100,7 @@ test("glob paths, unverified tracking, and missing second-host enrollment fail",
   assert.match(verifyException(signed(), { ...context, trust: reusedKey }).problems.join(" "), /distinct/);
 });
 test("protected scanner and catalog floors reject downgrade and accept current versions", () => {
-  assert.deepEqual(validateOwnershipFloor(trust, { scannerVersion: "2", catalogVersion: "4" }), { ok: true, problems: [] });
+  assert.deepEqual(validateOwnershipFloor(trust, { scannerVersion: "2", catalogVersion: "4" }), { ok: true, problems: [], warnings: [] });
   assert.equal(validateOwnershipFloor(trust, { scannerVersion: "0.9", catalogVersion: "4" }).ok, false);
   assert.equal(validateOwnershipFloor(trust, { scannerVersion: "2", catalogVersion: "2" }).ok, false);
   assert.match(validateOwnershipFloor(trust, { scannerVersion: "2" }).problems.join(" "), /catalog version missing/);

@@ -173,6 +173,7 @@ impl BrowserPage {
         inner: Page,
         upload_root: Option<PathBuf>,
         guard: Arc<Guard>,
+        fixture_fetch_owner: bool,
     ) -> Result<Self> {
         let console = Arc::new(Mutex::new(Vec::new()));
         let mut pumps = Vec::new();
@@ -246,7 +247,7 @@ impl BrowserPage {
             .map_err(cdp)?;
         let blocked = Arc::new(StdMutex::new(Vec::new()));
         let intercept = Arc::new(InterceptStats::default());
-        if !guard.network.unrestricted {
+        if !guard.network.unrestricted && !fixture_fetch_owner {
             // Pause every request (document, redirect hops, subresources) and
             // decide before it leaves the browser. Enabled before any navigation.
             let mut paused = inner

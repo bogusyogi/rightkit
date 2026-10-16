@@ -8,7 +8,7 @@
 //! Act through an input ladder that never goes up a tier unless the caller
 //! allowed it and records which tier ran:
 //!   1. semantic AX / UIA action (no input events)
-//!   2. in-app control channel (`rightkit-control`, over `rightkit-service`)
+//!   2. in-app control channel (the `in_app::InApp` trait, implemented by the caller)
 //!   3. per-pid / per-window addressed events (never the global queue)
 //!   4. foreground input, only with explicit opt-in
 //!
@@ -20,6 +20,13 @@
 //! caller's journal; counters are content-free; nothing is uploaded.
 //! Product policy (dictation, command classification, pill UI) stays in the product.
 //!
+//! Outside the engine: [`control`] is the EFF-001 effect gate, the PTY-002 input lease
+//! (with a durable store) and the allowlist as an admission hook; [`offscreen`] launches
+//! and qualifies a window placed outside every display; `macos::background` is raw
+//! per-pid input and AX reads behind that gate. Every effect they run honours the kill switch
+//! (`policy::kill`), and the allowlist applies wherever a gate is built on
+//! `control::policy_hook::PolicyAdmission`. This crate has no dependency on any QA crate.
+//!
 //! Threading (macOS): NSWorkspace publishes the app list and frontmost app through
 //! the main run loop. Call from the main thread of a CLI/test, or from any thread of
 //! an app whose main loop is running.
@@ -29,6 +36,7 @@
 //! are waited children (a strict zero-child profile should not call `launch`).
 
 pub mod admission;
+pub mod control;
 pub mod delivery;
 pub mod engine;
 pub mod events;
@@ -39,7 +47,8 @@ pub mod keys;
 pub mod lease;
 pub mod mock;
 pub mod model;
-#[cfg(feature = "in-app")]
+pub mod offscreen;
+#[cfg(feature = "paths")]
 pub mod paths;
 pub mod platform;
 pub mod png;

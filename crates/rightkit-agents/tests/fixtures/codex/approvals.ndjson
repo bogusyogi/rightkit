@@ -1,0 +1,18 @@
+{"id":1,"result":{"userAgent":"codex/0.161.0"}}
+{"method":"thread/started","params":{"thread":{"id":"thr_1","model":"gpt-5.6"}}}
+{"id":2,"result":{"thread":{"id":"thr_1"}}}
+{"method":"turn/started","params":{"threadId":"thr_1","turn":{"id":"turn_1","status":"inProgress"}}}
+{"id":3,"result":{}}
+{"method":"item/agentMessage/delta","params":{"threadId":"thr_1","turnId":"turn_1","itemId":"i0","delta":"Run"}}
+{"method":"item/started","params":{"threadId":"thr_1","turnId":"turn_1","item":{"type":"commandExecution","id":"item_cmd","command":"rm -rf build","cwd":"/work","status":"inProgress"}}}
+{"jsonrpc":"2.0","id":"srv_1","method":"item/commandExecution/requestApproval","params":{"threadId":"thr_1","turnId":"turn_1","itemId":"item_cmd","command":"rm -rf build","cwd":"/work"}}
+{"method":"serverRequest/resolved","params":{"threadId":"thr_1","requestId":"srv_1"}}
+{"method":"item/completed","params":{"threadId":"thr_1","turnId":"turn_1","item":{"type":"commandExecution","id":"item_cmd","status":"declined","command":"rm -rf build"}}}
+{"method":"item/started","params":{"threadId":"thr_1","turnId":"turn_1","item":{"type":"collabAgentToolCall","id":"item_sub","prompt":"Survey","status":"inProgress"}}}
+{"method":"item/completed","params":{"threadId":"thr_1","turnId":"turn_1","item":{"type":"collabAgentToolCall","id":"item_sub","status":"completed"}}}
+{"jsonrpc":"2.0","id":"srv_2","method":"item/fileChange/requestApproval","params":{"threadId":"thr_1","turnId":"turn_1","itemId":"item_fc"}}
+{"method":"item/completed","params":{"threadId":"thr_1","turnId":"turn_1","item":{"type":"agentMessage","id":"item_msg","text":"Declined"}}}
+{"method":"thread/tokenUsage/updated","params":{"threadId":"thr_1","turnId":"turn_1","tokenUsage":{"total":{"inputTokens":120,"outputTokens":40,"cachedInputTokens":60,"cacheWriteInputTokens":0,"reasoningOutputTokens":5,"totalTokens":160}}}}
+{"method":"thread/compacted","params":{"threadId":"thr_1"}}
+{"method":"some/future/notification","params":{"x":1}}
+{"method":"turn/completed","params":{"threadId":"thr_1","turn":{"id":"turn_1","status":"completed","durationMs":2500}}}

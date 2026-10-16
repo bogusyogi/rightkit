@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-embed"
-version = "0.3.2"
+version = "0.5.0"
 edition = "2021"
 rust-version = "1.98.0"
 license = "MIT OR Apache-2.0"
@@ -13,18 +13,54 @@ include = ["src/**", "tests/**", "Cargo.toml", "README.md", "CHANGELOG.md", "LIC
 # `vector` = persistent cosine vector store (rusqlite). Default keeps both.
 [features]
 default = ["inference", "vector"]
-inference = ["dep:rightkit-ort", "dep:tokenizers", "dep:rightkit-fs", "dep:serde_json"]
+inference = ["dep:rightkit-onnx", "dep:tokenizers", "dep:rightkit-fs", "dep:serde_json", "dep:objc2", "dep:objc2-core-ml", "dep:objc2-foundation"]
 vector = ["dep:rusqlite", "dep:rightkit-db"]
+# Benchmark hooks (`Embedder::bench_query_tokens`, `bench_embed_query_split`). Not stable API;
+# never enabled by default.
+bench-internals = ["inference"]
 
 [dependencies]
 rightkit-db = { version = "0.4", path = "../rightkit-db", default-features = false, optional = true }
 rightkit-fs = { version = "0.4.0", path = "../rightkit-fs", default-features = false, features = ["digest"], optional = true }
-rightkit-ort = { version = "0.2.2", path = "../rightkit-ort", optional = true }
+rightkit-onnx = { version = "0.2.2", path = "../rightkit-onnx", features = ["half"], optional = true }
 rusqlite = { version = "0.40.1", default-features = false, optional = true }
 serde_json = { version = "1.0.150", optional = true }
 thiserror = "2"
 tokenizers = { version = "0.22.2", default-features = false, features = ["onig"], optional = true }
 
+# Core ML backend for the EmbeddingGemma 2 `.mlpackage` (macOS only, `inference` only). Same
+# versions and features as rightkit-asr's Core ML bridge, so one build of each serves both.
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = { version = "0.6", features = ["exception"], optional = true }
+objc2-core-ml = { version = "0.3", optional = true }
+objc2-foundation = { version = "0.3", optional = true }
+
 [dev-dependencies]
 rusqlite = { version = "0.40.1", features = ["bundled"] }
 tempfile = "3"
+
+[package.metadata.rightkit]
+continuous = "held-resource"
+
+[[package.metadata.rightkit.resources]]
+api = "Embedder::load"
+file = "src/embedder.rs"
+holds = ["memory", "thread"]
+scale = "one ONNX session: model weights, ORT arenas and intra_threads intra-op threads (default 1), plus a tokenizer and a OnceLock pipeline id; fixed per Embedder, independent of how many texts are embedded"
+release = "Drop"
+
+[[package.metadata.rightkit.resources]]
+api = "E40Engine::open"
+file = "src/e40.rs"
+holds = ["memory", "thread"]
+scale = "an E40 bundle on an accelerator keeps at most five fixed-length graph sessions (32, 64, 128, 256, 512 tokens, each with its ORT arenas and intra-op threads) plus one host token table, built at load by the pre-warm and fixed per Embedder; the session log is a Vec of at most one entry per graph build during load and stops recording when the load returns; none of it grows with the number of texts embedded"
+release = "Drop"
+static_note = "e40.rs has no process-wide static: the session log, pre-warm state and graph map are fields of E40Engine, owned by the Embedder and freed with it"
+
+[[package.metadata.rightkit.resources]]
+api = "CoreMlEngine::open"
+file = "src/coreml.rs"
+holds = ["memory"]
+scale = "a Core ML bundle keeps at most five MLModel functions (one per length 32, 64, 128, 256, 512, each on the one compute unit its length maps to) plus one shared 268 MB host token table, all loaded at load by the pre-warm and fixed per Embedder; the compiled .mlmodelc is one directory on disk per package-hash and OS key; none of it grows with the number of texts embedded"
+release = "Drop"
+static_note = "the only static is COMPILE, a Mutex<()> that holds no data and no thread: it serialises .mlmodelc compiles within the process so two compiles never share Core ML's temporary output path; it is empty between compiles, so residency is one pointer-sized lock"

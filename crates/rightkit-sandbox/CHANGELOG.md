@@ -1,6 +1,11 @@
 # Changelog
 
-## Unreleased
+
+## 0.4.0
+
+- Republished on the renamed dependencies: `rightkit-child-process` (was `rightkit-process`). The 0.3.5 on crates.io was packaged before the renames and still named the old crates.
+- **Breaking (0.x minor):** `SandboxedChild::terminate_tree_bounded` returns `rightkit_child_process::ReapOutcome`.
+## 0.3.5
 
 - **Windows: the ancestor-ACE sweep sees leases held in another logon session.** The lease mutex was in the
   session-local object namespace, so a sweep run in a second logon session of the same user (fast user switching,

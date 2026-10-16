@@ -2,27 +2,47 @@
   "schema": 1,
   "kind": "cargo",
   "name": "rightkit-playback",
-  "version": "0.1.1",
-  "commit": "25b724d88a1a58ee573fe3539b06ecad92133ec7",
-  "artifactSha256": "4415fbf137b40c2de5b8d61c97ace8ad1a20808df14cf2fc1413cc3e80e142fc",
-  "artifactBasis": "git archive HEAD crates/rightkit-playback",
+  "version": "0.2.1",
+  "commit": "1d5e66f83c28a6a222fb537ea89df74a58c1a63c",
+  "artifactSha256": "0490b27f0c2174b56cb2ae542fed7c63c4780f83296a529c11238cbefe308a45",
   "hostPolicy": "darwin-only",
-  "hostPolicyReason": "Adrian 2026-10-07: publish crates from the Mac (crates.io auth here); Windows qualification follows",
+  "hostPolicyReason": "Adrian 2026-10-14 local-build grant (.rightkit-local-build.json); Windows covered by the next CI run",
   "runs": [
     {
       "host": {
         "os": "darwin",
         "arch": "arm64"
       },
-      "commit": "25b724d88a1a58ee573fe3539b06ecad92133ec7",
-      "command": "right-release publish cargo --crate rightkit-playback --dry-run (secret scan, fmt, tests, clippy, package, registry dry-run)",
+      "commit": "1d5e66f83c28a6a222fb537ea89df74a58c1a63c",
       "features": [
         "default"
       ],
-      "operator": "claude-opus-5.5 (RightKit lead) for adrdsouza",
-      "timestamp": "2026-10-08T01:45:14Z",
-      "passed": 4,
-      "failed": 0
+      "artifactSha256": "0490b27f0c2174b56cb2ae542fed7c63c4780f83296a529c11238cbefe308a45",
+      "command": "cargo test -p rightkit-playback --no-fail-fast -- --show-output && cargo clippy -p rightkit-playback --no-deps --all-targets -- -D warnings && cargo package --locked -p rightkit-playback && cargo metadata --format-version 1 --no-deps",
+      "operator": "agent (local-build grant)",
+      "timestamp": "2026-10-14T17:22:32.187Z",
+      "passed": 26,
+      "failed": 0,
+      "skipped": 0,
+      "ignored": 0,
+      "allowIgnored": false,
+      "requireAssets": "0",
+      "assetGated": true,
+      "steps": [
+        {
+          "command": "cargo test -p rightkit-playback --no-fail-fast -- --show-output",
+          "ok": true,
+          "executed": 26,
+          "failed": 0,
+          "ignored": 0,
+          "skipped": 0,
+          "binaries": 7
+        },
+        {
+          "command": "cargo clippy -p rightkit-playback --no-deps --all-targets -- -D warnings",
+          "ok": true
+        }
+      ]
     }
   ]
 }

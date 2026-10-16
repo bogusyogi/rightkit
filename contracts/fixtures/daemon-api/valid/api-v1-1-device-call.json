@@ -1,0 +1,320 @@
+{
+  "contract": "daemon-api",
+  "contractVersion": "1.1.0",
+  "apiId": "postright-daemon-v1-1",
+  "transport": {
+    "scheme": "https",
+    "host": "rightkit-http-listener",
+    "tls": "required"
+  },
+  "authClasses": {
+    "device_authenticated_mutation": {
+      "credentials": [
+        "device_token",
+        "enrolment_code"
+      ],
+      "mutationAllowed": true,
+      "requiredHeaders": [
+        "Authorization"
+      ],
+      "summary": "Device-token requests; enrolment uses a single-use code. Mutations carry If-Match and Idempotency-Key."
+    },
+    "oauth_callback": {
+      "credentials": [
+        "oauth_state_pkce"
+      ],
+      "mutationAllowed": false,
+      "requiredHeaders": [],
+      "summary": "Provider redirect with one-time state and PKCE verifier; never accepts a device token."
+    },
+    "signed_webhook": {
+      "credentials": [
+        "hmac_sha256"
+      ],
+      "mutationAllowed": false,
+      "requiredHeaders": [
+        "X-Provider-Signature",
+        "X-Provider-Timestamp"
+      ],
+      "summary": "Provider delivery verified by HMAC; deduplicated durably before any effect."
+    },
+    "device_call": {
+      "credentials": [
+        "device_token"
+      ],
+      "mutationAllowed": true,
+      "requiredHeaders": [
+        "Authorization"
+      ],
+      "summary": "A signed device calls one method of the service's method table; the handler's own error codes pass through."
+    }
+  },
+  "routes": [
+    {
+      "routeId": "device.enrol",
+      "method": "POST",
+      "path": "/v1/devices",
+      "authClass": "device_authenticated_mutation",
+      "mutation": true,
+      "casRequired": false,
+      "scopes": [
+        "venture"
+      ],
+      "responses": [
+        201,
+        400,
+        401,
+        409
+      ]
+    },
+    {
+      "routeId": "upload.init",
+      "method": "POST",
+      "path": "/v1/uploads",
+      "authClass": "device_authenticated_mutation",
+      "mutation": true,
+      "casRequired": false,
+      "scopes": [
+        "venture",
+        "channel"
+      ],
+      "responses": [
+        201,
+        400,
+        401,
+        403
+      ]
+    },
+    {
+      "routeId": "upload.chunk",
+      "method": "PUT",
+      "path": "/v1/uploads/{uploadId}/chunks/{index}",
+      "authClass": "device_authenticated_mutation",
+      "mutation": true,
+      "casRequired": false,
+      "scopes": [
+        "venture",
+        "channel"
+      ],
+      "responses": [
+        204,
+        400,
+        401,
+        403,
+        404,
+        409,
+        416
+      ]
+    },
+    {
+      "routeId": "upload.status",
+      "method": "GET",
+      "path": "/v1/uploads/{uploadId}",
+      "authClass": "device_authenticated_mutation",
+      "mutation": false,
+      "casRequired": false,
+      "scopes": [
+        "venture",
+        "channel"
+      ],
+      "responses": [
+        200,
+        401,
+        403,
+        404
+      ]
+    },
+    {
+      "routeId": "upload.complete",
+      "method": "POST",
+      "path": "/v1/uploads/{uploadId}/complete",
+      "authClass": "device_authenticated_mutation",
+      "mutation": true,
+      "casRequired": false,
+      "scopes": [
+        "venture",
+        "channel"
+      ],
+      "responses": [
+        200,
+        400,
+        401,
+        403,
+        404,
+        409
+      ]
+    },
+    {
+      "routeId": "job.update",
+      "method": "PATCH",
+      "path": "/v1/publish-jobs/{jobId}",
+      "authClass": "device_authenticated_mutation",
+      "mutation": true,
+      "casRequired": true,
+      "scopes": [
+        "venture",
+        "channel",
+        "account"
+      ],
+      "responses": [
+        200,
+        400,
+        401,
+        403,
+        409,
+        422,
+        428
+      ]
+    },
+    {
+      "routeId": "oauth.callback",
+      "method": "GET",
+      "path": "/v1/oauth/{provider}/callback",
+      "authClass": "oauth_callback",
+      "mutation": false,
+      "casRequired": false,
+      "scopes": [
+        "account"
+      ],
+      "responses": [
+        302,
+        400,
+        502
+      ]
+    },
+    {
+      "routeId": "webhook.inbound",
+      "method": "POST",
+      "path": "/v1/webhooks/{provider}",
+      "authClass": "signed_webhook",
+      "mutation": false,
+      "casRequired": false,
+      "scopes": [
+        "account"
+      ],
+      "responses": [
+        202,
+        401,
+        409,
+        429
+      ]
+    },
+    {
+      "routeId": "device.call",
+      "method": "POST",
+      "path": "/v1/call/{method}",
+      "authClass": "device_call",
+      "mutation": true,
+      "casRequired": false,
+      "scopes": [
+        "venture",
+        "channel",
+        "account"
+      ],
+      "responses": [
+        200,
+        400,
+        401,
+        403,
+        409,
+        500,
+        502,
+        503,
+        504
+      ]
+    }
+  ],
+  "upload": {
+    "protocol": "resumable-blake3",
+    "digest": {
+      "algorithm": "blake3",
+      "mode": "keyed",
+      "keyScope": "upload-session"
+    },
+    "chunkBytes": {
+      "min": 1048576,
+      "max": 16777216
+    },
+    "maxObjectBytes": 8589934592,
+    "sessionTtlSeconds": 86400,
+    "durableAckRequired": true,
+    "routes": {
+      "init": "upload.init",
+      "chunk": "upload.chunk",
+      "status": "upload.status",
+      "complete": "upload.complete"
+    }
+  },
+  "mutations": {
+    "protocol": "compare-and-swap",
+    "precondition": {
+      "header": "If-Match",
+      "revisionType": "integer"
+    },
+    "conflict": {
+      "status": 409,
+      "returns": [
+        "currentRevision"
+      ]
+    },
+    "idempotency": {
+      "header": "Idempotency-Key",
+      "ttlSeconds": 86400
+    }
+  },
+  "errors": [
+    {
+      "code": "unauthenticated",
+      "status": 401,
+      "retryable": false
+    },
+    {
+      "code": "revision_conflict",
+      "status": 409,
+      "retryable": false
+    },
+    {
+      "code": "precondition_required",
+      "status": 428,
+      "retryable": false
+    },
+    {
+      "code": "idempotency_key_reuse",
+      "status": 422,
+      "retryable": false
+    },
+    {
+      "code": "rate_limited",
+      "status": 429,
+      "retryable": true
+    }
+  ],
+  "lifecycleEvents": [
+    "daemon_started",
+    "device_enrolled",
+    "upload_completed",
+    "job_published",
+    "job_outcome_unknown"
+  ],
+  "exchanges": [
+    {
+      "routeId": "job.update",
+      "request": {
+        "headers": {
+          "If-Match": "7",
+          "Idempotency-Key": "job-42-patch-1"
+        },
+        "body": {
+          "caption": "Export in two clicks."
+        }
+      },
+      "response": {
+        "status": 409,
+        "body": {
+          "error": "revision_conflict",
+          "currentRevision": 8
+        }
+      }
+    }
+  ]
+}

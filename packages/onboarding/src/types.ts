@@ -8,7 +8,7 @@ export interface SettingsSnapshot {
   revision: number;
 }
 
-/** Structural port shared with @rightkit/settings-ui and rightkit-settings. */
+/** Structural port shared with @rightkit/settings-ui and rightkit-app-settings. */
 export interface SettingsBackend {
   load(): Promise<SettingsSnapshot>;
   patch(patch: SettingsValues, expectedRevision?: number): Promise<SettingsSnapshot>;

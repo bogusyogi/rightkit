@@ -5,7 +5,7 @@
 //! to its current-user-only endpoint and exchange line-delimited v1 `EngineFrame`
 //! JSON restricted to health, capabilities, info and file transcription.
 //!
-//! Built on `rightkit-service` (discovery files, staleness, ranking/takeover
+//! Built on `rightkit-daemon` (discovery files, staleness, ranking/takeover
 //! files, the user-only socket/pipe transport) and wire-compatible with
 //! HeardRight's v1 host: an unchanged host accepts this client. Hosting stays in
 //! HeardRight's engine. The API is a superset of `orthic-speech-client` 0.1, so
@@ -30,8 +30,8 @@ use std::sync::mpsc::{self, Receiver, RecvTimeoutError};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use rightkit_framed_sidecar::{read_json_line, FrameError};
-use rightkit_service::{HostPlan as ServicePlan, Suite};
+use rightkit_daemon::{HostPlan as ServicePlan, Suite};
+use rightkit_sidecar::{read_json_line, FrameError};
 
 pub use protocol::{
     endpoint_for, installed_heardright_path, is_allowed_schema, service_dir, service_record_path,
@@ -161,13 +161,13 @@ fn suite_at(root: &Path) -> Option<Suite> {
 
 /// Is process `pid` alive (the staleness rule for `service.json`)?
 pub fn pid_alive(pid: u32) -> bool {
-    rightkit_service::pid_alive(pid)
+    rightkit_daemon::pid_alive(pid)
 }
 
 /// The service record, only when it parses as a HeardRight v1 record and its
 /// owner process is alive.
 pub fn read_live_record(suite_root: &Path) -> Option<ServiceRecord> {
-    let r = rightkit_service::read_live_record(&suite_at(suite_root)?, SERVICE_NAME)?;
+    let r = rightkit_daemon::read_live_record(&suite_at(suite_root)?, SERVICE_NAME)?;
     Some(ServiceRecord {
         protocol_major: r.protocol_major,
         protocol_minor: r.protocol_minor,
@@ -191,7 +191,7 @@ pub enum HostPlan {
 }
 
 /// Decide how the calling app (`my_role`) gets a speech host. The rank rules and the
-/// takeover handling are `rightkit_service::plan_host`; this maps its answer onto the
+/// takeover handling are `rightkit_daemon::plan_host`; this maps its answer onto the
 /// speech vocabulary. HeardRight roles host themselves and never start another copy.
 pub fn plan_host(suite_root: &Path, my_role: HostRole) -> HostPlan {
     let installed = if my_role.rank() <= HostRole::HeardRightHeadless.rank() {
@@ -202,7 +202,7 @@ pub fn plan_host(suite_root: &Path, my_role: HostRole) -> HostPlan {
     let Some(suite) = suite_at(suite_root) else {
         return HostPlan::HostMyself;
     };
-    match rightkit_service::plan_host(
+    match rightkit_daemon::plan_host(
         &suite,
         SERVICE_NAME,
         my_role.rank(),
@@ -222,7 +222,7 @@ pub fn plan_host(suite_root: &Path, my_role: HostRole) -> HostPlan {
 
 /// Takeover is requested only against a live, lower-ranked host.
 pub fn should_request_takeover(our: HostRole, record: Option<&ServiceRecord>) -> bool {
-    rightkit_service::should_request_takeover(
+    rightkit_daemon::should_request_takeover(
         our.rank(),
         record.map(|r| (r.role.rank(), r.pid)),
         std::process::id(),
@@ -236,7 +236,7 @@ pub fn takeover_obliges_yield(
     own_pid: u32,
     alive: &dyn Fn(u32) -> bool,
 ) -> bool {
-    rightkit_service::takeover_obliges_yield(
+    rightkit_daemon::takeover_obliges_yield(
         ours.rank(),
         request.map(|r| (r.role.rank(), r.pid)),
         own_pid,
@@ -246,7 +246,7 @@ pub fn takeover_obliges_yield(
 
 /// The pending takeover request, if it parses and names a known role.
 pub fn read_takeover(suite_root: &Path) -> Option<TakeoverRequest> {
-    let t = rightkit_service::read_takeover(&suite_at(suite_root)?, SERVICE_NAME)?;
+    let t = rightkit_daemon::read_takeover(&suite_at(suite_root)?, SERVICE_NAME)?;
     Some(TakeoverRequest {
         role: HostRole::from_wire(&t.role)?,
         pid: t.pid,
@@ -263,13 +263,13 @@ pub fn request_takeover(suite_root: &Path, role: HostRole) -> std::io::Result<()
             "suite root must be absolute",
         )
     })?;
-    rightkit_service::publish_takeover(&suite, SERVICE_NAME, role.as_str(), role.rank())
+    rightkit_daemon::publish_takeover(&suite, SERVICE_NAME, role.as_str(), role.rank())
 }
 
 /// Remove `takeover.json` only if this process wrote it.
 pub fn clear_takeover_if_ours(suite_root: &Path) {
     if let Some(s) = suite_at(suite_root) {
-        rightkit_service::clear_takeover_if_owner(&s, SERVICE_NAME, std::process::id());
+        rightkit_daemon::clear_takeover_if_owner(&s, SERVICE_NAME, std::process::id());
     }
 }
 
@@ -316,8 +316,8 @@ pub fn start_installed_engine(
     launch: &EngineLaunch,
     wait: Duration,
 ) -> Result<(), ClientError> {
-    rightkit_service::spawn_detached(engine_path, &launch.args, &launch.env).map_err(io_err)?;
-    if rightkit_service::poll_until(wait, || read_live_record(suite_root).is_some()) {
+    rightkit_daemon::spawn_detached(engine_path, &launch.args, &launch.env).map_err(io_err)?;
+    if rightkit_daemon::poll_until(wait, || read_live_record(suite_root).is_some()) {
         Ok(())
     } else {
         Err(ClientError::Timeout)
@@ -1024,7 +1024,7 @@ fn connect_within(suite_root: &Path, timeout: Duration) -> Result<SpeechClient, 
             major: record.protocol_major,
         });
     }
-    let stream = rightkit_service::open_stream(&record.endpoint).map_err(io_err)?;
+    let stream = rightkit_daemon::open_stream(&record.endpoint).map_err(io_err)?;
     let abort = stream.abort_handle();
     let (tx, rx) = mpsc::channel();
     let mut reader = BufReader::new(stream.reader);

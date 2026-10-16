@@ -1,8 +1,8 @@
-//! Owned processes: every child is spawned through `rightkit-process` (process
+//! Owned processes: every child is spawned through `rightkit-child-process` (process
 //! group / Job Object), registered with a [`Tracker`], and killed by recorded pid
 //! only. Nothing here ever matches processes by name for killing.
 use crate::util::{err, Result};
-use rightkit_process::OwnedCommand;
+use rightkit_child_process::OwnedCommand;
 use std::collections::BTreeMap;
 use std::io::Read;
 use std::path::PathBuf;
@@ -26,11 +26,24 @@ pub fn is_alive(pid: u32) -> bool {
     }
     #[cfg(windows)]
     {
-        let out =
-            hidden(Command::new("tasklist.exe").args(["/FI", &format!("PID eq {pid}"), "/NH"]))
-                .output();
-        out.map(|o| String::from_utf8_lossy(&o.stdout).contains(&pid.to_string()))
-            .unwrap_or(false)
+        // Native query: spawning `tasklist.exe` cost several hundred ms per call and was made a
+        // dozen times per `stop` (2.8 s of a 3 s stop). Fail closed: a process that exists but cannot
+        // be opened (access denied) counts as alive.
+        use windows_sys::Win32::Foundation::{CloseHandle, GetLastError, ERROR_ACCESS_DENIED};
+        use windows_sys::Win32::System::Threading::{
+            GetExitCodeProcess, OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION,
+        };
+        const STILL_ACTIVE: u32 = 259;
+        unsafe {
+            let h = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid);
+            if h.is_null() {
+                return GetLastError() == ERROR_ACCESS_DENIED;
+            }
+            let mut code = 0u32;
+            let ok = GetExitCodeProcess(h, &mut code) != 0;
+            CloseHandle(h);
+            !ok || code == STILL_ACTIVE
+        }
     }
 }
 

@@ -3,7 +3,7 @@
   "capabilities": [
     {
       "capability": "desktop-qa",
-      "summary": "Desktop app QA engine: launch, drive, assert and capture installed apps (with rightkit-control)",
+      "summary": "Desktop app QA engine: launch, drive, assert and capture installed apps (with rightkit-qa-driver)",
       "fingerprints": [
         {
           "id": "qa.npm.webdriverio",

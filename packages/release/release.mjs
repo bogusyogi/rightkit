@@ -6,7 +6,7 @@ import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { spawn, spawnSync } from "./background-process.mjs";
 import { validateRightKitCargoContract } from "./cargo-contract.mjs";
-import { assertQaBackdoorContract } from "./qa-contract.mjs";
+import { assertQaAdoption, assertQaBackdoorContract } from "./qa-contract.mjs";
 import { assertLegalReleaseContract } from "./legal-contract.mjs";
 import { assertPrimaryReleaseCheckout, dirtyBuildInputs, resolveReleaseBuildInputs } from "./release-invocation.mjs";
 import { resolveNativeCargoLayout } from "./native-cargo-layout.mjs";
@@ -38,8 +38,9 @@ import { runConfiguredChecks } from "./release-checks.mjs";
 import { resolveMacosDeveloperIdIdentity } from "./macos-signing-identity.mjs";
 import { DEFAULT_STORAGE_THRESHOLD_BYTES, findInstallerCopyScripts, findLargeRepositorySubdirectories } from "./installer-storage-doctor.mjs";
 import { macosCodesignEnvironment } from "./codesign-environment.mjs";
-import { assertNoQaControl } from "./qa-control-scan.mjs";
+import { assertNoQaControl, assertNoWebBundleMocks } from "./qa-control-scan.mjs";
 import { assertNoForbiddenBuildFeatures } from "./qa-build-features.mjs";
+import { assertNoReleaseSwitches, commandTokens, resolveFeatureClosure } from "./release-switch-scan.mjs";
 import { devtoolsEvidence, resolveDevtoolsAllowance } from "./devtools-policy.mjs";
 
 const TOOL_ROOT = path.dirname(fileURLToPath(import.meta.url));
@@ -50,7 +51,8 @@ const SIGN_MACOS = path.resolve(TOOL_ROOT, "sign-macos.mjs");
 const NOTARIZE_MACOS = path.resolve(TOOL_ROOT, "notarize-macos.mjs");
 const SIGN_UPDATER = path.resolve(TOOL_ROOT, "sign-updater.mjs");
 const RIGHTKIT_VERSIONS = JSON.parse(readFileSync(path.resolve(TOOL_ROOT, "rightkit-versions.json"), "utf8"));
-const VERSION = RIGHTKIT_VERSIONS.stagedNpm?.["@rightkit/release"] ?? RIGHTKIT_VERSIONS.npm["@rightkit/release"];
+// The running package's own version: the bundled feed lags by one release (it is written after the publish).
+const VERSION = JSON.parse(readFileSync(path.resolve(TOOL_ROOT, "package.json"), "utf8")).version;
 const TIERS = new Set(["patch", "update"]);
 const RIGHTKIT_ALLOWED = buildAllowedVersions(
   RIGHTKIT_VERSIONS.npm,
@@ -70,7 +72,7 @@ const APPLE_RELEASE_SECRETS = ["APPLE_CERTIFICATE_BASE64", "APPLE_CERTIFICATE_PA
 // Package-manager publication tokens of the managed publish-package-managers lane.
 const PACKAGE_MANAGER_PUBLISH_SECRETS = ["HOMEBREW_TAP_TOKEN", "WINGET_CREATE_GITHUB_TOKEN"];
 
-// @rightkit/git `swift.privatePackages` (0.2.41) renders one configure step and one cleanup step, with the
+// @rightkit/ci `swift.privatePackages` (0.2.41) renders one configure step and one cleanup step, with the
 // token passed through step `env` as `RIGHT_GIT_PRIVATE_TOKEN_<n>: ${{ secrets.<NAME> }}`, into exactly these
 // workflow/job pairs. Nothing else may reference the declared secret: not another job of these workflows, not
 // package-smoke, publish-npm or publish-package-managers, and not a signing, qualification or publish job.
@@ -166,6 +168,8 @@ if (!(resolveProjectType({ appRoot: root, config, target: config.targets?.[opts.
   await validateRightKitPackageContract(root, config.app, config.hostedWorkflows);
 }
 validateRightKitCargoContract(root, RIGHTKIT_CARGO_ALLOWED, config.app ?? path.basename(root));
+// RightKit QA is mandatory for every app (also SwiftPM apps without a package.json): no QA lane refuses the release.
+assertQaAdoption({ appRoot: root, app: config.app });
 const target = config.targets?.[opts.platform];
 if (!target) fail(`${config.app ?? "app"} has no ${opts.platform} release target`);
 const legalContract = config.legal
@@ -308,13 +312,51 @@ let devtoolsAllowance = { mode: "denied" };
 try {
   devtoolsAllowance = resolveDevtoolsAllowance({ config, root });
   if (devtoolsAllowance.mode === "content-only") console.log(`right-release: devtools allowance recorded: ${JSON.stringify(devtoolsEvidence(devtoolsAllowance))}`);
-  assertNoForbiddenBuildFeatures({ root, tier: "release/update", devtools: devtoolsAllowance, commands: [
+  assertNoForbiddenBuildFeatures({ root, tier: "release/update", devtools: devtoolsAllowance, cargoManifest: target.cargoManifest, manifest: config.releaseSwitches?.manifest, commands: [
     { label: "target.prePackage", command: target.prePackage },
     { label: "target.package", command: target.package },
     { label: "nativeAssembly.packageHook", command: nativeAssembly?.packageHook },
     { label: "nativeAssembly.finalizer", command: nativeFinalizer },
     { label: "target.postSign", command: target.postSign },
   ] });
+} catch (error) { fail(error.message); }
+
+// D4 (M21/M23) source layer: every environment/argument read in app source is registered in the app's switches.json and
+// every S1-S4 selector is compiled out of release. The inventory is `config.releaseSwitches.inventory` (relative to the
+// app root) or `switches.json`; a release without one fails (a dry run only checks one that exists).
+// The resolved feature graph (`cargo tree -e features`) is the AUTHORITATIVE test-mode check: it runs here, in the app
+// repository, for the release target, and a release that cannot run it fails (a dry run reports and continues).
+// The binary marker/name scan below is secondary evidence.
+const releaseSwitchInventoryPath = path.resolve(root, config.releaseSwitches?.inventory ?? "switches.json");
+const releaseSwitchInventoryText = existsSync(releaseSwitchInventoryPath) ? readFileSync(releaseSwitchInventoryPath, "utf8") : null;
+try {
+  let treeText;
+  try {
+    const closure = resolveFeatureClosure({
+      root,
+      manifest: config.releaseSwitches?.manifest,
+      cargoManifest: target.cargoManifest,
+      rust: config.releaseSwitches?.rust,
+      features: config.releaseSwitches?.features ?? [],
+      triple: target.cargoTarget ?? target.targetTriple ?? target.rustTarget,
+      commandTexts: [target.prePackage, target.package, nativeAssembly?.packageHook, nativeFinalizer, target.postSign],
+    });
+    if (closure.skipped) console.log(`right-release: feature closure skipped (${closure.skipped})`);
+    else treeText = closure.treeText;
+  } catch (error) {
+    if (!opts.dryRun) throw error;
+    console.log(`right-release: dry run: ${error.message}`);
+  }
+  // remoteHost: rightkit-daemon `remote` is refused in the closure unless the app declares releaseSwitches.remoteHost: true.
+  const closureInput = { treeText, remoteHost: config.releaseSwitches?.remoteHost, commands: [target.prePackage, target.package, nativeAssembly?.packageHook, nativeFinalizer, target.postSign].filter(Boolean).map((c) => commandTokens(c)) };
+  if (releaseSwitchInventoryText != null) {
+    assertNoReleaseSwitches({ ...closureInput, sourceRoot: root, inventoryText: releaseSwitchInventoryText, appForbid: config.releaseSwitches?.forbid ?? [] }, "source switch inventory");
+  } else if (treeText != null || closureInput.commands.length) {
+    assertNoReleaseSwitches({ ...closureInput, appForbid: config.releaseSwitches?.forbid ?? [] }, "feature closure");
+  }
+  if (releaseSwitchInventoryText == null && !opts.dryRun) {
+    throw new Error(`source switch inventory: ${path.relative(root, releaseSwitchInventoryPath) || releaseSwitchInventoryPath} is missing; a release build needs the app's switches.json (see packages/release/README.md, "switches.json")`);
+  }
 } catch (error) { fail(error.message); }
 
 const releaseLock = acquireReleaseLock(root, config.app ?? path.basename(root), opts.platform, opts.tier);
@@ -416,6 +458,9 @@ if (opts.platform === "win" && target.signingContract === MSIX_SIGNING_CONTRACT)
 // Extra files or directories the app declares (for example the unpacked bundle or a staged payload).
 assertNoQaControlBinaries("target.qaControlScan", (target.qaControlScan ?? []).map((p) => resolveReleaseArtifactPath(root, p)), { requireBinary: (target.qaControlScan ?? []).length > 0, prePack: true });
 
+// Frontend bundle: no browser-QA mock may ship. Read-only, so it also runs under --dry-run (against a dist that already exists).
+assertNoWebBundleMocksInFrontend("pre-package", { required: false });
+
 if (opts.platform === "mac" && runMacPhase("package")) {
   // SwiftPM + appBeforePackage: the .app is stapled by now, so right-release packs it into the DMG itself.
   const swiftDmg = swiftMacDmgPlan({ target, projectType: resolveProjectType({ appRoot: root, config, target }), appName: config.app ?? path.basename(root), resolve: (p) => resolveReleaseArtifactPath(root, p) });
@@ -425,6 +470,8 @@ if (opts.platform === "mac" && runMacPhase("package")) {
   }
 }
 if (command && (opts.platform !== "mac" || runMacPhase("package"))) await runCommand(command, root);
+// The package command builds the frontend; a real run must now find and clean it.
+assertNoWebBundleMocksInFrontend("post-package", { required: !opts.dryRun });
 
 for (const rel of target.artifacts ?? []) {
   await mustExist(resolveReleaseArtifactPath(root, rel), `missing release artifact: ${rel}`);
@@ -443,7 +490,7 @@ if (opts.platform === "win" && target.signingContract === WINDOWS_NSIS_SIGNING_C
   if (target.postSign) await runCommand(target.postSign, root);
   const updaterFiles = [...new Set((target.updater?.artifacts ?? []).map((artifact) => resolveReleaseArtifactPath(root, artifact.file)))];
   if (!updaterFiles.length) fail(`${config.app} win must declare updater.artifacts for post-code-signing minisign`);
-  await run("node", [SIGN_UPDATER, ...(opts.dryRun ? ["--dry-run"] : []), ...updaterFiles.flatMap((file) => ["--file", file])], root);
+  await run("node", [SIGN_UPDATER, ...(opts.dryRun ? ["--dry-run"] : []), ...(target.updater?.keyFile ? ["--key-file", String(target.updater.keyFile)] : []), ...updaterFiles.flatMap((file) => ["--file", file])], root);
 }
 
 if (target.postSign && opts.platform !== "win" && (opts.platform !== "mac" || runMacPhase("post-sign"))) {
@@ -508,7 +555,7 @@ function usage(code, message) {
 // Product package scripts may emit final installer bytes directly into the
 // managed artifact directory. Keep legacy target-relative paths working while
 // preferring managed output when the local path does not exist.
-// Release and update builds never contain the QA control server (rightkit-control `qa-control`).
+// Release and update builds never contain the QA control server (rightkit-qa-driver `qa-control`).
 // The development lane (development.mjs) does not run this file and is allowed to contain it.
 // `requireBinary`: an input holding no native binary (missing or empty staging dir) is a failure, not a pass.
 // `prePack`: marks that the raw payload was scanned before packing. What stays unscannable after packing
@@ -517,6 +564,8 @@ function assertNoQaControlBinaries(label, files, { requireBinary = false, prePac
   if (opts.dryRun || files.length === 0) return;
   try {
     const stats = assertNoQaControl(files, label, { requireBinary, allowContentOnlyDevtools: devtoolsAllowance.mode === "content-only" });
+    // D4 binary layer, same inputs: no test-mode marker and no S1-S4 selector name in any native binary.
+    assertNoReleaseSwitches({ binaryPaths: files, inventoryText: releaseSwitchInventoryText ?? undefined, appForbid: config.releaseSwitches?.forbid ?? [], requireBinary: false }, `${label} (release switches)`);
     if (prePack && stats.binaries > 0) prePackScanned = true;
     for (const opaque of stats.opaque) {
       console.log(`right-release: ${label}: ${opaque.kind.toUpperCase()} payload is compressed and cannot be scanned (${opaque.file}); the raw payload was scanned before packing`);
@@ -524,6 +573,31 @@ function assertNoQaControlBinaries(label, files, { requireBinary = false, prePac
   } catch (error) {
     fail(error.message);
   }
+}
+
+// Frontend dist directories to scan: `target.webBundleScan` (explicit, relative to the app root) or, when absent, the
+// Tauri `build.frontendDist` / `build.distDir` of src-tauri/tauri.conf.json. A URL (dev server) is not a bundle.
+function frontendBundleDirs() {
+  if (Array.isArray(target.webBundleScan)) return target.webBundleScan.map((p) => path.resolve(root, p));
+  const confPath = path.join(root, "src-tauri", "tauri.conf.json");
+  if (!existsSync(confPath)) return [];
+  try {
+    const build = JSON.parse(readFileSync(confPath, "utf8")).build ?? {};
+    const dist = build.frontendDist ?? build.distDir;
+    if (typeof dist !== "string" || /^[a-z][a-z0-9+.-]*:\/\//i.test(dist)) return [];
+    return [path.resolve(root, "src-tauri", dist)];
+  } catch (error) { fail(`src-tauri/tauri.conf.json is unreadable, so the frontend bundle cannot be located for the mock scan: ${error.message}`); }
+}
+
+function assertNoWebBundleMocksInFrontend(phase, { required }) {
+  const dirs = frontendBundleDirs() ?? [];
+  const present = dirs.filter((dir) => existsSync(dir));
+  if (!required && present.length === 0) return;
+  if (dirs.length === 0) return;
+  try {
+    const { files } = assertNoWebBundleMocks(required ? dirs : present, `${phase} frontend bundle`, { requireFiles: true });
+    console.log(`right-release: ${phase} frontend bundle: ${files} web file(s) scanned, no browser-QA mock marker`);
+  } catch (error) { fail(error.message); }
 }
 
 function resolveReleaseArtifactPath(root, declared) {
@@ -935,7 +1009,7 @@ async function validateHostedWorkflows(root, appName, workflows, policy) {
     fail(`${appName} right-git-ci-only policy requires a valid .rightgit.json`);
   }
   const lanes = manifest?.lanes;
-  // Mirrors the `lanes` enum in @rightkit/git manifest.schema.json.
+  // Mirrors the `lanes` enum in @rightkit/ci manifest.schema.json.
   const safeLanes = new Set(["ci", "qualification", "package-smoke", "release-candidate", "publish-npm", "publish-package-managers", "regenerate"]);
   if (manifest?.schemaVersion !== 1
     || manifest?.compile !== "github-actions-only"
@@ -992,10 +1066,10 @@ async function validateHostedWorkflows(root, appName, workflows, policy) {
     const protectedMacosSigning = workflow === "release-candidate.yml"
       && manifest?.candidate?.signMacos === true
       && (legacySigningGate("macos-sign").test(macosSource) || admittedSigningGate("macos-sign").test(macosSource));
-    // @rightkit/git `devArtifact.mac: "sign"` renders a `dev-mac-sign` job into
+    // @rightkit/ci `devArtifact.mac: "sign"` renders a `dev-mac-sign` job into
     // the managed ci.yml: push to the default branch only, release environment,
     // Developer ID certificate secrets only (no notarization keys).
-    // @rightkit/git `regenerate` lane: manual-only, opens a pull request from a
+    // @rightkit/ci `regenerate` lane: manual-only, opens a pull request from a
     // right-git/regenerate-<run> branch and never writes to the default branch.
     // `contents: write` and `pull-requests: write` are accepted only inside that
     // job, only when the manifest declares `regenerate`, and only when the
@@ -1021,7 +1095,7 @@ async function validateHostedWorkflows(root, appName, workflows, policy) {
     const protectedDevMacSigning = workflow === "ci.yml"
       && (manifest?.devArtifact?.mac === "sign" || manifest?.devArtifact?.mac === "notarize")
       && /dev-mac-sign:\n(?:    #[^\n]*\n)*    needs: \[ci\]\n    if: \$\{\{ github\.event_name == 'push' && github\.ref_name == github\.event\.repository\.default_branch \}\}\n    environment: /.test(devMacSource);
-    // @rightkit/git `swift.privatePackages` credential: allowed only in the workflow/job pairs and on the
+    // @rightkit/ci `swift.privatePackages` credential: allowed only in the workflow/job pairs and on the
     // env lines listed with SWIFT_PRIVATE_JOBS; swiftPrivateSecretRefusal explains every other reference.
     const releaseChain = workflow === "release-candidate.yml" ? manifest?.candidate?.releaseChain : undefined;
     const allowedReleaseSecrets = new Set(releaseChain?.publishSecrets ?? []);

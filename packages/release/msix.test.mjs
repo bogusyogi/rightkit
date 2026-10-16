@@ -17,7 +17,7 @@ const target = () => ({
   signed: true, signingContract: MSIX_SIGNING_CONTRACT, prePackage: { cmd: "node", args: ["stage.mjs"] },
   msix: { stageDir: "stage", out: "dist/SwiftRight.msix", identity: { ...identity }, virtualization: { fileSystemWrite: "disabled", registryWrite: "enabled" },
     assets: { storeLogo: "a.png", square150: "b.png", square44: "c.png" }, runtime: { dlls: ["swiftCore.dll"] },
-    appInstaller: { uri: "https://example.com/a.appinstaller", msixUri: "https://example.com/a.msix", out: "dist/a.appinstaller" } },
+    appInstaller: { uri: "https://example.com/a.appinstaller", msixUri: "https://example.com/v/1.2.3.0/a.msix", out: "dist/a.appinstaller" } },
   installer: { artifacts: [{ file: "dist/SwiftRight.msix", key: "k" }] },
 });
 const tmp = () => mkdtempSync(path.join(os.tmpdir(), "rk-msix-"));
@@ -51,6 +51,19 @@ test("appinstaller updater kind needs https routes; tauri stays default", () => 
   assert.match(validateMsixTarget(t, "a").join(), /https/);
   t.updater.kind = "bogus";
   assert.match(validateMsixTarget(t, "a").join(), /updater\.kind/);
+});
+
+test("appinstaller msixUri must carry the package version; blocking needs a prompt", () => {
+  const t = target();
+  t.updater = { kind: "appinstaller", artifacts: [] };
+  t.msix.appInstaller.msixUri = "https://example.com/a.msix";
+  assert.match(validateMsixTarget(t, "a").join(), /package version 1\.2\.3\.0/);
+  t.msix.appInstaller.msixUri = "https://example.com/a_1.2.3.0_x64.msix";
+  assert.equal(validateMsixTarget(t, "a").length, 0);
+  t.msix.appInstaller.updateBlocksActivation = true;
+  assert.match(validateMsixTarget(t, "a").join(), /requires showPrompt/);
+  t.msix.appInstaller.showPrompt = true;
+  assert.equal(validateMsixTarget(t, "a").length, 0);
 });
 
 test("manifest carries explicit virtualization settings and the unvirtualizedResources capability only when disabled", () => {
@@ -92,6 +105,11 @@ test("appinstaller XML pins identity, https URIs and update settings", () => {
   const xml = generateAppInstaller({ uri: "https://e.com/a.appinstaller", msixUri: "https://e.com/a.msix", name: "N", publisher: "CN=P, O=Q", version: "1.0.0.0", architecture: "arm64", hoursBetweenUpdateChecks: 12 });
   assert.match(xml, /MainPackage Name="N" Publisher="CN=P, O=Q" Version="1.0.0.0" ProcessorArchitecture="arm64" Uri="https:\/\/e\.com\/a\.msix"/);
   assert.match(xml, /HoursBetweenUpdateChecks="12" ShowPrompt="false" UpdateBlocksActivation="false"/);
+  const base = { uri: "https://e.com/a.appinstaller", msixUri: "https://e.com/a.msix", name: "N", publisher: "P", version: "1.0.0.0", architecture: "x64" };
+  assert.match(xml, /<OnLaunch [^>]*\/>\s*<AutomaticBackgroundTask \/>\s*<\/UpdateSettings>/);
+  assert.doesNotMatch(generateAppInstaller({ ...base, automaticBackgroundTask: false }), /AutomaticBackgroundTask/);
+  assert.throws(() => generateAppInstaller({ ...base, updateBlocksActivation: true }), { code: "APPINSTALLER_INVALID" });
+  assert.match(generateAppInstaller({ ...base, showPrompt: true, updateBlocksActivation: true }), /ShowPrompt="true" UpdateBlocksActivation="true"/);
   assert.throws(() => generateAppInstaller({ uri: "http://e.com/a", msixUri: "https://e.com/a.msix", name: "N", publisher: "P", version: "1.0.0.0", architecture: "x64" }), { code: "APPINSTALLER_INVALID" });
 });
 

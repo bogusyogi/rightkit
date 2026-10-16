@@ -19,5 +19,6 @@ allowBuilds:
   geckodriver: false
 
 minimumReleaseAgeExclude:
+  # Registry releases exist only under the old names (renamed to app-update / ci in the tree).
   - '@rightkit/updates@0.2.2 || 0.2.3'
   - '@rightkit/git@0.2.37'

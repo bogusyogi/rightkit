@@ -1,14 +1,15 @@
 {
   "_comment": "Units whose tests need assets, tools or sibling checkouts that the publish workflow does not provision. publish.yml refuses such a unit unless the request names it in allow_missing_assets; a named unit runs with RIGHTKIT_REQUIRE_ASSETS=0 and its SKIP markers and skipped tests are recorded in the receipts, never hidden. An unlisted unit runs strict (RIGHTKIT_REQUIRE_ASSETS=1) and fails on a missing asset. scripts/ci/publish.test.mjs fails when a crate or package reads RIGHTKIT_REQUIRE_ASSETS without an entry here.",
   "crates": {
-    "agent-room-core": "room binary self-test reads RIGHTKIT_REQUIRE_ASSETS (src/bin/room.rs)",
     "rightkit-asr": "Whisper library (RIGHTKIT_WHISPER_LIB), ASR models and audio fixtures",
     "rightkit-audio": "FFmpeg development build",
     "rightkit-automation": "desktop session for the end-to-end tests (e2e_mac, e2e_win)",
     "rightkit-browser": "Chrome for Testing for the end-to-end tests",
-    "rightkit-media": "FFmpeg and ffprobe development builds",
+    "rightkit-ffmpeg": "FFmpeg and ffprobe development builds",
     "rightkit-ocr": "OCR models and the OS recognizer",
-    "rightkit-ort": "ONNX Runtime and model files",
+    "rightkit-onnx": "ONNX Runtime and model files",
+    "rightkit-playback": "FFmpeg binary for the remux end-to-end test (tests/remux_e2e.rs)",
+    "rightkit-qa": "FFmpeg binary for the media cross-check (tests/media_ffmpeg.rs); its skip-handling tests also print SKIP markers by design",
     "rightkit-tts": "TTS engine models",
     "rightkit-vad": "ONNX Runtime and the Silero model"
   },

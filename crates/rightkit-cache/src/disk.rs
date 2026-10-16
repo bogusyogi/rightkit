@@ -117,8 +117,8 @@ pub struct DiskCacheStatus {
     pub max_bytes: u64,
     /// Resident memory, CPU time and I/O counters of the whole process (the cache runs in it and
     /// has no thread of its own), or `None` when the host cannot report them. See
-    /// `rightkit_process::ProcessUsage`.
-    pub process: Option<rightkit_process::ProcessUsage>,
+    /// `rightkit_child_process::ProcessUsage`.
+    pub process: Option<rightkit_child_process::ProcessUsage>,
 }
 
 /// What [`DiskCache::clear`] removed.
@@ -825,7 +825,7 @@ impl DiskCache {
         DiskCacheStatus {
             stats: self.stats(),
             max_bytes: self.config().max_bytes,
-            process: rightkit_process::process_usage().ok(),
+            process: rightkit_child_process::process_usage().ok(),
         }
     }
 

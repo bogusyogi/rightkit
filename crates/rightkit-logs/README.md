@@ -6,7 +6,8 @@ The default build has no Tauri, async-runtime or tracing dependency. Apps supply
 
 - one JSON object per line, with stable `schema_version`, `ts_ms`, `level` and `event` fields;
 - synchronous serialised append, and a bounded non-blocking async writer (`AsyncWriter`);
-- size rotation to one `.1` predecessor;
+- size rotation to one `.1` predecessor by default, or `JsonlStore::with_generations(n)` for `.1` through `.N`;
+- `RotatingTextWriter` (plain-text rotating log) and `capture_stderr` (prefixed, scrubbed child-process stderr into it);
 - bounded reads from current and rotated JSONL, without loading whole logs;
 - one bundle-wide recent-event cap, followed by the most-recent-error anchor;
 - recursive privacy redaction, with non-removable secret and content defaults;

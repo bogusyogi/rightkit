@@ -1,7 +1,7 @@
 import { StrictMode, useLayoutEffect } from "react";
 import { createRoot } from "react-dom/client";
 import { Onboarding, type LicenseBackend, type ModelsBackend, type PermissionsBackend, type SettingsBackend } from "../../src/index.js";
-import "../../../app-shell/shell.css";
+import "../../../react-shell/shell.css";
 import "../../onboarding.css";
 
 const state: { values: Record<string, unknown>; revision: number } = { values: {}, revision: 1 };

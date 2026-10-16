@@ -2,7 +2,7 @@
 //!
 //! Provenance: extracted from ScrapeRight `src-tauri/src/playback.rs`, decoupled
 //! from its queue — the app supplies a [`PlaybackSource`] instead of a database
-//! row, and FFmpeg resolution goes through `rightkit-media`.
+//! row, and FFmpeg resolution goes through `rightkit-ffmpeg`.
 //!
 //! Containers are remuxed and audio is converted to AAC; video bytes are
 //! copied. Unsupported video codecs remain explicit errors instead of silent
@@ -18,8 +18,8 @@ use std::process::Stdio;
 use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
 use std::time::{Duration, Instant, SystemTime};
 
-use rightkit_media::CancellationToken;
-use rightkit_process::{OwnedCommand, WaitOutcome};
+use rightkit_child_process::{OwnedCommand, WaitOutcome};
+use rightkit_ffmpeg::CancellationToken;
 
 pub mod source;
 pub use source::{allowed_roots, Authoriser, SourceId, SourceRegistry};
@@ -311,7 +311,7 @@ impl Drop for Scratch {
 /// the webview (e.g. Tauri asset-protocol scoping).
 ///
 /// `ffmpeg` is the binary resolved by the host, typically via
-/// `rightkit-media`'s verified artifact resolution. Cancellation is checked
+/// `rightkit-ffmpeg`'s verified artifact resolution. Cancellation is checked
 /// before spawn, during the run, and before the result is committed.
 pub fn compatibility_copy(
     ffmpeg: &Path,
@@ -412,8 +412,8 @@ pub fn compatibility_copy(
 /// Resolve the FFmpeg binary the host should pass to [`compatibility_copy`].
 /// Explicit override and bundled paths win; `development_path` requires the
 /// caller's explicit opt-in. Ambient `PATH` lookup is intentionally absent —
-/// apps that ship a verified artifact should use `rightkit_media::resolve_ffmpeg`
-/// + `rightkit_media::verify_ffmpeg` instead and pass `.path()` here.
+/// apps that ship a verified artifact should use `rightkit_ffmpeg::resolve_ffmpeg`
+/// + `rightkit_ffmpeg::verify_ffmpeg` instead and pass `.path()` here.
 #[derive(Clone, Debug, Default)]
 pub struct FfmpegCandidates {
     pub override_path: Option<PathBuf>,
@@ -460,7 +460,7 @@ pub mod tauri_commands {
         /// Cache root for derivatives (e.g. `app_cache_dir()/playback-v1`).
         fn cache_dir(&self) -> Result<PathBuf, String>;
         /// Resolved FFmpeg binary (e.g. bundled runtime path or
-        /// rightkit-media verified artifact).
+        /// rightkit-ffmpeg verified artifact).
         fn ffmpeg(&self) -> Result<PathBuf, String>;
         /// Expose the finished derivative to the webview (asset-protocol scope).
         fn allow_asset(&self, path: &Path) -> Result<(), String>;

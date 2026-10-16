@@ -27,7 +27,10 @@ const commands = new Map([
   ["ownership", "ownership-command.mjs"],
   ["ownership-approval", "ownership-approval-command.mjs"],
   ["ownership-report", "ownership-report-command.mjs"],
+  ["ownership-mandatory", "ownership-mandatory-set.mjs"],
   ["swift-package", "swift-package-command.mjs"],
+  ["bundle-scan", "runtime-bundle-scan.mjs"],
+  ["identity-scan", "packaged-app-identity.mjs"],
 ]);
 
 const args = process.argv.slice(2);
@@ -75,6 +78,8 @@ if (first === "--version" || first === "-v") {
   );
 } else if (first === "cache") {
   run("cache-command.mjs", args.slice(1));
+} else if (first === "disk") {
+  run("disk-command.mjs", args.slice(1));
 } else if (first === "install-app") {
   run("install-app.mjs", args.slice(1));
 } else if (first === "dmg") {
@@ -83,7 +88,9 @@ if (first === "--version" || first === "-v") {
   run("apple-profile-renew.mjs", args.slice(1));
 } else if (first === "publish") {
   const rest = args.slice(1);
-  if (rest[0] === "cargo") {
+  if ((rest[0] === "cargo" || rest[0] === "npm") && rest.includes("--local")) {
+    run("local-publish.mjs", rest);
+  } else if (rest[0] === "cargo") {
     run("publish-cargo.mjs", rest.slice(1));
   } else if (rest[0] === "npm") {
     run("publication-gate.mjs", rest.slice(1));
@@ -182,6 +189,10 @@ Commands:
                                                       Incremental unsigned build & optional local install
   swift-package <windows-stage|msix|mac-app> --config <swift-package.json> [--dry-run] [--no-sign] [--sign] [--notarize] [--profile <name>]
                                                       Stage SwiftPM app; build+sign MSIX (Windows) or assemble+sign+notarize .app (macOS); never uploads
+  bundle-scan [--allow-name <basename>]... <bundle-root>...
+                                                      Fail when a bundle carries Node/Python runtimes or script sources
+  identity-scan --target <path> [--identifier <id>] [--team <OU>] [--cdhash <hex>] [--arch <arch>]...
+                                                      Assert codesign Identifier/Team/cdhash/lipo archs; reject ad-hoc
   upload --release <id> --platform mac|win --tier patch|update
                                                       Upload one sealed release; never builds
   qa --stage source|installed --platform mac|win [--release <id>]   Run rightkit-qa and write the sealed QA receipt (a missing receipt warns and is recorded; it never blocks)
@@ -195,6 +206,9 @@ Commands:
                                                       Publish the gated tarball with the Keychain token
                                                       (npm-rightkit-publish) and verify registry bytes
   publish cargo --crate <name> [--dry-run]           Test, inspect, scan, and publish one crates.io package
+  publish npm --package @rightkit/<name> --local     Mac-only local publish under the committed local-build grant
+  publish cargo --crate <name> --local               (.rightkit-local-build.json): runs the unit's CI tests, packs, writes darwin-only
+                                                      evidence, then the same publication gate and publisher; refuses without the grant
   publish swift [--dry-run] [--evidence <file>] [--workspace <dir>]
                                                       Check main, a clean tree, and the publication evidence, then tag RightKitSwift at its VERSION on origin
   inventory check [--json] [--warn-only] [--md <file>] [--no-cache]
@@ -224,10 +238,17 @@ Commands:
                                                       Verify exact signed exception coverage
   ownership-report --workspace <dir> [--markdown <file>] [--json-out <file>]
                                                       Report cross-app ownership & pending requests
+  ownership-mandatory [--workspace <dir>] [--app <name>]... [--amendment v2.1] [--enforce] [--json]
+                                                      Check each app declares every Table 1 owner at its required version (report by default)
   cache status [--json]                              Inspect the shared local build cache
   cache prune [--dry-run|--apply] [--json]           Plan or apply safe shared-target pruning
   cache migrate --config <file> [--dry-run|--apply] [--json]
                                                       Move a same-volume legacy target without copying
+  disk check [--json]                                Per-writer sizes vs caps and free-space floor (exit 3 on warning)
+  disk sweep [--dry-run] [--days N] [--delete] [--json]
+                                                      Move stale idle heavy data to the heavy volume (delete only with --delete)
+  disk run                                           self-check, check, dry-run sweep, move sweep, warn (the scheduled job)
+  disk schedule install|uninstall|status             Daily launchd job (Mac) / hidden Task Scheduler entry (Windows), bound to the stable per-user copy
   deps --check|--audit|--update                      Shared dependency lane
   hardening <artifact...>                            Run the Right Suite hardening scan
   lsclean <AppName.app>                              Clear macOS LaunchServices duplicates

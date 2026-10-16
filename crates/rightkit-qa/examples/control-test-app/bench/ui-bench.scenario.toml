@@ -1,0 +1,197 @@
+# Fixed UI QA latency benchmark (rightkit-qa 0.4.0). Not part of the default scenario
+# directory: run it explicitly, e.g.
+#   rightkit-qa run --config examples/control-test-app/rightkit-qa.toml --tier fast \
+#     examples/control-test-app/bench/ui-bench.scenario.toml
+# Per-step wall time is in the run's results JSON (`steps[].ms`). Mix: launch, 20 clicks, 200 typed
+# characters, 10 screenshots, 5 condition waits, stop. Compare per kind, never the total.
+name = "control-test-app UI latency bench"
+tier = "fast"
+target = "ui"
+# Takes screenshots: a visual scenario.
+kind = "visual"
+
+[[step]]
+kind = "ui_launch"
+mode = "hidden"
+
+[[step]]
+kind = "ui_click"
+selector = "#btn"
+
+[[step]]
+kind = "ui_click"
+selector = "#btn"
+
+[[step]]
+kind = "ui_click"
+selector = "#btn"
+
+[[step]]
+kind = "ui_click"
+selector = "#btn"
+
+[[step]]
+kind = "ui_click"
+selector = "#btn"
+
+[[step]]
+kind = "ui_click"
+selector = "#btn"
+
+[[step]]
+kind = "ui_click"
+selector = "#btn"
+
+[[step]]
+kind = "ui_click"
+selector = "#btn"
+
+[[step]]
+kind = "ui_click"
+selector = "#btn"
+
+[[step]]
+kind = "ui_click"
+selector = "#btn"
+
+[[step]]
+kind = "ui_click"
+selector = "#btn"
+
+[[step]]
+kind = "ui_click"
+selector = "#btn"
+
+[[step]]
+kind = "ui_click"
+selector = "#btn"
+
+[[step]]
+kind = "ui_click"
+selector = "#btn"
+
+[[step]]
+kind = "ui_click"
+selector = "#btn"
+
+[[step]]
+kind = "ui_click"
+selector = "#btn"
+
+[[step]]
+kind = "ui_click"
+selector = "#btn"
+
+[[step]]
+kind = "ui_click"
+selector = "#btn"
+
+[[step]]
+kind = "ui_click"
+selector = "#btn"
+
+[[step]]
+kind = "ui_click"
+selector = "#btn"
+
+[[step]]
+kind = "ui_click"
+selector = "#inp"
+
+[[step]]
+kind = "ui_type"
+text = "The quick brown fox jumps over the lazy dog 0123456789. The quick brown fox jumps over the lazy dog 0123456789. The quick brown fox jumps over the lazy dog 0123456789. The quick brown fox jumps over t"
+
+[[step]]
+kind = "ui_eval"
+js = "return document.getElementById('inp').value;"
+  [[step.expect]]
+  eq = "The quick brown fox jumps over the lazy dog 0123456789. The quick brown fox jumps over the lazy dog 0123456789. The quick brown fox jumps over the lazy dog 0123456789. The quick brown fox jumps over t"
+
+[[step]]
+kind = "ui_screenshot"
+name = "bench-00"
+
+[[step]]
+kind = "ui_screenshot"
+name = "bench-01"
+
+[[step]]
+kind = "ui_screenshot"
+name = "bench-02"
+
+[[step]]
+kind = "ui_screenshot"
+name = "bench-03"
+
+[[step]]
+kind = "ui_screenshot"
+name = "bench-04"
+
+[[step]]
+kind = "ui_screenshot"
+name = "bench-05"
+
+[[step]]
+kind = "ui_screenshot"
+name = "bench-06"
+
+[[step]]
+kind = "ui_screenshot"
+name = "bench-07"
+
+[[step]]
+kind = "ui_screenshot"
+name = "bench-08"
+
+[[step]]
+kind = "ui_screenshot"
+name = "bench-09"
+
+[[step]]
+kind = "ui_eval"
+js = "window.__w = 0; setTimeout(function(){ window.__w = 1; }, 30); return true;"
+
+[[step]]
+kind = "ui_wait_eval"
+js = "return window.__w === 1;"
+timeout_s = 10
+
+[[step]]
+kind = "ui_eval"
+js = "window.__w = 0; setTimeout(function(){ window.__w = 2; }, 30); return true;"
+
+[[step]]
+kind = "ui_wait_eval"
+js = "return window.__w === 2;"
+timeout_s = 10
+
+[[step]]
+kind = "ui_eval"
+js = "window.__w = 0; setTimeout(function(){ window.__w = 3; }, 30); return true;"
+
+[[step]]
+kind = "ui_wait_eval"
+js = "return window.__w === 3;"
+timeout_s = 10
+
+[[step]]
+kind = "ui_eval"
+js = "window.__w = 0; setTimeout(function(){ window.__w = 4; }, 30); return true;"
+
+[[step]]
+kind = "ui_wait_eval"
+js = "return window.__w === 4;"
+timeout_s = 10
+
+[[step]]
+kind = "ui_eval"
+js = "window.__w = 0; setTimeout(function(){ window.__w = 5; }, 30); return true;"
+
+[[step]]
+kind = "ui_wait_eval"
+js = "return window.__w === 5;"
+timeout_s = 10
+
+[[step]]
+kind = "ui_stop"

@@ -5,11 +5,21 @@
   "hostPolicyReason": "rightkit-fsindex has no Windows backend (crates/rightkit-fsindex/README.md:25, :159 'no Windows backend'); the public APIs are macOS-only.",
   "ceilings": {
     "residentMemoryBytes": null,
-    "idleCpuPercent": null,
-    "wakeupsPerSecond": null,
+    "idleCpuPercent": 5,
+    "wakeupsPerSecond": 3,
     "diskOpsPerSecond": null
   },
-  "ceilingSources": {},
+  "ceilingSources": {
+    "idleCpuPercent": "declared 0.3.0 ceiling, process-wide, under dropped-event storms: crawl threads capped at 8 and shared per process (src/limits.rs MAX_CRAWL_THREADS), full rescans at most one per 30 s doubling to 10 min (RESCAN_COOLDOWN_BASE/MAX), subtree re-lists through a global bucket of 8 burst + 1 per 5 s (RELIST_BUDGET_*). Not yet measured.",
+    "wakeupsPerSecond": "declared 0.3.0 ceiling: FSEvents latency 500 ms (Config::watch_latency) gives at most 2 batches per second, plus one coalesce timer (Config::change_coalesce 1 s). Not yet measured."
+  },
+  "caps": {
+    "crawlThreadsMax": 8,
+    "crawlThreadsScope": "one budget per process, concurrent crawls queue",
+    "fullRescanCooldownSeconds": { "base": 30, "max": 600, "quietResetSeconds": 1800 },
+    "subtreeRelistBudget": { "burst": 8, "refillSeconds": 5 },
+    "source": "crates/rightkit-fsindex/src/limits.rs"
+  },
   "requiredScale": {
     "unit": "entries",
     "minCount": 1000000,
@@ -25,5 +35,5 @@
     "note": "Status carries index-only resident_bytes (mapped+heap), process-wide cpu_percent, dir_reads_per_s; no wake-up count."
   },
   "measurements": [],
-  "notes": "Ceilings are undeclared: no absolute resident-memory, idle-CPU, wake-up or disk-operation ceiling is stated in docs or code for this crate (searched README, src, benches, docs/). The gate refuses this crate until ceilings are declared and measurements recorded. Do not fill figures from reasoning. requiredScale is the bench's own default workload, cited in its source field."
+  "notes": "0.3.0 declares idle-CPU and wake-up ceilings from the new caps (see ceilingSources); they are declared, not measured. Resident-memory and disk-operation ceilings stay undeclared: no absolute figure is stated in docs or code, and a subtree re-list reads as many directories as the subtree holds. The gate refuses this crate until measurements are recorded. requiredScale is the bench's own default workload, cited in its source field."
 }

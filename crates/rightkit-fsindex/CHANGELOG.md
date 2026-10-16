@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.3.0
+
+Churn limits, after a pulse-hub ran at ~700% CPU for 15 h on a busy USB APFS volume.
+
+- Crawl threads: `Config::crawl_threads` is clamped to 1..=8, and crawls draw their workers from one process-wide budget of 8. Concurrent crawls queue instead of multiplying threads.
+- Full rescans are coalesced. FSEvents drop flags only mark a rescan wanted; it runs at once the first time, then at most once per cooldown (30 s, doubling to 10 min, back to 30 s after 30 quiet minutes). A failed rescan is retried after the cooldown. Incremental changes keep applying while one is waiting.
+- `Config::relist_budget: Option<(burst, interval)>` (default `Some((8, 5 s))`; `None`, a zero burst or a zero interval disables it). `Status::relists_pending` and `Status::rescan_pending` say when the index is consistent again: both clear (0 and false) means no subtree re-list or full rescan is waiting or running. Call `Index::flush()` first. A deferred re-list is drained by a worker timer, not by the next event batch, so a quiet volume after a storm still converges.
+- `Config::rescan_cooldown` (default 30 s) sets the base cooldown; zero disables it, so every drop rescans at once as before.
+- Subtree re-lists (must-scan, root-changed, mount, unmount) pass a global token bucket (burst 8, one more per 5 s). The excess waits in a pending set and drains under the budget; nothing is dropped. A pending folder absorbs pending folders below it.
+- `Status` gained `rescans_coalesced` and `rescan_backoff_ms` (`full_rescans` already existed).
+- Events under `Config::state_dir` are skipped, and the directory is excluded when it lies under a root. The typed `FsEventsWatcher` is unchanged.
+- Default excludes added: `node_modules.*`, `.venv`, `__pycache__`, `.gradle`, `Pods`, `.turbo`, `.next`, `sccache`, `.sccache`, `.rightkit-managed`, `.git/logs`, `.git/lfs`; the absolute scratch roots `/Volumes/D/scratch` (macOS) and `D:\scratch` (Windows, case-insensitive) as path prefixes; and any directory holding a valid `CACHEDIR.TAG` (reads at most 43 bytes of that file). All drop with `Config::include_build_output`. `Excludes` gained `ci_prefixes` and `honor_cachedir_tag`. The fingerprint changes, so existing snapshots rebuild once.
+- `runtime-budget.json` declares idle-CPU and wake-up ceilings and records the caps.
+
+
+## 0.2.1
+
+- Republished on the renamed dependencies: `rightkit-child-process` (was `rightkit-process`, dev). The 0.2.0 on crates.io was packaged before the renames and still named the old crates.
 ## 0.2.0
 
 - macOS: `list_dir_fd(fd, ListOptions { limit, want_creation_time, refuse_dataless }) -> Listing { entries, truncated }`. One `getattrlistbulk` pass over an open directory. `Entry` carries the data-fork size (equal to `st_size`; the resource fork is excluded), `allocated` across all forks, device and inode, modification time, optional creation time, and `EntrySize::Dataless` when a dataless file's size is refused. Entries with a kernel error are omitted.

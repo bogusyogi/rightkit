@@ -1,5 +1,9 @@
 # Changelog
 
+
+## 0.2.2
+
+- Republished on the renamed dependencies: `rightkit-onnx` (was `rightkit-ort`). The 0.2.1 on crates.io was packaged before the renames and still named the old crates.
 All notable changes to `rightkit-ocr`. Versions follow Cargo semver; while the
 version is `0.x`, a minor bump may carry breaking changes.
 

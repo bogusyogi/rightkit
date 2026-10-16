@@ -16,7 +16,7 @@ for (const c of [
 
 for (const c of [
   'openssl x509 -in a.pem', 'opensnoop', 'reopen foo', 'cargo test', 'git status', 'git log --oneline', 'echo notifyutil', 'grep -r open src',
-  'rightkit-qa hidden run', 'right-ctl screenshot app', '/x/agent-bin/right-ctl open-window', 'rightkit-control click --hidden', 'rightkit cargo -- test',
+  'rightkit-qa hidden run', 'right-ctl screenshot app', '/x/agent-bin/right-ctl open-window', 'rightkit-qa-driver click --hidden', 'rightkit cargo -- test',
   'notifyutil -g some.state', 'bash -c "ls -la"', 'ls open',
 ]) test(`allows ${c}`, () => assert.equal(mac(c), null));
 

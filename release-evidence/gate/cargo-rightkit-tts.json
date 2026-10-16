@@ -2,27 +2,57 @@
   "schema": 1,
   "kind": "cargo",
   "name": "rightkit-tts",
-  "version": "0.1.0",
-  "commit": "b38bcd250ab510444bfb7a205a6e90ba86614a34",
-  "artifactSha256": "5034446fc2e3f49c82dfbe7452dfcd5f73d81bf0b2f85344878c92d9cc0a3fc9",
-  "artifactBasis": "cargo package rightkit-tts-0.1.0.crate",
+  "version": "0.2.1",
+  "commit": "c2f15e63a1044b155518a342d3e1f4eefdfd3070",
+  "artifactSha256": "e183fcab511023ab7fd5712706832ab9939a4068c687368f24d5f3074be3120c",
   "hostPolicy": "darwin-only",
-  "hostPolicyReason": "Adrian 2026-10-07: publish crates from the Mac (crates.io auth here); Windows qualification follows",
+  "hostPolicyReason": "Adrian 2026-10-14 local-build grant (.rightkit-local-build.json); Windows covered by the next CI run",
   "runs": [
     {
       "host": {
         "os": "darwin",
         "arch": "arm64"
       },
-      "commit": "b38bcd250ab510444bfb7a205a6e90ba86614a34",
-      "command": "right-release publish cargo --crate rightkit-tts --dry-run (secret scan, fmt, tests, clippy, package, registry dry-run)",
+      "commit": "c2f15e63a1044b155518a342d3e1f4eefdfd3070",
       "features": [
-        "default"
+        "default",
+        "--features engine"
       ],
-      "operator": "claude-opus-5.5 (RightKit lead) for adrdsouza",
-      "timestamp": "2026-10-09T02:04:58Z",
-      "passed": 12,
-      "failed": 0
+      "artifactSha256": "e183fcab511023ab7fd5712706832ab9939a4068c687368f24d5f3074be3120c",
+      "command": "cargo test -p rightkit-tts --no-fail-fast -- --show-output && cargo test -p rightkit-tts --features engine --no-fail-fast -- --show-output && cargo clippy -p rightkit-tts --no-deps --all-targets -- -D warnings && cargo package --locked -p rightkit-tts && cargo metadata --format-version 1 --no-deps",
+      "operator": "agent (local-build grant)",
+      "timestamp": "2026-10-15T01:03:43.251Z",
+      "passed": 118,
+      "failed": 0,
+      "skipped": 1,
+      "ignored": 0,
+      "allowIgnored": true,
+      "requireAssets": "0",
+      "assetGated": true,
+      "steps": [
+        {
+          "command": "cargo test -p rightkit-tts --no-fail-fast -- --show-output",
+          "ok": true,
+          "executed": 57,
+          "failed": 0,
+          "ignored": 0,
+          "skipped": 0,
+          "binaries": 6
+        },
+        {
+          "command": "cargo test -p rightkit-tts --features engine --no-fail-fast -- --show-output",
+          "ok": true,
+          "executed": 61,
+          "failed": 0,
+          "ignored": 0,
+          "skipped": 1,
+          "binaries": 7
+        },
+        {
+          "command": "cargo clippy -p rightkit-tts --no-deps --all-targets -- -D warnings",
+          "ok": true
+        }
+      ]
     }
   ]
 }

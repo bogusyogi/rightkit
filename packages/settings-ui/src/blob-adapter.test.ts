@@ -5,7 +5,7 @@ import { RevisionConflict } from "./backends.js";
 /**
  * Example of an app-supplied adapter: the whole settings object lives in one string blob (for
  * instance an app's own JSON file or a single storage key). It implements `SettingsBackend` directly
- * and needs no `@rightkit/shell`.
+ * and needs no `@rightkit/tauri-shell`.
  */
 function blobSettings(read: () => string | null, write: (text: string) => void): SettingsBackend {
   const parse = (): SettingsSnapshot => {

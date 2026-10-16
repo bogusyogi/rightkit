@@ -17,20 +17,20 @@ test("versions compare numerically, not lexically", () => {
 });
 
 test("newer published versions become staged; the replaced staged version stays allowed", () => {
-  const versions = { npm: { "@rightkit/qa": "0.1.0" }, stagedNpm: { "@rightkit/qa": "0.2.3" }, cargo: { "rightkit-db": "0.1.0" }, stagedCargo: { "rightkit-db": "0.2.1", "rightkit-control": "0.1.5" }, registry: { npm: { "@rightkit/qa": "0.2.3" }, cargo: { "rightkit-control": "0.1.5" } } };
+  const versions = { npm: { "@rightkit/qa": "0.1.0" }, stagedNpm: { "@rightkit/qa": "0.2.3" }, cargo: { "rightkit-db": "0.1.0" }, stagedCargo: { "rightkit-db": "0.2.1", "rightkit-qa-driver": "0.1.5" }, registry: { npm: { "@rightkit/qa": "0.2.3" }, cargo: { "rightkit-qa-driver": "0.1.5" } } };
   const { versions: next, changes } = applyRegistryLatest(versions, [
     { registry: "npm", name: "@rightkit/qa", version: "0.2.4" },
-    { registry: "cargo", name: "rightkit-control", version: "0.1.6" },
+    { registry: "cargo", name: "rightkit-qa-driver", version: "0.1.6" },
     { registry: "cargo", name: "rightkit-db", version: "0.2.1" },
     { registry: "cargo", name: "rightkit-embed", version: "0.2.0" },
     { registry: "cargo", name: "rightkit-llm", version: null },
   ]);
   assert.equal(next.stagedNpm["@rightkit/qa"], "0.2.4"); assert.deepEqual(next.legacyNpm["@rightkit/qa"], ["0.2.3"]);
-  assert.equal(next.stagedCargo["rightkit-control"], "0.1.6"); assert.deepEqual(next.legacyCargo["rightkit-control"], ["0.1.5"]);
+  assert.equal(next.stagedCargo["rightkit-qa-driver"], "0.1.6"); assert.deepEqual(next.legacyCargo["rightkit-qa-driver"], ["0.1.5"]);
   assert.equal(next.stagedCargo["rightkit-embed"], "0.2.0"); assert.equal(next.legacyCargo["rightkit-embed"], undefined);
   assert.equal(next.stagedCargo["rightkit-llm"], undefined);
-  assert.deepEqual(changes.map((c) => `${c.name}:${c.from}->${c.to}`), ["@rightkit/qa:0.2.3->0.2.4", "rightkit-control:0.1.5->0.1.6", "rightkit-embed:null->0.2.0"]);
-  assert.equal(versions.stagedCargo["rightkit-control"], "0.1.5", "input is not mutated");
+  assert.deepEqual(changes.map((c) => `${c.name}:${c.from}->${c.to}`), ["@rightkit/qa:0.2.3->0.2.4", "rightkit-qa-driver:0.1.5->0.1.6", "rightkit-embed:null->0.2.0"]);
+  assert.equal(versions.stagedCargo["rightkit-qa-driver"], "0.1.5", "input is not mutated");
 });
 
 test("a registry never downgrades staged, and a published floor is retained in legacy", () => {
@@ -132,7 +132,7 @@ async function assertVersionCopies({ root, file }) {
 
 for (const [registry, name, stagedKey, legacyKey] of [
   ["npm", "@rightkit/release", "stagedNpm", "legacyNpm"],
-  ["cargo", "rightkit-shell", "stagedCargo", "legacyCargo"],
+  ["cargo", "rightkit-tauri-shell", "stagedCargo", "legacyCargo"],
 ]) {
   test(`stage ${registry} retains recorded published pins, sorts, deduplicates & refreshes copies`, async (context) => {
     const options = await syncFixture(context, {
@@ -291,13 +291,13 @@ test("sync writes legacy-only repairs even when registry & staging already match
 
 test("stage CLI dispatches npm & cargo staging, rejects malformed args & downgrades", async (context) => {
   const options = await syncFixture(context, {
-    stagedNpm: { "@rightkit/release": "0.2.9" }, stagedCargo: { "rightkit-shell": "0.2.9" },
-    registry: { npm: { "@rightkit/release": "0.2.9" }, cargo: { "rightkit-shell": "0.2.9" } },
+    stagedNpm: { "@rightkit/release": "0.2.9" }, stagedCargo: { "rightkit-tauri-shell": "0.2.9" },
+    registry: { npm: { "@rightkit/release": "0.2.9" }, cargo: { "rightkit-tauri-shell": "0.2.9" } },
   });
   const script = path.join(options.root, "packages", "release", "rightkit-sync.mjs");
   await writeFile(script, await readFile(new URL("./rightkit-sync.mjs", import.meta.url)));
   const run = (...args) => spawnSync(process.execPath, [script, ...args], { cwd: options.root, encoding: "utf8", timeout: 5_000 });
-  for (const [registry, name, stagedKey, legacyKey] of [["npm", "@rightkit/release", "stagedNpm", "legacyNpm"], ["cargo", "rightkit-shell", "stagedCargo", "legacyCargo"]]) {
+  for (const [registry, name, stagedKey, legacyKey] of [["npm", "@rightkit/release", "stagedNpm", "legacyNpm"], ["cargo", "rightkit-tauri-shell", "stagedCargo", "legacyCargo"]]) {
     const result = run("stage", registry, name, "0.2.10");
     assert.equal(result.status, 0, result.stderr || result.error?.message);
     const next = await assertVersionCopies(options);

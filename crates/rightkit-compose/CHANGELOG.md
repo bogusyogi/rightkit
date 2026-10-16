@@ -2,6 +2,8 @@
 
 ## 0.1.0 - 2026-10-11
 
+Publishable: `publish = false` is removed and the manifest gains `readme`, `keywords` and `categories` (wave 2.8).
+
 Breaking. The crate is unpublished, so the time model changes outright. Legacy `rightkit.composition.v1` documents still read through `Composition::from_json_str`.
 
 ### Time domain (RK9a)

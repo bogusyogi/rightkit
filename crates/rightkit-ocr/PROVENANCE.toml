@@ -60,5 +60,5 @@ evidence = "scraperight/scripts/fetch-ocr-assets.mjs pins these repos + digests 
 
 [runtime.windows]
 file = "onnxruntime.dll"
-# The digest lives in one place: this record of crates/rightkit-media/catalog/native-libraries.json.
+# The digest lives in one place: this record of crates/rightkit-ffmpeg/catalog/native-libraries.json.
 catalog_record = "onnxruntime-1.24.4-windows-x64-directml"

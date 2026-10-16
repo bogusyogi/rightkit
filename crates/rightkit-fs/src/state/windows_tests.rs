@@ -315,7 +315,10 @@ fn windows_name_limit_counts_utf16_units_and_keeps_temps_sweepable() {
         let (temp, file) = state.create_temp(&name).unwrap();
         assert!(temp.encode_utf16().count() <= 255);
         drop(file);
-        assert_eq!(state.sweep_temps(std::time::Duration::ZERO).unwrap(), 1);
+        // This process still owns the generated temp; age cannot reclaim it.
+        assert_eq!(state.sweep_temps(std::time::Duration::ZERO).unwrap(), 0);
+        assert!(state.exists(&temp).unwrap());
+        assert!(state.remove(&temp).unwrap());
         assert!(state.list(0).unwrap().is_empty());
     }
     for name in [

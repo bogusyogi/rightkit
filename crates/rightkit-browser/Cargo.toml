@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-browser"
-version = "0.2.4"
+version = "0.3.1"
 edition = "2021"
 rust-version = "1.98.0"
 description = "Shared Chrome DevTools Protocol browser runtime for Right Suite: multi-page sessions, named profiles, real CDP input, observations with stale-ref checks."
@@ -18,10 +18,70 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tempfile = "3"
 thiserror = "2"
-tokio = { version = "1", features = ["rt", "sync", "time", "net", "io-util"] }
+tokio = { version = "1", features = ["rt", "sync", "time", "net", "io-util", "macros"] }
 url = "2"
-rightkit-process = { path = "../rightkit-process", version = "0.4.0" }
+rightkit-child-process = { path = "../rightkit-child-process", version = "0.4.0" }
+sha2 = "0.10"
+
+[target.'cfg(any(target_os = "macos", windows))'.dependencies]
+rightkit-sandbox = { path = "../rightkit-sandbox", version = "0.4.0", default-features = false }
+
+[target.'cfg(windows)'.dependencies]
+async-tungstenite = { version = "=0.32.1", default-features = false, features = ["tokio-runtime"] }
+getrandom = "=0.3.4"
 
 [dev-dependencies]
-# `#[tokio::test(flavor = "multi_thread")]` in the e2e tests; production code needs no macros or multi-thread runtime.
-tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
+# `#[tokio::test(flavor = "multi_thread")]` in the e2e tests; production code needs no multi-thread runtime.
+tokio = { version = "1", features = ["rt-multi-thread"] }
+
+[package.metadata.rightkit]
+continuous = "held-resource"
+
+[[package.metadata.rightkit.resources]]
+api = "BrowserSession"
+file = "src/session.rs"
+holds = ["child", "task", "memory"]
+scale = "one Chrome process tree (plus, on Unix, its watchdog shell) with its CDP connection, one handler pump task and one 200 ms process-watcher task; fixed per session, plus the pages it tracks. Teardown retries profile removal for up to 3 s"
+release = "Drop"
+
+[[package.metadata.rightkit.resources]]
+api = "BrowserPage"
+file = "src/page.rs"
+holds = ["task", "memory"]
+scale = "four CDP event-pump tasks per page (console, exception, target-crash, request interception) plus one short-lived task per intercepted request that ends after its network check; console lines are capped at MAX_CONSOLE_LINES (500) and blocked-request records at 500; fixed per page, independent of how long the page lives"
+release = "BrowserSession Drop (abort_pumps) or close_inner"
+
+[[package.metadata.rightkit.resources]]
+api = "ChromeProc"
+file = "src/proc.rs"
+holds = ["child", "thread"]
+scale = "one Chrome child, one stderr-drain thread that ends when Chrome closes stderr, and on Unix one /bin/sh watchdog child that exits by itself once Chrome or the host process is gone; stderr is kept as a 30-line tail of at most 300 characters per line"
+release = "Drop"
+
+[[package.metadata.rightkit.resources]]
+api = "FixtureServer"
+file = "src/fixture_server.rs"
+holds = ["listener", "task"]
+scale = "one loopback TCP listener with one accept task and at most MAX_CONNECTIONS (128) connection tasks, each limited to CONNECTION_TIMEOUT (5 s); serves one immutable fixture bundle"
+release = "Drop (aborts the accept task) or shutdown"
+
+[[package.metadata.rightkit.resources]]
+api = "PinProxy"
+file = "src/proxy.rs"
+holds = ["listener", "task", "memory"]
+scale = "one loopback proxy listener with a supervisor task and one task per connection (fixture mode caps this at MAX_FIXTURE_CONNECTIONS, 128, with 5 s header, 3 s connect and 30 s I/O timeouts; ordinary mode has no connection cap); the pinned-connection log gains one entry per proxied connection and has no cap, for the life of the session that owns it"
+release = "Drop (signals shutdown and aborts the supervisor, whose JoinSet aborts every connection) or shutdown"
+
+[[package.metadata.rightkit.resources]]
+api = "PipeBridge"
+file = "src/pipe_transport.rs"
+holds = ["listener", "task"]
+scale = "Windows only: one loopback TCP listener and one relay task between Chrome's inherited DevTools pipe pair and the browser connection, bound to a deadline; fixed per Chrome launch"
+release = "Drop"
+
+[[package.metadata.rightkit.resources]]
+api = "FixtureSession"
+file = "src/fixture.rs"
+holds = ["task", "memory"]
+scale = "one lease-timer task bounded by the fixture deadline, the event-monitor tasks (EventTasks) and, on Windows, one Fetch-interception task, on top of the BrowserSession, FixtureServer and BrowserPage it owns; Test/QA only"
+release = "Drop (cancels the timer, which runs cleanup_resources; EventTasks aborts its tasks)"

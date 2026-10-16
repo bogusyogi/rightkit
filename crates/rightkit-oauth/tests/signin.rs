@@ -203,11 +203,11 @@ fn presets_carry_endpoints_and_the_apps_own_client_id() {
 }
 
 fn memory_store() -> Arc<dyn TokenStore> {
-    let store = rightkit_secrets::Store::open(
-        rightkit_secrets::Config::new(
-            rightkit_secrets::Namespace::new("dev.rightkit.oauth.test").unwrap(),
+    let store = rightkit_credentials::Store::open(
+        rightkit_credentials::Config::new(
+            rightkit_credentials::Namespace::new("dev.rightkit.oauth.test").unwrap(),
         )
-        .backend(Arc::new(rightkit_secrets::MemoryBackend::new())),
+        .backend(Arc::new(rightkit_credentials::MemoryBackend::new())),
     );
     Arc::new(SecretTokenStore::new(store))
 }

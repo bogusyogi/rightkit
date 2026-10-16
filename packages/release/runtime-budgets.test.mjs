@@ -100,7 +100,7 @@ test("refuses when runtime-budget.json is missing, unreadable, the wrong schema 
   refused(evaluate(crate(t, { file: false })), /runtime-budget\.json is missing/);
   refused(evaluate(crate(t, { budget: "{nope", readme: null })), /not valid JSON/);
   refused(evaluate(crate(t, { budget: budgetFor({ schema: 2 }) })), /schema must be 1/);
-  refused(evaluate(crate(t, { budget: budgetFor({ crate: "rightkit-watch" }) })), /is for rightkit-watch, expected rightkit-fsindex/);
+  refused(evaluate(crate(t, { budget: budgetFor({ crate: "rightkit-file-watch" }) })), /is for rightkit-file-watch, expected rightkit-fsindex/);
 });
 
 test("refuses an undeclared or non-positive ceiling, naming it", (t) => {
@@ -224,13 +224,13 @@ test("evidence for another crate or version is refused", (t) => {
   const dir = crate(t);
   const written = JSON.parse(readFileSync(path.join(dir, "runtime-budget.json"), "utf8"));
   const file = path.join(dir, written.measurements[1].evidence.file);
-  const raw = `${resultLine(OBSERVED, { crate: "rightkit-watch", version: "0.1.0" })}\n`;
+  const raw = `${resultLine(OBSERVED, { crate: "rightkit-file-watch", version: "0.1.0" })}\n`;
   writeFileSync(file, raw);
   written.measurements[1].evidence.sha256 = crypto.createHash("sha256").update(raw).digest("hex");
   writeFileSync(path.join(dir, "runtime-budget.json"), JSON.stringify(written));
   writeFileSync(path.join(dir, "README.md"), `## Runtime budget\n\n${renderRuntimeBudgetBody(written).join("\n")}\n`);
   const result = evaluate(dir);
-  refused(result, /evidence is for rightkit-watch, not rightkit-fsindex/);
+  refused(result, /evidence is for rightkit-file-watch, not rightkit-fsindex/);
   refused(result, /evidence version 0\.1\.0 != recorded 0\.2\.0/);
 });
 
@@ -384,7 +384,7 @@ test("runtimeBudgetCheck returns preflight-shaped ok/fail objects and the adopti
 });
 
 test("runtime budget class: listed crates are in the class and an unlisted crate is not", () => {
-  assert.equal(RUNTIME_BUDGET_CRATES.length, 11);
+  assert.equal(RUNTIME_BUDGET_CRATES.length, 10);
   assert.equal(isRuntimeBudgetCrate("rightkit-send"), true);
   assert.equal(isRuntimeBudgetCrate("rightkit-license"), false);
 });
@@ -621,7 +621,7 @@ test("the scanner finds each long-lived construct the classification found it wa
     "event-loop": ["pub fn go() { let k = unsafe { kqueue() }; }", "pub fn go() { epoll_wait(fd, ev, 8, -1); }", "pub fn go() { CreateIoCompletionPort(h, 0, 0, 0); }"],
     "conn-pool": ["pub fn go() { let p = r2d2::Pool::builder(); }", "pub fn go() { let c = reqwest::Client::new(); }"],
     "resident-static": ["static CACHE: OnceLock<HashMap<String, u32>> = OnceLock::new();", "static MODELS: Mutex<Vec<Model>> = Mutex::new(Vec::new());", "lazy_static! { static ref X: u8 = 1; }"],
-    "detached-child": ["pub fn go() { rightkit_service::spawn_detached(p, a, e); }", "pub fn go() { cmd.process_group(0); }"],
+    "detached-child": ["pub fn go() { rightkit_daemon::spawn_detached(p, a, e); }", "pub fn go() { cmd.process_group(0); }"],
   };
   for (const [id, snippets] of Object.entries(cases)) {
     for (const code of snippets) {
@@ -692,7 +692,7 @@ test("held-resource: a process-wide static needs a static_note, and a detached c
   const withStatic = "pub struct Engine;\nimpl Engine { pub fn open() -> Engine { Engine } }\nstatic CATALOG: OnceLock<HashMap<String, Font>> = OnceLock::new();\n";
   heldRefusal(held(t, { toml: resourceToml(entry({ holds: "memory" })), files: { "src/engine.rs": withStatic } }), /matches resident-static: a resource entry for it needs a static_note/);
   assert.equal(heldCheck(held(t, { toml: resourceToml(entry({ holds: "memory", static_note: "catalog is built on first use and bounded at 40 fonts" })), files: { "src/engine.rs": withStatic } })).status, "ok");
-  const detached = "pub struct Engine;\nimpl Engine { pub fn open() { rightkit_service::spawn_detached(p, a, e); } }\n";
+  const detached = "pub struct Engine;\nimpl Engine { pub fn open() { rightkit_daemon::spawn_detached(p, a, e); } }\n";
   heldRefusal(held(t, { toml: resourceToml(entry({ holds: "child" })), files: { "src/engine.rs": detached } }), /starts a detached child, which outlives any held value; the crate is always-on/);
 });
 

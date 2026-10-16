@@ -57,7 +57,7 @@ export function aliasTokens(map: AliasMap): Record<string, string> {
 }
 
 /**
- * The flat names `@rightkit/app-shell/suite-aliases.css` defines, as data. Kept identical to that file
+ * The flat names `@rightkit/react-shell/suite-aliases.css` defines, as data. Kept identical to that file
  * (a test in this package compares them). Apply with `applyBrand(..., { applySuiteAliases: true })`
  * or `applyTokens(aliasTokens(SUITE_ALIASES))`.
  */

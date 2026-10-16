@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
-import { Button, Input, Badge } from "@rightkit/app-shell/react";
+import { Button, Input, Badge } from "@rightkit/react-shell/react";
 import type { LicenseBackend, ModelEntry, ModelsAutoStart, ModelsStepEnterContext, LicenseState, ModelsBackend, OnboardingStep, PermissionStatus, PermissionsBackend } from "./types.js";
 
 function ProgressBar({ value, label }: { value: number; label: string }) {

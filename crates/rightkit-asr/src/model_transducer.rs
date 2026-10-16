@@ -6,14 +6,14 @@
 //! `has_duration` is set by the loader from config.json (`model_type`). This is why a
 //! customer can drop in either downloaded model and it just plugs in — the engine
 //! self-configures from its own config.
-use rightkit_ort::ort;
+use rightkit_onnx::ort;
 use crate::error::{Error, Result};
 use crate::execution::ModelConfig as ExecutionConfig;
 #[cfg(feature = "directml")]
 use crate::execution::ExecutionProvider;
 use ndarray::{Array1, Array2, Array3};
-use rightkit_ort::ort::session::Session;
-use rightkit_ort::ort::value::{TensorElementType, ValueType};
+use rightkit_onnx::ort::session::Session;
+use rightkit_onnx::ort::value::{TensorElementType, ValueType};
 use std::path::{Path, PathBuf};
 
 #[derive(Debug, Clone)]

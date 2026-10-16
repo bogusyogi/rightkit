@@ -167,7 +167,7 @@ pub fn run(cfg: &WorkerConfig) -> ! {
     if let Ok(root) = models::data_root_in(cfg.data_root.as_deref()) {
         dirs.push(root.join("runtime").join("qts"));
     }
-    rightkit_ort::export_discovered_runtime(dirs);
+    rightkit_onnx::export_discovered_runtime(dirs);
 
     let t = Instant::now();
     // Held for the life of the process, which ends in `quit` (no teardown, no drop).

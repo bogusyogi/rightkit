@@ -1,6 +1,10 @@
 # Changelog
 
-## Unreleased
+## 0.2.0
+
+Additive (M13, engine-side entitlement). Default behaviour and existing signatures unchanged. Not compiled when written; verification is the CI run.
+
+- **`EngineEntitlements` (new `engine` module).** An engine process (sidecar, stdio helper, daemon, headless CLI) verifies the stored licence itself: `EngineEntitlements::new(EngineEntitlementsConfig::new(pubkey, app, data_root, device_source))` reads `<data_root>/license.token` (`with_token_file` for another plain name; path separators ignored), authenticates it with `verify_token` (signature, app, device binding from the engine's own `device_source`, `iat`, expiry, lifecycle) against a `TrustedClock` (`with_clock`, default `SystemClock`), and exposes `require(feature)`, `require_pro()`, `require_requirement(&LicenseRequirement)` and `current()`. A verified result is cached for a bounded TTL (default 60s, clamped to `MAX_CACHE_TTL_SECS` = 300s, `0` disables); expiry is re-checked on every call and `invalidate()` drops the cache. There is deliberately no input for a pushed flag, snapshot or environment override. Failures are typed (`EngineEntitlementError::{NoLicense, Unreadable, DeviceUnavailable, Invalid(VerifyError), Clock, NotEntitled}`), all fail closed. Token files over 16 KiB are refused unread. The window-to-engine pattern (window writes the signed token, sends only a content-free "licence changed" hint, engine calls `invalidate()` and re-verifies) is documented in the module docs. Tests in `tests/engine.rs`: valid, missing, tampered, wrong signer, expired, other device, other app, device-source failure, free tier and missing feature, pushed flag/snapshot/env ignored, cache bound and expiry, TTL clamp and path escape, empty and oversized file.
 
 Additive, from ViewRight gaps 1 to 3 of the second round. Not compiled when written; verification is the CI run.
 
@@ -45,8 +49,6 @@ them). No existing signature, field or match changes. The version number is not 
 
 - `tests/file_store.rs` already spawns with `move` closures in the current file (no E0373 found by
   inspection); closure-store tests added in the same style.
-
-## 0.2.0
 
 - **Test coverage (third Astra read, note 7).** No library change. The concurrent-clock test in
   `tests/clock.rs` no longer ignores every failed `trusted_now`: it accepts only a rollback or a

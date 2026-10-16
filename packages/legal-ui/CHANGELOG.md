@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+Additive (no version bump yet; bump in the release commit). Documents without `content` render identically.
+
+- `LegalGateDocument.content` (string) and `contentFormat` (`"markdown"` default, or `"text"`): the gate renders a bundled document inline in an expandable region under its link. Precedence: `onOpen`, then `content`, then `url`. The built-in Markdown renderer covers headings, paragraphs, lists, rules, bold, italic, code and http(s)/mailto links, and never injects HTML.
+
 ## 0.2.2 — 2026-10-11
 
 Additive. With no new prop set, the gate renders the same markup as 0.2.1 (the first-run, re-acceptance and save-error renders are checked against captured 0.2.1 markup in `src/default-render.test.tsx`). The `onAgree` payload and the theme behaviour are unchanged.

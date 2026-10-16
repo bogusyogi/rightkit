@@ -1,7 +1,7 @@
 // Public contracts for @rightkit/pdf-ui. No app, Tauri, or file-system imports: an app supplies
 // bytes (or a URL/loader) and the viewer renders them read-only.
 
-/** Where a PDF comes from. Apps adapt their own file access (for example @rightkit/shell reads)
+/** Where a PDF comes from. Apps adapt their own file access (for example @rightkit/tauri-shell reads)
  *  into one of these shapes; this package never reads files itself.
  *
  *  A document is identified by its URL, its `data.buffer` (plus offset/length) or its `load`

@@ -8,7 +8,7 @@
 //!      cropped box. The vocab length is read from the model output at runtime,
 //!      so the dict is model-driven, not hardcoded.
 //!
-//! The caller configures the dynamic runtime through `rightkit-ort`, supplies
+//! The caller configures the dynamic runtime through `rightkit-onnx`, supplies
 //! an absolute model directory, and supplies resolved artifact provenance.
 
 mod native;
@@ -36,11 +36,11 @@ pub use worker::{RunRecord, WorkerCommand, WorkerEvent, WorkerEvents, WorkerFail
 #[cfg(feature = "onnx")]
 use image::{imageops, RgbImage};
 #[cfg(feature = "onnx")]
-use rightkit_ort::ort;
+use rightkit_onnx::ort;
 #[cfg(feature = "onnx")]
-use rightkit_ort::ort::{session::Session, value::Tensor};
+use rightkit_onnx::ort::{session::Session, value::Tensor};
 #[cfg(feature = "onnx")]
-use rightkit_ort::ProviderDiagnostic;
+use rightkit_onnx::ProviderDiagnostic;
 #[cfg(feature = "onnx")]
 use sha2::{Digest, Sha256};
 use std::fmt;

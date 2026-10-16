@@ -6,11 +6,13 @@ use std::sync::Arc;
 
 use base64::engine::general_purpose::URL_SAFE_NO_PAD as B64;
 use base64::Engine as _;
-use rightkit_daemon::signing::{
+use rightkit_daemon::remote::signing::{
     canonical_request, webhook_signature, H_NONCE, H_PROVIDER_SIGNATURE, H_PROVIDER_TIMESTAMP,
     H_SIGNATURE, H_TIMESTAMP,
 };
-use rightkit_daemon::{Clock, Daemon, DaemonConfig, OAuthCallbackHandler, Request, Response};
+use rightkit_daemon::remote::{
+    Clock, Daemon, DaemonConfig, OAuthCallbackHandler, Request, Response,
+};
 use ring::rand::SystemRandom;
 use ring::signature::{Ed25519KeyPair, KeyPair};
 use serde_json::{json, Value};
@@ -265,7 +267,7 @@ impl Dev {
             &json!({ "size": size, "chunkBytes": chunk }),
         );
         assert_eq!(r.status, 201, "{:?}", r.body);
-        let key = rightkit_daemon::unhex(r.body["digestKey"].as_str().unwrap()).unwrap();
+        let key = rightkit_daemon::remote::unhex(r.body["digestKey"].as_str().unwrap()).unwrap();
         (
             r.body["uploadId"].as_str().unwrap().to_string(),
             key.try_into().unwrap(),

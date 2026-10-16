@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-vad"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 rust-version = "1.98.0"
 publish = true
@@ -25,28 +25,38 @@ name = "rightkit_vad"
 path = "src/lib.rs"
 
 [dependencies]
-rightkit-ort = { path = "../rightkit-ort", version = "0.2.2", optional = true }
+rightkit-onnx = { path = "../rightkit-onnx", version = "0.2.2", optional = true }
 
 [dev-dependencies]
 hound = "3.5"
-rightkit-media = { path = "../rightkit-media", version = "0.2.3" }
+rightkit-ffmpeg = { path = "../rightkit-ffmpeg", version = "0.2.3" }
 
 [features]
 # Default: the Silero scorer over ONNX Runtime. The crate fetches and copies no
-# runtime. Consumers supply ONNX Runtime through rightkit-ort. The API level is fixed by
-# rightkit-ort: rc.13's own `default` raises it to ORT 1.27, which the suite's 1.24.4 cannot serve.
+# runtime. Consumers supply ONNX Runtime through rightkit-onnx. The API level is fixed by
+# rightkit-onnx: rc.13's own `default` raises it to ORT 1.27, which the suite's 1.24.4 cannot serve.
 # `default-features = false` keeps only the pure policy layers (spans, chunking, frame carry,
 # `FrameScorer`) and compiles no ONNX Runtime.
 default = ["silero"]
-# The `Silero` scorer and `SileroOptions`, over rightkit-ort.
-silero = ["dep:rightkit-ort", "rightkit-ort/session"]
+# The `Silero` scorer and `SileroOptions`, over rightkit-onnx.
+silero = ["dep:rightkit-onnx", "rightkit-onnx/session"]
 # Opt-in: forward ONNX Runtime's own log lines into `tracing`. Off by default because Cargo
 # feature unification turns it on for EVERY ONNX Runtime session in the process, and the
 # runtime logs thousands of INFO lines per model load.
-ort-tracing = ["silero", "rightkit-ort/tracing"]
+ort-tracing = ["silero", "rightkit-onnx/tracing"]
 # Opt-in: fetch prebuilt ONNX Runtime during the build (needs tls-native to download).
-download-binaries = ["silero", "rightkit-ort/download-binaries"]
+download-binaries = ["silero", "rightkit-onnx/download-binaries"]
 # Opt-in: TLS backend used by download-binaries.
-tls-native = ["silero", "rightkit-ort/tls-native"]
+tls-native = ["silero", "rightkit-onnx/tls-native"]
 # Opt-in: copy the ONNX Runtime dylibs next to the build output.
-copy-dylibs = ["silero", "rightkit-ort/copy-dylibs"]
+copy-dylibs = ["silero", "rightkit-onnx/copy-dylibs"]
+
+[package.metadata.rightkit]
+continuous = "held-resource"
+
+[[package.metadata.rightkit.resources]]
+api = "Silero::load"
+file = "src/silero.rs"
+holds = ["memory", "thread"]
+scale = "one ONNX session: model weights, ORT arenas and its own intra-op and inter-op thread pools (SileroOptions, default one each), plus the [2,1,128] recurrent state and a 64-sample context; fixed per Silero value, independent of audio length"
+release = "Drop"

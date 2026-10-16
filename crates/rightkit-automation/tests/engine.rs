@@ -515,45 +515,35 @@ fn type_text_falls_back_to_targeted_text_events() {
     assert_eq!(m.area_text(), "abc");
 }
 
-#[cfg(feature = "in-app")]
+/// A caller-supplied tier-2 channel: records every event and answers as told.
+struct FakeChannel {
+    pid: i32,
+    seen: std::sync::Mutex<Vec<InputEvent>>,
+    answer: Result<String>,
+}
+
+impl in_app::InApp for FakeChannel {
+    fn handles(&self, pid: i32) -> bool {
+        pid == self.pid
+    }
+    fn perform(&self, pid: i32, ev: &InputEvent) -> Result<String> {
+        if pid != self.pid {
+            return Err(Error::Unsupported("channel belongs to another pid"));
+        }
+        self.seen.lock().unwrap().push(ev.clone());
+        self.answer.clone()
+    }
+}
+
 #[test]
 fn keys_use_in_app_channel_when_available() {
-    use rightkit_service::{
-        host, Allowlist, CallContext, Emit, Handler, ServiceConfig, ServiceError, Suite,
-    };
-    use std::sync::Mutex;
-    struct Rec(Mutex<Vec<(String, serde_json::Value)>>);
-    impl Handler for Rec {
-        fn call(
-            &self,
-            _: &CallContext,
-            method: &str,
-            params: &serde_json::Value,
-            _: &Emit,
-        ) -> std::result::Result<serde_json::Value, ServiceError> {
-            self.0.lock().unwrap().push((method.into(), params.clone()));
-            Ok(serde_json::json!({"ok": true}))
-        }
-    }
-    // A real service host (user-only socket/pipe + service.json) the bridge reaches by discovery.
-    let suite = Suite::per_run_temp("engine").unwrap();
-    let rec = Arc::new(Rec(Mutex::new(vec![])));
-    let hosted = host(
-        &suite,
-        ServiceConfig::new(
-            "control-fake",
-            "control:main",
-            0,
-            "test",
-            Allowlist::new().allow("right-qa", ["key"]),
-        ),
-        rec.clone(),
-    )
-    .unwrap();
     let (a, m, _e, _i) = rig();
-    a.add_in_app(Arc::new(
-        in_app::ServiceBridge::new(EDITOR_PID, suite, "control-fake", "right-qa").unwrap(),
-    ));
+    let ch = Arc::new(FakeChannel {
+        pid: EDITOR_PID,
+        seen: std::sync::Mutex::new(vec![]),
+        answer: Ok("fake key".into()),
+    });
+    a.add_in_app(ch.clone());
     let s = a
         .snapshot(Target::app(EDITOR_PID), Limits::default())
         .unwrap();
@@ -562,11 +552,48 @@ fn keys_use_in_app_channel_when_available() {
         .unwrap();
     assert_eq!(out.receipt.tier_used, Some(Tier::InApp));
     assert_eq!(
-        rec.0.lock().unwrap().clone(),
-        vec![("key".to_string(), serde_json::json!({"key": "cmd+k"}))]
+        ch.seen.lock().unwrap().clone(),
+        vec![InputEvent::Key(keys::parse_chord("cmd+k", true).unwrap())]
     );
     assert!(m.log().iter().all(|l| !l.starts_with("post:")));
-    hosted.shutdown();
+}
+
+#[test]
+fn an_in_app_channel_that_cannot_express_the_event_falls_through_to_tier_3() {
+    let (a, _m, _e, _i) = rig();
+    let ch = Arc::new(FakeChannel {
+        pid: EDITOR_PID,
+        seen: std::sync::Mutex::new(vec![]),
+        answer: Err(Error::Unsupported("key not expressible")),
+    });
+    a.add_in_app(ch.clone());
+    let s = a
+        .snapshot(Target::app(EDITOR_PID), Limits::default())
+        .unwrap();
+    let out = a
+        .act(&s.id, None, Action::Keys("a".into()), &opts())
+        .unwrap();
+    assert_eq!(out.receipt.tier_used, Some(Tier::Targeted));
+    assert_eq!(ch.seen.lock().unwrap().len(), 1, "tier 2 was tried first");
+}
+
+#[test]
+fn an_in_app_channel_for_another_pid_is_not_consulted() {
+    let (a, _m, _e, _i) = rig();
+    let ch = Arc::new(FakeChannel {
+        pid: EDITOR_PID + 1000,
+        seen: std::sync::Mutex::new(vec![]),
+        answer: Ok("never".into()),
+    });
+    a.add_in_app(ch.clone());
+    let s = a
+        .snapshot(Target::app(EDITOR_PID), Limits::default())
+        .unwrap();
+    let out = a
+        .act(&s.id, None, Action::Keys("a".into()), &opts())
+        .unwrap();
+    assert_eq!(out.receipt.tier_used, Some(Tier::Targeted));
+    assert!(ch.seen.lock().unwrap().is_empty());
 }
 
 #[test]

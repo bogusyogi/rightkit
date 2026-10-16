@@ -149,36 +149,18 @@ function gateFixture(existing, log, confirm) {
   return { dir, request: { file, digest: createHash("sha256").update(bytes).digest("hex") }, d, events };
 }
 
-test("gate: no-op skips confirmation; cancel aborts before elevation; approve proceeds", async () => {
-  const f1 = gateFixture(installedAt(second), second);
-  try { assert.equal(await __testOnly.trustSyncGate(f1.d)(f1.request), false); assert.deepEqual(f1.events, []); } finally { rmSync(f1.dir, { recursive: true, force: true }); }
-
-  const f2 = gateFixture(installedAt(first), second, () => { throw new Error("cancelled by user"); });
-  try { assert.throws(() => __testOnly.trustSyncGate(f2.d)(f2.request), /cancelled by user/); } finally { rmSync(f2.dir, { recursive: true, force: true }); }
-
-  const f3 = gateFixture(installedAt(first), second);
-  try { assert.equal(await __testOnly.trustSyncGate(f3.d)(f3.request), true); assert.deepEqual(f3.events, ["confirm"]); } finally { rmSync(f3.dir, { recursive: true, force: true }); }
-});
-
-test("installCheckpoint: cancel never elevates; approve elevates once with the same digest; no-op skips", async () => {
-  const mk = (existing, confirm) => { const f = gateFixture(existing, second, confirm); return f; };
-  const run = async (existing, confirm) => {
-    const calls = [];
-    const f = mk(existing, confirm);
-    f.d.elevate = (_r, file, digest) => { calls.push({ file, digest }); };
-    f.d.gate = __testOnly.trustSyncGate(f.d);
-    f.d.authority = undefined;
-    let result, error;
-    try { result = await __testOnly.installCheckpoint(second, pin, baseline, f.d); } catch (e) { error = e; }
-    rmSync(f.dir, { recursive: true, force: true });
-    return { calls, result, error };
-  };
-  const cancelled = await run(installedAt(first), () => { throw new Error("cancelled by user"); });
-  assert.equal(cancelled.calls.length, 0); assert.match(cancelled.error.message, /cancelled by user/);
-  const approved = await run(installedAt(first));
-  assert.equal(approved.calls.length, 1); assert.equal(approved.result, true); assert.match(approved.calls[0].digest, /^[a-f0-9]{64}$/);
-  const noop = await run(installedAt(second));
-  assert.equal(noop.calls.length, 0); assert.equal(noop.result, false);
+test("installCheckpoint elevates once with the request digest (no approval dialog: trust-sync is retired)", async () => {
+  const f = gateFixture(installedAt(first), second);
+  const calls = [];
+  f.d.elevate = (_r, file, digest) => { calls.push({ file, digest }); };
+  f.d.authority = undefined;
+  try {
+    const result = await __testOnly.installCheckpoint(second, pin, baseline, f.d);
+    assert.equal(result, true);
+    assert.equal(calls.length, 1);
+    assert.match(calls[0].digest, /^[a-f0-9]{64}$/);
+    assert.deepEqual(f.events, [], "no confirm step runs");
+  } finally { rmSync(f.dir, { recursive: true, force: true }); }
 });
 
 const allow = (extra = []) => ({ schema: 1, global: ["npm:typescript"], repositories: [{ repositoryIdentity: "https://github.com/bogusyogi/coderight", dependencies: ["cargo:serde", ...extra] }] });

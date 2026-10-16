@@ -21,7 +21,7 @@ Contents: [Discovery](#discovery-and-roles) · [Connecting and transcribing](#co
 | `HostRole::rank`, `outranks` | Rank 0 (shell) to 3 (CutRight); a lower rank outranks a higher one. | — |
 | `HostRole::as_str`, `from_wire` | Wire name (`heard_right_shell`, `heard_right_headless`, `scrape_right`, `cut_right`) and its inverse; `from_wire` returns `None` for other names. | — |
 | `HostRole::parse_env` | Parses `HR_SPEECH_SERVICE_ROLE` values, case-insensitively, including `heardright`. | — (returns `None`) |
-| `HostRole::rank_table` | Role-name to rank map for `rightkit_service::ServiceConfig::known_roles`. | — |
+| `HostRole::rank_table` | Role-name to rank map for `rightkit_daemon::ServiceConfig::known_roles`. | — |
 | `ServiceRecord` | Fields of `service.json`: `protocol_major`, `protocol_minor`, `role`, `pid`, `endpoint`, `engine_version`. | — |
 | `TakeoverRequest` | Fields of `takeover.json`: `role`, `pid`, `requested_at_ms`. | — |
 | `InstalledEngine` | Fields of `installed/heardright.json`: `engine_path`, `engine_version`. | — |
@@ -239,7 +239,7 @@ and the UTF-8 requirement, which is not a host row. Everything else the host dec
 | 4 | The path exists. `Path::exists` follows symlinks. The host resolves a relative path in its own working directory. | `heardright-inference/src/file_transcribe.rs`, `decode_to_16k_mono` and `probe_duration_secs` | `E_ENGINE`, "file not found: <path>". Not retryable. |
 | 5 | The host process can open and read the file. The host does this itself before FFmpeg runs, so the client's own access does not matter. | `file_transcribe.rs`, `preflight_read`, `permission_error` | `E_PERMISSION`, "E_PERMISSION: HeardRight is not allowed to read <path>. Grant …". Not retryable. Other open failures: `E_ENGINE`, "could not read <path>: <os error>". |
 | 6 | Duration against the entitlement, probed before decoding. Free: at most 600 s. Pro: no limit. The host knows the entitlement; the client does not. | `heardright_core/src/engine/protocol.rs`, `check_duration_limit`; `heardright-runtime/src/worker/worker_main.rs`, `transcribe_file` | `E_ENGINE`, "Free transcription is limited to 10 minutes per file. Upgrade to Pro for unlimited file length." Not retryable. |
-| 7 | Decode with FFmpeg: `-vn`, the first audio stream, `-ac 1 -ar 16000 -c:a pcm_s16le`. | `rightkit-media/src/decode.rs`, `decode_command`; `file_transcribe.rs`, `decode_with_ffmpeg` | If FFmpeg's stderr reports a denied read: `E_PERMISSION`. Otherwise `E_ENGINE`, "ffmpeg could not read this file: <stderr>". If FFmpeg cannot run: `E_ENGINE`, "could not run ffmpeg at <path> (…)" or "Bundled media decoder is missing; repair the HeardRight installation." |
+| 7 | Decode with FFmpeg: `-vn`, the first audio stream, `-ac 1 -ar 16000 -c:a pcm_s16le`. | `rightkit-ffmpeg/src/decode.rs`, `decode_command`; `file_transcribe.rs`, `decode_with_ffmpeg` | If FFmpeg's stderr reports a denied read: `E_PERMISSION`. Otherwise `E_ENGINE`, "ffmpeg could not read this file: <stderr>". If FFmpeg cannot run: `E_ENGINE`, "could not run ffmpeg at <path> (…)" or "Bundled media decoder is missing; repair the HeardRight installation." |
 | 8 | Duration again, exactly, from the decoded sample count. | `worker_main.rs`, after `decode_to_16k_mono` | As row 6. |
 | 9 | Progress: a job that makes no progress for 10 minutes fails. | `worker_api.rs`, `FILE_STALL_TIMEOUT`, `wait_for_file_reply` | Job error, `E_ENGINE` class, not retryable. |
 | 10 | Cancel: none. A client disconnect does not stop a job. | `conn.rs`, `dispatch` | No error; see [Cancel](#cancel). |
@@ -253,7 +253,7 @@ that is unavailable (`model_lease_unavailable`).
 - **Containers and codecs.** Whatever the approved bundled FFmpeg decodes. The host probes
   the content, not the extension, and has no container or codec allowlist. WebM and MKV go
   through the same FFmpeg path. The build's configure flags are recorded in
-  `rightkit-media/catalog/artifacts.json`. This release did not run the build to list its
+  `rightkit-ffmpeg/catalog/artifacts.json`. This release did not run the build to list its
   decodable formats, so check your own formats before you rely on them.
 - **Video and streams.** Video is dropped (`-vn`). The first audio stream is decoded. Choose
   the track before sending if a file has several.

@@ -70,4 +70,5 @@ pub fn forbidden(name: &str) -> Option<String> {
 }
 
 /// Generic control methods that can read arbitrary app content back out.
-pub const GENERIC_READ_METHODS: &[&str] = &["eval", "dom", "ax", "screenshot"];
+/// `wait` evaluates page script and `batch` carries any of them, so both count.
+pub const GENERIC_READ_METHODS: &[&str] = &["eval", "dom", "ax", "screenshot", "wait", "batch"];

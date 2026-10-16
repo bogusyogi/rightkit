@@ -8,7 +8,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use rightkit_media::CancellationToken;
+use rightkit_ffmpeg::CancellationToken;
 use rightkit_playback::{
     compatibility_copy, MediaKind, PlaybackError, PlaybackRegistry, PlaybackSource,
 };

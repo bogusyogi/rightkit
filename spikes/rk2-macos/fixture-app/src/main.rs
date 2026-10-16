@@ -1,9 +1,9 @@
 //! RK2 Spike A fixture: Tauri/WebView window with step id, frame counter and animated region, driven through
-//! rightkit-control's embedded path. Adds spike-only native placement/visibility commands (arm64 macOS) and an
+//! rightkit-qa-driver's embedded path. Adds spike-only native placement/visibility commands (arm64 macOS) and an
 //! admission/dispatch/completion timestamp journal (RK2_LOG, JSONL, CLOCK_UPTIME_RAW ns).
-use rightkit_control::admission::{AdmissionDecision, EffectGate, EffectRequest};
-use rightkit_control::embedded::Control;
-use rightkit_control::events::ControlEvent;
+use rightkit_qa_driver::admission::{AdmissionDecision, EffectGate, EffectRequest};
+use rightkit_qa_driver::embedded::Control;
+use rightkit_qa_driver::events::ControlEvent;
 use std::io::Write;
 use std::sync::{Arc, Mutex, OnceLock};
 
@@ -51,7 +51,7 @@ mod nat {
         pub fn free(p: *mut c_void);
     }
     extern "C" fn unconstrained(_: *mut c_void, _: *const c_void, r: Rect, _: *mut c_void) -> Rect { r }
-    /// Per-window subclass whose constrainFrameRect:toScreen: is the identity (same technique as rightkit-control set_viewport),
+    /// Per-window subclass whose constrainFrameRect:toScreen: is the identity (same technique as rightkit-qa-driver set_viewport),
     /// kept for the window's lifetime so orderFront does not pull an off-screen window back onto a display.
     pub unsafe fn install_unconstrained(w: *mut c_void) -> *mut c_void {
         let base = object_getClass(w);
@@ -334,7 +334,7 @@ fn main() {
         //  policy -> configuration.preferences.inactiveSchedulingPolicy = .none (public, macOS 14+)
         .command("vis_force", |a, b| {
             use tauri::Manager;
-            let mode = rightkit_control::json::str_field(b, "mode").unwrap_or_default();
+            let mode = rightkit_qa_driver::json::str_field(b, "mode").unwrap_or_default();
             let win = a.get_webview_window("main").ok_or("no window")?;
             let (tx, rx) = std::sync::mpsc::channel();
             win.with_webview(move |pv| unsafe {
@@ -359,7 +359,7 @@ fn main() {
         // nap_off: hold an NSProcessInfo activity (user-initiated + latency-critical) so App Nap / timer coalescing cannot throttle the page.
         .command("nap_off", |a, b| {
             // opts: decimal NSActivityOptions override (default user-initiated-allowing-idle-sleep | latency-critical)
-            let opts: u64 = rightkit_control::json::str_field(b, "opts").and_then(|v| v.parse().ok()).unwrap_or(0x00EF_FFFF | 0xFF_0000_0000);
+            let opts: u64 = rightkit_qa_driver::json::str_field(b, "opts").and_then(|v| v.parse().ok()).unwrap_or(0x00EF_FFFF | 0xFF_0000_0000);
             on_main(a, move |_| unsafe {
                 use std::ffi::c_void;
                 let pi = nat::obj(nat::class(c"NSProcessInfo"), c"processInfo");
@@ -377,10 +377,10 @@ fn main() {
         .command("oc", |a, b| {
             use tauri::Manager;
             use std::ffi::{c_void, CString};
-            let target = rightkit_control::json::str_field(b, "target").unwrap_or_default();
-            let sel = rightkit_control::json::str_field(b, "sel").ok_or("sel")?;
-            let argk = rightkit_control::json::str_field(b, "argk").unwrap_or_else(|| "none".into());
-            let argv = rightkit_control::json::str_field(b, "argv").unwrap_or_default();
+            let target = rightkit_qa_driver::json::str_field(b, "target").unwrap_or_default();
+            let sel = rightkit_qa_driver::json::str_field(b, "sel").ok_or("sel")?;
+            let argk = rightkit_qa_driver::json::str_field(b, "argk").unwrap_or_else(|| "none".into());
+            let argv = rightkit_qa_driver::json::str_field(b, "argv").unwrap_or_default();
             let win = a.get_webview_window("main").ok_or("no window")?;
             let (tx, rx) = std::sync::mpsc::channel();
             win.with_webview(move |pv| unsafe {
@@ -417,8 +417,8 @@ fn main() {
         // dump {cls,filter}: list instance method names of an ObjC class containing filter (comma separated, any match).
         .command("dump", |_a, b| {
             use std::ffi::{c_void, CString, CStr};
-            let cls = rightkit_control::json::str_field(b, "cls").ok_or("cls")?;
-            let filt: Vec<String> = rightkit_control::json::str_field(b, "filter").unwrap_or_default().to_lowercase().split(',').map(|s| s.to_string()).collect();
+            let cls = rightkit_qa_driver::json::str_field(b, "cls").ok_or("cls")?;
+            let filt: Vec<String> = rightkit_qa_driver::json::str_field(b, "filter").unwrap_or_default().to_lowercase().split(',').map(|s| s.to_string()).collect();
             let mut out = vec![];
             unsafe {
                 let c = nat::class(&CString::new(cls).unwrap());
@@ -438,7 +438,7 @@ fn main() {
         .command("cvdl_start", |_a, _| Ok(format!("\"{}\"", unsafe { dl::start_cv() })))
         .command("dl_counts", |_a, _| Ok(format!("{{\"cv\":{},\"ca\":{}}}", dl::CV_COUNT.load(std::sync::atomic::Ordering::Relaxed), dl::CA_COUNT.load(std::sync::atomic::Ordering::Relaxed))))
         .command("cadl_start", |a, b| {
-            let kind = rightkit_control::json::str_field(b, "kind").unwrap_or_default();
+            let kind = rightkit_qa_driver::json::str_field(b, "kind").unwrap_or_default();
             let r = on_main(a, move |w| unsafe { let o = if kind == "view" { nat::obj(w, c"contentView") } else { w }; dl::start_ca(o, kind == "view") })?;
             Ok(format!("\"{r}\""))
         })

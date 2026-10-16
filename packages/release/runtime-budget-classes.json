@@ -1,4 +1,37 @@
 {
   "schema": 1,
-  "heldResource": {}
+  "heldResource": {
+    "rightkit-asr": {
+      "ceilings": null,
+      "requiredScale": null
+    },
+    "rightkit-audio": {
+      "ceilings": null,
+      "requiredScale": null
+    },
+    "rightkit-browser": {
+      "ceilings": null,
+      "requiredScale": null
+    },
+    "rightkit-embed": {
+      "ceilings": null,
+      "requiredScale": null
+    },
+    "rightkit-ocr": {
+      "ceilings": null,
+      "requiredScale": null
+    },
+    "rightkit-record": {
+      "ceilings": null,
+      "requiredScale": null
+    },
+    "rightkit-sandbox": {
+      "ceilings": null,
+      "requiredScale": null
+    },
+    "rightkit-vad": {
+      "ceilings": null,
+      "requiredScale": null
+    }
+  }
 }

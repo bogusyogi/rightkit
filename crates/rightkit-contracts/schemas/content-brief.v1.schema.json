@@ -1,0 +1,204 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:rightkit:contract:content-brief:v1",
+  "title": "RightKit content brief (v1)",
+  "description": "A content brief authored by PostRight and consumed by GenRight and CutRight. Each revision is immutable; a correction is a new revision whose supersedes names the revision it replaces. ruleRevision names the platform rule revision the brief was validated against; review.policyRevision is the review policy revision and is a separate number. Stage input hashes and per-stage request ids let unchanged stages stay cached and stop changed inputs from reusing stale assets. A product_demo brief carries its recording scenario as data, and each step may carry narration text in say. Semantic rules that JSON Schema cannot express (unique step and target ids, unique stage ids, dependsOn resolving to declared stages, revision 1 superseding nothing) are enforced by rightkit-contracts.",
+  "version": "1.1.0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["contract", "contractVersion", "briefId", "revision", "briefType", "channel", "platforms", "deliverables", "stages"],
+  "properties": {
+    "contract": { "const": "content-brief" },
+    "contractVersion": { "$ref": "#/$defs/contractVersion" },
+    "briefId": { "$ref": "#/$defs/id" },
+    "revision": { "type": "integer", "minimum": 1 },
+    "supersedes": { "type": ["integer", "null"], "minimum": 1 },
+    "ruleRevision": { "type": "integer", "minimum": 1 },
+    "createdAt": { "$ref": "#/$defs/timestamp" },
+    "briefType": {
+      "enum": ["talking_head", "faceless_cartoon", "explainer", "carousel", "ugc_character_review", "product_pitch", "product_demo"]
+    },
+    "channel": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["venture", "channel", "account"],
+      "properties": {
+        "venture": { "$ref": "#/$defs/id" },
+        "channel": { "$ref": "#/$defs/id" },
+        "account": { "$ref": "#/$defs/id" }
+      }
+    },
+    "platforms": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "$ref": "#/$defs/id" } },
+    "deliverables": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": { "enum": ["video", "stills", "carousel", "text"] }
+    },
+    "hook": { "type": "string", "maxLength": 500 },
+    "script": { "type": "string", "maxLength": 20000 },
+    "references": { "type": "array", "uniqueItems": true, "items": { "$ref": "#/$defs/id" } },
+    "facts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["factId", "text", "status"],
+        "properties": {
+          "factId": { "$ref": "#/$defs/id" },
+          "text": { "type": "string", "minLength": 1, "maxLength": 1000 },
+          "status": { "enum": ["unresolved", "proven", "withdrawn", "superseded"] },
+          "proofId": { "$ref": "#/$defs/id" },
+          "supersededBy": { "$ref": "#/$defs/id" }
+        },
+        "allOf": [
+          {
+            "if": { "properties": { "status": { "const": "superseded" } }, "required": ["status"] },
+            "then": { "required": ["supersededBy"] }
+          }
+        ]
+      }
+    },
+    "review": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["mode"],
+      "properties": {
+        "mode": { "enum": ["manual", "auto_when_clean", "none"] },
+        "policyRevision": { "type": "integer", "minimum": 1, "description": "Review policy revision. Not the platform rule revision; see the top-level ruleRevision." }
+      }
+    },
+    "stages": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/stage" } },
+    "scenario": { "$ref": "#/$defs/scenario" }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "revision": { "const": 1 } }, "required": ["revision"] },
+      "then": { "not": { "required": ["supersedes"] } }
+    },
+    {
+      "if": { "properties": { "briefType": { "const": "product_demo" } } },
+      "then": { "required": ["scenario"] },
+      "else": { "not": { "required": ["scenario"] } }
+    }
+  ],
+  "$defs": {
+    "contractVersion": { "type": "string", "pattern": "^1\\.[0-9]+\\.[0-9]+$" },
+    "id": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$" },
+    "stepId": { "type": "string", "pattern": "^[a-z][a-z0-9_.-]{0,63}$" },
+    "blake3": { "type": "string", "pattern": "^blake3:[0-9a-f]{64}$" },
+    "timestamp": { "type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]{1,9})?Z$" },
+    "stage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "requestId", "inputHash", "dependsOn"],
+      "properties": {
+        "id": { "enum": ["acquisition", "transcription", "labelling", "playbook", "research", "script", "generate", "record", "align", "cut", "voice", "carousel", "manifest", "upload", "publish"] },
+        "requestId": { "$ref": "#/$defs/id" },
+        "inputHash": { "$ref": "#/$defs/blake3" },
+        "dependsOn": { "type": "array", "uniqueItems": true, "items": { "enum": ["acquisition", "transcription", "labelling", "playbook", "research", "script", "generate", "record", "align", "cut", "voice", "carousel", "manifest", "upload", "publish"] } }
+      }
+    },
+    "scenario": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["scenarioId", "app", "runner", "fps", "targets", "steps"],
+      "properties": {
+        "scenarioId": { "$ref": "#/$defs/id" },
+        "app": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["appId"],
+          "properties": {
+            "appId": { "$ref": "#/$defs/id" },
+            "bundleId": { "$ref": "#/$defs/id" }
+          }
+        },
+        "runner": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["host"],
+          "properties": {
+            "host": { "enum": ["mac_second_session", "windows_session"] }
+          }
+        },
+        "fps": { "enum": [30, 60] },
+        "targets": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["targetId", "role", "label"],
+            "properties": {
+              "targetId": { "$ref": "#/$defs/stepId" },
+              "role": { "type": "string", "minLength": 1, "maxLength": 64 },
+              "label": { "type": "string", "minLength": 1, "maxLength": 200 }
+            }
+          }
+        },
+        "steps": { "type": "array", "minItems": 1, "maxItems": 200, "items": { "$ref": "#/$defs/step" } }
+      }
+    },
+    "step": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["stepId", "label", "action", "expect"],
+      "properties": {
+        "stepId": { "$ref": "#/$defs/stepId" },
+        "label": { "type": "string", "minLength": 1, "maxLength": 200 },
+        "action": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind"],
+          "properties": {
+            "kind": { "enum": ["click", "right_click", "type", "key", "scroll", "drag", "wait", "navigate", "menu", "focus"] },
+            "targetId": { "$ref": "#/$defs/stepId" },
+            "params": { "type": "object" }
+          }
+        },
+        "expect": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["postcondition"],
+          "properties": {
+            "postcondition": { "type": "string", "minLength": 1, "maxLength": 500 },
+            "timeoutMs": { "type": "integer", "minimum": 1, "maximum": 60000 }
+          }
+        },
+        "say": { "type": "string", "minLength": 1, "maxLength": 1000 }
+      }
+    }
+  },
+  "examples": [
+    {
+      "contract": "content-brief",
+      "contractVersion": "1.1.0",
+      "briefId": "brief.demo-export-2026-10",
+      "revision": 2,
+      "supersedes": 1,
+      "ruleRevision": 4,
+      "createdAt": "2026-10-08T09:00:00Z",
+      "briefType": "product_demo",
+      "channel": { "venture": "orthic", "channel": "cutright-how-to", "account": "main" },
+      "platforms": ["youtube_shorts", "instagram_reels"],
+      "deliverables": ["video", "carousel"],
+      "hook": "Export a finished cut in two clicks.",
+      "review": { "mode": "manual", "policyRevision": 3 },
+      "stages": [
+        { "id": "record", "requestId": "req.record.2", "inputHash": "blake3:0000000000000000000000000000000000000000000000000000000000000000", "dependsOn": [] },
+        { "id": "cut", "requestId": "req.cut.2", "inputHash": "blake3:1111111111111111111111111111111111111111111111111111111111111111", "dependsOn": ["record"] }
+      ],
+      "scenario": {
+        "scenarioId": "export-flow",
+        "app": { "appId": "cutright", "bundleId": "com.orthic.cutright" },
+        "runner": { "host": "mac_second_session" },
+        "fps": 60,
+        "targets": [{ "targetId": "export-button", "role": "button", "label": "Export" }],
+        "steps": [
+          { "stepId": "open-export", "label": "Open export sheet", "action": { "kind": "click", "targetId": "export-button" }, "expect": { "postcondition": "export sheet visible", "timeoutMs": 5000 }, "say": "Open the export sheet." }
+        ]
+      }
+    }
+  ]
+}

@@ -14,7 +14,7 @@ use std::path::PathBuf;
 use rightkit_contracts::types::record_event::DropReason;
 use rightkit_contracts::types::record_session::{TrackKind, VisibilityState};
 use rightkit_contracts::types::Rect;
-use rightkit_framed_sidecar::length_prefixed::{read_frame_bytes, write_frame};
+use rightkit_sidecar::length_prefixed::{read_frame_bytes, write_frame};
 use serde_json::{json, Value};
 
 use crate::backend::{BackendPlan, Codec, Failure, FrameSample, HelperEvent, Permission, Source};

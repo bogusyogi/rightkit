@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "capturedAt": "2026-07-14",
-  "scope": "HeardRight and ScrapeRight FFmpeg behavior before rightkit-media extraction",
+  "scope": "HeardRight and ScrapeRight FFmpeg behavior before rightkit-ffmpeg extraction",
   "artifacts": [
     {
       "id": "ffmpeg-7.1.5-windows-x64",
@@ -135,7 +135,7 @@
     {
       "id": "no-approved-digest-enforcement",
       "evidence": "Both stage arbitrary override paths and inspect -version, but neither compares SHA-256 with an approved manifest.",
-      "closure": "Right Release must select an immutable catalog entry and rightkit-media must verify SHA-256 before execution/staging."
+      "closure": "Right Release must select an immutable catalog entry and rightkit-ffmpeg must verify SHA-256 before execution/staging."
     },
     {
       "id": "heardright-version-spawn-failure-passes",
@@ -160,7 +160,7 @@
     {
       "id": "scraperight-no-timeout-or-process-tree-kill",
       "evidence": "ScrapeRight polls cancellation and kill/waits the direct child, but has no deadline and no process-tree/group termination.",
-      "closure": "Adopt rightkit-process deadline and tree/group termination semantics."
+      "closure": "Adopt rightkit-child-process deadline and tree/group termination semantics."
     },
     {
       "id": "macos-approved-artifacts-missing",

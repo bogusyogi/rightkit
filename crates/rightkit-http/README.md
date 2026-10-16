@@ -14,8 +14,8 @@ Catalog capability: `http-client`. Published to crates.io at 0.2.5 (registry rec
 - `Request::deadline`, `Request::secret_header` and `ClientConfig::redact_values`: a per-call budget, and secrets kept out of error text.
 - `AsyncClient` (feature `async`): `send`, `send_any`, `stream`, `get_json` with identical timeout, retry/backoff, redirect, user-agent, proxy (off by default; `ProxyMode` opts in), address policy and size-limit behaviour. `stream` returns a `BodyStream` of `Bytes` chunks or an `SseStream` (`.sse()`, `.sse_with_limits(max_line, max_event)`), bounded to 1 MiB per line and 4 MiB per event by default.
 - `sse`: `SseDecoder` (`new`, `with_limits`), `SseReader`, `SseEvent`. WHATWG-compliant Server-Sent Events.
-- `untrusted`: `wrap_untrusted_web_text` for external text, with boundary markers and injection-signal reporting.
-- `secret`: a redacted `Secret`, and the `SecretStore` trait. `MemorySecretStore` is provided for tests. `src/secret.rs` says `rightkit-secrets` supplies the production implementation, but `rightkit-secrets` has no `SecretStore` implementation and does not depend on this crate.
+- `untrusted`: `wrap_untrusted_web_text` for external text, with boundary markers and injection-signal reporting; `wrap_untrusted_web_text_coderight` is the opt-in variant that emits CodeRight's `<coderight-untrusted-context>` envelope (differences: `content_hash` is the body SHA-256, closing-tag text in the body is escaped).
+- `secret`: a redacted `Secret`, and the `SecretStore` trait. `MemorySecretStore` is provided for tests. `src/secret.rs` says `rightkit-credentials` supplies the production implementation, but `rightkit-credentials` has no `SecretStore` implementation and does not depend on this crate.
 - `testing` (feature): an in-process mock server that records exact requests.
 
 ## Not in this release
@@ -31,14 +31,16 @@ The default client is blocking (`ureq` with `rustls`). For async code enable the
 
 ## Cargo features
 
+No feature is on by default (0.3.0). Name `gzip` and `untrusted` to get what 0.2.x built.
+
 | Feature | Default | Pulls in | Enables |
 |---|---|---|---|
-| `gzip` | yes | `ureq/gzip` | Automatic `Accept-Encoding: gzip` and transparent decoding for buffered responses and stream readers. Matches ureq's default. |
-| `untrusted` | yes | `rightkit-fs` (SHA-256 digest) | `wrap_untrusted_web_text` and `WrapOptions` (`Cargo.toml:15-18`, `src/lib.rs:30-31`). |
+| `gzip` | no | `ureq/gzip` | Automatic `Accept-Encoding: gzip` and transparent decoding for buffered responses and stream readers. Matches ureq's default. |
+| `untrusted` | no | `rightkit-fs` (SHA-256 digest) | `wrap_untrusted_web_text` and `WrapOptions` (`Cargo.toml:15-18`, `src/lib.rs:30-31`). |
 | `async` | no | `reqwest` (rustls, no native-tls), `tokio` (time, net), `futures-util`, `bytes`, `rustls`, `rustls-platform-verifier`, `webpki-roots` | `AsyncClient`, `AsyncStreamResponse`, `BodyStream`, `SseStream`. Same `ClientConfig`, `Request`, `Response`, `HttpError` and policy as the blocking client. With `gzip`, also enables `reqwest/gzip`. |
 | `testing` | no | none | The `testing` module: `MockServer`, `MockResponse`, `MockBody`, `RecordedRequest`, `loopback_policy`, `loopback_config`. |
 
-To opt out of all default features (`gzip` and `untrusted`):
+Default features are empty since 0.3.0. Name what you use, e.g. `features = ["gzip", "untrusted"]`; with no features:
 
 ```toml
 rightkit-http = { version = "<exact published version from INDEX.md>", default-features = false }

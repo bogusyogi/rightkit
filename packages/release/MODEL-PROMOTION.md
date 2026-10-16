@@ -107,7 +107,7 @@ fields or proof supplied by this change:
     "sizeBytes": 2154311328
   },
   "source": { "url": "<https-upstream-source-url>", "revision": "<pinned-revision>" },
-  "conversion": { "tool": "rightkit-qts/scripts/export_1p7b.py", "commit": "<converter-commit>", "quantization": "q8_0" },
+  "conversion": { "tool": "rightkit-tts-qwen/scripts/export_1p7b.py", "commit": "<converter-commit>", "quantization": "q8_0" },
   "license": { "id": "<reviewed-license-id>", "noticeSha256": "<notice-file-sha256>" },
   "qualification": { "receipt": "<existing-load-and-synthesis-test-receipt>", "runtimeVersion": "<tested-runtime-version>", "pairedArtifactDigests": ["<predictor-sha256>", "<tokenizer-sha256>"] }
 }

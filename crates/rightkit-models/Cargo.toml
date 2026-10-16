@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-models"
-version = "0.3.0"
+version = "0.4.0"
 edition = "2021"
 rust-version = "1.98.0"
 license = "MIT OR Apache-2.0"
@@ -22,9 +22,15 @@ rightapps = ["dep:ed25519-dalek", "dep:base64", "dep:url", "dep:chrono"]
 # host and port be reached for a local debug worker. Never enable it in a release build; without
 # it the allowance is ignored and loopback stays refused.
 dev-worker-override = []
+# Compiles the suite-root override switches (`RIGHTKIT_SUITE_ROOT`, `RIGHT_SUITE_DIR`,
+# `ORTHIC_SHARED_DIR`) by forwarding `rightkit-daemon/test-mode`. Apps enable it from their own
+# test-mode feature. Never enable it in a release build: without it no override is read.
+test-mode = ["rightkit-daemon/test-mode"]
 
 [dependencies]
 rightkit-fs = { version = "0.4.0", path = "../rightkit-fs", default-features = false, features = ["digest", "fs", "lock"] }
+# One suite-root rule for every Right Suite crate: `Suite::resolve`, overrides only with `test-mode`.
+rightkit-daemon = { version = "0.2.3", path = "../rightkit-daemon", default-features = false }
 # Every outbound request goes through rightkit-http: address policy, per-hop redirect vetting.
 rightkit-http = { version = "0.3.0", path = "../rightkit-http", default-features = false }
 ed25519-dalek = { version = "2", optional = true }
@@ -47,7 +53,7 @@ tempfile = "3"
 # Mock HTTP server (Range, dropped connections) for the end-to-end download
 # tests. rightkit-qa does not depend on rightkit-models, so this is no publish
 # cycle; it only orders publication (rightkit-qa 0.2.2 first).
-rightkit-qa = { version = "0.2.8", path = "../rightkit-qa" }
+rightkit-qa = { version = "0.6.0", path = "../rightkit-qa" }
 
 [package.metadata.rightkit]
 continuous = false

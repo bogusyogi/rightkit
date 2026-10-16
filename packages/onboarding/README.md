@@ -20,7 +20,7 @@ First-run onboarding framework for Right Suite apps. The legal agreement gate co
 
 | Peer | Range |
 |---|---|
-| `@rightkit/app-shell` | `>=0.2.0 <1` |
+| `@rightkit/react-shell` | `>=0.2.0 <1` |
 | `@rightkit/legal-ui` | `>=0.1.2 <1` |
 | `react` | `>=18 <21` |
 

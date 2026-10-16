@@ -11,13 +11,18 @@
 //! * engine: [`engine::EngineTarget`] drives the app engine over CLI words and the
 //!   framed stdio sidecar.
 //! * app UI: [`control::Control`] launches the real Tauri app hidden/backgrounded
-//!   and drives it through the in-app `rightkit-control` server.
+//!   and drives it through the in-app server (`embedded`, feature `control`).
 //! * Chrome: `browser` feature, through `rightkit-browser`.
 //!
 //! Scenarios are declarative TOML ([`scenario`]) run by the CLI, or plain Rust
 //! integration tests wrapped by [`harness::Harness::scenario`] (tier gating, requires-skip,
 //! per-scenario evidence, orphan check). Knobs reach managed (`rightkit cargo`) test runs
 //! through cargo features plus a [`settings::Settings`] file, never the caller's environment.
+//!
+//! Run kinds and evidence: a run is `functional` (the default: clicks, state and text, no
+//! screenshots, no recordings) or `visual` (the audit-visual run that captures screens), see
+//! [`storage::RunKind`]. Each run writes into its own directory under the managed runs root and
+//! [`retention`] prunes only directories that carry the run marker.
 //!
 //! Validators: [`media`] (WAV stats, PNG/frame non-uniformity) and [`loudness`]
 //! (BS.1770 integrated loudness, range, true peak), pure Rust except where a compressed
@@ -28,17 +33,25 @@ pub mod browser;
 pub mod check;
 pub mod config;
 pub mod control;
+/// QA-only in-app control server. Compiled only with the explicit `control` feature, which no
+/// shipped build may enable (see the README section "Migrating from rightkit-qa-driver").
+#[cfg(feature = "control")]
+pub mod embedded;
 pub mod engine;
 pub mod evidence;
 pub mod guard;
 pub mod harness;
 pub mod http;
+/// Tier-2 `InApp` client for the embedded control server (`control` feature only).
+#[cfg(feature = "control")]
+pub mod in_app;
 pub mod lock;
 pub mod loudness;
 pub mod media;
 pub mod mock;
 pub mod page;
 pub mod process;
+pub mod retention;
 pub mod scenario;
 pub mod settings;
 pub mod storage;

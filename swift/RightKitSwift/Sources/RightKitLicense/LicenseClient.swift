@@ -1,5 +1,7 @@
 import CryptoKit
 import Foundation
+import os
+import RightKitCredentials
 #if canImport(Combine)
 import Combine
 #endif
@@ -276,10 +278,24 @@ public struct KeychainLicenseStore: LicenseStore, Sendable {
     /// read-then-rewrite window in which a concurrent `remove()` could be undone.
     private static let lock = NSLock()
 
+    /// The shared Keychain store (RightKitCredentials); `service` is the namespace, the account the key.
+    /// Honours no guard variable: licence identity must never silently move to memory.
+    private func secrets() throws -> SecretsStore {
+        try SecretsStore(namespace: service, environment: [:], backend: KeychainSecretsBackend())
+    }
+
+    private static func map(_ error: Error) -> Error {
+        switch error as? SecretsError {
+        case .keychain(let status)?: return LicenseStorageError.keychain(status)
+        case .invalid?, .guarded?: return LicenseStorageError.keychain(errSecParam)
+        case nil: return error
+        }
+    }
+
     public func load() async -> StoredLicense? {
         let found: Data? = Self.lock.withLock {
-            guard let data = read(service: service, account: account) else { return nil }
-            migrateAccessibility(service: service, account: account)
+            guard let store = try? secrets(), let data = try? store.get(account) else { return nil }
+            _ = try? store.reapplyAccessibility(account)
             return data
         }
         guard let data = found else { return nil }
@@ -290,66 +306,119 @@ public struct KeychainLicenseStore: LicenseStore, Sendable {
     public func save(_ license: StoredLicense) async throws {
         let encoder = JSONEncoder(); encoder.keyEncodingStrategy = .convertToSnakeCase
         guard let data = try? encoder.encode(license) else { throw LicenseStorageError.encoding }
-        try Self.lock.withLock { try write(data, service: service, account: account) }
+        try Self.lock.withLock {
+            do { try secrets().set(account, data) } catch { throw Self.map(error) }
+        }
     }
 
     public func remove() async throws {
-        try Self.lock.withLock { try delete(service: service, account: account) }
+        try Self.lock.withLock {
+            do { try secrets().delete(account) } catch { throw Self.map(error) }
+        }
     }
 
+    /// Legacy non-throwing form. A Keychain failure cannot be reported through this signature, so
+    /// it returns a value that may not have been persisted (the identity would then change on the
+    /// next launch). Unsafe as licence identity: a token bound to a throw-away id never verifies
+    /// again. Use ``requireDeviceID(account:)`` to have the failure surface.
+    @available(*, deprecated, message: "Returns an unpersisted random id when the Keychain fails. Use requireDeviceID(account:), which throws, and fail closed.")
     public func deviceID(account: String = "device-id") -> String {
-        Self.lock.withLock { deviceIDLocked(account: account) }
+        Self.lock.withLock {
+            guard let store = try? secrets() else { return UUID().uuidString }
+            return legacyDeviceIDLocked(account: account, store: store)
+        }
     }
 
-    private func deviceIDLocked(account: String) -> String {
-        if let data = read(service: service, account: account), let value = String(data: data, encoding: .utf8), !value.isEmpty {
-            migrateAccessibility(service: service, account: account)
+    /// Under the lock. A corrupt stored id (empty or not UTF-8) is logged once and replaced in place, so the
+    /// identity settles on the new persisted value. Only when that replacement also fails does it return a
+    /// fallback, cached per process, so repeated calls agree instead of rotating per call.
+    func legacyDeviceIDLocked(account: String, store: SecretsStore) -> String {
+        do {
+            return try deviceIDLocked(account: account, store: store)
+        } catch LicenseError.corruptDeviceID {
+            if CorruptDeviceIDState.shared.claimReport() {
+                Self.log.error("stored license device id is corrupt; replacing it")
+            }
+            if let replaced = try? replaceCorruptDeviceIDLocked(account: account, store: store) { return replaced }
+            return CorruptDeviceIDState.shared.fallback(for: "\(service)\u{1f}\(account)")
+        } catch {
+            return UUID().uuidString
+        }
+    }
+
+    /// The persisted device id. Created and stored on first use (create-only, so two processes
+    /// racing on first launch converge on one id). Throws ``LicenseStorageError/keychain(_:)`` when
+    /// the Keychain read fails for any reason other than "not found" (a transient failure must not
+    /// rotate the identity) or when the new id cannot be written (it would not survive the process).
+    /// Throws ``LicenseError/corruptDeviceID`` when the stored value is empty or not valid UTF-8; nothing is rewritten.
+    public func requireDeviceID(account: String = "device-id") throws -> String {
+        try Self.lock.withLock {
+            do { return try deviceIDLocked(account: account, store: try secrets()) } catch { throw Self.map(error) }
+        }
+    }
+
+    func deviceIDLocked(account: String, store: SecretsStore) throws -> String {
+        if let data = try store.get(account) {
+            let value = try Self.deviceIDText(data)
+            _ = try? store.reapplyAccessibility(account)
             return value
         }
         let value = UUID().uuidString
-        try? write(Data(value.utf8), service: service, account: account)
+        if try store.setIfAbsent(account, string: value) { return value }
+        // Lost a cross-process race: the winner's id is the identity.
+        guard let winner = try store.get(account) else { throw SecretsError.keychain(errSecItemNotFound) }
+        return try Self.deviceIDText(winner)
+    }
+
+    /// Replaces a corrupt stored id: delete it, then a create-only write of a fresh id. Runs under the lock.
+    func replaceCorruptDeviceIDLocked(account: String, store: SecretsStore) throws -> String {
+        try store.delete(account)
+        let value = UUID().uuidString
+        if try store.setIfAbsent(account, string: value) { return value }
+        guard let winner = try store.get(account) else { throw SecretsError.keychain(errSecItemNotFound) }
+        return try Self.deviceIDText(winner)
+    }
+
+    private static func deviceIDText(_ data: Data) throws -> String {
+        guard let value = String(data: data, encoding: .utf8), !value.isEmpty else { throw LicenseError.corruptDeviceID }
         return value
     }
 
-    /// Rewrites only the accessibility attribute of an existing item (update-only, never add), so a
-    /// record deleted in the meantime is never resurrected by the migration.
-    private func migrateAccessibility(service: String, account: String) {
-        let attributes: [String: Any] = [kSecAttrAccessible as String: Self.deviceOnlyAccessibility]
-        _ = SecItemUpdate(identity(service: service, account: account) as CFDictionary, attributes as CFDictionary)
-    }
+    private static let log = Logger(subsystem: "org.rightkit.license", category: "device-id")
 
     /// Device-only accessibility: the item is excluded from backups and never migrates to another
     /// device, so a restored backup cannot carry a prior device binding.
     static var deviceOnlyAccessibility: CFString { kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly }
 
     func identity(service: String, account: String) -> [String: Any] {
-        [kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: service, kSecAttrAccount as String: account, kSecAttrSynchronizable as String: false]
+        KeychainSecretsBackend().identity(namespace: service, key: account)
+    }
+}
+
+/// Process-wide state for the corrupt-device-id path: the one-time report and the per-process fallback ids.
+/// Guarded by its own lock; the callers also hold ``KeychainLicenseStore``'s lock.
+private final class CorruptDeviceIDState: @unchecked Sendable {
+    static let shared = CorruptDeviceIDState()
+    private let lock = NSLock()
+    private var reported = false
+    private var fallbacks: [String: String] = [:]
+
+    /// True exactly once per process.
+    func claimReport() -> Bool {
+        lock.withLock { () -> Bool in
+            if reported { return false }
+            reported = true
+            return true
+        }
     }
 
-    private func read(service: String, account: String) -> Data? {
-        var query = identity(service: service, account: account)
-        query[kSecReturnData as String] = true; query[kSecMatchLimit as String] = kSecMatchLimitOne
-        var item: CFTypeRef?
-        guard SecItemCopyMatching(query as CFDictionary, &item) == errSecSuccess else { return nil }
-        return item as? Data
-    }
-
-    /// Update-or-add; on update the accessibility attribute is rewritten so existing records that
-    /// predate device-only accessibility are migrated in place.
-    private func write(_ data: Data, service: String, account: String) throws {
-        let query = identity(service: service, account: account)
-        let attributes: [String: Any] = [kSecValueData as String: data, kSecAttrAccessible as String: Self.deviceOnlyAccessibility]
-        let status = SecItemUpdate(query as CFDictionary, attributes as CFDictionary)
-        if status == errSecItemNotFound {
-            var item = query; item.merge(attributes) { $1 }
-            let added = SecItemAdd(item as CFDictionary, nil)
-            guard added == errSecSuccess else { throw LicenseStorageError.keychain(added) }
-        } else if status != errSecSuccess { throw LicenseStorageError.keychain(status) }
-    }
-
-    private func delete(service: String, account: String) throws {
-        let status = SecItemDelete(identity(service: service, account: account) as CFDictionary)
-        guard status == errSecSuccess || status == errSecItemNotFound else { throw LicenseStorageError.keychain(status) }
+    func fallback(for key: String) -> String {
+        lock.withLock { () -> String in
+            if let existing = fallbacks[key] { return existing }
+            let fresh = UUID().uuidString
+            fallbacks[key] = fresh
+            return fresh
+        }
     }
 }
 

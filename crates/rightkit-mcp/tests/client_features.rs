@@ -247,7 +247,14 @@ fn wait_for_marker(marker: &std::path::Path) {
 
 #[test]
 fn stdio_startup_recovers_glued_banner_but_does_not_recover_later_prefixes() {
-    let client = McpClient::connect("fixture", stdio_spec(None), ClientOptions::default()).unwrap();
+    let client = McpClient::connect(
+        "fixture",
+        &rightkit_mcp::ServerSource::User,
+        &rightkit_mcp::TrustStore::new(),
+        stdio_spec(None),
+        ClientOptions::default(),
+    )
+    .unwrap();
     assert_eq!(
         client
             .request_with_options(
@@ -266,6 +273,8 @@ fn stdio_startup_prefix_over_budget_is_typed_and_reaps_child() {
     let stopped = Arc::new(Mutex::new(Vec::new()));
     let result = McpClient::connect_with_extensions(
         "fixture",
+        &rightkit_mcp::ServerSource::User,
+        &rightkit_mcp::TrustStore::new(),
         with_fixture_env(stdio_spec(None), "RK_MCP_LARGE_PREFIX", "1"),
         ClientOptions::default(),
         tracked_extensions(stopped.clone()),
@@ -293,6 +302,8 @@ fn cold_stdio_handshake_cancel_reaps_child_without_request_timeout_wait() {
     let call = std::thread::spawn(move || {
         McpClient::connect_with_extensions_cancellable(
             "fixture",
+            &rightkit_mcp::ServerSource::User,
+            &rightkit_mcp::TrustStore::new(),
             spec,
             ClientOptions::default(),
             extensions,
@@ -320,6 +331,8 @@ fn precancelled_connect_never_launches_child() {
     assert!(matches!(
         McpClient::connect_with_extensions_cancellable(
             "fixture",
+            &rightkit_mcp::ServerSource::User,
+            &rightkit_mcp::TrustStore::new(),
             stdio_spec(None),
             ClientOptions::default(),
             extensions,
@@ -365,6 +378,8 @@ fn abandoned_slow_launch_returns_promptly_and_reaps_late_child() {
         let call = std::thread::spawn(move || {
             let result = McpClient::connect_with_extensions_cancellable(
                 "fixture",
+                &rightkit_mcp::ServerSource::User,
+                &rightkit_mcp::TrustStore::new(),
                 stdio_spec(None),
                 ClientOptions::default().connect_timeout(Duration::from_millis(500)),
                 extensions,
@@ -418,6 +433,8 @@ fn connect_timeout_covers_launch_and_initialize_together() {
     assert!(matches!(
         McpClient::connect_with_extensions(
             "fixture",
+            &rightkit_mcp::ServerSource::User,
+            &rightkit_mcp::TrustStore::new(),
             with_fixture_env(stdio_spec(None), "RK_MCP_INIT_DELAY", "300"),
             ClientOptions::default().connect_timeout(Duration::from_millis(500)),
             extensions,
@@ -436,6 +453,8 @@ fn stdio_connect_timeout_is_independent_of_request_timeout() {
     .connect_timeout(Duration::from_secs(5));
     let client = McpClient::connect_with_extensions(
         "fixture",
+        &rightkit_mcp::ServerSource::User,
+        &rightkit_mcp::TrustStore::new(),
         with_fixture_env(stdio_spec(None), "RK_MCP_INIT_DELAY", "250"),
         options,
         ClientExtensions::default(),
@@ -452,6 +471,8 @@ fn stdio_connect_timeout_is_independent_of_request_timeout() {
     assert!(matches!(
         McpClient::connect_with_extensions(
             "fixture",
+            &rightkit_mcp::ServerSource::User,
+            &rightkit_mcp::TrustStore::new(),
             with_fixture_env(stdio_spec(None), "RK_MCP_STALL_INIT", "1"),
             ClientOptions::default().connect_timeout(Duration::from_millis(200)),
             tracked_extensions(stopped.clone()),
@@ -464,7 +485,14 @@ fn stdio_connect_timeout_is_independent_of_request_timeout() {
 
 #[test]
 fn stdio_response_requires_jsonrpc_and_result_but_allows_null() {
-    let client = McpClient::connect("fixture", stdio_spec(None), ClientOptions::default()).unwrap();
+    let client = McpClient::connect(
+        "fixture",
+        &rightkit_mcp::ServerSource::User,
+        &rightkit_mcp::TrustStore::new(),
+        stdio_spec(None),
+        ClientOptions::default(),
+    )
+    .unwrap();
     for mode in ["missing-version", "wrong-version", "missing-result"] {
         assert!(
             matches!(
@@ -522,6 +550,8 @@ fn stdio_elicitation_exposes_wire_id_and_originating_call_cancellation() {
     let client = Arc::new(
         McpClient::connect_with_extensions(
             "fixture",
+            &rightkit_mcp::ServerSource::User,
+            &rightkit_mcp::TrustStore::new(),
             stdio_spec(None),
             ClientOptions::default(),
             ClientExtensions {
@@ -601,6 +631,8 @@ fn launcher_receives_exact_inputs_and_supplies_working_stdio() {
     };
     let client = McpClient::connect_with_extensions(
         "fixture",
+        &rightkit_mcp::ServerSource::User,
+        &rightkit_mcp::TrustStore::new(),
         spec,
         ClientOptions {
             request_timeout: Duration::from_secs(5),
@@ -623,6 +655,8 @@ fn stdio_elicitation_routes_related_calls_to_exact_logical_sessions() {
     let client = Arc::new(
         McpClient::connect_with_extensions(
             "fixture",
+            &rightkit_mcp::ServerSource::User,
+            &rightkit_mcp::TrustStore::new(),
             stdio_spec(None),
             ClientOptions {
                 request_timeout: Duration::from_secs(5),
@@ -697,6 +731,8 @@ fn stdio_cancel_is_prompt_and_sends_original_request_id() {
     let client = Arc::new(
         McpClient::connect(
             "fixture",
+            &rightkit_mcp::ServerSource::User,
+            &rightkit_mcp::TrustStore::new(),
             stdio_spec(None),
             ClientOptions {
                 request_timeout: Duration::from_secs(5),

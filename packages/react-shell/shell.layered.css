@@ -1,0 +1,21 @@
+/* @rightkit/react-shell — the whole stylesheet inside the named cascade layer `rk`.
+   Same rules as shell.css; because they sit in a layer, any unlayered host CSS and any later layer
+   (Tailwind `utilities`, `components`) overrides them regardless of specificity or source order.
+
+   The host must declare the layer order BEFORE importing this file, or `rk` lands above everything
+   declared earlier. With Tailwind 4:
+
+     @layer theme, base, rk, components, utilities;
+     @import "tailwindcss/theme.css" layer(theme);
+     @import "tailwindcss/preflight.css" layer(base);
+     @import "@rightkit/react-shell/shell.layered.css";
+     @import "tailwindcss/utilities.css" layer(utilities);
+
+   Set brand tokens (`--rk-brand`, ...) in unlayered CSS or in a layer after `rk`; a `:root` rule in
+   `base` loses to the layered defaults here.
+
+   Parts: shell.structure.css (what the frame, overlays, menu and toasts need to function) and
+   shell.visual.css (colour, radius, type, sizes, motion). To take structure only, import
+   shell.structure.css (optionally `layer(rk)`) and skip the visual file. */
+@import "./shell.structure.css" layer(rk);
+@import "./shell.visual.css" layer(rk);

@@ -42,7 +42,10 @@ test('registry parity covers every published @rightkit package, not only release
   for (const name of ['@rightkit/release', '@rightkit/media-ui', '@rightkit/app-shell', '@rightkit/qa', '@rightkit/git']) assert.ok(names.includes(name), name);
   const requested = [];
   const notFound = async (url) => { requested.push(url); return { status: 404, ok: false }; };
-  const results = await verifyAllRegistryParity({ allowUnpublished: true, fetchImpl: notFound, names: ['@rightkit/media-ui', '@rightkit/app-shell'] });
-  assert.deepEqual(results.map((r) => [r.name, r.status]), [['@rightkit/media-ui', 'UNPUBLISHED'], ['@rightkit/app-shell', 'UNPUBLISHED']]);
+  const results = await verifyAllRegistryParity({ allowUnpublished: true, fetchImpl: notFound, names: ['@rightkit/media-ui', '@rightkit/react-shell'] });
+  assert.deepEqual(results.map((r) => [r.name, r.status]), [['@rightkit/media-ui', 'UNPUBLISHED'], ['@rightkit/react-shell', 'UNPUBLISHED']]);
   assert.ok(requested[0].includes('%40rightkit%2Fmedia-ui'));
+  const away = await verifyAllRegistryParity({ allowUnpublished: true, fetchImpl: notFound, names: ['@rightkit/git', '@rightkit/app-shell'] });
+  assert.deepEqual(away.map((r) => [r.name, r.status]), [['@rightkit/git', 'RENAMED_AWAY'], ['@rightkit/app-shell', 'RENAMED_AWAY']]);
+  await assert.rejects(verifyAllRegistryParity({ allowUnpublished: true, fetchImpl: notFound, names: ['@rightkit/no-such-package'] }), /no packages\/\* directory/);
 });

@@ -6,24 +6,24 @@
 // (signing set, staged payloads, hardening targets, sealed files). The development lane (`development.mjs`)
 // never calls it: dev builds are the QA builds. The source-level layer is `qa-build-features.mjs`.
 //
-//   qa-control-server  `rightkit-control` feature `qa-control`: every binary with the embedded server carries
+//   qa-control-server  `rightkit-qa` feature `control` (and the `rightkit-qa-driver` shim feature `qa-control`): every binary with the embedded server carries
 //                      QA_CONTROL_MARKER (a `#[used]` static in `embedded/mod.rs`, also read by `Control::build`).
 //   wdio-webdriver     `tauri-plugin-wdio-webdriver` (HeardRight/MailRight/ViewRight `qa-native`): needs 2 of 3
 //                      independent signatures. WEAKER than the marker: the plugin source was not on disk when
 //                      the signatures were chosen, they come from Rust path/module/permission naming rules.
-//   shell-dev-inspect  `rightkit-shell` feature `dev-inspect` (developer inspection of an app's own webviews): every
+//   shell-dev-inspect  `rightkit-tauri-shell` feature `dev-inspect` (developer inspection of an app's own webviews): every
 //                      binary built with it carries DEV_INSPECT_MARKER. Refused in every tier this module scans.
 //   remote-debugging   `--remote-debugging-port` / `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS` baked into a binary.
 //   tauri-devtools     Tauri's `devtools` feature (or a debug build): the toggle-devtools init script. Accepted only for an
 //                      allow-listed app (devtools-policy.json) whose binary carries CONTENT_ONLY_MARKER.
-import { closeSync, lstatSync, openSync, readSync, readdirSync } from "node:fs";
+import { closeSync, lstatSync, openSync, readFileSync, readSync, readdirSync } from "node:fs";
 import path from "node:path";
 import { inflateRawSync } from "node:zlib";
 
-// Keep identical to `QA_CONTROL_MARKER` in crates/rightkit-control/src/embedded/mod.rs.
+// Keep identical to `QA_CONTROL_MARKER` in crates/rightkit-qa/src/embedded/mod.rs.
 export const QA_CONTROL_MARKER = "RIGHTKIT-QA-CONTROL-SERVER-PRESENT";
-// Keep identical to `DEV_INSPECT_MARKER` in crates/rightkit-shell/src/devtools.rs (a `#[used]` static compiled only
-// with rightkit-shell's `dev-inspect` feature and read by the process guard). No allow-list lifts this rule.
+// Keep identical to `DEV_INSPECT_MARKER` in crates/rightkit-tauri-shell/src/devtools.rs (a `#[used]` static compiled only
+// with rightkit-tauri-shell's `dev-inspect` feature and read by the process guard). No allow-list lifts this rule.
 export const DEV_INSPECT_MARKER = "RIGHTKIT-SHELL-DEV-INSPECT-COMPILED";
 const MARKER = Buffer.from(QA_CONTROL_MARKER, "latin1");
 const CHUNK = 4 * 1024 * 1024;
@@ -31,9 +31,9 @@ const CHUNK = 4 * 1024 * 1024;
 // Each signature is matched as Latin-1/UTF-8 bytes and as UTF-16LE (Windows wide strings). `min` signatures of a
 // rule must be present for it to fire; a signature counts once however often or in whichever encoding it occurs.
 export const QA_RULES = Object.freeze([
-  { id: "qa-control-server", min: 1, label: "RightKit QA control server (rightkit-control qa-control)",
+  { id: "qa-control-server", min: 1, label: "RightKit QA control server (rightkit-qa control, or rightkit-qa-driver qa-control)",
     signatures: [{ id: "marker", text: QA_CONTROL_MARKER }] },
-  { id: "shell-dev-inspect", min: 1, marker: DEV_INSPECT_MARKER, label: "rightkit-shell developer inspection (rightkit-shell dev-inspect)",
+  { id: "shell-dev-inspect", min: 1, marker: DEV_INSPECT_MARKER, label: "rightkit-tauri-shell developer inspection (rightkit-tauri-shell dev-inspect)",
     signatures: [{ id: "marker", text: DEV_INSPECT_MARKER }] },
   { id: "wdio-webdriver", min: 2, label: "tauri-plugin-wdio-webdriver test driver (app qa-native/dev-native)",
     signatures: [
@@ -53,8 +53,8 @@ export const QA_RULES = Object.freeze([
     ] },
 ]);
 
-// Keep identical to `CONTENT_ONLY_MARKER` in crates/rightkit-shell/src/devtools.rs. A binary carries it when it was
-// built with rightkit-shell's `content-devtools` feature. It is not a finding; it is the evidence that lets an
+// Keep identical to `CONTENT_ONLY_MARKER` in crates/rightkit-tauri-shell/src/devtools.rs. A binary carries it when it was
+// built with rightkit-tauri-shell's `content-devtools` feature. It is not a finding; it is the evidence that lets an
 // allow-listed app (devtools-policy.json) ship Tauri's devtools code for ViewRight-style content inspection.
 export const CONTENT_ONLY_MARKER = "RIGHTKIT-SHELL-DEVTOOLS-CONTENT-ONLY-COMPILED";
 const CONTENT_ONLY_KEY = "content-only-marker/marker";
@@ -80,7 +80,7 @@ export class RuleScanner {
     }
     this.tail = Buffer.from(window.subarray(Math.max(0, window.length - (MAX_NEEDLE - 1))));
   }
-  // `allowContentOnlyDevtools`: the app is allow-listed for rightkit-shell's ContentOnly DevTools policy. Then Tauri's
+  // `allowContentOnlyDevtools`: the app is allow-listed for rightkit-tauri-shell's ContentOnly DevTools policy. Then Tauri's
   // devtools signatures are accepted only in a binary that also carries CONTENT_ONLY_MARKER; one without it is still
   // a finding (devtools compiled in by some other route).
   findings({ allowContentOnlyDevtools = false } = {}) {
@@ -369,5 +369,67 @@ export function assertNoQaControl(paths, label = "release", { requireBinary = fa
     `${label}: the QA control server and every other test-automation or debugging surface must never ship (wdio WebDriver plugin, remote debugging, Tauri devtools); `
     + `${findings.length} finding(s):\n${findings.map((f) => `- ${f.file}: ${f.reason}`).join("\n")}\n`
     + "Build release and update tiers without the app's qa-native, dev-native, qa-control and devtools features.",
+  );
+}
+
+// ---- web-bundle mock scan (M20 owner gap) ----------------------------------------------------------------------
+// The binary scan above is blind to the frontend bundle (a Vite `dist/`, a Tauri `frontendDist`, an installer
+// payload folder). An app's in-page QA mock (HeardRight tauriQaMock, GenRight browser-mock-api, ScrapeRight and
+// MailRight qaMock, PostRight MockDataSource) must never be reachable from a release bundle. Each marker is a
+// string that survives minification (an identifier that is also a string literal, a file/chunk name, a protocol or
+// a build-flag name). Source maps are scanned too: a map that names qaMock.ts proves the module was bundled.
+export const WEB_MOCK_MARKERS = Object.freeze([
+  { id: "browser-qa-fake", pattern: /browser-qa-fake/ },
+  { id: "browser-mock-api", pattern: /browser-mock-api/ },
+  { id: "browser-qa-mock-scheme", pattern: /browser-qa-mock:/ },
+  { id: "qaMock", pattern: /qaMock/ },
+  { id: "tauriQaMock", pattern: /tauriQaMock/ },
+  { id: "isBrowserQaMode", pattern: /isBrowserQaMode/ },
+  { id: "MockDataSource", pattern: /MockDataSource/ },
+  { id: "qa-build-flag", pattern: /\bVITE_[A-Z0-9_]*_QA\b/ },
+]);
+const WEB_EXTENSIONS = /\.(?:m?js|cjs|html?|css|map)$/i;
+
+export function webBundleMockFindings(text) {
+  const out = [];
+  for (const marker of WEB_MOCK_MARKERS) {
+    const match = marker.pattern.exec(text);
+    if (match) out.push({ rule: "web-bundle-mock", marker: marker.id, reason: `web bundle carries browser-QA mock marker \`${match[0]}\`` });
+  }
+  return out;
+}
+
+// Walks files and directories (symlinks not followed, as in the binary scan). Fails closed on an unreadable path
+// and, with `requireFiles`, on an input that holds no scannable web file at all.
+export function scanWebBundle(paths, { requireFiles = false } = {}) {
+  const findings = []; let files = 0;
+  const visit = (target) => {
+    let stat;
+    try { stat = lstatSync(target); } catch (error) { findings.push({ file: target, rule: "unscannable", reason: `could not scan: ${error.code ?? error.message}` }); return; }
+    if (stat.isSymbolicLink()) return;
+    if (stat.isDirectory()) {
+      let names;
+      try { names = readdirSync(target); } catch (error) { findings.push({ file: target, rule: "unscannable", reason: `could not list: ${error.code ?? error.message}` }); return; }
+      for (const name of names.sort()) visit(path.join(target, name));
+      return;
+    }
+    if (!stat.isFile() || !WEB_EXTENSIONS.test(target)) return;
+    files += 1;
+    try {
+      for (const finding of webBundleMockFindings(readFileSync(target, "utf8"))) findings.push({ file: target, ...finding });
+    } catch (error) { findings.push({ file: target, rule: "unscannable", reason: `could not scan: ${error.code ?? error.message}` }); }
+  };
+  for (const target of paths) visit(path.resolve(target));
+  if (requireFiles && files === 0 && findings.length === 0) findings.push({ file: paths.join(", ") || "<none>", rule: "unscannable", reason: "no web bundle file (.js, .html, .css) found to scan; cannot verify" });
+  return { findings, files };
+}
+
+export function assertNoWebBundleMocks(paths, label = "release", { requireFiles = false } = {}) {
+  const { findings, files } = scanWebBundle(paths, { requireFiles });
+  if (findings.length === 0) return { files };
+  throw new Error(
+    `${label}: a release web bundle must not contain browser-QA mocks or test-mode markers; ${findings.length} finding(s):\n`
+    + `${findings.map((f) => `- ${f.file}: ${f.reason}`).join("\n")}\n`
+    + "Exclude the mock from the production build (dynamic import behind a build-time constant that tree-shakes, or a separate entry).",
   );
 }

@@ -5,7 +5,7 @@
 //!   rules, per-caller allowlist, argument schema, the caller's admission hook,
 //!   journal).
 //! * Backends: `<app>.*` over each app's in-app control service
-//!   (`rightkit-control` on `rightkit-service`, including the app's own typed
+//!   (`rightkit-qa-driver` on `rightkit-daemon`, including the app's own typed
 //!   commands), `desktop.*` over `rightkit-automation`, `browser.*` over
 //!   `rightkit-browser`, `speech.*` over the shared speech service
 //!   (`rightkit-speech-client`, the first client).
@@ -30,10 +30,7 @@ pub use toolbox::{
     Verdict,
 };
 
-#[cfg(feature = "mcp")]
-pub mod mcp;
-
-use rightkit_service::Suite;
+use rightkit_daemon::Suite;
 use std::sync::Arc;
 
 /// The caller identity `right-ctl` uses (and the service-side allowlist key).

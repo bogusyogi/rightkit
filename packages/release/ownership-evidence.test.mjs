@@ -586,7 +586,7 @@ function bundleRepo() {
   return root;
 }
 
-test("pinned policy bundle: matching running bundle passes, any digest mismatch refuses, unpinned trust stays valid", () => {
+test("pinned policy bundle: matching passes silently, any mismatch or compute failure only warns, unpinned trust stays valid", () => {
   const root = bundleRepo();
   try {
     const manifestPath = path.join(releaseRoot, "rightkit-ownership.json");
@@ -595,28 +595,30 @@ test("pinned policy bundle: matching running bundle passes, any digest mismatch 
     const build = (extraTrust, extra = {}) => createOwnershipEvidenceForTest(root, { manifestPath, scanRoot: root, trustLoader: trusted(root, { extraTrust }), ...extra });
 
     assert.equal(build({ policyBundle: running }).ok, true, "pinned bundle equal to the running one passes");
-    assert.equal(build({}).ok, true, "trust with no policyBundle is unpinned until the next trust-sync");
+    assert.equal(build({}).ok, true, "trust with no policyBundle is unpinned");
 
     const wrong = build({ policyBundle: { ...running, digest: "0".repeat(64) } });
-    assert.equal(wrong.ok, false);
-    assert.equal(wrong.evidence.floorOk, false);
-    assert.match(wrong.result.problems.join("\n"), /ownership policy bundle .* differs from the protected pinned bundle/);
+    assert.equal(wrong.ok, true, "a stale pinned bundle is a warning, never a block");
+    assert.equal(wrong.evidence.floorOk, true);
+    assert.match(wrong.warnings.join("\n"), /ownership policy bundle .* differs from the bundle pinned in protected trust/);
+    assert.equal(build({ policyBundle: running }).warnings, undefined, "no drift, no warning");
 
     // Scanner source edited while the catalog is kept: the running bundle digest no longer matches the pin.
     const edited = build({ policyBundle: running }, { policyBundleProvider: ({ scannerVersion, manifest: m }) => computePolicyBundle({ scannerVersion, manifest: m, files: running.files.map((f, i) => i ? f : { ...f, sha256: "1".repeat(64) }) }) });
-    assert.equal(edited.ok, false);
-    assert.match(edited.result.problems.join("\n"), /policy bundle/);
+    assert.equal(edited.ok, true);
+    assert.match(edited.warnings.join("\n"), /policy bundle/);
     // Changed allowlist or registry content moves the digest too.
     const allowlisted = build({ policyBundle: running }, { policyBundleProvider: ({ scannerVersion, manifest: m }) => computePolicyBundle({ scannerVersion, manifest: m, allowlist: { schema: 1, global: ["npm:evil"], repositories: [] } }) });
-    assert.equal(allowlisted.ok, false);
+    assert.equal(allowlisted.ok, true);
+    assert.match(allowlisted.warnings.join("\n"), /policy bundle/);
     const failing = build({ policyBundle: running }, { policyBundleProvider: () => { throw new Error("boom"); } });
-    assert.equal(failing.ok, false);
-    assert.match(failing.result.problems.join("\n"), /could not be computed: boom/);
+    assert.equal(failing.ok, true);
+    assert.match(failing.warnings.join("\n"), /could not be computed: boom/);
 
-    // The mismatch also invalidates previously sealed evidence.
+    // Previously sealed evidence stays valid across a bundle mismatch too.
     const sealed = build({ policyBundle: running });
     const verified = verifyOwnershipEvidenceForTest(sealed.evidence, root, { manifestPath, scanRoot: root, trustLoader: trusted(root, { extraTrust: { policyBundle: { ...running, digest: "2".repeat(64) } } }) });
-    assert.equal(verified.ok, false);
+    assert.equal(verified.ok, true);
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
@@ -628,6 +630,6 @@ test("pinned policy bundle mismatch stays advisory while approval enrollment is 
     const result = createOwnershipEvidenceForTest(root, { manifestPath, scanRoot: root, trustLoader: trusted(root, { enrolled: false, extraTrust: { policyBundle: { ...running, digest: "3".repeat(64) } } }) });
     assert.equal(result.ok, false);
     assert.equal(result.enrollmentPending, true);
-    assert.match(result.result.problems.join("\n"), /policy bundle/);
+    assert.match(result.warnings.join("\n"), /policy bundle/);
   } finally { rmSync(root, { recursive: true, force: true }); }
 });

@@ -1,6 +1,15 @@
 # Changelog
 
-## Unreleased
+
+## 0.3.1
+
+- Republished on the renamed dependencies: `rightkit-child-process` (was `rightkit-process`). The 0.3.0 on crates.io was packaged before the renames and still named the old crates.
+- Requires `rightkit-sandbox` 0.4.0 (was 0.3.5), so a fresh resolution no longer reaches a release that names renamed-away crates.
+## 0.3.0
+
+- Windows fixture: runs `chrome-headless-shell.exe` (same Chrome for Testing version, `chrome-headless-shell-win64/` beside `chrome-win64/`; override `RIGHTKIT_CHROME_HEADLESS_SHELL`) instead of `chrome.exe`, because `chrome.exe`'s browser process unconditionally starts the crashpad handler (`components/crash/core/app/crashpad_win.cc`), whose `CreateNamedPipe` is denied inside an AppContainer (CHECK, exit 0x80000003); the shell never starts it on Windows (`headless/lib/headless_content_main_delegate.cc`). `--headless=new` is not passed to the shell. Fixture only; production launches and macOS are unchanged.
+
+- **Breaking (0.x minor):** the public exhaustive `BrowserError` gained the `ChromeSandboxAccess` variant; exhaustive matches must handle it.
 
 - Tests: the three real-Chrome test files say in their headers that they run the installed Chrome for Testing on a
   temporary profile that is removed, and open no real browser profile.

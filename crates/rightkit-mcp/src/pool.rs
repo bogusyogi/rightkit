@@ -123,7 +123,7 @@ impl ConnectionPool {
                 None => return Err(McpError::PoolFull(self.cfg.max_connections)),
             }
         }
-        let client = Arc::new(McpClient::connect(
+        let client = Arc::new(McpClient::connect_ungated(
             &e.name,
             e.spec.clone(),
             self.cfg.options.clone(),

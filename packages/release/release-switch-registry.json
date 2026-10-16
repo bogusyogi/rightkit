@@ -1,0 +1,33 @@
+{
+  "schema": 1,
+  "owner": "rightkit-daemon::mode (D4, ratified)",
+  "forbiddenFeatures": ["test-mode", "qa-native", "dev-native", "qa-control", "dev-inspect"],
+  "testModeMarker": "RIGHTKIT-TEST-MODE-COMPILED",
+  "denyNames": [
+    { "name": "RIGHTKIT_QA_NATIVE", "class": "S1" },
+    { "name": "RIGHTKIT_QA_HIDDEN", "class": "S1" },
+    { "name": "RIGHTKIT_QA_DATA_DIR", "class": "S4" },
+    { "name": "RIGHTKIT_QA_BACKGROUND", "class": "S1" },
+    { "name": "RIGHTKIT_UNDER_TEST", "class": "S1" },
+    { "name": "RIGHTKIT_SUITE_ROOT", "class": "S4" },
+    { "name": "RIGHT_SUITE_DIR", "class": "S4" },
+    { "name": "ORTHIC_SHARED_DIR", "class": "S4" },
+    { "name": "RIGHTKIT_CONTROL_SERVICE", "class": "S3" },
+    { "name": "HEARDRIGHT_ENGINE_TEST_MODE", "class": "S1" },
+    { "name": "HR_APP_DATA_DIR", "class": "S4" },
+    { "name": "MAILRIGHT_DATA_DIR", "class": "S4" },
+    { "name": "MAILRIGHT_EMBED_MODEL_DIR", "class": "S3" },
+    { "name": "MAILRIGHT_ONNXRUNTIME_DYLIB", "class": "S3" },
+    { "name": "CUTRIGHT_DATA_DIR", "class": "S4" },
+    { "name": "GENRIGHT_QA", "class": "S1" },
+    { "name": "GENRIGHT_APP_DATA", "class": "S4" },
+    { "name": "GENRIGHT_SD_SERVER", "class": "S3" },
+    { "name": "CODERIGHT_HOME", "class": "S4" },
+    { "name": "POSTRIGHT_ROLE=daemon-dev", "class": "S1" },
+    { "name": "RIGHTAPP_ENGINE_BIN", "class": "S3" },
+    { "name": "LIGHTCRAFT_SAM3_DIR", "class": "S3" },
+    { "name": "LIGHTCRAFT_DEVICE_ROOTS", "class": "S3" },
+    { "name": "--qa", "class": "S1" },
+    { "name": "--demo", "class": "S1" }
+  ]
+}

@@ -6,8 +6,8 @@ import { execFileSync, spawnSync } from "./background-process.mjs";
 import { brokerManagedHost } from "./cargo-contract.mjs";
 import { fileURLToPath } from "node:url";
 import { signingReceiptPath } from "./signing-receipts.mjs";
-import { swiftPrivatePackagesCleanupStep, swiftPrivatePackagesConfigureStep, validateManifest } from "../git/manifest.mjs";
-import { renderLanes } from "../git/sync.mjs";
+import { swiftPrivatePackagesCleanupStep, swiftPrivatePackagesConfigureStep, validateManifest } from "../ci/manifest.mjs";
+import { renderLanes } from "../ci/sync.mjs";
 import test from "node:test";
 
 const release = fileURLToPath(new URL("./release.mjs", import.meta.url));
@@ -20,7 +20,14 @@ function git(cwd, ...args) {
   return execFileSync("git", args, { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
 }
 
-function fixture({ signed = true, publish = false, signingContract = "windows-raw-exe-authenticode-before-nsis-v1", prePackageFiles = ["raw.exe"], signFiles = ["fixture.exe"], macSigning = false, macNotarize = { file: "fixture.zip" }, packageJson, packageCommand, cargoManifest, cargoConfig, repoCargoConfig, siblingCargoManifest, buildInputs = defaultBuildInputs, platform = "win", hostedWorkflows, includeCargoSources = true } = {}) {
+// RightKit QA is mandatory for every app: fixtures declare it at the latest published version unless a test opts out.
+function withQaAdoption(pkg, qa = true) {
+  if (!qa) return pkg;
+  const latest = versions.registry?.npm?.["@rightkit/qa"] ?? versions.stagedNpm["@rightkit/qa"];
+  return { ...pkg, devDependencies: { ...pkg.devDependencies, "@rightkit/qa": latest } };
+}
+
+function fixture({ signed = true, publish = false, signingContract = "windows-raw-exe-authenticode-before-nsis-v1", prePackageFiles = ["raw.exe"], signFiles = ["fixture.exe"], macSigning = false, macNotarize = { file: "fixture.zip" }, packageJson, packageCommand, cargoManifest, cargoConfig, repoCargoConfig, siblingCargoManifest, buildInputs = defaultBuildInputs, platform = "win", hostedWorkflows, includeCargoSources = true, qa = true } = {}) {
   const fixtureRoot = mkdtempSync(path.join(os.tmpdir(), "right-release-test-"));
   const dir = repoCargoConfig ? path.join(fixtureRoot, "apps", "fixture") : fixtureRoot;
   mkdirSync(dir, { recursive: true });
@@ -28,7 +35,7 @@ function fixture({ signed = true, publish = false, signingContract = "windows-ra
   writeFileSync(
     path.join(dir, "package.json"),
     JSON.stringify(
-      packageJson ?? {
+      withQaAdoption(packageJson ?? {
         name: "fixture",
         scripts: { [`release:patch:${platform}`]: `right-release --platform ${platform} --tier patch` },
         packageManager: versions.packageManager,
@@ -37,7 +44,7 @@ function fixture({ signed = true, publish = false, signingContract = "windows-ra
           "@rightkit/logs": versions.npm["@rightkit/logs"],
         },
         devDependencies: { "@rightkit/release": versions.npm["@rightkit/release"] },
-      },
+      }, qa),
       null,
       2,
     ),
@@ -100,13 +107,40 @@ function fixture({ signed = true, publish = false, signingContract = "windows-ra
   return config;
 }
 
+function addFrontendDist(config, files, targetExtra) {
+  const dir = path.dirname(config);
+  const dist = path.join(dir, "dist");
+  mkdirSync(path.join(dist, "assets"), { recursive: true });
+  for (const [name, text] of Object.entries(files)) writeFileSync(path.join(dist, name), text, "utf8");
+  mkdirSync(path.join(dir, "src-tauri"), { recursive: true });
+  writeFileSync(path.join(dir, "src-tauri", "tauri.conf.json"), JSON.stringify({ build: { frontendDist: "../dist" } }), "utf8");
+  git(dir, "add", ".");
+  git(dir, "commit", "-m", "frontend dist");
+  return config;
+}
+
+test("release fails closed when the frontend dist carries a browser-QA mock marker", () => {
+  const config = addFrontendDist(fixture({ platform: "win" }), { "index.html": "<html></html>", "assets/app.js": "const x=window.__tauriQaMock;" });
+  const result = run(config);
+  assert.notEqual(result.status, 0, `${result.stdout}\n${result.stderr}`);
+  assert.match(`${result.stdout}\n${result.stderr}`, /pre-package frontend bundle: a release web bundle must not contain browser-QA mocks/);
+  assert.match(`${result.stdout}\n${result.stderr}`, /tauriQaMock/);
+});
+
+test("release accepts a clean frontend dist and logs the web scan", () => {
+  const config = addFrontendDist(fixture({ platform: "win" }), { "index.html": "<html></html>", "assets/app.js": "console.log(1)" });
+  const result = run(config);
+  assert.doesNotMatch(`${result.stdout}\n${result.stderr}`, /browser-QA mocks/);
+  assert.match(result.stdout, /pre-package frontend bundle: 2 web file\(s\) scanned/);
+});
+
 function lockFixture() {
   const dir = mkdtempSync(path.join(os.tmpdir(), "right-release-lock-test-"));
   const config = path.join(dir, "right-release.config.mjs");
   writeFileSync(
     path.join(dir, "package.json"),
     JSON.stringify(
-      {
+      withQaAdoption({
         name: "fixture-lock",
         scripts: { "release:patch:mac": "right-release --platform mac --tier patch" },
         packageManager: versions.packageManager,
@@ -115,7 +149,7 @@ function lockFixture() {
           "@rightkit/logs": versions.npm["@rightkit/logs"],
         },
         devDependencies: { "@rightkit/release": versions.npm["@rightkit/release"] },
-      },
+      }),
       null,
       2,
     ),
@@ -459,7 +493,7 @@ test("accepts the current @rightkit/git 0.2.21 release-chain consumer", () => {
 
 test("rejects an unlisted future @rightkit/git release-chain consumer", () => {
   // One patch past the staged version, so the test never goes stale when git publishes.
-  const [major, minor, patch] = versions.stagedNpm["@rightkit/git"].split(".").map(Number);
+  const [major, minor, patch] = versions.registry.npm["@rightkit/git"].split(".").map(Number);
   const future = `${major}.${minor}.${patch + 1}`;
   const result = run(fixture({
     packageJson: {
@@ -475,7 +509,7 @@ test("rejects an unlisted future @rightkit/git release-chain consumer", () => {
 });
 
 test("accepts an unlisted @rightkit/git patch inside the recorded range, rejects one below the minimum", () => {
-  const recorded = new Set([versions.npm["@rightkit/git"], versions.stagedNpm["@rightkit/git"], ...(versions.legacyNpm["@rightkit/git"] ?? []), versions.registry?.npm?.["@rightkit/git"]].filter(Boolean));
+  const recorded = new Set([versions.npm["@rightkit/git"], versions.registry.npm["@rightkit/git"], ...(versions.legacyNpm["@rightkit/git"] ?? []), versions.registry?.npm?.["@rightkit/git"]].filter(Boolean));
   const triples = [...recorded].map((v) => v.split(".").map(Number)).sort((a, b) => a[0] - b[0] || a[1] - b[1] || a[2] - b[2]);
   const [lo, hi] = [triples[0], triples.at(-1)];
   // An unlisted version strictly between the lowest and highest recorded version.
@@ -1367,9 +1401,8 @@ test("doctor passes a clean selected target", () => {
   const result = runDoctor(fixture({ platform: hostPlatform, macSigning: hostPlatform === "mac" }));
   assertDoctorFailsClosedOnlyOnOwnership(result);
   assert.match(result.stdout, /\[ok\s+\] target-bridge:/);
-  // Derived from the version manifest, not hardcoded: a literal here has to be
-  // hand-edited on every bump and fails the suite when someone forgets.
-  const expected = versions.stagedNpm?.["@rightkit/release"] ?? versions.npm["@rightkit/release"];
+  // The running package's own version (package.json), not the feed, which names the previous release.
+  const expected = JSON.parse(readFileSync(new URL("./package.json", import.meta.url), "utf8")).version;
   assert.match(result.stdout, new RegExp(`right-release ${expected.replace(/\./g, "\\.")}`));
 });
 
@@ -1570,4 +1603,11 @@ test("native finalization is ordered after raw signing and before packaging", ()
   assert.ok(signing >= 0, source);
   assert.ok(finalization > signing, source);
   assert.ok(packaging > finalization, source);
+});
+
+test("a release is refused when the app has no QA lane, naming the rule and how to adopt it", () => {
+  const result = run(fixture({ qa: false }));
+  assert.notEqual(result.status, 0);
+  assert.match(`${result.stdout}
+${result.stderr}`, /RightKit QA is mandatory for every Orthic Labs app, and fixture has no QA lane/);
 });

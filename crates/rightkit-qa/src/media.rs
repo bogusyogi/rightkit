@@ -18,6 +18,11 @@ pub fn file_stat(path: &Path) -> Value {
 
 pub fn png_size(path: &Path) -> Result<Value> {
     let b = fs::read(path)?;
+    png_size_bytes(&b, path)
+}
+
+/// Width and height from PNG bytes already in memory; `path` only names the file in the error.
+pub fn png_size_bytes(b: &[u8], path: &Path) -> Result<Value> {
     if b.len() < 24 || b[..8] != [0x89, b'P', b'N', b'G', 0x0d, 0x0a, 0x1a, 0x0a] {
         return err(format!("{} is not a PNG", path.display()));
     }

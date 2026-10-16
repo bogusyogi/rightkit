@@ -6,8 +6,7 @@ use serde_json::{json, Value};
 use crate::MemoryError;
 
 /// The channel-memory.v1 schema, embedded so every consumer validates the same bytes.
-pub const SCHEMA_SOURCE: &str =
-    include_str!("../../../contracts-pending/channel-memory/channel-memory.v1.schema.json");
+pub const SCHEMA_SOURCE: &str = include_str!("../schemas/channel-memory.v1.schema.json");
 
 static VALIDATOR: OnceLock<Validator> = OnceLock::new();
 static PROOF_RECORD: OnceLock<Validator> = OnceLock::new();

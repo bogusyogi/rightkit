@@ -7,7 +7,7 @@ Catalog capability: `audio`.
 ## What it owns
 
 - Filter graphs (`filter`, `chain`, `ducking`, `room_tone`, `bus`, `preset`). Graph builders are pure: they never spawn processes.
-- Measurement and offline renders (`measure`, `profile`). These run FFmpeg through `rightkit-media`, so cancellation, timeout and process-tree ownership are uniform.
+- Measurement and offline renders (`measure`, `profile`). These run FFmpeg through `rightkit-ffmpeg`, so cancellation, timeout and process-tree ownership are uniform.
 - WAV I/O (`wav`): `read_wav_mono_f32`, `read_wav_16k_mono`, `write_wav_mono_i16`.
 - Live capture (`capture`, feature `capture`) and the Windows endpoint and power lifecycle (`lifecycle`).
 
@@ -41,7 +41,7 @@ let samples: Vec<f32> = read_wav_16k_mono(Path::new("/abs/in.wav"))?;
 ## Platform support
 
 - Capture is the default `capture` feature: the cpal capture module has no OS gate (`src/lib.rs:16-17`). Two parts are OS-specific: the CoreAudio transport probe is `cfg(target_os = "macos")` (`src/capture/device.rs:65`), and the endpoint and power lifecycle is `cfg(target_os = "windows")` (`src/lifecycle.rs:142-153`); the lifecycle registration returns `None` on every other OS.
-- FFmpeg is required for measurement and rendering. It is resolved through `rightkit-media`.
+- FFmpeg is required for measurement and rendering. It is resolved through `rightkit-ffmpeg`.
 - `tests/audio_e2e.rs` uses real files and FFmpeg, and a named loopback input device when one is available. No test routes audio to speakers.
 
 ## Presets
@@ -56,5 +56,5 @@ Published version: see [INDEX.md](../../INDEX.md). Publication goes through the 
 
 A hosted runner has none of these assets, so each test prints `SKIP <test>: ...` and passes. Set `RIGHTKIT_REQUIRE_ASSETS=1` on a host that must have them, and the test fails instead.
 
-- `tests/audio_e2e.rs`, `filter_graph_render_is_measurable_and_wav_round_trips` and `ducking_and_room_tone_render_have_content_changes`: a development FFmpeg, enabled by `RIGHTKIT_FFMPEG=<path>` or one of the candidate paths in `rightkit_media::dev_resolve`.
+- `tests/audio_e2e.rs`, `filter_graph_render_is_measurable_and_wav_round_trips` and `ducking_and_room_tone_render_have_content_changes`: a development FFmpeg, enabled by `RIGHTKIT_FFMPEG=<path>` or one of the candidate paths in `rightkit_ffmpeg::dev_resolve`.
 - `tests/audio_e2e.rs`, `resampler_and_capture_gate_are_explicit` (the capture half): a loopback input device (BlackHole, Loopback or Soundflower), enabled by installing one. The resampler assertions run on every host.

@@ -79,7 +79,7 @@ Platform names accept the aliases `mac` and `darwin` (macOS) and `win` and `win3
 
 ### Chord modifier `ctrlormeta`
 
-`ctrlormeta` means "Ctrl or Meta" (Ctrl or Cmd/Win). `formatChord` renders the token as `⌘/⌃` on macOS, `Ctrl/Win` on Windows and Linux, `Touch` on iOS and `Ctrl/Meta` when unknown. Matching is in `@rightkit/app-shell`.
+`ctrlormeta` means "Ctrl or Meta" (Ctrl or Cmd/Win). `formatChord` renders the token as `⌘/⌃` on macOS, `Ctrl/Win` on Windows and Linux, `Touch` on iOS and `Ctrl/Meta` when unknown. Matching is in `@rightkit/react-shell`.
 
 Bundling note: the root and `./react` entries contain a dynamic `import("@tauri-apps/plugin-os")`. Apps that bundle those entries must install the plugin. An app without the plugin should import `./headless` only.
 
@@ -188,7 +188,7 @@ useDismiss(() => void exit.close(), { enabled: exit.isOpen, escapeTarget: dialog
 
 ## Reduced motion
 
-`@rightkit/platform-ui` ships no stylesheet and runs no animation, so it has no `prefers-reduced-motion` handling of its own to opt out of. The visual stylesheet that does is `@rightkit/app-shell/shell.css`: it honours `prefers-reduced-motion: reduce` by default and a host sets `data-rk-motion="full"` on the root to opt out (see that README). Opting out removes an accessibility accommodation and is the host's decision.
+`@rightkit/platform-ui` ships no stylesheet and runs no animation, so it has no `prefers-reduced-motion` handling of its own to opt out of. The visual stylesheet that does is `@rightkit/react-shell/shell.css`: it honours `prefers-reduced-motion: reduce` by default and a host sets `data-rk-motion="full"` on the root to opt out (see that README). Opting out removes an accessibility accommodation and is the host's decision.
 
 ## Known issues
 

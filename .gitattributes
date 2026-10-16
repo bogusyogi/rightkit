@@ -1,7 +1,7 @@
 # Shell scripts run under bash on every runner, including Windows: always LF.
 *.sh text eol=lf
 # Vendored sources are hashed byte for byte: never convert their line endings.
-crates/rightkit-qts-ggml-sys/vendor/** -text
+crates/rightkit-tts-qwen-sys/vendor/** -text
 # PDFs are binary even when every byte is ASCII: a converted line ending breaks the xref offsets.
 *.pdf binary
 # The vendored plugin schemas are pinned by digest (packages/ax/plugin/schemas/pins.json, invariant I4):
@@ -11,3 +11,5 @@ packages/ax/plugin/schemas/*.json -text
 packages/release/fixtures/ownership/** -text
 # The EmbeddingGemma 2 export scripts are listed with SHA-256 in their FILES.txt: never convert their line endings.
 scripts/embed-export/** -text
+# The MSIX repair guard is pinned by sha256 in consumers (SwiftRightBridge): always LF, never converted.
+packages/release/msix-repair-guard.ps1 text eol=lf

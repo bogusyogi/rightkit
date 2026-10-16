@@ -5,13 +5,32 @@
 //! that flips from public to private between check and connect (DNS
 //! rebinding), or a request that bypassed page interception (workers), can
 //! therefore never reach a blocked address.
+use crate::policy::BlockReason;
 use crate::policy::Guard;
-use std::net::{IpAddr, SocketAddr};
+use std::collections::HashSet;
+use std::io;
+use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
-use tokio::task::JoinHandle;
+use tokio::sync::watch;
+use tokio::task::{JoinHandle, JoinSet};
+
+const MAX_FIXTURE_HEADER_BYTES: usize = 16 * 1024;
+const FIXTURE_HEADER_TIMEOUT: Duration = Duration::from_secs(5);
+const FIXTURE_CONNECT_TIMEOUT: Duration = Duration::from_secs(3);
+const FIXTURE_IO_TIMEOUT: Duration = Duration::from_secs(30);
+const ACCEPT_POLL_INTERVAL: Duration = Duration::from_millis(100);
+const MAX_FIXTURE_CONNECTIONS: usize = 128;
+
+/// Immutable network boundary for a local browser fixture.
+#[derive(Clone)]
+pub(crate) struct FixtureProxyPolicy {
+    pub server_endpoint: SocketAddr,
+    pub permitted_urls: Arc<HashSet<String>>,
+    pub expires_at: Instant,
+}
 
 /// One connection the proxy made, with the address it pinned.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -24,12 +43,23 @@ pub struct PinnedConnection {
 pub(crate) struct PinProxy {
     pub addr: SocketAddr,
     pub log: Arc<Mutex<Vec<PinnedConnection>>>,
-    task: JoinHandle<()>,
+    shutdown: watch::Sender<bool>,
+    task: Mutex<Option<JoinHandle<io::Result<()>>>>,
 }
 
 impl Drop for PinProxy {
     fn drop(&mut self) {
-        self.task.abort();
+        let _ = self.shutdown.send(true);
+        if let Some(task) = self
+            .task
+            .get_mut()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .take()
+        {
+            // The listener supervisor owns a JoinSet, whose drop aborts every
+            // connection task before the listener task is released.
+            task.abort();
+        }
     }
 }
 
@@ -38,20 +68,430 @@ impl PinProxy {
         let listener = TcpListener::bind("127.0.0.1:0").await?;
         let addr = listener.local_addr()?;
         let log: Arc<Mutex<Vec<PinnedConnection>>> = Arc::default();
-        let l = log.clone();
-        let task = tokio::spawn(async move {
-            loop {
-                let Ok((conn, _)) = listener.accept().await else {
-                    break;
-                };
-                let (guard, log) = (guard.clone(), l.clone());
-                tokio::spawn(async move {
-                    let _ = serve(conn, guard, log).await;
-                });
-            }
-        });
-        Ok(PinProxy { addr, log, task })
+        Ok(Self::spawn(listener, addr, guard, log, None))
     }
+
+    pub async fn start_fixture(
+        guard: Arc<Guard>,
+        policy: FixtureProxyPolicy,
+    ) -> io::Result<PinProxy> {
+        validate_fixture_policy(&policy)?;
+        let listener = TcpListener::bind("127.0.0.1:0").await?;
+        let addr = listener.local_addr()?;
+        let log: Arc<Mutex<Vec<PinnedConnection>>> = Arc::default();
+        Ok(Self::spawn(listener, addr, guard, log, Some(policy)))
+    }
+
+    fn spawn(
+        listener: TcpListener,
+        addr: SocketAddr,
+        guard: Arc<Guard>,
+        log: Arc<Mutex<Vec<PinnedConnection>>>,
+        fixture: Option<FixtureProxyPolicy>,
+    ) -> PinProxy {
+        let (shutdown, receiver) = watch::channel(false);
+        let task = tokio::spawn(run_listener(
+            listener,
+            guard,
+            log.clone(),
+            fixture,
+            receiver,
+        ));
+        PinProxy {
+            addr,
+            log,
+            shutdown,
+            task: Mutex::new(Some(task)),
+        }
+    }
+
+    /// Stop accepting, abort active connections, and join them within `grace`.
+    pub async fn shutdown(&self, grace: Duration) -> io::Result<()> {
+        let Some(mut task) = self
+            .task
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .take()
+        else {
+            return Ok(());
+        };
+        let _ = self.shutdown.send(true);
+        match tokio::time::timeout(grace, &mut task).await {
+            Ok(Ok(result)) => result,
+            Ok(Err(error)) => Err(io::Error::other(error)),
+            Err(_) => {
+                task.abort();
+                let _ = task.await;
+                Err(io::Error::new(
+                    io::ErrorKind::TimedOut,
+                    "proxy shutdown exceeded grace period",
+                ))
+            }
+        }
+    }
+}
+
+async fn run_listener(
+    listener: TcpListener,
+    guard: Arc<Guard>,
+    log: Arc<Mutex<Vec<PinnedConnection>>>,
+    fixture: Option<FixtureProxyPolicy>,
+    mut shutdown: watch::Receiver<bool>,
+) -> io::Result<()> {
+    let mut connections = JoinSet::new();
+    loop {
+        while connections.try_join_next().is_some() {}
+        if *shutdown.borrow() {
+            break;
+        }
+        match tokio::time::timeout(ACCEPT_POLL_INTERVAL, listener.accept()).await {
+            Ok(Ok((mut conn, _))) => {
+                let guard = guard.clone();
+                let log = log.clone();
+                if let Some(policy) = fixture.as_ref() {
+                    if connections.len() >= MAX_FIXTURE_CONNECTIONS {
+                        let _ = tokio::time::timeout(
+                            Duration::from_secs(1),
+                            refuse(
+                                &mut conn,
+                                "503 Service Unavailable",
+                                "fixture proxy connection limit reached",
+                            ),
+                        )
+                        .await;
+                        continue;
+                    }
+                    let policy = policy.clone();
+                    connections.spawn(async move {
+                        let _ = serve_fixture(conn, guard, log, policy).await;
+                    });
+                } else {
+                    connections.spawn(async move {
+                        let _ = serve(conn, guard, log).await;
+                    });
+                }
+            }
+            Ok(Err(error)) => {
+                connections.abort_all();
+                while connections.join_next().await.is_some() {}
+                return Err(error);
+            }
+            Err(_) => {
+                if shutdown.has_changed().unwrap_or(true) {
+                    let _ = shutdown.borrow_and_update();
+                }
+            }
+        }
+    }
+    connections.abort_all();
+    while connections.join_next().await.is_some() {}
+    Ok(())
+}
+
+#[derive(Debug, Eq, PartialEq)]
+struct FixtureRequest {
+    method: String,
+    path_and_query: String,
+    version: String,
+    headers: Vec<(String, String)>,
+}
+
+fn validate_fixture_policy(policy: &FixtureProxyPolicy) -> io::Result<()> {
+    if policy.server_endpoint.ip() != IpAddr::V4(Ipv4Addr::LOCALHOST)
+        || policy.server_endpoint.port() == 0
+    {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "fixture endpoint must be 127.0.0.1 with a nonzero port",
+        ));
+    }
+    if policy.permitted_urls.is_empty() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "fixture URL allowlist must not be empty",
+        ));
+    }
+    if Instant::now() >= policy.expires_at {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "fixture proxy policy is already expired",
+        ));
+    }
+    for raw in policy.permitted_urls.iter() {
+        let parsed = url::Url::parse(raw).map_err(|error| {
+            io::Error::new(
+                io::ErrorKind::InvalidInput,
+                format!("invalid permitted fixture URL: {error}"),
+            )
+        })?;
+        if parsed.as_str() != raw
+            || parsed.scheme() != "http"
+            || parsed.host_str() != Some("127.0.0.1")
+            || parsed.port_or_known_default() != Some(policy.server_endpoint.port())
+            || !parsed.username().is_empty()
+            || parsed.password().is_some()
+            || parsed.fragment().is_some()
+        {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "permitted fixture URLs must be canonical HTTP URLs at the owned endpoint",
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn parse_fixture_request(
+    bytes: &[u8],
+    trailing: &[u8],
+    policy: &FixtureProxyPolicy,
+    now: Instant,
+) -> Result<FixtureRequest, &'static str> {
+    if now >= policy.expires_at {
+        return Err("fixture proxy policy expired");
+    }
+    if !trailing.is_empty() {
+        return Err("fixture requests cannot contain a body or pipelined bytes");
+    }
+    let head = std::str::from_utf8(bytes).map_err(|_| "fixture headers must be ASCII")?;
+    if !head.is_ascii() || !head.ends_with("\r\n\r\n") {
+        return Err("malformed fixture request headers");
+    }
+    let fields = head[..head.len() - 4].split("\r\n").collect::<Vec<_>>();
+    let mut request_line = fields.first().copied().unwrap_or("").split(' ');
+    let method = request_line.next().unwrap_or("");
+    let target = request_line.next().unwrap_or("");
+    let version = request_line.next().unwrap_or("");
+    if request_line.next().is_some()
+        || target.is_empty()
+        || !matches!(method, "GET" | "HEAD")
+        || !matches!(version, "HTTP/1.0" | "HTTP/1.1")
+    {
+        return Err("only well-formed GET and HEAD fixture requests are allowed");
+    }
+    if !policy.permitted_urls.contains(target) {
+        return Err("fixture URL is not in the exact allowlist");
+    }
+    let url = url::Url::parse(target).map_err(|_| "fixture URL is invalid")?;
+    if url.as_str() != target
+        || url.scheme() != "http"
+        || url.host_str() != Some("127.0.0.1")
+        || url.port_or_known_default() != Some(policy.server_endpoint.port())
+        || !url.username().is_empty()
+        || url.password().is_some()
+        || url.fragment().is_some()
+    {
+        return Err("fixture URL must target the exact owned HTTP endpoint");
+    }
+
+    let mut seen = HashSet::new();
+    let mut host_seen = false;
+    let mut headers = Vec::new();
+    for line in fields.iter().skip(1) {
+        let (name, raw_value) = line.split_once(':').ok_or("malformed fixture header")?;
+        if name.is_empty()
+            || !name
+                .bytes()
+                .all(|byte| byte.is_ascii_alphanumeric() || b"!#$%&'*+-.^_`|~".contains(&byte))
+        {
+            return Err("malformed fixture header name");
+        }
+        let lower_name = name.to_ascii_lowercase();
+        if !seen.insert(lower_name.clone()) {
+            return Err("duplicate fixture header");
+        }
+        let value = raw_value.trim_matches(|character| character == ' ' || character == '\t');
+        if value
+            .bytes()
+            .any(|byte| (byte < 0x20 && byte != b'\t') || byte == 0x7f)
+        {
+            return Err("malformed fixture header value");
+        }
+        match lower_name.as_str() {
+            "host" => {
+                host_seen = true;
+                if !value.eq_ignore_ascii_case(&policy.server_endpoint.to_string()) {
+                    return Err("fixture Host must match the owned endpoint");
+                }
+            }
+            "content-length" if value == "0" => {}
+            "content-length" => return Err("fixture request bodies are not allowed"),
+            "connection" | "proxy-connection"
+                if value.eq_ignore_ascii_case("keep-alive")
+                    || value.eq_ignore_ascii_case("close") => {}
+            "connection" | "proxy-connection" => {
+                return Err("fixture connection tokens must be exactly keep-alive or close");
+            }
+            "transfer-encoding" | "te" | "trailer" | "expect" | "upgrade" | "keep-alive" => {
+                return Err("fixture connection and transfer controls are not allowed");
+            }
+            name if name.starts_with("proxy-") => {
+                return Err("proxy control headers are not allowed");
+            }
+            "accept" | "accept-encoding" | "accept-language" | "cache-control"
+            | "if-modified-since" | "if-none-match" | "range" => {
+                headers.push((lower_name, value.to_string()));
+            }
+            // Caller credentials, forwarding, origin, and browser-specific
+            // headers are intentionally not copied to the fixture server.
+            _ => {}
+        }
+    }
+    if !host_seen {
+        return Err("fixture request must include the owned Host header");
+    }
+    let path_and_query = match url.query() {
+        Some(query) => format!("{}?{query}", url.path()),
+        None => url.path().to_string(),
+    };
+    Ok(FixtureRequest {
+        method: method.to_string(),
+        path_and_query,
+        version: version.to_string(),
+        headers,
+    })
+}
+
+async fn read_fixture_headers(conn: &mut TcpStream) -> io::Result<(Vec<u8>, Vec<u8>)> {
+    let mut bytes = Vec::new();
+    let mut chunk = [0u8; 4096];
+    loop {
+        if let Some(index) = bytes.windows(4).position(|window| window == b"\r\n\r\n") {
+            let end = index + 4;
+            if end > MAX_FIXTURE_HEADER_BYTES {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    "fixture request headers exceed limit",
+                ));
+            }
+            return Ok((bytes[..end].to_vec(), bytes[end..].to_vec()));
+        }
+        if bytes.len() >= MAX_FIXTURE_HEADER_BYTES {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "fixture request headers exceed limit",
+            ));
+        }
+        let count = conn.read(&mut chunk).await?;
+        if count == 0 {
+            return Err(io::Error::new(
+                io::ErrorKind::UnexpectedEof,
+                "fixture request ended before headers",
+            ));
+        }
+        bytes.extend_from_slice(&chunk[..count]);
+    }
+}
+
+async fn serve_fixture(
+    mut conn: TcpStream,
+    guard: Arc<Guard>,
+    log: Arc<Mutex<Vec<PinnedConnection>>>,
+    policy: FixtureProxyPolicy,
+) -> io::Result<()> {
+    if Instant::now() >= policy.expires_at {
+        let reason = "fixture proxy policy expired";
+        guard.denied_network(
+            None,
+            "FixtureProxy",
+            &BlockReason::InvalidUrl(reason.to_string()),
+        );
+        refuse(&mut conn, "403 Forbidden", reason).await;
+        return Ok(());
+    }
+    let read = tokio::time::timeout(FIXTURE_HEADER_TIMEOUT, read_fixture_headers(&mut conn)).await;
+    let (head, trailing) = match read {
+        Ok(Ok(headers)) => headers,
+        Ok(Err(error)) if error.kind() == io::ErrorKind::InvalidData => {
+            refuse(
+                &mut conn,
+                "413 Payload Too Large",
+                "fixture headers exceed limit",
+            )
+            .await;
+            return Ok(());
+        }
+        Ok(Err(_)) => return Ok(()),
+        Err(_) => {
+            refuse(
+                &mut conn,
+                "408 Request Timeout",
+                "fixture request headers timed out",
+            )
+            .await;
+            return Ok(());
+        }
+    };
+    let request = match parse_fixture_request(&head, &trailing, &policy, Instant::now()) {
+        Ok(request) => request,
+        Err(reason) => {
+            guard.denied_network(
+                None,
+                "FixtureProxy",
+                &BlockReason::InvalidUrl(reason.to_string()),
+            );
+            refuse(&mut conn, "403 Forbidden", reason).await;
+            return Ok(());
+        }
+    };
+    let upstream = tokio::time::timeout(
+        FIXTURE_CONNECT_TIMEOUT,
+        TcpStream::connect(policy.server_endpoint),
+    )
+    .await;
+    let mut upstream = match upstream {
+        Ok(Ok(stream)) => stream,
+        Ok(Err(_)) | Err(_) => {
+            refuse(
+                &mut conn,
+                "502 Bad Gateway",
+                "fixture server connect failed",
+            )
+            .await;
+            return Ok(());
+        }
+    };
+    log.lock().unwrap().push(PinnedConnection {
+        host: "127.0.0.1".to_string(),
+        port: policy.server_endpoint.port(),
+        ip: IpAddr::V4(Ipv4Addr::LOCALHOST),
+    });
+
+    let mut outbound = format!(
+        "{} {} {}\r\nHost: {}\r\nConnection: close\r\n",
+        request.method, request.path_and_query, request.version, policy.server_endpoint
+    )
+    .into_bytes();
+    for (name, value) in request.headers {
+        outbound.extend_from_slice(name.as_bytes());
+        outbound.extend_from_slice(b": ");
+        outbound.extend_from_slice(value.as_bytes());
+        outbound.extend_from_slice(b"\r\n");
+    }
+    outbound.extend_from_slice(b"\r\n");
+    if !matches!(
+        tokio::time::timeout(FIXTURE_CONNECT_TIMEOUT, upstream.write_all(&outbound)).await,
+        Ok(Ok(()))
+    ) {
+        refuse(
+            &mut conn,
+            "504 Gateway Timeout",
+            "fixture request write timed out",
+        )
+        .await;
+        return Ok(());
+    }
+    if tokio::time::timeout(
+        FIXTURE_IO_TIMEOUT,
+        tokio::io::copy(&mut upstream, &mut conn),
+    )
+    .await
+    .is_err()
+    {
+        // The response is already in flight; closing both sides is the only
+        // safe bounded outcome once its time budget expires.
+    }
+    Ok(())
 }
 
 async fn refuse(conn: &mut TcpStream, code: &str, why: &str) {
@@ -187,4 +627,142 @@ async fn serve(
     }
     let _ = tokio::io::copy_bidirectional(&mut conn, &mut upstream).await;
     Ok(())
+}
+
+#[cfg(test)]
+mod fixture_tests {
+    use super::*;
+    use crate::policy::NetworkPolicy;
+    use std::time::Instant;
+
+    fn fixture_policy(endpoint: SocketAddr, urls: &[&str]) -> FixtureProxyPolicy {
+        FixtureProxyPolicy {
+            server_endpoint: endpoint,
+            permitted_urls: Arc::new(urls.iter().map(|url| (*url).to_string()).collect()),
+            expires_at: Instant::now() + Duration::from_secs(60),
+        }
+    }
+
+    fn endpoint() -> SocketAddr {
+        "127.0.0.1:43210".parse().unwrap()
+    }
+
+    #[test]
+    fn fixture_policy_accepts_only_canonical_urls_at_owned_endpoint() {
+        let endpoint = endpoint();
+        let url = "http://127.0.0.1:43210/index.html?view=one";
+        assert!(validate_fixture_policy(&fixture_policy(endpoint, &[url])).is_ok());
+
+        for invalid in [
+            "http://127.0.0.1:43211/index.html",
+            "https://127.0.0.1:43210/index.html",
+            "http://user@127.0.0.1:43210/index.html",
+            "http://127.0.0.1:43210/index.html#fragment",
+            "http://localhost:43210/index.html",
+        ] {
+            assert!(
+                validate_fixture_policy(&fixture_policy(endpoint, &[invalid])).is_err(),
+                "accepted {invalid}"
+            );
+        }
+    }
+
+    #[test]
+    fn fixture_parser_accepts_exact_get_and_strips_untrusted_headers() {
+        let endpoint = endpoint();
+        let url = "http://127.0.0.1:43210/index.html?view=one";
+        let policy = fixture_policy(endpoint, &[url]);
+        let request = format!(
+            "GET {url} HTTP/1.1\r\nHost: {endpoint}\r\nAccept: text/html\r\nAuthorization: Bearer secret\r\nCookie: session=secret\r\nX-Forwarded-For: 192.0.2.8\r\n\r\n"
+        );
+        let parsed =
+            parse_fixture_request(request.as_bytes(), &[], &policy, Instant::now()).unwrap();
+        assert_eq!(parsed.method, "GET");
+        assert_eq!(parsed.path_and_query, "/index.html?view=one");
+        assert_eq!(parsed.headers, vec![("accept".into(), "text/html".into())]);
+    }
+
+    #[test]
+    fn fixture_parser_accepts_chrome_keep_alive_headers_and_strips_them() {
+        let endpoint = endpoint();
+        let url = "http://127.0.0.1:43210/index.html";
+        let policy = fixture_policy(endpoint, &[url]);
+        let request = format!(
+            "GET {url} HTTP/1.1\r\nHost: {endpoint}\r\nConnection: keep-alive\r\nProxy-Connection: Keep-Alive\r\n\r\n"
+        );
+        let parsed =
+            parse_fixture_request(request.as_bytes(), &[], &policy, Instant::now()).unwrap();
+        assert!(parsed.headers.is_empty());
+
+        let request = format!(
+            "GET {url} HTTP/1.1\r\nHost: {endpoint}\r\nConnection: keep-alive, Upgrade\r\n\r\n"
+        );
+        assert!(parse_fixture_request(request.as_bytes(), &[], &policy, Instant::now()).is_err());
+    }
+
+    #[test]
+    fn fixture_parser_rejects_host_mismatch_duplicates_methods_and_body_data() {
+        let endpoint = endpoint();
+        let url = "http://127.0.0.1:43210/index.html";
+        let policy = fixture_policy(endpoint, &[url]);
+        for request in [
+            format!("GET {url} HTTP/1.1\r\nHost: 127.0.0.1:43211\r\n\r\n"),
+            format!("GET {url} HTTP/1.1\r\nHost: {endpoint}\r\nHost: {endpoint}\r\n\r\n"),
+            format!("POST {url} HTTP/1.1\r\nHost: {endpoint}\r\n\r\n"),
+            format!("GET {url} HTTP/1.1\r\nHost: {endpoint}\r\nContent-Length: 1\r\n\r\n"),
+            format!("GET {url} HTTP/1.1\r\nHost: {endpoint}\r\nTransfer-Encoding: chunked\r\n\r\n"),
+            format!("GET {url} HTTP/1.1\r\nHost: {endpoint}\r\nUpgrade: websocket\r\n\r\n"),
+        ] {
+            assert!(
+                parse_fixture_request(request.as_bytes(), &[], &policy, Instant::now()).is_err(),
+                "accepted request: {request:?}"
+            );
+        }
+        let request = format!("GET {url} HTTP/1.1\r\nHost: {endpoint}\r\n\r\n");
+        assert!(
+            parse_fixture_request(request.as_bytes(), b"late body", &policy, Instant::now())
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn fixture_parser_rejects_urls_outside_allowlist_and_after_deadline() {
+        let endpoint = endpoint();
+        let url = "http://127.0.0.1:43210/index.html";
+        let policy = fixture_policy(endpoint, &[url]);
+        let other = "http://127.0.0.1:43210/other.html";
+        let request = format!("GET {other} HTTP/1.1\r\nHost: {endpoint}\r\n\r\n");
+        assert!(parse_fixture_request(request.as_bytes(), &[], &policy, Instant::now()).is_err());
+
+        let expired = FixtureProxyPolicy {
+            expires_at: Instant::now() - Duration::from_millis(1),
+            ..policy
+        };
+        let request = format!("GET {url} HTTP/1.1\r\nHost: {endpoint}\r\n\r\n");
+        assert!(parse_fixture_request(request.as_bytes(), &[], &expired, Instant::now()).is_err());
+    }
+
+    #[tokio::test]
+    async fn shutdown_closes_listener_and_joins_partial_request() {
+        let guard = Arc::new(Guard {
+            session_id: "fixture-test".into(),
+            admission: None,
+            network: NetworkPolicy::default(),
+            events: None,
+        });
+        let server_endpoint = endpoint();
+        let proxy = PinProxy::start_fixture(
+            guard,
+            fixture_policy(server_endpoint, &["http://127.0.0.1:43210/index.html"]),
+        )
+        .await
+        .unwrap();
+        let mut client = TcpStream::connect(proxy.addr).await.unwrap();
+        client.write_all(b"GET ").await.unwrap();
+
+        proxy.shutdown(Duration::from_secs(1)).await.unwrap();
+        let mut byte = [0u8; 1];
+        assert!(matches!(client.read(&mut byte).await, Ok(0) | Err(_)));
+        assert!(TcpStream::connect(proxy.addr).await.is_err());
+    }
 }

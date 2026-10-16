@@ -4,6 +4,7 @@ import CryptoKit
 import Network
 import Security
 import Testing
+import RightKitCredentials
 @testable import RightKitLicense
 
 @Test func storedLicenseDropsRawKeyAfterTokenActivation() {
@@ -260,6 +261,97 @@ private func signedToken(_ key: Curve25519.Signing.PrivateKey, app: String = "co
     let identity = store.identity(service: store.service, account: "device-id")
     #expect(identity[kSecAttrSynchronizable as String] as? Bool == false)
     #expect(KeychainLicenseStore.deviceOnlyAccessibility as String == kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly as String)
+}
+
+private struct FailingBackend: SecretsBackend {
+    var readStatus: OSStatus? = nil
+    var addStatus: OSStatus? = nil
+    func get(namespace: String, key: String) throws -> Data? {
+        if let readStatus { throw SecretsError.keychain(readStatus) }
+        return nil
+    }
+    func add(_ value: Data, namespace: String, key: String) throws -> Bool {
+        if let addStatus { throw SecretsError.keychain(addStatus) }
+        return true
+    }
+    func update(_ value: Data, namespace: String, key: String) throws -> Bool { false }
+    func delete(namespace: String, key: String) throws -> Bool { false }
+    func reapplyAccessibility(namespace: String, key: String) throws -> Bool { false }
+}
+
+private func secrets(_ backend: SecretsBackend) throws -> SecretsStore {
+    try SecretsStore(namespace: "test.\(UUID().uuidString)", environment: [:], backend: backend)
+}
+
+@Test func deviceIDSurfacesAKeychainWriteFailureInsteadOfReturningAnUnsavedID() throws {
+    let store = KeychainLicenseStore(service: "test.\(UUID().uuidString)", account: "activation")
+    #expect(throws: SecretsError.keychain(errSecInteractionNotAllowed)) {
+        _ = try store.deviceIDLocked(account: "device-id", store: try secrets(FailingBackend(addStatus: errSecInteractionNotAllowed)))
+    }
+}
+
+@Test func deviceIDDoesNotRotateOnATransientKeychainReadFailure() throws {
+    let store = KeychainLicenseStore(service: "test.\(UUID().uuidString)", account: "activation")
+    #expect(throws: SecretsError.keychain(errSecInteractionNotAllowed)) {
+        _ = try store.deviceIDLocked(account: "device-id", store: try secrets(FailingBackend(readStatus: errSecInteractionNotAllowed, addStatus: errSecSuccess)))
+    }
+}
+
+@Test func deviceIDIsCreatedOnceWhenAbsentAndReusedWhenPresent() throws {
+    let store = KeychainLicenseStore(service: "test.\(UUID().uuidString)", account: "activation")
+    let memory = try secrets(MemorySecretsBackend())
+    let created = try store.deviceIDLocked(account: "device-id", store: memory)
+    #expect(try memory.getString("device-id") == created)
+    #expect(try store.deviceIDLocked(account: "device-id", store: memory) == created)
+}
+
+/// Stores a raw value, bypassing `SecretsStore.set`, which refuses empty values. Simulates a corrupt item.
+private func rawSecrets(_ data: Data, account: String = "device-id") throws -> SecretsStore {
+    let backend = MemorySecretsBackend()
+    let namespace = "test.\(UUID().uuidString)"
+    _ = try backend.add(data, namespace: namespace, key: account)
+    return try SecretsStore(namespace: namespace, environment: [:], backend: backend)
+}
+
+/// Every read returns an empty value and every write fails, so a corrupt item cannot be replaced.
+private struct UnwritableCorruptBackend: SecretsBackend {
+    func get(namespace: String, key: String) throws -> Data? { Data() }
+    func add(_ value: Data, namespace: String, key: String) throws -> Bool { throw SecretsError.keychain(errSecInteractionNotAllowed) }
+    func update(_ value: Data, namespace: String, key: String) throws -> Bool { throw SecretsError.keychain(errSecInteractionNotAllowed) }
+    func delete(namespace: String, key: String) throws -> Bool { throw SecretsError.keychain(errSecInteractionNotAllowed) }
+    func reapplyAccessibility(namespace: String, key: String) throws -> Bool { false }
+}
+
+@Test func emptyStoredDeviceIDIsCorruptNotAbsent() throws {
+    let store = KeychainLicenseStore(service: "test.\(UUID().uuidString)", account: "activation")
+    #expect(throws: LicenseError.corruptDeviceID) {
+        _ = try store.deviceIDLocked(account: "device-id", store: try rawSecrets(Data()))
+    }
+}
+
+@Test func nonUTF8StoredDeviceIDIsCorrupt() throws {
+    let store = KeychainLicenseStore(service: "test.\(UUID().uuidString)", account: "activation")
+    #expect(throws: LicenseError.corruptDeviceID) {
+        _ = try store.deviceIDLocked(account: "device-id", store: try rawSecrets(Data([0xff, 0xfe, 0xfd])))
+    }
+}
+
+@Test func legacyDeviceIDReplacesACorruptItemOnceAndDoesNotRotate() throws {
+    let store = KeychainLicenseStore(service: "test.\(UUID().uuidString)", account: "activation")
+    let secrets = try rawSecrets(Data())
+    let first = store.legacyDeviceIDLocked(account: "device-id", store: secrets)
+    #expect(UUID(uuidString: first) != nil)
+    #expect(try secrets.getString("device-id") == first, "the replacement is persisted")
+    #expect(store.legacyDeviceIDLocked(account: "device-id", store: secrets) == first)
+    #expect(try store.deviceIDLocked(account: "device-id", store: secrets) == first)
+}
+
+@Test func legacyDeviceIDFallsBackStablyWhenTheCorruptItemCannotBeReplaced() throws {
+    let store = KeychainLicenseStore(service: "test.\(UUID().uuidString)", account: "activation")
+    let unwritable = try secrets(UnwritableCorruptBackend())
+    let first = store.legacyDeviceIDLocked(account: "device-id", store: unwritable)
+    #expect(UUID(uuidString: first) != nil)
+    #expect(store.legacyDeviceIDLocked(account: "device-id", store: unwritable) == first, "the fallback is cached per process")
 }
 
 @Test func inMemoryStoreRoundTripsAndRemoves() async throws {

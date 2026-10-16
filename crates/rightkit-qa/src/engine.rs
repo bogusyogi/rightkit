@@ -1,10 +1,10 @@
 //! Black-box driving of an app's engine binary: one-shot CLI words and the
 //! framed stdio sidecar protocol (newline-delimited JSON through
-//! `rightkit-framed-sidecar`). Nothing mocks the engine.
+//! `rightkit-sidecar`). Nothing mocks the engine.
 use crate::process::{run_owned, RunOptions, Tracker};
 use crate::util::{err, Error, Result};
-use rightkit_framed_sidecar::{read_json_line, write_json_line, FrameError};
-use rightkit_process::{OwnedChild, OwnedCommand};
+use rightkit_child_process::{OwnedChild, OwnedCommand};
+use rightkit_sidecar::{read_json_line, write_json_line, FrameError};
 use serde_json::{json, Value};
 use std::io::{BufReader, Write};
 use std::path::{Path, PathBuf};
@@ -273,13 +273,13 @@ pub struct SidecarStatus {
     pub stderr_dropped_bytes: u64,
     /// Resident memory, CPU time and I/O counters of the harness process (the sidecar's reader
     /// threads run in it; the engine child is a separate process), or `None` when the host cannot
-    /// report them. See `rightkit_process::ProcessUsage`.
-    pub process: Option<rightkit_process::ProcessUsage>,
+    /// report them. See `rightkit_child_process::ProcessUsage`.
+    pub process: Option<rightkit_child_process::ProcessUsage>,
 }
 
-/// Frame shape a sidecar's hello announces. rightkit-jobs' `Dispatcher::hello()` always carries
+/// Frame shape a sidecar's hello announces. rightkit-job-queue' `Dispatcher::hello()` always carries
 /// `contract_version`; GenRight's engine hello (`genright-protocol`, `EngineFrame::Hello`) carries
-/// `rpc_version` and never `contract_version`. `Some(false)` is the rightkit-jobs contract,
+/// `rpc_version` and never `contract_version`. `Some(false)` is the rightkit-job-queue contract,
 /// `Some(true)` the legacy GenRight frames, `None` when the hello has neither field.
 pub(crate) fn detect_legacy_frames(hello: &Value) -> Option<bool> {
     if hello.get("contract_version").is_some() {
@@ -535,7 +535,7 @@ impl Sidecar {
             events_dropped: self.events_dropped,
             stderr_bytes,
             stderr_dropped_bytes,
-            process: rightkit_process::process_usage().ok(),
+            process: rightkit_child_process::process_usage().ok(),
         }
     }
 
@@ -633,7 +633,7 @@ impl Sidecar {
         }
     }
 
-    /// A command. Default is the rightkit-jobs contract: `{type:"request", id, method: name,
+    /// A command. Default is the rightkit-job-queue contract: `{type:"request", id, method: name,
     /// params: input}` answered by `{type:"response", id, ok, result | error:{code,message}}`.
     /// With `legacy_status_frames` the old GenRight shape is used (`method:{method:"command",
     /// params:{name,input}}`, answered with `status: ok|err`). The shape a hello announces is
@@ -659,7 +659,7 @@ impl Sidecar {
             {
                 err(format!(
                     "engine did not answer the frame shape that was sent for `{name}`: sent the \
-                     rightkit-jobs contract {{type:\"request\", id, method, params}} and no frame \
+                     rightkit-job-queue contract {{type:\"request\", id, method, params}} and no frame \
                      came back for request id {} within {}ms. The hello carried neither \
                      contract_version nor rpc_version, so the shape was not detected. If this engine \
                      speaks GenRight's legacy frames ({{type:\"request\", id, \
@@ -676,7 +676,7 @@ impl Sidecar {
     }
 
     /// Pins the frame shape for every command on this sidecar: `Some(true)` the legacy GenRight
-    /// frames, `Some(false)` the rightkit-jobs contract, `None` clears the pin. A per-command
+    /// frames, `Some(false)` the rightkit-job-queue contract, `None` clears the pin. A per-command
     /// `Option` still wins over the pin.
     pub fn set_frame_shape(&mut self, legacy: Option<bool>) {
         self.frame_shape = legacy;

@@ -40,22 +40,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "agent-room-core"
-version = "0.3.1"
-dependencies = [
- "axum",
- "getrandom 0.3.4",
- "rusqlite",
- "serde",
- "serde_json",
- "sha2 0.10.9",
- "tempfile",
- "tokio",
- "tokio-stream",
- "tower",
-]
-
-[[package]]
 name = "ahash"
 version = "0.8.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5145,17 +5129,24 @@ dependencies = [
 
 [[package]]
 name = "rightkit-agent-tools"
-version = "0.1.2"
+version = "0.1.3"
 dependencies = [
  "rightkit-automation",
  "rightkit-browser",
- "rightkit-mcp",
- "rightkit-service",
+ "rightkit-daemon",
  "rightkit-speech-client",
  "serde",
  "serde_json",
  "tempfile",
  "tokio",
+]
+
+[[package]]
+name = "rightkit-agents"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -5168,8 +5159,19 @@ dependencies = [
 ]
 
 [[package]]
-name = "rightkit-asr"
+name = "rightkit-app-settings"
 version = "0.2.0"
+dependencies = [
+ "rightkit-fs",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror 2.0.21",
+]
+
+[[package]]
+name = "rightkit-asr"
+version = "0.2.1"
 dependencies = [
  "half",
  "hound",
@@ -5179,8 +5181,8 @@ dependencies = [
  "objc2-core-ml",
  "objc2-foundation",
  "realfft",
- "rightkit-media",
- "rightkit-ort",
+ "rightkit-ffmpeg",
+ "rightkit-onnx",
  "rightkit-speech-client",
  "rightkit-transcript",
  "rightkit-vad",
@@ -5191,13 +5193,13 @@ dependencies = [
 
 [[package]]
 name = "rightkit-audio"
-version = "0.2.2"
+version = "0.2.3"
 dependencies = [
  "cpal",
  "hound",
  "objc2-core-audio",
  "objc2-core-foundation",
- "rightkit-media",
+ "rightkit-ffmpeg",
  "ringbuf",
  "rubato",
  "serde",
@@ -5211,23 +5213,26 @@ dependencies = [
 
 [[package]]
 name = "rightkit-automation"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
- "rightkit-service",
- "serde_json",
+ "rightkit-daemon",
  "tempfile",
  "windows 0.62.2",
 ]
 
 [[package]]
 name = "rightkit-browser"
-version = "0.2.4"
+version = "0.3.1"
 dependencies = [
+ "async-tungstenite",
  "chromiumoxide",
  "futures",
- "rightkit-process",
+ "getrandom 0.3.4",
+ "rightkit-child-process",
+ "rightkit-sandbox",
  "serde",
  "serde_json",
+ "sha2 0.10.9",
  "tempfile",
  "thiserror 2.0.21",
  "tokio",
@@ -5238,8 +5243,8 @@ dependencies = [
 name = "rightkit-cache"
 version = "0.2.0"
 dependencies = [
+ "rightkit-child-process",
  "rightkit-fs",
- "rightkit-process",
  "sha2 0.11.0",
  "tempfile",
 ]
@@ -5251,6 +5256,15 @@ dependencies = [
  "jsonschema",
  "serde",
  "serde_json",
+]
+
+[[package]]
+name = "rightkit-child-process"
+version = "0.4.0"
+dependencies = [
+ "libc",
+ "trybuild",
+ "windows 0.62.2",
 ]
 
 [[package]]
@@ -5272,21 +5286,8 @@ dependencies = [
 ]
 
 [[package]]
-name = "rightkit-control"
-version = "0.3.0"
-dependencies = [
- "rightkit-service",
- "serde_json",
- "tauri",
- "webview2-com 0.38.2",
- "webview2-com 0.39.1",
- "windows 0.61.1",
- "windows 0.62.2",
-]
-
-[[package]]
 name = "rightkit-crash"
-version = "0.2.1"
+version = "0.3.0"
 dependencies = [
  "rightkit-fs",
  "rightkit-logs",
@@ -5297,8 +5298,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "rightkit-credentials"
+version = "0.2.0"
+dependencies = [
+ "getrandom 0.3.4",
+ "keyring-core",
+ "rightkit-app-settings",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror 2.0.21",
+ "windows-native-keyring-store",
+ "windows-sys 0.61.2",
+ "zeroize",
+]
+
+[[package]]
 name = "rightkit-daemon"
-version = "0.1.3"
+version = "0.2.3"
 dependencies = [
  "axum",
  "base64 0.22.1",
@@ -5307,11 +5324,12 @@ dependencies = [
  "hyper",
  "hyper-util",
  "rcgen",
+ "rightkit-child-process",
  "rightkit-contracts",
- "rightkit-daemon",
+ "rightkit-fs",
  "rightkit-http",
  "rightkit-oauth",
- "rightkit-process",
+ "rightkit-sidecar",
  "ring",
  "rustls",
  "serde",
@@ -5321,6 +5339,7 @@ dependencies = [
  "tokio",
  "tokio-rustls",
  "tower",
+ "windows 0.62.2",
 ]
 
 [[package]]
@@ -5336,12 +5355,23 @@ dependencies = [
 ]
 
 [[package]]
-name = "rightkit-embed"
-version = "0.3.2"
+name = "rightkit-device"
+version = "0.1.3"
 dependencies = [
+ "getrandom 0.3.4",
+ "rightkit-license",
+]
+
+[[package]]
+name = "rightkit-embed"
+version = "0.5.0"
+dependencies = [
+ "objc2",
+ "objc2-core-ml",
+ "objc2-foundation",
  "rightkit-db",
  "rightkit-fs",
- "rightkit-ort",
+ "rightkit-onnx",
  "rusqlite",
  "serde_json",
  "tempfile",
@@ -5350,13 +5380,25 @@ dependencies = [
 ]
 
 [[package]]
-name = "rightkit-framed-sidecar"
-version = "0.2.0"
+name = "rightkit-ffmpeg"
+version = "0.2.6"
 dependencies = [
- "libc",
+ "rightkit-child-process",
+ "rightkit-fs",
  "serde",
  "serde_json",
- "windows-sys 0.61.2",
+ "tempfile",
+]
+
+[[package]]
+name = "rightkit-file-watch"
+version = "0.4.0"
+dependencies = [
+ "notify",
+ "rightkit-child-process",
+ "tempfile",
+ "tokio",
+ "tracing",
 ]
 
 [[package]]
@@ -5373,12 +5415,12 @@ dependencies = [
 
 [[package]]
 name = "rightkit-fsindex"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "libc",
  "memchr",
  "memmap2",
- "rightkit-process",
+ "rightkit-child-process",
  "tempfile",
 ]
 
@@ -5410,14 +5452,15 @@ dependencies = [
 ]
 
 [[package]]
-name = "rightkit-jobs"
-version = "0.2.9"
+name = "rightkit-job-queue"
+version = "0.3.1"
 dependencies = [
+ "rightkit-child-process",
+ "rightkit-crash",
+ "rightkit-daemon",
  "rightkit-db",
- "rightkit-framed-sidecar",
  "rightkit-fs",
- "rightkit-process",
- "rightkit-service",
+ "rightkit-sidecar",
  "serde",
  "serde_json",
  "sha2 0.10.9",
@@ -5438,27 +5481,28 @@ dependencies = [
 
 [[package]]
 name = "rightkit-llm"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
+ "rightkit-child-process",
  "rightkit-http",
- "rightkit-process",
  "serde",
  "serde_json",
 ]
 
 [[package]]
 name = "rightkit-logs"
-version = "0.2.2"
+version = "0.3.0"
 dependencies = [
  "getrandom 0.4.3",
  "libc",
+ "rightkit-child-process",
  "rightkit-fs",
  "rightkit-logs",
- "rightkit-process",
  "serde",
  "serde_json",
  "tempfile",
  "tracing",
+ "tracing-log",
  "tracing-subscriber",
  "ureq",
  "windows-sys 0.61.2",
@@ -5466,7 +5510,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-mcp"
-version = "0.5.3"
+version = "0.6.0"
 dependencies = [
  "futures-util",
  "getrandom 0.3.4",
@@ -5483,19 +5527,8 @@ dependencies = [
 ]
 
 [[package]]
-name = "rightkit-media"
-version = "0.2.6"
-dependencies = [
- "rightkit-fs",
- "rightkit-process",
- "serde",
- "serde_json",
- "tempfile",
-]
-
-[[package]]
 name = "rightkit-models"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "base64 0.22.1",
  "chrono",
@@ -5503,6 +5536,7 @@ dependencies = [
  "ed25519-dalek 2.2.0",
  "flate2",
  "getrandom 0.3.4",
+ "rightkit-daemon",
  "rightkit-fs",
  "rightkit-http",
  "rightkit-qa",
@@ -5518,15 +5552,15 @@ dependencies = [
 
 [[package]]
 name = "rightkit-oauth"
-version = "0.3.1"
+version = "0.5.0"
 dependencies = [
  "axum",
  "base64 0.22.1",
  "getrandom 0.3.4",
  "libc",
+ "rightkit-child-process",
+ "rightkit-credentials",
  "rightkit-http",
- "rightkit-process",
- "rightkit-secrets",
  "ring",
  "serde",
  "serde_json",
@@ -5539,7 +5573,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-ocr"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "base64 0.22.1",
  "image",
@@ -5548,7 +5582,7 @@ dependencies = [
  "objc2-core-graphics",
  "objc2-foundation",
  "objc2-vision",
- "rightkit-ort",
+ "rightkit-onnx",
  "serde",
  "serde_json",
  "sha2 0.10.9",
@@ -5556,13 +5590,13 @@ dependencies = [
 ]
 
 [[package]]
-name = "rightkit-ort"
+name = "rightkit-onnx"
 version = "0.2.3"
 dependencies = [
  "half",
  "ndarray",
  "ort",
- "rightkit-media",
+ "rightkit-ffmpeg",
  "serde",
  "serde_json",
  "sha2 0.10.9",
@@ -5617,80 +5651,63 @@ dependencies = [
 
 [[package]]
 name = "rightkit-playback"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
+ "rightkit-child-process",
+ "rightkit-ffmpeg",
  "rightkit-fs",
- "rightkit-media",
- "rightkit-process",
  "tauri",
 ]
 
 [[package]]
-name = "rightkit-process"
-version = "0.4.0"
-dependencies = [
- "libc",
- "trybuild",
- "windows 0.62.2",
-]
-
-[[package]]
 name = "rightkit-qa"
-version = "0.2.16"
+version = "0.6.0"
 dependencies = [
  "getrandom 0.3.4",
  "png 0.18.1",
+ "rightkit-automation",
  "rightkit-browser",
- "rightkit-control",
- "rightkit-framed-sidecar",
+ "rightkit-child-process",
+ "rightkit-daemon",
  "rightkit-fs",
- "rightkit-process",
- "rightkit-service",
+ "rightkit-sidecar",
  "serde",
  "serde_json",
+ "tauri",
  "tokio",
  "toml 0.8.2",
+ "webview2-com 0.38.2",
+ "webview2-com 0.39.1",
+ "windows 0.61.1",
+ "windows 0.62.2",
  "windows-sys 0.61.2",
 ]
 
 [[package]]
-name = "rightkit-qts"
-version = "0.2.6"
+name = "rightkit-qa-driver"
+version = "0.5.0"
 dependencies = [
- "getrandom 0.3.4",
- "hound",
- "prost",
- "rightkit-ort",
- "rightkit-qts-ggml-sys",
- "rustfft",
- "thiserror 2.0.21",
-]
-
-[[package]]
-name = "rightkit-qts-ggml"
-version = "0.1.2"
-dependencies = [
- "rightkit-qts-ggml-sys",
-]
-
-[[package]]
-name = "rightkit-qts-ggml-sys"
-version = "0.1.2"
-dependencies = [
- "bindgen",
- "cmake",
+ "rightkit-automation",
+ "rightkit-daemon",
+ "rightkit-qa",
+ "serde_json",
+ "tauri",
+ "webview2-com 0.38.2",
+ "webview2-com 0.39.1",
+ "windows 0.61.1",
+ "windows 0.62.2",
 ]
 
 [[package]]
 name = "rightkit-record"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "blake3",
  "hmac-sha256",
+ "rightkit-child-process",
  "rightkit-contracts",
- "rightkit-framed-sidecar",
- "rightkit-process",
- "rightkit-secrets",
+ "rightkit-credentials",
+ "rightkit-sidecar",
  "serde",
  "serde_json",
  "windows 0.62.2",
@@ -5706,22 +5723,12 @@ dependencies = [
 
 [[package]]
 name = "rightkit-sandbox"
-version = "0.3.4"
+version = "0.4.0"
 dependencies = [
  "libc",
  "portable-pty",
- "rightkit-process",
+ "rightkit-child-process",
  "windows 0.62.2",
-]
-
-[[package]]
-name = "rightkit-scenario"
-version = "0.1.0"
-dependencies = [
- "blake3",
- "getrandom 0.3.4",
- "serde",
- "serde_json",
 ]
 
 [[package]]
@@ -5733,28 +5740,12 @@ dependencies = [
 ]
 
 [[package]]
-name = "rightkit-secrets"
-version = "0.2.0"
-dependencies = [
- "getrandom 0.3.4",
- "keyring-core",
- "rightkit-settings",
- "serde",
- "serde_json",
- "tempfile",
- "thiserror 2.0.21",
- "windows-native-keyring-store",
- "windows-sys 0.61.2",
- "zeroize",
-]
-
-[[package]]
 name = "rightkit-send"
 version = "0.1.0"
 dependencies = [
  "libc",
  "rcgen",
- "rightkit-process",
+ "rightkit-child-process",
  "rustls",
  "serde",
  "serde_json",
@@ -5763,58 +5754,21 @@ dependencies = [
 ]
 
 [[package]]
-name = "rightkit-service"
-version = "0.1.5"
-dependencies = [
- "rightkit-framed-sidecar",
- "rightkit-fs",
- "rightkit-process",
- "serde",
- "serde_json",
- "tempfile",
- "windows 0.62.2",
-]
-
-[[package]]
-name = "rightkit-settings"
+name = "rightkit-sidecar"
 version = "0.2.0"
 dependencies = [
- "rightkit-fs",
+ "libc",
  "serde",
  "serde_json",
- "tempfile",
- "thiserror 2.0.21",
-]
-
-[[package]]
-name = "rightkit-shell"
-version = "0.3.0"
-dependencies = [
- "block2",
- "objc2",
- "objc2-app-kit",
- "objc2-foundation",
- "objc2-user-notifications",
- "rightkit-jobs",
- "rightkit-process",
- "rightkit-service",
- "serde",
- "serde_json",
- "tauri",
- "tauri-winrt-notification",
- "tempfile",
- "webview2-com 0.38.2",
- "webview2-com 0.39.1",
- "windows 0.61.1",
- "windows 0.62.2",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
 name = "rightkit-speech-client"
-version = "0.3.4"
+version = "0.3.5"
 dependencies = [
- "rightkit-framed-sidecar",
- "rightkit-service",
+ "rightkit-daemon",
+ "rightkit-sidecar",
  "rightkit-transcript",
  "serde",
  "serde_json",
@@ -5826,18 +5780,33 @@ dependencies = [
 name = "rightkit-sync"
 version = "0.1.1"
 dependencies = [
+ "rightkit-child-process",
  "rightkit-fs",
- "rightkit-process",
  "serde",
  "serde_json",
 ]
 
 [[package]]
-name = "rightkit-tauri"
-version = "0.1.3"
+name = "rightkit-tauri-shell"
+version = "0.3.0"
 dependencies = [
- "getrandom 0.3.4",
- "rightkit-license",
+ "block2",
+ "objc2",
+ "objc2-app-kit",
+ "objc2-foundation",
+ "objc2-user-notifications",
+ "rightkit-child-process",
+ "rightkit-daemon",
+ "rightkit-job-queue",
+ "serde",
+ "serde_json",
+ "tauri",
+ "tauri-winrt-notification",
+ "tempfile",
+ "webview2-com 0.38.2",
+ "webview2-com 0.39.1",
+ "windows 0.61.1",
+ "windows 0.62.2",
 ]
 
 [[package]]
@@ -5851,37 +5820,57 @@ dependencies = [
 
 [[package]]
 name = "rightkit-tts"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "libc",
+ "rightkit-child-process",
  "rightkit-fs",
- "rightkit-ort",
- "rightkit-process",
- "rightkit-qts",
+ "rightkit-onnx",
  "rightkit-transcript",
+ "rightkit-tts-qwen",
  "serde",
  "serde_json",
  "thiserror 2.0.21",
 ]
 
 [[package]]
-name = "rightkit-vad"
-version = "0.1.0"
+name = "rightkit-tts-qwen"
+version = "0.2.6"
 dependencies = [
+ "getrandom 0.3.4",
  "hound",
- "rightkit-media",
- "rightkit-ort",
+ "prost",
+ "rightkit-onnx",
+ "rightkit-tts-qwen-sys",
+ "rustfft",
+ "thiserror 2.0.21",
 ]
 
 [[package]]
-name = "rightkit-watch"
-version = "0.4.0"
+name = "rightkit-tts-qwen-sys"
+version = "0.1.2"
 dependencies = [
- "notify",
- "rightkit-process",
- "tempfile",
- "tokio",
- "tracing",
+ "bindgen",
+ "cmake",
+]
+
+[[package]]
+name = "rightkit-vad"
+version = "0.1.1"
+dependencies = [
+ "hound",
+ "rightkit-ffmpeg",
+ "rightkit-onnx",
+]
+
+[[package]]
+name = "rightkit-workflow"
+version = "0.1.0"
+dependencies = [
+ "blake3",
+ "getrandom 0.3.4",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -6074,7 +6063,7 @@ dependencies = [
  "security-framework",
  "security-framework-sys",
  "webpki-root-certs",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -7389,18 +7378,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "tokio-stream"
-version = "0.1.18"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "32da49809aab5c3bc678af03902d4ccddea2a87d028d86392a4b1560c6906c70"
-dependencies = [
- "futures-core",
- "pin-project-lite",
- "tokio",
- "tokio-util",
-]
-
-[[package]]
 name = "tokio-util"
 version = "0.7.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -7603,6 +7580,17 @@ checksum = "db97caf9d906fbde555dd62fa95ddba9eecfd14cb388e4f491a66d74cd5fb79a"
 dependencies = [
  "once_cell",
  "valuable",
+]
+
+[[package]]
+name = "tracing-log"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ee855f1f400bd0e5c02d150ae5de3840039a3f54b025156404e34c23c03f47c3"
+dependencies = [
+ "log",
+ "once_cell",
+ "tracing-core",
 ]
 
 [[package]]

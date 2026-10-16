@@ -12,7 +12,7 @@ categories = ["web-programming::http-client"]
 include = ["src/**", "tests/**", "README.md", "CHANGELOG.md", "API.md", "LICENSE-MIT", "LICENSE-APACHE"]
 
 [features]
-default = ["gzip", "untrusted"]
+default = []
 # `untrusted` module: tamper-evident wrapping of external text for model input. Its only
 # dependency is `rightkit-fs` (SHA-256 digest); HTTP-only consumers can opt out.
 untrusted = ["dep:rightkit-fs"]

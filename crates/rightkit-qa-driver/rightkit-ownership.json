@@ -1,0 +1,106 @@
+{
+  "package": "rightkit-qa-driver",
+  "capabilities": [
+    {
+      "capability": "desktop-control",
+      "summary": "Background native input, accessibility reads and WebDriver bridge for driving desktop apps without stealing focus",
+      "fingerprints": [
+        {
+          "id": "control.cargo.enigo",
+          "type": "dependency",
+          "ecosystem": "cargo",
+          "name": "enigo",
+          "tier": "advise",
+          "usageContext": {
+            "hosts": [
+              "macos",
+              "windows"
+            ],
+            "scope": "cargo direct competing dependency; transitive findings require authenticated reachability"
+          },
+          "tierReason": "No recorded published-version qualification for this usage context on both macOS & Windows."
+        },
+        {
+          "id": "control.cargo.rdev",
+          "type": "dependency",
+          "ecosystem": "cargo",
+          "name": "rdev",
+          "tier": "advise",
+          "usageContext": {
+            "hosts": [
+              "macos",
+              "windows"
+            ],
+            "scope": "cargo direct competing dependency; transitive findings require authenticated reachability"
+          },
+          "tierReason": "No recorded published-version qualification for this usage context on both macOS & Windows."
+        },
+        {
+          "id": "control.cargo.uiautomation",
+          "type": "dependency",
+          "ecosystem": "cargo",
+          "name": "uiautomation",
+          "tier": "advise",
+          "usageContext": {
+            "hosts": [
+              "macos",
+              "windows"
+            ],
+            "scope": "cargo direct competing dependency; transitive findings require authenticated reachability"
+          },
+          "tierReason": "No recorded published-version qualification for this usage context on both macOS & Windows."
+        },
+        {
+          "id": "control.cargo.accessibility-sys",
+          "type": "dependency",
+          "ecosystem": "cargo",
+          "name": "accessibility-sys",
+          "tier": "advise",
+          "usageContext": {
+            "hosts": [
+              "macos",
+              "windows"
+            ],
+            "scope": "cargo direct competing dependency; transitive findings require authenticated reachability"
+          },
+          "tierReason": "No recorded published-version qualification for this usage context on both macOS & Windows."
+        },
+        {
+          "id": "control.npm.nut-js",
+          "type": "dependency",
+          "ecosystem": "npm",
+          "name": "@nut-tree/nut-js",
+          "tier": "advise",
+          "usageContext": {
+            "hosts": [
+              "macos",
+              "windows"
+            ],
+            "scope": "npm direct competing dependency; transitive findings require authenticated reachability"
+          },
+          "tierReason": "No recorded published-version qualification for this usage context on both macOS & Windows."
+        },
+        {
+          "id": "control.npm.robotjs",
+          "type": "dependency",
+          "ecosystem": "npm",
+          "name": "robotjs",
+          "tier": "advise",
+          "usageContext": {
+            "hosts": [
+              "macos",
+              "windows"
+            ],
+            "scope": "npm direct competing dependency; transitive findings require authenticated reachability"
+          },
+          "tierReason": "No recorded published-version qualification for this usage context on both macOS & Windows."
+        }
+      ],
+      "detection": "fingerprinted",
+      "policyNotes": [
+        "Native accessibility, embedded control & global input need separate host/permission qualification.",
+        "Fingerprints identify review candidates; published two-host replacement qualification is not recorded."
+      ]
+    }
+  ]
+}

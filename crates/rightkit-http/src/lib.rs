@@ -7,9 +7,9 @@
 //!   classify every address, connect only to checked addresses, on every redirect hop.
 //! - [`CancelToken`]: cooperative cancellation for calls and streams.
 //! - [`sse`]: WHATWG-compliant Server-Sent Events decoding.
-//! - `untrusted` (feature, default on): tamper-evident wrapping of external text for model input.
+//! - `untrusted` (feature, off by default): tamper-evident wrapping of external text for model input.
 //! - [`secret`]: redacted [`Secret`] and the [`SecretStore`] interface that
-//!   `rightkit-secrets` implements.
+//!   `rightkit-credentials` implements.
 //! - `async_client` (feature `async`): [`AsyncClient`], the same policy layer on
 //!   reqwest/tokio, with a body [`BodyStream`] and an async [`SseStream`].
 //! - `testing` (feature): in-process mock server that records exact requests.
@@ -48,7 +48,10 @@ pub use retry::{parse_retry_after, RetryPolicy};
 pub use secret::{MemorySecretStore, Secret, SecretError, SecretStore};
 pub use sse::{SseDecoder, SseEvent, SseReader};
 #[cfg(feature = "untrusted")]
-pub use untrusted::{wrap_untrusted_web_text, wrap_untrusted_web_text_with, WrapOptions};
+pub use untrusted::{
+    wrap_untrusted_web_text, wrap_untrusted_web_text_coderight, wrap_untrusted_web_text_with,
+    WrapOptions,
+};
 
 #[cfg(feature = "async")]
 pub use async_client::{AsyncClient, AsyncStreamResponse, BodyStream, SseStream};

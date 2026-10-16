@@ -37,7 +37,7 @@ export async function loadContract(contractUrl = new URL("contract.json", import
 }
 
 /** The native-library catalog: the single source of the ONNX Runtime digest. */
-export const NATIVE_CATALOG_URL = new URL("../../crates/rightkit-media/catalog/native-libraries.json", import.meta.url);
+export const NATIVE_CATALOG_URL = new URL("../../crates/rightkit-ffmpeg/catalog/native-libraries.json", import.meta.url);
 
 export async function loadNativeCatalog(catalogUrl = NATIVE_CATALOG_URL) {
   return JSON.parse(await readFile(catalogUrl, "utf8"));

@@ -1,6 +1,8 @@
 import { useId, useState, type CSSProperties, type ReactElement, type ReactNode } from "react";
+import { LegalDocumentBody, type LegalContentFormat } from "./LegalDocumentBody.js";
 
 export type LegalGateVariant = "first-run" | "re-acceptance";
+export type { LegalContentFormat };
 export type LegalGateEligibilityBasis = "individual" | "enterprise";
 
 /**
@@ -76,8 +78,14 @@ export interface LegalGateDocument {
   title: string;
   /** Hosted copy, opened in a new window. */
   url?: string;
-  /** Opens a bundled copy (for apps without a published legal site). Takes precedence over `url`. */
+  /** Opens a bundled copy (for apps without a published legal site). Takes precedence over
+   *  `content` and `url`. */
   onOpen?: () => void;
+  /** Bundled document body, rendered inline by the gate (no host renderer needed). Used when
+   *  `onOpen` is absent; takes precedence over `url`. */
+  content?: string;
+  /** How `content` is rendered. Default "markdown". `text` keeps the text verbatim. */
+  contentFormat?: LegalContentFormat;
 }
 
 export interface LegalGateProps {
@@ -248,6 +256,11 @@ function ensureStyle(): void {
 @media (max-width: 640px) {
   .rk-legal-gate__body { grid-template-columns: minmax(0, 1fr); row-gap: 26px; max-width: 420px; }
 }
+.rk-legal-gate__doc { margin: 8px 0 4px; padding: 10px 12px; max-height: 240px; overflow: auto; font-size: 12.5px; line-height: 1.5; border: 1px solid color-mix(in srgb, currentColor 25%, transparent); border-radius: 6px; }
+.rk-legal-gate__doc h2, .rk-legal-gate__doc h3, .rk-legal-gate__doc h4, .rk-legal-gate__doc h5, .rk-legal-gate__doc h6 { font-size: 13px; margin: 10px 0 4px; }
+.rk-legal-gate__doc p, .rk-legal-gate__doc ul, .rk-legal-gate__doc ol { margin: 0 0 8px; }
+.rk-legal-gate__doc ul, .rk-legal-gate__doc ol { padding-left: 20px; }
+.rk-legal-gate__doc-text { margin: 0; white-space: pre-wrap; font: inherit; }
 `;
   document.head.appendChild(style);
 }
@@ -305,6 +318,7 @@ export function LegalGate({
   if (wordmarkFontUrl) ensureWordmarkFont(wordmarkFontUrl);
 
   const [eligibilityBasis, setEligibilityBasis] = useState<LegalGateEligibilityBasis | null>(null);
+  const [openDoc, setOpenDoc] = useState<number | null>(null);
   const [agreed, setAgreed] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<{ error: unknown } | null>(null);
@@ -465,19 +479,42 @@ export function LegalGate({
 
           <nav aria-label={`${appName} legal documents`}>
             <ul style={{ listStyle: "none", margin: 0, padding: 0, display: "flex", flexDirection: "column", gap: 6 }}>
-              {documents.map((document) => (
-                <li key={document.url ?? document.title}>
-                  <a
-                    href={document.onOpen ? "#" : document.url}
-                    target={document.onOpen ? undefined : "_blank"}
-                    rel={document.onOpen ? undefined : "noreferrer"}
-                    onClick={document.onOpen ? (event) => { event.preventDefault(); document.onOpen?.(); } : undefined}
-                    style={{ fontSize: 13.5 }}
-                  >
-                    {document.title}
-                  </a>
-                </li>
-              ))}
+              {documents.map((document, index) => {
+                const inline = !document.onOpen && document.content !== undefined;
+                const expanded = inline && openDoc === index;
+                return (
+                  <li key={document.url ?? document.title}>
+                    <a
+                      href={document.onOpen || inline ? "#" : document.url}
+                      target={document.onOpen || inline ? undefined : "_blank"}
+                      rel={document.onOpen || inline ? undefined : "noreferrer"}
+                      aria-expanded={inline ? expanded : undefined}
+                      aria-controls={inline ? `${trustLineId}-doc-${index}` : undefined}
+                      onClick={
+                        document.onOpen
+                          ? (event) => { event.preventDefault(); document.onOpen?.(); }
+                          : inline
+                            ? (event) => { event.preventDefault(); setOpenDoc(expanded ? null : index); }
+                            : undefined
+                      }
+                      style={{ fontSize: 13.5 }}
+                    >
+                      {document.title}
+                    </a>
+                    {expanded ? (
+                      <div
+                        id={`${trustLineId}-doc-${index}`}
+                        className="rk-legal-gate__doc"
+                        role="region"
+                        aria-label={document.title}
+                        tabIndex={0}
+                      >
+                        <LegalDocumentBody content={document.content ?? ""} format={document.contentFormat ?? "markdown"} />
+                      </div>
+                    ) : null}
+                  </li>
+                );
+              })}
             </ul>
           </nav>
         </div>

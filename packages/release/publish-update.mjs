@@ -114,6 +114,7 @@ if (!dryRun && (tier === "update" || artifacts.length > 0)) {
 if (tier === "patch") {
   for (const installer of installers) {
     assertCurrentKey(installer.key, "installer");
+    assertVersionedKey(installer.versionedKey);
     artifactFile(installer.file);
   }
   const platforms = {};
@@ -161,6 +162,13 @@ if (tier === "patch") {
       ...metadata,
       updaterSignature: null,
     });
+    // The versioned copy is the App Installer install source: Windows repairs by re-adding from the URI the
+    // package came from, so it must outlive the version that replaces it.
+    if (installer.versionedKey && !uploadedKeys.has(installer.versionedKey)) {
+      console.log(`${dryRun ? "[dry-run] " : ""}UPLOAD public/${installer.versionedKey}`);
+      if (!dryRun) uploadVerifiedR2Artifact(verifiedArtifact(file), installer.versionedKey, "public", { cwd: root });
+      uploadedKeys.add(installer.versionedKey);
+    }
   }
   if (!artifacts.length) {
     console.log(`${dryRun ? "[dry-run] " : ""}NO patch updater artifacts; skipping patch manifest registration`);
@@ -169,9 +177,10 @@ if (tier === "patch") {
       platform: platform === "mac" ? "mac" : "windows",
       dryRun,
       keep: {
-        public: installers.map((artifact) => artifact.key),
+        public: installerKeepKeys(),
         private: target.updater.artifacts.map((artifact) => artifact.key),
       },
+      retainPreviousVersions: installers.some((artifact) => artifact.versionedKey) ? 1 : 0,
     });
     if (!dryRun) recordPublishedVersion({ app: config.app, version: versionForStorage, platform, configPath, releaseId });
     process.exit(0);
@@ -207,9 +216,10 @@ if (tier === "patch") {
     platform: platform === "mac" ? "mac" : "windows",
     dryRun,
     keep: {
-      public: [...installers.map((artifact) => artifact.key), ...registrations.keys()],
+      public: [...installerKeepKeys(), ...registrations.keys()],
       private: [],
     },
+    retainPreviousVersions: installers.some((artifact) => artifact.versionedKey) ? 1 : 0,
   });
   if (!dryRun) recordPublishedVersion({ app: config.app, version: versionForStorage, platform, configPath, releaseId });
   process.exit(0);
@@ -308,6 +318,18 @@ function assertCurrentKey(key, kind) {
     : /\/updates\/(?:mac|windows)\/current\//;
   if (!pattern.test(key)) {
     fail(`${kind} key must target the replaceable current R2 object, got: ${key}`);
+  }
+}
+
+// Current + versioned installer keys: both stay public so the old install source is never deleted.
+function installerKeepKeys() {
+  return installers.flatMap((artifact) => [artifact.key, ...(artifact.versionedKey ? [artifact.versionedKey] : [])]);
+}
+
+function assertVersionedKey(key) {
+  if (key === undefined) return;
+  if (!/\/installers\/(?:mac|windows)\/versions\/[^/]+\/[^/]+$/.test(key)) {
+    fail(`installer versionedKey must be <app>/installers/<os>/versions/<version>/<file>, got: ${key}`);
   }
 }
 

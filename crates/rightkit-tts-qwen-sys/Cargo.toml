@@ -1,0 +1,34 @@
+[package]
+name = "rightkit-tts-qwen-sys"
+version = "0.1.2"
+edition = "2021"
+license = "Apache-2.0 AND MIT"
+rust-version = "1.98.0"
+repository = "https://github.com/Orthic-Labs/rightkit"
+description = "Low-level FFI bindings to ggml (CPU, Metal, Vulkan, BLAS) for rightkit-tts-qwen, vendored from yet-another-ai/qts v0.2.0"
+readme = "README.md"
+links = "rightkit_ggml"
+build = "build.rs"
+include = ["src/**", "build.rs", "CHANGELOG.md", "bindings_stamp.rs", "wrapper.h", "bindings-*.rs", "vendor/**", "Cargo.toml", "README.md", "VERSIONS.md", "LICENSE", "NOTICE", "PINNED.md"]
+
+[lib]
+name = "ggml_sys"
+
+[features]
+default = []
+metal = []
+vulkan = []
+blas = []
+# Optimize CPU kernels for the host CPU (less portable binaries).
+native = []
+# Regenerates the checked-in bindings-<target>.rs from the vendored headers (needs libclang).
+# Only for refreshing bindings; default builds use the checked-in files.
+regenerate-bindings = ["dep:bindgen"]
+
+[build-dependencies]
+bindgen = { version = "0.72", optional = true }
+cmake = "0.1"
+
+[package.metadata.rightkit]
+continuous = false
+continuous_reason = "no thread-spawn, task-spawn, sleep, timer, listener or watcher in non-test src: raw FFI bindings plus statically linked ggml that start nothing by themselves, ggml_graph_compute uses a disposable thread pool created and joined inside each compute call unless the caller builds its own via ggml_threadpool_new, and any resident model belongs to the consumer (rightkit-tts-qwen) (reviewed 2026-10-11)"

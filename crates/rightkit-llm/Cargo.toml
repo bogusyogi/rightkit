@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-llm"
-version = "0.2.0"
+version = "0.2.1"
 edition = "2021"
 rust-version = "1.98.0"
 description = "Brand-neutral BYOK LLM clients: Anthropic Messages and OpenAI-compatible chat, streaming, tool use, route failover with circuit breaker, pricing, and prompt-cache discipline, plus an opt-in provider for installed command-line assistants."
@@ -14,16 +14,16 @@ include = ["src/**", "tests/**", "assets/**", "README.md", "CHANGELOG.md", "LICE
 [features]
 default = []
 # Provider that drives an installed, signed-in CLI assistant as a bounded child process.
-cli = ["dep:rightkit-process"]
+cli = ["dep:rightkit-child-process"]
 
 [dependencies]
-rightkit-http = { version = "0.3.0", path = "../rightkit-http" }
-rightkit-process = { version = "0.4.0", path = "../rightkit-process", optional = true }
+rightkit-http = { version = "0.3.0", path = "../rightkit-http", features = ["gzip"] }
+rightkit-child-process = { version = "0.4.0", path = "../rightkit-child-process", optional = true }
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.150"
 
 [dev-dependencies]
-rightkit-http = { version = "0.3.0", path = "../rightkit-http", features = ["testing"] }
+rightkit-http = { version = "0.3.0", path = "../rightkit-http", features = ["gzip", "testing"] }
 
 [package.metadata.rightkit]
 continuous = false

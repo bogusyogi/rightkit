@@ -1,0 +1,94 @@
+# Managed by right-git — do not hand-edit. Run `right-git sync` to update.
+# Template: qualification.yml | Template version: ${TEMPLATE_VERSION}
+name: qualification
+on:
+  pull_request:
+  push:
+    branches: [${DEFAULT_BRANCH}]
+permissions:
+  contents: read
+# F5 fix: see ci.yml for why the guard is its own always-runs job rather
+# than a job-level `if: !private` (which only skipped instead of failing).
+jobs:
+  private-repo-guard:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Refuse private repository
+        if: ${{ github.event.repository.private }}
+        run: |
+          echo "::error::right-git: repository is private; managed public-only workflows must not run here."
+          exit 1
+  qualification:
+    needs: [private-repo-guard]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: ${{ fromJSON('${NODE_MATRIX}')[0] }}
+          package-manager-cache: false
+${PACKAGE_MANAGER_SETUP}
+      - run: ${INSTALL_COMMAND}
+${OWNERSHIP_STEP}${SWIFT_PRIVATE_CONFIGURE_STEP}
+      - run: ${PM_RUN} test:all${SWIFT_PRIVATE_CLEANUP_STEP}
+  schema:
+    needs: [qualification]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: ${{ fromJSON('${NODE_MATRIX}')[0] }}
+          package-manager-cache: false
+${PACKAGE_MANAGER_SETUP}
+      - run: ${INSTALL_COMMAND}
+      - name: Check schema with evidence log
+        shell: bash
+        run: |
+          set -o pipefail
+          node scripts/ci/check-schema.mjs 2>&1 | tee qualification-schema.log
+      - name: Upload schema evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: qualification-schema-${{ github.run_id }}-${{ github.run_attempt }}
+          path: qualification-schema.log
+          if-no-files-found: error
+  security:
+    needs: [qualification]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: ${{ fromJSON('${NODE_MATRIX}')[0] }}
+          package-manager-cache: false
+${PACKAGE_MANAGER_SETUP}
+      - run: ${INSTALL_COMMAND}
+      - run: node scripts/ci/check-network-boundary.mjs
+      - name: Hostile-repository and secret-egress suite
+        run: ${PM_RUN} test:security
+  hardening:
+    needs: [qualification]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: ${{ fromJSON('${NODE_MATRIX}')[0] }}
+          package-manager-cache: false
+${PACKAGE_MANAGER_SETUP}
+      - run: ${INSTALL_COMMAND}
+      - run: ${PM_RUN} test:hardening
+  conformance:
+    needs: [qualification]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: ${{ fromJSON('${NODE_MATRIX}')[0] }}
+          package-manager-cache: false
+${PACKAGE_MANAGER_SETUP}
+      - run: ${INSTALL_COMMAND}
+      - run: ${PM_RUN} test:conformance

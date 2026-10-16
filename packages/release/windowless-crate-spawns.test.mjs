@@ -7,14 +7,14 @@ import test from "node:test";
 // A console-subsystem child of a windowless parent gets a fresh visible console unless its spawner
 // passes CREATE_NO_WINDOW, so every crate-source `std::process::Command::new` must, within the
 // lines that build it, either hide the window or be compiled only off Windows. `OwnedCommand`
-// (rightkit-process) hides by default. An explicit `// windowless: <reason>` comment just above a
+// (rightkit-child-process) hides by default. An explicit `// windowless: <reason>` comment just above a
 // spawn documents a site that hides it elsewhere (e.g. hands the Command to OwnedCommand).
 const crates = path.resolve(import.meta.dirname, "../../crates");
 const SPAWN = /(?<![A-Za-z_])Command::new\(/;
 const HIDDEN = /creation_flags|CREATE_NO_WINDOW|\bhidden\(|hide_background_process|spawn_hidden_logged|OwnedCommand::from_command|windows_hide/;
 const LAUNCH = /\.(?:spawn|output|status)\(|from_command\(|spawn_hidden_logged\(|hide_background_process\(|\bfinish\(/;
 // OwnedCommand's own constructor: `from_command` starts every command hidden on Windows (windows_hidden: true).
-const OWNED_COMMAND_CONSTRUCTOR = { file: "rightkit-process/src/owned.rs", line: /^\s*(?:let\s+\w+\s*=\s*)?Self::from_command\(Command::new\(program\)\);?\s*$/ };
+const OWNED_COMMAND_CONSTRUCTOR = { file: "rightkit-child-process/src/owned.rs", line: /^\s*(?:let\s+\w+\s*=\s*)?Self::from_command\(Command::new\(program\)\);?\s*$/ };
 const MACOS_ONLY_FILE = /(^|[\\/])(macos([\\/]|\.rs$)|mac\.rs$|apple_helper\.rs$)/;
 
 function rustFiles(directory) {

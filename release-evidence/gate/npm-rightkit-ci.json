@@ -1,0 +1,48 @@
+{
+  "schema": 1,
+  "kind": "npm",
+  "name": "@rightkit/ci",
+  "version": "0.2.45",
+  "commit": "adcfbb0a2d505dc69a33c44d5626a913fdbf0f64",
+  "artifactSha256": "6bef92a243954e3d470c88d96f414d1f0088f0bec99c24556f88dbdf7d4c765e",
+  "hostPolicy": "darwin-only",
+  "hostPolicyReason": "Adrian 2026-10-14 local-build grant (.rightkit-local-build.json); Windows covered by the next CI run",
+  "runs": [
+    {
+      "host": {
+        "os": "darwin",
+        "arch": "arm64"
+      },
+      "commit": "adcfbb0a2d505dc69a33c44d5626a913fdbf0f64",
+      "features": [
+        "default"
+      ],
+      "artifactSha256": "6bef92a243954e3d470c88d96f414d1f0088f0bec99c24556f88dbdf7d4c765e",
+      "command": "pnpm -r --workspace-concurrency=1 run build && pnpm --dir packages/ci run test && pnpm --dir packages/ci pack --pack-destination /var/folders/xp/8dtgvyms3bb1yndrvmxhdg0h0000gn/T/rk-local-publish-2nUgql",
+      "operator": "agent (local-build grant)",
+      "timestamp": "2026-10-15T15:34:16.420Z",
+      "passed": 158,
+      "failed": 0,
+      "skipped": 0,
+      "ignored": 0,
+      "allowIgnored": false,
+      "requireAssets": "1",
+      "assetGated": false,
+      "steps": [
+        {
+          "command": "pnpm -r --workspace-concurrency=1 run build",
+          "ok": true
+        },
+        {
+          "command": "pnpm --dir packages/ci run test",
+          "ok": true,
+          "executed": 158,
+          "failed": 0,
+          "ignored": 0,
+          "skipped": 0,
+          "binaries": 0
+        }
+      ]
+    }
+  ]
+}

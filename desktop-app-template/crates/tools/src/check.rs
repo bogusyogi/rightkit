@@ -35,10 +35,11 @@ fn exact_registry(spec: &str) -> bool {
 /// The version of `dep` that rightkit-versions.json lists in `section` (`npm` or `cargo`), searched in
 /// the registry snapshot first, then the published list, then the staged list. Staged means built but
 /// not on the registry, so a staged-only version is listed (a placeholder must yield to it) but is never
-/// the version a pin may name.
-fn listed_version(m: &Value, section: &str, dep: &str) -> Option<String> {
+/// the version a pin may name: pin checks pass `include_staged = false`, placeholder checks pass `true`.
+fn listed_version(m: &Value, section: &str, dep: &str, include_staged: bool) -> Option<String> {
     let staged = format!("staged{}", section[..1].to_uppercase() + &section[1..]);
-    [m["registry"][section][dep].as_str(), m[section][dep].as_str(), m[staged.as_str()][dep].as_str()]
+    let staged_hit = if include_staged { m[staged.as_str()][dep].as_str() } else { None };
+    [m["registry"][section][dep].as_str(), m[section][dep].as_str(), staged_hit]
         .into_iter()
         .flatten()
         .next()
@@ -124,7 +125,7 @@ pub fn run(root: &Path) -> Result<()> {
         need(exact_registry(spec), format!("{dep} must be an exact registry version, got {spec}"));
         need(!ph_npm.contains_key(dep), format!("{dep} is listed as a placeholder; remove it from placeholders.json when adopting"));
         if let Some(m) = &manifest {
-            match listed_version(m, "npm", dep) {
+            match listed_version(m, "npm", dep, false) {
                 None => need(false, format!("{dep} unknown to rightkit-versions.json")),
                 Some(want) => need(want == *spec, format!("{dep} pin {spec} != published {want} in rightkit-versions.json")),
             }
@@ -148,7 +149,7 @@ pub fn run(root: &Path) -> Result<()> {
         need(spec.starts_with('=') && exact_registry(&spec[1..]), format!("{dep} must be pinned with =x.y.z, got {spec}"));
         need(!ph_cargo.contains_key(dep), format!("{dep} is listed as a placeholder; remove it from placeholders.json when adopting"));
         if let Some(m) = &manifest {
-            let want = listed_version(m, "cargo", dep);
+            let want = listed_version(m, "cargo", dep, false);
             need(want.as_deref() == spec.strip_prefix('='), format!("{dep} pin {spec} != published {want:?} in rightkit-versions.json"));
         }
     }
@@ -176,7 +177,7 @@ pub fn run(root: &Path) -> Result<()> {
                 }
             }
             if let Some(m) = &manifest {
-                need(listed_version(m, section, dep).is_none(), format!("{dep} is listed in rightkit-versions.json: pin it exactly, delete its stand-in, and drop the placeholder"));
+                need(listed_version(m, section, dep, true).is_none(), format!("{dep} is listed in rightkit-versions.json: pin it exactly, delete its stand-in, and drop the placeholder"));
             }
         }
     }
@@ -276,5 +277,24 @@ fn collect(dir: &Path, out: &mut Vec<std::path::PathBuf>, exts: &[&str]) {
         } else if p.extension().and_then(|x| x.to_str()).map(|x| exts.contains(&x)).unwrap_or(false) {
             out.push(p);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn a_staged_only_version_is_never_a_pinnable_version() {
+        let m = json!({"registry": {"npm": {}}, "npm": {"a": "1.0.0"}, "stagedNpm": {"a": "2.0.0", "b": "3.0.0"}});
+        assert_eq!(listed_version(&m, "npm", "a", false).as_deref(), Some("1.0.0"));
+        assert_eq!(listed_version(&m, "npm", "b", false), None);
+    }
+
+    #[test]
+    fn a_staged_only_version_still_counts_as_listed_for_placeholders() {
+        let m = json!({"stagedCargo": {"rightkit-x": "0.2.0"}});
+        assert_eq!(listed_version(&m, "cargo", "rightkit-x", true).as_deref(), Some("0.2.0"));
     }
 }

@@ -1,0 +1,21 @@
+[package]
+name = "rightkit-agents"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.98.0"
+description = "Supervised vendor agent sessions for Right Suite apps: shared agent event model, Claude Code stream-json and Codex app-server protocol clients, recorded fixtures. No SDK, no HTTP, no MCP."
+license = "MIT OR Apache-2.0"
+readme = "README.md"
+repository = "https://github.com/Orthic-Labs/rightkit"
+keywords = ["agent", "claude", "codex", "json-rpc", "stream-json"]
+categories = ["development-tools"]
+include = ["src/**", "tests/**", "README.md", "CHANGELOG.md", "LICENSE-MIT", "LICENSE-APACHE"]
+
+[features]
+default = []
+claude = []
+codex = []
+
+[dependencies]
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = "1.0.150"

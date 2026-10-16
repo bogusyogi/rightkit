@@ -566,6 +566,19 @@ impl AtomicWriter {
         self.commit_inner(false, false, |_| Ok(())).map(|_| ())
     }
 
+    /// [`AtomicWriter::commit`], returning what was actually achieved (M8-O4): the flush level the
+    /// temp file reached ([`WriteReport::sync_level`], so an Apple volume that could not
+    /// `F_FULLFSYNC` is visible instead of silently weaker) and what publishing with these options
+    /// guarantees on this platform ([`WriteReport::publication`]). Errors are those of `commit`.
+    pub fn commit_reporting(self) -> Result<WriteReport> {
+        let publication = publication_durability(&self.options, true);
+        let (_, sync_level) = self.commit_inner_level(false, false, |_| Ok(()))?;
+        Ok(WriteReport {
+            sync_level,
+            publication,
+        })
+    }
+
     /// [`AtomicWriter::commit`] with a check that runs on the synced temp file before anything is
     /// published.
     ///
@@ -598,11 +611,21 @@ impl AtomicWriter {
     }
 
     fn commit_inner(
-        mut self,
+        self,
         want_digest: bool,
         checked: bool,
         check: impl FnOnce(&Path) -> std::io::Result<()>,
     ) -> Result<Option<String>> {
+        self.commit_inner_level(want_digest, checked, check)
+            .map(|(digest, _)| digest)
+    }
+
+    fn commit_inner_level(
+        mut self,
+        want_digest: bool,
+        checked: bool,
+        check: impl FnOnce(&Path) -> std::io::Result<()>,
+    ) -> Result<(Option<String>, Option<SyncLevel>)> {
         let file = self.file.take().expect("writer is open until commit");
         let result = self.finish(file, want_digest, checked, check);
         // Unpublished: the temp is all there is to clean. Published with a later error: the
@@ -623,9 +646,13 @@ impl AtomicWriter {
         want_digest: bool,
         checked: bool,
         check: impl FnOnce(&Path) -> std::io::Result<()>,
-    ) -> Result<Option<String>> {
+    ) -> Result<(Option<String>, Option<SyncLevel>)> {
+        let mut sync_level = None;
         if self.options.durable {
-            durable_sync(&file).map_err(|e| FsError::io(&self.temp, e))?;
+            sync_level = Some(
+                durable_sync_with(&file, SyncPolicy::Fallback)
+                    .map_err(|e| FsError::io(&self.temp, e))?,
+            );
             #[cfg(feature = "testing")]
             testing::record(testing::Step::TempFlushed);
         } else if checked {
@@ -676,8 +703,46 @@ impl AtomicWriter {
                 source,
             });
         }
-        Ok(digest)
+        Ok((digest, sync_level))
     }
+}
+
+/// What a write achieved, as [`AtomicWriter::commit_reporting`] and [`atomic_write_reporting`]
+/// return it (M8-O4).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct WriteReport {
+    /// The flush level the temp file reached before publication; `None` when the write was not
+    /// `durable` (nothing was flushed). Only Apple targets ever report less than
+    /// [`SyncLevel::Full`].
+    pub sync_level: Option<SyncLevel>,
+    /// What publishing guarantees on this platform for these options
+    /// ([`publication_durability`]).
+    pub publication: PublicationDurability,
+}
+
+impl WriteReport {
+    /// True when the write was durable and every step reached the strongest level this
+    /// platform offers: the flush was [`SyncLevel::Full`] and publication is not
+    /// [`PublicationDurability::FileFlushedOnly`] or [`PublicationDurability::None`].
+    pub fn is_fully_durable(&self) -> bool {
+        self.sync_level == Some(SyncLevel::Full)
+            && matches!(
+                self.publication,
+                PublicationDurability::DirectoryFlushed | PublicationDurability::WriteThroughMove
+            )
+    }
+}
+
+/// [`atomic_write_with_options`] that returns the [`WriteReport`] of what the write achieved.
+pub fn atomic_write_reporting(
+    path: &Path,
+    bytes: &[u8],
+    options: AtomicWriteOptions,
+) -> Result<WriteReport> {
+    let mut writer = AtomicWriter::create_with(path, options)?;
+    writer.write_all(bytes)?;
+    writer.commit_reporting()
 }
 
 impl Drop for AtomicWriter {
@@ -840,7 +905,7 @@ pub fn sync_dir(dir: &Path) {
 /// Directory `fsync`, reporting failure. A no-op off unix: Windows has no directory flush (a
 /// directory handle opened for listing cannot be flushed), so the strongest publication there is
 /// a write-through move; see [`publication_durability`].
-fn try_sync_dir(dir: &Path) -> std::io::Result<()> {
+pub(crate) fn try_sync_dir(dir: &Path) -> std::io::Result<()> {
     #[cfg(unix)]
     {
         #[cfg(feature = "testing")]
@@ -1473,40 +1538,127 @@ mod sync_ladder_tests {
     }
 }
 
-/// Remove orphaned temp files in `dir` left by crashed writers. A temp file is reclaimed when
-/// the process that created it is gone, or when it is older than `max_age` (pid reuse guard).
-/// Only complete generated temp names are ever considered (`.<name>.rktmp-<pid>-<n>-<nanos in
-/// hex>-<attempt>`, or the `StateDir` form `.<name>.rktmp-<pid>-<n>-<attempt>`): a committed file
-/// that merely contains [`TEMP_MARKER`] (`invoice.rktmp-1-final`) is left alone, and public
-/// writes refuse targets with a generated temp name. Returns the number removed.
+/// Remove generated regular temp files in `dir` left by writers confirmed dead. `max_age` remains
+/// for source compatibility but cannot override liveness: a current, live, or unqueryable PID
+/// always survives, however old its metadata is. Only complete generated temp names are ever
+/// considered (`.<name>.rktmp-<pid>-<n>-<nanos in hex>-<attempt>`, or the `StateDir` form
+/// `.<name>.rktmp-<pid>-<n>-<attempt>`): a committed file that merely contains [`TEMP_MARKER`]
+/// (`invoice.rktmp-1-final`) is left alone, and public writes refuse targets with a generated temp
+/// name. Metadata, identity, and liveness are rechecked before removal; a concurrent arbitrary
+/// path mutator can still replace the name after that check, so this is not an unlink-if-same-inode
+/// guarantee on Unix. Returns the number removed.
 pub fn sweep_stale_temps(dir: &Path, max_age: Duration) -> Result<usize> {
+    let _ = max_age;
+    sweep_stale_temps_report(dir).map(|report| report.removed)
+}
+
+/// What [`sweep_stale_temps_report`] found (M8-O7b): the removal count of [`sweep_stale_temps`] plus
+/// why each generated temp that was kept survived, so a caller can tell a writer confirmed dead
+/// from one whose liveness could not be established.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct SweepReport {
+    /// Generated temp files removed: their writer was confirmed dead.
+    pub removed: usize,
+    /// Kept because the writer is this process or confirmed alive.
+    pub retained_live: usize,
+    /// Kept because the writer's liveness could not be established (query failed, or the
+    /// platform has no probe). Never treated as dead.
+    pub retained_unknown: usize,
+    /// Kept although the writer is dead: the entry is not a regular file, vanished, or changed
+    /// identity between checks.
+    pub retained_other: usize,
+    /// False where the platform sweep reports only `removed` (Windows): the retained counts are
+    /// then zero because they were not measured, not because nothing was kept.
+    pub retained_counted: bool,
+}
+
+/// [`sweep_stale_temps`] with a [`SweepReport`]. The same rules: no age, only complete generated
+/// names, only regular files, only a confirmed-dead writer.
+pub fn sweep_stale_temps_report(dir: &Path) -> Result<SweepReport> {
+    #[cfg(windows)]
+    {
+        crate::windows_temp_sweep::sweep_path(dir).map(|removed| SweepReport {
+            removed,
+            ..SweepReport::default()
+        })
+    }
+    #[cfg(not(windows))]
+    {
+        sweep_stale_temps_path(dir)
+    }
+}
+
+#[cfg(not(windows))]
+fn sweep_stale_temps_path(dir: &Path) -> Result<SweepReport> {
+    let mut report = SweepReport {
+        retained_counted: true,
+        ..SweepReport::default()
+    };
     let entries = match fs::read_dir(dir) {
         Ok(e) => e,
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(0),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(report),
         Err(e) => return Err(FsError::io(dir, e)),
     };
-    let mut removed = 0;
     for entry in entries.flatten() {
         let name = entry.file_name().to_string_lossy().into_owned();
         let Some(pid) = generated_temp_pid(&name) else {
             continue;
         };
-        let Ok(meta) = entry.metadata() else { continue };
-        if !meta.is_file() {
+        if pid == std::process::id() {
+            report.retained_live += 1;
             continue;
         }
-        let old = meta
-            .modified()
-            .ok()
-            .and_then(|m| m.elapsed().ok())
-            .is_some_and(|age| age >= max_age);
-        if ((pid != std::process::id() && !crate::process_alive(pid)) || old)
-            && fs::remove_file(entry.path()).is_ok()
-        {
-            removed += 1;
+        match crate::process_liveness(pid) {
+            crate::ProcessLiveness::Alive => {
+                report.retained_live += 1;
+                continue;
+            }
+            crate::ProcessLiveness::Unknown => {
+                report.retained_unknown += 1;
+                continue;
+            }
+            crate::ProcessLiveness::Dead => {}
+        }
+        let path = entry.path();
+        let Ok(meta) = fs::symlink_metadata(&path) else {
+            report.retained_other += 1;
+            continue;
+        };
+        if !meta.is_file() || !confirmed_dead_writer(pid) {
+            report.retained_other += 1;
+            continue;
+        }
+        if remove_same_regular_temp(&path, &meta) {
+            report.removed += 1;
+        } else {
+            report.retained_other += 1;
         }
     }
-    Ok(removed)
+    Ok(report)
+}
+
+pub(crate) fn confirmed_dead_writer(pid: u32) -> bool {
+    pid != std::process::id()
+        && matches!(crate::process_liveness(pid), crate::ProcessLiveness::Dead)
+}
+
+#[cfg(unix)]
+fn remove_same_regular_temp(path: &Path, before: &fs::Metadata) -> bool {
+    use std::os::unix::fs::MetadataExt;
+
+    let Ok(after) = fs::symlink_metadata(path) else {
+        return false;
+    };
+    after.is_file()
+        && before.dev() == after.dev()
+        && before.ino() == after.ino()
+        && fs::remove_file(path).is_ok()
+}
+
+#[cfg(not(any(unix, windows)))]
+fn remove_same_regular_temp(path: &Path, _before: &fs::Metadata) -> bool {
+    fs::remove_file(path).is_ok()
 }
 
 #[cfg(test)]

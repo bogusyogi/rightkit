@@ -1,0 +1,31 @@
+{
+  "package": "rightkit-tts-qwen-sys",
+  "capabilities": [
+    {
+      "capability": "text-to-speech",
+      "summary": "Low-level FFI bindings to ggml (CPU, Metal, Vulkan, BLAS) for rightkit-tts-qwen, vendored from yet-another-ai/qts v0.2.0",
+      "fingerprints": [
+        {
+          "id": "qts-ggml-sys.cargo.qts-ggml-sys",
+          "type": "dependency",
+          "ecosystem": "cargo",
+          "name": "qts-ggml-sys",
+          "tier": "advise",
+          "usageContext": {
+            "hosts": [
+              "macos",
+              "windows"
+            ],
+            "scope": "cargo direct competing dependency; transitive findings require authenticated reachability"
+          },
+          "tierReason": "No recorded published-version qualification for this usage context on both macOS & Windows."
+        }
+      ],
+      "detection": "fingerprinted",
+      "policyNotes": [
+        "FFI component consumed via rightkit-tts; no direct application adoption requirement.",
+        "Fingerprints identify review candidates; published two-host replacement qualification is not recorded."
+      ]
+    }
+  ]
+}

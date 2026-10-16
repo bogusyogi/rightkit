@@ -306,6 +306,25 @@ function repositoryCompilePolicy(cwd) {
   }
 }
 
+export const LOCAL_BUILD_FILE = '.rightkit-local-build.json';
+
+// Adrian's local-build opt-in for a public Orthic-Labs repository (2026-10-14): a committed
+// `.rightkit-local-build.json` naming this exact repository lets agents compile, test and publish
+// locally. The file must name the repository the checkout's origin points at, so a copied file grants
+// nothing elsewhere. CI rendering is unaffected: `.rightgit.json` still says github-actions-only.
+function localBuildAllowed(root) {
+  if (!root) return false;
+  try {
+    const grant = JSON.parse(readFileSync(join(root, LOCAL_BUILD_FILE), 'utf8'));
+    if (grant?.allow !== 'build-test-publish' || typeof grant.repository !== 'string') return false;
+    const origin = execFileSync('git', ['-C', root, 'config', '--get', 'remote.origin.url'], {
+      encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], timeout: 2_000,
+    }).trim();
+    const repo = /github\.com[:/]([^/]+\/[^/.]+?)(?:\.git)?\/?$/i.exec(origin)?.[1];
+    return !!repo && repo.toLowerCase() === grant.repository.toLowerCase();
+  } catch { return false; }
+}
+
 export function githubActionsOnlyViolation(command, { cwd = process.cwd(), environment = process.env, platform = process.platform } = {}) {
   if (typeof command !== 'string') throw new TypeError('command must be a string');
   const operation = dynamicCommandOperation(command);
@@ -313,6 +332,7 @@ export function githubActionsOnlyViolation(command, { cwd = process.cwd(), envir
   const policy = repositoryCompilePolicy(cwd);
   if (!policy.root) return null;
   if (policy.invalid) return `github-actions-only:invalid-policy:${operation}`;
+  if (localBuildAllowed(policy.root)) return null;
   if (policy.compile === githubActionsOnly && localDevelopmentPolicy(policy.root, platform)
     && !/[;&|$()`<>\n]/.test(command)) {
     const text = command.trim();

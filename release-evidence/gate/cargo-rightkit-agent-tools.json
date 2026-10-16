@@ -1,0 +1,52 @@
+{
+  "schema": 1,
+  "kind": "cargo",
+  "name": "rightkit-agent-tools",
+  "version": "0.1.3",
+  "commit": "c30afd8f612ba7b5036f9077010aa79cb459d941",
+  "artifactSha256": "6ab1f7c32f38957241fa444e8a8d3448ac4a055bd61eca144c9f54bb2b4c9f98",
+  "hostPolicy": "darwin-only",
+  "hostPolicyReason": "Adrian 2026-10-14 local-build grant (.rightkit-local-build.json); Windows covered by the next CI run",
+  "runs": [
+    {
+      "host": {
+        "os": "darwin",
+        "arch": "arm64"
+      },
+      "commit": "c30afd8f612ba7b5036f9077010aa79cb459d941",
+      "features": [
+        "default"
+      ],
+      "artifactSha256": "6ab1f7c32f38957241fa444e8a8d3448ac4a055bd61eca144c9f54bb2b4c9f98",
+      "command": "cargo test -p rightkit-agent-tools --no-fail-fast -- --show-output && cargo clippy -p rightkit-agent-tools --no-deps --all-targets -- -D warnings && cargo check -p rightkit-agent-tools --all-targets --all-features && cargo package --locked -p rightkit-agent-tools && cargo metadata --format-version 1 --no-deps",
+      "operator": "agent (local-build grant)",
+      "timestamp": "2026-10-15T16:31:43.867Z",
+      "passed": 2,
+      "failed": 0,
+      "skipped": 0,
+      "ignored": 0,
+      "allowIgnored": true,
+      "requireAssets": "1",
+      "assetGated": false,
+      "steps": [
+        {
+          "command": "cargo test -p rightkit-agent-tools --no-fail-fast -- --show-output",
+          "ok": true,
+          "executed": 2,
+          "failed": 0,
+          "ignored": 0,
+          "skipped": 0,
+          "binaries": 3
+        },
+        {
+          "command": "cargo clippy -p rightkit-agent-tools --no-deps --all-targets -- -D warnings",
+          "ok": true
+        },
+        {
+          "command": "cargo check -p rightkit-agent-tools --all-targets --all-features",
+          "ok": true
+        }
+      ]
+    }
+  ]
+}

@@ -22,24 +22,24 @@ Do not put product policy (model selection, downloads, environment variables) in
 |---|---|---|
 | `cpu` | yes | CPU build marker. It adds no dependency. |
 | `whisper-tokenizers` | yes | HF `tokenizers` for the Whisper CoreML decoder, the CTC and EOU Parakeet decoders and Cohere (`Cargo.toml:63`). |
-| `ort-defaults` | yes | Nothing. It is an empty feature kept so existing lists resolve (`Cargo.toml:68`). The suite API level lives in `rightkit-ort`; this crate does not use `ort/default`. |
-| `ort-tracing` | no | `rightkit-ort/tracing`: forwards ONNX Runtime log lines into `tracing` (`Cargo.toml:71`). |
-| `ort-download` | no | `rightkit-ort/download-binaries`, `rightkit-ort/tls-native`, `rightkit-ort/copy-dylibs`: build-time ONNX Runtime fetch (`Cargo.toml:73`). |
-| `cuda` | no | `rightkit-ort/cuda` execution provider. |
-| `tensorrt` | no | `rightkit-ort/tensorrt` execution provider. |
-| `coreml` | no | `rightkit-ort/coreml` execution provider. |
-| `directml` | no | `rightkit-ort/directml` execution provider, with the static-conformer graph-fusion workaround. |
-| `migraphx` | no | `rightkit-ort/migraphx` execution provider. |
-| `openvino` | no | `rightkit-ort/openvino` execution provider. |
-| `webgpu` | no | `rightkit-ort/webgpu` execution provider. |
-| `nnapi` | no | `rightkit-ort/nnapi` execution provider. |
+| `ort-defaults` | yes | Nothing. It is an empty feature kept so existing lists resolve (`Cargo.toml:68`). The suite API level lives in `rightkit-onnx`; this crate does not use `ort/default`. |
+| `ort-tracing` | no | `rightkit-onnx/tracing`: forwards ONNX Runtime log lines into `tracing` (`Cargo.toml:71`). |
+| `ort-download` | no | `rightkit-onnx/download-binaries`, `rightkit-onnx/tls-native`, `rightkit-onnx/copy-dylibs`: build-time ONNX Runtime fetch (`Cargo.toml:73`). |
+| `cuda` | no | `rightkit-onnx/cuda` execution provider. |
+| `tensorrt` | no | `rightkit-onnx/tensorrt` execution provider. |
+| `coreml` | no | `rightkit-onnx/coreml` execution provider. |
+| `directml` | no | `rightkit-onnx/directml` execution provider, with the static-conformer graph-fusion workaround. |
+| `migraphx` | no | `rightkit-onnx/migraphx` execution provider. |
+| `openvino` | no | `rightkit-onnx/openvino` execution provider. |
+| `webgpu` | no | `rightkit-onnx/webgpu` execution provider. |
+| `nnapi` | no | `rightkit-onnx/nnapi` execution provider. |
 | `sortformer` | no | Enables the `sortformer` module. |
 | `multitalker` | no | Enables the `multitalker` module. It requires `sortformer`. |
 | `cohere` | no | Enables the `cohere` module. It also enables `whisper-tokenizers` (`Cargo.toml:84`). |
-| `load-dynamic` | no | No-op kept so existing feature lists resolve; `rightkit-ort` always loads ONNX Runtime dynamically (`Cargo.toml:85-86`). |
-| `preload-dylibs` | no | `rightkit-ort/preload-dylibs`. |
+| `load-dynamic` | no | No-op kept so existing feature lists resolve; `rightkit-onnx` always loads ONNX Runtime dynamically (`Cargo.toml:85-86`). |
+| `preload-dylibs` | no | `rightkit-onnx/preload-dylibs`. |
 
-Unreleased change: the `eyre` dependency is removed. `rightkit-vad` is taken with `default-features = false` (`Cargo.toml:41`), so this crate adds no Silero scorer and no ORT download feature; that crate's own default is `silero` (`rightkit-vad/Cargo.toml:40`). This crate's `ort-defaults` is empty (`Cargo.toml:68`), so the default build does not fetch ONNX Runtime; the fetch is the opt-in `ort-download` feature (`Cargo.toml:73`). Bind the runtime through `rightkit-ort`.
+Unreleased change: the `eyre` dependency is removed. `rightkit-vad` is taken with `default-features = false` (`Cargo.toml:41`), so this crate adds no Silero scorer and no ORT download feature; that crate's own default is `silero` (`rightkit-vad/Cargo.toml:40`). This crate's `ort-defaults` is empty (`Cargo.toml:68`), so the default build does not fetch ONNX Runtime; the fetch is the opt-in `ort-download` feature (`Cargo.toml:73`). Bind the runtime through `rightkit-onnx`.
 
 On macOS the crate also depends on `objc2`, `objc2-core-ml` and `objc2-foundation`. The `parakeet_coreml` module compiles only on macOS.
 
@@ -122,7 +122,7 @@ rightkit cargo fmt --check
 rightkit cargo package -p rightkit-asr --allow-dirty --no-verify --list
 ```
 
-The `load-dynamic` lane is `--no-default-features` plus a no-op feature (`Cargo.toml:85-86`); `rightkit-ort` loads ONNX Runtime dynamically in every lane, and only `ort-download` fetches it at build time. macOS parity and portable fixtures are still publication gates.
+The `load-dynamic` lane is `--no-default-features` plus a no-op feature (`Cargo.toml:85-86`); `rightkit-onnx` loads ONNX Runtime dynamically in every lane, and only `ort-download` fetches it at build time. macOS parity and portable fixtures are still publication gates.
 
 ## Version and changes
 

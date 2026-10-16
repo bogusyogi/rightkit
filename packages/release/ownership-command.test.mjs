@@ -5,7 +5,7 @@ import path from "node:path";
 import { spawnSync } from "./background-process.mjs";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
-import { main } from "./ownership-command.mjs";
+import { main, trustCompare } from "./ownership-command.mjs";
 import { assertCommittedCheckoutClean } from "./committed-source.mjs";
 
 const releaseRoot = path.dirname(fileURLToPath(import.meta.url));
@@ -181,6 +181,35 @@ test("trust-compare prints this host's trust digest, ignoring the per-host check
   const json = JSON.parse((await run({ trust }, ["trust-compare", "--json"])).out[0]);
   assert.equal(json.digest, mac.out[0].split(": ")[1]);
   assert.equal((await run({ trust: null })).status, 1);
+});
+
+test("trust-compare reports a pinned-bundle drift as a warning with a semantic diff and still exits 0", () => {
+  const file = (path, sha256) => ({ path, sha256 });
+  const pinned = { schema: 1, digest: "a".repeat(64), scannerVersion: "2.6.0", catalogDigest: "1".repeat(64), registryDigest: null, allowlistDigest: null, files: [file("ownership.mjs", "1".repeat(64)), file("gone.mjs", "2".repeat(64))] };
+  const running = { ...pinned, digest: "b".repeat(64), scannerVersion: "2.7.0", catalogDigest: "9".repeat(64), files: [file("ownership.mjs", "3".repeat(64)), file("new.mjs", "4".repeat(64))] };
+  const trust = { schema: 1, minimumScannerVersion: "2.6.0", minimumCatalogVersion: "1", repositories: [], policyBundle: pinned };
+  const out = [];
+  assert.equal(trustCompare(["trust-compare"], { print: (l) => out.push(l), trustLoader: () => ({ trust }), runningBundle: () => running }), 0);
+  const text = out.join("\n");
+  assert.match(text, /WARNING: ownership policy bundle .* differs from the bundle pinned in protected trust/);
+  assert.match(text, /scanner version: 2\.6\.0 -> 2\.7\.0/);
+  assert.match(text, /files added: new\.mjs/);
+  assert.match(text, /files removed: gone\.mjs/);
+  assert.match(text, /files changed: ownership\.mjs/);
+  assert.match(text, /changed digests: catalog/);
+  const json = [];
+  trustCompare(["trust-compare", "--json"], { print: (l) => json.push(l), trustLoader: () => ({ trust }), runningBundle: () => running });
+  assert.equal(JSON.parse(json[0]).warnings[0].diff.filesChanged[0], "ownership.mjs");
+  const quiet = [];
+  trustCompare(["trust-compare"], { print: (l) => quiet.push(l), trustLoader: () => ({ trust }), runningBundle: () => pinned });
+  assert.ok(!quiet.join("\n").includes("WARNING"));
+});
+
+test("trust-sync is retired: prints the reason, exits 0, touches nothing", async () => {
+  const out = [];
+  const status = await main(["trust-sync"], { print: (l) => out.push(l), trustLoader: () => { throw new Error("must not load trust"); }, gitRunner: () => { throw new Error("must not run git"); } });
+  assert.equal(status, 0);
+  assert.match(out.join("\n"), /trust-sync is retired/);
 });
 
 const commandOptions = (overrides) => ({

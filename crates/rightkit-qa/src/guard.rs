@@ -1,6 +1,6 @@
 //! The guard that keeps the in-app QA control surface out of builds that must not carry it.
 //!
-//! Two backends are understood: `control` (the in-app `rightkit-control` server,
+//! Two backends are understood: `control` (the in-app `rightkit-qa` `control` server (or the legacy `rightkit-qa-driver` shim),
 //! the default) and `wdio` (the legacy `tauri-plugin-wdio-webdriver`, kept so an
 //! app mid-migration still validates).
 //!
@@ -28,13 +28,13 @@ impl Backend {
     }
     fn dependency(self) -> &'static str {
         match self {
-            Backend::Control => "rightkit-control",
+            Backend::Control => "rightkit-qa-driver",
             Backend::Wdio => "tauri-plugin-wdio-webdriver",
         }
     }
     fn registration(self) -> &'static str {
         match self {
-            Backend::Control => "rightkit_control::embedded::Control",
+            Backend::Control => "rightkit_qa_driver::embedded::Control",
             Backend::Wdio => "tauri_plugin_wdio_webdriver::init",
         }
     }
@@ -61,10 +61,13 @@ const QA_NATIVE_GATES: [&str; 3] = [
     r#"#[cfg(all(feature="qa-native",debug_assertions))]"#,
 ];
 
-/// Feature items that switch on rightkit-shell developer inspection. None may be reachable from
+/// Feature items that switch on rightkit-tauri-shell developer inspection. None may be reachable from
 /// `default`: a release build must never contain it (`packages/release` refuses it as well).
-const DEV_INSPECT_FEATURES: [&str; 4] = [
+const DEV_INSPECT_FEATURES: [&str; 6] = [
     "dev-inspect",
+    "rightkit-tauri-shell/dev-inspect",
+    "rightkit-tauri-shell?/dev-inspect",
+    // Apps still on the old published name (rightkit-shell) stay covered until they migrate.
     "rightkit-shell/dev-inspect",
     "rightkit-shell?/dev-inspect",
     "dev-native",
@@ -144,7 +147,7 @@ fn feature_entries(cargo: &str) -> Vec<(String, String)> {
     out
 }
 
-/// Items of a feature list body such as `"dep:rightkit-control", "rightkit-control/qa-control"`.
+/// Items of a feature list body such as `"dep:rightkit-qa-driver", "rightkit-qa-driver/qa-control"`.
 fn list_items(list: &str) -> Vec<String> {
     list.split(',')
         .map(|s| s.trim().trim_matches('"').trim().to_string())
@@ -205,14 +208,39 @@ fn is_gated(src: &str, at: usize) -> bool {
     false
 }
 
+/// The control-server dependency an app uses: `(dependency, feature, registration path)`.
+/// An app on `rightkit-qa` (feature `control`) is validated against that shape; the legacy
+/// `rightkit-qa-driver` (feature `qa-control`) shape stays accepted for apps not yet migrated.
+fn control_target(cargo: &str) -> (&'static str, &'static str, &'static str) {
+    if dependency_body(cargo, "rightkit-qa-driver").is_none()
+        && dependency_body(cargo, "rightkit-qa").is_some()
+    {
+        ("rightkit-qa", "control", "rightkit_qa::embedded::Control")
+    } else {
+        (
+            "rightkit-qa-driver",
+            "qa-control",
+            "rightkit_qa_driver::embedded::Control",
+        )
+    }
+}
+
 pub fn validate(input: &ContractInput) -> Vec<String> {
     let mut issues = vec![];
-    let dep = input.backend.dependency();
     let control = input.backend == Backend::Control;
+    let (dep, qa_feat, registration) = if control {
+        control_target(input.cargo_toml)
+    } else {
+        (
+            input.backend.dependency(),
+            "qa-control",
+            input.backend.registration(),
+        )
+    };
     let dep_body = dependency_body(input.cargo_toml, dep).map(|b| compact(&b));
     let dep_enables_qa_control = dep_body
         .as_deref()
-        .is_some_and(|b| b.contains("\"qa-control\""));
+        .is_some_and(|b| b.contains(&format!("\"{qa_feat}\"")));
     match &dep_body {
         None => issues.push(format!(
             "Cargo.toml must declare {dep} under [dependencies] as an optional dependency: \
@@ -237,13 +265,12 @@ pub fn validate(input: &ContractInput) -> Vec<String> {
 
     let entries = feature_entries(input.cargo_toml);
     let dep_feature = format!("dep:{dep}");
-    let qa_control_feature = format!("{dep}/qa-control");
+    let qa_control_feature = format!("{dep}/{qa_feat}");
     match entries.iter().find(|(k, _)| k.as_str() == "qa-native") {
-        None => issues.push(
+        None => issues.push(format!(
             "Cargo.toml must define the qa-native feature under [features], for example \
-             `qa-native = [\"dep:rightkit-control\", \"rightkit-control/qa-control\"]`"
-                .into(),
-        ),
+             `qa-native = [\"dep:{dep}\", \"{dep}/{qa_feat}\"]`"
+        )),
         Some((_, list)) => {
             let items = list_items(list);
             if !items.iter().any(|i| i.as_str() == dep_feature.as_str()) {
@@ -253,12 +280,11 @@ pub fn validate(input: &ContractInput) -> Vec<String> {
                 .iter()
                 .any(|i| i.as_str() == qa_control_feature.as_str());
             if control && !enables_control_qa && !dep_enables_qa_control {
-                issues.push(
-                    "qa-native must enable rightkit-control/qa-control (add it to the qa-native \
-                     list, or list qa-control in the rightkit-control dependency's features); \
+                issues.push(format!(
+                    "qa-native must enable {qa_control_feature} (add it to the qa-native \
+                     list, or list {qa_feat} in the {dep} dependency's features); \
                      without it the embedded server is not compiled"
-                        .into(),
-                );
+                ));
             }
         }
     }
@@ -274,20 +300,22 @@ pub fn validate(input: &ContractInput) -> Vec<String> {
         if default_reaches(&entries, target) {
             issues.push(format!(
                 "{target} must not be enabled by default: it compiles developer inspection \
-                 (rightkit-shell dev-inspect) into the app, and right-release refuses to seal \
+                 (rightkit-tauri-shell dev-inspect) into the app, and right-release refuses to seal \
                  or upload such a build. Remove it from `default` (directly or through another \
                  default feature) so that only an explicit dev build contains it"
             ));
         }
     }
-    if let Some(body) = dependency_body(input.cargo_toml, "rightkit-shell").map(|b| compact(&b)) {
-        if body.contains("\"dev-inspect\"") && !body.contains("optional=true") {
-            issues.push(
-                "rightkit-shell lists the dev-inspect feature without optional = true, so \
-                 developer inspection compiles into every build: enable it only from an \
-                 optional dev feature such as `dev-native = [\"rightkit-shell/dev-inspect\"]`"
-                    .into(),
-            );
+    // The crate was renamed from rightkit-shell; apps still on the old published name stay covered.
+    for shell_crate in ["rightkit-tauri-shell", "rightkit-shell"] {
+        if let Some(body) = dependency_body(input.cargo_toml, shell_crate).map(|b| compact(&b)) {
+            if body.contains("\"dev-inspect\"") && !body.contains("optional=true") {
+                issues.push(format!(
+                    "{shell_crate} lists the dev-inspect feature without optional = true, so \
+                     developer inspection compiles into every build: enable it only from an \
+                     optional dev feature such as `dev-native = [\"{shell_crate}/dev-inspect\"]`"
+                ));
+            }
         }
     }
     for (name, list) in &entries {
@@ -305,7 +333,6 @@ pub fn validate(input: &ContractInput) -> Vec<String> {
         }
     }
 
-    let registration = input.backend.registration();
     let sites: Vec<usize> = input
         .rust_source
         .match_indices(registration)
@@ -416,26 +443,26 @@ mod tests {
     const CARGO: &str = r##"
 [features]
 default = []
-qa-native = ["dep:rightkit-control", "rightkit-control/qa-control"]
+qa-native = ["dep:rightkit-qa-driver", "rightkit-qa-driver/qa-control"]
 [dependencies]
-rightkit-control = { version = "0.3", optional = true, default-features = false }
+rightkit-qa-driver = { version = "0.3", optional = true, default-features = false }
 "##;
 
     /// The alternative shape: qa-control listed in the optional dependency's own features.
     const CARGO_DEP_FEATURES: &str = r##"
 [features]
 default = []
-qa-native = ["dep:rightkit-control"]
+qa-native = ["dep:rightkit-qa-driver"]
 [dependencies]
-rightkit-control = { version = "0.3", optional = true, default-features = false, features = ["qa-control"] }
+rightkit-qa-driver = { version = "0.3", optional = true, default-features = false, features = ["qa-control"] }
 "##;
 
     /// Registration gated by the feature alone; the registration also appears in a `use` line.
     const RUST_GATED: &str = r##"
-use rightkit_control::embedded::Control;
+use rightkit_qa_driver::embedded::Control;
 fn run() {
     #[cfg(feature = "qa-native")]
-    if let Some(p) = rightkit_control::embedded::Control::<tauri::Wry>::new().build_if_enabled() { b = b.plugin(p); }
+    if let Some(p) = rightkit_qa_driver::embedded::Control::<tauri::Wry>::new().build_if_enabled() { b = b.plugin(p); }
 }"##;
 
     /// The older debug-only form, with its compile_error. Still accepted.
@@ -444,20 +471,20 @@ fn run() {
 compile_error!("qa-native is debug only");
 fn run() {
     #[cfg(all(debug_assertions, feature = "qa-native"))]
-    if let Some(p) = rightkit_control::embedded::Control::<tauri::Wry>::new().build_if_enabled() { b = b.plugin(p); }
+    if let Some(p) = rightkit_qa_driver::embedded::Control::<tauri::Wry>::new().build_if_enabled() { b = b.plugin(p); }
 }"##;
 
     /// The gate sits on the function that holds the registration.
     const RUST_FN_GATED: &str = r##"
 #[cfg(feature = "qa-native")]
 fn register(b: Builder) -> Builder {
-    if let Some(p) = rightkit_control::embedded::Control::<tauri::Wry>::new().build_if_enabled() { b.plugin(p) } else { b }
+    if let Some(p) = rightkit_qa_driver::embedded::Control::<tauri::Wry>::new().build_if_enabled() { b.plugin(p) } else { b }
 }"##;
 
     const RUST_UNGATED: &str = r##"
-use rightkit_control::embedded::Control;
+use rightkit_qa_driver::embedded::Control;
 fn run() {
-    if let Some(p) = rightkit_control::embedded::Control::<tauri::Wry>::new().build_if_enabled() { b = b.plugin(p); }
+    if let Some(p) = rightkit_qa_driver::embedded::Control::<tauri::Wry>::new().build_if_enabled() { b = b.plugin(p); }
 }"##;
 
     fn check(cargo: &str, rust: &str, scripts: &[(&str, &str)], backend: Backend) -> Vec<String> {
@@ -532,15 +559,15 @@ fn run() { b = b.plugin(tauri_plugin_wdio_webdriver::init()); }
         assert_eq!(issues, Vec::<String>::new());
     }
 
-    /// The optional dev feature that selects rightkit-shell developer inspection.
+    /// The optional dev feature that selects rightkit-tauri-shell developer inspection.
     const CARGO_DEV_INSPECT: &str = r##"
 [features]
 default = []
-qa-native = ["dep:rightkit-control", "rightkit-control/qa-control"]
-dev-native = ["rightkit-shell/dev-inspect"]
+qa-native = ["dep:rightkit-qa-driver", "rightkit-qa-driver/qa-control"]
+dev-native = ["rightkit-tauri-shell/dev-inspect"]
 [dependencies]
-rightkit-control = { version = "0.3", optional = true, default-features = false }
-rightkit-shell = { version = "0.4", default-features = false }
+rightkit-qa-driver = { version = "0.3", optional = true, default-features = false }
+rightkit-tauri-shell = { version = "0.4", default-features = false }
 "##;
 
     #[test]
@@ -559,7 +586,7 @@ rightkit-shell = { version = "0.4", default-features = false }
     fn rejects_dev_inspect_in_default_features() {
         for default in [
             "default = [\"dev-native\"]",
-            "default = [\"rightkit-shell/dev-inspect\"]",
+            "default = [\"rightkit-tauri-shell/dev-inspect\"]",
             "default = [\"dev-inspect\"]",
             "default = [\"shell\"]\nshell = [\"dev-native\"]",
         ] {
@@ -575,8 +602,8 @@ rightkit-shell = { version = "0.4", default-features = false }
     #[test]
     fn rejects_non_optional_dev_inspect_dependency_and_release_scripts() {
         let cargo = CARGO_DEV_INSPECT.replace(
-            "rightkit-shell = { version = \"0.4\", default-features = false }",
-            "rightkit-shell = { version = \"0.4\", features = [\"dev-inspect\"] }",
+            "rightkit-tauri-shell = { version = \"0.4\", default-features = false }",
+            "rightkit-tauri-shell = { version = \"0.4\", features = [\"dev-inspect\"] }",
         );
         let issues = control(&cargo, RUST_GATED, &[]);
         assert!(
@@ -595,6 +622,25 @@ rightkit-shell = { version = "0.4", default-features = false }
             ),
             "{issues:?}"
         );
+    }
+
+    #[test]
+    fn accepts_and_checks_the_rightkit_qa_control_shape() {
+        let cargo = CARGO
+            .replace("rightkit-qa-driver", "rightkit-qa")
+            .replace("qa-control", "control");
+        let rust = RUST_GATED.replace("rightkit_qa_driver", "rightkit_qa");
+        assert_eq!(control(&cargo, &rust, &[]), Vec::<String>::new());
+        let without = cargo.replace(", \"rightkit-qa/control\"", "");
+        assert!(any_contains(
+            &control(&without, &rust, &[]),
+            "rightkit-qa/control"
+        ));
+        let eager = cargo.replace("optional = true, ", "");
+        assert!(any_contains(
+            &control(&eager, &rust, &[]),
+            "must be optional"
+        ));
     }
 
     #[test]
@@ -667,10 +713,10 @@ rightkit-shell = { version = "0.4", default-features = false }
 
     #[test]
     fn rejects_qa_native_without_qa_control() {
-        let cargo = CARGO.replace(", \"rightkit-control/qa-control\"", "");
+        let cargo = CARGO.replace(", \"rightkit-qa-driver/qa-control\"", "");
         let issues = control(&cargo, RUST_GATED, &[]);
         assert!(
-            any_contains(&issues, "rightkit-control/qa-control"),
+            any_contains(&issues, "rightkit-qa-driver/qa-control"),
             "{issues:?}"
         );
     }
@@ -679,7 +725,7 @@ rightkit-shell = { version = "0.4", default-features = false }
     fn rejects_other_feature_that_enables_the_dependency() {
         let cargo = CARGO.replace(
             "[dependencies]",
-            "browser-ui = [\"dep:rightkit-control\"]\n[dependencies]",
+            "browser-ui = [\"dep:rightkit-qa-driver\"]\n[dependencies]",
         );
         let issues = control(&cargo, RUST_GATED, &[]);
         assert!(
@@ -691,7 +737,7 @@ rightkit-shell = { version = "0.4", default-features = false }
     #[test]
     fn rejects_missing_qa_native_feature() {
         let cargo = CARGO.replace(
-            "qa-native = [\"dep:rightkit-control\", \"rightkit-control/qa-control\"]\n",
+            "qa-native = [\"dep:rightkit-qa-driver\", \"rightkit-qa-driver/qa-control\"]\n",
             "",
         );
         let issues = control(&cargo, RUST_GATED, &[]);

@@ -3,14 +3,14 @@
 //! Load: install the daily-JSONL tracing writer on a temp directory, write 200,000 info lines
 //! of about 120 bytes through `tracing` (a burst the writer drains from its 128,000-line queue),
 //! wait for the backlog to reach zero, then hold the guard idle for the idle window.
-//! Prints `RESULT` lines (see `rightkit_process::IdleObservation::result_lines`) after the idle
+//! Prints `RESULT` lines (see `rightkit_child_process::IdleObservation::result_lines`) after the idle
 //! window, plus warm-up and status figures.
 //!
 //! Run: `rightkit cargo bench -p rightkit-logs --features tracing --bench budget`
 //! Optional: `-- <lines> <idle_seconds>` (defaults 200000 and 30).
 
+use rightkit_child_process::{observe_idle, process_usage, BudgetLabels};
 use rightkit_logs::{install_tracing, TracingFileConfig};
-use rightkit_process::{observe_idle, process_usage, BudgetLabels};
 use std::time::{Duration, Instant};
 
 fn main() {

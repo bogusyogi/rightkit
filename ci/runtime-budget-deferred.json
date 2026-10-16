@@ -1,0 +1,19 @@
+{
+  "_comment": "Crates whose runtime-budget publish refusal is deferred by an explicit decision. packages/release/publish-cargo.mjs still prints the refusal and logs the deferral; it does not hide it. Remove a crate once its budget is measured and recorded (docs/RUNTIME-BUDGETS.md).",
+  "approvedBy": "Adrian D'souza",
+  "approved": "2026-10-14",
+  "reason": "Runtime budgets deferred until the apps are cut over to the renamed crates, or measured in parallel; the P-g republish on renamed dependencies must not wait on them",
+  "crates": [
+    "rightkit-agent-tools",
+    "rightkit-crash",
+    "rightkit-daemon",
+    "rightkit-fsindex",
+    "rightkit-job-queue",
+    "rightkit-logs",
+    "rightkit-playback",
+    "rightkit-qa",
+    "rightkit-qa-driver",
+    "rightkit-speech-client",
+    "rightkit-tts"
+  ]
+}

@@ -238,6 +238,17 @@ impl QaWorkspace {
         Ok(target)
     }
 
+    /// Record the run kind in the run marker (see [`storage::RunKind`]).
+    pub fn set_kind(&self, kind: storage::RunKind) -> Result<()> {
+        storage::set_run_kind(&self.root, kind)
+    }
+
+    /// Record how the run ended in the run marker. Retention reads this and nothing else; a run
+    /// that never gets an outcome is never pruned by it.
+    pub fn set_outcome(&self, outcome: storage::RunOutcome) -> Result<()> {
+        storage::set_run_outcome(&self.root, outcome)
+    }
+
     /// Preserve app-written outputs before marking this run complete.
     pub fn finish(&self) -> Result<()> {
         if let Some(marker) = storage::read_marker(&self.root.join(storage::RUN_MARKER)) {

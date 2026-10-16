@@ -1,5 +1,13 @@
 {
   "rust": {
+    "rightkit-agents": {
+      "featureSets": [
+        [
+          "--all-features"
+        ],
+        []
+      ]
+    },
     "rightkit-contracts": {
       "paths": [
         "contracts"
@@ -22,10 +30,13 @@
           "--features",
           "async"
         ],
-        []
+        [
+          "--features",
+          "gzip,untrusted"
+        ]
       ]
     },
-    "rightkit-jobs": {
+    "rightkit-job-queue": {
       "featureSets": [
         [
           "--all-features"
@@ -60,7 +71,7 @@
         ]
       ]
     },
-    "rightkit-process": {
+    "rightkit-child-process": {
       "alsoSerial": true
     },
     "rightkit-tts": {
@@ -70,9 +81,44 @@
           "--features",
           "engine"
         ]
+      ],
+      "checkFeatureSets": []
+    },
+    "rightkit-tts-qwen": {
+      "checkFeatureSets": []
+    },
+    "rightkit-tts-qwen-sys": {
+      "checkFeatureSets": []
+    },
+    "rightkit-qa": {
+      "checkFeatureSets": [
+        [
+          "--features",
+          "control,wv2-0_38"
+        ]
       ]
     },
-    "rightkit-watch": {
+    "rightkit-qa-driver": {
+      "checkFeatureSets": [
+        [
+          "--features",
+          "qa-control,wv2-0_38,offscreen-private-spi"
+        ]
+      ]
+    },
+    "rightkit-tauri-shell": {
+      "checkFeatureSets": [
+        [
+          "--features",
+          "engine,content-devtools"
+        ],
+        [
+          "--features",
+          "engine,dev-inspect"
+        ]
+      ]
+    },
+    "rightkit-file-watch": {
       "featureSets": [
         [
           "--all-features"
@@ -80,12 +126,43 @@
       ],
       "alsoSerial": true
     },
-    "rightkit-secrets": {
+    "rightkit-credentials": {
       "featureSets": [
         [],
         [
           "--features",
           "isolated-test-keychain"
+        ]
+      ]
+    },
+    "rightkit-mcp": {
+      "featureSets": [
+        [
+          "--features",
+          "advanced-http"
+        ]
+      ]
+    },
+    "rightkit-db": {
+      "featureSets": [
+        [
+          "--features",
+          "bundled,statement-cache"
+        ]
+      ],
+      "checkFeatureSets": [
+        [
+          "--features",
+          "bundled,statement-cache,hooks"
+        ]
+      ]
+    },
+    "rightkit-daemon": {
+      "featureSets": [
+        [],
+        [
+          "--features",
+          "test-mode"
         ]
       ]
     }

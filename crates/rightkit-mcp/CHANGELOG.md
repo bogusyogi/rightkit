@@ -1,7 +1,22 @@
 # Changelog
 
-## Unreleased
+## 0.6.0
 
+- **BREAKING (0.6.0): default features are now empty (`default = []`).** 0.5.x built `advanced-http` by default. A consumer that connects with `ClientExtensions` over HTTP, or uses legacy SSE, must name `features = ["advanced-http"]`; without it `ServerSpec::Http` with `ClientExtensions` returns `McpError::Config`. Stdio and plain blocking HTTP need nothing. Naming `advanced-http` restores the 0.5.x dependency tree (tokio, http, futures-util, `rightkit-http/async`); the empty default drops them.
+
+- **BREAKING (0.6.0): `McpClient::connect`, `connect_with_extensions` and `connect_with_extensions_cancellable` are trust gated.**
+  Each now takes `source: &ServerSource, trust: &TrustStore` after the server name. A `ServerSource::Workspace`
+  server that is not `Approved` in `trust` for exactly that spec returns `McpError::NotApproved` / `McpError::Denied`
+  before anything is spawned or contacted; `ServerSource::User` is exempt, as in `ConnectionPool`. `ConnectionPool::get`
+  keeps its own gate and uses a crate-private ungated constructor. Migration: pass `&ServerSource::User,
+  &TrustStore::new()` for a user-configured server. Call sites in apps: CodeRight
+  `engine/crates/mcp/src/transport.rs:130` and `engine/crates/engine/src/sentinel_client.rs:56`
+  (`connect_with_extensions`). Not built or run locally (compile unverified, CI pending).
+- **Protocol 2025-06-18 is accepted (99724405).** `SUPPORTED_VERSIONS` now lists `2025-06-18` first. `PROTOCOL_VERSION`,
+  the default and the fallback, stays `2025-03-26`.
+- **Opt-in mutating-tool check (aced383e).** `ToolDescriptor::is_mutating()` is true unless the tool is annotated
+  `readOnlyHint: true` (matching `ReadOnlyPolicy`). `mutating_tools(&[ToolDescriptor]) -> Vec<String>` lists the
+  mutating tool names for an adopter's test. Nothing in the server calls it, so existing providers are unchanged.
 - **Trust store: `TrustStore::try_load`, and `save` is atomic.** `load` returned an empty store for a missing file and
   for any other failure: a file that could not be read (on Windows an open can be refused for a moment while another
   process replaces the file) or did not parse. The caller's next `save` then wrote that empty store over every

@@ -7,7 +7,7 @@
 //   * `[package.metadata.rightkit] continuous = false` plus a one-line `continuous_reason`.
 // A crate with neither is refused. A crate declared `continuous = false` is refused when its non-test
 // `src` matches a continuous-work pattern (CONTINUOUS_PATTERNS) that the reason does not name, so a
-// false positive is a reviewed decision, never a silent one. The 11 crates in RUNTIME_BUDGET_CRATES
+// false positive is a reviewed decision, never a silent one. The 10 crates in RUNTIME_BUDGET_CRATES
 // can never declare `continuous = false`.
 //
 // runtime-budget.json (schema 1):
@@ -56,14 +56,13 @@ export const RUNTIME_BUDGET_SCHEMA = 1;
 
 export const RUNTIME_BUDGET_CRATES = Object.freeze([
   "rightkit-fsindex",
-  "rightkit-watch",
-  "rightkit-jobs",
-  "rightkit-service",
+  "rightkit-file-watch",
+  "rightkit-job-queue",
   "rightkit-daemon",
   "rightkit-cache",
   "rightkit-sync",
   "rightkit-logs",
-  "rightkit-shell",
+  "rightkit-tauri-shell",
   "rightkit-qa",
   "rightkit-send",
 ]);

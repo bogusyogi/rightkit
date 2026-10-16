@@ -3,8 +3,9 @@
 All notable changes to `rightkit-asr`. Versions follow Cargo semver; while the
 version is `0.x`, a minor bump may carry breaking changes.
 
-## Unreleased
+## 0.2.1
 
+- Republished on the renamed dependencies: `rightkit-ffmpeg` (was `rightkit-media`, dev), `rightkit-onnx` (was `rightkit-ort`). The 0.2.0 on crates.io was packaged before the renames and still named the old crates.
 Additive on 0.2.0: existing defaults, signatures and behaviour for default options are unchanged.
 Closes the behaviour ScrapeRight lost when it moved from spawning `whisper-cli` to this crate.
 Not compiled or run when written.

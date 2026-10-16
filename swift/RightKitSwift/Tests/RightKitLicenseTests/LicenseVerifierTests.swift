@@ -85,21 +85,21 @@ private func loadVector() throws -> Vector {
     let vector = try loadVector()
     let verifier = try LicenseVerifier(publicKeyBase64url: vector.publicKeyBase64url)
 
-    // exp is INCLUSIVE in HeardRight: the last valid second must still verify, and the next must not.
+    // exp is EXCLUSIVE (Rust parity, `now < exp`): the second before verifies, exp itself does not.
     #expect(throws: Never.self) {
         try verifier.verify(
             token: vector.token,
             app: vector.expectedApp,
             deviceId: vector.expectedDeviceId,
-            now: 9_999_999_999,
+            now: 9_999_999_998,
         )
     }
-    #expect(throws: LicenseError.expired(expiresAt: 9_999_999_999, now: 10_000_000_000)) {
+    #expect(throws: LicenseError.expired(expiresAt: 9_999_999_999, now: 9_999_999_999)) {
         try verifier.verify(
             token: vector.token,
             app: vector.expectedApp,
             deviceId: vector.expectedDeviceId,
-            now: 10_000_000_000,
+            now: 9_999_999_999,
         )
     }
 
@@ -121,6 +121,17 @@ private func loadVector() throws -> Vector {
             now: vector.nowUnix,
         )
     }
+}
+
+@Test func rejectsFutureIssuedBeyondSkewAndExpiryBoundary() throws {
+    // scopedToken: iat 1_000, exp 9_999.
+    let (token, key) = try scopedToken([:])
+    let v = try LicenseVerifier(publicKeyBase64url: key)
+    func verify(_ now: Int) throws { _ = try v.verify(token: token, app: "heardright", deviceId: "dev-1", now: now) }
+    try verify(1_000 - 300)  // exactly at tolerance: accepted
+    #expect(throws: LicenseError.issuedInTheFuture(issuedAt: 1_000, now: 699)) { try verify(699) }
+    try verify(9_998)
+    #expect(throws: LicenseError.expired(expiresAt: 9_999, now: 9_999)) { try verify(9_999) }
 }
 
 // MARK: - entitlement scope claim (0.3.4)

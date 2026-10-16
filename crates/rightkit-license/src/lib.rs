@@ -25,6 +25,11 @@
 //! - [`verify_lease_envelope`] verifies a device-lease envelope signature;
 //!   [`verify_lease_envelope_fields`] does the same for already-parsed fields.
 //!
+//! ## Engine-side verification
+//! [`EngineEntitlements`] lets an engine process verify the stored licence itself and
+//! expose `require(feature)`; it has no input for a pushed flag. See the `engine` module
+//! docs for the window-to-engine pattern.
+//!
 //! ## Caller responsibilities
 //! Verification here is deliberately narrow. The caller still owns:
 //! - **The nested lease entitlement.** The envelope signature covers seven metadata
@@ -37,6 +42,7 @@
 //!   rejecting a lower generation than the one stored) is the caller's job.
 
 mod clock;
+mod engine;
 mod file_store;
 mod lease;
 mod lifecycle;
@@ -48,6 +54,10 @@ pub use clock::{
     ClockDecodeError, ClockError, ClockReading, ClockRefusal, ClockState, ClockStore,
     MemoryClockStore, ProcessAnchor, ReanchorPlan, Reanchored, SystemClock, TrustedClock,
     CLOCK_ROLLBACK_TOLERANCE_SECS, CLOCK_WRITE_ATTEMPTS, CLOCK_WRITE_INTERVAL_SECS,
+};
+pub use engine::{
+    EngineEntitlementError, EngineEntitlements, EngineEntitlementsConfig, DEFAULT_CACHE_TTL_SECS,
+    DEFAULT_TOKEN_FILE, MAX_CACHE_TTL_SECS, MAX_TOKEN_BYTES,
 };
 pub use file_store::{
     ClosureClockStore, ClosureClockStoreError, CrossProcessLock, FileClockStore,

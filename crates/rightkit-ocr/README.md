@@ -4,7 +4,7 @@ Product-neutral OCR for Right Suite apps. It owns preprocessing, tensor construc
 
 **Use it** to read text from an image in a Right Suite app, through the native backend or the verified two-stage ONNX pipeline (`OcrEngine`, `ocr_image_with_manifest`).
 
-**Do not use it** to download models, pick model locations, manage ONNX Runtime installs, run jobs, or send telemetry. Apps keep those. Use `rightkit-ort` for ONNX Runtime library resolution and sessions.
+**Do not use it** to download models, pick model locations, manage ONNX Runtime installs, run jobs, or send telemetry. Apps keep those. Use `rightkit-onnx` for ONNX Runtime library resolution and sessions.
 
 The public API is in `src/lib.rs`: `OcrEngine::load` and `OcrEngine::load_with_manifest` create an engine, `run` and `run_lines` read text, and `OcrArtifactManifest` carries the resolved provenance.
 
@@ -13,7 +13,7 @@ The public API is in `src/lib.rs`: `OcrEngine::load` and `OcrEngine::load_with_m
 | Feature | Default | Pulls in | Effect |
 |---|---|---|---|
 | `native` | on | macOS `objc2`, `objc2-foundation`, `objc2-core-graphics`, `objc2-vision`, `objc2-core-foundation`; Windows `windows` | Apple Vision (macOS) or Windows.Media.Ocr (Windows). Without it, the native backend reports unavailable. |
-| `onnx` | on | `rightkit-ort` (which pins `ort` with `load-dynamic`; DirectML on Windows, CoreML on Apple), `sha2` | Verified two-stage ONNX fallback (`OcrEngine`, `OcrArtifactManifest`). Without it, `Onnx` and fallback requests return `BackendUnavailable`. |
+| `onnx` | on | `rightkit-onnx` (which pins `ort` with `load-dynamic`; DirectML on Windows, CoreML on Apple), `sha2` | Verified two-stage ONNX fallback (`OcrEngine`, `OcrArtifactManifest`). Without it, `Onnx` and fallback requests return `BackendUnavailable`. |
 
 `--no-default-features` keeps the types, the worker protocol and the `rightkit-ocr` binary, with no OCR backend. Platform backends are still selected by `cfg` (see Platform support).
 

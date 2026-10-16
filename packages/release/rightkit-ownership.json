@@ -3,25 +3,25 @@
   "version": "3.0.0",
   "capabilities": [
     {
-      "package": "agent-room-core",
-      "capability": "agent-room",
-      "summary": "Shared agent room state, events, turns and local HTTP host; declaration-only detection (no precise implementation fingerprint)",
-      "fingerprints": [],
-      "detection": "declaration-only",
-      "policyNotes": [
-        "Authenticated human-seat join repair remains P1.",
-        "No precise implementation fingerprint; declaration-only inventory, never enforced ownership or verified integration."
-      ]
-    },
-    {
       "package": "rightkit-agent-tools",
       "capability": "agent-tools",
-      "summary": "One typed tool interface for agents over rightkit-automation, rightkit-control, rightkit-browser and each app's engine commands (via rightkit-service), plus the `right-ctl <app> <command>` CLI.; declaration-only detection (no precise implementation fingerprint)",
+      "summary": "One typed tool interface for agents over rightkit-automation, rightkit-qa-driver, rightkit-browser and each app's engine commands (via rightkit-daemon), plus the `right-ctl <app> <command>` CLI.; declaration-only detection (no precise implementation fingerprint)",
       "fingerprints": [],
       "detection": "declaration-only",
       "policyNotes": [
         "Package contract retained; dependency declarations do not verify integration.",
         "No precise implementation fingerprint; declaration-only inventory, never enforced ownership or verified integration."
+      ]
+    },
+    {
+      "package": "rightkit-agents",
+      "capability": "agent-sessions",
+      "summary": "Supervised vendor agent sessions for Right Suite apps: shared agent event model, Claude Code stream-json and Codex app-server protocol clients, recorded fixtures. No SDK, no HTTP, no MCP.",
+      "fingerprints": [],
+      "detection": "declaration-only",
+      "policyNotes": [
+        "Declaration-only: vendor CLI protocol handling is not a dependency fingerprint.",
+        "Lane 1 ships protocol clients and fixtures only; session lifecycle, approvals and the API backend land in later releases."
       ]
     },
     {
@@ -33,6 +33,33 @@
       "policyNotes": [
         "Declaration-only: the alignment algorithm is not an ownership fingerprint.",
         "Consumes rightkit-transcript words; holds no audio, models or I/O."
+      ]
+    },
+    {
+      "package": "rightkit-app-settings",
+      "capability": "settings-persistence",
+      "summary": "Versioned per-app settings persistence: migrations, typed defaults, atomic writes, corruption recovery, change events.",
+      "fingerprints": [
+        {
+          "id": "settings.cargo.tauri-plugin-store",
+          "type": "dependency",
+          "ecosystem": "cargo",
+          "name": "tauri-plugin-store",
+          "tier": "advise",
+          "usageContext": {
+            "hosts": [
+              "macos",
+              "windows"
+            ],
+            "scope": "cargo direct competing dependency; transitive findings require authenticated reachability"
+          },
+          "tierReason": "No recorded published-version qualification for this usage context on both macOS & Windows."
+        }
+      ],
+      "detection": "fingerprinted",
+      "policyNotes": [
+        "Package contract retained; dependency declarations do not verify integration.",
+        "Fingerprints identify review candidates; published two-host replacement qualification is not recorded."
       ]
     },
     {
@@ -469,6 +496,48 @@
       ]
     },
     {
+      "package": "rightkit-child-process",
+      "capability": "owned-processes",
+      "summary": "Child processes owned as a tree: process groups / kill-on-close jobs, hidden windows",
+      "fingerprints": [
+        {
+          "id": "process.cargo.process-wrap",
+          "type": "dependency",
+          "ecosystem": "cargo",
+          "name": "process-wrap",
+          "tier": "advise",
+          "usageContext": {
+            "hosts": [
+              "macos",
+              "windows"
+            ],
+            "scope": "cargo direct competing dependency; transitive findings require authenticated reachability"
+          },
+          "tierReason": "No recorded published-version qualification for this usage context on both macOS & Windows."
+        },
+        {
+          "id": "process.cargo.command-group",
+          "type": "dependency",
+          "ecosystem": "cargo",
+          "name": "command-group",
+          "tier": "advise",
+          "usageContext": {
+            "hosts": [
+              "macos",
+              "windows"
+            ],
+            "scope": "cargo direct competing dependency; transitive findings require authenticated reachability"
+          },
+          "tierReason": "No recorded published-version qualification for this usage context on both macOS & Windows."
+        }
+      ],
+      "detection": "fingerprinted",
+      "policyNotes": [
+        "Package contract retained; dependency declarations do not verify integration.",
+        "Fingerprints identify review candidates; published two-host replacement qualification is not recorded."
+      ]
+    },
+    {
       "package": "rightkit-compose",
       "capability": "composition-model",
       "summary": "Evaluated composition model for Right Suite video: layered video, stills, cursor sprites with hotspots, procedural backgrounds, rounded clipping, shadows, motion blur, canvas-space overlays and an independently timed webcam, with keyframed transforms, crops and opacity; pure per-frame evaluation shared by preview and export",
@@ -488,108 +557,6 @@
       "policyNotes": [
         "Package contract retained; dependency declarations do not verify integration.",
         "No precise implementation fingerprint; declaration-only inventory, never enforced ownership or verified integration."
-      ]
-    },
-    {
-      "package": "rightkit-control",
-      "capability": "desktop-control",
-      "summary": "Background native input, accessibility reads and WebDriver bridge for driving desktop apps without stealing focus",
-      "fingerprints": [
-        {
-          "id": "control.cargo.enigo",
-          "type": "dependency",
-          "ecosystem": "cargo",
-          "name": "enigo",
-          "tier": "advise",
-          "usageContext": {
-            "hosts": [
-              "macos",
-              "windows"
-            ],
-            "scope": "cargo direct competing dependency; transitive findings require authenticated reachability"
-          },
-          "tierReason": "No recorded published-version qualification for this usage context on both macOS & Windows."
-        },
-        {
-          "id": "control.cargo.rdev",
-          "type": "dependency",
-          "ecosystem": "cargo",
-          "name": "rdev",
-          "tier": "advise",
-          "usageContext": {
-            "hosts": [
-              "macos",
-              "windows"
-            ],
-            "scope": "cargo direct competing dependency; transitive findings require authenticated reachability"
-          },
-          "tierReason": "No recorded published-version qualification for this usage context on both macOS & Windows."
-        },
-        {
-          "id": "control.cargo.uiautomation",
-          "type": "dependency",
-          "ecosystem": "cargo",
-          "name": "uiautomation",
-          "tier": "advise",
-          "usageContext": {
-            "hosts": [
-              "macos",
-              "windows"
-            ],
-            "scope": "cargo direct competing dependency; transitive findings require authenticated reachability"
-          },
-          "tierReason": "No recorded published-version qualification for this usage context on both macOS & Windows."
-        },
-        {
-          "id": "control.cargo.accessibility-sys",
-          "type": "dependency",
-          "ecosystem": "cargo",
-          "name": "accessibility-sys",
-          "tier": "advise",
-          "usageContext": {
-            "hosts": [
-              "macos",
-              "windows"
-            ],
-            "scope": "cargo direct competing dependency; transitive findings require authenticated reachability"
-          },
-          "tierReason": "No recorded published-version qualification for this usage context on both macOS & Windows."
-        },
-        {
-          "id": "control.npm.nut-js",
-          "type": "dependency",
-          "ecosystem": "npm",
-          "name": "@nut-tree/nut-js",
-          "tier": "advise",
-          "usageContext": {
-            "hosts": [
-              "macos",
-              "windows"
-            ],
-            "scope": "npm direct competing dependency; transitive findings require authenticated reachability"
-          },
-          "tierReason": "No recorded published-version qualification for this usage context on both macOS & Windows."
-        },
-        {
-          "id": "control.npm.robotjs",
-          "type": "dependency",
-          "ecosystem": "npm",
-          "name": "robotjs",
-          "tier": "advise",
-          "usageContext": {
-            "hosts": [
-              "macos",
-              "windows"
-            ],
-            "scope": "npm direct competing dependency; transitive findings require authenticated reachability"
-          },
-          "tierReason": "No recorded published-version qualification for this usage context on both macOS & Windows."
-        }
-      ],
-      "detection": "fingerprinted",
-      "policyNotes": [
-        "Native accessibility, embedded control & global input need separate host/permission qualification.",
-        "Fingerprints identify review candidates; published two-host replacement qualification is not recorded."
       ]
     },
     {
@@ -620,14 +587,129 @@
       ]
     },
     {
+      "package": "rightkit-credentials",
+      "capability": "os-credential-store",
+      "summary": "Keychain / Credential Manager access with per-app namespaces and test guards",
+      "fingerprints": [
+        {
+          "id": "secrets.cargo.keyring",
+          "type": "dependency",
+          "ecosystem": "cargo",
+          "name": "keyring",
+          "tier": "advise",
+          "usageContext": {
+            "hosts": [
+              "macos",
+              "windows"
+            ],
+            "scope": "cargo direct competing dependency; transitive findings require authenticated reachability"
+          },
+          "tierReason": "No recorded published-version qualification for this usage context on both macOS & Windows."
+        },
+        {
+          "id": "secrets.npm.keytar",
+          "type": "dependency",
+          "ecosystem": "npm",
+          "name": "keytar",
+          "tier": "advise",
+          "usageContext": {
+            "hosts": [
+              "macos",
+              "windows"
+            ],
+            "scope": "npm direct competing dependency; transitive findings require authenticated reachability"
+          },
+          "tierReason": "No recorded published-version qualification for this usage context on both macOS & Windows."
+        }
+      ],
+      "detection": "fingerprinted",
+      "policyNotes": [
+        "Cross-process Windows key race repair remains P1.",
+        "Fingerprints identify review candidates; published two-host replacement qualification is not recorded."
+      ]
+    },
+    {
       "package": "rightkit-daemon",
-      "capability": "daemon-host",
-      "summary": "Daemon host: HTTPS listener, device enrolment and signed requests, OAuth callback and signed webhook route classes, bounded blake3-keyed resumable uploads, compare-and-swap mutations, durable state and lifecycle events (daemon-api v1).",
-      "fingerprints": [],
-      "detection": "declaration-only",
+      "capability": "local-services",
+      "summary": "One discovery/auth convention for Right Suite local services: service.json, ranking and takeover, current-user-only Unix socket / named pipe, per-app request allowlist.",
+      "fingerprints": [
+        {
+          "id": "service.api.peer-credentials",
+          "type": "source",
+          "pattern": "\\bgetpeereid\\s*\\(|\\b(?:LOCAL_PEERCRED|SO_PEERCRED)\\b",
+          "codeOnly": true,
+          "extensions": [
+            ".rs",
+            ".c",
+            ".cc",
+            ".cpp",
+            ".h",
+            ".m",
+            ".mm",
+            ".swift"
+          ],
+          "tier": "advise",
+          "usageContext": {
+            "hosts": [
+              "macos",
+              "windows"
+            ],
+            "scope": "Executable code only; authenticated owner provenance required for exclusions"
+          },
+          "tierReason": "No recorded published-version qualification for this usage context on both macOS & Windows."
+        },
+        {
+          "id": "service.api.owner-only-pipe-sddl",
+          "type": "source",
+          "pattern": "\\b(?:format!|format|sprintf)\\s*\\(\\s*[\"']D:P\\(A;;GA;;;",
+          "codeOnly": true,
+          "extensions": [
+            ".rs",
+            ".c",
+            ".cc",
+            ".cpp",
+            ".h",
+            ".cs"
+          ],
+          "tier": "advise",
+          "usageContext": {
+            "hosts": [
+              "macos",
+              "windows"
+            ],
+            "scope": "Executable code only; authenticated owner provenance required for exclusions"
+          },
+          "tierReason": "No recorded published-version qualification for this usage context on both macOS & Windows."
+        },
+        {
+          "id": "service.discovery.service-json",
+          "type": "source",
+          "pattern": "\\b(?:join|push)\\s*\\([^()]{0,100}[\"']service\\.json[\"']\\s*\\)",
+          "codeOnly": true,
+          "extensions": [
+            ".rs",
+            ".ts",
+            ".tsx",
+            ".js",
+            ".mjs",
+            ".cjs",
+            ".jsx"
+          ],
+          "tier": "advise",
+          "usageContext": {
+            "hosts": [
+              "macos",
+              "windows"
+            ],
+            "scope": "Executable code only; authenticated owner provenance required for exclusions"
+          },
+          "tierReason": "No recorded published-version qualification for this usage context on both macOS & Windows."
+        }
+      ],
+      "detection": "fingerprinted",
       "policyNotes": [
         "Package contract retained; dependency declarations do not verify integration.",
-        "No precise implementation fingerprint; declaration-only inventory, never enforced ownership or verified integration."
+        "Fingerprints identify review candidates (competing dependencies and distinctive implementation code); published two-host replacement qualification is not recorded."
       ]
     },
     {
@@ -673,6 +755,36 @@
       ]
     },
     {
+      "package": "rightkit-device",
+      "capability": "tauri-host-adapters",
+      "summary": "Native host services for Right Suite Tauri license and device adapters.",
+      "fingerprints": [
+        {
+          "id": "tauri.rs.standard-command-fn",
+          "type": "source",
+          "pattern": "\\bfn\\s+(?:secure_update_license_(?:get|set|delete)|secure_device_id_get_or_create)\\s*\\((?![\\s\\S]{0,800}?\\b(?:rightkit_device|rightkit_tauri|SecureService|DeviceService|AuthorizationService)\\b)",
+          "codeOnly": true,
+          "extensions": [
+            ".rs"
+          ],
+          "tier": "advise",
+          "usageContext": {
+            "hosts": [
+              "macos",
+              "windows"
+            ],
+            "scope": "Executable code only; authenticated owner provenance required for exclusions"
+          },
+          "tierReason": "No recorded published-version qualification for this usage context on both macOS & Windows."
+        }
+      ],
+      "detection": "fingerprinted",
+      "policyNotes": [
+        "Package contract retained; dependency declarations do not verify integration.",
+        "Fingerprints identify review candidates (competing dependencies and distinctive implementation code); published two-host replacement qualification is not recorded."
+      ]
+    },
+    {
       "package": "rightkit-embed",
       "capability": "embeddings",
       "summary": "Local text embeddings",
@@ -700,43 +812,37 @@
       ]
     },
     {
-      "package": "rightkit-framed-sidecar",
-      "capability": "framed-sidecar",
-      "summary": "Bounded JSON-lines transport primitives for Right Suite sidecars.",
+      "package": "rightkit-ffmpeg",
+      "capability": "media-pipelines",
+      "summary": "Verified FFmpeg artifact and lifecycle primitives for Right Suite media pipelines.",
       "fingerprints": [
         {
-          "id": "sidecar.rs.json-line-read",
-          "type": "source",
-          "pattern": "\\.\\s*read_line\\s*\\(\\s*&mut\\s+\\w+\\s*\\)[^;]*;[\\s\\S]{0,160}?\\bserde_json\\s*::\\s*from_str\\s*\\(",
-          "codeOnly": true,
-          "extensions": [
-            ".rs"
-          ],
+          "id": "media.cargo.ffmpeg-sidecar",
+          "type": "dependency",
+          "ecosystem": "cargo",
+          "name": "ffmpeg-sidecar",
           "tier": "advise",
           "usageContext": {
             "hosts": [
               "macos",
               "windows"
             ],
-            "scope": "Executable code only; authenticated owner provenance required for exclusions"
+            "scope": "cargo direct competing dependency; transitive findings require authenticated reachability"
           },
           "tierReason": "No recorded published-version qualification for this usage context on both macOS & Windows."
         },
         {
-          "id": "sidecar.rs.length-prefix",
-          "type": "source",
-          "pattern": "\\bread_exact\\s*\\([^;]{0,60}\\)[^;]*;[\\s\\S]{0,120}?\\bu32\\s*::\\s*from_be_bytes\\s*\\(",
-          "codeOnly": true,
-          "extensions": [
-            ".rs"
-          ],
+          "id": "media.npm.fluent-ffmpeg",
+          "type": "dependency",
+          "ecosystem": "npm",
+          "name": "fluent-ffmpeg",
           "tier": "advise",
           "usageContext": {
             "hosts": [
               "macos",
               "windows"
             ],
-            "scope": "Executable code only; authenticated owner provenance required for exclusions"
+            "scope": "npm direct competing dependency; transitive findings require authenticated reachability"
           },
           "tierReason": "No recorded published-version qualification for this usage context on both macOS & Windows."
         }
@@ -744,7 +850,64 @@
       "detection": "fingerprinted",
       "policyNotes": [
         "Package contract retained; dependency declarations do not verify integration.",
-        "Fingerprints identify review candidates (competing dependencies and distinctive implementation code); published two-host replacement qualification is not recorded."
+        "Fingerprints identify review candidates; published two-host replacement qualification is not recorded."
+      ]
+    },
+    {
+      "package": "rightkit-file-watch",
+      "capability": "file-watching",
+      "summary": "Coalesced, ignore-aware file watching with rescan recovery",
+      "fingerprints": [
+        {
+          "id": "watch.cargo.notify",
+          "type": "dependency",
+          "ecosystem": "cargo",
+          "name": "notify",
+          "tier": "advise",
+          "usageContext": {
+            "hosts": [
+              "macos",
+              "windows"
+            ],
+            "scope": "cargo direct competing dependency; transitive findings require authenticated reachability"
+          },
+          "tierReason": "No recorded published-version qualification for this usage context on both macOS & Windows."
+        },
+        {
+          "id": "watch.cargo.notify-debouncer-full",
+          "type": "dependency",
+          "ecosystem": "cargo",
+          "name": "notify-debouncer-full",
+          "tier": "advise",
+          "usageContext": {
+            "hosts": [
+              "macos",
+              "windows"
+            ],
+            "scope": "cargo direct competing dependency; transitive findings require authenticated reachability"
+          },
+          "tierReason": "No recorded published-version qualification for this usage context on both macOS & Windows."
+        },
+        {
+          "id": "watch.npm.chokidar",
+          "type": "dependency",
+          "ecosystem": "npm",
+          "name": "chokidar",
+          "tier": "advise",
+          "usageContext": {
+            "hosts": [
+              "macos",
+              "windows"
+            ],
+            "scope": "npm direct competing dependency; transitive findings require authenticated reachability"
+          },
+          "tierReason": "No recorded published-version qualification for this usage context on both macOS & Windows."
+        }
+      ],
+      "detection": "fingerprinted",
+      "policyNotes": [
+        "Package contract retained; dependency declarations do not verify integration.",
+        "Fingerprints identify review candidates; published two-host replacement qualification is not recorded."
       ]
     },
     {
@@ -981,7 +1144,7 @@
       ]
     },
     {
-      "package": "rightkit-jobs",
+      "package": "rightkit-job-queue",
       "capability": "persistent-jobs",
       "summary": "Persistent job store, runner, and stdio/CLI command contract for Right Suite engines.",
       "fingerprints": [
@@ -1433,48 +1596,6 @@
       ]
     },
     {
-      "package": "rightkit-media",
-      "capability": "media-pipelines",
-      "summary": "Verified FFmpeg artifact and lifecycle primitives for Right Suite media pipelines.",
-      "fingerprints": [
-        {
-          "id": "media.cargo.ffmpeg-sidecar",
-          "type": "dependency",
-          "ecosystem": "cargo",
-          "name": "ffmpeg-sidecar",
-          "tier": "advise",
-          "usageContext": {
-            "hosts": [
-              "macos",
-              "windows"
-            ],
-            "scope": "cargo direct competing dependency; transitive findings require authenticated reachability"
-          },
-          "tierReason": "No recorded published-version qualification for this usage context on both macOS & Windows."
-        },
-        {
-          "id": "media.npm.fluent-ffmpeg",
-          "type": "dependency",
-          "ecosystem": "npm",
-          "name": "fluent-ffmpeg",
-          "tier": "advise",
-          "usageContext": {
-            "hosts": [
-              "macos",
-              "windows"
-            ],
-            "scope": "npm direct competing dependency; transitive findings require authenticated reachability"
-          },
-          "tierReason": "No recorded published-version qualification for this usage context on both macOS & Windows."
-        }
-      ],
-      "detection": "fingerprinted",
-      "policyNotes": [
-        "Package contract retained; dependency declarations do not verify integration.",
-        "Fingerprints identify review candidates; published two-host replacement qualification is not recorded."
-      ]
-    },
-    {
       "package": "rightkit-models",
       "capability": "model-installation",
       "summary": "Shared local-model manifest and installer for Right Suite apps: revisions and quantizations, resumable verified downloads, archive extraction, atomic activation, rollback, and hardware fit.",
@@ -1646,7 +1767,7 @@
       ]
     },
     {
-      "package": "rightkit-ort",
+      "package": "rightkit-onnx",
       "capability": "onnx-runtime",
       "summary": "ONNX Runtime selection, execution providers, dylib resolution and global pools",
       "fingerprints": [
@@ -1889,51 +2010,9 @@
       ]
     },
     {
-      "package": "rightkit-process",
-      "capability": "owned-processes",
-      "summary": "Child processes owned as a tree: process groups / kill-on-close jobs, hidden windows",
-      "fingerprints": [
-        {
-          "id": "process.cargo.process-wrap",
-          "type": "dependency",
-          "ecosystem": "cargo",
-          "name": "process-wrap",
-          "tier": "advise",
-          "usageContext": {
-            "hosts": [
-              "macos",
-              "windows"
-            ],
-            "scope": "cargo direct competing dependency; transitive findings require authenticated reachability"
-          },
-          "tierReason": "No recorded published-version qualification for this usage context on both macOS & Windows."
-        },
-        {
-          "id": "process.cargo.command-group",
-          "type": "dependency",
-          "ecosystem": "cargo",
-          "name": "command-group",
-          "tier": "advise",
-          "usageContext": {
-            "hosts": [
-              "macos",
-              "windows"
-            ],
-            "scope": "cargo direct competing dependency; transitive findings require authenticated reachability"
-          },
-          "tierReason": "No recorded published-version qualification for this usage context on both macOS & Windows."
-        }
-      ],
-      "detection": "fingerprinted",
-      "policyNotes": [
-        "Package contract retained; dependency declarations do not verify integration.",
-        "Fingerprints identify review candidates; published two-host replacement qualification is not recorded."
-      ]
-    },
-    {
       "package": "rightkit-qa",
       "capability": "desktop-qa",
-      "summary": "Desktop app QA engine: launch, drive, assert and capture installed apps (with rightkit-control)",
+      "summary": "Desktop app QA engine: launch, drive, assert and capture installed apps (with rightkit-qa-driver)",
       "fingerprints": [
         {
           "id": "qa.npm.webdriverio",
@@ -2003,15 +2082,15 @@
       ]
     },
     {
-      "package": "rightkit-qts",
-      "capability": "text-to-speech",
-      "summary": "Qwen3 TTS inference (GGUF + GGML), vendored from yet-another-ai/qts v0.2.0 for RightKit",
+      "package": "rightkit-qa-driver",
+      "capability": "desktop-control",
+      "summary": "Background native input, accessibility reads and WebDriver bridge for driving desktop apps without stealing focus",
       "fingerprints": [
         {
-          "id": "qts.cargo.qts",
+          "id": "control.cargo.enigo",
           "type": "dependency",
           "ecosystem": "cargo",
-          "name": "qts",
+          "name": "enigo",
           "tier": "advise",
           "usageContext": {
             "hosts": [
@@ -2021,24 +2100,12 @@
             "scope": "cargo direct competing dependency; transitive findings require authenticated reachability"
           },
           "tierReason": "No recorded published-version qualification for this usage context on both macOS & Windows."
-        }
-      ],
-      "detection": "fingerprinted",
-      "policyNotes": [
-        "Rust library alias qts is adoption, not competing dependency when package is rightkit-qts.",
-        "Fingerprints identify review candidates; published two-host replacement qualification is not recorded."
-      ]
-    },
-    {
-      "package": "rightkit-qts-ggml",
-      "capability": "text-to-speech",
-      "summary": "Thin safe wrappers over rightkit-qts-ggml-sys for rightkit-qts, vendored from yet-another-ai/qts v0.2.0",
-      "fingerprints": [
+        },
         {
-          "id": "qts-ggml.cargo.qts-ggml",
+          "id": "control.cargo.rdev",
           "type": "dependency",
           "ecosystem": "cargo",
-          "name": "qts-ggml",
+          "name": "rdev",
           "tier": "advise",
           "usageContext": {
             "hosts": [
@@ -2048,24 +2115,12 @@
             "scope": "cargo direct competing dependency; transitive findings require authenticated reachability"
           },
           "tierReason": "No recorded published-version qualification for this usage context on both macOS & Windows."
-        }
-      ],
-      "detection": "fingerprinted",
-      "policyNotes": [
-        "Low-level component consumed via rightkit-tts; no direct application adoption requirement.",
-        "Fingerprints identify review candidates; published two-host replacement qualification is not recorded."
-      ]
-    },
-    {
-      "package": "rightkit-qts-ggml-sys",
-      "capability": "text-to-speech",
-      "summary": "Low-level FFI bindings to ggml (CPU, Metal, Vulkan, BLAS) for rightkit-qts, vendored from yet-another-ai/qts v0.2.0",
-      "fingerprints": [
+        },
         {
-          "id": "qts-ggml-sys.cargo.qts-ggml-sys",
+          "id": "control.cargo.uiautomation",
           "type": "dependency",
           "ecosystem": "cargo",
-          "name": "qts-ggml-sys",
+          "name": "uiautomation",
           "tier": "advise",
           "usageContext": {
             "hosts": [
@@ -2075,25 +2130,70 @@
             "scope": "cargo direct competing dependency; transitive findings require authenticated reachability"
           },
           "tierReason": "No recorded published-version qualification for this usage context on both macOS & Windows."
+        },
+        {
+          "id": "control.cargo.accessibility-sys",
+          "type": "dependency",
+          "ecosystem": "cargo",
+          "name": "accessibility-sys",
+          "tier": "advise",
+          "usageContext": {
+            "hosts": [
+              "macos",
+              "windows"
+            ],
+            "scope": "cargo direct competing dependency; transitive findings require authenticated reachability"
+          },
+          "tierReason": "No recorded published-version qualification for this usage context on both macOS & Windows."
+        },
+        {
+          "id": "control.npm.nut-js",
+          "type": "dependency",
+          "ecosystem": "npm",
+          "name": "@nut-tree/nut-js",
+          "tier": "advise",
+          "usageContext": {
+            "hosts": [
+              "macos",
+              "windows"
+            ],
+            "scope": "npm direct competing dependency; transitive findings require authenticated reachability"
+          },
+          "tierReason": "No recorded published-version qualification for this usage context on both macOS & Windows."
+        },
+        {
+          "id": "control.npm.robotjs",
+          "type": "dependency",
+          "ecosystem": "npm",
+          "name": "robotjs",
+          "tier": "advise",
+          "usageContext": {
+            "hosts": [
+              "macos",
+              "windows"
+            ],
+            "scope": "npm direct competing dependency; transitive findings require authenticated reachability"
+          },
+          "tierReason": "No recorded published-version qualification for this usage context on both macOS & Windows."
         }
       ],
       "detection": "fingerprinted",
       "policyNotes": [
-        "FFI component consumed via rightkit-tts; no direct application adoption requirement.",
+        "Native accessibility, embedded control & global input need separate host/permission qualification.",
         "Fingerprints identify review candidates; published two-host replacement qualification is not recorded."
       ]
     },
     {
       "package": "rightkit-record",
       "capability": "screen-recording",
-      "summary": "Platform-neutral recorder core: start/stop/status lifecycle with partial-bundle quarantine and stale-session recovery, immutable hashed session bundles (record-session v1 manifest, record-event v1 telemetry), per-field redaction before persistence, bundle verification, the step-to-frame reader, and the helper wire protocol (length-prefixed JSON via rightkit-framed-sidecar) with ProcessBackend and serve_backend. Windows capture (Windows.Graphics.Capture and Media Foundation, src/windows, cfg(windows)) and the rightkit-record-helper binary live in this crate.",
+      "summary": "Platform-neutral recorder core: start/stop/status lifecycle with partial-bundle quarantine and stale-session recovery, immutable hashed session bundles (record-session v1 manifest, record-event v1 telemetry), per-field redaction before persistence, bundle verification, the step-to-frame reader, and the helper wire protocol (length-prefixed JSON via rightkit-sidecar) with ProcessBackend and serve_backend. Windows capture (Windows.Graphics.Capture and Media Foundation, src/windows, cfg(windows)) and the rightkit-record-helper binary live in this crate.",
       "fingerprints": [],
       "detection": "declaration-only",
       "policyNotes": [
         "Declaration-only: the lifecycle, bundle writer, redaction, protocol and reader are not an ownership fingerprint.",
         "Windows capture lives in this crate (src/windows, cfg(windows)) and is served out of process by rightkit-record-helper in serve mode.",
-        "rightkit-process owns helper spawning, supervision and restart; this crate only speaks the protocol over the streams it is given.",
-        "The macOS helper is not in this crate. It will implement Backend in its own helper and serve the same protocol."
+        "rightkit-child-process owns helper spawning, supervision and restart; this crate only speaks the protocol over the streams it is given.",
+        "The macOS ScreenCaptureKit helper (helpers/macos, Swift) ships with this crate sources and implements the same protocol; the crate never sends input. Capturing needs the OS Screen Recording permission on macOS."
       ]
     },
     {
@@ -2146,17 +2246,6 @@
       "policyNotes": [
         "landlock/seccompiler indicate Linux-only usage, not macOS/Windows replacement paths; shutdown repair remains P1.",
         "Fingerprints identify review candidates; published two-host replacement qualification is not recorded."
-      ]
-    },
-    {
-      "package": "rightkit-scenario",
-      "capability": "scenario-runtime",
-      "summary": "Shared scenario interpreter and durable state machine for the RightKit scenario runtime: perform separated from observe_until, idempotency keys, append-only fsync step journal with resume into observe, leases with fencing tokens, cooperative cancellation with a deadline, retake replay with postcondition comparison, and the remote worker transport trait boundary",
-      "fingerprints": [],
-      "detection": "declaration-only",
-      "policyNotes": [
-        "Declaration-only: the interpreter, journal, lease and retake machinery are not an ownership fingerprint.",
-        "No networking, GUI driving or capture lives in this crate; workers implement StepDriver and remote transport implements WorkerTransport in later slices."
       ]
     },
     {
@@ -2317,48 +2406,6 @@
       ]
     },
     {
-      "package": "rightkit-secrets",
-      "capability": "os-credential-store",
-      "summary": "Keychain / Credential Manager access with per-app namespaces and test guards",
-      "fingerprints": [
-        {
-          "id": "secrets.cargo.keyring",
-          "type": "dependency",
-          "ecosystem": "cargo",
-          "name": "keyring",
-          "tier": "advise",
-          "usageContext": {
-            "hosts": [
-              "macos",
-              "windows"
-            ],
-            "scope": "cargo direct competing dependency; transitive findings require authenticated reachability"
-          },
-          "tierReason": "No recorded published-version qualification for this usage context on both macOS & Windows."
-        },
-        {
-          "id": "secrets.npm.keytar",
-          "type": "dependency",
-          "ecosystem": "npm",
-          "name": "keytar",
-          "tier": "advise",
-          "usageContext": {
-            "hosts": [
-              "macos",
-              "windows"
-            ],
-            "scope": "npm direct competing dependency; transitive findings require authenticated reachability"
-          },
-          "tierReason": "No recorded published-version qualification for this usage context on both macOS & Windows."
-        }
-      ],
-      "detection": "fingerprinted",
-      "policyNotes": [
-        "Cross-process Windows key race repair remains P1.",
-        "Fingerprints identify review candidates; published two-host replacement qualification is not recorded."
-      ]
-    },
-    {
       "package": "rightkit-send",
       "capability": "nearby-sharing",
       "summary": "Nearby file and text sharing over the open LocalSend v2 protocol: TLS identity pinning, per-device trust, macOS Bonjour discovery. Product-neutral; the host supplies identity, paths and policy.; declaration-only detection (no precise implementation fingerprint)",
@@ -2370,24 +2417,17 @@
       ]
     },
     {
-      "package": "rightkit-service",
-      "capability": "local-services",
-      "summary": "One discovery/auth convention for Right Suite local services: service.json, ranking and takeover, current-user-only Unix socket / named pipe, per-app request allowlist.",
+      "package": "rightkit-sidecar",
+      "capability": "framed-sidecar",
+      "summary": "Bounded JSON-lines transport primitives for Right Suite sidecars.",
       "fingerprints": [
         {
-          "id": "service.api.peer-credentials",
+          "id": "sidecar.rs.json-line-read",
           "type": "source",
-          "pattern": "\\bgetpeereid\\s*\\(|\\b(?:LOCAL_PEERCRED|SO_PEERCRED)\\b",
+          "pattern": "\\.\\s*read_line\\s*\\(\\s*&mut\\s+\\w+\\s*\\)[^;]*;[\\s\\S]{0,160}?\\bserde_json\\s*::\\s*from_str\\s*\\(",
           "codeOnly": true,
           "extensions": [
-            ".rs",
-            ".c",
-            ".cc",
-            ".cpp",
-            ".h",
-            ".m",
-            ".mm",
-            ".swift"
+            ".rs"
           ],
           "tier": "advise",
           "usageContext": {
@@ -2400,41 +2440,12 @@
           "tierReason": "No recorded published-version qualification for this usage context on both macOS & Windows."
         },
         {
-          "id": "service.api.owner-only-pipe-sddl",
+          "id": "sidecar.rs.length-prefix",
           "type": "source",
-          "pattern": "\\b(?:format!|format|sprintf)\\s*\\(\\s*[\"']D:P\\(A;;GA;;;",
+          "pattern": "\\bread_exact\\s*\\([^;]{0,60}\\)[^;]*;[\\s\\S]{0,120}?\\bu32\\s*::\\s*from_be_bytes\\s*\\(",
           "codeOnly": true,
           "extensions": [
-            ".rs",
-            ".c",
-            ".cc",
-            ".cpp",
-            ".h",
-            ".cs"
-          ],
-          "tier": "advise",
-          "usageContext": {
-            "hosts": [
-              "macos",
-              "windows"
-            ],
-            "scope": "Executable code only; authenticated owner provenance required for exclusions"
-          },
-          "tierReason": "No recorded published-version qualification for this usage context on both macOS & Windows."
-        },
-        {
-          "id": "service.discovery.service-json",
-          "type": "source",
-          "pattern": "\\b(?:join|push)\\s*\\([^()]{0,100}[\"']service\\.json[\"']\\s*\\)",
-          "codeOnly": true,
-          "extensions": [
-            ".rs",
-            ".ts",
-            ".tsx",
-            ".js",
-            ".mjs",
-            ".cjs",
-            ".jsx"
+            ".rs"
           ],
           "tier": "advise",
           "usageContext": {
@@ -2454,22 +2465,43 @@
       ]
     },
     {
-      "package": "rightkit-settings",
-      "capability": "settings-persistence",
-      "summary": "Versioned per-app settings persistence: migrations, typed defaults, atomic writes, corruption recovery, change events.",
+      "package": "rightkit-speech-client",
+      "capability": "shared-speech-service",
+      "summary": "Client and contract for the Orthic Labs shared speech service (one resident engine per machine), built on rightkit-daemon. Wire-compatible with HeardRight's v1 host.",
       "fingerprints": [
         {
-          "id": "settings.cargo.tauri-plugin-store",
-          "type": "dependency",
-          "ecosystem": "cargo",
-          "name": "tauri-plugin-store",
+          "id": "speech.protocol.schema-name",
+          "type": "source",
+          "pattern": "\\bschema_name\\s*[!=]=\\s*&?\\s*[\"'](?:file_transcription(?:_\\w+)?|engine_health)[\"']",
+          "codeOnly": true,
+          "extensions": [
+            ".rs"
+          ],
           "tier": "advise",
           "usageContext": {
             "hosts": [
               "macos",
               "windows"
             ],
-            "scope": "cargo direct competing dependency; transitive findings require authenticated reachability"
+            "scope": "Executable code only; authenticated owner provenance required for exclusions"
+          },
+          "tierReason": "No recorded published-version qualification for this usage context on both macOS & Windows."
+        },
+        {
+          "id": "speech.spawn.speech-service-flag",
+          "type": "source",
+          "pattern": "\\b(?:Command\\s*::\\s*new|\\.args?)\\s*\\([^;]{0,200}?[\"']--speech-service[\"']",
+          "codeOnly": true,
+          "extensions": [
+            ".rs"
+          ],
+          "tier": "advise",
+          "usageContext": {
+            "hosts": [
+              "macos",
+              "windows"
+            ],
+            "scope": "Executable code only; authenticated owner provenance required for exclusions"
           },
           "tierReason": "No recorded published-version qualification for this usage context on both macOS & Windows."
         }
@@ -2477,11 +2509,22 @@
       "detection": "fingerprinted",
       "policyNotes": [
         "Package contract retained; dependency declarations do not verify integration.",
-        "Fingerprints identify review candidates; published two-host replacement qualification is not recorded."
+        "Fingerprints identify review candidates (competing dependencies and distinctive implementation code); published two-host replacement qualification is not recorded."
       ]
     },
     {
-      "package": "rightkit-shell",
+      "package": "rightkit-sync",
+      "capability": "cloud-sync",
+      "summary": "Brand-neutral desktop/mobile cloud sync engine: change tokens, tombstones, last-writer-wins conflicts, resumable batches, offline queue, retry/backoff.; declaration-only detection (no precise implementation fingerprint)",
+      "fingerprints": [],
+      "detection": "declaration-only",
+      "policyNotes": [
+        "Package contract retained; dependency declarations do not verify integration.",
+        "No precise implementation fingerprint; declaration-only inventory, never enforced ownership or verified integration."
+      ]
+    },
+    {
+      "package": "rightkit-tauri-shell",
       "capability": "desktop-shell",
       "summary": "Tauri shell: tray, autostart, deep links, single instance, window state, notifications",
       "fingerprints": [
@@ -2583,95 +2626,6 @@
       ]
     },
     {
-      "package": "rightkit-speech-client",
-      "capability": "shared-speech-service",
-      "summary": "Client and contract for the Orthic Labs shared speech service (one resident engine per machine), built on rightkit-service. Wire-compatible with HeardRight's v1 host.",
-      "fingerprints": [
-        {
-          "id": "speech.protocol.schema-name",
-          "type": "source",
-          "pattern": "\\bschema_name\\s*[!=]=\\s*&?\\s*[\"'](?:file_transcription(?:_\\w+)?|engine_health)[\"']",
-          "codeOnly": true,
-          "extensions": [
-            ".rs"
-          ],
-          "tier": "advise",
-          "usageContext": {
-            "hosts": [
-              "macos",
-              "windows"
-            ],
-            "scope": "Executable code only; authenticated owner provenance required for exclusions"
-          },
-          "tierReason": "No recorded published-version qualification for this usage context on both macOS & Windows."
-        },
-        {
-          "id": "speech.spawn.speech-service-flag",
-          "type": "source",
-          "pattern": "\\b(?:Command\\s*::\\s*new|\\.args?)\\s*\\([^;]{0,200}?[\"']--speech-service[\"']",
-          "codeOnly": true,
-          "extensions": [
-            ".rs"
-          ],
-          "tier": "advise",
-          "usageContext": {
-            "hosts": [
-              "macos",
-              "windows"
-            ],
-            "scope": "Executable code only; authenticated owner provenance required for exclusions"
-          },
-          "tierReason": "No recorded published-version qualification for this usage context on both macOS & Windows."
-        }
-      ],
-      "detection": "fingerprinted",
-      "policyNotes": [
-        "Package contract retained; dependency declarations do not verify integration.",
-        "Fingerprints identify review candidates (competing dependencies and distinctive implementation code); published two-host replacement qualification is not recorded."
-      ]
-    },
-    {
-      "package": "rightkit-sync",
-      "capability": "cloud-sync",
-      "summary": "Brand-neutral desktop/mobile cloud sync engine: change tokens, tombstones, last-writer-wins conflicts, resumable batches, offline queue, retry/backoff.; declaration-only detection (no precise implementation fingerprint)",
-      "fingerprints": [],
-      "detection": "declaration-only",
-      "policyNotes": [
-        "Package contract retained; dependency declarations do not verify integration.",
-        "No precise implementation fingerprint; declaration-only inventory, never enforced ownership or verified integration."
-      ]
-    },
-    {
-      "package": "rightkit-tauri",
-      "capability": "tauri-host-adapters",
-      "summary": "Native host services for Right Suite Tauri license and device adapters.",
-      "fingerprints": [
-        {
-          "id": "tauri.rs.standard-command-fn",
-          "type": "source",
-          "pattern": "\\bfn\\s+(?:secure_update_license_(?:get|set|delete)|secure_device_id_get_or_create)\\s*\\((?![\\s\\S]{0,800}?\\b(?:rightkit_tauri|SecureService|DeviceService|AuthorizationService)\\b)",
-          "codeOnly": true,
-          "extensions": [
-            ".rs"
-          ],
-          "tier": "advise",
-          "usageContext": {
-            "hosts": [
-              "macos",
-              "windows"
-            ],
-            "scope": "Executable code only; authenticated owner provenance required for exclusions"
-          },
-          "tierReason": "No recorded published-version qualification for this usage context on both macOS & Windows."
-        }
-      ],
-      "detection": "fingerprinted",
-      "policyNotes": [
-        "Package contract retained; dependency declarations do not verify integration.",
-        "Fingerprints identify review candidates (competing dependencies and distinctive implementation code); published two-host replacement qualification is not recorded."
-      ]
-    },
-    {
       "package": "rightkit-transcript",
       "capability": "timed-transcripts",
       "summary": "Product-neutral word-timed transcript contract, cue segmentation, and SRT/VTT/JSON import and export for Right Suite applications",
@@ -2741,6 +2695,60 @@
       ]
     },
     {
+      "package": "rightkit-tts-qwen",
+      "capability": "text-to-speech",
+      "summary": "Qwen3 TTS inference (GGUF + GGML), vendored from yet-another-ai/qts v0.2.0 for RightKit",
+      "fingerprints": [
+        {
+          "id": "qts.cargo.qts",
+          "type": "dependency",
+          "ecosystem": "cargo",
+          "name": "qts",
+          "tier": "advise",
+          "usageContext": {
+            "hosts": [
+              "macos",
+              "windows"
+            ],
+            "scope": "cargo direct competing dependency; transitive findings require authenticated reachability"
+          },
+          "tierReason": "No recorded published-version qualification for this usage context on both macOS & Windows."
+        }
+      ],
+      "detection": "fingerprinted",
+      "policyNotes": [
+        "Rust library alias qts is adoption, not competing dependency when package is rightkit-tts-qwen.",
+        "Fingerprints identify review candidates; published two-host replacement qualification is not recorded."
+      ]
+    },
+    {
+      "package": "rightkit-tts-qwen-sys",
+      "capability": "text-to-speech",
+      "summary": "Low-level FFI bindings to ggml (CPU, Metal, Vulkan, BLAS) for rightkit-tts-qwen, vendored from yet-another-ai/qts v0.2.0",
+      "fingerprints": [
+        {
+          "id": "qts-ggml-sys.cargo.qts-ggml-sys",
+          "type": "dependency",
+          "ecosystem": "cargo",
+          "name": "qts-ggml-sys",
+          "tier": "advise",
+          "usageContext": {
+            "hosts": [
+              "macos",
+              "windows"
+            ],
+            "scope": "cargo direct competing dependency; transitive findings require authenticated reachability"
+          },
+          "tierReason": "No recorded published-version qualification for this usage context on both macOS & Windows."
+        }
+      ],
+      "detection": "fingerprinted",
+      "policyNotes": [
+        "FFI component consumed via rightkit-tts; no direct application adoption requirement.",
+        "Fingerprints identify review candidates; published two-host replacement qualification is not recorded."
+      ]
+    },
+    {
       "package": "rightkit-vad",
       "capability": "voice-activity-detection",
       "summary": "Product-neutral voice activity detection: Silero scorer, hysteresis/padding/chunking policy, streaming frame carry",
@@ -2783,217 +2791,25 @@
       ]
     },
     {
-      "package": "rightkit-watch",
-      "capability": "file-watching",
-      "summary": "Coalesced, ignore-aware file watching with rescan recovery",
-      "fingerprints": [
-        {
-          "id": "watch.cargo.notify",
-          "type": "dependency",
-          "ecosystem": "cargo",
-          "name": "notify",
-          "tier": "advise",
-          "usageContext": {
-            "hosts": [
-              "macos",
-              "windows"
-            ],
-            "scope": "cargo direct competing dependency; transitive findings require authenticated reachability"
-          },
-          "tierReason": "No recorded published-version qualification for this usage context on both macOS & Windows."
-        },
-        {
-          "id": "watch.cargo.notify-debouncer-full",
-          "type": "dependency",
-          "ecosystem": "cargo",
-          "name": "notify-debouncer-full",
-          "tier": "advise",
-          "usageContext": {
-            "hosts": [
-              "macos",
-              "windows"
-            ],
-            "scope": "cargo direct competing dependency; transitive findings require authenticated reachability"
-          },
-          "tierReason": "No recorded published-version qualification for this usage context on both macOS & Windows."
-        },
-        {
-          "id": "watch.npm.chokidar",
-          "type": "dependency",
-          "ecosystem": "npm",
-          "name": "chokidar",
-          "tier": "advise",
-          "usageContext": {
-            "hosts": [
-              "macos",
-              "windows"
-            ],
-            "scope": "npm direct competing dependency; transitive findings require authenticated reachability"
-          },
-          "tierReason": "No recorded published-version qualification for this usage context on both macOS & Windows."
-        }
-      ],
-      "detection": "fingerprinted",
-      "policyNotes": [
-        "Package contract retained; dependency declarations do not verify integration.",
-        "Fingerprints identify review candidates; published two-host replacement qualification is not recorded."
-      ]
-    },
-    {
-      "package": "@rightkit/agent-room-mcp",
-      "capability": "agent-room",
-      "summary": "Agent room MCP adapter; declaration-only detection (no precise implementation fingerprint)",
+      "package": "rightkit-workflow",
+      "capability": "scenario-runtime",
+      "summary": "Shared scenario interpreter and durable state machine for the RightKit scenario runtime: perform separated from observe_until, idempotency keys, append-only fsync step journal with resume into observe, leases with fencing tokens, cooperative cancellation with a deadline, retake replay with postcondition comparison, and the remote worker transport trait boundary",
       "fingerprints": [],
       "detection": "declaration-only",
       "policyNotes": [
-        "Package contract retained; dependency declarations do not verify integration.",
-        "No precise implementation fingerprint; declaration-only inventory, never enforced ownership or verified integration."
+        "Declaration-only: the interpreter, journal, lease and retake machinery are not an ownership fingerprint.",
+        "No networking, GUI driving or capture lives in this crate; workers implement StepDriver and remote transport implements WorkerTransport in later slices."
       ]
     },
     {
-      "package": "@rightkit/app-shell",
-      "capability": "app-shell-ui",
-      "summary": "Brand-neutral React frame for Right Suite desktop apps: optional fused sidebar+titlebar layout with slots, command palette, shortcut registry/help, toasts, modals, context menus, ui kit, theme hooks.",
+      "package": "@rightkit/app-update",
+      "capability": "update-policy",
+      "summary": "Shared runtime update policy helper for Right Suite Tauri apps.",
       "fingerprints": [
         {
-          "id": "app-shell.npm.cmdk",
-          "type": "dependency",
-          "ecosystem": "npm",
-          "name": "cmdk",
-          "tier": "advise",
-          "usageContext": {
-            "hosts": [
-              "macos",
-              "windows"
-            ],
-            "scope": "npm direct competing dependency; transitive findings require authenticated reachability"
-          },
-          "tierReason": "No recorded published-version qualification for this usage context on both macOS & Windows."
-        },
-        {
-          "id": "app-shell.npm.kbar",
-          "type": "dependency",
-          "ecosystem": "npm",
-          "name": "kbar",
-          "tier": "advise",
-          "usageContext": {
-            "hosts": [
-              "macos",
-              "windows"
-            ],
-            "scope": "npm direct competing dependency; transitive findings require authenticated reachability"
-          },
-          "tierReason": "No recorded published-version qualification for this usage context on both macOS & Windows."
-        },
-        {
-          "id": "app-shell.npm.sonner",
-          "type": "dependency",
-          "ecosystem": "npm",
-          "name": "sonner",
-          "tier": "advise",
-          "usageContext": {
-            "hosts": [
-              "macos",
-              "windows"
-            ],
-            "scope": "npm direct competing dependency; transitive findings require authenticated reachability"
-          },
-          "tierReason": "No recorded published-version qualification for this usage context on both macOS & Windows."
-        },
-        {
-          "id": "app-shell.npm.react-hot-toast",
-          "type": "dependency",
-          "ecosystem": "npm",
-          "name": "react-hot-toast",
-          "tier": "advise",
-          "usageContext": {
-            "hosts": [
-              "macos",
-              "windows"
-            ],
-            "scope": "npm direct competing dependency; transitive findings require authenticated reachability"
-          },
-          "tierReason": "No recorded published-version qualification for this usage context on both macOS & Windows."
-        },
-        {
-          "id": "app-shell.npm.react-toastify",
-          "type": "dependency",
-          "ecosystem": "npm",
-          "name": "react-toastify",
-          "tier": "advise",
-          "usageContext": {
-            "hosts": [
-              "macos",
-              "windows"
-            ],
-            "scope": "npm direct competing dependency; transitive findings require authenticated reachability"
-          },
-          "tierReason": "No recorded published-version qualification for this usage context on both macOS & Windows."
-        },
-        {
-          "id": "app-shell.npm.react-hotkeys-hook",
-          "type": "dependency",
-          "ecosystem": "npm",
-          "name": "react-hotkeys-hook",
-          "tier": "advise",
-          "usageContext": {
-            "hosts": [
-              "macos",
-              "windows"
-            ],
-            "scope": "npm direct competing dependency; transitive findings require authenticated reachability"
-          },
-          "tierReason": "No recorded published-version qualification for this usage context on both macOS & Windows."
-        },
-        {
-          "id": "app-shell.npm.tinykeys",
-          "type": "dependency",
-          "ecosystem": "npm",
-          "name": "tinykeys",
-          "tier": "advise",
-          "usageContext": {
-            "hosts": [
-              "macos",
-              "windows"
-            ],
-            "scope": "npm direct competing dependency; transitive findings require authenticated reachability"
-          },
-          "tierReason": "No recorded published-version qualification for this usage context on both macOS & Windows."
-        },
-        {
-          "id": "app-shell.npm.hotkeys-js",
-          "type": "dependency",
-          "ecosystem": "npm",
-          "name": "hotkeys-js",
-          "tier": "advise",
-          "usageContext": {
-            "hosts": [
-              "macos",
-              "windows"
-            ],
-            "scope": "npm direct competing dependency; transitive findings require authenticated reachability"
-          },
-          "tierReason": "No recorded published-version qualification for this usage context on both macOS & Windows."
-        },
-        {
-          "id": "app-shell.npm.mousetrap",
-          "type": "dependency",
-          "ecosystem": "npm",
-          "name": "mousetrap",
-          "tier": "advise",
-          "usageContext": {
-            "hosts": [
-              "macos",
-              "windows"
-            ],
-            "scope": "npm direct competing dependency; transitive findings require authenticated reachability"
-          },
-          "tierReason": "No recorded published-version qualification for this usage context on both macOS & Windows."
-        },
-        {
-          "id": "app-shell.jsx.drag-region",
+          "id": "updates.api.download-and-install",
           "type": "source",
-          "pattern": "\\bdata-tauri-drag-region\\b",
+          "pattern": "\\.\\s*(?:downloadAndInstall|download_and_install)\\s*\\(",
           "codeOnly": true,
           "extensions": [
             ".ts",
@@ -3001,7 +2817,8 @@
             ".js",
             ".mjs",
             ".cjs",
-            ".jsx"
+            ".jsx",
+            ".rs"
           ],
           "tier": "advise",
           "usageContext": {
@@ -3024,6 +2841,17 @@
       "package": "@rightkit/ax",
       "capability": "agent-experience-gates",
       "summary": "Suite-wide agent-experience (AX) + agent-plugins.org conformance layer: plugin scaffolding/validation and AXA-1 static/conformance/behavioral gates over one product's MCP/CLI surface.; declaration-only detection (no precise implementation fingerprint)",
+      "fingerprints": [],
+      "detection": "declaration-only",
+      "policyNotes": [
+        "Package contract retained; dependency declarations do not verify integration.",
+        "No precise implementation fingerprint; declaration-only inventory, never enforced ownership or verified integration."
+      ]
+    },
+    {
+      "package": "@rightkit/ci",
+      "capability": "github-workflows",
+      "summary": "Public-repo-only GitHub Actions workflow layer: templates, visibility gate, sync/drift/adopt/uninstall for right-git.; declaration-only detection (no precise implementation fingerprint)",
       "fingerprints": [],
       "detection": "declaration-only",
       "policyNotes": [
@@ -3056,17 +2884,6 @@
       "policyNotes": [
         "Package contract retained; dependency declarations do not verify integration.",
         "Fingerprints identify review candidates; published two-host replacement qualification is not recorded."
-      ]
-    },
-    {
-      "package": "@rightkit/git",
-      "capability": "github-workflows",
-      "summary": "Public-repo-only GitHub Actions workflow layer: templates, visibility gate, sync/drift/adopt/uninstall for right-git.; declaration-only detection (no precise implementation fingerprint)",
-      "fingerprints": [],
-      "detection": "declaration-only",
-      "policyNotes": [
-        "Package contract retained; dependency declarations do not verify integration.",
-        "No precise implementation fingerprint; declaration-only inventory, never enforced ownership or verified integration."
       ]
     },
     {
@@ -3482,6 +3299,17 @@
       ]
     },
     {
+      "package": "@rightkit/outdated",
+      "capability": "dependency-updates",
+      "summary": "Per-repo dependency updater: check, apply, gate and land for cargo, pnpm, swiftpm and external-tool pins, plus a scheduled run (launchd, Task Scheduler).; declaration-only detection (no precise implementation fingerprint)",
+      "fingerprints": [],
+      "detection": "declaration-only",
+      "policyNotes": [
+        "Package contract retained; dependency declarations do not verify integration.",
+        "No precise implementation fingerprint; declaration-only inventory, never enforced ownership or verified integration."
+      ]
+    },
+    {
       "package": "@rightkit/pdf-ui",
       "capability": "pdf-ui",
       "summary": "Brand-neutral read-only PDF viewer (pdf.js) for Right Suite apps.",
@@ -3702,6 +3530,176 @@
       ]
     },
     {
+      "package": "@rightkit/react-shell",
+      "capability": "app-shell-ui",
+      "summary": "Brand-neutral React frame for Right Suite desktop apps: optional fused sidebar+titlebar layout with slots, command palette, shortcut registry/help, toasts, modals, context menus, ui kit, theme hooks.",
+      "fingerprints": [
+        {
+          "id": "app-shell.npm.cmdk",
+          "type": "dependency",
+          "ecosystem": "npm",
+          "name": "cmdk",
+          "tier": "advise",
+          "usageContext": {
+            "hosts": [
+              "macos",
+              "windows"
+            ],
+            "scope": "npm direct competing dependency; transitive findings require authenticated reachability"
+          },
+          "tierReason": "No recorded published-version qualification for this usage context on both macOS & Windows."
+        },
+        {
+          "id": "app-shell.npm.kbar",
+          "type": "dependency",
+          "ecosystem": "npm",
+          "name": "kbar",
+          "tier": "advise",
+          "usageContext": {
+            "hosts": [
+              "macos",
+              "windows"
+            ],
+            "scope": "npm direct competing dependency; transitive findings require authenticated reachability"
+          },
+          "tierReason": "No recorded published-version qualification for this usage context on both macOS & Windows."
+        },
+        {
+          "id": "app-shell.npm.sonner",
+          "type": "dependency",
+          "ecosystem": "npm",
+          "name": "sonner",
+          "tier": "advise",
+          "usageContext": {
+            "hosts": [
+              "macos",
+              "windows"
+            ],
+            "scope": "npm direct competing dependency; transitive findings require authenticated reachability"
+          },
+          "tierReason": "No recorded published-version qualification for this usage context on both macOS & Windows."
+        },
+        {
+          "id": "app-shell.npm.react-hot-toast",
+          "type": "dependency",
+          "ecosystem": "npm",
+          "name": "react-hot-toast",
+          "tier": "advise",
+          "usageContext": {
+            "hosts": [
+              "macos",
+              "windows"
+            ],
+            "scope": "npm direct competing dependency; transitive findings require authenticated reachability"
+          },
+          "tierReason": "No recorded published-version qualification for this usage context on both macOS & Windows."
+        },
+        {
+          "id": "app-shell.npm.react-toastify",
+          "type": "dependency",
+          "ecosystem": "npm",
+          "name": "react-toastify",
+          "tier": "advise",
+          "usageContext": {
+            "hosts": [
+              "macos",
+              "windows"
+            ],
+            "scope": "npm direct competing dependency; transitive findings require authenticated reachability"
+          },
+          "tierReason": "No recorded published-version qualification for this usage context on both macOS & Windows."
+        },
+        {
+          "id": "app-shell.npm.react-hotkeys-hook",
+          "type": "dependency",
+          "ecosystem": "npm",
+          "name": "react-hotkeys-hook",
+          "tier": "advise",
+          "usageContext": {
+            "hosts": [
+              "macos",
+              "windows"
+            ],
+            "scope": "npm direct competing dependency; transitive findings require authenticated reachability"
+          },
+          "tierReason": "No recorded published-version qualification for this usage context on both macOS & Windows."
+        },
+        {
+          "id": "app-shell.npm.tinykeys",
+          "type": "dependency",
+          "ecosystem": "npm",
+          "name": "tinykeys",
+          "tier": "advise",
+          "usageContext": {
+            "hosts": [
+              "macos",
+              "windows"
+            ],
+            "scope": "npm direct competing dependency; transitive findings require authenticated reachability"
+          },
+          "tierReason": "No recorded published-version qualification for this usage context on both macOS & Windows."
+        },
+        {
+          "id": "app-shell.npm.hotkeys-js",
+          "type": "dependency",
+          "ecosystem": "npm",
+          "name": "hotkeys-js",
+          "tier": "advise",
+          "usageContext": {
+            "hosts": [
+              "macos",
+              "windows"
+            ],
+            "scope": "npm direct competing dependency; transitive findings require authenticated reachability"
+          },
+          "tierReason": "No recorded published-version qualification for this usage context on both macOS & Windows."
+        },
+        {
+          "id": "app-shell.npm.mousetrap",
+          "type": "dependency",
+          "ecosystem": "npm",
+          "name": "mousetrap",
+          "tier": "advise",
+          "usageContext": {
+            "hosts": [
+              "macos",
+              "windows"
+            ],
+            "scope": "npm direct competing dependency; transitive findings require authenticated reachability"
+          },
+          "tierReason": "No recorded published-version qualification for this usage context on both macOS & Windows."
+        },
+        {
+          "id": "app-shell.jsx.drag-region",
+          "type": "source",
+          "pattern": "\\bdata-tauri-drag-region\\b",
+          "codeOnly": true,
+          "extensions": [
+            ".ts",
+            ".tsx",
+            ".js",
+            ".mjs",
+            ".cjs",
+            ".jsx"
+          ],
+          "tier": "advise",
+          "usageContext": {
+            "hosts": [
+              "macos",
+              "windows"
+            ],
+            "scope": "Executable code only; authenticated owner provenance required for exclusions"
+          },
+          "tierReason": "No recorded published-version qualification for this usage context on both macOS & Windows."
+        }
+      ],
+      "detection": "fingerprinted",
+      "policyNotes": [
+        "Package contract retained; dependency declarations do not verify integration.",
+        "Fingerprints identify review candidates (competing dependencies and distinctive implementation code); published two-host replacement qualification is not recorded."
+      ]
+    },
+    {
       "package": "@rightkit/release",
       "capability": "release-tooling",
       "summary": "Portable release CLI/SDK with fail-closed public GitHub Releases and private R2 + RightApps distribution.",
@@ -3886,18 +3884,7 @@
     {
       "package": "@rightkit/settings-ui",
       "capability": "settings-ui",
-      "summary": "Settings panel frame and standard sections (appearance, updates, license, legal, diagnostics, models, API keys, about) persisted through rightkit-settings.; declaration-only detection (no precise implementation fingerprint)",
-      "fingerprints": [],
-      "detection": "declaration-only",
-      "policyNotes": [
-        "Package contract retained; dependency declarations do not verify integration.",
-        "No precise implementation fingerprint; declaration-only inventory, never enforced ownership or verified integration."
-      ]
-    },
-    {
-      "package": "@rightkit/shell",
-      "capability": "desktop-shell",
-      "summary": "Typed renderer bridge for the rightkit-shell Tauri crate: window controls, menu/tray events, deep links, autostart, rich clipboard, engine calls.; declaration-only detection (no precise implementation fingerprint)",
+      "summary": "Settings panel frame and standard sections (appearance, updates, license, legal, diagnostics, models, API keys, about) persisted through rightkit-app-settings.; declaration-only detection (no precise implementation fingerprint)",
       "fingerprints": [],
       "detection": "declaration-only",
       "policyNotes": [
@@ -3938,6 +3925,17 @@
       "policyNotes": [
         "Package contract retained; dependency declarations do not verify integration.",
         "Fingerprints identify review candidates (competing dependencies and distinctive implementation code); published two-host replacement qualification is not recorded."
+      ]
+    },
+    {
+      "package": "@rightkit/tauri-shell",
+      "capability": "desktop-shell",
+      "summary": "Typed renderer bridge for the rightkit-tauri-shell Tauri crate: window controls, menu/tray events, deep links, autostart, rich clipboard, engine calls.; declaration-only detection (no precise implementation fingerprint)",
+      "fingerprints": [],
+      "detection": "declaration-only",
+      "policyNotes": [
+        "Package contract retained; dependency declarations do not verify integration.",
+        "No precise implementation fingerprint; declaration-only inventory, never enforced ownership or verified integration."
       ]
     },
     {
@@ -4057,53 +4055,6 @@
             ".mjs",
             ".cjs",
             ".jsx"
-          ],
-          "tier": "advise",
-          "usageContext": {
-            "hosts": [
-              "macos",
-              "windows"
-            ],
-            "scope": "Executable code only; authenticated owner provenance required for exclusions"
-          },
-          "tierReason": "No recorded published-version qualification for this usage context on both macOS & Windows."
-        }
-      ],
-      "detection": "fingerprinted",
-      "policyNotes": [
-        "Package contract retained; dependency declarations do not verify integration.",
-        "Fingerprints identify review candidates (competing dependencies and distinctive implementation code); published two-host replacement qualification is not recorded."
-      ]
-    },
-    {
-      "package": "@rightkit/update",
-      "capability": "dependency-updates",
-      "summary": "Per-repo dependency updater: check, apply, gate and land for cargo, pnpm, swiftpm and external-tool pins, plus a scheduled run (launchd, Task Scheduler).; declaration-only detection (no precise implementation fingerprint)",
-      "fingerprints": [],
-      "detection": "declaration-only",
-      "policyNotes": [
-        "Package contract retained; dependency declarations do not verify integration.",
-        "No precise implementation fingerprint; declaration-only inventory, never enforced ownership or verified integration."
-      ]
-    },
-    {
-      "package": "@rightkit/updates",
-      "capability": "update-policy",
-      "summary": "Shared runtime update policy helper for Right Suite Tauri apps.",
-      "fingerprints": [
-        {
-          "id": "updates.api.download-and-install",
-          "type": "source",
-          "pattern": "\\.\\s*(?:downloadAndInstall|download_and_install)\\s*\\(",
-          "codeOnly": true,
-          "extensions": [
-            ".ts",
-            ".tsx",
-            ".js",
-            ".mjs",
-            ".cjs",
-            ".jsx",
-            ".rs"
           ],
           "tier": "advise",
           "usageContext": {

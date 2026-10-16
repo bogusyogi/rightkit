@@ -1,13 +1,15 @@
 [package]
 name = "rightkit-record"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2021"
 rust-version = "1.98.0"
-publish = false
+publish = true
 license = "MIT OR Apache-2.0"
-description = "Platform-neutral core of the RightKit recorder (RK3): record lifecycle, quarantine and recovery, session bundle writer, per-field redaction, bundle verification and frame reader. OS capture lives in per-platform helpers behind the Backend trait."
+description = "Per-window screen capture for any app, chosen by window id and pid: ScreenCaptureKit on macOS, Windows.Graphics.Capture on Windows. Record lifecycle, session bundles, redaction, verification and frame reader. Never sends input; needs Screen Recording permission."
+keywords = ["screen-capture", "recording", "screencapturekit", "graphics-capture"]
+readme = "README.md"
 repository = "https://github.com/Orthic-Labs/rightkit"
-include = ["src/**", "tests/**", "Cargo.toml", "rightkit-ownership.json"]
+include = ["src/**", "tests/**", "Cargo.toml", "README.md", "CHANGELOG.md", "rightkit-ownership.json", "helpers/macos/Package.swift", "helpers/macos/build.sh", "helpers/macos/Sources/**", "helpers/macos/Tests/**"]
 
 [lib]
 name = "rightkit_record"
@@ -18,17 +20,17 @@ name = "rightkit-record-helper"
 path = "src/bin/rightkit-record-helper/main.rs"
 
 [dependencies]
-rightkit-contracts = { path = "../rightkit-contracts" }
-rightkit-framed-sidecar = { path = "../rightkit-framed-sidecar" }
+rightkit-contracts = { version = "0.1.5", path = "../rightkit-contracts" }
+rightkit-sidecar = { version = "0.2.0", path = "../rightkit-sidecar" }
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.150"
 blake3 = "1.8"
 hmac-sha256 = "1.1.14"
-rightkit-secrets = { path = "../rightkit-secrets" }
+rightkit-credentials = { version = "0.2.0", path = "../rightkit-credentials" }
 
-# The macOS backend launches its Swift helper through rightkit-process.
+# The macOS backend launches its Swift helper through rightkit-child-process.
 [target.'cfg(target_os = "macos")'.dependencies]
-rightkit-process = { path = "../rightkit-process" }
+rightkit-child-process = { version = "0.4.0", path = "../rightkit-child-process" }
 
 # WGC + Media Foundation capture; folded in from the retired helpers/record-windows (RK3).
 [target.'cfg(windows)'.dependencies]
@@ -55,3 +57,36 @@ windows = { version = "0.62", features = [
     "Win32_UI_HiDpi",
     "Win32_UI_WindowsAndMessaging",
 ] }
+
+# Class: held-resource (docs/RUNTIME-BUDGETS.md). A take exists only between Backend::start and
+# Backend::stop or abort; nothing runs while the host holds no take.
+[package.metadata.rightkit]
+continuous = "held-resource"
+
+[[package.metadata.rightkit.resources]]
+api = "WindowsBackend"
+file = "src/windows/mod.rs"
+holds = ["thread", "memory"]
+scale = "one take: a Windows.Graphics.Capture session and frame pool on one HWND, SLOTS = 6 staging slots, one Media Foundation MP4 writer and one worker thread; fixed per take, independent of take length because frames are paced, hashed, encoded and dropped (backpressure counted), not retained"
+release = "Backend::stop or Backend::abort (stop joins the worker)"
+
+[[package.metadata.rightkit.resources]]
+api = "ProcessBackend::connect"
+file = "src/process.rs"
+holds = ["thread", "memory"]
+scale = "one reader thread and two channels per helper connection (the helper process itself is launched and owned by the host through rightkit-child-process, not here); the thread ends when the helper's stream closes on stop, abort or helper loss; queued events grow only with undrained helper events"
+release = "helper stream closes (stop, abort or helper exit); the host owns the child"
+
+[[package.metadata.rightkit.resources]]
+api = "serve_backend"
+file = "src/process.rs"
+holds = ["thread"]
+scale = "helper side: one request-reader thread for the duration of one serve call, ended when the input closes"
+release = "function return (stop, abort or input closed)"
+
+[[package.metadata.rightkit.resources]]
+api = "run"
+file = "src/bin/rightkit-record-helper/main.rs"
+holds = ["memory"]
+scale = "one-shot capture CLI: polls a WindowsBackend every 100 ms until the --seconds deadline, then stops it; bounded by the requested duration"
+release = "function return"

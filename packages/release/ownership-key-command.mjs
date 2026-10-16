@@ -5,10 +5,9 @@ import os from "node:os";
 import { fileURLToPath } from "node:url";
 import { spawnSync, spawnSyncInteractive, windowsPowerShellEnvironment } from "./background-process.mjs";
 import { createKeyEvent, keyFingerprint, verifyKeyLog, verifyKeyRequest } from "./ownership-key-log.mjs";
-import { canonicalRepositoryIdentity, DEFAULT_TRUST_PATH, loadTrustedExternal, resolveKeyLogTrust, __testOnly as approvalTestOnly } from "./ownership-approval.mjs";
+import { canonicalRepositoryIdentity, DEFAULT_TRUST_PATH, TRUST_SYNC_RETIRED, loadTrustedExternal, resolveKeyLogTrust, __testOnly as approvalTestOnly } from "./ownership-approval.mjs";
 import { readCommittedKeyAuthority } from "./ownership-key-authority.mjs";
-import { buildMacInvocation, confirmTrustChange, delegateToDesktop, hasTerminal, needsDesktopDelegation } from "./ownership-key-elevation.mjs";
-import { summarizeRequestFile } from "./ownership-trust-summary.mjs";
+import { buildMacInvocation, hasTerminal } from "./ownership-key-elevation.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const LOG = ".rightkit/ownership-keys.json";
@@ -321,7 +320,7 @@ function buildWindowsElevationInvocation(nodeExe, trustScript, requestPath, dige
   const parentScript = `$ErrorActionPreference='Stop'; try { $env:NODE_OPTIONS=$null; $env:NODE_PATH=$null; $p=Start-Process -FilePath ${quote(powershell)} -ArgumentList ${quote(`-NoProfile -EncodedCommand ${childEncoded}`)} -Verb RunAs -WindowStyle Hidden -Wait -PassThru; exit $p.ExitCode } catch { exit 1 }`;
   return { parentExecutable: powershell, parentArgs: ["-NoProfile", "-EncodedCommand", Buffer.from(parentScript, "utf16le").toString("base64")], childScript };
 }
-export const __testOnly = Object.freeze({ elevate, buildWindowsElevationInvocation, assertSafeMetadataParents, detectMinimizeHook, trustSyncGate, installCheckpoint });
+export const __testOnly = Object.freeze({ elevate, buildWindowsElevationInvocation, assertSafeMetadataParents, detectMinimizeHook, installCheckpoint });
 function trustState() { return loadTrustedExternal(); }
 function currentLogTrust(root, log, trust = trustState(), authority, injected = false) {
   if (!trust.trust?.rootFingerprint) throw new Error("protected root trust is not enrolled on this host");
@@ -353,10 +352,10 @@ export async function main(args, deps = {}) {
   const print = deps.print ?? console.log;
   const app = path.resolve(flag(args, "--app") ?? process.cwd());
   const root = deps.root ?? repoRoot(app, run);
+  if (args[0] === "trust-sync") { print(`[right-release] ${TRUST_SYNC_RETIRED}`); return 0; }
   try {
     if (!platform) throw new Error(`ownership key management unsupported platform: ${process.platform}`);
     // Delegate BEFORE taking the command lock: the desktop-session child needs that same lock.
-    if (args[0] === "trust-sync" && !args.includes("--check") && needsDesktopDelegation({ hostPlatform: deps.hostPlatform, env: deps.env, run, elevatedCheck: deps.elevatedCheck })) return delegateTrustSync(deps, run, print);
     const helper = deps.helper ?? helperFor(run);
     const lockPath = deps.lockPath ?? path.join(os.tmpdir(), "rightkit-key-command.lock");
     let lockFd;
@@ -371,8 +370,7 @@ export async function main(args, deps = {}) {
       if (verb === "enroll") return await enroll(args, { ...deps, run, print, root, helper, headSnapshot, transport, authority, hook });
       if (verb === "approve-key") return await approve(args, { ...deps, run, print, root, helper, headSnapshot, transport, authority, hook });
       if (verb === "revoke-key") return await revoke(args, { ...deps, run, print, root, helper, headSnapshot, transport, authority, hook });
-      if (verb === "trust-sync") return await trustSync(args, { ...deps, run, print, root, helper, headSnapshot, transport, authority, hook });
-      throw new Error("expected enroll, approve-key, revoke-key, or trust-sync");
+      throw new Error("expected enroll, approve-key, or revoke-key (trust-sync is retired)");
     } finally {
       closeSync(lockFd);
       rmSync(lockPath, { force: true });
@@ -507,53 +505,6 @@ async function resumeRootEnrollment(log, d) {
   postVerify(root, log, d);
   print(`Ownership root enrollment recovery completed: ${pin}; active keys: ${state.keys.length}`);
   return 0;
-}
-function delegateTrustSync(deps, run, print) {
-  const result = delegateToDesktop({ run, command: deps.desktopCommand ?? [process.execPath, ...(process.argv[1] ? [path.resolve(process.argv[1])] : []), ...process.argv.slice(2)], ...(deps.desktopOptions ?? {}) });
-  if (result.output) print(result.output.trimEnd());
-  if (result.status !== 0) throw new Error(`desktop-session trust-sync failed (exit ${result.status}); see output above`);
-  return 0;
-}
-/** Advance this host's protected checkpoint to the committed key log (after another host approved or revoked a key). */
-async function trustSync(_args, d) {
-  d = { ...d, label: "RightKit ownership trust-sync", gate: trustSyncGate(d) };
-  const log = readLog(d.root);
-  const pin = log.events[0]?.payload?.rootFingerprint;
-  const state = verifyKeyLog(log, { rootFingerprint: pin });
-  if (!state.ok) throw new Error(`committed key log is invalid: ${state.problems.join("; ")}`);
-  const trust = (d.trustLoader ?? trustState)();
-  if (!trust?.trust?.rootFingerprint) throw new Error("protected root trust is not enrolled on this host; run ownership enroll");
-  if (trust.trust.rootFingerprint !== pin) throw new Error("committed key log root does not match this host's protected trust");
-  const baseline = d.baseline ?? parse(readFileSync(path.join(here, "ownership-default-policy.json"), "utf8"), "ownership default policy");
-  if (_args.includes("--check")) {
-    // Read-only: say whether a sync would ask for approval, and for what. Asks nothing, elevates nothing, writes no trust.
-    const request = makeTrustRequest(log, pin, baseline, d.authority);
-    try {
-      const summary = (d.summarize ?? summarizeRequestFile)({ file: request.file, digest: request.digest, existing: trust.trust, ...(d.summaryInputs ?? {}) });
-      if (!summary.changed) { d.print("trust already current: no approval needed"); return 0; }
-      d.print(summary.lines.join("\n"));
-      d.print("approval needed: trust-sync on this host would ask for the change above");
-      return 3;
-    } finally { await import("node:fs").then(({ unlinkSync }) => unlinkSync(request.file)).catch(() => {}); }
-  }
-  const installed = await installCheckpoint(log, pin, baseline, d);
-  if (installed === false) { d.print("trust already current"); return 0; }
-  postVerify(d.root, log, d);
-  d.print(`Ownership trust synced to key-log sequence ${log.events.length - 1}; active keys: ${state.keys.length}`);
-  return 0;
-}
-/**
- * Informed-consent gate: summarize the exact request bytes (digest-checked) against the installed trust,
- * skip when nothing changes, otherwise require explicit approval before any elevation prompt.
- */
-function trustSyncGate(d) {
-  return (request) => {
-    const existing = (d.trustLoader ?? trustState)()?.trust ?? null;
-    const summary = (d.summarize ?? summarizeRequestFile)({ file: request.file, digest: request.digest, existing, ...(d.summaryInputs ?? {}) });
-    if (!summary.changed) return false;
-    (d.confirm ?? confirmTrustChange)({ lines: summary.lines, run: d.run, interactiveRun: d.run.interactive, print: d.print, hostPlatform: d.hostPlatform, ...(d.confirmOptions ?? {}) });
-    return true;
-  };
 }
 async function installCheckpoint(log, rootFingerprint, baseline, d) {
   const request = makeTrustRequest(log, rootFingerprint, baseline, d.authority);

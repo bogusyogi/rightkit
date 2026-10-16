@@ -4,7 +4,7 @@ Shared local-model manifest and installer for Right Suite apps. It owns model re
 
 **Use it** when an app must download, verify, adopt, activate, or garbage-collect local model or runtime files, and needs the same install semantics as other Right Suite apps.
 
-**Do not use it** to run models, to choose which model an app should use, or to fetch arbitrary files. Inference lives in the app or in crates such as `rightkit-qts`, `rightkit-ort`, and `rightkit-ocr`.
+**Do not use it** to run models, to choose which model an app should use, or to fetch arbitrary files. Inference lives in the app or in crates such as `rightkit-tts-qwen`, `rightkit-onnx`, and `rightkit-ocr`.
 
 ## Features
 
@@ -185,6 +185,22 @@ and SHA-256 (`catalog.rs`, `EMBEDDINGGEMMA2_Q4_FILES`). `rightkit-embed` reads `
 - **Licence.** To be confirmed. The existing specs in this catalog carry no licence field, and
   none was sourced for this bundle.
 
+## EmbeddingGemma 2 accelerator bundles (Core ML on macOS, E40 on Windows)
+
+The suite embedding model is EmbeddingGemma 2. Two platform bundles are described, both per-file, pinned by size and SHA-256, and reached only by their own functions (not in `base_catalog()`, `add_ons()` or `all_models()`). The pin tables exist on every platform; `embedding_gemma2_platform_specs()` returns the one for this platform.
+
+| | macOS | Windows |
+|---|---|---|
+| Spec | `embedding_gemma2_coreml_spec()` | `embedding_gemma2_e40_dml_spec()` |
+| Store id | `embeddinggemma2-coreml` | `embeddinggemma2-e40-dml` |
+| Files | `EmbeddingGemma2Text.mlpackage/{Manifest.json, Data/com.apple.CoreML/model.mlmodel, Data/com.apple.CoreML/weights/weight.bin}`, `embeddings.bf16`, `tokenizer.json`, `config.json` (584,748,275 bytes) | `model_32/64/128/256/512.onnx`, `model.onnx_data`, `embed_tokens.f16.npy`, `tokenizer.json` (592,894,933 bytes) |
+| URLs | `https://huggingface.co/FluidInference/embeddinggemma-2-coreml/resolve/3f978ddf92cac9aa07eb2dcf6eb36cf450f3dba4/<path>` (live) | `<MODEL_DOWNLOAD_BASE>/embeddinggemma2-e40-dml/e40-daa72c5/<file>` (**route pending**) |
+
+- **E40 route pending.** The worker (`rightsites/workers/heardright-models`) has no route and the files are not uploaded, so `ensure` fails on download until both exist. `can_download()` is true because the URLs are set. Placing the eight files byte-identical in the entry dir adopts them. The layout follows the Parakeet precedent (model name, then revision, then file). Whether the route needs a bearer is undecided; the entry assumes none.
+- **Core ML.** Only the text encoder is listed; the repository's audio and vision packages and `position_embeddings.f16` are not. An `.mlpackage` is a directory, so every file inside it is listed. `rightkit-embed` cannot run it yet (README of that crate).
+- `manifest.json` of the E40 build is not listed: it records the build time and is not byte-stable.
+- Licence: Core ML card says Apache-2.0; E40 derives from `onnx-community/embeddinggemma-2-ONNX`, licence not confirmed here.
+
 ## Wrapping this crate
 
 An app that wraps the suite crate (a shared-store wrapper or a host SDK) re-exports the
@@ -195,7 +211,7 @@ use rightkit_models::{EntitlementError, ModelStore};
 use rightkit_models::suite::catalog::ModelSpec; // the suite's catalog spec, not the root `ModelSpec`
 ```
 
-- `ModelStore::shared(app_id)` binds the machine-wide shared store (`ORTHIC_SHARED_DIR` overrides its root); `ModelStore::at_models_root(root, app_id)`
+- `ModelStore::shared(app_id)` binds the machine-wide shared store (the root is `rightkit_daemon::Suite::resolve`: in a build with the `test-mode` feature `RIGHTKIT_SUITE_ROOT`, `RIGHT_SUITE_DIR` or `ORTHIC_SHARED_DIR` overrides it; a build without `test-mode` reads none of them); `ModelStore::at_models_root(root, app_id)`
   binds an explicit directory (tests, sandboxes). `with_http_client` swaps the transport.
 - `EntitlementError` is what `try_ensure_entitled` returns. Match on it to tell "not entitled"
   (`NotEntitled`), "back off" (`RateLimited`), "retry" (`Transport`) and "local failure" (`Install`).

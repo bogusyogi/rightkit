@@ -1,0 +1,318 @@
+{
+  "schemaVersion": 1,
+  "libraries": [
+    {
+      "id": "onnxruntime-1.24.4-macos-arm64",
+      "library": "onnxruntime",
+      "version": "1.24.4",
+      "os": "macos",
+      "arch": "aarch64",
+      "status": "approved",
+      "linkage": "dynamic-library",
+      "artifactFileName": "libonnxruntime.1.24.4.dylib",
+      "sha256": "872533f130f1839a5bc01788ddb4f75c83a189763441ba1178788ed965449289",
+      "archive": {
+        "url": "https://github.com/microsoft/onnxruntime/releases/download/v1.24.4/onnxruntime-osx-arm64-1.24.4.tgz",
+        "sha256": "93787795f47e1eee369182e43ed51b9e5da0878ab0346aecf4258979b8bba989"
+      },
+      "sourceUrl": "https://github.com/microsoft/onnxruntime/releases/tag/v1.24.4",
+      "licenseSpdx": "MIT",
+      "noticeFiles": ["third-party/ONNXRuntime-MIT.txt"],
+      "verification": {
+        "method": "file-sha256",
+        "evidence": "genright .cache batch5/voice/dl onnxruntime-osx-arm64-1.24.4(.tgz) loaded and run by rightkit-onnx e2e"
+      }
+    },
+    {
+      "id": "onnxruntime-1.24.4-macos-x86_64",
+      "library": "onnxruntime",
+      "version": "1.24.4",
+      "os": "macos",
+      "arch": "x86_64",
+      "status": "planned",
+      "linkage": "dynamic-library",
+      "sourceUrl": "https://github.com/microsoft/onnxruntime/releases/tag/v1.24.4",
+      "licenseSpdx": "MIT",
+      "noticeFiles": ["third-party/ONNXRuntime-MIT.txt"],
+      "verification": { "method": "none", "evidence": "no x86_64 artifact staged yet" }
+    },
+    {
+      "id": "onnxruntime-1.24.4-windows-x64-directml",
+      "library": "onnxruntime",
+      "version": "1.24.4",
+      "os": "windows",
+      "arch": "x86_64",
+      "status": "pinned",
+      "linkage": "dynamic-library",
+      "artifactFileName": "onnxruntime.dll",
+      "sha256": "e7eedec6a6f26dc39dc948276a75ef6d2bee3fff944d874ceed0bbd3b97bff40",
+      "archive": {
+        "url": "https://api.nuget.org/v3-flatcontainer/microsoft.ml.onnxruntime.directml/1.24.4/microsoft.ml.onnxruntime.directml.1.24.4.nupkg",
+        "sha256": "57e9f11b73437bef7a309496135d4c1f96b1a8e9ddba60013fa27bfc1d788681"
+      },
+      "sourceUrl": "https://www.nuget.org/packages/Microsoft.ML.OnnxRuntime.DirectML/1.24.4",
+      "licenseSpdx": "MIT",
+      "noticeFiles": [
+        "third-party/ONNXRuntime-MIT.txt",
+        "third-party/ONNXRuntime-1.24.4-ThirdPartyNotices.txt"
+      ],
+      "verification": {
+        "method": "file-sha256",
+        "evidence": "Microsoft.ML.OnnxRuntime.DirectML 1.24.4 from nuget.org: the nupkg (12458649 bytes) hashes to the SHA-512 nuget.org publishes (ZjOyv495vhfVXoTJp2utRyn8ir1TFIvCj0B9JP8QZGBXS0oFx+lY7ZCZqSdnVShQX6EtxYi2T3VOtYXcmBTV4A==); sha256 is runtimes/win-x64/native/onnxruntime.dll (17328152 bytes) extracted from it. Not loaded or run by rightkit-onnx here yet, so it stays pinned. The DirectML execution provider also needs DirectML.dll from Microsoft.AI.DirectML (the package declares >= 1.15.4); that file is the separate record directml-1.15.4-windows-x64, under Microsoft's DirectML licence terms."
+      }
+    },
+    {
+      "id": "directml-1.15.4-windows-x64",
+      "library": "directml",
+      "version": "1.15.4",
+      "os": "windows",
+      "arch": "x86_64",
+      "status": "pinned",
+      "linkage": "dynamic-library",
+      "artifactFileName": "DirectML.dll",
+      "sha256": "9c9e6d822561c6c41b90e6994b3e8857cf1d66dbfb1e0c4c799c7c89b4e92da1",
+      "archive": {
+        "url": "https://api.nuget.org/v3-flatcontainer/microsoft.ai.directml/1.15.4/microsoft.ai.directml.1.15.4.nupkg",
+        "sha256": "4e7cb7ddce8cf837a7a75dc029209b520ca0101470fcdf275c1f49736a3615b9"
+      },
+      "sourceUrl": "https://www.nuget.org/packages/Microsoft.AI.DirectML/1.15.4",
+      "licenseSpdx": "LicenseRef-Microsoft-DirectML",
+      "noticeFiles": [
+        "third-party/DirectML-1.15.4-LICENSE.txt",
+        "third-party/DirectML-1.15.4-ThirdPartyNotices.txt"
+      ],
+      "verification": {
+        "method": "file-sha256",
+        "evidence": "Microsoft.AI.DirectML 1.15.4 from nuget.org, the version Microsoft.ML.OnnxRuntime.DirectML 1.24.4 declares as its minimum: the nupkg (202292617 bytes) hashes to the SHA-512 nuget.org publishes (/edn9WkEq8kP1T9l2HKckYq39uPF4ezdR5kI/AK0U1zysIYPerKsubcx1suAm3LD1dTQKFP7j16gIqR7xE7yhQ==); sha256 is bin/x64-win/DirectML.dll (18527776 bytes) extracted from it. Redistributable only with an application under the package's Microsoft Software License Terms, shipped as the first notice file. Not loaded through rightkit-onnx here yet, so it stays pinned."
+      }
+    },
+    {
+      "id": "pdfium-chromium-8021-macos-arm64",
+      "library": "pdfium",
+      "version": "chromium/8021",
+      "os": "macos",
+      "arch": "aarch64",
+      "status": "pinned",
+      "linkage": "dynamic-library",
+      "artifactFileName": "libpdfium.dylib",
+      "archive": {
+        "url": "https://github.com/bblanchon/pdfium-binaries/releases/download/chromium%2F8021/pdfium-mac-arm64.tgz",
+        "sha256": "994600fa28974ce09a1c51c35039e808a6bc8ea3839050322c101ab229ad5c96"
+      },
+      "sourceUrl": "https://github.com/bblanchon/pdfium-binaries/releases/tag/chromium%2F8021",
+      "licenseSpdx": "BSD-3-Clause",
+      "noticeFiles": ["third-party/PDFium-BSD-3-Clause.txt"],
+      "verification": { "method": "archive-sha256", "evidence": "ScrapeRight scripts/package-macos-helpers.sh ensure_pdfium pin (archive not re-downloaded here)" }
+    },
+    {
+      "id": "pdfium-chromium-8021-macos-x86_64",
+      "library": "pdfium",
+      "version": "chromium/8021",
+      "os": "macos",
+      "arch": "x86_64",
+      "status": "pinned",
+      "linkage": "dynamic-library",
+      "artifactFileName": "libpdfium.dylib",
+      "archive": {
+        "url": "https://github.com/bblanchon/pdfium-binaries/releases/download/chromium%2F8021/pdfium-mac-x64.tgz",
+        "sha256": "0e770fda56c6726a08fab84c6306ad91eceb10589020ce3a407fad3ebcbe7bb2"
+      },
+      "sourceUrl": "https://github.com/bblanchon/pdfium-binaries/releases/tag/chromium%2F8021",
+      "licenseSpdx": "BSD-3-Clause",
+      "noticeFiles": ["third-party/PDFium-BSD-3-Clause.txt"],
+      "verification": { "method": "archive-sha256", "evidence": "ScrapeRight scripts/package-macos-helpers.sh ensure_pdfium pin (archive not re-downloaded here)" }
+    },
+    {
+      "id": "pdfium-chromium-8021-windows-x64",
+      "library": "pdfium",
+      "version": "chromium/8021",
+      "os": "windows",
+      "arch": "x86_64",
+      "status": "planned",
+      "linkage": "dynamic-library",
+      "artifactFileName": "pdfium.dll",
+      "sourceUrl": "https://github.com/bblanchon/pdfium-binaries/releases/tag/chromium%2F8021",
+      "licenseSpdx": "BSD-3-Clause",
+      "noticeFiles": ["third-party/PDFium-BSD-3-Clause.txt"],
+      "verification": { "method": "none", "evidence": "ScrapeRight Windows pin is chromium/7920; unify to 8021 on the Windows host" }
+    },
+    {
+      "id": "sherpa-onnx-1.13.4-macos-universal",
+      "library": "sherpa-onnx",
+      "version": "1.13.4",
+      "os": "macos",
+      "arch": "universal",
+      "status": "approved",
+      "linkage": "dynamic-library",
+      "artifactFileName": "libsherpa-onnx-c-api.dylib",
+      "sha256": "1f16f3dc70afaa25e774f36113365f7ace836c927ea485350124ac3f3d836ecf",
+      "sourceUrl": "https://github.com/k2-fsa/sherpa-onnx/releases/tag/v1.13.4",
+      "licenseSpdx": "Apache-2.0",
+      "noticeFiles": ["third-party/Apache-2.0.txt"],
+      "verification": {
+        "method": "file-sha256",
+        "evidence": "HeardRight resources/runtime and CutRight packs/speech/PACK.json (revision 142807252687d81b40d6315f23470a1512a00de3)"
+      }
+    },
+    {
+      "id": "sqlite-vec-0.1.9-any",
+      "library": "sqlite-vec",
+      "version": "0.1.9",
+      "os": "any",
+      "arch": "any",
+      "status": "approved",
+      "linkage": "static-crate",
+      "cargo": {
+        "crate": "sqlite-vec",
+        "version": "0.1.9",
+        "checksum": "d0ba424237a9a5db2f6071f193319e2b6a32f7f3961debb2fbbfe67067abce3f"
+      },
+      "sourceUrl": "https://crates.io/crates/sqlite-vec/0.1.9",
+      "licenseSpdx": "MIT OR Apache-2.0",
+      "verification": { "method": "cargo-checksum", "evidence": "MailRight src-tauri/Cargo.lock" }
+    },
+    {
+      "id": "libgit2-1.9.7-any",
+      "library": "libgit2",
+      "version": "1.9.7",
+      "os": "any",
+      "arch": "any",
+      "status": "approved",
+      "linkage": "static-crate",
+      "cargo": {
+        "crate": "libgit2-sys",
+        "version": "0.18.8+1.9.7",
+        "checksum": "7f7c568b25d7489bc3fb2988ed69ab111d2944d2f5fec3d5c987fe545ea97b50"
+      },
+      "sourceUrl": "https://crates.io/crates/libgit2-sys/0.18.8+1.9.7",
+      "licenseSpdx": "GPL-2.0-only WITH GCC-exception-2.0",
+      "verification": { "method": "cargo-checksum", "evidence": "CodeRight engine/Cargo.lock (bundled libgit2 1.9.7, static, linking exception applies)" }
+    },
+    {
+      "id": "whisper-cpp-1.9.3-macos-arm64",
+      "library": "whisper-cpp",
+      "version": "1.9.3",
+      "os": "macos",
+      "arch": "aarch64",
+      "status": "approved",
+      "linkage": "dynamic-library",
+      "artifactFileName": "libwhisper.1.9.3.dylib",
+      "sha256": "138678a0d91528b4de52b16cdb962ba2ba5d97a77e6af3607a69c3621e092911",
+      "contentSha256": "1f8ab52951e6fa472b93904bfb36ee3fb6fe8a8cc4ff3ad6804c697356b760b1",
+      "sourceUrl": "https://github.com/ggml-org/whisper.cpp",
+      "licenseSpdx": "MIT",
+      "noticeFiles": [
+        "third-party/whisper.cpp-MIT.txt"
+      ],
+      "verification": {
+        "method": "file-sha256",
+        "evidence": "whisper.cpp 1.9.3 Metal build retained at /Volumes/D/rightkit-publish/artifacts/whisper-cpp-1.9.3/macos-arm64/libwhisper.1.9.3.dylib (428768 bytes; also /Volumes/D/.cache/whisper-cpp-1.9.3-metal-rk); contentSha256 is signature-independent; the unversioned install-name symlinks (libwhisper.1.dylib, libggml.0.dylib, ...) point at this file"
+      }
+    },
+    {
+      "id": "ggml-0.20.2-macos-arm64",
+      "library": "ggml",
+      "version": "0.20.2",
+      "os": "macos",
+      "arch": "aarch64",
+      "status": "approved",
+      "linkage": "dynamic-library",
+      "artifactFileName": "libggml.0.20.2.dylib",
+      "sha256": "b11aafbee469c0832ba44b889aeffc64127e0eab8a37022871dc1f0234b70f80",
+      "contentSha256": "9cccd22107be0f657ba6751f6d2dd73f3687eac51b794f9416e2f46620bbeae0",
+      "sourceUrl": "https://github.com/ggml-org/whisper.cpp",
+      "licenseSpdx": "MIT",
+      "noticeFiles": [
+        "third-party/whisper.cpp-MIT.txt"
+      ],
+      "verification": {
+        "method": "file-sha256",
+        "evidence": "whisper.cpp 1.9.3 Metal build retained at /Volumes/D/rightkit-publish/artifacts/whisper-cpp-1.9.3/macos-arm64/libggml.0.20.2.dylib (59728 bytes; also /Volumes/D/.cache/whisper-cpp-1.9.3-metal-rk); contentSha256 is signature-independent; the unversioned install-name symlinks (libwhisper.1.dylib, libggml.0.dylib, ...) point at this file"
+      }
+    },
+    {
+      "id": "ggml-base-0.20.2-macos-arm64",
+      "library": "ggml",
+      "version": "0.20.2",
+      "os": "macos",
+      "arch": "aarch64",
+      "status": "approved",
+      "linkage": "dynamic-library",
+      "artifactFileName": "libggml-base.0.20.2.dylib",
+      "sha256": "0db4093b753f1b2b3b7312403cd6808b665dd5a01e70439130197c9233b0462f",
+      "contentSha256": "63729f7c1cc8b412c83afdbf08d15e2ab55f351d697795d34734d269e89a4210",
+      "sourceUrl": "https://github.com/ggml-org/whisper.cpp",
+      "licenseSpdx": "MIT",
+      "noticeFiles": [
+        "third-party/whisper.cpp-MIT.txt"
+      ],
+      "verification": {
+        "method": "file-sha256",
+        "evidence": "whisper.cpp 1.9.3 Metal build retained at /Volumes/D/rightkit-publish/artifacts/whisper-cpp-1.9.3/macos-arm64/libggml-base.0.20.2.dylib (728240 bytes; also /Volumes/D/.cache/whisper-cpp-1.9.3-metal-rk); contentSha256 is signature-independent; the unversioned install-name symlinks (libwhisper.1.dylib, libggml.0.dylib, ...) point at this file"
+      }
+    },
+    {
+      "id": "ggml-cpu-0.20.2-macos-arm64",
+      "library": "ggml",
+      "version": "0.20.2",
+      "os": "macos",
+      "arch": "aarch64",
+      "status": "approved",
+      "linkage": "dynamic-library",
+      "artifactFileName": "libggml-cpu.0.20.2.dylib",
+      "sha256": "8431c2b337c2f004e803603762f1e944df00273d39562787fadc3aee8dddf50b",
+      "contentSha256": "6a9752e849df03b1bda5afece3e4895c26f919e9a64552c7190ce22857db14cf",
+      "sourceUrl": "https://github.com/ggml-org/whisper.cpp",
+      "licenseSpdx": "MIT",
+      "noticeFiles": [
+        "third-party/whisper.cpp-MIT.txt"
+      ],
+      "verification": {
+        "method": "file-sha256",
+        "evidence": "whisper.cpp 1.9.3 Metal build retained at /Volumes/D/rightkit-publish/artifacts/whisper-cpp-1.9.3/macos-arm64/libggml-cpu.0.20.2.dylib (858304 bytes; also /Volumes/D/.cache/whisper-cpp-1.9.3-metal-rk); contentSha256 is signature-independent; the unversioned install-name symlinks (libwhisper.1.dylib, libggml.0.dylib, ...) point at this file"
+      }
+    },
+    {
+      "id": "ggml-metal-0.20.2-macos-arm64",
+      "library": "ggml",
+      "version": "0.20.2",
+      "os": "macos",
+      "arch": "aarch64",
+      "status": "approved",
+      "linkage": "dynamic-library",
+      "artifactFileName": "libggml-metal.0.20.2.dylib",
+      "sha256": "0bbe90949684ae29ce7360aba2aded89b217dbdba8375bdcd53b4ac68d7530dd",
+      "contentSha256": "6a1ebf388b2d42ce38c0bb4a95d74a29fe73adf65bc1804978b7804d054ed0c3",
+      "sourceUrl": "https://github.com/ggml-org/whisper.cpp",
+      "licenseSpdx": "MIT",
+      "noticeFiles": [
+        "third-party/whisper.cpp-MIT.txt"
+      ],
+      "verification": {
+        "method": "file-sha256",
+        "evidence": "whisper.cpp 1.9.3 Metal build retained at /Volumes/D/rightkit-publish/artifacts/whisper-cpp-1.9.3/macos-arm64/libggml-metal.0.20.2.dylib (895520 bytes; also /Volumes/D/.cache/whisper-cpp-1.9.3-metal-rk); contentSha256 is signature-independent; the unversioned install-name symlinks (libwhisper.1.dylib, libggml.0.dylib, ...) point at this file"
+      }
+    },
+    {
+      "id": "ggml-blas-0.20.2-macos-arm64",
+      "library": "ggml",
+      "version": "0.20.2",
+      "os": "macos",
+      "arch": "aarch64",
+      "status": "approved",
+      "linkage": "dynamic-library",
+      "artifactFileName": "libggml-blas.0.20.2.dylib",
+      "sha256": "4c5389ff578dfb7f09b080dc282084bff955eecde2233bcb2efc23408b508621",
+      "contentSha256": "5fbaf5446ba68a7e74012b3aad15a5e6789d7939103284698d971bbd8f9f3e50",
+      "sourceUrl": "https://github.com/ggml-org/whisper.cpp",
+      "licenseSpdx": "MIT",
+      "noticeFiles": [
+        "third-party/whisper.cpp-MIT.txt"
+      ],
+      "verification": {
+        "method": "file-sha256",
+        "evidence": "whisper.cpp 1.9.3 Metal build retained at /Volumes/D/rightkit-publish/artifacts/whisper-cpp-1.9.3/macos-arm64/libggml-blas.0.20.2.dylib (58528 bytes; also /Volumes/D/.cache/whisper-cpp-1.9.3-metal-rk); contentSha256 is signature-independent; the unversioned install-name symlinks (libwhisper.1.dylib, libggml.0.dylib, ...) point at this file"
+      }
+    }
+  ]
+}

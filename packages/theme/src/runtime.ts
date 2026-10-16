@@ -45,12 +45,47 @@ export function brandFromAccent(name: string, accent: string): BrandFile {
   return { name, colors: { brand: accent } };
 }
 
+export interface ThemeAttributeOptions {
+  /**
+   * "Dark is the default" contract (CodeRight): the app's stylesheet treats a missing `data-theme` as dark, so a resolved
+   * dark theme removes the attribute and only light is written. Default `false`: dark writes `data-theme="dark"`.
+   */
+  darkRemovesAttribute?: boolean;
+}
+
+/** The `data-theme` value for a resolved theme, or `null` when the attribute should be absent. */
+export function themeAttributeValue(resolved: "light" | "dark", options: ThemeAttributeOptions = {}): string | null {
+  return resolved === "dark" && options.darkRemovesAttribute ? null : resolved;
+}
+
+/** Minimal element surface for [`applyThemeAttribute`]. */
+export interface ThemeAttributeTarget {
+  setAttribute(name: string, value: string): void;
+  removeAttribute(name: string): void;
+}
+
+/** Set or remove `data-theme` on `root` for a resolved theme (see [`ThemeAttributeOptions`]). */
+export function applyThemeAttribute(
+  resolved: "light" | "dark",
+  root: ThemeAttributeTarget | null = typeof document === "undefined" ? null : document.documentElement,
+  options: ThemeAttributeOptions = {},
+): void {
+  if (!root) return;
+  const value = themeAttributeValue(resolved, options);
+  if (value === null) root.removeAttribute("data-theme");
+  else root.setAttribute("data-theme", value);
+}
+
 /**
  * Inline script text for `<head>`: applies the stored light/dark choice to `data-theme` before first paint so the window never
  * flashes the wrong theme. `system` (or nothing stored) leaves the attribute off and the OS decides. Pair with
- * `@rightkit/app-shell`'s theme store, which owns the same storage key afterwards.
+ * `@rightkit/react-shell`'s theme store, which owns the same storage key afterwards.
  */
-export function themeBootScript(storageKey: string): string {
+export function themeBootScript(storageKey: string, options: ThemeAttributeOptions = {}): string {
   const key = JSON.stringify(storageKey);
-  return `(function(){try{var v=localStorage.getItem(${key});if(v==="light"||v==="dark")document.documentElement.setAttribute("data-theme",v);}catch(e){}})();`;
+  const dark = options.darkRemovesAttribute
+    ? `if(v==="dark")document.documentElement.removeAttribute("data-theme");else `
+    : "";
+  const set = options.darkRemovesAttribute ? `v==="light"` : `v==="light"||v==="dark"`;
+  return `(function(){try{var v=localStorage.getItem(${key});${dark}if(${set})document.documentElement.setAttribute("data-theme",v);}catch(e){}})();`;
 }

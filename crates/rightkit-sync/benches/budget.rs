@@ -9,14 +9,14 @@
 //!
 //! After the passes the engine is held idle (ledger of 100,000 records resident, no pass running)
 //! for the idle window. Reports resident memory, CPU, wake-ups and disk operations through
-//! `rightkit_process::process_usage` (the one shared source), pass latency and throughput from
+//! `rightkit_child_process::process_usage` (the one shared source), pass latency and throughput from
 //! `SyncEngine::metrics()`, and the size of the ledger document that every durable write
 //! serializes in full.
 //!
 //! Run: `rightkit cargo bench -p rightkit-sync --bench budget`
 //! Optional: `-- <records> <passes> <edits_per_side_per_pass>` (defaults 100000, 100, 100); a fourth argument sets the idle seconds (default 30).
 
-use rightkit_process::{observe_idle, process_usage, BudgetLabels, ProcessUsage};
+use rightkit_child_process::{observe_idle, process_usage, BudgetLabels, ProcessUsage};
 use rightkit_sync::*;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};

@@ -5,6 +5,7 @@ import { execFileSync } from './background-process.mjs';
 import { mkdtemp, mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { basename, join, relative, resolve } from 'node:path';
+import { RENAMED_AWAY_NPM } from './renamed-away.mjs';
 import { fileURLToPath } from 'node:url';
 
 const packageRoot = fileURLToPath(new URL('.', import.meta.url));
@@ -72,6 +73,17 @@ export async function publishedPackageNames() {
   return [...new Set([...Object.keys(versions.npm ?? {}), ...Object.keys(versions.stagedNpm ?? {}), ...Object.keys(versions.legacyNpm ?? {})])].sort();
 }
 
+// name -> directory for every package under packages/*, resolved by package.json `name`.
+async function treePackageDirs() {
+  const dirs = new Map();
+  for (const entry of await readdir(join(packageRoot, '..'), { withFileTypes: true })) {
+    if (!entry.isDirectory()) continue;
+    const dir = join(packageRoot, '..', entry.name);
+    try { dirs.set(JSON.parse(await readFile(join(dir, 'package.json'), 'utf8')).name, dir); } catch { /* not a package */ }
+  }
+  return dirs;
+}
+
 export async function verifyAllRegistryParity({ allowUnpublished = false, fetchImpl = fetch, names } = {}) {
   const results = [];
   for (const name of names ?? await publishedPackageNames()) {
@@ -81,7 +93,12 @@ export async function verifyAllRegistryParity({ allowUnpublished = false, fetchI
 }
 
 export async function verifyRegistryParity({ allowUnpublished = false, fetchImpl = fetch, packageName = '@rightkit/release' } = {}) {
-  const sourceRoot = packageName === '@rightkit/release' ? packageRoot : join(packageRoot, '..', packageName.replace('@rightkit/', ''));
+  const sourceRoot = packageName === '@rightkit/release' ? packageRoot : (await treePackageDirs()).get(packageName);
+  if (!sourceRoot) {
+    const successor = RENAMED_AWAY_NPM.get(packageName);
+    if (successor) return Object.freeze({ status: 'RENAMED_AWAY', name: packageName, reason: `renamed to ${successor}; no tree package` });
+    throw new Error(`no packages/* directory has package.json name ${packageName}`);
+  }
   const manifest = JSON.parse(await readFile(join(sourceRoot, 'package.json'), 'utf8'));
   if (manifest.name !== packageName) throw new Error(`source ${sourceRoot} is ${manifest.name}, expected ${packageName}`);
   const encodedName = encodeURIComponent(manifest.name);

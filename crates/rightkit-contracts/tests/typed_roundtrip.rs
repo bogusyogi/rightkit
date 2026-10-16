@@ -907,6 +907,7 @@ fn api_minimal() -> DaemonApi {
                 required_headers: vec!["X-Provider-Signature".into()],
                 summary: "Provider delivery verified by HMAC.".into(),
             },
+            device_call: None,
         },
         // The upload routes must name declared routes, so all four are declared.
         routes: vec![
@@ -989,8 +990,18 @@ fn api_with_every_optional_set() -> DaemonApi {
     let mut headers = BTreeMap::new();
     headers.insert("Idempotency-Key".to_string(), "upload-init-1".to_string());
     headers.insert("Content-Type".to_string(), "application/json".to_string());
+    let base = api_minimal();
+    let mut auth_classes = base.auth_classes.clone();
+    auth_classes.device_call = Some(api::AuthClass {
+        credentials: vec!["device_token".into()],
+        mutation_allowed: true,
+        required_headers: vec!["Authorization".into()],
+        summary: "A signed device calls one method.".into(),
+    });
     DaemonApi {
         api_id: "postright-daemon-all-optionals".into(),
+        contract_version: "1.1.0".into(),
+        auth_classes,
         exchanges: vec![api::Exchange {
             route_id: "upload.init".into(),
             request: api::ExchangeRequest {
@@ -1002,7 +1013,7 @@ fn api_with_every_optional_set() -> DaemonApi {
                 body: Some(json!({ "uploadId": "up.1" })),
             },
         }],
-        ..api_minimal()
+        ..base
     }
 }
 

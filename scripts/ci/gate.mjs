@@ -217,7 +217,7 @@ const assetEnv = (selection, name) => (UNIT_MODE && selection.unitRequest?.allow
 
 // ORT-PROVISION (the single call site): the catalog-pinned Windows ONNX Runtime for the real-runtime
 // tests, provisioned once and only when a unit that uses it is tested. A failed provision is a red row.
-const ORT_UNITS = new Set(["rightkit-ort"]);
+const ORT_UNITS = new Set(["rightkit-onnx"]);
 let ortEnv;
 async function ortEnvFor(name) {
   if (!ORT_UNITS.has(name)) return {};
@@ -248,7 +248,12 @@ async function rustGate(selection, config) {
 
   const formatted = rust.test.filter(applies);
   if (formatted.length) {
-    await run("fmt", "cargo", ["fmt", ...formatted.flatMap((name) => ["-p", name])], { timeoutMinutes: 10 });
+    // Batch the -p flags: one command line holding every crate overflows Windows' 32,767-char
+    // limit (os error 206). Every batch runs even if one fails; each failure is recorded by run().
+    const FMT_BATCH = 15;
+    for (let i = 0; i < formatted.length; i += FMT_BATCH) {
+      await run("fmt", "cargo", ["fmt", ...formatted.slice(i, i + FMT_BATCH).flatMap((name) => ["-p", name])], { timeoutMinutes: 10 });
+    }
     const dirty = git("diff", "--name-only").stdout.split("\n").filter((p) => p.endsWith(".rs"));
     if (dirty.length) {
       savePatch("fmt.patch", dirty);
@@ -267,6 +272,9 @@ async function rustGate(selection, config) {
       if (entry.alsoSerial) await run(`rust:${name}`, "cargo", ["test", "-p", name, ...features, "--no-fail-fast", "--", "--test-threads=1", "--show-output"], { timeoutMinutes, env });
     }
     await run(`rust:${name}`, "cargo", ["clippy", "-p", name, "--no-deps", "--all-targets", ...featureSets[0], "--", "-D", "warnings"], { timeoutMinutes });
+    // Features the tests do not enable must still compile; keep in step with packages/release/local-publish.mjs.
+    const checkSets = featureSets.some((features) => features.includes("--all-features")) ? [] : (entry.checkFeatureSets ?? [["--all-features"]]);
+    for (const features of checkSets) await run(`rust:${name}`, "cargo", ["check", "-p", name, "--all-targets", ...features], { timeoutMinutes });
   }
   for (const name of rust.check) {
     if (applies(name)) await run(`rust:${name}`, "cargo", ["check", "-p", name, "--all-targets"], { timeoutMinutes: 30 });

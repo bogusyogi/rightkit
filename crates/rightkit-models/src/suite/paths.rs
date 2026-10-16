@@ -12,19 +12,21 @@
 //! - `<root>/tools/<tool>/<version>/<files>` plus `manifest.json`
 //! - `<root>/tools/refs/<app>.json` — per-app tool usage registry
 //!
-//! `RIGHT_SUITE_DIR` overrides the root (dev/test). It is read on every call —
-//! never cached — so tests and dev shells can point the store at a temp dir
-//! without leaking state across the process.
+//! In a `test-mode` build `RIGHTKIT_SUITE_ROOT`, `RIGHT_SUITE_DIR` or `ORTHIC_SHARED_DIR`
+//! overrides the root (dev/test), resolved through `rightkit_daemon::Suite::resolve`. It is read
+//! on every call — never cached. A build without `test-mode` reads none of them.
 
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
-/// Env var that overrides the suite store root. Read live (not OnceLock) so
-/// tests can redirect the store without process-global ordering hazards.
+/// Legacy alias that overrides the suite store root in `test-mode` builds only. Read live (not
+/// OnceLock) so tests can redirect the store without process-global ordering hazards.
 pub const SUITE_ROOT_ENV: &str = "RIGHT_SUITE_DIR";
-/// Orthic Labs shared-data override. RIGHT_SUITE_DIR remains a test/dev
-/// override and takes precedence when set.
+/// Orthic Labs shared-data override (`test-mode` builds only). `RIGHTKIT_SUITE_ROOT` and
+/// `RIGHT_SUITE_DIR` take precedence when set.
 pub const ORTHIC_SHARED_DIR_ENV: &str = "ORTHIC_SHARED_DIR";
+/// The preferred override, honoured in `test-mode` builds only (`rightkit_daemon::ENV_SUITE_ROOT`).
+pub const RIGHTKIT_SUITE_ROOT_ENV: &str = rightkit_daemon::ENV_SUITE_ROOT;
 /// Last ScrapeRight release eligible for automatic legacy-root migration.
 pub const LEGACY_COMPAT_MAX_APP_VERSION: &str = "0.1.12";
 
@@ -66,31 +68,85 @@ pub fn version_within(app_version: &str, max_version: &str) -> bool {
 }
 
 /// Suite-wide root directory shared by all Orthic Labs apps.
+///
+/// Resolved by [`rightkit_daemon::Suite::resolve`], the one rule every Right Suite crate uses:
+///
+/// - **With the `test-mode` feature** the override variables `RIGHTKIT_SUITE_ROOT`,
+///   `RIGHT_SUITE_DIR` and `ORTHIC_SHARED_DIR` are honoured, in that order. A value that is empty
+///   after trimming counts as unset. A relative override, or no override at all with the real
+///   `HOME`, fails closed (panics) instead of resolving to the real per-user folder.
+/// - **Without it** (every release build) no override variable is read: the root is the operating
+///   system's per-user default from the account database.
 pub fn suite_root() -> PathBuf {
-    if let Some(dir) = std::env::var_os(SUITE_ROOT_ENV) {
-        let dir = PathBuf::from(dir);
-        if !dir.as_os_str().is_empty() {
-            return dir;
+    let resolved = rightkit_daemon::Suite::resolve();
+    // `TEST_CAPABILITY` is the daemon's own feature, so it is also true when an app enabled
+    // `rightkit-daemon/test-mode` directly instead of this crate's `test-mode`.
+    if !rightkit_daemon::mode::TEST_CAPABILITY {
+        return match resolved {
+            Ok(suite) => suite.root().to_path_buf(),
+            Err(_) => default_suite_root(),
+        };
+    }
+    // A test-capable build never reaches the real per-user folder: an unresolvable root, or one
+    // that equals the account's real default (no usable override, real HOME), is refused loudly
+    // rather than written to. Resolved fresh on every call, never cached.
+    let root = match resolved {
+        Ok(suite) => suite.root().to_path_buf(),
+        Err(err) => panic!("rightkit-models: cannot resolve the suite root in test-mode: {err}"),
+    };
+    if let Ok(real) = rightkit_daemon::Suite::per_user_default() {
+        if real.root() == root {
+            panic!(
+                "rightkit-models: refusing the real per-user suite root {} in a test-mode build; set RIGHTKIT_SUITE_ROOT (or redirect HOME) to an isolated directory",
+                root.display()
+            );
         }
     }
-    if let Some(dir) = std::env::var_os(ORTHIC_SHARED_DIR_ENV) {
-        let dir = PathBuf::from(dir);
-        if !dir.as_os_str().is_empty() {
-            return dir;
-        }
-    }
-    default_suite_root()
+    root
 }
 
 /// Previous Right Suite registry root retained during compatibility window.
+///
+/// When [`suite_root`] was redirected (a test-mode override), this is that same root, so isolated
+/// runs never see the real legacy folder. Otherwise it is `RightSuite` beside the `Orthic Labs`
+/// folder, as before.
 pub fn legacy_suite_root() -> PathBuf {
-    if let Some(dir) = std::env::var_os(SUITE_ROOT_ENV) {
-        let dir = PathBuf::from(dir);
-        if !dir.as_os_str().is_empty() {
-            return dir;
-        }
+    let root = suite_root();
+    match rightkit_daemon::Suite::per_user_default() {
+        Ok(default) if default.root() != root => root,
+        Ok(default) => default
+            .root()
+            .parent()
+            .and_then(Path::parent)
+            .map(|base| base.join("RightSuite"))
+            .unwrap_or_else(default_legacy_suite_root),
+        Err(_) => default_legacy_suite_root(),
     }
-    default_legacy_suite_root()
+}
+
+/// The platform per-user data directory that holds each app's own folder
+/// (`<data dir>/<app>/...`; Windows `%LOCALAPPDATA%`, else the roaming/application-support dir),
+/// or `None` when the platform has none.
+///
+/// In a `test-mode` build whose suite root was redirected by an override, this is
+/// `<suite root>/app-data`, so nothing that derives an app folder from it can reach the real
+/// per-user folder from an isolated run (device ids, sibling-app discovery). Otherwise it is the
+/// platform directory, as before.
+pub fn app_data_base() -> Option<PathBuf> {
+    let redirected = rightkit_daemon::Suite::per_user_default()
+        .map(|default| default.root() != suite_root())
+        .unwrap_or(false);
+    if redirected {
+        return Some(suite_root().join("app-data"));
+    }
+    #[cfg(windows)]
+    {
+        dirs::data_local_dir()
+    }
+    #[cfg(not(windows))]
+    {
+        dirs::data_dir()
+    }
 }
 
 fn default_legacy_suite_root() -> PathBuf {

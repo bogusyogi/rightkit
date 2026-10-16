@@ -1,5 +1,5 @@
-use rightkit_ort::ort::session::{builder::GraphOptimizationLevel, Session};
-use rightkit_ort::{ProviderDiagnostic, ProviderKind};
+use rightkit_onnx::ort::session::{builder::GraphOptimizationLevel, Session};
+use rightkit_onnx::{ProviderDiagnostic, ProviderKind};
 use std::path::Path;
 
 /// Build an ort session. Windows tries DirectML first, falling back to CPU;
@@ -47,7 +47,7 @@ pub(crate) fn build_session(path: &Path) -> Result<(Session, Vec<ProviderDiagnos
 fn build_directml_session(path: &Path) -> Result<Session, String> {
     Session::builder()
         .map_err(|e| e.to_string())?
-        .with_execution_providers([rightkit_ort::ort::ep::DirectML::default()
+        .with_execution_providers([rightkit_onnx::ort::ep::DirectML::default()
             .build()
             .error_on_failure()])
         .map_err(|e| e.to_string())?

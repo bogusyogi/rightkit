@@ -4,7 +4,7 @@ Nearby file and text sharing over the open LocalSend v2 protocol, with the Pulse
 TLS identity pinning, per-device trust (Allow, Ask, Deny), macOS Bonjour discovery, and
 received files that are never executable. Blocking sockets and threads; no async runtime.
 
-Status: `0.1.0`, `publish = false`. Rust API only: no C ABI is exported and no xcframework is in this repository.
+Status: `0.1.0`, published on crates.io. Rust API only: no C ABI is exported and no xcframework is in this repository.
 
 ## What it owns
 

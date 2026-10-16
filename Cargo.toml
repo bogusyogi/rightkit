@@ -35,6 +35,19 @@ opt-level = 0
 [profile.test]
 debug = "line-tables-only"
 
+# rightkit-record's capture hot path (readback, BLAKE3 over every kept frame, BGRA to NV12) is
+# per-pixel code. At opt-level 0 it ran at about 8 fps for a 2000x1300 window on the Dell
+# (2026-10-15), so a debug-profile helper dropped most frames to backpressure. Optimise these
+# packages in dev and test builds; everything else keeps the cheap profile above.
+[profile.dev.package.rightkit-record]
+opt-level = 3
+[profile.dev.package.blake3]
+opt-level = 3
+[profile.test.package.rightkit-record]
+opt-level = 3
+[profile.test.package.blake3]
+opt-level = 3
+
 [profile.test.package."*"]
 debug = false
 

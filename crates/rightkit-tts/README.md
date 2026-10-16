@@ -3,7 +3,7 @@
 Shared local text-to-speech for Right Suite apps. It owns two backends and the worker that runs one of them:
 
 - `system`: renders to an isolated WAV file through macOS `say` and `afconvert`, or Windows SAPI (`src/system.rs`). It never plays audio.
-- `engine`: the Qwen3-TTS QTS worker, through `rightkit-qts`. `QtsClient` owns the worker lifetime and its idle unload policy (`QtsClient::new(idle_secs)`). The worker is the `rightkit-tts-worker` binary.
+- `engine`: the Qwen3-TTS QTS worker, through `rightkit-tts-qwen`. `QtsClient` owns the worker lifetime and its idle unload policy (`QtsClient::new(idle_secs)`). The worker is the `rightkit-tts-worker` binary.
 
 The `system` backend returns a PCM WAV, a word-timed `Transcript` from `rightkit-transcript`, and a manifest (`SystemTtsResult`, `src/system.rs:128-133`). The `engine` backend returns a PCM WAV and timing totals (`SynthResult`, `src/client.rs:718-727`) with no word timings.
 
@@ -16,8 +16,8 @@ The `system` backend returns a PCM WAV, a word-timed `Transcript` from `rightkit
 | Feature | Default | Pulls in | Effect |
 |---|---|---|---|
 | `system` | on | `rightkit-transcript`, `thiserror` | The OS voice backend (`say`/`afconvert` on macOS, SAPI on Windows) and the word-timed transcript. |
-| `client` | on | `rightkit-ort`, `rightkit-process`, `rightkit-fs` (`digest`), `serde`, `serde_json` | QTS worker client (`QtsClient`, chunking, model manifest checks). |
-| `engine` | off | `client`, `qts` (`rightkit-qts`), `libc` on Unix | The Qwen3-TTS QTS worker backend and the `rightkit-tts-worker` binary. |
+| `client` | on | `rightkit-onnx`, `rightkit-child-process`, `rightkit-fs` (`digest`), `serde`, `serde_json` | QTS worker client (`QtsClient`, chunking, model manifest checks). |
+| `engine` | off | `client`, `qts` (`rightkit-tts-qwen`), `libc` on Unix | The Qwen3-TTS QTS worker backend and the `rightkit-tts-worker` binary. |
 | `metal` | off | `engine`, `qts/metal` | QTS with the Metal backend (Apple). |
 | `vulkan` | off | `engine`, `qts/vulkan` | QTS with the Vulkan backend. |
 
@@ -44,7 +44,7 @@ Model modes: `SynthOptions::mode` selects `Base` (0.6B, the default), `CustomVoi
 ## Platform support
 
 - macOS: `system` uses `say` and `afconvert`. `metal` applies to Apple targets.
-- Windows: `system` uses SAPI. `vulkan` is not target-gated: its build needs a Vulkan SDK or loader and `glslc` (`rightkit-qts-ggml-sys/build.rs:26-28`).
+- Windows: `system` uses SAPI. `vulkan` is not target-gated: its build needs a Vulkan SDK or loader and `glslc` (`rightkit-tts-qwen-sys/build.rs:26-28`).
 - Unix: `cfg(unix)` code is in `src/worker.rs`.
 
 Release notes: see `CHANGELOG.md` in this crate.

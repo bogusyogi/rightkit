@@ -1,7 +1,7 @@
 use crate::scorer::Backend;
 use crate::{Error, FrameScorer, Result, FRAME_SAMPLES, SAMPLE_RATE};
-use rightkit_ort::ort;
-use rightkit_ort::ort::{
+use rightkit_onnx::ort;
+use rightkit_onnx::ort::{
     session::{
         builder::{GraphOptimizationLevel, SessionBuilder},
         Session,
@@ -164,7 +164,7 @@ impl Silero {
     }
 
     /// Load from ONNX bytes the app embeds (for example `include_bytes!`).
-    /// ONNX Runtime must already be bound; see `rightkit-ort`.
+    /// ONNX Runtime must already be bound; see `rightkit-onnx`.
     pub fn from_bytes(model: &[u8], options: SileroOptions) -> Result<Self> {
         ensure_supported(&options)?;
         let session = configure(&options)?

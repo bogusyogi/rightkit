@@ -1,0 +1,65 @@
+{
+  "name": "@rightkit/outdated",
+  "version": "0.2.0",
+  "description": "Per-repo dependency updater: check, apply, gate and land for cargo, pnpm, swiftpm and external-tool pins, plus a scheduled run (launchd, Task Scheduler).",
+  "license": "MIT OR Apache-2.0",
+  "packageManager": "pnpm@11.24.0",
+  "private": false,
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "bin": {
+    "right-update": "dist/bin.js"
+  },
+  "rightkit": {
+    "publishCheck": {
+      "binSmoke": {
+        "right-update": [
+          "--version"
+        ]
+      }
+    }
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "update.schema.json",
+    "README.md",
+    "CHANGELOG.md",
+    "LICENSE-MIT",
+    "LICENSE-APACHE"
+  ],
+  "sideEffects": false,
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "prepack": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\" && pnpm run build",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run"
+  },
+  "engines": {
+    "node": ">=26.8.0"
+  },
+  "dependencies": {
+    "@rightkit/ci": "workspace:^",
+    "smol-toml": "1.9.0"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "typescript": "^5.7.0",
+    "vitest": "^2.1.8"
+  },
+  "publishConfig": {
+    "registry": "https://registry.npmjs.org/",
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Orthic-Labs/rightkit.git",
+    "directory": "packages/outdated"
+  }
+}

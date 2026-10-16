@@ -34,7 +34,7 @@ fn an_explicit_runtime_binds_and_its_directory_leads_path_in_every_case() {
     );
     assert_eq!(entries().first(), Some(&dir));
     // The exported-runtime search that follows in the worker keeps that order.
-    let got = rightkit_ort::export_discovered_runtime([other_dir.clone()]);
+    let got = rightkit_onnx::export_discovered_runtime([other_dir.clone()]);
     assert_eq!(got, Some(file));
     assert_eq!(entries().first(), Some(&dir));
     assert_eq!(entries().iter().filter(|p| **p == dir).count(), 1);

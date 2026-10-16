@@ -52,7 +52,7 @@ describe("aliasTokens and SUITE_ALIASES", () => {
   });
 
   it("matches the names app-shell's suite-aliases.css defines", () => {
-    const css = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "../../app-shell/suite-aliases.css"), "utf8");
+    const css = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "../../react-shell/suite-aliases.css"), "utf8");
     const declared = [...css.matchAll(/(--[a-z0-9-]+):\s*var\((--rk-[a-z0-9-]+)/g)].map((m) => [m[1], m[2]]);
     // The regex sees `var(--rk-wordmark-font, inherit)` as well, so the names must match exactly.
     expect(declared.length).toBeGreaterThan(30);

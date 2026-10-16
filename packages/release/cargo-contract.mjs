@@ -181,11 +181,19 @@ function readToml(file, label) {
   return JSON.parse(result.stdout);
 }
 
-function findCargoManifests(root) {
+// Not product code: SwiftPM `.build` (dependency checkouts and build products), throwaway probe dirs (`*-probe`, `pdfprobe2`), `tmp`, and
+// `tasks/handoffs` (handoff probes and their manifests). They are never built by the product, so they are not gated.
+export function isExcludedScanDirectory(name, parentName = "") {
+  if (SKIP_DIRECTORIES.has(name) || name === ".build") return true;
+  if (/probe\d*$/i.test(name) || name === "tmp") return true;
+  return name === "handoffs" && parentName === "tasks";
+}
+
+export function findCargoManifests(root) {
   const found = [];
   const visit = (dir) => {
     for (const entry of readdirSync(dir, { withFileTypes: true })) {
-      if (entry.isDirectory() && SKIP_DIRECTORIES.has(entry.name)) continue;
+      if (entry.isDirectory() && isExcludedScanDirectory(entry.name, path.basename(dir))) continue;
       const full = path.join(dir, entry.name);
       if (entry.isDirectory()) visit(full);
       else if (entry.isFile() && entry.name === "Cargo.toml") found.push(full);

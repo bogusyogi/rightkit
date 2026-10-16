@@ -39,7 +39,7 @@ impl Mode {
 }
 
 /// Preset speaker names `CustomVoice` accepts, in every build (no `engine` feature needed). They
-/// are the `as_str` forms of `rightkit-qts`'s `PresetSpeaker::ALL`; a test under the `engine`
+/// are the `as_str` forms of `rightkit-tts-qwen`'s `PresetSpeaker::ALL`; a test under the `engine`
 /// feature keeps the two lists equal.
 pub const PRESET_SPEAKERS: &[&str] = &[
     "vivian", "serena", "uncle_fu", "dylan", "eric", "ryan", "aiden", "ono_anna", "sohee",

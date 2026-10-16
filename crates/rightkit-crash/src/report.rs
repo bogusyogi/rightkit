@@ -32,6 +32,10 @@ pub struct CrashReport {
     /// A fixed code, optionally followed by a leftover raw file's name; never a path or content.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub native_capture_note: Option<String>,
+    /// Which process boundary produced the report (`window`, `engine`, `helper`), when the host
+    /// declared one. A fixed code, never a path or content.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub process_kind: Option<String>,
 }
 
 pub(crate) struct RawCrash<'a> {
@@ -43,6 +47,7 @@ pub(crate) struct RawCrash<'a> {
     pub location: Option<&'a str>,
     pub message: &'a str,
     pub backtrace: &'a str,
+    pub process_kind: Option<&'a str>,
 }
 
 impl CrashReport {
@@ -76,6 +81,7 @@ impl CrashReport {
             backtrace,
             native_artifacts: Vec::new(),
             native_capture_note: None,
+            process_kind: raw.process_kind.map(sanitize_kind),
         }
     }
 
@@ -85,6 +91,63 @@ impl CrashReport {
         let mut value = serde_json::to_value(self).unwrap_or(Value::Null);
         scrub_value(&mut value);
         value
+    }
+}
+
+/// App-supplied secret strings (API keys, database keys, tokens) removed from every report and
+/// native text artifact, on top of the pattern scrub. Held sorted longest first so a secret that
+/// contains another is removed whole. `Debug` never prints the values.
+#[derive(Clone, Default)]
+pub(crate) struct SecretList(Vec<String>);
+
+impl std::fmt::Debug for SecretList {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "SecretList({} values)", self.0.len())
+    }
+}
+
+impl SecretList {
+    /// Adds `values`; empty strings are ignored (they would match everywhere).
+    pub(crate) fn extend(&mut self, values: Vec<String>) {
+        self.0.extend(values.into_iter().filter(|v| !v.is_empty()));
+        self.0.sort_by_key(|v| std::cmp::Reverse(v.len()));
+        self.0.dedup();
+    }
+
+    pub(crate) fn as_slice(&self) -> &[String] {
+        &self.0
+    }
+}
+
+/// Replaces every occurrence of each known secret in `text` with `[redacted]`.
+pub(crate) fn redact_known(text: &str, secrets: &[String]) -> String {
+    let mut out = text.to_string();
+    for secret in secrets {
+        if !secret.is_empty() && out.contains(secret.as_str()) {
+            out = out.replace(secret.as_str(), "[redacted]");
+        }
+    }
+    out
+}
+
+/// Applies [`redact_known`] to every string in `value`, object keys included.
+pub(crate) fn redact_known_value(value: &mut Value, secrets: &[String]) {
+    if secrets.is_empty() {
+        return;
+    }
+    match value {
+        Value::String(s) => *s = redact_known(s, secrets),
+        Value::Array(items) => items
+            .iter_mut()
+            .for_each(|v| redact_known_value(v, secrets)),
+        Value::Object(map) => {
+            let old = std::mem::take(map);
+            for (key, mut v) in old {
+                redact_known_value(&mut v, secrets);
+                map.insert(redact_known(&key, secrets), v);
+            }
+        }
+        _ => {}
     }
 }
 
@@ -118,6 +181,7 @@ mod tests {
                 location: None,
                 message: "boom",
                 backtrace: "",
+                process_kind: None,
             },
             1,
         );
@@ -131,5 +195,27 @@ mod tests {
         noted.native_capture_note = Some("sample_publish_failed".into());
         let value = noted.to_scrubbed_value();
         assert_eq!(value["native_capture_note"], "sample_publish_failed");
+    }
+
+    #[test]
+    fn known_secrets_are_removed_longest_first_in_text_and_nested_values() {
+        let mut list = SecretList::default();
+        list.extend(vec![
+            String::new(),
+            "hunter2".into(),
+            "hunter2-and-more".into(),
+        ]);
+        assert_eq!(list.as_slice().len(), 2, "the empty string is ignored");
+        assert_eq!(
+            redact_known("k=hunter2-and-more, j=hunter2", list.as_slice()),
+            "k=[redacted], j=[redacted]"
+        );
+        let mut value = serde_json::json!({"a": ["x hunter2"], "hunter2": {"b": "hunter2"}});
+        redact_known_value(&mut value, list.as_slice());
+        assert_eq!(
+            value,
+            serde_json::json!({"a": ["x [redacted]"], "[redacted]": {"b": "[redacted]"}})
+        );
+        assert_eq!(format!("{list:?}"), "SecretList(2 values)");
     }
 }

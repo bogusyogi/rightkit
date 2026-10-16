@@ -2,7 +2,7 @@
 
 Versioned contracts for the Right Suite content pipeline (CutRight, GenRight, PostRight), the recorder, and the daemon. The crate embeds six JSON Schema (Draft 2020-12) files, validates documents against them, runs the semantic checks a schema cannot express, deserializes into typed structs, and negotiates major and minor versions.
 
-Catalog capability: `content-contracts`. Not published (`publish = false`).
+Catalog capability: `content-contracts`. Publishable on crates.io (wave 2.8); the six schemas ship inside the crate under `schemas/`.
 
 ## What it owns
 
@@ -68,7 +68,7 @@ Pure Rust. No platform-specific code.
 
 ## Version and changes
 
-Published version: not published. See [INDEX.md](../../INDEX.md). Release notes: [CHANGELOG.md](CHANGELOG.md).
+Version: see [INDEX.md](../../INDEX.md). The crate directory holds its own copy of each schema (`schemas/`); the repository `contracts/` directory is the shared source and `tests/schema_copy.rs` fails if they differ. Release notes: [CHANGELOG.md](CHANGELOG.md).
 
 Minor changes in this crate:
 

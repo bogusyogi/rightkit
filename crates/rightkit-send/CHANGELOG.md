@@ -1,6 +1,8 @@
 # Changelog
 
-## Unreleased
+## 0.1.0
+
+Initial crate, extracted from Pulse's `core/src/localsend`. First published release.
 
 - **Fixed: a device list that could not be read is never overwritten with a partial one.** When the stored list could
   not be read at start (on Windows an open can be refused for a moment while another process replaces the file), the
@@ -11,11 +13,6 @@
   made to the full list (devices only sighted meanwhile are added and take the stored default); if it still cannot,
   the change fails with `Error::TrustStore` and nothing is changed. Remaining limit: until the list has been read,
   every device is treated as Ask, so a device the owner denied gets a request card again. Not built or run locally.
-
-## 0.1.0
-
-Initial crate, extracted from Pulse's `core/src/localsend` (unpublished: `publish = false`
-until the lead integrates).
 
 - Typed errors (`Error`) replace the English strings Pulse returned. `Error::code` values
   serialize as snake_case tags; `Display` is a short developer diagnostic.

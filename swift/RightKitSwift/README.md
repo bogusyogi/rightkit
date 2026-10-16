@@ -48,7 +48,7 @@ the pre-0.3.4 behaviour, and the 0.3.5 knobs default to the strict gate:
 let client = LicenseActivationClient(
     configuration: .init(
         app: "scraperight", baseURL: URL(string: "https://scraperight.cc/v1/licenses")!,
-        appVersion: version, deviceID: { store.deviceID() }, publicKeyBase64url: key,
+        appVersion: version, deviceID: { (try? store.requireDeviceID()) ?? "" }, publicKeyBase64url: key,
         deviceClass: "iphone", includeAppKeyInLeaseBody: false,
         leasePathStyle: .originRooted(apiPrefix: "/v1"), refreshErrorPolicy: .surfaceAll
     ),

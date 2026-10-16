@@ -30,9 +30,16 @@ let package = Package(
         .library(name: "RightKitOverlay", targets: ["RightKitOverlay"]),
         .library(name: "RightKitWatch", targets: ["RightKitWatch"]),
         .library(name: "RightKitUI", targets: ["RightKitUI"]),
+        .library(name: "RightKitPulse", targets: ["RightKitPulse"]),
+        .library(name: "RightKitDB", targets: ["RightKitDB"]),
+        .library(name: "RightKitFS", targets: ["RightKitFS"]),
+        .library(name: "RightKitCredentials", targets: ["RightKitCredentials"]),
     ],
     targets: [
-        .target(name: "RightKitLicense", path: "swift/RightKitSwift/Sources/RightKitLicense"),
+        // Keychain-backed secret store (namespace = service, key = account); RightKitLicense persists through it.
+        .target(name: "RightKitCredentials", path: "swift/RightKitSwift/Sources/RightKitCredentials"),
+        .testTarget(name: "RightKitCredentialsTests", dependencies: ["RightKitCredentials"], path: "swift/RightKitSwift/Tests/RightKitCredentialsTests"),
+        .target(name: "RightKitLicense", dependencies: ["RightKitCredentials"], path: "swift/RightKitSwift/Sources/RightKitLicense"),
         .target(name: "RightKitDiagnostics", path: "swift/RightKitSwift/Sources/RightKitDiagnostics"),
         .testTarget(name: "RightKitDiagnosticsTests", dependencies: ["RightKitDiagnostics"], path: "swift/RightKitSwift/Tests/RightKitDiagnosticsTests"),
         // zlib comes from the platform SDK; no third-party dependency enters the registry archive.
@@ -40,7 +47,7 @@ let package = Package(
         .testTarget(name: "RightKitArtifactsTests", dependencies: ["RightKitArtifacts"], path: "swift/RightKitSwift/Tests/RightKitArtifactsTests"),
         .testTarget(
             name: "RightKitLicenseTests",
-            dependencies: ["RightKitLicense"],
+            dependencies: ["RightKitLicense", "RightKitCredentials"],
             path: "swift/RightKitSwift/Tests/RightKitLicenseTests",
             resources: [.process("Contracts")],
         ),
@@ -78,5 +85,14 @@ let package = Package(
         .testTarget(name: "RightKitWatchTests", dependencies: ["RightKitWatch"], path: "swift/RightKitSwift/Tests/RightKitWatchTests"),
         .target(name: "RightKitUI", path: "swift/RightKitSwift/Sources/RightKitUI"),
         .testTarget(name: "RightKitUITests", dependencies: ["RightKitUI"], path: "swift/RightKitSwift/Tests/RightKitUITests"),
+        // Pulse facade over the proposed rightkit-job-queue C ABI seam (design selection, not a qualified adoption).
+        .target(name: "RightKitPulse", path: "swift/RightKitSwift/Sources/RightKitPulse"),
+        .testTarget(name: "RightKitPulseTests", dependencies: ["RightKitPulse"], path: "swift/RightKitSwift/Tests/RightKitPulseTests"),
+        // Read-only reader for rightkit-db databases (Rust is the only writer); system SQLite3.
+        .target(name: "RightKitDB", path: "swift/RightKitSwift/Sources/RightKitDB", linkerSettings: [.linkedLibrary("sqlite3")]),
+        .testTarget(name: "RightKitDBTests", dependencies: ["RightKitDB"], path: "swift/RightKitSwift/Tests/RightKitDBTests"),
+        // Data root (Orthic Labs/<App>), escape-safe dataDir, atomic write, verified copy, append. Foundation/CryptoKit only.
+        .target(name: "RightKitFS", path: "swift/RightKitSwift/Sources/RightKitFS"),
+        .testTarget(name: "RightKitFSTests", dependencies: ["RightKitFS"], path: "swift/RightKitSwift/Tests/RightKitFSTests"),
     ],
 )

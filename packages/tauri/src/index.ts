@@ -1,4 +1,4 @@
-import type { AutoUpdateClient } from '@rightkit/updates';
+import type { AutoUpdateClient } from '@rightkit/app-update';
 import {
   RIGHTKIT_LOGS_CLEAR_COMMAND,
   RIGHTKIT_LOGS_COLLECT_COMMAND,

@@ -1,0 +1,258 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/Orthic-Labs/rightkit/packages/outdated/update.schema.json",
+  "title": "right-update manifest (.rightkit/update.json)",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "sources", "policy"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "sources": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/source" }
+    },
+    "gates": {
+      "type": "array",
+      "description": "Repository gates run by `right-update gate`, in order. Each must exit 0.",
+      "items": { "$ref": "#/$defs/gate" }
+    },
+    "policy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["default"],
+      "properties": {
+        "default": { "$ref": "#/$defs/policy" },
+        "held": {
+          "type": "array",
+          "description": "Dependency names that are always held, regardless of kind.",
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "tier": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "held": {
+              "type": "array",
+              "description": "Exact names, or /regex/ strings, that default to held. The built-in default is /sign|secur|licen|credential/.",
+              "items": { "type": "string", "minLength": 1 }
+            }
+          }
+        },
+        "land": {
+          "enum": ["commit", "push"],
+          "default": "commit",
+          "description": "What `land` does after committing. `commit` keeps the commit local; `push` also runs git push."
+        }
+      }
+    }
+  },
+  "$defs": {
+    "policy": { "enum": ["auto-land", "agent-pr", "held"] },
+    "gate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "command"],
+      "properties": {
+        "name": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$" },
+        "command": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "type": "string", "minLength": 1, "maxLength": 1024 },
+          "description": "Argument vector, spawned directly (never through a shell)."
+        },
+        "cwd": { "$ref": "#/$defs/relativePath", "description": "Working directory relative to the repository root." },
+        "timeoutSec": { "type": "integer", "minimum": 1, "maximum": 86400, "default": 1800 }
+      }
+    },
+    "source": {
+      "oneOf": [
+        { "$ref": "#/$defs/cargoSource" },
+        { "$ref": "#/$defs/pnpmSource" },
+        { "$ref": "#/$defs/swiftpmSource" },
+        { "$ref": "#/$defs/rightkitSource" },
+        { "$ref": "#/$defs/toolSource" }
+      ]
+    },
+    "cargoSource": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind"],
+      "oneOf": [{ "required": ["manifest"] }, { "required": ["glob"] }],
+      "properties": {
+        "kind": { "const": "cargo" },
+        "manifest": { "$ref": "#/$defs/relativePath", "description": "One manifest. Set exactly one of manifest and glob." },
+        "glob": {
+          "type": "string",
+          "description": "Glob over manifests: * matches within one path segment; the last segment is exactly Cargo.toml.",
+          "allOf": [
+            { "$ref": "#/$defs/relativePath" },
+            { "pattern": "(^|/)Cargo\\.toml$" },
+            { "not": { "pattern": "\\*\\*|[?\\[\\]{}]" } }
+          ]
+        },
+        "policy": { "$ref": "#/$defs/policy" }
+      }
+    },
+    "pnpmSource": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind"],
+      "oneOf": [{ "required": ["manifest"] }, { "required": ["glob"] }],
+      "properties": {
+        "kind": { "const": "pnpm" },
+        "manifest": { "$ref": "#/$defs/relativePath", "description": "One manifest. Set exactly one of manifest and glob." },
+        "glob": {
+          "type": "string",
+          "description": "Glob over manifests: * matches within one path segment; the last segment is exactly package.json.",
+          "allOf": [
+            { "$ref": "#/$defs/relativePath" },
+            { "pattern": "(^|/)package\\.json$" },
+            { "not": { "pattern": "\\*\\*|[?\\[\\]{}]" } }
+          ]
+        },
+        "policy": { "$ref": "#/$defs/policy" }
+      }
+    },
+    "swiftpmSource": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "manifest"],
+      "properties": {
+        "kind": { "const": "swiftpm" },
+        "manifest": {
+          "allOf": [
+            { "$ref": "#/$defs/relativePath" },
+            { "pattern": "(^|/)(Package\\.swift|project\\.yml)$" }
+          ]
+        },
+        "policy": { "$ref": "#/$defs/policy" }
+      }
+    },
+    "rightkitSource": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind"],
+      "properties": {
+        "kind": { "const": "rightkit" },
+        "versions": {
+          "$ref": "#/$defs/relativePath",
+          "description": "RightKit versions file; its npm section is compared. Defaults to packages/release/rightkit-versions.json."
+        },
+        "policy": { "$ref": "#/$defs/policy" }
+      }
+    },
+    "toolSource": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "name", "pin", "assets", "upstream", "journey"],
+      "properties": {
+        "kind": { "const": "tool" },
+        "name": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$" },
+        "pin": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._+-]{0,63}$" },
+        "assets": {
+          "type": "object",
+          "minProperties": 1,
+          "additionalProperties": false,
+          "propertyNames": {
+            "enum": ["macos-arm64", "macos-x86_64", "windows-x86_64", "windows-arm64", "linux-x86_64"]
+          },
+          "patternProperties": {
+            ".*": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["asset", "checksum"],
+              "properties": {
+                "asset": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$" },
+                "checksum": {
+                  "type": "string",
+                  "pattern": "^sha256:[0-9a-f]{64}$",
+                  "description": "Digest of the downloaded asset exactly as published (an archive stays an archive)."
+                },
+                "maxBytes": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 8589934592,
+                  "default": 536870912,
+                  "description": "Download size bound in bytes."
+                },
+                "extract": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["member"],
+                  "properties": {
+                    "member": {
+                      "$ref": "#/$defs/relativePath",
+                      "description": "Path of the binary inside the archive."
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "upstream": {
+          "oneOf": [
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["type", "repo"],
+              "properties": {
+                "type": { "const": "github-release" },
+                "repo": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9-]{0,38}/[A-Za-z0-9._-]{1,100}$" }
+              }
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["type", "latest", "download"],
+              "properties": {
+                "type": { "const": "url" },
+                "latest": { "type": "string", "format": "uri", "pattern": "^https://" },
+                "download": {
+                  "type": "string",
+                  "pattern": "^https://.*\\{version\\}",
+                  "description": "Download URL template containing {version}."
+                }
+              }
+            }
+          ]
+        },
+        "journey": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["command", "report"],
+          "properties": {
+            "command": {
+              "type": "array",
+              "minItems": 1,
+              "items": { "type": "string", "minLength": 1, "maxLength": 1024 },
+              "description": "Argument vector. Placeholders: {candidate}, {out}, {delivery}, {model}. Any other {...} is rejected."
+            },
+            "report": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Report path, typically {out}/report.json. Same placeholder rules as command."
+            },
+            "inputs": {
+              "type": "object",
+              "description": "Free-form inputs, passed as JSON on stdin when gate runs the journey."
+            },
+            "model": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/@+-]{0,127}$",
+              "description": "Model id substituted for {model}; empty when omitted."
+            },
+            "timeoutSec": { "type": "integer", "minimum": 1, "maximum": 86400, "default": 1800 }
+          }
+        },
+        "policy": { "$ref": "#/$defs/policy" }
+      }
+    },
+    "relativePath": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 512,
+      "not": { "pattern": "(^|[\\\\/])\\.\\.([\\\\/]|$)|^[\\\\/~]" }
+    }
+  }
+}

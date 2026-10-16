@@ -232,3 +232,22 @@ test("requires a seal before credentials or the first patch upload", () => {
   assert.match(result.stderr, /PUBLICATION_SEAL_REQUIRED/);
   assert.doesNotMatch(result.stdout, /UPLOAD /, "credential preflight must run before R2 mutation");
 });
+
+test("patch uploads the versioned MSIX install source and refuses a malformed versioned key", () => {
+  const mk = (versionedKey) => {
+    const dir = mkdtempSync(path.join(os.tmpdir(), "right-publish-test-"));
+    const config = path.join(dir, "right-release.config.mjs");
+    writeFileSync(config, `export default ${JSON.stringify({
+      schema: 1, app: "fixture", version: "1.2.3", distribution: { provider: "r2-rightapps" },
+      targets: { win: { installer: { artifacts: [{ file: "Fixture.msix", key: "fixture/installers/windows/current/Fixture.msix", versionedKey }] }, updater: { artifacts: [] } } },
+    })};\n`);
+    return spawnSync(process.execPath, [publisher, "--config", config, "--platform", "win", "--dry-run"], { encoding: "utf8", env: { ...process.env, RIGHT_RELEASE_TIER: "patch" } });
+  };
+  const ok = mk("fixture/installers/windows/versions/1.2.3.0/Fixture_1.2.3.0.msix");
+  assert.equal(ok.status, 0, ok.stderr);
+  assert.match(ok.stdout, /UPLOAD public\/fixture\/installers\/windows\/current\/Fixture\.msix/);
+  assert.match(ok.stdout, /UPLOAD public\/fixture\/installers\/windows\/versions\/1\.2\.3\.0\/Fixture_1\.2\.3\.0\.msix/);
+  const bad = mk("fixture/installers/windows/current/Fixture_1.2.3.0.msix");
+  assert.notEqual(bad.status, 0);
+  assert.match(bad.stderr, /versionedKey/);
+});

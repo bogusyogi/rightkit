@@ -4,7 +4,7 @@
 //! reaches dictation, paste, or history.
 
 use crate::spec::*;
-use rightkit_service::Suite;
+use rightkit_daemon::Suite;
 use rightkit_speech_client::{self as speech, ClientError, HostRole, TranscribeOptions};
 use serde_json::{json, Value};
 use std::path::{Path, PathBuf};

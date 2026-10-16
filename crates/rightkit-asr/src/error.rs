@@ -1,4 +1,4 @@
-use rightkit_ort::ort;
+use rightkit_onnx::ort;
 use std::fmt;
 
 pub type Result<T> = std::result::Result<T, Error>;

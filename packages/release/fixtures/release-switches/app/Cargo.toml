@@ -1,0 +1,12 @@
+# Negative fixture for release-switch-scan.test.mjs (N6/N8). Never built by CI; the node test reads it as text.
+[package]
+name = "release-switch-fixture"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[workspace]
+
+[features]
+default = []
+test-mode = []

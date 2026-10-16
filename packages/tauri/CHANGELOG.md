@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.1 — 2026-10-15
+
+- Peer dependency renamed: `@rightkit/updates` `^0.2.5` to `@rightkit/app-update` `^0.2.5` (`946f71ef`). 0.2.0 on npm still declared the old name because the rename did not bump the version. No API change.
+
 ## 0.2.0 — 2026-10-09
 
 Breaking:

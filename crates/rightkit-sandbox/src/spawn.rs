@@ -5,8 +5,10 @@ use crate::{
     classify_denial, DenialSignature, DenialSource, EnvPolicy, Reservation, ResourceAuthority,
     ResourceKind, SandboxCommand, SandboxError, SandboxPolicy,
 };
-use rightkit_process::OwnedCommand;
+use rightkit_child_process::OwnedCommand;
 use std::io::Read;
+#[cfg(windows)]
+use std::os::windows::io::OwnedHandle;
 use std::process::{Command, ExitStatus, Stdio};
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
@@ -24,7 +26,7 @@ pub struct Sandbox {
 }
 
 /// A supervised child: its resource reservation is held until drop, and drop
-/// kills the whole process tree (via `rightkit-process` ownership).
+/// kills the whole process tree (via `rightkit-child-process` ownership).
 pub struct SandboxedChild {
     inner: Inner,
     stdout: Option<Box<dyn Read + Send>>,
@@ -35,10 +37,38 @@ pub struct SandboxedChild {
     _job: Option<crate::windows_job::WindowsJob>,
 }
 
+/// Windows-only result of [`Sandbox::spawn_with_pipe_pair`].
+///
+/// `io` owns parent sides of two AppContainer-authorized named pipes. Child
+/// stdout/stderr are NUL on this dedicated path.
+#[cfg(windows)]
+pub struct WindowsPipeSpawn {
+    pub child: SandboxedChild,
+    pub io: WindowsAuxiliaryIo,
+}
+
+/// Parent-owned named-pipe server handles for [`WindowsPipeSpawn`].
+///
+/// Both handles are non-inheritable, overlapped server handles, ready for
+/// `tokio::net::windows::named_pipe::NamedPipeServer::from_raw_handle`.
+#[cfg(windows)]
+pub struct WindowsAuxiliaryIo {
+    to_child: OwnedHandle,
+    from_child: OwnedHandle,
+}
+
+#[cfg(windows)]
+impl WindowsAuxiliaryIo {
+    /// Transfer parent server handles ordered `(to_child, from_child)`.
+    pub fn into_parent_handles(self) -> (OwnedHandle, OwnedHandle) {
+        (self.to_child, self.from_child)
+    }
+}
+
 /// Supervised children are std processes; confined Windows children are created directly
 /// through `CreateProcessW` (the only way to enter an AppContainer).
 enum Inner {
-    Owned(rightkit_process::OwnedChild),
+    Owned(rightkit_child_process::OwnedChild),
     #[cfg(windows)]
     Confined(crate::windows_appcontainer::ConfinedChild),
 }
@@ -140,6 +170,31 @@ fn validate_command(c: &SandboxCommand) -> Result<(), SandboxError> {
     Ok(())
 }
 
+#[cfg(windows)]
+fn validate_handle_flag(command: &SandboxCommand, handle_flag: &str) -> Result<(), SandboxError> {
+    let valid = handle_flag.starts_with("--")
+        && handle_flag.len() > 2
+        && handle_flag
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_'));
+    if !valid {
+        return Err(SandboxError::InvalidPolicy(
+            "pipe handle flag must begin with -- and contain only ASCII letters, digits, - or _"
+                .into(),
+        ));
+    }
+    let assigned = format!("{handle_flag}=");
+    if command.args.iter().any(|arg| {
+        let arg = arg.to_string_lossy();
+        arg == handle_flag || arg.starts_with(&assigned)
+    }) {
+        return Err(SandboxError::InvalidPolicy(format!(
+            "command already supplies pipe handle flag {handle_flag}"
+        )));
+    }
+    Ok(())
+}
+
 impl Sandbox {
     pub fn new(authority: ResourceAuthority) -> Self {
         Self { authority }
@@ -183,6 +238,70 @@ impl Sandbox {
             let source = confine(&mut cmd, policy)?;
             finish(cmd, reservation, source)
         }
+    }
+
+    /// Spawn a network-denied AppContainer child with two inherited named-pipe
+    /// client endpoints. `handle_flag` is appended as
+    /// `<handle_flag>=<child-read>,<child-write>`.
+    #[cfg(windows)]
+    pub fn spawn_with_pipe_pair(
+        &self,
+        policy: &SandboxPolicy,
+        command: SandboxCommand,
+        handle_flag: &str,
+    ) -> Result<WindowsPipeSpawn, SandboxError> {
+        self.spawn_with_pipe_pair_stdio_file(policy, command, handle_flag, None)
+    }
+
+    /// As [`Self::spawn_with_pipe_pair`], but child stdout and stderr append to `stdio_file`
+    /// (opened by the parent, inherited by handle) instead of NUL. Diagnostics only.
+    ///
+    /// `stdio_file` must lie inside a writable grant of `policy`: an absolute path with no
+    /// `..`/`.`, relative, ADS (`:`) or reserved device-name components; it and its parent
+    /// must not be reparse points (symlinks/junctions); it must not have more than one hard
+    /// link; and it is opened append-only with `FILE_SHARE_READ`, so no other writer can share
+    /// it. Any violation returns `SandboxError::InvalidPolicy`.
+    #[cfg(windows)]
+    pub fn spawn_with_pipe_pair_stdio_file(
+        &self,
+        policy: &SandboxPolicy,
+        command: SandboxCommand,
+        handle_flag: &str,
+        stdio_file: Option<&std::path::Path>,
+    ) -> Result<WindowsPipeSpawn, SandboxError> {
+        policy.validate()?;
+        validate_command(&command)?;
+        validate_handle_flag(&command, handle_flag)?;
+        if policy.network != crate::NetworkPolicy::Deny {
+            return Err(SandboxError::InvalidPolicy(
+                "pipe-pair sandbox requires NetworkPolicy::Deny".into(),
+            ));
+        }
+        let reservation = self.authority.reserve(ResourceKind::ChildProcess)?;
+        let spawned = crate::windows_appcontainer::spawn_with_pipe_pair(
+            policy,
+            &command,
+            handle_flag,
+            stdio_file,
+        )?;
+        Ok(WindowsPipeSpawn {
+            child: SandboxedChild {
+                inner: Inner::Confined(spawned.child),
+                stdout: spawned
+                    .stdout
+                    .map(|stream| Box::new(stream) as Box<dyn Read + Send>),
+                stderr: spawned
+                    .stderr
+                    .map(|stream| Box::new(stream) as Box<dyn Read + Send>),
+                source: DenialSource::WindowsAppContainer,
+                _reservation: reservation,
+                _job: None,
+            },
+            io: WindowsAuxiliaryIo {
+                to_child: spawned.to_child,
+                from_child: spawned.from_child,
+            },
+        })
     }
 
     /// Reserve and spawn without filesystem/network confinement but with whole-tree
@@ -329,6 +448,25 @@ impl Inner {
             }
         }
     }
+
+    fn has_exited(&self) -> std::io::Result<bool> {
+        match self {
+            Self::Owned(child) => child.process_handle()?.wait_exited_timeout(Duration::ZERO),
+            #[cfg(windows)]
+            Self::Confined(child) => child.has_exited(),
+        }
+    }
+
+    fn terminate_tree_bounded(
+        &mut self,
+        timeout: Duration,
+    ) -> std::io::Result<rightkit_child_process::ReapOutcome> {
+        match self {
+            Self::Owned(child) => child.terminate_tree_bounded(timeout),
+            #[cfg(windows)]
+            Self::Confined(child) => child.terminate_tree_bounded(timeout),
+        }
+    }
 }
 
 impl SandboxedChild {
@@ -337,6 +475,43 @@ impl SandboxedChild {
             Inner::Owned(c) => c.id(),
             #[cfg(windows)]
             Inner::Confined(c) => c.id(),
+        }
+    }
+
+    /// Take stdout for bounded caller-managed draining.
+    pub fn take_stdout(&mut self) -> Option<Box<dyn Read + Send>> {
+        self.stdout.take()
+    }
+
+    /// Take stderr for bounded caller-managed draining.
+    pub fn take_stderr(&mut self) -> Option<Box<dyn Read + Send>> {
+        self.stderr.take()
+    }
+
+    /// Observe leader exit without consuming child ownership or output streams.
+    pub fn has_exited(&self) -> std::io::Result<bool> {
+        self.inner.has_exited()
+    }
+
+    /// Terminate owned process tree, waiting at most `timeout` for leader exit.
+    /// A timed-out result retains this child, its reservation, & its leases.
+    pub fn terminate_tree_bounded(
+        &mut self,
+        timeout: Duration,
+    ) -> std::io::Result<rightkit_child_process::ReapOutcome> {
+        self.inner.terminate_tree_bounded(timeout)
+    }
+
+    /// Observe the exit code of a confined Windows child without reaping it (raw `u32`, so an
+    /// NTSTATUS such as `0xC0000005` stays readable). `Ok(None)` while it still runs.
+    #[cfg(windows)]
+    pub fn observed_exit_code(&self) -> std::io::Result<Option<u32>> {
+        match &self.inner {
+            Inner::Confined(c) => c.observed_exit_code(),
+            Inner::Owned(_) => Err(std::io::Error::new(
+                std::io::ErrorKind::Unsupported,
+                "exit code observation is only for the confined Windows child",
+            )),
         }
     }
 

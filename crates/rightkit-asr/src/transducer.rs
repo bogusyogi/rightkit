@@ -3,7 +3,7 @@
 //! (`model_type` rnnt/tdt, `features_size` 80/128). This is the "both plug in
 //! seamlessly" entry point: `Transducer::load(dir)?.transcribe(audio)` works for
 //! whichever model the customer downloaded — no app-side branching.
-use rightkit_ort::ort;
+use rightkit_onnx::ort;
 use crate::audio;
 use crate::config::PreprocessorConfig;
 use crate::decoder::TranscriptionResult;
@@ -14,7 +14,7 @@ use crate::model_transducer::{ContextBias, TransducerConfig, TransducerModel};
 use crate::timestamps::{process_timestamps, TimestampMode};
 use crate::vocab::Vocabulary;
 use ndarray::Array2;
-use rightkit_ort::ort::session::Session;
+use rightkit_onnx::ort::session::Session;
 use serde::Deserialize;
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};

@@ -1,0 +1,215 @@
+/* @rightkit/react-shell — visual: colour, radius, type, spacing, sizes, shadows and motion.
+   Pair with shell.structure.css. shell.css is both files in one; shell.layered.css imports both
+   into the `rk` cascade layer.
+
+   Fused sidebar + titlebar on one --rk-chrome surface.
+   The active nav row joins the --rk-plane content surface through 12px concave
+   radial-mask corners. Apps supply brand colour only:
+
+     :root { --rk-brand: #7040c4; --rk-brand-dark: #9567f5; --rk-wordmark-font: "Tanker", sans-serif; }
+
+   Sections: tokens, frame/fused layout, page, ui kit, overlays (palette, modal, menu, toast).
+   Flat suite tokens (--rk-chrome --rk-plane --rk-ink --rk-accent ...) are defined here and
+   shared with app view CSS. Dark follows the OS unless html[data-theme] is set. */
+:root { --rk-brand: #7040c4; --rk-brand-dark: var(--rk-brand); --rk-caption-close-bg: #c42b1c; --rk-caption-close-ink: #fff; --rk-plane-radius: 20px; --rk-chrome: #eee9df; --rk-plane: #fffcf5; --rk-elevated: #ffffff; --rk-win: var(--rk-plane); --rk-side: var(--rk-chrome); --rk-bg: var(--rk-plane); --rk-panel: #ffffff; --rk-sunk: #f6f1e8; --rk-fill: rgba(35,31,26,.05); --rk-fill-2: rgba(35,31,26,.085); --rk-fill-3: rgba(35,31,26,.13); --rk-line: rgba(35,31,26,.11); --rk-line-strong: rgba(35,31,26,.18); --rk-hairline: rgba(35,31,26,.11); --rk-ink: #231f1a; --rk-ink-2: #6b655c; --rk-ink-3: #8a8378; --rk-accent: var(--rk-brand); --rk-accent-soft: color-mix(in srgb, var(--rk-accent) 14%, transparent); --rk-accent-ink: #ffffff; --rk-focus: color-mix(in srgb, var(--rk-accent) 35%, transparent); --rk-ok: #1e7f3c; --rk-ok-dot: #2ba24a; --rk-ok-soft: rgba(43,162,74,.14); --rk-warn: #b25000; --rk-warn-dot: #e08a00; --rk-warn-soft: rgba(224,138,0,.14); --rk-bad: #c4001a; --rk-bad-soft: rgba(196,0,26,.1); --rk-radius: 12px; --rk-card: 0 0 0 .5px rgba(35,31,26,.09), 0 1px 3px rgba(35,31,26,.06); --rk-knob: 0 1px 2px rgba(35,31,26,.14), 0 0 0 .5px rgba(35,31,26,.06); --rk-sel: rgba(35,31,26,.06); --rk-seg-on: #ffffff; --rk-ghost: #ffffff; --rk-pop: 0 0 0 .5px var(--rk-line-strong), 0 16px 40px rgba(20,16,10,.22); --rk-scrim: rgba(20,16,10,.38); --rk-danger: var(--rk-bad); --rk-font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; color-scheme: light; }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) { --rk-chrome: #0f0f10; --rk-plane: #17171a; --rk-elevated: #1f1f23; --rk-panel: #1f1f23; --rk-sunk: #1c1c1f; --rk-fill: rgba(242,240,236,.055); --rk-fill-2: rgba(242,240,236,.09); --rk-fill-3: rgba(242,240,236,.14); --rk-line: rgba(242,240,236,.09); --rk-line-strong: rgba(242,240,236,.16); --rk-hairline: rgba(242,240,236,.09); --rk-ink: #f2f0ec; --rk-ink-2: #969390; --rk-ink-3: #6e6b68; --rk-accent: var(--rk-brand-dark); --rk-accent-soft: color-mix(in srgb, var(--rk-accent) 18%, transparent); --rk-focus: color-mix(in srgb, var(--rk-accent) 50%, transparent); --rk-ok: #4cd07d; --rk-ok-dot: #4cd07d; --rk-ok-soft: rgba(76,208,125,.16); --rk-warn: #ffb340; --rk-warn-dot: #ffb340; --rk-warn-soft: rgba(255,179,64,.16); --rk-bad: #ff6961; --rk-bad-soft: rgba(255,105,97,.12); --rk-card: 0 0 0 .5px rgba(242,240,236,.08); --rk-knob: 0 1px 2px rgba(0,0,0,.4); --rk-sel: rgba(242,240,236,.1); --rk-seg-on: #3a3a42; --rk-ghost: #2a2a30; --rk-pop: 0 0 0 .5px var(--rk-line-strong), 0 18px 44px rgba(0,0,0,.55); --rk-scrim: rgba(0,0,0,.55); color-scheme: dark; }
+}
+:root[data-theme="dark"] { --rk-chrome: #0f0f10; --rk-plane: #17171a; --rk-elevated: #1f1f23; --rk-panel: #1f1f23; --rk-sunk: #1c1c1f; --rk-fill: rgba(242,240,236,.055); --rk-fill-2: rgba(242,240,236,.09); --rk-fill-3: rgba(242,240,236,.14); --rk-line: rgba(242,240,236,.09); --rk-line-strong: rgba(242,240,236,.16); --rk-hairline: rgba(242,240,236,.09); --rk-ink: #f2f0ec; --rk-ink-2: #969390; --rk-ink-3: #6e6b68; --rk-accent: var(--rk-brand-dark); --rk-accent-soft: color-mix(in srgb, var(--rk-accent) 18%, transparent); --rk-focus: color-mix(in srgb, var(--rk-accent) 50%, transparent); --rk-ok: #4cd07d; --rk-ok-dot: #4cd07d; --rk-ok-soft: rgba(76,208,125,.16); --rk-warn: #ffb340; --rk-warn-dot: #ffb340; --rk-warn-soft: rgba(255,179,64,.16); --rk-bad: #ff6961; --rk-bad-soft: rgba(255,105,97,.12); --rk-card: 0 0 0 .5px rgba(242,240,236,.08); --rk-knob: 0 1px 2px rgba(0,0,0,.4); --rk-sel: rgba(242,240,236,.1); --rk-seg-on: #3a3a42; --rk-ghost: #2a2a30; --rk-pop: 0 0 0 .5px var(--rk-line-strong), 0 18px 44px rgba(0,0,0,.55); --rk-scrim: rgba(0,0,0,.55); color-scheme: dark; }
+.rk-shell { background: var(--rk-chrome); color: var(--rk-ink); font: 13px/1.4 -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif; -webkit-font-smoothing: antialiased; letter-spacing: -.003em; user-select: none; -webkit-user-select: none; }
+:where(.rk-shell) button { font: inherit; color: inherit; cursor: default; }
+.rk-shell input, .rk-shell textarea, .rk-shell .selectable { user-select: text; -webkit-user-select: text; }
+/* Fused titlebar: spans the window on the same chrome surface as the sidebar. */
+/* --rk-top-bg defaults to --rk-chrome and --rk-top-border to none; the fallbacks stay in the rules so dark mode still follows the surface. */
+.rk-top { gap: var(--rk-titlebar-gap); padding: 0 var(--rk-titlebar-pad-end) 0 0; background: var(--rk-top-bg, var(--rk-chrome)); border-bottom: var(--rk-top-border, none); }
+.rk-top__side { padding: 0 var(--rk-titlebar-side-pad-end) 0 var(--rk-titlebar-start-pad); gap: var(--rk-titlebar-gap); }
+.rk-top__title { font-size: 15px; font-weight: 700; letter-spacing: -.01em; }
+/* End cluster: its own gap (--rk-top-end-gap, default the bar gap), so it can be spaced apart from the start and caption controls. */
+.rk-top__end { gap: var(--rk-top-end-gap, var(--rk-titlebar-gap)); }
+.rk-pill { gap: 6px; height: 24px; padding: 0 10px; border: 0; border-radius: 99px; background: var(--rk-fill-2); font-size: 11.5px; color: var(--rk-ink-2); white-space: nowrap; }
+.rk-pill--warn { background: var(--rk-warn-soft); color: var(--rk-warn); }
+/* Windows / Linux caption buttons. */
+.rk-caption { margin-right: var(--rk-caption-margin-end, calc(-1 * var(--rk-titlebar-pad-end))); margin-left: var(--rk-caption-margin-start, 6px); }
+.rk-caption__btn { width: var(--rk-caption-width); border: 0; background: transparent; color: var(--rk-ink-2); }
+.rk-caption__btn:hover { background: var(--rk-caption-hover-bg, var(--rk-fill-2)); color: var(--rk-ink); }
+.rk-caption__btn:focus-visible { outline: 2px solid var(--rk-focus); outline-offset: -2px; }
+.rk-caption__close:hover { background: var(--rk-caption-close-bg); color: var(--rk-caption-close-ink); }
+.rk-side { background: var(--rk-chrome); }
+.rk-plane { background: var(--rk-plane); border-top-left-radius: var(--rk-plane-radius); }
+.rk-search { margin: 8px 10px 6px; gap: 6px; height: 28px; padding: 0 8px; border-radius: 7px; background: var(--rk-fill-2); color: var(--rk-ink-3); font-size: 13px; }
+.rk-search:focus-within { background: var(--rk-elevated); box-shadow: 0 0 0 2px var(--rk-focus); }
+.rk-search svg { width: 14px; height: 14px; }
+.rk-search input { border: 0; outline: 0; background: none; color: var(--rk-ink); font: inherit; }
+.rk-search .rightkit-kbd-chord { gap: var(--rightkit-kbd-gap, 2px); margin-left: auto; }
+.rk-search .rightkit-kbd-key { font: 11px -apple-system, system-ui, sans-serif; color: var(--rk-ink-3); }
+.rk-nav { padding: 0 0 14px; scrollbar-width: thin; }
+.rk-group { margin-top: 14px; }
+.rk-group h6 { margin: 0 8px 3px; padding: 0 10px; font-size: 11px; font-weight: 600; color: var(--rk-ink-3); }
+/* The active row extends to the plane edge and joins it with concave 12px
+   radial-mask corners — never a detached pill. */
+.rk-item { gap: 8px; width: calc(100% - 16px); height: 30px; margin: 0 8px; padding: 0 8px 0 10px; border: 0; background: none; border-radius: 8px; color: var(--rk-ink); text-align: left; font-size: 13px; transition: background-color .12s; }
+.rk-item:hover { background: var(--rk-fill); }
+.rk-item:focus-visible { outline: 2px solid var(--rk-focus); outline-offset: -2px; }
+.rk-item > svg:not(.rk-fuse) { width: 16px; height: 16px; color: var(--rk-accent); }
+.rk-item__label { text-overflow: ellipsis; white-space: nowrap; }
+.rk-item__badge { margin-left: auto; font-size: 11px; color: var(--rk-ink-3); }
+.rk-item.is-active { width: calc(100% - 8px); margin-right: 0; border-radius: 12px 0 0 12px; background: var(--rk-plane); }
+/* FuseCurves work in any position:relative row, not only .rk-item; --rk-fuse-fill sets the joined surface. */
+.rk-fuse { fill: var(--rk-fuse-fill, var(--rk-plane)); color: initial; }
+.rk-fuse--bottom { transform: scaleY(-1); }
+.rk-status { gap: 5px; font-size: 11.5px; color: var(--rk-ink-2); padding: 10px 18px; }
+.rk-dot { width: 7px; height: 7px; border-radius: 50%; margin-right: 6px; vertical-align: 1px; background: var(--rk-ink-3); }
+.rk-dot--ok { background: var(--rk-ok-dot); }
+.rk-dot--warn { background: var(--rk-warn-dot); }
+.rk-dot--bad { background: var(--rk-bad); }
+/* Bottom-left wordmark with settings and appearance beside it. */
+.rk-brand-foot { gap: 2px; height: 44px; padding: 0 10px 0 16px; border-top: .5px solid var(--rk-hairline); }
+.rk-wordmark { margin-right: auto; font: 400 20px/1 var(--rk-wordmark-font, inherit); color: var(--rk-ink); white-space: nowrap; user-select: none; }
+.rk-wordmark em, .rk-wordmark span { font-style: normal; color: var(--rk-accent); }
+.rk-icon-btn { width: 28px; height: 28px; border-radius: 7px; color: var(--rk-ink-2); border: 0; background: none; transition: background-color .12s, color .12s; }
+.rk-icon-btn:hover, .rk-icon-btn.is-open { background: var(--rk-fill-2); color: var(--rk-ink); }
+.rk-icon-btn svg { width: 16px; height: 16px; }
+/* ---- Layout additions ------------------------------------------------------------------- */
+.rk-top__toggle { margin-left: -4px; }
+.rk-shell.is-collapsed .rk-top__side { padding-right: 6px; }
+.rk-shell.no-sidebar .rk-plane { border-top-left-radius: 0; }
+.rk-search--trigger { width: calc(100% - 20px); border: 0; text-align: left; cursor: default; }
+.rk-search--trigger:hover { background: var(--rk-fill-3); }
+.rk-search--trigger:focus-visible { outline: 2px solid var(--rk-focus); outline-offset: 0; }
+.rk-item { cursor: default; }
+/* Narrow windows: the sidebar becomes an overlay instead of squeezing the plane. */
+@media (max-width: 719px) {
+  .rk-shell.rk-shell--fused .rk-side { box-shadow: var(--rk-pop); }
+  .rk-plane { border-top-left-radius: 0; }
+}
+/* ---- Page ------------------------------------------------------------------------------- */
+.rk-page__band { padding: 8px 24px; border-bottom: .5px solid var(--rk-hairline); }
+.rk-page__scroll { padding: 20px 24px 28px; }
+.rk-page__container { width: 100%; margin-right: auto; }
+.rk-page__head { gap: 16px; margin-bottom: 18px; }
+.rk-page__head h1 { margin: 0; font-size: 22px; line-height: 1.2; letter-spacing: -.012em; font-weight: 650; }
+.rk-page__head p { margin: 5px 0 0; color: var(--rk-ink-2); font-size: 13.5px; text-wrap: pretty; }
+.rk-page__actions { gap: 8px; }
+/* ---- UI kit ----------------------------------------------------------------------------- */
+.rk-btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-height: 30px; padding: 0 12px; border: 0; border-radius: 8px; font-weight: 550; transition: background-color .12s, transform .1s; }
+.rk-btn--sm { min-height: 24px; padding: 0 9px; font-size: 12px; border-radius: 6px; }
+.rk-btn:active { transform: scale(.97); }
+.rk-btn:focus-visible { outline: 2px solid var(--rk-focus); outline-offset: 1px; }
+.rk-btn:disabled { opacity: .5; pointer-events: none; }
+.rk-btn--primary { background: var(--rk-accent); color: var(--rk-accent-ink); }
+.rk-btn--primary:hover { background: color-mix(in srgb, var(--rk-accent) 88%, black); }
+.rk-btn--secondary { background: var(--rk-fill-2); color: var(--rk-ink); }
+.rk-btn--secondary:hover { background: var(--rk-fill-3); }
+.rk-btn--ghost { background: transparent; color: var(--rk-ink); box-shadow: inset 0 0 0 1px var(--rk-line-strong); }
+.rk-btn--ghost:hover { background: var(--rk-fill); }
+.rk-btn--danger { background: var(--rk-bad); color: #fff; }
+.rk-btn--danger:hover { background: color-mix(in srgb, var(--rk-bad) 86%, black); }
+.rk-input { height: 30px; padding: 0 10px; border: 0; border-radius: 8px; background: var(--rk-fill-2); color: var(--rk-ink); font: inherit; outline: none; }
+.rk-input:focus { background: var(--rk-elevated); box-shadow: 0 0 0 2px var(--rk-focus); }
+.rk-input[aria-invalid="true"] { box-shadow: 0 0 0 2px var(--rk-bad-soft), inset 0 0 0 1px var(--rk-bad); }
+.rk-input::placeholder { color: var(--rk-ink-3); }
+.rk-toggle { width: var(--rk-toggle-width, 36px); height: var(--rk-toggle-height, 22px); border: 0; border-radius: 99px; background: var(--rk-fill-3); padding: 0; transition: background-color .15s; }
+.rk-toggle[aria-checked="true"] { background: var(--rk-accent); }
+.rk-toggle__knob { width: var(--rk-toggle-knob, 18px); height: var(--rk-toggle-knob, 18px); border-radius: 50%; background: #fff; box-shadow: var(--rk-knob); transition: transform .15s; }
+.rk-toggle[aria-checked="true"] .rk-toggle__knob { transform: translateX(var(--rk-toggle-travel, 14px)); }
+.rk-toggle:focus-visible { outline: 2px solid var(--rk-focus); outline-offset: 2px; }
+.rk-toggle:disabled { opacity: .5; }
+.rk-seg { padding: 2px; gap: var(--rk-seg-gap, 2px); border-radius: 9px; background: var(--rk-fill-2); }
+.rk-seg__item { border: 0; background: none; padding: 4px 11px; border-radius: 7px; color: var(--rk-ink-2); font-size: 12.5px; font-weight: 550; }
+.rk-seg__item.is-on { background: var(--rk-seg-on); color: var(--rk-ink); box-shadow: var(--rk-knob); }
+.rk-seg__item:focus-visible { outline: 2px solid var(--rk-focus); outline-offset: 0; }
+.rk-card { background: var(--rk-panel); border-radius: var(--rk-radius); box-shadow: var(--rk-card); padding: 16px; }
+.rk-badge { height: 20px; padding: 0 8px; border-radius: 99px; font-size: 11px; font-weight: 600; background: var(--rk-fill-2); color: var(--rk-ink-2); white-space: nowrap; }
+.rk-badge--accent { background: var(--rk-accent-soft); color: var(--rk-accent); }
+.rk-badge--ok { background: var(--rk-ok-soft); color: var(--rk-ok); }
+.rk-badge--warn { background: var(--rk-warn-soft); color: var(--rk-warn); }
+.rk-badge--bad { background: var(--rk-bad-soft); color: var(--rk-bad); }
+.rk-empty { gap: 8px; padding: 36px 24px; text-align: center; color: var(--rk-ink-2); }
+.rk-empty strong { color: var(--rk-ink); font-size: 15px; }
+.rk-empty p { margin: 0; max-width: 42ch; text-wrap: pretty; }
+.rk-empty__icon { width: 40px; height: 40px; border-radius: 50%; background: var(--rk-fill-2); color: var(--rk-accent); }
+.rk-field { gap: 5px; }
+.rk-field label { font-size: 12.5px; font-weight: 600; }
+.rk-field small { color: var(--rk-ink-3); font-size: 12px; }
+.rk-icon-btn:focus-visible { outline: 2px solid var(--rk-focus); outline-offset: 0; }
+.rk-shell kbd, .rightkit-kbd-key { font-family: inherit; }
+/* ---- Overlays: modal, palette, help ----------------------------------------------------- */
+.rk-overlay { padding: 16px; background: var(--rk-scrim); opacity: 1; transition: opacity .08s ease-out; color: var(--rk-ink); font: 13px/1.4 -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif; -webkit-font-smoothing: antialiased; }
+.rk-overlay--top { padding-top: 12vh; }
+.rk-overlay.is-closing { opacity: 0; }
+:where(.rk-overlay, .rk-menu, .rk-toasts) button { font: inherit; color: inherit; }
+.rk-modal, .rk-palette { background: var(--rk-elevated); color: var(--rk-ink); border-radius: 14px; box-shadow: var(--rk-pop); max-width: calc(100vw - 2rem); outline: none; animation: rk-pop .14s cubic-bezier(.2,.8,.2,1); }
+.rk-modal { padding: 20px; max-height: calc(100vh - 2rem); overflow: auto; }
+.rk-modal.is-closing, .rk-palette.is-closing { animation: rk-pop-out .08s ease-in forwards; }
+.rk-modal__title { margin: 0 0 6px; font-size: 15px; font-weight: 650; }
+.rk-modal__desc { margin: 0 0 14px; color: var(--rk-ink-2); line-height: 1.5; text-wrap: pretty; }
+.rk-modal__form { gap: 8px; }
+.rk-modal__label { font-size: 12.5px; font-weight: 600; }
+.rk-modal__error { color: var(--rk-bad); }
+.rk-modal__actions { gap: 8px; margin-top: 16px; }
+@keyframes rk-pop { from { opacity: 0; transform: scale(.97) translateY(4px); } }
+@keyframes rk-pop-out { to { opacity: 0; transform: scale(.98); } }
+.rk-palette { width: var(--rk-palette-width); overflow: hidden; }
+.rk-palette__field { gap: 12px; height: 54px; padding: 0 18px; border-bottom: .5px solid var(--rk-hairline); color: var(--rk-ink-3); }
+.rk-palette__field svg { width: 18px; height: 18px; }
+.rk-palette__field input { border: 0; outline: 0; background: none; color: var(--rk-ink); font-size: 18px; user-select: text; }
+.rk-palette__field input::placeholder { color: var(--rk-ink-3); }
+.rk-palette__list { max-height: min(56vh, 480px); padding: 4px 8px 8px; }
+.rk-palette__group { padding: 10px 10px 4px; font-size: 11px; font-weight: 600; color: var(--rk-ink-3); }
+.rk-palette__opt { gap: 10px; height: 38px; padding: 0 10px; border-radius: 9px; color: var(--rk-ink); }
+.rk-palette__opt.is-active { background: var(--rk-accent-soft); }
+.rk-palette__icon { width: 24px; height: 24px; border-radius: 6px; background: var(--rk-fill-2); color: var(--rk-ink-2); }
+.rk-palette__icon svg { width: 14px; height: 14px; }
+.rk-palette__label { text-overflow: ellipsis; white-space: nowrap; font-size: 13.5px; }
+.rk-palette__hint { font: 11px var(--rk-font-mono); color: var(--rk-ink-3); }
+.rk-palette__empty { padding: 14px 12px; color: var(--rk-ink-3); }
+.rk-palette .rightkit-kbd-chord, .rk-menu .rightkit-kbd-chord, .rk-help .rightkit-kbd-chord { gap: var(--rightkit-kbd-gap, 2px); }
+.rk-palette .rightkit-kbd-key, .rk-menu .rightkit-kbd-key, .rk-help .rightkit-kbd-key { min-width: 18px; padding: 2px 5px; border-radius: 5px; background: var(--rk-fill-2); color: var(--rk-ink-2); font: 11px/1 var(--rk-font-mono); text-align: center; box-shadow: inset 0 -1px 0 var(--rk-line); }
+.rk-help { width: 680px; }
+.rk-help__head { margin-bottom: 12px; }
+.rk-help__head .rk-modal__title { margin: 0; }
+.rk-help__grid { gap: 18px 32px; }
+.rk-help h3 { margin: 0 0 8px; font-size: 11px; font-weight: 650; text-transform: uppercase; letter-spacing: .08em; color: var(--rk-ink-3); }
+.rk-help ul { margin: 0; padding: 0; list-style: none; gap: 7px; }
+.rk-help li { gap: 12px; }
+.rk-help__keys { gap: 6px; }
+.rk-help__step { gap: 6px; }
+.rk-help__step em { font-style: normal; font-size: 11px; color: var(--rk-ink-3); }
+/* ---- Context menu ----------------------------------------------------------------------- */
+.rk-menu { background: var(--rk-elevated); color: var(--rk-ink); border-radius: 10px; box-shadow: var(--rk-pop); padding: 4px; outline: none; animation: rk-pop .1s ease-out; font: 12.5px/1.4 -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif; user-select: none; }
+/* Exit animation (ContextMenu exitMs > 0 sets --rk-menu-exit-ms and adds .is-closing). */
+.rk-menu.is-closing { animation: rk-pop-out var(--rk-menu-exit-ms, 80ms) ease-in forwards; }
+.rk-menu__item { gap: 8px; height: 28px; padding: 0 8px; border-radius: 6px; cursor: default; }
+.rk-menu__item.is-active { background: var(--rk-accent); color: var(--rk-accent-ink); }
+.rk-menu__item.is-active .rightkit-kbd-key { background: rgba(255,255,255,.2); color: inherit; box-shadow: none; }
+.rk-menu__item.is-danger { color: var(--rk-bad); }
+.rk-menu__item.is-danger.is-active { background: var(--rk-bad); color: #fff; }
+.rk-menu__item.is-disabled { opacity: .4; }
+.rk-menu__lead { width: 14px; text-align: center; }
+.rk-menu__lead svg { width: 14px; height: 14px; }
+.rk-menu__label { text-overflow: ellipsis; white-space: nowrap; }
+.rk-menu__sep { height: 1px; margin: 4px 6px; background: var(--rk-hairline); }
+/* ---- Toasts ----------------------------------------------------------------------------- */
+.rk-toasts { width: min(var(--rk-toast-width, 26rem), calc(100vw - 2rem)); gap: 8px; font: 13px/1.4 -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif; -webkit-font-smoothing: antialiased; }
+.rk-toast { gap: 10px; min-height: 38px; max-width: 100%; padding: 6px 6px 6px 12px; border-radius: 99px; background: var(--rk-elevated); color: var(--rk-ink); box-shadow: var(--rk-pop); animation: rk-toast-in .18s cubic-bezier(.2,.8,.2,1); }
+.rk-toast.is-leaving { animation: rk-pop-out .15s ease-in forwards; }
+.rk-toast__glyph { width: 18px; height: 18px; border-radius: 50%; font-size: 11px; font-weight: 800; background: var(--rk-fill-3); color: var(--rk-ink-2); }
+.rk-toast--success .rk-toast__glyph { background: var(--rk-ok-soft); color: var(--rk-ok); }
+.rk-toast--warning .rk-toast__glyph { background: var(--rk-warn-soft); color: var(--rk-warn); }
+.rk-toast--error .rk-toast__glyph { background: var(--rk-bad-soft); color: var(--rk-bad); }
+.rk-toast__msg { text-overflow: ellipsis; white-space: nowrap; font-weight: 520; }
+.rk-toast__action { border: 0; background: none; padding: 3px 8px; border-radius: 99px; color: var(--rk-accent); font-weight: 650; }
+.rk-toast__action:hover { background: var(--rk-accent-soft); }
+.rk-toast__x { width: 24px; height: 24px; border: 0; border-radius: 50%; background: none; color: var(--rk-ink-3); font-size: 11px; }
+.rk-toast__x:hover { background: var(--rk-fill-2); color: var(--rk-ink); }
+.rk-toast__x:focus-visible, .rk-toast__action:focus-visible { outline: 2px solid var(--rk-focus); }
+@keyframes rk-toast-in { from { opacity: 0; transform: translateY(8px); } }
+/* Honoured by default. A host that deliberately wants full motion sets data-rk-motion="full" on the root (or on any ancestor of the
+   shell, or on the element itself). The :where() keeps the selector's specificity exactly what it was, so nothing else changes. */
+@media (prefers-reduced-motion: reduce) {
+  .rk-modal:where(:not([data-rk-motion="full"], [data-rk-motion="full"] *)),
+  .rk-palette:where(:not([data-rk-motion="full"], [data-rk-motion="full"] *)),
+  .rk-menu:where(:not([data-rk-motion="full"], [data-rk-motion="full"] *)),
+  .rk-toast:where(:not([data-rk-motion="full"], [data-rk-motion="full"] *)),
+  .rk-overlay:where(:not([data-rk-motion="full"], [data-rk-motion="full"] *)) { animation: none !important; transition: none !important; }
+}

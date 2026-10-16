@@ -1,0 +1,46 @@
+{
+  "package": "rightkit-credentials",
+  "capabilities": [
+    {
+      "capability": "os-credential-store",
+      "summary": "Keychain / Credential Manager access with per-app namespaces and test guards",
+      "fingerprints": [
+        {
+          "id": "secrets.cargo.keyring",
+          "type": "dependency",
+          "ecosystem": "cargo",
+          "name": "keyring",
+          "tier": "advise",
+          "usageContext": {
+            "hosts": [
+              "macos",
+              "windows"
+            ],
+            "scope": "cargo direct competing dependency; transitive findings require authenticated reachability"
+          },
+          "tierReason": "No recorded published-version qualification for this usage context on both macOS & Windows."
+        },
+        {
+          "id": "secrets.npm.keytar",
+          "type": "dependency",
+          "ecosystem": "npm",
+          "name": "keytar",
+          "tier": "advise",
+          "usageContext": {
+            "hosts": [
+              "macos",
+              "windows"
+            ],
+            "scope": "npm direct competing dependency; transitive findings require authenticated reachability"
+          },
+          "tierReason": "No recorded published-version qualification for this usage context on both macOS & Windows."
+        }
+      ],
+      "detection": "fingerprinted",
+      "policyNotes": [
+        "Cross-process Windows key race repair remains P1.",
+        "Fingerprints identify review candidates; published two-host replacement qualification is not recorded."
+      ]
+    }
+  ]
+}

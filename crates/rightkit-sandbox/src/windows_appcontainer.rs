@@ -26,7 +26,7 @@ use std::collections::{BTreeMap, HashMap};
 use std::ffi::{c_void, OsStr};
 use std::io;
 use std::os::windows::ffi::OsStrExt;
-use std::os::windows::io::{FromRawHandle, IntoRawHandle, RawHandle};
+use std::os::windows::io::{AsRawHandle, FromRawHandle, IntoRawHandle, OwnedHandle, RawHandle};
 use std::os::windows::process::ExitStatusExt;
 use std::path::{Path, PathBuf};
 use std::process::ExitStatus;
@@ -67,6 +67,7 @@ const FSCTL_SET_REPARSE_POINT: u32 = 0x0009_00A4;
 const IO_REPARSE_TAG_MOUNT_POINT: u32 = 0xA000_0003;
 const FILE_FLAG_BACKUP_SEMANTICS: u32 = 0x0200_0000;
 const FILE_FLAG_OPEN_REPARSE_POINT: u32 = 0x0020_0000;
+const GENERIC_READ: u32 = 0x8000_0000;
 const GENERIC_WRITE: u32 = 0x4000_0000;
 const OPEN_EXISTING: u32 = 3;
 const ACL_REVISION: u8 = 2;
@@ -77,6 +78,8 @@ const NO_PROPAGATE_INHERIT_ACE: u8 = 0x4;
 const INHERIT_ONLY_ACE: u8 = 0x8;
 const HANDLE_FLAG_INHERIT: u32 = 0x0000_0001;
 const PIPE_ACCESS_INBOUND: u32 = 0x0000_0001;
+const PIPE_ACCESS_OUTBOUND: u32 = 0x0000_0002;
+const FILE_FLAG_OVERLAPPED: u32 = 0x4000_0000;
 const FILE_FLAG_FIRST_PIPE_INSTANCE: u32 = 0x0008_0000;
 const PIPE_REJECT_REMOTE_CLIENTS: u32 = 0x0000_0008;
 const ERROR_PIPE_CONNECTED: u32 = 535;
@@ -561,6 +564,71 @@ impl LocalSid {
             return Err(last_error("parse SID"));
         }
         Ok(Self(sid))
+    }
+}
+
+/// Capability SIDs derived from a capability name; freed on drop.
+struct DerivedCapabilitySids {
+    group_array: *mut *mut c_void,
+    group_count: u32,
+    sid_array: *mut *mut c_void,
+    sid_count: u32,
+}
+
+impl DerivedCapabilitySids {
+    fn derive(name: &str) -> io::Result<Self> {
+        let wname = wide(name);
+        let mut derived = Self {
+            group_array: std::ptr::null_mut(),
+            group_count: 0,
+            sid_array: std::ptr::null_mut(),
+            sid_count: 0,
+        };
+        // SAFETY: NUL-terminated name and valid out-pointers; results freed in Drop.
+        // Bound via the `windows` crate (api-ms-win-security-base), not a kernelbase.lib link.
+        let result = unsafe {
+            windows::Win32::Security::DeriveCapabilitySidsFromName(
+                PCWSTR(wname.as_ptr()),
+                (&mut derived.group_array as *mut *mut *mut c_void).cast(),
+                &mut derived.group_count,
+                (&mut derived.sid_array as *mut *mut *mut c_void).cast(),
+                &mut derived.sid_count,
+            )
+        };
+        if result.is_err() {
+            return Err(last_error(&format!("derive capability SID {name}")));
+        }
+        Ok(derived)
+    }
+
+    fn sids(&self) -> Vec<*mut c_void> {
+        if self.sid_array.is_null() {
+            return Vec::new();
+        }
+        // SAFETY: the API returned `sid_count` entries.
+        (0..self.sid_count as usize)
+            .map(|i| unsafe { *self.sid_array.add(i) })
+            .collect()
+    }
+}
+
+impl Drop for DerivedCapabilitySids {
+    fn drop(&mut self) {
+        // SAFETY: every array and SID was allocated by the derive call (LocalAlloc).
+        unsafe {
+            for (array, count) in [
+                (self.group_array, self.group_count),
+                (self.sid_array, self.sid_count),
+            ] {
+                if array.is_null() {
+                    continue;
+                }
+                for i in 0..count as usize {
+                    LocalFree(*array.add(i));
+                }
+                LocalFree(array.cast());
+            }
+        }
     }
 }
 
@@ -1373,6 +1441,84 @@ fn output_pipe(security: &PipeSecurity) -> io::Result<(std::fs::File, RawHandle)
     Ok((unsafe { std::fs::File::from_raw_handle(server) }, client))
 }
 
+/// One auxiliary pipe. Parent keeps an overlapped, non-inheritable server end;
+/// the child receives only its synchronous client endpoint through the explicit
+/// process handle list.
+fn auxiliary_pipe(
+    security: &PipeSecurity,
+    to_child: bool,
+) -> io::Result<(OwnedHandle, OwnedHandle)> {
+    static SEQUENCE: AtomicU64 = AtomicU64::new(0);
+    let name = wide(format!(
+        r"\\.\pipe\rightkit-sandbox-aux-{}-{}",
+        std::process::id(),
+        SEQUENCE.fetch_add(1, Ordering::Relaxed)
+    ));
+    let attributes = SecurityAttributes {
+        length: std::mem::size_of::<SecurityAttributes>() as u32,
+        descriptor: security.0,
+        inherit_handle: 0,
+    };
+    let (server_access, client_access) = if to_child {
+        (PIPE_ACCESS_OUTBOUND, GENERIC_READ)
+    } else {
+        (PIPE_ACCESS_INBOUND, GENERIC_WRITE)
+    };
+    // SAFETY: name and security attributes outlive the call.
+    let server = unsafe {
+        CreateNamedPipeW(
+            name.as_ptr(),
+            server_access | FILE_FLAG_OVERLAPPED | FILE_FLAG_FIRST_PIPE_INSTANCE,
+            PIPE_REJECT_REMOTE_CLIENTS,
+            1,
+            64 * 1024,
+            64 * 1024,
+            0,
+            &attributes,
+        )
+    };
+    if server.is_null() || server == INVALID_HANDLE {
+        return Err(last_error("CreateNamedPipeW auxiliary"));
+    }
+    // SAFETY: opens the unique client endpoint for this server instance.
+    let client = unsafe {
+        CreateFileW(
+            name.as_ptr(),
+            client_access,
+            0,
+            std::ptr::null(),
+            OPEN_EXISTING,
+            0,
+            std::ptr::null_mut(),
+        )
+    };
+    if client.is_null() || client == INVALID_HANDLE {
+        let error = last_error("open auxiliary pipe client");
+        close_raw(server);
+        return Err(error);
+    }
+    // Opening this client before `ConnectNamedPipe` establishes a good connection; calling
+    // `ConnectNamedPipe` afterwards only reports `ERROR_PIPE_CONNECTED`. Do not create an
+    // overlapped connect operation: this server is already ready for Tokio I/O.
+    if let Err(error) = set_inheritable(client) {
+        close_raw(client);
+        close_raw(server);
+        return Err(error);
+    }
+    // Explicitly preserve parent-side non-inheritance even if a caller changed
+    // process defaults before this launch.
+    if unsafe { SetHandleInformation(server, HANDLE_FLAG_INHERIT, 0) } == 0 {
+        let error = last_error("clear auxiliary server inheritance");
+        close_raw(client);
+        close_raw(server);
+        return Err(error);
+    }
+    // SAFETY: both handles were just created and ownership moves into RAII wrappers.
+    Ok((unsafe { OwnedHandle::from_raw_handle(server) }, unsafe {
+        OwnedHandle::from_raw_handle(client)
+    }))
+}
+
 // ---------------------------------------------------------------------------------------
 // Child
 // ---------------------------------------------------------------------------------------
@@ -1433,6 +1579,46 @@ impl ConfinedChild {
         }
     }
 
+    /// Observe the leader's exit code without reaping or releasing AppContainer leases.
+    /// `Ok(None)` while it still runs; raw NTSTATUS-style codes survive as `u32`.
+    pub(crate) fn observed_exit_code(&self) -> io::Result<Option<u32>> {
+        Ok(self
+            .wait_ms(0)?
+            .map(|status| status.code().unwrap_or(0) as u32))
+    }
+
+    /// Observe leader exit without reaping or releasing AppContainer leases.
+    pub(crate) fn has_exited(&self) -> io::Result<bool> {
+        Ok(self.wait_ms(0)?.is_some())
+    }
+
+    /// Terminate the retained Job even when its leader has already exited, then
+    /// wait no longer than `timeout`. A timeout retains this child and its leases.
+    pub(crate) fn terminate_tree_bounded(
+        &mut self,
+        timeout: Duration,
+    ) -> io::Result<rightkit_child_process::ReapOutcome> {
+        let started = Instant::now();
+        if let Some(job) = &self.job {
+            job.terminate()?;
+        } else if !self.has_exited()? {
+            // SAFETY: live process handle owned by self.
+            unsafe { TerminateProcess(HANDLE(self.process), 1) }.map_err(io::Error::other)?;
+        }
+        let Some(status) = self.wait_timeout(timeout.saturating_sub(started.elapsed()))? else {
+            return Ok(rightkit_child_process::ReapOutcome::TimedOut);
+        };
+        let empty = match &self.job {
+            Some(job) => job.wait_empty(timeout.saturating_sub(started.elapsed()))?,
+            None => true,
+        };
+        if empty {
+            Ok(rightkit_child_process::ReapOutcome::Exited(status))
+        } else {
+            Ok(rightkit_child_process::ReapOutcome::TimedOut)
+        }
+    }
+
     /// Kill the child and, through its Job Object, every descendant.
     pub(crate) fn terminate_tree(&mut self) -> io::Result<ExitStatus> {
         if let Some(status) = self.try_wait()? {
@@ -1452,10 +1638,28 @@ impl ConfinedChild {
 
 impl Drop for ConfinedChild {
     fn drop(&mut self) {
+        let unassigned = self.job.is_none();
         if let Some(job) = self.job.take() {
             let _ = job.terminate();
+        } else if !self.process.is_null() && self.process != INVALID_HANDLE {
+            // Job creation or assignment can fail while CreateProcessW left this child
+            // suspended. Kill that owned process before its AppContainer leases release.
+            unsafe {
+                let _ = TerminateProcess(HANDLE(self.process), 1);
+            }
         }
-        let _ = self.wait_ms(1000);
+        let exited = self.wait_ms(1000).ok().flatten().is_some();
+        if unassigned && !exited {
+            // Failed Job setup cannot release AppContainer leases while its
+            // suspended child is unresolved. Retain native handles + leases
+            // for explicit failure-path recovery without blocking this drop.
+            std::mem::forget((
+                std::mem::replace(&mut self.process, std::ptr::null_mut()),
+                std::mem::replace(&mut self.thread, std::ptr::null_mut()),
+                std::mem::take(&mut self._leases),
+            ));
+            return;
+        }
         for handle in [self.thread, self.process] {
             if !handle.is_null() && handle != INVALID_HANDLE {
                 // SAFETY: from CreateProcessW; closed once.
@@ -1469,6 +1673,32 @@ pub(crate) struct ConfinedSpawn {
     pub(crate) child: ConfinedChild,
     pub(crate) stdout: std::fs::File,
     pub(crate) stderr: std::fs::File,
+}
+
+pub(crate) struct ConfinedPipeSpawn {
+    pub(crate) child: ConfinedChild,
+    pub(crate) stdout: Option<std::fs::File>,
+    pub(crate) stderr: Option<std::fs::File>,
+    pub(crate) to_child: OwnedHandle,
+    pub(crate) from_child: OwnedHandle,
+}
+
+struct ConfinedLaunch {
+    child: ConfinedChild,
+    stdout: Option<std::fs::File>,
+    stderr: Option<std::fs::File>,
+    auxiliary: Option<(OwnedHandle, OwnedHandle)>,
+}
+
+struct SuspendedLaunchParams<'a> {
+    program: &'a Path,
+    command_line: &'a str,
+    cwd: &'a Path,
+    environment: &'a [u16],
+    network: bool,
+    named_capabilities: &'a [String],
+    stdio: [RawHandle; 3],
+    auxiliary: &'a [RawHandle],
 }
 
 /// The policy's grants as canonical existing paths: (path, writable). Missing paths fail
@@ -1674,6 +1904,247 @@ pub(crate) fn spawn(
     policy: &SandboxPolicy,
     command: &SandboxCommand,
 ) -> Result<ConfinedSpawn, SandboxError> {
+    let launched = spawn_inner(policy, command, None, None)?;
+    let stdout = launched.stdout.ok_or_else(|| {
+        SandboxError::InvalidPolicy("ordinary confined spawn did not create stdout capture".into())
+    })?;
+    let stderr = launched.stderr.ok_or_else(|| {
+        SandboxError::InvalidPolicy("ordinary confined spawn did not create stderr capture".into())
+    })?;
+    Ok(ConfinedSpawn {
+        child: launched.child,
+        stdout,
+        stderr,
+    })
+}
+
+/// Spawn `command` with the two auxiliary client endpoints requested by
+/// `handle_flag`; parent server endpoints remain outside the child handle list.
+pub(crate) fn spawn_with_pipe_pair(
+    policy: &SandboxPolicy,
+    command: &SandboxCommand,
+    handle_flag: &str,
+    stdio_file: Option<&Path>,
+) -> Result<ConfinedPipeSpawn, SandboxError> {
+    if policy.network != NetworkPolicy::Deny {
+        return Err(SandboxError::InvalidPolicy(
+            "pipe-pair sandbox requires NetworkPolicy::Deny".into(),
+        ));
+    }
+    let launched = spawn_inner(policy, command, Some(handle_flag), stdio_file)?;
+    let (to_child, from_child) = launched.auxiliary.ok_or_else(|| {
+        SandboxError::InvalidPolicy("pipe-pair launch did not create auxiliary handles".into())
+    })?;
+    Ok(ConfinedPipeSpawn {
+        child: launched.child,
+        stdout: launched.stdout,
+        stderr: launched.stderr,
+        to_child,
+        from_child,
+    })
+}
+
+const FILE_SHARE_READ: u32 = 0x1;
+const FILE_ATTRIBUTE_REPARSE_POINT: u32 = 0x400;
+
+/// True when `path` equals or lies under `root` (component-wise, case-insensitive).
+fn path_within(path: &Path, root: &Path) -> bool {
+    let key = lexical_path_key(path);
+    let root = lexical_path_key(root);
+    key == root || key.starts_with(&format!("{root}\\"))
+}
+
+fn is_reparse(metadata: &std::fs::Metadata) -> bool {
+    use std::os::windows::fs::MetadataExt;
+    metadata.file_type().is_symlink()
+        || metadata.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0
+}
+
+/// Check that `path` names a plain file directly inside a writable grant and return the
+/// parent-canonicalized target. The child inherits the opened handle, so an unchecked path
+/// would let it append to any file the parent can write.
+fn validate_stdio_path(path: &Path, grants: &[(PathBuf, bool)]) -> Result<PathBuf, SandboxError> {
+    use std::path::Component;
+    let bad = |why: &str| {
+        SandboxError::InvalidPolicy(format!("stdio file {} refused: {why}", path.display()))
+    };
+    if !path.is_absolute() {
+        return Err(bad("path must be absolute"));
+    }
+    for component in path.components() {
+        match component {
+            Component::ParentDir | Component::CurDir => {
+                return Err(bad("`.` and `..` components are not allowed"))
+            }
+            Component::Prefix(prefix) => {
+                use std::path::Prefix;
+                if !matches!(prefix.kind(), Prefix::Disk(_) | Prefix::UNC(..)) {
+                    return Err(bad("verbatim and device paths are not allowed"));
+                }
+            }
+            _ => {}
+        }
+    }
+    let name = path.file_name().ok_or_else(|| bad("no file name"))?;
+    let text = name.to_string_lossy();
+    if text.contains([':', '/', '\\', '*', '?', '"', '<', '>', '|'])
+        || text.ends_with('.')
+        || text.ends_with(' ')
+    {
+        return Err(bad("file name is not a plain name"));
+    }
+    let stem = text.split('.').next().unwrap_or("").to_ascii_uppercase();
+    let reserved = matches!(
+        stem.as_str(),
+        "CON" | "PRN" | "AUX" | "NUL" | "CONIN$" | "CONOUT$"
+    ) || ((stem.starts_with("COM") || stem.starts_with("LPT"))
+        && stem.len() == 4
+        && stem.as_bytes()[3].is_ascii_digit());
+    if reserved {
+        return Err(bad("reserved device name"));
+    }
+    let parent = path.parent().ok_or_else(|| bad("no parent directory"))?;
+    let parent = std::fs::canonicalize(parent)
+        .map(|p| plain_path(&p))
+        .map_err(|e| bad(&format!("parent directory does not resolve: {e}")))?;
+    if !grants
+        .iter()
+        .any(|(root, writable)| *writable && path_within(&parent, root))
+    {
+        return Err(bad("outside the policy's write_paths"));
+    }
+    let target = parent.join(name);
+    match std::fs::symlink_metadata(&target) {
+        Ok(metadata) if is_reparse(&metadata) => Err(bad("target is a symlink or reparse point")),
+        Ok(metadata) if !metadata.is_file() => Err(bad("target is not a regular file")),
+        Ok(_) => Ok(target),
+        Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(target),
+        Err(e) => Err(e.into()),
+    }
+}
+
+/// Validate and open the diagnostic stdio file: append, no other writer, never following a
+/// reparse point.
+fn open_stdio_file(path: &Path, grants: &[(PathBuf, bool)]) -> Result<std::fs::File, SandboxError> {
+    use std::os::windows::fs::OpenOptionsExt;
+    let target = validate_stdio_path(path, grants)?;
+    let file = std::fs::OpenOptions::new()
+        .append(true)
+        .create(true)
+        .share_mode(FILE_SHARE_READ)
+        .custom_flags(FILE_FLAG_OPEN_REPARSE_POINT)
+        .open(&target)?;
+    if is_reparse(&file.metadata()?) {
+        return Err(SandboxError::InvalidPolicy(format!(
+            "stdio file {} refused: target is a symlink or reparse point",
+            path.display()
+        )));
+    }
+    if file_link_count(&file)? > 1 {
+        return Err(SandboxError::InvalidPolicy(format!(
+            "stdio file {} refused: target has more than one hard link",
+            path.display()
+        )));
+    }
+    // Re-check the object actually opened: the parent could have been swapped (junction,
+    // mount) between validation and open. VOLUME_NAME_DOS (0) names the final location.
+    let final_path = final_path_of_handle(&file)?;
+    let final_text = normalize_final_path(&final_path.to_string_lossy());
+    let inside = grants.iter().any(|(root, writable)| {
+        *writable
+            && path_within(
+                Path::new(&final_text),
+                Path::new(&normalize_final_path(&root.to_string_lossy())),
+            )
+    });
+    if !inside {
+        drop(file);
+        return Err(SandboxError::InvalidPolicy(format!(
+            "stdio file {} refused: opened file resolves outside the policy's write_paths",
+            path.display()
+        )));
+    }
+    Ok(file)
+}
+
+/// Final DOS path of an open file (GetFinalPathNameByHandleW, VOLUME_NAME_DOS).
+fn final_path_of_handle(file: &std::fs::File) -> io::Result<PathBuf> {
+    use std::os::windows::ffi::OsStringExt;
+    let mut buffer = vec![0u16; 512];
+    loop {
+        // SAFETY: the handle is valid for the borrow; the buffer length is passed exactly.
+        let len = unsafe {
+            ancestors::GetFinalPathNameByHandleW(
+                file.as_raw_handle(),
+                buffer.as_mut_ptr(),
+                buffer.len() as u32,
+                0,
+            )
+        };
+        if len == 0 {
+            return Err(io::Error::last_os_error());
+        }
+        if (len as usize) < buffer.len() {
+            return Ok(PathBuf::from(std::ffi::OsString::from_wide(
+                &buffer[..len as usize],
+            )));
+        }
+        buffer.resize(len as usize + 1, 0);
+    }
+}
+
+/// Strip the `\\?\` / `\\?\UNC\` verbatim prefixes so a final path and a grant compare in
+/// one spelling (`\\?\UNC\srv\share` becomes `\\srv\share`).
+fn normalize_final_path(text: &str) -> String {
+    if let Some(rest) = text.strip_prefix("\\\\?\\UNC\\") {
+        format!("\\\\{rest}")
+    } else if let Some(rest) = text.strip_prefix("\\\\?\\") {
+        rest.to_string()
+    } else {
+        text.to_string()
+    }
+}
+
+#[repr(C)]
+struct ByHandleFileInformation {
+    file_attributes: u32,
+    creation_time: [u32; 2],
+    last_access_time: [u32; 2],
+    last_write_time: [u32; 2],
+    volume_serial_number: u32,
+    file_size_high: u32,
+    file_size_low: u32,
+    number_of_links: u32,
+    file_index_high: u32,
+    file_index_low: u32,
+}
+
+#[link(name = "kernel32")]
+extern "system" {
+    fn GetFileInformationByHandle(
+        handle: *mut std::ffi::c_void,
+        info: *mut ByHandleFileInformation,
+    ) -> i32;
+}
+
+/// Hard-link count of an open file (nNumberOfLinks from GetFileInformationByHandle).
+fn file_link_count(file: &std::fs::File) -> io::Result<u32> {
+    let mut info = std::mem::MaybeUninit::<ByHandleFileInformation>::zeroed();
+    // SAFETY: the handle is valid for the borrow and `info` is a correctly sized out buffer.
+    let ok = unsafe { GetFileInformationByHandle(file.as_raw_handle(), info.as_mut_ptr()) };
+    if ok == 0 {
+        return Err(io::Error::last_os_error());
+    }
+    // SAFETY: the call succeeded and initialised the structure.
+    Ok(unsafe { info.assume_init() }.number_of_links)
+}
+
+fn spawn_inner(
+    policy: &SandboxPolicy,
+    command: &SandboxCommand,
+    handle_flag: Option<&str>,
+    stdio_file: Option<&Path>,
+) -> Result<ConfinedLaunch, SandboxError> {
     // Launch and lease the real image: version managers (nvm-windows, volta, scoop) expose
     // tools through links whose link objects the container cannot use and the user cannot
     // re-ACL.
@@ -1729,44 +2200,148 @@ pub(crate) fn spawn(
     };
     let environment = confined_environment(&cwd, &folder, &policy.env, &command.env);
 
-    let mut command_line = format!("\"{}\"", program.display());
-    for arg in &command.args {
-        command_line.push(' ');
-        append_quoted_arg(&mut command_line, &arg.to_string_lossy());
-    }
-
     let security = PipeSecurity::new(&profile.sid_text)?;
     let stdin = std::fs::OpenOptions::new()
         .read(true)
         .open("NUL")?
         .into_raw_handle();
-    let (stdout, stdout_child) = match output_pipe(&security) {
-        Ok(pair) => pair,
-        Err(e) => {
-            close_raw(stdin);
-            return Err(e.into());
-        }
-    };
-    let (stderr, stderr_child) = match output_pipe(&security) {
-        Ok(pair) => pair,
-        Err(e) => {
-            close_raw(stdin);
-            close_raw(stdout_child);
-            return Err(e.into());
-        }
+    let (stdout, stdout_child, stderr, stderr_child) = if handle_flag.is_some() {
+        // Pipe-pair callers drain Chrome DevTools I/O themselves. Keep stdio on NUL (or on an
+        // append-mode diagnostic file the caller named) so this path has no reader threads
+        // whose ownership could outlive cancellation. The parent opens the file, so the
+        // child needs no ACL on it; the handle rides the explicit inherit list.
+        // The diagnostic file is validated against the policy's write grants and opened once
+        // (no other writer may share it); stdout and stderr get duplicates of that handle.
+        let sink_file = match stdio_file {
+            Some(path) => match open_stdio_file(path, &grants) {
+                Ok(file) => Some(file),
+                Err(error) => {
+                    close_raw(stdin);
+                    return Err(error);
+                }
+            },
+            None => None,
+        };
+        let open_sink = || -> io::Result<RawHandle> {
+            let file = match &sink_file {
+                Some(file) => file.try_clone()?,
+                None => std::fs::OpenOptions::new().write(true).open("NUL")?,
+            };
+            Ok(file.into_raw_handle())
+        };
+        let stdout_child = match open_sink() {
+            Ok(handle) => handle,
+            Err(error) => {
+                close_raw(stdin);
+                return Err(error.into());
+            }
+        };
+        let stderr_child = match open_sink() {
+            Ok(handle) => handle,
+            Err(error) => {
+                close_raw(stdin);
+                close_raw(stdout_child);
+                return Err(error.into());
+            }
+        };
+        (None, stdout_child, None, stderr_child)
+    } else {
+        let (stdout, stdout_child) = match output_pipe(&security) {
+            Ok(pair) => pair,
+            Err(error) => {
+                close_raw(stdin);
+                return Err(error.into());
+            }
+        };
+        let (stderr, stderr_child) = match output_pipe(&security) {
+            Ok(pair) => pair,
+            Err(error) => {
+                close_raw(stdin);
+                close_raw(stdout_child);
+                return Err(error.into());
+            }
+        };
+        (Some(stdout), stdout_child, Some(stderr), stderr_child)
     };
     let child_handles = [stdin, stdout_child, stderr_child];
-    let launched = set_inheritable(stdin).and_then(|()| {
+    let auxiliary = if handle_flag.is_some() {
+        let (to_child, child_read) = match auxiliary_pipe(&security, true) {
+            Ok(pair) => pair,
+            Err(error) => {
+                for handle in child_handles {
+                    close_raw(handle);
+                }
+                return Err(error.into());
+            }
+        };
+        let (from_child, child_write) = match auxiliary_pipe(&security, false) {
+            Ok(pair) => pair,
+            Err(error) => {
+                for handle in child_handles {
+                    close_raw(handle);
+                }
+                return Err(error.into());
+            }
+        };
+        Some((to_child, child_read, from_child, child_write))
+    } else {
+        None
+    };
+    let mut command_line = format!("\"{}\"", program.display());
+    for arg in &command.args {
+        command_line.push(' ');
+        append_quoted_arg(&mut command_line, &arg.to_string_lossy());
+    }
+    if let (Some(handle_flag), Some((_, child_read, _, child_write))) =
+        (handle_flag, auxiliary.as_ref())
+    {
+        let read = match u32::try_from(child_read.as_raw_handle() as usize) {
+            Ok(handle) => handle,
+            Err(_) => {
+                for handle in child_handles {
+                    close_raw(handle);
+                }
+                return Err(SandboxError::InvalidPolicy(
+                    "child read pipe handle does not fit in u32".into(),
+                ));
+            }
+        };
+        let write = match u32::try_from(child_write.as_raw_handle() as usize) {
+            Ok(handle) => handle,
+            Err(_) => {
+                for handle in child_handles {
+                    close_raw(handle);
+                }
+                return Err(SandboxError::InvalidPolicy(
+                    "child write pipe handle does not fit in u32".into(),
+                ));
+            }
+        };
+        command_line.push(' ');
+        append_quoted_arg(&mut command_line, &format!("{handle_flag}={read},{write}"));
+    }
+    let auxiliary_child_handles: Vec<RawHandle> = auxiliary
+        .as_ref()
+        .map(|(_, read, _, write)| vec![read.as_raw_handle(), write.as_raw_handle()])
+        .unwrap_or_default();
+    let launched = (|| {
+        set_inheritable(stdin)?;
+        set_inheritable(stdout_child)?;
+        set_inheritable(stderr_child)?;
         create_suspended(
             &profile,
-            &program,
-            &command_line,
-            &cwd,
-            &environment,
-            policy.network == NetworkPolicy::Allow,
-            [stdin, stdout_child, stderr_child],
+            SuspendedLaunchParams {
+                program: &program,
+                command_line: &command_line,
+                cwd: &cwd,
+                environment: &environment,
+                network: policy.network == NetworkPolicy::Allow,
+                named_capabilities: &policy.named_capabilities,
+                stdio: [stdin, stdout_child, stderr_child],
+                auxiliary: &auxiliary_child_handles,
+            },
         )
-    });
+    })();
     for handle in child_handles {
         close_raw(handle);
     }
@@ -1788,10 +2363,12 @@ pub(crate) fn spawn(
     if unsafe { ResumeThread(HANDLE(thread)) } == u32::MAX {
         return Err(last_error("resume confined process").into());
     }
-    Ok(ConfinedSpawn {
+    let auxiliary = auxiliary.map(|(to_child, _, from_child, _)| (to_child, from_child));
+    Ok(ConfinedLaunch {
         child,
         stdout,
         stderr,
+        auxiliary,
     })
 }
 
@@ -1799,17 +2376,25 @@ pub(crate) fn spawn(
 /// when network is allowed), an explicit inherited-handle list, no window, and suspended.
 fn create_suspended(
     profile: &AppContainerProfile,
-    program: &Path,
-    command_line: &str,
-    cwd: &Path,
-    environment: &[u16],
-    network: bool,
-    stdio: [RawHandle; 3],
+    params: SuspendedLaunchParams<'_>,
 ) -> io::Result<(*mut c_void, *mut c_void, u32)> {
+    let SuspendedLaunchParams {
+        program,
+        command_line,
+        cwd,
+        environment,
+        network,
+        named_capabilities,
+        stdio,
+        auxiliary,
+    } = params;
     let wprogram = wide(program);
     let mut wcommand = wide(command_line);
     let wcwd = wide(cwd);
-    let handles: [HANDLE; 3] = stdio.map(HANDLE);
+    let stdio_handles: [HANDLE; 3] = stdio.map(HANDLE);
+    let mut handles = Vec::with_capacity(stdio_handles.len() + auxiliary.len());
+    handles.extend(stdio_handles);
+    handles.extend(auxiliary.iter().copied().map(HANDLE));
 
     let mut size = 0usize;
     // SAFETY: the sizing call fails by design and reports the size.
@@ -1826,10 +2411,18 @@ fn create_suspended(
         } else {
             None
         };
+        crate::policy::validate_named_capabilities(named_capabilities)
+            .map_err(|e| io::Error::new(io::ErrorKind::InvalidInput, e.to_string()))?;
+        let derived = named_capabilities
+            .iter()
+            .map(|name| DerivedCapabilitySids::derive(name))
+            .collect::<io::Result<Vec<_>>>()?;
         let mut capabilities: Vec<SidAndAttributes> = internet
             .iter()
+            .map(|sid| sid.0)
+            .chain(derived.iter().flat_map(DerivedCapabilitySids::sids))
             .map(|sid| SidAndAttributes {
-                sid: sid.0,
+                sid,
                 attributes: SE_GROUP_ENABLED,
             })
             .collect();
@@ -1856,14 +2449,15 @@ fn create_suspended(
             )
         }
         .map_err(|e| io::Error::other(format!("set AppContainer attribute: {e}")))?;
-        // SAFETY: the handle array outlives CreateProcessW; only these three are inherited.
+        // SAFETY: the handle array outlives CreateProcessW; only stdio and explicitly supplied
+        // auxiliary client endpoints are inherited.
         unsafe {
             UpdateProcThreadAttribute(
                 list,
                 0,
                 PROC_THREAD_ATTRIBUTE_HANDLE_LIST as usize,
                 Some(handles.as_ptr().cast()),
-                std::mem::size_of_val(&handles),
+                std::mem::size_of_val(handles.as_slice()),
                 None,
                 None,
             )
@@ -1874,9 +2468,9 @@ fn create_suspended(
         startup.StartupInfo.cb = std::mem::size_of::<STARTUPINFOEXW>() as u32;
         startup.lpAttributeList = list;
         startup.StartupInfo.dwFlags = STARTF_USESTDHANDLES;
-        startup.StartupInfo.hStdInput = handles[0];
-        startup.StartupInfo.hStdOutput = handles[1];
-        startup.StartupInfo.hStdError = handles[2];
+        startup.StartupInfo.hStdInput = stdio_handles[0];
+        startup.StartupInfo.hStdOutput = stdio_handles[1];
+        startup.StartupInfo.hStdError = stdio_handles[2];
         let mut info = PROCESS_INFORMATION::default();
         // SAFETY: NUL-terminated, mutable command line; valid in/out structures.
         unsafe {
@@ -1925,6 +2519,135 @@ mod tests {
              on CI (GITHUB_ACTIONS=true) or with RIGHTKIT_TEST_REAL_USER_STORES=1"
         );
         false
+    }
+
+    fn scratch_dir(tag: &str) -> PathBuf {
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let dir =
+            std::env::temp_dir().join(format!("rk-stdio-{tag}-{}-{nanos}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::canonicalize(&dir).map(|p| plain_path(&p)).unwrap()
+    }
+
+    #[test]
+    fn stdio_file_inside_write_grant_is_accepted() {
+        let root = scratch_dir("ok");
+        let grants = vec![(root.clone(), true)];
+        let file = open_stdio_file(&root.join("chrome-stderr.txt"), &grants).unwrap();
+        drop(file);
+        assert!(root.join("chrome-stderr.txt").exists());
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn stdio_file_preexisting_empty_file_without_open_handle_is_accepted() {
+        // Mirrors the browser fixture: the file exists (created and closed), nothing holds it.
+        let root = scratch_dir("pre");
+        let grants = vec![(root.clone(), true)];
+        let path = root.join("chrome-stderr.txt");
+        drop(std::fs::File::create(&path).unwrap());
+        let file = open_stdio_file(&path, &grants).unwrap();
+        drop(file);
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn normalize_final_path_strips_verbatim_prefixes() {
+        assert_eq!(normalize_final_path(r"\\?\C:\a\b.txt"), r"C:\a\b.txt");
+        assert_eq!(
+            normalize_final_path(r"\\?\UNC\srv\share\a.txt"),
+            r"\\srv\share\a.txt"
+        );
+        assert_eq!(normalize_final_path(r"C:\plain"), r"C:\plain");
+        assert_eq!(normalize_final_path(r"\\srv\share"), r"\\srv\share");
+    }
+
+    #[test]
+    fn stdio_file_outside_write_grant_is_rejected() {
+        let root = scratch_dir("in");
+        let other = scratch_dir("out");
+        let grants = vec![(root.clone(), true)];
+        assert!(open_stdio_file(&other.join("x.txt"), &grants).is_err());
+        // a read-only grant does not authorize it either
+        let read_only = vec![(other.clone(), false)];
+        assert!(open_stdio_file(&other.join("x.txt"), &read_only).is_err());
+        assert!(!other.join("x.txt").exists());
+        let _ = std::fs::remove_dir_all(&root);
+        let _ = std::fs::remove_dir_all(&other);
+    }
+
+    #[test]
+    fn stdio_file_dotdot_escape_is_rejected() {
+        let root = scratch_dir("dd");
+        let other = scratch_dir("dd-out");
+        std::fs::create_dir_all(root.join("sub")).unwrap();
+        let grants = vec![(root.clone(), true)];
+        let escape = root
+            .join("sub")
+            .join("..")
+            .join("..")
+            .join(other.file_name().unwrap())
+            .join("x.txt");
+        assert!(open_stdio_file(&escape, &grants).is_err());
+        assert!(open_stdio_file(Path::new("relative.txt"), &grants).is_err());
+        assert!(open_stdio_file(&root.join("a:stream"), &grants).is_err());
+        assert!(!other.join("x.txt").exists());
+        let _ = std::fs::remove_dir_all(&root);
+        let _ = std::fs::remove_dir_all(&other);
+    }
+
+    #[test]
+    fn stdio_file_junction_or_symlink_out_of_grant_is_rejected() {
+        let root = scratch_dir("jn");
+        let other = scratch_dir("jn-out");
+        let grants = vec![(root.clone(), true)];
+        // directory junction inside the grant pointing outside
+        let junction = root.join("link");
+        let status = std::process::Command::new("cmd")
+            .args(["/C", "mklink", "/J"])
+            .arg(&junction)
+            .arg(&other)
+            .output()
+            .unwrap();
+        assert!(status.status.success(), "mklink /J failed");
+        assert!(open_stdio_file(&junction.join("x.txt"), &grants).is_err());
+        assert!(!other.join("x.txt").exists());
+        // file symlink inside the grant pointing at an outside file (needs symlink privilege)
+        let victim = other.join("victim.txt");
+        std::fs::write(&victim, b"keep").unwrap();
+        let link = root.join("file-link.txt");
+        if std::os::windows::fs::symlink_file(&victim, &link).is_ok() {
+            assert!(open_stdio_file(&link, &grants).is_err());
+            assert_eq!(std::fs::read(&victim).unwrap(), b"keep");
+        }
+        let _ = std::fs::remove_dir(&junction);
+        let _ = std::fs::remove_dir_all(&root);
+        let _ = std::fs::remove_dir_all(&other);
+    }
+
+    #[test]
+    fn stdio_file_hard_link_to_outside_file_is_rejected() {
+        let root = scratch_dir("hl");
+        let other = scratch_dir("hl-out");
+        let grants = vec![(root.clone(), true)];
+        let victim = other.join("victim.txt");
+        std::fs::write(&victim, b"keep").unwrap();
+        let link = root.join("hard.txt");
+        std::fs::hard_link(&victim, &link).unwrap();
+        assert!(matches!(
+            open_stdio_file(&link, &grants),
+            Err(SandboxError::InvalidPolicy(_))
+        ));
+        assert_eq!(std::fs::read(&victim).unwrap(), b"keep");
+        // a freshly created file has exactly one link
+        let fresh = open_stdio_file(&root.join("fresh.txt"), &grants).unwrap();
+        assert_eq!(file_link_count(&fresh).unwrap(), 1);
+        drop(fresh);
+        let _ = std::fs::remove_dir_all(&root);
+        let _ = std::fs::remove_dir_all(&other);
     }
 
     /// A profile name in this crate's format that no grant set of another test produces.

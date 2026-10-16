@@ -13,7 +13,7 @@
 //! Run: `rightkit cargo bench -p rightkit-send --bench budget`
 //! Optional: `-- <devices> <idle_seconds>` (defaults 50 and 30).
 
-use rightkit_process::{BudgetLabels, observe_idle, process_usage};
+use rightkit_child_process::{BudgetLabels, observe_idle, process_usage};
 use rightkit_send::{Config, Event, Identity, Policy, Service, proto};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;

@@ -12,6 +12,7 @@ use std::time::Duration;
 use rightapp_protocol::app_data_root;
 use rightkit_jobs::{EngineSupervisor, SupervisorConfig};
 use rightkit_process::{OwnedCommand, RestartMode, RestartPolicy};
+use rightkit_secrets::{Config, Namespace, Store};
 use rightkit_shell::Shell;
 use rightkit_tauri::{DeviceService, SecureStore};
 use serde_json::Value;
@@ -42,11 +43,24 @@ pub fn engine_config(engine: PathBuf) -> Result<SupervisorConfig, String> {
     .with_rpc_timeout(Duration::from_secs(30)))
 }
 
-/// Packaged: Tauri places `externalBin` next to the executable (triple suffix stripped). Dev and QA
-/// override the path with `RIGHTAPP_ENGINE_BIN`.
+/// Engine path override from `RIGHTAPP_ENGINE_BIN`, honoured only when `allowed`. A release build
+/// passes `false`, so a packaged app never launches an executable named by its environment.
+fn engine_override(value: Option<std::ffi::OsString>, allowed: bool) -> Option<PathBuf> {
+    if allowed {
+        value.map(PathBuf::from)
+    } else {
+        None
+    }
+}
+
+/// Packaged: Tauri places `externalBin` next to the executable (triple suffix stripped). Debug builds
+/// (dev and QA) may override the path with `RIGHTAPP_ENGINE_BIN`; release builds ignore it.
 fn engine_path(app: &tauri::AppHandle) -> Result<PathBuf, Box<dyn std::error::Error>> {
-    if let Some(p) = std::env::var_os("RIGHTAPP_ENGINE_BIN") {
-        return Ok(p.into());
+    if let Some(p) = engine_override(
+        std::env::var_os("RIGHTAPP_ENGINE_BIN"),
+        cfg!(debug_assertions),
+    ) {
+        return Ok(p);
     }
     let name = if cfg!(windows) {
         "rightapp-engine.exe"
@@ -64,46 +78,48 @@ fn engine_path(app: &tauri::AppHandle) -> Result<PathBuf, Box<dyn std::error::Er
     Ok(app.path().resource_dir()?.join(name))
 }
 
-/// Device identity is private state under the app data root.
-/// PLACEHOLDER store: a plain file. Licensed apps replace it with an OS-keyring `SecureStore`
-/// (see ScrapeRight `license.rs` `KeyringStringStore`) so device identity survives profile wipes.
-struct FileDeviceStore;
+/// Keychain service for the device identity: the bundle identifier (`tauri.conf.json` `identifier`).
+/// Frozen per app; changing it orphans the stored identity.
+const DEVICE_SERVICE: &str = "app.rightsuite.rightapp";
+const DEVICE_ACCOUNT: &str = "device-id";
 
-impl FileDeviceStore {
-    fn path() -> Result<PathBuf, String> {
-        Ok(app_data_root()?.join("device-id"))
+/// Device identity lives in the OS credential store through `rightkit-secrets`, so it survives
+/// profile wipes and is not a readable file. Read failures are errors, never absence.
+struct KeyringDeviceStore {
+    store: Store,
+}
+
+impl KeyringDeviceStore {
+    fn new() -> Result<Self, String> {
+        let namespace = Namespace::new(DEVICE_SERVICE).map_err(|e| e.to_string())?;
+        Ok(Self::with_config(Config::new(namespace)))
+    }
+
+    fn with_config(config: Config) -> Self {
+        Self { store: Store::open(config) }
     }
 }
 
-impl SecureStore<String> for FileDeviceStore {
+impl SecureStore<String> for KeyringDeviceStore {
     fn get(&self) -> Result<Option<String>, String> {
-        match std::fs::read_to_string(Self::path()?) {
-            Ok(s) => Ok(Some(s.trim().to_string())),
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
-            Err(e) => Err(e.to_string()),
+        match self.store.get(DEVICE_ACCOUNT).map_err(|e| e.to_string())? {
+            Some(secret) => Ok(Some(secret.expose_str().map_err(|e| e.to_string())?.trim().to_string())),
+            None => Ok(None),
         }
     }
 
     fn set(&self, value: &String) -> Result<(), String> {
-        let path = Self::path()?;
-        if let Some(dir) = path.parent() {
-            std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
-        }
-        std::fs::write(path, value).map_err(|e| e.to_string())
+        self.store.set_str(DEVICE_ACCOUNT, value).map_err(|e| e.to_string())
     }
 
     fn delete(&self) -> Result<(), String> {
-        match std::fs::remove_file(Self::path()?) {
-            Ok(()) => Ok(()),
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
-            Err(e) => Err(e.to_string()),
-        }
+        self.store.delete(DEVICE_ACCOUNT).map(|_| ()).map_err(|e| e.to_string())
     }
 }
 
 #[tauri::command]
 fn device_get_or_create(
-    device: tauri::State<'_, DeviceService<FileDeviceStore>>,
+    device: tauri::State<'_, DeviceService<KeyringDeviceStore>>,
 ) -> Result<String, String> {
     device.get_or_create().map_err(|e| e.to_string())
 }
@@ -145,7 +161,7 @@ pub fn run() {
         .plugin(tauri_plugin_os::init())
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
-        .manage(DeviceService::new(FileDeviceStore))
+        .manage(DeviceService::new(KeyringDeviceStore::new().expect("device identity store")))
         .setup(|app| {
             let engine = EngineSupervisor::new(engine_config(engine_path(app.handle())?)?);
             engine.start()?;
@@ -168,4 +184,54 @@ pub fn run() {
                 }
             }
         });
+}
+
+#[cfg(test)]
+mod engine_override_tests {
+    use super::engine_override;
+    use std::ffi::OsString;
+    use std::path::PathBuf;
+
+    #[test]
+    fn a_release_build_ignores_the_engine_override() {
+        assert_eq!(engine_override(Some(OsString::from("/tmp/evil")), false), None);
+    }
+
+    #[test]
+    fn a_debug_build_honours_the_engine_override() {
+        assert_eq!(
+            engine_override(Some(OsString::from("/tmp/dev-engine")), true),
+            Some(PathBuf::from("/tmp/dev-engine"))
+        );
+        assert_eq!(engine_override(None, true), None);
+    }
+}
+
+#[cfg(test)]
+mod device_store_tests {
+    use super::*;
+    use rightkit_secrets::GuardMode;
+
+    fn memory_store() -> KeyringDeviceStore {
+        let namespace = Namespace::new("app.rightsuite.rightapp.test").unwrap();
+        KeyringDeviceStore::with_config(Config::new(namespace).guard_when(true, GuardMode::Memory))
+    }
+
+    #[test]
+    fn device_identity_round_trips_through_the_secret_store_and_not_a_file() {
+        let store = memory_store();
+        store.delete().unwrap();
+        assert_eq!(store.get().unwrap(), None);
+        store.set(&"device-123".to_string()).unwrap();
+        assert_eq!(store.get().unwrap().as_deref(), Some("device-123"));
+        store.delete().unwrap();
+        assert_eq!(store.get().unwrap(), None);
+    }
+
+    #[test]
+    fn a_denied_secret_store_is_an_error_not_an_absent_identity() {
+        let namespace = Namespace::new("app.rightsuite.rightapp.denied").unwrap();
+        let store = KeyringDeviceStore::with_config(Config::new(namespace).guard_when(true, GuardMode::Deny));
+        assert!(store.get().is_err());
+    }
 }

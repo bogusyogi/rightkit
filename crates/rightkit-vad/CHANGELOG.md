@@ -3,8 +3,9 @@
 All notable changes to `rightkit-vad`. Versions follow Cargo semver; while the
 version is `0.x`, a minor bump may carry breaking changes.
 
-## Unreleased
+## 0.1.1
 
+- Republished on the renamed dependencies: `rightkit-ffmpeg` (was `rightkit-media`, dev), `rightkit-onnx` (was `rightkit-ort`). The 0.1.0 on crates.io was packaged before the renames and still named the old crates.
 - The `silero` feature no longer enables `rightkit-ort/tracing`. Forwarding ONNX Runtime's log lines into `tracing` is now the opt-in `ort-tracing` feature: through feature unification it applied to every ONNX Runtime session in the process and produced about 4,400 INFO lines per launch in HeardRight.
 - `SileroOptions::intra_op_spinning` and `inter_op_spinning` are `Spinning` (`Off` default, as earlier builds forced; `On`; `RuntimeDefault` makes no call, leaving the ONNX Runtime setting untouched). `own_thread_pool: Option<bool>`: `Some(false)` makes no thread-pool call. HeardRight runs macOS and Linux with all three left to the runtime. Full struct literals of `SileroOptions` need the new fields.
 - Calibration `rms` now accumulates in f64. A one-second single-precision sum drifted by about 1e-5, so a calibrated threshold can change in its fifth decimal compared with earlier builds; this is a behaviour change for anyone comparing thresholds across versions.

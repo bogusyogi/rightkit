@@ -42,6 +42,17 @@ export function parseCargoPublishArgs(argv, cwd = process.cwd()) {
   };
 }
 
+// A committed ci/runtime-budget-deferred.json names crates whose runtime-budget refusal is deferred by an
+// explicit decision (who, when, why). The refusal is still printed; a listed crate publishes with the
+// deferral logged. Returns the logged reason, or null when the crate is not listed.
+export function runtimeBudgetDeferral(crateDir, crate) {
+  const file = path.join(crateDir, "..", "..", "ci", "runtime-budget-deferred.json");
+  let data;
+  try { data = JSON.parse(fs.readFileSync(file, "utf8")); } catch { return null; }
+  if (!data?.crates?.includes?.(crate) || !data.approvedBy || !data.approved || !data.reason) return null;
+  return `${data.reason} (${data.approvedBy}, ${data.approved}; ci/runtime-budget-deferred.json)`;
+}
+
 export function buildCargoPublishPlan({ crate, crateDir, dryRun, allowDirty = false }) {
   const dryRunArgs = ["publish", "--dry-run", "-p", crate];
   const packageArgs = ["package", "--list", "-p", crate];
@@ -123,6 +134,11 @@ export async function runCargoPublish(options, execute = (_command, args, settin
     if (step.internal === "runtime-budget") {
       const check = runtimeBudgetCheck({ crate: options.crate, crateDir, version: cargoVersion, evidence: gate.evidence ?? undefined });
       if (check) process.stdout.write(`${formatPreflight([check])}\n`);
+      const deferral = check?.status === PREFLIGHT_FAIL ? runtimeBudgetDeferral(crateDir, options.crate) : null;
+      if (deferral) {
+        process.stdout.write(`[right-release] runtime budget DEFERRED for ${options.crate}: ${deferral}\n`);
+        continue;
+      }
       if (check?.status === PREFLIGHT_FAIL && !options.dryRun) {
         const error = new Error(`runtime budget refused: ${check.detail}. Fix: ${check.fix}`);
         error.code = RUNTIME_BUDGET_CODE;

@@ -1,16 +1,46 @@
 # rightkit-record
 
-The platform-neutral core of the RightKit recorder (RK3). It owns the recording
-lifecycle, the session bundle, redaction, bundle verification, and the frame
-reader. It never captures pixels: a per-OS helper implements the `Backend` trait
-and reports frames, geometry, losses and failures as `HelperEvent`s.
+Per-window screen capture for any app, plus the recorder core that turns a capture into a verified
+session bundle. A request names only a `window_id` and a `pid` (`src/plan.rs`), so any visible window
+can be recorded, including apps this suite does not own. The recorder never sends input: it does not
+click, type, scroll or move the pointer. Driving an app is `rightkit-automation`'s job.
+
+| OS | Capture API | Where it lives |
+|---|---|---|
+| macOS | ScreenCaptureKit | Swift helper `helpers/macos` (`rightkit-record-macos-helper`), launched by `src/macos` |
+| Windows | Windows.Graphics.Capture + Media Foundation | `src/windows`, in process or via `rightkit-record-helper serve` |
+
+## Permissions
+
+Capturing another app's window needs the operating system's consent. The crate never prompts and never
+bypasses it; with no grant, start fails closed with `Code::PermissionDenied`, and `Backend::permission()` reports it up front.
+
+- **macOS: Screen Recording permission is required.** It is granted per signing identity and
+  responsible process, in System Settings > Privacy & Security > Screen & System Audio Recording. The
+  helper reads it with `CGPreflightScreenCaptureAccess`, which never prompts. The identity that needs the
+  grant is the helper (`dev.rightkit.record.macos-helper`) as launched by the host app (its responsible
+  process), so a host must request the grant itself and a re-signed helper starts with none. After the user
+  grants it, macOS may require the host app to restart before it takes effect.
+- **Windows:** Windows.Graphics.Capture needs no permission prompt for a window capture, but a yellow
+  capture border is shown unless borderless access is granted (see "Windows borderless capture").
+
+Callers must obtain the user's informed consent before recording another app, and should keep bundles
+local. See `rightkit-credentials` for the per-installation redaction key.
+
+## Scope
+
+The macOS helper sources ship in this crate (`helpers/macos`, built with `build.sh`; a release
+must be Developer-ID signed and notarized, an ad-hoc build must never ship). Find it with
+`RIGHTKIT_RECORD_MACOS_HELPER` or place it next to the running executable. The record core itself never
+captures pixels: a per-OS helper implements the `Backend` trait and reports frames, geometry, losses and
+failures as `HelperEvent`s.
 
 ## Modules
 
 - `backend`: the `Backend` seam, `BackendPlan`, `StartInfo`, `HelperEvent`, `Failure`, `Permission`, `Codec`.
 - `recorder`: the public take lifecycle over a `Backend`. A take ends `complete`, `quarantined` or `invalid`; `complete` needs a clean stop and an accepted readiness marker.
 - `plan`, `redact`, `verify`, `reader`: the request, per-field redaction, bundle verification, and the bundle reader (step and target to frame, scenario, events, clock map, cursor assets).
-- `protocol`: the helper wire protocol. Length-prefixed JSON frames (`rightkit-framed-sidecar`) with `request`, `response`, `event` and `bye` kinds.
+- `protocol`: the helper wire protocol. Length-prefixed JSON frames (`rightkit-sidecar`) with `request`, `response`, `event` and `bye` kinds.
 - `process`: `ProcessBackend`, the core's `Backend` over a helper's stdio, and `serve_backend`, which lets a helper serve any `Backend`.
 - `windows` (Windows only): Windows.Graphics.Capture and Media Foundation capture for one HWND (`src/lib.rs:47-49`).
 - `macos` (macOS only): ScreenCaptureKit capture through the Swift helper in `helpers/macos`; the module launches it and speaks the helper protocol (`src/lib.rs:50-53`).
@@ -34,7 +64,7 @@ reason (`helper_lost; recovered_media frames=118/149 duration_ms=4006`) and retu
 ## Redaction hashes
 
 A `hash` field stores HMAC-SHA256 keyed by a per-installation secret that never enters the bundle. The
-secret lives in the OS credential store (`rightkit-secrets`, service `dev.rightkit.record`, account
+secret lives in the OS credential store (`rightkit-credentials`, service `dev.rightkit.record`, account
 `record.redaction-key.v1`, minted on first use). `StartRequest::key_source` (a `KeyHandle` wrapping a `KeySource`, `src/plan.rs:64`) supplies it;
 tests inject `FixedKeySource`. A take that hashes a field and cannot read the key is refused before
 anything is written. The bundle records only the key id (`scenario.json` `redaction.keyId`, plus
@@ -124,11 +154,25 @@ rules, or whose `schema` is not `rightkit.record.cursor-assets.v1`.
 
 - `rightkit-record-macos-helper` (Swift, `helpers/macos`): the macOS capture helper that `src/macos/mod.rs` launches.
 - `rightkit-record-helper capture ...`: a one-shot Windows take that prints a JSON summary.
-- `rightkit-record-helper serve`: the protocol over stdin and stdout, for rightkit-process. Windows only; other platforms print an `unsupported` result (`src/bin/rightkit-record-helper/main.rs:212`).
+- `rightkit-record-helper serve`: the protocol over stdin and stdout, for rightkit-child-process. Windows only; other platforms print an `unsupported` result (`src/bin/rightkit-record-helper/main.rs:212`).
 
-Process ownership (spawn, supervise, restart) belongs to rightkit-process. A
+Process ownership (spawn, supervise, restart) belongs to rightkit-child-process. A
 helper that dies mid-take is reported as `helper_lost` and the take is
 quarantined, never completed.
+
+## Windows capture notes
+
+- **On-screen and off-screen windows both work.** `rightkit-record-helper capture` declares the window's real
+  visibility (`windows::observed_visibility`). Off-screen capture only delivers frames when the target
+  renders while off-monitor: a GPU-composited renderer does, a GDI or WinForms window does not (its paint
+  is clipped, so WGC delivers about one frame). Capture a visible window when in doubt.
+- **`boundsPt` is window pixels divided by the window's DPI / 96.** For a DPI-unaware window Windows reports
+  96, so the numbers are physical pixels on a scaled display (a 640x360 window on a 250% display reports
+  1600x900). Frame size is the capture item's size, which excludes the window shadow.
+- **Build the helper with the optimised profile for real use.** The per-frame work (readback, BLAKE3,
+  BGRA to NV12) is per-pixel; the workspace builds this crate at opt-level 3 even in dev profiles.
+- The one-shot `capture` subcommand writes only `clean.mp4`; a manifest and bundle come from the
+  `Recorder` path (`serve`).
 
 ## Windows borderless capture
 

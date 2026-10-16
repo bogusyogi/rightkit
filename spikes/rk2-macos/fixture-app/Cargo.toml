@@ -12,4 +12,4 @@ tauri-build = "2"
 
 [dependencies]
 tauri = "2"
-rightkit-control = { path = "../../../crates/rightkit-control", features = ["qa-control", "wv2-0_38"] }
+rightkit-qa-driver = { path = "../../../crates/rightkit-qa-driver", features = ["qa-control", "wv2-0_38"] }

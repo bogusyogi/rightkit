@@ -2,27 +2,47 @@
   "schema": 1,
   "kind": "cargo",
   "name": "rightkit-speech-client",
-  "version": "0.3.2",
-  "commit": "3629b289590e39e37a4ff4aef115f03877742df6",
-  "artifactSha256": "09abcda3e468fc0cdc596a9f932915c274c2a95b49899f9a857f5f866ff50f36",
-  "artifactBasis": "cargo package rightkit-speech-client-0.3.2.crate",
+  "version": "0.3.5",
+  "commit": "f430c408ee3f3d0e0642fce408c87240b9308d01",
+  "artifactSha256": "058fc18e003ce2daa2864c17936c42f5a9ebb4772cf9f4e03041d71d1b95193a",
   "hostPolicy": "darwin-only",
-  "hostPolicyReason": "Adrian 2026-10-07: publish crates from the Mac (crates.io auth here); Windows qualification follows",
+  "hostPolicyReason": "Adrian 2026-10-14 local-build grant (.rightkit-local-build.json); Windows covered by the next CI run",
   "runs": [
     {
       "host": {
         "os": "darwin",
         "arch": "arm64"
       },
-      "commit": "3629b289590e39e37a4ff4aef115f03877742df6",
-      "command": "right-release publish cargo --crate rightkit-speech-client --dry-run (secret scan, fmt, tests, clippy, package, registry dry-run)",
+      "commit": "f430c408ee3f3d0e0642fce408c87240b9308d01",
       "features": [
         "default"
       ],
-      "operator": "claude-opus-5.5 (RightKit lead) for adrdsouza",
-      "timestamp": "2026-10-09T00:32:55Z",
-      "passed": 24,
-      "failed": 0
+      "artifactSha256": "058fc18e003ce2daa2864c17936c42f5a9ebb4772cf9f4e03041d71d1b95193a",
+      "command": "cargo test -p rightkit-speech-client --no-fail-fast -- --show-output && cargo clippy -p rightkit-speech-client --no-deps --all-targets -- -D warnings && cargo package --locked -p rightkit-speech-client && cargo metadata --format-version 1 --no-deps",
+      "operator": "agent (local-build grant)",
+      "timestamp": "2026-10-14T18:10:32.041Z",
+      "passed": 53,
+      "failed": 0,
+      "skipped": 0,
+      "ignored": 0,
+      "allowIgnored": false,
+      "requireAssets": "1",
+      "assetGated": false,
+      "steps": [
+        {
+          "command": "cargo test -p rightkit-speech-client --no-fail-fast -- --show-output",
+          "ok": true,
+          "executed": 53,
+          "failed": 0,
+          "ignored": 0,
+          "skipped": 0,
+          "binaries": 7
+        },
+        {
+          "command": "cargo clippy -p rightkit-speech-client --no-deps --all-targets -- -D warnings",
+          "ok": true
+        }
+      ]
     }
   ]
 }

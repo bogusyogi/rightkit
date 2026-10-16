@@ -17,7 +17,7 @@ export const FINGERPRINT_SAMPLES = {
       "let stream = FSEventStreamCreate(kCFAllocatorDefault, callback, &context, paths, kFSEventStreamEventIdSinceNow, 0.3, flags);"
     ],
     "negative": [
-      "let mut watcher = rightkit_watch::Watcher::new(&root)?;",
+      "let mut watcher = rightkit_file_watch::Watcher::new(&root)?;",
       "// FSEventStreamCreate is wrapped by the crate"
     ]
   },
@@ -28,7 +28,7 @@ export const FINGERPRINT_SAMPLES = {
     "negative": [
       "conn.execute_batch(\"CREATE TABLE IF NOT EXISTS notes (id TEXT PRIMARY KEY, status TEXT, attempts INTEGER)\")?;",
       "conn.execute(\"CREATE TABLE jobs (id TEXT, title TEXT, status TEXT)\", [])?;",
-      "let store = rightkit_jobs::JobStore::open(&db)?;"
+      "let store = rightkit_job_queue::JobStore::open(&db)?;"
     ]
   },
   "jobs.sql.claim-next": {
@@ -76,7 +76,7 @@ export const FINGERPRINT_SAMPLES = {
       "#[tauri::command]\nfn secure_update_license_get(app: AppHandle) -> Result<Option<String>, String> {\n    let entry = keyring::Entry::new(\"app\", \"license\").map_err(|e| e.to_string())?;\n    entry.get_password().map(Some).map_err(|e| e.to_string())\n}"
     ],
     "negative": [
-      "#[tauri::command]\nfn secure_update_license_get(state: State<Host>) -> Result<Option<License>, String> {\n    rightkit_tauri::SecureService::new(&state.store, &NoopHook).get().map_err(|e| e.to_string())\n}",
+      "#[tauri::command]\nfn secure_update_license_get(state: State<Host>) -> Result<Option<License>, String> {\n    rightkit_device::SecureService::new(&state.store, &NoopHook).get().map_err(|e| e.to_string())\n}",
       "fn open_settings_window(app: AppHandle) {}"
     ]
   },
@@ -95,7 +95,7 @@ export const FINGERPRINT_SAMPLES = {
       "reader.read_line(&mut line)?;\nlet msg: Request = serde_json::from_str(&line)?;"
     ],
     "negative": [
-      "let msg: Request = rightkit_framed_sidecar::read_json_line(&mut reader, &mut buf, LIMIT)?.unwrap();",
+      "let msg: Request = rightkit_sidecar::read_json_line(&mut reader, &mut buf, LIMIT)?.unwrap();",
       "reader.read_line(&mut line)?;\nprintln!(\"{line}\");"
     ]
   },
@@ -104,7 +104,7 @@ export const FINGERPRINT_SAMPLES = {
       "stream.read_exact(&mut len)?;\nlet n = u32::from_be_bytes(len) as usize;"
     ],
     "negative": [
-      "let (frame, _) = rightkit_framed_sidecar::length_prefixed::read_frame(&mut r, MAX)?;",
+      "let (frame, _) = rightkit_sidecar::length_prefixed::read_frame(&mut r, MAX)?;",
       "let n = u32::from_be_bytes(raw);"
     ]
   },
@@ -114,7 +114,7 @@ export const FINGERPRINT_SAMPLES = {
       "let opt = SO_PEERCRED;"
     ],
     "negative": [
-      "let server = rightkit_service::Server::bind(&suite, \"engine\", handler)?;",
+      "let server = rightkit_daemon::Server::bind(&suite, \"engine\", handler)?;",
       "// getpeereid is checked inside the service crate"
     ]
   },
@@ -124,7 +124,7 @@ export const FINGERPRINT_SAMPLES = {
     ],
     "negative": [
       "let h = CreateNamedPipeW(name.as_ptr(), PIPE_ACCESS_DUPLEX, 0, 1, 4096, 4096, 0, &sa);",
-      "use rightkit_service::Client;",
+      "use rightkit_daemon::Client;",
       "let pipe = ClientOptions::new().open(name)?;"
     ]
   },
@@ -134,7 +134,7 @@ export const FINGERPRINT_SAMPLES = {
       "const record = path.join(runtimeDir, 'service.json');"
     ],
     "negative": [
-      "let record = rightkit_service::service_record_path(&suite, \"engine\");",
+      "let record = rightkit_daemon::service_record_path(&suite, \"engine\");",
       "let log = dir.join(\"service.jsonl\");"
     ]
   },

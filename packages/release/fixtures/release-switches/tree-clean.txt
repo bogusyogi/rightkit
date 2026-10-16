@@ -1,0 +1,5 @@
+release-switch-fixture v0.0.0 (/work/app)
+└── rightkit-daemon v0.1.5 (/work/rightkit/crates/rightkit-daemon)
+    ├── serde v1.0.228
+    │   └── serde_derive v1.0.228 (proc-macro)
+    └── rightkit-fs v0.4.0 (/work/rightkit/crates/rightkit-fs)

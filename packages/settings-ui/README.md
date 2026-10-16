@@ -1,11 +1,11 @@
 # @rightkit/settings-ui
 
-Settings panel frame and standard sections for Right Suite apps: appearance, updates, models, license, legal, API keys, diagnostics, doctor and about. Apps keep their own design through props, slots and `--rk-*` tokens. The panel persists through an app-supplied backend. The host-side store is `rightkit-settings` (named in the package's backend docs).
+Settings panel frame and standard sections for Right Suite apps: appearance, updates, models, license, legal, API keys, diagnostics, doctor and about. Apps keep their own design through props, slots and `--rk-*` tokens. The panel persists through an app-supplied backend. The host-side store is `rightkit-app-settings` (named in the package's backend docs).
 
 | Item | Value |
 |---|---|
 | Where it runs | App webview UI (React) |
-| Rust pair | `rightkit-settings` is the host persistence store (named in the backend docs). The app supplies the backend adapter. |
+| Rust pair | `rightkit-app-settings` is the host persistence store (named in the backend docs). The app supplies the backend adapter. |
 | Version | see INDEX.md |
 | License | MIT OR Apache-2.0 |
 
@@ -18,7 +18,7 @@ Settings panel frame and standard sections for Right Suite apps: appearance, upd
 | `@rightkit/settings-ui/standard` | `standardSections`, the section factories, `useLicenseSection`, `useDoctor`. Needs the optional peers below. |
 | `@rightkit/settings-ui/headless` | The search state as hooks and no-DOM providers, for a host with its own markup: `SettingsSearchProvider`, `useSettingsSearch`, `useSettingsRow`, `useSettingsItem`, `useSettingsHit`, `useSettingsGroup`, `useSettingsSection`, `useSettingsSearchField`, `useSettingsSearchStatus`, `useSearchKeys`, `highlightText`, `parseSearchTerms`, `defaultAnnouncement`, `SettingsGroupScope`, `SettingsSectionScope`. Imports only `react`; no stylesheet. See [Headless search](#headless-search). |
 | `@rightkit/settings-ui/settings.css` | Stylesheet |
-| `@rightkit/settings-ui/shell-adapter` | `createShellBackends` (settings, models and secrets backends) and the engine wire constants `METHODS` and `EVENTS` for `rightkit-settings` / `rightkit-models`, over the `@rightkit/shell` engine bridge. The engine is described structurally, so this subpath needs no import of `@rightkit/shell`. |
+| `@rightkit/settings-ui/shell-adapter` | `createShellBackends` (settings, models and secrets backends) and the engine wire constants `METHODS` and `EVENTS` for `rightkit-app-settings` / `rightkit-models`, over the `@rightkit/tauri-shell` engine bridge. The engine is described structurally, so this subpath needs no import of `@rightkit/tauri-shell`. |
 
 The persistence port is the `SettingsBackend` interface (`load`, `patch` with `expectedRevision`, optional `subscribe`). Use the shell adapter in a Tauri app, or implement the interface over your own store. For example, a blob-backed adapter keeps the whole settings object in one JSON string, bumps a revision on each patch and throws `code: "revision_conflict"` on a stale write. `useSettings(backend)` takes any `SettingsBackend`. `createMemorySettings` is the in-memory reference implementation. The root and `/core` also export `createMemorySecrets` (an in-memory `SecretsBackend`), `RevisionConflict`, and `createShellBackends`, `METHODS` and `EVENTS` as deprecated re-exports of `/shell-adapter`.
 
@@ -26,11 +26,11 @@ The persistence port is the `SettingsBackend` interface (`load`, `patch` with `e
 
 | Peer | Range | Note |
 |---|---|---|
-| `@rightkit/app-shell` | `>=0.2.0 <1` | Not optional. `/standard` and the root entry import `@rightkit/app-shell/react`; `/core` does not import it. |
+| `@rightkit/react-shell` | `>=0.2.0 <1` | Not optional. `/standard` and the root entry import `@rightkit/react-shell/react`; `/core` does not import it. |
 | `@rightkit/license` | `>=0.1.0` | Optional. Needed by `/standard` and the root entry only. No upper bound. |
 | `@rightkit/logs` | `>=0.1.0` | Optional. Needed by `/standard` and the root entry only (type use). No upper bound. |
 | `@rightkit/theme` | `>=0.2.0 <1` | Optional. Needed by `/standard` and the root entry only. |
-| `@rightkit/updates` | `>=0.2.0` | Optional. Needed by `/standard` and the root entry only (type use). No upper bound. |
+| `@rightkit/app-update` | `>=0.2.0` | Optional. Needed by `/standard` and the root entry only (type use). No upper bound. |
 | `react` | `>=18 <21` | |
 
 ## Example
@@ -56,7 +56,7 @@ const sections = standardSections();
 
 ### Using only the panel and the primitives
 
-`@rightkit/settings-ui/core` is the panel shell, `SettingRow`, `SettingsGroup`, search and the backends. It imports `react` and nothing else, so an app that draws its own sections installs none of `@rightkit/license`, `logs`, `theme` or `updates` (they are optional peers). `@rightkit/app-shell` remains a peer for the stylesheet tokens (`settings.css` reads `--rk-*`); `/core` does not import it. The root entry still includes the standard sections, so importing from `@rightkit/settings-ui` needs all peers installed, as in 0.3.x. `src/core-entry.test.ts` walks the import graph of `/core` (source and `dist`) and fails if any of the four appears.
+`@rightkit/settings-ui/core` is the panel shell, `SettingRow`, `SettingsGroup`, search and the backends. It imports `react` and nothing else, so an app that draws its own sections installs none of `@rightkit/license`, `logs`, `theme` or `updates` (they are optional peers). `@rightkit/react-shell` remains a peer for the stylesheet tokens (`settings.css` reads `--rk-*`); `/core` does not import it. The root entry still includes the standard sections, so importing from `@rightkit/settings-ui` needs all peers installed, as in 0.3.x. `src/core-entry.test.ts` walks the import graph of `/core` (source and `dist`) and fails if any of the four appears.
 
 ## Search
 
@@ -184,7 +184,7 @@ Set on `:root` or `.rk-settings`. Every default is today's built-in value.
 | `--rk-settings-padding` | `24px 32px 40px` | Body padding. A value set here applies at every width. Unset, the narrow screen (640px and under) uses `18px 16px 32px`. |
 | `--rk-settings-font-size` | `13.5px` | Base font size of the panel |
 
-The panel reads the suite colour tokens from `@rightkit/app-shell/shell.css` (`--rk-plane`, `--rk-chrome`, `--rk-ink` and the rest). It brings no colours of its own.
+The panel reads the suite colour tokens from `@rightkit/react-shell/shell.css` (`--rk-plane`, `--rk-chrome`, `--rk-ink` and the rest). It brings no colours of its own.
 
 ## Headless search
 
@@ -217,7 +217,7 @@ Rules that keep the stable tree correct:
 This is the shape of Pulse's `settingsKit.tsx`, which uses these hooks (Pulse's `Row` returns `null` when hidden; the `Row` below keeps its element and sets `hidden`):
 
 ```tsx
-import { Button } from "@rightkit/app-shell/react";
+import { Button } from "@rightkit/react-shell/react";
 import {
   SettingsGroupScope, SettingsSearchProvider, SettingsSectionScope, useSearchKeys, useSettingsGroup,
   useSettingsRow, useSettingsSearch, useSettingsSearchField, useSettingsSection,
@@ -292,7 +292,7 @@ function SearchField({ query, setQuery, inputRef }: { query: string; setQuery(q:
 </SettingsSearchProvider>
 ```
 
-The `Button` is from `@rightkit/app-shell/react`, as Pulse uses it. A host without `@rightkit/app-shell` uses its own `<button>` in the same place.
+The `Button` is from `@rightkit/react-shell/react`, as Pulse uses it. A host without `@rightkit/react-shell` uses its own `<button>` in the same place.
 
 The `.ck-set[hidden]` rule and the `ck-search-section` class are the host's own CSS. `mark()` wraps every occurrence of every term.
 
@@ -314,5 +314,5 @@ Outside a provider every hook is inert: rows render, nothing is hidden, groups a
 
 ## Known issues
 
-- Three peers have no upper bound: `@rightkit/license`, `@rightkit/logs` and `@rightkit/updates` (npm audit 2026-10-08, settings-ui finding).
+- Three peers have no upper bound: `@rightkit/license`, `@rightkit/logs` and `@rightkit/app-update` (npm audit 2026-10-08, settings-ui finding).
 - Peer React is `<21`, the same range as `doc-render`, `i18n`, `media-ui` and `pdf-ui` (`package.json:49`).

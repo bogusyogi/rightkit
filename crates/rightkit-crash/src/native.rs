@@ -91,6 +91,19 @@ pub fn capture_native(dir: &Path, kind: &str) -> Option<PathBuf> {
     capture(dir, &crate::report::sanitize_kind(kind), stamp)
 }
 
+/// Native capture of another process, `pid`, named by the caller (a supervised helper that hangs
+/// or misbehaves while still alive). Same platform tools and the same scrub-before-publish path
+/// as [`capture_native`]; `secrets` are removed from the macOS sample text.
+pub(crate) fn capture_pid_detailed(
+    dir: &Path,
+    kind: &str,
+    stamp: u64,
+    pid: u32,
+    secrets: &[String],
+) -> NativeOutcome {
+    capture_detailed_for(dir, kind, stamp, pid, secrets)
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum NativeCapture {
     /// Structured report only (default; fastest, nothing memory-bearing).
@@ -101,16 +114,31 @@ pub enum NativeCapture {
 }
 
 pub(crate) fn capture(dir: &Path, kind: &str, stamp: u64) -> Option<PathBuf> {
-    capture_detailed(dir, kind, stamp).artifact
+    capture_detailed(dir, kind, stamp, &[]).artifact
 }
 
 /// [`capture`] plus the note the panic hook records on the report. Also writes the note to
 /// stderr (best effort: a closed stderr must not panic inside a panic hook).
-pub(crate) fn capture_detailed(dir: &Path, kind: &str, stamp: u64) -> NativeOutcome {
+pub(crate) fn capture_detailed(
+    dir: &Path,
+    kind: &str,
+    stamp: u64,
+    secrets: &[String],
+) -> NativeOutcome {
+    capture_detailed_for(dir, kind, stamp, std::process::id(), secrets)
+}
+
+fn capture_detailed_for(
+    dir: &Path,
+    kind: &str,
+    stamp: u64,
+    pid: u32,
+    secrets: &[String],
+) -> NativeOutcome {
     #[cfg(target_os = "macos")]
-    let outcome = platform::capture(dir, kind, stamp);
+    let outcome = platform::capture(dir, kind, stamp, pid, secrets);
     #[cfg(not(target_os = "macos"))]
-    let outcome = NativeOutcome::from_option(platform::capture(dir, kind, stamp));
+    let outcome = NativeOutcome::from_option(platform::capture(dir, kind, stamp, pid, secrets));
     if let Some(note) = &outcome.note {
         let _ = std::io::Write::write_fmt(
             &mut std::io::stderr(),
@@ -141,13 +169,18 @@ mod platform {
         }
     }
 
-    pub(super) fn capture(dir: &Path, kind: &str, stamp: u64) -> NativeOutcome {
+    pub(super) fn capture(
+        dir: &Path,
+        kind: &str,
+        stamp: u64,
+        pid: u32,
+        secrets: &[String],
+    ) -> NativeOutcome {
         if IN_FLIGHT.swap(true, Ordering::AcqRel) {
             return NativeOutcome::nothing();
         }
         let _guard = Guard;
         crate::retention::sweep_raw(dir);
-        let pid = std::process::id();
         let final_path = dir.join(format!("sample_{kind}_{stamp}_{pid}.txt"));
         let raw = dir.join(format!("{RAW_PREFIX}{kind}_{stamp}_{pid}{RAW_SUFFIX}"));
         // `sample` writes the unscrubbed text here, owner-only from the first byte. The name is
@@ -179,7 +212,7 @@ mod platform {
                         // Belt and braces: whatever mode `sample` left, make it owner-only now.
                         let _ =
                             std::fs::set_permissions(&raw, std::fs::Permissions::from_mode(0o600));
-                        return finish(&raw, &final_path);
+                        return finish(&raw, &final_path, secrets);
                     }
                     return discard(&raw);
                 }
@@ -230,8 +263,8 @@ mod platform {
     /// read, scrubbed and atomically published. The raw file is removed on every path. On any
     /// failure the outcome has no artifact and says why; a raw file that cannot be removed is
     /// named in the note (its name is not bundle-eligible).
-    pub(super) fn finish(raw: &Path, final_path: &Path) -> NativeOutcome {
-        let published = publish_scrubbed(raw, final_path);
+    pub(super) fn finish(raw: &Path, final_path: &Path, secrets: &[String]) -> NativeOutcome {
+        let published = publish_scrubbed(raw, final_path, secrets);
         let leftover = remove_raw(raw);
         match published {
             Ok(()) => NativeOutcome {
@@ -248,12 +281,16 @@ mod platform {
         }
     }
 
-    pub(super) fn publish_scrubbed(raw: &Path, final_path: &Path) -> Result<(), &'static str> {
+    pub(super) fn publish_scrubbed(
+        raw: &Path,
+        final_path: &Path,
+        secrets: &[String],
+    ) -> Result<(), &'static str> {
         let bytes = std::fs::read(raw).map_err(|_| "sample_read_failed")?;
         let text = String::from_utf8_lossy(&bytes);
         // Same owner-only, atomic publish as the panic report. Runs after the sampler exits,
         // in ordinary code, never in a signal handler.
-        let scrubbed = rightkit_logs::scrub_text(&text);
+        let scrubbed = rightkit_logs::scrub_text(&crate::report::redact_known(&text, secrets));
         let options = rightkit_fs::AtomicWriteOptions {
             private: true,
             ..rightkit_fs::AtomicWriteOptions::default()
@@ -284,7 +321,15 @@ mod platform {
         }
     }
 
-    pub(super) fn capture(dir: &Path, kind: &str, stamp: u64) -> Option<PathBuf> {
+    /// `pid` is the process to dump (this process, or a child the parent named). The minidump is
+    /// binary and is never scrubbed, so `_secrets` has nothing to act on.
+    pub(super) fn capture(
+        dir: &Path,
+        kind: &str,
+        stamp: u64,
+        pid: u32,
+        _secrets: &[String],
+    ) -> Option<PathBuf> {
         if IN_FLIGHT.swap(true, Ordering::AcqRel) {
             return None;
         }
@@ -293,7 +338,6 @@ mod platform {
         if !helper.is_file() {
             return None;
         }
-        let pid = std::process::id();
         let final_path = dir.join(format!("dump_{kind}_{stamp}_{pid}.dmp"));
         let partial = dir.join(format!(".dump_{kind}_{stamp}_{pid}.dmp.partial"));
         let _ = std::fs::remove_file(&partial);
@@ -337,7 +381,13 @@ mod platform {
 mod platform {
     use std::path::{Path, PathBuf};
 
-    pub(super) fn capture(_dir: &Path, _kind: &str, _stamp: u64) -> Option<PathBuf> {
+    pub(super) fn capture(
+        _dir: &Path,
+        _kind: &str,
+        _stamp: u64,
+        _pid: u32,
+        _secrets: &[String],
+    ) -> Option<PathBuf> {
         None
     }
 }
@@ -401,7 +451,7 @@ mod tests {
         let raw = raw_path(&dir);
         std::fs::write(&raw, SAMPLE_TEXT).unwrap();
         let final_path = dir.join("sample_panic_1_2.txt");
-        let outcome = finish(&raw, &final_path);
+        let outcome = finish(&raw, &final_path, &[]);
         assert_eq!(outcome.artifact.as_deref(), Some(final_path.as_path()));
         assert!(outcome.note.is_none(), "{:?}", outcome.note);
         let text = std::fs::read_to_string(&final_path).unwrap();
@@ -414,11 +464,29 @@ mod tests {
     }
 
     #[test]
+    fn known_secrets_are_removed_from_a_published_sample() {
+        let dir = temp_dir("secret");
+        let raw = raw_path(&dir);
+        std::fs::write(
+            &raw,
+            "frame key=ZZ-not-a-pattern-4821 at /Users/adalovelace/x\n",
+        )
+        .unwrap();
+        let final_path = dir.join("sample_panic_1_2.txt");
+        let outcome = finish(&raw, &final_path, &["ZZ-not-a-pattern-4821".to_string()]);
+        assert!(outcome.artifact.is_some(), "{:?}", outcome.note);
+        let text = std::fs::read_to_string(&final_path).unwrap();
+        assert!(!text.contains("ZZ-not-a-pattern-4821"), "{text}");
+        assert!(!text.contains("adalovelace"), "{text}");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
     fn an_unreadable_raw_file_publishes_nothing_and_reports_the_failure() {
         let dir = temp_dir("read");
         let raw = raw_path(&dir); // never created: the read fails
         let final_path = dir.join("sample_panic_1_2.txt");
-        let outcome = finish(&raw, &final_path);
+        let outcome = finish(&raw, &final_path, &[]);
         assert!(outcome.artifact.is_none());
         assert_eq!(outcome.note.as_deref(), Some("sample_read_failed"));
         assert!(bundle_eligible(&dir).is_empty());
@@ -428,10 +496,10 @@ mod tests {
         // removal is named by file name only, under a name the bundle ignores.
         std::fs::create_dir(&raw).unwrap();
         assert_eq!(
-            publish_scrubbed(&raw, &final_path),
+            publish_scrubbed(&raw, &final_path, &[]),
             Err("sample_read_failed")
         );
-        let outcome = finish(&raw, &final_path);
+        let outcome = finish(&raw, &final_path, &[]);
         assert!(outcome.artifact.is_none());
         let note = outcome.note.unwrap();
         assert!(
@@ -453,7 +521,7 @@ mod tests {
         let blocker = dir.join("blocker");
         std::fs::write(&blocker, b"x").unwrap();
         let final_path = blocker.join("sample_panic_1_2.txt");
-        let outcome = finish(&raw, &final_path);
+        let outcome = finish(&raw, &final_path, &[]);
         assert!(outcome.artifact.is_none());
         assert_eq!(outcome.note.as_deref(), Some("sample_publish_failed"));
         assert!(!raw.exists(), "raw file must be deleted on failure");

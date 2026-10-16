@@ -8,7 +8,10 @@
 //!   right-ctl heardright transcribe <file> [language=xx]   file transcription via the speech service
 //!   right-ctl run                                  JSON array [{"tool","args"}] on stdin, one session
 //!                                                  (desktop.*, browser.*, <app>.*, speech.*)
-//!   right-ctl mcp-serve                            host the toolbox over MCP stdio (feature `mcp`)
+//!   right-ctl <app> batch '{"steps":[{"method","params"}]}'   many control steps, one round trip
+//!
+//! Drive an app with `run` or `batch`, not one command per step: every separate call pays a
+//! process start and a connection, and a model turn between them.
 //!
 //! Options: --suite-root <abs path> (else RIGHTKIT_SUITE_ROOT / per-user default, fail-closed),
 //!          --journal <file> (content-free JSONL of started/denied/settled).
@@ -16,14 +19,14 @@
 //! Result JSON goes to stdout; errors are `{"error":{code,message,retryable}}` on stderr.
 
 use rightkit_agent_tools::*;
-use rightkit_service::Suite;
+use rightkit_daemon::Suite;
 use serde_json::{json, Value};
 use std::io::Read;
 use std::process::ExitCode;
 use std::sync::Arc;
 
 fn usage() -> ExitCode {
-    eprintln!("usage: right-ctl [--suite-root DIR] [--journal FILE] (--list | <app> --tools | <app> <command> [args] | run | mcp-serve)");
+    eprintln!("usage: right-ctl [--suite-root DIR] [--journal FILE] (--list | <app> --tools | <app> <command> [args] | run)");
     ExitCode::from(2)
 }
 
@@ -62,26 +65,7 @@ fn print(v: &Value) {
     println!("{v}");
 }
 
-#[cfg(feature = "mcp")]
-fn mcp_serve(tb: Arc<Toolbox>) -> ExitCode {
-    match rightkit_agent_tools::mcp::serve_stdio(tb, CTL_CALLER) {
-        Ok(()) => ExitCode::SUCCESS,
-        Err(e) => {
-            eprintln!(
-                "{}",
-                json!({"error": {"code": "mcp_error", "message": e.to_string(), "retryable": false}})
-            );
-            ExitCode::from(1)
-        }
-    }
-}
-#[cfg(not(feature = "mcp"))]
-fn mcp_serve(_: Arc<Toolbox>) -> ExitCode {
-    eprintln!("right-ctl was built without the `mcp` feature");
-    ExitCode::from(2)
-}
-
-/// Toolbox for `run`/`mcp-serve`: control tools for `apps`, plus desktop and browser.
+/// Toolbox for `run`: control tools for `apps`, plus desktop and browser.
 fn full_toolbox(suite: &Suite, apps: &[String]) -> Result<Toolbox, ToolError> {
     let names: Vec<&str> = apps.iter().map(String::as_str).collect();
     #[allow(unused_mut)]
@@ -139,7 +123,7 @@ fn main() -> ExitCode {
         if let Ok(rd) = std::fs::read_dir(suite.root().join("runtime")) {
             for e in rd.flatten() {
                 let name = e.file_name().to_string_lossy().to_string();
-                if let Some(r) = rightkit_service::read_live_record(&suite, &name) {
+                if let Some(r) = rightkit_daemon::read_live_record(&suite, &name) {
                     out.push(json!({"service": name, "role": r.role, "pid": r.pid, "version": r.version}));
                 }
             }
@@ -155,64 +139,52 @@ fn main() -> ExitCode {
         }
     };
 
-    match argv[0].as_str() {
-        "run" => {
-            let mut input = String::new();
-            if std::io::stdin().read_to_string(&mut input).is_err() {
-                return usage();
+    if argv[0] == "run" {
+        let mut input = String::new();
+        if std::io::stdin().read_to_string(&mut input).is_err() {
+            return usage();
+        }
+        let calls: Vec<Value> = match serde_json::from_str(&input) {
+            Ok(c) => c,
+            Err(e) => {
+                return fail(&ToolError::new(
+                    ERR_INVALID_ARGS,
+                    format!("stdin must be a JSON array of {{tool,args}}: {e}"),
+                ))
             }
-            let calls: Vec<Value> = match serde_json::from_str(&input) {
-                Ok(c) => c,
+        };
+        let apps: Vec<String> = calls
+            .iter()
+            .filter_map(|c| c["tool"].as_str())
+            .filter_map(|t| t.split('.').next())
+            .filter(|f| !matches!(*f, "desktop" | "browser" | "speech"))
+            .map(str::to_string)
+            .collect::<std::collections::BTreeSet<_>>()
+            .into_iter()
+            .collect();
+        let mut tb = match full_toolbox(&suite, &apps) {
+            Ok(t) => t,
+            Err(e) => return fail(&e),
+        };
+        attach(&mut tb);
+        let mut results = vec![];
+        let mut code = ExitCode::SUCCESS;
+        for c in &calls {
+            match tb.call(
+                &caller,
+                c["tool"].as_str().unwrap_or_default(),
+                c["args"].clone(),
+            ) {
+                Ok(v) => results.push(json!({"ok": true, "result": v})),
                 Err(e) => {
-                    return fail(&ToolError::new(
-                        ERR_INVALID_ARGS,
-                        format!("stdin must be a JSON array of {{tool,args}}: {e}"),
-                    ))
-                }
-            };
-            let apps: Vec<String> = calls
-                .iter()
-                .filter_map(|c| c["tool"].as_str())
-                .filter_map(|t| t.split('.').next())
-                .filter(|f| !matches!(*f, "desktop" | "browser" | "speech"))
-                .map(str::to_string)
-                .collect::<std::collections::BTreeSet<_>>()
-                .into_iter()
-                .collect();
-            let mut tb = match full_toolbox(&suite, &apps) {
-                Ok(t) => t,
-                Err(e) => return fail(&e),
-            };
-            attach(&mut tb);
-            let mut results = vec![];
-            let mut code = ExitCode::SUCCESS;
-            for c in &calls {
-                match tb.call(
-                    &caller,
-                    c["tool"].as_str().unwrap_or_default(),
-                    c["args"].clone(),
-                ) {
-                    Ok(v) => results.push(json!({"ok": true, "result": v})),
-                    Err(e) => {
-                        results.push(json!({"ok": false, "error": e.to_value()}));
-                        code = fail(&e);
-                        break;
-                    }
+                    results.push(json!({"ok": false, "error": e.to_value()}));
+                    code = fail(&e);
+                    break;
                 }
             }
-            print(&json!(results));
-            return code;
         }
-        "mcp-serve" => {
-            let apps: Vec<String> = argv[1..].to_vec();
-            let mut tb = match full_toolbox(&suite, &apps) {
-                Ok(t) => t,
-                Err(e) => return fail(&e),
-            };
-            attach(&mut tb);
-            return mcp_serve(Arc::new(tb));
-        }
-        _ => {}
+        print(&json!(results));
+        return code;
     }
 
     // right-ctl <app> ...

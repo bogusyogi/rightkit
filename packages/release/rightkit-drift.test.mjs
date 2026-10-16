@@ -6,7 +6,7 @@ import path from "node:path";
 import test from "node:test";
 import { applyRightkitAdoption, breakingBump, formatDrift, rightkitDrift } from "./rightkit-drift.mjs";
 
-const versions = { npm: { "@rightkit/logs": "0.1.3" }, stagedNpm: { "@rightkit/logs": "0.1.4", "@rightkit/theme": "0.2.1" }, cargo: { "rightkit-db": "0.1.0" }, stagedCargo: { "rightkit-db": "0.2.1", "rightkit-logs": "0.2.0", "rightkit-tauri": "0.1.1" } };
+const versions = { npm: { "@rightkit/logs": "0.1.3" }, stagedNpm: { "@rightkit/logs": "0.1.4", "@rightkit/theme": "0.2.1" }, cargo: { "rightkit-db": "0.1.0" }, stagedCargo: { "rightkit-db": "0.2.1", "rightkit-logs": "0.2.0", "rightkit-device": "0.1.1" } };
 
 async function app() {
   const root = await mkdtemp(path.join(tmpdir(), "rk-drift-"));
@@ -15,7 +15,7 @@ async function app() {
   await writeFile(path.join(root, "src-tauri", "Cargo.toml"), [
     "[dependencies]",
     'rightkit-db = { version = "=0.2.0", features = ["x"] }',
-    'rightkit-tauri = "0.1.0"',
+    'rightkit-device = "0.1.0"',
     'rightkit-logs = "=0.1.0"',
     'rightkit-local = { version = "=0.1.0", path = "../local" }',
     'serde = "1"', "",
@@ -40,8 +40,8 @@ test("drift lists behind pins only, skipping workspace, path and RightKit's own 
       "@rightkit/logs:0.1.3->0.1.4:false:package.json",
       "@rightkit/theme:0.1.0->0.2.1:true:package.json",
       "rightkit-db:0.2.0->0.2.1:false:src-tauri/Cargo.toml",
+      "rightkit-device:0.1.0->0.1.1:false:src-tauri/Cargo.toml",
       "rightkit-logs:0.1.0->0.2.0:true:src-tauri/Cargo.toml",
-      "rightkit-tauri:0.1.0->0.1.1:false:src-tauri/Cargo.toml",
     ]);
     assert.match(formatDrift(rightkitDrift(root, versions)), /rightkit-logs 0\.1\.0 -> 0\.2\.0 \(breaking\)/);
   } finally { await rm(root, { recursive: true, force: true }); }
@@ -50,10 +50,10 @@ test("drift lists behind pins only, skipping workspace, path and RightKit's own 
 test("apply adopts compatible bumps, keeps pin prefixes, and leaves breaking bumps for --all", async () => {
   const root = await app(); try {
     const adopted = applyRightkitAdoption(root, versions, { refreshLocks: false });
-    assert.deepEqual(adopted.map((d) => d.name).sort(), ["@rightkit/logs", "rightkit-db", "rightkit-tauri"]);
+    assert.deepEqual(adopted.map((d) => d.name).sort(), ["@rightkit/logs", "rightkit-db", "rightkit-device"]);
     const cargo = await readFile(path.join(root, "src-tauri", "Cargo.toml"), "utf8");
     assert.match(cargo, /rightkit-db = \{ version = "=0\.2\.1", features = \["x"\] \}/);
-    assert.match(cargo, /rightkit-tauri = "0\.1\.1"/); assert.match(cargo, /rightkit-logs = "=0\.1\.0"/); assert.match(cargo, /rightkit-local = \{ version = "=0\.1\.0", path/);
+    assert.match(cargo, /rightkit-device = "0\.1\.1"/); assert.match(cargo, /rightkit-logs = "=0\.1\.0"/); assert.match(cargo, /rightkit-local = \{ version = "=0\.1\.0", path/);
     const pkg = JSON.parse(await readFile(path.join(root, "package.json"), "utf8"));
     assert.equal(pkg.dependencies["@rightkit/logs"], "0.1.4"); assert.equal(pkg.devDependencies["@rightkit/theme"], "^0.1.0"); assert.equal(pkg.dependencies.react, "19.0.0");
     applyRightkitAdoption(root, versions, { refreshLocks: false, includeBreaking: true });

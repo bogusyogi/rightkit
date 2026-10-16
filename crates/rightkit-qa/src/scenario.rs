@@ -2,7 +2,7 @@
 //!
 //! A scenario is a tier, optional requirements, and an ordered list of steps.
 //! Steps drive the engine (CLI and framed sidecar), the real app through
-//! `rightkit-control`, paid-provider mocks, media validators, and (feature
+//! the in-app control server, paid-provider mocks, media validators, and (feature
 //! `browser`) Chrome. Each step may `save` its JSON result under a name for
 //! later `${name.path}` interpolation and carries `[[step.expect]]` assertions.
 use crate::check::{check_all, interpolate, Expect};
@@ -12,6 +12,7 @@ use crate::engine::{CliOptions, EngineTarget, Sidecar};
 use crate::mock::{MockServer, Route};
 use crate::page;
 use crate::process::Tracker;
+use crate::storage::RunKind;
 use crate::util::{err, sleep_ms, Error, Result};
 use crate::workspace::QaWorkspace;
 use crate::{media, util};
@@ -37,6 +38,11 @@ pub struct Scenario {
     #[serde(default)]
     pub optional: bool,
     pub timeout_s: Option<u64>,
+    /// `functional` or `visual`. Absent: the scenario takes the run's kind (see
+    /// [`resolve_run_kind`]). A `functional` scenario takes no screenshots and no recordings; a
+    /// `visual` scenario may, and makes an otherwise unconstrained run `visual`.
+    #[serde(default)]
+    pub kind: Option<RunKind>,
     #[serde(default, rename = "step")]
     pub steps: Vec<Step>,
     #[serde(skip)]
@@ -84,6 +90,52 @@ impl Scenario {
         }
         Ok(s)
     }
+}
+
+/// The kind of a suite run. An explicit request (`rightkit-qa run --kind`, [`crate::suite::SuiteOptions::kind`])
+/// wins. Otherwise the run is `visual` when any selected scenario declares `kind = "visual"`, and
+/// `functional` (the default, no screenshots) when none does.
+pub fn resolve_run_kind(requested: Option<RunKind>, scenarios: &[Scenario]) -> RunKind {
+    requested.unwrap_or_else(|| {
+        if scenarios.iter().any(|s| s.kind == Some(RunKind::Visual)) {
+            RunKind::Visual
+        } else {
+            RunKind::Functional
+        }
+    })
+}
+
+/// The kind in force for one scenario inside a run of kind `run`. A scenario that declares
+/// nothing takes the run's kind; one that declares `functional` stays functional even in a visual
+/// run (it takes no captures); one that declares `visual` in a `functional` run is a conflict
+/// with the run that was asked for, and is refused so evidence never changes silently.
+pub fn scenario_kind(run: RunKind, declared: Option<RunKind>, scenario: &str) -> Result<RunKind> {
+    match (run, declared) {
+        (run, None) => Ok(run),
+        (RunKind::Functional, Some(RunKind::Visual)) => err(format!(
+            "scenario '{scenario}' is `visual` but this is a functional run, which takes no screenshots or screen recordings; run with --kind visual (or drop the explicit functional kind)"
+        )),
+        (_, Some(declared)) => Ok(declared),
+    }
+}
+
+/// Refuse a capture (screenshot or screen recording) unless the scenario's kind is `visual`.
+/// `what` names the step or method. The error says how to change the kind.
+pub fn ensure_capture_allowed(kind: RunKind, scenario: &str, what: &str) -> Result<()> {
+    if kind == RunKind::Visual {
+        return Ok(());
+    }
+    err(format!(
+        "{what} is refused in functional scenario '{scenario}': a functional run takes no screenshots or screen recordings; mark the scenario `kind = \"visual\"` or run with --kind visual"
+    ))
+}
+
+/// Driver methods that capture the screen. A `ui_batch` may not smuggle one into a functional run.
+pub fn is_capture_method(method: &str) -> bool {
+    method == "screenshot"
+        || method.starts_with("record")
+        || method.starts_with("capture")
+        || method.starts_with("video")
 }
 
 pub fn discover(dirs: &[PathBuf]) -> Result<Vec<PathBuf>> {
@@ -192,6 +244,9 @@ pub struct Ctx<'a> {
     pub ui: Option<(Control, Mode)>,
     #[cfg(feature = "browser")]
     pub browser: Option<crate::browser::BrowserTarget>,
+    /// The scenario's run kind. [`Ctx::new`] starts `Functional`; the suite sets the kind in
+    /// force ([`scenario_kind`]). Only `Visual` allows screenshots and recordings.
+    pub kind: RunKind,
     /// Files this scenario produced; the runner hashes them into the evidence bundle.
     pub artifacts: Vec<(String, PathBuf)>,
     step_no: usize,
@@ -245,6 +300,7 @@ impl<'a> Ctx<'a> {
             ui: None,
             #[cfg(feature = "browser")]
             browser: None,
+            kind: RunKind::Functional,
             artifacts: vec![],
             step_no: 0,
         })
@@ -285,8 +341,11 @@ impl<'a> Ctx<'a> {
                     }
                     if mode != Mode::Visible && !r.owned_never_frontmost {
                         problems.push(format!(
-                            "owned UI process reached foreground: {:?}",
-                            r.owned_frontmost_pids
+                            "background proof failed: {} (states {:?}, owned frontmost pids {:?}, pid unreadable in {} sample(s))",
+                            r.owned_never_frontmost_failure.as_deref().unwrap_or("unknown"),
+                            r.frontmost_states,
+                            r.owned_frontmost_pids,
+                            r.frontmost_pid_unavailable_samples
                         ));
                     }
                 }
@@ -436,12 +495,16 @@ pub struct StepRecord {
     pub error: Option<String>,
 }
 
+/// Default gap between `until` retries. The retried check is local to the harness (a UI read or an
+/// engine call), so a long gap is dead time; override per step with `interval_ms`.
+pub const DEFAULT_UNTIL_INTERVAL_MS: u64 = 25;
+
 /// Run one step including retry-until-expectations-hold.
 pub fn run_step(ctx: &mut Ctx, step: &Step) -> Result<Value> {
     ctx.step_no += 1;
     let started = Instant::now();
     let until = step.until_timeout_s.map(Duration::from_secs);
-    let interval = Duration::from_millis(step.interval_ms.unwrap_or(500));
+    let interval = Duration::from_millis(step.interval_ms.unwrap_or(DEFAULT_UNTIL_INTERVAL_MS));
     loop {
         let attempt: Result<Value> = (|| {
             let resolved = interpolate(
@@ -702,12 +765,15 @@ fn exec(ctx: &mut Ctx, kind: &str, p: &Map<String, Value>) -> Result<Value> {
             }
             if mode != Mode::Visible && !r.owned_never_frontmost {
                 return err(format!(
-                    "owned UI process reached foreground: {:?}",
-                    r.owned_frontmost_pids
+                    "background proof failed: {} (states {:?}, owned frontmost pids {:?}, pid unreadable in {} sample(s))",
+                    r.owned_never_frontmost_failure.as_deref().unwrap_or("unknown"),
+                    r.frontmost_states,
+                    r.owned_frontmost_pids,
+                    r.frontmost_pid_unavailable_samples
                 ));
             }
             Ok(
-                json!({"pid": r.pid, "endpoint_closed": r.endpoint_closed, "process_gone": r.process_gone, "frontmost_unchanged": r.frontmost_unchanged, "owned_never_frontmost": r.owned_never_frontmost, "owned_frontmost_pids": r.owned_frontmost_pids}),
+                json!({"pid": r.pid, "endpoint_closed": r.endpoint_closed, "process_gone": r.process_gone, "frontmost_unchanged": r.frontmost_unchanged, "owned_never_frontmost": r.owned_never_frontmost, "owned_frontmost_pids": r.owned_frontmost_pids, "frontmost_pid_unavailable_samples": r.frontmost_pid_unavailable_samples, "owned_never_frontmost_failure": r.owned_never_frontmost_failure}),
             )
         }
         "ui_auth_probe" => {
@@ -774,12 +840,51 @@ fn exec(ctx: &mut Ctx, kind: &str, p: &Map<String, Value>) -> Result<Value> {
             .ui()?
             .command(&ps(p, "name")?, pv(p, "args").unwrap_or(&Value::Null)),
         "ui_screenshot" => {
+            ensure_capture_allowed(ctx.kind, &ctx.scenario, "ui_screenshot")?;
             let name = ps_opt(p, "name").unwrap_or_else(|| format!("shot-{:02}", ctx.step_no));
             let path = ctx.log_dir.join(format!("{name}.png"));
-            ctx.ui()?.screenshot_to(&path)?;
-            let size = media::png_size(&path)?;
-            ctx.artifact(&format!("{name}.png"), path.clone());
+            let png = ctx.ui()?.screenshot_png()?;
+            let size = media::png_size_bytes(&png, &path)?;
+            if let Some(dir) = path.parent() {
+                std::fs::create_dir_all(dir)?;
+            }
+            std::fs::write(&path, &png)?;
+            // Only evidence is hashed into the bundle; `evidence = false` keeps a working capture out of it.
+            if pv(p, "evidence").and_then(Value::as_bool) != Some(false) {
+                ctx.artifact(&format!("{name}.png"), path.clone());
+            }
             Ok(json!({"path": path.to_string_lossy(), "size": size}))
+        }
+        "ui_batch" => {
+            // `steps = [{method = "click", params = {x = 1, y = 2}}, ...]`: one round trip.
+            let steps: Vec<(String, Value)> = pv(p, "steps")
+                .and_then(Value::as_array)
+                .ok_or_else(|| Error("ui_batch needs a `steps` array".into()))?
+                .iter()
+                .map(|s| {
+                    let m = s
+                        .get("method")
+                        .and_then(Value::as_str)
+                        .ok_or_else(|| Error("ui_batch step needs a `method`".into()))?;
+                    Ok((
+                        m.to_string(),
+                        s.get("params").cloned().unwrap_or_else(|| json!({})),
+                    ))
+                })
+                .collect::<Result<_>>()?;
+            for (m, _) in &steps {
+                if is_capture_method(m) {
+                    ensure_capture_allowed(
+                        ctx.kind,
+                        &ctx.scenario,
+                        &format!("ui_batch method '{m}'"),
+                    )?;
+                }
+            }
+            let refs: Vec<(&str, Value)> =
+                steps.iter().map(|(m, p)| (m.as_str(), p.clone())).collect();
+            let results = ctx.ui()?.batch(&refs)?;
+            Ok(json!({"results": results}))
         }
         "ui_measure_paint" => {
             let c = ctx.ui()?;
@@ -918,6 +1023,177 @@ input = { a = 1 }
             Path::new("/abs/x")
         );
         assert_eq!(scenario_path_text(Path::new("/data/run")), "/data/run");
+    }
+
+    fn scenario_with_kind(kind: Option<&str>) -> Scenario {
+        let header = kind
+            .map(|k| {
+                format!(
+                    "kind = \"{k}\"
+"
+                )
+            })
+            .unwrap_or_default();
+        let text = format!(
+            "name = \"k\"
+{header}[[step]]
+kind = \"cli\"
+command = \"x\"
+"
+        );
+        let path = std::env::temp_dir().join(format!("rkqa-kind-{}.scenario.toml", util::new_id()));
+        std::fs::write(&path, text).unwrap();
+        let s = Scenario::load(&path);
+        let _ = std::fs::remove_file(&path);
+        s.unwrap()
+    }
+
+    #[test]
+    fn a_scenario_declares_its_kind_or_leaves_it_to_the_run() {
+        assert_eq!(scenario_with_kind(None).kind, None);
+        assert_eq!(
+            scenario_with_kind(Some("visual")).kind,
+            Some(RunKind::Visual)
+        );
+        assert_eq!(
+            scenario_with_kind(Some("functional")).kind,
+            Some(RunKind::Functional)
+        );
+        let path = std::env::temp_dir().join(format!("rkqa-kind-{}.scenario.toml", util::new_id()));
+        std::fs::write(
+            &path,
+            "name = \"k\"
+kind = \"cosmetic\"
+[[step]]
+kind = \"cli\"
+command = \"x\"
+",
+        )
+        .unwrap();
+        let e = Scenario::load(&path).unwrap_err();
+        let _ = std::fs::remove_file(&path);
+        assert!(e.0.contains("functional") && e.0.contains("visual"), "{e}");
+    }
+
+    #[test]
+    fn run_kind_defaults_to_functional_and_follows_scenarios_unless_requested() {
+        let none = [
+            scenario_with_kind(None),
+            scenario_with_kind(Some("functional")),
+        ];
+        assert_eq!(resolve_run_kind(None, &none), RunKind::Functional);
+        let some = [scenario_with_kind(None), scenario_with_kind(Some("visual"))];
+        assert_eq!(resolve_run_kind(None, &some), RunKind::Visual);
+        // An explicit request wins over what the scenarios declare, both ways.
+        assert_eq!(
+            resolve_run_kind(Some(RunKind::Functional), &some),
+            RunKind::Functional
+        );
+        assert_eq!(
+            resolve_run_kind(Some(RunKind::Visual), &none),
+            RunKind::Visual
+        );
+        assert_eq!(resolve_run_kind(None, &[]), RunKind::Functional);
+        assert_eq!(RunKind::parse("visual").unwrap(), RunKind::Visual);
+        assert_eq!(RunKind::parse(" functional ").unwrap(), RunKind::Functional);
+        assert!(RunKind::parse("both").is_err());
+    }
+
+    #[test]
+    fn a_scenario_kind_may_narrow_a_run_but_never_widen_a_functional_one() {
+        let f = RunKind::Functional;
+        let v = RunKind::Visual;
+        assert_eq!(scenario_kind(f, None, "s").unwrap(), f);
+        assert_eq!(scenario_kind(v, None, "s").unwrap(), v);
+        assert_eq!(scenario_kind(v, Some(f), "s").unwrap(), f);
+        assert_eq!(scenario_kind(v, Some(v), "s").unwrap(), v);
+        assert_eq!(scenario_kind(f, Some(f), "s").unwrap(), f);
+        let e = scenario_kind(f, Some(v), "login").unwrap_err();
+        assert!(
+            e.0.contains("login") && e.0.contains("--kind visual"),
+            "{e}"
+        );
+    }
+
+    #[test]
+    fn captures_are_refused_in_a_functional_scenario_and_allowed_in_a_visual_one() {
+        let e = ensure_capture_allowed(RunKind::Functional, "login", "ui_screenshot").unwrap_err();
+        assert!(
+            e.0.contains("ui_screenshot")
+                && e.0.contains("login")
+                && e.0.contains("functional")
+                && e.0.contains("kind = \"visual\""),
+            "{e}"
+        );
+        ensure_capture_allowed(RunKind::Visual, "login", "ui_screenshot").unwrap();
+        assert!(is_capture_method("screenshot"));
+        assert!(is_capture_method("record_start"));
+        assert!(is_capture_method("capture"));
+        assert!(!is_capture_method("click"));
+        assert!(!is_capture_method("batch"));
+    }
+
+    fn bare_step(kind: &str, params: Value) -> Step {
+        Step {
+            kind: kind.into(),
+            label: None,
+            save: None,
+            expect: vec![],
+            until_timeout_s: None,
+            interval_ms: None,
+            params: params
+                .as_object()
+                .cloned()
+                .unwrap_or_default()
+                .into_iter()
+                .collect(),
+        }
+    }
+
+    /// The step-level rule, through the real executor: a functional scenario's screenshot step
+    /// is refused before the app is touched, and a visual one gets past the gate (and then stops
+    /// for want of a launched app, which proves the refusal was the kind and nothing else).
+    #[test]
+    fn a_functional_scenario_refuses_screenshot_steps_and_a_visual_one_does_not() {
+        let root = std::env::temp_dir().join(format!("rkqa-kind-ws-{}", util::new_id()));
+        std::fs::create_dir_all(&root).unwrap();
+        let cfg = QaConfig::parse(
+            "app = \"kindtest\"
+",
+            &root.join("rightkit-qa.toml"),
+        )
+        .unwrap();
+        let ws = crate::workspace::create(&root.join("managed"), None, "kindtest").unwrap();
+        let tracker = Tracker::new();
+        let mut ctx = Ctx::new(&cfg, None, None, &ws, &tracker, "s").unwrap();
+        assert_eq!(
+            ctx.kind,
+            RunKind::Functional,
+            "a scenario is functional unless told otherwise"
+        );
+
+        let shot = bare_step("ui_screenshot", json!({}));
+        let batch = bare_step(
+            "ui_batch",
+            json!({"steps": [{"method": "click", "params": {"x": 1, "y": 2}}, {"method": "screenshot"}]}),
+        );
+        let e = run_step(&mut ctx, &shot).unwrap_err();
+        assert!(e.0.contains("refused in functional scenario"), "{e}");
+        let e = run_step(&mut ctx, &batch).unwrap_err();
+        assert!(
+            e.0.contains("ui_batch method 'screenshot'") && e.0.contains("functional"),
+            "{e}"
+        );
+
+        ctx.kind = RunKind::Visual;
+        let e = run_step(&mut ctx, &shot).unwrap_err();
+        assert!(e.0.contains("no UI app launched"), "{e}");
+        let e = run_step(&mut ctx, &batch).unwrap_err();
+        assert!(e.0.contains("no UI app launched"), "{e}");
+
+        drop(ctx);
+        let _ = crate::workspace::dispose(&ws, false, 3, 10);
+        let _ = std::fs::remove_dir_all(&root);
     }
 
     /// The defect: `${data_dir}/proj/README.txt` under a canonicalised (verbatim) data

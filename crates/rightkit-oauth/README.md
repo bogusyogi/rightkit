@@ -10,8 +10,8 @@ Shared OAuth 2.0 sign-in for Right Suite apps. It owns loopback S256 PKCE for de
 
 | Feature | Default | Pulls in | Effect |
 |---|---|---|---|
-| `secrets` | on | `rightkit-secrets` | Desktop token storage in the OS credential store. |
-| `system-sources` | on | `rightkit-process` | Reads credentials from system sources (`src/system.rs`). |
+| `secrets` | on | `rightkit-credentials` | Desktop token storage in the OS credential store. |
+| `system-sources` | on | `rightkit-child-process` | Reads credentials from system sources (`src/system.rs`). |
 | `server` | off | `ring`, `url`, `zeroize`, `serde`, `libc` (`Cargo.toml:22`) | Server mode: `rightkit_oauth::server` (begin/complete/refresh, sealed file store, OIDC hooks). |
 | `server-example` | off | `server`, `axum`, `tokio` | Builds `examples/server_axum.rs` (required feature for that example). |
 
@@ -19,7 +19,7 @@ Shared OAuth 2.0 sign-in for Right Suite apps. It owns loopback S256 PKCE for de
 
 ## Platform support
 
-- Desktop token storage uses `rightkit-secrets`. That crate has a macOS and a Windows backend. On Linux it fails closed, so the `secrets` feature cannot store tokens there.
+- Desktop token storage uses `rightkit-credentials`. That crate has a macOS and a Windows backend. On Linux it fails closed, so the `secrets` feature cannot store tokens there.
 - `SealedFileTokenStore` supports Unix local filesystems with reliable advisory locks and atomic rename. On Windows, construction fails closed; supply an ACL or credential-store adapter there.
 - The `server` code uses `cfg(unix)` in `src/server/store.rs` for file permission checks.
 
@@ -37,7 +37,7 @@ rightkit-oauth = { version = "0.3.1", default-features = false, features = ["ser
 rightkit-http = "0.3.0"
 ```
 
-Daemons can omit `secrets` and `system-sources` (`default-features = false`): Linux has no `rightkit-secrets` backend.
+Daemons can omit `secrets` and `system-sources` (`default-features = false`): Linux has no `rightkit-credentials` backend.
 All methods are synchronous; call on a blocking executor in an async HTTP route.
 
 Illustrative; not compiled as a doctest. The example at `examples/server_axum.rs` is the compiled reference (`cargo run --example server_axum --features server-example`, through `rightkit cargo`).
@@ -191,8 +191,7 @@ not standard refresh-token grants. LinkedIn programmatic refresh requires partne
 
 `examples/server_axum.rs` builds an Axum callback router using `spawn_blocking` & persists
 completed tokens. Host middleware must supply authenticated `CallbackBinding` extension;
-missing binding rejects callback before exchange. `server-example` enables its optional dependencies; Axum is already used
-by RightKit's `agent-room-core`. Host supplies listener, TLS, authenticated begin route,
+missing binding rejects callback before exchange. `server-example` enables its optional dependencies; Host supplies listener, TLS, authenticated begin route,
 tenant binding, callback rate limits & safe token-persistence recovery.
 
 From RightKit root, with managed broker available:

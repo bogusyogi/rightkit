@@ -18,6 +18,7 @@ import {
 import { assertAsrAdapterPair } from "./asr-artifact-adoption.mjs";
 import { resolveConfiguredBuildInputs } from "./release-invocation.mjs";
 import { compareVersions } from "./rightkit-sync.mjs";
+import { RENAMED_AWAY } from "./renamed-away.mjs";
 import { rightKitVersionAllowed } from "./rightkit-version-policy.mjs";
 import { assertPublishDoc, assertPublishWorkflow as assertPublishWorkflowContract, MUTATIONS, proveMutations, VERIFY_HOSTS } from "../../scripts/ci/workflow-contract.mjs";
 import { parseYaml } from "../../scripts/ci/workflow-yaml.mjs";
@@ -34,7 +35,7 @@ const siteRepoDir = existsSync(path.join(workspace, "rightsites")) ? "rightsites
 // checkouts skip their tests with the reason. RIGHTKIT_REQUIRE_ASSETS=1 runs them anyway, so the missing path fails them.
 const checkoutSkip = (paths, what) => {
   const missing = paths.filter((file) => !existsSync(file)).map((file) => path.relative(workspace, file));
-  return missing.length === 0 || process.env.RIGHTKIT_REQUIRE_ASSETS === "1" ? false : `${what} not checked out beside rightkit (missing ${missing.join(", ")})`;
+  return (missing.length === 0 && process.env.RIGHTKIT_ISOLATED_CHECKOUT !== "1") || process.env.RIGHTKIT_REQUIRE_ASSETS === "1" ? false : `${what} not checked out beside rightkit (missing ${missing.join(", ")})`;
 };
 const versionsPath = path.join(path.dirname(fileURLToPath(import.meta.url)), "rightkit-versions.json");
 const versions = JSON.parse(readFileSync(versionsPath, "utf8"));
@@ -132,6 +133,11 @@ function resolveCargoVersionContract(versionManifest, canonicalVersions) {
   }
 
   for (const [crate, version] of consumer) {
+    if (RENAMED_AWAY.has(crate) && !canonicalVersions.has(crate)) {
+      const successor = RENAMED_AWAY.get(crate);
+      if (successor && !canonicalVersions.has(successor)) throw new Error(`${crate} was renamed to ${successor}, which is missing from the tree`);
+      continue;
+    }
     if (!canonicalVersions.has(crate)) throw new Error(`unknown published Cargo crate: ${crate}`);
     const expected = staged.get(crate) ?? version;
     const actual = canonicalVersions.get(crate);
@@ -327,16 +333,16 @@ test("direct Cargo dependency contract accepts only published exact RightKit pin
   const published = new Map([
     ["rightkit-license", "0.1.2"],
     ["rightkit-logs", "0.1.0"],
-    ["rightkit-tauri", "0.1.0"],
+    ["rightkit-device", "0.1.0"],
   ]);
   const manifest = `
 [ package ]
-name = "rightkit-tauri"
-# rightkit-tauri = "=0.1.0"
+name = "rightkit-device"
+# rightkit-device = "=0.1.0"
 
 [ dependencies ]
 "rightkit-license" = "=0.1.2" # published exact pin
-"rightkit-tauri" = "=0.1.0"
+"rightkit-device" = "=0.1.0"
 
 [ target . 'cfg(windows)' . dependencies . "rightkit-logs" ]
 version = "=0.1.0"
@@ -352,21 +358,21 @@ test("direct Cargo dependency contract rejects staged-only RightKit crates", () 
   const { consumer } = resolveCargoVersionContract(
     {
       cargo: { "rightkit-license": "0.1.2" },
-      stagedCargo: { "rightkit-tauri": "0.1.0" },
+      stagedCargo: { "rightkit-device": "0.1.0" },
     },
     new Map([
       ["rightkit-license", "0.1.2"],
-      ["rightkit-tauri", "0.1.0"],
+      ["rightkit-device", "0.1.0"],
     ]),
   );
-  assert.equal(consumer.has("rightkit-tauri"), false);
+  assert.equal(consumer.has("rightkit-device"), false);
   assert.throws(
     () => assertCargoFixture(
-      `dependencies . "rightkit-tauri" = "=0.1.0" # staged only`,
+      `dependencies . "rightkit-device" = "=0.1.0" # staged only`,
       consumer,
       "fixture/Cargo.toml",
     ),
-    /fixture\/Cargo\.toml rightkit-tauri is not a published RightKit crate/,
+    /fixture\/Cargo\.toml rightkit-device is not a published RightKit crate/,
   );
 });
 
@@ -523,7 +529,7 @@ test("RightKit exposes one current version manifest", () => {
   }
   assert.equal(versions.cargo["rightkit-license"], "0.1.2");
   assert.equal(versions.cargo["rightkit-logs"], "0.1.0");
-  assert.equal(versions.cargo["rightkit-tauri"], "0.1.0");
+  assert.equal(versions.cargo["rightkit-tauri"], "0.1.0"); // published registry state keeps the old name until rightkit-device is first published
   // recordPublished rewrites the staged table on every publish; assert its shape, not a snapshot.
   for (const [name, version] of Object.entries(versions.stagedCargo)) assert.match(version, /^\d+\.\d+\.\d+$/, `stagedCargo ${name}`);
   for (const [name, list] of Object.entries(versions.legacyCargo ?? {})) for (const version of list) assert.match(version, /^\d+\.\d+\.\d+$/, `legacyCargo ${name}`);
@@ -660,10 +666,10 @@ for (const app of apps) {
       ]).has(pkg.devDependencies?.["@rightkit/release"]),
     );
     assert.equal(
-      pkg.dependencies?.["@rightkit/updates"],
-      versions.npm["@rightkit/updates"] === pkg.dependencies?.["@rightkit/updates"]
-        ? versions.npm["@rightkit/updates"]
-        : versions.stagedNpm?.["@rightkit/updates"],
+      pkg.dependencies?.["@rightkit/app-update"],
+      versions.npm["@rightkit/app-update"] === pkg.dependencies?.["@rightkit/app-update"]
+        ? versions.npm["@rightkit/app-update"]
+        : versions.registry?.npm?.["@rightkit/app-update"],
       `${app.key} must consume the exact published shared updater runtime`,
     );
     assert(!JSON.stringify(pkg).includes("github:adrdsouza/claude#main&path:/tools/right-release"));

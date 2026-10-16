@@ -50,6 +50,10 @@ pub struct SandboxPolicy {
     pub exec_paths: Vec<PathBuf>,
     pub network: NetworkPolicy,
     pub env: EnvPolicy,
+    /// Windows named AppContainer capabilities (for example `registryRead`), derived with
+    /// `DeriveCapabilitySidsFromName`. Ignored on other platforms. Never grants network:
+    /// `internetClient` is controlled only by `network`.
+    pub named_capabilities: Vec<String>,
 }
 
 impl SandboxPolicy {
@@ -76,8 +80,17 @@ impl SandboxPolicy {
         self.env = e;
         self
     }
+    /// Adds a named Windows AppContainer capability. Fixture/QA use only:
+    /// the name must be one of the internal allowlist
+    /// (`lpacChromeInstallFiles`, `registryRead`); any other name is rejected
+    /// at validation so grants cannot bypass the network/path policy.
+    pub fn named_capability(mut self, name: impl Into<String>) -> Self {
+        self.named_capabilities.push(name.into());
+        self
+    }
 
     pub(crate) fn validate(&self) -> Result<(), SandboxError> {
+        validate_named_capabilities(&self.named_capabilities)?;
         for p in self
             .read_paths
             .iter()
@@ -93,6 +106,22 @@ impl SandboxPolicy {
         }
         Ok(())
     }
+}
+
+/// Named capabilities a policy may request. Everything else (internetClient,
+/// documentsLibrary, ...) must go through the grant model, not this list.
+pub(crate) const ALLOWED_NAMED_CAPABILITIES: &[&str] = &["lpacChromeInstallFiles", "registryRead"];
+
+pub(crate) fn validate_named_capabilities(names: &[String]) -> Result<(), SandboxError> {
+    for n in names {
+        if n.contains('\0') || !ALLOWED_NAMED_CAPABILITIES.contains(&n.as_str()) {
+            return Err(SandboxError::InvalidPolicy(format!(
+                "named capability not allowed: {}",
+                n.escape_debug()
+            )));
+        }
+    }
+    Ok(())
 }
 
 /// Program to run. No shell interpretation: `program` + `args` go to exec.
@@ -132,5 +161,38 @@ impl SandboxCommand {
     pub fn env(mut self, k: impl Into<String>, v: impl Into<String>) -> Self {
         self.env.push((k.into(), v.into()));
         self
+    }
+}
+
+#[cfg(test)]
+mod named_capability_tests {
+    use super::*;
+
+    fn check(name: &str) -> Result<(), SandboxError> {
+        SandboxPolicy::new().named_capability(name).validate()
+    }
+
+    #[test]
+    fn rejects_non_allowlisted_names() {
+        for n in [
+            "internetClient",
+            "internetClientServer",
+            "privateNetworkClientServer",
+            "documentsLibrary",
+            "removableStorage",
+            "registryRead\0x",
+            "",
+        ] {
+            assert!(
+                matches!(check(n), Err(SandboxError::InvalidPolicy(_))),
+                "{n:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn accepts_allowlisted_names() {
+        assert!(check("lpacChromeInstallFiles").is_ok());
+        assert!(check("registryRead").is_ok());
     }
 }

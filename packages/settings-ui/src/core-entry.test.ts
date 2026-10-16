@@ -39,13 +39,13 @@ describe("@rightkit/settings-ui/core import graph", () => {
   });
   it("the standard entry is where the optional peers live", () => {
     const std = bareImports(join(root, "src/standard-entry.ts"), [".ts", ".tsx"]);
-    for (const peer of ["@rightkit/license", "@rightkit/theme", "@rightkit/logs", "@rightkit/updates"]) expect(std.bare.has(peer)).toBe(true);
+    for (const peer of ["@rightkit/license", "@rightkit/theme", "@rightkit/logs", "@rightkit/app-update"]) expect(std.bare.has(peer)).toBe(true);
   });
   it.runIf(existsSync(join(root, "dist/core.js")))("built output (dist/core.js): imports only react", () => {
     const built = bareImports(join(root, "dist/core.js"), [".js"]);
     expect([...built.bare].sort()).toEqual(["react", "react/jsx-runtime"]);
     const types = bareImports(join(root, "dist/core.d.ts"), [".d.ts"]);
-    for (const peer of ["@rightkit/license", "@rightkit/theme", "@rightkit/logs", "@rightkit/updates", "@rightkit/app-shell"]) expect(types.bare.has(peer)).toBe(false);
+    for (const peer of ["@rightkit/license", "@rightkit/theme", "@rightkit/logs", "@rightkit/app-update", "@rightkit/react-shell"]) expect(types.bare.has(peer)).toBe(false);
   });
   it("the root entry still re-exports the whole 0.3.x surface", async () => {
     const [root_, core, std] = await Promise.all([import("./index.js"), import("./core.js"), import("./standard-entry.js")]);
@@ -60,10 +60,9 @@ describe("package.json", () => {
   it("exposes ., ./core, ./standard and ./headless (added in 0.4.2) and keeps the existing subpaths", () => {
     expect(Object.keys(pkg.exports).sort()).toEqual([".", "./core", "./headless", "./settings.css", "./shell-adapter", "./standard"]);
   });
-  it("marks license, logs, theme and updates optional peers", () => {
-    for (const peer of ["@rightkit/license", "@rightkit/logs", "@rightkit/theme", "@rightkit/updates"]) {
-      expect(pkg.peerDependencies[peer]).toBeDefined();
-      expect(pkg.peerDependenciesMeta[peer]).toEqual({ optional: true });
-    }
+  it("marks logs and updates optional peers; license and theme are required (sections.tsx and hooks.ts import them at runtime)", () => {
+    for (const peer of ["@rightkit/license", "@rightkit/logs", "@rightkit/theme", "@rightkit/app-update"]) expect(pkg.peerDependencies[peer]).toBeDefined();
+    for (const peer of ["@rightkit/logs", "@rightkit/app-update"]) expect(pkg.peerDependenciesMeta[peer]).toEqual({ optional: true });
+    for (const peer of ["@rightkit/license", "@rightkit/theme"]) expect(pkg.peerDependenciesMeta?.[peer]?.optional).not.toBe(true);
   });
 });

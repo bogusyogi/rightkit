@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-ocr"
-version = "0.2.1"
+version = "0.2.2"
 edition = "2021"
 rust-version = "1.98.0"
 publish = true
@@ -25,7 +25,7 @@ include = [
 
 [dependencies]
 image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
-rightkit-ort = { version = "0.2.2", path = "../rightkit-ort", optional = true }
+rightkit-onnx = { version = "0.2.2", path = "../rightkit-onnx", optional = true }
 sha2 = { version = "0.10", optional = true }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
@@ -39,8 +39,8 @@ path = "src/bin/rightkit-ocr.rs"
 default = ["native", "onnx"]
 # OS-native backend: Apple Vision (macOS) or Windows.Media.Ocr (Windows). Pulls the objc2 / windows bindings.
 native = ["dep:objc2", "dep:objc2-foundation", "dep:objc2-core-graphics", "dep:objc2-vision", "dep:objc2-core-foundation", "dep:windows"]
-# Two-stage ONNX fallback (det + rec) through ort and rightkit-ort, with SHA-256 artifact verification.
-onnx = ["dep:rightkit-ort", "dep:sha2"]
+# Two-stage ONNX fallback (det + rec) through ort and rightkit-onnx, with SHA-256 artifact verification.
+onnx = ["dep:rightkit-onnx", "dep:sha2"]
 
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = { version = "0.6", optional = true }
@@ -54,3 +54,36 @@ windows = { version = "0.62", optional = true, features = ["Foundation", "Founda
 
 [dev-dependencies]
 base64 = "0.22"
+
+[package.metadata.rightkit]
+continuous = "held-resource"
+
+[[package.metadata.rightkit.resources]]
+api = "build_session"
+file = "src/support/session.rs"
+holds = ["memory", "thread"]
+scale = "builds one ONNX session per call (detector and recognizer, so two per OcrEngine): model weights, ORT arenas and default intra-op threads, plus the CTC vocabulary; fixed per OcrEngine, independent of how many images it recognizes. The public holder is OcrEngine (lib.rs)"
+release = "Drop of the OcrEngine that owns the sessions"
+
+[[package.metadata.rightkit.resources]]
+api = "WorkerCommand::run"
+file = "src/worker.rs"
+holds = ["thread", "child"]
+scale = "one OCR worker child per call with three short threads (stdout reader, stderr reader, stdin writer; output capped at 8 MiB, stderr and input capped) that are joined before the call returns, polled every 10 ms against a deadline; the one-shot worker child also runs one self-deadline thread and exits after serving one request. Nothing outlives the call"
+release = "run returns (child killed and reaped, threads joined)"
+
+[[package.metadata.rightkit.resources]]
+api = "recognize"
+file = "src/native/vision.rs"
+holds = ["memory"]
+scale = "one Vision text-recognition request per call over the caller's image; nothing is retained after the call"
+release = "function return"
+static_note = "HEALTHY in vision.rs is a OnceLock<()>: a zero-sized flag recording that the health canary passed, written only on success; it holds no model, thread or collection and cannot grow"
+
+[[package.metadata.rightkit.resources]]
+api = "recognize"
+file = "src/native/win_native.rs"
+holds = ["memory"]
+scale = "one WinRT OcrEngine handle per calling thread, reused across calls on that thread; a small COM object with no model weights of its own"
+release = "thread exit (the thread_local value drops with its thread)"
+static_note = "ENGINE is a thread_local! RefCell<Option<WinOcrEngine>> (win_native.rs:34): at most one engine per thread that calls recognize, freed when the thread ends; it is a cache of one handle per thread, not a growing collection, and is reachable only through recognize"

@@ -1,4 +1,4 @@
-//! Secret handling shared by the net crates. `rightkit-secrets` (built in
+//! Secret handling shared by the net crates. `rightkit-credentials` (built in
 //! parallel) supplies the production [`SecretStore`] implementation (Keychain /
 //! Credential Manager); this crate only defines the interface so net crates do
 //! not depend on unfinished code.
@@ -52,7 +52,7 @@ impl fmt::Display for SecretError {
 }
 impl std::error::Error for SecretError {}
 
-/// Service/account keyed secret storage. Implemented by `rightkit-secrets`.
+/// Service/account keyed secret storage. Implemented by `rightkit-credentials`.
 pub trait SecretStore: Send + Sync {
     fn get(&self, service: &str, account: &str) -> Result<Option<Secret>, SecretError>;
     fn set(&self, service: &str, account: &str, value: &Secret) -> Result<(), SecretError>;

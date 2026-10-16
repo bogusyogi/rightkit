@@ -8,8 +8,10 @@ import { refuseManagedEnvSecrets, MANAGED_HOST_ENV_SECRET_REFUSED } from "./mana
 const args = process.argv.slice(2);
 const files = [];
 let dryRun = false;
+let keyFile = process.env.RIGHT_UPDATER_KEY_FILE || "";
 for (let i = 0; i < args.length; i++) {
   if (args[i] === "--file") files.push(path.resolve(args[++i]));
+  else if (args[i] === "--key-file") keyFile = args[++i] ?? "";
   else if (args[i] === "--dry-run") dryRun = true;
   else fail(`unknown argument: ${args[i]}`);
 }
@@ -22,8 +24,9 @@ if (!dryRun) {
 }
 if (!dryRun && !env.TAURI_SIGNING_PRIVATE_KEY) {
   if (process.platform === "win32") {
-    const key = path.join(env.APPDATA || "", "ViewRight", "updater.key");
-    if (!existsSync(key)) fail(`shared updater key not found: ${key}`);
+    if (!keyFile) fail("updater key path required on win32: pass --key-file or set RIGHT_UPDATER_KEY_FILE (release config: targets.win.updater.keyFile), or set TAURI_SIGNING_PRIVATE_KEY");
+    const key = path.resolve(keyFile.replace(/%([^%]+)%/g, (m, name) => process.env[name] ?? m));
+    if (!existsSync(key)) fail(`updater key not found: ${key}`);
     env.TAURI_SIGNING_PRIVATE_KEY = readFileSync(key, "utf8");
   } else if (process.platform !== "darwin") {
     fail("TAURI_SIGNING_PRIVATE_KEY is required on this platform");

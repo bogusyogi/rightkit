@@ -4,7 +4,7 @@
 //! requests on one stream and reads responses and events from the other.
 //! [`serve_backend`] is the helper's side, serving any [`Backend`] over the same
 //! two streams. Spawning, killing and restarting helpers belong to
-//! rightkit-process. This module speaks the protocol over the streams it is given.
+//! rightkit-child-process. This module speaks the protocol over the streams it is given.
 //!
 //! A helper that dies, closes its stream without `bye`, or sends a frame that
 //! breaks the protocol is reported as a [`HelperEvent::Failed`]. The recorder then
@@ -18,8 +18,8 @@ use std::thread;
 use std::time::Duration;
 
 use rightkit_contracts::types::record_session::{CaptureBorder, RecorderOs};
-use rightkit_framed_sidecar::length_prefixed::{read_frame_bytes, write_frame};
-use rightkit_framed_sidecar::FrameError;
+use rightkit_sidecar::length_prefixed::{read_frame_bytes, write_frame};
+use rightkit_sidecar::FrameError;
 use serde_json::{json, Value};
 
 use crate::backend::{
@@ -393,7 +393,7 @@ mod tests {
     use rightkit_contracts::types::record_event::DropReason;
     use rightkit_contracts::types::record_session::{BundleStatus, VisibilityState};
     use rightkit_contracts::types::Rect;
-    use rightkit_framed_sidecar::length_prefixed::{read_frame_bytes, write_frame_bytes};
+    use rightkit_sidecar::length_prefixed::{read_frame_bytes, write_frame_bytes};
 
     use super::*;
     use crate::backend::{Codec, FrameSample};

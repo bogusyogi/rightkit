@@ -1,0 +1,420 @@
+{
+  "schema": 1,
+  "source": {
+    "table": "private-audits/TABLE1-MANDATORY.md:56-78 (M1-M23 requirement catalog)",
+    "versions": "private-audits/inventory/REQUIRED-VERSIONS.md (source versions at rightkit HEAD a15e62fd, registry readback 2026-10-13)",
+    "note": "min = required version (source version at P1.7 HEAD). registryMax = highest registry version at readback; where registryMax < min the required version is not yet published, so every consumer fails until it ships."
+  },
+  "defaultProfile": "desktop",
+  "defaultApps": [
+    "heardright",
+    "scraperight",
+    "coderight",
+    "cutright",
+    "genright",
+    "postright",
+    "viewright",
+    "mailright",
+    "pulse",
+    "ember"
+  ],
+  "appDeclarationFile": "rightkit-mandatory.json",
+  "profiles": {
+    "desktop": {
+      "description": "Default: every desktop app owes every row unless the app declares N/A with a reason."
+    },
+    "apple": {
+      "description": "Table 1-Apple is an unratified draft. Profile is supported by the data model; no Apple rows are shipped.",
+      "ratified": false
+    }
+  },
+  "rows": [
+    {
+      "id": "M1",
+      "name": "Window host",
+      "profile": "desktop",
+      "owners": [
+        {
+          "name": "rightkit-tauri-shell",
+          "ecosystem": "cargo",
+          "min": "0.3.0"
+        },
+        {
+          "name": "rightkit-device",
+          "ecosystem": "cargo",
+          "min": "0.1.3"
+        },
+        {
+          "name": "@rightkit/tauri",
+          "ecosystem": "npm",
+          "min": "0.2.0",
+          "registryMax": "0.2.0"
+        }
+      ]
+    },
+    {
+      "id": "M2",
+      "name": "App frame",
+      "profile": "desktop",
+      "owners": [
+        {
+          "name": "@rightkit/react-shell",
+          "ecosystem": "npm",
+          "min": "0.6.4"
+        },
+        {
+          "name": "@rightkit/platform-ui",
+          "ecosystem": "npm",
+          "min": "0.2.8",
+          "registryMax": "0.2.7"
+        },
+        {
+          "name": "@rightkit/theme",
+          "ecosystem": "npm",
+          "min": "0.2.3",
+          "registryMax": "0.2.3"
+        }
+      ]
+    },
+    {
+      "id": "M3",
+      "name": "Engine supervision",
+      "profile": "desktop",
+      "owners": [
+        {
+          "name": "rightkit-job-queue",
+          "ecosystem": "cargo",
+          "min": "0.3.0"
+        },
+        {
+          "name": "rightkit-child-process",
+          "ecosystem": "cargo",
+          "min": "0.4.0"
+        }
+      ]
+    },
+    {
+      "id": "M4",
+      "name": "Window/CLI protocol",
+      "profile": "desktop",
+      "owners": [
+        {
+          "name": "rightkit-job-queue",
+          "ecosystem": "cargo",
+          "min": "0.3.0"
+        },
+        {
+          "name": "rightkit-sidecar",
+          "ecosystem": "cargo",
+          "min": "0.2.0"
+        }
+      ]
+    },
+    {
+      "id": "M5",
+      "name": "Other child processes",
+      "profile": "desktop",
+      "owners": [
+        {
+          "name": "rightkit-child-process",
+          "ecosystem": "cargo",
+          "min": "0.4.0"
+        }
+      ]
+    },
+    {
+      "id": "M6",
+      "name": "Data location",
+      "profile": "desktop",
+      "owners": [
+        {
+          "name": "rightkit-daemon",
+          "ecosystem": "cargo",
+          "min": "0.2.0"
+        }
+      ]
+    },
+    {
+      "id": "M7",
+      "name": "Local services",
+      "profile": "desktop",
+      "owners": [
+        {
+          "name": "rightkit-daemon",
+          "ecosystem": "cargo",
+          "min": "0.2.0"
+        }
+      ]
+    },
+    {
+      "id": "M8",
+      "name": "Safe file writes",
+      "profile": "desktop",
+      "owners": [
+        {
+          "name": "rightkit-fs",
+          "ecosystem": "cargo",
+          "min": "0.4.0",
+          "registryMax": "0.3.3"
+        }
+      ]
+    },
+    {
+      "id": "M9",
+      "name": "Database",
+      "profile": "desktop",
+      "owners": [
+        {
+          "name": "rightkit-db",
+          "ecosystem": "cargo",
+          "min": "0.4.0",
+          "registryMax": "0.3.2"
+        }
+      ]
+    },
+    {
+      "id": "M10",
+      "name": "Settings",
+      "profile": "desktop",
+      "owners": [
+        {
+          "name": "rightkit-app-settings",
+          "ecosystem": "cargo",
+          "min": "0.2.0"
+        },
+        {
+          "name": "@rightkit/settings-ui",
+          "ecosystem": "npm",
+          "min": "0.4.4",
+          "registryMax": "0.4.3"
+        }
+      ]
+    },
+    {
+      "id": "M11",
+      "name": "Secrets",
+      "profile": "desktop",
+      "owners": [
+        {
+          "name": "rightkit-credentials",
+          "ecosystem": "cargo",
+          "min": "0.2.0"
+        }
+      ]
+    },
+    {
+      "id": "M12",
+      "name": "Licence/device",
+      "profile": "desktop",
+      "owners": [
+        {
+          "name": "rightkit-license",
+          "ecosystem": "cargo",
+          "min": "0.2.0",
+          "registryMax": "0.1.3"
+        },
+        {
+          "name": "rightkit-device",
+          "ecosystem": "cargo",
+          "min": "0.1.3"
+        },
+        {
+          "name": "@rightkit/license",
+          "ecosystem": "npm",
+          "min": "0.2.0",
+          "registryMax": "0.1.8"
+        }
+      ]
+    },
+    {
+      "id": "M13",
+      "name": "Pro entitlement",
+      "profile": "desktop",
+      "owners": [
+        {
+          "name": "rightkit-license",
+          "ecosystem": "cargo",
+          "min": "0.2.0",
+          "registryMax": "0.1.3"
+        }
+      ]
+    },
+    {
+      "id": "M14",
+      "name": "Legal/onboarding",
+      "profile": "desktop",
+      "owners": [
+        {
+          "name": "@rightkit/legal",
+          "ecosystem": "npm",
+          "min": "0.3.1",
+          "registryMax": "0.3.1"
+        },
+        {
+          "name": "@rightkit/legal-ui",
+          "ecosystem": "npm",
+          "min": "0.2.2",
+          "registryMax": "0.2.2"
+        },
+        {
+          "name": "@rightkit/onboarding",
+          "ecosystem": "npm",
+          "min": "0.3.3",
+          "registryMax": "0.3.2"
+        }
+      ]
+    },
+    {
+      "id": "M15",
+      "name": "Logging",
+      "profile": "desktop",
+      "owners": [
+        {
+          "name": "rightkit-logs",
+          "ecosystem": "cargo",
+          "min": "0.2.2",
+          "registryMax": "0.2.1"
+        },
+        {
+          "name": "@rightkit/logs",
+          "ecosystem": "npm",
+          "min": "0.1.4",
+          "registryMax": "0.1.4"
+        }
+      ]
+    },
+    {
+      "id": "M16",
+      "name": "Crash reporting",
+      "profile": "desktop",
+      "owners": [
+        {
+          "name": "rightkit-crash",
+          "ecosystem": "cargo",
+          "min": "0.2.2",
+          "registryMax": "0.2.1"
+        }
+      ]
+    },
+    {
+      "id": "M17",
+      "name": "HTTP",
+      "profile": "desktop",
+      "owners": [
+        {
+          "name": "rightkit-http",
+          "ecosystem": "cargo",
+          "min": "0.3.0",
+          "registryMax": "0.2.5"
+        }
+      ]
+    },
+    {
+      "id": "M18",
+      "name": "Updates",
+      "profile": "desktop",
+      "owners": [
+        {
+          "name": "@rightkit/app-update",
+          "ecosystem": "npm",
+          "min": "0.2.5"
+        }
+      ]
+    },
+    {
+      "id": "M19",
+      "name": "Release tooling",
+      "profile": "desktop",
+      "owners": [
+        {
+          "name": "@rightkit/release",
+          "ecosystem": "npm",
+          "min": "0.2.153",
+          "registryMax": "0.2.151",
+          "allowDev": true
+        }
+      ]
+    },
+    {
+      "id": "M20",
+      "name": "QA",
+      "profile": "desktop",
+      "owners": [
+        {
+          "name": "rightkit-qa",
+          "ecosystem": "cargo",
+          "min": "0.2.16",
+          "registryMax": "0.2.14",
+          "allowDev": true
+        },
+        {
+          "name": "rightkit-qa-driver",
+          "ecosystem": "cargo",
+          "min": "0.3.0",
+          "allowDev": true
+        },
+        {
+          "name": "@rightkit/qa",
+          "ecosystem": "npm",
+          "min": "0.4.8",
+          "registryMax": "0.4.7",
+          "allowDev": true
+        },
+        {
+          "name": "@rightkit/qa-chrome",
+          "ecosystem": "npm",
+          "min": "0.1.6",
+          "registryMax": "0.1.6",
+          "allowDev": true
+        }
+      ]
+    },
+    {
+      "id": "M22",
+      "name": "Agent surface",
+      "profile": "desktop",
+      "owners": [
+        {
+          "name": "rightkit-agent-tools",
+          "ecosystem": "cargo",
+          "min": "0.1.2",
+          "registryMax": "0.1.2"
+        }
+      ]
+    }
+  ],
+  "pendingRows": [
+    {
+      "id": "M21",
+      "name": "Test mode",
+      "profile": "desktop",
+      "owners": [],
+      "ownerPending": "No selected owner (D4 unratified); never fails."
+    },
+    {
+      "id": "M23",
+      "name": "Release-time switches",
+      "profile": "desktop",
+      "owners": [],
+      "ownerPending": "No selected owner (D4 unratified); never fails."
+    }
+  ],
+  "amendments": {
+    "v2.1": {
+      "description": "TABLE1-AMENDMENT-v2.1 (draft): @rightkit/tauri-shell joins M1. Opt-in via --amendment v2.1.",
+      "rows": [
+        {
+          "id": "M1",
+          "profile": "desktop",
+          "owners": [
+            {
+              "name": "@rightkit/tauri-shell",
+              "ecosystem": "npm",
+              "min": "0.1.1"
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

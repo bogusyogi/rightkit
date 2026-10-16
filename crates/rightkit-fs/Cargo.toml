@@ -140,8 +140,34 @@ name = "state_ancestors"
 path = "tests/state_ancestors.rs"
 required-features = ["testing"]
 
+# M8 owner-gap additions (append, executable, reporting, verified copy).
+[[test]]
+name = "owner_append"
+path = "tests/owner_append.rs"
+required-features = ["fs"]
+
+[[test]]
+name = "owner_executable"
+path = "tests/owner_executable.rs"
+required-features = ["fs"]
+
+[[test]]
+name = "owner_report"
+path = "tests/owner_report.rs"
+required-features = ["fs"]
+
+[[test]]
+name = "owner_sweep"
+path = "tests/owner_sweep.rs"
+required-features = ["fs"]
+
+[[test]]
+name = "owner_verified"
+path = "tests/owner_verified.rs"
+required-features = ["fs", "digest"]
+
 [features]
-default = ["fs", "lock", "json", "digest"]
+default = []
 # Atomic writes, owner-only files, StateDir, netfs, clonefile, and the error type. Pulls
 # libc (unix) and thiserror. `db` uses this layer and no more.
 fs = ["dep:libc", "dep:thiserror"]
@@ -159,7 +185,7 @@ testing = ["fs"]
 [dependencies]
 serde = { version = "1", features = ["derive"], optional = true }
 serde_json = { version = "1", optional = true }
-sha2 = { version = "0.11", optional = true }
+sha2 = { version = "0.11", default-features = false, optional = true }
 thiserror = { version = "2", optional = true }
 
 [target.'cfg(unix)'.dependencies]

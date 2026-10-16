@@ -2,8 +2,8 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "urn:rightkit:contract:daemon-api:v1",
   "title": "RightKit daemon API description (v1)",
-  "description": "A machine-readable description of the daemon API that the desktop apps and the daemon both implement: authenticated HTTPS on rightkit-http, a resumable blake3 upload protocol, and compare-and-swap mutations. The document lists every route with exactly one of three authorisation classes. device_authenticated_mutation covers device-token requests (and enrolment with a single-use enrolment code); oauth_callback covers provider redirects that carry a one-time state and PKCE verifier and never a device token; signed_webhook covers provider deliveries authenticated by an HMAC signature and deduplicated durably. A route that mutates state must use the device class and declare compare-and-swap, and the rules are checked by schema and by rightkit-contracts. Errors and lifecycle event names are fixed here so clients can branch on them.",
-  "version": "1.0.0",
+  "description": "A machine-readable description of the daemon API that the desktop apps and the daemon both implement: authenticated HTTPS on rightkit-http, a resumable blake3 upload protocol, and compare-and-swap mutations. The document lists every route with exactly one of three authorisation classes. device_authenticated_mutation covers device-token requests (and enrolment with a single-use enrolment code); oauth_callback covers provider redirects that carry a one-time state and PKCE verifier and never a device token; signed_webhook covers provider deliveries authenticated by an HMAC signature and deduplicated durably. A route that mutates state must use the device class and declare compare-and-swap, and the rules are checked by schema and by rightkit-contracts. Version 1.1.0 adds one optional, additive class, device_call: POST /v1/call/{method}, the transport-neutral request contract (a method id, JSON params, a JSON result or an error object whose code is the handler's own), signed exactly like device_authenticated_mutation. Which methods it exposes and which scopes each needs is the service's method table, not this document; a 1.0.0 document stays valid. Errors and lifecycle event names are fixed here so clients can branch on them.",
+  "version": "1.1.0",
   "type": "object",
   "additionalProperties": false,
   "required": ["contract", "contractVersion", "apiId", "transport", "authClasses", "routes", "upload", "mutations", "errors", "lifecycleEvents"],
@@ -56,6 +56,18 @@
             "credentials": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "const": "hmac_sha256" } },
             "mutationAllowed": { "const": false },
             "requiredHeaders": { "type": "array", "minItems": 1, "items": { "type": "string", "pattern": "^[A-Za-z0-9-]+$" } },
+            "summary": { "type": "string", "minLength": 1, "maxLength": 300 }
+          }
+        },
+        "device_call": {
+          "type": "object",
+          "description": "Added in 1.1.0, optional. A signed device calls one method of the service's method table at POST /v1/call/{method}.",
+          "additionalProperties": false,
+          "required": ["credentials", "mutationAllowed", "requiredHeaders", "summary"],
+          "properties": {
+            "credentials": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "const": "device_token" } },
+            "mutationAllowed": { "const": true },
+            "requiredHeaders": { "type": "array", "items": { "const": "Authorization" }, "minItems": 1, "maxItems": 1 },
             "summary": { "type": "string", "minLength": 1, "maxLength": 300 }
           }
         }
@@ -213,7 +225,7 @@
         "routeId": { "$ref": "#/$defs/id" },
         "method": { "enum": ["GET", "POST", "PUT", "PATCH", "DELETE"] },
         "path": { "type": "string", "pattern": "^/v1/[A-Za-z0-9/_{}.-]+$" },
-        "authClass": { "enum": ["device_authenticated_mutation", "oauth_callback", "signed_webhook"] },
+        "authClass": { "enum": ["device_authenticated_mutation", "oauth_callback", "signed_webhook", "device_call"] },
         "mutation": { "type": "boolean" },
         "casRequired": { "type": "boolean" },
         "scopes": { "type": "array", "uniqueItems": true, "items": { "enum": ["venture", "channel", "account"] } },
@@ -224,7 +236,7 @@
           "if": { "properties": { "mutation": { "const": true } }, "required": ["mutation"] },
           "then": {
             "properties": {
-              "authClass": { "const": "device_authenticated_mutation" },
+              "authClass": { "enum": ["device_authenticated_mutation", "device_call"] },
               "method": { "enum": ["POST", "PUT", "PATCH", "DELETE"] }
             }
           }
@@ -240,6 +252,10 @@
         {
           "if": { "properties": { "authClass": { "const": "signed_webhook" } }, "required": ["authClass"] },
           "then": { "properties": { "method": { "const": "POST" }, "mutation": { "const": false }, "path": { "pattern": "^/v1/webhooks/" } } }
+        },
+        {
+          "if": { "properties": { "authClass": { "const": "device_call" } }, "required": ["authClass"] },
+          "then": { "properties": { "method": { "const": "POST" }, "casRequired": { "const": false }, "path": { "pattern": "^/v1/call/\\{[A-Za-z]+\\}$" } } }
         }
       ]
     }

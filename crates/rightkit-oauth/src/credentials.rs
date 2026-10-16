@@ -2,7 +2,7 @@
 //! sign-ins other tools already hold, then a typed [`Resolution::NeedsSignIn`] the app turns
 //! into its own prompt. Nothing here is interactive unless the caller starts a sign-in.
 //!
-//! Tokens live in the OS credential store through `rightkit-secrets`, in the app's own
+//! Tokens live in the OS credential store through `rightkit-credentials`, in the app's own
 //! namespace (each app signs in for itself). A refresh runs under a cross-process lock and
 //! re-reads the store first, so two processes of the same app never spend one rotating
 //! refresh grant twice.
@@ -23,11 +23,11 @@ pub const DEFAULT_REFRESH_SKEW: Duration = Duration::from_secs(120);
 
 /// [`TokenStore`] over the OS credential store (Keychain / Credential Manager).
 pub struct SecretTokenStore {
-    store: rightkit_secrets::Store,
+    store: rightkit_credentials::Store,
 }
 
 impl SecretTokenStore {
-    pub fn new(store: rightkit_secrets::Store) -> Self {
+    pub fn new(store: rightkit_credentials::Store) -> Self {
         Self { store }
     }
 }

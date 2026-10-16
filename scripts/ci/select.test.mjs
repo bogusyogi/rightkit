@@ -77,10 +77,10 @@ test("extra paths and config edits select their crate; the workspace manifest se
 test("npm selection follows dependents; path suites match by directory", () => {
   const packages = [
     { name: "@rightkit/ui", dir: "packages/ui", deps: [] },
-    { name: "@rightkit/shell", dir: "packages/shell", deps: ["@rightkit/ui"] },
-    { name: "@rightkit/git", dir: "packages/git", deps: [] },
+    { name: "@rightkit/tauri-shell", dir: "packages/tauri-shell", deps: ["@rightkit/ui"] },
+    { name: "@rightkit/ci", dir: "packages/ci", deps: [] },
   ];
-  assert.deepEqual(selectNpm({ changedPaths: ["packages/ui/src/a.ts"], packages }).test, ["packages/shell", "packages/ui"]);
+  assert.deepEqual(selectNpm({ changedPaths: ["packages/ui/src/a.ts"], packages }).test, ["packages/tauri-shell", "packages/ui"]);
   assert.deepEqual(selectNpm({ changedPaths: ["docs/x.md"], packages }).test, []);
   assert.equal(selectNpm({ changedPaths: ["pnpm-lock.yaml"], packages }).all, true);
   const suites = [{ id: "swift/A", paths: ["swift/A"] }, { id: "swift/AB", paths: ["swift/AB"] }];
@@ -91,7 +91,7 @@ test("explicit unit selection names exactly the requested units, in order, with 
   assert.deepEqual(selectUnits({ registry: "crates", units: ["rightkit-b", "rightkit-a", "rightkit-b"], members }).rust, { all: false, test: ["rightkit-b", "rightkit-a"], check: [] });
   const packages = [
     { name: "@rightkit/ui", dir: "packages/ui", scripts: { test: "vitest" }, deps: [] },
-    { name: "@rightkit/shell", dir: "packages/shell", scripts: { test: "vitest" }, deps: ["@rightkit/ui"] },
+    { name: "@rightkit/tauri-shell", dir: "packages/tauri-shell", scripts: { test: "vitest" }, deps: ["@rightkit/ui"] },
   ];
   assert.deepEqual(selectUnits({ registry: "npm", units: ["@rightkit/ui"], packages }).npm, { all: false, test: ["packages/ui"] });
   assert.deepEqual(selectUnits({ registry: "npm", units: ["@rightkit/ui"], packages }).rust.test, []);

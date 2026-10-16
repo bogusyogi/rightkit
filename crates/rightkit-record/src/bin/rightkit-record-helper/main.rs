@@ -3,10 +3,10 @@
 //! Two modes over `rightkit_record::windows::WindowsBackend`:
 //! - `capture`: a one-shot take. The helper writes only the media file and prints
 //!   one JSON summary on stdout.
-//! - `serve`: the helper protocol over stdin and stdout, for rightkit-process. The
+//! - `serve`: the helper protocol over stdin and stdout, for rightkit-child-process. The
 //!   core owns the bundle; nothing else may write to stdout in this mode.
 //!
-//! rightkit-process will own this helper later.
+//! rightkit-child-process will own this helper later.
 
 #[cfg(windows)]
 mod args;
@@ -71,7 +71,6 @@ mod windows_run {
     use std::thread;
     use std::time::{Duration, Instant};
 
-    use rightkit_contracts::types::record_session::VisibilityState;
     use rightkit_record::backend::{Backend, BackendPlan, HelperEvent};
     use rightkit_record::windows::WindowsBackend;
     use rightkit_record::{Code, PixelMasking, RecordError};
@@ -130,6 +129,8 @@ mod windows_run {
     pub fn run(args: &CaptureArgs) -> Result<Value, RecordError> {
         prepare_out_dir(args)?;
         let mut backend = WindowsBackend::new();
+        // Declare the window's real state: an on-screen window is not off-screen.
+        let visibility = rightkit_record::windows::observed_visibility(args.window_id)?;
         let plan = BackendPlan {
             out_dir: args.out.clone(),
             window_id: args.window_id,
@@ -139,7 +140,7 @@ mod windows_run {
             // Full pixel scale: the Windows backend does not resample frames.
             scale: 1.0,
             audio: Vec::new(),
-            visibility: VisibilityState::OffScreenVisible,
+            visibility,
             masking: PixelMasking::Declared(Vec::new()),
             codec: args.codec,
         };

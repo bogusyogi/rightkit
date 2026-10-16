@@ -5,27 +5,28 @@ Publication runs through `right-release publish cargo` after exact-commit native
 
 ## Previously disabled crates
 
+`agent-room-core` and `@rightkit/agent-room-mcp` left RightKit on 2026-10-14 (now under `legion/vendor/agent-room/`); they are not RightKit crates and appear in no catalog.
+
 | Crate | Decision | Release requirement |
 | --- | --- | --- |
-| agent-room-core | Keep private | UNLICENSED coordination implementation |
 | rightkit-computer | Keep private | Retired; replaced by rightkit-automation |
-| rightkit-browser | Public candidate | Native receipts; rightkit-process available |
+| rightkit-browser | Public candidate | Native receipts; rightkit-child-process available |
 | rightkit-cache | Public candidate | Native receipts |
-| rightkit-control | Public candidate | Native receipts; rightkit-service available |
+| rightkit-qa-driver | Public candidate | Native receipts; rightkit-daemon available |
 | rightkit-crash | Public candidate | Native receipts; new rightkit-logs API available |
 | rightkit-pdf | Public candidate | Native receipts |
 | rightkit-qa | Public candidate | Native receipts; control, service, framed-sidecar & browser available |
 | rightkit-sandbox | Public candidate | Native receipts; versioned process dependency |
 | rightkit-search | Public candidate | Native receipts |
-| rightkit-service | Public candidate | Native receipts; rightkit-framed-sidecar available |
-| rightkit-shell | Public candidate | Native receipts; service & jobs available; native shell evidence |
+| rightkit-daemon | Public candidate | Native receipts; rightkit-sidecar available |
+| rightkit-tauri-shell | Public candidate | Native receipts; service & jobs available; native shell evidence |
 | rightkit-speech-client | Public candidate | Native receipts; service & framed-sidecar available |
-| rightkit-automation | Public; hold | Dedicated Windows input session |
-| rightkit-agent-tools | Public; hold | Automation & other optional registry dependencies available |
-| rightkit-media | Public candidate | Approved FFmpeg catalog; current native receipts; process available |
+| rightkit-automation | Public owner (D 2026-10-14); hold for first release | Dedicated Windows input session; publish before agent-tools |
+| rightkit-agent-tools | Public owner (D 2026-10-14); hold for first release | Automation & other optional registry dependencies available |
+| rightkit-ffmpeg | Public candidate | Approved FFmpeg catalog; current native receipts; process available |
 | rightkit-playback | Public candidate | Media available; native remux & cancellation receipts |
 | rightkit-audio | Public candidate | Media available; native audio receipts |
-| rightkit-ort | Public; hold | Native runtime/artifact catalog gate |
+| rightkit-onnx | Public; hold | Native runtime/artifact catalog gate |
 | rightkit-embed | Public; hold | ORT gate |
 | rightkit-ocr | Public; hold | Signed model/runtime catalogs & migrated adapter parity |
 | rightkit-vad | Public; hold | ASR stack versioning & model/runtime gates |
@@ -39,13 +40,13 @@ Publication runs through `right-release publish cargo` after exact-commit native
 
 For enabled candidates & their shared prerequisites:
 
-1. `rightkit-fs`, `rightkit-framed-sidecar`, `rightkit-process`, `rightkit-logs`, `rightkit-cache`, `rightkit-pdf`, `rightkit-search`.
-2. `rightkit-db`, `rightkit-service`, `rightkit-browser`, `rightkit-sandbox`, `rightkit-crash`, `rightkit-media`.
-3. `rightkit-jobs`, `rightkit-control`, `rightkit-speech-client`, `rightkit-playback`, `rightkit-audio`.
-4. `rightkit-shell`, `rightkit-qa`.
+1. `rightkit-fs`, `rightkit-sidecar`, `rightkit-child-process`, `rightkit-logs`, `rightkit-cache`, `rightkit-pdf`, `rightkit-search`.
+2. `rightkit-db`, `rightkit-daemon`, `rightkit-browser`, `rightkit-sandbox`, `rightkit-crash`, `rightkit-ffmpeg`.
+3. `rightkit-job-queue`, `rightkit-qa-driver`, `rightkit-speech-client`, `rightkit-playback`, `rightkit-audio`.
+4. `rightkit-tauri-shell`, `rightkit-qa`.
 
 Every group waits for its own dependencies to exist in crates.io. Optional runtime dependencies also need published registry versions. Package dry-runs verify registry dependencies rather than sibling source.
 
-Registry inspection found `rightkit-process 0.1.0` lacks APIs consumed by jobs, & `rightkit-logs 0.1.0` lacks APIs consumed by crash. Stage both expanded APIs at `0.2.0`, with matching internal path dependency pins. Keep adopted consumer pins until publication is verified.
+Registry inspection found `rightkit-child-process 0.1.0` lacks APIs consumed by jobs, & `rightkit-logs 0.1.0` lacks APIs consumed by crash. Stage both expanded APIs at `0.2.0`, with matching internal path dependency pins. Keep adopted consumer pins until publication is verified.
 
 Source inventory: `crates/*/Cargo.toml`; publication policy: `packages/release/publication-gate.mjs`; staged versions: `packages/release/rightkit-versions.json`.

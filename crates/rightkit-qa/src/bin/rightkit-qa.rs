@@ -3,15 +3,18 @@
 //! rightkit-qa doctor  [--config rightkit-qa.toml]
 //! rightkit-qa list    [--tier fast|local-models|paid|all[,..]] [--only s]
 //! rightkit-qa run     [--tier ..] [--only s] [--engine path] [--ui-binary path]
-//!                     [--build] [--build-ui] [--keep-data] [FILE.scenario.toml ...]
+//!                     [--build] [--build-ui] [--keep-data] [--kind functional|visual]
+//!                     [FILE.scenario.toml ...]
 //! rightkit-qa guard   [--backend control|wdio]
 //! rightkit-qa sweep
+//! rightkit-qa prune-runs [--app <key>] [--root <managed root>] [--dry-run]
 //! rightkit-qa verify  <evidence.json>
 use rightkit_qa::config::QaConfig;
 use rightkit_qa::evidence::Bundle;
 use rightkit_qa::guard::{scripts_from_package_json, validate, Backend, ContractInput};
 use rightkit_qa::process;
 use rightkit_qa::scenario::{discover, unmet_requirement, Scenario};
+use rightkit_qa::storage::RunKind;
 use rightkit_qa::suite::{run_suite, select, SuiteOptions};
 use rightkit_qa::util::{err, Result};
 use std::path::{Path, PathBuf};
@@ -41,6 +44,9 @@ impl Args {
             "--dir",
             "--max-gb",
             "--young-hours",
+            "--kind",
+            "--app",
+            "--root",
         ];
         let mut out = vec![];
         let mut skip = false;
@@ -66,8 +72,8 @@ fn load_config(a: &Args) -> Result<QaConfig> {
     QaConfig::load(&path)
 }
 
-fn options(a: &Args) -> SuiteOptions {
-    SuiteOptions {
+fn options(a: &Args) -> Result<SuiteOptions> {
+    Ok(SuiteOptions {
         tier: a.value("--tier"),
         only: a.value("--only"),
         engine: a.value("--engine").map(PathBuf::from),
@@ -75,8 +81,9 @@ fn options(a: &Args) -> SuiteOptions {
         build_engine: a.has("--build"),
         build_ui: a.has("--build-ui"),
         keep_data: a.has("--keep-data"),
+        kind: a.value("--kind").map(|k| RunKind::parse(&k)).transpose()?,
         files: a.positionals().into_iter().map(PathBuf::from).collect(),
-    }
+    })
 }
 
 fn doctor(a: &Args) -> Result<i32> {
@@ -123,7 +130,7 @@ fn doctor(a: &Args) -> Result<i32> {
 
 fn list(a: &Args) -> Result<i32> {
     let cfg = load_config(a)?;
-    let scenarios = select(&cfg, &options(a))?;
+    let scenarios = select(&cfg, &options(a)?)?;
     for s in &scenarios {
         println!(
             "{:<14} {:<7} {}  ({})",
@@ -193,6 +200,27 @@ fn sweep(a: &Args) -> Result<i32> {
         r.removed.len(),
         r.retained.len()
     );
+    Ok(0)
+}
+
+/// `rightkit-qa prune-runs [--app <key>] [--root <managed root>] [--dry-run]`: apply the run
+/// retention rule to `<managed root>/runs`. Only directories that carry the `.rightkit-run.json`
+/// marker are considered; every failed run and the newest passing run per app and kind are kept,
+/// the other passing runs are removed. Without `--app` every app is pruned; without `--root` the
+/// managed root is `RIGHTKIT_MANAGED_ROOT` or the platform default. Suited to a schedule; the suite
+/// and the harness already run it right after each job.
+fn prune_runs(a: &Args) -> Result<i32> {
+    let root = rightkit_qa::storage::managed_root(a.value("--root").map(PathBuf::from).as_deref());
+    let dry = a.has("--dry-run");
+    let r = rightkit_qa::retention::prune_runs(&root, a.value("--app").as_deref(), dry)?;
+    for (path, bytes, why) in &r.removed {
+        println!(
+            "{} {} ({bytes} bytes): {why}",
+            if dry { "would remove" } else { "removed" },
+            path.display()
+        );
+    }
+    println!("{} under {}", r.summary(), root.join("runs").display());
     Ok(0)
 }
 
@@ -304,15 +332,16 @@ fn run() -> Result<i32> {
         Some("list") => list(&a),
         Some("run") => {
             let cfg = load_config(&a)?;
-            Ok(run_suite(&cfg, &options(&a))?.exit_code)
+            Ok(run_suite(&cfg, &options(&a)?)?.exit_code)
         }
         Some("guard") => guard(&a),
         Some("sweep") => sweep(&a),
+        Some("prune-runs") => prune_runs(&a),
         Some("homes") => homes(&a),
         Some("clean") => clean(&a),
         Some("verify") => verify(&a),
         _ => {
-            eprintln!("usage: rightkit-qa <doctor|list|run|guard|sweep|homes|clean|verify> [--config rightkit-qa.toml] ...");
+            eprintln!("usage: rightkit-qa <doctor|list|run|guard|sweep|prune-runs|homes|clean|verify> [--config rightkit-qa.toml] ...");
             Ok(2)
         }
     }

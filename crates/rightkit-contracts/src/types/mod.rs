@@ -18,7 +18,7 @@ pub use demo_plan::DemoPlan;
 pub use record_event::RecordEvent;
 pub use record_session::RecordSession;
 
-/// A rectangle in points, as used by rightkit-control and the recorder.
+/// A rectangle in points, as used by rightkit-qa-driver and the recorder.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Rect {

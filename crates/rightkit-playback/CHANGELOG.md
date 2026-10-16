@@ -1,5 +1,9 @@
 # Changelog
 
+
+## 0.2.1
+
+- Republished on the renamed dependencies: `rightkit-ffmpeg` (was `rightkit-media`), `rightkit-child-process` (was `rightkit-process`). The 0.2.0 on crates.io was packaged before the renames and still named the old crates.
 ## Unreleased (0.2.0 work)
 
 - Added an opt-in host authorisation hook for media sources. `SourceRegistry::set_authoriser(Fn(&Path) -> bool + Send + Sync)`, `clear_authoriser`, and `resolve_or_register(path)` register any file the hook allows. `allowed_roots(roots)` builds a hook for "regular files under these directories, recursively".

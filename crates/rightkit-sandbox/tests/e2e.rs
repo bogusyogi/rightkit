@@ -571,7 +571,7 @@ mod windows {
             );
             std::thread::sleep(Duration::from_millis(100));
         };
-        let grandchild = rightkit_process::AdoptedProcess::new(pid.try_into().unwrap());
+        let grandchild = rightkit_child_process::AdoptedProcess::new(pid.try_into().unwrap());
         assert!(grandchild.is_running().unwrap());
         drop(child);
         let killed = Instant::now();

@@ -744,19 +744,19 @@ fn minor1_host_reports_engines_and_honours_selection() {
 }
 
 // ---------------------------------------------------------------------------
-// One convention: rightkit-service hosts and HeardRight peers interoperate
+// One convention: rightkit-daemon hosts and HeardRight peers interoperate
 // ---------------------------------------------------------------------------
 
 struct NoCalls;
-impl rightkit_service::Handler for NoCalls {
+impl rightkit_daemon::Handler for NoCalls {
     fn call(
         &self,
-        _: &rightkit_service::CallContext,
+        _: &rightkit_daemon::CallContext,
         m: &str,
         _: &Value,
-        _: &rightkit_service::Emit,
-    ) -> Result<Value, rightkit_service::ServiceError> {
-        Err(rightkit_service::ServiceError::new("unknown_method", m))
+        _: &rightkit_daemon::Emit,
+    ) -> Result<Value, rightkit_daemon::ServiceError> {
+        Err(rightkit_daemon::ServiceError::new("unknown_method", m))
     }
 }
 
@@ -785,11 +785,11 @@ fn now_ms() -> u64 {
 }
 
 #[test]
-fn rightkit_service_host_publishes_a_record_heardright_clients_parse_and_yields_to_heardright_takeovers(
+fn rightkit_daemon_host_publishes_a_record_heardright_clients_parse_and_yields_to_heardright_takeovers(
 ) {
-    use rightkit_service::{Allowlist, ServiceConfig};
+    use rightkit_daemon::{Allowlist, ServiceConfig};
     let e = env();
-    let suite = rightkit_service::Suite::at(&e.root).unwrap();
+    let suite = rightkit_daemon::Suite::at(&e.root).unwrap();
     let mut cfg = ServiceConfig::new(
         SERVICE_NAME,
         HostRole::ScrapeRight.as_str(),
@@ -800,7 +800,7 @@ fn rightkit_service_host_publishes_a_record_heardright_clients_parse_and_yields_
     cfg.known_roles = HostRole::rank_table();
     cfg.endpoint = Some(endpoint_for(&e.root, "user"));
     cfg.handoff_grace = Duration::from_secs(1);
-    let hosted = rightkit_service::host(&suite, cfg, Arc::new(NoCalls)).unwrap();
+    let hosted = rightkit_daemon::host(&suite, cfg, Arc::new(NoCalls)).unwrap();
 
     // HeardRight's reader sees its own six fields (extra fields are ignored by serde).
     let raw: Value =
@@ -835,10 +835,10 @@ fn rightkit_service_host_publishes_a_record_heardright_clients_parse_and_yields_
 }
 
 #[test]
-fn rightkit_service_host_ignores_lower_and_unknown_roles_but_yields_to_an_outranking_known_one() {
-    use rightkit_service::{Allowlist, ServiceConfig};
+fn rightkit_daemon_host_ignores_lower_and_unknown_roles_but_yields_to_an_outranking_known_one() {
+    use rightkit_daemon::{Allowlist, ServiceConfig};
     let e = env();
-    let suite = rightkit_service::Suite::at(&e.root).unwrap();
+    let suite = rightkit_daemon::Suite::at(&e.root).unwrap();
     let mk = |role: HostRole| {
         let mut cfg = ServiceConfig::new(
             SERVICE_NAME,
@@ -853,7 +853,7 @@ fn rightkit_service_host_ignores_lower_and_unknown_roles_but_yields_to_an_outran
         cfg
     };
     let hosted =
-        rightkit_service::host(&suite, mk(HostRole::ScrapeRight), Arc::new(NoCalls)).unwrap();
+        rightkit_daemon::host(&suite, mk(HostRole::ScrapeRight), Arc::new(NoCalls)).unwrap();
     let requester = Requester::new();
     let write_tk = |role: &str| {
         let tk = json!({"role": role, "pid": requester.pid(), "requested_at_ms": now_ms()});

@@ -1,6 +1,13 @@
 # Changelog
 
-## Unreleased
+
+## 0.5.0
+
+- Republished on the renamed dependencies: `rightkit-child-process` (was `rightkit-process`), `rightkit-credentials` (was `rightkit-secrets`). The 0.4.0 on crates.io was packaged before the renames and still named the old crates.
+- **Breaking (0.x minor):** `SecretTokenStore::new` takes a `rightkit_credentials::Store`.
+## 0.4.0
+
+- **Breaking (0.x minor):** public dependencies raised: `rightkit-http` 0.3, `rightkit-secrets` 0.2 and `rightkit-process` 0.4. `OAuthError::Http(HttpError)` and `CredentialStore::new(rightkit_secrets::Store)` expose them, so callers must use matching versions.
 
 - **Fixed:** token-endpoint and device-poll provider errors no longer repeat credentials the client submitted. The refresh token, device code, authorization code, PKCE verifier and client secret are registered as secrets on the request (`Request::secret_form`), and the provider's `error` and `error_description` are scrubbed to `[redacted]` before `OAuthError::Provider` is built, on both the non-2xx and the HTTP 200 provider-error paths. Requires the unreleased `rightkit-http` additions (`secret_form`, `scrub`).
 

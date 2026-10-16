@@ -1,0 +1,203 @@
+[package]
+name = "rightkit-job-queue"
+version = "0.3.1"
+edition = "2021"
+rust-version = "1.98.0"
+description = "Persistent job store, runner, and stdio/CLI command contract for Right Suite engines."
+license = "MIT OR Apache-2.0"
+readme = "README.md"
+repository = "https://github.com/Orthic-Labs/rightkit"
+keywords = ["jobs", "sidecar", "sqlite", "cli"]
+categories = ["asynchronous"]
+include = ["src/**", "tests/**", "README.md", "LICENSE-MIT", "LICENSE-APACHE"]
+
+[features]
+# Default is empty (0.3.0, breaking): name `store`, `supervisor`, `contract` or `service`.
+default = []
+# The persistent job layer: `JobStore`, `Runner`, `StagedPool`, the scheduler gate, `StoreConfig`,
+# locks, recovery, pruning and the `rusqlite`/`db` re-exports (gates `rightkit-db`, `rightkit-fs`,
+# `uuid`). Without it the crate is only the engine supervision and wire layers: `JobError`,
+# and with `supervisor` the `EngineSupervisor` / `EngineClient`.
+store = ["dep:rightkit-db", "dep:rightkit-fs", "dep:uuid"]
+# The framed wire constants (`CONTRACT_VERSION`, `DEFAULT_FRAME_LIMIT`); store-free
+# (gates `rightkit-sidecar`).
+protocol = ["dep:rightkit-sidecar"]
+# The stdio/CLI command contract: `Dispatcher`, `serve`, `run_cli`, `JobCommands`, `CommandSet`.
+# Implies `store` (the dispatcher drives a `JobStore`/`Runner`) and `protocol`.
+contract = ["store", "protocol"]
+# `EngineSupervisor` / `EngineClient` and the `rightkit-child-process` re-exports (gates
+# `rightkit-child-process`). Implies `protocol` only: a shell that supervises an engine needs no
+# database. A consumer that also serves or speaks the dispatcher contract adds `contract`.
+supervisor = ["protocol", "dep:rightkit-child-process"]
+# `DispatcherHandler`: serve a `Dispatcher` over `rightkit-daemon` (gates `rightkit-daemon`).
+# Implies `contract`.
+service = ["contract", "dep:rightkit-daemon"]
+# Off by default. `CrashExitObserver`: record abnormal engine exits through
+# `rightkit_crash::record_helper_exit` (gates `rightkit-crash`, without its support bundle).
+# Implies `supervisor`.
+crash = ["supervisor", "dep:rightkit-crash"]
+# Off by default. `ffi` module: the C ABI a Swift host (`RightKitPulse`) calls over
+# `EngineSupervisor` and `rightkit-daemon`. The only `unsafe` in the crate. Implies `supervisor`.
+ffi = ["supervisor", "dep:rightkit-daemon"]
+
+[dependencies]
+rightkit-fs = { version = "0.4.0", path = "../rightkit-fs", default-features = false, features = ["digest", "lock"], optional = true }
+rightkit-db = { version = "0.4.0", path = "../rightkit-db", features = ["bundled", "statement-cache"], optional = true }
+rightkit-sidecar = { version = "0.2.0", path = "../rightkit-sidecar", optional = true }
+rightkit-child-process = { version = "0.4.0", path = "../rightkit-child-process", optional = true }
+rightkit-crash = { version = "0.3.0", path = "../rightkit-crash", default-features = false, optional = true }
+rightkit-daemon = { version = "0.2.0", path = "../rightkit-daemon", optional = true }
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = "1.0.150"
+uuid = { version = "1", features = ["v4"], optional = true }
+
+[dev-dependencies]
+# Independent SHA-256 reference for tests (the crate itself hashes via rightkit-fs).
+sha2 = "0.10"
+tempfile = "3"
+time = "0.3"
+
+[[bench]]
+name = "budget"
+harness = false
+required-features = ["supervisor"]
+
+[[test]]
+name = "e2e"
+required-features = ["service"]
+
+[[test]]
+name = "dispatcher"
+required-features = ["contract"]
+
+[[test]]
+name = "engine_contract"
+required-features = ["contract"]
+
+[[test]]
+name = "genright"
+required-features = ["contract"]
+
+[[test]]
+name = "v021"
+required-features = ["contract"]
+
+[[test]]
+name = "supervisor"
+required-features = ["supervisor"]
+
+[[test]]
+name = "m4_contract"
+required-features = ["contract"]
+
+[[test]]
+name = "m3_supervision"
+required-features = ["supervisor"]
+
+[[test]]
+name = "ffi"
+required-features = ["ffi"]
+
+[[test]]
+name = "crash_hook"
+required-features = ["crash"]
+
+[[example]]
+name = "job_engine"
+required-features = ["service"]
+
+[[test]]
+name = "cancel_signal"
+required-features = ["store"]
+
+[[test]]
+name = "claim_scope"
+required-features = ["store"]
+
+[[test]]
+name = "delete_files"
+required-features = ["store"]
+
+[[test]]
+name = "delete_reject"
+required-features = ["store"]
+
+[[test]]
+name = "fencing"
+required-features = ["store"]
+
+[[test]]
+name = "handler_outcome"
+required-features = ["store"]
+
+[[test]]
+name = "held"
+required-features = ["store"]
+
+[[test]]
+name = "import_terminal"
+required-features = ["store"]
+
+[[test]]
+name = "job_lock"
+required-features = ["store"]
+
+[[test]]
+name = "job_lock_process"
+required-features = ["store"]
+
+[[test]]
+name = "open_failure"
+required-features = ["store"]
+
+[[test]]
+name = "paging"
+required-features = ["store"]
+
+[[test]]
+name = "pool"
+required-features = ["store"]
+
+[[test]]
+name = "progress_policy"
+required-features = ["store"]
+
+[[test]]
+name = "prune"
+required-features = ["store"]
+
+[[test]]
+name = "recovery"
+required-features = ["store"]
+
+[[test]]
+name = "reexport"
+required-features = ["store"]
+
+[[test]]
+name = "resume_sweep"
+required-features = ["store"]
+
+[[test]]
+name = "settle_flush_order"
+required-features = ["store"]
+
+[[test]]
+name = "settle_later"
+required-features = ["store"]
+
+[[test]]
+name = "settle_owner"
+required-features = ["store"]
+
+[[test]]
+name = "settle_unreadable_journal"
+required-features = ["store"]
+
+[[test]]
+name = "single_flight"
+required-features = ["store"]
+
+[[test]]
+name = "terminal_announce"
+required-features = ["store"]

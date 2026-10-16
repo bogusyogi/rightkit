@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-crash"
-version = "0.2.1"
+version = "0.3.0"
 edition = "2021"
 rust-version = "1.98.0"
 description = "Privacy-first panic capture, redacted crash reports, native dumps and support bundles for Right Suite apps."
@@ -24,10 +24,13 @@ default = ["support-bundle"]
 # User-initiated redacted support ZIP: `build_support_bundle`, `SupportBundleOptions`,
 # `BundleManifest`, `create_zip` and the `zip` dependency. Off for apps that only capture crashes.
 support-bundle = ["dep:zip"]
+# Renderer/webview error capture: `record_window_error`, `WindowErrorGate`, `WindowErrorReport`.
+# Off by default; adds no dependency.
+window-errors = []
 
 [dependencies]
 rightkit-fs = { version = "0.4.0", path = "../rightkit-fs", default-features = false, features = ["fs"] }
-rightkit-logs = { version = "0.2.2", path = "../rightkit-logs", default-features = false }
+rightkit-logs = { version = "0.3.0", path = "../rightkit-logs", default-features = false }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 zip = { version = "2", default-features = false, features = ["deflate"], optional = true }
@@ -43,7 +46,7 @@ windows-sys = { version = "0.61.2", features = [
 ] }
 
 [dev-dependencies]
-rightkit-logs = { version = "0.2.2", path = "../rightkit-logs", features = ["testing"] }
+rightkit-logs = { version = "0.3.0", path = "../rightkit-logs", features = ["testing"] }
 
 [package.metadata.rightkit]
 continuous = false

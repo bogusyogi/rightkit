@@ -23,9 +23,16 @@ let package = Package(
         .library(name: "RightKitOverlay", targets: ["RightKitOverlay"]),
         .library(name: "RightKitWatch", targets: ["RightKitWatch"]),
         .library(name: "RightKitUI", targets: ["RightKitUI"]),
+        .library(name: "RightKitPulse", targets: ["RightKitPulse"]),
+        .library(name: "RightKitDB", targets: ["RightKitDB"]),
+        .library(name: "RightKitFS", targets: ["RightKitFS"]),
+        .library(name: "RightKitCredentials", targets: ["RightKitCredentials"]),
     ],
     targets: [
-        .target(name: "RightKitLicense"),
+        // Keychain-backed secret store (namespace = service, key = account); RightKitLicense persists through it.
+        .target(name: "RightKitCredentials"),
+        .testTarget(name: "RightKitCredentialsTests", dependencies: ["RightKitCredentials"]),
+        .target(name: "RightKitLicense", dependencies: ["RightKitCredentials"]),
         .target(name: "RightKitDiagnostics"),
         .testTarget(name: "RightKitDiagnosticsTests", dependencies: ["RightKitDiagnostics"]),
         // zlib comes from the platform SDK; no third-party dependency enters the registry archive.
@@ -33,7 +40,7 @@ let package = Package(
         .testTarget(name: "RightKitArtifactsTests", dependencies: ["RightKitArtifacts"]),
         .testTarget(
             name: "RightKitLicenseTests",
-            dependencies: ["RightKitLicense"],
+            dependencies: ["RightKitLicense", "RightKitCredentials"],
             resources: [.process("Contracts")],
         ),
         // StoreKit 2 purchases, entitlement ledger, and the bridge into RightKitLicense access.
@@ -69,5 +76,14 @@ let package = Package(
         .testTarget(name: "RightKitWatchTests", dependencies: ["RightKitWatch"]),
         .target(name: "RightKitUI"),
         .testTarget(name: "RightKitUITests", dependencies: ["RightKitUI"]),
+        // Pulse facade over the proposed rightkit-job-queue C ABI seam (design selection, not a qualified adoption).
+        .target(name: "RightKitPulse"),
+        .testTarget(name: "RightKitPulseTests", dependencies: ["RightKitPulse"]),
+        // Read-only reader for rightkit-db databases (Rust is the only writer); system SQLite3.
+        .target(name: "RightKitDB", linkerSettings: [.linkedLibrary("sqlite3")]),
+        .testTarget(name: "RightKitDBTests", dependencies: ["RightKitDB"]),
+        // Data root (Orthic Labs/<App>), escape-safe dataDir, atomic write, verified copy, append. Foundation/CryptoKit only.
+        .target(name: "RightKitFS"),
+        .testTarget(name: "RightKitFSTests", dependencies: ["RightKitFS"]),
     ],
 )

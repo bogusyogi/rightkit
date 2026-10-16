@@ -1,4 +1,4 @@
-/* Headless React hooks (no DOM assumptions beyond window/document). Re-exported by @rightkit/app-shell. */
+/* Headless React hooks (no DOM assumptions beyond window/document). Re-exported by @rightkit/react-shell. */
 import { useCallback, useEffect, useRef, useState, type RefObject } from "react";
 
 const FOCUSABLE =

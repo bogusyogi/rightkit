@@ -2,14 +2,14 @@
 //!
 //! * Typed FFmpeg filter graphs ([`filter`], [`chain`], [`ducking`], [`room_tone`],
 //!   [`bus`], [`preset`]) — donor CutRight `cutright-audio`.
-//! * Measurement and offline renders through the shared `rightkit-media` runner
+//! * Measurement and offline renders through the shared `rightkit-ffmpeg` runner
 //!   ([`measure`], [`profile`] loudness gate).
 //! * WAV I/O ([`wav`]) — dedupes ScrapeRight's reader.
 //! * Live capture ([`capture`], feature `capture`) — donor HeardRight
 //!   `heardright_capture`; Windows endpoint/power lifecycle in [`lifecycle`].
 //!
 //! Graph builders are pure and never spawn processes; everything that runs FFmpeg goes
-//! through [`rightkit_media`] so cancellation, timeout and process-tree ownership are
+//! through [`rightkit_ffmpeg`] so cancellation, timeout and process-tree ownership are
 //! uniform.
 
 pub mod bus;

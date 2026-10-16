@@ -78,7 +78,7 @@ test("npm requirements: bare is exact, ranges join with spaces and ||", () => {
 });
 
 test("unit names are matched strictly", () => {
-  assert.deepEqual(parseUnitNames("rightkit-fs  rightkit-jobs rightkit-fs", "crates"), ["rightkit-fs", "rightkit-jobs"]);
+  assert.deepEqual(parseUnitNames("rightkit-fs  rightkit-job-queue rightkit-fs", "crates"), ["rightkit-fs", "rightkit-job-queue"]);
   assert.deepEqual(parseUnitNames("@rightkit/logs", "npm"), ["@rightkit/logs"]);
   for (const bad of ["", "  ", "rightkit-fs;rm", "$(id)", "Rightkit", "../x", "a`b`"]) assert.throws(() => parseUnitNames(bad, "crates"), /empty|valid/);
   assert.throws(() => parseUnitNames("@rightkit/logs --tag evil", "npm"), /valid/);

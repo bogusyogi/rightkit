@@ -151,6 +151,8 @@ fn loopback_extensions() -> ClientExtensions {
 fn client(url: &str, extensions: ClientExtensions) -> McpClient {
     McpClient::connect_with_extensions(
         "fixture",
+        &rightkit_mcp::ServerSource::User,
+        &rightkit_mcp::TrustStore::new(),
         ServerSpec::Http { url: url.into() },
         ClientOptions {
             request_timeout: Duration::from_secs(5),
@@ -208,10 +210,19 @@ fn strict_responses_cover_plain_http_advanced_http_and_http_sse() {
             url: fixture.url.clone(),
         };
         let client = if transport == "plain-json" {
-            McpClient::connect("fixture", spec, ClientOptions::default()).unwrap()
+            McpClient::connect(
+                "fixture",
+                &rightkit_mcp::ServerSource::User,
+                &rightkit_mcp::TrustStore::new(),
+                spec,
+                ClientOptions::default(),
+            )
+            .unwrap()
         } else {
             McpClient::connect_with_extensions(
                 "fixture",
+                &rightkit_mcp::ServerSource::User,
+                &rightkit_mcp::TrustStore::new(),
                 spec,
                 ClientOptions::default(),
                 loopback_extensions(),
@@ -380,6 +391,8 @@ fn cold_http_cancel_covers_endpoint_discovery_initialize_and_initialized() {
         let call = thread::spawn(move || {
             McpClient::connect_with_extensions_cancellable(
                 "fixture",
+                &rightkit_mcp::ServerSource::User,
+                &rightkit_mcp::TrustStore::new(),
                 ServerSpec::Http { url },
                 ClientOptions::default().connect_timeout(Duration::from_secs(5)),
                 ClientExtensions {
@@ -430,10 +443,24 @@ fn http_connect_timeout_does_not_replace_request_timeout() {
             url: fixture.url.clone(),
         };
         let client = if advanced {
-            McpClient::connect_with_extensions("fixture", spec, options, loopback_extensions())
-                .unwrap()
+            McpClient::connect_with_extensions(
+                "fixture",
+                &rightkit_mcp::ServerSource::User,
+                &rightkit_mcp::TrustStore::new(),
+                spec,
+                options,
+                loopback_extensions(),
+            )
+            .unwrap()
         } else {
-            McpClient::connect("fixture", spec, options).unwrap()
+            McpClient::connect(
+                "fixture",
+                &rightkit_mcp::ServerSource::User,
+                &rightkit_mcp::TrustStore::new(),
+                spec,
+                options,
+            )
+            .unwrap()
         };
         assert!(matches!(client.ping(), Err(McpError::Timeout)));
         client.close();
@@ -709,6 +736,8 @@ fn configured_client_and_server_negotiate_highest_common_version() {
     );
     let result = McpClient::connect_with_extensions(
         "fixture",
+        &rightkit_mcp::ServerSource::User,
+        &rightkit_mcp::TrustStore::new(),
         ServerSpec::Http {
             url: fixture.url.clone(),
         },
@@ -809,6 +838,8 @@ fn legacy_sse_rejects_cross_origin_announcement_before_any_post() {
     });
     let result = McpClient::connect_with_extensions(
         "fixture",
+        &rightkit_mcp::ServerSource::User,
+        &rightkit_mcp::TrustStore::new(),
         ServerSpec::Http {
             url: fixture.url.clone(),
         },

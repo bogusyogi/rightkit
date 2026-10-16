@@ -2,31 +2,46 @@
   "schema": 1,
   "kind": "cargo",
   "name": "rightkit-logs",
-  "version": "0.2.0",
-  "commit": "5d7dbc4bf18cf259994bfb5e8c9730bc5f9bb609",
-  "artifactSha256": "79b013e56193781eb954246b704ae6793b4dc1f8aacfb998876b7684895abed5",
+  "version": "0.3.0",
+  "commit": "7338e0c4f0558847680d8e8b4be226f37d06dea7",
+  "artifactSha256": "6abb112248e0be197f2a067fa5a9bbbeb5ebf819386ed6e741f70167b8936f47",
+  "hostPolicy": "darwin-only",
+  "hostPolicyReason": "Adrian 2026-10-14 local-build grant (.rightkit-local-build.json); Windows covered by the next CI run",
   "runs": [
     {
       "host": {
-        "os": "win32"
+        "os": "darwin",
+        "arch": "arm64"
       },
-      "commit": "5d7dbc4bf18cf259994bfb5e8c9730bc5f9bb609",
-      "command": "rightkit cargo test -p rightkit-logs --no-fail-fast -- --test-threads=1 (rightkit, win native)",
-      "operator": "claude-opus-5.5 (RightKit Windows qualification) for adrdsouza",
-      "timestamp": "2026-10-07T01:25:07.408430Z",
-      "passed": 21,
-      "failed": 0
-    },
-    {
-      "host": {
-        "os": "darwin"
-      },
-      "commit": "5d7dbc4bf18cf259994bfb5e8c9730bc5f9bb609",
-      "command": "rightkit cargo test -p rightkit-logs --no-fail-fast -- --test-threads=1 (rightkit, mac native)",
-      "operator": "claude-opus-5.5 (RightKit Windows qualification) for adrdsouza",
-      "timestamp": "2026-10-07T01:25:22Z",
-      "passed": 21,
-      "failed": 0
+      "commit": "7338e0c4f0558847680d8e8b4be226f37d06dea7",
+      "features": [
+        "default"
+      ],
+      "artifactSha256": "6abb112248e0be197f2a067fa5a9bbbeb5ebf819386ed6e741f70167b8936f47",
+      "command": "cargo test -p rightkit-logs --no-fail-fast -- --show-output && cargo clippy -p rightkit-logs --no-deps --all-targets -- -D warnings && cargo package --locked -p rightkit-logs && cargo metadata --format-version 1 --no-deps",
+      "operator": "agent (local-build grant)",
+      "timestamp": "2026-10-14T17:10:00.117Z",
+      "passed": 63,
+      "failed": 0,
+      "skipped": 0,
+      "ignored": 0,
+      "requireAssets": "1",
+      "assetGated": false,
+      "steps": [
+        {
+          "command": "cargo test -p rightkit-logs --no-fail-fast -- --show-output",
+          "ok": true,
+          "executed": 63,
+          "failed": 0,
+          "ignored": 0,
+          "skipped": 0,
+          "binaries": 11
+        },
+        {
+          "command": "cargo clippy -p rightkit-logs --no-deps --all-targets -- -D warnings",
+          "ok": true
+        }
+      ]
     }
   ]
 }

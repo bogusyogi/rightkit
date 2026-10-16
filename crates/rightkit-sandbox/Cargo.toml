@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-sandbox"
-version = "0.3.4"
+version = "0.4.0"
 edition = "2021"
 rust-version = "1.98.0"
 description = "Shared OS sandbox, PTY lease, process-tree, and reserve-before-spawn resource authority for Right Suite apps."
@@ -10,7 +10,7 @@ repository = "https://github.com/Orthic-Labs/rightkit"
 include = ["src/**", "tests/**", "README.md", "LICENSE-MIT", "LICENSE-APACHE"]
 
 [dependencies]
-rightkit-process = { version = "0.4.0", path = "../rightkit-process" }
+rightkit-child-process = { version = "0.4.0", path = "../rightkit-child-process" }
 portable-pty = { version = "0.9", optional = true }
 
 [features]
@@ -24,3 +24,43 @@ libc = "0.2"
 
 [target.'cfg(windows)'.dependencies]
 windows = { version = "0.62", features = ["Win32_Foundation", "Win32_System_Threading", "Win32_System_JobObjects", "Win32_Security"] }
+
+[package.metadata.rightkit]
+continuous = "held-resource"
+
+[[package.metadata.rightkit.resources]]
+api = "SandboxedChild"
+file = "src/spawn.rs"
+holds = ["child", "thread", "memory"]
+scale = "one supervised child process tree plus its resource reservation; wait_with_output_capped adds two pipe-reader threads that end at pipe EOF or when the tree is killed at the timeout, each keeping at most the per-stream cap in bytes (DEFAULT_OUTPUT_CAP by default); fixed per child, independent of how long it runs"
+release = "Drop"
+
+[[package.metadata.rightkit.resources]]
+api = "PtySession"
+file = "src/pty.rs"
+holds = ["child", "thread", "memory"]
+scale = "one PTY and its child process tree, one reader thread that ends at PTY EOF, and an output buffer capped at OUTPUT_CAP (1 MiB, oldest bytes dropped); fixed per session"
+release = "Drop"
+
+[[package.metadata.rightkit.resources]]
+api = "kill_tree"
+file = "src/process_tree.rs"
+holds = ["memory"]
+scale = "bounded 20 ms polling for the SIGTERM grace and a 2 s settle after SIGKILL, per call, over the pids it enumerated; no thread or state outlives the call"
+release = "function return"
+
+[[package.metadata.rightkit.resources]]
+api = "AppContainerAncestorLease"
+file = "src/windows_ancestors.rs"
+holds = ["memory"]
+scale = "one process-wide registry entry per live (container SID, path) ancestor ACE, reference counted; the entry and the ACE are removed when the last lease for that key drops, so the registry is bounded by the leases callers hold"
+release = "Drop"
+static_note = "REGISTRY in windows_ancestors.rs is a OnceLock<Mutex<HashMap>> reachable only through AppContainerAncestorLease: entries exist only while a lease is held and are removed by the last lease's Drop, so it is empty when no lease is held; it holds no thread"
+
+[[package.metadata.rightkit.resources]]
+api = "ConfinedChild"
+file = "src/windows_appcontainer.rs"
+holds = ["child", "memory"]
+scale = "one confined child process in its own kill-on-close Job Object, its AppContainer profile and its per-command ACL grant leases, shared with the child so the grants live exactly as long as it does (only when Job setup fails and the suspended child cannot be confirmed dead does Drop deliberately retain its handles and leases, once per such failure); bounded sleeps only retry profile creation (8 x 50 ms) and launch-alias settling per call. ConfinedChild is pub(crate); the public holder is SandboxedChild (spawn.rs)"
+release = "Drop"
+static_note = "lease_registry (a OnceLock<Mutex<HashMap>>) holds one reference-counted entry per live ACL grant and drops it with the last GrantLease; ACL_GRANT_LOCK is a Mutex<()> with no data and the SEQUENCE counters are single atomics, so nothing here grows beyond the grants a held child owns and no thread is held"

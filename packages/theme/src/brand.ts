@@ -27,7 +27,7 @@ export interface BrandFile {
   usage?: Record<string, string>;
 }
 
-/** The flat suite colours defined by `@rightkit/app-shell/shell.css`, per mode. */
+/** The flat suite colours defined by `@rightkit/react-shell/shell.css`, per mode. */
 export const SUITE_DEFAULTS: Record<Mode, Record<string, string>> = {
   light: {
     chrome: "#EEE9DF", plane: "#FFFCF5", elevated: "#FFFFFF", panel: "#FFFFFF", sunk: "#F6F1E8",

@@ -11,52 +11,27 @@ importers:
 
   .:
     devDependencies:
-      '@rightkit/git':
+      '@rightkit/ci':
         specifier: workspace:*
-        version: link:packages/git
+        version: link:packages/ci
       '@rightkit/release':
         specifier: workspace:*
         version: link:packages/release
 
-  packages/agent-room-mcp: {}
-
-  packages/app-shell:
-    dependencies:
-      '@tauri-apps/plugin-os':
-        specifier: '>=2 <3'
-        version: 2.3.2
+  packages/app-update:
     devDependencies:
-      '@rightkit/platform-ui':
-        specifier: workspace:*
-        version: link:../platform-ui
-      '@rightkit/qa-chrome':
-        specifier: workspace:*
-        version: link:../qa-chrome
-      '@types/react':
-        specifier: ^19.0.0
-        version: 19.2.17
-      '@types/react-dom':
-        specifier: ^19.0.0
-        version: 19.2.3(@types/react@19.2.17)
-      react:
-        specifier: ^19.0.0
-        version: 19.2.7
-      react-dom:
-        specifier: ^19.0.0
-        version: 19.2.7(react@19.2.7)
       typescript:
         specifier: ^5.7.0
         version: 5.9.3
-      vite:
-        specifier: ^6.0.0
-        version: 6.4.3(@types/node@24.13.3)(jiti@2.7.0)(tsx@4.23.0)(yaml@2.9.0)
       vitest:
         specifier: ^2.1.8
-        version: 2.1.9(@types/node@24.13.3)(jsdom@26.1.0(canvas@3.2.3)(supports-color@8.1.1))(supports-color@8.1.1)
+        version: 2.1.9(@types/node@22.20.0)(jsdom@26.1.0(canvas@3.2.3)(supports-color@8.1.1))(supports-color@8.1.1)
 
   packages/ax: {}
 
   packages/build-control-policy: {}
+
+  packages/ci: {}
 
   packages/doc-render:
     dependencies:
@@ -115,8 +90,6 @@ importers:
       vitest:
         specifier: ^2.1.8
         version: 2.1.9(@types/node@24.13.3)(jsdom@26.1.0(canvas@3.2.3)(supports-color@8.1.1))(supports-color@8.1.1)
-
-  packages/git: {}
 
   packages/hooks: {}
 
@@ -266,15 +239,15 @@ importers:
 
   packages/onboarding:
     devDependencies:
-      '@rightkit/app-shell':
-        specifier: workspace:*
-        version: link:../app-shell
       '@rightkit/legal-ui':
         specifier: workspace:*
         version: link:../legal-ui
       '@rightkit/qa-chrome':
         specifier: workspace:*
         version: link:../qa-chrome
+      '@rightkit/react-shell':
+        specifier: workspace:*
+        version: link:../react-shell
       '@testing-library/jest-dom':
         specifier: ^6.6.3
         version: 6.9.1
@@ -308,6 +281,25 @@ importers:
       vitest:
         specifier: ^2.1.8
         version: 2.1.9(@types/node@24.13.3)(jsdom@25.0.1(supports-color@8.1.1))(supports-color@8.1.1)
+
+  packages/outdated:
+    dependencies:
+      '@rightkit/ci':
+        specifier: workspace:^
+        version: link:../ci
+      smol-toml:
+        specifier: 1.9.0
+        version: 1.9.0
+    devDependencies:
+      '@types/node':
+        specifier: ^24.0.0
+        version: 24.13.3
+      typescript:
+        specifier: ^5.7.0
+        version: 5.9.3
+      vitest:
+        specifier: ^2.1.8
+        version: 2.1.9(@types/node@24.13.3)(jsdom@26.1.0(canvas@3.2.3)(supports-color@8.1.1))(supports-color@8.1.1)
 
   packages/pdf-ui:
     dependencies:
@@ -386,6 +378,40 @@ importers:
         specifier: ^2.1.8
         version: 2.1.9(@types/node@24.13.3)(jsdom@26.1.0(canvas@3.2.3)(supports-color@8.1.1))(supports-color@8.1.1)
 
+  packages/react-shell:
+    dependencies:
+      '@tauri-apps/plugin-os':
+        specifier: '>=2 <3'
+        version: 2.3.2
+    devDependencies:
+      '@rightkit/platform-ui':
+        specifier: workspace:*
+        version: link:../platform-ui
+      '@rightkit/qa-chrome':
+        specifier: workspace:*
+        version: link:../qa-chrome
+      '@types/react':
+        specifier: ^19.0.0
+        version: 19.2.17
+      '@types/react-dom':
+        specifier: ^19.0.0
+        version: 19.2.3(@types/react@19.2.17)
+      react:
+        specifier: ^19.0.0
+        version: 19.2.7
+      react-dom:
+        specifier: ^19.0.0
+        version: 19.2.7(react@19.2.7)
+      typescript:
+        specifier: ^5.7.0
+        version: 5.9.3
+      vite:
+        specifier: ^6.0.0
+        version: 6.4.3(@types/node@24.13.3)(jiti@2.7.0)(tsx@4.23.0)(yaml@2.9.0)
+      vitest:
+        specifier: ^2.1.8
+        version: 2.1.9(@types/node@24.13.3)(jsdom@26.1.0(canvas@3.2.3)(supports-color@8.1.1))(supports-color@8.1.1)
+
   packages/release:
     dependencies:
       smol-toml:
@@ -394,10 +420,13 @@ importers:
 
   packages/settings-ui:
     dependencies:
-      '@rightkit/app-shell':
+      '@rightkit/react-shell':
         specifier: '>=0.2.0 <1'
-        version: link:../app-shell
+        version: link:../react-shell
     devDependencies:
+      '@rightkit/app-update':
+        specifier: workspace:*
+        version: link:../app-update
       '@rightkit/license':
         specifier: workspace:*
         version: link:../license
@@ -410,9 +439,6 @@ importers:
       '@rightkit/theme':
         specifier: workspace:*
         version: link:../theme
-      '@rightkit/updates':
-        specifier: workspace:*
-        version: link:../updates
       '@testing-library/jest-dom':
         specifier: ^6.6.3
         version: 6.9.1
@@ -447,20 +473,15 @@ importers:
         specifier: ^2.1.8
         version: 2.1.9(@types/node@24.13.3)(jsdom@25.0.1(supports-color@8.1.1))(supports-color@8.1.1)
 
-  packages/shell:
-    devDependencies:
-      typescript:
-        specifier: ^5.7.0
-        version: 5.9.3
-
   packages/tauri:
     dependencies:
+      '@rightkit/app-update':
+        specifier: ^0.2.5
+        version: link:../app-update
       '@rightkit/logs':
         specifier: ^0.1.4
         version: link:../logs
-      '@rightkit/updates':
-        specifier: ^0.2.5
-        version: link:../updates
+
     devDependencies:
       typescript:
         specifier: ^5.7.0
@@ -468,6 +489,12 @@ importers:
       vitest:
         specifier: ^2.1.8
         version: 2.1.9(@types/node@24.13.3)(jsdom@26.1.0(canvas@3.2.3)(supports-color@8.1.1))(supports-color@8.1.1)
+
+  packages/tauri-shell:
+    devDependencies:
+      typescript:
+        specifier: ^5.7.0
+        version: 5.9.3
 
   packages/theme:
     devDependencies:
@@ -483,34 +510,6 @@ importers:
       vitest:
         specifier: ^2.1.8
         version: 2.1.9(@types/node@24.13.3)(jsdom@26.1.0(canvas@3.2.3)(supports-color@8.1.1))(supports-color@8.1.1)
-
-  packages/update:
-    dependencies:
-      '@rightkit/git':
-        specifier: workspace:^
-        version: link:../git
-      smol-toml:
-        specifier: 1.9.0
-        version: 1.9.0
-    devDependencies:
-      '@types/node':
-        specifier: ^24.0.0
-        version: 24.13.3
-      typescript:
-        specifier: ^5.7.0
-        version: 5.9.3
-      vitest:
-        specifier: ^2.1.8
-        version: 2.1.9(@types/node@24.13.3)(jsdom@26.1.0(canvas@3.2.3)(supports-color@8.1.1))(supports-color@8.1.1)
-
-  packages/updates:
-    devDependencies:
-      typescript:
-        specifier: ^5.7.0
-        version: 5.9.3
-      vitest:
-        specifier: ^2.1.8
-        version: 2.1.9(@types/node@22.20.0)(jsdom@26.1.0(canvas@3.2.3)(supports-color@8.1.1))(supports-color@8.1.1)
 
 packages:
 

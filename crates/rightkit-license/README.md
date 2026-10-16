@@ -90,7 +90,7 @@ if report.grants_access() { /* unlock */ }
 
 #### Authorization hook
 
-`TrustedClock` is the one-method trait an authorization layer consults instead of reading the wall clock. `SystemClock` is today's behaviour; `AntiRollbackClock` returns the reconciled time and refuses on rollback. See `CHANGELOG.md` for the `rightkit-tauri` adoption.
+`TrustedClock` is the one-method trait an authorization layer consults instead of reading the wall clock. `SystemClock` is today's behaviour; `AntiRollbackClock` returns the reconciled time and refuses on rollback. See `CHANGELOG.md` for the `rightkit-device` adoption.
 
 ### Refresh and reanchor
 

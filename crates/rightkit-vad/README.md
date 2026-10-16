@@ -23,19 +23,19 @@ Each layer is usable alone:
 | Feature | Default | Pulls in | Effect |
 |---|---|---|---|
 | `default` | on | `silero` | The default set. |
-| `silero` | on | `rightkit-ort`, `rightkit-ort/session` | The `Silero` scorer, `SileroOptions`, `SpeechScorer`, and the `Backend` report. The crate fetches, copies and links no runtime. The consumer supplies ONNX Runtime through `rightkit-ort`. With `default-features = false` no ONNX Runtime is compiled and only the policy layers remain. |
-| `ort-tracing` | off | `silero`, `rightkit-ort/tracing` | Opt-in: forwards ONNX Runtime's log lines into `tracing`. Off by default, because feature unification would turn it on for every ONNX Runtime session in the process. |
-| `download-binaries` | off | `silero`, `rightkit-ort/download-binaries` | Opt-in: fetches prebuilt ONNX Runtime during the build. |
-| `tls-native` | off | `silero`, `rightkit-ort/tls-native` | Opt-in: native TLS backend for `download-binaries`. |
-| `copy-dylibs` | off | `silero`, `rightkit-ort/copy-dylibs` | Opt-in: copies the ONNX Runtime dylibs next to the build output. |
+| `silero` | on | `rightkit-onnx`, `rightkit-onnx/session` | The `Silero` scorer, `SileroOptions`, `SpeechScorer`, and the `Backend` report. The crate fetches, copies and links no runtime. The consumer supplies ONNX Runtime through `rightkit-onnx`. With `default-features = false` no ONNX Runtime is compiled and only the policy layers remain. |
+| `ort-tracing` | off | `silero`, `rightkit-onnx/tracing` | Opt-in: forwards ONNX Runtime's log lines into `tracing`. Off by default, because feature unification would turn it on for every ONNX Runtime session in the process. |
+| `download-binaries` | off | `silero`, `rightkit-onnx/download-binaries` | Opt-in: fetches prebuilt ONNX Runtime during the build. |
+| `tls-native` | off | `silero`, `rightkit-onnx/tls-native` | Opt-in: native TLS backend for `download-binaries`. |
+| `copy-dylibs` | off | `silero`, `rightkit-onnx/copy-dylibs` | Opt-in: copies the ONNX Runtime dylibs next to the build output. |
 
-Unreleased change: the default no longer enables `ort/ndarray` or the build-time download (`download-binaries`, `tls-native`, `copy-dylibs`). The `ort-defaults` feature is removed. To keep the old build-time download, opt in with `features = ["download-binaries", "tls-native", "copy-dylibs"]` (with `default-features` left on), or use `default-features = false` and bind the approved runtime through `rightkit-ort`. The empty `load-dynamic` feature is removed.
+Unreleased change: the default no longer enables `ort/ndarray` or the build-time download (`download-binaries`, `tls-native`, `copy-dylibs`). The `ort-defaults` feature is removed. To keep the old build-time download, opt in with `features = ["download-binaries", "tls-native", "copy-dylibs"]` (with `default-features` left on), or use `default-features = false` and bind the approved runtime through `rightkit-onnx`. The empty `load-dynamic` feature is removed.
 
-This crate has no direct `ort` dependency (`Cargo.toml:27-28`); the `ort` pin (`=2.0.0-rc.13`, `std`, API level 24) lives in `rightkit-ort` (`crates/rightkit-ort/Cargo.toml:59`). rc.13's own `default` raises the API floor to ORT 1.27, which the suite's 1.24.4 runtime cannot serve. Do not use `ort/default`.
+This crate has no direct `ort` dependency (`Cargo.toml:27-28`); the `ort` pin (`=2.0.0-rc.13`, `std`, API level 24) lives in `rightkit-onnx` (`crates/rightkit-onnx/Cargo.toml:59`). rc.13's own `default` raises the API floor to ORT 1.27, which the suite's 1.24.4 runtime cannot serve. Do not use `ort/default`.
 
 ## Platform support
 
-The only OS gates in `src/` are in `src/silero.rs`: the CoreML provider needs `target_vendor = "apple"` (`:38`) and the DirectML provider needs `target_os = "windows"` (`:39`); on other targets those providers return an error (`ensure_supported`, `:201-210`; the register fallbacks, `:277-281` and `:295-299`). ONNX Runtime support follows the `rightkit-ort` features above. The Silero model file and the ONNX Runtime library are supplied by the app.
+The only OS gates in `src/` are in `src/silero.rs`: the CoreML provider needs `target_vendor = "apple"` (`:38`) and the DirectML provider needs `target_os = "windows"` (`:39`); on other targets those providers return an error (`ensure_supported`, `:201-210`; the register fallbacks, `:277-281` and `:295-299`). ONNX Runtime support follows the `rightkit-onnx` features above. The Silero model file and the ONNX Runtime library are supplied by the app.
 
 Release notes: see `CHANGELOG.md` in this crate. The crate is published to crates.io.
 

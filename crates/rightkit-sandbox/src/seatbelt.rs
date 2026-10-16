@@ -9,6 +9,8 @@
 
 use crate::{NetworkPolicy, SandboxPolicy};
 use std::ffi::{CString, OsString};
+use std::net::{Ipv4Addr, SocketAddr};
+use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
 use std::path::{Path, PathBuf};
 
 unsafe extern "C" {
@@ -17,7 +19,6 @@ unsafe extern "C" {
         flags: u64,
         errorbuf: *mut *mut libc::c_char,
     ) -> i32;
-    fn sandbox_free_error(errorbuf: *mut libc::c_char);
 }
 
 /// Resolve symlinks; for paths that do not exist yet, resolve the deepest existing ancestor.
@@ -75,6 +76,247 @@ const SYSTEM_EXEC: &[&str] = &[
     "/Applications",
 ];
 
+/// Inputs for the narrowly confined macOS browser-fixture profile.
+///
+/// `profile_dir` must be a disposable directory owned by the fixture run. The resulting profile
+/// grants writes only beneath its canonical path.
+#[derive(Clone, Debug)]
+pub struct BrowserFixturePolicy {
+    pub chrome_executable: PathBuf,
+    pub profile_dir: PathBuf,
+    pub proxy_addr: SocketAddr,
+}
+
+const BROWSER_FIXTURE_SYSTEM_READ: &[&str] = &[
+    "/System/Library",
+    "/usr/lib",
+    "/usr/share",
+    "/private/etc",
+    "/private/var/db/dyld",
+    "/dev",
+];
+
+fn canonical_existing(path: &Path, kind: &str) -> std::io::Result<PathBuf> {
+    if !path.is_absolute() {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            format!("browser fixture {kind} path must be absolute"),
+        ));
+    }
+    let resolved = std::fs::canonicalize(path)?;
+    let metadata = std::fs::metadata(&resolved)?;
+    let valid = match kind {
+        "Chrome executable" => metadata.is_file(),
+        "profile directory" => metadata.is_dir(),
+        _ => false,
+    };
+    if !valid {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            format!("browser fixture {kind} has the wrong file type"),
+        ));
+    }
+    Ok(resolved)
+}
+
+fn quote_fixture_path(path: &Path) -> std::io::Result<String> {
+    let value = path.to_str().ok_or_else(|| {
+        std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "browser fixture paths must be valid UTF-8",
+        )
+    })?;
+    if value.chars().any(char::is_control) {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "browser fixture paths cannot contain control characters",
+        ));
+    }
+    Ok(quote(path))
+}
+
+/// Canonical per-user temporary directory (`confstr(_CS_DARWIN_USER_TEMP_DIR)`).
+fn user_temp_dir() -> Option<PathBuf> {
+    let mut buf = [0 as libc::c_char; 1024];
+    // SAFETY: buf is valid for buf.len() bytes; confstr NUL-terminates within that length.
+    let len = unsafe { libc::confstr(libc::_CS_DARWIN_USER_TEMP_DIR, buf.as_mut_ptr(), buf.len()) };
+    if len == 0 || len > buf.len() {
+        return None;
+    }
+    // SAFETY: confstr wrote a NUL-terminated string within buf.
+    let raw = unsafe { std::ffi::CStr::from_ptr(buf.as_ptr()) }
+        .to_str()
+        .ok()?;
+    std::fs::canonicalize(raw).ok()
+}
+
+fn regex_escape(value: &str) -> String {
+    let mut out = String::new();
+    for c in value.chars() {
+        if !c.is_ascii_alphanumeric() && c != '/' && c != '_' && c != '-' {
+            out.push('\\');
+        }
+        out.push(c);
+    }
+    out
+}
+
+fn browser_app_bundle(executable: &Path) -> std::io::Result<PathBuf> {
+    executable
+        .ancestors()
+        .find(|path| {
+            path.file_name()
+                .and_then(|name| name.to_str())
+                .is_some_and(|name| name.ends_with(".app"))
+        })
+        .map(Path::to_path_buf)
+        .ok_or_else(|| {
+            std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "Chrome executable must be inside a .app bundle",
+            )
+        })
+}
+
+fn validate_proxy(addr: SocketAddr) -> std::io::Result<u16> {
+    match addr {
+        SocketAddr::V4(addr) if *addr.ip() == Ipv4Addr::LOCALHOST && addr.port() != 0 => {
+            Ok(addr.port())
+        }
+        _ => Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "browser fixture proxy must be 127.0.0.1 with a nonzero port",
+        )),
+    }
+}
+
+/// CFBundleIdentifier from an XML `Contents/Info.plist`; `None` for binary/missing plists or
+/// identifiers with characters outside `[A-Za-z0-9.-]`.
+fn bundle_identifier(app_bundle: &Path) -> Option<String> {
+    let text = std::fs::read_to_string(app_bundle.join("Contents/Info.plist")).ok()?;
+    let rest = text.split("<key>CFBundleIdentifier</key>").nth(1)?;
+    let id = rest
+        .split("<string>")
+        .nth(1)?
+        .split("</string>")
+        .next()?
+        .trim();
+    (!id.is_empty()
+        && id
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '.' || c == '-'))
+    .then(|| id.to_string())
+}
+
+/// Build strict deny-default SBPL for a browser fixture lane.
+///
+/// Network authority is limited to `proxy_addr`: validated IPv4 loopback at one fixed TCP port.
+/// SBPL spells that host `localhost` (loopback, both families), while a later outbound AF_INET6 denial keeps the
+/// allowance IPv4-only. The only listener allowance is a loopback TCP debugging socket. Reads
+/// and execution stay within the Chrome bundle and fixed runtime locations, while writes stay
+/// within the canonical fixture profile directory.
+pub fn fixture_profile_for(policy: &BrowserFixturePolicy) -> std::io::Result<String> {
+    let executable = canonical_existing(&policy.chrome_executable, "Chrome executable")?;
+    let profile = canonical_existing(&policy.profile_dir, "profile directory")?;
+    let app_bundle = browser_app_bundle(&executable)?;
+    let app_bundle_path = app_bundle.clone();
+    if profile.starts_with(&app_bundle) || app_bundle.starts_with(&profile) {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "browser fixture profile must not overlap the Chrome app bundle",
+        ));
+    }
+    let proxy_port = validate_proxy(policy.proxy_addr)?;
+    let executable = quote_fixture_path(&executable)?;
+    let app_bundle = quote_fixture_path(&app_bundle)?;
+    let profile = quote_fixture_path(&profile)?;
+
+    // Do not import bsd.sb here: it carries grants outside this fixture policy, including
+    // filesystem writes and IPC allowances which deny-default does not revoke.
+    let mut p = String::from(
+        "(version 1)\n(deny default)\n(allow process-fork)\n(allow signal (target self))\n(allow sysctl-read)\n",
+    );
+    p.push_str(&format!(
+        "(allow process-exec* (subpath {app_bundle}))\n(allow file-read* (subpath {app_bundle}))\n(allow file-read* (subpath {profile}))\n(allow file-write* (subpath {profile}))\n"
+    ));
+    p.push_str(&format!("(allow process-exec (literal {executable}))\n"));
+    for dir in BROWSER_FIXTURE_SYSTEM_READ {
+        p.push_str(&format!("(allow file-read* (subpath {dir:?}))\n"));
+    }
+    p.push_str(
+        "(allow file-read-metadata)\n(allow file-read* (literal \"/\"))\n\
+         (deny network-outbound)\n\
+         (allow network-outbound (require-all (remote ip \"localhost:",
+    );
+    p.push_str(&proxy_port.to_string());
+    // `localhost` also matches ::1, and a system-socket deny does not gate connect(2);
+    // this later outbound deny is what blocks same-port IPv6 (validated with sandbox-exec).
+    p.push_str(
+        "\") (socket-type SOCK_STREAM)))\n(deny network-outbound (socket-domain AF_INET6))\n",
+    );
+    p.push_str(
+        "(deny network-inbound)\n\
+         (deny network-bind)\n\
+         (allow network-bind (require-all (local ip \"localhost:*\") (socket-type SOCK_STREAM)))\n\
+         (allow network-inbound (local ip \"localhost:*\"))\n",
+    );
+    // Chrome browser process on macOS, validated with sandbox-exec against Chrome 155: removing
+    // any rule below made Chrome fail to report its DevTools endpoint (abort, SIGSEGV in
+    // IONotificationPortGetRunLoopSource, or no ProcessSingleton). Helpers run with
+    // `--no-sandbox` because a nested sandbox_init is refused here; this profile confines the tree.
+    p.push_str(
+        "(allow mach-lookup (global-name \"com.apple.coreservices.launchservicesd\"))\n\
+         (allow mach-lookup (global-name \"com.apple.bsd.dirhelper\"))\n\
+         (allow iokit-open (iokit-registry-entry-class \"RootDomainUserClient\"))\n",
+    );
+    // The mach port rendezvous service is named after the bundle id: `com.google.Chrome` for
+    // Chrome, `com.google.chrome.for.testing` for Chrome for Testing (the CI browser). The
+    // crashpad handler handshake also needs a service. Validated with sandbox-exec against
+    // Chrome for Testing: without these, children abort ("No rendezvous client") or crashpad
+    // fails its check-in.
+    // Scope the rendezvous service to the launched bundle's CFBundleIdentifier when its
+    // Info.plist is readable XML; otherwise keep the three known names (residual risk: they also
+    // match a real user Chrome's services, documented in owner-fixes/sandbox-macos-fixture.md).
+    // The crashpad handshake prefix is not bundle-scoped and stays (same residual risk).
+    let mut names: Vec<String> = match bundle_identifier(&app_bundle_path) {
+        Some(id) => vec![format!("{id}.MachPortRendezvousServer")],
+        None => vec![
+            "com.google.Chrome.MachPortRendezvousServer".into(),
+            "com.google.chrome.for.testing.MachPortRendezvousServer".into(),
+        ],
+    };
+    names.push("org.chromium.crashpad.child_port_handshake".into());
+    for name in &names {
+        p.push_str(&format!(
+            "(allow mach-register (global-name-prefix \"{name}\"))\n\
+             (allow mach-lookup (global-name-prefix \"{name}\"))\n"
+        ));
+    }
+    // Crashpad's handler runs close_stdio, which reopens /dev/null for writing; /dev is
+    // otherwise read-only here.
+    p.push_str("(allow file-write* (literal \"/dev/null\"))\n");
+    // ProcessSingleton binds `SingletonSocket` (and creates `SingletonCookie`) in a mkdtemp
+    // directory (`<bundle id>.<6 alnum>`) under the per-user temporary directory (confstr,
+    // not $TMPDIR). The bundle id is `com.google.Chrome` (Chrome), `org.chromium.Chromium`, or
+    // `com.google.chrome.for.testing` (Chrome for Testing). Grant only that directory shape and
+    // its two files, never the whole Chrome-named tree.
+    // U: a real user Chrome's singleton dirs share this shape; a per-session prefix is not
+    // possible because Chrome picks the name (see owner-fixes/sandbox-macos-fixture.md).
+    if let Some(temp) = user_temp_dir() {
+        let temp = regex_escape(&temp.to_string_lossy());
+        // SBPL regex has no `{n}` repetition (validated with sandbox-exec): spell out six.
+        let dir = format!(
+            "(com\\.google\\.Chrome|org\\.chromium\\.Chromium|com\\.google\\.chrome\\.for\\.testing)\\.{}",
+            "[A-Za-z0-9]".repeat(6)
+        );
+        p.push_str(&format!(
+            "(allow file-read* file-write* (regex #\"^{temp}/{dir}(/Singleton(Socket|Cookie))?$\"))\n\
+             (allow network-bind (local unix-socket (regex #\"^{temp}/{dir}/SingletonSocket$\")))\n"
+        ));
+    }
+    Ok(p)
+}
+
 /// Build the deny-default SBPL profile for `policy`.
 pub fn profile_for(policy: &SandboxPolicy) -> String {
     let mut p = String::from("(version 1)\n(import \"bsd.sb\")\n(deny default)\n(allow process-fork)\n(allow signal (target self))\n(allow sysctl-read)\n");
@@ -113,34 +355,92 @@ pub fn profile_for(policy: &SandboxPolicy) -> String {
 }
 
 /// Prepared in the parent; call [`Prepared::apply`] from `pre_exec`.
-pub struct Prepared(CString);
+pub struct Prepared {
+    profile: CString,
+    diagnostic: bool,
+    /// CI-only duplicate of parent stderr. CLOEXEC keeps it available to `pre_exec` while the
+    /// empty fixture inheritance sweep runs, then closes it on Chrome exec.
+    diagnostic_stderr: Option<OwnedFd>,
+}
 
 impl Prepared {
     pub fn new(policy: &SandboxPolicy) -> std::io::Result<Self> {
         CString::new(profile_for(policy))
-            .map(Self)
+            .map(|profile| Self {
+                profile,
+                diagnostic: false,
+                diagnostic_stderr: None,
+            })
             .map_err(|_| std::io::Error::other("seatbelt profile contained a NUL byte"))
+    }
+
+    /// Prepare strict browser-fixture confinement in the parent, before child `pre_exec`.
+    pub fn for_browser_fixture(policy: &BrowserFixturePolicy) -> std::io::Result<Self> {
+        let diagnostic = std::env::var("GITHUB_ACTIONS").is_ok_and(|value| value == "true");
+        let diagnostic_stderr = if diagnostic {
+            // SAFETY: fcntl duplicates the valid parent stderr descriptor. OwnedFd takes sole
+            // ownership of its new descriptor and closes it after spawn returns.
+            let fd = unsafe { libc::fcntl(libc::STDERR_FILENO, libc::F_DUPFD_CLOEXEC, 3) };
+            if fd < 0 {
+                return Err(std::io::Error::last_os_error());
+            }
+            // SAFETY: fd is a fresh duplicate owned by no Rust value.
+            Some(unsafe { OwnedFd::from_raw_fd(fd) })
+        } else {
+            None
+        };
+        CString::new(fixture_profile_for(policy)?)
+            .map(|profile| Self {
+                profile,
+                diagnostic,
+                diagnostic_stderr,
+            })
+            .map_err(|_| std::io::Error::other("seatbelt profile contained a NUL byte"))
+    }
+
+    /// Writes bounded CI diagnostics from the post-fork child without allocation or locking.
+    fn write_diagnostic(&self, bytes: &[u8]) {
+        if self.diagnostic {
+            if let Some(stderr) = &self.diagnostic_stderr {
+                // SAFETY: stderr is a parent-prepared, CLOEXEC descriptor held by Prepared.
+                // The write is best-effort diagnostic output only.
+                let _ = unsafe {
+                    libc::write(
+                        stderr.as_raw_fd(),
+                        bytes.as_ptr().cast::<libc::c_void>(),
+                        bytes.len(),
+                    )
+                };
+            }
+        }
     }
 
     /// Apply to the current process. Intended only for a forked child before exec.
     pub fn apply(&self) -> std::io::Result<()> {
+        self.write_diagnostic(b"rightkit-fixture-seatbelt:sandbox_init:start\n");
         let mut err: *mut libc::c_char = std::ptr::null_mut();
-        // SAFETY: valid NUL-terminated profile; err is a valid out-pointer freed below.
-        let status = unsafe { sandbox_init(self.0.as_ptr(), 0, &mut err) };
+        // SAFETY: valid NUL-terminated profile and out-pointer prepared in the parent.
+        let status = unsafe { sandbox_init(self.profile.as_ptr(), 0, &mut err) };
         if status == 0 {
+            self.write_diagnostic(b"rightkit-fixture-seatbelt:sandbox_init:success\n");
             return Ok(());
         }
-        let detail = if err.is_null() {
-            "unknown error".to_string()
-        } else {
-            // SAFETY: sandbox_init populated a NUL-terminated string, freed exactly once.
-            let t = unsafe { std::ffi::CStr::from_ptr(err) }
-                .to_string_lossy()
-                .into_owned();
-            unsafe { sandbox_free_error(err) };
-            t
-        };
-        Err(std::io::Error::other(format!("sandbox_init: {detail}")))
+        self.write_diagnostic(b"rightkit-fixture-seatbelt:sandbox_init:failure:");
+        if self.diagnostic && !err.is_null() {
+            let mut len = 0usize;
+            // SAFETY: sandbox_init returned this NUL-terminated buffer. A 1 KiB cap prevents
+            // unbounded child work before exec; it is not freed because the child now exits.
+            unsafe {
+                while len < 1024 && *err.add(len) != 0 {
+                    len += 1;
+                }
+                self.write_diagnostic(std::slice::from_raw_parts(err.cast::<u8>(), len));
+            }
+        }
+        self.write_diagnostic(b"\n");
+        // Child pre_exec must not allocate or format errors. The parent receives this fixed
+        // errno while CI stderr retains sandbox_init's bounded diagnostic detail.
+        Err(std::io::Error::from_raw_os_error(libc::EINVAL))
     }
 }
 
