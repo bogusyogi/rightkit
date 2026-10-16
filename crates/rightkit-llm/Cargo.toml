@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-llm"
-version = "0.2.1"
+version = "0.2.2"
 edition = "2021"
 rust-version = "1.98.0"
 description = "Brand-neutral BYOK LLM clients: Anthropic Messages and OpenAI-compatible chat, streaming, tool use, route failover with circuit breaker, pricing, and prompt-cache discipline, plus an opt-in provider for installed command-line assistants."
@@ -27,4 +27,4 @@ rightkit-http = { version = "0.3.0", path = "../rightkit-http", features = ["gzi
 
 [package.metadata.rightkit]
 continuous = false
-continuous_reason = "thread-spawn: one provider-stream thread per failover attempt (failover.rs) and per-CLI-call stdin writer and pipe reader threads (provider/cli.rs), each ends when the stream, pipe or child ends and is bounded by the policy timeouts; no sleep, listener, timer, watcher or resident model or cache (reviewed 2026-10-11)"
+continuous_reason = "thread-spawn: one provider-stream thread per failover attempt (failover.rs) and per-CLI-call stdin writer and pipe reader threads (provider/cli.rs), each ends when the stream, pipe or child ends and is bounded by the policy timeouts; no listener, timer or resident model or cache; on non-Linux Unix the child runs under a /bin/sh supervisor whose watcher polls once a second and exits with the child (reviewed 2026-10-16)"

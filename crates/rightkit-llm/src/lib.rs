@@ -12,6 +12,7 @@
 //!   `Malformed` errors. Off by default; non-streaming calls only.
 //! - `cli` feature: [`provider::cli::CliProvider`] drives an installed, signed-in
 //!   assistant CLI (Claude Code, Codex) as a bounded child process; no API key.
+//!   [`provider::cli::CancelHandle`] kills a running call's process tree mid-run.
 //! - Credentials come from a [`credentials::CredentialSource`]; production wiring
 //!   uses `rightkit-credentials` through the `SecretStore` trait.
 

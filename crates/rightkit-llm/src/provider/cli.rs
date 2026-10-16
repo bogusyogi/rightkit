@@ -22,6 +22,7 @@ use std::io::{Read, Write};
 use std::ops::ControlFlow;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, RecvTimeoutError, Sender};
 use std::sync::{Arc, Mutex};
 use std::thread;
@@ -159,17 +160,30 @@ fn base_env_allow() -> Vec<String> {
 }
 
 impl CliSpec {
-    /// Claude Code in print mode, JSON output, all built-in tools disabled, no
-    /// MCP servers, no session persistence, user settings (and so hooks) skipped.
+    /// Claude Code in print mode as an answer-only assistant: every tool disabled
+    /// (built-in, MCP and any other), no MCP servers, no session persistence, no
+    /// skills, user and project settings (and so hooks and plugins) skipped. The
+    /// caller runs it in an empty scratch directory (see [`CliProvider::new`]).
     ///
-    /// Flag status against `claude --help` (Claude Code 2.1.295) on the author's
-    /// machine: `-p`, `--output-format json`, `--no-session-persistence`,
-    /// `--tools ""`, `--disable-slash-commands`, `--strict-mcp-config`,
-    /// `--setting-sources` and `--model` are present in the help text (verified).
-    /// NOT verified, because no model call was made: that `-p` reads the prompt
-    /// from stdin, the JSON field names (`result`, `is_error`, `usage.*`,
-    /// `total_cost_usd`), that `--setting-sources local` leaves the sign-in
-    /// intact, and the not-signed-in patterns.
+    /// How each part disables tools, per the Claude Code CLI reference
+    /// (<https://code.claude.com/docs/en/cli-reference>):
+    /// - `--tools ""` disables all built-in tools. The docs say the flag "doesn't
+    ///   affect MCP tools", so it is not enough alone.
+    /// - `--disallowedTools "*"` "removes every tool" from Claude's context, MCP tools
+    ///   included (`"mcp__*"` would cover only MCP). This is the belt that covers
+    ///   tools `--tools` does not reach, such as managed or plugin MCP servers.
+    /// - `--strict-mcp-config` with no `--mcp-config` uses no MCP servers from any
+    ///   other configuration.
+    /// - `--disable-slash-commands` disables skills; `--setting-sources local` skips
+    ///   user settings (so user hooks); `--no-session-persistence` keeps no transcript.
+    ///
+    /// Verified on Claude Code 2.1.300 (`claude --version`), against `claude --help`
+    /// (read-only) and the CLI reference above, and pinned by the argv contract test
+    /// `claude_code_answer_only_preset_argv_is_exact`. NOT verified by a live run,
+    /// because that needs a model call: the runtime effect (no tool call happens
+    /// under this argv), the JSON field names (`result`, `is_error`, `usage.*`,
+    /// `total_cost_usd`), that `--setting-sources local` leaves the sign-in intact,
+    /// and the not-signed-in patterns.
     pub fn claude_code(program: impl Into<PathBuf>) -> Self {
         let mut env_allow = base_env_allow();
         env_allow.push("CLAUDE_CONFIG_DIR".into());
@@ -185,6 +199,8 @@ impl CliSpec {
                 "--strict-mcp-config",
                 "--setting-sources",
                 "local",
+                "--disallowedTools",
+                "*",
                 "--tools",
                 "",
             ]
@@ -390,6 +406,9 @@ pub enum CliError {
     NotInstalled { program: PathBuf },
     /// The tool reported that it is not signed in.
     NotSignedIn { detail: String },
+    /// The caller cancelled the run through a [`CancelHandle`]; the process tree was
+    /// killed. Not a failover trigger: the caller asked for the stop.
+    Cancelled,
     /// Wall-clock timeout; the tree was killed.
     Timeout { after: Duration },
     /// No output for the idle timeout; the tree was killed.
@@ -413,7 +432,10 @@ impl CliError {
     pub fn is_failover_trigger(&self) -> bool {
         !matches!(
             self,
-            CliError::InvalidSpec(_) | CliError::InvalidRequest(_) | CliError::Unsupported(_)
+            CliError::InvalidSpec(_)
+                | CliError::InvalidRequest(_)
+                | CliError::Unsupported(_)
+                | CliError::Cancelled
         )
     }
 }
@@ -428,6 +450,7 @@ impl std::fmt::Display for CliError {
                 write!(f, "CLI not installed: {}", program.display())
             }
             CliError::NotSignedIn { detail } => write!(f, "CLI not signed in: {detail}"),
+            CliError::Cancelled => write!(f, "CLI call was cancelled"),
             CliError::Timeout { after } => write!(f, "CLI timed out after {after:?}"),
             CliError::IdleTimeout { after } => write!(f, "CLI produced no output for {after:?}"),
             CliError::OutputTooLarge { stream, limit } => {
@@ -483,6 +506,31 @@ pub struct CliAttempt {
     pub outcome: Result<CliCompletion, CliError>,
 }
 
+/// Cancels one in-flight CLI call. Clones share the same flag, so the handle can be
+/// kept by a UI or a daemon while the call runs on another thread.
+#[derive(Debug, Clone, Default)]
+pub struct CancelHandle {
+    flag: Arc<AtomicBool>,
+}
+
+impl CancelHandle {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Request cancellation. A running call kills its whole process tree (through
+    /// `rightkit-child-process`) within one poll tick and returns
+    /// [`CliError::Cancelled`]. A call that has not started yet returns it without
+    /// spawning anything. Idempotent.
+    pub fn cancel(&self) {
+        self.flag.store(true, Ordering::SeqCst);
+    }
+
+    pub fn is_cancelled(&self) -> bool {
+        self.flag.load(Ordering::SeqCst)
+    }
+}
+
 /// Provider over a [`CliSpec`] and an explicit scratch working directory.
 #[derive(Debug, Clone)]
 pub struct CliProvider {
@@ -518,7 +566,7 @@ impl CliProvider {
     /// Run one attempt and return its record whether or not it succeeded.
     pub fn attempt(&self, req: &ChatRequest) -> CliAttempt {
         let started = Instant::now();
-        let outcome = self.run(req);
+        let outcome = self.run(req, None);
         let reason = match &outcome {
             Ok(_) => "ok".to_string(),
             Err(e) => e.to_string(),
@@ -535,10 +583,25 @@ impl CliProvider {
 
     /// Like `complete`, with usage reported as [`UsageReport`] and the cost.
     pub fn complete_detailed(&self, req: &ChatRequest) -> Result<CliCompletion, CliError> {
-        self.run(req)
+        self.run(req, None)
     }
 
-    fn run(&self, req: &ChatRequest) -> Result<CliCompletion, CliError> {
+    /// Like `complete_detailed`, but the call can be cancelled mid-run through `cancel`,
+    /// which kills the process tree and returns [`CliError::Cancelled`]. The `Provider`
+    /// trait has no cancel parameter, so cancellable calls go through this method.
+    pub fn complete_detailed_cancellable(
+        &self,
+        req: &ChatRequest,
+        cancel: &CancelHandle,
+    ) -> Result<CliCompletion, CliError> {
+        self.run(req, Some(cancel))
+    }
+
+    fn run(
+        &self,
+        req: &ChatRequest,
+        cancel: Option<&CancelHandle>,
+    ) -> Result<CliCompletion, CliError> {
         let prompt = render_prompt(req)?;
         if prompt.len() > self.spec.limits.max_prompt_bytes {
             return Err(CliError::InvalidRequest(
@@ -557,6 +620,9 @@ impl CliProvider {
         if !self.scratch.is_dir() {
             return Err(CliError::InvalidSpec("scratch directory is missing".into()));
         }
+        if cancel.is_some_and(CancelHandle::is_cancelled) {
+            return Err(CliError::Cancelled);
+        }
 
         let mut args: Vec<String> = self.spec.args.clone();
         if let Some(m) = model {
@@ -567,10 +633,19 @@ impl CliProvider {
             args.push(prompt.clone());
         }
 
-        let mut cmd = OwnedCommand::new(&self.spec.program);
+        let mut cmd = OwnedCommand::new(supervised_program(&self.spec.program));
         cmd.env_allowlist(&self.spec.env_allow);
+        // Linux: the kernel signals the child when this process dies, SIGKILL included. The
+        // call blocks on the child from the spawning thread, which satisfies the thread
+        // keying. Windows is covered by the kill-on-close job object; other Unix hosts (macOS)
+        // by the supervisor shell below.
+        #[cfg(any(target_os = "linux", target_os = "android"))]
+        cmd.kill_on_parent_exit(true);
         {
             let c = cmd.command_mut();
+            #[cfg(all(unix, not(any(target_os = "linux", target_os = "android"))))]
+            c.args(["-c", PARENT_DEATH_SUPERVISOR, "rk-supervisor"])
+                .arg(&self.spec.program);
             c.args(&args)
                 .current_dir(&self.scratch)
                 .stdin(match self.spec.prompt {
@@ -640,6 +715,9 @@ impl CliProvider {
         }
         let stop = loop {
             let now = Instant::now();
+            if cancel.is_some_and(CancelHandle::is_cancelled) {
+                break Stop::Bound(CliError::Cancelled);
+            }
             if now.duration_since(started) >= limits.wall_timeout {
                 break Stop::Bound(CliError::Timeout {
                     after: limits.wall_timeout,
@@ -834,7 +912,7 @@ impl Provider for CliProvider {
     }
 
     fn complete(&self, req: &ChatRequest) -> Result<ChatResponse, LlmError> {
-        self.run(req).map(|c| c.response).map_err(LlmError::Cli)
+        self.run(req, None).map(|c| c.response).map_err(LlmError::Cli)
     }
 
     /// Buffered: the tool runs to completion, then the answer is delivered as
@@ -856,6 +934,51 @@ enum Msg {
     Activity,
     Eof(StreamKind),
     Over(StreamKind),
+}
+
+/// macOS and other non-Linux Unix: `rightkit-child-process` has no parent-death primitive
+/// there, so the tool runs under a small `/bin/sh` supervisor. The supervisor starts the tool
+/// (stdin, stdout and stderr pass straight through), and a watcher polls once a second. When
+/// the supervisor's parent id changes (the host died and the child was re-parented, which
+/// happens on SIGKILL) or the supervisor itself is gone, the watcher kills the tool's process
+/// group, or the tool and its direct children when the supervisor is not a group leader.
+/// Absolute tool paths are used because the child environment is allow-listed.
+#[cfg(all(unix, not(any(target_os = "linux", target_os = "android"))))]
+const PARENT_DEATH_SUPERVISOR: &str = r#"p=$PPID
+"$@" <&0 &
+c=$!
+(
+  while kill -0 "$c" 2>/dev/null; do
+    q=$(/bin/ps -o ppid= -p "$$" 2>/dev/null)
+    q=${q##* }
+    if { [ -n "$q" ] && [ "$q" != "$p" ]; } || ! kill -0 "$$" 2>/dev/null; then
+      g=$(/bin/ps -o pgid= -p "$c" 2>/dev/null)
+      g=${g##* }
+      if [ -n "$g" ] && [ "$g" = "$$" ]; then
+        kill -s KILL -- "-$g" 2>/dev/null
+      fi
+      /usr/bin/pkill -KILL -P "$c" 2>/dev/null
+      kill -s KILL "$c" 2>/dev/null
+      exit 0
+    fi
+    /bin/sleep 1
+  done
+) >/dev/null 2>&1 </dev/null &
+w=$!
+wait "$c"
+s=$?
+kill "$w" 2>/dev/null
+exit "$s"
+"#;
+
+#[cfg(all(unix, not(any(target_os = "linux", target_os = "android"))))]
+fn supervised_program(_program: &Path) -> PathBuf {
+    PathBuf::from("/bin/sh")
+}
+
+#[cfg(not(all(unix, not(any(target_os = "linux", target_os = "android")))))]
+fn supervised_program(program: &Path) -> PathBuf {
+    program.to_path_buf()
 }
 
 fn spawn_reader(

@@ -11,8 +11,8 @@ use std::time::{Duration, Instant};
 
 use rightkit_llm::failover::{FailoverChain, FailoverPolicy, Route};
 use rightkit_llm::provider::cli::{
-    resolve_program, CliError, CliLimits, CliProvider, CliSpec, JsonOutput, OutputFormat,
-    PromptDelivery, StreamKind, UsageReport,
+    resolve_program, CancelHandle, CliError, CliLimits, CliProvider, CliSpec, JsonOutput,
+    OutputFormat, PromptDelivery, StreamKind, UsageReport,
 };
 use rightkit_llm::{
     ChatRequest, ChatResponse, ContentBlock, LlmError, Message, Metering, PriceTable, Provider,
@@ -171,6 +171,20 @@ fn pid_file(dir: &Path, name: &str) -> u32 {
         .unwrap()
 }
 
+/// Poll until `name` holds a parseable pid (the fake writes it, so it may be half-written).
+fn wait_for_pid_file(dir: &Path, name: &str) -> u32 {
+    let deadline = Instant::now() + Duration::from_secs(10);
+    loop {
+        if let Ok(text) = std::fs::read_to_string(dir.join(name)) {
+            if let Ok(pid) = text.trim().parse() {
+                return pid;
+            }
+        }
+        assert!(Instant::now() < deadline, "{name} never appeared");
+        std::thread::sleep(Duration::from_millis(20));
+    }
+}
+
 fn assert_gone(pid: u32) {
     let deadline = Instant::now() + Duration::from_secs(3);
     loop {
@@ -287,6 +301,93 @@ fn wall_timeout_kills_child_and_descendants() {
     assert!(started.elapsed() < Duration::from_secs(10));
     assert_gone(pid_file(&fx.scratch, "pid"));
     assert_gone(pid_file(&fx.scratch, "gpid"));
+}
+
+#[test]
+fn cancel_mid_run_kills_the_process_tree_and_returns_cancelled() {
+    let fx = Fixture::new();
+    let p = fx.text("hang");
+    let cancel = CancelHandle::new();
+    let trigger = cancel.clone();
+    let scratch = fx.scratch.clone();
+    let canceller = std::thread::spawn(move || {
+        // Cancel only once the fake CLI and its background child are both running.
+        wait_for_pid_file(&scratch, "gpid");
+        trigger.cancel();
+    });
+    let started = Instant::now();
+    let e = p.complete_detailed_cancellable(&req("x"), &cancel).unwrap_err();
+    canceller.join().unwrap();
+    assert_eq!(e, CliError::Cancelled);
+    assert!(!e.is_failover_trigger());
+    assert!(started.elapsed() < Duration::from_secs(10));
+    assert_gone(pid_file(&fx.scratch, "pid"));
+    assert_gone(pid_file(&fx.scratch, "gpid"));
+}
+
+#[test]
+fn cancel_before_start_returns_cancelled_without_spawning() {
+    let fx = Fixture::new();
+    let p = fx.text("hang");
+    let cancel = CancelHandle::new();
+    cancel.cancel();
+    assert!(cancel.is_cancelled());
+    let e = p.complete_detailed_cancellable(&req("x"), &cancel).unwrap_err();
+    assert_eq!(e, CliError::Cancelled);
+    assert!(!fx.scratch.join("pid").exists(), "the CLI must not start");
+}
+
+#[test]
+fn claude_code_answer_only_preset_argv_is_exact() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let fx = Fixture::new();
+    // A stand-in `claude` that records the argv it was started with (in its cwd, the
+    // scratch directory) and answers in the preset's JSON shape.
+    let claude = fx.base.join("claude");
+    std::fs::write(
+        &claude,
+        r#"#!/bin/sh
+cat >/dev/null
+printf '%s\n' "$@" > argv.txt
+printf '%s' '{"result":"ok","is_error":false}'
+"#,
+    )
+    .unwrap();
+    std::fs::set_permissions(&claude, std::fs::Permissions::from_mode(0o755)).unwrap();
+
+    let provider = fx.provider(CliSpec::claude_code(claude.clone()));
+    let out = provider
+        .complete_detailed(&ChatRequest::new("claude-sonnet-5", vec![Message::user("hi")]))
+        .unwrap();
+    assert_eq!(out.response.text(), "ok");
+
+    let argv: Vec<String> = std::fs::read_to_string(fx.scratch.join("argv.txt"))
+        .unwrap()
+        .lines()
+        .map(str::to_owned)
+        .collect();
+    // Answer-only argv, verified against Claude Code 2.1.300 (see CliSpec::claude_code).
+    // The prompt goes on stdin, never in argv. `--disallowedTools "*"` removes every tool
+    // (built-in and MCP); `--tools ""` disables the built-ins; `--strict-mcp-config` with
+    // no `--mcp-config` loads no MCP servers.
+    let expected: Vec<&str> = vec![
+        "-p",
+        "--output-format",
+        "json",
+        "--no-session-persistence",
+        "--disable-slash-commands",
+        "--strict-mcp-config",
+        "--setting-sources",
+        "local",
+        "--disallowedTools",
+        "*",
+        "--tools",
+        "",
+        "--model",
+        "claude-sonnet-5",
+    ];
+    assert_eq!(argv, expected);
 }
 
 #[test]
@@ -564,4 +665,62 @@ fn failover_moves_past_a_failed_cli_route() {
         FailoverPolicy::default(),
     );
     assert_eq!(chain.complete(&req("hi")).unwrap().text(), "from stub");
+}
+
+/// Helper, not a test of its own: the parent process of `child_dies_when_the_parent_is_sigkilled`.
+/// It does nothing unless that test launched it with the fixture directory in the environment;
+/// then it runs one call against the hanging fake CLI and blocks until it is killed.
+#[test]
+fn sigkill_parent_helper() {
+    let Ok(base) = std::env::var("RK_LLM_PDEATH_BASE") else {
+        return;
+    };
+    let base = PathBuf::from(base);
+    let fx = Fixture {
+        script: base.join("fake.sh"),
+        scratch: base.join("scratch"),
+        base,
+    };
+    let p = fx.text("hang");
+    // The test kills this process mid-call; no destructor may run, so the fixture is leaked.
+    std::mem::forget(fx);
+    let _ = p.complete_detailed(&req("x"));
+}
+
+#[test]
+fn child_dies_when_the_parent_is_sigkilled() {
+    let fx = Fixture::new();
+    let mut parent = Command::new(std::env::current_exe().unwrap())
+        .args(["--exact", "sigkill_parent_helper", "--nocapture", "--test-threads=1"])
+        .env("RK_LLM_PDEATH_BASE", &fx.base)
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .unwrap();
+    // Both the fake CLI and its background child are running before the parent dies.
+    let pid = wait_for_pid_file(&fx.scratch, "pid");
+    let gpid = wait_for_pid_file(&fx.scratch, "gpid");
+    // `Child::kill` is SIGKILL: nothing in the parent gets to clean up.
+    parent.kill().unwrap();
+    parent.wait().unwrap();
+    // The macOS supervisor polls once a second; allow for that.
+    let deadline = Instant::now() + Duration::from_secs(10);
+    for pid in [pid, gpid] {
+        loop {
+            let alive = Command::new("kill")
+                .args(["-0", &pid.to_string()])
+                .output()
+                .unwrap()
+                .status
+                .success();
+            if !alive {
+                break;
+            }
+            if Instant::now() >= deadline {
+                let _ = Command::new("kill").args(["-9", &pid.to_string()]).output();
+                panic!("process {pid} survived SIGKILL of its parent");
+            }
+            std::thread::sleep(Duration::from_millis(50));
+        }
+    }
 }
