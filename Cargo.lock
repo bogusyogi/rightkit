@@ -5685,7 +5685,9 @@ name = "rightkit-qa-driver"
 version = "0.5.0"
 dependencies = [
  "rightkit-automation",
+ "rightkit-daemon",
  "rightkit-qa",
+ "serde_json",
  "tauri",
  "webview2-com 0.38.2",
  "webview2-com 0.39.1",

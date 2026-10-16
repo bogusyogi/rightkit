@@ -98,6 +98,14 @@
         ]
       ]
     },
+    "rightkit-qa-driver": {
+      "checkFeatureSets": [
+        [
+          "--features",
+          "qa-control,wv2-0_38,offscreen-private-spi"
+        ]
+      ]
+    },
     "rightkit-tauri-shell": {
       "checkFeatureSets": [
         [
