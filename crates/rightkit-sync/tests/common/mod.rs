@@ -2,6 +2,7 @@
 //! store and a device (engine + store + ledger + clock).
 #![allow(dead_code)]
 
+pub mod fake_drive;
 pub mod fake_server;
 
 use std::collections::BTreeMap;

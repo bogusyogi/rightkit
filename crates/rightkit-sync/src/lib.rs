@@ -4,6 +4,8 @@
 mod backoff;
 #[cfg(feature = "cipher")]
 pub mod cipher;
+#[cfg(feature = "drive")]
+pub mod drive;
 mod engine;
 mod error;
 #[cfg(feature = "helper")]

@@ -27,6 +27,10 @@ cipher = ["dep:ring", "dep:zeroize"]
 # PARKED 2026-10-16: the RightKit sync service is parked (own-cloud sync instead). The feature is kept
 # for the record and is not a supported backend; do not enable it in apps.
 http = ["dep:rightkit-http", "rightkit-fs/digest"]
+# `drive` module: blocking `DriveBackend` and `DriveAuth` over the Google Drive v3 REST API and the
+# `drive.appdata` scope (own-cloud sync: the user's own Drive quota, no service of ours). The
+# non-Apple backend (CloudKit is the Apple one); `http` is parked. Same `rightkit-http` client.
+drive = ["dep:rightkit-http", "rightkit-fs/digest"]
 
 [dependencies]
 serde = { version = "1.0.228", features = ["derive"] }
@@ -66,3 +70,11 @@ required-features = ["http"]
 [[test]]
 name = "http_encrypted"
 required-features = ["http", "cipher"]
+
+[[test]]
+name = "drive_backend"
+required-features = ["drive"]
+
+[[test]]
+name = "drive_two_engines"
+required-features = ["drive"]

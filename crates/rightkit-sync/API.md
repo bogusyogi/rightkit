@@ -1,6 +1,6 @@
 # rightkit-sync API and shared record/conflict contract
 
-Internal crate (`publish = false`). Deps: `serde`, `serde_json`, `rightkit-fs`; optional by feature: `rightkit-child-process` (`process-usage`), `ring` and `zeroize` (`cipher`), `rightkit-http` (`http`); see README "Features". Lives at `rightkit/crates/rightkit-sync`.
+Internal crate (`publish = false`). Deps: `serde`, `serde_json`, `rightkit-fs`; optional by feature: `rightkit-child-process` (`process-usage`), `ring` and `zeroize` (`cipher`), `rightkit-http` (`http` or `drive`); see README "Features". Lives at `rightkit/crates/rightkit-sync`.
 
 ## 1. Shared wire contract (desktop and iOS must both obey)
 
@@ -65,7 +65,8 @@ Ledger JSON is a new document (`Ledger`); the ScrapeRight `icloud-sync-ledger.js
 | `helper::HelperBackend` + `HelperAuth` (via `CloudKitHelper`) | this crate | any zone behind a helper process speaking `rightkit-sync-helper/1`; the macOS CloudKit backend |
 | `rightkit-cloudkit-helper` | `rightkit/swift/RightKitCloudKitHelper` | production helper: Swift CLI over `RightKitCloudSync.CloudKitSyncTransport` |
 | `rightkit-sync-fake-helper` | this crate (`src/bin`) | protocol fake with fault injection (E2E fixture) |
-| `http::HttpBackend` + `HttpAuth` (feature `http`) | this crate | any server speaking `rightkit-sync-http/1` (`HTTP-PROTOCOL.md`); reference server `packages/sync-worker`. Blocking; refuses plaintext fields |
+| `http::HttpBackend` + `HttpAuth` (feature `http`, **parked**) | this crate | any server speaking `rightkit-sync-http/1` (`HTTP-PROTOCOL.md`); reference server `packages/sync-worker`. Blocking; refuses plaintext fields. The sync service is parked; not a supported backend |
+| `drive::DriveBackend` + `DriveAuth` (feature `drive`) | this crate | the non-Apple backend: Google Drive v3 `appDataFolder` (scope `drive.appdata`), the user's own quota. Zone = folder, record = one JSON file in the `wire` encoding, tombstones kept, cursor = Drive changes page token (a first full listing spans pages, cursors name their folder). Token from the caller (`DriveTokenSource`). Blocking. Drive has no atomic compare-and-swap, so `IfServerUnchanged` is check-then-write; see below |
 | `cipher::EncryptingBackend` (feature `cipher`) | this crate | wraps any backend; the provider stores only ciphertext plus `name`, `type`, `change_tag`, `updatedAt`, `deletedAt`. Required in front of `HttpBackend` |
 
 An encrypting provider runs its engine with `require_consent_on_scope_change` and an `account_scope` that includes the key id (`http::sync_config()`, `http::account_scope`). A missing key fails the pass (cursor stays); corrupt ciphertext is quarantined, and so is a tombstone without `enc` (`CipherStats::unauthenticated_tombstones`), so every deletion is authenticated. `HttpBackend::max_batch` defaults to 40 (server `max_save_records`, health). Plaintext of downloads the engine could not apply yet sits in the ledger's `pending_apply` (owner-only file, not encrypted).
@@ -168,6 +169,15 @@ bury and remove locally; otherwise `ConflictPolicy::upload_local_over_remote` ->
 server's tag; else `accept_remote_over_local` -> apply the server record locally; equal -> keep the
 server's. Rounds exhausted or undecodable -> upload stays pending. Tombstones and hook records stay
 `Overwrite` (deletion is authoritative).
+
+**Drive backend and the conditional save.** Drive v3 documents no precondition on `files.update` or
+`files.create` (no `If-Match`/ETag, no revision precondition, no create-only flag; names are not unique
+in a folder), so `DriveBackend` implements `IfServerUnchanged` as: read the file `version` (the tag is
+`"<file id>:<version>"`), refuse with `Conflict` plus the current record on a mismatch, else `PATCH`.
+A write that commits between the read and the `PATCH` is overwritten (window: one round trip plus the
+upload time). The engine's per-pass reconciliation heals a lost edit when local still wins; a tombstone
+overwritten in the window can leave a live record for a device with a reset ledger. Creation re-lists the
+name and the smallest file id wins. Details: `drive` module docs.
 
 Donor semantics intentionally not carried over: per-request process spawn (now one long-lived helper),
 and the helper-side persisted cursor with `commit_pull` (the Rust ledger owns the cursor, committed with
