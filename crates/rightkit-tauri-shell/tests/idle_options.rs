@@ -7,7 +7,8 @@ use std::time::Duration;
 
 use rightkit_tauri_shell::idle::{
     effective_delay, hide_plan, ControllerHide, HidePlan, IdleEvents, IdleHost, IdleOptions,
-    IdleState, MinimizeStep, MinimizeTracker, DEFAULT_SUSPEND_AFTER, MAX_SUSPEND_AFTER,
+    IdleSource, IdleState, IdleTrigger, MinimizeStep, MinimizeTracker, DEFAULT_SUSPEND_AFTER,
+    MAX_SUSPEND_AFTER, source_starts_idle,
 };
 
 #[test]
@@ -251,4 +252,60 @@ fn options_with_a_provider_clone_equal_and_differ_from_plain_options() {
         "distinct closures are distinct providers"
     );
     assert_ne!(a, IdleOptions::default());
+}
+
+#[test]
+fn minimise_only_idle_is_opt_in_and_ignores_hides() {
+    let o = IdleOptions::default();
+    assert_eq!(o.trigger, IdleTrigger::HiddenOrMinimised);
+    assert!(!o.minimise_enabled());
+    let o = IdleOptions::default().on_minimise(true);
+    assert_eq!(o.trigger, IdleTrigger::Minimised);
+    assert!(o.minimise_enabled(), "a minimise feeds idle without start_on_minimize");
+    assert!(!source_starts_idle(o.trigger, IdleSource::Hide));
+    assert!(source_starts_idle(o.trigger, IdleSource::Minimise));
+    // The default trigger keeps accepting a tray hide.
+    assert!(source_starts_idle(IdleTrigger::HiddenOrMinimised, IdleSource::Hide));
+    assert!(IdleOptions::default().start_on_minimize(true).minimise_enabled());
+    assert_ne!(o, IdleOptions::default());
+    // Host wiring keeps the trigger.
+    let host = IdleHost::new(Duration::from_secs(1)).with_options(o);
+    assert_eq!(host.options.trigger, IdleTrigger::Minimised);
+}
+
+#[test]
+fn minimise_restore_double_minimise_and_restore_while_not_suspended_on_the_machine() {
+    let (tracker, mut state) = (MinimizeTracker::default(), IdleState::default());
+    // Minimise, then a repeated minimise event: the machine is fed once.
+    assert_eq!(tracker.step(true), MinimizeStep::Start);
+    let (g, _) = state.on_hidden();
+    assert_eq!(tracker.step(true), MinimizeStep::None);
+    // Restore before the timer: the stale timer must not suspend, and nothing was suspended.
+    assert_eq!(tracker.step(false), MinimizeStep::End);
+    assert_eq!(
+        state.on_visible(),
+        rightkit_tauri_shell::idle::IdleAction::ShowController
+    );
+    assert_eq!(
+        state.on_timer(g),
+        rightkit_tauri_shell::idle::IdleAction::None
+    );
+    // Minimise and let the timer fire, then restore: resume and show.
+    assert_eq!(tracker.step(true), MinimizeStep::Start);
+    let (g, _) = state.on_hidden();
+    assert_eq!(
+        state.on_timer(g),
+        rightkit_tauri_shell::idle::IdleAction::SuspendNow
+    );
+    assert_eq!(tracker.step(false), MinimizeStep::End);
+    assert_eq!(
+        state.on_visible(),
+        rightkit_tauri_shell::idle::IdleAction::ResumeAndShowController
+    );
+    // A restore with nothing hidden asks for nothing.
+    assert_eq!(tracker.step(false), MinimizeStep::None);
+    assert_eq!(
+        state.on_visible(),
+        rightkit_tauri_shell::idle::IdleAction::None
+    );
 }

@@ -468,14 +468,14 @@ pub(crate) fn on_menu_event(app: &AppHandle<Wry>, id: &str) {
 }
 
 /// Feed the idle machine a minimise or restore of the main window (only for a host that asked with
-/// `IdleOptions::start_on_minimize`).
+/// `IdleOptions::start_on_minimize` or `IdleTrigger::Minimised`).
 fn note_minimized_for_idle(app: &AppHandle<Wry>, label: &str) {
     let state = app.state::<ShellState>();
     if label != state.main_label
         || !state
             .idle
             .as_ref()
-            .is_some_and(|h| h.options.start_on_minimize)
+            .is_some_and(|h| h.options.minimise_enabled())
     {
         return;
     }

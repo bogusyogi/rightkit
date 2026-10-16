@@ -76,7 +76,7 @@ pub use error::ShellError;
 pub use harden::{Hardening, HardeningScript};
 pub use idle::{
     IdleErrorCallback, IdleFailure, IdlePhase, IdleTransition, IdleTransitionCallback,
-    IdleTransitionKind,
+    IdleTransitionKind, IdleTrigger,
 };
 pub use menu::{MenuEntry, MenuGroup, MenuSpec};
 pub use modules::{Module, ModuleSet, ShellPlugin, ShellPluginBuilder};

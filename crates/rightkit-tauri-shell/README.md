@@ -117,6 +117,7 @@ The owner's rule for shipped apps is unchanged: no DevTools, ViewRight's content
 - `.webview_idle_options(IdleOptions { start_on_minimize: true, controller_hide: ControllerHide::OnTimer,
   events: IdleEvents::NativeSuspendOnly, ..Default::default() })`. Defaults match `webview_idle(30 s)`.
 - `IdleOptions::default().suspend_after_with(|| Some(read_delay()))` reads the suspend delay at each hide (`None` or a panic uses the fixed `suspend_after`).
+- `IdleOptions::default().on_minimise(true)` (`IdleTrigger::Minimised`): idle only when the window is minimised (Windows: `SetIsVisible(false)` then `TrySuspend`, restore is `Resume` then `SetIsVisible(true)`); a tray hide does not start it. For a single-web-view app; macOS and Linux get the event only.
 - `lifecycle_only` leaves `ShowOnReady` and the cache repair off unless the host calls `show_on_ready(true)` /
   `repair_cache(true)`.
 

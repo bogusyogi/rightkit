@@ -74,6 +74,35 @@ impl IdleEvents {
     }
 }
 
+/// What starts the idle period of the main webview.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum IdleTrigger {
+    /// A window hide the shell or host reports (tray, close-to-tray, `note_hidden`), and a minimise
+    /// when `IdleOptions::start_on_minimize` is set. The behaviour hosts already have.
+    #[default]
+    HiddenOrMinimised,
+    /// A minimise only (whole-app: it acts on the webview of the window that was minimised). A
+    /// tray hide, close-to-tray or `note_hidden` does not start idle, and a minimise always does,
+    /// whatever `start_on_minimize` says. For an app with a single web view that only wants to stop
+    /// work while minimised: on Windows `SetIsVisible(false)` then `TrySuspend`, nothing closed;
+    /// the restore is `Resume` (when suspended) then `SetIsVisible(true)`.
+    Minimised,
+}
+
+/// Where an idle request came from (see [`source_starts_idle`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum IdleSource {
+    /// A window hide (tray, close-to-tray, app-reported).
+    Hide,
+    /// The main window was minimised.
+    Minimise,
+}
+
+/// Whether a request of `source` may start the idle period under `trigger`. Pure.
+pub fn source_starts_idle(trigger: IdleTrigger, source: IdleSource) -> bool {
+    !matches!((trigger, source), (IdleTrigger::Minimised, IdleSource::Hide))
+}
+
 /// Per-hide delay source held by [`IdleOptions`]; set with [`IdleOptions::suspend_after_with`].
 #[derive(Clone)]
 pub struct SuspendAfterProvider(Arc<dyn Fn() -> Option<Duration> + Send + Sync>);
@@ -111,6 +140,8 @@ pub struct IdleOptions {
     pub start_on_minimize: bool,
     pub controller_hide: ControllerHide,
     pub events: IdleEvents,
+    /// What starts idle; `IdleTrigger::Minimised` makes it minimise-only.
+    pub trigger: IdleTrigger,
     /// Per-hide delay source; `None` keeps the fixed `suspend_after`.
     suspend_after_fn: Option<SuspendAfterProvider>,
 }
@@ -122,6 +153,7 @@ impl Default for IdleOptions {
             start_on_minimize: false,
             controller_hide: ControllerHide::Immediate,
             events: IdleEvents::Always,
+            trigger: IdleTrigger::HiddenOrMinimised,
             suspend_after_fn: None,
         }
     }
@@ -144,6 +176,28 @@ impl IdleOptions {
     pub fn controller_hide(mut self, controller_hide: ControllerHide) -> Self {
         self.controller_hide = controller_hide;
         self
+    }
+
+    /// Choose what starts idle (see [`IdleTrigger`]).
+    pub fn trigger(mut self, trigger: IdleTrigger) -> Self {
+        self.trigger = trigger;
+        self
+    }
+
+    /// Minimise-only idle: `true` is `trigger(IdleTrigger::Minimised)` (a minimise starts idle, a
+    /// tray hide does not), `false` restores the default trigger.
+    pub fn on_minimise(mut self, on_minimise: bool) -> Self {
+        self.trigger = if on_minimise {
+            IdleTrigger::Minimised
+        } else {
+            IdleTrigger::HiddenOrMinimised
+        };
+        self
+    }
+
+    /// Whether a minimise of the main window feeds the idle machine.
+    pub fn minimise_enabled(&self) -> bool {
+        self.start_on_minimize || self.trigger == IdleTrigger::Minimised
     }
 
     /// Choose which idle events are emitted.
@@ -627,6 +681,20 @@ pub fn note_hidden_after(
 ) {
     let state = app.state::<ShellState>();
     let Some(host) = &state.idle else { return };
+    if !source_starts_idle(host.options.trigger, IdleSource::Hide) {
+        return;
+    }
+    start_hide(app, controller_already_hidden, suspend_after);
+}
+
+/// The shared hide path behind [`note_hidden_after`] and a minimise (the trigger gate has run).
+fn start_hide(
+    app: &AppHandle<Wry>,
+    controller_already_hidden: bool,
+    suspend_after: Option<Duration>,
+) {
+    let state = app.state::<ShellState>();
+    let Some(host) = &state.idle else { return };
     let (generation, action) = host
         .state
         .lock()
@@ -754,7 +822,9 @@ pub fn minimize_action(
 }
 
 /// The main window was minimised (`true`) or restored (`false`). Does nothing unless the host set
-/// `IdleOptions::start_on_minimize`. A restore ends only an idle period a minimise began.
+/// `IdleOptions::start_on_minimize` or `IdleTrigger::Minimised` (`on_minimise(true)`). On macOS and
+/// Linux the machine and the `rightkit-shell://idle` event run but nothing is suspended (no
+/// platform call exists there; the app pauses its own timers from the event). A restore ends only an idle period a minimise began.
 pub fn note_minimized(app: &AppHandle<Wry>, minimized: bool) {
     note_minimized_after(app, minimized, None);
 }
@@ -768,7 +838,7 @@ pub fn note_minimized_after(
 ) {
     let state = app.state::<ShellState>();
     let Some(host) = &state.idle else { return };
-    if !host.options.start_on_minimize {
+    if !host.options.minimise_enabled() {
         return;
     }
     let step = host.minimize.step(minimized);
@@ -779,7 +849,7 @@ pub fn note_minimized_after(
         MinimizeStep::End | MinimizeStep::None => suspend_after,
     };
     match minimize_action(host.suspend_after, step, per_hide) {
-        MinimizeAction::Hide { delay } => note_hidden_after(app, false, Some(delay)),
+        MinimizeAction::Hide { delay } => start_hide(app, false, Some(delay)),
         MinimizeAction::Visible => note_visible(app),
         MinimizeAction::None => {}
     }
@@ -1155,6 +1225,101 @@ mod tests {
             "main",
             Duration::ZERO,
         );
+    }
+
+    /// One minimise-only cycle as the shell drives it: tracker, state machine, then the controller.
+    struct Cycle {
+        tracker: MinimizeTracker,
+        state: IdleState,
+        applied: Applied,
+        c: Fake,
+    }
+
+    impl Cycle {
+        fn new() -> Self {
+            Self {
+                tracker: MinimizeTracker::default(),
+                state: IdleState::default(),
+                applied: Applied::default(),
+                c: Fake::default(),
+            }
+        }
+        /// A minimise (`true`) or restore (`false`); `timer` lets the idle timer fire after a minimise.
+        fn minimised(&mut self, minimised: bool, timer: bool) {
+            match self.tracker.step(minimised) {
+                MinimizeStep::Start => {
+                    let (g, _) = self.state.on_hidden();
+                    self.applied.hide(&mut self.c).unwrap();
+                    if timer && self.state.on_timer(g) == IdleAction::SuspendNow {
+                        self.applied
+                            .hide_and_suspend(&mut self.c, Instant::now())
+                            .unwrap();
+                    }
+                }
+                MinimizeStep::End => {
+                    self.tracker.clear();
+                    self.state.on_visible();
+                    self.applied
+                        .resume_and_show(&mut self.c, Instant::now())
+                        .unwrap();
+                }
+                MinimizeStep::None => {}
+            }
+        }
+    }
+
+    #[test]
+    fn minimise_only_trigger_ignores_hides_and_always_accepts_a_minimise() {
+        for trigger in [IdleTrigger::HiddenOrMinimised, IdleTrigger::Minimised] {
+            assert!(source_starts_idle(trigger, IdleSource::Minimise));
+        }
+        assert!(source_starts_idle(
+            IdleTrigger::HiddenOrMinimised,
+            IdleSource::Hide
+        ));
+        assert!(!source_starts_idle(IdleTrigger::Minimised, IdleSource::Hide));
+        let o = IdleOptions::default().on_minimise(true);
+        assert_eq!(o.trigger, IdleTrigger::Minimised);
+        assert!(o.minimise_enabled() && !o.start_on_minimize);
+        assert!(!IdleOptions::default().minimise_enabled());
+        assert_eq!(o.on_minimise(false).trigger, IdleTrigger::HiddenOrMinimised);
+    }
+
+    #[test]
+    fn minimise_then_restore_suspends_and_resumes_in_order() {
+        let mut m = Cycle::new();
+        m.minimised(true, true);
+        assert_eq!(m.c.calls, ["hide", "suspend"]);
+        m.c.calls.clear();
+        m.minimised(false, false);
+        assert_eq!(m.c.calls, ["resume", "show"]);
+        assert_eq!(m.state.snapshot(), (false, false));
+    }
+
+    #[test]
+    fn a_double_minimise_changes_nothing_the_second_time() {
+        let mut m = Cycle::new();
+        m.minimised(true, true);
+        m.c.calls.clear();
+        m.minimised(true, true);
+        assert!(m.c.calls.is_empty());
+        m.minimised(false, false);
+        assert_eq!(m.c.calls, ["resume", "show"]);
+    }
+
+    #[test]
+    fn a_restore_before_the_timer_only_shows_and_never_resumes() {
+        let mut m = Cycle::new();
+        m.minimised(true, false);
+        m.minimised(false, false);
+        assert_eq!(m.c.calls, ["hide", "show"]);
+    }
+
+    #[test]
+    fn a_restore_with_no_minimise_makes_no_controller_call() {
+        let mut m = Cycle::new();
+        m.minimised(false, false);
+        assert!(m.c.calls.is_empty());
     }
 
     #[test]
