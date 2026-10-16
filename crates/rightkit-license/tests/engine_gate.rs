@@ -8,7 +8,7 @@ use std::sync::{Arc, Mutex};
 use rightkit_http::testing::{loopback_config, MockResponse, MockServer};
 use rightkit_http::{Client, RetryPolicy};
 use rightkit_license::{
-    DenyReason, EngineGate, Enforcement, MemorySubjectCache, SubjectEntitlementConfig,
+    DenyReason, Enforcement, EngineGate, MemorySubjectCache, SubjectEntitlementConfig,
     SubjectEntitlementSource, SubjectSource, TokenError, Verdict, EXIT_ALLOWED, EXIT_CONFIG,
     EXIT_DENIED, EXIT_UNAVAILABLE, SUBJECT_OFFLINE_GRACE_SECS,
 };
@@ -133,7 +133,10 @@ fn free_account_is_denied_and_reported() {
     let mut out = Vec::new();
     outcome.emit(&mut out).unwrap();
     let text = String::from_utf8(out).unwrap();
-    assert!(text.contains("Pro entitlement") && text.contains("will not run"), "{text}");
+    assert!(
+        text.contains("Pro entitlement") && text.contains("will not run"),
+        "{text}"
+    );
 }
 
 #[test]
@@ -248,7 +251,11 @@ fn headless_with_a_fresh_shell_cache_is_allowed_without_a_token() {
     );
     let outcome = headless.check();
     assert!(matches!(outcome.verdict, Verdict::Allowed { .. }));
-    assert_eq!(fake.hits.load(SeqCst), hits, "served from cache, no request");
+    assert_eq!(
+        fake.hits.load(SeqCst),
+        hits,
+        "served from cache, no request"
+    );
 }
 
 #[test]
@@ -264,7 +271,10 @@ fn headless_with_a_stale_cache_and_no_token_gets_grace() {
         Enforcement::Enforce,
     );
     let outcome = headless.check();
-    assert!(matches!(outcome.verdict, Verdict::Grace { .. }), "{outcome}");
+    assert!(
+        matches!(outcome.verdict, Verdict::Grace { .. }),
+        "{outcome}"
+    );
     assert!(outcome.permits() && outcome.must_report());
     assert_eq!(fake.hits.load(SeqCst), hits, "no token, so no request");
 

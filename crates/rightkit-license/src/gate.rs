@@ -283,7 +283,9 @@ impl GateOutcome {
             (Verdict::Denied(_), Enforcement::Advisory) => {
                 format!("{base} (not enforced in this build; the engine will run)")
             }
-            (Verdict::Denied(_), Enforcement::Enforce) => format!("{base}; the engine will not run"),
+            (Verdict::Denied(_), Enforcement::Enforce) => {
+                format!("{base}; the engine will not run")
+            }
             _ => base,
         }
     }
@@ -483,19 +485,37 @@ mod tests {
     #[test]
     fn every_error_is_a_refusal_with_its_exit_code() {
         let cases: Vec<(SubjectEntitlementError, i32)> = vec![
-            (SubjectEntitlementError::Token(TokenError::new("signed out")), EXIT_DENIED),
+            (
+                SubjectEntitlementError::Token(TokenError::new("signed out")),
+                EXIT_DENIED,
+            ),
             (SubjectEntitlementError::Unauthorized, EXIT_DENIED),
-            (SubjectEntitlementError::Offline("down".into()), EXIT_UNAVAILABLE),
+            (
+                SubjectEntitlementError::Offline("down".into()),
+                EXIT_UNAVAILABLE,
+            ),
             (
                 SubjectEntitlementError::RateLimited {
                     retry_after: Some(Duration::from_secs(5)),
                 },
                 EXIT_UNAVAILABLE,
             ),
-            (SubjectEntitlementError::Server { status: 503 }, EXIT_UNAVAILABLE),
-            (SubjectEntitlementError::BadResponse("x".into()), EXIT_UNAVAILABLE),
-            (SubjectEntitlementError::Rejected { status: 404 }, EXIT_CONFIG),
-            (SubjectEntitlementError::Config("bad url".into()), EXIT_CONFIG),
+            (
+                SubjectEntitlementError::Server { status: 503 },
+                EXIT_UNAVAILABLE,
+            ),
+            (
+                SubjectEntitlementError::BadResponse("x".into()),
+                EXIT_UNAVAILABLE,
+            ),
+            (
+                SubjectEntitlementError::Rejected { status: 404 },
+                EXIT_CONFIG,
+            ),
+            (
+                SubjectEntitlementError::Config("bad url".into()),
+                EXIT_CONFIG,
+            ),
         ];
         for (error, code) in cases {
             let verdict = Verdict::from_error(&error);

@@ -34,8 +34,8 @@ impl RawJson {
 
     /// Like [`RawJson::new`] from UTF-8 bytes.
     pub fn from_slice(json: &[u8]) -> Result<Self, serde_json::Error> {
-        let text = std::str::from_utf8(json)
-            .map_err(<serde_json::Error as serde::de::Error>::custom)?;
+        let text =
+            std::str::from_utf8(json).map_err(<serde_json::Error as serde::de::Error>::custom)?;
         Self::new(text)
     }
 

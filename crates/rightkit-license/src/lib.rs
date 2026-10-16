@@ -50,17 +50,17 @@
 mod clock;
 mod engine;
 mod file_store;
+#[cfg(feature = "engine-gate")]
+mod gate;
 mod lease;
 mod lifecycle;
 mod refresh;
-#[cfg(feature = "engine-gate")]
-mod gate;
 #[cfg(feature = "subject-entitlement")]
 mod subject;
 
 #[cfg(feature = "engine-gate")]
 pub use gate::{
-    DenyReason, EngineGate, Enforcement, GateOutcome, Verdict, EXIT_ALLOWED, EXIT_CONFIG,
+    DenyReason, Enforcement, EngineGate, GateOutcome, Verdict, EXIT_ALLOWED, EXIT_CONFIG,
     EXIT_DENIED, EXIT_UNAVAILABLE,
 };
 
