@@ -1,5 +1,19 @@
 # Changelog
 
+## Unreleased
+
+- **Interactive-session runs from SSH (Windows, #111).** New `interactive` module and `rightkit-qa-interactive` binary. When the harness is in session 0 (or on a non-visible window station) and the run is opted in (`--interactive` or `RIGHTKIT_QA_INTERACTIVE=1`), the whole journey command runs in the logged-on user's interactive session through a one-shot Task Scheduler task (`\RightKit\QA\<uuid>`, `InteractiveToken`, `LeastPrivilege`, same account, no password), with stdout and stderr streamed back and the exit code propagated. The task, its files and a still-running journey are always cleaned up (success, error, timeout, unwind). Without the opt-in a session-0 run keeps failing with the existing clear error. Refuses when the console user is a different account. Pure parts (decision, quoting, task XML, exit-code parsing, env selection) are unit-tested; not built or run locally, CI is the compiler. README, Windows section.
+
+## 0.6.1
+
+Not built or run locally; CI is the compiler. Fixes Orthic-Labs/rightkit#106 (journeys cannot find the dev build the broker produced). The Unreleased entry above (#111) ships in the same patch.
+
+- **New `binary` module: `resolve`, `BinaryQuery`, `BinarySource`, `ResolvedBinary`, `validate`.** Finds the app's dev executable in this order and reports which source won: (1) env `RIGHTKIT_QA_APP_BINARY`, then `RIGHTKIT_QA_UI_BINARY`, then the app's own `ui.binary_env`; (2) a gitignored pointer file under the app root (`.rightkit-qa-app-binary`, or `ui.pointer_file`); (3) the newest dev-profile (`release-iterate`, `debug`, `dev`) `<bin>[.exe]` under the build broker's target root, matched to the app by `ws/<key>/identity.json` `canonicalRoot`; (4) the existing `ui.binaries` path. A set override or pointer that is invalid is an error, not a fall-through. Every candidate must exist, be a file, be named `<bin>` or `<bin>.exe` and not sit in a `release` directory; a release-tier artifact is never picked.
+- The broker's receipts (`receipts/<id>.json`) hold only freshness counts, not artifact paths, so the lookup reads the workspace target tree instead (`g/<gen>/<t|target>/[<triple>/]<profile>/`).
+- **QA-build check.** Every resolved candidate must contain `RIGHTKIT-QA-CONTROL-SERVER-PRESENT` (Latin-1 or UTF-16LE; `binary::has_qa_marker`, streamed). Broker and app-root candidates without it are skipped with a reason; an env or pointer value without it is an error; if nothing qualifies the error reads "found <path> but it isn't a test-mode/control build; run the suite with --build-ui or build with the app's QA feature".
+- **`--build-ui` keeps a stable copy** (`binary::stash_qa_build`): the built executable (plus a sibling `.pdb`) goes to `<app root>/.rightkit-qa-bin/<triple-or-host>/<name>` by temp file and rename, and `.rightkit-qa-app-binary` under the app root is rewritten to point at it. A later plain dev build cannot displace it. Git-ignore both paths in the app.
+- `QaConfig::resolve_ui_binary` (and `resolve_ui_binary_with` for an injected broker root and env); new optional `[ui]` keys `bin`, `workspace_root`, `pointer_file`, `binary_env`. The suite runner uses the resolver when no `--ui-binary`, `RIGHTKIT_QA_UI_BINARY` or `--build-ui` is given, and prints the winning source.
+
 ## 0.6.0
 
 The embedded QA control server moves here from `rightkit-qa-driver`, and this crate no longer depends on `rightkit-qa-driver`. Not built or run locally; CI is the compiler. Needs `rightkit-automation` 0.4.0 published first.

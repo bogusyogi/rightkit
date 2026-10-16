@@ -24,6 +24,12 @@
 //! window_label = "main"
 //! mode = "hidden"
 //! feature = "qa-native"
+//! # Finding the dev build (`QaConfig::resolve_ui_binary`, see `binary`): env RIGHTKIT_QA_APP_BINARY,
+//! # then `ui.binary_env`, then the pointer file, then the broker's target root, then `binaries`.
+//! # bin = "genright"                     # default: package, else the `binaries` file stem
+//! # workspace_root = "src-tauri"         # cargo workspace the broker built, relative to app_root
+//! # pointer_file = ".rightkit-qa-app-binary"
+//! # binary_env = "GENRIGHT_APP_BINARY"
 //! ```
 use crate::util::{err, platform, require_text, Error, Result};
 use serde::Deserialize;
@@ -91,6 +97,16 @@ pub struct UiConfig {
     pub cargo_toml: Option<String>,
     pub package_json: Option<String>,
     pub startup_timeout_s: Option<u64>,
+    /// Executable name to look for in the broker target root (default: `package`, else the stem of
+    /// the `binaries` entry).
+    pub bin: Option<String>,
+    /// Cargo workspace root, relative to app_root, that the broker built (default: `src-tauri`
+    /// when it exists, and app_root itself).
+    pub workspace_root: Option<String>,
+    /// Pointer file under app_root holding the executable path (default `.rightkit-qa-app-binary`).
+    pub pointer_file: Option<String>,
+    /// The app's own env var for the executable (checked after `RIGHTKIT_QA_APP_BINARY`).
+    pub binary_env: Option<String>,
 }
 
 impl Default for UiConfig {
@@ -107,6 +123,10 @@ impl Default for UiConfig {
             cargo_toml: None,
             package_json: None,
             startup_timeout_s: None,
+            bin: None,
+            workspace_root: None,
+            pointer_file: None,
+            binary_env: None,
         }
     }
 }
@@ -234,6 +254,50 @@ impl QaConfig {
             .for_current()?
             .map(|p| self.app_root.join(p)))
     }
+
+    /// The dev executable for this app: env override, pointer file, the broker's target root, then
+    /// the `ui.binaries` path. See [`crate::binary`]. Errors when none of them holds a valid file.
+    pub fn resolve_ui_binary(&self) -> Result<crate::binary::ResolvedBinary> {
+        self.resolve_ui_binary_with(
+            Some(crate::binary::broker_root_of(&crate::storage::managed_root(None))),
+            &|k| std::env::var(k).ok(),
+        )
+    }
+
+    /// [`Self::resolve_ui_binary`] with the broker root and env supplied (tests, odd layouts).
+    pub fn resolve_ui_binary_with(
+        &self,
+        broker_root: Option<PathBuf>,
+        env: &dyn Fn(&str) -> Option<String>,
+    ) -> Result<crate::binary::ResolvedBinary> {
+        let rel = self.ui.binaries.for_current()?;
+        let bin = self
+            .ui
+            .bin
+            .clone()
+            .or_else(|| self.ui.package.clone())
+            .or_else(|| {
+                rel.and_then(|r| Path::new(r).file_stem())
+                    .map(|s| s.to_string_lossy().into_owned())
+            });
+        let Some(bin) = bin else {
+            return err("set [ui].bin, [ui].package or [ui].binaries to name the executable");
+        };
+        let workspace_roots = match &self.ui.workspace_root {
+            Some(w) => vec![self.app_root.join(w)],
+            None => vec![self.app_root.join("src-tauri"), self.app_root.clone()],
+        };
+        crate::binary::resolve(&crate::binary::BinaryQuery {
+            bin: &bin,
+            app_root: &self.app_root,
+            workspace_roots,
+            broker_root,
+            extra_env: self.ui.binary_env.as_deref(),
+            pointer_file: self.ui.pointer_file.as_deref(),
+            app_relative: rel,
+            env,
+        })
+    }
 }
 
 pub fn validate_tier_list(list: &str) -> Result<()> {
@@ -272,6 +336,29 @@ mode = "background"
         );
         assert_eq!(c.ui.binaries.darwin.as_deref(), Some("a"));
         assert_eq!(c.default_tier, "fast");
+    }
+
+    #[test]
+    fn resolves_ui_binary_from_config_without_the_real_broker() {
+        let base = std::env::temp_dir().join(format!("rkqa-cfg-{}", crate::util::new_id()));
+        let exe = if cfg!(windows) { "myapp.exe" } else { "myapp" };
+        let built = base.join("target/debug").join(exe);
+        std::fs::create_dir_all(built.parent().unwrap()).unwrap();
+        std::fs::write(&built, b"x").unwrap();
+        let toml = format!(
+            "app = \"myapp\"
+[ui]
+binaries = {{ macos = \"target/debug/{exe}\", windows = \"target/debug/{exe}\" }}
+"
+        );
+        let c = QaConfig::parse(&toml, &base.join("rightkit-qa.toml")).unwrap();
+        let none = |_: &str| None;
+        let got = c.resolve_ui_binary_with(None, &none).unwrap();
+        assert_eq!(got.source, crate::binary::BinarySource::AppRoot);
+        assert!(got.path.ends_with(exe));
+        let env = |k: &str| (k == "RIGHTKIT_QA_APP_BINARY").then(|| built.to_string_lossy().into_owned());
+        let got = c.resolve_ui_binary_with(None, &env).unwrap();
+        assert!(matches!(got.source, crate::binary::BinarySource::Env(_)));
     }
 
     #[test]

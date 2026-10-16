@@ -28,6 +28,7 @@
 //! (BS.1770 integrated loudness, range, true peak), pure Rust except where a compressed
 //! container needs a caller-supplied ffmpeg. [`mock::MockServer`] stands in for paid providers.
 pub mod audio;
+pub mod binary;
 #[cfg(feature = "browser")]
 pub mod browser;
 pub mod check;
@@ -45,6 +46,8 @@ pub mod http;
 /// Tier-2 `InApp` client for the embedded control server (`control` feature only).
 #[cfg(feature = "control")]
 pub mod in_app;
+/// Run a journey in the logged-on user's interactive session from a session-0 (SSH) process.
+pub mod interactive;
 pub mod lock;
 pub mod loudness;
 pub mod media;
