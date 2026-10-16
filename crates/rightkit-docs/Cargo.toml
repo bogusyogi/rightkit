@@ -1,0 +1,47 @@
+[package]
+name = "rightkit-docs"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.98.0"
+license = "MIT OR Apache-2.0"
+description = "Product-neutral DOCX, XLSX and PDF read and write: format detection from content, typed reads with caps, typed write ops through an atomic writer, honest loss receipts, hardened against hostile files"
+readme = "README.md"
+repository = "https://github.com/Orthic-Labs/rightkit"
+keywords = ["docx", "xlsx", "pdf", "office", "document"]
+categories = ["parser-implementations", "filesystem"]
+include = [
+  "src/**",
+  "tests/**",
+  "BAKEOFF.md",
+  "Cargo.toml",
+  "README.md",
+  "CHANGELOG.md",
+  "LICENSE-MIT",
+  "LICENSE-APACHE",
+]
+
+[dependencies]
+# PDF read and edit are rightkit-pdf's; this crate is the one-shot facade over it.
+rightkit-pdf = { version = "0.3.0", path = "../rightkit-pdf", default-features = false, features = ["edit", "merge", "extract"] }
+lopdf = { version = "0.44.0", default-features = false, features = ["rayon"] }
+# The one writer behind every write (temp sibling, flush, rename, directory sync).
+rightkit-fs = { version = "0.4.0", path = "../rightkit-fs", default-features = false, features = ["fs"] }
+# XLSX read (typed cells, cached formula results) and XLSX create. Both pull zip 8.x.
+calamine = "0.36.1"
+rust_xlsxwriter = "0.99.1"
+# Package layer and in-place part edits. Same zip line as calamine and rust_xlsxwriter so one copy links.
+zip = { version = "8.6.0", default-features = false, features = ["deflate"] }
+# Same quick-xml line as calamine.
+quick-xml = "0.41.0"
+serde = { version = "1.0.228", features = ["derive"] }
+thiserror = "2.0.20"
+sha2 = "0.11.0"
+
+[dev-dependencies]
+serde_json = "1.0.150"
+# Fault seam around the replace call (debug and test builds only).
+rightkit-fs = { version = "0.4.0", path = "../rightkit-fs", default-features = false, features = ["fs", "testing"] }
+
+[package.metadata.rightkit]
+continuous = false
+continuous_reason = "pure computation bounded per call: parse or rewrite one caller-supplied file under explicit size, entry, ratio and cell caps; no thread-spawn, task-spawn, sleep, timer, listener or watcher in non-test src; the only process-wide state is rightkit-pdf's shared font catalog, built once on first PDF text replace or add"

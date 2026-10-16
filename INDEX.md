@@ -8,11 +8,11 @@ Version columns: **Source** is the manifest version. **Published** is the latest
 
 Flags: `ok` means source, published and staged agree. `staged, not yet published` is in-flight work. `private` has no registry record by design. `MISMATCH` needs a release decision.
 
-Flagged mismatches: 3.
+Flagged mismatches: 4.
 
 The build broker is the Rust RustRight product (`bogusyogi/rustright`, binary `rustright`, alias `rightkit`); it is not part of this inventory. `packages/build-control-policy` keeps the agent permission hooks.
 
-## Rust crates (55)
+## Rust crates (56)
 
 | Crate | Registry | Source | Published | Staged | Flag | Owns | What it is |
 |---|---|---|---|---|---|---|---|
@@ -22,7 +22,7 @@ The build broker is the Rust RustRight product (`bogusyogi/rustright`, binary `r
 | `rightkit-app-settings` | crates.io | 0.2.0 | 0.2.0 | 0.2.0 | ok | settings-persistence | Versioned per-app settings persistence: migrations, typed defaults, atomic writes, corruption recovery, change events. |
 | `rightkit-asr` | crates.io | 0.2.1 | 0.2.1 | 0.2.1 | ok | speech-recognition | Parakeet ONNX + Whisper (CoreML / whisper.cpp) speech decoding runtime for Right Suite applications |
 | `rightkit-audio` | crates.io | 0.2.3 | 0.2.3 | 0.2.3 | ok | audio | Shared audio for Right Suite apps: typed FFmpeg filter graphs, loudness gates, room tone, ducking, WAV I/O, and cpal capture with resample/downmix/recovery. |
-| `rightkit-automation` | crates.io | 0.3.0 | 0.3.0 | 0.3.0 | ok | desktop-automation | Brand-neutral desktop automation: observe and act on any app (macOS AX, Windows UIA) through a four-tier input ladder with safety, focus guard, and evidence receipts. |
+| `rightkit-automation` | crates.io | 0.4.0 | 0.4.0 | 0.4.0 | ok | desktop-automation | Brand-neutral desktop automation: observe and act on any app (macOS AX, Windows UIA) through a four-tier input ladder with safety, focus guard, and evidence receipts. |
 | `rightkit-browser` | crates.io | 0.3.1 | 0.3.1 | 0.3.1 | ok | browser-automation | Shared Chrome DevTools Protocol browser runtime for Right Suite: multi-page sessions, named profiles, real CDP input, observations with stale-ref checks. |
 | `rightkit-cache` | crates.io | 0.2.0 | 0.2.0 | 0.2.0 | ok | disk-cache | Disk cache primitive with a hard size cap, LRU eviction that survives restarts, atomic writes and group invalidation, plus stable-prefix prompt-cache keys. |
 | `rightkit-channel-memory` | crates.io | 0.1.0 | 0.1.0 | 0.1.0 | ok | channel-memory | Channel memory for the content pipeline: the channel-memory.v1 schema with serde types, validation, version gate, proof citation rules, and scope checks for PostRight P3 and GenRight G7. |
@@ -34,11 +34,12 @@ The build broker is the Rust RustRight product (`bogusyogi/rustright`, binary `r
 | `rightkit-daemon` | crates.io | 0.2.3 | 0.2.3 | 0.2.3 | ok | local-services | One discovery/auth convention for Right Suite local services: service.json, ranking and takeover, current-user-only Unix socket / named pipe, per-app request allowlist. |
 | `rightkit-db` | crates.io | 0.4.0 | 0.4.0 | 0.4.0 | ok | sqlite-storage | Correct-by-default SQLite and SQLCipher connection bootstrap for Right Suite apps. |
 | `rightkit-device` | crates.io | 0.1.3 | 0.1.3 | 0.1.3 | ok | tauri-host-adapters | Native host services for Right Suite Tauri license and device adapters. |
-| `rightkit-embed` | crates.io | 0.4.0 | 0.4.0 | 0.4.0 | ok | embeddings | Product-neutral local text embeddings and persistent cosine vector store. |
+| `rightkit-docs` | crates.io | 0.1.0 | none recorded |  | **MISMATCH public package has no release record** | document, document-io, docx, spreadsheet, xlsx | Product-neutral DOCX, XLSX and PDF read and write: format detection from content, typed reads with caps, typed write ops through an atomic writer, honest loss receipts, hardened against hostile files |
+| `rightkit-embed` | crates.io | 0.5.0 | 0.5.0 | 0.5.0 | ok | embeddings | Product-neutral local text embeddings and persistent cosine vector store. |
 | `rightkit-ffmpeg` | crates.io | 0.2.6 | 0.2.6 | 0.2.6 | ok | media-pipelines | Verified FFmpeg artifact and lifecycle primitives for Right Suite media pipelines. |
 | `rightkit-file-watch` | crates.io | 0.4.0 | 0.4.0 | 0.4.0 | ok | file-watching | Filesystem watching for Right Suite apps: ref-counted async subscribers, debounced file-set and directory watchers, and rename-storm coalescing. |
 | `rightkit-fs` | crates.io | 0.4.0 | 0.4.0 | 0.4.0 | ok | safe-filesystem | Safe state directories, atomic writes, cross-process locks, owner-only files, and stable file identity for Right Suite apps. |
-| `rightkit-fsindex` | crates.io | 0.2.1 | 0.2.1 | 0.2.1 | ok | file-index | Live whole-disk file index: fuzzy name search plus clone- and hard-link-aware folder size rollups on memory-mapped columns |
+| `rightkit-fsindex` | crates.io | 0.3.0 | 0.3.0 | 0.3.0 | ok | file-index | Live whole-disk file index: fuzzy name search plus clone- and hard-link-aware folder size rollups on memory-mapped columns |
 | `rightkit-hotkeys` | crates.io | 0.1.0 | 0.1.0 | 0.1.0 | ok | global-hotkeys | Global shortcuts and low-level input hooks for Right Suite apps: chord parsing, conflict detection, CGEventTap/WH_KEYBOARD_LL primitives, push-to-talk state. |
 | `rightkit-http` | crates.io | 0.3.0 | 0.3.0 | 0.3.0 | ok | http-client | Brand-neutral blocking HTTP client for Right Suite apps: timeouts, retry/backoff with Retry-After, SSE streaming, multipart bodies, redacted secrets, and untrusted web-text wrapping. |
 | `rightkit-job-queue` | crates.io | 0.3.1 | 0.3.1 | 0.3.1 | ok | persistent-jobs | Persistent job store, runner, and stdio/CLI command contract for Right Suite engines. |
@@ -46,17 +47,17 @@ The build broker is the Rust RustRight product (`bogusyogi/rustright`, binary `r
 | `rightkit-llm` | crates.io | 0.2.1 | 0.2.1 | 0.2.1 | ok | llm-providers | Brand-neutral BYOK LLM clients: Anthropic Messages and OpenAI-compatible chat, streaming, tool use, route failover with circuit breaker, pricing, and prompt-cache discipline, plus an opt-in provider for installed command-line assistants. |
 | `rightkit-logs` | crates.io | 0.3.0 | 0.3.0 | 0.3.0 | ok | structured-logging | Privacy-safe local JSONL logging and diagnostics for Right Suite desktop apps. |
 | `rightkit-mcp` | crates.io | 0.6.0 | 0.5.3 | 0.5.3 | **MISMATCH staged 0.5.3 != source 0.6.0** | mcp | Shared MCP client (stdio + streamable HTTP, trust gate, pool, OAuth hook) and server host (stdio + loopback HTTP, per-tool admission) for Right Suite apps. |
-| `rightkit-models` | crates.io | 0.3.2 | 0.3.2 | 0.3.2 | ok | model-installation | Shared local-model manifest and installer for Right Suite apps: revisions and quantizations, resumable verified downloads, archive extraction, atomic activation, rollback, and hardware fit. |
+| `rightkit-models` | crates.io | 0.4.0 | 0.3.2 | 0.3.2 | **MISMATCH staged 0.3.2 != source 0.4.0** | model-installation | Shared local-model manifest and installer for Right Suite apps: revisions and quantizations, resumable verified downloads, archive extraction, atomic activation, rollback, and hardware fit. |
 | `rightkit-oauth` | crates.io | 0.5.0 | 0.5.0 | 0.5.0 | ok | oauth-sign-in | Shared OAuth 2.0 sign-in for Right Suite apps: loopback PKCE, RFC 8628 device flow, provider presets, encrypted daemon persistence, and stored, refreshing credentials. |
 | `rightkit-ocr` | crates.io | 0.2.2 | 0.2.2 | 0.2.2 | ok | ocr | Product-neutral OCR: Apple Vision / Windows.Media.Ocr native backends with per-line geometry, isolated worker, and verified two-stage ONNX fallback |
 | `rightkit-onnx` | crates.io | 0.2.3 | 0.2.3 | 0.2.3 | ok | onnx-runtime | Product-neutral ONNX Runtime dynamic-library resolution, environment, execution-provider and session setup (single suite ort pin) |
 | `rightkit-overlay` | crates.io | 0.1.1 | 0.1.1 | 0.1.1 | ok | desktop-overlay | Shared overlay state, hit testing, and placement policy for Right Suite apps |
 | `rightkit-ownership` | crates.io | 0.2.1 | 0.2.1 | 0.2.1 | ok | ownership-scanner | RightKit ownership scanner, verdict and admission: the single Rust implementation the RustRight broker links. |
-| `rightkit-pdf` | crates.io | 0.3.0 | 0.3.0 | 0.3.0 | ok | pdf-engine | Product-neutral PDF engine: inspect, compose (source-text replace / add text / OCR correction), font subsetting, staged atomic save, plus optional page merge/select and text extraction |
+| `rightkit-pdf` | crates.io | 0.3.0 | 0.3.0 | 0.3.0 | ok | pdf, pdf-engine | Product-neutral PDF engine: inspect, compose (source-text replace / add text / OCR correction), font subsetting, staged atomic save, plus optional page merge/select and text extraction |
 | `rightkit-playback` | crates.io | 0.2.1 | 0.2.1 | 0.2.1 | ok | media-playback | Source-preserving FFmpeg compatibility playback preparation for Right Suite media apps. |
-| `rightkit-qa` | crates.io | 0.4.0 | 0.4.0 | 0.4.0 | ok | desktop-qa | Rust QA harness for Right Suite apps: engine black-box scenarios, hidden native UI driving through rightkit-qa-driver, Rust-test scenario wrapper, dynamic paid-provider mocks, loudness/WAV/PNG/frame validators, run lock, orphan sweep, hashed evidence. |
-| `rightkit-qa-driver` | crates.io | 0.4.0 | 0.4.0 | 0.4.0 | ok | desktop-control | Background native input, accessibility reads, and a WebDriver bridge for driving real desktop apps without stealing focus. |
-| `rightkit-record` | crates.io | 0.3.0 | none recorded |  | **MISMATCH public package has no release record** | screen-recording | Per-window screen capture for any app, chosen by window id and pid: ScreenCaptureKit on macOS, Windows.Graphics.Capture on Windows. Record lifecycle, session bundles, redaction, verification and frame reader. Never sends input; needs Screen Recording permission. |
+| `rightkit-qa` | crates.io | 0.6.0 | 0.6.0 | 0.6.0 | ok | desktop-qa | Rust QA harness for Right Suite apps: engine black-box scenarios, hidden native UI driving (the in-app control server is the dev-only `control` feature), Rust-test scenario wrapper, dynamic paid-provider mocks, loudness/WAV/PNG/frame validators, run lock, orphan sweep, hashed evidence. |
+| `rightkit-qa-driver` | crates.io | 0.5.0 | 0.5.0 | 0.5.0 | ok | desktop-control | Deprecated shim: use rightkit-qa (`control` feature) for the in-app QA control server and rightkit-automation for background input. Keeps the old rightkit-qa-driver paths, the WebDriver bridge and the macOS CLI. |
+| `rightkit-record` | crates.io | 0.3.0 | 0.3.0 | 0.3.0 | ok | screen-recording | Per-window screen capture for any app, chosen by window id and pid: ScreenCaptureKit on macOS, Windows.Graphics.Capture on Windows. Record lifecycle, session bundles, redaction, verification and frame reader. Never sends input; needs Screen Recording permission. |
 | `rightkit-review` | crates.io | 0.2.0 | 0.2.0 | 0.2.0 | ok | content-review | Shared review capability for the content pipeline: deterministic checks over a media or text description, declared holds, a capped repair loop, an advisory judge interface, and versioned verdict records. |
 | `rightkit-sandbox` | crates.io | 0.4.0 | 0.4.0 | 0.4.0 | ok | os-sandbox | Shared OS sandbox, PTY lease, process-tree, and reserve-before-spawn resource authority for Right Suite apps. |
 | `rightkit-search` | crates.io | 0.2.1 | 0.2.1 | 0.2.1 | ok | search | Product-neutral search query language: lexer, AST, operator values, SQL/FTS5 predicate compiler, snippets, and an in-memory filename index. |
@@ -94,8 +95,8 @@ The build broker is the Rust RustRight product (`bogusyogi/rustright`, binary `r
 | `@rightkit/platform-ui` | npm | 0.2.8 | 0.2.8 | 0.2.8 | ok |  | platform-ui | Brand-neutral platform, shortcut, and window-control primitives for Right Suite apps. |
 | `@rightkit/qa` | npm | 0.4.8 | 0.4.8 | 0.4.8 | ok |  | qa-evidence | Shared QA evidence, ownership, browser helpers, and release-backdoor guards for Right Suite apps. |
 | `@rightkit/qa-chrome` | npm | 0.1.6 | 0.1.6 | 0.1.6 | ok | rightkit-qa-chrome | browser-qa | Zero-dependency Chrome for Testing resolver, launcher and graceful close for Right Suite QA harnesses. |
-| `@rightkit/react-shell` | npm | 0.6.4 | 0.6.4 | 0.6.4 | ok |  | app-shell-ui | Brand-neutral React frame for Right Suite desktop apps: optional fused sidebar+titlebar layout with slots, command palette, shortcut registry/help, toasts, modals, context menus, ui kit, theme hooks. |
-| `@rightkit/release` | npm | 0.2.163 | 0.2.162 | 0.2.162 | **MISMATCH staged 0.2.162 != source 0.2.163** | right-release | release-tooling | Portable release CLI/SDK with fail-closed public GitHub Releases and private R2 + RightApps distribution. |
+| `@rightkit/react-shell` | npm | 0.6.5 | 0.6.4 | 0.6.4 | **MISMATCH staged 0.6.4 != source 0.6.5** |  | app-shell-ui | Brand-neutral React frame for Right Suite desktop apps: optional fused sidebar+titlebar layout with slots, command palette, shortcut registry/help, toasts, modals, context menus, ui kit, theme hooks. |
+| `@rightkit/release` | npm | 0.2.165 | 0.2.165 | 0.2.165 | ok | right-release | release-tooling | Portable release CLI/SDK with fail-closed public GitHub Releases and private R2 + RightApps distribution. |
 | `@rightkit/settings-ui` | npm | 0.4.4 | 0.4.4 | 0.4.4 | ok |  | settings-ui | Settings panel frame, search and standard sections (appearance, updates, license, legal, diagnostics, models, API keys, about) persisted through rightkit-app-settings. The panel shell and primitives (/core) need only React. |
 | `@rightkit/tauri` | npm | 0.2.1 | 0.2.1 | 0.2.1 | ok |  | tauri-host-adapters | Typed host adapters for shared Right Suite Tauri commands. |
 | `@rightkit/tauri-shell` | npm | 0.1.1 | 0.1.1 | 0.1.1 | ok |  | desktop-shell | Typed renderer bridge for the rightkit-tauri-shell Tauri crate: window controls, menu/tray events, deep links, autostart, rich clipboard, engine calls. |
