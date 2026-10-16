@@ -41,6 +41,7 @@ const ALWAYS_DENIED: &[&str] = &[
 #[derive(Default)]
 pub struct Policy {
     allowed: Mutex<HashSet<String>>,
+    denied: Mutex<HashSet<String>>,
     self_pid: Mutex<Option<i32>>,
 }
 
@@ -54,8 +55,17 @@ impl Policy {
                     .map(|s| s.into().to_ascii_lowercase())
                     .collect(),
             ),
+            denied: Mutex::new(HashSet::new()),
             self_pid: Mutex::new(None),
         }
+    }
+    /// Refuse this app id even when it is on the allow list. Evaluated before the
+    /// allow list in [`Policy::check`], so a deny always wins.
+    pub fn deny(&self, app_id: &str) {
+        self.denied
+            .lock()
+            .unwrap()
+            .insert(app_id.to_ascii_lowercase());
     }
     pub fn allow(&self, app_id: &str) {
         self.allowed
@@ -88,6 +98,12 @@ impl Policy {
         }
         if *self.self_pid.lock().unwrap() == Some(app.pid) {
             return Err(Error::Blocked("refusing to drive the host process".into()));
+        }
+        if self.denied.lock().unwrap().contains(&id) {
+            return Err(Error::Blocked(format!(
+                "{} is denied by policy",
+                app.app_id
+            )));
         }
         if self.allowed.lock().unwrap().contains(&id) {
             Ok(())
@@ -441,6 +457,23 @@ mod tests {
         assert!(p.check(&app("com.apple.TextEdit", 9)).is_ok());
         p.revoke("com.apple.TextEdit");
         assert!(p.check(&app("com.apple.TextEdit", 9)).is_err());
+    }
+
+    #[test]
+    fn denied_id_is_refused_even_when_allowed() {
+        let p = Policy::new(["com.apple.TextEdit", "com.test.Other"]);
+        p.deny("com.apple.textedit");
+        assert!(
+            matches!(
+                p.check(&app("com.apple.TextEdit", 1)),
+                Err(Error::Blocked(_))
+            ),
+            "deny beats the allow list, case-insensitively"
+        );
+        assert!(
+            p.check(&app("com.test.Other", 2)).is_ok(),
+            "other allowed ids stay allowed"
+        );
     }
 
     #[test]
