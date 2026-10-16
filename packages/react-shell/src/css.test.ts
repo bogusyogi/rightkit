@@ -182,7 +182,7 @@ describe("shell.css split", () => {
   });
 
   it("package version, exports and files list the new stylesheets", () => {
-    expect(pkg.version).toBe("0.6.5");
+    expect(pkg.version).toBe("0.6.6");
     for (const name of ["shell.css", "shell.layered.css", "shell.structure.css", "shell.visual.css", "suite-aliases.css"]) {
       expect(pkg.exports[`./${name}`]).toBe(`./${name}`);
       expect(pkg.files).toContain(name);

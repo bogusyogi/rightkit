@@ -70,6 +70,7 @@ export function CommandPalette({ commands, onClose, registry, labels: labelOverr
   const [query, setQuery] = useState("");
   const [selection, setSelection] = useState<PaletteSelection>(initialPaletteSelection);
   const { closing, close } = useModalDismiss(onClose, { escape: false });
+  const committedRef = useRef(false);
   const dialogRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const id = useId();
@@ -88,7 +89,10 @@ export function CommandPalette({ commands, onClose, registry, labels: labelOverr
   }, [sel, id]);
 
   const run = (command?: Command) => {
-    if (!command) return;
+    // Once a command has committed (or the palette is closing), further Enter and click input is ignored
+    // until the palette is reopened. The ref is synchronous, so two keydowns in one frame cannot both run.
+    if (!command || closing || committedRef.current) return;
+    committedRef.current = true;
     close();
     // The timer is deliberately not cleared on unmount: the usual host unmounts the palette from onClose
     // and the chosen command must still run.
@@ -133,6 +137,11 @@ export function CommandPalette({ commands, onClose, registry, labels: labelOverr
               setSelection(initialPaletteSelection);
             }}
             onKeyDown={(e) => {
+              if (closing || committedRef.current) {
+                // Exit animation or a command already chosen: no selection moves, no second run.
+                e.preventDefault();
+                return;
+              }
               if (e.key === "ArrowDown" || e.key === "ArrowUp") {
                 e.preventDefault();
                 setSelection(selectByKeyboard({ ...selection, active: sel }, e.key === "ArrowDown" ? "down" : "up", ordered.length));

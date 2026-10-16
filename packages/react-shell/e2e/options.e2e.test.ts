@@ -405,6 +405,17 @@ describe.skipIf(!chrome)("opt-in options in real headless Chrome", () => {
       await page.waitFor("document.getElementById('log').textContent.includes('cmd:theme')", 1000);
     });
 
+    it("a second Enter during the exit animation does not run the command again (#94)", async () => {
+      await open("demo=palette&delay=400");
+      await page.waitFor("document.activeElement === document.querySelector('input[role=combobox]')");
+      await page.type("theme");
+      await page.press("Enter");
+      await page.press("Enter");
+      await page.sleep(700);
+      expect(((await log()).match(/cmd:theme/g) ?? []).length).toBe(1);
+      expect(await count("#closed")).toBe(1);
+    });
+
     it("rank replaces the built-in filtering; rankCommands is the built-in", async () => {
       await open("demo=palette&rank=only-theme");
       expect(await page.eval<string[]>("[...document.querySelectorAll('[role=option]')].map((o) => o.dataset.command)")).toEqual(["theme"]);
