@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { access, readFile, readdir } from "node:fs/promises";
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, realpathSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { spawn, spawnSync } from "./background-process.mjs";
@@ -29,6 +29,8 @@ import { verifyNsisEmbeddedBinary } from "./nsis-payload.mjs";
 import { terminateProcessTree } from "./heavy-command.mjs";
 import { materializeHardeningEvidence } from "./hardening-evidence.mjs";
 import { signingReceiptPath } from "./signing-receipts.mjs";
+import { MEDIA_SIDECAR_OFFER_NAME, MEDIA_SIDECAR_RECEIPT_NAME, buildMediaSidecarReceipt, macSidecarSigningProblems, mediaSidecarNestedCode, planMediaSidecar, sidecarFileEvidence, validateMediaSidecarConfig, verifyStagedSidecars, writeMediaSidecarNotices } from "./media-sidecar.mjs";
+import { loadSidecarCatalog } from "./media-sidecar-catalog.mjs";
 import { notarizeAppBundle, validateNotarizationReceipt } from "./macos-notarization.mjs";
 import { MACOS_PORTABLE_SIGNING_CONTRACT } from "./macos-signing-contract.mjs";
 import { fileEvidence } from "./macos-file-evidence.mjs";
@@ -184,6 +186,11 @@ if (target.signed !== true) {
   fail(`${config.app ?? "app"} ${opts.platform} must declare signed: true; unsigned release targets are forbidden`);
 }
 let macSigning; // validated macOS sign.prePackageFiles / sign.nestedCode (mac only)
+let mediaSidecarConfig = null; // validated targets.<mac|win>.mediaSidecar (rightkit-ffmpeg decode sidecar)
+if (target.mediaSidecar !== undefined) {
+  if (opts.platform !== "mac" && opts.platform !== "win") fail(`${config.app ?? "app"} ${opts.platform} does not support mediaSidecar (mac and win only)`);
+  try { mediaSidecarConfig = validateMediaSidecarConfig(target.mediaSidecar, { platform: opts.platform }); } catch (error) { fail(`${config.app ?? "app"} ${opts.platform} ${error.message}`); }
+}
 if (opts.platform === "win") {
   const isNsis = target.signingContract === WINDOWS_NSIS_SIGNING_CONTRACT;
   const isPortable = target.signingContract === WINDOWS_PORTABLE_SIGNING_CONTRACT;
@@ -205,7 +212,10 @@ if (opts.platform === "mac") {
   if (target.signingContract !== MACOS_PORTABLE_SIGNING_CONTRACT) fail(`${config.app ?? "app"} mac must declare signingContract: ${MACOS_PORTABLE_SIGNING_CONTRACT}`);
   if (!target.prePackage?.cmd) fail(`${config.app ?? "app"} mac must declare prePackage to materialize Developer ID signing files`);
   if (!target.sign?.prePackageFiles?.length) fail(`${config.app ?? "app"} mac must declare at least one sign.prePackageFiles`);
-  try { macSigning = validateMacSigningConfig(target.sign, { root }); } catch (error) { fail(`${config.app ?? "app"} mac ${error.message}`); }
+  const macSignConfig = mediaSidecarConfig
+    ? { ...target.sign, nestedCode: { ...mediaSidecarNestedCode(mediaSidecarConfig), ...(target.sign.nestedCode ?? {}) } }
+    : target.sign;
+  try { macSigning = validateMacSigningConfig(macSignConfig, { root }); } catch (error) { fail(`${config.app ?? "app"} mac ${error.message}`); }
   if (!target.notarize?.file) fail(`${config.app ?? "app"} mac must declare notarize.file`);
   if (target.notarize.appBeforePackage && !target.notarize.app) fail(`${config.app ?? "app"} mac notarize.appBeforePackage requires notarize.app`);
   if (target.notarize.staple === false && (target.notarize.app || /\.(dmg|pkg)$/i.test(target.notarize.file))) {
@@ -409,8 +419,12 @@ if (opts.platform === "win" && target.signingContract === MSIX_SIGNING_CONTRACT)
   if (!built.dryRun) assertNoQaControlBinaries("msix package", [options.out], { requireBinary: true });
 } else if (opts.platform === "win") {
   const rawFiles = target.sign.prePackageFiles.map((p) => path.resolve(root, p));
+  const sidecarPlan = await prepareMediaSidecar(root);
   await runCommand(target.prePackage, root);
   for (const file of rawFiles) await mustExist(file, `missing raw EXE signing artifact: ${file}`);
+  const sidecarPre = sidecarPlan && !opts.dryRun ? verifyStagedSidecars(sidecarPlan) : [];
+  const sidecarFiles = sidecarPre.map((file) => file.stagedPath);
+  assertNoQaControlBinaries("windows media sidecar", sidecarFiles, { prePack: true });
   // Before signing and packaging: the raw EXE is uncompressed, so a QA control server is visible here.
   assertNoQaControlBinaries("windows raw EXE", rawFiles, { requireBinary: true, prePack: true });
   // The marker must reach its FINAL value before signing. Tauri rewrites it during
@@ -422,7 +436,11 @@ if (opts.platform === "win" && target.signingContract === MSIX_SIGNING_CONTRACT)
   for (const receipt of bundleMarkerReceipts) {
     console.log(`right-release: bundle marker ${receipt.bundle} ${receipt.alreadyPatched ? "already applied" : "applied"} at offset ${receipt.offset} in ${path.basename(receipt.file)}`);
   }
-  await signWindows(rawFiles, "raw-exe", root);
+  await signWindows([...rawFiles, ...sidecarFiles], "raw-exe", root);
+  if (sidecarPlan && !opts.dryRun) {
+    const signed = Object.fromEntries(sidecarPre.map((file) => [file.tool, sidecarFileEvidence(file.stagedPath)]));
+    writeMediaSidecarReceipt(root, buildMediaSidecarReceipt(sidecarPlan, sidecarPre, signed));
+  }
   if (nativeAssembly?.packageHook && !hasNativeTargetSpecificPrePackage(target, nativeAssembly.packageHook)) {
     await runCommand(nativeAssembly.packageHook, root);
   }
@@ -436,6 +454,7 @@ if (opts.platform === "win" && target.signingContract === MSIX_SIGNING_CONTRACT)
     });
   }
 } else if (opts.platform === "mac") {
+  const sidecarPlan = await prepareMediaSidecar(root, { stage: runMacPhase("prepackage") });
   if (runMacPhase("prepackage")) await runCommand(target.prePackage, root);
   // Resolve after prePackage: with storage governance the artifact may live only in RIGHT_RELEASE_ARTIFACT_DIR.
   const signingEntries = macSigning.entries.map((entry) => ({ ...entry, file: resolveReleaseArtifactPath(root, entry.file) }));
@@ -449,6 +468,11 @@ if (opts.platform === "win" && target.signingContract === MSIX_SIGNING_CONTRACT)
   }
   if (runMacPhase("sign")) {
     await signMacos(signingEntries, root, "signing", macSigning.nestedCode);
+    if (sidecarPlan && !opts.dryRun) {
+      const app = signingEntries.find((entry) => /\.app\/?$/.test(entry.file));
+      if (!app) fail("mediaSidecar on macOS needs an .app entry in sign.prePackageFiles");
+      writeMediaSidecarReceipt(root, finishMacSidecar(sidecarPlan, app.file, root));
+    }
     // Opt-in (notarize.appBeforePackage): staple the .app itself before the package step copies it into the DMG.
     if (target.notarize.appBeforePackage) await notarizeAppBeforePackage(root);
   }
@@ -1185,6 +1209,57 @@ async function commandEnv(command, root) {
 
 function expandEnv(value) {
   return String(value).replace(/%([^%]+)%/g, (_, name) => process.env[name] ?? "");
+}
+
+// rightkit-ffmpeg decode sidecar (media-sidecar.mjs): plan from the catalog the app compiled against, write the LGPL
+// notices and the source offer, optionally run the app's stage command, and (before signing) check the staged files.
+async function prepareMediaSidecar(root, { stage = true } = {}) {
+  if (!mediaSidecarConfig) return null;
+  let plan;
+  try {
+    const loaded = loadSidecarCatalog({ config: mediaSidecarConfig, root, manifestPath: nativeLayout.manifestPath });
+    plan = planMediaSidecar({ config: mediaSidecarConfig, ...loaded, root });
+  } catch (error) { fail(`${config.app ?? "app"} ${opts.platform} mediaSidecar: [${error.code ?? "ERROR"}] ${error.message}`); }
+  console.log(`right-release: media sidecar ${plan.rows.map((row) => row.id).join(", ")}`);
+  if (opts.dryRun) {
+    console.log(`dry-run: would write ${plan.notices.length + 1} notice file(s) to ${mediaSidecarConfig.notices.dir} and expect ${plan.files.map((file) => path.basename(file.stagedPath)).join(", ")} in ${mediaSidecarConfig.stageDir}`);
+    return plan;
+  }
+  if (stage) {
+    try { writeMediaSidecarNotices(plan); } catch (error) { fail(`mediaSidecar: [${error.code ?? "ERROR"}] ${error.message}`); }
+    if (mediaSidecarConfig.stage) await runCommand(mediaSidecarConfig.stage, root);
+  }
+  return plan;
+}
+
+function finishMacSidecar(plan, appPath, root) {
+  let preSign;
+  const signed = {};
+  const checked = [];
+  try { preSign = verifyStagedSidecars(plan); } catch (error) { fail(`mediaSidecar: [${error.code ?? "ERROR"}] ${error.message}`); }
+  for (const file of plan.files) {
+    const inBundle = path.join(appPath, ...file.bundlePath.split("/"));
+    if (!existsSync(inBundle)) fail(`mediaSidecar: ${file.tool} is not inside the built app at ${file.bundlePath}; list it under Tauri externalBin`);
+    signed[file.tool] = sidecarFileEvidence(inBundle);
+    checked.push({ file: inBundle, sha256: signed[file.tool].sha256 });
+  }
+  const nestedReceipt = path.resolve(path.dirname(macosReceiptPath(root, "signing")), "macos-signing-nested.json");
+  let nested;
+  try { nested = JSON.parse(readFileSync(nestedReceipt, "utf8")); } catch { fail(`mediaSidecar: missing nested macOS signing receipt ${nestedReceipt}`); }
+  const problems = macSidecarSigningProblems(nested, checked);
+  if (problems.length) fail(`mediaSidecar: sidecar signing evidence rejected: ${problems.join("; ")}`);
+  const bundled = readdirSync(appPath, { recursive: true }).map(String);
+  if (!bundled.some((entry) => path.basename(entry) === MEDIA_SIDECAR_OFFER_NAME)) {
+    fail(`mediaSidecar: ${MEDIA_SIDECAR_OFFER_NAME} is not inside the built app; add ${mediaSidecarConfig.notices.dir} to the Tauri bundle resources`);
+  }
+  return buildMediaSidecarReceipt(plan, preSign, signed);
+}
+
+function writeMediaSidecarReceipt(root, receipt) {
+  const file = path.resolve(process.env.RIGHT_RELEASE_STATE_ROOT ?? path.join(root, ".right-release", "receipts"), MEDIA_SIDECAR_RECEIPT_NAME);
+  mkdirSync(path.dirname(file), { recursive: true });
+  writeFileSync(file, `${JSON.stringify(receipt, null, 2)}\n`);
+  console.log(`right-release: media sidecar receipt ${file}`);
 }
 
 async function signWindows(files, phase, root) {

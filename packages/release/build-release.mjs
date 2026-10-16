@@ -30,6 +30,7 @@ import { commandOutputPortable, releaseEnvironment, resolveReleaseLayout, runBui
 import { acquireCacheLease, acquireSuiteBuildSlot, applyCachePrune, assertWriteVolumeFloors, inspectCache, inspectWriteVolumes, markCacheEntrySuccessful, planCachePrune, readCachePolicy, resolveCacheLayout, resolveSharedCacheIdentity, resolveSharedCacheRoot } from "./cache-policy.mjs";
 import { createTargetBridge } from "./target-bridge.mjs";
 import { signingReceiptPath } from "./signing-receipts.mjs";
+import { MEDIA_SIDECAR_RECEIPT_NAME, validateMediaSidecarConfig, validateMediaSidecarReceipt, windowsSidecarSigningProblems } from "./media-sidecar.mjs";
 import { validateNotarizationReceipt } from "./macos-notarization.mjs";
 import { brokerManagedHost } from "./cargo-contract.mjs";
 import { ensureLegacyTargetLink, resolveReleaseCacheMode } from "./release-cache-mode.mjs";
@@ -51,7 +52,7 @@ import { ANDROID_RECEIPT_NAME, androidSealEntry, validateAndroidTarget, verifyAn
 // and test-only edits and would force a cold Rust rebuild of every app each time.
 // Cached target directories must not outlive changes to these signing helpers.
 
-const PIPELINE_FINGERPRINT_SOURCES = ["release.mjs", "sign-windows.mjs", "sign-macos.mjs", "macos-signing-session.mjs", "codesign-environment.mjs", "codesign-shim.mjs", "codesign-argv.mjs", "osascript-guard.mjs", "dmg-build.mjs", "dmg-layout.mjs", "dmg-spec.mjs", "swift-mac-dmg.mjs", "mac-bundle-signing.mjs", "mac-signing-matrix.mjs", "mac-sign-core.mjs", "macos-file-evidence.mjs", "swift-mac-app.mjs", "rightkit-signing-agent.mjs", "notarize-macos.mjs", "macos-notarization.mjs", "signing-receipts.mjs", "tauri-bundle-marker.mjs", "nsis-payload.mjs", "msix-build.mjs", "msix-plan.mjs"];
+const PIPELINE_FINGERPRINT_SOURCES = ["release.mjs", "sign-windows.mjs", "sign-macos.mjs", "macos-signing-session.mjs", "codesign-environment.mjs", "codesign-shim.mjs", "codesign-argv.mjs", "osascript-guard.mjs", "dmg-build.mjs", "dmg-layout.mjs", "dmg-spec.mjs", "swift-mac-dmg.mjs", "mac-bundle-signing.mjs", "media-sidecar.mjs", "media-sidecar-catalog.mjs", "mac-signing-matrix.mjs", "mac-sign-core.mjs", "macos-file-evidence.mjs", "swift-mac-app.mjs", "rightkit-signing-agent.mjs", "notarize-macos.mjs", "macos-notarization.mjs", "signing-receipts.mjs", "tauri-bundle-marker.mjs", "nsis-payload.mjs", "msix-build.mjs", "msix-plan.mjs"];
 const PIPELINE_FINGERPRINT = createHash("sha256")
   .update(PIPELINE_FINGERPRINT_SOURCES.map((file) => `${file}:${createHash("sha256").update(readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), file))).digest("hex")}`).join("\n"))
   .digest("hex")
@@ -426,7 +427,7 @@ try {
         });
       },
       seal: async ({ sealedDir }) => {
-        sealRelease({ configRoot: appRoot, managedCargoTarget, androidTarget, nativeLayout, sealedDir, releaseId, config, target, platform, commit, inputHashes, toolVersions, cacheKey, signingIdentity, ownershipEvidence, qaAdmission, managedRoot });
+        sealRelease({ configRoot: appRoot, managedCargoTarget, androidTarget, nativeLayout, sealedDir, releaseId, config, target, platform, commit, inputHashes, toolVersions, cacheKey, signingIdentity, ownershipEvidence, qaAdmission, managedRoot, stateRoot });
         verifySealedRelease(sealedDir);
         if (cacheMode === "shared") markCacheEntrySuccessful({ layout: sharedLayout });
         checkpoint(stateRoot, "sealed");
@@ -466,7 +467,7 @@ function sqlCipherFeatures(text) {
     .filter((value) => /sqlcipher|openssl/i.test(value));
 }
 
-function sealRelease({ configRoot, managedCargoTarget, androidTarget, nativeLayout, sealedDir, releaseId, config, target, platform, commit, inputHashes, toolVersions, cacheKey, signingIdentity, ownershipEvidence, qaAdmission, managedRoot }) {
+function sealRelease({ configRoot, managedCargoTarget, androidTarget, nativeLayout, sealedDir, releaseId, config, target, platform, commit, inputHashes, toolVersions, cacheKey, signingIdentity, ownershipEvidence, qaAdmission, managedRoot, stateRoot }) {
   // Every app's right-release.config.mjs names installer/updater artifacts
   // relative to its resolved native target. On a broker-managed host that
   // directory is never populated (the broker owns CARGO_TARGET_DIR and
@@ -524,6 +525,25 @@ function sealRelease({ configRoot, managedCargoTarget, androidTarget, nativeLayo
     try { androidReceipt = verifyAndroidReceipt(receiptPath, aabSource); } catch (error) { fail(`android AAB receipt rejected: ${error.message}`); }
     if (androidReceipt.signer?.certSha256 !== signingIdentity.uploadCertSha256) fail("android AAB receipt signer certificate is not the pinned upload certificate");
   }
+  // rightkit-ffmpeg decode sidecar: release.mjs signed the binaries with the app and wrote media-sidecar.json. The seal
+  // refuses a release without it, re-checks its shape against the configuration, and (Windows) that every sidecar's
+  // signed digest is one the sealed raw-EXE signing receipt recorded. The hashes then live in the sealed manifest.
+  let mediaSidecars = null;
+  if (target.mediaSidecar !== undefined) {
+    const receiptPath = path.resolve(stateRoot, MEDIA_SIDECAR_RECEIPT_NAME);
+    if (!existsSync(receiptPath)) fail(`mediaSidecar is configured but its receipt is missing: ${receiptPath}`);
+    try {
+      const sidecarConfig = validateMediaSidecarConfig(target.mediaSidecar, { platform });
+      const receipt = validateMediaSidecarReceipt(JSON.parse(readFileSync(receiptPath, "utf8")), { os: sidecarConfig.os, variant: sidecarConfig.variant, tools: sidecarConfig.tools });
+      if (receipt.arch !== sidecarConfig.arch) throw new Error(`receipt arch ${receipt.arch} differs from the configured ${sidecarConfig.arch}`);
+      if (platform === "win") {
+        const rawReceipt = JSON.parse(readFileSync(signingIdentity.receiptInputs[0], "utf8"));
+        const problems = windowsSidecarSigningProblems(rawReceipt, receipt);
+        if (problems.length) throw new Error(problems.join("; "));
+      }
+      mediaSidecars = { ...receipt, receiptSha256: hashFile(receiptPath) };
+    } catch (error) { fail(`media sidecar receipt rejected: ${error.message}`); }
+  }
   const temp = `${sealedDir}.tmp-${process.pid}`;
   if (existsSync(temp)) rmSync(temp, { recursive: true, force: true });
   mkdirSync(temp, { recursive: true });
@@ -564,6 +584,7 @@ function sealRelease({ configRoot, managedCargoTarget, androidTarget, nativeLayo
     // DevTools allowance (owner's fixed design): { mode: "denied" } for every app; content-only only for an allow-listed app.
     devtools: devtoolsEvidence(resolveDevtoolsAllowance({ config, root: configRoot })),
     platform,
+    ...(mediaSidecars ? { mediaSidecars } : {}),
     cacheKey,
     // Portable contracts sign only raw executables — installer/embedding
     // receipts legitimately never exist there. Seal every receipt that was

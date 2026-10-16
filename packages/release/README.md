@@ -221,6 +221,32 @@ The Android lane is native Kotlin with Gradle plus Rust `.so` libraries per ABI 
 - Secrets: the keystore passwords and the Play service-account JSON live in the OS credential store (macOS Keychain `rightkit-android-<name>`; a protected token file on Windows and Linux, so store the JSON as one line) or in a 0600 file outside the repository, selected by `{ credential: "<name>" }` or `{ file: "<path>" }`. They never appear in the environment, on argv, in config, or in a log; key material found in the environment refuses the command.
 - Dev: a debug build installed by serial (never "the only device") with a package ending in `.dev`, `.qa`, `.test` or `.debug`; release tasks and signing properties are refused.
 
+## Bundled FFmpeg decode sidecar (Ember and other media apps)
+
+An app that decodes video through `rightkit-ffmpeg` ships the verified LGPL `ffmpeg` and `ffprobe` programs as a Tauri `externalBin` sidecar. right-release adds no new bundling mechanism: Tauri bundles the files (mac `Contents/MacOS`, Windows next to the app EXE), and right-release plans them from the catalog the app compiled against, ships the LGPL text and source offer, signs the binaries with the app, and seals their hashes. Set `targets.mac.mediaSidecar` and `targets.win.mediaSidecar`:
+
+```js
+mediaSidecar: {
+  arch: "aarch64",                        // catalog arch, one per build (mac aarch64 | x86_64; win x86_64). Default: the build host.
+  variant: "decode",                      // catalog variant (default "decode")
+  tools: ["ffmpeg", "ffprobe"],           // default both
+  stageDir: "src-tauri/binaries",         // where Tauri finds binaries/<tool>-<triple>[.exe] (default)
+  bundleDir: "Contents/MacOS",            // mac only; "Contents/Resources" if the app looks there instead
+  notices: { dir: "src-tauri/resources/third-party/ffmpeg", sourceOfferContact: "https://example.com/ffmpeg-source" },
+  stage: { cmd: "<runner>", args: ["run", "--bin", "stage-ffmpeg"] },   // optional: your call to rightkit_ffmpeg::stage_external_bin
+  catalog: "path/to/artifacts.json",      // optional; default: the rightkit-ffmpeg crate the app's Cargo graph resolves (metadata, offline)
+}
+```
+
+The app still declares `"externalBin": ["binaries/ffmpeg", "binaries/ffprobe"]` and lists `notices.dir` under Tauri `bundle.resources`; `LIGHTCRAFT_FFMPEG_DIR` and the other lookup places are the app's own. Order of a build:
+
+1. Plan: one approved catalog row per tool for the variant, OS and arch. A missing, pending or stale row, a row without a content digest, or an ambiguous match refuses the release (`MEDIA_SIDECAR_NO_ROW`, `MEDIA_SIDECAR_NOT_APPROVED`, `MEDIA_SIDECAR_AMBIGUOUS_ROW`).
+2. Before the app is built: the row's notice files (the LGPL text and build notes) are copied into `notices.dir` together with a generated `FFMPEG-SOURCE-OFFER.txt` (licence, exact FFmpeg source URL and archive SHA-256, build recipes, component notices, `sourceOfferContact`); then `stage` runs if configured. Staging must use `stage_external_bin`, which checks the catalog content digest (signature-independent) as it copies. right-release does not recompute that digest; it checks that each `<tool>-<triple>[.exe]` exists, is a non-empty file, and records its hash.
+3. Signing: macOS adds `Contents/MacOS/ffmpeg` and `ffprobe` to `sign.nestedCode` (hardened runtime, no entitlements, signed inside-out with the bundle and notarized with the app; the nested signing receipt must show each strict-valid and the app must contain `FFMPEG-SOURCE-OFFER.txt`). Windows signs the staged `.exe` files through `sign-windows` in the same raw-EXE step as the app EXE, before Tauri packs them into the installer, so they land in the `raw-exe` receipt.
+4. Receipt and seal: `media-sidecar.json` (state root) records the catalog row ids and content digests, the pre-sign and signed SHA-256 and size of each binary, the notice digests and the signing mode. `right-release build` refuses to seal a release that configures `mediaSidecar` without it, and on Windows checks each signed digest against the sealed raw-EXE receipt. The sealed `release-manifest.json` carries it as `mediaSidecars`, and publication re-validates its shape.
+
+Linux has catalog and planner support only: the planner maps `linux` to the `*-unknown-linux-gnu` triples and works as soon as the crate catalog carries approved Linux rows, but there is no Linux release target in right-release yet, and the catalog has no Linux rows (they need a Linux build and the crate's identity check; see the rightkit-ffmpeg README). Until then an app ships without video on Linux. Tests (fakes only, no catalog download, binary, signer or notary): `media-sidecar.test.mjs`.
+
 ## Known issues
 
 - `smol-toml` is pinned exactly. A consumer that depends on a different `smol-toml` version gets a second copy.

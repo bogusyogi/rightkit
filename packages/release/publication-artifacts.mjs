@@ -3,6 +3,7 @@ import { readFileSync, statSync, openSync, fstatSync, readSync, closeSync } from
 import path from "node:path";
 import { verifySealedRelease } from "./release-state.mjs";
 import { verifyOwnershipEvidence } from "./ownership-evidence.mjs";
+import { validateMediaSidecarReceipt } from "./media-sidecar.mjs";
 
 export class PublicationError extends Error {
   constructor(code, message) { super(`[${code}] ${message}`); this.name = "PublicationError"; this.code = code; }
@@ -55,6 +56,10 @@ export function verifyPublicationRelease({ sealedDir, repoRoot, appRoot, commit,
   if (!ownership.ok || manifest.ownershipEvidence?.commit !== commit) throw new PublicationError("PUBLICATION_OWNERSHIP_INVALID", `sealed ownership evidence rejected: ${ownership.reason ?? "commit mismatch"}`);
   if (!manifest.checkpoints?.includes("signed") || !manifest.checkpoints?.includes("hardened")) throw new PublicationError("PUBLICATION_SIGNATURE_MISSING", "signed & hardened seal checkpoints are required");
   if (configPath && digestBytes(readFileSync(configPath)) !== manifest.signing?.configSha256) throw new PublicationError("PUBLICATION_POLICY_MISMATCH", "release config differs from sealed signing policy");
+  if (manifest.mediaSidecars !== undefined) {
+    try { validateMediaSidecarReceipt(manifest.mediaSidecars); }
+    catch (error) { throw new PublicationError("PUBLICATION_SIGNATURE_INVALID", error.message); }
+  }
   const receipts = manifest.signing?.receipts;
   if (!Array.isArray(receipts) || !receipts.length) throw new PublicationError("PUBLICATION_SIGNATURE_MISSING", "sealed signing receipts are required");
   let notarized = false;
