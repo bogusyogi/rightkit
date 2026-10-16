@@ -2,9 +2,9 @@
   "schema": 1,
   "kind": "cargo",
   "name": "rightkit-qa-driver",
-  "version": "0.4.1",
-  "commit": "04b10ca04473a4514977ea61f1ccf3fea59d940a",
-  "artifactSha256": "94836298206bc15e279d5f689b603a7ccaa7f46710982d5efc94c36aae4606b6",
+  "version": "0.5.0",
+  "commit": "91ac7743955a5a9466a0c3c78baa139d00c348a6",
+  "artifactSha256": "aa6ae149f13e57d0e289f882c58631257029290aec83019057d45066c4a432e3",
   "hostPolicy": "darwin-only",
   "hostPolicyReason": "Adrian 2026-10-14 local-build grant (.rightkit-local-build.json); Windows covered by the next CI run",
   "runs": [
@@ -13,14 +13,14 @@
         "os": "darwin",
         "arch": "arm64"
       },
-      "commit": "04b10ca04473a4514977ea61f1ccf3fea59d940a",
+      "commit": "91ac7743955a5a9466a0c3c78baa139d00c348a6",
       "features": [
         "default"
       ],
-      "artifactSha256": "94836298206bc15e279d5f689b603a7ccaa7f46710982d5efc94c36aae4606b6",
+      "artifactSha256": "aa6ae149f13e57d0e289f882c58631257029290aec83019057d45066c4a432e3",
       "command": "cargo test -p rightkit-qa-driver --no-fail-fast -- --show-output && cargo clippy -p rightkit-qa-driver --no-deps --all-targets -- -D warnings && cargo check -p rightkit-qa-driver --all-targets --features qa-control,wv2-0_38,offscreen-private-spi && cargo package --locked -p rightkit-qa-driver && cargo metadata --format-version 1 --no-deps",
       "operator": "agent (local-build grant)",
-      "timestamp": "2026-10-16T00:42:10.753Z",
+      "timestamp": "2026-10-16T01:20:05.284Z",
       "passed": 15,
       "failed": 0,
       "skipped": 0,
