@@ -13,7 +13,12 @@
 //!   reach the network; denials are typed ([`BrowserError::Blocked`]).
 //! * [`AdmissionHook`] then gates every effect before it happens.
 //! * [`BrowserEvent`] reports start/stop/crash/denied with session id, reason, and time.
+//! * [`BrowserPage::set_request_interceptor`] lets the caller continue, rewrite, fulfil or fail
+//!   every request after the network policy; [`BrowserPage::accessibility_tree`],
+//!   [`BrowserPage::exceptions`], [`BrowserPage::set_page_scale`] and
+//!   [`BrowserPage::set_download_behavior`] expose the matching CDP domains.
 //! * [`BrowserPage::observe`] returns refs that are checked for staleness before use.
+mod cdp_ext;
 mod config;
 mod error;
 mod fixture;
@@ -29,6 +34,11 @@ mod proxy;
 mod sandbox_access;
 mod session;
 
+pub use cdp_ext::{
+    AxNode, ContinueOverrides, DownloadBehavior, ExceptionFrame, InterceptDecision,
+    InterceptFailure, InterceptStage, InterceptedRequest, PageException, RequestInterceptor,
+    MAX_EXCEPTIONS,
+};
 pub use config::{
     chrome_for_testing_candidates, chrome_for_testing_path, find_chrome, LaunchOptions,
     ProfileSpec, CHROME_FOR_TESTING_ENV, CHROME_FOR_TESTING_INSTALL_HINT,

@@ -1,10 +1,15 @@
+use crate::cdp_ext::{
+    command_for, download_params, page_scale_params, parse_ax_tree, run_interceptor, AxNode,
+    DownloadBehavior, InterceptDecision, InterceptFailure, InterceptedRequest, PageException,
+    PausedCommand, RequestInterceptor, INTERCEPTOR_TIMEOUT, MAX_EXCEPTIONS,
+};
 use crate::error::{cdp, BrowserError, Result};
 use crate::keys::{self, KeyDef};
 use crate::policy::{ActionKind, AdmissionRequest, BlockedRequest, Guard, LifecycleKind};
+use chromiumoxide::cdp::browser_protocol::accessibility::GetFullAxTreeParams;
 use chromiumoxide::cdp::browser_protocol::dom::SetFileInputFilesParams;
 use chromiumoxide::cdp::browser_protocol::fetch::{
-    ContinueRequestParams, EnableParams as FetchEnableParams, EventRequestPaused,
-    FailRequestParams, RequestPattern,
+    EnableParams as FetchEnableParams, EventRequestPaused, FailRequestParams, RequestPattern,
 };
 use chromiumoxide::cdp::browser_protocol::input::{
     DispatchKeyEventParams, DispatchKeyEventType, DispatchMouseEventParams, DispatchMouseEventType,
@@ -22,9 +27,10 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex as StdMutex};
 use std::time::{Duration, Instant};
-use tokio::sync::Mutex;
+use tokio::sync::{broadcast, Mutex};
 use tokio::task::JoinHandle;
 
 pub const MAX_CONSOLE_LINES: usize = 500;
@@ -128,6 +134,7 @@ struct ObsState {
 struct InterceptStats {
     paused: std::sync::atomic::AtomicUsize,
     continued: std::sync::atomic::AtomicUsize,
+    fulfilled: std::sync::atomic::AtomicUsize,
     refused: std::sync::atomic::AtomicUsize,
     errors: std::sync::atomic::AtomicUsize,
     last_error: StdMutex<Option<String>>,
@@ -142,6 +149,10 @@ impl InterceptStats {
             self.continued.load(Relaxed),
             self.refused.load(Relaxed)
         );
+        let fulfilled = self.fulfilled.load(Relaxed);
+        if fulfilled > 0 {
+            text.push_str(&format!(", fulfilled {fulfilled}"));
+        }
         let errors = self.errors.load(Relaxed);
         if errors > 0 {
             let last = self.last_error.lock().unwrap().clone().unwrap_or_default();
@@ -165,7 +176,18 @@ pub struct BrowserPage {
     guard: Arc<Guard>,
     blocked: Arc<StdMutex<Vec<BlockedRequest>>>,
     intercept: Arc<InterceptStats>,
+    /// Caller hook consulted after the network policy; see [`BrowserPage::set_request_interceptor`].
+    interceptor: Arc<StdMutex<Option<RequestInterceptor>>>,
+    /// True once this page's request-interception pump (and `Fetch.enable`) is running.
+    pump_running: AtomicBool,
+    /// The fixture session owns `Fetch` on this page; a caller hook cannot share it.
+    fixture_fetch_owner: bool,
+    exceptions: Arc<StdMutex<Vec<PageException>>>,
+    exception_tx: broadcast::Sender<PageException>,
 }
+
+/// Buffered capacity of an exception subscription; a slower receiver sees `Lagged`.
+const EXCEPTION_CHANNEL: usize = 64;
 
 impl BrowserPage {
     pub(crate) async fn attach(
@@ -210,8 +232,25 @@ impl BrowserPage {
             .await
             .map_err(cdp)?;
         let sink = console.clone();
+        let exceptions = Arc::new(StdMutex::new(Vec::new()));
+        let (exception_tx, _) = broadcast::channel(EXCEPTION_CHANNEL);
+        let (ex_log, ex_tx) = (exceptions.clone(), exception_tx.clone());
         pumps.push(tokio::spawn(async move {
             while let Some(e) = ex.next().await {
+                if let Some(parsed) = serde_json::to_value(&*e)
+                    .ok()
+                    .and_then(|v| PageException::from_cdp_value(&v))
+                {
+                    {
+                        let mut log = ex_log.lock().unwrap();
+                        if log.len() >= MAX_EXCEPTIONS {
+                            log.remove(0);
+                        }
+                        log.push(parsed.clone());
+                    }
+                    // No receiver is the normal case; the buffered list still has it.
+                    let _ = ex_tx.send(parsed);
+                }
                 let d = &e.exception_details;
                 let text = d
                     .exception
@@ -247,74 +286,23 @@ impl BrowserPage {
             .map_err(cdp)?;
         let blocked = Arc::new(StdMutex::new(Vec::new()));
         let intercept = Arc::new(InterceptStats::default());
+        let interceptor = Arc::new(StdMutex::new(None));
+        let mut pump_running = false;
         if !guard.network.unrestricted && !fixture_fetch_owner {
             // Pause every request (document, redirect hops, subresources) and
             // decide before it leaves the browser. Enabled before any navigation.
-            let mut paused = inner
-                .event_listener::<EventRequestPaused>()
-                .await
-                .map_err(cdp)?;
-            let page = inner.clone();
-            let g = guard.clone();
-            let sink = blocked.clone();
-            let page_id = id.clone();
-            let stats = intercept.clone();
-            pumps.push(tokio::spawn(async move {
-                use std::sync::atomic::Ordering::Relaxed;
-                while let Some(e) = paused.next().await {
-                    let stats = stats.clone();
-                    stats.paused.fetch_add(1, Relaxed);
-                    let page = page.clone();
-                    let g = g.clone();
-                    let sink = sink.clone();
-                    let pid = page_id.clone();
-                    tokio::spawn(async move {
-                        let kind = format!("{:?}", e.resource_type);
-                        match g.network.check(&e.request.url, &kind).await {
-                            Ok(()) => {
-                                match page
-                                    .execute(ContinueRequestParams::new(e.request_id.clone()))
-                                    .await
-                                {
-                                    Ok(_) => {
-                                        stats.continued.fetch_add(1, Relaxed);
-                                    }
-                                    Err(error) => {
-                                        stats.errors.fetch_add(1, Relaxed);
-                                        *stats.last_error.lock().unwrap() = Some(error.to_string());
-                                    }
-                                }
-                            }
-                            Err(reason) => {
-                                let _ = page
-                                    .execute(FailRequestParams::new(
-                                        e.request_id.clone(),
-                                        ErrorReason::BlockedByClient,
-                                    ))
-                                    .await;
-                                stats.refused.fetch_add(1, Relaxed);
-                                g.denied_network(Some(&pid), &kind, &reason);
-                                let mut b = sink.lock().unwrap();
-                                if b.len() < 500 {
-                                    b.push(BlockedRequest {
-                                        url: e.request.url.clone(),
-                                        reason: reason.to_string(),
-                                    });
-                                }
-                            }
-                        }
-                    });
-                }
-            }));
-            let en = FetchEnableParams {
-                patterns: Some(vec![RequestPattern {
-                    url_pattern: Some("*".into()),
-                    resource_type: None,
-                    request_stage: None,
-                }]),
-                ..Default::default()
-            };
-            inner.execute(en).await.map_err(cdp)?;
+            pumps.push(
+                start_intercept_pump(
+                    &inner,
+                    &id,
+                    &guard,
+                    blocked.clone(),
+                    intercept.clone(),
+                    interceptor.clone(),
+                )
+                .await?,
+            );
+            pump_running = true;
         }
         Ok(Self {
             id,
@@ -329,11 +317,115 @@ impl BrowserPage {
             guard,
             blocked,
             intercept,
+            interceptor,
+            pump_running: AtomicBool::new(pump_running),
+            fixture_fetch_owner,
+            exceptions,
+            exception_tx,
         })
     }
 
     pub fn id(&self) -> &str {
         &self.id
+    }
+
+    /// Install (or with `None`, remove) a caller hook that answers every request this page
+    /// makes: continue, continue with changes, fulfil from memory, or fail. Redirect hops arrive
+    /// as separate requests with [`InterceptedRequest::redirected_from`] set, so a hook that pins
+    /// an origin revalidates each hop.
+    ///
+    /// The session's network policy runs first and its refusals are final; the hook only
+    /// narrows what the policy allows. A hook that takes longer than 30 s fails the request.
+    /// Turns on `Fetch` interception for this page when the policy had not (an unrestricted
+    /// session); requests already in flight are not affected. Removing the hook lets requests
+    /// through unchanged but leaves interception running. Not available on a fixture page, whose
+    /// session owns `Fetch`: returns [`BrowserError::Invalid`].
+    pub async fn set_request_interceptor(&self, hook: Option<RequestInterceptor>) -> Result<()> {
+        if self.fixture_fetch_owner {
+            return Err(BrowserError::Invalid(
+                "a fixture page's session owns request interception".into(),
+            ));
+        }
+        let install = hook.is_some();
+        *self.interceptor.lock().unwrap() = hook;
+        if install && !self.pump_running.swap(true, Ordering::SeqCst) {
+            match start_intercept_pump(
+                &self.inner,
+                &self.id,
+                &self.guard,
+                self.blocked.clone(),
+                self.intercept.clone(),
+                self.interceptor.clone(),
+            )
+            .await
+            {
+                Ok(pump) => self.pumps.lock().unwrap().push(pump),
+                Err(e) => {
+                    self.pump_running.store(false, Ordering::SeqCst);
+                    *self.interceptor.lock().unwrap() = None;
+                    return Err(e);
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// The page's full accessibility tree (`Accessibility.getFullAXTree`), root frame, in CDP
+    /// order. Ignored nodes are included and flagged. Read-only.
+    pub async fn accessibility_tree(&self) -> Result<Vec<AxNode>> {
+        let r = self
+            .inner
+            .execute(GetFullAxTreeParams::default())
+            .await
+            .map_err(cdp)?;
+        let wire = serde_json::to_value(&r.result).map_err(cdp)?;
+        Ok(parse_ax_tree(&wire))
+    }
+
+    /// Uncaught exceptions and unhandled rejections seen so far (`Runtime.exceptionThrown`),
+    /// oldest first, at most [`MAX_EXCEPTIONS`](crate::MAX_EXCEPTIONS). Collected from the moment
+    /// the page exists, so nothing from its first navigation is missed.
+    pub fn exceptions(&self) -> Vec<PageException> {
+        self.exceptions.lock().unwrap().clone()
+    }
+
+    pub fn clear_exceptions(&self) {
+        self.exceptions.lock().unwrap().clear();
+    }
+
+    /// Live stream of exceptions from now on. The page exists before its first navigation, so a
+    /// subscriber taken before `goto` sees every exception it raises. A receiver that falls more
+    /// than 64 behind gets `RecvError::Lagged`; [`BrowserPage::exceptions`] still has them.
+    pub fn subscribe_exceptions(&self) -> broadcast::Receiver<PageException> {
+        self.exception_tx.subscribe()
+    }
+
+    /// Set the page scale factor (pinch zoom, `Emulation.setPageScaleFactor`). Must be positive
+    /// and finite. Distinct from the device scale factor of [`BrowserPage::set_viewport`].
+    pub async fn set_page_scale(&self, scale: f64) -> Result<()> {
+        self.inner
+            .execute(page_scale_params(scale)?)
+            .await
+            .map_err(cdp)?;
+        Ok(())
+    }
+
+    /// Choose what happens to downloads (`Browser.setDownloadBehavior`). `Allow` and
+    /// `AllowAndName` need an absolute, existing directory; downloads go nowhere else.
+    /// Admitted as an `Eval`-kind effect (detail `download_behavior ...`) because it lets pages
+    /// write files. Applies to the browser's default context, so it covers every page of a
+    /// session; a later call replaces an earlier one.
+    pub async fn set_download_behavior(&self, behavior: &DownloadBehavior) -> Result<()> {
+        let params = download_params(behavior)?;
+        self.admit(
+            ActionKind::Eval,
+            None,
+            None,
+            Some(format!("download_behavior {behavior:?}")),
+        )
+        .await?;
+        self.inner.execute(params).await.map_err(cdp)?;
+        Ok(())
     }
 
     /// Requests the network policy refused on this page (redirect hops and subresources included).
@@ -1131,6 +1223,120 @@ impl BrowserPage {
     pub async fn clear_console(&self) {
         self.console.lock().await.clear();
     }
+}
+
+/// Register the `Fetch.requestPaused` listener, then enable `Fetch` for every URL, in that
+/// order so no request is paused without a listener. One short task per request: the network
+/// policy first (its refusal is final), then the caller's hook when one is installed.
+async fn start_intercept_pump(
+    inner: &Page,
+    page_id: &str,
+    guard: &Arc<Guard>,
+    sink: Arc<StdMutex<Vec<BlockedRequest>>>,
+    stats: Arc<InterceptStats>,
+    hook_slot: Arc<StdMutex<Option<RequestInterceptor>>>,
+) -> Result<JoinHandle<()>> {
+    let mut paused = inner
+        .event_listener::<EventRequestPaused>()
+        .await
+        .map_err(cdp)?;
+    let page = inner.clone();
+    let g = guard.clone();
+    let page_id = page_id.to_string();
+    let pump = tokio::spawn(async move {
+        use std::sync::atomic::Ordering::Relaxed;
+        while let Some(e) = paused.next().await {
+            let stats = stats.clone();
+            stats.paused.fetch_add(1, Relaxed);
+            let page = page.clone();
+            let g = g.clone();
+            let sink = sink.clone();
+            let pid = page_id.clone();
+            let hook_slot = hook_slot.clone();
+            tokio::spawn(async move {
+                let kind = format!("{:?}", e.resource_type);
+                match g.network.check(&e.request.url, &kind).await {
+                    Ok(()) => {
+                        let hook = hook_slot.lock().unwrap().clone();
+                        let decision = match hook {
+                            None => InterceptDecision::Continue,
+                            Some(hook) => {
+                                match serde_json::to_value(&*e)
+                                    .ok()
+                                    .and_then(|v| InterceptedRequest::from_cdp_value(&v))
+                                {
+                                    Some(request) => {
+                                        run_interceptor(&hook, request, INTERCEPTOR_TIMEOUT).await
+                                    }
+                                    None => InterceptDecision::Fail(InterceptFailure::Failed),
+                                }
+                            }
+                        };
+                        let hook_failed = matches!(decision, InterceptDecision::Fail(_));
+                        let (counter, result) = match command_for(e.request_id.clone(), decision) {
+                            PausedCommand::Continue(p) => {
+                                (&stats.continued, page.execute(p).await.map(|_| ()))
+                            }
+                            PausedCommand::Fulfill(p) => {
+                                (&stats.fulfilled, page.execute(p).await.map(|_| ()))
+                            }
+                            PausedCommand::Fail(p) => {
+                                (&stats.refused, page.execute(p).await.map(|_| ()))
+                            }
+                        };
+                        match result {
+                            Ok(()) => {
+                                counter.fetch_add(1, Relaxed);
+                                if hook_failed {
+                                    let mut b = sink.lock().unwrap();
+                                    if b.len() < 500 {
+                                        b.push(BlockedRequest {
+                                            url: e.request.url.clone(),
+                                            reason: "failed by the request interceptor".into(),
+                                        });
+                                    }
+                                }
+                            }
+                            Err(error) => {
+                                stats.errors.fetch_add(1, Relaxed);
+                                *stats.last_error.lock().unwrap() = Some(error.to_string());
+                            }
+                        }
+                    }
+                    Err(reason) => {
+                        let _ = page
+                            .execute(FailRequestParams::new(
+                                e.request_id.clone(),
+                                ErrorReason::BlockedByClient,
+                            ))
+                            .await;
+                        stats.refused.fetch_add(1, Relaxed);
+                        g.denied_network(Some(&pid), &kind, &reason);
+                        let mut b = sink.lock().unwrap();
+                        if b.len() < 500 {
+                            b.push(BlockedRequest {
+                                url: e.request.url.clone(),
+                                reason: reason.to_string(),
+                            });
+                        }
+                    }
+                }
+            });
+        }
+    });
+    let en = FetchEnableParams {
+        patterns: Some(vec![RequestPattern {
+            url_pattern: Some("*".into()),
+            resource_type: None,
+            request_stage: None,
+        }]),
+        ..Default::default()
+    };
+    if let Err(e) = inner.execute(en).await {
+        pump.abort();
+        return Err(cdp(e));
+    }
+    Ok(pump)
 }
 
 async fn push_capped(sink: &Arc<Mutex<Vec<ConsoleLine>>>, line: ConsoleLine) {

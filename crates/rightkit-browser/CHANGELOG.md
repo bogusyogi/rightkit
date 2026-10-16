@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.3.2
+
+Additive: no existing item changed or removed. New items on `BrowserPage`, so a minor bump.
+
+- Request interception hook: `BrowserPage::set_request_interceptor(Option<RequestInterceptor>)`. The hook receives each paused request (`InterceptedRequest`: url, method, headers, resource type, frame id, redirect marker, stage) and answers `InterceptDecision::{Continue, ContinueWith(ContinueOverrides), Fulfill, Fail(InterceptFailure)}`. Redirect hops arrive as their own requests with `redirected_from` set, so an origin pin revalidates each hop. It runs after `NetworkPolicy`, whose refusals stay final; a hook can only narrow what the policy allows. A hook silent for 30 s fails the request. Works on unrestricted sessions too (Fetch interception starts on first use). Not available on fixture pages, which own `Fetch`.
+- `BrowserPage::accessibility_tree()` returns `Vec<AxNode>` from `Accessibility.getFullAXTree` (role, name, description, value, properties, parent/child ids, backend DOM node id, frame id; ignored nodes flagged).
+- Exception events: `BrowserPage::exceptions()`, `clear_exceptions()` and `subscribe_exceptions()` (a `tokio::sync::broadcast` receiver) carry `PageException` (text, description, url, line, column, timestamp, stack frames) from `Runtime.exceptionThrown`. They are collected from page creation, before the first navigation. At most `MAX_EXCEPTIONS` (200) are kept. The existing console log still gets its `exception` line.
+- `BrowserPage::set_page_scale(f64)` (`Emulation.setPageScaleFactor`; positive and finite).
+- `BrowserPage::set_download_behavior(&DownloadBehavior)` (`Browser.setDownloadBehavior`): `Deny`, `Allow { dir }`, `AllowAndName { dir }`, `Default`. A directory must be absolute and exist. Admitted through the admission hook as an `Eval`-kind effect with detail `download_behavior ...`.
+- Unit tests decode recorded CDP wire messages (requestPaused incl. a redirect hop, getFullAXTree, exceptionThrown) and check the exact commands built for continue, fulfil and fail, with no browser.
+
+
 
 ## 0.3.1
 

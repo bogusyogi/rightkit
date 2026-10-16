@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-browser"
-version = "0.3.1"
+version = "0.3.2"
 edition = "2021"
 rust-version = "1.98.0"
 description = "Shared Chrome DevTools Protocol browser runtime for Right Suite: multi-page sessions, named profiles, real CDP input, observations with stale-ref checks."
@@ -48,7 +48,7 @@ release = "Drop"
 api = "BrowserPage"
 file = "src/page.rs"
 holds = ["task", "memory"]
-scale = "four CDP event-pump tasks per page (console, exception, target-crash, request interception) plus one short-lived task per intercepted request that ends after its network check; console lines are capped at MAX_CONSOLE_LINES (500) and blocked-request records at 500; fixed per page, independent of how long the page lives"
+scale = "four CDP event-pump tasks per page (console, exception, target-crash, request interception; the last starts on first use when the session network policy is unrestricted) plus one short-lived task per intercepted request that ends after its network check; console lines are capped at MAX_CONSOLE_LINES (500) and blocked-request records at 500, structured exceptions at MAX_EXCEPTIONS (200) plus a 64-slot broadcast channel; fixed per page, independent of how long the page lives"
 release = "BrowserSession Drop (abort_pumps) or close_inner"
 
 [[package.metadata.rightkit.resources]]

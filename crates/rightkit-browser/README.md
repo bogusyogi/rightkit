@@ -44,6 +44,14 @@ session.shutdown().await;
 
 Loopback fixtures are blocked by default. `tests/e2e.rs` opts in for a local test server with `LaunchOptions::default().network(NetworkPolicy::default().allow_host("127.0.0.1"))`.
 
+## Interception, accessibility, exceptions, scale, downloads
+
+- `set_request_interceptor(Some(hook))`: `hook(InterceptedRequest) -> BoxFuture<InterceptDecision>` runs for every request after `NetworkPolicy` (policy refusals are final). Answer `Continue`, `ContinueWith(ContinueOverrides)`, `Fulfill { status, headers, body, phrase }` or `Fail(InterceptFailure)`. Redirect hops are separate requests (`redirected_from` set): pin an origin by checking `url` on each. No answer in 30 s fails the request.
+- `accessibility_tree()` returns the root frame's `Vec<AxNode>`.
+- `exceptions()` / `subscribe_exceptions()` return `PageException`s from `Runtime.exceptionThrown`, collected from page creation.
+- `set_page_scale(f64)` sets the pinch-zoom page scale.
+- `set_download_behavior(&DownloadBehavior)` sets deny, allow into an explicit directory, allow named by GUID, or default.
+
 ## Chrome resolution
 
 Launch resolves Chrome for Testing (`chrome_for_testing_path`) in this order: `LaunchOptions::chrome_path`, then the `RIGHTKIT_CHROME_FOR_TESTING` environment variable, then RightKit-managed versions, app installs, and the newest Puppeteer or Playwright cache builds. Managed versions are tried in numeric version order, newest first.
