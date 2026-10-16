@@ -163,6 +163,13 @@ fn stdio_fixture() {
                 Some("null-result") => {
                     send(json!({"jsonrpc":"2.0","id":message["id"],"result":null}))
                 }
+                Some("notify") => {
+                    send(json!({"jsonrpc":"2.0","method":"notifications/tools/list_changed"}));
+                    send(
+                        json!({"jsonrpc":"2.0","method":"notifications/message","params":{"level":"info","data":"hi"}}),
+                    );
+                    send(json!({"jsonrpc":"2.0","id":message["id"],"result":"after notifications"}));
+                }
                 Some("late-prefix") => {
                     let bogus =
                         json!({"jsonrpc":"2.0","id":message["id"],"result":"must be ignored"});
@@ -776,5 +783,73 @@ fn stdio_cancel_is_prompt_and_sends_original_request_id() {
         .request_with_options("ping", json!({}), &CallOptions::default())
         .unwrap();
     assert_eq!(result["cancelled"], json!([2]));
+    client.close();
+}
+
+#[test]
+fn stdio_notifications_mid_request_reach_subscriber_and_response_resolves() {
+    let seen = Arc::new(Mutex::new(Vec::<ServerNotification>::new()));
+    let sink = seen.clone();
+    let options = ClientOptions::default()
+        .on_notification(move |n| sink.lock().unwrap().push(n.clone()));
+    let client = McpClient::connect_with_extensions(
+        "fixture",
+        &rightkit_mcp::ServerSource::User,
+        &rightkit_mcp::TrustStore::new(),
+        stdio_spec(None),
+        options,
+        ClientExtensions::default(),
+    )
+    .unwrap();
+    let result = client
+        .request_with_options("ping", json!({"mode":"notify"}), &CallOptions::default())
+        .unwrap();
+    assert_eq!(result, json!("after notifications"));
+    // Notifications precede the response on the wire, so the reader has delivered both.
+    let seen = seen.lock().unwrap();
+    assert_eq!(seen.len(), 2);
+    assert_eq!(seen[0].method, "notifications/tools/list_changed");
+    assert_eq!(seen[0].server, "fixture");
+    assert_eq!(seen[0].params, Value::Null);
+    assert_eq!(seen[1].method, "notifications/message");
+    assert_eq!(seen[1].params["data"], "hi");
+    client.close();
+}
+
+#[test]
+fn stdio_notifications_without_subscriber_leave_behaviour_unchanged() {
+    let client = McpClient::connect_with_extensions(
+        "fixture",
+        &rightkit_mcp::ServerSource::User,
+        &rightkit_mcp::TrustStore::new(),
+        stdio_spec(None),
+        ClientOptions::default(),
+        ClientExtensions::default(),
+    )
+    .unwrap();
+    let result = client
+        .request_with_options("ping", json!({"mode":"notify"}), &CallOptions::default())
+        .unwrap();
+    assert_eq!(result, json!("after notifications"));
+    client.ping().unwrap();
+    client.close();
+}
+
+#[test]
+fn stdio_notification_handler_panic_does_not_break_the_connection() {
+    let options = ClientOptions::default().on_notification(|_| panic!("handler bug"));
+    let client = McpClient::connect_with_extensions(
+        "fixture",
+        &rightkit_mcp::ServerSource::User,
+        &rightkit_mcp::TrustStore::new(),
+        stdio_spec(None),
+        options,
+        ClientExtensions::default(),
+    )
+    .unwrap();
+    let result = client
+        .request_with_options("ping", json!({"mode":"notify"}), &CallOptions::default())
+        .unwrap();
+    assert_eq!(result, json!("after notifications"));
     client.close();
 }

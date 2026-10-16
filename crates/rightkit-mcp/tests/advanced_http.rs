@@ -930,3 +930,74 @@ fn live_http_elicitation_is_bound_to_each_receiving_session() {
     }
     assert_eq!(client.session_id().unwrap().as_deref(), Some("shared"));
 }
+
+#[test]
+fn http_sse_notifications_reach_subscriber_and_response_still_resolves() {
+    for transport in ["plain-sse", "advanced-sse"] {
+        for subscribed in [true, false] {
+            let fixture = Fixture::start(move |request, mut stream| {
+                if handshake(&request, &mut stream) {
+                    return;
+                }
+                sse_head(&mut stream);
+                sse_message(
+                    &mut stream,
+                    &json!({"jsonrpc":"2.0","method":"notifications/tools/list_changed"}),
+                );
+                sse_message(
+                    &mut stream,
+                    &json!({"jsonrpc":"2.0","method":"notifications/progress","params":{"progressToken":"t","progress":1}}),
+                );
+                sse_message(
+                    &mut stream,
+                    &json!({"jsonrpc":"2.0","id":request.body["id"],"result":{"ok":true}}),
+                );
+            });
+            let seen = Arc::new(Mutex::new(Vec::<ServerNotification>::new()));
+            let sink = seen.clone();
+            let mut options = ClientOptions::default();
+            if subscribed {
+                options = options.on_notification(move |n| sink.lock().unwrap().push(n.clone()));
+            }
+            let spec = ServerSpec::Http {
+                url: fixture.url.clone(),
+            };
+            let client = if transport == "plain-sse" {
+                McpClient::connect(
+                    "fixture",
+                    &rightkit_mcp::ServerSource::User,
+                    &rightkit_mcp::TrustStore::new(),
+                    spec,
+                    options,
+                )
+                .unwrap()
+            } else {
+                McpClient::connect_with_extensions(
+                    "fixture",
+                    &rightkit_mcp::ServerSource::User,
+                    &rightkit_mcp::TrustStore::new(),
+                    spec,
+                    options,
+                    loopback_extensions(),
+                )
+                .unwrap()
+            };
+            client.ping().unwrap();
+            let seen = seen.lock().unwrap();
+            if subscribed {
+                let methods: Vec<&str> = seen.iter().map(|n| n.method.as_str()).collect();
+                assert_eq!(
+                    methods,
+                    ["notifications/tools/list_changed", "notifications/progress"],
+                    "{transport}"
+                );
+                assert_eq!(seen[0].server, "fixture");
+                assert_eq!(seen[0].params, Value::Null);
+                assert_eq!(seen[1].params["progress"], 1);
+            } else {
+                assert!(seen.is_empty(), "{transport}");
+            }
+            client.close();
+        }
+    }
+}

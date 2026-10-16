@@ -61,6 +61,7 @@ struct Shared {
     version: Mutex<Option<String>>,
     handlers: Mutex<HashMap<String, ElicitationHandler>>,
     events: Option<EventSink>,
+    notify: Option<NotificationHandler>,
     life_id: String,
     started: AtomicBool,
 }
@@ -341,6 +342,7 @@ impl AdvancedHttp {
                 version: Mutex::new(None),
                 handlers: Mutex::new(handlers),
                 events: options.on_event.clone(),
+                notify: options.on_notification.clone(),
                 life_id,
                 started: AtomicBool::new(false),
             }),
@@ -836,6 +838,9 @@ async fn read_http_sse(
             let message: Value =
                 serde_json::from_str(&event.data).map_err(|e| McpError::Protocol(e.to_string()))?;
             if message.get("method").is_some() {
+                if deliver_notification(&shared.notify, &shared.server, &message) {
+                    continue;
+                }
                 shared.elicitation(&message, context, &shared.url).await?;
             } else if message.get("id").and_then(Value::as_u64) == Some(id) {
                 return rpc_outcome(&message);
@@ -862,6 +867,7 @@ async fn read_legacy(
                         let _ = pending.sender.send(rpc_outcome(&message));
                     }
                 }
+            } else if deliver_notification(&shared.notify, &shared.server, &message) {
             } else {
                 let related = message
                     .pointer("/params/_meta/relatedRequestId")

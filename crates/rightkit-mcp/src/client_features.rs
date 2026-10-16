@@ -278,6 +278,48 @@ impl ElicitationContext {
 pub type ElicitationHandler =
     Arc<dyn Fn(&ElicitationContext, &Value) -> Result<Value> + Send + Sync>;
 
+/// A server-initiated JSON-RPC notification (a message with a `method` and no `id`), for example
+/// `notifications/tools/list_changed`, `notifications/resources/list_changed`,
+/// `notifications/prompts/list_changed`, `notifications/progress` or `notifications/message`.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ServerNotification {
+    /// Name of the server the notification came from (the connect `server_name`).
+    pub server: String,
+    /// JSON-RPC method, e.g. `notifications/tools/list_changed`.
+    pub method: String,
+    /// `params` exactly as sent; `Value::Null` when absent.
+    pub params: Value,
+}
+
+/// Receives each server notification. Runs on the connection's reader (stdio, legacy SSE) or on the
+/// thread driving the request (streamable HTTP), so it must return quickly and must not call back
+/// into the same client; hand the value to a channel instead. A panic is caught and ignored.
+pub type NotificationHandler = Arc<dyn Fn(&ServerNotification) + Send + Sync>;
+
+/// Hands `message` to `handler` when it is a notification (`method`, no `id`). Returns true when it
+/// was one, whether or not a handler is set, so callers can skip it as a response candidate.
+pub(crate) fn deliver_notification(
+    handler: &Option<NotificationHandler>,
+    server: &str,
+    message: &Value,
+) -> bool {
+    let Some(method) = message.get("method").and_then(Value::as_str) else {
+        return false;
+    };
+    if message.get("id").is_some() {
+        return false;
+    }
+    if let Some(handler) = handler {
+        let notification = ServerNotification {
+            server: server.to_string(),
+            method: method.to_string(),
+            params: message.get("params").cloned().unwrap_or(Value::Null),
+        };
+        let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| handler(&notification)));
+    }
+    true
+}
+
 #[derive(Clone, Default)]
 pub struct CallOptions {
     /// Overrides stored HTTP session for this call; a stdio logical routing session.

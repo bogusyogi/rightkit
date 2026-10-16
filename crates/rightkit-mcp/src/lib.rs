@@ -29,8 +29,8 @@ pub use auth::{AuthProvider, Secret};
 pub use client::{ClientOptions, McpClient, ServerSpec};
 pub use client_features::{
     CallOptions, CancellationToken, ClientExtensions, DefaultProcessLauncher, ElicitationContext,
-    ElicitationHandler, EndpointOriginPolicy, LaunchRequest, LaunchedProcess, ProcessChild,
-    ProcessLauncher, ResponseLimits,
+    ElicitationHandler, EndpointOriginPolicy, LaunchRequest, LaunchedProcess, NotificationHandler,
+    ProcessChild, ProcessLauncher, ResponseLimits, ServerNotification,
 };
 pub use error::{McpError, Result};
 pub use events::{EventSink, LifecycleKind, McpEvent};

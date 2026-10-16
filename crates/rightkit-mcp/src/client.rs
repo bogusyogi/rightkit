@@ -42,6 +42,9 @@ pub struct ClientOptions {
     pub client_version: String,
     /// Receives start/stop/crash (connections) and denied (pool trust gate) events.
     pub on_event: Option<EventSink>,
+    /// Receives server-sent notifications (`tools/list_changed`, progress, logging, ...) on every
+    /// transport. `None` (default) drops them, as before.
+    pub on_notification: Option<NotificationHandler>,
 }
 
 impl Default for ClientOptions {
@@ -53,6 +56,7 @@ impl Default for ClientOptions {
             client_name: "rightkit-mcp".into(),
             client_version: env!("CARGO_PKG_VERSION").into(),
             on_event: None,
+            on_notification: None,
         }
     }
 }
@@ -66,6 +70,17 @@ impl ClientOptions {
 
     pub fn on_event(mut self, f: impl Fn(&McpEvent) + Send + Sync + 'static) -> Self {
         self.on_event = Some(Arc::new(f));
+        self
+    }
+
+    /// Delivers each server notification (method plus params) to `f`; see `NotificationHandler`
+    /// for the threading contract. Notifications that arrive while a request waits for its
+    /// response are delivered in order and never taken for the response.
+    pub fn on_notification(
+        mut self,
+        f: impl Fn(&ServerNotification) + Send + Sync + 'static,
+    ) -> Self {
+        self.on_notification = Some(Arc::new(f));
         self
     }
 }
@@ -258,6 +273,7 @@ struct HttpConn {
     life: Lifecycle,
     started: AtomicBool,
     next_id: AtomicU64,
+    notify: Option<NotificationHandler>,
 }
 
 enum Conn {
@@ -341,6 +357,7 @@ impl StdioConn {
         server: &str,
         spec: &ServerSpec,
         events: &Option<EventSink>,
+        notify: &Option<NotificationHandler>,
         extensions: Option<&ClientExtensions>,
         cancellation: &CancellationToken,
         timeout: Duration,
@@ -390,6 +407,7 @@ impl StdioConn {
         let (p2, a2, w2) = (pending.clone(), alive.clone(), stdin.clone());
         let (c2, k2, l2) = (child.clone(), closing.clone(), life.clone());
         let terminal2 = terminal_error.clone();
+        let notify2 = notify.clone();
         std::thread::spawn(move || {
             let mut reader = BufReader::new(stdout);
             let mut startup = StdioStartup::default();
@@ -519,6 +537,9 @@ impl StdioConn {
                         };
                         let mut writer = lock(&w2);
                         let _ = writeln!(writer, "{reply}").and_then(|_| writer.flush());
+                    }
+                    (None, true) => {
+                        deliver_notification(&notify2, &l2.server, &msg);
                     }
                     _ => {}
                 }
@@ -791,6 +812,7 @@ impl HttpConn {
             life: Lifecycle::new(server, "http", &opts.on_event),
             started: AtomicBool::new(false),
             next_id: AtomicU64::new(1),
+            notify: opts.on_notification.clone(),
         }
     }
 
@@ -892,7 +914,7 @@ impl HttpConn {
             return Err(McpError::Transport(format!("HTTP {status}: {snippet}")));
         }
         let msg = if ct.contains("text/event-stream") {
-            sse_find(&text, id)
+            sse_find(&text, id, &self.notify, &self.server)
                 .ok_or_else(|| McpError::Protocol("no response in event stream".into()))?
         } else {
             serde_json::from_str::<Value>(&text).map_err(|e| McpError::Protocol(e.to_string()))?
@@ -909,11 +931,17 @@ impl Drop for HttpConn {
     }
 }
 
-fn sse_find(body: &str, id: u64) -> Option<Value> {
+fn sse_find(
+    body: &str,
+    id: u64,
+    notify: &Option<NotificationHandler>,
+    server: &str,
+) -> Option<Value> {
     let mut data = String::new();
     let mut found = None;
     let flush = |data: &mut String, found: &mut Option<Value>| {
         if let Ok(v) = serde_json::from_str::<Value>(data) {
+            deliver_notification(notify, server, &v);
             if v.get("id").and_then(Value::as_u64) == Some(id) && v.get("method").is_none() {
                 *found = Some(v);
             }
@@ -1182,6 +1210,7 @@ impl McpClient {
                 &self.name,
                 &self.spec,
                 &self.opts.on_event,
+                &self.opts.on_notification,
                 self.extensions.as_ref(),
                 &cancellation,
                 remaining()?,
