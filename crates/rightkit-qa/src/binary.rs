@@ -103,11 +103,17 @@ pub fn resolve(q: &BinaryQuery) -> Result<ResolvedBinary> {
         names.push(n.to_string());
     }
     for name in names {
-        if let Some(v) = (q.env)(&name).map(|v| v.trim().to_string()).filter(|v| !v.is_empty()) {
+        if let Some(v) = (q.env)(&name)
+            .map(|v| v.trim().to_string())
+            .filter(|v| !v.is_empty())
+        {
             let path = absolute(q.app_root, &v);
             validate(&path, q.bin).map_err(|e| Error(format!("{name}: {}", e.0)))?;
             require_qa(&path).map_err(|e| Error(format!("{name}: {}", e.0)))?;
-            return Ok(ResolvedBinary { path, source: BinarySource::Env(name) });
+            return Ok(ResolvedBinary {
+                path,
+                source: BinarySource::Env(name),
+            });
         }
     }
     // 2. Pointer file.
@@ -119,7 +125,10 @@ pub fn resolve(q: &BinaryQuery) -> Result<ResolvedBinary> {
                 .map_err(|e| Error(format!("pointer file {}: {}", pointer.display(), e.0)))?;
             require_qa(&path)
                 .map_err(|e| Error(format!("pointer file {}: {}", pointer.display(), e.0)))?;
-            return Ok(ResolvedBinary { path, source: BinarySource::PointerFile(pointer) });
+            return Ok(ResolvedBinary {
+                path,
+                source: BinarySource::PointerFile(pointer),
+            });
         }
     }
     // 3. Broker target root.
@@ -128,7 +137,10 @@ pub fn resolve(q: &BinaryQuery) -> Result<ResolvedBinary> {
     if let Some(broker) = &q.broker_root {
         let (found, skipped) = from_broker(broker, &q.workspace_roots, q.bin);
         if let Some((path, ws)) = found {
-            return Ok(ResolvedBinary { path, source: BinarySource::BrokerTarget(ws) });
+            return Ok(ResolvedBinary {
+                path,
+                source: BinarySource::BrokerTarget(ws),
+            });
         }
         if let Some(first) = skipped.first() {
             not_qa = Some(first.clone());
@@ -145,7 +157,12 @@ pub fn resolve(q: &BinaryQuery) -> Result<ResolvedBinary> {
         let path = absolute(q.app_root, rel);
         match validate(&path, q.bin) {
             Ok(()) => match has_qa_marker(&path) {
-                Ok(true) => return Ok(ResolvedBinary { path, source: BinarySource::AppRoot }),
+                Ok(true) => {
+                    return Ok(ResolvedBinary {
+                        path,
+                        source: BinarySource::AppRoot,
+                    })
+                }
                 _ => {
                     notes.push(format!("{} lacks the control marker", path.display()));
                     not_qa.get_or_insert(path);
@@ -155,11 +172,7 @@ pub fn resolve(q: &BinaryQuery) -> Result<ResolvedBinary> {
         }
     }
     if let Some(found) = not_qa {
-        return err(format!(
-            "{}; {}",
-            not_qa_message(&found),
-            notes.join("; ")
-        ));
+        return err(format!("{}; {}", not_qa_message(&found), notes.join("; ")));
     }
     err(format!(
         "no dev binary for {}: set {APP_BINARY_ENV}, write a path into {}, or build it ({})",
@@ -212,15 +225,19 @@ pub fn has_qa_marker(path: &Path) -> std::io::Result<bool> {
 
 /// Exists, a regular file, named `<bin>` or `<bin>.exe`, and not in a `release` profile directory.
 pub fn validate(path: &Path, bin: &str) -> Result<()> {
-    let meta = std::fs::metadata(path)
-        .map_err(|_| Error(format!("{} does not exist", path.display())))?;
+    let meta =
+        std::fs::metadata(path).map_err(|_| Error(format!("{} does not exist", path.display())))?;
     if !meta.is_file() {
         return err(format!("{} is not a file", path.display()));
     }
     if !name_matches(path, bin) {
         return err(format!("{} is not named {bin}", path.display()));
     }
-    if path.parent().and_then(|p| p.file_name()).is_some_and(|n| n == "release") {
+    if path
+        .parent()
+        .and_then(|p| p.file_name())
+        .is_some_and(|n| n == "release")
+    {
         return err(format!("{} is a release-tier artifact", path.display()));
     }
     Ok(())
@@ -269,12 +286,20 @@ fn from_broker(
 ) -> (Option<(PathBuf, PathBuf)>, Vec<PathBuf>) {
     let wanted: Vec<String> = roots.iter().map(|r| norm_path(r)).collect();
     let mut all: Vec<(std::time::SystemTime, PathBuf, PathBuf)> = Vec::new();
-    let Ok(rd) = std::fs::read_dir(broker.join("ws")) else { return (None, vec![]) };
+    let Ok(rd) = std::fs::read_dir(broker.join("ws")) else {
+        return (None, vec![]);
+    };
     for entry in rd.flatten() {
         let ws = entry.path();
-        let Ok(text) = std::fs::read_to_string(ws.join("identity.json")) else { continue };
-        let Ok(id) = serde_json::from_str::<serde_json::Value>(&text) else { continue };
-        let Some(root) = id.get("canonicalRoot").and_then(|v| v.as_str()) else { continue };
+        let Ok(text) = std::fs::read_to_string(ws.join("identity.json")) else {
+            continue;
+        };
+        let Ok(id) = serde_json::from_str::<serde_json::Value>(&text) else {
+            continue;
+        };
+        let Some(root) = id.get("canonicalRoot").and_then(|v| v.as_str()) else {
+            continue;
+        };
         if !wanted.contains(&norm(root)) {
             continue;
         }
@@ -282,7 +307,9 @@ fn from_broker(
             if validate(&file, bin).is_err() {
                 continue;
             }
-            let Ok(t) = std::fs::metadata(&file).and_then(|m| m.modified()) else { continue };
+            let Ok(t) = std::fs::metadata(&file).and_then(|m| m.modified()) else {
+                continue;
+            };
             all.push((t, file, ws.clone()));
         }
     }
@@ -299,12 +326,19 @@ fn from_broker(
 
 fn subdirs(dir: &Path) -> Vec<PathBuf> {
     std::fs::read_dir(dir)
-        .map(|rd| rd.flatten().map(|e| e.path()).filter(|p| p.is_dir()).collect())
+        .map(|rd| {
+            rd.flatten()
+                .map(|e| e.path())
+                .filter(|p| p.is_dir())
+                .collect()
+        })
         .unwrap_or_default()
 }
 
 fn is_dev_profile(p: &Path) -> bool {
-    p.file_name().and_then(|n| n.to_str()).is_some_and(|n| DEV_PROFILES.contains(&n))
+    p.file_name()
+        .and_then(|n| n.to_str())
+        .is_some_and(|n| DEV_PROFILES.contains(&n))
 }
 
 /// `g/<gen>/<leaf>/[<triple>/]<dev profile>/<bin>[.exe]` under one workspace.
@@ -312,11 +346,18 @@ fn broker_candidates(ws: &Path, bin: &str) -> Vec<PathBuf> {
     let mut out = Vec::new();
     for generation in subdirs(&ws.join("g")) {
         for leaf in subdirs(&generation) {
-            if !matches!(leaf.file_name().and_then(|n| n.to_str()), Some("t" | "target")) {
+            if !matches!(
+                leaf.file_name().and_then(|n| n.to_str()),
+                Some("t" | "target")
+            ) {
                 continue;
             }
             for child in subdirs(&leaf) {
-                let profiles = if is_dev_profile(&child) { vec![child] } else { subdirs(&child) };
+                let profiles = if is_dev_profile(&child) {
+                    vec![child]
+                } else {
+                    subdirs(&child)
+                };
                 for profile in profiles.into_iter().filter(|p| is_dev_profile(p)) {
                     for name in [bin.to_string(), format!("{bin}.exe")] {
                         let f = profile.join(name);
@@ -340,14 +381,20 @@ pub fn stash_qa_build(exe: &Path, app_root: &Path, pointer_file: Option<&str>) -
     let name = exe
         .file_name()
         .ok_or_else(|| Error(format!("{} has no file name", exe.display())))?;
-    let profile = exe.parent().ok_or_else(|| Error("artifact has no profile dir".into()))?;
+    let profile = exe
+        .parent()
+        .ok_or_else(|| Error("artifact has no profile dir".into()))?;
     // `<target>/[<triple>/]<profile>/<name>`: a parent dir name with `-` is the target triple.
     let up_name = profile
         .parent()
         .and_then(|p| p.file_name())
         .and_then(|n| n.to_str())
         .unwrap_or("");
-    let triple = if up_name.contains('-') { up_name } else { "host" };
+    let triple = if up_name.contains('-') {
+        up_name
+    } else {
+        "host"
+    };
     // Under the app root, not the cargo target dir: the broker's target tree is garbage-collected.
     let dir = app_root.join(STASH_DIR).join(triple);
     std::fs::create_dir_all(&dir)
@@ -375,7 +422,11 @@ fn atomic_copy(from: &Path, to: &Path) -> Result<()> {
         .and_then(|_| std::fs::rename(&tmp, to))
         .map_err(|e| {
             let _ = std::fs::remove_file(&tmp);
-            Error(format!("cannot copy {} to {}: {e}", from.display(), to.display()))
+            Error(format!(
+                "cannot copy {} to {}: {e}",
+                from.display(),
+                to.display()
+            ))
         })
 }
 
@@ -403,11 +454,20 @@ mod tests {
         }
         std::fs::write(p, bytes).unwrap();
         let t = SystemTime::now() - Duration::from_secs(age_s);
-        std::fs::File::options().write(true).open(p).unwrap().set_modified(t).unwrap();
+        std::fs::File::options()
+            .write(true)
+            .open(p)
+            .unwrap()
+            .set_modified(t)
+            .unwrap();
     }
 
     fn exe(name: &str) -> String {
-        if cfg!(windows) { format!("{name}.exe") } else { name.to_string() }
+        if cfg!(windows) {
+            format!("{name}.exe")
+        } else {
+            name.to_string()
+        }
     }
 
     /// A fixture broker with one workspace for `root`.
@@ -443,14 +503,26 @@ mod tests {
         let app = base.join("app");
         std::fs::create_dir_all(&app).unwrap();
         let ws = broker(&base, &app);
-        let old = ws.join("g/001/t/x86_64-pc-windows-msvc/release-iterate").join(exe("myapp"));
-        let new = ws.join("g/002/t/x86_64-pc-windows-msvc/debug").join(exe("myapp"));
-        let rel = ws.join("g/002/t/x86_64-pc-windows-msvc/release").join(exe("myapp"));
+        let old = ws
+            .join("g/001/t/x86_64-pc-windows-msvc/release-iterate")
+            .join(exe("myapp"));
+        let new = ws
+            .join("g/002/t/x86_64-pc-windows-msvc/debug")
+            .join(exe("myapp"));
+        let rel = ws
+            .join("g/002/t/x86_64-pc-windows-msvc/release")
+            .join(exe("myapp"));
         touch(&old, 500);
         touch(&new, 100);
         touch(&rel, 1); // newest, but release tier
         let env = |_: &str| None;
-        let got = resolve(&query("myapp", &app, Some(base.join("rightkit-build-control")), &env)).unwrap();
+        let got = resolve(&query(
+            "myapp",
+            &app,
+            Some(base.join("rightkit-build-control")),
+            &env,
+        ))
+        .unwrap();
         assert_eq!(got.path, new);
         assert_eq!(got.source, BinarySource::BrokerTarget(ws));
     }
@@ -470,7 +542,13 @@ mod tests {
         std::fs::write(ws2.join("identity.json"), id.to_string()).unwrap();
         touch(&ws2.join("g/001/target/debug").join(exe("helper")), 10);
         let env = |_: &str| None;
-        let e = resolve(&query("myapp", &app, Some(base.join("rightkit-build-control")), &env)).unwrap_err();
+        let e = resolve(&query(
+            "myapp",
+            &app,
+            Some(base.join("rightkit-build-control")),
+            &env,
+        ))
+        .unwrap_err();
         assert!(e.0.contains("no dev binary for myapp"), "{}", e.0);
     }
 
@@ -523,7 +601,10 @@ mod tests {
         let e = resolve(&query("myapp", &app, None, &env)).unwrap_err();
         assert!(e.0.contains("is not named myapp"), "{}", e.0);
         let missing = |k: &str| (k == APP_BINARY_ENV).then(|| "nope/myapp".to_string());
-        assert!(resolve(&query("myapp", &app, None, &missing)).unwrap_err().0.contains("does not exist"));
+        assert!(resolve(&query("myapp", &app, None, &missing))
+            .unwrap_err()
+            .0
+            .contains("does not exist"));
     }
 
     #[test]
@@ -531,10 +612,16 @@ mod tests {
         let base = tmp("val");
         let dir = base.join("myapp");
         std::fs::create_dir_all(&dir).unwrap();
-        assert!(validate(&dir, "myapp").unwrap_err().0.contains("not a file"));
+        assert!(validate(&dir, "myapp")
+            .unwrap_err()
+            .0
+            .contains("not a file"));
         let rel = base.join("target/release").join(exe("myapp"));
         touch(&rel, 1);
-        assert!(validate(&rel, "myapp").unwrap_err().0.contains("release-tier"));
+        assert!(validate(&rel, "myapp")
+            .unwrap_err()
+            .0
+            .contains("release-tier"));
         let ok = base.join("target/release-iterate").join(exe("myapp"));
         touch(&ok, 1);
         assert!(validate(&ok, "myapp").is_ok());
@@ -583,7 +670,11 @@ mod tests {
         // Only the plain build exists: fail closed with the instructive message.
         std::fs::remove_file(&qa).unwrap();
         let e = resolve(&query("myapp", &app, b, &env)).unwrap_err();
-        assert!(e.0.contains("but it isn't a test-mode/control build"), "{}", e.0);
+        assert!(
+            e.0.contains("but it isn't a test-mode/control build"),
+            "{}",
+            e.0
+        );
         assert!(e.0.contains("--build-ui"), "{}", e.0);
     }
 
@@ -596,11 +687,18 @@ mod tests {
         write_exe(&plain, 1, false);
         let p = plain.to_string_lossy().into_owned();
         let env = move |k: &str| (k == APP_BINARY_ENV).then(|| p.clone());
-        assert!(resolve(&query("myapp", &app, None, &env)).unwrap_err().0.contains("isn't a test-mode/control build"));
+        assert!(resolve(&query("myapp", &app, None, &env))
+            .unwrap_err()
+            .0
+            .contains("isn't a test-mode/control build"));
         std::fs::write(app.join(POINTER_FILE), plain.to_string_lossy().as_bytes()).unwrap();
         let none = |_: &str| None;
         let e = resolve(&query("myapp", &app, None, &none)).unwrap_err();
-        assert!(e.0.contains("pointer file") && e.0.contains("isn't a test-mode/control build"), "{}", e.0);
+        assert!(
+            e.0.contains("pointer file") && e.0.contains("isn't a test-mode/control build"),
+            "{}",
+            e.0
+        );
     }
 
     #[test]
@@ -619,13 +717,16 @@ mod tests {
         let base = tmp("stash");
         let app = base.join("app");
         std::fs::create_dir_all(&app).unwrap();
-        let built = base.join("target/x86_64-pc-windows-msvc/debug").join(exe("myapp"));
+        let built = base
+            .join("target/x86_64-pc-windows-msvc/debug")
+            .join(exe("myapp"));
         write_exe(&built, 5, true);
         std::fs::write(built.with_extension("pdb"), b"pdb").unwrap();
         let got = stash_qa_build(&built, &app, None).unwrap();
         assert_eq!(
             got,
-            app.join(".rightkit-qa-bin/x86_64-pc-windows-msvc").join(exe("myapp"))
+            app.join(".rightkit-qa-bin/x86_64-pc-windows-msvc")
+                .join(exe("myapp"))
         );
         assert!(has_qa_marker(&got).unwrap());
         assert!(got.with_extension("pdb").is_file());

@@ -161,14 +161,19 @@ fn ui_binary(cfg: &QaConfig, opts: &SuiteOptions, tracker: &Tracker) -> Result<O
             .collect();
         let built = build_engine(&cfg.app_root, &cfg.ui.build, &pkg, &env, tracker)?;
         // Keep a stable QA-only copy so a later plain dev build cannot displace it.
-        let kept = crate::binary::stash_qa_build(&built, &cfg.app_root, cfg.ui.pointer_file.as_deref())?;
+        let kept =
+            crate::binary::stash_qa_build(&built, &cfg.app_root, cfg.ui.pointer_file.as_deref())?;
         return Ok(Some(kept));
     }
     // No override and no build requested: the dev-build resolver (pointer file, broker target root,
     // then `ui.binaries`). A config that names no executable keeps the old "none configured" answer.
     match cfg.resolve_ui_binary() {
         Ok(found) => {
-            eprintln!("[qa] ui binary ({:?}): {}", found.source, found.path.display());
+            eprintln!(
+                "[qa] ui binary ({:?}): {}",
+                found.source,
+                found.path.display()
+            );
             Ok(Some(found.path))
         }
         // A found-but-not-QA build fails closed with its instructive message.

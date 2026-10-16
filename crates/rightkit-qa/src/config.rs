@@ -259,7 +259,9 @@ impl QaConfig {
     /// the `ui.binaries` path. See [`crate::binary`]. Errors when none of them holds a valid file.
     pub fn resolve_ui_binary(&self) -> Result<crate::binary::ResolvedBinary> {
         self.resolve_ui_binary_with(
-            Some(crate::binary::broker_root_of(&crate::storage::managed_root(None))),
+            Some(crate::binary::broker_root_of(
+                &crate::storage::managed_root(None),
+            )),
             &|k| std::env::var(k).ok(),
         )
     }
@@ -356,7 +358,8 @@ binaries = {{ macos = \"target/debug/{exe}\", windows = \"target/debug/{exe}\" }
         let got = c.resolve_ui_binary_with(None, &none).unwrap();
         assert_eq!(got.source, crate::binary::BinarySource::AppRoot);
         assert!(got.path.ends_with(exe));
-        let env = |k: &str| (k == "RIGHTKIT_QA_APP_BINARY").then(|| built.to_string_lossy().into_owned());
+        let env =
+            |k: &str| (k == "RIGHTKIT_QA_APP_BINARY").then(|| built.to_string_lossy().into_owned());
         let got = c.resolve_ui_binary_with(None, &env).unwrap();
         assert!(matches!(got.source, crate::binary::BinarySource::Env(_)));
     }

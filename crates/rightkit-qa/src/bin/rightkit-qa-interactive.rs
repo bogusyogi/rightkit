@@ -55,7 +55,11 @@ fn real_main(args: &[String]) -> Result<i32, String> {
     let mut i = 0;
     let mut rest: Option<&[String]> = None;
     while i < args.len() {
-        let value = |i: usize| args.get(i + 1).cloned().ok_or_else(|| format!("{} needs a value\n{USAGE}", args[i]));
+        let value = |i: usize| {
+            args.get(i + 1)
+                .cloned()
+                .ok_or_else(|| format!("{} needs a value\n{USAGE}", args[i]))
+        };
         match args[i].as_str() {
             "--" => {
                 rest = Some(&args[i + 1..]);
@@ -63,7 +67,9 @@ fn real_main(args: &[String]) -> Result<i32, String> {
             }
             "--interactive" => flag = true,
             "--timeout-secs" => {
-                timeout = value(i)?.parse().map_err(|_| "--timeout-secs needs a number".to_string())?;
+                timeout = value(i)?
+                    .parse()
+                    .map_err(|_| "--timeout-secs needs a number".to_string())?;
                 i += 1;
             }
             "--cwd" => {
@@ -88,7 +94,10 @@ fn real_main(args: &[String]) -> Result<i32, String> {
     let (program, prog_args) = (rest[0].clone(), rest[1..].to_vec());
 
     let facts = session_facts();
-    let decision = decide(&facts, opted_in(flag, std::env::var(OPT_IN_ENV).ok().as_deref()));
+    let decision = decide(
+        &facts,
+        opted_in(flag, std::env::var(OPT_IN_ENV).ok().as_deref()),
+    );
     if let Some(why) = decision.refusal() {
         return Err(why);
     }
@@ -100,7 +109,9 @@ fn real_main(args: &[String]) -> Result<i32, String> {
                 cmd.current_dir(c);
             }
             cmd.envs(explicit.iter().cloned());
-            let status = cmd.status().map_err(|e| format!("cannot start {program}: {e}"))?;
+            let status = cmd
+                .status()
+                .map_err(|e| format!("cannot start {program}: {e}"))?;
             Ok(status.code().unwrap_or(1))
         }
         Decision::Relaunch(account) => {

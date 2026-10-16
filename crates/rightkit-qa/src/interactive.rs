@@ -125,9 +125,16 @@ pub enum Decision {
     Direct,
     /// Relaunch in the interactive session as this account.
     Relaunch(Account),
-    NotOptedIn { reason: String },
-    NoInteractiveUser { reason: String },
-    WrongUser { current: String, console: String },
+    NotOptedIn {
+        reason: String,
+    },
+    NoInteractiveUser {
+        reason: String,
+    },
+    WrongUser {
+        current: String,
+        console: String,
+    },
 }
 
 pub fn decide(f: &SessionFacts, opt_in: bool) -> Decision {
@@ -147,7 +154,9 @@ pub fn decide(f: &SessionFacts, opt_in: bool) -> Decision {
     let Some(current) = f.current_user.clone() else {
         return Decision::WrongUser {
             current: "<unknown>".into(),
-            console: console.map(|a| a.qualified()).unwrap_or_else(|| "<unknown>".into()),
+            console: console
+                .map(|a| a.qualified())
+                .unwrap_or_else(|| "<unknown>".into()),
         };
     };
     match console {
@@ -356,7 +365,10 @@ pub fn child_main(spec_path: &Path) -> i32 {
     {
         Ok(s) => s,
         Err(e) => {
-            eprintln!("rightkit-qa-interactive: cannot read {}: {e}", spec_path.display());
+            eprintln!(
+                "rightkit-qa-interactive: cannot read {}: {e}",
+                spec_path.display()
+            );
             return WRAPPER_FAILED;
         }
     };
@@ -799,7 +811,12 @@ mod tests {
         Account::new(d, u)
     }
 
-    fn facts(session: u32, visible: bool, console: ConsoleUser, cur: Option<Account>) -> SessionFacts {
+    fn facts(
+        session: u32,
+        visible: bool,
+        console: ConsoleUser,
+        cur: Option<Account>,
+    ) -> SessionFacts {
         SessionFacts {
             session_id: Some(session),
             visible_station: Some(visible),
@@ -858,7 +875,10 @@ mod tests {
 
     #[test]
     fn utf16_has_bom_and_little_endian() {
-        assert_eq!(utf16le_with_bom("A\u{e9}"), vec![0xFF, 0xFE, 0x41, 0x00, 0xE9, 0x00]);
+        assert_eq!(
+            utf16le_with_bom("A\u{e9}"),
+            vec![0xFF, 0xFE, 0x41, 0x00, 0xE9, 0x00]
+        );
     }
 
     #[test]
@@ -866,7 +886,10 @@ mod tests {
         assert_eq!(parse_exit_code("0\n").unwrap(), 0);
         assert_eq!(parse_exit_code(" 42 \r\n").unwrap(), 42);
         assert_eq!(parse_exit_code("-1").unwrap(), -1);
-        assert_eq!(parse_exit_code("3221225477").unwrap(), 0xC000_0005u32 as i32);
+        assert_eq!(
+            parse_exit_code("3221225477").unwrap(),
+            0xC000_0005u32 as i32
+        );
         assert!(parse_exit_code("").is_err());
         assert!(parse_exit_code("abc").is_err());
         assert!(parse_exit_code("4294967296").is_err());
@@ -889,7 +912,12 @@ mod tests {
         assert_eq!(decide(&interactive, true), Decision::Direct);
         assert_eq!(decide(&interactive, false), Decision::Direct);
 
-        let ssh = facts(0, false, ConsoleUser::User(acct("pc", "ANN")), Some(me.clone()));
+        let ssh = facts(
+            0,
+            false,
+            ConsoleUser::User(acct("pc", "ANN")),
+            Some(me.clone()),
+        );
         assert!(matches!(decide(&ssh, false), Decision::NotOptedIn { .. }));
         assert!(decide(&ssh, false).refusal().unwrap().contains(OPT_IN_ENV));
         assert_eq!(decide(&ssh, true), Decision::Relaunch(me.clone()));
@@ -898,7 +926,12 @@ mod tests {
         let svc = facts(2, false, ConsoleUser::User(me.clone()), Some(me.clone()));
         assert!(matches!(decide(&svc, false), Decision::NotOptedIn { .. }));
 
-        let other = facts(0, false, ConsoleUser::User(acct("PC", "bob")), Some(me.clone()));
+        let other = facts(
+            0,
+            false,
+            ConsoleUser::User(acct("PC", "bob")),
+            Some(me.clone()),
+        );
         match decide(&other, true) {
             Decision::WrongUser { current, console } => {
                 assert_eq!(current, "PC\\ann");
@@ -907,7 +940,10 @@ mod tests {
             d => panic!("{d:?}"),
         }
         let nobody = facts(0, false, ConsoleUser::NobodyLoggedOn, Some(me.clone()));
-        assert!(matches!(decide(&nobody, true), Decision::NoInteractiveUser { .. }));
+        assert!(matches!(
+            decide(&nobody, true),
+            Decision::NoInteractiveUser { .. }
+        ));
         // Unknown console user: the Task Scheduler enforces the account.
         let unknown = facts(0, false, ConsoleUser::Unknown, Some(me.clone()));
         assert_eq!(decide(&unknown, true), Decision::Relaunch(me.clone()));
@@ -944,10 +980,16 @@ mod tests {
         let got = select_env(
             vars,
             &["keep".to_string()],
-            &[("RIGHTKIT_MANAGED_ROOT".into(), "override".into()), ("X".into(), "y".into())],
+            &[
+                ("RIGHTKIT_MANAGED_ROOT".into(), "override".into()),
+                ("X".into(), "y".into()),
+            ],
         )
         .unwrap();
-        assert_eq!(got.get("RIGHTKIT_MANAGED_ROOT").map(String::as_str), Some("override"));
+        assert_eq!(
+            got.get("RIGHTKIT_MANAGED_ROOT").map(String::as_str),
+            Some("override")
+        );
         assert_eq!(got.get("Keep").map(String::as_str), Some("k"));
         assert_eq!(got.get("X").map(String::as_str), Some("y"));
         assert!(!got.contains_key("Path") && !got.contains_key("SECRET"));
@@ -961,7 +1003,12 @@ mod tests {
     fn child_spec_roundtrips_hostile_arguments_as_data() {
         let spec = ChildSpec {
             program: "journey.exe".into(),
-            args: vec!["a b".into(), "\"; calc & ".into(), "%PATH%".into(), "$(x)".into()],
+            args: vec![
+                "a b".into(),
+                "\"; calc & ".into(),
+                "%PATH%".into(),
+                "$(x)".into(),
+            ],
             cwd: None,
             env: BTreeMap::from([("K".to_string(), "v\nw".to_string())]),
             stdout: "o".into(),
@@ -1047,8 +1094,10 @@ mod tests {
     fn success_streams_output_propagates_code_and_cleans_up() {
         let fake = Fake::new(Some(("hello\n", "warn\n", "3\n")));
         let mut got: Vec<(Stream, Vec<u8>)> = vec![];
-        let code = run_interactive(&fake, &request(5000, 5000), &mut |s, b| got.push((s, b.to_vec())))
-            .unwrap();
+        let code = run_interactive(&fake, &request(5000, 5000), &mut |s, b| {
+            got.push((s, b.to_vec()))
+        })
+        .unwrap();
         assert_eq!(code, 3);
         assert!(got.contains(&(Stream::Stdout, b"hello\n".to_vec())));
         assert!(got.contains(&(Stream::Stderr, b"warn\n".to_vec())));
@@ -1077,7 +1126,10 @@ mod tests {
             .to_string();
         assert!(e.contains("did not start"), "{e}");
         assert!(e.contains("no such task"), "{e}");
-        assert_eq!(fake.calls.borrow().last().map(String::as_str), Some("delete"));
+        assert_eq!(
+            fake.calls.borrow().last().map(String::as_str),
+            Some("delete")
+        );
         assert!(!fake.dir.borrow().clone().unwrap().exists());
     }
 
@@ -1089,7 +1141,10 @@ mod tests {
             .unwrap_err()
             .to_string();
         assert!(e.contains("denied"));
-        assert_eq!(fake.calls.borrow().last().map(String::as_str), Some("delete"));
+        assert_eq!(
+            fake.calls.borrow().last().map(String::as_str),
+            Some("delete")
+        );
         assert!(!fake.dir.borrow().clone().unwrap().exists());
     }
 
@@ -1097,6 +1152,9 @@ mod tests {
     fn unparsable_exit_file_is_an_error_not_success() {
         let fake = Fake::new(Some(("", "", "oops")));
         assert!(run_interactive(&fake, &request(1000, 1000), &mut |_, _| {}).is_err());
-        assert_eq!(fake.calls.borrow().last().map(String::as_str), Some("delete"));
+        assert_eq!(
+            fake.calls.borrow().last().map(String::as_str),
+            Some("delete")
+        );
     }
 }
