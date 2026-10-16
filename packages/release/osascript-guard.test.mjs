@@ -20,7 +20,7 @@ test("legacy bundle_dmg.sh is denied before absolute osascript; Tauri skip flag 
   t.after(() => rmSync(managed, { recursive: true, force: true }));
   const script = path.join(managed, "bundle_dmg.sh"), marker = path.join(managed, "executed");
   writeFileSync(script, '#!/usr/bin/env bash\nprintf "%s" "$1" > "$2"\n', { mode: 0o700 });
-  const env = macosCodesignEnvironment({ ...process.env, RIGHTKIT_MANAGED_ROOT: managed }, { platform: "darwin", detect: () => ({ guiRunner: false }) });
+  const env = macosCodesignEnvironment({ ...process.env, RIGHTKIT_DATA_ROOT: managed, RIGHTKIT_MANAGED_ROOT: managed }, { platform: "darwin", detect: () => ({ guiRunner: false }) });
   for (const [cmd, args] of [["bash", [script, "unsafe", marker]], [script, ["unsafe", marker]]]) {
     const denied = spawnSync(cmd, args, { env, encoding: "utf8", timeout: 3000 });
     assert.equal(denied.status, 125, denied.stderr); assert.equal(JSON.parse(denied.stderr).caller, script);
@@ -35,7 +35,7 @@ test("PATH osascript fails fast for SSH & GUI with structured denial", { skip: p
   const managed = mkdtempSync(path.join(realpathSync(os.tmpdir()), "rk-automation-"));
   t.after(() => rmSync(managed, { recursive: true, force: true }));
   for (const ssh of ["", "fixture"]) {
-    const env = macosCodesignEnvironment({ ...process.env, RIGHTKIT_MANAGED_ROOT: managed, SSH_CONNECTION: ssh }, {
+    const env = macosCodesignEnvironment({ ...process.env, RIGHTKIT_DATA_ROOT: managed, RIGHTKIT_MANAGED_ROOT: managed, SSH_CONNECTION: ssh }, {
       platform: "darwin", detect: () => ({ guiRunner: !!ssh }),
     });
     const result = spawnSync("osascript", ["-e", 'tell application "Finder" to activate'], { env, encoding: "utf8", timeout: 3000 });

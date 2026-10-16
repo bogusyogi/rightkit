@@ -13,7 +13,19 @@ const skipWhenOptedIn = optedIn ? `${OPT_IN_ENV}=1 runs real broker calls on pur
 const root = mkdtempSync(path.join(os.tmpdir(), "rightkit-broker-guard-"));
 after(() => rmSync(root, { recursive: true, force: true }));
 
-test("broker guard classifies broker-reaching launches and leaves temp-directory fixtures alone", () => {
+// A bare `cargo` reaches the broker only when PATH resolves it to the managed shim (dev hosts); on CI runners
+// it is real cargo. Put a managed-looking `cargo` first on PATH so these tests do not depend on the host.
+function managedCargoOnPath(t) {
+  const bin = path.join(root, ".rightkit-managed", "agent-bin");
+  mkdirSync(bin, { recursive: true });
+  writeFileSync(path.join(bin, "cargo"), "#!/bin/sh\nexit 97\n", { mode: 0o755 });
+  const previous = process.env.PATH;
+  process.env.PATH = [bin, previous].filter(Boolean).join(path.delimiter);
+  t.after(() => { if (previous === undefined) delete process.env.PATH; else process.env.PATH = previous; });
+}
+
+test("broker guard classifies broker-reaching launches and leaves temp-directory fixtures alone", (t) => {
+  managedCargoOnPath(t);
   assert.equal(brokerLaunch("rightkit"), true);
   assert.equal(brokerLaunch("cargo"), true);
   assert.equal(brokerLaunch("/Library/Application Support/RightKit/build-control/runtime-current/rustright"), true);
@@ -26,14 +38,16 @@ test("broker guard propagates to child Node processes through NODE_OPTIONS", { s
   assert.match(process.env.NODE_OPTIONS ?? "", /--import=file:\/\/\/.*broker-guard\.mjs/);
 });
 
-test("broker guard refuses live broker launches and broker socket connects", { skip: skipWhenOptedIn }, () => {
+test("broker guard refuses live broker launches and broker socket connects", { skip: skipWhenOptedIn }, (t) => {
+  managedCargoOnPath(t);
   assert.throws(() => childProcess.spawnSync("rightkit", ["cargo", "build"]), /RightKit broker guard: a test tried to reach the live RightKit build broker/);
   assert.throws(() => childProcess.spawnSync("cargo", ["build"]), /RightKit broker guard/);
   assert.throws(() => childProcess.execFileSync("rustright", ["cargo", "build"]), /RightKit broker guard/);
   assert.throws(() => net.connect({ path: path.join(root, "broker.sock") }), /RightKit broker guard: .*broker socket/);
 });
 
-test("broker guard answers Cargo metadata with a stub computed from the manifest and records the call", { skip: skipWhenOptedIn }, () => {
+test("broker guard answers Cargo metadata with a stub computed from the manifest and records the call", { skip: skipWhenOptedIn }, (t) => {
+  managedCargoOnPath(t);
   const dir = path.join(root, "stub-app");
   mkdirSync(dir, { recursive: true });
   const manifest = path.join(dir, "Cargo.toml");
@@ -61,7 +75,8 @@ test("broker guard answers Cargo metadata with a stub computed from the manifest
   }
 });
 
-test("broker guard reports a manifest the stub cannot parse as a failed Cargo metadata call", { skip: skipWhenOptedIn }, () => {
+test("broker guard reports a manifest the stub cannot parse as a failed Cargo metadata call", { skip: skipWhenOptedIn }, (t) => {
+  managedCargoOnPath(t);
   const manifest = path.join(root, "broken", "Cargo.toml");
   mkdirSync(path.dirname(manifest), { recursive: true });
   writeFileSync(manifest, "not valid toml", "utf8");

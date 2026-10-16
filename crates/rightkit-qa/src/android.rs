@@ -654,7 +654,13 @@ impl AdbRunner for ProcessRunner {
     }
 
     fn spawn_to_file(&self, args: &[String], out: File) -> Result<Box<dyn LogcatProc>> {
-        let child = Command::new(&self.adb)
+        let mut cmd = Command::new(&self.adb);
+        #[cfg(windows)]
+        {
+            use std::os::windows::process::CommandExt;
+            cmd.creation_flags(0x0800_0000); // CREATE_NO_WINDOW: adb logcat runs in the background
+        }
+        let child = cmd
             .args(args)
             .stdin(Stdio::null())
             .stdout(Stdio::from(out))

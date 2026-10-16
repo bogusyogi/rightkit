@@ -400,6 +400,11 @@ fn run_child(spec: &ChildSpec) -> Result<i32> {
     let out = File::create(&spec.stdout)?;
     let errf = File::create(&spec.stderr)?;
     let mut cmd = Command::new(&spec.program);
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        cmd.creation_flags(0x0800_0000); // CREATE_NO_WINDOW: stdin is null and output goes to files
+    }
     cmd.args(&spec.args)
         .stdin(Stdio::null())
         .stdout(Stdio::from(out))

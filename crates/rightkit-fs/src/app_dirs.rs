@@ -575,8 +575,11 @@ fn components(s: &str, windows: bool, lower: bool) -> Vec<String> {
 
 /// Whether `path` is `base` or below it (component-wise; case-insensitive on Windows).
 fn inside_or_equal(path: &Path, base: &Path, windows: bool) -> bool {
-    let p = components(&path.to_string_lossy(), windows, windows);
-    let b = components(&base.to_string_lossy(), windows, windows);
+    // On a Windows host `Path::join` writes `\`, so a path built for another OS (tests) mixes
+    // separators; treat `\` as one there too.
+    let seps = windows || cfg!(windows);
+    let p = components(&path.to_string_lossy(), seps, windows);
+    let b = components(&base.to_string_lossy(), seps, windows);
     p.len() >= b.len() && p[..b.len()] == b[..]
 }
 
@@ -684,7 +687,7 @@ mod tests {
         assert!(matches!(err, AppDirsError::AndroidNeedsInjectedRoots));
         assert!(err.to_string().contains("AppDirs::injected"), "{err}");
         // The test root still applies (an instrumented test on a device).
-        let o = Options::new(Os::Android).test_root(Some(process_test_root()));
+        let o = Options::new(Os::Android).test_root(Some(p("/data/local/tmp/rightkit-test")));
         assert!(AppDirs::resolve_with(&AppId::new("A"), &o, &env_of(&[])).unwrap().isolated);
     }
 

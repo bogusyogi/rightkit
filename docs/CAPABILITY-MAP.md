@@ -8,13 +8,14 @@ Owners come from `packages/release/rightkit-ownership.json`, which the ownership
 - Detection: `fingerprinted` when the owner declares dependency or source fingerprints; `declaration-only` when it declares ownership without a precise fingerprint. A declared dependency alone does not prove integration.
 - Published availability: `published` means a registry version is recorded. `staged` means a version is prepared and unverified on the registry.
 
-Capabilities: 78 (55 with fingerprints, 23 declaration-only). Internal owners that are not application capabilities are excluded.
+Capabilities: 81 (56 with fingerprints, 25 declaration-only). Internal owners that are not application capabilities are excluded.
 
 | Capability | Owner | Tier | Detection | Fingerprints | Published availability |
 |---|---|---|---|---|---|
 | agent-experience-gates | `@rightkit/ax` | none | declaration-only | 0 | @rightkit/ax: published 0.3.2 (npm) |
 | agent-sessions | `rightkit-agents` | none | declaration-only | 0 | rightkit-agents: published 0.1.0 (crates.io) |
 | agent-tools | `rightkit-agent-tools` | none | declaration-only | 0 | rightkit-agent-tools: published 0.1.3 (crates.io) |
+| android-bridge | `rightkit-android` | advise | fingerprinted | 2 (0 block, 2 advise) | rightkit-android: none recorded |
 | app-shell-ui | `@rightkit/react-shell` | advise | fingerprinted | 10 (0 block, 10 advise) | @rightkit/react-shell: published 0.6.6 (npm) |
 | audio | `rightkit-audio` | advise | fingerprinted | 3 (0 block, 3 advise) | rightkit-audio: published 0.2.3 (crates.io) |
 | browser-automation | `rightkit-browser` | block | fingerprinted | 11 (5 block, 6 advise) | rightkit-browser: published 0.3.1 (crates.io) |
@@ -83,6 +84,8 @@ Capabilities: 78 (55 with fingerprints, 23 declaration-only). Internal owners th
 | spreadsheet | `rightkit-docs` | none | declaration-only | 0 | rightkit-docs: published 0.1.0 (crates.io) |
 | sqlite-storage | `rightkit-db` | advise | fingerprinted | 2 (0 block, 2 advise) | rightkit-db: published 0.4.0 (crates.io) |
 | structured-logging | `@rightkit/logs`, `rightkit-logs` | advise | fingerprinted | 8 (0 block, 8 advise) | @rightkit/logs: published 0.1.4 (npm); rightkit-logs: published 0.3.0 (crates.io) |
+| sync-key-management | `rightkit-sync-keys` | none | declaration-only | 0 | rightkit-sync-keys: none recorded |
+| sync-worker | `@rightkit/sync-worker` | none | declaration-only | 0 | @rightkit/sync-worker: none recorded |
 | tauri-host-adapters | `@rightkit/tauri`, `rightkit-device` | advise | fingerprinted | 2 (0 block, 2 advise) | @rightkit/tauri: published 0.2.1 (npm); rightkit-device: published 0.1.3 (crates.io) |
 | text-to-speech | `rightkit-tts`, `rightkit-tts-qwen`, `rightkit-tts-qwen-sys` | advise | fingerprinted | 3 (0 block, 3 advise) | rightkit-tts: published 0.2.1 (crates.io); rightkit-tts-qwen: published 0.2.6 (crates.io); rightkit-tts-qwen-sys: published 0.1.2 (crates.io) |
 | theme-ui | `@rightkit/theme` | advise | fingerprinted | 7 (0 block, 7 advise) | @rightkit/theme: published 0.2.3 (npm) |

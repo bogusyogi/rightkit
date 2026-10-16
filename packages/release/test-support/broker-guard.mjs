@@ -304,7 +304,9 @@ export function installBrokerGuard() {
   syncBuiltinESMExports();
   // Run leases and other managed-root writes go to a throwaway root, never the real one.
   // One throwaway root per test run, shared by child processes (they inherit the marker).
-  process.env.RIGHTKIT_GUARD_DATA_ROOT ??= mkdtempSync(path.join(os.tmpdir(), "rightkit-release-test-root-"));
+  // Real path: on macOS os.tmpdir() sits behind the /var -> /private/var symlink, which the signing-agent
+  // directory checks (ensurePrivateDirectory) reject as a symlink ancestor.
+  process.env.RIGHTKIT_GUARD_DATA_ROOT ??= realpathSync(mkdtempSync(path.join(os.tmpdir(), "rightkit-release-test-root-")));
   process.env.RIGHTKIT_DATA_ROOT = process.env.RIGHTKIT_GUARD_DATA_ROOT;
   // Child Node processes (release.mjs, build-release.mjs, cargo-target.mjs, fixtures) load the guard too.
   const current = process.env.NODE_OPTIONS ?? "";

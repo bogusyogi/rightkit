@@ -103,6 +103,8 @@ fn real_main(args: &[String]) -> Result<i32, String> {
     }
     match decision {
         Decision::Direct => {
+            // windowless: the direct path runs the program in this wrapper's own console (the user's
+            // interactive terminal); hiding it would detach the child from that console.
             let mut cmd = std::process::Command::new(&program);
             cmd.args(&prog_args);
             if let Some(c) = &cwd {

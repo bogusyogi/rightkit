@@ -16,12 +16,12 @@
     {
       "package": "rightkit-agents",
       "capability": "agent-sessions",
-      "summary": "Supervised vendor agent sessions for Right Suite apps: shared agent event model, Claude Code stream-json and Codex app-server protocol clients, recorded fixtures. No SDK, no HTTP, no MCP.",
+      "summary": "Supervised vendor agent sessions for Right Suite apps: shared agent event model, Claude Code stream-json and Codex app-server protocol clients, session lifecycle with approvals and tree teardown, recorded fixtures. No SDK, no HTTP, no MCP.",
       "fingerprints": [],
       "detection": "declaration-only",
       "policyNotes": [
         "Declaration-only: vendor CLI protocol handling is not a dependency fingerprint.",
-        "Lane 1 ships protocol clients and fixtures only; session lifecycle, approvals and the API backend land in later releases."
+        "0.2.0 adds the session lifecycle (feature session) over rightkit-child-process; the API backend lands in a later release."
       ]
     },
     {
@@ -33,6 +33,49 @@
       "policyNotes": [
         "Declaration-only: the alignment algorithm is not an ownership fingerprint.",
         "Consumes rightkit-transcript words; holds no audio, models or I/O."
+      ]
+    },
+    {
+      "package": "rightkit-android",
+      "capability": "android-bridge",
+      "summary": "Android JNI context capture, UniFFI Kotlin bridge, Keystore credential bridge and Gradle library module for Right Suite apps",
+      "fingerprints": [
+        {
+          "id": "android.cargo.jni",
+          "type": "dependency",
+          "ecosystem": "cargo",
+          "name": "jni",
+          "tier": "advise",
+          "usageContext": {
+            "hosts": [
+              "macos",
+              "windows"
+            ],
+            "scope": "cargo direct competing dependency in an app crate; transitive findings require authenticated reachability"
+          },
+          "tierReason": "No recorded published-version qualification for this usage context on both macOS & Windows."
+        },
+        {
+          "id": "android.cargo.uniffi",
+          "type": "dependency",
+          "ecosystem": "cargo",
+          "name": "uniffi",
+          "tier": "advise",
+          "usageContext": {
+            "hosts": [
+              "macos",
+              "windows"
+            ],
+            "scope": "cargo direct competing dependency in an app crate; transitive findings require authenticated reachability"
+          },
+          "tierReason": "No recorded published-version qualification for this usage context on both macOS & Windows."
+        }
+      ],
+      "detection": "fingerprinted",
+      "policyNotes": [
+        "Apps reach the JavaVM, the application Context and Keystore through rightkit-android; app crates do not depend on jni directly for context capture.",
+        "App-specific UniFFI exports (model load, PCM sessions) belong in the app's own cdylib; the dependency allowlist decision for uniffi in app crates is made outside this file.",
+        "Fingerprints identify review candidates; published two-host replacement qualification is not recorded."
       ]
     },
     {
@@ -2764,6 +2807,17 @@
       ]
     },
     {
+      "package": "rightkit-sync-keys",
+      "capability": "sync-key-management",
+      "summary": "End-to-end sync key management: account data key, versioned rotation, per-zone key derivation, OS credential storage and device-approval key transfer (X25519, short code, AEAD); declaration-only detection (no precise implementation fingerprint)",
+      "fingerprints": [],
+      "detection": "declaration-only",
+      "policyNotes": [
+        "Package contract retained; dependency declarations do not verify integration.",
+        "No precise implementation fingerprint; declaration-only inventory, never enforced ownership or verified integration."
+      ]
+    },
+    {
       "package": "rightkit-tauri-shell",
       "capability": "desktop-shell",
       "summary": "Tauri shell: tray, autostart, deep links, single instance, window state, notifications",
@@ -4125,6 +4179,17 @@
       "package": "@rightkit/settings-ui",
       "capability": "settings-ui",
       "summary": "Settings panel frame and standard sections (appearance, updates, license, legal, diagnostics, models, API keys, about) persisted through rightkit-app-settings.; declaration-only detection (no precise implementation fingerprint)",
+      "fingerprints": [],
+      "detection": "declaration-only",
+      "policyNotes": [
+        "Package contract retained; dependency declarations do not verify integration.",
+        "No precise implementation fingerprint; declaration-only inventory, never enforced ownership or verified integration."
+      ]
+    },
+    {
+      "package": "@rightkit/sync-worker",
+      "capability": "sync-worker",
+      "summary": "Cloudflare Worker implementing the server side of rightkit-sync-http/1 on D1 and R2; declaration-only detection (no precise implementation fingerprint)",
       "fingerprints": [],
       "detection": "declaration-only",
       "policyNotes": [
