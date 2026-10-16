@@ -1,8 +1,9 @@
 //! Platform backend: enumeration plus change feed.
 //!
-//! macOS: getattrlistbulk crawl + FSEvents (`macos`). Windows: an NTFS MFT
-//! enumeration with a USN journal feed is planned (see the README); only the
-//! `UnsupportedBackend` stub exists today. Everything above this trait is
+//! macOS: getattrlistbulk crawl + FSEvents (`macos`). Windows: Windows Search
+//! SystemIndex over OLE DB (`windows_search`, the default backend there) and the NTFS USN
+//! journal reader (`windows_usn`; MFT path resolution and the change-feed hookup are still
+//! TODO). `UnsupportedBackend` remains for other platforms. Everything above this trait is
 //! platform-neutral.
 
 use crate::error::Result;
@@ -12,7 +13,9 @@ use std::sync::Arc;
 
 #[cfg(target_os = "macos")]
 pub mod macos;
+pub mod windows_search;
 pub mod windows_stub;
+pub mod windows_usn;
 
 pub const NONE: u32 = u32::MAX;
 
@@ -262,7 +265,11 @@ pub fn default_backend() -> Arc<dyn Backend> {
     {
         Arc::new(macos::MacBackend)
     }
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(windows)]
+    {
+        Arc::new(windows_search::WindowsSearchBackend)
+    }
+    #[cfg(not(any(target_os = "macos", windows)))]
     {
         Arc::new(windows_stub::UnsupportedBackend)
     }

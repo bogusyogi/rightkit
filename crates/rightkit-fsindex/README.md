@@ -22,16 +22,25 @@ macOS (v1): `getattrlistbulk` crawl (parallel, std threads), FSEvents upkeep wit
 resume from a snapshot, full-rescan fallback on dropped events, subtree rescan on
 must-scan-subdirs/root-changed/mount events.
 
-Windows (planned, only a stub today; the 0.2.0 public APIs above are macOS-only): the `Backend` trait (`src/backend/mod.rs`) is the seam.
-`UnsupportedBackend` returns `Error::Unsupported`. The plan: enumerate the NTFS MFT
-(`FSCTL_ENUM_USN_DATA` or direct `$MFT` read with elevation, falling back to
-`FindFirstFileExW` with `FIND_FIRST_EX_LARGE_FETCH` when not elevated) for the initial crawl, using
-`GetFileInformationByHandleEx`/`FileStandardInfo` for `AllocationSize` and `EndOfFile`, and the volume
-file ID for hard-link dedupe (`NumberOfLinks`); follow the USN journal (`FSCTL_READ_USN_JOURNAL`)
-for changes, resuming from a stored (journal id, USN) and rescanning when the journal id changed
-or the USN fell off the journal; clones map to ReFS block cloning where available, otherwise
-`allocated_unique == allocated`. Packages do not exist on Windows. Everything above the trait (store,
-rollups, query, subscriptions, snapshot) is platform-neutral.
+Windows (0.4.0): the `Backend` trait (`src/backend/mod.rs`) is the seam. The default backend is
+`WindowsSearchBackend` (`src/backend/windows_search.rs`): it reads the Windows Search `SystemIndex`
+through the OLE DB provider `Search.CollatorDSO`, so it sees only what the Search service indexes (by
+default the user profile and Start menu; add folders in Indexing Options for more), reports logical
+sizes only (`allocated_unique == allocated`, hard links not deduplicated), and has no change feed:
+open the index with `Config::watch = false` and reopen to refresh. When the `WSearch` service is
+stopped or missing, or the provider is not registered, `Index::open` and `check_supported` return
+`Error::Unsupported` with the reason; `windows_search_status(scope)` reports the same state
+(`service`, `provider_registered`, `scope_indexed`) without opening anything. Without an index,
+`search_names(text, &SearchOptions)` and `folder_rollup(scope, max_rows)` query the catalog directly.
+User text is escaped before it reaches the SQL (quotes doubled; LIKE wildcards neutralised and the
+results re-filtered in Rust). Pulse wires this behind a setting that defaults to Off.
+
+`backend::windows_usn` reads the NTFS USN journal for a volume (`UsnJournal::open('C')`, `query`,
+`read`, `enumerate_files`). It needs an elevated process: otherwise it returns
+`UsnError::PermissionDenied`; on a volume without a journal it returns `Unsupported` or
+`JournalNotActive`. Resolving file reference numbers to paths and feeding `Backend::watch` from the
+journal (the MFT/USN backend) is not implemented yet. Packages do not exist on Windows. Everything
+above the trait (store, rollups, query, subscriptions, snapshot) is platform-neutral.
 
 ## Public APIs and semver (0.2.0, macOS)
 
@@ -156,4 +165,4 @@ after 30 s idle. That is ~3 bytes/entry footprint and ~4 bytes/entry resident at
 
 Name search is name-only (no path tokens); a search touches clean mapped pages (transient resident spike, ~25 bytes/entry, released by the trim); hard-link
 and clone-group tables are resident (large pnpm-style hard-link stores grow them); the event-ID resume cannot detect a purged FSEvents history beyond the snapshot age limit; no
-daemon/IPC; no Windows backend.
+daemon/IPC; Windows has the Windows Search backend only (no change feed, indexed locations only); MFT/USN path resolution is not done.

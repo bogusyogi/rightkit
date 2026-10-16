@@ -13,8 +13,8 @@ fn unsupported_backend_returns_unsupported() {
     }
 }
 
-/// Off macOS the default backend is the stub, so opening an index reports Unsupported.
-#[cfg(not(target_os = "macos"))]
+/// Off macOS and Windows the default backend is the stub, so opening an index reports Unsupported.
+#[cfg(not(any(target_os = "macos", windows)))]
 #[test]
 fn default_backend_is_unsupported_off_macos() {
     let t = tree();

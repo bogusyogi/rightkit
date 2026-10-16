@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-fsindex"
-version = "0.3.0"
+version = "0.4.0"
 edition = "2021"
 rust-version = "1.98.0"
 publish = true
@@ -11,7 +11,7 @@ repository = "https://github.com/Orthic-Labs/rightkit"
 homepage = "https://github.com/Orthic-Labs/rightkit/tree/main/crates/rightkit-fsindex"
 documentation = "https://docs.rs/rightkit-fsindex"
 keywords = ["filesystem", "file-index", "fsevents", "disk-usage", "search"]
-categories = ["filesystem", "os::macos-apis"]
+categories = ["filesystem", "os::macos-apis", "os::windows-apis"]
 include = ["src/**", "tests/*.rs", "tests/common/*.rs", "benches/*.rs", "Cargo.toml", "README.md", "CHANGELOG.md", "LICENSE", "THIRD-PARTY-NOTICES"]
 
 [lib]
@@ -24,6 +24,23 @@ memmap2 = "0.9"
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
+
+# Same `windows` line as rightkit-automation / rightkit-daemon (0.62), no new dependency.
+# OLE DB (Win32_System_Search + Win32_Storage_IndexServer for DBID), the SCM probe for the
+# WSearch service, and DeviceIoControl on a volume handle for the USN journal.
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.62", features = [
+  "Win32_Foundation",
+  "Win32_Security",
+  "Win32_Storage_FileSystem",
+  "Win32_Storage_IndexServer",
+  "Win32_System_Com",
+  "Win32_System_IO",
+  "Win32_System_Ole",
+  "Win32_System_Search",
+  "Win32_System_Services",
+  "Win32_System_Variant",
+] }
 
 [dev-dependencies]
 tempfile = "3"

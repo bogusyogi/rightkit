@@ -41,3 +41,16 @@ pub use backend::macos::events::{FsEvent, FsEventsWatcher, ItemFlags, WatchFlags
 /// and a typed refusal for dataless files. See [`list_dir_fd`].
 #[cfg(target_os = "macos")]
 pub use backend::macos::listing::{list_dir_fd, Entry, EntrySize, ListOptions, Listing};
+
+/// Windows Search (SystemIndex) queries, status, and the `Backend` over them (0.3.0). The
+/// pure parts are available on every platform; COM calls report `Unsupported` off Windows.
+pub use backend::windows_search::{
+    escape_sql_literal, folder_rollup, like_pattern, search_names, windows_search_status,
+    ServiceState, WindowsRollup, WindowsSearchBackend, WindowsSearchHit, WindowsSearchStatus,
+};
+/// NTFS USN journal reader (0.3.0): record parsing everywhere, `UsnJournal` on Windows.
+pub use backend::windows_usn::{
+    parse_usn_records, UsnError, UsnJournalInfo, UsnRecord, UsnRecords,
+};
+#[cfg(windows)]
+pub use backend::windows_usn::UsnJournal;
