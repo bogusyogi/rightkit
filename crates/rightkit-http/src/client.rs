@@ -373,7 +373,11 @@ pub(crate) fn resolve_system(
                          used_direct: ProxyModeUsed|
      -> Result<(Option<ResolvedProxy>, ProxyModeUsed), HttpError> {
         let proxy = proxy_from_lookup(get)?;
-        let used = if proxy.is_some() { used_env } else { used_direct };
+        let used = if proxy.is_some() {
+            used_env
+        } else {
+            used_direct
+        };
         Ok((proxy, used))
     };
     if matches!(

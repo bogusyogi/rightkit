@@ -34,10 +34,9 @@ fn run() -> Result<(), String> {
             "--cache" => cache = Some(PathBuf::from(value("--cache")?)),
             "--target" => {
                 let text = value("--target")?;
-                target = Some(
-                    ProvisionTarget::parse(&text)
-                        .ok_or_else(|| format!("unknown target {text:?}; use windows-x64 or macos-arm64"))?,
-                );
+                target = Some(ProvisionTarget::parse(&text).ok_or_else(|| {
+                    format!("unknown target {text:?}; use windows-x64 or macos-arm64")
+                })?);
             }
             "--catalog" => catalog = Some(PathBuf::from(value("--catalog")?)),
             other => return Err(format!("unknown argument {other:?}")),
@@ -58,7 +57,11 @@ fn run() -> Result<(), String> {
     .map_err(|e| e.to_string())?;
     println!(
         "{} {} {} in {}",
-        if outcome.reused { "reused" } else { "provisioned" },
+        if outcome.reused {
+            "reused"
+        } else {
+            "provisioned"
+        },
         outcome.runtime.platform,
         outcome.runtime.onnxruntime.version,
         outcome.runtime.dir.display()

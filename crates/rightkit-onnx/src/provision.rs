@@ -22,7 +22,9 @@ use std::fs;
 use std::io::Read;
 use std::path::{Path, PathBuf};
 
-use rightkit_ffmpeg::native::{NativeCatalog, NativeCatalogError, NativeLibrary, NativeRecord, NativeStatus};
+use rightkit_ffmpeg::native::{
+    NativeCatalog, NativeCatalogError, NativeLibrary, NativeRecord, NativeStatus,
+};
 use serde::Serialize;
 use sha2::{Digest, Sha256};
 
@@ -99,13 +101,24 @@ pub enum ProvisionError {
     /// Catalog could not be read or parsed.
     Catalog(String),
     /// No single approved or pinned row for the library on the target, or the row cannot be used.
-    Row { library: &'static str, reason: String },
+    Row {
+        library: &'static str,
+        reason: String,
+    },
     /// The archive could not be fetched.
     Fetch { url: String, message: String },
     /// A downloaded archive or an extracted file does not match its catalog digest.
-    Digest { what: String, expected: String, actual: String },
+    Digest {
+        what: String,
+        expected: String,
+        actual: String,
+    },
     /// A member could not be extracted from the archive.
-    Extract { archive: PathBuf, member: String, message: String },
+    Extract {
+        archive: PathBuf,
+        member: String,
+        message: String,
+    },
     /// Filesystem failure while staging or replacing the bundle.
     Io { path: PathBuf, message: String },
     /// The staged or final bundle failed `verify_runtime_manifest`.
@@ -118,10 +131,21 @@ impl fmt::Display for ProvisionError {
             Self::Catalog(m) => write!(f, "native catalog: {m}"),
             Self::Row { library, reason } => write!(f, "{library} catalog row: {reason}"),
             Self::Fetch { url, message } => write!(f, "fetch {url}: {message}"),
-            Self::Digest { what, expected, actual } => {
-                write!(f, "{what}: sha256 {actual} does not match catalog {expected}")
+            Self::Digest {
+                what,
+                expected,
+                actual,
+            } => {
+                write!(
+                    f,
+                    "{what}: sha256 {actual} does not match catalog {expected}"
+                )
             }
-            Self::Extract { archive, member, message } => {
+            Self::Extract {
+                archive,
+                member,
+                message,
+            } => {
                 write!(f, "extract {member} from {}: {message}", archive.display())
             }
             Self::Io { path, message } => write!(f, "{}: {message}", path.display()),
@@ -225,7 +249,10 @@ pub fn provision_runtime_with(
     let plan = plan(catalog, target)?;
 
     if let Some(runtime) = existing_matches(&dest, target, &plan) {
-        return Ok(ProvisionOutcome { runtime, reused: true });
+        return Ok(ProvisionOutcome {
+            runtime,
+            reused: true,
+        });
     }
 
     fs::create_dir_all(&cache).map_err(|e| io_error(&cache, e))?;
@@ -253,7 +280,10 @@ pub fn provision_runtime_with(
     }
     swapped?;
     let runtime = verify_runtime_manifest(&dest)?;
-    Ok(ProvisionOutcome { runtime, reused: false })
+    Ok(ProvisionOutcome {
+        runtime,
+        reused: false,
+    })
 }
 
 fn build_stage(
@@ -275,7 +305,9 @@ fn build_stage(
             }
         })?;
         item.record.verify_file(&out).map_err(|e| match e {
-            NativeCatalogError::DigestMismatch { expected, actual, .. } => ProvisionError::Digest {
+            NativeCatalogError::DigestMismatch {
+                expected, actual, ..
+            } => ProvisionError::Digest {
                 what: format!("{} ({})", item.out_name, item.record.id),
                 expected,
                 actual,
@@ -283,7 +315,11 @@ fn build_stage(
             other => catalog_error(other),
         })?;
         let (bytes, sha256) = hash_file(&out)?;
-        files.push(FileOut { path: item.out_name.to_owned(), sha256, bytes });
+        files.push(FileOut {
+            path: item.out_name.to_owned(),
+            sha256,
+            bytes,
+        });
     }
 
     let onnx = &plan[0].record;
@@ -297,8 +333,7 @@ fn build_stage(
         },
         files,
     };
-    let text = serde_json::to_vec_pretty(&manifest)
-        .map_err(|e| io_error(stage, e))?;
+    let text = serde_json::to_vec_pretty(&manifest).map_err(|e| io_error(stage, e))?;
     let manifest_path = stage.join("manifest.json");
     fs::write(&manifest_path, text).map_err(|e| io_error(&manifest_path, e))?;
     verify_runtime_manifest(stage)?;
@@ -315,14 +350,19 @@ fn fetch_verified(
     let path = cache.join(&item.archive_name);
     if path.is_file() {
         match hash_file(&path) {
-            Ok((_, actual)) if actual.eq_ignore_ascii_case(&item.archive_sha256) => return Ok(path),
+            Ok((_, actual)) if actual.eq_ignore_ascii_case(&item.archive_sha256) => {
+                return Ok(path)
+            }
             _ => {
                 let _ = fs::remove_file(&path);
             }
         }
     }
     fetch(&item.archive_url, &item.archive_sha256, &path).map_err(|message| {
-        ProvisionError::Fetch { url: item.archive_url.clone(), message }
+        ProvisionError::Fetch {
+            url: item.archive_url.clone(),
+            message,
+        }
     })?;
     let (_, actual) = hash_file(&path)?;
     if !actual.eq_ignore_ascii_case(&item.archive_sha256) {
@@ -338,7 +378,12 @@ fn fetch_verified(
 
 /// Replace `dest` with `stage`. The previous bundle moves aside first and returns if the second
 /// rename fails, so a failure leaves the previous bundle in place.
-fn swap_into_place(stage: &Path, dest: &Path, parent: &Path, name: &str) -> Result<(), ProvisionError> {
+fn swap_into_place(
+    stage: &Path,
+    dest: &Path,
+    parent: &Path,
+    name: &str,
+) -> Result<(), ProvisionError> {
     let backup = parent.join(format!(".{name}.previous-{}", std::process::id()));
     let _ = fs::remove_dir_all(&backup);
     let had_previous = dest.exists();
@@ -359,7 +404,11 @@ fn swap_into_place(stage: &Path, dest: &Path, parent: &Path, name: &str) -> Resu
 
 /// A verified bundle already in `dest` that matches the plan exactly (same platform, catalog row,
 /// version, variant, listed files and file digests), or `None`.
-fn existing_matches(dest: &Path, target: ProvisionTarget, plan: &[Planned]) -> Option<VerifiedRuntime> {
+fn existing_matches(
+    dest: &Path,
+    target: ProvisionTarget,
+    plan: &[Planned],
+) -> Option<VerifiedRuntime> {
     if !dest.join("manifest.json").is_file() {
         return None;
     }
@@ -391,23 +440,41 @@ fn plan(catalog: &NativeCatalog, target: ProvisionTarget) -> Result<Vec<Planned>
     match target {
         ProvisionTarget::WindowsX64 => {
             expect_file_name(&onnx, "onnxruntime", "onnxruntime.dll")?;
-            plan.push(planned(onnx, onnx_url, "runtimes/win-x64/native/onnxruntime.dll".to_owned(), "onnxruntime.dll")?);
+            plan.push(planned(
+                onnx,
+                onnx_url,
+                "runtimes/win-x64/native/onnxruntime.dll".to_owned(),
+                "onnxruntime.dll",
+            )?);
             let directml = select(catalog, NativeLibrary::Directml, "directml", target)?;
             let url = archive_of(&directml, "directml")?;
             expect_file_name(&directml, "directml", "DirectML.dll")?;
-            plan.push(planned(directml, url, "bin/x64-win/DirectML.dll".to_owned(), "DirectML.dll")?);
+            plan.push(planned(
+                directml,
+                url,
+                "bin/x64-win/DirectML.dll".to_owned(),
+                "DirectML.dll",
+            )?);
         }
         ProvisionTarget::MacosArm64 => {
             let file = onnx.artifact_file_name.clone().unwrap_or_default();
             if !(file.starts_with("libonnxruntime") && file.ends_with(".dylib")) {
-                return Err(row("onnxruntime", format!("artifactFileName {file:?} is not a libonnxruntime dylib")));
+                return Err(row(
+                    "onnxruntime",
+                    format!("artifactFileName {file:?} is not a libonnxruntime dylib"),
+                ));
             }
             // The upstream tarball unpacks under a directory named after the archive file.
             let archive_name = file_name_of(&onnx_url.0);
             let wrapper = archive_name
                 .strip_suffix(".tgz")
                 .or_else(|| archive_name.strip_suffix(".tar.gz"))
-                .ok_or_else(|| row("onnxruntime", format!("archive {archive_name:?} is not a .tgz")))?
+                .ok_or_else(|| {
+                    row(
+                        "onnxruntime",
+                        format!("archive {archive_name:?} is not a .tgz"),
+                    )
+                })?
                 .to_owned();
             let member = format!("{wrapper}/lib/{file}");
             plan.push(planned(onnx, onnx_url, member, "libonnxruntime.dylib")?);
@@ -446,33 +513,60 @@ fn select(
             && r.os.eq_ignore_ascii_case(os)
             && r.arch.eq_ignore_ascii_case(arch)
     });
-    let first = hits
-        .next()
-        .ok_or_else(|| row(label, format!("no approved or pinned row for {}", target.platform())))?;
+    let first = hits.next().ok_or_else(|| {
+        row(
+            label,
+            format!("no approved or pinned row for {}", target.platform()),
+        )
+    })?;
     if hits.next().is_some() {
-        return Err(row(label, format!("more than one approved or pinned row for {}", target.platform())));
+        return Err(row(
+            label,
+            format!(
+                "more than one approved or pinned row for {}",
+                target.platform()
+            ),
+        ));
     }
     Ok(first.clone())
 }
 
-fn archive_of(record: &NativeRecord, label: &'static str) -> Result<(String, String), ProvisionError> {
+fn archive_of(
+    record: &NativeRecord,
+    label: &'static str,
+) -> Result<(String, String), ProvisionError> {
     if record.sha256.is_none() {
         return Err(row(label, format!("{} has no file sha256", record.id)));
     }
-    let archive = record
-        .archive
-        .as_ref()
-        .ok_or_else(|| row(label, format!("{} has no archive url and sha256", record.id)))?;
+    let archive = record.archive.as_ref().ok_or_else(|| {
+        row(
+            label,
+            format!("{} has no archive url and sha256", record.id),
+        )
+    })?;
     if !archive.url.starts_with("https://") {
-        return Err(row(label, format!("{} archive url is not https", record.id)));
+        return Err(row(
+            label,
+            format!("{} archive url is not https", record.id),
+        ));
     }
     Ok((archive.url.clone(), archive.sha256.to_ascii_lowercase()))
 }
 
-fn expect_file_name(record: &NativeRecord, label: &'static str, expected: &str) -> Result<(), ProvisionError> {
+fn expect_file_name(
+    record: &NativeRecord,
+    label: &'static str,
+    expected: &str,
+) -> Result<(), ProvisionError> {
     match record.artifact_file_name.as_deref() {
         Some(name) if name == expected => Ok(()),
-        other => Err(row(label, format!("{} artifactFileName {other:?}, expected {expected:?}", record.id))),
+        other => Err(row(
+            label,
+            format!(
+                "{} artifactFileName {other:?}, expected {expected:?}",
+                record.id
+            ),
+        )),
     }
 }
 
@@ -490,7 +584,10 @@ fn catalog_error(error: NativeCatalogError) -> ProvisionError {
 }
 
 fn io_error(path: &Path, error: impl fmt::Display) -> ProvisionError {
-    ProvisionError::Io { path: path.to_path_buf(), message: error.to_string() }
+    ProvisionError::Io {
+        path: path.to_path_buf(),
+        message: error.to_string(),
+    }
 }
 
 fn hash_file(path: &Path) -> Result<(u64, String), ProvisionError> {
@@ -506,7 +603,11 @@ fn hash_file(path: &Path) -> Result<(u64, String), ProvisionError> {
         hasher.update(&buffer[..read]);
         total += read as u64;
     }
-    let digest = hasher.finalize().iter().map(|b| format!("{b:02x}")).collect();
+    let digest = hasher
+        .finalize()
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect();
     Ok((total, digest))
 }
 

@@ -1062,7 +1062,7 @@ async function validateHostedWorkflows(root, appName, workflows, policy) {
     );
     const admittedSigningGate = (job) => new RegExp(
       // `, dev-qualification` (@rightkit/ci candidate.devQualification, #107) only adds a gate.
-      `${job}:\\n    needs: \\[admission, candidate(?:, dev-qualification)?\\]\\n    if:\\$\\{\\{ needs\\.admission\\.outputs\\.signed_qualification == 'true' \\}\\}`,
+      `${job}:\\n    needs: \\[admission, candidate(?:, dev-qualification)?\\]\\n    if: \\$\\{\\{ needs\\.admission\\.outputs\\.signed_qualification == 'true' \\}\\}`,
     );
     const protectedWindowsSigning = workflow === "release-candidate.yml"
       && manifest?.candidate?.signWindows === true

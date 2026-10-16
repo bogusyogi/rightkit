@@ -53,7 +53,9 @@ impl BuildMode {
 
     /// Deprecated name of [`BuildMode::from_build_features`]. It no longer reads
     /// `cfg!(debug_assertions)`: it now follows the `dev-overrides` feature.
-    #[deprecated(note = "use BuildMode::from_build_features; it follows the dev-overrides feature, not debug_assertions")]
+    #[deprecated(
+        note = "use BuildMode::from_build_features; it follows the dev-overrides feature, not debug_assertions"
+    )]
     pub fn from_debug_assertions() -> Self {
         Self::from_build_features()
     }
