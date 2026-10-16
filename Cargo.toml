@@ -2,7 +2,9 @@
 resolver = "2"
 members = ["crates/*"]
 # Hook receipt directories (`.audit`) can appear under crates/ when an agent works there.
-exclude = ["crates/.audit"]
+# vendor/tauri-runtime-wry is a patched third-party crate consumed by apps as a git `[patch]` source
+# (docs/design/tauri-runtime-wry-windows-rc.md); it must never build with this workspace.
+exclude = ["crates/.audit", "vendor/tauri-runtime-wry"]
 
 [workspace.dependencies]
 serde = { version = "1.0.229", features = ["derive"] }

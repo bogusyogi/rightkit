@@ -13,3 +13,5 @@ packages/release/fixtures/ownership/** -text
 scripts/embed-export/** -text
 # The MSIX repair guard is pinned by sha256 in consumers (SwiftRightBridge): always LF, never converted.
 packages/release/msix-repair-guard.ps1 text eol=lf
+# Vendored tauri-runtime-wry (docs/design/tauri-runtime-wry-windows-rc.md): keep upstream bytes, never convert line endings.
+vendor/tauri-runtime-wry/** -text
