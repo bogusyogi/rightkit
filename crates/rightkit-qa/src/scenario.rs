@@ -5,6 +5,7 @@
 //! the in-app control server, paid-provider mocks, media validators, and (feature
 //! `browser`) Chrome. Each step may `save` its JSON result under a name for
 //! later `${name.path}` interpolation and carries `[[step.expect]]` assertions.
+use crate::a11y;
 use crate::check::{check_all, interpolate, Expect};
 use crate::config::QaConfig;
 use crate::control::{self, Control, LaunchSpec, Mode};
@@ -536,47 +537,93 @@ fn resolve_expect(e: &Expect, vars: &BTreeMap<String, Value>) -> Result<Expect> 
     Ok(out)
 }
 
+/// The `commands` of an `engine_seed` step: a non-empty array of tables, each a `cli` step's parameters.
+pub(crate) fn seed_commands(p: &Map<String, Value>) -> Result<Vec<Map<String, Value>>> {
+    let list = pv(p, "commands")
+        .and_then(Value::as_array)
+        .ok_or_else(|| Error("engine_seed needs a `commands` array of cli parameter tables".into()))?;
+    if list.is_empty() {
+        return err("engine_seed `commands` is empty");
+    }
+    list.iter()
+        .enumerate()
+        .map(|(i, c)| {
+            let m = c
+                .as_object()
+                .cloned()
+                .ok_or_else(|| Error(format!("engine_seed command {} is not a table", i + 1)))?;
+            if pv(&m, "command").is_none() && pv(&m, "args").is_none() {
+                return err(format!("engine_seed command {} needs 'command' or 'args'", i + 1));
+            }
+            Ok(m)
+        })
+        .collect()
+}
+
+/// One engine CLI call: the body of the `cli` step and of each `engine_seed` command. The call's
+/// transcript is written to `log_name` in the scenario's evidence dir.
+fn run_cli(ctx: &mut Ctx, p: &Map<String, Value>, log_name: &str) -> Result<Value> {
+    let args: Vec<String> = match (pv(p, "args"), ps_opt(p, "command")) {
+        (Some(Value::Array(a)), _) => a
+            .iter()
+            .map(|v| {
+                v.as_str()
+                    .map(String::from)
+                    .unwrap_or_else(|| v.to_string())
+            })
+            .collect(),
+        (_, Some(c)) => c.split_whitespace().map(String::from).collect(),
+        _ => return err("cli step needs 'command' or 'args'"),
+    };
+    let r = ctx.engine()?.cli(&args, &cli_opts(ctx, p), ctx.tracker)?;
+    let log = ctx.log_dir.join(log_name);
+    std::fs::write(
+        &log,
+        format!(
+            "$ {}\nexit {:?}\n--- stdout\n{}\n--- stderr\n{}\n",
+            args.join(" "),
+            r.code,
+            r.stdout,
+            r.stderr
+        ),
+    )?;
+    ctx.artifact(log_name, log);
+    let ok = r.code == Some(0) && r.json.get("error").map(Value::is_null).unwrap_or(true);
+    if !ok && !pb(p, "allow_error") {
+        return err(format!(
+            "engine `{}` failed (exit {:?}{}): stdout {} stderr tail {}",
+            args.join(" "),
+            r.code,
+            if r.timed_out { ", timed out" } else { "" },
+            crate::util::tail(&r.stdout, 600),
+            crate::util::tail(&r.stderr, 600)
+        ));
+    }
+    Ok(r.to_value())
+}
+
 fn exec(ctx: &mut Ctx, kind: &str, p: &Map<String, Value>) -> Result<Value> {
     match kind {
         // ------------------------------------------------------------ engine
         "cli" => {
-            let args: Vec<String> = match (pv(p, "args"), ps_opt(p, "command")) {
-                (Some(Value::Array(a)), _) => a
-                    .iter()
-                    .map(|v| {
-                        v.as_str()
-                            .map(String::from)
-                            .unwrap_or_else(|| v.to_string())
-                    })
-                    .collect(),
-                (_, Some(c)) => c.split_whitespace().map(String::from).collect(),
-                _ => return err("cli step needs 'command' or 'args'"),
-            };
-            let r = ctx.engine()?.cli(&args, &cli_opts(ctx, p), ctx.tracker)?;
-            let log = ctx.log_dir.join(format!("{:02}-cli.log", ctx.step_no));
-            std::fs::write(
-                &log,
-                format!(
-                    "$ {}\nexit {:?}\n--- stdout\n{}\n--- stderr\n{}\n",
-                    args.join(" "),
-                    r.code,
-                    r.stdout,
-                    r.stderr
-                ),
-            )?;
-            ctx.artifact(&format!("{:02}-cli.log", ctx.step_no), log);
-            let ok = r.code == Some(0) && r.json.get("error").map(Value::is_null).unwrap_or(true);
-            if !ok && !pb(p, "allow_error") {
-                return err(format!(
-                    "engine `{}` failed (exit {:?}{}): stdout {} stderr tail {}",
-                    args.join(" "),
-                    r.code,
-                    if r.timed_out { ", timed out" } else { "" },
-                    crate::util::tail(&r.stdout, 600),
-                    crate::util::tail(&r.stderr, 600)
-                ));
+            let log = format!("{:02}-cli.log", ctx.step_no);
+            run_cli(ctx, p, &log)
+        }
+        // Seed the engine's state before the UI starts: each entry of `commands` is a `cli` step's
+        // parameters (`command` or `args`, `input`, `env`, `allow_error`, `timeout_s`), run in order
+        // against the scenario's data dir, the one `ui_launch` then hands the app. A `ui` scenario
+        // needs the engine binary only when it uses this step.
+        "engine_seed" => {
+            if ctx.ui.is_some() {
+                return err("engine_seed must run before ui_launch: the app is already running and may hold the state it would seed");
             }
-            Ok(r.to_value())
+            let commands = seed_commands(p)?;
+            let mut results = Vec::new();
+            for (i, one) in commands.iter().enumerate() {
+                let log = format!("{:02}-seed-{:02}.log", ctx.step_no, i + 1);
+                results.push(run_cli(ctx, one, &log).map_err(|e| Error(format!("engine_seed command {}: {}", i + 1, e.0)))?);
+            }
+            Ok(json!({"seeded": results.len(), "results": results}))
         }
         "sidecar_start" => {
             let id = ps_opt(p, "id").unwrap_or_else(|| "sidecar".into());
@@ -817,6 +864,46 @@ fn exec(ctx: &mut Ctx, kind: &str, p: &Map<String, Value>) -> Result<Value> {
             .wait_eval(&ps(p, "js")?, dur(p, "timeout_s", 20.0)),
         "ui_dom" => Ok(json!({"elements": ctx.ui()?.dom(&ps(p, "selector")?)?})),
         "ui_ax" => Ok(json!({"nodes": ctx.ui()?.ax()?})),
+        // Role/name assertion over the accessibility nodes: `role`, `name`, `name_contains`, `named`,
+        // `disabled`, `min_count` (default 1), `max_count`. Fails listing the roles and names found.
+        "ui_assert_ax" => {
+            let q = a11y::AxQuery::from_params(p)?;
+            a11y::ax_assert(&ctx.ui()?.ax()?, &q)
+        }
+        // Text contrast of `selector` against its effective background (WCAG 2.x). Fails below the
+        // minimum: `min`, else `level` (`AA` default, `AAA`) for the text size (`large` overrides the
+        // size read from the page). `report_only = true` reports the ratio and never fails.
+        "ui_contrast" => {
+            let selector = ps(p, "selector")?;
+            let probe = ctx.ui()?.eval(&a11y::contrast_probe_js(&selector))?;
+            let opts = a11y::ContrastOptions {
+                level: ps_opt(p, "level"),
+                min: pv(p, "min").and_then(Value::as_f64),
+                large: pv(p, "large").and_then(Value::as_bool),
+                report_only: pb(p, "report_only"),
+            };
+            a11y::contrast_report(&selector, &probe, &opts)
+        }
+        // Keyboard-focus evidence: whether the focused element shows a visible indicator (computed
+        // outline or box-shadow), its identity, and `:focus-visible`. Reports `visible`; assert it
+        // with `[[step.expect]]`. `selector` adds `matches` (is the focused element that one).
+        // `screenshot = true` also saves a capture as evidence (a visual scenario only).
+        "ui_focus_ring" => {
+            let selector = ps_opt(p, "selector");
+            let probe = ctx.ui()?.eval(&a11y::focus_probe_js(selector.as_deref()))?;
+            let mut out = a11y::focus_ring_verdict(&probe);
+            if pb(p, "screenshot") {
+                ensure_capture_allowed(ctx.kind, &ctx.scenario, "ui_focus_ring screenshot")?;
+                let name = ps_opt(p, "name").unwrap_or_else(|| format!("focus-{:02}", ctx.step_no));
+                let path = ctx.log_dir.join(format!("{name}.png"));
+                let png = ctx.ui()?.screenshot_png()?;
+                media::png_size_bytes(&png, &path)?;
+                std::fs::write(&path, &png)?;
+                ctx.artifact(&format!("{name}.png"), path.clone());
+                out["screenshot"] = json!(path.to_string_lossy());
+            }
+            Ok(out)
+        }
         "ui_command" => ctx
             .ui()?
             .command(&ps(p, "name")?, pv(p, "args").unwrap_or(&Value::Null)),
@@ -1172,6 +1259,94 @@ command = \"x\"
         let e = run_step(&mut ctx, &batch).unwrap_err();
         assert!(e.0.contains("no UI app launched"), "{e}");
 
+        drop(ctx);
+        let _ = crate::workspace::dispose(&ws, false, 3, 10);
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn parses_the_seed_and_accessibility_steps() {
+        let text = r#"
+name = "settings a11y"
+target = "ui"
+kind = "visual"
+[[step]]
+kind = "engine_seed"
+commands = [
+  { command = "project create demo" },
+  { args = ["settings", "set", "theme", "dark"], allow_error = true },
+]
+[[step]]
+kind = "ui_launch"
+[[step]]
+kind = "ui_assert_ax"
+role = "button"
+name = "Save"
+min_count = 1
+[[step]]
+kind = "ui_contrast"
+selector = "#status"
+level = "AA"
+  [[step.expect]]
+  path = "passes"
+  eq = true
+[[step]]
+kind = "ui_focus_ring"
+selector = "#btn"
+screenshot = true
+  [[step.expect]]
+  path = "visible"
+  eq = true
+"#;
+        let path = std::env::temp_dir().join(format!("rkqa-a11y-{}.scenario.toml", util::new_id()));
+        std::fs::write(&path, text).unwrap();
+        let s = Scenario::load(&path);
+        let _ = std::fs::remove_file(&path);
+        let s = s.unwrap();
+        assert_eq!(s.target, "ui");
+        let kinds: Vec<&str> = s.steps.iter().map(|s| s.kind.as_str()).collect();
+        assert_eq!(kinds, ["engine_seed", "ui_launch", "ui_assert_ax", "ui_contrast", "ui_focus_ring"]);
+        let seeds = seed_commands(&s.steps[0].params.clone().into_iter().collect()).unwrap();
+        assert_eq!(seeds.len(), 2);
+        assert_eq!(seeds[1]["args"], json!(["settings", "set", "theme", "dark"]));
+        assert_eq!(s.steps[3].params["selector"], json!("#status"));
+        assert_eq!(s.steps[4].expect[0].eq, Some(json!(true)));
+        let q = a11y::AxQuery::from_params(&s.steps[2].params.clone().into_iter().collect()).unwrap();
+        assert_eq!((q.role.as_deref(), q.name.as_deref(), q.min_count), (Some("button"), Some("Save"), Some(1)));
+    }
+
+    #[test]
+    fn seed_commands_are_validated() {
+        let get = |v: Value| seed_commands(v.as_object().unwrap());
+        assert!(get(json!({})).is_err());
+        assert!(get(json!({"commands": []})).is_err());
+        assert!(get(json!({"commands": ["doctor"]})).is_err());
+        assert!(get(json!({"commands": [{"input": {"a": 1}}]})).is_err());
+        assert_eq!(get(json!({"commands": [{"command": "doctor"}]})).unwrap().len(), 1);
+    }
+
+    /// `engine_seed` through the executor: it needs the engine (a `ui` scenario with no engine
+    /// binary gets a clear error, not a skip) and it refuses to run once the app is up.
+    #[test]
+    fn engine_seed_needs_the_engine_and_runs_before_the_app() {
+        let root = std::env::temp_dir().join(format!("rkqa-seed-ws-{}", util::new_id()));
+        std::fs::create_dir_all(&root).unwrap();
+        let cfg = QaConfig::parse("app = \"seedtest\"
+", &root.join("rightkit-qa.toml")).unwrap();
+        let ws = crate::workspace::create(&root.join("managed"), None, "seedtest").unwrap();
+        let tracker = Tracker::new();
+        let mut ctx = Ctx::new(&cfg, None, None, &ws, &tracker, "s").unwrap();
+        let seed = bare_step("engine_seed", json!({"commands": [{"command": "doctor"}]}));
+        let e = run_step(&mut ctx, &seed).unwrap_err();
+        assert!(e.0.contains("no engine binary configured"), "{e}");
+        let bad = bare_step("engine_seed", json!({"commands": []}));
+        assert!(run_step(&mut ctx, &bad).unwrap_err().0.contains("empty"));
+        // The accessibility steps need a launched app.
+        for kind in ["ui_assert_ax", "ui_contrast", "ui_focus_ring"] {
+            let step = bare_step(kind, json!({"role": "button", "selector": "#a"}));
+            let e = run_step(&mut ctx, &step).unwrap_err();
+            assert!(e.0.contains("no UI app launched"), "{kind}: {e}");
+        }
         drop(ctx);
         let _ = crate::workspace::dispose(&ws, false, 3, 10);
         let _ = std::fs::remove_dir_all(&root);

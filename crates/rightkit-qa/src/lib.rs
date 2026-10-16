@@ -30,6 +30,8 @@
 //! Validators: [`media`] (WAV stats, PNG/frame non-uniformity) and [`loudness`]
 //! (BS.1770 integrated loudness, range, true peak), pure Rust except where a compressed
 //! container needs a caller-supplied ffmpeg. [`mock::MockServer`] stands in for paid providers.
+/// Accessibility evidence for UI scenarios: contrast, focus indicator, role/name assertions.
+pub mod a11y;
 /// Android journeys through `adb` (emulator or USB device); feature `android`.
 #[cfg(feature = "android")]
 pub mod android;

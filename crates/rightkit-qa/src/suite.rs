@@ -22,6 +22,8 @@ pub struct SuiteOptions {
     pub tier: Option<String>,
     pub only: Option<String>,
     pub engine: Option<PathBuf>,
+    /// An explicit UI executable. Skips the resolver's validation; still refused when it is an
+    /// installed app (see [`explicit_ui_binary`]).
     pub ui_binary: Option<PathBuf>,
     pub build_engine: bool,
     pub build_ui: bool,
@@ -140,12 +142,21 @@ fn engine_target(
     }))
 }
 
+/// A UI binary the caller named (`SuiteOptions::ui_binary`, `--ui-binary`, `RIGHTKIT_QA_UI_BINARY`).
+/// It skips the resolver's checks (name, release directory, QA marker: the caller said which file),
+/// but the installed-app refusal stays in force (Orthic-Labs/rightkit#235), so the suite fails before
+/// any scenario starts instead of at the first `ui_launch`.
+pub fn explicit_ui_binary(path: &Path) -> Result<PathBuf> {
+    crate::installed::refuse_installed(path, "UI app binary")?;
+    Ok(path.to_path_buf())
+}
+
 fn ui_binary(cfg: &QaConfig, opts: &SuiteOptions, tracker: &Tracker) -> Result<Option<PathBuf>> {
     if let Some(p) = &opts.ui_binary {
-        return Ok(Some(p.clone()));
+        return explicit_ui_binary(p).map(Some);
     }
     if let Ok(p) = std::env::var("RIGHTKIT_QA_UI_BINARY") {
-        return Ok(Some(PathBuf::from(p)));
+        return explicit_ui_binary(Path::new(&p)).map(Some);
     }
     if opts.build_ui {
         if cfg.ui.build.is_empty() {
@@ -249,6 +260,13 @@ fn run_suite_at(
         .iter()
         .any(|s| s.target == "engine" && unmet_requirement(&s.requires, &cfg.app_root).is_none());
     let needs_ui = scenarios.iter().any(|s| s.target == "ui");
+    // A `ui` scenario that seeds engine state before launch (`engine_seed`) needs the engine too.
+    let needs_engine = needs_engine
+        || scenarios.iter().any(|s| {
+            s.target == "ui"
+                && s.steps.iter().any(|st| st.kind == "engine_seed")
+                && unmet_requirement(&s.requires, &cfg.app_root).is_none()
+        });
     let engine = engine_target(cfg, opts, &tracker, &tier)?;
     let ui = if needs_ui {
         ui_binary(cfg, opts, &tracker)?
@@ -634,4 +652,33 @@ fn run_identity(
         "ui": binary(ui, "UI", needs_ui)?,
         "source": git_revision(&cfg.app_root),
     }))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn an_explicit_ui_binary_skips_the_resolver_checks() {
+        // Not named after the app, not a file, not a QA build: the caller named it, so it stands.
+        let p = std::env::temp_dir().join("rkqa-explicit").join("release").join("anything.bin");
+        assert_eq!(explicit_ui_binary(&p).unwrap(), p);
+        assert!(crate::binary::validate(&p, "app").is_err(), "the resolver path would have refused it");
+    }
+
+    #[cfg(any(target_os = "macos", windows))]
+    #[test]
+    fn an_explicit_ui_binary_in_an_installed_location_is_still_refused() {
+        if crate::installed::installed_mode() {
+            return;
+        }
+        #[cfg(target_os = "macos")]
+        let p = PathBuf::from("/Applications/CutRight.app/Contents/MacOS/CutRight");
+        #[cfg(windows)]
+        let Some(p) = std::env::var_os("ProgramFiles").map(|d| PathBuf::from(d).join("CutRight").join("cutright.exe")) else {
+            return;
+        };
+        let e = explicit_ui_binary(&p).unwrap_err();
+        assert!(e.0.contains("RIGHT_RELEASE_QA_STAGE=installed"), "{e}");
+    }
 }

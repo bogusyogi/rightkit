@@ -1,0 +1,39 @@
+# Recipe: a Tauri app that serves its UI over the custom protocol (no dev server) and talks to an
+# external sidecar engine. Copy to the app root and rename `postright` and the package names, then:
+#
+#   rightkit-qa run --build --build-ui                    # step 1 builds the engine, step 2 the UI
+#   rightkit-qa run --engine <engine> --ui-binary <app>   # or name both binaries yourself
+#
+# `--build` runs `[engine].build`. `--build-ui` runs `[ui].build`, copies the result to
+# `<app root>/.rightkit-qa-bin/<triple>/<bin>` and points `.rightkit-qa-app-binary` at it
+# (git-ignore both). The engine is built first, so a scenario can hand its path to the app with
+# `env = { POSTRIGHT_ENGINE_PATH = "${engine}" }` on `ui_launch` (see the scenario).
+app = "postright"
+app_root = "."
+scenarios = ["scenarios"]
+default_tier = "fast"
+
+[engine]
+package = "postright-engine"
+build = ["rightkit", "cargo", "build", "-p", "postright-engine"]
+data_dir_env = "POSTRIGHT_APP_DATA"        # the scenario's isolated dir; the UI gets the same one
+
+[ui]
+mode = "hidden"
+feature = "qa-native"
+window_label = "main"
+package = "postright"                      # target whose executable the UI build produces
+# The `custom-protocol` feature makes Tauri embed `build.frontendDist` and serve it from the
+# custom protocol. A build without it expects `build.devUrl` and a running dev server, which a
+# hidden QA run does not have. The frontend must already be built into `frontendDist`:
+# `[ui].build` is one command, so run the frontend build first (`npm run build`).
+build = [
+  "rightkit", "cargo", "build",
+  "--manifest-path", "src-tauri/Cargo.toml",
+  "-p", "postright",
+  "--features", "qa-native,custom-protocol",
+]
+cargo_toml = "src-tauri/Cargo.toml"
+rust_sources = ["src-tauri/src/lib.rs"]
+package_json = "package.json"
+workspace_root = "src-tauri"

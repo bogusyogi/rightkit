@@ -1,3 +1,4 @@
+export * from './a11y.js';
 export * from './chrome.js';
 export * from './evidence.js';
 export * from './devserver.js';

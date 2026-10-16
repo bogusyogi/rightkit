@@ -1,0 +1,54 @@
+# A UI scenario that seeds engine state first, then launches the custom-protocol build and checks
+# the engine-backed field, role/name, contrast and keyboard focus. It needs the engine binary
+# because of `engine_seed`; the UI binary comes from `--ui-binary`, `RIGHTKIT_QA_UI_BINARY` or the
+# resolver.
+name = "postright seeded settings"
+tier = "fast"
+target = "ui"
+kind = "visual"            # the focus screenshot is a capture
+
+[[step]]
+kind = "engine_seed"       # runs before ui_launch, against the scenario's data dir
+commands = [
+  { args = ["account", "add", "demo@example.test"] },
+  { args = ["settings", "set", "signature", "Sent from QA"] },
+]
+
+[[step]]
+kind = "ui_launch"
+env = { POSTRIGHT_ENGINE_PATH = "${engine}" }
+  [[step.expect]]
+  path = "health.ok"
+  eq = true
+
+[[step]]
+kind = "ui_wait_eval"
+js = "return document.querySelector('#signature')?.value === 'Sent from QA';"
+
+[[step]]
+kind = "ui_assert_ax"
+role = "textbox"
+name = "Signature"
+
+[[step]]
+kind = "ui_contrast"
+selector = "#signature-hint"
+level = "AA"
+
+[[step]]
+kind = "ui_click"
+selector = "#signature"
+
+[[step]]
+kind = "ui_focus_ring"
+selector = "#signature"
+screenshot = true
+  [[step.expect]]
+  path = "visible"
+  eq = true
+  [[step.expect]]
+  path = "matches"
+  eq = true
+
+[[step]]
+kind = "ui_stop"

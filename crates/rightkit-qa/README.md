@@ -178,6 +178,30 @@ Hidden launches: the app must not take focus itself. When `RIGHTKIT_QA_HIDDEN=1`
 
 `right-release dev` builds into the RightKit build broker's own target root, and the managed test runner scrubs the environment, so a journey cannot assume `target/debug/<app>`. `QaConfig::resolve_ui_binary()` (module `binary`) returns the first valid of: `RIGHTKIT_QA_APP_BINARY` / `RIGHTKIT_QA_UI_BINARY` / `ui.binary_env`; the pointer file `.rightkit-qa-app-binary` (or `ui.pointer_file`) under the app root, one path on its first non-empty line; the newest dev-profile executable (`release-iterate`, `debug`, `dev`) in the broker workspace `<managed root>/rightkit-build-control/ws/<key>/g/<gen>/<t|target>/[<triple>/]<profile>/` whose `identity.json` `canonicalRoot` is the app's cargo workspace (`ui.workspace_root`, default `src-tauri` then the app root); then `ui.binaries`. The result carries a `BinarySource` saying which won. Add the pointer file to the app's `.gitignore`. The broker's receipts name no artifact paths, so the target tree is what is read. A `release` directory is never accepted. Every candidate must also carry the control marker `RIGHTKIT-QA-CONTROL-SERVER-PRESENT` (Latin-1 or UTF-16LE): with one dev profile a plain dev build and the control build both write `target/<triple>/debug/<bin>`, so a binary without the marker is skipped (broker, app root) or an error (env, pointer). `--build-ui` copies the built executable (and a sibling `.pdb`) to `<app root>/.rightkit-qa-bin/<triple-or-host>/<bin>` (outside the broker target tree, which is garbage-collected) through a temp file and rename, and writes `.rightkit-qa-app-binary` under the app root pointing at it. **Git-ignore `.rightkit-qa-app-binary` and `.rightkit-qa-bin/` in the app** (the crate never edits an app's `.gitignore`).
 
+### Naming the binary yourself
+
+`SuiteOptions::ui_binary`, `--ui-binary` and `RIGHTKIT_QA_UI_BINARY` name the app executable and skip the resolver's checks (file name, `release` directory, QA marker): the caller said which file. They do not skip the installed-app refusal. A path under `/Applications`, `~/Applications`, `ProgramFiles`, `ProgramFiles(x86)`, `ProgramW6432` or `%LOCALAPPDATA%\Programs` is refused by `suite::explicit_ui_binary` before any scenario starts, unless installed-QA mode is on (`RIGHT_RELEASE_QA_STAGE=installed`, set by `right-release qa --stage installed`).
+
+## Scenario steps for seeded state and accessibility
+
+- `engine_seed` seeds engine state before the app starts, in a `target = "ui"` scenario. `commands` is an array of `cli` step tables (`command` or `args`, `input`, `env`, `allow_error`, `timeout_s`), run in order against the scenario's data dir, which `ui_launch` then hands the app. The step is refused once the app is running. A `ui` scenario that uses it needs the engine binary (`--engine`, `RIGHTKIT_QA_ENGINE`, `[engine].binary` or `--build`); one that does not is unchanged. Each command's transcript is an evidence log (`NN-seed-MM.log`).
+- `ui_focus_ring` reports whether the focused element shows a visible indicator: `focused`, `visible`, `kind` (`outline`, `box-shadow`, `none`), `reason`, `focus_visible`, the element's `tag`, `id`, `role`, `name`, and the computed `outline` and `box_shadow`. `selector` adds `matches`; `screenshot = true` saves a capture as evidence (visual scenarios only; credential elements are masked by the control server). Assert with `[[step.expect]]` on `visible`.
+- `ui_contrast` measures a selector's text colour against its effective background (the element's and its ancestors' `background-color` over a white canvas, the element's opacity applied) with the WCAG 2.x ratio. It fails below `min`, else the `level` threshold (`AA` default: 4.5, or 3.0 for large text; `AAA`: 7.0, or 4.5). Large text is read from the font size and weight unless `large` is set. `report_only = true` reports `ratio`, `passes`, `fg` and `bg` without failing. A background image is flagged (`background_image`) because it cannot be measured here.
+- `ui_assert_ax` asserts over the `ax` nodes: `role` (case-insensitive), `name` (exact after whitespace collapse), `name_contains`, `named = true` (non-empty name), `disabled`, `min_count` (default 1) and `max_count`. A miss lists the roles and names that exist.
+
+The same checks are available to Rust tests as `rightkit_qa::a11y` (`contrast_ratio`, `parse_css_color`, `focus_ring_verdict`, `AxQuery`, `ax_assert`).
+
+## Tauri custom-protocol build with an external engine
+
+A Tauri app that serves its UI over the custom protocol and starts a separate sidecar engine needs two builds, in this order. `examples/tauri-custom-protocol/` holds the config and a scenario.
+
+1. Build the frontend into `build.frontendDist`.
+2. `rightkit-qa run --build` builds the engine from `[engine].build`.
+3. `rightkit-qa run --build-ui` builds the app from `[ui].build` with `--features qa-native,custom-protocol`. Without `custom-protocol` the debug build points at `build.devUrl` and a dev server that a hidden run does not have, and the window stays blank. `qa-native` adds the control server (never in a shipped build). The built executable is copied to `<app root>/.rightkit-qa-bin/<triple>/<bin>` and `.rightkit-qa-app-binary` points at it.
+4. Give the app the engine's path on `ui_launch`: `env = { POSTRIGHT_ENGINE_PATH = "${engine}" }` (`${engine}` is the engine binary the run resolved). An app that finds its sidecar next to its own executable needs that copy made by its own QA build step.
+
+`rightkit-qa run --build --build-ui` does steps 2 and 3 in one run, engine first. Or build both yourself and pass `--engine` and `--ui-binary`.
+
 ## Windows: driving a real Tauri app
 
 The Windows leg drives a real Tauri app through the app's own in-app control server. Pulse's hub runs it on its Windows CI runner (`scripts/gate.sh` in the Pulse repository, test `hub/qa-e2e/tests/ui.rs`), so the pattern is in use, not only planned.
