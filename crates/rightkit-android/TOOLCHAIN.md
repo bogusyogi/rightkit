@@ -42,7 +42,7 @@ What it never does: accept SDK licences (a person runs `sdkmanager --licenses`),
 
 ## Build
 
-`scripts/build-android.(ps1|sh)` runs the check, then `cargo ndk -t arm64-v8a -t x86_64 --platform 28 -o android/src/main/jniLibs build -p rightkit-android --release`, then `uniffi-bindgen generate --library ... --language kotlin` into `android/src/main/uniffi-generated`, and writes `BUILD-RECEIPT.txt` (git revision, pins, SHA-256 of each `.so`). Set `RIGHTKIT_CARGO="rightkit cargo"` to go through the managed wrapper. Builds belong to the owner chat (one dev build per host).
+`scripts/build-android.(ps1|sh)` runs the check, then `cargo ndk -t arm64-v8a -t x86_64 --platform 28 -o android/src/main/jniLibs build -p rightkit-android` (Cargo's dev profile, the one profile every app uses; never `--release`), then `uniffi-bindgen generate --library ... --language kotlin` into `android/src/main/uniffi-generated`, and writes `BUILD-RECEIPT.txt` (git revision, pins, SHA-256 of each `.so`). Set `RIGHTKIT_CARGO="rightkit cargo"` to go through the managed wrapper. Builds belong to the owner chat (one dev build per host).
 
 ## Setup-workspace
 

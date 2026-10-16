@@ -14,11 +14,12 @@ set -eu
 here=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 crate_dir=$(CDPATH= cd -- "$here/.." && pwd)
 root=$(CDPATH= cd -- "$crate_dir/../.." && pwd)
-profile="--release"; profile_name=release
+# One Cargo profile everywhere: the built-in dev profile (never --release). --debug is accepted for compatibility.
+profile=""; profile_name=dev
 crate="rightkit-android"; library="rightkit_android"
 while [ $# -gt 0 ]; do
     case "$1" in
-        --debug) profile=""; profile_name=debug ;;
+        --debug) ;;
         --crate) shift; crate="${1:?--crate needs a package}" ;;
         --library) shift; library="${1:?--library needs a name}" ;;
         *) echo "unknown argument: $1" >&2; exit 2 ;;

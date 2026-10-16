@@ -34,7 +34,8 @@ if ($LASTEXITCODE -ne 0) { throw 'toolchain check failed; fix it or run bootstra
 
 $jni = Join-Path $crateDir 'android\src\main\jniLibs'
 $gen = Join-Path $crateDir 'android\src\main\uniffi-generated'
-$profile = if ($Debug) { @() } else { @('--release') }
+# One Cargo profile everywhere: the built-in dev profile (never --release). -Debug is accepted for compatibility and changes nothing.
+$profile = @()
 $targets = @()
 foreach ($abi in ($pins['ABIS'] -split '\s+')) { $targets += @('-t', $abi) }
 
@@ -54,7 +55,7 @@ try {
     $receipt = @(
         "built:   $((Get-Date).ToUniversalTime().ToString('o'))",
         "git:     $rev",
-        "crate:   $Crate ($(if ($Debug) { 'debug' } else { 'release' }))",
+        "crate:   $Crate (dev)",
         "ndk:     $($pins['NDK_VERSION'])",
         "minSdk:  $($pins['MIN_SDK'])",
         "abis:    $($pins['ABIS'])"
