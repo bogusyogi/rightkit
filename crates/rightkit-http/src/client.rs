@@ -94,13 +94,17 @@ pub enum ProxyMode {
     Explicit(String),
     /// The proxy the operating system is configured with for the current user.
     ///
-    /// Windows: the static proxy and bypass list of the system proxy settings. One `http`
-    /// or `https` proxy for both schemes with a bypass list of plain hosts (`host`,
-    /// `*.example.com`) is used. Anything this client cannot follow exactly (different
-    /// routes per scheme, `<local>`, a scheme-limited or inner-wildcard bypass entry, a
-    /// proxy auto-config script) is
+    /// Windows: the static proxy and bypass list of the system proxy settings, resolved per
+    /// request URL (since 0.3.2): the scheme's own endpoint (`http=a:80;https=b:443`, a
+    /// scheme with none connects directly) and the bypass list evaluated for that URL's host,
+    /// including `<local>`, wildcards anywhere, `.suffix` and scheme-limited entries. This
+    /// applies to every hop, so a redirect to another host is routed on its own. Nothing is
+    /// refused for being per-scheme or per-host. A proxy auto-config script is still
     /// [`HttpError::SystemProxyUnsupported`](crate::HttpError::SystemProxyUnsupported) and
-    /// nothing is sent. "Automatically detect settings" (the Windows default) with no static
+    /// nothing is sent (use [`ProxyMode::SystemForUrl`] for a PAC script). With one endpoint
+    /// for both schemes and a bypass list of plain hosts the client holds that one proxy, as
+    /// before; `proxy_diagnostic` is `None` when the choice is made per request.
+    /// "Automatically detect settings" (the Windows default) with no static
     /// proxy and no PAC script is not an error: the environment proxy variables are used
     /// when set and a direct connection otherwise, reported through `Client::proxy_mode_used`
     /// and `AsyncClient::proxy_mode_used` ([`ProxyModeUsed::SystemFallbackEnvironment`],
@@ -326,6 +330,95 @@ fn build_proxy(url: &str, no_proxy: &[String]) -> Result<ResolvedProxy, HttpErro
     })
 }
 
+/// How a client reaches the network: one proxy decision for the whole client, or a decision
+/// per request URL (`ProxyMode::System` with a static configuration that differs by scheme or
+/// has a bypass list a by-host `NO_PROXY` cannot express).
+pub(crate) enum Routing {
+    Fixed(Option<ResolvedProxy>),
+    PerRequest(Arc<SystemRoutes>),
+}
+
+/// The operating system's static proxy settings, answered per request URL. The proxies are
+/// built once; each request only evaluates the bypass list and picks its scheme's proxy, which
+/// is a string match, so nothing is cached.
+pub(crate) struct SystemRoutes {
+    settings: crate::system_proxy::SystemProxySettings,
+    http: Option<ResolvedProxy>,
+    https: Option<ResolvedProxy>,
+}
+
+impl SystemRoutes {
+    /// Build the proxy for each scheme named by `settings`. A proxy that cannot be built is
+    /// an invalid setting: the client fails closed, it does not go direct.
+    pub(crate) fn new(
+        settings: &crate::system_proxy::SystemProxySettings,
+    ) -> Result<Self, HttpError> {
+        let raw = settings.proxy.as_deref().unwrap_or_default().trim();
+        let (http, https) = crate::system_proxy::endpoints_by_scheme(raw);
+        let build = |url: Option<String>| -> Result<Option<ResolvedProxy>, HttpError> {
+            url.map(|url| {
+                build_proxy(&url, &[]).map(|mut proxy| {
+                    proxy.from_env = true;
+                    proxy
+                })
+            })
+            .transpose()
+        };
+        Ok(Self {
+            settings: settings.clone(),
+            http: build(http)?,
+            https: build(https)?,
+        })
+    }
+
+    /// Where `scheme://host` goes: the bypass list first, then the scheme's own endpoint.
+    pub(crate) fn route(&self, scheme: &str, host: &str) -> crate::system_proxy::UrlRoute {
+        crate::system_proxy::static_route_for_url(&self.settings, scheme, host)
+            .unwrap_or(crate::system_proxy::UrlRoute::Direct)
+    }
+
+    /// The proxy `scheme://host` goes through, `None` when it connects directly.
+    pub(crate) fn proxy_for(&self, scheme: &str, host: &str) -> Option<&ResolvedProxy> {
+        match self.route(scheme, host) {
+            crate::system_proxy::UrlRoute::Direct => None,
+            crate::system_proxy::UrlRoute::Proxy(_) => {
+                if scheme == "https" {
+                    self.https.as_ref()
+                } else {
+                    self.http.as_ref()
+                }
+            }
+        }
+    }
+
+    /// Every proxy endpoint `(host, port)` this configuration can use.
+    pub(crate) fn endpoints(&self) -> Vec<(String, u16)> {
+        [&self.http, &self.https]
+            .into_iter()
+            .flatten()
+            .map(|p| (p.host.clone(), p.port))
+            .collect()
+    }
+
+    /// The distinct proxies, for a client that prepares one transport per proxy.
+    pub(crate) fn http(&self) -> Option<&ResolvedProxy> {
+        self.http.as_ref()
+    }
+
+    pub(crate) fn https(&self) -> Option<&ResolvedProxy> {
+        self.https.as_ref()
+    }
+}
+
+/// Lowercase scheme and host (no brackets, no trailing dot) of a request URI, as proxy
+/// routing needs them.
+pub(crate) fn uri_scheme_and_host(uri: &ureq::http::Uri) -> (String, String) {
+    (
+        uri.scheme_str().unwrap_or("").to_ascii_lowercase(),
+        normalize_host(uri.host().unwrap_or("")),
+    )
+}
+
 /// Proxy from environment-style variables read through `get`. Empty values are unset.
 pub(crate) fn proxy_from_lookup(
     get: &dyn Fn(&str) -> Option<String>,
@@ -352,6 +445,21 @@ pub(crate) fn proxy_from_lookup(
 }
 
 impl ClientConfig {
+    /// How this config reaches the network and which source that came from. Same as
+    /// [`ClientConfig::resolved_proxy_with_mode`] except that `ProxyMode::System` with a
+    /// static configuration that needs a decision per URL is [`Routing::PerRequest`].
+    pub(crate) fn resolved_routing_with_mode(
+        &self,
+    ) -> Result<(Routing, ProxyModeUsed), HttpError> {
+        let bypassed = self.proxy_bypass_first_party && self.address_policy.is_first_party();
+        if matches!(self.proxy, ProxyMode::System) && !bypassed {
+            let env = |name: &str| std::env::var(name).ok();
+            return resolve_system_routing(&crate::system_proxy::system_proxy_settings(), &env);
+        }
+        self.resolved_proxy_with_mode()
+            .map(|(proxy, used)| (Routing::Fixed(proxy), used))
+    }
+
     /// The proxy this config uses, or `None` when it connects directly.
     #[allow(dead_code)]
     pub(crate) fn resolved_proxy(&self) -> Result<Option<ResolvedProxy>, HttpError> {
@@ -458,7 +566,26 @@ pub(crate) const AUTO_DETECT_FAILED_REASON: &str =
 pub(crate) const AUTO_DETECT_ONLY_REASON: &str =
     "automatic detection only; no static proxy or PAC configured";
 
-/// `ProxyMode::System` for `settings`.
+/// `ProxyMode::System` for `settings`, as a client-wide proxy or, when the static
+/// configuration differs by scheme or has a bypass list a by-host list cannot express, a
+/// decision per request URL. No registry or network access: both are inputs.
+pub(crate) fn resolve_system_routing(
+    settings: &crate::system_proxy::SystemProxySettings,
+    get: &dyn Fn(&str) -> Option<String>,
+) -> Result<(Routing, ProxyModeUsed), HttpError> {
+    if matches!(
+        crate::system_proxy::proxy_choice(settings),
+        crate::system_proxy::SystemProxyChoice::PerRequest
+    ) {
+        return Ok((
+            Routing::PerRequest(Arc::new(SystemRoutes::new(settings)?)),
+            ProxyModeUsed::System,
+        ));
+    }
+    resolve_system(settings, get).map(|(proxy, used)| (Routing::Fixed(proxy), used))
+}
+
+/// `ProxyMode::System` for `settings`, when one proxy serves the whole client.
 ///
 /// A static proxy that can be followed exactly is used (the auto-detect flag is ignored when
 /// one is set). Automatic detection with no static proxy and no PAC script is not an
@@ -521,6 +648,11 @@ pub(crate) fn proxy_from_system(
                 proxy
             }))
         }
+        // The clients take this case through `resolve_system_routing`, per request URL.
+        SystemProxyChoice::PerRequest => Err(HttpError::SystemProxyUnsupported {
+            element: "the proxy settings differ by scheme or host and need per-request routing"
+                .into(),
+        }),
         SystemProxyChoice::Unsupported(element) => {
             Err(HttpError::SystemProxyUnsupported { element })
         }
@@ -1040,6 +1172,8 @@ pub struct Client {
     config: ClientConfig,
     /// The proxy in use, for the `NO_PROXY` decision and destination vetting.
     proxy: Option<ureq::Proxy>,
+    /// `ProxyMode::System` decided per request URL; `proxy` is `None` then.
+    routes: Option<Arc<SystemRoutes>>,
     proxy_diagnostic: Option<ProxyDiagnostic>,
     /// Which proxy source was actually used.
     proxy_mode_used: ProxyModeUsed,
@@ -1071,7 +1205,8 @@ impl Client {
             Err(e) => {
                 let mut direct = config;
                 direct.proxy = ProxyMode::None;
-                let mut client = Self::build(direct, None, ProxyModeUsed::Direct);
+                let mut client =
+                    Self::build(direct, Routing::Fixed(None), ProxyModeUsed::Direct);
                 if let HttpError::SystemProxyUnsupported { element } = &e {
                     client.system_proxy_unsupported = Some(element.clone());
                 }
@@ -1083,11 +1218,15 @@ impl Client {
 
     /// Build a client, failing when the proxy settings are invalid.
     pub fn try_new(config: ClientConfig) -> Result<Self, HttpError> {
-        let (proxy, used) = config.resolved_proxy_with_mode()?;
-        Ok(Self::build(config, proxy, used))
+        let (routing, used) = config.resolved_routing_with_mode()?;
+        Ok(Self::build(config, routing, used))
     }
 
-    fn build(config: ClientConfig, proxy: Option<ResolvedProxy>, used: ProxyModeUsed) -> Self {
+    fn build(config: ClientConfig, routing: Routing, used: ProxyModeUsed) -> Self {
+        let (proxy, routes) = match routing {
+            Routing::Fixed(proxy) => (proxy, None),
+            Routing::PerRequest(routes) => (None, Some(routes)),
+        };
         // Redirects are followed by this crate, hop by hop, so the address policy and
         // header stripping run on every hop. ureq must never follow one itself.
         let builder = ureq::Agent::config_builder()
@@ -1106,6 +1245,11 @@ impl Client {
             ),
             None => (builder.proxy(None), None, None),
         };
+        // Every proxy a request can be routed through is configuration, not input.
+        let mut proxies: Vec<(String, u16)> = endpoint.into_iter().collect();
+        if let Some(routes) = &routes {
+            proxies.extend(routes.endpoints());
+        }
         // The vetting resolver returns only checked addresses, and ureq's TCP connector
         // connects to exactly those (`ConnectionDetails::addrs`). Destinations that go
         // through a proxy are vetted by name and literal in `once_hop` instead.
@@ -1114,7 +1258,7 @@ impl Client {
             ureq::unversioned::transport::DefaultConnector::default(),
             VettingResolver {
                 policy: Arc::new(config.address_policy.clone()),
-                proxy: endpoint,
+                proxies,
                 lookup_limit: config.connect_timeout.unwrap_or(Duration::from_secs(10)),
             },
         );
@@ -1122,6 +1266,7 @@ impl Client {
             agent,
             config,
             proxy,
+            routes,
             proxy_diagnostic: diagnostic,
             proxy_mode_used: used,
             config_error: None,
@@ -1136,6 +1281,8 @@ impl Client {
     }
 
     /// The proxy this client uses, if any, without credentials. See [`ProxyDiagnostic`].
+    /// `None` also when `ProxyMode::System` is decided per request URL, because there is no
+    /// single proxy to report.
     pub fn proxy_diagnostic(&self) -> Option<&ProxyDiagnostic> {
         self.proxy_diagnostic.as_ref()
     }
@@ -1562,11 +1709,14 @@ impl Client {
             request.uri().host().unwrap_or(""),
             redirect_hop,
         )?;
-        let via_proxy = self.vet_proxied_destination(request.uri())?;
+        let (via_proxy, hop_proxy) = self.vet_proxied_destination(request.uri())?;
         let _scope = ViaProxy::enter(via_proxy);
-        let configured = self
-            .agent
-            .configure_request(request)
+        let mut configured = self.agent.configure_request(request);
+        if let Some(proxy) = hop_proxy {
+            // The per-request system route: this hop's own proxy, not the agent's.
+            configured = configured.proxy(Some(proxy));
+        }
+        let configured = configured
             .timeout_global(total)
             .timeout_recv_response(self.config.response_timeout)
             .timeout_recv_body(self.config.recv_body_timeout)
@@ -1598,20 +1748,36 @@ impl Client {
     /// Through a proxy the destination's address cannot be checked, so vet its name and
     /// literal form first. Hosts that bypass the proxy (`NO_PROXY`) are vetted by the
     /// resolver like direct connections.
-    /// Returns whether the request goes through the proxy.
-    fn vet_proxied_destination(&self, uri: &ureq::http::Uri) -> Result<bool, HttpError> {
+    /// Returns whether the request goes through a proxy and, for a per-request system route,
+    /// that proxy (the agent itself carries none then).
+    fn vet_proxied_destination(
+        &self,
+        uri: &ureq::http::Uri,
+    ) -> Result<(bool, Option<ureq::Proxy>), HttpError> {
+        let policy = &self.config.address_policy;
+        if let Some(routes) = &self.routes {
+            let (scheme, host) = uri_scheme_and_host(uri);
+            let Some(proxy) = routes.proxy_for(&scheme, &host) else {
+                // Bypassed or no endpoint for this scheme: a direct connection, vetted by
+                // the resolver like any other.
+                return Ok((false, None));
+            };
+            let raw_host = uri.host().unwrap_or("");
+            policy.admit(&scheme, raw_host)?;
+            policy.vet_via_proxy(raw_host)?;
+            return Ok((true, Some(proxy.ureq.clone())));
+        }
         let Some(proxy) = &self.proxy else {
-            return Ok(false);
+            return Ok((false, None));
         };
         if proxy.is_no_proxy(uri) {
-            return Ok(false);
+            return Ok((false, None));
         }
-        let policy = &self.config.address_policy;
         let scheme = uri.scheme_str().unwrap_or("").to_ascii_lowercase();
         let raw_host = uri.host().unwrap_or("");
         policy.admit(&scheme, raw_host)?;
         policy.vet_via_proxy(raw_host)?;
-        Ok(true)
+        Ok((true, None))
     }
 }
 
@@ -2079,69 +2245,44 @@ mod tests {
     }
 
     #[test]
-    fn system_settings_this_client_cannot_follow_exactly_fail_closed() {
+    fn system_settings_a_pac_script_fails_closed_and_split_configs_need_per_request_routing() {
         use crate::system_proxy::SystemProxySettings;
-        let static_proxy = |proxy: &str, bypass: Option<&str>| SystemProxySettings {
-            proxy: Some(proxy.into()),
-            bypass: bypass.map(str::to_string),
+        // A PAC script is refused: `proxy_from_system` never approximates it.
+        let pac = SystemProxySettings {
+            auto_config: true,
             ..SystemProxySettings::default()
         };
-        // Nothing is approximated with one proxy: plain HTTP is never sent to the HTTPS
-        // endpoint, nothing goes around the proxy, and no bypass entry is dropped while the
-        // proxy stays in use (fifth read, finding 11).
-        let rows = [
-            (
-                static_proxy("http=web.corp:8080;https=secure.corp:8443", None),
-                "HTTP and HTTPS are given different proxy routes",
-            ),
-            (
-                static_proxy("https=secure.corp:8443", None),
-                "HTTP and HTTPS are given different proxy routes",
-            ),
-            (
-                static_proxy("http=web.corp:8080", None),
-                "HTTP and HTTPS are given different proxy routes",
-            ),
-            (
-                static_proxy("web.corp:8080", Some("http://private.example")),
-                "the bypass entry `http://private.example` cannot be followed exactly",
-            ),
-            (
-                static_proxy("web.corp:8080", Some("*.corp.example;https://only.example")),
-                "the bypass entry `https://only.example` cannot be followed exactly",
-            ),
-            (
-                static_proxy("web.corp:8080", Some("<local>")),
-                "the bypass entry `<local>` cannot be followed exactly",
-            ),
-            (
-                static_proxy("web.corp:8080", Some("10.*")),
-                "the bypass entry `10.*` cannot be followed exactly",
-            ),
-            (
-                SystemProxySettings {
-                    auto_config: true,
-                    ..SystemProxySettings::default()
-                },
-                "a proxy auto-config script is set",
-            ),
-        ];
-        for (settings, expected) in rows {
-            let error = proxy_from_system(&settings)
-                .err()
-                .unwrap_or_else(|| panic!("{expected}: must be refused"));
-            assert!(
-                matches!(&error, HttpError::SystemProxyUnsupported { element } if element == expected),
-                "{expected}: {error}"
-            );
-            assert_eq!(
-                error.to_string(),
-                format!(
-                    "the Windows proxy settings cannot be followed exactly by this version \
-                     ({expected}); nothing was sent"
-                )
-            );
-            assert!(matches!(error.class(), crate::error::ErrorClass::Invalid));
+        let expected = "a proxy auto-config script is set";
+        let error = proxy_from_system(&pac).err().expect("a PAC script is refused");
+        assert!(
+            matches!(&error, HttpError::SystemProxyUnsupported { element } if element == expected),
+            "{error}"
+        );
+        assert_eq!(
+            error.to_string(),
+            format!(
+                "the Windows proxy settings cannot be followed exactly by this version \
+                 ({expected}); nothing was sent"
+            )
+        );
+        assert!(matches!(error.class(), crate::error::ErrorClass::Invalid));
+        // Split configurations are not refused any more: the clients take them through
+        // `resolve_system_routing` (see the per-request tests below).
+        for (proxy, bypass) in [
+            ("http=web.corp:8080;https=secure.corp:8443", None),
+            ("https=secure.corp:8443", None),
+            ("web.corp:8080", Some("<local>")),
+            ("web.corp:8080", Some("https://only.example")),
+        ] {
+            let settings = SystemProxySettings {
+                proxy: Some(proxy.into()),
+                bypass: bypass.map(str::to_string),
+                ..SystemProxySettings::default()
+            };
+            let no_env = |_: &str| None::<String>;
+            let (routing, used) = resolve_system_routing(&settings, &no_env).unwrap();
+            assert!(matches!(routing, Routing::PerRequest(_)), "{proxy} {bypass:?}");
+            assert_eq!(used, ProxyModeUsed::System);
         }
     }
 
@@ -2206,7 +2347,7 @@ mod tests {
     }
 
     #[test]
-    fn system_mode_still_refuses_what_it_cannot_follow_exactly() {
+    fn system_mode_still_refuses_a_pac_script() {
         use crate::system_proxy::SystemProxySettings;
         let no_env = |_: &str| None::<String>;
         let env_proxy =
@@ -2231,29 +2372,6 @@ mod tests {
                     ..static_proxy("web.corp:8080", None)
                 },
                 "a proxy auto-config script is set",
-            ),
-            (
-                static_proxy("http=web.corp:8080;https=secure.corp:8443", None),
-                "HTTP and HTTPS are given different proxy routes",
-            ),
-            (
-                static_proxy("http=web.corp:8080", None),
-                "HTTP and HTTPS are given different proxy routes",
-            ),
-            (
-                static_proxy("web.corp:8080", Some("<local>")),
-                "the bypass entry `<local>` cannot be followed exactly",
-            ),
-            (
-                SystemProxySettings {
-                    auto_detect: true,
-                    ..static_proxy("web.corp:8080", Some("*.corp.example;<local>"))
-                },
-                "the bypass entry `<local>` cannot be followed exactly",
-            ),
-            (
-                static_proxy("web.corp:8080", Some("10.*")),
-                "the bypass entry `10.*` cannot be followed exactly",
             ),
         ];
         // Whatever the environment says: the user configured a proxy that cannot be
@@ -2432,5 +2550,132 @@ mod tests {
             .send(&Request::get("http://127.0.0.1:9/"))
             .unwrap_err();
         assert!(matches!(err, HttpError::InvalidRequest(_)), "{err:?}");
+    }
+
+    // ---- ProxyMode::System decided per request URL (rightkit#216) ----
+
+    fn split_settings() -> crate::system_proxy::SystemProxySettings {
+        crate::system_proxy::SystemProxySettings {
+            proxy: Some("http=plain.corp:8080;https=secure.corp:8443".into()),
+            bypass: Some("<local>;*.corp.example;https://only-tls.example".into()),
+            ..crate::system_proxy::SystemProxySettings::default()
+        }
+    }
+
+    #[test]
+    fn per_scheme_proxies_are_chosen_per_request_url() {
+        let routes = SystemRoutes::new(&split_settings()).unwrap();
+        let at = |scheme: &str, host: &str| {
+            routes
+                .proxy_for(scheme, host)
+                .map(|p| (p.host.clone(), p.port))
+        };
+        assert_eq!(at("http", "api.example.com"), Some(("plain.corp".into(), 8080)));
+        assert_eq!(at("https", "api.example.com"), Some(("secure.corp".into(), 8443)));
+        let mut endpoints = routes.endpoints();
+        endpoints.sort();
+        assert_eq!(
+            endpoints,
+            vec![("plain.corp".to_string(), 8080), ("secure.corp".to_string(), 8443)]
+        );
+    }
+
+    #[test]
+    fn a_scheme_limited_bypass_entry_bypasses_that_scheme_only() {
+        let routes = SystemRoutes::new(&split_settings()).unwrap();
+        assert!(routes.proxy_for("https", "only-tls.example").is_none());
+        assert_eq!(
+            routes.proxy_for("http", "only-tls.example").map(|p| p.port),
+            Some(8080)
+        );
+    }
+
+    #[test]
+    fn local_and_wildcard_bypass_entries_go_direct_on_both_schemes() {
+        let routes = SystemRoutes::new(&split_settings()).unwrap();
+        for scheme in ["http", "https"] {
+            assert!(routes.proxy_for(scheme, "intranet").is_none(), "{scheme} <local>");
+            assert!(routes.proxy_for(scheme, "a.corp.example").is_none(), "{scheme} *.corp");
+            assert!(routes.proxy_for(scheme, "intranet.other.com").is_some(), "{scheme}");
+        }
+    }
+
+    #[test]
+    fn a_scheme_without_an_endpoint_is_direct() {
+        let settings = crate::system_proxy::SystemProxySettings {
+            proxy: Some("https=secure.corp:8443".into()),
+            ..crate::system_proxy::SystemProxySettings::default()
+        };
+        let routes = SystemRoutes::new(&settings).unwrap();
+        assert!(routes.proxy_for("http", "x.example.com").is_none());
+        assert!(routes.proxy_for("https", "x.example.com").is_some());
+    }
+
+    /// A listener that records each request line and answers 502, so nothing goes further.
+    fn recording_proxy() -> (u16, std::sync::Arc<std::sync::Mutex<Vec<String>>>) {
+        use std::io::{BufRead, BufReader, Write};
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let seen = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let log = seen.clone();
+        std::thread::spawn(move || {
+            for stream in listener.incoming() {
+                let Ok(mut stream) = stream else { break };
+                let mut first = String::new();
+                let mut reader = BufReader::new(stream.try_clone().unwrap());
+                let _ = reader.read_line(&mut first);
+                log.lock().unwrap().push(first.trim().to_string());
+                let _ = stream.write_all(
+                    b"HTTP/1.1 502 Bad Gateway\r\ncontent-length: 0\r\nconnection: close\r\n\r\n",
+                );
+            }
+        });
+        (port, seen)
+    }
+
+    #[test]
+    fn the_blocking_client_sends_each_request_to_its_own_scheme_proxy() {
+        let (http_port, http_seen) = recording_proxy();
+        let (https_port, https_seen) = recording_proxy();
+        let settings = crate::system_proxy::SystemProxySettings {
+            proxy: Some(format!(
+                "http=127.0.0.1:{http_port};https=127.0.0.1:{https_port}"
+            )),
+            bypass: Some("<local>;https://tls-only.example".into()),
+            ..crate::system_proxy::SystemProxySettings::default()
+        };
+        let config = ClientConfig {
+            address_policy: AddressPolicy::default().with_resolver(|_| vec![]),
+            retry: RetryPolicy::none(),
+            request_timeout: Duration::from_secs(5),
+            response_timeout: Some(Duration::from_secs(5)),
+            connect_timeout: Some(Duration::from_secs(3)),
+            ..ClientConfig::default()
+        };
+        let client = Client::build(
+            config,
+            Routing::PerRequest(Arc::new(SystemRoutes::new(&settings).unwrap())),
+            ProxyModeUsed::System,
+        );
+        assert!(client.proxy_diagnostic().is_none());
+        let go = |url: &str| {
+            let _ = client.send(&Request::get(url));
+        };
+        go("http://app.example.com/");
+        go("https://app.example.com/");
+        go("http://tls-only.example/");
+        // Direct: nothing reaches either proxy.
+        go("https://tls-only.example/");
+        go("http://intranet/");
+        let http_seen = http_seen.lock().unwrap().clone();
+        let https_seen = https_seen.lock().unwrap().clone();
+        assert_eq!(
+            http_seen,
+            vec![
+                "CONNECT app.example.com:80 HTTP/1.1".to_string(),
+                "CONNECT tls-only.example:80 HTTP/1.1".to_string(),
+            ]
+        );
+        assert_eq!(https_seen, vec!["CONNECT app.example.com:443 HTTP/1.1".to_string()]);
     }
 }

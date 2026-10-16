@@ -51,8 +51,20 @@ pub struct AsyncClient {
     config: ClientConfig,
     /// The proxy in use (its `NO_PROXY` list decides which destinations bypass it).
     proxy: Option<ureq::Proxy>,
+    /// `ProxyMode::System` decided per request URL (then `proxy` and `http_proxy` are `None`).
+    routes: Option<AsyncRoutes>,
     proxy_diagnostic: Option<crate::client::ProxyDiagnostic>,
     proxy_mode_used: crate::client::ProxyModeUsed,
+}
+
+/// The per-request system routes and one transport per scheme's proxy.
+#[derive(Clone)]
+struct AsyncRoutes {
+    routes: Arc<crate::client::SystemRoutes>,
+    /// Through the `http` endpoint; `Some` exactly when the settings name one.
+    http: Option<reqwest::Client>,
+    /// Through the `https` endpoint; `Some` exactly when the settings name one.
+    https: Option<reqwest::Client>,
 }
 
 struct Raw {
@@ -153,7 +165,11 @@ impl AsyncClient {
     pub fn new(config: ClientConfig) -> Result<Self, HttpError> {
         // Redirects are followed by this crate, hop by hop, so the address policy and
         // header stripping run on every hop. reqwest must never follow one itself.
-        let (proxy, proxy_mode_used) = config.resolved_proxy_with_mode()?;
+        let (routing, proxy_mode_used) = config.resolved_routing_with_mode()?;
+        let (proxy, system_routes) = match routing {
+            crate::client::Routing::Fixed(proxy) => (proxy, None),
+            crate::client::Routing::PerRequest(routes) => (None, Some(routes)),
+        };
         let extra = crate::trust::test_roots();
         let tls = build_tls(config.trust, &extra)?;
         let verifier = tls.kind;
@@ -164,21 +180,25 @@ impl AsyncClient {
         // everything through the proxy with no exclusion list of its own. `precheck`
         // decides per request with the same matcher it vets with, so policy and transport
         // cannot disagree about which path a request takes.
-        let http_proxy = match &proxy {
-            Some(p) => {
-                let mut rp = reqwest::Proxy::all(proxy_url(&config, p)?)
-                    .map_err(|_| HttpError::InvalidRequest("invalid proxy URL".into()))?;
-                if let (Some(user), pass) = (p.ureq.username(), p.ureq.password()) {
-                    rp = rp.basic_auth(user, pass.unwrap_or(""));
-                }
-                let tls = build_tls(config.trust, &extra)?;
-                Some(
-                    Self::reqwest_builder(&config, tls)
-                        .proxy(rp)
-                        .build()
-                        .map_err(map_reqwest_error)?,
-                )
+        let through = |p: &crate::client::ResolvedProxy| -> Result<reqwest::Client, HttpError> {
+            let mut rp = reqwest::Proxy::all(proxy_url(&config, p)?)
+                .map_err(|_| HttpError::InvalidRequest("invalid proxy URL".into()))?;
+            if let (Some(user), pass) = (p.ureq.username(), p.ureq.password()) {
+                rp = rp.basic_auth(user, pass.unwrap_or(""));
             }
+            let tls = build_tls(config.trust, &extra)?;
+            Self::reqwest_builder(&config, tls)
+                .proxy(rp)
+                .build()
+                .map_err(map_reqwest_error)
+        };
+        let http_proxy = proxy.as_ref().map(&through).transpose()?;
+        let routes = match system_routes {
+            Some(routes) => Some(AsyncRoutes {
+                http: routes.http().map(&through).transpose()?,
+                https: routes.https().map(&through).transpose()?,
+                routes,
+            }),
             None => None,
         };
         Ok(Self {
@@ -186,13 +206,16 @@ impl AsyncClient {
             http_proxy,
             verifier,
             config,
+            routes,
             proxy_diagnostic: proxy.as_ref().map(crate::client::ProxyDiagnostic::of),
             proxy_mode_used,
             proxy: proxy.map(|p| p.ureq),
         })
     }
 
-    /// The proxy this client uses, if any, without credentials.
+    /// The proxy this client uses, if any, without credentials. `None` also when
+    /// `ProxyMode::System` is decided per request URL, because there is no single proxy to
+    /// report.
     pub fn proxy_diagnostic(&self) -> Option<&crate::client::ProxyDiagnostic> {
         self.proxy_diagnostic.as_ref()
     }
@@ -567,12 +590,19 @@ impl AsyncClient {
             redirect_hop,
         )?;
         policy.admit(url.scheme(), &raw_host)?;
-        let via_proxy = self.proxy.as_ref().is_some_and(|p| {
-            url.as_str()
-                .parse::<ureq::http::Uri>()
-                .map(|uri| !p.is_no_proxy(&uri))
-                .unwrap_or(true)
-        });
+        let via_proxy = if let Some(r) = &self.routes {
+            // Per request: the bypass list and the scheme's own endpoint decide.
+            r.routes
+                .proxy_for(&url.scheme().to_ascii_lowercase(), &host)
+                .is_some()
+        } else {
+            self.proxy.as_ref().is_some_and(|p| {
+                url.as_str()
+                    .parse::<ureq::http::Uri>()
+                    .map(|uri| !p.is_no_proxy(&uri))
+                    .unwrap_or(true)
+            })
+        };
         if via_proxy {
             // The proxy resolves the name, so vet it by literal and by name rules.
             policy.vet_via_proxy(&host)?;
@@ -603,8 +633,20 @@ impl AsyncClient {
         };
         let via_proxy = self.precheck(url, raw_url, redirect_hop)?;
         // The transport follows the decision the policy was applied for.
-        let client = match (&self.http_proxy, via_proxy) {
-            (Some(proxied), true) => proxied,
+        let client = match (&self.routes, &self.http_proxy, via_proxy) {
+            (Some(r), _, true) => {
+                let proxied = if url.scheme() == "https" {
+                    &r.https
+                } else {
+                    &r.http
+                };
+                // `via_proxy` came from `proxy_for`, so this transport exists; never fall
+                // back to a direct connection if it somehow does not.
+                proxied.as_ref().ok_or_else(|| {
+                    HttpError::InvalidRequest("system proxy route unavailable".into())
+                })?
+            }
+            (None, Some(proxied), true) => proxied,
             _ => &self.http,
         };
         let mut builder = client.request(method_r, url.clone());

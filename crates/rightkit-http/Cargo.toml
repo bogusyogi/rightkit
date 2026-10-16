@@ -30,12 +30,12 @@ serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"
 ureq = { version = "3.4", default-features = false, features = ["rustls", "platform-verifier"] }
 getrandom = "0.4"
-reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "stream"], optional = true }
+reqwest = { version = "0.13", default-features = false, features = ["rustls-no-provider", "stream"], optional = true }
 tokio = { version = "1", default-features = false, features = ["time", "net"], optional = true }
 futures-util = { version = "0.3", default-features = false, optional = true }
 bytes = { version = "1", optional = true }
 # Async `TrustRoots::Platform`: the same OS verifier the blocking client gets through ureq,
-# installed into reqwest with `use_preconfigured_tls`. Same rustls 0.23 as reqwest 0.12.
+# installed into reqwest with `use_preconfigured_tls`. Same rustls 0.23 as reqwest 0.13 (`rustls-no-provider`: the ring provider is installed here, not aws-lc).
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"], optional = true }
 rustls-platform-verifier = { version = "0.7", default-features = false, optional = true }
 # Async `TrustRoots::Bundled`: Mozilla roots, installed explicitly (same crate ureq uses).
@@ -43,7 +43,7 @@ webpki-roots = { version = "1", optional = true }
 
 [dev-dependencies]
 # Throwaway CAs and leaf certificates for the local TLS server in tests/tls_local.rs.
-rcgen = "0.13"
+rcgen = "0.14"
 # The test TLS server speaks rustls directly (ring), whatever features are on.
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
 tokio = { version = "1", features = ["rt", "macros", "time"] }

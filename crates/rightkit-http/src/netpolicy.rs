@@ -949,10 +949,11 @@ const MAX_RESOLVED_ADDRS: usize = 16;
 #[derive(Debug)]
 pub(crate) struct VettingResolver {
     pub(crate) policy: Arc<AddressPolicy>,
-    /// Proxy endpoint `(normalized host, port)`: resolved but trusted (configuration, not
+    /// Proxy endpoints `(normalized host, port)`: resolved but trusted (configuration, not
     /// input), so no address-class denial and no first-party host pin, but only while the
-    /// call is marked [`ViaProxy`].
-    pub(crate) proxy: Option<(String, u16)>,
+    /// call is marked [`ViaProxy`]. Usually one; a per-request system proxy configuration
+    /// can name one per scheme.
+    pub(crate) proxies: Vec<(String, u16)>,
     /// Bound for a name lookup when the request has no resolve or global timeout.
     pub(crate) lookup_limit: Duration,
 }
@@ -976,10 +977,7 @@ impl ureq::unversioned::resolver::Resolver for VettingResolver {
         let host = normalize_host(raw_host);
         let port = uri.port_u16().unwrap_or(default_port);
         let is_proxy = VIA_PROXY.with(|c| c.get())
-            && self
-                .proxy
-                .as_ref()
-                .is_some_and(|(h, p)| *h == host && *p == port);
+            && self.proxies.iter().any(|(h, p)| *h == host && *p == port);
         if !is_proxy && !matches!(scheme.as_str(), "http" | "https") {
             return Err(ureq::Error::BadUri("unsupported scheme".into()));
         }

@@ -10,15 +10,14 @@ use std::thread::{self, JoinHandle};
 use std::time::Duration;
 
 use rcgen::{
-    date_time_ymd, BasicConstraints, Certificate, CertificateParams, DnType,
+    date_time_ymd, BasicConstraints, CertificateParams, CertifiedIssuer, DnType,
     ExtendedKeyUsagePurpose, IsCa, KeyPair, SanType,
 };
 use rightkit_http::testing::{add_bundled_test_root, loopback_config};
 use rightkit_http::*;
 
 struct Ca {
-    cert: Certificate,
-    key: KeyPair,
+    issuer: CertifiedIssuer<'static, KeyPair>,
 }
 
 fn new_ca(name: &str) -> Ca {
@@ -26,8 +25,8 @@ fn new_ca(name: &str) -> Ca {
     let mut params = CertificateParams::new(Vec::<String>::new()).unwrap();
     params.is_ca = IsCa::Ca(BasicConstraints::Unconstrained);
     params.distinguished_name.push(DnType::CommonName, name);
-    let cert = params.self_signed(&key).unwrap();
-    Ca { cert, key }
+    let issuer = CertifiedIssuer::self_signed(params, key).unwrap();
+    Ca { issuer }
 }
 
 /// The CA the clients are told to trust (through the testing seam, Bundled only).
@@ -35,7 +34,7 @@ fn trusted_ca() -> &'static Ca {
     static CA: OnceLock<Ca> = OnceLock::new();
     static REGISTER: Once = Once::new();
     let ca = CA.get_or_init(|| new_ca("rightkit-http test CA (trusted)"));
-    REGISTER.call_once(|| add_bundled_test_root(ca.cert.der().to_vec()));
+    REGISTER.call_once(|| add_bundled_test_root(ca.issuer.der().to_vec()));
     ca
 }
 
@@ -51,7 +50,7 @@ fn leaf(ca: &Ca, san: SanType, not_before: (i32, u8, u8), not_after: (i32, u8, u
     params.extended_key_usages = vec![ExtendedKeyUsagePurpose::ServerAuth];
     params.not_before = date_time_ymd(not_before.0, not_before.1, not_before.2);
     params.not_after = date_time_ymd(not_after.0, not_after.1, not_after.2);
-    let cert = params.signed_by(&key, &ca.cert, &ca.key).unwrap();
+    let cert = params.signed_by(&key, &ca.issuer).unwrap();
     Leaf {
         chain: vec![cert.der().to_vec()],
         key: key.serialize_der(),
