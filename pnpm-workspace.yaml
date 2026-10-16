@@ -1,5 +1,7 @@
 packages:
   - packages/*
+  # Parked 2026-10-16 (own-cloud sync): kept in the tree, not installed, built or published.
+  - '!packages/sync-worker'
 
 # Internal development uses canonical sources; consumer manifests keep registry pins.
 linkWorkspacePackages: true

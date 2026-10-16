@@ -82,10 +82,19 @@ function rustMembers(config) {
   return members;
 }
 
+// Directories pnpm-workspace.yaml excludes (`- '!packages/<name>'`, parked packages) are not
+// installed by `pnpm install`, so the gate must not select or test them either.
+function workspaceExcluded() {
+  let text = "";
+  try { text = fs.readFileSync(path.join(ROOT, "pnpm-workspace.yaml"), "utf8"); } catch { return new Set(); }
+  return new Set([...text.matchAll(/^\s*-\s*['"]?!packages\/([^'"\s/]+)['"]?\s*$/gm)].map((m) => m[1]));
+}
+
 function npmPackages() {
   const packages = [];
+  const excluded = workspaceExcluded();
   for (const entry of fs.readdirSync(path.join(ROOT, "packages"), { withFileTypes: true })) {
-    if (!entry.isDirectory()) continue;
+    if (!entry.isDirectory() || excluded.has(entry.name)) continue;
     const manifest = readJson(`packages/${entry.name}/package.json`, null);
     if (manifest?.name) packages.push({ name: manifest.name, dir: `packages/${entry.name}`, scripts: manifest.scripts ?? {}, all: { ...manifest.dependencies, ...manifest.devDependencies, ...manifest.peerDependencies } });
   }
