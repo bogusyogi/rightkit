@@ -7,6 +7,7 @@
 //     signed: true,
 //     signingContract: "android-aab-upload-key-v1",
 //     gradle: { cmd: "./gradlew", args: [":app:bundleRelease"], cwd: "android", timeoutMs?, env? },   // must run bundle<Variant>Release
+//     ndk?: { abis?: ["arm64-v8a"], jniLibs: "android/app/src/main/jniLibs", manifestPath?, package?, features?, apiLevel? },   // android-ndk.mjs: cargo-ndk before Gradle
 //     aab: { file: "android/app/build/outputs/bundle/release/app-release.aab" },
 //     artifacts: ["android/app/build/outputs/bundle/release/app-release.aab"],                          // seals the AAB
 //     signing: {
@@ -34,6 +35,7 @@ import os from "node:os";
 import path from "node:path";
 import { spawnSync } from "./background-process.mjs";
 import { describeAabProblems, extractNativeLibs, scanAab } from "./android-aab-scan.mjs";
+import { runAndroidNdk, validateAndroidNdk } from "./android-ndk.mjs";
 
 export const ANDROID_SIGNING_CONTRACT = "android-aab-upload-key-v1";
 export const ANDROID_SIGNING_PROPERTIES_ENV = "RIGHTKIT_ANDROID_SIGNING_PROPERTIES";
@@ -82,7 +84,7 @@ const GRADLE_SECRET_ARG = /pass(?:word|phrase)?\s*=|storepass|keypass|signing\.(
 const GRADLE_SECRET_ENV = /pass|pwd|secret|token|keystore/i;
 const SIGNING_KEYS = ["keystore", "storePassword", "keyPassword", "expectedCertSha256"];
 
-function validateSecretSource(value, label) {
+export function validateSecretSource(value, label) {
   if (typeof value === "string") throw new Error(`${label} must be { credential } or { file }; an inline secret is refused`);
   if (!isObject(value)) throw new Error(`${label} must be { credential: "<name>" } or { file: "<path>" }`);
   const keys = Object.keys(value);
@@ -136,8 +138,11 @@ export function validateAndroidTarget(target, { root }) {
   const pin = String(signing.expectedCertSha256 ?? "").replace(/:/g, "").toLowerCase();
   if (!/^[0-9a-f]{64}$/.test(pin)) throw new Error("signing.expectedCertSha256 must be the SHA-256 (64 hex digits) of the upload certificate");
 
+  const ndk = target.ndk === undefined ? null : validateAndroidNdk(target.ndk, { root, kind: "release" });
+
   return {
     gradle: { ...gradle, args: [...gradle.args] },
+    ndk,
     task,
     aab: { file: target.aab.file },
     signing: { keystorePath, alias: keystore.alias, storePassword, keyPassword, expectedCertSha256: pin },
@@ -278,7 +283,7 @@ export function verifyAndroidReceipt(receiptPath, aabFile) {
 //   release-switch binary layer); it refuses the release itself.
 export async function runAndroidRelease({
   root, app = "app", target, dryRun = false, env = process.env, platform = process.platform,
-  runGradle, resolveArtifact = (file) => path.resolve(root, file), scanFiles, receiptDir,
+  runGradle, runNdk = runGradle, resolveArtifact = (file) => path.resolve(root, file), scanFiles, receiptDir,
   allowContentOnlyDevtools = false, credentialStore, tmpRoot = os.tmpdir(), now = () => new Date(), log = console.log,
 }) {
   refuseAndroidEnvSecrets(env);
@@ -286,6 +291,7 @@ export async function runAndroidRelease({
   const { signing } = target;
   if (dryRun) {
     log(`right-release: dry-run: android ${target.task} -> ${aab}; signing passwords would come from ${signing.storePassword.credential ? "the credential store" : "a file"}, never the environment`);
+    if (target.ndk) await runAndroidNdk({ ndk: target.ndk, profile: "release", dryRun: true, run: (command) => runNdk(command, {}), log });
     await runGradle(target.gradle, {});
     return { dryRun: true, aab };
   }
@@ -296,6 +302,8 @@ export async function runAndroidRelease({
 
   // A stale bundle from an earlier build must never be mistaken for this build's output.
   rmSync(aab, { force: true });
+  // Native libraries first (no secret involved): cargo-ndk --release per ABI into the generated jniLibs directory.
+  if (target.ndk) await runAndroidNdk({ ndk: target.ndk, profile: "release", run: (command) => runNdk(command, {}), log });
   const props = createSigningProperties({ keystore: signing.keystorePath, alias: signing.alias, storePassword, keyPassword, tmpRoot });
   const onExit = () => props.cleanup();
   process.on("exit", onExit); // release.mjs ends a failed step with process.exit(); the secret file must not outlive it

@@ -11,6 +11,7 @@ import { BUNDLE_MARKERS, bundleMarkerBuffer, readTauriBundleMarkers } from "./ta
 import { installPortableDevelopment } from "./portable-development.mjs";
 import { readBundleExecutable, requestedCiAdhocSigning, signMacosDevelopmentBundle } from "./development-signing.mjs";
 import { macosCodesignEnvironment } from "./codesign-environment.mjs";
+import { androidDevelopmentNdkCommand, androidDevelopmentSerial, installAndroidDevelopment, validateAndroidDevelopment } from "./android-dev.mjs";
 
 // One standard Cargo profile for every app (templates/cargo-profiles.toml): Cargo's built-in `dev`.
 // `--profile dev` is valid and no flag also means dev.
@@ -35,6 +36,8 @@ export function developmentEnvironment(env = process.env) {
   };
   for (const key of RELEASE_ONLY_APPLE_ENV) delete result[key];
   delete result.CARGO_INCREMENTAL;
+  // A dev build is debug-signed: a release signing-properties path never reaches it.
+  delete result.RIGHTKIT_ANDROID_SIGNING_PROPERTIES;
   const client = managedRuntimeClient(result);
   if (client) {
     const { agentBin } = resolveManagedRoots({ env: result });
@@ -50,7 +53,7 @@ export function developmentEnvironment(env = process.env) {
   return result;
 }
 
-export function validateDevelopmentConfig(config, platform) {
+export function validateDevelopmentConfig(config, platform, { root = process.cwd() } = {}) {
   const target = config?.development?.targets?.[platform];
   if (!target || !Array.isArray(target.build) || target.build.length === 0) throw new Error(`development.targets.${platform}.build must be a non-empty command array`);
   for (const [index, command] of target.build.entries()) validateCommand(command, `development.targets.${platform}.build[${index}]`);
@@ -65,29 +68,36 @@ export function validateDevelopmentConfig(config, platform) {
     for (const key of ["sourceDirectory", "entrypoint"]) {
       if (typeof descriptor[key] !== "string" || !descriptor[key] || path.isAbsolute(descriptor[key]) || path.win32.isAbsolute(descriptor[key]) || descriptor[key].split(/[\\/]/).includes("..")) throw new Error(`portable development ${key} must be a contained relative path`);
     }
+  } else if (target.install?.kind === "adb") {
+    if (platform !== "android") throw new Error("the adb development installer is for --platform android");
   } else if (target.install) throw new Error(`unsupported development installer kind: ${target.install.kind}`);
+  if (platform === "android") return { ...target, ...validateAndroidDevelopment(target, { root }) };
   return target;
 }
 
 export function runDevelopment({ root, platform, config, buildOnly = false, dryRun = false, env = process.env, run = spawnSync,
-  codesignEnvironment = macosCodesignEnvironment }) {
-  if (!new Set(["win", "mac"]).has(platform)) throw new Error("--platform must be win or mac");
+  codesignEnvironment = macosCodesignEnvironment, serial }) {
+  if (!new Set(["win", "mac", "android"]).has(platform)) throw new Error("--platform must be win, mac or android");
   assertNativeDevelopmentHost(platform);
-  const target = validateDevelopmentConfig(config, platform);
+  const target = validateDevelopmentConfig(config, platform, { root });
   const repoRoot = git(root, ["rev-parse", "--show-toplevel"]);
   assertPrimaryReleaseCheckout(repoRoot, env);
-  if (dryRun) return { built: false, installed: false, plan: { build: target.build, install: buildOnly ? null : target.install ?? null, profile: DEVELOPMENT_PROFILE } };
+  if (dryRun) return { built: false, installed: false, plan: { ...(target.ndk ? { ndk: androidDevelopmentNdkCommand(target.ndk) } : {}), build: target.build, install: buildOnly ? null : target.install ?? null, profile: DEVELOPMENT_PROFILE } };
   assertReleaseExecutionAllowed({ cwd: repoRoot, environment: env, command: `right-release dev --platform ${platform}` });
   // Refuse an invalid or off-CI ad hoc opt-in before the (long) build, not after it.
   if (!buildOnly && platform === "mac" && target.install?.kind === "tauri") requestedCiAdhocSigning({ descriptor: target.install, env });
+  // Android: the device serial is required, so a missing one is refused before the (long) build too.
+  if (!buildOnly && platform === "android" && target.install) androidDevelopmentSerial({ descriptor: target.install, serial, env });
   const childEnv = codesignEnvironment(developmentEnvironment(env));
   // One lease spans every managed request this run makes, so a broker cutover cannot land between them.
   const lease = acquireManagedRunLease({ command: `right-release dev --platform ${platform}`, env });
   try {
     const startedMs = Date.now();
+    // Android: cargo-ndk (Cargo dev profile) fills the generated jniLibs, then the Gradle debug build packages it.
+    if (target.ndk) { rmSync(target.ndk.jniLibs, { recursive: true, force: true }); execute(androidDevelopmentNdkCommand(target.ndk), { root, env: childEnv, dryRun, run, label: "native build" }); }
     for (const command of target.build) execute(command, { root, env: childEnv, dryRun, run, label: "build" });
     if (buildOnly || !target.install) return { built: true, installed: false };
-    const signing = install(target.install, { root, platform, config, env: childEnv, run, sinceMs: startedMs });
+    const signing = install(target.install, { root, platform, config, env: childEnv, run, sinceMs: startedMs, serial });
     return { built: true, installed: true, ...(platform === "mac" && target.install.kind === "tauri" ? { signing } : {}) };
   } finally { lease.release(); }
 }
@@ -96,7 +106,8 @@ export function assertNativeDevelopmentHost(platform, host = process.platform) {
   if ((platform === "win" && host !== "win32") || (platform === "mac" && host !== "darwin")) throw new Error(`development target ${platform} requires its native host`);
 }
 
-function install(descriptor, { root, platform, config, env, run, sinceMs = null }) {
+function install(descriptor, { root, platform, config, env, run, sinceMs = null, serial }) {
+  if (descriptor.kind === "adb") return installAndroidDevelopment(descriptor, { root, env, run, serial });
   if (descriptor.kind === "command") return execute(descriptor, { root, env, run, label: "install" });
   if (descriptor.kind === "portable") return installPortableDevelopment(descriptor, { root, platform: platform === "win" ? "win32" : "darwin", env });
   if (platform === "win") {
@@ -302,16 +313,17 @@ function resolveJavaScriptEntrypoint(candidate) {
 function git(cwd, args) { const result = spawnSync("git", args, { cwd, encoding: "utf8", windowsHide: true }); if (result.status !== 0) throw new Error(`git ${args.join(" ")} failed`); return result.stdout.trim(); }
 function inside(root, child) { const rel = path.relative(path.resolve(root), path.resolve(child)); return rel === "" || (rel !== ".." && !rel.startsWith(`..${path.sep}`) && !path.isAbsolute(rel)); }
 export async function main(args = process.argv.slice(2)) {
-  let platform, configPath = "right-release.config.mjs", dryRun = false, buildOnly = false;
+  let platform, configPath = "right-release.config.mjs", dryRun = false, buildOnly = false, serial;
   for (let i = 0; i < args.length; i++) {
-    if (args[i] === "-h" || args[i] === "--help") { console.log("usage: right-release dev --platform win|mac [--config right-release.config.mjs] [--dry-run] [--build-only]"); return; }
+    if (args[i] === "-h" || args[i] === "--help") { console.log("usage: right-release dev --platform win|mac|android [--config right-release.config.mjs] [--dry-run] [--build-only] [--serial <adb serial>]"); return; }
     if (args[i] === "--platform") platform = args[++i];
     else if (args[i] === "--config") configPath = args[++i];
     else if (args[i] === "--dry-run") dryRun = true;
     else if (args[i] === "--build-only") buildOnly = true;
+    else if (args[i] === "--serial") serial = args[++i];
     else throw new Error(`unknown dev option: ${args[i]}`);
   }
-  if (!platform) throw new Error("right-release dev requires --platform win|mac");
+  if (!platform) throw new Error("right-release dev requires --platform win|mac|android");
   const absoluteConfig = path.resolve(configPath);
   const safeEnv = developmentEnvironment(process.env);
   for (const [key, value] of Object.entries(safeEnv)) process.env[key] = value;
@@ -321,7 +333,7 @@ export async function main(args = process.argv.slice(2)) {
   if (pathKey) process.env[pathKey] = safeEnv[pathKey] ?? process.env[pathKey];
   const loaded = await import(pathToFileURL(absoluteConfig));
   const config = loaded.default ?? loaded.config ?? loaded;
-  const result = runDevelopment({ root: path.dirname(absoluteConfig), platform, config, dryRun, buildOnly });
+  const result = runDevelopment({ root: path.dirname(absoluteConfig), platform, config, dryRun, buildOnly, serial });
   if (dryRun) console.log(JSON.stringify(result.plan, null, 2));
   return result;
 }

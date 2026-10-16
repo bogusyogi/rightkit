@@ -59,7 +59,7 @@ const PIPELINE_FINGERPRINT = createHash("sha256")
 // The Android lane's own signing/scan code. Kept out of PIPELINE_FINGERPRINT_SOURCES so a change here never cold-rebuilds win/mac,
 // but still part of the android signing identity so a changed scanner or receipt shape retires cached android output.
 const ANDROID_PIPELINE_FINGERPRINT = createHash("sha256")
-  .update(["android-release.mjs", "android-aab-scan.mjs"].map((file) => `${file}:${createHash("sha256").update(readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), file))).digest("hex")}`).join("\n"))
+  .update(["android-release.mjs", "android-aab-scan.mjs", "android-ndk.mjs"].map((file) => `${file}:${createHash("sha256").update(readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), file))).digest("hex")}`).join("\n"))
   .update(PIPELINE_FINGERPRINT)
   .digest("hex")
   .slice(0, 16);

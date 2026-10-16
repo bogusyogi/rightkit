@@ -14,6 +14,7 @@ let tier = "";
 let repo = "";
 let configName = "right-release.config.mjs";
 let dryRun = false;
+let apply = false;
 
 for (let index = 0; index < args.length; index += 1) {
   const arg = args[index];
@@ -24,9 +25,18 @@ for (let index = 0; index < args.length; index += 1) {
   else if (arg === "--repo") repo = args[++index];
   else if (arg === "--config") configName = args[++index];
   else if (arg === "--dry-run") dryRun = true;
+  else if (arg === "--apply") apply = true;
   else if (arg === "-h" || arg === "--help") usage(0);
   else fail(`unknown argument: ${arg}`);
 }
+
+// Android: the Google Play internal track, with its own gate and a dry run by default (android-play-upload.mjs). No tier: the
+// internal track has no patch/update feed.
+if (platform === "android") {
+  const { main } = await import("./android-play-upload.mjs");
+  process.exit(await main({ releaseId, configName, apply, dryRun }));
+}
+if (apply) fail("--apply is Android only; win and mac preview with --dry-run");
 
 // Tier, primary checkout, clean tree, sealed commit, ownership evidence, provider and repository are checked by
 // the gate that `right-release github --release` also uses; nothing below runs until it passes.
@@ -72,7 +82,7 @@ function writeJson(file, value) {
 }
 
 function usage(code) {
-  console.log("usage: right-release upload --release <sealed-id> --platform win|mac --tier patch|update [--config right-release.config.mjs] [--repo owner/repo] [--dry-run]");
+  console.log("usage: right-release upload --release <sealed-id> --platform win|mac --tier patch|update [--config right-release.config.mjs] [--repo owner/repo] [--dry-run]\n       right-release upload --platform android --release <sealed-id> [--config right-release.config.mjs] [--apply]   (Play internal track; dry run unless --apply)");
   process.exit(code);
 }
 

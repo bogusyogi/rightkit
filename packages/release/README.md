@@ -206,6 +206,21 @@ Supported: `title`, `icon` (`.icns` volume icon), `background` (PNG or TIFF), `i
 
 `right-release upload` and `right-release github --release` share one gate (`github-upload-gate.mjs`): both require `--tier patch|update`, the primary checkout with a clean tree, a sealed release built from the current HEAD with matching ownership evidence, and a release config that declares `distribution.provider: "github-releases"` and `distribution.repository` (`--repo` may only repeat it; the `origin` remote is never consulted). The gate makes no network call and also runs on `--dry-run`. Private products publish with `publish-update` and `distribution.provider: "r2-rightapps"`. `github --addon` publishes headless add-ons and takes no tier. Not gated the same way: `github --addon` (no tier), `addon upload` (no provider requirement), and the direct R2 uploaders `upload-large.mjs` and `pub-upload.mjs` (no tier, provider or clean-tree check).
 
+## Android (AAB build, Play internal track, dev install)
+
+The Android lane is native Kotlin with Gradle plus Rust `.so` libraries per ABI (`docs/design/android-minimum.md` section 4). It follows the same split as the desktop lanes: `build` never uploads, `upload` never builds.
+
+| Step | Command | Config |
+|---|---|---|
+| Build | `right-release build --platform android` | `targets.android`: `gradle` (`bundle<Variant>Release` only), optional `ndk`, `aab`, `artifacts`, `signing` (see `android-release.mjs`) |
+| Upload | `right-release upload --platform android --release <sealed-id> [--apply]` | top-level `distribution: { provider: "google-play", packageName, track: "internal", releaseStatus?, releaseName?, serviceAccount }` |
+| Dev | `right-release dev --platform android --serial <adb serial>` | `development.targets.android`: `ndk?`, `build` (debug tasks), `install: { kind: "adb", apk, package, activity? }` |
+
+- Build: `targets.android.ndk = { abis?: ["arm64-v8a"], jniLibs: "android/app/src/main/jniLibs", manifestPath?, package?, features?, apiLevel? }` runs `cargo ndk -t <abi> ... -o <jniLibs> build --release` before Gradle. Release defaults to `arm64-v8a`; add `x86_64` only for an emulator-installable bundle. `jniLibs` is generated and emptied before each real build. Gradle then runs `bundleRelease` with the upload keystore passwords handed over only as the path of a transient 0600 properties file. The AAB is scanned and must be signed by the pinned upload certificate.
+- Upload: dry run is the default; `--apply` performs `edits.insert`, `bundles.upload`, `tracks.update` (internal) and `edits.commit`. A debug-signed, unsigned or unpinned bundle is refused. Only the internal track and a non-test package can be named. There is no `--tier`.
+- Secrets: the keystore passwords and the Play service-account JSON live in the OS credential store (macOS Keychain `rightkit-android-<name>`; a protected token file on Windows and Linux, so store the JSON as one line) or in a 0600 file outside the repository, selected by `{ credential: "<name>" }` or `{ file: "<path>" }`. They never appear in the environment, on argv, in config, or in a log; key material found in the environment refuses the command.
+- Dev: a debug build installed by serial (never "the only device") with a package ending in `.dev`, `.qa`, `.test` or `.debug`; release tasks and signing properties are refused.
+
 ## Known issues
 
 - `smol-toml` is pinned exactly. A consumer that depends on a different `smol-toml` version gets a second copy.

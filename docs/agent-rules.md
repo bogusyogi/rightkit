@@ -24,7 +24,8 @@ RightKit owns shared packages, crates, QA, licensing, logging, & release tooling
 - Pin RightKitSwift by repository URL & version tag, never local path.
 - Run every release from the application primary checkout.
 - Keep `right-release build` upload-free & `right-release upload` build-free.
-- Require explicit patch or update tier for upload.
+- Require explicit patch or update tier for upload (win and mac); the Android Play internal-track upload takes no tier.
+- Android: `right-release build --platform android` makes the signed AAB (upload key from the credential store, passwords only by transient file path); `right-release upload --platform android --release <id>` is dry-run unless `--apply`, build-free, and refuses a debug-signed or unpinned AAB; provider `google-play`, internal track only; never put the keystore, its passwords or the Play service-account JSON in the repo, environment, argv or logs.
 - Require explicit `distribution.provider`: public products use `github-releases`; private products use `r2`.
 - Keep add-on adoption bound to version, full manifest SHA-256, immutable URL, and target-qualified aliases.
 - Never run browser login, `az login`, Azure enrollment, or signing setup; use native-host provisioned signers.
