@@ -1,0 +1,5 @@
+{
+  "schema": 1,
+  "description": "Repositories that are not apps and so need no RightKit QA lane. RightKit-owned: a change needs a RightKit release. Never list an app here; there is no per-app opt-out. The RightKit source tree itself is recognised by packages/release/package.json (name @rightkit/release) and needs no entry.",
+  "nonAppRepositories": []
+}

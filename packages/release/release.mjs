@@ -6,7 +6,7 @@ import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { spawn, spawnSync } from "./background-process.mjs";
 import { validateRightKitCargoContract } from "./cargo-contract.mjs";
-import { assertQaBackdoorContract } from "./qa-contract.mjs";
+import { assertQaAdoption, assertQaBackdoorContract } from "./qa-contract.mjs";
 import { assertLegalReleaseContract } from "./legal-contract.mjs";
 import { assertPrimaryReleaseCheckout, dirtyBuildInputs, resolveReleaseBuildInputs } from "./release-invocation.mjs";
 import { resolveNativeCargoLayout } from "./native-cargo-layout.mjs";
@@ -168,6 +168,8 @@ if (!(resolveProjectType({ appRoot: root, config, target: config.targets?.[opts.
   await validateRightKitPackageContract(root, config.app, config.hostedWorkflows);
 }
 validateRightKitCargoContract(root, RIGHTKIT_CARGO_ALLOWED, config.app ?? path.basename(root));
+// RightKit QA is mandatory for every app (also SwiftPM apps without a package.json): no QA lane refuses the release.
+assertQaAdoption({ appRoot: root, app: config.app });
 const target = config.targets?.[opts.platform];
 if (!target) fail(`${config.app ?? "app"} has no ${opts.platform} release target`);
 const legalContract = config.legal

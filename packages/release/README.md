@@ -109,6 +109,14 @@ What it does not do: run the bench, prove the bench ran, detect `[profile]`, `[p
 
 A real `publish cargo --crate <name>` refuses with `RUNTIME_BUDGET_MISSING` listing every problem; `--dry-run` prints `[FAIL] runtime-budget: ...` and continues.
 
+## QA adoption (mandatory)
+
+RightKit QA is a mandatory component: every Orthic Labs app adopts it. `assertQaAdoption` (`qa-contract.mjs`, next to the native-QA backdoor contract) runs in `release.mjs` beside the package and Cargo contracts on every release, `--dry-run` and `doctor` included, SwiftPM apps without a `package.json` too.
+
+- **Refused:** the app has no QA lane. A lane is the native wdio lane (`right-qa.config.mjs`, validated by `validateQaBackdoorContract`), `@rightkit/qa` in any non-`node_modules` `package.json` (dependencies or devDependencies), or `rightkit-qa` in any `Cargo.toml` (dependencies, dev-dependencies, build-dependencies, `[workspace.dependencies]`; path and workspace declarations count). Message: `RightKit QA is mandatory for every Orthic Labs app, and <app> has no QA lane ... Adopt it: ...`.
+- **Warned:** a `@rightkit/qa`, `@rightkit/qa-chrome` or `rightkit-qa` pin behind the latest published version in `rightkit-versions.json` (`[right-release] QA warning: <app> runs RightKit QA behind the latest published version: <pin> -> <latest> (<file>)`). **Refused** when the lag is a breaking bump (`breakingBump` of `rightkit-drift`: a minor bump below 1.0, a major from 1.0). `@rightkit/qa-chrome` is lag-checked but its presence is not enforced.
+- **Exempt:** only a repository that is not an app. `qa-adoption-exemptions.json` (`nonAppRepositories`: `{ repositoryIdentity, kind: "library" | "tooling", reason }`, matched against the git `origin`) is RightKit-owned, so a change needs a RightKit release; the RightKit source tree is recognised by `packages/release/package.json` named `@rightkit/release`. There is no per-app opt-out, config key or environment switch.
+
 ## Entry points
 
 Bin: `right-release` (`cli/right-release.mjs`). The package has no `exports` map. The CLI is the supported surface.
