@@ -16,8 +16,8 @@ pub mod reservation;
 pub mod set;
 
 pub use disk::{
-    foreign_content_error, pinned_capacity_error, Config, DiskCache, DiskCacheStatus,
-    ForeignContentError, PinnedCapacityError, PutOutcome, PutWriter, Stats,
+    foreign_content_error, pinned_capacity_error, Cleared, Config, DiskCache, DiskCacheStatus,
+    ForeignContentError, MoveReport, PinnedCapacityError, PutOutcome, PutWriter, Stats,
 };
 pub use key::{group_id, Key};
 pub use prefix::{CacheStatus, CacheTracker, ConductorStableKey, StableCacheKey};

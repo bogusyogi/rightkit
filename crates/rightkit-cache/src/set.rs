@@ -67,7 +67,7 @@ impl CacheSet {
                 "namespace already present in this set",
             ));
         }
-        if self.members.iter().any(|(_, c)| c.root() == cache.root()) {
+        if self.members.iter().any(|(_, c)| c.location() == cache.location()) {
             return Err(io::Error::new(
                 io::ErrorKind::AlreadyExists,
                 "directory already belongs to this set",

@@ -35,7 +35,7 @@ use std::fs::{self, File, OpenOptions};
 use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Arc, Mutex, MutexGuard};
+use std::sync::{Arc, Mutex, MutexGuard, RwLock};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 /// Length of `<hash>-<group>` before any extension: 64 hex + `-` + 16 hex.
@@ -127,6 +127,19 @@ pub struct Cleared {
     pub entries: usize,
     /// Bytes of the removed entries.
     pub bytes: u64,
+}
+
+/// What [`DiskCache::move_to`] did.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct MoveReport {
+    /// Entries renamed (or copied then removed) into the new root.
+    pub moved: usize,
+    /// Entries whose destination file already existed: the destination was kept and the source
+    /// removed.
+    pub redundant: usize,
+    /// One message per entry that could not be moved (`<base name>: <error>`). Those entries are
+    /// no longer indexed; a file that still exists is left in the old root.
+    pub failed: Vec<String>,
 }
 
 /// Files under the cache root that the cache did not write (see [`DiskCache::foreign_files`]).
@@ -451,7 +464,12 @@ impl State {
 }
 
 struct Inner {
+    /// The root the handle was opened with (what [`DiskCache::root`] returns).
     root: PathBuf,
+    /// Where the cache lives now; changed only by [`DiskCache::move_to`].
+    live_root: RwLock<PathBuf>,
+    /// The byte cap; changed by [`DiskCache::set_budget`].
+    budget: AtomicU64,
     cfg: Config,
     /// `false` for [`DiskCache::open_read_only`]: no filesystem mutation of any kind.
     writable: bool,
@@ -504,6 +522,15 @@ fn system_time(nanos: u128) -> SystemTime {
     UNIX_EPOCH
         .checked_add(Duration::new(secs, sub))
         .unwrap_or(UNIX_EPOCH)
+}
+
+/// `<root>/<hh>/<name>[.<ext>]`.
+fn entry_path(root: &Path, name: &str, ext: Option<&str>) -> PathBuf {
+    let file = match ext {
+        Some(ext) => format!("{name}.{ext}"),
+        None => name.to_owned(),
+    };
+    root.join(&name[..2]).join(file)
 }
 
 fn read_only_error() -> io::Error {
@@ -754,6 +781,8 @@ impl DiskCache {
 
         let cache = Self {
             inner: Arc::new(Inner {
+                live_root: RwLock::new(root.clone()),
+                budget: AtomicU64::new(cfg.max_bytes),
                 root,
                 cfg,
                 writable,
@@ -778,11 +807,7 @@ impl DiskCache {
     }
 
     fn path_for(&self, name: &str, ext: Option<&str>) -> PathBuf {
-        let file = match ext {
-            Some(ext) => format!("{name}.{ext}"),
-            None => name.to_owned(),
-        };
-        self.inner.root.join(&name[..2]).join(file)
+        entry_path(&self.base(), name, ext)
     }
 
     /// Record `base` in the index, replacing any previous slot entry for the same key.
@@ -807,12 +832,36 @@ impl DiskCache {
         st.bytes += len;
     }
 
+    /// The root this handle was opened with. After [`DiskCache::move_to`] this is still the
+    /// original root; use [`DiskCache::location`] for the current one.
     pub fn root(&self) -> &Path {
         &self.inner.root
     }
 
+    /// The directory the cache lives in now: the opening root until [`DiskCache::move_to`]
+    /// relocates it.
+    pub fn location(&self) -> PathBuf {
+        self.base()
+    }
+
+    /// The configuration, with `max_bytes` as last set by [`DiskCache::set_budget`].
     pub fn config(&self) -> Config {
-        self.inner.cfg
+        Config {
+            max_bytes: self.max_bytes(),
+            ..self.inner.cfg
+        }
+    }
+
+    fn base(&self) -> PathBuf {
+        self.inner
+            .live_root
+            .read()
+            .unwrap_or_else(|p| p.into_inner())
+            .clone()
+    }
+
+    fn max_bytes(&self) -> u64 {
+        self.inner.budget.load(Ordering::Relaxed)
     }
 
     /// `true` unless the handle came from [`DiskCache::open_read_only`].
@@ -956,7 +1005,7 @@ impl DiskCache {
 
     /// Largest entry the cache accepts: the smaller of `max_bytes` and `max_entry_bytes`.
     fn entry_limit(&self) -> u64 {
-        let cfg = self.inner.cfg;
+        let cfg = self.config();
         cfg.max_entry_bytes
             .map_or(cfg.max_bytes, |m| m.min(cfg.max_bytes))
     }
@@ -968,7 +1017,7 @@ impl DiskCache {
     /// Refuse a write of `len` bytes for `name` when pinned entries other than `name` leave no room.
     /// Checked before any byte is written. A pin added concurrently after this check is not re-checked.
     fn check_capacity(&self, name: &str, len: u64) -> io::Result<()> {
-        let max = self.inner.cfg.max_bytes;
+        let max = self.max_bytes();
         let pinned = {
             let st = self.lock();
             // The entry being replaced does not count against its own write.
@@ -1029,7 +1078,7 @@ impl DiskCache {
             return Err(read_only_error());
         }
         let owner_only = self.inner.cfg.owner_only;
-        let tmp_dir = self.inner.root.join(".tmp");
+        let tmp_dir = self.base().join(".tmp");
         ensure_dir(&tmp_dir, owner_only)?;
         let tmp = tmp_dir.join(unique_tmp_name(None));
         record_owner(&tmp, owner_only);
@@ -1089,7 +1138,7 @@ impl DiskCache {
         if already == pinned {
             return Ok(true);
         }
-        let max = self.inner.cfg.max_bytes;
+        let max = self.max_bytes();
         if pinned {
             let others = pinned_total(&st);
             if others.saturating_add(len) > max {
@@ -1112,7 +1161,11 @@ impl DiskCache {
 
     /// Rewrite `<root>/.pinned` from the index: the pinned base names, or no file when none are pinned.
     fn persist_pins(&self, st: &State) -> io::Result<()> {
-        let path = self.inner.root.join(PIN_FILE);
+        self.persist_pins_at(st, &self.base())
+    }
+
+    fn persist_pins_at(&self, st: &State, root: &Path) -> io::Result<()> {
+        let path = root.join(PIN_FILE);
         let mut names: Vec<&str> = st
             .index
             .iter()
@@ -1147,7 +1200,7 @@ impl DiskCache {
                 "cache file extension must be 1 to 8 ASCII alphanumerics",
             ));
         }
-        let tmp_dir = self.inner.root.join(".tmp");
+        let tmp_dir = self.base().join(".tmp");
         ensure_dir(&tmp_dir, self.inner.cfg.owner_only)?;
         let tmp = tmp_dir.join(unique_tmp_name(Some(ext)));
         record_owner(&tmp, self.inner.cfg.owner_only);
@@ -1188,7 +1241,7 @@ impl DiskCache {
 
     fn write_tmp(&self, bytes: &[u8]) -> io::Result<PathBuf> {
         let owner_only = self.inner.cfg.owner_only;
-        let tmp = self.inner.root.join(".tmp").join(unique_tmp_name(None));
+        let tmp = self.base().join(".tmp").join(unique_tmp_name(None));
         record_owner(&tmp, owner_only);
         let written = create_tmp_file(&tmp, owner_only).and_then(|mut f| f.write_all(bytes));
         if let Err(e) = written {
@@ -1274,7 +1327,7 @@ impl DiskCache {
     /// handles.
     pub fn foreign_files(&self) -> io::Result<ForeignFiles> {
         let mut found = ForeignFiles::default();
-        for (_, len) in foreign_paths(&self.inner.root)? {
+        for (_, len) in foreign_paths(&self.base())? {
             found.count += 1;
             found.bytes += len;
         }
@@ -1289,7 +1342,7 @@ impl DiskCache {
             return Err(read_only_error());
         }
         let mut removed = ForeignFiles::default();
-        for (path, len) in foreign_paths(&self.inner.root)? {
+        for (path, len) in foreign_paths(&self.base())? {
             fs::remove_file(&path)?;
             removed.count += 1;
             removed.bytes += len;
@@ -1312,7 +1365,7 @@ impl DiskCache {
     /// Evict LRU entries until `bytes + reserve <= max_bytes`. Each step takes the front of the
     /// index's eviction order, so the cost is the entries evicted, not the size of the index.
     fn evict_locked(&self, st: &mut State, reserve: u64) {
-        let cap = self.inner.cfg.max_bytes;
+        let cap = self.max_bytes();
         while st.bytes + reserve > cap {
             let Some(name) = st.index.least_recent().map(str::to_owned) else {
                 break;
@@ -1338,11 +1391,160 @@ impl DiskCache {
         Some(freed)
     }
 
+    /// Change the byte cap without reopening, then evict least-recently-used unpinned entries
+    /// until the cache fits. Returns what the shrink evicted (zero when the cap grew).
+    ///
+    /// Pinned entries are never evicted: when pinned bytes alone exceed the new cap the cache
+    /// stays above it, and a later unpinned write fails with [`PinnedCapacityError`] until pins
+    /// are released or the cap grows. The new cap applies to [`Config::max_entry_bytes`] checks
+    /// and [`DiskCache::status`]; it is not persisted, so a reopen uses the `Config` given to
+    /// `open`. A read-only handle fails with `PermissionDenied`.
+    pub fn set_budget(&self, max_bytes: u64) -> io::Result<Cleared> {
+        if !self.inner.writable {
+            return Err(read_only_error());
+        }
+        let mut st = self.lock();
+        self.inner.budget.store(max_bytes, Ordering::Relaxed);
+        let (evictions, bytes) = (st.evictions, st.bytes);
+        self.evict_locked(&mut st, 0);
+        Ok(Cleared {
+            entries: usize::try_from(st.evictions - evictions).unwrap_or(usize::MAX),
+            bytes: bytes.saturating_sub(st.bytes),
+        })
+    }
+
+    /// Relocate every entry to the root `to`, keeping keys, contents, recency (mtime), pins and
+    /// the index, so the handle keeps working with no reopen and no rescan.
+    ///
+    /// Each entry is renamed, falling back to copy then remove when a rename is not possible
+    /// (another volume); an entry never exists half-written at the destination. A destination
+    /// file that already exists is kept and the source dropped (counted as `redundant`). The
+    /// pin list is written to `to` before any entry moves, and the old root's pin list, empty
+    /// shard directories and empty `.tmp` are removed afterwards (best effort); the old root
+    /// directory itself and any foreign files in it are left alone. Per-entry failures are
+    /// reported in [`MoveReport::failed`], those entries leave the cache, and the move carries on.
+    ///
+    /// Errors, with nothing moved: a read-only handle, `to` equal to the current root (that is an
+    /// `Ok` no-op), or nested inside it or containing it (`InvalidInput`), or a `to` that cannot
+    /// be created. The whole move holds the cache's lock; writes in flight when it starts (a
+    /// [`PutWriter`] or reservation holding a temp file in the old root) can fail to commit, so
+    /// move while idle. Hosts that move the cache between volumes get a copy of each entry, not
+    /// one atomic switch.
+    pub fn move_to(&self, to: impl AsRef<Path>) -> io::Result<MoveReport> {
+        if !self.inner.writable {
+            return Err(read_only_error());
+        }
+        let owner_only = self.inner.cfg.owner_only;
+        let to = to.as_ref().to_path_buf();
+        let mut st = self.lock();
+        let mut live = self
+            .inner
+            .live_root
+            .write()
+            .unwrap_or_else(|p| p.into_inner());
+        let from = live.clone();
+        let abs = |p: &Path| std::path::absolute(p).unwrap_or_else(|_| p.to_path_buf());
+        let (abs_to, abs_from) = (abs(&to), abs(&from));
+        if abs_to != abs_from && (abs_to.starts_with(&abs_from) || abs_from.starts_with(&abs_to)) {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "the new cache root must not be inside the current root or contain it",
+            ));
+        }
+        ensure_dir(&to, owner_only)?;
+        if fs::canonicalize(&to)? == fs::canonicalize(&from)? {
+            return Ok(MoveReport::default());
+        }
+        ensure_dir(&to.join(".tmp"), owner_only)?;
+        // Pins first: if this fails nothing has moved.
+        self.persist_pins_at(&st, &to)?;
+
+        let entries: Vec<(String, Option<String>)> = st
+            .index
+            .iter()
+            .map(|(name, meta)| (name.clone(), meta.ext.clone()))
+            .collect();
+        let mut report = MoveReport::default();
+        let mut dropped = Vec::new();
+        for (name, ext) in entries {
+            let src = entry_path(&from, &name, ext.as_deref());
+            let dst = entry_path(&to, &name, ext.as_deref());
+            match move_file(&src, &dst, &to, owner_only) {
+                Ok(false) => report.moved += 1,
+                Ok(true) => report.redundant += 1,
+                Err(e) => {
+                    report.failed.push(format!("{name}: {e}"));
+                    dropped.push(name);
+                }
+            }
+        }
+        for name in &dropped {
+            if let Some(meta) = st.index.remove(name) {
+                st.bytes = st.bytes.saturating_sub(meta.len);
+            }
+        }
+        *live = to.clone();
+        if !dropped.is_empty() {
+            let _ = self.persist_pins_at(&st, &to);
+        }
+        // Tidy the old root: only what the cache itself created.
+        let _ = fs::remove_file(from.join(PIN_FILE));
+        let _ = fs::remove_dir(from.join(".tmp"));
+        if let Ok(shards) = fs::read_dir(&from) {
+            for shard in shards.flatten() {
+                if shard.file_name().len() == 2 {
+                    let _ = fs::remove_dir(shard.path());
+                }
+            }
+        }
+        Ok(report)
+    }
+
     /// Snapshot of `(last use, base name)` for every unpinned entry, least recently used first.
     pub(crate) fn recency_snapshot(&self) -> Vec<(u128, String)> {
         let st = self.lock();
         st.index.recency_order().cloned().collect()
     }
+}
+
+/// Move one entry file. `Ok(true)` when the destination already existed (the source is removed
+/// and the destination kept), `Ok(false)` when the file was moved.
+fn move_file(src: &Path, dst: &Path, to: &Path, owner_only: bool) -> io::Result<bool> {
+    if dst.exists() {
+        return match fs::remove_file(src) {
+            Err(e) if e.kind() != io::ErrorKind::NotFound => Err(e),
+            _ => Ok(true),
+        };
+    }
+    ensure_dir(dst.parent().expect("sharded path"), owner_only)?;
+    if fs::rename(src, dst).is_ok() {
+        return Ok(false);
+    }
+    // Rename failed (another volume, or a missing source): copy beside the destination under a
+    // temp name, then rename into place so the destination is never half written.
+    let tmp = to.join(".tmp").join(unique_tmp_name(None));
+    let modified = fs::metadata(src).and_then(|m| m.modified()).ok();
+    let copied = fs::copy(src, &tmp)
+        .map(|_| ())
+        .and_then(|()| {
+            if owner_only {
+                rightkit_fs::private::restrict_owner_only(&tmp).map_err(io_other)?;
+            }
+            if let Some(modified) = modified {
+                OpenOptions::new()
+                    .write(true)
+                    .open(&tmp)
+                    .and_then(|f| f.set_modified(modified))?;
+            }
+            fs::rename(&tmp, dst)
+        });
+    if let Err(e) = copied {
+        let _ = fs::remove_file(&tmp);
+        return Err(e);
+    }
+    // The entry is in place; a source that cannot be removed is only a leftover in the old root.
+    let _ = fs::remove_file(src);
+    Ok(false)
 }
 
 /// Streaming writer for one cache entry, from [`DiskCache::put_writer`]. See that method.

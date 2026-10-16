@@ -32,6 +32,27 @@ export function mergeCatalog<C extends Catalog>(base: C, override: unknown): C {
   return merge(base, override) as C;
 }
 
+export interface TranslateOptions {
+  /** Returned when no loaded catalog has a string for the key. Default: the key itself. */
+  fallback?: string;
+}
+
+const hasOwn = (value: object, key: string) => Object.prototype.hasOwnProperty.call(value, key);
+
+function lookupString(catalog: unknown, key: string): string | undefined {
+  if (!isRecord(catalog)) return undefined;
+  if (hasOwn(catalog, key)) {
+    const direct = catalog[key];
+    return typeof direct === "string" ? direct : undefined;
+  }
+  let node: unknown = catalog;
+  for (const part of key.split(".")) {
+    if (!isRecord(node) || !hasOwn(node, part)) return undefined;
+    node = node[part];
+  }
+  return typeof node === "string" ? node : undefined;
+}
+
 export function createI18n<C extends Catalog>(english: C, options: I18nOptions<C> = {}) {
   const defaultLocale = options.defaultLocale ?? "en";
   const loaders = options.loaders ?? {};
@@ -82,5 +103,19 @@ export function createI18n<C extends Catalog>(english: C, options: I18nOptions<C
   }
 
   function useI18n(): I18nValue<C> { return useContext(Context); }
-  return { Provider, I18nProvider: Provider, useI18n, loadLocale: load, mergeCatalog: (override: unknown) => mergeCatalog(english, override), defaultLocale };
+
+  /**
+   * Synchronous lookup for code outside React (command handlers, plain modules). Reads only the
+   * catalogs already loaded (the default locale, plus every locale passed to `loadLocale` or set
+   * through the provider); it never loads. `key` is an exact top-level key (a source string may
+   * contain dots) or else a dotted path into the catalog. Resolution: the locale's catalog, then
+   * the default-locale catalog, then `options.fallback`, then `key` itself, so a source string
+   * used as the key reads as itself when nothing translates it. Values that are not strings
+   * count as missing. An unloaded locale resolves like the default locale.
+   */
+  const t = (locale: Locale, key: string, options: TranslateOptions = {}): string =>
+    lookupString(catalogs.get(locale), key) ?? lookupString(english, key) ?? options.fallback ?? key;
+  const isLoaded = (locale: Locale): boolean => catalogs.has(locale);
+
+  return { Provider, I18nProvider: Provider, useI18n, loadLocale: load, mergeCatalog: (override: unknown) => mergeCatalog(english, override), defaultLocale, t, isLoaded };
 }
