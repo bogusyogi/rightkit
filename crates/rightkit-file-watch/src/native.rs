@@ -16,9 +16,12 @@
 //!
 //! # Windows
 //!
-//! The Windows arm belongs to another lane. Until it lands, `src/native/windows.rs` is a stub
-//! that returns [`WatchError::Backend`] for [`WatchBackend::Native`], and [`WatchBackend::Auto`]
-//! falls back to notify on Windows (flip [`AUTO_IS_NATIVE_ON_WINDOWS`] when the lane lands).
+//! `src/native/windows.rs` holds a native `ReadDirectoryChangesW` reader (`DirWatcher`) that,
+//! unlike notify's Windows backend, reports a buffer overflow. `DirWatchSet` (`watch_batches`,
+//! `watch_records`) uses it on Windows and falls back to notify if it cannot open the folder.
+//! The typed `watch_with` path is not wired to it yet: there `src/native/windows.rs` still
+//! returns [`WatchError::Backend`] for [`WatchBackend::Native`], and [`WatchBackend::Auto`]
+//! falls back to notify on Windows (flip [`AUTO_IS_NATIVE_ON_WINDOWS`] when that lands).
 
 use std::fmt;
 use std::num::NonZeroUsize;
@@ -41,7 +44,7 @@ mod macos;
 use macos as platform;
 
 #[cfg(windows)]
-mod windows;
+pub(crate) mod windows;
 #[cfg(windows)]
 use windows as platform;
 

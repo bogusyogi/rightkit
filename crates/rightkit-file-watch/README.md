@@ -60,7 +60,9 @@ rescan or error, so the caller knows to rescan. `watch_batches_when_present` /
 was created before the arm. The quiet window and maximum hold are `WatchOptions::quiet` and
 `max_wait`; a constant stream flushes at first event + `max_wait`.
 On Windows, notify (ReadDirectoryChangesW, fixed 16 KiB buffer) does not report buffer
-overflow, so `lost` cannot fire for it there; see CHANGELOG.
+overflow, so directory watches use a native overlapped ReadDirectoryChangesW reader
+(64 KiB buffer) that does, and `lost` fires there; if it cannot open the folder the watch
+falls back to notify, where `lost` cannot fire. See CHANGELOG.
 
 Legacy `new`, `with_recursive` & `default` keep coalescing on, strict arming,
 all mutation kinds, `max_wait = Some(quiet * 10)`, flushing on disconnect & no

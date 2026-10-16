@@ -287,7 +287,7 @@ impl Drop for FileSetWatcher {
 
 struct DirWatch {
     /// None while a retrying watch waits for its folder: the worker thread owns the watcher.
-    watcher: Option<RecommendedWatcher>,
+    watcher: Option<BackendGuard>,
     thread: thread::JoinHandle<()>,
     stop: Arc<AtomicBool>,
     /// True for a watch created by `*_when_present`; it is never pruned as a dead folder.
@@ -376,8 +376,12 @@ impl Default for RetryPolicy {
     }
 }
 
+/// Keeps a directory watch armed while alive: a notify watcher, or on Windows the native
+/// `ReadDirectoryChangesW` reader. Dropping it disarms the watch.
+type BackendGuard = Box<dyn Send>;
+
 type ArmedDirectory = (
-    RecommendedWatcher,
+    BackendGuard,
     mpsc::Receiver<notify::Result<Event>>,
     crate::options::Delivery<fn(&Path) -> bool>,
 );
@@ -392,6 +396,24 @@ fn arm_directory(
     options: &WatchOptions,
 ) -> notify::Result<ArmedDirectory> {
     let (tx, rx) = mpsc::channel();
+    // Windows: the native reader reports buffer overflow, which notify's backend never does.
+    // If it cannot open the directory, fall through to notify below.
+    #[cfg(windows)]
+    match crate::native::windows::DirWatcher::start(key, recursive, tx.clone()) {
+        Ok(native) => {
+            drop(tx);
+            let delivery = crate::options::Delivery::directory(
+                key.to_path_buf(),
+                recursive,
+                options.clone(),
+                allow_all as fn(&Path) -> bool,
+            )?;
+            return Ok((Box::new(native), rx, delivery));
+        }
+        Err(error) => {
+            tracing::debug!(%error, path = %key.display(), "native directory watch unavailable; using notify");
+        }
+    }
     let backend_tx = tx.clone();
     let mut watcher = notify::recommended_watcher(move |res: notify::Result<Event>| {
         let _ = backend_tx.send(res);
@@ -419,7 +441,7 @@ fn arm_directory(
         options.clone(),
         allow_all as fn(&Path) -> bool,
     )?;
-    Ok((watcher, rx, delivery))
+    Ok((Box::new(watcher), rx, delivery))
 }
 
 /// Sleep up to `total`, waking early when `stop` is set. Returns true if stopped.
