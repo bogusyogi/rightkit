@@ -38,7 +38,7 @@ failures as `HelperEvent`s.
 ## Modules
 
 - `backend`: the `Backend` seam, `BackendPlan`, `StartInfo`, `HelperEvent`, `Failure`, `Permission`, `Codec`.
-- `recorder`: the public take lifecycle over a `Backend`. A take ends `complete`, `quarantined` or `invalid`; `complete` needs a clean stop and an accepted readiness marker.
+- `recorder`: the public take lifecycle over a `Backend`. A take ends `complete`, `quarantined` or `invalid`; `complete` needs a clean stop and an accepted readiness marker. `record_stop_with(StopReason::Killed)` (a kill hotkey) never seals `complete`: the bundle is `partial_quarantined` with reason `killed`. `Recorder::host_ns()` reads the clock frames and events carry as `hostNs` (`None` when the backend cannot), so a host stamps its own events on the frames' timeline.
 - `plan`, `redact`, `verify`, `reader`: the request, per-field redaction, bundle verification, and the bundle reader (step and target to frame, scenario, events, clock map, cursor assets).
 - `protocol`: the helper wire protocol. Length-prefixed JSON frames (`rightkit-sidecar`) with `request`, `response`, `event` and `bye` kinds.
 - `process`: `ProcessBackend`, the core's `Backend` over a helper's stdio, and `serve_backend`, which lets a helper serve any `Backend`.

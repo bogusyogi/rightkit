@@ -16,6 +16,8 @@
 //! | `commit`  | (feature `edit`) lock, recheck and rightkit-fs replace of a token |
 //! | `merge`   | (feature `merge`) merge PDFs, select/reorder pages                |
 //! | `extract` | (feature `extract`) text extraction, whole-document and per page  |
+//! | `scan`    | scanned-page detection (no text layer, page-sized image)          |
+//! | `raster`  | (feature `raster`) render scanned pages to gray/RGBA/PNG for OCR  |
 
 #[cfg(feature = "edit")]
 pub mod commit;
@@ -29,7 +31,10 @@ pub mod inspect;
 #[cfg(feature = "merge")]
 pub mod merge;
 pub mod model;
+#[cfg(feature = "raster")]
+pub mod raster;
 #[cfg(feature = "edit")]
 pub mod save;
+pub mod scan;
 #[cfg(test)]
 mod test_fixtures;

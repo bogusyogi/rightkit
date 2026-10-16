@@ -44,6 +44,20 @@ pub const HELPER_BINARY: &str = "rightkit-record-macos-helper";
 /// Environment variable naming the helper binary.
 pub const HELPER_ENV: &str = "RIGHTKIT_RECORD_MACOS_HELPER";
 
+extern "C" {
+    /// libSystem, no extra crate.
+    fn clock_gettime_nsec_np(clock_id: u32) -> u64;
+}
+
+/// `CLOCK_UPTIME_RAW` in `<time.h>`.
+const CLOCK_UPTIME_RAW: u32 = 8;
+
+/// Nanoseconds on the clock the helper stamps `hostNs` with.
+fn uptime_ns() -> u64 {
+    // SAFETY: a plain libSystem call with an integer argument and no pointers.
+    unsafe { clock_gettime_nsec_np(CLOCK_UPTIME_RAW) }
+}
+
 /// How long a helper gets to exit after its final response before it is terminated.
 const EXIT_GRACE: Duration = Duration::from_secs(5);
 /// Stderr kept for diagnostics.
@@ -169,6 +183,12 @@ impl Backend for MacBackend {
 
     fn start(&mut self, plan: &BackendPlan) -> Result<StartInfo> {
         self.inner.start(plan)
+    }
+
+    /// The helper stamps frames with `clock_gettime_nsec_np(CLOCK_UPTIME_RAW)` (`System.swift`
+    /// `uptimeNs`); the helper runs on this host, so the same call here is on its clock.
+    fn host_ns(&self) -> Option<u64> {
+        Some(uptime_ns())
     }
 
     fn poll(&mut self) -> Vec<HelperEvent> {

@@ -37,6 +37,9 @@ pub struct FakeBackend {
     pub stops: u32,
     pub aborts: u32,
     pub last_plan: Option<BackendPlan>,
+    /// What `host_ns` reports. `None` (the default) reports no host clock, like a backend whose
+    /// clock lives in another process.
+    pub host_now_ns: Option<u64>,
 }
 
 impl FakeBackend {
@@ -66,6 +69,7 @@ impl FakeBackend {
             stops: 0,
             aborts: 0,
             last_plan: None,
+            host_now_ns: None,
         }
     }
 
@@ -155,6 +159,10 @@ impl Backend for FakeBackend {
 
     fn border(&self) -> Option<CaptureBorder> {
         self.border.clone()
+    }
+
+    fn host_ns(&self) -> Option<u64> {
+        self.host_now_ns
     }
 
     fn poll(&mut self) -> Vec<HelperEvent> {

@@ -64,7 +64,7 @@ pub use media::{probe_mp4, MediaProbe, RecoveredMedia};
 pub use plan::{PixelMasking, ScenarioSpec, ScenarioStep, StartRequest, TargetSpec};
 pub use process::{serve_backend, ProcessBackend};
 pub use reader::{BundleReader, ClockMap, CursorAsset, CursorAssetsStatus, SourceFrame, StepSpan};
-pub use recorder::{Doctor, Outcome, Recorder, StateSupport, Status};
+pub use recorder::{Doctor, Outcome, Recorder, StateSupport, Status, StopReason};
 pub use redact::{
     FieldMode, FixedKeySource, HashKey, KeyHandle, KeySource, RedactionPolicy, SecretsKeySource,
 };

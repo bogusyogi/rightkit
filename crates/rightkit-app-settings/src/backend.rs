@@ -4,7 +4,7 @@ use crate::atomic::{atomic_write_mode, WriteMode};
 use crate::options::{
     FileFormat, KeyOrder, OnCorrupt, QuarantineName, ReplaceMode, SharingRetry, StoreOptions,
 };
-use crate::store::{Error, PreserveStep};
+use crate::store::{Error, PreserveStep, Refusal};
 use serde::de::{MapAccess, SeqAccess, Visitor};
 use serde::ser::{SerializeMap, SerializeSeq};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
@@ -98,6 +98,13 @@ pub trait SettingsBackend: Send + Sync {
     /// backend that does not keep key order, so existing implementations need no change.
     fn patch_ordered(&self, edit: &mut OrderedEdit<'_>) -> Result<Option<u64>, Error> {
         self.patch(&mut |current| edit(current).map(|(decision, _)| decision))
+    }
+
+    /// Whether the stored document is over a size limit this backend enforces, without reading it.
+    /// [`crate::Store`] asks before `load` so an oversized document can be refused read-only (see
+    /// [`crate::StoreOptions::on_refused`]). The default: no limit.
+    fn size_refusal(&self) -> Result<Option<Refusal>, Error> {
+        Ok(None)
     }
 
     /// The committed revision, or 0 when nothing is stored.
@@ -387,6 +394,19 @@ impl FileBackend {
 }
 
 impl SettingsBackend for FileBackend {
+    fn size_refusal(&self) -> Result<Option<Refusal>, Error> {
+        let Some(limit) = self.max_bytes else {
+            return Ok(None);
+        };
+        match fs::metadata(&self.path) {
+            Ok(meta) if meta.len() > limit => Ok(Some(Refusal::Oversized {
+                len: meta.len(),
+                limit,
+            })),
+            _ => Ok(None),
+        }
+    }
+
     fn load(&self) -> Result<Option<Stored>, Error> {
         self.check_size()?;
         match read_file(&self.path, self.format)? {

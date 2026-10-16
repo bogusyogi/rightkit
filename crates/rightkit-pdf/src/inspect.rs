@@ -596,7 +596,7 @@ pub(crate) fn content_stream_ids(
 
 /// The page's ordered content-stream ids. Nothing is decoded here; each id may repeat, and each
 /// occurrence is decoded (and charged) separately.
-fn page_content_stream_ids(
+pub(crate) fn page_content_stream_ids(
     doc: &Document,
     page_id: ObjectId,
 ) -> Result<Vec<ObjectId>, PdfEditError> {
@@ -630,7 +630,7 @@ const MAX_INHERIT_DEPTH: usize = 64;
 /// Looks `key` up on `dict`, then up its `/Parent` chain. Bounded two ways: a visited set stops a
 /// cycle (a page whose `/Parent` is itself, two nodes pointing at each other) and
 /// [`MAX_INHERIT_DEPTH`] stops a very long acyclic chain. Either way the answer is `None`.
-fn resolve_inherited<'a>(
+pub(crate) fn resolve_inherited<'a>(
     doc: &'a Document,
     mut dict: &'a Dictionary,
     key: &[u8],
@@ -654,14 +654,14 @@ fn resolve_inherited<'a>(
     None
 }
 
-fn deref_obj<'a>(doc: &'a Document, obj: &'a Object) -> Option<&'a Object> {
+pub(crate) fn deref_obj<'a>(doc: &'a Document, obj: &'a Object) -> Option<&'a Object> {
     match obj {
         Object::Reference(id) => doc.get_object(*id).ok(),
         other => Some(other),
     }
 }
 
-fn object_number(obj: &Object) -> Option<f64> {
+pub(crate) fn object_number(obj: &Object) -> Option<f64> {
     match obj {
         Object::Integer(i) => Some(*i as f64),
         Object::Real(r) => Some(*r as f64),
@@ -669,7 +669,7 @@ fn object_number(obj: &Object) -> Option<f64> {
     }
 }
 
-fn resolve_rect(doc: &Document, page_dict: &Dictionary, key: &[u8]) -> Option<[f64; 4]> {
+pub(crate) fn resolve_rect(doc: &Document, page_dict: &Dictionary, key: &[u8]) -> Option<[f64; 4]> {
     let obj = resolve_inherited(doc, page_dict, key)?;
     let obj = deref_obj(doc, obj)?;
     let arr = obj.as_array().ok()?;
@@ -680,7 +680,7 @@ fn resolve_rect(doc: &Document, page_dict: &Dictionary, key: &[u8]) -> Option<[f
     Some([nums[0], nums[1], nums[2], nums[3]])
 }
 
-fn resolve_rotation(doc: &Document, page_dict: &Dictionary) -> i32 {
+pub(crate) fn resolve_rotation(doc: &Document, page_dict: &Dictionary) -> i32 {
     resolve_inherited(doc, page_dict, b"Rotate")
         .and_then(|o| deref_obj(doc, o))
         .and_then(|o| o.as_i64().ok())

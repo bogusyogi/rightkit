@@ -11,7 +11,7 @@ Behavior:
 - **Cross-process transactions**: writes take an advisory lock on `settings.json.lock`, reload the committed value, apply the edit, and save. Concurrent updates to different keys from other stores or processes are not lost. `update_at` / `revision` give compare-and-swap.
 - **Corruption recovery**: a main file that is present but does not parse is quarantined as `settings.json.corrupt-<unix>`, then `.bak` is tried, then defaults. If the damaged file cannot be moved aside, the operation fails with `Error::PreserveFailed` and the damaged file is left exactly where it is: nothing is written over a damaged file that could not be preserved. Single invalid fields are dropped back to their defaults rather than resetting all. A file that exists but cannot be read (permission denied, I/O error) is an `Error::Io`: nothing is quarantined or overwritten.
 - **Cached reads**: `get()` compares the backend's stamp (for files: inode, mtime, ctime, length) with the one the cache was read under, and re-parses only when it changed.
-- **Newer file** (downgrade): opening fails with `Error::NewerSchema`; nothing is overwritten.
+- **Newer file** (downgrade): opening fails with `Error::NewerSchema`; nothing is overwritten. `on_refused(OnRefused::ReadOnlyDefaults)` opens on the defaults instead, with every write refused and the file left untouched (see "Refused files" below).
 - **Change events**: `subscribe` callbacks receive the changed top-level keys after a successful save. Failed saves leave the in-memory value unchanged. The one exception is `Error::Replaced`: the new file is already in place, so do not retry the write; `get()` reads it and no event fires for that write.
 - **Secrets by reference only**: `SecretRef` (service + account) may live in settings; `SecretProbe` reports presence. Values are never stored here.
 
@@ -73,6 +73,25 @@ let preview = store.patch_dry_run(&serde_json::json!({ "theme": "dark" }), None)
 ```
 
 `patch` rejects undeclared keys unless `allow_unknown_keys` accepts them. An allow-list (`Some(&[...])`) refuses undeclared keys.
+
+### Refused files: newer version, oversized, unknown keys
+
+A file this build must not touch is one whose schema version is newer than the code's, or that is longer than `max_bytes`. By default `open` fails (`Error::NewerSchema`, `Error::Invalid`). For an app that wants to run on defaults and leave the user's file alone:
+
+```rust,ignore
+let opts = StoreOptions::new(Schema::new("my-app", 2))
+    .max_bytes(64 * 1024)
+    .on_refused(OnRefused::ReadOnlyDefaults);
+let store = Store::<Settings>::open_path(&path, opts)?;
+if !store.writable() {
+    // store.get() is the defaults; store.refusal() says why (Refusal::NewerSchema / Oversized).
+}
+```
+
+- **`OnRefused::ReadOnlyDefaults`** applies to a newer version and to a `max_bytes` refusal. `open` succeeds, `get()` returns the defaults (the provider's, else the type's), and `update`, `patch` and `remove_keys` return the error `Fail` would have opened with. The file is not read into the value, moved, quarantined, copied over `.bak`, rewritten, or even locked (no `.lock` sidecar is created). `Store::writable()` is `false` and `Store::refusal()` names the reason. Both look at the file each time, so a store recovers when the file is replaced or deleted. `poll_external` reports no change while refused.
+- **Version of a flat file.** A flat file has no envelope, so `flat_version_key("schema_version")` names the top-level value that holds its version; one above `Schema::version` is "newer". Without it a flat file is never newer. The key stays an ordinary value.
+- **A damaged file is separate.** `OnRefused` does not cover one that does not parse: `OnCorrupt::Quarantine` (default) moves it aside, `OnCorrupt::Refuse` returns `Error::Corrupt` and touches nothing. A newer envelope whose `values` is not an object reads as damaged, not newer.
+- **Keys the type does not declare survive a save** in a flat file (always) and in an envelope opened with `allow_unknown_keys` (any key already in the file is kept, whatever the validator says; the validator only gates new keys in a `patch`). With the default `KeyOrder::Preserve` they keep their place. An envelope without `allow_unknown_keys` drops them.
 
 ### Repair, optional fields, remove, and sidecars
 

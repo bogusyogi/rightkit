@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.3.1
+
+Additive. Nothing compiled locally; verification is the CI run. Requests: rightkit#176 (CutRight).
+
+- **New: `StopReason::{Requested, Killed}` and `Recorder::record_stop_with(reason)`.** A kill-hotkey stop used to seal the take like a clean stop, so "killed" existed only in the host's audit log. `Killed` finishes the media as usual but seals the bundle `partial_quarantined` with manifest reason `killed` (`invalid`, reason `killed: no_accepted_frames`, when no frame was accepted); it is never `complete`. `record_stop()` is `record_stop_with(StopReason::Requested)`, unchanged. A take that already ended keeps its outcome whatever reason a later stop passes. `StopReason` is `non_exhaustive`.
+- **New: `Recorder::host_ns() -> Option<u64>` and `Backend::host_ns()`** (default `None`, so existing backends compile). The current time on the clock frames and events carry as `hostNs`, so a host can stamp the events it appends on the frames' timeline instead of on time since the take began. `WindowsBackend`: QPC in nanoseconds (the clock of `host_ns_at_start`). `MacBackend`: `clock_gettime_nsec_np(CLOCK_UPTIME_RAW)`, the helper's `uptimeNs`. `ProcessBackend` alone reports `None` (its clock is in another process). `FakeBackend::host_now_ns` sets it for tests.
+- Tests: `tests/killed_and_host_clock.rs`.
+
 ## 0.3.0
 
 First published release. `publish = true`; no behavior change from 0.2.0 beyond packaging.

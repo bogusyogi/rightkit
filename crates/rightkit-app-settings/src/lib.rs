@@ -12,11 +12,11 @@ pub use backend::{Edit, FileBackend, KeyLayout, SettingsBackend, Stored};
 pub use document::{Document, DocumentState};
 pub use options::{
     DefaultsProvider, FileFormat, FlatMigration, KeyOrder, KeyValidator, NullMeans, OnCorrupt,
-    QuarantineName, ReadOptions, ReplaceMode, SharingRetry, StoreOptions, Validator,
+    OnRefused, QuarantineName, ReadOptions, ReplaceMode, SharingRetry, StoreOptions, Validator,
 };
 pub use rightkit_fs::PublicationDurability;
 pub use secret::{Presence, SecretProbe, SecretRef};
 pub use store::{
     read_with_defaults, read_with_options, Change, Error, Migration, PatchPreview, PreserveStep,
-    Schema, Store, Subscription,
+    Refusal, Schema, Store, Subscription,
 };

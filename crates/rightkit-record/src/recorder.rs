@@ -49,6 +49,16 @@ const ALL_STATES: [VisibilityState; 5] = [
     VisibilityState::Minimized,
 ];
 
+/// Why the host is stopping a take. See [`Recorder::record_stop_with`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum StopReason {
+    /// The person or the host's script ended the take. It can seal `complete`.
+    Requested,
+    /// The take was cut short on purpose (kill hotkey). It never seals `complete`.
+    Killed,
+}
+
 /// The terminal result of a take. Idempotent: `record_stop` returns it again.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Outcome {
@@ -416,8 +426,30 @@ impl<B: Backend, C: Clock> Recorder<B, C> {
         self.status()
     }
 
-    /// `record.stop`. Idempotent: after the take ends, returns its outcome.
+    /// The current time on the clock the take's frames and events are stamped with (`hostNs`:
+    /// QPC on Windows, `CLOCK_UPTIME_RAW` on macOS), so a host can stamp the events it appends with
+    /// [`Recorder::append_event`] on the same timeline as the frames instead of on time since the
+    /// take started. `None` when the backend cannot read that clock (see [`Backend::host_ns`]);
+    /// then fall back to `Status`-relative time or the `host_ns` of a frame you have seen. Valid
+    /// at any time; it is not tied to a take.
+    pub fn host_ns(&self) -> Option<u64> {
+        self.backend.host_ns()
+    }
+
+    /// `record.stop`. Idempotent: after the take ends, returns its outcome. Same as
+    /// [`Recorder::record_stop_with`] with [`StopReason::Requested`].
     pub fn record_stop(&mut self) -> Result<Outcome> {
+        self.record_stop_with(StopReason::Requested)
+    }
+
+    /// `record.stop` with the reason the host is stopping. [`StopReason::Killed`] (a kill hotkey,
+    /// a panic stop) finishes the media as usual but never seals the take `complete`: the
+    /// bundle is sealed `partial_quarantined` with reason `killed` (`invalid` with reason
+    /// `killed: no_accepted_frames` when no frame was accepted), so the bundle itself says the
+    /// take was cut short, not only the host's audit log. Idempotent like `record_stop`: a take
+    /// that already ended keeps the outcome it ended with, whatever the reason passed here.
+    pub fn record_stop_with(&mut self, why: StopReason) -> Result<Outcome> {
+        let killed = why == StopReason::Killed;
         let session = self.session.as_ref().ok_or_else(not_recording)?;
         if let Some(outcome) = &session.outcome {
             return Ok(outcome.clone());
@@ -458,9 +490,21 @@ impl<B: Backend, C: Clock> Recorder<B, C> {
                     return self.end_with_failure(Failure::Io("media finished unclean".into()));
                 }
                 if !self.session.as_ref().is_some_and(|s| s.ready) {
+                    let reason = if killed {
+                        "killed: no_accepted_frames"
+                    } else {
+                        "no_accepted_frames"
+                    };
                     return self.finish(
                         BundleStatus::Invalid,
-                        Some("no_accepted_frames".into()),
+                        Some(reason.into()),
+                        finished.tracks,
+                    );
+                }
+                if killed {
+                    return self.finish(
+                        BundleStatus::PartialQuarantined,
+                        Some("killed".into()),
                         finished.tracks,
                     );
                 }

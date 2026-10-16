@@ -150,6 +150,10 @@ impl Capture {
 }
 
 impl Backend for WindowsBackend {
+    fn host_ns(&self) -> Option<u64> {
+        Some(qpc_now_ns())
+    }
+
     fn border(&self) -> Option<CaptureBorder> {
         let border = WindowsBackend::border(self)?;
         Some(CaptureBorder {

@@ -17,6 +17,7 @@
 pub mod backends;
 pub mod exposure;
 mod journal;
+mod peer;
 mod spec;
 mod toolbox;
 
@@ -24,6 +25,7 @@ pub use backends::control::{
     control_tools, AppProfile, CommandPolicy, CLIENT_APP, CONTROL_METHODS,
 };
 pub use journal::JsonlJournal;
+pub use peer::CallContextExt;
 pub use spec::*;
 pub use toolbox::{
     DeniedBy, Journal, MemoryJournal, Metrics, ToolAdmission, ToolEvent, ToolRequest, Toolbox,

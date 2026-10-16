@@ -4,7 +4,7 @@ Product-neutral PDF engine for Right Suite apps. It owns PDF inspection, composi
 
 **Use it** to read, edit, merge, or extract text from PDF files in a Right Suite app, when the output must be written atomically.
 
-**Do not use it** to render PDFs to images, to run PDFium-based rendering, or to handle PDFs that need a full layout engine. Extraction (`extract`) uses `pdf-extract`, and its quality depends on the source file.
+**Do not use it** as a general PDF renderer (the one exception is the `raster` feature, which draws the page images of scanned PDFs for OCR and nothing else), to run PDFium-based rendering, or to handle PDFs that need a full layout engine. Extraction (`extract`) uses `pdf-extract`, and its quality depends on the source file.
 
 ## Features
 
@@ -14,8 +14,13 @@ Product-neutral PDF engine for Right Suite apps. It owns PDF inspection, composi
 | `edit` | on | `getrandom`, `rightkit-fs` (its `fs` feature only), implies `fonts` | Compose, staged save and atomic commit (`src/compose.rs`, `src/save.rs`, `src/commit.rs`). |
 | `merge` | on | none (built on `lopdf`, which is always a dependency) | Page merge and selection (`src/merge.rs`). |
 | `extract` | off | `pdf-extract` | Whole-document and per-page text extraction (`src/extract.rs`). |
+| `raster` | off | `image` (`png`, `jpeg` codecs only) | Render scanned pages to gray/RGBA/PNG for OCR (`src/raster.rs`). Detection (`src/scan.rs`) is always compiled. |
 
 Inspection (`src/inspect.rs`, `src/model.rs`) is always compiled. `--no-default-features` gives inspection only.
+
+## Scanned pages and rasterization
+
+`scan::classify_page(bytes, page)` returns a `PageProfile`; `is_scanned()` is true when the page shows no text (an invisible OCR layer counts as text) and an image covers at least half of it. `scan::scanned_pages(bytes)` lists them. With feature `raster` (off by default; `image` with the `png` and `jpeg` codecs), `raster::rasterize_page(bytes, page, &RasterOptions { dpi, max_pixels, format })` returns a `RasterPage` (`Gray8` or `Rgba8`, top row first) and `to_png()` encodes it. The page is refused as `RasterError::TooLarge` before any allocation when it would exceed `max_pixels`. It draws image XObjects only, through the CTM, crop box and `/Rotate`; `RasterPage::limitations` names visible text, vector graphics or inline images it did not draw. Not decoded: CCITT, JBIG2 and JPEG 2000 images, CMYK JPEG, `Separation`/`DeviceN`/`Lab` colour, `/Mask`; these fail as `RasterError::UnsupportedImage` (or are ignored, for `/Mask`).
 
 ## Platform support
 

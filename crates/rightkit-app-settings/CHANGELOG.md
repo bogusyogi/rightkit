@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.2.2
+
+Additive; defaults unchanged. Nothing compiled locally; verification is the CI run. Request: rightkit#191 (Pulse).
+
+- **New: `StoreOptions::on_refused(OnRefused::{Fail, ReadOnlyDefaults})`.** A file whose schema version is newer than the code's, or that is over `max_bytes`, can open as read-only defaults instead of failing. `get` returns the defaults; `update`, `patch` and `remove_keys` fail with the error `Fail` opens with (`Error::NewerSchema`, `Error::Invalid`) before the backend takes its lock, so the file is left byte for byte as it was and no `.lock`, `.bak` or quarantine file appears. Default `Fail` is today's behaviour.
+- **New: `Store::writable()` and `Store::refusal() -> Option<Refusal>`** (`Refusal::{NewerSchema { found, supported }, Oversized { len, limit }}`, `non_exhaustive`), checked against the file on each call, so a store recovers when the file is replaced or deleted. `poll_external` reports no change while a file is oversized under `ReadOnlyDefaults`.
+- **New: `StoreOptions::flat_version_key(key)`.** A flat file has no envelope version; this names the top-level value that holds it, so a newer flat file is refused (open fails, or read-only defaults) and a write to one is never made. Without it nothing changes for flat files.
+- **New: `SettingsBackend::size_refusal()`** (default `Ok(None)`; `FileBackend` implements it from `max_bytes`). Existing backends compile unchanged. `Error::Invalid` for an oversized file now reads "settings file is N bytes, over the L byte limit" (it named the path before) and still contains "byte limit".
+- **Confirmed and documented: keys the type does not declare survive a save.** Flat files always; envelope files with `allow_unknown_keys` (every key already in the file is kept, the validator gates only new keys in a patch), in the file's own order under `KeyOrder::Preserve`. Not changed, only now tested.
+- Not covered by `OnRefused`: a damaged (unparseable) file stays under `OnCorrupt` (`Refuse` touches nothing); a newer envelope whose `values` is not an object reads as damaged.
+- Tests: `tests/refused.rs`. Docs: README "Refused files".
+
 ## 0.2.1
 
 Renamed from rightkit-settings; 0.1.1 remains published under the old name.

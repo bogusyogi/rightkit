@@ -95,6 +95,28 @@ pub enum KeyOrder {
     Sorted,
 }
 
+/// What [`crate::Store`] does when the settings file is one this build must not read or change: its
+/// schema version is newer than the code's, or it is larger than [`StoreOptions::max_bytes`].
+/// Set it with [`StoreOptions::on_refused`].
+///
+/// The file is never moved, quarantined, backed up over or rewritten in either mode; the modes
+/// differ in what the caller gets.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum OnRefused {
+    /// `open` fails: [`crate::Error::NewerSchema`] for a newer version, [`crate::Error::Invalid`]
+    /// for an oversized file. The default (what every earlier version did).
+    #[default]
+    Fail,
+    /// `open` succeeds with read-only defaults. `get` returns the defaults (the provider's, else
+    /// the type's own), `update`, `patch` and `remove_keys` fail with the same errors `Fail`
+    /// opens with and touch nothing (not even the `<path>.lock` sidecar), and
+    /// [`crate::Store::writable`] is `false` while the file stays refused,
+    /// [`crate::Store::refusal`] says why. The file is checked again on every `get` and write:
+    /// once it is replaced by one this build accepts (the user reinstalled the matching version,
+    /// or deleted the file), the store reads and writes it normally.
+    ReadOnlyDefaults,
+}
+
 /// What opening or writing does when the settings file is unreadable as JSON.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum OnCorrupt {
@@ -194,6 +216,8 @@ pub struct StoreOptions {
     pub(crate) flat_migration: Option<FlatMigration>,
     pub(crate) key_order: KeyOrder,
     pub(crate) max_bytes: Option<u64>,
+    pub(crate) on_refused: OnRefused,
+    pub(crate) flat_version_key: Option<String>,
 }
 
 impl StoreOptions {
@@ -221,7 +245,30 @@ impl StoreOptions {
             flat_migration: None,
             key_order: KeyOrder::Preserve,
             max_bytes: None,
+            on_refused: OnRefused::Fail,
+            flat_version_key: None,
         }
+    }
+
+    /// What `open` does with a file that is newer than this build (schema version above
+    /// [`crate::Schema::version`]) or over [`StoreOptions::max_bytes`]. Default
+    /// [`OnRefused::Fail`]. [`OnRefused::ReadOnlyDefaults`] opens with the defaults and a store
+    /// that refuses every write, leaving the file exactly as it is. Does not cover a damaged file:
+    /// that is [`StoreOptions::on_corrupt`] (`OnCorrupt::Refuse` leaves it untouched too).
+    pub fn on_refused(mut self, policy: OnRefused) -> Self {
+        self.on_refused = policy;
+        self
+    }
+
+    /// For [`FileFormat::Flat`], which has no envelope: the top-level key that holds the file's
+    /// schema version as a non-negative integer (for example `"schema_version"`). A value above
+    /// [`crate::Schema::version`] makes the file "newer" (see [`StoreOptions::on_refused`]); a
+    /// missing or non-integer value is not newer. The key stays an ordinary value: it is kept
+    /// and written as any other, and no migration runs for a flat file. No effect on
+    /// [`FileFormat::Envelope`], whose version is `schemaVersion`.
+    pub fn flat_version_key(mut self, key: impl Into<String>) -> Self {
+        self.flat_version_key = Some(key.into());
+        self
     }
 
     /// The order of object keys in the file a write produces. Default [`KeyOrder::Preserve`]:
@@ -300,8 +347,10 @@ impl StoreOptions {
     /// Refuse to read a settings file larger than `limit` bytes. The check is on the file length
     /// before it is read, so an oversized file is never loaded into memory. `open` and writes fail
     /// with [`crate::Error::Invalid`]; the file is left byte for byte as it was (not quarantined,
-    /// not overwritten); `get` keeps returning the last known value. Applies to the main file
-    /// of a `Store` (not to [`crate::read_with_options`]). Default: no limit.
+    /// not overwritten); `get` keeps returning the last known value. With
+    /// [`OnRefused::ReadOnlyDefaults`] `open` succeeds instead, with the defaults and a store that
+    /// refuses writes. Applies to the main file of a `Store` (not to [`crate::read_with_options`]).
+    /// Default: no limit.
     pub fn max_bytes(mut self, limit: u64) -> Self {
         self.max_bytes = Some(limit);
         self

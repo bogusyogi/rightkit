@@ -219,6 +219,13 @@ pub trait Backend {
     fn border(&self) -> Option<CaptureBorder> {
         None
     }
+    /// The current time on the clock this backend stamps frames and events with (`hostNs`: the
+    /// value `StartInfo::host_ns_at_start` and `FrameSample::host_ns` are on). Lets a host stamp
+    /// its own bundle events on the frames' clock. `None` when the backend cannot read it, which
+    /// is the default: a backend whose clock lives in another process reports none.
+    fn host_ns(&self) -> Option<u64> {
+        None
+    }
     /// Drains the helper events received since the last call. Never blocks.
     fn poll(&mut self) -> Vec<HelperEvent>;
     /// Finalizes the media and reports whether the finish was clean.

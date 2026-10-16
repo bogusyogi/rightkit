@@ -1,6 +1,6 @@
 use crate::backend::{read_values_only, Edit, FileBackend, KeyLayout, SettingsBackend, Stored};
 use crate::options::{
-    DefaultsProvider, FileFormat, FlatMigration, KeyValidator, NullMeans, OptionalFill,
+    DefaultsProvider, FileFormat, FlatMigration, KeyValidator, NullMeans, OnRefused, OptionalFill,
     ReadOptions, StoreOptions, Validator,
 };
 use serde::{de::DeserializeOwned, Serialize};
@@ -85,6 +85,43 @@ impl std::fmt::Display for PreserveStep {
             PreserveStep::CorruptCopy => "copied aside",
             PreserveStep::Backup => "backed up",
         })
+    }
+}
+
+/// Why a settings file is refused: this build must neither read nor change it. See
+/// [`StoreOptions::on_refused`] and [`Store::refusal`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum Refusal {
+    /// The file's schema version is newer than the code's (a downgrade).
+    NewerSchema { found: u32, supported: u32 },
+    /// The file is longer than [`StoreOptions::max_bytes`].
+    Oversized { len: u64, limit: u64 },
+}
+
+impl Refusal {
+    /// The error `open` returns under [`OnRefused::Fail`] and a write returns under
+    /// [`OnRefused::ReadOnlyDefaults`].
+    fn to_error(self) -> Error {
+        match self {
+            Refusal::NewerSchema { found, supported } => Error::NewerSchema { found, supported },
+            Refusal::Oversized { len, limit } => Error::Invalid(format!(
+                "settings file is {len} bytes, over the {limit} byte limit"
+            )),
+        }
+    }
+}
+
+/// The schema version a stored document declares. A flat document has none unless
+/// [`StoreOptions::flat_version_key`] names the key that holds it.
+fn declared_version(stored: &Stored, format: FileFormat, flat_key: Option<&str>) -> Option<u32> {
+    match (format, flat_key) {
+        (FileFormat::Flat, Some(key)) => stored
+            .values
+            .get(key)
+            .and_then(Value::as_u64)
+            .map(|v| u32::try_from(v).unwrap_or(u32::MAX)),
+        _ => stored.version,
     }
 }
 
@@ -209,6 +246,9 @@ pub struct Store<T> {
     /// Fill optional fields the file omits from the defaults (see [`resolve`]).
     fill_optional: bool,
     read_only: bool,
+    format: FileFormat,
+    flat_version_key: Option<String>,
+    on_refused: OnRefused,
     /// App-supplied migration for flat files; see [`StoreOptions::flat_migration`].
     flat_migration: Option<FlatMigration>,
     /// The flat document as loaded and as migrated, until the open-time commit has stored it.
@@ -270,12 +310,39 @@ impl<T: Serialize + DeserializeOwned + Default + Clone> Store<T> {
             fill_optional,
             flat_migration,
             quarantine_name,
+            on_refused,
+            flat_version_key,
             ..
         } = options;
         schema.validate()?;
         quarantine_name.validate()?;
         let retain_unknown = format == FileFormat::Flat || open_keys.is_some();
-        let mut snapshot = backend.load()?;
+        // A refused file (newer than this build, or oversized) is never read into the value, moved
+        // or written. Under `ReadOnlyDefaults` the store opens on the defaults instead of failing.
+        let guard = on_refused == OnRefused::ReadOnlyDefaults;
+        let mut refused = false;
+        let mut snapshot = match backend.size_refusal()? {
+            Some(_) if guard => {
+                refused = true;
+                None
+            }
+            Some(r) => return Err(r.to_error()),
+            None => backend.load()?,
+        };
+        let newer = snapshot
+            .as_ref()
+            .and_then(|s| declared_version(s, format, flat_version_key.as_deref()))
+            .filter(|found| *found > schema.version);
+        if let Some(found) = newer {
+            if !guard {
+                return Err(Error::NewerSchema {
+                    found,
+                    supported: schema.version,
+                });
+            }
+            refused = true;
+            snapshot = None;
+        }
         // Flat files have no version, so the app's hook runs here, once, before defaults and
         // repair. Never in read-only mode: that must not diverge from, or write, the file.
         let mut pending = None;
@@ -305,6 +372,9 @@ impl<T: Serialize + DeserializeOwned + Default + Clone> Store<T> {
             persist_defaults,
             fill_optional,
             read_only,
+            format,
+            flat_version_key,
+            on_refused,
             flat_migration,
             pending: Mutex::new(pending),
             inner: Mutex::new(Inner {
@@ -315,11 +385,42 @@ impl<T: Serialize + DeserializeOwned + Default + Clone> Store<T> {
             listeners: Arc::default(),
             next_id: Mutex::new(0),
         };
-        if loaded.dirty && !read_only {
-            // Migration, repair, recovery, or first write of a missing file: commit once.
+        if loaded.dirty && !read_only && !refused {
+            // Migration, repair, recovery, or first write of a missing file: commit once. Never
+            // for a refused file: the defaults it opened on are not written over it.
             store.transact(None, &[], |_, _| Ok(()))?;
         }
         Ok(store)
+    }
+
+    /// Why this build must not read or change the settings file right now, or `None`. Checked
+    /// against the file on every call, so it changes when the file does. With the default
+    /// [`OnRefused::Fail`] a store can only be refused after it was opened, when another process
+    /// replaced the file.
+    pub fn refusal(&self) -> Option<Refusal> {
+        if let Ok(Some(r)) = self.backend.size_refusal() {
+            return Some(r);
+        }
+        match self.backend.load() {
+            Ok(Some(s)) => self.newer(&s).map(|found| Refusal::NewerSchema {
+                found,
+                supported: self.schema.version,
+            }),
+            _ => None,
+        }
+    }
+
+    /// Whether a write could go ahead: the store is not read-only and the file is not refused (see
+    /// [`Store::refusal`]). `false` is what [`OnRefused::ReadOnlyDefaults`] reports for a newer or
+    /// oversized file. A write can still fail for other reasons (I/O, a lock timeout, validation).
+    pub fn writable(&self) -> bool {
+        !self.read_only && self.refusal().is_none()
+    }
+
+    /// The version the stored document declares when it is newer than this build's schema.
+    fn newer(&self, stored: &Stored) -> Option<u32> {
+        declared_version(stored, self.format, self.flat_version_key.as_deref())
+            .filter(|found| *found > self.schema.version)
     }
 
     /// The settings file for file-backed stores; empty for custom backends.
@@ -370,6 +471,9 @@ impl<T: Serialize + DeserializeOwned + Default + Clone> Store<T> {
         if snapshot.version.is_some_and(|v| v != self.schema.version) {
             return None;
         }
+        if self.newer(&snapshot).is_some() {
+            return None;
+        }
         decode::<T>(
             Some(&snapshot),
             &self.schema,
@@ -395,12 +499,21 @@ impl<T: Serialize + DeserializeOwned + Default + Clone> Store<T> {
             if stamp.is_some() && stamp == g.stamp {
                 return Ok(Change { keys: Vec::new() });
             }
+            if self.on_refused == OnRefused::ReadOnlyDefaults
+                && self.backend.size_refusal()?.is_some()
+            {
+                // Refused: the store keeps its value, as for a newer file below.
+                g.stamp = stamp;
+                return Ok(Change { keys: Vec::new() });
+            }
             let snapshot = self.backend.load()?;
             let Some(snapshot) = snapshot else {
                 g.stamp = stamp;
                 return Ok(Change { keys: Vec::new() });
             };
-            if snapshot.needs_rewrite || snapshot.version.is_some_and(|v| v != self.schema.version)
+            if snapshot.needs_rewrite
+                || snapshot.version.is_some_and(|v| v != self.schema.version)
+                || self.newer(&snapshot).is_some()
             {
                 // A document this build must migrate or repair: `get` keeps the last value too.
                 g.stamp = stamp;
@@ -453,10 +566,23 @@ impl<T: Serialize + DeserializeOwned + Default + Clone> Store<T> {
         if self.read_only {
             return Err(Error::Invalid("settings store is read-only".into()));
         }
+        if self.on_refused == OnRefused::ReadOnlyDefaults {
+            // Before the backend takes its lock: a refused file gets no `.lock` sidecar either.
+            if let Some(refusal) = self.refusal() {
+                return Err(refusal.to_error());
+            }
+        }
         let mut g = lock(&self.inner);
         let mut f = Some(f);
         let mut done: Option<(Plan<T, R>, u64)> = None;
         let committed = self.backend.patch_ordered(&mut |cur| {
+            // A flat file declares its version in a value, which `decode` does not look at.
+            if let Some(found) = cur.and_then(|s| self.newer(s)) {
+                return Err(Error::NewerSchema {
+                    found,
+                    supported: self.schema.version,
+                });
+            }
             let migrated = self.migrate_pending(cur)?;
             let cur = migrated.as_ref().or(cur);
             let l = decode::<T>(

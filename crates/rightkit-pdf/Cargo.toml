@@ -30,6 +30,9 @@ edit = ["fonts", "dep:getrandom", "dep:rightkit-fs"]
 merge = []
 # Whole-document and per-page text extraction (ScrapeRight donor; pdf-extract, no PDFium).
 extract = ["dep:pdf-extract"]
+# Page rasterization of scanned (image) pages to gray/RGBA buffers or PNG, for OCR. Draws image
+# XObjects only (no PDFium); JPEG and PNG through `image` with just those two codecs.
+raster = ["dep:image"]
 
 [dependencies]
 lopdf = { version = "0.44.0", default-features = false, features = ["rayon"] }
@@ -42,6 +45,7 @@ serde = { version = "1.0.228", features = ["derive"] }
 sha2 = "0.11.0"
 getrandom = { version = "0.4.3", optional = true }
 pdf-extract = { version = "0.12", optional = true }
+image = { version = "0.25", default-features = false, features = ["png", "jpeg"], optional = true }
 # The one writer behind a commit (temp sibling, flush, rename, directory sync). `fs` is the smallest
 # feature set that has `AtomicWriter`; `json`, `lock` and `digest` are not needed.
 rightkit-fs = { version = "0.4.0", path = "../rightkit-fs", default-features = false, features = ["fs"], optional = true }
