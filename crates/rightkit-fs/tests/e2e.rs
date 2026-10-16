@@ -337,35 +337,20 @@ fn killed_mid_write_leaves_the_old_file_and_a_sweepable_orphan() {
     assert_eq!(std::fs::read(&p).unwrap(), b"old contents");
 }
 
-/// Reads a file that other processes are replacing. On Windows the open can fail for a moment
-/// with access denied (5) or a sharing violation (32) while a replace is in flight; that is a
-/// refused read, not wrong content, so it is tried again, at most `READ_TRIES` times, without
-/// sleeping. Any other error, and the same error on Unix, fails the test. Returns the bytes and
-/// how many refusals came first.
-fn read_during_replaces(path: &Path) -> (Vec<u8>, u32) {
-    const READ_TRIES: u32 = 200;
-    let mut refused = 0;
-    loop {
-        match std::fs::read(path) {
-            Ok(bytes) => return (bytes, refused),
-            Err(error)
-                if cfg!(windows)
-                    && matches!(error.raw_os_error(), Some(5 | 32))
-                    && refused + 1 < READ_TRIES =>
-            {
-                refused += 1;
-                std::thread::yield_now();
-            }
-            Err(error) => panic!("read failed after {refused} refused tries: {error}"),
-        }
-    }
+/// Reads a file that other processes are replacing, through `read_replaced`: on Windows an open
+/// refused for a moment with access denied (5) or a sharing violation (32) is retried (at most 64
+/// opens, a short bounded pause between them), so a refusal is not mistaken for wrong content.
+/// Any other error, and any error on Unix, fails the test.
+fn read_during_replaces(path: &Path) -> Vec<u8> {
+    rightkit_fs::read_replaced(path)
+        .unwrap_or_else(|error| panic!("read_replaced failed: {error}"))
 }
 
 /// The contract is about content: a reader never sees a truncated file or a mix of two writers.
-/// It is not that a Windows reader never gets a refused open while a replace is in flight.
-/// What a green run shows: readers are not broken by the writers on that machine. It does not
-/// show the retry working unless the printed count of refused opens is above zero; the first CI
-/// run on Windows printed zero.
+/// It is not that a Windows reader never gets a refused open while a replace is in flight;
+/// `read_replaced` retries that open, and what this test asserts is that the bytes it returns are
+/// always one complete version. It does not count refusals: a green run does not show that the
+/// retry ran, only that no reader was broken by the writers on that machine.
 #[test]
 fn concurrent_processes_never_expose_a_mixed_file() {
     let (_g, dir) = canonical_tmp();
@@ -381,10 +366,8 @@ fn concurrent_processes_never_expose_a_mixed_file() {
         stop: p.with_extension("stop"),
     };
     let mut reads = 0;
-    let mut refused_reads = 0;
     while writers.any_running() {
-        let (bytes, refused) = read_during_replaces(&p);
-        refused_reads += refused;
+        let bytes = read_during_replaces(&p);
         assert_eq!(bytes.len(), 96 * 1024, "never a truncated or partial file");
         let tag = bytes[1];
         assert!(
@@ -397,7 +380,7 @@ fn concurrent_processes_never_expose_a_mixed_file() {
         }
     }
     assert!(reads > 10);
-    println!("[fs-reader] {reads} reads, {refused_reads} opens refused during a replace");
+    println!("[fs-reader] {reads} reads during replaces, none mixed");
     assert!(writers.all_succeeded());
     assert!(temps_in(&dir).is_empty());
 }

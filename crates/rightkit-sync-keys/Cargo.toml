@@ -16,12 +16,12 @@ include = ["src/**", "tests/**", "README.md", "CHANGELOG.md", "LICENSE-MIT", "LI
 [dependencies]
 rightkit-credentials = { version = "0.2.1", path = "../rightkit-credentials" }
 thiserror = "2"
-getrandom = "0.3"
+getrandom = "0.4"
 zeroize = "1.9"
-sha2 = "0.10.9"
-hkdf = "0.12"
-x25519-dalek = { version = "2", default-features = false, features = ["static_secrets", "zeroize"] }
-chacha20poly1305 = { version = "0.10", default-features = false, features = ["alloc"] }
+sha2 = "0.11.1"
+hkdf = "0.13"
+x25519-dalek = { version = "3", default-features = false, features = ["static_secrets", "zeroize"] }
+chacha20poly1305 = { version = "0.11", default-features = false, features = ["alloc"] }
 
 [package.metadata.rightkit]
 continuous = false

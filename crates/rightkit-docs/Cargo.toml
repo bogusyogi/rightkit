@@ -23,14 +23,14 @@ include = [
 [dependencies]
 # PDF read and edit are rightkit-pdf's; this crate is the one-shot facade over it.
 rightkit-pdf = { version = "0.3.0", path = "../rightkit-pdf", default-features = false, features = ["edit", "merge", "extract"] }
-lopdf = { version = "0.44.0", default-features = false, features = ["rayon"] }
+lopdf = { version = "0.45.0", default-features = false, features = ["rayon"] }
 # The one writer behind every write (temp sibling, flush, rename, directory sync).
 rightkit-fs = { version = "0.4.0", path = "../rightkit-fs", default-features = false, features = ["fs"] }
 # XLSX read (typed cells, cached formula results) and XLSX create. Both pull zip 8.x.
 calamine = "0.36.1"
 rust_xlsxwriter = "0.99.1"
 # Package layer and in-place part edits. Same zip line as calamine and rust_xlsxwriter so one copy links.
-zip = { version = "8.6.0", default-features = false, features = ["deflate"] }
+zip = { version = "9", default-features = false, features = ["deflate"] }
 # Same quick-xml line as calamine.
 quick-xml = "0.41.0"
 serde = { version = "1.0.229", features = ["derive"] }

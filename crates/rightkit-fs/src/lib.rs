@@ -11,6 +11,8 @@
 //!   home folders, with a dev namespace and test/QA isolation (QA overrides only with `test-mode`).
 //! - [`digest`] (feature `digest`): SHA-256 of bytes or files, and lowercase hex.
 //! - [`private`]: owner-only files and directories (0600/0700, Windows DACL).
+//! - [`replaced`]: [`open_replaced`] / [`read_replaced`], readers that retry, on Windows, an open a concurrent
+//!   replace refused (access denied, sharing violation).
 //! - [`state`]: [`StateDir`], a descriptor-pinned state directory (`O_NOFOLLOW`, fd-relative
 //!   `*at` operations) that a swapped or symlinked path cannot redirect.
 //! - [`identity`] (feature `json`): stable file identity across renames and atomic replacement.
@@ -46,6 +48,8 @@ pub mod lock;
 pub mod netfs;
 #[cfg(feature = "fs")]
 pub mod private;
+#[cfg(feature = "fs")]
+pub mod replaced;
 #[cfg(feature = "fs")]
 pub mod state;
 #[cfg(feature = "fs")]
@@ -87,6 +91,8 @@ pub use private::{
     create_private_new, ensure_private_dir, restrict_owner_only, sweep_owner_only,
     write_private_executable, write_private_file, write_private_text,
 };
+#[cfg(feature = "fs")]
+pub use replaced::{open_replaced, read_replaced, read_to_string_replaced};
 #[cfg(feature = "fs")]
 pub use state::{DirEntry, EntryKind, EntryStat, StateDir, StateOptions};
 #[cfg(feature = "fs")]

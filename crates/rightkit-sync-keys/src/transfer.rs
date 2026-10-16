@@ -200,7 +200,7 @@ fn seal(key: &[u8; KEY_LEN], aad: &[u8], plaintext: &[u8]) -> Result<Vec<u8>> {
     let nonce = random_array::<AEAD_NONCE_BYTES>()?;
     let ct = cipher
         .encrypt(
-            XNonce::from_slice(&nonce),
+            &XNonce::from(nonce),
             Payload {
                 msg: plaintext,
                 aad,
@@ -221,7 +221,7 @@ fn open(
 ) -> Result<Zeroizing<Vec<u8>>> {
     let cipher = XChaCha20Poly1305::new_from_slice(key).map_err(|_| Error::Authentication)?;
     cipher
-        .decrypt(XNonce::from_slice(nonce), Payload { msg: ct, aad })
+        .decrypt(&XNonce::from(*nonce), Payload { msg: ct, aad })
         .map(Zeroizing::new)
         .map_err(|_| Error::Authentication)
 }

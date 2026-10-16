@@ -962,10 +962,10 @@ fn verify_sha256_default(key: &PublicKey, message: &[u8], signature: &[u8]) -> b
                 .is_ok()
         }),
         PublicKey::Rsa(rsa) => {
-            use sha2::Digest;
+            use sha2_rsa::Digest;
             rsa.verify(
-                rsa::Pkcs1v15Sign::new::<sha2::Sha256>(),
-                &sha2::Sha256::digest(message),
+                rsa::Pkcs1v15Sign::new::<sha2_rsa::Sha256>(),
+                &sha2_rsa::Sha256::digest(message),
                 signature,
             )
             .is_ok()

@@ -26,7 +26,7 @@ rightkit-onnx = { version = "0.2.2", path = "../rightkit-onnx", features = ["hal
 rusqlite = { version = "0.40.2", default-features = false, optional = true }
 serde_json = { version = "1.0.154", optional = true }
 thiserror = "2"
-tokenizers = { version = "0.22.2", default-features = false, features = ["onig"], optional = true }
+tokenizers = { version = "0.23.2", default-features = false, features = ["onig"], optional = true }
 
 # Core ML backend for the EmbeddingGemma 2 `.mlpackage` (macOS only, `inference` only). Same
 # versions and features as rightkit-asr's Core ML bridge, so one build of each serves both.

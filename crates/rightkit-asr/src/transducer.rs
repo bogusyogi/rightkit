@@ -229,7 +229,7 @@ impl Transducer {
         let mel_path = path.join("mel_nemo.onnx");
         let mel_session = if mel_path.exists() {
             let cfg = ExecutionConfig::new().with_execution_provider(ExecutionProvider::Cpu);
-            let builder = Session::builder()?;
+            let builder = Session::builder(rightkit_onnx::ort_environment()?)?;
             let mut builder = cfg.apply_to_session_builder(builder)?;
             Some(builder.commit_from_file(&mel_path)?)
         } else {

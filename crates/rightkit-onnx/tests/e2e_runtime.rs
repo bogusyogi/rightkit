@@ -100,7 +100,7 @@ fn run_add(options: &SessionOptions) -> Vec<f32> {
 /// dependency) with the same hand-encoded model.
 fn run_add_via_reexport() -> Vec<f32> {
     use rightkit_onnx::ort::session::Session;
-    let mut session = Session::builder()
+    let mut session = Session::builder(rightkit_onnx::ort_environment().unwrap())
         .unwrap()
         .commit_from_memory(&add_model())
         .expect("session through re-export");

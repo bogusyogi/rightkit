@@ -277,7 +277,7 @@ fn is_own_tmp_name(name: &str) -> bool {
 /// Any other read error is returned: if the list cannot be read the pins are unknown, and
 /// treating them as empty would make pinned entries evictable.
 fn read_pins(root: &Path) -> io::Result<HashSet<String>> {
-    let bytes = match fs::read(root.join(PIN_FILE)) {
+    let bytes = match rightkit_fs::read_replaced(&root.join(PIN_FILE)) {
         Ok(bytes) => bytes,
         Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(HashSet::new()),
         Err(e) => return Err(e),

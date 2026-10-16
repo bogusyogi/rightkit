@@ -31,7 +31,7 @@ Each layer is usable alone:
 
 Unreleased change: the default no longer enables `ort/ndarray` or the build-time download (`download-binaries`, `tls-native`, `copy-dylibs`). The `ort-defaults` feature is removed. To keep the old build-time download, opt in with `features = ["download-binaries", "tls-native", "copy-dylibs"]` (with `default-features` left on), or use `default-features = false` and bind the approved runtime through `rightkit-onnx`. The empty `load-dynamic` feature is removed.
 
-This crate has no direct `ort` dependency (`Cargo.toml:27-28`); the `ort` pin (`=2.0.0-rc.13`, `std`, API level 24) lives in `rightkit-onnx` (`crates/rightkit-onnx/Cargo.toml:59`). rc.13's own `default` raises the API floor to ORT 1.27, which the suite's 1.24.4 runtime cannot serve. Do not use `ort/default`.
+This crate has no direct `ort` dependency (`Cargo.toml:27-28`); the `ort` pin (`=2.0.0-rc.14`, `std`, API level 24) lives in `rightkit-onnx` (`crates/rightkit-onnx/Cargo.toml:59`). rc.14's own `default` raises the API floor to ORT 1.31, which the suite's 1.24.4 runtime cannot serve. Do not use `ort/default`.
 
 ## Platform support
 

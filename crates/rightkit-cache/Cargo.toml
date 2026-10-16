@@ -12,7 +12,7 @@ include = ["src/**", "tests/**", "Cargo.toml", "README.md", "CHANGELOG.md", "LIC
 [dependencies]
 sha2 = "0.11"
 # Pid liveness for the temp-file sweep on open (`process_alive`).
-rightkit-fs = { path = "../rightkit-fs", version = "0.4.0", default-features = false, features = ["fs"] }
+rightkit-fs = { path = "../rightkit-fs", version = "0.4.2", default-features = false, features = ["fs"] }
 rightkit-child-process = { version = "0.4.0", path = "../rightkit-child-process" }
 
 [[bench]]

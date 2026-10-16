@@ -7,6 +7,7 @@ version is `0.x`, a minor bump may carry breaking changes.
 
 Additive patch for the Android plan (Orthic-Labs/rightkit#151). NOT COMPILED OR RUN, here or for Android.
 
+- ort `=2.0.0-rc.14` (via `rightkit-onnx` 0.2.6, Orthic-Labs/ember#230). NOT BUILT OR RUN. The Silero session builder is now `Session::builder(rightkit_onnx::ort_environment()?)`; `Cargo.toml` requires `rightkit-onnx` 0.2.6. No public API change.
 - Static audit, no gating change needed: the only Apple code (`register_coreml`, the CoreML provider) is already behind
   `cfg(target_vendor = "apple")` and the only Windows code (`register_directml`) behind `cfg(target_os = "windows")`, with
   refusing stubs elsewhere. The pure policy layers touch no platform API. On Android the Silero scorer therefore needs

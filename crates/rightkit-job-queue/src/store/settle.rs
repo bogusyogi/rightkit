@@ -972,7 +972,7 @@ impl JobStore {
     /// aside as `.json.bad` and is `Ok(false)`: only content that was read and failed to parse
     /// or validate is judged bad.
     fn ingest_journal_file(&self, path: &Path) -> std::io::Result<bool> {
-        let bytes = std::fs::read(path)?;
+        let bytes = rightkit_fs::read_replaced(path)?;
         let parsed = serde_json::from_slice::<Value>(&bytes)
             .ok()
             .and_then(|v| parse_entry(&v));

@@ -151,7 +151,7 @@ fn directml_library() -> ProviderLibrary {
     ProviderLibrary::Loads
 }
 
-/// `None`: this OS cannot host the provider (ort rc.13 compiles each EP only on
+/// `None`: this OS cannot host the provider (ort rc.14 compiles each EP only on
 /// the OS whose Cargo feature rightkit-onnx enables for it).
 type Probe = Option<Result<bool, String>>;
 
@@ -171,7 +171,7 @@ fn diagnose(provider: ProviderKind, probe: Probe) -> ProviderDiagnostic {
 
 #[cfg(target_vendor = "apple")]
 fn coreml_probe() -> Probe {
-    Some(guarded(|| ort::ep::CoreML::default().is_available()))
+    Some(guarded(<ort::ep::CoreML as ort::ep::ExecutionProvider>::is_available))
 }
 
 #[cfg(not(target_vendor = "apple"))]
@@ -183,7 +183,7 @@ fn coreml_probe() -> Probe {
 /// it is a later step and nothing here claims it works.
 #[cfg(target_os = "android")]
 fn xnnpack_probe() -> Probe {
-    Some(guarded(|| ort::ep::XNNPACK::default().is_available()))
+    Some(guarded(<ort::ep::XNNPACK as ort::ep::ExecutionProvider>::is_available))
 }
 
 #[cfg(not(target_os = "android"))]
@@ -193,7 +193,7 @@ fn xnnpack_probe() -> Probe {
 
 #[cfg(target_os = "windows")]
 fn directml_probe() -> Probe {
-    Some(guarded(|| ort::ep::DirectML::default().is_available()))
+    Some(guarded(<ort::ep::DirectML as ort::ep::ExecutionProvider>::is_available))
 }
 
 #[cfg(not(target_os = "windows"))]

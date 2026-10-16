@@ -237,7 +237,9 @@ fn spinning_setting(setting: Spinning) -> Option<bool> {
 /// CutRight's VAD session uses by default: an own pool, spinning off, graph optimisation
 /// off. `own_thread_pool` and `intra_op_spinning` override the first two.
 fn configure(options: &SileroOptions) -> Result<SessionBuilder> {
-    let builder = Session::builder().map_err(m("session builder"))?;
+    let builder = rightkit_onnx::ort_environment()
+        .and_then(Session::builder)
+        .map_err(m("session builder"))?;
     let builder = if own_pool_enabled(options) {
         builder
             .with_independent_thread_pool()

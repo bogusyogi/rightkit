@@ -15,7 +15,7 @@ use tower::ServiceExt;
 
 fn self_signed() -> (String, String) {
     let ck = rcgen::generate_simple_self_signed(vec!["localhost".to_string()]).unwrap();
-    (ck.cert.pem(), ck.key_pair.serialize_pem())
+    (ck.cert.pem(), ck.signing_key.serialize_pem())
 }
 
 async fn https(addr: std::net::SocketAddr, cert_pem: &str, raw: &str) -> String {

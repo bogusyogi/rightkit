@@ -29,7 +29,7 @@ pub(crate) fn build_session(path: &Path) -> Result<(Session, Vec<ProviderDiagnos
         }
     }
 
-    let session = Session::builder()
+    let session = Session::builder(rightkit_onnx::ort_environment().map_err(|e| e.to_string())?)
         .map_err(|e| e.to_string())?
         .with_optimization_level(GraphOptimizationLevel::Level3)
         .map_err(|e| e.to_string())?
@@ -45,7 +45,7 @@ pub(crate) fn build_session(path: &Path) -> Result<(Session, Vec<ProviderDiagnos
 
 #[cfg(windows)]
 fn build_directml_session(path: &Path) -> Result<Session, String> {
-    Session::builder()
+    Session::builder(rightkit_onnx::ort_environment().map_err(|e| e.to_string())?)
         .map_err(|e| e.to_string())?
         .with_execution_providers([rightkit_onnx::ort::ep::DirectML::default()
             .build()

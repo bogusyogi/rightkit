@@ -35,12 +35,12 @@ ndarray = "0.17"
 realfft = "3"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-rightkit-onnx = { path = "../rightkit-onnx", version = "0.2.2", features = ["ndarray", "half"] }
+rightkit-onnx = { path = "../rightkit-onnx", version = "0.2.6", features = ["ndarray", "half"] }
 rightkit-transcript = { version = "0.3.0", path = "../rightkit-transcript" }
 rightkit-vad = { version = "0.1.0", path = "../rightkit-vad", default-features = false }
 # Optional since 0.2.0: only the `whisper-tokenizers` feature pulls the HF tokenizers
 # crate (and its C regex build). Parakeet CoreML and ONNX TDT paths do not need it.
-tokenizers = { version = "0.22.2", default-features = false, features = ["onig"], optional = true }
+tokenizers = { version = "0.23.2", default-features = false, features = ["onig"], optional = true }
 
 # whisper.cpp is bound through dlopen; it is not compiled for Android (see `src/whisper/cpp_android.rs`).
 [target.'cfg(not(target_os = "android"))'.dependencies]
@@ -64,7 +64,7 @@ cpu = []
 # and Cohere. Off: the Parakeet CoreML and ONNX TDT paths build without the C
 # tokenizers dependency (use `default-features = false`).
 whisper-tokenizers = ["dep:tokenizers"]
-# ort rc.13's own `default` raises the API floor to 27 (ORT 1.27), which the
+# ort rc.14's own `default` raises the API floor to 31 (ORT 1.31), which the
 # suite's approved 1.24.4 runtime cannot serve. Keep rc.12's default set with
 # the suite API level instead of `ort/default`.
 # Kept as a name for existing feature lists; it no longer enables ONNX Runtime log forwarding.

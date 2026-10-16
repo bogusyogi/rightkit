@@ -10,7 +10,7 @@ repository = "https://github.com/Orthic-Labs/rightkit"
 include = ["src/**", "tests/**", "README.md", "CHANGELOG.md", "LICENSE-MIT", "LICENSE-APACHE"]
 
 [dependencies]
-getrandom = "0.3"
+getrandom = "0.4"
 rightkit-license = { version = "0.2.0", path = "../rightkit-license" }
 
 [package.metadata.rightkit]

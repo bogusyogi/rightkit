@@ -45,12 +45,12 @@ impl ParakeetTDTModel {
         let config = TDTModelConfig::new(vocab_size);
 
         // Load encoder
-        let builder = Session::builder()?;
+        let builder = Session::builder(rightkit_onnx::ort_environment()?)?;
         let mut builder = exec_config.apply_to_session_builder(builder)?;
         let encoder = builder.commit_from_file(&encoder_path)?;
 
         // Load decoder_joint
-        let builder = Session::builder()?;
+        let builder = Session::builder(rightkit_onnx::ort_environment()?)?;
         let mut builder = exec_config.apply_to_session_builder(builder)?;
         let decoder_joint = builder.commit_from_file(&decoder_joint_path)?;
 

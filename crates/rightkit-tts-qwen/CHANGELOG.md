@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.7
+
+- ort `=2.0.0-rc.14` (via `rightkit-onnx` 0.2.6, Orthic-Labs/ember#230). NOT BUILT OR RUN. Vocoder: the removed `ort::init().commit()` is replaced by `rightkit_onnx::ort_environment()` (the environment is now owned by `rightkit-onnx`; an earlier `init_environment*` call selects the runtime), the session builder takes that environment, and the EP helper reads the rc.14 associated `ExecutionProvider::NAME` and `ExecutionProvider::is_available()` instead of instance methods. Execution-provider names are unchanged. `Cargo.toml` requires `rightkit-onnx` 0.2.6. No public API change.
+
 ## 0.2.6 - 2026-10-11
 
 Renamed from rightkit-qts; 0.2.5 remains published under the old name.

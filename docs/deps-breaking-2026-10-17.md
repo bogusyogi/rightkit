@@ -38,7 +38,7 @@ Grouped upgrades worth doing together: the RustCrypto set (sha1, sha2, hkdf, cha
 
 | Dependency | Pin | Used by | Reason |
 | --- | --- | --- | --- |
-| ort | =2.0.0-rc.13 | onnx | Suite pin, "every Right Suite crate and app uses exactly this ort version" (README Version policy). Latest stable is on a different line |
+| ort | =2.0.0-rc.14 (moved from rc.13, ember#230; Environment-handle migration, runtime stays 1.24.4 on `api-24`) | onnx | Suite pin, "every Right Suite crate and app uses exactly this ort version" (README Version policy). Latest stable is on a different line |
 | async-tungstenite | =0.32.1 | browser | Exact pin, no reason recorded in the manifest |
 | getrandom | =0.3.4 | browser | Exact pin (Windows target), no reason recorded |
 | trybuild | =1.0.116 | child-process (dev) | Exact pin, no reason recorded |

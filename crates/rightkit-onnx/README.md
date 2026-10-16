@@ -12,7 +12,7 @@ The crate accepts ordered absolute candidates from the app. It validates the pla
 
 | Feature | Default | Pulls in | Effect |
 |---|---|---|---|
-| `session` | on | `ort` (pinned `=2.0.0-rc.13`, `load-dynamic`, API 24) | Session and environment APIs, `ExecutionProvider`, `SessionOptions`. Disable it to keep only the path and diagnostic resolver. |
+| `session` | on | `ort` (pinned `=2.0.0-rc.14`, `load-dynamic`, API 24) | Session and environment APIs, `ExecutionProvider`, `SessionOptions`. Disable it to keep only the path and diagnostic resolver. |
 | `coreml` | off | `session`, `ort/coreml` | Names the CoreML provider explicitly. CoreML is already on for Apple targets. |
 | `directml` | off | `session`, `ort/directml` | Names the DirectML provider explicitly. DirectML is already on for Windows targets. |
 | `tracing`, `download-binaries`, `tls-native`, `copy-dylibs`, `preload-dylibs` | off | `session`, `ort/<same>` | Pass-through ort features, so no crate declares `ort`. |
@@ -83,11 +83,12 @@ or `libonnxruntime.so`; callers choose where to place them in candidate order.
 
 With feature `session`, pass `EnvironmentInitOptions` to
 `init_environment_with_options(&binding.selection, &options)`.
-`defer_initialization: true` matches `ort::init_from(...).commit()`: dylib loading
-still happens now, while C environment creation waits for first ORT use.
+`defer_initialization: true` loads the dylib now and stores the options, while
+environment creation waits for the first `ort_environment()` call (every session
+build in this crate makes one).
 Deferred reports have status `Deferred`, empty `runtime_info` & no confirmed
 active shared pool. `shared_pool_active()` includes a committed deferred pool
-configuration so sessions can use it once ORT creates their environment.
+configuration so sessions can use it once the environment is built.
 `telemetry: None` preserves ort's default; `Some(false)` disables telemetry &
 `Some(true)` enables it. `verbatim_loader_errors: true` preserves the loader's
 original Display message, including newlines, without any added prefix.
@@ -98,6 +99,17 @@ place; ignored shared-pool requests never count as an active pool. First outcome
 is cached, including failures; tolerance does not turn failures into success.
 Binding & initialization belong before worker startup or any ORT use. Forced
 environment-variable replacement cannot replace an already-loaded dylib.
+
+ort rc.14 has no implicit global environment: every `Session::builder` takes an
+`&Environment`, only one may be built per process, and it cannot be rebuilt after it
+is dropped. This crate therefore owns the process environment handle.
+`rightkit_onnx::ort_environment()` returns it (committing the default options first when
+nothing was initialised), so apps that build sessions through the `rightkit_onnx::ort`
+re-export write `Session::builder(rightkit_onnx::ort_environment()?)?` and share the
+runtime, telemetry and pool options of `init_environment*`. An environment built
+directly with `ort::init().build()` cannot be shared and makes the crate's own
+initialisation fail; build none. An environment built outside this crate is therefore
+never `AlreadyInitialized`; `tolerate_already_initialized` only covers repeated calls.
 
 Tests use temporary fixture files, an injected environment writer & a fake ORT
 backend; these option tests require no real runtime binary. Existing macOS E2E
@@ -210,17 +222,19 @@ Notes:
 
 ## Version policy
 
-The suite pins the Rust `ort` crate to `=2.0.0-rc.13` with `load-dynamic` and
+The suite pins the Rust `ort` crate to `=2.0.0-rc.14` with `load-dynamic` and
 API 24 enabled in `Cargo.toml`. Upstream `ort` declares `links = "onnxruntime"`, so every crate in one
 build must agree; this repository does not check that upstream metadata. Do not enable `ort/default`; this crate's
-`Cargo.toml` sets `api-24` on its `ort` dependency. The upstream default API floor is not checked here. The approved macOS arm64 ONNX Runtime shared library is
+`Cargo.toml` sets `api-24` on its `ort` dependency. rc.14 targets ONNX Runtime 1.31 and its own default is
+`api-31` (runtime 1.31 or newer); the suite stays on `api-24`, which accepts any runtime from 1.24 up, so the approved
+runtime below is unchanged by the rc.14 move. The upstream default API floor is not checked here. The approved macOS arm64 ONNX Runtime shared library is
 `1.24.4`, recorded in `rightkit-ffmpeg`'s native catalog. Runtime upgrades need
 one catalog row, real native-host verification, and coordinated app migration;
 this crate does not download or silently select a different runtime.
 
 ## Execution providers
 
-ort rc.13 compiles each execution provider only behind its Cargo feature.
+ort rc.14 compiles each execution provider only behind its Cargo feature.
 rightkit-onnx turns on `coreml` for Apple targets and `directml` for Windows, so
 no consumer feature is needed (the explicit `coreml` / `directml` features forward to
 `ort/coreml` / `ort/directml` for consumers that want to name the provider).

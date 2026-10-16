@@ -662,4 +662,124 @@ mod windows {
         write(&target, options, b"x").unwrap();
         assert!(stages.borrow().is_empty());
     }
+
+    fn with_parents() -> AtomicWriteOptions {
+        AtomicWriteOptions {
+            create_parents: true,
+            ..AtomicWriteOptions::default()
+        }
+    }
+
+    // The temp root exists before each test starts, so its own ancestors are never created and
+    // the step logs below hold only what the write under test did. Each created directory is
+    // flushed, then its parent (which holds its link), before the next component.
+
+    #[test]
+    fn created_parents_are_flushed_top_down_before_the_file_is_written() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().to_path_buf();
+        let target = root.join("new").join("deep").join("settings.json");
+        let _ = take_steps();
+        write(&target, with_parents(), b"x").unwrap();
+        assert_eq!(
+            take_steps(),
+            vec![
+                Step::DirSynced(root.join("new")),
+                Step::DirSynced(root.clone()),
+                Step::DirSynced(root.join("new").join("deep")),
+                Step::DirSynced(root.join("new")),
+                Step::TempFlushed,
+                Step::Replace,
+            ],
+            "each created directory and its parent are flushed before the file below them"
+        );
+        assert_eq!(std::fs::read(&target).unwrap(), b"x");
+    }
+
+    #[test]
+    fn a_pre_existing_directory_is_not_flushed_only_what_the_call_creates_is() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().to_path_buf();
+        std::fs::create_dir(root.join("found")).unwrap();
+        let target = root.join("found").join("inner").join("settings.json");
+        let _ = take_steps();
+        write(&target, with_parents(), b"x").unwrap();
+        assert_eq!(
+            take_steps(),
+            vec![
+                Step::DirSynced(root.join("found").join("inner")),
+                Step::DirSynced(root.join("found")),
+                Step::TempFlushed,
+                Step::Replace,
+            ],
+            "`found` is only the parent of the one directory this call created"
+        );
+        // A second identical call finds every directory and flushes none.
+        write(&target, with_parents(), b"y").unwrap();
+        assert_eq!(take_steps(), vec![Step::TempFlushed, Step::Replace]);
+    }
+
+    #[test]
+    fn a_non_durable_write_makes_parents_without_flushing() {
+        let dir = tempfile::tempdir().unwrap();
+        let target = dir.path().join("a").join("b").join("cache.bin");
+        let options = AtomicWriteOptions {
+            durable: false,
+            create_parents: true,
+            ..AtomicWriteOptions::default()
+        };
+        let _ = take_steps();
+        write(&target, options, b"x").unwrap();
+        assert_eq!(take_steps(), vec![Step::Replace]);
+    }
+
+    #[test]
+    fn private_parents_are_flushed_too() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().to_path_buf();
+        let target = root.join("secret").join("state.json");
+        let options = AtomicWriteOptions {
+            create_parents: true,
+            privacy: Privacy::OwnerOnly,
+            ..AtomicWriteOptions::default()
+        };
+        let _ = take_steps();
+        write(&target, options, b"x").unwrap();
+        let steps = take_steps();
+        assert_eq!(
+            &steps[..2],
+            &[
+                Step::DirSynced(root.join("secret")),
+                Step::DirSynced(root.clone()),
+            ],
+            "{steps:?}"
+        );
+    }
+
+    #[test]
+    fn a_failed_parent_flush_is_a_dir_sync_failed_and_the_directory_stays() {
+        use rightkit_fs::atomic::testing::fail_dir_sync;
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().to_path_buf();
+        let target = root.join("first").join("second").join("settings.json");
+        let _ = take_steps();
+        let error = {
+            let _guard = fail_dir_sync(std::io::ErrorKind::Other);
+            write(&target, with_parents(), b"x").expect_err("the flush failed")
+        };
+        assert!(
+            matches!(&error, rightkit_fs::FsError::DirSyncFailed { path, .. }
+                if path == &root.join("first")),
+            "{error:?}"
+        );
+        assert!(!target.exists(), "nothing was written below it");
+        assert!(root.join("first").is_dir(), "the directory stays");
+        let _ = take_steps();
+        write(&target, with_parents(), b"x").unwrap();
+        assert_eq!(
+            take_steps().first(),
+            Some(&Step::DirSynced(root.join("first").join("second"))),
+            "the retry finds `first` and flushes only what it creates"
+        );
+    }
 }

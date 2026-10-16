@@ -5,7 +5,7 @@ use std::collections::HashMap;
 use std::env;
 use std::path::{Path, PathBuf};
 use std::slice;
-use std::sync::{Mutex, OnceLock};
+use std::sync::Mutex;
 
 use rightkit_onnx::ort::ep::ExecutionProvider;
 use rightkit_onnx::ort::memory::{AllocationDevice, AllocatorType, MemoryInfo, MemoryType};
@@ -23,16 +23,13 @@ fn ort_err(err: impl std::fmt::Display) -> Qwen3TtsError {
     Qwen3TtsError::Ort(err.to_string())
 }
 
+/// ort rc.14 has no implicit environment: sessions are built from the process environment that
+/// `rightkit-onnx` owns (an earlier `init_environment*` call picks the runtime; otherwise the
+/// default options apply). Errors are not cached, so a later retry can succeed.
 fn ensure_ort_init() -> Result<(), Qwen3TtsError> {
-    static ORT_INIT: OnceLock<Result<(), String>> = OnceLock::new();
-    ORT_INIT
-        .get_or_init(|| {
-            let _ = ort::init().commit();
-            Ok(())
-        })
-        .as_ref()
-        .map_err(|err| Qwen3TtsError::Ort(err.clone()))?;
-    Ok(())
+    rightkit_onnx::ort_environment()
+        .map(|_| ())
+        .map_err(ort_err)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -778,7 +775,8 @@ impl Vocoder {
         provider: VocoderExecutionProvider,
         required: bool,
     ) -> Result<Session, Qwen3TtsError> {
-        let mut builder = Session::builder().map_err(ort_err)?;
+        let environment = rightkit_onnx::ort_environment().map_err(ort_err)?;
+        let mut builder = Session::builder(environment).map_err(ort_err)?;
         builder = builder
             .with_optimization_level(GraphOptimizationLevel::Level3)
             .map_err(ort_err)?;
@@ -847,7 +845,7 @@ impl Vocoder {
         provider_label: &'static str,
         supported_platforms: &'static str,
     ) -> Result<(), Qwen3TtsError> {
-        if !ep_supported_by_platform(provider.name()) {
+        if !ep_supported_by_platform(E::NAME) {
             if required {
                 return Err(Qwen3TtsError::InvalidInput(format!(
                     "QWEN3_TTS_VOCODER_EP={provider_token} is only supported on {supported_platforms}"
@@ -857,7 +855,7 @@ impl Vocoder {
                 "{provider_token} EP is not supported on this platform"
             )));
         }
-        if !provider.is_available().map_err(ort_err)? {
+        if !E::is_available().map_err(ort_err)? {
             if required {
                 return Err(Qwen3TtsError::InvalidInput(format!(
                     "QWEN3_TTS_VOCODER_EP={provider_token} requested, but this build of ONNX Runtime does not include {provider_label}"

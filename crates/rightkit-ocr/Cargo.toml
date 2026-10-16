@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-ocr"
-version = "0.2.2"
+version = "0.2.3"
 edition = "2021"
 rust-version = "1.98.0"
 publish = true
@@ -25,8 +25,8 @@ include = [
 
 [dependencies]
 image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
-rightkit-onnx = { version = "0.2.2", path = "../rightkit-onnx", optional = true }
-sha2 = { version = "0.10", optional = true }
+rightkit-onnx = { version = "0.2.6", path = "../rightkit-onnx", optional = true }
+sha2 = { version = "0.11", optional = true }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 
@@ -53,7 +53,7 @@ objc2-core-foundation = { version = "0.3", optional = true, features = ["CFCGTyp
 windows = { version = "0.62", optional = true, features = ["Foundation", "Foundation_Collections", "Globalization", "Graphics_Imaging", "Media_Ocr", "Security_Cryptography", "Storage_Streams"] }
 
 [dev-dependencies]
-base64 = "0.22"
+base64 = "0.23"
 
 [package.metadata.rightkit]
 continuous = "held-resource"

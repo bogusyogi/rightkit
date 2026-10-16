@@ -16,7 +16,7 @@ Native Qwen3-TTS inference for Right Suite apps: GGUF and GGML talker and code-p
 | `native` | off | `rightkit-tts-qwen-sys/native` | Builds ggml for the host CPU. |
 | `acl`, `armnn`, `azure`, `cann`, `coreml`, `cuda`, `directml`, `migraphx`, `nnapi`, `nvrtx`, `onednn`, `openvino`, `qnn`, `rknpu`, `tensorrt`, `tvm`, `vitis`, `webgpu`, `xnnpack` | off | `rightkit-onnx/<name>` | Execution-provider features for the vocoder's ONNX Runtime session. Each forwards to the same-named `rightkit-onnx` feature (`Cargo.toml:21`). |
 
-The default feature set is empty. This crate has no direct `ort` dependency; the ONNX Runtime pin (`=2.0.0-rc.13`, `load-dynamic`, API 24) is owned by `rightkit-onnx` (`crates/rightkit-onnx/Cargo.toml:59`).
+The default feature set is empty. This crate has no direct `ort` dependency; the ONNX Runtime pin (`=2.0.0-rc.14`, `load-dynamic`, API 24) is owned by `rightkit-onnx` (`crates/rightkit-onnx/Cargo.toml:59`).
 
 ## Platform support
 

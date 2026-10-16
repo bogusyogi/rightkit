@@ -71,7 +71,10 @@ fn committed_fixture_bytes_match_characterization_digest() {
         .decode(encoded)
         .unwrap();
     assert_eq!(
-        format!("{:x}", Sha256::digest(bytes)),
+        Sha256::digest(bytes)
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect::<String>(),
         OcrArtifactManifest::characterized_windows_contract().fixture_sha256
     );
 }

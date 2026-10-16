@@ -84,7 +84,9 @@
 //! | Unix | a symlink | none | n/a | none | none: an open gap, stated in the README |
 //! | Unix, macOS | missing under a parent with an inheritable `allow` ACL entry (private only) | refused before `mkdir`; a directory that got an `allow` entry anyway is removed (empty) and refused; deny-only ACLs pass | nothing created | [`FsError::UnsafeAcl`] | `acl_macos.rs::an_inheriting_parent_refuses_private_parents` |
 //! | Unix | `durable: false` | `create_dir_all` (or `ensure_private_dir`), no sync | the directories may be lost with the file, as the mode says | none | `atomic_publish.rs::parents::a_non_durable_write_makes_parents_without_syncing` |
-//! | Windows | any | `std::fs::create_dir_all` (or `ensure_private_dir`): **not** write-through, no flush exists. A later write-through move (W3, W4) is a journal commit that follows the directory creation in the NTFS log, which orders them; this crate has not run a power-loss test of that ordering, and for W1 nothing is committed after the creation. Directories made by `StateDir::create` do use write-through handles | not durable on Windows | none | cannot be tested without power-loss injection |
+//! | Windows | missing, and this call's create returns `Ok` | `create_dir` (or `ensure_private_dir`), then `FlushFileBuffers` on a `GENERIC_WRITE` + `FILE_FLAG_BACKUP_SEMANTICS` handle of the new directory and then of its parent, before the next component. A parent this call did not create that refuses that handle with `ERROR_ACCESS_DENIED` is skipped | before the flushes: possibly no directory after power loss, with nothing written below it yet | `DirSyncFailed` (the directory stays; see the residual) | `atomic_publish.rs::windows::created_parents_are_flushed_top_down_before_the_file_is_written`, `a_failed_parent_flush_is_a_dir_sync_failed_and_the_directory_stays`. The calls are observed through the `testing` seam; that the flush reaches the medium cannot be tested without power-loss injection |
+//! | Windows | exists, a racing creator wins, or a symlink | none: not looked at again, so a second identical call flushes none | n/a (see the residual) | none | `atomic_publish.rs::windows::a_pre_existing_directory_is_not_flushed_only_what_the_call_creates_is` |
+//! | Windows | `durable: false` | `create_dir_all` (or `ensure_private_dir`), no flush | the directories may be lost with the file, as the mode says | none | none |
 //!
 //! Consolidates CutRight `fsutil::atomic_write` (project and qa copies), CodeRight
 //! `private_fs::atomic` and the settings/model-store writers.
@@ -1043,8 +1045,10 @@ pub(crate) fn sync_parent_dir(path: &Path) -> std::io::Result<()> {
 /// later calls; the residual is spelled out in the module docs, section 3.
 ///
 /// New directories are `0700` when `owner_only`, and on macOS are refused
-/// ([`FsError::UnsafeAcl`]) under a parent whose ACL has an inheritable `allow` entry. Elsewhere
-/// there is no directory flush, so only the ordinary creation runs.
+/// ([`FsError::UnsafeAcl`]) under a parent whose ACL has an inheritable `allow` entry. On Windows
+/// each directory this call creates, and its parent, is flushed (`FlushFileBuffers` on a
+/// `GENERIC_WRITE` handle) before the next component. Elsewhere there is no directory flush, so
+/// only the ordinary creation runs.
 ///
 /// Unlike [`AtomicWriter::create_with`] this makes no file; it is the directory half of a durable
 /// `create_parents` write, for callers (a lock file, a settings file) that create a file some
@@ -1107,7 +1111,125 @@ fn create_dirs_durable(dir: &Path, owner_only: bool) -> Result<()> {
     Ok(())
 }
 
-#[cfg(not(unix))]
+#[cfg(windows)]
+fn create_dirs_durable(dir: &Path, owner_only: bool) -> Result<()> {
+    if dir.as_os_str().is_empty() {
+        return Ok(());
+    }
+    let mut chain: Vec<&Path> = dir
+        .ancestors()
+        .filter(|p| !p.as_os_str().is_empty())
+        .collect();
+    chain.reverse();
+    // Whether the previous component was created by this call, so its parent was flushed already.
+    let mut parent_created = false;
+    for path in chain {
+        match fs::symlink_metadata(path) {
+            // Already there (a directory, or a link): not this call's to flush.
+            Ok(_) => {
+                parent_created = false;
+                continue;
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+            Err(e) => return Err(FsError::io(path, e)),
+        }
+        if owner_only {
+            // Every ancestor exists by now, so this creates exactly `path`, with its owner-only
+            // descriptor from creation.
+            crate::private::ensure_private_dir(path)?;
+        } else {
+            match fs::create_dir(path) {
+                Ok(()) => {}
+                // A racing creator made it first: it is theirs to flush.
+                Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
+                    parent_created = false;
+                    continue;
+                }
+                Err(e) => return Err(FsError::io(path, e)),
+            }
+        }
+        // This call created `path`: flush the directory itself, then its parent (which holds the
+        // link), before the next component and so before anything is written below it.
+        let failed = |source| FsError::DirSyncFailed {
+            path: path.to_path_buf(),
+            source,
+        };
+        flush_dir_windows(path).map_err(failed)?;
+        match flush_dir_windows(&parent_of(path)) {
+            Ok(()) => {}
+            // A parent this call did not create may deny `GENERIC_WRITE` to a caller that may only
+            // add children to it (a profile root, a drive root); the directory flush is then
+            // unavailable there, and the refusal is not an error of this write.
+            Err(e) if !parent_created && e.raw_os_error() == Some(5) => {}
+            Err(e) => return Err(failed(e)),
+        }
+        parent_created = true;
+    }
+    Ok(())
+}
+
+/// `FlushFileBuffers` on a write handle of the directory `dir`. A handle opened for listing cannot
+/// be flushed (`ERROR_ACCESS_DENIED`), so this opens `GENERIC_WRITE` with
+/// `FILE_FLAG_BACKUP_SEMANTICS`, which is what opens a directory at all, and shares read, write
+/// and delete so it neither blocks nor is blocked by another holder.
+#[cfg(windows)]
+fn flush_dir_windows(dir: &Path) -> std::io::Result<()> {
+    use std::os::windows::ffi::OsStrExt;
+    use std::os::windows::io::{AsRawHandle, FromRawHandle};
+    #[link(name = "kernel32")]
+    unsafe extern "system" {
+        fn CreateFileW(
+            name: *const u16,
+            access: u32,
+            share: u32,
+            security: *const std::ffi::c_void,
+            disposition: u32,
+            flags: u32,
+            template: *mut std::ffi::c_void,
+        ) -> *mut std::ffi::c_void;
+        fn FlushFileBuffers(file: *mut std::ffi::c_void) -> i32;
+    }
+    const GENERIC_WRITE: u32 = 0x4000_0000;
+    const FILE_SHARE_READ_WRITE_DELETE: u32 = 0x7;
+    const OPEN_EXISTING: u32 = 3;
+    const FILE_FLAG_BACKUP_SEMANTICS: u32 = 0x0200_0000;
+    const FILE_FLAG_OPEN_REPARSE_POINT: u32 = 0x0020_0000;
+    #[cfg(feature = "testing")]
+    if let Some(error) = testing::before_dir_sync(dir) {
+        return Err(error);
+    }
+    let wide: Vec<u16> = dir.as_os_str().encode_wide().chain(Some(0)).collect();
+    if wide[..wide.len() - 1].contains(&0) {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "path contains a NUL",
+        ));
+    }
+    // SAFETY: `wide` is NUL-terminated and outlives the call; no security attribute is passed.
+    let raw = unsafe {
+        CreateFileW(
+            wide.as_ptr(),
+            GENERIC_WRITE,
+            FILE_SHARE_READ_WRITE_DELETE,
+            std::ptr::null(),
+            OPEN_EXISTING,
+            FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT,
+            std::ptr::null_mut(),
+        )
+    };
+    if raw as isize == -1 || raw.is_null() {
+        return Err(std::io::Error::last_os_error());
+    }
+    // SAFETY: CreateFileW returned a fresh owned handle; `File` closes it exactly once.
+    let handle = unsafe { File::from_raw_handle(raw) };
+    // SAFETY: the handle is live for the call.
+    if unsafe { FlushFileBuffers(handle.as_raw_handle()) } == 0 {
+        return Err(std::io::Error::last_os_error());
+    }
+    Ok(())
+}
+
+#[cfg(not(any(unix, windows)))]
 fn create_dirs_durable(_dir: &Path, _owner_only: bool) -> Result<()> {
     Ok(())
 }
@@ -1374,7 +1496,9 @@ pub mod testing {
         /// The replace call ran (an injected failure stands in for it).
         Replace,
         /// The directory was synced after publication (attempted; [`fail_dir_sync`] can make it
-        /// fail). Unix only.
+        /// fail). The destination directory after publication (Unix only); on Unix and Windows
+        /// also each directory a durable `create_parents` write created, and on Windows the
+        /// parent that holds its link.
         DirSynced(PathBuf),
     }
 
@@ -1412,7 +1536,8 @@ pub mod testing {
     }
 
     /// Make every directory sync this thread's atomic writes perform fail with `kind`, in place of
-    /// the OS call, until the guard drops. Unix only.
+    /// the OS call, until the guard drops. Unix; on Windows it fails the flushes of directories
+    /// made by a durable `create_parents` write.
     pub fn fail_dir_sync(kind: std::io::ErrorKind) -> HookGuard {
         DIR_SYNC_FAILURE.with(|f| f.set(Some(kind)));
         HookGuard(|| DIR_SYNC_FAILURE.with(|f| f.set(None)))
@@ -1450,7 +1575,7 @@ pub mod testing {
         HARDEN_HOOK.with(|h| h.borrow().as_ref().and_then(|hook| hook(&call)))
     }
 
-    #[cfg(unix)]
+    #[cfg(any(unix, windows))]
     pub(super) fn before_dir_sync(dir: &Path) -> Option<std::io::Error> {
         record(Step::DirSynced(dir.to_path_buf()));
         DIR_SYNC_FAILURE.with(|f| {

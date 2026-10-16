@@ -97,7 +97,7 @@ impl TransducerModel {
             .unwrap_or(false);
         let ec = exec_config.clone();
         let commit_encoder = move |disable_fusion: bool| -> Result<Session> {
-            let mut b = Session::builder()?;
+            let mut b = Session::builder(rightkit_onnx::ort_environment()?)?;
             if disable_fusion {
                 b = b.with_config_entry("ep.dml.disable_graph_fusion", "1")?;
             }
@@ -144,7 +144,7 @@ impl TransducerModel {
 
         // Auxiliary graph placement is explicit in the shared execution config.
         let dec_config = exec_config.auxiliary_config();
-        let b = Session::builder()?;
+        let b = Session::builder(rightkit_onnx::ort_environment()?)?;
         let mut b = dec_config.apply_to_session_builder(b)?;
         let decoder_joint = b.commit_from_file(&dec)?;
 

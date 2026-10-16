@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-tts-qwen"
-version = "0.2.6"
+version = "0.2.7"
 edition = "2021"
 license = "Apache-2.0"
 rust-version = "1.98.0"
@@ -41,10 +41,10 @@ xnnpack = ["rightkit-onnx/xnnpack"]
 [dependencies]
 rightkit-tts-qwen-sys = { path = "../rightkit-tts-qwen-sys", version = "0.1.0", default-features = false }
 thiserror = "2"
-getrandom = "0.3"
+getrandom = "0.4"
 hound = "3.5.1"
 rustfft = "6.4.1"
 prost = "0.14"
-rightkit-onnx = { path = "../rightkit-onnx", version = "0.2.2", features = ["tracing"] }
+rightkit-onnx = { path = "../rightkit-onnx", version = "0.2.6", features = ["tracing"] }
 
 

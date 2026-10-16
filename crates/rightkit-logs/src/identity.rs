@@ -1,7 +1,6 @@
 //! Random identifiers. Install ids are random (never derived from hardware,
 //! user name or account) and live in a file the user can delete to reset.
 
-use std::fs;
 use std::io;
 use std::path::Path;
 
@@ -37,7 +36,7 @@ pub fn random_uuid() -> String {
 /// process replacing the file, an I/O error) is returned and nothing is written: replacing the
 /// id because the file could not be read would silently change the install's identity.
 pub fn install_id(path: &Path) -> io::Result<String> {
-    match fs::read(path) {
+    match rightkit_fs::read_replaced(path) {
         Ok(bytes) => {
             if let Some(existing) = valid_id(&bytes) {
                 return Ok(existing);
@@ -60,6 +59,7 @@ fn valid_id(bytes: &[u8]) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::fs;
 
     #[test]
     fn absent_file_creates_and_persists_an_id() {

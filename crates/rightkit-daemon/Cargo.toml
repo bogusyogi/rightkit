@@ -13,12 +13,12 @@ include = ["src/**", "schemas/**", "tests/**", "README.md", "CHANGELOG.md", "LIC
 rightkit-sidecar = { version = "0.2.0", path = "../rightkit-sidecar" }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"
-rightkit-fs = { version = "0.4.0", path = "../rightkit-fs", default-features = false, features = ["fs"] }
+rightkit-fs = { version = "0.4.2", path = "../rightkit-fs", default-features = false, features = ["fs"] }
 rightkit-child-process = { version = "0.4.0", path = "../rightkit-child-process" }
 
 # `link` (device client) and `remote` (daemon host) dependencies, all optional. Copied from the
 # retired standalone daemon crate (M7 merge). `link` carries no tokio, axum or hyper.
-base64 = { version = "0.22", optional = true }
+base64 = { version = "0.23", optional = true }
 blake3 = { version = "1", optional = true }
 form_urlencoded = { version = "1", optional = true }
 ring = { version = "0.17", optional = true }
@@ -33,7 +33,7 @@ tokio-rustls = { version = "0.26", default-features = false, features = ["ring",
 hyper = { version = "1", features = ["http1", "server"], optional = true }
 hyper-util = { version = "0.1", features = ["tokio", "service", "server-graceful"], optional = true }
 # `testing` only.
-rcgen = { version = "0.13", optional = true }
+rcgen = { version = "0.14", optional = true }
 tempfile = { version = "3", optional = true }
 
 # Windows named pipes with a current-user-only DACL. cfg(windows) only: this

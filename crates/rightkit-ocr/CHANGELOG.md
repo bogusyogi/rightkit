@@ -1,6 +1,10 @@
 # Changelog
 
 
+## 0.2.3
+
+- ort `=2.0.0-rc.14` (via `rightkit-onnx` 0.2.6, Orthic-Labs/ember#230). NOT BUILT OR RUN. Both ONNX fallback session builders (`support/session.rs`, CPU and Windows DirectML) now call `Session::builder(rightkit_onnx::ort_environment()?)`, since rc.14 sessions need an environment handle. `Cargo.toml` requires `rightkit-onnx` 0.2.6. No public API change.
+
 ## 0.2.2
 
 - Republished on the renamed dependencies: `rightkit-onnx` (was `rightkit-ort`). The 0.2.1 on crates.io was packaged before the renames and still named the old crates.

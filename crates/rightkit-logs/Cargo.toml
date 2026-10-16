@@ -26,7 +26,7 @@ tracing = ["dep:tracing", "dep:tracing-subscriber"]
 log-bridge = ["tracing", "dep:tracing-log"]
 
 [dependencies]
-rightkit-fs = { version = "0.4.0", path = "../rightkit-fs", default-features = false, features = ["fs"] }
+rightkit-fs = { version = "0.4.2", path = "../rightkit-fs", default-features = false, features = ["fs"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 ureq = { version = "3.4", default-features = false, features = ["rustls"], optional = true }

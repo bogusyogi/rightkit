@@ -3,10 +3,14 @@
 //!
 //! Call [`init_environment`] once, before any session is built or any worker
 //! thread starts. It loads the selected runtime explicitly, disables telemetry,
-//! optionally requests one shared global CPU thread pool, and materialises the
-//! C environment immediately by default (committing only stores Rust-side
-//! options). Deferred mode still checks/loads the dylib, but leaves C environment
-//! creation to the first ORT use, matching `ort::init_from(...).commit()`.
+//! optionally requests one shared global CPU thread pool, and builds the ORT
+//! environment immediately by default. Deferred mode still checks/loads the dylib,
+//! but only stores the options; the environment is built by the first
+//! [`ort_environment`] call (every session build in this crate makes one). ort rc.14
+//! allows one environment per process and needs its handle to build any session, so
+//! this crate holds the handle for the life of the process: build sessions through
+//! [`crate::SessionOptions`] or `ort::session::Session::builder(ort_environment()?)`,
+//! never through an environment built directly with `ort::init().build()`.
 //! If a shared pool cannot be had, sessions fall back to private pools and the
 //! report says so; nothing is silently reconfigured.
 //!
@@ -29,13 +33,14 @@
 //!   commits the default options (telemetry off, private pools) first, without loading
 //!   anything, so the first session never runs with ORT's default telemetry. An
 //!   [`init_environment_with_options`] call after that fails: call it before building a
-//!   session. Sessions built straight through the re-exported `ort` crate bypass this.
+//!   session. Sessions built through the re-exported `ort` crate take their environment
+//!   from [`ort_environment`], so they share these options.
 
 use std::{
     path::{Path, PathBuf},
     sync::{
         atomic::{AtomicBool, Ordering},
-        OnceLock,
+        Mutex, OnceLock, PoisonError,
     },
 };
 
@@ -119,8 +124,10 @@ pub struct EnvironmentInitOptions {
     /// `Some(false)` disables telemetry (default); `None` leaves ort's builder
     /// default unchanged; `Some(true)` explicitly enables telemetry.
     pub telemetry: Option<bool>,
-    /// Accept an environment configured outside this crate. Repeated successful
-    /// calls report AlreadyInitialized; existing options are never replaced.
+    /// Accept an earlier configuration. Repeated successful calls report
+    /// AlreadyInitialized; existing options are never replaced. An environment built
+    /// outside this crate (`ort::init().build()`) cannot be shared (ort exposes no
+    /// handle to it and allows one per process), so it stays an error under ort rc.14.
     pub tolerate_already_initialized: bool,
     /// Return the loader's Display message exactly, without a path prefix.
     pub verbatim_loader_errors: bool,
@@ -141,7 +148,7 @@ impl Default for EnvironmentInitOptions {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum EnvironmentStatus {
     Initialized,
-    /// Options committed; C environment creation deferred to first use.
+    /// Options committed; environment creation deferred to the first [`ort_environment`] call.
     Deferred,
     /// Earlier configuration retained, including configuration outside this crate.
     AlreadyInitialized,
@@ -534,6 +541,74 @@ fn init_inner_with(
 
 struct OrtBackend;
 
+/// The process-wide ORT environment. ort rc.14 has no implicit global environment: sessions are
+/// built from an [`ort::environment::Environment`] handle, and only one environment may ever be
+/// built per process (a dropped one cannot be rebuilt), so this crate owns the single handle for
+/// the life of the process.
+static ENVIRONMENT: OnceLock<ort::environment::Environment> = OnceLock::new();
+
+/// Options committed by a deferred initialisation; the environment is built from them by the
+/// first [`ort_environment`] call. The mutex also serialises environment creation.
+static PENDING: Mutex<Option<EnvironmentInitOptions>> = Mutex::new(None);
+
+fn lock_pending() -> std::sync::MutexGuard<'static, Option<EnvironmentInitOptions>> {
+    PENDING.lock().unwrap_or_else(PoisonError::into_inner)
+}
+
+fn apply_options(
+    mut builder: ort::environment::EnvironmentBuilder,
+    options: &EnvironmentInitOptions,
+) -> Result<ort::environment::EnvironmentBuilder, String> {
+    if let Some(telemetry) = options.telemetry {
+        builder = builder.with_telemetry(telemetry);
+    }
+    if let Some(pool) = options.global_pool {
+        let pool_options = ort::environment::GlobalThreadPoolOptions::default()
+            .with_intra_threads(pool.intra_threads)
+            .map_err(|error| error.to_string())?
+            .with_inter_threads(pool.inter_threads)
+            .map_err(|error| error.to_string())?
+            .with_spin_control(pool.spin)
+            .map_err(|error| error.to_string())?;
+        builder = builder.with_global_thread_pool(pool_options);
+    }
+    Ok(builder)
+}
+
+/// The process environment, built from the deferred options (or the defaults: telemetry off,
+/// private pools) when nothing has built it yet. Errors are not cached.
+fn materialize() -> Result<&'static ort::environment::Environment, String> {
+    if let Some(environment) = ENVIRONMENT.get() {
+        return Ok(environment);
+    }
+    let pending = lock_pending();
+    if let Some(environment) = ENVIRONMENT.get() {
+        return Ok(environment);
+    }
+    let options = pending.clone().unwrap_or_default();
+    let environment = apply_options(ort::init(), &options)?
+        .build()
+        .map_err(|error| error.to_string())?;
+    Ok(ENVIRONMENT.get_or_init(|| environment))
+}
+
+/// The process ONNX Runtime environment, for building sessions with the re-exported `ort` crate:
+/// `ort::session::Session::builder(rightkit_onnx::ort_environment()?)?`. ort rc.14 requires an
+/// environment handle for every session builder; this is the one this crate owns, so the options
+/// committed by [`init_environment`] (selected runtime, telemetry off, optional shared pool) apply
+/// to sessions built through the re-exported `ort` crate too.
+///
+/// With nothing initialised yet, this commits the default options first (telemetry off, private
+/// pools) and loads the runtime the system loader or an absolute `ORT_DYLIB_PATH` names, exactly
+/// as [`crate::SessionOptions`] does. Call [`init_environment`] or
+/// [`init_environment_default_loader`] earlier to choose the runtime and pool. An error means no
+/// session may be built: a failed earlier initialisation, a runtime that does not load, or an
+/// environment built outside this crate (ORT allows one per process, so build none directly).
+pub fn ort_environment() -> ort::Result<&'static ort::environment::Environment> {
+    ensure_environment().map_err(ort::Error::new)?;
+    materialize().map_err(ort::Error::new)
+}
+
 impl EnvironmentBackend for OrtBackend {
     type Builder = ort::environment::EnvironmentBuilder;
 
@@ -546,27 +621,29 @@ impl EnvironmentBackend for OrtBackend {
 
     fn configure(
         &mut self,
-        mut builder: Self::Builder,
+        builder: Self::Builder,
         options: &EnvironmentInitOptions,
     ) -> Result<bool, String> {
-        if let Some(telemetry) = options.telemetry {
-            builder = builder.with_telemetry(telemetry);
+        let mut pending = lock_pending();
+        if ENVIRONMENT.get().is_some() || pending.is_some() {
+            // First configuration wins; a built environment or committed options are never replaced.
+            return Ok(false);
         }
-        if let Some(pool) = options.global_pool {
-            let pool_options = ort::environment::GlobalThreadPoolOptions::default()
-                .with_intra_threads(pool.intra_threads)
-                .map_err(|error| error.to_string())?
-                .with_inter_threads(pool.inter_threads)
-                .map_err(|error| error.to_string())?
-                .with_spin_control(pool.spin)
-                .map_err(|error| error.to_string())?;
-            builder = builder.with_global_thread_pool(pool_options);
+        if options.defer_initialization {
+            // Commit the options only. Nothing past the (already done) library load touches ORT, so
+            // environment creation stays lazy; `materialize` builds it on first use.
+            *pending = Some(options.clone());
+            return Ok(true);
         }
-        Ok(builder.commit())
+        let environment = apply_options(builder, options)
+            .and_then(|builder| builder.build().map_err(|error| error.to_string()))
+            .map_err(|error| format!("environment creation: {error}"))?;
+        let _ = ENVIRONMENT.set(environment);
+        Ok(true)
     }
 
     fn initialize(&mut self) -> Result<String, String> {
-        ort::environment::Environment::current().map_err(|error| error.to_string())?;
+        materialize()?;
         Ok(ort::info().to_owned())
     }
 }

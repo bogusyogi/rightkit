@@ -94,7 +94,7 @@ pub fn takeover_path(suite: &Suite, service: &str) -> PathBuf {
 /// `ERROR_ACCESS_DENIED` or `ERROR_SHARING_VIOLATION`), and a permission or I/O error says nothing
 /// about whether the file, or the service, exists.
 fn read_json<T: serde::de::DeserializeOwned>(path: &Path) -> std::io::Result<Option<T>> {
-    match std::fs::read(path) {
+    match rightkit_fs::read_replaced(path) {
         Ok(bytes) => Ok(serde_json::from_slice(&bytes).ok()),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
         Err(e) => Err(e),
@@ -105,7 +105,7 @@ fn read_json<T: serde::de::DeserializeOwned>(path: &Path) -> std::io::Result<Opt
 ///
 /// `Ok(None)`: there is no `service.json` (or it holds no record). `Err`: it could not be read
 /// right now, so whether a service exists is unknown. Treat that as "try again", never as "no
-/// service". Nothing here retries.
+/// service". A refused open (Windows access denied or sharing violation) is retried first by `rightkit_fs::read_replaced`.
 pub fn try_read_record(suite: &Suite, service: &str) -> std::io::Result<Option<ServiceRecord>> {
     read_json(&record_path(suite, service))
 }

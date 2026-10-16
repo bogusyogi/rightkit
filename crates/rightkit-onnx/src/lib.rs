@@ -16,7 +16,8 @@
 ///
 /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
 /// // Configure the runtime and environment first (see `configure_runtime`).
-/// let mut session = Session::builder()?.commit_from_file("model.onnx")?;
+/// let mut session = Session::builder(rightkit_onnx::ort_environment()?)?
+///     .commit_from_file("model.onnx")?;
 /// let x = Tensor::from_array(([1usize, 4], vec![0.0f32; 4]))?;
 /// let _outputs = session.run(rightkit_onnx::ort::inputs!["x" => x])?;
 /// # Ok(())
@@ -47,7 +48,7 @@ pub mod session;
 #[cfg(feature = "session")]
 pub use environment::{
     cpu_thread_budget, init_environment, init_environment_default_loader,
-    init_environment_with_options, shared_pool_active, EnvironmentInitOptions,
+    init_environment_with_options, ort_environment, shared_pool_active, EnvironmentInitOptions,
     EnvironmentInitReport, EnvironmentOptions, EnvironmentReport, EnvironmentStatus, GlobalPool,
 };
 #[cfg(feature = "session")]

@@ -28,7 +28,7 @@ impl TestCertificate {
         .map_err(io::Error::other)?;
         Ok(Self {
             cert_pem: ck.cert.pem(),
-            key_pem: ck.key_pair.serialize_pem(),
+            key_pem: ck.signing_key.serialize_pem(),
         })
     }
 }

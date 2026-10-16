@@ -303,7 +303,10 @@ fn verify_artifact(root: &Path, name: &str, expected: &str) -> Result<PathBuf, O
     let bytes = std::fs::read(&canonical).map_err(|_| OcrError::MissingArtifact {
         path: canonical.clone(),
     })?;
-    let actual = format!("{:x}", Sha256::digest(bytes));
+    let actual: String = Sha256::digest(bytes)
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect();
     if actual != expected {
         return Err(OcrError::DigestMismatch {
             path: canonical,

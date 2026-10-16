@@ -7,11 +7,14 @@ use std::collections::HashMap;
 use base64::engine::general_purpose::STANDARD as BASE64;
 use base64::Engine;
 use p256::ecdsa::signature::Verifier;
-use rsa::pkcs8::DecodePublicKey;
+use p256::pkcs8::DecodePublicKey as _;
+use rsa::pkcs8::DecodePublicKey as _;
+use rsa::pkcs8::EncodePublicKey as _;
 use rsa::traits::PublicKeyParts;
 use serde_json::Value;
-use sha2::{Digest, Sha256};
-use spki::EncodePublicKey;
+// rsa 0.9 hashes with digest 0.10, so RSA verification uses the sha2 0.10 alias (see Cargo.toml).
+use sha2_rsa::{Digest, Sha256};
+use spki::EncodePublicKey as _;
 
 use crate::json::{canonical_json, field, is_hex64, items, safe_ordinal, sha256_hex, str_of};
 

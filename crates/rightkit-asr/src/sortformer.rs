@@ -223,7 +223,7 @@ impl Sortformer {
         let config_to_use = execution_config.unwrap_or_default();
 
         let mut builder = config_to_use
-            .apply_to_session_builder(Session::builder()?)?;
+            .apply_to_session_builder(Session::builder(rightkit_onnx::ort_environment()?)?)?;
         let session = builder.commit_from_file(model_path.as_ref())?;
 
         // Read streaming constants from ONNX metadata (fallback to defaults)
