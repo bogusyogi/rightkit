@@ -5674,7 +5674,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-agent-tools"
-version = "0.1.4"
+version = "0.1.5"
 dependencies = [
  "rightkit-automation",
  "rightkit-browser",
@@ -5717,7 +5717,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-app-settings"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "rightkit-fs",
  "serde",
@@ -5728,7 +5728,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-asr"
-version = "0.2.2"
+version = "0.2.3"
 dependencies = [
  "half",
  "hound",
@@ -5770,7 +5770,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-automation"
-version = "0.4.1"
+version = "0.4.2"
 dependencies = [
  "rightkit-daemon",
  "tempfile",
@@ -5817,7 +5817,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-child-process"
-version = "0.4.1"
+version = "0.4.2"
 dependencies = [
  "libc",
  "tokio",
@@ -5903,7 +5903,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-db"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "libc",
  "rightkit-fs",
@@ -5979,7 +5979,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-fs"
-version = "0.4.1"
+version = "0.4.2"
 dependencies = [
  "libc",
  "serde",
@@ -6010,14 +6010,14 @@ dependencies = [
 
 [[package]]
 name = "rightkit-hotkeys"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "windows-sys 0.61.2",
 ]
 
 [[package]]
 name = "rightkit-http"
-version = "0.3.1"
+version = "0.3.2"
 dependencies = [
  "bytes",
  "futures-util",
@@ -6037,7 +6037,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-job-queue"
-version = "0.3.1"
+version = "0.3.2"
 dependencies = [
  "rightkit-child-process",
  "rightkit-crash",
@@ -6176,7 +6176,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-onnx"
-version = "0.2.5"
+version = "0.2.6"
 dependencies = [
  "flate2",
  "half",
@@ -6251,7 +6251,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-qa"
-version = "0.6.1"
+version = "0.6.2"
 dependencies = [
  "getrandom 0.3.4",
  "png 0.18.1",
@@ -6290,7 +6290,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-record"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "blake3",
  "hmac-sha256",
@@ -6345,7 +6345,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-sidecar"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "libc",
  "serde",
