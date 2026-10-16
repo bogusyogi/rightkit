@@ -53,9 +53,9 @@
     "@types/react-dom": "^19.3.0",
     "react": "^19.3.1",
     "react-dom": "^19.3.1",
-    "typescript": "^5.9.3",
-    "vite": "^6.4.4",
-    "vitest": "^2.1.9"
+    "typescript": "^7.0.2",
+    "vite": "^8.3.4",
+    "vitest": "^5.0.5"
   },
   "scripts": {
     "build": "tsc -p tsconfig.json && node scripts/build-shell-css.mjs",

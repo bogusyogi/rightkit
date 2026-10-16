@@ -25,12 +25,12 @@
     "build": "tsc -p tsconfig.json",
     "prepack": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\" && pnpm run build",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "typecheck:contracts": "tsc --noEmit --strict --target ES2022 --module NodeNext --moduleResolution NodeNext type-tests/contract.ts",
+    "typecheck:contracts": "tsc --ignoreConfig --noEmit --strict --target ES2022 --module NodeNext --moduleResolution NodeNext type-tests/contract.ts",
     "test": "vitest run"
   },
   "devDependencies": {
-    "typescript": "^5.9.3",
-    "vitest": "^2.1.9"
+    "typescript": "^7.0.2",
+    "vitest": "^5.0.5"
   },
   "publishConfig": {
     "registry": "https://registry.npmjs.org",
