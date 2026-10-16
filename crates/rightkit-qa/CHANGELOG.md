@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.6.0
+
+The embedded QA control server moves here from `rightkit-qa-driver`, and this crate no longer depends on `rightkit-qa-driver`. Not built or run locally; CI is the compiler. Needs `rightkit-automation` 0.4.0 published first.
+
+- **New dev-only `control` feature** (off by default): the embedded Tauri control server (`rightkit_qa::embedded`: `Control`, `QA_CONTROL_MARKER`, `METHODS`, `PlacementGate`, `ViewportCfg`, with its admission, lease and protocol code and its tests, moved without rewriting) and `rightkit_qa::in_app::ServiceBridge`, the `rightkit_automation::in_app::InApp` tier-2 client (moved from `rightkit-automation` 0.3.0's `in-app` feature). **Never ships**: a binary that carries it contains the marker `RIGHTKIT-QA-CONTROL-SERVER-PRESENT` (unchanged bytes), and `right-release` refuses it in its binary layer; its source layer now also refuses `rightkit-qa/control`, a non-optional `rightkit-qa` dependency listing `control`, and the default feature set reaching it. `control` enables `rightkit-daemon/test-mode`.
+- New features `wv2-0_38` and `wv2-0_39` (Windows WebView2 generation, as in the old driver); with `control` on Windows enable exactly one.
+- Removed the `rightkit-qa-driver` dependency. The macOS frontmost reads (`control::frontmost`, the owned-never-frontmost check) now call `rightkit_automation::macos::background`. New unconditional dependency: `rightkit-automation` 0.4.0. New optional dependency: `tauri` 2.
+- `guard` accepts both shapes: `rightkit-qa` with `control` (`rightkit_qa::embedded::Control`) and the legacy `rightkit-qa-driver` with `qa-control`. The shape is chosen by which dependency the app's `Cargo.toml` declares.
+- **Migration** (apps): `rightkit-qa-driver = { features = ["qa-control"] }` becomes `rightkit-qa = { features = ["control"] }`; `rightkit_qa_driver::embedded::*` becomes `rightkit_qa::embedded::*`. See the README. `rightkit-qa-driver` 0.5.0 is a deprecated shim, so a version bump alone also compiles.
+- The `control-test-app` example moved here from `rightkit-qa-driver` and now uses `control`. Server documentation: `docs/CONTROL-SERVER.md`.
+
 ## 0.5.0
 
 Breaking (0.x minor): runs are functional by default and take no screenshots. Not built or run locally; CI is the compiler.

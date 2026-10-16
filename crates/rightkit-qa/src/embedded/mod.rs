@@ -1,6 +1,6 @@
-//! In-app control server (Tauri plugin, feature `qa-control`).
+//! In-app control server (Tauri plugin, feature `control`).
 //!
-//! QA ONLY, NEVER SHIPPED. This module is compiled only with the explicit `qa-control` cargo feature.
+//! QA ONLY, NEVER SHIPPED. This module is compiled only with the explicit `control` cargo feature.
 //! A binary that contains it carries [`QA_CONTROL_MARKER`] and `right-release` refuses to seal or upload
 //! a release or update build that does; a compiled-in server still serves nothing unless the launcher
 //! sets `RIGHTKIT_CONTROL_SERVICE`, and then logs one loud line to stderr.
@@ -63,12 +63,14 @@
 //! `leaseEpoch` + `inputSequence` and are fenced/sequenced by the lease before
 //! they reach the admission hook.
 
-use crate::admission::{
+use rightkit_automation::control::admission::{
     CancelToken, EffectGate, EffectKind, EffectRequest, ExecError, SettleOutcome,
 };
-use crate::json::esc;
-use crate::keys;
-use crate::lease::{InputError, InputLease, InputOutcome, UnacknowledgedInputDecision};
+use rightkit_automation::control::lease::{
+    InputError, InputLease, InputOutcome, UnacknowledgedInputDecision,
+};
+use rightkit_automation::json::esc;
+use rightkit_automation::keys::appkit as keys;
 use rightkit_daemon::{
     host, Allowlist, CallContext, Emit, Handler, ServiceConfig, ServiceError, Suite,
 };
@@ -568,7 +570,7 @@ impl<R: Runtime> Control<R> {
                     // One loud line, always, before the socket exists: a QA control server must never
                     // run unnoticed. stderr, not the app log, so it cannot be filtered or redirected away.
                     eprintln!(
-                        "RIGHTKIT QA CONTROL SERVER ACTIVE: service={service} (qa-control build, {ENV_SERVICE} set); \
+                        "RIGHTKIT QA CONTROL SERVER ACTIVE: service={service} (control build, {ENV_SERVICE} set); \
                          this process accepts same-user input, DOM/eval and screenshot control. Never ship this build."
                     );
                     let gate_events = placement.clone();
@@ -723,8 +725,10 @@ impl<R: Runtime> Handler for ControlHandler<R> {
         if let (EffectKind::Input, Some(lease)) = (kind, &self.guards.lease) {
             let epoch = u64_param(params, "leaseEpoch")?;
             let seq = u64_param(params, "inputSequence")?;
-            let session =
-                crate::lease::ControlSession::new(lease.clone(), self.guards.gate.clone());
+            let session = rightkit_automation::control::lease::ControlSession::new(
+                lease.clone(),
+                self.guards.gate.clone(),
+            );
             return match session.input(epoch, seq, request, &cancel, exec) {
                 Ok(InputOutcome::Applied { ack, value }) => {
                     Ok(with_ack(value, ack.epoch, ack.sequence, false))
@@ -787,7 +791,7 @@ fn with_ack(mut value: Value, epoch: u64, sequence: u64, duplicate: bool) -> Val
     value
 }
 
-fn snapshot_json(s: crate::lease::LeaseSnapshot) -> Value {
+fn snapshot_json(s: rightkit_automation::control::lease::LeaseSnapshot) -> Value {
     json!({
         "ok": true,
         "leaseEpoch": s.epoch,
@@ -885,7 +889,7 @@ impl<R: Runtime> ControlHandler<R> {
                 format!("unknown decision '{other}'"),
             )),
         };
-        let lease_err = |e: crate::lease::LeaseError| {
+        let lease_err = |e: rightkit_automation::control::lease::LeaseError| {
             ServiceError::new(format!("lease_{}", e.label()), e.to_string())
         };
         Some((|| match method {
@@ -937,7 +941,7 @@ impl<R: Runtime> ControlHandler<R> {
         ) {
             Ok(Out::Json(j)) => Ok(serde_json::from_str(&j).unwrap_or(Value::Null)),
             Ok(Out::Png(p)) if params.get("inline").and_then(Value::as_bool) == Some(true) => Ok(
-                json!({"ok": true, "bytes": p.len(), "masked": MASKED_LAST.load(Ordering::SeqCst), "encoding": "base64", "data": crate::json::base64_encode(&p)}),
+                json!({"ok": true, "bytes": p.len(), "masked": MASKED_LAST.load(Ordering::SeqCst), "encoding": "base64", "data": rightkit_automation::json::base64_encode(&p)}),
             ),
             Ok(Out::Png(p)) => {
                 let n = self.shot_seq.fetch_add(1, Ordering::SeqCst);

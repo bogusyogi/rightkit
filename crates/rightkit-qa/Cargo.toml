@@ -1,18 +1,31 @@
 [package]
 name = "rightkit-qa"
-version = "0.5.0"
+version = "0.6.0"
 edition = "2021"
 rust-version = "1.98.0"
-description = "Rust QA harness for Right Suite apps: engine black-box scenarios, hidden native UI driving through rightkit-qa-driver, Rust-test scenario wrapper, dynamic paid-provider mocks, loudness/WAV/PNG/frame validators, run lock, orphan sweep, hashed evidence."
+description = "Rust QA harness for Right Suite apps: engine black-box scenarios, hidden native UI driving (the in-app control server is the dev-only `control` feature), Rust-test scenario wrapper, dynamic paid-provider mocks, loudness/WAV/PNG/frame validators, run lock, orphan sweep, hashed evidence."
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/Orthic-Labs/rightkit"
 readme = "README.md"
-include = ["src/**", "tests/**", "README.md", "CHANGELOG.md", "LICENSE-MIT", "LICENSE-APACHE"]
+include = ["src/**", "tests/**", "docs/**", "README.md", "CHANGELOG.md", "LICENSE-MIT", "LICENSE-APACHE"]
 
 [features]
 default = []
 # Chrome (CDP) targets through rightkit-browser. Off by default: it pulls tokio + chromiumoxide.
 browser = ["dep:rightkit-browser", "dep:tokio"]
+# QA ONLY, NEVER SHIPPED. The embedded Tauri control server (`embedded` module): input injection, DOM and
+# accessibility reads, screenshots, JS evaluate, and `rightkit_automation::in_app::InApp` for tier 2.
+# Moved from `rightkit-qa-driver/qa-control`. Name it only from an app feature that is off by default
+# (`qa-native = ["dep:rightkit-qa", "rightkit-qa/control", ...]`). A binary that carries it contains the
+# marker `RIGHTKIT-QA-CONTROL-SERVER-PRESENT` (`embedded::QA_CONTROL_MARKER`), and `right-release`
+# refuses to seal or upload a release or update tier build that contains it. On Windows it also needs
+# exactly one `wv2-*` feature (compile_error in `embedded/win_view.rs`); macOS needs none.
+# Tauri 2.11: `features = ["control", "wv2-0_38"]`.
+control = ["dep:tauri", "rightkit-daemon/test-mode"]
+# Windows: the `windows` + `webview2-com` generation the app's Tauri resolves, so WebView2 types cross the
+# Tauri boundary. Tauri 2.11 (wry 0.55) = wv2-0_38; Tauri 2.12+ = wv2-0_39. Neither is default: enable one with `control`.
+wv2-0_38 = ["dep:windows_061", "dep:webview2_com_038"]
+wv2-0_39 = ["dep:windows_062", "dep:webview2_com_039"]
 
 [dependencies]
 rightkit-fs = { version = "0.4.0", path = "../rightkit-fs", default-features = false, features = ["digest", "fs"] }
@@ -20,6 +33,9 @@ rightkit-sidecar = { version = "0.2.0", path = "../rightkit-sidecar" }
 rightkit-daemon = { version = "0.2.0", path = "../rightkit-daemon" }
 rightkit-child-process = { version = "0.4.0", path = "../rightkit-child-process" }
 rightkit-browser = { version = "0.3.0", path = "../rightkit-browser", optional = true }
+# Generic input, admission, lease and key code (and `macos::background::frontmost_*` for the guard).
+rightkit-automation = { version = "0.4.0", path = "../rightkit-automation" }
+tauri = { version = "2", optional = true }
 tokio = { version = "1", features = ["rt", "time"], optional = true }
 png = "0.18"
 serde = { version = "1.0.228", features = ["derive"] }
@@ -39,9 +55,9 @@ path = "src/lib.rs"
 name = "rightkit-qa"
 path = "src/bin/rightkit-qa.rs"
 
-# Only `mac::frontmost_name` / `mac::frontmost_pid` are used; the default feature set is empty.
-[target.'cfg(target_os = "macos")'.dependencies]
-rightkit-qa-driver = { version = "0.4.0", path = "../rightkit-qa-driver", default-features = false }
-
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.61.2", features = ["Win32_Foundation", "Win32_System_Threading", "Win32_UI_WindowsAndMessaging"] }
+windows_061 = { package = "windows", version = "0.61", optional = true }
+webview2_com_038 = { package = "webview2-com", version = "0.38", optional = true }
+windows_062 = { package = "windows", version = "0.62", optional = true }
+webview2_com_039 = { package = "webview2-com", version = "0.39", optional = true }

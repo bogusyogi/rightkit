@@ -90,6 +90,14 @@
     "rightkit-tts-qwen-sys": {
       "checkFeatureSets": []
     },
+    "rightkit-qa": {
+      "checkFeatureSets": [
+        [
+          "--features",
+          "control,wv2-0_38"
+        ]
+      ]
+    },
     "rightkit-qa-driver": {
       "checkFeatureSets": [
         [

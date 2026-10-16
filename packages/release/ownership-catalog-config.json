@@ -11,7 +11,7 @@
     { "capability": "tauri-host-adapters", "packages": ["rightkit-device", "@rightkit/tauri"], "reason": "Native license/device services & renderer command adapters" }
   ],
   "testOwners": [
-    { "path": "crates/rightkit-qa-driver/examples/control-test-app/Cargo.toml", "package": "control-test-app", "reason": "Unpublished desktop-control test fixture" },
+    { "path": "crates/rightkit-qa/examples/control-test-app/Cargo.toml", "package": "control-test-app", "reason": "Unpublished desktop-control test fixture" },
     { "path": "crates/rightkit-tauri-shell/example-app/Cargo.toml", "package": "shell-example-app", "reason": "Unpublished standalone shell demonstration & test host" }
   ]
 }

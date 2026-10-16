@@ -758,7 +758,7 @@ pub fn permission_dialog_in(frontmost_states: &[String]) -> Option<String> {
         .cloned()
 }
 
-/// TODO: observe live TCC prompts. `rightkit_qa_driver::mac::windows(pid)` lists windows of one pid
+/// TODO: observe live TCC prompts. `rightkit_automation::macos::background::windows(pid)` lists windows of one pid
 /// only; there is no enumeration of windows by owner name (`UserNotificationCenter`,
 /// `CoreServicesUIAgent`), so no reliable detector exists in this crate yet. This hook reports
 /// [`DialogCheck::Unsupported`] instead of guessing. Replace the body once the automation layer

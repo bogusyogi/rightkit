@@ -6,7 +6,7 @@
 // (signing set, staged payloads, hardening targets, sealed files). The development lane (`development.mjs`)
 // never calls it: dev builds are the QA builds. The source-level layer is `qa-build-features.mjs`.
 //
-//   qa-control-server  `rightkit-qa-driver` feature `qa-control`: every binary with the embedded server carries
+//   qa-control-server  `rightkit-qa` feature `control` (and the `rightkit-qa-driver` shim feature `qa-control`): every binary with the embedded server carries
 //                      QA_CONTROL_MARKER (a `#[used]` static in `embedded/mod.rs`, also read by `Control::build`).
 //   wdio-webdriver     `tauri-plugin-wdio-webdriver` (HeardRight/MailRight/ViewRight `qa-native`): needs 2 of 3
 //                      independent signatures. WEAKER than the marker: the plugin source was not on disk when
@@ -20,7 +20,7 @@ import { closeSync, lstatSync, openSync, readFileSync, readSync, readdirSync } f
 import path from "node:path";
 import { inflateRawSync } from "node:zlib";
 
-// Keep identical to `QA_CONTROL_MARKER` in crates/rightkit-qa-driver/src/embedded/mod.rs.
+// Keep identical to `QA_CONTROL_MARKER` in crates/rightkit-qa/src/embedded/mod.rs.
 export const QA_CONTROL_MARKER = "RIGHTKIT-QA-CONTROL-SERVER-PRESENT";
 // Keep identical to `DEV_INSPECT_MARKER` in crates/rightkit-tauri-shell/src/devtools.rs (a `#[used]` static compiled only
 // with rightkit-tauri-shell's `dev-inspect` feature and read by the process guard). No allow-list lifts this rule.
@@ -31,7 +31,7 @@ const CHUNK = 4 * 1024 * 1024;
 // Each signature is matched as Latin-1/UTF-8 bytes and as UTF-16LE (Windows wide strings). `min` signatures of a
 // rule must be present for it to fire; a signature counts once however often or in whichever encoding it occurs.
 export const QA_RULES = Object.freeze([
-  { id: "qa-control-server", min: 1, label: "RightKit QA control server (rightkit-qa-driver qa-control)",
+  { id: "qa-control-server", min: 1, label: "RightKit QA control server (rightkit-qa control, or rightkit-qa-driver qa-control)",
     signatures: [{ id: "marker", text: QA_CONTROL_MARKER }] },
   { id: "shell-dev-inspect", min: 1, marker: DEV_INSPECT_MARKER, label: "rightkit-tauri-shell developer inspection (rightkit-tauri-shell dev-inspect)",
     signatures: [{ id: "marker", text: DEV_INSPECT_MARKER }] },

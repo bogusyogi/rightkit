@@ -10,8 +10,8 @@ import {
 const issues = (command, scripts = {}) => commandFeatureIssues(command, { label: "target.prePackage", scripts });
 
 test("forbidden feature names, including dep:, crate/ and crate?/ forms", () => {
-  for (const f of ["devtools", "qa-native", "qa-control", "dev-native", "dev-inspect", "qa-shot", "qa-tools", "dev-control", "bench-native", "heardright/qa-shot", "dep:qa-tools", "rightkit-tauri-shell/dev-inspect", "rightkit-tauri-shell?/dev-inspect", "tauri/devtools", "tauri?/devtools", "rightkit-qa-driver/qa-control", "dep:tauri-plugin-wdio-webdriver"]) assert.equal(isForbiddenFeature(f), true, f);
-  for (const f of ["custom-protocol", "tauri-shell", "dep:rightkit-qa-driver", "wv2-0_39", "tauri/custom-protocol"]) assert.equal(isForbiddenFeature(f), false, f);
+  for (const f of ["devtools", "qa-native", "qa-control", "dev-native", "dev-inspect", "qa-shot", "qa-tools", "dev-control", "bench-native", "heardright/qa-shot", "dep:qa-tools", "rightkit-tauri-shell/dev-inspect", "rightkit-tauri-shell?/dev-inspect", "tauri/devtools", "tauri?/devtools", "rightkit-qa-driver/qa-control", "rightkit-qa/control", "rightkit-qa?/control", "dep:tauri-plugin-wdio-webdriver"]) assert.equal(isForbiddenFeature(f), true, f);
+  for (const f of ["custom-protocol", "tauri-shell", "dep:rightkit-qa-driver", "dep:rightkit-qa", "control", "wv2-0_39", "tauri/custom-protocol"]) assert.equal(isForbiddenFeature(f), false, f);
 });
 
 test("a build command that enables a forbidden feature is refused in every spelling", () => {
@@ -57,6 +57,9 @@ test("Cargo.toml: devtools on tauri, qa-control on rightkit-qa-driver, non-optio
   assert.match(cargoManifestIssues(manifest('default = []', 'tauri = { version = "2.11.5", features = ["devtools"] }'))[0], /devtools/);
   assert.match(cargoManifestIssues(manifest('default = []', 'rightkit-qa-driver = { version = "0.3", features = ["qa-control", "wv2-0_39"] }'))[0], /qa-control/);
   assert.match(cargoManifestIssues(manifest('default = []', 'rightkit-control = { version = "0.3", features = ["qa-control", "wv2-0_39"] }'))[0], /rightkit-control.*qa-control/);
+  assert.match(cargoManifestIssues(manifest('default = []', 'rightkit-qa = { version = "0.6", features = ["control", "wv2-0_39"] }'))[0], /rightkit-qa.*control/);
+  assert.deepEqual(cargoManifestIssues(manifest('default = []', 'rightkit-qa = { version = "0.6", optional = true, features = ["control"] }')), []);
+  assert.match(cargoManifestIssues(manifest('default = ["rightkit-qa/control"]', 'rightkit-qa = { version = "0.6", optional = true }')).join("\n"), /reaches `rightkit-qa\/control`/);
   assert.match(cargoManifestIssues(manifest('default = []', 'tauri-plugin-wdio-webdriver = "1.4.0"'))[0], /not optional/);
   assert.match(cargoManifestIssues(manifest('default = ["shell"]\nshell = ["qa-native"]\nqa-native = ["dep:tauri-plugin-wdio-webdriver"]', 'tauri-plugin-wdio-webdriver = { version = "1.4.0", optional = true }'))[0], /default feature set reaches `qa-native`/);
   assert.match(cargoManifestIssues(manifest('default = ["tauri/devtools"]', 'tauri = "2"')).join("\n"), /reaches `tauri\/devtools`/);
