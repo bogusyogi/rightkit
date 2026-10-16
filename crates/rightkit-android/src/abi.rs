@@ -39,11 +39,15 @@ impl Abi {
     }
 
     pub fn from_android_name(name: &str) -> Option<Abi> {
-        SUPPORTED_ABIS.into_iter().find(|a| a.android_name() == name)
+        SUPPORTED_ABIS
+            .into_iter()
+            .find(|a| a.android_name() == name)
     }
 
     pub fn from_rust_triple(triple: &str) -> Option<Abi> {
-        SUPPORTED_ABIS.into_iter().find(|a| a.rust_triple() == triple)
+        SUPPORTED_ABIS
+            .into_iter()
+            .find(|a| a.rust_triple() == triple)
     }
 
     /// The ABI this build targets, or `None` off Android and for unsupported architectures.

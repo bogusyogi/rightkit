@@ -48,7 +48,11 @@ pub struct ZoneKeys {
 }
 
 impl ZoneKeys {
-    pub fn new(manager: KeyManager, app: impl Into<String>, zone: impl Into<String>) -> Result<Self> {
+    pub fn new(
+        manager: KeyManager,
+        app: impl Into<String>,
+        zone: impl Into<String>,
+    ) -> Result<Self> {
         let (app, zone) = (app.into(), zone.into());
         check_component("app", &app)?;
         check_component("zone", &zone)?;
@@ -62,7 +66,12 @@ impl ZoneKeys {
     /// The scope string for the current key (changes on rotation or reset).
     pub fn account_scope(&self) -> Result<String> {
         let key = self.manager.require_current()?;
-        account_scope(&self.app, &self.zone, self.manager.account_id(), key.key_id())
+        account_scope(
+            &self.app,
+            &self.zone,
+            self.manager.account_id(),
+            key.key_id(),
+        )
     }
 }
 
@@ -90,7 +99,11 @@ pub struct StaticKeys {
 }
 
 impl StaticKeys {
-    pub fn new(keys: Vec<DataKey>, app: impl Into<String>, zone: impl Into<String>) -> Result<Self> {
+    pub fn new(
+        keys: Vec<DataKey>,
+        app: impl Into<String>,
+        zone: impl Into<String>,
+    ) -> Result<Self> {
         let (app, zone) = (app.into(), zone.into());
         check_component("app", &app)?;
         check_component("zone", &zone)?;
@@ -124,7 +137,12 @@ mod tests {
     fn zone_keys(account: &str) -> ZoneKeys {
         let ns = Namespace::new("test.rightkit.sync-keys.provider").unwrap();
         let store = Store::open(Config::new(ns).backend(Arc::new(MemoryBackend::new())));
-        ZoneKeys::new(KeyManager::new(store, account).unwrap(), "heardright", "transcripts").unwrap()
+        ZoneKeys::new(
+            KeyManager::new(store, account).unwrap(),
+            "heardright",
+            "transcripts",
+        )
+        .unwrap()
     }
 
     #[test]
@@ -140,7 +158,10 @@ mod tests {
         z.manager().create_if_absent().unwrap();
         let k1 = z.current_key().unwrap();
         let s1 = z.account_scope().unwrap();
-        assert_eq!(z.key_by_id(k1.key_id()).unwrap().unwrap().as_bytes(), k1.as_bytes());
+        assert_eq!(
+            z.key_by_id(k1.key_id()).unwrap().unwrap().as_bytes(),
+            k1.as_bytes()
+        );
 
         z.manager().rotate().unwrap();
         let k2 = z.current_key().unwrap();
@@ -148,7 +169,10 @@ mod tests {
         assert_eq!(k2.version(), 2);
         assert_ne!(z.account_scope().unwrap(), s1, "rotation changes the scope");
         // Old records stay readable until the old version is retired.
-        assert_eq!(z.key_by_id(k1.key_id()).unwrap().unwrap().as_bytes(), k1.as_bytes());
+        assert_eq!(
+            z.key_by_id(k1.key_id()).unwrap().unwrap().as_bytes(),
+            k1.as_bytes()
+        );
         z.manager().retire(1).unwrap();
         assert!(z.key_by_id(k1.key_id()).unwrap().is_none());
     }
@@ -162,7 +186,10 @@ mod tests {
         let unknown = DataKey::generate(3).unwrap();
         assert!(s.key_by_id(unknown.key_id()).unwrap().is_none());
         assert_eq!(
-            StaticKeys::new(vec![], "app", "zone").unwrap().current_key().unwrap_err(),
+            StaticKeys::new(vec![], "app", "zone")
+                .unwrap()
+                .current_key()
+                .unwrap_err(),
             Error::NotEnrolled
         );
     }

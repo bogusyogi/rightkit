@@ -316,7 +316,9 @@ fn cancel_mid_run_kills_the_process_tree_and_returns_cancelled() {
         trigger.cancel();
     });
     let started = Instant::now();
-    let e = p.complete_detailed_cancellable(&req("x"), &cancel).unwrap_err();
+    let e = p
+        .complete_detailed_cancellable(&req("x"), &cancel)
+        .unwrap_err();
     canceller.join().unwrap();
     assert_eq!(e, CliError::Cancelled);
     assert!(!e.is_failover_trigger());
@@ -332,7 +334,9 @@ fn cancel_before_start_returns_cancelled_without_spawning() {
     let cancel = CancelHandle::new();
     cancel.cancel();
     assert!(cancel.is_cancelled());
-    let e = p.complete_detailed_cancellable(&req("x"), &cancel).unwrap_err();
+    let e = p
+        .complete_detailed_cancellable(&req("x"), &cancel)
+        .unwrap_err();
     assert_eq!(e, CliError::Cancelled);
     assert!(!fx.scratch.join("pid").exists(), "the CLI must not start");
 }
@@ -358,7 +362,10 @@ printf '%s' '{"result":"ok","is_error":false}'
 
     let provider = fx.provider(CliSpec::claude_code(claude.clone()));
     let out = provider
-        .complete_detailed(&ChatRequest::new("claude-sonnet-5", vec![Message::user("hi")]))
+        .complete_detailed(&ChatRequest::new(
+            "claude-sonnet-5",
+            vec![Message::user("hi")],
+        ))
         .unwrap();
     assert_eq!(out.response.text(), "ok");
 
@@ -691,7 +698,12 @@ fn sigkill_parent_helper() {
 fn child_dies_when_the_parent_is_sigkilled() {
     let fx = Fixture::new();
     let mut parent = Command::new(std::env::current_exe().unwrap())
-        .args(["--exact", "sigkill_parent_helper", "--nocapture", "--test-threads=1"])
+        .args([
+            "--exact",
+            "sigkill_parent_helper",
+            "--nocapture",
+            "--test-threads=1",
+        ])
         .env("RK_LLM_PDEATH_BASE", &fx.base)
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())

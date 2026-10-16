@@ -359,7 +359,9 @@ pub enum ReleaseOutcome {
     },
     /// The owner is fenced and its own word is not proof. The host must prove release
     /// (the process is gone or the device is closed) and call [`CaptureArbiter::prove_release`].
-    StillFenced { owner: CaptureOwner },
+    StillFenced {
+        owner: CaptureOwner,
+    },
     NotOwner,
 }
 

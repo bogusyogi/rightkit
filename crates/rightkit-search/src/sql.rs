@@ -79,7 +79,10 @@ pub enum Binding {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CompileError {
     UnboundOperator(String),
-    BadValue { op: String, value: String },
+    BadValue {
+        op: String,
+        value: String,
+    },
     NoFtsTable,
     /// A [`Binding::SqlMulti`] fragment has a different number of `?` than `kinds`.
     BindCount {
@@ -277,7 +280,12 @@ impl Schema {
         let mut source_pos: Vec<(Vec<String>, Vec<Param>)> = self
             .scope
             .as_ref()
-            .map(|s| s.op_sources.iter().map(|_| (Vec::new(), Vec::new())).collect())
+            .map(|s| {
+                s.op_sources
+                    .iter()
+                    .map(|_| (Vec::new(), Vec::new()))
+                    .collect()
+            })
             .unwrap_or_default();
         let scoped = self.scope.is_some();
 

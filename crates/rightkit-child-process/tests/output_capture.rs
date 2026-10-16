@@ -32,7 +32,10 @@ fn a_real_childs_stdout_is_captured_with_its_trailing_newline() {
     assert!(!out.truncated);
     let text = String::from_utf8(out.bytes).expect("utf8");
     assert!(text.starts_with("{\"a\":1}"), "got {text:?}");
-    assert!(text.ends_with('\n'), "the trailing newline was dropped: {text:?}");
+    assert!(
+        text.ends_with('\n'),
+        "the trailing newline was dropped: {text:?}"
+    );
 }
 
 #[test]

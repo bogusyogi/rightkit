@@ -27,9 +27,7 @@ pub mod paths;
 pub mod toolchain;
 
 pub use abi::{Abi, COMPILE_SDK, MIN_SDK, NDK_VERSION, SUPPORTED_ABIS};
-pub use context::{
-    handle, AndroidContext, ContextHandle, ContextHandleExt, StaticContext,
-};
+pub use context::{handle, AndroidContext, ContextHandle, ContextHandleExt, StaticContext};
 pub use error::{AndroidError, InitCode};
 pub use logcat::LogLevel;
 pub use paths::{AppDirs, AppPaths};
@@ -55,10 +53,9 @@ pub fn init_platform_verifier(
 ) -> Result<(), AndroidError> {
     // SAFETY: the raw reference stays owned by the caller; the new `JObject` has no destructor.
     let context = unsafe { jni::objects::JObject::from_raw(context.as_raw()) };
-    rustls_platform_verifier::android::init_with_env(env, context)
-        .map_err(|e| AndroidError::Jni {
-            code: error::jni_error_code(&e),
-        })
+    rustls_platform_verifier::android::init_with_env(env, context).map_err(|e| AndroidError::Jni {
+        code: error::jni_error_code(&e),
+    })
 }
 
 /// Version of this bridge (the crate version).

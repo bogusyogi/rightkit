@@ -49,12 +49,7 @@ pub fn code_to_bridge_error(code: i32) -> BridgeError {
 pub struct JniKeystoreBridge;
 
 impl KeystoreBridge for JniKeystoreBridge {
-    fn encrypt(
-        &self,
-        alias: &str,
-        plaintext: &[u8],
-        aad: &[u8],
-    ) -> Result<Vec<u8>, BridgeError> {
+    fn encrypt(&self, alias: &str, plaintext: &[u8], aad: &[u8]) -> Result<Vec<u8>, BridgeError> {
         call("encrypt", alias, plaintext, aad)
     }
 

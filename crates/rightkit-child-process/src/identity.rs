@@ -115,6 +115,10 @@ impl Origin {
             // The kernel would not describe a process this very call proves exists: it is
             // elevated, not unidentified. A pid that does not exist stays `Missing`.
             Ok(None) if exists(pid) => Self::Opaque,
+            // Some macOS releases (the GitHub runner image) answer a setuid child with an error
+            // (`EPERM`) instead of zero bytes. Same meaning: the kernel will not describe a
+            // process this call proves exists. A pid that does not exist stays `Missing`.
+            Err(_) if exists(pid) => Self::Opaque,
             _ => Self::Missing,
         }
     }
@@ -124,9 +128,10 @@ impl Origin {
     pub(crate) fn check(&self, pid: u32) -> io::Result<Proof> {
         match self {
             Self::Unavailable => Ok(Proof::Same),
-            Self::Opaque => Ok(match describe(pid)? {
-                // Still unreadable: still the elevated process (or gone, which the caller's
-                // `leader_state` probe reports as `ECHILD` before it signals or reaps).
+            Self::Opaque => Ok(match describe(pid).unwrap_or(None) {
+                // Still unreadable (zero bytes or a refusal such as `EPERM`): still the
+                // elevated process (or gone, which the caller's `leader_state` probe reports as
+                // `ECHILD` before it signals or reaps).
                 None => Proof::Same,
                 // Readable now. It is ours only if it is still our child: an elevated child
                 // that execs an unprivileged program becomes readable and keeps its parent,

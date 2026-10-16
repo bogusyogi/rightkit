@@ -1084,7 +1084,11 @@ mod binding_tests {
 
     #[test]
     fn android_candidate_is_the_native_lib_dir_file_and_refuses_relative_dirs() {
-        let dir = std::env::temp_dir().join("data").join("app").join("lib").join("arm64");
+        let dir = std::env::temp_dir()
+            .join("data")
+            .join("app")
+            .join("lib")
+            .join("arm64");
         let candidate = android_runtime_candidate(&dir).unwrap();
         assert_eq!(candidate.source, CandidateSource::Bundled);
         assert_eq!(candidate.path, dir.join("libonnxruntime.so"));
@@ -1113,7 +1117,10 @@ mod binding_tests {
             std::fs::create_dir_all(&lib).unwrap();
             std::fs::write(lib.join("libonnxruntime.so"), b"not a real ORT binary").unwrap();
             let selected = resolve_runtime([android_runtime_candidate(&lib).unwrap()]).unwrap();
-            assert_eq!(selected.path, lib.join("libonnxruntime.so").canonicalize().unwrap());
+            assert_eq!(
+                selected.path,
+                lib.join("libonnxruntime.so").canonicalize().unwrap()
+            );
         }
     }
 

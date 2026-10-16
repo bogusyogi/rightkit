@@ -299,7 +299,12 @@ pub fn system_backend() -> Arc<dyn Backend> {
         // until then each call fails with `Error::Unavailable`.
         Arc::new(crate::android::AndroidKeystoreBackend::system())
     }
-    #[cfg(not(any(target_os = "macos", windows, target_os = "linux", target_os = "android")))]
+    #[cfg(not(any(
+        target_os = "macos",
+        windows,
+        target_os = "linux",
+        target_os = "android"
+    )))]
     {
         Arc::new(UnavailableBackend(
             "no OS credential store is wired for this platform",

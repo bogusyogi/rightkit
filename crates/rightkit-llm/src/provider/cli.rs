@@ -913,7 +913,9 @@ impl Provider for CliProvider {
     }
 
     fn complete(&self, req: &ChatRequest) -> Result<ChatResponse, LlmError> {
-        self.run(req, None).map(|c| c.response).map_err(LlmError::Cli)
+        self.run(req, None)
+            .map(|c| c.response)
+            .map_err(LlmError::Cli)
     }
 
     /// Buffered: the tool runs to completion, then the answer is delivered as

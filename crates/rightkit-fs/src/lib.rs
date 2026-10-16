@@ -56,7 +56,7 @@ pub mod verified;
 mod windows_temp_sweep;
 
 #[cfg(feature = "app-dirs")]
-pub use app_dirs::{AppDirs, AppDirsError, AppId, Os as AppDirsOs, Options as AppDirsOptions};
+pub use app_dirs::{AppDirs, AppDirsError, AppId, Options as AppDirsOptions, Os as AppDirsOs};
 #[cfg(feature = "fs")]
 pub use append::{append_record, AppendOptions};
 #[cfg(all(feature = "fs", feature = "digest"))]

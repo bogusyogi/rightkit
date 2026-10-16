@@ -287,7 +287,11 @@ impl RecordCipher {
     /// [`RecordCipher::seal`] with a caller-chosen salt, for deterministic tests. Reusing a
     /// salt under one key reuses the record key and nonce: never do it outside tests.
     #[doc(hidden)]
-    pub fn seal_with_salt(&self, record: &RawRecord, salt: [u8; SALT_LEN]) -> SyncResult<RawRecord> {
+    pub fn seal_with_salt(
+        &self,
+        record: &RawRecord,
+        salt: [u8; SALT_LEN],
+    ) -> SyncResult<RawRecord> {
         let (version, key) = self.keys.current()?;
         let mut clear: BTreeMap<String, FieldValue> = BTreeMap::new();
         let mut secret: Vec<(&String, &FieldValue)> = Vec::new();
@@ -300,8 +304,12 @@ impl RecordCipher {
                 _ => secret.push((k, v)),
             }
         }
-        let updated = clear.get(field::UPDATED_AT).and_then(FieldValue::as_date_ms);
-        let deleted = clear.get(field::DELETED_AT).and_then(FieldValue::as_date_ms);
+        let updated = clear
+            .get(field::UPDATED_AT)
+            .and_then(FieldValue::as_date_ms);
+        let deleted = clear
+            .get(field::DELETED_AT)
+            .and_then(FieldValue::as_date_ms);
         let ad = self.associated_data(
             version,
             &record.record_type,
@@ -315,8 +323,8 @@ impl RecordCipher {
         let sealing = LessSafeKey::new(
             UnboundKey::new(&aead::CHACHA20_POLY1305, &okm[..32]).map_err(|_| crypto_failure())?,
         );
-        let nonce = Nonce::try_assume_unique_for_key(&okm[32..OKM_LEN])
-            .map_err(|_| crypto_failure())?;
+        let nonce =
+            Nonce::try_assume_unique_for_key(&okm[32..OKM_LEN]).map_err(|_| crypto_failure())?;
         sealing
             .seal_in_place_append_tag(nonce, Aad::from(&ad), &mut buf)
             .map_err(|_| crypto_failure())?;
@@ -417,7 +425,8 @@ const TAG_BYTES: u8 = 5;
 const TAG_STRINGS: u8 = 6;
 
 fn put_len(out: &mut Vec<u8>, n: usize) -> SyncResult<()> {
-    let n = u32::try_from(n).map_err(|_| SyncError::Persistence("field too large to seal".into()))?;
+    let n =
+        u32::try_from(n).map_err(|_| SyncError::Persistence("field too large to seal".into()))?;
     out.extend_from_slice(&n.to_be_bytes());
     Ok(())
 }
@@ -582,7 +591,11 @@ pub struct EncryptingBackend {
 }
 
 impl EncryptingBackend {
-    pub fn new(inner: Arc<dyn Backend>, zone: impl Into<String>, keys: Arc<dyn KeyProvider>) -> Self {
+    pub fn new(
+        inner: Arc<dyn Backend>,
+        zone: impl Into<String>,
+        keys: Arc<dyn KeyProvider>,
+    ) -> Self {
         Self {
             inner,
             cipher: RecordCipher::new(zone, keys),
@@ -625,16 +638,22 @@ impl EncryptingBackend {
                 Ok(opened)
             }
             Err(OpenError::Keys(e)) => {
-                self.counters.key_unavailable.fetch_add(1, Ordering::Relaxed);
-                self.observer.event("cipher_key_unavailable", &record.record_name);
+                self.counters
+                    .key_unavailable
+                    .fetch_add(1, Ordering::Relaxed);
+                self.observer
+                    .event("cipher_key_unavailable", &record.record_name);
                 Err(match e {
                     SyncError::Unavailable(_) | SyncError::RetryAfter { .. } => e,
                     other => SyncError::Unavailable(format!("cipher key: {other}")),
                 })
             }
             Err(OpenError::UnknownKeyVersion(v)) => {
-                self.counters.key_unavailable.fetch_add(1, Ordering::Relaxed);
-                self.observer.event("cipher_key_unavailable", &record.record_name);
+                self.counters
+                    .key_unavailable
+                    .fetch_add(1, Ordering::Relaxed);
+                self.observer
+                    .event("cipher_key_unavailable", &record.record_name);
                 Err(SyncError::Unavailable(format!(
                     "records are sealed with key version {v}, which this device does not hold yet"
                 )))
@@ -643,7 +662,8 @@ impl EncryptingBackend {
                 self.counters
                     .authentication_failed
                     .fetch_add(1, Ordering::Relaxed);
-                self.observer.event("cipher_record_corrupt", &record.record_name);
+                self.observer
+                    .event("cipher_record_corrupt", &record.record_name);
                 Ok(shell(record))
             }
             Err(OpenError::Malformed(why)) => {

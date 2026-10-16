@@ -252,9 +252,8 @@ impl AxNode {
 
 /// Decode the result of `Accessibility.getFullAXTree` (`{"nodes":[...]}`).
 pub(crate) fn parse_ax_tree(result: &Value) -> Vec<AxNode> {
-    let ax_value = |n: &Value, k: &str| -> Option<Value> {
-        n.get(k).and_then(|x| x.get("value")).cloned()
-    };
+    let ax_value =
+        |n: &Value, k: &str| -> Option<Value> { n.get(k).and_then(|x| x.get("value")).cloned() };
     let ax_text = |n: &Value, k: &str| -> Option<String> {
         ax_value(n, k).and_then(|v| match v {
             Value::String(s) => Some(s),
@@ -461,7 +460,9 @@ fn header_object(v: &Value) -> Vec<(String, String)> {
                 .map(|(k, v)| {
                     (
                         k.clone(),
-                        v.as_str().map(str::to_string).unwrap_or_else(|| v.to_string()),
+                        v.as_str()
+                            .map(str::to_string)
+                            .unwrap_or_else(|| v.to_string()),
                     )
                 })
                 .collect()
@@ -499,8 +500,16 @@ pub(crate) fn base64(bytes: &[u8]) -> String {
             | u32::from(*c.get(2).unwrap_or(&0));
         out.push(T[(n >> 18) as usize & 63] as char);
         out.push(T[(n >> 12) as usize & 63] as char);
-        out.push(if c.len() > 1 { T[(n >> 6) as usize & 63] as char } else { '=' });
-        out.push(if c.len() > 2 { T[n as usize & 63] as char } else { '=' });
+        out.push(if c.len() > 1 {
+            T[(n >> 6) as usize & 63] as char
+        } else {
+            '='
+        });
+        out.push(if c.len() > 2 {
+            T[n as usize & 63] as char
+        } else {
+            '='
+        });
     }
     out
 }
@@ -976,9 +985,15 @@ mod tests {
         let rel = DownloadBehavior::Allow {
             dir: PathBuf::from("downloads"),
         };
-        assert!(matches!(download_params(&rel), Err(BrowserError::Invalid(_))));
+        assert!(matches!(
+            download_params(&rel),
+            Err(BrowserError::Invalid(_))
+        ));
         let missing = tempfile::tempdir().unwrap().path().join("nope");
         let gone = DownloadBehavior::AllowAndName { dir: missing };
-        assert!(matches!(download_params(&gone), Err(BrowserError::Invalid(_))));
+        assert!(matches!(
+            download_params(&gone),
+            Err(BrowserError::Invalid(_))
+        ));
     }
 }

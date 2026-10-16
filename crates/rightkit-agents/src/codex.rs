@@ -306,9 +306,8 @@ pub fn approval_response_frame(id: &Value, decision: Decision) -> String {
 /// Newline-terminated JSON-RPC error response, used to refuse a server request this client
 /// does not implement so the server is never left waiting.
 pub fn error_response_frame(id: &Value, code: i64, message: &str) -> String {
-    let mut line =
-        json!({"jsonrpc": "2.0", "id": id, "error": {"code": code, "message": message}})
-            .to_string();
+    let mut line = json!({"jsonrpc": "2.0", "id": id, "error": {"code": code, "message": message}})
+        .to_string();
     line.push('\n');
     line
 }

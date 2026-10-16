@@ -203,7 +203,11 @@ mod tests {
     #[test]
     fn key_id_is_stable_distinct_and_parses() {
         let a = key(1, 1);
-        assert_eq!(a.key_id(), key(1, 7).key_id(), "id depends on the key, not the version");
+        assert_eq!(
+            a.key_id(),
+            key(1, 7).key_id(),
+            "id depends on the key, not the version"
+        );
         assert_ne!(a.key_id(), key(2, 1).key_id());
         assert_eq!(KeyId::parse(a.key_id().as_str()).unwrap(), *a.key_id());
         assert!(KeyId::parse("k123").is_err());
@@ -224,13 +228,25 @@ mod tests {
         let a2 = k.zone_key("heardright", "transcripts").unwrap();
         assert_eq!(a.as_bytes(), a2.as_bytes());
         assert_ne!(a.as_bytes(), k.expose_bytes(), "never the root itself");
-        assert_ne!(a.as_bytes(), k.zone_key("heardright", "other").unwrap().as_bytes());
-        assert_ne!(a.as_bytes(), k.zone_key("otherapp", "transcripts").unwrap().as_bytes());
+        assert_ne!(
+            a.as_bytes(),
+            k.zone_key("heardright", "other").unwrap().as_bytes()
+        );
+        assert_ne!(
+            a.as_bytes(),
+            k.zone_key("otherapp", "transcripts").unwrap().as_bytes()
+        );
         // Length prefixes: moving a byte between app and zone changes the key.
         let x = k.zone_key("ab", "c").unwrap();
         let y = k.zone_key("a", "bc").unwrap();
         assert_ne!(x.as_bytes(), y.as_bytes());
-        assert_ne!(a.as_bytes(), key(8, 1).zone_key("heardright", "transcripts").unwrap().as_bytes());
+        assert_ne!(
+            a.as_bytes(),
+            key(8, 1)
+                .zone_key("heardright", "transcripts")
+                .unwrap()
+                .as_bytes()
+        );
         assert_eq!(a.key_id(), k.key_id());
     }
 

@@ -649,12 +649,12 @@ mod tests {
         let (mut r, mut a) = handshake();
         let code = r.code().unwrap();
         let transfer = a.approve(&code, &key()).unwrap();
+        assert!(matches!(a.approve(&code, &key()), Err(Error::Protocol(_))));
+        r.accept(&code, &transfer).unwrap();
         assert!(matches!(
-            a.approve(&code, &key()),
+            r.accept(&code, &transfer),
             Err(Error::Protocol(_))
         ));
-        r.accept(&code, &transfer).unwrap();
-        assert!(matches!(r.accept(&code, &transfer), Err(Error::Protocol(_))));
         assert!(r.code().is_err());
     }
 
@@ -777,7 +777,10 @@ mod tests {
         let (mut a, offer) = Approver::receive_begin(ctx(), &begin).unwrap();
         let _ = r.receive_offer(&offer).unwrap();
         let forged = encode_reveal(&[0x55; NONCE_BYTES]);
-        assert_eq!(a.receive_reveal(&forged).unwrap_err(), Error::CommitmentMismatch);
+        assert_eq!(
+            a.receive_reveal(&forged).unwrap_err(),
+            Error::CommitmentMismatch
+        );
         assert!(a.code().is_err());
         // The session is burned; the genuine reveal no longer works either.
         assert!(a.receive_reveal(&encode_reveal(&[0; NONCE_BYTES])).is_err());
@@ -856,7 +859,8 @@ mod tests {
     #[test]
     fn rotated_key_reaches_a_new_device_end_to_end() {
         let ns = Namespace::new("test.rightkit.sync-keys.transfer").unwrap();
-        let store = |_: u8| Store::open(Config::new(ns.clone()).backend(Arc::new(MemoryBackend::new())));
+        let store =
+            |_: u8| Store::open(Config::new(ns.clone()).backend(Arc::new(MemoryBackend::new())));
         let existing = KeyManager::new(store(1), "acct-1").unwrap();
         let new_device = KeyManager::new(store(2), "acct-1").unwrap();
         existing.create_if_absent().unwrap();
@@ -868,12 +872,19 @@ mod tests {
             .approve(&a.code().unwrap(), &existing.require_current().unwrap())
             .unwrap();
         let received = r.accept(&code, &transfer).unwrap();
-        assert_eq!(new_device.install(&received, false).unwrap(), InstallOutcome::Advanced);
+        assert_eq!(
+            new_device.install(&received, false).unwrap(),
+            InstallOutcome::Advanced
+        );
 
         let theirs = new_device.require_current().unwrap();
         assert_eq!(theirs.version(), 2);
         assert_eq!(theirs.key_id(), rotated.key_id());
-        let z_old = existing.require_current().unwrap().zone_key("heardright", "transcripts").unwrap();
+        let z_old = existing
+            .require_current()
+            .unwrap()
+            .zone_key("heardright", "transcripts")
+            .unwrap();
         let z_new = theirs.zone_key("heardright", "transcripts").unwrap();
         assert_eq!(z_old.as_bytes(), z_new.as_bytes());
     }

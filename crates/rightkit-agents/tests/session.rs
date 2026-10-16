@@ -64,12 +64,18 @@ fn claude_child() {
         };
         match value["type"].as_str() {
             Some("user") => {
-                emit(json!({"type":"system","subtype":"init","session_id":"sess_f","model":"fake","tools":["Edit"],"permissionMode":"default"}));
-                emit(json!({"type":"control_request","request_id":"req_1","request":{"subtype":"can_use_tool","tool_name":"Edit","input":{"file_path":"/w/a.txt"}}}));
+                emit(
+                    json!({"type":"system","subtype":"init","session_id":"sess_f","model":"fake","tools":["Edit"],"permissionMode":"default"}),
+                );
+                emit(
+                    json!({"type":"control_request","request_id":"req_1","request":{"subtype":"can_use_tool","tool_name":"Edit","input":{"file_path":"/w/a.txt"}}}),
+                );
             }
             Some("control_response") => {
                 emit(json!({"type":"fake_echo","line":line}));
-                emit(json!({"type":"result","subtype":"success","is_error":false,"duration_ms":1,"num_turns":1,"total_cost_usd":0.0,"permission_denials":[]}));
+                emit(
+                    json!({"type":"result","subtype":"success","is_error":false,"duration_ms":1,"num_turns":1,"total_cost_usd":0.0,"permission_denials":[]}),
+                );
             }
             Some("control_request") => emit(json!({"type":"fake_echo","line":line})),
             _ => {}
@@ -96,11 +102,17 @@ fn codex_child() {
             (Some(id), Some("turn/start")) => {
                 let text = value["params"]["input"][0]["text"].as_str().unwrap_or("");
                 emit(json!({"id":id,"result":{"turn":{"id":"turn_f"}}}));
-                emit(json!({"method":"turn/started","params":{"threadId":"thr_f","turn":{"id":"turn_f","status":"inProgress"}}}));
+                emit(
+                    json!({"method":"turn/started","params":{"threadId":"thr_f","turn":{"id":"turn_f","status":"inProgress"}}}),
+                );
                 if text.contains("ask") {
-                    emit(json!({"jsonrpc":"2.0","id":"srv_1","method":"item/commandExecution/requestApproval","params":{"threadId":"thr_f","turnId":"turn_f","itemId":"i1","command":"rm -rf build"}}));
+                    emit(
+                        json!({"jsonrpc":"2.0","id":"srv_1","method":"item/commandExecution/requestApproval","params":{"threadId":"thr_f","turnId":"turn_f","itemId":"i1","command":"rm -rf build"}}),
+                    );
                 } else if text.contains("other") {
-                    emit(json!({"jsonrpc":"2.0","id":"srv_x","method":"x/unsupported","params":{}}));
+                    emit(
+                        json!({"jsonrpc":"2.0","id":"srv_x","method":"x/unsupported","params":{}}),
+                    );
                 } else {
                     finish_turn("completed");
                 }
@@ -114,7 +126,9 @@ fn codex_child() {
                 // A response to one of our server requests: echo it so the test can see it.
                 emit(json!({"method":"fake/echo","params":{"line":line}}));
                 if value["id"] == "srv_1" {
-                    emit(json!({"method":"serverRequest/resolved","params":{"threadId":"thr_f","requestId":"srv_1"}}));
+                    emit(
+                        json!({"method":"serverRequest/resolved","params":{"threadId":"thr_f","requestId":"srv_1"}}),
+                    );
                     finish_turn("completed");
                 }
             }
@@ -124,8 +138,12 @@ fn codex_child() {
 }
 
 fn finish_turn(status: &str) {
-    emit(json!({"method":"item/agentMessage/delta","params":{"threadId":"thr_f","turnId":"turn_f","itemId":"m","delta":"hi"}}));
-    emit(json!({"method":"turn/completed","params":{"threadId":"thr_f","turn":{"id":"turn_f","status":status,"durationMs":5}}}));
+    emit(
+        json!({"method":"item/agentMessage/delta","params":{"threadId":"thr_f","turnId":"turn_f","itemId":"m","delta":"hi"}}),
+    );
+    emit(
+        json!({"method":"turn/completed","params":{"threadId":"thr_f","turn":{"id":"turn_f","status":status,"durationMs":5}}}),
+    );
 }
 
 // ---------------------------------------------------------------- the test side
@@ -134,10 +152,15 @@ fn config(backend: Backend, kind: &str) -> SessionConfig {
     let mut config = SessionConfig::new(backend);
     config.command = Some(CommandOverride {
         program: std::env::current_exe().expect("current exe"),
-        args: ["fake_cli_child", "--exact", "--nocapture", "--test-threads=1"]
-            .iter()
-            .map(Into::into)
-            .collect(),
+        args: [
+            "fake_cli_child",
+            "--exact",
+            "--nocapture",
+            "--test-threads=1",
+        ]
+        .iter()
+        .map(Into::into)
+        .collect(),
     });
     config.env = vec![(KIND_ENV.into(), kind.into())];
     config.startup_timeout = WAIT;
@@ -272,7 +295,9 @@ fn claude_cancel_sends_interrupt_and_releases_pending_approvals() {
     assert!(session.cancel().unwrap());
     assert!(session.pending_approvals().is_empty());
     let events = collect_until(&session, |e| is_echo(e, "\"subtype\":\"interrupt\""));
-    assert!(events.iter().any(|e| is_echo(e, "\"type\":\"control_request\"")));
+    assert!(events
+        .iter()
+        .any(|e| is_echo(e, "\"type\":\"control_request\"")));
     clean_shutdown(session);
 }
 
@@ -290,9 +315,9 @@ fn codex_plain_turn_streams_text_and_a_result() {
     let session = codex();
     session.send_user_message("hello").unwrap();
     let events = collect_until(&session, is_result);
-    assert!(events.iter().any(
-        |e| matches!(e, SessionEvent::Agent(AgentEvent::TextDelta { text }) if text == "hi")
-    ));
+    assert!(events
+        .iter()
+        .any(|e| matches!(e, SessionEvent::Agent(AgentEvent::TextDelta { text }) if text == "hi")));
     assert!(matches!(
         events.last(),
         Some(SessionEvent::Agent(AgentEvent::Result { subtype, .. })) if subtype == "completed"
@@ -319,7 +344,10 @@ fn codex_decision(decision: ApprovalDecision, wire: &str) {
             .any(|e| is_echo(e, &format!("\"decision\":\"{wire}\""))),
         "no {wire} on the wire: {events:#?}"
     );
-    assert!(has_resolved(&events, "srv_1"), "server announces resolution");
+    assert!(
+        has_resolved(&events, "srv_1"),
+        "server announces resolution"
+    );
     clean_shutdown(session);
 }
 
@@ -358,14 +386,18 @@ fn codex_deny_with_interrupt_maps_to_cancel() {
 #[test]
 fn codex_cancel_releases_approvals_then_interrupts_the_turn() {
     let session = codex();
-    assert!(!session.cancel().unwrap(), "no turn yet, nothing to interrupt");
+    assert!(
+        !session.cancel().unwrap(),
+        "no turn yet, nothing to interrupt"
+    );
     session.send_user_message("ask").unwrap();
     collect_until(&session, is_approval);
     assert!(session.cancel().unwrap());
     assert!(session.pending_approvals().is_empty());
-    let events = collect_until(&session, |e| {
-        matches!(e, SessionEvent::Agent(AgentEvent::Result { subtype, .. }) if subtype == "interrupted")
-    });
+    let events = collect_until(
+        &session,
+        |e| matches!(e, SessionEvent::Agent(AgentEvent::Result { subtype, .. }) if subtype == "interrupted"),
+    );
     assert!(events.iter().any(|e| is_echo(e, "\"decision\":\"cancel\"")));
     assert!(events
         .iter()
@@ -403,10 +435,7 @@ fn codex_attach_resumes_an_existing_thread() {
 fn startup_failure_is_reported_and_leaves_no_session() {
     let mut cfg = config(Backend::Codex(CodexOptions::default()), "exit");
     cfg.startup_timeout = Duration::from_secs(10);
-    assert!(matches!(
-        Session::spawn(cfg),
-        Err(SessionError::Startup(_))
-    ));
+    assert!(matches!(Session::spawn(cfg), Err(SessionError::Startup(_))));
 }
 
 #[test]
@@ -434,8 +463,8 @@ fn shutdown_force_kills_a_child_that_ignores_stdin_close() {
 
 #[test]
 fn stream_reports_closed_when_the_cli_exits() {
-    let session = Session::spawn(config(Backend::Claude(ClaudeOptions::default()), "exit"))
-        .expect("spawn");
+    let session =
+        Session::spawn(config(Backend::Claude(ClaudeOptions::default()), "exit")).expect("spawn");
     collect_until(&session, |e| *e == SessionEvent::Closed);
     session.shutdown(None).unwrap();
 }

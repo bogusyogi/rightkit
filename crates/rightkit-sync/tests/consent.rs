@@ -291,8 +291,14 @@ fn start_fresh_keeps_existing_local_items_out_of_the_new_account() {
     r.local.put("c", "after consent", 30);
     let rep = r.engine.run_pass();
     assert_eq!(rep.outcome, PassOutcome::Synced);
-    assert!(r.zones[1].record("a").is_none(), "pre-existing item withheld");
-    assert!(r.zones[1].record("c").is_some(), "later items sync normally");
+    assert!(
+        r.zones[1].record("a").is_none(),
+        "pre-existing item withheld"
+    );
+    assert!(
+        r.zones[1].record("c").is_some(),
+        "later items sync normally"
+    );
     assert!(r.local.has("a"), "nothing local is deleted");
     assert!(r.local.has("z"));
 }

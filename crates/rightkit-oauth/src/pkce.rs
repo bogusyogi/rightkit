@@ -197,7 +197,9 @@ mod tests {
         let a = generate_state().unwrap();
         let b = generate_state().unwrap();
         assert_eq!(a.len(), 43);
-        assert!(a.bytes().all(|c| c.is_ascii_alphanumeric() || c == b'-' || c == b'_'));
+        assert!(a
+            .bytes()
+            .all(|c| c.is_ascii_alphanumeric() || c == b'-' || c == b'_'));
         assert_ne!(a, b);
     }
 

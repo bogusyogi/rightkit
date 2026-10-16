@@ -305,7 +305,10 @@ impl AdvancedHttp {
             }
         };
         #[cfg(feature = "testing")]
-        let address_policy = extensions.address_policy.clone().unwrap_or_else(base_policy);
+        let address_policy = extensions
+            .address_policy
+            .clone()
+            .unwrap_or_else(base_policy);
         #[cfg(not(feature = "testing"))]
         let address_policy = base_policy();
         let client = AsyncClient::new(ClientConfig {
@@ -973,8 +976,14 @@ mod loopback_host_tests {
 
     #[test]
     fn only_literal_loopback_hosts_qualify() {
-        assert_eq!(loopback_host("http://localhost:3000/mcp").as_deref(), Some("localhost"));
-        assert_eq!(loopback_host("http://127.0.0.1:8080").as_deref(), Some("127.0.0.1"));
+        assert_eq!(
+            loopback_host("http://localhost:3000/mcp").as_deref(),
+            Some("localhost")
+        );
+        assert_eq!(
+            loopback_host("http://127.0.0.1:8080").as_deref(),
+            Some("127.0.0.1")
+        );
         assert_eq!(loopback_host("http://[::1]:9000/x").as_deref(), Some("::1"));
         assert_eq!(loopback_host("http://localhost.evil.com/mcp"), None);
         assert_eq!(loopback_host("http://user@localhost/mcp"), None);

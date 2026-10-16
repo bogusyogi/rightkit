@@ -151,7 +151,9 @@ pub fn sync_config() -> SyncConfig {
 /// `rightkit-drive|<app>|<zone>|<account_id>`. `account_id` is any stable identifier of the Google
 /// account the app obtained (for example the OIDC `sub`, or the Drive `permissionId` of the user).
 pub fn account_scope(app: &str, zone: &str, account_id: &str) -> String {
-    rightkit_fs::digest::sha256_bytes(format!("rightkit-drive|{app}|{zone}|{account_id}").as_bytes())
+    rightkit_fs::digest::sha256_bytes(
+        format!("rightkit-drive|{app}|{zone}|{account_id}").as_bytes(),
+    )
 }
 
 /// The caller's Google session. Desktop implements it over `rightkit-oauth`'s loopback PKCE flow
@@ -220,7 +222,9 @@ impl AuthProvider for DriveAuth {
     fn availability(&self) -> SyncResult<()> {
         match self.source.access_token()? {
             Some(t) if !t.is_empty() => Ok(()),
-            _ => Err(SyncError::Unavailable("not signed in to Google Drive".into())),
+            _ => Err(SyncError::Unavailable(
+                "not signed in to Google Drive".into(),
+            )),
         }
     }
 
@@ -592,7 +596,9 @@ impl DriveBackend {
     fn token(&self) -> SyncResult<String> {
         match self.tokens.access_token()? {
             Some(t) if !t.is_empty() => Ok(t),
-            _ => Err(SyncError::Unavailable("not signed in to Google Drive".into())),
+            _ => Err(SyncError::Unavailable(
+                "not signed in to Google Drive".into(),
+            )),
         }
     }
 

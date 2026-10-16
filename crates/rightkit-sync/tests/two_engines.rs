@@ -150,7 +150,10 @@ fn a_record_one_engine_quarantined_is_never_published_by_the_other() {
 
     assert!(w.ec.engine.ledger().quarantined_total >= 1);
     assert_eq!(w.eh.engine.ledger().quarantined_total, 0);
-    assert!(w.zh.record("bad").is_none(), "the other engine never saw it");
+    assert!(
+        w.zh.record("bad").is_none(),
+        "the other engine never saw it"
+    );
     assert_eq!(
         w.zc.record("bad").unwrap().fields.len(),
         1,

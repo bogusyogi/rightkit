@@ -12,8 +12,8 @@
 //!
 //! Brand-neutral: callers choose the store root and lock-holder name.
 
-pub mod android;
 mod alias;
+pub mod android;
 mod archive_core;
 #[cfg(feature = "rightapps")]
 pub mod rightapps;

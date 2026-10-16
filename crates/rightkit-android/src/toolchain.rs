@@ -59,7 +59,10 @@ mod tests {
         let doc = include_str!("../TOOLCHAIN.md");
         for key in ["NDK_VERSION", "CARGO_NDK_VERSION", "BUILD_TOOLS_VERSION"] {
             let value = pinned(key).unwrap();
-            assert!(doc.contains(&value), "TOOLCHAIN.md does not mention {key}={value}");
+            assert!(
+                doc.contains(&value),
+                "TOOLCHAIN.md does not mention {key}={value}"
+            );
         }
     }
 
@@ -76,7 +79,10 @@ mod tests {
             "RUST_TARGETS",
             "JDK_MAJOR",
         ] {
-            assert!(pinned(key).is_some_and(|v| !v.is_empty()), "{key} is not pinned");
+            assert!(
+                pinned(key).is_some_and(|v| !v.is_empty()),
+                "{key} is not pinned"
+            );
         }
     }
 }

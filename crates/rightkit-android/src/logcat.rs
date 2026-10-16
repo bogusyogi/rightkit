@@ -76,7 +76,11 @@ pub fn prepare(
         return None;
     }
     let tag = no_nul(truncate_chars(tag, MAX_TAG_CHARS));
-    let tag = if tag.is_empty() { "RightKit".to_string() } else { tag };
+    let tag = if tag.is_empty() {
+        "RightKit".to_string()
+    } else {
+        tag
+    };
     let message = no_nul(truncate_bytes(message, MAX_MESSAGE_BYTES));
     Some((
         level.priority(),

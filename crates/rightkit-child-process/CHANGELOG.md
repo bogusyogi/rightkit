@@ -24,6 +24,9 @@
   and every other identity check is unchanged. Limit, unchanged by the OS: an unprivileged parent cannot signal a
   setuid-root child (`EPERM`), so `terminate_tree` and `kill` on such a child report that error; waiting for it works.
   Tests (`identity_tests.rs`): opaque check against the parent, missing still refuses, `/bin/ps` spawn and reap on macOS.
+  Follow-up: the GitHub macOS runner answers `proc_pidinfo` for a setuid child with an error (not zero bytes), which still
+  read as "unidentified". An error from the description now also yields an opaque child when the pid is proven to exist
+  (`kill(pid, 0)`), and the opaque proof treats a refused read as still unreadable. A pid that does not exist is still refused.
 - **Byte-exact bounded output capture (additive, issue #120).** `OutputCapture::capture(reader, max_bytes)` drains a
   child's stdout (or any stream) on a thread into `CapturedOutput { bytes, truncated, total_bytes }`: the first
   `max_bytes` bytes unmodified (trailing newline and non-UTF-8 bytes kept), the rest read and discarded so the child never

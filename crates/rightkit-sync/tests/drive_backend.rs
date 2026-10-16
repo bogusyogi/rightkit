@@ -103,12 +103,26 @@ fn prepare_creates_the_zone_folder_once_and_fetch_needs_it() {
 fn two_folders_of_one_name_resolve_to_the_smallest_id() {
     let d = FakeDrive::start(&["t1"]);
     d.with(|s| {
-        s.insert("appDataFolder", "notes", common::fake_drive::FOLDER_MIME, vec![], Some("zz-late"));
-        s.insert("appDataFolder", "notes", common::fake_drive::FOLDER_MIME, vec![], Some("aa-first"));
+        s.insert(
+            "appDataFolder",
+            "notes",
+            common::fake_drive::FOLDER_MIME,
+            vec![],
+            Some("zz-late"),
+        );
+        s.insert(
+            "appDataFolder",
+            "notes",
+            common::fake_drive::FOLDER_MIME,
+            vec![],
+            Some("aa-first"),
+        );
     });
     let b = backend(&d, "notes");
     b.prepare().unwrap();
-    save(&b, &rec("n1", 100, "v1"), SavePolicy::Overwrite).result.unwrap();
+    save(&b, &rec("n1", 100, "v1"), SavePolicy::Overwrite)
+        .result
+        .unwrap();
     d.with(|s| {
         let id = s.ids_named("n1.json").remove(0);
         assert_eq!(s.files[&id].parent, "aa-first");
@@ -127,9 +141,14 @@ fn save_and_fetch_round_trip_uses_the_documented_requests() {
     full.set("blob", FieldValue::Bytes(vec![0, 1, 255]));
     full.set("tags", FieldValue::Strings(vec!["a".into(), "b".into()]));
     let outcomes = b
-        .save_records(&[full.clone(), rec("n2", 101, "two")], SavePolicy::Overwrite)
+        .save_records(
+            &[full.clone(), rec("n2", 101, "two")],
+            SavePolicy::Overwrite,
+        )
         .unwrap();
-    assert!(outcomes.iter().all(|o| o.result.is_ok() && o.server_record.is_none()));
+    assert!(outcomes
+        .iter()
+        .all(|o| o.result.is_ok() && o.server_record.is_none()));
     assert_eq!(d.record_files(), 2);
 
     // The stored file is the shared wire encoding, without a change tag.
@@ -165,7 +184,9 @@ fn save_and_fetch_round_trip_uses_the_documented_requests() {
         .collect();
     assert!(uploads.len() >= 3);
     for u in &uploads {
-        assert!(u.query_pairs().contains(&("uploadType".into(), "multipart".into())));
+        assert!(u
+            .query_pairs()
+            .contains(&("uploadType".into(), "multipart".into())));
         assert!(u
             .header("content-type")
             .is_some_and(|c| c.starts_with("multipart/related; boundary=")));
@@ -186,7 +207,9 @@ fn first_fetch_lists_page_by_page_then_follows_the_change_feed() {
     let d = FakeDrive::start(&["t1"]);
     let writer = backend(&d, "notes");
     writer.prepare().unwrap();
-    let records: Vec<RawRecord> = (0..5).map(|i| rec(&format!("n{i}"), 100 + i, "v1")).collect();
+    let records: Vec<RawRecord> = (0..5)
+        .map(|i| rec(&format!("n{i}"), 100 + i, "v1"))
+        .collect();
     assert!(writer
         .save_records(&records, SavePolicy::Overwrite)
         .unwrap()
@@ -218,7 +241,10 @@ fn first_fetch_lists_page_by_page_then_follows_the_change_feed() {
         .iter()
         .filter(|r| r.path() == "/drive/v3/changes/startPageToken")
         .count();
-    assert_eq!(starts, 1, "the start token is read once, before the listing");
+    assert_eq!(
+        starts, 1,
+        "the start token is read once, before the listing"
+    );
 
     // Caught up.
     let page = reader.fetch_changes(since.as_deref()).unwrap();
@@ -229,11 +255,31 @@ fn first_fetch_lists_page_by_page_then_follows_the_change_feed() {
     let mut edit = rec("n2", 300, "v2");
     edit.change_tag = reader.fetch_record("n2").unwrap().unwrap().change_tag;
     save(&writer, &edit, SavePolicy::Overwrite).result.unwrap();
-    save(&writer, &rec("n9", 400, "new"), SavePolicy::Overwrite).result.unwrap();
+    save(&writer, &rec("n9", 400, "new"), SavePolicy::Overwrite)
+        .result
+        .unwrap();
     d.with(|s| {
-        s.insert("appDataFolder", "other.json", "application/json", b"{}".to_vec(), None);
-        let other = s.insert("appDataFolder", "other-zone", common::fake_drive::FOLDER_MIME, vec![], None);
-        s.insert(&other, "n7.json", "application/json", wire(&rec("n7", 1, "x")), None);
+        s.insert(
+            "appDataFolder",
+            "other.json",
+            "application/json",
+            b"{}".to_vec(),
+            None,
+        );
+        let other = s.insert(
+            "appDataFolder",
+            "other-zone",
+            common::fake_drive::FOLDER_MIME,
+            vec![],
+            None,
+        );
+        s.insert(
+            &other,
+            "n7.json",
+            "application/json",
+            wire(&rec("n7", 1, "x")),
+            None,
+        );
     });
     let page = reader.fetch_changes(since.as_deref()).unwrap();
     let got: Vec<(String, String)> = page
@@ -243,7 +289,10 @@ fn first_fetch_lists_page_by_page_then_follows_the_change_feed() {
         .collect();
     assert_eq!(
         got,
-        vec![("n2".to_string(), "v2".to_string()), ("n9".to_string(), "new".to_string())]
+        vec![
+            ("n2".to_string(), "v2".to_string()),
+            ("n9".to_string(), "new".to_string())
+        ]
     );
     let page2 = reader.fetch_changes(page.new_token.as_deref()).unwrap();
     assert!(page2.records.is_empty());
@@ -255,7 +304,9 @@ fn conditional_saves_conflict_with_the_server_record() {
     let b = backend(&d, "notes");
     b.prepare().unwrap();
 
-    save(&b, &rec("n1", 100, "v1"), SavePolicy::IfServerUnchanged).result.unwrap();
+    save(&b, &rec("n1", 100, "v1"), SavePolicy::IfServerUnchanged)
+        .result
+        .unwrap();
 
     // Creating a name that exists is refused and hands back the server's record.
     let o = save(&b, &rec("n1", 150, "dup"), SavePolicy::IfServerUnchanged);
@@ -267,7 +318,9 @@ fn conditional_saves_conflict_with_the_server_record() {
     // An edit on the fetched tag lands.
     let mut edit = rec("n1", 200, "v2");
     edit.change_tag = server.change_tag.clone();
-    save(&b, &edit, SavePolicy::IfServerUnchanged).result.unwrap();
+    save(&b, &edit, SavePolicy::IfServerUnchanged)
+        .result
+        .unwrap();
     assert_eq!(d.version_of("n1.json"), Some(2));
 
     // The same (now stale) tag is refused, with the current content and tag.
@@ -278,12 +331,18 @@ fn conditional_saves_conflict_with_the_server_record() {
     let now = o.server_record.unwrap();
     assert_eq!(text(&now), "v2");
     assert!(now.change_tag.as_deref().unwrap().ends_with(":2"));
-    assert_eq!(text(&d_record(&d, "n1.json")), "v2", "a refused save writes nothing");
+    assert_eq!(
+        text(&d_record(&d, "n1.json")),
+        "v2",
+        "a refused save writes nothing"
+    );
 
     // Retrying on the returned tag lands.
     let mut retry = rec("n1", 300, "v3");
     retry.change_tag = now.change_tag.clone();
-    save(&b, &retry, SavePolicy::IfServerUnchanged).result.unwrap();
+    save(&b, &retry, SavePolicy::IfServerUnchanged)
+        .result
+        .unwrap();
     assert_eq!(text(&d_record(&d, "n1.json")), "v3");
 
     // Another client wrote first: refused too.
@@ -307,7 +366,10 @@ fn conditional_saves_conflict_with_the_server_record() {
 
 fn d_record(d: &FakeDrive, file: &str) -> RawRecord {
     let v = d.content_json(file).expect("file content");
-    serde_json::from_value::<WireRecord>(v).unwrap().into_raw().unwrap()
+    serde_json::from_value::<WireRecord>(v)
+        .unwrap()
+        .into_raw()
+        .unwrap()
 }
 
 /// Drive documents no write precondition, so a competing write that commits between the
@@ -318,7 +380,9 @@ fn a_write_inside_the_check_then_write_window_is_overwritten() {
     let d = FakeDrive::start(&["t1"]);
     let b = backend(&d, "notes");
     b.prepare().unwrap();
-    save(&b, &rec("n1", 100, "v1"), SavePolicy::IfServerUnchanged).result.unwrap();
+    save(&b, &rec("n1", 100, "v1"), SavePolicy::IfServerUnchanged)
+        .result
+        .unwrap();
     let base = b.fetch_record("n1").unwrap().unwrap();
     let id = d.ids_named("n1.json").remove(0);
     let rival = wire(&rec("n1", 150, "rival"));
@@ -328,9 +392,15 @@ fn a_write_inside_the_check_then_write_window_is_overwritten() {
     });
     let mut mine = rec("n1", 200, "ours");
     mine.change_tag = base.change_tag;
-    save(&b, &mine, SavePolicy::IfServerUnchanged).result.unwrap();
+    save(&b, &mine, SavePolicy::IfServerUnchanged)
+        .result
+        .unwrap();
     assert_eq!(text(&d_record(&d, "n1.json")), "ours");
-    assert_eq!(d.version_of("n1.json"), Some(3), "the rival's write was version 2");
+    assert_eq!(
+        d.version_of("n1.json"),
+        Some(3),
+        "the rival's write was version 2"
+    );
 }
 
 #[test]
@@ -342,12 +412,22 @@ fn concurrent_creation_keeps_the_smallest_file_id() {
     let rival = wire(&rec("n1", 150, "rival"));
     d.hook_before_create(move |s| {
         let folder = s.folder_id("notes").unwrap();
-        s.insert(&folder, "n1.json", "application/json", rival, Some("a-rival"));
+        s.insert(
+            &folder,
+            "n1.json",
+            "application/json",
+            rival,
+            Some("a-rival"),
+        );
     });
     let o = save(&b, &rec("n1", 200, "ours"), SavePolicy::IfServerUnchanged);
     assert_eq!(o.result, Err(SyncError::Conflict));
     assert_eq!(text(&o.server_record.unwrap()), "rival");
-    assert_eq!(d.ids_named("n1.json"), vec!["a-rival".to_string()], "our duplicate was removed");
+    assert_eq!(
+        d.ids_named("n1.json"),
+        vec!["a-rival".to_string()],
+        "our duplicate was removed"
+    );
 
     // Overwrite create: the content goes into the winning file.
     let d = FakeDrive::start(&["t1"]);
@@ -356,9 +436,17 @@ fn concurrent_creation_keeps_the_smallest_file_id() {
     let rival = wire(&rec("n1", 150, "rival"));
     d.hook_before_create(move |s| {
         let folder = s.folder_id("notes").unwrap();
-        s.insert(&folder, "n1.json", "application/json", rival, Some("a-rival"));
+        s.insert(
+            &folder,
+            "n1.json",
+            "application/json",
+            rival,
+            Some("a-rival"),
+        );
     });
-    save(&b, &rec("n1", 200, "ours"), SavePolicy::Overwrite).result.unwrap();
+    save(&b, &rec("n1", 200, "ours"), SavePolicy::Overwrite)
+        .result
+        .unwrap();
     assert_eq!(d.ids_named("n1.json"), vec!["a-rival".to_string()]);
     assert_eq!(text(&d_record(&d, "n1.json")), "ours");
 
@@ -369,9 +457,17 @@ fn concurrent_creation_keeps_the_smallest_file_id() {
     let rival = wire(&rec("n1", 150, "rival"));
     d.hook_before_create(move |s| {
         let folder = s.folder_id("notes").unwrap();
-        s.insert(&folder, "n1.json", "application/json", rival, Some("zzz-rival"));
+        s.insert(
+            &folder,
+            "n1.json",
+            "application/json",
+            rival,
+            Some("zzz-rival"),
+        );
     });
-    save(&b, &rec("n1", 200, "ours"), SavePolicy::IfServerUnchanged).result.unwrap();
+    save(&b, &rec("n1", 200, "ours"), SavePolicy::IfServerUnchanged)
+        .result
+        .unwrap();
     assert_eq!(d.ids_named("n1.json").len(), 2);
 }
 
@@ -380,14 +476,22 @@ fn tombstones_are_kept_and_removed_files_are_not_deletions() {
     let d = FakeDrive::start(&["t1"]);
     let b = backend(&d, "notes");
     b.prepare().unwrap();
-    save(&b, &rec("n1", 100, "v1"), SavePolicy::Overwrite).result.unwrap();
-    save(&b, &rec("n2", 101, "v1"), SavePolicy::Overwrite).result.unwrap();
+    save(&b, &rec("n1", 100, "v1"), SavePolicy::Overwrite)
+        .result
+        .unwrap();
+    save(&b, &rec("n2", 101, "v1"), SavePolicy::Overwrite)
+        .result
+        .unwrap();
     let cursor = b.fetch_changes(None).unwrap().new_token;
 
     let mut t = b.fetch_record("n1").unwrap().unwrap();
     write_tombstone(&mut t, "n1", 500, &[]);
     save(&b, &t, SavePolicy::Overwrite).result.unwrap();
-    assert_eq!(d.record_files(), 2, "a deletion is a record write, not a Drive delete");
+    assert_eq!(
+        d.record_files(),
+        2,
+        "a deletion is a record write, not a Drive delete"
+    );
 
     let page = b.fetch_changes(cursor.as_deref()).unwrap();
     assert_eq!(page.records.len(), 1);
@@ -411,7 +515,9 @@ fn a_removed_zone_folder_is_reported_missing_and_recovers_after_prepare() {
     let d = FakeDrive::start(&["t1"]);
     let b = backend(&d, "notes");
     b.prepare().unwrap();
-    save(&b, &rec("n1", 100, "v1"), SavePolicy::Overwrite).result.unwrap();
+    save(&b, &rec("n1", 100, "v1"), SavePolicy::Overwrite)
+        .result
+        .unwrap();
     let cursor = b.fetch_changes(None).unwrap().new_token;
 
     d.delete_app_data();
@@ -424,7 +530,9 @@ fn a_removed_zone_folder_is_reported_missing_and_recovers_after_prepare() {
     b.prepare().unwrap();
     assert_eq!(d.folders("notes"), 1);
     assert!(b.fetch_changes(None).unwrap().records.is_empty());
-    save(&b, &rec("n1", 100, "again"), SavePolicy::Overwrite).result.unwrap();
+    save(&b, &rec("n1", 100, "again"), SavePolicy::Overwrite)
+        .result
+        .unwrap();
     assert_eq!(b.fetch_changes(None).unwrap().records.len(), 1);
 }
 
@@ -448,16 +556,31 @@ fn drive_errors_map_to_engine_classes() {
     assert!(is_retry(&b.fetch_record("x").unwrap_err(), 30.0));
     for status in [500, 502, 503, 504] {
         d.fail_next(status, &[], "backendError");
-        assert!(is_retry(&b.fetch_record("x").unwrap_err(), 30.0), "{status}");
+        assert!(
+            is_retry(&b.fetch_record("x").unwrap_err(), 30.0),
+            "{status}"
+        );
     }
     d.fail_next(403, &[], "storageQuotaExceeded");
-    assert!(matches!(b.fetch_record("x").unwrap_err(), SyncError::Unavailable(_)));
+    assert!(matches!(
+        b.fetch_record("x").unwrap_err(),
+        SyncError::Unavailable(_)
+    ));
     d.fail_next(403, &[], "insufficientPermissions");
-    assert!(matches!(b.fetch_record("x").unwrap_err(), SyncError::Unavailable(_)));
+    assert!(matches!(
+        b.fetch_record("x").unwrap_err(),
+        SyncError::Unavailable(_)
+    ));
     d.fail_next(400, &[], "badRequest");
-    assert!(matches!(b.fetch_record("x").unwrap_err(), SyncError::Unavailable(_)));
+    assert!(matches!(
+        b.fetch_record("x").unwrap_err(),
+        SyncError::Unavailable(_)
+    ));
     d.fail_next(409, &[], "conflict");
-    assert!(matches!(b.fetch_record("x").unwrap_err(), SyncError::Unavailable(_)));
+    assert!(matches!(
+        b.fetch_record("x").unwrap_err(),
+        SyncError::Unavailable(_)
+    ));
 
     // 404 on a record is "absent", never an error.
     assert_eq!(b.fetch_record("absent").unwrap(), None);
@@ -468,16 +591,19 @@ fn drive_errors_map_to_engine_classes() {
         SyncError::TokenExpired
     );
     assert_eq!(
-        b.fetch_changes(Some(&br#"{"v":1,"p":"chg","t":"99999"}"#[..])).unwrap_err(),
+        b.fetch_changes(Some(&br#"{"v":1,"p":"chg","t":"99999"}"#[..]))
+            .unwrap_err(),
         SyncError::TokenExpired
     );
     assert_eq!(
-        b.fetch_changes(Some(&br#"{"v":1,"p":"list","t":"zzz","s":"0"}"#[..])).unwrap_err(),
+        b.fetch_changes(Some(&br#"{"v":1,"p":"list","t":"zzz","s":"0"}"#[..]))
+            .unwrap_err(),
         SyncError::TokenExpired
     );
     d.fail_next(410, &[], "gone");
     assert_eq!(
-        b.fetch_changes(Some(&br#"{"v":1,"p":"chg","t":"0"}"#[..])).unwrap_err(),
+        b.fetch_changes(Some(&br#"{"v":1,"p":"chg","t":"0"}"#[..]))
+            .unwrap_err(),
         SyncError::TokenExpired
     );
 }
@@ -498,12 +624,18 @@ fn a_401_refreshes_the_token_once_then_reports_signed_out() {
 
     // No replacement: the second 401 is final.
     d.revoke("t2");
-    assert!(matches!(b.fetch_record("x").unwrap_err(), SyncError::Unavailable(_)));
+    assert!(matches!(
+        b.fetch_record("x").unwrap_err(),
+        SyncError::Unavailable(_)
+    ));
 
     // Signed out: nothing is sent.
     *tok.token.lock().unwrap() = None;
     let before = d.server.request_count();
-    assert!(matches!(b.fetch_record("x").unwrap_err(), SyncError::Unavailable(_)));
+    assert!(matches!(
+        b.fetch_record("x").unwrap_err(),
+        SyncError::Unavailable(_)
+    ));
     assert_eq!(d.server.request_count(), before);
 }
 
@@ -514,7 +646,10 @@ fn a_service_error_on_the_first_record_fails_the_call() {
     b.prepare().unwrap();
     d.fail_next(503, &[], "backendError");
     let err = b
-        .save_records(&[rec("n1", 1, "a"), rec("n2", 2, "b")], SavePolicy::Overwrite)
+        .save_records(
+            &[rec("n1", 1, "a"), rec("n2", 2, "b")],
+            SavePolicy::Overwrite,
+        )
         .unwrap_err();
     assert!(is_retry(&err, 30.0));
     assert_eq!(d.record_files(), 0);
@@ -546,9 +681,17 @@ fn unreadable_files_are_skipped_counted_and_never_overwritten() {
     b.prepare().unwrap();
     d.with(|s| {
         let folder = s.folder_id("notes").unwrap();
-        s.insert(&folder, "bad.json", "application/json", b"not json".to_vec(), None);
+        s.insert(
+            &folder,
+            "bad.json",
+            "application/json",
+            b"not json".to_vec(),
+            None,
+        );
     });
-    save(&b, &rec("good", 1, "ok"), SavePolicy::Overwrite).result.unwrap();
+    save(&b, &rec("good", 1, "ok"), SavePolicy::Overwrite)
+        .result
+        .unwrap();
     let page = b.fetch_changes(None).unwrap();
     assert_eq!(page.records.len(), 1);
     assert_eq!(b.malformed_skipped(), 1);
@@ -578,12 +721,21 @@ fn drive_auth_follows_the_token_source() {
     assert_ne!(auth.generation(), g, "disabling cancels an in-flight pass");
 
     *tok.token.lock().unwrap() = None;
-    assert!(matches!(auth.availability(), Err(SyncError::Unavailable(_))));
+    assert!(matches!(
+        auth.availability(),
+        Err(SyncError::Unavailable(_))
+    ));
 
     let closure = DriveAuth::new(Arc::new(FnToken(|| Ok(Some("abc".to_string())))));
     assert_eq!(closure.bearer().unwrap().as_deref(), Some("abc"));
 
-    assert_eq!(account_scope("app", "notes", "u1"), account_scope("app", "notes", "u1"));
-    assert_ne!(account_scope("app", "notes", "u1"), account_scope("app", "notes", "u2"));
+    assert_eq!(
+        account_scope("app", "notes", "u1"),
+        account_scope("app", "notes", "u1")
+    );
+    assert_ne!(
+        account_scope("app", "notes", "u1"),
+        account_scope("app", "notes", "u2")
+    );
     assert!(sync_config().require_consent_on_scope_change);
 }

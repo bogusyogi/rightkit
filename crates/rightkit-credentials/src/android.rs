@@ -153,7 +153,11 @@ fn key_alias(ns: &Namespace) -> String {
 
 /// The GCM additional authenticated data binding a blob to its entry.
 fn aad(ns: &Namespace, account: &str) -> Vec<u8> {
-    format!("rightkit-credentials/v1\u{1f}{}\u{1f}{account}", ns.service()).into_bytes()
+    format!(
+        "rightkit-credentials/v1\u{1f}{}\u{1f}{account}",
+        ns.service()
+    )
+    .into_bytes()
 }
 
 fn hex_encode(bytes: &[u8]) -> String {
@@ -630,7 +634,8 @@ mod tests {
         let ns = ns();
         assert!(!b.exists(&ns, "a", NI).unwrap());
         assert!(b.get(&ns, "a", NI).unwrap().is_none());
-        b.set(&ns, "a", &Secret::from_string("hunter2"), NI).unwrap();
+        b.set(&ns, "a", &Secret::from_string("hunter2"), NI)
+            .unwrap();
         assert!(b.exists(&ns, "a", NI).unwrap());
         assert_eq!(
             b.get(&ns, "a", NI).unwrap().unwrap().expose_str().unwrap(),
@@ -688,10 +693,7 @@ mod tests {
         fake.no_context.store(false, Ordering::SeqCst);
         b.set(&ns, "a", &s, NI).unwrap();
         fake.no_context.store(true, Ordering::SeqCst);
-        assert!(matches!(
-            b.get(&ns, "a", NI),
-            Err(Error::Unavailable(_))
-        ));
+        assert!(matches!(b.get(&ns, "a", NI), Err(Error::Unavailable(_))));
         assert!(b.exists(&ns, "a", NI).unwrap(), "presence needs no bridge");
         assert!(Error::Unavailable(String::new()).is_unavailable_or_blocked());
     }
@@ -700,10 +702,7 @@ mod tests {
     fn the_installed_store_is_unavailable_until_installed() {
         // No test in this module installs a configuration, so this holds in any order.
         let b = AndroidKeystoreBackend::system();
-        assert!(matches!(
-            b.get(&ns(), "a", NI),
-            Err(Error::Unavailable(_))
-        ));
+        assert!(matches!(b.get(&ns(), "a", NI), Err(Error::Unavailable(_))));
         assert!(matches!(
             b.exists(&ns(), "a", NI),
             Err(Error::Unavailable(_))
@@ -739,7 +738,9 @@ mod tests {
             Err(Error::Backend { code: -4, .. })
         ));
         assert!(b.exists(&ns, "a", NI).unwrap());
-        assert!(!b.add_if_absent(&ns, "a", &Secret::from_string("x"), NI).unwrap());
+        assert!(!b
+            .add_if_absent(&ns, "a", &Secret::from_string("x"), NI)
+            .unwrap());
         b.set(&ns, "a", &Secret::from_string("new"), NI).unwrap();
         assert_eq!(
             b.get(&ns, "a", NI).unwrap().unwrap().expose_str().unwrap(),
@@ -860,7 +861,10 @@ mod tests {
         aliases.sort();
         assert_eq!(
             aliases,
-            ["rightkit-credentials/app.one", "rightkit-credentials/app.two"]
+            [
+                "rightkit-credentials/app.one",
+                "rightkit-credentials/app.two"
+            ]
         );
     }
 
@@ -878,9 +882,14 @@ mod tests {
         );
         assert!(b.credential_identity(&ns, "").is_err());
         assert!(b.durable());
-        assert!(b.exclusion_identity().unwrap().starts_with("android-keystore:"));
+        assert!(b
+            .exclusion_identity()
+            .unwrap()
+            .starts_with("android-keystore:"));
         assert_eq!(
-            AndroidKeystoreBackend::system().exclusion_identity().as_deref(),
+            AndroidKeystoreBackend::system()
+                .exclusion_identity()
+                .as_deref(),
             Some("android-keystore")
         );
     }

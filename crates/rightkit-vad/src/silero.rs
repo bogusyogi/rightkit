@@ -386,7 +386,7 @@ mod tests {
 
 #[cfg(test)]
 mod provider_support_tests {
-    use super::ExecutionProvider::{Cpu, CoreMl, DirectMl};
+    use super::ExecutionProvider::{CoreMl, Cpu, DirectMl};
 
     #[test]
     fn android_like_targets_host_only_the_cpu_provider() {

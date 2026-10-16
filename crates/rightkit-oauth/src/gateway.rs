@@ -125,7 +125,6 @@ impl GatewayExchange {
     }
 }
 
-
 /// Strictly typed token response parse. Errors name the field, never its value.
 pub(crate) fn parse_gateway_tokens(v: &Value) -> Result<TokenSet, OAuthError> {
     let obj = v
@@ -137,10 +136,11 @@ pub(crate) fn parse_gateway_tokens(v: &Value) -> Result<TokenSet, OAuthError> {
     let token_type = string_field(obj, "token_type")?.unwrap_or_else(|| "Bearer".into());
     let expires_in = match obj.get("expires_in") {
         None | Some(Value::Null) => None,
-        Some(n) => Some(Duration::from_secs(
-            n.as_u64()
-                .ok_or_else(|| bad("expires_in must be a non-negative integer"))?,
-        )),
+        Some(n) => {
+            Some(Duration::from_secs(n.as_u64().ok_or_else(|| {
+                bad("expires_in must be a non-negative integer")
+            })?))
+        }
     };
     let refresh_token = string_field(obj, "refresh_token")?
         .filter(|s| !s.is_empty())

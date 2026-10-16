@@ -27,7 +27,10 @@ fn note_record() -> RawRecord {
     r.set("createdAt", FieldValue::Date(100));
     r.set("updatedAt", FieldValue::Date(500));
     r.set("text", FieldValue::Text("secret transcript".into()));
-    r.set("tags", FieldValue::Strings(vec!["a".into(), "b\u{e9}".into()]));
+    r.set(
+        "tags",
+        FieldValue::Strings(vec!["a".into(), "b\u{e9}".into()]),
+    );
     r.set("empty", FieldValue::Strings(vec![]));
     r.set("ratio", FieldValue::F64(1.5));
     r.set("count", FieldValue::I64(-7));
@@ -197,7 +200,11 @@ fn key_versions_rotate_without_losing_old_records() {
     let c = RecordCipher::new("notes", rotated);
     assert_eq!(c.open(&sealed_old), Ok(note_record()));
     let sealed_new = c.seal(&note_record()).unwrap();
-    assert_eq!(enc_bytes(&sealed_new)[1], 2, "new writes use the current version");
+    assert_eq!(
+        enc_bytes(&sealed_new)[1],
+        2,
+        "new writes use the current version"
+    );
     assert_eq!(c.open(&sealed_new), Ok(note_record()));
 
     let only_new = RecordCipher::new("notes", keys(2, 2));
@@ -227,7 +234,11 @@ impl KeyProvider for SwitchKeys {
 }
 
 fn enc_backend(zone: &MemoryBackend, keys: Arc<dyn KeyProvider>) -> Arc<EncryptingBackend> {
-    Arc::new(EncryptingBackend::new(Arc::new(zone.clone()), "notes", keys))
+    Arc::new(EncryptingBackend::new(
+        Arc::new(zone.clone()),
+        "notes",
+        keys,
+    ))
 }
 
 #[test]
@@ -259,7 +270,10 @@ fn two_devices_converge_through_the_cipher_and_the_zone_holds_no_plaintext() {
     assert!(b.local.text("n2").is_none());
 
     let tomb = zone.record("n2").unwrap();
-    assert!(tomb.date_ms("deletedAt").is_some(), "tombstone flag stays in clear");
+    assert!(
+        tomb.date_ms("deletedAt").is_some(),
+        "tombstone flag stays in clear"
+    );
     let names: Vec<&str> = tomb.fields.keys().map(String::as_str).collect();
     assert_eq!(names, vec!["deletedAt", "enc", "updatedAt"]);
     assert!(ea.stats().sealed >= 3 && eb.stats().opened >= 2);
@@ -312,9 +326,16 @@ fn a_missing_key_fails_the_pass_and_never_advances_the_cursor() {
         "{:?}",
         r.outcome
     );
-    assert!(c.engine.ledger().change_token.is_none(), "cursor stayed put");
+    assert!(
+        c.engine.ledger().change_token.is_none(),
+        "cursor stayed put"
+    );
     assert_eq!(c.local.len(), 0);
-    assert_eq!(c.engine.ledger().quarantined_total, 0, "nothing was quarantined");
+    assert_eq!(
+        c.engine.ledger().quarantined_total,
+        0,
+        "nothing was quarantined"
+    );
     assert!(backend.stats().key_unavailable >= 1);
 
     // The key arrives; the same pass resumes from the start without any replay request.
@@ -342,7 +363,11 @@ fn a_locked_key_provider_fails_the_pass_too() {
     a.pass();
     let mut c = device(enc_backend(&zone, Arc::new(Locked)), false);
     let r = c.pass();
-    assert!(matches!(r.outcome, PassOutcome::Unavailable(_)), "{:?}", r.outcome);
+    assert!(
+        matches!(r.outcome, PassOutcome::Unavailable(_)),
+        "{:?}",
+        r.outcome
+    );
     assert!(c.engine.ledger().change_token.is_none());
 }
 
@@ -372,7 +397,10 @@ fn corrupt_records_are_quarantined_and_never_block_the_page() {
     let r = b.pass();
     assert_eq!(r.outcome, PassOutcome::Synced);
     assert_eq!(r.quarantined, 2);
-    assert_eq!(b.local.snapshot(), vec![("n2".to_string(), "two".to_string())]);
+    assert_eq!(
+        b.local.snapshot(),
+        vec![("n2".to_string(), "two".to_string())]
+    );
     let s = backend.stats();
     assert_eq!((s.authentication_failed, s.malformed), (1, 1));
 }
@@ -391,7 +419,10 @@ fn wrong_keys_quarantine_and_a_replay_recovers_after_the_keys_are_fixed() {
     assert_eq!(r.outcome, PassOutcome::Synced);
     assert_eq!(r.quarantined, 2);
     assert_eq!(d.local.len(), 0);
-    assert!(d.engine.ledger().change_token.is_some(), "the cursor moved on");
+    assert!(
+        d.engine.ledger().change_token.is_some(),
+        "the cursor moved on"
+    );
 
     provider.set(StaticKeys::new(1, key(7)));
     d.engine.request_full_replay_once("keys-fixed");
@@ -443,7 +474,11 @@ fn a_tombstone_without_enc_is_quarantined_and_the_local_record_survives() {
     let r = b.pass();
     assert_eq!(r.quarantined, 1);
     assert_eq!(r.tombstones_applied, 0);
-    assert_eq!(b.local.text("n1").as_deref(), Some("one"), "the local record survives");
+    assert_eq!(
+        b.local.text("n1").as_deref(),
+        Some("one"),
+        "the local record survives"
+    );
     let s = backend_b.stats();
     assert_eq!(s.unauthenticated_tombstones, 1);
     assert_eq!(s.malformed, 0, "counted once, under its own reason");

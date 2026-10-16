@@ -111,7 +111,9 @@ impl Document {
         expected_revision: Option<u64>,
     ) -> Result<DocumentState, Error> {
         let Value::Object(patch) = patch else {
-            return Err(Error::Invalid("a document patch must be a JSON object".into()));
+            return Err(Error::Invalid(
+                "a document patch must be a JSON object".into(),
+            ));
         };
         let patch = patch.clone();
         let mut out = self.commit(version, expected_revision, move |cur| {

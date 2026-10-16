@@ -72,10 +72,7 @@ mod tests {
             jni_error_code(&jni::errors::Error::JavaException),
             JNI_EXCEPTION
         );
-        assert_eq!(
-            jni_error_code(&jni::errors::Error::NullPtr("x")),
-            JNI_NULL
-        );
+        assert_eq!(jni_error_code(&jni::errors::Error::NullPtr("x")), JNI_NULL);
         assert_eq!(
             jni_error_code(&jni::errors::Error::WrongJValueType("a", "b")),
             JNI_OTHER

@@ -24,7 +24,9 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
-use rightkit_http::{parse_retry_after, Client, ErrorClass, HttpError, Request, Response, RetryPolicy};
+use rightkit_http::{
+    parse_retry_after, Client, ErrorClass, HttpError, Request, Response, RetryPolicy,
+};
 use serde::Deserialize;
 use serde_json::{json, Value};
 
@@ -380,12 +382,16 @@ impl HttpBackend {
     }
 
     fn json_body(resp: &Response) -> SyncResult<Value> {
-        resp.json::<Value>().map_err(|_| malformed("body is not JSON"))
+        resp.json::<Value>()
+            .map_err(|_| malformed("body is not JSON"))
     }
 
     /// `GET /v1/sync/health` (no token): confirms the server speaks this protocol.
     pub fn health(&self) -> SyncResult<()> {
-        let resp = self.send(Request::get(format!("{}/v1/sync/health", self.origin)), false)?;
+        let resp = self.send(
+            Request::get(format!("{}/v1/sync/health", self.origin)),
+            false,
+        )?;
         let body = Self::json_body(&resp)?;
         if body.get("protocol").and_then(Value::as_str) == Some(PROTOCOL) {
             Ok(())
@@ -407,7 +413,8 @@ impl HttpBackend {
 
 impl Backend for HttpBackend {
     fn prepare(&self) -> SyncResult<()> {
-        self.post_json(self.zone_url.clone(), &json!({})).map(|_| ())
+        self.post_json(self.zone_url.clone(), &json!({}))
+            .map(|_| ())
     }
 
     fn fetch_changes(&self, since: Option<&[u8]>) -> SyncResult<ChangePage> {

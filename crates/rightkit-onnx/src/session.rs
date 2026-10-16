@@ -271,7 +271,8 @@ impl SessionOptions {
             }),
             Err(SessionError::MissingArtifact(p)) => Err(SessionError::MissingArtifact(p)),
             Err(error)
-                if self.cpu_fallback && (self.provider != ExecutionProvider::Cpu || self.xnnpack) =>
+                if self.cpu_fallback
+                    && (self.provider != ExecutionProvider::Cpu || self.xnnpack) =>
             {
                 let session = self.cpu_for_stage().build(&commit, what)?;
                 Ok(BuiltSession {

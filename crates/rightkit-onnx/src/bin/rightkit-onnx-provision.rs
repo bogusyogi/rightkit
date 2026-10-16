@@ -35,7 +35,9 @@ fn run() -> Result<(), String> {
             "--target" => {
                 let text = value("--target")?;
                 target = Some(ProvisionTarget::parse(&text).ok_or_else(|| {
-                    format!("unknown target {text:?}; use windows-x64, macos-arm64 or android-arm64")
+                    format!(
+                        "unknown target {text:?}; use windows-x64, macos-arm64 or android-arm64"
+                    )
                 })?);
             }
             "--catalog" => catalog = Some(PathBuf::from(value("--catalog")?)),

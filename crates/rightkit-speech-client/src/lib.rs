@@ -47,11 +47,11 @@ pub use protocol::{
     ServiceErrorPayload, ServiceRecord, ServiceRequest, TakeoverRequest, TimedWord,
     CAPABILITY_CANCEL, CAPABILITY_CAPTURE, CAPABILITY_FILE_TRANSCRIPTION, CAPABILITY_QUEUE,
     CAPABILITY_VERBATIM, ENGINE_PARAKEET, ENGINE_WHISPER, ERROR_ENGINE_UNAVAILABLE,
-    ERROR_HOST_HANDOFF, ERROR_JOB_UNKNOWN, ERROR_NOT_ALLOWED, QUEUE_KEEPALIVE_MS, QUEUE_RESULT_RETENTION_MS,
-    SCHEMA_CANCEL, SCHEMA_CAPTURE, SCHEMA_PROGRESS, SCHEMA_STATUS, SERVICE_ALLOWED_SCHEMAS,
-    SERVICE_ALLOWED_SCHEMAS_CAPTURE, SERVICE_NAME, SERVICE_PROTOCOL_MAJOR, SERVICE_PROTOCOL_MINOR,
-    SERVICE_PROTOCOL_MINOR_CAPTURE, SERVICE_PROTOCOL_MINOR_ENGINES, SERVICE_PROTOCOL_MINOR_QUEUE,
-    SERVICE_PROTOCOL_MINOR_VERBATIM, SPEECH_FAMILY,
+    ERROR_HOST_HANDOFF, ERROR_JOB_UNKNOWN, ERROR_NOT_ALLOWED, QUEUE_KEEPALIVE_MS,
+    QUEUE_RESULT_RETENTION_MS, SCHEMA_CANCEL, SCHEMA_CAPTURE, SCHEMA_PROGRESS, SCHEMA_STATUS,
+    SERVICE_ALLOWED_SCHEMAS, SERVICE_ALLOWED_SCHEMAS_CAPTURE, SERVICE_NAME, SERVICE_PROTOCOL_MAJOR,
+    SERVICE_PROTOCOL_MINOR, SERVICE_PROTOCOL_MINOR_CAPTURE, SERVICE_PROTOCOL_MINOR_ENGINES,
+    SERVICE_PROTOCOL_MINOR_QUEUE, SERVICE_PROTOCOL_MINOR_VERBATIM, SPEECH_FAMILY,
 };
 
 const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(10);
@@ -731,13 +731,19 @@ impl SpeechClient {
     /// connection and list the cancel frame.
     fn cancel_frame_known(&self) -> bool {
         self.record.protocol_minor >= SERVICE_PROTOCOL_MINOR_CAPTURE
-            && self.caps.as_ref().is_some_and(Capabilities::supports_cancel)
+            && self
+                .caps
+                .as_ref()
+                .is_some_and(Capabilities::supports_cancel)
     }
 
     /// Minor 4, known without a round trip: the host lists capture ownership.
     fn capture_known(&self) -> bool {
         self.record.protocol_minor >= SERVICE_PROTOCOL_MINOR_CAPTURE
-            && self.caps.as_ref().is_some_and(Capabilities::supports_capture)
+            && self
+                .caps
+                .as_ref()
+                .is_some_and(Capabilities::supports_capture)
     }
 
     /// The host accepts a cancel frame (protocol minor 4 and the `request_cancel` capability).
@@ -843,8 +849,11 @@ impl SpeechClient {
                 // A host that lists the cancel capability is told to stop the job. This is
                 // best effort and never waited on: Stop closes the connection at once.
                 if frame.schema_name == "file_transcription_request" && self.cancel_frame_known() {
-                    let cancel_frame =
-                        ServiceEnvelope::cancel_job(&next_request_id(), TRACE_ID, &frame.request_id);
+                    let cancel_frame = ServiceEnvelope::cancel_job(
+                        &next_request_id(),
+                        TRACE_ID,
+                        &frame.request_id,
+                    );
                     let _ = self.send_frame(&cancel_frame);
                 }
                 self.kill();

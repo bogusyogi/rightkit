@@ -619,8 +619,7 @@ impl Session {
             }
             Kind::Codex => {
                 for (_, pending) in &released {
-                    let frame =
-                        codex::approval_response_frame(&pending.wire_id, Decision::Cancel);
+                    let frame = codex::approval_response_frame(&pending.wire_id, Decision::Cancel);
                     self.shared.write_line(&frame)?;
                 }
                 let (Some(thread), Some(turn)) = (thread, turn) else {
@@ -664,7 +663,10 @@ impl Session {
 type Resolved = (Kind, PathBuf, Vec<OsString>, Value);
 
 fn resolve(config: &SessionConfig) -> Result<Resolved, SessionError> {
-    let cwd = config.cwd.as_ref().map(|path| path.to_string_lossy().into_owned());
+    let cwd = config
+        .cwd
+        .as_ref()
+        .map(|path| path.to_string_lossy().into_owned());
     match &config.backend {
         Backend::Claude(options) => {
             let mut options = options.clone();
@@ -674,7 +676,13 @@ fn resolve(config: &SessionConfig) -> Result<Resolved, SessionError> {
         }
         Backend::Codex(options) => {
             let params = codex::thread_params(options, cwd.as_deref());
-            Ok(pick(config, Kind::Codex, "codex", codex::build_args(), params))
+            Ok(pick(
+                config,
+                Kind::Codex,
+                "codex",
+                codex::build_args(),
+                params,
+            ))
         }
     }
 }
@@ -717,30 +725,31 @@ fn codex_reader(
 
     // Handshake. Anything that is not the awaited response is replayed afterwards.
     let mut backlog: Vec<String> = Vec::new();
-    let mut handshake = |method: &str, params: Value, backlog: &mut Vec<String>| -> Result<Value, String> {
-        let id = shared.next_request_id();
-        shared
-            .send_request(id, method, params)
-            .map_err(|error| format!("{method}: {error}"))?;
-        loop {
-            let Some(line) = next_line() else {
-                return Err(format!("app-server closed stdout during {method}"));
-            };
-            match codex::parse_line(&line) {
-                Ok(Incoming::Response {
-                    id: response_id,
-                    result,
-                    error,
-                }) if response_id == json!(id) => {
-                    return match error {
-                        Some(error) => Err(format!("{method} failed: {error}")),
-                        None => Ok(result.unwrap_or(Value::Null)),
-                    };
+    let mut handshake =
+        |method: &str, params: Value, backlog: &mut Vec<String>| -> Result<Value, String> {
+            let id = shared.next_request_id();
+            shared
+                .send_request(id, method, params)
+                .map_err(|error| format!("{method}: {error}"))?;
+            loop {
+                let Some(line) = next_line() else {
+                    return Err(format!("app-server closed stdout during {method}"));
+                };
+                match codex::parse_line(&line) {
+                    Ok(Incoming::Response {
+                        id: response_id,
+                        result,
+                        error,
+                    }) if response_id == json!(id) => {
+                        return match error {
+                            Some(error) => Err(format!("{method} failed: {error}")),
+                            None => Ok(result.unwrap_or(Value::Null)),
+                        };
+                    }
+                    _ => backlog.push(line),
                 }
-                _ => backlog.push(line),
             }
-        }
-    };
+        };
 
     let started = (|| {
         handshake(
@@ -751,7 +760,11 @@ fn codex_reader(
         shared
             .write_line(&json!({"jsonrpc": "2.0", "method": "initialized"}).to_string())
             .map_err(|error| format!("initialized: {error}"))?;
-        let method = if resume { "thread/resume" } else { "thread/start" };
+        let method = if resume {
+            "thread/resume"
+        } else {
+            "thread/start"
+        };
         let result = handshake(method, thread_params, &mut backlog)?;
         result
             .pointer("/thread/id")

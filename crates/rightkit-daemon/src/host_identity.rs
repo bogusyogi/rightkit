@@ -125,7 +125,10 @@ impl fmt::Display for HostIdentityReason {
                 write!(f, "the OS could not identify the peer ({why})")
             }
             HostIdentityReason::NotLocalPeer => {
-                write!(f, "the caller is not a local app, so it has no process to identify")
+                write!(
+                    f,
+                    "the caller is not a local app, so it has no process to identify"
+                )
             }
         }
     }
@@ -709,8 +712,7 @@ mod unix_impl {
                     Some(pid),
                     None,
                     HostIdentityReason::HostChanged(
-                        "the audit token and the process id name different processes"
-                            .to_string(),
+                        "the audit token and the process id name different processes".to_string(),
                     ),
                 ));
             }

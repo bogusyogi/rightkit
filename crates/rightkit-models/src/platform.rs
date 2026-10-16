@@ -74,7 +74,12 @@ mod android_tests {
     #[test]
     fn android_filters_match_only_android_hosts_and_the_triple_is_not_vetoed_by_linux() {
         let phone = Platform::new("android", "aarch64");
-        for filter in ["android", "android-aarch64", "aarch64-linux-android", "android-arm64"] {
+        for filter in [
+            "android",
+            "android-aarch64",
+            "aarch64-linux-android",
+            "android-arm64",
+        ] {
             assert!(phone.matches(filter), "{filter}");
         }
         assert!(!phone.matches("android-x86_64"));

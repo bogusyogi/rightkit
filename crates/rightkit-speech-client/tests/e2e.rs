@@ -1055,7 +1055,8 @@ fn cancel_hanging_job(c: &mut SpeechClient) -> ClientError {
     let mut opts = TranscribeOptions::new(Duration::from_secs(60))
         .request_id("job-cancel")
         .cancel_token(cancel);
-    c.transcribe(Path::new("/x/hang.wav"), &mut opts).unwrap_err()
+    c.transcribe(Path::new("/x/hang.wav"), &mut opts)
+        .unwrap_err()
 }
 
 #[test]
@@ -1069,7 +1070,10 @@ fn local_stop_sends_the_cancel_frame_to_a_minor_4_host_without_waiting_for_an_ac
     assert!(t.elapsed() < Duration::from_secs(3), "{:?}", t.elapsed());
     let frames = e.state.join("cancel_frames");
     assert!(wait_for(&frames, 5), "the host received the cancel frame");
-    assert_eq!(std::fs::read_to_string(&frames).unwrap().trim(), "job-cancel");
+    assert_eq!(
+        std::fs::read_to_string(&frames).unwrap().trim(),
+        "job-cancel"
+    );
 }
 
 #[test]

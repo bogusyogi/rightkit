@@ -129,7 +129,10 @@ fn conditional_saves_report_conflicts_with_the_server_record() {
     assert_eq!(o.result, Err(SyncError::Conflict));
     let server_rec = o.server_record.expect("conflict carries the server record");
     assert_eq!(server_rec.change_tag.as_deref(), Some("1"));
-    assert_eq!(server_rec.get("enc"), Some(&FieldValue::Bytes(b"v1".to_vec())));
+    assert_eq!(
+        server_rec.get("enc"),
+        Some(&FieldValue::Bytes(b"v1".to_vec()))
+    );
 
     // Update with the tag we saw.
     let mut upd = sealed("n1", 200, b"v2");
@@ -180,7 +183,9 @@ fn plaintext_fields_and_unversioned_records_are_refused_before_anything_is_sent(
 
     let mut undated = RawRecord::new("Note", "n2");
     undated.set("enc", FieldValue::Bytes(vec![1]));
-    let e = b.save_records(&[undated], SavePolicy::Overwrite).unwrap_err();
+    let e = b
+        .save_records(&[undated], SavePolicy::Overwrite)
+        .unwrap_err();
     assert!(matches!(e, SyncError::Persistence(_)), "{e:?}");
 
     assert_eq!(server.server.request_count(), sent, "nothing went out");
@@ -297,7 +302,10 @@ fn requests_carry_the_bearer_and_accounts_are_isolated_and_erasable() {
     assert_eq!(erase.method, "DELETE");
     assert_eq!(erase.header("x-rightkit-confirm"), Some("erase-account"));
     assert_eq!(b1.fetch_changes(None).unwrap_err(), SyncError::ZoneMissing);
-    assert!(b2.fetch_record("n1").unwrap().is_some(), "other account untouched");
+    assert!(
+        b2.fetch_record("n1").unwrap().is_some(),
+        "other account untouched"
+    );
 }
 
 #[test]
@@ -329,7 +337,10 @@ fn auth_follows_the_session_and_the_toggle() {
     assert!(auth.generation() > g, "disabling cancels an in-flight pass");
 
     *tok.token.lock().unwrap() = None;
-    assert!(matches!(auth.availability(), Err(SyncError::Unavailable(_))));
+    assert!(matches!(
+        auth.availability(),
+        Err(SyncError::Unavailable(_))
+    ));
 }
 
 #[test]
@@ -337,7 +348,10 @@ fn account_scope_binds_app_zone_account_and_key_id() {
     let base = account_scope("heardright", "history", "acct-1", "key-1");
     assert_eq!(base.len(), 64);
     assert!(base.bytes().all(|c| c.is_ascii_hexdigit()));
-    assert_eq!(base, account_scope("heardright", "history", "acct-1", "key-1"));
+    assert_eq!(
+        base,
+        account_scope("heardright", "history", "acct-1", "key-1")
+    );
     for other in [
         account_scope("other", "history", "acct-1", "key-1"),
         account_scope("heardright", "other", "acct-1", "key-1"),
@@ -356,6 +370,10 @@ fn an_engine_over_a_bare_http_backend_fails_closed_instead_of_sending_plaintext(
     let mut d = device(b, false);
     d.local.put("n1", "secret transcript", 100, 100);
     let r = d.pass();
-    assert!(matches!(r.outcome, PassOutcome::Failed(_)), "{:?}", r.outcome);
+    assert!(
+        matches!(r.outcome, PassOutcome::Failed(_)),
+        "{:?}",
+        r.outcome
+    );
     assert!(server.records("acct", "notes").is_empty());
 }

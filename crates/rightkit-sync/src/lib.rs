@@ -21,7 +21,8 @@ pub mod wire;
 
 pub use backoff::BackoffPolicy;
 pub use engine::{
-    ConsentChoice, PassOutcome, PassReport, SyncConfig, SyncEngine, SyncEngineBuilder, SyncMetrics, SyncStatus,
+    ConsentChoice, PassOutcome, PassReport, SyncConfig, SyncEngine, SyncEngineBuilder, SyncMetrics,
+    SyncStatus,
 };
 pub use error::{SyncError, SyncResult};
 pub use ledger::{ConsentRequest, Ledger, LedgerStore, RemoteVersion};

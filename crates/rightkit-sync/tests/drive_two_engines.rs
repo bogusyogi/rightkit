@@ -91,11 +91,21 @@ fn two_devices_converge_through_drive_with_edits_deletes_and_a_late_joiner() {
     let left = pairs(&[("n3", "v1")]);
     assert_eq!(x.local.snapshot(), left);
     assert_eq!(y.local.snapshot(), left);
-    assert_eq!(d.record_files(), 3, "tombstones are records, not Drive deletes");
+    assert_eq!(
+        d.record_files(),
+        3,
+        "tombstones are records, not Drive deletes"
+    );
     for name in ["n1.json", "n2.json"] {
         let v = d.content_json(name).unwrap();
-        assert!(v["fields"]["deletedAt"].is_object(), "{name} is a tombstone: {v}");
-        assert!(v["fields"].get("text").is_none(), "{name}: tombstone clears content");
+        assert!(
+            v["fields"]["deletedAt"].is_object(),
+            "{name} is a tombstone: {v}"
+        );
+        assert!(
+            v["fields"].get("text").is_none(),
+            "{name}: tombstone clears content"
+        );
     }
 
     // A delete races a later edit: the tombstone wins everywhere.
@@ -151,14 +161,24 @@ fn a_conflict_found_by_the_version_check_is_resolved_by_the_conflict_policy() {
         if remote_updated > 500 {
             // The other device is newer: last-writer-wins takes its record, nothing is uploaded.
             assert_eq!(x.local.text("n1").as_deref(), Some("other-device"));
-            assert_eq!(d.content_json("n1.json").unwrap()["fields"]["text"]["v"], "other-device");
+            assert_eq!(
+                d.content_json("n1.json").unwrap()["fields"]["text"]["v"],
+                "other-device"
+            );
         } else {
             // X is newer: the engine re-saves on top of the server's tag.
             assert_eq!(x.local.text("n1").as_deref(), Some("x-local"));
-            assert_eq!(d.content_json("n1.json").unwrap()["fields"]["text"]["v"], "x-local");
+            assert_eq!(
+                d.content_json("n1.json").unwrap()["fields"]["text"]["v"],
+                "x-local"
+            );
         }
         settle(&d, &mut [&mut x, &mut y]);
-        let want = if remote_updated > 500 { "other-device" } else { "x-local" };
+        let want = if remote_updated > 500 {
+            "other-device"
+        } else {
+            "x-local"
+        };
         assert_eq!(x.local.text("n1").as_deref(), Some(want));
         assert_eq!(y.local.text("n1").as_deref(), Some(want));
     }

@@ -1069,7 +1069,8 @@ fn forget_device_requires_revocation_and_lets_the_same_key_enrol_again() {
     assert!(h.daemon.revoke_device(&dev.id).unwrap());
     let code = h.daemon.issue_enrolment_code(ALL_SCOPES, 600).unwrap();
     assert_eq!(
-        h.call(dev.enrol_request(&code, h.now(), &next_nonce())).status,
+        h.call(dev.enrol_request(&code, h.now(), &next_nonce()))
+            .status,
         409
     );
 

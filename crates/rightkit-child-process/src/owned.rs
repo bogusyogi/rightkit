@@ -619,11 +619,7 @@ impl OwnedChild {
     pub fn wait_then_kill(&mut self, grace: Duration) -> io::Result<WaitOutcome> {
         self.wait_or_kill_inner(grace, false)
     }
-    fn wait_or_kill_inner(
-        &mut self,
-        grace: Duration,
-        term_first: bool,
-    ) -> io::Result<WaitOutcome> {
+    fn wait_or_kill_inner(&mut self, grace: Duration, term_first: bool) -> io::Result<WaitOutcome> {
         #[cfg(not(unix))]
         let _ = term_first;
         #[cfg(unix)]

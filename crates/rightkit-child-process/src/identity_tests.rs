@@ -1068,7 +1068,10 @@ fn an_opaque_origin_is_not_missing_and_is_checked_against_the_parent() {
     assert_eq!(Origin::Opaque.check(pid).expect("check"), Proof::Same);
     // A process that is not our child (this very test's parent) is a different one.
     let foreign = std::os::unix::process::parent_id();
-    assert_eq!(Origin::Opaque.check(foreign).expect("check"), Proof::Changed);
+    assert_eq!(
+        Origin::Opaque.check(foreign).expect("check"),
+        Proof::Changed
+    );
     // `Missing` still refuses every action by pid.
     assert!(Origin::Missing.check(pid).is_err());
     assert!(crate::identity::exists(pid));

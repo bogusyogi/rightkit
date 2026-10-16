@@ -123,7 +123,10 @@ fn matching_code_enrols_the_key_and_the_code_never_leaves_the_host() {
 
     // No event carries the code.
     let all = serde_json::to_string(&h.daemon.events()).unwrap();
-    assert!(!all.contains(&shown_on_device), "the code leaked into an event");
+    assert!(
+        !all.contains(&shown_on_device),
+        "the code leaked into an event"
+    );
     assert_eq!(h.events("PAIRING_CONFIRMED").len(), 1);
     assert_eq!(h.events("ENROLLED").len(), 1);
 }
@@ -213,7 +216,10 @@ fn sessions_and_windows_are_capped_and_expire() {
     assert_eq!(post(&h, "/v1/pair", &begin_for(1)).status, 201);
     assert_eq!(post(&h, "/v1/pair", &begin_for(2)).status, 201);
     let full = post(&h, "/v1/pair", &begin_for(3));
-    assert_eq!((full.status, full.body["error"].as_str()), (429, Some("too_many_pending")));
+    assert_eq!(
+        (full.status, full.body["error"].as_str()),
+        (429, Some("too_many_pending"))
+    );
 
     // A session is gone after its time, which frees its slot.
     h.advance(61);
@@ -222,7 +228,10 @@ fn sessions_and_windows_are_capped_and_expire() {
 
     // The window accepts a fixed number of sessions in total.
     let spent = post(&h, "/v1/pair", &begin_for(5));
-    assert_eq!((spent.status, spent.body["error"].as_str()), (429, Some("too_many_attempts")));
+    assert_eq!(
+        (spent.status, spent.body["error"].as_str()),
+        (429, Some("too_many_attempts"))
+    );
 
     // A window that is not used lapses, and its sessions go with it.
     h.advance(300);
@@ -266,7 +275,10 @@ fn wrong_codes_burn_the_session_and_repeated_failures_close_the_window() {
 fn malformed_and_misrouted_pairing_requests_are_refused() {
     let h = Harness::new();
     open(&h);
-    assert_eq!(post(&h, "/v1/pair", &json!({ "publicKey": "x" })).status, 400);
+    assert_eq!(
+        post(&h, "/v1/pair", &json!({ "publicKey": "x" })).status,
+        400
+    );
     assert_eq!(get(&h, "/v1/pair").status, 405);
     assert_eq!(get(&h, "/v1/pair/not-an-id").status, 404);
     assert_eq!(
@@ -351,7 +363,8 @@ fn forgetting_removes_every_trace_of_a_revoked_device_and_is_repeatable() {
     let again = h.call(dev.enrol_request(&code, h.now(), &next_nonce()));
     assert_eq!(again.status, 201, "{:?}", again.body);
     assert_eq!(
-        dev.call(&h, "GET", &format!("/v1/uploads/{up}"), b"").status,
+        dev.call(&h, "GET", &format!("/v1/uploads/{up}"), b"")
+            .status,
         404
     );
     let replay = dev.patch_job(&h, "job-1", 0, "idem-1", &json!({ "x": 1 }));

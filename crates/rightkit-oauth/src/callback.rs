@@ -198,8 +198,7 @@ impl CallbackListener {
                     match listener.accept() {
                         Ok((stream, _)) => {
                             busy = true;
-                            if pending.len() < MAX_PENDING && stream.set_nonblocking(true).is_ok()
-                            {
+                            if pending.len() < MAX_PENDING && stream.set_nonblocking(true).is_ok() {
                                 pending.push(Pending::new(stream));
                             }
                         }
@@ -300,7 +299,12 @@ impl CallbackListener {
                 Some(Ok(Secret::new(code)))
             }
             None => {
-                respond(stream, "400 Bad Request", "Missing authorization code.", &[]);
+                respond(
+                    stream,
+                    "400 Bad Request",
+                    "Missing authorization code.",
+                    &[],
+                );
                 Some(Err(OAuthError::Callback(
                     "callback did not contain a code".into(),
                 )))

@@ -86,12 +86,19 @@ fn listener_ignores_strays_and_returns_only_the_valid_callback() {
     let mut near = state.clone().into_bytes();
     near[0] = if near[0] == b'A' { b'B' } else { b'A' };
     let near = String::from_utf8(near).unwrap();
-    assert!(status(&get(port, &format!("/oauth/callback?code=stolen&state={near}"))).contains("400"));
+    assert!(status(&get(
+        port,
+        &format!("/oauth/callback?code=stolen&state={near}")
+    ))
+    .contains("400"));
     assert!(!handle.is_finished(), "a stray request ended the flow");
 
     let ok = get(
         port,
-        &format!("/oauth/callback?code=real-code&state={}", percent_encode(&state)),
+        &format!(
+            "/oauth/callback?code=real-code&state={}",
+            percent_encode(&state)
+        ),
     );
     assert!(status(&ok).contains("200"));
     assert!(ok.contains("Authorization complete"));
@@ -109,7 +116,10 @@ fn provider_error_with_valid_state_ends_the_flow() {
     let l = listener(&state);
     let port = l.port();
     let handle = spawn_wait(l, Duration::from_secs(10));
-    get(port, &format!("/oauth/callback?error=access_denied&state={state}"));
+    get(
+        port,
+        &format!("/oauth/callback?error=access_denied&state={state}"),
+    );
     assert!(matches!(
         handle.join().unwrap(),
         Err(OAuthError::AccessDenied)
@@ -118,7 +128,10 @@ fn provider_error_with_valid_state_ends_the_flow() {
     let l = listener(&state);
     let port = l.port();
     let handle = spawn_wait(l, Duration::from_secs(10));
-    get(port, &format!("/oauth/callback?error=server_error&state={state}"));
+    get(
+        port,
+        &format!("/oauth/callback?error=server_error&state={state}"),
+    );
     let err = handle.join().unwrap().unwrap_err();
     assert!(matches!(err, OAuthError::Callback(m) if m.contains("server_error")));
 
@@ -162,10 +175,7 @@ fn wait_is_bounded_and_cancellable() {
     let handle = thread::spawn(move || l.wait(Duration::from_secs(30), Some(&t2)));
     thread::sleep(Duration::from_millis(100));
     token.cancel();
-    assert!(matches!(
-        handle.join().unwrap(),
-        Err(OAuthError::Cancelled)
-    ));
+    assert!(matches!(handle.join().unwrap(), Err(OAuthError::Cancelled)));
 
     for bad in [Duration::ZERO, Duration::from_secs(60 * 60 + 1)] {
         assert!(matches!(
@@ -178,13 +188,18 @@ fn wait_is_bounded_and_cancellable() {
 #[test]
 fn bind_validates_state_and_path_and_stays_on_loopback() {
     assert!(CallbackListener::bind("short", CallbackOptions::default()).is_err());
-    assert!(CallbackListener::bind("has space in the state value", CallbackOptions::default()).is_err());
+    assert!(
+        CallbackListener::bind("has space in the state value", CallbackOptions::default()).is_err()
+    );
     for path in ["callback", "/a?b=c", "/a#f", "/a b", ""] {
         let opts = CallbackOptions {
             path: path.into(),
             ..CallbackOptions::default()
         };
-        assert!(CallbackListener::bind(pkce::generate_state().unwrap(), opts).is_err(), "{path:?}");
+        assert!(
+            CallbackListener::bind(pkce::generate_state().unwrap(), opts).is_err(),
+            "{path:?}"
+        );
     }
 
     let l = listener(&pkce::generate_state().unwrap());
@@ -195,7 +210,6 @@ fn bind_validates_state_and_path_and_stays_on_loopback() {
     );
     let addrs = l.local_addrs();
     assert!(!addrs.is_empty() && addrs.iter().all(|a| a.ip().is_loopback()));
-
 
     // Two ephemeral listeners never collide.
     let l2 = listener(&pkce::generate_state().unwrap());
@@ -252,7 +266,10 @@ fn full_flow_listener_then_gateway_exchange() {
         assert_eq!(request.header("accept"), Some("application/json"));
         let body = request.body_json();
         assert_eq!(body["code"], "auth-code-1");
-        assert_eq!(body["redirect_uri"], format!("http://127.0.0.1:{port}/oauth/callback"));
+        assert_eq!(
+            body["redirect_uri"],
+            format!("http://127.0.0.1:{port}/oauth/callback")
+        );
         assert_eq!(body["resource"], "https://mcp.example/api");
         // The gateway can check S256 binding with the public helper.
         let verifier = body["code_verifier"].as_str().unwrap();
@@ -270,7 +287,10 @@ fn full_flow_listener_then_gateway_exchange() {
     get(port, "/favicon.ico");
     get(
         port,
-        &format!("/oauth/callback?code=auth-code-1&state={}", percent_encode(&state)),
+        &format!(
+            "/oauth/callback?code=auth-code-1&state={}",
+            percent_encode(&state)
+        ),
     );
     let code = handle.join().unwrap().unwrap();
 
@@ -283,7 +303,10 @@ fn full_flow_listener_then_gateway_exchange() {
     assert_eq!(tokens.access_token(), "gw-access");
     assert_eq!(tokens.token_type, "Bearer");
     assert_eq!(tokens.expires_in, Some(Duration::from_secs(1800)));
-    assert_eq!(tokens.refresh_token.as_ref().unwrap().expose(), "gw-refresh");
+    assert_eq!(
+        tokens.refresh_token.as_ref().unwrap().expose(),
+        "gw-refresh"
+    );
     assert_eq!(tokens.scope.as_deref(), Some("a b"));
     assert_eq!(gateway.request_count(), 1);
     let debug = format!("{tokens:?}");
@@ -325,7 +348,10 @@ fn gateway_errors_are_typed_and_never_echo_credentials() {
         .unwrap_err();
     let text = format!("{e} {e:?}");
     assert!(matches!(e, OAuthError::Provider { .. }));
-    assert!(!text.contains("code-SECRET-77") && !text.contains(&v), "{text}");
+    assert!(
+        !text.contains("code-SECRET-77") && !text.contains(&v),
+        "{text}"
+    );
 
     let echo_v = v.clone();
     let gw = MockServer::start(move |_, _| {
@@ -340,7 +366,10 @@ fn gateway_errors_are_typed_and_never_echo_credentials() {
         .unwrap_err();
     let text = format!("{e} {e:?}");
     assert!(matches!(e, OAuthError::Provider { .. }));
-    assert!(!text.contains("code-SECRET-77") && !text.contains(&v), "{text}");
+    assert!(
+        !text.contains("code-SECRET-77") && !text.contains(&v),
+        "{text}"
+    );
 
     // A server fault is an HTTP error.
     let gw = MockServer::start(|_, _| MockResponse::text(502, "bad gateway"));
@@ -348,7 +377,10 @@ fn gateway_errors_are_typed_and_never_echo_credentials() {
         .unwrap()
         .exchange(&client(), "c1", &v, None)
         .unwrap_err();
-    assert!(matches!(e, OAuthError::Provider { status: 502, .. } | OAuthError::Http(_)));
+    assert!(matches!(
+        e,
+        OAuthError::Provider { status: 502, .. } | OAuthError::Http(_)
+    ));
 }
 
 #[test]
@@ -388,7 +420,9 @@ fn gateway_validates_inputs_before_any_request() {
     assert!(GatewayExchange::new("ftp://gateway.example/exchange").is_err());
     assert!(GatewayExchange::new("https://gateway.example/exchange").is_ok());
 
-    let gw = MockServer::start(|_, _| MockResponse::json(200, &serde_json::json!({"access_token": "a"})));
+    let gw = MockServer::start(|_, _| {
+        MockResponse::json(200, &serde_json::json!({"access_token": "a"}))
+    });
     let g = GatewayExchange::new(gw.url("/x")).unwrap();
     let v = verifier();
     assert!(g.exchange(&client(), "", &v, None).is_err());

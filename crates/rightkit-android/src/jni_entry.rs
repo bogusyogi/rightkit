@@ -44,7 +44,14 @@ pub extern "system" fn Java_com_orthiclabs_rightkit_android_RightKitNative_nativ
         ) else {
             return InitCode::Jni;
         };
-        match initialise(&mut env, &context, &files, &cache, &native, debug_logging != 0) {
+        match initialise(
+            &mut env,
+            &context,
+            &files,
+            &cache,
+            &native,
+            debug_logging != 0,
+        ) {
             Ok(()) => InitCode::Ok,
             Err(code) => code,
         }

@@ -349,7 +349,12 @@ fn handle(state: &Mutex<DriveState>, req: &RecordedRequest) -> MockResponse {
                 },
             };
             let all: Vec<&DFile> = st.files.values().filter(|f| eval_q(&query, f)).collect();
-            let page: Vec<Value> = all.iter().skip(offset).take(size).map(|f| f.meta()).collect();
+            let page: Vec<Value> = all
+                .iter()
+                .skip(offset)
+                .take(size)
+                .map(|f| f.meta())
+                .collect();
             let mut body = json!({ "kind": "drive#fileList", "files": page });
             if offset + size < all.len() {
                 body["nextPageToken"] = json!((offset + size).to_string());
@@ -385,7 +390,10 @@ fn handle(state: &Mutex<DriveState>, req: &RecordedRequest) -> MockResponse {
             let body = req.body_json();
             let name = body["name"].as_str().unwrap_or("").to_string();
             let mime = body["mimeType"].as_str().unwrap_or("").to_string();
-            let parent = body["parents"][0].as_str().unwrap_or("appDataFolder").to_string();
+            let parent = body["parents"][0]
+                .as_str()
+                .unwrap_or("appDataFolder")
+                .to_string();
             if parent != "appDataFolder" && !st.files.contains_key(&parent) {
                 return err(404, "notFound", "Parent not found");
             }
@@ -397,15 +405,17 @@ fn handle(state: &Mutex<DriveState>, req: &RecordedRequest) -> MockResponse {
             if let Some(h) = hook {
                 h(&mut st);
             }
-            let Some((meta, media)) = parse_multipart(
-                req.header("content-type").unwrap_or(""),
-                &req.body,
-            ) else {
+            let Some((meta, media)) =
+                parse_multipart(req.header("content-type").unwrap_or(""), &req.body)
+            else {
                 return err(400, "badRequest", "bad multipart body");
             };
             let name = meta["name"].as_str().unwrap_or("").to_string();
             let mime = meta["mimeType"].as_str().unwrap_or("").to_string();
-            let parent = meta["parents"][0].as_str().unwrap_or("appDataFolder").to_string();
+            let parent = meta["parents"][0]
+                .as_str()
+                .unwrap_or("appDataFolder")
+                .to_string();
             if parent != "appDataFolder" && !st.files.contains_key(&parent) {
                 return err(404, "notFound", "Parent not found");
             }
@@ -422,10 +432,9 @@ fn handle(state: &Mutex<DriveState>, req: &RecordedRequest) -> MockResponse {
             if !st.files.contains_key(*id) {
                 return err(404, "notFound", "File not found");
             }
-            let Some((meta, media)) = parse_multipart(
-                req.header("content-type").unwrap_or(""),
-                &req.body,
-            ) else {
+            let Some((meta, media)) =
+                parse_multipart(req.header("content-type").unwrap_or(""), &req.body)
+            else {
                 return err(400, "badRequest", "bad multipart body");
             };
             st.patch(id, media);

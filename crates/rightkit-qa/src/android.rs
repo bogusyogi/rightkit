@@ -172,7 +172,10 @@ pub fn select_device(devices: &[Device], serial: &str) -> Result<Device> {
         }
     };
     match devices.iter().find(|d| d.serial == serial) {
-        None => err(format!("device {serial} is not attached; attached: {}", attached())),
+        None => err(format!(
+            "device {serial} is not attached; attached: {}",
+            attached()
+        )),
         Some(d) if !d.is_ready() => err(format!(
             "device {serial} is {}, not ready (unauthorized: accept the USB debugging prompt; \
              offline: reconnect or restart the emulator)",
@@ -373,7 +376,11 @@ pub fn args_list_package(package: &TestPackage) -> Vec<String> {
 }
 
 /// `am start -W` of `<package>/<activity>` with the launcher intent and the extras.
-pub fn args_start(package: &TestPackage, activity: &str, extras: &[(String, Extra)]) -> Vec<String> {
+pub fn args_start(
+    package: &TestPackage,
+    activity: &str,
+    extras: &[(String, Extra)],
+) -> Vec<String> {
     let component = format!("{}/{}", package.as_str(), activity);
     let mut a = s(&["shell", "am", "start", "-W", "-n"]);
     a.push(sh_quote(&component));
@@ -417,7 +424,11 @@ pub fn args_logcat(pid: u32) -> Vec<String> {
 
 /// Forward a free local tcp port (`tcp:0`; adb prints the one it chose) to `remote`.
 pub fn args_forward(remote: &RemoteEndpoint) -> Result<Vec<String>> {
-    Ok(vec!["forward".to_string(), "tcp:0".to_string(), remote.spec()?])
+    Ok(vec![
+        "forward".to_string(),
+        "tcp:0".to_string(),
+        remote.spec()?,
+    ])
 }
 
 pub fn args_forward_remove(local_port: u16) -> Vec<String> {
@@ -471,7 +482,10 @@ pub fn parse_install(output: &str) -> Result<()> {
     if output.lines().any(|l| l.trim() == "Success") {
         return Ok(());
     }
-    err(format!("install did not report Success: {}", first_line(output)))
+    err(format!(
+        "install did not report Success: {}",
+        first_line(output)
+    ))
 }
 
 /// What `am start -W` reported.
@@ -550,7 +564,11 @@ pub fn parse_run_as(output: &str) -> Result<()> {
 }
 
 fn first_line(text: &str) -> String {
-    let line = text.lines().map(str::trim).find(|l| !l.is_empty()).unwrap_or("(no output)");
+    let line = text
+        .lines()
+        .map(str::trim)
+        .find(|l| !l.is_empty())
+        .unwrap_or("(no output)");
     line.chars().take(200).collect()
 }
 
@@ -812,7 +830,10 @@ impl AndroidSession {
             let out = self.call(args_forward(&remote)?, ADB_TIMEOUT)?;
             let text = out.text();
             let Some(port) = parse_forward_port(&out.stdout_text()) else {
-                return err(format!("adb forward gave no local port: {}", first_line(&text)));
+                return err(format!(
+                    "adb forward gave no local port: {}",
+                    first_line(&text)
+                ));
             };
             self.forward = Some(Forward { local_port: port });
         }
@@ -996,7 +1017,10 @@ Error type 3\nError: Activity class {com.orthiclabs.heardright.dev/com.orthiclab
     fn adb_lookup_names_what_it_tried() {
         let none = |_: &str| None;
         let e = resolve_adb(&none, &|_| true).unwrap_err().0;
-        assert!(e.contains("ANDROID_HOME is not set") && e.contains("ANDROID_SDK_ROOT is not set"), "{e}");
+        assert!(
+            e.contains("ANDROID_HOME is not set") && e.contains("ANDROID_SDK_ROOT is not set"),
+            "{e}"
+        );
         let rel = |k: &str| (k == "ANDROID_HOME").then(|| OsString::from("sdk"));
         let e = resolve_adb(&rel, &|_| true).unwrap_err().0;
         assert!(e.contains("not an absolute path"), "{e}");
@@ -1024,14 +1048,23 @@ Error type 3\nError: Activity class {com.orthiclabs.heardright.dev/com.orthiclab
     #[test]
     fn selects_only_the_named_ready_device() {
         let d = parse_devices(DEVICES);
-        assert_eq!(select_device(&d, "R5CT30ABCDE").unwrap().serial, "R5CT30ABCDE");
+        assert_eq!(
+            select_device(&d, "R5CT30ABCDE").unwrap().serial,
+            "R5CT30ABCDE"
+        );
         let e = select_device(&d, "0123456789ABCDEF").unwrap_err().0;
         assert!(e.contains("unauthorized"), "{e}");
         let e = select_device(&d, "192.168.1.20:5555").unwrap_err().0;
         assert!(e.contains("offline"), "{e}");
         let e = select_device(&d, "emulator-5556").unwrap_err().0;
-        assert!(e.contains("not attached") && e.contains("emulator-5554"), "{e}");
-        assert!(select_device(&[], "x").unwrap_err().0.contains("none attached"));
+        assert!(
+            e.contains("not attached") && e.contains("emulator-5554"),
+            "{e}"
+        );
+        assert!(select_device(&[], "x")
+            .unwrap_err()
+            .0
+            .contains("none attached"));
         // A serial is never guessed or injected.
         for bad in ["", "a b", "x;rm", "a'b"] {
             assert!(select_device(&d, bad).is_err(), "{bad:?}");
@@ -1062,19 +1095,40 @@ Error type 3\nError: Activity class {com.orthiclabs.heardright.dev/com.orthiclab
     fn builds_the_commands() {
         let apk = Path::new("app-dev.apk");
         assert_eq!(args_devices(), ["devices", "-l"]);
-        assert_eq!(args_install(apk, true), ["install", "-r", "-t", "-g", "app-dev.apk"]);
-        assert_eq!(args_install(apk, false), ["install", "-r", "-t", "app-dev.apk"]);
-        assert_eq!(args_uninstall(&pkg()), ["uninstall", "com.orthiclabs.heardright.dev"]);
+        assert_eq!(
+            args_install(apk, true),
+            ["install", "-r", "-t", "-g", "app-dev.apk"]
+        );
+        assert_eq!(
+            args_install(apk, false),
+            ["install", "-r", "-t", "app-dev.apk"]
+        );
+        assert_eq!(
+            args_uninstall(&pkg()),
+            ["uninstall", "com.orthiclabs.heardright.dev"]
+        );
         assert_eq!(
             args_list_package(&pkg()),
-            ["shell", "pm", "list", "packages", "com.orthiclabs.heardright.dev"]
+            [
+                "shell",
+                "pm",
+                "list",
+                "packages",
+                "com.orthiclabs.heardright.dev"
+            ]
         );
         assert_eq!(
             args_force_stop(&pkg()),
             ["shell", "am", "force-stop", "com.orthiclabs.heardright.dev"]
         );
-        assert_eq!(args_pidof(&pkg()), ["shell", "pidof", "com.orthiclabs.heardright.dev"]);
-        assert_eq!(args_logcat(4242), ["logcat", "--pid=4242", "-v", "threadtime"]);
+        assert_eq!(
+            args_pidof(&pkg()),
+            ["shell", "pidof", "com.orthiclabs.heardright.dev"]
+        );
+        assert_eq!(
+            args_logcat(4242),
+            ["logcat", "--pid=4242", "-v", "threadtime"]
+        );
         assert_eq!(
             args_forward(&RemoteEndpoint::Tcp(8731)).unwrap(),
             ["forward", "tcp:0", "tcp:8731"]
@@ -1083,7 +1137,10 @@ Error type 3\nError: Activity class {com.orthiclabs.heardright.dev/com.orthiclab
             args_forward(&RemoteEndpoint::LocalAbstract("rk-qa".into())).unwrap(),
             ["forward", "tcp:0", "localabstract:rk-qa"]
         );
-        assert_eq!(args_forward_remove(54321), ["forward", "--remove", "tcp:54321"]);
+        assert_eq!(
+            args_forward_remove(54321),
+            ["forward", "--remove", "tcp:54321"]
+        );
         assert_eq!(
             args_run_as_probe(&pkg()),
             ["shell", "run-as", "com.orthiclabs.heardright.dev", "id"]
@@ -1095,7 +1152,10 @@ Error type 3\nError: Activity class {com.orthiclabs.heardright.dev/com.orthiclab
         let extras = vec![
             (TEST_MODE_EXTRA.to_string(), Extra::Bool(true)),
             ("rightkit.qa.port".to_string(), Extra::Int(8731)),
-            ("note".to_string(), Extra::Str("it's $HOME; reboot".to_string())),
+            (
+                "note".to_string(),
+                Extra::Str("it's $HOME; reboot".to_string()),
+            ),
         ];
         let a = args_start(&pkg(), ".MainActivity", &extras);
         assert_eq!(
@@ -1151,7 +1211,10 @@ Error type 3\nError: Activity class {com.orthiclabs.heardright.dev/com.orthiclab
         let ok = parse_start(START_OK).unwrap();
         assert_eq!(ok.launch_state.as_deref(), Some("COLD"));
         assert_eq!(ok.total_ms, Some(1234));
-        assert_eq!(ok.activity.as_deref(), Some("com.orthiclabs.heardright.dev/.MainActivity"));
+        assert_eq!(
+            ok.activity.as_deref(),
+            Some("com.orthiclabs.heardright.dev/.MainActivity")
+        );
         assert_eq!(ok.warning, None);
         let e = parse_start(START_MISSING).unwrap_err().0;
         assert!(e.contains("does not exist"), "{e}");
@@ -1174,10 +1237,16 @@ Error type 3\nError: Activity class {com.orthiclabs.heardright.dev/com.orthiclab
         assert_eq!(parse_forward_port("\n54321"), Some(54321));
         assert_eq!(parse_forward_port("error: closed"), None);
         assert_eq!(parse_forward_port("0\n"), None);
-        let listed = "package:com.orthiclabs.heardright.dev.extra\npackage:com.orthiclabs.heardright.dev\n";
+        let listed =
+            "package:com.orthiclabs.heardright.dev.extra\npackage:com.orthiclabs.heardright.dev\n";
         assert!(parse_package_listed(listed, &pkg()));
-        assert!(!parse_package_listed("package:com.orthiclabs.heardright.dev.extra\n", &pkg()));
-        assert!(parse_run_as("uid=10234(u0_a234) gid=10234(u0_a234) groups=10234(u0_a234)\n").is_ok());
+        assert!(!parse_package_listed(
+            "package:com.orthiclabs.heardright.dev.extra\n",
+            &pkg()
+        ));
+        assert!(
+            parse_run_as("uid=10234(u0_a234) gid=10234(u0_a234) groups=10234(u0_a234)\n").is_ok()
+        );
         let e = parse_run_as("run-as: package not debuggable: com.orthiclabs.heardright.dev\n")
             .unwrap_err()
             .0;
@@ -1278,13 +1347,17 @@ Error type 3\nError: Activity class {com.orthiclabs.heardright.dev/com.orthiclab
         let cfg = config(&dir).control(RemoteEndpoint::Tcp(8731));
         let tracker = Tracker::new();
         let run_dir = dir.join("run");
-        let mut s = AndroidSession::start_with(Box::new(script.clone()), cfg, &run_dir, Some(&tracker))
-            .unwrap();
+        let mut s =
+            AndroidSession::start_with(Box::new(script.clone()), cfg, &run_dir, Some(&tracker))
+                .unwrap();
         assert_eq!(s.pid(), Some(4242));
         assert_eq!(s.start_outcome().launch_state.as_deref(), Some("COLD"));
         assert_eq!(s.control_addr().unwrap().to_string(), "127.0.0.1:54321");
         assert!(s.control_addr().unwrap().ip().is_loopback());
-        assert_eq!(std::fs::read_to_string(s.logcat_path().unwrap()).unwrap(), "I/app: hello\n");
+        assert_eq!(
+            std::fs::read_to_string(s.logcat_path().unwrap()).unwrap(),
+            "I/app: hello\n"
+        );
         assert!(tracker.pids().contains(&99_999));
         assert!(!s.was_preinstalled());
 
@@ -1326,8 +1399,13 @@ Error type 3\nError: Activity class {com.orthiclabs.heardright.dev/com.orthiclab
     fn dropping_a_session_tears_it_down() {
         let dir = scratch("drop");
         let script = Script::new(happy_replies());
-        let s = AndroidSession::start_with(Box::new(script.clone()), config(&dir), &dir.join("run"), None)
-            .unwrap();
+        let s = AndroidSession::start_with(
+            Box::new(script.clone()),
+            config(&dir),
+            &dir.join("run"),
+            None,
+        )
+        .unwrap();
         drop(s);
         let calls = script.calls();
         assert!(calls.iter().any(|c| c.contains("force-stop")));
@@ -1342,10 +1420,18 @@ Error type 3\nError: Activity class {com.orthiclabs.heardright.dev/com.orthiclab
         let mut replies = happy_replies();
         replies.insert(
             2,
-            ("install", "adb: failed to install a.apk: Failure [INSTALL_FAILED_INSUFFICIENT_STORAGE]"),
+            (
+                "install",
+                "adb: failed to install a.apk: Failure [INSTALL_FAILED_INSUFFICIENT_STORAGE]",
+            ),
         );
         let script = Script::new(replies);
-        let e = match AndroidSession::start_with(Box::new(script.clone()), config(&dir), &dir.join("run"), None) {
+        let e = match AndroidSession::start_with(
+            Box::new(script.clone()),
+            config(&dir),
+            &dir.join("run"),
+            None,
+        ) {
             Err(e) => e.0,
             Ok(_) => panic!("install failure must fail the start"),
         };
@@ -1353,7 +1439,9 @@ Error type 3\nError: Activity class {com.orthiclabs.heardright.dev/com.orthiclab
         let calls = script.calls();
         assert!(!calls.iter().any(|c| c.contains("am start")));
         // Nothing was installed by this session, so nothing is stopped or uninstalled.
-        assert!(!calls.iter().any(|c| c.contains("force-stop") || c.contains("uninstall")));
+        assert!(!calls
+            .iter()
+            .any(|c| c.contains("force-stop") || c.contains("uninstall")));
         assert!(!script.logcat_stopped.load(Ordering::SeqCst));
         let _ = std::fs::remove_dir_all(&dir);
     }
@@ -1364,14 +1452,19 @@ Error type 3\nError: Activity class {com.orthiclabs.heardright.dev/com.orthiclab
         let mut replies = happy_replies();
         replies.insert(
             0,
-            ("run-as", "run-as: package not debuggable: com.orthiclabs.heardright.dev\n"),
+            (
+                "run-as",
+                "run-as: package not debuggable: com.orthiclabs.heardright.dev\n",
+            ),
         );
         let script = Script::new(replies);
         let cfg = config(&dir).control(RemoteEndpoint::Tcp(8731));
-        let e = match AndroidSession::start_with(Box::new(script.clone()), cfg, &dir.join("run"), None) {
-            Err(e) => e.0,
-            Ok(_) => panic!("a non-debuggable build must not be forwarded"),
-        };
+        let e =
+            match AndroidSession::start_with(Box::new(script.clone()), cfg, &dir.join("run"), None)
+            {
+                Err(e) => e.0,
+                Ok(_) => panic!("a non-debuggable build must not be forwarded"),
+            };
         assert!(e.contains("not debuggable"), "{e}");
         let calls = script.calls();
         assert!(!calls.iter().any(|c| c.contains("forward tcp:0")));
@@ -1385,16 +1478,24 @@ Error type 3\nError: Activity class {com.orthiclabs.heardright.dev/com.orthiclab
     fn a_missing_device_or_apk_touches_nothing() {
         let dir = scratch("nodevice");
         let script = Script::new(vec![("devices -l", DEVICES_DAEMON)]);
-        let r = AndroidSession::start_with(Box::new(script.clone()), config(&dir), &dir.join("run"), None);
+        let r = AndroidSession::start_with(
+            Box::new(script.clone()),
+            config(&dir),
+            &dir.join("run"),
+            None,
+        );
         assert!(r.is_err());
         assert_eq!(script.calls(), vec!["devices -l".to_string()]);
 
         let script = Script::new(vec![("devices -l", DEVICES)]);
-        let cfg = AndroidConfig::new("emulator-5554", pkg(), dir.join("missing.apk"), ".Main").unwrap();
-        let e = match AndroidSession::start_with(Box::new(script.clone()), cfg, &dir.join("run"), None) {
-            Err(e) => e.0,
-            Ok(_) => panic!("a missing APK must fail the start"),
-        };
+        let cfg =
+            AndroidConfig::new("emulator-5554", pkg(), dir.join("missing.apk"), ".Main").unwrap();
+        let e =
+            match AndroidSession::start_with(Box::new(script.clone()), cfg, &dir.join("run"), None)
+            {
+                Err(e) => e.0,
+                Ok(_) => panic!("a missing APK must fail the start"),
+            };
         assert!(e.contains("APK not found"), "{e}");
         assert_eq!(script.calls().len(), 1);
         let _ = std::fs::remove_dir_all(&dir);
@@ -1406,9 +1507,17 @@ Error type 3\nError: Activity class {com.orthiclabs.heardright.dev/com.orthiclab
         let mut replies = happy_replies();
         replies.insert(0, ("cat '", "{\"a\":1}"));
         let script = Script::new(replies);
-        let s = AndroidSession::start_with(Box::new(script.clone()), config(&dir), &dir.join("run"), None)
-            .unwrap();
-        assert_eq!(s.read_app_file("files/settings.json").unwrap(), b"{\"a\":1}");
+        let s = AndroidSession::start_with(
+            Box::new(script.clone()),
+            config(&dir),
+            &dir.join("run"),
+            None,
+        )
+        .unwrap();
+        assert_eq!(
+            s.read_app_file("files/settings.json").unwrap(),
+            b"{\"a\":1}"
+        );
         assert!(s.read_app_file("../other/files/x").is_err());
         let calls = script.calls();
         assert!(calls.iter().any(|c| c

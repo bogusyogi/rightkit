@@ -377,11 +377,7 @@ fn nonempty(env: &dyn Fn(&str) -> Option<OsString>, key: &str) -> Option<PathBuf
         .map(PathBuf::from)
 }
 
-fn absolute_env(
-    os: Os,
-    env: &dyn Fn(&str) -> Option<OsString>,
-    key: &str,
-) -> Option<PathBuf> {
+fn absolute_env(os: Os, env: &dyn Fn(&str) -> Option<OsString>, key: &str) -> Option<PathBuf> {
     nonempty(env, key).filter(|p| looks_absolute(os, p))
 }
 
@@ -507,7 +503,10 @@ fn read_qa(
     // The real folders of this app, in both namespaces and with or without the org folder, and the
     // real home. An override at or inside the first group, or equal to the home, is refused.
     let mut inside: Vec<PathBuf> = Vec::new();
-    for base in [&bases.data, &bases.local, &bases.cache].into_iter().flatten() {
+    for base in [&bases.data, &bases.local, &bases.cache]
+        .into_iter()
+        .flatten()
+    {
         for ns in [app.name.to_string(), format!("{}Dev", app.name)] {
             for org in [app.org, None] {
                 let probe = AppId { org, ..app.clone() };
@@ -520,10 +519,9 @@ fn read_qa(
         check_absolute(opts.os, var, &path)?;
         let hit = inside.iter().any(|real| inside_or_equal(&path, real, win))
             || (home_var
-                && bases
-                    .home
-                    .as_ref()
-                    .is_some_and(|h| inside_or_equal(&path, h, win) && inside_or_equal(h, &path, win)));
+                && bases.home.as_ref().is_some_and(|h| {
+                    inside_or_equal(&path, h, win) && inside_or_equal(h, &path, win)
+                }));
         if hit {
             return Err(AppDirsError::RealFolder {
                 var: var.to_string(),
@@ -563,13 +561,22 @@ fn looks_absolute(os: Os, path: &Path) -> bool {
         }
         _ => s.starts_with('/'),
     };
-    rooted && !components(&s, os == Os::Windows, false).iter().any(|c| c == "..")
+    rooted
+        && !components(&s, os == Os::Windows, false)
+            .iter()
+            .any(|c| c == "..")
 }
 
 fn components(s: &str, windows: bool, lower: bool) -> Vec<String> {
     s.split(|c: char| c == '/' || (windows && c == '\\'))
         .filter(|c| !c.is_empty())
-        .map(|c| if lower { c.to_lowercase() } else { c.to_string() })
+        .map(|c| {
+            if lower {
+                c.to_lowercase()
+            } else {
+                c.to_string()
+            }
+        })
         .collect()
 }
 
@@ -630,7 +637,10 @@ mod tests {
         .unwrap();
         same(&d.data, r"C:\Users\a\AppData\Roaming\Orthic Labs\ViewRight");
         same(&d.local, r"C:\Users\a\AppData\Local\Orthic Labs\ViewRight");
-        same(&d.cache, r"C:\Users\a\AppData\Local\Orthic Labs\ViewRight\Cache");
+        same(
+            &d.cache,
+            r"C:\Users\a\AppData\Local\Orthic Labs\ViewRight\Cache",
+        );
         same(&d.home, r"C:\Users\a");
         assert!(!d.isolated);
     }
@@ -643,7 +653,10 @@ mod tests {
             &env_of(&[("HOME", "/Users/a")]),
         )
         .unwrap();
-        same(&d.data, "/Users/a/Library/Application Support/Orthic Labs/MailRight");
+        same(
+            &d.data,
+            "/Users/a/Library/Application Support/Orthic Labs/MailRight",
+        );
         assert_eq!(d.local, d.data);
         same(&d.cache, "/Users/a/Library/Caches/Orthic Labs/MailRight");
         same(&d.home, "/Users/a");
@@ -682,13 +695,17 @@ mod tests {
     #[test]
     fn android_has_no_environment_mapping_and_points_at_the_injected_constructor() {
         let env = env_of(&[("HOME", "/data/user/0/x"), ("XDG_DATA_HOME", "/x")]);
-        let err = AppDirs::resolve_with(&AppId::new("A"), &Options::new(Os::Android), &env)
-            .unwrap_err();
+        let err =
+            AppDirs::resolve_with(&AppId::new("A"), &Options::new(Os::Android), &env).unwrap_err();
         assert!(matches!(err, AppDirsError::AndroidNeedsInjectedRoots));
         assert!(err.to_string().contains("AppDirs::injected"), "{err}");
         // The test root still applies (an instrumented test on a device).
         let o = Options::new(Os::Android).test_root(Some(p("/data/local/tmp/rightkit-test")));
-        assert!(AppDirs::resolve_with(&AppId::new("A"), &o, &env_of(&[])).unwrap().isolated);
+        assert!(
+            AppDirs::resolve_with(&AppId::new("A"), &o, &env_of(&[]))
+                .unwrap()
+                .isolated
+        );
     }
 
     #[test]
@@ -785,7 +802,11 @@ mod tests {
                 Err(AppDirsError::NoBase { .. })
             ));
         }
-        let rel = env_of(&[("APPDATA", "rel"), ("LOCALAPPDATA", "rel"), ("USERPROFILE", "rel")]);
+        let rel = env_of(&[
+            ("APPDATA", "rel"),
+            ("LOCALAPPDATA", "rel"),
+            ("USERPROFILE", "rel"),
+        ]);
         assert!(AppDirs::resolve_with(&app, &Options::new(Os::Windows), &rel).is_err());
         let blank = env_of(&[("HOME", "   ")]);
         assert!(AppDirs::resolve_with(&app, &Options::new(Os::Linux), &blank).is_err());
@@ -820,7 +841,12 @@ mod tests {
         let d = AppDirs::resolve(AppId::new("ViewRight")).unwrap();
         let root = process_test_root();
         for dir in [&d.data, &d.local, &d.cache, &d.home] {
-            assert!(dir.starts_with(&root), "{} outside {}", dir.display(), root.display());
+            assert!(
+                dir.starts_with(&root),
+                "{} outside {}",
+                dir.display(),
+                root.display()
+            );
         }
         let t = AppDirs::for_test(AppId::new("ViewRight")).unwrap();
         assert!(t.data.starts_with(&root));
@@ -894,8 +920,8 @@ mod tests {
 
         #[test]
         fn legacy_variables_apply_after_the_shared_one() {
-            let app = AppId::new("HeardRight")
-                .with_legacy_env(Some("HR_APP_DATA_DIR"), Some("HR_HOME"));
+            let app =
+                AppId::new("HeardRight").with_legacy_env(Some("HR_APP_DATA_DIR"), Some("HR_HOME"));
             let env = env_of(&[("HR_APP_DATA_DIR", "/tmp/hr"), ("HR_HOME", "/tmp/hrhome")]);
             let d = AppDirs::resolve_with(&app, &qa(Os::Linux), &env).unwrap();
             assert_eq!((d.data, d.home), (p("/tmp/hr"), p("/tmp/hrhome")));
@@ -943,7 +969,10 @@ mod tests {
             // A sibling that merely shares a prefix is not the real folder.
             let env = env_of(&[
                 ("HOME", "/home/a"),
-                ("RIGHTKIT_QA_DATA_DIR", "/home/a/.local/share/Orthic Labs/ViewRightQA"),
+                (
+                    "RIGHTKIT_QA_DATA_DIR",
+                    "/home/a/.local/share/Orthic Labs/ViewRightQA",
+                ),
             ]);
             assert!(AppDirs::resolve_with(&app, &qa(Os::Linux), &env).is_ok());
         }
@@ -951,13 +980,18 @@ mod tests {
         #[test]
         fn windows_refusal_is_case_insensitive_and_covers_home() {
             let mut pairs = WIN.to_vec();
-            pairs.push(("RIGHTKIT_QA_DATA_DIR", r"c:\users\A\appdata\roaming\orthic labs\viewright"));
-            let r = AppDirs::resolve_with(&AppId::new("ViewRight"), &qa(Os::Windows), &env_of(&pairs));
+            pairs.push((
+                "RIGHTKIT_QA_DATA_DIR",
+                r"c:\users\A\appdata\roaming\orthic labs\viewright",
+            ));
+            let r =
+                AppDirs::resolve_with(&AppId::new("ViewRight"), &qa(Os::Windows), &env_of(&pairs));
             assert!(matches!(r, Err(AppDirsError::RealFolder { .. })));
 
             let mut pairs = WIN.to_vec();
             pairs.push(("RIGHTKIT_QA_HOME", r"C:\USERS\a"));
-            let r = AppDirs::resolve_with(&AppId::new("ViewRight"), &qa(Os::Windows), &env_of(&pairs));
+            let r =
+                AppDirs::resolve_with(&AppId::new("ViewRight"), &qa(Os::Windows), &env_of(&pairs));
             assert!(matches!(r, Err(AppDirsError::RealFolder { .. })));
 
             // A QA workspace that redirects APPDATA to its own data dir is not "real".
@@ -967,7 +1001,8 @@ mod tests {
                 ("USERPROFILE", r"C:\qa\home"),
                 ("RIGHTKIT_QA_DATA_DIR", r"C:\qa\data"),
             ]);
-            let d = AppDirs::resolve_with(&AppId::new("ViewRight"), &qa(Os::Windows), &env).unwrap();
+            let d =
+                AppDirs::resolve_with(&AppId::new("ViewRight"), &qa(Os::Windows), &env).unwrap();
             assert_eq!(d.data, p(r"C:\qa\data"));
         }
     }

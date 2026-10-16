@@ -63,7 +63,10 @@ mod unix {
         assert!(!status.success());
         assert!(started.elapsed() < Duration::from_secs(5));
         // SAFETY: existence test of the group.
-        assert!(unsafe { libc::kill(-pid, 0) } != 0, "the group still has members");
+        assert!(
+            unsafe { libc::kill(-pid, 0) } != 0,
+            "the group still has members"
+        );
     }
 
     #[tokio::test]

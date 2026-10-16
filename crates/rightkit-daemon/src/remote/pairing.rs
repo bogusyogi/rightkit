@@ -63,11 +63,7 @@ fn label_bytes(label: Option<&str>) -> Vec<u8> {
 }
 
 /// Hex commitment D sends first.
-pub fn pairing_commit(
-    public_key: &[u8],
-    nonce_d: &[u8],
-    label: Option<&str>,
-) -> String {
+pub fn pairing_commit(public_key: &[u8], nonce_d: &[u8], label: Option<&str>) -> String {
     let lb = label_bytes(label);
     sha256_hex(&framed(&[COMMIT_DOMAIN, public_key, nonce_d, &lb]))
 }

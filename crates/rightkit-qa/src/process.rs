@@ -40,10 +40,7 @@ fn abandon(child: &mut std::process::Child) {
 
 /// Run a command to completion for its exit status, waiting at most `timeout`. The command
 /// is killed when it overruns. `Ok(None)` means it timed out. The caller sets stdio.
-pub fn status_bounded(
-    cmd: &mut Command,
-    timeout: Duration,
-) -> std::io::Result<Option<ExitStatus>> {
+pub fn status_bounded(cmd: &mut Command, timeout: Duration) -> std::io::Result<Option<ExitStatus>> {
     let mut child = cmd.spawn()?;
     match poll_exit(&mut child, Instant::now() + timeout)? {
         Some(st) => Ok(Some(st)),
@@ -140,9 +137,7 @@ pub fn kill_with_fallback(
 #[cfg(windows)]
 fn terminate_pid(pid: u32) -> bool {
     use windows_sys::Win32::Foundation::CloseHandle;
-    use windows_sys::Win32::System::Threading::{
-        OpenProcess, TerminateProcess, PROCESS_TERMINATE,
-    };
+    use windows_sys::Win32::System::Threading::{OpenProcess, TerminateProcess, PROCESS_TERMINATE};
     unsafe {
         let h = OpenProcess(PROCESS_TERMINATE, 0, pid);
         if h.is_null() {

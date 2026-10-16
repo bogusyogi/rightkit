@@ -552,11 +552,7 @@ impl Daemon {
             Some(k) if k.len() == 32 => k,
             _ => return Response::err(400, "bad_request"),
         };
-        let commit = match body
-            .get("commit")
-            .and_then(Value::as_str)
-            .and_then(unhex)
-        {
+        let commit = match body.get("commit").and_then(Value::as_str).and_then(unhex) {
             Some(c) if c.len() == 32 => c,
             _ => return Response::err(400, "bad_request"),
         };
@@ -657,10 +653,7 @@ impl Daemon {
         s.stage = PairingStage::AwaitingConfirmation;
         let label = s.label.clone();
         drop(p);
-        self.emit(
-            "PAIRING_READY",
-            json!({ "pairingId": id, "label": label }),
-        );
+        self.emit("PAIRING_READY", json!({ "pairingId": id, "label": label }));
         Response::new(
             200,
             json!({ "state": PairingStage::AwaitingConfirmation.wire() }),

@@ -280,7 +280,10 @@ mod tests {
     }
 
     fn acct(tag: &str) -> String {
-        format!("acct-{tag}-{}", hex_encode(&crate::util::random_array::<6>().unwrap()))
+        format!(
+            "acct-{tag}-{}",
+            hex_encode(&crate::util::random_array::<6>().unwrap())
+        )
     }
 
     #[test]
@@ -334,7 +337,10 @@ mod tests {
 
     #[test]
     fn rotate_without_a_key_is_not_enrolled() {
-        assert_eq!(manager(&acct("norot")).rotate().unwrap_err(), Error::NotEnrolled);
+        assert_eq!(
+            manager(&acct("norot")).rotate().unwrap_err(),
+            Error::NotEnrolled
+        );
     }
 
     #[test]
@@ -377,7 +383,10 @@ mod tests {
         let k3 = DataKey::generate(3).unwrap();
         assert_eq!(m.install(&k3, false).unwrap(), InstallOutcome::Advanced);
         assert_eq!(m.require_current().unwrap().version(), 3);
-        assert_eq!(m.install(&k3, false).unwrap(), InstallOutcome::AlreadyCurrent);
+        assert_eq!(
+            m.install(&k3, false).unwrap(),
+            InstallOutcome::AlreadyCurrent
+        );
         // A different key at an older or equal version is refused without `replace`.
         let other = DataKey::generate(3).unwrap();
         assert_eq!(

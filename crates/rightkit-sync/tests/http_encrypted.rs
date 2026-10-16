@@ -74,7 +74,15 @@ fn devices_converge_over_http_and_the_server_holds_only_ciphertext() {
         keys.sort();
         assert_eq!(
             keys,
-            vec!["change_tag", "deleted_at", "enc", "name", "seq", "type", "updated_at"]
+            vec![
+                "change_tag",
+                "deleted_at",
+                "enc",
+                "name",
+                "seq",
+                "type",
+                "updated_at"
+            ]
         );
         let body = b64_decode(rec["enc"].as_str().expect("sealed body")).unwrap();
         assert!(!contains(&body, b"secret transcript"));
@@ -124,14 +132,20 @@ fn a_replay_after_server_compaction_that_keeps_enc_is_an_authenticated_deletion(
     let r = b.pass();
     assert_eq!(r.outcome, PassOutcome::Synced, "{r:?}");
     assert_eq!(r.quarantined, 0);
-    assert_eq!(b.local.snapshot(), vec![("n2".to_string(), "two".to_string())]);
+    assert_eq!(
+        b.local.snapshot(),
+        vec![("n2".to_string(), "two".to_string())]
+    );
     assert_eq!(eb.stats().unauthenticated_tombstones, 0);
 
     // A fresh device replays the same history and ends in the same place.
     let mut c = device(stack(&server, Tok::new("tok"), keys()), false);
     let r = c.pass();
     assert_eq!(r.quarantined, 0);
-    assert_eq!(c.local.snapshot(), vec![("n2".to_string(), "two".to_string())]);
+    assert_eq!(
+        c.local.snapshot(),
+        vec![("n2".to_string(), "two".to_string())]
+    );
 }
 
 #[test]

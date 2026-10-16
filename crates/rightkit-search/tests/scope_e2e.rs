@@ -75,7 +75,9 @@ fn positive_and_negated_combine() {
 fn only_negated_terms_emit_only_not_exists() {
     let s = schema();
     let c = s.compile(&s.parse("-from:bob").unwrap()).unwrap();
-    assert!(c.where_sql.starts_with("NOT EXISTS (SELECT 1 FROM messages m WHERE m.thread_id = t.id AND "));
+    assert!(c
+        .where_sql
+        .starts_with("NOT EXISTS (SELECT 1 FROM messages m WHERE m.thread_id = t.id AND "));
     assert_eq!(c.where_sql.matches("EXISTS").count(), 1);
 }
 
@@ -90,7 +92,10 @@ fn empty_query_is_unscoped_true() {
 fn unscoped_schema_is_unchanged() {
     let s = Schema::new().bind("from", Binding::Like("m.sender"));
     let c = s.compile(&s.parse("-from:bob").unwrap()).unwrap();
-    assert_eq!(c.where_sql, "NOT COALESCE((m.sender LIKE ? ESCAPE '\\'), 0)");
+    assert_eq!(
+        c.where_sql,
+        "NOT COALESCE((m.sender LIKE ? ESCAPE '\\'), 0)"
+    );
 }
 
 // ---- Multi-bind, LIKE+FTS negated text, per-operator child sources (#166) ----
@@ -98,8 +103,11 @@ fn unscoped_schema_is_unchanged() {
 const RECIPIENT_SQL: &str = "EXISTS (SELECT 1 FROM message_recipients r WHERE r.message_id = m.id AND (r.addr LIKE ? ESCAPE '\\' OR r.addr LIKE ? ESCAPE '\\'))";
 
 fn mail_schema(with_like: bool) -> Schema {
-    let mut scope = ChildScope::new("messages m", "m.thread_id = t.id")
-        .op_source("label", "thread_labels l", "l.thread_id = t.id");
+    let mut scope = ChildScope::new("messages m", "m.thread_id = t.id").op_source(
+        "label",
+        "thread_labels l",
+        "l.thread_id = t.id",
+    );
     if with_like {
         scope = scope.negated_text_like(&["m.subject", "m.snippet"]);
     }
@@ -165,7 +173,10 @@ fn negated_text_excludes_on_subject_snippet_or_fts() {
 fn negated_text_without_like_columns_is_fts_only() {
     let conn = mail_fixture();
     // The snippet is not indexed, so t2 survives when no LIKE columns are configured.
-    assert_eq!(run_with(&conn, &mail_schema(false), "-budget"), vec!["t2", "t5"]);
+    assert_eq!(
+        run_with(&conn, &mail_schema(false), "-budget"),
+        vec!["t2", "t5"]
+    );
 }
 
 #[test]
@@ -209,7 +220,11 @@ fn multi_bind_count_mismatch_is_an_error() {
     let err = s.compile(&s.parse("to:x").unwrap()).unwrap_err();
     assert!(matches!(
         err,
-        CompileError::BindCount { expected: 1, found: 2, .. }
+        CompileError::BindCount {
+            expected: 1,
+            found: 2,
+            ..
+        }
     ));
 }
 
@@ -265,7 +280,10 @@ fn injection_shaped_values_stay_bound_parameters() {
         "-_",
     ] {
         let c = s.compile(&s.parse(input).unwrap()).unwrap();
-        assert!(!c.where_sql.contains("DROP"), "{input}: value leaked into SQL");
+        assert!(
+            !c.where_sql.contains("DROP"),
+            "{input}: value leaked into SQL"
+        );
         let rows = run_with(&conn, &s, input);
         // The tables survive.
         let n: i64 = conn

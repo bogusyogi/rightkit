@@ -15,7 +15,9 @@ fn missing_document_is_none_and_put_persists_an_envelope() {
     let p = path(&dir);
     let doc = Document::open_path(&p, "view-right").unwrap();
     assert_eq!(doc.get().unwrap(), None);
-    let s = doc.put(3, json!({ "theme": "dark", "n": [1, 2] }), Some(0)).unwrap();
+    let s = doc
+        .put(3, json!({ "theme": "dark", "n": [1, 2] }), Some(0))
+        .unwrap();
     assert_eq!((s.version, s.revision), (3, 1));
     let got = doc.get().unwrap().unwrap();
     assert_eq!(got, s);
@@ -33,10 +35,18 @@ fn missing_document_is_none_and_put_persists_an_envelope() {
 fn patch_merges_top_level_keys_and_null_removes() {
     let dir = tempfile::tempdir().unwrap();
     let doc = Document::open_path(path(&dir), "app").unwrap();
-    doc.put(1, json!({ "a": 1, "b": { "x": 1, "y": 2 }, "c": true }), None)
-        .unwrap();
+    doc.put(
+        1,
+        json!({ "a": 1, "b": { "x": 1, "y": 2 }, "c": true }),
+        None,
+    )
+    .unwrap();
     let s = doc
-        .patch(1, &json!({ "a": 2, "b": { "x": 9 }, "c": null, "d": "new" }), None)
+        .patch(
+            1,
+            &json!({ "a": 2, "b": { "x": 9 }, "c": null, "d": "new" }),
+            None,
+        )
         .unwrap();
     assert_eq!(s.value, json!({ "a": 2, "b": { "x": 9 }, "d": "new" }));
     assert_eq!(s.revision, 2);
@@ -76,7 +86,13 @@ fn stale_revision_conflicts_and_writes_nothing() {
     let err = doc
         .put(1, json!({ "a": 3 }), Some(first.revision))
         .unwrap_err();
-    assert!(matches!(err, Error::Conflict { expected: 1, actual: 2 }));
+    assert!(matches!(
+        err,
+        Error::Conflict {
+            expected: 1,
+            actual: 2
+        }
+    ));
     assert_eq!(doc.get().unwrap().unwrap().value, json!({ "a": 2 }));
     assert!(matches!(
         doc.patch(1, &json!({ "a": 9 }), Some(1)),
@@ -90,7 +106,13 @@ fn an_older_frontend_version_never_overwrites_a_newer_document() {
     let doc = Document::open_path(path(&dir), "app").unwrap();
     doc.put(5, json!({ "a": 1 }), None).unwrap();
     let err = doc.put(4, json!({ "a": 2 }), None).unwrap_err();
-    assert!(matches!(err, Error::NewerSchema { found: 5, supported: 4 }));
+    assert!(matches!(
+        err,
+        Error::NewerSchema {
+            found: 5,
+            supported: 4
+        }
+    ));
     assert!(matches!(
         doc.patch(4, &json!({ "a": 2 }), None),
         Err(Error::NewerSchema { .. })
@@ -183,7 +205,9 @@ fn damaged_file_is_quarantined_and_backup_is_kept_like_a_store() {
         .unwrap()
         .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
         .collect();
-    assert!(names.iter().any(|n| n.starts_with("settings.json.corrupt-")));
+    assert!(names
+        .iter()
+        .any(|n| n.starts_with("settings.json.corrupt-")));
     assert_eq!(doc.get().unwrap().unwrap().value, json!({ "a": 3 }));
 }
 

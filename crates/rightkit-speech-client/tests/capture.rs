@@ -39,7 +39,10 @@ fn decide_preempts_downward_only_and_never_silently_takes_a_meeting() {
     assert_eq!(decide_capture(Some(DICTATION), PULSE, false), Busy);
     assert_eq!(decide_capture(Some(PULSE), PULSE, false), Busy);
     assert_eq!(decide_capture(Some(PULSE), MEETING, true), Busy);
-    assert_eq!(decide_capture(Some(MEETING), DICTATION, false), ConfirmRequired);
+    assert_eq!(
+        decide_capture(Some(MEETING), DICTATION, false),
+        ConfirmRequired
+    );
     assert_eq!(decide_capture(Some(MEETING), DICTATION, true), Preempt);
     for requester in [PULSE, BATCH, MEETING] {
         assert_eq!(decide_capture(Some(MEETING), requester, true), Busy);
@@ -161,7 +164,10 @@ fn heartbeat_expiry_fences_the_owner_and_only_proven_release_frees_the_capture()
     let mut a = CaptureArbiter::new();
     let pulse = owner(PULSE, "pulse-1");
     a.acquire(pulse.clone(), false, 0);
-    assert_eq!(a.heartbeat("pulse-1", CAPTURE_HEARTBEAT_MS), HeartbeatOutcome::Ok);
+    assert_eq!(
+        a.heartbeat("pulse-1", CAPTURE_HEARTBEAT_MS),
+        HeartbeatOutcome::Ok
+    );
     let silent_until = CAPTURE_HEARTBEAT_MS + CAPTURE_LEASE_MS;
     assert_eq!(
         a.heartbeat("pulse-1", silent_until - 1),
@@ -297,7 +303,10 @@ fn capture_commands_and_replies_round_trip_through_frames() {
         let frame = ServiceEnvelope::capture_request("r1", "t", &command);
         assert_eq!(frame.schema_name, SCHEMA_CAPTURE);
         assert_eq!(frame.validate_envelope(), Ok(()));
-        assert_eq!(frame.request_extended(), Ok(ExtendedRequest::Capture(command)));
+        assert_eq!(
+            frame.request_extended(),
+            Ok(ExtendedRequest::Capture(command))
+        );
     }
     let reply = CaptureReply {
         status: CaptureStatus::Preempting,

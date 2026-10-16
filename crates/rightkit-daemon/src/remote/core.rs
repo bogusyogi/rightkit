@@ -20,9 +20,7 @@ mod pairing;
 mod tasks;
 
 pub use self::link::{Accepted, FrameOutcome, LinkSession, Out};
-pub use self::pairing::{
-    PairedDevice, PairingError, PairingInfo, PairingOptions, PairingStage,
-};
+pub use self::pairing::{PairedDevice, PairingError, PairingInfo, PairingOptions, PairingStage};
 pub use self::tasks::{TaskInfo, TaskSpec};
 
 use crate::record::write_atomic;
@@ -178,7 +176,10 @@ impl std::fmt::Display for ForgetDeviceError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::NotRevoked => {
-                write!(f, "the device is not revoked; revoke it before forgetting it")
+                write!(
+                    f,
+                    "the device is not revoked; revoke it before forgetting it"
+                )
             }
             Self::Storage(e) => write!(f, "could not write the daemon state: {e}"),
         }
@@ -428,14 +429,18 @@ impl Daemon {
 
         g.state.devices.remove(device_id);
         {
-            let State { devices, nonces, .. } = &mut g.state;
+            let State {
+                devices, nonces, ..
+            } = &mut g.state;
             nonces.retain(|id, seen| {
                 seen.retain(|_, t| *t + window >= now);
                 devices.contains_key(id) || !seen.is_empty()
             });
         }
         let idem_prefix = format!("{device_id}:");
-        g.state.idempotency.retain(|k, _| !k.starts_with(&idem_prefix));
+        g.state
+            .idempotency
+            .retain(|k, _| !k.starts_with(&idem_prefix));
         let mut requeued: Vec<(String, u64)> = Vec::new();
         let mut failed: Vec<(String, u64)> = Vec::new();
         for t in g.state.tasks.values_mut() {
