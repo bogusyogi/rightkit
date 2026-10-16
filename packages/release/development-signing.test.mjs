@@ -42,6 +42,7 @@ function fixture(t, { profile = null, mac = {}, team = "6KLGD3LLKF", signingFail
     if (command === "plutil") return { status: 0, stdout: args[1] === "json" ? readFileSync(args.at(-1), "utf8") : "" };
     if (command === "codesign" && args.includes("--sign") && signingFailure) return signingFailure;
     if (command === "codesign" && args.includes("--verbose=4")) return { status: 0, stderr: `Authority=${releaseIdentity}\nTeamIdentifier=${team}\n` };
+    if (command === "codesign" && args.includes("-r-")) return { status: 0, stdout: `designated => identifier "app.fixture" and anchor apple generic and certificate leaf[subject.OU] = "${team}"\n` };
     return { status: 0, stdout: "", stderr: "" };
   };
   return { root, bundle, descriptor: { manifestPath: "src-tauri/Cargo.toml" }, env: {}, run, calls, write };
@@ -151,6 +152,17 @@ test("exit 36 fails with typed actionable key error and never retries ad hoc", (
   assert.equal(f.calls.filter((call) => call.command === "codesign" && call.args.includes("--sign")).length, 1);
 });
 
+test("cdhash-bound designated requirement refuses installation", (t) => {
+  const f = fixture(t);
+  const run = (command, args, options) => command === "codesign" && args.includes("-r-") ? { status: 0, stdout: 'designated => cdhash H"abcdef"\n' } : f.run(command, args, options);
+  assert.throws(() => signMacosDevelopmentBundle({ ...f, run }), (error) => error.code === "DEV_MAC_SIGNING_UNSTABLE_REQUIREMENT");
+});
+
+test("designated requirement is reported on a verified signing", (t) => {
+  const f = fixture(t);
+  assert.match(signMacosDevelopmentBundle(f).designatedRequirement, /^identifier "app\.fixture" and anchor apple generic/);
+});
+
 test("Team mismatch and missing TeamIdentifier refuse installation", (t) => {
   for (const team of ["WRONGTEAM", "not set"]) {
     const f = fixture(t, { team });
@@ -230,8 +242,9 @@ test("SSH development signing keeps inside-out plan inside agent & verifies Team
   assert.deepEqual(agentCalls.map((args) => args.at(-1)), [sidecar, f.bundle]);
   assert.equal(result.teamIdentifier, "6KLGD3LLKF");
   assert.equal(result.verified, "strict-deep");
-  assert.deepEqual(f.calls.at(-2).args, ["--verify", "--strict", "--deep", f.bundle]);
-  assert.deepEqual(f.calls.at(-1).args, ["--display", "--verbose=4", f.bundle]);
+  assert.deepEqual(f.calls.at(-3).args, ["--verify", "--strict", "--deep", f.bundle]);
+  assert.deepEqual(f.calls.at(-2).args, ["--display", "--verbose=4", f.bundle]);
+  assert.deepEqual(f.calls.at(-1).args, ["--display", "-r-", f.bundle]);
 });
 
 test("dev install records verified Team identity and preserves relative framework symlinks", { skip: process.platform !== "darwin" }, (t) => {

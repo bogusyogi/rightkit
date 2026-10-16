@@ -120,7 +120,7 @@ function install(descriptor, { root, platform, config, env, run, sinceMs = null 
   } catch (error) { rmSync(staging, { recursive: true, force: true }); throw error; }
   swapInstalledMacosBundle({ staging, destination, backup, executableName });
   if (signing.provisioningProfile) signing.provisioningProfile = path.join(destination, "Contents", "embedded.provisionprofile");
-  console.log(`right-release dev: installed ${destination}; identity=${signing.identity}; TeamIdentifier=${signing.teamIdentifier}; profile=${signing.provisioningProfile ?? "none"}`);
+  console.log(`right-release dev: installed ${destination}; identity=${signing.identity}; TeamIdentifier=${signing.teamIdentifier}; profile=${signing.provisioningProfile ?? "none"}; designated=${signing.designatedRequirement}`);
   return signing;
 }
 

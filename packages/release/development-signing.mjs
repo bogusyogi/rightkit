@@ -196,6 +196,10 @@ export function signMacosDevelopmentBundle(options) {
     const details = output(checked("codesign", ["--display", "--verbose=4", bundle], context, "DEV_MAC_SIGNATURE_INVALID", identity));
     const actualTeam = /^TeamIdentifier=(.+)$/m.exec(details)?.[1]?.trim();
     if (actualTeam !== teamIdentifier || /^Signature=adhoc$/m.test(details)) throw new MacosDevelopmentSigningError("DEV_MAC_SIGNING_TEAM_MISMATCH", `Signing identity ${JSON.stringify(identity)}: expected TeamIdentifier=${teamIdentifier}, found ${actualTeam ?? "missing"}. Refusing dev installation.`, { identity, expectedTeam: teamIdentifier, actualTeam });
-    return { ...signing, provisioningProfile: provisioningProfile ? embedded : null, verified: "strict-deep", signedTargets: ordered.length };
+    // Fail closed unless the designated requirement is identity-based: an ad hoc or cdhash requirement changes every build, so macOS TCC re-prompts.
+    const requirement = output(checked("codesign", ["--display", "-r-", bundle], context, "DEV_MAC_SIGNATURE_INVALID", identity));
+    const designated = /^designated => (.+)$/m.exec(requirement)?.[1]?.trim();
+    if (!designated || /\bcdhash\b/.test(designated)) throw new MacosDevelopmentSigningError("DEV_MAC_SIGNING_UNSTABLE_REQUIREMENT", `Signing identity ${JSON.stringify(identity)}: designated requirement ${designated ? JSON.stringify(designated) : "is missing"} is not stable across rebuilds (cdhash-bound). Refusing dev installation.`, { identity, designatedRequirement: designated });
+    return { ...signing, provisioningProfile: provisioningProfile ? embedded : null, verified: "strict-deep", designatedRequirement: designated, signedTargets: ordered.length };
   } finally { rmSync(scratch, { recursive: true, force: true }); }
 }
