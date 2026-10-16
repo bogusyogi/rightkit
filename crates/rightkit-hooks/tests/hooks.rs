@@ -288,6 +288,20 @@ fn tag_context_keeps_marker_within_cap() {
     assert!(t.len() <= 40);
     assert!(t.ends_with("\n[pulse:abc123]"));
     assert_eq!(tag_context("short", "pulse", "i", 100), "short\n[pulse:i]");
+    // A cap smaller than the marker line skips the marker and never overruns.
+    let t = tag_context("abcdefghij", "pulse", "abc123", 5);
+    assert_eq!(t, "abcde");
+    assert_eq!(tag_context("é", "pulse", "i", 1), "");
+    for cap in 0..30 {
+        assert!(tag_context("héllo wörld", "pulse", "id", cap).len() <= cap);
+    }
+}
+
+#[test]
+fn receipt_ids_are_alphanumeric_and_unique() {
+    let ids: std::collections::HashSet<String> = (0..1000).map(|_| new_receipt_id()).collect();
+    assert_eq!(ids.len(), 1000);
+    assert!(ids.iter().all(|i| i.len() == 28 && i.chars().all(|c| c.is_ascii_hexdigit())));
 }
 
 #[test]

@@ -14,3 +14,7 @@ include = ["src/**", "tests/**", "README.md", "CHANGELOG.md", "LICENSE-MIT", "LI
 [dependencies]
 serde = { workspace = true }
 serde_json = { workspace = true }
+
+[package.metadata.rightkit]
+continuous = false
+continuous_reason = "thread-spawn: one short-lived thread per module per dispatch (dispatch.rs run_module), bounded by the per-module and total deadline and reporting through a result channel; a timed-out module's thread ends when the module returns. No pool, timer, listener, watcher or resident state; the process exits after one hook event"
