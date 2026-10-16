@@ -365,8 +365,14 @@ public struct RightKitOverlayPanelConfiguration: Sendable {
 }
 
 /// Native host for pill/notch surfaces. It never activates the app when ordered frontmost.
+///
+/// The class is `open` so a host can subclass it (for its own window overrides, such as a custom
+/// `constrainFrameRect` or `accessibilityRole`) and keep the configuration, hit-region and click-through
+/// machinery. ``canBecomeKey`` and ``canBecomeMain`` stay `final`: the configuration owns them. The event
+/// overrides (`sendEvent`, the mouse handlers, `resignKey`) are `open`; an override must call `super` or
+/// the filter and unhandled-mouse hooks stop working.
 @MainActor
-public final class RightKitOverlayPanel: NSPanel {
+open class RightKitOverlayPanel: NSPanel {
     public let overlayKind: RightKitOverlayKind
     public let configuration: RightKitOverlayPanelConfiguration
 
@@ -419,8 +425,8 @@ public final class RightKitOverlayPanel: NSPanel {
     /// event loop (`nextEvent(matching:)`) from inside the call, as a window-level `mouseDown`
     /// override can. Return true when the event was handled; false lets it continue up the chain.
     ///
-    /// The class stays `final` so a subclass cannot override ``canBecomeKey``, which the configuration
-    /// owns; this hook is the supported way in.
+    /// A subclass may override the mouse handlers, but not ``canBecomeKey``, which the configuration
+    /// owns; this hook is the way in that needs no subclass.
     public var unhandledMouseEvent: (@MainActor (NSEvent) -> Bool)?
 
     /// Called after the panel resigns key (for hide-on-resign launchers).
@@ -464,38 +470,38 @@ public final class RightKitOverlayPanel: NSPanel {
         return ignoresMouseEvents
     }
 
-    public override func sendEvent(_ event: NSEvent) {
+    open override func sendEvent(_ event: NSEvent) {
         if let eventFilter, eventFilter(event) { return }
         super.sendEvent(event)
     }
 
-    public override func mouseDown(with event: NSEvent) {
+    open override func mouseDown(with event: NSEvent) {
         if let unhandledMouseEvent, unhandledMouseEvent(event) { return }
         super.mouseDown(with: event)
     }
 
-    public override func mouseDragged(with event: NSEvent) {
+    open override func mouseDragged(with event: NSEvent) {
         if let unhandledMouseEvent, unhandledMouseEvent(event) { return }
         super.mouseDragged(with: event)
     }
 
-    public override func mouseUp(with event: NSEvent) {
+    open override func mouseUp(with event: NSEvent) {
         if let unhandledMouseEvent, unhandledMouseEvent(event) { return }
         super.mouseUp(with: event)
     }
 
-    public override func rightMouseDown(with event: NSEvent) {
+    open override func rightMouseDown(with event: NSEvent) {
         if let unhandledMouseEvent, unhandledMouseEvent(event) { return }
         super.rightMouseDown(with: event)
     }
 
-    public override func resignKey() {
+    open override func resignKey() {
         super.resignKey()
         onResignKey?()
     }
 
-    public override var canBecomeKey: Bool { configuration.canBecomeKey }
-    public override var canBecomeMain: Bool { false }
+    public final override var canBecomeKey: Bool { configuration.canBecomeKey }
+    public final override var canBecomeMain: Bool { false }
 
     public func showWithoutActivating() {
         orderFrontRegardless()

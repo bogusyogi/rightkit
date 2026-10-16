@@ -15,6 +15,13 @@ public struct DiagnosticEvent: Sendable {
         self.fields = fields
         self.timestamp = timestamp
     }
+
+    /// An event stamped with the time of this call rather than the time the store writes it. Use it
+    /// where the event is built on one thread or task and recorded later (an async append, a queue),
+    /// so the line carries when it happened. Equivalent to `DiagnosticEvent(name:fields:timestamp: Date())`.
+    public static func stamped(name: String, fields: [String: String] = [:], at date: Date = Date()) -> DiagnosticEvent {
+        DiagnosticEvent(name: name, fields: fields, timestamp: date)
+    }
 }
 
 /// How field keys and values are transformed before they reach the file.

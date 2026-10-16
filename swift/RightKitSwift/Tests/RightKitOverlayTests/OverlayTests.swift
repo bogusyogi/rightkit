@@ -174,4 +174,21 @@ final class OverlayTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(layer ?? Int.min, panel.level.rawValue)
     }
 #endif
+
+    #if os(macOS)
+    /// A host subclass compiles against the panel and inherits its configuration-owned key behaviour.
+    @MainActor
+    func testPanelCanBeSubclassedAndKeepsConfigurationOwnedKeyBehaviour() {
+        final class HostPanel: RightKitOverlayPanel {
+            var mouseDowns = 0
+            override func mouseDown(with event: NSEvent) { mouseDowns += 1; super.mouseDown(with: event) }
+        }
+        let panel = HostPanel(contentRect: NSRect(x: 0, y: 0, width: 10, height: 10), kind: .notch,
+                              configuration: RightKitOverlayPanelConfiguration(canBecomeKey: true))
+        XCTAssertTrue(panel.canBecomeKey)
+        XCTAssertFalse(panel.canBecomeMain)
+        XCTAssertEqual(panel.overlayKind, .notch)
+        XCTAssertEqual(panel.mouseDowns, 0)
+    }
+    #endif
 }

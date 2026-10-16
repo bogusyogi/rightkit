@@ -90,3 +90,14 @@ private func lines(_ store: JSONLDiagnosticStore) -> [[String: String]] {
     await store.flush()
     #expect(lines(store).map { $0["event"] } == ["a", "b"])
 }
+
+@Test func stampedEventCarriesTheCallSiteTime() {
+    let at = Date(timeIntervalSince1970: 1_650_000_000)
+    let event = DiagnosticEvent.stamped(name: "n", fields: ["k": "v"], at: at)
+    #expect(event.timestamp == at)
+    #expect(event.name == "n")
+    #expect(event.fields == ["k": "v"])
+    let before = Date()
+    let now = DiagnosticEvent.stamped(name: "n")
+    #expect(now.timestamp.map { $0 >= before && $0 <= Date() } == true)
+}
