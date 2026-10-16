@@ -91,9 +91,13 @@ fn create_impl(
     }
     let mut managed =
         storage::create(cache_root, &app_key, run_id, Duration::from_secs(24 * 3600))?;
-    let home = storage::create_app_root(&mut managed)?;
+    // Storage works on canonical (on Windows verbatim, `\\?\C:\...`) paths and keeps them in the
+    // run marker. What this workspace hands to apps and tests is the ordinary drive path: some
+    // programs reject or mis-handle the verbatim form (Orthic-Labs/rightkit#185). Both name the
+    // same directory; every storage check canonicalises before it compares.
+    let home = crate::util::plain_path(&storage::create_app_root(&mut managed)?);
     let run_id = managed.marker.run_id.clone();
-    let root = managed.root;
+    let root = crate::util::plain_path(&managed.root);
     // Generic managed storage creates this directory; QA profiles belong only in home.
     fs::remove_dir(root.join("data"))?;
     let data_dir = home.join("data");
@@ -625,7 +629,7 @@ mod tests {
         assert!(!ws.root.join("data").exists());
         // The home is created under the canonical temp directory, which on Windows differs in
         // form from the one the environment names (short names, no extended-length prefix).
-        let temp = fs::canonicalize(storage::app_temp_dir()).unwrap();
+        let temp = crate::util::canonical_plain(&storage::app_temp_dir()).unwrap();
         assert!(ws.home.starts_with(temp.join("rightkit-qa")));
         assert!(!ws.home.starts_with(&ws.root));
         assert!(ws.evidence_dir.starts_with(&ws.root));
@@ -717,9 +721,30 @@ mod tests {
         ws.finish().unwrap();
         let report = prune_abandoned(&root, Duration::ZERO, &[]);
         assert!(report.retained.is_empty());
-        assert_eq!(report.removed, vec![ws.root]);
+        let removed: Vec<PathBuf> = report.removed.iter().map(|p| crate::util::plain_path(p)).collect();
+        assert_eq!(removed, vec![ws.root.clone()]);
         assert!(!ws.home.exists());
         fs::remove_dir_all(root).unwrap();
+    }
+
+    /// Orthic-Labs/rightkit#185: apps and tests get ordinary drive paths, never `\\?\C:\...`.
+    #[test]
+    fn workspace_paths_and_env_are_plain_drive_paths() {
+        let root = storage::app_temp_dir().join(format!("rkqa-plain-{}", new_id()));
+        let ws = create(&root, Some("plain1"), "plainapp").unwrap();
+        let paths = [&ws.root, &ws.home, &ws.data_dir, &ws.evidence_dir, &ws.capture_dir];
+        for p in paths {
+            assert!(!p.to_string_lossy().starts_with(r"\\?\"), "{}", p.display());
+            assert!(p.exists(), "{}", p.display());
+        }
+        for (key, value) in &ws.env {
+            assert!(!value.starts_with(r"\\?\"), "{key}={value}");
+        }
+        // Plain does not break the safety checks: the finished run is still disposed.
+        let report = dispose(&ws, false, 2, 1);
+        assert!(report.retained.is_empty(), "{report:?}");
+        assert!(!ws.home.exists() && !ws.root.exists());
+        let _ = fs::remove_dir_all(root);
     }
 
     #[test]

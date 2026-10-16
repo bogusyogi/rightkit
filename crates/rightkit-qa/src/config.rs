@@ -219,7 +219,7 @@ impl QaConfig {
         }
         let base = path.parent().unwrap_or(Path::new("."));
         let app_root = base.join(require_text(&raw.app_root, "app_root")?);
-        let app_root = app_root.canonicalize().unwrap_or(app_root);
+        let app_root = crate::util::canonical_plain(&app_root).unwrap_or(app_root);
         if raw.ui.window_label.trim().is_empty() {
             return err("ui.window_label is required");
         }

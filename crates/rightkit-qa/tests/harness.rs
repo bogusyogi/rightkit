@@ -258,7 +258,7 @@ fn discover_uses_the_app_root_search_order() {
     );
     assert_eq!(h.selected_tiers(), "fast,paid");
     // The managed root is canonical (macOS `/var` -> `/private/var`); the evidence root sits under it.
-    let managed = fs::canonicalize(r.join("managed")).unwrap();
+    let managed = rightkit_qa::util::canonical_plain(&r.join("managed")).unwrap();
     assert!(h.evidence_root().starts_with(&managed));
 }
 

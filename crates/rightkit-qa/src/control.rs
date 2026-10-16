@@ -214,14 +214,91 @@ fn connect_bounded(suite: &Suite, service: &str, timeout: Duration) -> Result<Cl
     }
 }
 
-fn bounded_connect_health(suite: &Suite, service: &str, timeout: Duration) -> Option<Arc<Client>> {
+/// One connect + health attempt. `Err` says why it failed, so a launch timeout can report the
+/// last reason instead of nothing.
+fn bounded_connect_health(
+    suite: &Suite,
+    service: &str,
+    timeout: Duration,
+) -> std::result::Result<Arc<Client>, String> {
     let (s, sv) = (suite.clone(), service.to_string());
-    bounded(timeout, move || {
-        let c = Client::connect(&s, &sv, APP).ok()?;
-        c.call("health", json!({})).ok()?;
-        Some(Arc::new(c))
-    })
-    .flatten()
+    match bounded(timeout, move || {
+        let c = Client::connect(&s, &sv, APP).map_err(|e| format!("connect: {e}"))?;
+        c.call("health", json!({}))
+            .map_err(|e| format!("health: {e}"))?;
+        Ok(Arc::new(c))
+    }) {
+        Some(r) => r,
+        None => Err(format!(
+            "connect/health did not finish within {}ms",
+            timeout.as_millis()
+        )),
+    }
+}
+
+/// What the client polled against what the server registered, for a launch that timed out: the
+/// suite root and service the client used, the record it would read and the endpoint it names,
+/// every service directory the app created under that suite, the last connect error, and the
+/// tail of the app's own log (stdout and stderr). Read before the app is stopped.
+fn launch_timeout_diagnostics(
+    suite: &Suite,
+    service: &str,
+    pid: u32,
+    raw_log: &Path,
+    last_error: &str,
+) -> String {
+    let record = rightkit_daemon::record_path(suite, service);
+    let polled = match rightkit_daemon::read_record(suite, service) {
+        Some(r) => format!(
+            "record present, endpoint {} (answers: {})",
+            r.endpoint,
+            endpoint_open(&r.endpoint)
+        ),
+        None => format!("no readable record at {}", record.display()),
+    };
+    let registered = {
+        let runtime = suite.root().join("runtime");
+        match fs::read_dir(&runtime) {
+            Ok(entries) => {
+                let mut names: Vec<String> = entries
+                    .flatten()
+                    .map(|e| {
+                        let has = e.path().join("service.json").is_file();
+                        format!(
+                            "{}{}",
+                            e.file_name().to_string_lossy(),
+                            if has { " (service.json)" } else { " (no service.json)" }
+                        )
+                    })
+                    .collect();
+                names.sort();
+                if names.is_empty() {
+                    format!("nothing under {}", runtime.display())
+                } else {
+                    names.join(", ")
+                }
+            }
+            Err(e) => format!("{} unreadable: {e}", runtime.display()),
+        }
+    };
+    let log = fs::read(raw_log)
+        .map(|b| crate::util::tail(&String::from_utf8_lossy(&b), 3000))
+        .unwrap_or_else(|e| format!("<log unreadable: {e}>"));
+    let log = if log.trim().is_empty() {
+        "<log is empty: the app printed nothing>".to_string()
+    } else {
+        log
+    };
+    format!(
+        "; client polled suite root {} service {service} (expected endpoint {}): {polled}; \
+         last attempt: {}; services the app registered under that suite: {registered}; \
+         app pid {pid} alive: {}; app log {} tail:\n{log}",
+        suite.root().display(),
+        rightkit_daemon::endpoint_for(suite, service),
+        if last_error.is_empty() { "none" } else { last_error },
+        is_alive(pid),
+        raw_log.display()
+    )
 }
 
 fn endpoint_open(endpoint: &str) -> bool {
@@ -822,27 +899,40 @@ pub fn launch(spec: &LaunchSpec, ws: &QaWorkspace, tracker: &Tracker) -> Result<
             .unwrap_or(0),
         stopped: false,
     };
+    let mut last_error = String::new();
     loop {
         // Each attempt is bounded by the startup deadline: a hung host must not defeat it.
         let left = deadline.saturating_duration_since(Instant::now());
-        if let Some(c) = bounded_connect_health(&suite, &service, left.min(Duration::from_secs(5)))
-        {
-            control.endpoint = c.record().endpoint.clone();
-            *control.client.lock().unwrap() = Some(c);
-            break;
+        match bounded_connect_health(&suite, &service, left.min(Duration::from_secs(5))) {
+            Ok(c) => {
+                control.endpoint = c.record().endpoint.clone();
+                *control.client.lock().unwrap() = Some(c);
+                break;
+            }
+            Err(e) => last_error = e,
         }
         if !is_alive(pid) {
-            let tail = fs::read_to_string(&control.raw_log)
-                .map(|t| crate::util::tail(&t, 1500))
+            let tail = fs::read(&control.raw_log)
+                .map(|b| crate::util::tail(&String::from_utf8_lossy(&b), 1500))
                 .unwrap_or_default();
             return err(format!(
                 "app exited before its control server came up (pid {pid}); log tail: {tail}"
             ));
         }
         if Instant::now() >= deadline {
-            let _ = control.stop();
+            // Read everything while the app is still running, then stop it: `stop` copies the
+            // live log into the evidence dir, which outlives the home that holds `raw_log`.
+            let diagnostics =
+                launch_timeout_diagnostics(&suite, &service, pid, &control.raw_log, &last_error);
+            let kept = control.log_path.clone();
+            let stopped = control.stop();
+            let saved = match &stopped {
+                Ok(_) if kept.is_file() => format!("; full app log kept at {}", kept.display()),
+                Ok(_) => String::new(),
+                Err(e) => format!("; stopping the app: {e}"),
+            };
             return err(format!(
-                "control service did not answer within {}ms; was the app built with its control feature and launched with RIGHTKIT_CONTROL_SERVICE?{}",
+                "control service did not answer within {}ms; was the app built with its control feature and launched with RIGHTKIT_CONTROL_SERVICE?{}{diagnostics}{saved}",
                 spec.startup_timeout.as_millis(),
                 non_interactive_hint()
             ));
@@ -995,7 +1085,7 @@ fn start_process(
         let _ = (ws, id);
         let log = fs::File::create(log_path)?;
         let log2 = log.try_clone()?;
-        let mut cmd = Command::new(&spec.binary);
+        let mut cmd = Command::new(crate::util::plain_path(&spec.binary));
         cmd.current_dir(&ws.home)
             .stdin(Stdio::null())
             .stdout(Stdio::from(log))
@@ -1497,6 +1587,38 @@ mod launch_path_tests {
         assert!(windows_owned_never_frontmost(true, 0, &[]));
         assert!(!windows_owned_never_frontmost(true, 0, &[9]));
         assert!(!windows_owned_never_frontmost(true, 1, &[]));
+    }
+
+    #[test]
+    fn launch_timeout_diagnostics_name_the_suite_the_service_and_the_log() {
+        let (ws, _spec) = fixture();
+        let suite = Suite::at(ws.home.join("suite-aaaaaaaa")).unwrap();
+        // The app registered under another service name than the one the client polled.
+        let other = suite.service_dir("control-other");
+        fs::create_dir_all(&other).unwrap();
+        fs::write(other.join("service.json"), "{}").unwrap();
+        let log = ws.home.join("app.log");
+        fs::write(&log, format!("{}\nRIGHTKIT QA CONTROL SERVER ACTIVE", "x".repeat(5000))).unwrap();
+        let text = launch_timeout_diagnostics(
+            &suite,
+            "control-aaaaaaaa",
+            std::process::id(),
+            &log,
+            "connect: no service.json for control-aaaaaaaa",
+        );
+        assert!(text.contains(&suite.root().display().to_string()), "{text}");
+        assert!(text.contains("control-aaaaaaaa"), "{text}");
+        assert!(text.contains("no readable record"), "{text}");
+        assert!(text.contains("control-other (service.json)"), "{text}");
+        assert!(text.contains("no service.json for control-aaaaaaaa"), "{text}");
+        assert!(text.contains("RIGHTKIT QA CONTROL SERVER ACTIVE"), "{text}");
+        assert!(text.contains(&log.display().to_string()), "{text}");
+        // Only the tail of a long log is quoted.
+        assert!(text.len() < 5000, "{}", text.len());
+        // A log that was never written says so instead of printing nothing.
+        let none = launch_timeout_diagnostics(&suite, "s", 1, &ws.home.join("missing.log"), "");
+        assert!(none.contains("log unreadable"), "{none}");
+        cleanup(&ws);
     }
 
     fn fixture() -> (QaWorkspace, LaunchSpec) {

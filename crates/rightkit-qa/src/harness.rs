@@ -721,7 +721,7 @@ impl Scenario {
             .scratch_root
             .join(format!("rkqa-{}-{}", slug(label), &new_id()[..8]));
         let _ = fs::create_dir_all(&d);
-        let d = d.canonicalize().unwrap_or(d);
+        let d = crate::util::canonical_plain(&d).unwrap_or(d);
         self.scratches.lock().unwrap().push(d.clone());
         d
     }

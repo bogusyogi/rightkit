@@ -100,7 +100,7 @@ impl Bundle {
         })?;
         let rec = Artifact {
             name,
-            path: fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf()),
+            path: crate::util::canonical_plain(path).unwrap_or_else(|_| path.to_path_buf()),
             sha256: sha256_hex(&bytes),
             size_bytes: bytes.len() as u64,
             recorded_at: now_iso(),

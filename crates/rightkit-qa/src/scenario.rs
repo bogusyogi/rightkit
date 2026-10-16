@@ -398,28 +398,9 @@ pub(crate) fn dur(p: &Map<String, Value>, k: &str, default_s: f64) -> Duration {
 /// A canonicalised path on Windows is verbatim, and under that prefix Windows does no
 /// normalisation: `/` is a file-name character, not a separator. Scenario text joins with `/`.
 pub(crate) fn strip_verbatim(text: &str) -> String {
-    // Below MAX_PATH (260) with room for a file name appended by the scenario.
-    const ORDINARY_LIMIT: usize = 200;
-    let plain = if let Some(unc) = text.strip_prefix(r"\\?\UNC\") {
-        format!(r"\\{unc}")
-    } else if let Some(rest) = text.strip_prefix(r"\\?\") {
-        let bytes = rest.as_bytes();
-        let drive = bytes.len() >= 3
-            && bytes[0].is_ascii_alphabetic()
-            && bytes[1] == b':'
-            && bytes[2] == b'\\';
-        if !drive {
-            return text.to_owned();
-        }
-        rest.to_owned()
-    } else {
-        return text.to_owned();
-    };
-    if plain.chars().count() > ORDINARY_LIMIT {
-        text.to_owned()
-    } else {
-        plain
-    }
+    // Also keeps the path verbatim for a reserved device name or a component Windows would
+    // rewrite (see `util::plain_path_text`).
+    crate::util::plain_path_text(text)
 }
 
 /// The text a scenario variable holds for `path`: the path itself, in ordinary (non-verbatim)

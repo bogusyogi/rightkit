@@ -137,6 +137,140 @@ pub fn platform() -> Result<&'static str> {
     }
 }
 
+/// Longest ordinary path text this crate hands out: under MAX_PATH (260) with room for a file
+/// name the app or test appends.
+const PLAIN_PATH_LIMIT: usize = 200;
+
+fn is_reserved_device_name(component: &str) -> bool {
+    // Windows reserves the device name with or without an extension (`NUL.txt`).
+    let stem = component.split('.').next().unwrap_or("").to_ascii_uppercase();
+    matches!(stem.as_str(), "CON" | "PRN" | "AUX" | "NUL")
+        || ((stem.starts_with("COM") || stem.starts_with("LPT"))
+            && stem.len() == 4
+            && matches!(stem.as_bytes()[3], b'1'..=b'9'))
+}
+
+/// The ordinary form of a Windows verbatim path text: `\\?\C:\dir` becomes `C:\dir` and
+/// `\\?\UNC\server\share` becomes `\\server\share`. Text that is not verbatim is returned
+/// unchanged. A verbatim path is also returned unchanged when the ordinary form would mean
+/// something else or not work: longer than the ordinary limit, a component that is a reserved
+/// device name (`CON`, `NUL.txt`, `COM1`), ends in a dot or a space, holds a character Windows
+/// rejects (`<>:"|?*`, control characters), or is empty (`a\\b`). Std only; pure text.
+pub fn plain_path_text(text: &str) -> String {
+    let (plain, rest) = if let Some(unc) = text.strip_prefix(r"\\?\UNC\") {
+        (format!(r"\\{unc}"), unc)
+    } else if let Some(rest) = text.strip_prefix(r"\\?\") {
+        let b = rest.as_bytes();
+        let drive = b.len() >= 3 && b[0].is_ascii_alphabetic() && b[1] == b':' && b[2] == b'\\';
+        if !drive {
+            return text.to_owned();
+        }
+        (rest.to_owned(), &rest[3..])
+    } else {
+        return text.to_owned();
+    };
+    if plain.chars().count() > PLAIN_PATH_LIMIT {
+        return text.to_owned();
+    }
+    let mut components = rest.split('\\').peekable();
+    while let Some(c) = components.next() {
+        if c.is_empty() {
+            // The drive root itself (`C:\`) has an empty last component; nothing else may.
+            if components.peek().is_none() && rest.len() <= 3 {
+                continue;
+            }
+            return text.to_owned();
+        }
+        if c.ends_with('.') && c != "."
+            || c.ends_with(' ')
+            || c == "."
+            || c == ".."
+            || is_reserved_device_name(c)
+            || c.chars().any(|ch| ch.is_control() || "<>:\"|?*/".contains(ch))
+        {
+            return text.to_owned();
+        }
+    }
+    plain
+}
+
+/// [`plain_path_text`] for a path: on Windows a verbatim path (what `fs::canonicalize` returns)
+/// becomes the ordinary drive path (`C:\...`) when that is safe, else it stays as it is.
+/// Every other path, and every path on other systems, is returned unchanged.
+pub fn plain_path(path: &std::path::Path) -> std::path::PathBuf {
+    if !cfg!(windows) {
+        return path.to_path_buf();
+    }
+    match path.to_str() {
+        Some(text) if text.starts_with(r"\\?\") => std::path::PathBuf::from(plain_path_text(text)),
+        _ => path.to_path_buf(),
+    }
+}
+
+/// `fs::canonicalize` with the result handed out as an ordinary path (see [`plain_path`]).
+pub fn canonical_plain(path: &std::path::Path) -> std::io::Result<std::path::PathBuf> {
+    std::fs::canonicalize(path).map(|p| plain_path(&p))
+}
+
+#[cfg(test)]
+mod plain_path_tests {
+    use super::*;
+
+    #[test]
+    fn drive_and_unc_paths_lose_the_verbatim_prefix() {
+        assert_eq!(plain_path_text(r"\\?\C:\Users\a\run-1"), r"C:\Users\a\run-1");
+        assert_eq!(plain_path_text(r"\\?\C:\"), r"C:\");
+        assert_eq!(plain_path_text(r"\\?\UNC\srv\share\x"), r"\\srv\share\x");
+        assert_eq!(plain_path_text(r"C:\already\plain"), r"C:\already\plain");
+        assert_eq!(plain_path_text("/usr/local"), "/usr/local");
+    }
+
+    #[test]
+    fn unsafe_paths_stay_verbatim() {
+        for p in [
+            r"\\?\C:\work\nul",
+            r"\\?\C:\work\NUL.txt",
+            r"\\?\C:\work\com1\x",
+            r"\\?\C:\work\LPT9.log",
+            r"\\?\C:\work\trailing.",
+            r"\\?\C:\work\trailing \x",
+            r"\\?\C:\work\a:b",
+            r"\\?\C:\work\a?b",
+            r"\\?\C:\work\\double",
+            r"\\?\C:\work\..\up",
+            r"\\?\Volume{1234}\x",
+            r"\\?\GLOBALROOT\Device\x",
+        ] {
+            assert_eq!(plain_path_text(p), p, "{p}");
+        }
+        // com0, comfort and names that merely start like a device stay plain.
+        assert_eq!(plain_path_text(r"\\?\C:\w\com0"), r"C:\w\com0");
+        assert_eq!(plain_path_text(r"\\?\C:\w\console"), r"C:\w\console");
+    }
+
+    #[test]
+    fn a_path_over_the_ordinary_limit_stays_verbatim() {
+        let long = format!(r"\\?\C:\{}", "d".repeat(PLAIN_PATH_LIMIT));
+        assert_eq!(plain_path_text(&long), long);
+        let fits = format!(r"\\?\C:\{}", "d".repeat(PLAIN_PATH_LIMIT - 10));
+        assert_eq!(plain_path_text(&fits), fits[4..].to_string());
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn canonical_plain_hands_out_a_drive_path() {
+        let dir = std::env::temp_dir();
+        let verbatim = std::fs::canonicalize(&dir).unwrap();
+        assert!(verbatim.to_string_lossy().starts_with(r"\\?\"));
+        let plain = canonical_plain(&dir).unwrap();
+        let text = plain.to_string_lossy();
+        assert!(!text.starts_with(r"\\?\"), "{text}");
+        assert!(plain.is_dir());
+        // It names the same directory.
+        assert_eq!(std::fs::canonicalize(&plain).unwrap(), verbatim);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
