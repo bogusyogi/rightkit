@@ -118,3 +118,72 @@ test("production-shaped NSIS embedding receipts remain valid", (t) => {
   writeFileSync(receiptFile, bytes); fx.manifest.signing.receipts.push({ file: receiptFile, sha256: digestBytes(bytes) }); fx.save();
   assert.ok(verifyPublicationRelease(fx.options, deps).artifacts.size);
 });
+
+function androidFixture(t, patch = {}) {
+  const fx = fixture(t), cert = "c".repeat(64), aabBytes = Buffer.from("signed aab");
+  const aabFile = path.join(fx.root, "app-release.aab");
+  writeFileSync(aabFile, aabBytes);
+  const receipt = { schema: 1, contract: "android-aab-upload-key-v1", file: { name: "app-release.aab", sha256: digestBytes(aabBytes), sizeBytes: aabBytes.length }, signer: { alias: "upload", certSha256: cert, subject: "CN=Upload" }, ...patch.receipt };
+  const write = () => {
+    const bytes = Buffer.from(JSON.stringify(receipt));
+    writeFileSync(path.join(fx.root, "android-aab.json"), bytes);
+    fx.manifest.signing.receipts = [{ file: path.join(fx.root, "android-aab.json"), sha256: digestBytes(bytes) }];
+    fx.save();
+  };
+  fx.manifest.platform = "android";
+  fx.manifest.signing.uploadCertSha256 = cert;
+  fx.manifest.files = [{ role: "aab", name: "app-release.aab", sha256: digestBytes(aabBytes), sizeBytes: aabBytes.length }];
+  write();
+  return { ...fx, receipt, write, options: { ...fx.options, platform: "android" } };
+}
+const invalid = /PUBLICATION_SIGNATURE_INVALID/;
+
+test("android publication accepts a receipt bound to the sealed aab and pinned upload certificate", (t) => {
+  const fx = androidFixture(t);
+  assert.ok(verifyPublicationRelease(fx.options, deps).artifacts.has("app-release.aab"));
+});
+
+test("android publication refuses a wrong contract, a foreign platform and a missing receipt", (t) => {
+  const fx = androidFixture(t);
+  fx.receipt.contract = "android-aab-upload-key-v2"; fx.write();
+  assert.throws(() => verifyPublicationRelease(fx.options, deps), (e) => invalid.test(e.message) && /contract/.test(e.message));
+  fx.receipt.contract = "android-aab-upload-key-v1"; fx.write();
+  const win = fixture(t);
+  const bytes = Buffer.from(JSON.stringify(fx.receipt)); writeFileSync(win.receipt, bytes); win.manifest.signing.receipts[0].sha256 = digestBytes(bytes); win.save();
+  assert.throws(() => verifyPublicationRelease(win.options, deps), (e) => invalid.test(e.message) && /non-android/.test(e.message));
+  const winReceipt = androidFixture(t); // android release carrying only a win-shaped receipt
+  const sig = Buffer.from(JSON.stringify({ schema: 1, files: [{ after: { sha256: "a".repeat(64) }, timestampPresent: true, codesign: "strict-valid", identity: undefined }] }));
+  writeFileSync(path.join(winReceipt.root, "android-aab.json"), sig); winReceipt.manifest.signing.receipts[0].sha256 = digestBytes(sig); winReceipt.save();
+  assert.throws(() => verifyPublicationRelease(winReceipt.options, deps), code("PUBLICATION_SIGNATURE_MISSING"));
+});
+
+test("android publication refuses a signer that is not the pinned upload certificate", (t) => {
+  const fx = androidFixture(t);
+  fx.receipt.signer.certSha256 = "d".repeat(64); fx.write();
+  assert.throws(() => verifyPublicationRelease(fx.options, deps), (e) => invalid.test(e.message) && /pinned upload certificate/.test(e.message));
+  fx.receipt.signer.certSha256 = "c".repeat(64); fx.write();
+  delete fx.manifest.signing.uploadCertSha256; fx.save();
+  assert.throws(() => verifyPublicationRelease(fx.options, deps), (e) => invalid.test(e.message) && /no pinned/.test(e.message));
+});
+
+test("android publication refuses an AAB digest or size that differs from the sealed entry", (t) => {
+  const fx = androidFixture(t);
+  fx.receipt.file.sha256 = "e".repeat(64); fx.write();
+  assert.throws(() => verifyPublicationRelease(fx.options, deps), (e) => invalid.test(e.message) && /sha256 differs/.test(e.message));
+  fx.receipt.file.sha256 = fx.manifest.files[0].sha256; fx.receipt.file.sizeBytes = 99; fx.write();
+  assert.throws(() => verifyPublicationRelease(fx.options, deps), (e) => invalid.test(e.message) && /size differs/.test(e.message));
+});
+
+test("android publication refuses a sealed release without exactly one aab entry", (t) => {
+  const fx = androidFixture(t);
+  fx.manifest.files[0].role = "portable"; fx.save();
+  assert.throws(() => verifyPublicationRelease(fx.options, deps), (e) => invalid.test(e.message) && /no aab entry/.test(e.message));
+});
+
+test("android publication refuses the Android debug certificate", (t) => {
+  const fx = androidFixture(t);
+  fx.receipt.signer.subject = "CN=Android Debug,O=Android,C=US"; fx.write();
+  assert.throws(() => verifyPublicationRelease(fx.options, deps), (e) => invalid.test(e.message) && /debug certificate/.test(e.message));
+  fx.receipt.signer.subject = "CN=Upload"; fx.receipt.signer.debugCertificate = true; fx.write();
+  assert.throws(() => verifyPublicationRelease(fx.options, deps), (e) => invalid.test(e.message) && /debug certificate/.test(e.message));
+});

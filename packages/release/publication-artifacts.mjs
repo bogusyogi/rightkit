@@ -59,11 +59,17 @@ export function verifyPublicationRelease({ sealedDir, repoRoot, appRoot, commit,
   if (!Array.isArray(receipts) || !receipts.length) throw new PublicationError("PUBLICATION_SIGNATURE_MISSING", "sealed signing receipts are required");
   let notarized = false;
   let signed = false;
+  let androidVerified = false;
   for (const receipt of receipts) {
     const artifact = readVerifiedArtifact(path.resolve(appRoot, receipt.file), receipt);
     let value;
     try { value = JSON.parse(artifact.bytes); } catch { throw new PublicationError("PUBLICATION_SIGNATURE_INVALID", "invalid sealed signing receipt"); }
     if (value.schema !== 1) throw new PublicationError("PUBLICATION_SIGNATURE_INVALID", "malformed sealed signing receipt");
+    if (value.contract !== undefined) {
+      verifyAndroidPublicationReceipt(value, manifest, platform);
+      androidVerified = true; signed = true;
+      continue;
+    }
     if (Array.isArray(value.files)) {
       if (!value.files.length || value.files.some((item) => !/^[a-f0-9]{64}$/.test(item.after?.sha256 ?? "") || item.timestampPresent !== true
         || (platform === "win" ? item.authenticode !== "Valid" || item.subject !== "CN=Damned Ventures LLC" : item.codesign !== "strict-valid" || item.identity !== value.identity))) throw new PublicationError("PUBLICATION_SIGNATURE_INVALID", "sealed signature verification evidence rejected");
@@ -81,6 +87,7 @@ export function verifyPublicationRelease({ sealedDir, repoRoot, appRoot, commit,
   }
   if (!signed) throw new PublicationError("PUBLICATION_SIGNATURE_MISSING", "sealed native signing evidence is required");
   if (platform === "mac" && !notarized) throw new PublicationError("PUBLICATION_NOTARIZATION_MISSING", "sealed notarization evidence is required");
+  if (platform === "android" && !androidVerified) throw new PublicationError("PUBLICATION_SIGNATURE_MISSING", "sealed android AAB upload-key receipt is required");
   const artifacts = new Map();
   for (const entry of manifest.files ?? []) {
     if (typeof entry.name !== "string" || path.basename(entry.name) !== entry.name || artifacts.has(entry.name)) throw new PublicationError("PUBLICATION_SEAL_INVALID", "unsafe or duplicate sealed artifact name");
@@ -88,6 +95,28 @@ export function verifyPublicationRelease({ sealedDir, repoRoot, appRoot, commit,
   }
   if (!artifacts.size) throw new PublicationError("PUBLICATION_SEAL_INVALID", "sealed release has no artifacts");
   return { ...sealed, artifacts };
+}
+
+// Android AAB receipt (android-release.mjs: contract "android-aab-upload-key-v1"). The receipt was already read from the
+// manifest's signing.receipts and hash-verified by the caller; here it must describe exactly the sealed "aab" file and be
+// signed by the pinned upload certificate. Fails closed with a specific message on any mismatch.
+const ANDROID_RECEIPT_CONTRACT = "android-aab-upload-key-v1";
+function verifyAndroidPublicationReceipt(value, manifest, platform) {
+  const invalid = (message) => { throw new PublicationError("PUBLICATION_SIGNATURE_INVALID", message); };
+  if (value.contract !== ANDROID_RECEIPT_CONTRACT) invalid(`unrecognized signing receipt contract: ${JSON.stringify(value.contract)}`);
+  if (platform !== "android" || manifest.platform !== "android") invalid("android AAB receipt in a non-android release");
+  const signer = value.signer?.certSha256;
+  if (!/^[a-f0-9]{64}$/.test(signer ?? "")) invalid("android AAB receipt has no signer certificate sha256");
+  if (value.signer.debugCertificate === true || /Android Debug/i.test(String(value.signer.subject ?? ""))) invalid("android AAB receipt is signed with the Android debug certificate");
+  const pinned = manifest.signing?.uploadCertSha256;
+  if (!/^[a-f0-9]{64}$/.test(pinned ?? "")) invalid("sealed signing policy has no pinned android upload certificate");
+  if (signer !== pinned) invalid("android AAB signer certificate is not the pinned upload certificate");
+  const aabs = (manifest.files ?? []).filter((entry) => entry.role === "aab");
+  if (aabs.length !== 1) invalid(aabs.length ? "sealed release has more than one aab entry" : "sealed release has no aab entry");
+  const [aab] = aabs;
+  if (!/^[a-f0-9]{64}$/.test(value.file?.sha256 ?? "") || value.file.sha256 !== aab.sha256) invalid("android AAB receipt sha256 differs from the sealed aab entry");
+  if (!Number.isInteger(value.file.sizeBytes) || value.file.sizeBytes !== aab.sizeBytes) invalid("android AAB receipt size differs from the sealed aab entry");
+  if (value.file.name !== aab.name) invalid("android AAB receipt names a different file than the sealed aab entry");
 }
 
 // Bounded memory for large artifacts. Transport must read back against this digest.
