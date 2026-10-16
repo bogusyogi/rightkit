@@ -442,17 +442,38 @@ impl DirWatcher {
         tx: mpsc::Sender<notify::Result<Event>>,
     ) -> io::Result<Self> {
         let mut reader = Reader::open(root, recursive, buffer_bytes)?;
-        reader.arm()?;
         let stop = Arc::new(create_event()?);
         let thread_stop = Arc::clone(&stop);
         let root = root.to_path_buf();
+        // The first request is armed on the reader thread, not here: Windows cancels pending
+        // overlapped IO on a non-IOCP handle when the thread that issued it exits, so a request
+        // armed on a short-lived caller thread would die with it. The arm result comes back so
+        // an arm failure still returns to the caller (who falls back to notify).
+        let (armed_tx, armed_rx) = mpsc::sync_channel::<io::Result<()>>(1);
         let thread = thread::Builder::new()
             .name("rightkit-watch-rdcw".into())
-            .spawn(move || run(reader, &thread_stop, &root, &tx))?;
-        Ok(Self {
-            stop,
-            thread: Some(thread),
-        })
+            .spawn(move || {
+                if let Err(error) = reader.arm() {
+                    let _ = armed_tx.send(Err(error));
+                    return;
+                }
+                let _ = armed_tx.send(Ok(()));
+                run(reader, &thread_stop, &root, &tx)
+            })?;
+        match armed_rx.recv() {
+            Ok(Ok(())) => Ok(Self {
+                stop,
+                thread: Some(thread),
+            }),
+            Ok(Err(error)) => {
+                let _ = thread.join();
+                Err(error)
+            }
+            Err(_) => {
+                let _ = thread.join();
+                Err(io::Error::other("rdcw reader thread exited before arming"))
+            }
+        }
     }
 }
 
