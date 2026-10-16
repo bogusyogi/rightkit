@@ -2,13 +2,16 @@
 
 ## 0.7.0 (unpublished)
 
-Orthic-Labs/rightkit#194: what the PostRight engine needs for Mastodon and X OAuth with refresh. All additions are under the `server` feature; nothing existing changed except one new `ServerAuthError` variant (the enum is `#[non_exhaustive]`). `rightkit-daemon` moves its pin to `0.7.0`.
+Orthic-Labs/rightkit#194: what the PostRight engine needs for Mastodon and X OAuth with refresh. All additions are under the `server` feature; nothing existing changed except two new `ServerAuthError` variants (`RegistrationFailure`, `StoreNotDurable`) (the enum is `#[non_exhaustive]`). `rightkit-daemon` moves its pin to `0.7.0`.
 
 - Add `server::KeychainTokenStore` (needs `server` + `secrets`, on by default): a cross-platform durable `TokenStore` over the OS credential store (macOS Keychain, Windows Credential Manager) via `rightkit-credentials`, keyed by `(account, provider)`. A file lock in a caller-chosen per-user directory serializes get/refresh/put across processes. `SealedFileTokenStore` is unchanged.
 - Add `server::FilePendingStateStore`: a durable `PendingStateStore` shared by processes, so `begin` and `complete` can run in separate CLI invocations. AES-256-GCM sealed record per state, bound to its file name and expiry, under a directory lock; `take` deletes before decrypting (single use, even when corrupt); expired records are purged on insert; capacity bounded. `with_keychain_key` keeps the sealing key in the OS credential store.
 - Add `ServerAuthFlow::refresh_token(provider, &Secret)`: refresh from a bare refresh token, independent of any stored `TokenSet`. The returned set carries the rotated refresh token when the provider sends one, else the one passed in.
 - Add `ServerAuthFlow::refresh_token_and_store(store, account, provider, &Secret)`: the same under the store lock with an atomic replacement of the stored set (rotated token included); `RefreshPersistence` still returns the new tokens when the write fails; `invalid_grant` deletes the stored set only if it still holds the rejected token.
 - Add presets `ServerProvider::mastodon(instance, ..)`, `x_confidential(..)`, `x_public(..)`, `with_default_scopes`, and `register_mastodon_app` (`POST {instance}/api/v1/apps`, JSON body) returning `RegisteredApp { client_id, client_secret, .. }` (redacted `Debug`). New `ServerAuthError::RegistrationFailure { status }`.
+- `refresh_token_and_store` re-reads the stored set under the lock: if its refresh token differs from the one passed in (another process already rotated it) the stored set is returned and the stale token is never spent, so a rotated grant is not double-spent. When the provider rejects the grant, a failed read or delete no longer replaces `ReauthRequired` with `Storage`.
+- Add `ServerAuthError::StoreNotDurable`. `KeychainTokenStore::new` and `FilePendingStateStore::with_keychain_key` return it when the credential store is not durable (`Store::is_durable()` is false: a tripped guard put it in memory or deny mode) instead of silently losing rotated tokens or the cross-process pending key.
+- `KeychainTokenStore` and `FilePendingStateStore::with_keychain_key` need the `secrets` feature (on by default). Consumers that set `default-features = false` must add `features = ["server", "secrets"]` to use them; without `secrets` they do not exist.
 - Unverified, see the preset docs: Mastodon PKCE enforcement per version, and the default scope lists.
 
 ## 0.6.0 (unpublished)

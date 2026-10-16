@@ -39,10 +39,17 @@ impl std::fmt::Debug for KeychainTokenStore {
 impl KeychainTokenStore {
     /// `lock_dir` holds only empty lock files. On Unix it must be, or is created as, a 0700
     /// directory owned by the effective user; on Windows put it under `%LOCALAPPDATA%`.
+    ///
+    /// Fails with [`ServerAuthError::StoreNotDurable`] when `credentials` is not durable (a guard
+    /// put it in memory or deny mode): rotated tokens would be lost, so there is no silent
+    /// memory fallback.
     pub fn new(
         credentials: rightkit_credentials::Store,
         lock_dir: impl AsRef<Path>,
     ) -> Result<Self, ServerAuthError> {
+        if !credentials.is_durable() {
+            return Err(ServerAuthError::StoreNotDurable);
+        }
         Ok(Self {
             credentials,
             lock_dir: lock::prepare_dir(lock_dir.as_ref())?,

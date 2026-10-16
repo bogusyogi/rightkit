@@ -65,6 +65,11 @@ pub enum ServerAuthError {
     },
     ReauthRequired,
     Storage,
+    /// The OS credential store is not durable: a guard (for example an app's disable-keychain
+    /// switch) put it in memory or deny mode, or its backend does not report itself durable.
+    /// Rotated refresh tokens and cross-process PKCE state would be lost, so the keychain-backed
+    /// stores refuse to be built on it rather than fall back to memory silently.
+    StoreNotDurable,
     OidcValidation,
     /// Dynamic client registration was declined or returned no usable credentials.
     RegistrationFailure {
@@ -107,6 +112,7 @@ impl fmt::Display for ServerAuthError {
             Self::ExchangeFailure { .. } => "OAuth token exchange failed",
             Self::ReauthRequired => "OAuth reauthorization required",
             Self::Storage => "OAuth storage failed",
+            Self::StoreNotDurable => "OAuth credential store is not durable",
             Self::OidcValidation => "OIDC validation failed or validator missing",
             Self::RegistrationFailure { .. } => "OAuth app registration failed",
             Self::RefreshPersistence { .. } => "rotated OAuth tokens require persistence recovery",
@@ -592,7 +598,9 @@ impl ServerAuthFlow {
     }
 
     /// [`Self::refresh_token`] under the store's lock, then an atomic replacement of the
-    /// stored set (a rotated refresh token included). A failed write returns
+    /// stored set (a rotated refresh token included). If the store already holds a different
+    /// refresh token (another process rotated it first), that stored set is returned and the
+    /// passed token is not spent. A failed write returns
     /// `RefreshPersistence` with the new tokens. On `invalid_grant` the stored set is deleted
     /// only if it still holds the refresh token that was just rejected; a newer one written by
     /// another process is kept.
@@ -604,6 +612,19 @@ impl ServerAuthFlow {
         refresh_token: &Secret,
     ) -> Result<TokenSet, ServerAuthError> {
         let mut guard = store.lock(account, provider)?;
+        // Another process may have rotated this token while we waited for the lock. Spending
+        // the stale one again would double-spend a rotated grant (X may revoke the whole
+        // token family), so hand back what is stored instead.
+        let stored = guard.get()?;
+        if let Some(current) = stored {
+            let stale = current
+                .refresh_token
+                .as_ref()
+                .is_some_and(|s| !ct_eq(s.expose(), refresh_token.expose()));
+            if stale {
+                return Ok(current);
+            }
+        }
         match self.refresh_token(provider, refresh_token) {
             Ok(tokens) => {
                 if guard.put(&tokens).is_err() {
@@ -614,12 +635,17 @@ impl ServerAuthFlow {
                 Ok(tokens)
             }
             Err(ServerAuthError::ReauthRequired) => {
+                // The provider's verdict is the real outcome: a failed read or delete here must
+                // not replace it with Storage. A dead token left behind is rejected again, the
+                // same way, on the next attempt.
                 let same = guard
-                    .get()?
+                    .get()
+                    .ok()
+                    .flatten()
                     .and_then(|current| current.refresh_token)
                     .is_some_and(|stored| ct_eq(stored.expose(), refresh_token.expose()));
                 if same {
-                    guard.delete()?;
+                    let _ = guard.delete();
                 }
                 Err(ServerAuthError::ReauthRequired)
             }

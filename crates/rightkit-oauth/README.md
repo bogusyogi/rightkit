@@ -20,7 +20,7 @@ Shared OAuth 2.0 sign-in for Right Suite apps. It owns loopback S256 PKCE for de
 
 ## Durable server-mode pieces (PostRight engine)
 
-All under `server`; `KeychainTokenStore` also needs `secrets` (default on).
+All under `server`; `KeychainTokenStore` and `FilePendingStateStore::with_keychain_key` also need `secrets` (default on): do not set `default-features = false` without adding `secrets` if you use them. Both return `ServerAuthError::StoreNotDurable` when the credential store is guarded into memory or deny mode (`Store::is_durable()` is false), rather than falling back to memory.
 
 - `KeychainTokenStore::new(credentials_store, lock_dir)`: `TokenStore` in the OS credential store, macOS and Windows. `lock_dir` holds only empty lock files (per-user: 0700 on Unix, under `%LOCALAPPDATA%` on Windows). The Windows credential blob limit is 2560 bytes.
 - `FilePendingStateStore::new(dir, key)` or `::with_keychain_key(dir, &credentials_store, "pending-key")`: pending PKCE state shared across processes; single use, expiry enforced by the flow, sealed at rest.

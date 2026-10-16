@@ -57,13 +57,18 @@ impl FilePendingStateStore {
     /// Like [`Self::new`], with the sealing key held in the OS credential store under
     /// `key_account`: minted once (32 CSPRNG bytes) with add-if-absent, so concurrent first
     /// runs adopt one key. A stored value that is unreadable or malformed is an error, never
-    /// replaced (replacing it would strand every pending record).
+    /// replaced (replacing it would strand every pending record). Fails with
+    /// [`ServerAuthError::StoreNotDurable`] when `credentials` is not durable (a tripped guard):
+    /// a memory-held key cannot be shared across processes, which would break PKCE completion.
     #[cfg(feature = "secrets")]
     pub fn with_keychain_key(
         root: impl AsRef<Path>,
         credentials: &rightkit_credentials::Store,
         key_account: &str,
     ) -> Result<Self, ServerAuthError> {
+        if !credentials.is_durable() {
+            return Err(ServerAuthError::StoreNotDurable);
+        }
         Self::new(root, keychain_key(credentials, key_account)?)
     }
 

@@ -280,7 +280,7 @@ fn keychain_held_key_is_minted_once_and_shared() {
     let dir = tempfile::tempdir().unwrap();
     let creds = rightkit_credentials::Store::open(
         Config::new(Namespace::new("test.rightkit.oauth.pendingkey").unwrap())
-            .backend(Arc::new(MemoryBackend::new())),
+            .backend(Arc::new(MemoryBackend::simulating_durable())),
     );
     let clock = Arc::new(Clock::default());
     let mk = || -> Arc<dyn PendingStateStore> {
@@ -314,4 +314,26 @@ fn keychain_held_key_is_minted_once_and_shared() {
             .unwrap(),
         "not-hex"
     );
+}
+
+#[cfg(feature = "secrets")]
+#[test]
+fn a_guarded_credential_store_cannot_hold_the_pending_key() {
+    use rightkit_credentials::{Config, GuardMode, MemoryBackend, Namespace};
+    let dir = tempfile::tempdir().unwrap();
+    for mode in [GuardMode::Memory, GuardMode::Deny] {
+        let guarded = rightkit_credentials::Store::open(
+            Config::new(Namespace::new("test.rightkit.oauth.pendingguard").unwrap())
+                .backend(Arc::new(MemoryBackend::simulating_durable()))
+                .guard_when(true, mode),
+        );
+        assert!(matches!(
+            FilePendingStateStore::with_keychain_key(
+                dir.path().join("pending"),
+                &guarded,
+                "pending-key"
+            ),
+            Err(ServerAuthError::StoreNotDurable)
+        ));
+    }
 }

@@ -1,6 +1,6 @@
 //! Keychain-backed TokenStore, bare-token refresh and rotation persistence.
 #![cfg(all(feature = "server", feature = "secrets"))]
-use rightkit_credentials::{Config, MemoryBackend, Namespace};
+use rightkit_credentials::{Config, GuardMode, MemoryBackend, Namespace};
 use rightkit_http::testing::{loopback_config, MockResponse, MockServer};
 use rightkit_http::{Client, Secret};
 use rightkit_oauth::server::*;
@@ -35,7 +35,7 @@ fn flow(server: &MockServer, clock: Arc<Clock>) -> ServerAuthFlow {
 }
 fn creds(namespace: &str) -> rightkit_credentials::Store {
     rightkit_credentials::Store::open(
-        Config::new(Namespace::new(namespace).unwrap()).backend(Arc::new(MemoryBackend::new())),
+        Config::new(Namespace::new(namespace).unwrap()).backend(Arc::new(MemoryBackend::simulating_durable())),
     )
 }
 fn tokens(refresh: &str, expires: u64) -> TokenSet {
@@ -261,10 +261,12 @@ fn dead_grant_deletes_only_the_rejected_stored_token() {
     let store = KeychainTokenStore::new(creds("test.rightkit.oauth.kc6"), dir.path().join("locks"))
         .unwrap();
     store.put("acct", "test", &tokens("newer", 3600)).unwrap();
-    assert!(matches!(
-        f.refresh_token_and_store(&store, "acct", "test", &Secret::new("stale")),
-        Err(ServerAuthError::ReauthRequired)
-    ));
+    // A stale caller token is not spent: the newer stored set comes back, no network call.
+    let out = f
+        .refresh_token_and_store(&store, "acct", "test", &Secret::new("stale"))
+        .unwrap();
+    assert_eq!(out.refresh_token.unwrap().expose(), "newer");
+    assert!(server.requests().is_empty());
     assert!(
         store.get("acct", "test").unwrap().is_some(),
         "a newer stored token survives"
@@ -309,4 +311,95 @@ fn failed_persistence_returns_the_rotated_tokens() {
         }
         _ => panic!("expected RefreshPersistence"),
     }
+}
+
+#[test]
+fn stale_token_after_another_process_rotated_is_not_spent() {
+    let server = MockServer::start(|_, _| {
+        MockResponse::json(
+            200,
+            &json!({"access_token":"a1","refresh_token":"rotated","expires_in":3600}),
+        )
+    });
+    let f = Arc::new(flow(&server, Arc::new(Clock::default())));
+    let dir = tempfile::tempdir().unwrap();
+    let shared = creds("test.rightkit.oauth.kc7");
+    let locks = dir.path().join("locks");
+    let a = KeychainTokenStore::new(shared.clone(), &locks).unwrap();
+    let b = KeychainTokenStore::new(shared, &locks).unwrap();
+    a.put("acct", "test", &tokens("old-refresh", 90)).unwrap();
+    let barrier = Arc::new(std::sync::Barrier::new(2));
+    let handles: Vec<_> = [a, b]
+        .into_iter()
+        .map(|store| {
+            let (f, barrier) = (f.clone(), barrier.clone());
+            std::thread::spawn(move || {
+                barrier.wait();
+                f.refresh_token_and_store(&store, "acct", "test", &Secret::new("old-refresh"))
+                    .unwrap()
+            })
+        })
+        .collect();
+    for h in handles {
+        let out = h.join().unwrap();
+        assert_eq!(out.access_token(), "a1");
+        assert_eq!(out.refresh_token.unwrap().expose(), "rotated");
+    }
+    assert_eq!(
+        server.requests().len(),
+        1,
+        "the rotated token is spent once, never the stale one twice"
+    );
+}
+
+#[test]
+fn a_guarded_credential_store_is_refused_not_silently_memory_backed() {
+    let dir = tempfile::tempdir().unwrap();
+    for mode in [GuardMode::Memory, GuardMode::Deny] {
+        let guarded = rightkit_credentials::Store::open(
+            Config::new(Namespace::new("test.rightkit.oauth.kc8").unwrap())
+                .backend(Arc::new(MemoryBackend::simulating_durable()))
+                .guard_when(true, mode),
+        );
+        assert!(!guarded.is_durable());
+        assert!(matches!(
+            KeychainTokenStore::new(guarded, dir.path().join("locks")),
+            Err(ServerAuthError::StoreNotDurable)
+        ));
+    }
+}
+
+#[test]
+fn a_dead_grant_is_reported_even_when_the_stored_read_fails() {
+    struct BrokenRead;
+    struct BrokenReadGuard(u32);
+    impl TokenStore for BrokenRead {
+        fn lock(&self, _: &str, _: &str) -> Result<Box<dyn TokenStoreGuard + '_>, ServerAuthError> {
+            Ok(Box::new(BrokenReadGuard(0)))
+        }
+    }
+    impl TokenStoreGuard for BrokenReadGuard {
+        fn get(&mut self) -> Result<Option<TokenSet>, ServerAuthError> {
+            // The pre-spend read works (nothing stored); the post-rejection read fails.
+            self.0 += 1;
+            if self.0 == 1 {
+                Ok(None)
+            } else {
+                Err(ServerAuthError::Storage)
+            }
+        }
+        fn put(&mut self, _: &TokenSet) -> Result<(), ServerAuthError> {
+            Ok(())
+        }
+        fn delete(&mut self) -> Result<(), ServerAuthError> {
+            Ok(())
+        }
+    }
+    let server =
+        MockServer::start(|_, _| MockResponse::json(400, &json!({"error":"invalid_grant"})));
+    let f = flow(&server, Arc::new(Clock::default()));
+    assert!(matches!(
+        f.refresh_token_and_store(&BrokenRead, "acct", "test", &Secret::new("dead")),
+        Err(ServerAuthError::ReauthRequired)
+    ));
 }
