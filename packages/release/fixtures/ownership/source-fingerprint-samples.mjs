@@ -77,7 +77,8 @@ export const FINGERPRINT_SAMPLES = {
     ],
     "negative": [
       "#[tauri::command]\nfn secure_update_license_get(state: State<Host>) -> Result<Option<License>, String> {\n    rightkit_device::SecureService::new(&state.store, &NoopHook).get().map_err(|e| e.to_string())\n}",
-      "fn open_settings_window(app: AppHandle) {}"
+      "fn open_settings_window(app: AppHandle) {}",
+      "#[tauri::command]\npub async fn secure_device_id_get_or_create() -> Result<DeviceId, String> {\n    super::run_blocking(\"secure_device_id_get_or_create\", move || {\n        DEVICE_SERVICE\n            .get_or_create()\n            .map(|id| DeviceId { id })\n    })\n    .await?\n}"
     ]
   },
   "tauri.invoke.standard-commands": {
