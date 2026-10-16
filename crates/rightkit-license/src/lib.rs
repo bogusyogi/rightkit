@@ -30,6 +30,12 @@
 //! expose `require(feature)`; it has no input for a pushed flag. See the `engine` module
 //! docs for the window-to-engine pattern.
 //!
+//! ## Google-subject entitlement (feature `subject-entitlement`, 0.3.0)
+//! `SubjectEntitlementSource` asks the shared entitlement service whether the signed-in
+//! Google account holds Pro (Play Billing, Windows licence, or a linked StoreKit purchase),
+//! with a daily re-check, strict `expires_at` and a 7-day offline grace. It is off by default
+//! and independent of the signed-token path above. See the `subject` module docs.
+//!
 //! ## Caller responsibilities
 //! Verification here is deliberately narrow. The caller still owns:
 //! - **The nested lease entitlement.** The envelope signature covers seven metadata
@@ -47,6 +53,16 @@ mod file_store;
 mod lease;
 mod lifecycle;
 mod refresh;
+#[cfg(feature = "subject-entitlement")]
+mod subject;
+
+#[cfg(feature = "subject-entitlement")]
+pub use subject::{
+    BearerTokenProvider, Freshness, MemorySubjectCache, PlayPurchase, SubjectCacheStore,
+    SubjectDecision, SubjectEntitlement, SubjectEntitlementConfig, SubjectEntitlementError,
+    SubjectEntitlementSource, SubjectSource, TokenError, SUBJECT_OFFLINE_GRACE_SECS,
+    SUBJECT_RECHECK_SECS,
+};
 
 pub use clock::reconcile_clock;
 pub use clock::{
