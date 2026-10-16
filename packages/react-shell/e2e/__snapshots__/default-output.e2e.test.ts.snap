@@ -7,4 +7,3 @@ exports[`default output is pinned in a real browser > context menu and toast row
   "toasts": "<div class="rk-toasts" aria-live="polite" aria-atomic="false" data-rk-toasts="true"><div role="status" data-kind="success" class="rk-toast rk-toast--success"><span class="rk-toast__glyph" aria-hidden="true">✓</span><span class="rk-toast__msg">Saved to library</span><button type="button" class="rk-toast__x" aria-label="Dismiss notification">✕</button></div><div role="alert" data-kind="error" class="rk-toast rk-toast--error"><span class="rk-toast__glyph" aria-hidden="true">!</span><span class="rk-toast__msg">Engine unreachable</span><button type="button" class="rk-toast__action">Retry</button><button type="button" class="rk-toast__x" aria-label="Dismiss notification">✕</button></div></div>",
 }
 `;
-
