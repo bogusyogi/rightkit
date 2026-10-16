@@ -53,7 +53,8 @@ pub use environment::{
 #[cfg(feature = "session")]
 pub use probe::{probe_providers, ProviderDiagnostic, ProviderKind};
 pub use runtime_bundle::{
-    verify_runtime_manifest, OnnxRuntimeIdentity, VerifiedFile, VerifiedRuntime,
+    verify_library_in_manifest, verify_runtime_manifest, OnnxRuntimeIdentity, VerifiedFile,
+    VerifiedRuntime,
 };
 #[cfg(feature = "session")]
 pub use session::{BuiltSession, ExecutionProvider, SessionError, SessionOptions};
@@ -551,6 +552,26 @@ pub fn configure_runtime(
 ) -> Result<RuntimeSelection, RuntimeError> {
     configure_runtime_with_options(candidates, &RuntimeBindingOptions::default())
         .map(|binding| binding.selection)
+}
+
+/// [`configure_runtime`] that fails closed on the library digest. The candidate is
+/// resolved first (absolute regular file, caller order), then checked with
+/// [`verify_library_in_manifest`] against the `manifest.json` beside it; only a
+/// verified library is bound to `ORT_DYLIB_PATH`. A missing manifest, an unlisted
+/// library or a size or digest mismatch returns the error and leaves the
+/// environment untouched. Unrelated manifest entries and unlisted files do not
+/// fail it. The file is verified before it is bound, not while ort loads it; a
+/// local writer replacing it in that window is outside this check.
+pub fn configure_runtime_verified(
+    candidates: impl IntoIterator<Item = RuntimeCandidate>,
+) -> Result<RuntimeSelection, RuntimeError> {
+    let selection = resolve_runtime(candidates)?;
+    verify_library_in_manifest(&selection.path)?;
+    configure_runtime([RuntimeCandidate::new(
+        selection.path.clone(),
+        selection.source,
+    )])?;
+    Ok(selection)
 }
 
 /// Bind explicit candidates under caller-selected policy. Available regular

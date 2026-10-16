@@ -368,3 +368,115 @@ fn symbolic_links_inside_the_bundle_are_rejected() {
         RuntimeError::BundleEntryUnsupported { path } if path.ends_with("link.bin")
     ));
 }
+
+
+// ---- verify_library_in_manifest: one library against a tolerant app manifest ----
+
+use rightkit_onnx::verify_library_in_manifest;
+
+fn app_manifest_with_noise() -> Bundle {
+    let bundle = Bundle::new();
+    bundle.write(runtime_filename(), LIBRARY_BYTES);
+    // Unlisted file, and listed entries that are absent, malformed or not objects.
+    bundle.write("extra/unrelated.bin", b"unrelated");
+    bundle.write_manifest(&json!({
+        "schema": 7,
+        "appField": { "anything": true },
+        "files": [
+            entry(runtime_filename(), LIBRARY_BYTES),
+            { "path": "missing/model.onnx", "sha256": "zz", "bytes": 1 },
+            { "path": "../bad", "extra": 1 },
+            42
+        ]
+    }));
+    bundle
+}
+
+fn lib_path(bundle: &Bundle) -> PathBuf {
+    bundle.dir.join(runtime_filename())
+}
+
+#[test]
+fn library_verifies_despite_unrelated_manifest_and_directory_noise() {
+    let bundle = app_manifest_with_noise();
+    let verified = verify_library_in_manifest(&lib_path(&bundle)).expect("verifies");
+    assert_eq!(verified.path, runtime_filename());
+    assert_eq!(verified.sha256, sha256_hex(LIBRARY_BYTES));
+    assert_eq!(verified.bytes, LIBRARY_BYTES.len() as u64);
+    // The strict whole-bundle check still refuses the same directory.
+    assert!(bundle.verify().is_err());
+}
+
+#[test]
+fn library_digest_or_size_mismatch_is_never_tolerated() {
+    let bundle = app_manifest_with_noise();
+    bundle.write(runtime_filename(), b"tampered-library-bytes");
+    assert!(matches!(
+        verify_library_in_manifest(&lib_path(&bundle)).unwrap_err(),
+        RuntimeError::BundleFileSize { .. }
+    ));
+    let same_len = vec![b'x'; LIBRARY_BYTES.len()];
+    bundle.write(runtime_filename(), &same_len);
+    assert!(matches!(
+        verify_library_in_manifest(&lib_path(&bundle)).unwrap_err(),
+        RuntimeError::BundleFileHash { .. }
+    ));
+}
+
+#[test]
+fn library_not_listed_duplicated_or_malformed_is_rejected() {
+    let bundle = Bundle::new();
+    bundle.write(runtime_filename(), LIBRARY_BYTES);
+    let lib = lib_path(&bundle);
+
+    bundle.write_manifest(&json!({ "files": [entry("other.dll", b"o")] }));
+    assert!(matches!(
+        verify_library_in_manifest(&lib).unwrap_err(),
+        RuntimeError::BundleManifest { .. }
+    ));
+
+    bundle.write_manifest(&json!({ "files": [
+        entry(runtime_filename(), LIBRARY_BYTES),
+        entry(runtime_filename(), LIBRARY_BYTES)
+    ]}));
+    assert!(matches!(
+        verify_library_in_manifest(&lib).unwrap_err(),
+        RuntimeError::BundleManifest { .. }
+    ));
+
+    bundle.write_manifest(&json!({ "files": [
+        { "path": runtime_filename(), "sha256": "abc", "bytes": LIBRARY_BYTES.len() }
+    ]}));
+    assert!(matches!(
+        verify_library_in_manifest(&lib).unwrap_err(),
+        RuntimeError::BundleManifest { .. }
+    ));
+
+    // No `files` array: fail closed.
+    bundle.write_manifest(&json!({ "schema": 1 }));
+    assert!(matches!(
+        verify_library_in_manifest(&lib).unwrap_err(),
+        RuntimeError::BundleManifest { .. }
+    ));
+
+    // No manifest at all: fail closed.
+    std::fs::remove_file(bundle.dir.join("manifest.json")).unwrap();
+    assert!(matches!(
+        verify_library_in_manifest(&lib).unwrap_err(),
+        RuntimeError::BundleManifest { .. }
+    ));
+}
+
+#[test]
+fn library_missing_on_disk_and_relative_path_are_rejected() {
+    let bundle = Bundle::new();
+    bundle.write_manifest(&json!({ "files": [entry(runtime_filename(), LIBRARY_BYTES)] }));
+    assert!(matches!(
+        verify_library_in_manifest(&lib_path(&bundle)).unwrap_err(),
+        RuntimeError::BundleFileMissing { .. }
+    ));
+    assert!(matches!(
+        verify_library_in_manifest(Path::new(runtime_filename())).unwrap_err(),
+        RuntimeError::UnsafePath { .. }
+    ));
+}

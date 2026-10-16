@@ -145,6 +145,21 @@ canonicalised. `onnxruntime_library_path()` gives `<dir>/<runtime filename>` whe
 listed, and `None` otherwise. Verification loads no library and creates no session. The catalog row
 is recorded, not checked; catalog checks belong to the native-library catalog in `rightkit-ffmpeg`; the `provision` feature applies them when it writes the bundle.
 
+### One library against an app manifest
+
+`verify_library_in_manifest(lib)` verifies a single library against the `manifest.json` in its
+directory when that manifest also lists models or other providers, has extra fields, or the
+directory holds unlisted files. Everything except the library's entry (keyed by file name) is
+ignored: schema, platform, unknown fields, other entries (even malformed or absent on disk) and
+unlisted files. The entry is strict: a `files` array must list it exactly once with a 64-hex
+`sha256` and `bytes`, and the file must be a regular file in that directory with matching size and
+full SHA-256. A missing manifest or `files` array, or any mismatch, is an error. It returns the
+`VerifiedFile`.
+
+`configure_runtime_verified(candidates)` is `configure_runtime` that fails closed: the selected
+library is verified this way before `ORT_DYLIB_PATH` is bound, and on any failure the environment is
+left untouched. The check runs before binding, not during ort's load.
+
 ## Provisioning a runtime bundle (build time)
 
 Enable the `provision` feature as a **build-dependency** so the app itself pulls no HTTP, tar or zip code. `provision_runtime` downloads the pinned archive from the native-library catalog, checks its SHA-256 before extraction, extracts only the runtime files, checks each against the catalog digest, and writes the `manifest.json` that `verify_runtime_manifest` reads. Only `approved` and `pinned` catalog rows are used.

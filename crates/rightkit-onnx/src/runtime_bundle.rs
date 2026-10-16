@@ -205,6 +205,93 @@ pub fn verify_runtime_manifest(dir: &Path) -> Result<VerifiedRuntime, RuntimeErr
     })
 }
 
+/// Verify one library against the `files[]` list of the tolerant `manifest.json`
+/// that sits in the library's own directory (Orthic-Labs/rightkit#178). `lib` must
+/// be an absolute path to the library; its file name is the manifest key.
+///
+/// For apps whose `runtime/` holds more than ONNX Runtime. Tolerant of the
+/// manifest around the entry: schema, platform and `onnxruntime` fields, unknown
+/// fields, other `files` entries (valid, malformed or absent on disk) and unlisted
+/// files in the directory are all ignored. Strict about the library itself: the
+/// manifest must exist with a `files` array that lists it exactly once with a
+/// 64-hex `sha256` and a `bytes` count, and the file must be a regular file inside
+/// the directory whose size and full SHA-256 match. A digest or size mismatch is
+/// never tolerated.
+pub fn verify_library_in_manifest(lib: &Path) -> Result<VerifiedFile, RuntimeError> {
+    if !lib.is_absolute() {
+        return Err(RuntimeError::UnsafePath {
+            path: lib.to_path_buf(),
+        });
+    }
+    let name = lib
+        .file_name()
+        .and_then(|name| name.to_str())
+        .ok_or_else(|| RuntimeError::UnsafePath {
+            path: lib.to_path_buf(),
+        })?;
+    let (key, relative) = parse_listed_path(name)?;
+    let parent = lib.parent().ok_or_else(|| RuntimeError::UnsafePath {
+        path: lib.to_path_buf(),
+    })?;
+    let dir = parent
+        .canonicalize()
+        .map_err(|error| RuntimeError::Canonicalize {
+            path: parent.to_path_buf(),
+            message: error.to_string(),
+        })?;
+    let manifest_path = dir.join(MANIFEST_FILE);
+    let text =
+        std::fs::read(&manifest_path).map_err(|error| manifest_error(&manifest_path, error))?;
+    let value: serde_json::Value =
+        serde_json::from_slice(&text).map_err(|error| manifest_error(&manifest_path, error))?;
+    let entries = value
+        .get("files")
+        .and_then(|files| files.as_array())
+        .ok_or_else(|| manifest_error(&manifest_path, "\"files\" is missing or not an array"))?;
+
+    let mut matches = entries
+        .iter()
+        .filter(|entry| entry.get("path").and_then(|p| p.as_str()) == Some(key.as_str()));
+    let entry = matches
+        .next()
+        .ok_or_else(|| manifest_error(&manifest_path, format!("library {key:?} is not listed")))?;
+    if matches.next().is_some() {
+        return Err(manifest_error(
+            &manifest_path,
+            format!("path {key:?} is listed more than once"),
+        ));
+    }
+    let sha256 = entry
+        .get("sha256")
+        .and_then(|s| s.as_str())
+        .and_then(normalize_sha256)
+        .ok_or_else(|| {
+            manifest_error(
+                &manifest_path,
+                format!("sha256 for {key:?} must be 64 hex digits"),
+            )
+        })?;
+    let bytes = entry
+        .get("bytes")
+        .and_then(|b| b.as_u64())
+        .ok_or_else(|| {
+            manifest_error(
+                &manifest_path,
+                format!("bytes for {key:?} must be a non-negative integer"),
+            )
+        })?;
+
+    verify_file(
+        &dir,
+        &relative,
+        VerifiedFile {
+            path: key,
+            sha256,
+            bytes,
+        },
+    )
+}
+
 fn manifest_error(path: &Path, error: impl std::fmt::Display) -> RuntimeError {
     RuntimeError::BundleManifest {
         path: path.to_path_buf(),

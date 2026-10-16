@@ -3,7 +3,11 @@
 All notable changes to `rightkit-ort`. Versions follow Cargo semver; while the version is `0.x`, a
 minor bump may carry breaking changes. Earlier releases are described in `README.md`.
 
-## Unreleased
+## 0.2.6 (unreleased)
+
+- Add `verify_library_in_manifest(lib: &Path) -> Result<VerifiedFile, RuntimeError>` and `configure_runtime_verified(candidates) -> Result<RuntimeSelection, RuntimeError>` (crate version 0.2.6, additive; Orthic-Labs/rightkit#178). `verify_library_in_manifest` checks one library against `files[]` of the `manifest.json` in its own directory, for apps whose `runtime/` holds more than ONNX Runtime. Tolerant: the schema, platform and `onnxruntime` fields, unknown fields, other entries (valid, malformed or absent on disk) and unlisted files are ignored. Strict for the library: the manifest must exist with a `files` array listing it exactly once (key = file name) with a 64-hex `sha256` and a `bytes` count, and the file must be a regular file inside its directory with matching size and full SHA-256; a mismatch is never tolerated. `configure_runtime_verified` resolves the candidates like `configure_runtime`, verifies the selected library, and only then binds `ORT_DYLIB_PATH`; any failure returns the error and leaves the environment untouched. `verify_runtime_manifest` is unchanged and still rejects unlisted files. Not built or run locally.
+
+## 0.2.5
 
 - Android CPU/XNNPACK backend (crate version 0.2.5, additive; 0.2.5 is unpublished). NOT COMPILED OR RUN for Android: every `target_os = "android"` path below is unverified. (Orthic-Labs/rightkit#150)
   - `android_runtime_candidate(native_lib_dir)` and `configure_android_runtime(native_lib_dir)` resolve `<nativeLibraryDir>/libonnxruntime.so` (absolute directory only, `UnsafePath` otherwise). With an APK that does not extract native libraries the file is absent; use `init_environment_default_loader` then. `discovery_candidates` no longer adds executable-directory entries on Android.
