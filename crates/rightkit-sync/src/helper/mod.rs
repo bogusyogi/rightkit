@@ -4,7 +4,7 @@
 //! protocol fake used by the end-to-end tests. See `API.md` section 4.
 
 mod process;
-pub mod wire;
+pub use crate::wire;
 
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};

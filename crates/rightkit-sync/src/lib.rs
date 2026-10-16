@@ -2,14 +2,20 @@
 //! the record/conflict contract shared with the iOS CloudKit implementation.
 
 mod backoff;
+#[cfg(feature = "cipher")]
+pub mod cipher;
 mod engine;
 mod error;
+#[cfg(feature = "helper")]
 pub mod helper;
+#[cfg(feature = "http")]
+pub mod http;
 mod ledger;
 mod memory;
 mod record;
 mod storage;
 mod traits;
+pub mod wire;
 
 pub use backoff::BackoffPolicy;
 pub use engine::{

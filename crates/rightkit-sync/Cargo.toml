@@ -10,14 +10,57 @@ repository = "https://github.com/Orthic-Labs/rightkit"
 keywords = ["sync", "cloudkit", "tombstone", "offline"]
 categories = ["data-structures"]
 # The protocol fake and its process-level E2E test are repository-only fixtures.
-include = ["src/**", "!src/bin/**", "tests/**", "!tests/helper_e2e.rs", "benches/*.rs", "README.md", "API.md", "CHANGELOG.md", "LICENSE-MIT", "LICENSE-APACHE"]
+include = ["src/**", "!src/bin/**", "tests/**", "!tests/helper_e2e.rs", "benches/*.rs", "README.md", "API.md", "HTTP-PROTOCOL.md", "CHANGELOG.md", "LICENSE-MIT", "LICENSE-APACHE"]
+
+[features]
+default = ["helper", "process-usage"]
+# CloudKit-style helper-process backend (`helper` module, `rightkit-sync-helper/1`). Pure std +
+# serde_json; off for hosts that only use an HTTP or in-process backend (Android).
+helper = []
+# `SyncStatus::process` and its `rightkit-child-process` dependency. Off for Android builds.
+process-usage = ["dep:rightkit-child-process"]
+# `cipher` module: `RecordCipher` and `EncryptingBackend`, end-to-end encryption of record
+# payloads (ChaCha20-Poly1305 and HKDF-SHA256 from `ring`).
+cipher = ["dep:ring", "dep:zeroize"]
+# `http` module: blocking `HttpBackend` and `HttpAuth` for the `rightkit-sync-http/1` protocol,
+# over `rightkit-http`'s blocking client (ureq, platform verifier).
+http = ["dep:rightkit-http", "rightkit-fs/digest"]
 
 [dependencies]
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.150"
-rightkit-child-process = { version = "0.4.0", path = "../rightkit-child-process" }
+rightkit-child-process = { version = "0.4.0", path = "../rightkit-child-process", optional = true }
 rightkit-fs = { version = "0.4.0", path = "../rightkit-fs", default-features = false, features = ["fs"] }
+rightkit-http = { version = "0.3.0", path = "../rightkit-http", default-features = false, optional = true }
+ring = { version = "0.17", optional = true }
+zeroize = { version = "1.8", optional = true }
+
+[dev-dependencies]
+# In-process mock server for tests/http_*.rs (the `testing` module of rightkit-http).
+rightkit-http = { path = "../rightkit-http", default-features = false, features = ["testing"] }
 
 [[bench]]
 name = "budget"
 harness = false
+required-features = ["process-usage"]
+
+[[bin]]
+name = "rightkit-sync-fake-helper"
+path = "src/bin/rightkit-sync-fake-helper.rs"
+required-features = ["helper"]
+
+[[test]]
+name = "helper_e2e"
+required-features = ["helper"]
+
+[[test]]
+name = "cipher"
+required-features = ["cipher"]
+
+[[test]]
+name = "http_backend"
+required-features = ["http"]
+
+[[test]]
+name = "http_encrypted"
+required-features = ["http", "cipher"]

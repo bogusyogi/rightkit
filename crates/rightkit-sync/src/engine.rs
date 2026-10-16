@@ -140,6 +140,7 @@ pub struct SyncStatus {
     /// Resident memory, CPU time and I/O counters of the whole process (the engine runs in it and
     /// has no thread of its own), or `None` when the host cannot report them. See
     /// `rightkit_child_process::ProcessUsage`.
+    #[cfg(feature = "process-usage")]
     pub process: Option<rightkit_child_process::ProcessUsage>,
 }
 
@@ -420,6 +421,7 @@ where
     pub fn status(&self) -> SyncStatus {
         SyncStatus {
             metrics: self.metrics(),
+            #[cfg(feature = "process-usage")]
             process: rightkit_child_process::process_usage().ok(),
         }
     }

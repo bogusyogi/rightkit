@@ -14,7 +14,16 @@ Generic cloud sync engine for Right Suite apps. It owns change cursors, tombston
 
 ## Features
 
-None. The crate has no Cargo features. Dependencies: `serde`, `serde_json`, `rightkit-child-process` (process usage in `SyncEngine::status()`, `src/engine.rs`), and `rightkit-fs` (`fs` feature, for the durable ledger write, `src/storage.rs`).
+| Feature | Default | Adds |
+|---|---|---|
+| `helper` | yes | the `helper` module: the CloudKit helper-process backend (`rightkit-sync-helper/1`). No dependency of its own; turn it off on hosts without a helper (Android). |
+| `process-usage` | yes | `SyncStatus::process` and the `rightkit-child-process` dependency. Turn it off on Android. The pass counters in `SyncStatus::metrics` stay. |
+| `cipher` | no | `cipher::{RecordCipher, EncryptingBackend, KeyProvider, StaticKeys, CipherKey}`: end-to-end encryption of record payloads (ChaCha20-Poly1305, HKDF-SHA256 from `ring`; `zeroize`). |
+| `http` | no | `http::{HttpBackend, HttpAuth, TokenSource}`: blocking client of the `rightkit-sync-http/1` protocol (`HTTP-PROTOCOL.md`), over `rightkit-http`'s blocking client. |
+
+Always: `serde`, `serde_json`, and `rightkit-fs` (`fs` feature, for the durable ledger write, `src/storage.rs`). The record wire encoding (`wire`) is shared by the helper and HTTP protocols.
+
+A provider that encrypts (`HttpBackend` + `EncryptingBackend`) must run its engine with `SyncConfig::require_consent_on_scope_change` (`http::sync_config()` sets it) and an `account_scope` that includes the key id. Plaintext downloaded records the engine could not apply yet are kept in the ledger's `pending_apply`; the ledger file is owner-only but not encrypted.
 
 ## Platform support
 

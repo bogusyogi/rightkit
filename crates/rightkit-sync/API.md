@@ -1,6 +1,6 @@
 # rightkit-sync API and shared record/conflict contract
 
-Internal crate (`publish = false`). Deps: `serde`, `serde_json` only. Lives at `rightkit/crates/rightkit-sync`.
+Internal crate (`publish = false`). Deps: `serde`, `serde_json`, `rightkit-fs`; optional by feature: `rightkit-child-process` (`process-usage`), `ring` and `zeroize` (`cipher`), `rightkit-http` (`http`); see README "Features". Lives at `rightkit/crates/rightkit-sync`.
 
 ## 1. Shared wire contract (desktop and iOS must both obey)
 
@@ -65,6 +65,10 @@ Ledger JSON is a new document (`Ledger`); the ScrapeRight `icloud-sync-ledger.js
 | `helper::HelperBackend` + `HelperAuth` (via `CloudKitHelper`) | this crate | any zone behind a helper process speaking `rightkit-sync-helper/1`; the macOS CloudKit backend |
 | `rightkit-cloudkit-helper` | `rightkit/swift/RightKitCloudKitHelper` | production helper: Swift CLI over `RightKitCloudSync.CloudKitSyncTransport` |
 | `rightkit-sync-fake-helper` | this crate (`src/bin`) | protocol fake with fault injection (E2E fixture) |
+| `http::HttpBackend` + `HttpAuth` (feature `http`) | this crate | any server speaking `rightkit-sync-http/1` (`HTTP-PROTOCOL.md`); reference server `packages/sync-worker`. Blocking; refuses plaintext fields |
+| `cipher::EncryptingBackend` (feature `cipher`) | this crate | wraps any backend; the provider stores only ciphertext plus `name`, `type`, `change_tag`, `updatedAt`, `deletedAt`. Required in front of `HttpBackend` |
+
+An encrypting provider runs its engine with `require_consent_on_scope_change` and an `account_scope` that includes the key id (`http::sync_config()`, `http::account_scope`). A missing key fails the pass (cursor stays); corrupt ciphertext is quarantined. Plaintext of downloads the engine could not apply yet sits in the ledger's `pending_apply` (owner-only file, not encrypted).
 
 ```rust
 let helper = CloudKitHelper::new(
