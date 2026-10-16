@@ -1,9 +1,9 @@
 [package]
 name = "rightkit-credentials"
-version = "0.2.0"
+version = "0.2.1"
 edition = "2021"
 rust-version = "1.98.0"
-description = "Per-app OS credential storage for Right Suite apps: Keychain / Credential Manager, passive presence checks, non-interactive mode, test guards, DB-key provisioning, and migration."
+description = "Per-app OS credential storage for Right Suite apps: Keychain / Credential Manager / Linux Secret Service, passive presence checks, non-interactive mode, test guards, DB-key provisioning, and migration."
 license = "MIT OR Apache-2.0"
 readme = "README.md"
 repository = "https://github.com/Orthic-Labs/rightkit"
@@ -35,6 +35,9 @@ rightkit-app-settings = { version = "0.2.0", path = "../rightkit-app-settings", 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Security", "Win32_Security_Authorization", "Win32_Security_Credentials", "Win32_Security_Cryptography", "Win32_System_Threading"] }
 
+[target.'cfg(target_os = "linux")'.dependencies]
+secret-service = { version = "5.2", default-features = false, features = ["rt-async-io-crypto-rust"] }
+
 [target.'cfg(windows)'.dev-dependencies]
 keyring-core = "1"
 windows-native-keyring-store = "1.1.0"
@@ -44,4 +47,4 @@ tempfile = "3"
 
 [package.metadata.rightkit]
 continuous = false
-continuous_reason = "thread-spawn: one thread per keychain or helper call so the call can time out (store.rs run), plus a writer thread and a reader thread per helper exchange (apple_helper.rs), each ends when the OS call, pipe or helper returns or is killed; resident-static: the in-flight table in store.rs holds one entry per credential mutation currently inside an OS call and drops it when that call returns, the process-wide MemoryBackend holds only the secrets the caller stores, and the mint, UI-policy and Windows target locks hold no data; no sleep, listener, timer or watcher (reviewed 2026-10-11)"
+continuous_reason = "thread-spawn: one thread per keychain or helper call so the call can time out (store.rs run), plus a writer thread and a reader thread per helper exchange (apple_helper.rs), each ends when the OS call, pipe or helper returns or is killed; resident-static: the in-flight table in store.rs holds one entry per credential mutation currently inside an OS call and drops it when that call returns, the process-wide MemoryBackend holds only the secrets the caller stores, and the mint, UI-policy and Windows target locks hold no data; on Linux each mutation waits on a per-user flock that the holder releases when its call ends; no sleep, listener, timer or watcher (reviewed 2026-10-11)"

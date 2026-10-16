@@ -1,6 +1,6 @@
 //! Per-app OS credential storage for Right Suite apps.
 //!
-//! * macOS Keychain / Windows Credential Manager behind one [`Store`], per-app [`Namespace`].
+//! * macOS Keychain / Windows Credential Manager / Linux Secret Service behind one [`Store`], per-app [`Namespace`].
 //! * Passive [`Store::exists`]: never requests secret bytes, never prompts.
 //! * Explicit [`Interaction`]: runtime calls are non-interactive; only a user action opts in.
 //! * Test/dev guards (`RIGHTKIT_NO_KEYCHAIN` plus per-app variables) swap in memory or deny.
@@ -12,7 +12,7 @@ mod backend;
 mod error;
 #[cfg_attr(not(windows), allow(dead_code))]
 mod keyring_compat;
-#[cfg_attr(not(windows), allow(dead_code))]
+#[cfg_attr(not(any(windows, target_os = "linux")), allow(dead_code))]
 mod locked;
 mod migrate;
 mod namespace;
@@ -21,6 +21,8 @@ mod secret;
 mod store;
 
 pub mod apple_helper;
+#[cfg(target_os = "linux")]
+mod linux;
 #[cfg(target_os = "macos")]
 pub mod macos;
 #[cfg(windows)]

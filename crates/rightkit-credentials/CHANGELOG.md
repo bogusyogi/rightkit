@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+## 0.2.1
+
+- Added: Linux Secret Service backend (`SecretServiceBackend`, `system_backend()` on `target_os = "linux"`), built on `secret-service` 5.2.0 (blocking API, `rt-async-io-crypto-rust`). Item layout matches `keyring-core` with `zbus-secret-service-keyring-store` (`service` and `username` attributes, default collection, raw bytes), so existing items stay readable. Fails closed when no session bus, provider or default collection exists; a locked store is `InteractionRequired` unless the call is interactive; an ambiguous match is an error. Mutations take a per-user `flock` in `$XDG_RUNTIME_DIR`. Replaces the app-owned `cfg(linux)` keyring code; apps can drop `keyring-core` and `zbus-secret-service-keyring-store` for Linux. Closes #90.
+- Additive: no existing API changes, so this is a patch release and `rightkit-oauth` and `rightkit-record` keep their `0.2.0` requirement. The Linux backend is verified only by CI on Linux (no live Secret Service in the default runner: the live test skips there); the `tests/linux_secret_service.rs` round-trip runs with `RIGHTKIT_TEST_REAL_USER_STORES=1` against a running Secret Service.
+
 Renamed from rightkit-secrets; 0.1.3 remains published under the old name.
 
 - Added (M11-O3): pending-rotation recovery on `Store`: `begin_rotation`, `pending_rotation`, `commit_rotation`, `abort_rotation` (marker item `<account>.rotation-pending` holds the new value; commit is idempotent). Additive; replaces an app-owned pending-key item.

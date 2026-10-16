@@ -234,7 +234,7 @@ impl Backend for MemoryBackend {
     }
 }
 
-/// Platforms without a wired OS store (Linux today): every call fails closed.
+/// Platforms without a wired OS store: every call fails closed.
 pub struct UnavailableBackend(pub &'static str);
 
 impl Backend for UnavailableBackend {
@@ -289,7 +289,11 @@ pub fn system_backend() -> Arc<dyn Backend> {
     {
         Arc::new(crate::windows::CredentialManagerBackend)
     }
-    #[cfg(not(any(target_os = "macos", windows)))]
+    #[cfg(target_os = "linux")]
+    {
+        Arc::new(crate::linux::SecretServiceBackend)
+    }
+    #[cfg(not(any(target_os = "macos", windows, target_os = "linux")))]
     {
         Arc::new(UnavailableBackend(
             "no OS credential store is wired for this platform",
