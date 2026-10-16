@@ -6,6 +6,8 @@
 //!   [`OAuthClient::finish_loopback`] checks state before exchanging the code.
 //! * Device authorization (RFC 8628): [`OAuthClient::begin_device`] /
 //!   [`OAuthClient::finish_device`] for headless, CLI/TUI and phone-assisted sign-in.
+//! * [`pkce`], [`callback`] and [`gateway`]: public RFC 7636 S256 helpers, a tolerant
+//!   single-use loopback listener (RFC 8252) and a JSON gateway code exchange.
 //! * Provider presets ([`OAuthConfig::github`], [`OAuthConfig::google`],
 //!   [`OAuthConfig::cloudflare`], [`OAuthConfig::openai`]) carry endpoints only; every app
 //!   supplies its own registered client id.
@@ -15,9 +17,12 @@
 //! Token values never appear in `Debug` or `Display` output.
 //! Daemons opt into the `server` module/feature for public HTTPS callbacks.
 
+pub mod callback;
 #[cfg(feature = "secrets")]
 pub mod credentials;
 mod device;
+pub mod gateway;
+pub mod pkce;
 #[cfg(feature = "server")]
 pub mod server;
 #[cfg(feature = "system-sources")]

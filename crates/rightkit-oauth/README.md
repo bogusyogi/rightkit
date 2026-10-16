@@ -17,6 +17,12 @@ Shared OAuth 2.0 sign-in for Right Suite apps. It owns loopback S256 PKCE for de
 
 `rightkit-http` is always a dependency. It is used for every token request.
 
+## PKCE, loopback listener and gateway exchange
+
+- `pkce`: `PkceVerifier::generate`, `challenge_s256`, `generate_state`, `constant_time_eq`. `S256` only.
+- `callback::CallbackListener::bind(state, CallbackOptions)` then `.wait(timeout, cancel)`: serves `127.0.0.1` and/or `[::1]`, ignores favicon, preflight and wrong-state requests, returns the code once.
+- `gateway::GatewayExchange::new(https_url)?.with_field("resource", ..).exchange(&http, code, verifier, cancel)` posts JSON `{code, code_verifier, ..}` and returns a `TokenSet`.
+
 ## Platform support
 
 - Desktop token storage uses `rightkit-credentials`. That crate has a macOS and a Windows backend. On Linux it fails closed, so the `secrets` feature cannot store tokens there.

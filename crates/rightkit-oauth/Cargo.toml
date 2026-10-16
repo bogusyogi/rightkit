@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-oauth"
-version = "0.5.0"
+version = "0.5.1"
 edition = "2021"
 rust-version = "1.98.0"
 description = "Shared OAuth 2.0 sign-in for Right Suite apps: loopback PKCE, RFC 8628 device flow, provider presets, encrypted daemon persistence, and stored, refreshing credentials."
@@ -62,4 +62,4 @@ tempfile = "3"
 
 [package.metadata.rightkit]
 continuous = false
-continuous_reason = "sleep: device-flow poll wait bounded by the flow deadline and cancel flag (device.rs), 10 ms accept poll and token-store file-lock poll bounded by timeout (lib.rs, server/store.rs); listener: one-shot loopback callback listener bound by begin_loopback and closed when finish_loopback returns or the flow drops (lib.rs); thread-spawn: stdout reader joined before the system-credential helper call returns (system.rs); pending-authorization map is capped at 1024 with expiry (reviewed 2026-10-11)"
+continuous_reason = "sleep: device-flow poll wait bounded by the flow deadline and cancel flag (device.rs), 10 ms accept poll and token-store file-lock poll bounded by timeout (lib.rs, server/store.rs), 10 ms callback-listener poll bounded by the wait timeout and cancel token (callback.rs); listener: one-shot loopback callback listener bound by begin_loopback and closed when finish_loopback returns or the flow drops (lib.rs), single-use CallbackListener closed when wait returns or it drops (callback.rs); thread-spawn: stdout reader joined before the system-credential helper call returns (system.rs); pending-authorization map is capped at 1024 with expiry (reviewed 2026-10-11)"

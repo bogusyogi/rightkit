@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.5.1
+
+Additive: nothing existing changed; `begin_loopback` / `finish_loopback` behave as in 0.5.0.
+
+- New `pkce` module: RFC 7636 `S256`-only helpers. `PkceVerifier::generate` (32 CSPRNG octets, 43 base64url chars), `PkceVerifier::parse` / `validate_verifier` (43 to 128 chars of `[A-Za-z0-9-._~]`), `challenge_s256`, `Pkce::generate`, `generate_state`, `base64url_encode` and `constant_time_eq`. There is no `plain` method. Verifiers redact in `Debug`.
+- New `callback` module: `CallbackListener`, a tolerant single-use loopback redirect listener per RFC 8252. Binds `127.0.0.1`, `[::1]` or both on an ephemeral (or fixed) port; answers and ignores favicon, CORS preflight, non-GET, other-path, malformed, stalled and wrong-or-missing-`state` requests; checks `state` in constant time; `wait` takes a bounded timeout and an optional `CancelToken` (so a manual paste can win the race) and consumes the listener, which closes on return.
+- New `gateway` module: `GatewayExchange` posts `{"code", "code_verifier", ...extra fields}` as JSON to an HTTPS gateway through `rightkit-http` and parses a strictly typed JSON token response into a `TokenSet`. Extra fields carry values such as `redirect_uri` or an RFC 8707 `resource`. The code and verifier are registered as request secrets and scrubbed from errors; tokens never appear in errors or `Debug`.
+- Version is 0.6.0 (0.x minor). Path dependents that pin `0.5.0` (`rightkit-daemon`) must move to `0.6`.
+
 
 ## 0.5.0
 
