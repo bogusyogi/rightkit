@@ -45,7 +45,7 @@ pub use hardware::{
 pub use ids::{encode_revision_key, ModelId, RevisionKey};
 pub use install::{CrashPoint, Event, InstallOptions, InstallOutcome};
 pub use platform::Platform;
-pub use spec::{Extract, FileSpec, ModelSpec, RevisionSpec};
+pub use spec::{Extract, FileSpec, ModelSpec, RevisionSpec, MAX_MIRROR_URLS};
 pub use store::{
     AliasStatus, AliasSync, FileRecord, PausedInstall, ResolvedRevision, RevisionRecord, State,
     Store, VerifyMode,

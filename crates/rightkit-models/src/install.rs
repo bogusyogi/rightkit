@@ -628,6 +628,76 @@ impl Store {
         Ok(out)
     }
 
+    /// Adopt a model directory already laid out flat on disk: every manifest file sits at
+    /// `<dir>/<FileSpec::path>` (the layout apps used before the store existed, or one staged
+    /// and installed by hand). A convenience over [`Store::adopt`] with the `existing` mapping
+    /// fixed to that layout.
+    ///
+    /// Nothing is trusted from the directory: each file is linked or copied into a private
+    /// `.adopt/<key>` tree and verified there against the pinned size and sha256 (all files
+    /// must be pinned; `require_pinned` is forced), and the revision is recorded only after
+    /// every file verifies. The flat directory is left untouched. A missing file is
+    /// `NotFound`, a symlink or non-regular file in the directory is refused (`InvalidSpec`),
+    /// a wrong size is `SizeMismatch` and a wrong hash `HashMismatch`; on any failure nothing
+    /// is recorded. `Extract::Member` files are the extracted member at `<dir>/<path>`;
+    /// `Extract::TarGz` trees cannot be adopted (as with [`Store::adopt`]). A shared-runtime
+    /// file already in place at its shared location need not exist in `dir`.
+    pub fn adopt_flat_dir(
+        &self,
+        spec: &ModelSpec,
+        opts: &InstallOptions,
+        dir: &Path,
+    ) -> Result<InstallOutcome> {
+        self.adopt_flat_dir_with(spec, opts, dir, |_| {})
+    }
+
+    /// [`Store::adopt_flat_dir`] with progress events ([`Event::Adopted`] per file).
+    pub fn adopt_flat_dir_with(
+        &self,
+        spec: &ModelSpec,
+        opts: &InstallOptions,
+        dir: &Path,
+        sink: impl FnMut(Event),
+    ) -> Result<InstallOutcome> {
+        let meta = fs::symlink_metadata(dir).map_err(|e| Error::io(dir.display(), e))?;
+        if !meta.is_dir() {
+            return Err(Error::new(
+                ErrorCode::InvalidSpec,
+                format!("{} is not a directory", dir.display()),
+            ));
+        }
+        let (_, files) = self.select_files(spec, opts, true)?;
+        for f in &files {
+            let Some(rel) = safe_rel_path(&f.path) else {
+                continue;
+            };
+            let at = dir.join(&rel);
+            let Ok(meta) = fs::symlink_metadata(&at) else {
+                continue; // reported as NotFound by `adopt_with`
+            };
+            if !meta.is_file() {
+                return Err(Error::new(
+                    ErrorCode::InvalidSpec,
+                    format!(
+                        "adopt {}: {} is not a regular file (symlinks are refused)",
+                        spec.id,
+                        at.display()
+                    ),
+                ));
+            }
+        }
+        self.adopt_with(
+            spec,
+            opts,
+            |f| {
+                safe_rel_path(&f.path)
+                    .map(|rel| dir.join(rel))
+                    .filter(|at| at.is_file())
+            },
+            sink,
+        )
+    }
+
     /// Already installed and intact: just (re)activate.
     fn reactivate_if_installed(
         &self,
@@ -961,7 +1031,14 @@ impl Store {
             }
         }
         let dest = stage_dest(staging, f);
-        let url = self.download_url(&f.url);
+        // Ordered mirrors, after the store's URL rewrite; identical rewritten URLs collapse.
+        let mut urls: Vec<String> = Vec::new();
+        for candidate in f.urls() {
+            let candidate = self.download_url(&candidate);
+            if !urls.contains(&candidate) {
+                urls.push(candidate);
+            }
+        }
         let download = |dest_path: &Path,
                         part: &Path,
                         progress: &mut dyn FnMut(u64, u64),
@@ -972,30 +1049,72 @@ impl Store {
                 .as_ref()
                 .zip(f.sha256.as_ref())
                 .map(|(identity, sha)| format!("{identity}:{}:{sha}", f.path));
-            let res = download_resumable_with_identity(
-                client,
-                DownloadRequest {
-                    url: &url,
-                    part_path: part,
-                    dest_path,
-                    expected_sha256: f.sha256.as_deref(),
-                    authorization: opts.authorization.as_deref(),
-                    cancelled: stop,
-                },
-                identity.as_deref(),
-                &mut *progress,
-            )?;
-            cache.forget(dest_path);
-            let len = fs::metadata(dest_path).map(|m| m.len()).unwrap_or(0);
-            if f.bytes.is_some_and(|b| b != len) {
-                let _ = fs::remove_file(dest_path);
-                return Err(Error::new(
-                    ErrorCode::SizeMismatch,
-                    format!("{}: expected {} bytes, got {len}", f.path, f.bytes.unwrap()),
-                ));
+            let mut failures: Vec<String> = Vec::new();
+            for (index, url) in urls.iter().enumerate() {
+                if index > 0 && stop() {
+                    return Err(Error::new(ErrorCode::Cancelled, "download cancelled"));
+                }
+                let attempt = download_resumable_with_identity(
+                    client,
+                    DownloadRequest {
+                        url,
+                        part_path: part,
+                        dest_path,
+                        expected_sha256: f.sha256.as_deref(),
+                        authorization: opts.authorization.as_deref(),
+                        cancelled: stop,
+                    },
+                    identity.as_deref(),
+                    &mut *progress,
+                );
+                let outcome = attempt.and_then(|res| {
+                    cache.forget(dest_path);
+                    let len = fs::metadata(dest_path).map(|m| m.len()).unwrap_or(0);
+                    if f.bytes.is_some_and(|b| b != len) {
+                        let _ = fs::remove_file(dest_path);
+                        return Err(Error::new(
+                            ErrorCode::SizeMismatch,
+                            format!("{}: expected {} bytes, got {len}", f.path, f.bytes.unwrap()),
+                        ));
+                    }
+                    Ok(res)
+                });
+                match outcome {
+                    Ok(res) => {
+                        cache.0.insert(dest_path.to_path_buf(), res.sha256.clone());
+                        return Ok(res.sha256);
+                    }
+                    // One URL: report its error exactly as before mirrors existed.
+                    Err(error) if urls.len() == 1 => return Err(error),
+                    // This mirror failed; the next one is held to the same pins.
+                    Err(error)
+                        if matches!(
+                            error.code,
+                            ErrorCode::Download | ErrorCode::HashMismatch | ErrorCode::SizeMismatch
+                        ) =>
+                    {
+                        let _ = fs::remove_file(dest_path);
+                        failures.push(format!(
+                            "mirror {}/{} {}: {}",
+                            index + 1,
+                            urls.len(),
+                            redact_url(url),
+                            error.message
+                        ));
+                    }
+                    // Cancel, pause, disk and I/O failures are not the mirror's fault.
+                    Err(error) => return Err(error),
+                }
             }
-            cache.0.insert(dest_path.to_path_buf(), res.sha256.clone());
-            Ok(res.sha256)
+            Err(Error::new(
+                ErrorCode::AllMirrorsFailed,
+                format!(
+                    "{}: all {} mirrors failed: {}",
+                    f.path,
+                    urls.len(),
+                    failures.join("; ")
+                ),
+            ))
         };
 
         match &f.extract {
@@ -1054,6 +1173,19 @@ impl Store {
                     .collect()
             }
         }
+    }
+}
+
+/// `scheme://host[:port]/path` of a download URL: userinfo, query and fragment dropped, since a
+/// signed or tokenised mirror URL must not land in an error message.
+fn redact_url(url: &str) -> String {
+    let (scheme, rest) = url.split_once("://").unwrap_or(("", url));
+    let rest = rest.split(['?', '#']).next().unwrap_or("");
+    let rest = rest.rsplit_once('@').map_or(rest, |(_, host)| host);
+    if scheme.is_empty() {
+        rest.to_string()
+    } else {
+        format!("{scheme}://{rest}")
     }
 }
 

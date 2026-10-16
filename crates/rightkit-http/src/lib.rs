@@ -21,6 +21,7 @@ pub mod client;
 pub mod error;
 pub mod multipart;
 pub mod netpolicy;
+mod idle;
 mod redirect;
 pub mod retry;
 pub mod secret;

@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- **Added (rightkit#240, for Ember): `ClientConfig::idle_timeout` (and the `ClientConfig::idle_timeout(Option<Duration>)` builder).** An idle (no bytes received) limit for streamed bodies (`Client::stream`, `Client::stream_any`), separate from `response_timeout` (headers), `recv_body_timeout` and `stream_timeout` (totals). A read that gets no bytes for the limit fails with `io::ErrorKind::TimedOut`; the clock restarts on every chunk, so a slow steady multi-GB download survives while a stall ends. Default `None` (nothing changes). While set, one helper thread per stream does the blocking read (std has no per-read socket deadline through ureq); a waiting read still observes the request `CancelToken` every 50 ms. Blocking client only; buffered `send` is unchanged. New field on the non-`#[non_exhaustive]` `ClientConfig`: struct literals that do not end in `..Default::default()` need it.
+- **Added (rightkit#240): `CancelToken::from_flag(Arc<AtomicBool>)` and `CancelToken::flag() -> &Arc<AtomicBool>`.** The token adopts a flag the caller already owns (both directions: the owner setting it cancels, `cancel()` sets the owner's flag). `new()`, `Default` and `as_atomic()` are unchanged.
+- Tests: `tests/idle_cancel.rs` (stall, steady slow body, idle vs header timeout, no limit, cancel during an idle wait, flag sharing, a request cancelled through an adopted flag) and unit tests in `src/idle.rs`. Written without a build here; not yet compiled or run.
 - `wrap_untrusted_web_text_coderight` escapes the closing `</coderight-untrusted-context` tag case-insensitively (mixed-case closers can no longer end the block early).
 
 ## 0.3.2

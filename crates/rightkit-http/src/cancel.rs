@@ -20,6 +20,15 @@ impl CancelToken {
     pub fn new() -> Self {
         Self::default()
     }
+    /// Adopt an existing flag: the token observes (and sets) that same `Arc`, so a caller that
+    /// already owns a cancel flag (for example a task guard) shares it instead of copying it.
+    pub fn from_flag(flag: Arc<AtomicBool>) -> Self {
+        Self { flag }
+    }
+    /// The shared flag itself, to hand to code that owns an `Arc<AtomicBool>`.
+    pub fn flag(&self) -> &Arc<AtomicBool> {
+        &self.flag
+    }
     /// Request cancellation. Calls in flight stop at their next check point.
     pub fn cancel(&self) {
         self.flag.store(true, Ordering::SeqCst);

@@ -1451,6 +1451,7 @@ fn revisioned_store_shares_refs_gc_and_pin_enforcement_with_suite_layout() {
         installed_bytes: None,
         installed_sha256: None,
         shared: None,
+        mirrors: vec![],
     };
     let spec = |pinned| {
         RevSpec::new(

@@ -207,6 +207,24 @@ impl Store {
         self
     }
 
+    /// Tests only: let this store's downloads reach loopback servers over plain `http`
+    /// ([`crate::http::ModelHttpOptions::allow_loopback_for_tests`]). Needs a
+    /// `rightkit_daemon::mode::Mode::Test`, which only a `test-mode` build can produce; with a
+    /// release run it returns `InvalidSpec` and the store is dropped unchanged. There is no
+    /// cargo feature behind it.
+    #[doc(hidden)]
+    pub fn with_loopback_for_tests(mut self, mode: &rightkit_daemon::mode::Mode) -> Result<Self> {
+        let options = self
+            .http_options
+            .clone()
+            .unwrap_or_default()
+            .allow_loopback_for_tests(mode)
+            .map_err(|e| Error::new(ErrorCode::InvalidSpec, e.to_string()))?;
+        self.address_policy = Some(options.address_policy.clone());
+        self.http_options = Some(options);
+        Ok(self)
+    }
+
     /// Declare where files of shared-runtime `kind` live
     /// (`FileSpec::shared`). The root is trusted app configuration; manifest
     /// paths under it are still traversal-checked.

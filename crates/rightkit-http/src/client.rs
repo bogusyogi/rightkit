@@ -674,6 +674,13 @@ pub struct ClientConfig {
     pub recv_body_timeout: Option<Duration>,
     /// Optional total lifetime cap for a stream body.
     pub stream_timeout: Option<Duration>,
+    /// Idle (stall) limit for streamed bodies ([`Client::stream`], [`Client::stream_any`]): a read
+    /// that receives no bytes for this long fails with an `io::ErrorKind::TimedOut` error,
+    /// whatever the header, `recv_body_timeout` and `stream_timeout` budgets say. The clock
+    /// restarts on every chunk, so a slow but steady multi-gigabyte download survives. `None`
+    /// (default) disables it. Costs one helper thread per stream while set. Buffered calls
+    /// (`send`) are not affected; use `recv_body_timeout` there. Blocking client only.
+    pub idle_timeout: Option<Duration>,
     /// Redirects followed (0 = never; credentials are never replayed to a new host).
     pub max_redirects: u32,
     /// Error when a nonzero redirect limit is exceeded (default true, like ureq).
@@ -716,6 +723,7 @@ impl Default for ClientConfig {
             response_timeout: Some(Duration::from_secs(60)),
             recv_body_timeout: None,
             stream_timeout: None,
+            idle_timeout: None,
             max_redirects: 0,
             max_redirects_will_error: true,
             max_response_bytes: 32 * 1024 * 1024,
@@ -770,6 +778,13 @@ impl ClientConfig {
     /// Choose the certificate roots; see [`TrustRoots`].
     pub fn trust(mut self, trust: TrustRoots) -> Self {
         self.trust = trust;
+        self
+    }
+
+    /// Set the idle (no bytes received) limit for streamed bodies; see
+    /// [`ClientConfig::idle_timeout`].
+    pub fn idle_timeout(mut self, idle: Option<Duration>) -> Self {
+        self.idle_timeout = idle;
         self
     }
 
@@ -1386,12 +1401,20 @@ impl Client {
         let total = req.timeout.or(self.config.stream_timeout);
         let raw = self.execute(req, total, request_cancel(req))?;
         let values = self.redaction_values(req);
-        Ok(Self::wrap_stream(raw, req, values))
+        Ok(self.wrap_stream(raw, req, values))
     }
 
-    fn wrap_stream(raw: Raw, req: &Request, values: Vec<String>) -> StreamResponse {
+    fn wrap_stream(&self, raw: Raw, req: &Request, values: Vec<String>) -> StreamResponse {
+        let body: Box<dyn Read + Send> = match self.config.idle_timeout {
+            Some(idle) => Box::new(crate::idle::IdleReader::new(
+                Box::new(raw.body.into_reader()),
+                idle,
+                req.cancel.clone(),
+            )),
+            None => Box::new(raw.body.into_reader()),
+        };
         let guarded = GuardReader {
-            inner: Box::new(raw.body.into_reader()),
+            inner: body,
             cancel: req.cancel.clone(),
             values,
         };
@@ -1428,7 +1451,7 @@ impl Client {
                 &values,
             ));
         }
-        Ok(Self::wrap_stream(raw, req, values))
+        Ok(self.wrap_stream(raw, req, values))
     }
 
     pub fn get_json<T: DeserializeOwned>(&self, url: &str) -> Result<T, HttpError> {
@@ -2054,6 +2077,7 @@ mod tests {
         assert_eq!(cfg.response_timeout, base.response_timeout);
         assert_eq!(cfg.recv_body_timeout, base.recv_body_timeout);
         assert_eq!(cfg.stream_timeout, base.stream_timeout);
+        assert_eq!(cfg.idle_timeout, base.idle_timeout);
         assert_eq!(cfg.max_redirects_will_error, base.max_redirects_will_error);
         assert_eq!(cfg.max_response_bytes, base.max_response_bytes);
         assert!(cfg.on_retry.is_none());

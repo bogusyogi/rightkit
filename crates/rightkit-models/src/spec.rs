@@ -49,6 +49,13 @@ pub struct FileSpec {
     /// Always a relative path with no `.`/`..`/empty components.
     pub path: String,
     pub url: String,
+    /// Fallback URLs for the same artifact, tried in order after [`FileSpec::url`] when it fails
+    /// (all retries spent, or a bad status, size or hash). Every mirror is held to the same pinned
+    /// `bytes` and `sha256`, so a mirror can only supply the right bytes. Empty (default): `url`
+    /// only. Duplicates are skipped and at most [`MAX_MIRROR_URLS`] URLs (primary included) are
+    /// tried. See [`FileSpec::urls`].
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub mirrors: Vec<String>,
     /// Size of the downloaded artifact.
     #[serde(default)]
     pub bytes: Option<u64>,
@@ -74,6 +81,36 @@ pub struct FileSpec {
     /// place by uninstall. `extract: TarGz` is not allowed for them.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub shared: Option<String>,
+}
+
+/// Most URLs tried for one file: [`FileSpec::url`] plus its mirrors.
+pub const MAX_MIRROR_URLS: usize = 16;
+
+impl FileSpec {
+    /// The ordered download URLs: `url` first, then each mirror, without duplicates (compared
+    /// exactly, empty entries skipped), at most [`MAX_MIRROR_URLS`].
+    pub fn urls(&self) -> Vec<String> {
+        let mut out: Vec<String> = Vec::new();
+        for url in std::iter::once(&self.url).chain(self.mirrors.iter()) {
+            if url.trim().is_empty() || out.iter().any(|seen| seen == url) {
+                continue;
+            }
+            if out.len() == MAX_MIRROR_URLS {
+                break;
+            }
+            out.push(url.clone());
+        }
+        if out.is_empty() {
+            out.push(self.url.clone());
+        }
+        out
+    }
+
+    /// Replace the fallback mirrors (see [`FileSpec::mirrors`]).
+    pub fn with_mirrors(mut self, mirrors: Vec<String>) -> Self {
+        self.mirrors = mirrors;
+        self
+    }
 }
 
 impl RevisionSpec {

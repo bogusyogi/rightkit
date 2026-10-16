@@ -20,6 +20,9 @@ pub enum ErrorCode {
     NoRollback,
     NoFiles,
     InvalidSpec,
+    /// Every URL of a file (`FileSpec::url` and its `mirrors`) failed; the message lists each
+    /// mirror's error. Only produced when a file has more than one URL.
+    AllMirrorsFailed,
 }
 
 #[derive(Debug, Clone, Serialize)]
