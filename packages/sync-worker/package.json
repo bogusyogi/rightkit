@@ -1,0 +1,29 @@
+{
+  "name": "@rightkit/sync-worker",
+  "version": "0.1.0",
+  "description": "Cloudflare Worker (D1 + R2) implementing the server side of rightkit-sync-http/1: opaque encrypted records, per-account auth, version preconditions, paged change feeds, rate limits, account erase and tombstone compaction.",
+  "license": "MIT OR Apache-2.0",
+  "packageManager": "pnpm@11.24.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "migrate:local": "wrangler d1 migrations apply DB --local",
+    "migrate:remote": "wrangler d1 migrations apply DB --remote"
+  },
+  "devDependencies": {
+    "@cloudflare/vitest-pool-workers": "^0.8.0",
+    "@cloudflare/workers-types": "^4.20250900.0",
+    "typescript": "^5.7.0",
+    "vitest": "~2.1.9",
+    "wrangler": "^4.0.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Orthic-Labs/rightkit.git",
+    "directory": "packages/sync-worker"
+  }
+}

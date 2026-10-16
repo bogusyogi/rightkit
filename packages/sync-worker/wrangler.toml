@@ -1,0 +1,29 @@
+# Placeholders only. Replace the REPLACE_* values per environment; never commit real ids.
+# Secrets are not stored here:
+#   wrangler secret put SYNC_JWT_SECRET            # HS256 key shared with the account backend
+#   wrangler secret put SYNC_JWT_SECRET_PREVIOUS   # optional, during key rotation only
+name = "rightkit-sync-worker"
+main = "src/index.ts"
+compatibility_date = "2025-09-01"
+workers_dev = false
+
+[triggers]
+# Daily tombstone compaction and housekeeping.
+crons = ["17 3 * * *"]
+
+[[d1_databases]]
+binding = "DB"
+database_name = "rightkit-sync"
+database_id = "REPLACE_WITH_D1_DATABASE_ID"
+migrations_dir = "migrations"
+
+[[r2_buckets]]
+binding = "BLOBS"
+bucket_name = "REPLACE_WITH_R2_BUCKET_NAME"
+
+[vars]
+ALLOWED_APPS = "heardright"
+RATE_LIMIT_PER_MINUTE = "1200"
+ACCOUNT_STORAGE_CAP_BYTES = "52428800"
+TOMBSTONE_COMPACT_DAYS = "90"
+BLOB_SPILL_BYTES = "65536"
