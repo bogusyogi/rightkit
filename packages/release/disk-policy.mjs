@@ -10,6 +10,12 @@ export const DEFAULT_POLICY_FILE = path.join(path.dirname(fileURLToPath(import.m
 export function readDiskPolicy(file = DEFAULT_POLICY_FILE) {
   const policy = JSON.parse(readFileSync(file, "utf8"));
   if (policy.schema !== 1 || !Array.isArray(policy.writers)) throw new Error("disk policy: unsupported schema");
+  for (const w of policy.writers) {
+    // `escalate` lets a report-only cache sweep its idle children once it is over cap by `factor` (see planSweep).
+    if (!w.escalate) continue;
+    const e = w.escalate;
+    if (w.action !== "report" || w.unit !== "children" || !(e.factor >= 1) || !(e.staleDays >= 0)) throw new Error(`disk policy: ${w.id} escalate needs action report, unit children, factor >= 1, staleDays >= 0`);
+  }
   return policy;
 }
 
@@ -110,6 +116,20 @@ export function isInsideRoot(candidate, root) {
     const prefix = realRoot.endsWith(path.sep) ? realRoot : realRoot + path.sep;
     return realCandidate !== realRoot && realCandidate.startsWith(prefix);
   } catch { return false; }
+}
+
+// True when a directory strictly between `literal` (the writer's literal root) and `target` is a symlink: a cache reached
+// through a symlinked cache dir (some Mac caches now live on /Volumes/D) is never swept.
+export function symlinkAncestor(target, literal) {
+  const rel = path.relative(literal, target);
+  if (!rel || rel.startsWith("..") || path.isAbsolute(rel)) return false;
+  const parts = rel.split(path.sep).slice(0, -1);
+  let cur = literal;
+  for (const part of parts) {
+    cur = path.join(cur, part);
+    try { if (lstatSync(cur).isSymbolicLink()) return true; } catch { return false; }
+  }
+  return false;
 }
 
 export function writerMatches(writer, ctx) {
@@ -305,11 +325,18 @@ export function planSweep({ policy, platform = process.platform, env = process.e
   const skipped = [];
   const seen = new Set();
   const lockCheck = inUse ?? (key === "win" ? windowsLockProbe : (p) => inUseByOpenPaths(p, openPaths));
-  for (const writer of policy.writers.filter((w) => w.platform === key && w.action === "sweep")) {
-    // `--days N` overrides every writer; otherwise a writer may carry its own window (QA evidence: 3 days).
-    const cutoff = now - (staleDays ?? writer.staleDays ?? policy.staleDays) * 86400_000;
+  // Sweep writers, plus report writers with `escalate` when they are over cap by its factor (pure caches: idle children go).
+  for (const writer of policy.writers.filter((w) => w.platform === key && (w.action === "sweep" || w.escalate))) {
     let roots; let literal;
     try { roots = writerMatches(writer, { env, home }); literal = literalRoot(expandPolicyPath(writer.path, { env, home })); } catch { continue; }
+    // `--days N` overrides every writer; otherwise a writer may carry its own window (QA evidence: 3 days, caches: 2).
+    let window = staleDays ?? writer.staleDays ?? policy.staleDays;
+    if (writer.action !== "sweep") {
+      const total = roots.reduce((sum, r) => sum + size(r), 0);
+      if (!(total > writer.capBytes * writer.escalate.factor)) continue;
+      window = staleDays ?? writer.escalate.staleDays;
+    }
+    const cutoff = now - window * 86400_000;
     const units = [];
     for (const r of roots) {
       if (writer.unit !== "children") { units.push({ unit: r, root: literal }); continue; }
@@ -328,6 +355,7 @@ export function planSweep({ policy, platform = process.platform, env = process.e
       try { st = lstatSync(unit); } catch { continue; }
       if (st.isSymbolicLink()) { skipped.push({ ...base, reason: "symlink" }); continue; }
       if (!isInsideRoot(unit, root)) { skipped.push({ ...base, reason: "outside-root" }); continue; }
+      if (symlinkAncestor(unit, literal)) { skipped.push({ ...base, reason: "symlink-ancestor" }); continue; }
       if (isProtectedPath(unit, policy)) { skipped.push({ ...base, reason: "protected" }); continue; }
       if (writer.skipTracked && tracked(unit)) { skipped.push({ ...base, reason: "tracked" }); continue; }
       if (hasFreshContent(unit, cutoff)) { skipped.push({ ...base, reason: "fresh" }); continue; }
@@ -335,6 +363,10 @@ export function planSweep({ policy, platform = process.platform, env = process.e
       candidates.push({ ...base, root, bytes: size(unit), mtime: new Date(st.mtimeMs).toISOString() });
     }
   }
+  // Overlapping writers (a whole cache dir and one of its children): the outer unit wins, the nested one is not moved twice.
+  const nested = candidates.filter((c) => candidates.some((o) => o !== c && c.path.startsWith(o.path + path.sep)));
+  for (const c of nested) skipped.push({ writer: c.writer, path: c.path, reason: "nested" });
+  if (nested.length) candidates.splice(0, candidates.length, ...candidates.filter((c) => !nested.includes(c)));
   // Allowlisted workspace roots: unknown top-level entries older than 3 days and idle.
   const scanned = scan({ policy, platform, env, home });
   skipped.push(...scanned.skipped);
@@ -403,26 +435,52 @@ const isUnder = (candidate, prefix, win) => {
   return c === p || c.startsWith(withSep);
 };
 
+// True when a volume is mounted at `mount` and is not the item's own volume (`itemDev`).
+export function defaultMounted(mount, itemDev) {
+  try {
+    const dev = deviceOf(mount);
+    return existsSync(mount) && dev !== null && dev !== itemDev;
+  } catch { return false; }
+}
+
 // Candidate holding bases for an item, best first: policy per-volume rules (longest prefix), then the item's own volume root.
+// A rule with `mount` is a cross-volume base: it applies only to items on the policy floor's volume (the Mac internal drive),
+// and only while that mount is present (checked at pick time). Entries are `{ path, mount? }`.
 export function holdingBases(candidate, { policy, platform = process.platform, env = process.env, home = os.homedir() } = {}) {
   const key = platformKey(platform);
   const out = [];
+  let floorDev;
   const rules = (policy.holding?.[key] ?? []).flatMap((r) => {
-    try { return [{ prefix: expandPolicyPath(r.prefix, { env, home }), path: expandPolicyPath(r.path, { env, home }) }]; } catch { return []; }
+    try {
+      return [{ prefix: expandPolicyPath(r.prefix, { env, home }), path: expandPolicyPath(r.path, { env, home }), mount: r.mount ? expandPolicyPath(r.mount, { env, home }) : undefined }];
+    } catch { return []; }
   }).filter((r) => isUnder(candidate, r.prefix, key === "win")).sort((a, b) => b.prefix.length - a.prefix.length);
-  for (const r of rules) out.push(r.path);
-  out.push(path.join(volumeRoot(path.dirname(candidate)), HOLDING_DIR));
+  for (const r of rules) {
+    if (r.mount) {
+      if (floorDev === undefined) {
+        const floorPath = policy.floors?.[key]?.path;
+        floorDev = floorPath ? deviceOf(expandPolicyPath(floorPath, { env, home })) : null;
+      }
+      if (floorDev === null || deviceOf(path.dirname(candidate)) !== floorDev) continue;
+    }
+    out.push({ path: r.path, ...(r.mount ? { mount: r.mount } : {}) });
+  }
+  out.push({ path: path.join(volumeRoot(path.dirname(candidate)), HOLDING_DIR) });
   return out;
 }
 
-// Create (and mark) today's holding dir on the item's own volume; null when no holding dir on that volume is possible.
-export function pickHolding(candidate, { policy, platform = process.platform, env = process.env, home = os.homedir(), date = new Date(), bases } = {}) {
+// Create (and mark) today's holding dir; null when no holding dir is possible. A same-volume base must sit on the item's
+// own volume; a mount base must sit on a mounted volume other than the item's (`isMounted`, injectable for tests).
+export function pickHolding(candidate, { policy, platform = process.platform, env = process.env, home = os.homedir(), date = new Date(), bases, isMounted = defaultMounted } = {}) {
   const dev = deviceOf(path.dirname(candidate));
-  for (const base of bases ?? holdingBases(candidate, { policy, platform, env, home })) {
+  for (const entry of bases ?? holdingBases(candidate, { policy, platform, env, home })) {
+    const base = typeof entry === "string" ? entry : entry.path;
+    const mount = typeof entry === "string" ? undefined : entry.mount;
     try {
-      if (deviceOf(base) !== dev) continue; // checked before creating anything: a base on another volume would free nothing
+      // checked before creating anything: a same-volume base on another volume would free nothing
+      if (mount ? !isMounted(mount, dev) : deviceOf(base) !== dev) continue;
       mkdirSync(base, { recursive: true });
-      if (deviceOf(base) !== dev || lstatSync(base).isSymbolicLink()) continue;
+      if (lstatSync(base).isSymbolicLink() || (!mount && deviceOf(base) !== dev)) continue;
       const marker = path.join(base, HOLDING_MARKER);
       if (!existsSync(marker)) writeFileSync(marker, "created by right-release disk; date-named children are purged after the retention window\n");
       const dir = path.join(base, date.toISOString().slice(0, 10));
@@ -433,14 +491,45 @@ export function pickHolding(candidate, { policy, platform = process.platform, en
   return null;
 }
 
+// Entries (lstat-visited, symlinks not followed) and allocated bytes under `root`.
+export function treeStats(root) {
+  let entries = 0;
+  let bytes = 0;
+  const stack = [root];
+  while (stack.length) {
+    const dir = stack.pop();
+    let st;
+    try { st = lstatSync(dir); } catch { continue; }
+    entries += 1;
+    bytes += st.blocks ? st.blocks * 512 : st.size;
+    if (!st.isDirectory()) continue;
+    let names = [];
+    try { names = readdirSync(dir); } catch { continue; }
+    for (const name of names) stack.push(path.join(dir, name));
+  }
+  return { entries, bytes };
+}
+
+const pathExists = (p) => { try { lstatSync(p); return true; } catch { return false; } };
+
 export function moveEntry(source, destination) {
   mkdirSync(path.dirname(destination), { recursive: true });
   try { renameSync(source, destination); return "rename"; } catch (error) {
     if (error.code !== "EXDEV") throw error;
   }
-  const before = walkSize(source);
-  cpSync(source, destination, { recursive: true, preserveTimestamps: true, verbatimSymlinks: true, errorOnExist: true, force: false });
-  if (walkSize(destination) < before) throw new Error(`copy verification failed for ${source}; source kept`);
+  // Cross-volume: copy, verify the copy against the source, and only then remove the source. Never overwrite.
+  if (pathExists(destination)) throw new Error(`destination exists: ${destination}; source kept`);
+  const before = treeStats(source);
+  try {
+    cpSync(source, destination, { recursive: true, preserveTimestamps: true, verbatimSymlinks: true, errorOnExist: true, force: false });
+    const after = treeStats(destination);
+    if (after.entries !== before.entries || after.bytes < before.bytes) {
+      throw new Error(`copy verification failed for ${source} (entries ${before.entries} -> ${after.entries}, bytes ${before.bytes} -> ${after.bytes}); source kept`);
+    }
+  } catch (error) {
+    rmSync(destination, { recursive: true, force: true }); // our partial copy only: the source is untouched
+    throw error;
+  }
   rmSync(source, { recursive: true, force: true }); // completes the move after verified copy
   return "copy-verify-remove";
 }
@@ -452,7 +541,7 @@ export function logEvent(logFile, event) {
   } catch { /* logging must never fail the sweep */ }
 }
 
-export function applySweep({ plan, policy, platform = process.platform, deleteMode = false, date = new Date(), env = process.env, home = os.homedir(), move = moveEntry, pick = pickHolding, remove = (p) => rmSync(p, { recursive: true, force: true }) }) {
+export function applySweep({ plan, policy, platform = process.platform, deleteMode = false, date = new Date(), env = process.env, home = os.homedir(), move = moveEntry, pick = pickHolding, isMounted, remove = (p) => rmSync(p, { recursive: true, force: true }) }) {
   const logFile = path.join(policy.heavyVolume[platformKey(platform)], "disk-hygiene.jsonl");
   const results = [];
   for (const c of plan.candidates) {
@@ -462,7 +551,7 @@ export function applySweep({ plan, policy, platform = process.platform, deleteMo
       if (c.writer === "workspace-unknown" && PROJECT_MARKERS.some((m) => existsSync(path.join(c.path, m)))) throw new Error("refused: a nested git checkout or project directory is never swept");
       if (deleteMode) { remove(c.path); results.push({ ...c, action: "delete", ok: true }); logEvent(logFile, { event: "disk.sweep.delete", ...c }); continue; }
       // An item stays on its own volume: moving it elsewhere frees nothing on the volume that is short of space.
-      const holding = pick(c.path, { policy, platform, env, home, date });
+      const holding = pick(c.path, { policy, platform, env, home, date, isMounted });
       if (!holding) {
         remove(c.path);
         results.push({ ...c, action: "delete", how: "no-holding-on-volume", ok: true });

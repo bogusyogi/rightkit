@@ -8,7 +8,7 @@ const execFileSync = (cmd, args) => { const r = spawnSync(cmd, args, { encoding:
 import { ensureScratchRoots, scanWorkspaceRoots, workspaceSweepAllowed, workspaceTracked } from "./disk-policy.mjs";
 import { collectDependencies, evaluateBinding, installStableRoot, isUnderStable, readScheduleBinding, selfCheck, stableCliPath, stableRootPath } from "./disk-stable-root.mjs";
 import { cliFromGlobalRoots, cliFromPathBin, insideGitCheckout, renderCheck, resolveInstalledCli, runDiskCommand, scheduleSpec, renderSweep } from "./disk-command.mjs";
-import { HOLDING_MARKER, applySweep, checkDisk, deviceOf, evaluateFloor, expandGlob, inUseByOpenPaths, literalRoot, pickHolding, planSweep, purgeHoldings, readDiskPolicy, volumeRoot } from "./disk-policy.mjs";
+import { HOLDING_MARKER, applySweep, checkDisk, defaultMounted, deviceOf, evaluateFloor, expandGlob, holdingBases, inUseByOpenPaths, literalRoot, moveEntry, pickHolding, planSweep, purgeHoldings, readDiskPolicy, symlinkAncestor, treeStats, volumeRoot } from "./disk-policy.mjs";
 
 const OLD = Date.now() - 30 * 86400_000;
 
@@ -384,6 +384,166 @@ test("real second volume (macOS disk image): the item is renamed within its own 
     try { execFileSync("hdiutil", ["detach", mount, "-force", "-quiet"]); } catch { /* ignore */ }
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+// ---- Core ML e5rt caches, over-cap cache escalation, cross-volume holding (Mac) --------------------------------------
+
+const AGE = (days) => Date.now() - days * 86400_000;
+
+function e5Fixture() {
+  const { root, policy } = fixture();
+  policy.writers = [
+    { id: "cache-coreml-e5rt-tmp", platform: "mac", path: path.join(root, "Caches", "*", "com.apple.e5rt.e5bundlecache", "*", "*", "*.tmp.*"), capBytes: 1, action: "sweep", unit: "self", staleDays: 1 },
+    { id: "cache-coreml-e5rt", platform: "mac", path: path.join(root, "Caches", "*", "com.apple.e5rt.e5bundlecache", "*", "*"), capBytes: 1, action: "sweep", unit: "children", staleDays: 2 },
+  ];
+  return { root, policy };
+}
+
+test("coreml e5rt: per-model bundles idle 2 days move, fresh ones stay, a symlinked cache is never touched", () => {
+  const { root, policy } = e5Fixture();
+  const e5 = (app) => path.join(root, "Caches", app, "com.apple.e5rt.e5bundlecache", "26A434", "HASH1");
+  file(path.join(e5("app1"), "old.bundle", "model.bin"), 10, AGE(3));
+  file(path.join(e5("app1"), "new.bundle", "model.bin"), 10);
+  const elsewhere = path.join(root, "elsewhere");
+  file(path.join(elsewhere, "com.apple.e5rt.e5bundlecache", "26A434", "HASH1", "old.bundle", "model.bin"), 10, AGE(30));
+  symlinkSync(elsewhere, path.join(root, "Caches", "linked"));
+  const plan = planSweep({ policy, platform: "darwin", home: root, openPaths: [], size: () => 10 });
+  assert.deepEqual(plan.candidates.map((c) => [c.writer, path.relative(root, c.path)]), [["cache-coreml-e5rt", path.join("Caches", "app1", "com.apple.e5rt.e5bundlecache", "26A434", "HASH1", "old.bundle")]]);
+  const reasons = plan.skipped.filter((s) => s.path.includes(`${path.sep}linked${path.sep}`)).map((s) => s.reason);
+  assert.ok(reasons.length > 0 && reasons.every((r) => r === "symlink-ancestor"), `linked cache reasons: ${reasons}`);
+  assert.equal(plan.skipped.find((s) => s.path.endsWith(`new.bundle`))?.reason, "fresh");
+  assert.equal(existsSync(path.join(elsewhere, "com.apple.e5rt.e5bundlecache", "26A434", "HASH1", "old.bundle")), true);
+});
+
+test("coreml e5rt: abandoned *.tmp.* bundles go after 1 day regardless of the cap; fresh tmp stays", () => {
+  const { root, policy } = e5Fixture();
+  const hash = path.join(root, "Caches", "app1", "com.apple.e5rt.e5bundlecache", "26A434", "HASH1");
+  file(path.join(hash, "A.tmp.11_22.bundle", "model.bin"), 10, AGE(1.5));
+  file(path.join(hash, "B.tmp.33_44.bundle", "model.bin"), 10, AGE(0.5));
+  file(path.join(hash, "C.bundle", "model.bin"), 10, AGE(1.5)); // not tmp: the 2-day window applies, so it stays
+  const plan = planSweep({ policy, platform: "darwin", home: root, openPaths: [], size: () => 10 });
+  const moved = plan.candidates.map((c) => [c.writer, path.basename(c.path)]);
+  assert.deepEqual(moved, [["cache-coreml-e5rt-tmp", "A.tmp.11_22.bundle"]]);
+  assert.equal(plan.skipped.find((s) => s.path.endsWith("B.tmp.33_44.bundle"))?.reason, "fresh");
+  assert.equal(plan.skipped.find((s) => s.path.endsWith("C.bundle"))?.reason, "fresh");
+  assert.equal(plan.skipped.filter((s) => s.path.endsWith("A.tmp.11_22.bundle")).length, 0, "moved once, not also as a 2-day child");
+});
+
+test("over-cap report cache escalates: idle children older than 7 days move only when over cap by 2x; in-use blocks", () => {
+  const { root, policy } = fixture();
+  const cache = path.join(root, "Caches", "heardright-engine");
+  file(path.join(cache, "old", "f"), 10, AGE(10));
+  file(path.join(cache, "recent", "f"), 10, AGE(3));
+  policy.writers = [{ id: "cache-heard", platform: "mac", path: cache, capBytes: 100, action: "report", unit: "children", escalate: { factor: 2, staleDays: 7 } }];
+  const over = planSweep({ policy, platform: "darwin", home: root, openPaths: [], size: (p) => (p === cache ? 300 : 10) });
+  assert.deepEqual(over.candidates.map((c) => [c.writer, path.basename(c.path)]), [["cache-heard", "old"]]);
+  assert.equal(over.skipped.find((s) => s.path.endsWith("recent"))?.reason, "fresh");
+  const under = planSweep({ policy, platform: "darwin", home: root, openPaths: [], size: (p) => (p === cache ? 150 : 10) });
+  assert.equal(under.candidates.length, 0, "between 1x and 2x the cap: report only");
+  assert.equal(under.skipped.filter((s) => s.writer === "cache-heard").length, 0);
+  const held = planSweep({ policy, platform: "darwin", home: root, openPaths: [path.join(cache, "old", "f")], size: (p) => (p === cache ? 300 : 10) });
+  assert.equal(held.candidates.length, 0);
+  assert.equal(held.skipped.find((s) => s.path.endsWith("old"))?.reason, "in-use");
+});
+
+test("overlapping candidates: the outer unit wins and the nested one is reported, not moved twice", () => {
+  const { root, policy } = e5Fixture();
+  const e5dir = path.join(root, "Caches", "app", "com.apple.e5rt.e5bundlecache");
+  file(path.join(e5dir, "26A434", "HASH1", "b.bundle", "model.bin"), 10, AGE(10));
+  // file() ages only the immediate parent: every directory of the outer unit must be old for the whole tree to be idle
+  for (const d of [path.join(e5dir, "26A434", "HASH1"), path.join(e5dir, "26A434"), e5dir]) utimesSync(d, AGE(10) / 1000, AGE(10) / 1000);
+  policy.writers = [
+    { id: "whole", platform: "mac", path: e5dir, capBytes: 1, action: "sweep", unit: "self", staleDays: 7 },
+    ...policy.writers.filter((w) => w.id === "cache-coreml-e5rt"),
+  ];
+  const plan = planSweep({ policy, platform: "darwin", home: root, openPaths: [], size: () => 10 });
+  assert.deepEqual(plan.candidates.map((c) => [c.writer, c.path]), [["whole", e5dir]]);
+  assert.equal(plan.skipped.find((s) => s.path.endsWith("b.bundle"))?.reason, "nested");
+});
+
+test("holding on a mounted volume: floor-volume items go to its holding dir; with no mount, the same-volume base", () => {
+  const { root, policy } = fixture();
+  file(path.join(root, "cache", "old", "f"), 10, OLD);
+  const item = path.join(root, "cache", "old");
+  const date = new Date("2026-10-15T12:00:00Z");
+  policy.holding = { mac: [{ prefix: root, path: path.join(root, "dmount", ".rightkit-swept"), mount: path.join(root, "dmount") }, { prefix: root, path: path.join(root, "hold") }] };
+  assert.deepEqual(holdingBases(item, { policy, platform: "darwin" })[0], { path: path.join(root, "dmount", ".rightkit-swept"), mount: path.join(root, "dmount") });
+  const onMount = pickHolding(item, { policy, platform: "darwin", date, isMounted: () => true });
+  assert.equal(onMount, path.join(root, "dmount", ".rightkit-swept", "2026-10-15"));
+  assert.equal(existsSync(path.join(onMount, HOLDING_MARKER)), true);
+  const offMount = pickHolding(item, { policy, platform: "darwin", date, isMounted: () => false });
+  assert.equal(offMount, path.join(root, "hold", "2026-10-15"));
+  // without an injected check, a mount path that is absent (or on the item's own volume) is not mounted
+  const absent = pickHolding(item, { policy, platform: "darwin", date });
+  assert.equal(absent, path.join(root, "hold", "2026-10-15"));
+  assert.equal(defaultMounted(path.join(root, "nope"), deviceOf(item)), false);
+  assert.equal(defaultMounted(root, deviceOf(item)), false, "same device is not another volume");
+});
+
+test("copy-verify-remove across volumes (macOS disk image): the source goes only after a verified copy", { skip: process.platform !== "darwin" }, (t) => {
+  const dir = mkdtempSync(path.join(os.tmpdir(), "rk-xvol-"));
+  const image = path.join(dir, "vol.dmg");
+  const mount = path.join(dir, "mnt");
+  mkdirSync(mount);
+  try {
+    execFileSync("hdiutil", ["create", "-size", "16m", "-fs", "HFS+", "-volname", "rkxvol", image]);
+    execFileSync("hdiutil", ["attach", image, "-mountpoint", mount, "-nobrowse", "-quiet"]);
+  } catch { t.skip("cannot create a disk image here"); return; }
+  try {
+    const src = path.join(dir, "src", "old");
+    file(path.join(src, "f.bin"), 4096, OLD);
+    file(path.join(src, "sub", "g.bin"), 2048, OLD);
+    const before = treeStats(src);
+    const dst = path.join(mount, "moved", "old");
+    assert.equal(moveEntry(src, dst), "copy-verify-remove");
+    assert.equal(existsSync(src), false);
+    assert.deepEqual(treeStats(dst).entries, before.entries);
+    assert.equal(readFileSync(path.join(dst, "sub", "g.bin")).length, 2048);
+    // the holding rule on the mounted volume is chosen for an item on the floor volume
+    const { policy } = fixture();
+    policy.holding = { mac: [{ prefix: "/", path: path.join(mount, ".rightkit-swept"), mount }] };
+    const item = path.join(dir, "src2");
+    file(path.join(item, "f"), 10, OLD);
+    const held = pickHolding(item, { policy, platform: "darwin", date: new Date("2026-10-15T12:00:00Z") });
+    assert.ok(held, "a mounted volume holds the item");
+    assert.ok(realpathSync(held).startsWith(realpathSync(mount) + path.sep), held);
+    assert.equal(deviceOf(held) === deviceOf(item), false, "the holding dir is on the other volume");
+  } finally {
+    try { execFileSync("hdiutil", ["detach", mount, "-force", "-quiet"]); } catch { /* ignore */ }
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("symlinkAncestor: a symlinked directory between the literal root and the unit is refused", () => {
+  const { root } = fixture();
+  const real = path.join(root, "real");
+  mkdirSync(path.join(real, "x", "y"), { recursive: true });
+  symlinkSync(real, path.join(root, "link"));
+  assert.equal(symlinkAncestor(path.join(root, "link", "x", "y"), root), true);
+  assert.equal(symlinkAncestor(path.join(real, "x", "y"), root), false);
+  assert.equal(symlinkAncestor(path.join(root, "link"), root), false, "the unit itself is judged by the caller");
+});
+
+test("readDiskPolicy rejects an escalate on a sweep writer or a non-children unit", () => {
+  const { root, policy } = fixture();
+  const pf = path.join(root, "bad.json");
+  policy.writers = [{ id: "bad", platform: "mac", path: path.join(root, "c"), capBytes: 1, action: "sweep", unit: "children", escalate: { factor: 2, staleDays: 7 } }];
+  writeFileSync(pf, JSON.stringify(policy));
+  assert.throws(() => readDiskPolicy(pf), /escalate/);
+  policy.writers = [{ id: "bad", platform: "mac", path: path.join(root, "c"), capBytes: 1, action: "report", unit: "self", escalate: { factor: 2, staleDays: 7 } }];
+  writeFileSync(pf, JSON.stringify(policy));
+  assert.throws(() => readDiskPolicy(pf), /escalate/);
+});
+
+test("committed policy: e5rt writers, over-cap escalation on the pure caches, Mac holding moves to /Volumes/D", () => {
+  const { writers, holding } = readDiskPolicy();
+  const mac = (id) => writers.find((w) => w.id === id && w.platform === "mac");
+  assert.deepEqual([mac("cache-coreml-e5rt-tmp").action, mac("cache-coreml-e5rt-tmp").unit, mac("cache-coreml-e5rt-tmp").staleDays], ["sweep", "self", 1]);
+  assert.deepEqual([mac("cache-coreml-e5rt").action, mac("cache-coreml-e5rt").unit, mac("cache-coreml-e5rt").staleDays], ["sweep", "children", 2]);
+  assert.equal(mac("cache-coreml-e5rt").path, "~/Library/Caches/*/com.apple.e5rt.e5bundlecache/*/*");
+  assert.ok(writers.indexOf(mac("cache-coreml-e5rt-tmp")) < writers.indexOf(mac("cache-coreml-e5rt")), "tmp writer runs first so its 1-day window wins");
+  for (const id of ["cache-python", "cache-heardright-engine", "cache-cutright-engine", "cache-pnpm"]) assert.deepEqual(mac(id).escalate, { factor: 2, staleDays: 7 }, id);
+  assert.deepEqual(holding.mac[0], { prefix: "/", path: "/Volumes/D/.rightkit-swept", mount: "/Volumes/D" });
 });
 
 function installedPackage(root, version, ...layout) {
