@@ -3,7 +3,9 @@
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
-use rightkit_file_watch::{DirWatchSet, EventFilter, WatchEvent, WatchEventKind, WatchOptions};
+use rightkit_file_watch::{
+    DirWatchSet, EventFilter, RetryPolicy, WatchEvent, WatchEventKind, WatchOptions,
+};
 
 #[test]
 fn directory_arm_failures_are_strict_by_default_or_delivered_when_tolerated() {
@@ -88,4 +90,52 @@ fn directory_options_observe_native_changes_and_remain_idempotent_and_capped() {
     assert!(set.is_watching(&second));
     set.unwatch(&second);
     assert!(set.is_empty());
+}
+
+#[test]
+fn missing_directory_is_attached_when_it_appears_and_reports_a_rescan() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().canonicalize().unwrap();
+    let later = root.join("later");
+    let set = DirWatchSet::with_options(2, false, WatchOptions::default());
+    let (tx, rx) = mpsc::channel();
+    set.watch_batches_when_present(
+        &later,
+        RetryPolicy::new(Duration::from_millis(20), Duration::from_millis(100)),
+        move |batch| {
+            let _ = tx.send(batch);
+        },
+    )
+    .unwrap();
+    assert!(set.is_watching(&later));
+    std::fs::create_dir(&later).unwrap();
+    let first = rx.recv_timeout(Duration::from_secs(20)).unwrap();
+    assert!(first.lost, "attach must ask the caller to rescan");
+    let file = later.join("file.txt");
+    std::fs::write(&file, b"x").unwrap();
+    let deadline = Instant::now() + Duration::from_secs(20);
+    loop {
+        assert!(Instant::now() < deadline, "no change after attach");
+        if let Ok(batch) = rx.recv_timeout(Duration::from_millis(100)) {
+            if batch.changes.changed.contains(&file) {
+                break;
+            }
+        }
+    }
+    set.unwatch(&later);
+    assert!(set.is_empty());
+}
+
+#[test]
+fn unwatch_stops_a_pending_retry_without_waiting_for_the_folder() {
+    let dir = tempfile::tempdir().unwrap();
+    let missing = dir.path().canonicalize().unwrap().join("never");
+    let set = DirWatchSet::default();
+    set.watch_batches_when_present(&missing, RetryPolicy::default(), |_| {})
+        .unwrap();
+    assert!(set.is_watching(&missing));
+    let started = Instant::now();
+    set.unwatch(&missing);
+    assert!(set.is_empty());
+    assert!(started.elapsed() < Duration::from_secs(5));
 }

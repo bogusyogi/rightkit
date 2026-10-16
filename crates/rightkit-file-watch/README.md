@@ -53,6 +53,15 @@ halves into Delete/Create. `watch` retains its sorted, duplicate-free
 `ChangeBatch` callback; it logs gaps instead of exposing typed diagnostics.
 Callbacks run on worker threads & must not synchronously unwatch their own set.
 
+Since 0.4.1: `watch_batches` is `watch` plus a `lost` flag (`DirBatch`) set on overflow,
+rescan or error, so the caller knows to rescan. `watch_batches_when_present` /
+`watch_records_when_present` accept a folder that does not exist yet: a worker polls with
+`RetryPolicy` backoff, arms when it appears, and first reports `lost` so the caller scans what
+was created before the arm. The quiet window and maximum hold are `WatchOptions::quiet` and
+`max_wait`; a constant stream flushes at first event + `max_wait`.
+On Windows, notify (ReadDirectoryChangesW, fixed 16 KiB buffer) does not report buffer
+overflow, so `lost` cannot fire for it there; see CHANGELOG.
+
 Legacy `new`, `with_recursive` & `default` keep coalescing on, strict arming,
 all mutation kinds, `max_wait = Some(quiet * 10)`, flushing on disconnect & no
 snapshot reconciliation. Explicit options use `WatchOptions` defaults instead.

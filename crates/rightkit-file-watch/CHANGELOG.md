@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+### Added (0.4.1, additive)
+
+- `DirWatchSet::watch_batches(dir, cb)`: like `watch`, but the callback receives a `DirBatch { changes: ChangeBatch, lost: bool }`. `lost` is set when the backend reported a buffer overflow, a rescan request or an error, and a batch carrying only the flag is still delivered, so a lost report is no longer log-only. `watch` is unchanged (it still logs gaps). `ChangeBatch` is unchanged.
+- `DirWatchSet::watch_batches_when_present` and `watch_records_when_present` take a `RetryPolicy` (`initial`, `max`, doubling; default 250 ms to 30 s). A folder that does not exist yet is polled with backoff by a worker thread and armed when it appears; the first callback after a wait carries `lost` (one `Overflow` record), because changes between creation and arming are not reported. `unwatch`, eviction and drop stop the worker; a folder deleted after attaching is not re-armed. The existing `watch`/`watch_records` still return the arm error for a missing folder.
+- Quiet window with maximum hold was already present (`WatchOptions::quiet`/`max_wait`, `DirWatchSet::with_options`); new unit tests pin that a constant stream flushes at first event plus `max_wait`.
+- Windows: finding recorded in `src/native/windows.rs` and `src/native.rs`. notify 8.2.0's `ReadDirectoryChangesW` backend uses a fixed 16 KiB buffer and ignores the completion's byte count, so it never reports an overflow; the Windows native stub stays (it is referenced by the platform seam) and a real overflow signal on Windows needs the native backend.
+
 Renamed from rightkit-watch; 0.3.1 remains published under the old name.
 
 ### Fixed

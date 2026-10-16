@@ -27,7 +27,7 @@ pub use subscribe::{
     ThrottledWatchReceiver, WatchPath, WatchRegistration,
 };
 pub use sync::{
-    DirWatchSet, FileChange, FileChangeKind, FileSetWatcher, GrantCheck, DEFAULT_DEBOUNCE,
-    DEFAULT_MAX_WAIT, EXPLORER_DEBOUNCE, EXPLORER_WATCH_CAP,
+    DirBatch, DirWatchSet, FileChange, FileChangeKind, FileSetWatcher, GrantCheck, RetryPolicy,
+    DEFAULT_DEBOUNCE, DEFAULT_MAX_WAIT, EXPLORER_DEBOUNCE, EXPLORER_WATCH_CAP,
 };
 pub use typed::{TypedWatcher, WatchError, WatchEvent, WatchMetrics, WatchStatus};

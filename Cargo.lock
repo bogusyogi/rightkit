@@ -5968,7 +5968,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-file-watch"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "notify",
  "rightkit-child-process",

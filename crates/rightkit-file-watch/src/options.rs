@@ -992,6 +992,47 @@ mod tests {
         }
     }
 
+    #[test]
+    fn constant_stream_deadline_is_pinned_to_first_event_plus_max_hold() {
+        let options = WatchOptions {
+            quiet: Duration::from_millis(100),
+            max_wait: Some(Duration::from_millis(500)),
+            ..WatchOptions::default()
+        };
+        let start = Instant::now();
+        let mut window = DebounceWindow::default();
+        assert_eq!(window.deadline(&options), None);
+        // An event every 10 ms never lets the quiet window elapse, yet the deadline never
+        // moves past first + max hold.
+        for step in 0..200 {
+            window.observe(start + Duration::from_millis(step * 10));
+            let deadline = window.deadline(&options).unwrap();
+            assert!(deadline <= start + Duration::from_millis(500));
+        }
+        let last = start + Duration::from_millis(199 * 10);
+        assert!(last + options.quiet > start + Duration::from_millis(500));
+        assert_eq!(
+            window.deadline(&options),
+            Some(start + Duration::from_millis(500))
+        );
+    }
+
+    #[test]
+    fn single_event_flushes_after_quiet_not_max_hold() {
+        let options = WatchOptions {
+            quiet: Duration::from_millis(100),
+            max_wait: Some(Duration::from_millis(500)),
+            ..WatchOptions::default()
+        };
+        let start = Instant::now();
+        let mut window = DebounceWindow::default();
+        window.observe(start);
+        assert_eq!(
+            window.deadline(&options),
+            Some(start + Duration::from_millis(100))
+        );
+    }
+
     #[cfg(unix)]
     #[test]
     fn recursive_directory_snapshot_does_not_follow_symlinks() {
