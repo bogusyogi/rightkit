@@ -11,10 +11,32 @@ workers_dev = false
 # Daily tombstone compaction and housekeeping.
 crons = ["17 3 * * *"]
 
+
+# One D1 database per shard. Bindings MUST be named DB_0 .. DB_{SHARD_COUNT-1}, contiguous from 0.
+# Add or remove blocks together with SHARD_COUNT below. Changing SHARD_COUNT on a deployment that
+# holds data re-routes tenants and needs a data migration (README, "Sharding").
 [[d1_databases]]
-binding = "DB"
-database_name = "rightkit-sync"
-database_id = "REPLACE_WITH_D1_DATABASE_ID"
+binding = "DB_0"
+database_name = "rightkit-sync-0"
+database_id = "REPLACE_WITH_D1_DATABASE_ID_0"
+migrations_dir = "migrations"
+
+[[d1_databases]]
+binding = "DB_1"
+database_name = "rightkit-sync-1"
+database_id = "REPLACE_WITH_D1_DATABASE_ID_1"
+migrations_dir = "migrations"
+
+[[d1_databases]]
+binding = "DB_2"
+database_name = "rightkit-sync-2"
+database_id = "REPLACE_WITH_D1_DATABASE_ID_2"
+migrations_dir = "migrations"
+
+[[d1_databases]]
+binding = "DB_3"
+database_name = "rightkit-sync-3"
+database_id = "REPLACE_WITH_D1_DATABASE_ID_3"
 migrations_dir = "migrations"
 
 [[r2_buckets]]
@@ -27,3 +49,8 @@ RATE_LIMIT_PER_MINUTE = "1200"
 ACCOUNT_STORAGE_CAP_BYTES = "52428800"
 TOMBSTONE_COMPACT_DAYS = "90"
 BLOB_SPILL_BYTES = "65536"
+# Sharding and plan (README, "Sharding" and "Limits").
+SHARD_COUNT = "4"
+# "free" (default) or "paid". Free: saves of at most 40 records, 50 D1 queries per invocation.
+CF_PLAN = "free"
+# MAX_SAVE_RECORDS = "40"   # optional explicit override, 1..100

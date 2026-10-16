@@ -22,6 +22,8 @@ export default defineWorkersConfig(async () => {
               ACCOUNT_STORAGE_CAP_BYTES: '300000',
               TOMBSTONE_COMPACT_DAYS: '90',
               BLOB_SPILL_BYTES: '65536',
+              SHARD_COUNT: '4',
+              CF_PLAN: 'free',
             },
           },
         },

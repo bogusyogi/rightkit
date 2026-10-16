@@ -1,9 +1,10 @@
 import { authenticate, type Principal } from './auth.js';
 import { compactTombstones, pruneHousekeeping } from './compact.js';
+import { QueryBudget } from './shards.js';
 import { eraseAccount } from './erase.js';
 import { admit } from './guard.js';
 import { errorResponse, HttpError, isObject, json, readJson } from './http.js';
-import { MAX_BATCH, PROTOCOL, type Env } from './env.js';
+import { config, MAX_BATCH, PROTOCOL, type Env } from './env.js';
 import { fetchChanges, fetchRecord, prepareZone, saveRecords } from './records.js';
 
 const ZONE = /^[A-Za-z0-9._-]{1,64}$/;
@@ -28,7 +29,7 @@ async function route(req: Request, env: Env, nowMs: number): Promise<Response> {
 
   if (path === '/v1/sync/health') {
     method(req, 'GET');
-    return json({ ok: true, protocol: PROTOCOL });
+    return json({ ok: true, protocol: PROTOCOL, max_save_records: config(env).maxSaveRecords });
   }
 
   if (path === '/v1/sync/account') {
@@ -88,8 +89,10 @@ export default {
     const now = Date.now();
     ctx.waitUntil(
       (async () => {
-        await compactTombstones(env, now);
-        await pruneHousekeeping(env, now);
+        // One invocation shares one D1 query budget across housekeeping and compaction.
+        const budget = new QueryBudget(config(env).queryBudget);
+        await pruneHousekeeping(env, now, budget);
+        await compactTombstones(env, now, budget);
       })(),
     );
   },

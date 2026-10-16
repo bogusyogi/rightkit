@@ -1,3 +1,4 @@
+-- Applied to every shard database (DB_0 .. DB_{SHARD_COUNT-1}); all shards share this schema.
 -- rightkit-sync-worker 0.1.0: records, zones, rate limits (issue #146).
 -- The server stores opaque encrypted bodies only. Every column except `enc` is
 -- ordering/precondition metadata the protocol needs in clear.

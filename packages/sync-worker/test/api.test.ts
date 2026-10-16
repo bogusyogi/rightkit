@@ -1,6 +1,6 @@
 import { env, SELF } from 'cloudflare:test';
 import { describe, expect, it } from 'vitest';
-import { b64, client, mint, rec } from './helpers.js';
+import { b64, client, dbOf, mint, rec } from './helpers.js';
 
 let n = 0;
 const acct = () => `acct-api-${++n}`;
@@ -10,7 +10,7 @@ describe('health and routing', () => {
   it('serves health without auth', async () => {
     const res = await SELF.fetch('https://sync.test/v1/sync/health');
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ ok: true, protocol: 'rightkit-sync-http/1' });
+    expect(await res.json()).toEqual({ ok: true, protocol: 'rightkit-sync-http/1', max_save_records: 40 });
   });
 
   it('404s unknown routes and 405s wrong methods', async () => {
@@ -218,7 +218,7 @@ describe('large bodies and quota', () => {
     await api.prepare();
     const big = new Uint8Array(70_000).fill(7);
     await api.save(Z, 'overwrite', [rec('big', { enc: b64(big) })]);
-    const stored = await env.DB.prepare('SELECT enc, r2_key FROM records WHERE account_id = ?1 AND name = ?2')
+    const stored = await (await dbOf(acc)).prepare('SELECT enc, r2_key FROM records WHERE account_id = ?1 AND name = ?2')
       .bind(acc, 'big')
       .first<{ enc: unknown; r2_key: string | null }>();
     expect(stored?.enc).toBeNull();

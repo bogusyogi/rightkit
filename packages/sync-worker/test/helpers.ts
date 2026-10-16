@@ -1,4 +1,5 @@
 import { env, SELF } from 'cloudflare:test';
+import { shardBinding, shardCount, shardIndex } from '../src/shards.js';
 
 const enc = new TextEncoder();
 
@@ -90,4 +91,14 @@ export async function client(options: TokenOptions = {}): Promise<Api> {
 
 export function rec(name: string, extra: Record<string, unknown> = {}): Record<string, unknown> {
   return { name, type: 'Transcript', updated_at: 1_000, enc: b64(`cipher:${name}`), ...extra };
+}
+
+/** The shard database that holds this tenant, resolved through the production routing function. */
+export async function dbOf(account: string, app = 'heardright'): Promise<D1Database> {
+  return shardBinding(env, await shardIndex(app, account, shardCount(env)));
+}
+
+/** Index of the shard that holds this tenant. */
+export async function shardOf(account: string, app = 'heardright'): Promise<number> {
+  return shardIndex(app, account, shardCount(env));
 }

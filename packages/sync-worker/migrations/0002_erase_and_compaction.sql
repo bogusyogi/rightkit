@@ -3,7 +3,8 @@
 -- Cursors older than floor_seq are answered with 410 token_expired.
 ALTER TABLE zones ADD COLUMN floor_seq INTEGER NOT NULL DEFAULT 0;
 
--- Set when a tombstone was reduced to (name, type, updated_at, deleted_at).
+-- Set when compaction visited a tombstone. Compaction drops only an R2 body (r2_key, size_bytes); the
+-- small sealed inline enc is KEPT so clients can authenticate the deletion.
 ALTER TABLE records ADD COLUMN compacted_at INTEGER;
 
 CREATE INDEX idx_records_compactable ON records (deleted_at)
