@@ -422,6 +422,34 @@ impl SubjectEntitlementSource {
         self.check(cached, now)
     }
 
+    /// The decision the local cache alone supports, with no token request and no network.
+    ///
+    /// `Cached` inside the re-check interval, `OfflineGrace` past it but inside the offline
+    /// grace window, `None` when there is no usable cache (none stored, another app, a clock
+    /// earlier than the fetch time, or past the grace window). A lapsed answer is returned with
+    /// `pro == false`; it never grants. This is the read a headless engine uses when it has no
+    /// way to obtain a bearer token.
+    pub fn cached_decision(&self) -> Option<SubjectDecision> {
+        let now = (self.now)();
+        let record = self.cached()?;
+        if !self.usable(&record, now) {
+            return None;
+        }
+        let age = now - record.fetched_at;
+        let grace_ends_at = record.fetched_at.saturating_add(self.config.grace());
+        if age < self.config.recheck() && !record.entitlement.is_lapsed(now) {
+            Some(decide(&record, Freshness::Cached, now))
+        } else if now < grace_ends_at {
+            Some(decide(
+                &record,
+                Freshness::OfflineGrace { grace_ends_at },
+                now,
+            ))
+        } else {
+            None
+        }
+    }
+
     /// `true` only when a decision is available and grants Pro. Any error is `false`.
     pub fn is_pro(&self) -> bool {
         self.entitlement().map(|d| d.is_pro()).unwrap_or(false)

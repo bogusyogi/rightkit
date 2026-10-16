@@ -4,7 +4,7 @@ Rust enforcement primitive for Right Suite license entitlements. The crate verif
 
 It is the security half of the licensing system. The JavaScript `@rightkit/license` package is the convenience half. Applications must enforce paid commands at the Rust boundary. Renderer state is never license authority.
 
-Catalog capability: `licensing`. crates.io has 0.1.3; the source is 0.2.0, which is unpublished (see [INDEX.md](../../INDEX.md) and CHANGELOG 0.2.0). Licensed under MIT or Apache-2.0, at your option.
+Catalog capability: `licensing`. crates.io has 0.1.3; the source is 0.2.2, which is unpublished (see [INDEX.md](../../INDEX.md) and CHANGELOG 0.2.0). Licensed under MIT or Apache-2.0, at your option.
 
 ## What it owns
 
@@ -30,7 +30,7 @@ Do not use it to issue or sign licences. Signing belongs to the backend signer.
 
 ## Cargo features
 
-None. The crate has no `[features]` table. Dependencies: `ed25519-dalek` 3, `base64` 0.23, `serde`, `serde_json` (0.2.0 moved from dalek 2 and base64 0.22; verification semantics are pinned by `test-vectors/dalek-parity-v1.json`, see `CHANGELOG.md`).
+`subject-entitlement` (Google-subject entitlement client, adds `rightkit-http`) and `engine-gate` (engine startup gate: Allowed / Grace / Denied verdict, exit codes, messages; implies `subject-entitlement`; see CHANGELOG 0.2.2). Both are off by default. Dependencies: `ed25519-dalek` 3, `base64` 0.23, `serde`, `serde_json` (0.2.0 moved from dalek 2 and base64 0.22; verification semantics are pinned by `test-vectors/dalek-parity-v1.json`, see `CHANGELOG.md`).
 
 ## Usage
 
