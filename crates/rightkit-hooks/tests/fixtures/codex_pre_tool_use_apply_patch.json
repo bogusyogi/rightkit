@@ -1,0 +1,1 @@
+{"hook_event_name":"PreToolUse","session_id":"11111111-1111-4111-8111-111111111111","tool_name":"apply_patch","tool_input":{"patch":"*** Begin Patch\n*** Update File: src/login.rs\n@@\n-old\n+new\n*** End Patch"}}

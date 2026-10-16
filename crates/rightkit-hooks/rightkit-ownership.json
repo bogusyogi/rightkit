@@ -1,0 +1,16 @@
+{
+  "package": "rightkit-hooks",
+  "capabilities": [
+    {
+      "capability": "lifecycle-hooks",
+      "summary": "Native pair of @rightkit/hooks: typed Claude Code and Codex hook payloads, a deadline-bound dispatcher that always exits 0, exact per-event output builders, and emitted/observed delivery receipts.",
+      "fingerprints": [],
+      "detection": "declaration-only",
+      "policyNotes": [
+        "Declaration-only: no precise implementation fingerprint; never enforced ownership or verified integration.",
+        "Shares the lifecycle-hooks capability with @rightkit/hooks (JS). Unlike the JS bin, the Rust dispatcher exits 0 on every internal failure.",
+        "Codex PreToolUse denials exit 2 with the reason on stderr (the shipped Legion shape); every other failure prints nothing and exits 0."
+      ]
+    }
+  ]
+}

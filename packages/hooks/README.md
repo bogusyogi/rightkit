@@ -5,7 +5,7 @@ Neutral lifecycle runtime for agent hook events. HookHost normalizes a hook payl
 | Item | Value |
 |---|---|
 | Where it runs | Dev tooling (Node process invoked by an agent hook system) |
-| Rust pair | None |
+| Rust pair | `rightkit-hooks` (crate) |
 | Version | see INDEX.md |
 | License | MIT OR Apache-2.0 |
 
