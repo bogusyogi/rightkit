@@ -828,10 +828,14 @@ impl JobStore {
             None => PruneReport::default(),
         };
         let (id, rec) = self.insert_new(&tx, n, &names, vals, preset_id)?;
-        if opts.recovery != Recovery::default() || opts.single_flight.is_some() {
+        let class = match opts.recovery {
+            Recovery::Resume => self.cfg.kind_recovery(&n.kind).unwrap_or(Recovery::Resume),
+            other => other,
+        };
+        if class != Recovery::default() || opts.single_flight.is_some() {
             tx.execute(
                 "INSERT INTO rk_job_meta (job_id, recovery, flight_key) VALUES (?1,?2,?3)",
-                params![id, opts.recovery.as_str(), opts.single_flight],
+                params![id, class.as_str(), opts.single_flight],
             )?;
         }
         let mut superseded = Vec::new();

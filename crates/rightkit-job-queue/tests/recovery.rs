@@ -7,7 +7,7 @@ use std::sync::Arc;
 
 use rightkit_job_queue::{
     Job, JobControl, JobError, JobHandler, JobLocks, JobResult, JobStore, NewJob, Recovery,
-    RunOutcome, Runner, SubmitOptions, FAILED, INTERRUPTED,
+    RunOutcome, Runner, StoreConfig, SubmitOptions, FAILED, INTERRUPTED,
 };
 use serde_json::{json, Value};
 
@@ -317,4 +317,49 @@ fn deduplicated_submit_keeps_the_original_class() {
         store.recovery(&a.record.job.job_id).unwrap(),
         Recovery::Never
     );
+}
+
+#[test]
+fn a_kind_class_applies_to_jobs_of_that_kind_only() {
+    let dir = tempfile::tempdir().unwrap();
+    let cfg = StoreConfig::default().recovery_for_kind("uninstall", Recovery::Never);
+    assert_eq!(cfg.kind_recovery("uninstall"), Some(Recovery::Never));
+    assert_eq!(cfg.kind_recovery("sync"), None);
+    let store = JobStore::open_configured(dir.path().join("jobs.db"), cfg).unwrap();
+    let submit_kind = |kind: &str, opts: &SubmitOptions| {
+        let n = NewJob {
+            request_id: None,
+            kind: kind.into(),
+            request: json!({}),
+        };
+        store
+            .submit_with(&n, &Default::default(), opts)
+            .unwrap()
+            .record
+            .job
+            .job_id
+    };
+    let named = submit_kind("uninstall", &SubmitOptions::new());
+    let other = submit_kind("sync", &SubmitOptions::new());
+    assert_eq!(store.recovery(&named).unwrap(), Recovery::Never);
+    assert_eq!(store.recovery(&other).unwrap(), Recovery::Resume);
+
+    // The class does the work: a started job of the named kind is failed, not re-run.
+    start_and_lose(&store, &named);
+    let store = Arc::new(store);
+    let counter = Counter::new();
+    let runner = Runner::new(
+        store.clone(),
+        JobLocks::new(dir.path().join("locks")),
+        counter.clone(),
+    );
+    runner.resume_recoverable().unwrap();
+    assert_eq!(
+        counter.calls(),
+        0,
+        "the named kind is never handed to a handler"
+    );
+    let job = store.get(&named).unwrap();
+    assert_eq!(job.status, FAILED);
+    assert_eq!(error_code(&job).as_deref(), Some(INTERRUPTED));
 }

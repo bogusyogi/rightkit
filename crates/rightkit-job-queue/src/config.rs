@@ -12,7 +12,7 @@ use rightkit_db::rusqlite::{self, Connection};
 use serde_json::{Map, Value};
 
 use crate::error::{JobError, JobResult};
-use crate::store::{JobRecord, Resolution, CANCELLED, COMPLETE, FAILED, QUEUED, RUNNING};
+use crate::store::{JobRecord, Recovery, Resolution, CANCELLED, COMPLETE, FAILED, QUEUED, RUNNING};
 
 /// Extension values of one job, keyed by declared column name.
 pub type Ext = Map<String, Value>;
@@ -467,6 +467,7 @@ pub struct StoreConfig {
     pub(crate) artifact_roots: Vec<PathBuf>,
     pub(crate) scratch_root: Option<PathBuf>,
     pub(crate) work_roots: Vec<PathBuf>,
+    pub(crate) kind_recovery: Vec<(String, Recovery)>,
 }
 
 impl Default for StoreConfig {
@@ -484,6 +485,7 @@ impl Default for StoreConfig {
             artifact_roots: vec![],
             scratch_root: None,
             work_roots: vec![],
+            kind_recovery: vec![],
         }
     }
 }
@@ -503,6 +505,7 @@ impl std::fmt::Debug for StoreConfig {
             .field("artifact_roots", &self.artifact_roots)
             .field("scratch_root", &self.scratch_root)
             .field("work_roots", &self.work_roots)
+            .field("kind_recovery", &self.kind_recovery)
             .finish()
     }
 }
@@ -589,6 +592,26 @@ impl StoreConfig {
     pub fn work_root(mut self, root: impl Into<PathBuf>) -> Self {
         self.work_roots.push(root.into());
         self
+    }
+    /// Recovery class for every job of `kind` (`NewJob::kind`), set once at configuration instead
+    /// of at each submit. Use `Recovery::Never` for kinds whose effects must not repeat after a
+    /// crash (uninstall, cleanup apply, upgrade): a job that began an attempt and lost its runner
+    /// is failed as `interrupted` and never handed to a handler again. It applies when the submit
+    /// leaves `SubmitOptions::recovery` at its default (`Resume`), so jobs submitted through the
+    /// engine contract, which carries no class, are covered; an explicit `Never` is kept. The
+    /// last call for a kind wins. A kind that is not named behaves as before.
+    pub fn recovery_for_kind(mut self, kind: impl Into<String>, class: Recovery) -> Self {
+        let kind = kind.into();
+        self.kind_recovery.retain(|(k, _)| *k != kind);
+        self.kind_recovery.push((kind, class));
+        self
+    }
+    /// The class set by [`StoreConfig::recovery_for_kind`] for `kind`, if any.
+    pub fn kind_recovery(&self, kind: &str) -> Option<Recovery> {
+        self.kind_recovery
+            .iter()
+            .find(|(k, _)| k == kind)
+            .map(|(_, c)| *c)
     }
     pub fn work_roots(&self) -> &[PathBuf] {
         &self.work_roots
