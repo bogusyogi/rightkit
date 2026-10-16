@@ -11,7 +11,7 @@ It contains no app protocol, probe implementation, or business message.
 
 ## Features
 
-None. The crate has no Cargo features. Platform dependencies: `libc` (Unix) and `windows` 0.62 (Windows) (`Cargo.toml:14-18`).
+One optional feature, off by default: `tokio` (adds `tokio` with `process` and `time`): `NoWindow` for `tokio::process::Command` and `tokio_support::{terminate_tree, terminate_process_group}`. Platform dependencies: `libc` (Unix) and `windows` 0.62 (Windows). Also without the feature: `NoWindow` for `std::process::Command`, `OutputCapture` / `read_bounded` (byte-exact bounded capture of a stream).
 
 ## Platform support
 

@@ -101,6 +101,23 @@ impl Inheritance {
     }
 }
 
+/// Raises the child's nice value to at least `floor`, between `fork` and `exec`. It only ever
+/// lowers priority, which an unprivileged process may do: a value already at or above `floor`
+/// is left alone. Async-signal-safe: `getpriority` and `setpriority` only, no allocation.
+pub(crate) fn raise_nice_to(floor: libc::c_int) -> io::Result<()> {
+    // SAFETY: getpriority takes no pointers. On error it returns -1, which is a valid nice
+    // value below any floor used here, so the raise below still runs and is always permitted.
+    let current = unsafe { libc::getpriority(libc::PRIO_PROCESS, 0) };
+    if current >= floor {
+        return Ok(());
+    }
+    // SAFETY: setpriority takes no pointers; `0` names the calling process.
+    if unsafe { libc::setpriority(libc::PRIO_PROCESS, 0, floor) } < 0 {
+        return Err(io::Error::last_os_error());
+    }
+    Ok(())
+}
+
 /// Linux: `PR_SET_PDEATHSIG(SIGTERM)` on the direct child, called in the new process between
 /// `fork` and `exec` (async-signal-safe: `prctl` and `getppid` only). The kernel fires it when
 /// the thread that forked the child exits, and it targets only that child:

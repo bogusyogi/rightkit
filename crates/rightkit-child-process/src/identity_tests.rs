@@ -1053,3 +1053,47 @@ mod bounded_waits {
         );
     }
 }
+
+// ---- A child the kernel will not describe (setuid) is opaque, not unidentified (issue #105) ------
+
+/// The proof for a process the kernel refuses to describe: unreadable stays the same process;
+/// readable counts only while the process is still our child.
+#[cfg(any(target_os = "linux", target_os = "android", target_os = "macos"))]
+#[test]
+fn an_opaque_origin_is_not_missing_and_is_checked_against_the_parent() {
+    use crate::identity::{Origin, Proof};
+    let mut child = sh("exec sleep 30").spawn().expect("spawn");
+    let pid = child.id();
+    // A readable child of ours stays the same process under the opaque rule.
+    assert_eq!(Origin::Opaque.check(pid).expect("check"), Proof::Same);
+    // A process that is not our child (this very test's parent) is a different one.
+    let foreign = std::os::unix::process::parent_id();
+    assert_eq!(Origin::Opaque.check(foreign).expect("check"), Proof::Changed);
+    // `Missing` still refuses every action by pid.
+    assert!(Origin::Missing.check(pid).is_err());
+    assert!(crate::identity::exists(pid));
+    child.terminate_tree().expect("terminate");
+    assert!(!crate::identity::exists(pid));
+}
+
+/// `/bin/ps` is setuid root on macOS: `proc_pidinfo` returns nothing for it, which used to make
+/// the spawn fail and kill the child. It now spawns, runs, and is reaped like any other child.
+#[cfg(target_os = "macos")]
+#[test]
+fn a_setuid_system_binary_spawns_and_is_reaped() {
+    use std::os::unix::fs::MetadataExt;
+    let mode = std::fs::metadata("/bin/ps").expect("ps exists").mode();
+    if mode & 0o4000 == 0 {
+        return; // this host's ps is not setuid; nothing to prove here
+    }
+    let mut command = OwnedCommand::new("/bin/ps");
+    command
+        .command_mut()
+        .args(["-o", "pid=", "-p", &std::process::id().to_string()])
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null());
+    let mut child = command.spawn().expect("a setuid child must spawn");
+    let status = child.wait().expect("wait for ps");
+    assert!(status.success(), "ps exited with {status:?}");
+}

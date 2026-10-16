@@ -1,4 +1,4 @@
-use crate::{JobAssignmentFailure, JobAssignmentMode, ProcessHandle};
+use crate::{JobAssignmentFailure, JobAssignmentMode, ProcessHandle, ProcessPriority};
 use std::{
     io,
     os::windows::{
@@ -19,8 +19,9 @@ use windows::Win32::{
             JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
         },
         Threading::{
-            OpenThread, ResumeThread, TerminateProcess, CREATE_BREAKAWAY_FROM_JOB,
-            CREATE_NO_WINDOW, CREATE_SUSPENDED, THREAD_SUSPEND_RESUME,
+            OpenThread, ResumeThread, TerminateProcess, BELOW_NORMAL_PRIORITY_CLASS,
+            CREATE_BREAKAWAY_FROM_JOB, CREATE_NO_WINDOW, CREATE_SUSPENDED, IDLE_PRIORITY_CLASS,
+            PROCESS_CREATION_FLAGS, THREAD_SUSPEND_RESUME,
         },
     },
 };
@@ -45,7 +46,23 @@ fn own(handle: HANDLE) -> OwnedHandle {
     unsafe { OwnedHandle::from_raw_handle(handle.0 as _) }
 }
 
-pub(crate) fn configure(command: &mut Command, detached: bool, hidden: bool) {
+/// Priority-class creation flag. `Normal` contributes no bits, so the default composition is
+/// the one this crate always used.
+pub(crate) fn priority_class(priority: ProcessPriority) -> PROCESS_CREATION_FLAGS {
+    match priority {
+        ProcessPriority::Normal => PROCESS_CREATION_FLAGS(0),
+        ProcessPriority::BelowNormal => BELOW_NORMAL_PRIORITY_CLASS,
+        ProcessPriority::Idle => IDLE_PRIORITY_CLASS,
+    }
+}
+
+/// Full creation flags for a spawn: the suspension or breakaway mode and the console flag this
+/// crate already sets, with the priority class added. Nothing is removed.
+pub(crate) fn creation_flags(
+    detached: bool,
+    hidden: bool,
+    priority: ProcessPriority,
+) -> PROCESS_CREATION_FLAGS {
     let mode = if detached {
         CREATE_BREAKAWAY_FROM_JOB
     } else {
@@ -56,7 +73,78 @@ pub(crate) fn configure(command: &mut Command, detached: bool, hidden: bool) {
     } else {
         mode
     };
-    command.creation_flags(flags.0);
+    flags | priority_class(priority)
+}
+
+pub(crate) fn configure(
+    command: &mut Command,
+    detached: bool,
+    hidden: bool,
+    priority: ProcessPriority,
+) {
+    command.creation_flags(creation_flags(detached, hidden, priority).0);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn bits(flags: PROCESS_CREATION_FLAGS) -> u32 {
+        flags.0
+    }
+
+    /// The default composition must match what this crate set before the option existed.
+    #[test]
+    fn default_priority_leaves_the_existing_flags_unchanged() {
+        assert_eq!(
+            bits(creation_flags(false, true, ProcessPriority::Normal)),
+            bits(CREATE_NO_WINDOW | CREATE_SUSPENDED)
+        );
+        assert_eq!(
+            bits(creation_flags(true, true, ProcessPriority::Normal)),
+            bits(CREATE_NO_WINDOW | CREATE_BREAKAWAY_FROM_JOB)
+        );
+        assert_eq!(
+            bits(creation_flags(false, false, ProcessPriority::Normal)),
+            bits(CREATE_SUSPENDED)
+        );
+    }
+
+    #[test]
+    fn below_normal_keeps_the_console_and_suspension_flags() {
+        let flags = creation_flags(false, true, ProcessPriority::BelowNormal);
+        assert_eq!(
+            bits(flags),
+            bits(CREATE_NO_WINDOW | CREATE_SUSPENDED | BELOW_NORMAL_PRIORITY_CLASS)
+        );
+        assert_eq!(bits(flags) & bits(IDLE_PRIORITY_CLASS), 0);
+    }
+
+    #[test]
+    fn idle_composes_with_detached_breakaway_and_hidden_console() {
+        let flags = creation_flags(true, true, ProcessPriority::Idle);
+        assert_eq!(
+            bits(flags),
+            bits(CREATE_NO_WINDOW | CREATE_BREAKAWAY_FROM_JOB | IDLE_PRIORITY_CLASS)
+        );
+        assert_eq!(bits(flags) & bits(CREATE_SUSPENDED), 0);
+    }
+
+    #[test]
+    fn a_visible_child_at_lower_priority_still_has_no_console_flag() {
+        let flags = creation_flags(false, false, ProcessPriority::BelowNormal);
+        assert_eq!(bits(flags) & bits(CREATE_NO_WINDOW), 0);
+        assert_ne!(bits(flags) & bits(BELOW_NORMAL_PRIORITY_CLASS), 0);
+    }
+
+    #[test]
+    fn priority_classes_are_distinct_and_normal_adds_nothing() {
+        assert_eq!(bits(priority_class(ProcessPriority::Normal)), 0);
+        assert_ne!(
+            bits(priority_class(ProcessPriority::BelowNormal)),
+            bits(priority_class(ProcessPriority::Idle))
+        );
+    }
 }
 
 #[derive(Debug)]

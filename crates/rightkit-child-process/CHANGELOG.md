@@ -1,5 +1,45 @@
 # Changelog
 
+## 0.4.1
+
+- **Caller-settable process priority (additive, issue #129).** `OwnedCommand::process_priority(ProcessPriority)` selects
+  `ProcessPriority::Normal` (the default, which adds nothing to the spawn), `BelowNormal` or `Idle`; the enum is
+  `#[non_exhaustive]` and re-exported from the crate root. On Windows, `BelowNormal` adds `BELOW_NORMAL_PRIORITY_CLASS` and
+  `Idle` adds `IDLE_PRIORITY_CLASS` to the creation flags, composed with the suspension or breakaway flag and `CREATE_NO_WINDOW`,
+  which are never dropped; the allowlisted spawn path gets the same class. On Unix, the child raises its nice value to at
+  least 10 (`BelowNormal`) or 19 (`Idle`) between fork and exec with `setpriority`; a value already at or above the floor is
+  left alone, so no privilege is needed. Applies to detached spawns too. Tests: flag composition (`process_windows.rs`,
+  Windows only: default unchanged, class added without dropping console, suspension or breakaway flags, distinct classes),
+  nice floors and the default and setter (`owned.rs`, both platforms). Written without compiling or running Cargo here;
+  CI builds and runs the tests.
+
+- **Setuid children spawn on macOS (fix, issue #105).** `OwnedCommand::spawn` no longer refuses, and kills, a child the
+  kernel will not describe because it is setuid or setgid (`/bin/ps`, `login`, `sudo`): `proc_pidinfo` returns zero bytes
+  with errno 0 for those, which was read as "the child cannot be identified". The spawn now checks that the pid exists
+  (`kill(pid, 0)`; `EPERM` counts) and, if so, records the child as opaque instead of missing. Actions by pid on an opaque
+  child rest on the unreaped-child rule (the kernel is asked whether the pid is still our child before every signal and
+  wait, as before) plus a parent check if the process becomes readable. A pid that does not exist at spawn is still refused,
+  and every other identity check is unchanged. Limit, unchanged by the OS: an unprivileged parent cannot signal a
+  setuid-root child (`EPERM`), so `terminate_tree` and `kill` on such a child report that error; waiting for it works.
+  Tests (`identity_tests.rs`): opaque check against the parent, missing still refuses, `/bin/ps` spawn and reap on macOS.
+- **Byte-exact bounded output capture (additive, issue #120).** `OutputCapture::capture(reader, max_bytes)` drains a
+  child's stdout (or any stream) on a thread into `CapturedOutput { bytes, truncated, total_bytes }`: the first
+  `max_bytes` bytes unmodified (trailing newline and non-UTF-8 bytes kept), the rest read and discarded so the child never
+  blocks on a full pipe. `try_capture`, `snapshot`, `finish`, `finish_within(timeout)`, `is_finished`, `take_error`;
+  `read_bounded(reader, max_bytes)` is the blocking form. `StderrTail` is unchanged. Tests: unit tests in `capture.rs`,
+  real-child tests in `tests/output_capture.rs`.
+- **tokio helpers behind the optional `tokio` feature (additive, issue #121).** `NoWindow::no_window()` (and the public
+  `CREATE_NO_WINDOW` constant) hides the console on Windows for `std::process::Command` always and for
+  `tokio::process::Command` with the feature; a no-op elsewhere. With `--features tokio`: `tokio_support::terminate_tree(&mut
+  tokio::process::Child, TerminationOptions)` is an async staged kill (Unix: `SIGTERM` to the group, grace, `SIGKILL`; the
+  group is signalled only when the child leads it, otherwise descendants are swept by identity; Windows: descendants then
+  the child, no graceful stage) and `tokio_support::terminate_process_group(pgid, options)` (Unix) does the same for a
+  group id with no `Child`. Not built in: a session sweep by `getsid`. The feature adds `tokio` (`process`, `time`) as an
+  optional dependency only. Tests: `tests/tokio_support.rs` (run with `--features tokio`), `no_window.rs` unit tests.
+- **Priority tests and docs (issue #129 follow-up).** One real-spawn test per platform (Windows `GetPriorityClass`, Unix
+  `ps -o ni=` at or above the floor); `ProcessPriority::Normal` is documented as "inherit the parent's class or nice
+  value", not a reset to normal.
+
 ## 0.4.0
 
 Renamed from rightkit-process; 0.3.3 remains published under the old name.

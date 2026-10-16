@@ -5625,6 +5625,7 @@ name = "rightkit-child-process"
 version = "0.4.1"
 dependencies = [
  "libc",
+ "tokio",
  "trybuild",
  "windows 0.62.2",
 ]

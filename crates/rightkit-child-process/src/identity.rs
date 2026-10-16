@@ -21,6 +21,12 @@
 //! on a host that has no identity source ([`SUPPORTED`] is false) the older rule applies
 //! alone (see `unix_child`).
 //!
+//! A setuid or setgid child (macOS `/bin/ps`) cannot be described by an unprivileged parent even
+//! though it exists ([`Origin::Opaque`]). It is not refused: the spawn proved the process alive,
+//! and the proof falls back to the unreaped-child rule (the kernel is asked whether the pid is
+//! still our child before every signal) plus a parent check when the process becomes readable.
+//! A pid that does not exist at spawn is still [`Origin::Missing`] and refused.
+//!
 //! The description of a zombie is readable on macOS (`proc_pidinfo` with `arg = 1`, checked
 //! on Darwin 27: a zombie child returns its parent and start time, `arg = 0` returns nothing)
 //! and on Linux (`/proc/<pid>/stat`), so the proof also holds at the moment of the reap.
@@ -76,6 +82,14 @@ pub(crate) enum Origin {
     Known(Identity),
     /// The host has no identity source; only the unreaped-child rule applies.
     Unavailable,
+    /// The host has an identity source, but the kernel refuses to describe this process
+    /// although it certainly exists: a setuid or setgid child (macOS answers
+    /// `proc_pidinfo` with zero bytes and errno 0 for `/bin/ps`, `login`, `sudo`). Not the
+    /// same as `Missing`: the spawn saw the process alive, so it is not "unidentified by
+    /// accident". Actions by pid rest on the unreaped-child rule (`leader_state` asks the
+    /// kernel whether the pid is still our child before every signal) and on the parent
+    /// check in [`Origin::check`].
+    Opaque,
     /// The host has one but would not describe the process at spawn. Nothing may be done to
     /// the pid by number.
     Missing,
@@ -98,6 +112,9 @@ impl Origin {
         }
         match describe(pid) {
             Ok(Some(identity)) => Self::Known(identity),
+            // The kernel would not describe a process this very call proves exists: it is
+            // elevated, not unidentified. A pid that does not exist stays `Missing`.
+            Ok(None) if exists(pid) => Self::Opaque,
             _ => Self::Missing,
         }
     }
@@ -107,6 +124,16 @@ impl Origin {
     pub(crate) fn check(&self, pid: u32) -> io::Result<Proof> {
         match self {
             Self::Unavailable => Ok(Proof::Same),
+            Self::Opaque => Ok(match describe(pid)? {
+                // Still unreadable: still the elevated process (or gone, which the caller's
+                // `leader_state` probe reports as `ECHILD` before it signals or reaps).
+                None => Proof::Same,
+                // Readable now. It is ours only if it is still our child: an elevated child
+                // that execs an unprivileged program becomes readable and keeps its parent,
+                // a recycled pid belongs to somebody else's parent.
+                Some(found) if found.parent == std::process::id() => Proof::Same,
+                Some(_) => Proof::Changed,
+            }),
             Self::Missing => Err(io::Error::other(
                 "the child could not be identified at spawn; refusing to act on its pid",
             )),
@@ -116,6 +143,16 @@ impl Origin {
             }),
         }
     }
+}
+
+/// Whether the kernel lists `pid` at all (live or zombie), for a caller that may not be allowed
+/// to signal it: `EPERM` means it exists.
+pub(crate) fn exists(pid: u32) -> bool {
+    // SAFETY: signal 0 only checks that the pid exists and may be signalled.
+    if unsafe { libc::kill(pid as libc::pid_t, 0) } == 0 {
+        return true;
+    }
+    io::Error::last_os_error().raw_os_error() == Some(libc::EPERM)
 }
 
 /// The identity of `pid` (a live process or an unreaped zombie), `Ok(None)` when the kernel

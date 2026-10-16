@@ -29,6 +29,36 @@ pub enum UnixContainment {
     Session,
 }
 
+/// Scheduling priority requested for the child. `Normal` (the default) means "inherit": it
+/// leaves the spawn exactly as it was before this option existed, so the child keeps the
+/// parent's priority class (Windows) or nice value (Unix). It does not reset a lowered parent
+/// back to normal. The other values only lower priority, which needs no
+/// privilege and never raises a value the child already inherits above a lower one.
+///
+/// Windows: `BelowNormal` adds `BELOW_NORMAL_PRIORITY_CLASS` and `Idle` adds
+/// `IDLE_PRIORITY_CLASS` to the creation flags. Unix: the child's nice value is raised to at
+/// least 10 (`BelowNormal`) or 19 (`Idle`) between fork and exec.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+#[non_exhaustive]
+pub enum ProcessPriority {
+    #[default]
+    Normal,
+    BelowNormal,
+    Idle,
+}
+
+impl ProcessPriority {
+    /// Minimum Unix nice value for this priority; `None` leaves the inherited value alone.
+    #[cfg(unix)]
+    pub(crate) fn nice_floor(self) -> Option<libc::c_int> {
+        match self {
+            Self::Normal => None,
+            Self::BelowNormal => Some(10),
+            Self::Idle => Some(19),
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct TerminationOptions {
     /// Send TERM immediately on Unix, then KILL after this tree-wide grace.
@@ -84,6 +114,7 @@ pub struct OwnedCommand {
     caller_job: CallerJob,
     job_assignment: JobAssignmentMode,
     unix_containment: UnixContainment,
+    process_priority: ProcessPriority,
     kill_on_parent_exit: bool,
     // None preserves the existing unbounded partial-spawn reap.
     partial_spawn_cleanup_timeout: Option<Duration>,
@@ -125,6 +156,7 @@ impl OwnedCommand {
             caller_job: None,
             job_assignment: JobAssignmentMode::Strict,
             unix_containment: UnixContainment::ProcessGroup,
+            process_priority: ProcessPriority::Normal,
             kill_on_parent_exit: false,
             partial_spawn_cleanup_timeout: None,
             inherited_handles: None,
@@ -237,6 +269,13 @@ impl OwnedCommand {
         self.unix_containment = mode;
         self
     }
+    /// Scheduling priority for the child. The default, `ProcessPriority::Normal`, adds nothing
+    /// to the spawn. See `ProcessPriority` for the Windows and Unix mappings. Applies to
+    /// detached spawns too.
+    pub fn process_priority(&mut self, priority: ProcessPriority) -> &mut Self {
+        self.process_priority = priority;
+        self
+    }
     /// Opt-in, off by default. Linux only: the kernel sends `SIGTERM` to the direct child
     /// (`PR_SET_PDEATHSIG`) when the thread that spawned it exits, which includes this
     /// process dying without running cleanup (for example SIGKILL). The signal reaches the
@@ -295,6 +334,7 @@ impl OwnedCommand {
         {
             use std::os::unix::process::CommandExt;
             let session = detached || self.unix_containment == UnixContainment::Session;
+            let nice_floor = self.process_priority.nice_floor();
             let inheritance = self
                 .inherited_handles
                 .take()
@@ -317,6 +357,9 @@ impl OwnedCommand {
                     if result < 0 {
                         return Err(io::Error::last_os_error());
                     }
+                    if let Some(floor) = nice_floor {
+                        crate::process_unix::raise_nice_to(floor)?;
+                    }
                     if let Some(inheritance) = &inheritance {
                         inheritance.apply()?;
                     }
@@ -329,7 +372,12 @@ impl OwnedCommand {
             }
         }
         #[cfg(windows)]
-        crate::process_windows::configure(&mut self.command, detached, self.windows_hidden);
+        crate::process_windows::configure(
+            &mut self.command,
+            detached,
+            self.windows_hidden,
+            self.process_priority,
+        );
         #[cfg(unix)]
         let _ = (self.windows_hidden, self.job_assignment);
         #[cfg(windows)]
@@ -362,6 +410,7 @@ impl OwnedCommand {
                     handles,
                     detached,
                     self.windows_hidden,
+                    self.process_priority,
                     self.env_cleared,
                     self.partial_spawn_cleanup_timeout,
                 )?
@@ -996,6 +1045,93 @@ mod tests {
         let by_from = OwnedCommand::from_command(Command::new("unused"));
         assert!(by_new.windows_spawn_config.is_some() && by_new.windows_spawn_config_auto);
         assert!(by_from.windows_spawn_config.is_none() && !by_from.windows_spawn_config_auto);
+    }
+
+    #[test]
+    fn process_priority_defaults_to_normal_and_keeps_the_requested_value() {
+        use super::{OwnedCommand, ProcessPriority};
+        let mut command = OwnedCommand::new("unused");
+        assert_eq!(command.process_priority, ProcessPriority::Normal);
+        command.process_priority(ProcessPriority::BelowNormal);
+        assert_eq!(command.process_priority, ProcessPriority::BelowNormal);
+        command.process_priority(ProcessPriority::Idle);
+        assert_eq!(command.process_priority, ProcessPriority::Idle);
+    }
+
+    /// Normal adds no nice change, so the default Unix spawn is unchanged. Lower priorities
+    /// map to the documented floors.
+    #[cfg(unix)]
+    #[test]
+    fn process_priority_maps_to_nice_floors() {
+        use super::ProcessPriority;
+        assert_eq!(ProcessPriority::Normal.nice_floor(), None);
+        assert_eq!(ProcessPriority::BelowNormal.nice_floor(), Some(10));
+        assert_eq!(ProcessPriority::Idle.nice_floor(), Some(19));
+    }
+
+    /// A real child at `BelowNormal` reports the class Windows was asked for.
+    #[cfg(windows)]
+    #[test]
+    fn below_normal_child_has_below_normal_priority_class() {
+        use super::{OwnedCommand, ProcessPriority};
+        use std::process::Stdio;
+        use windows::Win32::{
+            Foundation::CloseHandle,
+            System::Threading::{
+                GetPriorityClass, OpenProcess, BELOW_NORMAL_PRIORITY_CLASS,
+                PROCESS_QUERY_LIMITED_INFORMATION,
+            },
+        };
+        let mut command = OwnedCommand::new("ping");
+        command
+            .command_mut()
+            .args(["-n", "6", "127.0.0.1"])
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null());
+        command.process_priority(ProcessPriority::BelowNormal);
+        let mut child = command.spawn().expect("spawn ping");
+        // SAFETY: the handle is opened for this live child, queried once and closed.
+        let class = unsafe {
+            let handle = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, child.id())
+                .expect("open the child");
+            let class = GetPriorityClass(handle);
+            let _ = CloseHandle(handle);
+            class
+        };
+        let _ = child.terminate_tree();
+        assert_eq!(class, BELOW_NORMAL_PRIORITY_CLASS.0);
+    }
+
+    /// A real child at `Idle` or `BelowNormal` runs with a nice value at or above the floor.
+    #[cfg(unix)]
+    #[test]
+    fn lowered_priority_child_runs_at_or_above_the_nice_floor() {
+        use super::{OwnedCommand, ProcessPriority};
+        use std::{io::Read, process::Stdio};
+        for (priority, floor) in [
+            (ProcessPriority::BelowNormal, 10),
+            (ProcessPriority::Idle, 19),
+        ] {
+            let mut command = OwnedCommand::new("/bin/sh");
+            command
+                .command_mut()
+                .args(["-c", "ps -o ni= -p $$"])
+                .stdin(Stdio::null())
+                .stdout(Stdio::piped())
+                .stderr(Stdio::null());
+            command.process_priority(priority);
+            let mut child = command.spawn().expect("spawn sh");
+            let mut text = String::new();
+            child
+                .take_stdout()
+                .expect("piped stdout")
+                .read_to_string(&mut text)
+                .expect("read ps output");
+            let _ = child.wait();
+            let nice: i32 = text.trim().parse().expect("ps printed a nice value");
+            assert!(nice >= floor, "nice {nice} below floor {floor}");
+        }
     }
 
     #[test]

@@ -400,12 +400,14 @@ fn child_pipe(parent_reads: bool) -> io::Result<(OwnedHandle, OwnedHandle)> {
     Ok((parent, unsafe { OwnedHandle::from_raw_handle(child) }))
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn spawn(
     command: &Command,
     mut config: WindowsSpawnConfig,
     handles: &[usize],
     detached: bool,
     hidden: bool,
+    priority: crate::ProcessPriority,
     env_cleared: bool,
     cleanup_timeout: Option<Duration>,
 ) -> io::Result<WindowsChild> {
@@ -478,6 +480,8 @@ pub(crate) fn spawn(
     if detached {
         flags |= CREATE_BREAKAWAY_FROM_JOB;
     }
+    // Normal contributes no bits, so the default flags are unchanged.
+    flags |= crate::process_windows::priority_class(priority);
     let mut info = PROCESS_INFORMATION::default();
     unsafe {
         CreateProcessW(
